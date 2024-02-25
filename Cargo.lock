@@ -111,17 +111,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zhyr"
-version = "0.0.0"
-dependencies = [
- "zhyr-driver",
-]
-
-[[package]]
-name = "zhyr-driver"
-version = "0.0.0"
-
-[[package]]
 name = "zo-core"
 version = "0.0.0"
 dependencies = [

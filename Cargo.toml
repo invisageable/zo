@@ -1,6 +1,6 @@
 [workspace]
+members = ["sources/core", "crates/compiler/zhoo"]
 resolver = '2'
-members = ["sources/core", "crates/booster/zhyr", "crates/compiler/zhoo"]
 exclude = [".todo.md", "notes", "tasks"]
 default-members = ["crates/compiler/zhoo"]
 
