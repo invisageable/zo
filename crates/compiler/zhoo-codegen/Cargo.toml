@@ -1,11 +1,8 @@
 [package]
-name = "zhoo-driver"
+name = "zhoo-codegen"
 edition.workspace = true
 
 [dependencies]
-zhoo-ast = { workspace = true }
-zhoo-inferencer = { workspace = true }
-
 zo-core = { workspace = true }
 
 serde = { workspace = true }

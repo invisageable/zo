@@ -86,23 +86,44 @@ dependencies = [
  "serde",
  "serde_derive",
  "zhoo-ast",
- "zhoo-infer",
+ "zhoo-inferencer",
  "zo-core",
 ]
 
 [[package]]
-name = "zhoo-infer"
+name = "zhoo-inferencer"
 version = "0.0.0"
 dependencies = [
  "serde",
  "serde_derive",
  "zhoo-ast",
  "zhoo-ty",
+ "zhoo-tychecker",
  "zo-core",
 ]
 
 [[package]]
 name = "zhoo-ty"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "zo-core",
+]
+
+[[package]]
+name = "zhoo-tychecker"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "zhoo-ast",
+ "zhoo-value",
+ "zo-core",
+]
+
+[[package]]
+name = "zhoo-value"
 version = "0.0.0"
 dependencies = [
  "serde",

@@ -15,7 +15,7 @@ pub fn main() {
     }],
   };
 
-  let ty = zhoo_infer::infer::infer(&program).unwrap();
+  let ty = zhoo_inferencer::inferencer::infer(&program).unwrap();
 
   println!("INFER: {ty:?}");
 }

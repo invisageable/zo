@@ -1,10 +1,10 @@
 [package]
-name = "zhoo-infer"
+name = "zhoo-interpreter-cranelift"
 edition.workspace = true
 
 [dependencies]
 zhoo-ast = { workspace = true }
-zhoo-ty = { workspace = true }
+zhoo-value = { workspace = true }
 
 zo-core = { workspace = true }
 

@@ -18,12 +18,46 @@ zo-core = { path = "sources/core", version = "0.0.0" }
 # internal:compiler
 zhoo = { path = "crates/compiler/zhoo", version = "0.0.0" }
 zhoo-ast = { path = "crates/compiler/zhoo-ast", version = "0.0.0" }
+zhoo-codegen = { path = "crates/compiler/zhoo-codegen", version = "0.0.0" }
+zhoo-codegen-wasm = { path = "crates/compiler/zhoo-codegen-wasm", version = "0.0.0" }
+zhoo-codegen-zo = { path = "crates/compiler/zhoo-codegen-zo", version = "0.0.0" }
 zhoo-driver = { path = "crates/compiler/zhoo-driver", version = "0.0.0" }
-zhoo-infer = { path = "crates/compiler/zhoo-infer", version = "0.0.0" }
+zhoo-inferencer = { path = "crates/compiler/zhoo-inferencer", version = "0.0.0" }
+zhoo-interpreter = { path = "crates/compiler/zhoo-interpreter", version = "0.0.0" }
+zhoo-interpreter-cranelift = { path = "crates/compiler/zhoo-interpreter-cranelift", version = "0.0.0" }
+zhoo-interpreter-zo = { path = "crates/compiler/zhoo-interpreter-zo", version = "0.0.0" }
+zhoo-parser = { path = "crates/compiler/zhoo-parser", version = "0.0.0" }
+zhoo-tokenizer = { path = "crates/compiler/zhoo-tokenizer", version = "0.0.0" }
 zhoo-ty = { path = "crates/compiler/zhoo-ty", version = "0.0.0" }
+zhoo-tychecker = { path = "crates/compiler/zhoo-tychecker", version = "0.0.0" }
+zhoo-value = { path = "crates/compiler/zhoo-value", version = "0.0.0" }
 
-anyhow = "1.0.75"
+# external.
+anyhow = "1.0.80"
+ariadne = "0.4.0"
 clap = { version = "4.5.1", features = ["derive"] }
+cranelift = "0.100.0"
+cranelift-codegen = "0.105.1"
+cranelift-module = "0.105.1"
+cranelift-native = "0.105.1"
+cranelift-object = "0.105.1"
 criterion = "0.5.1"
+flume = "0.11.0"
+hashbrown = "0.14.3"
+Inflector = "0.11.4"
+inkwell = { version = "0.4.0", features = ["llvm14-0"] }
+itoa = "1.0.9"
+lazy_static = "1.4.0"
+pollster = "0.3.0"
+rayon = "1.8.0"
+ryu = "1.0.15"
 serde = "1.0.197"
 serde_derive = "1.0.197"
+smol_str = "0.2.1"
+sysinfo = "0.30.5"
+typed-arena = "2.0.2"
+walkdir = "2.4.0"
+wasmtime = "17.0.1"
+wasmtime-runtime = "17.0.1"
+wat = "1.0.77"
+wast = "200.0.0"
