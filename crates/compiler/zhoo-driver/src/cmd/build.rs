@@ -36,7 +36,9 @@ impl Build {
 
   #[inline]
   fn compiling(&self) -> Result<()> {
-    let mut session = Session {};
+    let mut session = Session {
+      ..Default::default()
+    };
 
     let compiler = Compiler::new()
       .add_phase(Phase::Reading(Reading {}))

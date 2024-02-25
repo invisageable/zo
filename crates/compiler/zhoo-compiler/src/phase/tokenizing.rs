@@ -11,9 +11,9 @@ use serde_derive::{Deserialize, Serialize};
 pub struct Tokenizing {}
 
 impl Process for Tokenizing {
-  fn process(&self, _session: &mut Session) -> Result<()> {
+  fn process(&self, session: &mut Session) -> Result<()> {
     println!("tokenizing.");
-    tokenizer::tokenize()?;
+    tokenizer::tokenize(&mut session.interner, &[])?;
     Ok(())
   }
 }

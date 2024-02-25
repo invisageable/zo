@@ -1,4 +1,14 @@
-use serde_derive::{Deserialize, Serialize};
+use zo_core::interner::Interner;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Session {}
+#[derive(Debug)]
+pub struct Session {
+  pub interner: Interner,
+}
+
+impl Default for Session {
+  fn default() -> Self {
+    Self {
+      interner: Interner::new(),
+    }
+  }
+}

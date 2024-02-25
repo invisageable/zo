@@ -7,6 +7,7 @@ version.workspace = true
 anyhow.workspace = true
 
 ariadne = { workspace = true }
+hashbrown = { workspace = true }
 Inflector = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }

@@ -17,8 +17,11 @@ macro_rules! is {
   (eol $rhs:expr) => {
     $crate::case::charcase::endofcase::is_eol($rhs)
   };
+  (group $rhs:expr) => {
+    $crate::case::charcase::groupcase::is_group($rhs)
+  };
   (space $rhs:expr) => {
-    $crate::case::charcase::spacecase::is_whitespace($rhs)
+    $crate::case::charcase::spacecase::is_space($rhs)
   };
   (quote $rhs:expr) => {
     $crate::case::charcase::quotecase::is_quote($rhs)
@@ -32,7 +35,7 @@ macro_rules! is {
   (number $rhs:expr) => {
     $crate::case::charcase::numbercase::is_number($rhs)
   };
-  (number_zero $rhs:expr) => {
+  (number_start $rhs:expr) => {
     $crate::case::charcase::numbercase::is_number_zero($rhs)
   };
   (number_continue $rhs:expr) => {
@@ -41,8 +44,20 @@ macro_rules! is {
   (number_hex $rhs:expr) => {
     $crate::case::charcase::numbercase::is_number_hex($rhs)
   };
+  (op $rhs:expr) => {
+    $crate::case::charcase::opcase::is_op($rhs)
+  };
+  (punctuation $rhs:expr) => {
+    $crate::case::charcase::punctuationcase::is_punctuation($rhs)
+  };
   (ident $rhs:expr) => {
     $crate::case::charcase::identcase::is_ident($rhs)
+  };
+  (ident_start $rhs:expr) => {
+    $crate::case::charcase::identcase::is_ident_start($rhs)
+  };
+  (ident_continue $rhs:expr) => {
+    $crate::case::charcase::identcase::is_ident_continue($rhs)
   };
   (underscore $rhs:expr) => {
     $crate::case::charcase::identcase::is_underscore($rhs)

@@ -5,5 +5,8 @@ edition.workspace = true
 [dependencies]
 zo-core = { workspace = true }
 
+hashbrown = { workspace = true }
+lazy_static = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
+smol_str = { workspace = true }
