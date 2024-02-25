@@ -1,3 +1,4 @@
+pub mod color;
 pub mod dsa;
 pub mod reporter;
 pub mod span;

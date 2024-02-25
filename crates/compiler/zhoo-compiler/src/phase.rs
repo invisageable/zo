@@ -26,4 +26,5 @@ pub enum Phase {
   Generating(generating::Generating),
   Building(building::Building),
   Linking(linking::Linking),
+  Interpreting(interpreting::Interpreting),
 }

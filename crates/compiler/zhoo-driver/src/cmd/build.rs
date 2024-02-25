@@ -47,9 +47,8 @@ impl Build {
       .add_phase(Phase::Building(Building {}));
 
     compiler.compile(&mut session)?;
-    compiler.finish()?;
 
-    Ok(())
+    compiler.finish()
   }
 }
 

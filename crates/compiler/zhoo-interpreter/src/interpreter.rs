@@ -6,6 +6,6 @@ use serde_derive::{Deserialize, Serialize};
 pub struct Interpreter {}
 
 pub fn interpret() -> Result<()> {
-  println!("analyze.");
+  println!("interpret.");
   Ok(())
 }
