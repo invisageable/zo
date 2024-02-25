@@ -1,0 +1,9 @@
+[package]
+name = "zhoo-session"
+edition.workspace = true
+
+[dependencies]
+zo-core = { workspace = true }
+
+serde = { workspace = true }
+serde_derive = { workspace = true }

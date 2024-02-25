@@ -1,5 +1,6 @@
 pub mod dsa;
 pub mod reporter;
+pub mod span;
 
 #[derive(Debug)]
 pub struct Report;

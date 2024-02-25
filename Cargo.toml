@@ -17,16 +17,22 @@ zo-core = { path = "sources/core", version = "0.0.0" }
 
 # internal:compiler
 zhoo = { path = "crates/compiler/zhoo", version = "0.0.0" }
+zhoo-analyzer = { path = "crates/compiler/zhoo-analyzer", version = "0.0.0" }
 zhoo-ast = { path = "crates/compiler/zhoo-ast", version = "0.0.0" }
+zhoo-builder = { path = "crates/compiler/zhoo-builder", version = "0.0.0" }
 zhoo-codegen = { path = "crates/compiler/zhoo-codegen", version = "0.0.0" }
 zhoo-codegen-wasm = { path = "crates/compiler/zhoo-codegen-wasm", version = "0.0.0" }
 zhoo-codegen-zo = { path = "crates/compiler/zhoo-codegen-zo", version = "0.0.0" }
+zhoo-compiler = { path = "crates/compiler/zhoo-compiler", version = "0.0.0" }
 zhoo-driver = { path = "crates/compiler/zhoo-driver", version = "0.0.0" }
 zhoo-inferencer = { path = "crates/compiler/zhoo-inferencer", version = "0.0.0" }
 zhoo-interpreter = { path = "crates/compiler/zhoo-interpreter", version = "0.0.0" }
 zhoo-interpreter-cranelift = { path = "crates/compiler/zhoo-interpreter-cranelift", version = "0.0.0" }
 zhoo-interpreter-zo = { path = "crates/compiler/zhoo-interpreter-zo", version = "0.0.0" }
+zhoo-linker = { path = "crates/compiler/zhoo-linker", version = "0.0.0" }
 zhoo-parser = { path = "crates/compiler/zhoo-parser", version = "0.0.0" }
+zhoo-reader = { path = "crates/compiler/zhoo-reader", version = "0.0.0" }
+zhoo-session = { path = "crates/compiler/zhoo-session", version = "0.0.0" }
 zhoo-tokenizer = { path = "crates/compiler/zhoo-tokenizer", version = "0.0.0" }
 zhoo-ty = { path = "crates/compiler/zhoo-ty", version = "0.0.0" }
 zhoo-tychecker = { path = "crates/compiler/zhoo-tychecker", version = "0.0.0" }

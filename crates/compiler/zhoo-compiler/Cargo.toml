@@ -1,0 +1,20 @@
+[package]
+name = "zhoo-compiler"
+edition.workspace = true
+
+[dependencies]
+zhoo-analyzer = { workspace = true }
+zhoo-ast = { workspace = true }
+zhoo-builder = { workspace = true }
+zhoo-codegen = { workspace = true }
+zhoo-interpreter = { workspace = true }
+zhoo-linker = { workspace = true }
+zhoo-parser = { workspace = true }
+zhoo-reader = { workspace = true }
+zhoo-session = { workspace = true }
+zhoo-tokenizer = { workspace = true }
+
+zo-core = { workspace = true }
+
+serde = { workspace = true }
+serde_derive = { workspace = true }

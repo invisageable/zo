@@ -1,0 +1,9 @@
+[package]
+name = "zhoo-analyzer"
+edition.workspace = true
+
+[dependencies]
+zo-core = { workspace = true }
+
+serde = { workspace = true }
+serde_derive = { workspace = true }
