@@ -1,0 +1,7 @@
+/program
+/target
+
+# keep it safe.
+/crates/booster
+
+.todo.md

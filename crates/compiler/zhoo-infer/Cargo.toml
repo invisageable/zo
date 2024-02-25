@@ -1,0 +1,12 @@
+[package]
+name = "zhoo-infer"
+edition.workspace = true
+
+[dependencies]
+zhoo-ast = { workspace = true }
+zhoo-ty = { workspace = true }
+
+zo-core = { workspace = true }
+
+serde = { workspace = true }
+serde_derive = { workspace = true }

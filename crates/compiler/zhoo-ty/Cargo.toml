@@ -1,0 +1,9 @@
+[package]
+name = "zhoo-ty"
+edition.workspace = true
+
+[dependencies]
+zo-core = { workspace = true }
+
+serde = { workspace = true }
+serde_derive = { workspace = true }

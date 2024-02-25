@@ -1,0 +1,10 @@
+[package]
+name = "zo-core"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+
+serde = { workspace = true }
+serde_derive = { workspace = true }

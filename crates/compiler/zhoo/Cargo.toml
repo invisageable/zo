@@ -1,0 +1,6 @@
+[package]
+name = "zhoo"
+edition.workspace = true
+
+[dependencies]
+zhoo-driver = { workspace = true }

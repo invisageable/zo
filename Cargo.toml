@@ -1,0 +1,29 @@
+[workspace]
+resolver = '2'
+members = ["sources/core", "crates/booster/zhyr", "crates/compiler/zhoo"]
+exclude = [".todo.md", "notes", "tasks"]
+default-members = ["crates/compiler/zhoo"]
+
+[workspace.package]
+edition = "2021"
+version = "0.0.0"
+
+[workspace.lints.clippy]
+all = 'allow'
+
+[workspace.dependencies]
+# internal:core.
+zo-core = { path = "sources/core", version = "0.0.0" }
+
+# internal:compiler
+zhoo = { path = "crates/compiler/zhoo", version = "0.0.0" }
+zhoo-ast = { path = "crates/compiler/zhoo-ast", version = "0.0.0" }
+zhoo-driver = { path = "crates/compiler/zhoo-driver", version = "0.0.0" }
+zhoo-infer = { path = "crates/compiler/zhoo-infer", version = "0.0.0" }
+zhoo-ty = { path = "crates/compiler/zhoo-ty", version = "0.0.0" }
+
+anyhow = "1.0.75"
+clap = { version = "4.5.1", features = ["derive"] }
+criterion = "0.5.1"
+serde = "1.0.197"
+serde_derive = "1.0.197"

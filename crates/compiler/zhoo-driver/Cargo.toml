@@ -1,0 +1,12 @@
+[package]
+name = "zhoo-driver"
+edition.workspace = true
+
+[dependencies]
+zhoo-ast = { workspace = true }
+zhoo-infer = { workspace = true }
+
+zo-core = { workspace = true }
+
+serde = { workspace = true }
+serde_derive = { workspace = true }
