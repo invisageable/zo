@@ -7,6 +7,8 @@ version.workspace = true
 anyhow.workspace = true
 
 ariadne = { workspace = true }
+Inflector = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 smol_str = { workspace = true }
+sysinfo = { workspace = true }
