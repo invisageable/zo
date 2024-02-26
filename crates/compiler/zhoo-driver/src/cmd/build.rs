@@ -12,7 +12,7 @@ use zhoo_session::session::Session;
 
 use zhoo_session::settings::Settings;
 use zo_core::mpsc::channel;
-use zo_core::Result;
+use zo_core::{Result, EXIT_FAILURE, EXIT_SUCCESS};
 
 use clap::Parser;
 
@@ -55,12 +55,12 @@ impl Build {
     // todo(ivs): kind of ugly implementation of channel.
     // it does the job done for the moment but in the future maybe.
     // we will need to change this approach.
-    let (rx_reading, tx_reading) = channel::bounded(1usize);
-    let (rx_tokenizing, tx_tokenizing) = channel::bounded(1usize);
-    let (rx_parsing, tx_parsing) = channel::bounded(1usize);
-    let (rx_analyzing, tx_analyzing) = channel::bounded(1usize);
-    let (rx_generating, tx_generating) = channel::bounded(1usize);
-    let (rx_building, tx_building) = channel::bounded(1usize);
+    let (rx_reading, tx_reading) = channel::bounded(channel::CAPACITY);
+    let (rx_tokenizing, tx_tokenizing) = channel::bounded(channel::CAPACITY);
+    let (rx_parsing, tx_parsing) = channel::bounded(channel::CAPACITY);
+    let (rx_analyzing, tx_analyzing) = channel::bounded(channel::CAPACITY);
+    let (rx_generating, tx_generating) = channel::bounded(channel::CAPACITY);
+    let (rx_building, tx_building) = channel::bounded(channel::CAPACITY);
 
     let compiler = Compiler::new()
       .add_phase(Phase::Reading(Reading { rx: rx_reading }))
@@ -97,8 +97,8 @@ impl Handle for Build {
   #[inline]
   fn handle(&self) {
     match self.compile() {
-      Ok(_) => std::process::exit(0i32),
-      Err(_) => std::process::exit(1i32),
+      Ok(_) => std::process::exit(EXIT_SUCCESS),
+      Err(_) => std::process::exit(EXIT_FAILURE),
     }
   }
 }

@@ -1,3 +1,5 @@
+//! ...
+
 pub mod case;
 pub mod color;
 pub mod dsa;
@@ -18,3 +20,6 @@ pub trait Error: Sized {
 }
 
 pub type Result<R> = anyhow::Result<R, reporter::report::ReportError>;
+
+pub const EXIT_SUCCESS: i32 = 0i32;
+pub const EXIT_FAILURE: i32 = 1i32;

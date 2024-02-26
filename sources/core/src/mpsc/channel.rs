@@ -1,7 +1,7 @@
 use super::receiver::Receiver;
 use super::sender::Sender;
 
-pub const CHANNEL_CAPACITY: usize = 1;
+pub const CAPACITY: usize = 1usize;
 
 #[inline]
 pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {

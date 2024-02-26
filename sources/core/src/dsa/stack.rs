@@ -54,6 +54,8 @@ impl<I> Default for Stack<I> {
 mod test {
   use super::Stack;
 
+  use crate::EXIT_FAILURE;
+
   struct Item;
   impl Item {
     #[inline]
@@ -80,7 +82,7 @@ mod test {
     assert!(stack.size() > 0);
 
     let Some(item) = stack.pop() else {
-      std::process::exit(1)
+      std::process::exit(EXIT_FAILURE)
     };
 
     assert!(item.foobar() == "I'm an item.");

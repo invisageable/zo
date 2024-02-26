@@ -1,9 +1,10 @@
 pub mod report;
 
+use report::{Error, ReportError};
+
 use super::source::SourceMap;
 use super::span::Span;
-
-use report::{Error, ReportError};
+use super::EXIT_FAILURE;
 
 #[derive(Debug)]
 pub struct Reporter {
@@ -78,7 +79,7 @@ impl Reporter {
 
   #[inline]
   fn abort(&self) -> ! {
-    std::process::exit(1i32)
+    std::process::exit(EXIT_FAILURE)
   }
 }
 

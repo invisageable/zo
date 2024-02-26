@@ -50,6 +50,8 @@ impl<T> Default for Queue<T> {
 mod test {
   use super::Queue;
 
+  use crate::EXIT_FAILURE;
+
   struct Item;
   impl Item {
     #[inline]
@@ -76,7 +78,7 @@ mod test {
     assert!(queue.size() > 0);
 
     let Some(item) = queue.dequeue() else {
-      std::process::exit(1)
+      std::process::exit(EXIT_FAILURE)
     };
 
     assert!(item.foobar() == "I'm an item.");
