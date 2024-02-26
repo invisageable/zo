@@ -1,5 +1,6 @@
 [package]
 name = "zhoo-compiler"
+license.workspace = true
 edition.workspace = true
 
 [dependencies]

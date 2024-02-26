@@ -1,5 +1,6 @@
 [package]
 name = "zhoo"
+license.workspace = true
 edition.workspace = true
 
 [dependencies]

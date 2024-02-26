@@ -1,5 +1,6 @@
 [package]
 name = "zhoo-interpreter-zo"
+license.workspace = true
 edition.workspace = true
 
 [dependencies]

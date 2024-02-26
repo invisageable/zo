@@ -1,5 +1,6 @@
 [package]
 name = "zhoo-analyzer"
+license.workspace = true
 edition.workspace = true
 
 [dependencies]

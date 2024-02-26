@@ -1,5 +1,6 @@
 [package]
 name = "zhoo-parser"
+license.workspace = true
 edition.workspace = true
 
 [dependencies]

@@ -1,5 +1,6 @@
 [package]
 name = "zhoo-codegen-zo"
+license.workspace = true
 edition.workspace = true
 
 [dependencies]
