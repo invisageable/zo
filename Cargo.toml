@@ -53,6 +53,7 @@ hashbrown = "0.14.3"
 Inflector = "0.11.4"
 inkwell = { version = "0.4.0", features = ["llvm14-0"] }
 itoa = "1.0.9"
+kanal = "0.1.0-pre8"
 lazy_static = "1.4.0"
 pollster = "0.3.0"
 rayon = "1.8.0"

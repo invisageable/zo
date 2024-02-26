@@ -19,7 +19,7 @@ struct Tokenizer<'source> {
 
 impl<'source> Tokenizer<'source> {
   fn new(interner: &'source mut Interner, _source: &'source [u8]) -> Self {
-    let source = ";".as_bytes();
+    let source = "0xf".as_bytes();
 
     Self {
       interner,
@@ -125,7 +125,6 @@ impl<'source> Tokenizer<'source> {
         }
         TokenizerState::End => {
           println!("EOF: {}", byte as char);
-          // self.bump();
 
           break;
         }
@@ -200,5 +199,6 @@ impl<'source> Iterator for Tokenizer<'source> {
 }
 
 pub fn tokenize(interner: &mut Interner, source: &[u8]) -> Result<Vec<Token>> {
+  println!("tokenize.");
   Tokenizer::new(interner, source).tokenize()
 }

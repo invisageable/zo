@@ -1,20 +1,25 @@
 use super::Process;
 
+use zhoo_ast::ast::Program;
 use zhoo_parser::parser;
 use zhoo_session::session::Session;
+use zhoo_tokenizer::token::Token;
 
+use zo_core::mpsc::receiver::Receiver;
+use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Parsing {}
+#[derive(Clone, Debug)]
+pub struct Parsing {
+  pub rx: Sender<Program>,
+  pub tx: Receiver<Vec<Token>>,
+}
 
 impl Process for Parsing {
   fn process(&self, _session: &mut Session) -> Result<()> {
-    println!("parsing.");
-    parser::parse()?;
-    Ok(())
+    self.tx.recv().and_then(|_tokens| {
+      parser::parse().and_then(|program| self.rx.send(program))
+    })
   }
 }
 

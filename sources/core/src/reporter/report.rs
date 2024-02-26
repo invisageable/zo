@@ -1,8 +1,9 @@
-mod assembly;
-mod io;
-mod lexical;
-mod semantic;
-mod syntax;
+pub mod assembly;
+pub mod chan;
+pub mod io;
+pub mod lexical;
+pub mod semantic;
+pub mod syntax;
 
 use crate::color;
 use crate::span::Span;
@@ -27,9 +28,9 @@ impl Default for Report {
     Self {
       kind: ReportKind::Error(REPORT_TITLE_ERROR),
       message: smol_str::SmolStr::default(),
-      labels: Vec::with_capacity(0),
-      notes: Vec::with_capacity(0),
-      helps: Vec::with_capacity(0),
+      labels: Vec::with_capacity(0usize),
+      notes: Vec::with_capacity(0usize),
+      helps: Vec::with_capacity(0usize),
     }
   }
 }
@@ -56,6 +57,7 @@ impl From<ReportKind> for ariadne::ReportKind<'static> {
 #[derive(Debug)]
 pub enum ReportError {
   Io(std::io::Error),
+  Chan(chan::Chan),
   Lexical(lexical::Lexical),
   Syntax(syntax::Syntax),
   Semantic(semantic::Semantic),
@@ -66,10 +68,11 @@ impl ReportError {
   fn as_code(&self) -> i32 {
     match self {
       Self::Io(_) => 1,
-      Self::Lexical(_) => 2,
-      Self::Syntax(_) => 3,
-      Self::Semantic(_) => 4,
-      Self::Assembly(_) => 5,
+      Self::Chan(_) => 2,
+      Self::Lexical(_) => 3,
+      Self::Syntax(_) => 4,
+      Self::Semantic(_) => 5,
+      Self::Assembly(_) => 6,
     }
   }
 }

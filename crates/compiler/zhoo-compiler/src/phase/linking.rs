@@ -5,9 +5,7 @@ use zhoo_session::session::Session;
 
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct Linking {}
 
 impl Process for Linking {

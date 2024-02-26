@@ -1,10 +1,11 @@
+#[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 pub(crate) enum TokenizerState {
   Start,
   Space,
+  Comment,
   Zero,
   Hex,
-  Comment,
   Int,
   Float,
   Ident,

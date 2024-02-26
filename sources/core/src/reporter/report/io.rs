@@ -5,9 +5,9 @@ impl Error for std::io::Error {
     Report {
       kind: ReportKind::Error(REPORT_TITLE_ERROR),
       message: format!("{self}").into(),
-      labels: Vec::with_capacity(0),
-      notes: Vec::with_capacity(0),
-      helps: Vec::with_capacity(0),
+      labels: Vec::with_capacity(0usize),
+      notes: Vec::with_capacity(0usize),
+      helps: Vec::with_capacity(0usize),
     }
   }
 }

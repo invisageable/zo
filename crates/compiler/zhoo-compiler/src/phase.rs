@@ -11,13 +11,11 @@ use zhoo_session::session::Session;
 
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
 pub trait Process: std::fmt::Debug {
   fn process(&self, session: &mut Session) -> Result<()>;
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub enum Phase {
   Reading(reading::Reading),
   Tokenizing(tokenizing::Tokenizing),

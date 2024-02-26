@@ -1,20 +1,24 @@
 use super::Process;
 
+use zhoo_ast::ast::Program;
 use zhoo_codegen::codegen;
 use zhoo_session::session::Session;
 
+use zo_core::mpsc::receiver::Receiver;
+use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Generating {}
+#[derive(Clone, Debug)]
+pub struct Generating {
+  pub rx: Sender<Box<[u8]>>,
+  pub tx: Receiver<Program>,
+}
 
 impl Process for Generating {
   fn process(&self, _session: &mut Session) -> Result<()> {
-    println!("generating.");
-    codegen::generate()?;
-    Ok(())
+    self.tx.recv().and_then(|_program| {
+      codegen::generate().and_then(|bytecode| self.rx.send(bytecode))
+    })
   }
 }
 

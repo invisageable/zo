@@ -1,11 +1,10 @@
 use super::phase::{Phase, Process};
 
 use zhoo_session::session::Session;
+use zo_core::mpsc::receiver::Receiver;
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default)]
 pub struct Compiler {
   phases: Vec<Phase>,
 }
@@ -34,7 +33,7 @@ impl Compiler {
     })
   }
 
-  pub fn finish(&self) -> Result<()> {
-    Ok(())
+  pub fn finish<T>(&self, receiver: Receiver<T>) -> Result<T> {
+    receiver.recv()
   }
 }

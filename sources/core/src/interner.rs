@@ -24,9 +24,9 @@ impl Interner {
 
     Self {
       map: HashMap::new(),
-      vec: Vec::with_capacity(100),
+      vec: Vec::with_capacity(0usize),
       buf: String::with_capacity(capacity),
-      full: Vec::with_capacity(100),
+      full: Vec::with_capacity(0usize),
     }
   }
 

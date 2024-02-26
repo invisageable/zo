@@ -4,19 +4,15 @@ pub mod dsa;
 pub mod fmt;
 pub mod fs;
 pub mod interner;
+pub mod mpsc;
 pub mod reporter;
+pub mod source;
 pub mod span;
 pub mod system;
 pub mod timer;
 
-#[derive(Debug)]
-pub struct Report;
-
-#[derive(Debug)]
-pub enum ReportError {}
-
 pub trait Error: Sized {
-  fn report(&self) -> Report;
+  fn report(&self) -> reporter::report::Report;
 }
 
-pub type Result<R> = anyhow::Result<R, ReportError>;
+pub type Result<R> = anyhow::Result<R, reporter::report::ReportError>;

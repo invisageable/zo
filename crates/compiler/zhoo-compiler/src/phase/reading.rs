@@ -3,18 +3,16 @@ use super::Process;
 use zhoo_reader::reader;
 use zhoo_session::session::Session;
 
-use zo_core::Result;
+use zo_core::{mpsc::sender::Sender, Result};
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Reading {}
+#[derive(Clone, Debug)]
+pub struct Reading {
+  pub rx: Sender<Box<[u8]>>,
+}
 
 impl Process for Reading {
-  fn process(&self, _session: &mut Session) -> Result<()> {
-    println!("reading.");
-    reader::read()?;
-    Ok(())
+  fn process(&self, session: &mut Session) -> Result<()> {
+    reader::read(session).and_then(|source| self.rx.send(source))
   }
 }
 

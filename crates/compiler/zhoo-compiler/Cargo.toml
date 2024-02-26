@@ -13,6 +13,7 @@ zhoo-parser = { workspace = true }
 zhoo-reader = { workspace = true }
 zhoo-session = { workspace = true }
 zhoo-tokenizer = { workspace = true }
+zhoo-value = { workspace = true }
 
 zo-core = { workspace = true }
 

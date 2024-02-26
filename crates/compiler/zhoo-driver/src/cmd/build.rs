@@ -10,6 +10,7 @@ use zhoo_compiler::phase::tokenizing::Tokenizing;
 use zhoo_compiler::phase::Phase;
 use zhoo_session::session::Session;
 
+use zo_core::mpsc::channel;
 use zo_core::Result;
 
 use clap::Parser;
@@ -37,20 +38,49 @@ impl Build {
   #[inline]
   fn compiling(&self) -> Result<()> {
     let mut session = Session {
+      input: self.input.to_owned(),
       ..Default::default()
     };
 
+    // todo(ivs): kind of ugly implementation of channel.
+    // it does the job done for the moment but in the future maybe.
+    // we will need to change this approach.
+    let (rx_reading, tx_reading) = channel::bounded(1usize);
+    let (rx_tokenizing, tx_tokenizing) = channel::bounded(1usize);
+    let (rx_parsing, tx_parsing) = channel::bounded(1usize);
+    let (rx_analyzing, tx_analyzing) = channel::bounded(1usize);
+    let (rx_generating, tx_generating) = channel::bounded(1usize);
+    let (rx_building, tx_building) = channel::bounded(1usize);
+
     let compiler = Compiler::new()
-      .add_phase(Phase::Reading(Reading {}))
-      .add_phase(Phase::Tokenizing(Tokenizing {}))
-      .add_phase(Phase::Parsing(Parsing {}))
-      .add_phase(Phase::Analyzing(Analyzing {}))
-      .add_phase(Phase::Generating(Generating {}))
-      .add_phase(Phase::Building(Building {}));
+      .add_phase(Phase::Reading(Reading { rx: rx_reading }))
+      .add_phase(Phase::Tokenizing(Tokenizing {
+        rx: rx_tokenizing,
+        tx: tx_reading,
+      }))
+      .add_phase(Phase::Parsing(Parsing {
+        rx: rx_parsing,
+        tx: tx_tokenizing,
+      }))
+      .add_phase(Phase::Analyzing(Analyzing {
+        rx: rx_analyzing,
+        tx: tx_parsing,
+      }))
+      .add_phase(Phase::Generating(Generating {
+        rx: rx_generating,
+        tx: tx_analyzing,
+      }))
+      .add_phase(Phase::Building(Building {
+        rx: rx_building,
+        tx: tx_generating,
+      }));
 
     compiler.compile(&mut session)?;
 
-    compiler.finish()
+    compiler.finish(tx_building).and_then(|_output| {
+      println!("finish.");
+      Ok(())
+    })
   }
 }
 
@@ -58,8 +88,8 @@ impl Handle for Build {
   #[inline]
   fn handle(&self) {
     match self.compile() {
-      Ok(_) => std::process::exit(0),
-      Err(_) => std::process::exit(1),
+      Ok(_) => std::process::exit(0i32),
+      Err(_) => std::process::exit(1i32),
     }
   }
 }

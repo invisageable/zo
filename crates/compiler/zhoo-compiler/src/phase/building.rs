@@ -3,18 +3,21 @@ use super::Process;
 use zhoo_builder::builder;
 use zhoo_session::session::Session;
 
+use zo_core::mpsc::receiver::Receiver;
+use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Building {}
+#[derive(Clone, Debug)]
+pub struct Building {
+  pub rx: Sender<()>,
+  pub tx: Receiver<Box<[u8]>>,
+}
 
 impl Process for Building {
   fn process(&self, _session: &mut Session) -> Result<()> {
-    println!("building.");
-    builder::build()?;
-    Ok(())
+    self.tx.recv().and_then(|_bytecode| {
+      builder::build().and_then(|output| self.rx.send(output))
+    })
   }
 }
 

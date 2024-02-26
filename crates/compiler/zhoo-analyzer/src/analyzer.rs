@@ -1,8 +1,6 @@
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Analyzer {}
 
 pub fn analyze() -> Result<()> {

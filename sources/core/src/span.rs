@@ -41,34 +41,34 @@ mod test {
   fn should_make_span_zero() {
     let span = Span::ZERO;
 
-    assert!(span.lo == 0);
-    assert!(span.hi == 0);
+    assert!(span.lo == 0usize);
+    assert!(span.hi == 0usize);
   }
 
   #[test]
   fn should_make_span() {
-    let span = Span::of(0, 14);
+    let span = Span::of(0usize, 14usize);
 
-    assert!(span.lo == 0);
-    assert!(span.hi == 14);
+    assert!(span.lo == 0usize);
+    assert!(span.hi == 14usize);
   }
 
   #[test]
   fn should_make_span_from_another_span() {
-    let from = Span::of(0, 14);
+    let from = Span::of(0usize, 14usize);
     let span = Span::from(from);
 
-    assert!(span.lo == 0);
-    assert!(span.hi == 14);
+    assert!(span.lo == 0usize);
+    assert!(span.hi == 14usize);
   }
 
   #[test]
   fn should_merge_spans() {
-    let lo = Span::of(0, 14);
-    let hi = Span::of(16, 20);
+    let lo = Span::of(0usize, 14usize);
+    let hi = Span::of(16usize, 20usize);
     let span = Span::merge(lo, hi);
 
-    assert!(span.lo == 0);
-    assert!(span.hi == 20);
+    assert!(span.lo == 0usize);
+    assert!(span.hi == 20usize);
   }
 }

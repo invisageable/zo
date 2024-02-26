@@ -1,11 +1,37 @@
+use zhoo_session::session::Session;
+
+use zo_core::reporter::report::ReportError;
+use zo_core::reporter::Reporter;
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
+#[derive(Debug)]
+struct Reader<'bytes> {
+  reporter: &'bytes mut Reporter,
+}
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Reader {}
+impl<'bytes> Reader<'bytes> {
+  fn new(reporter: &'bytes mut Reporter) -> Self {
+    Self { reporter }
+  }
 
-pub fn read() -> Result<()> {
+  fn read(
+    &mut self,
+    pathname: impl AsRef<std::ffi::OsStr>,
+  ) -> Result<Box<[u8]>> {
+    self
+      .reporter
+      .add_source(pathname.as_ref())
+      .map_err(ReportError::Io)
+      .map(|source_id| {
+        let source_code = self.reporter.code(source_id as u32);
+        let source_bytes = source_code.as_bytes();
+
+        source_bytes.into()
+      })
+  }
+}
+
+pub fn read(session: &mut Session) -> Result<Box<[u8]>> {
   println!("read.");
-  Ok(())
+  Reader::new(&mut session.reporter).read(session.input.as_str())
 }

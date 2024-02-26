@@ -9,6 +9,7 @@ zhoo-session = { workspace = true }
 zo-core = { workspace = true }
 
 clap = { workspace = true }
+flume = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 smol_str = { workspace = true }

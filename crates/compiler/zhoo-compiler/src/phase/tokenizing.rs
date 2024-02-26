@@ -1,20 +1,25 @@
 use super::Process;
 
 use zhoo_session::session::Session;
+use zhoo_tokenizer::token::Token;
 use zhoo_tokenizer::tokenizer;
 
+use zo_core::mpsc::receiver::Receiver;
+use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Tokenizing {}
+#[derive(Clone, Debug)]
+pub struct Tokenizing {
+  pub rx: Sender<Vec<Token>>,
+  pub tx: Receiver<Box<[u8]>>,
+}
 
 impl Process for Tokenizing {
   fn process(&self, session: &mut Session) -> Result<()> {
-    println!("tokenizing.");
-    tokenizer::tokenize(&mut session.interner, &[])?;
-    Ok(())
+    self.tx.recv().and_then(|_source| {
+      tokenizer::tokenize(&mut session.interner, &[])
+        .and_then(|tokens| self.rx.send(tokens))
+    })
   }
 }
 
