@@ -77,9 +77,8 @@ impl Build {
 
     compiler.compile(&mut session)?;
 
-    compiler.finish(tx_building).and_then(|_output| {
+    compiler.finish(tx_building).map(|_output| {
       println!("finish.");
-      Ok(())
     })
   }
 }
