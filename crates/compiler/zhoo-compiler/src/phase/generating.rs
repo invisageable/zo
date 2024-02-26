@@ -15,9 +15,10 @@ pub struct Generating {
 }
 
 impl Process for Generating {
-  fn process(&self, _session: &mut Session) -> Result<()> {
-    self.tx.recv().and_then(|_program| {
-      codegen::generate().and_then(|bytecode| self.rx.send(bytecode))
+  fn process(&self, session: &mut Session) -> Result<()> {
+    self.tx.recv().and_then(|program| {
+      codegen::generate(session, program)
+        .and_then(|bytecode| self.rx.send(bytecode))
     })
   }
 }

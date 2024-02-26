@@ -16,9 +16,10 @@ pub struct Parsing {
 }
 
 impl Process for Parsing {
-  fn process(&self, _session: &mut Session) -> Result<()> {
-    self.tx.recv().and_then(|_tokens| {
-      parser::parse().and_then(|program| self.rx.send(program))
+  fn process(&self, session: &mut Session) -> Result<()> {
+    self.tx.recv().and_then(|tokens| {
+      parser::parse(session, tokens.as_ref())
+        .and_then(|program| self.rx.send(program))
     })
   }
 }

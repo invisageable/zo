@@ -4,7 +4,12 @@ use zhoo_ty::ty;
 use zo_core::Result;
 
 #[derive(Debug)]
-pub struct Inferencer {}
+pub struct Inferencer<'program> {
+  #[allow(dead_code)]
+  interner: &'program mut Interner,
+  #[allow(dead_code)]
+  reporter: &'program Reporter,
+}
 
 impl Inferencer {
   #[inline]

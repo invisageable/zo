@@ -258,6 +258,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
+name = "itoa"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
+
+[[package]]
 name = "js-sys"
 version = "0.3.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -400,6 +406,12 @@ name = "regex-syntax"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
+
+[[package]]
+name = "ryu"
+version = "1.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e86697c916019a8588c99b5fac3cead74ec0b4b819707a682fd4d23fa0ce1ba1"
 
 [[package]]
 name = "scopeguard"
@@ -716,6 +728,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_derive",
+ "zhoo-session",
  "zo-core",
 ]
 
@@ -725,6 +738,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_derive",
+ "zhoo-session",
  "zo-core",
 ]
 
@@ -734,6 +748,8 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_derive",
+ "zhoo-ast",
+ "zhoo-session",
  "zo-core",
 ]
 
@@ -778,6 +794,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "zhoo-ast",
+ "zhoo-session",
  "zhoo-value",
  "zo-core",
 ]
@@ -788,6 +805,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_derive",
+ "zhoo-session",
  "zo-core",
 ]
 
@@ -798,6 +816,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "zhoo-ast",
+ "zhoo-session",
  "zhoo-tokenizer",
  "zo-core",
 ]
@@ -831,6 +850,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "smol_str",
+ "zhoo-session",
  "zo-core",
 ]
 
@@ -851,7 +871,9 @@ dependencies = [
  "anyhow",
  "ariadne",
  "hashbrown",
+ "itoa",
  "kanal",
+ "ryu",
  "serde",
  "serde_derive",
  "smol_str",

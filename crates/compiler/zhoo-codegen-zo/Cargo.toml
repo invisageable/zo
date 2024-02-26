@@ -3,8 +3,10 @@ name = "zhoo-codegen-zo"
 edition.workspace = true
 
 [dependencies]
-zo-core = { workspace = true }
 zhoo-ast = { workspace = true }
+zhoo-session = { workspace = true }
+
+zo-core = { workspace = true }
 
 serde = { workspace = true }
 serde_derive = { workspace = true }

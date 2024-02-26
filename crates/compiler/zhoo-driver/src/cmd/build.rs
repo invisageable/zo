@@ -10,6 +10,7 @@ use zhoo_compiler::phase::tokenizing::Tokenizing;
 use zhoo_compiler::phase::Phase;
 use zhoo_session::session::Session;
 
+use zhoo_session::settings::Settings;
 use zo_core::mpsc::channel;
 use zo_core::Result;
 
@@ -22,7 +23,7 @@ pub(crate) struct Build {
   #[clap(short, long)]
   pub input: smol_str::SmolStr,
   #[clap(short, long, default_value = "wasm")]
-  pub target: smol_str::SmolStr,
+  pub backend: smol_str::SmolStr,
   #[clap(short, long, default_value = "false")]
   pub release: bool,
   #[clap(short, long, default_value = "false")]
@@ -38,7 +39,16 @@ impl Build {
   #[inline]
   fn compiling(&self) -> Result<()> {
     let mut session = Session {
-      input: self.input.to_owned(),
+      settings: Settings {
+        input: self.input.to_owned(),
+        backend: self.backend.to_owned().into(),
+        profile: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+          self.profile.to_owned(),
+        )),
+        verbose: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+          self.verbose.to_owned(),
+        )),
+      },
       ..Default::default()
     };
 

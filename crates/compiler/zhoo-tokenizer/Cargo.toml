@@ -3,6 +3,8 @@ name = "zhoo-tokenizer"
 edition.workspace = true
 
 [dependencies]
+zhoo-session = { workspace = true }
+
 zo-core = { workspace = true }
 
 hashbrown = { workspace = true }

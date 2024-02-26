@@ -34,5 +34,5 @@ impl<'bytes> Reader<'bytes> {
 
 pub fn read(session: &mut Session) -> Result<Box<[u8]>> {
   println!("read.");
-  Reader::new(&mut session.reporter).read(session.input.as_str())
+  Reader::new(&mut session.reporter).read(session.settings.input.as_str())
 }

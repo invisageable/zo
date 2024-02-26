@@ -16,8 +16,8 @@ pub struct Tokenizing {
 
 impl Process for Tokenizing {
   fn process(&self, session: &mut Session) -> Result<()> {
-    self.tx.recv().and_then(|_source| {
-      tokenizer::tokenize(&mut session.interner, &[])
+    self.tx.recv().and_then(|source| {
+      tokenizer::tokenize(session, source.as_ref())
         .and_then(|tokens| self.rx.send(tokens))
     })
   }

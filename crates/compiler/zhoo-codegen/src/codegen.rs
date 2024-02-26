@@ -1,3 +1,6 @@
+use zhoo_ast::ast;
+use zhoo_session::session::Session;
+
 use zo_core::Result;
 
 #[derive(Debug)]
@@ -15,7 +18,10 @@ impl Codegen {
   }
 }
 
-pub fn generate() -> Result<Box<[u8]>> {
+pub fn generate(
+  _session: &mut Session,
+  _program: ast::Program,
+) -> Result<Box<[u8]>> {
   println!("generate.");
   Codegen::new().generate()
 }

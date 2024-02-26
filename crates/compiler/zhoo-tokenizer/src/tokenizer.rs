@@ -5,23 +5,34 @@ use super::token::op::Op;
 use super::token::punctuation::Punctuation;
 use super::token::{Token, TokenKind};
 
+use zhoo_session::session::Session;
+
 use zo_core::interner::Interner;
 use zo_core::is;
+use zo_core::reporter::report::lexical::Lexical;
+use zo_core::reporter::report::ReportError;
+use zo_core::reporter::Reporter;
 use zo_core::span::Span;
 use zo_core::Result;
 
 #[derive(Debug)]
 struct Tokenizer<'source> {
   interner: &'source mut Interner,
+  reporter: &'source Reporter,
   source: &'source [u8],
   index: usize,
 }
 
 impl<'source> Tokenizer<'source> {
   #[inline]
-  fn new(interner: &'source mut Interner, source: &'source [u8]) -> Self {
+  fn new(
+    interner: &'source mut Interner,
+    reporter: &'source Reporter,
+    source: &'source [u8],
+  ) -> Self {
     Self {
       interner,
+      reporter,
       source,
       index: 0,
     }
@@ -120,7 +131,13 @@ impl<'source> Tokenizer<'source> {
           println!("GROUP: {}", byte as char);
         }
         TokenizerState::Unknown => {
-          panic!("UNKNOWN: {}", byte as char);
+          println!("UNKNOWN: {}", byte as char);
+
+          let span = Span::of(index_start, self.index + 1);
+
+          self
+            .reporter
+            .raise(ReportError::Lexical(Lexical::Unknown(span, byte as char)));
         }
         TokenizerState::End => {
           println!("EOF: {}", byte as char);
@@ -197,7 +214,7 @@ impl<'source> Iterator for Tokenizer<'source> {
   }
 }
 
-pub fn tokenize(interner: &mut Interner, source: &[u8]) -> Result<Vec<Token>> {
+pub fn tokenize(session: &mut Session, source: &[u8]) -> Result<Vec<Token>> {
   println!("tokenize.");
-  Tokenizer::new(interner, source).tokenize()
+  Tokenizer::new(&mut session.interner, &session.reporter, source).tokenize()
 }
