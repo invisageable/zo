@@ -1,3 +1,5 @@
+use crate::reporter::report::io::Io;
+
 use super::Result;
 
 use std::fmt::Write;
@@ -119,18 +121,14 @@ fn make_dir(pathname: impl AsRef<std::path::Path>) -> Result<()> {
     return Ok(());
   }
 
-  std::fs::create_dir_all(pathname).map_err(|error| todo!("{error}"))
+  std::fs::create_dir_all(pathname).map_err(Io::error)
 }
 
 fn make_file(pathname: impl ToString, bytes: impl AsRef<[u8]>) -> Result<()> {
   use std::io::Write;
 
   std::fs::File::create(pathname.to_string())
-    .map(|mut file| {
-      file
-        .write_all(bytes.as_ref())
-        .map_err(|error| todo!("{error}"))
-    })
+    .map(|mut file| file.write_all(bytes.as_ref()).map_err(Io::error))
     .unwrap()
 }
 

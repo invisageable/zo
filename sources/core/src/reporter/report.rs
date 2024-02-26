@@ -56,7 +56,7 @@ impl From<ReportKind> for ariadne::ReportKind<'static> {
 
 #[derive(Debug)]
 pub enum ReportError {
-  Io(std::io::Error),
+  Io(io::Io),
   Chan(chan::Chan),
   Lexical(lexical::Lexical),
   Syntax(syntax::Syntax),

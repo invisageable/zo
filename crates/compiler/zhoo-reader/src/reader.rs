@@ -1,6 +1,6 @@
 use zhoo_session::session::Session;
 
-use zo_core::reporter::report::ReportError;
+use zo_core::reporter::report::io::Io;
 use zo_core::reporter::Reporter;
 use zo_core::Result;
 
@@ -22,7 +22,7 @@ impl<'bytes> Reader<'bytes> {
     self
       .reporter
       .add_source(pathname.as_ref())
-      .map_err(ReportError::Io)
+      .map_err(Io::error)
       .map(|source_id| {
         let source_code = self.reporter.code(source_id as u32);
         let source_bytes = source_code.as_bytes();

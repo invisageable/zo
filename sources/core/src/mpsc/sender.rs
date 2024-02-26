@@ -1,5 +1,4 @@
 use crate::reporter::report::chan::Chan;
-use crate::reporter::report::ReportError;
 use crate::Result;
 
 pub type SenderError = kanal::ReceiveError;
@@ -21,11 +20,7 @@ impl<T> Sender<T> {
     self
       .raw
       .lock()
-      .map(|raw| {
-        raw.send(item).map_err(|error| {
-          ReportError::Chan(Chan::NotFoundSender(error.to_string()))
-        })
-      })
+      .map(|raw| raw.send(item).map_err(Chan::error))
       .unwrap()
   }
 }

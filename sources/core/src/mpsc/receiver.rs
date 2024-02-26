@@ -1,5 +1,4 @@
 use crate::reporter::report::chan::Chan;
-use crate::reporter::report::ReportError;
 use crate::Result;
 
 pub type ReceiverError = kanal::ReceiveError;
@@ -21,11 +20,7 @@ impl<T> Receiver<T> {
     self
       .raw
       .lock()
-      .map(|raw| {
-        raw.recv().map_err(|error| {
-          ReportError::Chan(Chan::NotFoundReceiver(error.to_string()))
-        })
-      })
+      .map(|raw| raw.recv().map_err(Chan::error))
       .unwrap()
   }
 }

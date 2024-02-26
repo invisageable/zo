@@ -42,14 +42,6 @@ impl Reporter {
 
   #[inline]
   pub fn errors(&self, has_errors: bool) {
-    // self
-    // .has_errors
-    // .lock()
-    // .map(|mut has_errors| {
-    //   *has_errors = true;
-    // })
-    // .unwrap();
-
     *self.has_errors.lock().unwrap() = has_errors;
   }
 
