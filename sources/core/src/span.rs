@@ -9,10 +9,12 @@ pub struct Span {
 impl Span {
   pub const ZERO: Self = Self::of(0usize, 0usize);
 
+  #[inline]
   pub const fn of(lo: usize, hi: usize) -> Self {
     Self { lo, hi }
   }
 
+  #[inline]
   pub fn merge(a: Span, b: Span) -> Span {
     let lo = std::cmp::min(a.lo, b.lo);
     let hi = std::cmp::max(a.hi, b.hi);

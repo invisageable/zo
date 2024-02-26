@@ -1,15 +1,21 @@
+use zhoo_ast::ast::Program;
+
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Parser {}
 
-pub fn parse() -> Result<zhoo_ast::ast::Program> {
-  println!("parse.");
+impl Parser {
+  #[inline]
+  fn new() -> Self {
+    Self {}
+  }
 
-  let program = zhoo_ast::ast::Program {
-    items: vec![zhoo_ast::ast::Item {
+  #[inline]
+  fn parse(&mut self) -> Result<Program> {
+    let mut program = Program::new();
+
+    let item = zhoo_ast::ast::Item {
       kind: zhoo_ast::ast::ItemKind::Fun(zhoo_ast::ast::Fun {
         body: zhoo_ast::ast::Block {
           stmts: vec![zhoo_ast::ast::Stmt {
@@ -21,8 +27,15 @@ pub fn parse() -> Result<zhoo_ast::ast::Program> {
           }],
         },
       }),
-    }],
-  };
+    };
 
-  Ok(program)
+    program.add_item(item);
+
+    Ok(program)
+  }
+}
+
+pub fn parse() -> Result<Program> {
+  println!("parse.");
+  Parser::new().parse()
 }

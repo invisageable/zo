@@ -10,12 +10,14 @@ pub struct Compiler {
 }
 
 impl Compiler {
+  #[inline]
   pub fn new() -> Self {
     Self {
-      phases: Vec::with_capacity(0),
+      phases: Vec::with_capacity(0usize),
     }
   }
 
+  #[inline]
   pub fn add_phase(mut self, phase: Phase) -> Self {
     self.phases.push(phase);
     self

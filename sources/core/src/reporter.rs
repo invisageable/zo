@@ -12,6 +12,7 @@ pub struct Reporter {
 }
 
 impl Reporter {
+  #[inline]
   pub fn new() -> Self {
     Self {
       has_errors: std::sync::Arc::new(std::sync::Mutex::new(false)),
@@ -39,6 +40,7 @@ impl Reporter {
     self.source_map.pathname(span)
   }
 
+  #[inline]
   pub fn errors(&self, has_errors: bool) {
     // self
     // .has_errors
@@ -51,6 +53,7 @@ impl Reporter {
     *self.has_errors.lock().unwrap() = has_errors;
   }
 
+  #[inline]
   pub fn has_errors(&self) -> bool {
     *self.has_errors.lock().unwrap()
   }
@@ -68,17 +71,20 @@ impl Reporter {
     self.errors(true);
   }
 
+  #[inline]
   pub fn raise(&self, error: ReportError) -> ! {
     self.add_report(error);
     self.abort()
   }
 
+  #[inline]
   pub fn abort_if_has_errors(&self) {
-    if *self.has_errors.lock().unwrap() {
+    if self.has_errors() {
       self.abort();
     }
   }
 
+  #[inline]
   fn abort(&self) -> ! {
     std::process::exit(1i32)
   }

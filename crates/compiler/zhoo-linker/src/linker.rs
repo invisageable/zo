@@ -1,10 +1,21 @@
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Linker {}
 
+impl Linker {
+  #[inline]
+  fn new() -> Self {
+    Self {}
+  }
+
+  #[inline]
+  fn link(&mut self) -> Result<()> {
+    Ok(())
+  }
+}
+
 pub fn link() -> Result<()> {
-  Ok(())
+  println!("link.");
+  Linker::new().link()
 }

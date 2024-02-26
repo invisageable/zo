@@ -5,6 +5,7 @@ pub struct Stack<I> {
 }
 
 impl<I> Stack<I> {
+  #[inline]
   pub fn of(capacity: usize) -> Self {
     Self {
       capacity,
@@ -12,14 +13,17 @@ impl<I> Stack<I> {
     }
   }
 
+  #[inline]
   pub fn is_empty(&self) -> bool {
     self.items.is_empty()
   }
 
+  #[inline]
   pub fn peek(&self) -> Option<&I> {
     self.items.last()
   }
 
+  #[inline]
   pub fn pop(&mut self) -> Option<I> {
     self.items.pop()
   }
@@ -34,6 +38,7 @@ impl<I> Stack<I> {
     true
   }
 
+  #[inline]
   pub fn size(&self) -> usize {
     self.items.len()
   }
@@ -51,6 +56,7 @@ mod test {
 
   struct Item;
   impl Item {
+    #[inline]
     fn foobar(&self) -> &'static str {
       "I'm an item."
     }

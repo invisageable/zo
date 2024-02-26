@@ -21,10 +21,12 @@ pub struct Token {
 }
 
 impl Token {
+  #[inline]
   pub fn new(kind: TokenKind, span: Span) -> Self {
     Self { kind, span }
   }
 
+  #[inline]
   pub fn is(&self, kind: TokenKind) -> bool {
     self.kind.is(kind)
   }
@@ -46,6 +48,7 @@ pub enum TokenKind {
 }
 
 impl TokenKind {
+  #[inline]
   pub fn is(&self, kind: TokenKind) -> bool {
     *self == kind
   }
@@ -76,18 +79,6 @@ impl TokenKind {
         | Self::Op(Op::Circumflex)
     )
   }
-
-  // pub fn is_comparison(&self) -> bool {
-  //   matches!(
-  //     self,
-  //     Self::Op(Op::EqualEqual)
-  //       | Self::Op(Op::ExclamationEqual)
-  //       | Self::Op(Op::LessThan)
-  //       | Self::Op(Op::GreaterThan)
-  //       | Self::Op(Op::LessThanEqual)
-  //       | Self::Op(Op::GreaterThanEqual)
-  //   )
-  // }
 
   pub fn is_sum(&self) -> bool {
     matches!(self, Self::Op(Op::Plus) | Self::Op(Op::Minus))

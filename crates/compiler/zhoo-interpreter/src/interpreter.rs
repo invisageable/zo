@@ -1,11 +1,21 @@
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Interpreter {}
+
+impl Interpreter {
+  #[inline]
+  fn new() -> Self {
+    Self {}
+  }
+
+  #[inline]
+  fn interpret(&mut self) -> Result<()> {
+    Ok(())
+  }
+}
 
 pub fn interpret() -> Result<()> {
   println!("interpret.");
-  Ok(())
+  Interpreter::new().interpret()
 }

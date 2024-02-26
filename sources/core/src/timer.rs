@@ -26,7 +26,6 @@ impl Timer {
     self.maybe_time_end = Some(Time::now());
   }
 
-  #[inline]
   pub fn sleep(&mut self, millis: u64) {
     std::thread::sleep(std::time::Duration::from_millis(millis));
   }
@@ -37,6 +36,7 @@ impl Timer {
     self.maybe_time_end = None;
   }
 
+  #[inline]
   pub fn duration(&self) -> Option<std::time::Duration> {
     match (self.maybe_time_start.as_ref(), self.maybe_time_end.as_ref()) {
       (Some(start), Some(end)) => Time::merge(start, end),
@@ -44,6 +44,7 @@ impl Timer {
     }
   }
 
+  #[inline]
   pub fn duration_in_unit<U: Into<Unit>>(&self, unit: U) -> Option<f64> {
     self
       .duration()

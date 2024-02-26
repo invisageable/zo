@@ -6,6 +6,7 @@
 
 ## platform.
 
+<!-- [hackpiler](./crates/hackpiler) — A booster for programming languages (`experimental`). -->
 [compiler](./crates/compiler) — A compiler for the `zhoo` programming language.
 
 ## license.

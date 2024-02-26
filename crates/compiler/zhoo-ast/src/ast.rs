@@ -1,8 +1,22 @@
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Program {
   pub items: Vec<Item>,
+}
+
+impl Program {
+  #[inline]
+  pub fn new() -> Self {
+    Self {
+      items: Vec::with_capacity(0usize),
+    }
+  }
+
+  #[inline]
+  pub fn add_item(&mut self, item: Item) {
+    self.items.push(item);
+  }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -1,11 +1,21 @@
 use zo_core::Result;
 
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Builder {}
+
+impl Builder {
+  #[inline]
+  fn new() -> Self {
+    Self {}
+  }
+
+  #[inline]
+  fn build(&mut self) -> Result<()> {
+    Ok(())
+  }
+}
 
 pub fn build() -> Result<()> {
   println!("build.");
-  Ok(())
+  Builder::new().build()
 }

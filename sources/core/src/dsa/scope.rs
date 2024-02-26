@@ -99,10 +99,12 @@ where
     }
   }
 
+  #[inline]
   pub fn scope_entry(&mut self) {
     self.scopes.push_front(Scope::new());
   }
 
+  #[inline]
   pub fn scope_exit(&mut self) {
     if self.scopes.pop_front().is_some() {}
   }

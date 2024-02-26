@@ -10,6 +10,7 @@ struct Reader<'bytes> {
 }
 
 impl<'bytes> Reader<'bytes> {
+  #[inline]
   fn new(reporter: &'bytes mut Reporter) -> Self {
     Self { reporter }
   }

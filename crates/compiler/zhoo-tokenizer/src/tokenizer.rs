@@ -18,9 +18,8 @@ struct Tokenizer<'source> {
 }
 
 impl<'source> Tokenizer<'source> {
-  fn new(interner: &'source mut Interner, _source: &'source [u8]) -> Self {
-    let source = "0xf".as_bytes();
-
+  #[inline]
+  fn new(interner: &'source mut Interner, source: &'source [u8]) -> Self {
     Self {
       interner,
       source,

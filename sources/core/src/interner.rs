@@ -1,4 +1,4 @@
-// adaptation basé sur l'example de @andersk: https://www.reddit.com/r/rust/comments/fn1jxf/blog_post_fast_and_simple_rust_interner
+// adaptation basé sur "Fast and SImple Interner" by @matklad: https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html
 
 pub mod symbol;
 
@@ -15,6 +15,7 @@ pub struct Interner {
 }
 
 impl Interner {
+  #[inline]
   pub fn new() -> Self {
     Self::with_capacity(0usize)
   }
@@ -44,22 +45,27 @@ impl Interner {
     symbol
   }
 
+  #[inline]
   pub fn lookup_int(&self, id: impl Into<usize>) -> i64 {
     self.vec[id.into()].parse().unwrap()
   }
 
+  #[inline]
   pub fn lookup_float(&self, id: impl Into<usize>) -> f64 {
     self.vec[id.into()].parse().unwrap()
   }
 
+  #[inline]
   pub fn lookup_char(&self, id: impl Into<usize>) -> char {
     self.vec[id.into()].chars().next().unwrap()
   }
 
+  #[inline]
   pub fn lookup_str(&self, id: impl Into<usize>) -> &str {
     self.vec[id.into()]
   }
 
+  #[inline]
   pub fn lookup_identifier(&self, id: impl Into<usize>) -> &str {
     self.vec[id.into()]
   }

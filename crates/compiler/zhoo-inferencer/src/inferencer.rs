@@ -3,9 +3,11 @@ use zhoo_ty::ty;
 
 use zo_core::Result;
 
+#[derive(Debug)]
 pub struct Inferencer {}
 
 impl Inferencer {
+  #[inline]
   fn new() -> Self {
     Self {}
   }

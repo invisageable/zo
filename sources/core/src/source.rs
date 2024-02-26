@@ -9,6 +9,7 @@ pub struct Source {
 }
 
 impl Source {
+  #[inline]
   pub fn new<P: Into<std::path::PathBuf>>(id: usize, path: P) -> Self {
     Self {
       id,

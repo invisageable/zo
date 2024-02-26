@@ -4,20 +4,24 @@ pub struct Queue<T> {
 }
 
 impl<T> Queue<T> {
+  #[inline]
   pub fn new() -> Self {
     Self {
       items: std::collections::LinkedList::new(),
     }
   }
 
+  #[inline]
   pub fn is_empty(&self) -> bool {
     self.items.is_empty()
   }
 
+  #[inline]
   pub fn enqueue(&mut self, item: T) {
     self.items.push_back(item);
   }
 
+  #[inline]
   pub fn dequeue(&mut self) -> Option<T> {
     match self.is_empty() {
       false => self.items.pop_front(),
@@ -25,10 +29,12 @@ impl<T> Queue<T> {
     }
   }
 
+  #[inline]
   pub fn peek(&self) -> Option<&T> {
     self.items.front()
   }
 
+  #[inline]
   pub fn size(&self) -> usize {
     self.items.len()
   }
@@ -46,6 +52,7 @@ mod test {
 
   struct Item;
   impl Item {
+    #[inline]
     fn foobar(&self) -> &'static str {
       "I'm an item."
     }
