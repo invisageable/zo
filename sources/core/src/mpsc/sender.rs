@@ -1,7 +1,14 @@
 use crate::reporter::report::chan::Chan;
 use crate::Result;
 
+#[cfg(feature = "flume")]
+pub type SenderError = flume::SendError<String>;
+#[cfg(feature = "flume")]
+pub type SenderInner<S> = flume::Sender<S>;
+
+#[cfg(feature = "kanal")]
 pub type SenderError = kanal::ReceiveError;
+#[cfg(feature = "kanal")]
 pub type SenderInner<R> = kanal::Sender<R>;
 
 #[derive(Clone, Debug)]

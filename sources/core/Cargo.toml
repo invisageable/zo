@@ -4,10 +4,16 @@ edition.workspace = true
 license.workspace = true
 version.workspace = true
 
+[features]
+default = []
+flume = []
+kanal = []
+
 [dependencies]
 anyhow.workspace = true
 
 ariadne = { workspace = true }
+flume = { workspace = true }
 hashbrown = { workspace = true }
 Inflector = { workspace = true }
 itoa = { workspace = true }

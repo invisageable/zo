@@ -773,7 +773,6 @@ name = "zhoo-driver"
 version = "0.0.0"
 dependencies = [
  "clap",
- "flume",
  "serde",
  "smol_str",
  "zhoo-compiler",
@@ -857,6 +856,7 @@ dependencies = [
  "Inflector",
  "anyhow",
  "ariadne",
+ "flume",
  "hashbrown",
  "itoa",
  "kanal",

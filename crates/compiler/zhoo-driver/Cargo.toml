@@ -7,9 +7,8 @@ edition.workspace = true
 zhoo-compiler = { workspace = true }
 zhoo-session = { workspace = true }
 
-zo-core = { workspace = true }
+zo-core = { workspace = true, features = ["kanal"] }
 
 clap = { workspace = true }
-flume = { workspace = true }
 serde = { workspace = true }
 smol_str = { workspace = true }
