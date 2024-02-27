@@ -12,7 +12,7 @@ version = "0.0.0"
 
 [workspace.dependencies]
 # internal:core.
-zo-core = { path = "sources/core", version = "0.0.0" }
+zo-core = { path = "sources/core", version = "0.0.0", features = ["kanal"] }
 
 # internal:compiler
 zhoo = { path = "crates/compiler/zhoo", version = "0.0.0" }
@@ -61,6 +61,7 @@ ryu = "1.0.15"
 serde = { version = "1.0.197", features = ["serde_derive"] }
 smol_str = "0.2.1"
 sysinfo = "0.30.5"
+tinyvec = "1.6.0"
 typed-arena = "2.0.2"
 walkdir = "2.4.0"
 wasmtime = "17.0.1"
