@@ -1,4 +1,4 @@
-use Inflector::cases::pascalcase;
+use inflector::cases::pascalcase;
 
 #[inline]
 pub fn is_pascal_case(text: impl AsRef<str>) -> bool {
