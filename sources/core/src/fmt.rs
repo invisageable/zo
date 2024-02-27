@@ -1,4 +1,4 @@
-pub(crate) struct Sep<'a, T: 'a>(pub &'a [T], pub &'a str);
+struct Sep<'a, T: 'a>(pub &'a [T], pub &'a str);
 
 impl<'a, T: std::fmt::Display> std::fmt::Display for Sep<'a, T> {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

@@ -1,20 +1,26 @@
 use zhoo_ast::ast;
+use zhoo_session::session::Session;
 use zhoo_ty::ty;
 
+use zo_core::interner::Interner;
+use zo_core::reporter::Reporter;
 use zo_core::Result;
 
 #[derive(Debug)]
-pub struct Inferencer<'program> {
+struct Inferencer<'program> {
   #[allow(dead_code)]
   interner: &'program mut Interner,
   #[allow(dead_code)]
   reporter: &'program Reporter,
 }
 
-impl Inferencer {
+impl<'program> Inferencer<'program> {
   #[inline]
-  fn new() -> Self {
-    Self {}
+  fn new(
+    interner: &'program mut Interner,
+    reporter: &'program Reporter,
+  ) -> Self {
+    Self { interner, reporter }
   }
 
   fn infer(&mut self, program: &ast::Program) -> Result<ty::Ty> {
@@ -71,6 +77,12 @@ impl Inferencer {
   }
 }
 
-pub fn infer(program: &ast::Program) -> Result<ty::Ty> {
-  Inferencer::new().infer(program)
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
+pub fn infer(session: &mut Session, program: &ast::Program) -> Result<ty::Ty> {
+  Inferencer::new(&mut session.interner, &session.reporter).infer(program)
 }

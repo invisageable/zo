@@ -1,3 +1,6 @@
+//! The [`Reporter`] used inside the compiler stack. It contains — `error`
+//! messages and data structures to displays friendly errors.
+
 pub mod report;
 
 use report::{Error, ReportError};

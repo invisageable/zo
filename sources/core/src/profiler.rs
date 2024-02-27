@@ -1,3 +1,5 @@
+//! A simple [`Profiler`] to track function time execution.
+
 mod profile;
 
 use super::timer::unit::Unit;

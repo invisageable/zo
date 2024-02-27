@@ -718,6 +718,9 @@ name = "zhoo-analyzer"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "zhoo-inferencer",
+ "zhoo-ty",
+ "zhoo-tychecker",
  "zo-core",
 ]
 
@@ -781,6 +784,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zhoo-inferencer"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "zhoo-ast",
+ "zhoo-session",
+ "zhoo-ty",
+ "zhoo-tychecker",
+ "zo-core",
+]
+
+[[package]]
 name = "zhoo-interpreter"
 version = "0.0.0"
 dependencies = [
@@ -838,6 +853,24 @@ dependencies = [
  "serde",
  "smol_str",
  "zhoo-session",
+ "zo-core",
+]
+
+[[package]]
+name = "zhoo-ty"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "zo-core",
+]
+
+[[package]]
+name = "zhoo-tychecker"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "zhoo-ast",
+ "zhoo-value",
  "zo-core",
 ]
 

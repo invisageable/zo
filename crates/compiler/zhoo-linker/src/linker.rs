@@ -1,7 +1,7 @@
 use zo_core::Result;
 
 #[derive(Debug)]
-pub struct Linker {}
+struct Linker {}
 
 impl Linker {
   #[inline]
@@ -15,6 +15,12 @@ impl Linker {
   }
 }
 
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn link() -> Result<()> {
   println!("link.");
   Linker::new().link()

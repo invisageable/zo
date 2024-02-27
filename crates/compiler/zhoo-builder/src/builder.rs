@@ -1,7 +1,7 @@
 use zo_core::Result;
 
 #[derive(Debug)]
-pub struct Builder {}
+struct Builder {}
 
 impl Builder {
   #[inline]
@@ -15,6 +15,12 @@ impl Builder {
   }
 }
 
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn build() -> Result<()> {
   println!("build.");
   Builder::new().build()

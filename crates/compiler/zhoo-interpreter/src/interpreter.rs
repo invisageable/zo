@@ -1,7 +1,7 @@
 use zo_core::Result;
 
 #[derive(Debug)]
-pub struct Interpreter {}
+struct Interpreter {}
 
 impl Interpreter {
   #[inline]
@@ -15,6 +15,12 @@ impl Interpreter {
   }
 }
 
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn interpret() -> Result<()> {
   println!("interpret.");
   Interpreter::new().interpret()

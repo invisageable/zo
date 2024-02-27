@@ -4,6 +4,10 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
+zhoo-ty = { workspace = true }
+zhoo-tychecker = { workspace = true }
+zhoo-inferencer = { workspace = true }
+
 zo-core = { workspace = true }
 
 serde = { workspace = true }

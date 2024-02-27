@@ -1,7 +1,7 @@
 use zo_core::Result;
 
 #[derive(Debug)]
-pub struct Analyzer {}
+struct Analyzer {}
 
 impl Analyzer {
   #[inline]
@@ -15,6 +15,12 @@ impl Analyzer {
   }
 }
 
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn analyze() -> Result<()> {
   println!("analyze.");
   Analyzer::new().analyze()

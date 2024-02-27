@@ -214,6 +214,17 @@ impl<'source> Iterator for Tokenizer<'source> {
   }
 }
 
+/// ## arguments.
+///
+/// - `session` — A mutable reference to the [`Session`].
+/// - `source` — A sequence of bytes to be tokenized.
+///
+/// ## returns.
+///
+/// A [`Result`] containing a vector of tokens or an error.
+///
+/// ```
+/// ```
 pub fn tokenize(session: &mut Session, source: &[u8]) -> Result<Vec<Token>> {
   println!("tokenize.");
   Tokenizer::new(&mut session.interner, &session.reporter, source).tokenize()

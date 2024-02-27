@@ -54,6 +54,21 @@ impl<'tokens> Parser<'tokens> {
   }
 }
 
+/// Public function that parses a sequence of tokens.
+///
+/// ## arguments.
+///
+/// * `session` — a reference to the session.
+/// * `tokens`  — a sequence of tokens to be parsed.
+///
+/// ## returns.
+///
+/// a [`Result`] containing an ast ([`Program`]) or an error.
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn parse(session: &mut Session, tokens: &[Token]) -> Result<Program> {
   println!("parse.");
   Parser::new(&session.interner, &session.reporter, tokens).parse()

@@ -4,7 +4,7 @@ use zhoo_session::session::Session;
 use zo_core::Result;
 
 #[derive(Debug)]
-pub struct Codegen {}
+struct Codegen {}
 
 impl Codegen {
   #[inline]
@@ -18,6 +18,12 @@ impl Codegen {
   }
 }
 
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn generate(
   _session: &mut Session,
   _program: ast::Program,
