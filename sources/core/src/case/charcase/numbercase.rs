@@ -1,3 +1,5 @@
+use super::identcase::is_underscore;
+
 #[inline]
 pub fn is_number<B>(byte: B) -> bool
 where
@@ -19,7 +21,7 @@ pub fn is_number_continue<B>(byte: B) -> bool
 where
   B: Into<u8> + Copy,
 {
-  matches!(byte.into(), b'1'..=b'9')
+  matches!(byte.into(), b'1'..=b'9') || is_underscore(byte)
 }
 
 #[inline]

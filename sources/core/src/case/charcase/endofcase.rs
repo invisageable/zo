@@ -12,10 +12,11 @@ where
 ///
 /// ## example.
 ///
-/// ```rs
-/// use swiss_kit_case::charcase::endofcase;
-/// assert!(endofcase::is_eof('\0'));
-/// assert!(endofcase::is_eof(''));
+/// ```
+/// use zo_core::case::charcase::endofcase;
+///
+/// assert!(endofcase::is_eof(b'\0'));
+/// assert!(!endofcase::is_eof(b'_'));
 /// ```
 //
 #[inline]
@@ -32,10 +33,11 @@ where
 ///
 /// ## example.
 ///
-/// ```rs
-/// use swiss_kit_case::charcase::endofcase;
-/// assert!(endofcase::is_eol('\0'));
-/// assert!(endofcase::is_eol(''));
+/// ```
+/// use zo_core::case::charcase::endofcase;
+///
+/// assert!(endofcase::is_eol(b'\n'));
+/// assert!(!endofcase::is_eol(b'_'));
 /// ```
 //
 #[inline]
