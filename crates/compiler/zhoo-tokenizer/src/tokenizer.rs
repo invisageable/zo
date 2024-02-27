@@ -34,7 +34,7 @@ impl<'source> Tokenizer<'source> {
       interner,
       reporter,
       source,
-      index: 0,
+      index: 0usize,
     }
   }
 
