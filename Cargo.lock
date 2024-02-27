@@ -718,7 +718,6 @@ name = "zhoo-analyzer"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zo-core",
 ]
 
@@ -727,7 +726,6 @@ name = "zhoo-ast"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zhoo-session",
  "zo-core",
 ]
@@ -737,7 +735,6 @@ name = "zhoo-builder"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zhoo-session",
  "zo-core",
 ]
@@ -747,7 +744,6 @@ name = "zhoo-codegen"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zhoo-ast",
  "zhoo-session",
  "zo-core",
@@ -758,7 +754,6 @@ name = "zhoo-compiler"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zhoo-analyzer",
  "zhoo-ast",
  "zhoo-builder",
@@ -780,7 +775,6 @@ dependencies = [
  "clap",
  "flume",
  "serde",
- "serde_derive",
  "smol_str",
  "zhoo-compiler",
  "zhoo-session",
@@ -792,7 +786,6 @@ name = "zhoo-interpreter"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zhoo-ast",
  "zhoo-session",
  "zhoo-value",
@@ -804,7 +797,6 @@ name = "zhoo-linker"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zhoo-session",
  "zo-core",
 ]
@@ -814,7 +806,6 @@ name = "zhoo-parser"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zhoo-ast",
  "zhoo-session",
  "zhoo-tokenizer",
@@ -826,7 +817,6 @@ name = "zhoo-reader"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zhoo-session",
  "zo-core",
 ]
@@ -836,7 +826,6 @@ name = "zhoo-session"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "smol_str",
  "zo-core",
 ]
@@ -848,7 +837,6 @@ dependencies = [
  "hashbrown",
  "lazy_static",
  "serde",
- "serde_derive",
  "smol_str",
  "zhoo-session",
  "zo-core",
@@ -859,7 +847,6 @@ name = "zhoo-value"
 version = "0.0.0"
 dependencies = [
  "serde",
- "serde_derive",
  "zo-core",
 ]
 
@@ -875,7 +862,6 @@ dependencies = [
  "kanal",
  "ryu",
  "serde",
- "serde_derive",
  "smol_str",
  "sysinfo",
 ]

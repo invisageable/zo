@@ -1,6 +1,6 @@
 use zo_core::span::Span;
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub enum Comment {

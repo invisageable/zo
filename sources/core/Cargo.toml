@@ -14,6 +14,5 @@ itoa = { workspace = true }
 kanal = { workspace = true }
 ryu = { workspace = true }
 serde = { workspace = true }
-serde_derive = { workspace = true }
 smol_str = { workspace = true }
 sysinfo = { workspace = true }

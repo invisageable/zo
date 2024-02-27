@@ -1,14 +1,13 @@
 use super::TokenKind;
 
 use hashbrown::{HashMap, HashSet};
-use lazy_static::lazy_static;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
 type Keyword = HashMap<SmolStr, TokenKind>;
 type Type = HashSet<SmolStr>;
 
-lazy_static! {
+lazy_static::lazy_static! {
   pub static ref KEYWORD: Keyword = {
     let mut kw: Keyword = HashMap::new();
 

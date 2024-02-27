@@ -11,4 +11,3 @@ zhoo-value = { workspace = true }
 zo-core = { workspace = true }
 
 serde = { workspace = true }
-serde_derive = { workspace = true }

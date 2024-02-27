@@ -1,4 +1,4 @@
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 pub trait Sym: std::fmt::Debug + std::fmt::Display {
   fn as_symbol(&self) -> &Symbol;

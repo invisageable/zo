@@ -12,7 +12,7 @@ use punctuation::Punctuation;
 use zo_core::interner::symbol::Symbol;
 use zo_core::span::Span;
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Token {

@@ -5,6 +5,7 @@ exclude = [".todo.md", "examples", "notes", "tasks"]
 default-members = ["crates/compiler/zhoo"]
 
 [workspace.package]
+authors = ["@invisageable"]
 edition = "2021"
 license = "APACHE — MIT"
 version = "0.0.0"
@@ -56,8 +57,7 @@ lazy_static = "1.4.0"
 pollster = "0.3.0"
 rayon = "1.8.0"
 ryu = "1.0.15"
-serde = "1.0.197"
-serde_derive = "1.0.197"
+serde = { version = "1.0.197", features = ["serde_derive"] }
 smol_str = "0.2.1"
 sysinfo = "0.30.5"
 typed-arena = "2.0.2"
