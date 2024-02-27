@@ -1,6 +1,11 @@
 use crate::reporter::report::chan::Chan;
 use crate::Result;
 
+#[cfg(feature = "crossbeam-channel")]
+pub type SenderError = crossbeam_channel::SendError<String>;
+#[cfg(feature = "crossbeam-channel")]
+pub type SenderInner<S> = crossbeam_channel::Sender<S>;
+
 #[cfg(feature = "flume")]
 pub type SenderError = flume::SendError<String>;
 #[cfg(feature = "flume")]

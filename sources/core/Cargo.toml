@@ -6,6 +6,7 @@ version.workspace = true
 
 [features]
 default = []
+crossbeam-channel = []
 flume = []
 kanal = []
 
@@ -13,6 +14,7 @@ kanal = []
 anyhow.workspace = true
 
 ariadne = { workspace = true }
+crossbeam-channel = { workspace = true }
 flume = { workspace = true }
 hashbrown = { workspace = true }
 Inflector = { workspace = true }
