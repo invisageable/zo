@@ -9,8 +9,8 @@ use zhoo_compiler::phase::reading::Reading;
 use zhoo_compiler::phase::tokenizing::Tokenizing;
 use zhoo_compiler::phase::Phase;
 use zhoo_session::session::Session;
-
 use zhoo_session::settings::Settings;
+
 use zo_core::mpsc::channel;
 use zo_core::{Result, EXIT_FAILURE, EXIT_SUCCESS};
 
