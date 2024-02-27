@@ -3,6 +3,9 @@ name = "zhoo-session"
 license.workspace = true
 edition.workspace = true
 
+[lib]
+doctest = false
+
 [dependencies]
 zo-core = { workspace = true }
 

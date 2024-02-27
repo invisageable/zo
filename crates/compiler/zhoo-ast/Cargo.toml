@@ -3,6 +3,9 @@ name = "zhoo-ast"
 license.workspace = true
 edition.workspace = true
 
+[lib]
+doctest = false
+
 [dependencies]
 zhoo-session = { workspace = true }
 
