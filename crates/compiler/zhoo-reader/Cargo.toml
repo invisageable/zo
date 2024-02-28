@@ -9,3 +9,4 @@ zhoo-session = { workspace = true }
 zo-core = { workspace = true }
 
 serde = { workspace = true }
+smol_str = { workspace = true }
