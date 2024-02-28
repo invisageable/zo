@@ -122,13 +122,17 @@ impl<'source> Tokenizer<'source> {
 
             self.bump();
           }
-          _ => {
-            state = TokenizerState::Int;
+          b'o' => {
+            state = TokenizerState::Oct;
 
             self.bump();
-
-            break;
           }
+          b'b' => {
+            state = TokenizerState::Bin;
+
+            self.bump();
+          }
+          _ => break,
         },
         TokenizerState::Int => match byte {
           b if is!(number_start b) | is!(number_continue b) => self.bump(),
@@ -153,9 +157,11 @@ impl<'source> Tokenizer<'source> {
           }
         },
         TokenizerState::Oct => match byte {
+          b if is!(number_oct b) => {}
           _ => break,
         },
         TokenizerState::Bin => match byte {
+          b if is!(number_bin b) => {}
           _ => break,
         },
         TokenizerState::Float => match byte {

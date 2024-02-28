@@ -32,6 +32,22 @@ where
   byte.into().is_ascii_hexdigit()
 }
 
+#[inline]
+pub fn is_number_oct<B>(byte: B) -> bool
+where
+  B: Into<u8> + Copy,
+{
+  matches!(byte.into(), b'0'..=b'7')
+}
+
+#[inline]
+pub fn is_number_bin<B>(byte: B) -> bool
+where
+  B: Into<u8> + Copy,
+{
+  matches!(byte.into(), b'0'..=b'1')
+}
+
 pub fn of_name<B>(byte: B) -> Option<&'static str>
 where
   B: Into<u8> + Copy,
@@ -39,6 +55,8 @@ where
   let name = match byte.into() {
     b if is_number(b) => "number",
     b if is_number_hex(b) => "number hex",
+    b if is_number_oct(b) => "number octal",
+    b if is_number_bin(b) => "number binary",
     _ => return None,
   };
 

@@ -34,6 +34,12 @@ macro_rules! is {
   (number_hex $rhs:expr) => {
     $crate::case::charcase::numbercase::is_number_hex($rhs)
   };
+  (number_oct $rhs:expr) => {
+    $crate::case::charcase::numbercase::is_number_oct($rhs)
+  };
+  (number_bin $rhs:expr) => {
+    $crate::case::charcase::numbercase::is_number_bin($rhs)
+  };
   (op $rhs:expr) => {
     $crate::case::charcase::opcase::is_op($rhs)
   };
