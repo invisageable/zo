@@ -17,6 +17,6 @@ abstract apply  async  await break continue else  enum ext fn
 for      fun    if     imu   load  loop     match me   mut pack
 pub      return struct type  val   wasm     while
 
-'a' '\0'
+'a' '\0' '\n' 'İ' '山'
 
 "Bonjour le monde!" "Wesh la famille!" "Yo 👽!"

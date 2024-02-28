@@ -8,6 +8,7 @@ type Keyword = HashMap<SmolStr, TokenKind>;
 type Type = HashSet<SmolStr>;
 
 lazy_static::lazy_static! {
+  // available keywords.
   pub static ref KEYWORD: Keyword = {
     let mut kw: Keyword = HashMap::new();
 
@@ -41,6 +42,7 @@ lazy_static::lazy_static! {
 
     kw
   };
+  // reserved words for types, an error should be handled if it used.
   pub static ref TYPE: Type = {
     let mut kwf: Type = HashSet::new();
 

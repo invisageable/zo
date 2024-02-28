@@ -1,4 +1,8 @@
-//! ...
+//! # tokenizer.
+//!
+//! a simple tokenizer that used a kind of a finite state machine. It implements
+//! the iterator trait and it can only advance throw bytes one by one. For
+//! the moment the tokenizer is not plugged to the parser.
 
 use super::state::TokenizerState;
 use super::token::group::Group;
@@ -132,7 +136,11 @@ impl<'source> Tokenizer<'source> {
 
             self.bump();
           }
-          _ => break,
+          _ => {
+            state = TokenizerState::Int;
+
+            break;
+          }
         },
         TokenizerState::Int => match byte {
           b if is!(number_start b) | is!(number_continue b) => self.bump(),
@@ -156,10 +164,12 @@ impl<'source> Tokenizer<'source> {
             self.bump();
           }
         },
+        // todo(ivs) — implements octal.
         TokenizerState::Oct => match byte {
           b if is!(number_oct b) => {}
           _ => break,
         },
+        // todo(ivs) — implements binary.
         TokenizerState::Bin => match byte {
           b if is!(number_bin b) => {}
           _ => break,
@@ -176,7 +186,7 @@ impl<'source> Tokenizer<'source> {
         TokenizerState::Notation => match byte {
           b if b == b'+' || b == b'-' || is!(number b) => self.bump(),
           _ => {
-            // todo(ivs): separate `int` and `float` E notation.
+            // todo(ivs) — separate `int` and `float` E notation.
             state = TokenizerState::Int;
 
             break;

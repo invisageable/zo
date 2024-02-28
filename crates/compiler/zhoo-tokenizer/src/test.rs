@@ -26,6 +26,7 @@ fn tokenize_atlas() {
   let source = reader::read_file(&mut session).unwrap();
 
   tokenizer::tokenize(&mut session, &source)
+    // todo(ivs) — compare by tokens.
     .map(|tokens| assert!(tokens.len() > 0))
     .unwrap();
 }
