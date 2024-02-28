@@ -1058,6 +1058,7 @@ dependencies = [
 name = "zhoo-reader"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "serde",
  "smol_str",
  "zhoo-session",
