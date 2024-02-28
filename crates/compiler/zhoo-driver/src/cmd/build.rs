@@ -53,7 +53,7 @@ impl Build {
     };
 
     // todo(ivs): kind of ugly implementation of channel.
-    // it does the job done for the moment but in the future maybe.
+    // it does the job done for the moment but in the future maybe,
     // we will need to change this approach.
     let (rx_reading, tx_reading) = channel::bounded(channel::CAPACITY);
     let (rx_tokenizing, tx_tokenizing) = channel::bounded(channel::CAPACITY);

@@ -59,7 +59,7 @@ impl<'source> Tokenizer<'source> {
       b if is!(op b) => TokenizerState::Op,
       b if is!(punctuation b) => TokenizerState::Punctuation,
       b if is!(group b) => TokenizerState::Group,
-      b if is!(eof b) => TokenizerState::End,
+      b if is!(quote b) => TokenizerState::Quote,
       _ => TokenizerState::Unknown,
     }
   }
@@ -81,68 +81,165 @@ impl<'source> Tokenizer<'source> {
             index_start = self.index;
           }
         }
-        TokenizerState::Space => {
-          println!("SPACE: {}", byte as char);
-        }
-        TokenizerState::Comment => {
-          println!("COMMENT: {}", byte as char);
-        }
-        TokenizerState::Zero => match byte {
-          b if is!(number_start b) => {
-            println!("ZERO: {}", byte as char);
-
-            state = TokenizerState::Zero;
+        TokenizerState::Space => match byte {
+          b if is!(space b) => {
+            state = TokenizerState::Start;
 
             self.bump();
           }
+          _ => break,
+        },
+        TokenizerState::Comment => match byte {
+          b if !is!(eol b) => self.bump(),
+          _ => {
+            state = TokenizerState::Start;
+          }
+        },
+        TokenizerState::Zero => match byte {
+          b if is!(number_start b) => self.bump(),
+          b if is!(number_continue b) => {
+            let span = Span::of(index_start, self.index + 1);
+
+            self
+              .reporter
+              .raise(ReportError::Lexical(Lexical::InvalidNum(
+                span,
+                byte as char,
+              )));
+          }
           b if b == b'x' || b == b'X' => {
-            println!("IS:HEX: {}", byte as char);
             state = TokenizerState::Hex;
+
+            self.bump();
+          }
+          _ => {
+            state = TokenizerState::Int;
+
+            self.bump();
+
+            break;
+          }
+        },
+        TokenizerState::Int => match byte {
+          b if is!(number_start b) => {
+            println!("INT: {}", byte as char);
+
+            self.bump();
+          }
+          b if is!(number_continue b) => {
+            println!("INT: {}", byte as char);
 
             self.bump();
           }
           _ => break,
         },
         TokenizerState::Hex => match byte {
-          b if is!(number_hex b) => {
-            println!("HEX: {}", byte as char);
+          b if is!(number_hex b) => self.bump(),
+          _ => {
+            state = TokenizerState::Int;
+
             self.bump();
+
+            break;
           }
-          _ => break,
         },
-        TokenizerState::Int => {
-          println!("INT: {}", byte as char);
-          self.bump();
-        }
         TokenizerState::Float => {
           println!("FLOAT: {}", byte as char);
         }
-        TokenizerState::Ident => {
-          println!("IDENT: {}", byte as char);
-          self.bump();
-        }
-        TokenizerState::Op => {
-          println!("OP: {}", byte as char);
-        }
-        TokenizerState::Punctuation => {
-          println!("PUNCTUATION: {}", byte as char);
-        }
-        TokenizerState::Group => {
-          println!("GROUP: {}", byte as char);
-        }
-        TokenizerState::Unknown => {
-          println!("UNKNOWN: {}", byte as char);
+        TokenizerState::Ident => match byte {
+          b if is!(ident_continue b) => self.bump(),
+          _ => break,
+        },
+        TokenizerState::Op => match byte {
+          b if is!(op b) => {
+            println!("OP: {}", byte as char);
 
+            if byte == b'+' {
+              self.bump();
+
+              let byte = self.byte();
+
+              match byte {
+                b'=' => {
+                  state = TokenizerState::Start;
+
+                  self.bump();
+                }
+                _ => break,
+              }
+            } else if byte == b'-' {
+              self.bump();
+
+              let byte = self.byte();
+
+              match byte {
+                b'-' | b'!' => {
+                  state = TokenizerState::Comment;
+
+                  self.bump();
+                }
+                _ => break,
+              }
+            } else {
+              self.bump();
+
+              break;
+            }
+          }
+          _ => break,
+        },
+        TokenizerState::Punctuation => match byte {
+          b if is!(punctuation b) => {
+            println!("PUNCTUATION: {}", byte as char);
+
+            if byte == b':' {
+              self.bump();
+
+              let byte = self.byte();
+
+              match byte {
+                b'=' => {
+                  state = TokenizerState::Op;
+                  self.bump();
+                }
+                b':' => {
+                  self.bump();
+                }
+                _ => break,
+              }
+            } else {
+              self.bump();
+
+              break;
+            }
+          }
+          _ => break,
+        },
+        TokenizerState::Group => match byte {
+          b if is!(group b) => {
+            self.bump();
+
+            break;
+          }
+          _ => break,
+        },
+        TokenizerState::Quote => match byte {
+          b if is!(quote_single b) => {
+            // in char.
+            println!("CHAR: {}", byte as char);
+          }
+          b if is!(quote_double b) => {
+            // in string.
+            println!("STRING: {}", byte as char);
+          }
+          _ => break,
+        },
+        TokenizerState::Unknown => {
           let span = Span::of(index_start, self.index + 1);
 
           self
             .reporter
             .raise(ReportError::Lexical(Lexical::Unknown(span, byte as char)));
-        }
-        TokenizerState::End => {
-          println!("EOF: {}", byte as char);
-
-          break;
         }
       }
     }
@@ -214,6 +311,8 @@ impl<'source> Iterator for Tokenizer<'source> {
   }
 }
 
+/// transforms bytes characters to tokens.
+///
 /// ## arguments.
 ///
 /// - `session` — A mutable reference to the [`Session`].

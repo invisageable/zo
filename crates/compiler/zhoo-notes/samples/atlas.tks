@@ -1,0 +1,12 @@
+-- this is a line comments
+-! this is a line doc comments
+
+0 1 2 3 4 5 6 7 8 9 10 100 1000 10000 100_000 1_000_000
+
+= + - * / % ^ !
+() {} []
+, . : ;
+
+abstract apply  async  await break continue else  enum ext fn
+for      fun    if     imu   load  loop     match me   mut pack
+pub      return struct type  val   wasm     while

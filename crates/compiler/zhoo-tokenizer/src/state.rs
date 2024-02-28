@@ -12,6 +12,6 @@ pub(crate) enum TokenizerState {
   Op,
   Punctuation,
   Group,
+  Quote,
   Unknown,
-  End,
 }

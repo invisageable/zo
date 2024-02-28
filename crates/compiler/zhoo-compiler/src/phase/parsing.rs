@@ -18,6 +18,7 @@ pub struct Parsing {
 impl Process for Parsing {
   fn process(&self, session: &mut Session) -> Result<()> {
     self.tx.recv().and_then(|tokens| {
+      println!("\n{tokens:?}\n\nLENGTH: {}\n", tokens.len());
       parser::parse(session, tokens.as_ref())
         .and_then(|program| self.rx.send(program))
     })
