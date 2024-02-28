@@ -8,6 +8,7 @@ pub enum Punctuation {
   ColonColon,
   Semicolon,
   MinusGreaterThan,
+  EqualGreaterThan,
 }
 
 impl From<char> for Punctuation {
@@ -27,6 +28,7 @@ impl From<&str> for Punctuation {
     match punctuation {
       "::" => Self::ColonColon,
       "->" => Self::MinusGreaterThan,
+      "=>" => Self::EqualGreaterThan,
       _ => unreachable!("{punctuation}"),
     }
   }
@@ -41,6 +43,7 @@ impl std::fmt::Display for Punctuation {
       Self::ColonColon => write!(f, "::"),
       Self::Semicolon => write!(f, ";"),
       Self::MinusGreaterThan => write!(f, "->"),
+      Self::EqualGreaterThan => write!(f, "=>"),
     }
   }
 }

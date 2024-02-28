@@ -1,5 +1,6 @@
 use super::tokenizer;
 
+use zhoo_reader::reader;
 use zhoo_session::session::Session;
 
 lazy_static::lazy_static! {
@@ -20,23 +21,11 @@ fn tokenize_empty() {
 fn tokenize_atlas() {
   let mut session = &mut SESSION.lock().unwrap();
 
-  let source = r#"
--- this is a line comments
--! this is a line doc comments
+  session.settings.input = "../zhoo-notes/samples/atlas.tks".into();
 
-0 1 2 3 4 5 6 7 8 9 10 100 1000 10000 100_000 1_000_000
+  let source = reader::read_file(&mut session).unwrap();
 
-= + - * / % ^ !
-() {} []
-, . : ;
-
-abstract apply  async  await break continue else  enum ext fn
-for      fun    if     imu   load  loop     match me   mut pack
-pub      return struct type  val   wasm     while
-  "#
-  .as_bytes();
-
-  tokenizer::tokenize(&mut session, source)
+  tokenizer::tokenize(&mut session, &source)
     .map(|tokens| assert!(tokens.len() > 0))
     .unwrap();
 }

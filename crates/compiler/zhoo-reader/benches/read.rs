@@ -9,10 +9,7 @@ fn bench_read(c: &mut Criterion) {
   session.settings.input = "../zhoo-notes/samples/main.zo".into();
 
   c.bench_function("read", |b| {
-    b.iter(|| match reader::read(black_box(&mut session)) {
-      Ok(_) => {}
-      Err(error) => panic!("{error}"),
-    });
+    b.iter(|| reader::read(black_box(&mut session)).unwrap())
   });
 }
 

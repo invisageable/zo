@@ -1,3 +1,5 @@
+//! ...
+
 use super::state::TokenizerState;
 use super::token::group::Group;
 use super::token::kw::KEYWORD;
@@ -38,14 +40,17 @@ impl<'source> Tokenizer<'source> {
     }
   }
 
+  #[inline]
   fn byte(&self) -> u8 {
     self.source[self.index]
   }
 
+  #[inline]
   fn bump(&mut self) {
     self.index += 1;
   }
 
+  #[inline]
   fn tokenize(&mut self) -> Result<Vec<Token>> {
     Ok(self.collect())
   }
@@ -107,6 +112,11 @@ impl<'source> Tokenizer<'source> {
                 byte as char,
               )));
           }
+          b if is!(dot b) => {
+            state = TokenizerState::Float;
+
+            self.bump();
+          }
           b if b == b'x' || b == b'X' => {
             state = TokenizerState::Hex;
 
@@ -121,13 +131,14 @@ impl<'source> Tokenizer<'source> {
           }
         },
         TokenizerState::Int => match byte {
-          b if is!(number_start b) => {
-            // println!("INT: {}", byte as char);
+          b if is!(number_start b) | is!(number_continue b) => self.bump(),
+          b if is!(dot b) => {
+            state = TokenizerState::Float;
 
             self.bump();
           }
-          b if is!(number_continue b) => {
-            // println!("INT: {}", byte as char);
+          b if b == b'e' || b == b'E' => {
+            state = TokenizerState::Notation;
 
             self.bump();
           }
@@ -139,45 +150,120 @@ impl<'source> Tokenizer<'source> {
             state = TokenizerState::Int;
 
             self.bump();
+          }
+        },
+        TokenizerState::Oct => match byte {
+          _ => break,
+        },
+        TokenizerState::Bin => match byte {
+          _ => break,
+        },
+        TokenizerState::Float => match byte {
+          b if is!(number b) || is!(underscore b) => self.bump(),
+          b if b == b'e' || b == b'E' => {
+            state = TokenizerState::Notation;
+
+            self.bump();
+          }
+          _ => break,
+        },
+        TokenizerState::Notation => match byte {
+          b if b == b'+' || b == b'-' || is!(number b) => self.bump(),
+          _ => {
+            // todo(ivs): separate `int` and `float` E notation.
+            state = TokenizerState::Int;
 
             break;
           }
         },
-        TokenizerState::Float => {
-          // println!("FLOAT: {}", byte as char);
-        }
         TokenizerState::Ident => match byte {
           b if is!(ident_continue b) => self.bump(),
           _ => break,
         },
         TokenizerState::Op => match byte {
           b if is!(op b) => {
-            // println!("OP: {}", byte as char);
-
             if byte == b'+' {
               self.bump();
 
-              let byte = self.byte();
-
-              match byte {
-                b'=' => {
-                  state = TokenizerState::Start;
-
-                  self.bump();
-                }
+              match self.byte() {
+                b'=' => self.bump(),
                 _ => break,
               }
             } else if byte == b'-' {
               self.bump();
 
-              let byte = self.byte();
-
-              match byte {
+              match self.byte() {
+                b'=' => self.bump(),
+                b'>' => {
+                  state = TokenizerState::Punctuation;
+                  self.bump();
+                }
                 b'-' | b'!' => {
                   state = TokenizerState::Comment;
+                }
+                _ => break,
+              }
+            } else if byte == b'=' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'>' => {
+                  state = TokenizerState::Punctuation;
 
                   self.bump();
                 }
+                _ => break,
+              }
+            } else if byte == b'*'
+              || byte == b'/'
+              || byte == b'%'
+              || byte == b'^'
+              || byte == b'!'
+            {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'&' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'&' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'|' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'|' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'<' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'<' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'>' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'>' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'#' {
+              self.bump();
+
+              match self.byte() {
+                b'>' => self.bump(),
                 _ => break,
               }
             } else {
@@ -190,21 +276,16 @@ impl<'source> Tokenizer<'source> {
         },
         TokenizerState::Punctuation => match byte {
           b if is!(punctuation b) => {
-            // println!("PUNCTUATION: {}", byte as char);
-
             if byte == b':' {
               self.bump();
 
-              let byte = self.byte();
-
-              match byte {
+              match self.byte() {
                 b'=' => {
                   state = TokenizerState::Op;
+
                   self.bump();
                 }
-                b':' => {
-                  self.bump();
-                }
+                b':' => self.bump(),
                 _ => break,
               }
             } else {
@@ -225,14 +306,32 @@ impl<'source> Tokenizer<'source> {
         },
         TokenizerState::Quote => match byte {
           b if is!(quote_single b) => {
-            // in char.
-            // println!("CHAR: {}", byte as char);
+            state = TokenizerState::Char;
+
+            self.bump();
           }
           b if is!(quote_double b) => {
-            // in string.
-            // println!("STRING: {}", byte as char);
+            state = TokenizerState::Str;
+
+            self.bump();
           }
           _ => break,
+        },
+        TokenizerState::Char => match byte {
+          b if !is!(quote_single b) => self.bump(),
+          _ => {
+            self.bump();
+
+            break;
+          }
+        },
+        TokenizerState::Str => match byte {
+          b if !is!(quote_double b) => self.bump(),
+          _ => {
+            self.bump();
+
+            break;
+          }
         },
         TokenizerState::Unknown => {
           let span = Span::of(index_start, self.index + 1);
@@ -244,9 +343,7 @@ impl<'source> Tokenizer<'source> {
       }
     }
 
-    let span = Span::of(index_start, self.index);
-
-    self.scan(state, span)
+    self.scan(state, Span::of(index_start, self.index))
   }
 
   fn scan(&mut self, state: TokenizerState, span: Span) -> Option<Token> {
@@ -282,6 +379,16 @@ impl<'source> Tokenizer<'source> {
       }
       TokenizerState::Group => {
         Some(TokenKind::Group(source.chars().next().map(Group::from)?))
+      }
+      TokenizerState::Char => {
+        let symbol = self.interner.intern(&source);
+
+        Some(TokenKind::Char(symbol))
+      }
+      TokenizerState::Str => {
+        let symbol = self.interner.intern(&source);
+
+        Some(TokenKind::String(symbol))
       }
       TokenizerState::Punctuation => {
         if source.len() > 1 {

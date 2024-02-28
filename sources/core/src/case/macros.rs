@@ -40,6 +40,9 @@ macro_rules! is {
   (punctuation $rhs:expr) => {
     $crate::case::charcase::punctuationcase::is_punctuation($rhs)
   };
+  (dot $rhs:expr) => {
+    $crate::case::charcase::punctuationcase::is_dot($rhs)
+  };
   (ident $rhs:expr) => {
     $crate::case::charcase::identcase::is_ident($rhs)
   };
