@@ -122,12 +122,12 @@ impl<'source> Tokenizer<'source> {
         },
         TokenizerState::Int => match byte {
           b if is!(number_start b) => {
-            println!("INT: {}", byte as char);
+            // println!("INT: {}", byte as char);
 
             self.bump();
           }
           b if is!(number_continue b) => {
-            println!("INT: {}", byte as char);
+            // println!("INT: {}", byte as char);
 
             self.bump();
           }
@@ -144,7 +144,7 @@ impl<'source> Tokenizer<'source> {
           }
         },
         TokenizerState::Float => {
-          println!("FLOAT: {}", byte as char);
+          // println!("FLOAT: {}", byte as char);
         }
         TokenizerState::Ident => match byte {
           b if is!(ident_continue b) => self.bump(),
@@ -152,7 +152,7 @@ impl<'source> Tokenizer<'source> {
         },
         TokenizerState::Op => match byte {
           b if is!(op b) => {
-            println!("OP: {}", byte as char);
+            // println!("OP: {}", byte as char);
 
             if byte == b'+' {
               self.bump();
@@ -190,7 +190,7 @@ impl<'source> Tokenizer<'source> {
         },
         TokenizerState::Punctuation => match byte {
           b if is!(punctuation b) => {
-            println!("PUNCTUATION: {}", byte as char);
+            // println!("PUNCTUATION: {}", byte as char);
 
             if byte == b':' {
               self.bump();
@@ -226,11 +226,11 @@ impl<'source> Tokenizer<'source> {
         TokenizerState::Quote => match byte {
           b if is!(quote_single b) => {
             // in char.
-            println!("CHAR: {}", byte as char);
+            // println!("CHAR: {}", byte as char);
           }
           b if is!(quote_double b) => {
             // in string.
-            println!("STRING: {}", byte as char);
+            // println!("STRING: {}", byte as char);
           }
           _ => break,
         },
@@ -325,6 +325,5 @@ impl<'source> Iterator for Tokenizer<'source> {
 /// ```
 /// ```
 pub fn tokenize(session: &mut Session, source: &[u8]) -> Result<Vec<Token>> {
-  println!("tokenize.");
   Tokenizer::new(&mut session.interner, &session.reporter, source).tokenize()
 }
