@@ -404,7 +404,7 @@ impl<'source> Tokenizer<'source> {
       TokenizerState::Str => {
         let symbol = self.interner.intern(&source);
 
-        Some(TokenKind::String(symbol))
+        Some(TokenKind::Str(symbol))
       }
       TokenizerState::Punctuation => {
         if source.len() > 1 {

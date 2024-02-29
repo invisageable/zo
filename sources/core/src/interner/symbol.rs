@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-pub trait Sym: std::fmt::Debug + std::fmt::Display {
-  fn as_symbol(&self) -> &Symbol;
+pub trait Symbolize {
+  fn symbolize(&self) -> &Symbol;
 }
 
 #[derive(
