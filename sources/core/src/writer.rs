@@ -4,7 +4,7 @@ use super::Result;
 
 use std::fmt::Write;
 
-pub struct Buffer {
+pub struct Writer {
   out: String,
   int: itoa::Buffer,
   float: ryu::Buffer,
@@ -12,7 +12,7 @@ pub struct Buffer {
   depth: usize,
 }
 
-impl Buffer {
+impl Writer {
   pub fn new() -> Self {
     Self {
       out: String::default(),
@@ -98,25 +98,25 @@ impl Buffer {
   }
 }
 
-impl Default for Buffer {
+impl Default for Writer {
   fn default() -> Self {
     Self::new()
   }
 }
 
-impl std::fmt::Debug for Buffer {
+impl std::fmt::Debug for Writer {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{self}")
   }
 }
 
-impl std::fmt::Display for Buffer {
+impl std::fmt::Display for Writer {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.out)
   }
 }
 
-fn make_dir(pathname: impl AsRef<std::path::Path>) -> Result<()> {
+pub fn make_dir(pathname: impl AsRef<std::path::Path>) -> Result<()> {
   if pathname.as_ref().is_dir() {
     return Ok(());
   }
@@ -124,7 +124,10 @@ fn make_dir(pathname: impl AsRef<std::path::Path>) -> Result<()> {
   std::fs::create_dir_all(pathname).map_err(Io::error)
 }
 
-fn make_file(pathname: impl ToString, bytes: impl AsRef<[u8]>) -> Result<()> {
+pub fn make_file(
+  pathname: impl ToString,
+  bytes: impl AsRef<[u8]>,
+) -> Result<()> {
   use std::io::Write;
 
   std::fs::File::create(pathname.to_string())
