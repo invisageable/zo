@@ -1,15 +1,80 @@
-use serde::{Deserialize, Serialize};
+use zhoo_tokenizer::token::kw::Kw;
+use zhoo_tokenizer::token::op::Op;
+use zhoo_tokenizer::token::{Token, TokenKind};
+use zhoo_ty::ty::Ty;
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+use zo_core::interner::symbol::{Symbol, Symbolize};
+use zo_core::span::Span;
+
+use hashbrown::HashMap;
+
+#[derive(Clone, Debug)]
+pub enum Pub {
+  Yes(Span),
+  No,
+}
+
+#[derive(Clone, Debug)]
+pub enum Async {
+  Yes(Span),
+  No,
+}
+
+#[derive(Clone, Debug)]
+pub enum Wasm {
+  Yes(Span),
+  No,
+}
+
+#[derive(Clone, Debug)]
+pub enum Mutability {
+  Yes(Span),
+  No,
+}
+
+#[derive(Clone, Debug)]
+pub struct Pattern {
+  pub kind: PatternKind,
+  pub span: Span,
+}
+
+impl Symbolize for Pattern {
+  fn symbolize(&self) -> &Symbol {
+    self.kind.symbolize()
+  }
+}
+
+#[derive(Clone, Debug)]
+pub enum PatternKind {
+  Underscore,
+  Ident(Box<Expr>),
+  Lit(Lit),
+  MeLower,
+}
+
+impl Symbolize for PatternKind {
+  fn symbolize(&self) -> &Symbol {
+    match self {
+      Self::Ident(ident) => ident.symbolize(),
+      Self::Lit(lit) => lit.symbolize(),
+      _ => unreachable!(),
+    }
+  }
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct Program {
   pub items: Vec<Item>,
+  pub span: Span,
 }
 
 impl Program {
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self {
       items: Vec::with_capacity(0usize),
+      span: Span::default(),
     }
   }
 
@@ -19,44 +84,328 @@ impl Program {
   }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct Item {
   pub kind: ItemKind,
+  pub span: Span,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub enum ItemKind {
+  Ext(Ext),
+  TyAlias(TyAlias),
+  Var(Var),
   Fun(Fun),
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Fun {
-  pub body: Block,
+#[derive(Clone, Debug)]
+pub struct Ext {
+  pub public: Pub,
+  pub prototype: Prototype,
+  pub body: Option<Block>,
+  pub span: Span,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
+pub struct TyAlias {
+  pub pubness: Pub,
+  pub pattern: Pattern,
+  pub ty: Option<Ty>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Var {
+  pub pubness: Pub,
+  pub mutability: Mutability,
+  pub kind: VarKind,
+  pub pattern: Pattern,
+  pub maybe_ty: Option<Ty>,
+  pub value: Box<Expr>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum VarKind {
+  Imu,
+  Mut,
+  Val,
+}
+
+impl From<Option<&Token>> for VarKind {
+  fn from(maybe_token: Option<&Token>) -> Self {
+    maybe_token
+      .map(|token| match token.kind {
+        TokenKind::Kw(Kw::Imu) => VarKind::Imu,
+        TokenKind::Kw(Kw::Mut) => VarKind::Mut,
+        TokenKind::Kw(Kw::Val) => VarKind::Val,
+        _ => unreachable!(),
+      })
+      .unwrap()
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Fun {
+  pub prototype: Prototype,
+  pub body: Block,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Prototype {
+  pub pattern: Pattern,
+  pub inputs: Inputs,
+  pub output: OutputTy,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Inputs(pub Vec<Input>);
+
+impl std::ops::Deref for Inputs {
+  type Target = Vec<Input>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Input {
+  pub pattern: Pattern,
+  pub ty: Ty,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum OutputTy {
+  Default(Span),
+  Ty(Ty),
+}
+
+#[derive(Clone, Debug)]
 pub struct Block {
   pub stmts: Vec<Stmt>,
+  pub span: Span,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct Stmt {
   pub kind: StmtKind,
+  pub span: Span,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub enum StmtKind {
-  Expr(Expr),
+  Item(Box<Item>),
+  Expr(Box<Expr>),
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct Expr {
   pub kind: ExprKind,
+  pub span: Span,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+impl Symbolize for Expr {
+  fn symbolize(&self) -> &Symbol {
+    self.kind.symbolize()
+  }
+}
+
+#[derive(Clone, Debug)]
 pub enum ExprKind {
-  Int(u64),
-  Float(f64),
-  Ident(String),
+  // lits.
+  Lit(Lit),
+
+  // prefix, infix.
+  UnOp(UnOp, Box<Expr>),
+  BinOp(BinOp, Box<Expr>, Box<Expr>),
+  AssignOp(BinOp, Box<Expr>, Box<Expr>),
+
+  // collections.
+  Array(Vec<Expr>),
+  Record(Record),
+  Tuple(Vec<Expr>),
+
+  // accesses.
+  ArrayAccess(Box<Expr>, Box<Expr>),
+  TupleAccess(Box<Expr>, Box<Expr>),
+
+  // funs.
+  Fn(Prototype, Block),
+  Call(Box<Expr>, Vec<Expr>),
+  Return(Option<Box<Expr>>),
+
+  // branches.
+  IfElse(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
+  When(Box<Expr>, Box<Expr>, Box<Expr>),
+  Match(Box<Expr>, Vec<Arm>),
+
+  // loops.
+  Loop(Box<Expr>),
+  While(Box<Expr>, Block),
+  For(For),
+
+  // controls.
+  Break(Option<Box<Expr>>),
+  Continue,
+
+  // variables
+  Var(Var),
+
+  // definitions.
+  Struct(), // todo(ivs) — unimplemented.
+}
+
+impl Symbolize for ExprKind {
+  fn symbolize(&self) -> &Symbol {
+    match self {
+      Self::Lit(lit) => lit.symbolize(),
+      _ => unreachable!(),
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Lit {
+  pub kind: LitKind,
+  pub span: Span,
+}
+
+impl Symbolize for Lit {
+  fn symbolize(&self) -> &Symbol {
+    self.kind.symbolize()
+  }
+}
+
+#[derive(Clone, Debug)]
+pub enum LitKind {
+  Int(Symbol),
+  Float(Symbol),
+  Ident(Symbol),
+  Bool(bool),
+  Char(Symbol),
+  Str(Symbol),
+}
+
+impl Symbolize for LitKind {
+  fn symbolize(&self) -> &Symbol {
+    match self {
+      Self::Int(symbol) => symbol,
+      Self::Float(symbol) => symbol,
+      Self::Char(symbol) => symbol,
+      Self::Str(symbol) => symbol,
+      Self::Ident(symbol) => symbol,
+      _ => unreachable!(),
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct UnOp {
+  pub kind: UnOpKind,
+  pub span: Span,
+}
+
+impl From<&Token> for UnOp {
+  fn from(token: &Token) -> Self {
+    match token.kind {
+      TokenKind::Op(op) => Self {
+        kind: UnOpKind::from(op),
+        span: token.span,
+      },
+      _ => unreachable!(),
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub enum UnOpKind {
+  // Add,
+  Neg,
+  Not,
+}
+
+impl From<Op> for UnOpKind {
+  fn from(op: Op) -> Self {
+    match op {
+      // Op::Plus => Self::Add,
+      Op::Minus => Self::Neg,
+      Op::Exclamation => Self::Not,
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl From<TokenKind> for UnOpKind {
+  fn from(kind: TokenKind) -> Self {
+    match kind {
+      // TokenKind::Op(Op::Plus) => Self::Add,
+      TokenKind::Op(Op::Minus) => Self::Neg,
+      TokenKind::Op(Op::Exclamation) => Self::Not,
+      _ => unreachable!(),
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct BinOp {
+  pub kind: BinOpKind,
+  pub span: Span,
+}
+
+impl From<&Token> for BinOp {
+  fn from(token: &Token) -> Self {
+    match token.kind {
+      TokenKind::Op(op) => Self {
+        kind: BinOpKind::from(op),
+        span: token.span,
+      },
+      _ => unreachable!(),
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub enum BinOpKind {
+  Add, // +
+  Sub, // -
+  Mul, // *
+  Div, // /
+  Rem, // %
+}
+
+impl From<Op> for BinOpKind {
+  fn from(op: Op) -> Self {
+    match op {
+      Op::Plus => Self::Add,
+      Op::Minus => Self::Sub,
+      Op::Asterisk => Self::Mul,
+      Op::Slash => Self::Div,
+      Op::Percent => Self::Rem,
+      _ => unreachable!(),
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Record {
+  pub fields: HashMap<Symbol, Box<Expr>>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct For {
+  pub pattern: Box<Expr>,
+  pub body: Box<Expr>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Arm {
+  pub pattern: Box<Expr>,
+  pub body: Option<Box<Expr>>,
+  pub span: Span,
 }
