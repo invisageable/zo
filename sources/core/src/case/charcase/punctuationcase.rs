@@ -7,7 +7,7 @@ where
 }
 
 #[inline]
-pub fn is_dot<B>(byte: B) -> bool
+pub fn is_period<B>(byte: B) -> bool
 where
   B: Into<u8> + Copy,
 {

@@ -15,6 +15,7 @@ pub struct Interner {
 }
 
 impl Interner {
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self::with_capacity(0usize)
@@ -66,7 +67,7 @@ impl Interner {
   }
 
   #[inline]
-  pub fn lookup_identifier(&self, id: impl Into<usize>) -> &str {
+  pub fn lookup_ident(&self, id: impl Into<usize>) -> &str {
     self.vec[id.into()]
   }
 

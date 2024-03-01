@@ -24,6 +24,7 @@ pub struct Report {
 }
 
 impl Default for Report {
+  /// no allocation.
   fn default() -> Self {
     Self {
       kind: ReportKind::Error(REPORT_TITLE_ERROR),

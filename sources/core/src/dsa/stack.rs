@@ -5,6 +5,7 @@ pub struct Stack<I> {
 }
 
 impl<I> Stack<I> {
+  /// no allocation.
   #[inline]
   pub fn of(capacity: usize) -> Self {
     Self {
