@@ -344,8 +344,6 @@ impl<'tokens> Parser<'tokens> {
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
 
-    self.next();
-
     Ok(Block { stmts, span })
   }
 
