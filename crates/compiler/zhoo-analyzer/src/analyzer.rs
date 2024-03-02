@@ -1,17 +1,35 @@
+//! ...
+
+use zhoo_ast::ast::Program;
+use zhoo_hir::hir::Hir;
+use zhoo_inferencer::inferencer;
+use zhoo_session::session::Session;
+
+use zhoo_tychecker::tychecker;
+use zo_core::span::Span;
 use zo_core::Result;
 
 #[derive(Debug)]
-struct Analyzer {}
+struct Analyzer;
 
 impl Analyzer {
   #[inline]
-  fn new() -> Self {
-    Self {}
-  }
+  fn analyze(
+    &mut self,
+    session: &mut Session,
+    program: &Program,
+  ) -> Result<Hir> {
+    // todo(ivs) — should be an hir return value?
+    let hir = inferencer::infer(session, program)?;
 
-  #[inline]
-  fn analyze(&mut self) -> Result<()> {
-    Ok(())
+    tychecker::check(session)?;
+
+    println!("\n{hir:?}\n");
+
+    session.reporter.abort_if_has_errors();
+
+    // todo(ivs) — tmp.
+    Ok(Hir { span: Span::ZERO })
   }
 }
 
@@ -21,7 +39,6 @@ impl Analyzer {
 ///
 /// ```
 /// ```
-pub fn analyze() -> Result<()> {
-  println!("analyze.");
-  Analyzer::new().analyze()
+pub fn analyze(session: &mut Session, program: &Program) -> Result<Hir> {
+  Analyzer.analyze(session, program)
 }

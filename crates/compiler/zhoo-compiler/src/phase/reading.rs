@@ -5,14 +5,14 @@ use zhoo_session::session::Session;
 
 use zo_core::{mpsc::sender::Sender, Result};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Reading {
   pub rx: Sender<Box<[u8]>>,
 }
 
 impl Process for Reading {
   fn process(&self, session: &mut Session) -> Result<()> {
-    reader::read(session).and_then(|source| self.rx.send(source))
+    reader::read(session).and_then(|source_bytes| self.rx.send(source_bytes))
   }
 }
 

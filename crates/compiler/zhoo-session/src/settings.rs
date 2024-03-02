@@ -1,8 +1,12 @@
+//! ...
+
 use super::backend::Backend;
+
+use smol_str::SmolStr;
 
 #[derive(Debug, Default)]
 pub struct Settings {
-  pub input: smol_str::SmolStr,
+  pub input: SmolStr,
   pub backend: Backend,
   pub profile: std::sync::Arc<std::sync::atomic::AtomicBool>,
   pub verbose: std::sync::Arc<std::sync::atomic::AtomicBool>,

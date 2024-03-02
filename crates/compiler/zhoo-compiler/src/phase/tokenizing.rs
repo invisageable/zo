@@ -8,7 +8,7 @@ use zo_core::mpsc::receiver::Receiver;
 use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Tokenizing {
   pub rx: Sender<Vec<Token>>,
   pub tx: Receiver<Box<[u8]>>,
@@ -17,7 +17,7 @@ pub struct Tokenizing {
 impl Process for Tokenizing {
   fn process(&self, session: &mut Session) -> Result<()> {
     self.tx.recv().and_then(|source| {
-      tokenizer::tokenize(session, source.as_ref())
+      tokenizer::tokenize(session, &source)
         .and_then(|tokens| self.rx.send(tokens))
     })
   }

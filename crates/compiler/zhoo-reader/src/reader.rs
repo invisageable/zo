@@ -1,3 +1,5 @@
+//! ...
+
 use zhoo_session::session::Session;
 
 use zo_core::reporter::report::io::Io;
@@ -67,16 +69,31 @@ impl<'bytes> Reader<'bytes> {
 }
 
 /// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn read(session: &mut Session) -> Result<Box<[u8]>> {
   Reader::new(&mut session.reporter).read(session.settings.input.as_str())
 }
 
 /// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn read_file(session: &mut Session) -> Result<Box<[u8]>> {
   Reader::new(&mut session.reporter).read_file(session.settings.input.as_str())
 }
 
 /// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn read_line(session: &mut Session) -> Result<Box<[u8]>> {
   Reader::new(&mut session.reporter).read_line()
 }

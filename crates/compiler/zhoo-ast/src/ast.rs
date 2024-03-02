@@ -1,3 +1,5 @@
+//! ...
+
 use zhoo_tokenizer::token::kw::Kw;
 use zhoo_tokenizer::token::op::Op;
 use zhoo_tokenizer::token::{Token, TokenKind};
@@ -100,9 +102,9 @@ pub enum ItemKind {
 
 #[derive(Clone, Debug)]
 pub struct Ext {
-  pub public: Pub,
+  pub pubness: Pub,
   pub prototype: Prototype,
-  pub body: Option<Block>,
+  pub maybe_body: Option<Block>,
   pub span: Span,
 }
 
@@ -110,7 +112,7 @@ pub struct Ext {
 pub struct TyAlias {
   pub pubness: Pub,
   pub pattern: Pattern,
-  pub ty: Option<Ty>,
+  pub maybe_ty: Option<Ty>,
   pub span: Span,
 }
 
@@ -198,6 +200,7 @@ pub struct Stmt {
 
 #[derive(Clone, Debug)]
 pub enum StmtKind {
+  Var(Var),
   Item(Box<Item>),
   Expr(Box<Expr>),
 }
@@ -406,6 +409,6 @@ pub struct For {
 #[derive(Clone, Debug)]
 pub struct Arm {
   pub pattern: Box<Expr>,
-  pub body: Option<Box<Expr>>,
+  pub maybe_body: Option<Box<Expr>>,
   pub span: Span,
 }

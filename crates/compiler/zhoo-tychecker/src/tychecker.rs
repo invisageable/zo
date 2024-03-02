@@ -1,3 +1,7 @@
+//! ...
+
+use zhoo_session::session::Session;
+
 use zo_core::Result;
 
 #[derive(Debug)]
@@ -20,7 +24,6 @@ impl Tychecker {
 ///
 /// ```
 /// ```
-pub fn check() -> Result<()> {
-  println!("tycheck.");
+pub fn check(_session: &mut Session) -> Result<()> {
   Tychecker::new().check()
 }

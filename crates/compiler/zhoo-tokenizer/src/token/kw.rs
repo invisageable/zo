@@ -1,7 +1,8 @@
+//! ...
+
 use super::TokenKind;
 
 use hashbrown::{HashMap, HashSet};
-use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
 type Keyword = HashMap<SmolStr, TokenKind>;
@@ -55,7 +56,7 @@ lazy_static::lazy_static! {
   };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kw {
   Abstract,
   Apply,

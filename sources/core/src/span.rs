@@ -1,6 +1,4 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Span {
   pub lo: usize,
   pub hi: usize,
@@ -32,6 +30,12 @@ impl Default for Span {
 impl std::fmt::Display for Span {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(f, "{}..{}", self.lo, self.hi)
+  }
+}
+
+impl From<Span> for std::ops::Range<usize> {
+  fn from(span: Span) -> Self {
+    span.lo..span.hi
   }
 }
 

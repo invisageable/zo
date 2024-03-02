@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+//! ...
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Value {}

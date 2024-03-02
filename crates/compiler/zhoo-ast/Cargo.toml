@@ -8,7 +8,9 @@ doctest = false
 
 [dependencies]
 zhoo-session = { workspace = true }
+zhoo-tokenizer = { workspace = true }
+zhoo-ty = { workspace = true }
 
 zo-core = { workspace = true }
 
-serde = { workspace = true }
+hashbrown = { workspace = true }

@@ -5,7 +5,7 @@ use zhoo_session::session::Session;
 
 use zo_core::Result;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Interpreting {}
 
 impl Process for Interpreting {

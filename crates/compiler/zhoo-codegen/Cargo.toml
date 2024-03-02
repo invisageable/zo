@@ -6,7 +6,6 @@ edition.workspace = true
 [dependencies]
 zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
+zhoo-codegen-wasm = { workspace = true }
 
 zo-core = { workspace = true }
-
-serde = { workspace = true }

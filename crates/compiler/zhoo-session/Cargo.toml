@@ -9,5 +9,4 @@ doctest = false
 [dependencies]
 zo-core = { workspace = true }
 
-serde = { workspace = true }
 smol_str = { workspace = true }

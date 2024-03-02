@@ -7,6 +7,8 @@ use super::timer::Timer;
 
 use profile::{Profile, Profiles};
 
+use smol_str::SmolStr;
+
 #[derive(Clone, Debug, Default)]
 pub struct Profiler {
   timer: Timer,
@@ -18,7 +20,7 @@ impl Profiler {
     Self::default()
   }
 
-  pub fn add_profile(&mut self, name: impl Into<smol_str::SmolStr>) -> &Self {
+  pub fn add_profile(&mut self, name: impl Into<SmolStr>) -> &Self {
     self
       .duration_in_unit("s")
       .map(|time| {

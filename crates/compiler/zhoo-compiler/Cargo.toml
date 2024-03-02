@@ -17,5 +17,3 @@ zhoo-tokenizer = { workspace = true }
 zhoo-value = { workspace = true }
 
 zo-core = { workspace = true }
-
-serde = { workspace = true }

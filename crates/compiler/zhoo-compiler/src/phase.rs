@@ -1,3 +1,5 @@
+//! ...
+
 pub mod analyzing;
 pub mod building;
 pub mod generating;
@@ -15,7 +17,7 @@ pub trait Process: std::fmt::Debug {
   fn process(&self, session: &mut Session) -> Result<()>;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Phase {
   Reading(reading::Reading),
   Tokenizing(tokenizing::Tokenizing),

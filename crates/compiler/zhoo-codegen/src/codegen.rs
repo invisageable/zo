@@ -1,20 +1,28 @@
+//! ...
+
 use zhoo_ast::ast;
+use zhoo_codegen_wasm as wasm;
+
+use zhoo_session::backend::BackendKind;
 use zhoo_session::session::Session;
 
 use zo_core::Result;
 
 #[derive(Debug)]
-struct Codegen {}
+struct Codegen;
 
-impl Codegen {
+impl<'program> Codegen {
+  /// no allocation.
   #[inline]
-  fn new() -> Self {
-    Self {}
-  }
-
-  #[inline]
-  fn generate(&mut self) -> Result<Box<[u8]>> {
-    Ok(Vec::with_capacity(0usize).into_boxed_slice())
+  fn generate(
+    &mut self,
+    session: &'program mut Session,
+    program: &'program ast::Program,
+  ) -> Result<Box<[u8]>> {
+    match &session.settings.backend.kind {
+      BackendKind::Wasm => wasm::codegen::generate(session, program),
+      _ => unimplemented!(),
+    }
   }
 }
 
@@ -25,9 +33,8 @@ impl Codegen {
 /// ```
 /// ```
 pub fn generate(
-  _session: &mut Session,
-  _program: ast::Program,
+  session: &mut Session,
+  program: &ast::Program,
 ) -> Result<Box<[u8]>> {
-  println!("generate.");
-  Codegen::new().generate()
+  Codegen.generate(session, program)
 }

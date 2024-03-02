@@ -14,13 +14,7 @@ pub struct Writer {
 
 impl Writer {
   pub fn new() -> Self {
-    Self {
-      out: String::default(),
-      int: itoa::Buffer::default(),
-      float: ryu::Buffer::default(),
-      indent: 2usize,
-      depth: 0usize,
-    }
+    Self::default()
   }
 
   pub fn as_bytes(&mut self) -> Box<[u8]> {
@@ -100,7 +94,13 @@ impl Writer {
 
 impl Default for Writer {
   fn default() -> Self {
-    Self::new()
+    Self {
+      out: String::default(),
+      int: itoa::Buffer::default(),
+      float: ryu::Buffer::default(),
+      indent: 2usize,
+      depth: 0usize,
+    }
   }
 }
 

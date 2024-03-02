@@ -1,3 +1,5 @@
+//! ...
+
 use zo_core::Result;
 
 #[derive(Debug)]
@@ -22,6 +24,5 @@ impl Interpreter {
 /// ```
 /// ```
 pub fn interpret() -> Result<()> {
-  println!("interpret.");
   Interpreter::new().interpret()
 }

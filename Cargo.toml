@@ -24,6 +24,7 @@ zhoo-codegen-wasm = { path = "crates/compiler/zhoo-codegen-wasm", version = "0.0
 zhoo-codegen-zo = { path = "crates/compiler/zhoo-codegen-zo", version = "0.0.0" }
 zhoo-compiler = { path = "crates/compiler/zhoo-compiler", version = "0.0.0" }
 zhoo-driver = { path = "crates/compiler/zhoo-driver", version = "0.0.0" }
+zhoo-hir = { path = "crates/compiler/zhoo-hir", version = "0.0.0" }
 zhoo-inferencer = { path = "crates/compiler/zhoo-inferencer", version = "0.0.0" }
 zhoo-interpreter = { path = "crates/compiler/zhoo-interpreter", version = "0.0.0" }
 zhoo-interpreter-cranelift = { path = "crates/compiler/zhoo-interpreter-cranelift", version = "0.0.0" }
@@ -58,13 +59,10 @@ lazy_static = "1.4.0"
 pollster = "0.3.0"
 rayon = "1.8.0"
 ryu = "1.0.15"
-serde = { version = "1.0.197", features = ["serde_derive"] }
 smol_str = "0.2.1"
 sysinfo = "0.30.5"
-tinyvec = "1.6.0"
-typed-arena = "2.0.2"
 walkdir = "2.4.0"
 wasmtime = "17.0.1"
 wasmtime-runtime = "17.0.1"
 wat = "1.0.77"
-wast = "200.0.0"
+wast = "201.0.0"

@@ -7,7 +7,16 @@ edition.workspace = true
 zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
 zhoo-tokenizer = { workspace = true }
+zhoo-ty = { workspace = true }
 
 zo-core = { workspace = true }
 
-serde = { workspace = true }
+[dev-dependencies]
+zhoo-reader = { workspace = true }
+
+criterion = { workspace = true }
+lazy_static = { workspace = true }
+
+[[bench]]
+name = "parse"
+harness = false

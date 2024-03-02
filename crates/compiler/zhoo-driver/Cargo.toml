@@ -10,5 +10,4 @@ zhoo-session = { workspace = true }
 zo-core = { workspace = true }
 
 clap = { workspace = true }
-serde = { workspace = true }
 smol_str = { workspace = true }

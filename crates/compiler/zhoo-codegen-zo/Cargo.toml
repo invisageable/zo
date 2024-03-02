@@ -8,5 +8,3 @@ zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
 
 zo-core = { workspace = true }
-
-serde = { workspace = true }

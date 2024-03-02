@@ -1,0 +1,10 @@
+[package]
+name = "zhoo-hir"
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
+zhoo-ast = { workspace = true }
+zhoo-ty = { workspace = true }
+
+zo-core = { workspace = true }

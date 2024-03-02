@@ -15,15 +15,16 @@ use zo_core::mpsc::channel;
 use zo_core::{Result, EXIT_FAILURE, EXIT_SUCCESS};
 
 use clap::Parser;
+use smol_str::SmolStr;
 
 #[derive(Parser)]
 pub(crate) struct Build {
   #[clap(short, long, default_value = "false")]
   pub verbose: bool,
   #[clap(short, long)]
-  pub input: smol_str::SmolStr,
+  pub input: SmolStr,
   #[clap(short, long, default_value = "wasm")]
-  pub backend: smol_str::SmolStr,
+  pub backend: SmolStr,
   #[clap(short, long, default_value = "false")]
   pub release: bool,
   #[clap(short, long, default_value = "false")]

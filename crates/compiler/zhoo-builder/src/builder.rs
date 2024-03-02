@@ -1,17 +1,25 @@
+//! ...
+
+use super::brick::cranelift;
+use super::brick::wasm;
+
+use zhoo_session::backend::BackendKind;
+use zhoo_session::session::Session;
+
 use zo_core::Result;
 
 #[derive(Debug)]
-struct Builder {}
+struct Builder;
 
 impl Builder {
   #[inline]
-  fn new() -> Self {
-    Self {}
-  }
+  fn build(&self, session: &mut Session, bytecode: &[u8]) -> Result<()> {
+    let backend = &session.settings.backend;
 
-  #[inline]
-  fn build(&mut self) -> Result<()> {
-    Ok(())
+    match &backend.kind {
+      BackendKind::Cranelift => cranelift::build(backend, bytecode),
+      BackendKind::Wasm => wasm::build(backend, bytecode),
+    }
   }
 }
 
@@ -21,7 +29,6 @@ impl Builder {
 ///
 /// ```
 /// ```
-pub fn build() -> Result<()> {
-  println!("build.");
-  Builder::new().build()
+pub fn build(session: &mut Session, bytecode: &[u8]) -> Result<()> {
+  Builder.build(session, bytecode)
 }

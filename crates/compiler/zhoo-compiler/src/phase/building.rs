@@ -7,16 +7,17 @@ use zo_core::mpsc::receiver::Receiver;
 use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Building {
   pub rx: Sender<()>,
   pub tx: Receiver<Box<[u8]>>,
 }
 
 impl Process for Building {
-  fn process(&self, _session: &mut Session) -> Result<()> {
-    self.tx.recv().and_then(|_bytecode| {
-      builder::build().and_then(|output| self.rx.send(output))
+  fn process(&self, session: &mut Session) -> Result<()> {
+    self.tx.recv().and_then(|bytecode| {
+      println!("\n{bytecode:?}\n");
+      builder::build(session, &bytecode).and_then(|output| self.rx.send(output))
     })
   }
 }

@@ -13,7 +13,7 @@ fn bench_tokenize(c: &mut Criterion) {
 
   c.bench_function("tokenize", |b| {
     b.iter(|| {
-      tokenizer::tokenize(black_box(&mut session), black_box(&source)).unwrap();
+      tokenizer::tokenize(&mut session, black_box(&source)).unwrap();
     });
   });
 }

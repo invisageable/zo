@@ -1,21 +1,8 @@
-use serde::{Deserialize, Serialize};
-
 pub trait Symbolize {
   fn symbolize(&self) -> &Symbol;
 }
 
-#[derive(
-  Clone,
-  Copy,
-  Debug,
-  Hash,
-  Eq,
-  PartialEq,
-  PartialOrd,
-  Ord,
-  Deserialize,
-  Serialize,
-)]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Symbol(pub u32);
 
 impl From<Symbol> for usize {

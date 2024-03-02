@@ -9,7 +9,7 @@ use zo_core::mpsc::receiver::Receiver;
 use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Parsing {
   pub rx: Sender<Program>,
   pub tx: Receiver<Vec<Token>>,
@@ -19,8 +19,7 @@ impl Process for Parsing {
   fn process(&self, session: &mut Session) -> Result<()> {
     self.tx.recv().and_then(|tokens| {
       println!("\n{tokens:?}\n\nLENGTH: {}\n", tokens.len());
-      parser::parse(session, tokens.as_ref())
-        .and_then(|program| self.rx.send(program))
+      parser::parse(session, &tokens).and_then(|program| self.rx.send(program))
     })
   }
 }

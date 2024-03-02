@@ -1,3 +1,5 @@
+//! ...
+
 use super::phase::{Phase, Process};
 
 use zhoo_session::session::Session;
@@ -11,6 +13,7 @@ pub struct Compiler {
 }
 
 impl Compiler {
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self {

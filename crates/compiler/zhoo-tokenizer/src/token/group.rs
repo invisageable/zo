@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+//! ...
 
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Group {
   ParenOpen,
   ParenClose,
@@ -11,15 +11,15 @@ pub enum Group {
 }
 
 impl From<char> for Group {
-  fn from(delimiter: char) -> Self {
-    match delimiter as u8 {
+  fn from(group: char) -> Self {
+    match group as u8 {
       b'(' => Self::ParenOpen,
       b')' => Self::ParenClose,
       b'{' => Self::BraceOpen,
       b'}' => Self::BraceClose,
       b'[' => Self::BracketOpen,
       b']' => Self::BracketClose,
-      _ => unreachable!("{delimiter}"),
+      _ => unreachable!("{group}"),
     }
   }
 }

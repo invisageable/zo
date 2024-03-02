@@ -8,16 +8,18 @@ use zo_core::mpsc::receiver::Receiver;
 use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Analyzing {
   pub rx: Sender<Program>,
   pub tx: Receiver<Program>,
 }
 
 impl Process for Analyzing {
-  fn process(&self, _session: &mut Session) -> Result<()> {
+  fn process(&self, session: &mut Session) -> Result<()> {
     self.tx.recv().and_then(|program| {
-      analyzer::analyze().and_then(|_program| self.rx.send(program))
+      println!("{program:?}");
+      analyzer::analyze(session, &program)
+        .and_then(|_program| self.rx.send(program))
     })
   }
 }

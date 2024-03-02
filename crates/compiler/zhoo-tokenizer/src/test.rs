@@ -4,7 +4,9 @@ use zhoo_reader::reader;
 use zhoo_session::session::Session;
 
 lazy_static::lazy_static! {
-  pub static ref SESSION: std::sync::Mutex<Session> = std::sync::Mutex::new(Session::default());
+  pub static ref SESSION: std::sync::Mutex<Session> = std::sync::Mutex::new(
+    Session::default()
+  );
 }
 
 #[test]

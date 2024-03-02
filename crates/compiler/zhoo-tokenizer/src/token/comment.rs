@@ -1,8 +1,8 @@
+//! ...
+
 use zo_core::span::Span;
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Comment {
   Line(Span),
   LineDoc(Span),

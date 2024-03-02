@@ -1,9 +1,13 @@
+//! ...
+
 use super::settings::Settings;
 
 use zo_core::interner::Interner;
 use zo_core::profiler::Profiler;
 use zo_core::reporter::Reporter;
 use zo_core::system::System;
+
+use smol_str::SmolStr;
 
 #[derive(Debug)]
 pub struct Session {
@@ -17,7 +21,7 @@ pub struct Session {
 impl Session {
   pub fn with_timing<T>(
     &mut self,
-    name: impl Into<smol_str::SmolStr>,
+    name: impl Into<SmolStr>,
     f: impl FnOnce(&mut Self) -> T,
   ) -> T {
     if self.settings.has_profiles() {

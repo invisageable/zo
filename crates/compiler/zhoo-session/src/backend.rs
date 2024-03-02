@@ -1,7 +1,11 @@
+//! ...
+
+use smol_str::SmolStr;
+
 #[derive(Clone, Debug, Default)]
 pub struct Backend {
   pub kind: BackendKind,
-  pub triplet: smol_str::SmolStr,
+  pub triplet: SmolStr,
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -17,17 +21,17 @@ impl std::fmt::Display for Backend {
   }
 }
 
-impl From<smol_str::SmolStr> for Backend {
-  fn from(backend: smol_str::SmolStr) -> Self {
+impl From<SmolStr> for Backend {
+  fn from(backend: SmolStr) -> Self {
     Self {
       kind: BackendKind::from(backend),
-      triplet: smol_str::SmolStr::new_inline("arm64-apple-darwin"),
+      triplet: SmolStr::new_inline("arm64-apple-darwin"),
     }
   }
 }
 
-impl From<smol_str::SmolStr> for BackendKind {
-  fn from(backend: smol_str::SmolStr) -> Self {
+impl From<SmolStr> for BackendKind {
+  fn from(backend: SmolStr) -> Self {
     match backend.as_str() {
       "cranelift" => Self::Cranelift,
       "wasm" => Self::Wasm,

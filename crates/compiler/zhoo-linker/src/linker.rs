@@ -1,3 +1,5 @@
+//! ...
+
 use zo_core::Result;
 
 #[derive(Debug)]
@@ -9,7 +11,6 @@ impl Linker {
     Self {}
   }
 
-  #[inline]
   fn link(&mut self) -> Result<()> {
     Ok(())
   }
@@ -22,6 +23,5 @@ impl Linker {
 /// ```
 /// ```
 pub fn link() -> Result<()> {
-  println!("link.");
   Linker::new().link()
 }

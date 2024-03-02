@@ -38,7 +38,7 @@ impl Timer {
 
   #[inline]
   pub fn duration(&self) -> Option<std::time::Duration> {
-    match (self.maybe_time_start.as_ref(), self.maybe_time_end.as_ref()) {
+    match (&self.maybe_time_start, &self.maybe_time_end) {
       (Some(start), Some(end)) => Time::merge(start, end),
       _ => None,
     }

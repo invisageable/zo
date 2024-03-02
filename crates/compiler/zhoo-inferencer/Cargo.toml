@@ -10,5 +10,3 @@ zhoo-ty = { workspace = true }
 zhoo-tychecker = { workspace = true }
 
 zo-core = { workspace = true }
-
-serde = { workspace = true }

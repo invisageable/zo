@@ -9,7 +9,6 @@ zhoo-session = { workspace = true }
 zo-core = { workspace = true }
 
 criterion = { workspace = true }
-serde = { workspace = true }
 smol_str = { workspace = true }
 
 [[bench]]

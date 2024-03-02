@@ -8,7 +8,7 @@ use zo_core::mpsc::receiver::Receiver;
 use zo_core::mpsc::sender::Sender;
 use zo_core::Result;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Generating {
   pub rx: Sender<Box<[u8]>>,
   pub tx: Receiver<Program>,
@@ -17,7 +17,7 @@ pub struct Generating {
 impl Process for Generating {
   fn process(&self, session: &mut Session) -> Result<()> {
     self.tx.recv().and_then(|program| {
-      codegen::generate(session, program)
+      codegen::generate(session, &program)
         .and_then(|bytecode| self.rx.send(bytecode))
     })
   }
