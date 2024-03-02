@@ -317,7 +317,20 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn parse_output(&mut self) -> Result<OutputTy> {
-    Ok(OutputTy::Default(Span::ZERO))
+    self
+      .maybe_token_next
+      .map(|token| match token.kind {
+        TokenKind::Punctuation(Punctuation::Colon) => {
+          self.next();
+          self.next();
+
+          let ty = self.parse_ty()?;
+
+          Ok(OutputTy::Ty(ty))
+        }
+        _ => Ok(OutputTy::Default(token.span)),
+      })
+      .unwrap()
   }
 
   fn parse_block(&mut self) -> Result<Block> {
@@ -352,6 +365,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         kind if kind.is_var_local() => self.parse_stmt_var(),
+        kind if kind.is_item() => self.parse_stmt_item(),
         _ => self.parse_stmt_expr(),
       })
       .unwrap()
@@ -408,6 +422,16 @@ impl<'tokens> Parser<'tokens> {
     }
   }
 
+  fn parse_stmt_item(&mut self) -> Result<Stmt> {
+    let item = self.parse_item()?;
+    let span = item.span;
+
+    Ok(Stmt {
+      kind: StmtKind::Item(Box::new(item)),
+      span,
+    })
+  }
+
   fn parse_stmt_expr(&mut self) -> Result<Stmt> {
     let lo = self.current_span();
     let expr = self.parse_expr(Precedence::Low)?;
@@ -428,22 +452,6 @@ impl<'tokens> Parser<'tokens> {
       kind: StmtKind::Expr(Box::new(expr)),
       span,
     })
-  }
-
-  #[allow(dead_code)]
-  fn parse_expr_stmt(parser: &mut Parser) -> Result<Expr> {
-    let expr = parser.parse_expr(Precedence::Low)?;
-
-    parser
-      .maybe_token_next
-      .map(|token| {
-        if let TokenKind::Punctuation(Punctuation::Semicolon) = token.kind {
-          parser.next();
-        }
-      })
-      .unwrap();
-
-    Ok(expr)
   }
 
   fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr> {
@@ -480,7 +488,9 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Str(_) => Some(Self::parse_expr_lit_str),
       kind if kind.is_unop() => Some(Self::parse_expr_unop),
       TokenKind::Kw(Kw::Fn) => Some(Self::parse_expr_fn),
-      // kind if kind.is_stmt() => Some(Self::parse_expr_stmt),
+      TokenKind::Kw(Kw::Return) => Some(Self::parse_expr_return),
+      TokenKind::Kw(Kw::Continue) => Some(Self::parse_expr_continue),
+      TokenKind::Kw(Kw::Break) => Some(Self::parse_expr_break),
       _ => None,
     }
   }
@@ -642,11 +652,12 @@ impl<'tokens> Parser<'tokens> {
         };
 
         let inputs = parser.parse_inputs()?;
+        let output = parser.parse_output()?;
 
         let prototype = Prototype {
           pattern: pattern.clone(),
           inputs: inputs.clone(),
-          output: OutputTy::Default(Span::ZERO),
+          output,
           // span: Span::merge(pattern.span, inputs.0.last().unwrap().span),
           span: Span::merge(pattern.span, Span::ZERO),
         };
@@ -674,12 +685,76 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
-  #[allow(dead_code)]
+  fn parse_expr_return(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      let hi = parser.current_span();
+
+      return Ok(Expr {
+        kind: ExprKind::Return(None),
+        span: Span::merge(lo, hi),
+      });
+    }
+
+    let expr = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Return(Some(Box::new(expr))),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  fn parse_expr_continue(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.expect(TokenKind::Kw(Kw::Continue))?;
+
+    let hi = parser.current_span();
+
+    parser.next();
+
+    Ok(Expr {
+      kind: ExprKind::Continue,
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  fn parse_expr_break(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.expect(TokenKind::Kw(Kw::Break))?;
+
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      let hi = parser.current_span();
+      let span = Span::merge(lo, hi);
+
+      return Ok(Expr {
+        kind: ExprKind::Break(None),
+        span,
+      });
+    }
+
+    let value = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    parser.next();
+
+    Ok(Expr {
+      kind: ExprKind::Break(Some(Box::new(value))),
+      span: Span::merge(lo, hi),
+    })
+  }
+
   fn parse_infix_fn(&self) -> Option<ParseInfixFn> {
     let token = self.maybe_token_next.unwrap();
 
     match token.kind {
       kind if kind.is_binop() => Some(Self::parse_expr_binop),
+      TokenKind::Group(Group::ParenOpen) => Some(Self::parse_expr_call),
       _ => None,
     }
   }
@@ -711,6 +786,10 @@ impl<'tokens> Parser<'tokens> {
       kind: ExprKind::BinOp(binop, Box::new(lhs), Box::new(rhs)),
       span,
     })
+  }
+
+  fn parse_expr_call(_parser: &mut Parser, _lhs: Expr) -> Result<Expr> {
+    todo!()
   }
 }
 
