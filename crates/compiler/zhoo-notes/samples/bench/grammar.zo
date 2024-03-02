@@ -1,0 +1,5 @@
+fun main() {
+  imu x := 4 + 8 * 268 / 2;
+  imu x := fn() -> x * x;
+  imu x := fn() -> x * x;
+}

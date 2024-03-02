@@ -23,7 +23,7 @@ fn tokenize_empty() {
 fn tokenize_atlas() {
   let mut session = &mut SESSION.lock().unwrap();
 
-  session.settings.input = "../zhoo-notes/samples/atlas.tks".into();
+  session.settings.input = "../zhoo-notes/samples/bench/atlas.tks".into();
 
   let source = reader::read_file(&mut session).unwrap();
 
