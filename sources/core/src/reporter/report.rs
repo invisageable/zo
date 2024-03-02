@@ -8,6 +8,8 @@ pub mod syntax;
 use crate::color;
 use crate::span::Span;
 
+use smol_str::SmolStr;
+
 pub(crate) const REPORT_TITLE_ERROR: &str = "error";
 
 pub trait Error: Sized {
@@ -17,10 +19,10 @@ pub trait Error: Sized {
 #[derive(Debug)]
 pub struct Report {
   pub kind: ReportKind,
-  pub message: smol_str::SmolStr,
-  pub labels: Vec<(Span, smol_str::SmolStr, ariadne::Color)>,
-  pub notes: Vec<smol_str::SmolStr>,
-  pub helps: Vec<smol_str::SmolStr>,
+  pub message: SmolStr,
+  pub labels: Vec<(Span, SmolStr, ariadne::Color)>,
+  pub notes: Vec<SmolStr>,
+  pub helps: Vec<SmolStr>,
 }
 
 impl Default for Report {
@@ -28,7 +30,7 @@ impl Default for Report {
   fn default() -> Self {
     Self {
       kind: ReportKind::Error(REPORT_TITLE_ERROR),
-      message: smol_str::SmolStr::default(),
+      message: SmolStr::default(),
       labels: Vec::with_capacity(0usize),
       notes: Vec::with_capacity(0usize),
       helps: Vec::with_capacity(0usize),

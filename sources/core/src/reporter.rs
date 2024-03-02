@@ -55,7 +55,7 @@ impl Reporter {
   }
 
   pub fn add_report(&self, error: ReportError) {
-    let _report = match error {
+    let report = match &error {
       ReportError::Io(error) => error.report(),
       ReportError::Chan(error) => error.report(),
       ReportError::Lexical(error) => error.report(),
@@ -63,6 +63,46 @@ impl Reporter {
       ReportError::Semantic(error) => error.report(),
       ReportError::Assembly(error) => error.report(),
     };
+
+    let span = report
+      .labels
+      .first()
+      .map(|label| label.0)
+      .unwrap_or(Span::ZERO);
+
+    let source_id = self.source_id(span);
+    let code = self.code(source_id);
+    let code = if code.is_empty() { "\n" } else { code };
+    let pathname = self.pathname(span).display();
+
+    let mut report_builder =
+      ariadne::Report::build(report.kind.into(), pathname.to_string(), span.lo)
+        .with_code(error)
+        .with_message(report.message);
+
+    for (span, message, color) in report.labels {
+      report_builder = report_builder.with_label(
+        ariadne::Label::new((pathname.to_string(), span.into()))
+          .with_message(message)
+          .with_color(color),
+      );
+    }
+
+    for note in report.notes {
+      report_builder = report_builder.with_note(note);
+    }
+
+    for help in report.helps {
+      report_builder = report_builder.with_help(help);
+    }
+
+    eprintln!();
+
+    report_builder
+      .with_config(ariadne::Config::default())
+      .finish()
+      .write((pathname.to_string(), code.into()), std::io::stderr())
+      .unwrap();
 
     self.errors(true);
   }
