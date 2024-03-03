@@ -26,4 +26,4 @@ jobs:
     - name: Build the project.
       run: cargo build --verbose
     - name: run unit tests.
-      run: cargo test --verbose
+      run: cargo test --all --verbose

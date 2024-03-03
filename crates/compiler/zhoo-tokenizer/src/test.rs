@@ -3,15 +3,9 @@ use super::tokenizer;
 use zhoo_reader::reader;
 use zhoo_session::session::Session;
 
-lazy_static::lazy_static! {
-  pub static ref SESSION: std::sync::Mutex<Session> = std::sync::Mutex::new(
-    Session::default()
-  );
-}
-
 #[test]
 fn tokenize_empty() {
-  let mut session = &mut SESSION.lock().unwrap();
+  let mut session = Session::default();
   let source = "".as_bytes();
 
   tokenizer::tokenize(&mut session, source)
@@ -21,7 +15,7 @@ fn tokenize_empty() {
 
 #[test]
 fn tokenize_atlas() {
-  let mut session = &mut SESSION.lock().unwrap();
+  let mut session = Session::default();
 
   session.settings.input = "../zhoo-notes/samples/bench/atlas.tks".into();
 
