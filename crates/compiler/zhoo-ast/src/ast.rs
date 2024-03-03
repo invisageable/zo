@@ -6,7 +6,7 @@ use zhoo_tokenizer::token::{Token, TokenKind};
 use zhoo_ty::ty::Ty;
 
 use zo_core::interner::symbol::{Symbol, Symbolize};
-use zo_core::span::Span;
+use zo_core::span::{AsSpan, Span};
 
 use hashbrown::HashMap;
 
@@ -184,6 +184,15 @@ pub struct Input {
 pub enum OutputTy {
   Default(Span),
   Ty(Ty),
+}
+
+impl AsSpan for OutputTy {
+  fn as_span(&self) -> Span {
+    match self {
+      OutputTy::Default(span) => *span,
+      OutputTy::Ty(ty) => ty.span,
+    }
+  }
 }
 
 #[derive(Clone, Debug)]

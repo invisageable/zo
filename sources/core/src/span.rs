@@ -1,3 +1,7 @@
+pub trait AsSpan {
+  fn as_span(&self) -> Span;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Span {
   pub lo: usize,

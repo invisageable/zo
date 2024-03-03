@@ -15,8 +15,7 @@ impl Codegen {
     session: &mut Session,
     program: &Program,
   ) -> Result<Box<[u8]>> {
-    let mut translator =
-      Translator::new(&mut session.interner, &session.reporter);
+    let mut translator = Translator::new(&session.interner, &session.reporter);
 
     translator.translate(program)?;
     translator.output()
