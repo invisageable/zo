@@ -6,13 +6,18 @@
 -- #run fun foo () {}
 -- #run fun foo (x: f32) {}
 
+-- externs
+
+-- ext bar();
+-- ext foobar(x: int);
+
 -- globals.
 
 val A: bool = true;
 val B: int = 45;
-val E: float = 1.0;
-val I: char = '\0';
-val J: str = "👋 🌍 👽";
+val C: float = 1.0;
+val D: char = '\0';
+val E: str = "👋 🌍 👽";
 
 -- functions.
 
@@ -40,20 +45,30 @@ fun foobar(x: char, y: char) {}
 -- locals.
 
 fun locals() {
+  -- immutable variables — infer.
+  imu x := 4 + 8 * 268 / 2;
   imu x := when true ? 2 : 3;
---   imu x: int = 1_000_000_000;
---   imu x: float = 1_000_000_000.0;
+  imu x := 1_000_000_000;
+  imu x := 1_000_000_000.0;
+  imu x := '\0';
+  imu x := "👋🌍👽";
+
+-- mutable variables — infer.
+  mut x := when true ? 2 : 3;
+  mut x := 123_456_789;
+  mut x := 987_654_321;
+  mut x := 0.456;
+  imu x := "👋🌍👽";
+  mut x := '\n';
 }
 
 -- loops.
 
 fun loops() {
   -- infinite loop
-  
   loop {}
 
   -- infinite loop nested
-  
   loop {
     loop {}
   }
