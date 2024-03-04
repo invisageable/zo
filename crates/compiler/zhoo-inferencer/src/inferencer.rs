@@ -71,8 +71,44 @@ impl<'program> Inferencer<'program> {
       ast::ExprKind::BinOp(binop, lhs, rhs) => {
         self.infer_expr_binop(binop, lhs, rhs)
       }
+      ast::ExprKind::Return(maybe_expr) => self.infer_expr_return(maybe_expr),
+      ast::ExprKind::Break(maybe_expr) => self.infer_expr_break(maybe_expr),
+      ast::ExprKind::Continue => self.infer_expr_continue(),
       _ => todo!(),
     }
+  }
+
+  #[allow(dead_code)]
+  fn infer_stmt_expr(&mut self, expr: &ast::Expr) -> Result<Ty> {
+    match &expr.kind {
+      ast::ExprKind::Lit(lit) => self.infer_expr_lit(lit),
+      _ => todo!(),
+    }
+  }
+
+  fn infer_expr_lit(&mut self, lit: &ast::Lit) -> Result<Ty> {
+    match &lit.kind {
+      ast::LitKind::Int(int) => self.infer_expr_lit_int(int, lit.span),
+      ast::LitKind::Float(float) => self.infer_expr_lit_float(float, lit.span),
+      ast::LitKind::Ident(ident) => self.infer_expr_lit_ident(ident, lit.span),
+      _ => todo!(),
+    }
+  }
+
+  fn infer_expr_lit_int(&mut self, _int: &Symbol, span: Span) -> Result<Ty> {
+    Ok(Ty::int(span))
+  }
+
+  fn infer_expr_lit_float(
+    &mut self,
+    _symbol: &Symbol,
+    span: Span,
+  ) -> Result<Ty> {
+    Ok(Ty::float(span))
+  }
+
+  fn infer_expr_lit_ident(&mut self, ident: &Symbol, span: Span) -> Result<Ty> {
+    Ok(Ty::ident(*ident, span))
   }
 
   fn infer_expr_unop(
@@ -92,39 +128,28 @@ impl<'program> Inferencer<'program> {
     Ok(Ty::UNIT)
   }
 
-  #[allow(dead_code)]
-  fn infer_stmt_expr(&mut self, expr: &ast::Expr) -> Result<Ty> {
-    match &expr.kind {
-      ast::ExprKind::Lit(lit) => self.infer_expr_lit(lit),
-      _ => todo!(),
-    }
-  }
-
-  #[allow(dead_code)]
-  fn infer_expr_lit(&mut self, lit: &ast::Lit) -> Result<Ty> {
-    match &lit.kind {
-      ast::LitKind::Int(symbol) => self.infer_expr_lit_int(symbol, lit.span),
-      _ => todo!(),
-    }
-  }
-
-  #[allow(dead_code)]
-  fn infer_expr_lit_int(&mut self, _symbol: &Symbol, span: Span) -> Result<Ty> {
-    Ok(Ty::int(span))
-  }
-
-  #[allow(dead_code)]
-  fn infer_expr_lit_float(
+  fn infer_expr_return(
     &mut self,
-    _symbol: &Symbol,
-    span: Span,
+    maybe_expr: &Option<Box<ast::Expr>>,
   ) -> Result<Ty> {
-    Ok(Ty::float(span))
+    match maybe_expr {
+      Some(expr) => self.infer_expr(expr),
+      None => Ok(Ty::UNIT),
+    }
   }
 
-  #[allow(dead_code)]
-  fn infer_expr_lit_ident(&mut self, ident: &String, span: Span) -> Result<Ty> {
-    Ok(Ty::ident(ident.into(), span))
+  fn infer_expr_break(
+    &mut self,
+    maybe_expr: &Option<Box<ast::Expr>>,
+  ) -> Result<Ty> {
+    match maybe_expr {
+      Some(expr) => self.infer_expr(expr),
+      None => Ok(Ty::UNIT),
+    }
+  }
+
+  fn infer_expr_continue(&mut self) -> Result<Ty> {
+    Ok(Ty::UNIT)
   }
 }
 

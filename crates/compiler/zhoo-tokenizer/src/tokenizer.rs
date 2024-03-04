@@ -14,12 +14,11 @@ use super::token::{Token, TokenKind};
 use zhoo_session::session::Session;
 
 use zo_core::interner::Interner;
-use zo_core::is;
 use zo_core::reporter::report::lexical::Lexical;
 use zo_core::reporter::report::ReportError;
 use zo_core::reporter::Reporter;
 use zo_core::span::Span;
-use zo_core::Result;
+use zo_core::{is, Result};
 
 #[derive(Debug)]
 struct Tokenizer<'source> {

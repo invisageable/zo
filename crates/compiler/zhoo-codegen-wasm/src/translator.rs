@@ -203,7 +203,6 @@ impl<'mir> Translator<'mir> {
     self.writer.write(format!("(f64.const {float})"))
   }
 
-  // todo #1
   fn translate_expr_lit_ident(&mut self, symbol: &Symbol) -> Result<()> {
     let ident = self.interner.lookup_ident(*symbol);
 
@@ -217,7 +216,6 @@ impl<'mir> Translator<'mir> {
     self.writer.write(format!("(i64.const {boolean})"))
   }
 
-  // todo #1
   fn translate_expr_lit_char(&mut self, symbol: &Symbol) -> Result<()> {
     let ch = self.interner.lookup_char(*symbol);
 

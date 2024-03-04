@@ -1,3 +1,5 @@
+//! ...
+
 use zhoo_ast::ast;
 use zhoo_session::session::Session;
 
@@ -38,14 +40,14 @@ impl<'program> NameChecker<'program> {
 
   fn check_item(&mut self, item: &ast::Item) -> Result<()> {
     match &item.kind {
-      ast::ItemKind::Ext(ext) => self.check_stmt_ext(ext),
-      ast::ItemKind::TyAlias(ty_alias) => self.check_stmt_ty_alias(ty_alias),
+      ast::ItemKind::Ext(ext) => self.check_item_ext(ext),
+      ast::ItemKind::TyAlias(ty_alias) => self.check_item_ty_alias(ty_alias),
+      ast::ItemKind::Var(var) => self.check_item_var(var),
       ast::ItemKind::Fun(fun) => self.check_item_fun(fun),
-      _ => Ok(()),
     }
   }
 
-  fn check_stmt_ext(&mut self, ext: &ast::Ext) -> Result<()> {
+  fn check_item_ext(&mut self, ext: &ast::Ext) -> Result<()> {
     self.check_prototype(&ext.prototype)?;
 
     if let Some(body) = &ext.maybe_body {
@@ -55,7 +57,11 @@ impl<'program> NameChecker<'program> {
     Ok(())
   }
 
-  fn check_stmt_ty_alias(&mut self, _ty_alias: &ast::TyAlias) -> Result<()> {
+  fn check_item_ty_alias(&mut self, _ty_alias: &ast::TyAlias) -> Result<()> {
+    Ok(())
+  }
+
+  fn check_item_var(&mut self, _var: &ast::Var) -> Result<()> {
     Ok(())
   }
 
@@ -117,7 +123,8 @@ impl<'program> NameChecker<'program> {
   fn check_expr(&mut self, expr: &ast::Expr) -> Result<()> {
     match &expr.kind {
       ast::ExprKind::Lit(lit) => self.check_expr_lit(lit),
-      ast::ExprKind::BinOp(_, lhs, rhs) => self.check_expr_bin_op(lhs, rhs),
+      ast::ExprKind::UnOp(_, rhs) => self.check_expr_unop(rhs),
+      ast::ExprKind::BinOp(_, lhs, rhs) => self.check_expr_binop(lhs, rhs),
       _ => Ok(()),
     }
   }
@@ -135,7 +142,11 @@ impl<'program> NameChecker<'program> {
     Ok(())
   }
 
-  fn check_expr_bin_op(
+  fn check_expr_unop(&mut self, _rhs: &ast::Expr) -> Result<()> {
+    Ok(())
+  }
+
+  fn check_expr_binop(
     &mut self,
     _lhs: &ast::Expr,
     _rhs: &ast::Expr,
@@ -149,7 +160,7 @@ impl<'program> NameChecker<'program> {
       return Ok(());
     }
 
-    Err(self.report_error_naming_convention(name, span, StrCase::Pascal))
+    Err(self.error_naming_convention(name, span, StrCase::Pascal))
   }
 
   fn verify_snake_case(&self, span: Span, name: &str) -> Result<()> {
@@ -157,7 +168,7 @@ impl<'program> NameChecker<'program> {
       return Ok(());
     }
 
-    Err(self.report_error_naming_convention(name, span, StrCase::Snake))
+    Err(self.error_naming_convention(name, span, StrCase::Snake))
   }
 
   #[allow(dead_code)]
@@ -166,14 +177,10 @@ impl<'program> NameChecker<'program> {
       return Ok(());
     }
 
-    Err(self.report_error_naming_convention(
-      name,
-      span,
-      StrCase::SnakeScreaming,
-    ))
+    Err(self.error_naming_convention(name, span, StrCase::SnakeScreaming))
   }
 
-  fn report_error_naming_convention(
+  fn error_naming_convention(
     &self,
     name: &str,
     span: Span,
@@ -189,6 +196,12 @@ impl<'program> NameChecker<'program> {
   }
 }
 
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn check(session: &mut Session, program: &ast::Program) -> Result<()> {
   NameChecker::new(&mut session.interner, &session.reporter).check(program)
 }

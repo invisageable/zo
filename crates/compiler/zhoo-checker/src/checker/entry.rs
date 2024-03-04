@@ -1,3 +1,5 @@
+//! ...
+
 use zhoo_ast::ast;
 use zhoo_session::session::Session;
 
@@ -54,6 +56,12 @@ impl<'program> EntryChecker<'program> {
   }
 }
 
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn check(session: &mut Session, program: &ast::Program) -> Result<()> {
   EntryChecker::new(&mut session.interner, &session.reporter).check(program)
 }

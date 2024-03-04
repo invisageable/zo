@@ -497,6 +497,8 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Kw(Kw::Return) => Some(Self::parse_expr_return),
       TokenKind::Kw(Kw::Continue) => Some(Self::parse_expr_continue),
       TokenKind::Kw(Kw::Break) => Some(Self::parse_expr_break),
+      TokenKind::Kw(Kw::When) => Some(Self::parse_expr_when),
+      TokenKind::Kw(Kw::Loop) => Some(Self::parse_expr_loop),
       _ => None,
     }
   }
@@ -792,6 +794,45 @@ impl<'tokens> Parser<'tokens> {
 
     Ok(Expr {
       kind: ExprKind::Break(Some(Box::new(value))),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  fn parse_expr_when(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+
+    parser.expect_peek(TokenKind::Op(Op::Question))?;
+    parser.next();
+
+    let consequence = parser.parse_expr(Precedence::Low)?;
+
+    parser.expect_peek(TokenKind::Punctuation(Punctuation::Colon))?;
+    parser.next();
+
+    let alternative = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::When(
+        Box::new(condition),
+        Box::new(consequence),
+        Box::new(alternative),
+      ),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  fn parse_expr_loop(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+    let body = parser.parse_block()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Loop(body),
       span: Span::merge(lo, hi),
     })
   }

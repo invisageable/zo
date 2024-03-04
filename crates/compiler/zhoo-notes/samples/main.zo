@@ -1,5 +1,67 @@
+-- this is a line comments
+-! this is a line doc comments
+
+-- comptime.
+
+-- #run fun foo () {}
+-- #run fun foo (x: f32) {}
+
+-- globals.
+
+val A: bool = true;
+val B: int = 45;
+val E: float = 1.0;
+val I: char = '\0';
+val J: str = "👋 🌍 👽";
+
+-- functions.
+
+-- function declarations.
+
+fun foobar() {}
+
+-- function with inputs.
+
+fun foobar(x: int, y: int) {}
+fun foobar(x: str, y: str) {}
+fun foobar(x: char, y: char) {}
+
+-- function with output types.
+
+-- fun foobar(): bool {}
+-- fun foobar(): int {}
+
+-- function blocks.
+
+-- fun add(x: int, y: int): int {
+--   x + y
+-- }
+
+-- locals.
+
+fun locals() {
+  imu x := when true ? 2 : 3;
+--   imu x: int = 1_000_000_000;
+--   imu x: float = 1_000_000_000.0;
+}
+
+-- loops.
+
+fun loops() {
+  -- infinite loop
+  
+  loop {}
+
+  -- infinite loop nested
+  
+  loop {
+    loop {}
+  }
+}
+
+-- entry.
+
 fun main() {
-  imu x := 4 + 8 * 268 / 2;
-  imu x := fn() -> x * x;
-  imu x := fn() -> x * x;
+  imu x := 0;
+  x
 }

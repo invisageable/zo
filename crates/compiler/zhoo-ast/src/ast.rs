@@ -76,7 +76,7 @@ impl Program {
   pub fn new() -> Self {
     Self {
       items: Vec::with_capacity(0usize),
-      span: Span::default(),
+      span: Span::ZERO,
     }
   }
 
@@ -271,7 +271,7 @@ pub enum ExprKind {
   Match(Box<Expr>, Vec<Arm>),
 
   // loops.
-  Loop(Box<Expr>),
+  Loop(Block),
   While(Box<Expr>, Block),
   For(For),
 

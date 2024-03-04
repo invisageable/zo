@@ -24,8 +24,7 @@ impl Analyzer {
     checker::name::check(session, program)?;
 
     let hir = inferencer::infer(session, program)?; // todo(ivs) — should be an hir return value?
-
-    tychecker::check(session)?;
+    let _ = tychecker::check(session)?;
 
     println!("\n{hir:?}\n");
 

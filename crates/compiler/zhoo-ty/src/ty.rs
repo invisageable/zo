@@ -24,7 +24,7 @@ impl Ty {
     Self::of(TyKind::Float, span)
   }
 
-  pub const fn ident(ident: String, span: Span) -> Self {
+  pub const fn ident(ident: Symbol, span: Span) -> Self {
     Self::of(TyKind::Ident(ident), span)
   }
 
@@ -67,7 +67,7 @@ pub enum TyKind {
   Unit,
   Int,
   Float,
-  Ident(String),
+  Ident(Symbol),
   Bool,
   Char,
   Str,
