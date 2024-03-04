@@ -18,10 +18,7 @@ pub struct Reporter {
 impl Reporter {
   #[inline]
   pub fn new() -> Self {
-    Self {
-      has_errors: std::sync::Arc::new(std::sync::Mutex::new(false)),
-      source_map: SourceMap::new(),
-    }
+    Self::default()
   }
 
   pub fn add_source(
@@ -128,6 +125,9 @@ impl Reporter {
 
 impl Default for Reporter {
   fn default() -> Self {
-    Self::new()
+    Self {
+      has_errors: std::sync::Arc::new(std::sync::Mutex::new(false)),
+      source_map: SourceMap::new(),
+    }
   }
 }

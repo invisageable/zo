@@ -11,6 +11,7 @@ use crate::span::Span;
 use smol_str::SmolStr;
 
 pub(crate) const REPORT_TITLE_ERROR: &str = "error";
+pub(crate) const REPORT_TITLE_WARNING: &str = "warning";
 
 pub trait Error: Sized {
   fn report(&self) -> Report;
