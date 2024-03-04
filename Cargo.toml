@@ -19,6 +19,7 @@ zhoo = { path = "crates/compiler/zhoo", version = "0.0.0" }
 zhoo-analyzer = { path = "crates/compiler/zhoo-analyzer", version = "0.0.0" }
 zhoo-ast = { path = "crates/compiler/zhoo-ast", version = "0.0.0" }
 zhoo-builder = { path = "crates/compiler/zhoo-builder", version = "0.0.0" }
+zhoo-checker = { path = "crates/compiler/zhoo-checker", version = "0.0.0" }
 zhoo-codegen = { path = "crates/compiler/zhoo-codegen", version = "0.0.0" }
 zhoo-codegen-wasm = { path = "crates/compiler/zhoo-codegen-wasm", version = "0.0.0" }
 zhoo-codegen-zo = { path = "crates/compiler/zhoo-codegen-zo", version = "0.0.0" }

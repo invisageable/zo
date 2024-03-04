@@ -165,6 +165,21 @@ pub struct Prototype {
 #[derive(Clone, Debug)]
 pub struct Inputs(pub Vec<Input>);
 
+impl AsSpan for Inputs {
+  fn as_span(&self) -> Span {
+    let mut iter = self.iter();
+    let lhs = iter.next();
+    let rhs = iter.last();
+
+    match (lhs, rhs) {
+      (Some(lhs), Some(rhs)) => Span::merge(lhs.span, rhs.span),
+      (Some(lhs), None) => lhs.span,
+      (None, Some(rhs)) => rhs.span,
+      (None, None) => Span::ZERO,
+    }
+  }
+}
+
 impl std::ops::Deref for Inputs {
   type Target = Vec<Input>;
 

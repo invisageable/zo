@@ -983,6 +983,7 @@ name = "zhoo-analyzer"
 version = "0.0.0"
 dependencies = [
  "zhoo-ast",
+ "zhoo-checker",
  "zhoo-hir",
  "zhoo-inferencer",
  "zhoo-session",
@@ -1007,6 +1008,15 @@ name = "zhoo-builder"
 version = "0.0.0"
 dependencies = [
  "wat",
+ "zhoo-session",
+ "zo-core",
+]
+
+[[package]]
+name = "zhoo-checker"
+version = "0.0.0"
+dependencies = [
+ "zhoo-ast",
  "zhoo-session",
  "zo-core",
 ]

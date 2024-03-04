@@ -74,6 +74,9 @@ macro_rules! is {
   (kebab $rhs:expr) => {
     $crate::case::strcase::kebabcase::is_kebab_case($rhs)
   };
+  (pascal $rhs:expr) => {
+    $crate::case::strcase::pascalcase::is_pascal_case($rhs)
+  };
   (snake $rhs:expr) => {
     $crate::case::strcase::snakecase::is_snake_case($rhs)
   };
@@ -87,11 +90,15 @@ macro_rules! is {
 
 #[macro_export]
 macro_rules! to {
+  // strcase.
   (camel $rhs:expr) => {
     $crate::case::strcase::camelcase::to_camel_case($rhs)
   };
   (kebab $rhs:expr) => {
     $crate::case::strcase::kebabcase::to_kebab_case($rhs)
+  };
+  (pascal $rhs:expr) => {
+    $crate::case::strcase::pascalcase::to_pascal_case($rhs)
   };
   (snake $rhs:expr) => {
     $crate::case::strcase::snakecase::to_snake_case($rhs)

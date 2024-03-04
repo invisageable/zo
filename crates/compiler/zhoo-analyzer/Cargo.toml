@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 zhoo-ast = { workspace = true }
+zhoo-checker = { workspace = true }
 zhoo-hir = { workspace = true }
 zhoo-inferencer = { workspace = true }
 zhoo-session = { workspace = true }

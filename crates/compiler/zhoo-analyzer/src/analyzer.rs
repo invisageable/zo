@@ -1,6 +1,7 @@
 //! ...
 
 use zhoo_ast::ast::Program;
+use zhoo_checker::checker;
 use zhoo_hir::hir::Hir;
 use zhoo_inferencer::inferencer;
 use zhoo_session::session::Session;
@@ -19,8 +20,10 @@ impl Analyzer {
     session: &mut Session,
     program: &Program,
   ) -> Result<Hir> {
-    // todo(ivs) — should be an hir return value?
-    let hir = inferencer::infer(session, program)?;
+    checker::entry::check(session, program)?;
+    checker::name::check(session, program)?;
+
+    let hir = inferencer::infer(session, program)?; // todo(ivs) — should be an hir return value?
 
     tychecker::check(session)?;
 
