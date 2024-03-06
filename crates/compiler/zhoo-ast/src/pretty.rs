@@ -251,6 +251,19 @@ impl std::fmt::Display for BinOpKind {
       Self::Mul => write!(f, "*"),
       Self::Div => write!(f, "/"),
       Self::Rem => write!(f, "^"),
+      Self::And => write!(f, "&&"),
+      Self::Or => write!(f, "||"),
+      Self::BitXor => write!(f, "^"),
+      Self::BitAnd => write!(f, "&"),
+      Self::BitOr => write!(f, "|"),
+      Self::Lt => write!(f, "<"),
+      Self::Gt => write!(f, ">"),
+      Self::Le => write!(f, "<="),
+      Self::Ge => write!(f, ">="),
+      Self::Eq => write!(f, "=="),
+      Self::Ne => write!(f, "!="),
+      Self::Shl => write!(f, "<<"),
+      Self::Shr => write!(f, ">>"),
     }
   }
 }

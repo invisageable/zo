@@ -262,7 +262,7 @@ pub enum ExprKind {
 
   // funs.
   Fn(Prototype, Block),
-  Call(Box<Expr>, Vec<Expr>),
+  Call(Box<Expr>, Args),
   Return(Option<Box<Expr>>),
 
   // branches.
@@ -397,11 +397,24 @@ impl From<&Token> for BinOp {
 
 #[derive(Clone, Debug)]
 pub enum BinOpKind {
-  Add, // +
-  Sub, // -
-  Mul, // *
-  Div, // /
-  Rem, // %
+  Add,    // +
+  Sub,    // -
+  Mul,    // *
+  Div,    // /
+  Rem,    // %
+  And,    // &&
+  Or,     // ||
+  BitXor, // ^
+  BitAnd, // &
+  BitOr,  // |
+  Lt,     // <
+  Gt,     // >
+  Le,     // <=
+  Ge,     // >=
+  Eq,     // ==
+  Ne,     // !=
+  Shl,    // <<
+  Shr,    // >>
 }
 
 impl From<Op> for BinOpKind {
@@ -412,9 +425,39 @@ impl From<Op> for BinOpKind {
       Op::Asterisk => Self::Mul,
       Op::Slash => Self::Div,
       Op::Percent => Self::Rem,
+      Op::AmpersandAmpersand => Self::And,
+      Op::PipePipe => Self::Or,
+      Op::Circumflex => Self::BitXor,
+      Op::Ampersand => Self::BitAnd,
+      Op::Pipe => Self::BitOr,
+      Op::LessThan => Self::Lt,
+      Op::GreaterThan => Self::Gt,
+      Op::LessThanEqual => Self::Le,
+      Op::GreaterThanEqual => Self::Ge,
+      Op::EqualEqual => Self::Eq,
+      Op::ExclamationEqual => Self::Ne,
+      Op::LessThanLessThan => Self::Shl,
+      Op::GreaterThanGreaterThan => Self::Shr,
       _ => unreachable!(),
     }
   }
+}
+
+#[derive(Clone, Debug)]
+pub struct Args(pub Vec<Arg>);
+
+impl std::ops::Deref for Args {
+  type Target = Vec<Arg>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Arg {
+  pub pattern: Pattern,
+  pub span: Span,
 }
 
 #[derive(Clone, Debug)]
