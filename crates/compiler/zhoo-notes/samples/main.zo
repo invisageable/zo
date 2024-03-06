@@ -52,14 +52,26 @@ fun locals() {
   imu x := 1_000_000_000.0;
   imu x := '\0';
   imu x := "👋🌍👽";
+  imu x := foobar();
 
--- mutable variables — infer.
+  -- mutable variables — infer.
   mut x := when true ? 2 : 3;
   mut x := 123_456_789;
   mut x := 987_654_321;
   mut x := 0.456;
-  imu x := "👋🌍👽";
+  mut x := "👋🌍👽";
   mut x := '\n';
+  mut x := foobar();
+
+  -- mutable assignops
+  x += 0;
+  x -= 0;
+  x *= 0;
+  x /= 0;
+  x %= 0;
+  x ^= 0;
+  x &= 0;
+  x |= 0;
 }
 
 -- loops.
@@ -72,6 +84,22 @@ fun loops() {
   loop {
     loop {}
   }
+
+  -- while loop
+  while true {}
+
+  -- while loop nested
+  while true {
+    while false {}
+  }
+
+  -- for loop
+  -- for x := 0..1_000_000 {}
+
+  -- for loop nested
+  -- for x := 0..1_000_000 {
+  --   for y := 0..1_000_000 {}
+  -- }
 }
 
 -- entry.
