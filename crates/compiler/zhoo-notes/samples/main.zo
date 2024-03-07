@@ -70,6 +70,7 @@ fun locals() {
   imu x := -1 + 2;
   imu x := !true;
   imu x := 4 + 8 * 268 / 2;
+  imu x := ((4 + 8) * 268 / 2);
   imu x := 9 % 0 == 0;
   imu x := when true ? 2 : 3;
   imu x := if true {} else if false {} else {};
@@ -81,6 +82,11 @@ fun locals() {
   imu x := foobar(x, x);
   imu x := {};
   imu x := [0, 1, 2, 3];
+  imu x := x[0];
+  imu x := x.x;
+  imu x := x.foobar();
+  imu x := foobar().foobar();
+  -- imu x := #{};
 
   -- mutable variables — infer.
   mut x := -1 + 2;
@@ -97,9 +103,15 @@ fun locals() {
   mut x := foobar(x, x);
   mut x := {};
   mut x := [0, 1, 2, 3];
+  mut x := x[0];
+  mut x := x.x;
+  mut x := x.foobar();
+  mut x := foobar().foobar();
+  -- mut x := Foo { a = "👋🌍👽", b = 0 };
 
   -- assignments.
   -- x = 0;
+
   x += 0;
   x -= 0;
   x *= 0;
@@ -113,8 +125,15 @@ fun locals() {
 -- branches.
 
 fun branches() {
-  -- if 0 == 1 {}
+  -- if branch.
+  -- if true {}
+
+  -- if else branch.
   -- if true {} else {}
+
+  -- if branch.
+  -- if true {} else if false {} else {}
+
   -- if !true {} else {}
   -- if 0 == 1 {} else if 1 == 0 {} else {}
 }

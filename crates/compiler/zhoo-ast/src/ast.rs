@@ -290,6 +290,8 @@ pub enum ExprKind {
 
   // definitions.
   Struct(), // todo(ivs) — unimplemented.
+
+  Chaining(Box<Expr>, Box<Expr>),
 }
 
 impl Symbolize for ExprKind {

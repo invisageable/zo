@@ -6,7 +6,7 @@
 
 > For english peeps — this section will be written in french.
 > In the future, an english translation will be done. 
-> Only titles should stay in english. 
+> Only headlines will remain in english.
 
 ## about.
 
