@@ -17,7 +17,7 @@ pub struct Analyzing {
 impl Process for Analyzing {
   fn process(&self, session: &mut Session) -> Result<()> {
     self.tx.recv().and_then(|program| {
-      println!("{program:#?}");
+      println!("{program:?}");
       analyzer::analyze(session, &program)
         .and_then(|_program| self.rx.send(program))
     })

@@ -4,9 +4,9 @@
 use super::precedence::Precedence;
 
 use zhoo_ast::ast::{
-  BinOp, Block, Expr, ExprKind, Fun, Input, Inputs, Item, ItemKind, Lit,
-  LitKind, Mutability, OutputTy, Pattern, PatternKind, Program, Prototype, Pub,
-  Stmt, StmtKind, UnOp, Var, VarKind,
+  Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Inputs, Item,
+  ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind, Program,
+  Prototype, Pub, Stmt, StmtKind, TyAlias, UnOp, Var, VarKind,
 };
 
 use zhoo_session::session::Session;
@@ -137,6 +137,7 @@ impl<'tokens> Parser<'tokens> {
     while self.has_tokens() {
       match self.parse_item() {
         Ok(item) => program.add_item(item),
+        // todo(ivs) — raise an error instead.
         Err(report_error) => self.reporter.add_report(report_error),
       }
 
@@ -160,6 +161,7 @@ impl<'tokens> Parser<'tokens> {
         // struct.
         // abstract.
         TokenKind::Kw(Kw::Val) => self.parse_item_val(),
+        TokenKind::Kw(Kw::Type) => self.parse_item_ty_alias(),
         TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
         _ => Err(ReportError::Syntax(Syntax::ExpectedItem(
           token.span,
@@ -207,6 +209,32 @@ impl<'tokens> Parser<'tokens> {
       }),
       _ => panic!("expected global var."),
     }
+  }
+
+  fn parse_item_ty_alias(&mut self) -> Result<Item> {
+    let lo = self.current_span();
+
+    self.next();
+
+    let pattern = self.parse_pattern()?;
+
+    self.expect_peek(TokenKind::Op(Op::Equal))?;
+
+    let ty = self.parse_ty()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    self.expect_peek(TokenKind::Punctuation(Punctuation::Semicolon))?;
+
+    Ok(Item {
+      kind: ItemKind::TyAlias(TyAlias {
+        pubness: Pub::No,
+        pattern,
+        maybe_ty: Some(ty),
+        span,
+      }),
+      span,
+    })
   }
 
   fn parse_item_fun(&mut self) -> Result<Item> {
@@ -348,12 +376,6 @@ impl<'tokens> Parser<'tokens> {
     while !self.ensure_peek(TokenKind::Group(Group::BraceClose))
       && self.has_tokens()
     {
-      // if self.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
-      //   self.next();
-
-      //   continue;
-      // }
-
       self.next();
       stmts.push(self.parse_stmt()?);
     }
@@ -494,11 +516,15 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Str(_) => Some(Self::parse_expr_lit_str),
       kind if kind.is_unop() => Some(Self::parse_expr_unop),
       TokenKind::Kw(Kw::Fn) => Some(Self::parse_expr_fn),
+      TokenKind::Group(Group::BraceOpen) => Some(Self::parse_expr_block),
+      TokenKind::Group(Group::BracketOpen) => Some(Self::parse_expr_array),
       TokenKind::Kw(Kw::Return) => Some(Self::parse_expr_return),
       TokenKind::Kw(Kw::Continue) => Some(Self::parse_expr_continue),
       TokenKind::Kw(Kw::Break) => Some(Self::parse_expr_break),
+      TokenKind::Kw(Kw::If) => Some(Self::parse_expr_if_else),
       TokenKind::Kw(Kw::When) => Some(Self::parse_expr_when),
       TokenKind::Kw(Kw::Loop) => Some(Self::parse_expr_loop),
+      TokenKind::Kw(Kw::While) => Some(Self::parse_expr_while),
       _ => None,
     }
   }
@@ -646,6 +672,7 @@ impl<'tokens> Parser<'tokens> {
     match token.kind {
       kind if kind.is_binop() => Some(Self::parse_expr_binop),
       TokenKind::Group(Group::ParenOpen) => Some(Self::parse_expr_call),
+      kind if kind.is_assignement() => Some(Self::parse_expr_assignop),
       _ => None,
     }
   }
@@ -675,6 +702,85 @@ impl<'tokens> Parser<'tokens> {
 
     Ok(Expr {
       kind: ExprKind::BinOp(binop, Box::new(lhs), Box::new(rhs)),
+      span,
+    })
+  }
+
+  fn parse_expr_call(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    let args = parser.parse_args()?;
+    let hi = parser.current_span();
+    let span = Span::merge(lhs.span, hi);
+
+    Ok(Expr {
+      kind: ExprKind::Call(Box::new(lhs), args),
+      span,
+    })
+  }
+
+  fn parse_args(&mut self) -> Result<Args> {
+    // no allocation.
+    let mut args = Vec::with_capacity(0usize);
+
+    while !self.ensure_peek(TokenKind::Group(Group::ParenClose)) {
+      if self.ensure_peek(TokenKind::Punctuation(Punctuation::Comma)) {
+        self.next();
+
+        continue;
+      }
+
+      self.next();
+      args.push(self.parse_arg()?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::ParenClose))?;
+
+    Ok(Args(args))
+  }
+
+  fn parse_arg(&mut self) -> Result<Arg> {
+    let lo = self.current_span();
+    let pattern = self.parse_pattern()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Arg { pattern, span })
+  }
+
+  fn parse_expr_assignop(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    let maybe_binop = parser
+      .maybe_token_current
+      .and_then(|Token { kind, span }| match kind {
+        TokenKind::Op(Op::PlusEqual) => Some((BinOpKind::Add, *span)),
+        TokenKind::Op(Op::MinusEqual) => Some((BinOpKind::Sub, *span)),
+        TokenKind::Op(Op::AsteriskEqual) => Some((BinOpKind::Mul, *span)),
+        TokenKind::Op(Op::SlashEqual) => Some((BinOpKind::Div, *span)),
+        TokenKind::Op(Op::PercentEqual) => Some((BinOpKind::Rem, *span)),
+        TokenKind::Op(Op::CircumflexEqual) => Some((BinOpKind::BitXor, *span)),
+        TokenKind::Op(Op::AmspersandEqual) => Some((BinOpKind::BitAnd, *span)),
+        TokenKind::Op(Op::PipeEqual) => Some((BinOpKind::BitOr, *span)),
+        TokenKind::Op(Op::LessThanLessThanEqual) => {
+          Some((BinOpKind::Shl, *span))
+        }
+        TokenKind::Op(Op::GreaterThanGreaterThanEqual) => {
+          Some((BinOpKind::Shr, *span))
+        }
+        _ => None,
+      })
+      .map(|(kind, span)| BinOp { kind, span });
+
+    let Some(binop) = maybe_binop else {
+      // todo(ivs) — should report a proper error message.
+      panic!("expected assignop.")
+    };
+
+    parser.next();
+
+    let rhs = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+    let span = Span::merge(lhs.span, hi);
+
+    Ok(Expr {
+      kind: ExprKind::AssignOp(binop, Box::new(lhs), Box::new(rhs)),
       span,
     })
   }
@@ -733,6 +839,56 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
+  fn parse_expr_block(parser: &mut Parser) -> Result<Expr> {
+    let mut stmts = Vec::with_capacity(0usize);
+    let lo = parser.current_span();
+
+    while !parser.ensure_peek(TokenKind::Group(Group::BraceClose)) {
+      parser.next();
+      stmts.push(parser.parse_stmt()?);
+    }
+
+    parser.expect_peek(TokenKind::Group(Group::BraceClose))?;
+
+    let hi = parser.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Expr {
+      kind: ExprKind::Block(Block { stmts, span }),
+      span,
+    })
+  }
+
+  fn parse_expr_array(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+    let exprs = parser.parse_exprs()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Array(exprs),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  fn parse_exprs(&mut self) -> Result<Vec<Expr>> {
+    let mut exprs = Vec::with_capacity(0usize);
+
+    while !self.ensure_peek(TokenKind::Group(Group::BracketClose)) {
+      if self.ensure_peek(TokenKind::Punctuation(Punctuation::Comma)) {
+        self.next();
+
+        continue;
+      }
+
+      self.next();
+      exprs.push(self.parse_expr(Precedence::Low)?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::BracketClose))?;
+
+    Ok(exprs)
+  }
+
   fn parse_expr_return(parser: &mut Parser) -> Result<Expr> {
     let lo = parser.current_span();
 
@@ -750,11 +906,7 @@ impl<'tokens> Parser<'tokens> {
     let expr = parser.parse_expr(Precedence::Low)?;
     let hi = parser.current_span();
 
-    while parser
-      .maybe_token_current
-      .map(|token| token.is(TokenKind::Punctuation(Punctuation::Semicolon)))
-      .unwrap()
-    {
+    while parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
       parser.next();
     }
 
@@ -798,6 +950,38 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
+  fn parse_expr_if_else(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+    let consequence = parser.parse_block()?;
+
+    parser.next();
+
+    let alternative = if parser.ensure(TokenKind::Kw(Kw::Else)) {
+      parser.next();
+
+      if parser.ensure_peek(TokenKind::Kw(Kw::If)) {
+        Some(Box::new(Self::parse_expr_if_else(parser)?))
+      } else {
+        let expr = parser.parse_expr(Precedence::Low)?;
+
+        Some(Box::new(expr))
+      }
+    } else {
+      None
+    };
+
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::IfElse(Box::new(condition), consequence, alternative),
+      span: Span::merge(lo, hi),
+    })
+  }
+
   fn parse_expr_when(parser: &mut Parser) -> Result<Expr> {
     let lo = parser.current_span();
 
@@ -837,8 +1021,19 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
-  fn parse_expr_call(_parser: &mut Parser, _lhs: Expr) -> Result<Expr> {
-    todo!()
+  fn parse_expr_while(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+    let body = parser.parse_block()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::While(Box::new(condition), body),
+      span: Span::merge(lo, hi),
+    })
   }
 }
 

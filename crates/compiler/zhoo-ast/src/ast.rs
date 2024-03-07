@@ -249,12 +249,18 @@ pub enum ExprKind {
   // prefix, infix.
   UnOp(UnOp, Box<Expr>),
   BinOp(BinOp, Box<Expr>, Box<Expr>),
+
+  // assignments.
+  Assign(Box<Expr>, Box<Expr>),
   AssignOp(BinOp, Box<Expr>, Box<Expr>),
 
   // collections.
   Array(Vec<Expr>),
   Record(Record),
   Tuple(Vec<Expr>),
+
+  // blocks.
+  Block(Block),
 
   // accesses.
   ArrayAccess(Box<Expr>, Box<Expr>),
@@ -266,7 +272,7 @@ pub enum ExprKind {
   Return(Option<Box<Expr>>),
 
   // branches.
-  IfElse(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
+  IfElse(Box<Expr>, Block, Option<Box<Expr>>),
   When(Box<Expr>, Box<Expr>, Box<Expr>),
   Match(Box<Expr>, Vec<Arm>),
 
@@ -279,7 +285,7 @@ pub enum ExprKind {
   Break(Option<Box<Expr>>),
   Continue,
 
-  // variables
+  // variables.
   Var(Var),
 
   // definitions.
