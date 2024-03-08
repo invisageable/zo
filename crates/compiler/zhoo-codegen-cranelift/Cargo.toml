@@ -1,5 +1,5 @@
 [package]
-name = "zhoo-codegen-zo"
+name = "zhoo-codegen-cranelift"
 license.workspace = true
 edition.workspace = true
 
@@ -8,3 +8,5 @@ zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
 
 zo-core = { workspace = true }
+
+cranelift = { workspace = true }
