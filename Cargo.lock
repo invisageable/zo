@@ -1264,7 +1264,7 @@ version = "0.0.0"
 dependencies = [
  "zhoo-ast",
  "zhoo-codegen-arm",
- "zhoo-codegen-cranelift",
+ "zhoo-codegen-clif",
  "zhoo-codegen-wasm",
  "zhoo-session",
  "zo-core",
@@ -1280,7 +1280,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zhoo-codegen-cranelift"
+name = "zhoo-codegen-clif"
 version = "0.0.0"
 dependencies = [
  "cranelift",
@@ -1290,6 +1290,7 @@ dependencies = [
  "cranelift-object",
  "zhoo-ast",
  "zhoo-session",
+ "zhoo-ty",
  "zo-core",
 ]
 

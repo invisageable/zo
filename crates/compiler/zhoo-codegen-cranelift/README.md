@@ -1,3 +1,0 @@
-# zhoo-codegen-arm.
-
-> *...*

@@ -1,13 +1,11 @@
 [package]
-name = "zhoo-codegen"
+name = "zhoo-interpreter-clif"
 license.workspace = true
 edition.workspace = true
 
 [dependencies]
 zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
-zhoo-codegen-arm = { workspace = true }
-zhoo-codegen-clif = { workspace = true }
-zhoo-codegen-wasm = { workspace = true }
+zhoo-value = { workspace = true }
 
 zo-core = { workspace = true }

@@ -327,7 +327,7 @@ impl<'program> Inferencer<'program> {
     }
   }
 
-  fn infer_expr_tuple(&mut self, _exprs: &Vec<ast::Expr>) -> Result<Ty> {
+  fn infer_expr_tuple(&mut self, _exprs: &[ast::Expr]) -> Result<Ty> {
     todo!()
   }
 

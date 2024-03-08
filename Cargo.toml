@@ -22,7 +22,7 @@ zhoo-builder = { path = "crates/compiler/zhoo-builder", version = "0.0.0" }
 zhoo-checker = { path = "crates/compiler/zhoo-checker", version = "0.0.0" }
 zhoo-codegen = { path = "crates/compiler/zhoo-codegen", version = "0.0.0" }
 zhoo-codegen-arm = { path = "crates/compiler/zhoo-codegen-arm", version = "0.0.0" }
-zhoo-codegen-cranelift = { path = "crates/compiler/zhoo-codegen-cranelift", version = "0.0.0" }
+zhoo-codegen-clif = { path = "crates/compiler/zhoo-codegen-clif", version = "0.0.0" }
 zhoo-codegen-llvm = { path = "crates/compiler/zhoo-codegen-llvm", version = "0.0.0" }
 zhoo-codegen-wasm = { path = "crates/compiler/zhoo-codegen-wasm", version = "0.0.0" }
 zhoo-compiler = { path = "crates/compiler/zhoo-compiler", version = "0.0.0" }
@@ -30,7 +30,7 @@ zhoo-driver = { path = "crates/compiler/zhoo-driver", version = "0.0.0" }
 zhoo-hir = { path = "crates/compiler/zhoo-hir", version = "0.0.0" }
 zhoo-inferencer = { path = "crates/compiler/zhoo-inferencer", version = "0.0.0" }
 zhoo-interpreter = { path = "crates/compiler/zhoo-interpreter", version = "0.0.0" }
-zhoo-interpreter-cranelift = { path = "crates/compiler/zhoo-interpreter-cranelift", version = "0.0.0" }
+zhoo-interpreter-clif = { path = "crates/compiler/zhoo-interpreter-clif", version = "0.0.0" }
 zhoo-interpreter-zo = { path = "crates/compiler/zhoo-interpreter-zo", version = "0.0.0" }
 zhoo-linker = { path = "crates/compiler/zhoo-linker", version = "0.0.0" }
 zhoo-parser = { path = "crates/compiler/zhoo-parser", version = "0.0.0" }

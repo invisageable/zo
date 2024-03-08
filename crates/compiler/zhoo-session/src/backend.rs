@@ -11,7 +11,7 @@ pub struct Backend {
 #[derive(Copy, Clone, Debug, Default)]
 pub enum BackendKind {
   Arm,
-  Cranelift,
+  Clif,
   Llvm,
   #[default]
   Wasm,
@@ -36,7 +36,7 @@ impl From<SmolStr> for BackendKind {
   fn from(backend: SmolStr) -> Self {
     match backend.as_str() {
       "arm" => Self::Arm,
-      "cranelift" => Self::Cranelift,
+      "cranelift" => Self::Clif,
       "llvm" => Self::Llvm,
       "wasm" => Self::Wasm,
       _ => unreachable!(),
@@ -48,7 +48,7 @@ impl std::fmt::Display for BackendKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::Arm => write!(f, "arm"),
-      Self::Cranelift => write!(f, "cranelift"),
+      Self::Clif => write!(f, "clif"),
       Self::Llvm => write!(f, "llvm"),
       Self::Wasm => write!(f, "wasm"),
     }

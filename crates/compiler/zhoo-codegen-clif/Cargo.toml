@@ -1,11 +1,12 @@
 [package]
-name = "zhoo-codegen-cranelift"
+name = "zhoo-codegen-clif"
 license.workspace = true
 edition.workspace = true
 
 [dependencies]
 zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
+zhoo-ty = { workspace = true }
 
 zo-core = { workspace = true }
 

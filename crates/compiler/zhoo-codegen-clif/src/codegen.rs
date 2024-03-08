@@ -59,15 +59,6 @@ impl Codegen {
     session: &mut Session,
     program: &ast::Program,
   ) -> Result<Box<[u8]>> {
-    self.generate_program(session, program)?;
-    self.output()
-  }
-
-  fn generate_program(
-    &mut self,
-    session: &mut Session,
-    program: &ast::Program,
-  ) -> Result<()> {
     let mut translator = Translator::new(
       &session.interner,
       &session.reporter,
@@ -76,7 +67,9 @@ impl Codegen {
       // &mut self.function_builder_context,
     );
 
-    translator.translate(program)
+    translator.translate(program)?;
+
+    self.output()
   }
 
   fn output(self) -> Result<Box<[u8]>> {
@@ -89,6 +82,12 @@ impl Codegen {
   }
 }
 
+/// ...
+///
+/// ## examples.
+///
+/// ```
+/// ```
 pub fn generate(
   session: &mut Session,
   program: &ast::Program,
