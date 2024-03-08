@@ -6,7 +6,8 @@ use super::precedence::Precedence;
 use zhoo_ast::ast::{
   Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Inputs, Item,
   ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind, Program,
-  Prototype, Pub, Stmt, StmtKind, TyAlias, UnOp, Var, VarKind,
+  Prop, Prototype, Pub, Stmt, StmtKind, StructExpr, TyAlias, UnOp, Var,
+  VarKind,
 };
 
 use zhoo_session::session::Session;
@@ -15,7 +16,7 @@ use zhoo_tokenizer::token::kw::Kw;
 use zhoo_tokenizer::token::op::Op;
 use zhoo_tokenizer::token::punctuation::Punctuation;
 use zhoo_tokenizer::token::{Token, TokenKind};
-use zhoo_ty::ty::Ty;
+use zhoo_ty::ty::{Ty, TyKind};
 
 use zo_core::interner::Interner;
 use zo_core::reporter::report::syntax::Syntax;
@@ -137,7 +138,7 @@ impl<'tokens> Parser<'tokens> {
     while self.has_tokens() {
       match self.parse_item() {
         Ok(item) => program.add_item(item),
-        // todo(ivs) — raise an error instead.
+        // todo (ivs) — raise an error instead.
         Err(report_error) => self.reporter.add_report(report_error),
       }
 
@@ -230,7 +231,7 @@ impl<'tokens> Parser<'tokens> {
           mutability: Mutability::No,
           pubness: Pub::No,
           pattern,
-          maybe_ty: Some(ty),
+          maybe_ty: if ty.is(TyKind::Unit) { None } else { Some(ty) },
           value: Box::new(value),
           span,
         }),
@@ -637,6 +638,9 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Kw(Kw::When) => Some(Self::parse_expr_when),
       TokenKind::Kw(Kw::Loop) => Some(Self::parse_expr_loop),
       TokenKind::Kw(Kw::While) => Some(Self::parse_expr_while),
+      TokenKind::Punctuation(Punctuation::ColonColon) => {
+        Some(Self::parse_expr_struct)
+      }
       _ => None,
     }
   }
@@ -693,6 +697,8 @@ impl<'tokens> Parser<'tokens> {
           let word = parser.interner.lookup_ident(ident);
 
           if word == "true" || word == "false" {
+            // cannot borrow `*parser` as mutable because it is also borrowed as
+            // immutable mutable borrow occurs here.
             // return Self::parse_expr_lit_bool(parser, word);
           }
 
@@ -717,12 +723,10 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| {
-        let kind = {
-          if word == "true" {
-            LitKind::Bool(true)
-          } else {
-            LitKind::Bool(false)
-          }
+        let kind = match word {
+          "true" => LitKind::Bool(true),
+          "false" => LitKind::Bool(false),
+          _ => panic!("expected booleaan."),
         };
 
         Ok(Expr {
@@ -769,7 +773,7 @@ impl<'tokens> Parser<'tokens> {
           }),
           span: token.span,
         }),
-        _ => panic!("expected char."),
+        _ => panic!("expected str."),
       })
       .unwrap()
   }
@@ -807,29 +811,13 @@ impl<'tokens> Parser<'tokens> {
 
     match token.kind {
       kind if kind.is_binop() => Some(Self::parse_expr_binop),
-      kind if kind.is_assignement() => Some(Self::parse_expr_assignop),
-      TokenKind::Group(Group::ParenOpen) => Some(Self::parse_expr_call),
-      TokenKind::Group(Group::BracketOpen) => {
-        Some(Self::parse_expr_array_access)
-      }
-      TokenKind::Group(Group::BraceOpen) => Some(Self::parse_expr_struct),
-      TokenKind::Punctuation(Punctuation::Period) => {
-        Some(Self::parse_expr_chaining)
-      }
+      kind if kind.is_assignement() => Some(Self::parse_expr_assignment),
+      kind if kind.is_calling() => Some(Self::parse_expr_call),
+      kind if kind.is_index() => Some(Self::parse_expr_array_access),
+      kind if kind.is_chaining() => Some(Self::parse_expr_chaining),
       _ => None,
     }
   }
-
-  /*
-    kind if kind.is_assignement() => Self::Assignement,
-    kind if kind.is_conditional() => Self::Conditional,
-    kind if kind.is_comparison() => Self::Comparison,
-    kind if kind.is_sum() => Self::Sum,
-    kind if kind.is_exponent() => Self::Exponent,
-    kind if kind.is_calling() => Self::Calling,
-    kind if kind.is_index() => Self::Index,
-    kind if kind.is_chaining() => Self::Chaining,
-  */
 
   /// ## syntax.
   ///
@@ -856,6 +844,9 @@ impl<'tokens> Parser<'tokens> {
           kind if kind.is_comparison() => (Precedence::Comparison, Some(binop)),
           kind if kind.is_sum() => (Precedence::Sum, Some(binop)),
           kind if kind.is_exponent() => (Precedence::Exponent, Some(binop)),
+          kind if kind.is_calling() => (Precedence::Calling, Some(binop)),
+          kind if kind.is_index() => (Precedence::Index, Some(binop)),
+          kind if kind.is_chaining() => (Precedence::Chaining, Some(binop)),
           _ => (Precedence::Low, None),
         }
       })
@@ -872,6 +863,26 @@ impl<'tokens> Parser<'tokens> {
       kind: ExprKind::BinOp(binop, Box::new(lhs), Box::new(rhs)),
       span,
     })
+  }
+
+  /// ## syntax.
+  ///
+  ///  `<expr> = <expr>` | `<expr> <assignop> <expr>`.
+  fn parse_expr_assignment(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    if parser.ensure(TokenKind::Op(Op::Equal)) {
+      parser.next();
+
+      let lo = lhs.span;
+      let rhs = parser.parse_expr(Precedence::Assignement)?;
+      let hi = parser.current_span();
+
+      return Ok(Expr {
+        kind: ExprKind::Assign(Box::new(lhs), Box::new(rhs)),
+        span: Span::merge(lo, hi),
+      });
+    }
+
+    Self::parse_expr_assignop(parser, lhs)
   }
 
   /// ## syntax.
@@ -900,7 +911,7 @@ impl<'tokens> Parser<'tokens> {
       .map(|(kind, span)| BinOp { kind, span });
 
     let Some(binop) = maybe_binop else {
-      // todo(ivs) — should report a proper error message.
+      // todo (ivs) — should report a proper error message.
       panic!("expected assignop.")
     };
 
@@ -975,9 +986,10 @@ impl<'tokens> Parser<'tokens> {
     parser.next();
 
     let access = parser.parse_expr(Precedence::Index)?;
-    let hi = parser.current_span();
 
     parser.expect_peek(TokenKind::Group(Group::BracketClose))?;
+
+    let hi = parser.current_span();
 
     Ok(Expr {
       kind: ExprKind::ArrayAccess(Box::new(lhs), Box::new(access)),
@@ -1005,22 +1017,79 @@ impl<'tokens> Parser<'tokens> {
   /// ## syntax.
   ///
   /// `{ <pattern> = <expr> , }`.
-  fn parse_expr_struct(_parser: &mut Parser, _lhs: Expr) -> Result<Expr> {
-    todo!("do some stuff for `parse_expr_struct`")
+  // fn parse_expr_struct(parser: &mut Parser, _lhs: Expr) -> Result<Expr> {
+  //   println!("CURRENT: {:?}", parser.maybe_token_current);
+  //   println!("NEXT: {:?}", parser.maybe_token_next);
+
+  //   todo!("do some stuff for `parse_expr_struct`")
+  // }
+
+  /// ## syntax.
+  ///
+  /// `{ <pattern> = <expr> , }`.
+  fn parse_expr_struct(parser: &mut Parser) -> Result<Expr> {
+    // no allocation.
+    let mut props = Vec::with_capacity(0usize);
+
+    let lo = parser.current_span();
+
+    parser.expect_peek(TokenKind::Group(Group::BraceOpen))?;
+
+    println!("{:?}", parser.maybe_token_current);
+    println!("{:?}", parser.maybe_token_next);
+
+    while !parser.ensure_peek(TokenKind::Group(Group::BraceClose)) {
+      if parser
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      parser.next();
+      props.push(parser.parse_field()?);
+    }
+
+    parser.expect_peek(TokenKind::Group(Group::BraceClose))?;
+
+    let hi = parser.current_span();
+    let span = Span::merge(lo, hi);
+
+    // todo!("odkeodke");
+    Ok(Expr {
+      kind: ExprKind::StructExpr(StructExpr { props, span }),
+      span: Span::merge(lo, hi),
+    })
   }
 
+  fn parse_field(&mut self) -> Result<Prop> {
+    let lo = self.current_span();
+    let pattern = self.parse_pattern()?;
+
+    self.expect_peek(TokenKind::Op(Op::Equal))?;
+    self.next();
+
+    let value = self.parse_expr(Precedence::Low)?;
+    let hi = self.current_span();
+
+    Ok(Prop {
+      pattern,
+      value,
+      span: Span::merge(lo, hi),
+    })
+  }
   /// ## syntax.
   ///
   /// `fn <prototype> -> <expr>`.
   /// `fn <prototype> { <body> }`.
   fn parse_expr_fn(parser: &mut Parser) -> Result<Expr> {
-    // todo(ivs) — needs improvements, not working as expected.
+    // todo (ivs) — needs improvements, not working as expected.
 
     parser
       .maybe_token_current
       .map(|token| {
         let lo = parser.current_span();
-        let symbol = parser.interner.intern(&format!("anon_{}", 0usize)); // todo(ivs) — should be dynamic..
+        let symbol = parser.interner.intern(&format!("anon_{}", 0usize)); // todo (ivs) — should be dynamic..
 
         let pattern = Pattern {
           kind: PatternKind::Ident(Box::new(Expr {

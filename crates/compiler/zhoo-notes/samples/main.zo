@@ -84,9 +84,11 @@ fun locals() {
   imu x := [0, 1, 2, 3];
   imu x := x[0];
   imu x := x.x;
+  imu x := x.y.z;
   imu x := x.foobar();
   imu x := foobar().foobar();
-  -- imu x := #{};
+  imu x := ::{};
+  imu x := ::{ a = "👋🌍👽", b = 0 };
 
   -- mutable variables — infer.
   mut x := -1 + 2;
@@ -105,12 +107,14 @@ fun locals() {
   mut x := [0, 1, 2, 3];
   mut x := x[0];
   mut x := x.x;
+  mut x := x.y.z;
   mut x := x.foobar();
   mut x := foobar().foobar();
-  -- mut x := Foo { a = "👋🌍👽", b = 0 };
+  mut x := ::{};
+  mut x := ::{ a = "👋🌍👽", b = 0 };
 
   -- assignments.
-  -- x = 0;
+  x = 0;
 
   x += 0;
   x -= 0;

@@ -1,12 +1,11 @@
 use zo_core::fmt::{sep_comma, sep_newline};
 
-use crate::ast::Program;
+use crate::ast::{Program, StructExpr};
 
 use super::ast::{
   Async, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Input, Inputs,
   Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind,
-  Prototype, Pub, Record, Stmt, StmtKind, TyAlias, UnOp, UnOpKind, Var,
-  VarKind, Wasm,
+  Prototype, Pub, Stmt, StmtKind, TyAlias, UnOp, UnOpKind, Var, VarKind, Wasm,
 };
 
 impl std::fmt::Display for Pub {
@@ -196,7 +195,7 @@ impl std::fmt::Display for ExprKind {
       Self::Lit(lit) => write!(f, "{lit}"),
       Self::UnOp(op, rhs) => write!(f, "({op} {rhs})"),
       Self::BinOp(lhs, op, rhs) => write!(f, "({lhs} {op} {rhs})"),
-      Self::Record(record) => write!(f, "{record}"),
+      Self::StructExpr(struct_expr) => write!(f, "{struct_expr}"),
       _ => panic!(),
     }
   }
@@ -268,8 +267,8 @@ impl std::fmt::Display for BinOpKind {
   }
 }
 
-impl std::fmt::Display for Record {
+impl std::fmt::Display for StructExpr {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f, "{:?}", self.fields)
+    write!(f, "{:?}", self.props)
   }
 }

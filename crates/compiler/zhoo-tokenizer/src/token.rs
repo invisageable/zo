@@ -98,7 +98,8 @@ impl TokenKind {
   pub fn is_assignement(&self) -> bool {
     matches!(
       self,
-      Self::Op(Op::PlusEqual)
+      Self::Op(Op::Equal)
+        | Self::Op(Op::PlusEqual)
         | Self::Op(Op::MinusEqual)
         | Self::Op(Op::AsteriskEqual)
         | Self::Op(Op::SlashEqual)

@@ -8,8 +8,6 @@ use zhoo_ty::ty::Ty;
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
 
-use hashbrown::HashMap;
-
 #[derive(Clone, Debug)]
 pub enum Pub {
   Yes(Span),
@@ -256,7 +254,6 @@ pub enum ExprKind {
 
   // collections.
   Array(Vec<Expr>),
-  Record(Record),
   Tuple(Vec<Expr>),
 
   // blocks.
@@ -289,8 +286,7 @@ pub enum ExprKind {
   Var(Var),
 
   // definitions.
-  Struct(), // todo(ivs) — unimplemented.
-
+  StructExpr(StructExpr),
   Chaining(Box<Expr>, Box<Expr>),
 }
 
@@ -469,8 +465,17 @@ pub struct Arg {
 }
 
 #[derive(Clone, Debug)]
-pub struct Record {
-  pub fields: HashMap<Symbol, Box<Expr>>,
+pub struct StructExpr {
+  pub props: Props,
+  pub span: Span,
+}
+
+pub type Props = Vec<Prop>;
+
+#[derive(Clone, Debug)]
+pub struct Prop {
+  pub pattern: Pattern,
+  pub value: Expr,
   pub span: Span,
 }
 
