@@ -23,6 +23,7 @@ zhoo-checker = { path = "crates/compiler/zhoo-checker", version = "0.0.0" }
 zhoo-codegen = { path = "crates/compiler/zhoo-codegen", version = "0.0.0" }
 zhoo-codegen-arm = { path = "crates/compiler/zhoo-codegen-arm", version = "0.0.0" }
 zhoo-codegen-cranelift = { path = "crates/compiler/zhoo-codegen-cranelift", version = "0.0.0" }
+zhoo-codegen-llvm = { path = "crates/compiler/zhoo-codegen-llvm", version = "0.0.0" }
 zhoo-codegen-wasm = { path = "crates/compiler/zhoo-codegen-wasm", version = "0.0.0" }
 zhoo-compiler = { path = "crates/compiler/zhoo-compiler", version = "0.0.0" }
 zhoo-driver = { path = "crates/compiler/zhoo-driver", version = "0.0.0" }
@@ -44,11 +45,11 @@ zhoo-value = { path = "crates/compiler/zhoo-value", version = "0.0.0" }
 anyhow = "1.0.80"
 ariadne = "0.4.0"
 clap = { version = "4.5.1", features = ["derive"] }
-cranelift = "0.100.0"
-cranelift-codegen = "0.105.1"
-cranelift-module = "0.105.1"
-cranelift-native = "0.105.1"
-cranelift-object = "0.105.1"
+cranelift = "0.105.2"
+cranelift-codegen = "0.105.2"
+cranelift-module = "0.105.2"
+cranelift-native = "0.105.2"
+cranelift-object = "0.105.2"
 criterion = "0.5.1"
 crossbeam-channel = "0.5.11"
 flume = "0.11.0"

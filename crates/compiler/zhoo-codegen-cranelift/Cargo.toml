@@ -10,3 +10,7 @@ zhoo-session = { workspace = true }
 zo-core = { workspace = true }
 
 cranelift = { workspace = true }
+cranelift-codegen = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-native = { workspace = true }
+cranelift-object = { workspace = true }

@@ -17,7 +17,9 @@ impl Builder {
     let backend = &session.settings.backend;
 
     match &backend.kind {
+      BackendKind::Arm => todo!(),
       BackendKind::Cranelift => cranelift::build(backend, bytecode),
+      BackendKind::Llvm => todo!(),
       BackendKind::Wasm => wasm::build(backend, bytecode),
     }
   }

@@ -7,52 +7,18 @@ use zo_core::interner::Interner;
 use zo_core::reporter::Reporter;
 use zo_core::Result;
 
-use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext};
-// use cranelift_codegen::ir::AbiParam;
-// use cranelift_codegen::ir::Function;
-use cranelift_codegen::Context;
-use cranelift_object::ObjectModule;
-
-// use cranelift_codegen::settings::Configurable;
-// use cranelift_codegen::settings::Flags;
-// use cranelift_module::Module;
-// use cranelift_native::builder;
-// use cranelift_object::ObjectBuilder;
-
 pub(crate) struct Translator<'mir> {
   interner: &'mir Interner,
   reporter: &'mir Reporter,
-  module: &'mir mut ObjectModule,
-  context: &'mir mut Context,
-  // builder: &'mir mut FunctionBuilder<'mir>,
 }
 
 impl<'mir> Translator<'mir> {
   #[inline]
-  pub fn new(
-    interner: &'mir Interner,
-    reporter: &'mir Reporter,
-    module: &'mir mut ObjectModule,
-    context: &'mir mut Context,
-    // builder: &'mir mut FunctionBuilder<'mir>,
-  ) -> Self {
-    Self {
-      interner,
-      reporter,
-      module,
-      context,
-      // builder: &mut builder,
-    }
+  pub fn new(interner: &'mir Interner, reporter: &'mir Reporter) -> Self {
+    Self { interner, reporter }
   }
 
   pub fn translate(&mut self, program: &ast::Program) -> Result<()> {
-    let mut function_builder_context = FunctionBuilderContext::new();
-
-    let mut _builder = FunctionBuilder::new(
-      &mut self.context.func,
-      &mut function_builder_context,
-    );
-
     for stmt in &program.items {
       self.translate_item(stmt)?;
     }
@@ -91,15 +57,6 @@ impl<'mir> Translator<'mir> {
   }
 
   fn translate_item_fun(&mut self, fun: &ast::Fun) -> Result<()> {
-    let inputs = &fun.prototype.inputs;
-    let _signature = &mut self.context.func.signature;
-
-    for _input in &inputs.0 {
-      // let clif_type = TypeBuilder::from(&mut self.module, &input.ty);
-
-      // signature.params.push(AbiParam::new(clif_type));
-    }
-
     self.translate_block(&fun.body)?;
 
     todo!()
