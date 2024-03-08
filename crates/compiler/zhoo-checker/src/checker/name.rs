@@ -76,7 +76,7 @@ impl<'program> NameChecker<'program> {
     self.check_output_ty(&prototype.output)
   }
 
-  // todo(ivs) — strcase should be passed as argument because a pattern are not
+  // todo (ivs) — strcase should be passed as argument because a pattern are not
   // snake screaming only.
   fn check_pattern(&mut self, pattern: &ast::Pattern) -> Result<()> {
     let ident = self.interner.lookup_ident(*pattern.symbolize());

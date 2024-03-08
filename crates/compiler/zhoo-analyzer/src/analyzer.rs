@@ -23,7 +23,7 @@ impl Analyzer {
     checker::entry::check(session, program)?;
     checker::name::check(session, program)?;
 
-    let hir = inferencer::infer(session, program)?; // todo(ivs) — should be an hir return value?
+    let hir = inferencer::infer(session, program)?; // todo (ivs) — should be an hir return value?
     #[allow(clippy::let_unit_value)]
     let _ = tychecker::check(session)?;
 
@@ -31,7 +31,7 @@ impl Analyzer {
 
     session.reporter.abort_if_has_errors();
 
-    // todo(ivs) — tmp.
+    // todo (ivs) — tmp.
     Ok(Hir { span: Span::ZERO })
   }
 }
