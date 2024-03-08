@@ -19,6 +19,7 @@ impl std::fmt::Display for TyKind {
       Self::Fun => write!(f, "fun"),
       Self::Infer => write!(f, "_"),
       Self::Custom(ident) => write!(f, "{ident}"),
+      Self::StructExpr(props) => write!(f, "{props:?}"),
     }
   }
 }
