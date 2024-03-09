@@ -9,6 +9,13 @@ use ariadne::Fmt;
 pub enum Syntax {
   UnexpectedToken(Span, String),
   ExpectedItem(Span, String),
+  ExpectedLocalVar(Span, String),
+  ExpectedLitInt(Span, String),
+  ExpectedLitFloat(Span, String),
+  ExpectedLitIdent(Span, String),
+  ExpectedLitChar(Span, String),
+  ExpectedLitStr(Span, String),
+  ExpectedLitBool(Span, String),
 }
 
 impl Error for Syntax {
@@ -42,6 +49,7 @@ impl Error for Syntax {
         )],
         ..Default::default()
       },
+      _ => todo!(),
     }
   }
 }
