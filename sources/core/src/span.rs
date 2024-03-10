@@ -17,11 +17,16 @@ impl Span {
   }
 
   #[inline]
-  pub fn merge(a: Span, b: Span) -> Span {
+  pub fn merge(a: Span, b: Span) -> Self {
     let lo = std::cmp::min(a.lo, b.lo);
     let hi = std::cmp::max(a.hi, b.hi);
 
     Self::of(lo, hi)
+  }
+
+  #[inline]
+  pub fn to(&self, span: Span) -> Self {
+    Self::merge(*self, span)
   }
 }
 
