@@ -1,12 +1,13 @@
-use zo_core::fmt::{sep_comma, sep_newline};
-
-use crate::ast::{Program, StructExpr};
+//! ...wip.
 
 use super::ast::{
-  Async, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Input, Inputs,
-  Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind,
-  Prototype, Pub, Stmt, StmtKind, TyAlias, UnOp, UnOpKind, Var, VarKind, Wasm,
+  Abstract, Apply, Async, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun,
+  Input, Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern,
+  PatternKind, Program, Prototype, Pub, Stmt, StmtKind, Struct, StructExpr,
+  TyAlias, UnOp, UnOpKind, Var, VarKind, Wasm,
 };
+
+use zo_core::fmt::{sep_comma, sep_newline};
 
 impl std::fmt::Display for Pub {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -76,17 +77,13 @@ impl std::fmt::Display for Item {
 impl std::fmt::Display for ItemKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      Self::Ext(ext) => write!(f, "{ext}"),
-      Self::TyAlias(ty_alias) => write!(f, "{ty_alias}"),
       Self::Var(var) => write!(f, "{var}"),
+      Self::TyAlias(ty_alias) => write!(f, "{ty_alias}"),
+      Self::Ext(ext) => write!(f, "{ext}"),
+      Self::Abstract(abstr) => write!(f, "{abstr}"),
       Self::Fun(fun) => write!(f, "{fun}"),
+      _ => todo!(),
     }
-  }
-}
-
-impl std::fmt::Display for TyAlias {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f, "{self:?}")
   }
 }
 
@@ -113,6 +110,42 @@ impl std::fmt::Display for VarKind {
       VarKind::Mut => write!(f, "mut"),
       VarKind::Val => write!(f, "val"),
     }
+  }
+}
+
+impl std::fmt::Display for TyAlias {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{self:?}")
+  }
+}
+
+impl std::fmt::Display for Ext {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{} ext {}", self.pubness, self.prototype)?;
+
+    let Some(body) = &self.maybe_body else {
+      return write!(f, ";");
+    };
+
+    write!(f, " {body}")
+  }
+}
+
+impl std::fmt::Display for Abstract {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{self:?}")
+  }
+}
+
+impl std::fmt::Display for Struct {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{self:?}")
+  }
+}
+
+impl std::fmt::Display for Apply {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{self:?}")
   }
 }
 
@@ -168,18 +201,6 @@ impl std::fmt::Display for StmtKind {
       Self::Item(item) => write!(f, "{item}"),
       Self::Expr(expr) => write!(f, "{expr}"),
     }
-  }
-}
-
-impl std::fmt::Display for Ext {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f, "{} ext {}", self.pubness, self.prototype)?;
-
-    let Some(body) = &self.maybe_body else {
-      return write!(f, ";");
-    };
-
-    write!(f, " {body}")
   }
 }
 

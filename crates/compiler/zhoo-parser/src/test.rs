@@ -15,10 +15,10 @@ fn parse_empty() {
 }
 
 #[test]
-fn parse_grammar() {
+fn parse_syntax() {
   let mut session = Session::default();
 
-  session.settings.input = "../zhoo-notes/samples/bench/grammar.zo".into();
+  session.settings.input = "../zhoo-notes/samples/bench/syntax.zo".into();
 
   let source = reader::read_file(&mut session).unwrap();
   let tokens = tokenizer::tokenize(&mut session, &source).unwrap();

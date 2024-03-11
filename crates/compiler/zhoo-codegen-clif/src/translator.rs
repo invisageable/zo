@@ -69,7 +69,9 @@ impl<'mir> Translator<'mir> {
         self.translate_item_ty_alias(ty_alias)
       }
       ast::ItemKind::Ext(ext) => self.translate_item_ext(ext),
+      ast::ItemKind::Abstract(abstr) => self.translate_item_abstract(abstr),
       ast::ItemKind::Fun(fun) => self.translate_item_fun(fun),
+      _ => todo!(),
     }
   }
 
@@ -89,6 +91,13 @@ impl<'mir> Translator<'mir> {
   }
 
   fn translate_item_ext(&mut self, _ext: &ast::Ext) -> Result<Value> {
+    todo!()
+  }
+
+  fn translate_item_abstract(
+    &mut self,
+    _abstr: &ast::Abstract,
+  ) -> Result<Value> {
     todo!()
   }
 

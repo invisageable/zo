@@ -40,11 +40,21 @@ impl<'program> NameChecker<'program> {
 
   fn check_item(&mut self, item: &ast::Item) -> Result<()> {
     match &item.kind {
-      ast::ItemKind::Ext(ext) => self.check_item_ext(ext),
-      ast::ItemKind::TyAlias(ty_alias) => self.check_item_ty_alias(ty_alias),
       ast::ItemKind::Var(var) => self.check_item_var(var),
+      ast::ItemKind::TyAlias(ty_alias) => self.check_item_ty_alias(ty_alias),
+      ast::ItemKind::Ext(ext) => self.check_item_ext(ext),
+      ast::ItemKind::Abstract(abstr) => self.check_item_abstract(abstr),
       ast::ItemKind::Fun(fun) => self.check_item_fun(fun),
+      _ => todo!(),
     }
+  }
+
+  fn check_item_var(&mut self, _var: &ast::Var) -> Result<()> {
+    Ok(())
+  }
+
+  fn check_item_ty_alias(&mut self, _ty_alias: &ast::TyAlias) -> Result<()> {
+    Ok(())
   }
 
   fn check_item_ext(&mut self, ext: &ast::Ext) -> Result<()> {
@@ -57,12 +67,8 @@ impl<'program> NameChecker<'program> {
     Ok(())
   }
 
-  fn check_item_ty_alias(&mut self, _ty_alias: &ast::TyAlias) -> Result<()> {
-    Ok(())
-  }
-
-  fn check_item_var(&mut self, _var: &ast::Var) -> Result<()> {
-    Ok(())
+  fn check_item_abstract(&mut self, _abstr: &ast::Abstract) -> Result<()> {
+    todo!()
   }
 
   fn check_item_fun(&mut self, fun: &ast::Fun) -> Result<()> {
@@ -73,7 +79,7 @@ impl<'program> NameChecker<'program> {
   fn check_prototype(&mut self, prototype: &ast::Prototype) -> Result<()> {
     self.check_pattern(&prototype.pattern)?;
     self.check_inputs(&prototype.inputs)?;
-    self.check_output_ty(&prototype.output)
+    self.check_output_ty(&prototype.output_ty)
   }
 
   // todo (ivs) — strcase should be passed as argument because a pattern are not

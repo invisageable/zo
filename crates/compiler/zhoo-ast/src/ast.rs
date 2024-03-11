@@ -1,4 +1,4 @@
-//! ...
+//! ...wip.
 
 use zhoo_tokenizer::token::kw::Kw;
 use zhoo_tokenizer::token::op::Op;
@@ -92,27 +92,27 @@ pub struct Item {
 
 #[derive(Clone, Debug)]
 pub enum ItemKind {
-  Ext(Ext),
-  TyAlias(TyAlias),
+  Load(Load),
+  Pack(Pack),
   Var(Var),
+  TyAlias(TyAlias),
+  Ext(Ext),
+  Abstract(Abstract),
+  Struct(Struct),
+  Apply(Apply),
   Fun(Fun),
 }
 
+// ...wip.
 #[derive(Clone, Debug)]
-pub struct Ext {
-  pub pubness: Pub,
-  pub prototype: Prototype,
-  pub maybe_body: Option<Block>,
+pub struct Load {
+  pub paths: Vec<Pattern>,
   pub span: Span,
 }
 
+// ...wip.
 #[derive(Clone, Debug)]
-pub struct TyAlias {
-  pub pubness: Pub,
-  pub pattern: Pattern,
-  pub maybe_ty: Option<Ty>,
-  pub span: Span,
-}
+pub struct Pack {}
 
 #[derive(Clone, Debug)]
 pub struct Var {
@@ -146,6 +146,35 @@ impl From<Option<&Token>> for VarKind {
 }
 
 #[derive(Clone, Debug)]
+pub struct TyAlias {
+  pub pubness: Pub,
+  pub pattern: Pattern,
+  pub maybe_ty: Option<Ty>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Ext {
+  pub pubness: Pub,
+  pub prototype: Prototype,
+  pub maybe_body: Option<Block>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Abstract {
+  pub pattern: Pattern,
+  pub body: Block,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Struct {}
+
+#[derive(Clone, Debug)]
+pub struct Apply {}
+
+#[derive(Clone, Debug)]
 pub struct Fun {
   pub prototype: Prototype,
   pub body: Block,
@@ -156,7 +185,7 @@ pub struct Fun {
 pub struct Prototype {
   pub pattern: Pattern,
   pub inputs: Inputs,
-  pub output: OutputTy,
+  pub output_ty: OutputTy,
   pub span: Span,
 }
 
@@ -170,7 +199,7 @@ impl AsSpan for Inputs {
     let rhs = iter.last();
 
     match (lhs, rhs) {
-      (Some(lhs), Some(rhs)) => Span::merge(lhs.span, rhs.span),
+      (Some(lhs), Some(rhs)) => lhs.span.to(rhs.span),
       (Some(lhs), None) => lhs.span,
       (None, Some(rhs)) => rhs.span,
       (None, None) => Span::ZERO,

@@ -60,7 +60,9 @@ impl<'mir> Translator<'mir> {
         self.translate_item_ty_alias(ty_alias)
       }
       ast::ItemKind::Ext(ext) => self.translate_item_ext(ext),
+      ast::ItemKind::Abstract(abstr) => self.translate_item_abstract(abstr),
       ast::ItemKind::Fun(fun) => self.translate_item_fun(fun),
+      _ => todo!(),
     }
   }
 
@@ -83,12 +85,16 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
+  fn translate_item_abstract(&mut self, _abstr: &ast::Abstract) -> Result<()> {
+    todo!()
+  }
+
   fn translate_pattern(&mut self, pattern: &ast::Pattern) -> Result<()> {
     match &pattern.kind {
+      ast::PatternKind::Underscore => todo!(),
       ast::PatternKind::Ident(ident) => self.translate_expr(ident),
       ast::PatternKind::Lit(lit) => self.translate_expr_lit(lit),
       ast::PatternKind::MeLower => todo!(),
-      _ => todo!(),
     }
   }
 
@@ -111,7 +117,7 @@ impl<'mir> Translator<'mir> {
     }
 
     self.translate_inputs(&prototype.inputs)?;
-    self.translate_output_ty(&prototype.output)
+    self.translate_output_ty(&prototype.output_ty)
   }
 
   fn translate_inputs(&mut self, inputs: &ast::Inputs) -> Result<()> {

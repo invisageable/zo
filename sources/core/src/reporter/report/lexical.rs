@@ -16,7 +16,7 @@ impl Error for Lexical {
     match self {
       Self::Unknown(span, ch) => Report {
         kind: ReportKind::Error(REPORT_TITLE_ERROR),
-        message: format!("{}", "invalid character.".fg(color::title())).into(),
+        message: format!("{}", "unknown character.".fg(color::title())).into(),
         labels: vec![(
           *span,
           format!(

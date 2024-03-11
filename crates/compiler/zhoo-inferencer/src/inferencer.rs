@@ -44,10 +44,12 @@ impl<'program> Inferencer<'program> {
 
   fn infer_item(&mut self, item: &ast::Item) -> Result<Ty> {
     match &item.kind {
-      ast::ItemKind::Ext(ext) => self.infer_item_ext(ext),
       ast::ItemKind::Var(var) => self.infer_item_var(var),
       ast::ItemKind::TyAlias(ty_alias) => self.infer_item_ty_alias(ty_alias),
+      ast::ItemKind::Ext(ext) => self.infer_item_ext(ext),
+      ast::ItemKind::Abstract(abstr) => self.infer_item_abstract(abstr),
       ast::ItemKind::Fun(fun) => self.infer_item_fun(fun),
+      _ => todo!(),
     }
   }
 
@@ -62,8 +64,12 @@ impl<'program> Inferencer<'program> {
     Ok(t1)
   }
 
+  fn infer_item_abstract(&mut self, _abstr: &ast::Abstract) -> Result<Ty> {
+    todo!()
+  }
+
   fn infer_prototype(&mut self, prototype: &ast::Prototype) -> Result<Ty> {
-    match &prototype.output {
+    match &prototype.output_ty {
       ast::OutputTy::Ty(ty) => Ok(Ty::from(ty)),
       ast::OutputTy::Default(span) => Ok(Ty::unit(*span)),
     }

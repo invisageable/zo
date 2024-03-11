@@ -182,6 +182,7 @@ impl Symbolize for TokenKind {
       Self::Int(symbol) => symbol,
       Self::Float(symbol) => symbol,
       Self::Ident(symbol) => symbol,
+      Self::Char(symbol) => symbol,
       Self::Str(symbol) => symbol,
       _ => unreachable!(),
     }
@@ -191,15 +192,15 @@ impl Symbolize for TokenKind {
 impl std::fmt::Display for TokenKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      Self::Int(_) => write!(f, "INT"),
-      Self::Float(_) => write!(f, "FLOAT"),
-      Self::Char(_) => write!(f, "CHAR"),
-      Self::Str(_) => write!(f, "STR"),
-      Self::Ident(_) => write!(f, "IDENT"),
-      Self::Kw(_) => write!(f, "KW"),
-      Self::Op(_) => write!(f, "OP"),
-      Self::Group(_) => write!(f, "GROUP"),
-      Self::Punctuation(_) => write!(f, "PUNCTUATION"),
+      Self::Int(int) => write!(f, "{int}"),
+      Self::Float(float) => write!(f, "{float}"),
+      Self::Ident(ident) => write!(f, "{ident}"),
+      Self::Char(ch) => write!(f, "{ch}"),
+      Self::Str(string) => write!(f, "{string}"),
+      Self::Kw(kw) => write!(f, "{kw}"),
+      Self::Op(op) => write!(f, "{op}"),
+      Self::Group(group) => write!(f, "{group}"),
+      Self::Punctuation(punctuation) => write!(f, "{punctuation}"),
       Self::Unknwon => write!(f, "UNKNOWN"),
       Self::Eof => write!(f, "EOF"),
     }

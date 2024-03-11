@@ -81,18 +81,16 @@ impl<'tokens> Parser<'tokens> {
   fn ensure(&mut self, kind: TokenKind) -> bool {
     self
       .maybe_token_current
-      .map(|token| token.kind == kind)
+      .map(|token| token.is(kind))
       .unwrap()
   }
 
   #[inline]
   fn ensure_peek(&mut self, kind: TokenKind) -> bool {
-    self
-      .maybe_token_next
-      .map(|token| token.kind == kind)
-      .unwrap()
+    self.maybe_token_next.map(|token| token.is(kind)).unwrap()
   }
 
+  #[inline]
   fn expect(&mut self, kind: TokenKind) -> Result<()> {
     self
       .maybe_token_current
@@ -111,6 +109,7 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
+  #[inline]
   fn expect_peek(&mut self, kind: TokenKind) -> Result<()> {
     self
       .maybe_token_next
@@ -166,10 +165,12 @@ impl<'tokens> Parser<'tokens> {
         TokenKind::Kw(Kw::Enum) => self.parse_item_enum(),
         TokenKind::Kw(Kw::Struct) => self.parse_item_struct(),
         TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
-        _ => Err(ReportError::Syntax(Syntax::ExpectedItem(
-          token.span,
-          token.kind.to_string(),
-        ))),
+        _ => self
+          .reporter
+          .raise(ReportError::Syntax(Syntax::ExpectedItem(
+            token.span,
+            token.kind.to_string(),
+          ))),
       })
       .unwrap()
   }
@@ -320,14 +321,14 @@ impl<'tokens> Parser<'tokens> {
     let lo = self.current_span();
     let pattern = self.parse_pattern()?;
     let inputs = self.parse_inputs()?;
-    let output = self.parse_output()?;
+    let output_ty = self.parse_output_ty()?;
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
 
     Ok(Prototype {
       pattern,
       inputs,
-      output,
+      output_ty,
       span,
     })
   }
@@ -426,7 +427,7 @@ impl<'tokens> Parser<'tokens> {
   /// ## syntax.
   ///
   /// `: <ty>`.
-  fn parse_output(&mut self) -> Result<OutputTy> {
+  fn parse_output_ty(&mut self) -> Result<OutputTy> {
     self
       .maybe_token_next
       .map(|token| match token.kind {
@@ -569,7 +570,7 @@ impl<'tokens> Parser<'tokens> {
     self
       .maybe_token_next
       .map(|token| {
-        if let TokenKind::Punctuation(Punctuation::Semicolon) = token.kind {
+        if token.is(TokenKind::Punctuation(Punctuation::Semicolon)) {
           self.next();
         }
       })
@@ -652,14 +653,17 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Int(int) => Ok(Expr {
+        TokenKind::Int(symbol) => Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Int(int),
+            kind: LitKind::Int(symbol),
             span: token.span,
           }),
           span: token.span,
         }),
-        _ => panic!("expected int."),
+        _ => Err(ReportError::Syntax(Syntax::ExpectedLitInt(
+          token.span,
+          token.kind.to_string(),
+        ))),
       })
       .unwrap()
   }
@@ -671,14 +675,17 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Float(float) => Ok(Expr {
+        TokenKind::Float(symbol) => Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Float(float),
+            kind: LitKind::Float(symbol),
             span: token.span,
           }),
           span: token.span,
         }),
-        _ => panic!("expected float."),
+        _ => Err(ReportError::Syntax(Syntax::ExpectedLitFloat(
+          token.span,
+          token.kind.to_string(),
+        ))),
       })
       .unwrap()
   }
@@ -690,27 +697,30 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Ident(ident) => {
+        TokenKind::Ident(symbol) => {
           // because `true` and `false` are not keywords, we need to detect
           // first if we have a match. in a future it should be noice to used
           // implement a trait to &str.
-          let word = parser.interner.lookup_ident(ident);
+          let ident = parser.interner.lookup_ident(symbol);
 
-          if word == "true" || word == "false" {
+          if ident == "true" || ident == "false" {
             // cannot borrow `*parser` as mutable because it is also borrowed as
             // immutable mutable borrow occurs here.
-            // return Self::parse_expr_lit_bool(parser, word);
+            // return Self::parse_expr_lit_bool(parser, ident);
           }
 
           Ok(Expr {
             kind: ExprKind::Lit(Lit {
-              kind: LitKind::Ident(ident),
+              kind: LitKind::Ident(symbol),
               span: token.span,
             }),
             span: token.span,
           })
         }
-        _ => panic!("expected ident."),
+        _ => Err(ReportError::Syntax(Syntax::ExpectedLitIdent(
+          token.span,
+          token.kind.to_string(),
+        ))),
       })
       .unwrap()
   }
@@ -719,11 +729,11 @@ impl<'tokens> Parser<'tokens> {
   /// ## syntax.
   ///
   /// `<lit:bool>`.
-  fn parse_expr_lit_bool(parser: &mut Parser, word: &str) -> Result<Expr> {
+  fn parse_expr_lit_bool(parser: &mut Parser, ident: &str) -> Result<Expr> {
     parser
       .maybe_token_current
       .map(|token| {
-        let kind = match word {
+        let kind = match ident {
           "true" => LitKind::Bool(true),
           "false" => LitKind::Bool(false),
           _ => panic!("expected booleaan."),
@@ -747,14 +757,17 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Char(float) => Ok(Expr {
+        TokenKind::Char(symbol) => Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Char(float),
+            kind: LitKind::Char(symbol),
             span: token.span,
           }),
           span: token.span,
         }),
-        _ => panic!("expected char."),
+        _ => Err(ReportError::Syntax(Syntax::ExpectedLitChar(
+          token.span,
+          token.kind.to_string(),
+        ))),
       })
       .unwrap()
   }
@@ -766,14 +779,17 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Str(string) => Ok(Expr {
+        TokenKind::Str(symbol) => Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Str(string),
+            kind: LitKind::Str(symbol),
             span: token.span,
           }),
           span: token.span,
         }),
-        _ => panic!("expected str."),
+        _ => Err(ReportError::Syntax(Syntax::ExpectedLitStr(
+          token.span,
+          token.kind.to_string(),
+        ))),
       })
       .unwrap()
   }
@@ -855,9 +871,9 @@ impl<'tokens> Parser<'tokens> {
     parser.next();
 
     let rhs = parser.parse_expr(precedence)?;
+    let binop = maybe_binop.unwrap();
     let hi = parser.current_span();
     let span = Span::merge(lo, hi);
-    let binop = maybe_binop.unwrap();
 
     Ok(Expr {
       kind: ExprKind::BinOp(binop, Box::new(lhs), Box::new(rhs)),
@@ -891,20 +907,24 @@ impl<'tokens> Parser<'tokens> {
   fn parse_expr_assignop(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
     let maybe_binop = parser
       .maybe_token_current
-      .and_then(|Token { kind, span }| match kind {
-        TokenKind::Op(Op::PlusEqual) => Some((BinOpKind::Add, *span)),
-        TokenKind::Op(Op::MinusEqual) => Some((BinOpKind::Sub, *span)),
-        TokenKind::Op(Op::AsteriskEqual) => Some((BinOpKind::Mul, *span)),
-        TokenKind::Op(Op::SlashEqual) => Some((BinOpKind::Div, *span)),
-        TokenKind::Op(Op::PercentEqual) => Some((BinOpKind::Rem, *span)),
-        TokenKind::Op(Op::CircumflexEqual) => Some((BinOpKind::BitXor, *span)),
-        TokenKind::Op(Op::AmspersandEqual) => Some((BinOpKind::BitAnd, *span)),
-        TokenKind::Op(Op::PipeEqual) => Some((BinOpKind::BitOr, *span)),
+      .and_then(|token| match token.kind {
+        TokenKind::Op(Op::PlusEqual) => Some((BinOpKind::Add, token.span)),
+        TokenKind::Op(Op::MinusEqual) => Some((BinOpKind::Sub, token.span)),
+        TokenKind::Op(Op::AsteriskEqual) => Some((BinOpKind::Mul, token.span)),
+        TokenKind::Op(Op::SlashEqual) => Some((BinOpKind::Div, token.span)),
+        TokenKind::Op(Op::PercentEqual) => Some((BinOpKind::Rem, token.span)),
+        TokenKind::Op(Op::CircumflexEqual) => {
+          Some((BinOpKind::BitXor, token.span))
+        }
+        TokenKind::Op(Op::AmspersandEqual) => {
+          Some((BinOpKind::BitAnd, token.span))
+        }
+        TokenKind::Op(Op::PipeEqual) => Some((BinOpKind::BitOr, token.span)),
         TokenKind::Op(Op::LessThanLessThanEqual) => {
-          Some((BinOpKind::Shl, *span))
+          Some((BinOpKind::Shl, token.span))
         }
         TokenKind::Op(Op::GreaterThanGreaterThanEqual) => {
-          Some((BinOpKind::Shr, *span))
+          Some((BinOpKind::Shr, token.span))
         }
         _ => None,
       })
@@ -1017,16 +1037,6 @@ impl<'tokens> Parser<'tokens> {
   /// ## syntax.
   ///
   /// `{ <pattern> = <expr> , }`.
-  // fn parse_expr_struct(parser: &mut Parser, _lhs: Expr) -> Result<Expr> {
-  //   println!("CURRENT: {:?}", parser.maybe_token_current);
-  //   println!("NEXT: {:?}", parser.maybe_token_next);
-
-  //   todo!("do some stuff for `parse_expr_struct`")
-  // }
-
-  /// ## syntax.
-  ///
-  /// `{ <pattern> = <expr> , }`.
   fn parse_expr_struct(parser: &mut Parser) -> Result<Expr> {
     // no allocation.
     let mut props = Vec::with_capacity(0usize);
@@ -1034,9 +1044,6 @@ impl<'tokens> Parser<'tokens> {
     let lo = parser.current_span();
 
     parser.expect_peek(TokenKind::Group(Group::BraceOpen))?;
-
-    println!("{:?}", parser.maybe_token_current);
-    println!("{:?}", parser.maybe_token_next);
 
     while !parser.ensure_peek(TokenKind::Group(Group::BraceClose)) {
       if parser
@@ -1104,13 +1111,13 @@ impl<'tokens> Parser<'tokens> {
 
         let lop = pattern.span;
         let inputs = parser.parse_inputs()?;
-        let output = parser.parse_output()?;
-        let hip = output.as_span();
+        let output_ty = parser.parse_output_ty()?;
+        let hip = output_ty.as_span();
 
         let prototype = Prototype {
           pattern,
           inputs,
-          output,
+          output_ty,
           span: Span::merge(lop, hip),
         };
 
