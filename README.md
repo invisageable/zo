@@ -10,6 +10,7 @@
 
 ## platform.
 
+[booster](./crates/booster) — A booster for the `zhoo` programming language.
 [compiler](./crates/compiler) — A compiler for the `zhoo` programming language.
 
 ## license.
