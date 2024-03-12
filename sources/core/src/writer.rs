@@ -32,7 +32,7 @@ impl Writer {
   }
 
   pub fn new_line(&mut self) -> Result<()> {
-    write!(self.out, "\n").map(|_| Ok(())).unwrap()
+    writeln!(self.out).map(|_| Ok(())).unwrap()
   }
 
   pub fn space(&mut self) -> Result<()> {

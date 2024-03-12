@@ -196,6 +196,7 @@ impl<'program> NameChecker<'program> {
       StrCase::Pascal => to!(pascal name),
       StrCase::Snake => to!(snake name),
       StrCase::SnakeScreaming => to!(snake_screaming name),
+      _ => unreachable!(),
     };
 
     ReportError::Semantic(Semantic::NamingConvention(name.into(), naming, span))

@@ -4,7 +4,7 @@
 
 [**Labo**](https://github.com/invisageable/zo) — [Notes](https://github.com/invisageable/zo/tree/main/notes)
 
-## disclaimer
+## disclaimer.
 
 *I created this project for my own personal use. At this stage, it's still a toy with no use except for myself. You are free to play with it if you find any interest in it.*   
 
