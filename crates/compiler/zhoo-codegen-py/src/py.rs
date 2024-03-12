@@ -1,11 +1,11 @@
 use zhoo_ast::ast;
 
-pub trait AsPyBuiltin {
-  fn as_py_builtin(&self) -> &str;
+pub trait AsBuiltin {
+  fn as_builtin(&self) -> &str;
 }
 
-impl AsPyBuiltin for &str {
-  fn as_py_builtin(&self) -> &str {
+impl AsBuiltin for &str {
+  fn as_builtin(&self) -> &str {
     match *self {
       "println" => "print",
       _ => self,
@@ -13,18 +13,18 @@ impl AsPyBuiltin for &str {
   }
 }
 
-pub trait AsPyOp {
-  fn as_py_op(&self) -> &str;
+pub trait AsOp {
+  fn as_op(&self) -> &str;
 }
 
-impl AsPyOp for ast::BinOp {
-  fn as_py_op(&self) -> &str {
-    self.kind.as_py_op()
+impl AsOp for ast::BinOp {
+  fn as_op(&self) -> &str {
+    self.kind.as_op()
   }
 }
 
-impl AsPyOp for ast::BinOpKind {
-  fn as_py_op(&self) -> &str {
+impl AsOp for ast::BinOpKind {
+  fn as_op(&self) -> &str {
     match self {
       Self::Add => "+",
       Self::Sub => "-",
@@ -48,14 +48,14 @@ impl AsPyOp for ast::BinOpKind {
   }
 }
 
-impl AsPyOp for ast::UnOp {
-  fn as_py_op(&self) -> &str {
-    self.kind.as_py_op()
+impl AsOp for ast::UnOp {
+  fn as_op(&self) -> &str {
+    self.kind.as_op()
   }
 }
 
-impl AsPyOp for ast::UnOpKind {
-  fn as_py_op(&self) -> &str {
+impl AsOp for ast::UnOpKind {
+  fn as_op(&self) -> &str {
     match self {
       Self::Neg => "-",
       Self::Not => "not",

@@ -1373,6 +1373,7 @@ dependencies = [
  "inkwell",
  "zhoo-ast",
  "zhoo-session",
+ "zhoo-ty",
  "zo-core",
 ]
 

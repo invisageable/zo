@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use zhoo_ast::ast;
 
 use zo_core::interner::symbol::Symbol;
@@ -32,6 +30,8 @@ impl<'mir> Translator<'mir> {
     for stmt in &program.items {
       self.translate_item(stmt)?;
     }
+
+    self.reporter.abort_if_has_errors();
 
     Ok(())
   }
@@ -132,51 +132,61 @@ impl<'mir> Translator<'mir> {
       ast::ExprKind::Call(callee, args) => {
         self.translate_expr_call(callee, args)
       }
-      ast::ExprKind::Return(maybe_expr) => self.infer_expr_return(maybe_expr),
-      ast::ExprKind::IfElse(condition, consequence, alternative) => {
-        self.infer_expr_if_else(condition, consequence, alternative)
+      ast::ExprKind::Return(maybe_expr) => {
+        self.translate_expr_return(maybe_expr)
+      }
+      ast::ExprKind::IfElse(condition, consequence, maybe_alternative) => {
+        self.translate_expr_if_else(condition, consequence, maybe_alternative)
       }
       ast::ExprKind::When(condition, consequence, alternative) => {
-        self.infer_expr_when(condition, consequence, alternative)
+        self.translate_expr_when(condition, consequence, alternative)
       }
       ast::ExprKind::Match(condition, arms) => {
-        self.infer_expr_match(condition, arms)
+        self.translate_expr_match(condition, arms)
       }
-      ast::ExprKind::Loop(block) => self.infer_expr_loop(block),
+      ast::ExprKind::Loop(block) => self.translate_expr_loop(block),
       ast::ExprKind::While(condition, body) => {
-        self.infer_expr_while(condition, body)
+        self.translate_expr_while(condition, body)
       }
-      ast::ExprKind::For(for_loop) => self.infer_expr_for(for_loop),
-      ast::ExprKind::Break(maybe_expr) => self.infer_expr_break(maybe_expr),
-      ast::ExprKind::Continue => self.infer_expr_continue(),
-      ast::ExprKind::Var(var) => self.infer_expr_var(var),
+      ast::ExprKind::For(for_loop) => self.translate_expr_for(for_loop),
+      ast::ExprKind::Break(maybe_expr) => self.translate_expr_break(maybe_expr),
+      ast::ExprKind::Continue => self.translate_expr_continue(),
+      ast::ExprKind::Var(var) => self.translate_expr_var(var),
       ast::ExprKind::StructExpr(struct_expr) => {
-        self.infer_expr_struct_expr(struct_expr)
+        self.translate_expr_struct_expr(struct_expr)
       }
-      ast::ExprKind::Chaining(lhs, rhs) => self.infer_expr_chaining(lhs, rhs),
+      ast::ExprKind::Chaining(lhs, rhs) => {
+        self.translate_expr_chaining(lhs, rhs)
+      }
     }
   }
 
   fn translate_expr_lit(&mut self, lit: &ast::Lit) -> Result<()> {
     match &lit.kind {
-      ast::LitKind::Int(int) => self.translate_lit_int(int),
-      ast::LitKind::Float(float) => self.translate_lit_float(float),
-      ast::LitKind::Ident(ident) => self.translate_lit_ident(ident),
+      ast::LitKind::Int(symbol) => self.translate_lit_int(symbol),
+      ast::LitKind::Float(symbol) => self.translate_lit_float(symbol),
+      ast::LitKind::Ident(symbol) => self.translate_lit_ident(symbol),
       ast::LitKind::Bool(boolean) => self.translate_lit_bool(boolean),
-      ast::LitKind::Char(char) => self.translate_lit_char(char),
-      ast::LitKind::Str(string) => self.translate_lit_str(string),
+      ast::LitKind::Char(symbol) => self.translate_lit_char(symbol),
+      ast::LitKind::Str(symbol) => self.translate_lit_str(symbol),
     }
   }
 
-  fn translate_lit_int(&mut self, _int: &Symbol) -> Result<()> {
+  fn translate_lit_int(&mut self, symbol: &Symbol) -> Result<()> {
+    let _int = self.interner.lookup_int(*symbol);
+
     todo!()
   }
 
-  fn translate_lit_float(&mut self, _float: &Symbol) -> Result<()> {
+  fn translate_lit_float(&mut self, symbol: &Symbol) -> Result<()> {
+    let _float = self.interner.lookup_float(*symbol);
+
     todo!()
   }
 
-  fn translate_lit_ident(&mut self, _ident: &Symbol) -> Result<()> {
+  fn translate_lit_ident(&mut self, symbol: &Symbol) -> Result<()> {
+    let _ident = self.interner.lookup_ident(*symbol);
+
     todo!()
   }
 
@@ -184,11 +194,15 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
-  fn translate_lit_char(&mut self, _char: &Symbol) -> Result<()> {
+  fn translate_lit_char(&mut self, symbol: &Symbol) -> Result<()> {
+    let _char = self.interner.lookup_char(*symbol);
+
     todo!()
   }
 
-  fn translate_lit_str(&mut self, _str: &Symbol) -> Result<()> {
+  fn translate_lit_str(&mut self, symbol: &Symbol) -> Result<()> {
+    let _str = self.interner.lookup_str(*symbol);
+
     todo!()
   }
 
@@ -270,14 +284,14 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
-  fn infer_expr_return(
+  fn translate_expr_return(
     &mut self,
     _maybe_expr: &Option<Box<ast::Expr>>,
   ) -> Result<()> {
     todo!()
   }
 
-  fn infer_expr_if_else(
+  fn translate_expr_if_else(
     &mut self,
     _condition: &ast::Expr,
     _consequence: &ast::Block,
@@ -286,7 +300,7 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
-  fn infer_expr_when(
+  fn translate_expr_when(
     &mut self,
     _condition: &ast::Expr,
     _consequence: &ast::Expr,
@@ -295,7 +309,7 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
-  fn infer_expr_match(
+  fn translate_expr_match(
     &mut self,
     _condition: &ast::Expr,
     _arms: &[ast::Arm],
@@ -303,11 +317,11 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
-  fn infer_expr_loop(&mut self, _block: &ast::Block) -> Result<()> {
+  fn translate_expr_loop(&mut self, _block: &ast::Block) -> Result<()> {
     todo!()
   }
 
-  fn infer_expr_while(
+  fn translate_expr_while(
     &mut self,
     _condition: &ast::Expr,
     _body: &ast::Block,
@@ -315,33 +329,33 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
-  fn infer_expr_for(&mut self, _for_loop: &ast::For) -> Result<()> {
+  fn translate_expr_for(&mut self, _for_loop: &ast::For) -> Result<()> {
     todo!()
   }
 
-  fn infer_expr_break(
+  fn translate_expr_break(
     &mut self,
     _maybe_expr: &Option<Box<ast::Expr>>,
   ) -> Result<()> {
     todo!()
   }
 
-  fn infer_expr_continue(&mut self) -> Result<()> {
+  fn translate_expr_continue(&mut self) -> Result<()> {
     todo!()
   }
 
-  fn infer_expr_var(&mut self, var: &ast::Var) -> Result<()> {
+  fn translate_expr_var(&mut self, var: &ast::Var) -> Result<()> {
     self.translate_var(var)
   }
 
-  fn infer_expr_struct_expr(
+  fn translate_expr_struct_expr(
     &mut self,
     _struct_expr: &ast::StructExpr,
   ) -> Result<()> {
     todo!()
   }
 
-  fn infer_expr_chaining(
+  fn translate_expr_chaining(
     &mut self,
     _lhs: &ast::Expr,
     _rhs: &ast::Expr,
