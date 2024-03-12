@@ -3,6 +3,7 @@
 use super::brick::arm;
 use super::brick::clif;
 use super::brick::llvm;
+use super::brick::py;
 use super::brick::wasm;
 
 use zhoo_session::backend::BackendKind;
@@ -22,6 +23,7 @@ impl Builder {
       BackendKind::Arm => arm::build(backend, bytecode),
       BackendKind::Clif => clif::build(backend, bytecode),
       BackendKind::Llvm => llvm::build(backend, bytecode),
+      BackendKind::Py => py::build(backend, bytecode),
       BackendKind::Wasm => wasm::build(backend, bytecode),
     }
   }

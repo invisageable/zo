@@ -1,5 +1,5 @@
 [package]
-name = "zhoo-codegen-arm"
+name = "zhoo-codegen-py"
 license.workspace = true
 edition.workspace = true
 

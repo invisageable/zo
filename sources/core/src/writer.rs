@@ -1,6 +1,6 @@
-use crate::reporter::report::io::Io;
-
 use super::Result;
+
+use crate::reporter::report::io::Io;
 
 use std::fmt::Write;
 
@@ -31,13 +31,33 @@ impl Writer {
     }
   }
 
+  pub fn new_line(&mut self) -> Result<()> {
+    write!(self.out, "\n").map(|_| Ok(())).unwrap()
+  }
+
+  pub fn space(&mut self) -> Result<()> {
+    write!(self.out, " ").map(|_| Ok(())).unwrap()
+  }
+
+  pub fn comma(&mut self) -> Result<()> {
+    write!(self.out, ",").map(|_| Ok(())).unwrap()
+  }
+
+  pub fn period(&mut self) -> Result<()> {
+    write!(self.out, ".").map(|_| Ok(())).unwrap()
+  }
+
   pub fn colon(&mut self) -> Result<()> {
-    self.write(':')
+    write!(self.out, ":").map(|_| Ok(())).unwrap()
   }
 
   pub fn semicolon(&mut self) -> Result<()> {
-    self.write(';')
+    write!(self.out, ";").map(|_| Ok(())).unwrap()
   }
+
+  // pub fn write(&mut self, code: impl std::fmt::Display) -> Result<()> {
+  //   write!(self.out, "{code}").map(|_| Ok(())).unwrap()
+  // }
 
   pub fn write(&mut self, code: impl std::fmt::Display) -> Result<()> {
     let code = format!("{}{}", " ".repeat(self.indent * self.depth), code);

@@ -172,6 +172,13 @@ impl TokenKind {
         | Self::Op(Op::Slash)
         | Self::Op(Op::Percent)
         | Self::Op(Op::Circumflex)
+        // ...
+        | Self::Op(Op::EqualEqual)
+        | Self::Op(Op::ExclamationEqual)
+        | Self::Op(Op::LessThan)
+        | Self::Op(Op::GreaterThan)
+        | Self::Op(Op::LessThanEqual)
+        | Self::Op(Op::GreaterThanEqual)
     )
   }
 }

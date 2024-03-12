@@ -13,6 +13,7 @@ pub enum BackendKind {
   Arm,
   Clif,
   Llvm,
+  Py,
   #[default]
   Wasm,
 }
@@ -38,6 +39,7 @@ impl From<SmolStr> for BackendKind {
       "arm" => Self::Arm,
       "cranelift" => Self::Clif,
       "llvm" => Self::Llvm,
+      "py" => Self::Py,
       "wasm" => Self::Wasm,
       _ => unreachable!(),
     }
@@ -50,6 +52,7 @@ impl std::fmt::Display for BackendKind {
       Self::Arm => write!(f, "arm"),
       Self::Clif => write!(f, "clif"),
       Self::Llvm => write!(f, "llvm"),
+      Self::Py => write!(f, "py"),
       Self::Wasm => write!(f, "wasm"),
     }
   }

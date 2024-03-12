@@ -8,6 +8,8 @@ zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
 zhoo-codegen-arm = { workspace = true }
 zhoo-codegen-clif = { workspace = true }
+zhoo-codegen-llvm = { workspace = true }
+zhoo-codegen-py = { workspace = true }
 zhoo-codegen-wasm = { workspace = true }
 
 zo-core = { workspace = true }

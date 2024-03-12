@@ -24,6 +24,7 @@ zhoo-codegen = { path = "crates/compiler/zhoo-codegen", version = "0.0.0" }
 zhoo-codegen-arm = { path = "crates/compiler/zhoo-codegen-arm", version = "0.0.0" }
 zhoo-codegen-clif = { path = "crates/compiler/zhoo-codegen-clif", version = "0.0.0" }
 zhoo-codegen-llvm = { path = "crates/compiler/zhoo-codegen-llvm", version = "0.0.0" }
+zhoo-codegen-py = { path = "crates/compiler/zhoo-codegen-py", version = "0.0.0" }
 zhoo-codegen-wasm = { path = "crates/compiler/zhoo-codegen-wasm", version = "0.0.0" }
 zhoo-compiler = { path = "crates/compiler/zhoo-compiler", version = "0.0.0" }
 zhoo-driver = { path = "crates/compiler/zhoo-driver", version = "0.0.0" }

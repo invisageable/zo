@@ -1,5 +1,15 @@
 fun main() {
+  imu x := -1 + 2;
+  imu x := !true;
+  imu x := 4 + 8 * 268 / 2;
+  imu x := ((4 + 8) * 268 / 2);
+  imu x := 9 % 0 == 0;
   imu x := when true ? 2 : 3;
-
-  x = 0;
+  imu x := if true {} else if false {} else {};
+  imu x := 1_000_000_000;
+  imu x := 1_000_000_000.0;
+  imu x := '\0';
+  imu x := "👋🌍👽";
+  imu x := foobar();
+  imu x := foobar(x, x);
 }

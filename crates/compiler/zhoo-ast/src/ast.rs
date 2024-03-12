@@ -98,6 +98,7 @@ pub enum ItemKind {
   TyAlias(TyAlias),
   Ext(Ext),
   Abstract(Abstract),
+  Enum(Enum),
   Struct(Struct),
   Apply(Apply),
   Fun(Fun),
@@ -167,6 +168,16 @@ pub struct Abstract {
   pub body: Block,
   pub span: Span,
 }
+
+#[derive(Clone, Debug)]
+pub struct Enum {
+  pub pattern: Pattern,
+  pub body: Vec<Variant>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Variant {}
 
 #[derive(Clone, Debug)]
 pub struct Struct {}

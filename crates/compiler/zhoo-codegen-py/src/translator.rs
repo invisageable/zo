@@ -1,29 +1,55 @@
 #![allow(dead_code)]
 
+use super::py::AsPyOp;
+
 use zhoo_ast::ast;
 
 use zo_core::interner::symbol::Symbol;
+use zo_core::interner::symbol::Symbolize;
 use zo_core::interner::Interner;
 use zo_core::reporter::Reporter;
-use zo_core::Result;
+use zo_core::writer::Writer;
+use zo_core::{to, Result};
+
+const PY_HEADER: &[u8] = b"#!/usr/bin/python\n# -*- coding: utf-8 -*-\n";
+const PY_ENTRY: &[u8] = b"if __name__ == \"__main__\":\n  main()";
 
 pub(crate) struct Translator<'mir> {
   interner: &'mir Interner,
   reporter: &'mir Reporter,
+  writer: Writer,
 }
 
 impl<'mir> Translator<'mir> {
   #[inline]
-  pub fn new(interner: &'mir Interner, reporter: &'mir Reporter) -> Self {
-    Self { interner, reporter }
+  pub(crate) fn new(
+    interner: &'mir Interner,
+    reporter: &'mir Reporter,
+  ) -> Self {
+    Self {
+      interner,
+      reporter,
+      writer: Writer::new(),
+    }
   }
 
-  pub fn translate(&mut self, program: &ast::Program) -> Result<()> {
+  #[inline]
+  pub(crate) fn output(&mut self) -> Result<Box<[u8]>> {
+    Ok(self.writer.as_bytes())
+  }
+
+  pub(crate) fn translate(&mut self, program: &ast::Program) -> Result<()> {
+    self.writer.write_bytes(PY_HEADER)?;
+
     for stmt in &program.items {
+      self.writer.new_line()?;
       self.translate_item(stmt)?;
+      self.writer.new_line()?;
     }
 
-    Ok(())
+    self.writer.new_line()?;
+    self.writer.write_bytes(PY_ENTRY)?;
+    self.writer.new_line()
   }
 
   fn translate_item(&mut self, item: &ast::Item) -> Result<()> {
@@ -34,6 +60,7 @@ impl<'mir> Translator<'mir> {
       }
       ast::ItemKind::Ext(ext) => self.translate_item_ext(ext),
       ast::ItemKind::Fun(fun) => self.translate_item_fun(fun),
+      _ => todo!(),
     }
   }
 
@@ -41,8 +68,24 @@ impl<'mir> Translator<'mir> {
     self.translate_var(var)
   }
 
-  fn translate_var(&mut self, _var: &ast::Var) -> Result<()> {
-    todo!()
+  fn translate_var(&mut self, var: &ast::Var) -> Result<()> {
+    self.translate_pattern(&var.pattern)?;
+    self.writer.space()?;
+    self.writer.write_bytes(b"=")?;
+    self.writer.space()?;
+    self.translate_expr(&var.value)
+  }
+
+  fn translate_pattern(&mut self, pattern: &ast::Pattern) -> Result<()> {
+    match &pattern.kind {
+      ast::PatternKind::Ident(ident) => {
+        let symbol = *ident.symbolize();
+        let ident = self.interner.lookup_ident(symbol);
+
+        self.writer.write(ident)
+      }
+      _ => todo!(),
+    }
   }
 
   fn translate_item_ty_alias(
@@ -57,14 +100,43 @@ impl<'mir> Translator<'mir> {
   }
 
   fn translate_item_fun(&mut self, fun: &ast::Fun) -> Result<()> {
-    self.translate_block(&fun.body)?;
+    self.writer.write_bytes(b"def")?;
+    self.writer.space()?;
+    self.translate_prototype(&fun.prototype)?;
+    self.translate_block(&fun.body)
+  }
 
-    todo!()
+  fn translate_prototype(&mut self, prototype: &ast::Prototype) -> Result<()> {
+    self.translate_pattern(&prototype.pattern)?;
+    self.translate_inputs(&prototype.inputs)?;
+    self.writer.write_bytes(b":")
+  }
+
+  fn translate_inputs(&mut self, inputs: &ast::Inputs) -> Result<()> {
+    self.writer.write_bytes(b"(")?;
+
+    for input in inputs.iter() {
+      self.translate_input(input)?;
+    }
+
+    self.writer.write_bytes(b")")
+  }
+
+  fn translate_input(&mut self, input: &ast::Input) -> Result<()> {
+    self.translate_pattern(&input.pattern)
   }
 
   fn translate_block(&mut self, block: &ast::Block) -> Result<()> {
-    for stmt in &block.stmts {
+    self.writer.new_line()?;
+
+    for (idx, stmt) in block.stmts.iter().enumerate() {
+      self.writer.indent();
       self.translate_stmt(stmt)?;
+      self.writer.dedent();
+
+      if idx < block.stmts.len() - 1 {
+        self.writer.new_line()?;
+      }
     }
 
     Ok(())
@@ -143,71 +215,104 @@ impl<'mir> Translator<'mir> {
 
   fn translate_expr_lit(&mut self, lit: &ast::Lit) -> Result<()> {
     match &lit.kind {
-      ast::LitKind::Int(int) => self.translate_lit_int(int),
-      ast::LitKind::Float(float) => self.translate_lit_float(float),
-      ast::LitKind::Ident(ident) => self.translate_lit_ident(ident),
+      ast::LitKind::Int(symbol) => self.translate_lit_int(symbol),
+      ast::LitKind::Float(symbol) => self.translate_lit_float(symbol),
+      ast::LitKind::Ident(symbol) => self.translate_lit_ident(symbol),
       ast::LitKind::Bool(boolean) => self.translate_lit_bool(boolean),
-      ast::LitKind::Char(char) => self.translate_lit_char(char),
-      ast::LitKind::Str(string) => self.translate_lit_str(string),
+      ast::LitKind::Char(symbol) => self.translate_lit_char(symbol),
+      ast::LitKind::Str(symbol) => self.translate_lit_str(symbol),
     }
   }
 
-  fn translate_lit_int(&mut self, _int: &Symbol) -> Result<()> {
-    todo!()
+  fn translate_lit_int(&mut self, symbol: &Symbol) -> Result<()> {
+    let int = self.interner.lookup_int(*symbol);
+
+    self.writer.write_int(int)
   }
 
-  fn translate_lit_float(&mut self, _float: &Symbol) -> Result<()> {
-    todo!()
+  fn translate_lit_float(&mut self, symbol: &Symbol) -> Result<()> {
+    let float = self.interner.lookup_float(*symbol);
+
+    self.writer.write_float(float)
   }
 
-  fn translate_lit_ident(&mut self, _ident: &Symbol) -> Result<()> {
-    todo!()
+  fn translate_lit_ident(&mut self, symbol: &Symbol) -> Result<()> {
+    let ident = self.interner.lookup_ident(*symbol);
+
+    self.writer.dedent();
+    self.writer.write(ident)
   }
 
-  fn translate_lit_bool(&mut self, _boolean: &bool) -> Result<()> {
-    todo!()
+  fn translate_lit_bool(&mut self, boolean: &bool) -> Result<()> {
+    let boolean = to!(pascal format!("{boolean}"));
+
+    self.writer.write(boolean)
   }
 
-  fn translate_lit_char(&mut self, _char: &Symbol) -> Result<()> {
-    todo!()
+  fn translate_lit_char(&mut self, symbol: &Symbol) -> Result<()> {
+    let ch = self.interner.lookup_char(*symbol);
+
+    self.writer.write(ch)
   }
 
-  fn translate_lit_str(&mut self, _str: &Symbol) -> Result<()> {
-    todo!()
+  fn translate_lit_str(&mut self, symbol: &Symbol) -> Result<()> {
+    let string = self.interner.lookup_str(*symbol);
+
+    self.writer.write(string)
   }
 
   fn translate_expr_unop(
     &mut self,
-    _unop: &ast::UnOp,
-    _rhs: &ast::Expr,
+    unop: &ast::UnOp,
+    rhs: &ast::Expr,
   ) -> Result<()> {
-    todo!()
+    self.writer.write_bytes(unop.as_py_op().as_bytes())?;
+
+    match &unop.kind {
+      ast::UnOpKind::Not => self.writer.space(),
+      ast::UnOpKind::Neg => Ok(()),
+    }?;
+
+    self.translate_expr(rhs)
   }
 
   fn translate_expr_binop(
     &mut self,
-    _binop: &ast::BinOp,
-    _lhs: &ast::Expr,
-    _rhs: &ast::Expr,
+    binop: &ast::BinOp,
+    lhs: &ast::Expr,
+    rhs: &ast::Expr,
   ) -> Result<()> {
-    todo!()
+    println!("{binop}");
+    self.translate_expr(lhs)?;
+    self.writer.space()?;
+    self.writer.write_bytes(binop.as_py_op().as_bytes())?;
+    self.writer.space()?;
+    self.translate_expr(rhs)
   }
 
   fn translate_expr_assign(
     &mut self,
-    _lhs: &ast::Expr,
-    _rhs: &ast::Expr,
+    lhs: &ast::Expr,
+    rhs: &ast::Expr,
   ) -> Result<()> {
-    todo!()
+    self.translate_expr(lhs)?;
+    self.writer.space()?;
+    self.writer.write_bytes(b"=")?;
+    self.writer.space()?;
+    self.translate_expr(rhs)
   }
 
   fn translate_expr_assignop(
     &mut self,
-    _binop: &ast::BinOp,
-    _lhs: &ast::Expr,
-    _rhs: &ast::Expr,
+    binop: &ast::BinOp,
+    lhs: &ast::Expr,
+    rhs: &ast::Expr,
   ) -> Result<()> {
-    todo!()
+    self.translate_expr(lhs)?;
+    self.writer.space()?;
+    self.writer.write_bytes(binop.as_py_op().as_bytes())?;
+    self.writer.space()?;
+    self.translate_expr(rhs)
   }
 
   fn translate_expr_block(&mut self, block: &ast::Block) -> Result<()> {
@@ -216,14 +321,36 @@ impl<'mir> Translator<'mir> {
 
   fn translate_expr_call(
     &mut self,
-    _lhs: &ast::Expr,
-    _rhs: &ast::Args,
+    lhs: &ast::Expr,
+    args: &ast::Args,
   ) -> Result<()> {
-    todo!()
+    self.translate_expr(lhs)?;
+    self.writer.write_bytes(b"(")?;
+    self.translate_args(args)?;
+    self.writer.write_bytes(b")")
   }
 
-  fn translate_expr_array(&mut self, _array: &[ast::Expr]) -> Result<()> {
-    todo!()
+  fn translate_args(&mut self, args: &ast::Args) -> Result<()> {
+    for (idx, arg) in args.0.iter().enumerate() {
+      self.translate_pattern(&arg.pattern)?;
+
+      if idx < args.0.len() - 1 {
+        self.writer.comma()?;
+        self.writer.space()?;
+      }
+    }
+
+    Ok(())
+  }
+
+  fn translate_expr_array(&mut self, array: &[ast::Expr]) -> Result<()> {
+    self.writer.write_bytes(b"[")?;
+
+    for expr in array {
+      self.translate_expr(expr)?;
+    }
+
+    self.writer.write_bytes(b"]")
   }
 
   fn translate_expr_tuple(&mut self, _tuple: &[ast::Expr]) -> Result<()> {
@@ -232,10 +359,13 @@ impl<'mir> Translator<'mir> {
 
   fn translate_expr_array_access(
     &mut self,
-    _array: &ast::Expr,
-    _access: &ast::Expr,
+    array: &ast::Expr,
+    access: &ast::Expr,
   ) -> Result<()> {
-    todo!()
+    self.translate_expr(array)?;
+    self.writer.write_bytes(b"[")?;
+    self.translate_expr(access)?;
+    self.writer.write_bytes(b"]")
   }
 
   fn translate_expr_tuple_access(
@@ -256,27 +386,50 @@ impl<'mir> Translator<'mir> {
 
   fn infer_expr_return(
     &mut self,
-    _maybe_expr: &Option<Box<ast::Expr>>,
+    maybe_expr: &Option<Box<ast::Expr>>,
   ) -> Result<()> {
-    todo!()
+    self.writer.write_bytes(b"return")?;
+
+    match maybe_expr {
+      Some(expr) => {
+        self.writer.space()?;
+        self.translate_expr(expr)
+      }
+      None => Ok(()),
+    }
   }
 
   fn infer_expr_if_else(
     &mut self,
-    _condition: &ast::Expr,
-    _consequence: &ast::Block,
-    _maybe_alternative: &Option<Box<ast::Expr>>,
+    condition: &ast::Expr,
+    consequence: &ast::Block,
+    maybe_alternative: &Option<Box<ast::Expr>>,
   ) -> Result<()> {
-    todo!()
+    self.writer.write_bytes(b"if")?;
+    self.writer.space()?;
+    self.translate_expr(condition)?;
+    self.writer.space()?;
+
+    match maybe_alternative {
+      Some(expr) => self.translate_expr(expr),
+      None => self.translate_block(consequence),
+    }
   }
 
   fn infer_expr_when(
     &mut self,
-    _condition: &ast::Expr,
-    _consequence: &ast::Expr,
-    _maybe_alternative: &ast::Expr,
+    condition: &ast::Expr,
+    consequence: &ast::Expr,
+    alternative: &ast::Expr,
   ) -> Result<()> {
-    todo!()
+    self.writer.write_bytes(b"if")?;
+    self.translate_expr(condition)?;
+    self.writer.space()?;
+    self.translate_expr(consequence)?;
+    self.writer.space()?;
+    self.writer.write_bytes(b"else")?;
+    self.writer.space()?;
+    self.translate_expr(alternative)
   }
 
   fn infer_expr_match(
@@ -287,16 +440,21 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
-  fn infer_expr_loop(&mut self, _block: &ast::Block) -> Result<()> {
-    todo!()
+  fn infer_expr_loop(&mut self, block: &ast::Block) -> Result<()> {
+    self.writer.write_bytes(b"while True:")?;
+    self.translate_block(block)
   }
 
   fn infer_expr_while(
     &mut self,
-    _condition: &ast::Expr,
-    _body: &ast::Block,
+    condition: &ast::Expr,
+    body: &ast::Block,
   ) -> Result<()> {
-    todo!()
+    self.writer.write_bytes(b"while")?;
+    self.writer.space()?;
+    self.translate_expr(condition)?;
+    self.writer.write_bytes(b":")?;
+    self.translate_block(body)
   }
 
   fn infer_expr_for(&mut self, _for_loop: &ast::For) -> Result<()> {
@@ -305,13 +463,21 @@ impl<'mir> Translator<'mir> {
 
   fn infer_expr_break(
     &mut self,
-    _maybe_expr: &Option<Box<ast::Expr>>,
+    maybe_expr: &Option<Box<ast::Expr>>,
   ) -> Result<()> {
-    todo!()
+    self.writer.write_bytes(b"break")?;
+
+    match maybe_expr {
+      Some(expr) => {
+        self.writer.space()?;
+        self.translate_expr(expr)
+      }
+      None => Ok(()),
+    }
   }
 
   fn infer_expr_continue(&mut self) -> Result<()> {
-    todo!()
+    self.writer.write_bytes(b"continue")
   }
 
   fn infer_expr_var(&mut self, var: &ast::Var) -> Result<()> {

@@ -134,6 +134,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
+name = "cc"
+version = "1.0.90"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cd6604a82acf3039f1144f54b8eb34e91ffba622051189e71b781822d5ee1f5"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -546,6 +552,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "inkwell"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b597a7b2cdf279aeef6d7149071e35e4bc87c2cf05a5b7f2d731300bffe587ea"
+dependencies = [
+ "either",
+ "inkwell_internals",
+ "libc",
+ "llvm-sys",
+ "once_cell",
+ "thiserror",
+]
+
+[[package]]
+name = "inkwell_internals"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fa4d8d74483041a882adaa9a29f633253a66dde85055f0495c121620ac484b2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "is-terminal"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -607,6 +638,19 @@ name = "libc"
 version = "0.2.153"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
+
+[[package]]
+name = "llvm-sys"
+version = "140.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3dc78e9857c0231ec11e3bdccf63870493fdc7d0570b0ea7d50bf5df0cb1a0c"
+dependencies = [
+ "cc",
+ "lazy_static",
+ "libc",
+ "regex",
+ "semver",
+]
 
 [[package]]
 name = "lock_api"
@@ -817,6 +861,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "semver"
+version = "1.0.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92d43fe69e652f3df9bdc2b85b2854a0825b86e4fb76bc44d945137d053639ca"
+
+[[package]]
 name = "serde"
 version = "1.0.197"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -920,6 +970,26 @@ name = "target-lexicon"
 version = "0.12.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1fc403891a21bcfb7c37834ba66a547a8f402146eba7265b5a6d88059c9ff2f"
+
+[[package]]
+name = "thiserror"
+version = "1.0.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e45bcbe8ed29775f228095caf2cd67af7a4ccf756ebff23a306bf3e8b47b24b"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a953cb265bef375dae3de6663da4d3804eee9682ea80d8e2542529b73c531c81"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "tinytemplate"
@@ -1265,6 +1335,8 @@ dependencies = [
  "zhoo-ast",
  "zhoo-codegen-arm",
  "zhoo-codegen-clif",
+ "zhoo-codegen-llvm",
+ "zhoo-codegen-py",
  "zhoo-codegen-wasm",
  "zhoo-session",
  "zo-core",
@@ -1291,6 +1363,25 @@ dependencies = [
  "zhoo-ast",
  "zhoo-session",
  "zhoo-ty",
+ "zo-core",
+]
+
+[[package]]
+name = "zhoo-codegen-llvm"
+version = "0.0.0"
+dependencies = [
+ "inkwell",
+ "zhoo-ast",
+ "zhoo-session",
+ "zo-core",
+]
+
+[[package]]
+name = "zhoo-codegen-py"
+version = "0.0.0"
+dependencies = [
+ "zhoo-ast",
+ "zhoo-session",
  "zo-core",
 ]
 
