@@ -5,20 +5,34 @@ use zhoo_ast::ast;
 use zo_core::interner::symbol::Symbol;
 use zo_core::interner::Interner;
 use zo_core::reporter::Reporter;
+use zo_core::writer::Writer;
 use zo_core::Result;
 
 pub(crate) struct Translator<'mir> {
   interner: &'mir Interner,
   reporter: &'mir Reporter,
+  writer: Writer,
 }
 
 impl<'mir> Translator<'mir> {
   #[inline]
-  pub fn new(interner: &'mir Interner, reporter: &'mir Reporter) -> Self {
-    Self { interner, reporter }
+  pub(crate) fn new(
+    interner: &'mir Interner,
+    reporter: &'mir Reporter,
+  ) -> Self {
+    Self {
+      interner,
+      reporter,
+      writer: Writer::new(),
+    }
   }
 
-  pub fn translate(&mut self, program: &ast::Program) -> Result<()> {
+  #[inline]
+  pub(crate) fn output(&mut self) -> Result<Box<[u8]>> {
+    Ok(self.writer.as_bytes())
+  }
+
+  pub(crate) fn translate(&mut self, program: &ast::Program) -> Result<()> {
     for stmt in &program.items {
       self.translate_item(stmt)?;
     }
@@ -34,6 +48,7 @@ impl<'mir> Translator<'mir> {
       }
       ast::ItemKind::Ext(ext) => self.translate_item_ext(ext),
       ast::ItemKind::Fun(fun) => self.translate_item_fun(fun),
+      _ => todo!(),
     }
   }
 
@@ -274,7 +289,7 @@ impl<'mir> Translator<'mir> {
     &mut self,
     _condition: &ast::Expr,
     _consequence: &ast::Expr,
-    _maybe_alternative: &ast::Expr,
+    _alternative: &ast::Expr,
   ) -> Result<()> {
     todo!()
   }
