@@ -5,17 +5,27 @@ use zhoo_ast::ast;
 use zo_core::interner::symbol::Symbol;
 use zo_core::interner::Interner;
 use zo_core::reporter::Reporter;
+use zo_core::writer::Writer;
 use zo_core::Result;
 
 pub(crate) struct Translator<'mir> {
   interner: &'mir Interner,
   reporter: &'mir Reporter,
+  writer: Writer,
 }
 
 impl<'mir> Translator<'mir> {
   #[inline]
   pub fn new(interner: &'mir Interner, reporter: &'mir Reporter) -> Self {
-    Self { interner, reporter }
+    Self {
+      interner,
+      reporter,
+      writer: Writer::new(),
+    }
+  }
+
+  pub fn output(&mut self) -> Result<Box<[u8]>> {
+    Ok(self.writer.as_bytes())
   }
 
   pub fn translate(&mut self, program: &ast::Program) -> Result<()> {
@@ -280,7 +290,7 @@ impl<'mir> Translator<'mir> {
     &mut self,
     _condition: &ast::Expr,
     _consequence: &ast::Expr,
-    _maybe_alternative: &ast::Expr,
+    _alternative: &ast::Expr,
   ) -> Result<()> {
     todo!()
   }

@@ -1,3 +1,5 @@
+use super::translator::Translator;
+
 use zhoo_ast::ast;
 use zhoo_session::session::Session;
 
@@ -8,10 +10,13 @@ pub struct Codegen;
 impl Codegen {
   fn generate(
     &mut self,
-    _session: &mut Session,
-    _program: &ast::Program,
+    session: &mut Session,
+    program: &ast::Program,
   ) -> Result<Box<[u8]>> {
-    todo!()
+    let mut translator = Translator::new(&session.interner, &session.reporter);
+
+    translator.translate(program)?;
+    translator.output()
   }
 }
 
