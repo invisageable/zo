@@ -29,7 +29,7 @@ pub(crate) struct Translator<'mir> {
 
 impl<'mir> Translator<'mir> {
   #[inline]
-  pub fn new(
+  pub(crate) fn new(
     interner: &'mir Interner,
     reporter: &'mir Reporter,
     module: &'mir mut ObjectModule,
@@ -45,7 +45,7 @@ impl<'mir> Translator<'mir> {
     }
   }
 
-  pub fn translate(&mut self, program: &ast::Program) -> Result<Value> {
+  pub(crate) fn translate(&mut self, program: &ast::Program) -> Result<Value> {
     let mut function_builder_context = FunctionBuilderContext::new();
 
     let mut _builder = FunctionBuilder::new(
@@ -533,7 +533,7 @@ impl<'mir> Translator<'mir> {
     &mut self,
     _condition: &ast::Expr,
     _consequence: &ast::Expr,
-    _maybe_alternative: &ast::Expr,
+    _alternative: &ast::Expr,
   ) -> Result<Value> {
     todo!()
   }
