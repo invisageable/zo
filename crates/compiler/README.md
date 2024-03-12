@@ -1,6 +1,6 @@
 # compiler.
 
-> *...*
+> *The `zhoo` compiler.*
 
 ## compiler phases.
 

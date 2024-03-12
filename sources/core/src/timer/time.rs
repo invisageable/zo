@@ -2,7 +2,7 @@
 //
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Time {
-  pub instant: Option<std::time::Instant>,
+  pub maybe_instant: Option<std::time::Instant>,
 }
 
 impl Time {
@@ -11,7 +11,7 @@ impl Time {
   #[inline]
   pub fn now() -> Self {
     Self {
-      instant: Some(std::time::Instant::now()),
+      maybe_instant: Some(std::time::Instant::now()),
     }
   }
 
@@ -20,7 +20,7 @@ impl Time {
   //
   #[inline]
   pub fn merge(start: &Self, end: &Self) -> Option<std::time::Duration> {
-    match (start.instant, end.instant) {
+    match (start.maybe_instant, end.maybe_instant) {
       (Some(start), Some(end)) => Some(end.duration_since(start)),
       _ => None,
     }

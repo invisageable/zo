@@ -3,11 +3,11 @@
 
 pub mod report;
 
-use report::{Error, ReportError};
-
 use super::source::SourceMap;
 use super::span::Span;
 use super::EXIT_FAILURE;
+
+use report::{Error, ReportError};
 
 #[derive(Debug)]
 pub struct Reporter {

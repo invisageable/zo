@@ -1,4 +1,5 @@
 /// file system.
+
 pub trait Fs<P>: Sized
 where
   P: Into<std::path::PathBuf>,
