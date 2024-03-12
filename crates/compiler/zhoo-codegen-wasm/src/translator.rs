@@ -1,6 +1,6 @@
 //! ...
 
-use super::interface::Wat;
+use super::wasm::Wat;
 
 use zhoo_ast::ast;
 use zhoo_ty::ty::Ty;
@@ -22,7 +22,10 @@ pub(crate) struct Translator<'mir> {
 
 impl<'mir> Translator<'mir> {
   #[inline]
-  pub fn new(interner: &'mir Interner, reporter: &'mir Reporter) -> Self {
+  pub(crate) fn new(
+    interner: &'mir Interner,
+    reporter: &'mir Reporter,
+  ) -> Self {
     Self {
       interner,
       reporter,
@@ -30,11 +33,12 @@ impl<'mir> Translator<'mir> {
     }
   }
 
-  pub fn output(&mut self) -> Result<Box<[u8]>> {
+  #[inline]
+  pub(crate) fn output(&mut self) -> Result<Box<[u8]>> {
     Ok(self.writer.as_bytes())
   }
 
-  pub fn translate(&mut self, program: &ast::Program) -> Result<()> {
+  pub(crate) fn translate(&mut self, program: &ast::Program) -> Result<()> {
     self.writer.write_bytes(b"(module")?;
 
     for item in &program.items {
@@ -392,7 +396,7 @@ impl<'mir> Translator<'mir> {
     &mut self,
     _condition: &ast::Expr,
     _consequence: &ast::Expr,
-    _maybe_alternative: &ast::Expr,
+    _alternative: &ast::Expr,
   ) -> Result<()> {
     todo!()
   }

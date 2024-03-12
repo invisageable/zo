@@ -15,7 +15,7 @@ impl Wat for Ty {
 impl Wat for TyKind {
   fn as_wat(&self) -> &str {
     match self {
-      Self::Bool | Self::Int | Self::Char | Self::Str => "i64",
+      Self::Int | Self::Bool | Self::Char | Self::Str => "i64",
       Self::Float => "f64",
       _ => unreachable!(),
     }
