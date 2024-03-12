@@ -146,8 +146,8 @@ impl<'program> Inferencer<'program> {
       ast::ExprKind::Fn(prototype, body) => self.infer_expr_fn(prototype, body),
       ast::ExprKind::Call(callee, args) => self.infer_expr_call(callee, args),
       ast::ExprKind::Return(maybe_expr) => self.infer_expr_return(maybe_expr),
-      ast::ExprKind::IfElse(condition, consequence, alternative) => {
-        self.infer_expr_if_else(condition, consequence, alternative)
+      ast::ExprKind::IfElse(condition, consequence, maybe_alternative) => {
+        self.infer_expr_if_else(condition, consequence, maybe_alternative)
       }
       ast::ExprKind::When(condition, consequence, alternative) => {
         self.infer_expr_when(condition, consequence, alternative)
@@ -172,9 +172,13 @@ impl<'program> Inferencer<'program> {
 
   fn infer_expr_lit(&mut self, lit: &ast::Lit) -> Result<Ty> {
     match &lit.kind {
-      ast::LitKind::Int(int) => self.infer_expr_lit_int(int, lit.span),
-      ast::LitKind::Float(float) => self.infer_expr_lit_float(float, lit.span),
-      ast::LitKind::Ident(ident) => self.infer_expr_lit_ident(ident, lit.span),
+      ast::LitKind::Int(symbol) => self.infer_expr_lit_int(symbol, lit.span),
+      ast::LitKind::Float(symbol) => {
+        self.infer_expr_lit_float(symbol, lit.span)
+      }
+      ast::LitKind::Ident(symbol) => {
+        self.infer_expr_lit_ident(symbol, lit.span)
+      }
       ast::LitKind::Bool(_) => self.infer_expr_lit_bool(lit.span),
       ast::LitKind::Char(_) => self.infer_expr_lit_char(lit.span),
       ast::LitKind::Str(_) => self.infer_expr_lit_str(lit.span),
