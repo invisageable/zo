@@ -1,7 +1,9 @@
 [package]
 name = "zhoo-session"
+authors.workspace = true
 license.workspace = true
 edition.workspace = true
+version.workspace = true
 
 [lib]
 doctest = false

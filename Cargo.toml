@@ -1,5 +1,5 @@
 [workspace]
-members = ["sources/core", "crates/compiler/zhoo"]
+members = ["sources/core", "crates/booster/zhyr", "crates/compiler/zhoo"]
 resolver = '2'
 exclude = [".todo.md", "examples", "notes", "program", "tasks"]
 default-members = ["crates/compiler/zhoo"]
@@ -14,7 +14,21 @@ version = "0.0.0"
 # internal:core.
 zo-core = { path = "sources/core", version = "0.0.0", features = ["kanal"] }
 
-# internal:compiler
+# internal:booster.
+zhyr = { path = "crates/booster/zhyr", version = "0.0.0" }
+zhyr-ast = { path = "crates/booster/zhyr-ast", version = "0.0.0" }
+zhyr-booster = { path = "crates/booster/zhyr-booster", version = "0.0.0" }
+zhyr-builder = { path = "crates/booster/zhyr-builder", version = "0.0.0" }
+zhyr-codegen = { path = "crates/booster/zhyr-codegen", version = "0.0.0" }
+zhyr-codegen-js = { path = "crates/booster/zhyr-codegen-js", version = "0.0.0" }
+zhyr-codegen-py = { path = "crates/booster/zhyr-codegen-py", version = "0.0.0" }
+zhyr-driver = { path = "crates/booster/zhyr-driver", version = "0.0.0" }
+zhyr-parser = { path = "crates/booster/zhyr-parser", version = "0.0.0" }
+zhyr-parser-js = { path = "crates/booster/zhyr-parser-js", version = "0.0.0" }
+zhyr-parser-py = { path = "crates/booster/zhyr-parser-py", version = "0.0.0" }
+zhyr-reader = { path = "crates/booster/zhyr-reader", version = "0.0.0" }
+
+# internal:compiler.
 zhoo = { path = "crates/compiler/zhoo", version = "0.0.0" }
 zhoo-analyzer = { path = "crates/compiler/zhoo-analyzer", version = "0.0.0" }
 zhoo-ast = { path = "crates/compiler/zhoo-ast", version = "0.0.0" }
@@ -23,6 +37,7 @@ zhoo-checker = { path = "crates/compiler/zhoo-checker", version = "0.0.0" }
 zhoo-codegen = { path = "crates/compiler/zhoo-codegen", version = "0.0.0" }
 zhoo-codegen-arm = { path = "crates/compiler/zhoo-codegen-arm", version = "0.0.0" }
 zhoo-codegen-clif = { path = "crates/compiler/zhoo-codegen-clif", version = "0.0.0" }
+zhoo-codegen-js = { path = "crates/compiler/zhoo-codegen-js", version = "0.0.0" }
 zhoo-codegen-llvm = { path = "crates/compiler/zhoo-codegen-llvm", version = "0.0.0" }
 zhoo-codegen-py = { path = "crates/compiler/zhoo-codegen-py", version = "0.0.0" }
 zhoo-codegen-wasm = { path = "crates/compiler/zhoo-codegen-wasm", version = "0.0.0" }
@@ -48,6 +63,7 @@ ariadne = "0.4.0"
 clap = { version = "4.5.1", features = ["derive"] }
 cranelift = "0.105.2"
 cranelift-codegen = "0.105.2"
+cranelift-jit = "0.105.2"
 cranelift-module = "0.105.2"
 cranelift-native = "0.105.2"
 cranelift-object = "0.105.2"
@@ -62,8 +78,13 @@ kanal = "0.1.0-pre8"
 lazy_static = "1.4.0"
 pollster = "0.3.0"
 rayon = "1.8.0"
+rustpython-ast = "0.3.0"
+rustpython-parser = "0.3.0"
 ryu = "1.0.15"
 smol_str = "0.2.1"
+swc_common = "0.33.19"
+swc_ecma_ast = "0.112.5"
+swc_ecma_parser = "0.143.8"
 sysinfo = "0.30.5"
 walkdir = "2.4.0"
 wasmtime = "17.0.1"

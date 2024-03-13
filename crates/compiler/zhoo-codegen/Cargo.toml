@@ -1,13 +1,16 @@
 [package]
 name = "zhoo-codegen"
+authors.workspace = true
 license.workspace = true
 edition.workspace = true
+version.workspace = true
 
 [dependencies]
 zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
 zhoo-codegen-arm = { workspace = true }
 zhoo-codegen-clif = { workspace = true }
+zhoo-codegen-js = { workspace = true }
 zhoo-codegen-llvm = { workspace = true }
 zhoo-codegen-py = { workspace = true }
 zhoo-codegen-wasm = { workspace = true }

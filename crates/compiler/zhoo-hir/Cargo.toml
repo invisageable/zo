@@ -1,7 +1,9 @@
 [package]
 name = "zhoo-hir"
+authors.workspace = true
 license.workspace = true
 edition.workspace = true
+version.workspace = true
 
 [dependencies]
 zhoo-ast = { workspace = true }

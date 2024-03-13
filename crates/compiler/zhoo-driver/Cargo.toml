@@ -1,7 +1,13 @@
 [package]
 name = "zhoo-driver"
+authors.workspace = true
 license.workspace = true
 edition.workspace = true
+version.workspace = true
+
+[lib]
+doctest = false
+test = false
 
 [dependencies]
 zhoo-compiler = { workspace = true }

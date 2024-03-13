@@ -1,5 +1,5 @@
 [package]
-name = "zhoo-analyzer"
+name = "zhoo-codegen-js"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -7,11 +7,6 @@ version.workspace = true
 
 [dependencies]
 zhoo-ast = { workspace = true }
-zhoo-checker = { workspace = true }
-zhoo-hir = { workspace = true }
-zhoo-inferencer = { workspace = true }
 zhoo-session = { workspace = true }
-zhoo-ty = { workspace = true }
-zhoo-tychecker = { workspace = true }
 
 zo-core = { workspace = true }
