@@ -12,6 +12,7 @@ pub struct Backend {
 pub enum BackendKind {
   Arm,
   Clif,
+  Js,
   Llvm,
   Py,
   #[default]
@@ -38,6 +39,7 @@ impl From<SmolStr> for BackendKind {
     match backend.as_str() {
       "arm" => Self::Arm,
       "cranelift" => Self::Clif,
+      "js" => Self::Js,
       "llvm" => Self::Llvm,
       "py" => Self::Py,
       "wasm" => Self::Wasm,
@@ -51,6 +53,7 @@ impl std::fmt::Display for BackendKind {
     match self {
       Self::Arm => write!(f, "arm"),
       Self::Clif => write!(f, "clif"),
+      Self::Js => write!(f, "js"),
       Self::Llvm => write!(f, "llvm"),
       Self::Py => write!(f, "py"),
       Self::Wasm => write!(f, "wasm"),

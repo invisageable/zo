@@ -572,7 +572,7 @@ impl<'mir> Translator<'mir> {
 
   /// ## syntax.
   ///
-  /// `while <expr>: <new_line> <indent> <expr> <dedent> <new_line>`.
+  /// `while <expr> : <block> <block?>`.
   fn translate_expr_while(
     &mut self,
     condition: &ast::Expr,

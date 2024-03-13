@@ -1,5 +1,3 @@
-use zhoo_session::backend::Backend;
-
 use zo_core::writer::Writer;
 use zo_core::Result;
 
@@ -9,7 +7,7 @@ use zo_core::Result;
 ///
 /// ```
 /// ```
-pub fn build(_backend: &Backend, bytecode: &[u8]) -> Result<()> {
+pub fn build(bytecode: &[u8]) -> Result<()> {
   const PATHNAME: &str = "program/py";
   const FILENAME_PY: &str = "program/py/main.py";
 

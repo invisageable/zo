@@ -2,6 +2,7 @@
 
 use super::brick::arm;
 use super::brick::clif;
+use super::brick::js;
 use super::brick::llvm;
 use super::brick::py;
 use super::brick::wasm;
@@ -17,14 +18,13 @@ struct Builder;
 impl Builder {
   #[inline]
   fn build(&self, session: &mut Session, bytecode: &[u8]) -> Result<()> {
-    let backend = &session.settings.backend;
-
-    match &backend.kind {
-      BackendKind::Arm => arm::build(backend, bytecode),
-      BackendKind::Clif => clif::build(backend, bytecode),
-      BackendKind::Llvm => llvm::build(backend, bytecode),
-      BackendKind::Py => py::build(backend, bytecode),
-      BackendKind::Wasm => wasm::build(backend, bytecode),
+    match &session.settings.backend.kind {
+      BackendKind::Arm => arm::build(bytecode),
+      BackendKind::Clif => clif::build(bytecode),
+      BackendKind::Js => js::build(bytecode),
+      BackendKind::Llvm => llvm::build(bytecode),
+      BackendKind::Py => py::build(bytecode),
+      BackendKind::Wasm => wasm::build(bytecode),
     }
   }
 }

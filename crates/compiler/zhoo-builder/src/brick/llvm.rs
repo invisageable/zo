@@ -1,5 +1,3 @@
-use zhoo_session::backend::Backend;
-
 use zo_core::Result;
 
 /// ...
@@ -8,6 +6,6 @@ use zo_core::Result;
 ///
 /// ```
 /// ```
-pub fn build(_backend: &Backend, _bytecode: &[u8]) -> Result<()> {
+pub fn build(_bytecode: &[u8]) -> Result<()> {
   Ok(())
 }
