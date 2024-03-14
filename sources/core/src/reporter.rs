@@ -59,6 +59,7 @@ impl Reporter {
       ReportError::Syntax(error) => error.report(),
       ReportError::Semantic(error) => error.report(),
       ReportError::Assembly(error) => error.report(),
+      ReportError::Eval(error) => error.report(),
     };
 
     let span = report

@@ -1,5 +1,6 @@
 pub mod assembly;
 pub mod chan;
+pub mod eval;
 pub mod io;
 pub mod lexical;
 pub mod semantic;
@@ -66,6 +67,7 @@ pub enum ReportError {
   Syntax(syntax::Syntax),
   Semantic(semantic::Semantic),
   Assembly(assembly::Assembly),
+  Eval(eval::Eval),
 }
 
 impl ReportError {
@@ -77,6 +79,7 @@ impl ReportError {
       Self::Syntax(_) => 4,
       Self::Semantic(_) => 5,
       Self::Assembly(_) => 6,
+      Self::Eval(_) => 7,
     }
   }
 }

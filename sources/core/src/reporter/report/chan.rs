@@ -24,7 +24,7 @@ impl Error for Chan {
 }
 
 impl Chan {
-  pub fn error(message: impl ToString) -> ReportError {
-    ReportError::Chan(Chan::NotFoundSignal(message.to_string()))
+  pub fn error(error: impl ToString) -> ReportError {
+    ReportError::Chan(Chan::NotFoundSignal(error.to_string()))
   }
 }

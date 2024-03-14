@@ -1,11 +1,21 @@
 [package]
 name = "zhoo-interpreter-clif"
+authors.workspace = true
 license.workspace = true
 edition.workspace = true
+version.workspace = true
 
 [dependencies]
 zhoo-ast = { workspace = true }
+zhoo-codegen-clif = { workspace = true }
 zhoo-session = { workspace = true }
 zhoo-value = { workspace = true }
 
 zo-core = { workspace = true }
+
+cranelift = { workspace = true }
+cranelift-codegen = { workspace = true }
+cranelift-jit = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-native = { workspace = true }
+cranelift-object = { workspace = true }
