@@ -16,6 +16,7 @@ pub struct Profiler {
 }
 
 impl Profiler {
+  #[inline]
   pub fn new() -> Self {
     Self::default()
   }
@@ -34,20 +35,24 @@ impl Profiler {
       .unwrap()
   }
 
+  #[inline]
   pub fn start(&mut self) -> &Self {
     self.timer.start();
     self
   }
 
+  #[inline]
   pub fn end(&mut self) -> &Self {
     self.timer.end();
     self
   }
 
+  #[inline]
   pub fn total(&mut self) -> f64 {
     self.profiles.total()
   }
 
+  #[inline]
   pub fn duration_in_unit(&self, unit: impl Into<Unit>) -> Option<f64> {
     self.timer.duration_in_unit(unit)
   }

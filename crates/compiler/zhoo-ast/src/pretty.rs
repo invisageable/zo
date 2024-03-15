@@ -231,12 +231,12 @@ impl std::fmt::Display for Lit {
 impl std::fmt::Display for LitKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
+      Self::Int(symbol) => write!(f, "{symbol}"),
+      Self::Float(symbol) => write!(f, "{symbol}"),
+      Self::Ident(symbol) => write!(f, "{symbol}"),
       Self::Bool(boolean) => write!(f, "{boolean}"),
-      Self::Int(int) => write!(f, "{int}"),
-      Self::Float(float) => write!(f, "{float}"),
-      Self::Char(ch) => write!(f, "{ch}"),
-      Self::Str(string) => write!(f, "{string}"),
-      Self::Ident(ident) => write!(f, "{ident}"),
+      Self::Char(symbol) => write!(f, "{symbol}"),
+      Self::Str(symbol) => write!(f, "{symbol}"),
     }
   }
 }
@@ -250,7 +250,6 @@ impl std::fmt::Display for UnOp {
 impl std::fmt::Display for UnOpKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      // Self::Add => write!(f, "+"),
       Self::Neg => write!(f, "-"),
       Self::Not => write!(f, "!"),
     }

@@ -10,6 +10,13 @@ pub enum Chan {
   NotFoundSignal(String),
 }
 
+impl Chan {
+  #[inline]
+  pub fn error(error: impl ToString) -> ReportError {
+    ReportError::Chan(Chan::NotFoundSignal(error.to_string()))
+  }
+}
+
 impl Error for Chan {
   fn report(&self) -> Report {
     match self {
@@ -20,11 +27,5 @@ impl Error for Chan {
         ..Default::default()
       },
     }
-  }
-}
-
-impl Chan {
-  pub fn error(error: impl ToString) -> ReportError {
-    ReportError::Chan(Chan::NotFoundSignal(error.to_string()))
   }
 }

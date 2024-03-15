@@ -22,12 +22,14 @@ pub struct Receiver<T> {
 }
 
 impl<T> Receiver<T> {
+  #[inline]
   pub fn new(receiver: ReceiverInner<T>) -> Self {
     Self {
       raw: std::sync::Arc::new(std::sync::Mutex::new(receiver)),
     }
   }
 
+  #[inline]
   pub fn recv(&self) -> Result<T> {
     self
       .raw

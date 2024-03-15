@@ -13,18 +13,22 @@ pub struct Writer {
 }
 
 impl Writer {
+  #[inline]
   pub fn new() -> Self {
     Self::default()
   }
 
+  #[inline]
   pub fn as_bytes(&mut self) -> Box<[u8]> {
     self.out.as_bytes().into()
   }
 
+  #[inline]
   pub fn indent(&mut self) {
     self.depth += 1;
   }
 
+  #[inline]
   pub fn dedent(&mut self) {
     if self.depth > 0 {
       self.depth -= 1;

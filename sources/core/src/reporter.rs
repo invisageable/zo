@@ -21,6 +21,7 @@ impl Reporter {
     Self::default()
   }
 
+  #[inline]
   pub fn add_source(
     &mut self,
     pathname: impl Into<std::path::PathBuf>,
@@ -28,6 +29,7 @@ impl Reporter {
     self.source_map.add_source(pathname.into())
   }
 
+  #[inline]
   pub fn code(&self, source_id: u32) -> &str {
     self.source_map.code(source_id)
   }

@@ -10,10 +10,12 @@ pub enum Eval {
 }
 
 impl Eval {
+  #[inline]
   pub fn host_machine(error: impl ToString) -> ReportError {
     ReportError::Eval(Eval::HostMachine(error.to_string()))
   }
 
+  #[inline]
   pub fn not_configurable(error: impl ToString) -> ReportError {
     ReportError::Eval(Eval::NotConfigurable(error.to_string()))
   }

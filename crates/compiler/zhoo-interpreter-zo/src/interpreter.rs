@@ -11,6 +11,7 @@ struct Interpreter<'program> {
 }
 
 impl<'program> Interpreter<'program> {
+  #[inline]
   fn new(interner: &'program mut Interner) -> Self {
     Self { interner }
   }

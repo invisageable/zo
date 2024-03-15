@@ -26,6 +26,7 @@ impl Timer {
     self.maybe_time_end = Some(Time::now());
   }
 
+  #[inline]
   pub fn sleep(&mut self, millis: u64) {
     std::thread::sleep(std::time::Duration::from_millis(millis));
   }

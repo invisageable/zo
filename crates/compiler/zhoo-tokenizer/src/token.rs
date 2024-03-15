@@ -65,10 +65,12 @@ impl TokenKind {
     *self == kind
   }
 
+  #[inline]
   pub fn is_sum(&self) -> bool {
     matches!(self, Self::Op(Op::Plus) | Self::Op(Op::Minus))
   }
 
+  #[inline]
   pub fn is_exponent(&self) -> bool {
     matches!(
       self,
@@ -76,6 +78,7 @@ impl TokenKind {
     )
   }
 
+  #[inline]
   pub fn is_conditional(&self) -> bool {
     matches!(
       self,
@@ -83,6 +86,7 @@ impl TokenKind {
     )
   }
 
+  #[inline]
   pub fn is_comparison(&self) -> bool {
     matches!(
       self,
@@ -95,6 +99,7 @@ impl TokenKind {
     )
   }
 
+  #[inline]
   pub fn is_assignement(&self) -> bool {
     matches!(
       self,
@@ -112,27 +117,33 @@ impl TokenKind {
     )
   }
 
+  #[inline]
   pub fn is_calling(&self) -> bool {
     matches!(self, Self::Group(Group::ParenOpen))
   }
 
+  #[inline]
   pub fn is_index(&self) -> bool {
     matches!(self, Self::Group(Group::BracketOpen))
   }
 
+  #[inline]
   pub fn is_chaining(&self) -> bool {
     matches!(self, Self::Punctuation(Punctuation::Period))
   }
 
+  #[inline]
   pub fn is_item(&self) -> bool {
     matches!(self, Self::Kw(Kw::Val) | Self::Kw(Kw::Fun))
   }
 
+  #[inline]
   pub fn is_stmt(&self) -> bool {
     matches!(self, |Self::Kw(Kw::Imu)| Self::Kw(Kw::Mut)
       | Self::Kw(Kw::Fun))
   }
 
+  #[inline]
   pub fn is_var(&self) -> bool {
     matches!(
       self,
@@ -140,14 +151,17 @@ impl TokenKind {
     )
   }
 
+  #[inline]
   pub fn is_var_global(&self) -> bool {
     matches!(self, Self::Kw(Kw::Val))
   }
 
+  #[inline]
   pub fn is_var_local(&self) -> bool {
     matches!(self, Self::Kw(Kw::Imu) | Self::Kw(Kw::Mut))
   }
 
+  #[inline]
   pub fn is_lit(&self) -> bool {
     matches!(
       self,
@@ -159,10 +173,12 @@ impl TokenKind {
     )
   }
 
+  #[inline]
   pub fn is_unop(&self) -> bool {
     matches!(self, Self::Op(Op::Exclamation) | Self::Op(Op::Minus))
   }
 
+  #[inline]
   pub fn is_binop(&self) -> bool {
     matches!(
       self,

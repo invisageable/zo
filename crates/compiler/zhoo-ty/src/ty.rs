@@ -12,56 +12,69 @@ pub struct Ty {
 impl Ty {
   pub const UNIT: Self = Self::of(TyKind::Int, Span::ZERO);
 
+  #[inline]
   pub const fn of(kind: TyKind, span: Span) -> Self {
     Self { kind, span }
   }
 
+  #[inline]
   pub const fn unit(span: Span) -> Self {
     Self::of(TyKind::Unit, span)
   }
 
+  #[inline]
   pub const fn int(span: Span) -> Self {
     Self::of(TyKind::Int, span)
   }
 
+  #[inline]
   pub const fn float(span: Span) -> Self {
     Self::of(TyKind::Float, span)
   }
 
+  #[inline]
   pub const fn ident(ident: Symbol, span: Span) -> Self {
     Self::of(TyKind::Ident(ident), span)
   }
 
+  #[inline]
   pub const fn bool(span: Span) -> Self {
     Self::of(TyKind::Bool, span)
   }
 
+  #[inline]
   pub const fn char(span: Span) -> Self {
     Self::of(TyKind::Char, span)
   }
 
+  #[inline]
   pub const fn str(span: Span) -> Self {
     Self::of(TyKind::Str, span)
   }
 
+  #[inline]
   pub const fn fun(span: Span) -> Self {
     Self::of(TyKind::Fun, span)
   }
 
+  #[inline]
   pub const fn infer(span: Span) -> Self {
     Self::of(TyKind::Infer, span)
   }
 
+  #[inline]
   pub const fn custom(ident: Symbol, span: Span) -> Self {
     Self::of(TyKind::Custom(ident), span)
   }
 
+  #[inline]
   pub const fn struct_expr(props: Vec<(Symbol, Box<Ty>)>, span: Span) -> Self {
     Self::of(TyKind::StructExpr(props), span)
   }
 }
 
 impl Ty {
+  #[inline]
   pub fn is(&self, kind: TyKind) -> bool {
     self.kind.is(kind)
   }
@@ -114,6 +127,7 @@ pub enum TyKind {
 }
 
 impl TyKind {
+  #[inline]
   pub fn is(&self, kind: TyKind) -> bool {
     *self == kind
   }

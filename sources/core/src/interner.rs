@@ -21,6 +21,7 @@ impl Interner {
     Self::with_capacity(0usize)
   }
 
+  #[inline]
   pub fn with_capacity(capacity: usize) -> Self {
     let capacity = capacity.next_power_of_two();
 

@@ -25,6 +25,7 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+  #[inline]
   pub fn new() -> Self {
     Self::default()
   }
@@ -67,6 +68,7 @@ impl SourceMap {
       .unwrap_or(self.sources.len() - 1) as u32
   }
 
+  #[inline]
   pub fn pathname(&self, span: Span) -> &std::path::Path {
     &self.sources[self.source_id(span) as usize].path
   }

@@ -23,10 +23,12 @@ impl std::fmt::Display for Profile {
 pub struct Profiles(pub Vec<Profile>);
 
 impl Profiles {
+  #[inline]
   pub fn add_profile(&mut self, profile: Profile) {
     self.0.push(profile);
   }
 
+  #[inline]
   pub fn total(&self) -> f64 {
     self.iter().map(|profile| profile.time).sum()
   }

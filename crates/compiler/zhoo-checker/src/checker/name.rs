@@ -19,6 +19,7 @@ struct NameChecker<'program> {
 }
 
 impl<'program> NameChecker<'program> {
+  #[inline]
   fn new(
     interner: &'program mut Interner,
     reporter: &'program Reporter,

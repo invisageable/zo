@@ -29,6 +29,7 @@ impl<I> Stack<I> {
     self.items.pop()
   }
 
+  #[inline]
   pub fn push(&mut self, item: I) -> bool {
     if self.items.len() == self.capacity {
       return false;

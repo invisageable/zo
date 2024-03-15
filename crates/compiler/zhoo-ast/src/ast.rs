@@ -413,7 +413,6 @@ impl From<&Token> for UnOp {
 
 #[derive(Clone, Debug)]
 pub enum UnOpKind {
-  // Add,
   Neg,
   Not,
 }
@@ -421,7 +420,6 @@ pub enum UnOpKind {
 impl From<Op> for UnOpKind {
   fn from(op: Op) -> Self {
     match op {
-      // Op::Plus => Self::Add,
       Op::Minus => Self::Neg,
       Op::Exclamation => Self::Not,
       _ => unreachable!(),
@@ -432,7 +430,6 @@ impl From<Op> for UnOpKind {
 impl From<TokenKind> for UnOpKind {
   fn from(kind: TokenKind) -> Self {
     match kind {
-      // TokenKind::Op(Op::Plus) => Self::Add,
       TokenKind::Op(Op::Minus) => Self::Neg,
       TokenKind::Op(Op::Exclamation) => Self::Not,
       _ => unreachable!(),

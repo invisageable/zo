@@ -22,12 +22,14 @@ pub struct Sender<T> {
 }
 
 impl<T> Sender<T> {
+  #[inline]
   pub fn new(sender: SenderInner<T>) -> Self {
     Self {
       raw: std::sync::Arc::new(std::sync::Mutex::new(sender)),
     }
   }
 
+  #[inline]
   pub fn send(&self, item: T) -> Result<()> {
     self
       .raw

@@ -2447,6 +2447,8 @@ dependencies = [
 name = "zhoo-value"
 version = "0.0.0"
 dependencies = [
+ "smol_str",
+ "zhoo-ast",
  "zo-core",
 ]
 
