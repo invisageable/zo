@@ -199,7 +199,7 @@ impl<'program> NameChecker<'program> {
       _ => unreachable!(),
     };
 
-    ReportError::Semantic(Semantic::NamingConvention(name.into(), naming, span))
+    ReportError::Semantic(Semantic::NamingConvention(span, name.into(), naming))
   }
 }
 

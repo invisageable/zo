@@ -53,7 +53,7 @@ impl<'mir> Translator<'mir> {
       &mut function_builder_context,
     );
 
-    let mut value = Value::new(0);
+    let mut value = Value::new(0usize);
 
     for stmt in &program.items {
       value = self.translate_item(stmt)?;
@@ -119,7 +119,7 @@ impl<'mir> Translator<'mir> {
   }
 
   fn translate_block(&mut self, block: &ast::Block) -> Result<Value> {
-    let mut value = Value::new(0);
+    let mut value = Value::new(0usize);
 
     for stmt in &block.stmts {
       value = self.translate_stmt(stmt)?;

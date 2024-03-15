@@ -39,6 +39,10 @@ impl<'mir> Translator<'mir> {
   }
 
   pub(crate) fn translate(&mut self, program: &ast::Program) -> Result<()> {
+    if program.is_empty() {
+      return Ok(());
+    }
+
     self.writer.write_bytes(b"(module")?;
 
     for item in &program.items {
@@ -102,24 +106,20 @@ impl<'mir> Translator<'mir> {
     }
   }
 
+  /// ## syntax.
+  ///
+  /// `( func <signature> <locals> <body> )`.
+  /// `(func (param i32) (param i32) (result f64) ...)`.
+  /// `(func (param $p1 i32) (param $p2 f32) (local $loc f64) ...)`.
   fn translate_item_fun(&mut self, fun: &ast::Fun) -> Result<()> {
     self.writer.write_bytes(b"(func")?;
     self.translate_prototype(&fun.prototype)?;
     self.translate_block(&fun.body)?;
-    self.writer.write(')')?;
-
-    Ok(())
+    self.writer.write(')')
   }
 
   fn translate_prototype(&mut self, prototype: &ast::Prototype) -> Result<()> {
-    let name = self.interner.lookup_ident(*prototype.pattern.symbolize());
-
-    if name == "main" {
-      self.writer.write("$main")?;
-    } else {
-      self.translate_pattern(&prototype.pattern)?;
-    }
-
+    self.translate_pattern(&prototype.pattern)?;
     self.translate_inputs(&prototype.inputs)?;
     self.translate_output_ty(&prototype.output_ty)
   }
@@ -129,15 +129,16 @@ impl<'mir> Translator<'mir> {
       return Ok(());
     }
 
-    self.writer.write(' ')?;
+    self.writer.space()?;
 
-    for (x, input) in inputs.0.iter().enumerate() {
-      self.writer.write_bytes(b"(param ")?;
+    for (x, input) in inputs.iter().enumerate() {
+      self.writer.write_bytes(b"(param")?;
+      self.writer.space()?;
       self.translate_input(input)?;
       self.writer.write(')')?;
 
       if x != inputs.len() - 1 {
-        self.writer.write(' ')?;
+        self.writer.space()?;
       }
     }
 
@@ -146,7 +147,7 @@ impl<'mir> Translator<'mir> {
 
   fn translate_input(&mut self, input: &ast::Input) -> Result<()> {
     self.translate_pattern(&input.pattern)?;
-    self.writer.write(' ')?;
+    self.writer.space()?;
     self.translate_ty(&input.ty)
   }
 
@@ -166,6 +167,10 @@ impl<'mir> Translator<'mir> {
   }
 
   fn translate_block(&mut self, body: &ast::Block) -> Result<()> {
+    if body.is_empty() {
+      return Ok(());
+    }
+
     for stmt in &body.stmts {
       self.writer.indent();
       self.translate_stmt(stmt)?;
@@ -321,28 +326,41 @@ impl<'mir> Translator<'mir> {
 
   fn translate_expr_assign(
     &mut self,
-    _lhs: &ast::Expr,
-    _rhs: &ast::Expr,
+    lhs: &ast::Expr,
+    rhs: &ast::Expr,
   ) -> Result<()> {
-    todo!()
+    let ident = self.interner.lookup_ident(*lhs.symbolize());
+
+    self.writer.write(ident)?;
+    self.writer.space()?;
+    self.writer.write(b'=')?;
+    self.writer.space()?;
+    self.translate_expr(rhs)
   }
 
   fn translate_expr_assignop(
     &mut self,
-    _binop: &ast::BinOp,
-    _lhs: &ast::Expr,
-    _rhs: &ast::Expr,
+    binop: &ast::BinOp,
+    lhs: &ast::Expr,
+    rhs: &ast::Expr,
   ) -> Result<()> {
-    todo!()
+    let ident = self.interner.lookup_ident(*lhs.symbolize());
+
+    self.writer.write(ident)?;
+    self.writer.space()?;
+    self.writer.write(binop)?;
+    self.writer.space()?;
+    self.translate_expr(rhs)
   }
 
   fn translate_expr_block(&mut self, block: &ast::Block) -> Result<()> {
     self.translate_block(block)
   }
 
+  /// `call <pattern>`.
   fn translate_expr_call(
     &mut self,
-    _lhs: &ast::Expr,
+    _callee: &ast::Expr,
     _rhs: &ast::Args,
   ) -> Result<()> {
     todo!()

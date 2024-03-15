@@ -82,6 +82,11 @@ impl Program {
   pub fn add_item(&mut self, item: Item) {
     self.items.push(item);
   }
+
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.items.is_empty()
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -203,6 +208,13 @@ pub struct Prototype {
 #[derive(Clone, Debug)]
 pub struct Inputs(pub Vec<Input>);
 
+impl Inputs {
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.0.is_empty()
+  }
+}
+
 impl AsSpan for Inputs {
   fn as_span(&self) -> Span {
     let mut iter = self.iter();
@@ -252,6 +264,13 @@ impl AsSpan for OutputTy {
 pub struct Block {
   pub stmts: Vec<Stmt>,
   pub span: Span,
+}
+
+impl Block {
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.stmts.is_empty()
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -448,9 +467,9 @@ pub enum BinOpKind {
   Rem,    // %
   And,    // &&
   Or,     // ||
-  BitXor, // ^
   BitAnd, // &
   BitOr,  // |
+  BitXor, // ^
   Lt,     // <
   Gt,     // >
   Le,     // <=
@@ -489,6 +508,13 @@ impl From<Op> for BinOpKind {
 
 #[derive(Clone, Debug)]
 pub struct Args(pub Vec<Arg>);
+
+impl Args {
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.0.is_empty()
+  }
+}
 
 impl std::ops::Deref for Args {
   type Target = Vec<Arg>;

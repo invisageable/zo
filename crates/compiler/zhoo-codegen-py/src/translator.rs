@@ -1,4 +1,4 @@
-use super::py::AsOp;
+use super::py::{AsBuiltin, AsOp};
 
 use zhoo_ast::ast;
 
@@ -406,10 +406,13 @@ impl<'mir> Translator<'mir> {
   /// `<expr> ( <args> )`.
   fn translate_expr_call(
     &mut self,
-    lhs: &ast::Expr,
+    callee: &ast::Expr,
     args: &ast::Args,
   ) -> Result<()> {
-    self.translate_expr(lhs)?;
+    let ident = self.interner.lookup_ident(*callee.symbolize());
+    let ident = ident.as_builtin();
+
+    self.writer.write(ident)?;
     self.writer.write_bytes(b"(")?;
     self.translate_args(args)?;
     self.writer.write_bytes(b")")
@@ -419,10 +422,10 @@ impl<'mir> Translator<'mir> {
   ///
   /// `<arg*> ,?`.
   fn translate_args(&mut self, args: &ast::Args) -> Result<()> {
-    for (idx, arg) in args.0.iter().enumerate() {
+    for (idx, arg) in args.iter().enumerate() {
       self.translate_pattern(&arg.pattern)?;
 
-      if idx < args.0.len() - 1 {
+      if idx < args.len() - 1 {
         self.writer.comma()?;
         self.writer.space()?;
       }
@@ -481,10 +484,14 @@ impl<'mir> Translator<'mir> {
   /// `lambda <expr>`.
   fn translate_expr_fn(
     &mut self,
-    _prototype: &ast::Prototype,
-    _body: &ast::Block,
+    prototype: &ast::Prototype,
+    body: &ast::Block,
   ) -> Result<()> {
-    todo!()
+    self.writer.write_bytes(b"lambda")?;
+    self.writer.space()?;
+    self.translate_inputs(&prototype.inputs)?;
+    self.writer.colon()?;
+    self.translate_block(body)
   }
 
   /// ## syntax.
