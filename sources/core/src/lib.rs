@@ -6,6 +6,7 @@ pub mod dsa;
 pub mod fmt;
 pub mod fs;
 pub mod interner;
+pub mod macros;
 pub mod mpsc;
 pub mod profiler;
 pub mod reporter;
