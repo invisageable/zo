@@ -35,6 +35,7 @@ zhoo-ast = { path = "crates/compiler/zhoo-ast", version = "0.0.0" }
 zhoo-builder = { path = "crates/compiler/zhoo-builder", version = "0.0.0" }
 zhoo-checker = { path = "crates/compiler/zhoo-checker", version = "0.0.0" }
 zhoo-codegen = { path = "crates/compiler/zhoo-codegen", version = "0.0.0" }
+zhoo-codegen-asm = { path = "crates/compiler/zhoo-codegen-asm", version = "0.0.0" }
 zhoo-codegen-arm = { path = "crates/compiler/zhoo-codegen-arm", version = "0.0.0" }
 zhoo-codegen-clif = { path = "crates/compiler/zhoo-codegen-clif", version = "0.0.0" }
 zhoo-codegen-js = { path = "crates/compiler/zhoo-codegen-js", version = "0.0.0" }
@@ -56,10 +57,13 @@ zhoo-tokenizer = { path = "crates/compiler/zhoo-tokenizer", version = "0.0.0" }
 zhoo-ty = { path = "crates/compiler/zhoo-ty", version = "0.0.0" }
 zhoo-tychecker = { path = "crates/compiler/zhoo-tychecker", version = "0.0.0" }
 zhoo-value = { path = "crates/compiler/zhoo-value", version = "0.0.0" }
+zhoo-vm = { path = "crates/compiler/zhoo-vm", version = "0.0.0" }
 
 # external.
 anyhow = "1.0.80"
+arboard = "3.3.2"
 ariadne = "0.4.0"
+bincode = "1.3.3"
 clap = { version = "4.5.1", features = ["derive"] }
 cranelift = "0.105.2"
 cranelift-codegen = "0.105.2"
@@ -91,3 +95,8 @@ wasmtime = "17.0.1"
 wasmtime-runtime = "17.0.1"
 wat = "1.0.77"
 wast = "201.0.0"
+
+[profile.release]
+codegen-units = 1
+lto = true
+debug = false
