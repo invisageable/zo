@@ -1,3 +1,7 @@
+//! The entry point of `zhoo`.
+
+use zhoo_driver::driver;
+
 fn main() {
-  zhoo_driver::driver::main();
+  driver::drive();
 }

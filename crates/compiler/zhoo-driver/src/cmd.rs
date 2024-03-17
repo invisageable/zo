@@ -1,8 +1,12 @@
 mod build;
+mod check;
+mod license;
+mod print;
+mod version;
 
 use clap::{Parser, Subcommand};
 
-pub trait Handle {
+pub(crate) trait Handle {
   fn handle(&self);
 }
 
@@ -23,6 +27,10 @@ impl Cmd {
   fn cmd(&mut self) {
     match self.command {
       Command::Build(ref command) => command.handle(),
+      Command::Check(ref command) => command.handle(),
+      Command::License(ref command) => command.handle(),
+      Command::Print(ref command) => command.handle(),
+      Command::Version(ref command) => command.handle(),
     }
   }
 }
@@ -30,4 +38,8 @@ impl Cmd {
 #[derive(Subcommand)]
 pub(crate) enum Command {
   Build(build::Build),
+  Check(check::Check),
+  License(license::License),
+  Print(license::License),
+  Version(version::Version),
 }

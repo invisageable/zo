@@ -3,6 +3,7 @@ pub mod chan;
 pub mod eval;
 pub mod io;
 pub mod lexical;
+pub mod pasteboard;
 pub mod semantic;
 pub mod syntax;
 
@@ -68,6 +69,7 @@ pub enum ReportError {
   Semantic(semantic::Semantic),
   Assembly(assembly::Assembly),
   Eval(eval::Eval),
+  Pasteboard(pasteboard::Pasteboard),
 }
 
 impl ReportError {
@@ -80,6 +82,7 @@ impl ReportError {
       Self::Semantic(_) => 5,
       Self::Assembly(_) => 6,
       Self::Eval(_) => 7,
+      Self::Pasteboard(_) => 8,
     }
   }
 }

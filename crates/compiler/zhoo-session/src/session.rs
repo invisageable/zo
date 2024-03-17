@@ -24,7 +24,7 @@ impl Session {
     name: impl Into<SmolStr>,
     f: impl FnOnce(&mut Self) -> T,
   ) -> T {
-    if self.settings.has_profiles() {
+    if self.settings.has_profile() {
       self.profiler.add_profile(name);
       self.profiler.start();
 
@@ -36,6 +36,31 @@ impl Session {
     } else {
       f(self)
     }
+  }
+
+  #[inline]
+  pub fn verbose(&self) {
+    if self.settings.has_verbose() {
+      println!("display ...");
+    }
+  }
+
+  #[inline]
+  pub fn profile(&self) {
+    if self.settings.has_profile() {
+      self.profiler.profile()
+    }
+  }
+
+  #[inline]
+  pub fn open(&self) {
+    println!("open session.");
+  }
+
+  #[inline]
+  pub fn close(&self) {
+    println!("close session.");
+    self.profile();
   }
 }
 
@@ -49,4 +74,21 @@ impl Default for Session {
       profiler: Profiler::new(),
     }
   }
+}
+
+thread_local! {
+  ///
+  /// @examples
+  /// ```rs
+  /// fn main() {
+  ///   SESSION.with(|f| {
+  ///     let session = f.borrow();
+  ///   });
+  /// }
+  /// ```
+  pub static SESSION: std::cell::RefCell<Session>  = std::cell::RefCell::new(
+    Session {
+      ..Default::default()
+    }
+  );
 }

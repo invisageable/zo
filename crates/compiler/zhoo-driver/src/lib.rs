@@ -1,2 +1,2 @@
-pub mod cmd;
+mod cmd;
 pub mod driver;

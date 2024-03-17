@@ -15,5 +15,6 @@ zhoo-session = { workspace = true }
 
 zo-core = { workspace = true }
 
+arboard = { workspace = true }
 clap = { workspace = true }
 smol_str = { workspace = true }

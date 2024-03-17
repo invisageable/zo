@@ -13,11 +13,18 @@ pub struct Settings {
 }
 
 impl Settings {
+  #[inline]
   pub fn new() -> Self {
     Self::default()
   }
 
-  pub fn has_profiles(&self) -> bool {
+  #[inline]
+  pub fn has_verbose(&self) -> bool {
+    self.verbose.load(std::sync::atomic::Ordering::Relaxed)
+  }
+
+  #[inline]
+  pub fn has_profile(&self) -> bool {
     self.profile.load(std::sync::atomic::Ordering::Relaxed)
   }
 }
