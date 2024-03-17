@@ -1,10 +1,10 @@
 //! ...wip.
 
 use super::ast::{
-  Abstract, Apply, Async, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun,
-  Input, Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern,
-  PatternKind, Program, Prototype, Pub, Stmt, StmtKind, Struct, StructExpr,
-  TyAlias, UnOp, UnOpKind, Var, VarKind, Wasm,
+  Abstract, Apply, Arg, Args, Async, BinOp, BinOpKind, Block, Expr, ExprKind,
+  Ext, Fun, Input, Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy,
+  Pattern, PatternKind, Program, Prototype, Pub, Stmt, StmtKind, Struct,
+  StructExpr, TyAlias, UnOp, UnOpKind, Var, VarKind, Wasm,
 };
 
 use zo_core::fmt::{sep_comma, sep_newline};
@@ -176,7 +176,7 @@ impl std::fmt::Display for Input {
 impl std::fmt::Display for OutputTy {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      OutputTy::Default(_) => write!(f, ": void"),
+      OutputTy::Default(_) => write!(f, ""),
       OutputTy::Ty(ty) => write!(f, ": {ty}"),
     }
   }
@@ -216,7 +216,40 @@ impl std::fmt::Display for ExprKind {
       Self::Lit(lit) => write!(f, "{lit}"),
       Self::UnOp(op, rhs) => write!(f, "({op} {rhs})"),
       Self::BinOp(lhs, op, rhs) => write!(f, "({lhs} {op} {rhs})"),
+      Self::Assign(lhs, rhs) => write!(f, "{lhs} = {rhs}"),
+      Self::AssignOp(lhs, op, rhs) => write!(f, "{lhs} {op} {rhs}"),
+      Self::Array(element) => write!(f, "[{}]", sep_comma(element)),
+      Self::Tuple(element) => write!(f, "({})", sep_comma(element)),
+      Self::ArrayAccess(indexed, index) => write!(f, "{}[{}]", indexed, index),
+      Self::TupleAccess(tuple, access) => write!(f, "{tuple}.{access}"),
+      Self::Block(body) => write!(f, "{body}"),
+      Self::Fn(prototype, body) => write!(f, "fn {prototype} {body}"),
+      Self::Call(callee, args) => write!(f, "{callee}({})", args),
+      Self::Return(maybe_expr) => match maybe_expr {
+        Some(expr) => write!(f, "return {expr};"),
+        None => write!(f, "return;"),
+      },
+      Self::IfElse(condition, consequence, maybe_alternative) => {
+        write!(f, "if {condition} {consequence}")?;
+
+        match maybe_alternative {
+          Some(alternative) => write!(f, " {alternative}"),
+          None => write!(f, " "),
+        }
+      }
+      Self::When(condition, consequence, alternative) => {
+        write!(f, "when {condition} ? {consequence} : {alternative};")
+      }
+      Self::Loop(body) => write!(f, "for {body}"),
+      Self::While(condition, body) => write!(f, "while {condition} {body}"),
+      Self::Break(maybe_expr) => match maybe_expr {
+        Some(expr) => write!(f, "break {expr};"),
+        None => write!(f, "break;"),
+      },
+      Self::Continue => write!(f, "continue"),
+      Self::Var(var) => write!(f, "{var}"),
       Self::StructExpr(struct_expr) => write!(f, "{struct_expr}"),
+      Self::Chaining(lhs, rhs) => write!(f, "{lhs}.{rhs}"),
       _ => panic!(),
     }
   }
@@ -283,7 +316,20 @@ impl std::fmt::Display for BinOpKind {
       Self::Ne => write!(f, "!="),
       Self::Shl => write!(f, "<<"),
       Self::Shr => write!(f, ">>"),
+      Self::Range => write!(f, ".."),
     }
+  }
+}
+
+impl std::fmt::Display for Args {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}", sep_comma(&self.0))
+  }
+}
+
+impl std::fmt::Display for Arg {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}: {}", self.pattern, self.ty)
   }
 }
 

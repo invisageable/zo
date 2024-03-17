@@ -475,6 +475,7 @@ pub enum BinOpKind {
   Ne,     // !=
   Shl,    // <<
   Shr,    // >>
+  Range,  // ..
 }
 
 impl From<Op> for BinOpKind {
@@ -498,6 +499,7 @@ impl From<Op> for BinOpKind {
       Op::ExclamationEqual => Self::Ne,
       Op::LessThanLessThan => Self::Shl,
       Op::GreaterThanGreaterThan => Self::Shr,
+      Op::PeriodPeriod => Self::Range,
       _ => unreachable!(),
     }
   }
@@ -524,6 +526,7 @@ impl std::ops::Deref for Args {
 #[derive(Clone, Debug)]
 pub struct Arg {
   pub pattern: Pattern,
+  pub ty: Ty,
   pub span: Span,
 }
 
