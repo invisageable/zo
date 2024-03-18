@@ -11,7 +11,7 @@ type Type = HashSet<SmolStr>;
 lazy_static::lazy_static! {
   // available keywords.
   pub static ref KEYWORD: Keyword = {
-    let mut kw: Keyword = HashMap::new();
+    let mut kw: Keyword = HashMap::with_capacity(0usize);
 
     kw.insert(SmolStr::new_inline("abstract"), TokenKind::Kw(Kw::Abstract));
     kw.insert(SmolStr::new_inline("apply"), TokenKind::Kw(Kw::Apply));
@@ -33,6 +33,7 @@ lazy_static::lazy_static! {
     kw.insert(SmolStr::new_inline("me"), TokenKind::Kw(Kw::Me));
     kw.insert(SmolStr::new_inline("mut"), TokenKind::Kw(Kw::Mut));
     kw.insert(SmolStr::new_inline("pack"), TokenKind::Kw(Kw::Pack));
+    kw.insert(SmolStr::new_inline("pub"), TokenKind::Kw(Kw::Pub));
     kw.insert(SmolStr::new_inline("return"), TokenKind::Kw(Kw::Return));
     kw.insert(SmolStr::new_inline("struct"), TokenKind::Kw(Kw::Struct));
     kw.insert(SmolStr::new_inline("type"), TokenKind::Kw(Kw::Type));
@@ -45,14 +46,14 @@ lazy_static::lazy_static! {
   };
   // reserved words for types, an error should be handled if it used.
   pub static ref TYPE: Type = {
-    let mut kwf: Type = HashSet::new();
+    let mut ty: Type = HashSet::with_capacity(0usize);
 
-    kwf.insert(SmolStr::new_inline("int"));
-    kwf.insert(SmolStr::new_inline("float"));
-    kwf.insert(SmolStr::new_inline("char"));
-    kwf.insert(SmolStr::new_inline("str"));
+    ty.insert(SmolStr::new_inline("int"));
+    ty.insert(SmolStr::new_inline("float"));
+    ty.insert(SmolStr::new_inline("char"));
+    ty.insert(SmolStr::new_inline("str"));
 
-    kwf
+    ty
   };
 }
 

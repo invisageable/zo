@@ -22,9 +22,9 @@ where
   #[inline]
   pub fn new() -> Self {
     Self {
-      tys: HashMap::new(),
-      vars: HashMap::new(),
-      funs: HashMap::new(),
+      tys: HashMap::with_capacity(0usize),
+      vars: HashMap::with_capacity(0usize),
+      funs: HashMap::with_capacity(0usize),
     }
   }
 

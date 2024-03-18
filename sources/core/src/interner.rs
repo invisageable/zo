@@ -21,12 +21,13 @@ impl Interner {
     Self::with_capacity(0usize)
   }
 
+  /// no allocation.
   #[inline]
   pub fn with_capacity(capacity: usize) -> Self {
     let capacity = capacity.next_power_of_two();
 
     Self {
-      map: HashMap::new(),
+      map: HashMap::with_capacity(0usize),
       vec: Vec::with_capacity(0usize),
       buf: String::with_capacity(capacity),
       full: Vec::with_capacity(0usize),
@@ -76,11 +77,11 @@ impl Interner {
     let capacity = self.buf.capacity();
 
     if capacity < self.buf.len() + id.len() {
-      let new_capacity = (capacity.max(id.len()) + 1).next_power_of_two();
-      let new_buffer = String::with_capacity(new_capacity);
-      let old_buffer = std::mem::replace(&mut self.buf, new_buffer);
+      let capacity_new = (capacity.max(id.len()) + 1).next_power_of_two();
+      let buffer_new = String::with_capacity(capacity_new);
+      let buffer_old = std::mem::replace(&mut self.buf, buffer_new);
 
-      self.full.push(old_buffer);
+      self.full.push(buffer_old);
     }
 
     let interned = {
