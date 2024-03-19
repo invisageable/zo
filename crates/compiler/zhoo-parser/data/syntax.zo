@@ -1,0 +1,6 @@
+pub fun add (lhs: int, rhs: int) : int { lhs + rhs }
+pub fun sub (lhs: int, rhs: int) : int { lhs - rhs }
+pub fun mul (lhs: int, rhs: int) : int { lhs * rhs }
+pub fun div (lhs: int, rhs: int) : int { lhs / rhs }
+
+fun main() {}

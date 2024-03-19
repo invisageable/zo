@@ -1,0 +1,13 @@
+-- assginment operators.
+
+fun main() {
+  x = 0;
+  x += 0;
+  x -= 0;
+  x *= 0;
+  x /= 0;
+  x %= 0;
+  x ^= 0;
+  x &= 0;
+  x |= 0;
+}

@@ -77,7 +77,7 @@ fun locals() {
   imu x := 1_000_000_000;
   imu x := 1_000_000_000.0;
   imu x := '\0';
-  imu x := "👋🌍👽";
+  imu x := "👋 🌍 👽";
   imu x := foobar();
   imu x := foobar(x, x);
   imu x := {};
@@ -100,7 +100,7 @@ fun locals() {
   mut x := 987_654_321;
   mut x := 0.456;
   mut x := '\n';
-  mut x := "👋🌍👽";
+  mut x := "👋 🌍 👽";
   mut x := foobar();
   mut x := foobar(x, x);
   mut x := {};
@@ -111,7 +111,7 @@ fun locals() {
   mut x := x.foobar();
   mut x := foobar().foobar();
   mut x := ::{};
-  mut x := ::{ a = "👋🌍👽", b = 0 };
+  mut x := ::{ a = "👋 🌍 👽", b = 0 };
 
   -- assignments.
   x = 0;

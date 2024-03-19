@@ -1,0 +1,5 @@
+-- keywords in `zhoo`.
+
+abstract apply  async  await break continue else  enum ext fn
+for      fun    if     imu   load  loop     match me   mut pack
+pub      return struct type  val   wasm     while

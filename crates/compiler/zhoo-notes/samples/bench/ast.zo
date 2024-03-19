@@ -1,3 +1,5 @@
+-- bench: parser.
+
 fun main() {
   imu x := 4 + 8 * 268 / 2;
 }

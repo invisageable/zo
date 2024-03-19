@@ -1,0 +1,28 @@
+-- abstracts declarations.
+
+-- abstract instance.
+
+abstract Foo {}
+
+
+-- abstract with constants.
+
+abstract Foo {
+  val FOO: int = 0;
+  val BAR: char = '\n';
+}
+
+-- abstract with methods.
+
+abstract Foo {
+  fun foo(): int;
+  fun bar(): int;
+}
+
+-- abstract with method body.
+
+abstract Foo {
+  fun to_span(me): Span {
+    Span::of(me.start, me.end)
+  }
+}

@@ -1,0 +1,11 @@
+-- literals: booleans.
+
+fun main() {
+  imu x: bool = true;
+  imu y: bool = false;
+  imu z: bool = true == false;
+
+  println(x);
+  println(y);
+  println(z);
+}

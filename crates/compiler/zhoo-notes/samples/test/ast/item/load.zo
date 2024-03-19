@@ -1,0 +1,2 @@
+load foo::bar;
+load bar::foo::(foo, bar);

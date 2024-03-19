@@ -1,0 +1,5 @@
+-- should display `👋 🌍 👽`.
+
+fun main() {
+  println("👋 🌍 👽");
+}

@@ -1,0 +1,9 @@
+fun main() {
+  mut x: int = 0;
+
+  while x < 3 {
+    x += 3;
+  }
+
+  println(x);
+}

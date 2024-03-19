@@ -1,0 +1,11 @@
+-- literals: strings.
+
+val AB: str = "你好!";
+val CD: str = "foo\n";
+val EF: str = "\"bar\"";
+
+fun main() {
+  println(AB);
+  println(CD);
+  println(EF);
+}
