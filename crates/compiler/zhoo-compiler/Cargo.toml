@@ -19,3 +19,5 @@ zhoo-tokenizer = { workspace = true }
 zhoo-value = { workspace = true }
 
 zo-core = { workspace = true }
+
+smol_str = { workspace = true }

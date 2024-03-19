@@ -20,11 +20,11 @@ use cranelift_object::ObjectModule;
 // use cranelift_object::ObjectBuilder;
 
 pub(crate) struct Translator<'mir> {
-  interner: &'mir Interner,
-  reporter: &'mir Reporter,
-  module: &'mir mut ObjectModule,
-  context: &'mir mut Context,
-  // builder: &'mir mut FunctionBuilder<'mir>,
+  pub interner: &'mir Interner,
+  pub reporter: &'mir Reporter,
+  pub module: &'mir mut ObjectModule,
+  pub context: &'mir mut Context,
+  // pub builder: &'mir mut FunctionBuilder<'mir>,
 }
 
 impl<'mir> Translator<'mir> {
@@ -41,7 +41,7 @@ impl<'mir> Translator<'mir> {
       reporter,
       module,
       context,
-      // builder: &mut builder,
+      // builder,
     }
   }
 
@@ -311,6 +311,7 @@ impl<'mir> Translator<'mir> {
       ast::BinOpKind::BitOr => self.translate_expr_binop_bit_or(vlhs, vrhs),
       ast::BinOpKind::Shl => self.translate_expr_binop_shl(vlhs, vrhs),
       ast::BinOpKind::Shr => self.translate_expr_binop_shr(vlhs, vrhs),
+      _ => todo!(),
     }
   }
 

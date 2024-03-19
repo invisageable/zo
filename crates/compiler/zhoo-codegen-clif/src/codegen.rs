@@ -59,13 +59,13 @@ impl Codegen {
     session: &mut Session,
     program: &ast::Program,
   ) -> Result<Box<[u8]>> {
-    let mut translator = Translator::new(
-      &session.interner,
-      &session.reporter,
-      &mut self.module,
-      &mut self.context,
-      // &mut self.function_builder_context,
-    );
+    let mut translator = Translator {
+      interner: &session.interner,
+      reporter: &session.reporter,
+      module: &mut self.module,
+      context: &mut self.context,
+      // builder: &mut self.function_builder_context,
+    };
 
     translator.translate(program)?;
 

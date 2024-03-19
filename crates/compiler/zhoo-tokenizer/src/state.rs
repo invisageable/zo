@@ -13,7 +13,7 @@ pub(crate) enum TokenizerState {
   Int,
   Float,
   Ident,
-  Notation,
+  ENotation,
   Op,
   Punctuation,
   Group,

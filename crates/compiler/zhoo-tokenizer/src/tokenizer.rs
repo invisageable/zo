@@ -6,7 +6,7 @@
 
 use super::state::TokenizerState;
 use super::token::group::Group;
-use super::token::kw::KEYWORD;
+use super::token::kw::{KEYWORD, TYPE};
 use super::token::op::Op;
 use super::token::punctuation::Punctuation;
 use super::token::{Token, TokenKind};
@@ -149,7 +149,7 @@ impl<'source> Tokenizer<'source> {
             self.bump();
           }
           b if b == b'e' || b == b'E' => {
-            state = TokenizerState::Notation;
+            state = TokenizerState::ENotation;
 
             self.bump();
           }
@@ -176,17 +176,17 @@ impl<'source> Tokenizer<'source> {
         TokenizerState::Float => match byte {
           b if is!(number b) || is!(underscore b) => self.bump(),
           b if b == b'e' || b == b'E' => {
-            state = TokenizerState::Notation;
+            state = TokenizerState::ENotation;
 
             self.bump();
           }
           _ => break,
         },
-        TokenizerState::Notation => match byte {
+        TokenizerState::ENotation => match byte {
           b if b == b'+' || b == b'-' || is!(number b) => self.bump(),
           _ => {
             // todo (ivs) — separate `int` and `float` E notation.
-            state = TokenizerState::Int;
+            state = TokenizerState::Float;
 
             break;
           }
@@ -379,6 +379,12 @@ impl<'source> Tokenizer<'source> {
       }
       TokenizerState::Ident => KEYWORD.get::<str>(&source).map_or_else(
         || {
+          if TYPE.get::<str>(&source).is_some() {
+            self.reporter.raise(ReportError::Lexical(
+              Lexical::ReservedKeyword(span, source.into()),
+            ));
+          }
+
           let symbol = self.interner.intern(&source);
 
           Some(TokenKind::Ident(symbol))

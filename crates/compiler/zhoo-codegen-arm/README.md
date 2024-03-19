@@ -1,3 +1,3 @@
-# zhoo-codegen-arm.
+# zhoo-codegen-asm.
 
-> *The `code generation` phase for `arm`.*
+> *The `code generation` phase for `asm`.*

@@ -1,4 +1,5 @@
 pub mod arm;
+pub mod asm;
 pub mod clif;
 pub mod js;
 pub mod llvm;

@@ -14,7 +14,7 @@ use punctuation::Punctuation;
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::Span;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Token {
   pub kind: TokenKind,
   pub span: Span,
@@ -215,11 +215,11 @@ impl Symbolize for TokenKind {
 impl std::fmt::Display for TokenKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      Self::Int(int) => write!(f, "{int}"),
-      Self::Float(float) => write!(f, "{float}"),
-      Self::Ident(ident) => write!(f, "{ident}"),
-      Self::Char(ch) => write!(f, "{ch}"),
-      Self::Str(string) => write!(f, "{string}"),
+      Self::Int(symbol) => write!(f, "{symbol}"),
+      Self::Float(symbol) => write!(f, "{symbol}"),
+      Self::Ident(symbol) => write!(f, "{symbol}"),
+      Self::Char(symbol) => write!(f, "{symbol}"),
+      Self::Str(symbol) => write!(f, "{symbol}"),
       Self::Kw(kw) => write!(f, "{kw}"),
       Self::Op(op) => write!(f, "{op}"),
       Self::Group(group) => write!(f, "{group}"),

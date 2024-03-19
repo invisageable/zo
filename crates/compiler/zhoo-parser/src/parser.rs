@@ -994,7 +994,11 @@ impl<'tokens> Parser<'tokens> {
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
 
-    Ok(Arg { pattern, span })
+    Ok(Arg {
+      pattern,
+      ty: Ty::UNIT,
+      span,
+    })
   }
 
   /// ## syntax.

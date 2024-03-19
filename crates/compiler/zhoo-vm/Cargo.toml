@@ -1,16 +1,17 @@
 [package]
-name = "zhoo-codegen-llvm"
+name = "zhoo-vm"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
 version.workspace = true
 
+[lib]
+doctest = false
+test = false
+
 [dependencies]
 zhoo-ast = { workspace = true }
-zhoo-session = { workspace = true }
-zhoo-ty = { workspace = true }
 
 zo-core = { workspace = true }
 
-hashbrown = { workspace = true }
-inkwell = { workspace = true }
+smol_str = { workspace = true }

@@ -1,6 +1,7 @@
 //! ...
 
 use super::brick::arm;
+use super::brick::asm;
 use super::brick::clif;
 use super::brick::js;
 use super::brick::llvm;
@@ -19,6 +20,7 @@ impl Builder {
   #[inline]
   fn build(&self, session: &mut Session, bytecode: &[u8]) -> Result<()> {
     match &session.settings.backend.kind {
+      BackendKind::Asm => asm::build(bytecode),
       BackendKind::Arm => arm::build(bytecode),
       BackendKind::Clif => clif::build(bytecode),
       BackendKind::Js => js::build(bytecode),

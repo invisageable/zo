@@ -28,6 +28,7 @@ impl Wat for BinOpKind {
       Self::Le => "le_s",
       Self::Shl => "shl",
       Self::Shr => "shr_s",
+      _ => todo!(),
     }
   }
 }

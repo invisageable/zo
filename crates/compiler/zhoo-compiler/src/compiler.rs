@@ -28,17 +28,20 @@ impl Compiler {
   }
 
   pub fn compile(&self, session: &mut Session) -> Result<()> {
-    self.phases.iter().try_fold((), |_, phase| match phase {
-      Phase::Reading(phase) => phase.process(session),
-      Phase::Tokenizing(phase) => phase.process(session),
-      Phase::Parsing(phase) => phase.process(session),
-      Phase::Analyzing(phase) => phase.process(session),
-      Phase::Generating(phase) => phase.process(session),
-      Phase::Building(phase) => phase.process(session),
-      _ => todo!(),
+    self.phases.iter().try_fold((), |_, phase| {
+      session.with_timing(phase, |session| match phase {
+        Phase::Reading(phase) => phase.process(session),
+        Phase::Tokenizing(phase) => phase.process(session),
+        Phase::Parsing(phase) => phase.process(session),
+        Phase::Analyzing(phase) => phase.process(session),
+        Phase::Generating(phase) => phase.process(session),
+        Phase::Building(phase) => phase.process(session),
+        _ => todo!(),
+      })
     })
   }
 
+  #[inline]
   pub fn finish<T>(&self, receiver: Receiver<T>) -> Result<T> {
     receiver.recv()
   }

@@ -7,7 +7,6 @@ use zhoo_codegen_js as js;
 use zhoo_codegen_llvm as llvm;
 use zhoo_codegen_py as py;
 use zhoo_codegen_wasm as wasm;
-
 use zhoo_session::backend::BackendKind;
 use zhoo_session::session::Session;
 
@@ -25,6 +24,7 @@ impl<'program> Codegen {
   ) -> Result<Box<[u8]>> {
     match &session.settings.backend.kind {
       BackendKind::Arm => arm::codegen::generate(session, program),
+      BackendKind::Asm => arm::codegen::generate(session, program),
       BackendKind::Clif => clif::codegen::generate(session, program),
       BackendKind::Js => js::codegen::generate(session, program),
       BackendKind::Llvm => llvm::codegen::generate(session, program),

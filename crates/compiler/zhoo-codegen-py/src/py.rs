@@ -44,6 +44,7 @@ impl AsOp for ast::BinOpKind {
       Self::Ne => "!=",
       Self::Shl => "<<",
       Self::Shr => ">>",
+      _ => todo!(),
     }
   }
 }

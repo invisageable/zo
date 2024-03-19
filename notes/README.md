@@ -2,7 +2,7 @@
 
 > *My personal notes about the whole project.*
 
-## section.
+## sections.
 
-[docs](./docs) — *How to use `zo`, a kind of documentation.*   
+[docs](./docs) — *How to use `zo`, a kind of general documentation.*   
 [research](./research) — *...*   
