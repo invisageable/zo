@@ -1,0 +1,3 @@
+# docs — zhoo-for: `py`.
+
+> *...*
