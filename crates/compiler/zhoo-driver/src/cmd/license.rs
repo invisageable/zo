@@ -5,6 +5,7 @@ use zo_core::{Result, EXIT_FAILURE, EXIT_SUCCESS};
 use clap::Parser;
 
 #[derive(Parser)]
+#[clap(about = "Print the compiler licences")]
 pub(crate) struct License;
 
 impl License {

@@ -21,6 +21,7 @@ use clap::Parser;
 use smol_str::{SmolStr, ToSmolStr};
 
 #[derive(Parser)]
+#[clap(about = "Pretty print `tokens`, `ast`, `hir`, etc")]
 pub(crate) struct Print {
   #[clap(short, long, default_value = "false")]
   verbose: bool,

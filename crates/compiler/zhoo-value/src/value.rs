@@ -11,43 +11,43 @@ pub struct Value {
 
 impl Value {
   #[inline]
-  pub const fn new(kind: ValueKind) -> Self {
+  pub const fn of(kind: ValueKind) -> Self {
     Self { kind }
   }
 
   #[inline]
   pub const fn unit() -> Self {
-    Self::new(ValueKind::Unit)
+    Self::of(ValueKind::Unit)
   }
 
   #[inline]
   pub const fn int(int: i64) -> Self {
-    Self::new(ValueKind::Int(int))
+    Self::of(ValueKind::Int(int))
   }
 
   #[inline]
   pub const fn float(float: f64) -> Self {
-    Self::new(ValueKind::Float(float))
+    Self::of(ValueKind::Float(float))
   }
 
   #[inline]
   pub const fn ident(ident: SmolStr) -> Self {
-    Self::new(ValueKind::Ident(ident))
+    Self::of(ValueKind::Ident(ident))
   }
 
   #[inline]
   pub const fn bool(boolean: bool) -> Self {
-    Self::new(ValueKind::Bool(boolean))
+    Self::of(ValueKind::Bool(boolean))
   }
 
   #[inline]
   pub const fn char(ch: char) -> Self {
-    Self::new(ValueKind::Char(ch))
+    Self::of(ValueKind::Char(ch))
   }
 
   #[inline]
   pub const fn str(string: SmolStr) -> Self {
-    Self::new(ValueKind::Str(string))
+    Self::of(ValueKind::Str(string))
   }
 }
 

@@ -49,21 +49,18 @@ where
     use std::io::Write;
 
     std::fs::File::create(path.into())
-      .map(|mut file| file.write_all(bytes.as_ref()))
-      .unwrap()
+      .map(|mut file| file.write_all(bytes.as_ref()))?
   }
 
   fn read_file(&self, path: P) -> std::io::Result<String> {
     use std::io::Read;
 
-    std::fs::File::open(path.into())
-      .map(|f| {
-        let mut buffer = String::with_capacity(f.metadata()?.len() as usize);
+    std::fs::File::open(path.into()).map(|f| {
+      let mut buffer = String::with_capacity(f.metadata()?.len() as usize);
 
-        std::io::BufReader::new(f).read_to_string(&mut buffer)?;
+      std::io::BufReader::new(f).read_to_string(&mut buffer)?;
 
-        Ok(buffer)
-      })
-      .unwrap()
+      Ok(buffer)
+    })?
   }
 }

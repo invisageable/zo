@@ -16,6 +16,7 @@ use clap::Parser;
 use smol_str::SmolStr;
 
 #[derive(Parser)]
+#[clap(about = "Analyze the current pack")]
 pub(crate) struct Check {
   #[clap(short, long, default_value = "false")]
   verbose: bool,

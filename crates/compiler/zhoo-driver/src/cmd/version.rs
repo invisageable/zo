@@ -6,6 +6,7 @@ use clap::Parser;
 use smol_str::SmolStr;
 
 #[derive(Parser)]
+#[clap(about = "Show version")]
 pub(crate) struct Version {
   #[clap(short, long, default_value = "false")]
   verbose: bool,

@@ -22,6 +22,7 @@ impl<'mir> Translator<'mir> {
     }
   }
 
+  #[inline]
   pub fn output(&mut self) -> Result<Box<[u8]>> {
     Ok(self.writer.as_bytes())
   }
