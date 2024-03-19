@@ -8,7 +8,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 fn bench_parse(c: &mut Criterion) {
   let mut session = Session::default();
 
-  session.settings.input = "../zhoo-notes/samples/main.zo".into();
+  session.settings.input = "../zhoo-notes/samples/bench/ast.zo".into();
 
   let source = reader::read_file(&mut session).unwrap();
   let tokens = tokenizer::tokenize(&mut session, black_box(&source)).unwrap();

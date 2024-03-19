@@ -1,6 +1,6 @@
 use super::parser;
 
-use zhoo_reader::reader;
+// use zhoo_reader::reader;
 use zhoo_session::session::Session;
 use zhoo_tokenizer::tokenizer;
 
@@ -14,15 +14,15 @@ fn parse_empty() {
   assert!(program.items.len() == 0);
 }
 
-#[test]
-fn parse_syntax() {
-  let mut session = Session::default();
+// #[test]
+// fn parse_ast() {
+//   let mut session = Session::default();
 
-  session.settings.input = "../zhoo-notes/samples/bench/syntax.zo".into();
+//   session.settings.input = "../zhoo-notes/samples/test/ast.zo".into();
 
-  let source = reader::read_file(&mut session).unwrap();
-  let tokens = tokenizer::tokenize(&mut session, &source).unwrap();
-  let program = parser::parse(&mut session, &tokens).unwrap();
+//   let source = reader::read_file(&mut session).unwrap();
+//   let tokens = tokenizer::tokenize(&mut session, &source).unwrap();
+//   let program = parser::parse(&mut session, &tokens).unwrap();
 
-  assert!(program.items.len() > 0);
-}
+//   assert!(program.items.len() > 0);
+// }

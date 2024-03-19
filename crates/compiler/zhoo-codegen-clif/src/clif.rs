@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use zhoo_ty::ty::{Ty, TyKind};
 
 use cranelift_codegen::ir::{types, Type};
