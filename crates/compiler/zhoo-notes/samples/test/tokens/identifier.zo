@@ -1,5 +1,4 @@
 -- identifiers in `zhoo`.
 
-foo _bar _1234foobar
-foo_bar BarFoo OofRab
- 
+foo foo_bar BarFoo OofRab FOO_BAR F0o
+-- _bar _foo1234bar 東京 Привет 안녕하세요 こんにちは。

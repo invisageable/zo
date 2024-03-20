@@ -4,6 +4,8 @@
 //! the iterator trait and it can only advance throw bytes one by one. For
 //! the moment the tokenizer is not plugged to the parser.
 
+use crate::token::int::BaseInt;
+
 use super::state::TokenizerState;
 use super::token::group::Group;
 use super::token::kw::{KEYWORD, TYPE};
@@ -26,6 +28,7 @@ struct Tokenizer<'source> {
   reporter: &'source Reporter,
   source: &'source [u8],
   index: usize,
+  base_int: BaseInt,
 }
 
 impl<'source> Tokenizer<'source> {
@@ -40,6 +43,7 @@ impl<'source> Tokenizer<'source> {
       reporter,
       source,
       index: 0usize,
+      base_int: BaseInt::B10,
     }
   }
 
@@ -122,16 +126,19 @@ impl<'source> Tokenizer<'source> {
           }
           b if b == b'x' || b == b'X' => {
             state = TokenizerState::Hex;
+            self.base_int = BaseInt::B16;
 
             self.bump();
           }
           b'o' => {
             state = TokenizerState::Oct;
+            self.base_int = BaseInt::B8;
 
             self.bump();
           }
           b'b' => {
             state = TokenizerState::Bin;
+            self.base_int = BaseInt::B2;
 
             self.bump();
           }
@@ -156,22 +163,28 @@ impl<'source> Tokenizer<'source> {
           _ => break,
         },
         TokenizerState::Hex => match byte {
-          b if is!(number_hex b) => self.bump(),
+          b if is!(number_hex b) || is!(underscore b) => self.bump(),
           _ => {
             state = TokenizerState::Int;
 
-            self.bump();
+            break;
           }
         },
-        // todo (ivs) — implements octal.
         TokenizerState::Oct => match byte {
-          b if is!(number_oct b) => {}
-          _ => break,
+          b if is!(number_oct b) || is!(underscore b) => self.bump(),
+          _ => {
+            state = TokenizerState::Int;
+
+            break;
+          }
         },
-        // todo (ivs) — implements binary.
         TokenizerState::Bin => match byte {
-          b if is!(number_bin b) => {}
-          _ => break,
+          b if is!(number_bin b) || is!(underscore b) => self.bump(),
+          _ => {
+            state = TokenizerState::Int;
+
+            break;
+          }
         },
         TokenizerState::Float => match byte {
           b if is!(number b) || is!(underscore b) => self.bump(),
@@ -369,7 +382,7 @@ impl<'source> Tokenizer<'source> {
         let source = source.replace('_', "");
         let symbol = self.interner.intern(&source);
 
-        Some(TokenKind::Int(symbol))
+        Some(TokenKind::Int(symbol, self.base_int))
       }
       TokenizerState::Float => {
         let source = source.replace('_', "");

@@ -1,4 +1,5 @@
 use super::token::group::Group;
+use super::token::int::BaseInt;
 use super::token::kw::Kw;
 use super::token::op::Op;
 use super::token::punctuation::Punctuation;
@@ -21,420 +22,422 @@ fn tokenize_empty() {
     .unwrap();
 }
 
-#[allow(dead_code)]
-// #[test]
-fn tokenize_atlas() {
+#[test]
+fn tokenize_comments() {
   let mut session = Session::default();
 
-  session.settings.input = "../zhoo-notes/samples/bench/atlas.tks".into();
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/comment.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens.len() == 0))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_groups() {
+  let mut session = Session::default();
+
+  session.settings.input = "../zhoo-notes/samples/test/tokens/group.zo".into();
 
   let source = reader::read_file(&mut session).unwrap();
 
   let expected = vec![
-    Token {
-      kind: TokenKind::Int(Symbol(0)),
-      span: Span::of(59, 60),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(1)),
-      span: Span::of(61, 62),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(2)),
-      span: Span::of(63, 64),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(3)),
-      span: Span::of(65, 66),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(4)),
-      span: Span::of(67, 68),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(5)),
-      span: Span::of(69, 70),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(6)),
-      span: Span::of(71, 72),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(7)),
-      span: Span::of(73, 74),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(8)),
-      span: Span::of(75, 76),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(9)),
-      span: Span::of(77, 78),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(10)),
-      span: Span::of(79, 81),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(11)),
-      span: Span::of(82, 85),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(12)),
-      span: Span::of(86, 90),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(13)),
-      span: Span::of(91, 96),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(14)),
-      span: Span::of(97, 104),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(15)),
-      span: Span::of(105, 114),
-    },
-    Token {
-      kind: TokenKind::Float(Symbol(16)),
-      span: Span::of(115, 118),
-    },
-    Token {
-      kind: TokenKind::Float(Symbol(17)),
-      span: Span::of(119, 123),
-    },
-    Token {
-      kind: TokenKind::Float(Symbol(18)),
-      span: Span::of(124, 129),
-    },
-    Token {
-      kind: TokenKind::Float(Symbol(19)),
-      span: Span::of(130, 136),
-    },
-    Token {
-      kind: TokenKind::Float(Symbol(20)),
-      span: Span::of(137, 144),
-    },
-    Token {
-      kind: TokenKind::Float(Symbol(21)),
-      span: Span::of(145, 154),
-    },
-    Token {
-      kind: TokenKind::Float(Symbol(22)),
-      span: Span::of(155, 166),
-    },
-    Token {
-      kind: TokenKind::Int(Symbol(23)),
-      span: Span::of(168, 176),
-    },
-    Token {
-      kind: TokenKind::Ident(Symbol(24)),
-      span: Span::of(176, 179),
-    },
-    Token {
-      kind: TokenKind::Op(Op::Equal),
-      span: Span::of(181, 182),
-    },
-    Token {
-      kind: TokenKind::Op(Op::Plus),
-      span: Span::of(183, 184),
-    },
-    Token {
-      kind: TokenKind::Op(Op::Minus),
-      span: Span::of(185, 186),
-    },
-    Token {
-      kind: TokenKind::Op(Op::Asterisk),
-      span: Span::of(187, 188),
-    },
-    Token {
-      kind: TokenKind::Op(Op::Slash),
-      span: Span::of(189, 190),
-    },
-    Token {
-      kind: TokenKind::Op(Op::Percent),
-      span: Span::of(191, 192),
-    },
-    Token {
-      kind: TokenKind::Op(Op::Circumflex),
-      span: Span::of(193, 194),
-    },
-    Token {
-      kind: TokenKind::Op(Op::Exclamation),
-      span: Span::of(195, 196),
-    },
-    Token {
-      kind: TokenKind::Op(Op::EqualEqual),
-      span: Span::of(197, 199),
-    },
-    Token {
-      kind: TokenKind::Op(Op::PlusEqual),
-      span: Span::of(200, 202),
-    },
-    Token {
-      kind: TokenKind::Op(Op::MinusEqual),
-      span: Span::of(203, 205),
-    },
-    Token {
-      kind: TokenKind::Op(Op::AsteriskEqual),
-      span: Span::of(206, 208),
-    },
-    Token {
-      kind: TokenKind::Op(Op::SlashEqual),
-      span: Span::of(209, 211),
-    },
-    Token {
-      kind: TokenKind::Op(Op::PercentEqual),
-      span: Span::of(212, 214),
-    },
-    Token {
-      kind: TokenKind::Op(Op::CircumflexEqual),
-      span: Span::of(215, 217),
-    },
-    Token {
-      kind: TokenKind::Op(Op::ExclamationEqual),
-      span: Span::of(218, 220),
-    },
-    Token {
-      kind: TokenKind::Op(Op::AmspersandEqual),
-      span: Span::of(221, 223),
-    },
-    Token {
-      kind: TokenKind::Op(Op::PipeEqual),
-      span: Span::of(224, 226),
-    },
-    Token {
-      kind: TokenKind::Op(Op::LessThanEqual),
-      span: Span::of(227, 229),
-    },
-    Token {
-      kind: TokenKind::Op(Op::GreaterThanEqual),
-      span: Span::of(230, 232),
-    },
-    Token {
-      kind: TokenKind::Op(Op::LessThanLessThanEqual),
-      span: Span::of(233, 236),
-    },
-    Token {
-      kind: TokenKind::Op(Op::GreaterThan),
-      span: Span::of(239, 240),
-    },
-    Token {
-      kind: TokenKind::Op(Op::LessThanLessThan),
-      span: Span::of(241, 243),
-    },
-    Token {
-      kind: TokenKind::Op(Op::GreaterThanGreaterThan),
-      span: Span::of(244, 246),
-    },
-    Token {
-      kind: TokenKind::Op(Op::AmpersandAmpersand),
-      span: Span::of(247, 249),
-    },
-    Token {
-      kind: TokenKind::Op(Op::PipePipe),
-      span: Span::of(250, 252),
-    },
-    Token {
-      kind: TokenKind::Punctuation(Punctuation::MinusGreaterThan),
-      span: Span::of(253, 255),
-    },
-    Token {
-      kind: TokenKind::Punctuation(Punctuation::EqualGreaterThan),
-      span: Span::of(256, 258),
-    },
-    Token {
-      kind: TokenKind::Group(Group::ParenOpen),
-      span: Span::of(259, 260),
-    },
-    Token {
-      kind: TokenKind::Group(Group::ParenClose),
-      span: Span::of(260, 261),
-    },
-    Token {
-      kind: TokenKind::Group(Group::BraceOpen),
-      span: Span::of(262, 263),
-    },
-    Token {
-      kind: TokenKind::Group(Group::BraceClose),
-      span: Span::of(263, 264),
-    },
-    Token {
-      kind: TokenKind::Group(Group::BracketOpen),
-      span: Span::of(265, 266),
-    },
-    Token {
-      kind: TokenKind::Group(Group::BracketClose),
-      span: Span::of(266, 267),
-    },
-    Token {
-      kind: TokenKind::Punctuation(Punctuation::Comma),
-      span: Span::of(268, 269),
-    },
-    Token {
-      kind: TokenKind::Punctuation(Punctuation::Period),
-      span: Span::of(270, 271),
-    },
-    Token {
-      kind: TokenKind::Punctuation(Punctuation::Colon),
-      span: Span::of(272, 273),
-    },
-    Token {
-      kind: TokenKind::Punctuation(Punctuation::Semicolon),
-      span: Span::of(274, 275),
-    },
-    Token {
-      kind: TokenKind::Punctuation(Punctuation::ColonColon),
-      span: Span::of(276, 278),
-    },
-    Token {
-      kind: TokenKind::Punctuation(Punctuation::EqualGreaterThan),
-      span: Span::of(237, 239),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Abstract),
-      span: Span::of(280, 288),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Apply),
-      span: Span::of(289, 294),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Async),
-      span: Span::of(296, 301),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Await),
-      span: Span::of(303, 308),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Break),
-      span: Span::of(309, 314),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Continue),
-      span: Span::of(315, 323),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Else),
-      span: Span::of(324, 328),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Enum),
-      span: Span::of(330, 334),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Ext),
-      span: Span::of(335, 338),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Fn),
-      span: Span::of(339, 341),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::For),
-      span: Span::of(342, 345),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Fun),
-      span: Span::of(351, 354),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::If),
-      span: Span::of(358, 360),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Imu),
-      span: Span::of(365, 368),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Load),
-      span: Span::of(371, 375),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Loop),
-      span: Span::of(377, 381),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Match),
-      span: Span::of(386, 391),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Me),
-      span: Span::of(392, 394),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Mut),
-      span: Span::of(397, 400),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Pack),
-      span: Span::of(401, 405),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Pub),
-      span: Span::of(406, 409),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Return),
-      span: Span::of(415, 421),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Struct),
-      span: Span::of(422, 428),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Type),
-      span: Span::of(429, 433),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Val),
-      span: Span::of(435, 438),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::Wasm),
-      span: Span::of(441, 445),
-    },
-    Token {
-      kind: TokenKind::Kw(Kw::While),
-      span: Span::of(450, 455),
-    },
-    Token {
-      kind: TokenKind::Char(Symbol(25)),
-      span: Span::of(457, 460),
-    },
-    Token {
-      kind: TokenKind::Char(Symbol(26)),
-      span: Span::of(461, 465),
-    },
-    Token {
-      kind: TokenKind::Char(Symbol(27)),
-      span: Span::of(466, 470),
-    },
-    Token {
-      kind: TokenKind::Char(Symbol(28)),
-      span: Span::of(471, 475),
-    },
-    Token {
-      kind: TokenKind::Char(Symbol(29)),
-      span: Span::of(476, 481),
-    },
-    Token {
-      kind: TokenKind::Str(Symbol(30)),
-      span: Span::of(483, 502),
-    },
-    Token {
-      kind: TokenKind::Str(Symbol(31)),
-      span: Span::of(503, 521),
-    },
-    Token {
-      kind: TokenKind::Str(Symbol(32)),
-      span: Span::of(522, 532),
-    },
+    Token::new(TokenKind::Group(Group::ParenOpen), Span::of(22, 23)),
+    Token::new(TokenKind::Group(Group::ParenClose), Span::of(23, 24)),
+    Token::new(TokenKind::Group(Group::BraceOpen), Span::of(25, 26)),
+    Token::new(TokenKind::Group(Group::BraceClose), Span::of(26, 27)),
+    Token::new(TokenKind::Group(Group::BracketOpen), Span::of(28, 29)),
+    Token::new(TokenKind::Group(Group::BracketClose), Span::of(29, 30)),
   ];
 
   tokenizer::tokenize(&mut session, &source)
-    // todo (ivs) — compare by tokens.
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_operators() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/operator.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Op(Op::Equal), Span::of(25, 26)),
+    Token::new(TokenKind::Op(Op::Plus), Span::of(29, 30)),
+    Token::new(TokenKind::Op(Op::Minus), Span::of(33, 34)),
+    Token::new(TokenKind::Op(Op::Asterisk), Span::of(37, 38)),
+    Token::new(TokenKind::Op(Op::Slash), Span::of(41, 42)),
+    Token::new(TokenKind::Op(Op::Percent), Span::of(45, 46)),
+    Token::new(TokenKind::Op(Op::Circumflex), Span::of(49, 50)),
+    Token::new(TokenKind::Op(Op::Exclamation), Span::of(53, 54)),
+    Token::new(TokenKind::Op(Op::Ampersand), Span::of(57, 58)),
+    Token::new(TokenKind::Op(Op::Pipe), Span::of(61, 62)),
+    Token::new(TokenKind::Op(Op::LessThan), Span::of(65, 66)),
+    Token::new(TokenKind::Op(Op::GreaterThan), Span::of(69, 70)),
+    Token::new(TokenKind::Op(Op::LessThanEqual), Span::of(73, 75)),
+    Token::new(TokenKind::Op(Op::GreaterThanEqual), Span::of(77, 79)),
+    Token::new(TokenKind::Op(Op::EqualEqual), Span::of(80, 82)),
+    Token::new(TokenKind::Op(Op::PlusEqual), Span::of(84, 86)),
+    Token::new(TokenKind::Op(Op::MinusEqual), Span::of(88, 90)),
+    Token::new(TokenKind::Op(Op::AsteriskEqual), Span::of(92, 94)),
+    Token::new(TokenKind::Op(Op::SlashEqual), Span::of(96, 98)),
+    Token::new(TokenKind::Op(Op::PercentEqual), Span::of(100, 102)),
+    Token::new(TokenKind::Op(Op::CircumflexEqual), Span::of(104, 106)),
+    Token::new(TokenKind::Op(Op::ExclamationEqual), Span::of(108, 110)),
+    Token::new(TokenKind::Op(Op::AmspersandEqual), Span::of(112, 114)),
+    Token::new(TokenKind::Op(Op::PipeEqual), Span::of(116, 118)),
+    Token::new(TokenKind::Op(Op::LessThanLessThanEqual), Span::of(120, 123)),
+    Token::new(
+      TokenKind::Op(Op::GreaterThanGreaterThanEqual),
+      Span::of(124, 127),
+    ),
+    Token::new(TokenKind::Op(Op::LessThanLessThan), Span::of(128, 130)),
+    Token::new(
+      TokenKind::Op(Op::GreaterThanGreaterThan),
+      Span::of(132, 134),
+    ),
+    Token::new(TokenKind::Op(Op::AmpersandAmpersand), Span::of(135, 137)),
+    Token::new(TokenKind::Op(Op::PipePipe), Span::of(138, 140)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_punctuation() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/punctuation.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Punctuation(Punctuation::Comma), Span::of(35, 36)),
+    Token::new(
+      TokenKind::Punctuation(Punctuation::Period),
+      Span::of(37, 38),
+    ),
+    Token::new(TokenKind::Punctuation(Punctuation::Colon), Span::of(39, 40)),
+    Token::new(
+      TokenKind::Punctuation(Punctuation::ColonColon),
+      Span::of(41, 43),
+    ),
+    Token::new(
+      TokenKind::Punctuation(Punctuation::Semicolon),
+      Span::of(44, 45),
+    ),
+    Token::new(
+      TokenKind::Punctuation(Punctuation::MinusGreaterThan),
+      Span::of(46, 48),
+    ),
+    Token::new(
+      TokenKind::Punctuation(Punctuation::EqualGreaterThan),
+      Span::of(49, 51),
+    ),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_integers() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/numbers/integers.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Int(Symbol(0), BaseInt::B10), Span::of(33, 34)),
+    Token::new(TokenKind::Int(Symbol(1), BaseInt::B10), Span::of(35, 36)),
+    Token::new(TokenKind::Int(Symbol(2), BaseInt::B10), Span::of(37, 38)),
+    Token::new(TokenKind::Int(Symbol(3), BaseInt::B10), Span::of(39, 40)),
+    Token::new(TokenKind::Int(Symbol(4), BaseInt::B10), Span::of(41, 42)),
+    Token::new(TokenKind::Int(Symbol(5), BaseInt::B10), Span::of(43, 44)),
+    Token::new(TokenKind::Int(Symbol(6), BaseInt::B10), Span::of(45, 46)),
+    Token::new(TokenKind::Int(Symbol(7), BaseInt::B10), Span::of(47, 48)),
+    Token::new(TokenKind::Int(Symbol(8), BaseInt::B10), Span::of(49, 50)),
+    Token::new(TokenKind::Int(Symbol(9), BaseInt::B10), Span::of(51, 52)),
+    Token::new(TokenKind::Int(Symbol(10), BaseInt::B10), Span::of(53, 55)),
+    Token::new(TokenKind::Int(Symbol(11), BaseInt::B10), Span::of(56, 59)),
+    Token::new(TokenKind::Int(Symbol(12), BaseInt::B10), Span::of(60, 64)),
+    Token::new(TokenKind::Int(Symbol(13), BaseInt::B10), Span::of(65, 70)),
+    Token::new(TokenKind::Int(Symbol(14), BaseInt::B10), Span::of(71, 78)),
+    Token::new(TokenKind::Int(Symbol(15), BaseInt::B10), Span::of(79, 88)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_hexadecimals() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/numbers/hexadecimals.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Int(Symbol(0), BaseInt::B16), Span::of(37, 43)),
+    Token::new(TokenKind::Int(Symbol(1), BaseInt::B16), Span::of(44, 48)),
+    Token::new(TokenKind::Int(Symbol(2), BaseInt::B16), Span::of(49, 57)),
+    Token::new(TokenKind::Int(Symbol(3), BaseInt::B16), Span::of(58, 68)),
+    Token::new(TokenKind::Int(Symbol(4), BaseInt::B16), Span::of(69, 73)),
+    Token::new(TokenKind::Int(Symbol(5), BaseInt::B16), Span::of(74, 78)),
+    Token::new(TokenKind::Int(Symbol(6), BaseInt::B16), Span::of(79, 85)),
+    Token::new(TokenKind::Int(Symbol(7), BaseInt::B16), Span::of(86, 92)),
+    Token::new(TokenKind::Int(Symbol(8), BaseInt::B16), Span::of(93, 97)),
+    Token::new(TokenKind::Int(Symbol(9), BaseInt::B16), Span::of(98, 106)),
+    Token::new(TokenKind::Int(Symbol(10), BaseInt::B16), Span::of(107, 115)),
+    Token::new(TokenKind::Int(Symbol(11), BaseInt::B16), Span::of(116, 120)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_octals() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/numbers/octals.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Int(Symbol(0), BaseInt::B8), Span::of(31, 35)),
+    Token::new(TokenKind::Int(Symbol(1), BaseInt::B8), Span::of(36, 41)),
+    Token::new(TokenKind::Int(Symbol(2), BaseInt::B8), Span::of(42, 47)),
+    Token::new(TokenKind::Int(Symbol(3), BaseInt::B8), Span::of(48, 54)),
+    Token::new(TokenKind::Int(Symbol(4), BaseInt::B8), Span::of(55, 59)),
+    Token::new(TokenKind::Int(Symbol(5), BaseInt::B8), Span::of(60, 72)),
+    Token::new(TokenKind::Int(Symbol(6), BaseInt::B8), Span::of(73, 78)),
+    Token::new(TokenKind::Int(Symbol(7), BaseInt::B8), Span::of(79, 86)),
+    Token::new(TokenKind::Int(Symbol(8), BaseInt::B8), Span::of(87, 91)),
+    Token::new(TokenKind::Int(Symbol(9), BaseInt::B8), Span::of(92, 97)),
+    Token::new(TokenKind::Int(Symbol(10), BaseInt::B8), Span::of(98, 102)),
+    Token::new(TokenKind::Int(Symbol(11), BaseInt::B8), Span::of(103, 107)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_binaries() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/numbers/binaries.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Int(Symbol(0), BaseInt::B2), Span::of(33, 44)),
+    Token::new(TokenKind::Int(Symbol(1), BaseInt::B2), Span::of(45, 50)),
+    Token::new(TokenKind::Int(Symbol(2), BaseInt::B2), Span::of(51, 59)),
+    Token::new(TokenKind::Int(Symbol(3), BaseInt::B2), Span::of(60, 72)),
+    Token::new(TokenKind::Int(Symbol(4), BaseInt::B2), Span::of(73, 84)),
+    Token::new(TokenKind::Int(Symbol(5), BaseInt::B2), Span::of(85, 98)),
+    Token::new(TokenKind::Int(Symbol(6), BaseInt::B2), Span::of(99, 104)),
+    Token::new(TokenKind::Int(Symbol(7), BaseInt::B2), Span::of(105, 113)),
+    Token::new(TokenKind::Int(Symbol(8), BaseInt::B2), Span::of(114, 148)),
+    Token::new(TokenKind::Int(Symbol(9), BaseInt::B2), Span::of(149, 155)),
+    Token::new(TokenKind::Int(Symbol(10), BaseInt::B2), Span::of(156, 162)),
+    Token::new(TokenKind::Int(Symbol(11), BaseInt::B2), Span::of(163, 169)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_floats() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/numbers/floats.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Float(Symbol(0)), Span::of(31, 34)),
+    Token::new(TokenKind::Float(Symbol(1)), Span::of(35, 39)),
+    Token::new(TokenKind::Float(Symbol(2)), Span::of(40, 45)),
+    Token::new(TokenKind::Float(Symbol(3)), Span::of(46, 52)),
+    Token::new(TokenKind::Float(Symbol(4)), Span::of(53, 60)),
+    Token::new(TokenKind::Float(Symbol(5)), Span::of(61, 70)),
+    Token::new(TokenKind::Float(Symbol(6)), Span::of(71, 82)),
+    Token::new(TokenKind::Float(Symbol(7)), Span::of(83, 91)),
+    Token::new(TokenKind::Float(Symbol(8)), Span::of(92, 97)),
+    Token::new(TokenKind::Float(Symbol(9)), Span::of(98, 104)),
+    Token::new(TokenKind::Float(Symbol(10)), Span::of(105, 112)),
+    Token::new(TokenKind::Float(Symbol(11)), Span::of(113, 122)),
+    Token::new(TokenKind::Float(Symbol(12)), Span::of(123, 134)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_keywords() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/keyword.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Kw(Kw::Abstract), Span::of(24, 32)),
+    Token::new(TokenKind::Kw(Kw::Apply), Span::of(33, 38)),
+    Token::new(TokenKind::Kw(Kw::Async), Span::of(40, 45)),
+    Token::new(TokenKind::Kw(Kw::Await), Span::of(47, 52)),
+    Token::new(TokenKind::Kw(Kw::Break), Span::of(53, 58)),
+    Token::new(TokenKind::Kw(Kw::Continue), Span::of(59, 67)),
+    Token::new(TokenKind::Kw(Kw::Else), Span::of(68, 72)),
+    Token::new(TokenKind::Kw(Kw::Enum), Span::of(74, 78)),
+    Token::new(TokenKind::Kw(Kw::Ext), Span::of(79, 82)),
+    Token::new(TokenKind::Kw(Kw::Fn), Span::of(83, 85)),
+    Token::new(TokenKind::Kw(Kw::For), Span::of(86, 89)),
+    Token::new(TokenKind::Kw(Kw::Fun), Span::of(95, 98)),
+    Token::new(TokenKind::Kw(Kw::If), Span::of(102, 104)),
+    Token::new(TokenKind::Kw(Kw::Imu), Span::of(109, 112)),
+    Token::new(TokenKind::Kw(Kw::Load), Span::of(115, 119)),
+    Token::new(TokenKind::Kw(Kw::Loop), Span::of(121, 125)),
+    Token::new(TokenKind::Kw(Kw::Match), Span::of(130, 135)),
+    Token::new(TokenKind::Kw(Kw::Me), Span::of(136, 138)),
+    Token::new(TokenKind::Kw(Kw::Mut), Span::of(141, 144)),
+    Token::new(TokenKind::Kw(Kw::Pack), Span::of(145, 149)),
+    Token::new(TokenKind::Kw(Kw::Pub), Span::of(150, 153)),
+    Token::new(TokenKind::Kw(Kw::Return), Span::of(159, 165)),
+    Token::new(TokenKind::Kw(Kw::Struct), Span::of(166, 172)),
+    Token::new(TokenKind::Kw(Kw::Type), Span::of(173, 177)),
+    Token::new(TokenKind::Kw(Kw::Val), Span::of(179, 182)),
+    Token::new(TokenKind::Kw(Kw::Wasm), Span::of(185, 189)),
+    Token::new(TokenKind::Kw(Kw::While), Span::of(194, 199)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_identifiers() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/identifier.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Ident(Symbol(0)), Span::of(27, 30)),
+    Token::new(TokenKind::Ident(Symbol(1)), Span::of(31, 38)),
+    Token::new(TokenKind::Ident(Symbol(2)), Span::of(39, 45)),
+    Token::new(TokenKind::Ident(Symbol(3)), Span::of(46, 52)),
+    Token::new(TokenKind::Ident(Symbol(4)), Span::of(53, 60)),
+    Token::new(TokenKind::Ident(Symbol(5)), Span::of(61, 64)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_booleans() {
+  let mut session = Session::default();
+
+  session.settings.input =
+    "../zhoo-notes/samples/test/tokens/boolean.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Ident(Symbol(0)), Span::of(33, 37)),
+    Token::new(TokenKind::Ident(Symbol(1)), Span::of(38, 43)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_chars() {
+  let mut session = Session::default();
+
+  session.settings.input = "../zhoo-notes/samples/test/tokens/char.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Char(Symbol(0)), Span::of(26, 29)),
+    Token::new(TokenKind::Char(Symbol(1)), Span::of(30, 34)),
+    Token::new(TokenKind::Char(Symbol(2)), Span::of(35, 39)),
+    Token::new(TokenKind::Char(Symbol(3)), Span::of(40, 44)),
+    Token::new(TokenKind::Char(Symbol(4)), Span::of(45, 50)),
+    Token::new(TokenKind::Char(Symbol(5)), Span::of(51, 57)),
+    Token::new(TokenKind::Char(Symbol(6)), Span::of(58, 64)),
+    Token::new(TokenKind::Char(Symbol(7)), Span::of(65, 70)),
+    Token::new(TokenKind::Char(Symbol(8)), Span::of(71, 75)),
+    Token::new(TokenKind::Char(Symbol(9)), Span::of(76, 80)),
+    Token::new(TokenKind::Char(Symbol(10)), Span::of(81, 84)),
+    Token::new(TokenKind::Char(Symbol(11)), Span::of(85, 90)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
+    .map(|tokens| assert!(tokens == expected))
+    .unwrap();
+}
+
+#[test]
+fn tokenize_strings() {
+  let mut session = Session::default();
+
+  session.settings.input = "../zhoo-notes/samples/test/tokens/string.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  let expected = vec![
+    Token::new(TokenKind::Str(Symbol(0)), Span::of(31, 45)),
+    Token::new(TokenKind::Str(Symbol(1)), Span::of(46, 65)),
+    Token::new(TokenKind::Str(Symbol(2)), Span::of(66, 84)),
+    Token::new(TokenKind::Str(Symbol(3)), Span::of(85, 95)),
+    Token::new(TokenKind::Str(Symbol(4)), Span::of(96, 100)),
+    Token::new(TokenKind::Str(Symbol(5)), Span::of(101, 111)),
+    Token::new(TokenKind::Str(Symbol(6)), Span::of(112, 120)),
+    Token::new(TokenKind::Str(Symbol(7)), Span::of(121, 135)),
+    Token::new(TokenKind::Str(Symbol(8)), Span::of(136, 153)),
+    Token::new(TokenKind::Str(Symbol(9)), Span::of(154, 174)),
+    Token::new(TokenKind::Str(Symbol(10)), Span::of(175, 200)),
+    Token::new(TokenKind::Str(Symbol(11)), Span::of(201, 209)),
+  ];
+
+  tokenizer::tokenize(&mut session, &source)
     .map(|tokens| assert!(tokens == expected))
     .unwrap();
 }

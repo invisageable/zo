@@ -2,11 +2,13 @@
 
 pub mod comment;
 pub mod group;
+pub mod int;
 pub mod kw;
 pub mod op;
 pub mod punctuation;
 
 use group::Group;
+use int::BaseInt;
 use kw::Kw;
 use op::Op;
 use punctuation::Punctuation;
@@ -46,7 +48,7 @@ impl std::fmt::Display for Token {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenKind {
-  Int(Symbol),
+  Int(Symbol, BaseInt),
   Float(Symbol),
   Op(Op),
   Ident(Symbol),
@@ -165,7 +167,7 @@ impl TokenKind {
   pub fn is_lit(&self) -> bool {
     matches!(
       self,
-      Self::Int(_)
+      Self::Int(_, _)
         | Self::Float(_)
         | Self::Char(_)
         | Self::Str(_)
@@ -202,7 +204,7 @@ impl TokenKind {
 impl Symbolize for TokenKind {
   fn symbolize(&self) -> &Symbol {
     match self {
-      Self::Int(symbol) => symbol,
+      Self::Int(symbol, _) => symbol,
       Self::Float(symbol) => symbol,
       Self::Ident(symbol) => symbol,
       Self::Char(symbol) => symbol,
@@ -215,7 +217,7 @@ impl Symbolize for TokenKind {
 impl std::fmt::Display for TokenKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      Self::Int(symbol) => write!(f, "{symbol}"),
+      Self::Int(symbol, _) => write!(f, "{symbol}"),
       Self::Float(symbol) => write!(f, "{symbol}"),
       Self::Ident(symbol) => write!(f, "{symbol}"),
       Self::Char(symbol) => write!(f, "{symbol}"),

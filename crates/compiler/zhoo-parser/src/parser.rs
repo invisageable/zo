@@ -622,7 +622,7 @@ impl<'tokens> Parser<'tokens> {
     let token = self.maybe_token_current.unwrap();
 
     match token.kind {
-      TokenKind::Int(_) => Some(Self::parse_expr_lit_int),
+      TokenKind::Int(..) => Some(Self::parse_expr_lit_int),
       TokenKind::Float(_) => Some(Self::parse_expr_lit_float),
       TokenKind::Ident(_) => Some(Self::parse_expr_lit_ident),
       TokenKind::Char(_) => Some(Self::parse_expr_lit_char),
@@ -653,7 +653,7 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Int(symbol) => Ok(Expr {
+        TokenKind::Int(symbol, _) => Ok(Expr {
           kind: ExprKind::Lit(Lit {
             kind: LitKind::Int(symbol),
             span: token.span,
