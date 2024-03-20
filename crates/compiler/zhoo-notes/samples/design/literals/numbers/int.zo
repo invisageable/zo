@@ -1,11 +1,11 @@
 -- integers.
 
-val DEC: int = 1;           -- decimal.
-val OCT: int = 0o77;        -- octal.
-val HEX: int = 0xfff_fff;   -- hexadecimal.
-val BIN: int = 0b11110000;  -- binary.
-
 fun main() {
+  imu dec: int = 1;           -- decimal.
+  imu oct: int = 0o77;        -- octal.
+  imu hex: int = 0xfff_fff;   -- hexadecimal.
+  imu bin: int = 0b11110000;  -- binary.
+
   -- parse to binary number.
   imu bina: int = b#30; -- 11110.
 

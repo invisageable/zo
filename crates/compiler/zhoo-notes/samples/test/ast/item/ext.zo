@@ -1,0 +1,8 @@
+-- externs.
+
+-- ext declaration.
+ext bar();
+
+-- ext declaration with inputs.
+
+ext foobar(x: int);

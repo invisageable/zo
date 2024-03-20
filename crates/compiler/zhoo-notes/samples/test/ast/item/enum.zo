@@ -1,0 +1,13 @@
+-- enumerations.
+
+-- enums declarations.
+
+enum Bar {}
+
+-- enums with variants.
+
+enum Bar {
+  Foo,
+  Bar(char),
+  Oof { rab: int },
+}

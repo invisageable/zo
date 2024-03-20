@@ -1,3 +1,5 @@
+-- when: ternary.
+
 fun main() {
   -- when cannot be nested, if you want to do some crazy nested stuff.
   -- Javascript is a best candidate for it.

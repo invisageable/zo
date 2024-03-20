@@ -1,1 +1,7 @@
-fun main() {}
+-- ...
+
+fun main() {
+  imu sqrt := fn (x: int) -> x * x;
+
+  println(sqrt(2));
+}

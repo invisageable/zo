@@ -1,1 +1,11 @@
-fun main() {}
+-- mutable variables.
+
+fun main() {
+  mut x := ((4 + 8) * 268 / 2);
+
+  println(x);
+
+  mut x := 0.456;
+
+  println(x);
+}

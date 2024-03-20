@@ -1,0 +1,22 @@
+-- functions.
+
+-- function declarations.
+
+fun foobar() {}
+
+-- function with inputs.
+
+fun foobar(x: int, y: int) {}
+fun foobar(x: str, y: str) {}
+fun foobar(x: char, y: char) {}
+
+-- function with output types.
+
+-- fun foobar(): bool {}
+-- fun foobar(): int {}
+
+-- function blocks.
+
+-- fun add(x: int, y: int): int {
+--   x + y
+-- }

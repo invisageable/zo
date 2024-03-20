@@ -1,10 +1,11 @@
-val AB: float = 0.0;
-val CD: float = 1.0E+77;
-val EF: float = 1e4;
+-- ...
 
 fun main() {
-  println(AB);
-  println(CD);
-  println(EF);
-}
+  imu x: float = 0.0;
+  imu y: float = 1.0E+77;
+  imu z: float = 1e4;
 
+  println(x);
+  println(y);
+  println(z);
+}

@@ -1,6 +1,9 @@
+-- while loops.
+
 fun main() {
   mut x: int = 0;
 
+  -- runs until the condition is `false`.
   while x < 3 {
     x += 3;
   }

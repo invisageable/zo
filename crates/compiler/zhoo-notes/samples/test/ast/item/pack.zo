@@ -1,2 +1,4 @@
+-- packages.
+
 pack foo;
-pack bar;
+pub pack bar;

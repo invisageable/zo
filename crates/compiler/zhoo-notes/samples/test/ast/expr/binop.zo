@@ -1,3 +1,5 @@
+-- binary operations.
+
 fun main() {
   imu x: int = 1 + 2;
   imu x: int = 3 - 4;

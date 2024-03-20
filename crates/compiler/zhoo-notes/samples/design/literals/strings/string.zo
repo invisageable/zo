@@ -1,11 +1,11 @@
 -- literals: strings.
 
-val AB: str = "你好!";
-val CD: str = "foo\n";
-val EF: str = "\"bar\"";
-
 fun main() {
-  println(AB);
-  println(CD);
-  println(EF);
+  imu x: str = "你好!";
+  imu y: str = "foo\n";
+  imu z: str = "\"bar\"";
+
+  println(x);
+  println(y);
+  println(z);
 }

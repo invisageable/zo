@@ -1,1 +1,11 @@
-fun main() {}
+-- ...
+
+fun main() {
+  imu foo: int = 3;
+  imu bar: int = 10;
+  mut oofrab: int = 0;
+
+  oofrab := foo + bar;
+
+  oofrab
+}
