@@ -43,20 +43,23 @@ impl<'source> Tokenizer<'source> {
       reporter,
       source,
       index: 0usize,
-      base_int: BaseInt::B10,
+      base_int: BaseInt::Dec,
     }
   }
 
+  /// gets the current byte.
   #[inline]
   fn byte(&self) -> u8 {
     self.source[self.index]
   }
 
+  /// advances the index.
   #[inline]
   fn bump(&mut self) {
     self.index += 1;
   }
 
+  /// gets tokens — this function should be called at the end.
   #[inline]
   fn tokenize(&mut self) -> Result<Vec<Token>> {
     Ok(self.collect())
@@ -103,51 +106,48 @@ impl<'source> Tokenizer<'source> {
         },
         TokenizerState::Comment => match byte {
           b if !is!(eol b) => self.bump(),
-          _ => {
-            state = TokenizerState::Start;
-          }
+          _ => state = TokenizerState::Start,
         },
-        TokenizerState::Zero => match byte {
-          b if is!(number_start b) => self.bump(),
-          b if is!(number_continue b) => {
-            let span = Span::of(index_start, self.index + 1);
+        TokenizerState::Zero => {
+          match byte {
+            b if is!(number_start b) => self.bump(),
+            b if is!(number_continue b) => {
+              let span = Span::of(index_start, self.index + 1);
 
-            self
-              .reporter
-              .raise(ReportError::Lexical(Lexical::InvalidNum(
-                span,
-                byte as char,
-              )));
-          }
-          b if is!(dot b) => {
-            state = TokenizerState::Float;
+              self.reporter.raise(ReportError::Lexical(
+                Lexical::InvalidNumber(span, byte as char),
+              ));
+            }
+            b if is!(dot b) => {
+              state = TokenizerState::Float;
 
-            self.bump();
-          }
-          b if b == b'x' || b == b'X' => {
-            state = TokenizerState::Hex;
-            self.base_int = BaseInt::B16;
+              self.bump();
+            }
+            b if b == b'x' || b == b'X' => {
+              state = TokenizerState::Hex;
+              self.base_int = BaseInt::Hex;
 
-            self.bump();
-          }
-          b'o' => {
-            state = TokenizerState::Oct;
-            self.base_int = BaseInt::B8;
+              self.bump();
+            }
+            b'o' => {
+              state = TokenizerState::Oct;
+              self.base_int = BaseInt::Oct;
 
-            self.bump();
-          }
-          b'b' => {
-            state = TokenizerState::Bin;
-            self.base_int = BaseInt::B2;
+              self.bump();
+            }
+            b'b' => {
+              state = TokenizerState::Bin;
+              self.base_int = BaseInt::Bin;
 
-            self.bump();
-          }
-          _ => {
-            state = TokenizerState::Int;
+              self.bump();
+            }
+            _ => {
+              state = TokenizerState::Int;
 
-            break;
+              break;
+            }
           }
-        },
+        }
         TokenizerState::Int => match byte {
           b if is!(number_start b) | is!(number_continue b) => self.bump(),
           b if is!(dot b) => {
@@ -224,6 +224,7 @@ impl<'source> Tokenizer<'source> {
                 b'=' => self.bump(),
                 b'>' => {
                   state = TokenizerState::Punctuation;
+
                   self.bump();
                 }
                 b'-' | b'!' => {

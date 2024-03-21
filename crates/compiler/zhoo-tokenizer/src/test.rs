@@ -15,9 +15,12 @@ use zo_core::span::Span;
 #[test]
 fn tokenize_empty() {
   let mut session = Session::default();
-  let source = "".as_bytes();
 
-  tokenizer::tokenize(&mut session, source)
+  session.settings.input = "../zhoo-notes/samples/test/empty.zo".into();
+
+  let source = reader::read_file(&mut session).unwrap();
+
+  tokenizer::tokenize(&mut session, &source)
     .map(|tokens| assert!(tokens.len() == 0))
     .unwrap();
 }
@@ -160,22 +163,22 @@ fn tokenize_integers() {
   let source = reader::read_file(&mut session).unwrap();
 
   let expected = vec![
-    Token::new(TokenKind::Int(Symbol(0), BaseInt::B10), Span::of(33, 34)),
-    Token::new(TokenKind::Int(Symbol(1), BaseInt::B10), Span::of(35, 36)),
-    Token::new(TokenKind::Int(Symbol(2), BaseInt::B10), Span::of(37, 38)),
-    Token::new(TokenKind::Int(Symbol(3), BaseInt::B10), Span::of(39, 40)),
-    Token::new(TokenKind::Int(Symbol(4), BaseInt::B10), Span::of(41, 42)),
-    Token::new(TokenKind::Int(Symbol(5), BaseInt::B10), Span::of(43, 44)),
-    Token::new(TokenKind::Int(Symbol(6), BaseInt::B10), Span::of(45, 46)),
-    Token::new(TokenKind::Int(Symbol(7), BaseInt::B10), Span::of(47, 48)),
-    Token::new(TokenKind::Int(Symbol(8), BaseInt::B10), Span::of(49, 50)),
-    Token::new(TokenKind::Int(Symbol(9), BaseInt::B10), Span::of(51, 52)),
-    Token::new(TokenKind::Int(Symbol(10), BaseInt::B10), Span::of(53, 55)),
-    Token::new(TokenKind::Int(Symbol(11), BaseInt::B10), Span::of(56, 59)),
-    Token::new(TokenKind::Int(Symbol(12), BaseInt::B10), Span::of(60, 64)),
-    Token::new(TokenKind::Int(Symbol(13), BaseInt::B10), Span::of(65, 70)),
-    Token::new(TokenKind::Int(Symbol(14), BaseInt::B10), Span::of(71, 78)),
-    Token::new(TokenKind::Int(Symbol(15), BaseInt::B10), Span::of(79, 88)),
+    Token::new(TokenKind::Int(Symbol(0), BaseInt::Dec), Span::of(33, 34)),
+    Token::new(TokenKind::Int(Symbol(1), BaseInt::Dec), Span::of(35, 36)),
+    Token::new(TokenKind::Int(Symbol(2), BaseInt::Dec), Span::of(37, 38)),
+    Token::new(TokenKind::Int(Symbol(3), BaseInt::Dec), Span::of(39, 40)),
+    Token::new(TokenKind::Int(Symbol(4), BaseInt::Dec), Span::of(41, 42)),
+    Token::new(TokenKind::Int(Symbol(5), BaseInt::Dec), Span::of(43, 44)),
+    Token::new(TokenKind::Int(Symbol(6), BaseInt::Dec), Span::of(45, 46)),
+    Token::new(TokenKind::Int(Symbol(7), BaseInt::Dec), Span::of(47, 48)),
+    Token::new(TokenKind::Int(Symbol(8), BaseInt::Dec), Span::of(49, 50)),
+    Token::new(TokenKind::Int(Symbol(9), BaseInt::Dec), Span::of(51, 52)),
+    Token::new(TokenKind::Int(Symbol(10), BaseInt::Dec), Span::of(53, 55)),
+    Token::new(TokenKind::Int(Symbol(11), BaseInt::Dec), Span::of(56, 59)),
+    Token::new(TokenKind::Int(Symbol(12), BaseInt::Dec), Span::of(60, 64)),
+    Token::new(TokenKind::Int(Symbol(13), BaseInt::Dec), Span::of(65, 70)),
+    Token::new(TokenKind::Int(Symbol(14), BaseInt::Dec), Span::of(71, 78)),
+    Token::new(TokenKind::Int(Symbol(15), BaseInt::Dec), Span::of(79, 88)),
   ];
 
   tokenizer::tokenize(&mut session, &source)
@@ -193,18 +196,18 @@ fn tokenize_hexadecimals() {
   let source = reader::read_file(&mut session).unwrap();
 
   let expected = vec![
-    Token::new(TokenKind::Int(Symbol(0), BaseInt::B16), Span::of(37, 43)),
-    Token::new(TokenKind::Int(Symbol(1), BaseInt::B16), Span::of(44, 48)),
-    Token::new(TokenKind::Int(Symbol(2), BaseInt::B16), Span::of(49, 57)),
-    Token::new(TokenKind::Int(Symbol(3), BaseInt::B16), Span::of(58, 68)),
-    Token::new(TokenKind::Int(Symbol(4), BaseInt::B16), Span::of(69, 73)),
-    Token::new(TokenKind::Int(Symbol(5), BaseInt::B16), Span::of(74, 78)),
-    Token::new(TokenKind::Int(Symbol(6), BaseInt::B16), Span::of(79, 85)),
-    Token::new(TokenKind::Int(Symbol(7), BaseInt::B16), Span::of(86, 92)),
-    Token::new(TokenKind::Int(Symbol(8), BaseInt::B16), Span::of(93, 97)),
-    Token::new(TokenKind::Int(Symbol(9), BaseInt::B16), Span::of(98, 106)),
-    Token::new(TokenKind::Int(Symbol(10), BaseInt::B16), Span::of(107, 115)),
-    Token::new(TokenKind::Int(Symbol(11), BaseInt::B16), Span::of(116, 120)),
+    Token::new(TokenKind::Int(Symbol(0), BaseInt::Hex), Span::of(37, 43)),
+    Token::new(TokenKind::Int(Symbol(1), BaseInt::Hex), Span::of(44, 48)),
+    Token::new(TokenKind::Int(Symbol(2), BaseInt::Hex), Span::of(49, 57)),
+    Token::new(TokenKind::Int(Symbol(3), BaseInt::Hex), Span::of(58, 68)),
+    Token::new(TokenKind::Int(Symbol(4), BaseInt::Hex), Span::of(69, 73)),
+    Token::new(TokenKind::Int(Symbol(5), BaseInt::Hex), Span::of(74, 78)),
+    Token::new(TokenKind::Int(Symbol(6), BaseInt::Hex), Span::of(79, 85)),
+    Token::new(TokenKind::Int(Symbol(7), BaseInt::Hex), Span::of(86, 92)),
+    Token::new(TokenKind::Int(Symbol(8), BaseInt::Hex), Span::of(93, 97)),
+    Token::new(TokenKind::Int(Symbol(9), BaseInt::Hex), Span::of(98, 106)),
+    Token::new(TokenKind::Int(Symbol(10), BaseInt::Hex), Span::of(107, 115)),
+    Token::new(TokenKind::Int(Symbol(11), BaseInt::Hex), Span::of(116, 120)),
   ];
 
   tokenizer::tokenize(&mut session, &source)
@@ -222,18 +225,18 @@ fn tokenize_octals() {
   let source = reader::read_file(&mut session).unwrap();
 
   let expected = vec![
-    Token::new(TokenKind::Int(Symbol(0), BaseInt::B8), Span::of(31, 35)),
-    Token::new(TokenKind::Int(Symbol(1), BaseInt::B8), Span::of(36, 41)),
-    Token::new(TokenKind::Int(Symbol(2), BaseInt::B8), Span::of(42, 47)),
-    Token::new(TokenKind::Int(Symbol(3), BaseInt::B8), Span::of(48, 54)),
-    Token::new(TokenKind::Int(Symbol(4), BaseInt::B8), Span::of(55, 59)),
-    Token::new(TokenKind::Int(Symbol(5), BaseInt::B8), Span::of(60, 72)),
-    Token::new(TokenKind::Int(Symbol(6), BaseInt::B8), Span::of(73, 78)),
-    Token::new(TokenKind::Int(Symbol(7), BaseInt::B8), Span::of(79, 86)),
-    Token::new(TokenKind::Int(Symbol(8), BaseInt::B8), Span::of(87, 91)),
-    Token::new(TokenKind::Int(Symbol(9), BaseInt::B8), Span::of(92, 97)),
-    Token::new(TokenKind::Int(Symbol(10), BaseInt::B8), Span::of(98, 102)),
-    Token::new(TokenKind::Int(Symbol(11), BaseInt::B8), Span::of(103, 107)),
+    Token::new(TokenKind::Int(Symbol(0), BaseInt::Oct), Span::of(31, 35)),
+    Token::new(TokenKind::Int(Symbol(1), BaseInt::Oct), Span::of(36, 41)),
+    Token::new(TokenKind::Int(Symbol(2), BaseInt::Oct), Span::of(42, 47)),
+    Token::new(TokenKind::Int(Symbol(3), BaseInt::Oct), Span::of(48, 54)),
+    Token::new(TokenKind::Int(Symbol(4), BaseInt::Oct), Span::of(55, 59)),
+    Token::new(TokenKind::Int(Symbol(5), BaseInt::Oct), Span::of(60, 72)),
+    Token::new(TokenKind::Int(Symbol(6), BaseInt::Oct), Span::of(73, 78)),
+    Token::new(TokenKind::Int(Symbol(7), BaseInt::Oct), Span::of(79, 86)),
+    Token::new(TokenKind::Int(Symbol(8), BaseInt::Oct), Span::of(87, 91)),
+    Token::new(TokenKind::Int(Symbol(9), BaseInt::Oct), Span::of(92, 97)),
+    Token::new(TokenKind::Int(Symbol(10), BaseInt::Oct), Span::of(98, 102)),
+    Token::new(TokenKind::Int(Symbol(11), BaseInt::Oct), Span::of(103, 107)),
   ];
 
   tokenizer::tokenize(&mut session, &source)
@@ -251,18 +254,18 @@ fn tokenize_binaries() {
   let source = reader::read_file(&mut session).unwrap();
 
   let expected = vec![
-    Token::new(TokenKind::Int(Symbol(0), BaseInt::B2), Span::of(33, 44)),
-    Token::new(TokenKind::Int(Symbol(1), BaseInt::B2), Span::of(45, 50)),
-    Token::new(TokenKind::Int(Symbol(2), BaseInt::B2), Span::of(51, 59)),
-    Token::new(TokenKind::Int(Symbol(3), BaseInt::B2), Span::of(60, 72)),
-    Token::new(TokenKind::Int(Symbol(4), BaseInt::B2), Span::of(73, 84)),
-    Token::new(TokenKind::Int(Symbol(5), BaseInt::B2), Span::of(85, 98)),
-    Token::new(TokenKind::Int(Symbol(6), BaseInt::B2), Span::of(99, 104)),
-    Token::new(TokenKind::Int(Symbol(7), BaseInt::B2), Span::of(105, 113)),
-    Token::new(TokenKind::Int(Symbol(8), BaseInt::B2), Span::of(114, 148)),
-    Token::new(TokenKind::Int(Symbol(9), BaseInt::B2), Span::of(149, 155)),
-    Token::new(TokenKind::Int(Symbol(10), BaseInt::B2), Span::of(156, 162)),
-    Token::new(TokenKind::Int(Symbol(11), BaseInt::B2), Span::of(163, 169)),
+    Token::new(TokenKind::Int(Symbol(0), BaseInt::Bin), Span::of(33, 44)),
+    Token::new(TokenKind::Int(Symbol(1), BaseInt::Bin), Span::of(45, 50)),
+    Token::new(TokenKind::Int(Symbol(2), BaseInt::Bin), Span::of(51, 59)),
+    Token::new(TokenKind::Int(Symbol(3), BaseInt::Bin), Span::of(60, 72)),
+    Token::new(TokenKind::Int(Symbol(4), BaseInt::Bin), Span::of(73, 84)),
+    Token::new(TokenKind::Int(Symbol(5), BaseInt::Bin), Span::of(85, 98)),
+    Token::new(TokenKind::Int(Symbol(6), BaseInt::Bin), Span::of(99, 104)),
+    Token::new(TokenKind::Int(Symbol(7), BaseInt::Bin), Span::of(105, 113)),
+    Token::new(TokenKind::Int(Symbol(8), BaseInt::Bin), Span::of(114, 148)),
+    Token::new(TokenKind::Int(Symbol(9), BaseInt::Bin), Span::of(149, 155)),
+    Token::new(TokenKind::Int(Symbol(10), BaseInt::Bin), Span::of(156, 162)),
+    Token::new(TokenKind::Int(Symbol(11), BaseInt::Bin), Span::of(163, 169)),
   ];
 
   tokenizer::tokenize(&mut session, &source)

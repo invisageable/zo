@@ -109,14 +109,12 @@ pub enum ItemKind {
   Fun(Fun),
 }
 
-// ...wip.
 #[derive(Clone, Debug)]
 pub struct Load {
   pub paths: Vec<Pattern>,
   pub span: Span,
 }
 
-// ...wip.
 #[derive(Clone, Debug)]
 pub struct Pack {}
 
@@ -315,12 +313,12 @@ pub enum ExprKind {
   Array(Vec<Expr>),
   Tuple(Vec<Expr>),
 
-  // blocks.
-  Block(Block),
-
   // accesses.
   ArrayAccess(Box<Expr>, Box<Expr>),
   TupleAccess(Box<Expr>, Box<Expr>),
+
+  // blocks.
+  Block(Block),
 
   // funs.
   Fn(Prototype, Block),

@@ -8,7 +8,7 @@ use ariadne::Fmt;
 #[derive(Debug)]
 pub enum Lexical {
   Unknown(Span, char),
-  InvalidNum(Span, char),
+  InvalidNumber(Span, char),
   ReservedKeyword(Span, String),
 }
 
@@ -39,7 +39,7 @@ impl Error for Lexical {
         )
         .into()],
       },
-      Self::InvalidNum(span, ch) => todo!("invalid num — {span}-{ch}"),
+      Self::InvalidNumber(span, ch) => todo!("invalid num — {span}-{ch}"),
       Self::ReservedKeyword(span, word) => todo!("reserved keyword — {span}-{word}"),
     }
   }

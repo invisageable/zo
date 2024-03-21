@@ -1,6 +1,5 @@
 //! ...
 
-#[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 pub(crate) enum TokenizerState {
   Start,
