@@ -10,7 +10,7 @@ pub struct Ty {
 }
 
 impl Ty {
-  pub const UNIT: Self = Self::of(TyKind::Int, Span::ZERO);
+  pub const UNIT: Self = Self::of(TyKind::Unit, Span::ZERO);
 
   #[inline]
   pub const fn of(kind: TyKind, span: Span) -> Self {
