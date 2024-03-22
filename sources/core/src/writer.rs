@@ -4,6 +4,9 @@ use crate::reporter::report::io::Io;
 
 use std::fmt::Write;
 
+const INDENT_DEFAULT: usize = 2usize;
+const DEPTH_DEFAULT: usize = 2usize;
+
 pub struct Writer {
   out: String,
   int: itoa::Buffer,
@@ -14,8 +17,11 @@ pub struct Writer {
 
 impl Writer {
   #[inline]
-  pub fn new() -> Self {
-    Self::default()
+  pub fn new(indent: usize) -> Self {
+    Self {
+      indent,
+      ..Default::default()
+    }
   }
 
   #[inline]
@@ -122,8 +128,8 @@ impl Default for Writer {
       out: String::default(),
       int: itoa::Buffer::default(),
       float: ryu::Buffer::default(),
-      indent: 2usize,
-      depth: 0usize,
+      indent: INDENT_DEFAULT,
+      depth: DEPTH_DEFAULT,
     }
   }
 }

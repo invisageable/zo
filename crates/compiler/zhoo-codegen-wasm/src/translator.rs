@@ -29,7 +29,7 @@ impl<'mir> Translator<'mir> {
     Self {
       interner,
       reporter,
-      writer: Writer::new(),
+      writer: Writer::new(2usize),
     }
   }
 
