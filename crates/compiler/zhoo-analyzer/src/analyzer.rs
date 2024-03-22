@@ -24,7 +24,7 @@ impl Analyzer {
     let _ = checker::name::check(session, program)?;
     let hir = inferencer::infer(session, program)?; // todo (ivs) — should be an hir return value?
     #[allow(clippy::let_unit_value)]
-    let _ = tychecker::check(session)?;
+    let _ = tychecker::check(session, program)?;
 
     println!("\n{hir:?}\n");
 
