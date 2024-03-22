@@ -185,11 +185,6 @@ impl Print {
 
     println!("{result}");
 
-    // Clipboard::new()
-    //   .map_err(Pasteboard::not_supported)?
-    //   .set_text(result.as_str())
-    //   .map_err(Pasteboard::unknown)?;
-
     Clipboard::new()
       .and_then(|mut clipboard| clipboard.set_text(result.as_str()))
       .map_err(Pasteboard::unknown)?;

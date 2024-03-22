@@ -1,0 +1,9 @@
+-- literals.
+
+fun main() {
+  imu x : int = 1_000;
+  imu x : float = 1_234.987;
+  imu x : bool = true;
+  imu x : char = '\n';
+  imu x : str = "hehehehe";
+}

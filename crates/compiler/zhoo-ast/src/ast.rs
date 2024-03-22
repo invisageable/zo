@@ -323,7 +323,6 @@ pub enum ExprKind {
   // funs.
   Fn(Prototype, Block),
   Call(Box<Expr>, Args),
-  Return(Option<Box<Expr>>),
 
   // branches.
   IfElse(Box<Expr>, Block, Option<Box<Expr>>),
@@ -336,6 +335,7 @@ pub enum ExprKind {
   For(For),
 
   // controls.
+  Return(Option<Box<Expr>>),
   Break(Option<Box<Expr>>),
   Continue,
 

@@ -15,6 +15,12 @@
 ![license: APACHE](https://img.shields.io/badge/license-APACHE-blue?style=flat-square)
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
+**sources**
+
+[core](./sources/core) — A shareable data structures collection.   
+
+**crates**
+
 <!-- [booster](./crates/booster) — A booster for the `zhoo` programming language.     -->
 [compiler](./crates/compiler) — A compiler for the `zhoo` programming language.   
 

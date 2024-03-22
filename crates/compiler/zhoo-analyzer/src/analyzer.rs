@@ -7,18 +7,17 @@ use zhoo_inferencer::inferencer;
 use zhoo_session::session::Session;
 use zhoo_tychecker::tychecker;
 
-use zo_core::span::Span;
 use zo_core::Result;
 
 #[derive(Debug)]
 struct Analyzer;
 
 impl Analyzer {
-  fn analyze(
+  fn analyze<'hir>(
     &mut self,
     session: &mut Session,
     program: &Program,
-  ) -> Result<Hir> {
+  ) -> Result<Hir<'hir>> {
     #[allow(clippy::let_unit_value)]
     let _ = checker::entry::check(session, program)?;
     #[allow(clippy::let_unit_value)]
@@ -32,7 +31,10 @@ impl Analyzer {
     session.reporter.abort_if_has_errors();
 
     // todo (ivs) — tmp.
-    Ok(Hir { span: Span::ZERO })
+    Ok(Hir {
+      items: &[],
+      span: program.span,
+    })
   }
 }
 
@@ -42,6 +44,9 @@ impl Analyzer {
 ///
 /// ```
 /// ```
-pub fn analyze(session: &mut Session, program: &Program) -> Result<Hir> {
+pub fn analyze<'hir>(
+  session: &mut Session,
+  program: &Program,
+) -> Result<Hir<'hir>> {
   Analyzer.analyze(session, program)
 }

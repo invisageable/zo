@@ -1,3 +1,6 @@
+mod tast;
+mod thir;
+
 use super::ty::{Ty, TyKind};
 
 impl std::fmt::Display for Ty {
@@ -19,6 +22,7 @@ impl std::fmt::Display for TyKind {
       Self::Fun => write!(f, "fun"),
       Self::Infer => write!(f, "_"),
       Self::Custom(ident) => write!(f, "{ident}"),
+      Self::Array(ty) => write!(f, "{ty}"),
       Self::StructExpr(props) => write!(f, "{props:?}"),
     }
   }

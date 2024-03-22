@@ -99,7 +99,7 @@ impl std::fmt::Display for Var {
 
     let value = &self.value;
 
-    write!(f, "{kind} {pattern} {ty} {value};",)
+    write!(f, "{kind} {pattern} {ty} {value};")
   }
 }
 

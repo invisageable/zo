@@ -52,55 +52,59 @@ impl Value {
 }
 
 impl std::ops::Add for &Value {
-  type Output = i64;
+  type Output = Value;
 
   fn add(self, rhs: Self) -> Self::Output {
     match (&self.kind, &rhs.kind) {
-      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => lhs + rhs,
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => Value::int(lhs + rhs),
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => Value::float(lhs + rhs),
       _ => unreachable!(),
     }
   }
 }
 
 impl std::ops::Sub for &Value {
-  type Output = i64;
+  type Output = Value;
 
   fn sub(self, rhs: Self) -> Self::Output {
     match (&self.kind, &rhs.kind) {
-      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => lhs - rhs,
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => Value::int(lhs - rhs),
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => Value::float(lhs - rhs),
       _ => unreachable!(),
     }
   }
 }
 
 impl std::ops::Mul for &Value {
-  type Output = i64;
+  type Output = Value;
 
   fn mul(self, rhs: Self) -> Self::Output {
     match (&self.kind, &rhs.kind) {
-      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => lhs * rhs,
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => Value::int(lhs * rhs),
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => Value::float(lhs * rhs),
       _ => unreachable!(),
     }
   }
 }
 
 impl std::ops::Div for &Value {
-  type Output = i64;
+  type Output = Value;
 
   fn div(self, rhs: Self) -> Self::Output {
     match (&self.kind, &rhs.kind) {
-      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => lhs / rhs,
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => Value::int(lhs / rhs),
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => Value::float(lhs / rhs),
       _ => unreachable!(),
     }
   }
 }
 
 impl std::ops::Rem for &Value {
-  type Output = i64;
+  type Output = Value;
 
   fn rem(self, rhs: Self) -> Self::Output {
     match (&self.kind, &rhs.kind) {
-      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => lhs % rhs,
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => Value::int(lhs % rhs),
       _ => unreachable!(),
     }
   }
@@ -115,5 +119,6 @@ pub enum ValueKind {
   Bool(bool),
   Char(char),
   Str(SmolStr),
-  BinOp(Box<Value>, ast::BinOp, Box<Value>),
+  UnOp(ast::UnOp, Box<Value>),
+  BinOp(ast::BinOp, Box<Value>, Box<Value>),
 }

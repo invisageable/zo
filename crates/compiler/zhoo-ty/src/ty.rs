@@ -68,6 +68,11 @@ impl Ty {
   }
 
   #[inline]
+  pub const fn array(ty: Box<Ty>, span: Span) -> Self {
+    Self::of(TyKind::Array(ty), span)
+  }
+
+  #[inline]
   pub const fn struct_expr(props: Vec<(Symbol, Box<Ty>)>, span: Span) -> Self {
     Self::of(TyKind::StructExpr(props), span)
   }
@@ -93,7 +98,8 @@ impl From<&Ty> for Ty {
       TyKind::Fun => Ty::fun(ty.span),
       TyKind::Infer => Ty::infer(ty.span),
       TyKind::Custom(ident) => Ty::custom(*ident, ty.span),
-      TyKind::StructExpr(props) => Ty::struct_expr(props.clone(), ty.span),
+      TyKind::Array(ty) => Ty::array(ty.to_owned(), ty.span),
+      TyKind::StructExpr(props) => Ty::struct_expr(props.to_owned(), ty.span),
     }
   }
 }
@@ -123,6 +129,7 @@ pub enum TyKind {
   Fun,
   Infer,
   Custom(Symbol),
+  Array(Box<Ty>),
   StructExpr(Vec<(Symbol, Box<Ty>)>),
 }
 
