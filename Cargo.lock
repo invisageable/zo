@@ -1791,6 +1791,7 @@ version = "0.0.0"
 dependencies = [
  "zhoo-ast",
  "zhoo-session",
+ "zhoo-ty",
  "zo-core",
 ]
 

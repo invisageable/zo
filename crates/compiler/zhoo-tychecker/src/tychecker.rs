@@ -37,7 +37,7 @@ impl<'ast> Tychecker<'ast> {
   fn ensure(&mut self, expr: &ast::Expr, t1: &Ty) {
     match self.tycheck_expr(expr) {
       Ok(t2) => {
-        self.tycheck_eq(t1, &t2);
+        self.check_eq(t1, &t2);
       }
       Err(error) => panic!("{error}"),
     }
@@ -45,36 +45,36 @@ impl<'ast> Tychecker<'ast> {
 
   #[inline]
   fn ensure_unit(&self, t1: &Ty) {
-    self.tycheck_eq(t1, &Ty::unit(Span::ZERO));
+    self.check_eq(t1, &Ty::unit(Span::ZERO));
   }
 
   #[inline]
   fn ensure_int(&self, t1: &Ty) {
-    self.tycheck_eq(t1, &Ty::int(Span::ZERO));
+    self.check_eq(t1, &Ty::int(Span::ZERO));
   }
 
   #[inline]
   fn ensure_float(&self, t1: &Ty) {
-    self.tycheck_eq(t1, &Ty::float(Span::ZERO));
+    self.check_eq(t1, &Ty::float(Span::ZERO));
   }
 
   #[inline]
   fn ensure_bool(&self, t1: &Ty) {
-    self.tycheck_eq(t1, &Ty::bool(Span::ZERO));
+    self.check_eq(t1, &Ty::bool(Span::ZERO));
   }
 
   #[inline]
   fn ensure_char(&self, t1: &Ty) {
-    self.tycheck_eq(t1, &Ty::char(Span::ZERO));
+    self.check_eq(t1, &Ty::char(Span::ZERO));
   }
 
   #[inline]
   fn ensure_str(&self, t1: &Ty) {
-    self.tycheck_eq(t1, &Ty::str(Span::ZERO));
+    self.check_eq(t1, &Ty::str(Span::ZERO));
   }
 
   #[inline]
-  fn tycheck_eq(&self, t1: &Ty, t2: &Ty) -> bool {
+  fn check_eq(&self, t1: &Ty, t2: &Ty) -> bool {
     if t1.kind != t2.kind {
       self
         .reporter
@@ -127,20 +127,30 @@ impl<'ast> Tychecker<'ast> {
     self.tycheck_var(var)
   }
 
-  fn tycheck_var(&mut self, _var: &ast::Var) -> Result<()> {
+  fn tycheck_var(&mut self, var: &ast::Var) -> Result<()> {
     // todo:
     // get the type of the pattern expr.
     // get the type of the value expr.
     // check if the scope map already contains the pattern type.
     // if not, register the pattern type into it, if not handle a specific
     // error.
+    let _name = self.interner.lookup_ident(*var.pattern.symbolize());
 
-    todo!()
+    match &var.maybe_ty {
+      Some(_t1) => {
+        let _t2 = self.tycheck_expr(&var.value)?;
+
+        todo!()
+      }
+      None => Ok(()),
+    }
   }
 
   fn tycheck_item_ty_alias(&mut self, ty_alias: &ast::TyAlias) -> Result<()> {
     match &ty_alias.maybe_ty {
       Some(_ty) => {
+        let _ident = self.interner.lookup_ident(*ty_alias.pattern.symbolize());
+
         // register the type into a scope map.
         Ok(())
       }
@@ -148,8 +158,13 @@ impl<'ast> Tychecker<'ast> {
     }
   }
 
-  fn tycheck_item_ext(&mut self, _ext: &ast::Ext) -> Result<()> {
-    todo!()
+  fn tycheck_item_ext(&mut self, ext: &ast::Ext) -> Result<()> {
+    self.tycheck_prototype(&ext.prototype)?;
+
+    match &ext.maybe_body {
+      Some(body) => self.tycheck_block(body),
+      None => todo!(),
+    }
   }
 
   fn tycheck_item_abstract(&mut self, _abstr: &ast::Abstract) -> Result<()> {
@@ -173,12 +188,12 @@ impl<'ast> Tychecker<'ast> {
     self.tycheck_block(&fun.body)
   }
 
-  fn tycheck_prototype(&mut self, prototype: &ast::Prototype) -> Result<()> {
+  fn tycheck_prototype(&mut self, prototype: &ast::Prototype) -> Result<Ty> {
     self.tycheck_inputs(&prototype.inputs)?;
 
     self.return_ty = prototype.as_ty();
 
-    Ok(())
+    Ok(prototype.as_ty())
   }
 
   fn tycheck_inputs(&mut self, inputs: &ast::Inputs) -> Result<()> {
@@ -478,13 +493,13 @@ impl<'ast> Tychecker<'ast> {
   }
 
   fn tycheck_expr_binop_eq(&mut self, t1: Ty, t2: Ty) -> Result<Ty> {
-    self.tycheck_eq(&t1, &t2);
+    self.check_eq(&t1, &t2);
 
     Ok(Ty::bool(t1.span.to(t2.span)))
   }
 
   fn tycheck_expr_binop_ne(&mut self, t1: Ty, t2: Ty) -> Result<Ty> {
-    self.tycheck_eq(&t1, &t2);
+    self.check_eq(&t1, &t2);
 
     Ok(Ty::bool(t1.span.to(t2.span)))
   }
@@ -511,19 +526,12 @@ impl<'ast> Tychecker<'ast> {
     lhs: &ast::Expr,
     rhs: &ast::Expr,
   ) -> Result<Ty> {
-    match &lhs.kind {
-      ast::ExprKind::Lit(ast::Lit {
-        kind: ast::LitKind::Ident(_symbol),
-        ..
-      }) => {
-        let t1 = self.tycheck_expr(lhs)?;
+    let _name = self.interner.lookup_ident(*lhs.symbolize());
+    let t1 = self.tycheck_expr(lhs)?;
 
-        self.ensure(rhs, &t1);
+    self.ensure(rhs, &t1);
 
-        Ok(t1)
-      }
-      _ => todo!(),
-    }
+    Ok(t1)
   }
 
   fn tycheck_expr_assignop(
@@ -609,29 +617,47 @@ impl<'ast> Tychecker<'ast> {
     todo!()
   }
 
-  fn tycheck_expr_block(&mut self, _block: &ast::Block) -> Result<Ty> {
-    todo!()
+  fn tycheck_expr_block(&mut self, block: &ast::Block) -> Result<Ty> {
+    for stmt in &block.stmts {
+      self.tycheck_stmt(stmt)?;
+    }
+
+    Ok(Ty::unit(block.span))
   }
 
   fn tycheck_expr_fn(
     &mut self,
-    _prototype: &ast::Prototype,
-    _body: &ast::Block,
+    prototype: &ast::Prototype,
+    body: &ast::Block,
   ) -> Result<Ty> {
-    todo!()
+    let ty = self.tycheck_prototype(prototype)?;
+
+    self.tycheck_block(body)?;
+
+    Ok(ty)
   }
 
   fn tycheck_expr_call(
     &mut self,
     callee: &ast::Expr,
-    _args: &ast::Args,
+    args: &ast::Args,
   ) -> Result<Ty> {
     let _name = self.interner.lookup_ident(*callee.symbolize());
+
+    self.tycheck_args(args)?;
 
     todo!()
   }
 
-  fn tycheck_args(&mut self, _args: &ast::Args) -> Result<Ty> {
+  fn tycheck_args(&mut self, args: &ast::Args) -> Result<()> {
+    for arg in args.iter() {
+      self.tycheck_arg(arg)?;
+    }
+
+    Ok(())
+  }
+
+  fn tycheck_arg(&mut self, _arg: &ast::Arg) -> Result<()> {
     todo!()
   }
 
@@ -724,7 +750,7 @@ impl<'ast> Tychecker<'ast> {
       Some(expr) => {
         let ty = self.tycheck_expr(expr)?;
 
-        self.tycheck_eq(&ty, &self.return_ty);
+        self.check_eq(&ty, &self.return_ty);
 
         Ok(ty)
       }
@@ -744,7 +770,7 @@ impl<'ast> Tychecker<'ast> {
       Some(expr) => {
         let ty = self.tycheck_expr(expr)?;
 
-        self.tycheck_eq(&ty, &self.return_ty);
+        self.check_eq(&ty, &self.return_ty);
 
         Ok(ty)
       }

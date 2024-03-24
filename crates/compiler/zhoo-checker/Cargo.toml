@@ -8,5 +8,6 @@ version.workspace = true
 [dependencies]
 zhoo-ast = { workspace = true }
 zhoo-session = { workspace = true }
+zhoo-ty = { workspace = true }
 
 zo-core = { workspace = true }
