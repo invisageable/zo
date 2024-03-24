@@ -3,6 +3,10 @@
 use zo_core::interner::symbol::Symbol;
 use zo_core::span::Span;
 
+pub trait AsTy: Sized {
+  fn as_ty(&self) -> Ty;
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ty {
   pub kind: TyKind,

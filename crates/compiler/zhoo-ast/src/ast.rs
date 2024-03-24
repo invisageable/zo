@@ -3,7 +3,7 @@
 use zhoo_tokenizer::token::kw::Kw;
 use zhoo_tokenizer::token::op::Op;
 use zhoo_tokenizer::token::{Token, TokenKind};
-use zhoo_ty::ty::Ty;
+use zhoo_ty::ty::{AsTy, Ty};
 
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
@@ -203,6 +203,12 @@ pub struct Prototype {
   pub span: Span,
 }
 
+impl AsTy for Prototype {
+  fn as_ty(&self) -> Ty {
+    self.output_ty.as_ty()
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct Inputs(pub Vec<Input>);
 
@@ -247,6 +253,15 @@ pub struct Input {
 pub enum OutputTy {
   Default(Span),
   Ty(Ty),
+}
+
+impl AsTy for OutputTy {
+  fn as_ty(&self) -> Ty {
+    match self {
+      Self::Default(span) => Ty::unit(*span),
+      Self::Ty(ty) => ty.to_owned(),
+    }
+  }
 }
 
 impl AsSpan for OutputTy {
@@ -345,6 +360,7 @@ pub enum ExprKind {
   // definitions.
   StructExpr(StructExpr),
   Chaining(Box<Expr>, Box<Expr>),
+  // Range(Option<Box<Expr>>, Option<Box<Expr>>)),
 }
 
 impl Symbolize for ExprKind {
@@ -545,8 +561,9 @@ pub struct Prop {
 
 #[derive(Clone, Debug)]
 pub struct For {
-  pub pattern: Box<Expr>,
-  pub body: Box<Expr>,
+  pub pattern: Pattern,
+  pub iterator: Box<Expr>,
+  pub body: Block,
   pub span: Span,
 }
 

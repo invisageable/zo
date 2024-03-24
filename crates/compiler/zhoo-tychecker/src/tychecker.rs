@@ -4,8 +4,9 @@
 
 use zhoo_ast::ast;
 use zhoo_session::session::Session;
-use zhoo_ty::ty::{Ty, TyKind};
+use zhoo_ty::ty::{AsTy, Ty, TyKind};
 
+use zo_core::interner::symbol::Symbolize;
 use zo_core::interner::Interner;
 use zo_core::reporter::report::semantic::Semantic;
 use zo_core::reporter::report::ReportError;
@@ -17,12 +18,19 @@ use zo_core::Result;
 struct Tychecker<'ast> {
   interner: &'ast Interner,
   reporter: &'ast Reporter,
+  loops: usize,
+  return_ty: Ty,
 }
 
 impl<'ast> Tychecker<'ast> {
   #[inline]
   fn new(interner: &'ast Interner, reporter: &'ast Reporter) -> Self {
-    Self { interner, reporter }
+    Self {
+      interner,
+      reporter,
+      loops: 0usize,
+      return_ty: Ty::UNIT,
+    }
   }
 
   #[inline]
@@ -82,7 +90,7 @@ impl<'ast> Tychecker<'ast> {
     true
   }
 
-  fn check(&mut self, program: &ast::Program) -> Result<()> {
+  fn tycheck(&mut self, program: &ast::Program) -> Result<()> {
     for item in &program.items {
       self.tycheck_item(item)?;
     }
@@ -160,8 +168,37 @@ impl<'ast> Tychecker<'ast> {
     todo!()
   }
 
-  fn tycheck_item_fun(&mut self, _fun: &ast::Fun) -> Result<()> {
-    todo!()
+  fn tycheck_item_fun(&mut self, fun: &ast::Fun) -> Result<()> {
+    self.tycheck_prototype(&fun.prototype)?;
+    self.tycheck_block(&fun.body)
+  }
+
+  fn tycheck_prototype(&mut self, prototype: &ast::Prototype) -> Result<()> {
+    self.tycheck_inputs(&prototype.inputs)?;
+
+    self.return_ty = prototype.as_ty();
+
+    Ok(())
+  }
+
+  fn tycheck_inputs(&mut self, inputs: &ast::Inputs) -> Result<()> {
+    for input in inputs.iter() {
+      self.tycheck_input(input)?;
+    }
+
+    Ok(())
+  }
+
+  fn tycheck_input(&mut self, _input: &ast::Input) -> Result<()> {
+    Ok(())
+  }
+
+  fn tycheck_block(&mut self, block: &ast::Block) -> Result<()> {
+    for stmt in &block.stmts {
+      self.tycheck_stmt(stmt)?;
+    }
+
+    Ok(())
   }
 
   fn tycheck_stmt(&mut self, stmt: &ast::Stmt) -> Result<()> {
@@ -238,16 +275,38 @@ impl<'ast> Tychecker<'ast> {
   }
 
   fn tycheck_expr_lit(&mut self, lit: &ast::Lit) -> Result<Ty> {
-    Ok(match &lit.kind {
-      ast::LitKind::Int(_) => Ty::int(lit.span),
-      ast::LitKind::Float(_) => Ty::float(lit.span),
-      ast::LitKind::Ident(_symbol) => {
-        todo!()
-      }
-      ast::LitKind::Bool(_) => Ty::bool(lit.span),
-      ast::LitKind::Char(_) => Ty::char(lit.span),
-      ast::LitKind::Str(_) => Ty::str(lit.span),
-    })
+    match &lit.kind {
+      ast::LitKind::Int(_) => self.tycheck_expr_lit_int(lit),
+      ast::LitKind::Float(_) => self.tycheck_expr_lit_float(lit),
+      ast::LitKind::Ident(_) => self.tycheck_expr_lit_ident(lit),
+      ast::LitKind::Bool(_) => self.tycheck_expr_lit_bool(lit),
+      ast::LitKind::Char(_) => self.tycheck_expr_lit_char(lit),
+      ast::LitKind::Str(_) => self.tycheck_expr_lit_str(lit),
+    }
+  }
+
+  fn tycheck_expr_lit_int(&mut self, lit: &ast::Lit) -> Result<Ty> {
+    Ok(Ty::int(lit.span))
+  }
+
+  fn tycheck_expr_lit_float(&mut self, lit: &ast::Lit) -> Result<Ty> {
+    Ok(Ty::float(lit.span))
+  }
+
+  fn tycheck_expr_lit_ident(&mut self, _lit: &ast::Lit) -> Result<Ty> {
+    todo!()
+  }
+
+  fn tycheck_expr_lit_bool(&mut self, lit: &ast::Lit) -> Result<Ty> {
+    Ok(Ty::bool(lit.span))
+  }
+
+  fn tycheck_expr_lit_char(&mut self, lit: &ast::Lit) -> Result<Ty> {
+    Ok(Ty::char(lit.span))
+  }
+
+  fn tycheck_expr_lit_str(&mut self, lit: &ast::Lit) -> Result<Ty> {
+    Ok(Ty::str(lit.span))
   }
 
   fn tycheck_expr_unop(
@@ -564,9 +623,15 @@ impl<'ast> Tychecker<'ast> {
 
   fn tycheck_expr_call(
     &mut self,
-    _callee: &ast::Expr,
+    callee: &ast::Expr,
     _args: &ast::Args,
   ) -> Result<Ty> {
+    let _name = self.interner.lookup_ident(*callee.symbolize());
+
+    todo!()
+  }
+
+  fn tycheck_args(&mut self, _args: &ast::Args) -> Result<Ty> {
     todo!()
   }
 
@@ -615,59 +680,90 @@ impl<'ast> Tychecker<'ast> {
     todo!()
   }
 
-  fn tycheck_expr_loop(&mut self, _body: &ast::Block) -> Result<Ty> {
-    todo!()
+  fn tycheck_expr_loop(&mut self, body: &ast::Block) -> Result<Ty> {
+    self.loops += 1;
+
+    let ty = self.tycheck_expr_block(body)?;
+
+    self.loops -= 1;
+
+    Ok(ty)
   }
 
   fn tycheck_expr_while(
     &mut self,
-    _condition: &ast::Expr,
-    _body: &ast::Block,
+    condition: &ast::Expr,
+    body: &ast::Block,
   ) -> Result<Ty> {
-    // todo:
-    // get condition type.
-    // ensure bool, pass condition type.
-    // we need a loop counter to increment it before doing any check of the body
-    // and decrement it after.
+    self.ensure(condition, &Ty::bool(condition.span));
 
-    todo!()
+    self.loops += 1;
+
+    let ty = self.tycheck_expr_block(body)?;
+
+    self.loops -= 1;
+
+    Ok(ty)
   }
 
-  fn tycheck_expr_for(&mut self, _for_loop: &ast::For) -> Result<Ty> {
-    todo!()
+  fn tycheck_expr_for(&mut self, for_loop: &ast::For) -> Result<Ty> {
+    self.loops += 1;
+
+    let ty = self.tycheck_expr_block(&for_loop.body)?;
+
+    self.loops -= 1;
+
+    Ok(ty)
   }
 
   fn tycheck_expr_return(
     &mut self,
-    _maybe_expr: &Option<Box<ast::Expr>>,
+    maybe_expr: &Option<Box<ast::Expr>>,
   ) -> Result<Ty> {
-    // todo:
-    // we need to keep trace of a return from function, then we can gets this
-    // value and compare it with the maybe_expr and our return ty in memory.
-    todo!()
+    match maybe_expr {
+      Some(expr) => {
+        let ty = self.tycheck_expr(expr)?;
+
+        self.tycheck_eq(&ty, &self.return_ty);
+
+        Ok(ty)
+      }
+      None => Ok(Ty::UNIT),
+    }
   }
 
   fn tycheck_expr_break(
     &mut self,
-    _maybe_expr: &Option<Box<ast::Expr>>,
+    maybe_expr: &Option<Box<ast::Expr>>,
   ) -> Result<Ty> {
-    // todo:
-    // we need to keep trace of loops, then we can handle an error, if we
-    // encounter a length `zero`.
+    if self.loops == 0 {
+      return Err(ReportError::Semantic(Semantic::OutOfLoop("unnamed".into()))); // todo: get the origin expression.
+    }
 
-    todo!()
+    match maybe_expr {
+      Some(expr) => {
+        let ty = self.tycheck_expr(expr)?;
+
+        self.tycheck_eq(&ty, &self.return_ty);
+
+        Ok(ty)
+      }
+      None => Ok(Ty::UNIT),
+    }
   }
 
   fn tycheck_expr_continue(&mut self) -> Result<Ty> {
-    // todo:
-    // we need to keep trace of loops, then we can handle an error, if we
-    // encounter a length `zero`.
+    if self.loops == 0 {
+      return Err(ReportError::Semantic(Semantic::OutOfLoop("unnamed".into()))); // todo: get the origin expression.
+    }
 
-    todo!()
+    Ok(Ty::UNIT)
   }
 
-  fn tycheck_expr_var(&mut self, _var: &ast::Var) -> Result<Ty> {
-    todo!()
+  fn tycheck_expr_var(&mut self, var: &ast::Var) -> Result<Ty> {
+    self.tycheck_var(var)?;
+
+    Ok(Ty::UNIT)
   }
 
   fn tycheck_expr_struct_expr(
@@ -693,5 +789,5 @@ impl<'ast> Tychecker<'ast> {
 /// ```
 /// ```
 pub fn tycheck(session: &mut Session, program: &ast::Program) -> Result<()> {
-  Tychecker::new(&session.interner, &session.reporter).check(program)
+  Tychecker::new(&session.interner, &session.reporter).tycheck(program)
 }

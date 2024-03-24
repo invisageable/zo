@@ -7,19 +7,21 @@ use ariadne::Fmt;
 
 #[derive(Debug)]
 pub enum Semantic {
-  NotFoundIdent(Span, String),
+  InvalidIndex(Span, String),
+  NameClash(Span, String),
+  NamingConvention(Span, String, String),
   NotFoundEntry(Span, String),
   NotFoundFun(Span, String),
-  NamingConvention(Span, String, String),
+  NotFoundIdent(Span, String),
+  OutOfLoop(String),
   TypeMismatch(Span, String, String),
 }
 
 impl Error for Semantic {
   fn report(&self) -> Report {
     match self {
-      Self::NotFoundIdent(span, string) => todo!("{span}-{string}"),
-      Self::NotFoundEntry(span, string) => todo!("{span}-{string}"),
-      Self::NotFoundFun(span, string) => todo!("{span}-{string}"),
+      Self::InvalidIndex(span, name) => todo!("{span}-{name}"),
+      Self::NameClash(span, name) => todo!("{span}-{name}"),
       Self::NamingConvention(span, ident, naming) => Report {
         kind: ReportKind::Warning(REPORT_TITLE_WARNING),
         message: format!(
@@ -38,6 +40,10 @@ impl Error for Semantic {
         )],
         ..Default::default()
       },
+      Self::NotFoundEntry(span, string) => todo!("{span}-{string}"),
+      Self::NotFoundFun(span, string) => todo!("{span}-{string}"),
+      Self::NotFoundIdent(span, string) => todo!("{span}-{string}"),
+      Self::OutOfLoop(name) => todo!("{name}"),
       Self::TypeMismatch(span, lhs, rhs) => todo!("{span}-{lhs}-{rhs}"),
     }
   }
