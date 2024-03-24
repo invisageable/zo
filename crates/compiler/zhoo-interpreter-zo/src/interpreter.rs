@@ -149,8 +149,8 @@ impl<'hir> Interpreter<'hir> {
       ast::ExprKind::AssignOp(binop, lhs, rhs) => {
         self.interpret_expr_assignop(binop, lhs, rhs)
       }
-      ast::ExprKind::Array(elements) => self.interpret_expr_array(elements),
-      ast::ExprKind::Tuple(elements) => self.interpret_expr_tuple(elements),
+      ast::ExprKind::Array(elmts) => self.interpret_expr_array(elmts),
+      ast::ExprKind::Tuple(elmts) => self.interpret_expr_tuple(elmts),
       ast::ExprKind::ArrayAccess(array, access) => {
         self.interpret_expr_array_access(array, access)
       }
@@ -342,7 +342,7 @@ impl<'hir> Interpreter<'hir> {
 
   fn interpret_expr_tuple_access(
     &mut self,
-    _array: &ast::Expr,
+    _tuple: &ast::Expr,
     _access: &ast::Expr,
   ) -> Result<Value> {
     todo!()

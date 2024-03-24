@@ -212,8 +212,8 @@ impl<'mir> Translator<'mir> {
         self.translate_expr_assignop(binop, lhs, rhs)
       }
       ast::ExprKind::Block(block) => self.translate_expr_block(block),
-      ast::ExprKind::Array(exprs) => self.translate_expr_array(exprs),
-      ast::ExprKind::Tuple(exprs) => self.translate_expr_tuple(exprs),
+      ast::ExprKind::Array(elmts) => self.translate_expr_array(elmts),
+      ast::ExprKind::Tuple(elmts) => self.translate_expr_tuple(elmts),
       ast::ExprKind::ArrayAccess(array, access) => {
         self.translate_expr_array_access(array, access)
       }

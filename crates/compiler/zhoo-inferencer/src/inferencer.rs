@@ -135,8 +135,8 @@ impl<'program> Inferencer<'program> {
         self.infer_expr_assignop(lhs, rhs)
       }
       ast::ExprKind::Block(block) => self.infer_expr_block(block),
-      ast::ExprKind::Array(exprs) => self.infer_expr_array(exprs),
-      ast::ExprKind::Tuple(exprs) => self.infer_expr_tuple(exprs),
+      ast::ExprKind::Array(elmts) => self.infer_expr_array(elmts),
+      ast::ExprKind::Tuple(elmts) => self.infer_expr_tuple(elmts),
       ast::ExprKind::ArrayAccess(array, access) => {
         self.infer_expr_array_access(array, access)
       }

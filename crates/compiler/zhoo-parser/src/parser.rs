@@ -1190,11 +1190,11 @@ impl<'tokens> Parser<'tokens> {
   /// `[ <expr*> , ]`.
   fn parse_expr_array(parser: &mut Parser) -> Result<Expr> {
     let lo = parser.current_span();
-    let exprs = parser.parse_exprs()?;
+    let elmts = parser.parse_exprs()?;
     let hi = parser.current_span();
 
     Ok(Expr {
-      kind: ExprKind::Array(exprs),
+      kind: ExprKind::Array(elmts),
       span: Span::merge(lo, hi),
     })
   }
