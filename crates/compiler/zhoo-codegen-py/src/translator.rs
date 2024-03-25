@@ -58,14 +58,33 @@ impl<'mir> Translator<'mir> {
   /// `<item>`.
   fn translate_item(&mut self, item: &ast::Item) -> Result<()> {
     match &item.kind {
+      ast::ItemKind::Pack(pack) => self.translate_item_pack(pack),
+      ast::ItemKind::Load(load) => self.translate_item_load(load),
       ast::ItemKind::Var(var) => self.translate_item_var(var),
       ast::ItemKind::TyAlias(ty_alias) => {
         self.translate_item_ty_alias(ty_alias)
       }
       ast::ItemKind::Ext(ext) => self.translate_item_ext(ext),
+      ast::ItemKind::Abstract(abstr) => self.translate_item_abstract(abstr),
+      ast::ItemKind::Enum(enumeration) => self.translate_item_enum(enumeration),
+      ast::ItemKind::Struct(structure) => self.translate_item_struct(structure),
+      ast::ItemKind::Apply(apply) => self.translate_item_apply(apply),
       ast::ItemKind::Fun(fun) => self.translate_item_fun(fun),
-      _ => todo!(),
     }
+  }
+
+  /// ## notes.
+  ///
+  /// ...
+  fn translate_item_pack(&mut self, _pack: &ast::Pack) -> Result<()> {
+    todo!()
+  }
+
+  /// ## notes.
+  ///
+  /// ...
+  fn translate_item_load(&mut self, _load: &ast::Load) -> Result<()> {
+    todo!()
   }
 
   /// ## notes.
@@ -101,6 +120,9 @@ impl<'mir> Translator<'mir> {
     }
   }
 
+  /// ## notes.
+  ///
+  /// ...
   fn translate_item_ty_alias(
     &mut self,
     _ty_alias: &ast::TyAlias,
@@ -108,7 +130,38 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
+  /// ## notes.
+  ///
+  /// ...
   fn translate_item_ext(&mut self, _ext: &ast::Ext) -> Result<()> {
+    todo!()
+  }
+
+  /// ## notes.
+  ///
+  /// ...
+  fn translate_item_abstract(&mut self, _abstr: &ast::Abstract) -> Result<()> {
+    todo!()
+  }
+
+  /// ## notes.
+  ///
+  /// ...
+  fn translate_item_enum(&mut self, _enumeration: &ast::Enum) -> Result<()> {
+    todo!()
+  }
+
+  /// ## notes.
+  ///
+  /// ...
+  fn translate_item_struct(&mut self, _structure: &ast::Struct) -> Result<()> {
+    todo!()
+  }
+
+  /// ## notes.
+  ///
+  /// ...
+  fn translate_item_apply(&mut self, _apply: &ast::Apply) -> Result<()> {
     todo!()
   }
 

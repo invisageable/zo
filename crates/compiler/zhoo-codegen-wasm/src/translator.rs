@@ -63,15 +63,27 @@ impl<'mir> Translator<'mir> {
 
   fn translate_item(&mut self, item: &ast::Item) -> Result<()> {
     match &item.kind {
+      ast::ItemKind::Pack(pack) => self.translate_item_pack(pack),
+      ast::ItemKind::Load(load) => self.translate_item_load(load),
       ast::ItemKind::Var(var) => self.translate_item_var(var),
       ast::ItemKind::TyAlias(ty_alias) => {
         self.translate_item_ty_alias(ty_alias)
       }
       ast::ItemKind::Ext(ext) => self.translate_item_ext(ext),
       ast::ItemKind::Abstract(abstr) => self.translate_item_abstract(abstr),
+      ast::ItemKind::Enum(enumeration) => self.translate_item_enum(enumeration),
+      ast::ItemKind::Struct(structure) => self.translate_item_struct(structure),
+      ast::ItemKind::Apply(apply) => self.translate_item_apply(apply),
       ast::ItemKind::Fun(fun) => self.translate_item_fun(fun),
-      _ => todo!(),
     }
+  }
+
+  fn translate_item_pack(&mut self, _pack: &ast::Pack) -> Result<()> {
+    todo!()
+  }
+
+  fn translate_item_load(&mut self, _load: &ast::Load) -> Result<()> {
+    todo!()
   }
 
   fn translate_item_var(&mut self, var: &ast::Var) -> Result<()> {
@@ -80,6 +92,15 @@ impl<'mir> Translator<'mir> {
 
   fn translate_var(&mut self, _var: &ast::Var) -> Result<()> {
     Ok(())
+  }
+
+  fn translate_pattern(&mut self, pattern: &ast::Pattern) -> Result<()> {
+    match &pattern.kind {
+      ast::PatternKind::Underscore => todo!(),
+      ast::PatternKind::Ident(ident) => self.translate_expr(ident),
+      ast::PatternKind::Lit(lit) => self.translate_expr_lit(lit),
+      ast::PatternKind::MeLower => todo!(),
+    }
   }
 
   fn translate_item_ty_alias(
@@ -97,13 +118,16 @@ impl<'mir> Translator<'mir> {
     todo!()
   }
 
-  fn translate_pattern(&mut self, pattern: &ast::Pattern) -> Result<()> {
-    match &pattern.kind {
-      ast::PatternKind::Underscore => todo!(),
-      ast::PatternKind::Ident(ident) => self.translate_expr(ident),
-      ast::PatternKind::Lit(lit) => self.translate_expr_lit(lit),
-      ast::PatternKind::MeLower => todo!(),
-    }
+  fn translate_item_enum(&mut self, _enumeration: &ast::Enum) -> Result<()> {
+    todo!()
+  }
+
+  fn translate_item_struct(&mut self, _structure: &ast::Struct) -> Result<()> {
+    todo!()
+  }
+
+  fn translate_item_apply(&mut self, _apply: &ast::Apply) -> Result<()> {
+    todo!()
   }
 
   /// ## syntax.
