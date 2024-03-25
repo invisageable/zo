@@ -37,8 +37,8 @@ impl Ty {
   }
 
   #[inline]
-  pub const fn ident(ident: Symbol, span: Span) -> Self {
-    Self::of(TyKind::Ident(ident), span)
+  pub const fn ident(symbol: Symbol, span: Span) -> Self {
+    Self::of(TyKind::Ident(symbol), span)
   }
 
   #[inline]
@@ -57,8 +57,8 @@ impl Ty {
   }
 
   #[inline]
-  pub const fn fun(span: Span) -> Self {
-    Self::of(TyKind::Fun, span)
+  pub const fn fun(ty: (Box<Ty>, Vec<Ty>), span: Span) -> Self {
+    Self::of(TyKind::Fun(ty), span)
   }
 
   #[inline]
@@ -67,8 +67,13 @@ impl Ty {
   }
 
   #[inline]
-  pub const fn custom(ident: Symbol, span: Span) -> Self {
-    Self::of(TyKind::Custom(ident), span)
+  pub const fn alias(symbol: Symbol, span: Span) -> Self {
+    Self::of(TyKind::Alias(symbol), span)
+  }
+
+  #[inline]
+  pub const fn pointer(ty: Box<Ty>, span: Span) -> Self {
+    Self::of(TyKind::Pointer(ty), span)
   }
 
   #[inline]
@@ -77,8 +82,8 @@ impl Ty {
   }
 
   #[inline]
-  pub const fn struct_expr(props: Vec<(Symbol, Box<Ty>)>, span: Span) -> Self {
-    Self::of(TyKind::StructExpr(props), span)
+  pub const fn struct_expr(symbol: Symbol, span: Span) -> Self {
+    Self::of(TyKind::StructExpr(symbol), span)
   }
 
   #[inline]
@@ -100,15 +105,18 @@ impl From<&Ty> for Ty {
       TyKind::Unit => Ty::unit(ty.span),
       TyKind::Int => Ty::int(ty.span),
       TyKind::Float => Ty::float(ty.span),
-      TyKind::Ident(ident) => Ty::ident(*ident, ty.span),
+      TyKind::Ident(symbol) => Ty::ident(*symbol, ty.span),
       TyKind::Bool => Ty::bool(ty.span),
       TyKind::Char => Ty::char(ty.span),
       TyKind::Str => Ty::str(ty.span),
-      TyKind::Fun => Ty::fun(ty.span),
+      TyKind::Fun((ty, tys)) => {
+        Ty::fun((ty.to_owned(), tys.to_owned()), ty.span)
+      }
       TyKind::Infer => Ty::infer(ty.span),
-      TyKind::Custom(ident) => Ty::custom(*ident, ty.span),
+      TyKind::Alias(symbol) => Ty::alias(*symbol, ty.span),
+      TyKind::Pointer(ty) => Ty::pointer(ty.to_owned(), ty.span),
       TyKind::Array(ty) => Ty::array(ty.to_owned(), ty.span),
-      TyKind::StructExpr(props) => Ty::struct_expr(props.to_owned(), ty.span),
+      TyKind::StructExpr(symbol) => Ty::struct_expr(*symbol, ty.span),
     }
   }
 }
@@ -121,7 +129,7 @@ impl From<(&str, Span)> for Ty {
       "bool" => Ty::bool(span),
       "char" => Ty::char(span),
       "str" => Ty::str(span),
-      _ => Ty::custom(find_me(ident), span),
+      _ => Ty::alias(find_me(ident), span),
     }
   }
 }
@@ -135,11 +143,12 @@ pub enum TyKind {
   Bool,
   Char,
   Str,
-  Fun,
+  Fun((Box<Ty>, Vec<Ty>)),
   Infer,
-  Custom(Symbol),
+  Alias(Symbol),
+  Pointer(Box<Ty>),
   Array(Box<Ty>),
-  StructExpr(Vec<(Symbol, Box<Ty>)>),
+  StructExpr(Symbol),
 }
 
 impl TyKind {

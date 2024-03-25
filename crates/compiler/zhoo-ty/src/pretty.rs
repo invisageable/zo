@@ -3,6 +3,8 @@ mod thir;
 
 use super::ty::{Ty, TyKind};
 
+use zo_core::fmt::sep_comma;
+
 impl std::fmt::Display for Ty {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(f, "{}", self.kind)
@@ -15,15 +17,16 @@ impl std::fmt::Display for TyKind {
       Self::Unit => write!(f, "()"),
       Self::Int => write!(f, "int"),
       Self::Float => write!(f, "float"),
-      Self::Ident(ident) => write!(f, "{ident}"),
+      Self::Ident(symbol) => write!(f, "{symbol}"),
       Self::Bool => write!(f, "bool"),
       Self::Char => write!(f, "char"),
       Self::Str => write!(f, "str"),
-      Self::Fun => write!(f, "fun"),
+      Self::Fun((ty, tys)) => write!(f, "{ty}-{}", sep_comma(tys)),
       Self::Infer => write!(f, "_"),
-      Self::Custom(ident) => write!(f, "{ident}"),
+      Self::Alias(symbol) => write!(f, "{symbol}"),
+      Self::Pointer(ty) => write!(f, "{ty}"),
       Self::Array(ty) => write!(f, "{ty}"),
-      Self::StructExpr(props) => write!(f, "{props:?}"),
+      Self::StructExpr(symbol) => write!(f, "{symbol}"),
     }
   }
 }
