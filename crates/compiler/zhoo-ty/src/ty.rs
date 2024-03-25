@@ -80,6 +80,11 @@ impl Ty {
   pub const fn struct_expr(props: Vec<(Symbol, Box<Ty>)>, span: Span) -> Self {
     Self::of(TyKind::StructExpr(props), span)
   }
+
+  #[inline]
+  pub const fn is_numeric(&self) -> bool {
+    self.kind.is_numeric()
+  }
 }
 
 impl Ty {
@@ -141,6 +146,11 @@ impl TyKind {
   #[inline]
   pub fn is(&self, kind: TyKind) -> bool {
     *self == kind
+  }
+
+  #[inline]
+  pub const fn is_numeric(&self) -> bool {
+    matches!(self, Self::Int | Self::Float)
   }
 }
 

@@ -1,4 +1,4 @@
-//! ...
+//! ...wip
 
 #![allow(dead_code)]
 
@@ -18,7 +18,7 @@ use zo_core::Result;
 struct Tychecker<'ast> {
   interner: &'ast Interner,
   reporter: &'ast Reporter,
-  loops: usize,
+  loop_depth: usize,
   return_ty: Ty,
 }
 
@@ -28,7 +28,7 @@ impl<'ast> Tychecker<'ast> {
     Self {
       interner,
       reporter,
-      loops: 0usize,
+      loop_depth: 0usize,
       return_ty: Ty::UNIT,
     }
   }
@@ -128,12 +128,6 @@ impl<'ast> Tychecker<'ast> {
   }
 
   fn tycheck_var(&mut self, var: &ast::Var) -> Result<()> {
-    // todo:
-    // get the type of the pattern expr.
-    // get the type of the value expr.
-    // check if the scope map already contains the pattern type.
-    // if not, register the pattern type into it, if not handle a specific
-    // error.
     let _name = self.interner.lookup_ident(*var.pattern.symbolize());
 
     match &var.maybe_ty {
@@ -675,7 +669,7 @@ impl<'ast> Tychecker<'ast> {
 
     match &maybe_alternative {
       Some(alternative) => {
-        self.ensure(&alternative, &t2);
+        self.ensure(alternative, &t2);
 
         Ok(t2)
       }
@@ -707,11 +701,11 @@ impl<'ast> Tychecker<'ast> {
   }
 
   fn tycheck_expr_loop(&mut self, body: &ast::Block) -> Result<Ty> {
-    self.loops += 1;
+    self.loop_depth += 1;
 
     let ty = self.tycheck_expr_block(body)?;
 
-    self.loops -= 1;
+    self.loop_depth -= 1;
 
     Ok(ty)
   }
@@ -723,21 +717,21 @@ impl<'ast> Tychecker<'ast> {
   ) -> Result<Ty> {
     self.ensure(condition, &Ty::bool(condition.span));
 
-    self.loops += 1;
+    self.loop_depth += 1;
 
     let ty = self.tycheck_expr_block(body)?;
 
-    self.loops -= 1;
+    self.loop_depth -= 1;
 
     Ok(ty)
   }
 
   fn tycheck_expr_for(&mut self, for_loop: &ast::For) -> Result<Ty> {
-    self.loops += 1;
+    self.loop_depth += 1;
 
     let ty = self.tycheck_expr_block(&for_loop.body)?;
 
-    self.loops -= 1;
+    self.loop_depth -= 1;
 
     Ok(ty)
   }
@@ -762,7 +756,7 @@ impl<'ast> Tychecker<'ast> {
     &mut self,
     maybe_expr: &Option<Box<ast::Expr>>,
   ) -> Result<Ty> {
-    if self.loops == 0 {
+    if self.loop_depth == 0 {
       return Err(ReportError::Semantic(Semantic::OutOfLoop("unnamed".into()))); // todo: get the origin expression.
     }
 
@@ -779,7 +773,7 @@ impl<'ast> Tychecker<'ast> {
   }
 
   fn tycheck_expr_continue(&mut self) -> Result<Ty> {
-    if self.loops == 0 {
+    if self.loop_depth == 0 {
       return Err(ReportError::Semantic(Semantic::OutOfLoop("unnamed".into()))); // todo: get the origin expression.
     }
 
