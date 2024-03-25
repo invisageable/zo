@@ -73,3 +73,66 @@ impl SourceMap {
     &self.sources[self.source_id(span) as usize].path
   }
 }
+
+#[cfg(test)]
+mod test {
+  use super::SourceMap;
+
+  use crate::span::Span;
+
+  const PATH: &str = "../../crates/compiler/zhoo-notes/samples/flow/hello.zo";
+
+  #[test]
+  fn test_get_source_id() {
+    let mut source_map = SourceMap::default();
+    let path_buf = std::path::Path::new(PATH).to_path_buf();
+    let _ = source_map.add_source(path_buf);
+    let source_id = source_map.source_id(Span::ZERO);
+
+    assert_eq!(source_id, 0);
+  }
+
+  #[test]
+  fn test_get_source_path() {
+    let mut source_map = SourceMap::default();
+    let path = std::path::Path::new(PATH);
+    let path_buf = path.to_path_buf();
+    let _ = source_map.add_source(path_buf);
+    let source_path = source_map.pathname(Span::ZERO);
+
+    assert_eq!(source_path, path);
+  }
+
+  #[test]
+  fn test_add_source_file() {
+    let mut source_map = SourceMap::default();
+    let path_buf = std::path::Path::new(PATH).to_path_buf();
+
+    let source_id = match source_map.add_source(path_buf) {
+      Ok(source_id) => source_id,
+      Err(error) => panic!("{error}"),
+    };
+
+    assert_eq!(source_id, 0);
+  }
+
+  #[test]
+  fn test_get_source_code() {
+    let mut source_map = SourceMap::default();
+    let path_buf = std::path::Path::new(PATH).to_path_buf();
+
+    let source_id = match source_map.add_source(path_buf) {
+      Ok(source_id) => source_id,
+      Err(error) => panic!("{error}"),
+    };
+
+    let source_code = source_map.code(source_id as u32);
+
+    let code = match std::fs::read_to_string(PATH) {
+      Ok(file) => file,
+      Err(error) => panic!("{error}"),
+    };
+
+    assert_eq!(source_code, code);
+  }
+}
