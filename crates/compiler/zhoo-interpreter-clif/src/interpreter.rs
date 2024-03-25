@@ -95,9 +95,64 @@ impl<'program> Interpreter<'program> {
 
   fn interpret_item(&mut self, item: &ast::Item) -> Result<Value> {
     match &item.kind {
+      ast::ItemKind::Pack(pack) => self.interpret_item_pack(pack),
+      ast::ItemKind::Load(load) => self.interpret_item_load(load),
+      ast::ItemKind::Var(var) => self.interpret_item_var(var),
+      ast::ItemKind::TyAlias(ty_alias) => {
+        self.interpret_item_ty_alias(ty_alias)
+      }
+      ast::ItemKind::Ext(ext) => self.interpret_item_ext(ext),
+      ast::ItemKind::Abstract(abstr) => self.interpret_item_abstract(abstr),
+      ast::ItemKind::Enum(enumeration) => self.interpret_item_enum(enumeration),
+      ast::ItemKind::Struct(structure) => self.interpret_item_struct(structure),
+      ast::ItemKind::Apply(apply) => self.interpret_item_apply(apply),
       ast::ItemKind::Fun(fun) => self.interpret_item_fun(fun),
-      _ => todo!(),
     }
+  }
+
+  fn interpret_item_pack(&mut self, _pack: &ast::Pack) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_load(&mut self, _load: &ast::Load) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_var(&mut self, _var: &ast::Var) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_ty_alias(
+    &mut self,
+    _ty_alias: &ast::TyAlias,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_ext(&mut self, _ext: &ast::Ext) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_abstract(
+    &mut self,
+    _abstr: &ast::Abstract,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_enum(&mut self, _enumeration: &ast::Enum) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_struct(
+    &mut self,
+    _structure: &ast::Struct,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_apply(&mut self, _apply: &ast::Apply) -> Result<Value> {
+    todo!()
   }
 
   fn interpret_item_fun(&mut self, fun: &ast::Fun) -> Result<Value> {

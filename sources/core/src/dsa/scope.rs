@@ -163,3 +163,15 @@ where
     None
   }
 }
+
+// #[cfg(test)]
+// mod test {
+//   use super::Scopemap;
+
+//   #[test]
+//   fn should_make_scopemap() {
+//     let scopemap = Scopemap::new();
+
+//     scopemap.scope_entry();
+//   }
+// }

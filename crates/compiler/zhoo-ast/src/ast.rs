@@ -97,8 +97,8 @@ pub struct Item {
 
 #[derive(Clone, Debug)]
 pub enum ItemKind {
-  Load(Load),
   Pack(Pack),
+  Load(Load),
   Var(Var),
   TyAlias(TyAlias),
   Ext(Ext),

@@ -8,7 +8,7 @@ use crate::token::int::BaseInt;
 
 use super::state::TokenizerState;
 use super::token::group::Group;
-use super::token::kw::{KEYWORD, TYPE};
+use super::token::kw::KEYWORD;
 use super::token::op::Op;
 use super::token::punctuation::Punctuation;
 use super::token::{Token, TokenKind};
@@ -393,11 +393,11 @@ impl<'source> Tokenizer<'source> {
       }
       TokenizerState::Ident => KEYWORD.get::<str>(&source).map_or_else(
         || {
-          if TYPE.get::<str>(&source).is_some() {
-            self.reporter.raise(ReportError::Lexical(
-              Lexical::ReservedKeyword(span, source.into()),
-            ));
-          }
+          // if TYPE.get::<str>(&source).is_some() {
+          //   self.reporter.raise(ReportError::Lexical(
+          //     Lexical::ReservedKeyword(span, source.into()),
+          //   ));
+          // }
 
           let symbol = self.interner.intern(&source);
 
