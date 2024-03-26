@@ -10,3 +10,5 @@ doctest = false
 
 [dependencies]
 zo-core = { workspace = true }
+
+hashbrown = { workspace = true }
