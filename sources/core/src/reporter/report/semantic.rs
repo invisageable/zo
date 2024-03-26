@@ -7,21 +7,23 @@ use ariadne::Fmt;
 
 #[derive(Debug)]
 pub enum Semantic {
+  FunClash(Span, String),
   InvalidIndex(Span, String),
-  NameClash(Span, String),
   NamingConvention(Span, String, String),
   NotFoundEntry(Span, String),
   NotFoundFun(Span, String),
   NotFoundIdent(Span, String),
   OutOfLoop(String),
+  TyClash(Span, String),
   TypeMismatch(Span, String, String),
+  VarClash(Span, String),
 }
 
 impl Error for Semantic {
   fn report(&self) -> Report {
     match self {
+      Self::FunClash(span, name) => todo!("{span}-{name}"),
       Self::InvalidIndex(span, name) => todo!("{span}-{name}"),
-      Self::NameClash(span, name) => todo!("{span}-{name}"),
       Self::NamingConvention(span, ident, naming) => Report {
         kind: ReportKind::Warning(REPORT_TITLE_WARNING),
         message: format!(
@@ -44,7 +46,9 @@ impl Error for Semantic {
       Self::NotFoundFun(span, string) => todo!("{span}-{string}"),
       Self::NotFoundIdent(span, string) => todo!("{span}-{string}"),
       Self::OutOfLoop(name) => todo!("{name}"),
+      Self::TyClash(span, name) => todo!("{span}-{name}"),
       Self::TypeMismatch(span, lhs, rhs) => todo!("{span}-{lhs}-{rhs}"),
+      Self::VarClash(span, name) => todo!("{span}-{name}"),
     }
   }
 }
