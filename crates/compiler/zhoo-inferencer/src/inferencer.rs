@@ -1,8 +1,14 @@
 //! ...wip.
 
+// note #1 — safety: cannot be declared without type.
+//
+// note #2 — in case of block should we return an `unit` type of the last
+// statement type of a block.
+
 use zhoo_ast::ast;
 use zhoo_session::session::Session;
 use zhoo_ty::ty::Ty;
+use zhoo_ty::tyctx::TyCtx;
 
 use zo_core::interner::symbol::Symbol;
 use zo_core::interner::Interner;
@@ -10,50 +16,82 @@ use zo_core::reporter::Reporter;
 use zo_core::span::Span;
 use zo_core::Result;
 
-// note #1 — safe, globals cannot be declared without type.
-//
-// note #2 — in case of block should we return an `unit` type of the last
-// statement type of a block.
-
 #[derive(Debug)]
-struct Inferencer<'program> {
+struct Inferencer<'ast> {
   #[allow(dead_code)]
-  interner: &'program mut Interner,
+  interner: &'ast mut Interner,
+  reporter: &'ast Reporter,
   #[allow(dead_code)]
-  reporter: &'program Reporter,
+  tyctx: TyCtx<'ast>,
 }
 
-impl<'program> Inferencer<'program> {
+impl<'ast> Inferencer<'ast> {
   #[inline]
-  fn new(
-    interner: &'program mut Interner,
-    reporter: &'program Reporter,
-  ) -> Self {
-    Self { interner, reporter }
+  fn new(interner: &'ast mut Interner, reporter: &'ast Reporter) -> Self {
+    Self {
+      interner,
+      reporter,
+      tyctx: TyCtx::new(),
+    }
   }
 
-  fn infer(&mut self, program: &ast::Program) -> Result<Ty> {
+  fn infer(&mut self, program: &'ast ast::Program) -> Result<Ty> {
     let mut ty = Ty::UNIT;
 
     for item in program.items.iter() {
       ty = self.infer_item(item)?;
     }
 
+    self.reporter.abort_if_has_errors();
+
     Ok(ty)
   }
 
-  fn infer_item(&mut self, item: &ast::Item) -> Result<Ty> {
+  fn infer_item(&mut self, item: &'ast ast::Item) -> Result<Ty> {
     match &item.kind {
+      ast::ItemKind::Pack(pack) => self.infer_item_pack(pack),
+      ast::ItemKind::Load(load) => self.infer_item_load(load),
       ast::ItemKind::Var(var) => self.infer_item_var(var),
       ast::ItemKind::TyAlias(ty_alias) => self.infer_item_ty_alias(ty_alias),
       ast::ItemKind::Ext(ext) => self.infer_item_ext(ext),
       ast::ItemKind::Abstract(abstr) => self.infer_item_abstract(abstr),
+      ast::ItemKind::Enum(enumeration) => self.infer_item_enum(enumeration),
+      ast::ItemKind::Struct(structure) => self.infer_item_struct(structure),
+      ast::ItemKind::Apply(apply) => self.infer_item_apply(apply),
       ast::ItemKind::Fun(fun) => self.infer_item_fun(fun),
-      _ => todo!(),
     }
   }
 
-  fn infer_item_ext(&mut self, ext: &ast::Ext) -> Result<Ty> {
+  fn infer_item_pack(&mut self, _pack: &'ast ast::Pack) -> Result<Ty> {
+    todo!()
+  }
+
+  fn infer_item_load(&mut self, _load: &'ast ast::Load) -> Result<Ty> {
+    todo!()
+  }
+
+  fn infer_item_var(&mut self, var: &'ast ast::Var) -> Result<Ty> {
+    self.infer_var(var)
+  }
+
+  fn infer_var(&mut self, var: &'ast ast::Var) -> Result<Ty> {
+    match &var.maybe_ty {
+      Some(ty) => Ok(Ty::from(ty)),
+      None => self.infer_expr(&var.value),
+    }
+  }
+
+  fn infer_item_ty_alias(
+    &mut self,
+    ty_alias: &'ast ast::TyAlias,
+  ) -> Result<Ty> {
+    match &ty_alias.maybe_ty {
+      Some(ty) => Ok(Ty::from(ty)),
+      None => unreachable!(), // note #1.
+    }
+  }
+
+  fn infer_item_ext(&mut self, ext: &'ast ast::Ext) -> Result<Ty> {
     let t1 = self.infer_prototype(&ext.prototype)?;
 
     let _t2 = match &ext.maybe_body {
@@ -64,29 +102,30 @@ impl<'program> Inferencer<'program> {
     Ok(t1)
   }
 
-  fn infer_item_abstract(&mut self, _abstr: &ast::Abstract) -> Result<Ty> {
-    todo!()
-  }
-
-  fn infer_prototype(&mut self, prototype: &ast::Prototype) -> Result<Ty> {
+  fn infer_prototype(&mut self, prototype: &'ast ast::Prototype) -> Result<Ty> {
     match &prototype.output_ty {
       ast::OutputTy::Ty(ty) => Ok(Ty::from(ty)),
       ast::OutputTy::Default(span) => Ok(Ty::unit(*span)),
     }
   }
 
-  fn infer_item_ty_alias(&mut self, ty_alias: &ast::TyAlias) -> Result<Ty> {
-    match &ty_alias.maybe_ty {
-      Some(ty) => Ok(Ty::from(ty)),
-      None => unreachable!(), // note #1.
-    }
+  fn infer_item_abstract(&mut self, _abstr: &'ast ast::Abstract) -> Result<Ty> {
+    todo!()
   }
 
-  fn infer_item_var(&mut self, var: &ast::Var) -> Result<Ty> {
-    self.infer_var(var)
+  fn infer_item_enum(&mut self, _enumeration: &'ast ast::Enum) -> Result<Ty> {
+    todo!()
   }
 
-  fn infer_item_fun(&mut self, fun: &ast::Fun) -> Result<Ty> {
+  fn infer_item_struct(&mut self, _structure: &'ast ast::Struct) -> Result<Ty> {
+    todo!()
+  }
+
+  fn infer_item_apply(&mut self, _apply: &'ast ast::Apply) -> Result<Ty> {
+    todo!()
+  }
+
+  fn infer_item_fun(&mut self, fun: &'ast ast::Fun) -> Result<Ty> {
     let t1 = self.infer_prototype(&fun.prototype)?;
     let _t2 = self.infer_block(&fun.body)?;
 
@@ -94,7 +133,7 @@ impl<'program> Inferencer<'program> {
   }
 
   // note #2.
-  fn infer_block(&mut self, block: &ast::Block) -> Result<Ty> {
+  fn infer_block(&mut self, block: &'ast ast::Block) -> Result<Ty> {
     let mut ty = Ty::UNIT;
 
     for stmt in &block.stmts {
@@ -104,7 +143,7 @@ impl<'program> Inferencer<'program> {
     Ok(ty)
   }
 
-  fn infer_stmt(&mut self, stmt: &ast::Stmt) -> Result<Ty> {
+  fn infer_stmt(&mut self, stmt: &'ast ast::Stmt) -> Result<Ty> {
     match &stmt.kind {
       ast::StmtKind::Var(var) => self.infer_stmt_var(var),
       ast::StmtKind::Item(fun) => self.infer_item(fun),
@@ -112,18 +151,11 @@ impl<'program> Inferencer<'program> {
     }
   }
 
-  fn infer_stmt_var(&mut self, var: &ast::Var) -> Result<Ty> {
+  fn infer_stmt_var(&mut self, var: &'ast ast::Var) -> Result<Ty> {
     self.infer_var(var)
   }
 
-  fn infer_var(&mut self, var: &ast::Var) -> Result<Ty> {
-    match &var.maybe_ty {
-      Some(ty) => Ok(Ty::from(ty)),
-      None => self.infer_expr(&var.value),
-    }
-  }
-
-  fn infer_expr(&mut self, expr: &ast::Expr) -> Result<Ty> {
+  fn infer_expr(&mut self, expr: &'ast ast::Expr) -> Result<Ty> {
     match &expr.kind {
       ast::ExprKind::Lit(lit) => self.infer_expr_lit(lit),
       ast::ExprKind::UnOp(unop, rhs) => self.infer_expr_unop(unop, rhs),
@@ -170,7 +202,7 @@ impl<'program> Inferencer<'program> {
     }
   }
 
-  fn infer_expr_lit(&mut self, lit: &ast::Lit) -> Result<Ty> {
+  fn infer_expr_lit(&mut self, lit: &'ast ast::Lit) -> Result<Ty> {
     match &lit.kind {
       ast::LitKind::Int(symbol) => self.infer_expr_lit_int(symbol, lit.span),
       ast::LitKind::Float(symbol) => {
@@ -185,7 +217,11 @@ impl<'program> Inferencer<'program> {
     }
   }
 
-  fn infer_expr_lit_int(&mut self, _int: &Symbol, span: Span) -> Result<Ty> {
+  fn infer_expr_lit_int(
+    &mut self,
+    _int: &'ast Symbol,
+    span: Span,
+  ) -> Result<Ty> {
     Ok(Ty::int(span))
   }
 
@@ -197,7 +233,11 @@ impl<'program> Inferencer<'program> {
     Ok(Ty::float(span))
   }
 
-  fn infer_expr_lit_ident(&mut self, ident: &Symbol, span: Span) -> Result<Ty> {
+  fn infer_expr_lit_ident(
+    &mut self,
+    ident: &'ast Symbol,
+    span: Span,
+  ) -> Result<Ty> {
     Ok(Ty::ident(*ident, span))
   }
 
@@ -215,24 +255,24 @@ impl<'program> Inferencer<'program> {
 
   fn infer_expr_unop(
     &mut self,
-    _unop: &ast::UnOp,
-    _rhs: &ast::Expr,
+    _unop: &'ast ast::UnOp,
+    _rhs: &'ast ast::Expr,
   ) -> Result<Ty> {
     Ok(Ty::UNIT)
   }
 
   fn infer_expr_binop(
     &mut self,
-    _binop: &ast::BinOp,
-    _lhs: &ast::Expr,
-    _rhs: &ast::Expr,
+    _binop: &'ast ast::BinOp,
+    _lhs: &'ast ast::Expr,
+    _rhs: &'ast ast::Expr,
   ) -> Result<Ty> {
     Ok(Ty::UNIT)
   }
 
   fn infer_expr_return(
     &mut self,
-    maybe_expr: &Option<Box<ast::Expr>>,
+    maybe_expr: &'ast Option<Box<ast::Expr>>,
   ) -> Result<Ty> {
     match maybe_expr {
       Some(expr) => self.infer_expr(expr),
@@ -242,9 +282,9 @@ impl<'program> Inferencer<'program> {
 
   fn infer_expr_if_else(
     &mut self,
-    condition: &ast::Expr,
-    consequence: &ast::Block,
-    maybe_alternative: &Option<Box<ast::Expr>>,
+    condition: &'ast ast::Expr,
+    consequence: &'ast ast::Block,
+    maybe_alternative: &'ast Option<Box<ast::Expr>>,
   ) -> Result<Ty> {
     let _t1 = self.infer_expr(condition)?;
     let t2 = self.infer_block(consequence)?;
@@ -265,9 +305,9 @@ impl<'program> Inferencer<'program> {
 
   fn infer_expr_when(
     &mut self,
-    condition: &ast::Expr,
-    consequence: &ast::Expr,
-    alternative: &ast::Expr,
+    condition: &'ast ast::Expr,
+    consequence: &'ast ast::Expr,
+    alternative: &'ast ast::Expr,
   ) -> Result<Ty> {
     let _t1 = self.infer_expr(condition)?;
     let t2 = self.infer_expr(consequence)?;
@@ -282,15 +322,15 @@ impl<'program> Inferencer<'program> {
 
   fn infer_expr_match(
     &mut self,
-    _condition: &ast::Expr,
-    _arms: &[ast::Arm],
+    _condition: &'ast ast::Expr,
+    _arms: &'ast [ast::Arm],
   ) -> Result<Ty> {
     todo!()
   }
 
   fn infer_expr_break(
     &mut self,
-    maybe_expr: &Option<Box<ast::Expr>>,
+    maybe_expr: &'ast Option<Box<ast::Expr>>,
   ) -> Result<Ty> {
     match maybe_expr {
       Some(expr) => self.infer_expr(expr),
@@ -302,20 +342,20 @@ impl<'program> Inferencer<'program> {
     Ok(Ty::UNIT)
   }
 
-  fn infer_expr_assign(&mut self, rhs: &ast::Expr) -> Result<Ty> {
+  fn infer_expr_assign(&mut self, rhs: &'ast ast::Expr) -> Result<Ty> {
     let ty = self.infer_expr(rhs)?;
 
     Ok(ty)
   }
 
   // note #2.
-  fn infer_expr_block(&mut self, block: &ast::Block) -> Result<Ty> {
+  fn infer_expr_block(&mut self, block: &'ast ast::Block) -> Result<Ty> {
     let _ty = self.infer_block(block)?;
 
     Ok(Ty::UNIT)
   }
 
-  fn infer_expr_array(&mut self, exprs: &[ast::Expr]) -> Result<Ty> {
+  fn infer_expr_array(&mut self, exprs: &'ast [ast::Expr]) -> Result<Ty> {
     let mut exprs = exprs.iter();
     let maybe_expr = exprs.next();
 
@@ -337,22 +377,22 @@ impl<'program> Inferencer<'program> {
     }
   }
 
-  fn infer_expr_tuple(&mut self, _exprs: &[ast::Expr]) -> Result<Ty> {
+  fn infer_expr_tuple(&mut self, _exprs: &'ast [ast::Expr]) -> Result<Ty> {
     todo!()
   }
 
   fn infer_expr_array_access(
     &mut self,
-    _array: &ast::Expr,
-    _access: &ast::Expr,
+    _array: &'ast ast::Expr,
+    _access: &'ast ast::Expr,
   ) -> Result<Ty> {
     todo!()
   }
 
   fn infer_expr_tuple_access(
     &mut self,
-    _tuple: &ast::Expr,
-    _access: &ast::Expr,
+    _tuple: &'ast ast::Expr,
+    _access: &'ast ast::Expr,
   ) -> Result<Ty> {
     todo!()
   }
@@ -360,8 +400,8 @@ impl<'program> Inferencer<'program> {
   // note #2.
   fn infer_expr_fn(
     &mut self,
-    prototype: &ast::Prototype,
-    body: &ast::Block,
+    prototype: &'ast ast::Prototype,
+    body: &'ast ast::Block,
   ) -> Result<Ty> {
     let t1 = self.infer_prototype(prototype)?;
     let _t2 = self.infer_block(body)?;
@@ -371,23 +411,23 @@ impl<'program> Inferencer<'program> {
 
   fn infer_expr_call(
     &mut self,
-    _callee: &ast::Expr,
-    _args: &ast::Args,
+    _callee: &'ast ast::Expr,
+    _args: &'ast ast::Args,
   ) -> Result<Ty> {
     todo!()
   }
 
   fn infer_expr_assignop(
     &mut self,
-    _lhs: &ast::Expr,
-    rhs: &ast::Expr,
+    _lhs: &'ast ast::Expr,
+    rhs: &'ast ast::Expr,
   ) -> Result<Ty> {
     let ty = self.infer_expr(rhs)?;
 
     Ok(ty)
   }
 
-  fn infer_expr_loop(&mut self, block: &ast::Block) -> Result<Ty> {
+  fn infer_expr_loop(&mut self, block: &'ast ast::Block) -> Result<Ty> {
     let _ty = self.infer_block(block)?;
 
     Ok(Ty::UNIT)
@@ -395,8 +435,8 @@ impl<'program> Inferencer<'program> {
 
   fn infer_expr_while(
     &mut self,
-    condition: &ast::Expr,
-    body: &ast::Block,
+    condition: &'ast ast::Expr,
+    body: &'ast ast::Block,
   ) -> Result<Ty> {
     let _t1 = self.infer_expr(condition)?;
     let _t2 = self.infer_block(body)?;
@@ -404,25 +444,25 @@ impl<'program> Inferencer<'program> {
     Ok(Ty::UNIT)
   }
 
-  fn infer_expr_for(&mut self, _for_loop: &ast::For) -> Result<Ty> {
+  fn infer_expr_for(&mut self, _for_loop: &'ast ast::For) -> Result<Ty> {
     todo!()
   }
 
-  fn infer_expr_var(&mut self, var: &ast::Var) -> Result<Ty> {
+  fn infer_expr_var(&mut self, var: &'ast ast::Var) -> Result<Ty> {
     self.infer_var(var)
   }
 
   fn infer_expr_struct_expr(
     &mut self,
-    _struct_expr: &ast::StructExpr,
+    _struct_expr: &'ast ast::StructExpr,
   ) -> Result<Ty> {
     todo!()
   }
 
   fn infer_expr_chaining(
     &mut self,
-    _lhs: &ast::Expr,
-    _rhs: &ast::Expr,
+    _lhs: &'ast ast::Expr,
+    _rhs: &'ast ast::Expr,
   ) -> Result<Ty> {
     todo!()
   }
