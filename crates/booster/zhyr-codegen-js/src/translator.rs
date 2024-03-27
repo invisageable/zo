@@ -266,7 +266,7 @@ impl Translator {
     &mut self,
     boolean: &swc_ecma_ast::Bool,
   ) -> Result<()> {
-    self.writer.write(&boolean.value)
+    self.writer.write(boolean.value)
   }
 
   fn translate_expr_lit_null(
@@ -280,7 +280,7 @@ impl Translator {
     &mut self,
     number: &swc_ecma_ast::Number,
   ) -> Result<()> {
-    self.writer.write(&number.value)
+    self.writer.write(number.value)
   }
 
   fn translate_expr_lit_big_int(

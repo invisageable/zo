@@ -55,10 +55,8 @@ impl<'paths> Parser<'paths> {
         let source_map: Lrc<SourceMap> = Default::default();
         let comments = SingleThreadedComments::default();
 
-        let source_file = source_map.new_source_file(
-          swc_common::FileName::Custom(filename.into()),
-          source,
-        );
+        let source_file = source_map
+          .new_source_file(swc_common::FileName::Custom(filename), source);
 
         let mut parser = swc_ecma_parser::Parser::new(
           Syntax::Es(Default::default()),

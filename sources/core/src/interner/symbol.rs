@@ -11,6 +11,12 @@ impl From<Symbol> for usize {
   }
 }
 
+impl From<&Symbol> for usize {
+  fn from(symbol: &Symbol) -> Self {
+    symbol.0 as usize
+  }
+}
+
 impl From<&Symbol> for u32 {
   fn from(symbol: &Symbol) -> Self {
     symbol.0

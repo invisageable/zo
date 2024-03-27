@@ -2,7 +2,7 @@
 
 use smol_str::SmolStr;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Project {
   pub assets: Vec<Asset>,
 }
@@ -81,7 +81,7 @@ pub struct Source {
   pub source: SmolStr,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Ast {
   pub items: Vec<Item>,
 }

@@ -54,13 +54,13 @@ impl<'paths> Parser<'paths> {
 
   fn parse_module(
     &mut self,
-    path: &std::path::PathBuf,
+    path: &std::path::Path,
     source: &str,
   ) -> Result<Item> {
     let source_path = path.display().to_string();
 
     let result_module =
-      rustpython_parser::parse(&source, Mode::Module, &source_path);
+      rustpython_parser::parse(source, Mode::Module, &source_path);
 
     match result_module {
       Ok(module) => {
