@@ -6,7 +6,11 @@
 
 ## disclaimer.
 
+**NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**
+
 *I created this project for my own personal use. At this stage, it's still a toy with no use except for myself. You are free to play with it if you find any interest in it.*   
+
+**NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**
 
 ## platform.
 
@@ -17,7 +21,7 @@
 
 **sources**
 
-[core](./sources/core) — A shareable data structures collection.   
+[core](./sources/core) — A shareable collection of data structures.   
 
 **crates**
 

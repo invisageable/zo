@@ -1,0 +1,14 @@
+[package]
+name = "zhyr-codegen-py"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+zhyr-ast = { workspace = true }
+zhoo-session = { workspace = true }
+
+zo-core = { workspace = true }
+
+rustpython-ast = { workspace = true }

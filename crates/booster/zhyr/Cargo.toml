@@ -1,0 +1,9 @@
+[package]
+name = "zhyr"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+zhyr-driver = { path = "../zhyr-driver", version = "0.0.0" }

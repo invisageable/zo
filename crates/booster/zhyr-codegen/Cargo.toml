@@ -1,0 +1,15 @@
+[package]
+name = "zhyr-codegen"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+zhyr-ast = { workspace = true }
+zhyr-codegen-js = { workspace = true }
+zhyr-codegen-py = { workspace = true }
+
+zhoo-session = { workspace = true }
+
+zo-core = { workspace = true }

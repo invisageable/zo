@@ -1,0 +1,19 @@
+[package]
+name = "zhyr-booster"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+zhyr-ast = { workspace = true }
+zhyr-builder = { workspace = true }
+zhyr-reader = { workspace = true }
+zhyr-parser = { workspace = true }
+zhyr-codegen = { workspace = true }
+
+zhoo-session = { workspace = true }
+
+zo-core = { workspace = true }
+
+smol_str = { workspace = true }

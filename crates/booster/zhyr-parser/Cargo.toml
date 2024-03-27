@@ -1,0 +1,17 @@
+[package]
+name = "zhyr-parser"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+zhyr-ast = { workspace = true }
+zhyr-parser-js = { workspace = true }
+zhyr-parser-py = { workspace = true }
+
+zhoo-session = { workspace = true }
+
+zo-core = { workspace = true }
+
+smol_str = { workspace = true }

@@ -1,0 +1,21 @@
+[package]
+name = "zhyr-reader"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[lib]
+doctest = false
+test = false
+
+[dependencies]
+zhyr-ast = { workspace = true }
+
+zhoo-session = { workspace = true }
+
+zo-core = { workspace = true }
+
+rayon = { workspace = true }
+smol_str = { workspace = true }
+walkdir = { workspace = true }

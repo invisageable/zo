@@ -1,0 +1,13 @@
+[package]
+name = "zhyr-ast"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+zo-core = { workspace = true }
+
+rustpython-ast = { workspace = true }
+smol_str = { workspace = true }
+swc_ecma_ast = { workspace = true }

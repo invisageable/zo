@@ -1,0 +1,16 @@
+[package]
+name = "zhyr-parser-js"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+zhyr-ast = { workspace = true }
+
+zhoo-session = { workspace = true }
+
+zo-core = { workspace = true }
+
+swc_common = { workspace = true }
+swc_ecma_parser = { workspace = true }
