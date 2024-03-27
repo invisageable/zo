@@ -1,3 +1,3 @@
-# zhyr-parser-py.
+# zhyr-parser-js.
 
 > *...*
