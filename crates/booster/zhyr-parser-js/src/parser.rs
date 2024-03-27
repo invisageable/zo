@@ -65,17 +65,13 @@ impl<'paths> Parser<'paths> {
         );
 
         match parser.parse_module() {
-          Ok(module) => {
-            println!("{module:?}");
-
-            Ok(Item {
-              kind: ItemKind::File(File {
-                kind: FileKind::Module(Module {
-                  kind: ModuleKind::Js(module),
-                }),
+          Ok(module) => Ok(Item {
+            kind: ItemKind::File(File {
+              kind: FileKind::Module(Module {
+                kind: ModuleKind::Js(module),
               }),
-            })
-          }
+            }),
+          }),
           Err(error) => panic!("{error:?}"),
         }
       }

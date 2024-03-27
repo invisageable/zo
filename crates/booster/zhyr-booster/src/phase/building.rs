@@ -15,9 +15,9 @@ pub struct Building {
 }
 
 impl Process for Building {
-  fn process(&self, session: &mut Session) -> Result<()> {
+  fn process(&self, _session: &mut Session) -> Result<()> {
     self.tx.recv().and_then(|bytecode| {
-      builder::build(session, &bytecode).and_then(|ok| self.rx.send(ok))
+      builder::build(&bytecode).and_then(|ok| self.rx.send(ok))
     })
   }
 }

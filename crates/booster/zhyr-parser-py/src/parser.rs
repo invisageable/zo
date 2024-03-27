@@ -63,17 +63,13 @@ impl<'paths> Parser<'paths> {
       rustpython_parser::parse(source, Mode::Module, &source_path);
 
     match result_module {
-      Ok(module) => {
-        println!("{module:?}");
-
-        Ok(Item {
-          kind: ItemKind::File(File {
-            kind: FileKind::Module(Module {
-              kind: ModuleKind::Py(module),
-            }),
+      Ok(module) => Ok(Item {
+        kind: ItemKind::File(File {
+          kind: FileKind::Module(Module {
+            kind: ModuleKind::Py(module),
           }),
-        })
-      }
+        }),
+      }),
       Err(error) => panic!("{error}"),
     }
   }
