@@ -381,4 +381,58 @@ dependencies = [
  "cranelift-native",
  "cranelift-object",
  "hashbrown 0.14.5",
+ "zo-driver",
 ]
+
+[[package]]
+name = "zo-analyzer"
+version = "0.0.0"
+
+[[package]]
+name = "zo-ast"
+version = "0.0.0"
+
+[[package]]
+name = "zo-builder"
+version = "0.0.0"
+
+[[package]]
+name = "zo-codegen"
+version = "0.0.0"
+
+[[package]]
+name = "zo-compiler"
+version = "0.0.0"
+dependencies = [
+ "zo-analyzer",
+ "zo-ast",
+ "zo-builder",
+ "zo-codegen",
+ "zo-parser",
+ "zo-reader",
+ "zo-tokenizer",
+ "zo-ty",
+]
+
+[[package]]
+name = "zo-driver"
+version = "0.0.0"
+dependencies = [
+ "zo-compiler",
+]
+
+[[package]]
+name = "zo-parser"
+version = "0.0.0"
+
+[[package]]
+name = "zo-reader"
+version = "0.0.0"
+
+[[package]]
+name = "zo-tokenizer"
+version = "0.0.0"
+
+[[package]]
+name = "zo-ty"
+version = "0.0.0"

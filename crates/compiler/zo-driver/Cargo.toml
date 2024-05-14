@@ -1,0 +1,14 @@
+[package]
+name = "zo-driver"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# sources.
+zo-compiler = { workspace = true }
+
+# internals.
+
+# externals.

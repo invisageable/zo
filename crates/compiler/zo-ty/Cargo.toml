@@ -1,0 +1,13 @@
+[package]
+name = "zo-ty"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# sources.
+
+# internals.
+
+# externals.
