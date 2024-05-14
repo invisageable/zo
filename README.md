@@ -6,7 +6,7 @@
 
 **NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**
 
-*I created this project for my own personal use, I wanted to have a space to play with compilers. What's fun for me won't be for everyone.*   
+*J'fais mon truc, si t'es pas content, tu traces ta `root` et puis c'est tout. Pas l'temps de niaiser avec les zéluques.*   
 
 **NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**
 
