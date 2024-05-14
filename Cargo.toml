@@ -1,0 +1,29 @@
+[workspace]
+members = ["crates/compiler/zo"]
+
+resolver = '2'
+exclude = [".todo.md", "program"]
+
+default-members = ["crates/compiler/zo"]
+
+[workspace.package]
+authors = ["@invisageable"]
+edition = "2021"
+license = "APACHE — MIT"
+version = "0.0.0"
+
+[workspace.dependencies]
+# external.
+anyhow = "1.0.83"
+cranelift = "0.107.2"
+cranelift-codegen = "0.107.2"
+cranelift-jit = "0.107.2"
+cranelift-module = "0.107.2"
+cranelift-native = "0.107.2"
+cranelift-object = "0.107.2"
+hashbrown = "0.14.5"
+
+[profile.release]
+codegen-units = 1
+lto = true
+debug = false

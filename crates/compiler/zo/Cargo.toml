@@ -1,0 +1,20 @@
+[package]
+name = "zo"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+# sources.
+
+# internals.
+
+# externals.
+anyhow = { workspace = true }
+cranelift = { workspace = true }
+cranelift-codegen = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-native = { workspace = true }
+cranelift-object = { workspace = true }
+hashbrown = { workspace = true }
