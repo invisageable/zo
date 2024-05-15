@@ -39,6 +39,7 @@ cranelift-module = "0.107.2"
 cranelift-native = "0.107.2"
 cranelift-object = "0.107.2"
 hashbrown = "0.14.5"
+smol_str = "0.2.2"
 
 [profile.release]
 codegen-units = 1

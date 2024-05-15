@@ -11,3 +11,4 @@ version.workspace = true
 # internals.
 
 # externals.
+smol_str = { workspace = true }
