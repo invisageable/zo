@@ -6,7 +6,7 @@
 
 **NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**
 
-*J'fais mon truc, si t'es pas content, tu traces ta `root` et puis c'est tout. Pas l'temps de niaiser avec les zéluques.*   
+*J'fais mon truc, si t'es pas content, tu traces ta `root` et puis c'est tout. Pas l'temps de niaiser avec les zhéluques.*   
 
 **NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**
 
