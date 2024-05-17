@@ -431,6 +431,18 @@ version = "0.0.0"
 [[package]]
 name = "zo-codegen"
 version = "0.0.0"
+dependencies = [
+ "zo-codegen-clif",
+ "zo-codegen-wasm",
+]
+
+[[package]]
+name = "zo-codegen-clif"
+version = "0.0.0"
+
+[[package]]
+name = "zo-codegen-wasm"
+version = "0.0.0"
 
 [[package]]
 name = "zo-compiler"
@@ -440,6 +452,8 @@ dependencies = [
  "zo-ast",
  "zo-builder",
  "zo-codegen",
+ "zo-interpreter",
+ "zo-interpreter-zo",
  "zo-parser",
  "zo-reader",
  "zo-tokenizer",
@@ -451,6 +465,23 @@ name = "zo-driver"
 version = "0.0.0"
 dependencies = [
  "zo-compiler",
+]
+
+[[package]]
+name = "zo-interpreter"
+version = "0.0.0"
+dependencies = [
+ "zo-ast",
+ "zo-interpreter-zo",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-interpreter-zo"
+version = "0.0.0"
+dependencies = [
+ "zo-ast",
+ "zo-value",
 ]
 
 [[package]]
@@ -467,4 +498,8 @@ version = "0.0.0"
 
 [[package]]
 name = "zo-ty"
+version = "0.0.0"
+
+[[package]]
+name = "zo-value"
 version = "0.0.0"

@@ -7,10 +7,12 @@ version.workspace = true
 
 [dependencies]
 # sources.
+zo-analyzer = { workspace = true }
 zo-ast = { workspace = true }
 zo-builder = { workspace = true }
 zo-codegen = { workspace = true }
-zo-analyzer = { workspace = true }
+zo-interpreter = { workspace = true }
+zo-interpreter-zo = { workspace = true }
 zo-parser = { workspace = true }
 zo-reader = { workspace = true }
 zo-tokenizer = { workspace = true }
