@@ -1,0 +1,10 @@
+[package]
+name = "zo-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hashbrown = { workspace = true }
+smol_str = { workspace = true }
