@@ -1,11 +1,26 @@
 use smol_str::SmolStr;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+pub struct Pattern {
+  pub kind: PatternKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum PatternKind {
+  /// underscore — `_`.
+  Underscore,
+  /// identifier — `foo`, `bar`.
+  Ident(Box<Expr>),
+  /// literals.
+  Lit(Lit),
+}
+
+#[derive(Clone, Debug)]
 pub struct Expr {
   pub kind: ExprKind,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ExprKind {
   /// literal — `1`, `1.5`, `foobar`, etc.
   Lit(Lit),
@@ -17,14 +32,18 @@ pub enum ExprKind {
   Assign(Box<Expr>, Box<Expr>),
   /// assignment operator — `foo += bar`.
   AssignOp(BinOp, Box<Expr>, Box<Expr>),
+  /// block — `{ ... }`.
+  Block(Block),
+  /// closure — `fn() -> ...`, `fn() { ... }`.
+  Fn(Prototype, Block),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Lit {
   pub kind: LitKind,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum LitKind {
   Int(i64),
   Float(f64),
@@ -34,12 +53,12 @@ pub enum LitKind {
   Str(SmolStr),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct UnOp {
   pub kind: UnOpKind,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum UnOpKind {
   /// negative — `-`
   Neg,
@@ -47,7 +66,7 @@ pub enum UnOpKind {
   Not,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BinOp {
   pub kind: BinOpKind,
 }
@@ -90,4 +109,45 @@ pub enum BinOpKind {
   Shl,
   /// shift right — `>>`
   Shr,
+}
+
+#[derive(Clone, Debug)]
+pub struct Block {
+  pub exprs: Vec<Expr>,
+}
+
+impl Block {
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.exprs.is_empty()
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Prototype {
+  pub pattern: Pattern,
+  pub inputs: Inputs,
+  pub output_ty: OutputTy,
+}
+
+#[derive(Clone, Debug)]
+pub struct Inputs(pub Vec<Input>);
+
+impl std::ops::Deref for Inputs {
+  type Target = Vec<Input>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Input {
+  pub pattern: Pattern,
+}
+
+#[derive(Clone, Debug)]
+pub enum OutputTy {
+  // Default(Span),
+  // Ty(Ty),
 }

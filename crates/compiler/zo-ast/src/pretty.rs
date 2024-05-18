@@ -18,6 +18,8 @@ impl std::fmt::Display for ExprKind {
       Self::AssignOp(binop, assignee, value) => {
         write!(f, "{assignee} {binop} {value}")
       }
+      Self::Block(block) => todo!(),
+      Self::Fn(prototype, block) => todo!(),
     }
   }
 }
