@@ -12,3 +12,5 @@ zo-compiler = { workspace = true }
 # internals.
 
 # externals.
+clap = { workspace = true }
+smol_str = { workspace = true }

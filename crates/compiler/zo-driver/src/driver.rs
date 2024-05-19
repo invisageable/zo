@@ -1,4 +1,8 @@
+use super::cmd;
+
+use clap::Parser;
+
 #[inline]
 pub fn main() {
-  println!("...driver");
+  cmd::Cmd::parse().run();
 }
