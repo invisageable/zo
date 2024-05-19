@@ -38,6 +38,7 @@ zo-value = { path = "crates/compiler/zo-value", version = "0.0.0" }
 
 # external.
 anyhow = "1.0.83"
+ariadne = "0.4.1"
 clap = { version = "4.5.4", features = ["derive"] }
 cranelift = "0.107.2"
 cranelift-codegen = "0.107.2"
