@@ -10,7 +10,10 @@ version.workspace = true
 zo-core = { workspace = true }
 
 # internals.
+zo-ast = { workspace = true }
 zo-compiler = { workspace = true }
+zo-session = { workspace = true }
+zo-interpreter = { workspace = true }
 
 # externals.
 clap = { workspace = true }

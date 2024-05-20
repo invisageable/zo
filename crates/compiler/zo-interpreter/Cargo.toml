@@ -7,10 +7,11 @@ version.workspace = true
 
 [dependencies]
 # sources.
+zo-core = { workspace = true }
 
 # internals.
 zo-ast = { workspace = true }
-zo-interpreter-zo = { workspace = true }
+zo-session = { workspace = true }
 zo-value = { workspace = true }
 
 # externals.

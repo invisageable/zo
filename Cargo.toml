@@ -14,7 +14,7 @@ version = "0.0.0"
 
 [workspace.dependencies]
 # internal:core.
-zo-core = { path = "sources/core", version = "0.0.0" }
+zo-core = { path = "sources/core", version = "0.0.0", features = ["kanal"] }
 
 # internal:compiler.
 zo = { path = "crates/compiler/zo", version = "0.0.0" }
@@ -29,9 +29,9 @@ zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.0.0" }
 zo-driver = { path = "crates/compiler/zo-driver", version = "0.0.0" }
 zo-inferencer = { path = "crates/compiler/zo-inferencer", version = "0.0.0" }
 zo-interpreter = { path = "crates/compiler/zo-interpreter", version = "0.0.0" }
-zo-interpreter-zo = { path = "crates/compiler/zo-interpreter-zo", version = "0.0.0" }
 zo-parser = { path = "crates/compiler/zo-parser", version = "0.0.0" }
 zo-reader = { path = "crates/compiler/zo-reader", version = "0.0.0" }
+zo-session = { path = "crates/compiler/zo-session", version = "0.0.0" }
 zo-tokenizer = { path = "crates/compiler/zo-tokenizer", version = "0.0.0" }
 zo-ty = { path = "crates/compiler/zo-ty", version = "0.0.0" }
 zo-value = { path = "crates/compiler/zo-value", version = "0.0.0" }
@@ -46,8 +46,15 @@ cranelift-jit = "0.107.2"
 cranelift-module = "0.107.2"
 cranelift-native = "0.107.2"
 cranelift-object = "0.107.2"
+crossbeam-channel = "0.5.12"
+flume = "0.11.0"
 hashbrown = "0.14.5"
+itoa = "1.0.11"
+kanal = "0.1.0-pre8"
+ryu = "1.0.18"
 smol_str = "0.2.2"
+sysinfo = "0.30.12"
+wat = "1.207.0"
 
 [profile.release]
 codegen-units = 1

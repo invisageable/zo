@@ -7,17 +7,22 @@ version.workspace = true
 
 [dependencies]
 # sources.
+zo-core = { workspace = true }
+
+# internals.
 zo-analyzer = { workspace = true }
 zo-ast = { workspace = true }
 zo-builder = { workspace = true }
 zo-codegen = { workspace = true }
+zo-codegen-clif = { workspace = true }
+zo-codegen-wasm = { workspace = true }
 zo-interpreter = { workspace = true }
-zo-interpreter-zo = { workspace = true }
 zo-parser = { workspace = true }
 zo-reader = { workspace = true }
+zo-session = { workspace = true }
 zo-tokenizer = { workspace = true }
 zo-ty = { workspace = true }
-
-# internals.
+zo-value = { workspace = true }
 
 # externals.
+smol_str = { workspace = true }
