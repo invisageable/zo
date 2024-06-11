@@ -1,3 +1,5 @@
+//! ...
+
 use super::{Error, Report, ReportError, ReportKind, REPORT_TITLE_ERROR};
 
 use crate::color;

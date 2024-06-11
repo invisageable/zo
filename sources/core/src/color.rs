@@ -1,3 +1,5 @@
+//! ...
+
 #[inline]
 pub(crate) const fn error() -> ariadne::Color {
   ariadne::Color::Rgb(232, 65, 24)

@@ -15,3 +15,5 @@ zo-session = { workspace = true }
 zo-value = { workspace = true }
 
 # externals.
+smol_str = { workspace = true }
+hashbrown = { workspace = true }

@@ -16,6 +16,7 @@ ariadne = { workspace = true }
 crossbeam-channel = { workspace = true }
 flume = { workspace = true }
 hashbrown = { workspace = true }
+Inflector = { workspace = true }
 itoa = { workspace = true }
 kanal = { workspace = true }
 ryu = { workspace = true }

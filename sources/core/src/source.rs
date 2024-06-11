@@ -1,3 +1,5 @@
+//! ...
+
 use super::span::Span;
 
 use std::io::Read;

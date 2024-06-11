@@ -1,3 +1,5 @@
+//! ...
+
 use super::{Error, Report, ReportError};
 
 use crate::span::Span;

@@ -1,3 +1,5 @@
+//! ...
+
 pub trait AsSpan {
   fn as_span(&self) -> Span;
 }

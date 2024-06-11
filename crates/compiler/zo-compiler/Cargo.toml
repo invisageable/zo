@@ -14,8 +14,6 @@ zo-analyzer = { workspace = true }
 zo-ast = { workspace = true }
 zo-builder = { workspace = true }
 zo-codegen = { workspace = true }
-zo-codegen-clif = { workspace = true }
-zo-codegen-wasm = { workspace = true }
 zo-interpreter = { workspace = true }
 zo-parser = { workspace = true }
 zo-reader = { workspace = true }
