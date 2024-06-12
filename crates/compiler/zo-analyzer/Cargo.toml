@@ -11,6 +11,7 @@ zo-core = { workspace = true }
 
 # internals.
 zo-ast = { workspace = true }
+zo-checker = { workspace = true }
 zo-session = { workspace = true }
 
 # externals.
