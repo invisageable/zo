@@ -20,6 +20,11 @@ impl Token {
   pub fn new(kind: TokenKind, span: Span) -> Self {
     Self { kind, span }
   }
+
+  #[inline]
+  pub fn is(&self, kind: TokenKind) -> bool {
+    self.kind.is(kind)
+  }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -38,6 +43,11 @@ pub enum TokenKind {
 }
 
 impl TokenKind {
+  #[inline]
+  pub fn is(&self, kind: TokenKind) -> bool {
+    *self == kind
+  }
+
   #[inline]
   pub fn is_assignement(&self) -> bool {
     todo!()
@@ -70,11 +80,6 @@ impl TokenKind {
 
   #[inline]
   pub fn is_index(&self) -> bool {
-    todo!()
-  }
-
-  #[inline]
-  pub fn is_chaining(&self) -> bool {
     todo!()
   }
 

@@ -18,8 +18,6 @@ pub(super) enum Precedence {
   Calling,
   /// `bar[index]`.
   Index,
-  /// `x.y.z`.
-  Chaining,
 }
 
 impl From<Option<&Token>> for Precedence {
@@ -33,7 +31,6 @@ impl From<Option<&Token>> for Precedence {
         kind if kind.is_exponent() => Self::Exponent,
         kind if kind.is_calling() => Self::Calling,
         kind if kind.is_index() => Self::Index,
-        kind if kind.is_chaining() => Self::Chaining,
         _ => Self::Low,
       })
       .unwrap()

@@ -2,7 +2,7 @@
 
 use super::ast::{
   Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Input, Inputs, Lit,
-  LitKind, Pattern, PatternKind, Prototype, UnOp, UnOpKind,
+  LitKind, Pattern, PatternKind, Prototype, UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_core::fmt::{sep_comma, sep_newline};
@@ -42,6 +42,31 @@ impl std::fmt::Display for ExprKind {
       Self::Block(block) => write!(f, "{block}"),
       Self::Fn(prototype, block) => writeln!(f, "fn {prototype} -> {block}"),
       Self::Call(callee, args) => writeln!(f, "{callee}({args})"),
+      Self::Array(elmts) => write!(f, "{}", sep_comma(elmts)),
+      Self::ArrayAccess(indexed, index) => write!(f, "{indexed}[{index}]"),
+      Self::IfElse(condition, consequence, maybe_alternative) => {
+        write!(f, "if {condition} {consequence}")?;
+
+        match maybe_alternative {
+          Some(alternative) => write!(f, " else {{ {alternative} }}"),
+          None => write!(f, " "),
+        }
+      }
+      Self::When(condition, consequence, alternative) => {
+        write!(f, "when {condition} ? {consequence} : {alternative};")
+      }
+      Self::Loop(body) => write!(f, "loop {body}"),
+      Self::While(condition, body) => write!(f, "while {condition} {body}"),
+      Self::Return(maybe_expr) => match maybe_expr {
+        Some(expr) => write!(f, "return {expr};"),
+        None => write!(f, "return;"),
+      },
+      Self::Break(maybe_expr) => match maybe_expr {
+        Some(expr) => write!(f, "break {expr};"),
+        None => write!(f, "break;"),
+      },
+      Self::Continue => write!(f, "continue"),
+      Self::Var(var) => write!(f, "{var}"),
     }
   }
 }
@@ -148,5 +173,25 @@ impl std::fmt::Display for Args {
 impl std::fmt::Display for Arg {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(f, "{}", self.expr)
+  }
+}
+
+impl std::fmt::Display for Var {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    let kind = &self.kind;
+    let pattern = &self.pattern;
+    let value = &self.value;
+
+    write!(f, "{kind} {pattern} {value};")
+  }
+}
+
+impl std::fmt::Display for VarKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      VarKind::Imu => write!(f, "imu"),
+      VarKind::Mut => write!(f, "mut"),
+      VarKind::Val => write!(f, "val"),
+    }
   }
 }
