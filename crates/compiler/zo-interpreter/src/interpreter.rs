@@ -62,6 +62,16 @@ impl<'ast> Interpreter<'ast> {
         self.interpret_expr_fn(prototype, block)
       }
       ExprKind::Call(callee, args) => self.interpret_expr_call(callee, args),
+      ExprKind::Array(elmts) => todo!(),
+      ExprKind::ArrayAccess(indexed, index) => todo!(),
+      ExprKind::IfElse(condition, consequence, alternative) => todo!(),
+      ExprKind::When(condition, consequence, alternative) => todo!(),
+      ExprKind::Loop(body) => todo!(),
+      ExprKind::While(condition, body) => todo!(),
+      ExprKind::Return(maybe_expr) => todo!(),
+      ExprKind::Break(maybe_expr) => todo!(),
+      ExprKind::Continue => todo!(),
+      ExprKind::Var(var) => todo!(),
     }
   }
 
