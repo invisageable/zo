@@ -1,0 +1,8 @@
+-- immutable variables.
+
+fun main() {
+  imu x: int = 1;
+  imu y := 2;
+
+  println(x * y);
+}

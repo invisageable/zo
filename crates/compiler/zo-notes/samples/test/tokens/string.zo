@@ -1,0 +1,4 @@
+-- string literals in `zo`.
+
+"👋🌍👽" "Bonjour le monde!" "Wesh la famille!" "Yo 👽!" "\n" "\tfoobar"
+"東京" "Привет" "안녕하세요" "こんにちは。" "السلام عليكم" "你好"

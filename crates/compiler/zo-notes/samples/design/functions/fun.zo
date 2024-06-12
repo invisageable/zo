@@ -1,0 +1,6 @@
+-- functions: declaration.
+
+fun foo() {}
+fun bar(x: int) {}
+
+fun main() {}

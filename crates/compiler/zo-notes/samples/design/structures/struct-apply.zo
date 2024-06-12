@@ -1,0 +1,9 @@
+struct Foo {
+  x: int,
+  y: int,
+  z: int,
+}
+
+apply Foo {}
+
+fun main() {}

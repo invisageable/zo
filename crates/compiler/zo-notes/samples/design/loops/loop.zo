@@ -1,0 +1,5 @@
+-- loops.
+
+fun main() {
+  loop {} -- infinite loop.
+}

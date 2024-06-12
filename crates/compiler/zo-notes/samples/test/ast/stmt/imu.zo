@@ -1,0 +1,11 @@
+-- immutable variables.
+
+fun main() {
+  imu x: int = 1_000_000_000;
+
+  println(x);
+
+  imu x := -42;
+
+  println(x);
+}

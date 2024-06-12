@@ -1,0 +1,7 @@
+-- functions: call.
+
+fun foo() {}
+
+fun main() {
+  foo();
+}

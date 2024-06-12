@@ -1,0 +1,19 @@
+-- binary operations.
+
+fun main() {
+  imu x: int = 1 + 2;
+  imu x: int = 3 - 4;
+  imu x: int = 5 * 6;
+  imu x: int = 7 / 8;
+  imu x: int = 2 & 4;
+  imu x: int = 2 | 4;
+  imu x: bool = 9 % 0 == 0;
+  imu x: bool = x < y;
+  imu x: bool = x > y;
+  imu x: bool = x <= y;
+  imu x: bool = x >= y;
+  imu x: bool = x == y;
+  imu x: bool = x != y;
+  imu x: bool = x && y;
+  imu x: bool = x || y;
+}

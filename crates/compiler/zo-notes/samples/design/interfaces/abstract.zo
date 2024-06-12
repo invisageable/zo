@@ -1,0 +1,9 @@
+-- interface: abstract.
+
+abstract Foo {}
+
+abstract Bar {
+  fun foobar();
+}
+
+fun main() {}

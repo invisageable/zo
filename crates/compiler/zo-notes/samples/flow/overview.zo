@@ -1,0 +1,178 @@
+-- this is a line comments.
+-! this is a line doc comments.
+
+-- packs.
+
+-- pack a;
+-- pub pack b;
+
+-- loads.
+
+-- load a;
+-- pub load a::b::c;
+
+-- load std::sys::(exit);
+-- pub load std::mem::(alloc, free);
+
+-- comptime.
+
+-- #run fun foo () {}
+-- #run fun foo (x: f32) {}
+
+-- externs.
+
+-- ext bar();
+-- ext foobar(x: int);
+
+-- globals.
+
+val A: bool = true;
+val B: int = 45;
+val C: float = 1.0;
+val D: char = '\0';
+val E: str = "👋 🌍 👽";
+
+-- ty aliases.
+
+type C = int;
+type F = float;
+type D = bool;
+type E = char;
+type E = str;
+
+-- functions.
+
+-- function declarations.
+
+fun foobar() {}
+
+-- function with inputs.
+
+fun foobar(x: int, y: int) {}
+fun foobar(x: str, y: str) {}
+fun foobar(x: char, y: char) {}
+
+-- function with output types.
+
+-- fun foobar(): bool {}
+-- fun foobar(): int {}
+
+-- function blocks.
+
+-- fun add(x: int, y: int): int {
+--   x + y
+-- }
+
+-- locals.
+
+fun locals() {
+  -- immutable variables — infer.
+  imu x := -1 + 2;
+  imu x := !true;
+  imu x := 4 + 8 * 268 / 2;
+  imu x := ((4 + 8) * 268 / 2);
+  imu x := 9 % 0 == 0;
+  imu x := when true ? 2 : 3;
+  -- imu x := if true {} else if false {} else {};
+  imu x := 1_000_000_000;
+  imu x := 1_000_000_000.0;
+  imu x := '\0';
+  imu x := "👋 🌍 👽";
+  imu x := foobar();
+  imu x := foobar(x, x);
+  imu x := {};
+  imu x := [0, 1, 2, 3];
+  imu x := x[0];
+  imu x := x.x;
+  imu x := x.y.z;
+  imu x := x.foobar();
+  imu x := foobar().foobar();
+  imu x := ::{};
+  imu x := ::{ a = "👋🌍👽", b = 0 };
+
+  -- mutable variables — infer.
+  mut x := -1 + 2;
+  mut x := !true;
+  mut x := 4 + 8 * 268 / 2;
+  mut x := 9 % 0 == 0;
+  mut x := when true ? 2 : 3;
+  -- mut x := if true {} else if false {} else {};
+  mut x := 987_654_321;
+  mut x := 0.456;
+  mut x := '\n';
+  mut x := "👋 🌍 👽";
+  mut x := foobar();
+  mut x := foobar(x, x);
+  mut x := {};
+  mut x := [0, 1, 2, 3];
+  mut x := x[0];
+  mut x := x.x;
+  mut x := x.y.z;
+  mut x := x.foobar();
+  mut x := foobar().foobar();
+  mut x := ::{};
+  mut x := ::{ a = "👋 🌍 👽", b = 0 };
+
+  -- assignments.
+  x = 0;
+
+  x += 0;
+  x -= 0;
+  x *= 0;
+  x /= 0;
+  x %= 0;
+  x ^= 0;
+  x &= 0;
+  x |= 0;
+}
+
+-- branches.
+
+fun branches() {
+  -- if branch.
+  -- if true {}
+
+  -- if else branch.
+  -- if true {} else {}
+
+  -- if branch.
+  -- if true {} else if false {} else {}
+
+  -- if !true {} else {}
+  -- if 0 == 1 {} else if 1 == 0 {} else {}
+}
+
+-- loops.
+
+fun loops() {
+  -- infinite loop.
+  loop {}
+
+  -- infinite loop nested.
+  loop {
+    loop {}
+  }
+
+  -- while loop.
+  while true {}
+
+  -- while loop nested.
+  while true {
+    while false {}
+  }
+
+  -- for loop.
+  -- for x := 0..1_000_000 {}
+
+  -- for loop nested.
+  -- for x := 0..1_000_000 {
+  --   for y := 0..1_000_000 {}
+  -- }
+}
+
+-- entry.
+
+fun main() {
+  imu x := 0;
+  x
+}

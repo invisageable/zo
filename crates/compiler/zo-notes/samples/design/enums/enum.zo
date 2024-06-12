@@ -1,0 +1,10 @@
+-- enumerations.
+
+enum Bar {}
+
+enum FooBar {
+  Foo,
+  Bar = 0,
+}
+
+fun main() {}

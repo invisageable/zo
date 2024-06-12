@@ -1,0 +1,6 @@
+-- global variables.
+
+val X: int = 1;
+val Y: int = 2;
+
+fun main() {}

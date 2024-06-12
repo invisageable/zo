@@ -1,0 +1,7 @@
+-- ty aliases.
+
+type A = int;
+type B = float;
+type C = bool;
+type D = char;
+type E = str;

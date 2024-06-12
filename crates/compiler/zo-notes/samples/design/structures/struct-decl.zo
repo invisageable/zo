@@ -1,0 +1,15 @@
+-- structure declaration.
+struct Foo {
+  x: int,
+  y: int,
+  z: int,
+}
+
+-- structure declaration with default.
+struct Foo {
+  x: int = 1,
+  y: int = 2,
+  z: int = 3,
+}
+
+fun main() {}

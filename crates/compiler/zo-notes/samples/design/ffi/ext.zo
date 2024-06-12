@@ -1,0 +1,6 @@
+-- ffi: externs.
+
+ext foo();
+ext bar(x: int);
+
+fun main() {}

@@ -1,0 +1,9 @@
+-- for loops.
+
+fun main() {
+  for x := 0..3 {
+    x += 1
+  }
+
+  #gpu for n := 0..3 -> n += 1; -- handles `gpu`.
+}

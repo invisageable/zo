@@ -1,0 +1,7 @@
+-- global variables.
+
+val A: bool = true;
+val B: int = 45;
+val C: float = 1.0;
+val D: char = '\0';
+val E: str = "👋 🌍 👽";

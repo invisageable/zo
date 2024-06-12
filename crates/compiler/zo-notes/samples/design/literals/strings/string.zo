@@ -1,0 +1,11 @@
+-- literals: strings.
+
+fun main() {
+  imu x: str = "你好!";
+  imu y: str = "foo\n";
+  imu z: str = "\"bar\"";
+
+  println(x);
+  println(y);
+  println(z);
+}
