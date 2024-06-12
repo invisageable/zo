@@ -30,7 +30,7 @@ impl Error for Syntax {
           *span,
           format!(
             "{}: `{token}`",
-            "what's this language i only spoke zhoo lang".fg(color::error()),
+            "what's this language i only spoke zo lang".fg(color::error()),
           )
           .into(),
           color::error(),
@@ -44,7 +44,7 @@ impl Error for Syntax {
           *span,
           format!(
             "{}: `{token}`",
-            "what's this language i only spoke zhoo lang".fg(color::error()),
+            "what's this language i only spoke zo lang".fg(color::error()),
           )
           .into(),
           color::error(),

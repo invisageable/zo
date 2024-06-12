@@ -36,13 +36,15 @@ impl Error for Lexical {
         .into()],
         notes: vec![format!(
           "{}",
-          "🤖 what language are you trying to speak to me in? i only speak zhoo."
+          "🤖 what language are you trying to speak to me in? i only speak zo."
             .fg(color::note())
         )
         .into()],
       },
       Self::InvalidNumber(span, ch) => todo!("invalid num — {span}-{ch}"),
-      Self::ReservedKeyword(span, word) => todo!("reserved keyword — {span}-{word}"),
+      Self::ReservedKeyword(span, word) => {
+        todo!("reserved keyword — {span}-{word}")
+      }
     }
   }
 }
