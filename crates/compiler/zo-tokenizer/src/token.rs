@@ -9,7 +9,7 @@ pub mod punctuation;
 use zo_core::interner::symbol::Symbol;
 use zo_core::span::Span;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Token {
   pub kind: TokenKind,
   pub span: Span,
@@ -22,7 +22,7 @@ impl Token {
   }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TokenKind {
   Int(Symbol, int::BaseInt),
   Float(Symbol),
