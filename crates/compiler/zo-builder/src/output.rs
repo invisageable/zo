@@ -18,6 +18,7 @@ impl Files {
     Self(Vec::with_capacity(0usize))
   }
 
+  #[inline]
   pub fn add_file(&mut self, file: File) {
     self.0.push(file);
   }

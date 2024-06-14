@@ -10,10 +10,13 @@ version.workspace = true
 zo-core = { workspace = true }
 
 # internals.
-zo-reader = { workspace = true }
 zo-session = { workspace = true }
 
 # externals.
 hashbrown = { workspace = true }
 lazy_static = { workspace = true }
 smol_str = { workspace = true }
+
+[dev-dependencies]
+# internals.
+zo-reader = { workspace = true }
