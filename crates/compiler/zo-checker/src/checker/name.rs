@@ -1,5 +1,5 @@
 use zo_ast::ast::{
-  Args, Ast, BinOp, Block, Expr, ExprKind, Lit, LitKind, Prototype, Var,
+  Args, Ast, BinOp, Block, Expr, ExprKind, Lit, Prototype, Var,
 };
 
 use zo_session::session::Session;
@@ -72,29 +72,41 @@ impl<'ast> NameChecker<'ast> {
     }
   }
 
-  fn check_expr_unop(&mut self, rhs: &Expr) -> Result<()> {
+  fn check_expr_unop(&mut self, _rhs: &Expr) -> Result<()> {
     todo!()
   }
 
-  fn check_expr_binop(&mut self, lhs: &Expr, rhs: &Expr) -> Result<()> {
+  fn check_expr_binop(&mut self, _lhs: &Expr, _rhs: &Expr) -> Result<()> {
     todo!()
   }
 
-  fn check_expr_assgin(&mut self, assignee: &Expr, value: &Expr) -> Result<()> {
+  fn check_expr_assgin(
+    &mut self,
+    _assignee: &Expr,
+    _value: &Expr,
+  ) -> Result<()> {
     todo!()
   }
 
   fn check_expr_assgin_op(
     &mut self,
-    binop: &BinOp,
-    assignee: &Expr,
-    value: &Expr,
+    _binop: &BinOp,
+    _assignee: &Expr,
+    _value: &Expr,
   ) -> Result<()> {
     todo!()
   }
 
   fn check_expr_block(&mut self, body: &Block) -> Result<()> {
-    todo!()
+    self.check_block(body)
+  }
+
+  fn check_block(&mut self, body: &Block) -> Result<()> {
+    for expr in &body.exprs {
+      self.check_expr(expr)?;
+    }
+
+    Ok(())
   }
 
   fn check_expr_fn(
@@ -102,63 +114,75 @@ impl<'ast> NameChecker<'ast> {
     prototype: &Prototype,
     body: &Block,
   ) -> Result<()> {
+    self.check_prototype(prototype)?;
+    self.check_block(body)
+  }
+
+  fn check_prototype(&mut self, _prototype: &Prototype) -> Result<()> {
     todo!()
   }
 
-  fn check_expr_call(&mut self, callee: &Expr, args: &Args) -> Result<()> {
+  fn check_expr_call(&mut self, _callee: &Expr, _args: &Args) -> Result<()> {
     todo!()
   }
 
-  fn check_expr_array(&mut self, elmts: &Vec<Expr>) -> Result<()> {
+  fn check_expr_array(&mut self, _elmts: &Vec<Expr>) -> Result<()> {
     todo!()
   }
 
   fn check_expr_array_access(
     &mut self,
-    indexed: &Expr,
-    index: &Expr,
+    _indexed: &Expr,
+    _index: &Expr,
   ) -> Result<()> {
     todo!()
   }
 
   fn check_expr_if_else(
     &mut self,
-    condition: &Expr,
-    consequence: &Block,
-    maybe_alternative: &Option<Box<Expr>>,
+    _condition: &Expr,
+    _consequence: &Block,
+    _maybe_alternative: &Option<Box<Expr>>,
   ) -> Result<()> {
     todo!()
   }
 
   fn check_expr_when(
     &mut self,
-    condition: &Expr,
-    consequence: &Expr,
-    alternative: &Expr,
+    _condition: &Expr,
+    _consequence: &Expr,
+    _alternative: &Expr,
   ) -> Result<()> {
     todo!()
   }
 
   fn check_expr_loop(&mut self, body: &Block) -> Result<()> {
-    todo!()
+    self.check_block(body)
   }
 
-  fn check_expr_while(&mut self, condition: &Expr, body: &Block) -> Result<()> {
+  fn check_expr_while(
+    &mut self,
+    _condition: &Expr,
+    _body: &Block,
+  ) -> Result<()> {
     todo!()
   }
 
   fn check_expr_return(
     &mut self,
-    maybe_expr: &Option<Box<Expr>>,
+    _maybe_expr: &Option<Box<Expr>>,
   ) -> Result<()> {
     todo!()
   }
 
-  fn check_expr_break(&mut self, maybe_expr: &Option<Box<Expr>>) -> Result<()> {
+  fn check_expr_break(
+    &mut self,
+    _maybe_expr: &Option<Box<Expr>>,
+  ) -> Result<()> {
     todo!()
   }
 
-  fn check_expr_var(&mut self, var: &Var) -> Result<()> {
+  fn check_expr_var(&mut self, _var: &Var) -> Result<()> {
     todo!()
   }
 }
