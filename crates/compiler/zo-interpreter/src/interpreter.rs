@@ -4,7 +4,7 @@ use super::scope::Scope;
 
 use zo_ast::ast::{
   Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind,
-  Prototype, UnOp, UnOpKind,
+  Prototype, UnOp, UnOpKind, Var,
 };
 
 use zo_value::value::{self, Value, ValueKind};
@@ -62,16 +62,24 @@ impl<'ast> Interpreter<'ast> {
         self.interpret_expr_fn(prototype, block)
       }
       ExprKind::Call(callee, args) => self.interpret_expr_call(callee, args),
-      ExprKind::Array(elmts) => todo!(),
-      ExprKind::ArrayAccess(indexed, index) => todo!(),
-      ExprKind::IfElse(condition, consequence, alternative) => todo!(),
-      ExprKind::When(condition, consequence, alternative) => todo!(),
-      ExprKind::Loop(body) => todo!(),
-      ExprKind::While(condition, body) => todo!(),
-      ExprKind::Return(maybe_expr) => todo!(),
-      ExprKind::Break(maybe_expr) => todo!(),
-      ExprKind::Continue => todo!(),
-      ExprKind::Var(var) => todo!(),
+      ExprKind::Array(elmts) => self.interpret_expr_array(elmts),
+      ExprKind::ArrayAccess(indexed, index) => {
+        self.interpret_expr_array_access(indexed, index)
+      }
+      ExprKind::IfElse(condition, consequence, maybe_alternative) => {
+        self.interpret_expr_if_else(condition, consequence, maybe_alternative)
+      }
+      ExprKind::When(condition, consequence, alternative) => {
+        self.interpret_expr_when(condition, consequence, alternative)
+      }
+      ExprKind::Loop(body) => self.interpret_expr_loop(body),
+      ExprKind::While(condition, body) => {
+        self.interpret_expr_while(condition, body)
+      }
+      ExprKind::Return(maybe_expr) => self.interpret_expr_return(maybe_expr),
+      ExprKind::Break(maybe_expr) => self.interpret_expr_break(maybe_expr),
+      ExprKind::Continue => self.interpret_expr_continue(),
+      ExprKind::Var(var) => self.interpret_expr_var(var),
     }
   }
 
@@ -468,7 +476,7 @@ impl<'ast> Interpreter<'ast> {
       ValueKind::Fn(prototype, block) => {
         self.interpret_expr_call_fn(prototype, block, args)
       }
-      ValueKind::Builtin(_fun) => todo!(),
+      ValueKind::Builtin(fun) => self.interpret_expr_call_builtin(fun),
       _ => panic!(), // returns reporter error.
     }
   }
@@ -505,6 +513,74 @@ impl<'ast> Interpreter<'ast> {
 
     let _value = self.interpret_expr_block(&block)?;
 
+    todo!()
+  }
+
+  fn interpret_expr_call_builtin(&mut self, _fun: ()) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_array(&mut self, _elmts: &Vec<Expr>) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_array_access(
+    &mut self,
+    _indexed: &Expr,
+    _index: &Expr,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_if_else(
+    &mut self,
+    _condition: &Expr,
+    _consequence: &Block,
+    _maybe_alternative: &Option<Box<Expr>>,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_when(
+    &mut self,
+    _condition: &Expr,
+    _consequence: &Expr,
+    _maybe_alternative: &Expr,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_loop(&mut self, _body: &Block) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_while(
+    &mut self,
+    _condition: &Expr,
+    _body: &Block,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_return(
+    &mut self,
+    _maybe_expr: &Option<Box<Expr>>,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_break(
+    &mut self,
+    _maybe_expr: &Option<Box<Expr>>,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_continue(&mut self) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_var(&mut self, _var: &Var) -> Result<Value> {
     todo!()
   }
 }
