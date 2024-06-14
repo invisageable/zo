@@ -7,7 +7,7 @@ use crate::reporter::report::io::Io;
 use std::fmt::Write;
 
 const INDENT_DEFAULT: usize = 2usize;
-const DEPTH_DEFAULT: usize = 2usize;
+const DEPTH_DEFAULT: usize = 0usize;
 
 pub struct Writer {
   out: String,
