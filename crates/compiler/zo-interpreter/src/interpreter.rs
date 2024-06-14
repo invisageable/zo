@@ -210,6 +210,12 @@ impl<'ast> Interpreter<'ast> {
       BinOpKind::Mul => self.interpret_expr_binop_int_mul(lhs, rhs),
       BinOpKind::Div => self.interpret_expr_binop_int_div(lhs, rhs),
       BinOpKind::Rem => self.interpret_expr_binop_int_rem(lhs, rhs),
+      BinOpKind::Lt => self.interpret_expr_binop_int_lt(lhs, rhs),
+      BinOpKind::Gt => self.interpret_expr_binop_int_gt(lhs, rhs),
+      BinOpKind::Le => self.interpret_expr_binop_int_le(lhs, rhs),
+      BinOpKind::Ge => self.interpret_expr_binop_int_ge(lhs, rhs),
+      BinOpKind::Eq => self.interpret_expr_binop_int_eq(lhs, rhs),
+      BinOpKind::Ne => self.interpret_expr_binop_int_ne(lhs, rhs),
       _ => panic!(), // returns reporter error.
     }
   }
@@ -254,6 +260,54 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::int(lhs % rhs))
   }
 
+  fn interpret_expr_binop_int_lt(
+    &mut self,
+    lhs: &i64,
+    rhs: &i64,
+  ) -> Result<Value> {
+    Ok(Value::bool(lhs < rhs))
+  }
+
+  fn interpret_expr_binop_int_gt(
+    &mut self,
+    lhs: &i64,
+    rhs: &i64,
+  ) -> Result<Value> {
+    Ok(Value::bool(lhs > rhs))
+  }
+
+  fn interpret_expr_binop_int_le(
+    &mut self,
+    lhs: &i64,
+    rhs: &i64,
+  ) -> Result<Value> {
+    Ok(Value::bool(lhs <= rhs))
+  }
+
+  fn interpret_expr_binop_int_ge(
+    &mut self,
+    lhs: &i64,
+    rhs: &i64,
+  ) -> Result<Value> {
+    Ok(Value::bool(lhs >= rhs))
+  }
+
+  fn interpret_expr_binop_int_eq(
+    &mut self,
+    lhs: &i64,
+    rhs: &i64,
+  ) -> Result<Value> {
+    Ok(Value::bool(lhs == rhs))
+  }
+
+  fn interpret_expr_binop_int_ne(
+    &mut self,
+    lhs: &i64,
+    rhs: &i64,
+  ) -> Result<Value> {
+    Ok(Value::bool(lhs != rhs))
+  }
+
   fn interpret_expr_binop_float(
     &mut self,
     binop: &BinOp,
@@ -266,6 +320,12 @@ impl<'ast> Interpreter<'ast> {
       BinOpKind::Mul => self.interpret_expr_binop_float_mul(lhs, rhs),
       BinOpKind::Div => self.interpret_expr_binop_float_div(lhs, rhs),
       BinOpKind::Rem => self.interpret_expr_binop_float_rem(lhs, rhs),
+      BinOpKind::Lt => self.interpret_expr_binop_float_lt(lhs, rhs),
+      BinOpKind::Gt => self.interpret_expr_binop_float_gt(lhs, rhs),
+      BinOpKind::Le => self.interpret_expr_binop_float_le(lhs, rhs),
+      BinOpKind::Ge => self.interpret_expr_binop_float_ge(lhs, rhs),
+      BinOpKind::Eq => self.interpret_expr_binop_float_eq(lhs, rhs),
+      BinOpKind::Ne => self.interpret_expr_binop_float_ne(lhs, rhs),
       _ => panic!(), // returns reporter error.
     }
   }
@@ -310,6 +370,54 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::float(lhs % rhs))
   }
 
+  fn interpret_expr_binop_float_lt(
+    &mut self,
+    lhs: &f64,
+    rhs: &f64,
+  ) -> Result<Value> {
+    Ok(Value::bool(*lhs < *rhs))
+  }
+
+  fn interpret_expr_binop_float_gt(
+    &mut self,
+    lhs: &f64,
+    rhs: &f64,
+  ) -> Result<Value> {
+    Ok(Value::bool(*lhs > *rhs))
+  }
+
+  fn interpret_expr_binop_float_le(
+    &mut self,
+    lhs: &f64,
+    rhs: &f64,
+  ) -> Result<Value> {
+    Ok(Value::bool(*lhs <= *rhs))
+  }
+
+  fn interpret_expr_binop_float_ge(
+    &mut self,
+    lhs: &f64,
+    rhs: &f64,
+  ) -> Result<Value> {
+    Ok(Value::bool(*lhs >= *rhs))
+  }
+
+  fn interpret_expr_binop_float_eq(
+    &mut self,
+    lhs: &f64,
+    rhs: &f64,
+  ) -> Result<Value> {
+    Ok(Value::bool(*lhs == *rhs))
+  }
+
+  fn interpret_expr_binop_float_ne(
+    &mut self,
+    lhs: &f64,
+    rhs: &f64,
+  ) -> Result<Value> {
+    Ok(Value::bool(*lhs != *rhs))
+  }
+
   fn interpret_expr_binop_bool(
     &mut self,
     binop: &BinOp,
@@ -322,12 +430,6 @@ impl<'ast> Interpreter<'ast> {
       BinOpKind::BitAnd => self.interpret_expr_binop_bool_bit_and(lhs, rhs),
       BinOpKind::BitOr => self.interpret_expr_binop_bool_bit_or(lhs, rhs),
       BinOpKind::BitXor => self.interpret_expr_binop_bool_bit_xor(lhs, rhs),
-      BinOpKind::Lt => self.interpret_expr_binop_bool_lt(lhs, rhs),
-      BinOpKind::Gt => self.interpret_expr_binop_bool_gt(lhs, rhs),
-      BinOpKind::Le => self.interpret_expr_binop_bool_le(lhs, rhs),
-      BinOpKind::Ge => self.interpret_expr_binop_bool_ge(lhs, rhs),
-      BinOpKind::Eq => self.interpret_expr_binop_bool_eq(lhs, rhs),
-      BinOpKind::Ne => self.interpret_expr_binop_bool_ne(lhs, rhs),
       _ => panic!(), // returns reporter error.
     }
   }
@@ -370,54 +472,6 @@ impl<'ast> Interpreter<'ast> {
     rhs: &bool,
   ) -> Result<Value> {
     Ok(Value::bool(*lhs ^ *rhs))
-  }
-
-  fn interpret_expr_binop_bool_lt(
-    &mut self,
-    lhs: &bool,
-    rhs: &bool,
-  ) -> Result<Value> {
-    Ok(Value::bool(*lhs < *rhs))
-  }
-
-  fn interpret_expr_binop_bool_gt(
-    &mut self,
-    lhs: &bool,
-    rhs: &bool,
-  ) -> Result<Value> {
-    Ok(Value::bool(*lhs > *rhs))
-  }
-
-  fn interpret_expr_binop_bool_le(
-    &mut self,
-    lhs: &bool,
-    rhs: &bool,
-  ) -> Result<Value> {
-    Ok(Value::bool(*lhs <= *rhs))
-  }
-
-  fn interpret_expr_binop_bool_ge(
-    &mut self,
-    lhs: &bool,
-    rhs: &bool,
-  ) -> Result<Value> {
-    Ok(Value::bool(*lhs >= *rhs))
-  }
-
-  fn interpret_expr_binop_bool_eq(
-    &mut self,
-    lhs: &bool,
-    rhs: &bool,
-  ) -> Result<Value> {
-    Ok(Value::bool(*lhs == *rhs))
-  }
-
-  fn interpret_expr_binop_bool_ne(
-    &mut self,
-    lhs: &bool,
-    rhs: &bool,
-  ) -> Result<Value> {
-    Ok(Value::bool(*lhs != *rhs))
   }
 
   fn interpret_expr_binop_str(
