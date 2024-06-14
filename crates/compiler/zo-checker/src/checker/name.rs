@@ -66,10 +66,8 @@ impl<'ast> NameChecker<'ast> {
     }
   }
 
-  fn check_expr_lit(&mut self, lit: &Lit) -> Result<()> {
-    match &lit.kind {
-      _ => todo!(),
-    }
+  fn check_expr_lit(&mut self, _lit: &Lit) -> Result<()> {
+    todo!()
   }
 
   fn check_expr_unop(&mut self, _rhs: &Expr) -> Result<()> {

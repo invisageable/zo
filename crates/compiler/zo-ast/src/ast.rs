@@ -293,6 +293,20 @@ impl AsSpan for Block {
   }
 }
 
+impl Default for Block {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+impl std::ops::Deref for Block {
+  type Target = Vec<Expr>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.exprs
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct Prototype {
   pub pattern: Pattern,
@@ -331,6 +345,12 @@ impl AsSpan for Inputs {
       (Some(first), None) => first.span,
       _ => Span::ZERO,
     }
+  }
+}
+
+impl Default for Inputs {
+  fn default() -> Self {
+    Self::new()
   }
 }
 
@@ -384,6 +404,12 @@ impl Args {
   #[inline]
   pub fn add_arg(&mut self, arg: Arg) {
     self.0.push(arg)
+  }
+}
+
+impl Default for Args {
+  fn default() -> Self {
+    Self::new()
   }
 }
 

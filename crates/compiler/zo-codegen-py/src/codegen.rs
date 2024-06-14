@@ -11,6 +11,6 @@ use zo_core::Result;
 ///
 /// ```rs
 /// ```
-pub fn generate(session: &mut Session, ast: &Ast) -> Result<Box<[u8]>> {
+pub fn generate(_session: &mut Session, _ast: &Ast) -> Result<Box<[u8]>> {
   todo!()
 }

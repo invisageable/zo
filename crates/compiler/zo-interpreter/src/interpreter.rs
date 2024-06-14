@@ -520,7 +520,7 @@ impl<'ast> Interpreter<'ast> {
     todo!()
   }
 
-  fn interpret_expr_array(&mut self, _elmts: &Vec<Expr>) -> Result<Value> {
+  fn interpret_expr_array(&mut self, _elmts: &[Expr]) -> Result<Value> {
     todo!()
   }
 

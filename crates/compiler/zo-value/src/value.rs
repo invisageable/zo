@@ -78,9 +78,7 @@ pub enum ValueKind {
 impl ValueKind {
   #[inline]
   pub fn symbolize(&self) -> Symbol {
-    match self {
-      _ => todo!(),
-    }
+    todo!()
   }
 
   #[inline]
