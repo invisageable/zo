@@ -19,12 +19,13 @@ impl<'ast> Translator<'ast> {
     Self {
       interner,
       reporter,
-      writer: Writer::new(0usize),
+      writer: Writer::new(2usize),
     }
   }
 
+  #[inline]
   pub fn output(&mut self) -> Result<Box<[u8]>> {
-    todo!()
+    Ok(self.writer.as_bytes())
   }
 
   pub fn translate(&mut self, ast: &Ast) -> Result<()> {
