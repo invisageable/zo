@@ -1,5 +1,5 @@
 [package]
-name = "zo-inferencer"
+name = "zo-tychecker"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -11,9 +11,8 @@ zo-core = { workspace = true }
 
 # internals.
 zo-ast = { workspace = true }
+zo-inferencer = { workspace = true }
 zo-session = { workspace = true }
 zo-ty = { workspace = true }
 
 # externals.
-hashbrown = { workspace = true }
-smol_str = { workspace = true }

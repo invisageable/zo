@@ -1025,6 +1025,7 @@ dependencies = [
  "zo-checker",
  "zo-core",
  "zo-session",
+ "zo-tychecker",
 ]
 
 [[package]]
@@ -1133,6 +1134,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-inferencer"
+version = "0.0.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "smol_str",
+ "zo-ast",
+ "zo-core",
+ "zo-session",
+ "zo-ty",
+]
+
+[[package]]
 name = "zo-interpreter"
 version = "0.0.0"
 dependencies = [
@@ -1185,6 +1198,22 @@ dependencies = [
 [[package]]
 name = "zo-ty"
 version = "0.0.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "smol_str",
+ "zo-core",
+]
+
+[[package]]
+name = "zo-tychecker"
+version = "0.0.0"
+dependencies = [
+ "zo-ast",
+ "zo-core",
+ "zo-inferencer",
+ "zo-session",
+ "zo-ty",
+]
 
 [[package]]
 name = "zo-value"

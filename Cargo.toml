@@ -34,6 +34,7 @@ zo-reader = { path = "crates/compiler/zo-reader", version = "0.0.0" }
 zo-session = { path = "crates/compiler/zo-session", version = "0.0.0" }
 zo-tokenizer = { path = "crates/compiler/zo-tokenizer", version = "0.0.0" }
 zo-ty = { path = "crates/compiler/zo-ty", version = "0.0.0" }
+zo-tychecker = { path = "crates/compiler/zo-tychecker", version = "0.0.0" }
 zo-value = { path = "crates/compiler/zo-value", version = "0.0.0" }
 
 # external.
