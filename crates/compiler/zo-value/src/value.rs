@@ -3,6 +3,7 @@
 use zo_ast::ast::{Block, Prototype};
 
 use zo_core::interner::symbol::Symbol;
+use zo_core::span::Span;
 
 use smol_str::SmolStr;
 
@@ -122,5 +123,5 @@ impl std::ops::Deref for Args {
 #[derive(Clone, Debug)]
 pub struct Arg {
   pub value: Value,
-  // pub span: Span,
+  pub span: Span,
 }
