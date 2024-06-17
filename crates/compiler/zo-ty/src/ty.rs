@@ -1,3 +1,5 @@
+//! ...
+
 use zo_core::span::Span;
 
 use hashbrown::HashSet;
@@ -9,9 +11,13 @@ pub struct Ty {
 }
 
 impl Ty {
-  pub const UNIT: Self = Self::new(TyKind::Unit, Span::ZERO);
+  pub const UNIT: Self = Self {
+    kind: TyKind::Unit,
+    span: Span::ZERO,
+  };
 
-  pub const fn new(kind: TyKind, span: Span) -> Self {
+  #[inline]
+  pub fn new(kind: TyKind, span: Span) -> Self {
     Self { kind, span }
   }
 
