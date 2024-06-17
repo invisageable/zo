@@ -7,6 +7,8 @@ use zo_ast::ast::{
   Prototype, UnOp, UnOpKind, Var,
 };
 
+use zo_core::reporter::report::eval::Eval;
+use zo_core::reporter::report::ReportError;
 use zo_value::builtin::BuiltinFn;
 use zo_value::value;
 use zo_value::value::{Array, Value, ValueKind};
@@ -14,6 +16,7 @@ use zo_value::value::{Array, Value, ValueKind};
 use zo_core::interner::symbol::Symbol;
 use zo_core::interner::Interner;
 use zo_core::reporter::Reporter;
+use zo_core::span::{AsSpan, Span};
 use zo_core::Result;
 
 use smol_str::{SmolStr, ToSmolStr};
@@ -53,20 +56,26 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_expr(&mut self, expr: &Expr) -> Result<Value> {
     match &expr.kind {
       ExprKind::Lit(lit) => self.interpret_expr_lit(lit),
-      ExprKind::UnOp(unop, rhs) => self.interpret_expr_unop(unop, rhs),
-      ExprKind::BinOp(binop, lhs, rhs) => {
-        self.interpret_expr_binop(binop, lhs, rhs)
+      ExprKind::UnOp(unop, rhs) => {
+        self.interpret_expr_unop(unop, rhs, expr.span)
       }
-      ExprKind::Assign(_assignee, _value) => todo!(),
-      ExprKind::AssignOp(_binop, _assignee, _value) => todo!(),
+      ExprKind::BinOp(binop, lhs, rhs) => {
+        self.interpret_expr_binop(binop, lhs, rhs, expr.span)
+      }
+      ExprKind::Assign(assignee, value) => {
+        self.interpret_expr_assign(assignee, value, expr.span)
+      }
+      ExprKind::AssignOp(binop, assignee, value) => {
+        self.interpret_expr_assign_op(binop, assignee, value, expr.span)
+      }
       ExprKind::Block(block) => self.interpret_expr_block(block),
       ExprKind::Fn(prototype, block) => {
-        self.interpret_expr_fn(prototype, block)
+        self.interpret_expr_fn(prototype, block, expr.span)
       }
       ExprKind::Call(callee, args) => self.interpret_expr_call(callee, args),
-      ExprKind::Array(elmts) => self.interpret_expr_array(elmts),
+      ExprKind::Array(elmts) => self.interpret_expr_array(elmts, expr.span),
       ExprKind::ArrayAccess(indexed, index) => {
-        self.interpret_expr_array_access(indexed, index)
+        self.interpret_expr_array_access(indexed, index, expr.span)
       }
       ExprKind::IfElse(condition, consequence, maybe_alternative) => {
         self.interpret_expr_if_else(condition, consequence, maybe_alternative)
@@ -78,8 +87,12 @@ impl<'ast> Interpreter<'ast> {
       ExprKind::While(condition, body) => {
         self.interpret_expr_while(condition, body)
       }
-      ExprKind::Return(maybe_expr) => self.interpret_expr_return(maybe_expr),
-      ExprKind::Break(maybe_expr) => self.interpret_expr_break(maybe_expr),
+      ExprKind::Return(maybe_expr) => {
+        self.interpret_expr_return(maybe_expr, expr.span)
+      }
+      ExprKind::Break(maybe_expr) => {
+        self.interpret_expr_break(maybe_expr, expr.span)
+      }
       ExprKind::Continue => self.interpret_expr_continue(),
       ExprKind::Var(var) => self.interpret_expr_var(var),
     }
@@ -87,28 +100,40 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_lit(&mut self, lit: &Lit) -> Result<Value> {
     match &lit.kind {
-      LitKind::Int(symbol) => self.interpret_expr_lit_int(symbol),
-      LitKind::Float(symbol) => self.interpret_expr_lit_float(symbol),
-      LitKind::Ident(symbol) => self.interpret_expr_lit_ident(symbol),
-      LitKind::Bool(symbol) => self.interpret_expr_lit_bool(symbol),
-      LitKind::Char(symbol) => self.interpret_expr_lit_char(symbol),
-      LitKind::Str(symbol) => self.interpret_expr_lit_str(symbol),
+      LitKind::Int(symbol) => self.interpret_expr_lit_int(symbol, lit.span),
+      LitKind::Float(symbol) => self.interpret_expr_lit_float(symbol, lit.span),
+      LitKind::Ident(symbol) => self.interpret_expr_lit_ident(symbol, lit.span),
+      LitKind::Bool(symbol) => self.interpret_expr_lit_bool(symbol, lit.span),
+      LitKind::Char(symbol) => self.interpret_expr_lit_char(symbol, lit.span),
+      LitKind::Str(symbol) => self.interpret_expr_lit_str(symbol, lit.span),
     }
   }
 
-  fn interpret_expr_lit_int(&mut self, symbol: &Symbol) -> Result<Value> {
+  fn interpret_expr_lit_int(
+    &mut self,
+    symbol: &Symbol,
+    span: Span,
+  ) -> Result<Value> {
     let int = self.interner.lookup_int(symbol);
 
-    Ok(Value::int(int))
+    Ok(Value::int(int, span))
   }
 
-  fn interpret_expr_lit_float(&mut self, symbol: &Symbol) -> Result<Value> {
+  fn interpret_expr_lit_float(
+    &mut self,
+    symbol: &Symbol,
+    span: Span,
+  ) -> Result<Value> {
     let float = self.interner.lookup_float(symbol);
 
-    Ok(Value::float(float))
+    Ok(Value::float(float, span))
   }
 
-  fn interpret_expr_lit_ident(&mut self, symbol: &Symbol) -> Result<Value> {
+  fn interpret_expr_lit_ident(
+    &mut self,
+    symbol: &Symbol,
+    _span: Span,
+  ) -> Result<Value> {
     if let Some(var) = self.scope.var(symbol) {
       return Ok(var.clone());
     } else if let Some(fun) = self.scope.fun(symbol) {
@@ -120,41 +145,66 @@ impl<'ast> Interpreter<'ast> {
     panic!() // returns reporter error.
   }
 
-  fn interpret_expr_lit_bool(&mut self, boolean: &bool) -> Result<Value> {
-    Ok(Value::bool(*boolean))
+  fn interpret_expr_lit_bool(
+    &mut self,
+    boolean: &bool,
+    span: Span,
+  ) -> Result<Value> {
+    Ok(Value::bool(*boolean, span))
   }
 
-  fn interpret_expr_lit_char(&mut self, symbol: &Symbol) -> Result<Value> {
+  fn interpret_expr_lit_char(
+    &mut self,
+    symbol: &Symbol,
+    span: Span,
+  ) -> Result<Value> {
     let ch = self.interner.lookup_char(symbol);
 
-    Ok(Value::char(ch))
+    Ok(Value::char(ch, span))
   }
 
-  fn interpret_expr_lit_str(&mut self, symbol: &Symbol) -> Result<Value> {
+  fn interpret_expr_lit_str(
+    &mut self,
+    symbol: &Symbol,
+    span: Span,
+  ) -> Result<Value> {
     let string = self.interner.lookup_str(symbol);
 
-    Ok(Value::str(string.to_smolstr()))
+    Ok(Value::str(string.to_smolstr(), span))
   }
 
-  fn interpret_expr_unop(&mut self, unop: &UnOp, rhs: &Expr) -> Result<Value> {
+  fn interpret_expr_unop(
+    &mut self,
+    unop: &UnOp,
+    rhs: &Expr,
+    span: Span,
+  ) -> Result<Value> {
     let value = self.interpret_expr(rhs)?;
 
     match &unop.kind {
-      UnOpKind::Neg => self.interpret_expr_unop_neg(value),
-      UnOpKind::Not => self.interpret_expr_unop_not(value),
+      UnOpKind::Neg => self.interpret_expr_unop_neg(value, span),
+      UnOpKind::Not => self.interpret_expr_unop_not(value, span),
     }
   }
 
-  fn interpret_expr_unop_neg(&mut self, rhs: Value) -> Result<Value> {
+  fn interpret_expr_unop_neg(
+    &mut self,
+    rhs: Value,
+    span: Span,
+  ) -> Result<Value> {
     match rhs.kind {
-      ValueKind::Int(int) => Ok(Value::int(int)),
-      ValueKind::Float(float) => Ok(Value::float(float)),
-      _ => panic!(), // returns reporter error.
+      ValueKind::Int(int) => Ok(Value::int(int, span)),
+      ValueKind::Float(float) => Ok(Value::float(float, span)),
+      _ => Err(ReportError::Eval(Eval::UnknownUnOp(span, rhs.to_string()))),
     }
   }
 
-  fn interpret_expr_unop_not(&mut self, rhs: Value) -> Result<Value> {
-    Ok(Value::bool(!rhs.as_bool()))
+  fn interpret_expr_unop_not(
+    &mut self,
+    rhs: Value,
+    span: Span,
+  ) -> Result<Value> {
+    Ok(Value::bool(!rhs.as_bool(), span))
   }
 
   fn interpret_expr_binop(
@@ -162,24 +212,29 @@ impl<'ast> Interpreter<'ast> {
     binop: &BinOp,
     lhs: &Expr,
     rhs: &Expr,
+    span: Span,
   ) -> Result<Value> {
     let lhs = self.interpret_expr(lhs)?;
     let rhs = self.interpret_expr(rhs)?;
 
     match (&lhs.kind, &rhs.kind) {
       (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
-        self.interpret_expr_binop_int(binop, lhs, rhs)
+        self.interpret_expr_binop_int(binop, lhs, rhs, span)
       }
       (ValueKind::Float(lhs), ValueKind::Float(rhs)) => {
-        self.interpret_expr_binop_float(binop, lhs, rhs)
+        self.interpret_expr_binop_float(binop, lhs, rhs, span)
       }
       (ValueKind::Bool(lhs), ValueKind::Bool(rhs)) => {
-        self.interpret_expr_binop_bool(binop, lhs, rhs)
+        self.interpret_expr_binop_bool(binop, lhs, rhs, span)
       }
       (ValueKind::Str(lhs), ValueKind::Str(rhs)) => {
-        self.interpret_expr_binop_str(binop, lhs, rhs)
+        self.interpret_expr_binop_str(binop, lhs, rhs, span)
       }
-      _ => panic!(), // returns reporter error.
+      _ => Err(ReportError::Eval(Eval::UnknownBinOpOperand(
+        span,
+        lhs.to_string(),
+        rhs.to_string(),
+      ))),
     }
   }
 
@@ -188,22 +243,26 @@ impl<'ast> Interpreter<'ast> {
     binop: &BinOp,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
     match &binop.kind {
-      BinOpKind::Add => self.interpret_expr_binop_int_add(lhs, rhs),
-      BinOpKind::Sub => self.interpret_expr_binop_int_sub(lhs, rhs),
-      BinOpKind::Mul => self.interpret_expr_binop_int_mul(lhs, rhs),
-      BinOpKind::Div => self.interpret_expr_binop_int_div(lhs, rhs),
-      BinOpKind::Rem => self.interpret_expr_binop_int_rem(lhs, rhs),
-      BinOpKind::Lt => self.interpret_expr_binop_int_lt(lhs, rhs),
-      BinOpKind::Gt => self.interpret_expr_binop_int_gt(lhs, rhs),
-      BinOpKind::Le => self.interpret_expr_binop_int_le(lhs, rhs),
-      BinOpKind::Ge => self.interpret_expr_binop_int_ge(lhs, rhs),
-      BinOpKind::Eq => self.interpret_expr_binop_int_eq(lhs, rhs),
-      BinOpKind::Ne => self.interpret_expr_binop_int_ne(lhs, rhs),
-      BinOpKind::Shl => self.interpret_expr_binop_int_shl(lhs, rhs),
-      BinOpKind::Shr => self.interpret_expr_binop_int_shr(lhs, rhs),
-      _ => panic!(), // returns reporter error.
+      BinOpKind::Add => self.interpret_expr_binop_int_add(lhs, rhs, span),
+      BinOpKind::Sub => self.interpret_expr_binop_int_sub(lhs, rhs, span),
+      BinOpKind::Mul => self.interpret_expr_binop_int_mul(lhs, rhs, span),
+      BinOpKind::Div => self.interpret_expr_binop_int_div(lhs, rhs, span),
+      BinOpKind::Rem => self.interpret_expr_binop_int_rem(lhs, rhs, span),
+      BinOpKind::Lt => self.interpret_expr_binop_int_lt(lhs, rhs, span),
+      BinOpKind::Gt => self.interpret_expr_binop_int_gt(lhs, rhs, span),
+      BinOpKind::Le => self.interpret_expr_binop_int_le(lhs, rhs, span),
+      BinOpKind::Ge => self.interpret_expr_binop_int_ge(lhs, rhs, span),
+      BinOpKind::Eq => self.interpret_expr_binop_int_eq(lhs, rhs, span),
+      BinOpKind::Ne => self.interpret_expr_binop_int_ne(lhs, rhs, span),
+      BinOpKind::Shl => self.interpret_expr_binop_int_shl(lhs, rhs, span),
+      BinOpKind::Shr => self.interpret_expr_binop_int_shr(lhs, rhs, span),
+      _ => Err(ReportError::Eval(Eval::UnknownBinOp(
+        binop.span,
+        binop.to_string(),
+      ))),
     }
   }
 
@@ -211,104 +270,117 @@ impl<'ast> Interpreter<'ast> {
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::int(lhs + rhs))
+    Ok(Value::int(lhs + rhs, span))
   }
 
   fn interpret_expr_binop_int_sub(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::int(lhs - rhs))
+    Ok(Value::int(lhs - rhs, span))
   }
 
   fn interpret_expr_binop_int_mul(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::int(lhs * rhs))
+    Ok(Value::int(lhs * rhs, span))
   }
 
   fn interpret_expr_binop_int_div(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::int(lhs / rhs))
+    Ok(Value::int(lhs / rhs, span))
   }
 
   fn interpret_expr_binop_int_rem(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::int(lhs % rhs))
+    Ok(Value::int(lhs % rhs, span))
   }
 
   fn interpret_expr_binop_int_lt(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(lhs < rhs))
+    Ok(Value::bool(lhs < rhs, span))
   }
 
   fn interpret_expr_binop_int_gt(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(lhs > rhs))
+    Ok(Value::bool(lhs > rhs, span))
   }
 
   fn interpret_expr_binop_int_le(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(lhs <= rhs))
+    Ok(Value::bool(lhs <= rhs, span))
   }
 
   fn interpret_expr_binop_int_ge(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(lhs >= rhs))
+    Ok(Value::bool(lhs >= rhs, span))
   }
 
   fn interpret_expr_binop_int_eq(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(lhs == rhs))
+    Ok(Value::bool(lhs == rhs, span))
   }
 
   fn interpret_expr_binop_int_ne(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(lhs != rhs))
+    Ok(Value::bool(lhs != rhs, span))
   }
 
   fn interpret_expr_binop_int_shl(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::int(lhs << rhs))
+    Ok(Value::int(lhs << rhs, span))
   }
 
   fn interpret_expr_binop_int_shr(
     &mut self,
     lhs: &i64,
     rhs: &i64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::int(lhs >> rhs))
+    Ok(Value::int(lhs >> rhs, span))
   }
 
   fn interpret_expr_binop_float(
@@ -316,20 +388,24 @@ impl<'ast> Interpreter<'ast> {
     binop: &BinOp,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
     match &binop.kind {
-      BinOpKind::Add => self.interpret_expr_binop_float_add(lhs, rhs),
-      BinOpKind::Sub => self.interpret_expr_binop_float_sub(lhs, rhs),
-      BinOpKind::Mul => self.interpret_expr_binop_float_mul(lhs, rhs),
-      BinOpKind::Div => self.interpret_expr_binop_float_div(lhs, rhs),
-      BinOpKind::Rem => self.interpret_expr_binop_float_rem(lhs, rhs),
-      BinOpKind::Lt => self.interpret_expr_binop_float_lt(lhs, rhs),
-      BinOpKind::Gt => self.interpret_expr_binop_float_gt(lhs, rhs),
-      BinOpKind::Le => self.interpret_expr_binop_float_le(lhs, rhs),
-      BinOpKind::Ge => self.interpret_expr_binop_float_ge(lhs, rhs),
-      BinOpKind::Eq => self.interpret_expr_binop_float_eq(lhs, rhs),
-      BinOpKind::Ne => self.interpret_expr_binop_float_ne(lhs, rhs),
-      _ => panic!(), // returns reporter error.
+      BinOpKind::Add => self.interpret_expr_binop_float_add(lhs, rhs, span),
+      BinOpKind::Sub => self.interpret_expr_binop_float_sub(lhs, rhs, span),
+      BinOpKind::Mul => self.interpret_expr_binop_float_mul(lhs, rhs, span),
+      BinOpKind::Div => self.interpret_expr_binop_float_div(lhs, rhs, span),
+      BinOpKind::Rem => self.interpret_expr_binop_float_rem(lhs, rhs, span),
+      BinOpKind::Lt => self.interpret_expr_binop_float_lt(lhs, rhs, span),
+      BinOpKind::Gt => self.interpret_expr_binop_float_gt(lhs, rhs, span),
+      BinOpKind::Le => self.interpret_expr_binop_float_le(lhs, rhs, span),
+      BinOpKind::Ge => self.interpret_expr_binop_float_ge(lhs, rhs, span),
+      BinOpKind::Eq => self.interpret_expr_binop_float_eq(lhs, rhs, span),
+      BinOpKind::Ne => self.interpret_expr_binop_float_ne(lhs, rhs, span),
+      _ => Err(ReportError::Eval(Eval::UnknownBinOp(
+        binop.span,
+        binop.to_string(),
+      ))),
     }
   }
 
@@ -337,88 +413,99 @@ impl<'ast> Interpreter<'ast> {
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::float(lhs + rhs))
+    Ok(Value::float(lhs + rhs, span))
   }
 
   fn interpret_expr_binop_float_sub(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::float(lhs - rhs))
+    Ok(Value::float(lhs - rhs, span))
   }
 
   fn interpret_expr_binop_float_mul(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::float(lhs * rhs))
+    Ok(Value::float(lhs * rhs, span))
   }
 
   fn interpret_expr_binop_float_div(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::float(lhs / rhs))
+    Ok(Value::float(lhs / rhs, span))
   }
 
   fn interpret_expr_binop_float_rem(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::float(lhs % rhs))
+    Ok(Value::float(lhs % rhs, span))
   }
 
   fn interpret_expr_binop_float_lt(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs < *rhs))
+    Ok(Value::bool(*lhs < *rhs, span))
   }
 
   fn interpret_expr_binop_float_gt(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs > *rhs))
+    Ok(Value::bool(*lhs > *rhs, span))
   }
 
   fn interpret_expr_binop_float_le(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs <= *rhs))
+    Ok(Value::bool(*lhs <= *rhs, span))
   }
 
   fn interpret_expr_binop_float_ge(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs >= *rhs))
+    Ok(Value::bool(*lhs >= *rhs, span))
   }
 
   fn interpret_expr_binop_float_eq(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs == *rhs))
+    Ok(Value::bool(*lhs == *rhs, span))
   }
 
   fn interpret_expr_binop_float_ne(
     &mut self,
     lhs: &f64,
     rhs: &f64,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs != *rhs))
+    Ok(Value::bool(*lhs != *rhs, span))
   }
 
   fn interpret_expr_binop_bool(
@@ -426,14 +513,22 @@ impl<'ast> Interpreter<'ast> {
     binop: &BinOp,
     lhs: &bool,
     rhs: &bool,
+    span: Span,
   ) -> Result<Value> {
     match &binop.kind {
-      BinOpKind::And => self.interpret_expr_binop_bool_and(lhs, rhs),
-      BinOpKind::Or => self.interpret_expr_binop_bool_or(lhs, rhs),
-      BinOpKind::BitAnd => self.interpret_expr_binop_bool_bit_and(lhs, rhs),
-      BinOpKind::BitOr => self.interpret_expr_binop_bool_bit_or(lhs, rhs),
-      BinOpKind::BitXor => self.interpret_expr_binop_bool_bit_xor(lhs, rhs),
-      _ => panic!(), // returns reporter error.
+      BinOpKind::And => self.interpret_expr_binop_bool_and(lhs, rhs, span),
+      BinOpKind::Or => self.interpret_expr_binop_bool_or(lhs, rhs, span),
+      BinOpKind::BitAnd => {
+        self.interpret_expr_binop_bool_bit_and(lhs, rhs, span)
+      }
+      BinOpKind::BitOr => self.interpret_expr_binop_bool_bit_or(lhs, rhs, span),
+      BinOpKind::BitXor => {
+        self.interpret_expr_binop_bool_bit_xor(lhs, rhs, span)
+      }
+      _ => Err(ReportError::Eval(Eval::UnknownBinOp(
+        binop.span,
+        binop.to_string(),
+      ))),
     }
   }
 
@@ -441,40 +536,45 @@ impl<'ast> Interpreter<'ast> {
     &mut self,
     lhs: &bool,
     rhs: &bool,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs && *rhs))
+    Ok(Value::bool(*lhs && *rhs, span))
   }
 
   fn interpret_expr_binop_bool_or(
     &mut self,
     lhs: &bool,
     rhs: &bool,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs || *rhs))
+    Ok(Value::bool(*lhs || *rhs, span))
   }
 
   fn interpret_expr_binop_bool_bit_and(
     &mut self,
     lhs: &bool,
     rhs: &bool,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs & *rhs))
+    Ok(Value::bool(*lhs & *rhs, span))
   }
 
   fn interpret_expr_binop_bool_bit_or(
     &mut self,
     lhs: &bool,
     rhs: &bool,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs | *rhs))
+    Ok(Value::bool(*lhs | *rhs, span))
   }
 
   fn interpret_expr_binop_bool_bit_xor(
     &mut self,
     lhs: &bool,
     rhs: &bool,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::bool(*lhs ^ *rhs))
+    Ok(Value::bool(*lhs ^ *rhs, span))
   }
 
   fn interpret_expr_binop_str(
@@ -482,10 +582,14 @@ impl<'ast> Interpreter<'ast> {
     binop: &BinOp,
     lhs: &SmolStr,
     rhs: &SmolStr,
+    span: Span,
   ) -> Result<Value> {
     match &binop.kind {
-      BinOpKind::And => self.interpret_expr_binop_str_and(lhs, rhs),
-      _ => panic!(), // returns reporter error.
+      BinOpKind::And => self.interpret_expr_binop_str_and(lhs, rhs, span),
+      _ => Err(ReportError::Eval(Eval::UnknownBinOp(
+        binop.span,
+        binop.to_string(),
+      ))),
     }
   }
 
@@ -493,10 +597,30 @@ impl<'ast> Interpreter<'ast> {
     &mut self,
     lhs: &SmolStr,
     rhs: &SmolStr,
+    span: Span,
   ) -> Result<Value> {
     let string = format!("{lhs}{rhs}");
 
-    Ok(Value::str(string.to_smolstr()))
+    Ok(Value::str(string.to_smolstr(), span))
+  }
+
+  fn interpret_expr_assign(
+    &mut self,
+    _assignee: &Expr,
+    _value: &Expr,
+    _span: Span,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_assign_op(
+    &mut self,
+    _binop: &BinOp,
+    _assignee: &Expr,
+    _value: &Expr,
+    _span: Span,
+  ) -> Result<Value> {
+    todo!()
   }
 
   fn interpret_expr_block(&mut self, block: &Block) -> Result<Value> {
@@ -517,8 +641,9 @@ impl<'ast> Interpreter<'ast> {
     &mut self,
     prototype: &Prototype,
     block: &Block,
+    span: Span,
   ) -> Result<Value> {
-    Ok(Value::fun(prototype.clone(), block.clone()))
+    Ok(Value::fun(prototype.clone(), block.clone(), span))
   }
 
   fn interpret_expr_call(
@@ -536,7 +661,10 @@ impl<'ast> Interpreter<'ast> {
       ValueKind::Builtin(builtin) => {
         self.interpret_expr_call_builtin(builtin, args)
       }
-      _ => panic!(), // returns reporter error.
+      _ => Err(ReportError::Eval(Eval::UnknownCallee(
+        callee.span,
+        callee.to_string(),
+      ))),
     }
   }
 
@@ -570,7 +698,11 @@ impl<'ast> Interpreter<'ast> {
     args: value::Args,
   ) -> Result<Value> {
     if prototype.inputs.len() != args.len() {
-      panic!() // returns reporter error.
+      return Err(ReportError::Eval(Eval::MismatchArgument(
+        args.as_span(),
+        prototype.inputs.len(),
+        args.len(),
+      )));
     }
 
     let _value = self.interpret_expr_block(&block)?;
@@ -586,40 +718,53 @@ impl<'ast> Interpreter<'ast> {
     builtin(args)
   }
 
-  fn interpret_expr_array(&mut self, elmts: &[Expr]) -> Result<Value> {
+  fn interpret_expr_array(
+    &mut self,
+    elmts: &[Expr],
+    span: Span,
+  ) -> Result<Value> {
     let mut array = Array::new();
 
     for elmt in elmts {
       array.add_elmt(self.interpret_expr(elmt)?);
     }
 
-    Ok(Value::array(array))
+    Ok(Value::array(array, span))
   }
 
   fn interpret_expr_array_access(
     &mut self,
     indexed: &Expr,
     index: &Expr,
+    span: Span,
   ) -> Result<Value> {
     let indexed = self.interpret_expr(indexed)?;
     let index = self.interpret_expr(index)?;
 
-    match (&indexed.kind, index.kind) {
+    match (&indexed.kind, &index.kind) {
       (ValueKind::Array(array), ValueKind::Int(int)) => {
-        self.interpret_expr_array_access_int(array, int)
+        self.interpret_expr_array_access_int(array, int, span)
       }
-      _ => todo!(),
+      _ => Err(ReportError::Eval(Eval::UnknownArrayAccess(
+        span,
+        indexed.to_string(),
+        index.to_string(),
+      ))),
     }
   }
 
   fn interpret_expr_array_access_int(
     &mut self,
     indexed: &Vec<Value>,
-    index: i64,
+    index: &i64,
+    span: Span,
   ) -> Result<Value> {
-    match indexed.get(index as usize) {
+    match indexed.get(*index as usize) {
       Some(value) => Ok(value.to_owned()),
-      _ => panic!(), // returns reporter error.
+      _ => Err(ReportError::Eval(Eval::UnknownArrayAccessOperator(
+        span,
+        index.to_string(),
+      ))),
     }
   }
 
@@ -671,16 +816,18 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_expr_return(
     &mut self,
     maybe_expr: &Option<Box<Expr>>,
+    span: Span,
   ) -> Result<Value> {
     match maybe_expr {
       Some(expr) => self.interpret_expr(expr),
-      _ => panic!(), // returns reporter error.
+      _ => Ok(Value::ret(Value::unit(span), span)),
     }
   }
 
   fn interpret_expr_break(
     &mut self,
     maybe_expr: &Option<Box<Expr>>,
+    _span: Span,
   ) -> Result<Value> {
     match maybe_expr {
       Some(expr) => self.interpret_expr(expr),

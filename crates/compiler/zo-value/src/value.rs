@@ -5,58 +5,70 @@ use super::builtin::BuiltinFn;
 use zo_ast::ast::{Block, Prototype};
 
 use zo_core::interner::symbol::Symbol;
-use zo_core::span::Span;
+use zo_core::span::{AsSpan, Span};
 
 use smol_str::SmolStr;
 
 #[derive(Clone, Debug)]
 pub struct Value {
   pub kind: ValueKind,
+  pub span: Span,
 }
 
 impl Value {
   pub const UNIT: Self = Self {
     kind: ValueKind::Unit,
+    span: Span::ZERO,
   };
 
   #[inline]
-  pub fn new(kind: ValueKind) -> Self {
-    Self { kind }
+  pub fn new(kind: ValueKind, span: Span) -> Self {
+    Self { kind, span }
   }
 
   #[inline]
-  pub fn int(int: i64) -> Self {
-    Self::new(ValueKind::Int(int))
+  pub fn unit(span: Span) -> Self {
+    Self::new(ValueKind::Unit, span)
   }
 
   #[inline]
-  pub fn float(float: f64) -> Self {
-    Self::new(ValueKind::Float(float))
+  pub fn int(int: i64, span: Span) -> Self {
+    Self::new(ValueKind::Int(int), span)
   }
 
   #[inline]
-  pub fn bool(boolean: bool) -> Self {
-    Self::new(ValueKind::Bool(boolean))
+  pub fn float(float: f64, span: Span) -> Self {
+    Self::new(ValueKind::Float(float), span)
   }
 
   #[inline]
-  pub fn char(ch: char) -> Self {
-    Self::new(ValueKind::Char(ch))
+  pub fn bool(boolean: bool, span: Span) -> Self {
+    Self::new(ValueKind::Bool(boolean), span)
   }
 
   #[inline]
-  pub fn str(string: SmolStr) -> Self {
-    Self::new(ValueKind::Str(string))
+  pub fn char(ch: char, span: Span) -> Self {
+    Self::new(ValueKind::Char(ch), span)
   }
 
   #[inline]
-  pub fn fun(prototype: Prototype, block: Block) -> Self {
-    Self::new(ValueKind::Fn(prototype, block))
+  pub fn str(string: SmolStr, span: Span) -> Self {
+    Self::new(ValueKind::Str(string), span)
   }
 
   #[inline]
-  pub fn array(array: Array) -> Self {
-    Self::new(ValueKind::Array(array))
+  pub fn fun(prototype: Prototype, block: Block, span: Span) -> Self {
+    Self::new(ValueKind::Fn(prototype, block), span)
+  }
+
+  #[inline]
+  pub fn ret(value: Value, span: Span) -> Self {
+    Self::new(ValueKind::Return(Box::new(value)), span)
+  }
+
+  #[inline]
+  pub fn array(array: Array, span: Span) -> Self {
+    Self::new(ValueKind::Array(array), span)
   }
 
   #[inline]
@@ -117,6 +129,19 @@ impl Args {
   #[inline]
   pub fn add_arg(&mut self, arg: Arg) {
     self.0.push(arg)
+  }
+}
+
+impl AsSpan for Args {
+  fn as_span(&self) -> Span {
+    let lo = self.0.first();
+    let hi = self.0.last();
+
+    match (lo, hi) {
+      (Some(first), Some(last)) => Span::merge(first.span, last.span),
+      (Some(first), None) => first.span,
+      _ => Span::ZERO,
+    }
   }
 }
 
