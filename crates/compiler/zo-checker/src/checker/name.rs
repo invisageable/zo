@@ -67,15 +67,16 @@ impl<'ast> NameChecker<'ast> {
   }
 
   fn check_expr_lit(&mut self, _lit: &Lit) -> Result<()> {
-    todo!()
+    Ok(())
   }
 
-  fn check_expr_unop(&mut self, _rhs: &Expr) -> Result<()> {
-    todo!()
+  fn check_expr_unop(&mut self, rhs: &Expr) -> Result<()> {
+    self.check_expr(rhs)
   }
 
-  fn check_expr_binop(&mut self, _lhs: &Expr, _rhs: &Expr) -> Result<()> {
-    todo!()
+  fn check_expr_binop(&mut self, lhs: &Expr, rhs: &Expr) -> Result<()> {
+    self.check_expr(lhs)?;
+    self.check_expr(rhs)
   }
 
   fn check_expr_assgin(
