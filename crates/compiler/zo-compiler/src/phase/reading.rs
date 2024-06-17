@@ -14,10 +14,17 @@ pub struct Reading {
 
 impl Process for Reading {
   fn process(&self, session: &mut Session) -> Result<()> {
-    reader::read(session).and_then(|source_bytes| {
-      println!("\n{source_bytes:?}\n");
-      self.rx.send(source_bytes)
-    })
+    if session.settings.is_interactive() {
+      reader::read_line(session).and_then(|source_bytes| {
+        println!("\n{source_bytes:?}\n");
+        self.rx.send(source_bytes)
+      })
+    } else {
+      reader::read(session).and_then(|source_bytes| {
+        println!("\n{source_bytes:?}\n");
+        self.rx.send(source_bytes)
+      })
+    }
   }
 }
 
