@@ -6,6 +6,9 @@ pub mod kw;
 pub mod op;
 pub mod punctuation;
 
+use group::Group;
+use op::Op;
+
 use zo_core::interner::symbol::Symbol;
 use zo_core::span::Span;
 
@@ -50,46 +53,87 @@ impl TokenKind {
 
   #[inline]
   pub fn is_assignement(&self) -> bool {
-    todo!()
+    matches!(
+      self,
+      Self::Op(Op::Equal)
+        | Self::Op(Op::PlusEqual)
+        | Self::Op(Op::MinusEqual)
+        | Self::Op(Op::AsteriskEqual)
+        | Self::Op(Op::SlashEqual)
+        | Self::Op(Op::PercentEqual)
+        | Self::Op(Op::CircumflexEqual)
+        | Self::Op(Op::AmspersandEqual)
+        | Self::Op(Op::PipeEqual)
+        | Self::Op(Op::LessThanLessThanEqual)
+        | Self::Op(Op::GreaterThanGreaterThanEqual)
+    )
   }
 
   #[inline]
   pub fn is_conditional(&self) -> bool {
-    todo!()
+    matches!(
+      self,
+      Self::Op(Op::AmpersandAmpersand) | Self::Op(Op::PipePipe)
+    )
   }
 
   #[inline]
   pub fn is_comparison(&self) -> bool {
-    todo!()
+    matches!(
+      self,
+      Self::Op(Op::EqualEqual)
+        | Self::Op(Op::ExclamationEqual)
+        | Self::Op(Op::LessThan)
+        | Self::Op(Op::GreaterThan)
+        | Self::Op(Op::LessThanEqual)
+        | Self::Op(Op::GreaterThanEqual)
+    )
   }
 
   #[inline]
   pub fn is_sum(&self) -> bool {
-    todo!()
+    matches!(self, Self::Op(Op::Plus) | Self::Op(Op::Minus))
   }
 
   #[inline]
   pub fn is_exponent(&self) -> bool {
-    todo!()
+    matches!(
+      self,
+      Self::Op(Op::Asterisk) | Self::Op(Op::Slash) | Self::Op(Op::Percent)
+    )
   }
 
   #[inline]
   pub fn is_calling(&self) -> bool {
-    todo!()
+    matches!(self, Self::Group(Group::ParenOpen))
   }
 
   #[inline]
   pub fn is_index(&self) -> bool {
-    todo!()
+    matches!(self, Self::Group(Group::BracketOpen))
   }
 
   #[inline]
   pub fn is_unop(&self) -> bool {
-    todo!()
+    matches!(self, Self::Op(Op::Exclamation) | Self::Op(Op::Minus))
   }
 
   #[inline]
   pub fn is_binop(&self) -> bool {
-    todo!()
+    matches!(
+      self,
+      Self::Op(Op::Plus)
+        | Self::Op(Op::Minus)
+        | Self::Op(Op::Asterisk)
+        | Self::Op(Op::Slash)
+        | Self::Op(Op::Percent)
+        | Self::Op(Op::Circumflex)
+        | Self::Op(Op::EqualEqual)
+        | Self::Op(Op::ExclamationEqual)
+        | Self::Op(Op::LessThan)
+        | Self::Op(Op::GreaterThan)
+        | Self::Op(Op::LessThanEqual)
+        | Self::Op(Op::GreaterThanEqual)
+    )
   }
 }
