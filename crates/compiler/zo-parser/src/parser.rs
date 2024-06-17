@@ -124,7 +124,7 @@ impl<'tokens> Parser<'tokens> {
   fn parse(&mut self) -> Result<Ast> {
     let mut ast = Ast::new();
 
-    if ast.is_empty() {
+    if self.tokens.is_empty() {
       return Ok(ast);
     }
 
