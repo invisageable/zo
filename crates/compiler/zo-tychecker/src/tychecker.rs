@@ -11,6 +11,7 @@ struct Tychecker<'ast> {
 }
 
 impl<'ast> Tychecker<'ast> {
+  #[inline]
   fn new(env: &'ast Env) -> Self {
     Self { env }
   }

@@ -552,7 +552,10 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_arg(&mut self, arg: &Arg) -> Result<value::Arg> {
     let value = self.interpret_expr(&arg.expr)?;
 
-    Ok(value::Arg { value })
+    Ok(value::Arg {
+      value,
+      span: arg.span,
+    })
   }
 
   fn interpret_expr_call_fn(

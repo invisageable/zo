@@ -21,13 +21,13 @@ pub struct Interpreting {
 impl Process for Interpreting {
   fn process(&self, session: &mut Session) -> Result<()> {
     self.tx.recv().and_then(|ast| {
-      println!("interpreting.");
-
       let mut interpreter =
         Interpreter::new(&mut session.interner, &session.reporter);
 
-      interpreter::interpret(&mut interpreter, &ast)
-        .and_then(|value| self.rx.send(value))
+      interpreter::interpret(&mut interpreter, &ast).and_then(|value| {
+        println!("{value}");
+        self.rx.send(value)
+      })
     })
   }
 }
