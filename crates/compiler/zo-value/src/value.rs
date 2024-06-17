@@ -1,5 +1,7 @@
 //! ...
 
+use super::builtin::BuiltinFn;
+
 use zo_ast::ast::{Block, Prototype};
 
 use zo_core::interner::symbol::Symbol;
@@ -53,6 +55,11 @@ impl Value {
   }
 
   #[inline]
+  pub fn array(array: Array) -> Self {
+    Self::new(ValueKind::Array(array))
+  }
+
+  #[inline]
   pub fn symbolize(&self) -> Symbol {
     self.kind.symbolize()
   }
@@ -73,7 +80,8 @@ pub enum ValueKind {
   Str(SmolStr),
   Fn(Prototype, Block),
   Return(Box<Value>),
-  Builtin(()),
+  Builtin(BuiltinFn),
+  Array(Array),
 }
 
 impl ValueKind {
@@ -124,4 +132,32 @@ impl std::ops::Deref for Args {
 pub struct Arg {
   pub value: Value,
   pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Array(pub Vec<Value>);
+
+impl Array {
+  #[inline]
+  pub fn new() -> Self {
+    Self(Vec::with_capacity(0usize))
+  }
+
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.0.is_empty()
+  }
+
+  #[inline]
+  pub fn add_elmt(&mut self, value: Value) {
+    self.0.push(value)
+  }
+}
+
+impl std::ops::Deref for Array {
+  type Target = Vec<Value>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
 }

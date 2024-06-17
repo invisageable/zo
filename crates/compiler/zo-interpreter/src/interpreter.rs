@@ -7,7 +7,9 @@ use zo_ast::ast::{
   Prototype, UnOp, UnOpKind, Var,
 };
 
-use zo_value::value::{self, Value, ValueKind};
+use zo_value::builtin::BuiltinFn;
+use zo_value::value;
+use zo_value::value::{Array, Value, ValueKind};
 
 use zo_core::interner::symbol::Symbol;
 use zo_core::interner::Interner;
@@ -181,23 +183,6 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  /*
-    Rem,
-    And,
-    Or,
-    BitAnd,
-    BitOr,
-    BitXor,
-    Lt,
-    Gt,
-    Le,
-    Ge,
-    Eq,
-    Ne,
-    Shl,
-    Shr,
-  */
-
   fn interpret_expr_binop_int(
     &mut self,
     binop: &BinOp,
@@ -216,6 +201,8 @@ impl<'ast> Interpreter<'ast> {
       BinOpKind::Ge => self.interpret_expr_binop_int_ge(lhs, rhs),
       BinOpKind::Eq => self.interpret_expr_binop_int_eq(lhs, rhs),
       BinOpKind::Ne => self.interpret_expr_binop_int_ne(lhs, rhs),
+      BinOpKind::Shl => self.interpret_expr_binop_int_shl(lhs, rhs),
+      BinOpKind::Shr => self.interpret_expr_binop_int_shr(lhs, rhs),
       _ => panic!(), // returns reporter error.
     }
   }
@@ -306,6 +293,22 @@ impl<'ast> Interpreter<'ast> {
     rhs: &i64,
   ) -> Result<Value> {
     Ok(Value::bool(lhs != rhs))
+  }
+
+  fn interpret_expr_binop_int_shl(
+    &mut self,
+    lhs: &i64,
+    rhs: &i64,
+  ) -> Result<Value> {
+    Ok(Value::int(lhs << rhs))
+  }
+
+  fn interpret_expr_binop_int_shr(
+    &mut self,
+    lhs: &i64,
+    rhs: &i64,
+  ) -> Result<Value> {
+    Ok(Value::int(lhs >> rhs))
   }
 
   fn interpret_expr_binop_float(
@@ -530,7 +533,9 @@ impl<'ast> Interpreter<'ast> {
       ValueKind::Fn(prototype, block) => {
         self.interpret_expr_call_fn(prototype, block, args)
       }
-      ValueKind::Builtin(fun) => self.interpret_expr_call_builtin(fun),
+      ValueKind::Builtin(builtin) => {
+        self.interpret_expr_call_builtin(builtin, args)
+      }
       _ => panic!(), // returns reporter error.
     }
   }
@@ -546,7 +551,7 @@ impl<'ast> Interpreter<'ast> {
       args_new.add_arg(self.interpret_arg(arg)?);
     }
 
-    todo!()
+    Ok(args_new)
   }
 
   fn interpret_arg(&mut self, arg: &Arg) -> Result<value::Arg> {
@@ -573,38 +578,82 @@ impl<'ast> Interpreter<'ast> {
     todo!()
   }
 
-  fn interpret_expr_call_builtin(&mut self, _fun: ()) -> Result<Value> {
-    todo!()
+  fn interpret_expr_call_builtin(
+    &mut self,
+    builtin: BuiltinFn,
+    args: value::Args,
+  ) -> Result<Value> {
+    builtin(args)
   }
 
-  fn interpret_expr_array(&mut self, _elmts: &[Expr]) -> Result<Value> {
-    todo!()
+  fn interpret_expr_array(&mut self, elmts: &[Expr]) -> Result<Value> {
+    let mut array = Array::new();
+
+    for elmt in elmts {
+      array.add_elmt(self.interpret_expr(elmt)?);
+    }
+
+    Ok(Value::array(array))
   }
 
   fn interpret_expr_array_access(
     &mut self,
-    _indexed: &Expr,
-    _index: &Expr,
+    indexed: &Expr,
+    index: &Expr,
   ) -> Result<Value> {
-    todo!()
+    let indexed = self.interpret_expr(indexed)?;
+    let index = self.interpret_expr(index)?;
+
+    match (&indexed.kind, index.kind) {
+      (ValueKind::Array(array), ValueKind::Int(int)) => {
+        self.interpret_expr_array_access_int(array, int)
+      }
+      _ => todo!(),
+    }
+  }
+
+  fn interpret_expr_array_access_int(
+    &mut self,
+    indexed: &Vec<Value>,
+    index: i64,
+  ) -> Result<Value> {
+    match indexed.get(index as usize) {
+      Some(value) => Ok(value.to_owned()),
+      _ => panic!(), // returns reporter error.
+    }
   }
 
   fn interpret_expr_if_else(
     &mut self,
-    _condition: &Expr,
-    _consequence: &Block,
-    _maybe_alternative: &Option<Box<Expr>>,
+    condition: &Expr,
+    consequence: &Block,
+    maybe_alternative: &Option<Box<Expr>>,
   ) -> Result<Value> {
-    todo!()
+    let condition = self.interpret_expr(condition)?;
+
+    if condition.as_bool() {
+      self.interpret_expr_block(consequence)
+    } else {
+      maybe_alternative
+        .as_ref()
+        .map(|alternative| self.interpret_expr(&alternative))
+        .unwrap_or(Ok(Value::UNIT))
+    }
   }
 
   fn interpret_expr_when(
     &mut self,
-    _condition: &Expr,
-    _consequence: &Expr,
-    _maybe_alternative: &Expr,
+    condition: &Expr,
+    consequence: &Expr,
+    alternative: &Expr,
   ) -> Result<Value> {
-    todo!()
+    let condition = self.interpret_expr(condition)?;
+
+    if condition.as_bool() {
+      self.interpret_expr(consequence)
+    } else {
+      self.interpret_expr(alternative)
+    }
   }
 
   fn interpret_expr_loop(&mut self, _body: &Block) -> Result<Value> {
@@ -621,16 +670,22 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_return(
     &mut self,
-    _maybe_expr: &Option<Box<Expr>>,
+    maybe_expr: &Option<Box<Expr>>,
   ) -> Result<Value> {
-    todo!()
+    match maybe_expr {
+      Some(expr) => self.interpret_expr(expr),
+      _ => panic!(), // returns reporter error.
+    }
   }
 
   fn interpret_expr_break(
     &mut self,
-    _maybe_expr: &Option<Box<Expr>>,
+    maybe_expr: &Option<Box<Expr>>,
   ) -> Result<Value> {
-    todo!()
+    match maybe_expr {
+      Some(expr) => self.interpret_expr(expr),
+      _ => panic!(), // returns reporter error.
+    }
   }
 
   fn interpret_expr_continue(&mut self) -> Result<Value> {
