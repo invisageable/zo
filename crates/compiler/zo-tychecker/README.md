@@ -1,9 +1,14 @@
 # zo-ty.
 
-> *The `types` of the `zo` programming language.*
+> *The `type checking` analysis phase.*
 
 ## about.
 
-The `ty` represents a type in the the `zo` progrmming language.
+The `type checking` verify that the type of any expression is consistent with the type expected by the context in which that expression appears.    
 
 <!-- listed all types -->
+
+## dirmap.
+
+```
+```

@@ -12,3 +12,6 @@ The `session` contains global instances such as:
 - [settings](./src/settings.rs)
 - [system](../../../sources/core/src/system.rs)
 
+## dirmap.
+
+...
