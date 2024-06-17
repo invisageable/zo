@@ -28,6 +28,7 @@ impl Cmd {
     match self.command {
       Command::Build(ref command) => command.handle(),
       Command::Interpret(ref command) => command.handle(),
+      Command::Repl(ref command) => command.handle(),
     }
   }
 }
@@ -36,4 +37,5 @@ impl Cmd {
 pub(crate) enum Command {
   Build(build::Build),
   Interpret(interpret::Interpret),
+  Repl(repl::Repl),
 }
