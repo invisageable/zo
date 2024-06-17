@@ -54,12 +54,12 @@ impl Session {
 
   #[inline]
   pub fn open(&self) {
-    println!("open session.");
+    println!("open session.\n");
   }
 
   #[inline]
   pub fn close(&self) {
-    println!("close session.");
+    println!("close session.\n");
     self.profile();
   }
 }

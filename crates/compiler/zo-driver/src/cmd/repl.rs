@@ -22,8 +22,6 @@ use smol_str::SmolStr;
 pub(crate) struct Repl {
   #[clap(short, long, default_value = "false")]
   verbose: bool,
-  #[clap(short, long)]
-  input: SmolStr,
   #[clap(short, long, default_value = "wasm")]
   backend: SmolStr,
   #[clap(short, long, default_value = "false")]
@@ -33,6 +31,7 @@ pub(crate) struct Repl {
 }
 
 impl Repl {
+  #[inline]
   fn repl(&self) -> Result<()> {
     self.repling()
   }
@@ -40,7 +39,6 @@ impl Repl {
   fn repling(&self) -> Result<()> {
     let mut session = Session {
       settings: Settings {
-        input: self.input.to_owned(),
         backend: self.backend.to_owned().into(),
         profile: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
           self.profile,
@@ -48,6 +46,10 @@ impl Repl {
         verbose: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
           self.verbose,
         )),
+        interactive: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+          true,
+        )),
+        ..Default::default()
       },
       ..Default::default()
     };

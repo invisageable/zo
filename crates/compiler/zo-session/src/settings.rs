@@ -10,6 +10,7 @@ pub struct Settings {
   pub backend: Backend,
   pub profile: std::sync::Arc<std::sync::atomic::AtomicBool>,
   pub verbose: std::sync::Arc<std::sync::atomic::AtomicBool>,
+  pub interactive: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Settings {
@@ -26,5 +27,10 @@ impl Settings {
   #[inline]
   pub fn has_profile(&self) -> bool {
     self.profile.load(std::sync::atomic::Ordering::Relaxed)
+  }
+
+  #[inline]
+  pub fn is_interactive(&self) -> bool {
+    self.interactive.load(std::sync::atomic::Ordering::Relaxed)
   }
 }

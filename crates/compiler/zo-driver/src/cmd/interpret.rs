@@ -49,6 +49,7 @@ impl Interpret {
         verbose: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
           self.verbose,
         )),
+        ..Default::default()
       },
       ..Default::default()
     };

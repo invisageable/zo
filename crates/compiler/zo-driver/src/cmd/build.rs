@@ -50,6 +50,7 @@ impl Build {
         verbose: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
           self.verbose,
         )),
+        ..Default::default()
       },
       ..Default::default()
     };
@@ -92,7 +93,7 @@ impl Build {
     compiler.compile(&mut session)?;
 
     compiler.finish(tx_building).map(|output| {
-      println!("{output:?}");
+      println!("\n{output:?}\n");
       session.close();
     })
   }
