@@ -7,6 +7,7 @@ use zo_ast::ast::{Block, Prototype};
 use zo_core::interner::symbol::Symbol;
 use zo_core::span::{AsSpan, Span};
 
+use hashbrown::HashMap;
 use smol_str::SmolStr;
 
 #[derive(Clone, Debug)]
@@ -94,6 +95,7 @@ pub enum ValueKind {
   Return(Box<Value>),
   Builtin(BuiltinFn),
   Array(Array),
+  Record(HashMap<RecordKey, Value>),
 }
 
 impl ValueKind {
@@ -185,4 +187,11 @@ impl std::ops::Deref for Array {
   fn deref(&self) -> &Self::Target {
     &self.0
   }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RecordKey {
+  Int(i64),
+  Str(String),
+  Bool(bool),
 }

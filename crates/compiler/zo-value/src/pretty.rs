@@ -31,6 +31,7 @@ impl std::fmt::Display for ValueKind {
       Self::Return(value) => write!(f, "return {value};"),
       Self::Builtin(..) => write!(f, "NIY"),
       Self::Array(array) => write!(f, "[{}]", sep_comma(array)),
+      Self::Record(record) => write!(f, "{{ {:?} }}", record),
     }
   }
 }

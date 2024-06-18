@@ -13,4 +13,5 @@ zo-core = { workspace = true }
 zo-ast = { workspace = true }
 
 # externals.
+hashbrown = { workspace = true }
 smol_str = { workspace = true }
