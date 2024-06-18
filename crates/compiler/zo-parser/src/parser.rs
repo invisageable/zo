@@ -183,6 +183,17 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Op(Op::Minus) | TokenKind::Op(Op::Exclamation) => {
         Some(Self::parse_expr_unop)
       }
+      TokenKind::Group(Group::ParenOpen) => Some(Self::parse_expr_group),
+      TokenKind::Group(Group::BracketOpen) => Some(Self::parse_expr_array),
+      TokenKind::Group(Group::BraceOpen) => Some(Self::parse_expr_record),
+      TokenKind::Kw(Kw::Fn) => Some(Self::parse_expr_fn),
+      TokenKind::Kw(Kw::If) => Some(Self::parse_expr_if_else),
+      TokenKind::Kw(Kw::When) => Some(Self::parse_expr_when),
+      TokenKind::Kw(Kw::Loop) => Some(Self::parse_expr_loop),
+      TokenKind::Kw(Kw::While) => Some(Self::parse_expr_while),
+      TokenKind::Kw(Kw::Return) => Some(Self::parse_expr_return),
+      TokenKind::Kw(Kw::Break) => Some(Self::parse_expr_break),
+      TokenKind::Kw(Kw::Continue) => Some(Self::parse_expr_continue),
       _ => None,
     }
   }
@@ -328,6 +339,50 @@ impl<'tokens> Parser<'tokens> {
         }
       })
       .unwrap()
+  }
+
+  fn parse_expr_fn(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_group(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_array(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_record(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_if_else(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_when(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_loop(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_while(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_return(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_break(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_continue(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
   }
 
   fn parse_infix_fn(&self) -> Option<ParseInfixFn> {
