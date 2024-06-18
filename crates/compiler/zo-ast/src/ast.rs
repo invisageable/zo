@@ -101,6 +101,10 @@ pub enum ExprKind {
   Array(Vec<Expr>),
   /// array access (index) — `foo[0]`.
   ArrayAccess(Box<Expr>, Box<Expr>),
+  /// record — `{ x = 1, y = 2 }`.
+  Record(Vec<Expr>),
+  /// record access (dot) — `foo.x`.
+  RecordAccess(Box<Expr>, Box<Expr>),
   /// if else — `if foo == 2 { ... }`.
   IfElse(Box<Expr>, Block, Option<Box<Expr>>),
   /// ternary — `when true ? foo : bar`.
