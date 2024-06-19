@@ -502,8 +502,28 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
-  fn parse_expr_break(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_break(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      let hi = parser.current_span();
+      let span = Span::merge(lo, hi);
+
+      return Ok(Expr {
+        kind: ExprKind::Break(None),
+        span,
+      });
+    }
+
+    let value = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Break(Some(Box::new(value))),
+      span: Span::merge(lo, hi),
+    })
   }
 
   fn parse_expr_continue(parser: &mut Parser) -> Result<Expr> {
