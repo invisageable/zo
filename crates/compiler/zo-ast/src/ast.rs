@@ -37,7 +37,7 @@ pub enum PatternKind {
 
 #[derive(Clone, Debug, Default)]
 pub struct Ast {
-  pub exprs: Vec<Expr>,
+  pub stmts: Vec<Stmt>,
 }
 
 impl Ast {
@@ -45,25 +45,25 @@ impl Ast {
   #[inline]
   pub fn new() -> Self {
     Self {
-      exprs: Vec::with_capacity(0usize),
+      stmts: Vec::with_capacity(0usize),
     }
   }
 
   #[inline]
   pub fn is_empty(&self) -> bool {
-    self.exprs.is_empty()
+    self.stmts.is_empty()
   }
 
   #[inline]
-  pub fn add_expr(&mut self, expr: Expr) {
-    self.exprs.push(expr);
+  pub fn add_stmt(&mut self, stmt: Stmt) {
+    self.stmts.push(stmt);
   }
 }
 
 impl AsSpan for Ast {
   fn as_span(&self) -> Span {
-    let lo = self.exprs.first();
-    let hi = self.exprs.last();
+    let lo = self.stmts.first();
+    let hi = self.stmts.last();
 
     match (lo, hi) {
       (Some(first), Some(last)) => Span::merge(first.span, last.span),
@@ -306,7 +306,7 @@ impl From<Op> for BinOpKind {
 
 #[derive(Clone, Debug)]
 pub struct Block {
-  pub exprs: Vec<Expr>,
+  pub stmts: Vec<Stmt>,
   pub span: Span,
 }
 
@@ -315,26 +315,26 @@ impl Block {
   #[inline]
   pub fn new() -> Self {
     Self {
-      exprs: Vec::with_capacity(0usize),
+      stmts: Vec::with_capacity(0usize),
       span: Span::ZERO,
     }
   }
 
   #[inline]
   pub fn is_empty(&self) -> bool {
-    self.exprs.is_empty()
+    self.stmts.is_empty()
   }
 
   #[inline]
-  pub fn add_expr(&mut self, expr: Expr) {
-    self.exprs.push(expr)
+  pub fn add_stmt(&mut self, stmt: Stmt) {
+    self.stmts.push(stmt)
   }
 }
 
 impl AsSpan for Block {
   fn as_span(&self) -> Span {
-    let lo = self.exprs.first();
-    let hi = self.exprs.last();
+    let lo = self.stmts.first();
+    let hi = self.stmts.last();
 
     match (lo, hi) {
       (Some(first), Some(last)) => Span::merge(first.span, last.span),
@@ -351,10 +351,10 @@ impl Default for Block {
 }
 
 impl std::ops::Deref for Block {
-  type Target = Vec<Expr>;
+  type Target = Vec<Stmt>;
 
   fn deref(&self) -> &Self::Target {
-    &self.exprs
+    &self.stmts
   }
 }
 

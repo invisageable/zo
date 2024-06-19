@@ -169,7 +169,7 @@ impl std::fmt::Display for Block {
       return write!(f, "{{}}");
     }
 
-    write!(f, "{{{}}}", sep_newline(&self.exprs))
+    write!(f, "{{{}}}", sep_newline(&self.stmts))
   }
 }
 
