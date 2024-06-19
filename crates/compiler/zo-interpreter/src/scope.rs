@@ -6,7 +6,6 @@ use zo_core::interner::symbol::Symbol;
 
 use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
-use smol_str::SmolStr;
 
 #[derive(Default, Debug)]
 pub struct Scope {
@@ -45,6 +44,16 @@ impl Scope {
         Ok(())
       }
     }
+  }
+
+  #[inline]
+  pub fn set_var(&mut self, name: Symbol, value: Value) {
+    self.vars.insert(name, value);
+  }
+
+  #[inline]
+  pub fn set_fun(&mut self, name: Symbol, value: Value) {
+    self.funs.insert(name, value);
   }
 
   #[inline]
