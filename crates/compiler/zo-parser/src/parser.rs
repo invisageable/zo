@@ -351,8 +351,35 @@ impl<'tokens> Parser<'tokens> {
     Ok(expr)
   }
 
-  fn parse_expr_array(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_array(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+    let elmts = parser.parse_exprs()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Array(elmts),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  fn parse_exprs(&mut self) -> Result<Vec<Expr>> {
+    let mut exprs = Vec::with_capacity(0usize); // no allocation.
+
+    while !self.ensure_peek(TokenKind::Group(Group::BracketClose)) {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      self.next();
+      exprs.push(self.parse_expr(Precedence::Low)?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::BracketClose))?;
+
+    Ok(exprs)
   }
 
   fn parse_expr_record(_parser: &mut Parser) -> Result<Expr> {
