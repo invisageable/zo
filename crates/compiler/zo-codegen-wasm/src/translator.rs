@@ -1,7 +1,8 @@
 //! ...
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, UnOp, UnOpKind,
+  Ast, BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, Stmt, StmtKind, UnOp,
+  UnOpKind, Var,
 };
 
 use zo_core::interner::symbol::Symbol;
@@ -34,8 +35,8 @@ impl<'ast> Translator<'ast> {
   pub fn translate(&mut self, ast: &Ast) -> Result<()> {
     self.writer.writeln_bytes(b"(module")?;
 
-    for expr in &ast.exprs {
-      self.translate_expr(expr)?;
+    for stmt in &ast.stmts {
+      self.translate_stmt(stmt)?;
     }
 
     self.writer.writeln_bytes(b")")?;
@@ -43,6 +44,21 @@ impl<'ast> Translator<'ast> {
     self.reporter.abort_if_has_errors();
 
     Ok(())
+  }
+
+  fn translate_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+    match &stmt.kind {
+      StmtKind::Var(var) => self.translate_stmt_var(var),
+      StmtKind::Expr(expr) => self.translate_stmt_expr(expr),
+    }
+  }
+
+  fn translate_stmt_var(&mut self, var: &Var) -> Result<()> {
+    todo!()
+  }
+
+  fn translate_stmt_expr(&mut self, expr: &Expr) -> Result<()> {
+    self.translate_expr(expr)
   }
 
   fn translate_expr(&mut self, expr: &Expr) -> Result<()> {
