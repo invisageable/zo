@@ -445,8 +445,32 @@ impl<'tokens> Parser<'tokens> {
     todo!()
   }
 
-  fn parse_expr_when(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_when(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+
+    parser.expect_peek(TokenKind::Op(Op::Question))?;
+    parser.next();
+
+    let consequence = parser.parse_expr(Precedence::Low)?;
+
+    parser.expect_peek(TokenKind::Punctuation(Punctuation::Colon))?;
+    parser.next();
+
+    let alternative = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::When(
+        Box::new(condition),
+        Box::new(consequence),
+        Box::new(alternative),
+      ),
+      span: Span::merge(lo, hi),
+    })
   }
 
   fn parse_expr_loop(parser: &mut Parser) -> Result<Expr> {
