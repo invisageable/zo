@@ -441,8 +441,34 @@ impl<'tokens> Parser<'tokens> {
     todo!()
   }
 
-  fn parse_expr_if_else(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_if_else(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+    let consequence = parser.parse_block()?;
+
+    parser.next();
+
+    let alternative = if parser.expect(TokenKind::Kw(Kw::Else)).is_ok() {
+      if parser.ensure_peek(TokenKind::Kw(Kw::If)) {
+        Some(Box::new(Self::parse_expr_if_else(parser)?))
+      } else {
+        let expr = parser.parse_expr(Precedence::Low)?;
+
+        Some(Box::new(expr))
+      }
+    } else {
+      None
+    };
+
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::IfElse(Box::new(condition), consequence, alternative),
+      span: Span::merge(lo, hi),
+    })
   }
 
   fn parse_expr_when(parser: &mut Parser) -> Result<Expr> {
