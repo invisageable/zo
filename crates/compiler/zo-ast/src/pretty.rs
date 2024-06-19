@@ -44,7 +44,7 @@ impl std::fmt::Display for ExprKind {
       Self::Call(callee, args) => writeln!(f, "{callee}({args})"),
       Self::Array(elmts) => write!(f, "{}", sep_comma(elmts)),
       Self::ArrayAccess(indexed, index) => write!(f, "{indexed}[{index}]"),
-      Self::Record(fields) => write!(f, "{}", sep_comma(fields)),
+      Self::Record(pairs) => write!(f, "{:?}", pairs),
       Self::RecordAccess(record, prop) => write!(f, "{record}.{prop}]"),
       Self::IfElse(condition, consequence, maybe_alternative) => {
         write!(f, "if {condition} {consequence}")?;
