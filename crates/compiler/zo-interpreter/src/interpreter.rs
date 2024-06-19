@@ -13,7 +13,7 @@ use zo_value::builtin::BuiltinFn;
 use zo_value::value;
 use zo_value::value::{Array, Value, ValueKind};
 
-use zo_core::interner::symbol::Symbol;
+use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::interner::Interner;
 use zo_core::reporter::Reporter;
 use zo_core::span::{AsSpan, Span};
@@ -61,7 +61,15 @@ impl<'ast> Interpreter<'ast> {
   }
 
   fn interpret_stmt_var(&mut self, var: &Var) -> Result<Value> {
-    todo!()
+    let value = self.interpret_expr(&var.value)?;
+
+    self
+      .scope
+      .add_var(*var.pattern.as_symbol(), value.to_owned())
+      .unwrap(); // TODO(ivs): should returns reporter error and call `?` operator instead of
+                 // unwrap method.
+
+    Ok(value)
   }
 
   fn interpret_stmt_expr(&mut self, expr: &Expr) -> Result<Value> {
