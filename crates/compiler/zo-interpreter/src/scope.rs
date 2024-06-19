@@ -6,6 +6,7 @@ use zo_core::interner::symbol::Symbol;
 
 use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
+use smol_str::SmolStr;
 
 #[derive(Default, Debug)]
 pub struct Scope {
@@ -22,13 +23,13 @@ impl Scope {
     }
   }
 
-  pub fn add_var(&mut self, var: Value) -> Result<(), String> {
-    match self.vars.entry(var.symbolize()) {
+  pub fn add_var(&mut self, name: Symbol, value: Value) -> Result<(), String> {
+    match self.vars.entry(name) {
       Entry::Occupied(_) => {
-        Err(format!("the variable `{}` already exist.", var.symbolize()))
+        Err(format!("the variable `{}` already exist.", name))
       }
       Entry::Vacant(vars) => {
-        vars.insert(var);
+        vars.insert(value);
         Ok(())
       }
     }
