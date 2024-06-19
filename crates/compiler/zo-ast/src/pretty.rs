@@ -2,10 +2,20 @@
 
 use super::ast::{
   Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Input, Inputs, Lit,
-  LitKind, Pattern, PatternKind, Prototype, UnOp, UnOpKind, Var, VarKind,
+  LitKind, Mutability, Pattern, PatternKind, Prototype, Stmt, StmtKind, UnOp,
+  UnOpKind, Var, VarKind,
 };
 
 use zo_core::fmt::{sep_comma, sep_newline};
+
+impl std::fmt::Display for Mutability {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Yes(_) => write!(f, "mut"),
+      Self::No => write!(f, ""),
+    }
+  }
+}
 
 impl std::fmt::Display for Pattern {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -19,6 +29,21 @@ impl std::fmt::Display for PatternKind {
       Self::Underscore => write!(f, "_"),
       Self::Ident(expr) => write!(f, "{expr}"),
       Self::Lit(lit) => write!(f, "{lit}"),
+    }
+  }
+}
+
+impl std::fmt::Display for Stmt {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}", self.kind)
+  }
+}
+
+impl std::fmt::Display for StmtKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Var(var) => write!(f, "{var}"),
+      Self::Expr(expr) => write!(f, "{expr}"),
     }
   }
 }
@@ -184,7 +209,7 @@ impl std::fmt::Display for Var {
     let pattern = &self.pattern;
     let value = &self.value;
 
-    write!(f, "{kind} {pattern} {value};")
+    write!(f, "{kind} {pattern} = {value};")
   }
 }
 

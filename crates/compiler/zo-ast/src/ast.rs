@@ -74,6 +74,51 @@ impl AsSpan for Ast {
 }
 
 #[derive(Clone, Debug)]
+pub struct Stmt {
+  pub kind: StmtKind,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum StmtKind {
+  /// immutable variable — `imu foo: int = 123;`,
+  /// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`
+  Var(Var),
+  /// expression.
+  Expr(Box<Expr>),
+}
+
+#[derive(Clone, Debug)]
+pub struct Var {
+  pub pubness: Pub,
+  pub mutability: Mutability,
+  pub kind: VarKind,
+  pub pattern: Pattern,
+  pub value: Box<Expr>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum VarKind {
+  Imu,
+  Mut,
+  Val,
+}
+
+impl From<Option<&Token>> for VarKind {
+  fn from(maybe_token: Option<&Token>) -> Self {
+    maybe_token
+      .map(|token| match token.kind {
+        TokenKind::Kw(Kw::Imu) => VarKind::Imu,
+        TokenKind::Kw(Kw::Mut) => VarKind::Mut,
+        TokenKind::Kw(Kw::Val) => VarKind::Val,
+        _ => unreachable!(),
+      })
+      .unwrap()
+  }
+}
+
+#[derive(Clone, Debug)]
 pub struct Expr {
   pub kind: ExprKind,
   pub span: Span,
@@ -431,34 +476,4 @@ impl std::ops::Deref for Args {
 pub struct Arg {
   pub expr: Expr,
   pub span: Span,
-}
-
-#[derive(Clone, Debug)]
-pub struct Var {
-  pub pubness: Pub,
-  pub mutability: Mutability,
-  pub kind: VarKind,
-  pub pattern: Pattern,
-  pub value: Box<Expr>,
-  pub span: Span,
-}
-
-#[derive(Clone, Debug)]
-pub enum VarKind {
-  Imu,
-  Mut,
-  Val,
-}
-
-impl From<Option<&Token>> for VarKind {
-  fn from(maybe_token: Option<&Token>) -> Self {
-    maybe_token
-      .map(|token| match token.kind {
-        TokenKind::Kw(Kw::Imu) => VarKind::Imu,
-        TokenKind::Kw(Kw::Mut) => VarKind::Mut,
-        TokenKind::Kw(Kw::Val) => VarKind::Val,
-        _ => unreachable!(),
-      })
-      .unwrap()
-  }
 }
