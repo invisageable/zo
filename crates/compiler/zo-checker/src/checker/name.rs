@@ -1,5 +1,5 @@
 use zo_ast::ast::{
-  Args, Ast, BinOp, Block, Expr, ExprKind, Lit, Prototype, Var,
+  Args, Ast, BinOp, Block, Expr, ExprKind, Lit, Prototype, Stmt, StmtKind, Var,
 };
 
 use zo_session::session::Session;
@@ -20,8 +20,8 @@ impl<'ast> NameChecker<'ast> {
   }
 
   fn check(&mut self, ast: &Ast) -> Result<()> {
-    for expr in &ast.exprs {
-      if let Err(error) = self.check_expr(expr) {
+    for stmt in &ast.stmts {
+      if let Err(error) = self.check_stmt(stmt) {
         self.reporter.add_report(error);
       }
     }
@@ -29,6 +29,21 @@ impl<'ast> NameChecker<'ast> {
     self.reporter.abort_if_has_errors();
 
     Ok(())
+  }
+
+  fn check_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+    match &stmt.kind {
+      StmtKind::Var(var) => self.check_stmt_var(var),
+      StmtKind::Expr(expr) => self.check_stmt_expr(expr),
+    }
+  }
+
+  fn check_stmt_var(&mut self, var: &Var) -> Result<()> {
+    todo!()
+  }
+
+  fn check_stmt_expr(&mut self, expr: &Expr) -> Result<()> {
+    self.check_expr(expr)
   }
 
   fn check_expr(&mut self, expr: &Expr) -> Result<()> {
@@ -101,8 +116,8 @@ impl<'ast> NameChecker<'ast> {
   }
 
   fn check_block(&mut self, body: &Block) -> Result<()> {
-    for expr in &body.exprs {
-      self.check_expr(expr)?;
+    for stmt in &body.stmts {
+      self.check_stmt(stmt)?;
     }
 
     Ok(())
