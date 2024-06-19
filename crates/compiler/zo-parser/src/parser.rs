@@ -460,8 +460,19 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
-  fn parse_expr_while(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_while(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+    let body = parser.parse_block()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::While(Box::new(condition), body),
+      span: Span::merge(lo, hi),
+    })
   }
 
   fn parse_expr_return(_parser: &mut Parser) -> Result<Expr> {
