@@ -32,6 +32,15 @@ impl<'ast> Translator<'ast> {
     Ok(self.writer.as_bytes())
   }
 
+  fn translate_pattern(&mut self, pattern: &Pattern) -> Result<()> {
+    match &pattern.kind {
+      PatternKind::Underscore => self.writer.write_bytes(b"_"),
+      PatternKind::Ident(ident) => self.translate_expr(ident),
+      PatternKind::Lit(lit) => self.translate_expr_lit(lit),
+      _ => todo!(),
+    }
+  }
+
   pub fn translate(&mut self, ast: &Ast) -> Result<()> {
     self.writer.write_bytes(b"def main():")?;
 
@@ -53,15 +62,6 @@ impl<'ast> Translator<'ast> {
     self.reporter.abort_if_has_errors();
 
     Ok(())
-  }
-
-  fn translate_pattern(&mut self, pattern: &Pattern) -> Result<()> {
-    match &pattern.kind {
-      PatternKind::Underscore => self.writer.write_bytes(b"_"),
-      PatternKind::Ident(ident) => self.translate_expr(ident),
-      PatternKind::Lit(lit) => self.translate_expr_lit(lit),
-      _ => todo!(),
-    }
   }
 
   fn translate_stmt(&mut self, stmt: &Stmt) -> Result<()> {

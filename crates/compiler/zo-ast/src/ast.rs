@@ -3,6 +3,7 @@
 use zo_tokenizer::token::kw::Kw;
 use zo_tokenizer::token::op::Op;
 use zo_tokenizer::token::{Token, TokenKind};
+use zo_ty::ty::Ty;
 
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
@@ -426,6 +427,7 @@ pub struct Prototype {
 pub struct Inputs(pub Vec<Input>);
 
 impl Inputs {
+  /// no allocations.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))
@@ -478,7 +480,7 @@ pub struct Input {
 #[derive(Clone, Debug)]
 pub enum OutputTy {
   Default(Span),
-  // Ty(Ty),
+  Ty(Ty),
 }
 
 #[derive(Clone, Debug)]
@@ -498,6 +500,7 @@ impl AsSpan for Args {
 }
 
 impl Args {
+  /// no allocations.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))

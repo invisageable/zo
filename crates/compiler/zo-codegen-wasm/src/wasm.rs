@@ -41,6 +41,7 @@ impl AsWat for OutputTy {
   fn as_wat(&self) -> &str {
     match self {
       Self::Default(_) => "i64",
+      Self::Ty(_) => todo!(),
     }
   }
 }

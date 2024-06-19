@@ -1035,6 +1035,7 @@ dependencies = [
  "smol_str",
  "zo-core",
  "zo-tokenizer",
+ "zo-ty",
 ]
 
 [[package]]

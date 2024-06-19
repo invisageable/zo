@@ -127,7 +127,7 @@ impl<'ast> NameChecker<'ast> {
     _assignee: &Expr,
     _value: &Expr,
   ) -> Result<()> {
-    todo!()
+    Ok(())
   }
 
   fn check_expr_block(&mut self, body: &Block) -> Result<()> {

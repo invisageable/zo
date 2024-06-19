@@ -11,6 +11,7 @@ zo-core = { workspace = true }
 
 # internals.
 zo-tokenizer = { workspace = true }
+zo-ty = { workspace = true }
 
 # externals.
 smol_str = { workspace = true }

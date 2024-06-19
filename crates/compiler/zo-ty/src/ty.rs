@@ -27,6 +27,16 @@ impl Ty {
     Self::new(TyKind::Var(var), span)
   }
 
+  #[inline]
+  pub fn is(&self, kind: TyKind) -> bool {
+    self.kind.is(kind)
+  }
+
+  #[inline]
+  pub const fn is_numeric(&self) -> bool {
+    self.kind.is_numeric()
+  }
+
   pub fn ty_vars(&self) -> HashSet<usize> {
     self.kind.ty_vars()
   }
@@ -46,6 +56,16 @@ pub enum TyKind {
 }
 
 impl TyKind {
+  #[inline]
+  pub fn is(&self, kind: TyKind) -> bool {
+    *self == kind
+  }
+
+  #[inline]
+  pub const fn is_numeric(&self) -> bool {
+    matches!(self, Self::Int | Self::Float)
+  }
+
   pub fn ty_vars(&self) -> HashSet<usize> {
     match self {
       Self::Unit => todo!(),
