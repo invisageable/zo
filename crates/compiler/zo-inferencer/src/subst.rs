@@ -44,6 +44,7 @@ impl Subst {
           self.apply(&to)
         }
       }
+      _ => todo!(),
     }
   }
 }
