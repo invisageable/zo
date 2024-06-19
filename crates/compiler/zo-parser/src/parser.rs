@@ -3,7 +3,7 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, UnOp,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind, UnOp,
 };
 
 use zo_session::session::Session;
@@ -143,6 +143,29 @@ impl<'tokens> Parser<'tokens> {
     self.reporter.abort_if_has_errors();
 
     Ok(ast)
+  }
+
+  fn parse_block(&mut self) -> Result<Block> {
+    let mut block = Block::new();
+    let lo = self.current_span();
+
+    self.expect_peek(TokenKind::Group(Group::BraceOpen))?;
+
+    while !self.ensure_peek(TokenKind::Group(Group::BraceClose))
+      && self.has_tokens()
+    {
+      self.next();
+      block.add_expr(self.parse_expr(Precedence::Low)?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::BraceClose))?;
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    block.span = span;
+
+    Ok(block)
   }
 
   fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr> {
@@ -426,8 +449,15 @@ impl<'tokens> Parser<'tokens> {
     todo!()
   }
 
-  fn parse_expr_loop(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_loop(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+    let body = parser.parse_block()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Loop(body),
+      span: Span::merge(lo, hi),
+    })
   }
 
   fn parse_expr_while(_parser: &mut Parser) -> Result<Expr> {

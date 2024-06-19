@@ -262,6 +262,7 @@ impl From<Op> for BinOpKind {
 #[derive(Clone, Debug)]
 pub struct Block {
   pub exprs: Vec<Expr>,
+  pub span: Span,
 }
 
 impl Block {
@@ -270,6 +271,7 @@ impl Block {
   pub fn new() -> Self {
     Self {
       exprs: Vec::with_capacity(0usize),
+      span: Span::ZERO,
     }
   }
 
