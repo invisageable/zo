@@ -633,21 +633,183 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_assign(
     &mut self,
-    _assignee: &Expr,
-    _value: &Expr,
+    assignee: &Expr,
+    value: &Expr,
     _span: Span,
   ) -> Result<Value> {
-    todo!()
+    let value = self.interpret_expr(value)?;
+
+    self
+      .scope
+      .add_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap();
+
+    Ok(value)
   }
 
   fn interpret_expr_assign_op(
     &mut self,
-    _binop: &BinOp,
-    _assignee: &Expr,
-    _value: &Expr,
+    binop: &BinOp,
+    assignee: &Expr,
+    value: &Expr,
     _span: Span,
   ) -> Result<Value> {
-    todo!()
+    let lhs = match self.scope.var(assignee.as_symbol()) {
+      Some(value) => value.to_owned(),
+      None => panic!(),
+    };
+
+    let rhs = self.interpret_expr(value)?;
+
+    match &binop.kind {
+      BinOpKind::Add => self.interpret_expr_assign_op_add(assignee, &lhs, &rhs),
+      BinOpKind::Sub => self.interpret_expr_assign_op_sub(assignee, &lhs, &rhs),
+      BinOpKind::Mul => self.interpret_expr_assign_op_mul(assignee, &lhs, &rhs),
+      BinOpKind::Div => self.interpret_expr_assign_op_div(assignee, &lhs, &rhs),
+      BinOpKind::Rem => self.interpret_expr_assign_op_rem(assignee, &lhs, &rhs),
+      BinOpKind::BitAnd => {
+        self.interpret_expr_assign_op_bit_and(assignee, &lhs, &rhs)
+      }
+      BinOpKind::BitOr => {
+        self.interpret_expr_assign_op_bit_or(assignee, &lhs, &rhs)
+      }
+      BinOpKind::BitXor => {
+        self.interpret_expr_assign_op_bit_xor(assignee, &lhs, &rhs)
+      }
+      BinOpKind::Shl => self.interpret_expr_assign_op_shl(assignee, &lhs, &rhs),
+      BinOpKind::Shr => self.interpret_expr_assign_op_shr(assignee, &lhs, &rhs),
+      _ => panic!(), // returns reporter error.
+    }
+  }
+
+  fn interpret_expr_assign_op_add(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs + rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_sub(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs - rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_mul(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs * rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_div(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs / rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_rem(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs % rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_bit_and(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs & rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_bit_or(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs | rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_bit_xor(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs | rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_shl(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs << rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
+  }
+
+  fn interpret_expr_assign_op_shr(
+    &mut self,
+    assignee: &Expr,
+    lhs: &Value,
+    rhs: &Value,
+  ) -> Result<Value> {
+    let value = lhs >> rhs;
+
+    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+
+    Ok(value)
   }
 
   fn interpret_expr_block(&mut self, block: &Block) -> Result<Value> {
