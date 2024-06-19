@@ -73,6 +73,11 @@ impl Value {
   }
 
   #[inline]
+  pub fn record(record: HashMap<RecordKey, Value>, span: Span) -> Self {
+    Self::new(ValueKind::Record(record), span)
+  }
+
+  #[inline]
   pub fn symbolize(&self) -> Symbol {
     self.kind.symbolize()
   }
