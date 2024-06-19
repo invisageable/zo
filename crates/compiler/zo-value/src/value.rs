@@ -88,6 +88,180 @@ impl Value {
   }
 }
 
+impl std::ops::Add for &Value {
+  type Output = Value;
+
+  fn add(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs + rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => {
+        Value::float(lhs + rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::Sub for &Value {
+  type Output = Value;
+
+  fn sub(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs - rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => {
+        Value::float(lhs - rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::Mul for &Value {
+  type Output = Value;
+
+  fn mul(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs * rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => {
+        Value::float(lhs * rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::Div for &Value {
+  type Output = Value;
+
+  fn div(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs / rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => {
+        Value::float(lhs / rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::Rem for &Value {
+  type Output = Value;
+
+  fn rem(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs % rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => {
+        Value::float(lhs % rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::BitAnd for &Value {
+  type Output = Value;
+
+  fn bitand(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs & rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Bool(lhs), ValueKind::Bool(rhs)) => {
+        Value::bool(lhs & rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::BitOr for &Value {
+  type Output = Value;
+
+  fn bitor(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs | rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Bool(lhs), ValueKind::Bool(rhs)) => {
+        Value::bool(lhs | rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::BitXor for &Value {
+  type Output = Value;
+
+  fn bitxor(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs ^ rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Bool(lhs), ValueKind::Bool(rhs)) => {
+        Value::bool(lhs ^ rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::Shl for &Value {
+  type Output = Value;
+
+  fn shl(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs << rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
+impl std::ops::Shr for &Value {
+  type Output = Value;
+
+  fn shr(self, rhs: Self) -> Self::Output {
+    let span = rhs.span;
+
+    match (&self.kind, &rhs.kind) {
+      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
+        Value::int(lhs >> rhs, Span::merge(self.span, span))
+      }
+      _ => unreachable!(),
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub enum ValueKind {
   Unit,
@@ -123,6 +297,7 @@ impl ValueKind {
 pub struct Args(pub Vec<Arg>);
 
 impl Args {
+  /// no allocations.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))
@@ -170,6 +345,7 @@ pub struct Arg {
 pub struct Array(pub Vec<Value>);
 
 impl Array {
+  /// no allocations.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))
