@@ -1,5 +1,11 @@
 -- should display `👋 🌍 👽`.
 
-fun main() {
+-- fun main() {
   -- println("👋 🌍 👽");
-}
+-- }
+
+imu foo = 2;
+
+foo *= 2;
+
+foo + (4 * 5);

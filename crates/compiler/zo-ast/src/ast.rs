@@ -91,6 +91,23 @@ impl AsSpan for Ast {
 }
 
 #[derive(Clone, Debug)]
+pub struct Item {
+  pub kind: ItemKind,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum ItemKind {
+  /// `val FOO: int = 123;`, `pub val FOO: int = 123;`.
+  Var(Var),
+  /// `fun foo(x: int): int { ... }`, `pub fun foo(x: int): int { ... }`.
+  Fun(Fun),
+}
+
+#[derive(Clone, Debug)]
+pub struct Fun {}
+
+#[derive(Clone, Debug)]
 pub struct Stmt {
   pub kind: StmtKind,
   pub span: Span,
@@ -101,6 +118,8 @@ pub enum StmtKind {
   /// immutable variable — `imu foo: int = 123;`,
   /// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`
   Var(Var),
+  /// item.
+  Item(Item),
   /// expression.
   Expr(Box<Expr>),
 }
