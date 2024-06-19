@@ -3,8 +3,8 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind, Stmt,
-  StmtKind, UnOp,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind,
+  Mutability, Pattern, PatternKind, Pub, Stmt, StmtKind, UnOp, Var, VarKind,
 };
 
 use zo_session::session::Session;
@@ -169,18 +169,85 @@ impl<'tokens> Parser<'tokens> {
     Ok(block)
   }
 
-  fn parse_stmt(&mut self) -> Result<Stmt> {
+  fn parse_pattern(&mut self) -> Result<Pattern> {
     self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Ident(_) => {
+          let expr = Self::parse_expr_lit_ident(self)?;
+
+          Ok(Pattern {
+            kind: PatternKind::Ident(Box::new(expr)),
+            span: token.span,
+          })
+        }
+        _ => Err(ReportError::Syntax(Syntax::UnexpectedToken(
+          token.span,
+          token.kind.to_string(),
+        ))),
+      })
+      .unwrap()
+  }
+
+  fn parse_stmt(&mut self) -> Result<Stmt> {
+    let stmt = self
       .maybe_token_current
       .map(|token| match token.kind {
         kind if kind.is_var_local() => self.parse_stmt_var(),
         _ => self.parse_stmt_expr(),
       })
-      .unwrap()
+      .unwrap()?;
+
+    if self.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      self.next();
+    }
+
+    Ok(stmt)
   }
 
   fn parse_stmt_var(&mut self) -> Result<Stmt> {
-    todo!()
+    let lo = self.current_span();
+    let kind = VarKind::from(self.maybe_token_current);
+
+    self.next();
+
+    let pattern = self.parse_pattern()?;
+
+    self.expect_peek(TokenKind::Op(Op::Equal))?;
+    self.next();
+
+    let value = self.parse_expr(Precedence::Low)?;
+
+    self.next();
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    match kind {
+      VarKind::Imu => Ok(Stmt {
+        kind: StmtKind::Var(Var {
+          kind,
+          mutability: Mutability::No,
+          pubness: Pub::No,
+          pattern,
+          value: Box::new(value),
+          span,
+        }),
+        span,
+      }),
+      VarKind::Mut => Ok(Stmt {
+        kind: StmtKind::Var(Var {
+          kind,
+          mutability: Mutability::Yes(Span::ZERO),
+          pubness: Pub::No,
+          pattern,
+          value: Box::new(value),
+          span,
+        }),
+        span,
+      }),
+      _ => panic!("expected local var."), // returns reporter error.
+    }
   }
 
   fn parse_stmt_expr(&mut self) -> Result<Stmt> {
