@@ -83,6 +83,10 @@ impl<'ast> NameChecker<'ast> {
       ExprKind::ArrayAccess(indexed, index) => {
         self.check_expr_array_access(indexed, index)
       }
+      ExprKind::Record(pairs) => self.check_expr_record(pairs),
+      ExprKind::RecordAccess(record, prop) => {
+        self.check_expr_record_access(record, prop)
+      }
       ExprKind::IfElse(condition, consequence, maybe_alternative) => {
         self.check_expr_if_else(condition, consequence, maybe_alternative)
       }
@@ -169,6 +173,30 @@ impl<'ast> NameChecker<'ast> {
     _index: &Expr,
   ) -> Result<()> {
     todo!()
+  }
+
+  fn check_expr_record(&mut self, pairs: &[(Expr, Expr)]) -> Result<()> {
+    for (key, _) in pairs {
+      let name = self.interner.lookup_ident(key.as_symbol());
+
+      self.verify_snake_case(key.span, name)?;
+    }
+
+    Ok(())
+  }
+
+  fn check_expr_record_access(
+    &mut self,
+    record: &Expr,
+    prop: &Expr,
+  ) -> Result<()> {
+    let name = self.interner.lookup_ident(record.as_symbol());
+
+    self.verify_snake_case(record.span, name)?;
+
+    let name = self.interner.lookup_ident(prop.as_symbol());
+
+    self.verify_snake_case(prop.span, name)
   }
 
   fn check_expr_if_else(
