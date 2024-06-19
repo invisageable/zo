@@ -961,7 +961,7 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_array_access_int(
     &mut self,
-    indexed: &Vec<Value>,
+    indexed: &[Value],
     index: &i64,
     span: Span,
   ) -> Result<Value> {
@@ -987,7 +987,7 @@ impl<'ast> Interpreter<'ast> {
     } else {
       maybe_alternative
         .as_ref()
-        .map(|alternative| self.interpret_expr(&alternative))
+        .map(|alternative| self.interpret_expr(alternative))
         .unwrap_or(Ok(Value::UNIT))
     }
   }

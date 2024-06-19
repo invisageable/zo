@@ -37,7 +37,6 @@ impl<'ast> Translator<'ast> {
       PatternKind::Underscore => self.writer.write_bytes(b"_"),
       PatternKind::Ident(ident) => self.translate_expr(ident),
       PatternKind::Lit(lit) => self.translate_expr_lit(lit),
-      _ => todo!(),
     }
   }
 

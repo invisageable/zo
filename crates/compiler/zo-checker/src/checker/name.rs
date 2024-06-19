@@ -159,7 +159,7 @@ impl<'ast> NameChecker<'ast> {
     todo!()
   }
 
-  fn check_expr_array(&mut self, _elmts: &Vec<Expr>) -> Result<()> {
+  fn check_expr_array(&mut self, _elmts: &[Expr]) -> Result<()> {
     todo!()
   }
 

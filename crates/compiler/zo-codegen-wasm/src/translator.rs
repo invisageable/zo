@@ -53,7 +53,7 @@ impl<'ast> Translator<'ast> {
     }
   }
 
-  fn translate_stmt_var(&mut self, var: &Var) -> Result<()> {
+  fn translate_stmt_var(&mut self, _var: &Var) -> Result<()> {
     todo!()
   }
 

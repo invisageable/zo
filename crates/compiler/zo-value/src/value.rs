@@ -327,6 +327,12 @@ impl AsSpan for Args {
   }
 }
 
+impl Default for Args {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl std::ops::Deref for Args {
   type Target = Vec<Arg>;
 
@@ -359,6 +365,12 @@ impl Array {
   #[inline]
   pub fn add_elmt(&mut self, value: Value) {
     self.0.push(value)
+  }
+}
+
+impl Default for Array {
+  fn default() -> Self {
+    Self::new()
   }
 }
 
