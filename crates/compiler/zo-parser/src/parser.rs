@@ -382,8 +382,36 @@ impl<'tokens> Parser<'tokens> {
     Ok(exprs)
   }
 
-  fn parse_expr_record(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_record(parser: &mut Parser) -> Result<Expr> {
+    let mut pairs = vec![];
+    let lo = parser.current_span();
+
+    while !parser.ensure_peek(TokenKind::Group(Group::BraceClose)) {
+      parser.next();
+
+      let key = Self::parse_expr_lit_ident(parser)?;
+
+      parser.expect_peek(TokenKind::Op(Op::Equal))?;
+
+      parser.next();
+
+      let value = parser.parse_expr(Precedence::Low)?;
+
+      pairs.push((key, value));
+
+      if !parser.ensure_peek(TokenKind::Group(Group::BraceClose)) {
+        parser.expect_peek(TokenKind::Punctuation(Punctuation::Comma))?;
+      }
+    }
+
+    parser.next();
+
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Record(pairs),
+      span: Span::merge(lo, hi),
+    })
   }
 
   fn parse_expr_fn(_parser: &mut Parser) -> Result<Expr> {
