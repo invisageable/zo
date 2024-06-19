@@ -475,8 +475,31 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
-  fn parse_expr_return(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_return(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      let hi = parser.current_span();
+
+      return Ok(Expr {
+        kind: ExprKind::Return(None),
+        span: Span::merge(lo, hi),
+      });
+    }
+
+    let expr = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    while parser.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      parser.next();
+    }
+
+    Ok(Expr {
+      kind: ExprKind::Return(Some(Box::new(expr))),
+      span: Span::merge(lo, hi),
+    })
   }
 
   fn parse_expr_break(_parser: &mut Parser) -> Result<Expr> {
