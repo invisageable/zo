@@ -1,8 +1,8 @@
 //! ...
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, Stmt, StmtKind, UnOp,
-  UnOpKind, Var,
+  Ast, BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, Pattern, PatternKind,
+  Stmt, StmtKind, UnOp, UnOpKind, Var,
 };
 
 use zo_core::interner::symbol::Symbol;
@@ -55,6 +55,15 @@ impl<'ast> Translator<'ast> {
     Ok(())
   }
 
+  fn translate_pattern(&mut self, pattern: &Pattern) -> Result<()> {
+    match &pattern.kind {
+      PatternKind::Underscore => self.writer.write_bytes(b"_"),
+      PatternKind::Ident(ident) => self.translate_expr(ident),
+      PatternKind::Lit(lit) => self.translate_expr_lit(lit),
+      _ => todo!(),
+    }
+  }
+
   fn translate_stmt(&mut self, stmt: &Stmt) -> Result<()> {
     match &stmt.kind {
       StmtKind::Var(var) => self.translate_stmt_var(var),
@@ -63,7 +72,11 @@ impl<'ast> Translator<'ast> {
   }
 
   fn translate_stmt_var(&mut self, var: &Var) -> Result<()> {
-    todo!()
+    self.translate_pattern(&var.pattern)?;
+    self.writer.space()?;
+    self.writer.write_bytes(b"=")?;
+    self.writer.space()?;
+    self.translate_expr(&var.value)
   }
 
   fn translate_stmt_expr(&mut self, expr: &Expr) -> Result<()> {
