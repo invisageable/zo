@@ -1,5 +1,6 @@
 //! ...
 
+use zo_core::interner::symbol::Symbol;
 use zo_core::span::Span;
 
 use hashbrown::HashSet;
@@ -34,6 +35,13 @@ impl Ty {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TyKind {
   Unit,
+  Infer,
+  Int,
+  Float,
+  Ident(Symbol),
+  Bool,
+  Char,
+  Str,
   Var(usize),
 }
 
@@ -48,6 +56,7 @@ impl TyKind {
 
         ty_vars
       }
+      _ => todo!(),
     }
   }
 }
