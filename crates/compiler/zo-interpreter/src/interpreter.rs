@@ -4,7 +4,7 @@ use super::scope::Scope;
 
 use zo_ast::ast::{
   Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind,
-  Prototype, UnOp, UnOpKind, Var,
+  Prototype, Stmt, StmtKind, UnOp, UnOpKind, Var,
 };
 
 use zo_core::reporter::report::eval::Eval;
@@ -40,8 +40,8 @@ impl<'ast> Interpreter<'ast> {
   pub fn interpret(&mut self, ast: &Ast) -> Result<Value> {
     let mut value = Value::UNIT;
 
-    for expr in &ast.exprs {
-      value = self.interpret_expr(expr)?;
+    for stmt in &ast.stmts {
+      value = self.interpret_stmt(stmt)?;
 
       if let ValueKind::Return(value) = value.kind {
         return Ok(*value);
@@ -51,6 +51,21 @@ impl<'ast> Interpreter<'ast> {
     self.reporter.abort_if_has_errors();
 
     Ok(value)
+  }
+
+  fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
+    match &stmt.kind {
+      StmtKind::Var(var) => self.interpret_stmt_var(var),
+      StmtKind::Expr(expr) => self.interpret_stmt_expr(expr),
+    }
+  }
+
+  fn interpret_stmt_var(&mut self, var: &Var) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_stmt_expr(&mut self, expr: &Expr) -> Result<Value> {
+    self.interpret_expr(expr)
   }
 
   fn interpret_expr(&mut self, expr: &Expr) -> Result<Value> {
@@ -630,8 +645,8 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_expr_block(&mut self, block: &Block) -> Result<Value> {
     let mut value = Value::UNIT;
 
-    for expr in &block.exprs {
-      value = self.interpret_expr(expr)?;
+    for stmt in &block.stmts {
+      value = self.interpret_stmt(stmt)?;
 
       if let ValueKind::Return(value) = value.kind {
         return Ok(*value);
