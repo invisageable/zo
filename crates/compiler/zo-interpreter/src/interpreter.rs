@@ -77,7 +77,7 @@ impl<'ast> Interpreter<'ast> {
       ExprKind::ArrayAccess(indexed, index) => {
         self.interpret_expr_array_access(indexed, index, expr.span)
       }
-      ExprKind::Record(fields) => self.interpret_expr_record(fields, expr.span),
+      ExprKind::Record(pairs) => self.interpret_expr_record(pairs, expr.span),
       ExprKind::RecordAccess(record, prop) => {
         self.interpret_expr_record_access(record, prop, expr.span)
       }
@@ -759,7 +759,7 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_record(
     &mut self,
-    _fields: &[Expr],
+    _pairs: &[(Expr, Expr)],
     _span: Span,
   ) -> Result<Value> {
     todo!()
