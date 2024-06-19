@@ -4,7 +4,7 @@ use zo_tokenizer::token::kw::Kw;
 use zo_tokenizer::token::op::Op;
 use zo_tokenizer::token::{Token, TokenKind};
 
-use zo_core::interner::symbol::Symbol;
+use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
 
 #[derive(Clone, Debug)]
@@ -25,6 +25,12 @@ pub struct Pattern {
   pub span: Span,
 }
 
+impl Symbolize for Pattern {
+  fn as_symbol(&self) -> &Symbol {
+    self.kind.as_symbol()
+  }
+}
+
 #[derive(Clone, Debug)]
 pub enum PatternKind {
   /// underscore — `_`.
@@ -33,6 +39,16 @@ pub enum PatternKind {
   Ident(Box<Expr>),
   /// literals.
   Lit(Lit),
+}
+
+impl Symbolize for PatternKind {
+  fn as_symbol(&self) -> &Symbol {
+    match self {
+      Self::Ident(ident) => ident.as_symbol(),
+      Self::Lit(lit) => lit.as_symbol(),
+      _ => unreachable!(),
+    }
+  }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -98,6 +114,12 @@ pub struct Var {
   pub span: Span,
 }
 
+impl Symbolize for Var {
+  fn as_symbol(&self) -> &Symbol {
+    self.pattern.as_symbol()
+  }
+}
+
 #[derive(Clone, Debug)]
 pub enum VarKind {
   Imu,
@@ -122,6 +144,12 @@ impl From<Option<&Token>> for VarKind {
 pub struct Expr {
   pub kind: ExprKind,
   pub span: Span,
+}
+
+impl Symbolize for Expr {
+  fn as_symbol(&self) -> &Symbol {
+    self.kind.as_symbol()
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -168,10 +196,25 @@ pub enum ExprKind {
   Var(Var),
 }
 
+impl Symbolize for ExprKind {
+  fn as_symbol(&self) -> &Symbol {
+    match self {
+      Self::Lit(lit) => lit.as_symbol(),
+      _ => todo!(),
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct Lit {
   pub kind: LitKind,
   pub span: Span,
+}
+
+impl Symbolize for Lit {
+  fn as_symbol(&self) -> &Symbol {
+    self.kind.as_symbol()
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -182,6 +225,19 @@ pub enum LitKind {
   Bool(bool),
   Char(Symbol),
   Str(Symbol),
+}
+
+impl Symbolize for LitKind {
+  fn as_symbol(&self) -> &Symbol {
+    match self {
+      Self::Int(symbol) => symbol,
+      Self::Float(symbol) => symbol,
+      Self::Ident(symbol) => symbol,
+      Self::Char(symbol) => symbol,
+      Self::Str(symbol) => symbol,
+      _ => unreachable!(),
+    }
+  }
 }
 
 #[derive(Clone, Debug)]
