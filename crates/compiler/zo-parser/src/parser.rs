@@ -483,8 +483,27 @@ impl<'tokens> Parser<'tokens> {
     todo!()
   }
 
-  fn parse_expr_continue(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  fn parse_expr_continue(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    if parser.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      let hi = parser.current_span();
+      let span = Span::merge(lo, hi);
+
+      parser.next();
+
+      return Ok(Expr {
+        kind: ExprKind::Continue,
+        span,
+      });
+    }
+
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Continue,
+      span: Span::merge(lo, hi),
+    })
   }
 
   fn parse_infix_fn(&self) -> Option<ParseInfixFn> {
