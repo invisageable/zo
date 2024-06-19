@@ -50,7 +50,7 @@ impl std::fmt::Display for ItemKind {
 
 impl std::fmt::Display for Fun {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f, "{:?}", self)
+    write!(f, "fun {} {}", self.prototype, self.body)
   }
 }
 

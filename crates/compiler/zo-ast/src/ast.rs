@@ -105,7 +105,11 @@ pub enum ItemKind {
 }
 
 #[derive(Clone, Debug)]
-pub struct Fun {}
+pub struct Fun {
+  pub prototype: Prototype,
+  pub body: Block,
+  pub span: Span,
+}
 
 #[derive(Clone, Debug)]
 pub struct Stmt {
