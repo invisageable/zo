@@ -9,6 +9,7 @@ pub mod punctuation;
 use group::Group;
 use op::Op;
 
+use punctuation::Punctuation;
 use zo_core::interner::symbol::Symbol;
 use zo_core::span::Span;
 
@@ -111,6 +112,11 @@ impl TokenKind {
   #[inline]
   pub fn is_index(&self) -> bool {
     matches!(self, Self::Group(Group::BracketOpen))
+  }
+
+  #[inline]
+  pub fn is_chaining(&self) -> bool {
+    matches!(self, Self::Punctuation(Punctuation::Period))
   }
 
   #[inline]

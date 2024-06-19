@@ -607,6 +607,7 @@ impl<'tokens> Parser<'tokens> {
       kind if kind.is_assignement() => Some(Self::parse_expr_assignment),
       kind if kind.is_calling() => Some(Self::parse_expr_call),
       kind if kind.is_index() => Some(Self::parse_expr_array_access),
+      kind if kind.is_chaining() => Some(Self::parse_expr_record_access),
       _ => None,
     }
   }
@@ -762,6 +763,20 @@ impl<'tokens> Parser<'tokens> {
 
     Ok(Expr {
       kind: ExprKind::ArrayAccess(Box::new(lhs), Box::new(access)),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  fn parse_expr_record_access(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    let lo = lhs.span;
+
+    parser.next();
+
+    let access = parser.parse_expr(Precedence::Chaining)?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::RecordAccess(Box::new(lhs), Box::new(access)),
       span: Span::merge(lo, hi),
     })
   }
