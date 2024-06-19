@@ -3,7 +3,8 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind, UnOp,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind, Stmt,
+  StmtKind, UnOp,
 };
 
 use zo_session::session::Session;
@@ -132,8 +133,8 @@ impl<'tokens> Parser<'tokens> {
     self.next();
 
     while self.has_tokens() {
-      match self.parse_expr(Precedence::Low) {
-        Ok(expr) => ast.add_expr(expr),
+      match self.parse_stmt() {
+        Ok(stmt) => ast.add_stmt(stmt),
         Err(report_error) => self.reporter.add_report(report_error),
       }
 
@@ -155,7 +156,7 @@ impl<'tokens> Parser<'tokens> {
       && self.has_tokens()
     {
       self.next();
-      block.add_expr(self.parse_expr(Precedence::Low)?);
+      block.add_stmt(self.parse_stmt()?);
     }
 
     self.expect_peek(TokenKind::Group(Group::BraceClose))?;
@@ -166,6 +167,42 @@ impl<'tokens> Parser<'tokens> {
     block.span = span;
 
     Ok(block)
+  }
+
+  fn parse_stmt(&mut self) -> Result<Stmt> {
+    self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        kind if kind.is_var_local() => self.parse_stmt_var(),
+        _ => self.parse_stmt_expr(),
+      })
+      .unwrap()
+  }
+
+  fn parse_stmt_var(&mut self) -> Result<Stmt> {
+    todo!()
+  }
+
+  fn parse_stmt_expr(&mut self) -> Result<Stmt> {
+    let lo = self.current_span();
+    let expr = self.parse_expr(Precedence::Low)?;
+
+    self
+      .maybe_token_next
+      .map(|token| {
+        if token.is(TokenKind::Punctuation(Punctuation::Semicolon)) {
+          self.next();
+        }
+      })
+      .unwrap();
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Stmt {
+      kind: StmtKind::Expr(Box::new(expr)),
+      span,
+    })
   }
 
   fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr> {

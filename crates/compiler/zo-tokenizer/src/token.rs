@@ -7,6 +7,7 @@ pub mod op;
 pub mod punctuation;
 
 use group::Group;
+use kw::Kw;
 use op::Op;
 
 use punctuation::Punctuation;
@@ -141,5 +142,10 @@ impl TokenKind {
         | Self::Op(Op::LessThanEqual)
         | Self::Op(Op::GreaterThanEqual)
     )
+  }
+
+  #[inline]
+  pub fn is_var_local(&self) -> bool {
+    matches!(self, Self::Kw(Kw::Imu) | Self::Kw(Kw::Mut))
   }
 }
