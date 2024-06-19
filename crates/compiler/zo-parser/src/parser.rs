@@ -341,12 +341,14 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
-  fn parse_expr_fn(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
-  }
+  fn parse_expr_group(parser: &mut Parser) -> Result<Expr> {
+    parser.next();
 
-  fn parse_expr_group(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+    let expr = parser.parse_expr(Precedence::Low)?;
+
+    parser.expect_peek(TokenKind::Group(Group::ParenClose))?;
+
+    Ok(expr)
   }
 
   fn parse_expr_array(_parser: &mut Parser) -> Result<Expr> {
@@ -354,6 +356,10 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn parse_expr_record(_parser: &mut Parser) -> Result<Expr> {
+    todo!()
+  }
+
+  fn parse_expr_fn(_parser: &mut Parser) -> Result<Expr> {
     todo!()
   }
 
