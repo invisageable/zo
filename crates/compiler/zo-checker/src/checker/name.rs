@@ -1,8 +1,8 @@
 //! ...
 
 use zo_ast::ast::{
-  Args, Ast, BinOp, Block, Expr, ExprKind, Fun, Item, ItemKind, Lit, Pattern,
-  Prototype, Stmt, StmtKind, Var,
+  Args, Ast, BinOp, Block, Expr, ExprKind, Fun, Inputs, Item, ItemKind, Lit,
+  OutputTy, Pattern, Prototype, Stmt, StmtKind, Var,
 };
 
 use zo_session::session::Session;
@@ -68,8 +68,9 @@ impl<'ast> NameChecker<'ast> {
     self.check_expr(&var.value)
   }
 
-  fn check_item_fun(&mut self, _fun: &Fun) -> Result<()> {
-    todo!()
+  fn check_item_fun(&mut self, fun: &Fun) -> Result<()> {
+    self.check_prototype(&fun.prototype)?;
+    self.check_block(&fun.body)
   }
 
   fn check_stmt(&mut self, stmt: &Stmt) -> Result<()> {
@@ -187,8 +188,25 @@ impl<'ast> NameChecker<'ast> {
     self.check_block(body)
   }
 
-  fn check_prototype(&mut self, _prototype: &Prototype) -> Result<()> {
-    todo!()
+  fn check_prototype(&mut self, prototype: &Prototype) -> Result<()> {
+    self.check_pattern(&prototype.pattern, StrCase::Snake)?;
+    self.check_inputs(&prototype.inputs)?;
+    self.check_output_ty(&prototype.output_ty)
+  }
+
+  fn check_inputs(&mut self, inputs: &Inputs) -> Result<()> {
+    for input in &inputs.0 {
+      self.check_pattern(&input.pattern, StrCase::Snake)?;
+    }
+
+    Ok(())
+  }
+
+  fn check_output_ty(&mut self, output_ty: &OutputTy) -> Result<()> {
+    match output_ty {
+      OutputTy::Default(_) => Ok(()),
+      _ => todo!(),
+    }
   }
 
   fn check_expr_call(&mut self, _callee: &Expr, _args: &Args) -> Result<()> {
