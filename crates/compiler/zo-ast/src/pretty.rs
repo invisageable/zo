@@ -191,7 +191,7 @@ impl std::fmt::Display for Block {
       return write!(f, "{{}}");
     }
 
-    write!(f, "{{{}}}", sep_newline(&self.stmts))
+    write!(f, "{{\n{}\n}}", sep_newline(&self.stmts))
   }
 }
 
