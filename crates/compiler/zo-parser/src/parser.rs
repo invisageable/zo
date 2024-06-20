@@ -688,8 +688,11 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
-  // needs to be improve and verify each egde cases, what's happen if we passe a
-  // statement instead of an expression when the needed is `->` and so on.
+  // TODO(ivs): needs to be improve and verify each egde cases, what's happen if
+  // we passe a statement instead of an expression when the needed is `->` and
+  // so on.
+  //
+  // TODO(ivs): does the pattern span is correct ?
   fn parse_expr_fn(parser: &mut Parser) -> Result<Expr> {
     let lo = parser.current_span();
     let symbol = parser.interner.intern(&format!("anon_{}", parser.index));

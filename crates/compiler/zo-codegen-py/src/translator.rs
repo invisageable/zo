@@ -1,5 +1,38 @@
 //! ...
 
+// todo #1: maybe the translator should return python `value`. bx this way, it
+// should decrease `write` calls from the `writer` and simplify the way that we
+// try to translate to python code.
+//
+// ## example.
+//
+// ```rs
+// fn translate(&mut self, ast: &Ast) -> Result<Value>;
+// ```
+//
+// it must be possible to extend the `AsPy` trait to the `Value` from the
+// `zo-value` crate instead. the trait will be implement in the wasm file.
+//
+// ## example.
+//
+// ```rs
+// impl AsPy for Value {
+//   fn as_py(&self) -> &str {
+//     self.kind.as_py()
+//   }
+// }
+//
+// impl AsPy for Value {
+//   fn as_py(&self) -> &str {
+//     match self {
+//       Self::Int(int) => format!("{int}").into(),
+//       Self::Fn(prototype, block) => format!("def {prototype}: {block}").into(),
+//       _ => todo!(),
+//     }
+//   }
+// }
+//```
+
 use zo_ast::ast::{
   Ast, BinOp, BinOpKind, Expr, ExprKind, Fun, Item, ItemKind, Lit, LitKind,
   Pattern, PatternKind, Stmt, StmtKind, UnOp, UnOpKind, Var,
@@ -200,6 +233,7 @@ impl<'ast> Translator<'ast> {
     }
   }
 
+  // todo #1.
   fn translate_expr_binop_add(
     &mut self,
     _binop: &BinOp,
@@ -212,6 +246,7 @@ impl<'ast> Translator<'ast> {
     self.writer.write(format!("{lhs} + {rhs}"))
   }
 
+  // todo #1.
   fn translate_expr_binop_sub(
     &mut self,
     _binop: &BinOp,
@@ -224,6 +259,7 @@ impl<'ast> Translator<'ast> {
     self.writer.write(format!("{lhs} - {rhs}"))
   }
 
+  // todo #1.
   fn translate_expr_binop_mul(
     &mut self,
     _binop: &BinOp,
@@ -236,6 +272,7 @@ impl<'ast> Translator<'ast> {
     self.writer.write(format!("{lhs} * {rhs}"))
   }
 
+  // todo #1.
   fn translate_expr_binop_div(
     &mut self,
     _binop: &BinOp,

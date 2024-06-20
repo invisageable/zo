@@ -2,18 +2,18 @@
 
 use zo_ast::ast::{BinOp, BinOpKind, UnOp, UnOpKind};
 
-pub trait AsOp {
-  fn as_op(&self) -> &str;
+pub trait AsPy {
+  fn as_py(&self) -> &str;
 }
 
-impl AsOp for BinOp {
-  fn as_op(&self) -> &str {
-    self.kind.as_op()
+impl AsPy for BinOp {
+  fn as_py(&self) -> &str {
+    self.kind.as_py()
   }
 }
 
-impl AsOp for BinOpKind {
-  fn as_op(&self) -> &str {
+impl AsPy for BinOpKind {
+  fn as_py(&self) -> &str {
     match self {
       Self::Add => "+",
       Self::Sub => "-",
@@ -37,14 +37,14 @@ impl AsOp for BinOpKind {
   }
 }
 
-impl AsOp for UnOp {
-  fn as_op(&self) -> &str {
-    self.kind.as_op()
+impl AsPy for UnOp {
+  fn as_py(&self) -> &str {
+    self.kind.as_py()
   }
 }
 
-impl AsOp for UnOpKind {
-  fn as_op(&self) -> &str {
+impl AsPy for UnOpKind {
+  fn as_py(&self) -> &str {
     match self {
       Self::Neg => "-",
       Self::Not => "not",

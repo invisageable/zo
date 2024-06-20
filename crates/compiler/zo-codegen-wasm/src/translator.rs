@@ -1,5 +1,38 @@
 //! ...
 
+// todo #1: maybe the translator should return wasm `value`. bx this way, it
+// should decrease `write` calls from the `writer` and simplify the way that we
+// try to translate to wasm code.
+//
+// ## example.
+//
+// ```rs
+// fn translate(&mut self, ast: &Ast) -> Result<Value>;
+// ```
+//
+// it must be possible to extend the `AsWat` trait to the `Value` from the
+// `zo-value` crate instead. the trait will be implement in the wasm file.
+//
+// ## example.
+//
+// ```rs
+// impl AsWat for Value {
+//   fn as_wat(&self) -> &str {
+//     self.kind.as_wat()
+//   }
+// }
+//
+// impl AsWat for Value {
+//   fn as_wat(&self) -> &str {
+//     match self {
+//       Self::Int(int) => format!("(i64.const {int})").into(),
+//       Self::Fn(prototype, block) => format!("(func {prototype} {block})").into(),
+//       _ => todo!(),
+//     }
+//   }
+// }
+//```
+
 use zo_ast::ast::{
   Ast, BinOp, BinOpKind, Expr, ExprKind, Fun, Item, ItemKind, Lit, LitKind,
   Stmt, StmtKind, UnOp, UnOpKind, Var,
@@ -107,24 +140,28 @@ impl<'ast> Translator<'ast> {
     }
   }
 
+  // todo #1.
   fn translate_expr_lit_int(&mut self, symbol: &Symbol) -> Result<()> {
     let int = self.interner.lookup_int(*symbol);
 
     self.writer.write(format!("(i64.const {int})"))
   }
 
+  // todo #1.
   fn translate_expr_lit_float(&mut self, symbol: &Symbol) -> Result<()> {
     let float = self.interner.lookup_float(*symbol);
 
     self.writer.write(format!("(f64.const {float})"))
   }
 
+  // todo #1.
   fn translate_expr_lit_ident(&mut self, symbol: &Symbol) -> Result<()> {
     let ident = self.interner.lookup_ident(*symbol);
 
     self.writer.write(format!("${ident}"))
   }
 
+  // todo #1.
   fn translate_expr_lit_bool(&mut self, boolean: &bool) -> Result<()> {
     let boolean = if *boolean { 1 } else { 0 };
 
@@ -135,6 +172,7 @@ impl<'ast> Translator<'ast> {
     todo!()
   }
 
+  // todo #1.
   fn translate_expr_lit_str(&mut self, symbol: &Symbol) -> Result<()> {
     let string = self.interner.lookup_str(*symbol);
 
@@ -171,6 +209,7 @@ impl<'ast> Translator<'ast> {
     }
   }
 
+  // todo #1.
   fn translate_expr_binop_add(
     &mut self,
     _lhs: &Expr,
@@ -182,6 +221,7 @@ impl<'ast> Translator<'ast> {
     self.writer.write(format!("(i64.add ({lhs}) ({rhs}))"))
   }
 
+  // todo #1.
   fn translate_expr_binop_sub(
     &mut self,
     _lhs: &Expr,
@@ -193,6 +233,7 @@ impl<'ast> Translator<'ast> {
     self.writer.write(format!("(i64.sub ({lhs}) ({rhs}))"))
   }
 
+  // todo #1.
   fn translate_expr_binop_mul(
     &mut self,
     _lhs: &Expr,
@@ -204,6 +245,7 @@ impl<'ast> Translator<'ast> {
     self.writer.write(format!("(i64.mul ({lhs}) ({rhs}))"))
   }
 
+  // todo #1.
   fn translate_expr_binop_div(
     &mut self,
     _lhs: &Expr,
