@@ -3,9 +3,9 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, ItemKind, Lit,
-  LitKind, Mutability, Pattern, PatternKind, Pub, Stmt, StmtKind, UnOp, Var,
-  VarKind,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Inputs,
+  Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind,
+  Prototype, Pub, Stmt, StmtKind, UnOp, Var, VarKind,
 };
 
 use zo_session::session::Session;
@@ -195,6 +195,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         TokenKind::Kw(Kw::Val) => self.parse_item_val(),
+        TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
         _ => self
           .reporter
           .raise(ReportError::Syntax(Syntax::ExpectedItem(
@@ -241,6 +242,83 @@ impl<'tokens> Parser<'tokens> {
       }),
       _ => panic!(), // TODO(ivs): should returns a reporter error.
     }
+  }
+
+  fn parse_item_fun(&mut self) -> Result<Item> {
+    let lo = self.current_span();
+
+    self.next();
+
+    let prototype = self.parse_prototype()?;
+    let body = self.parse_block()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Item {
+      kind: ItemKind::Fun(Fun {
+        prototype,
+        body,
+        span,
+      }),
+      span,
+    })
+  }
+
+  fn parse_prototype(&mut self) -> Result<Prototype> {
+    let lo = self.current_span();
+    let pattern = self.parse_pattern()?;
+    let inputs = self.parse_inputs()?;
+    let output_ty = self.parse_output_ty()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Prototype {
+      pattern,
+      inputs,
+      output_ty,
+      span,
+    })
+  }
+
+  fn parse_inputs(&mut self) -> Result<Inputs> {
+    // no allocation.
+    let mut inputs = Inputs::new();
+
+    self.expect_peek(TokenKind::Group(Group::ParenOpen))?;
+
+    while !self.ensure_peek(TokenKind::Group(Group::ParenClose)) {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      self.next();
+      inputs.add_input(self.parse_input()?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::ParenClose))?;
+
+    Ok(inputs)
+  }
+
+  fn parse_input(&mut self) -> Result<Input> {
+    let lo = self.current_span();
+    let pattern = self.parse_pattern()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Input { pattern, span })
+  }
+
+  fn parse_output_ty(&mut self) -> Result<OutputTy> {
+    self
+      .maybe_token_next
+      .map(|token| match token.kind {
+        _ => Ok(OutputTy::Default(token.span)),
+      })
+      .unwrap()
   }
 
   fn parse_stmt(&mut self) -> Result<Stmt> {
