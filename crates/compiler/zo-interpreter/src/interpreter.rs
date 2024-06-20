@@ -64,10 +64,6 @@ impl<'ast> Interpreter<'ast> {
     self.interpret_var(var)
   }
 
-  fn interpret_var(&mut self, _var: &Var) -> Result<Value> {
-    todo!()
-  }
-
   fn interpret_item_fun(&mut self, _fun: &Fun) -> Result<Value> {
     todo!()
   }
@@ -81,6 +77,10 @@ impl<'ast> Interpreter<'ast> {
   }
 
   fn interpret_stmt_var(&mut self, var: &Var) -> Result<Value> {
+    self.interpret_var(var)
+  }
+
+  fn interpret_var(&mut self, var: &Var) -> Result<Value> {
     let value = self.interpret_expr(&var.value)?;
 
     self
