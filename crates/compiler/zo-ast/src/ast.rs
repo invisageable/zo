@@ -446,6 +446,12 @@ pub struct Prototype {
   pub span: Span,
 }
 
+impl Symbolize for Prototype {
+  fn as_symbol(&self) -> &Symbol {
+    self.pattern.as_symbol()
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct Inputs(pub Vec<Input>);
 
