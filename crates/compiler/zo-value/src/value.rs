@@ -23,7 +23,7 @@ impl Value {
   };
 
   #[inline]
-  pub fn new(kind: ValueKind, span: Span) -> Self {
+  pub const fn new(kind: ValueKind, span: Span) -> Self {
     Self { kind, span }
   }
 
@@ -297,7 +297,7 @@ impl ValueKind {
 pub struct Args(pub Vec<Arg>);
 
 impl Args {
-  /// no allocations.
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))
@@ -351,7 +351,7 @@ pub struct Arg {
 pub struct Array(pub Vec<Value>);
 
 impl Array {
-  /// no allocations.
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))

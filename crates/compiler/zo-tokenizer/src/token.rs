@@ -22,7 +22,7 @@ pub struct Token {
 
 impl Token {
   #[inline]
-  pub fn new(kind: TokenKind, span: Span) -> Self {
+  pub const fn new(kind: TokenKind, span: Span) -> Self {
     Self { kind, span }
   }
 

@@ -18,7 +18,7 @@ impl Ty {
   };
 
   #[inline]
-  pub fn new(kind: TyKind, span: Span) -> Self {
+  pub const fn new(kind: TyKind, span: Span) -> Self {
     Self { kind, span }
   }
 

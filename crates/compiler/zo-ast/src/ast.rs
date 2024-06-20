@@ -58,7 +58,7 @@ pub struct Ast {
 }
 
 impl Ast {
-  /// no allocations.
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self {
@@ -391,7 +391,7 @@ pub struct Block {
 }
 
 impl Block {
-  /// no allocations.
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self {
@@ -450,7 +450,7 @@ pub struct Prototype {
 pub struct Inputs(pub Vec<Input>);
 
 impl Inputs {
-  /// no allocations.
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))
@@ -532,7 +532,7 @@ impl AsSpan for Args {
 }
 
 impl Args {
-  /// no allocations.
+  /// no allocation.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))

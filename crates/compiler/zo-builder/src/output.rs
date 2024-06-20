@@ -8,11 +8,11 @@ pub struct Output {
   pub files: Files,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Files(pub Vec<File>);
 
 impl Files {
-  // no allocations.
+  // no allocation.
   #[inline]
   pub fn new() -> Self {
     Self(Vec::with_capacity(0usize))
@@ -21,6 +21,12 @@ impl Files {
   #[inline]
   pub fn add_file(&mut self, file: File) {
     self.0.push(file);
+  }
+}
+
+impl Default for Files {
+  fn default() -> Self {
+    Self::new()
   }
 }
 

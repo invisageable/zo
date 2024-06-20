@@ -2,9 +2,24 @@
 
 use smol_str::SmolStr;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Backend {
   pub kind: BackendKind,
+}
+
+impl Backend {
+  #[inline]
+  pub const fn new() -> Self {
+    Self {
+      kind: BackendKind::Wasm,
+    }
+  }
+}
+
+impl Default for Backend {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 #[derive(Copy, Clone, Debug, Default)]
