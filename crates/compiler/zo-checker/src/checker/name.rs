@@ -59,8 +59,13 @@ impl<'ast> NameChecker<'ast> {
     }
   }
 
-  fn check_item_var(&mut self, _var: &Var) -> Result<()> {
-    todo!()
+  fn check_item_var(&mut self, var: &Var) -> Result<()> {
+    self.check_global_var(var)
+  }
+
+  fn check_global_var(&mut self, var: &Var) -> Result<()> {
+    self.check_pattern(&var.pattern, StrCase::SnakeScreaming)?;
+    self.check_expr(&var.value)
   }
 
   fn check_item_fun(&mut self, _fun: &Fun) -> Result<()> {
@@ -76,7 +81,12 @@ impl<'ast> NameChecker<'ast> {
   }
 
   fn check_stmt_var(&mut self, var: &Var) -> Result<()> {
-    self.check_pattern(&var.pattern, StrCase::Snake)
+    self.check_local_var(var)
+  }
+
+  fn check_local_var(&mut self, var: &Var) -> Result<()> {
+    self.check_pattern(&var.pattern, StrCase::Snake)?;
+    self.check_expr(&var.value)
   }
 
   fn check_stmt_item(&mut self, item: &Item) -> Result<()> {
