@@ -2,9 +2,9 @@
 
 use super::builtin::BuiltinFn;
 
-use zo_ast::ast::{Block, Prototype};
+use zo_ast::ast::{Block, Mutability, Pattern, Prototype, Pub, VarKind};
 
-use zo_core::interner::symbol::Symbol;
+use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
 
 use hashbrown::HashMap;
@@ -58,7 +58,7 @@ impl Value {
   }
 
   #[inline]
-  pub fn fun(prototype: Prototype, block: Block, span: Span) -> Self {
+  pub fn closure(prototype: Prototype, block: Block, span: Span) -> Self {
     Self::new(ValueKind::Fn(prototype, block), span)
   }
 
@@ -78,13 +78,24 @@ impl Value {
   }
 
   #[inline]
-  pub fn symbolize(&self) -> Symbol {
-    self.kind.symbolize()
+  pub fn var(var: Var, span: Span) -> Self {
+    Self::new(ValueKind::Var(var), span)
+  }
+
+  #[inline]
+  pub fn fun(prototype: Prototype, block: Block, span: Span) -> Self {
+    Self::new(ValueKind::Fn(prototype, block), span)
   }
 
   #[inline]
   pub fn as_bool(&self) -> bool {
     self.kind.as_bool()
+  }
+}
+
+impl Symbolize for Value {
+  fn as_symbol(&self) -> &Symbol {
+    self.kind.as_symbol()
   }
 }
 
@@ -275,20 +286,28 @@ pub enum ValueKind {
   Builtin(BuiltinFn),
   Array(Array),
   Record(HashMap<RecordKey, Value>),
+  Var(Var),
+  Fun(Prototype, Block),
 }
 
 impl ValueKind {
-  #[inline]
-  pub fn symbolize(&self) -> Symbol {
-    todo!()
-  }
-
   #[inline]
   pub fn as_bool(&self) -> bool {
     match self {
       Self::Bool(boolean) => *boolean,
       Self::Unit => false,
       _ => false,
+    }
+  }
+}
+
+impl Symbolize for ValueKind {
+  fn as_symbol(&self) -> &Symbol {
+    match self {
+      Self::Fn(prototype, _) => prototype.as_symbol(),
+      Self::Var(var) => var.pattern.as_symbol(),
+      Self::Fun(prototype, _) => prototype.as_symbol(),
+      _ => todo!(),
     }
   }
 }
@@ -382,9 +401,30 @@ impl std::ops::Deref for Array {
   }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RecordKey {
   Int(i64),
-  Str(String),
+  Str(SmolStr),
   Bool(bool),
+}
+
+impl From<&Value> for RecordKey {
+  fn from(value: &Value) -> RecordKey {
+    match &value.kind {
+      ValueKind::Int(value) => RecordKey::Int(*value),
+      ValueKind::Str(value) => RecordKey::Str(value.to_owned()),
+      ValueKind::Bool(value) => RecordKey::Bool(*value),
+      _ => unreachable!(),
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Var {
+  pub pubness: Pub,
+  pub mutability: Mutability,
+  pub kind: VarKind,
+  pub pattern: Pattern,
+  pub value: Box<Value>,
+  pub span: Span,
 }

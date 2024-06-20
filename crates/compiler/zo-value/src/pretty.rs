@@ -1,6 +1,6 @@
 //! ...
 
-use super::value::{Value, ValueKind};
+use super::value::{Value, ValueKind, Var};
 
 use zo_core::fmt::sep_comma;
 
@@ -32,6 +32,14 @@ impl std::fmt::Display for ValueKind {
       Self::Builtin(..) => write!(f, "NIY"),
       Self::Array(array) => write!(f, "[{}]", sep_comma(array)),
       Self::Record(record) => write!(f, "{{ {:?} }}", record),
+      Self::Var(var) => write!(f, "{var}"),
+      Self::Fun(prototype, block) => write!(f, "fun {prototype} {block}"),
     }
+  }
+}
+
+impl std::fmt::Display for Var {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{self:?}")
   }
 }
