@@ -19,7 +19,7 @@ use zo_core::interner::Interner;
 use zo_core::reporter::report::syntax::Syntax;
 use zo_core::reporter::report::ReportError;
 use zo_core::reporter::Reporter;
-use zo_core::span::Span;
+use zo_core::span::{AsSpan, Span};
 use zo_core::Result;
 
 type ParsePrefixFn = fn(&mut Parser) -> Result<Expr>;
@@ -688,8 +688,67 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
-  fn parse_expr_fn(_parser: &mut Parser) -> Result<Expr> {
-    todo!()
+  // needs to be improve and verify each egde cases, what's happen if we passe a
+  // statement instead of an expression when the needed is `->` and so on.
+  fn parse_expr_fn(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+    let symbol = parser.interner.intern(&format!("anon_{}", parser.index));
+    let name = parser.interner.lookup_ident(symbol);
+    let span = Span::of(lo.hi, lo.hi + name.len());
+
+    let pattern = Pattern {
+      kind: PatternKind::Ident(Box::new(Expr {
+        kind: ExprKind::Lit(Lit {
+          kind: LitKind::Ident(symbol),
+          span,
+        }),
+        span,
+      })),
+      span,
+    };
+
+    let lop = pattern.span;
+    let inputs = parser.parse_inputs()?;
+    let output_ty = parser.parse_output_ty()?;
+    let hip = output_ty.as_span();
+
+    let prototype = Prototype {
+      pattern,
+      inputs,
+      output_ty,
+      span: Span::merge(lop, hip),
+    };
+
+    let block = parser
+      .maybe_token_next
+      .map(|token| match token.kind {
+        TokenKind::Punctuation(Punctuation::MinusGreaterThan) => {
+          parser.next();
+          parser.next();
+
+          let expr = parser.parse_expr(Precedence::Low)?;
+          let span = expr.span;
+
+          Ok(Block {
+            stmts: vec![Stmt {
+              kind: StmtKind::Expr(Box::new(expr)),
+              span,
+            }],
+            span,
+          })
+        }
+        TokenKind::Group(Group::BraceOpen) => parser.parse_block(),
+        _ => panic!(), // should return reporter error.
+      })
+      .unwrap()?;
+
+    let hi = parser.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Expr {
+      kind: ExprKind::Fn(prototype, block),
+      span,
+    })
   }
 
   fn parse_expr_if_else(parser: &mut Parser) -> Result<Expr> {

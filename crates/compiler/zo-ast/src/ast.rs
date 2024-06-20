@@ -506,6 +506,15 @@ pub enum OutputTy {
   Ty(Ty),
 }
 
+impl AsSpan for OutputTy {
+  fn as_span(&self) -> Span {
+    match self {
+      Self::Default(span) => *span,
+      _ => unreachable!(),
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct Args(pub Vec<Arg>);
 
