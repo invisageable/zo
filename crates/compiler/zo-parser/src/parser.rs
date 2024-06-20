@@ -3,8 +3,9 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, Lit, LitKind,
-  Mutability, Pattern, PatternKind, Pub, Stmt, StmtKind, UnOp, Var, VarKind,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, ItemKind, Lit,
+  LitKind, Mutability, Pattern, PatternKind, Pub, Stmt, StmtKind, UnOp, Var,
+  VarKind,
 };
 
 use zo_session::session::Session;
@@ -193,6 +194,7 @@ impl<'tokens> Parser<'tokens> {
     self
       .maybe_token_current
       .map(|token| match token.kind {
+        TokenKind::Kw(Kw::Val) => self.parse_item_val(),
         _ => self
           .reporter
           .raise(ReportError::Syntax(Syntax::ExpectedItem(
@@ -201,6 +203,44 @@ impl<'tokens> Parser<'tokens> {
           ))),
       })
       .unwrap()
+  }
+
+  fn parse_item_val(&mut self) -> Result<Item> {
+    self.parse_global_var()
+  }
+
+  fn parse_global_var(&mut self) -> Result<Item> {
+    let lo = self.current_span();
+    let kind = VarKind::from(self.maybe_token_current);
+
+    self.next();
+
+    let pattern = self.parse_pattern()?;
+
+    self.expect_peek(TokenKind::Op(Op::Equal))?;
+    self.next();
+
+    let value = self.parse_expr(Precedence::Low)?;
+
+    self.next();
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    match kind {
+      VarKind::Val => Ok(Item {
+        kind: ItemKind::Var(Var {
+          kind,
+          mutability: Mutability::No,
+          pubness: Pub::No,
+          pattern,
+          value: Box::new(value),
+          span,
+        }),
+        span,
+      }),
+      _ => panic!(), // TODO(ivs): should returns a reporter error.
+    }
   }
 
   fn parse_stmt(&mut self) -> Result<Stmt> {
@@ -221,6 +261,10 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn parse_stmt_var(&mut self) -> Result<Stmt> {
+    self.parse_local_var()
+  }
+
+  fn parse_local_var(&mut self) -> Result<Stmt> {
     let lo = self.current_span();
     let kind = VarKind::from(self.maybe_token_current);
 
