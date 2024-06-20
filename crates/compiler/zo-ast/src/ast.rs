@@ -90,6 +90,14 @@ impl AsSpan for Ast {
   }
 }
 
+impl std::ops::Deref for Ast {
+  type Target = Vec<Stmt>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.stmts
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct Item {
   pub kind: ItemKind,

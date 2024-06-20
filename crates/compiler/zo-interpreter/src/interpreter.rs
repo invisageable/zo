@@ -45,7 +45,7 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_block(&mut self, block: &Block) -> Result<Value> {
     let mut value = Value::UNIT;
 
-    for stmt in &block.stmts {
+    for stmt in block.iter() {
       value = self.interpret_stmt(stmt)?;
 
       if let ValueKind::Return(value) = value.kind {
@@ -61,7 +61,7 @@ impl<'ast> Interpreter<'ast> {
 
     self.scope_map.scope_entry();
 
-    for stmt in &ast.stmts {
+    for stmt in ast.iter() {
       value = match self.interpret_stmt(stmt) {
         Ok(value) => value,
         Err(report_error) => self.reporter.raise(report_error),
@@ -955,7 +955,7 @@ impl<'ast> Interpreter<'ast> {
       return Ok(args_new);
     }
 
-    for arg in &args.0 {
+    for arg in args.iter() {
       args_new.add_arg(self.interpret_arg(arg)?);
     }
 

@@ -1,5 +1,9 @@
 //! ...
 
+// todo #1 — use a better implementation instead of that ugly
+// implementation of channel. it does the job done for now but in the
+// future maybe, a better approach should be written.
+
 use crate::cmd::Handle;
 
 use zo_compiler::compiler::Compiler;
@@ -57,9 +61,7 @@ impl Build {
 
     session.open();
 
-    // todo (ivs) — use a better implementation instead of that ugly
-    // implementation of channel. it does the job done for now but in the
-    // future maybe, a better approach should be written.
+    // todo #1.
     let (rx_reading, tx_reading) = channel::bounded(channel::CAPACITY);
     let (rx_tokenizing, tx_tokenizing) = channel::bounded(channel::CAPACITY);
     let (rx_parsing, tx_parsing) = channel::bounded(channel::CAPACITY);

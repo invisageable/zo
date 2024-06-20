@@ -68,12 +68,11 @@ impl<'ast> Translator<'ast> {
   pub fn translate(&mut self, ast: &Ast) -> Result<()> {
     self.writer.writeln_bytes(b"(module")?;
 
-    for stmt in &ast.stmts {
+    for stmt in ast.iter() {
       self.translate_stmt(stmt)?;
     }
 
     self.writer.writeln_bytes(b")")?;
-
     self.reporter.abort_if_has_errors();
 
     Ok(())
@@ -180,7 +179,7 @@ impl<'ast> Translator<'ast> {
   }
 
   fn translate_expr_unop(&mut self, unop: &UnOp, rhs: &Expr) -> Result<()> {
-    match &unop.kind {
+    match unop.kind {
       UnOpKind::Neg => self.translate_expr_unop_neg(rhs),
       UnOpKind::Not => self.translate_expr_unop_not(rhs),
     }
@@ -215,8 +214,8 @@ impl<'ast> Translator<'ast> {
     _lhs: &Expr,
     _rhs: &Expr,
   ) -> Result<()> {
-    let lhs = 1;
-    let rhs = 2;
+    let lhs = 1; // tmp.
+    let rhs = 2; // tmp.
 
     self.writer.write(format!("(i64.add ({lhs}) ({rhs}))"))
   }
@@ -227,8 +226,8 @@ impl<'ast> Translator<'ast> {
     _lhs: &Expr,
     _rhs: &Expr,
   ) -> Result<()> {
-    let lhs = 1;
-    let rhs = 2;
+    let lhs = 1; // tmp.
+    let rhs = 2; // tmp.
 
     self.writer.write(format!("(i64.sub ({lhs}) ({rhs}))"))
   }
@@ -239,8 +238,8 @@ impl<'ast> Translator<'ast> {
     _lhs: &Expr,
     _rhs: &Expr,
   ) -> Result<()> {
-    let lhs = 1;
-    let rhs = 2;
+    let lhs = 1; // tmp.
+    let rhs = 2; // tmp.
 
     self.writer.write(format!("(i64.mul ({lhs}) ({rhs}))"))
   }

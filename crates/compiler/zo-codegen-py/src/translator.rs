@@ -84,7 +84,7 @@ impl<'ast> Translator<'ast> {
   pub fn translate(&mut self, ast: &Ast) -> Result<()> {
     self.writer.write_bytes(b"def main():")?;
 
-    for stmt in &ast.stmts {
+    for stmt in ast.iter() {
       self.writer.new_line()?;
       self.writer.indent();
       self.translate_stmt(stmt)?;

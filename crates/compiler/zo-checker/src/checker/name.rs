@@ -28,7 +28,7 @@ impl<'ast> NameChecker<'ast> {
   }
 
   fn check(&mut self, ast: &Ast) -> Result<()> {
-    for stmt in &ast.stmts {
+    for stmt in ast.iter() {
       if let Err(error) = self.check_stmt(stmt) {
         self.reporter.add_report(error);
       }
@@ -195,7 +195,7 @@ impl<'ast> NameChecker<'ast> {
   }
 
   fn check_inputs(&mut self, inputs: &Inputs) -> Result<()> {
-    for input in &inputs.0 {
+    for input in inputs.iter() {
       self.check_pattern(&input.pattern, StrCase::Snake)?;
     }
 
