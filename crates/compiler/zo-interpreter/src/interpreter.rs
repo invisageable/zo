@@ -3,8 +3,8 @@
 use super::scope::Scope;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind,
-  Prototype, Stmt, StmtKind, UnOp, UnOpKind, Var,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Item, ItemKind,
+  Lit, LitKind, Prototype, Stmt, StmtKind, UnOp, UnOpKind, Var,
 };
 
 use zo_core::reporter::report::eval::Eval;
@@ -53,9 +53,29 @@ impl<'ast> Interpreter<'ast> {
     Ok(value)
   }
 
+  fn interpret_item(&mut self, item: &Item) -> Result<Value> {
+    match &item.kind {
+      ItemKind::Var(var) => self.interpret_item_var(var),
+      ItemKind::Fun(fun) => self.interpret_item_fun(fun),
+    }
+  }
+
+  fn interpret_item_var(&mut self, var: &Var) -> Result<Value> {
+    self.interpret_var(var)
+  }
+
+  fn interpret_var(&mut self, _var: &Var) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_fun(&mut self, _fun: &Fun) -> Result<Value> {
+    todo!()
+  }
+
   fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
     match &stmt.kind {
       StmtKind::Var(var) => self.interpret_stmt_var(var),
+      StmtKind::Item(item) => self.interpret_stmt_item(item),
       StmtKind::Expr(expr) => self.interpret_stmt_expr(expr),
     }
   }
@@ -70,6 +90,10 @@ impl<'ast> Interpreter<'ast> {
                  // unwrap method.
 
     Ok(value)
+  }
+
+  fn interpret_stmt_item(&mut self, item: &Item) -> Result<Value> {
+    self.interpret_item(item)
   }
 
   fn interpret_stmt_expr(&mut self, expr: &Expr) -> Result<Value> {
