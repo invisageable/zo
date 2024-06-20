@@ -3,9 +3,13 @@ struct Sep<'a, T: 'a>(pub &'a [T], pub &'a str);
 
 impl<'a, T: std::fmt::Display> std::fmt::Display for Sep<'a, T> {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    self
-      .iter()
-      .try_fold((), |_, node| write!(f, "{node}{}", self.1))
+    self.iter().enumerate().try_fold((), |_, (idx, node)| {
+      if idx < self.0.len() - 1 {
+        return write!(f, "{node}{}", self.1);
+      }
+
+      write!(f, "{node}")
+    })
   }
 }
 
