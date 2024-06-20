@@ -3,7 +3,7 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Lit, LitKind,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, Lit, LitKind,
   Mutability, Pattern, PatternKind, Pub, Stmt, StmtKind, UnOp, Var, VarKind,
 };
 
@@ -189,11 +189,26 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
+  fn parse_item(&mut self) -> Result<Item> {
+    self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        _ => self
+          .reporter
+          .raise(ReportError::Syntax(Syntax::ExpectedItem(
+            token.span,
+            token.kind.to_string(),
+          ))),
+      })
+      .unwrap()
+  }
+
   fn parse_stmt(&mut self) -> Result<Stmt> {
     let stmt = self
       .maybe_token_current
       .map(|token| match token.kind {
         kind if kind.is_var_local() => self.parse_stmt_var(),
+        kind if kind.is_item() => self.parse_stmt_item(),
         _ => self.parse_stmt_expr(),
       })
       .unwrap()?;
@@ -248,6 +263,16 @@ impl<'tokens> Parser<'tokens> {
       }),
       _ => panic!("expected local var."), // returns reporter error.
     }
+  }
+
+  fn parse_stmt_item(&mut self) -> Result<Stmt> {
+    let item = self.parse_item()?;
+    let span = item.span;
+
+    Ok(Stmt {
+      kind: StmtKind::Item(Box::new(item)),
+      span,
+    })
   }
 
   fn parse_stmt_expr(&mut self) -> Result<Stmt> {
