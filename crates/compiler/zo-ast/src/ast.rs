@@ -123,7 +123,7 @@ pub enum StmtKind {
   /// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`
   Var(Var),
   /// item.
-  Item(Item),
+  Item(Box<Item>),
   /// expression.
   Expr(Box<Expr>),
 }
