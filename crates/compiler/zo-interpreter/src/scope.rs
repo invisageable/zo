@@ -25,7 +25,7 @@ impl Scope {
   pub fn add_var(&mut self, name: Symbol, value: Value) -> Result<(), String> {
     match self.vars.entry(name) {
       Entry::Occupied(_) => {
-        Err(format!("the variable `{}` already exist.", name))
+        Err(format!("the variable `{name}` already exist."))
       }
       Entry::Vacant(vars) => {
         vars.insert(value);
@@ -34,13 +34,13 @@ impl Scope {
     }
   }
 
-  pub fn add_fun(&mut self, fun: Value) -> Result<(), String> {
-    match self.funs.entry(fun.symbolize()) {
+  pub fn add_fun(&mut self, name: Symbol, value: Value) -> Result<(), String> {
+    match self.funs.entry(name) {
       Entry::Occupied(_) => {
-        Err(format!("the function `{}` already exist.", fun.symbolize()))
+        Err(format!("the function `{name}` already exist."))
       }
       Entry::Vacant(funs) => {
-        funs.insert(fun);
+        funs.insert(value);
         Ok(())
       }
     }
@@ -64,5 +64,79 @@ impl Scope {
   #[inline]
   pub fn fun(&self, name: &Symbol) -> Option<&Value> {
     self.funs.get(name)
+  }
+}
+
+#[derive(Default, Debug)]
+pub struct ScopeMap {
+  scopes: std::collections::LinkedList<Scope>,
+}
+
+impl ScopeMap {
+  #[inline]
+  pub const fn new() -> Self {
+    Self {
+      scopes: std::collections::LinkedList::new(),
+    }
+  }
+
+  #[inline]
+  pub fn scope_entry(&mut self) {
+    self.scopes.push_front(Scope::new());
+  }
+
+  #[inline]
+  pub fn scope_exit(&mut self) {
+    self.scopes.pop_front();
+  }
+
+  pub fn add_var(&mut self, name: Symbol, value: Value) -> Result<(), String> {
+    match self.scopes.front_mut() {
+      Some(scope) => scope.add_var(name, value),
+      None => Err(format!("The variable `{name}` already exist.")),
+    }
+  }
+
+  pub fn add_fun(&mut self, name: Symbol, value: Value) -> Result<(), String> {
+    match self.scopes.front_mut() {
+      Some(scope) => scope.add_fun(name, value),
+      None => Err(format!("The function `{name}` already exist.")),
+    }
+  }
+
+  pub fn set_var(&mut self, name: Symbol, value: Value) -> Result<(), String> {
+    match self.scopes.front_mut() {
+      Some(scope) => Ok(scope.set_var(name, value)),
+      None => Err(format!("set_var error not implemented yet")),
+    }
+  }
+
+  pub fn set_fun(&mut self, name: Symbol, value: Value) -> Result<(), String> {
+    match self.scopes.front_mut() {
+      Some(scope) => Ok(scope.set_fun(name, value)),
+      None => Err(format!("set_fun error not implemented yet")),
+    }
+  }
+
+  pub fn var(&self, name: &Symbol) -> Option<&Value> {
+    for scope in self.scopes.iter() {
+      match scope.var(name) {
+        Some(var) => return Some(var),
+        None => continue,
+      };
+    }
+
+    None
+  }
+
+  pub fn fun(&self, name: &Symbol) -> Option<&Value> {
+    for scope in self.scopes.iter() {
+      match scope.fun(name) {
+        Some(fun) => return Some(fun),
+        None => continue,
+      };
+    }
+
+    None
   }
 }
