@@ -1,8 +1,8 @@
 //! ...
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, Stmt, StmtKind, UnOp,
-  UnOpKind, Var,
+  Ast, BinOp, BinOpKind, Expr, ExprKind, Fun, Item, ItemKind, Lit, LitKind,
+  Stmt, StmtKind, UnOp, UnOpKind, Var,
 };
 
 use zo_core::interner::symbol::Symbol;
@@ -46,15 +46,39 @@ impl<'ast> Translator<'ast> {
     Ok(())
   }
 
+  fn translate_item(&mut self, item: &Item) -> Result<()> {
+    match &item.kind {
+      ItemKind::Var(var) => self.translate_item_var(var),
+      ItemKind::Fun(fun) => self.translate_item_fun(fun),
+    }
+  }
+
+  fn translate_item_var(&mut self, var: &Var) -> Result<()> {
+    self.translate_global_var(var)
+  }
+
+  fn translate_global_var(&mut self, _var: &Var) -> Result<()> {
+    todo!()
+  }
+
+  fn translate_item_fun(&mut self, _fun: &Fun) -> Result<()> {
+    todo!()
+  }
+
   fn translate_stmt(&mut self, stmt: &Stmt) -> Result<()> {
     match &stmt.kind {
       StmtKind::Var(var) => self.translate_stmt_var(var),
+      StmtKind::Item(item) => self.translate_stmt_item(item),
       StmtKind::Expr(expr) => self.translate_stmt_expr(expr),
     }
   }
 
   fn translate_stmt_var(&mut self, _var: &Var) -> Result<()> {
     todo!()
+  }
+
+  fn translate_stmt_item(&mut self, item: &Item) -> Result<()> {
+    self.translate_item(item)
   }
 
   fn translate_stmt_expr(&mut self, expr: &Expr) -> Result<()> {
