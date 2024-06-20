@@ -18,7 +18,7 @@ impl std::fmt::Display for ValueKind {
       Self::Float(float) => write!(f, "{float}"),
       Self::Bool(boolean) => write!(f, "{boolean}"),
       Self::Char(ch) => write!(f, "'{ch}'"),
-      Self::Str(string) => write!(f, "\"{string}\""),
+      Self::Str(string) => write!(f, "{string}"),
       Self::Fn(prototype, block) => {
         write!(f, "fn {prototype} ")?;
 

@@ -7,6 +7,7 @@ use crate::span::Span;
 #[derive(Debug)]
 pub enum Eval {
   HostMachine(String),
+  IdentNotFound(Span, String),
   NotConfigurable(String),
   MismatchArgument(Span, usize, usize),
   UnknownArrayAccess(Span, String, String),
@@ -35,37 +36,40 @@ impl Eval {
 impl Error for Eval {
   fn report(&self) -> Report {
     match self {
-      Self::HostMachine(error) => todo!("{error}"),
-      Self::NotConfigurable(error) => todo!("{error}"),
+      Self::HostMachine(error) => todo!("HostMachine: {error}"),
+      Self::IdentNotFound(span, string) => {
+        todo!("IdentNotFound: {span}-{string}")
+      }
+      Self::NotConfigurable(error) => todo!("NotConfigurable: {error}"),
       Self::MismatchArgument(span, expected, actual) => {
-        todo!("{span}-{expected}-{actual}")
+        todo!("MismatchArgument: {span}-{expected}-{actual}")
       }
       Self::UnknownArrayAccess(span, indexed, index) => {
-        todo!("{span}-{indexed}-{index}")
+        todo!("UnknownArrayAccess: {span}-{indexed}-{index}")
       }
       Self::UnknownArrayAccessOperator(span, index) => {
-        todo!("{span}-{index}")
+        todo!("UnknownArrayAccessOperator: {span}-{index}")
       }
       Self::UnknownRecordAccess(span, indexed, index) => {
-        todo!("{span}-{indexed}-{index}")
+        todo!("UnknownRecordAccess: {span}-{indexed}-{index}")
       }
       Self::UnknownRecordAccessOperator(span, index) => {
-        todo!("{span}-{index}")
+        todo!("UnknownRecordAccessOperator: {span}-{index}")
       }
       Self::UnknownBinOp(span, binop) => {
-        todo!("{span}-{binop}")
+        todo!("UnknownBinOp: {span}-{binop}")
       }
       Self::UnknownBinOpOperand(span, lhs, rhs) => {
-        todo!("{span}-{lhs}-{rhs}")
+        todo!("UnknownBinOpOperand: {span}-{lhs}-{rhs}")
       }
       Self::UnknownCallee(span, callee) => {
-        todo!("{span}-{callee}")
+        todo!("UnknownCallee: {span}-{callee}")
       }
       Self::UnknownUnOp(span, unop) => {
-        todo!("{span}-{unop}")
+        todo!("UnknownUnOp: {span}-{unop}")
       }
       Self::UnknownUnOpOperand(span, unop) => {
-        todo!("{span}-{unop}")
+        todo!("UnknownUnOpOperand: {span}-{unop}")
       }
     }
   }

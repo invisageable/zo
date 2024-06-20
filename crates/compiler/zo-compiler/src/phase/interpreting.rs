@@ -25,7 +25,7 @@ impl Process for Interpreting {
         Interpreter::new(&mut session.interner, &session.reporter);
 
       interpreter::interpret(&mut interpreter, &ast).and_then(|value| {
-        println!("{value}");
+        // println!("{value}");
         self.rx.send(value)
       })
     })

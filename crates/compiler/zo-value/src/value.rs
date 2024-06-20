@@ -8,7 +8,7 @@ use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
 
 use hashbrown::HashMap;
-use smol_str::SmolStr;
+use smol_str::{SmolStr, ToSmolStr};
 
 #[derive(Clone, Debug)]
 pub struct Value {
@@ -111,6 +111,14 @@ impl std::ops::Add for &Value {
       }
       (ValueKind::Float(lhs), ValueKind::Float(rhs)) => {
         Value::float(lhs + rhs, Span::merge(self.span, span))
+      }
+      (ValueKind::Str(lhs), ValueKind::Str(rhs)) => {
+        let mut string = String::with_capacity(lhs.len() + rhs.len());
+
+        string.push_str(lhs);
+        string.push_str(rhs);
+
+        Value::str(string.to_smolstr(), Span::merge(self.span, span))
       }
       _ => unreachable!(),
     }

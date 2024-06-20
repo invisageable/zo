@@ -506,6 +506,12 @@ pub struct Input {
   pub span: Span,
 }
 
+impl Symbolize for Input {
+  fn as_symbol(&self) -> &Symbol {
+    self.pattern.as_symbol()
+  }
+}
+
 #[derive(Clone, Debug)]
 pub enum OutputTy {
   Default(Span),

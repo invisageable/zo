@@ -210,7 +210,7 @@ impl<'ast> NameChecker<'ast> {
   }
 
   fn check_expr_call(&mut self, _callee: &Expr, _args: &Args) -> Result<()> {
-    todo!()
+    Ok(()) // tmp.
   }
 
   fn check_expr_array(&mut self, _elmts: &[Expr]) -> Result<()> {
@@ -283,7 +283,7 @@ impl<'ast> NameChecker<'ast> {
     &mut self,
     _maybe_expr: &Option<Box<Expr>>,
   ) -> Result<()> {
-    todo!()
+    Ok(()) // tmp.
   }
 
   fn check_expr_break(

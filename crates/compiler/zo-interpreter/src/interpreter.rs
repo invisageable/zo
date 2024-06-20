@@ -1,6 +1,9 @@
 //! ...
 
-use super::scope::Scope;
+// todo #1: should returns reporter error and call `?` operator instead of
+// unwrap method.
+
+use super::scope::ScopeMap;
 
 use zo_ast::ast::{
   Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Item, ItemKind,
@@ -11,6 +14,7 @@ use zo_core::reporter::report::eval::Eval;
 use zo_core::reporter::report::ReportError;
 use zo_value::builtin::BuiltinFn;
 use zo_value::value;
+use zo_value::value::RecordKey;
 use zo_value::value::{Array, Value, ValueKind};
 
 use zo_core::interner::symbol::{Symbol, Symbolize};
@@ -19,12 +23,13 @@ use zo_core::reporter::Reporter;
 use zo_core::span::{AsSpan, Span};
 use zo_core::Result;
 
+use hashbrown::HashMap;
 use smol_str::{SmolStr, ToSmolStr};
 
 pub struct Interpreter<'ast> {
   interner: &'ast mut Interner,
   reporter: &'ast Reporter,
-  scope: Scope,
+  scope_map: ScopeMap,
 }
 
 impl<'ast> Interpreter<'ast> {
@@ -33,14 +38,14 @@ impl<'ast> Interpreter<'ast> {
     Self {
       interner,
       reporter,
-      scope: Scope::new(),
+      scope_map: ScopeMap::new(),
     }
   }
 
-  pub fn interpret(&mut self, ast: &Ast) -> Result<Value> {
+  fn interpret_block(&mut self, block: &Block) -> Result<Value> {
     let mut value = Value::UNIT;
 
-    for stmt in &ast.stmts {
+    for stmt in &block.stmts {
       value = self.interpret_stmt(stmt)?;
 
       if let ValueKind::Return(value) = value.kind {
@@ -48,7 +53,26 @@ impl<'ast> Interpreter<'ast> {
       }
     }
 
-    self.reporter.abort_if_has_errors();
+    Ok(value)
+  }
+
+  pub fn interpret(&mut self, ast: &Ast) -> Result<Value> {
+    let mut value = Value::UNIT;
+
+    self.scope_map.scope_entry();
+
+    for stmt in &ast.stmts {
+      value = match self.interpret_stmt(stmt) {
+        Ok(value) => value,
+        Err(report_error) => self.reporter.raise(report_error),
+      };
+
+      if let ValueKind::Return(value) = value.kind {
+        return Ok(*value);
+      }
+    }
+
+    self.scope_map.scope_exit();
 
     Ok(value)
   }
@@ -64,8 +88,16 @@ impl<'ast> Interpreter<'ast> {
     self.interpret_var(var)
   }
 
-  fn interpret_item_fun(&mut self, _fun: &Fun) -> Result<Value> {
-    todo!()
+  fn interpret_item_fun(&mut self, fun: &Fun) -> Result<Value> {
+    let value =
+      Value::fun(fun.prototype.to_owned(), fun.body.to_owned(), fun.span);
+
+    self
+      .scope_map
+      .add_fun(*fun.prototype.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
+
+    Ok(value)
   }
 
   fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
@@ -84,10 +116,9 @@ impl<'ast> Interpreter<'ast> {
     let value = self.interpret_expr(&var.value)?;
 
     self
-      .scope
+      .scope_map
       .add_var(*var.pattern.as_symbol(), value.to_owned())
-      .unwrap(); // TODO(ivs): should returns reporter error and call `?` operator instead of
-                 // unwrap method.
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -110,7 +141,7 @@ impl<'ast> Interpreter<'ast> {
         self.interpret_expr_binop(binop, lhs, rhs, expr.span)
       }
       ExprKind::Assign(assignee, value) => {
-        self.interpret_expr_assign(assignee, value, expr.span)
+        self.interpret_expr_assign(assignee, value)
       }
       ExprKind::AssignOp(binop, assignee, value) => {
         self.interpret_expr_assign_op(binop, assignee, value, expr.span)
@@ -128,9 +159,13 @@ impl<'ast> Interpreter<'ast> {
       ExprKind::RecordAccess(record, prop) => {
         self.interpret_expr_record_access(record, prop, expr.span)
       }
-      ExprKind::IfElse(condition, consequence, maybe_alternative) => {
-        self.interpret_expr_if_else(condition, consequence, maybe_alternative)
-      }
+      ExprKind::IfElse(condition, consequence, maybe_alternative) => self
+        .interpret_expr_if_else(
+          condition,
+          consequence,
+          maybe_alternative,
+          expr.span,
+        ),
       ExprKind::When(condition, consequence, alternative) => {
         self.interpret_expr_when(condition, consequence, alternative)
       }
@@ -154,7 +189,7 @@ impl<'ast> Interpreter<'ast> {
       LitKind::Int(symbol) => self.interpret_expr_lit_int(symbol, lit.span),
       LitKind::Float(symbol) => self.interpret_expr_lit_float(symbol, lit.span),
       LitKind::Ident(symbol) => self.interpret_expr_lit_ident(symbol, lit.span),
-      LitKind::Bool(symbol) => self.interpret_expr_lit_bool(symbol, lit.span),
+      LitKind::Bool(boolean) => self.interpret_expr_lit_bool(boolean, lit.span),
       LitKind::Char(symbol) => self.interpret_expr_lit_char(symbol, lit.span),
       LitKind::Str(symbol) => self.interpret_expr_lit_str(symbol, lit.span),
     }
@@ -183,17 +218,20 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_expr_lit_ident(
     &mut self,
     symbol: &Symbol,
-    _span: Span,
+    span: Span,
   ) -> Result<Value> {
-    if let Some(var) = self.scope.var(symbol) {
+    if let Some(var) = self.scope_map.var(symbol) {
       return Ok(var.clone());
-    } else if let Some(fun) = self.scope.fun(symbol) {
+    } else if let Some(fun) = self.scope_map.fun(symbol) {
       return Ok(fun.clone());
     }
 
-    let _ident = self.interner.lookup_ident(symbol);
+    let ident = self.interner.lookup_ident(symbol);
 
-    panic!() // returns reporter error.
+    Err(ReportError::Eval(Eval::IdentNotFound(
+      span,
+      ident.to_string(),
+    )))
   }
 
   fn interpret_expr_lit_bool(
@@ -244,8 +282,8 @@ impl<'ast> Interpreter<'ast> {
     span: Span,
   ) -> Result<Value> {
     match rhs.kind {
-      ValueKind::Int(int) => Ok(Value::int(int, span)),
-      ValueKind::Float(float) => Ok(Value::float(float, span)),
+      ValueKind::Int(int) => Ok(Value::int(-int, span)),
+      ValueKind::Float(float) => Ok(Value::float(-float, span)),
       _ => Err(ReportError::Eval(Eval::UnknownUnOp(span, rhs.to_string()))),
     }
   }
@@ -296,7 +334,7 @@ impl<'ast> Interpreter<'ast> {
     rhs: &i64,
     span: Span,
   ) -> Result<Value> {
-    match &binop.kind {
+    match binop.kind {
       BinOpKind::Add => self.interpret_expr_binop_int_add(lhs, rhs, span),
       BinOpKind::Sub => self.interpret_expr_binop_int_sub(lhs, rhs, span),
       BinOpKind::Mul => self.interpret_expr_binop_int_mul(lhs, rhs, span),
@@ -441,7 +479,7 @@ impl<'ast> Interpreter<'ast> {
     rhs: &f64,
     span: Span,
   ) -> Result<Value> {
-    match &binop.kind {
+    match binop.kind {
       BinOpKind::Add => self.interpret_expr_binop_float_add(lhs, rhs, span),
       BinOpKind::Sub => self.interpret_expr_binop_float_sub(lhs, rhs, span),
       BinOpKind::Mul => self.interpret_expr_binop_float_mul(lhs, rhs, span),
@@ -566,7 +604,7 @@ impl<'ast> Interpreter<'ast> {
     rhs: &bool,
     span: Span,
   ) -> Result<Value> {
-    match &binop.kind {
+    match binop.kind {
       BinOpKind::And => self.interpret_expr_binop_bool_and(lhs, rhs, span),
       BinOpKind::Or => self.interpret_expr_binop_bool_or(lhs, rhs, span),
       BinOpKind::BitAnd => {
@@ -635,8 +673,8 @@ impl<'ast> Interpreter<'ast> {
     rhs: &SmolStr,
     span: Span,
   ) -> Result<Value> {
-    match &binop.kind {
-      BinOpKind::And => self.interpret_expr_binop_str_and(lhs, rhs, span),
+    match binop.kind {
+      BinOpKind::Add => self.interpret_expr_binop_str_and(lhs, rhs, span),
       _ => Err(ReportError::Eval(Eval::UnknownBinOp(
         binop.span,
         binop.to_string(),
@@ -650,7 +688,10 @@ impl<'ast> Interpreter<'ast> {
     rhs: &SmolStr,
     span: Span,
   ) -> Result<Value> {
-    let string = format!("{lhs}{rhs}");
+    let mut string = String::with_capacity(lhs.len() + rhs.len());
+
+    string.push_str(lhs);
+    string.push_str(rhs);
 
     Ok(Value::str(string.to_smolstr(), span))
   }
@@ -659,14 +700,13 @@ impl<'ast> Interpreter<'ast> {
     &mut self,
     assignee: &Expr,
     value: &Expr,
-    _span: Span,
   ) -> Result<Value> {
     let value = self.interpret_expr(value)?;
 
     self
-      .scope
-      .add_var(*assignee.as_symbol(), value.to_owned())
-      .unwrap();
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -678,14 +718,14 @@ impl<'ast> Interpreter<'ast> {
     value: &Expr,
     _span: Span,
   ) -> Result<Value> {
-    let lhs = match self.scope.var(assignee.as_symbol()) {
+    let lhs = match self.scope_map.var(assignee.as_symbol()) {
       Some(value) => value.to_owned(),
-      None => panic!(),
+      None => panic!(), // returns reporter error.
     };
 
     let rhs = self.interpret_expr(value)?;
 
-    match &binop.kind {
+    match binop.kind {
       BinOpKind::Add => self.interpret_expr_assign_op_add(assignee, &lhs, &rhs),
       BinOpKind::Sub => self.interpret_expr_assign_op_sub(assignee, &lhs, &rhs),
       BinOpKind::Mul => self.interpret_expr_assign_op_mul(assignee, &lhs, &rhs),
@@ -714,7 +754,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs + rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -727,7 +770,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs - rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -740,7 +786,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs * rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -753,7 +802,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs / rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -766,7 +818,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs % rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -779,7 +834,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs & rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -792,7 +850,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs | rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -805,7 +866,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs | rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -818,7 +882,10 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs << rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
@@ -831,23 +898,16 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = lhs >> rhs;
 
-    self.scope.set_var(*assignee.as_symbol(), value.to_owned());
+    self
+      .scope_map
+      .set_var(*assignee.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
 
     Ok(value)
   }
 
   fn interpret_expr_block(&mut self, block: &Block) -> Result<Value> {
-    let mut value = Value::UNIT;
-
-    for stmt in &block.stmts {
-      value = self.interpret_stmt(stmt)?;
-
-      if let ValueKind::Return(value) = value.kind {
-        return Ok(*value);
-      }
-    }
-
-    Ok(value)
+    self.interpret_block(block)
   }
 
   fn interpret_expr_fn(
@@ -856,7 +916,14 @@ impl<'ast> Interpreter<'ast> {
     block: &Block,
     span: Span,
   ) -> Result<Value> {
-    Ok(Value::fun(prototype.clone(), block.clone(), span))
+    let value = Value::closure(prototype.to_owned(), block.to_owned(), span);
+
+    self
+      .scope_map
+      .add_fun(*prototype.as_symbol(), value.to_owned())
+      .unwrap(); // todo #1.
+
+    Ok(value)
   }
 
   fn interpret_expr_call(
@@ -918,9 +985,25 @@ impl<'ast> Interpreter<'ast> {
       )));
     }
 
-    let _value = self.interpret_expr_block(&block)?;
+    self.scope_map.scope_entry();
 
-    todo!()
+    for (idx, input) in prototype.inputs.iter().enumerate() {
+      let arg = args.get(idx).unwrap();
+
+      self
+        .scope_map
+        .add_var(*input.as_symbol(), arg.value.to_owned())
+        .unwrap(); // todo #1.
+    }
+
+    let value = self.interpret_expr_block(&block)?;
+
+    self.scope_map.scope_exit();
+
+    match value.kind {
+      ValueKind::Return(value) => Ok(*value),
+      _ => Ok(value),
+    }
   }
 
   fn interpret_expr_call_builtin(
@@ -966,23 +1049,6 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  fn interpret_expr_record(
-    &mut self,
-    _pairs: &[(Expr, Expr)],
-    _span: Span,
-  ) -> Result<Value> {
-    todo!()
-  }
-
-  fn interpret_expr_record_access(
-    &mut self,
-    _record: &Expr,
-    _prop: &Expr,
-    _span: Span,
-  ) -> Result<Value> {
-    todo!()
-  }
-
   fn interpret_expr_array_access_int(
     &mut self,
     indexed: &[Value],
@@ -998,11 +1064,62 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
+  fn interpret_expr_record(
+    &mut self,
+    pairs: &[(Expr, Expr)],
+    span: Span,
+  ) -> Result<Value> {
+    let mut record = HashMap::new();
+
+    for (key, value) in pairs {
+      let key = self.interpret_expr(key)?;
+      let value = self.interpret_expr(value)?;
+      let record_key = RecordKey::from(&key);
+
+      record.insert(record_key, value);
+    }
+
+    Ok(Value::record(record, span))
+  }
+
+  fn interpret_expr_record_access(
+    &mut self,
+    record: &Expr,
+    prop: &Expr,
+    span: Span,
+  ) -> Result<Value> {
+    let record = self.interpret_expr(record)?;
+    let prop = self.interpret_expr(prop)?;
+
+    match (record.kind, prop.kind) {
+      (ValueKind::Record(record), ValueKind::Int(prop)) => {
+        self.interpret_expr_record_access_int(record, &prop, span)
+      }
+      _ => panic!(), // returns reporter error.
+    }
+  }
+
+  fn interpret_expr_record_access_int(
+    &mut self,
+    record: HashMap<RecordKey, Value>,
+    prop: &i64,
+    span: Span,
+  ) -> Result<Value> {
+    match record.get(&RecordKey::Int(*prop)) {
+      Some(value) => Ok(value.to_owned()),
+      _ => Err(ReportError::Eval(Eval::UnknownRecordAccessOperator(
+        span,
+        prop.to_string(),
+      ))),
+    }
+  }
+
   fn interpret_expr_if_else(
     &mut self,
     condition: &Expr,
     consequence: &Block,
     maybe_alternative: &Option<Box<Expr>>,
+    span: Span,
   ) -> Result<Value> {
     let condition = self.interpret_expr(condition)?;
 
@@ -1012,7 +1129,7 @@ impl<'ast> Interpreter<'ast> {
       maybe_alternative
         .as_ref()
         .map(|alternative| self.interpret_expr(alternative))
-        .unwrap_or(Ok(Value::UNIT))
+        .unwrap_or(Ok(Value::unit(span)))
     }
   }
 
@@ -1037,10 +1154,16 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_while(
     &mut self,
-    _condition: &Expr,
-    _body: &Block,
+    condition: &Expr,
+    body: &Block,
   ) -> Result<Value> {
-    todo!()
+    let condition = self.interpret_expr(condition)?;
+
+    while condition.as_bool() {
+      self.interpret_block(body)?;
+    }
+
+    Ok(Value::UNIT)
   }
 
   fn interpret_expr_return(
@@ -1069,8 +1192,8 @@ impl<'ast> Interpreter<'ast> {
     todo!()
   }
 
-  fn interpret_expr_var(&mut self, _var: &Var) -> Result<Value> {
-    todo!()
+  fn interpret_expr_var(&mut self, var: &Var) -> Result<Value> {
+    self.interpret_var(var)
   }
 }
 
