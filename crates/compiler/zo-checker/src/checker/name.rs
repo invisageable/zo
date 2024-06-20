@@ -1,6 +1,8 @@
+//! ...
+
 use zo_ast::ast::{
-  Args, Ast, BinOp, Block, Expr, ExprKind, Lit, Pattern, Prototype, Stmt,
-  StmtKind, Var,
+  Args, Ast, BinOp, Block, Expr, ExprKind, Fun, Item, ItemKind, Lit, Pattern,
+  Prototype, Stmt, StmtKind, Var,
 };
 
 use zo_session::session::Session;
@@ -50,15 +52,35 @@ impl<'ast> NameChecker<'ast> {
     }
   }
 
+  fn check_item(&mut self, item: &Item) -> Result<()> {
+    match &item.kind {
+      ItemKind::Var(var) => self.check_item_var(var),
+      ItemKind::Fun(fun) => self.check_item_fun(fun),
+    }
+  }
+
+  fn check_item_var(&mut self, _var: &Var) -> Result<()> {
+    todo!()
+  }
+
+  fn check_item_fun(&mut self, _fun: &Fun) -> Result<()> {
+    todo!()
+  }
+
   fn check_stmt(&mut self, stmt: &Stmt) -> Result<()> {
     match &stmt.kind {
       StmtKind::Var(var) => self.check_stmt_var(var),
+      StmtKind::Item(item) => self.check_stmt_item(item),
       StmtKind::Expr(expr) => self.check_stmt_expr(expr),
     }
   }
 
   fn check_stmt_var(&mut self, var: &Var) -> Result<()> {
     self.check_pattern(&var.pattern, StrCase::Snake)
+  }
+
+  fn check_stmt_item(&mut self, item: &Item) -> Result<()> {
+    self.check_item(item)
   }
 
   fn check_stmt_expr(&mut self, expr: &Expr) -> Result<()> {
