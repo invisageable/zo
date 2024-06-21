@@ -68,7 +68,7 @@ impl<'ast> Translator<'ast> {
     let mut context = self.module.make_context();
     let signature = &mut context.func.signature;
 
-    for _param in fun.prototype.inputs.iter() {
+    for _input in fun.prototype.inputs.iter() {
       signature.params.push(AbiParam::new(types::F64));
     }
 

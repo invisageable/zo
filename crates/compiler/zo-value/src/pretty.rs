@@ -16,6 +16,7 @@ impl std::fmt::Display for ValueKind {
       Self::Unit => write!(f, "()"),
       Self::Int(int) => write!(f, "{int}"),
       Self::Float(float) => write!(f, "{float}"),
+      Self::Ident(symbol) => write!(f, "{symbol}"),
       Self::Bool(boolean) => write!(f, "{boolean}"),
       Self::Char(ch) => write!(f, "'{ch}'"),
       Self::Str(string) => write!(f, "\"{string}\""),
@@ -43,6 +44,7 @@ impl std::fmt::Display for ValueKind {
       }
       Self::Var(var) => write!(f, "{var}"),
       Self::Fun(prototype, block) => write!(f, "fun {prototype} {block}"),
+      Self::While(condition, body) => write!(f, "while {condition} {body}"),
     }
   }
 }
@@ -50,9 +52,7 @@ impl std::fmt::Display for ValueKind {
 impl std::fmt::Display for RecordKey {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      Self::Int(int) => write!(f, "{int}"),
-      Self::Str(string) => write!(f, "\"{string}\""),
-      Self::Bool(boolean) => write!(f, "{boolean}"),
+      Self::Ident(ident) => write!(f, "{ident}"),
     }
   }
 }

@@ -224,7 +224,7 @@ impl<'ast> NameChecker<'ast> {
   }
 
   fn check_expr_array(&mut self, _elmts: &[Expr]) -> Result<()> {
-    todo!()
+    Ok(()) // tmp.
   }
 
   fn check_expr_array_access(
@@ -232,7 +232,7 @@ impl<'ast> NameChecker<'ast> {
     _indexed: &Expr,
     _index: &Expr,
   ) -> Result<()> {
-    todo!()
+    Ok(()) // tmp.
   }
 
   fn check_expr_record(&mut self, pairs: &[(Expr, Expr)]) -> Result<()> {
@@ -286,7 +286,7 @@ impl<'ast> NameChecker<'ast> {
     _condition: &Expr,
     _body: &Block,
   ) -> Result<()> {
-    todo!()
+    Ok(()) // tmp.
   }
 
   fn check_expr_return(

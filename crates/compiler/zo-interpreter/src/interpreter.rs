@@ -11,8 +11,6 @@ use zo_ast::ast::{
   Var,
 };
 
-use zo_core::reporter::report::eval::Eval;
-use zo_core::reporter::report::ReportError;
 use zo_value::builtin::BuiltinFn;
 use zo_value::value;
 use zo_value::value::RecordKey;
@@ -20,6 +18,8 @@ use zo_value::value::{Array, Value, ValueKind};
 
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::interner::Interner;
+use zo_core::reporter::report::eval::Eval;
+use zo_core::reporter::report::ReportError;
 use zo_core::reporter::Reporter;
 use zo_core::span::{AsSpan, Span};
 use zo_core::Result;
@@ -237,12 +237,16 @@ impl<'ast> Interpreter<'ast> {
       return Ok(fun.to_owned());
     }
 
-    let ident = self.interner.lookup_ident(symbol);
+    // it should be better to adds a scope for record because actually we are
+    // not able to throw an error when an identifier is not recognized.
+    Ok(Value::ident(*symbol, span))
 
-    Err(ReportError::Eval(Eval::IdentNotFound(
-      span,
-      ident.to_string(),
-    )))
+    // let ident = self.interner.lookup_ident(symbol);
+
+    // Err(ReportError::Eval(Eval::IdentNotFound(
+    //   span,
+    //   ident.to_string(),
+    // )))
   }
 
   fn interpret_expr_lit_bool(
@@ -1103,20 +1107,20 @@ impl<'ast> Interpreter<'ast> {
     let prop = self.interpret_expr(prop)?;
 
     match (record.kind, prop.kind) {
-      (ValueKind::Record(record), ValueKind::Int(prop)) => {
-        self.interpret_expr_record_access_int(record, &prop, span)
+      (ValueKind::Record(record), ValueKind::Ident(prop)) => {
+        self.interpret_expr_record_access_ident(record, &prop, span)
       }
       _ => panic!(), // returns reporter error.
     }
   }
 
-  fn interpret_expr_record_access_int(
+  fn interpret_expr_record_access_ident(
     &mut self,
     record: HashMap<RecordKey, Value>,
-    prop: &i64,
+    prop: &Symbol,
     span: Span,
   ) -> Result<Value> {
-    match record.get(&RecordKey::Int(*prop)) {
+    match record.get(&RecordKey::Ident(*prop)) {
       Some(value) => Ok(value.to_owned()),
       _ => Err(ReportError::Eval(Eval::UnknownRecordAccessOperator(
         span,

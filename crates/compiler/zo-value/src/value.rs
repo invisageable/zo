@@ -43,6 +43,11 @@ impl Value {
   }
 
   #[inline]
+  pub fn ident(ident: Symbol, span: Span) -> Self {
+    Self::new(ValueKind::Ident(ident), span)
+  }
+
+  #[inline]
   pub fn bool(boolean: bool, span: Span) -> Self {
     Self::new(ValueKind::Bool(boolean), span)
   }
@@ -85,6 +90,11 @@ impl Value {
   #[inline]
   pub fn fun(prototype: Prototype, block: Block, span: Span) -> Self {
     Self::new(ValueKind::Fn(prototype, block), span)
+  }
+
+  #[inline]
+  pub fn loop_while(condition: Box<Value>, block: Block, span: Span) -> Self {
+    Self::new(ValueKind::While(condition, block), span)
   }
 
   #[inline]
@@ -289,6 +299,8 @@ pub enum ValueKind {
   Int(i64),
   /// float — `1.5`.
   Float(f64),
+  /// identifier — `foo`, `Bar`, etc.
+  Ident(Symbol),
   /// bool — `false` or `true`.
   Bool(bool),
   /// character — `'a'`.
@@ -309,6 +321,7 @@ pub enum ValueKind {
   Var(Var),
   /// function — `fun foo() {}`.
   Fun(Prototype, Block),
+  While(Box<Value>, Block),
 }
 
 impl ValueKind {
@@ -425,19 +438,13 @@ impl std::ops::Deref for Array {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RecordKey {
   /// integer key.
-  Int(i64),
-  /// string key.
-  Str(SmolStr),
-  /// boolean key.
-  Bool(bool),
+  Ident(Symbol),
 }
 
 impl From<&Value> for RecordKey {
   fn from(value: &Value) -> RecordKey {
     match &value.kind {
-      ValueKind::Int(value) => RecordKey::Int(*value),
-      ValueKind::Str(value) => RecordKey::Str(value.to_owned()),
-      ValueKind::Bool(value) => RecordKey::Bool(*value),
+      ValueKind::Ident(symbol) => RecordKey::Ident(*symbol),
       _ => unreachable!(),
     }
   }
