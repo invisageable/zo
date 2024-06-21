@@ -221,9 +221,9 @@ impl<'ast> Interpreter<'ast> {
     span: Span,
   ) -> Result<Value> {
     if let Some(var) = self.scope_map.var(symbol) {
-      return Ok(var.clone());
+      return Ok(var.to_owned());
     } else if let Some(fun) = self.scope_map.fun(symbol) {
-      return Ok(fun.clone());
+      return Ok(fun.to_owned());
     }
 
     let ident = self.interner.lookup_ident(symbol);
@@ -257,7 +257,7 @@ impl<'ast> Interpreter<'ast> {
     symbol: &Symbol,
     span: Span,
   ) -> Result<Value> {
-    let string = self.interner.lookup_str(symbol);
+    let string = self.interner.lookup_str(symbol).replace("\"", "");
 
     Ok(Value::str(string.to_smolstr(), span))
   }
@@ -270,7 +270,7 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     let value = self.interpret_expr(rhs)?;
 
-    match &unop.kind {
+    match unop.kind {
       UnOpKind::Neg => self.interpret_expr_unop_neg(value, span),
       UnOpKind::Not => self.interpret_expr_unop_not(value, span),
     }
@@ -1184,7 +1184,7 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     match maybe_expr {
       Some(expr) => self.interpret_expr(expr),
-      _ => panic!(), // returns reporter error.
+      _ => todo!(), // break without expression.
     }
   }
 
