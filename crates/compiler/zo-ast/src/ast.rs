@@ -90,6 +90,13 @@ impl AsSpan for Ast {
   }
 }
 
+impl std::convert::AsMut<Self> for Ast {
+  #[inline]
+  fn as_mut(&mut self) -> &mut Self {
+    self
+  }
+}
+
 impl std::ops::Deref for Ast {
   type Target = Vec<Stmt>;
 
@@ -108,8 +115,28 @@ pub struct Item {
 pub enum ItemKind {
   /// `val FOO: int = 123;`, `pub val FOO: int = 123;`.
   Var(Var),
+  /// `type Foo = int;`, `pub type Foo = int;`.
+  TyAlias(TyAlias),
+  /// `ext foobar(x: int);`, `ext foobar(x: int) { ... }`.
+  Ext(Ext),
   /// `fun foo(x: int): int { ... }`, `pub fun foo(x: int): int { ... }`.
   Fun(Fun),
+}
+
+#[derive(Clone, Debug)]
+pub struct TyAlias {
+  pub pubness: Pub,
+  pub pattern: Pattern,
+  pub maybe_ty: Option<Ty>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Ext {
+  pub pubness: Pub,
+  pub prototype: Prototype,
+  pub maybe_body: Option<Block>,
+  pub span: Span,
 }
 
 #[derive(Clone, Debug)]

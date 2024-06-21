@@ -1,9 +1,9 @@
 //! ...
 
 use super::ast::{
-  Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Inputs, Item,
-  ItemKind, Lit, LitKind, Mutability, Pattern, PatternKind, Prototype, Stmt,
-  StmtKind, UnOp, UnOpKind, Var, VarKind,
+  Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Input, Inputs,
+  Item, ItemKind, Lit, LitKind, Mutability, Pattern, PatternKind, Prototype,
+  Stmt, StmtKind, TyAlias, UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_core::fmt::{sep_comma, sep_newline};
@@ -43,8 +43,34 @@ impl std::fmt::Display for ItemKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::Var(var) => write!(f, "{var}"),
+      Self::TyAlias(ty_alias) => write!(f, "{ty_alias}"),
+      Self::Ext(ext) => write!(f, "{ext}"),
       Self::Fun(fun) => write!(f, "{fun}"),
     }
+  }
+}
+
+impl std::fmt::Display for TyAlias {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "type {}", self.pattern)?;
+
+    self
+      .maybe_ty
+      .as_ref()
+      .map(|ty| write!(f, " = {ty};"))
+      .unwrap_or(write!(f, ";"))
+  }
+}
+
+impl std::fmt::Display for Ext {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "ext {}", self.prototype)?;
+
+    self
+      .maybe_body
+      .as_ref()
+      .map(|body| write!(f, " {body}"))
+      .unwrap_or(write!(f, ";"))
   }
 }
 
