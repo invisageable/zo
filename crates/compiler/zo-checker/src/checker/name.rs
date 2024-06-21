@@ -1,8 +1,8 @@
 //! ...
 
 use zo_ast::ast::{
-  Args, Ast, BinOp, Block, Expr, ExprKind, Fun, Inputs, Item, ItemKind, Lit,
-  OutputTy, Pattern, Prototype, Stmt, StmtKind, Var,
+  Args, Ast, BinOp, Block, Expr, ExprKind, Ext, Fun, Inputs, Item, ItemKind,
+  Lit, OutputTy, Pattern, Prototype, Stmt, StmtKind, TyAlias, Var,
 };
 
 use zo_session::session::Session;
@@ -55,6 +55,8 @@ impl<'ast> NameChecker<'ast> {
   fn check_item(&mut self, item: &Item) -> Result<()> {
     match &item.kind {
       ItemKind::Var(var) => self.check_item_var(var),
+      ItemKind::TyAlias(ty_alias) => self.check_item_ty_alias(ty_alias),
+      ItemKind::Ext(ext) => self.check_item_ext(ext),
       ItemKind::Fun(fun) => self.check_item_fun(fun),
     }
   }
@@ -66,6 +68,14 @@ impl<'ast> NameChecker<'ast> {
   fn check_global_var(&mut self, var: &Var) -> Result<()> {
     self.check_pattern(&var.pattern, StrCase::SnakeScreaming)?;
     self.check_expr(&var.value)
+  }
+
+  fn check_item_ty_alias(&mut self, _ty_alias: &TyAlias) -> Result<()> {
+    todo!()
+  }
+
+  fn check_item_ext(&mut self, _ext: &Ext) -> Result<()> {
+    todo!()
   }
 
   fn check_item_fun(&mut self, fun: &Fun) -> Result<()> {

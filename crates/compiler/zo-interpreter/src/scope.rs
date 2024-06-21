@@ -107,14 +107,14 @@ impl ScopeMap {
   pub fn set_var(&mut self, name: Symbol, value: Value) -> Result<(), String> {
     match self.scopes.front_mut() {
       Some(scope) => Ok(scope.set_var(name, value)),
-      None => Err(format!("set_var error not implemented yet")),
+      None => Err(format!("set_var error not implemented yet.")),
     }
   }
 
   pub fn set_fun(&mut self, name: Symbol, value: Value) -> Result<(), String> {
     match self.scopes.front_mut() {
       Some(scope) => Ok(scope.set_fun(name, value)),
-      None => Err(format!("set_fun error not implemented yet")),
+      None => Err(format!("set_fun error not implemented yet.")),
     }
   }
 

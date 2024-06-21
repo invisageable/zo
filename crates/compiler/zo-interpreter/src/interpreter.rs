@@ -6,8 +6,9 @@
 use super::scope::ScopeMap;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Item, ItemKind,
-  Lit, LitKind, Prototype, Stmt, StmtKind, UnOp, UnOpKind, Var,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Item,
+  ItemKind, Lit, LitKind, Prototype, Stmt, StmtKind, TyAlias, UnOp, UnOpKind,
+  Var,
 };
 
 use zo_core::reporter::report::eval::Eval;
@@ -80,12 +81,22 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_item(&mut self, item: &Item) -> Result<Value> {
     match &item.kind {
       ItemKind::Var(var) => self.interpret_item_var(var),
+      ItemKind::TyAlias(ty_alias) => self.interpret_item_ty_alias(ty_alias),
+      ItemKind::Ext(ext) => self.interpret_item_ext(ext),
       ItemKind::Fun(fun) => self.interpret_item_fun(fun),
     }
   }
 
   fn interpret_item_var(&mut self, var: &Var) -> Result<Value> {
     self.interpret_var(var)
+  }
+
+  fn interpret_item_ty_alias(&mut self, _ty_alias: &TyAlias) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_ext(&mut self, _ext: &Ext) -> Result<Value> {
+    todo!()
   }
 
   fn interpret_item_fun(&mut self, fun: &Fun) -> Result<Value> {

@@ -34,8 +34,8 @@
 //```
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Expr, ExprKind, Fun, Item, ItemKind, Lit, LitKind,
-  Stmt, StmtKind, UnOp, UnOpKind, Var,
+  Ast, BinOp, BinOpKind, Expr, ExprKind, Ext, Fun, Item, ItemKind, Lit,
+  LitKind, Stmt, StmtKind, TyAlias, UnOp, UnOpKind, Var,
 };
 
 use zo_core::interner::symbol::Symbol;
@@ -81,12 +81,22 @@ impl<'ast> Translator<'ast> {
   fn translate_item(&mut self, item: &Item) -> Result<()> {
     match &item.kind {
       ItemKind::Var(var) => self.translate_item_var(var),
+      ItemKind::TyAlias(ty_alias) => self.translate_item_ty_alias(ty_alias),
+      ItemKind::Ext(ext) => self.translate_item_ext(ext),
       ItemKind::Fun(fun) => self.translate_item_fun(fun),
     }
   }
 
   fn translate_item_var(&mut self, var: &Var) -> Result<()> {
     self.translate_global_var(var)
+  }
+
+  fn translate_item_ty_alias(&mut self, _ty_alias: &TyAlias) -> Result<()> {
+    todo!()
+  }
+
+  fn translate_item_ext(&mut self, _ext: &Ext) -> Result<()> {
+    todo!()
   }
 
   fn translate_global_var(&mut self, _var: &Var) -> Result<()> {
