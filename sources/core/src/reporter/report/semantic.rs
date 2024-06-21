@@ -12,6 +12,7 @@ pub enum Semantic {
   FunClash(Span, String),
   InvalidIndex(Span, String),
   NamingConvention(Span, String, String),
+  NoArgsEntry(Span),
   NotFoundEntry(Span, String),
   NotFoundFun(Span, String),
   NotFoundIdent(Span, String),
@@ -44,6 +45,7 @@ impl Error for Semantic {
         )],
         ..Default::default()
       },
+      Self::NoArgsEntry(span) => todo!("{span}"),
       Self::NotFoundEntry(span, string) => todo!("{span}-{string}"),
       Self::NotFoundFun(span, string) => todo!("{span}-{string}"),
       Self::NotFoundIdent(span, string) => todo!("{span}-{string}"),
