@@ -34,16 +34,27 @@ impl Token {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TokenKind {
+  /// integer.
   Int(Symbol, int::BaseInt),
+  /// float.
   Float(Symbol),
+  /// operator.
   Op(op::Op),
+  /// identifier.
   Ident(Symbol),
+  /// keyword.
   Kw(kw::Kw),
+  /// punctuation.
   Punctuation(punctuation::Punctuation),
+  /// group.
   Group(group::Group),
+  /// character.
   Char(Symbol),
+  /// string.
   Str(Symbol),
+  /// unknown.
   Unknwon,
+  /// end of file.
   Eof,
 }
 

@@ -24,7 +24,9 @@ impl Default for Backend {
 
 #[derive(Copy, Clone, Debug, Default)]
 pub enum BackendKind {
+  /// python.
   Py,
+  /// webassembly.
   #[default]
   Wasm,
 }

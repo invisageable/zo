@@ -35,7 +35,10 @@ impl Cmd {
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
+  /// build a program.
   Build(build::Build),
+  /// interpret a program.
   Interpret(interpret::Interpret),
+  /// read eval print and loop a program.
   Repl(repl::Repl),
 }

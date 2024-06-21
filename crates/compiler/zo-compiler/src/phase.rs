@@ -20,12 +20,19 @@ pub trait Process: std::fmt::Debug {
 
 #[derive(Debug)]
 pub enum Phase {
+  /// read a file, line or input.
   Reading(reading::Reading),
+  /// tokenize bytes into `tokens`.
   Tokenizing(tokenizing::Tokenizing),
+  /// parse tokens into `ast`.
   Parsing(parsing::Parsing),
+  /// analyze an `ast`.
   Analyzing(analyzing::Analyzing),
+  /// generate `bytecode` from `ast`
   Generating(generating::Generating),
+  /// build output file from `bytecode`
   Building(building::Building),
+  /// interpret an `ast`.
   Interpreting(interpreting::Interpreting),
 }
 

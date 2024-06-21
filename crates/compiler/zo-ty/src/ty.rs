@@ -44,14 +44,23 @@ impl Ty {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TyKind {
+  /// unit — `()`.
   Unit,
+  /// infer — `:=`.
   Infer,
+  /// integer — `int`.
   Int,
+  /// float — `float`.
   Float,
+  /// identifier — `foo`, `Bar`, `foo_bar`, `BAR_FOO`.
   Ident(Symbol),
+  /// boolean — `bool`.
   Bool,
+  /// character — `ch`.
   Char,
+  /// string — `str`.
   Str,
+  /// variable.
   Var(usize),
 }
 

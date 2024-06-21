@@ -127,8 +127,8 @@ pub struct Stmt {
 
 #[derive(Clone, Debug)]
 pub enum StmtKind {
-  /// immutable variable — `imu foo: int = 123;`,
-  /// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`
+  /// immutable variable — `imu foo: int = 123;`.
+  /// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`.
   Var(Var),
   /// item.
   Item(Box<Item>),
@@ -154,8 +154,11 @@ impl Symbolize for Var {
 
 #[derive(Clone, Debug)]
 pub enum VarKind {
+  /// immutable.
   Imu,
+  /// mutable.
   Mut,
+  /// constant.
   Val,
 }
 
@@ -251,11 +254,17 @@ impl Symbolize for Lit {
 
 #[derive(Clone, Debug)]
 pub enum LitKind {
+  /// integer — `1`.
   Int(Symbol),
+  /// integer — `1.2`, `1e4`.
   Float(Symbol),
+  /// identifier — `foo`, `Bar`, `foobar1234`.
   Ident(Symbol),
+  /// boolean — `false`, `true`.
   Bool(bool),
+  /// character — `'\0'`.
   Char(Symbol),
+  /// string — `"foobar"`.
   Str(Symbol),
 }
 
@@ -292,9 +301,9 @@ impl From<&Token> for UnOp {
 
 #[derive(Clone, Debug)]
 pub enum UnOpKind {
-  /// negative — `-`
+  /// negative — `-`.
   Neg,
-  /// not — `!`
+  /// not — `!`.
   Not,
 }
 
@@ -328,41 +337,41 @@ impl From<&Token> for BinOp {
 
 #[derive(Clone, Debug)]
 pub enum BinOpKind {
-  /// addition — `+`
+  /// addition — `+`.
   Add,
-  /// subtraction — `-`
+  /// subtraction — `-`.
   Sub,
-  /// multiplication — `*`
+  /// multiplication — `*`.
   Mul,
-  /// division — `/`
+  /// division — `/`.
   Div,
-  /// modulus — `%`
+  /// modulus — `%`.
   Rem,
-  /// logical and — `&&`
+  /// logical and — `&&`.
   And,
-  /// logical or — `||`
+  /// logical or — `||`.
   Or,
-  /// bitwise and — `&`
+  /// bitwise and — `&`.
   BitAnd,
-  /// bitwise or — `|`
+  /// bitwise or — `|`.
   BitOr,
-  /// bitwise xor — `^`
+  /// bitwise xor — `^`.
   BitXor,
-  /// less than — `<`
+  /// less than — `<`.
   Lt,
-  /// greater than — `>`
+  /// greater than — `>`.
   Gt,
-  /// less than or equal — `<=`
+  /// less than or equal — `<=`.
   Le,
-  /// greater than or equal — `>=`
+  /// greater than or equal — `>=`.
   Ge,
-  /// equality — `==`
+  /// equality — `==`.
   Eq,
-  /// not equal — `!=`
+  /// not equal — `!=`.
   Ne,
-  /// shift left — `<<`
+  /// shift left — `<<`.
   Shl,
-  /// shift right — `>>`
+  /// shift right — `>>`.
   Shr,
 }
 
@@ -522,7 +531,9 @@ impl Symbolize for Input {
 
 #[derive(Clone, Debug)]
 pub enum OutputTy {
+  /// returns `()`.
   Default(Span),
+  /// returns type such as `int`, float, etc.
   Ty(Ty),
 }
 

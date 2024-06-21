@@ -283,18 +283,31 @@ impl std::ops::Shr for &Value {
 
 #[derive(Clone, Debug)]
 pub enum ValueKind {
+  /// unit — `()`.
   Unit,
+  /// integer — `1`.
   Int(i64),
+  /// float — `1.5`.
   Float(f64),
+  /// bool — `false` or `true`.
   Bool(bool),
+  /// character — `'a'`.
   Char(char),
+  /// string — `"foobar"`.
   Str(SmolStr),
+  /// closure — `fn (x) -> x`, `fn (x) {..}`.
   Fn(Prototype, Block),
+  /// return — `return foobar;`, `return;`.
   Return(Box<Value>),
+  /// builtin function.
   Builtin(BuiltinFn),
+  /// array — `[1, 2, 3, 4]`.
   Array(Array),
+  /// float — `{ x = 1, y = 1}`.
   Record(HashMap<RecordKey, Value>),
+  /// variable — `imu foo = 1;`, `mut bar = 1`.
   Var(Var),
+  /// function — `fun foo() {}`.
   Fun(Prototype, Block),
 }
 
@@ -411,8 +424,11 @@ impl std::ops::Deref for Array {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RecordKey {
+  /// integer key.
   Int(i64),
+  /// string key.
   Str(SmolStr),
+  /// boolean key.
   Bool(bool),
 }
 

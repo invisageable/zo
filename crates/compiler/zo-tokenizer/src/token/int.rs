@@ -2,8 +2,12 @@
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BaseInt {
-  Hex = 16, // hexadecimal
-  Dec = 10, // decimal
-  Oct = 8,  // octal
-  Bin = 2,  // binary
+  /// hexadecimal.
+  Hex = 16,
+  /// decimal.
+  Dec = 10,
+  /// octal.
+  Oct = 8,
+  /// binary.
+  Bin = 2,
 }
