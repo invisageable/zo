@@ -1,5 +1,6 @@
 //! ...
 
+use super::brick::clif;
 use super::brick::py;
 use super::brick::wasm;
 use super::output::Output;
@@ -16,6 +17,7 @@ impl Builder {
   #[inline]
   fn build(&self, session: &mut Session, bytecode: &[u8]) -> Result<Output> {
     match &session.settings.backend.kind {
+      BackendKind::Clif => clif::build(&session.settings.backend, bytecode),
       BackendKind::Py => py::build(&session.settings.backend, bytecode),
       BackendKind::Wasm => wasm::build(&session.settings.backend, bytecode),
     }

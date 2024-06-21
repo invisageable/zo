@@ -11,6 +11,7 @@ struct Codegen;
 impl Codegen {
   fn generate(&self, session: &mut Session, ast: &Ast) -> Result<Box<[u8]>> {
     match &session.settings.backend.kind {
+      BackendKind::Clif => zo_codegen_clif::codegen::generate(session, ast),
       BackendKind::Py => zo_codegen_py::codegen::generate(session, ast),
       BackendKind::Wasm => zo_codegen_wasm::codegen::generate(session, ast),
     }

@@ -1,5 +1,5 @@
 [package]
-name = "zo-codegen"
+name = "zo-codegen-clif"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -11,9 +11,6 @@ zo-core = { workspace = true }
 
 # internals.
 zo-ast = { workspace = true }
-zo-codegen-clif = { workspace = true }
-zo-codegen-py = { workspace = true }
-zo-codegen-wasm = { workspace = true }
 zo-session = { workspace = true }
 
 # externals.

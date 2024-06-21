@@ -1061,8 +1061,18 @@ name = "zo-codegen"
 version = "0.0.0"
 dependencies = [
  "zo-ast",
+ "zo-codegen-clif",
  "zo-codegen-py",
  "zo-codegen-wasm",
+ "zo-core",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-codegen-clif"
+version = "0.0.0"
+dependencies = [
+ "zo-ast",
  "zo-core",
  "zo-session",
 ]

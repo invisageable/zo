@@ -24,6 +24,8 @@ impl Default for Backend {
 
 #[derive(Copy, Clone, Debug, Default)]
 pub enum BackendKind {
+  /// cranelift.
+  Clif,
   /// python.
   Py,
   /// webassembly.
@@ -48,6 +50,7 @@ impl From<SmolStr> for Backend {
 impl From<SmolStr> for BackendKind {
   fn from(backend: SmolStr) -> Self {
     match backend.as_str() {
+      "clif" => Self::Clif,
       "py" => Self::Py,
       "wasm" => Self::Wasm,
       _ => unreachable!(),
@@ -58,6 +61,7 @@ impl From<SmolStr> for BackendKind {
 impl std::fmt::Display for BackendKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
+      Self::Clif => write!(f, "clif"),
       Self::Py => write!(f, "py"),
       Self::Wasm => write!(f, "wasm"),
     }
