@@ -95,8 +95,8 @@ impl Build {
     compiler.compile(&mut session)?;
 
     compiler.finish(tx_building).map(|output| {
-      println!("\n{output:?}\n");
       session.close();
+      println!("\n{output:?}\n");
     })
   }
 }

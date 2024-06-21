@@ -61,7 +61,9 @@ impl std::fmt::Display for File {
 
 #[derive(Clone, Debug)]
 pub enum FileKind {
+  Exe,
   Py,
+  Obj,
   Wasm,
   Wat,
 }
@@ -69,7 +71,9 @@ pub enum FileKind {
 impl std::fmt::Display for FileKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
+      Self::Exe => write!(f, "exe"),
       Self::Py => write!(f, "py"),
+      Self::Obj => write!(f, "o"),
       Self::Wasm => write!(f, "wasm"),
       Self::Wat => write!(f, "wat"),
     }

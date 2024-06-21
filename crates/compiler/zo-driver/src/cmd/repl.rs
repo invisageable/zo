@@ -92,8 +92,8 @@ impl Repl {
       compiler.compile(&mut session)?;
 
       compiler.finish(tx_interpreting).map(|value| {
-        println!("{value}");
         session.close();
+        println!("{value}");
       })?;
     }
   }

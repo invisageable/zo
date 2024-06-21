@@ -14,3 +14,9 @@ zo-ast = { workspace = true }
 zo-session = { workspace = true }
 
 # externals.
+cranelift = { workspace = true }
+cranelift-codegen = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-native = { workspace = true }
+cranelift-object = { workspace = true }
+hashbrown = { workspace = true }

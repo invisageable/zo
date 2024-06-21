@@ -1072,6 +1072,12 @@ dependencies = [
 name = "zo-codegen-clif"
 version = "0.0.0"
 dependencies = [
+ "cranelift",
+ "cranelift-codegen",
+ "cranelift-module",
+ "cranelift-native",
+ "cranelift-object",
+ "hashbrown 0.14.5",
  "zo-ast",
  "zo-core",
  "zo-session",
