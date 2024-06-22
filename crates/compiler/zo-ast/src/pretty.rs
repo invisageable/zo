@@ -2,8 +2,8 @@
 
 use super::ast::{
   Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Input, Inputs,
-  Item, ItemKind, Lit, LitKind, Mutability, Pattern, PatternKind, Prototype,
-  Stmt, StmtKind, TyAlias, UnOp, UnOpKind, Var, VarKind,
+  Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind,
+  Prototype, Stmt, StmtKind, TyAlias, UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_core::fmt::{sep_comma, sep_newline};
@@ -124,7 +124,7 @@ impl std::fmt::Display for ExprKind {
 
         match maybe_alternative {
           Some(alternative) => write!(f, " else {{ {alternative} }}"),
-          None => write!(f, " "),
+          None => write!(f, ""),
         }
       }
       Self::When(condition, consequence, alternative) => {
@@ -223,7 +223,11 @@ impl std::fmt::Display for Block {
 
 impl std::fmt::Display for Prototype {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f, "{} ({})", self.pattern, self.inputs)
+    write!(
+      f,
+      "{} ({}) -> {}",
+      self.pattern, self.inputs, self.output_ty
+    )
   }
 }
 
@@ -236,6 +240,15 @@ impl std::fmt::Display for Inputs {
 impl std::fmt::Display for Input {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(f, "{}", self.pattern)
+  }
+}
+
+impl std::fmt::Display for OutputTy {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Default(_) => write!(f, "()"),
+      Self::Ty(ty) => write!(f, "{ty}"),
+    }
   }
 }
 
@@ -257,7 +270,13 @@ impl std::fmt::Display for Var {
     let pattern = &self.pattern;
     let value = &self.value;
 
-    write!(f, "{kind} {pattern} = {value};")
+    let ty = self
+      .maybe_ty
+      .as_ref()
+      .map(|ty| format!(": {ty} ="))
+      .unwrap_or(":=".to_string());
+
+    write!(f, "{kind} {pattern} {ty} {value};")
   }
 }
 

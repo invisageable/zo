@@ -169,6 +169,7 @@ pub struct Var {
   pub mutability: Mutability,
   pub kind: VarKind,
   pub pattern: Pattern,
+  pub maybe_ty: Option<Ty>,
   pub value: Box<Expr>,
   pub span: Span,
 }
@@ -547,6 +548,7 @@ impl std::ops::Deref for Inputs {
 #[derive(Clone, Debug)]
 pub struct Input {
   pub pattern: Pattern,
+  pub ty: Ty,
   pub span: Span,
 }
 
