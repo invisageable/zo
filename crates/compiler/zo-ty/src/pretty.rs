@@ -16,7 +16,7 @@ impl std::fmt::Display for TyKind {
       Self::Unit => write!(f, "()"),
       Self::Int(int) => write!(f, "{int}"),
       Self::Float(float) => write!(f, "{float}"),
-      Self::Ident(ident) => write!(f, "{ident}"),
+      Self::Alias(alias) => write!(f, "{alias}"),
       Self::Bool => write!(f, "bool"),
       Self::Char => write!(f, "char"),
       Self::Str => write!(f, "str"),
@@ -82,7 +82,6 @@ impl std::fmt::Display for FloatTy {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::Float => write!(f, "float"),
-      Self::F16 => write!(f, "f16"),
       Self::F32 => write!(f, "f32"),
       Self::F64 => write!(f, "f64"),
     }

@@ -14,7 +14,9 @@ use zo_tokenizer::token::kw::Kw;
 use zo_tokenizer::token::op::Op;
 use zo_tokenizer::token::punctuation::Punctuation;
 use zo_tokenizer::token::{Token, TokenKind};
+use zo_ty::ty::{FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, UintTy};
 
+use zo_core::interner::symbol::Symbol;
 use zo_core::interner::Interner;
 use zo_core::reporter::report::syntax::Syntax;
 use zo_core::reporter::report::ReportError;
@@ -190,6 +192,82 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
+  fn parse_ty(&mut self) -> Result<Option<Ty>> {
+    self.next();
+
+    let ty = self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Punctuation(Punctuation::Colon) => self.parse_ty_type(),
+        TokenKind::Op(Op::ColonEqual) => self.parse_ty_infer(),
+        _ => panic!(), // return reporter error —  unexpected token.
+      })
+      .unwrap()?;
+
+    if self.ensure_peek(TokenKind::Op(Op::Equal)) {
+      self.next();
+    }
+
+    Ok(ty)
+  }
+
+  fn parse_ty_type(&mut self) -> Result<Option<Ty>> {
+    self.next();
+
+    self
+      .maybe_token_current
+      .map(|token| match &token.kind {
+        TokenKind::Ident(symbol) => self.parse_ty_ident(symbol, token.span),
+        TokenKind::Kw(Kw::Fn) => self.parse_ty_fn(),
+        _ => panic!(), // return reporter error —  unexpected token.
+      })
+      .unwrap()
+  }
+
+  fn parse_ty_ident(
+    &mut self,
+    symbol: &Symbol,
+    span: Span,
+  ) -> Result<Option<Ty>> {
+    let ident = self.interner.lookup_ident(symbol);
+
+    Ok(Some(match ident {
+      "int" => Ty::int(LitIntTy::Int(IntTy::Int), span),
+      "s8" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
+      "s16" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
+      "s32" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
+      "s64" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
+      "s128" => Ty::int(LitIntTy::Signed(SintTy::S128), span),
+      "u8" => Ty::int(LitIntTy::Unsigned(UintTy::U8), span),
+      "u16" => Ty::int(LitIntTy::Unsigned(UintTy::U16), span),
+      "u32" => Ty::int(LitIntTy::Unsigned(UintTy::U32), span),
+      "u64" => Ty::int(LitIntTy::Unsigned(UintTy::U64), span),
+      "u128" => Ty::int(LitIntTy::Unsigned(UintTy::U128), span),
+      "float" => Ty::float(LitFloatTy::Suffixed(FloatTy::Float), span),
+      "f32" => Ty::float(LitFloatTy::Suffixed(FloatTy::F32), span),
+      "f64" => Ty::float(LitFloatTy::Suffixed(FloatTy::F64), span),
+      "bool" => Ty::bool(span),
+      "char" => Ty::char(span),
+      "str" => Ty::str(span),
+      _ => Ty::alias(*symbol, span),
+    }))
+  }
+
+  fn parse_ty_fn(&mut self) -> Result<Option<Ty>> {
+    todo!()
+  }
+
+  fn parse_ty_infer(&mut self) -> Result<Option<Ty>> {
+    let span = self.current_span();
+
+    println!("CURRENT: {:?}", self.maybe_token_current);
+    println!("NEXT: {:?}", self.maybe_token_next);
+
+    // self.next();
+
+    Ok(Some(Ty::infer(span)))
+  }
+
   fn parse_item(&mut self) -> Result<Item> {
     self
       .maybe_token_current
@@ -217,8 +295,8 @@ impl<'tokens> Parser<'tokens> {
     self.next();
 
     let pattern = self.parse_pattern()?;
+    let maybe_ty = self.parse_ty()?;
 
-    self.expect_peek(TokenKind::Op(Op::Equal))?;
     self.next();
 
     let value = self.parse_expr(Precedence::Low)?;
@@ -235,6 +313,7 @@ impl<'tokens> Parser<'tokens> {
           mutability: Mutability::No,
           pubness: Pub::No,
           pattern,
+          maybe_ty,
           value: Box::new(value),
           span,
         }),
@@ -309,7 +388,11 @@ impl<'tokens> Parser<'tokens> {
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
 
-    Ok(Input { pattern, span })
+    Ok(Input {
+      pattern,
+      ty: Ty::UNIT,
+      span,
+    })
   }
 
   fn parse_output_ty(&mut self) -> Result<OutputTy> {
@@ -349,8 +432,8 @@ impl<'tokens> Parser<'tokens> {
     self.next();
 
     let pattern = self.parse_pattern()?;
+    let maybe_ty = self.parse_ty()?;
 
-    self.expect_peek(TokenKind::Op(Op::Equal))?;
     self.next();
 
     let value = self.parse_expr(Precedence::Low)?;
@@ -368,6 +451,7 @@ impl<'tokens> Parser<'tokens> {
           pubness: Pub::No,
           pattern,
           value: Box::new(value),
+          maybe_ty,
           span,
         }),
         span,
@@ -379,6 +463,7 @@ impl<'tokens> Parser<'tokens> {
           pubness: Pub::No,
           pattern,
           value: Box::new(value),
+          maybe_ty,
           span,
         }),
         span,

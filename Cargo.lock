@@ -1182,6 +1182,7 @@ dependencies = [
  "zo-core",
  "zo-session",
  "zo-tokenizer",
+ "zo-ty",
 ]
 
 [[package]]

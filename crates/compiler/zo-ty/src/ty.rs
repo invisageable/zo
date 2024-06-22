@@ -23,6 +23,41 @@ impl Ty {
   }
 
   #[inline]
+  pub fn infer(span: Span) -> Self {
+    Self::new(TyKind::Infer, span)
+  }
+
+  #[inline]
+  pub fn int(int: LitIntTy, span: Span) -> Self {
+    Self::new(TyKind::Int(int), span)
+  }
+
+  #[inline]
+  pub fn float(float: LitFloatTy, span: Span) -> Self {
+    Self::new(TyKind::Float(float), span)
+  }
+
+  #[inline]
+  pub fn bool(span: Span) -> Self {
+    Self::new(TyKind::Bool, span)
+  }
+
+  #[inline]
+  pub fn char(span: Span) -> Self {
+    Self::new(TyKind::Char, span)
+  }
+
+  #[inline]
+  pub fn str(span: Span) -> Self {
+    Self::new(TyKind::Str, span)
+  }
+
+  #[inline]
+  pub fn alias(alias: Symbol, span: Span) -> Self {
+    Self::new(TyKind::Alias(alias), span)
+  }
+
+  #[inline]
   pub fn var(var: usize, span: Span) -> Self {
     Self::new(TyKind::Var(var), span)
   }
@@ -51,9 +86,9 @@ pub enum TyKind {
   /// integer — `int`.
   Int(LitIntTy),
   /// float — `float`.
-  Float(FloatTy),
+  Float(LitFloatTy),
   /// identifier — `foo`, `Bar`, `foo_bar`, `BAR_FOO`.
-  Ident(Symbol),
+  Alias(Symbol),
   /// boolean — `bool`.
   Bool,
   /// character — `ch`.
@@ -130,7 +165,6 @@ pub enum UintTy {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FloatTy {
   Float,
-  F16,
   F32,
   F64,
 }
