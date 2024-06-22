@@ -49,9 +49,9 @@ pub enum TyKind {
   /// infer — `:=`.
   Infer,
   /// integer — `int`.
-  Int,
+  Int(LitIntTy),
   /// float — `float`.
-  Float,
+  Float(FloatTy),
   /// identifier — `foo`, `Bar`, `foo_bar`, `BAR_FOO`.
   Ident(Symbol),
   /// boolean — `bool`.
@@ -72,7 +72,7 @@ impl TyKind {
 
   #[inline]
   pub const fn is_numeric(&self) -> bool {
-    matches!(self, Self::Int | Self::Float)
+    matches!(self, Self::Int(..) | Self::Float(..))
   }
 
   pub fn ty_vars(&self) -> HashSet<usize> {
@@ -88,4 +88,49 @@ impl TyKind {
       _ => todo!(),
     }
   }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LitIntTy {
+  Int(IntTy),
+  Signed(SintTy),
+  Unsigned(UintTy),
+  Unsuffixed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LitFloatTy {
+  Suffixed(FloatTy),
+  Unsuffixed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum IntTy {
+  Int,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SintTy {
+  S8,
+  S16,
+  S32,
+  S64,
+  S128,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum UintTy {
+  U8,
+  U16,
+  U32,
+  U64,
+  U128,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FloatTy {
+  Float,
+  F16,
+  F32,
+  F64,
 }
