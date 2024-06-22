@@ -1,4 +1,4 @@
-//! ...
+//! The `zo` Abstract Syntax Tree module.
 
 use zo_tokenizer::token::kw::Kw;
 use zo_tokenizer::token::op::Op;
@@ -328,9 +328,9 @@ impl From<&Token> for UnOp {
 
 #[derive(Clone, Debug)]
 pub enum UnOpKind {
-  /// negative — `-`.
+  /// negation operator — `-`.
   Neg,
-  /// not — `!`.
+  /// logical inversion operator — `!`.
   Not,
 }
 
@@ -364,41 +364,41 @@ impl From<&Token> for BinOp {
 
 #[derive(Clone, Debug)]
 pub enum BinOpKind {
-  /// addition — `+`.
+  /// addition operator — `+`.
   Add,
-  /// subtraction — `-`.
+  /// subtraction operator — `-`.
   Sub,
-  /// multiplication — `*`.
+  /// multiplication operator — `*`.
   Mul,
-  /// division — `/`.
+  /// division operator — `/`.
   Div,
-  /// modulus — `%`.
+  /// modulus operator — `%`.
   Rem,
-  /// logical and — `&&`.
+  /// logical and operator — `&&`.
   And,
-  /// logical or — `||`.
+  /// logical or operator — `||`.
   Or,
-  /// bitwise and — `&`.
+  /// bitwise and operator — `&`.
   BitAnd,
-  /// bitwise or — `|`.
+  /// bitwise or operator — `|`.
   BitOr,
-  /// bitwise xor — `^`.
+  /// bitwise xor operator — `^`.
   BitXor,
-  /// less than — `<`.
+  /// less than operator — `<`.
   Lt,
-  /// greater than — `>`.
+  /// greater than operator — `>`.
   Gt,
-  /// less than or equal — `<=`.
+  /// less than or equal operator — `<=`.
   Le,
-  /// greater than or equal — `>=`.
+  /// greater than or equal operator — `>=`.
   Ge,
-  /// equality — `==`.
+  /// equality operator — `==`.
   Eq,
-  /// not equal — `!=`.
+  /// not equal operator — `!=`.
   Ne,
-  /// shift left — `<<`.
+  /// shift left operator — `<<`.
   Shl,
-  /// shift right — `>>`.
+  /// shift right operator — `>>`.
   Shr,
 }
 

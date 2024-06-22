@@ -1,4 +1,4 @@
-//! ...
+//! The pretty print of the `zo` AST module.
 
 use super::ast::{
   Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Input, Inputs,
