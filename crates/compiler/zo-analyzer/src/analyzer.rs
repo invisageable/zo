@@ -6,7 +6,6 @@ use zo_session::session::Session;
 
 use zo_core::Result;
 
-#[derive(Debug)]
 struct Analyzer;
 
 impl Analyzer {

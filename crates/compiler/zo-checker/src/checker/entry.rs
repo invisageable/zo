@@ -13,7 +13,6 @@ use zo_core::Result;
 
 const ENTRY_NAME: &str = "main";
 
-#[derive(Debug)]
 struct EntryChecker<'ast> {
   interner: &'ast mut Interner,
   reporter: &'ast Reporter,

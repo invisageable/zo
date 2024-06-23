@@ -321,6 +321,7 @@ pub enum ValueKind {
   Var(Var),
   /// function — `fun foo() {}`.
   Fun(Prototype, Block),
+  /// while instruction value — `while true {..}`.
   While(Box<Value>, Block),
 }
 

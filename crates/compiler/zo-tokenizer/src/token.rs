@@ -9,8 +9,8 @@ pub mod punctuation;
 use group::Group;
 use kw::Kw;
 use op::Op;
-
 use punctuation::Punctuation;
+
 use zo_core::interner::symbol::Symbol;
 use zo_core::span::Span;
 

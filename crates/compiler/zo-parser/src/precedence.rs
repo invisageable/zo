@@ -1,7 +1,7 @@
 use zo_tokenizer::token::Token;
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub(super) enum Precedence {
+pub(crate) enum Precedence {
   /// low level precedence.
   Low,
   /// `+=`.   

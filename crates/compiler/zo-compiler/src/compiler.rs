@@ -7,7 +7,7 @@ use zo_session::session::Session;
 use zo_core::mpsc::receiver::Receiver;
 use zo_core::Result;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Compiler {
   phases: Vec<Phase>,
 }
@@ -44,5 +44,11 @@ impl Compiler {
   #[inline]
   pub fn finish<T>(&self, receiver: Receiver<T>) -> Result<T> {
     receiver.recv()
+  }
+}
+
+impl Default for Compiler {
+  fn default() -> Self {
+    Self::new()
   }
 }

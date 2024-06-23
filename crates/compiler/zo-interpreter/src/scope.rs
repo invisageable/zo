@@ -7,7 +7,7 @@ use zo_core::interner::symbol::Symbol;
 use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Scope {
   vars: HashMap<Symbol, Value>,
   funs: HashMap<Symbol, Value>,
@@ -67,7 +67,13 @@ impl Scope {
   }
 }
 
-#[derive(Default, Debug)]
+impl Default for Scope {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+#[derive(Debug)]
 pub struct ScopeMap {
   scopes: std::collections::LinkedList<Scope>,
 }
@@ -138,5 +144,11 @@ impl ScopeMap {
     }
 
     None
+  }
+}
+
+impl Default for ScopeMap {
+  fn default() -> Self {
+    Self::new()
   }
 }

@@ -23,7 +23,7 @@ use zo_core::{Result, EXIT_FAILURE, EXIT_SUCCESS};
 use clap::Parser;
 use smol_str::SmolStr;
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 pub(crate) struct Build {
   #[clap(short, long, default_value = "false")]
   verbose: bool,

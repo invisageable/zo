@@ -10,7 +10,7 @@ pub(crate) trait Handle {
   fn handle(&self);
 }
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[clap(about, author, name = "\nzo")]
 pub(crate) struct Cmd {
   #[clap(subcommand)]
@@ -33,7 +33,7 @@ impl Cmd {
   }
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub(crate) enum Command {
   /// build a program.
   Build(build::Build),
