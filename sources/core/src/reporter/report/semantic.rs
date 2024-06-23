@@ -1,6 +1,8 @@
 //! ...
 
-use super::{Error, Report, ReportKind, REPORT_TITLE_WARNING};
+use super::{
+  Error, Report, ReportKind, REPORT_TITLE_ERROR, REPORT_TITLE_WARNING,
+};
 
 use crate::color;
 use crate::span::Span;
@@ -46,7 +48,24 @@ impl Error for Semantic {
         ..Default::default()
       },
       Self::NoArgsEntry(span) => todo!("{span}"),
-      Self::NotFoundEntry(span, string) => todo!("{span}-{string}"),
+      Self::NotFoundEntry(span, pathname) => Report {
+        kind: ReportKind::Error(&REPORT_TITLE_ERROR),
+        message: format!(
+          "{} {}",
+          "`main`".fg(color::hint()),
+          "function not found.".fg(color::title()),
+        ).into(),
+        labels: vec![(
+          *span,
+          format!("to compile, i need an entry point, add a `main` function to {pathname}").into(),
+          color::error(),
+        )],
+        notes: vec![format!(
+          "🤖 add the following code {} to your entry file",
+          "`fun main() {}`".fg(color::note()),
+        ).into()],
+        ..Default::default()
+      },
       Self::NotFoundFun(span, string) => todo!("{span}-{string}"),
       Self::NotFoundIdent(span, string) => todo!("{span}-{string}"),
       Self::OutOfLoop(name) => todo!("{name}"),
