@@ -7,8 +7,8 @@ use super::scope::ScopeMap;
 
 use zo_ast::ast::{
   Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Item,
-  ItemKind, Lit, LitKind, Prototype, Stmt, StmtKind, TyAlias, UnOp, UnOpKind,
-  Var,
+  ItemKind, Lit, LitKind, Prototype, Stmt, StmtKind, Struct, StructExpr,
+  TyAlias, UnOp, UnOpKind, Var,
 };
 
 use zo_value::builtin::BuiltinFn;
@@ -27,6 +27,7 @@ use zo_core::Result;
 use hashbrown::HashMap;
 use smol_str::{SmolStr, ToSmolStr};
 
+#[derive(Debug)]
 pub struct Interpreter<'ast> {
   interner: &'ast mut Interner,
   reporter: &'ast Reporter,
@@ -83,6 +84,7 @@ impl<'ast> Interpreter<'ast> {
       ItemKind::Var(var) => self.interpret_item_var(var),
       ItemKind::TyAlias(ty_alias) => self.interpret_item_ty_alias(ty_alias),
       ItemKind::Ext(ext) => self.interpret_item_ext(ext),
+      ItemKind::Struct(structure) => self.interpret_item_struct(structure),
       ItemKind::Fun(fun) => self.interpret_item_fun(fun),
     }
   }
@@ -96,6 +98,10 @@ impl<'ast> Interpreter<'ast> {
   }
 
   fn interpret_item_ext(&mut self, _ext: &Ext) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_struct(&mut self, _structure: &Struct) -> Result<Value> {
     todo!()
   }
 
@@ -165,6 +171,12 @@ impl<'ast> Interpreter<'ast> {
       ExprKind::Array(elmts) => self.interpret_expr_array(elmts, expr.span),
       ExprKind::ArrayAccess(indexed, index) => {
         self.interpret_expr_array_access(indexed, index, expr.span)
+      }
+      ExprKind::Struct(structure) => {
+        self.interpret_expr_struct(structure, expr.span)
+      }
+      ExprKind::StructAccess(structure, prop) => {
+        self.interpret_expr_struct_access(structure, prop, expr.span)
       }
       ExprKind::Record(pairs) => self.interpret_expr_record(pairs, expr.span),
       ExprKind::RecordAccess(record, prop) => {
@@ -1077,6 +1089,23 @@ impl<'ast> Interpreter<'ast> {
         index.to_string(),
       ))),
     }
+  }
+
+  fn interpret_expr_struct(
+    &mut self,
+    _structure: &StructExpr,
+    _span: Span,
+  ) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_expr_struct_access(
+    &mut self,
+    _structure: &Expr,
+    _prop: &Expr,
+    _span: Span,
+  ) -> Result<Value> {
+    todo!()
   }
 
   fn interpret_expr_record(

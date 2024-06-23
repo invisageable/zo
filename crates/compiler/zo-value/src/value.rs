@@ -331,7 +331,7 @@ impl ValueKind {
     match self {
       Self::Bool(boolean) => *boolean,
       Self::Unit => false,
-      _ => false,
+      _ => true,
     }
   }
 }
