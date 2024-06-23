@@ -1,9 +1,10 @@
 //! The pretty print of the `zo` AST module.
 
 use super::ast::{
-  Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Input, Inputs,
-  Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind,
-  Prototype, Stmt, StmtKind, TyAlias, UnOp, UnOpKind, Var, VarKind,
+  Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Field, Fields, Fun,
+  Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy,
+  Pattern, PatternKind, Prototype, Stmt, StmtKind, Struct, StructExpr, TyAlias,
+  UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_core::fmt::{sep_comma, sep_newline};
@@ -45,6 +46,7 @@ impl std::fmt::Display for ItemKind {
       Self::Var(var) => write!(f, "{var}"),
       Self::TyAlias(ty_alias) => write!(f, "{ty_alias}"),
       Self::Ext(ext) => write!(f, "{ext}"),
+      Self::Struct(structure) => write!(f, "{structure}"),
       Self::Fun(fun) => write!(f, "{fun}"),
     }
   }
@@ -71,6 +73,24 @@ impl std::fmt::Display for Ext {
       .as_ref()
       .map(|body| write!(f, " {body}"))
       .unwrap_or(write!(f, ";"))
+  }
+}
+
+impl std::fmt::Display for Struct {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "struct {} {}", self.ident, self.fields)
+  }
+}
+
+impl std::fmt::Display for Fields {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}", sep_comma(&self.0))
+  }
+}
+
+impl std::fmt::Display for Field {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}: {}", self.ident, self.ty)
   }
 }
 
@@ -113,10 +133,20 @@ impl std::fmt::Display for ExprKind {
         write!(f, "{assignee} {binop} {value}")
       }
       Self::Block(block) => write!(f, "{block}"),
-      Self::Fn(prototype, block) => writeln!(f, "fn {prototype} -> {block}"),
-      Self::Call(callee, args) => writeln!(f, "{callee}({args})"),
+      Self::Fn(prototype, block) => {
+        write!(f, "fn {prototype} ")?;
+
+        if block.len() == 1 {
+          return write!(f, "-> {}", block[0]);
+        }
+
+        write!(f, "{block}")
+      }
+      Self::Call(callee, args) => write!(f, "{callee}({args})"),
       Self::Array(elmts) => write!(f, "{}", sep_comma(elmts)),
       Self::ArrayAccess(indexed, index) => write!(f, "{indexed}[{index}]"),
+      Self::Struct(structure) => write!(f, "{:?}", structure),
+      Self::StructAccess(structure, prop) => write!(f, "{structure}.{prop}]"),
       Self::Record(pairs) => write!(f, "{:?}", pairs),
       Self::RecordAccess(record, prop) => write!(f, "{record}.{prop}]"),
       Self::IfElse(condition, consequence, maybe_alternative) => {
@@ -287,5 +317,17 @@ impl std::fmt::Display for VarKind {
       VarKind::Mut => write!(f, "mut"),
       VarKind::Val => write!(f, "val"),
     }
+  }
+}
+
+impl std::fmt::Display for StructExpr {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    todo!()
+  }
+}
+
+impl std::fmt::Display for Ident {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "${}", self.name)
   }
 }

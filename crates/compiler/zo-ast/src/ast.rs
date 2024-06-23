@@ -8,6 +8,10 @@ use zo_ty::ty::Ty;
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
 
+/// The representation of an node id in an AST node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeId(pub usize);
+
 #[derive(Clone, Debug)]
 pub enum Pub {
   Yes(Span),
@@ -52,6 +56,7 @@ impl Symbolize for PatternKind {
   }
 }
 
+/// The representation of an abstract syntax tree.
 #[derive(Clone, Debug, Default)]
 pub struct Ast {
   pub stmts: Vec<Stmt>,
@@ -105,6 +110,7 @@ impl std::ops::Deref for Ast {
   }
 }
 
+/// The representation of a item.
 #[derive(Clone, Debug)]
 pub struct Item {
   pub kind: ItemKind,
@@ -119,10 +125,13 @@ pub enum ItemKind {
   TyAlias(TyAlias),
   /// `ext foobar(x: int);`, `ext foobar(x: int) { ... }`.
   Ext(Ext),
+  /// `struct Foo { x: int }`, `pub struct Foo { x: int }`.
+  Struct(Struct),
   /// `fun foo(x: int): int { ... }`, `pub fun foo(x: int): int { ... }`.
   Fun(Fun),
 }
 
+/// The representation of an type alias — `type Foo = int`.
 #[derive(Clone, Debug)]
 pub struct TyAlias {
   pub pubness: Pub,
@@ -131,6 +140,7 @@ pub struct TyAlias {
   pub span: Span,
 }
 
+/// The representation of a extern — `ext foo() { .. }`.
 #[derive(Clone, Debug)]
 pub struct Ext {
   pub pubness: Pub,
@@ -139,6 +149,61 @@ pub struct Ext {
   pub span: Span,
 }
 
+/// The representation of a structure — `struct Foo { .. }`.
+#[derive(Clone, Debug)]
+pub struct Struct {
+  pub ident: Ident,
+  pub fields: Fields,
+  pub span: Span,
+}
+
+/// The representation of fields in a structure.
+#[derive(Clone, Debug)]
+pub struct Fields(pub Vec<Field>);
+
+impl Fields {
+  /// no allocation.
+  #[inline]
+  pub fn new() -> Self {
+    Self(Vec::with_capacity(0usize))
+  }
+
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.0.is_empty()
+  }
+
+  #[inline]
+  pub fn add_field(&mut self, field: Field) {
+    self.0.push(field)
+  }
+}
+
+impl Default for Fields {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+impl std::ops::Deref for Fields {
+  type Target = Vec<Field>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+/// The representation of field.
+///
+/// `x: int` or `x = 0`.
+#[derive(Clone, Debug)]
+pub struct Field {
+  pub ident: Ident,
+  pub ty: Ty,
+  pub span: Span,
+}
+
+/// The representation of a extern — `fun foo() { .. }`.
 #[derive(Clone, Debug)]
 pub struct Fun {
   pub prototype: Prototype,
@@ -146,6 +211,7 @@ pub struct Fun {
   pub span: Span,
 }
 
+/// The representation of a statement.
 #[derive(Clone, Debug)]
 pub struct Stmt {
   pub kind: StmtKind,
@@ -154,8 +220,7 @@ pub struct Stmt {
 
 #[derive(Clone, Debug)]
 pub enum StmtKind {
-  /// immutable variable — `imu foo: int = 123;`.
-  /// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`.
+  /// variable.
   Var(Var),
   /// item.
   Item(Box<Item>),
@@ -163,6 +228,10 @@ pub enum StmtKind {
   Expr(Box<Expr>),
 }
 
+/// The representation of a variable.
+///
+/// immutable variable — `imu foo: int = 123;`.
+/// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`.
 #[derive(Clone, Debug)]
 pub struct Var {
   pub pubness: Pub,
@@ -203,6 +272,7 @@ impl From<Option<&Token>> for VarKind {
   }
 }
 
+/// The representation of an expression.
 #[derive(Clone, Debug)]
 pub struct Expr {
   pub kind: ExprKind,
@@ -237,6 +307,10 @@ pub enum ExprKind {
   Array(Vec<Expr>),
   /// array access (index) — `foo[0]`.
   ArrayAccess(Box<Expr>, Box<Expr>),
+  /// structure — `{ x = 1, y = 2 }`.
+  Struct(StructExpr),
+  /// structure access (dot) — `foo.x`.
+  StructAccess(Box<Expr>, Box<Expr>),
   /// record — `{ x = 1, y = 2 }`.
   Record(Vec<(Expr, Expr)>),
   /// record access (dot) — `foo.x`.
@@ -268,6 +342,7 @@ impl Symbolize for ExprKind {
   }
 }
 
+/// The representation of a literal.
 #[derive(Clone, Debug)]
 pub struct Lit {
   pub kind: LitKind,
@@ -309,6 +384,7 @@ impl Symbolize for LitKind {
   }
 }
 
+/// The representation of a unary operator.
 #[derive(Clone, Debug)]
 pub struct UnOp {
   pub kind: UnOpKind,
@@ -345,6 +421,7 @@ impl From<Op> for UnOpKind {
   }
 }
 
+/// The representation of a binary operator.
 #[derive(Clone, Debug)]
 pub struct BinOp {
   pub kind: BinOpKind,
@@ -429,6 +506,7 @@ impl From<Op> for BinOpKind {
   }
 }
 
+/// The representation of a block — `{..}`.
 #[derive(Clone, Debug)]
 pub struct Block {
   pub stmts: Vec<Stmt>,
@@ -483,6 +561,7 @@ impl std::ops::Deref for Block {
   }
 }
 
+/// The representation of a prototype — `foo(x: int) -> int`.
 #[derive(Clone, Debug)]
 pub struct Prototype {
   pub pattern: Pattern,
@@ -558,6 +637,7 @@ impl Symbolize for Input {
   }
 }
 
+/// The representation of an output type.
 #[derive(Clone, Debug)]
 pub enum OutputTy {
   /// returns `()`.
@@ -626,5 +706,19 @@ impl std::ops::Deref for Args {
 #[derive(Clone, Debug)]
 pub struct Arg {
   pub expr: Expr,
+  pub span: Span,
+}
+
+/// The representation of a structure expression — `{x = 1, y = 1}`.
+#[derive(Clone, Debug)]
+pub struct StructExpr {
+  pub pattern: Pattern,
+  pub fields: Fields,
+}
+
+/// The representation of an identifier.
+#[derive(Copy, Clone, Debug)]
+pub struct Ident {
+  pub name: Symbol,
   pub span: Span,
 }
