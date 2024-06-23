@@ -8,7 +8,7 @@ use zo_core::interner::Interner;
 use zo_core::reporter::report::semantic::Semantic;
 use zo_core::reporter::report::ReportError;
 use zo_core::reporter::Reporter;
-use zo_core::span::AsSpan;
+use zo_core::span::{AsSpan, Span};
 use zo_core::Result;
 
 const ENTRY_NAME: &str = "main";
@@ -26,10 +26,12 @@ impl<'ast> EntryChecker<'ast> {
 
   fn check(&mut self, ast: &Ast) -> Result<()> {
     if !ast.iter().any(|stmt| self.check_entry(stmt)) {
+      let span = ast.as_span();
+
       self
         .reporter
         .add_report(ReportError::Semantic(Semantic::NotFoundEntry(
-          ast.as_span(),
+          Span::of(span.hi, span.hi + 1),
           ENTRY_NAME.to_string(),
         )))
     }
