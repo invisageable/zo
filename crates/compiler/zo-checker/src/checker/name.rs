@@ -1,8 +1,9 @@
 //! ...
 
 use zo_ast::ast::{
-  Args, Ast, BinOp, Block, Expr, ExprKind, Ext, Fun, Inputs, Item, ItemKind,
-  Lit, OutputTy, Pattern, Prototype, Stmt, StmtKind, Struct, TyAlias, Var,
+  Args, Ast, BinOp, Block, Expr, ExprKind, Ext, Field, Fields, Fun, Inputs,
+  Item, ItemKind, Lit, OutputTy, Pattern, Prototype, Stmt, StmtKind, Struct,
+  TyAlias, Var,
 };
 
 use zo_session::session::Session;
@@ -79,8 +80,29 @@ impl<'ast> NameChecker<'ast> {
     todo!()
   }
 
-  fn check_item_struct(&mut self, _structure: &Struct) -> Result<()> {
-    todo!()
+  fn check_item_struct(&mut self, strct: &Struct) -> Result<()> {
+    let name = self.interner.lookup_ident(strct.ident.name);
+
+    self.verify_pascal_case(strct.span, name)?;
+    self.check_fields(&strct.fields)
+  }
+
+  fn check_fields(&mut self, fields: &Fields) -> Result<()> {
+    for field in fields.iter() {
+      self.check_field(field)?;
+    }
+
+    Ok(())
+  }
+
+  // field `ident` property should be renamed `key`.
+  // field `ty` should be verify and impl the `Symbolize` trait.
+  fn check_field(&mut self, field: &Field) -> Result<()> {
+    let name = self.interner.lookup_ident(field.ident.name);
+
+    self.verify_snake_case(field.ident.span, name)?;
+
+    Ok(())
   }
 
   fn check_item_fun(&mut self, fun: &Fun) -> Result<()> {
