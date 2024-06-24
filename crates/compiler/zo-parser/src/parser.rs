@@ -264,7 +264,41 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn parse_ty_fn(&mut self) -> Result<Ty> {
-    todo!()
+    let lo = self.current_span();
+
+    self.next();
+
+    let inputs = self.parse_ty_fn_inputs()?;
+    let output = self.parse_ty_fn_output()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Ty::closure(inputs, output, span))
+  }
+
+  fn parse_ty_fn_inputs(&mut self) -> Result<Vec<Ty>> {
+    let mut tys = Vec::with_capacity(0usize);
+
+    while !self.ensure_peek(TokenKind::Group(Group::ParenClose)) {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      tys.push(self.parse_ty_type()?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::ParenClose))?;
+
+    Ok(tys)
+  }
+
+  fn parse_ty_fn_output(&mut self) -> Result<Ty> {
+    let output = self.parse_ty()?;
+
+    Ok(output)
   }
 
   fn parse_ty_infer(&mut self) -> Result<Ty> {

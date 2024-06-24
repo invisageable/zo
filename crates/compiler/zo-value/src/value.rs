@@ -322,11 +322,11 @@ pub enum ValueKind {
   Builtin(BuiltinFn),
   /// array — `[1, 2, 3, 4]`.
   Array(Array),
-  /// structure — `Foo { x: 1, y: 1}`.
+  /// structure — `struct Foo { x: 1, y: 1 }`.
   Struct(Ident, Fields),
-  /// structure — `{ x = 1, y = 1}`.
+  /// structure expression — `{ x = 1, y = 1 }`.
   StructExpr(HashMap<StructExprKey, Value>),
-  /// variable — `imu foo = 1;`, `mut bar = 1`.
+  /// variable — `imu foo: int = 1;`, `mut bar := 1`.
   Var(Var),
   /// function — `fun foo() {}`.
   Fun(Prototype, Block),

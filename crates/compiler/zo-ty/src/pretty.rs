@@ -4,6 +4,8 @@ use super::ty::{
   FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, TyKind, UintTy,
 };
 
+use zo_core::fmt::sep_comma;
+
 impl std::fmt::Display for Ty {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(f, "{}", self.kind)
@@ -21,6 +23,9 @@ impl std::fmt::Display for TyKind {
       Self::Char => write!(f, "char"),
       Self::Str => write!(f, "str"),
       Self::Var(var) => write!(f, "{var}"),
+      Self::Fn(inputs, output) => {
+        write!(f, "fn ({}) -> {output}", sep_comma(inputs))
+      }
       _ => todo!(),
     }
   }

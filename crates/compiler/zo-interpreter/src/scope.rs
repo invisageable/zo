@@ -12,6 +12,7 @@ use hashbrown::HashMap;
 pub struct Scope {
   vars: HashMap<Symbol, Value>,
   funs: HashMap<Symbol, Value>,
+  structs: HashMap<Symbol, Value>,
   tys: HashMap<Symbol, Ty>,
 }
 
@@ -21,6 +22,7 @@ impl Scope {
     Self {
       vars: HashMap::with_capacity(0usize),
       funs: HashMap::with_capacity(0usize),
+      structs: HashMap::with_capacity(0usize),
       tys: HashMap::with_capacity(0usize),
     }
   }
@@ -49,6 +51,20 @@ impl Scope {
     }
   }
 
+  pub fn add_struct(
+    &mut self,
+    name: Symbol,
+    value: Value,
+  ) -> Result<(), String> {
+    match self.structs.entry(name) {
+      Entry::Occupied(_) => Err(format!("the struct `{name}` already exist.")),
+      Entry::Vacant(structs) => {
+        structs.insert(value);
+        Ok(())
+      }
+    }
+  }
+
   pub fn add_ty(&mut self, name: Symbol, ty: Ty) -> Result<(), String> {
     match self.tys.entry(name) {
       Entry::Occupied(_) => Err(format!("the ty `{name}` already exist.")),
@@ -70,6 +86,11 @@ impl Scope {
   }
 
   #[inline]
+  pub fn set_struct(&mut self, name: Symbol, value: Value) {
+    self.structs.insert(name, value);
+  }
+
+  #[inline]
   pub fn set_ty(&mut self, name: Symbol, ty: Ty) {
     self.tys.insert(name, ty);
   }
@@ -82,6 +103,11 @@ impl Scope {
   #[inline]
   pub fn fun(&self, name: &Symbol) -> Option<&Value> {
     self.funs.get(name)
+  }
+
+  #[inline]
+  pub fn strctr(&self, name: &Symbol) -> Option<&Value> {
+    self.structs.get(name)
   }
 
   #[inline]
@@ -133,6 +159,24 @@ impl ScopeMap {
     }
   }
 
+  pub fn add_struct(
+    &mut self,
+    name: Symbol,
+    value: Value,
+  ) -> Result<(), String> {
+    match self.scopes.front_mut() {
+      Some(scope) => scope.add_struct(name, value),
+      None => Err(format!("The structure `{name}` already exist.")),
+    }
+  }
+
+  pub fn add_ty(&mut self, name: Symbol, ty: Ty) -> Result<(), String> {
+    match self.scopes.front_mut() {
+      Some(scope) => scope.add_ty(name, ty),
+      None => Err(format!("The type `{name}` already exist.")),
+    }
+  }
+
   pub fn set_var(&mut self, name: Symbol, value: Value) -> Result<(), String> {
     match self.scopes.front_mut() {
       Some(scope) => Ok(scope.set_var(name, value)),
@@ -150,7 +194,7 @@ impl ScopeMap {
   pub fn set_ty(&mut self, name: Symbol, ty: Ty) -> Result<(), String> {
     match self.scopes.front_mut() {
       Some(scope) => Ok(scope.set_ty(name, ty)),
-      None => Err(format!("set_fun error not implemented yet.")),
+      None => Err(format!("set_ty error not implemented yet.")),
     }
   }
 
@@ -168,6 +212,17 @@ impl ScopeMap {
   pub fn fun(&self, name: &Symbol) -> Option<&Value> {
     for scope in self.scopes.iter() {
       match scope.fun(name) {
+        Some(fun) => return Some(fun),
+        None => continue,
+      };
+    }
+
+    None
+  }
+
+  pub fn strctr(&self, name: &Symbol) -> Option<&Value> {
+    for scope in self.scopes.iter() {
+      match scope.strctr(name) {
         Some(fun) => return Some(fun),
         None => continue,
       };

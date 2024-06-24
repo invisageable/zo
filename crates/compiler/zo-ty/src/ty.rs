@@ -5,7 +5,7 @@ use zo_core::span::Span;
 
 use hashbrown::HashSet;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Ty {
   pub kind: TyKind,
   pub span: Span,
@@ -63,6 +63,11 @@ impl Ty {
   }
 
   #[inline]
+  pub fn closure(inputs: Vec<Ty>, output: Ty, span: Span) -> Self {
+    Self::new(TyKind::Fn(inputs, Box::new(output)), span)
+  }
+
+  #[inline]
   pub fn is(&self, kind: TyKind) -> bool {
     self.kind.is(kind)
   }
@@ -77,7 +82,7 @@ impl Ty {
   }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TyKind {
   /// unit — `()`.
   Unit,
@@ -97,6 +102,8 @@ pub enum TyKind {
   Str,
   /// variable.
   Var(usize),
+  /// closure — `fn()`, `fn(int): int`.
+  Fn(Vec<Ty>, Box<Ty>),
 }
 
 impl TyKind {

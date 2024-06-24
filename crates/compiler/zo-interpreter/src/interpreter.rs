@@ -105,7 +105,7 @@ impl<'ast> Interpreter<'ast> {
 
     self
       .scope_map
-      .add_fun(strctr.ident.name, value.to_owned())
+      .add_struct(strctr.ident.name, value.to_owned())
       .unwrap();
 
     Ok(value)
@@ -247,10 +247,11 @@ impl<'ast> Interpreter<'ast> {
       return Ok(var.to_owned());
     } else if let Some(fun) = self.scope_map.fun(symbol) {
       return Ok(fun.to_owned());
+    } else if let Some(strctr) = self.scope_map.strctr(symbol) {
+      return Ok(strctr.to_owned());
     }
 
-    // it should be better to adds a scope for `struct` because actually we are
-    // not able to throw an error when an identifier is not recognized.
+    // tmp.
     Ok(Value::ident(*symbol, span))
 
     // let ident = self.interner.lookup_ident(symbol);

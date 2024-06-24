@@ -325,7 +325,7 @@ pub enum ExprKind {
   Break(Option<Box<Expr>>),
   /// exit continue — `continue`.
   Continue,
-  /// variable — `imu foo := 0`, `mut foo := 0`.
+  /// variable — `imu foo : int = 0`, `mut foo := 0`.
   Var(Var),
 }
 

@@ -251,11 +251,7 @@ impl std::fmt::Display for Block {
 
 impl std::fmt::Display for Prototype {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(
-      f,
-      "{} ({}) -> {}",
-      self.pattern, self.inputs, self.output_ty
-    )
+    write!(f, "{} ({}): {}", self.pattern, self.inputs, self.output_ty)
   }
 }
 

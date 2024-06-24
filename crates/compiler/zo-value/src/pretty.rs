@@ -21,7 +21,12 @@ impl std::fmt::Display for ValueKind {
       Self::Char(ch) => write!(f, "'{ch}'"),
       Self::Str(string) => write!(f, "\"{string}\""),
       Self::Fn(prototype, block) => {
-        write!(f, "fn {prototype} ")?;
+        write!(
+          f,
+          "fn ({}): {} ",
+          sep_comma(&prototype.inputs),
+          prototype.output_ty
+        )?;
 
         if block.len() == 1 {
           return write!(f, "-> {}", block[0]);
