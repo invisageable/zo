@@ -1,6 +1,6 @@
 //! ...
 
-use super::value::{RecordKey, Value, ValueKind, Var};
+use super::value::{RecordKey, StructExprKey, Value, ValueKind, Var};
 
 use zo_core::fmt::sep_comma;
 
@@ -44,6 +44,16 @@ impl std::fmt::Display for ValueKind {
       }
       Self::Var(var) => write!(f, "{var}"),
       Self::Struct(ident, fields) => write!(f, "struct {ident} {fields}"),
+      Self::StructExpr(pairs) => {
+        let mut pairs = pairs
+          .iter()
+          .map(|(key, value)| format!("{key} = {value}"))
+          .collect::<Vec<String>>();
+
+        pairs.sort();
+
+        write!(f, "{{ {} }}", sep_comma(&pairs))
+      }
       Self::Fun(prototype, block) => write!(f, "fun {prototype} {block}"),
       Self::While(condition, body) => write!(f, "while {condition} {body}"),
     }
@@ -51,6 +61,14 @@ impl std::fmt::Display for ValueKind {
 }
 
 impl std::fmt::Display for RecordKey {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Ident(ident) => write!(f, "{ident}"),
+    }
+  }
+}
+
+impl std::fmt::Display for StructExprKey {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::Ident(ident) => write!(f, "{ident}"),

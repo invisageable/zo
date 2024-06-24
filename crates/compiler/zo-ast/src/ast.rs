@@ -712,8 +712,7 @@ pub struct Arg {
 /// The representation of a structure expression — `{ x = 1, y = 1 }`.
 #[derive(Clone, Debug)]
 pub struct StructExpr {
-  pub pattern: Pattern,
-  pub fields: Fields,
+  pub pairs: Vec<(Expr, Expr)>,
 }
 
 /// The representation of an identifier.

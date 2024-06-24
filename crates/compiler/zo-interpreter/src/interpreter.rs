@@ -14,7 +14,7 @@ use zo_ast::ast::{
 use zo_value::builtin::BuiltinFn;
 use zo_value::value;
 use zo_value::value::RecordKey;
-use zo_value::value::{Array, Value, ValueKind};
+use zo_value::value::{Array, StructExprKey, Value, ValueKind};
 
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::interner::Interner;
@@ -1100,10 +1100,20 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_struct(
     &mut self,
-    _structure: &StructExpr,
-    _span: Span,
+    strctr: &StructExpr,
+    span: Span,
   ) -> Result<Value> {
-    todo!()
+    let mut record = HashMap::new();
+
+    for (key, value) in strctr.pairs.iter() {
+      let key = self.interpret_expr(key)?;
+      let value = self.interpret_expr(value)?;
+      let record_key = RecordKey::from(&key);
+
+      record.insert(record_key, value);
+    }
+
+    Ok(Value::record(record, span))
   }
 
   fn interpret_expr_struct_access(
@@ -1125,12 +1135,12 @@ impl<'ast> Interpreter<'ast> {
     for (key, value) in pairs {
       let key = self.interpret_expr(key)?;
       let value = self.interpret_expr(value)?;
-      let record_key = RecordKey::from(&key);
+      let record_key = StructExprKey::from(&key);
 
       record.insert(record_key, value);
     }
 
-    Ok(Value::record(record, span))
+    Ok(Value::strctr_expr(record, span))
   }
 
   fn interpret_expr_record_access(

@@ -95,6 +95,11 @@ impl Value {
   }
 
   #[inline]
+  pub fn strctr_expr(pairs: HashMap<StructExprKey, Value>, span: Span) -> Self {
+    Self::new(ValueKind::StructExpr(pairs), span)
+  }
+
+  #[inline]
   pub fn fun(prototype: Prototype, block: Block, span: Span) -> Self {
     Self::new(ValueKind::Fn(prototype, block), span)
   }
@@ -322,8 +327,10 @@ pub enum ValueKind {
   Builtin(BuiltinFn),
   /// array — `[1, 2, 3, 4]`.
   Array(Array),
-  /// structure — `Foo { x = 1, y = 1}`.
+  /// structure — `Foo { x: 1, y: 1}`.
   Struct(Ident, Fields),
+  /// structure — `{ x = 1, y = 1}`.
+  StructExpr(HashMap<StructExprKey, Value>),
   /// record — `{ x = 1, y = 1}`.
   Record(HashMap<RecordKey, Value>),
   /// variable — `imu foo = 1;`, `mut bar = 1`.
@@ -442,6 +449,21 @@ impl std::ops::Deref for Array {
 
   fn deref(&self) -> &Self::Target {
     &self.0
+  }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum StructExprKey {
+  /// integer key.
+  Ident(Symbol),
+}
+
+impl From<&Value> for StructExprKey {
+  fn from(value: &Value) -> StructExprKey {
+    match &value.kind {
+      ValueKind::Ident(symbol) => StructExprKey::Ident(*symbol),
+      _ => unreachable!(),
+    }
   }
 }
 

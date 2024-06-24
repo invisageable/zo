@@ -5,8 +5,8 @@ use super::precedence::Precedence;
 use zo_ast::ast::{
   Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Field, Fields, Fun,
   Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy,
-  Pattern, PatternKind, Prototype, Pub, Stmt, StmtKind, Struct, UnOp, Var,
-  VarKind,
+  Pattern, PatternKind, Prototype, Pub, Stmt, StmtKind, Struct, StructExpr,
+  UnOp, Var, VarKind,
 };
 
 use zo_session::session::Session;
@@ -609,7 +609,7 @@ impl<'tokens> Parser<'tokens> {
       }
       TokenKind::Group(Group::ParenOpen) => Some(Self::parse_expr_group),
       TokenKind::Group(Group::BracketOpen) => Some(Self::parse_expr_array),
-      TokenKind::Group(Group::BraceOpen) => Some(Self::parse_expr_record),
+      TokenKind::Group(Group::BraceOpen) => Some(Self::parse_expr_struct_expr),
       TokenKind::Kw(Kw::Fn) => Some(Self::parse_expr_fn),
       TokenKind::Kw(Kw::If) => Some(Self::parse_expr_if_else),
       TokenKind::Kw(Kw::When) => Some(Self::parse_expr_when),
@@ -806,7 +806,7 @@ impl<'tokens> Parser<'tokens> {
     Ok(exprs)
   }
 
-  fn parse_expr_record(parser: &mut Parser) -> Result<Expr> {
+  fn parse_expr_struct_expr(parser: &mut Parser) -> Result<Expr> {
     let mut pairs = vec![];
     let lo = parser.current_span();
 
@@ -833,7 +833,7 @@ impl<'tokens> Parser<'tokens> {
     let hi = parser.current_span();
 
     Ok(Expr {
-      kind: ExprKind::Record(pairs),
+      kind: ExprKind::Struct(StructExpr { pairs }),
       span: Span::merge(lo, hi),
     })
   }
