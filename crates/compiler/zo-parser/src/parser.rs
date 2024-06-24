@@ -3,9 +3,10 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Inputs,
-  Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind,
-  Prototype, Pub, Stmt, StmtKind, UnOp, Var, VarKind,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Field, Fields, Fun,
+  Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy,
+  Pattern, PatternKind, Prototype, Pub, Stmt, StmtKind, Struct, UnOp, Var,
+  VarKind,
 };
 
 use zo_session::session::Session;
@@ -149,6 +150,19 @@ impl<'tokens> Parser<'tokens> {
     Ok(ast)
   }
 
+  fn parse_ident(&mut self) -> Result<Ident> {
+    self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Ident(symbol) => Ok(Ident {
+          name: symbol,
+          span: token.span,
+        }),
+        _ => panic!(), // return reporter error message.
+      })
+      .unwrap()
+  }
+
   fn parse_block(&mut self) -> Result<Block> {
     let mut block = Block::new();
     let lo = self.current_span();
@@ -260,8 +274,8 @@ impl<'tokens> Parser<'tokens> {
   fn parse_ty_infer(&mut self) -> Result<Option<Ty>> {
     let span = self.current_span();
 
-    println!("CURRENT: {:?}", self.maybe_token_current);
-    println!("NEXT: {:?}", self.maybe_token_next);
+    // println!("CURRENT: {:?}", self.maybe_token_current);
+    // println!("NEXT: {:?}", self.maybe_token_next);
 
     // self.next();
 
@@ -273,6 +287,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         TokenKind::Kw(Kw::Val) => self.parse_item_val(),
+        TokenKind::Kw(Kw::Struct) => self.parse_item_struct(),
         TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
         _ => self
           .reporter
@@ -321,6 +336,64 @@ impl<'tokens> Parser<'tokens> {
       }),
       _ => panic!(), // TODO(ivs): should returns a reporter error.
     }
+  }
+
+  fn parse_item_struct(&mut self) -> Result<Item> {
+    let lo = self.current_span();
+
+    self.next();
+
+    let ident = self.parse_ident()?;
+    let fields = self.parse_fields()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Item {
+      kind: ItemKind::Struct(Struct {
+        ident,
+        fields,
+        span,
+      }),
+      span,
+    })
+  }
+
+  fn parse_fields(&mut self) -> Result<Fields> {
+    let mut fields = Fields::new();
+
+    self.expect_peek(TokenKind::Group(Group::BraceOpen))?;
+
+    while !self.ensure_peek(TokenKind::Group(Group::BraceClose)) {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      fields.add_field(self.parse_field()?);
+
+      self.next();
+    }
+
+    Ok(fields)
+  }
+
+  fn parse_field(&mut self) -> Result<Field> {
+    self.next();
+
+    let lo = self.current_span();
+    let ident = self.parse_ident()?;
+    let ty = self.parse_ty()?;
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Field {
+      ident,
+      ty: ty.unwrap(),
+      span,
+    })
   }
 
   fn parse_item_fun(&mut self) -> Result<Item> {

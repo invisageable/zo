@@ -123,11 +123,11 @@ pub enum ItemKind {
   Var(Var),
   /// `type Foo = int;`, `pub type Foo = int;`.
   TyAlias(TyAlias),
-  /// `ext foobar(x: int);`, `ext foobar(x: int) { ... }`.
+  /// `ext foobar(x: int);`, `ext foobar(x: int) { .. }`.
   Ext(Ext),
   /// `struct Foo { x: int }`, `pub struct Foo { x: int }`.
   Struct(Struct),
-  /// `fun foo(x: int): int { ... }`, `pub fun foo(x: int): int { ... }`.
+  /// `fun foo(x: int): int { .. }`, `pub fun foo(x: int): int { .. }`.
   Fun(Fun),
 }
 
@@ -297,9 +297,9 @@ pub enum ExprKind {
   Assign(Box<Expr>, Box<Expr>),
   /// assignment operator — `foo += bar`.
   AssignOp(BinOp, Box<Expr>, Box<Expr>),
-  /// block — `{ ... }`.
+  /// block — `{ .. }`.
   Block(Block),
-  /// closure — `fn() -> ...`, `fn() { ... }`.
+  /// closure — `fn() -> ..`, `fn() { .. }`.
   Fn(Prototype, Block),
   /// call function — `foo()`, `bar(1, 2)`.
   Call(Box<Expr>, Args),
@@ -315,13 +315,13 @@ pub enum ExprKind {
   Record(Vec<(Expr, Expr)>),
   /// record access (dot) — `foo.x`.
   RecordAccess(Box<Expr>, Box<Expr>),
-  /// if else — `if foo == 2 { ... }`.
+  /// if else — `if foo == 2 { .. }`.
   IfElse(Box<Expr>, Block, Option<Box<Expr>>),
   /// ternary — `when true ? foo : bar`.
   When(Box<Expr>, Box<Expr>, Box<Expr>),
-  /// loop — `loop { ... }`.
+  /// loop — `loop { .. }`.
   Loop(Block),
-  /// while loop — `while foo < 10 { ... }`.
+  /// while loop — `while foo < 10 { .. }`.
   While(Box<Expr>, Block),
   /// exit return — `return`, `return foo`.
   Return(Option<Box<Expr>>),
@@ -709,7 +709,7 @@ pub struct Arg {
   pub span: Span,
 }
 
-/// The representation of a structure expression — `{x = 1, y = 1}`.
+/// The representation of a structure expression — `{ x = 1, y = 1 }`.
 #[derive(Clone, Debug)]
 pub struct StructExpr {
   pub pattern: Pattern,
