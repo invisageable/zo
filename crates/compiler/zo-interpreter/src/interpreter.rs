@@ -7,7 +7,7 @@ use super::scope::ScopeMap;
 
 use zo_ast::ast::{
   Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Item,
-  ItemKind, Lit, LitKind, Prototype, Stmt, StmtKind, Struct, StructExpr,
+  ItemKind, Lit, LitKind, Load, Prototype, Stmt, StmtKind, Struct, StructExpr,
   TyAlias, UnOp, UnOpKind, Var,
 };
 
@@ -80,12 +80,17 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_item(&mut self, item: &Item) -> Result<Value> {
     match &item.kind {
+      ItemKind::Load(load) => self.interpret_item_load(load),
       ItemKind::Var(var) => self.interpret_item_var(var),
       ItemKind::TyAlias(ty_alias) => self.interpret_item_ty_alias(ty_alias),
       ItemKind::Ext(ext) => self.interpret_item_ext(ext),
       ItemKind::Struct(strctr) => self.interpret_item_struct(strctr),
       ItemKind::Fun(fun) => self.interpret_item_fun(fun),
     }
+  }
+
+  fn interpret_item_load(&mut self, load: &Load) -> Result<Value> {
+    self.interpret(&load.ast)
   }
 
   fn interpret_item_var(&mut self, var: &Var) -> Result<Value> {

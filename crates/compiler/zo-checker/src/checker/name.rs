@@ -2,8 +2,8 @@
 
 use zo_ast::ast::{
   Args, Ast, BinOp, Block, Expr, ExprKind, Ext, Field, Fields, Fun, Inputs,
-  Item, ItemKind, Lit, OutputTy, Pattern, Prototype, Stmt, StmtKind, Struct,
-  StructExpr, TyAlias, Var,
+  Item, ItemKind, Lit, Load, OutputTy, Pattern, Prototype, Stmt, StmtKind,
+  Struct, StructExpr, TyAlias, Var,
 };
 
 use zo_session::session::Session;
@@ -53,12 +53,17 @@ impl<'ast> NameChecker<'ast> {
 
   fn check_item(&mut self, item: &Item) -> Result<()> {
     match &item.kind {
+      ItemKind::Load(load) => self.check_item_load(load),
       ItemKind::Var(var) => self.check_item_var(var),
       ItemKind::TyAlias(ty_alias) => self.check_item_ty_alias(ty_alias),
       ItemKind::Ext(ext) => self.check_item_ext(ext),
       ItemKind::Struct(structure) => self.check_item_struct(structure),
       ItemKind::Fun(fun) => self.check_item_fun(fun),
     }
+  }
+
+  fn check_item_load(&mut self, load: &Load) -> Result<()> {
+    self.check(&load.ast)
   }
 
   fn check_item_var(&mut self, var: &Var) -> Result<()> {

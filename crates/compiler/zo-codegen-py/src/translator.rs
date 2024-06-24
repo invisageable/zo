@@ -35,7 +35,7 @@
 
 use zo_ast::ast::{
   Ast, BinOp, BinOpKind, Expr, ExprKind, Ext, Fun, Item, ItemKind, Lit,
-  LitKind, Pattern, PatternKind, Stmt, StmtKind, Struct, TyAlias, UnOp,
+  LitKind, Load, Pattern, PatternKind, Stmt, StmtKind, Struct, TyAlias, UnOp,
   UnOpKind, Var,
 };
 
@@ -107,12 +107,17 @@ impl<'ast> Translator<'ast> {
 
   fn translate_item(&mut self, item: &Item) -> Result<()> {
     match &item.kind {
+      ItemKind::Load(load) => self.translate_item_load(load),
       ItemKind::Var(var) => self.translate_item_var(var),
       ItemKind::TyAlias(ty_alias) => self.translate_item_ty_alias(ty_alias),
       ItemKind::Ext(ext) => self.translate_item_ext(ext),
       ItemKind::Struct(structure) => self.translate_item_structure(structure),
       ItemKind::Fun(fun) => self.translate_item_fun(fun),
     }
+  }
+
+  fn translate_item_load(&mut self, load: &Load) -> Result<()> {
+    self.translate(&load.ast)
   }
 
   fn translate_item_var(&mut self, var: &Var) -> Result<()> {

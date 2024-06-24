@@ -1,11 +1,10 @@
--- should display `👋 🌍 👽`.
+-- fun main() {}
 
--- fun main() {
-  -- println("👋 🌍 👽");
--- }
+-- imu mul: fn(int, int): int = fn(x, y) -> x * y;
+-- imu mil: fn(int, int): int = fn(x, y) { x * y };
 
-imu foo = 2;
+-- mil(2, 4);
 
-foo *= 2;
+load "crates/compiler/zo-notes/samples/flow/flow.zo";
 
-foo + (4 * 5);
+imu foo: int = x + 5;

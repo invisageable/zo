@@ -159,7 +159,10 @@ impl TokenKind {
   pub fn is_item(&self) -> bool {
     matches!(
       self,
-      Self::Kw(Kw::Val) | Self::Kw(Kw::Struct) | Self::Kw(Kw::Fun)
+      Self::Kw(Kw::Load)
+        | Self::Kw(Kw::Val)
+        | Self::Kw(Kw::Struct)
+        | Self::Kw(Kw::Fun)
     )
   }
 

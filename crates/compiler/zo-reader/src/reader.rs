@@ -7,17 +7,17 @@ use zo_core::reporter::Reporter;
 use zo_core::Result;
 
 #[derive(Debug)]
-struct Reader<'bytes> {
+pub struct Reader<'bytes> {
   reporter: &'bytes mut Reporter,
 }
 
 impl<'bytes> Reader<'bytes> {
   #[inline]
-  fn new(reporter: &'bytes mut Reporter) -> Self {
+  pub fn new(reporter: &'bytes mut Reporter) -> Self {
     Self { reporter }
   }
 
-  fn read(
+  pub fn read(
     &mut self,
     pathname: impl AsRef<std::ffi::OsStr>,
   ) -> Result<Box<[u8]>> {

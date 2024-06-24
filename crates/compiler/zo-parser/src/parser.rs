@@ -4,9 +4,9 @@ use super::precedence::Precedence;
 
 use zo_ast::ast::{
   Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Field, Fields, Fun,
-  Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy,
-  Pattern, PatternKind, Prototype, Pub, Stmt, StmtKind, Struct, StructExpr,
-  UnOp, Var, VarKind,
+  Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Load, Mutability,
+  OutputTy, Pattern, PatternKind, Prototype, Pub, Stmt, StmtKind, Struct,
+  StructExpr, UnOp, Var, VarKind,
 };
 
 use zo_session::session::Session;
@@ -30,7 +30,7 @@ type ParseInfixFn = fn(&mut Parser, Expr) -> Result<Expr>;
 
 struct Parser<'tokens> {
   interner: &'tokens mut Interner,
-  reporter: &'tokens Reporter,
+  reporter: &'tokens mut Reporter,
   tokens: &'tokens [Token],
   index: usize,
   maybe_token_current: Option<&'tokens Token>,
@@ -41,7 +41,7 @@ struct Parser<'tokens> {
 impl<'tokens> Parser<'tokens> {
   fn new(
     interner: &'tokens mut Interner,
-    reporter: &'tokens Reporter,
+    reporter: &'tokens mut Reporter,
     tokens: &'tokens [Token],
   ) -> Self {
     Self {
@@ -319,6 +319,7 @@ impl<'tokens> Parser<'tokens> {
     self
       .maybe_token_current
       .map(|token| match token.kind {
+        TokenKind::Kw(Kw::Load) => self.parse_item_load(),
         TokenKind::Kw(Kw::Val) => self.parse_item_val(),
         TokenKind::Kw(Kw::Struct) => self.parse_item_struct(),
         TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
@@ -328,6 +329,59 @@ impl<'tokens> Parser<'tokens> {
             token.span,
             token.kind.to_string(),
           ))),
+      })
+      .unwrap()
+  }
+
+  // needs work — it's just a proof of concept this implementation  must be
+  // defined next time.
+  fn parse_item_load(&mut self) -> Result<Item> {
+    let lo = self.current_span();
+
+    self.next();
+
+    self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Str(symbol) => {
+          use zo_reader::reader::Reader;
+          use zo_tokenizer::tokenizer::Tokenizer;
+
+          let pathname = self.interner.lookup_ident(symbol);
+
+          // println!("\n{}", pathname);
+
+          let pathname =
+            format!("{}/{}", cargo_ws_root(), pathname.replace("\"", ""));
+
+          // println!("\n{}", pathname);
+
+          let source_bytes = Reader::new(self.reporter).read(pathname).unwrap();
+
+          // println!("\n{:?}", source_bytes);
+
+          let tokens =
+            Tokenizer::new(self.interner, self.reporter, &source_bytes)
+              .tokenize()
+              .unwrap();
+
+          // println!("\n{:?}", tokens);
+
+          let ast = Parser::new(self.interner, self.reporter, &tokens)
+            .parse()
+            .unwrap();
+
+          // println!("\n{:?}", ast);
+
+          let span = ast.as_span();
+          let hi = self.current_span();
+
+          Ok(Item {
+            kind: ItemKind::Load(Load { ast, span }),
+            span: Span::merge(lo, hi),
+          })
+        }
+        _ => panic!(),
       })
       .unwrap()
   }
@@ -1320,5 +1374,27 @@ impl<'tokens> Iterator for Parser<'tokens> {
 /// ```rs
 /// ```
 pub fn parse(session: &mut Session, tokens: &[Token]) -> Result<Ast> {
-  Parser::new(&mut session.interner, &session.reporter, tokens).parse()
+  Parser::new(&mut session.interner, &mut session.reporter, tokens).parse()
+}
+
+pub fn cargo_ws_root() -> String {
+  let program = env!("CARGO");
+
+  let output = std::process::Command::new(program)
+    .args(["locate-project", "--workspace", "--message-format=plain"])
+    .output()
+    .unwrap()
+    .stdout;
+
+  let cargo_path = std::path::Path::new(match std::str::from_utf8(&output) {
+    Ok(path) => path.trim(),
+    Err(error) => panic!("{error}"),
+  });
+
+  cargo_path
+    .parent()
+    .unwrap()
+    .to_path_buf()
+    .display()
+    .to_string()
 }

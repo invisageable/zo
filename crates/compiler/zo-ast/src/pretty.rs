@@ -2,9 +2,9 @@
 
 use super::ast::{
   Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Field, Fields, Fun,
-  Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy,
-  Pattern, PatternKind, Prototype, Stmt, StmtKind, Struct, StructExpr, TyAlias,
-  UnOp, UnOpKind, Var, VarKind,
+  Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Load, Mutability,
+  OutputTy, Pattern, PatternKind, Prototype, Stmt, StmtKind, Struct,
+  StructExpr, TyAlias, UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_core::fmt::{sep_comma, sep_newline};
@@ -43,12 +43,19 @@ impl std::fmt::Display for Item {
 impl std::fmt::Display for ItemKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
+      Self::Load(load) => write!(f, "{load}"),
       Self::Var(var) => write!(f, "{var}"),
       Self::TyAlias(ty_alias) => write!(f, "{ty_alias}"),
       Self::Ext(ext) => write!(f, "{ext}"),
       Self::Struct(strctr) => write!(f, "{strctr}"),
       Self::Fun(fun) => write!(f, "{fun}"),
     }
+  }
+}
+
+impl std::fmt::Display for Load {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "load {self:?}")
   }
 }
 

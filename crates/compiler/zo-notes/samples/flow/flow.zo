@@ -1,7 +1,9 @@
-fun square(x: int): int {
-  x * x
-}
+-- fun square(x: int): int {
+--   x * x
+-- }
 
-fun main() {
-  square(2);
-}
+-- fun main() {
+--   square(2);
+-- }
+
+imu x: int = 0;

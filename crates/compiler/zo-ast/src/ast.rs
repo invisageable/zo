@@ -119,6 +119,8 @@ pub struct Item {
 
 #[derive(Clone, Debug)]
 pub enum ItemKind {
+  /// load module — `load ".."`.
+  Load(Load),
   /// `val FOO: int = 123;`, `pub val FOO: int = 123;`.
   Var(Var),
   /// `type Foo = int;`, `pub type Foo = int;`.
@@ -129,6 +131,12 @@ pub enum ItemKind {
   Struct(Struct),
   /// `fun foo(x: int): int { .. }`, `pub fun foo(x: int): int { .. }`.
   Fun(Fun),
+}
+
+#[derive(Clone, Debug)]
+pub struct Load {
+  pub ast: Ast,
+  pub span: Span,
 }
 
 /// The representation of an type alias — `type Foo = int`.

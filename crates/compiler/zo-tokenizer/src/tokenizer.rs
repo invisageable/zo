@@ -21,7 +21,8 @@ use zo_core::reporter::Reporter;
 use zo_core::span::Span;
 use zo_core::{is, Result};
 
-struct Tokenizer<'source> {
+#[derive(Debug)]
+pub struct Tokenizer<'source> {
   interner: &'source mut Interner,
   reporter: &'source Reporter,
   source: &'source [u8],
@@ -31,7 +32,7 @@ struct Tokenizer<'source> {
 
 impl<'source> Tokenizer<'source> {
   #[inline]
-  fn new(
+  pub fn new(
     interner: &'source mut Interner,
     reporter: &'source Reporter,
     source: &'source [u8],
@@ -56,7 +57,7 @@ impl<'source> Tokenizer<'source> {
   }
 
   #[inline]
-  fn tokenize(&mut self) -> Result<Vec<Token>> {
+  pub fn tokenize(&mut self) -> Result<Vec<Token>> {
     Ok(self.collect())
   }
 
