@@ -240,7 +240,7 @@ impl<'ast> NameChecker<'ast> {
   fn check_output_ty(&mut self, output_ty: &OutputTy) -> Result<()> {
     match output_ty {
       OutputTy::Default(_) => Ok(()),
-      _ => todo!(),
+      OutputTy::Ty(_) => Ok(()),
     }
   }
 

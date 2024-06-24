@@ -557,7 +557,7 @@ impl std::ops::Deref for Block {
   }
 }
 
-/// The representation of a prototype — `foo(x: int) -> int`.
+/// The representation of a prototype — `foo(x: int): int`.
 #[derive(Clone, Debug)]
 pub struct Prototype {
   pub pattern: Pattern,
@@ -646,6 +646,7 @@ impl AsSpan for OutputTy {
   fn as_span(&self) -> Span {
     match self {
       Self::Default(span) => *span,
+      Self::Ty(ty) => ty.span,
       _ => unreachable!(),
     }
   }

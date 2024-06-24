@@ -16,6 +16,7 @@ impl std::fmt::Display for TyKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::Unit => write!(f, "()"),
+      Self::Infer => write!(f, "infer"),
       Self::Int(int) => write!(f, "{int}"),
       Self::Float(float) => write!(f, "{float}"),
       Self::Alias(alias) => write!(f, "{alias}"),

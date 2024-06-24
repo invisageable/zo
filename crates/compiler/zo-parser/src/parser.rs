@@ -213,6 +213,9 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         TokenKind::Punctuation(Punctuation::Colon) => self.parse_ty_type(),
+        TokenKind::Punctuation(Punctuation::MinusGreaterThan) => {
+          self.parse_ty_type()
+        }
         TokenKind::Op(Op::ColonEqual) => self.parse_ty_infer(),
         _ => panic!(), // return reporter error —  unexpected token.
       })
@@ -495,10 +498,20 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn parse_output_ty(&mut self) -> Result<OutputTy> {
+    if self.ensure_peek(TokenKind::Punctuation(Punctuation::MinusGreaterThan)) {
+      self.next();
+    }
+
     self
       .maybe_token_next
       .map(|token| match token.kind {
-        _ => Ok(OutputTy::Default(token.span)),
+        TokenKind::Punctuation(Punctuation::Colon) => {
+          let ty = self.parse_ty_type()?;
+
+          Ok(OutputTy::Ty(ty))
+        }
+        TokenKind::Group(Group::BraceOpen) => Ok(OutputTy::Default(token.span)),
+        _ => panic!(),
       })
       .unwrap()
   }
@@ -873,7 +886,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   // TODO(ivs): needs to be improve and verify each egde cases, what's happen if
-  // we passe a statement instead of an expression when the needed is `->` and
+  // we pass a statement instead of an expression when the needed is `->` and
   // so on.
   //
   // TODO(ivs): does the pattern span is correct ?
@@ -896,7 +909,12 @@ impl<'tokens> Parser<'tokens> {
 
     let lop = pattern.span;
     let inputs = parser.parse_inputs()?;
-    let output_ty = parser.parse_output_ty()?;
+
+    let output_ty = OutputTy::Ty(Ty::infer(Span::of(
+      inputs.as_span().hi,
+      inputs.as_span().hi + 2,
+    )));
+
     let hip = output_ty.as_span();
 
     let prototype = Prototype {
