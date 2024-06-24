@@ -110,7 +110,7 @@ impl std::ops::Deref for Ast {
   }
 }
 
-/// The representation of a item.
+/// The representation of an item.
 #[derive(Clone, Debug)]
 pub struct Item {
   pub kind: ItemKind,
