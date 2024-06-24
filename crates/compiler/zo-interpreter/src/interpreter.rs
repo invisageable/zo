@@ -13,7 +13,6 @@ use zo_ast::ast::{
 
 use zo_value::builtin::BuiltinFn;
 use zo_value::value;
-use zo_value::value::RecordKey;
 use zo_value::value::{Array, StructExprKey, Value, ValueKind};
 
 use zo_core::interner::symbol::{Symbol, Symbolize};
@@ -179,15 +178,9 @@ impl<'ast> Interpreter<'ast> {
       ExprKind::ArrayAccess(indexed, index) => {
         self.interpret_expr_array_access(indexed, index, expr.span)
       }
-      ExprKind::Struct(structure) => {
-        self.interpret_expr_struct(structure, expr.span)
-      }
-      ExprKind::StructAccess(structure, prop) => {
-        self.interpret_expr_struct_access(structure, prop, expr.span)
-      }
-      ExprKind::Record(pairs) => self.interpret_expr_record(pairs, expr.span),
-      ExprKind::RecordAccess(record, prop) => {
-        self.interpret_expr_record_access(record, prop, expr.span)
+      ExprKind::Struct(strctr) => self.interpret_expr_struct(strctr, expr.span),
+      ExprKind::StructAccess(strctr, prop) => {
+        self.interpret_expr_struct_access(strctr, prop, expr.span)
       }
       ExprKind::IfElse(condition, consequence, maybe_alternative) => self
         .interpret_expr_if_else(
@@ -256,7 +249,7 @@ impl<'ast> Interpreter<'ast> {
       return Ok(fun.to_owned());
     }
 
-    // it should be better to adds a scope for record because actually we are
+    // it should be better to adds a scope for `struct` because actually we are
     // not able to throw an error when an identifier is not recognized.
     Ok(Value::ident(*symbol, span))
 
@@ -1103,17 +1096,17 @@ impl<'ast> Interpreter<'ast> {
     strctr: &StructExpr,
     span: Span,
   ) -> Result<Value> {
-    let mut record = HashMap::new();
+    let mut pairs = HashMap::new();
 
     for (key, value) in strctr.pairs.iter() {
       let key = self.interpret_expr(key)?;
       let value = self.interpret_expr(value)?;
-      let record_key = RecordKey::from(&key);
+      let strctr_key = StructExprKey::from(&key);
 
-      record.insert(record_key, value);
+      pairs.insert(strctr_key, value);
     }
 
-    Ok(Value::record(record, span))
+    Ok(Value::strctr_expr(pairs, span))
   }
 
   fn interpret_expr_struct_access(
@@ -1133,56 +1126,6 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  fn interpret_expr_record(
-    &mut self,
-    pairs: &[(Expr, Expr)],
-    span: Span,
-  ) -> Result<Value> {
-    let mut record = HashMap::new();
-
-    for (key, value) in pairs {
-      let key = self.interpret_expr(key)?;
-      let value = self.interpret_expr(value)?;
-      let record_key = StructExprKey::from(&key);
-
-      record.insert(record_key, value);
-    }
-
-    Ok(Value::strctr_expr(record, span))
-  }
-
-  fn interpret_expr_record_access(
-    &mut self,
-    record: &Expr,
-    prop: &Expr,
-    span: Span,
-  ) -> Result<Value> {
-    let record = self.interpret_expr(record)?;
-    let prop = self.interpret_expr(prop)?;
-
-    match (record.kind, prop.kind) {
-      (ValueKind::Record(record), ValueKind::Ident(prop)) => {
-        self.interpret_expr_record_access_ident(record, &prop, span)
-      }
-      _ => panic!(), // returns reporter error.
-    }
-  }
-
-  fn interpret_expr_record_access_ident(
-    &mut self,
-    record: HashMap<RecordKey, Value>,
-    prop: &Symbol,
-    span: Span,
-  ) -> Result<Value> {
-    match record.get(&RecordKey::Ident(*prop)) {
-      Some(value) => Ok(value.to_owned()),
-      _ => Err(ReportError::Eval(Eval::UnknownRecordAccessOperator(
-        span,
-        prop.to_string(),
-      ))),
-    }
-  }
-
   fn interpret_expr_struct_access_ident(
     &mut self,
     strctr: HashMap<StructExprKey, Value>,
@@ -1191,7 +1134,7 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     match strctr.get(&StructExprKey::Ident(*prop)) {
       Some(value) => Ok(value.to_owned()),
-      _ => Err(ReportError::Eval(Eval::UnknownRecordAccessOperator(
+      _ => Err(ReportError::Eval(Eval::UnknownStructAccessOperator(
         span,
         prop.to_string(),
       ))),

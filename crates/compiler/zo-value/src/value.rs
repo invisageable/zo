@@ -80,11 +80,6 @@ impl Value {
   }
 
   #[inline]
-  pub fn record(record: HashMap<RecordKey, Value>, span: Span) -> Self {
-    Self::new(ValueKind::Record(record), span)
-  }
-
-  #[inline]
   pub fn var(var: Var, span: Span) -> Self {
     Self::new(ValueKind::Var(var), span)
   }
@@ -331,8 +326,6 @@ pub enum ValueKind {
   Struct(Ident, Fields),
   /// structure — `{ x = 1, y = 1}`.
   StructExpr(HashMap<StructExprKey, Value>),
-  /// record — `{ x = 1, y = 1}`.
-  Record(HashMap<RecordKey, Value>),
   /// variable — `imu foo = 1;`, `mut bar = 1`.
   Var(Var),
   /// function — `fun foo() {}`.
@@ -454,7 +447,7 @@ impl std::ops::Deref for Array {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum StructExprKey {
-  /// integer key.
+  /// identifier key.
   Ident(Symbol),
 }
 
@@ -462,21 +455,6 @@ impl From<&Value> for StructExprKey {
   fn from(value: &Value) -> StructExprKey {
     match &value.kind {
       ValueKind::Ident(symbol) => StructExprKey::Ident(*symbol),
-      _ => unreachable!(),
-    }
-  }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum RecordKey {
-  /// integer key.
-  Ident(Symbol),
-}
-
-impl From<&Value> for RecordKey {
-  fn from(value: &Value) -> RecordKey {
-    match &value.kind {
-      ValueKind::Ident(symbol) => RecordKey::Ident(*symbol),
       _ => unreachable!(),
     }
   }

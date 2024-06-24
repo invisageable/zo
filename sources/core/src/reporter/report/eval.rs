@@ -12,8 +12,8 @@ pub enum Eval {
   MismatchArgument(Span, usize, usize),
   UnknownArrayAccess(Span, String, String),
   UnknownArrayAccessOperator(Span, String),
-  UnknownRecordAccess(Span, String, String),
-  UnknownRecordAccessOperator(Span, String),
+  UnknownStructAccess(Span, String, String),
+  UnknownStructAccessOperator(Span, String),
   UnknownBinOp(Span, String),
   UnknownBinOpOperand(Span, String, String),
   UnknownCallee(Span, String),
@@ -50,11 +50,11 @@ impl Error for Eval {
       Self::UnknownArrayAccessOperator(span, index) => {
         todo!("UnknownArrayAccessOperator: {span}-{index}")
       }
-      Self::UnknownRecordAccess(span, indexed, index) => {
-        todo!("UnknownRecordAccess: {span}-{indexed}-{index}")
+      Self::UnknownStructAccess(span, indexed, index) => {
+        todo!("UnknownStructAccess: {span}-{indexed}-{index}")
       }
-      Self::UnknownRecordAccessOperator(span, index) => {
-        todo!("UnknownRecordAccessOperator: {span}-{index}")
+      Self::UnknownStructAccessOperator(span, index) => {
+        todo!("UnknownStructAccessOperator: {span}-{index}")
       }
       Self::UnknownBinOp(span, binop) => {
         todo!("UnknownBinOp: {span}-{binop}")

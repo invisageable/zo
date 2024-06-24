@@ -311,10 +311,6 @@ pub enum ExprKind {
   Struct(StructExpr),
   /// structure access (dot) — `foo.x`.
   StructAccess(Box<Expr>, Box<Expr>),
-  /// record — `{ x = 1, y = 2 }`.
-  Record(Vec<(Expr, Expr)>),
-  /// record access (dot) — `foo.x`.
-  RecordAccess(Box<Expr>, Box<Expr>),
   /// if else — `if foo == 2 { .. }`.
   IfElse(Box<Expr>, Block, Option<Box<Expr>>),
   /// ternary — `when true ? foo : bar`.

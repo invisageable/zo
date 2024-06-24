@@ -3,7 +3,7 @@
 use zo_ast::ast::{
   Args, Ast, BinOp, Block, Expr, ExprKind, Ext, Field, Fields, Fun, Inputs,
   Item, ItemKind, Lit, OutputTy, Pattern, Prototype, Stmt, StmtKind, Struct,
-  TyAlias, Var,
+  StructExpr, TyAlias, Var,
 };
 
 use zo_session::session::Session;
@@ -151,9 +151,9 @@ impl<'ast> NameChecker<'ast> {
       ExprKind::ArrayAccess(indexed, index) => {
         self.check_expr_array_access(indexed, index)
       }
-      ExprKind::Record(pairs) => self.check_expr_record(pairs),
-      ExprKind::RecordAccess(record, prop) => {
-        self.check_expr_record_access(record, prop)
+      ExprKind::Struct(strctr) => self.check_expr_struct(strctr),
+      ExprKind::StructAccess(strctr, prop) => {
+        self.check_expr_struct_access(strctr, prop)
       }
       ExprKind::IfElse(condition, consequence, maybe_alternative) => {
         self.check_expr_if_else(condition, consequence, maybe_alternative)
@@ -260,8 +260,8 @@ impl<'ast> NameChecker<'ast> {
     Ok(()) // tmp.
   }
 
-  fn check_expr_record(&mut self, pairs: &[(Expr, Expr)]) -> Result<()> {
-    for (key, _) in pairs {
+  fn check_expr_struct(&mut self, strctr: &StructExpr) -> Result<()> {
+    for (key, _) in strctr.pairs.iter() {
       let name = self.interner.lookup_ident(key.as_symbol());
 
       self.verify_snake_case(key.span, name)?;
@@ -270,14 +270,14 @@ impl<'ast> NameChecker<'ast> {
     Ok(())
   }
 
-  fn check_expr_record_access(
+  fn check_expr_struct_access(
     &mut self,
-    record: &Expr,
+    strctr: &Expr,
     prop: &Expr,
   ) -> Result<()> {
-    let name = self.interner.lookup_ident(record.as_symbol());
+    let name = self.interner.lookup_ident(strctr.as_symbol());
 
-    self.verify_snake_case(record.span, name)?;
+    self.verify_snake_case(strctr.span, name)?;
 
     let name = self.interner.lookup_ident(prop.as_symbol());
 

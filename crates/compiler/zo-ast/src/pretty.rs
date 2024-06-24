@@ -145,10 +145,8 @@ impl std::fmt::Display for ExprKind {
       Self::Call(callee, args) => write!(f, "{callee}({args})"),
       Self::Array(elmts) => write!(f, "{}", sep_comma(elmts)),
       Self::ArrayAccess(indexed, index) => write!(f, "{indexed}[{index}]"),
-      Self::Struct(structure) => write!(f, "{:?}", structure),
-      Self::StructAccess(structure, prop) => write!(f, "{structure}.{prop}]"),
-      Self::Record(pairs) => write!(f, "{:?}", pairs),
-      Self::RecordAccess(record, prop) => write!(f, "{record}.{prop}]"),
+      Self::Struct(strctr) => write!(f, "{:?}", strctr),
+      Self::StructAccess(strctr, prop) => write!(f, "{strctr}.{prop}]"),
       Self::IfElse(condition, consequence, maybe_alternative) => {
         write!(f, "if {condition} {consequence}")?;
 
@@ -322,7 +320,13 @@ impl std::fmt::Display for VarKind {
 
 impl std::fmt::Display for StructExpr {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    todo!()
+    let pairs = self
+      .pairs
+      .iter()
+      .map(|(key, value)| format!("{key} = {value}"))
+      .collect::<Vec<String>>();
+
+    write!(f, "{}", sep_comma(&pairs))
   }
 }
 
