@@ -206,7 +206,7 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
-  fn parse_ty(&mut self) -> Result<Option<Ty>> {
+  fn parse_ty(&mut self) -> Result<Ty> {
     self.next();
 
     let ty = self
@@ -225,7 +225,7 @@ impl<'tokens> Parser<'tokens> {
     Ok(ty)
   }
 
-  fn parse_ty_type(&mut self) -> Result<Option<Ty>> {
+  fn parse_ty_type(&mut self) -> Result<Ty> {
     self.next();
 
     self
@@ -238,14 +238,10 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
-  fn parse_ty_ident(
-    &mut self,
-    symbol: &Symbol,
-    span: Span,
-  ) -> Result<Option<Ty>> {
+  fn parse_ty_ident(&mut self, symbol: &Symbol, span: Span) -> Result<Ty> {
     let ident = self.interner.lookup_ident(symbol);
 
-    Ok(Some(match ident {
+    Ok(match ident {
       "int" => Ty::int(LitIntTy::Int(IntTy::Int), span),
       "s8" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
       "s16" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
@@ -264,14 +260,14 @@ impl<'tokens> Parser<'tokens> {
       "char" => Ty::char(span),
       "str" => Ty::str(span),
       _ => Ty::alias(*symbol, span),
-    }))
+    })
   }
 
-  fn parse_ty_fn(&mut self) -> Result<Option<Ty>> {
+  fn parse_ty_fn(&mut self) -> Result<Ty> {
     todo!()
   }
 
-  fn parse_ty_infer(&mut self) -> Result<Option<Ty>> {
+  fn parse_ty_infer(&mut self) -> Result<Ty> {
     let span = self.current_span();
 
     // println!("CURRENT: {:?}", self.maybe_token_current);
@@ -279,7 +275,7 @@ impl<'tokens> Parser<'tokens> {
 
     // self.next();
 
-    Ok(Some(Ty::infer(span)))
+    Ok(Ty::infer(span))
   }
 
   fn parse_item(&mut self) -> Result<Item> {
@@ -310,7 +306,7 @@ impl<'tokens> Parser<'tokens> {
     self.next();
 
     let pattern = self.parse_pattern()?;
-    let maybe_ty = self.parse_ty()?;
+    let ty = self.parse_ty()?;
 
     self.next();
 
@@ -328,7 +324,7 @@ impl<'tokens> Parser<'tokens> {
           mutability: Mutability::No,
           pubness: Pub::No,
           pattern,
-          maybe_ty,
+          maybe_ty: Some(ty),
           value: Box::new(value),
           span,
         }),
@@ -376,6 +372,8 @@ impl<'tokens> Parser<'tokens> {
       self.next();
     }
 
+    self.next();
+
     Ok(fields)
   }
 
@@ -385,15 +383,10 @@ impl<'tokens> Parser<'tokens> {
     let lo = self.current_span();
     let ident = self.parse_ident()?;
     let ty = self.parse_ty()?;
-
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
 
-    Ok(Field {
-      ident,
-      ty: ty.unwrap(),
-      span,
-    })
+    Ok(Field { ident, ty, span })
   }
 
   fn parse_item_fun(&mut self) -> Result<Item> {
@@ -505,7 +498,7 @@ impl<'tokens> Parser<'tokens> {
     self.next();
 
     let pattern = self.parse_pattern()?;
-    let maybe_ty = self.parse_ty()?;
+    let ty = self.parse_ty()?;
 
     self.next();
 
@@ -524,7 +517,7 @@ impl<'tokens> Parser<'tokens> {
           pubness: Pub::No,
           pattern,
           value: Box::new(value),
-          maybe_ty,
+          maybe_ty: Some(ty),
           span,
         }),
         span,
@@ -536,7 +529,7 @@ impl<'tokens> Parser<'tokens> {
           pubness: Pub::No,
           pattern,
           value: Box::new(value),
-          maybe_ty,
+          maybe_ty: Some(ty),
           span,
         }),
         span,
