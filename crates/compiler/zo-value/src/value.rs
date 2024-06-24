@@ -2,7 +2,9 @@
 
 use super::builtin::BuiltinFn;
 
-use zo_ast::ast::{Block, Mutability, Pattern, Prototype, Pub, VarKind};
+use zo_ast::ast::{
+  Block, Fields, Ident, Mutability, Pattern, Prototype, Pub, VarKind,
+};
 
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
@@ -85,6 +87,11 @@ impl Value {
   #[inline]
   pub fn var(var: Var, span: Span) -> Self {
     Self::new(ValueKind::Var(var), span)
+  }
+
+  #[inline]
+  pub fn strctr(ident: Ident, fields: Fields, span: Span) -> Self {
+    Self::new(ValueKind::Struct(ident, fields), span)
   }
 
   #[inline]
@@ -315,7 +322,9 @@ pub enum ValueKind {
   Builtin(BuiltinFn),
   /// array — `[1, 2, 3, 4]`.
   Array(Array),
-  /// float — `{ x = 1, y = 1}`.
+  /// structure — `Foo { x = 1, y = 1}`.
+  Struct(Ident, Fields),
+  /// record — `{ x = 1, y = 1}`.
   Record(HashMap<RecordKey, Value>),
   /// variable — `imu foo = 1;`, `mut bar = 1`.
   Var(Var),

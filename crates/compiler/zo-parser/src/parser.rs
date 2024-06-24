@@ -426,7 +426,6 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn parse_inputs(&mut self) -> Result<Inputs> {
-    // no allocation.
     let mut inputs = Inputs::new();
 
     self.expect_peek(TokenKind::Group(Group::ParenOpen))?;

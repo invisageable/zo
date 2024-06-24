@@ -1,5 +1,6 @@
 //! ...
 
+use zo_ty::ty::Ty;
 use zo_value::value::Value;
 
 use zo_core::interner::symbol::Symbol;
@@ -11,6 +12,7 @@ use hashbrown::HashMap;
 pub struct Scope {
   vars: HashMap<Symbol, Value>,
   funs: HashMap<Symbol, Value>,
+  tys: HashMap<Symbol, Ty>,
 }
 
 impl Scope {
@@ -19,6 +21,7 @@ impl Scope {
     Self {
       vars: HashMap::with_capacity(0usize),
       funs: HashMap::with_capacity(0usize),
+      tys: HashMap::with_capacity(0usize),
     }
   }
 
@@ -46,6 +49,16 @@ impl Scope {
     }
   }
 
+  pub fn add_ty(&mut self, name: Symbol, ty: Ty) -> Result<(), String> {
+    match self.tys.entry(name) {
+      Entry::Occupied(_) => Err(format!("the ty `{name}` already exist.")),
+      Entry::Vacant(tys) => {
+        tys.insert(ty);
+        Ok(())
+      }
+    }
+  }
+
   #[inline]
   pub fn set_var(&mut self, name: Symbol, value: Value) {
     self.vars.insert(name, value);
@@ -57,6 +70,11 @@ impl Scope {
   }
 
   #[inline]
+  pub fn set_ty(&mut self, name: Symbol, ty: Ty) {
+    self.tys.insert(name, ty);
+  }
+
+  #[inline]
   pub fn var(&self, name: &Symbol) -> Option<&Value> {
     self.vars.get(name)
   }
@@ -64,6 +82,11 @@ impl Scope {
   #[inline]
   pub fn fun(&self, name: &Symbol) -> Option<&Value> {
     self.funs.get(name)
+  }
+
+  #[inline]
+  pub fn ty(&self, name: &Symbol) -> Option<&Ty> {
+    self.tys.get(name)
   }
 }
 
@@ -124,6 +147,13 @@ impl ScopeMap {
     }
   }
 
+  pub fn set_ty(&mut self, name: Symbol, ty: Ty) -> Result<(), String> {
+    match self.scopes.front_mut() {
+      Some(scope) => Ok(scope.set_ty(name, ty)),
+      None => Err(format!("set_fun error not implemented yet.")),
+    }
+  }
+
   pub fn var(&self, name: &Symbol) -> Option<&Value> {
     for scope in self.scopes.iter() {
       match scope.var(name) {
@@ -139,6 +169,17 @@ impl ScopeMap {
     for scope in self.scopes.iter() {
       match scope.fun(name) {
         Some(fun) => return Some(fun),
+        None => continue,
+      };
+    }
+
+    None
+  }
+
+  pub fn ty(&self, name: &Symbol) -> Option<&Ty> {
+    for scope in self.scopes.iter() {
+      match scope.ty(name) {
+        Some(ty) => return Some(ty),
         None => continue,
       };
     }

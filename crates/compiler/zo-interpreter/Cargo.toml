@@ -12,6 +12,7 @@ zo-core = { workspace = true }
 # internals.
 zo-ast = { workspace = true }
 zo-session = { workspace = true }
+zo-ty = { workspace = true }
 zo-value = { workspace = true }
 
 # externals.

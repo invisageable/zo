@@ -46,7 +46,7 @@ impl std::fmt::Display for ItemKind {
       Self::Var(var) => write!(f, "{var}"),
       Self::TyAlias(ty_alias) => write!(f, "{ty_alias}"),
       Self::Ext(ext) => write!(f, "{ext}"),
-      Self::Struct(structure) => write!(f, "{structure}"),
+      Self::Struct(strctr) => write!(f, "{strctr}"),
       Self::Fun(fun) => write!(f, "{fun}"),
     }
   }

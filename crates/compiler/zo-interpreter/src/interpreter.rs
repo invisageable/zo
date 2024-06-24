@@ -84,7 +84,7 @@ impl<'ast> Interpreter<'ast> {
       ItemKind::Var(var) => self.interpret_item_var(var),
       ItemKind::TyAlias(ty_alias) => self.interpret_item_ty_alias(ty_alias),
       ItemKind::Ext(ext) => self.interpret_item_ext(ext),
-      ItemKind::Struct(structure) => self.interpret_item_struct(structure),
+      ItemKind::Struct(strctr) => self.interpret_item_struct(strctr),
       ItemKind::Fun(fun) => self.interpret_item_fun(fun),
     }
   }
@@ -101,8 +101,15 @@ impl<'ast> Interpreter<'ast> {
     todo!()
   }
 
-  fn interpret_item_struct(&mut self, _structure: &Struct) -> Result<Value> {
-    todo!()
+  fn interpret_item_struct(&mut self, strctr: &Struct) -> Result<Value> {
+    let value = Value::strctr(strctr.ident, strctr.fields.clone(), strctr.span);
+
+    self
+      .scope_map
+      .add_fun(strctr.ident.name, value.to_owned())
+      .unwrap();
+
+    Ok(value)
   }
 
   fn interpret_item_fun(&mut self, fun: &Fun) -> Result<Value> {

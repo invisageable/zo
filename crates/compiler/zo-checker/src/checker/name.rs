@@ -35,8 +35,6 @@ impl<'ast> NameChecker<'ast> {
       }
     }
 
-    self.reporter.abort_if_has_errors();
-
     Ok(())
   }
 

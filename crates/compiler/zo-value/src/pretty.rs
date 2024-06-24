@@ -43,6 +43,7 @@ impl std::fmt::Display for ValueKind {
         write!(f, "{{ {} }}", sep_comma(&record))
       }
       Self::Var(var) => write!(f, "{var}"),
+      Self::Struct(ident, fields) => write!(f, "struct {ident} {fields}"),
       Self::Fun(prototype, block) => write!(f, "fun {prototype} {block}"),
       Self::While(condition, body) => write!(f, "while {condition} {body}"),
     }
