@@ -1118,11 +1118,19 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_struct_access(
     &mut self,
-    _structure: &Expr,
-    _prop: &Expr,
-    _span: Span,
+    strctr: &Expr,
+    prop: &Expr,
+    span: Span,
   ) -> Result<Value> {
-    todo!()
+    let strctr = self.interpret_expr(strctr)?;
+    let prop = self.interpret_expr(prop)?;
+
+    match (strctr.kind, prop.kind) {
+      (ValueKind::StructExpr(strctr), ValueKind::Ident(prop)) => {
+        self.interpret_expr_struct_access_ident(strctr, &prop, span)
+      }
+      _ => panic!(), // returns reporter error.
+    }
   }
 
   fn interpret_expr_record(
@@ -1167,6 +1175,21 @@ impl<'ast> Interpreter<'ast> {
     span: Span,
   ) -> Result<Value> {
     match record.get(&RecordKey::Ident(*prop)) {
+      Some(value) => Ok(value.to_owned()),
+      _ => Err(ReportError::Eval(Eval::UnknownRecordAccessOperator(
+        span,
+        prop.to_string(),
+      ))),
+    }
+  }
+
+  fn interpret_expr_struct_access_ident(
+    &mut self,
+    strctr: HashMap<StructExprKey, Value>,
+    prop: &Symbol,
+    span: Span,
+  ) -> Result<Value> {
+    match strctr.get(&StructExprKey::Ident(*prop)) {
       Some(value) => Ok(value.to_owned()),
       _ => Err(ReportError::Eval(Eval::UnknownRecordAccessOperator(
         span,
