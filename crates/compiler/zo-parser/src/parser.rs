@@ -1087,9 +1087,11 @@ impl<'tokens> Parser<'tokens> {
     parser.next();
 
     let alternative = if parser.expect(TokenKind::Kw(Kw::Else)).is_ok() {
-      if parser.ensure_peek(TokenKind::Kw(Kw::If)) {
+      if parser.ensure(TokenKind::Kw(Kw::If)) {
         Some(Box::new(Self::parse_expr_if_else(parser)?))
       } else {
+        parser.next();
+
         let expr = parser.parse_expr(Precedence::Low)?;
 
         Some(Box::new(expr))

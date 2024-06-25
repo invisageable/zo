@@ -297,7 +297,7 @@ impl<'ast> NameChecker<'ast> {
     _consequence: &Block,
     _maybe_alternative: &Option<Box<Expr>>,
   ) -> Result<()> {
-    todo!()
+    Ok(()) // tmp.
   }
 
   fn check_expr_when(
