@@ -6,9 +6,9 @@
 use super::scope::ScopeMap;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Fun, Item,
-  ItemKind, Lit, LitKind, Load, Prototype, Stmt, StmtKind, Struct, StructExpr,
-  TyAlias, UnOp, UnOpKind, Var,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Enum, Expr, ExprKind, Ext, Fun,
+  Item, ItemKind, Lit, LitKind, Load, Prototype, Stmt, StmtKind, Struct,
+  StructExpr, TyAlias, UnOp, UnOpKind, Var,
 };
 
 use zo_value::builtin::BuiltinFn;
@@ -84,6 +84,7 @@ impl<'ast> Interpreter<'ast> {
       ItemKind::Var(var) => self.interpret_item_var(var),
       ItemKind::TyAlias(ty_alias) => self.interpret_item_ty_alias(ty_alias),
       ItemKind::Ext(ext) => self.interpret_item_ext(ext),
+      ItemKind::Enum(enm) => self.interpret_item_enum(enm),
       ItemKind::Struct(strctr) => self.interpret_item_struct(strctr),
       ItemKind::Fun(fun) => self.interpret_item_fun(fun),
     }
@@ -110,6 +111,10 @@ impl<'ast> Interpreter<'ast> {
   }
 
   fn interpret_item_ext(&mut self, _ext: &Ext) -> Result<Value> {
+    todo!()
+  }
+
+  fn interpret_item_enum(&mut self, _enm: &Enum) -> Result<Value> {
     todo!()
   }
 

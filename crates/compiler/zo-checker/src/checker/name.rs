@@ -1,9 +1,9 @@
 //! ...
 
 use zo_ast::ast::{
-  Args, Ast, BinOp, Block, Expr, ExprKind, Ext, Field, Fields, Fun, Inputs,
-  Item, ItemKind, Lit, Load, OutputTy, Pattern, Prototype, Stmt, StmtKind,
-  Struct, StructExpr, TyAlias, Var,
+  Args, Ast, BinOp, Block, Enum, Expr, ExprKind, Ext, Field, Fields, Fun,
+  Inputs, Item, ItemKind, Lit, Load, OutputTy, Pattern, Prototype, Stmt,
+  StmtKind, Struct, StructExpr, TyAlias, Var,
 };
 
 use zo_session::session::Session;
@@ -57,6 +57,7 @@ impl<'ast> NameChecker<'ast> {
       ItemKind::Var(var) => self.check_item_var(var),
       ItemKind::TyAlias(ty_alias) => self.check_item_ty_alias(ty_alias),
       ItemKind::Ext(ext) => self.check_item_ext(ext),
+      ItemKind::Enum(enm) => self.check_item_enum(enm),
       ItemKind::Struct(structure) => self.check_item_struct(structure),
       ItemKind::Fun(fun) => self.check_item_fun(fun),
     }
@@ -83,6 +84,12 @@ impl<'ast> NameChecker<'ast> {
 
   fn check_item_ext(&mut self, ext: &Ext) -> Result<()> {
     self.check_prototype(&ext.prototype)
+  }
+
+  fn check_item_enum(&mut self, enm: &Enum) -> Result<()> {
+    let name = self.interner.lookup_ident(enm.ident.name);
+
+    self.verify_pascal_case(enm.ident.span, name)
   }
 
   fn check_item_struct(&mut self, strct: &Struct) -> Result<()> {
@@ -306,7 +313,7 @@ impl<'ast> NameChecker<'ast> {
     _consequence: &Expr,
     _alternative: &Expr,
   ) -> Result<()> {
-    todo!()
+    Ok(()) // tmp.
   }
 
   fn check_expr_loop(&mut self, body: &Block) -> Result<()> {
