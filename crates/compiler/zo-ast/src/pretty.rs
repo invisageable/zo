@@ -1,10 +1,10 @@
 //! The pretty print of the `zo` AST module.
 
 use super::ast::{
-  Arg, Args, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Field, Fields, Fun,
-  Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Load, Mutability,
+  Arg, Args, BinOp, BinOpKind, Block, Enum, Expr, ExprKind, Ext, Field, Fields,
+  Fun, Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Load, Mutability,
   OutputTy, Pattern, PatternKind, Prototype, Stmt, StmtKind, Struct,
-  StructExpr, TyAlias, UnOp, UnOpKind, Var, VarKind,
+  StructExpr, TyAlias, UnOp, UnOpKind, Var, VarKind, Variant,
 };
 
 use zo_core::fmt::{sep_comma, sep_newline};
@@ -47,6 +47,7 @@ impl std::fmt::Display for ItemKind {
       Self::Var(var) => write!(f, "{var}"),
       Self::TyAlias(ty_alias) => write!(f, "{ty_alias}"),
       Self::Ext(ext) => write!(f, "{ext}"),
+      Self::Enum(enm) => write!(f, "{enm}"),
       Self::Struct(strctr) => write!(f, "{strctr}"),
       Self::Fun(fun) => write!(f, "{fun}"),
     }
@@ -55,7 +56,7 @@ impl std::fmt::Display for ItemKind {
 
 impl std::fmt::Display for Load {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f, "load {self:?}")
+    write!(f, "{self:?}")
   }
 }
 
@@ -80,6 +81,18 @@ impl std::fmt::Display for Ext {
       .as_ref()
       .map(|body| write!(f, " {body}"))
       .unwrap_or(write!(f, ";"))
+  }
+}
+
+impl std::fmt::Display for Enum {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "enum {} {{ {} }}", self.ident, sep_comma(&self.body))
+  }
+}
+
+impl std::fmt::Display for Variant {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}", self.ident)
   }
 }
 

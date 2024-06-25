@@ -120,7 +120,7 @@ pub struct Item {
 /// The representation of different kinds of items.
 #[derive(Clone, Debug)]
 pub enum ItemKind {
-  /// load module — `load ".."`.
+  /// ...
   Load(Load),
   /// `val FOO: int = 123;`, `pub val FOO: int = 123;`.
   Var(Var),
@@ -128,6 +128,8 @@ pub enum ItemKind {
   TyAlias(TyAlias),
   /// `ext foobar(x: int);`, `ext foobar(x: int) { .. }`.
   Ext(Ext),
+  /// `enum Foo { .. }`, `pub enum Foo { .. }`.
+  Enum(Enum),
   /// `struct Foo { x: int }`, `pub struct Foo { x: int }`.
   Struct(Struct),
   /// `fun foo(x: int): int { .. }`, `pub fun foo(x: int): int { .. }`.
@@ -149,12 +151,26 @@ pub struct TyAlias {
   pub span: Span,
 }
 
-/// The representation of a extern — `ext foo() { .. }`.
+/// The representation of an extern — `ext foo() { .. }`.
 #[derive(Clone, Debug)]
 pub struct Ext {
   pub pubness: Pub,
   pub prototype: Prototype,
   pub maybe_body: Option<Block>,
+  pub span: Span,
+}
+
+/// The representation of an enumeration — `enum Foo { .. }`.
+#[derive(Clone, Debug)]
+pub struct Enum {
+  pub ident: Ident,
+  pub body: Vec<Variant>,
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Variant {
+  pub ident: Ident,
   pub span: Span,
 }
 
