@@ -3,8 +3,8 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Field, Fields, Fun,
-  Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Load, Mutability,
+  Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Ext, Field, Fields,
+  Fun, Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Load, Mutability,
   OutputTy, Pattern, PatternKind, Prototype, Pub, Stmt, StmtKind, Struct,
   StructExpr, TyAlias, UnOp, Var, VarKind,
 };
@@ -465,7 +465,23 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn parse_item_ext(&mut self) -> Result<Item> {
-    todo!()
+    let lo = self.current_span();
+
+    self.next();
+
+    let prototype = self.parse_prototype()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Item {
+      kind: ItemKind::Ext(Ext {
+        pubness: Pub::No,
+        prototype,
+        maybe_body: None,
+        span,
+      }),
+      span,
+    })
   }
 
   fn parse_item_struct(&mut self) -> Result<Item> {
@@ -595,9 +611,13 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn parse_output_ty(&mut self) -> Result<OutputTy> {
+    // should be removed.
     if self.ensure_peek(TokenKind::Punctuation(Punctuation::MinusGreaterThan)) {
       self.next();
     }
+
+    println!("{:?}", self.maybe_token_current);
+    println!("{:?}", self.maybe_token_next);
 
     self
       .maybe_token_next
@@ -608,6 +628,9 @@ impl<'tokens> Parser<'tokens> {
           Ok(OutputTy::Ty(ty))
         }
         TokenKind::Group(Group::BraceOpen) => Ok(OutputTy::Default(token.span)),
+        TokenKind::Punctuation(Punctuation::Semicolon) => {
+          Ok(OutputTy::Default(token.span))
+        }
         _ => panic!(),
       })
       .unwrap()
