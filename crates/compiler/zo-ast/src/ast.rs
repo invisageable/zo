@@ -117,6 +117,7 @@ pub struct Item {
   pub span: Span,
 }
 
+/// The representation of different kinds of items.
 #[derive(Clone, Debug)]
 pub enum ItemKind {
   /// load module — `load ".."`.
@@ -143,7 +144,7 @@ pub struct Load {
 #[derive(Clone, Debug)]
 pub struct TyAlias {
   pub pubness: Pub,
-  pub pattern: Pattern,
+  pub ident: Ident,
   pub maybe_ty: Option<Ty>,
   pub span: Span,
 }
@@ -226,6 +227,7 @@ pub struct Stmt {
   pub span: Span,
 }
 
+/// The representation of different kinds of statements.
 #[derive(Clone, Debug)]
 pub enum StmtKind {
   /// variable.
@@ -257,6 +259,7 @@ impl Symbolize for Var {
   }
 }
 
+/// The representation of different kinds of variable.
 #[derive(Clone, Debug)]
 pub enum VarKind {
   /// immutable.
@@ -293,6 +296,7 @@ impl Symbolize for Expr {
   }
 }
 
+/// The representation of different kinds of expressions.
 #[derive(Clone, Debug)]
 pub enum ExprKind {
   /// literal — `1`, `1.5`, `foobar`, etc.
@@ -359,6 +363,7 @@ impl Symbolize for Lit {
   }
 }
 
+/// The representation of different kinds of literals.
 #[derive(Clone, Debug)]
 pub enum LitKind {
   /// integer — `1`.
@@ -407,6 +412,7 @@ impl From<&Token> for UnOp {
   }
 }
 
+/// The representation of different kinds of unary operators.
 #[derive(Clone, Debug)]
 pub enum UnOpKind {
   /// negation operator — `-`.
@@ -444,6 +450,7 @@ impl From<&Token> for BinOp {
   }
 }
 
+/// The representation of different kinds of binary operators.
 #[derive(Clone, Debug)]
 pub enum BinOpKind {
   /// addition operator — `+`.
@@ -655,7 +662,6 @@ impl AsSpan for OutputTy {
     match self {
       Self::Default(span) => *span,
       Self::Ty(ty) => ty.span,
-      _ => unreachable!(),
     }
   }
 }

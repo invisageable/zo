@@ -161,6 +161,8 @@ impl TokenKind {
       self,
       Self::Kw(Kw::Load)
         | Self::Kw(Kw::Val)
+        | Self::Kw(Kw::Type)
+        | Self::Kw(Kw::Ext)
         | Self::Kw(Kw::Struct)
         | Self::Kw(Kw::Fun)
     )

@@ -6,7 +6,7 @@ use zo_ast::ast::{
   Arg, Args, Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Field, Fields, Fun,
   Ident, Input, Inputs, Item, ItemKind, Lit, LitKind, Load, Mutability,
   OutputTy, Pattern, PatternKind, Prototype, Pub, Stmt, StmtKind, Struct,
-  StructExpr, UnOp, Var, VarKind,
+  StructExpr, TyAlias, UnOp, Var, VarKind,
 };
 
 use zo_session::session::Session;
@@ -213,9 +213,6 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         TokenKind::Punctuation(Punctuation::Colon) => self.parse_ty_type(),
-        TokenKind::Punctuation(Punctuation::MinusGreaterThan) => {
-          self.parse_ty_type()
-        }
         TokenKind::Op(Op::ColonEqual) => self.parse_ty_infer(),
         _ => panic!(), // return reporter error —  unexpected token.
       })
@@ -235,6 +232,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match &token.kind {
         TokenKind::Ident(symbol) => self.parse_ty_ident(symbol, token.span),
+        TokenKind::Group(Group::BracketOpen) => self.parse_ty_array(),
         TokenKind::Kw(Kw::Fn) => self.parse_ty_fn(),
         _ => panic!(), // return reporter error —  unexpected token.
       })
@@ -264,6 +262,26 @@ impl<'tokens> Parser<'tokens> {
       "str" => Ty::str(span),
       _ => Ty::alias(*symbol, span),
     })
+  }
+
+  fn parse_ty_array(&mut self) -> Result<Ty> {
+    let lo = self.current_span();
+
+    self.expect(TokenKind::Group(Group::BracketOpen))?;
+    self.expect(TokenKind::Group(Group::BracketClose))?;
+
+    let ty = self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Ident(symbol) => self.parse_ty_ident(&symbol, token.span),
+        _ => panic!(), // return reporter error message.
+      })
+      .unwrap()?;
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Ty::array(ty, span))
   }
 
   fn parse_ty_fn(&mut self) -> Result<Ty> {
@@ -307,11 +325,6 @@ impl<'tokens> Parser<'tokens> {
   fn parse_ty_infer(&mut self) -> Result<Ty> {
     let span = self.current_span();
 
-    // println!("CURRENT: {:?}", self.maybe_token_current);
-    // println!("NEXT: {:?}", self.maybe_token_next);
-
-    // self.next();
-
     Ok(Ty::infer(span))
   }
 
@@ -321,14 +334,14 @@ impl<'tokens> Parser<'tokens> {
       .map(|token| match token.kind {
         TokenKind::Kw(Kw::Load) => self.parse_item_load(),
         TokenKind::Kw(Kw::Val) => self.parse_item_val(),
+        TokenKind::Kw(Kw::Type) => self.parse_item_ty_alias(),
+        TokenKind::Kw(Kw::Ext) => self.parse_item_ext(),
         TokenKind::Kw(Kw::Struct) => self.parse_item_struct(),
         TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
-        _ => self
-          .reporter
-          .raise(ReportError::Syntax(Syntax::ExpectedItem(
-            token.span,
-            token.kind.to_string(),
-          ))),
+        _ => Err(ReportError::Syntax(Syntax::ExpectedItem(
+          token.span,
+          token.kind.to_string(),
+        ))),
       })
       .unwrap()
   }
@@ -423,6 +436,36 @@ impl<'tokens> Parser<'tokens> {
       }),
       _ => panic!(), // TODO(ivs): should returns a reporter error.
     }
+  }
+
+  fn parse_item_ty_alias(&mut self) -> Result<Item> {
+    let lo = self.current_span();
+
+    self.next();
+
+    let ident = self.parse_ident()?;
+
+    self.expect_peek(TokenKind::Op(Op::Equal))?;
+
+    let ty = self.parse_ty_type()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    self.next();
+
+    Ok(Item {
+      kind: ItemKind::TyAlias(TyAlias {
+        pubness: Pub::No,
+        ident,
+        maybe_ty: Some(ty),
+        span,
+      }),
+      span,
+    })
+  }
+
+  fn parse_item_ext(&mut self) -> Result<Item> {
+    todo!()
   }
 
   fn parse_item_struct(&mut self) -> Result<Item> {

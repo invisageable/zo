@@ -23,6 +23,11 @@ impl Ty {
   }
 
   #[inline]
+  pub fn unit(span: Span) -> Self {
+    Self::new(TyKind::Unit, span)
+  }
+
+  #[inline]
   pub fn infer(span: Span) -> Self {
     Self::new(TyKind::Infer, span)
   }
@@ -63,6 +68,11 @@ impl Ty {
   }
 
   #[inline]
+  pub fn array(ty: Ty, span: Span) -> Self {
+    Self::new(TyKind::Array(Box::new(ty)), span)
+  }
+
+  #[inline]
   pub fn closure(inputs: Vec<Ty>, output: Ty, span: Span) -> Self {
     Self::new(TyKind::Fn(inputs, Box::new(output)), span)
   }
@@ -88,20 +98,22 @@ pub enum TyKind {
   Unit,
   /// infer — `:=`.
   Infer,
-  /// integer — `int`.
+  /// integer — `int`, `s32`, `u32`.
   Int(LitIntTy),
-  /// float — `float`.
+  /// float — `float`, `f32`, `f64`.
   Float(LitFloatTy),
-  /// identifier — `foo`, `Bar`, `foo_bar`, `BAR_FOO`.
+  /// type alias — `Bar`.
   Alias(Symbol),
   /// boolean — `bool`.
   Bool,
-  /// character — `ch`.
+  /// character — `char`.
   Char,
   /// string — `str`.
   Str,
   /// variable.
   Var(usize),
+  /// array — `[]int`, `[3]str`.
+  Array(Box<Ty>),
   /// closure — `fn()`, `fn(int): int`.
   Fn(Vec<Ty>, Box<Ty>),
 }

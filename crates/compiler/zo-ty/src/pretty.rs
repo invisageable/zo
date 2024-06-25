@@ -24,10 +24,10 @@ impl std::fmt::Display for TyKind {
       Self::Char => write!(f, "char"),
       Self::Str => write!(f, "str"),
       Self::Var(var) => write!(f, "{var}"),
+      Self::Array(ty) => write!(f, "[]{ty}"),
       Self::Fn(inputs, output) => {
-        write!(f, "fn ({}) -> {output}", sep_comma(inputs))
+        write!(f, "Fn ({}) -> {output}", sep_comma(inputs))
       }
-      _ => todo!(),
     }
   }
 }

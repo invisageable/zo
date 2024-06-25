@@ -23,7 +23,8 @@ impl std::fmt::Display for ValueKind {
       Self::Fn(prototype, block) => {
         write!(
           f,
-          "fn ({}): {} ",
+          "fn {} ({}): {} ",
+          prototype.pattern,
           sep_comma(&prototype.inputs),
           prototype.output_ty
         )?;

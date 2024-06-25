@@ -61,7 +61,7 @@ impl std::fmt::Display for Load {
 
 impl std::fmt::Display for TyAlias {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f, "type {}", self.pattern)?;
+    write!(f, "type {}", self.ident)?;
 
     self
       .maybe_ty
