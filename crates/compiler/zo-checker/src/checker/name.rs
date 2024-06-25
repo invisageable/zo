@@ -75,12 +75,14 @@ impl<'ast> NameChecker<'ast> {
     self.check_expr(&var.value)
   }
 
-  fn check_item_ty_alias(&mut self, _ty_alias: &TyAlias) -> Result<()> {
-    todo!()
+  fn check_item_ty_alias(&mut self, ty_alias: &TyAlias) -> Result<()> {
+    let name = self.interner.lookup_ident(ty_alias.ident.name);
+
+    self.verify_pascal_case(ty_alias.ident.span, name)
   }
 
-  fn check_item_ext(&mut self, _ext: &Ext) -> Result<()> {
-    todo!()
+  fn check_item_ext(&mut self, ext: &Ext) -> Result<()> {
+    self.check_prototype(&ext.prototype)
   }
 
   fn check_item_struct(&mut self, strct: &Struct) -> Result<()> {
