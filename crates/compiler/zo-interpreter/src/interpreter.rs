@@ -97,8 +97,16 @@ impl<'ast> Interpreter<'ast> {
     self.interpret_var(var)
   }
 
-  fn interpret_item_ty_alias(&mut self, _ty_alias: &TyAlias) -> Result<Value> {
-    todo!()
+  fn interpret_item_ty_alias(&mut self, ty_alias: &TyAlias) -> Result<Value> {
+    self
+      .scope_map
+      .add_ty(
+        ty_alias.ident.name,
+        ty_alias.maybe_ty.as_ref().unwrap().to_owned(),
+      )
+      .unwrap();
+
+    Ok(Value::unit(ty_alias.span))
   }
 
   fn interpret_item_ext(&mut self, _ext: &Ext) -> Result<Value> {
