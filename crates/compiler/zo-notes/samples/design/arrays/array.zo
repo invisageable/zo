@@ -1,11 +1,11 @@
 -- arrays: declarations.
 
 fun main() {
-  imu x: float[3] = [1.0, 2.0, 3.0];   -- sized array.
+  imu x: [3]float = [1.0, 2.0, 3.0];   -- sized array.
 
-  println(x);
+  println(x); -- prints `[1.0, 2.0, 3.0]`.
 
-  imu x: float[] = [1.0, 2.0, 3.0];    -- dynamic array.
+  imu x: []float = [1.0, 2.0, 3.0];    -- dynamic array.
 
-  println(x);
+  println(x); -- prints `[1.0, 2.0, 3.0]`.
 }

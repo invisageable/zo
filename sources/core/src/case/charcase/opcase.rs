@@ -1,7 +1,7 @@
 //! ...
 
 #[inline]
-pub fn is_dot<B>(byte: B) -> bool
+pub fn is_period<B>(byte: B) -> bool
 where
   B: Into<u8> + Copy,
 {
@@ -15,7 +15,8 @@ where
 {
   matches!(
     byte.into(),
-    b'='
+    b'.'
+      | b'='
       | b'+'
       | b'-'
       | b'*'
@@ -37,6 +38,7 @@ where
   B: Into<u8> + Copy,
 {
   let name = match byte.into() {
+    b'.' => "period",
     b'=' => "equal",
     b'+' => "plus",
     b'*' => "times",

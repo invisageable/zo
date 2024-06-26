@@ -214,6 +214,9 @@ impl<'ast> Interpreter<'ast> {
       ExprKind::While(condition, body) => {
         self.interpret_expr_while(condition, body)
       }
+      ExprKind::For(elmt, iterable, body) => {
+        self.interpret_expr_for(elmt, iterable, body)
+      }
       ExprKind::Return(maybe_expr) => {
         self.interpret_expr_return(maybe_expr, expr.span)
       }
@@ -222,6 +225,7 @@ impl<'ast> Interpreter<'ast> {
       }
       ExprKind::Continue => self.interpret_expr_continue(),
       ExprKind::Var(var) => self.interpret_expr_var(var),
+      ExprKind::Range(from, to) => self.interpret_expr_range(from, to),
     }
   }
 
@@ -1212,6 +1216,15 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::UNIT)
   }
 
+  fn interpret_expr_for(
+    &mut self,
+    _elmt: &Expr,
+    _iterable: &Expr,
+    _body: &Block,
+  ) -> Result<Value> {
+    todo!()
+  }
+
   fn interpret_expr_return(
     &mut self,
     maybe_expr: &Option<Box<Expr>>,
@@ -1240,6 +1253,14 @@ impl<'ast> Interpreter<'ast> {
 
   fn interpret_expr_var(&mut self, var: &Var) -> Result<Value> {
     self.interpret_var(var)
+  }
+
+  fn interpret_expr_range(
+    &mut self,
+    _from: &Expr,
+    _to: &Expr,
+  ) -> Result<Value> {
+    todo!()
   }
 }
 

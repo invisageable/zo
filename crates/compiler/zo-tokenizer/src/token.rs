@@ -128,7 +128,12 @@ impl TokenKind {
 
   #[inline]
   pub fn is_chaining(&self) -> bool {
-    matches!(self, Self::Punctuation(Punctuation::Period))
+    matches!(self, Self::Op(Op::Period))
+  }
+
+  #[inline]
+  pub fn is_range(&self) -> bool {
+    matches!(self, Self::Op(Op::PeriodPeriod))
   }
 
   #[inline]

@@ -5,7 +5,7 @@ struct Foo {
 }
 
 fun main() {
-  imu foo: Foo = Foo {
+  imu foo: Foo = {
     x = 1,
     y = 1,
     z = 1,

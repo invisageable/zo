@@ -1,9 +1,26 @@
--- fun square(x: int): int {
---   x * x
--- }
+-- fun main() {}
 
--- fun main() {
---   square(2);
--- }
+-- imu mul: fn(int, int): int = fn(x, y) -> x * y;
+-- imu mil: fn(int, int): int = fn(x, y) { x * y };
 
-imu x: int = 0;
+-- mul(2, 4);
+-- mil(2, 4);
+
+-- imu foo: []int = [1, 2, 3];
+-- imu foo: fn(): int = [1, 2, 3];
+-- imu add := fn(x) -> fn(y) -> x + y;
+
+-- type Foo = int;
+
+-- ext bar();
+-- ext foobar(x: int);
+
+-- 0..1
+
+-- 1.5
+
+-- 0..1
+
+imu foo := { x = 0.5 };
+
+foo.x

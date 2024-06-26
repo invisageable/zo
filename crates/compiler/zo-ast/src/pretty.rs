@@ -180,6 +180,9 @@ impl std::fmt::Display for ExprKind {
       }
       Self::Loop(body) => write!(f, "loop {body}"),
       Self::While(condition, body) => write!(f, "while {condition} {body}"),
+      Self::For(elmt, iterable, body) => {
+        write!(f, "for {elmt} := {iterable} {body}")
+      }
       Self::Return(maybe_expr) => match maybe_expr {
         Some(expr) => write!(f, "return {expr};"),
         None => write!(f, "return;"),
@@ -190,6 +193,7 @@ impl std::fmt::Display for ExprKind {
       },
       Self::Continue => write!(f, "continue"),
       Self::Var(var) => write!(f, "{var}"),
+      Self::Range(from, to) => write!(f, "{from}..{to}"),
     }
   }
 }

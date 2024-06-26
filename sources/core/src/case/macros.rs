@@ -49,7 +49,7 @@ macro_rules! is {
     $crate::case::charcase::punctuationcase::is_punctuation($rhs)
   };
   (dot $rhs:expr) => {
-    $crate::case::charcase::punctuationcase::is_period($rhs)
+    $crate::case::charcase::opcase::is_period($rhs)
   };
   (ident $rhs:expr) => {
     $crate::case::charcase::identcase::is_ident($rhs)

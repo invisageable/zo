@@ -1245,6 +1245,7 @@ impl<'tokens> Parser<'tokens> {
       kind if kind.is_calling() => Some(Self::parse_expr_call),
       kind if kind.is_index() => Some(Self::parse_expr_array_access),
       kind if kind.is_chaining() => Some(Self::parse_expr_struct_access),
+      kind if kind.is_range() => Some(Self::parse_expr_range),
       _ => None,
     }
   }
@@ -1416,6 +1417,10 @@ impl<'tokens> Parser<'tokens> {
       kind: ExprKind::StructAccess(Box::new(lhs), Box::new(access)),
       span: Span::merge(lo, hi),
     })
+  }
+
+  fn parse_expr_range(_parser: &mut Parser, _lhs: Expr) -> Result<Expr> {
+    todo!()
   }
 }
 

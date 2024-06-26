@@ -35,6 +35,7 @@ pub enum Op {
   GreaterThanGreaterThan,
   AmpersandAmpersand,
   PipePipe,
+  Period,
   PeriodPeriod,
 }
 
@@ -55,6 +56,7 @@ impl From<char> for Op {
       b'#' => Self::Pound,
       b'<' => Self::LessThan,
       b'>' => Self::GreaterThan,
+      b'.' => Self::Period,
       _ => unreachable!("{op}"),
     }
   }
@@ -124,6 +126,7 @@ impl std::fmt::Display for Op {
       Self::GreaterThanGreaterThan => write!(f, ">>"),
       Self::AmpersandAmpersand => write!(f, "&&"),
       Self::PipePipe => write!(f, "||"),
+      Self::Period => write!(f, "."),
       Self::PeriodPeriod => write!(f, ".."),
     }
   }

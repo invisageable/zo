@@ -8,7 +8,7 @@ use zo_ty::ty::Ty;
 use zo_core::interner::symbol::{Symbol, Symbolize};
 use zo_core::span::{AsSpan, Span};
 
-/// The representation of an node id in an AST node.
+/// The representation of an unique id of a node in an AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
 
@@ -24,6 +24,7 @@ pub enum Mutability {
   No,
 }
 
+/// The representation of a pattern.
 #[derive(Clone, Debug)]
 pub struct Pattern {
   pub kind: PatternKind,
@@ -36,6 +37,7 @@ impl Symbolize for Pattern {
   }
 }
 
+/// The representation of different kinds of patterns.
 #[derive(Clone, Debug)]
 pub enum PatternKind {
   /// underscore — `_`.
@@ -347,6 +349,8 @@ pub enum ExprKind {
   Loop(Block),
   /// while loop — `while foo < 10 { .. }`.
   While(Box<Expr>, Block),
+  /// for loop — `for x := 0..4 { .. }`.
+  For(Box<Expr>, Box<Expr>, Block),
   /// exit return — `return`, `return foo`.
   Return(Option<Box<Expr>>),
   /// exit break — `break`, `break foo`.
@@ -355,6 +359,8 @@ pub enum ExprKind {
   Continue,
   /// variable — `imu foo : int = 0`, `mut foo := 0`.
   Var(Var),
+  /// range — `0..4`, `0..bar.len()`.
+  Range(Box<Expr>, Box<Expr>),
 }
 
 impl Symbolize for ExprKind {
@@ -533,7 +539,7 @@ impl From<Op> for BinOpKind {
   }
 }
 
-/// The representation of a block — `{..}`.
+/// The representation of a block — `{ .. }`.
 #[derive(Clone, Debug)]
 pub struct Block {
   pub stmts: Vec<Stmt>,

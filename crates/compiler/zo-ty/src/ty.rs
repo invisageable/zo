@@ -5,6 +5,7 @@ use zo_core::span::Span;
 
 use hashbrown::HashSet;
 
+/// The representation of a type.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ty {
   pub kind: TyKind,
@@ -92,6 +93,7 @@ impl Ty {
   }
 }
 
+/// The representation of different kind of type.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TyKind {
   /// unit — `()`.
@@ -144,6 +146,7 @@ impl TyKind {
   }
 }
 
+/// The representation of an integer type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LitIntTy {
   Int(IntTy),
@@ -152,17 +155,21 @@ pub enum LitIntTy {
   Unsuffixed,
 }
 
+/// The representation of a float type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LitFloatTy {
   Suffixed(FloatTy),
   Unsuffixed,
 }
 
+/// The representation of different kind of an integer type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IntTy {
+  /// `int` — by default is `s64`.
   Int,
 }
 
+/// The representation of different kind of a signed integer type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SintTy {
   S8,
@@ -172,6 +179,7 @@ pub enum SintTy {
   S128,
 }
 
+/// The representation of different kind of an unsigned integer type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UintTy {
   U8,
@@ -181,8 +189,10 @@ pub enum UintTy {
   U128,
 }
 
+/// The representation of different kind of a float type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FloatTy {
+  /// `float` — by default is `f32`.
   Float,
   F32,
   F64,

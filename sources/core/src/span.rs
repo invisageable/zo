@@ -4,6 +4,7 @@ pub trait AsSpan {
   fn as_span(&self) -> Span;
 }
 
+/// The region of source code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Span {
   pub lo: usize,
@@ -40,7 +41,7 @@ impl Default for Span {
 
 impl std::fmt::Display for Span {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f, "{}..{}", self.lo, self.hi)
+    write!(f, "({}..{})", self.lo, self.hi)
   }
 }
 
