@@ -82,7 +82,7 @@ mod test {
 
   use crate::span::Span;
 
-  const PATH: &str = "../../crates/compiler/zo-notes/samples/flow/hello.zo";
+  const PATH: &str = "../../crates/compiler/zo-notes/samples/flow/flow.zo";
 
   #[test]
   fn test_get_source_id() {
