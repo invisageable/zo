@@ -1,10 +1,14 @@
 # apps.
 
 > *Apps like tracks.*
+    
+## [about](https://www.reddit.com/r/rust/comments/1c69mrj/do_you_think_egui_is_ready_for_real_industry).
 
-## invisageable, zo — The symphonie of compilers.
+This is a programming EP, it contains native applications for MacOS (I do not have a Linux or WIndows laptop to tested it). All applications are build on the top of [egui](https://github.com/emilk/egui) and used [wgpu](https://github.com/gfx-rs/wgpu) under the hood.   
 
-A programming EP (Extended Play).
+## invisageable | zo — The symphonie of compilers.
+
+Tracklist.
 
 1. calculius.
 2. codelord.
@@ -14,5 +18,4 @@ A programming EP (Extended Play).
 
 - LOC — ...
 - Recorded — 29 July 2024 until present.
-- Released — ...
-  - Released through [@compilords](https://compilords.house).
+- Released — ... through [@compilords](https://compilords.house).

@@ -14,24 +14,30 @@ You should come back in ten years. Stay tuned.
 
 A compiler of a compiler inside another giant compiler that is itself inside a gigantic compiler.  
 
-[Home](https://github.com/invisageable) — [Apps](./apps) — [Crates](crates) — [Source](source) — [Speeches](notes/speeches)   
+[Home](https://github.com/invisageable/zo) — [Install](./notes/docs/README.md#install) — [Speeches](notes/speeches)   
 
-## platform.
+## ecosystem.
 
 ![license: APACHE](https://img.shields.io/badge/license-APACHE-blue?style=flat-square)
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
-| source                        | description                        |
+**-sources**
+
+| name                          | description                        |
 | ----------------------------- | ---------------------------------- |
 | [swisskit](./crates/compiler) | A collection of shareable modules. |
 
-| crate                   | description                                   |
+**-crates**
+
+| name                    | description                                   |
 | ----------------------- | --------------------------------------------- |
 | [zo](./crates/compiler) | A compiler for the `zo` programming language. |
 | [zow](./crates/web)     | A compiler for the `zo` templating language.  |
 | [zom](./crates/marker)  | A compiler for the `oz` markup language.      |
 
-| app                              | description                                              |
+**-apps**
+
+| name                             | description                                              |
 | -------------------------------- | -------------------------------------------------------- |
 | [calculius](./apps/adder)        | A small machina for mathematical computations.           |
 | [codelord](./apps/coder)         | A code editor OS-like for the `zo` programming language. |
@@ -48,7 +54,7 @@ Thanks to:
 - [@ledruidd](https://github.com/ledruidd) Quaalude never ends.
 - [@SiegfriedEhret](https://github.com/SiegfriedEhret) to keep up to date with the latest US rap bangers.
 - [@emilk](https://github.com/emilk) for all the work he did to bring `egui` into life.
-- [@zesterer](https://crates.io/users/zesterer) `ariadne`, `flume`, `pollster` are so gaddamn good.
+- [@zesterer](https://github.com/zesterer) `ariadne`, `flume`, `pollster` are so gaddamn good.
 - [@tamo](https://github.com/irevoire) for the great job done for `zearch`.
 - [@harzu](https://github.com/Harzu) for nice terminal `egui-term` and the blind debugging in remote.
 - [@rvirding](https://github.com/rvirding) I got the mantra now — *focus focus focus.*
