@@ -1,0 +1,12 @@
+[package]
+name = "zoc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:source.
+swisskit = { workspace = true }
+
+# internal:crates.
+
+# external:crates.
