@@ -1,4 +1,4 @@
-/// Checks if a byte is a 7-bit characters code of whitespace symbols.
+/// Checks if a single byte is a 7-bit characters code of whitespace symbols.
 ///
 /// #### examples.
 ///
@@ -16,7 +16,7 @@ where
   byte.into().is_ascii_whitespace()
 }
 
-/// Gets the `whitespace` name from a byte.
+/// Gets the `whitespace` name from a single byte.
 ///
 /// #### examples.
 ///

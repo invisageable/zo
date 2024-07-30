@@ -1,4 +1,5 @@
-/// Checks if a byte is a 7-bit characters code of `\0` or `\n` character.
+/// Checks if a single byte is a 7-bit characters code of `\0` or `\n`
+/// character.
 ///
 /// It will detect new line and end of file.
 ///
@@ -19,7 +20,7 @@ where
   is_eof(byte) || is_eol(byte)
 }
 
-/// Checks if a byte is a 7-bit characters code of `\0` character.
+/// Checks if a single byte is a 7-bit characters code of `\0` character.
 ///
 /// Also named: `Null`.
 ///
@@ -41,7 +42,7 @@ where
   byte.into() == b'\0'
 }
 
-/// Checks if a byte is a 7-bit characters code of `\n` character.
+/// Checks if a single byte is a 7-bit characters code of `\n` character.
 ///
 /// Also named: `Line Feed`.
 ///
@@ -63,6 +64,7 @@ where
   byte.into() == b'\n'
 }
 
+/// Gets the `endof` name from a single byte.
 pub fn of_name<B>(byte: B) -> Option<&'static str>
 where
   B: Into<u8> + Copy,

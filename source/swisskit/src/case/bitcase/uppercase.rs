@@ -1,4 +1,4 @@
-/// Checks if a byte is a 7-bit characters code of `uppercase` symbol.
+/// Checks if a single byte is a 7-bit characters code of `uppercase` symbol.
 ///
 /// #### examples.
 ///

@@ -7,7 +7,6 @@
 //!
 //! note — for more support go to:
 //!
-//! - [`crate::case::charcase`].
 //! - [`crate::case::strcase`].
 
 pub mod endofcase;

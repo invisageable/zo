@@ -1,4 +1,4 @@
-/// Check if a byte is a 7-bit characters code of `"`, `'` or `backtick`
+/// Check if a single byte is a 7-bit characters code of `"`, `'` or `backtick`
 /// symbols.
 ///
 /// #### examples.
@@ -17,7 +17,7 @@ where
   is_quote_single(byte) | is_quote_double(byte)
 }
 
-/// Check if a byte is a 7-bit characters code of `'` symbol.
+/// Check if a single byte is a 7-bit characters code of `'` symbol.
 ///
 /// #### examples.
 ///
@@ -35,7 +35,7 @@ where
   byte.into() == b'\''
 }
 
-/// Check if a byte is a 7-bit characters code of `"` symbol.
+/// Check if a single byte is a 7-bit characters code of `"` symbol.
 ///
 /// #### examples.
 ///
@@ -53,7 +53,7 @@ where
   byte.into() == b'"'
 }
 
-/// Check if a byte is a 7-bit characters code of `backtick` symbol.
+/// Check if a single byte is a 7-bit characters code of `backtick` symbol.
 ///
 /// #### examples.
 ///
@@ -71,7 +71,7 @@ where
   byte.into() == b'`'
 }
 
-/// Gets the `uppercase` name from a byte.
+/// Gets the `uppercase` name from a single byte.
 ///
 /// #### examples.
 ///

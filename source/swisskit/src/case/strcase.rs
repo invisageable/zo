@@ -4,6 +4,11 @@
 //! note — for more support go to:
 //!
 //! - [`crate::case::bitcase`].
-//! - [`crate::case::charcase`].
 
 pub mod camelcase;
+pub mod kebabcase;
+pub mod pascalcase;
+pub mod pluralcase;
+pub mod singularcase;
+pub mod snakecase;
+pub mod traincase;
