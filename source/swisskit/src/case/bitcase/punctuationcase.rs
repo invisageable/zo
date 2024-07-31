@@ -5,7 +5,7 @@
 /// ```
 /// use swisskit::case::bitcase::punctuationcase;
 ///
-/// assert!(punctuationcase::is_punctuation(b'.'));
+/// assert!(punctuationcase::is_punctuation(b','));
 /// assert!(!punctuationcase::is_punctuation(b'!'));
 /// ```
 #[inline]
