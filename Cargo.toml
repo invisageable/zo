@@ -34,6 +34,7 @@ swisskit = { path = "source/swisskit", version = "0.0.0" }
 
 # internal:crates:zo.
 zo = { path = "crates/compiler/zo", version = "0.0.0" }
+zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
 
 # internal:crates:zow.
 zow = { path = "crates/web/zow", version = "0.0.0" }
