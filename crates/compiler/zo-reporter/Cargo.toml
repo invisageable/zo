@@ -1,5 +1,5 @@
 [package]
-name = "zo-session"
+name = "zo-reporter"
 version.workspace = true
 edition.workspace = true
 
@@ -9,6 +9,7 @@ swisskit = { workspace = true }
 
 # internal:crates.
 zo-interner = { workspace = true }
-zo-reporter = { workspace = true }
 
 # external:crates.
+ariadne = { workspace = true }
+smol_str = { workspace = true }
