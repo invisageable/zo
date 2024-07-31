@@ -79,7 +79,7 @@ impl SourceMap {
   }
 
   /// Gets the source code from the related source id.
-  pub fn code(&self, id: u32) -> &str {
+  pub fn source_code(&self, id: u32) -> &str {
     let source_id = id as usize;
     let lo = self.sources[source_id].id;
 
