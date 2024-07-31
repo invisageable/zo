@@ -14,9 +14,6 @@
 ## syntax.
 
 ```rs
--- a constant variable.
-val A: bool = true;
-
 -- a simple fibonacci.
 
 fun main() {

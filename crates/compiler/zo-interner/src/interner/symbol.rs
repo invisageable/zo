@@ -1,3 +1,5 @@
+/// Adds a behavior to get the symbol of an instance which already had a symbol
+/// as property.
 pub trait Symbolize {
   fn as_symbol(&self) -> &Symbol;
 }
