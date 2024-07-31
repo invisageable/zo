@@ -1,3 +1,5 @@
+pub mod source;
+
 /// A region in a source code.
 ///
 /// #### understanding.
