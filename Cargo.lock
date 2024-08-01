@@ -600,6 +600,7 @@ dependencies = [
  "smol_str",
  "swisskit",
  "zo-interner",
+ "zo-reader",
  "zo-reporter",
  "zo-session",
 ]
@@ -622,6 +623,16 @@ version = "0.0.0"
 dependencies = [
  "hashbrown",
  "swisskit",
+]
+
+[[package]]
+name = "zo-reader"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
 ]
 
 [[package]]

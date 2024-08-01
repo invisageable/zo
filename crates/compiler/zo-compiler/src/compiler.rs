@@ -97,3 +97,15 @@ pub enum On {
   // Value(Value),
   // Output(Output),
 }
+
+impl On {
+  #[inline]
+  pub const fn path(path: std::path::PathBuf) -> Result<Self> {
+    Ok(On::Path(path))
+  }
+
+  #[inline]
+  pub const fn bytes(ast: Vec<u8>) -> Result<Self> {
+    Ok(On::Bytes(ast))
+  }
+}

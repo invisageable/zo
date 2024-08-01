@@ -9,6 +9,7 @@ swisskit = { workspace = true }
 
 # internal:crates.
 zo-interner = { workspace = true }
+zo-reader = { workspace = true }
 zo-reporter = { workspace = true }
 zo-session = { workspace = true }
 
