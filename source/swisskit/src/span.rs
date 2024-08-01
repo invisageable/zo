@@ -98,6 +98,7 @@ impl Span {
 }
 
 impl Default for Span {
+  #[inline]
   fn default() -> Self {
     Self::ZERO
   }

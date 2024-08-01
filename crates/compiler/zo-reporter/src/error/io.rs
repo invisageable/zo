@@ -2,7 +2,7 @@ use super::{Diagnostic, Error};
 
 use crate::report::{Report, ReportKind};
 
-/// The `io` diagnostic.
+/// The `io` errors.
 #[derive(Debug)]
 pub struct Io(std::io::Error);
 

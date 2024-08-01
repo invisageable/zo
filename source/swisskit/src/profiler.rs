@@ -37,16 +37,14 @@ impl Profiler {
 
   /// Starts profiling, a weapper of [`Timer::start`].
   #[inline]
-  pub fn start(mut self) -> Self {
+  pub fn start(&mut self) {
     self.timer.start();
-    self
   }
 
   /// Ends profiling, a weapper of [`Timer::end`].
   #[inline]
-  pub fn end(mut self) -> Self {
+  pub fn end(&mut self) {
     self.timer.end();
-    self
   }
 
   /// A weapper of [`Timer::duration`]

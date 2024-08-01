@@ -4,6 +4,7 @@ use crate::report::Report;
 
 use swisskit::span::Span;
 
+/// The representation of semantic analysis errors.
 pub enum Semantic {}
 
 impl<'a> Diagnostic<'a> for Semantic {

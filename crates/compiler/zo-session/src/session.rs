@@ -5,6 +5,8 @@ use zo_reporter::reporter::Reporter;
 
 use swisskit::profiler::Profiler;
 
+use smol_str::SmolStr;
+
 /// The representation of a compiler's session.
 pub struct Session {
   /// The settings of the session.
@@ -17,7 +19,42 @@ pub struct Session {
   pub profiler: Profiler,
 }
 
+impl Session {
+  /// Displays the profiler results.
+  ///
+  /// See also [`Profiler::profile`].
+  #[inline]
+  pub fn profile(&self) {
+    if self.settings.has_profile() {
+      self.profiler.profile()
+    }
+  }
+
+  /// Measures the duration that a function takes.
+  ///
+  /// See also [`Profiler`].
+  pub fn with_timing<T>(
+    &mut self,
+    name: impl Into<SmolStr>,
+    f: impl FnOnce(&mut Self) -> T,
+  ) -> T {
+    if self.settings.has_profile() {
+      self.profiler.start();
+
+      let returns = f(self);
+
+      self.profiler.end();
+      self.profiler.add_profile(name);
+
+      returns
+    } else {
+      f(self)
+    }
+  }
+}
+
 impl Default for Session {
+  #[inline]
   fn default() -> Self {
     Self {
       settings: Settings::new(),

@@ -4,6 +4,7 @@ use crate::report::{Report, ReportKind};
 
 use swisskit::span::Span;
 
+/// The representation of lexical analysis errors.
 pub enum Lexical {
   Unknown(Span, u8),
 }
