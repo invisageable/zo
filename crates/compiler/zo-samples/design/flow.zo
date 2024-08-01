@@ -1,0 +1,8 @@
+-- syntax flow.
+
+fun main() {
+  imu x: int = 2;
+  mut y: int = 2;
+  
+  y = x * y
+}
