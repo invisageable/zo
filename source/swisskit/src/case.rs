@@ -11,4 +11,5 @@
 //! ```
 
 pub mod bitcase;
+pub mod macros;
 pub mod strcase;
