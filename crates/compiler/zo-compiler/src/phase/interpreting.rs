@@ -1,4 +1,4 @@
-use super::Process;
+use super::{On, Process};
 
 use zo_reporter::Result;
 use zo_session::session::Session;
@@ -7,9 +7,9 @@ use zo_session::session::Session;
 #[derive(Clone, Copy, Debug)]
 pub struct Interpreting;
 impl Process for Interpreting {
-  fn process(&self, _session: &mut Session) -> Result<()> {
+  fn process(&self, _session: &mut Session, on: On) -> Result<On> {
     println!("phase:{self}");
-    Ok(())
+    Ok(on)
   }
 }
 

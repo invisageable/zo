@@ -10,7 +10,7 @@ use zo_compiler::phase::tokenizing::Tokenizing;
 use zo_compiler::phase::Phase;
 use zo_reporter::Result;
 use zo_session::backend::Backend;
-use zo_session::session::Session;
+use zo_session::session::SESSION;
 use zo_session::settings::Settings;
 
 use swisskit::global::{EXIT_FAILURE, EXIT_SUCCESS};
@@ -44,17 +44,20 @@ impl Build {
 
   /// Builds the program.
   fn building(&self) -> Result<()> {
-    let mut session = Session {
-      settings: Settings {
-        input: self.input.to_owned(),
-        backend: self.backend.to_owned(),
-        profile: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
-          self.profile,
-        )),
-        ..Default::default()
-      },
+    let session = std::sync::Arc::clone(&SESSION);
+    let mut session = session.lock().unwrap();
+
+    // am i legitime to unwrap here?
+    session.with_settings(Settings {
+      input: self.input.to_owned(),
+      backend: self.backend.to_owned(),
+      profile: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        self.profile,
+      )),
       ..Default::default()
-    };
+    });
+
+    drop(session);
 
     // phases will be execute in fifo ordering.
     let compiler = Compiler::new([
@@ -66,7 +69,7 @@ impl Build {
       Phase::Building(Building),
     ]);
 
-    let _ = compiler.compile(&mut session);
+    compiler.compile()?;
 
     Ok(())
   }

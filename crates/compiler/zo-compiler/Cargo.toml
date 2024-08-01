@@ -13,4 +13,5 @@ zo-reporter = { workspace = true }
 zo-session = { workspace = true }
 
 # external:crates.
+flume = { workspace = true }
 smol_str = { workspace = true }
