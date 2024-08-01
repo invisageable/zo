@@ -10,6 +10,12 @@ impl SourceId {
   pub fn new(id: usize) -> Self {
     Self(id)
   }
+
+  /// Gets the id.
+  #[inline]
+  pub fn get(self) -> usize {
+    self.0
+  }
 }
 
 /// The representation of a source file.
