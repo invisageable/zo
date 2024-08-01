@@ -34,6 +34,7 @@ swisskit = { path = "source/swisskit", version = "0.0.0" }
 
 # internal:crates:zo.
 zo = { path = "crates/compiler/zo", version = "0.0.0" }
+zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.0.0" }
 zo-driver = { path = "crates/compiler/zo-driver", version = "0.0.0" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
 zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.0.0" }

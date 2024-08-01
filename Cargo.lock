@@ -429,12 +429,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-compiler"
+version = "0.0.0"
+dependencies = [
+ "smol_str",
+ "swisskit",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
 name = "zo-driver"
 version = "0.0.0"
 dependencies = [
  "clap",
  "smol_str",
  "swisskit",
+ "zo-compiler",
  "zo-reporter",
  "zo-session",
 ]

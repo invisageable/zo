@@ -1,5 +1,13 @@
 use super::Execute;
 
+use zo_compiler::compiler::Compiler;
+use zo_compiler::phase::analyzing::Analyzing;
+use zo_compiler::phase::building::Building;
+use zo_compiler::phase::generating::Generating;
+use zo_compiler::phase::parsing::Parsing;
+use zo_compiler::phase::reading::Reading;
+use zo_compiler::phase::tokenizing::Tokenizing;
+use zo_compiler::phase::Phase;
 use zo_reporter::Result;
 use zo_session::backend::Backend;
 use zo_session::session::Session;
@@ -36,7 +44,7 @@ impl Build {
 
   /// Builds the program.
   fn building(&self) -> Result<()> {
-    let mut _session = Session {
+    let mut session = Session {
       settings: Settings {
         input: self.input.to_owned(),
         backend: self.backend.to_owned(),
@@ -47,6 +55,18 @@ impl Build {
       },
       ..Default::default()
     };
+
+    // phases will be execute in fifo ordering.
+    let compiler = Compiler::new([
+      Phase::Reading(Reading),
+      Phase::Tokenizing(Tokenizing),
+      Phase::Parsing(Parsing),
+      Phase::Analyzing(Analyzing),
+      Phase::Generating(Generating),
+      Phase::Building(Building),
+    ]);
+
+    let _ = compiler.compile(&mut session);
 
     Ok(())
   }
