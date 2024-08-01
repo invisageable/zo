@@ -663,6 +663,9 @@ dependencies = [
 name = "zo-tokenizer"
 version = "0.0.0"
 dependencies = [
+ "hashbrown",
+ "lazy_static",
+ "smol_str",
  "swisskit",
  "zo-interner",
  "zo-reporter",

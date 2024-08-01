@@ -1,3 +1,5 @@
+use super::token::Token;
+
 use zo_interner::interner::Interner;
 use zo_reporter::reporter::Reporter;
 use zo_session::session::Session;
@@ -26,7 +28,7 @@ impl<'bytes> Tokenizer<'bytes> {
   }
 
   /// Transform the source code into an array of tokens.
-  fn tokenize(self) -> Vec<u8> {
+  fn tokenize(self) -> Vec<Token> {
     todo!()
   }
 }
@@ -44,6 +46,6 @@ impl<'bytes> Tokenizer<'bytes> {
 ///
 /// assert_eq!(tokens, vec![]);
 /// ```
-pub fn tokenize(session: &mut Session, source: &[u8]) -> Vec<u8> {
+pub fn tokenize(session: &mut Session, source: &[u8]) -> Vec<Token> {
   Tokenizer::new(&mut session.interner, &session.reporter, source).tokenize()
 }
