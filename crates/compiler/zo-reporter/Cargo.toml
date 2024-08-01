@@ -11,5 +11,6 @@ swisskit = { workspace = true }
 zo-interner = { workspace = true }
 
 # external:crates.
+anyhow = { workspace = true }
 ariadne = { workspace = true }
 smol_str = { workspace = true }
