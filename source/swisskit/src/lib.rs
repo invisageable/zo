@@ -3,3 +3,4 @@ pub mod global;
 pub mod profiler;
 pub mod span;
 pub mod timer;
+pub mod writer;
