@@ -1,3 +1,3 @@
 fn main() {
-  println!("zo");
+  zo_driver::driver::main()
 }

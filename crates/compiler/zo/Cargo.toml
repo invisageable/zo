@@ -10,4 +10,4 @@ swisskit = { workspace = true }
 # internal:crates.
 
 # external:crates.
-zo-session = { workspace = true }
+zo-driver = { workspace = true }
