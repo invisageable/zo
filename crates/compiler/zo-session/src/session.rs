@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use smol_str::SmolStr;
 
 /// The representation of a compiler's session.
+#[derive(Debug)]
 pub struct Session {
   /// The settings of the session.
   pub settings: Settings,

@@ -5,6 +5,7 @@ use crate::report::Report;
 use swisskit::span::Span;
 
 /// The representation of evaluation errors.
+#[derive(Debug)]
 pub enum Eval {}
 
 impl<'a> Diagnostic<'a> for Eval {

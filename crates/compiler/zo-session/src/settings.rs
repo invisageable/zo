@@ -2,7 +2,7 @@ use super::backend::Backend;
 
 use smol_str::SmolStr;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Settings {
   pub input: SmolStr,
   pub backend: Backend,

@@ -26,6 +26,7 @@ pub trait Diagnostic<'a> {
 ///
 /// note — By modifying this enum, you should update the [get the line from
 /// Reporter::add_error]
+#[derive(Debug)]
 pub enum Error {
   /// A wrapper related to [`std::io::Error`].
   Io(io::Io),

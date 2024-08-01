@@ -31,6 +31,7 @@ impl Source {
 }
 
 /// The representation of a source map database.
+#[derive(Debug)]
 pub struct SourceMap {
   pub code: String,
   pub sources: Vec<Source>,

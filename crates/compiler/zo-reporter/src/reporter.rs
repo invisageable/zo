@@ -5,6 +5,7 @@ use swisskit::span::source::{SourceId, SourceMap};
 use swisskit::span::Span;
 
 /// The representation of a reporter.
+#[derive(Debug)]
 pub struct Reporter {
   /// This flag is used for displaying diagnostics.
   ///

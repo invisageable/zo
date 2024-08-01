@@ -2,7 +2,7 @@ use clap::builder::PossibleValue;
 use clap::{Parser, ValueEnum};
 
 /// The representation of a backend for the code generation.
-#[derive(Parser, Clone, Default)]
+#[derive(Clone, Debug, Default, Parser)]
 pub enum Backend {
   /// python.
   Py,
