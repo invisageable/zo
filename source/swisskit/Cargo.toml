@@ -10,3 +10,4 @@ edition.workspace = true
 
 # external:crates.
 Inflector = { workspace = true }
+smol_str = { workspace = true }
