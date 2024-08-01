@@ -603,6 +603,7 @@ dependencies = [
  "zo-reader",
  "zo-reporter",
  "zo-session",
+ "zo-tokenizer",
 ]
 
 [[package]]
@@ -656,6 +657,16 @@ dependencies = [
  "swisskit",
  "zo-interner",
  "zo-reporter",
+]
+
+[[package]]
+name = "zo-tokenizer"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
 ]
 
 [[package]]

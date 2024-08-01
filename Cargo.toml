@@ -40,6 +40,7 @@ zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
 zo-reader = { path = "crates/compiler/zo-reader", version = "0.0.0" }
 zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.0.0" }
 zo-session = { path = "crates/compiler/zo-session", version = "0.0.0" }
+zo-tokenizer = { path = "crates/compiler/zo-tokenizer", version = "0.0.0" }
 
 # internal:crates:zow.
 zow = { path = "crates/web/zow", version = "0.0.0" }
