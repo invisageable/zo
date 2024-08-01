@@ -5,6 +5,7 @@ use zo_reporter::reporter::Reporter;
 
 use swisskit::profiler::Profiler;
 
+use lazy_static::lazy_static;
 use smol_str::SmolStr;
 
 /// The representation of a compiler's session.
@@ -28,6 +29,11 @@ impl Session {
     if self.settings.has_profile() {
       self.profiler.profile()
     }
+  }
+
+  /// Sets the settings of the session.
+  pub fn with_settings(&mut self, settings: Settings) {
+    self.settings = settings;
   }
 
   /// Measures the duration that a function takes.
@@ -63,4 +69,10 @@ impl Default for Session {
       profiler: Profiler::new(),
     }
   }
+}
+
+lazy_static! {
+  /// The session wrap into an [`Arc<Mutex>`] for multithreading.
+  pub static ref SESSION: std::sync::Arc<std::sync::Mutex<Session>> =
+    std::sync::Arc::new(std::sync::Mutex::new(Session::default()));
 }

@@ -13,4 +13,5 @@ zo-reporter = { workspace = true }
 
 # external:crates.
 clap = { workspace = true }
+lazy_static = { workspace = true }
 smol_str = { workspace = true }
