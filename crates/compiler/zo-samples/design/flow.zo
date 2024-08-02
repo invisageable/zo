@@ -1,8 +1,11 @@
--- syntax flow.
-
-fun main() {
-  imu x: int = 2;
-  mut y: int = 2;
+        
+-- -- syntax flow.
+        
+-- fun main() {
+--   imu x: int = 2;
+--   mut y: int = 2;
   
-  y = x * y
-}
+--   y = x * y
+-- }
+
+1234 + 123

@@ -10,6 +10,7 @@ impl Codegen {
     match session.settings.backend {
       Backend::Py => zo_codegen_py::codegen::generate(session, ast),
       Backend::Wasm => zo_codegen_wasm::codegen::generate(session, ast),
+      _ => panic!(),
     }
   }
 }

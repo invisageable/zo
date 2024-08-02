@@ -19,7 +19,7 @@ use zo_ast::ast::Ast;
 use zo_reporter::Result;
 use zo_session::session::Session;
 
-/// The representation of a analyzer.
+/// The representation of an analyzer.
 struct Analyzer;
 impl Analyzer {
   /// Analyses the AST and performs a bunch of analysis related to the semantic.

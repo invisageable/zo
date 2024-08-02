@@ -1,6 +1,8 @@
 use zo_ast::ast::Ast;
+use zo_builder::builder::Output;
 use zo_reporter::Result;
 use zo_tokenizer::token::Token;
+use zo_value::value::Value;
 
 /// The representation of compiler's event.
 #[derive(Debug)]
@@ -9,9 +11,9 @@ pub enum Event {
   Bytes(Vec<u8>),
   Tokens(Vec<Token>),
   Ast(Ast),
-  // Bytecode(Vec<u8>),
-  // Value(Value),
-  // Output(Output),
+  Bytecode(Box<[u8]>),
+  Output(Output),
+  Value(Value),
 }
 
 impl Event {
@@ -37,5 +39,23 @@ impl Event {
   #[inline]
   pub const fn ast(ast: Ast) -> Result<Self> {
     Ok(Event::Ast(ast))
+  }
+
+  /// Creates a new bytecode event.
+  #[inline]
+  pub fn bytecode(bytecode: Box<[u8]>) -> Result<Self> {
+    Ok(Event::Bytecode(bytecode))
+  }
+
+  /// Creates a new bytecode event.
+  #[inline]
+  pub const fn output(output: Output) -> Result<Self> {
+    Ok(Event::Output(output))
+  }
+
+  /// Creates a new value event.
+  #[inline]
+  pub const fn value(value: Value) -> Result<Self> {
+    Ok(Event::Value(value))
   }
 }

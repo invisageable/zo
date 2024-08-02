@@ -1,5 +1,5 @@
 [package]
-name = "zo-compiler"
+name = "zo-interpreter"
 version.workspace = true
 edition.workspace = true
 
@@ -8,19 +8,12 @@ edition.workspace = true
 swisskit = { workspace = true }
 
 # internal:crates.
-zo-analyzer = { workspace = true }
 zo-ast = { workspace = true }
-zo-builder = { workspace = true }
-zo-codegen = { workspace = true }
 zo-interner = { workspace = true }
-zo-interpreter = { workspace = true }
-zo-parser = { workspace = true }
-zo-reader = { workspace = true }
+zo-interpreter-clif = { workspace = true }
+zo-interpreter-zo = { workspace = true }
 zo-reporter = { workspace = true }
 zo-session = { workspace = true }
-zo-tokenizer = { workspace = true }
 zo-value = { workspace = true }
 
 # external:crates.
-flume = { workspace = true }
-smol_str = { workspace = true }

@@ -613,6 +613,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-builder"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
 name = "zo-codegen"
 version = "0.0.0"
 dependencies = [
@@ -656,13 +665,16 @@ dependencies = [
  "swisskit",
  "zo-analyzer",
  "zo-ast",
+ "zo-builder",
  "zo-codegen",
  "zo-interner",
+ "zo-interpreter",
  "zo-parser",
  "zo-reader",
  "zo-reporter",
  "zo-session",
  "zo-tokenizer",
+ "zo-value",
 ]
 
 [[package]]
@@ -683,6 +695,44 @@ version = "0.0.0"
 dependencies = [
  "hashbrown",
  "swisskit",
+]
+
+[[package]]
+name = "zo-interpreter"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-interpreter-clif",
+ "zo-interpreter-zo",
+ "zo-reporter",
+ "zo-session",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-interpreter-clif"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-interpreter-zo"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+ "zo-value",
 ]
 
 [[package]]
@@ -738,6 +788,17 @@ dependencies = [
  "lazy_static",
  "smol_str",
  "swisskit",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-value"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
  "zo-interner",
  "zo-reporter",
  "zo-session",
