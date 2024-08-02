@@ -593,6 +593,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-analyzer"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
 name = "zo-ast"
 version = "0.0.0"
 dependencies = [
@@ -608,6 +619,7 @@ dependencies = [
  "flume",
  "smol_str",
  "swisskit",
+ "zo-analyzer",
  "zo-ast",
  "zo-interner",
  "zo-parser",
