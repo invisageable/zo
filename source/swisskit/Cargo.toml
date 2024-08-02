@@ -9,5 +9,7 @@ edition.workspace = true
 # internal:crates.
 
 # external:crates.
+flume = { workspace = true }
 Inflector = { workspace = true }
 smol_str = { workspace = true }
+sysinfo = { workspace = true }

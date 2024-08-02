@@ -53,6 +53,18 @@ impl Interner {
     self.vec[id as usize]
   }
 
+  pub fn lookup_int(&self, id: impl Into<usize>) -> i64 {
+    self.vec[id.into()].parse().unwrap()
+  }
+
+  pub fn lookup_float(&self, id: impl Into<usize>) -> f64 {
+    self.vec[id.into()].parse().unwrap()
+  }
+
+  pub fn lookup_char(&self, id: impl Into<usize>) -> char {
+    self.vec[id.into()].chars().next().unwrap()
+  }
+
   unsafe fn alloc(&mut self, name: &str) -> &'static str {
     let cap = self.buf.capacity();
 
