@@ -36,6 +36,9 @@ swisskit = { path = "source/swisskit", version = "0.0.0" }
 zo = { path = "crates/compiler/zo", version = "0.0.0" }
 zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.0.0" }
 zo-ast = { path = "crates/compiler/zo-ast", version = "0.0.0" }
+zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.0.0" }
+zo-codegen-py = { path = "crates/compiler/zo-codegen-py", version = "0.0.0" }
+zo-codegen-wasm = { path = "crates/compiler/zo-codegen-wasm", version = "0.0.0" }
 zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.0.0" }
 zo-driver = { path = "crates/compiler/zo-driver", version = "0.0.0" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }

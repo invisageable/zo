@@ -613,6 +613,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-codegen"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-codegen-py",
+ "zo-codegen-wasm",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-codegen-py"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-codegen-wasm"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
 name = "zo-compiler"
 version = "0.0.0"
 dependencies = [
@@ -621,6 +656,7 @@ dependencies = [
  "swisskit",
  "zo-analyzer",
  "zo-ast",
+ "zo-codegen",
  "zo-interner",
  "zo-parser",
  "zo-reader",
