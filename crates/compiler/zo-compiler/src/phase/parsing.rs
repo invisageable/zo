@@ -1,5 +1,6 @@
-use super::{On, Process};
+use super::{Event, Process};
 
+use zo_parser::parser;
 use zo_reporter::Result;
 use zo_session::session::Session;
 
@@ -7,9 +8,13 @@ use zo_session::session::Session;
 #[derive(Clone, Copy, Debug)]
 pub struct Parsing;
 impl Process for Parsing {
-  fn process(&self, _session: &mut Session, on: On) -> Result<On> {
-    println!("phase:{self}");
-    Ok(on)
+  fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
+    if let Event::Tokens(tokens) = event {
+      println!("phase:{self} — {tokens:?}");
+      return parser::parse(session, &tokens).and_then(Event::ast);
+    }
+
+    panic!()
   }
 }
 

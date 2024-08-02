@@ -8,7 +8,9 @@ edition.workspace = true
 swisskit = { workspace = true }
 
 # internal:crates.
+zo-ast = { workspace = true }
 zo-interner = { workspace = true }
+zo-parser = { workspace = true }
 zo-reader = { workspace = true }
 zo-reporter = { workspace = true }
 zo-session = { workspace = true }

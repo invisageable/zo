@@ -1,4 +1,4 @@
-use super::{On, Process};
+use super::{Event, Process};
 
 use zo_reader::reader;
 use zo_reporter::Result;
@@ -8,10 +8,10 @@ use zo_session::session::Session;
 #[derive(Clone, Copy, Debug)]
 pub struct Reading;
 impl Process for Reading {
-  fn process(&self, session: &mut Session, on: On) -> Result<On> {
-    if let On::Path(pathname) = &on {
+  fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
+    if let Event::Path(pathname) = &event {
       println!("phase:{self} — {pathname:?}");
-      return reader::read(session, pathname).and_then(On::bytes);
+      return reader::read(session, pathname).and_then(Event::bytes);
     }
 
     panic!()

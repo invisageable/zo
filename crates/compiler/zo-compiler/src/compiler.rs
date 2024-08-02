@@ -1,5 +1,6 @@
 use super::phase::{Phase, Process};
 
+use zo_ast::ast::Ast;
 use zo_reporter::Result;
 use zo_session::session::SESSION;
 use zo_tokenizer::token::Token;
@@ -29,7 +30,7 @@ impl<const L: usize> Compiler<L> {
   }
 
   /// Compiles a program from a session by running each compiler's phases.
-  pub fn compile(&self) -> Result<On> {
+  pub fn compile(&self) -> Result<Event> {
     let session = SESSION.clone();
     let phase = std::sync::Arc::new(std::sync::Mutex::new(self.phases));
     let (tx, rx) = flume::unbounded();
@@ -47,17 +48,17 @@ impl<const L: usize> Compiler<L> {
     let consumer = std::thread::spawn(move || {
       let mut session = session.lock().unwrap();
       let input = session.settings.input.as_str();
-      let on = On::Path(input.into());
+      let event = Event::Path(input.into());
 
-      rx.iter().try_fold(on, |on, p| {
+      rx.iter().try_fold(event, |event, p| {
         session.with_timing(&p, |session| match p {
-          Phase::Reading(phase) => phase.process(session, on),
-          Phase::Tokenizing(phase) => phase.process(session, on),
-          Phase::Parsing(phase) => phase.process(session, on),
-          Phase::Analyzing(phase) => phase.process(session, on),
-          Phase::Generating(phase) => phase.process(session, on),
-          Phase::Building(phase) => phase.process(session, on),
-          Phase::Interpreting(phase) => phase.process(session, on),
+          Phase::Reading(phase) => phase.process(session, event),
+          Phase::Tokenizing(phase) => phase.process(session, event),
+          Phase::Parsing(phase) => phase.process(session, event),
+          Phase::Analyzing(phase) => phase.process(session, event),
+          Phase::Generating(phase) => phase.process(session, event),
+          Phase::Building(phase) => phase.process(session, event),
+          Phase::Interpreting(phase) => phase.process(session, event),
         })
       })
     });
@@ -89,29 +90,38 @@ impl<const L: usize> From<[Phase; L]> for Compiler<L> {
 
 /// The representation of compiler's event.
 #[derive(Debug)]
-pub enum On {
+pub enum Event {
   Path(std::path::PathBuf),
   Bytes(Vec<u8>),
   Tokens(Vec<Token>),
-  // Ast(Vec<Stmt>),
+  Ast(Ast),
   // Bytecode(Vec<u8>),
   // Value(Value),
   // Output(Output),
 }
 
-impl On {
+impl Event {
+  /// Creates a new path event.
   #[inline]
   pub const fn path(path: std::path::PathBuf) -> Result<Self> {
-    Ok(On::Path(path))
+    Ok(Event::Path(path))
   }
 
+  /// Creates a new bytes event.
   #[inline]
   pub const fn bytes(bytes: Vec<u8>) -> Result<Self> {
-    Ok(On::Bytes(bytes))
+    Ok(Event::Bytes(bytes))
   }
 
+  /// Creates a new tokens event.
   #[inline]
   pub const fn tokens(tokens: Vec<Token>) -> Result<Self> {
-    Ok(On::Tokens(tokens))
+    Ok(Event::Tokens(tokens))
+  }
+
+  /// Creates a new ast event.
+  #[inline]
+  pub const fn ast(ast: Ast) -> Result<Self> {
+    Ok(Event::Ast(ast))
   }
 }

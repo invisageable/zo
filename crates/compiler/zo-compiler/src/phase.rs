@@ -6,7 +6,7 @@ pub mod parsing;
 pub mod reading;
 pub mod tokenizing;
 
-use crate::compiler::On;
+use crate::compiler::Event;
 
 use zo_reporter::Result;
 use zo_session::session::Session;
@@ -16,7 +16,7 @@ use smol_str::SmolStr;
 /// The behavior of a phase to process.
 pub trait Process {
   /// Runs the phase processing.
-  fn process(&self, session: &mut Session, on: On) -> Result<On>;
+  fn process(&self, session: &mut Session, event: Event) -> Result<Event>;
 }
 
 /// The representation of a compiler's phase.

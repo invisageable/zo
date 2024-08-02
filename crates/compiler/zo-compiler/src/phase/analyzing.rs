@@ -1,4 +1,4 @@
-use super::{On, Process};
+use super::{Event, Process};
 
 use zo_reporter::Result;
 use zo_session::session::Session;
@@ -7,9 +7,9 @@ use zo_session::session::Session;
 #[derive(Clone, Copy, Debug)]
 pub struct Analyzing;
 impl Process for Analyzing {
-  fn process(&self, _session: &mut Session, on: On) -> Result<On> {
+  fn process(&self, _session: &mut Session, event: Event) -> Result<Event> {
     println!("phase:{self}");
-    Ok(on)
+    Ok(event)
   }
 }
 
