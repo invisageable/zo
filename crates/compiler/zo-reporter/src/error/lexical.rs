@@ -8,10 +8,26 @@ use swisskit::span::Span;
 #[derive(Debug)]
 pub enum Lexical {
   Unknown(Span, u8),
+  InvalidNumber(Span, u8),
 }
 
 impl<'a> Diagnostic<'a> for Lexical {
   fn report(&self) -> Report<'a> {
-    todo!()
+    match self {
+      Self::Unknown(span, byte) => todo!("invalid num — {span}-{byte}"),
+      Self::InvalidNumber(span, byte) => todo!("invalid num — {span}-{byte}"),
+    }
   }
+}
+
+/// The unknown character error.
+#[inline]
+pub const fn unknown(span: Span, byte: u8) -> Error {
+  Error::Lexical(Lexical::Unknown(span, byte))
+}
+
+/// The invalid number error.
+#[inline]
+pub const fn invalid_number(span: Span, byte: u8) -> Error {
+  Error::Lexical(Lexical::InvalidNumber(span, byte))
 }

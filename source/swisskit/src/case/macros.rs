@@ -40,9 +40,6 @@ macro_rules! is {
   (number_bin $rhs:expr) => {
     $crate::case::bitcase::numbercase::is_number_bin($rhs)
   };
-  (op $rhs:expr) => {
-    $crate::case::bitcase::opcase::is_op($rhs)
-  };
   (punctuation $rhs:expr) => {
     $crate::case::bitcase::punctuationcase::is_punctuation($rhs)
   };

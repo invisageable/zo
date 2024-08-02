@@ -2,6 +2,7 @@ use super::phase::{Phase, Process};
 
 use zo_reporter::Result;
 use zo_session::session::SESSION;
+use zo_tokenizer::token::Token;
 
 /// The compiler of the `zo` programming language.
 ///
@@ -91,7 +92,7 @@ impl<const L: usize> From<[Phase; L]> for Compiler<L> {
 pub enum On {
   Path(std::path::PathBuf),
   Bytes(Vec<u8>),
-  // Tokens(Vec<Token>),
+  Tokens(Vec<Token>),
   // Ast(Vec<Stmt>),
   // Bytecode(Vec<u8>),
   // Value(Value),
@@ -105,7 +106,12 @@ impl On {
   }
 
   #[inline]
-  pub const fn bytes(ast: Vec<u8>) -> Result<Self> {
-    Ok(On::Bytes(ast))
+  pub const fn bytes(bytes: Vec<u8>) -> Result<Self> {
+    Ok(On::Bytes(bytes))
+  }
+
+  #[inline]
+  pub const fn tokens(tokens: Vec<Token>) -> Result<Self> {
+    Ok(On::Tokens(tokens))
   }
 }

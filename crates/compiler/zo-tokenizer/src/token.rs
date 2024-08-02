@@ -60,7 +60,7 @@ pub enum TokenKind {
   /// end of line - `'\n'`.
   Eol,
   /// integer.
-  Int(Symbol),
+  Int(Symbol, int::BaseInt),
   /// float.
   Float(Symbol),
   /// punctuation.
