@@ -6,7 +6,7 @@ pub mod parsing;
 pub mod reading;
 pub mod tokenizing;
 
-use crate::compiler::Event;
+use super::event::Event;
 
 use zo_reporter::Result;
 use zo_session::session::Session;
