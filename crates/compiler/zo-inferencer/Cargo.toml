@@ -1,0 +1,16 @@
+[package]
+name = "zo-inferencer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:source.
+swisskit = { workspace = true }
+
+# internal:crates.
+zo-ast = { workspace = true }
+zo-interner = { workspace = true }
+zo-reporter = { workspace = true }
+zo-session = { workspace = true }
+
+# external:crates.
