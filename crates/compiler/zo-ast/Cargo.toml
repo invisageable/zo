@@ -10,5 +10,6 @@ swisskit = { workspace = true }
 # internal:crates.
 zo-interner = { workspace = true }
 zo-tokenizer = { workspace = true }
+zo-ty = { workspace = true }
 
 # external:crates.

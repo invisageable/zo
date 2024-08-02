@@ -598,7 +598,7 @@ version = "0.0.0"
 dependencies = [
  "swisskit",
  "zo-ast",
- "zo-interner",
+ "zo-inferencer",
  "zo-reporter",
  "zo-session",
 ]
@@ -610,6 +610,7 @@ dependencies = [
  "swisskit",
  "zo-interner",
  "zo-tokenizer",
+ "zo-ty",
 ]
 
 [[package]]
@@ -685,6 +686,17 @@ dependencies = [
  "smol_str",
  "swisskit",
  "zo-compiler",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-inferencer"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
  "zo-reporter",
  "zo-session",
 ]
@@ -791,6 +803,13 @@ dependencies = [
  "zo-interner",
  "zo-reporter",
  "zo-session",
+]
+
+[[package]]
+name = "zo-ty"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
 ]
 
 [[package]]
