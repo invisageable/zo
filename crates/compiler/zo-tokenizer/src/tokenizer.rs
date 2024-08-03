@@ -169,6 +169,14 @@ impl<'bytes> Tokenizer<'bytes> {
               _ => break,
             }
           }
+          b'*' | b'/' | b'%' | b'^' | b'!' => {
+            self.bump();
+
+            match self.byte() {
+              b'=' => self.bump(),
+              _ => break,
+            }
+          }
           _ => break,
         },
         TokenizerState::Unknown => {
