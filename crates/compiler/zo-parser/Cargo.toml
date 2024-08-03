@@ -15,3 +15,4 @@ zo-session = { workspace = true }
 zo-tokenizer = { workspace = true }
 
 # external:crates.
+smol_str = { workspace = true }
