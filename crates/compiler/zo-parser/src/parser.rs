@@ -220,6 +220,7 @@ impl<'tokens> Parser<'tokens> {
 
     match token.kind {
       TokenKind::Int(..) => Some(Box::new(Self::parse_expr_lit_int)),
+      TokenKind::Float(..) => Some(Box::new(Self::parse_expr_lit_float)),
       _ => None,
     }
   }
@@ -237,6 +238,26 @@ impl<'tokens> Parser<'tokens> {
           span: token.span,
         }),
         _ => Err(error::syntax::expected_int(token.span, token.to_smolstr())),
+      })
+      .unwrap()
+  }
+
+  /// Parses a floating-point literal.
+  fn parse_expr_lit_float(parser: &mut Parser) -> Result<Expr> {
+    parser
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Float(symbol) => Ok(Expr {
+          kind: ExprKind::Lit(Lit {
+            kind: LitKind::Float(symbol),
+            span: token.span,
+          }),
+          span: token.span,
+        }),
+        _ => Err(error::syntax::expected_float(
+          token.span,
+          token.to_smolstr(),
+        )),
       })
       .unwrap()
   }

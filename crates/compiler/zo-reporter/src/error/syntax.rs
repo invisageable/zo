@@ -9,6 +9,7 @@ use swisskit::span::Span;
 #[derive(Debug)]
 pub enum Syntax {
   ExpectedInt(Span, SmolStr),
+  ExpectedFloat(Span, SmolStr),
   InvalidInfix(Span, SmolStr),
   InvalidPrefix(Span, SmolStr),
   UnexpectedToken(Span, SmolStr),
@@ -24,6 +25,12 @@ impl<'a> Diagnostic<'a> for Syntax {
 #[inline]
 pub const fn expected_int(span: Span, token: SmolStr) -> Error {
   Error::Syntax(Syntax::ExpectedInt(span, token))
+}
+
+/// The expected float literal error.
+#[inline]
+pub const fn expected_float(span: Span, token: SmolStr) -> Error {
+  Error::Syntax(Syntax::ExpectedFloat(span, token))
 }
 
 /// The invalid infix error.
