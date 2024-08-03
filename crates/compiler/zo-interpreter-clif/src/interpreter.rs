@@ -8,7 +8,7 @@ struct Interpreter;
 impl Interpreter {
   /// Evaluates the AST.
   fn interpret(&mut self, _session: &mut Session, ast: &Ast) -> Result<Value> {
-    let mut value = Value::ZERO;
+    let mut value = Value::UNIT;
 
     Ok(value)
   }

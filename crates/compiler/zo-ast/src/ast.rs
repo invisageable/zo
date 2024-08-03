@@ -38,6 +38,22 @@ impl Ast {
   }
 }
 
+impl std::convert::AsMut<Self> for Ast {
+  #[inline]
+  fn as_mut(&mut self) -> &mut Self {
+    self
+  }
+}
+
+impl std::ops::Deref for Ast {
+  type Target = Vec<Stmt>;
+
+  #[inline]
+  fn deref(&self) -> &Self::Target {
+    &self.stmts
+  }
+}
+
 /// The representation of a statement.
 #[derive(Clone, Debug)]
 pub struct Stmt {
