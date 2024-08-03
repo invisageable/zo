@@ -9,6 +9,8 @@ use lazy_static::lazy_static;
 use smol_str::SmolStr;
 
 /// The representation of a compiler's session.
+///
+/// The session is used in each compiler phases.
 #[derive(Debug)]
 pub struct Session {
   /// The settings of the session.
@@ -37,9 +39,7 @@ impl Session {
     self.settings = settings;
   }
 
-  /// Measures the duration that a function takes.
-  ///
-  /// See also [`Profiler`].
+  /// Measures the duration that a function takes — see also [`Profiler`].
   pub fn with_timing<T>(
     &mut self,
     name: impl Into<SmolStr>,

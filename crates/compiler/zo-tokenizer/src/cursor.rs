@@ -1,4 +1,21 @@
-#[derive(Default)]
+/// The representation of a cursor.
+///
+/// It implements the trait [`Iterator`] to iterate over bytes from a source
+/// file.   
+///   
+/// #### examples.
+///
+/// ```ignore
+/// use zo_tokenizer::cursor::Cursor;
+///
+/// let source = b"40 + 2";
+/// let cursor = Cursor::new(source);
+///
+/// for byte in cursor {
+///   println!("{byte}");
+/// }
+/// ```
+#[derive(Debug, Default)]
 pub struct Cursor<'bytes> {
   /// The position of the cursor.
   pos: usize,
@@ -53,5 +70,19 @@ impl<'bytes> Cursor<'bytes> {
   #[inline]
   pub fn back(&mut self) {
     self.pos -= 1;
+  }
+}
+
+impl<'bytes> std::iter::Iterator for Cursor<'bytes> {
+  type Item = u8;
+
+  /// Moves to the next byte.
+  #[inline]
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.has_bytes() {
+      return Some(self.byte());
+    }
+
+    None
   }
 }

@@ -38,6 +38,14 @@ pub enum Phase {
   Interpreting(interpreting::Interpreting),
 }
 
+impl From<&Phase> for SmolStr {
+  fn from(phase: &Phase) -> Self {
+    use smol_str::ToSmolStr;
+
+    SmolStr::new_inline(&phase.to_smolstr())
+  }
+}
+
 impl std::fmt::Display for Phase {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
@@ -49,13 +57,5 @@ impl std::fmt::Display for Phase {
       Self::Building(phase) => write!(f, "{phase}"),
       Self::Interpreting(phase) => write!(f, "{phase}"),
     }
-  }
-}
-
-impl From<&Phase> for SmolStr {
-  fn from(phase: &Phase) -> Self {
-    use smol_str::ToSmolStr;
-
-    SmolStr::new_inline(&phase.to_smolstr())
   }
 }

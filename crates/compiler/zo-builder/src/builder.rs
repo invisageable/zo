@@ -22,7 +22,8 @@ impl Builder {
   }
 }
 
-/// Builds the output result from session and bytecode.
+/// Builds the output result from session and bytecode — see also
+/// [`Builder::build`].
 pub fn build(session: &mut Session, bytecode: &[u8]) -> Result<Output> {
   Builder.build(session, bytecode)
 }

@@ -1,5 +1,5 @@
 use zo_interner::interner::symbol::{Symbol, Symbolize};
-use zo_tokenizer::token::int::BaseInt;
+use zo_tokenizer::token::int::Base;
 use zo_tokenizer::token::punctuation::Punctuation;
 use zo_tokenizer::token::{Token, TokenKind};
 
@@ -127,7 +127,7 @@ impl Symbolize for Lit {
 #[derive(Clone, Debug)]
 pub enum LitKind {
   /// integer — `1`.
-  Int(Symbol, BaseInt),
+  Int(Symbol, Base),
   /// integer — `1.2`, `1e4`.
   Float(Symbol),
   /// identifier — `foo`, `Bar`, `foobar1234`.

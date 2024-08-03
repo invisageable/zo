@@ -8,10 +8,15 @@ use swisskit::span::Span;
 /// The representation of syntax analysis errors.
 #[derive(Debug)]
 pub enum Syntax {
-  ExpectedInt(Span, SmolStr),
+  /// The expected float error.
   ExpectedFloat(Span, SmolStr),
+  /// The expected integer error.
+  ExpectedInt(Span, SmolStr),
+  /// The invalid infix error.
   InvalidInfix(Span, SmolStr),
+  /// The invalid prefix error.
   InvalidPrefix(Span, SmolStr),
+  /// The unexpected token error.
   UnexpectedToken(Span, SmolStr),
 }
 
@@ -21,16 +26,16 @@ impl<'a> Diagnostic<'a> for Syntax {
   }
 }
 
-/// The expected integer literal error.
-#[inline]
-pub const fn expected_int(span: Span, token: SmolStr) -> Error {
-  Error::Syntax(Syntax::ExpectedInt(span, token))
-}
-
 /// The expected float literal error.
 #[inline]
 pub const fn expected_float(span: Span, token: SmolStr) -> Error {
   Error::Syntax(Syntax::ExpectedFloat(span, token))
+}
+
+/// The expected integer literal error.
+#[inline]
+pub const fn expected_int(span: Span, token: SmolStr) -> Error {
+  Error::Syntax(Syntax::ExpectedInt(span, token))
 }
 
 /// The invalid infix error.

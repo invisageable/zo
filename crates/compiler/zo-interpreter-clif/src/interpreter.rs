@@ -26,9 +26,7 @@ impl Interpreter {
   }
 }
 
-/// Evaluates the AST.
-///
-/// See also [`Interpreter::interpret`].
+/// Evaluates the AST — see also [`Interpreter::interpret`].
 ///
 /// #### examples.
 ///

@@ -5,6 +5,7 @@ use zo_session::session::Session;
 
 /// The representation of a reader.
 struct Reader<'path> {
+  /// A reporter — see also [`Reporter`] for more information.
   reporter: &'path mut Reporter,
 }
 

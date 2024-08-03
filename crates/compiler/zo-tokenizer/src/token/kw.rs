@@ -1,4 +1,3 @@
-
 use super::TokenKind;
 
 use hashbrown::{HashMap, HashSet};
@@ -8,7 +7,7 @@ type Keyword = HashMap<SmolStr, TokenKind>;
 type Type = HashSet<SmolStr>;
 
 lazy_static::lazy_static! {
-  // available keywords.
+  // A static map of available keywords.
   pub static ref KEYWORD: Keyword = {
     let mut kw: Keyword = HashMap::with_capacity(0usize);
 

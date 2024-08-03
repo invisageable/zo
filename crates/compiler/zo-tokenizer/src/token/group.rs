@@ -1,17 +1,19 @@
 /// The representation of group tokens.
+///
+/// A group is a [`super::TokenKind`] used as a delimiter as a separation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Group {
-  /// An open parenthesis.
+  /// An open parenthesis i.e `(`.
   ParenOpen,
-  /// A close parenthesis.
+  /// A close parenthesis i.e `)`.
   ParenClose,
-  /// An open brace.
+  /// An open brace i.e `{`.
   BraceOpen,
-  /// A close brace.
+  /// A close brace i.e `}`.
   BraceClose,
-  /// An open bracket.
+  /// An open bracket i.e `[`.
   BracketOpen,
-  /// A close bracket.
+  /// A close bracket i.e `]`.
   BracketClose,
 }
 

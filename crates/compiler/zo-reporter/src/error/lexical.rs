@@ -7,7 +7,9 @@ use swisskit::span::Span;
 /// The representation of lexical analysis errors.
 #[derive(Debug)]
 pub enum Lexical {
+  /// The unknown character error.
   Unknown(Span, u8),
+  /// The invalid number error.
   InvalidNumber(Span, u8),
 }
 

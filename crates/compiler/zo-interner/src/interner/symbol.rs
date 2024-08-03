@@ -4,6 +4,7 @@ pub trait Symbolize {
   fn as_symbol(&self) -> &Symbol;
 }
 
+/// The representation of a symbol.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Symbol(u32);
 
@@ -16,7 +17,7 @@ impl Symbol {
 }
 
 impl std::fmt::Display for Symbol {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "${}", self.0)
   }
 }
@@ -24,6 +25,7 @@ impl std::fmt::Display for Symbol {
 impl std::ops::Deref for Symbol {
   type Target = u32;
 
+  #[inline]
   fn deref(&self) -> &Self::Target {
     &self.0
   }

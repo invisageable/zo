@@ -13,9 +13,9 @@ use swisskit::span::Span;
 
 /// The representation of an interpreter.
 struct Interpreter<'ast> {
-  /// See [`Interner`].
+  /// An interner — see also [`Interner`] for more information.
   interner: &'ast mut Interner,
-  /// See [`Reporter`].
+  /// A reporter — see also [`Reporter`] for more information.
   reporter: &'ast Reporter,
 }
 
@@ -164,9 +164,7 @@ impl<'ast> Interpreter<'ast> {
   }
 }
 
-/// Evaluates an AST.
-///
-/// See also [`Interpreter::interpret`].
+/// Evaluates an AST — see also [`Interpreter::interpret`].
 ///
 /// #### examples.
 ///

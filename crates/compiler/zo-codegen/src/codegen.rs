@@ -19,7 +19,7 @@ impl Codegen {
   }
 }
 
-/// Transform an AST into bytecode.
+/// Transform an AST into bytecode — see also [`Codegen::generate`].
 #[inline]
 pub fn generate(session: &mut Session, ast: &Ast) -> Result<Box<[u8]>> {
   Codegen.generate(session, ast)

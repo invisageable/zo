@@ -8,6 +8,7 @@ use swisskit::span::Span;
 /// The representation of semantic analysis errors.
 #[derive(Debug)]
 pub enum Semantic {
+  /// The mismatched types error.
   MismatchedTy((Span, SmolStr), (Span, SmolStr)),
 }
 
@@ -17,7 +18,10 @@ impl<'a> Diagnostic<'a> for Semantic {
   }
 }
 
-/// The expected integer literal error.
+/// The mismatched types error.
+///
+/// * t1 refers to the left-hand side.
+/// * t2 refers to the right-hand side.
 #[inline]
 pub const fn mismatched_types(
   t1: (Span, SmolStr),

@@ -18,8 +18,11 @@ type InfixFn = Box<dyn FnOnce(&mut Parser, Expr) -> Result<Expr>>;
 
 /// The representation of a parser.
 struct Parser<'tokens> {
+  /// An interner — see also [`Interner`] for more information.
   interner: &'tokens mut Interner,
+  /// A reporter — see also [`Reporter`] for more information.
   reporter: &'tokens Reporter,
+  /// A group of tokens — see also [`Token`] for more information.
   tokens: &'tokens [Token],
   /// The index of the token slice.
   index: usize,
@@ -282,7 +285,7 @@ impl<'tokens> Parser<'tokens> {
         let binop = BinOp::from(token);
 
         match token.kind {
-          k if k.is_assignement() => (Precedence::Assignement, Some(binop)),
+          k if k.is_assignment() => (Precedence::Assignement, Some(binop)),
           k if k.is_conditional() => (Precedence::Conditional, Some(binop)),
           k if k.is_comparison() => (Precedence::Comparison, Some(binop)),
           k if k.is_sum() => (Precedence::Sum, Some(binop)),

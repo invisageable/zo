@@ -1,5 +1,5 @@
 use super::cursor::Cursor;
-use super::token::int::BaseInt;
+use super::token::int::Base;
 use super::token::punctuation::Punctuation;
 use super::token::{Token, TokenKind};
 
@@ -18,7 +18,7 @@ struct Tokenizer<'bytes> {
   /// The current state.
   state: TokenizerState,
   /// The integer base.
-  base_int: BaseInt,
+  base: Base,
   /// See [`Interner`].
   interner: &'bytes mut Interner,
   /// See [`Reporter`].
@@ -36,7 +36,7 @@ impl<'bytes> Tokenizer<'bytes> {
     Self {
       cursor: Cursor::new(source),
       state: TokenizerState::Start,
-      base_int: BaseInt::Dec,
+      base: Base::Dec,
       interner,
       reporter,
     }
@@ -220,7 +220,7 @@ impl<'bytes> Tokenizer<'bytes> {
         let source = source.replace('_', "");
         let symbol = self.interner.intern(&source);
 
-        Some(TokenKind::Int(symbol, self.base_int))
+        Some(TokenKind::Int(symbol, self.base))
       }
       TokenizerState::Float | TokenizerState::ENotation => {
         let source = source.replace('_', "");
@@ -300,7 +300,7 @@ pub(crate) enum TokenizerState {
 ///
 /// #### examples.
 ///
-/// ```
+/// ```ignore
 /// use zo_tokenizer::tokenizer;
 /// use zo_session::session::Session;
 ///

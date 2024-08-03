@@ -20,9 +20,8 @@ impl Interpreter {
   }
 }
 
-/// Executes a program and returns the value.
-///
-/// See also [`Interpreter::interpret`].
+/// Executes a program and returns the value — see also
+/// [`Interpreter::interpret`].
 pub fn interpret(session: &mut Session, ast: &Ast) -> Result<Value> {
   Interpreter.interpret(session, ast)
 }

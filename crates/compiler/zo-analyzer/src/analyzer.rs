@@ -28,7 +28,8 @@ impl Analyzer {
   }
 }
 
-/// Analyses the AST and performs a bunch of analysis related to the semantic.
+/// Analyses the AST and performs a bunch of analysis related to the semantic —
+/// see also [`Analyzer::analyze`].
 pub fn analyze(session: &mut Session, ast: &Ast) -> Result<Ast> {
   Analyzer.analyze(session, ast)
 }

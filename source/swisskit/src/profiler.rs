@@ -144,12 +144,14 @@ impl Profiles {
 impl std::ops::Deref for Profiles {
   type Target = Vec<Profile>;
 
+  #[inline]
   fn deref(&self) -> &Self::Target {
     &self.0
   }
 }
 
 impl std::ops::DerefMut for Profiles {
+  #[inline]
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.0
   }
