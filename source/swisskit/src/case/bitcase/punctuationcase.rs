@@ -36,6 +36,24 @@ where
   )
 }
 
+/// Checks if a single byte is a 7-bit characters code of period character.
+///
+/// #### examples.
+///
+/// ```
+/// use swisskit::case::bitcase::punctuationcase;
+///
+/// assert!(punctuationcase::is_period(b'.'));
+/// assert!(!punctuationcase::is_period(b'0'));
+/// ```
+#[inline]
+pub fn is_period<B>(byte: B) -> bool
+where
+  B: Into<u8> + Copy,
+{
+  byte.into() == b'.'
+}
+
 /// Gets the `punctuation` name from a single byte.
 pub fn of_name<B>(byte: B) -> Option<&'static str>
 where

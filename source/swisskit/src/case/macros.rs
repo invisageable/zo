@@ -44,7 +44,7 @@ macro_rules! is {
     $crate::case::bitcase::punctuationcase::is_punctuation($rhs)
   };
   (dot $rhs:expr) => {
-    $crate::case::bitcase::opcase::is_period($rhs)
+    $crate::case::bitcase::punctuationcase::is_period($rhs)
   };
   (ident $rhs:expr) => {
     $crate::case::bitcase::identcase::is_ident($rhs)

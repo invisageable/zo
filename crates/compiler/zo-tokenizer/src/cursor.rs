@@ -7,6 +7,7 @@ pub struct Cursor<'bytes> {
 }
 
 impl<'bytes> Cursor<'bytes> {
+  /// Creates a new cursor.
   #[inline]
   pub fn new(source: &'bytes [u8]) -> Self {
     Self { pos: 0, source }

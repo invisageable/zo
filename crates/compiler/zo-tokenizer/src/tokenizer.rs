@@ -19,7 +19,9 @@ struct Tokenizer<'bytes> {
   state: TokenizerState,
   /// The integer base.
   base_int: BaseInt,
+  /// See [`Interner`].
   interner: &'bytes mut Interner,
+  /// See [`Reporter`].
   reporter: &'bytes Reporter,
 }
 
@@ -84,7 +86,7 @@ impl<'bytes> Tokenizer<'bytes> {
   ///
   /// The resulting should be the current state.
   #[inline]
-  pub fn transition(&mut self, byte: u8) -> TokenizerState {
+  fn transition(&mut self, byte: u8) -> TokenizerState {
     match byte {
       b if is!(space b) => TokenizerState::Space,
       b if is!(number_start b) => TokenizerState::Zero,
@@ -98,7 +100,7 @@ impl<'bytes> Tokenizer<'bytes> {
   }
 
   /// Eats the source code byte-by-byte.
-  pub fn step(&mut self) -> Option<Token> {
+  fn step(&mut self) -> Option<Token> {
     let mut state = self.state();
     let mut cursor_pos = self.cursor.pos();
 
@@ -142,6 +144,24 @@ impl<'bytes> Tokenizer<'bytes> {
         },
         TokenizerState::Int => match byte {
           b if is!(number_start b) | is!(number_continue b) => self.bump(),
+          b if is!(dot b) => {
+            state = TokenizerState::Float;
+
+            self.bump();
+          }
+          _ => break,
+        },
+        TokenizerState::Float => match byte {
+          b if is!(number b) || is!(underscore b) => self.bump(),
+          b if b == b'e' || b == b'E' => {
+            state = TokenizerState::ENotation;
+
+            self.bump();
+          }
+          _ => break,
+        },
+        TokenizerState::ENotation => match byte {
+          b if b == b'+' || b == b'-' || is!(number b) => self.bump(),
           _ => break,
         },
         TokenizerState::Punctuation => match byte {
@@ -202,7 +222,7 @@ impl<'bytes> Tokenizer<'bytes> {
 
         Some(TokenKind::Int(symbol, self.base_int))
       }
-      TokenizerState::Float => {
+      TokenizerState::Float | TokenizerState::ENotation => {
         let source = source.replace('_', "");
         let symbol = self.interner.intern(&source);
 
@@ -231,6 +251,7 @@ impl<'bytes> Tokenizer<'bytes> {
 impl<'bytes> Iterator for Tokenizer<'bytes> {
   type Item = Token;
 
+  /// Moves to the next token.
   fn next(&mut self) -> Option<Self::Item> {
     self.step()
   }
@@ -239,23 +260,40 @@ impl<'bytes> Iterator for Tokenizer<'bytes> {
 /// The tokenizer follows these commands as a finite state machine.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum TokenizerState {
-  Start,
-  Space,
-  Comment,
-  Zero,
-  Hex,
-  Oct,
-  Bin,
-  Int,
-  Float,
-  Ident,
-  ENotation,
-  Punctuation,
-  Group,
-  Quote,
-  Char,
-  Str,
+  /// The unknown state.
   Unknown,
+  /// The initial state.
+  Start,
+  /// The state for whitespace.
+  Space,
+  /// The state for comments.
+  Comment,
+  /// The state for `0`.
+  Zero,
+  /// The integer state.
+  Int,
+  /// The hexadecimal state.
+  Hex,
+  /// The octal state.
+  Oct,
+  /// The binary state.
+  Bin,
+  /// The float state.
+  Float,
+  /// The [E notation](https://en.wikipedia.org/wiki/Scientific_notation#E_notation).
+  ENotation,
+  /// The punctuation state.
+  Punctuation,
+  /// The delimiter state.
+  Group,
+  /// The identifier state.
+  Ident,
+  /// The quote state.
+  Quote,
+  /// The character state.
+  Char,
+  /// The string state.
+  Str,
 }
 
 /// Transform the source code into an array of tokens.
