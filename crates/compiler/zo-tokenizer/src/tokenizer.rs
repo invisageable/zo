@@ -26,7 +26,7 @@ struct Tokenizer<'bytes> {
 impl<'bytes> Tokenizer<'bytes> {
   /// Creates a new tokenizer instance.
   #[inline]
-  pub fn new(
+  fn new(
     interner: &'bytes mut Interner,
     reporter: &'bytes Reporter,
     source: &'bytes [u8],
