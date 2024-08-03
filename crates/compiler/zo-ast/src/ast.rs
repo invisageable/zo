@@ -1,4 +1,6 @@
 use zo_interner::interner::symbol::{Symbol, Symbolize};
+use zo_tokenizer::token::punctuation::Punctuation;
+use zo_tokenizer::token::{Token, TokenKind};
 
 use swisskit::span::Span;
 
@@ -30,9 +32,8 @@ impl Ast {
 
   /// Adds a new statement.
   #[inline]
-  pub fn add_stmt(mut self, stmt: Stmt) -> Self {
+  pub fn add_stmt(&mut self, stmt: Stmt) {
     self.stmts.push(stmt);
-    self
   }
 }
 
@@ -163,6 +164,18 @@ pub struct BinOp {
   pub span: Span,
 }
 
+impl From<&Token> for BinOp {
+  fn from(token: &Token) -> Self {
+    match token.kind {
+      TokenKind::Punctuation(punctuation) => Self {
+        kind: BinOpKind::from(punctuation),
+        span: token.span,
+      },
+      _ => unreachable!(),
+    }
+  }
+}
+
 /// The representation of different kinds of binary operators.
 #[derive(Clone, Debug)]
 pub enum BinOpKind {
@@ -202,4 +215,30 @@ pub enum BinOpKind {
   Shl,
   /// shift right operator — `>>`.
   Shr,
+}
+
+impl From<Punctuation> for BinOpKind {
+  fn from(punctuation: Punctuation) -> Self {
+    match punctuation {
+      Punctuation::Plus => Self::Add,
+      Punctuation::Minus => Self::Sub,
+      Punctuation::Asterisk => Self::Mul,
+      Punctuation::Slash => Self::Div,
+      Punctuation::Percent => Self::Rem,
+      Punctuation::AmpersandAmpersand => Self::And,
+      Punctuation::PipePipe => Self::Or,
+      Punctuation::Circumflex => Self::BitXor,
+      Punctuation::Ampersand => Self::BitAnd,
+      Punctuation::Pipe => Self::BitOr,
+      Punctuation::LessThan => Self::Lt,
+      Punctuation::GreaterThan => Self::Gt,
+      Punctuation::LessThanEqual => Self::Le,
+      Punctuation::GreaterThanEqual => Self::Ge,
+      Punctuation::EqualEqual => Self::Eq,
+      Punctuation::ExclamationEqual => Self::Ne,
+      Punctuation::LessThanLessThan => Self::Shl,
+      Punctuation::GreaterThanGreaterThan => Self::Shr,
+      _ => unreachable!(),
+    }
+  }
 }
