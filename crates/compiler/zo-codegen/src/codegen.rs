@@ -3,13 +3,17 @@ use zo_reporter::Result;
 use zo_session::backend::Backend;
 use zo_session::session::Session;
 
+use zo_codegen_py as py;
+use zo_codegen_wasm as wasm;
+
 /// The representation of code generation.
 struct Codegen;
 impl Codegen {
+  /// Transform an AST into bytecode.
   fn generate(&self, session: &mut Session, ast: &Ast) -> Result<Box<[u8]>> {
     match session.settings.backend {
-      Backend::Py => zo_codegen_py::codegen::generate(session, ast),
-      Backend::Wasm => zo_codegen_wasm::codegen::generate(session, ast),
+      Backend::Py => py::codegen::generate(session, ast),
+      Backend::Wasm => wasm::codegen::generate(session, ast),
       _ => panic!(),
     }
   }
