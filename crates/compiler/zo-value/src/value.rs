@@ -63,6 +63,7 @@ pub enum ValueKind {
 impl std::ops::Add for &Value {
   type Output = Value;
 
+  ///Performs the `+` operation.
   #[inline]
   fn add(self, rhs: Self) -> Self::Output {
     match (&self.kind, &rhs.kind) {
