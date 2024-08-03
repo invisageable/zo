@@ -80,7 +80,7 @@ impl Run {
 
     match compiler.compile()? {
       Event::Value(value) => {
-        println!("{value:?}");
+        println!("{value}");
         Ok(())
       }
       _ => panic!(),
