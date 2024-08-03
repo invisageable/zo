@@ -1,7 +1,10 @@
+use smol_str::SmolStr;
 use swisskit::span::Span;
 
+use hashbrown::HashSet;
+
 /// The representation of a type.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Ty {
   /// The kind of a type — see also [`TyKind`].
   pub kind: TyKind,
@@ -36,10 +39,15 @@ impl Ty {
   pub const fn float(float: LitFloatTy, span: Span) -> Self {
     Self::new(TyKind::Float(float), span)
   }
+
+  /// ...
+  pub fn ty_vars(&self) -> HashSet<usize> {
+    self.kind.ty_vars()
+  }
 }
 
 /// The representation of different kind of type.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TyKind {
   /// unit — `()`.
   Unit,
@@ -47,6 +55,8 @@ pub enum TyKind {
   Int(LitIntTy),
   /// float — `float`, `f32`, `f64`.
   Float(LitFloatTy),
+  /// constructed type.
+  Con(SmolStr, Vec<Ty>),
 }
 
 impl TyKind {
@@ -60,6 +70,21 @@ impl TyKind {
   #[inline]
   pub const fn is_numeric(&self) -> bool {
     matches!(self, Self::Int(..) | Self::Float(..))
+  }
+
+  /// ...
+  fn ty_vars(&self) -> HashSet<usize> {
+    match self {
+      Self::Con(_, tys) => {
+        let mut ty_vars = HashSet::new();
+
+        for ty in tys.iter() {
+          ty_vars.extend(ty.ty_vars());
+        }
+        ty_vars
+      }
+      _ => panic!(),
+    }
   }
 }
 

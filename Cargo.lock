@@ -818,11 +818,14 @@ dependencies = [
 name = "zo-inferencer"
 version = "0.0.0"
 dependencies = [
+ "hashbrown",
+ "smol_str",
  "swisskit",
  "zo-ast",
  "zo-interner",
  "zo-reporter",
  "zo-session",
+ "zo-ty",
 ]
 
 [[package]]
@@ -934,7 +937,11 @@ dependencies = [
 name = "zo-ty"
 version = "0.0.0"
 dependencies = [
+ "hashbrown",
+ "smol_str",
  "swisskit",
+ "zo-interner",
+ "zo-reporter",
 ]
 
 [[package]]

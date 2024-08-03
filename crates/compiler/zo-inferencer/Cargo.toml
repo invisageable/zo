@@ -12,5 +12,8 @@ zo-ast = { workspace = true }
 zo-interner = { workspace = true }
 zo-reporter = { workspace = true }
 zo-session = { workspace = true }
+zo-ty = { workspace = true }
 
 # external:crates.
+hashbrown = { workspace = true }
+smol_str = { workspace = true }
