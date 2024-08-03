@@ -24,19 +24,30 @@ use smol_str::SmolStr;
 pub(crate) struct Build {
   /// The pathname of an input.
   ///
+  /// #### usage.
+  ///
   /// `--input <pathname>`.
   #[clap(short, long)]
   input: SmolStr,
   /// The code generation backend.
+  /// Default is `wasm`.
+  ///
+  /// #### usage.
+  ///
+  /// `--backend <backend>`.
   #[clap(short, long, default_value = "wasm")]
   backend: Backend,
   /// The profiler flag.
+  ///
+  /// #### usage.
+  ///
+  /// `--profile`.
   #[clap(short, long, default_value = "false")]
   profile: bool,
 }
 
 impl Build {
-  /// Runs the build command.
+  /// Executes the `build` command.
   #[inline]
   fn build(&self) -> Result<()> {
     self.building()

@@ -31,6 +31,7 @@ impl Cmd {
   fn cmd(&mut self) {
     match self.command {
       Command::Build(ref command) => command.exec(),
+      Command::Run(ref command) => command.exec(),
       _ => unimplemented!(),
     }
   }
