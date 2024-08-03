@@ -1,5 +1,5 @@
 pub mod eval;
-pub mod io;
+pub mod internal;
 pub mod lexical;
 pub mod semantic;
 pub mod syntax;
@@ -29,7 +29,7 @@ pub trait Diagnostic<'a> {
 #[derive(Debug)]
 pub enum Error {
   /// A wrapper related to [`std::io::Error`].
-  Io(io::Io),
+  Internal(internal::Internal),
   /// An error used by the tokenizer during the lexical analysis.
   Lexical(lexical::Lexical),
   /// An error used by the parser during the syntax analysis.
@@ -49,11 +49,11 @@ impl Error {
   #[inline]
   fn as_code(&self) -> i32 {
     match self {
-      Self::Io(_) => 1,
-      Self::Lexical(_) => 3,
-      Self::Syntax(_) => 4,
-      Self::Semantic(_) => 5,
-      Self::Eval(_) => 7,
+      Self::Internal(_) => 0,
+      Self::Lexical(_) => 1,
+      Self::Syntax(_) => 2,
+      Self::Semantic(_) => 3,
+      Self::Eval(_) => 5,
     }
   }
 }

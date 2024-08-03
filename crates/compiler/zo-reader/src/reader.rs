@@ -1,6 +1,5 @@
-use zo_reporter::error::io::Io;
 use zo_reporter::reporter::Reporter;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 
 /// The representation of a reader.
@@ -28,7 +27,7 @@ impl<'path> Reader<'path> {
     self
       .reporter
       .add_source(pathname.as_ref())
-      .map_err(Io::error)
+      .map_err(error::internal::io)
       .map(|source_id| {
         let source_code = self.reporter.source_code(source_id.get() as u32);
         let source_bytes = source_code.as_bytes();

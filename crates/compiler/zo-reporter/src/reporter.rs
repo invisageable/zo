@@ -89,7 +89,7 @@ impl Reporter {
   /// Adds an diagnostic's error report.
   pub fn add_report(&self, error: Error) {
     let report = match &error {
-      Error::Io(diagnostic) => diagnostic.report(),
+      Error::Internal(diagnostic) => diagnostic.report(),
       Error::Lexical(diagnostic) => diagnostic.report(),
       Error::Syntax(diagnostic) => diagnostic.report(),
       Error::Semantic(diagnostic) => diagnostic.report(),
