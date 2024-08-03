@@ -1,5 +1,6 @@
 use super::{Event, Process};
 
+use zo_builder::builder;
 use zo_reporter::Result;
 use zo_session::session::Session;
 
@@ -7,9 +8,13 @@ use zo_session::session::Session;
 #[derive(Clone, Copy, Debug)]
 pub struct Building;
 impl Process for Building {
-  fn process(&self, _session: &mut Session, event: Event) -> Result<Event> {
-    println!("phase:{self}");
-    Ok(event)
+  fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
+    if let Event::Bytecode(bytecode) = event {
+      println!("phase:{self} — {bytecode:?}");
+      return builder::build(session, &bytecode).and_then(Event::output);
+    }
+
+    panic!()
   }
 }
 

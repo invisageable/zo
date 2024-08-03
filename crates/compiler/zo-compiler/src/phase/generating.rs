@@ -1,5 +1,6 @@
 use super::{Event, Process};
 
+use zo_codegen::codegen;
 use zo_reporter::Result;
 use zo_session::session::Session;
 
@@ -7,9 +8,13 @@ use zo_session::session::Session;
 #[derive(Clone, Copy, Debug)]
 pub struct Generating;
 impl Process for Generating {
-  fn process(&self, _session: &mut Session, event: Event) -> Result<Event> {
-    println!("phase:{self}");
-    Ok(event)
+  fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
+    if let Event::Ast(ast) = event {
+      println!("phase:{self} — {ast:?}");
+      return codegen::generate(session, &ast).and_then(Event::bytecode);
+    }
+
+    panic!()
   }
 }
 
