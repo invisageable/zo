@@ -49,6 +49,12 @@ impl Value {
   pub const fn int(int: i64, span: Span) -> Self {
     Self::new(ValueKind::Int(int), span)
   }
+
+  /// Creates a new float value.
+  #[inline]
+  pub const fn float(float: f64, span: Span) -> Self {
+    Self::new(ValueKind::Float(float), span)
+  }
 }
 
 /// The representation of a kind value.
@@ -56,21 +62,8 @@ impl Value {
 pub enum ValueKind {
   /// A unit value — `'()'`.
   Unit,
-  /// A unit value — `'0'`, `'42'`.
+  /// A integer value — `'0'`, `'42'`.
   Int(i64),
-}
-
-impl std::ops::Add for &Value {
-  type Output = Value;
-
-  ///Performs the `+` operation.
-  #[inline]
-  fn add(self, rhs: Self) -> Self::Output {
-    match (&self.kind, &rhs.kind) {
-      (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
-        Value::int(lhs + rhs, Span::ZERO) // note #1.
-      }
-      _ => unreachable!(),
-    }
-  }
+  /// A floating-point value — `'0.5'`.
+  Float(f64),
 }

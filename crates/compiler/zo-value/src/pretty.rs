@@ -11,6 +11,7 @@ impl std::fmt::Display for ValueKind {
     match self {
       Self::Unit => write!(f, "()"),
       Self::Int(int) => write!(f, "{int}"),
+      Self::Float(float) => write!(f, "{float}"),
     }
   }
 }
