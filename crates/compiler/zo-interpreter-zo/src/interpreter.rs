@@ -33,7 +33,7 @@ impl<'ast> Interpreter<'ast> {
     for stmt in ast.iter() {
       value = match self.interpret_stmt(stmt) {
         Ok(value) => value,
-        Err(report_error) => self.reporter.raise(report_error),
+        Err(error) => self.reporter.raise(error),
       };
     }
 
@@ -70,6 +70,7 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_expr_lit(&mut self, lit: &Lit) -> Result<Value> {
     match &lit.kind {
       LitKind::Int(sym, _) => self.interpret_expr_lit_int(sym, lit.span),
+      LitKind::Float(sym) => self.interpret_expr_lit_float(sym, lit.span),
       _ => todo!(),
     }
   }
@@ -85,6 +86,18 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::int(int, span))
   }
 
+  /// Evaluates a float literal expression.
+  fn interpret_expr_lit_float(
+    &mut self,
+    sym: &Symbol,
+    span: Span,
+  ) -> Result<Value> {
+    let float = self.interner.lookup_float(**sym as usize);
+
+    Ok(Value::float(float, span))
+  }
+
+  /// Evaluates an unary operation expression.
   fn interpret_expr_unop(
     &mut self,
     unop: &UnOp,
@@ -94,6 +107,7 @@ impl<'ast> Interpreter<'ast> {
     todo!()
   }
 
+  /// Evaluates a binary operation expression.
   fn interpret_expr_binop(
     &mut self,
     binop: &BinOp,
@@ -108,10 +122,14 @@ impl<'ast> Interpreter<'ast> {
       (ValueKind::Int(lhs), ValueKind::Int(rhs)) => {
         self.interpret_expr_binop_int(binop, lhs, rhs, span)
       }
+      (ValueKind::Float(lhs), ValueKind::Float(rhs)) => {
+        self.interpret_expr_binop_float(binop, lhs, rhs, span)
+      }
       _ => todo!(),
     }
   }
 
+  /// Evaluates a binary operation expression for integer.
   fn interpret_expr_binop_int(
     &mut self,
     binop: &BinOp,
@@ -121,6 +139,26 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     match binop.kind {
       BinOpKind::Add => Ok(Value::int(lhs + rhs, span)),
+      BinOpKind::Sub => Ok(Value::int(lhs - rhs, span)),
+      BinOpKind::Mul => Ok(Value::int(lhs * rhs, span)),
+      BinOpKind::Div => Ok(Value::int(lhs / rhs, span)),
+      _ => todo!(),
+    }
+  }
+
+  /// Evaluates a binary operation expression for float.
+  fn interpret_expr_binop_float(
+    &mut self,
+    binop: &BinOp,
+    lhs: &f64,
+    rhs: &f64,
+    span: Span,
+  ) -> Result<Value> {
+    match binop.kind {
+      BinOpKind::Add => Ok(Value::float(lhs + rhs, span)),
+      BinOpKind::Sub => Ok(Value::float(lhs - rhs, span)),
+      BinOpKind::Mul => Ok(Value::float(lhs * rhs, span)),
+      BinOpKind::Div => Ok(Value::float(lhs / rhs, span)),
       _ => todo!(),
     }
   }
@@ -129,6 +167,21 @@ impl<'ast> Interpreter<'ast> {
 /// Evaluates an AST.
 ///
 /// See also [`Interpreter::interpret`].
+///
+/// #### examples.
+///
+/// ```
+/// use zo_ast::ast::Ast;
+/// use zo_interpreter_zo::interpreter;
+/// use zo_session::session::Session;
+/// use zo_value::value::Value;
+///
+/// let mut session = Session::default();
+/// let ast = Ast::new();
+/// let value = interpreter::interpret(&mut session, &ast);
+///
+/// assert_eq!(value, Value::UNIT);
+/// ```
 pub fn interpret(session: &mut Session, ast: &Ast) -> Result<Value> {
   Interpreter::new(&mut session.interner, &session.reporter).interpret(ast)
 }
