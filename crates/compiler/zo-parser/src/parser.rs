@@ -77,6 +77,61 @@ impl<'tokens> Parser<'tokens> {
       .unwrap_or_default()
   }
 
+  /// Checks if the current token is a specific kind.
+  #[inline]
+  fn ensure(&mut self, kind: TokenKind) -> bool {
+    self
+      .maybe_token_current
+      .map(|token| token.is(kind))
+      .unwrap()
+  }
+
+  /// Checks if the next token is a specific kind.
+  #[inline]
+  fn ensure_peek(&mut self, kind: TokenKind) -> bool {
+    self.maybe_token_next.map(|token| token.is(kind)).unwrap()
+  }
+
+  /// Moves only if the current token is a specific kind.
+  #[inline]
+  fn expect(&mut self, kind: TokenKind) -> Result<()> {
+    self
+      .maybe_token_current
+      .map(|token| {
+        if token.is(kind) {
+          self.next();
+
+          return Ok(());
+        }
+
+        Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_smolstr(),
+        ))
+      })
+      .unwrap()
+  }
+
+  /// Moves only if the next token is a specific kind.
+  #[inline]
+  fn expect_peek(&mut self, kind: TokenKind) -> Result<()> {
+    self
+      .maybe_token_next
+      .map(|token| {
+        if token.is(kind) {
+          self.next();
+
+          return Ok(());
+        }
+
+        Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_smolstr(),
+        ))
+      })
+      .unwrap()
+  }
+
   /// Transforms a collection of tokens into an abstract syntax tree.
   ///
   /// #### result.
@@ -115,6 +170,10 @@ impl<'tokens> Parser<'tokens> {
       })
       .unwrap()?;
 
+    if self.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      self.next();
+    }
+
     Ok(stmt)
   }
 
@@ -122,16 +181,6 @@ impl<'tokens> Parser<'tokens> {
   fn parse_stmt_expr(&mut self) -> Result<Stmt> {
     let lo = self.current_span();
     let expr = self.parse_expr(Precedence::Low)?;
-
-    self
-      .maybe_token_next
-      .map(|token| {
-        if token.is(TokenKind::Punctuation(Punctuation::Semicolon)) {
-          self.next();
-        }
-      })
-      .unwrap_or_default();
-
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
 
@@ -145,16 +194,16 @@ impl<'tokens> Parser<'tokens> {
   fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr> {
     self
       .parse_prefix_fn()
-      .map(|parse_prefix| {
-        let mut lhs = parse_prefix(self)?;
+      .map(|prefix_fn| {
+        let mut lhs = prefix_fn(self)?;
 
         while self.has_tokens()
           && self.should_precedence_has_priority(precedence)
         {
-          if let Ok(parse_infix) = self.parse_infix_fn() {
+          if let Ok(infix_fn) = self.parse_infix_fn() {
             self.next();
 
-            lhs = parse_infix(self, lhs)?;
+            lhs = infix_fn(self, lhs)?;
           } else {
             return Ok(lhs);
           }
@@ -180,9 +229,9 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Int(symbol, _) => Ok(Expr {
+        TokenKind::Int(symbol, base_int) => Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Int(symbol),
+            kind: LitKind::Int(symbol, base_int),
             span: token.span,
           }),
           span: token.span,
@@ -241,6 +290,7 @@ impl<'tokens> Parser<'tokens> {
 impl<'tokens> Iterator for Parser<'tokens> {
   type Item = &'tokens Token;
 
+  /// Moves to the next token.
   fn next(&mut self) -> Option<Self::Item> {
     std::mem::swap(&mut self.maybe_token_current, &mut self.maybe_token_next);
 

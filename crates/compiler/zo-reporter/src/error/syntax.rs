@@ -11,6 +11,7 @@ pub enum Syntax {
   ExpectedInt(Span, SmolStr),
   InvalidInfix(Span, SmolStr),
   InvalidPrefix(Span, SmolStr),
+  UnexpectedToken(Span, SmolStr),
 }
 
 impl<'a> Diagnostic<'a> for Syntax {
@@ -27,12 +28,18 @@ pub const fn expected_int(span: Span, token: SmolStr) -> Error {
 
 /// The invalid infix error.
 #[inline]
-pub const fn invalid_infix(span: Span, token: SmolStr) -> Error {
-  Error::Syntax(Syntax::InvalidInfix(span, token))
+pub const fn invalid_infix(span: Span, op: SmolStr) -> Error {
+  Error::Syntax(Syntax::InvalidInfix(span, op))
 }
 
 /// The invalid prefix error.
 #[inline]
-pub const fn invalid_prefix(span: Span, token: SmolStr) -> Error {
-  Error::Syntax(Syntax::InvalidPrefix(span, token))
+pub const fn invalid_prefix(span: Span, op: SmolStr) -> Error {
+  Error::Syntax(Syntax::InvalidPrefix(span, op))
+}
+
+/// The unexpected token error.
+#[inline]
+pub const fn unexpected_token(span: Span, token: SmolStr) -> Error {
+  Error::Syntax(Syntax::UnexpectedToken(span, token))
 }
