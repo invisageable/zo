@@ -15,6 +15,8 @@ impl Interpreter {
 }
 
 /// Evaluates the AST.
+///
+/// See also [`Interpreter::interpret`].
 pub fn interpret(session: &mut Session, ast: &Ast) -> Result<Value> {
   Interpreter.interpret(session, ast)
 }
