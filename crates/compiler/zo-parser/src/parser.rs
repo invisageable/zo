@@ -767,7 +767,7 @@ impl<'tokens> Parser<'tokens> {
         )),
       })
       .unwrap()
-      .and_then(|(kind, span)| Ok(BinOp { kind, span }));
+      .map(|(kind, span)| BinOp { kind, span });
 
     parser.next();
 
