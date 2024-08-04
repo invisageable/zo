@@ -47,4 +47,4 @@ Voilà, if everything has been done without any error. You can run the project y
 
 **-release**
 
-All release build are available in the `/target/release` folder at the root of the repository.
+All release build are available in the `/target/release` folder at the root of the project.

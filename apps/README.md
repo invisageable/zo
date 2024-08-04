@@ -6,9 +6,11 @@
 
 This is a programming EP, it contains native applications for MacOS (I do not have a Linux or WIndows laptop to tested it). All applications are build on the top of [egui](https://github.com/emilk/egui) and used [wgpu](https://github.com/gfx-rs/wgpu) under the hood.   
 
-## invisageable | zo — The symphonie of compilers.
+**EP**
 
-Tracklist.
+*The symphonie of compilers.*   
+
+Tracklist.    
 
 1. calculius.
 2. codelord.
@@ -16,6 +18,5 @@ Tracklist.
 
 ## infos.
 
-- LOC — ...
 - Recorded — 29 July 2024 until present.
 - Released — ... through [@compilords](https://compilords.house).

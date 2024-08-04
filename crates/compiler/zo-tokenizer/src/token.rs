@@ -89,12 +89,21 @@ pub enum TokenKind {
 
 impl TokenKind {
   /// Checks the equality of a token kind.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is equal to the right-hand
+  /// side.
   #[inline]
   pub fn is(&self, kind: TokenKind) -> bool {
     *self == kind
   }
 
   /// Checks if the token kind is a literal.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a literal one.
   #[inline]
   pub fn is_lit(&self) -> bool {
     matches!(
@@ -110,6 +119,10 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a unary operator.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a unary operator.
   #[inline]
   pub fn is_unop(&self) -> bool {
     matches!(
@@ -120,6 +133,10 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a binary operator.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a binary operator.
   #[inline]
   pub fn is_binop(&self) -> bool {
     matches!(
@@ -140,6 +157,10 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a group open.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a delimiter.
   #[inline]
   pub fn is_group(&self) -> bool {
     matches!(
@@ -151,12 +172,20 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a keyword.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a keyword.
   #[inline]
   pub fn is_kw(&self) -> bool {
     matches!(self, Self::Kw(..))
   }
 
   /// Checks if the token kind is an assignment.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is an assignment operator.
   #[inline]
   pub fn is_assignment(&self) -> bool {
     matches!(
@@ -176,6 +205,10 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a conditional.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a logical operator.
   #[inline]
   pub fn is_conditional(&self) -> bool {
     matches!(
@@ -186,6 +219,10 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a comparison.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a comparaison operator.
   #[inline]
   pub fn is_comparison(&self) -> bool {
     matches!(
@@ -200,6 +237,10 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a sum.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a sum.
   #[inline]
   pub fn is_sum(&self) -> bool {
     matches!(
@@ -210,6 +251,10 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a exponent.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is an exponent.
   #[inline]
   pub fn is_exponent(&self) -> bool {
     matches!(
@@ -221,30 +266,50 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a call function.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a function call.
   #[inline]
   pub fn is_calling(&self) -> bool {
     matches!(self, Self::Group(Group::ParenOpen))
   }
 
   /// Checks if the token kind is an index.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is an index.
   #[inline]
   pub fn is_index(&self) -> bool {
     matches!(self, Self::Group(Group::BracketOpen))
   }
 
   /// Checks if the token kind is a chaining.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a chaining one.
   #[inline]
   pub fn is_chaining(&self) -> bool {
     matches!(self, Self::Punctuation(Punctuation::Period))
   }
 
   /// Checks if the token kind is a range.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a range.
   #[inline]
   pub fn is_range(&self) -> bool {
     matches!(self, Self::Punctuation(Punctuation::PeriodPeriod))
   }
 
   /// Checks if the token kind is an item.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is an item.
   #[inline]
   pub fn is_item(&self) -> bool {
     matches!(
@@ -259,6 +324,10 @@ impl TokenKind {
   }
 
   /// Checks if the token kind is a local variable.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a local variable.
   #[inline]
   pub fn is_var_local(&self) -> bool {
     matches!(self, Self::Kw(Kw::Imu) | Self::Kw(Kw::Mut))

@@ -45,7 +45,7 @@ A compiler of a compiler inside another giant compiler that is itself inside a g
 
 ## supports.
 
-Donate, stars or sponsors are welcoming.
+Stars, donate or sponsors are welcoming.
 
 ## credits.
 
