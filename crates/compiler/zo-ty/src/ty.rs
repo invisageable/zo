@@ -28,6 +28,12 @@ impl Ty {
     Self::new(TyKind::Unit, span)
   }
 
+  /// Creates a new infered type.
+  #[inline]
+  pub const fn infer(span: Span) -> Self {
+    Self::new(TyKind::Infer, span)
+  }
+
   /// Creates a new integer type.
   #[inline]
   pub const fn int(int: LitIntTy, span: Span) -> Self {
@@ -57,6 +63,8 @@ impl Ty {
 pub enum TyKind {
   /// unit — `()`.
   Unit,
+  /// infer — `:=`.
+  Infer,
   /// integer — `int`, `s32`, `u32`.
   Int(LitIntTy),
   /// float — `float`, `f32`, `f64`.

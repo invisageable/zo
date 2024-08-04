@@ -1,8 +1,9 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Ast, BinOp, Expr, ExprKind, Lit, LitKind, Mutability, Pattern, PatternKind,
-  Pub, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
+  Ast, BinOp, BinOpKind, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
+  Mutability, Pattern, PatternKind, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var,
+  VarKind,
 };
 
 use zo_interner::interner::symbol::Symbol;
@@ -171,12 +172,82 @@ impl<'tokens> Parser<'tokens> {
     Ok(ast)
   }
 
+  /// Parses an item.
+  fn parse_item(&mut self) -> Result<Item> {
+    self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Kw(Kw::Val) => self.parse_item_val(),
+        _ => Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_smolstr(),
+        )),
+      })
+      .unwrap()
+  }
+
+  /// Parses an global variable item.
+  fn parse_item_val(&mut self) -> Result<Item> {
+    self.parse_global_var()
+  }
+
+  /// Parses an gloabl variable item.
+  fn parse_global_var(&mut self) -> Result<Item> {
+    let lo = self.current_span();
+
+    let kind = self
+      .maybe_token_current
+      .map(|token| {
+        Ok(match token.kind {
+          TokenKind::Kw(Kw::Val) => VarKind::Val,
+          _ => {
+            return Err(error::syntax::expected_global_var(
+              token.span,
+              token.to_smolstr(),
+            ))
+          }
+        })
+      })
+      .unwrap()?;
+
+    self.next();
+
+    let pattern = self.parse_pattern()?;
+    let ty = self.parse_ty()?;
+
+    self.next();
+
+    let value = self.parse_expr(Precedence::Low)?;
+
+    self.next();
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    match kind {
+      VarKind::Val => Ok(Item {
+        kind: ItemKind::Var(Var {
+          kind,
+          mutability: Mutability::No,
+          pubness: Pub::No,
+          pattern,
+          ty,
+          value: Box::new(value),
+          span,
+        }),
+        span,
+      }),
+      _ => Err(error::syntax::expected_local_var(span, kind.to_smolstr())),
+    }
+  }
+
   /// Parses a statement.
   fn parse_stmt(&mut self) -> Result<Stmt> {
     let stmt = self
       .maybe_token_current
       .map(|token| match token.kind {
         k if k.is_var_local() => self.parse_stmt_var(),
+        k if k.is_item() => self.parse_stmt_item(),
         _ => self.parse_stmt_expr(),
       })
       .unwrap()?;
@@ -202,7 +273,6 @@ impl<'tokens> Parser<'tokens> {
       .map(|token| match token.kind {
         TokenKind::Kw(Kw::Imu) => VarKind::Imu,
         TokenKind::Kw(Kw::Mut) => VarKind::Mut,
-        TokenKind::Kw(Kw::Val) => VarKind::Val,
         _ => unreachable!(),
       })
       .unwrap();
@@ -229,7 +299,7 @@ impl<'tokens> Parser<'tokens> {
           pubness: Pub::No,
           pattern,
           value: Box::new(value),
-          maybe_ty: Some(ty),
+          ty,
           span,
         }),
         span,
@@ -241,7 +311,7 @@ impl<'tokens> Parser<'tokens> {
           pubness: Pub::No,
           pattern,
           value: Box::new(value),
-          maybe_ty: Some(ty),
+          ty,
           span,
         }),
         span,
@@ -250,6 +320,7 @@ impl<'tokens> Parser<'tokens> {
     }
   }
 
+  /// Parses a type.
   fn parse_ty(&mut self) -> Result<Ty> {
     self.next();
 
@@ -268,6 +339,7 @@ impl<'tokens> Parser<'tokens> {
     Ok(ty)
   }
 
+  /// Parses a primitive.
   fn parse_ty_primitive(&mut self) -> Result<Ty> {
     self.next();
 
@@ -285,6 +357,7 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
+  /// Parses a primitive type or array type.
   fn parse_ty_ident_or_array(
     &mut self,
     sym: &Symbol,
@@ -423,15 +496,21 @@ impl<'tokens> Parser<'tokens> {
   fn parse_expr_lit_int(parser: &mut Parser) -> Result<Expr> {
     parser
       .maybe_token_current
-      .map(|token| match token.kind {
-        TokenKind::Int(sym, base) => Ok(Expr {
+      .map(|token| {
+        let TokenKind::Int(sym, base) = token.kind else {
+          return Err(error::syntax::expected_int(
+            token.span,
+            token.to_smolstr(),
+          ));
+        };
+
+        Ok(Expr {
           kind: ExprKind::Lit(Lit {
             kind: LitKind::Int(sym, base),
             span: token.span,
           }),
           span: token.span,
-        }),
-        _ => Err(error::syntax::expected_int(token.span, token.to_smolstr())),
+        })
       })
       .unwrap()
   }
@@ -440,18 +519,21 @@ impl<'tokens> Parser<'tokens> {
   fn parse_expr_lit_float(parser: &mut Parser) -> Result<Expr> {
     parser
       .maybe_token_current
-      .map(|token| match token.kind {
-        TokenKind::Float(sym) => Ok(Expr {
+      .map(|token| {
+        let TokenKind::Float(sym) = token.kind else {
+          return Err(error::syntax::expected_float(
+            token.span,
+            token.to_smolstr(),
+          ));
+        };
+
+        Ok(Expr {
           kind: ExprKind::Lit(Lit {
             kind: LitKind::Float(sym),
             span: token.span,
           }),
           span: token.span,
-        }),
-        _ => Err(error::syntax::expected_float(
-          token.span,
-          token.to_smolstr(),
-        )),
+        })
       })
       .unwrap()
   }
@@ -460,18 +542,21 @@ impl<'tokens> Parser<'tokens> {
   fn parse_expr_lit_ident(parser: &mut Parser) -> Result<Expr> {
     parser
       .maybe_token_current
-      .map(|token| match token.kind {
-        TokenKind::Ident(sym) => Ok(Expr {
+      .map(|token| {
+        let TokenKind::Ident(sym) = token.kind else {
+          return Err(error::syntax::expected_ident(
+            token.span,
+            token.to_smolstr(),
+          ));
+        };
+
+        Ok(Expr {
           kind: ExprKind::Lit(Lit {
             kind: LitKind::Ident(sym),
             span: token.span,
           }),
           span: token.span,
-        }),
-        _ => Err(error::syntax::expected_ident(
-          token.span,
-          token.to_smolstr(),
-        )),
+        })
       })
       .unwrap()
   }
@@ -582,6 +667,7 @@ impl<'tokens> Parser<'tokens> {
 
     match token.kind {
       k if k.is_binop() => Ok(Box::new(Self::parse_expr_infix)),
+      k if k.is_assignment() => Ok(Box::new(Self::parse_expr_assignment)),
       k if k.is_index() => Ok(Box::new(Self::parse_expr_array_access)),
       _ => Err(error::syntax::invalid_infix(token.span, token.to_smolstr())),
     }
@@ -622,6 +708,79 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
+  /// Parses an assignment expression.
+  fn parse_expr_assignment(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Equal)) {
+      parser.next();
+
+      let lo = lhs.span;
+      let rhs = parser.parse_expr(Precedence::Assignement)?;
+      let hi = parser.current_span();
+
+      return Ok(Expr {
+        kind: ExprKind::Assign(Box::new(lhs), Box::new(rhs)),
+        span: Span::merge(lo, hi),
+      });
+    }
+
+    Self::parse_expr_assignop(parser, lhs)
+  }
+
+  /// Parses an assignment operator expression.
+  fn parse_expr_assignop(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    let binop = parser
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Punctuation(Punctuation::PlusEqual) => {
+          Ok((BinOpKind::Add, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::MinusEqual) => {
+          Ok((BinOpKind::Sub, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::AsteriskEqual) => {
+          Ok((BinOpKind::Mul, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::SlashEqual) => {
+          Ok((BinOpKind::Div, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::PercentEqual) => {
+          Ok((BinOpKind::Rem, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::CircumflexEqual) => {
+          Ok((BinOpKind::BitXor, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::AmspersandEqual) => {
+          Ok((BinOpKind::BitAnd, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::PipeEqual) => {
+          Ok((BinOpKind::BitOr, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::LessThanLessThanEqual) => {
+          Ok((BinOpKind::Shl, token.span))
+        }
+        TokenKind::Punctuation(Punctuation::GreaterThanGreaterThanEqual) => {
+          Ok((BinOpKind::Shr, token.span))
+        }
+        _ => Err(error::syntax::expected_binop(
+          Span::ZERO,
+          "token".to_smolstr(),
+        )),
+      })
+      .unwrap()
+      .and_then(|(kind, span)| Ok(BinOp { kind, span }));
+
+    parser.next();
+
+    let rhs = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+    let span = Span::merge(lhs.span, hi);
+
+    Ok(Expr {
+      kind: ExprKind::AssignOp(binop?, Box::new(lhs), Box::new(rhs)),
+      span,
+    })
+  }
+
   /// Parses an array access expression.
   fn parse_expr_array_access(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
     let lo = lhs.span;
@@ -637,6 +796,17 @@ impl<'tokens> Parser<'tokens> {
     Ok(Expr {
       kind: ExprKind::ArrayAccess(Box::new(lhs), Box::new(access)),
       span: Span::merge(lo, hi),
+    })
+  }
+
+  /// Parses an item statement.
+  fn parse_stmt_item(&mut self) -> Result<Stmt> {
+    let item = self.parse_item()?;
+    let span = item.span;
+
+    Ok(Stmt {
+      kind: StmtKind::Item(item),
+      span,
     })
   }
 }

@@ -14,6 +14,8 @@ pub enum Syntax {
   ExpectedFloat(Span, SmolStr),
   /// The expected identifier error.
   ExpectedIdent(Span, SmolStr),
+  /// The expected global variable error.
+  ExpectedGlobalVar(Span, SmolStr),
   /// The expected integer error.
   ExpectedInt(Span, SmolStr),
   /// The expected local variable error.
@@ -34,6 +36,12 @@ impl<'a> Diagnostic<'a> for Syntax {
   }
 }
 
+/// The expected binary operator error.
+#[inline]
+pub const fn expected_binop(span: Span, token: SmolStr) -> Error {
+  Error::Syntax(Syntax::ExpectedBool(span, token))
+}
+
 /// The expected boolean literal error.
 #[inline]
 pub const fn expected_bool(span: Span, token: SmolStr) -> Error {
@@ -44,6 +52,12 @@ pub const fn expected_bool(span: Span, token: SmolStr) -> Error {
 #[inline]
 pub const fn expected_float(span: Span, token: SmolStr) -> Error {
   Error::Syntax(Syntax::ExpectedFloat(span, token))
+}
+
+/// The expected global variable error.
+#[inline]
+pub const fn expected_global_var(span: Span, var: SmolStr) -> Error {
+  Error::Syntax(Syntax::ExpectedLocalVar(span, var))
 }
 
 /// The expected identifier error.

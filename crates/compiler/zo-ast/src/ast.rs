@@ -27,7 +27,9 @@ pub enum Mutability {
 /// The representation of a pattern.
 #[derive(Clone, Debug)]
 pub struct Pattern {
+  /// A pattern kind — see also [`PatternKind`] for more information..
   pub kind: PatternKind,
+  /// A span of the pattern — see also [`Span`] for more information.
   pub span: Span,
 }
 
@@ -105,6 +107,22 @@ impl std::ops::Deref for Ast {
   }
 }
 
+/// The representation of an item.
+#[derive(Clone, Debug)]
+pub struct Item {
+  /// An item kind — see also [`ItemKind`] if needed.
+  pub kind: ItemKind,
+  /// An item span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of different kinds of statements.
+#[derive(Clone, Debug)]
+pub enum ItemKind {
+  /// A constant, global variable.
+  Var(Var),
+}
+
 /// The representation of a statement.
 #[derive(Clone, Debug)]
 pub struct Stmt {
@@ -119,7 +137,9 @@ pub struct Stmt {
 pub enum StmtKind {
   /// A variable statement.
   Var(Var),
-  /// A expression statement.
+  /// An item statement.
+  Item(Item),
+  /// An expression statement.
   Expr(Box<Expr>),
 }
 
@@ -129,16 +149,24 @@ pub enum StmtKind {
 /// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`.
 #[derive(Clone, Debug)]
 pub struct Var {
+  /// An indicator to delimit the scope.
   pub pubness: Pub,
+  /// An indicator to define the mutability.
   pub mutability: Mutability,
+  /// A variable kind.
   pub kind: VarKind,
+  /// A pattern of a variable — see also [`Pattern`] for more information.
   pub pattern: Pattern,
-  pub maybe_ty: Option<Ty>,
+  /// The type of the variable.
+  pub ty: Ty,
+  /// The value of the variable.
   pub value: Box<Expr>,
+  /// The variable span.
   pub span: Span,
 }
 
 impl Symbolize for Var {
+  #[inline]
   fn as_symbol(&self) -> &Symbol {
     self.pattern.as_symbol()
   }
@@ -180,6 +208,10 @@ pub enum ExprKind {
   UnOp(UnOp, Box<Expr>),
   /// infix — `1 + 2`, `3 - 4`.
   BinOp(BinOp, Box<Expr>, Box<Expr>),
+  /// assignment — `foo = bar`.
+  Assign(Box<Expr>, Box<Expr>),
+  /// assignment operator — `foo += bar`.
+  AssignOp(BinOp, Box<Expr>, Box<Expr>),
   /// array — `[1, 2, 3, 4]`.
   Array(Vec<Expr>),
   /// array access (index) — `foo[0]`.

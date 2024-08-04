@@ -1,7 +1,9 @@
 use super::ast::{
-  BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, Mutability, Pattern,
-  PatternKind, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
+  BinOp, BinOpKind, Expr, ExprKind, Item, ItemKind, Lit, LitKind, Mutability,
+  Pattern, PatternKind, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
 };
+
+use zo_ty::ty::TyKind;
 
 use swisskit::fmt::sep_comma;
 
@@ -30,17 +32,30 @@ impl std::fmt::Display for PatternKind {
   }
 }
 
+impl std::fmt::Display for Item {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}", self.kind)
+  }
+}
+
+impl std::fmt::Display for ItemKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Var(var) => write!(f, "{var}"),
+    }
+  }
+}
+
 impl std::fmt::Display for Var {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     let kind = &self.kind;
     let pattern = &self.pattern;
     let value = &self.value;
 
-    let ty = self
-      .maybe_ty
-      .as_ref()
-      .map(|ty| format!(": {ty} ="))
-      .unwrap_or(":=".to_string());
+    let ty = match self.ty.kind {
+      TyKind::Infer => ":=".to_string(),
+      _ => format!(": {} =", self.ty),
+    };
 
     write!(f, "{kind} {pattern} {ty} {value};")
   }
@@ -66,6 +81,7 @@ impl std::fmt::Display for StmtKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::Var(var) => write!(f, "{var}"),
+      Self::Item(item) => write!(f, "{item}"),
       Self::Expr(expr) => write!(f, "{expr}"),
     }
   }
@@ -83,6 +99,10 @@ impl std::fmt::Display for ExprKind {
       Self::Lit(lit) => write!(f, "{lit}"),
       Self::UnOp(unop, rhs) => write!(f, "{unop}{rhs}"),
       Self::BinOp(binop, lhs, rhs) => write!(f, "{lhs} {binop} {rhs}"),
+      Self::Assign(assignee, value) => write!(f, "{assignee} = {value}"),
+      Self::AssignOp(binop, assignee, value) => {
+        write!(f, "{assignee} {binop} {value}")
+      }
       Self::Array(elmts) => write!(f, "{}", sep_comma(elmts)),
       Self::ArrayAccess(indexed, index) => write!(f, "{indexed}[{index}]"),
       Self::Var(var) => write!(f, "{var}"),
