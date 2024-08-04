@@ -21,7 +21,9 @@ use swisskit::span::Span;
 
 use smol_str::ToSmolStr;
 
+/// A type that defines a prefix function.
 type PrefixFn = Box<dyn FnOnce(&mut Parser) -> Result<Expr>>;
+/// A type that defines an infix function.
 type InfixFn = Box<dyn FnOnce(&mut Parser, Expr) -> Result<Expr>>;
 
 /// The representation of a parser.

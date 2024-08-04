@@ -1,6 +1,6 @@
 use super::{Event, Process};
 
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 use zo_tokenizer::tokenizer;
 
@@ -14,7 +14,7 @@ impl Process for Tokenizing {
       return tokenizer::tokenize(session, &source).and_then(Event::tokens);
     }
 
-    panic!()
+    Err(error::internal::expected_event(event))
   }
 }
 

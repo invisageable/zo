@@ -26,6 +26,7 @@ impl Subst {
   }
 
   /// Gets the type from a type.
+  #[inline]
   pub fn get(&self, ty: &Ty) -> Ty {
     match self {
       Self::Empty => ty.to_owned(),
@@ -40,6 +41,7 @@ impl Subst {
   }
 
   /// Applies the substitution.
+  #[inline]
   pub fn apply(&self, ty: &Ty) -> Ty {
     match &ty.kind {
       TyKind::Con(ident, ty_vars) => Ty::new(

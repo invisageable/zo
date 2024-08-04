@@ -2,10 +2,6 @@ use zo_reporter::Result;
 use zo_session::backend::Backend;
 use zo_session::session::Session;
 
-/// The output information — pathname, backend, etc.
-#[derive(Clone, Debug)]
-pub struct Output;
-
 // The representation of a buiulder.
 #[derive(Debug)]
 struct Builder;
@@ -26,4 +22,14 @@ impl Builder {
 /// [`Builder::build`].
 pub fn build(session: &mut Session, bytecode: &[u8]) -> Result<Output> {
   Builder.build(session, bytecode)
+}
+
+/// The output information — pathname, backend, etc.
+#[derive(Clone, Debug)]
+pub struct Output;
+
+impl std::fmt::Display for Output {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    todo!()
+  }
 }

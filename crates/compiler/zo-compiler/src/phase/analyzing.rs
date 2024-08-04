@@ -1,7 +1,7 @@
 use super::{Event, Process};
 
 use zo_analyzer::analyzer;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 
 /// The semantic analysis phase.
@@ -14,7 +14,7 @@ impl Process for Analyzing {
       return analyzer::analyze(session, &ast).and_then(Event::ast);
     }
 
-    panic!()
+    Err(error::internal::expected_event(event))
   }
 }
 

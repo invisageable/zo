@@ -26,6 +26,7 @@ impl Env {
   }
 
   /// Gets a specific scheme from an identifier.
+  #[inline]
   pub fn get(&self, ident: &str) -> Option<Scheme> {
     match self {
       Self::Empty => None,
@@ -40,6 +41,7 @@ impl Env {
   }
 
   /// Gets the arguments type.
+  #[inline]
   pub fn ty_vars(&self) -> HashSet<usize> {
     match self {
       Self::Empty => HashSet::new(),

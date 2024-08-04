@@ -31,6 +31,7 @@ pub enum Syntax {
 }
 
 impl<'a> Diagnostic<'a> for Syntax {
+  #[inline]
   fn report(&self) -> Report<'a> {
     todo!()
   }

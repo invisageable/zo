@@ -80,6 +80,7 @@ impl<const L: usize> Compiler<L> {
 }
 
 impl<const L: usize> From<[Phase; L]> for Compiler<L> {
+  #[inline]
   fn from(phases: [Phase; L]) -> Self {
     Self::new(phases)
   }

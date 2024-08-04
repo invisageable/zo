@@ -1,7 +1,7 @@
 use super::{Event, Process};
 
 use zo_codegen::codegen;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 
 /// The code generation phase.
@@ -14,7 +14,7 @@ impl Process for Generating {
       return codegen::generate(session, &ast).and_then(Event::bytecode);
     }
 
-    panic!()
+    Err(error::internal::expected_event(event))
   }
 }
 

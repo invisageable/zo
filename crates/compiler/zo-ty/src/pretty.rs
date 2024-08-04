@@ -1,5 +1,3 @@
-//! ...
-
 use super::ty::{
   FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, TyKind, UintTy,
 };

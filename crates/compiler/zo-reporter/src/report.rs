@@ -18,10 +18,15 @@ pub(crate) const REPORT_LABEL_ADVICE: &str = "advice";
 /// It is used as a wrapper of [`ariadne::Report`].
 #[derive(Debug)]
 pub struct Report<'a> {
+  /// A type that defines the kind of report being produced.
   pub kind: ReportKind<'a>,
+  /// A message of a report.
   pub message: SmolStr,
+  /// A set of labels.
   pub labels: Vec<(Span, SmolStr, ariadne::Color)>,
+  /// A set of notes.
   pub notes: Vec<SmolStr>,
+  /// A set of helps.
   pub helps: Vec<SmolStr>,
 }
 

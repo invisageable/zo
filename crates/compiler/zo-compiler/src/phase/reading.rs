@@ -1,7 +1,7 @@
 use super::{Event, Process};
 
 use zo_reader::reader;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 
 /// The reading phase.
@@ -14,7 +14,7 @@ impl Process for Reading {
       return reader::read(session, pathname).and_then(Event::bytes);
     }
 
-    panic!()
+    Err(error::internal::expected_event(event))
   }
 }
 

@@ -1,11 +1,14 @@
 use super::ast::{
-  BinOp, BinOpKind, Expr, ExprKind, Item, ItemKind, Lit, LitKind, Mutability,
-  Pattern, PatternKind, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
+  Ast, BinOp, BinOpKind, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
+  Mutability, Pattern, PatternKind, Stmt, StmtKind, UnOp, UnOpKind, Var,
+  VarKind,
 };
 
 use zo_ty::ty::TyKind;
 
-use swisskit::fmt::sep_comma;
+use swisskit::fmt::{sep_comma, sep_newline};
+
+use smol_str::ToSmolStr;
 
 impl std::fmt::Display for Mutability {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -32,6 +35,12 @@ impl std::fmt::Display for PatternKind {
   }
 }
 
+impl std::fmt::Display for Ast {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}", sep_newline(&self.stmts))
+  }
+}
+
 impl std::fmt::Display for Item {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(f, "{}", self.kind)
@@ -53,8 +62,8 @@ impl std::fmt::Display for Var {
     let value = &self.value;
 
     let ty = match self.ty.kind {
-      TyKind::Infer => ":=".to_string(),
-      _ => format!(": {} =", self.ty),
+      TyKind::Infer => ":=".to_smolstr(),
+      _ => format!(": {} =", self.ty).to_smolstr(),
     };
 
     write!(f, "{kind} {pattern} {ty} {value};")

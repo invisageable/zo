@@ -4,15 +4,26 @@ use zo_reporter::Result;
 use zo_tokenizer::token::Token;
 use zo_value::value::Value;
 
+use swisskit::fmt::sep_comma;
+
+use smol_str::{SmolStr, ToSmolStr};
+
 /// The representation of compiler's event.
 #[derive(Debug)]
 pub enum Event {
+  /// A path event — used during the `reading` phase.
   Path(std::path::PathBuf),
+  /// A bytes event — used during the `tokenizer` phase.
   Bytes(Vec<u8>),
+  /// A token event — used during the `parsing` phase.
   Tokens(Vec<Token>),
+  /// An AST event — used during the `analyzing` and `generating` phase.
   Ast(Ast),
+  /// A bytecode event — used during the `building` phase.
   Bytecode(Box<[u8]>),
+  /// An output event — used to display the `building` phase result.
   Output(Output),
+  /// A value event — used during the `interpreting` phase.
   Value(Value),
 }
 
@@ -57,5 +68,27 @@ impl Event {
   #[inline]
   pub const fn value(value: Value) -> Result<Self> {
     Ok(Event::Value(value))
+  }
+}
+
+impl From<Event> for SmolStr {
+  #[inline]
+  fn from(event: Event) -> Self {
+    event.to_smolstr()
+  }
+}
+
+impl std::fmt::Display for Event {
+  #[inline]
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Path(pathname) => write!(f, "{}", pathname.display()),
+      Self::Bytes(bytes) => write!(f, "{}", sep_comma(bytes)),
+      Self::Tokens(tokens) => write!(f, "{}", sep_comma(tokens)),
+      Self::Ast(ast) => write!(f, "{ast}"),
+      Self::Bytecode(bytecode) => write!(f, "{}", sep_comma(bytecode)),
+      Self::Output(output) => write!(f, "{output}"),
+      Self::Value(value) => write!(f, "{value}"),
+    }
   }
 }

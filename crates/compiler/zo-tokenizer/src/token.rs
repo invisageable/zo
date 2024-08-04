@@ -268,10 +268,10 @@ impl TokenKind {
 impl std::fmt::Display for TokenKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::Eof => write!(f, "EOF"),
-      Self::Unknown => write!(f, "UNKNOWN"),
-      Self::Space => write!(f, "SPACE"),
-      Self::Eol => write!(f, "EOL"),
+      Self::Eof => write!(f, "eof"),
+      Self::Unknown => write!(f, "unknown"),
+      Self::Space => write!(f, "space"),
+      Self::Eol => write!(f, "Eol"),
       Self::Int(sym, base) => {
         write!(f, "{sym}--base--{base:?}")
       }

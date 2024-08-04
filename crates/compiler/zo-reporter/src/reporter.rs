@@ -71,19 +71,19 @@ impl Reporter {
     std::process::exit(EXIT_FAILURE)
   }
 
-  /// Handles an error and aborts the entire program.
-  #[inline]
-  pub fn raise(&self, error: Error) -> ! {
-    self.add_report(error);
-    self.abort()
-  }
-
   /// Aborts only if we got errors.
   #[inline]
   pub fn abort_if_has_errors(&self) {
     if self.has_errors() {
       self.abort();
     }
+  }
+
+  /// Handles an error and aborts the entire program.
+  #[inline]
+  pub fn raise(&self, error: Error) -> ! {
+    self.add_report(error);
+    self.abort()
   }
 
   /// Adds an diagnostic's error report.

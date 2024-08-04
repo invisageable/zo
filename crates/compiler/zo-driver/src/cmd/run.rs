@@ -48,16 +48,15 @@ pub(crate) struct Run {
 impl Run {
   /// Executes the `run` command.
   #[inline]
-  fn build(&self) -> Result<()> {
-    self.building()
+  fn run(&self) -> Result<()> {
+    self.running()
   }
 
   /// Interprets the program.
-  fn building(&self) -> Result<()> {
+  fn running(&self) -> Result<()> {
     let session = std::sync::Arc::clone(&SESSION);
-    let mut session = session.lock().unwrap();
+    let mut session = session.lock().unwrap(); // am i legitime to unwrap here?
 
-    // am i legitime to unwrap here?
     session.with_settings(Settings {
       input: self.input.to_owned(),
       backend: self.backend.to_owned(),
@@ -69,7 +68,7 @@ impl Run {
 
     drop(session);
 
-    // phases will be execute in fifo ordering.
+    // phases will be execute in order.
     let compiler = Compiler::new([
       Phase::Reading(Reading),
       Phase::Tokenizing(Tokenizing),
@@ -91,7 +90,7 @@ impl Run {
 impl Execute for Run {
   #[inline]
   fn exec(&self) {
-    match self.build() {
+    match self.run() {
       Ok(_) => std::process::exit(EXIT_SUCCESS),
       Err(_) => std::process::exit(EXIT_FAILURE),
     }

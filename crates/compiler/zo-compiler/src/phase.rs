@@ -11,7 +11,7 @@ use super::event::Event;
 use zo_reporter::Result;
 use zo_session::session::Session;
 
-use smol_str::SmolStr;
+use smol_str::{SmolStr, ToSmolStr};
 
 /// The behavior of a phase to process.
 pub trait Process {
@@ -39,9 +39,8 @@ pub enum Phase {
 }
 
 impl From<&Phase> for SmolStr {
+  #[inline]
   fn from(phase: &Phase) -> Self {
-    use smol_str::ToSmolStr;
-
     phase.to_smolstr()
   }
 }

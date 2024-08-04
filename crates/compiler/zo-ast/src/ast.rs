@@ -13,14 +13,18 @@ pub struct NodeId(pub usize);
 /// The representation of a public access.
 #[derive(Clone, Debug)]
 pub enum Pub {
+  /// Allows public access.
   Yes(Span),
+  /// Disallows access.
   No,
 }
 
 /// The representation of a mutability.
 #[derive(Clone, Debug)]
 pub enum Mutability {
+  /// Allows immutable.
   Yes(Span),
+  /// Disallows mutable.
   No,
 }
 
@@ -305,6 +309,7 @@ pub struct BinOp {
 }
 
 impl From<&Token> for BinOp {
+  #[inline]
   fn from(token: &Token) -> Self {
     match token.kind {
       TokenKind::Punctuation(punctuation) => Self {

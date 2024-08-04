@@ -1,7 +1,7 @@
 use super::{Event, Process};
 
 use zo_parser::parser;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 
 /// The syntax analysis phase.
@@ -14,7 +14,7 @@ impl Process for Parsing {
       return parser::parse(session, &tokens).and_then(Event::ast);
     }
 
-    panic!()
+    Err(error::internal::expected_event(event))
   }
 }
 

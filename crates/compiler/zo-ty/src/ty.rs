@@ -52,7 +52,8 @@ impl Ty {
     Self::new(TyKind::Array(Box::new(ty), maybe_size), span)
   }
 
-  /// ...
+  /// Retrieves the set of quantified type variables.
+  #[inline]
   pub fn ty_vars(&self) -> HashSet<usize> {
     self.kind.ty_vars()
   }
@@ -88,7 +89,8 @@ impl TyKind {
     matches!(self, Self::Int(..) | Self::Float(..))
   }
 
-  /// ...
+  /// Retrieves the set of quantified type variables.
+  #[inline]
   fn ty_vars(&self) -> HashSet<usize> {
     match self {
       Self::Con(_, tys) => {

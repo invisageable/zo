@@ -1,7 +1,7 @@
 use super::{Event, Process};
 
 use zo_interpreter::interpreter;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 
 /// The interpretation phase.
@@ -14,7 +14,7 @@ impl Process for Interpreting {
       return interpreter::interpret(session, &ast).and_then(Event::value);
     }
 
-    panic!()
+    Err(error::internal::expected_event(event))
   }
 }
 

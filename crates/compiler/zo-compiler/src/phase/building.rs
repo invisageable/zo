@@ -1,7 +1,7 @@
 use super::{Event, Process};
 
 use zo_builder::builder;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 
 /// The build phase.
@@ -14,7 +14,7 @@ impl Process for Building {
       return builder::build(session, &bytecode).and_then(Event::output);
     }
 
-    panic!()
+    Err(error::internal::expected_event(event))
   }
 }
 

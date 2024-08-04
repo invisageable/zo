@@ -16,7 +16,6 @@ use zo_session::settings::Settings;
 use swisskit::global::{EXIT_FAILURE, EXIT_SUCCESS};
 
 use clap::Parser;
-
 use smol_str::SmolStr;
 
 /// The `build` command.
@@ -56,9 +55,8 @@ impl Build {
   /// Builds the program.
   fn building(&self) -> Result<()> {
     let session = std::sync::Arc::clone(&SESSION);
-    let mut session = session.lock().unwrap();
+    let mut session = session.lock().unwrap(); // am i legitime to unwrap here?
 
-    // am i legitime to unwrap here?
     session.with_settings(Settings {
       input: self.input.to_owned(),
       backend: self.backend.to_owned(),
@@ -70,7 +68,7 @@ impl Build {
 
     drop(session);
 
-    // phases will be execute in fifo ordering.
+    // phases will be execute in order.
     let compiler = Compiler::new([
       Phase::Reading(Reading),
       Phase::Tokenizing(Tokenizing),

@@ -7,13 +7,14 @@ use swisskit::span::Span;
 /// The representation of lexical analysis errors.
 #[derive(Debug)]
 pub enum Lexical {
-  /// The unknown character error.
+  /// An unknown character error.
   Unknown(Span, u8),
-  /// The invalid number error.
+  /// An invalid number error.
   InvalidNumber(Span, u8),
 }
 
 impl<'a> Diagnostic<'a> for Lexical {
+  #[inline]
   fn report(&self) -> Report<'a> {
     match self {
       Self::Unknown(span, byte) => todo!("invalid num — {span}-{byte}"),

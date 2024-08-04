@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 
 /// A behavior to execute a command.
 pub(crate) trait Execute {
-  /// Executes a command.
+  /// Executes the command.
   fn exec(&self);
 }
 
