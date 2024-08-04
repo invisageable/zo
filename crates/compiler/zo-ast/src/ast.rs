@@ -2,12 +2,63 @@ use zo_interner::interner::symbol::{Symbol, Symbolize};
 use zo_tokenizer::token::int::Base;
 use zo_tokenizer::token::punctuation::Punctuation;
 use zo_tokenizer::token::{Token, TokenKind};
+use zo_ty::ty::Ty;
 
 use swisskit::span::Span;
 
 /// The representation of an unique id of a node in an AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
+
+/// The representation of a public access.
+#[derive(Clone, Debug)]
+pub enum Pub {
+  Yes(Span),
+  No,
+}
+
+/// The representation of a mutability.
+#[derive(Clone, Debug)]
+pub enum Mutability {
+  Yes(Span),
+  No,
+}
+
+/// The representation of a pattern.
+#[derive(Clone, Debug)]
+pub struct Pattern {
+  pub kind: PatternKind,
+  pub span: Span,
+}
+
+impl Symbolize for Pattern {
+  #[inline]
+  fn as_symbol(&self) -> &Symbol {
+    self.kind.as_symbol()
+  }
+}
+
+/// The representation of different kinds of patterns.
+#[derive(Clone, Debug)]
+pub enum PatternKind {
+  /// underscore — `_`.
+  Underscore,
+  /// identifier — `foo`, `bar`.
+  Ident(Box<Expr>),
+  /// literals.
+  Lit(Lit),
+}
+
+impl Symbolize for PatternKind {
+  #[inline]
+  fn as_symbol(&self) -> &Symbol {
+    match self {
+      Self::Ident(ident) => ident.as_symbol(),
+      Self::Lit(lit) => lit.as_symbol(),
+      _ => unreachable!(),
+    }
+  }
+}
 
 /// The representation of an abstract syntax tree.
 #[derive(Clone, Debug, Default)]
@@ -66,8 +117,42 @@ pub struct Stmt {
 /// The representation of different kinds of statements.
 #[derive(Clone, Debug)]
 pub enum StmtKind {
-  /// The expression statement.
+  /// A variable statement.
+  Var(Var),
+  /// A expression statement.
   Expr(Box<Expr>),
+}
+
+/// The representation of a variable.
+///
+/// immutable variable — `imu foo: int = 123;`.
+/// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`.
+#[derive(Clone, Debug)]
+pub struct Var {
+  pub pubness: Pub,
+  pub mutability: Mutability,
+  pub kind: VarKind,
+  pub pattern: Pattern,
+  pub maybe_ty: Option<Ty>,
+  pub value: Box<Expr>,
+  pub span: Span,
+}
+
+impl Symbolize for Var {
+  fn as_symbol(&self) -> &Symbol {
+    self.pattern.as_symbol()
+  }
+}
+
+/// The representation of different kinds of variable.
+#[derive(Clone, Debug)]
+pub enum VarKind {
+  /// A global constant variable.
+  Val,
+  /// An immutable local variable.
+  Imu,
+  /// A mutable local variable.
+  Mut,
 }
 
 /// The representation of an expression.
@@ -99,6 +184,8 @@ pub enum ExprKind {
   Array(Vec<Expr>),
   /// array access (index) — `foo[0]`.
   ArrayAccess(Box<Expr>, Box<Expr>),
+  /// variable — `imu foo : int = 0`, `mut foo := 0`.
+  Var(Var),
 }
 
 impl Symbolize for ExprKind {

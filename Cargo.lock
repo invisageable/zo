@@ -731,6 +731,7 @@ dependencies = [
 name = "zo-ast"
 version = "0.0.0"
 dependencies = [
+ "smol_str",
  "swisskit",
  "zo-interner",
  "zo-tokenizer",
@@ -886,6 +887,7 @@ dependencies = [
  "zo-reporter",
  "zo-session",
  "zo-tokenizer",
+ "zo-ty",
 ]
 
 [[package]]

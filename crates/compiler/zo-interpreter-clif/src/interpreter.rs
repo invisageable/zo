@@ -21,7 +21,7 @@ impl Interpreter {
   }
 
   /// Evaluates a statement.
-  fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
+  fn interpret_stmt(&mut self, _stmt: &Stmt) -> Result<Value> {
     todo!()
   }
 }

@@ -79,6 +79,21 @@ impl Span {
     self.hi - self.lo
   }
 
+  /// Check if the span is empty.
+  ///
+  /// #### examples.
+  ///
+  /// ```
+  /// use swisskit::span::Span;
+  ///
+  /// let spn = Span::of(0, 0);
+  ///
+  /// assert!(spn.is_empty());
+  /// ```
+  pub fn is_empty(&self) -> bool {
+    self.lo == self.hi
+  }
+
   /// Checks if a position is within the span.
   ///
   /// #### examples.

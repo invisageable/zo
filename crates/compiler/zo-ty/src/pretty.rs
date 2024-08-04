@@ -18,6 +18,10 @@ impl std::fmt::Display for TyKind {
       Self::Unit => write!(f, "()"),
       Self::Int(int) => write!(f, "{int}"),
       Self::Float(float) => write!(f, "{float}"),
+      Self::Array(ty, maybe_size) => match maybe_size {
+        Some(size) => write!(f, "{ty}[{size}]"),
+        None => write!(f, "{ty}[]"),
+      },
       Self::Con(ident, tys) => write!(f, "{ident} - [{}]", sep_comma(tys)),
     }
   }

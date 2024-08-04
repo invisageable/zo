@@ -5,20 +5,20 @@ use zo_ty::ty::Ty;
 
 use hashbrown::HashSet;
 
-/// The representation of a scheme.
+/// The representation of a type scheme.
 #[derive(Clone, Debug)]
-pub struct Scheme(Ty, HashSet<usize>);
+pub struct Scheme(&'static Ty, HashSet<usize>);
 
 impl Scheme {
-  /// Creates a new scheme.
-  pub fn generalize(env: &Env, ty: &Ty) -> Self {
+  /// Creates a new scheme from an environment and the type to be generalised.
+  pub fn generalize(env: &Env, ty: &'static Ty) -> Self {
     Self(
-      ty.clone(),
+      ty,
       ty.ty_vars().difference(&env.ty_vars()).cloned().collect(),
     )
   }
 
-  /// ...
+  /// Retrieves the set of quantified type variables in the type scheme.
   pub fn ty_vars(&self) -> HashSet<usize> {
     self.1.to_owned()
   }

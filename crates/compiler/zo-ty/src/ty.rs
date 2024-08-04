@@ -40,6 +40,12 @@ impl Ty {
     Self::new(TyKind::Float(float), span)
   }
 
+  /// Creates a new array type.
+  #[inline]
+  pub fn array(ty: Ty, maybe_size: Option<usize>, span: Span) -> Self {
+    Self::new(TyKind::Array(Box::new(ty), maybe_size), span)
+  }
+
   /// ...
   pub fn ty_vars(&self) -> HashSet<usize> {
     self.kind.ty_vars()
@@ -55,6 +61,8 @@ pub enum TyKind {
   Int(LitIntTy),
   /// float — `float`, `f32`, `f64`.
   Float(LitFloatTy),
+  /// array — `int[]`, `str[3]`.
+  Array(Box<Ty>, Option<usize>),
   /// constructed type.
   Con(SmolStr, Vec<Ty>),
 }

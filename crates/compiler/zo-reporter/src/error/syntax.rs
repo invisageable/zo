@@ -16,6 +16,10 @@ pub enum Syntax {
   ExpectedIdent(Span, SmolStr),
   /// The expected integer error.
   ExpectedInt(Span, SmolStr),
+  /// The expected local variable error.
+  ExpectedLocalVar(Span, SmolStr),
+  /// The expected type error.
+  ExpectedTy(Span, SmolStr),
   /// The invalid infix error.
   InvalidInfix(Span, SmolStr),
   /// The invalid prefix error.
@@ -48,10 +52,22 @@ pub const fn expected_ident(span: Span, token: SmolStr) -> Error {
   Error::Syntax(Syntax::ExpectedIdent(span, token))
 }
 
-/// The expected integer literal error.
+/// The expected  error.
 #[inline]
 pub const fn expected_int(span: Span, token: SmolStr) -> Error {
   Error::Syntax(Syntax::ExpectedInt(span, token))
+}
+
+/// The expected local variable error.
+#[inline]
+pub const fn expected_local_var(span: Span, var: SmolStr) -> Error {
+  Error::Syntax(Syntax::ExpectedLocalVar(span, var))
+}
+
+/// The expected type error.
+#[inline]
+pub const fn expected_ty(span: Span, ty: SmolStr) -> Error {
+  Error::Syntax(Syntax::ExpectedTy(span, ty))
 }
 
 /// The invalid infix error.

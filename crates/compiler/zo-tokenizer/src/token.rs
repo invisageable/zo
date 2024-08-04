@@ -26,8 +26,6 @@ use zo_interner::interner::symbol::Symbol;
 
 use swisskit::span::Span;
 
-use smol_str::{SmolStr, ToSmolStr};
-
 /// The representation of a token.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Token {
@@ -54,10 +52,9 @@ impl Token {
   }
 }
 
-impl ToSmolStr for Token {
-  #[inline]
-  fn to_smolstr(&self) -> smol_str::SmolStr {
-    self.kind.to_smolstr()
+impl std::fmt::Display for Token {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.kind)
   }
 }
 
@@ -268,26 +265,25 @@ impl TokenKind {
   }
 }
 
-impl ToSmolStr for TokenKind {
-  #[inline]
-  fn to_smolstr(&self) -> smol_str::SmolStr {
+impl std::fmt::Display for TokenKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::Eof => SmolStr::new_inline("EOF"),
-      Self::Unknown => SmolStr::new_inline("UNKNOWN"),
-      Self::Space => SmolStr::new_inline("SPACE"),
-      Self::Eol => SmolStr::new_inline("EOL"),
+      Self::Eof => write!(f, "EOF"),
+      Self::Unknown => write!(f, "UNKNOWN"),
+      Self::Space => write!(f, "SPACE"),
+      Self::Eol => write!(f, "EOL"),
       Self::Int(sym, base) => {
-        SmolStr::new_inline(format!("{sym}--base--{base:?}").as_str())
+        write!(f, "{sym}--base--{base:?}")
       }
-      Self::Float(sym) => SmolStr::new_inline(format!("{sym}").as_str()),
+      Self::Float(sym) => write!(f, "{sym}"),
       Self::Punctuation(punctuation) => {
-        SmolStr::new_inline(format!("{punctuation}").as_str())
+        write!(f, "{punctuation}")
       }
-      Self::Group(group) => SmolStr::new_inline(format!("{group}").as_str()),
-      Self::Ident(sym) => SmolStr::new_inline(format!("{sym}").as_str()),
-      Self::Kw(sym) => SmolStr::new_inline(format!("{sym}").as_str()),
-      Self::Char(sym) => SmolStr::new_inline(format!("{sym}").as_str()),
-      Self::Str(sym) => SmolStr::new_inline(format!("{sym}").as_str()),
+      Self::Group(group) => write!(f, "{group}"),
+      Self::Ident(sym) => write!(f, "{sym}"),
+      Self::Kw(sym) => write!(f, "{sym}"),
+      Self::Char(sym) => write!(f, "{sym}"),
+      Self::Str(sym) => write!(f, "{sym}"),
     }
   }
 }

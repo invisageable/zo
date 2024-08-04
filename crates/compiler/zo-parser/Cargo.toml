@@ -13,6 +13,7 @@ zo-interner = { workspace = true }
 zo-reporter = { workspace = true }
 zo-session = { workspace = true }
 zo-tokenizer = { workspace = true }
+zo-ty = { workspace = true }
 
 # external:crates.
 smol_str = { workspace = true }

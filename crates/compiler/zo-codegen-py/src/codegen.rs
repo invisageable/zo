@@ -6,7 +6,7 @@ use zo_session::session::Session;
 struct Codegen;
 impl Codegen {
   /// Transform an AST into bytecode.
-  fn generate(&self, session: &mut Session, ast: &Ast) -> Result<Box<[u8]>> {
+  fn generate(&self, _session: &mut Session, _ast: &Ast) -> Result<Box<[u8]>> {
     Ok(vec![].into_boxed_slice())
   }
 }

@@ -13,7 +13,7 @@ struct Builder;
 impl Builder {
   /// Builds the output result from session and bytecode.
   #[inline]
-  fn build(&self, session: &mut Session, bytecode: &[u8]) -> Result<Output> {
+  fn build(&self, session: &mut Session, _bytecode: &[u8]) -> Result<Output> {
     match session.settings.backend {
       Backend::Py => Ok(Output),
       Backend::Wasm => Ok(Output),

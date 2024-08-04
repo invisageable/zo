@@ -70,11 +70,7 @@ impl<'bytes> Tokenizer<'bytes> {
   /// Transform the source code into an array of tokens.
   #[inline]
   fn tokenize(self) -> Result<Vec<Token>> {
-    let tokens = self.collect();
-
-    dbg!(&tokens);
-
-    Ok(tokens)
+    Ok(self.collect())
   }
 
   /// Gets the current state from byte.
@@ -112,8 +108,6 @@ impl<'bytes> Tokenizer<'bytes> {
       match state {
         TokenizerState::Start => {
           state = self.transition(byte);
-
-          dbg!(state);
 
           if state == TokenizerState::Start {
             self.bump();
@@ -199,10 +193,40 @@ impl<'bytes> Tokenizer<'bytes> {
               _ => break,
             }
           }
-          _ => break,
+          b':' => {
+            self.bump();
+
+            match self.byte() {
+              b'=' => self.bump(),
+              b':' => self.bump(),
+              _ => break,
+            }
+          }
+          b'=' => {
+            self.bump();
+
+            match self.byte() {
+              b'=' => self.bump(),
+              b'>' => {
+                state = TokenizerState::Punctuation;
+
+                self.bump();
+              }
+              _ => break,
+            }
+          }
+          _ => {
+            self.bump();
+
+            break;
+          }
         },
         TokenizerState::Group => match byte {
-          b if is!(group b) => self.bump(),
+          b if is!(group b) => {
+            self.bump();
+
+            break;
+          }
           _ => break,
         },
         TokenizerState::Ident => match byte {
@@ -214,7 +238,7 @@ impl<'bytes> Tokenizer<'bytes> {
 
           self.reporter.raise(error::lexical::unknown(span, byte));
         }
-        _ => break,
+        _ => panic!(),
       }
     }
 

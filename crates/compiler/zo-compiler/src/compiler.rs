@@ -68,14 +68,12 @@ impl<const L: usize> Compiler<L> {
     // same with the consumer.
     consumer
       .join()
-      .map(|on| {
+      .inspect(|_event| {
         let session = SESSION.clone();
         let session = session.lock().unwrap();
 
         session.profile();
         drop(session);
-
-        on
       })
       .unwrap()
   }

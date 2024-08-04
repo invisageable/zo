@@ -1,9 +1,11 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Ast, BinOp, Expr, ExprKind, Lit, LitKind, Stmt, StmtKind, UnOp, UnOpKind,
+  Ast, BinOp, Expr, ExprKind, Lit, LitKind, Mutability, Pattern, PatternKind,
+  Pub, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
 };
 
+use zo_interner::interner::symbol::Symbol;
 use zo_interner::interner::Interner;
 use zo_reporter::reporter::Reporter;
 use zo_reporter::{error, Result};
@@ -12,6 +14,7 @@ use zo_tokenizer::token::group::Group;
 use zo_tokenizer::token::kw::Kw;
 use zo_tokenizer::token::punctuation::Punctuation;
 use zo_tokenizer::token::{Token, TokenKind};
+use zo_ty::ty::{FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, UintTy};
 
 use swisskit::span::Span;
 
@@ -173,6 +176,7 @@ impl<'tokens> Parser<'tokens> {
     let stmt = self
       .maybe_token_current
       .map(|token| match token.kind {
+        k if k.is_var_local() => self.parse_stmt_var(),
         _ => self.parse_stmt_expr(),
       })
       .unwrap()?;
@@ -182,6 +186,156 @@ impl<'tokens> Parser<'tokens> {
     }
 
     Ok(stmt)
+  }
+
+  /// Parses a variable statement.
+  fn parse_stmt_var(&mut self) -> Result<Stmt> {
+    self.parse_local_var()
+  }
+
+  /// Parses a local variable statement.
+  fn parse_local_var(&mut self) -> Result<Stmt> {
+    let lo = self.current_span();
+
+    let kind = self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Kw(Kw::Imu) => VarKind::Imu,
+        TokenKind::Kw(Kw::Mut) => VarKind::Mut,
+        TokenKind::Kw(Kw::Val) => VarKind::Val,
+        _ => unreachable!(),
+      })
+      .unwrap();
+
+    self.next();
+
+    let pattern = self.parse_pattern()?;
+    let ty = self.parse_ty()?;
+
+    self.next();
+
+    let value = self.parse_expr(Precedence::Low)?;
+
+    self.next();
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    match kind {
+      VarKind::Imu => Ok(Stmt {
+        kind: StmtKind::Var(Var {
+          kind,
+          mutability: Mutability::No,
+          pubness: Pub::No,
+          pattern,
+          value: Box::new(value),
+          maybe_ty: Some(ty),
+          span,
+        }),
+        span,
+      }),
+      VarKind::Mut => Ok(Stmt {
+        kind: StmtKind::Var(Var {
+          kind,
+          mutability: Mutability::Yes(Span::ZERO),
+          pubness: Pub::No,
+          pattern,
+          value: Box::new(value),
+          maybe_ty: Some(ty),
+          span,
+        }),
+        span,
+      }),
+      _ => Err(error::syntax::expected_local_var(span, kind.to_smolstr())),
+    }
+  }
+
+  fn parse_ty(&mut self) -> Result<Ty> {
+    self.next();
+
+    let ty = self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Punctuation(Punctuation::Colon) => self.parse_ty_primitive(),
+        _ => Err(error::syntax::expected_ty(token.span, token.to_smolstr())),
+      })
+      .unwrap()?;
+
+    if self.ensure_peek(TokenKind::Punctuation(Punctuation::Equal)) {
+      self.next();
+    }
+
+    Ok(ty)
+  }
+
+  fn parse_ty_primitive(&mut self) -> Result<Ty> {
+    self.next();
+
+    self
+      .maybe_token_current
+      .map(|token| match &token.kind {
+        TokenKind::Ident(symbol) => {
+          self.parse_ty_ident_or_array(symbol, token.span)
+        }
+        _ => Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_smolstr(),
+        )),
+      })
+      .unwrap()
+  }
+
+  fn parse_ty_ident_or_array(
+    &mut self,
+    sym: &Symbol,
+    span: Span,
+  ) -> Result<Ty> {
+    let ident = self.interner.lookup(**sym);
+
+    let ty = match ident {
+      "int" => Ty::int(LitIntTy::Int(IntTy::Int), span),
+      "s8" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
+      "s16" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
+      "s32" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
+      "s64" => Ty::int(LitIntTy::Signed(SintTy::S8), span),
+      "s128" => Ty::int(LitIntTy::Signed(SintTy::S128), span),
+      "u8" => Ty::int(LitIntTy::Unsigned(UintTy::U8), span),
+      "u16" => Ty::int(LitIntTy::Unsigned(UintTy::U16), span),
+      "u32" => Ty::int(LitIntTy::Unsigned(UintTy::U32), span),
+      "u64" => Ty::int(LitIntTy::Unsigned(UintTy::U64), span),
+      "u128" => Ty::int(LitIntTy::Unsigned(UintTy::U128), span),
+      "float" => Ty::float(LitFloatTy::Suffixed(FloatTy::Float), span),
+      "f32" => Ty::float(LitFloatTy::Suffixed(FloatTy::F32), span),
+      "f64" => Ty::float(LitFloatTy::Suffixed(FloatTy::F64), span),
+      _ => Ty::unit(span),
+    };
+
+    if self
+      .expect_peek(TokenKind::Group(Group::BracketOpen))
+      .is_ok()
+    {
+      let maybe_size = self
+        .maybe_token_next
+        .map(|token| match &token.kind {
+          TokenKind::Int(sym, _) => {
+            self.next();
+
+            let int = self.interner.lookup_int(**sym as usize);
+
+            Some(int as usize)
+          }
+          _ => None,
+        })
+        .unwrap();
+
+      self.expect_peek(TokenKind::Group(Group::BracketClose))?;
+
+      let ty = Ty::array(ty, maybe_size, span);
+
+      return Ok(ty);
+    }
+
+    Ok(ty)
   }
 
   /// Parses an expression statement.
@@ -195,6 +349,27 @@ impl<'tokens> Parser<'tokens> {
       kind: StmtKind::Expr(Box::new(expr)),
       span,
     })
+  }
+
+  /// Parses a pattern.
+  fn parse_pattern(&mut self) -> Result<Pattern> {
+    self
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Ident(_) => {
+          let expr = Self::parse_expr_lit_ident(self)?;
+
+          Ok(Pattern {
+            kind: PatternKind::Ident(Box::new(expr)),
+            span: token.span,
+          })
+        }
+        _ => Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_smolstr(),
+        )),
+      })
+      .unwrap()
   }
 
   /// Parses an expression.
@@ -223,7 +398,7 @@ impl<'tokens> Parser<'tokens> {
     match token.kind {
       TokenKind::Int(..) => Ok(Box::new(Self::parse_expr_lit_int)),
       TokenKind::Float(..) => Ok(Box::new(Self::parse_expr_lit_float)),
-      TokenKind::Ident(..) => Ok(Box::new(Self::parse_expr_ident)),
+      TokenKind::Ident(..) => Ok(Box::new(Self::parse_expr_lit_ident)),
       TokenKind::Kw(Kw::False) | TokenKind::Kw(Kw::True) => {
         Ok(Box::new(Self::parse_expr_lit_bool))
       }
@@ -282,7 +457,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses an identifier expression.
-  fn parse_expr_ident(parser: &mut Parser) -> Result<Expr> {
+  fn parse_expr_lit_ident(parser: &mut Parser) -> Result<Expr> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
@@ -473,12 +648,10 @@ impl<'tokens> Iterator for Parser<'tokens> {
   fn next(&mut self) -> Option<Self::Item> {
     std::mem::swap(&mut self.maybe_token_current, &mut self.maybe_token_next);
 
-    self.peek().and_then(|token| {
+    self.peek().inspect(|token| {
       self.index += 1;
       self.span_current = token.span;
       self.maybe_token_next = Some(token);
-
-      Some(token)
     })
   }
 }

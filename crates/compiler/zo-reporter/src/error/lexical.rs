@@ -1,6 +1,6 @@
 use super::{Diagnostic, Error};
 
-use crate::report::{Report, ReportKind};
+use crate::report::Report;
 
 use swisskit::span::Span;
 

@@ -42,7 +42,7 @@ impl From<&Phase> for SmolStr {
   fn from(phase: &Phase) -> Self {
     use smol_str::ToSmolStr;
 
-    SmolStr::new_inline(&phase.to_smolstr())
+    phase.to_smolstr()
   }
 }
 

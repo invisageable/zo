@@ -1,6 +1,6 @@
 use zo_ast::ast::{
   Ast, BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, Stmt, StmtKind, UnOp,
-  UnOpKind,
+  UnOpKind, Var,
 };
 
 use zo_interner::interner::symbol::Symbol;
@@ -46,8 +46,19 @@ impl<'ast> Interpreter<'ast> {
   /// Evaluates a statement.
   fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
     match &stmt.kind {
+      StmtKind::Var(var) => self.interpret_stmt_var(var),
       StmtKind::Expr(expr) => self.interpret_stmt_expr(expr),
     }
+  }
+
+  /// Evaluates a local variable statement.
+  fn interpret_stmt_var(&mut self, var: &Var) -> Result<Value> {
+    self.interpret_var(var)
+  }
+
+  /// Evaluates a variable.
+  fn interpret_var(&mut self, _expr: &Var) -> Result<Value> {
+    todo!()
   }
 
   /// Evaluates an expression statement.
