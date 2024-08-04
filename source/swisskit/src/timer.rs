@@ -140,6 +140,7 @@ impl std::fmt::Display for Unit {
 }
 
 impl From<Unit> for &'static str {
+  #[inline]
   fn from(unit: Unit) -> Self {
     match unit {
       Unit::Ns => "ns",

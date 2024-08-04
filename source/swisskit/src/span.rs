@@ -90,6 +90,7 @@ impl Span {
   ///
   /// assert!(spn.is_empty());
   /// ```
+  #[inline]
   pub fn is_empty(&self) -> bool {
     self.lo == self.hi
   }
@@ -126,6 +127,7 @@ impl std::fmt::Display for Span {
 }
 
 impl From<Span> for std::ops::Range<usize> {
+  #[inline]
   fn from(span: Span) -> Self {
     span.lo..span.hi
   }

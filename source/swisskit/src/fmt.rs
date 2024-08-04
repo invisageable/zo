@@ -18,6 +18,7 @@ impl<'a, T: std::fmt::Display> std::fmt::Display for Sep<'a, T> {
 impl<'a, T: std::fmt::Display> std::ops::Deref for Sep<'a, T> {
   type Target = [T];
 
+  #[inline]
   fn deref(&self) -> &Self::Target {
     self.0
   }

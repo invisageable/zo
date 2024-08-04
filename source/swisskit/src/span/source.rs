@@ -21,7 +21,9 @@ impl SourceId {
 /// The representation of a source file.
 #[derive(Clone, Debug, Default)]
 pub struct Source {
+  /// The id of the source.
   pub id: SourceId,
+  /// The pathname of the source.
   pub pathname: std::path::PathBuf,
 }
 
@@ -39,7 +41,9 @@ impl Source {
 /// The representation of a source map database.
 #[derive(Debug, Default)]
 pub struct SourceMap {
+  /// The code source.
   pub code: String,
+  /// A set of sources.
   pub sources: Vec<Source>,
 }
 
