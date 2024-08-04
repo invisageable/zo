@@ -17,9 +17,7 @@ pub fn unify(subst: &Subst, t1: &Ty, t2: &Ty) -> Result<Subst> {
       t1_ty_vars
         .iter()
         .zip(t2_ty_vars)
-        .fold(Ok(subst.clone()), |subst, (t1, t2)| {
-          unify(&subst?, &t1, &t2)
-        })
+        .try_fold(subst.to_owned(), |subst, (t1, t2)| unify(&subst, t1, t2))
     }
     (_, _) => Err(error::semantic::mismatched_types(
       (t1.span, t1.to_smolstr()),

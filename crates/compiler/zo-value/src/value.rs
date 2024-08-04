@@ -1,5 +1,3 @@
-use swisskit::span::Span;
-
 // note #1 — I am questionning myself about how to deal with span in operator
 // context. For example:
 //
@@ -24,6 +22,8 @@ use swisskit::span::Span;
 // I really don't know what to do. Maybe this is trivial. Because errors must be
 // handle before this kind of evaluation. So in this case we don't care about
 // span.
+
+use swisskit::span::Span;
 
 /// The representation of a value.
 #[derive(Clone, Copy, Debug)]

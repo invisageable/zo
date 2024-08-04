@@ -11,13 +11,11 @@ pub const DEFAULT_PRINT_DELAY: std::time::Duration =
 /// ```no_run
 /// use swisskit::io::typewriter::typewrite;
 ///
-/// fn main() {
-///   let delay = std::time::Duration::from_millis(200);
+/// let delay = std::time::Duration::from_millis(200);
 ///
-///   typewrite("Hello, Rust.", delay);
-///   typewrite("Hello, Rust.".to_string(), delay);
-///   typewrite(String::from("Hello, Rust."), delay);
-/// }
+/// typewrite("Hello, Rust.", delay);
+/// typewrite("Hello, Rust.".to_string(), delay);
+/// typewrite(String::from("Hello, Rust."), delay);
 /// ```
 pub fn typewrite(
   data: impl AsRef<str> + std::marker::Send + 'static,
@@ -70,13 +68,11 @@ fn test_typewrite() {
 /// ```no_run
 /// use swisskit::io::typewriter::typewriteln;
 ///
-/// fn main() {
-///   let delay = std::time::Duration::from_millis(200);
+/// let delay = std::time::Duration::from_millis(200);
 ///
-///   typewriteln("Hello, Rust.", delay);
-///   typewriteln("Hello, Rust.".to_string(), delay);
-///   typewriteln(String::from("Hello, Rust."), delay);
-/// }
+/// typewriteln("Hello, Rust.", delay);
+/// typewriteln("Hello, Rust.".to_string(), delay);
+/// typewriteln(String::from("Hello, Rust."), delay);
 /// ```
 pub fn typewriteln(data: impl Into<String>, delay: std::time::Duration) {
   use std::ops::Add;
@@ -101,11 +97,9 @@ fn test_typewriteln() {
 /// ```no_run
 /// use swisskit::io::typewriter::print;
 ///
-/// fn main() {
-///   print("Hello, Rust.");
-///   print("Hello, Rust.".to_string());
-///   print(String::from("Hello, Rust."));
-/// }
+/// print("Hello, Rust.");
+/// print("Hello, Rust.".to_string());
+/// print(String::from("Hello, Rust."));
 /// ```
 pub fn print(data: impl Into<String>) {
   typewrite(data.into(), DEFAULT_PRINT_DELAY);
@@ -127,11 +121,9 @@ fn test_print() {
 /// ```no_run
 /// use swisskit::io::typewriter::println;
 ///
-/// fn main() {
-///   println("Hello, Rust.");
-///   println("Hello, Rust.".to_string());
-///   println(String::from("Hello, Rust."));
-/// }
+/// println("Hello, Rust.");
+/// println("Hello, Rust.".to_string());
+/// println(String::from("Hello, Rust."));
 /// ```
 pub fn println(data: impl Into<String>) {
   typewriteln(data, DEFAULT_PRINT_DELAY);

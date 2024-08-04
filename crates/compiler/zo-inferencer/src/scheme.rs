@@ -14,11 +14,7 @@ impl Scheme {
   pub fn generalize(env: &Env, ty: &Ty) -> Self {
     Self(
       ty.clone(),
-      ty.ty_vars()
-        .difference(&env.ty_vars())
-        .into_iter()
-        .cloned()
-        .collect(),
+      ty.ty_vars().difference(&env.ty_vars()).cloned().collect(),
     )
   }
 

@@ -1,4 +1,5 @@
 /// The representation of a supply.
+#[derive(Default)]
 pub struct Supply(usize);
 
 impl Supply {
@@ -10,7 +11,7 @@ impl Supply {
 
   /// Gets the next supply id.
   #[inline]
-  pub fn next(&mut self) -> usize {
+  pub fn inc(&mut self) -> usize {
     let var = self.0;
 
     self.0 += 1;

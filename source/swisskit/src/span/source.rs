@@ -1,7 +1,7 @@
 use super::Span;
 
 /// The representation of a source id.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct SourceId(usize);
 
 impl SourceId {
@@ -19,7 +19,7 @@ impl SourceId {
 }
 
 /// The representation of a source file.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Source {
   pub id: SourceId,
   pub pathname: std::path::PathBuf,
@@ -37,7 +37,7 @@ impl Source {
 }
 
 /// The representation of a source map database.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SourceMap {
   pub code: String,
   pub sources: Vec<Source>,

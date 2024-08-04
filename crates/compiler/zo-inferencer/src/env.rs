@@ -43,12 +43,9 @@ impl Env {
   pub fn ty_vars(&self) -> HashSet<usize> {
     match self {
       Self::Empty => HashSet::new(),
-      Self::Frame(_, scheme, parent) => scheme
-        .ty_vars()
-        .union(&parent.ty_vars())
-        .into_iter()
-        .cloned()
-        .collect(),
+      Self::Frame(_, scheme, parent) => {
+        scheme.ty_vars().union(&parent.ty_vars()).cloned().collect()
+      }
     }
   }
 }

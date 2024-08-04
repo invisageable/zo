@@ -61,7 +61,7 @@ impl Reporter {
   pub fn has_errors(&self) -> bool {
     match self.has_errors.lock() {
       Err(_) => false,
-      Ok(mguard) => *mguard == true,
+      Ok(mguard) => *mguard,
     }
   }
 
