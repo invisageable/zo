@@ -97,6 +97,68 @@ impl TokenKind {
     *self == kind
   }
 
+  /// Checks if the token kind is a literal.
+  #[inline]
+  pub fn is_lit(&self) -> bool {
+    matches!(
+      self,
+      Self::Int(..)
+        | Self::Float(..)
+        | Self::Ident(..)
+        | Self::Kw(Kw::False)
+        | Self::Kw(Kw::True)
+        | Self::Char(..)
+        | Self::Str(..)
+    )
+  }
+
+  /// Checks if the token kind is a unary operator.
+  #[inline]
+  pub fn is_unop(&self) -> bool {
+    matches!(
+      self,
+      Self::Punctuation(Punctuation::Exclamation)
+        | Self::Punctuation(Punctuation::Minus)
+    )
+  }
+
+  /// Checks if the token kind is a binary operator.
+  #[inline]
+  pub fn is_binop(&self) -> bool {
+    matches!(
+      self,
+      Self::Punctuation(Punctuation::Plus)
+        | Self::Punctuation(Punctuation::Minus)
+        | Self::Punctuation(Punctuation::Asterisk)
+        | Self::Punctuation(Punctuation::Slash)
+        | Self::Punctuation(Punctuation::Percent)
+        | Self::Punctuation(Punctuation::Circumflex)
+        | Self::Punctuation(Punctuation::EqualEqual)
+        | Self::Punctuation(Punctuation::ExclamationEqual)
+        | Self::Punctuation(Punctuation::LessThan)
+        | Self::Punctuation(Punctuation::GreaterThan)
+        | Self::Punctuation(Punctuation::LessThanEqual)
+        | Self::Punctuation(Punctuation::GreaterThanEqual)
+    )
+  }
+
+  /// Checks if the token kind is a group open.
+  #[inline]
+  pub fn is_group(&self) -> bool {
+    matches!(
+      self,
+      Self::Group(Group::ParenOpen)
+        | Self::Group(Group::BraceOpen)
+        | Self::Group(Group::BracketOpen)
+    )
+  }
+
+  /// Checks if the token kind is a keyword.
+  #[inline]
+  pub fn is_kw(&self) -> bool {
+    matches!(self, Self::Kw(..))
+  }
+
   /// Checks if the token kind is an assignment.
   #[inline]
   pub fn is_assignment(&self) -> bool {
@@ -183,36 +245,6 @@ impl TokenKind {
   #[inline]
   pub fn is_range(&self) -> bool {
     matches!(self, Self::Punctuation(Punctuation::PeriodPeriod))
-  }
-
-  /// Checks if the token kind is a unary operator.
-  #[inline]
-  pub fn is_unop(&self) -> bool {
-    matches!(
-      self,
-      Self::Punctuation(Punctuation::Exclamation)
-        | Self::Punctuation(Punctuation::Minus)
-    )
-  }
-
-  /// Checks if the token kind is a binary operator.
-  #[inline]
-  pub fn is_binop(&self) -> bool {
-    matches!(
-      self,
-      Self::Punctuation(Punctuation::Plus)
-        | Self::Punctuation(Punctuation::Minus)
-        | Self::Punctuation(Punctuation::Asterisk)
-        | Self::Punctuation(Punctuation::Slash)
-        | Self::Punctuation(Punctuation::Percent)
-        | Self::Punctuation(Punctuation::Circumflex)
-        | Self::Punctuation(Punctuation::EqualEqual)
-        | Self::Punctuation(Punctuation::ExclamationEqual)
-        | Self::Punctuation(Punctuation::LessThan)
-        | Self::Punctuation(Punctuation::GreaterThan)
-        | Self::Punctuation(Punctuation::LessThanEqual)
-        | Self::Punctuation(Punctuation::GreaterThanEqual)
-    )
   }
 
   /// Checks if the token kind is an item.

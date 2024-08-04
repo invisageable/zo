@@ -8,8 +8,12 @@ use swisskit::span::Span;
 /// The representation of syntax analysis errors.
 #[derive(Debug)]
 pub enum Syntax {
+  /// The expected boolean error.
+  ExpectedBool(Span, SmolStr),
   /// The expected float error.
   ExpectedFloat(Span, SmolStr),
+  /// The expected identifier error.
+  ExpectedIdent(Span, SmolStr),
   /// The expected integer error.
   ExpectedInt(Span, SmolStr),
   /// The invalid infix error.
@@ -26,10 +30,22 @@ impl<'a> Diagnostic<'a> for Syntax {
   }
 }
 
+/// The expected boolean literal error.
+#[inline]
+pub const fn expected_bool(span: Span, token: SmolStr) -> Error {
+  Error::Syntax(Syntax::ExpectedBool(span, token))
+}
+
 /// The expected float literal error.
 #[inline]
 pub const fn expected_float(span: Span, token: SmolStr) -> Error {
   Error::Syntax(Syntax::ExpectedFloat(span, token))
+}
+
+/// The expected identifier error.
+#[inline]
+pub const fn expected_ident(span: Span, token: SmolStr) -> Error {
+  Error::Syntax(Syntax::ExpectedIdent(span, token))
 }
 
 /// The expected integer literal error.
@@ -40,14 +56,14 @@ pub const fn expected_int(span: Span, token: SmolStr) -> Error {
 
 /// The invalid infix error.
 #[inline]
-pub const fn invalid_infix(span: Span, op: SmolStr) -> Error {
-  Error::Syntax(Syntax::InvalidInfix(span, op))
+pub const fn invalid_infix(span: Span, token: SmolStr) -> Error {
+  Error::Syntax(Syntax::InvalidInfix(span, token))
 }
 
 /// The invalid prefix error.
 #[inline]
-pub const fn invalid_prefix(span: Span, op: SmolStr) -> Error {
-  Error::Syntax(Syntax::InvalidPrefix(span, op))
+pub const fn invalid_prefix(span: Span, token: SmolStr) -> Error {
+  Error::Syntax(Syntax::InvalidPrefix(span, token))
 }
 
 /// The unexpected token error.

@@ -866,6 +866,7 @@ dependencies = [
 name = "zo-interpreter-zo"
 version = "0.0.0"
 dependencies = [
+ "smol_str",
  "swisskit",
  "zo-ast",
  "zo-interner",

@@ -1,15 +1,18 @@
 use zo_ast::ast::{
   Ast, BinOp, BinOpKind, Expr, ExprKind, Lit, LitKind, Stmt, StmtKind, UnOp,
+  UnOpKind,
 };
 
 use zo_interner::interner::symbol::Symbol;
 use zo_interner::interner::Interner;
 use zo_reporter::reporter::Reporter;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::session::Session;
 use zo_value::value::{Value, ValueKind};
 
 use swisskit::span::Span;
+
+use smol_str::ToSmolStr;
 
 /// The representation of an interpreter.
 struct Interpreter<'ast> {
@@ -104,7 +107,25 @@ impl<'ast> Interpreter<'ast> {
     rhs: &Expr,
     span: Span,
   ) -> Result<Value> {
-    todo!()
+    let value = self.interpret_expr(rhs)?;
+
+    match unop.kind {
+      UnOpKind::Neg => self.interpret_expr_unop_neg(value, span),
+      _ => todo!(),
+    }
+  }
+
+  /// Evaluates a negative unary operation expression.
+  fn interpret_expr_unop_neg(
+    &mut self,
+    rhs: Value,
+    span: Span,
+  ) -> Result<Value> {
+    match rhs.kind {
+      ValueKind::Int(int) => Ok(Value::int(-int, span)),
+      ValueKind::Float(float) => Ok(Value::float(-float, span)),
+      _ => Err(error::eval::unknown_unop(span, rhs.to_smolstr())),
+    }
   }
 
   /// Evaluates a binary operation expression.

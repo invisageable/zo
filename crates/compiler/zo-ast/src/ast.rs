@@ -95,6 +95,10 @@ pub enum ExprKind {
   UnOp(UnOp, Box<Expr>),
   /// infix — `1 + 2`, `3 - 4`.
   BinOp(BinOp, Box<Expr>, Box<Expr>),
+  /// array — `[1, 2, 3, 4]`.
+  Array(Vec<Expr>),
+  /// array access (index) — `foo[0]`.
+  ArrayAccess(Box<Expr>, Box<Expr>),
 }
 
 impl Symbolize for ExprKind {

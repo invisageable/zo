@@ -2,6 +2,8 @@ use super::cursor::Cursor;
 use super::token::int::Base;
 use super::token::punctuation::Punctuation;
 use super::token::{Token, TokenKind};
+use crate::token::group::Group;
+use crate::token::kw::KEYWORD;
 
 use zo_interner::interner::Interner;
 use zo_reporter::reporter::Reporter;
@@ -50,7 +52,7 @@ impl<'bytes> Tokenizer<'bytes> {
 
   /// A wrapper of [`Cursor::bytes`].
   pub fn bytes(&self, start: usize, end: usize) -> &'bytes [u8] {
-    &self.cursor.bytes(start, end)
+    self.cursor.bytes(start, end)
   }
 
   /// A wrapper of [`Cursor::bump`].
@@ -199,6 +201,14 @@ impl<'bytes> Tokenizer<'bytes> {
           }
           _ => break,
         },
+        TokenizerState::Group => match byte {
+          b if is!(group b) => self.bump(),
+          _ => break,
+        },
+        TokenizerState::Ident => match byte {
+          b if is!(ident_continue b) => self.bump(),
+          _ => break,
+        },
         TokenizerState::Unknown => {
           let span = Span::of(cursor_pos, self.cursor.pos() + 1);
 
@@ -213,7 +223,7 @@ impl<'bytes> Tokenizer<'bytes> {
 
   /// Detects the token from state and span.
   fn scan(&mut self, state: TokenizerState, span: Span) -> Option<Token> {
-    let source = String::from_utf8_lossy(&self.bytes(span.lo, span.hi));
+    let source = String::from_utf8_lossy(self.bytes(span.lo, span.hi));
 
     let maybe_kind = match state {
       TokenizerState::Int => {
@@ -237,6 +247,17 @@ impl<'bytes> Tokenizer<'bytes> {
           ))
         }
       }
+      TokenizerState::Group => {
+        Some(TokenKind::Group(source.chars().next().map(Group::from)?))
+      }
+      TokenizerState::Ident => KEYWORD.get::<str>(&source).map_or_else(
+        || {
+          let symbol = self.interner.intern(&source);
+
+          Some(TokenKind::Ident(symbol))
+        },
+        |kind| Some(*kind),
+      ),
       _ => None,
     };
 

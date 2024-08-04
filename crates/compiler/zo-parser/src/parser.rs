@@ -1,11 +1,15 @@
 use super::precedence::Precedence;
 
-use zo_ast::ast::{Ast, BinOp, Expr, ExprKind, Lit, LitKind, Stmt, StmtKind};
+use zo_ast::ast::{
+  Ast, BinOp, Expr, ExprKind, Lit, LitKind, Stmt, StmtKind, UnOp, UnOpKind,
+};
 
 use zo_interner::interner::Interner;
 use zo_reporter::reporter::Reporter;
 use zo_reporter::{error, Result};
 use zo_session::session::Session;
+use zo_tokenizer::token::group::Group;
+use zo_tokenizer::token::kw::Kw;
 use zo_tokenizer::token::punctuation::Punctuation;
 use zo_tokenizer::token::{Token, TokenKind};
 
@@ -67,7 +71,7 @@ impl<'tokens> Parser<'tokens> {
 
   /// Chekcs and reveals the precendence ordering from other precedence.
   #[inline]
-  fn should_precedence_has_priority(&mut self, precedence: Precedence) -> bool {
+  fn should_precedence(&mut self, precedence: Precedence) -> bool {
     precedence < Precedence::from(self.maybe_token_next)
   }
 
@@ -153,7 +157,7 @@ impl<'tokens> Parser<'tokens> {
     while self.has_tokens() {
       match self.parse_stmt() {
         Ok(stmt) => ast.add_stmt(stmt),
-        Err(report_error) => self.reporter.add_report(report_error),
+        Err(error) => self.reporter.add_report(error),
       }
 
       self.next();
@@ -195,36 +199,48 @@ impl<'tokens> Parser<'tokens> {
 
   /// Parses an expression.
   fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr> {
-    self
-      .parse_prefix_fn()
-      .map(|prefix_fn| {
-        let mut lhs = prefix_fn(self)?;
+    self.parse_prefix_fn().and_then(|prefix_fn| {
+      let mut lhs = prefix_fn(self)?;
 
-        while self.has_tokens()
-          && self.should_precedence_has_priority(precedence)
-        {
-          if let Ok(infix_fn) = self.parse_infix_fn() {
-            self.next();
+      while self.has_tokens() && self.should_precedence(precedence) {
+        if let Ok(infix_fn) = self.parse_infix_fn() {
+          self.next();
 
-            lhs = infix_fn(self, lhs)?;
-          } else {
-            return Ok(lhs);
-          }
+          lhs = infix_fn(self, lhs)?;
+        } else {
+          return Ok(lhs);
         }
+      }
 
-        Ok(lhs)
-      })
-      .unwrap()
+      Ok(lhs)
+    })
   }
 
   /// Gets the prefix function.
-  fn parse_prefix_fn(&self) -> Option<PrefixFn> {
+  fn parse_prefix_fn(&self) -> Result<PrefixFn> {
     let token = self.maybe_token_current.unwrap();
 
     match token.kind {
-      TokenKind::Int(..) => Some(Box::new(Self::parse_expr_lit_int)),
-      TokenKind::Float(..) => Some(Box::new(Self::parse_expr_lit_float)),
-      _ => None,
+      TokenKind::Int(..) => Ok(Box::new(Self::parse_expr_lit_int)),
+      TokenKind::Float(..) => Ok(Box::new(Self::parse_expr_lit_float)),
+      TokenKind::Ident(..) => Ok(Box::new(Self::parse_expr_ident)),
+      TokenKind::Kw(Kw::False) | TokenKind::Kw(Kw::True) => {
+        Ok(Box::new(Self::parse_expr_lit_bool))
+      }
+      TokenKind::Punctuation(Punctuation::Minus)
+      | TokenKind::Punctuation(Punctuation::Exclamation) => {
+        Ok(Box::new(Self::parse_expr_unop))
+      }
+      TokenKind::Group(Group::ParenOpen) => {
+        Ok(Box::new(Self::parse_expr_group))
+      }
+      TokenKind::Group(Group::BracketOpen) => {
+        Ok(Box::new(Self::parse_expr_array))
+      }
+      _ => Err(error::syntax::invalid_prefix(
+        token.span,
+        token.to_smolstr(),
+      )),
     }
   }
 
@@ -233,9 +249,9 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Int(symbol, base_int) => Ok(Expr {
+        TokenKind::Int(sym, base) => Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Int(symbol, base_int),
+            kind: LitKind::Int(sym, base),
             span: token.span,
           }),
           span: token.span,
@@ -250,9 +266,9 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Float(symbol) => Ok(Expr {
+        TokenKind::Float(sym) => Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Float(symbol),
+            kind: LitKind::Float(sym),
             span: token.span,
           }),
           span: token.span,
@@ -265,18 +281,139 @@ impl<'tokens> Parser<'tokens> {
       .unwrap()
   }
 
+  /// Parses an identifier expression.
+  fn parse_expr_ident(parser: &mut Parser) -> Result<Expr> {
+    parser
+      .maybe_token_current
+      .map(|token| match token.kind {
+        TokenKind::Ident(sym) => Ok(Expr {
+          kind: ExprKind::Lit(Lit {
+            kind: LitKind::Ident(sym),
+            span: token.span,
+          }),
+          span: token.span,
+        }),
+        _ => Err(error::syntax::expected_ident(
+          token.span,
+          token.to_smolstr(),
+        )),
+      })
+      .unwrap()
+  }
+
+  /// Parses a boolean expression.
+  fn parse_expr_lit_bool(parser: &mut Parser) -> Result<Expr> {
+    parser
+      .maybe_token_current
+      .map(|token| {
+        Ok(Expr {
+          kind: ExprKind::Lit(Lit {
+            kind: match token.kind {
+              TokenKind::Kw(Kw::False) => LitKind::Bool(false),
+              TokenKind::Kw(Kw::True) => LitKind::Bool(true),
+              _ => {
+                return Err(error::syntax::expected_bool(
+                  token.span,
+                  token.to_smolstr(),
+                ));
+              }
+            },
+            span: token.span,
+          }),
+          span: token.span,
+        })
+      })
+      .unwrap()
+  }
+
+  /// Parses an unary operator expression.
+  fn parse_expr_unop(parser: &mut Parser) -> Result<Expr> {
+    parser
+      .maybe_token_current
+      .map(|token| {
+        let precedence = Precedence::from(Some(token));
+
+        let unop = match token.kind {
+          TokenKind::Punctuation(Punctuation::Minus) => UnOp {
+            kind: UnOpKind::Neg,
+            span: token.span,
+          },
+          TokenKind::Punctuation(Punctuation::Exclamation) => UnOp {
+            kind: UnOpKind::Not,
+            span: token.span,
+          },
+          _ => panic!(), // expected unop syntax error.
+        };
+
+        parser.next();
+
+        let expr = parser.parse_expr(precedence)?;
+
+        Ok(Expr {
+          kind: ExprKind::UnOp(unop, Box::new(expr)),
+          span: token.span,
+        })
+      })
+      .unwrap()
+  }
+
+  /// Parses a group expression.
+  fn parse_expr_group(parser: &mut Parser) -> Result<Expr> {
+    parser.next();
+
+    let expr = parser.parse_expr(Precedence::Low)?;
+
+    parser.expect_peek(TokenKind::Group(Group::ParenClose))?;
+
+    Ok(expr)
+  }
+
+  /// Parses an array expression.
+  fn parse_expr_array(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+    let elmts = parser.parse_exprs()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Array(elmts),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  /// Parses expressions.
+  fn parse_exprs(&mut self) -> Result<Vec<Expr>> {
+    let mut exprs = Vec::with_capacity(0usize); // no allocation.
+
+    while !self.ensure_peek(TokenKind::Group(Group::BracketClose)) {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      self.next();
+      exprs.push(self.parse_expr(Precedence::Low)?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::BracketClose))?;
+
+    Ok(exprs)
+  }
+
   /// Gets the infix function.
   fn parse_infix_fn(&self) -> Result<InfixFn> {
-    let token = self.maybe_token_next.unwrap(); // should be unwrap properly.
+    let token = self.maybe_token_next.unwrap();
 
     match token.kind {
-      k if k.is_binop() => Ok(Box::new(Self::parse_expr_binop)),
+      k if k.is_binop() => Ok(Box::new(Self::parse_expr_infix)),
+      k if k.is_index() => Ok(Box::new(Self::parse_expr_array_access)),
       _ => Err(error::syntax::invalid_infix(token.span, token.to_smolstr())),
     }
   }
 
-  /// Parses a binop expression.
-  fn parse_expr_binop(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+  /// Parses an infix expression.
+  fn parse_expr_infix(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
     let lo = lhs.span;
 
     let (precedence, maybe_binop) = parser
@@ -309,6 +446,24 @@ impl<'tokens> Parser<'tokens> {
       span,
     })
   }
+
+  /// Parses an array access expression.
+  fn parse_expr_array_access(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    let lo = lhs.span;
+
+    parser.next();
+
+    let access = parser.parse_expr(Precedence::Index)?;
+
+    parser.expect_peek(TokenKind::Group(Group::BracketClose))?;
+
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::ArrayAccess(Box::new(lhs), Box::new(access)),
+      span: Span::merge(lo, hi),
+    })
+  }
 }
 
 impl<'tokens> Iterator for Parser<'tokens> {
@@ -318,16 +473,13 @@ impl<'tokens> Iterator for Parser<'tokens> {
   fn next(&mut self) -> Option<Self::Item> {
     std::mem::swap(&mut self.maybe_token_current, &mut self.maybe_token_next);
 
-    match self.peek() {
-      None => None,
-      Some(token_current) => {
-        self.index += 1;
-        self.span_current = token_current.span;
-        self.maybe_token_next = Some(token_current);
+    self.peek().and_then(|token| {
+      self.index += 1;
+      self.span_current = token.span;
+      self.maybe_token_next = Some(token);
 
-        Some(token_current)
-      }
-    }
+      Some(token)
+    })
   }
 }
 
