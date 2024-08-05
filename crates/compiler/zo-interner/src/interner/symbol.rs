@@ -1,3 +1,5 @@
+use smol_str::{SmolStr, ToSmolStr};
+
 /// Adds a behavior to get the symbol of an instance which already had a symbol
 /// as property.
 pub trait Symbolize {
@@ -14,6 +16,13 @@ impl Symbol {
   #[inline]
   pub fn new(idx: u32) -> Self {
     Self(idx)
+  }
+}
+
+impl From<Symbol> for SmolStr {
+  #[inline]
+  fn from(sym: Symbol) -> Self {
+    sym.to_smolstr()
   }
 }
 

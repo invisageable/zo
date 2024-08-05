@@ -6,6 +6,8 @@ use zo_ty::ty::Ty;
 
 use swisskit::span::Span;
 
+use smol_str::{SmolStr, ToSmolStr};
+
 /// The representation of an unique id of a node in an AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
@@ -282,7 +284,7 @@ impl Symbolize for LitKind {
 }
 
 /// The representation of a unary operator.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct UnOp {
   /// See [`UnOpKind`].
   pub kind: UnOpKind,
@@ -290,8 +292,15 @@ pub struct UnOp {
   pub span: Span,
 }
 
+impl From<UnOp> for SmolStr {
+  #[inline]
+  fn from(unop: UnOp) -> Self {
+    unop.to_smolstr()
+  }
+}
+
 /// The representation of different kinds of unary operators.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum UnOpKind {
   /// negation operator — `-`.
   Neg,
@@ -300,12 +309,19 @@ pub enum UnOpKind {
 }
 
 /// The representation of a binary operator.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct BinOp {
   /// See [`BinOpKind`].
   pub kind: BinOpKind,
   /// See [`Span`].
   pub span: Span,
+}
+
+impl From<BinOp> for SmolStr {
+  #[inline]
+  fn from(binop: BinOp) -> Self {
+    binop.to_smolstr()
+  }
 }
 
 impl From<&Token> for BinOp {
@@ -322,7 +338,7 @@ impl From<&Token> for BinOp {
 }
 
 /// The representation of different kinds of binary operators.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum BinOpKind {
   /// addition operator — `+`.
   Add,

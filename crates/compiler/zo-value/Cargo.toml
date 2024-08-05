@@ -14,3 +14,4 @@ zo-reporter = { workspace = true }
 zo-session = { workspace = true }
 
 # external:crates.
+smol_str = { workspace = true }

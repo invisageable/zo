@@ -1,34 +1,11 @@
-// note #1 — I am questionning myself about how to deal with span in operator
-// context. For example:
-//
-// 40 + 100
-// -- - ---
-// |  |  |
-// 2  1  3
-//
-// In this instruction the left-hand side as his length span, the binary
-// operator too and the right-hand side also. But when the interpreter will
-// evaluate that the result will be:
-//
-// 140
-// ---
-//  |
-//  3
-//
-// Now after the computation, the span is different. At this moment I do not
-// know how to deal with that. First tought is to used a zero span or to not
-// integrate the notion of span for `Value`.
-//
-// I really don't know what to do. Maybe this is trivial. Because errors must be
-// handle before this kind of evaluation. So in this case we don't care about
-// span.
-
 use swisskit::span::Span;
 
+use smol_str::{SmolStr, ToSmolStr};
+
 /// The representation of a value.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Value {
-  /// The kind value.
+  /// The value kind.
   pub kind: ValueKind,
   /// The related span.
   pub span: Span,
@@ -55,10 +32,35 @@ impl Value {
   pub const fn float(float: f64, span: Span) -> Self {
     Self::new(ValueKind::Float(float), span)
   }
+
+  /// Creates a new boolean value.
+  #[inline]
+  pub const fn bool(boolean: bool, span: Span) -> Self {
+    Self::new(ValueKind::Bool(boolean), span)
+  }
+
+  /// Creates a new array value.
+  #[inline]
+  pub const fn array(array: Vec<Value>, span: Span) -> Self {
+    Self::new(ValueKind::Array(array), span)
+  }
+
+  /// Converts a value into a boolean.
+  #[inline]
+  pub fn as_bool(&self) -> bool {
+    self.kind.as_bool()
+  }
+}
+
+impl From<Value> for SmolStr {
+  #[inline]
+  fn from(value: Value) -> Self {
+    value.to_smolstr()
+  }
 }
 
 /// The representation of a kind value.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum ValueKind {
   /// A unit value — `'()'`.
   Unit,
@@ -66,4 +68,20 @@ pub enum ValueKind {
   Int(i64),
   /// A floating-point value — `'0.5'`.
   Float(f64),
+  /// bool — `false` or `true`.
+  Bool(bool),
+  /// array — `[1, 2, 3, 4]`.
+  Array(Vec<Value>),
+}
+
+impl ValueKind {
+  /// Converts a value kind into a boolean.
+  #[inline]
+  pub fn as_bool(&self) -> bool {
+    match self {
+      Self::Bool(boolean) => *boolean,
+      Self::Unit => false,
+      _ => true,
+    }
+  }
 }
