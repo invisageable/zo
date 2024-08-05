@@ -14,7 +14,7 @@
 
 ## syntax.
 
-The code below prints the first elvent numbers in the [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) sequence:
+The code below prints the first eleven numbers in the [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) sequence:
 
 ```rs
 -- a simple fibonacci.
