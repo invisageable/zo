@@ -7,6 +7,8 @@ use smol_str::SmolStr;
 /// The `internal` errors.
 #[derive(Debug)]
 pub enum Internal {
+  /// An expected backend error.
+  ExpectedBackend(Vec<SmolStr>, SmolStr),
   /// An expected event error.
   ExpectedEvent(SmolStr),
   /// An io error.
@@ -27,6 +29,18 @@ impl<'a> Diagnostic<'a> for Internal {
   }
 }
 
+/// An expected backend error.
+#[inline]
+pub fn expected_backend(
+  events: Vec<impl Into<SmolStr>>,
+  event: impl Into<SmolStr>,
+) -> Error {
+  Error::Internal(Internal::ExpectedBackend(
+    events.into_iter().map(|e| e.into()).collect(),
+    event.into(),
+  ))
+}
+
 /// An expected event error.
 #[inline]
 pub fn expected_event(event: impl Into<SmolStr>) -> Error {
@@ -45,6 +59,6 @@ pub fn expected_event(event: impl Into<SmolStr>) -> Error {
 ///   .map(|f| /* do your stuff */);
 /// ```
 #[inline]
-pub fn io(message: std::io::Error) -> Error {
+pub const fn io(message: std::io::Error) -> Error {
   Error::Internal(Internal::Io(message))
 }

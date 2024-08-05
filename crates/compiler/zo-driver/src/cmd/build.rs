@@ -84,7 +84,7 @@ impl Build {
         println!("{output}");
         Ok(())
       }
-      event => return Err(error::internal::expected_event(event)),
+      event => Err(error::internal::expected_event(event)),
     }
   }
 }

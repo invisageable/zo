@@ -1,5 +1,5 @@
 use zo_ast::ast::Ast;
-use zo_builder::builder::Output;
+use zo_builder::output::Output;
 use zo_reporter::Result;
 use zo_tokenizer::token::Token;
 use zo_value::value::Value;

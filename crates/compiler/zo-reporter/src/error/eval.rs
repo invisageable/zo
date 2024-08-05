@@ -29,7 +29,7 @@ impl<'a> Diagnostic<'a> for Eval {
 }
 
 #[derive(Debug)]
-enum NameClash {
+pub enum NameClash {
   /// A name clash error message for function.
   Fun(Span, SmolStr),
   /// A name clash error message for type.
@@ -39,7 +39,7 @@ enum NameClash {
 }
 
 #[derive(Debug)]
-enum NotFound {
+pub enum NotFound {
   /// A not found error message for element in a table.
   Array(Span, i64),
   /// A not found error message for identifier.
