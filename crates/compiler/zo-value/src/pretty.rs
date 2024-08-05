@@ -1,6 +1,6 @@
 use super::value::{Value, ValueKind};
 
-use swisskit::fmt;
+use swisskit::fmt::sep_comma;
 
 impl std::fmt::Display for Value {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -15,7 +15,7 @@ impl std::fmt::Display for ValueKind {
       Self::Int(int) => write!(f, "{int}"),
       Self::Float(float) => write!(f, "{float}"),
       Self::Bool(boolean) => write!(f, "{boolean}"),
-      Self::Array(array) => write!(f, "[{}]", fmt::sep_comma(array)),
+      Self::Array(array) => write!(f, "[{}]", sep_comma(array)),
     }
   }
 }

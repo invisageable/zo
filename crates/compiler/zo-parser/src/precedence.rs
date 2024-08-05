@@ -24,6 +24,7 @@ pub(crate) enum Precedence {
 }
 
 impl From<Option<&Token>> for Precedence {
+  #[inline]
   fn from(maybe_token: Option<&Token>) -> Self {
     maybe_token
       .map(|token| match token.kind {

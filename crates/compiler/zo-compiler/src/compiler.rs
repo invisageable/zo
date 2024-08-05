@@ -15,6 +15,11 @@ use zo_session::session::SESSION;
 /// 5. Generating.
 /// 6. Building.
 /// 7. Interpreting.
+///
+/// These phase will be handled depending of on the command.
+///
+/// For example the `build` command runs phases `1`, `2`, `3`, `4`, `5`, `6`.
+/// Instead the `run` command executes phase `1`, `2`, `3`, `4`, `7`.
 #[derive(Debug)]
 pub struct Compiler<const L: usize> {
   /// The compiler's phases.

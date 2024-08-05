@@ -189,6 +189,13 @@ pub enum VarKind {
   Mut,
 }
 
+impl From<VarKind> for SmolStr {
+  #[inline]
+  fn from(kind: VarKind) -> Self {
+    kind.to_smolstr()
+  }
+}
+
 /// The representation of an expression.
 #[derive(Clone, Debug)]
 pub struct Expr {
@@ -379,6 +386,7 @@ pub enum BinOpKind {
 }
 
 impl From<Punctuation> for BinOpKind {
+  #[inline]
   fn from(punctuation: Punctuation) -> Self {
     match punctuation {
       Punctuation::Plus => Self::Add,

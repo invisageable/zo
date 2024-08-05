@@ -26,6 +26,8 @@ use zo_interner::interner::symbol::Symbol;
 
 use swisskit::span::Span;
 
+use smol_str::{SmolStr, ToSmolStr};
+
 /// The representation of a token.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Token {
@@ -49,6 +51,13 @@ impl Token {
   #[inline]
   pub fn is(&self, kind: TokenKind) -> bool {
     self.kind.is(kind)
+  }
+}
+
+impl From<Token> for SmolStr {
+  #[inline]
+  fn from(token: Token) -> Self {
+    token.to_smolstr()
   }
 }
 

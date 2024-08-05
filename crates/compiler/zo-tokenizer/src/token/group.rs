@@ -18,6 +18,7 @@ pub enum Group {
 }
 
 impl From<char> for Group {
+  #[inline]
   fn from(group: char) -> Self {
     match group as u8 {
       b'(' => Self::ParenOpen,

@@ -86,6 +86,7 @@ pub enum Punctuation {
 }
 
 impl From<char> for Punctuation {
+  #[inline]
   fn from(op: char) -> Self {
     match op as u8 {
       b'=' => Self::Equal,
@@ -112,6 +113,7 @@ impl From<char> for Punctuation {
 }
 
 impl From<&str> for Punctuation {
+  #[inline]
   fn from(op: &str) -> Self {
     match op {
       "==" => Self::EqualEqual,

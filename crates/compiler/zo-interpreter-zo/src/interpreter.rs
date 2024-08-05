@@ -14,8 +14,6 @@ use zo_value::value::{Value, ValueKind};
 
 use swisskit::span::Span;
 
-use smol_str::ToSmolStr;
-
 /// The representation of an interpreter.
 struct Interpreter<'ast> {
   /// A scope map — see also [`ScopeMap`].
@@ -163,7 +161,7 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::float(float, span))
   }
 
-  /// Evaluates a identifier literal expression.
+  /// Evaluates an identifier literal expression.
   fn interpret_expr_lit_ident(
     &mut self,
     sym: &Symbol,
@@ -175,7 +173,9 @@ impl<'ast> Interpreter<'ast> {
       return Ok(fun.to_owned());
     }
 
-    Err(error::eval::not_found_ident(span, *sym))
+    let name = self.interner.lookup(**sym);
+
+    Err(error::eval::not_found_ident(span, name))
   }
 
   /// Evaluates a boolean literal expression.
@@ -211,7 +211,7 @@ impl<'ast> Interpreter<'ast> {
     match rhs.kind {
       ValueKind::Int(int) => Ok(Value::int(-int, span)),
       ValueKind::Float(float) => Ok(Value::float(-float, span)),
-      _ => Err(error::eval::unknown_unop(span, rhs.to_smolstr())),
+      _ => Err(error::eval::unknown_unop(span, rhs)),
     }
   }
 
@@ -346,7 +346,7 @@ impl<'ast> Interpreter<'ast> {
       None => return Err(error::eval::not_found_var(span, *name)),
     };
 
-    self.scope_map.add_var(*name, lhs.to_owned())?;
+    self.scope_map.add_var(*name, lhs.clone())?;
 
     let rhs = self.interpret_expr(value)?;
 
@@ -390,7 +390,7 @@ impl<'ast> Interpreter<'ast> {
       (&indexed.kind, &index.kind)
     {
       return self.interpret_expr_array_access_int(array, int, span);
-    };
+    }
 
     Err(error::eval::invalid_array_access(span, indexed, index))
   }

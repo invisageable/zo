@@ -19,8 +19,6 @@ use zo_ty::ty::{FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, UintTy};
 
 use swisskit::span::Span;
 
-use smol_str::ToSmolStr;
-
 /// A type that defines a prefix function.
 type PrefixFn = Box<dyn FnOnce(&mut Parser) -> Result<Expr>>;
 /// A type that defines an infix function.
@@ -28,12 +26,6 @@ type InfixFn = Box<dyn FnOnce(&mut Parser, Expr) -> Result<Expr>>;
 
 /// The representation of a parser.
 struct Parser<'tokens> {
-  /// An interner — see also [`Interner`] for more information.
-  interner: &'tokens mut Interner,
-  /// A reporter — see also [`Reporter`] for more information.
-  reporter: &'tokens Reporter,
-  /// A group of tokens — see also [`Token`] for more information.
-  tokens: &'tokens [Token],
   /// The index of the token slice.
   index: usize,
   /// An optional current token.
@@ -42,24 +34,30 @@ struct Parser<'tokens> {
   maybe_token_next: Option<&'tokens Token>,
   /// The current span.
   span_current: Span,
+  /// A group of tokens — see also [`Token`] for more information.
+  tokens: &'tokens [Token],
+  /// An interner — see also [`Interner`] for more information.
+  interner: &'tokens mut Interner,
+  /// A reporter — see also [`Reporter`] for more information.
+  reporter: &'tokens Reporter,
 }
 
 impl<'tokens> Parser<'tokens> {
   /// Creates a new parser instance from tokens, interner and reporter.
   #[inline]
   fn new(
-    tokens: &'tokens [Token],
     interner: &'tokens mut Interner,
     reporter: &'tokens Reporter,
+    tokens: &'tokens [Token],
   ) -> Self {
     Self {
-      tokens,
-      interner,
-      reporter,
       index: 0usize,
       maybe_token_current: None,
       maybe_token_next: None,
       span_current: Span::ZERO,
+      tokens,
+      interner,
+      reporter,
     }
   }
 
@@ -117,10 +115,7 @@ impl<'tokens> Parser<'tokens> {
           return Ok(());
         }
 
-        Err(error::syntax::unexpected_token(
-          token.span,
-          token.to_smolstr(),
-        ))
+        Err(error::syntax::unexpected_token(token.span, *token))
       })
       .unwrap()
   }
@@ -137,10 +132,7 @@ impl<'tokens> Parser<'tokens> {
           return Ok(());
         }
 
-        Err(error::syntax::unexpected_token(
-          token.span,
-          token.to_smolstr(),
-        ))
+        Err(error::syntax::unexpected_token(token.span, *token))
       })
       .unwrap()
   }
@@ -180,10 +172,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         TokenKind::Kw(Kw::Val) => self.parse_item_val(),
-        _ => Err(error::syntax::unexpected_token(
-          token.span,
-          token.to_smolstr(),
-        )),
+        _ => Err(error::syntax::unexpected_token(token.span, *token)),
       })
       .unwrap()
   }
@@ -200,15 +189,11 @@ impl<'tokens> Parser<'tokens> {
     let kind = self
       .maybe_token_current
       .map(|token| {
-        Ok(match token.kind {
-          TokenKind::Kw(Kw::Val) => VarKind::Val,
-          _ => {
-            return Err(error::syntax::expected_global_var(
-              token.span,
-              token.to_smolstr(),
-            ))
-          }
-        })
+        if let TokenKind::Kw(Kw::Val) = token.kind {
+          return Ok(VarKind::Val);
+        }
+
+        Err(error::syntax::expected_global_var(token.span, *token))
       })
       .unwrap()?;
 
@@ -239,7 +224,7 @@ impl<'tokens> Parser<'tokens> {
         }),
         span,
       }),
-      _ => Err(error::syntax::expected_local_var(span, kind.to_smolstr())),
+      _ => Err(error::syntax::expected_local_var(span, kind)),
     }
   }
 
@@ -272,12 +257,16 @@ impl<'tokens> Parser<'tokens> {
 
     let kind = self
       .maybe_token_current
-      .map(|token| match token.kind {
-        TokenKind::Kw(Kw::Imu) => VarKind::Imu,
-        TokenKind::Kw(Kw::Mut) => VarKind::Mut,
-        _ => unreachable!(),
+      .map(|token| {
+        Ok(match token.kind {
+          TokenKind::Kw(Kw::Imu) => VarKind::Imu,
+          TokenKind::Kw(Kw::Mut) => VarKind::Mut,
+          _ => {
+            return Err(error::syntax::expected_local_var(token.span, *token))
+          }
+        })
       })
-      .unwrap();
+      .unwrap()?;
 
     self.next();
 
@@ -318,7 +307,7 @@ impl<'tokens> Parser<'tokens> {
         }),
         span,
       }),
-      _ => Err(error::syntax::expected_local_var(span, kind.to_smolstr())),
+      _ => Err(error::syntax::expected_local_var(span, kind)),
     }
   }
 
@@ -330,7 +319,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         TokenKind::Punctuation(Punctuation::Colon) => self.parse_ty_primitive(),
-        _ => Err(error::syntax::expected_ty(token.span, token.to_smolstr())),
+        _ => Err(error::syntax::expected_ty(token.span, *token)),
       })
       .unwrap()?;
 
@@ -351,10 +340,7 @@ impl<'tokens> Parser<'tokens> {
         TokenKind::Ident(symbol) => {
           self.parse_ty_ident_or_array(symbol, token.span)
         }
-        _ => Err(error::syntax::unexpected_token(
-          token.span,
-          token.to_smolstr(),
-        )),
+        _ => Err(error::syntax::unexpected_token(token.span, *token)),
       })
       .unwrap()
   }
@@ -439,10 +425,7 @@ impl<'tokens> Parser<'tokens> {
             span: token.span,
           })
         }
-        _ => Err(error::syntax::unexpected_token(
-          token.span,
-          token.to_smolstr(),
-        )),
+        _ => Err(error::syntax::unexpected_token(token.span, *token)),
       })
       .unwrap()
   }
@@ -470,28 +453,21 @@ impl<'tokens> Parser<'tokens> {
   fn parse_prefix_fn(&self) -> Result<PrefixFn> {
     let token = self.maybe_token_current.unwrap();
 
-    match token.kind {
-      TokenKind::Int(..) => Ok(Box::new(Self::parse_expr_lit_int)),
-      TokenKind::Float(..) => Ok(Box::new(Self::parse_expr_lit_float)),
-      TokenKind::Ident(..) => Ok(Box::new(Self::parse_expr_lit_ident)),
+    Ok(match token.kind {
+      TokenKind::Int(..) => Box::new(Self::parse_expr_lit_int),
+      TokenKind::Float(..) => Box::new(Self::parse_expr_lit_float),
+      TokenKind::Ident(..) => Box::new(Self::parse_expr_lit_ident),
       TokenKind::Kw(Kw::False) | TokenKind::Kw(Kw::True) => {
-        Ok(Box::new(Self::parse_expr_lit_bool))
+        Box::new(Self::parse_expr_lit_bool)
       }
       TokenKind::Punctuation(Punctuation::Minus)
       | TokenKind::Punctuation(Punctuation::Exclamation) => {
-        Ok(Box::new(Self::parse_expr_unop))
+        Box::new(Self::parse_expr_unop)
       }
-      TokenKind::Group(Group::ParenOpen) => {
-        Ok(Box::new(Self::parse_expr_group))
-      }
-      TokenKind::Group(Group::BracketOpen) => {
-        Ok(Box::new(Self::parse_expr_array))
-      }
-      _ => Err(error::syntax::invalid_prefix(
-        token.span,
-        token.to_smolstr(),
-      )),
-    }
+      TokenKind::Group(Group::ParenOpen) => Box::new(Self::parse_expr_group),
+      TokenKind::Group(Group::BracketOpen) => Box::new(Self::parse_expr_array),
+      _ => return Err(error::syntax::invalid_prefix(token.span, *token)),
+    })
   }
 
   /// Parses an integer literal.
@@ -500,10 +476,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| {
         let TokenKind::Int(sym, base) = token.kind else {
-          return Err(error::syntax::expected_int(
-            token.span,
-            token.to_smolstr(),
-          ));
+          return Err(error::syntax::expected_int(token.span, *token));
         };
 
         Ok(Expr {
@@ -523,10 +496,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| {
         let TokenKind::Float(sym) = token.kind else {
-          return Err(error::syntax::expected_float(
-            token.span,
-            token.to_smolstr(),
-          ));
+          return Err(error::syntax::expected_float(token.span, *token));
         };
 
         Ok(Expr {
@@ -546,10 +516,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| {
         let TokenKind::Ident(sym) = token.kind else {
-          return Err(error::syntax::expected_ident(
-            token.span,
-            token.to_smolstr(),
-          ));
+          return Err(error::syntax::expected_ident(token.span, *token));
         };
 
         Ok(Expr {
@@ -574,10 +541,7 @@ impl<'tokens> Parser<'tokens> {
               TokenKind::Kw(Kw::False) => LitKind::Bool(false),
               TokenKind::Kw(Kw::True) => LitKind::Bool(true),
               _ => {
-                return Err(error::syntax::expected_bool(
-                  token.span,
-                  token.to_smolstr(),
-                ));
+                return Err(error::syntax::expected_bool(token.span, *token))
               }
             },
             span: token.span,
@@ -604,7 +568,7 @@ impl<'tokens> Parser<'tokens> {
             kind: UnOpKind::Not,
             span: token.span,
           },
-          _ => panic!(), // expected unop syntax error.
+          _ => return Err(error::syntax::expected_unop(token.span, *token)),
         };
 
         parser.next();
@@ -667,12 +631,12 @@ impl<'tokens> Parser<'tokens> {
   fn parse_infix_fn(&self) -> Result<InfixFn> {
     let token = self.maybe_token_next.unwrap();
 
-    match token.kind {
-      k if k.is_binop() => Ok(Box::new(Self::parse_expr_infix)),
-      k if k.is_assignment() => Ok(Box::new(Self::parse_expr_assignment)),
-      k if k.is_index() => Ok(Box::new(Self::parse_expr_array_access)),
-      _ => Err(error::syntax::invalid_infix(token.span, token.to_smolstr())),
-    }
+    Ok(match token.kind {
+      k if k.is_binop() => Box::new(Self::parse_expr_infix),
+      k if k.is_assignment() => Box::new(Self::parse_expr_assignment),
+      k if k.is_index() => Box::new(Self::parse_expr_array_access),
+      _ => return Err(error::syntax::invalid_infix(token.span, *token)),
+    })
   }
 
   /// Parses an infix expression.
@@ -732,41 +696,40 @@ impl<'tokens> Parser<'tokens> {
   fn parse_expr_assignop(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
     let binop = parser
       .maybe_token_current
-      .map(|token| match token.kind {
-        TokenKind::Punctuation(Punctuation::PlusEqual) => {
-          Ok((BinOpKind::Add, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::MinusEqual) => {
-          Ok((BinOpKind::Sub, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::AsteriskEqual) => {
-          Ok((BinOpKind::Mul, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::SlashEqual) => {
-          Ok((BinOpKind::Div, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::PercentEqual) => {
-          Ok((BinOpKind::Rem, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::CircumflexEqual) => {
-          Ok((BinOpKind::BitXor, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::AmspersandEqual) => {
-          Ok((BinOpKind::BitAnd, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::PipeEqual) => {
-          Ok((BinOpKind::BitOr, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::LessThanLessThanEqual) => {
-          Ok((BinOpKind::Shl, token.span))
-        }
-        TokenKind::Punctuation(Punctuation::GreaterThanGreaterThanEqual) => {
-          Ok((BinOpKind::Shr, token.span))
-        }
-        _ => Err(error::syntax::expected_binop(
-          Span::ZERO,
-          "token".to_smolstr(),
-        )),
+      .map(|token| {
+        Ok(match token.kind {
+          TokenKind::Punctuation(Punctuation::PlusEqual) => {
+            (BinOpKind::Add, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::MinusEqual) => {
+            (BinOpKind::Sub, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::AsteriskEqual) => {
+            (BinOpKind::Mul, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::SlashEqual) => {
+            (BinOpKind::Div, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::PercentEqual) => {
+            (BinOpKind::Rem, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::CircumflexEqual) => {
+            (BinOpKind::BitXor, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::AmspersandEqual) => {
+            (BinOpKind::BitAnd, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::PipeEqual) => {
+            (BinOpKind::BitOr, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::LessThanLessThanEqual) => {
+            (BinOpKind::Shl, token.span)
+          }
+          TokenKind::Punctuation(Punctuation::GreaterThanGreaterThanEqual) => {
+            (BinOpKind::Shr, token.span)
+          }
+          _ => return Err(error::syntax::expected_binop(token.span, *token)),
+        })
       })
       .unwrap()
       .map(|(kind, span)| BinOp { kind, span });
@@ -841,5 +804,5 @@ impl<'tokens> Iterator for Parser<'tokens> {
 /// parser::parse(&mut session, &tokens);
 /// ```
 pub fn parse(session: &mut Session, tokens: &[Token]) -> Result<Ast> {
-  Parser::new(tokens, &mut session.interner, &session.reporter).parse()
+  Parser::new(&mut session.interner, &session.reporter, tokens).parse()
 }

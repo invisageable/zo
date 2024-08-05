@@ -320,7 +320,7 @@ impl<'bytes> Iterator for Tokenizer<'bytes> {
   }
 }
 
-/// The tokenizer follows these commands as a finite state machine.
+/// The tokenizer follows these commands like a finite state machine.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum TokenizerState {
   /// The unknown state.

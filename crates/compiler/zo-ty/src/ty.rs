@@ -1,3 +1,33 @@
+//! #### types.
+//!
+//! **Type unit.**
+//!
+//! - `()`
+//!
+//! **Types for integers.**
+//!
+//! - `int`
+//! - `s8`, `s16`, `s32`, `s64`, `s128`
+//! - `u8`, `u16`, `u32`, `u64`, `u128`
+//!
+//! **Types for floating-point.**
+//!
+//! - `float`
+//! - `f32`, `f64`
+//!
+//! **Type for booleans.**
+//!
+//! - `bool`
+//!
+//! **Type for strings.**
+//!
+//! - `str`
+//!
+//! **Type for arrays.**
+//!
+//! - `int[]`
+//! - `int[2]`
+
 use smol_str::SmolStr;
 use swisskit::span::Span;
 
@@ -132,20 +162,30 @@ pub enum IntTy {
 /// The representation of different kind of a signed integer type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SintTy {
+  /// 8-bits signed integer type.
   S8,
+  /// 16-bits signed integer type.
   S16,
+  /// 32-bits signed integer type.
   S32,
+  /// 64-bits signed integer type.
   S64,
+  /// 128-bits signed integer type.
   S128,
 }
 
 /// The representation of different kind of an unsigned integer type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UintTy {
+  /// 8-bits unsigned integer type.
   U8,
+  /// 16-bits unsigned integer type.
   U16,
+  /// 32-bits unsigned integer type.
   U32,
+  /// 64-bits unsigned integer type.
   U64,
+  /// 128-bits unsigned integer type.
   U128,
 }
 
@@ -154,6 +194,8 @@ pub enum UintTy {
 pub enum FloatTy {
   /// `float` — by default is `f32`.
   Float,
+  /// 32-bits floating-point type.
   F32,
+  /// 64-bits floating-point type.
   F64,
 }

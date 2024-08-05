@@ -76,6 +76,7 @@ impl Default for ReportKind<'_> {
 }
 
 impl<'a> From<ReportKind<'a>> for ariadne::ReportKind<'a> {
+  #[inline]
   fn from(kind: ReportKind<'a>) -> Self {
     match kind {
       ReportKind::Error(title) => {

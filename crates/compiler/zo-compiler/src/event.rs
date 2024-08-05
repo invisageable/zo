@@ -79,7 +79,6 @@ impl From<Event> for SmolStr {
 }
 
 impl std::fmt::Display for Event {
-  #[inline]
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Path(pathname) => write!(f, "{}", pathname.display()),
