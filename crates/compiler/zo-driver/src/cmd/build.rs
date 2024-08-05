@@ -58,8 +58,8 @@ impl Build {
     let mut session = session.lock().unwrap(); // am i legitime to unwrap here?
 
     session.with_settings(Settings {
-      input: self.input.to_owned(),
-      backend: self.backend.to_owned(),
+      input: self.input.clone(),
+      backend: self.backend.clone(),
       profile: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
         self.profile,
       )),
