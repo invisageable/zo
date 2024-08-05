@@ -11,7 +11,12 @@ impl Process for Reading {
   fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
     if let Event::Path(pathname) = &event {
       println!("phase:{self} — {pathname:?}");
-      return reader::read(session, pathname).and_then(Event::bytes);
+
+      if session.settings.is_interactive() {
+        return reader::read_line(session).and_then(Event::bytes);
+      } else {
+        return reader::read(session, pathname).and_then(Event::bytes);
+      }
     }
 
     Err(error::internal::expected_event(event))

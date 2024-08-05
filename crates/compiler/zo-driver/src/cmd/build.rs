@@ -1,6 +1,7 @@
 use super::Execute;
 
 use zo_compiler::compiler::Compiler;
+use zo_compiler::event::Event;
 use zo_compiler::phase::analyzing::Analyzing;
 use zo_compiler::phase::building::Building;
 use zo_compiler::phase::generating::Generating;
@@ -8,7 +9,7 @@ use zo_compiler::phase::parsing::Parsing;
 use zo_compiler::phase::reading::Reading;
 use zo_compiler::phase::tokenizing::Tokenizing;
 use zo_compiler::phase::Phase;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::backend::Backend;
 use zo_session::session::SESSION;
 use zo_session::settings::Settings;
@@ -55,7 +56,7 @@ impl Build {
   /// Builds the program.
   fn building(&self) -> Result<()> {
     let session = std::sync::Arc::clone(&SESSION);
-    let mut session = session.lock().unwrap(); // am i legitime to unwrap here?
+    let mut session = session.lock().unwrap();
 
     session.with_settings(Settings {
       input: self.input.clone(),
@@ -78,9 +79,13 @@ impl Build {
       Phase::Building(Building),
     ]);
 
-    compiler.compile()?;
-
-    Ok(())
+    match compiler.compile()? {
+      Event::Output(output) => {
+        println!("{output}");
+        Ok(())
+      }
+      event => return Err(error::internal::expected_event(event)),
+    }
   }
 }
 

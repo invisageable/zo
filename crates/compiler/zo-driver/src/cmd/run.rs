@@ -8,7 +8,7 @@ use zo_compiler::phase::parsing::Parsing;
 use zo_compiler::phase::reading::Reading;
 use zo_compiler::phase::tokenizing::Tokenizing;
 use zo_compiler::phase::Phase;
-use zo_reporter::Result;
+use zo_reporter::{error, Result};
 use zo_session::backend::Backend;
 use zo_session::session::SESSION;
 use zo_session::settings::Settings;
@@ -55,7 +55,7 @@ impl Run {
   /// Interprets the program.
   fn running(&self) -> Result<()> {
     let session = std::sync::Arc::clone(&SESSION);
-    let mut session = session.lock().unwrap(); // am i legitime to unwrap here?
+    let mut session = session.lock().unwrap();
 
     session.with_settings(Settings {
       input: self.input.clone(),
@@ -82,7 +82,7 @@ impl Run {
         println!("{value}");
         Ok(())
       }
-      _ => panic!(),
+      event => Err(error::internal::expected_event(event)),
     }
   }
 }
