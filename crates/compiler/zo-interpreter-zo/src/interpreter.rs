@@ -67,8 +67,8 @@ impl<'ast> Interpreter<'ast> {
 
   /// Evaluates a global variable.
   fn interpret_global_var(&mut self, var: &Var) -> Result<Value> {
-    let value = self.interpret_expr(&var.value)?;
     let name = *var.pattern.as_symbol();
+    let value = self.interpret_expr(&var.value)?;
 
     self.scope_map.add_var(name, value.clone())?;
 
@@ -91,8 +91,8 @@ impl<'ast> Interpreter<'ast> {
 
   /// Evaluates a variable.
   fn interpret_local_var(&mut self, var: &Var) -> Result<Value> {
-    let value = self.interpret_expr(&var.value)?;
     let name = *var.pattern.as_symbol();
+    let value = self.interpret_expr(&var.value)?;
 
     self.scope_map.add_var(name, value.clone())?;
 
@@ -208,11 +208,11 @@ impl<'ast> Interpreter<'ast> {
     rhs: Value,
     span: Span,
   ) -> Result<Value> {
-    match rhs.kind {
-      ValueKind::Int(int) => Ok(Value::int(-int, span)),
-      ValueKind::Float(float) => Ok(Value::float(-float, span)),
-      _ => Err(error::eval::unknown_unop(span, rhs)),
-    }
+    Ok(match rhs.kind {
+      ValueKind::Int(int) => Value::int(-int, span),
+      ValueKind::Float(float) => Value::float(-float, span),
+      _ => return Err(error::eval::unknown_unop(span, rhs)),
+    })
   }
 
   /// Evaluates a logical NOT unary operation expression
@@ -257,22 +257,22 @@ impl<'ast> Interpreter<'ast> {
     rhs: &i64,
     span: Span,
   ) -> Result<Value> {
-    match binop.kind {
-      BinOpKind::Add => Ok(Value::int(lhs + rhs, span)),
-      BinOpKind::Sub => Ok(Value::int(lhs - rhs, span)),
-      BinOpKind::Mul => Ok(Value::int(lhs * rhs, span)),
-      BinOpKind::Div => Ok(Value::int(lhs / rhs, span)),
-      BinOpKind::Rem => Ok(Value::int(lhs % rhs, span)),
-      BinOpKind::Shl => Ok(Value::int(lhs << rhs, span)),
-      BinOpKind::Shr => Ok(Value::int(lhs >> rhs, span)),
-      BinOpKind::Lt => Ok(Value::bool(lhs < rhs, span)),
-      BinOpKind::Gt => Ok(Value::bool(lhs > rhs, span)),
-      BinOpKind::Le => Ok(Value::bool(lhs <= rhs, span)),
-      BinOpKind::Ge => Ok(Value::bool(lhs >= rhs, span)),
-      BinOpKind::Eq => Ok(Value::bool(lhs == rhs, span)),
-      BinOpKind::Ne => Ok(Value::bool(lhs != rhs, span)),
-      _ => Err(error::eval::unknown_binop(span, *binop)),
-    }
+    Ok(match binop.kind {
+      BinOpKind::Add => Value::int(lhs + rhs, span),
+      BinOpKind::Sub => Value::int(lhs - rhs, span),
+      BinOpKind::Mul => Value::int(lhs * rhs, span),
+      BinOpKind::Div => Value::int(lhs / rhs, span),
+      BinOpKind::Rem => Value::int(lhs % rhs, span),
+      BinOpKind::Shl => Value::int(lhs << rhs, span),
+      BinOpKind::Shr => Value::int(lhs >> rhs, span),
+      BinOpKind::Lt => Value::bool(lhs < rhs, span),
+      BinOpKind::Gt => Value::bool(lhs > rhs, span),
+      BinOpKind::Le => Value::bool(lhs <= rhs, span),
+      BinOpKind::Ge => Value::bool(lhs >= rhs, span),
+      BinOpKind::Eq => Value::bool(lhs == rhs, span),
+      BinOpKind::Ne => Value::bool(lhs != rhs, span),
+      _ => return Err(error::eval::unknown_binop(span, *binop)),
+    })
   }
 
   /// Evaluates a binary operation expression for floats.
@@ -283,20 +283,20 @@ impl<'ast> Interpreter<'ast> {
     rhs: &f64,
     span: Span,
   ) -> Result<Value> {
-    match binop.kind {
-      BinOpKind::Add => Ok(Value::float(lhs + rhs, span)),
-      BinOpKind::Sub => Ok(Value::float(lhs - rhs, span)),
-      BinOpKind::Mul => Ok(Value::float(lhs * rhs, span)),
-      BinOpKind::Div => Ok(Value::float(lhs / rhs, span)),
-      BinOpKind::Rem => Ok(Value::float(lhs % rhs, span)),
-      BinOpKind::Lt => Ok(Value::bool(lhs < rhs, span)),
-      BinOpKind::Gt => Ok(Value::bool(lhs > rhs, span)),
-      BinOpKind::Le => Ok(Value::bool(lhs <= rhs, span)),
-      BinOpKind::Ge => Ok(Value::bool(lhs >= rhs, span)),
-      BinOpKind::Eq => Ok(Value::bool(lhs == rhs, span)),
-      BinOpKind::Ne => Ok(Value::bool(lhs != rhs, span)),
-      _ => Err(error::eval::unknown_binop(span, *binop)),
-    }
+    Ok(match binop.kind {
+      BinOpKind::Add => Value::float(lhs + rhs, span),
+      BinOpKind::Sub => Value::float(lhs - rhs, span),
+      BinOpKind::Mul => Value::float(lhs * rhs, span),
+      BinOpKind::Div => Value::float(lhs / rhs, span),
+      BinOpKind::Rem => Value::float(lhs % rhs, span),
+      BinOpKind::Lt => Value::bool(lhs < rhs, span),
+      BinOpKind::Gt => Value::bool(lhs > rhs, span),
+      BinOpKind::Le => Value::bool(lhs <= rhs, span),
+      BinOpKind::Ge => Value::bool(lhs >= rhs, span),
+      BinOpKind::Eq => Value::bool(lhs == rhs, span),
+      BinOpKind::Ne => Value::bool(lhs != rhs, span),
+      _ => return Err(error::eval::unknown_binop(span, *binop)),
+    })
   }
 
   /// Evaluates a binary operation expression for booleans.
@@ -307,14 +307,14 @@ impl<'ast> Interpreter<'ast> {
     rhs: &bool,
     span: Span,
   ) -> Result<Value> {
-    match binop.kind {
-      BinOpKind::And => Ok(Value::bool(*lhs && *rhs, span)),
-      BinOpKind::Or => Ok(Value::bool(*lhs || *rhs, span)),
-      BinOpKind::BitAnd => Ok(Value::bool(*lhs & *rhs, span)),
-      BinOpKind::BitOr => Ok(Value::bool(*lhs | *rhs, span)),
-      BinOpKind::BitXor => Ok(Value::bool(*lhs ^ *rhs, span)),
-      _ => Err(error::eval::unknown_binop(span, *binop)),
-    }
+    Ok(match binop.kind {
+      BinOpKind::And => Value::bool(*lhs && *rhs, span),
+      BinOpKind::Or => Value::bool(*lhs || *rhs, span),
+      BinOpKind::BitAnd => Value::bool(*lhs & *rhs, span),
+      BinOpKind::BitOr => Value::bool(*lhs | *rhs, span),
+      BinOpKind::BitXor => Value::bool(*lhs ^ *rhs, span),
+      _ => return Err(error::eval::unknown_binop(span, *binop)),
+    })
   }
 
   /// Evaluates an assignment expression.
@@ -323,8 +323,8 @@ impl<'ast> Interpreter<'ast> {
     assignee: &Expr,
     value: &Expr,
   ) -> Result<Value> {
-    let value = self.interpret_expr(value)?;
     let name = *assignee.as_symbol();
+    let value = self.interpret_expr(value)?;
 
     self.scope_map.add_var(name, value.clone())?;
 
@@ -350,15 +350,15 @@ impl<'ast> Interpreter<'ast> {
 
     let rhs = self.interpret_expr(value)?;
 
-    match binop.kind {
-      BinOpKind::Add => Ok(lhs + rhs),
-      BinOpKind::Sub => Ok(lhs - rhs),
-      BinOpKind::Mul => Ok(lhs * rhs),
-      BinOpKind::Div => Ok(lhs / rhs),
-      BinOpKind::Rem => Ok(lhs % rhs),
+    Ok(match binop.kind {
+      BinOpKind::Add => lhs + rhs,
+      BinOpKind::Sub => lhs - rhs,
+      BinOpKind::Mul => lhs * rhs,
+      BinOpKind::Div => lhs / rhs,
+      BinOpKind::Rem => lhs % rhs,
       // todo — should be `unknown assignop` error instead.
-      _ => Err(error::eval::unknown_binop(span, *binop)),
-    }
+      _ => return Err(error::eval::unknown_binop(span, *binop)),
+    })
   }
 
   /// Evaluates an array expression.

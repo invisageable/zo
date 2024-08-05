@@ -115,7 +115,7 @@ impl ScopeMap {
     self.scopes.pop_front();
   }
 
-  /// Gets a variable to the scope map from a name and his instance.
+  /// Adds a variable to the scope map from a name and his instance.
   pub fn add_var(&mut self, name: Symbol, value: Value) -> Result<()> {
     match self.scopes.front_mut() {
       Some(scope) => scope.add_var(name, value),
@@ -123,7 +123,7 @@ impl ScopeMap {
     }
   }
 
-  /// Gets a function to the scope map from a name and his instance.
+  /// Adds a function to the scope map from a name and his instance.
   pub fn add_fun(&mut self, name: Symbol, value: Value) -> Result<()> {
     match self.scopes.front_mut() {
       Some(scope) => scope.add_fun(name, value),
@@ -131,7 +131,7 @@ impl ScopeMap {
     }
   }
 
-  /// Gets a type in the scope map from a name and his instance.
+  /// Adds a type in the scope map from a name and his instance.
   pub fn add_ty(&mut self, name: Symbol, ty: Ty) -> Result<()> {
     match self.scopes.front_mut() {
       Some(scope) => scope.add_ty(name, ty),
@@ -139,7 +139,7 @@ impl ScopeMap {
     }
   }
 
-  /// Sets a variable in the scope map from a name.
+  /// Gets a variable in the scope map from a name.
   pub fn var(&self, name: &Symbol) -> Option<&Value> {
     for scope in self.scopes.iter() {
       match scope.var(name) {
@@ -151,7 +151,7 @@ impl ScopeMap {
     None
   }
 
-  /// Sets a function in the scope map from a name.
+  /// Gets a function in the scope map from a name.
   pub fn fun(&self, name: &Symbol) -> Option<&Value> {
     for scope in self.scopes.iter() {
       match scope.fun(name) {
@@ -163,7 +163,7 @@ impl ScopeMap {
     None
   }
 
-  /// Sets a type in the scope map from a name.
+  /// Gets a type in the scope map from a name.
   pub fn ty(&self, name: &Symbol) -> Option<&Ty> {
     for scope in self.scopes.iter() {
       match scope.ty(name) {
