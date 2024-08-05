@@ -391,9 +391,9 @@ impl<'tokens> Parser<'tokens> {
 
       self.expect_peek(TokenKind::Group(Group::BracketClose))?;
 
-      let ty = Ty::array(ty, maybe_size, span);
+      let span = Span::merge(span, self.current_span());
 
-      return Ok(ty);
+      return Ok(Ty::array(ty, maybe_size, span));
     }
 
     Ok(ty)
@@ -574,10 +574,11 @@ impl<'tokens> Parser<'tokens> {
         parser.next();
 
         let expr = parser.parse_expr(precedence)?;
+        let span = Span::merge(unop.span, expr.span);
 
         Ok(Expr {
           kind: ExprKind::UnOp(unop, Box::new(expr)),
-          span: token.span,
+          span,
         })
       })
       .unwrap()
@@ -641,8 +642,6 @@ impl<'tokens> Parser<'tokens> {
 
   /// Parses an infix expression.
   fn parse_expr_infix(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
-    let lo = lhs.span;
-
     let (precedence, maybe_binop) = parser
       .maybe_token_current
       .map(|token| {
@@ -666,7 +665,7 @@ impl<'tokens> Parser<'tokens> {
     let rhs = parser.parse_expr(precedence)?;
     let binop = maybe_binop.unwrap();
     let hi = parser.current_span();
-    let span = Span::merge(lo, hi);
+    let span = Span::merge(lhs.span, hi);
 
     Ok(Expr {
       kind: ExprKind::BinOp(binop, Box::new(lhs), Box::new(rhs)),
@@ -679,13 +678,13 @@ impl<'tokens> Parser<'tokens> {
     if parser.ensure(TokenKind::Punctuation(Punctuation::Equal)) {
       parser.next();
 
-      let lo = lhs.span;
       let rhs = parser.parse_expr(Precedence::Assignement)?;
       let hi = parser.current_span();
+      let span = Span::merge(lhs.span, hi);
 
       return Ok(Expr {
         kind: ExprKind::Assign(Box::new(lhs), Box::new(rhs)),
-        span: Span::merge(lo, hi),
+        span,
       });
     }
 
@@ -748,8 +747,6 @@ impl<'tokens> Parser<'tokens> {
 
   /// Parses an array access expression.
   fn parse_expr_array_access(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
-    let lo = lhs.span;
-
     parser.next();
 
     let access = parser.parse_expr(Precedence::Index)?;
@@ -757,10 +754,11 @@ impl<'tokens> Parser<'tokens> {
     parser.expect_peek(TokenKind::Group(Group::BracketClose))?;
 
     let hi = parser.current_span();
+    let span = Span::merge(lhs.span, hi);
 
     Ok(Expr {
       kind: ExprKind::ArrayAccess(Box::new(lhs), Box::new(access)),
-      span: Span::merge(lo, hi),
+      span,
     })
   }
 
