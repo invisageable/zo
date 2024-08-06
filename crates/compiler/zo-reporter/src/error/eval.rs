@@ -1,9 +1,11 @@
 use super::{Diagnostic, Error};
 
-use crate::report::Report;
+use crate::color;
+use crate::report::{Report, ReportKind};
 
 use swisskit::span::Span;
 
+use ariadne::Fmt;
 use smol_str::SmolStr;
 
 /// The representation of evaluation errors.
@@ -15,6 +17,8 @@ pub enum Eval {
   NameClash(NameClash),
   /// A not found error message.
   NotFound(NotFound),
+  /// A out of loop error message.
+  OutOfLoop(Span, SmolStr),
   /// An unknown binary operator error message.
   UnknownBinOp(Span, SmolStr),
   /// An unknown unary operator error message.
@@ -30,6 +34,21 @@ impl<'a> Diagnostic<'a> for Eval {
       }
       Self::NameClash(diagnostic) => diagnostic.report(),
       Self::NotFound(diagnostic) => diagnostic.report(),
+      Self::OutOfLoop(span, behavior) => Report {
+        kind: ReportKind::ERROR,
+        message: format!(
+          "{} {}",
+          format_args!("`{}`", behavior.fg(color::hint())),
+          "outside of the loop".fg(color::title())
+        )
+        .into(),
+        labels: vec![(
+          *span,
+          format!("cannot `{behavior}` out of the loop").into(),
+          color::error(),
+        )],
+        ..Default::default()
+      },
       Self::UnknownBinOp(span, binop) => todo!("{span} — {binop}"),
       Self::UnknownUnOp(span, unop) => todo!("{span} — {unop}"),
     }
@@ -140,6 +159,12 @@ pub fn not_found_ty(span: Span, name: impl Into<SmolStr>) -> Error {
 #[inline]
 pub fn not_found_var(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NotFound(NotFound::Var(span, name.into())))
+}
+
+/// A out of loop error message.
+#[inline]
+pub fn out_of_loop(span: Span, behavior: impl Into<SmolStr>) -> Error {
+  Error::Eval(Eval::OutOfLoop(span, behavior.into()))
 }
 
 /// The unknown binary operator error.

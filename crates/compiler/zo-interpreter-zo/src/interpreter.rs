@@ -1,8 +1,8 @@
 use super::scope::ScopeMap;
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Expr, ExprKind, Item, ItemKind, Lit, LitKind, Stmt,
-  StmtKind, UnOp, UnOpKind, Var,
+  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
+  Stmt, StmtKind, UnOp, UnOpKind, Var,
 };
 
 use zo_interner::interner::symbol::{Symbol, Symbolize};
@@ -18,6 +18,12 @@ use swisskit::span::Span;
 struct Interpreter<'ast> {
   /// A scope map — see also [`ScopeMap`].
   scope_map: ScopeMap,
+  /// A flag for a break expression.
+  breaking: bool,
+  /// A flag for a break expression.
+  continuing: bool,
+  /// A loop counter.
+  counter_loop: u32,
   /// An interner — see also [`Interner`] for more information.
   interner: &'ast mut Interner,
   /// A reporter — see also [`Reporter`] for more information.
@@ -30,6 +36,9 @@ impl<'ast> Interpreter<'ast> {
   fn new(interner: &'ast mut Interner, reporter: &'ast Reporter) -> Self {
     Self {
       scope_map: ScopeMap::new(),
+      breaking: false,
+      continuing: false,
+      counter_loop: 0u32,
       interner,
       reporter,
     }
@@ -124,6 +133,27 @@ impl<'ast> Interpreter<'ast> {
       ExprKind::ArrayAccess(indexed, index) => {
         self.interpret_expr_array_access(indexed, index, expr.span)
       }
+      ExprKind::IfElse(condition, consequence, maybe_alternative) => self
+        .interpret_expr_if_else(
+          condition,
+          consequence,
+          maybe_alternative,
+          expr.span,
+        ),
+      ExprKind::When(condition, consequence, alternative) => {
+        self.interpret_expr_when(condition, consequence, alternative)
+      }
+      ExprKind::Loop(body) => self.interpret_expr_loop(body),
+      ExprKind::While(condition, body) => {
+        self.interpret_expr_while(condition, body)
+      }
+      ExprKind::Return(maybe_expr) => {
+        self.interpret_expr_return(maybe_expr, expr.span)
+      }
+      ExprKind::Break(maybe_expr) => {
+        self.interpret_expr_break(maybe_expr, expr.span)
+      }
+      ExprKind::Continue => self.interpret_expr_continue(expr.span),
       _ => todo!(),
     }
   }
@@ -393,6 +423,122 @@ impl<'ast> Interpreter<'ast> {
     }
 
     Err(error::eval::invalid_array_access(span, indexed, index))
+  }
+
+  /// Interprets an if else condition expression.
+  fn interpret_expr_if_else(
+    &mut self,
+    condition: &Expr,
+    consequence: &Block,
+    maybe_alternative: &Option<Box<Expr>>,
+    span: Span,
+  ) -> Result<Value> {
+    let condition = self.interpret_expr(condition)?;
+
+    if condition.as_bool() {
+      self.interpret_block(consequence)
+    } else {
+      maybe_alternative
+        .as_ref()
+        .map(|alternative| self.interpret_expr(alternative))
+        .unwrap_or(Ok(Value::unit(span)))
+    }
+  }
+
+  /// Interprets a block.
+  fn interpret_block(&mut self, block: &Block) -> Result<Value> {
+    let mut value = Value::UNIT;
+
+    for stmt in block.iter() {
+      value = self.interpret_stmt(stmt)?;
+
+      if let ValueKind::Return(value) = value.kind {
+        return Ok(*value);
+      }
+    }
+
+    Ok(value)
+  }
+
+  /// Interprets a ternary condition expression.
+  fn interpret_expr_when(
+    &mut self,
+    condition: &Expr,
+    consequence: &Expr,
+    alternative: &Expr,
+  ) -> Result<Value> {
+    let condition = self.interpret_expr(condition)?;
+
+    if condition.as_bool() {
+      self.interpret_expr(consequence)
+    } else {
+      self.interpret_expr(alternative)
+    }
+  }
+
+  /// Interprets a loop expression.
+  fn interpret_expr_loop(&mut self, _body: &Block) -> Result<Value> {
+    todo!()
+  }
+
+  /// Interprets a while expression.
+  fn interpret_expr_while(
+    &mut self,
+    condition: &Expr,
+    body: &Block,
+  ) -> Result<Value> {
+    let mut condition = self.interpret_expr(condition)?;
+
+    self.counter_loop += 1;
+
+    while condition.as_bool() {
+      condition = self.interpret_block(body)?;
+    }
+
+    self.counter_loop -= 1;
+
+    Ok(Value::UNIT)
+  }
+
+  /// Interprets a return expression.
+  fn interpret_expr_return(
+    &mut self,
+    maybe_expr: &Option<Box<Expr>>,
+    span: Span,
+  ) -> Result<Value> {
+    match maybe_expr {
+      Some(expr) => self.interpret_expr(expr),
+      None => Ok(Value::ret(Value::unit(span), span)),
+    }
+  }
+
+  /// Interprets a break expression.
+  fn interpret_expr_break(
+    &mut self,
+    maybe_expr: &Option<Box<Expr>>,
+    span: Span,
+  ) -> Result<Value> {
+    if self.counter_loop == 0 {
+      return Err(error::eval::out_of_loop(span, "_"));
+    }
+
+    self.breaking = true;
+
+    match maybe_expr {
+      Some(expr) => self.interpret_expr(expr),
+      None => todo!(), // break without expression.
+    }
+  }
+
+  /// Interprets a continue expression.
+  fn interpret_expr_continue(&mut self, span: Span) -> Result<Value> {
+    if self.counter_loop == 0 {
+      return Err(error::eval::out_of_loop(span, "_"));
+    }
+
+    self.continuing = true;
+
+    todo!()
   }
 
   /// Interprets an array access expression for integers.
