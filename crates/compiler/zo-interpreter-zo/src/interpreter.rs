@@ -95,11 +95,11 @@ impl<'ast> Interpreter<'ast> {
 
   /// Interprets a local variable statement.
   fn interpret_stmt_var(&mut self, var: &Var) -> Result<Value> {
-    self.interpret_local_var(var)
+    self.interpret_var(var)
   }
 
   /// Interprets a variable.
-  fn interpret_local_var(&mut self, var: &Var) -> Result<Value> {
+  fn interpret_var(&mut self, var: &Var) -> Result<Value> {
     let name = *var.pattern.as_symbol();
     let value = self.interpret_expr(&var.value)?;
 
@@ -154,7 +154,7 @@ impl<'ast> Interpreter<'ast> {
         self.interpret_expr_break(maybe_expr, expr.span)
       }
       ExprKind::Continue => self.interpret_expr_continue(expr.span),
-      _ => todo!(),
+      ExprKind::Var(var) => self.interpret_expr_var(var),
     }
   }
 
@@ -287,6 +287,8 @@ impl<'ast> Interpreter<'ast> {
     rhs: &i64,
     span: Span,
   ) -> Result<Value> {
+    println!("{lhs} {binop:?} {rhs}");
+
     Ok(match binop.kind {
       BinOpKind::Add => Value::int(lhs + rhs, span),
       BinOpKind::Sub => Value::int(lhs - rhs, span),
@@ -338,6 +340,8 @@ impl<'ast> Interpreter<'ast> {
     span: Span,
   ) -> Result<Value> {
     Ok(match binop.kind {
+      BinOpKind::Eq => Value::bool(lhs == rhs, span),
+      BinOpKind::Ne => Value::bool(lhs != rhs, span),
       BinOpKind::And => Value::bool(*lhs && *rhs, span),
       BinOpKind::Or => Value::bool(*lhs || *rhs, span),
       BinOpKind::BitAnd => Value::bool(*lhs & *rhs, span),
@@ -376,7 +380,7 @@ impl<'ast> Interpreter<'ast> {
       None => return Err(error::eval::not_found_var(span, *name)),
     };
 
-    self.scope_map.add_var(*name, lhs.clone())?;
+    self.scope_map.update_var(*name, lhs.clone())?;
 
     let rhs = self.interpret_expr(value)?;
 
@@ -450,12 +454,18 @@ impl<'ast> Interpreter<'ast> {
     let mut value = Value::UNIT;
 
     for stmt in block.iter() {
+      // println!("block: {stmt:#?}");
+
       value = self.interpret_stmt(stmt)?;
+
+      // println!("block: {value:?}");
 
       if let ValueKind::Return(value) = value.kind {
         return Ok(*value);
       }
     }
+
+    // println!("{value}");
 
     Ok(value)
   }
@@ -487,17 +497,31 @@ impl<'ast> Interpreter<'ast> {
     condition: &Expr,
     body: &Block,
   ) -> Result<Value> {
-    let mut condition = self.interpret_expr(condition)?;
+    let mut value = Value::UNIT;
 
     self.counter_loop += 1;
 
-    while condition.as_bool() {
-      condition = self.interpret_block(body)?;
+    while as_bool(self.interpret_expr(condition)?) {
+      value = self.interpret_block(body)?;
+
+      // println!("while: {value:?}");
+
+      match &value.kind {
+        ValueKind::Return(value) => return Ok(*value.to_owned()),
+        ValueKind::Break(value) => match value.kind {
+          ValueKind::Unit => break,
+          _ => {
+            return Err(error::eval::break_in_while_loop_with_value(value.span))
+          }
+        },
+        ValueKind::Continue => continue,
+        _ => {}
+      }
     }
 
     self.counter_loop -= 1;
 
-    Ok(Value::UNIT)
+    Ok(value)
   }
 
   /// Interprets a return expression.
@@ -526,7 +550,7 @@ impl<'ast> Interpreter<'ast> {
 
     match maybe_expr {
       Some(expr) => self.interpret_expr(expr),
-      None => todo!(), // break without expression.
+      None => Ok(Value::brk(Box::new(Value::unit(span)), span)),
     }
   }
 
@@ -538,7 +562,12 @@ impl<'ast> Interpreter<'ast> {
 
     self.continuing = true;
 
-    todo!()
+    Ok(Value::ctn(span))
+  }
+
+  /// Interprets a local variable expression.
+  fn interpret_expr_var(&mut self, var: &Var) -> Result<Value> {
+    self.interpret_var(var)
   }
 
   /// Interprets an array access expression for integers.
@@ -552,6 +581,14 @@ impl<'ast> Interpreter<'ast> {
       Some(value) => Ok(value.to_owned()),
       None => Err(error::eval::not_found_array_elmt(span, *index)),
     }
+  }
+}
+
+fn as_bool(value: Value) -> bool {
+  match value.kind {
+    ValueKind::Unit => false,
+    ValueKind::Bool(x) => x,
+    _ => true,
   }
 }
 

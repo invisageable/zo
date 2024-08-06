@@ -683,6 +683,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     self.expect_peek(TokenKind::Group(Group::BraceClose))?;
+    self.next();
 
     let hi = self.current_span();
     let span = Span::merge(lo, hi);

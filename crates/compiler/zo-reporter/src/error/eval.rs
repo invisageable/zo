@@ -103,6 +103,12 @@ impl<'a> Diagnostic<'a> for NotFound {
   }
 }
 
+/// A break in while loop with value error message.
+#[inline]
+pub fn break_in_while_loop_with_value(_span: Span) -> Error {
+  todo!()
+}
+
 /// A name clash error message for function.
 #[inline]
 pub fn invalid_array_access(

@@ -78,6 +78,19 @@ impl Scope {
   pub fn ty(&self, name: &Symbol) -> Option<&Ty> {
     self.tys.get(name)
   }
+
+  /// Updates a variable from a name and his instance.
+  pub fn update_var(&mut self, name: Symbol, value: Value) -> Result<()> {
+    match self.vars.entry(name) {
+      Entry::Occupied(mut vars) => {
+        vars.insert(value);
+        Ok(())
+      }
+      Entry::Vacant(_) => {
+        panic!()
+      }
+    }
+  }
 }
 
 impl Default for Scope {
@@ -173,6 +186,14 @@ impl ScopeMap {
     }
 
     None
+  }
+
+  /// Updates a variable to the scope map from a name and his instance.
+  pub fn update_var(&mut self, name: Symbol, value: Value) -> Result<()> {
+    match self.scopes.front_mut() {
+      Some(scope) => scope.update_var(name, value),
+      None => Err(error::eval::name_clash_var(value.span, name)),
+    }
   }
 }
 

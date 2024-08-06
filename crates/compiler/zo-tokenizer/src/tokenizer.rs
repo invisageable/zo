@@ -161,65 +161,63 @@ impl<'bytes> Tokenizer<'bytes> {
           _ => break,
         },
         TokenizerState::Punctuation => match byte {
-          b'+' => {
-            self.bump();
+          b if is!(punctuation b) => {
+            if byte == b'+' {
+              self.bump();
 
-            match self.byte() {
-              b'=' => self.bump(),
-              _ => break,
-            }
-          }
-          b'-' => {
-            self.bump();
-
-            match self.byte() {
-              b'=' => self.bump(),
-              b'>' => {
-                state = TokenizerState::Punctuation;
-
-                self.bump();
+              match self.byte() {
+                b'=' => self.bump(),
+                _ => break,
               }
-              b'-' | b'!' => {
-                state = TokenizerState::Comment;
+            } else if byte == b'-' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'>' => {
+                  state = TokenizerState::Punctuation;
+
+                  self.bump();
+                }
+                b'-' | b'!' => {
+                  state = TokenizerState::Comment;
+                }
+                _ => break,
               }
-              _ => break,
-            }
-          }
-          b'*' | b'/' | b'%' | b'^' | b'!' => {
-            self.bump();
+            } else if byte == b'*' | b'/' | b'%' | b'^' | b'!' {
+              self.bump();
 
-            match self.byte() {
-              b'=' => self.bump(),
-              _ => break,
-            }
-          }
-          b':' => {
-            self.bump();
-
-            match self.byte() {
-              b'=' => self.bump(),
-              b':' => self.bump(),
-              _ => break,
-            }
-          }
-          b'=' => {
-            self.bump();
-
-            match self.byte() {
-              b'=' => self.bump(),
-              b'>' => {
-                state = TokenizerState::Punctuation;
-
-                self.bump();
+              match self.byte() {
+                b'=' => self.bump(),
+                _ => break,
               }
-              _ => break,
+            } else if byte == b':' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b':' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'=' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'>' => {
+                  state = TokenizerState::Punctuation;
+
+                  self.bump();
+                }
+                _ => break,
+              }
+            } else {
+              self.bump();
+
+              break;
             }
           }
-          _ => {
-            self.bump();
-
-            break;
-          }
+          _ => break,
         },
         TokenizerState::Group => match byte {
           b if is!(group b) => {

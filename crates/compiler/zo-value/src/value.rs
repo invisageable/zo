@@ -57,6 +57,18 @@ impl Value {
     Self::new(ValueKind::Return(Box::new(value)), span)
   }
 
+  /// Creates a new break value.
+  #[inline]
+  pub fn brk(value: Box<Value>, span: Span) -> Self {
+    Self::new(ValueKind::Break(value), span)
+  }
+
+  /// Creates a new continue value.
+  #[inline]
+  pub fn ctn(span: Span) -> Self {
+    Self::new(ValueKind::Continue, span)
+  }
+
   /// Creates a new while.
   #[inline]
   pub fn loop_while(condition: Box<Value>, block: Block, span: Span) -> Self {
@@ -96,6 +108,10 @@ pub enum ValueKind {
   While(Box<Value>, Block),
   /// return — `return foobar;`, `return;`.
   Return(Box<Value>),
+  /// break — `break foobar;`, `break;`.
+  Break(Box<Value>),
+  /// continue — `continue;`.
+  Continue,
 }
 
 impl ValueKind {
@@ -103,8 +119,8 @@ impl ValueKind {
   #[inline]
   pub fn as_bool(&self) -> bool {
     match self {
-      Self::Bool(boolean) => *boolean,
       Self::Unit => false,
+      Self::Bool(boolean) => *boolean,
       _ => true,
     }
   }
