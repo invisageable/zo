@@ -35,7 +35,7 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  /// Evaluates an AST.
+  /// Interprets an AST.
   fn interpret(&mut self, ast: &Ast) -> Result<Value> {
     let mut value = Value::UNIT;
 
@@ -53,19 +53,19 @@ impl<'ast> Interpreter<'ast> {
     Ok(value)
   }
 
-  /// Evaluates an item statement.
+  /// Interprets an item statement.
   fn interpret_stmt_item(&mut self, item: &Item) -> Result<Value> {
     match &item.kind {
       ItemKind::Var(var) => self.interpret_item_var(var),
     }
   }
 
-  /// Evaluates a variable item.
+  /// Interprets a variable item.
   fn interpret_item_var(&mut self, var: &Var) -> Result<Value> {
     self.interpret_global_var(var)
   }
 
-  /// Evaluates a global variable.
+  /// Interprets a global variable.
   fn interpret_global_var(&mut self, var: &Var) -> Result<Value> {
     let name = *var.pattern.as_symbol();
     let value = self.interpret_expr(&var.value)?;
@@ -75,7 +75,7 @@ impl<'ast> Interpreter<'ast> {
     Ok(value)
   }
 
-  /// Evaluates a statement.
+  /// Interprets a statement.
   fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
     match &stmt.kind {
       StmtKind::Var(var) => self.interpret_stmt_var(var),
@@ -84,12 +84,12 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  /// Evaluates a local variable statement.
+  /// Interprets a local variable statement.
   fn interpret_stmt_var(&mut self, var: &Var) -> Result<Value> {
     self.interpret_local_var(var)
   }
 
-  /// Evaluates a variable.
+  /// Interprets a variable.
   fn interpret_local_var(&mut self, var: &Var) -> Result<Value> {
     let name = *var.pattern.as_symbol();
     let value = self.interpret_expr(&var.value)?;
@@ -99,12 +99,12 @@ impl<'ast> Interpreter<'ast> {
     Ok(value)
   }
 
-  /// Evaluates an expression statement.
+  /// Interprets an expression statement.
   fn interpret_stmt_expr(&mut self, expr: &Expr) -> Result<Value> {
     self.interpret_expr(expr)
   }
 
-  /// Evaluates an expression.
+  /// Interprets an expression.
   fn interpret_expr(&mut self, expr: &Expr) -> Result<Value> {
     match &expr.kind {
       ExprKind::Lit(lit) => self.interpret_expr_lit(lit),
@@ -128,7 +128,7 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  /// Evaluates a literal expression.
+  /// Interprets a literal expression.
   fn interpret_expr_lit(&mut self, lit: &Lit) -> Result<Value> {
     match &lit.kind {
       LitKind::Int(sym, _) => self.interpret_expr_lit_int(sym, lit.span),
@@ -139,7 +139,7 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  /// Evaluates an integer literal expression.
+  /// Interprets an integer literal expression.
   fn interpret_expr_lit_int(
     &mut self,
     sym: &Symbol,
@@ -150,7 +150,7 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::int(int, span))
   }
 
-  /// Evaluates a float literal expression.
+  /// Interprets a float literal expression.
   fn interpret_expr_lit_float(
     &mut self,
     sym: &Symbol,
@@ -161,7 +161,7 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::float(float, span))
   }
 
-  /// Evaluates an identifier literal expression.
+  /// Interprets an identifier literal expression.
   fn interpret_expr_lit_ident(
     &mut self,
     sym: &Symbol,
@@ -178,7 +178,7 @@ impl<'ast> Interpreter<'ast> {
     Err(error::eval::not_found_ident(span, name))
   }
 
-  /// Evaluates a boolean literal expression.
+  /// Interprets a boolean literal expression.
   fn interpret_expr_lit_bool(
     &mut self,
     boolean: &bool,
@@ -187,7 +187,7 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::bool(*boolean, span))
   }
 
-  /// Evaluates an unary operation expression.
+  /// Interprets an unary operation expression.
   fn interpret_expr_unop(
     &mut self,
     unop: &UnOp,
@@ -202,7 +202,7 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  /// Evaluates a negative unary operation expression.
+  /// Interprets a negative unary operation expression.
   fn interpret_expr_unop_neg(
     &mut self,
     rhs: Value,
@@ -215,7 +215,7 @@ impl<'ast> Interpreter<'ast> {
     })
   }
 
-  /// Evaluates a logical NOT unary operation expression
+  /// Interprets a logical NOT unary operation expression
   fn interpret_expr_unop_not(
     &mut self,
     rhs: Value,
@@ -224,7 +224,7 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::bool(!rhs.as_bool(), span))
   }
 
-  /// Evaluates a binary operation expression.
+  /// Interprets a binary operation expression.
   fn interpret_expr_binop(
     &mut self,
     binop: &BinOp,
@@ -249,7 +249,7 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
-  /// Evaluates a binary operation expression for integers.
+  /// Interprets a binary operation expression for integers.
   fn interpret_expr_binop_int(
     &mut self,
     binop: &BinOp,
@@ -275,7 +275,7 @@ impl<'ast> Interpreter<'ast> {
     })
   }
 
-  /// Evaluates a binary operation expression for floats.
+  /// Interprets a binary operation expression for floats.
   fn interpret_expr_binop_float(
     &mut self,
     binop: &BinOp,
@@ -299,7 +299,7 @@ impl<'ast> Interpreter<'ast> {
     })
   }
 
-  /// Evaluates a binary operation expression for booleans.
+  /// Interprets a binary operation expression for booleans.
   fn interpret_expr_binop_bool(
     &mut self,
     binop: &BinOp,
@@ -317,7 +317,7 @@ impl<'ast> Interpreter<'ast> {
     })
   }
 
-  /// Evaluates an assignment expression.
+  /// Interprets an assignment expression.
   fn interpret_expr_assign(
     &mut self,
     assignee: &Expr,
@@ -331,7 +331,7 @@ impl<'ast> Interpreter<'ast> {
     Ok(value)
   }
 
-  /// Evaluates an assignment operator expression.
+  /// Interprets an assignment operator expression.
   fn interpret_expr_assign_op(
     &mut self,
     binop: &BinOp,
@@ -361,7 +361,7 @@ impl<'ast> Interpreter<'ast> {
     })
   }
 
-  /// Evaluates an array expression.
+  /// Interprets an array expression.
   fn interpret_expr_array(
     &mut self,
     elmts: &[Expr],
@@ -376,7 +376,7 @@ impl<'ast> Interpreter<'ast> {
     Ok(Value::array(array, span))
   }
 
-  /// Evaluates an array access expression.
+  /// Interprets an array access expression.
   fn interpret_expr_array_access(
     &mut self,
     indexed: &Expr,
@@ -395,7 +395,7 @@ impl<'ast> Interpreter<'ast> {
     Err(error::eval::invalid_array_access(span, indexed, index))
   }
 
-  /// Evaluates an array access expression for integers.
+  /// Interprets an array access expression for integers.
   fn interpret_expr_array_access_int(
     &mut self,
     indexed: &[Value],
@@ -409,7 +409,7 @@ impl<'ast> Interpreter<'ast> {
   }
 }
 
-/// Evaluates an AST — see also [`Interpreter::interpret`].
+/// Interprets an AST — see also [`Interpreter::interpret`].
 ///
 /// #### examples.
 ///

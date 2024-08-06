@@ -68,7 +68,11 @@ impl<'path> Reader<'path> {
     stdout.lock().flush().map_err(error::internal::io)?;
     stdin.read_line(&mut input).map_err(error::internal::io)?;
 
-    Ok(input.as_bytes().into())
+    let line = input.as_bytes().into();
+
+    input.clear();
+
+    Ok(line)
   }
 }
 
