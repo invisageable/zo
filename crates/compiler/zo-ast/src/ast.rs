@@ -229,6 +229,20 @@ pub enum ExprKind {
   Array(Vec<Expr>),
   /// array access (index) — `foo[0]`.
   ArrayAccess(Box<Expr>, Box<Expr>),
+  /// if else — `if foo == 2 { .. }`.
+  IfElse(Box<Expr>, Block, Option<Box<Expr>>),
+  /// ternary — `when true ? foo : bar`.
+  When(Box<Expr>, Box<Expr>, Box<Expr>),
+  /// loop — `loop { .. }`.
+  Loop(Block),
+  /// while loop — `while foo < 10 { .. }`.
+  While(Box<Expr>, Block),
+  /// exit return — `return`, `return foo`.
+  Return(Option<Box<Expr>>),
+  /// exit break — `break`, `break foo`.
+  Break(Option<Box<Expr>>),
+  /// exit continue — `continue`.
+  Continue,
   /// variable — `imu foo : int = 0`, `mut foo := 0`.
   Var(Var),
 }
@@ -409,5 +423,41 @@ impl From<Punctuation> for BinOpKind {
       Punctuation::GreaterThanGreaterThan => Self::Shr,
       _ => unreachable!(),
     }
+  }
+}
+
+/// The representation of a block — `{ .. }`.
+#[derive(Clone, Debug)]
+pub struct Block {
+  /// The statements list inside the block.
+  pub stmts: Vec<Stmt>,
+  /// The span of a block — see also [`Span`] if your needed.
+  pub span: Span,
+}
+
+impl Block {
+  /// Checks if the block do not constains statement instructions.
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.stmts.is_empty()
+  }
+}
+
+impl Default for Block {
+  #[inline]
+  fn default() -> Self {
+    Self {
+      stmts: Vec::with_capacity(0usize),
+      span: Span::ZERO,
+    }
+  }
+}
+
+impl std::ops::Deref for Block {
+  type Target = Vec<Stmt>;
+
+  #[inline]
+  fn deref(&self) -> &Self::Target {
+    &self.stmts
   }
 }

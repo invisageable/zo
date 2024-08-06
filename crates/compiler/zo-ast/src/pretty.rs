@@ -1,5 +1,5 @@
 use super::ast::{
-  Ast, BinOp, BinOpKind, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
+  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
   Mutability, Pattern, PatternKind, Stmt, StmtKind, UnOp, UnOpKind, Var,
   VarKind,
 };
@@ -114,6 +114,28 @@ impl std::fmt::Display for ExprKind {
       }
       Self::Array(elmts) => write!(f, "{}", sep_comma(elmts)),
       Self::ArrayAccess(indexed, index) => write!(f, "{indexed}[{index}]"),
+      Self::IfElse(condition, consequence, maybe_alternative) => {
+        write!(f, "if {condition} {consequence}")?;
+
+        match maybe_alternative {
+          Some(alternative) => write!(f, " else {{ {alternative} }}"),
+          None => Ok(()),
+        }
+      }
+      Self::When(condition, consequence, alternative) => {
+        write!(f, "when {condition} ? {consequence} : {alternative};")
+      }
+      Self::Loop(body) => write!(f, "loop {body}"),
+      Self::While(condition, body) => write!(f, "while {condition} {body}"),
+      Self::Return(maybe_expr) => match maybe_expr {
+        Some(expr) => write!(f, "return {expr};"),
+        None => write!(f, "return;"),
+      },
+      Self::Break(maybe_expr) => match maybe_expr {
+        Some(expr) => write!(f, "break {expr};"),
+        None => write!(f, "break;"),
+      },
+      Self::Continue => write!(f, "continue"),
       Self::Var(var) => write!(f, "{var}"),
     }
   }
@@ -181,5 +203,15 @@ impl std::fmt::Display for BinOpKind {
       Self::Shl => write!(f, "<<"),
       Self::Shr => write!(f, ">>"),
     }
+  }
+}
+
+impl std::fmt::Display for Block {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    if self.is_empty() {
+      return write!(f, "{{}}");
+    }
+
+    write!(f, "{{\n{}\n}}", sep_newline(&self.stmts))
   }
 }
