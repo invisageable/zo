@@ -21,6 +21,12 @@ impl Value {
     Self { kind, span }
   }
 
+  /// Creates a new unit.
+  #[inline]
+  pub fn unit(span: Span) -> Self {
+    Self::new(ValueKind::Unit, span)
+  }
+
   /// Creates a new integer value.
   #[inline]
   pub const fn int(int: i64, span: Span) -> Self {
@@ -43,6 +49,18 @@ impl Value {
   #[inline]
   pub const fn array(array: Vec<Value>, span: Span) -> Self {
     Self::new(ValueKind::Array(array), span)
+  }
+
+  /// Creates a new return value.
+  #[inline]
+  pub fn ret(value: Value, span: Span) -> Self {
+    Self::new(ValueKind::Return(Box::new(value)), span)
+  }
+
+  /// Creates a new while.
+  #[inline]
+  pub fn loop_while(condition: Box<Value>, block: Block, span: Span) -> Self {
+    Self::new(ValueKind::While(condition, block), span)
   }
 
   /// Converts a value into a boolean.
@@ -72,6 +90,12 @@ pub enum ValueKind {
   Bool(bool),
   /// array — `[1, 2, 3, 4]`.
   Array(Vec<Value>),
+  /// loop instruction value — `loop {..}`.
+  Loop(Block),
+  /// while instruction value — `while true {..}`.
+  While(Box<Value>, Block),
+  /// return — `return foobar;`, `return;`.
+  Return(Box<Value>),
 }
 
 impl ValueKind {
@@ -83,5 +107,41 @@ impl ValueKind {
       Self::Unit => false,
       _ => true,
     }
+  }
+}
+
+/// The representation of a block.
+#[derive(Clone, Debug)]
+pub struct Block {
+  /// The value list inside the block.
+  pub values: Vec<Value>,
+  /// The span of a block — see also [`Span`] if your needed.
+  pub span: Span,
+}
+
+impl Block {
+  /// Checks if the block do not constains value instructions.
+  #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.values.is_empty()
+  }
+}
+
+impl Default for Block {
+  #[inline]
+  fn default() -> Self {
+    Self {
+      values: Vec::with_capacity(0usize),
+      span: Span::ZERO,
+    }
+  }
+}
+
+impl std::ops::Deref for Block {
+  type Target = Vec<Value>;
+
+  #[inline]
+  fn deref(&self) -> &Self::Target {
+    &self.values
   }
 }

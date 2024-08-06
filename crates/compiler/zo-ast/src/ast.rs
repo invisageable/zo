@@ -429,7 +429,7 @@ impl From<Punctuation> for BinOpKind {
 /// The representation of a block — `{ .. }`.
 #[derive(Clone, Debug)]
 pub struct Block {
-  /// The statements list inside the block.
+  /// The statement list inside the block.
   pub stmts: Vec<Stmt>,
   /// The span of a block — see also [`Span`] if your needed.
   pub span: Span,
