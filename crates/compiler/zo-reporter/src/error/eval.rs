@@ -2,7 +2,7 @@ use super::{Diagnostic, Error};
 
 use crate::report::Report;
 
-use swisskit::span::{self, Span};
+use swisskit::span::Span;
 
 use smol_str::SmolStr;
 
@@ -49,7 +49,11 @@ pub enum NameClash {
 impl<'a> Diagnostic<'a> for NameClash {
   #[inline]
   fn report(&self) -> Report<'a> {
-    todo!()
+    match self {
+      Self::Fun(span, value) => todo!("{span} — {value}"),
+      Self::Ty(span, value) => todo!("{span} — {value}"),
+      Self::Var(span, value) => todo!("{span} — {value}"),
+    }
   }
 }
 
@@ -70,7 +74,13 @@ pub enum NotFound {
 impl<'a> Diagnostic<'a> for NotFound {
   #[inline]
   fn report(&self) -> Report<'a> {
-    todo!()
+    match self {
+      Self::Array(span, size) => todo!("{span} — {size}"),
+      Self::Ident(span, value) => todo!("{span} — {value}"),
+      Self::Fun(span, value) => todo!("{span} — {value}"),
+      Self::Ty(span, value) => todo!("{span} — {value}"),
+      Self::Var(span, value) => todo!("{span} — {value}"),
+    }
   }
 }
 

@@ -1,9 +1,12 @@
 use super::{Diagnostic, Error};
 
+use crate::color;
 use crate::report::Report;
 
-use smol_str::SmolStr;
 use swisskit::span::Span;
+
+use ariadne::Fmt;
+use smol_str::SmolStr;
 
 /// The representation of semantic analysis errors.
 #[derive(Debug)]
@@ -16,7 +19,22 @@ impl<'a> Diagnostic<'a> for Semantic {
   #[inline]
   fn report(&self) -> Report<'a> {
     match self {
-      Self::MismatchedTy(t1, t2) => todo!("{t1:?} — {t2:?}"),
+      Self::MismatchedTy(t1, t2) => Report {
+        message: format!("{}", "mismatched types".fg(color::title())).into(),
+        labels: vec![
+          (
+            t1.0,
+            format!("the left-hand side is {}", t1.1).into(),
+            color::error(),
+          ),
+          (
+            t2.0,
+            format!("the right-hand side is {}", t2.1).into(),
+            color::error(),
+          ),
+        ],
+        ..Default::default()
+      },
     }
   }
 }

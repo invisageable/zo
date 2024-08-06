@@ -1,9 +1,12 @@
 use super::{Diagnostic, Error};
 
-use crate::report::Report;
+use crate::color;
+use crate::report::{Report, ReportKind};
 
+use swisskit::span::Span;
+
+use ariadne::Fmt;
 use smol_str::SmolStr;
-use swisskit::span::{self, Span};
 
 /// The representation of syntax analysis errors.
 #[derive(Debug)]
@@ -49,7 +52,20 @@ impl<'a> Diagnostic<'a> for Syntax {
       Self::ExpectedUnOp(span, token) => todo!("{span} — {token}"),
       Self::InvalidInfix(span, token) => todo!("{span} — {token}"),
       Self::InvalidPrefix(span, token) => todo!("{span} — {token}"),
-      Self::UnexpectedToken(span, token) => todo!("{span} — {token}"),
+      Self::UnexpectedToken(span, token) => Report {
+        kind: ReportKind::ERROR,
+        message: format!("{}", "unexpected token.".fg(color::title())).into(),
+        labels: vec![(
+          *span,
+          format!(
+            "{}: `{token}`",
+            "what's this language i only spoke zo lang".fg(color::error()),
+          )
+          .into(),
+          color::error(),
+        )],
+        ..Default::default()
+      },
     }
   }
 }

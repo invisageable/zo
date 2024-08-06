@@ -1,7 +1,9 @@
 use super::{Diagnostic, Error};
 
-use crate::report::Report;
+use crate::color;
+use crate::report::{Report, ReportKind};
 
+use ariadne::Fmt;
 use swisskit::span::Span;
 
 /// The representation of lexical analysis errors.
@@ -17,7 +19,31 @@ impl<'a> Diagnostic<'a> for Lexical {
   #[inline]
   fn report(&self) -> Report<'a> {
     match self {
-      Self::Unknown(span, byte) => todo!("unkmown — {span}-{byte}"),
+      Self::Unknown(span, byte) => Report {
+        kind: ReportKind::ERROR,
+        message: format!("{}", "invalid character".fg(color::title())).into(),
+        labels: vec![(
+          *span,
+          format!(
+            "{}: `{}`",
+            "this character does not ring a bell".fg(color::error()),
+            *byte as char
+          )
+          .into(),
+          color::error(),
+        )],
+        notes: vec![format!(
+          "{}",
+          "🤖 what language are you trying to speak to me in? i only speak zhoo"
+            .fg(color::note())
+        )
+        .into()],
+        helps: vec![format!(
+          "{}",
+          "👉 please go read the doc: <doc-link>".fg(color::help())
+        )
+        .into()],
+      },
       Self::InvalidNumber(span, byte) => todo!("invalid num — {span}-{byte}"),
     }
   }
