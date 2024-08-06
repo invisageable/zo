@@ -3,7 +3,7 @@ use super::{Diagnostic, Error};
 use crate::report::Report;
 
 use smol_str::SmolStr;
-use swisskit::span::Span;
+use swisskit::span::{self, Span};
 
 /// The representation of syntax analysis errors.
 #[derive(Debug)]
@@ -14,10 +14,10 @@ pub enum Syntax {
   ExpectedBool(Span, SmolStr),
   /// The expected float error.
   ExpectedFloat(Span, SmolStr),
-  /// The expected identifier error.
-  ExpectedIdent(Span, SmolStr),
   /// The expected global variable error.
   ExpectedGlobalVar(Span, SmolStr),
+  /// The expected identifier error.
+  ExpectedIdent(Span, SmolStr),
   /// The expected integer error.
   ExpectedInt(Span, SmolStr),
   /// The expected local variable error.
@@ -37,7 +37,20 @@ pub enum Syntax {
 impl<'a> Diagnostic<'a> for Syntax {
   #[inline]
   fn report(&self) -> Report<'a> {
-    todo!()
+    match self {
+      Self::ExpectedBinOp(span, token) => todo!("{span} — {token}"),
+      Self::ExpectedBool(span, token) => todo!("{span} — {token}"),
+      Self::ExpectedFloat(span, token) => todo!("{span} — {token}"),
+      Self::ExpectedGlobalVar(span, token) => todo!("{span} — {token}"),
+      Self::ExpectedIdent(span, token) => todo!("{span} — {token}"),
+      Self::ExpectedInt(span, token) => todo!("{span} — {token}"),
+      Self::ExpectedLocalVar(span, token) => todo!("{span} — {token}"),
+      Self::ExpectedTy(span, token) => todo!("{span} — {token}"),
+      Self::ExpectedUnOp(span, token) => todo!("{span} — {token}"),
+      Self::InvalidInfix(span, token) => todo!("{span} — {token}"),
+      Self::InvalidPrefix(span, token) => todo!("{span} — {token}"),
+      Self::UnexpectedToken(span, token) => todo!("{span} — {token}"),
+    }
   }
 }
 

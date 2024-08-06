@@ -19,6 +19,8 @@ impl<'a> Diagnostic<'a> for Internal {
   #[inline]
   fn report(&self) -> Report<'a> {
     match self {
+      Self::ExpectedBackend(events, event) => todo!("{events:?} — {event}"),
+      Self::ExpectedEvent(name) => todo!("{name}"),
       Self::Io(error) => Report {
         kind: ReportKind::ERROR,
         message: format!("{error}").into(),

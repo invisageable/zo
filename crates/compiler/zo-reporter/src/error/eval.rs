@@ -2,7 +2,7 @@ use super::{Diagnostic, Error};
 
 use crate::report::Report;
 
-use swisskit::span::Span;
+use swisskit::span::{self, Span};
 
 use smol_str::SmolStr;
 
@@ -24,7 +24,15 @@ pub enum Eval {
 impl<'a> Diagnostic<'a> for Eval {
   #[inline]
   fn report(&self) -> Report<'a> {
-    todo!()
+    match self {
+      Self::InvalidArrayAcces(span, indexed, index) => {
+        todo!("{span} — {indexed} — {index}")
+      }
+      Self::NameClash(diagnostic) => diagnostic.report(),
+      Self::NotFound(diagnostic) => diagnostic.report(),
+      Self::UnknownBinOp(span, binop) => todo!("{span} — {binop}"),
+      Self::UnknownUnOp(span, unop) => todo!("{span} — {unop}"),
+    }
   }
 }
 
@@ -36,6 +44,13 @@ pub enum NameClash {
   Ty(Span, SmolStr),
   /// A name clash error message for variable.
   Var(Span, SmolStr),
+}
+
+impl<'a> Diagnostic<'a> for NameClash {
+  #[inline]
+  fn report(&self) -> Report<'a> {
+    todo!()
+  }
 }
 
 #[derive(Debug)]
@@ -50,6 +65,13 @@ pub enum NotFound {
   Ty(Span, SmolStr),
   /// A not found error message for variable.
   Var(Span, SmolStr),
+}
+
+impl<'a> Diagnostic<'a> for NotFound {
+  #[inline]
+  fn report(&self) -> Report<'a> {
+    todo!()
+  }
 }
 
 /// A name clash error message for function.

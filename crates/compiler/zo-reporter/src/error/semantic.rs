@@ -15,7 +15,9 @@ pub enum Semantic {
 impl<'a> Diagnostic<'a> for Semantic {
   #[inline]
   fn report(&self) -> Report<'a> {
-    todo!()
+    match self {
+      Self::MismatchedTy(t1, t2) => todo!("{t1:?} — {t2:?}"),
+    }
   }
 }
 

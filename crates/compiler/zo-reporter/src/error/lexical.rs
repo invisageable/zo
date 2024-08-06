@@ -17,7 +17,7 @@ impl<'a> Diagnostic<'a> for Lexical {
   #[inline]
   fn report(&self) -> Report<'a> {
     match self {
-      Self::Unknown(span, byte) => todo!("invalid num — {span}-{byte}"),
+      Self::Unknown(span, byte) => todo!("unkmown — {span}-{byte}"),
       Self::InvalidNumber(span, byte) => todo!("invalid num — {span}-{byte}"),
     }
   }
