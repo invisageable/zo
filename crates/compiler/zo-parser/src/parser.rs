@@ -1,7 +1,7 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
+  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
   Mutability, Pattern, PatternKind, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var,
   VarKind,
 };
@@ -455,8 +455,8 @@ impl<'tokens> Parser<'tokens> {
 
     Ok(match token.kind {
       TokenKind::Int(..) => Box::new(Self::parse_expr_lit_int),
-      TokenKind::Float(..) => Box::new(Self::parse_expr_lit_float),
-      TokenKind::Ident(..) => Box::new(Self::parse_expr_lit_ident),
+      TokenKind::Float(_) => Box::new(Self::parse_expr_lit_float),
+      TokenKind::Ident(_) => Box::new(Self::parse_expr_lit_ident),
       TokenKind::Kw(Kw::False) | TokenKind::Kw(Kw::True) => {
         Box::new(Self::parse_expr_lit_bool)
       }
@@ -466,6 +466,13 @@ impl<'tokens> Parser<'tokens> {
       }
       TokenKind::Group(Group::ParenOpen) => Box::new(Self::parse_expr_group),
       TokenKind::Group(Group::BracketOpen) => Box::new(Self::parse_expr_array),
+      TokenKind::Kw(Kw::If) => Box::new(Self::parse_expr_if_else),
+      TokenKind::Kw(Kw::When) => Box::new(Self::parse_expr_when),
+      TokenKind::Kw(Kw::Loop) => Box::new(Self::parse_expr_loop),
+      TokenKind::Kw(Kw::While) => Box::new(Self::parse_expr_while),
+      TokenKind::Kw(Kw::Return) => Box::new(Self::parse_expr_return),
+      TokenKind::Kw(Kw::Break) => Box::new(Self::parse_expr_break),
+      TokenKind::Kw(Kw::Continue) => Box::new(Self::parse_expr_continue),
       _ => return Err(error::syntax::invalid_prefix(token.span, *token)),
     })
   }
@@ -626,6 +633,191 @@ impl<'tokens> Parser<'tokens> {
     self.expect_peek(TokenKind::Group(Group::BracketClose))?;
 
     Ok(exprs)
+  }
+
+  /// Parses a if else condition expression.
+  fn parse_expr_if_else(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+    let consequence = parser.parse_block()?;
+
+    parser.next();
+
+    let alternative = if parser.expect(TokenKind::Kw(Kw::Else)).is_ok() {
+      if parser.ensure(TokenKind::Kw(Kw::If)) {
+        Some(Box::new(Self::parse_expr_if_else(parser)?))
+      } else {
+        parser.next();
+
+        let expr = parser.parse_expr(Precedence::Low)?;
+
+        Some(Box::new(expr))
+      }
+    } else {
+      None
+    };
+
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::IfElse(Box::new(condition), consequence, alternative),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  /// Parses a block.
+  fn parse_block(&mut self) -> Result<Block> {
+    let mut stmts = Vec::with_capacity(0usize);
+    let lo = self.current_span();
+
+    self.expect_peek(TokenKind::Group(Group::BraceOpen))?;
+
+    while !self.ensure_peek(TokenKind::Group(Group::BraceClose))
+      && self.has_tokens()
+    {
+      self.next();
+      stmts.push(self.parse_stmt()?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::BraceClose))?;
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Block { stmts, span })
+  }
+
+  /// Parses a ternary condition expression.
+  fn parse_expr_when(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+
+    parser.expect_peek(TokenKind::Punctuation(Punctuation::Question))?;
+    parser.next();
+
+    let consequence = parser.parse_expr(Precedence::Low)?;
+
+    parser.expect_peek(TokenKind::Punctuation(Punctuation::Colon))?;
+    parser.next();
+
+    let alternative = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::When(
+        Box::new(condition),
+        Box::new(consequence),
+        Box::new(alternative),
+      ),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  /// Parses a loop expression.
+  fn parse_expr_loop(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+    let body = parser.parse_block()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Loop(body),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  /// Parses a while loop expression.
+  fn parse_expr_while(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    let condition = parser.parse_expr(Precedence::Low)?;
+    let body = parser.parse_block()?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::While(Box::new(condition), body),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  /// Parses a return expression.
+  fn parse_expr_return(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      let hi = parser.current_span();
+
+      return Ok(Expr {
+        kind: ExprKind::Return(None),
+        span: Span::merge(lo, hi),
+      });
+    }
+
+    let expr = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Return(Some(Box::new(expr))),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  /// Parses a break expression.
+  fn parse_expr_break(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      let hi = parser.current_span();
+      let span = Span::merge(lo, hi);
+
+      return Ok(Expr {
+        kind: ExprKind::Break(None),
+        span,
+      });
+    }
+
+    let value = parser.parse_expr(Precedence::Low)?;
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Break(Some(Box::new(value))),
+      span: Span::merge(lo, hi),
+    })
+  }
+
+  /// Parses a continue expression.
+  fn parse_expr_continue(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+
+    parser.next();
+
+    if parser.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      let hi = parser.current_span();
+      let span = Span::merge(lo, hi);
+
+      return Ok(Expr {
+        kind: ExprKind::Continue,
+        span,
+      });
+    }
+
+    let hi = parser.current_span();
+
+    Ok(Expr {
+      kind: ExprKind::Continue,
+      span: Span::merge(lo, hi),
+    })
   }
 
   /// Gets the infix function.
