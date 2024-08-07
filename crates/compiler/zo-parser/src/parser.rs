@@ -318,7 +318,7 @@ impl<'tokens> Parser<'tokens> {
     let ty = self
       .maybe_token_current
       .map(|token| match token.kind {
-        TokenKind::Punctuation(Punctuation::Colon) => self.parse_ty_primitive(),
+        TokenKind::Punctuation(Punctuation::Colon) => self.parse_ty_type(),
         _ => Err(error::syntax::expected_ty(token.span, *token)),
       })
       .unwrap()?;
@@ -331,7 +331,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses a primitive.
-  fn parse_ty_primitive(&mut self) -> Result<Ty> {
+  fn parse_ty_type(&mut self) -> Result<Ty> {
     self.next();
 
     self
@@ -340,12 +340,13 @@ impl<'tokens> Parser<'tokens> {
         TokenKind::Ident(symbol) => {
           self.parse_ty_ident_or_array(symbol, token.span)
         }
+        TokenKind::Group(Group::ParenOpen) => self.parse_ty_tuple(token.span),
         _ => Err(error::syntax::unexpected_token(token.span, *token)),
       })
       .unwrap()
   }
 
-  /// Parses a primitive type or array type.
+  /// Parses a type or array type.
   fn parse_ty_ident_or_array(
     &mut self,
     sym: &Symbol,
@@ -397,6 +398,31 @@ impl<'tokens> Parser<'tokens> {
     }
 
     Ok(ty)
+  }
+
+  /// Parses tuple type.
+  fn parse_ty_tuple(&mut self, span: Span) -> Result<Ty> {
+    let mut tys = Vec::with_capacity(0usize);
+
+    while !self
+      .expect_peek(TokenKind::Group(Group::ParenClose))
+      .is_ok()
+    {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      tys.push(self.parse_ty_type()?);
+    }
+
+    self.next();
+
+    let span = Span::merge(span, self.current_span());
+
+    Ok(Ty::tuple(tys, span))
   }
 
   /// Parses an expression statement.

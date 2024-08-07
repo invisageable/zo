@@ -1,0 +1,13 @@
+-- syntax overview.
+
+-- this is a line comments.
+-! this is a line doc comments.
+
+val X: int = 0.0;
+val Y: int = 1.0;
+
+imu x: (int, float) = (40, 2.0);
+imu y: int = x.0;
+
+mut z: float[] = [0.0, 0.5, 1.0];
+mut a: int = z[2];

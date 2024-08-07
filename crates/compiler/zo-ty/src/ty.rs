@@ -82,6 +82,12 @@ impl Ty {
     Self::new(TyKind::Array(Box::new(ty), maybe_size), span)
   }
 
+  /// Creates a new tuple type.
+  #[inline]
+  pub fn tuple(tys: Vec<Ty>, span: Span) -> Self {
+    Self::new(TyKind::Tuple(tys), span)
+  }
+
   /// Retrieves the set of quantified type variables.
   #[inline]
   pub fn ty_vars(&self) -> HashSet<usize> {
@@ -102,6 +108,8 @@ pub enum TyKind {
   Float(LitFloatTy),
   /// array — `int[]`, `str[3]`.
   Array(Box<Ty>, Option<usize>),
+  /// tuple — `(int, float)`.
+  Tuple(Vec<Ty>),
   /// constructed type.
   Con(SmolStr, Vec<Ty>),
 }

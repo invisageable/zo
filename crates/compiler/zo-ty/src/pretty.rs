@@ -21,6 +21,7 @@ impl std::fmt::Display for TyKind {
         Some(size) => write!(f, "{ty}[{size}]"),
         None => write!(f, "{ty}[]"),
       },
+      Self::Tuple(tys) => write!(f, "{}", sep_comma(tys)),
       Self::Con(ident, tys) => write!(f, "{ident} - [{}]", sep_comma(tys)),
     }
   }
