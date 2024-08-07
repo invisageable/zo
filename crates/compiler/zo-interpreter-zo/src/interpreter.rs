@@ -133,6 +133,10 @@ impl<'ast> Interpreter<'ast> {
       ExprKind::ArrayAccess(indexed, index) => {
         self.interpret_expr_array_access(indexed, index, expr.span)
       }
+      ExprKind::Tuple(elmts) => self.interpret_expr_tuple(elmts, expr.span),
+      ExprKind::TupleAccess(indexed, index) => {
+        self.interpret_expr_tuple_access(indexed, index, expr.span)
+      }
       ExprKind::IfElse(condition, consequence, maybe_alternative) => self
         .interpret_expr_if_else(
           condition,
@@ -423,10 +427,54 @@ impl<'ast> Interpreter<'ast> {
     if let (ValueKind::Array(array), ValueKind::Int(ref int)) =
       (&indexed.kind, &index.kind)
     {
-      return self.interpret_expr_array_access_int(array, int, span);
+      let index = *int;
+
+      return match array.get(index as usize) {
+        Some(value) => Ok(value.to_owned()),
+        None => Err(error::eval::out_of_bound_array(span, index)),
+      };
     }
 
     Err(error::eval::invalid_array_access(span, indexed, index))
+  }
+
+  /// Interprets a tuple expression.
+  fn interpret_expr_tuple(
+    &mut self,
+    elmts: &[Expr],
+    span: Span,
+  ) -> Result<Value> {
+    let mut tuple = Vec::with_capacity(elmts.len());
+
+    for elmt in elmts {
+      tuple.push(self.interpret_expr(elmt)?);
+    }
+
+    Ok(Value::tuple(tuple, span))
+  }
+
+  /// Interprets a tuple expression.
+  fn interpret_expr_tuple_access(
+    &mut self,
+    indexed: &Expr,
+    index: &Expr,
+    span: Span,
+  ) -> Result<Value> {
+    let indexed = self.interpret_expr(indexed)?;
+    let index = self.interpret_expr(index)?;
+
+    if let (ValueKind::Tuple(tuple), ValueKind::Int(ref int)) =
+      (&indexed.kind, &index.kind)
+    {
+      let index = *int;
+
+      return match tuple.get(index as usize) {
+        Some(value) => Ok(value.to_owned()),
+        None => Err(error::eval::out_of_bound_tuple(span, index)),
+      };
+    }
+
+    Err(error::eval::invalid_tuple_access(span, indexed, index))
   }
 
   /// Interprets an if else condition expression.
@@ -454,18 +502,12 @@ impl<'ast> Interpreter<'ast> {
     let mut value = Value::UNIT;
 
     for stmt in block.iter() {
-      // println!("block: {stmt:#?}");
-
       value = self.interpret_stmt(stmt)?;
-
-      // println!("block: {value:?}");
 
       if let ValueKind::Return(value) = value.kind {
         return Ok(*value);
       }
     }
-
-    // println!("{value}");
 
     Ok(value)
   }
@@ -504,8 +546,6 @@ impl<'ast> Interpreter<'ast> {
     while as_bool(self.interpret_expr(condition)?) {
       value = self.interpret_block(body)?;
 
-      // println!("while: {value:?}");
-
       match &value.kind {
         ValueKind::Return(value) => return Ok(*value.to_owned()),
         ValueKind::Break(value) => match value.kind {
@@ -543,7 +583,7 @@ impl<'ast> Interpreter<'ast> {
     span: Span,
   ) -> Result<Value> {
     if self.counter_loop == 0 {
-      return Err(error::eval::out_of_loop(span, "_"));
+      return Err(error::eval::out_of_loop(span, "break"));
     }
 
     self.breaking = true;
@@ -557,7 +597,7 @@ impl<'ast> Interpreter<'ast> {
   /// Interprets a continue expression.
   fn interpret_expr_continue(&mut self, span: Span) -> Result<Value> {
     if self.counter_loop == 0 {
-      return Err(error::eval::out_of_loop(span, "_"));
+      return Err(error::eval::out_of_loop(span, "continue"));
     }
 
     self.continuing = true;
@@ -568,19 +608,6 @@ impl<'ast> Interpreter<'ast> {
   /// Interprets a local variable expression.
   fn interpret_expr_var(&mut self, var: &Var) -> Result<Value> {
     self.interpret_var(var)
-  }
-
-  /// Interprets an array access expression for integers.
-  fn interpret_expr_array_access_int(
-    &mut self,
-    indexed: &[Value],
-    index: &i64,
-    span: Span,
-  ) -> Result<Value> {
-    match indexed.get(*index as usize) {
-      Some(value) => Ok(value.to_owned()),
-      None => Err(error::eval::not_found_array_elmt(span, *index)),
-    }
   }
 }
 

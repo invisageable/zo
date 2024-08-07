@@ -11,13 +11,17 @@ use smol_str::SmolStr;
 /// The representation of evaluation errors.
 #[derive(Debug)]
 pub enum Eval {
-  /// A invalid array access error message.
+  /// An invalid array access error message.
   InvalidArrayAcces(Span, SmolStr, SmolStr),
+  /// An invalid tuple access error message.
+  InvalidTupleAcces(Span, SmolStr, SmolStr),
   /// A name clash error message.
   NameClash(NameClash),
   /// A not found error message.
   NotFound(NotFound),
-  /// A out of loop error message.
+  /// An out of bound error message.
+  OutOfBound(OutOfBound),
+  /// An out of bound error message.
   OutOfLoop(Span, SmolStr),
   /// An unknown binary operator error message.
   UnknownBinOp(Span, SmolStr),
@@ -32,8 +36,12 @@ impl<'a> Diagnostic<'a> for Eval {
       Self::InvalidArrayAcces(span, indexed, index) => {
         todo!("{span} — {indexed} — {index}")
       }
+      Self::InvalidTupleAcces(span, indexed, index) => {
+        todo!("{span} — {indexed} — {index}")
+      }
       Self::NameClash(diagnostic) => diagnostic.report(),
       Self::NotFound(diagnostic) => diagnostic.report(),
+      Self::OutOfBound(diagnostic) => diagnostic.report(),
       Self::OutOfLoop(span, behavior) => Report {
         kind: ReportKind::ERROR,
         message: format!(
@@ -78,8 +86,6 @@ impl<'a> Diagnostic<'a> for NameClash {
 
 #[derive(Debug)]
 pub enum NotFound {
-  /// A not found error message for element in a table.
-  Array(Span, i64),
   /// A not found error message for identifier.
   Ident(Span, SmolStr),
   /// A not found error message for function.
@@ -94,11 +100,28 @@ impl<'a> Diagnostic<'a> for NotFound {
   #[inline]
   fn report(&self) -> Report<'a> {
     match self {
-      Self::Array(span, size) => todo!("{span} — {size}"),
       Self::Ident(span, value) => todo!("{span} — {value}"),
       Self::Fun(span, value) => todo!("{span} — {value}"),
       Self::Ty(span, value) => todo!("{span} — {value}"),
       Self::Var(span, value) => todo!("{span} — {value}"),
+    }
+  }
+}
+
+#[derive(Debug)]
+pub enum OutOfBound {
+  /// An out of bound error message for array.
+  Array(Span, i64),
+  /// An out of bound error message for tuple.
+  Tuple(Span, i64),
+}
+
+impl<'a> Diagnostic<'a> for OutOfBound {
+  #[inline]
+  fn report(&self) -> Report<'a> {
+    match self {
+      Self::Array(span, size) => todo!("{span} — {size}"),
+      Self::Tuple(span, size) => todo!("{span} — {size}"),
     }
   }
 }
@@ -109,7 +132,7 @@ pub fn break_in_while_loop_with_value(_span: Span) -> Error {
   todo!()
 }
 
-/// A name clash error message for function.
+/// An invalid array access error message.
 #[inline]
 pub fn invalid_array_access(
   span: Span,
@@ -117,6 +140,16 @@ pub fn invalid_array_access(
   index: impl Into<SmolStr>,
 ) -> Error {
   Error::Eval(Eval::InvalidArrayAcces(span, indexed.into(), index.into()))
+}
+
+/// An invalid array access error message.
+#[inline]
+pub fn invalid_tuple_access(
+  span: Span,
+  indexed: impl Into<SmolStr>,
+  index: impl Into<SmolStr>,
+) -> Error {
+  Error::Eval(Eval::InvalidTupleAcces(span, indexed.into(), index.into()))
 }
 
 /// A name clash error message for function.
@@ -135,12 +168,6 @@ pub fn name_clash_ty(span: Span, name: impl Into<SmolStr>) -> Error {
 #[inline]
 pub fn name_clash_var(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NameClash(NameClash::Var(span, name.into())))
-}
-
-/// A not found error message for element in a table.
-#[inline]
-pub fn not_found_array_elmt(span: Span, index: i64) -> Error {
-  Error::Eval(Eval::NotFound(NotFound::Array(span, index)))
 }
 
 /// A not found error message for function.
@@ -165,6 +192,18 @@ pub fn not_found_ty(span: Span, name: impl Into<SmolStr>) -> Error {
 #[inline]
 pub fn not_found_var(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NotFound(NotFound::Var(span, name.into())))
+}
+
+/// A out of bound error message for a array.
+#[inline]
+pub fn out_of_bound_array(span: Span, index: i64) -> Error {
+  Error::Eval(Eval::OutOfBound(OutOfBound::Array(span, index)))
+}
+
+/// A out of bound error message for a tuple.
+#[inline]
+pub fn out_of_bound_tuple(span: Span, index: i64) -> Error {
+  Error::Eval(Eval::OutOfBound(OutOfBound::Tuple(span, index)))
 }
 
 /// A out of loop error message.

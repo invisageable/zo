@@ -51,6 +51,12 @@ impl Value {
     Self::new(ValueKind::Array(array), span)
   }
 
+  /// Creates a new tuple value.
+  #[inline]
+  pub const fn tuple(tuple: Vec<Value>, span: Span) -> Self {
+    Self::new(ValueKind::Tuple(tuple), span)
+  }
+
   /// Creates a new return value.
   #[inline]
   pub fn ret(value: Value, span: Span) -> Self {
@@ -102,6 +108,8 @@ pub enum ValueKind {
   Bool(bool),
   /// array — `[1, 2, 3, 4]`.
   Array(Vec<Value>),
+  /// tuple — `(1, 2, 3, 4)`.
+  Tuple(Vec<Value>),
   /// loop instruction value — `loop {..}`.
   Loop(Block),
   /// while instruction value — `while true {..}`.

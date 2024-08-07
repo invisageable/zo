@@ -184,7 +184,12 @@ impl<'bytes> Tokenizer<'bytes> {
                 }
                 _ => break,
               }
-            } else if byte == b'*' | b'/' | b'%' | b'^' | b'!' {
+            } else if byte == b'*'
+              || byte == b'/'
+              || byte == b'%'
+              || byte == b'^'
+              || byte == b'!'
+            {
               self.bump();
 
               match self.byte() {

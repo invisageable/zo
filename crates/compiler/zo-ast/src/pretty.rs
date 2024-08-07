@@ -112,8 +112,10 @@ impl std::fmt::Display for ExprKind {
       Self::AssignOp(binop, assignee, value) => {
         write!(f, "{assignee} {binop} {value}")
       }
-      Self::Array(elmts) => write!(f, "{}", sep_comma(elmts)),
+      Self::Array(elmts) => write!(f, "[{}]", sep_comma(elmts)),
       Self::ArrayAccess(indexed, index) => write!(f, "{indexed}[{index}]"),
+      Self::Tuple(elmts) => write!(f, "({})", sep_comma(elmts)),
+      Self::TupleAccess(indexed, index) => write!(f, "{indexed}.{index}"),
       Self::IfElse(condition, consequence, maybe_alternative) => {
         write!(f, "if {condition} {consequence}")?;
 

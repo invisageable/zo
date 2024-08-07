@@ -229,6 +229,10 @@ pub enum ExprKind {
   Array(Vec<Expr>),
   /// array access (index) — `foo[0]`.
   ArrayAccess(Box<Expr>, Box<Expr>),
+  /// tuple — `(1, 2, 3, 4)`.
+  Tuple(Vec<Expr>),
+  /// tuple access — `foo.0`.
+  TupleAccess(Box<Expr>, Box<Expr>),
   /// if else — `if foo == 2 { .. }`.
   IfElse(Box<Expr>, Block, Option<Box<Expr>>),
   /// ternary — `when true ? foo : bar`.
@@ -348,6 +352,8 @@ impl From<BinOp> for SmolStr {
 impl From<&Token> for BinOp {
   #[inline]
   fn from(token: &Token) -> Self {
+    println!("{token:?}");
+
     match token.kind {
       TokenKind::Punctuation(punctuation) => Self {
         kind: BinOpKind::from(punctuation),

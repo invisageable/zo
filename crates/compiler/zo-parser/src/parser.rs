@@ -464,7 +464,9 @@ impl<'tokens> Parser<'tokens> {
       | TokenKind::Punctuation(Punctuation::Exclamation) => {
         Box::new(Self::parse_expr_unop)
       }
-      TokenKind::Group(Group::ParenOpen) => Box::new(Self::parse_expr_group),
+      TokenKind::Group(Group::ParenOpen) => {
+        Box::new(Self::parse_expr_group_or_tuple)
+      }
       TokenKind::Group(Group::BracketOpen) => Box::new(Self::parse_expr_array),
       TokenKind::Kw(Kw::If) => Box::new(Self::parse_expr_if_else),
       TokenKind::Kw(Kw::When) => Box::new(Self::parse_expr_when),
@@ -592,10 +594,38 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses a group expression.
-  fn parse_expr_group(parser: &mut Parser) -> Result<Expr> {
+  fn parse_expr_group_or_tuple(parser: &mut Parser) -> Result<Expr> {
     parser.next();
 
+    let lo = parser.current_span();
     let expr = parser.parse_expr(Precedence::Low)?;
+
+    // checks if the group is a tuple.
+    if let TokenKind::Punctuation(Punctuation::Comma) =
+      parser.maybe_token_next.unwrap().kind
+    {
+      let mut tuples = Vec::with_capacity(0usize);
+
+      while !parser.ensure(TokenKind::Group(Group::ParenClose)) {
+        if parser
+          .expect(TokenKind::Punctuation(Punctuation::Comma))
+          .is_ok()
+        {
+          continue;
+        }
+
+        tuples.push(parser.parse_expr(Precedence::Low)?);
+        parser.next();
+      }
+
+      let hi = parser.current_span();
+      let span = Span::merge(lo, hi);
+
+      return Ok(Expr {
+        kind: ExprKind::Tuple(tuples),
+        span,
+      });
+    }
 
     parser.expect_peek(TokenKind::Group(Group::ParenClose))?;
 
@@ -821,7 +851,7 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
-  /// Gets the infix function.
+  /// Gets an infix function.
   fn parse_infix_fn(&self) -> Result<InfixFn> {
     let token = self.maybe_token_next.unwrap();
 
@@ -829,6 +859,7 @@ impl<'tokens> Parser<'tokens> {
       k if k.is_binop() => Box::new(Self::parse_expr_infix),
       k if k.is_assignment() => Box::new(Self::parse_expr_assignment),
       k if k.is_index() => Box::new(Self::parse_expr_array_access),
+      k if k.is_chaining() => Box::new(Self::parse_expr_tuple_access),
       _ => return Err(error::syntax::invalid_infix(token.span, *token)),
     })
   }
@@ -951,6 +982,23 @@ impl<'tokens> Parser<'tokens> {
 
     Ok(Expr {
       kind: ExprKind::ArrayAccess(Box::new(lhs), Box::new(access)),
+      span,
+    })
+  }
+
+  /// Parses a tuple access expression.
+  fn parse_expr_tuple_access(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    parser.next();
+
+    // println!("{:?}", parser.maybe_token_current);
+    // println!("{:?}", parser.maybe_token_next);
+
+    let access = parser.parse_expr(Precedence::Chaining)?;
+    let hi = parser.current_span();
+    let span = Span::merge(lhs.span, hi);
+
+    Ok(Expr {
+      kind: ExprKind::TupleAccess(Box::new(lhs), Box::new(access)),
       span,
     })
   }
