@@ -319,6 +319,9 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         TokenKind::Punctuation(Punctuation::Colon) => self.parse_ty_type(),
+        TokenKind::Punctuation(Punctuation::ColonEqual) => {
+          Ok(Ty::infer(token.span))
+        }
         _ => Err(error::syntax::expected_ty(token.span, *token)),
       })
       .unwrap()?;
@@ -330,7 +333,7 @@ impl<'tokens> Parser<'tokens> {
     Ok(ty)
   }
 
-  /// Parses a primitive.
+  /// Parses a type.
   fn parse_ty_type(&mut self) -> Result<Ty> {
     self.next();
 
