@@ -1,7 +1,7 @@
 use super::ast::{
-  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
-  Mutability, Pattern, PatternKind, Stmt, StmtKind, UnOp, UnOpKind, Var,
-  VarKind,
+  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Input, Item, ItemKind, Lit,
+  LitKind, Mutability, OutputTy, Pattern, PatternKind, Prototype, Stmt,
+  StmtKind, UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_ty::ty::TyKind;
@@ -139,6 +139,14 @@ impl std::fmt::Display for ExprKind {
       },
       Self::Continue => write!(f, "continue"),
       Self::Var(var) => write!(f, "{var}"),
+      Self::Closure(prototype, block) => {
+        if block.len() == 1 {
+          return write!(f, "fn {prototype} -> {}", block[0]);
+        }
+
+        write!(f, "fn {prototype} {block}")
+      }
+      Self::Call(callee, args) => write!(f, "{callee}({})", sep_comma(args)),
     }
   }
 }
@@ -215,5 +223,32 @@ impl std::fmt::Display for Block {
     }
 
     write!(f, "{{\n{}\n}}", sep_newline(&self.stmts))
+  }
+}
+
+impl std::fmt::Display for Prototype {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(
+      f,
+      "{} ({}): {}",
+      self.pattern,
+      sep_comma(&self.inputs),
+      self.output_ty
+    )
+  }
+}
+
+impl std::fmt::Display for Input {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}", self.pattern)
+  }
+}
+
+impl std::fmt::Display for OutputTy {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Default(_) => write!(f, ": ()"),
+      Self::Ty(ty) => write!(f, ": {ty}"),
+    }
   }
 }

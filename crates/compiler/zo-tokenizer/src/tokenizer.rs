@@ -254,6 +254,22 @@ impl<'bytes> Tokenizer<'bytes> {
           }
           _ => break,
         },
+        TokenizerState::Char => match byte {
+          b if !is!(quote_single b) => self.bump(),
+          _ => {
+            self.bump();
+
+            break;
+          }
+        },
+        TokenizerState::Str => match byte {
+          b if !is!(quote_double b) => self.bump(),
+          _ => {
+            self.bump();
+
+            break;
+          }
+        },
         TokenizerState::Unknown => {
           let span = Span::of(cursor_pos, self.cursor.pos() + 1);
 
@@ -307,6 +323,11 @@ impl<'bytes> Tokenizer<'bytes> {
         let symbol = self.interner.intern(&source);
 
         Some(TokenKind::Char(symbol))
+      }
+      TokenizerState::Str => {
+        let symbol = self.interner.intern(&source);
+
+        Some(TokenKind::Str(symbol))
       }
       _ => None,
     };

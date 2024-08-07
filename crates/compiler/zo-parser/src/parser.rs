@@ -1,9 +1,9 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Item, ItemKind, Lit, LitKind,
-  Mutability, Pattern, PatternKind, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var,
-  VarKind,
+  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Input, Item, ItemKind, Lit,
+  LitKind, Mutability, OutputTy, Pattern, PatternKind, Prototype, Pub, Stmt,
+  StmtKind, UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_interner::interner::symbol::Symbol;
@@ -17,7 +17,7 @@ use zo_tokenizer::token::punctuation::Punctuation;
 use zo_tokenizer::token::{Token, TokenKind};
 use zo_ty::ty::{FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, UintTy};
 
-use swisskit::span::Span;
+use swisskit::span::{AsSpan, Span};
 
 /// A type that defines a prefix function.
 type PrefixFn = Box<dyn FnOnce(&mut Parser) -> Result<Expr>>;
@@ -34,6 +34,8 @@ struct Parser<'tokens> {
   maybe_token_next: Option<&'tokens Token>,
   /// The current span.
   span_current: Span,
+  /// The closure counter.
+  counter_fn: usize,
   /// A group of tokens — see also [`Token`] for more information.
   tokens: &'tokens [Token],
   /// An interner — see also [`Interner`] for more information.
@@ -55,6 +57,7 @@ impl<'tokens> Parser<'tokens> {
       maybe_token_current: None,
       maybe_token_next: None,
       span_current: Span::ZERO,
+      counter_fn: 0usize,
       tokens,
       interner,
       reporter,
@@ -344,6 +347,7 @@ impl<'tokens> Parser<'tokens> {
           self.parse_ty_ident_or_array(symbol, token.span)
         }
         TokenKind::Group(Group::ParenOpen) => self.parse_ty_tuple(token.span),
+        TokenKind::Kw(Kw::FnUpper) => self.parse_ty_closure(token.span),
         _ => Err(error::syntax::unexpected_token(token.span, *token)),
       })
       .unwrap()
@@ -428,6 +432,43 @@ impl<'tokens> Parser<'tokens> {
     Ok(Ty::tuple(tys, span))
   }
 
+  /// Parses closure type.
+  fn parse_ty_closure(&mut self, span: Span) -> Result<Ty> {
+    self.next();
+
+    let inputs = self.parse_ty_closure_inputs()?;
+    let output = self.parse_ty_closure_output()?;
+    let span = Span::merge(span, self.current_span());
+
+    Ok(Ty::closure(inputs, output, span))
+  }
+
+  /// Parses inputs closure type.
+  fn parse_ty_closure_inputs(&mut self) -> Result<Vec<Ty>> {
+    let mut inputs = Vec::with_capacity(0usize);
+
+    while !self
+      .expect_peek(TokenKind::Group(Group::ParenClose))
+      .is_ok()
+    {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      inputs.push(self.parse_ty_type()?);
+    }
+
+    Ok(inputs)
+  }
+
+  /// Parses output closure type.
+  fn parse_ty_closure_output(&mut self) -> Result<Ty> {
+    self.parse_ty()
+  }
+
   /// Parses an expression statement.
   fn parse_stmt_expr(&mut self) -> Result<Stmt> {
     let lo = self.current_span();
@@ -489,6 +530,8 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Kw(Kw::False) | TokenKind::Kw(Kw::True) => {
         Box::new(Self::parse_expr_lit_bool)
       }
+      TokenKind::Char(_) => Box::new(Self::parse_expr_lit_char),
+      TokenKind::Str(_) => Box::new(Self::parse_expr_lit_str),
       TokenKind::Punctuation(Punctuation::Minus)
       | TokenKind::Punctuation(Punctuation::Exclamation) => {
         Box::new(Self::parse_expr_unop)
@@ -504,6 +547,7 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Kw(Kw::Return) => Box::new(Self::parse_expr_return),
       TokenKind::Kw(Kw::Break) => Box::new(Self::parse_expr_break),
       TokenKind::Kw(Kw::Continue) => Box::new(Self::parse_expr_continue),
+      TokenKind::Kw(Kw::FnLower) => Box::new(Self::parse_expr_fn),
       _ => return Err(error::syntax::invalid_prefix(token.span, *token)),
     })
   }
@@ -582,6 +626,46 @@ impl<'tokens> Parser<'tokens> {
                 return Err(error::syntax::expected_bool(token.span, *token))
               }
             },
+            span: token.span,
+          }),
+          span: token.span,
+        })
+      })
+      .unwrap()
+  }
+
+  /// Parses a char expression.
+  fn parse_expr_lit_char(parser: &mut Parser) -> Result<Expr> {
+    parser
+      .maybe_token_current
+      .map(|token| {
+        let TokenKind::Char(sym) = token.kind else {
+          panic!();
+        };
+
+        Ok(Expr {
+          kind: ExprKind::Lit(Lit {
+            kind: LitKind::Char(sym),
+            span: token.span,
+          }),
+          span: token.span,
+        })
+      })
+      .unwrap()
+  }
+
+  /// Parses a str expression.
+  fn parse_expr_lit_str(parser: &mut Parser) -> Result<Expr> {
+    parser
+      .maybe_token_current
+      .map(|token| {
+        let TokenKind::Str(sym) = token.kind else {
+          panic!();
+        };
+
+        Ok(Expr {
+          kind: ExprKind::Lit(Lit {
+            kind: LitKind::Str(sym),
             span: token.span,
           }),
           span: token.span,
@@ -729,25 +813,53 @@ impl<'tokens> Parser<'tokens> {
 
   /// Parses a block.
   fn parse_block(&mut self) -> Result<Block> {
-    let mut stmts = Vec::with_capacity(0usize);
     let lo = self.current_span();
 
-    self.expect_peek(TokenKind::Group(Group::BraceOpen))?;
+    self
+      .maybe_token_next
+      .map(|token| match token.kind {
+        TokenKind::Punctuation(Punctuation::MinusGreaterThan) => {
+          self.next();
+          self.next();
 
-    while !self.ensure_peek(TokenKind::Group(Group::BraceClose))
-      && self.has_tokens()
-    {
-      self.next();
-      stmts.push(self.parse_stmt()?);
-    }
+          let mut stmts = Vec::with_capacity(1usize);
+          let expr = self.parse_expr(Precedence::Low)?;
+          let span = expr.span;
 
-    self.expect_peek(TokenKind::Group(Group::BraceClose))?;
-    self.next();
+          stmts.push(Stmt {
+            kind: StmtKind::Expr(Box::new(expr)),
+            span,
+          });
 
-    let hi = self.current_span();
-    let span = Span::merge(lo, hi);
+          self.next();
 
-    Ok(Block { stmts, span })
+          let span = Span::merge(lo, span);
+
+          Ok(Block { stmts, span })
+        }
+        TokenKind::Group(Group::BraceOpen) => {
+          let mut stmts = Vec::with_capacity(1usize);
+
+          self.expect_peek(TokenKind::Group(Group::BraceOpen))?;
+
+          while !self.ensure_peek(TokenKind::Group(Group::BraceClose))
+            && self.has_tokens()
+          {
+            self.next();
+            stmts.push(self.parse_stmt()?);
+          }
+
+          self.expect_peek(TokenKind::Group(Group::BraceClose))?;
+          // self.next();
+
+          let hi = self.current_span();
+          let span = Span::merge(lo, hi);
+
+          Ok(Block { stmts, span })
+        }
+        _ => return Err(error::syntax::unexpected_token(token.span, *token)),
+      })
+      .unwrap()
   }
 
   /// Parses a ternary condition expression.
@@ -880,6 +992,116 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
+  /// Parses a closure expression.
+  fn parse_expr_fn(parser: &mut Parser) -> Result<Expr> {
+    let lo = parser.current_span();
+    let sym = parser.interner.intern(&format!("fn_{}", parser.counter_fn));
+    let name = parser.interner.lookup(*sym);
+    let span = Span::of(lo.hi, lo.hi + name.len());
+
+    let pattern = Pattern {
+      kind: PatternKind::Ident(Box::new(Expr {
+        kind: ExprKind::Lit(Lit {
+          kind: LitKind::Ident(sym),
+          span,
+        }),
+        span,
+      })),
+      span,
+    };
+
+    let inputs = parser.parse_inputs()?;
+    let output_ty = OutputTy::Ty(Ty::infer(Span::ZERO));
+    let span = Span::merge(pattern.span, output_ty.as_span());
+
+    let prototype = Prototype {
+      pattern,
+      inputs,
+      output_ty,
+      span,
+    };
+
+    println!("{:?}", parser.maybe_token_current);
+    println!("{:?}", parser.maybe_token_next);
+
+    let block = parser.parse_block()?;
+    // let block = parser
+    //   .maybe_token_next
+    //   .map(|token| match token.kind {
+    //     TokenKind::Punctuation(Punctuation::MinusGreaterThan) => {
+    //       parser.next();
+    //       parser.next();
+
+    //       // println!("{:?}", parser.maybe_token_current);
+    //       // println!("{:?}", parser.maybe_token_next);
+
+    //       let expr = parser.parse_expr(Precedence::Low)?;
+    //       let span = expr.span;
+
+    //       Ok(Block {
+    //         stmts: vec![Stmt {
+    //           kind: StmtKind::Expr(Box::new(expr)),
+    //           span,
+    //         }],
+    //         span,
+    //       })
+    //     }
+    //     TokenKind::Group(Group::BraceOpen) => {
+    //       // println!("{:?}", parser.maybe_token_current);
+    //       // println!("{:?}", parser.maybe_token_next);
+
+    //       parser.parse_block()
+    //     }
+    //     _ => Err(error::syntax::unexpected_token(token.span, *token)),
+    //   })
+    //   .unwrap()?;
+
+    let hi = parser.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Expr {
+      kind: ExprKind::Closure(prototype, block),
+      span,
+    })
+  }
+
+  /// Parses a list of inputs for function and closure.
+  fn parse_inputs(&mut self) -> Result<Vec<Input>> {
+    let mut inputs = Vec::with_capacity(0usize);
+
+    self.expect_peek(TokenKind::Group(Group::ParenOpen))?;
+
+    while !self.ensure_peek(TokenKind::Group(Group::ParenClose)) {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      self.next();
+      inputs.push(self.parse_input()?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::ParenClose))?;
+
+    Ok(inputs)
+  }
+
+  /// Parses an input.
+  fn parse_input(&mut self) -> Result<Input> {
+    let lo = self.current_span();
+    let pattern = self.parse_pattern()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Input {
+      pattern,
+      ty: Ty::UNIT,
+      span,
+    })
+  }
+
   /// Gets an infix function.
   fn parse_infix_fn(&self) -> Result<InfixFn> {
     let token = self.maybe_token_next.unwrap();
@@ -889,6 +1111,7 @@ impl<'tokens> Parser<'tokens> {
       k if k.is_assignment() => Box::new(Self::parse_expr_assignment),
       k if k.is_index() => Box::new(Self::parse_expr_array_access),
       k if k.is_chaining() => Box::new(Self::parse_expr_tuple_access),
+      k if k.is_calling() => Box::new(Self::parse_expr_call),
       _ => return Err(error::syntax::invalid_infix(token.span, *token)),
     })
   }
@@ -1030,6 +1253,39 @@ impl<'tokens> Parser<'tokens> {
       kind: ExprKind::TupleAccess(Box::new(lhs), Box::new(access)),
       span,
     })
+  }
+
+  /// Parses a call expression.
+  fn parse_expr_call(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
+    let args = parser.parse_args()?;
+    let hi = parser.current_span();
+    let span = Span::merge(lhs.span, hi);
+
+    Ok(Expr {
+      kind: ExprKind::Call(Box::new(lhs), args),
+      span,
+    })
+  }
+
+  /// Parses args.
+  fn parse_args(&mut self) -> Result<Vec<Expr>> {
+    let mut args = Vec::with_capacity(0usize);
+
+    while !self.ensure_peek(TokenKind::Group(Group::ParenClose)) {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      self.next();
+      args.push(self.parse_expr(Precedence::Low)?);
+    }
+
+    self.expect_peek(TokenKind::Group(Group::ParenClose))?;
+
+    Ok(args)
   }
 
   /// Parses an item statement.

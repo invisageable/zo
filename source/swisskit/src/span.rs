@@ -1,5 +1,11 @@
 pub mod source;
 
+/// The behavoir for span.
+pub trait AsSpan {
+  /// Converts an instance into span.
+  fn as_span(&self) -> Span;
+}
+
 /// A region in a source code.
 ///
 /// #### understanding.

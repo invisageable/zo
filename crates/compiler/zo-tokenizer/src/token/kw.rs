@@ -21,7 +21,8 @@ lazy_static::lazy_static! {
     kw.insert(SmolStr::new_inline("enum"), TokenKind::Kw(Kw::Enum));
     kw.insert(SmolStr::new_inline("ext"), TokenKind::Kw(Kw::Ext));
     kw.insert(SmolStr::new_inline("false"), TokenKind::Kw(Kw::False));
-    kw.insert(SmolStr::new_inline("fn"), TokenKind::Kw(Kw::Fn));
+    kw.insert(SmolStr::new_inline("Fn"), TokenKind::Kw(Kw::FnUpper));
+    kw.insert(SmolStr::new_inline("fn"), TokenKind::Kw(Kw::FnLower));
     kw.insert(SmolStr::new_inline("fun"), TokenKind::Kw(Kw::Fun));
     kw.insert(SmolStr::new_inline("for"), TokenKind::Kw(Kw::For));
     kw.insert(SmolStr::new_inline("if"), TokenKind::Kw(Kw::If));
@@ -69,7 +70,8 @@ pub enum Kw {
   Enum,
   Ext,
   False,
-  Fn,
+  FnUpper,
+  FnLower,
   Fun,
   For,
   If,
@@ -104,7 +106,8 @@ impl std::fmt::Display for Kw {
       Self::Enum => write!(f, "enum"),
       Self::Ext => write!(f, "ext"),
       Self::False => write!(f, "false"),
-      Self::Fn => write!(f, "fn"),
+      Self::FnUpper => write!(f, "Fn"),
+      Self::FnLower => write!(f, "fn"),
       Self::Fun => write!(f, "fun"),
       Self::For => write!(f, "for"),
       Self::If => write!(f, "if"),

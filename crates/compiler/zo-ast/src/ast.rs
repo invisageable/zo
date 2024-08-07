@@ -4,7 +4,7 @@ use zo_tokenizer::token::punctuation::Punctuation;
 use zo_tokenizer::token::{Token, TokenKind};
 use zo_ty::ty::Ty;
 
-use swisskit::span::Span;
+use swisskit::span::{AsSpan, Span};
 
 use smol_str::{SmolStr, ToSmolStr};
 
@@ -249,6 +249,10 @@ pub enum ExprKind {
   Continue,
   /// variable — `imu foo : int = 0`, `mut foo := 0`.
   Var(Var),
+  /// closure — `fn (x) -> x`, `fn () { .. }`
+  Closure(Prototype, Block),
+  /// call — `foo()`, `bar(1, 2)`
+  Call(Box<Expr>, Vec<Expr>),
 }
 
 impl Symbolize for ExprKind {
@@ -352,8 +356,6 @@ impl From<BinOp> for SmolStr {
 impl From<&Token> for BinOp {
   #[inline]
   fn from(token: &Token) -> Self {
-    println!("{token:?}");
-
     match token.kind {
       TokenKind::Punctuation(punctuation) => Self {
         kind: BinOpKind::from(punctuation),
@@ -465,5 +467,54 @@ impl std::ops::Deref for Block {
   #[inline]
   fn deref(&self) -> &Self::Target {
     &self.stmts
+  }
+}
+
+/// The representation of a prototype — `foo(x: int): int`.
+#[derive(Clone, Debug)]
+pub struct Prototype {
+  pub pattern: Pattern,
+  pub inputs: Vec<Input>,
+  pub output_ty: OutputTy,
+  pub span: Span,
+}
+
+impl Symbolize for Prototype {
+  #[inline]
+  fn as_symbol(&self) -> &Symbol {
+    self.pattern.as_symbol()
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Input {
+  pub pattern: Pattern,
+  pub ty: Ty,
+  pub span: Span,
+}
+
+impl Symbolize for Input {
+  #[inline]
+  fn as_symbol(&self) -> &Symbol {
+    self.pattern.as_symbol()
+  }
+}
+
+/// The representation of an output type.
+#[derive(Clone, Debug)]
+pub enum OutputTy {
+  /// returns `()`.
+  Default(Span),
+  /// returns type such as `int`, float, etc.
+  Ty(Ty),
+}
+
+impl AsSpan for OutputTy {
+  #[inline]
+  fn as_span(&self) -> Span {
+    match self {
+      Self::Default(span) => *span,
+      Self::Ty(ty) => ty.span,
+    }
   }
 }

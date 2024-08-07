@@ -1,6 +1,21 @@
-use super::value::{Block, Value, ValueKind};
+use super::value::{Block, Pattern, PatternKind, Prototype, Value, ValueKind};
 
 use swisskit::fmt::{sep_comma, sep_newline};
+
+impl std::fmt::Display for Pattern {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}", self.kind)
+  }
+}
+
+impl std::fmt::Display for PatternKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Underscore => write!(f, "_"),
+      Self::Ident(ident) => write!(f, "{ident}"),
+    }
+  }
+}
 
 impl std::fmt::Display for Value {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -22,6 +37,13 @@ impl std::fmt::Display for ValueKind {
       Self::Return(value) => write!(f, "return {value};"),
       Self::Break(value) => write!(f, "break {value};"),
       Self::Continue => write!(f, "continue;"),
+      Self::Closure(prototype, body) => {
+        if body.len() == 1 {
+          return write!(f, "fn {prototype} -> {}", body[0]);
+        }
+
+        write!(f, "fn {prototype} {body}")
+      }
     }
   }
 }
@@ -33,5 +55,11 @@ impl std::fmt::Display for Block {
     }
 
     write!(f, "{{\n{}\n}}", sep_newline(&self.values))
+  }
+}
+
+impl std::fmt::Display for Prototype {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{} ({})", self.pattern, sep_comma(&self.inputs),)
   }
 }

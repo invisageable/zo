@@ -88,6 +88,12 @@ impl Ty {
     Self::new(TyKind::Tuple(tys), span)
   }
 
+  /// Creates a new closure type.
+  #[inline]
+  pub fn closure(inputs: Vec<Ty>, output: Ty, span: Span) -> Self {
+    Self::new(TyKind::Closure(inputs, Box::new(output)), span)
+  }
+
   /// Retrieves the set of quantified type variables.
   #[inline]
   pub fn ty_vars(&self) -> HashSet<usize> {
@@ -110,6 +116,8 @@ pub enum TyKind {
   Array(Box<Ty>, Option<usize>),
   /// tuple — `(int, float)`.
   Tuple(Vec<Ty>),
+  /// closure — `Fn()`, `Fn(int): int`.
+  Closure(Vec<Ty>, Box<Ty>),
   /// constructed type.
   Con(SmolStr, Vec<Ty>),
 }

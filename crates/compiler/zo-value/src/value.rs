@@ -81,6 +81,12 @@ impl Value {
     Self::new(ValueKind::While(condition, block), span)
   }
 
+  /// Creates a new closure.
+  #[inline]
+  pub fn closure(prototype: Prototype, block: Block, span: Span) -> Self {
+    Self::new(ValueKind::Closure(prototype, block), span)
+  }
+
   /// Converts a value into a boolean.
   #[inline]
   pub fn as_bool(&self) -> bool {
@@ -120,6 +126,8 @@ pub enum ValueKind {
   Break(Box<Value>),
   /// continue — `continue;`.
   Continue,
+  /// closure — `fn (x) -> x`, `fn (x) {..}`.
+  Closure(Prototype, Block),
 }
 
 impl ValueKind {
@@ -168,4 +176,30 @@ impl std::ops::Deref for Block {
   fn deref(&self) -> &Self::Target {
     &self.values
   }
+}
+
+/// The representation of a pattern.
+#[derive(Clone, Debug)]
+pub struct Pattern {
+  /// A pattern kind — see also [`PatternKind`] for more information..
+  pub kind: PatternKind,
+  /// A span of the pattern — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of different kinds of patterns.
+#[derive(Clone, Debug)]
+pub enum PatternKind {
+  /// underscore — `_`.
+  Underscore,
+  /// identifier — `foo`, `bar`.
+  Ident(SmolStr),
+}
+
+/// The representation of a prototype — `foo(x)`.
+#[derive(Clone, Debug)]
+pub struct Prototype {
+  pub pattern: Pattern,
+  pub inputs: Vec<Pattern>,
+  pub span: Span,
 }
