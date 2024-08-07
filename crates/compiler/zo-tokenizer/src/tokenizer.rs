@@ -132,6 +132,11 @@ impl<'bytes> Tokenizer<'bytes> {
               .reporter
               .raise(error::lexical::invalid_number(span, byte));
           }
+          b if is!(dot b) => {
+            state = TokenizerState::Float;
+
+            self.bump();
+          }
           _ => {
             state = TokenizerState::Int;
 
