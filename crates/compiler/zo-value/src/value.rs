@@ -1,3 +1,7 @@
+use super::builtin::BuiltinFn;
+
+use zo_ast::ast;
+
 use swisskit::span::Span;
 
 use smol_str::{SmolStr, ToSmolStr};
@@ -77,13 +81,21 @@ impl Value {
 
   /// Creates a new while.
   #[inline]
-  pub fn loop_while(condition: Box<Value>, block: Block, span: Span) -> Self {
+  pub fn loop_while(
+    condition: Box<Value>,
+    block: ast::Block,
+    span: Span,
+  ) -> Self {
     Self::new(ValueKind::While(condition, block), span)
   }
 
   /// Creates a new closure.
   #[inline]
-  pub fn closure(prototype: Prototype, block: Block, span: Span) -> Self {
+  pub fn closure(
+    prototype: ast::Prototype,
+    block: ast::Block,
+    span: Span,
+  ) -> Self {
     Self::new(ValueKind::Closure(prototype, block), span)
   }
 
@@ -117,9 +129,9 @@ pub enum ValueKind {
   /// tuple — `(1, 2, 3, 4)`.
   Tuple(Vec<Value>),
   /// loop instruction value — `loop {..}`.
-  Loop(Block),
+  Loop(ast::Block),
   /// while instruction value — `while true {..}`.
-  While(Box<Value>, Block),
+  While(Box<Value>, ast::Block),
   /// return — `return foobar;`, `return;`.
   Return(Box<Value>),
   /// break — `break foobar;`, `break;`.
@@ -127,7 +139,9 @@ pub enum ValueKind {
   /// continue — `continue;`.
   Continue,
   /// closure — `fn (x) -> x`, `fn (x) {..}`.
-  Closure(Prototype, Block),
+  Closure(ast::Prototype, ast::Block),
+  /// builtin function.
+  Builtin(BuiltinFn),
 }
 
 impl ValueKind {
@@ -140,66 +154,4 @@ impl ValueKind {
       _ => true,
     }
   }
-}
-
-/// The representation of a block.
-#[derive(Clone, Debug)]
-pub struct Block {
-  /// The value list inside the block.
-  pub values: Vec<Value>,
-  /// The span of a block — see also [`Span`] if your needed.
-  pub span: Span,
-}
-
-impl Block {
-  /// Checks if the block do not constains value instructions.
-  #[inline]
-  pub fn is_empty(&self) -> bool {
-    self.values.is_empty()
-  }
-}
-
-impl Default for Block {
-  #[inline]
-  fn default() -> Self {
-    Self {
-      values: Vec::with_capacity(0usize),
-      span: Span::ZERO,
-    }
-  }
-}
-
-impl std::ops::Deref for Block {
-  type Target = Vec<Value>;
-
-  #[inline]
-  fn deref(&self) -> &Self::Target {
-    &self.values
-  }
-}
-
-/// The representation of a pattern.
-#[derive(Clone, Debug)]
-pub struct Pattern {
-  /// A pattern kind — see also [`PatternKind`] for more information..
-  pub kind: PatternKind,
-  /// A span of the pattern — see also [`Span`] for more information.
-  pub span: Span,
-}
-
-/// The representation of different kinds of patterns.
-#[derive(Clone, Debug)]
-pub enum PatternKind {
-  /// underscore — `_`.
-  Underscore,
-  /// identifier — `foo`, `bar`.
-  Ident(SmolStr),
-}
-
-/// The representation of a prototype — `foo(x)`.
-#[derive(Clone, Debug)]
-pub struct Prototype {
-  pub pattern: Pattern,
-  pub inputs: Vec<Pattern>,
-  pub span: Span,
 }

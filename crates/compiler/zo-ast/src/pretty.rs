@@ -247,8 +247,8 @@ impl std::fmt::Display for Input {
 impl std::fmt::Display for OutputTy {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      Self::Default(_) => write!(f, ": ()"),
-      Self::Ty(ty) => write!(f, ": {ty}"),
+      Self::Default(_) => write!(f, "()"),
+      Self::Ty(ty) => write!(f, "{ty}"),
     }
   }
 }

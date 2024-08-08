@@ -6,14 +6,10 @@ use zo_interner::interner::Interner;
 use zo_reporter::reporter::Reporter;
 use zo_reporter::{error, Result};
 use zo_session::session::Session;
-
-use zo_value::value::{
-  Block, Pattern, PatternKind, Prototype, Value, ValueKind,
-};
+use zo_value::builtin::BuiltinFn;
+use zo_value::value::{Value, ValueKind};
 
 use swisskit::span::Span;
-
-use smol_str::ToSmolStr;
 
 /// The representation of an interpreter.
 struct Interpreter<'ast> {
@@ -632,39 +628,7 @@ impl<'ast> Interpreter<'ast> {
   ) -> Result<Value> {
     // needs work.
     let name = *prototype.as_symbol();
-
-    let prototype = Prototype {
-      pattern: Pattern {
-        kind: PatternKind::Ident(
-          self
-            .interner
-            .lookup(**prototype.pattern.as_symbol())
-            .to_smolstr(),
-        ),
-        span: prototype.pattern.span,
-      },
-      inputs: prototype
-        .inputs
-        .iter()
-        .map(|i| Pattern {
-          kind: PatternKind::Ident(
-            self.interner.lookup(**i.pattern.as_symbol()).to_smolstr(),
-          ),
-          span: i.pattern.span,
-        })
-        .collect(),
-      span: prototype.span,
-    };
-
-    let block = Block {
-      values: block
-        .iter()
-        .map(|s| self.interpret_stmt(s).unwrap())
-        .collect(),
-      span: block.span,
-    };
-
-    let value = Value::closure(prototype, block, span);
+    let value = Value::closure(prototype.to_owned(), block.to_owned(), span);
 
     self.scope_map.add_fun(name, value.to_owned())?;
 
@@ -674,11 +638,72 @@ impl<'ast> Interpreter<'ast> {
   /// Interprets a call expression.
   fn interpret_expr_call(
     &mut self,
-    _prototype: &ast::Expr,
-    _body: &[ast::Expr],
+    callee: &ast::Expr,
+    args: &[ast::Expr],
     _span: Span,
   ) -> Result<Value> {
-    todo!()
+    let callee = self.interpret_expr(callee)?;
+    let args = self.interpret_args(args)?;
+
+    match callee.kind {
+      ValueKind::Closure(prototype, block) => {
+        self.interpret_expr_call_fn(prototype, block, args)
+      }
+      ValueKind::Builtin(builtin) => {
+        self.interpret_expr_call_builtin(builtin, args)
+      }
+      _ => panic!(),
+    }
+  }
+
+  /// Interprets arguments.
+  fn interpret_args(&mut self, args: &[ast::Expr]) -> Result<Vec<Value>> {
+    let mut values = Vec::with_capacity(0usize);
+
+    for arg in args.iter() {
+      values.push(self.interpret_expr(arg)?);
+    }
+
+    Ok(values)
+  }
+
+  /// Interprets a call function exppression.
+  fn interpret_expr_call_fn(
+    &mut self,
+    prototype: ast::Prototype,
+    block: ast::Block,
+    args: Vec<Value>,
+  ) -> Result<Value> {
+    if prototype.inputs.len() != args.len() {
+      panic!()
+    }
+
+    self.scope_map.scope_entry();
+
+    for (idx, input) in prototype.inputs.iter().enumerate() {
+      let value = args.get(idx).unwrap();
+      let name = *input.as_symbol();
+
+      self.scope_map.add_var(name, value.to_owned())?;
+    }
+
+    let value = self.interpret_block(&block)?;
+
+    self.scope_map.scope_exit();
+
+    match value.kind {
+      ValueKind::Return(value) => Ok(*value),
+      _ => Ok(value),
+    }
+  }
+
+  /// Interprets call builtin function expression.
+  fn interpret_expr_call_builtin(
+    &mut self,
+    builtin: BuiltinFn,
+    values: Vec<Value>,
+  ) -> Result<Value> {
+    builtin(values)
   }
 }
 

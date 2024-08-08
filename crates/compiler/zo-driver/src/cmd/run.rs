@@ -59,7 +59,7 @@ impl Run {
 
     session.with_settings(Settings {
       input: self.input.clone(),
-      backend: self.backend.clone(),
+      backend: self.backend,
       profile: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
         self.profile,
       )),

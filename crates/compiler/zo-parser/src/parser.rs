@@ -411,9 +411,9 @@ impl<'tokens> Parser<'tokens> {
   fn parse_ty_tuple(&mut self, span: Span) -> Result<Ty> {
     let mut tys = Vec::with_capacity(0usize);
 
-    while !self
+    while self
       .expect_peek(TokenKind::Group(Group::ParenClose))
-      .is_ok()
+      .is_err()
     {
       if self
         .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
@@ -447,9 +447,9 @@ impl<'tokens> Parser<'tokens> {
   fn parse_ty_closure_inputs(&mut self) -> Result<Vec<Ty>> {
     let mut inputs = Vec::with_capacity(0usize);
 
-    while !self
+    while self
       .expect_peek(TokenKind::Group(Group::ParenClose))
-      .is_ok()
+      .is_err()
     {
       if self
         .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
@@ -831,8 +831,6 @@ impl<'tokens> Parser<'tokens> {
             span,
           });
 
-          self.next();
-
           let span = Span::merge(lo, span);
 
           Ok(Block { stmts, span })
@@ -857,7 +855,7 @@ impl<'tokens> Parser<'tokens> {
 
           Ok(Block { stmts, span })
         }
-        _ => return Err(error::syntax::unexpected_token(token.span, *token)),
+        _ => Err(error::syntax::unexpected_token(token.span, *token)),
       })
       .unwrap()
   }
@@ -1021,41 +1019,7 @@ impl<'tokens> Parser<'tokens> {
       span,
     };
 
-    println!("{:?}", parser.maybe_token_current);
-    println!("{:?}", parser.maybe_token_next);
-
     let block = parser.parse_block()?;
-    // let block = parser
-    //   .maybe_token_next
-    //   .map(|token| match token.kind {
-    //     TokenKind::Punctuation(Punctuation::MinusGreaterThan) => {
-    //       parser.next();
-    //       parser.next();
-
-    //       // println!("{:?}", parser.maybe_token_current);
-    //       // println!("{:?}", parser.maybe_token_next);
-
-    //       let expr = parser.parse_expr(Precedence::Low)?;
-    //       let span = expr.span;
-
-    //       Ok(Block {
-    //         stmts: vec![Stmt {
-    //           kind: StmtKind::Expr(Box::new(expr)),
-    //           span,
-    //         }],
-    //         span,
-    //       })
-    //     }
-    //     TokenKind::Group(Group::BraceOpen) => {
-    //       // println!("{:?}", parser.maybe_token_current);
-    //       // println!("{:?}", parser.maybe_token_next);
-
-    //       parser.parse_block()
-    //     }
-    //     _ => Err(error::syntax::unexpected_token(token.span, *token)),
-    //   })
-    //   .unwrap()?;
-
     let hi = parser.current_span();
     let span = Span::merge(lo, hi);
 
@@ -1241,9 +1205,6 @@ impl<'tokens> Parser<'tokens> {
   /// Parses a tuple access expression.
   fn parse_expr_tuple_access(parser: &mut Parser, lhs: Expr) -> Result<Expr> {
     parser.next();
-
-    // println!("{:?}", parser.maybe_token_current);
-    // println!("{:?}", parser.maybe_token_next);
 
     let access = parser.parse_expr(Precedence::Chaining)?;
     let hi = parser.current_span();

@@ -31,7 +31,6 @@ impl<'a> Diagnostic<'a> for Internal {
         message: format!("{error}").into(),
         ..Default::default()
       },
-      _ => todo!(),
     }
   }
 }
