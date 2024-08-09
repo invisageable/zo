@@ -15,7 +15,9 @@
 //
 // end of life.
 
-use zo_ast::ast::Ast;
+use super::checker;
+
+use zo_ast::ast;
 use zo_reporter::Result;
 use zo_session::session::Session;
 
@@ -23,13 +25,19 @@ use zo_session::session::Session;
 struct Analyzer;
 impl Analyzer {
   /// Analyses the AST and performs a bunch of analysis related to the semantic.
-  fn analyze(&mut self, _session: &mut Session, ast: &Ast) -> Result<Ast> {
+  fn analyze(
+    &mut self,
+    session: &mut Session,
+    ast: &ast::Ast,
+  ) -> Result<ast::Ast> {
+    checker::name::check(session, ast)?;
+
     Ok(ast.to_owned())
   }
 }
 
 /// Analyses the AST and performs a bunch of analysis related to the semantic —
 /// see also [`Analyzer::analyze`].
-pub fn analyze(session: &mut Session, ast: &Ast) -> Result<Ast> {
+pub fn analyze(session: &mut Session, ast: &ast::Ast) -> Result<ast::Ast> {
   Analyzer.analyze(session, ast)
 }

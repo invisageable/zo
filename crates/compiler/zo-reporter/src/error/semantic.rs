@@ -2,6 +2,7 @@ use super::{Diagnostic, Error};
 
 use crate::color;
 use crate::report::Report;
+use crate::report::ReportKind;
 
 use swisskit::span::Span;
 
@@ -13,6 +14,8 @@ use smol_str::SmolStr;
 pub enum Semantic {
   /// A mismatched types error.
   MismatchedTy((Span, SmolStr), (Span, SmolStr)),
+  /// A naming convention error.
+  NamingConvention(Span, SmolStr, SmolStr),
 }
 
 impl<'a> Diagnostic<'a> for Semantic {
@@ -20,6 +23,7 @@ impl<'a> Diagnostic<'a> for Semantic {
   fn report(&self) -> Report<'a> {
     match self {
       Self::MismatchedTy(t1, t2) => Report {
+        kind: ReportKind::ERROR,
         message: format!("{}", "mismatched types".fg(color::title())).into(),
         labels: vec![
           (
@@ -33,6 +37,10 @@ impl<'a> Diagnostic<'a> for Semantic {
             color::error(),
           ),
         ],
+        ..Default::default()
+      },
+      Self::NamingConvention(_span, _name, _convention) => Report {
+        kind: ReportKind::WARNING,
         ..Default::default()
       },
     }
@@ -49,4 +57,14 @@ pub const fn mismatched_types(
   t2: (Span, SmolStr),
 ) -> Error {
   Error::Semantic(Semantic::MismatchedTy(t1, t2))
+}
+
+/// The naming conventino error.
+#[inline]
+pub fn naming_convention(
+  span: Span,
+  name: impl Into<SmolStr>,
+  naming: impl Into<SmolStr>,
+) -> Error {
+  Error::Semantic(Semantic::NamingConvention(span, name.into(), naming.into()))
 }

@@ -249,7 +249,7 @@ pub enum ExprKind {
   Continue,
   /// variable — `imu foo : int = 0`, `mut foo := 0`.
   Var(Var),
-  /// closure — `fn (x) -> x`, `fn () { .. }`
+  /// closure — `fn(x) -> x`, `fn() { .. }`
   Closure(Prototype, Block),
   /// call — `foo()`, `bar(1, 2)`
   Call(Box<Expr>, Vec<Expr>),

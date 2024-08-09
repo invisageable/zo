@@ -3,21 +3,19 @@
 -- this is a line comments.
 -! this is a line doc comments.
 
--- val A: int = 0.0;
--- val B: int = 1.0;
+val A: int = 0.0;
+val B: int = 1.0;
 
--- imu a: (int, float) = (40, 2.0);
--- imu b: int = a.0;
--- imu c := a.1;
+imu a: (int, float) = (40, 2.0);
+imu b: int = a.0;
+imu c := a.1;
 
--- mut d: float[] = [0.0, 0.5, 1.0];
--- mut e: int = d[2];
--- mut f := d[1];
+mut d: float[] = [0.0, 0.5, 1.0];
+mut e: int = d[2];
+mut f := d[1];
 
--- imu g: Fn(int): int = fn (x) -> x;
--- imu h: Fn(int): int = fn (x) {x};
--- imu i := fn (x) -> while x < 3 -> println("{}", x += 1);
+imu o: int[] = [1, 2, 3];
+imu i: Fn(int): int = fn(x) -> x * x * o[x];
+-- imu i := fn(x) -> while x < 3 -> println("{}", x += 1);
 
-imu i : Fn(int): int = fn(x) -> x * x;
-
-i(3);
+i(2);

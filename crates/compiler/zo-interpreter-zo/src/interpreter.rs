@@ -300,8 +300,6 @@ impl<'ast> Interpreter<'ast> {
     rhs: &i64,
     span: Span,
   ) -> Result<Value> {
-    println!("{lhs} {binop:?} {rhs}");
-
     Ok(match binop.kind {
       ast::BinOpKind::Add => Value::int(lhs + rhs, span),
       ast::BinOpKind::Sub => Value::int(lhs - rhs, span),
