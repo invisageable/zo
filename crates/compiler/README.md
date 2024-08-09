@@ -14,13 +14,13 @@
 
 ## syntax.
 
-The code below prints the first eleven numbers in the [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) sequence:
+The code below prints the `n` number in the [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) sequence:
 
 ```rs
 -- a simple fibonacci.
 
 fun main() {
-  imu fib := fn (n) -> when n < 2 
+  imu fib := fn(n) -> when n < 2 
     ? 1
     : fib(n - 1) + fib(n - 2);
 
