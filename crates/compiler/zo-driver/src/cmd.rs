@@ -1,6 +1,9 @@
 pub mod build;
+pub mod check;
+pub mod license;
 pub mod repl;
 pub mod run;
+pub mod version;
 
 use clap::{Parser, Subcommand};
 
@@ -31,8 +34,11 @@ impl Cmd {
   fn cmd(&mut self) {
     match self.command {
       Command::Build(ref command) => command.exec(),
+      Command::Check(ref command) => command.exec(),
+      Command::License(ref command) => command.exec(),
       Command::Repl(ref command) => command.exec(),
       Command::Run(ref command) => command.exec(),
+      Command::Version(ref command) => command.exec(),
     }
   }
 }
@@ -42,8 +48,14 @@ impl Cmd {
 pub(crate) enum Command {
   /// Builds a program.
   Build(build::Build),
+  /// Checks a program.
+  Check(check::Check),
+  /// Typewrites licenses.
+  License(license::License),
   /// Runs a program.
   Run(run::Run),
   /// Reads eval print and loop a program.
   Repl(repl::Repl),
+  /// Gets the `zo` version compiler.
+  Version(version::Version),
 }

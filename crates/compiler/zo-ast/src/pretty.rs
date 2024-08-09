@@ -1,7 +1,7 @@
 use super::ast::{
   Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Input, Item, ItemKind, Lit,
-  LitKind, Mutability, OutputTy, Pattern, PatternKind, Prototype, Stmt,
-  StmtKind, UnOp, UnOpKind, Var, VarKind,
+  LitKind, OutputTy, Pattern, PatternKind, Prototype, Stmt, StmtKind, UnOp,
+  UnOpKind, Var, VarKind,
 };
 
 use zo_ty::ty::TyKind;
@@ -9,15 +9,6 @@ use zo_ty::ty::TyKind;
 use swisskit::fmt::{sep_comma, sep_newline};
 
 use smol_str::ToSmolStr;
-
-impl std::fmt::Display for Mutability {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    match self {
-      Self::Yes(_) => write!(f, ""),
-      Self::No => write!(f, ""),
-    }
-  }
-}
 
 impl std::fmt::Display for Pattern {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

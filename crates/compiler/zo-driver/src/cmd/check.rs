@@ -1,9 +1,8 @@
-use super::Execute;
+use crate::cmd::Execute;
 
 use zo_compiler::compiler::Compiler;
 use zo_compiler::event::Event;
 use zo_compiler::phase::analyzing::Analyzing;
-use zo_compiler::phase::interpreting::Interpreting;
 use zo_compiler::phase::parsing::Parsing;
 use zo_compiler::phase::reading::Reading;
 use zo_compiler::phase::tokenizing::Tokenizing;
@@ -18,42 +17,28 @@ use swisskit::global::{EXIT_FAILURE, EXIT_SUCCESS};
 use clap::Parser;
 use smol_str::SmolStr;
 
-/// The `run` command.
+/// The `check` command.
 #[derive(Parser)]
-pub(crate) struct Run {
-  /// The pathname of an input.
-  ///
-  /// #### usage.
-  ///
-  /// `--input <pathname>`.
+pub(crate) struct Check {
+  #[clap(short, long, default_value = "false")]
+  verbose: bool,
   #[clap(short, long)]
   input: SmolStr,
-  /// The code generation backend.
-  /// Default is `zo`.
-  ///
-  /// #### usage.
-  ///
-  /// `--backend <backend>`.
-  #[clap(short, long, default_value = "zo")]
+  #[clap(short, long, default_value = "wasm")]
   backend: Backend,
-  /// The profiler flag.
-  ///
-  /// #### usage.
-  ///
-  /// `--profile`.
   #[clap(short, long, default_value = "false")]
   profile: bool,
 }
 
-impl Run {
-  /// Executes the `run` command.
+impl Check {
+  /// Executes the `check` command.
   #[inline]
-  fn run(&self) -> Result<()> {
-    self.running()
+  fn check(&self) -> Result<()> {
+    self.checking()
   }
 
-  /// Interprets a program.
-  fn running(&self) -> Result<()> {
+  /// Checks a program.
+  fn checking(&self) -> Result<()> {
     let session = std::sync::Arc::clone(&SESSION);
     let mut session = session.lock().unwrap();
 
@@ -74,23 +59,19 @@ impl Run {
       Phase::Tokenizing(Tokenizing),
       Phase::Parsing(Parsing),
       Phase::Analyzing(Analyzing),
-      Phase::Interpreting(Interpreting),
     ]);
 
     match compiler.compile()? {
-      Event::Value(value) => {
-        println!("{value}");
-        Ok(())
-      }
+      Event::Ast(_) => Ok(()),
       event => Err(error::internal::expected_event(event)),
     }
   }
 }
 
-impl Execute for Run {
+impl Execute for Check {
   #[inline]
   fn exec(&self) {
-    match self.run() {
+    match self.check() {
       Ok(_) => std::process::exit(EXIT_SUCCESS),
       Err(_) => std::process::exit(EXIT_FAILURE),
     }

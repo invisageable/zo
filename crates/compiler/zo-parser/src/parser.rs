@@ -301,7 +301,7 @@ impl<'tokens> Parser<'tokens> {
       VarKind::Mut => Ok(Stmt {
         kind: StmtKind::Var(Var {
           kind,
-          mutability: Mutability::Yes(Span::ZERO),
+          mutability: Mutability::Yes,
           pubness: Pub::No,
           pattern,
           value: Box::new(value),

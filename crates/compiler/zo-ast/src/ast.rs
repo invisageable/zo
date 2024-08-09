@@ -25,7 +25,7 @@ pub enum Pub {
 #[derive(Clone, Debug)]
 pub enum Mutability {
   /// Allows immutable.
-  Yes(Span),
+  Yes,
   /// Disallows mutable.
   No,
 }

@@ -3,61 +3,57 @@ use super::TokenKind;
 use hashbrown::{HashMap, HashSet};
 use smol_str::SmolStr;
 
+/// The keyword dictionnary.
 type Keyword = HashMap<SmolStr, TokenKind>;
+/// The type dictionnary.
 type Type = HashSet<SmolStr>;
 
 lazy_static::lazy_static! {
   // A static map of available keywords.
-  pub static ref KEYWORD: Keyword = {
-    let mut kw: Keyword = HashMap::with_capacity(0usize);
+  pub static ref KEYWORD: Keyword = HashMap::from([
+    (SmolStr::new_inline("abstract"), TokenKind::Kw(Kw::Abstract)),
+    (SmolStr::new_inline("apply"), TokenKind::Kw(Kw::Apply)),
+    (SmolStr::new_inline("async"), TokenKind::Kw(Kw::Async)),
+    (SmolStr::new_inline("await"), TokenKind::Kw(Kw::Await)),
+    (SmolStr::new_inline("break"), TokenKind::Kw(Kw::Break)),
+    (SmolStr::new_inline("continue"), TokenKind::Kw(Kw::Continue)),
+    (SmolStr::new_inline("else"), TokenKind::Kw(Kw::Else)),
+    (SmolStr::new_inline("enum"), TokenKind::Kw(Kw::Enum)),
+    (SmolStr::new_inline("ext"), TokenKind::Kw(Kw::Ext)),
+    (SmolStr::new_inline("false"), TokenKind::Kw(Kw::False)),
+    (SmolStr::new_inline("Fn"), TokenKind::Kw(Kw::FnUpper)),
+    (SmolStr::new_inline("fn"), TokenKind::Kw(Kw::FnLower)),
+    (SmolStr::new_inline("fun"), TokenKind::Kw(Kw::Fun)),
+    (SmolStr::new_inline("for"), TokenKind::Kw(Kw::For)),
+    (SmolStr::new_inline("if"), TokenKind::Kw(Kw::If)),
+    (SmolStr::new_inline("imu"), TokenKind::Kw(Kw::Imu)),
+    (SmolStr::new_inline("load"), TokenKind::Kw(Kw::Load)),
+    (SmolStr::new_inline("loop"), TokenKind::Kw(Kw::Loop)),
+    (SmolStr::new_inline("match"), TokenKind::Kw(Kw::Match)),
+    (SmolStr::new_inline("me"), TokenKind::Kw(Kw::Me)),
+    (SmolStr::new_inline("mut"), TokenKind::Kw(Kw::Mut)),
+    (SmolStr::new_inline("pack"), TokenKind::Kw(Kw::Pack)),
+    (SmolStr::new_inline("pub"), TokenKind::Kw(Kw::Pub)),
+    (SmolStr::new_inline("return"), TokenKind::Kw(Kw::Return)),
+    (SmolStr::new_inline("struct"), TokenKind::Kw(Kw::Struct)),
+    (SmolStr::new_inline("true"), TokenKind::Kw(Kw::True)),
+    (SmolStr::new_inline("type"), TokenKind::Kw(Kw::Type)),
+    (SmolStr::new_inline("val"), TokenKind::Kw(Kw::Val)),
+    (SmolStr::new_inline("wasm"), TokenKind::Kw(Kw::Wasm)),
+    (SmolStr::new_inline("when"), TokenKind::Kw(Kw::When)),
+    (SmolStr::new_inline("while"), TokenKind::Kw(Kw::While)),
+  ]);
 
-    kw.insert(SmolStr::new_inline("abstract"), TokenKind::Kw(Kw::Abstract));
-    kw.insert(SmolStr::new_inline("apply"), TokenKind::Kw(Kw::Apply));
-    kw.insert(SmolStr::new_inline("async"), TokenKind::Kw(Kw::Async));
-    kw.insert(SmolStr::new_inline("await"), TokenKind::Kw(Kw::Await));
-    kw.insert(SmolStr::new_inline("break"), TokenKind::Kw(Kw::Break));
-    kw.insert(SmolStr::new_inline("continue"), TokenKind::Kw(Kw::Continue));
-    kw.insert(SmolStr::new_inline("else"), TokenKind::Kw(Kw::Else));
-    kw.insert(SmolStr::new_inline("enum"), TokenKind::Kw(Kw::Enum));
-    kw.insert(SmolStr::new_inline("ext"), TokenKind::Kw(Kw::Ext));
-    kw.insert(SmolStr::new_inline("false"), TokenKind::Kw(Kw::False));
-    kw.insert(SmolStr::new_inline("Fn"), TokenKind::Kw(Kw::FnUpper));
-    kw.insert(SmolStr::new_inline("fn"), TokenKind::Kw(Kw::FnLower));
-    kw.insert(SmolStr::new_inline("fun"), TokenKind::Kw(Kw::Fun));
-    kw.insert(SmolStr::new_inline("for"), TokenKind::Kw(Kw::For));
-    kw.insert(SmolStr::new_inline("if"), TokenKind::Kw(Kw::If));
-    kw.insert(SmolStr::new_inline("imu"), TokenKind::Kw(Kw::Imu));
-    kw.insert(SmolStr::new_inline("load"), TokenKind::Kw(Kw::Load));
-    kw.insert(SmolStr::new_inline("loop"), TokenKind::Kw(Kw::Loop));
-    kw.insert(SmolStr::new_inline("match"), TokenKind::Kw(Kw::Match));
-    kw.insert(SmolStr::new_inline("me"), TokenKind::Kw(Kw::Me));
-    kw.insert(SmolStr::new_inline("mut"), TokenKind::Kw(Kw::Mut));
-    kw.insert(SmolStr::new_inline("pack"), TokenKind::Kw(Kw::Pack));
-    kw.insert(SmolStr::new_inline("pub"), TokenKind::Kw(Kw::Pub));
-    kw.insert(SmolStr::new_inline("return"), TokenKind::Kw(Kw::Return));
-    kw.insert(SmolStr::new_inline("struct"), TokenKind::Kw(Kw::Struct));
-    kw.insert(SmolStr::new_inline("true"), TokenKind::Kw(Kw::True));
-    kw.insert(SmolStr::new_inline("type"), TokenKind::Kw(Kw::Type));
-    kw.insert(SmolStr::new_inline("val"), TokenKind::Kw(Kw::Val));
-    kw.insert(SmolStr::new_inline("wasm"), TokenKind::Kw(Kw::Wasm));
-    kw.insert(SmolStr::new_inline("when"), TokenKind::Kw(Kw::When));
-    kw.insert(SmolStr::new_inline("while"), TokenKind::Kw(Kw::While));
-
-    kw
-  };
   // reserved words for types, an error should be handled if it used as keyword.
-  pub static ref TYPE: Type = {
-    let mut ty: Type = HashSet::with_capacity(0usize);
-
-    ty.insert(SmolStr::new_inline("int"));
-    ty.insert(SmolStr::new_inline("float"));
-    ty.insert(SmolStr::new_inline("char"));
-    ty.insert(SmolStr::new_inline("str"));
-
-    ty
-  };
+  pub static ref TYPE: Type = HashSet::from([
+    (SmolStr::new_inline("int")),
+    (SmolStr::new_inline("float")),
+    (SmolStr::new_inline("char")),
+    (SmolStr::new_inline("str")),
+  ]);
 }
 
+/// The representation of a keyword.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kw {
   Abstract,

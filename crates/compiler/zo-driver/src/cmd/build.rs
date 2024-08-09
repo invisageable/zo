@@ -53,7 +53,7 @@ impl Build {
     self.building()
   }
 
-  /// Builds the program.
+  /// Builds a program.
   fn building(&self) -> Result<()> {
     let session = std::sync::Arc::clone(&SESSION);
     let mut session = session.lock().unwrap();

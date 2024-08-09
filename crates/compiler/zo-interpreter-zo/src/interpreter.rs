@@ -624,7 +624,6 @@ impl<'ast> Interpreter<'ast> {
     block: &ast::Block,
     span: Span,
   ) -> Result<Value> {
-    // needs work.
     let name = *prototype.as_symbol();
     let value = Value::closure(prototype.to_owned(), block.to_owned(), span);
 
