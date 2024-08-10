@@ -1,0 +1,12 @@
+-- assignments: assign.
+
+fun main() {
+  imu foo: int = 3;
+  imu bar: int = 10;
+  
+  mut foobar: int = 0;
+
+  foobar = foo + bar;
+
+  println("foobar = {foobar}");
+}

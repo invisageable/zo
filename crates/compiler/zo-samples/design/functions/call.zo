@@ -1,0 +1,9 @@
+-- functions: call.
+
+fun foo(x: int): int {
+  x * x
+}
+
+fun main() {
+  println("foo = {}", foo(12));
+}

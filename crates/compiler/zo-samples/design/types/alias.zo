@@ -1,0 +1,7 @@
+-- types: alias.
+
+type Idx = int;
+
+fun main() {
+  imu x: Idx = 0;
+}

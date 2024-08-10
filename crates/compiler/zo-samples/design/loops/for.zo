@@ -1,0 +1,9 @@
+-- loops: for.
+
+fun main() {
+  for x := 0..3 {
+    x += 1
+  }
+
+  for n := 0..3 -> n += 1;
+}

@@ -1,0 +1,12 @@
+-- operators: and.
+
+fun main() {
+  imu is_and1: bool = true;
+  imu is_and2: bool = true;
+
+  if is_and1 && is_and2 {
+    println("yes.");
+  } else {
+    println("no.");
+  }
+}

@@ -1,0 +1,12 @@
+-- operators: or.
+
+fun main() {
+  imu is_or1: bool = true;
+  imu is_or2: bool = true;
+
+  if is_or1 || is_or2 {
+    println("yes.");
+  } else {
+    println("no.");
+  }
+}

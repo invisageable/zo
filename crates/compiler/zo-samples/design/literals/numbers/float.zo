@@ -1,0 +1,11 @@
+-- literals: floating-point numbers.
+
+fun main() {
+  imu x: float = 0.0;
+  imu y: float = 1.0E+77;
+  imu z: float = 1e4;
+
+  println("x = {x}");
+  println("y = {y}");
+  println("z = {z}");
+}

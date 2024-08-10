@@ -1,0 +1,17 @@
+-- structures: apply.
+
+struct Foo {
+  x: int,
+  y: int,
+  z: int,
+}
+
+apply Foo {}
+
+apply Foo {
+  fun new() -> Foo {
+    Foo { x = 0, y = 1, z = 0 }
+  }
+}
+
+fun main() {}

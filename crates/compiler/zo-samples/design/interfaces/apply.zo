@@ -1,0 +1,20 @@
+-- interface: apply.
+
+abstract Bar {
+  fun as_span(): Span;
+}
+
+struct Span {
+  lo: int = 0,
+  hi: int = 0,
+}
+
+struct Foo {}
+
+apply Bar for Foo {
+  fun as_span(): Span {
+    Span { lo = 0, hi = 0 }
+  }
+} 
+
+fun main() {}

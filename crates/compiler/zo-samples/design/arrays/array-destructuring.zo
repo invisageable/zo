@@ -1,0 +1,11 @@
+-- arrays: destructuring.
+
+fun main() {
+  imu [x, y, z]: float[] = [0.0, 0.0, 1.0];
+
+  println("{x}, {y}, {z}");
+
+  imu [x, y, z] := [0.0, 0.0, 1.0];
+
+  println("{x}, {y}, {z}");
+}

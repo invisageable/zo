@@ -1,0 +1,16 @@
+-- enums: declaration.
+
+enum Foo {}
+
+enum Bar {
+  FooBar,
+  RabOof = 0,
+}
+
+enum BarFoo {
+  Oof(str),
+  Rab(float),
+  FooBar,
+}
+
+fun main() {}

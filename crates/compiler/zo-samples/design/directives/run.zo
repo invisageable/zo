@@ -1,0 +1,9 @@
+-- directives: run.
+
+fun foobar() {
+  println("compile-time.");
+}
+
+#run foobar() {}
+
+fun main() {}

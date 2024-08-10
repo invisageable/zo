@@ -1,0 +1,8 @@
+-- variables: mutable.
+
+fun main() {
+  mut x: int = 2;
+  mut y := 4;
+
+  println("{}", x * y);
+}

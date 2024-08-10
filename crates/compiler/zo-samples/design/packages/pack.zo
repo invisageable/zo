@@ -1,0 +1,6 @@
+-- packages: pack.
+
+pack a;
+pub pack b;
+
+fun main() {}

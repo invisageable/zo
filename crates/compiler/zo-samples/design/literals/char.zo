@@ -1,0 +1,7 @@
+-- literals: characters.
+
+fun main() {
+  imu x: char = 'a';
+
+  println("{x}");
+}

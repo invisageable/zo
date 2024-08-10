@@ -1,0 +1,17 @@
+-- structures: expression.
+
+struct Foo {
+  x: int,
+  y: int,
+  z: int,
+}
+
+fun main() {
+  imu foo: Foo = Foo {
+    x = 1,
+    y = 1,
+    z = 1,
+  };
+
+  println("{}, {}, {}", foo.x, foo.y, foo.z);
+}

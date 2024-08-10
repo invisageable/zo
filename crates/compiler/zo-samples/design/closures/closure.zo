@@ -1,0 +1,6 @@
+-- closures: declaration.
+
+fun main() {
+  imu foo: Fn(int): int = fn(x) -> x + x;
+  imu bar := fn(x) -> x * x;
+}

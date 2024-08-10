@@ -1,0 +1,7 @@
+-- tuples: declaration.
+
+fun main() {
+  imu tup: (int, float, str) = (0, 0.0, "yo!");
+
+  println("{tup}");
+}

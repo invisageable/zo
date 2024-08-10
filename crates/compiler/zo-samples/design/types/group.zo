@@ -1,0 +1,24 @@
+-- types: group.
+
+type Foo = int
+  and Bar = (float, int)
+  and Oof = float[]
+  and Rab = Fn(int): int;
+
+fun main() {
+  imu w: Foo = 0;
+  
+  println("{w}");
+
+  imu x: Bar = (1.0, 200);
+
+  println("{x}");
+
+  imu y: Oof = [1, 2, 3, 4];
+
+  println("{y}");
+
+  imu z: Rab = fn(x) -> x * x;
+
+  println("{}", z(2));
+}

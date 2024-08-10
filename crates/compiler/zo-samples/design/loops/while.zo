@@ -1,0 +1,13 @@
+-- loops: while.
+
+fun main() {
+  mut x := 0;
+
+  while x < 3 {
+    println("{}", x += 1);
+  }
+
+  mut n := 3;
+
+  while n < 6 -> println("{}", x += 1);
+}

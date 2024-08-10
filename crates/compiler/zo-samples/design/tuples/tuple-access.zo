@@ -1,0 +1,7 @@
+-- tuples: indexes.
+
+fun main() {
+  imu tup := (1.0, 2.0, 3.0);
+
+  println("{}", tup.0);
+}

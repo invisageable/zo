@@ -1,0 +1,13 @@
+-- branches: if-else
+
+fun main() {
+  mut x: int = 3;
+
+  if x < 1 {
+    x = 1
+  } else {
+    x = 3
+  }
+
+  println("{x}");
+}

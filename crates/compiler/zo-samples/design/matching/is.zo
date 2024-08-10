@@ -1,0 +1,17 @@
+-- matches: is.
+
+enum Foo {
+  Ok(int),
+  Err(int),
+}
+
+fun main() {
+  imu succ: Foo = Foo::Ok(0);
+  imu fail: Foo = Foo::Err(1);
+
+  if x is Foo::Ok {
+    return succ as int;
+  }
+
+  fail as int
+}

@@ -1,0 +1,9 @@
+-- closures: currying.
+
+fun main(): int {
+  imu adder := fn(x) -> fn(y) -> x + y;
+  imu add := adder(1);
+  imu x := add(2);
+
+  println("{x}");
+}

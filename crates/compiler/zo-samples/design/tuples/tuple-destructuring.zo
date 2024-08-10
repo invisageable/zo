@@ -1,0 +1,11 @@
+-- tuples: destructuring.
+
+fun main() {
+  imu (x, y, z): (float, float, float) = (0.0, 0.0, 1.0);
+
+  println("{x}, {y}, {z}");
+
+  imu (x, y, z) := (0.0, 0.0, 1.0);
+
+  println("{x}, {y}, {z}");
+}

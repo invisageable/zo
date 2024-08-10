@@ -1,0 +1,14 @@
+-- functions: declaration.
+
+fun foo() {}
+fun bar(x: float) {}
+
+fun foobar(x: float, y: float): float {
+  x * y
+}
+
+fun barfoo(x: float, y: float): float {
+  return x * y;
+}
+
+fun main() {}
