@@ -150,7 +150,49 @@ impl<'bytes> Tokenizer<'bytes> {
 
             self.bump();
           }
+          b'b' => {
+            state = TokenizerState::Bin;
+            self.base = Base::Bin;
+
+            self.bump();
+          }
+          b'o' => {
+            state = TokenizerState::Oct;
+            self.base = Base::Oct;
+
+            self.bump();
+          }
+          b'x' => {
+            state = TokenizerState::Hex;
+            self.base = Base::Hex;
+
+            self.bump();
+          }
           _ => break,
+        },
+        TokenizerState::Bin => match byte {
+          b if is!(number_bin b) || is!(underscore b) => self.bump(),
+          _ => {
+            state = TokenizerState::Int;
+
+            break;
+          }
+        },
+        TokenizerState::Oct => match byte {
+          b if is!(number_oct b) || is!(underscore b) => self.bump(),
+          _ => {
+            state = TokenizerState::Int;
+
+            break;
+          }
+        },
+        TokenizerState::Hex => match byte {
+          b if is!(number_hex b) || is!(underscore b) => self.bump(),
+          _ => {
+            state = TokenizerState::Int;
+
+            break;
+          }
         },
         TokenizerState::Float => match byte {
           b if is!(number b) || is!(underscore b) => self.bump(),
@@ -275,7 +317,6 @@ impl<'bytes> Tokenizer<'bytes> {
 
           self.reporter.raise(error::lexical::unknown(span, byte));
         }
-        _ => panic!(),
       }
     }
 
