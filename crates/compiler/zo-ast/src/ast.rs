@@ -7,6 +7,7 @@ use zo_ty::ty::Ty;
 use swisskit::span::{AsSpan, Span};
 
 use smol_str::{SmolStr, ToSmolStr};
+use thin_vec::ThinVec;
 
 /// The representation of an unique id of a node in an AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -18,6 +19,15 @@ pub enum Pub {
   /// Allows public access.
   Yes(Span),
   /// Disallows access.
+  No,
+}
+
+/// The representation of a asyncness.
+#[derive(Clone, Debug)]
+pub enum Async {
+  /// Allows asyncness.
+  Yes(Span),
+  /// Disallows asyncness.
   No,
 }
 
@@ -56,9 +66,9 @@ pub enum PatternKind {
   /// literals.
   Lit(Lit),
   /// array destructuring.
-  Array(Vec<Pattern>),
+  Array(ThinVec<Pattern>),
   /// tuple destructuring.
-  Tuple(Vec<Pattern>),
+  Tuple(ThinVec<Pattern>),
 }
 
 impl Symbolize for PatternKind {
@@ -78,7 +88,7 @@ impl Symbolize for PatternKind {
 #[derive(Clone, Debug, Default)]
 pub struct Ast {
   /// The nodes of the AST.
-  pub stmts: Vec<Stmt>,
+  pub stmts: ThinVec<Stmt>,
 }
 
 impl Ast {
@@ -86,7 +96,7 @@ impl Ast {
   #[inline]
   pub fn new() -> Self {
     Self {
-      stmts: Vec::with_capacity(0usize),
+      stmts: ThinVec::with_capacity(0usize),
     }
   }
 
@@ -111,7 +121,7 @@ impl std::convert::AsMut<Self> for Ast {
 }
 
 impl std::ops::Deref for Ast {
-  type Target = Vec<Stmt>;
+  type Target = ThinVec<Stmt>;
 
   #[inline]
   fn deref(&self) -> &Self::Target {
@@ -232,11 +242,11 @@ pub enum ExprKind {
   /// assignment operator — `foo += bar`.
   AssignOp(BinOp, Box<Expr>, Box<Expr>),
   /// array — `[1, 2, 3, 4]`.
-  Array(Vec<Expr>),
+  Array(ThinVec<Expr>),
   /// array access (index) — `foo[0]`.
   ArrayAccess(Box<Expr>, Box<Expr>),
   /// tuple — `(1, 2, 3, 4)`.
-  Tuple(Vec<Expr>),
+  Tuple(ThinVec<Expr>),
   /// tuple access — `foo.0`.
   TupleAccess(Box<Expr>, Box<Expr>),
   /// if else — `if foo == 2 { .. }`.
@@ -258,7 +268,7 @@ pub enum ExprKind {
   /// closure — `fn(x) -> x`, `fn() { .. }`
   Closure(Prototype, Block),
   /// call — `foo()`, `bar(1, 2)`
-  Call(Box<Expr>, Vec<Expr>),
+  Call(Box<Expr>, ThinVec<Expr>),
 }
 
 impl Symbolize for ExprKind {
@@ -444,7 +454,7 @@ impl From<Punctuation> for BinOpKind {
 #[derive(Clone, Debug)]
 pub struct Block {
   /// The statement list inside the block.
-  pub stmts: Vec<Stmt>,
+  pub stmts: ThinVec<Stmt>,
   /// The span of a block — see also [`Span`] if your needed.
   pub span: Span,
 }
@@ -461,14 +471,14 @@ impl Default for Block {
   #[inline]
   fn default() -> Self {
     Self {
-      stmts: Vec::with_capacity(0usize),
+      stmts: ThinVec::with_capacity(0usize),
       span: Span::ZERO,
     }
   }
 }
 
 impl std::ops::Deref for Block {
-  type Target = Vec<Stmt>;
+  type Target = ThinVec<Stmt>;
 
   #[inline]
   fn deref(&self) -> &Self::Target {
@@ -480,7 +490,7 @@ impl std::ops::Deref for Block {
 #[derive(Clone, Debug)]
 pub struct Prototype {
   pub pattern: Pattern,
-  pub inputs: Vec<Input>,
+  pub inputs: ThinVec<Input>,
   pub output_ty: OutputTy,
   pub span: Span,
 }

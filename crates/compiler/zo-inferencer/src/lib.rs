@@ -5,6 +5,9 @@
 //!
 //! Actually it is a not working system.
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 pub mod env;
 pub mod inferencer;
 pub mod scheme;

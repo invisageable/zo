@@ -32,6 +32,7 @@ use swisskit::span::Span;
 
 use hashbrown::HashSet;
 use smol_str::SmolStr;
+use thin_vec::ThinVec;
 
 /// The representation of a type.
 #[derive(Clone, Debug, PartialEq)]
@@ -84,13 +85,13 @@ impl Ty {
 
   /// Creates a new tuple type.
   #[inline]
-  pub fn tuple(tys: Vec<Ty>, span: Span) -> Self {
+  pub fn tuple(tys: ThinVec<Ty>, span: Span) -> Self {
     Self::new(TyKind::Tuple(tys), span)
   }
 
   /// Creates a new closure type.
   #[inline]
-  pub fn closure(inputs: Vec<Ty>, output: Ty, span: Span) -> Self {
+  pub fn closure(inputs: ThinVec<Ty>, output: Ty, span: Span) -> Self {
     Self::new(TyKind::Closure(inputs, Box::new(output)), span)
   }
 
@@ -115,9 +116,9 @@ pub enum TyKind {
   /// array — `int[]`, `str[3]`.
   Array(Box<Ty>, Option<usize>),
   /// tuple — `(int, float)`.
-  Tuple(Vec<Ty>),
+  Tuple(ThinVec<Ty>),
   /// closure — `Fn()`, `Fn(int): int`.
-  Closure(Vec<Ty>, Box<Ty>),
+  Closure(ThinVec<Ty>, Box<Ty>),
   /// constructed type.
   Con(SmolStr, Vec<Ty>),
 }

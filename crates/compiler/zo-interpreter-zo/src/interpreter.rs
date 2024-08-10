@@ -10,6 +10,7 @@ use zo_value::builtin::BuiltinFn;
 use zo_value::value::{Value, ValueKind};
 
 use swisskit::span::Span;
+use thin_vec::ThinVec;
 
 /// The representation of an interpreter.
 struct Interpreter<'ast> {
@@ -412,7 +413,7 @@ impl<'ast> Interpreter<'ast> {
     elmts: &[ast::Expr],
     span: Span,
   ) -> Result<Value> {
-    let mut array = Vec::with_capacity(elmts.len());
+    let mut array = ThinVec::with_capacity(elmts.len());
 
     for elmt in elmts {
       array.push(self.interpret_expr(elmt)?);
@@ -451,7 +452,7 @@ impl<'ast> Interpreter<'ast> {
     elmts: &[ast::Expr],
     span: Span,
   ) -> Result<Value> {
-    let mut tuple = Vec::with_capacity(elmts.len());
+    let mut tuple = ThinVec::with_capacity(elmts.len());
 
     for elmt in elmts {
       tuple.push(self.interpret_expr(elmt)?);

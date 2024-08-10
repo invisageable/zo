@@ -18,6 +18,7 @@ use zo_tokenizer::token::{Token, TokenKind};
 use zo_ty::ty::{FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, UintTy};
 
 use swisskit::span::{AsSpan, Span};
+use thin_vec::ThinVec;
 
 /// A type that defines a prefix function.
 type PrefixFn = Box<dyn FnOnce(&mut Parser) -> Result<Expr>>;
@@ -409,7 +410,7 @@ impl<'tokens> Parser<'tokens> {
 
   /// Parses tuple type.
   fn parse_ty_tuple(&mut self, span: Span) -> Result<Ty> {
-    let mut tys = Vec::with_capacity(0usize);
+    let mut tys = ThinVec::with_capacity(0usize);
 
     while self
       .expect_peek(TokenKind::Group(Group::ParenClose))
@@ -444,8 +445,8 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses inputs closure type.
-  fn parse_ty_closure_inputs(&mut self) -> Result<Vec<Ty>> {
-    let mut inputs = Vec::with_capacity(0usize);
+  fn parse_ty_closure_inputs(&mut self) -> Result<ThinVec<Ty>> {
+    let mut inputs = ThinVec::with_capacity(0usize);
 
     while self
       .expect_peek(TokenKind::Group(Group::ParenClose))
@@ -522,8 +523,8 @@ impl<'tokens> Parser<'tokens> {
   fn parse_patterns_from_group_kind_until(
     &mut self,
     kind: Group,
-  ) -> Result<(Vec<Pattern>, Span)> {
-    let mut patterns = Vec::with_capacity(0usize);
+  ) -> Result<(ThinVec<Pattern>, Span)> {
+    let mut patterns = ThinVec::with_capacity(0usize);
     let lo = self.current_span();
 
     while self.expect_peek(TokenKind::Group(kind)).is_err() {
@@ -761,7 +762,7 @@ impl<'tokens> Parser<'tokens> {
     if let TokenKind::Punctuation(Punctuation::Comma) =
       parser.maybe_token_next.unwrap().kind
     {
-      let mut tuples = Vec::with_capacity(0usize);
+      let mut tuples = ThinVec::with_capacity(0usize);
 
       while !parser.ensure(TokenKind::Group(Group::ParenClose)) {
         if parser
@@ -802,8 +803,8 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses expressions.
-  fn parse_exprs(&mut self) -> Result<Vec<Expr>> {
-    let mut exprs = Vec::with_capacity(0usize); // no allocation.
+  fn parse_exprs(&mut self) -> Result<ThinVec<Expr>> {
+    let mut exprs = ThinVec::with_capacity(0usize); // no allocation.
 
     while !self.ensure_peek(TokenKind::Group(Group::BracketClose)) {
       if self
@@ -866,7 +867,7 @@ impl<'tokens> Parser<'tokens> {
           self.next();
           self.next();
 
-          let mut stmts = Vec::with_capacity(1usize);
+          let mut stmts = ThinVec::with_capacity(1usize);
           let expr = self.parse_expr(Precedence::Low)?;
           let span = expr.span;
 
@@ -880,7 +881,7 @@ impl<'tokens> Parser<'tokens> {
           Ok(Block { stmts, span })
         }
         TokenKind::Group(Group::BraceOpen) => {
-          let mut stmts = Vec::with_capacity(1usize);
+          let mut stmts = ThinVec::with_capacity(1usize);
 
           self.expect_peek(TokenKind::Group(Group::BraceOpen))?;
 
@@ -1074,8 +1075,8 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses a list of inputs for function and closure.
-  fn parse_inputs(&mut self) -> Result<Vec<Input>> {
-    let mut inputs = Vec::with_capacity(0usize);
+  fn parse_inputs(&mut self) -> Result<ThinVec<Input>> {
+    let mut inputs = ThinVec::with_capacity(0usize);
 
     self.expect_peek(TokenKind::Group(Group::ParenOpen))?;
 
@@ -1273,8 +1274,8 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses args.
-  fn parse_args(&mut self) -> Result<Vec<Expr>> {
-    let mut args = Vec::with_capacity(0usize);
+  fn parse_args(&mut self) -> Result<ThinVec<Expr>> {
+    let mut args = ThinVec::with_capacity(0usize);
 
     while !self.ensure_peek(TokenKind::Group(Group::ParenClose)) {
       if self

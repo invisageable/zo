@@ -14,3 +14,4 @@ zo-reporter = { workspace = true }
 # external:crates.
 hashbrown = { workspace = true }
 smol_str = { workspace = true }
+thin-vec = { workspace = true }

@@ -14,3 +14,4 @@ zo-ty = { workspace = true }
 
 # external:crates.
 smol_str = { workspace = true }
+thin-vec = { workspace = true }

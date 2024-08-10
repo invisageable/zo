@@ -5,6 +5,7 @@ use zo_ast::ast;
 use swisskit::span::Span;
 
 use smol_str::{SmolStr, ToSmolStr};
+use thin_vec::ThinVec;
 
 /// The representation of a value.
 #[derive(Clone, Debug)]
@@ -51,13 +52,13 @@ impl Value {
 
   /// Creates a new array value.
   #[inline]
-  pub const fn array(array: Vec<Value>, span: Span) -> Self {
+  pub const fn array(array: ThinVec<Value>, span: Span) -> Self {
     Self::new(ValueKind::Array(array), span)
   }
 
   /// Creates a new tuple value.
   #[inline]
-  pub const fn tuple(tuple: Vec<Value>, span: Span) -> Self {
+  pub const fn tuple(tuple: ThinVec<Value>, span: Span) -> Self {
     Self::new(ValueKind::Tuple(tuple), span)
   }
 
@@ -125,9 +126,9 @@ pub enum ValueKind {
   /// bool — `false` or `true`.
   Bool(bool),
   /// array — `[1, 2, 3, 4]`.
-  Array(Vec<Value>),
+  Array(ThinVec<Value>),
   /// tuple — `(1, 2, 3, 4)`.
-  Tuple(Vec<Value>),
+  Tuple(ThinVec<Value>),
   /// loop instruction value — `loop {..}`.
   Loop(ast::Block),
   /// while instruction value — `while true {..}`.
