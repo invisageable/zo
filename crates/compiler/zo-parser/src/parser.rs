@@ -495,9 +495,53 @@ impl<'tokens> Parser<'tokens> {
             span: token.span,
           })
         }
+        TokenKind::Group(Group::BracketOpen) => {
+          let (patterns, span) =
+            self.parse_patterns_from_group_kind_until(Group::BracketClose)?;
+
+          Ok(Pattern {
+            kind: PatternKind::Array(patterns),
+            span,
+          })
+        }
+        TokenKind::Group(Group::ParenOpen) => {
+          let (patterns, span) =
+            self.parse_patterns_from_group_kind_until(Group::ParenClose)?;
+
+          Ok(Pattern {
+            kind: PatternKind::Tuple(patterns),
+            span,
+          })
+        }
         _ => Err(error::syntax::unexpected_token(token.span, *token)),
       })
       .unwrap()
+  }
+
+  /// Parses patterns separates by comma from `group` kind.
+  fn parse_patterns_from_group_kind_until(
+    &mut self,
+    kind: Group,
+  ) -> Result<(Vec<Pattern>, Span)> {
+    let mut patterns = Vec::with_capacity(0usize);
+    let lo = self.current_span();
+
+    while self.expect_peek(TokenKind::Group(kind)).is_err() {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      self.next();
+      patterns.push(self.parse_pattern()?);
+    }
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok((patterns, span))
   }
 
   /// Parses an expression.

@@ -51,10 +51,14 @@ impl Symbolize for Pattern {
 pub enum PatternKind {
   /// underscore — `_`.
   Underscore,
-  /// identifier — `foo`, `bar`.
+  /// identifier — `foo`, `Bar`.
   Ident(Box<Expr>),
   /// literals.
   Lit(Lit),
+  /// array destructuring.
+  Array(Vec<Pattern>),
+  /// tuple destructuring.
+  Tuple(Vec<Pattern>),
 }
 
 impl Symbolize for PatternKind {
@@ -63,6 +67,8 @@ impl Symbolize for PatternKind {
     match self {
       Self::Ident(ident) => ident.as_symbol(),
       Self::Lit(lit) => lit.as_symbol(),
+      Self::Array(patterns) => patterns[0].as_symbol(), // tmp.
+      Self::Tuple(patterns) => patterns[0].as_symbol(), // tmp.
       _ => unreachable!(),
     }
   }

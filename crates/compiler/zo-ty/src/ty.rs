@@ -28,10 +28,10 @@
 //! - `int[]`
 //! - `int[2]`
 
-use smol_str::SmolStr;
 use swisskit::span::Span;
 
 use hashbrown::HashSet;
+use smol_str::SmolStr;
 
 /// The representation of a type.
 #[derive(Clone, Debug, PartialEq)]

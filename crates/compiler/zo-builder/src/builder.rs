@@ -5,9 +5,7 @@ use zo_session::backend::Backend;
 use zo_session::session::Session;
 
 // The representation of a buiulder.
-#[derive(Debug)]
 struct Builder;
-
 impl Builder {
   /// Builds the output result from session and bytecode.
   #[inline]

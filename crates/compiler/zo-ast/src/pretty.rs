@@ -22,6 +22,8 @@ impl std::fmt::Display for PatternKind {
       Self::Underscore => write!(f, "_"),
       Self::Ident(expr) => write!(f, "{expr}"),
       Self::Lit(lit) => write!(f, "{lit}"),
+      Self::Array(patterns) => write!(f, "[{}]", sep_comma(patterns)),
+      Self::Tuple(patterns) => write!(f, "({})", sep_comma(patterns)),
     }
   }
 }
