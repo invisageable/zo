@@ -10,7 +10,11 @@ pub struct Analyzing;
 impl Process for Analyzing {
   fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
     if let Event::Ast(ast) = event {
-      println!("phase:{self} — {ast:?}");
+      // todo — needs work.
+      if session.settings.has_verbose() {
+        println!("phase:{self} — {ast:?}");
+      }
+
       return analyzer::analyze(session, &ast).and_then(Event::ast);
     }
 

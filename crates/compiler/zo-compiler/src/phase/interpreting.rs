@@ -10,7 +10,11 @@ pub struct Interpreting;
 impl Process for Interpreting {
   fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
     if let Event::Ast(ast) = event {
-      println!("phase:{self} — {ast:?}");
+      // todo — needs work.
+      if session.settings.has_verbose() {
+        println!("phase:{self} — {ast:?}");
+      }
+
       return interpreter::interpret(session, &ast).and_then(Event::value);
     }
 

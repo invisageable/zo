@@ -10,7 +10,11 @@ pub struct Parsing;
 impl Process for Parsing {
   fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
     if let Event::Tokens(tokens) = event {
-      println!("phase:{self} — {tokens:#?}");
+      // todo — needs work.
+      if session.settings.has_verbose() {
+        println!("phase:{self} — {tokens:#?}");
+      }
+
       return parser::parse(session, &tokens).and_then(Event::ast);
     }
 

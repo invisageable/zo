@@ -10,7 +10,11 @@ pub struct Building;
 impl Process for Building {
   fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
     if let Event::Bytecode(bytecode) = event {
-      println!("phase:{self} — {bytecode:?}");
+      // todo — needs work.
+      if session.settings.has_verbose() {
+        println!("phase:{self} — {bytecode:?}");
+      }
+
       return builder::build(session, &bytecode).and_then(Event::output);
     }
 

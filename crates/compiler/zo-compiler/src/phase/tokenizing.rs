@@ -10,7 +10,11 @@ pub struct Tokenizing;
 impl Process for Tokenizing {
   fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
     if let Event::Bytes(source) = event {
-      println!("phase:{self} — {source:?}");
+      // todo — needs work.
+      if session.settings.has_verbose() {
+        println!("phase:{self} — {source:?}");
+      }
+
       return tokenizer::tokenize(session, &source).and_then(Event::tokens);
     }
 

@@ -10,7 +10,10 @@ pub struct Reading;
 impl Process for Reading {
   fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
     if let Event::Path(pathname) = &event {
-      println!("phase:{self} — {pathname:?}");
+      // todo — needs work.
+      if session.settings.has_verbose() {
+        println!("phase:{self} — {pathname:?}");
+      }
 
       if session.settings.is_interactive() {
         return reader::read_line(session).and_then(Event::bytes);
