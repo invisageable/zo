@@ -23,8 +23,8 @@ impl std::fmt::Display for ValueKind {
       Self::Break(value) => write!(f, "break {value};"),
       Self::Continue => write!(f, "continue;"),
       Self::Closure(prototype, body) => {
-        if body.len() == 1 {
-          return write!(f, "fn {prototype} -> {}", body[0]);
+        if let [expr] = body.as_slice() {
+          return write!(f, "fn {prototype} -> {expr}");
         }
 
         write!(f, "fn {prototype} {body}")

@@ -1,7 +1,7 @@
 use super::ast::{
-  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Item, ItemKind,
-  Lit, LitKind, OutputTy, Pattern, PatternKind, Prototype, Stmt, StmtKind,
-  UnOp, UnOpKind, Var, VarKind,
+  Alias, Ast, Async, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Item,
+  ItemKind, Lit, LitKind, OutputTy, Pattern, PatternKind, Prototype, Pub, Stmt,
+  StmtKind, UnOp, UnOpKind, Var, VarKind, Wasm,
 };
 
 use zo_ty::ty::TyKind;
@@ -10,14 +10,41 @@ use swisskit::fmt::{sep_comma, sep_newline};
 
 use smol_str::ToSmolStr;
 
-impl std::fmt::Display for Pattern {
+impl std::fmt::Display for Pub {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Yes(_) => write!(f, "pub "),
+      Self::No => write!(f, ""),
+    }
+  }
+}
+
+impl std::fmt::Display for Async {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Yes(_) => write!(f, "async "),
+      Self::No => write!(f, ""),
+    }
+  }
+}
+
+impl std::fmt::Display for Wasm {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match self {
+      Self::Yes(_) => write!(f, "wasm "),
+      Self::No => write!(f, ""),
+    }
+  }
+}
+
+impl std::fmt::Display for Pattern {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.kind)
   }
 }
 
 impl std::fmt::Display for PatternKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Underscore => write!(f, "_"),
       Self::Ident(expr) => write!(f, "{expr}"),
@@ -29,20 +56,21 @@ impl std::fmt::Display for PatternKind {
 }
 
 impl std::fmt::Display for Ast {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", sep_newline(&self.stmts))
   }
 }
 
 impl std::fmt::Display for Item {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.kind)
   }
 }
 
 impl std::fmt::Display for ItemKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
+      Self::Alias(alias) => write!(f, "{alias}"),
       Self::Var(var) => write!(f, "{var}"),
       Self::Fun(fun) => write!(f, "{fun}"),
       _ => todo!(),
@@ -50,11 +78,27 @@ impl std::fmt::Display for ItemKind {
   }
 }
 
-impl std::fmt::Display for Var {
+impl std::fmt::Display for Alias {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    let kind = &self.kind;
-    let pattern = &self.pattern;
-    let value = &self.value;
+    let Self {
+      pubness,
+      pattern,
+      ty,
+      ..
+    } = self;
+
+    write!(f, "{pubness}type {pattern} = {ty};")
+  }
+}
+
+impl std::fmt::Display for Var {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let Self {
+      kind,
+      pattern,
+      value,
+      ..
+    } = self;
 
     let ty = match self.ty.kind {
       TyKind::Infer => ":=".to_smolstr(),
@@ -66,7 +110,7 @@ impl std::fmt::Display for Var {
 }
 
 impl std::fmt::Display for VarKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       VarKind::Imu => write!(f, "imu"),
       VarKind::Mut => write!(f, "mut"),
@@ -76,19 +120,19 @@ impl std::fmt::Display for VarKind {
 }
 
 impl std::fmt::Display for Fun {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "fun {} {}", self.prototype, self.block)
   }
 }
 
 impl std::fmt::Display for Stmt {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.kind)
   }
 }
 
 impl std::fmt::Display for StmtKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Var(var) => write!(f, "{var}"),
       Self::Item(item) => write!(f, "{item}"),
@@ -98,13 +142,13 @@ impl std::fmt::Display for StmtKind {
 }
 
 impl std::fmt::Display for Expr {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.kind)
   }
 }
 
 impl std::fmt::Display for ExprKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Lit(lit) => write!(f, "{lit}"),
       Self::UnOp(unop, rhs) => write!(f, "{unop}{rhs}"),
@@ -141,8 +185,8 @@ impl std::fmt::Display for ExprKind {
       Self::Continue => write!(f, "continue"),
       Self::Var(var) => write!(f, "{var}"),
       Self::Closure(prototype, block) => {
-        if block.len() == 1 {
-          return write!(f, "fn {prototype} -> {}", block[0]);
+        if let [expr] = block.as_slice() {
+          return write!(f, "fn {prototype} -> {expr}");
         }
 
         write!(f, "fn {prototype} {block}")
@@ -154,13 +198,13 @@ impl std::fmt::Display for ExprKind {
 }
 
 impl std::fmt::Display for Lit {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.kind)
   }
 }
 
 impl std::fmt::Display for LitKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Int(sym, _) => write!(f, "{sym}"),
       Self::Float(sym) => write!(f, "{sym}"),
@@ -173,13 +217,13 @@ impl std::fmt::Display for LitKind {
 }
 
 impl std::fmt::Display for UnOp {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.kind)
   }
 }
 
 impl std::fmt::Display for UnOpKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Neg => write!(f, "-"),
       Self::Not => write!(f, "!"),
@@ -188,13 +232,13 @@ impl std::fmt::Display for UnOpKind {
 }
 
 impl std::fmt::Display for BinOp {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.kind)
   }
 }
 
 impl std::fmt::Display for BinOpKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Add => write!(f, "+"),
       Self::Sub => write!(f, "-"),
@@ -219,7 +263,7 @@ impl std::fmt::Display for BinOpKind {
 }
 
 impl std::fmt::Display for Block {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     if self.is_empty() {
       return write!(f, "{{}}");
     }
@@ -229,25 +273,26 @@ impl std::fmt::Display for Block {
 }
 
 impl std::fmt::Display for Prototype {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(
-      f,
-      "{} ({}): {}",
-      self.pattern,
-      sep_comma(&self.inputs),
-      self.output_ty
-    )
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let Self {
+      pattern,
+      inputs,
+      output_ty,
+      ..
+    } = self;
+
+    write!(f, "{} ({}): {}", pattern, sep_comma(&inputs), output_ty)
   }
 }
 
 impl std::fmt::Display for Input {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.pattern)
   }
 }
 
 impl std::fmt::Display for OutputTy {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Default(_) => write!(f, "()"),
       Self::Ty(ty) => write!(f, "{ty}"),

@@ -104,8 +104,14 @@ impl Symbolize for PatternKind {
     match self {
       Self::Ident(ident) => ident.as_symbol(),
       Self::Lit(lit) => lit.as_symbol(),
-      Self::Array(patterns) => patterns[0].as_symbol(), // tmp.
-      Self::Tuple(patterns) => patterns[0].as_symbol(), // tmp.
+      // tmp.
+      Self::Array(patterns) if let [pat] = patterns.as_slice() => {
+        pat.as_symbol()
+      }
+      // tmp.
+      Self::Tuple(patterns) if let [pat] = patterns.as_slice() => {
+        pat.as_symbol()
+      }
       _ => unreachable!(),
     }
   }
