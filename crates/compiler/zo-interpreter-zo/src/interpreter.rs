@@ -557,8 +557,28 @@ impl<'ast> Interpreter<'ast> {
   }
 
   /// Interprets a loop expression.
-  fn interpret_expr_loop(&mut self, _body: &ast::Block) -> Result<Value> {
-    todo!()
+  fn interpret_expr_loop(&mut self, block: &ast::Block) -> Result<Value> {
+    self.counter_loop += 1;
+
+    loop {
+      let value = self.interpret_block(block)?;
+
+      match &value.kind {
+        ValueKind::Return(value) => return Ok(*value.to_owned()),
+        ValueKind::Break(value) => match value.kind {
+          ValueKind::Unit => break,
+          _ => {
+            return Err(error::eval::break_in_while_loop_with_value(value.span))
+          }
+        },
+        ValueKind::Continue => continue,
+        _ => {}
+      }
+    }
+
+    self.counter_loop -= 1;
+
+    Ok(Value::unit(block.span))
   }
 
   /// Interprets a while expression.
