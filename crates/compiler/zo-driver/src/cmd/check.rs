@@ -20,14 +20,14 @@ use smol_str::SmolStr;
 /// The `check` command.
 #[derive(Parser)]
 pub(crate) struct Check {
-  #[clap(short, long, default_value = "false")]
-  verbose: bool,
   #[clap(short, long)]
   input: SmolStr,
   #[clap(short, long, default_value = "wasm")]
   backend: Backend,
   #[clap(short, long, default_value = "false")]
   profile: bool,
+  #[clap(short, long, default_value = "false")]
+  verbose: bool,
 }
 
 impl Check {
@@ -47,6 +47,9 @@ impl Check {
       backend: self.backend,
       profile: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
         self.profile,
+      )),
+      verbose: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        self.verbose,
       )),
       ..Default::default()
     });

@@ -44,6 +44,13 @@ pub(crate) struct Build {
   /// `--profile`.
   #[clap(short, long, default_value = "false")]
   profile: bool,
+  /// The verbose flag.
+  ///
+  /// #### usage.
+  ///
+  /// `--verbose`.
+  #[clap(short, long, default_value = "false")]
+  verbose: bool,
 }
 
 impl Build {
@@ -63,6 +70,9 @@ impl Build {
       backend: self.backend,
       profile: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
         self.profile,
+      )),
+      verbose: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        self.verbose,
       )),
       ..Default::default()
     });
