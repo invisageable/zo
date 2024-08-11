@@ -393,8 +393,6 @@ impl<'bytes> Iterator for Tokenizer<'bytes> {
 /// The tokenizer follows these commands like a finite state machine.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum TokenizerState {
-  /// The unknown state.
-  Unknown,
   /// The initial state.
   Start,
   /// The state for whitespace.
@@ -427,6 +425,8 @@ pub(crate) enum TokenizerState {
   Char,
   /// The string state.
   Str,
+  /// The unknown state.
+  Unknown,
 }
 
 /// Transform the source code into an array of tokens.

@@ -40,6 +40,7 @@ impl<'ast> NameChecker<'ast> {
   fn check_item(&mut self, item: &ast::Item) -> Result<()> {
     match &item.kind {
       ast::ItemKind::Var(var) => self.check_item_var(var),
+      ast::ItemKind::Fun(fun) => self.check_item_fun(fun),
     }
   }
 
@@ -52,6 +53,26 @@ impl<'ast> NameChecker<'ast> {
   fn check_global_var(&mut self, var: &ast::Var) -> Result<()> {
     self.check_pattern(&var.pattern, StrCase::SnakeScreaming)?;
     self.check_expr(&var.value)
+  }
+
+  /// Checks the naming convention of a function item.
+  fn check_item_fun(&mut self, fun: &ast::Fun) -> Result<()> {
+    self.check_prototype(&fun.prototype)?;
+    self.check_block(&fun.block)
+  }
+
+  /// Checks the naming convention of a prototype.
+  fn check_prototype(&mut self, prototype: &ast::Prototype) -> Result<()> {
+    self.check_pattern(&prototype.pattern, StrCase::Snake)
+  }
+
+  /// Checks the naming convention of a block instructions.
+  fn check_block(&mut self, block: &ast::Block) -> Result<()> {
+    for stmt in &block.stmts {
+      self.check_stmt(stmt)?;
+    }
+
+    Ok(())
   }
 
   /// Checks the naming convention of a pattern.

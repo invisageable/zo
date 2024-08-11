@@ -25,6 +25,7 @@ impl std::fmt::Display for TyKind {
       Self::Closure(inputs, output) => {
         write!(f, "Fn({}): {output}", sep_comma(inputs))
       }
+      Self::Alias(alias) => write!(f, "{alias}"),
       Self::Con(ident, tys) => write!(f, "{ident} - [{}]", sep_comma(tys)),
     }
   }

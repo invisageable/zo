@@ -143,6 +143,19 @@ pub struct Item {
 pub enum ItemKind {
   /// A constant, global variable.
   Var(Var),
+  /// `fun foo(x: int): int { ... }`, `pub fun foo(x: int): int { ... }`.
+  Fun(Fun),
+}
+
+/// The representation of a function declaration.
+#[derive(Clone, Debug)]
+pub struct Fun {
+  /// A prototype function — see also [`Prototype`] for more information.
+  pub prototype: Prototype,
+  /// A block — see also [`Block`] for more information.
+  pub block: Block,
+  /// A function span — see also [`Span`] for more information.
+  pub span: Span,
 }
 
 /// The representation of a statement.
@@ -489,9 +502,13 @@ impl std::ops::Deref for Block {
 /// The representation of a prototype — `foo(x: int): int`.
 #[derive(Clone, Debug)]
 pub struct Prototype {
+  /// The name pattern — see also [`Pattern`] for more information.
   pub pattern: Pattern,
-  pub inputs: ThinVec<Input>,
+  /// The inputs — see also [`Inputs`] for more information.
+  pub inputs: Inputs,
+  /// The output type — see also [`OutputTy`] for more information.
   pub output_ty: OutputTy,
+  /// The span — see also [`Span`] for more information.
   pub span: Span,
 }
 
@@ -499,6 +516,15 @@ impl Symbolize for Prototype {
   #[inline]
   fn as_symbol(&self) -> &Symbol {
     self.pattern.as_symbol()
+  }
+}
+
+impl std::ops::Deref for Prototype {
+  type Target = Inputs;
+
+  #[inline]
+  fn deref(&self) -> &Self::Target {
+    &self.inputs
   }
 }
 
@@ -513,6 +539,39 @@ impl Symbolize for Input {
   #[inline]
   fn as_symbol(&self) -> &Symbol {
     self.pattern.as_symbol()
+  }
+}
+
+/// The representation of inputs.
+#[derive(Clone, Debug)]
+pub struct Inputs(ThinVec<Input>);
+
+impl Inputs {
+  /// Creates a new input list.
+  #[inline]
+  pub fn new(inputs: ThinVec<Input>) -> Self {
+    Self(inputs)
+  }
+}
+impl AsSpan for Inputs {
+  fn as_span(&self) -> Span {
+    let maybe_i1 = self.0.first();
+    let maybe_i2 = self.0.last();
+
+    match (maybe_i1, maybe_i2) {
+      (Some(i1), Some(i2)) => Span::merge(i1.span, i2.span),
+      (Some(i1), None) => i1.span,
+      _ => Span::ZERO,
+    }
+  }
+}
+
+impl std::ops::Deref for Inputs {
+  type Target = ThinVec<Input>;
+
+  #[inline]
+  fn deref(&self) -> &Self::Target {
+    &self.0
   }
 }
 

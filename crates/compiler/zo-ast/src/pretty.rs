@@ -1,7 +1,7 @@
 use super::ast::{
-  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Input, Item, ItemKind, Lit,
-  LitKind, OutputTy, Pattern, PatternKind, Prototype, Stmt, StmtKind, UnOp,
-  UnOpKind, Var, VarKind,
+  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Item, ItemKind,
+  Lit, LitKind, OutputTy, Pattern, PatternKind, Prototype, Stmt, StmtKind,
+  UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_ty::ty::TyKind;
@@ -44,6 +44,7 @@ impl std::fmt::Display for ItemKind {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::Var(var) => write!(f, "{var}"),
+      Self::Fun(fun) => write!(f, "{fun}"),
     }
   }
 }
@@ -70,6 +71,12 @@ impl std::fmt::Display for VarKind {
       VarKind::Mut => write!(f, "mut"),
       VarKind::Val => write!(f, "val"),
     }
+  }
+}
+
+impl std::fmt::Display for Fun {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "fun {} {}", self.prototype, self.block)
   }
 }
 

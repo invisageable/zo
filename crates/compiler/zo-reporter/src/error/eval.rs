@@ -15,6 +15,8 @@ pub enum Eval {
   InvalidArrayAcces(Span, SmolStr, SmolStr),
   /// An invalid tuple access error message.
   InvalidTupleAcces(Span, SmolStr, SmolStr),
+  /// A mismatch arguments error message.
+  MismatchArgument((Span, usize), (Span, usize)),
   /// A name clash error message.
   NameClash(NameClash),
   /// A not found error message.
@@ -39,6 +41,7 @@ impl<'a> Diagnostic<'a> for Eval {
       Self::InvalidTupleAcces(span, indexed, index) => {
         todo!("{span} — {indexed} — {index}")
       }
+      Self::MismatchArgument(lhs, rhs) => todo!("{lhs:?} — {rhs:?}"),
       Self::NameClash(diagnostic) => diagnostic.report(),
       Self::NotFound(diagnostic) => diagnostic.report(),
       Self::OutOfBound(diagnostic) => diagnostic.report(),
@@ -150,6 +153,12 @@ pub fn invalid_tuple_access(
   index: impl Into<SmolStr>,
 ) -> Error {
   Error::Eval(Eval::InvalidTupleAcces(span, indexed.into(), index.into()))
+}
+
+/// A mismatch arguments error message.
+#[inline]
+pub fn mismatch_args(lhs: (Span, usize), rhs: (Span, usize)) -> Error {
+  Error::Eval(Eval::MismatchArgument(lhs, rhs))
 }
 
 /// A name clash error message for function.

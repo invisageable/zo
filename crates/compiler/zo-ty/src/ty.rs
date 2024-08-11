@@ -28,6 +28,8 @@
 //! - `int[]`
 //! - `int[2]`
 
+use zo_interner::interner::symbol::Symbol;
+
 use swisskit::span::Span;
 
 use hashbrown::HashSet;
@@ -119,6 +121,8 @@ pub enum TyKind {
   Tuple(ThinVec<Ty>),
   /// closure — `Fn()`, `Fn(int): int`.
   Closure(ThinVec<Ty>, Box<Ty>),
+  /// alias.
+  Alias(Symbol),
   /// constructed type.
   Con(SmolStr, Vec<Ty>),
 }

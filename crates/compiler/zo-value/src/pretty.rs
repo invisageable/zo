@@ -29,6 +29,7 @@ impl std::fmt::Display for ValueKind {
 
         write!(f, "fn {prototype} {body}")
       }
+      Self::Fun(prototype, block) => write!(f, "fun {prototype} {block}"),
       Self::Builtin(builtin) => write!(f, "{builtin:?}"),
     }
   }

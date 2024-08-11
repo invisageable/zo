@@ -2,7 +2,7 @@ use super::builtin::BuiltinFn;
 
 use zo_ast::ast;
 
-use swisskit::span::Span;
+use swisskit::span::{AsSpan, Span};
 
 use smol_str::{SmolStr, ToSmolStr};
 use thin_vec::ThinVec;
@@ -100,6 +100,12 @@ impl Value {
     Self::new(ValueKind::Closure(prototype, block), span)
   }
 
+  /// Creates a new function.
+  #[inline]
+  pub fn fun(prototype: ast::Prototype, block: ast::Block, span: Span) -> Self {
+    Self::new(ValueKind::Fun(prototype, block), span)
+  }
+
   /// Converts a value into a boolean.
   #[inline]
   pub fn as_bool(&self) -> bool {
@@ -141,6 +147,8 @@ pub enum ValueKind {
   Continue,
   /// closure — `fn (x) -> x`, `fn (x) {..}`.
   Closure(ast::Prototype, ast::Block),
+  /// function — `fun foo() {}`.
+  Fun(ast::Prototype, ast::Block),
   /// builtin function.
   Builtin(BuiltinFn),
 }
@@ -154,5 +162,38 @@ impl ValueKind {
       Self::Bool(boolean) => *boolean,
       _ => true,
     }
+  }
+}
+
+/// The representation of arguments.
+#[derive(Clone, Debug)]
+pub struct Args(ThinVec<Value>);
+
+impl Args {
+  /// Creates a new arguments.
+  #[inline]
+  pub fn new(inputs: ThinVec<Value>) -> Self {
+    Self(inputs)
+  }
+}
+impl AsSpan for Args {
+  fn as_span(&self) -> Span {
+    let maybe_i1 = self.0.first();
+    let maybe_i2 = self.0.last();
+
+    match (maybe_i1, maybe_i2) {
+      (Some(i1), Some(i2)) => Span::merge(i1.span, i2.span),
+      (Some(i1), None) => i1.span,
+      _ => Span::ZERO,
+    }
+  }
+}
+
+impl std::ops::Deref for Args {
+  type Target = ThinVec<Value>;
+
+  #[inline]
+  fn deref(&self) -> &Self::Target {
+    &self.0
   }
 }

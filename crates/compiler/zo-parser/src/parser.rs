@@ -1,9 +1,9 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Input, Item, ItemKind, Lit,
-  LitKind, Mutability, OutputTy, Pattern, PatternKind, Prototype, Pub, Stmt,
-  StmtKind, UnOp, UnOpKind, Var, VarKind,
+  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Inputs, Item,
+  ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind,
+  Prototype, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_interner::interner::symbol::Symbol;
@@ -176,6 +176,7 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| match token.kind {
         TokenKind::Kw(Kw::Val) => self.parse_item_val(),
+        TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
         _ => Err(error::syntax::unexpected_token(token.span, *token)),
       })
       .unwrap()
@@ -230,6 +231,122 @@ impl<'tokens> Parser<'tokens> {
       }),
       _ => Err(error::syntax::expected_local_var(span, kind)),
     }
+  }
+
+  /// Parses a function item.
+  fn parse_item_fun(&mut self) -> Result<Item> {
+    let lo = self.current_span();
+
+    self.next();
+
+    let prototype = self.parse_prototype()?;
+
+    let block = self
+      .maybe_token_next
+      .map(|token| match token.kind {
+        TokenKind::Group(Group::BraceOpen) => {
+          let mut stmts = ThinVec::with_capacity(1usize);
+
+          self.expect_peek(TokenKind::Group(Group::BraceOpen))?;
+
+          while !self.ensure_peek(TokenKind::Group(Group::BraceClose))
+            && self.has_tokens()
+          {
+            self.next();
+            stmts.push(self.parse_stmt()?);
+          }
+
+          self.expect_peek(TokenKind::Group(Group::BraceClose))?;
+
+          let hi = self.current_span();
+          let span = Span::merge(lo, hi);
+
+          Ok(Block { stmts, span })
+        }
+        _ => Err(error::syntax::unexpected_token(token.span, *token)),
+      })
+      .unwrap()?;
+
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Item {
+      kind: ItemKind::Fun(Fun {
+        prototype,
+        block,
+        span,
+      }),
+      span,
+    })
+  }
+
+  /// Parses a prototype.
+  fn parse_prototype(&mut self) -> Result<Prototype> {
+    let lo = self.current_span();
+    let pattern = self.parse_pattern()?;
+    let inputs = self.parse_fun_inputs()?;
+    let output_ty = self.parse_output_ty()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Prototype {
+      pattern,
+      inputs,
+      output_ty,
+      span,
+    })
+  }
+
+  /// Parses a list of inputs for function.
+  fn parse_fun_inputs(&mut self) -> Result<Inputs> {
+    let mut inputs = ThinVec::with_capacity(0usize);
+
+    self.expect_peek(TokenKind::Group(Group::ParenOpen))?;
+
+    while self
+      .expect_peek(TokenKind::Group(Group::ParenClose))
+      .is_err()
+    {
+      if self
+        .expect_peek(TokenKind::Punctuation(Punctuation::Comma))
+        .is_ok()
+      {
+        continue;
+      }
+
+      self.next();
+      inputs.push(self.parse_fun_input()?);
+    }
+
+    Ok(Inputs::new(inputs))
+  }
+
+  /// Parses a input function.
+  fn parse_fun_input(&mut self) -> Result<Input> {
+    let lo = self.current_span();
+    let pattern = self.parse_pattern()?;
+    let ty = self.parse_ty()?;
+    let hi = self.current_span();
+    let span = Span::merge(lo, hi);
+
+    Ok(Input { pattern, ty, span })
+  }
+
+  /// Parses output ty.
+  fn parse_output_ty(&mut self) -> Result<OutputTy> {
+    self
+      .maybe_token_next
+      .map(|token| match token.kind {
+        TokenKind::Punctuation(Punctuation::Colon) => {
+          self.next();
+
+          let ty = self.parse_ty()?;
+
+          Ok(OutputTy::Ty(ty))
+        }
+        _ => Ok(OutputTy::Default(token.span)),
+      })
+      .unwrap()
   }
 
   /// Parses a statement.
@@ -1053,7 +1170,7 @@ impl<'tokens> Parser<'tokens> {
       span,
     };
 
-    let inputs = parser.parse_inputs()?;
+    let inputs = parser.parse_fn_inputs()?;
     let output_ty = OutputTy::Ty(Ty::infer(Span::ZERO));
     let span = Span::merge(pattern.span, output_ty.as_span());
 
@@ -1074,8 +1191,8 @@ impl<'tokens> Parser<'tokens> {
     })
   }
 
-  /// Parses a list of inputs for function and closure.
-  fn parse_inputs(&mut self) -> Result<ThinVec<Input>> {
+  /// Parses a list of inputs for closure.
+  fn parse_fn_inputs(&mut self) -> Result<Inputs> {
     let mut inputs = ThinVec::with_capacity(0usize);
 
     self.expect_peek(TokenKind::Group(Group::ParenOpen))?;
@@ -1089,16 +1206,16 @@ impl<'tokens> Parser<'tokens> {
       }
 
       self.next();
-      inputs.push(self.parse_input()?);
+      inputs.push(self.parse_fn_input()?);
     }
 
     self.expect_peek(TokenKind::Group(Group::ParenClose))?;
 
-    Ok(inputs)
+    Ok(Inputs::new(inputs))
   }
 
-  /// Parses an input.
-  fn parse_input(&mut self) -> Result<Input> {
+  /// Parses a input closure.
+  fn parse_fn_input(&mut self) -> Result<Input> {
     let lo = self.current_span();
     let pattern = self.parse_pattern()?;
     let hi = self.current_span();
@@ -1106,7 +1223,7 @@ impl<'tokens> Parser<'tokens> {
 
     Ok(Input {
       pattern,
-      ty: Ty::UNIT,
+      ty: Ty::infer(Span::ZERO),
       span,
     })
   }

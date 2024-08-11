@@ -7,9 +7,10 @@ use zo_reporter::reporter::Reporter;
 use zo_reporter::{error, Result};
 use zo_session::session::Session;
 use zo_value::builtin::BuiltinFn;
-use zo_value::value::{Value, ValueKind};
+use zo_value::value::{Args, Value, ValueKind};
 
-use swisskit::span::Span;
+use swisskit::span::{AsSpan, Span};
+
 use thin_vec::ThinVec;
 
 /// The representation of an interpreter.
@@ -64,6 +65,7 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_stmt_item(&mut self, item: &ast::Item) -> Result<Value> {
     match &item.kind {
       ast::ItemKind::Var(var) => self.interpret_item_var(var),
+      ast::ItemKind::Fun(fun) => self.interpret_item_fun(fun),
     }
   }
 
@@ -78,6 +80,23 @@ impl<'ast> Interpreter<'ast> {
     let value = self.interpret_expr(&var.value)?;
 
     self.scope_map.add_var(name, value.clone())?;
+
+    Ok(value)
+  }
+
+  /// Interprets a function item.
+  fn interpret_item_fun(&mut self, fun: &ast::Fun) -> Result<Value> {
+    let ast::Fun {
+      prototype,
+      block,
+      span,
+    } = fun;
+
+    let value = Value::fun(prototype.to_owned(), block.to_owned(), *span);
+
+    self
+      .scope_map
+      .add_fun(*fun.prototype.as_symbol(), value.to_owned())?;
 
     Ok(value)
   }
@@ -647,6 +666,9 @@ impl<'ast> Interpreter<'ast> {
       ValueKind::Closure(prototype, block) => {
         self.interpret_expr_call_fn(prototype, block, args)
       }
+      ValueKind::Fun(prototype, block) => {
+        self.interpret_expr_call_fn(prototype, block, args)
+      }
       ValueKind::Builtin(builtin) => {
         self.interpret_expr_call_builtin(builtin, args)
       }
@@ -655,14 +677,14 @@ impl<'ast> Interpreter<'ast> {
   }
 
   /// Interprets arguments.
-  fn interpret_args(&mut self, args: &[ast::Expr]) -> Result<Vec<Value>> {
-    let mut values = Vec::with_capacity(0usize);
+  fn interpret_args(&mut self, args: &[ast::Expr]) -> Result<Args> {
+    let mut values = ThinVec::with_capacity(0usize);
 
     for arg in args.iter() {
       values.push(self.interpret_expr(arg)?);
     }
 
-    Ok(values)
+    Ok(Args::new(values))
   }
 
   /// Interprets a call function exppression.
@@ -670,10 +692,13 @@ impl<'ast> Interpreter<'ast> {
     &mut self,
     prototype: ast::Prototype,
     block: ast::Block,
-    args: Vec<Value>,
+    args: Args,
   ) -> Result<Value> {
     if prototype.inputs.len() != args.len() {
-      panic!()
+      return Err(error::eval::mismatch_args(
+        (prototype.inputs.as_span(), prototype.inputs.len()),
+        (args.as_span(), args.len()),
+      ));
     }
 
     self.scope_map.scope_entry();
@@ -699,7 +724,7 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_expr_call_builtin(
     &mut self,
     builtin: BuiltinFn,
-    values: Vec<Value>,
+    values: Args,
   ) -> Result<Value> {
     builtin(values)
   }

@@ -1,10 +1,10 @@
-use super::value::Value;
+use super::value::{Args, Value};
 
 use zo_reporter::Result;
 
 use smol_str::SmolStr;
 
-pub type BuiltinFn = fn(Vec<Value>) -> Result<Value>;
+pub type BuiltinFn = fn(Args) -> Result<Value>;
 
 /// The representation of a builtin function.
 #[derive(Clone, Debug)]
@@ -16,8 +16,8 @@ pub struct Builtin {
 }
 
 /// Prints values to the io.
-pub fn print(values: Vec<Value>) -> Result<Value> {
-  for value in &values {
+pub fn print(values: Args) -> Result<Value> {
+  for value in values.iter() {
     println!("{value}");
   }
 
