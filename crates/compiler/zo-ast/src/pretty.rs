@@ -45,6 +45,7 @@ impl std::fmt::Display for ItemKind {
     match self {
       Self::Var(var) => write!(f, "{var}"),
       Self::Fun(fun) => write!(f, "{fun}"),
+      _ => todo!(),
     }
   }
 }
@@ -147,6 +148,7 @@ impl std::fmt::Display for ExprKind {
         write!(f, "fn {prototype} {block}")
       }
       Self::Call(callee, args) => write!(f, "{callee}({})", sep_comma(args)),
+      _ => todo!(),
     }
   }
 }

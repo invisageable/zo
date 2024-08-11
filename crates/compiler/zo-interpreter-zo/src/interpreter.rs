@@ -66,6 +66,7 @@ impl<'ast> Interpreter<'ast> {
     match &item.kind {
       ast::ItemKind::Var(var) => self.interpret_item_var(var),
       ast::ItemKind::Fun(fun) => self.interpret_item_fun(fun),
+      _ => todo!(),
     }
   }
 
@@ -185,6 +186,7 @@ impl<'ast> Interpreter<'ast> {
       ast::ExprKind::Call(callee, args) => {
         self.interpret_expr_call(callee, args, expr.span)
       }
+      _ => todo!(),
     }
   }
 
@@ -390,7 +392,7 @@ impl<'ast> Interpreter<'ast> {
     let name = *assignee.as_symbol();
     let value = self.interpret_expr(value)?;
 
-    self.scope_map.add_var(name, value.clone())?;
+    self.scope_map.update_var(name, value.clone())?;
 
     Ok(value)
   }

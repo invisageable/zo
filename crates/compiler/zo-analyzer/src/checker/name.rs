@@ -41,6 +41,7 @@ impl<'ast> NameChecker<'ast> {
     match &item.kind {
       ast::ItemKind::Var(var) => self.check_item_var(var),
       ast::ItemKind::Fun(fun) => self.check_item_fun(fun),
+      _ => Ok(()), // tmp — used to not break the semantic analysis phase.
     }
   }
 

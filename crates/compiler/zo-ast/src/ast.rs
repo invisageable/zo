@@ -31,6 +31,15 @@ pub enum Async {
   No,
 }
 
+/// The representation of a wasmness.
+#[derive(Clone, Debug)]
+pub enum Wasm {
+  /// Allows wasmness.
+  Yes(Span),
+  /// Disallows wasmness.
+  No,
+}
+
 /// The representation of a mutability.
 #[derive(Clone, Debug)]
 pub enum Mutability {
@@ -38,6 +47,24 @@ pub enum Mutability {
   Yes,
   /// Disallows mutable.
   No,
+}
+
+/// The representation of a path.
+#[derive(Clone, Debug)]
+pub struct Path {
+  /// A list of segments — see also [`PathSegment`] for more information.
+  pub segments: ThinVec<PathSegment>,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of a path segment.
+#[derive(Clone, Debug)]
+pub struct PathSegment {
+  /// An identifier i.e a path segment.
+  pub ident: Box<Expr>,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
 }
 
 /// The representation of a pattern.
@@ -141,20 +168,151 @@ pub struct Item {
 /// The representation of different kinds of statements.
 #[derive(Clone, Debug)]
 pub enum ItemKind {
-  /// A constant, global variable.
+  /// An alias item — `type Alias = 0;`.
+  Alias(Alias),
+  /// A constant item i.e global variable — `val x: int = 0;`.
   Var(Var),
-  /// `fun foo(x: int): int { ... }`, `pub fun foo(x: int): int { ... }`.
+  /// An extern function declaration — `ext foo(x: int);`, `ext bar() {..}`.
+  Ext(Ext),
+  /// An abstract interface — `abstract Foo {..}`.
+  Abstract(Abstract),
+  /// An enumeration — `enum Foo {..}`, `pub enum Foo {..}`.
+  Enum(Enum),
+  /// A structure — `struct Foo { x: int }`, `pub struct Foo { x: int }`.
+  Struct(Struct),
+  /// An apply — `apply Foo {..}`, `apply Foo for Bar {..}`.
+  Apply(Apply),
+  /// A function — `fun foo(x: int): int {..}`.
   Fun(Fun),
 }
 
-/// The representation of a function declaration.
+/// The representation of an alias.
+#[derive(Clone, Debug)]
+pub struct Alias {
+  /// A publicness — see also [`Pub`] for more information.
+  pub pubness: Pub,
+  /// A pattern — see also [`Pattern`] for more information.
+  pub pattern: Pattern,
+  /// A specified type — see also [`Ty`] for more information.
+  pub ty: Ty,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of an extern.
+#[derive(Clone, Debug)]
+pub struct Ext {
+  /// A publicness — see also [`Pub`] for more information.
+  pub pubness: Pub,
+  /// A prototype — see also [`Prototype`] for more information.
+  pub prototype: Prototype,
+  /// A block — see also [`Block`] for more information.
+  pub block: Option<Block>,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of an abstract.
+#[derive(Clone, Debug)]
+pub struct Abstract {
+  /// A pattern — see also [`Pattern`] for more information.
+  pub pattern: Pattern,
+  /// A block — see also [`Block`] for more information.
+  pub block: Block,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of an enumeration.
+#[derive(Clone, Debug)]
+pub struct Enum {
+  /// A pattern — see also [`Pattern`] for more information.
+  pub pattern: Pattern,
+  /// A list of variants — see also [`Variant`] for more information.
+  pub variants: ThinVec<Variant>,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of an enumeration variant.
+#[derive(Clone, Debug)]
+pub struct Variant {
+  /// The kind variant — `Foo::Bar`, `Bar::Foo(..)`, `Oof::Rab {..}`.
+  pub kind: VariantKind,
+  /// A pattern — see also [`Pattern`] for more information.
+  pub ident: Ident,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of an kind variant.
+#[derive(Clone, Debug)]
+pub enum VariantKind {
+  /// An identifier variant — enum Foo { Bar }.
+  Ident,
+  /// A tuple variant — `enum Foo { Bar(..) }`.
+  Tuple(ThinVec<Expr>),
+  /// A struct variant. — `enum Foo { Bar {..} }`.
+  Struct(ThinVec<Expr>),
+}
+
+/// The representation of a structure.
+#[derive(Clone, Debug)]
+pub struct Struct {
+  /// A pattern — see also [`Pattern`] for more information.
+  pub pattern: Pattern,
+  /// A list of properties— see also [`Prop`] for more information.
+  pub props: Props,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of a structure.
+#[derive(Clone, Debug)]
+pub struct Prop {
+  /// A publicness — see also [`Pub`] for more information.
+  pub pubness: Pub,
+  /// A name — see also [`Ident`] for more information.
+  pub ident: Ident,
+  /// A type — see also [`Ty`] for more information.
+  pub ty: Ty,
+  /// A possible value. A value can be specified by default — see also [`Expr`]
+  /// for more information.
+  pub maybe_value: Option<Expr>,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of a list of props.
+#[derive(Clone, Debug)]
+pub struct Props(pub ThinVec<Prop>);
+
+impl std::ops::Deref for Props {
+  type Target = ThinVec<Prop>;
+
+  #[inline]
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+/// The representation of an apply.
+#[derive(Clone, Debug)]
+pub struct Apply {
+  /// A list of statement.
+  pub block: ThinVec<Stmt>,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of a function.
 #[derive(Clone, Debug)]
 pub struct Fun {
   /// A prototype function — see also [`Prototype`] for more information.
   pub prototype: Prototype,
   /// A block — see also [`Block`] for more information.
   pub block: Block,
-  /// A function span — see also [`Span`] for more information.
+  /// A span — see also [`Span`] for more information.
   pub span: Span,
 }
 
@@ -262,14 +420,18 @@ pub enum ExprKind {
   Tuple(ThinVec<Expr>),
   /// tuple access — `foo.0`.
   TupleAccess(Box<Expr>, Box<Expr>),
-  /// if else — `if foo == 2 { .. }`.
+  /// if else — `if foo == 2 {..}`.
   IfElse(Box<Expr>, Block, Option<Box<Expr>>),
   /// ternary — `when true ? foo : bar`.
   When(Box<Expr>, Box<Expr>, Box<Expr>),
-  /// loop — `loop { .. }`.
+  /// A pattern-matching — ``.
+  Match(Box<Expr>, ThinVec<Arm>),
+  /// loop — `loop {..}`.
   Loop(Block),
-  /// while loop — `while foo < 10 { .. }`.
+  /// while loop — `while foo < 10 {..}`.
   While(Box<Expr>, Block),
+  /// A for loop — `for foo := bar {..}`.
+  For(For),
   /// exit return — `return`, `return foo`.
   Return(Option<Box<Expr>>),
   /// exit break — `break`, `break foo`.
@@ -278,10 +440,14 @@ pub enum ExprKind {
   Continue,
   /// variable — `imu foo : int = 0`, `mut foo := 0`.
   Var(Var),
-  /// closure — `fn(x) -> x`, `fn() { .. }`
+  /// closure — `fn(x) -> x`, `fn() {..}`.
   Closure(Prototype, Block),
-  /// call — `foo()`, `bar(1, 2)`
+  /// A function call — `foo()`, `bar(1, 2)`.
   Call(Box<Expr>, ThinVec<Expr>),
+  /// A cast — `foo as s64`.
+  Cast(Box<Expr>, Ty),
+  /// A range — `1..2`, `x..y`, `foo()..bar()`.
+  Range(Option<Box<Expr>>, Option<Box<Expr>>),
 }
 
 impl Symbolize for ExprKind {
@@ -339,6 +505,15 @@ impl Symbolize for LitKind {
       _ => unreachable!(),
     }
   }
+}
+
+/// The representation of an identifier.
+#[derive(Clone, Copy, Debug)]
+pub struct Ident {
+  /// A symbol — see also [`Symbol`] for more information.
+  pub sym: Symbol,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
 }
 
 /// The representation of a unary operator.
@@ -557,6 +732,7 @@ impl Inputs {
     Self(inputs)
   }
 }
+
 impl AsSpan for Inputs {
   fn as_span(&self) -> Span {
     let maybe_i1 = self.0.first();
@@ -596,4 +772,28 @@ impl AsSpan for OutputTy {
       Self::Ty(ty) => ty.span,
     }
   }
+}
+
+/// The representation of an pattern-matching arm.
+#[derive(Clone, Debug)]
+pub struct Arm {
+  /// A pattern — see also [`Pattern`] for more information.
+  pub pattern: Box<Expr>,
+  /// A block — see also [`Block`] for more information.
+  pub block: Option<Box<Expr>>,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+/// The representation of a for loop.
+#[derive(Clone, Debug)]
+pub struct For {
+  /// A pattern — see also [`Pattern`] for more information.
+  pub pattern: Pattern,
+  /// An iterator — see also [`Expr`] for more information.
+  pub iterator: Box<Expr>,
+  /// A block — see also [`Block`] for more information.
+  pub block: Block,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
 }
