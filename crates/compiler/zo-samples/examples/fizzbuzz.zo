@@ -1,0 +1,21 @@
+-- examples: fizzbuzz.
+
+fun fb(n: int) {
+  mut x := 1;
+
+  while x < n {
+    if x % 15 == 0 {
+      println("fizzbuzz");
+    } else if x % 5 == 0 {
+      println("fizz");
+    } else if x % 3 == 0 {
+      println("buzz");
+    } else {
+      println("{x}");
+    }
+  }
+}
+
+fun main() {
+  println("{}", fb(15));
+}

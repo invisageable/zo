@@ -1,0 +1,9 @@
+-- examples: fibonacci.
+
+fun main() {
+  imu fib := fn (n) -> when n < 2 
+    ? 1
+    : fib(n - 1) + fib(n - 2);
+
+  println("{}", fib(11));
+}

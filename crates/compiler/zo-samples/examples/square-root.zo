@@ -1,0 +1,8 @@
+-- examples: square root.
+-- finds the square root of a number in `zo`.
+
+fun main() {
+  imu sqrt := fn(x) -> x * x;
+
+  println("{}", sqrt(5));
+}

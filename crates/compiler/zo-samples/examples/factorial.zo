@@ -1,0 +1,9 @@
+-- examples: factorial.
+
+fun main() {
+  imu f := fn(x) -> when x <= 1
+    ? 1
+    : x * f(x - 1);
+
+  println("{}", f(14));
+}

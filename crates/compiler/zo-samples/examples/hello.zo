@@ -1,0 +1,5 @@
+-- examples: hello.
+
+fun main() {
+  println("hello, world!");
+}
