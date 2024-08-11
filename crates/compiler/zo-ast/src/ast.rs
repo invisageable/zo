@@ -528,10 +528,14 @@ impl std::ops::Deref for Prototype {
   }
 }
 
+/// The representation of an input.
 #[derive(Clone, Debug)]
 pub struct Input {
+  /// The name pattern — see also [`Pattern`]. for more information.
   pub pattern: Pattern,
+  /// The type — see also [`Ty`]. for more information.
   pub ty: Ty,
+  /// The span — see also [`Span`]. for more information.
   pub span: Span,
 }
 

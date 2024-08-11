@@ -1010,7 +1010,6 @@ impl<'tokens> Parser<'tokens> {
           }
 
           self.expect_peek(TokenKind::Group(Group::BraceClose))?;
-          // self.next();
 
           let hi = self.current_span();
           let span = Span::merge(lo, hi);
@@ -1054,11 +1053,11 @@ impl<'tokens> Parser<'tokens> {
   /// Parses a loop expression.
   fn parse_expr_loop(parser: &mut Parser) -> Result<Expr> {
     let lo = parser.current_span();
-    let body = parser.parse_block()?;
+    let block = parser.parse_block()?;
     let hi = parser.current_span();
 
     Ok(Expr {
-      kind: ExprKind::Loop(body),
+      kind: ExprKind::Loop(block),
       span: Span::merge(lo, hi),
     })
   }
@@ -1070,11 +1069,11 @@ impl<'tokens> Parser<'tokens> {
     parser.next();
 
     let condition = parser.parse_expr(Precedence::Low)?;
-    let body = parser.parse_block()?;
+    let block = parser.parse_block()?;
     let hi = parser.current_span();
 
     Ok(Expr {
-      kind: ExprKind::While(Box::new(condition), body),
+      kind: ExprKind::While(Box::new(condition), block),
       span: Span::merge(lo, hi),
     })
   }

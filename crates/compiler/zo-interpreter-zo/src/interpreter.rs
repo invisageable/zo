@@ -92,11 +92,10 @@ impl<'ast> Interpreter<'ast> {
       span,
     } = fun;
 
+    let name = *fun.prototype.as_symbol();
     let value = Value::fun(prototype.to_owned(), block.to_owned(), *span);
 
-    self
-      .scope_map
-      .add_fun(*fun.prototype.as_symbol(), value.to_owned())?;
+    self.scope_map.add_fun(name, value.to_owned())?;
 
     Ok(value)
   }
@@ -411,11 +410,9 @@ impl<'ast> Interpreter<'ast> {
       None => return Err(error::eval::not_found_var(span, *name)),
     };
 
-    self.scope_map.update_var(*name, lhs.clone())?;
-
     let rhs = self.interpret_expr(value)?;
 
-    Ok(match binop.kind {
+    let value = match binop.kind {
       ast::BinOpKind::Add => lhs + rhs,
       ast::BinOpKind::Sub => lhs - rhs,
       ast::BinOpKind::Mul => lhs * rhs,
@@ -423,7 +420,11 @@ impl<'ast> Interpreter<'ast> {
       ast::BinOpKind::Rem => lhs % rhs,
       // todo — should be `unknown assignop` error instead.
       _ => return Err(error::eval::unknown_binop(span, *binop)),
-    })
+    };
+
+    self.scope_map.update_var(*name, value.clone())?;
+
+    Ok(value)
   }
 
   /// Interprets an array expression.
@@ -564,14 +565,14 @@ impl<'ast> Interpreter<'ast> {
   fn interpret_expr_while(
     &mut self,
     condition: &ast::Expr,
-    body: &ast::Block,
+    block: &ast::Block,
   ) -> Result<Value> {
     let mut value = Value::UNIT;
 
     self.counter_loop += 1;
 
-    while as_bool(self.interpret_expr(condition)?) {
-      value = self.interpret_block(body)?;
+    while self.interpret_expr(condition)?.as_bool() {
+      value = self.interpret_block(block)?;
 
       match &value.kind {
         ValueKind::Return(value) => return Ok(*value.to_owned()),
@@ -678,7 +679,7 @@ impl<'ast> Interpreter<'ast> {
 
   /// Interprets arguments.
   fn interpret_args(&mut self, args: &[ast::Expr]) -> Result<Args> {
-    let mut values = ThinVec::with_capacity(0usize);
+    let mut values = ThinVec::with_capacity(args.len());
 
     for arg in args.iter() {
       values.push(self.interpret_expr(arg)?);
@@ -727,14 +728,6 @@ impl<'ast> Interpreter<'ast> {
     values: Args,
   ) -> Result<Value> {
     builtin(values)
-  }
-}
-
-fn as_bool(value: Value) -> bool {
-  match value.kind {
-    ValueKind::Unit => false,
-    ValueKind::Bool(boolean) => boolean,
-    _ => true,
   }
 }
 
