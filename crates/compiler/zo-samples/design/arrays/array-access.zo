@@ -3,5 +3,5 @@
 fun main() {
   imu x := [1.0, 2.0, 3.0];
 
-  println(x[1]);
+  println("{}", x[1]);
 }

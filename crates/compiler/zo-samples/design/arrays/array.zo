@@ -3,9 +3,9 @@
 fun main() {
   imu x: float[3] = [1.0, 2.0, 3.0];   -- sized array.
 
-  println(x);
+  println("x = {x}");
 
   imu y: float[] = [1.0, 2.0, 3.0];    -- dynamic array.
 
-  println(x);
+  println("y = {y}");
 }

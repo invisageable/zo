@@ -1,12 +1,12 @@
 -- matches: match.
 
-fun main() {
-  println("{}", matches(1));
-}
-
 fun matches(n: int): str {
   match n {
     1 => "one",
     2 => "two",
   }
+}
+
+fun main() {
+  println("{}", matches(1));
 }

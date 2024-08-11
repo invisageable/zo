@@ -9,7 +9,7 @@ struct Foo {
 apply Foo {}
 
 apply Foo {
-  fun new() -> Foo {
+  fun new(): Foo {
     Foo { x = 0, y = 1, z = 0 }
   }
 }
