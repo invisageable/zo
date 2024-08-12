@@ -1,3 +1,13 @@
+//! The syntax analysis phase.
+//!
+//! The parser is a naive recursive descent to-down parser.
+//! This gives us more control, easy to debug and also it is fast enough for the
+//! work the parser has to do compares to parser combinator or a ahutting yard
+//! parser.
+//!
+//! In the future, the parser must be parallelized then receving token from the
+//! tokenizer.
+
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
@@ -28,15 +38,11 @@ type InfixFn = Box<dyn FnOnce(&mut Parser, Expr) -> Result<Expr>>;
 /// The representation of a parser.
 struct Parser<'tokens> {
   /// The index of the token slice.
-  index: usize,
+  idx: usize,
   /// An optional current token.
   maybe_token_current: Option<&'tokens Token>,
   /// An optional next token.
   maybe_token_next: Option<&'tokens Token>,
-  /// The current span.
-  span_current: Span,
-  /// The closure counter.
-  counter_fn: usize,
   /// A group of tokens — see also [`Token`] for more information.
   tokens: &'tokens [Token],
   /// An interner — see also [`Interner`] for more information.
@@ -54,11 +60,9 @@ impl<'tokens> Parser<'tokens> {
     tokens: &'tokens [Token],
   ) -> Self {
     Self {
-      index: 0usize,
+      idx: 0usize,
       maybe_token_current: None,
       maybe_token_next: None,
-      span_current: Span::ZERO,
-      counter_fn: 0usize,
       tokens,
       interner,
       reporter,
@@ -68,13 +72,13 @@ impl<'tokens> Parser<'tokens> {
   /// Checks token availability.
   #[inline]
   fn has_tokens(&self) -> bool {
-    self.index < self.tokens.len()
+    self.idx < self.tokens.len()
   }
 
   /// Peeks ahead in the token stram to look at a token based of the index.
   #[inline]
   fn peek(&self) -> Option<&'tokens Token> {
-    self.tokens.get(self.index)
+    self.tokens.get(self.idx)
   }
 
   /// Chekcs and reveals the precendence ordering from other precedence.
@@ -951,7 +955,7 @@ impl<'tokens> Parser<'tokens> {
 
     parser.next();
 
-    let alternative = if parser.expect(TokenKind::Kw(Kw::Else)).is_ok() {
+    let maybe_alternative = if parser.expect(TokenKind::Kw(Kw::Else)).is_ok() {
       if parser.ensure(TokenKind::Kw(Kw::If)) {
         Some(Box::new(Self::parse_expr_if_else(parser)?))
       } else {
@@ -968,7 +972,11 @@ impl<'tokens> Parser<'tokens> {
     let hi = parser.current_span();
 
     Ok(Expr {
-      kind: ExprKind::IfElse(Box::new(condition), consequence, alternative),
+      kind: ExprKind::IfElse(
+        Box::new(condition),
+        consequence,
+        maybe_alternative,
+      ),
       span: Span::merge(lo, hi),
     })
   }
@@ -1154,7 +1162,7 @@ impl<'tokens> Parser<'tokens> {
   /// Parses a closure expression.
   fn parse_expr_fn(parser: &mut Parser) -> Result<Expr> {
     let lo = parser.current_span();
-    let sym = parser.interner.intern(&format!("fn_{}", parser.counter_fn));
+    let sym = parser.interner.intern(&format!("fn_{}", parser.idx));
     let name = parser.interner.lookup(*sym);
     let span = Span::of(lo.hi, lo.hi + name.len());
 
@@ -1430,8 +1438,7 @@ impl<'tokens> Iterator for Parser<'tokens> {
     std::mem::swap(&mut self.maybe_token_current, &mut self.maybe_token_next);
 
     self.peek().inspect(|token| {
-      self.index += 1;
-      self.span_current = token.span;
+      self.idx += 1;
       self.maybe_token_next = Some(token);
     })
   }
