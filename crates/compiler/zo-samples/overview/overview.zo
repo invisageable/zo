@@ -19,3 +19,27 @@ imu i: Fn(int): int = fn(x) -> x * x * o[x];
 -- imu i := fn(x) -> while x < 3 -> println("{}", x += 1);
 
 i(2);
+
+-- fun add(x: int, y: int) {
+--   x + y
+-- }
+
+-- add(4, 4);
+
+mut x: int = 0;
+
+-- while x < 100 {
+--   x += 2;
+-- }
+
+while x < 100 -> x += 5;
+
+-- loop {
+--   x += 1;
+
+--   if x == 10 {
+--     break;
+--   }
+-- }
+
+x

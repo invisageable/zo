@@ -1,6 +1,6 @@
 # presenter — prezentation.
 
-> *A lively presentation software.*
+> *Pimp your talks with the right presenter software.*
 
 ## credits.
 

@@ -1,6 +1,22 @@
 # zo.
 
-> *The `zo` programming language.*
+> *Codify human thoughts into energy-efficient and reliable software 🧠*
+
+## about.
+
+zo is tiny, simple, fast and elegant for creating meticulously optimized software.    
+
+zo is focusing on creativity, wasm and performance.
+
+## goals.
+
+- [ ] fast `compilation-time`.
+- [ ] user-friendly `error` messages.
+- [ ] metaprogramming.
+- [ ] statically-typed.
+- [ ] robust `type system` — *hindley-milner algorithm.*.
+- [ ] safe concurrency model — *Actor Model `erlang` like.*
+- [ ] powerfull `tools` — *native REPL, code editor, etc.*
 
 ## compiler phases.
 
@@ -27,15 +43,6 @@ fun main() {
   println("{}", fib(11));
 }
 ```
-
-## goals.
-
-- [ ] fast `compilation-time`.
-- [ ] user-friendly `error` messages.
-- [ ] metaprogramming.
-- [ ] robust `type system` — *hindley-milner algorithm*.
-- [ ] safe concurrency model — *Actor Model `erlang` like.*
-- [ ] powerfull `tools` — *native REPL, code editor, etc.*
 
 ## dirmap.
 

@@ -10,7 +10,6 @@
 
 [Home](https://github.com/invisageable/zo) — [Install](./notes/docs/README.md#install) — [Speeches](notes/speeches) — [License](#license)   
 
-
 ## warning.
 
 **NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**
@@ -47,9 +46,13 @@ A compiler of a compiler inside another giant compiler that is itself inside a g
 | [codelord](./apps/coder)         | A code editor OS-like for the `zo` programming language. |
 | [prezentation](./apps/presenter) | A lively presentation software.                          |
 
+## contributing.
+
+Feel free to open an issue if you want contribute or join the [discord](https://discord.gg/JaNc4Nk5xw).
+
 ## supports.
 
-Stars, donate or sponsors are welcoming.
+Stars, [donate](https://patreon.com/invisageable) or [sponsors](mailto:the@compilords.house) are welcoming.
 
 ## credits.
 
