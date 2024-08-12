@@ -107,10 +107,13 @@ impl Reporter {
     let code = if code.is_empty() { "\n" } else { code };
     let pathname = self.pathname(span).display();
 
-    let mut report_builder =
-      ariadne::Report::build(report.kind.into(), pathname.to_string(), span.lo)
-        .with_code(error)
-        .with_message(report.message);
+    let mut report_builder = ariadne::Report::build(
+      report.kind.into(),
+      pathname.to_string(),
+      span.lo as usize,
+    )
+    .with_code(error)
+    .with_message(report.message);
 
     for (span, message, color) in report.labels {
       report_builder = report_builder.with_label(

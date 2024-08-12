@@ -84,7 +84,7 @@ impl SourceMap {
       .sources
       .iter()
       .enumerate()
-      .find(|(_, s)| s.id.0 > span.lo)
+      .find(|(_, s)| s.id.get() > span.lo as usize)
       .map(|(idx, _)| idx - Self::OFFSET)
       .unwrap_or(self.sources.len() - Self::OFFSET) as u32
   }
@@ -100,7 +100,7 @@ impl SourceMap {
       .map(|s| s.id)
       .unwrap_or(SourceId::new(self.code.len()));
 
-    &self.code[lo.0..hi.0]
+    &self.code[lo.get()..hi.get()]
   }
 
   /// Gets the pathname of a source from a span.

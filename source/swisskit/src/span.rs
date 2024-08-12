@@ -21,9 +21,9 @@ pub trait AsSpan {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Span {
   /// The starting point of the [`Span`].
-  pub lo: usize,
+  pub lo: u32,
   /// The ending point of the [`Span`].
-  pub hi: usize,
+  pub hi: u32,
 }
 
 impl Span {
@@ -43,7 +43,7 @@ impl Span {
   /// assert_eq!(spn.hi, 3);
   /// ```
   #[inline]
-  pub const fn of(lo: usize, hi: usize) -> Self {
+  pub const fn of(lo: u32, hi: u32) -> Self {
     Self { lo, hi }
   }
 
@@ -82,7 +82,7 @@ impl Span {
   /// ```
   #[inline]
   pub fn len(&self) -> usize {
-    self.hi - self.lo
+    (self.hi - self.lo) as usize
   }
 
   /// Check if the span is empty.
@@ -114,7 +114,7 @@ impl Span {
   /// assert_eq!(spn.contains(usize::MAX), false);
   /// ```
   #[inline]
-  pub fn contains(&self, pos: usize) -> bool {
+  pub fn contains(&self, pos: u32) -> bool {
     self.lo <= pos && pos < self.hi
   }
 }
@@ -135,6 +135,6 @@ impl std::fmt::Display for Span {
 impl From<Span> for std::ops::Range<usize> {
   #[inline]
   fn from(span: Span) -> Self {
-    span.lo..span.hi
+    span.lo as usize..span.hi as usize
   }
 }

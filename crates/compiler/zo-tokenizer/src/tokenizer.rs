@@ -115,7 +115,8 @@ impl<'bytes> Tokenizer<'bytes> {
         TokenizerState::Zero => match byte {
           b if is!(number_start b) => self.bump(),
           b if is!(number_continue b) => {
-            let span = Span::of(cursor_pos, self.cursor.pos() + 1);
+            let span =
+              Span::of(cursor_pos as u32, (self.cursor.pos() + 1) as u32);
 
             self
               .reporter
@@ -302,14 +303,19 @@ impl<'bytes> Tokenizer<'bytes> {
           }
         },
         TokenizerState::Unknown => {
-          let span = Span::of(cursor_pos, self.cursor.pos() + 1);
+          let span =
+            Span::of(cursor_pos as u32, (self.cursor.pos() + 1) as u32);
 
           self.reporter.raise(error::lexical::unknown(span, byte));
         }
       }
     }
 
-    self.scan(state, Span::of(cursor_pos, self.cursor.pos()), base)
+    self.scan(
+      state,
+      Span::of(cursor_pos as u32, self.cursor.pos() as u32),
+      base,
+    )
   }
 
   /// Detects the token from state and span.
@@ -319,7 +325,8 @@ impl<'bytes> Tokenizer<'bytes> {
     span: Span,
     base: Base,
   ) -> Option<Token> {
-    let source = String::from_utf8_lossy(self.bytes(span.lo, span.hi));
+    let source =
+      String::from_utf8_lossy(self.bytes(span.lo as usize, span.hi as usize));
 
     let maybe_kind = match state {
       TokenizerState::Int => {

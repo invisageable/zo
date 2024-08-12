@@ -1164,7 +1164,7 @@ impl<'tokens> Parser<'tokens> {
     let lo = parser.current_span();
     let sym = parser.interner.intern(&format!("fn_{}", parser.idx));
     let name = parser.interner.lookup(*sym);
-    let span = Span::of(lo.hi, lo.hi + name.len());
+    let span = Span::of(lo.hi, lo.hi + name.len() as u32);
 
     let pattern = Pattern {
       kind: PatternKind::Ident(Box::new(Expr {
