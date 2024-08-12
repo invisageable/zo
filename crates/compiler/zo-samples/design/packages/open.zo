@@ -1,0 +1,6 @@
+-- packages: open.
+
+open a;
+pub open b;
+
+fun main() {}
