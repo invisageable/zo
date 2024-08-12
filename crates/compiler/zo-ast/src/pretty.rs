@@ -1,12 +1,13 @@
 use super::ast::{
-  Alias, Ast, Async, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Item,
-  ItemKind, Lit, LitKind, OutputTy, Pattern, PatternKind, Prototype, Pub, Stmt,
-  StmtKind, UnOp, UnOpKind, Var, VarKind, Wasm,
+  Alias, Ast, Async, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Ident,
+  Input, Item, ItemKind, Lit, LitKind, OutputTy, Path, PathSegment, Pattern,
+  PatternKind, Prototype, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
+  Wasm,
 };
 
 use zo_ty::ty::TyKind;
 
-use swisskit::fmt::{sep_comma, sep_newline};
+use swisskit::fmt::{sep, sep_comma, sep_newline};
 
 use smol_str::ToSmolStr;
 
@@ -47,11 +48,24 @@ impl std::fmt::Display for PatternKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Underscore => write!(f, "_"),
-      Self::Ident(expr) => write!(f, "{expr}"),
       Self::Lit(lit) => write!(f, "{lit}"),
+      Self::Ident(expr) => write!(f, "{expr}"),
+      Self::Path(path) => write!(f, "{path}"),
       Self::Array(patterns) => write!(f, "[{}]", sep_comma(patterns)),
       Self::Tuple(patterns) => write!(f, "({})", sep_comma(patterns)),
     }
+  }
+}
+
+impl std::fmt::Display for Path {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{};", sep(&self.segments, "::"))
+  }
+}
+
+impl std::fmt::Display for PathSegment {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.ident)
   }
 }
 
@@ -216,6 +230,12 @@ impl std::fmt::Display for LitKind {
   }
 }
 
+impl std::fmt::Display for Ident {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.sym)
+  }
+}
+
 impl std::fmt::Display for UnOp {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.kind)
@@ -281,7 +301,7 @@ impl std::fmt::Display for Prototype {
       ..
     } = self;
 
-    write!(f, "{} ({}): {}", pattern, sep_comma(&inputs), output_ty)
+    write!(f, "{} ({}): {}", pattern, sep_comma(inputs), output_ty)
   }
 }
 

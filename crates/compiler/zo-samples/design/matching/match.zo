@@ -1,9 +1,18 @@
 -- matches: match.
 
 fun matches(n: int): str {
+  -- first idea.
+  if n == {
+    1 => "one",
+    2 => "two",
+    else => println("{n}"), -- `n` is added implicitly to the scope.
+  }
+
+  -- second idea.
   match n {
     1 => "one",
     2 => "two",
+    else => println("{n}"), -- `n` is added implicitly to the scope.
   }
 }
 

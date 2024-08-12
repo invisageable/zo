@@ -62,7 +62,7 @@ pub struct Path {
 #[derive(Clone, Debug)]
 pub struct PathSegment {
   /// An identifier i.e a path segment.
-  pub ident: Box<Expr>,
+  pub ident: Ident,
   /// A span — see also [`Span`] for more information.
   pub span: Span,
 }
@@ -86,15 +86,17 @@ impl Symbolize for Pattern {
 /// The representation of different kinds of patterns.
 #[derive(Clone, Debug)]
 pub enum PatternKind {
-  /// underscore — `_`.
+  /// An underscore — `_`.
   Underscore,
-  /// identifier — `foo`, `Bar`.
-  Ident(Box<Expr>),
-  /// literals.
+  /// A literal pattern.
   Lit(Lit),
-  /// array destructuring.
+  /// An identifier pattern — `foo`, `Bar`.
+  Ident(Box<Expr>),
+  /// A path pattern.
+  Path(Path),
+  /// An array destructuring.
   Array(ThinVec<Pattern>),
-  /// tuple destructuring.
+  /// A tuple destructuring.
   Tuple(ThinVec<Pattern>),
 }
 
@@ -213,7 +215,7 @@ pub struct Ext {
   /// A prototype — see also [`Prototype`] for more information.
   pub prototype: Prototype,
   /// A block — see also [`Block`] for more information.
-  pub block: Option<Block>,
+  pub maybe_block: Option<Block>,
   /// A span — see also [`Span`] for more information.
   pub span: Span,
 }
@@ -344,8 +346,8 @@ pub enum StmtKind {
 
 /// The representation of a variable.
 ///
-/// immutable variable — `imu foo: int = 123;`.
-/// mutable variable — `mut foo: int = 123;`, `mut foo := 123;`.
+/// immutable variable — `imu foo: int = 123;`, `imu bar := 123;`.
+/// mutable variable — `mut foo: int = 123;`, `mut bar := 123;`.
 #[derive(Clone, Debug)]
 pub struct Var {
   /// An indicator to delimit the scope.
@@ -520,6 +522,13 @@ pub struct Ident {
   pub sym: Symbol,
   /// A span — see also [`Span`] for more information.
   pub span: Span,
+}
+
+impl Symbolize for Ident {
+  #[inline]
+  fn as_symbol(&self) -> &Symbol {
+    &self.sym
+  }
 }
 
 /// The representation of a unary operator.
@@ -741,8 +750,8 @@ impl Inputs {
 
 impl AsSpan for Inputs {
   fn as_span(&self) -> Span {
-    let maybe_i1 = self.0.first();
-    let maybe_i2 = self.0.last();
+    let maybe_i1 = self.first();
+    let maybe_i2 = self.last();
 
     match (maybe_i1, maybe_i2) {
       (Some(i1), Some(i2)) => Span::merge(i1.span, i2.span),

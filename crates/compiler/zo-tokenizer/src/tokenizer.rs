@@ -253,6 +253,45 @@ impl<'bytes> Tokenizer<'bytes> {
                 }
                 _ => break,
               }
+            } else if byte == b'&' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'&' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'|' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'|' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'<' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'<' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'>' {
+              self.bump();
+
+              match self.byte() {
+                b'=' => self.bump(),
+                b'>' => self.bump(),
+                _ => break,
+              }
+            } else if byte == b'#' {
+              self.bump();
+
+              match self.byte() {
+                b'>' => self.bump(),
+                _ => break,
+              }
             } else {
               self.bump();
 

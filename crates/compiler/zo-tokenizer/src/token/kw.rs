@@ -12,7 +12,9 @@ lazy_static::lazy_static! {
   // A static map of available keywords.
   pub static ref KEYWORD: Keyword = HashMap::from([
     (SmolStr::new_inline("abstract"), TokenKind::Kw(Kw::Abstract)),
+    (SmolStr::new_inline("and"), TokenKind::Kw(Kw::And)),
     (SmolStr::new_inline("apply"), TokenKind::Kw(Kw::Apply)),
+    (SmolStr::new_inline("as"), TokenKind::Kw(Kw::As)),
     (SmolStr::new_inline("async"), TokenKind::Kw(Kw::Async)),
     (SmolStr::new_inline("await"), TokenKind::Kw(Kw::Await)),
     (SmolStr::new_inline("break"), TokenKind::Kw(Kw::Break)),
@@ -70,7 +72,9 @@ lazy_static::lazy_static! {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kw {
   Abstract,
+  And,
   Apply,
+  As,
   Async,
   Await,
   Break,
@@ -107,7 +111,9 @@ impl std::fmt::Display for Kw {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
       Self::Abstract => write!(f, "abstract"),
+      Self::And => write!(f, "and"),
       Self::Apply => write!(f, "apply"),
+      Self::As => write!(f, "as"),
       Self::Async => write!(f, "async"),
       Self::Await => write!(f, "await"),
       Self::Break => write!(f, "break"),

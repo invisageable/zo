@@ -33,8 +33,8 @@ fun main() {
 - [ ] fast `compilation-time`.
 - [ ] user-friendly `error` messages.
 - [ ] metaprogramming.
-- [ ] robust `type system`.
-- [ ] safe concurrency model — Actor Model like `erlang`.
+- [ ] robust `type system` — *hindley-milner algorithm*.
+- [ ] safe concurrency model — *Actor Model `erlang` like.*
 - [ ] powerfull `tools` — *native REPL, code editor, etc.*
 
 ## dirmap.

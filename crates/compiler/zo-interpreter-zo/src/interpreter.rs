@@ -17,10 +17,6 @@ use thin_vec::ThinVec;
 struct Interpreter<'ast> {
   /// A scope map — see also [`ScopeMap`].
   scope_map: ScopeMap,
-  /// A flag for a break expression.
-  breaking: bool,
-  /// A flag for a break expression.
-  continuing: bool,
   /// A loop counter.
   counter_loop: u32,
   /// An interner — see also [`Interner`] for more information.
@@ -35,8 +31,6 @@ impl<'ast> Interpreter<'ast> {
   fn new(interner: &'ast mut Interner, reporter: &'ast Reporter) -> Self {
     Self {
       scope_map: ScopeMap::new(),
-      breaking: false,
-      continuing: false,
       counter_loop: 0u32,
       interner,
       reporter,
@@ -636,8 +630,6 @@ impl<'ast> Interpreter<'ast> {
       return Err(error::eval::out_of_loop(span, "break"));
     }
 
-    self.breaking = true;
-
     match maybe_expr {
       Some(expr) => self.interpret_expr(expr),
       None => Ok(Value::brk(Box::new(Value::unit(span)), span)),
@@ -649,8 +641,6 @@ impl<'ast> Interpreter<'ast> {
     if self.counter_loop == 0 {
       return Err(error::eval::out_of_loop(span, "continue"));
     }
-
-    self.continuing = true;
 
     Ok(Value::ctn(span))
   }

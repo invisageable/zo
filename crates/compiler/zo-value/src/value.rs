@@ -178,8 +178,8 @@ impl Args {
 }
 impl AsSpan for Args {
   fn as_span(&self) -> Span {
-    let maybe_i1 = self.0.first();
-    let maybe_i2 = self.0.last();
+    let maybe_i1 = self.first();
+    let maybe_i2 = self.last();
 
     match (maybe_i1, maybe_i2) {
       (Some(i1), Some(i2)) => Span::merge(i1.span, i2.span),
