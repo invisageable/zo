@@ -1,6 +1,15 @@
 # zo.
 
+[![invisage/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
+![license: APACHE](https://img.shields.io/badge/license-APACHE-blue?style=flat-square)
+![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+[![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
+---
+
 > *zo — The symphonie of compilers.*
+
+[Home](https://github.com/invisageable/zo) — [Install](./notes/docs/README.md#install) — [Speeches](notes/speeches) — [License](#license)   
+
 
 ## warning.
 
@@ -14,12 +23,7 @@ You should come back in ten years. Stay tuned.
 
 A compiler of a compiler inside another giant compiler that is itself inside a gigantic compiler.  
 
-[Home](https://github.com/invisageable/zo) — [Install](./notes/docs/README.md#install) — [Speeches](notes/speeches)   
-
 ## ecosystem.
-
-![license: APACHE](https://img.shields.io/badge/license-APACHE-blue?style=flat-square)
-![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
 **-sources**
 
