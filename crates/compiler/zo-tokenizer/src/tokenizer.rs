@@ -17,10 +17,6 @@ use swisskit::span::Span;
 struct Tokenizer<'bytes> {
   /// The cursor.
   cursor: Cursor<'bytes>,
-  /// The current state.
-  state: TokenizerState,
-  /// The integer base.
-  base: Base,
   /// See [`Interner`].
   interner: &'bytes mut Interner,
   /// See [`Reporter`].
@@ -37,8 +33,6 @@ impl<'bytes> Tokenizer<'bytes> {
   ) -> Self {
     Self {
       cursor: Cursor::new(source),
-      state: TokenizerState::Start,
-      base: Base::Dec,
       interner,
       reporter,
     }
@@ -59,12 +53,6 @@ impl<'bytes> Tokenizer<'bytes> {
   #[inline]
   fn bump(&mut self) {
     self.cursor.bump()
-  }
-
-  /// Gets the current state.
-  #[inline]
-  fn state(&self) -> TokenizerState {
-    self.state
   }
 
   /// Transform the source code into an array of tokens.
@@ -99,7 +87,8 @@ impl<'bytes> Tokenizer<'bytes> {
 
   /// Eats the source code byte-by-byte.
   fn step(&mut self) -> Option<Token> {
-    let mut state = self.state();
+    let mut state = TokenizerState::Start;
+    let mut base = Base::Dec;
     let mut cursor_pos = self.cursor.pos();
 
     while self.cursor.has_bytes() {
@@ -152,19 +141,19 @@ impl<'bytes> Tokenizer<'bytes> {
           }
           b'b' => {
             state = TokenizerState::Bin;
-            self.base = Base::Bin;
+            base = Base::Bin;
 
             self.bump();
           }
           b'o' => {
             state = TokenizerState::Oct;
-            self.base = Base::Oct;
+            base = Base::Oct;
 
             self.bump();
           }
           b'x' => {
             state = TokenizerState::Hex;
-            self.base = Base::Hex;
+            base = Base::Hex;
 
             self.bump();
           }
@@ -320,11 +309,16 @@ impl<'bytes> Tokenizer<'bytes> {
       }
     }
 
-    self.scan(state, Span::of(cursor_pos, self.cursor.pos()))
+    self.scan(state, Span::of(cursor_pos, self.cursor.pos()), base)
   }
 
   /// Detects the token from state and span.
-  fn scan(&mut self, state: TokenizerState, span: Span) -> Option<Token> {
+  fn scan(
+    &mut self,
+    state: TokenizerState,
+    span: Span,
+    base: Base,
+  ) -> Option<Token> {
     let source = String::from_utf8_lossy(self.bytes(span.lo, span.hi));
 
     let maybe_kind = match state {
@@ -332,7 +326,7 @@ impl<'bytes> Tokenizer<'bytes> {
         let source = source.replace('_', "");
         let symbol = self.interner.intern(&source);
 
-        Some(TokenKind::Int(symbol, self.base))
+        Some(TokenKind::Int(symbol, base))
       }
       TokenizerState::Float | TokenizerState::ENotation => {
         let source = source.replace('_', "");
