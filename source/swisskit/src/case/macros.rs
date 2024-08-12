@@ -25,11 +25,11 @@ macro_rules! is {
   (number $rhs:expr) => {
     $crate::case::bitcase::numbercase::is_number($rhs)
   };
-  (number_start $rhs:expr) => {
+  (number_zero $rhs:expr) => {
     $crate::case::bitcase::numbercase::is_number_zero($rhs)
   };
-  (number_continue $rhs:expr) => {
-    $crate::case::bitcase::numbercase::is_number_continue($rhs)
+  (number_non_zero $rhs:expr) => {
+    $crate::case::bitcase::numbercase::is_number_non_zero($rhs)
   };
   (number_hex $rhs:expr) => {
     $crate::case::bitcase::numbercase::is_number_hex($rhs)

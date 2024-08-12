@@ -75,6 +75,12 @@ impl<'tokens> Parser<'tokens> {
     self.idx < self.tokens.len()
   }
 
+  /// Checks end of file.
+  #[inline]
+  fn is_eof(&self) -> bool {
+    self.ensure(TokenKind::Eof)
+  }
+
   /// Peeks ahead in the token stram to look at a token based of the index.
   #[inline]
   fn peek(&self) -> Option<&'tokens Token> {
@@ -98,7 +104,7 @@ impl<'tokens> Parser<'tokens> {
 
   /// Checks if the current token is a specific kind.
   #[inline]
-  fn ensure(&mut self, kind: TokenKind) -> bool {
+  fn ensure(&self, kind: TokenKind) -> bool {
     self
       .maybe_token_current
       .map(|token| token.is(kind))
@@ -107,7 +113,7 @@ impl<'tokens> Parser<'tokens> {
 
   /// Checks if the next token is a specific kind.
   #[inline]
-  fn ensure_peek(&mut self, kind: TokenKind) -> bool {
+  fn ensure_peek(&self, kind: TokenKind) -> bool {
     self.maybe_token_next.map(|token| token.is(kind)).unwrap()
   }
 
@@ -153,14 +159,10 @@ impl<'tokens> Parser<'tokens> {
   fn parse(&mut self) -> Result<Ast> {
     let mut ast = Ast::new();
 
-    if self.tokens.is_empty() {
-      return Ok(ast);
-    }
-
     self.next();
     self.next();
 
-    while self.has_tokens() {
+    while !self.is_eof() {
       match self.parse_stmt() {
         Ok(stmt) => ast.add_stmt(stmt),
         Err(error) => self.reporter.add_report(error),
@@ -199,14 +201,14 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| {
         if let TokenKind::Kw(Kw::Val) = token.kind {
+          self.next();
+
           return Ok(VarKind::Val);
         }
 
         Err(error::syntax::expected_global_var(token.span, *token))
       })
       .unwrap()?;
-
-    self.next();
 
     let pattern = self.parse_pattern()?;
     let ty = self.parse_ty()?;
@@ -401,8 +403,6 @@ impl<'tokens> Parser<'tokens> {
     self.next();
 
     let value = self.parse_expr(Precedence::Low)?;
-
-    self.next();
 
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
@@ -671,7 +671,9 @@ impl<'tokens> Parser<'tokens> {
     self.parse_prefix_fn().and_then(|prefix_fn| {
       let mut lhs = prefix_fn(self)?;
 
-      while self.has_tokens() && self.should_precedence(precedence) {
+      while !self.ensure(TokenKind::Punctuation(Punctuation::Semicolon))
+        && self.should_precedence(precedence)
+      {
         if let Ok(infix_fn) = self.parse_infix_fn() {
           self.next();
 
@@ -953,21 +955,22 @@ impl<'tokens> Parser<'tokens> {
     let condition = parser.parse_expr(Precedence::Low)?;
     let consequence = parser.parse_block()?;
 
-    parser.next();
+    let maybe_alternative =
+      if parser.expect_peek(TokenKind::Kw(Kw::Else)).is_ok() {
+        if parser.ensure(TokenKind::Kw(Kw::If)) {
+          Some(Box::new(Self::parse_expr_if_else(parser)?))
+        } else {
+          let block = parser.parse_block()?;
+          let span = Span::merge(lo, block.span);
 
-    let maybe_alternative = if parser.expect(TokenKind::Kw(Kw::Else)).is_ok() {
-      if parser.ensure(TokenKind::Kw(Kw::If)) {
-        Some(Box::new(Self::parse_expr_if_else(parser)?))
+          Some(Box::new(Expr {
+            kind: ExprKind::Block(block),
+            span,
+          }))
+        }
       } else {
-        parser.next();
-
-        let expr = parser.parse_expr(Precedence::Low)?;
-
-        Some(Box::new(expr))
-      }
-    } else {
-      None
-    };
+        None
+      };
 
     let hi = parser.current_span();
 
@@ -1006,18 +1009,17 @@ impl<'tokens> Parser<'tokens> {
           Ok(Block { stmts, span })
         }
         TokenKind::Group(Group::BraceOpen) => {
-          let mut stmts = ThinVec::with_capacity(1usize);
+          self.next();
+          self.next();
 
-          self.expect_peek(TokenKind::Group(Group::BraceOpen))?;
+          let mut stmts = ThinVec::with_capacity(0usize);
 
-          while !self.ensure_peek(TokenKind::Group(Group::BraceClose))
-            && self.has_tokens()
+          while !self.ensure(TokenKind::Group(Group::BraceClose))
+            && !self.ensure(TokenKind::Eof)
           {
-            self.next();
             stmts.push(self.parse_stmt()?);
+            self.next();
           }
-
-          self.expect_peek(TokenKind::Group(Group::BraceClose))?;
 
           let hi = self.current_span();
           let span = Span::merge(lo, hi);

@@ -43,11 +43,11 @@ where
 /// ```
 /// use swisskit::case::bitcase::numbercase;
 ///
-/// assert!(numbercase::is_number_continue(b'2'));
-/// assert!(!numbercase::is_number_continue(b'a'));
+/// assert!(numbercase::is_number_non_zero(b'2'));
+/// assert!(!numbercase::is_number_non_zero(b'a'));
 /// ```
 #[inline]
-pub fn is_number_continue<B>(byte: B) -> bool
+pub fn is_number_non_zero<B>(byte: B) -> bool
 where
   B: Into<u8> + Copy,
 {

@@ -58,7 +58,11 @@ impl<'bytes> Tokenizer<'bytes> {
   /// Transform the source code into an array of tokens.
   #[inline]
   fn tokenize(self) -> Result<Vec<Token>> {
-    Ok(self.collect())
+    let mut tokens = self.collect::<Vec<Token>>();
+
+    tokens.push(Token::EOF);
+
+    Ok(tokens)
   }
 
   /// Gets the current state from byte.
@@ -75,8 +79,8 @@ impl<'bytes> Tokenizer<'bytes> {
   fn transition(&mut self, byte: u8) -> TokenizerState {
     match byte {
       b if is!(space b) => TokenizerState::Space,
-      b if is!(number_start b) => TokenizerState::Zero,
-      b if is!(number_continue b) => TokenizerState::Int,
+      b if is!(number_zero b) => TokenizerState::Zero,
+      b if is!(number_non_zero b) => TokenizerState::Int,
       b if is!(punctuation b) => TokenizerState::Punctuation,
       b if is!(group b) => TokenizerState::Group,
       b if is!(ident_start b) => TokenizerState::Ident,
@@ -113,8 +117,8 @@ impl<'bytes> Tokenizer<'bytes> {
           _ => state = TokenizerState::Start,
         },
         TokenizerState::Zero => match byte {
-          b if is!(number_start b) => self.bump(),
-          b if is!(number_continue b) => {
+          b if is!(number_zero b) => self.bump(),
+          b if is!(number_non_zero b) => {
             let span =
               Span::of(cursor_pos as u32, (self.cursor.pos() + 1) as u32);
 
@@ -134,7 +138,7 @@ impl<'bytes> Tokenizer<'bytes> {
           }
         },
         TokenizerState::Int => match byte {
-          b if is!(number_start b) | is!(number_continue b) => self.bump(),
+          b if is!(number_zero b) | is!(number_non_zero b) => self.bump(),
           b if is!(dot b) => {
             state = TokenizerState::Float;
 

@@ -152,6 +152,7 @@ impl<'ast> Interpreter<'ast> {
       ast::ExprKind::TupleAccess(indexed, index) => {
         self.interpret_expr_tuple_access(indexed, index, expr.span)
       }
+      ast::ExprKind::Block(block) => self.interpret_expr_block(block),
       ast::ExprKind::IfElse(condition, consequence, maybe_alternative) => self
         .interpret_expr_if_else(
           condition,
@@ -475,6 +476,11 @@ impl<'ast> Interpreter<'ast> {
     }
 
     Ok(Value::tuple(tuple, span))
+  }
+
+  /// Interprets a block expression.
+  fn interpret_expr_block(&mut self, block: &ast::Block) -> Result<Value> {
+    self.interpret_block(block)
   }
 
   /// Interprets a tuple expression.

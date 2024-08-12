@@ -1,8 +1,8 @@
 use super::ast::{
   Alias, Ast, Async, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Ident,
   Input, Item, ItemKind, Lit, LitKind, OutputTy, Path, PathSegment, Pattern,
-  PatternKind, Prototype, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
-  Wasm,
+  PatternKind, Prototype, Pub, Slf, Stmt, StmtKind, UnOp, UnOpKind, Var,
+  VarKind, Wasm,
 };
 
 use zo_ty::ty::TyKind;
@@ -53,6 +53,16 @@ impl std::fmt::Display for PatternKind {
       Self::Path(path) => write!(f, "{path}"),
       Self::Array(patterns) => write!(f, "[{}]", sep_comma(patterns)),
       Self::Tuple(patterns) => write!(f, "({})", sep_comma(patterns)),
+      Self::Slf(slf) => write!(f, "{slf}"),
+    }
+  }
+}
+
+impl std::fmt::Display for Slf {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Lower => write!(f, "self"),
+      Self::Upper => write!(f, "Self"),
     }
   }
 }
@@ -175,6 +185,7 @@ impl std::fmt::Display for ExprKind {
       Self::ArrayAccess(indexed, index) => write!(f, "{indexed}[{index}]"),
       Self::Tuple(elmts) => write!(f, "({})", sep_comma(elmts)),
       Self::TupleAccess(indexed, index) => write!(f, "{indexed}.{index}"),
+      Self::Block(block) => write!(f, "{block}"),
       Self::IfElse(condition, consequence, maybe_alternative) => {
         write!(f, "if {condition} {consequence}")?;
 

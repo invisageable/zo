@@ -98,6 +98,16 @@ pub enum PatternKind {
   Array(ThinVec<Pattern>),
   /// A tuple destructuring.
   Tuple(ThinVec<Pattern>),
+  /// A me.
+  Slf(Slf),
+}
+
+#[derive(Clone, Debug)]
+pub enum Slf {
+  /// A lower case self — `self`.
+  Lower,
+  /// An upper case self — `Self`.
+  Upper,
 }
 
 impl Symbolize for PatternKind {
@@ -169,13 +179,17 @@ impl std::ops::Deref for Ast {
 pub struct Item {
   /// An item kind — see also [`ItemKind`] if needed.
   pub kind: ItemKind,
-  /// An item span — see also [`Span`] for more information.
+  /// A span — see also [`Span`] for more information.
   pub span: Span,
 }
 
 /// The representation of different kinds of statements.
 #[derive(Clone, Debug)]
 pub enum ItemKind {
+  /// An open item — `open foo;`.
+  Open(Open),
+  /// An load item — `load foo;`.
+  Load(Load),
   /// An alias item — `type Alias = 0;`.
   Alias(Alias),
   /// A constant item i.e global variable — `val x: int = 0;`.
@@ -192,6 +206,22 @@ pub enum ItemKind {
   Apply(Apply),
   /// A function — `fun foo(x: int): int {..}`.
   Fun(Fun),
+}
+
+#[derive(Clone, Debug)]
+pub struct Open {
+  /// The path — see also [`Path`] for more information.
+  pub path: Path,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Load {
+  /// The path — see also [`Path`] for more information.
+  pub path: Path,
+  /// A span — see also [`Span`] for more information.
+  pub span: Span,
 }
 
 /// The representation of an alias.
@@ -428,6 +458,8 @@ pub enum ExprKind {
   Tuple(ThinVec<Expr>),
   /// tuple access — `foo.0`.
   TupleAccess(Box<Expr>, Box<Expr>),
+  /// block — `{..}`.
+  Block(Block),
   /// if else — `if foo == 2 {..}`.
   IfElse(Box<Expr>, Block, Option<Box<Expr>>),
   /// ternary — `when true ? foo : bar`.
