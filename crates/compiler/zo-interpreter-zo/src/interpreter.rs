@@ -37,8 +37,49 @@ impl<'ast> Interpreter<'ast> {
     }
   }
 
+  /// Adds a function call at the last position from the AST.
+  ///
+  /// It is used as a hack in a non interactive interpreter mode.
+  /// It must be improve because in the future.
+  fn add_call_entry_point(
+    &mut self,
+    ast: &ast::Ast,
+    is_interactive: bool,
+  ) -> Result<ast::Ast> {
+    if is_interactive {
+      return Ok(ast.to_owned());
+    }
+
+    let mut stmts = ThinVec::from(ast.as_slice());
+    let sym = self.interner.intern("main");
+
+    stmts.push(ast::Stmt {
+      kind: ast::StmtKind::Expr(Box::new(ast::Expr {
+        kind: ast::ExprKind::Call(
+          Box::new(ast::Expr {
+            kind: ast::ExprKind::Lit(ast::Lit {
+              kind: ast::LitKind::Ident(sym),
+              span: Span::ZERO,
+            }),
+            span: Span::ZERO,
+          }),
+          ThinVec::with_capacity(0usize),
+        ),
+        span: Span::ZERO,
+      })),
+      span: Span::ZERO,
+    });
+
+    Ok(ast::Ast { stmts })
+  }
+
   /// Interprets an AST.
-  fn interpret(&mut self, ast: &ast::Ast) -> Result<Value> {
+  fn interpret(
+    &mut self,
+    ast: &ast::Ast,
+    is_interactive: bool,
+  ) -> Result<Value> {
+    let ast = self.add_call_entry_point(ast, is_interactive)?;
     let mut value = Value::UNIT;
 
     self.scope_map.scope_entry();
@@ -766,5 +807,6 @@ impl<'ast> Interpreter<'ast> {
 /// assert_eq!(value, Value::UNIT);
 /// ```
 pub fn interpret(session: &mut Session, ast: &ast::Ast) -> Result<Value> {
-  Interpreter::new(&mut session.interner, &session.reporter).interpret(ast)
+  Interpreter::new(&mut session.interner, &session.reporter)
+    .interpret(ast, session.settings.is_interactive())
 }
