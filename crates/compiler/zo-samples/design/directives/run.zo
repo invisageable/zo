@@ -4,6 +4,6 @@ fun foobar() {
   println("compile-time.");
 }
 
-#run foobar() {}
-
-fun main() {}
+fun main() {
+  #run foobar();
+}

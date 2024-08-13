@@ -1,0 +1,21 @@
+-- matching: match (experimental).
+
+enum Name {
+  World,
+  Custom(str),
+}
+
+fun main() {  
+  imu name: Name = Name::Custom("joe");
+
+  imu hey ::= <div>{
+    match name {
+      Name::World => world,
+      Name::Custom::(name) => name,
+    }
+  }</div>;
+
+  imu zsx ::= <>hello, {hey}!</>;
+
+  #dom zsx
+}

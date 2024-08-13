@@ -1,6 +1,6 @@
 # zo.
 
-> *Codify human thoughts into energy-efficient, sane and reliable software 🧠*
+> *Codify human thoughts into energy-efficient, sane and reliable cross-platform software 🧠*
 
 ## about.
 
@@ -12,7 +12,7 @@ zo is focusing on creativity, wasm and performance.
 
 - [ ] fast `compilation-time`.
 - [ ] user-friendly `error` messages.
-- [ ] metaprogramming.
+- [ ] meta-language.
 - [ ] statically-typed.
 - [ ] robust `type system` — *hindley-milner algorithm.*.
 - [ ] safe concurrency model — *Actor Model `erlang` like.*

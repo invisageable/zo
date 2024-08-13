@@ -1,4 +1,4 @@
--- packages: open.
+-- packages: pack.
 
 pack a;
 pub pack b;

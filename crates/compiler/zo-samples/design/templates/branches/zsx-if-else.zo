@@ -1,0 +1,13 @@
+-- branches: if-else (experimental).
+
+val SAY_HI: bool = true;
+
+fun main() {
+  imu hey ::= <if={SAY_HI}>
+    <h1>hey!</h1>
+  </>;
+
+  imu zsx ::= <>{hey}</>;
+
+  println("{zsx}");
+}

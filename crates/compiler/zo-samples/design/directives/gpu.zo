@@ -1,6 +1,6 @@
 -- directives: gpu.
 
 fun main() {
-  -- this will be execute on the `gpu`
+  -- this will be execute on the `gpu`.
   #gpu for n := 0..3 -> println("{}", n += 1);
 }
