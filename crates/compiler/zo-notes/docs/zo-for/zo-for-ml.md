@@ -1,1 +1,1 @@
-# zo-for — OCaml (programmers).
+# zo-for — OCaml (devs).

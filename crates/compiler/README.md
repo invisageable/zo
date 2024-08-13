@@ -1,6 +1,6 @@
 # zo.
 
-> *Codify human thoughts into energy-efficient and reliable software 🧠*
+> *Codify human thoughts into energy-efficient, sane and reliable software 🧠*
 
 ## about.
 
