@@ -35,7 +35,6 @@ A compiler of a compiler inside another giant compiler that is itself inside a g
 | name                    | description                                   |
 | ----------------------- | --------------------------------------------- |
 | [zo](./crates/compiler) | A compiler for the `zo` programming language. |
-| [zow](./crates/web)     | A compiler for the `zo` templating language.  |
 | [zom](./crates/marker)  | A compiler for the `oz` markup language.      |
 
 **-apps**

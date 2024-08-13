@@ -997,7 +997,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zom"
+name = "zod"
 version = "0.0.0"
 dependencies = [
  "swisskit",
@@ -1005,13 +1005,6 @@ dependencies = [
 
 [[package]]
 name = "zop"
-version = "0.0.0"
-dependencies = [
- "swisskit",
-]
-
-[[package]]
-name = "zow"
 version = "0.0.0"
 dependencies = [
  "swisskit",
