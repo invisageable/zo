@@ -16,7 +16,7 @@ zo-value = { workspace = true }
 zo-ty = { workspace = true }
 
 # internal:crates.
-core = { workspace = true }
+zo-core = { workspace = true }
 
 # external:crates.
 hashbrown = { workspace = true }

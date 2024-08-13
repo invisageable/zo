@@ -169,13 +169,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fd119d74b830634cea2a0f58bbd0d54540518a14397557951e79340abc28c0"
 
 [[package]]
-name = "core"
-version = "0.0.0"
-dependencies = [
- "swisskit",
-]
-
-[[package]]
 name = "core-foundation-sys"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -819,6 +812,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-core"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+]
+
+[[package]]
 name = "zo-driver"
 version = "0.0.0"
 dependencies = [
@@ -883,12 +883,12 @@ dependencies = [
 name = "zo-interpreter-zo"
 version = "0.0.0"
 dependencies = [
- "core",
  "hashbrown",
  "smol_str",
  "swisskit",
  "thin-vec",
  "zo-ast",
+ "zo-core",
  "zo-interner",
  "zo-reporter",
  "zo-session",
