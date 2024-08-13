@@ -4,5 +4,5 @@
 fun main() {
   imu sqrt := fn(x) -> x * x;
 
-  println("{}", sqrt(5));
+  println("{}", sqrt(5)); -- returns `25`.
 }

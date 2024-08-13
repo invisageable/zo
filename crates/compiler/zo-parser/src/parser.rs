@@ -598,6 +598,10 @@ impl<'tokens> Parser<'tokens> {
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
 
+    if self.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+      self.next();
+    }
+
     Ok(Stmt {
       kind: StmtKind::Expr(Box::new(expr)),
       span,
@@ -957,7 +961,9 @@ impl<'tokens> Parser<'tokens> {
 
     let maybe_alternative =
       if parser.expect_peek(TokenKind::Kw(Kw::Else)).is_ok() {
-        if parser.ensure(TokenKind::Kw(Kw::If)) {
+        if parser.ensure_peek(TokenKind::Kw(Kw::If)) {
+          parser.next();
+
           Some(Box::new(Self::parse_expr_if_else(parser)?))
         } else {
           let block = parser.parse_block()?;

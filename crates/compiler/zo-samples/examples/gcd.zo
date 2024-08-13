@@ -7,5 +7,5 @@ fun main() {
   val A: int = 98;
   val B: int = 56;
 
-  println("gcd of {a} and {b} = {}", gcd(A, B));
+  println("GCD of {a} and {b} = {}", gcd(A, B)); -- returns `GCD of 98 and 56 is 14`.
 }

@@ -5,5 +5,5 @@ fun main() {
     ? 1
     : x * f(x - 1);
 
-  println("{}", f(14));
+  println("{}", f(20)); -- returns `2432902008176640000`.
 }

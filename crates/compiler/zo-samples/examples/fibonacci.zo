@@ -1,9 +1,16 @@
 -- examples: fibonacci.
 
 fun main() {
-  imu fib := fn (n) -> when n < 2 
-    ? 1
-    : fib(n - 1) + fib(n - 2);
+  -- naive recursive algorithm.
+  imu fib := fn (n) {
+    if n == 0 {
+      0
+    } else if n == 1 {
+      1
+    } else {
+      fib(n - 1) + fib(n - 2)
+    }
+  };
 
-  println("{}", fib(11));
+  println("{}", fib(11)); -- returns `89`.
 }
