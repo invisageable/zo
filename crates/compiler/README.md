@@ -28,28 +28,6 @@ zo is focusing on creativity, wasm and performance.
 - `interpreting` — *interprets a given AST.*
 - `building` — *builds the related files based on the target.*
 
-## syntax.
-
-The code below prints the `n` rank in the [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) sequence:
-
-```rs
--- fibonacci: naive recursive algorithm.
-
-fun main() {
-  imu fib := fn (n) {
-    if n == 0 {
-      0
-    } else if n == 1 {
-      1
-    } else {
-      fib(n - 1) + fib(n - 2)
-    }
-  };
-
-  println("{}", fib(11)); -- returns `89`.
-}
-```
-
 ## dirmap.
 
 ```
@@ -77,3 +55,41 @@ fun main() {
 |-- zo-ty               # The types of the `zo` programming language.
 |-- zo-value            # Values are used by the `zo` evaluation phase.
 ```
+
+## examples.
+
+**[-hello](./zo-samples/examples/hello.zo)**
+
+The superstar [`Hello, World!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *prints `hello, world!`.*
+
+![hello](./zo-notes/preview/preview-zo-hello.png)
+
+**[-square-root](./zo-samples/examples/square-root.zo)**
+
+The elegant [Square root](https://en.wikipedia.org/wiki/Square_root) — *prints the square root of `5`.*
+
+![square-root](./zo-notes/preview/preview-zo-square-root.png)
+
+**[-greatest-common-root](./zo-samples/examples/greatest-common-root.zo)**
+
+The recursive [GCD](https://en.wikipedia.org/wiki/Greatest_common_divisor) — *prints the greatest common divisor of `48` and `18`.*
+
+![greatest-common-divisor](./zo-notes/preview/preview-zo-greatest-common-divisor.png)
+
+**[-factorial](./zo-samples/examples/factorial.zo)**
+
+The smooth [factorial](https://en.wikipedia.org/wiki/Square_root) criminal — *prints the factorial of `20`.*
+
+![factorial](./zo-notes/preview/preview-zo-factorial.png)
+
+**[-fibonacci](./zo-samples/examples/fibonacci.zo)**
+
+Sir [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) — *prints the `11` rank in the Fibonacci sequence.*
+
+![fibonacci](./zo-notes/preview/preview-zo-fibonacci.png)
+
+**[-fizzbuzz](./zo-samples/examples/fizzbuzz.zo)**
+
+The recreational [Fizz Buzz](https://en.wikipedia.org/wiki/Fizz_buzz) Game — *prints the integers from `1` to `100`, then for every multiple of `3`, write `"Fizz"`, and for every multiple of `5`, it prints `"Buzz"`. For numbers which are multiples of both `3` and `5`, it should prints `"FizzBuzz"`; for every other number, it should print the number unchanged.*
+
+![fizzbuzz](./zo-notes/preview/preview-zo-fizzbuzz.png)
