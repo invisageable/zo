@@ -9,6 +9,6 @@ Examples as a proof of concept of the the feasability of running a `.zo` file is
 - [factorial](./factorial.zo)
 - [fibonacci](./fibonacci.zo)
 - [fizzbuzz](./fizzbuzz.zo)
-- [gcd](./gcd.zo)
+- [greatest-common-divisor](./greatest-common-divisor.zo)
 - [hello](./hello.zo)
 - [square-root](./square-root.zo)

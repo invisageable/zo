@@ -1,5 +1,5 @@
 -- examples: square root.
--- finds the square root of a number in `zo`.
+-- see https://en.wikipedia.org/wiki/Methods_of_computing_square_roots.
 
 fun main() {
   imu sqrt := fn(x) -> x * x;

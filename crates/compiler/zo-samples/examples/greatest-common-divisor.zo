@@ -1,0 +1,12 @@
+-- examples: GCD.
+-- see https://en.wikipedia.org/wiki/Greatest_common_divisor.
+
+fun main() {
+  -- recursive gcd of a and b in single line.
+  imu gcd := fn(a, b) -> when b == 0 ? a : gcd(b, a % b);
+
+  val A: int = 48;
+  val B: int = 18;
+
+  println("GCD of {a} and {b} = {}", gcd(A, B)); -- returns `GCD of 48 and 18 is 6`.
+}

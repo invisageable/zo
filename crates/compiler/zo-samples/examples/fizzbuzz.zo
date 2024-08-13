@@ -1,15 +1,16 @@
 -- examples: fizzbuzz.
+-- see https://en.wikipedia.org/wiki/Fizz_buzz.
 
 fun fb(n: int) {
   mut x := 1;
 
-  while x < n {
+  while x <= n {
     if x % 15 == 0 {
       println("fizzbuzz");
     } else if x % 5 == 0 {
-      println("fizz");
-    } else if x % 3 == 0 {
       println("buzz");
+    } else if x % 3 == 0 {
+      println("fizz");
     } else {
       println("{x}");
     }
@@ -17,5 +18,5 @@ fun fb(n: int) {
 }
 
 fun main() {
-  println("{}", fb(15));
+  println("{}", fb(100));
 }

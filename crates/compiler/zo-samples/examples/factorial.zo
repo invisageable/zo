@@ -1,4 +1,5 @@
 -- examples: factorial.
+-- see https://en.wikipedia.org/wiki/Factorial.
 
 fun main() {
   imu f := fn(x) -> when x <= 1

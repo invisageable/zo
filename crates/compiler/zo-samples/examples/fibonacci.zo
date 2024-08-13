@@ -1,4 +1,5 @@
 -- examples: fibonacci.
+-- see https://en.wikipedia.org/wiki/Fibonacci_sequence.
 
 fun main() {
   -- naive recursive algorithm.
