@@ -169,6 +169,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fd119d74b830634cea2a0f58bbd0d54540518a14397557951e79340abc28c0"
 
 [[package]]
+name = "core"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -485,6 +492,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "thin-vec"
+version = "0.2.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a38c90d48152c236a3ab59271da4f4ae63d678c5d7ad6b7714d7cb9760be5e4b"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -723,6 +736,7 @@ dependencies = [
  "swisskit",
  "zo-ast",
  "zo-inferencer",
+ "zo-interner",
  "zo-reporter",
  "zo-session",
 ]
@@ -733,6 +747,7 @@ version = "0.0.0"
 dependencies = [
  "smol_str",
  "swisskit",
+ "thin-vec",
  "zo-interner",
  "zo-tokenizer",
  "zo-ty",
@@ -834,6 +849,7 @@ name = "zo-interner"
 version = "0.0.0"
 dependencies = [
  "hashbrown",
+ "smol_str",
  "swisskit",
 ]
 
@@ -867,12 +883,16 @@ dependencies = [
 name = "zo-interpreter-zo"
 version = "0.0.0"
 dependencies = [
+ "core",
+ "hashbrown",
  "smol_str",
  "swisskit",
+ "thin-vec",
  "zo-ast",
  "zo-interner",
  "zo-reporter",
  "zo-session",
+ "zo-ty",
  "zo-value",
 ]
 
@@ -882,6 +902,7 @@ version = "0.0.0"
 dependencies = [
  "smol_str",
  "swisskit",
+ "thin-vec",
  "zo-ast",
  "zo-interner",
  "zo-reporter",
@@ -943,6 +964,7 @@ dependencies = [
  "hashbrown",
  "smol_str",
  "swisskit",
+ "thin-vec",
  "zo-interner",
  "zo-reporter",
 ]
@@ -951,7 +973,9 @@ dependencies = [
 name = "zo-value"
 version = "0.0.0"
 dependencies = [
+ "smol_str",
  "swisskit",
+ "thin-vec",
  "zo-ast",
  "zo-interner",
  "zo-reporter",

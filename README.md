@@ -48,11 +48,11 @@ A compiler of a compiler inside another giant compiler that is itself inside a g
 
 ## contributing.
 
-Feel free to open an issue if you want contribute or join the [discord](https://discord.gg/JaNc4Nk5xw).
+Feel free to open an issue if you want contribute or join the [discord](https://discord.gg/JaNc4Nk5xw). Also you can contact me at the at compilords dot house.
 
 ## supports.
 
-Stars, [donate](https://patreon.com/invisageable) or [sponsors](mailto:the@compilords.house) are welcoming.
+Stars, [donate](https://patreon.com/invisageable) or sponsors are welcoming.
 
 ## credits.
 

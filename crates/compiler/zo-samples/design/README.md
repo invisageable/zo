@@ -77,7 +77,7 @@ operators
 
 packages
   - [load](./packages/load.zo)
-  - [open](./packages/open.zo)
+  - [pack](./packages/pack.zo)
 
 structures
   - [struct](./structures/struct.zo)

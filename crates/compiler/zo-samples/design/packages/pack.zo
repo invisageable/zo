@@ -1,6 +1,6 @@
 -- packages: open.
 
-open a;
-pub open b;
+pack a;
+pub pack b;
 
 fun main() {}

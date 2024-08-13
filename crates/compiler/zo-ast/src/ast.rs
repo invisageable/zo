@@ -187,7 +187,7 @@ pub struct Item {
 #[derive(Clone, Debug)]
 pub enum ItemKind {
   /// An open item — `open foo;`.
-  Open(Open),
+  Pack(Pack),
   /// An load item — `load foo;`.
   Load(Load),
   /// An alias item — `type Alias = 0;`.
@@ -209,7 +209,7 @@ pub enum ItemKind {
 }
 
 #[derive(Clone, Debug)]
-pub struct Open {
+pub struct Pack {
   /// The path — see also [`Path`] for more information.
   pub path: Path,
   /// A span — see also [`Span`] for more information.

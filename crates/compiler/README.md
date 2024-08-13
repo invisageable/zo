@@ -30,17 +30,23 @@ zo is focusing on creativity, wasm and performance.
 
 ## syntax.
 
-The code below prints the `n` number in the [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) sequence:
+The code below prints the `n` rank in the [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) sequence:
 
 ```rs
--- a simple fibonacci.
+-- fibonacci: naive recursive algorithm.
 
 fun main() {
-  imu fib := fn(n) -> when n < 2 
-    ? 1
-    : fib(n - 1) + fib(n - 2);
+  imu fib := fn (n) {
+    if n == 0 {
+      0
+    } else if n == 1 {
+      1
+    } else {
+      fib(n - 1) + fib(n - 2)
+    }
+  };
 
-  println("{}", fib(11));
+  println("{}", fib(11)); -- returns `89`.
 }
 ```
 
