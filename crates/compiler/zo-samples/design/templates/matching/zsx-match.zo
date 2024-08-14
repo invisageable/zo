@@ -10,12 +10,12 @@ fun main() {
 
   imu hey ::= <div>{
     match name {
-      Name::World => world,
-      Name::Custom::(name) => name,
+      Name::World => "world",
+      Name::Custom::(name) => "name",
     }
   }</div>;
 
   imu zsx ::= <>hello, {hey}!</>;
 
-  #dom zsx
+  #dom zsx;
 }

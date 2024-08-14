@@ -4,5 +4,5 @@ fun main() {
   imu hey ::= <h1>hey!</h1>;
   imu zsx ::= <>{hey}</>;
 
-  #dom zsx
+  #dom zsx;
 }

@@ -4,5 +4,5 @@ fun main() {
   imu hey ::= <h1>hey!</h1>;
   imu zsx ::= <>{hey}</>;
 
-  println("{zsx}");
+  println("{zsx}"); -- prints a string `<h1>hey!</h1>`.
 }
