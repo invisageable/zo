@@ -63,6 +63,8 @@ pub enum Punctuation {
   GreaterThanGreaterThanEqual,
   /// The `:=` punctuation.
   ColonEqual,
+  /// The `::=` punctuation.
+  ColonColonEqual,
   /// The `<=` punctuation.
   LessThanEqual,
   /// The `>=` punctuation.
@@ -129,6 +131,7 @@ impl From<&str> for Punctuation {
       "<<=" => Self::LessThanLessThanEqual,
       ">>=" => Self::GreaterThanGreaterThanEqual,
       ":=" => Self::ColonEqual,
+      "::=" => Self::ColonColonEqual,
       "<=" => Self::LessThanEqual,
       ">=" => Self::GreaterThanEqual,
       "<<" => Self::LessThanLessThan,
@@ -178,6 +181,7 @@ impl std::fmt::Display for Punctuation {
       Self::LessThanLessThanEqual => write!(f, "<<="),
       Self::GreaterThanGreaterThanEqual => write!(f, ">>="),
       Self::ColonEqual => write!(f, ":="),
+      Self::ColonColonEqual => write!(f, "::="),
       Self::LessThanEqual => write!(f, "<="),
       Self::GreaterThanEqual => write!(f, ">="),
       Self::LessThanLessThan => write!(f, "<<"),

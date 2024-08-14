@@ -242,7 +242,14 @@ impl<'bytes> Tokenizer<'bytes> {
 
               match self.byte() {
                 b'=' => self.bump(),
-                b':' => self.bump(),
+                b':' => {
+                  self.bump();
+
+                  match self.byte() {
+                    b'=' => self.bump(),
+                    _ => break,
+                  }
+                }
                 _ => break,
               }
             } else if byte == b'=' {
