@@ -1,3 +1,5 @@
+use super::ast_zsx::Tag;
+
 use zo_interner::interner::symbol::{Symbol, Symbolize};
 use zo_tokenizer::token::int::Base;
 use zo_tokenizer::token::punctuation::Punctuation;
@@ -488,6 +490,8 @@ pub enum ExprKind {
   Cast(Box<Expr>, Ty),
   /// A range — `1..2`, `x..y`, `foo()..bar()`.
   Range(Option<Box<Expr>>, Option<Box<Expr>>),
+  /// A tag element — `<></>`, <div>hello</div>.
+  Tag(Tag),
 }
 
 impl Symbolize for ExprKind {

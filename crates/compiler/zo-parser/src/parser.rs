@@ -36,19 +36,19 @@ type PrefixFn = Box<dyn FnOnce(&mut Parser) -> Result<Expr>>;
 type InfixFn = Box<dyn FnOnce(&mut Parser, Expr) -> Result<Expr>>;
 
 /// The representation of a parser.
-struct Parser<'tokens> {
+pub(crate) struct Parser<'tokens> {
   /// The index of the token slice.
   idx: usize,
   /// An optional current token.
-  maybe_token_current: Option<&'tokens Token>,
+  pub(crate) maybe_token_current: Option<&'tokens Token>,
   /// An optional next token.
-  maybe_token_next: Option<&'tokens Token>,
+  pub(crate) maybe_token_next: Option<&'tokens Token>,
   /// A group of tokens — see also [`Token`] for more information.
   tokens: &'tokens [Token],
   /// An interner — see also [`Interner`] for more information.
-  interner: &'tokens mut Interner,
+  pub(crate) interner: &'tokens mut Interner,
   /// A reporter — see also [`Reporter`] for more information.
-  reporter: &'tokens Reporter,
+  pub(crate) reporter: &'tokens Reporter,
 }
 
 impl<'tokens> Parser<'tokens> {
@@ -95,7 +95,7 @@ impl<'tokens> Parser<'tokens> {
 
   /// Gets the current span.
   #[inline]
-  fn current_span(&mut self) -> Span {
+  pub(crate) fn current_span(&mut self) -> Span {
     self
       .maybe_token_current
       .map(|token| token.span)
@@ -104,7 +104,7 @@ impl<'tokens> Parser<'tokens> {
 
   /// Checks if the current token is a specific kind.
   #[inline]
-  fn ensure(&self, kind: TokenKind) -> bool {
+  pub(crate) fn ensure(&self, kind: TokenKind) -> bool {
     self
       .maybe_token_current
       .map(|token| token.is(kind))
@@ -113,13 +113,13 @@ impl<'tokens> Parser<'tokens> {
 
   /// Checks if the next token is a specific kind.
   #[inline]
-  fn ensure_peek(&self, kind: TokenKind) -> bool {
+  pub(crate) fn ensure_peek(&self, kind: TokenKind) -> bool {
     self.maybe_token_next.map(|token| token.is(kind)).unwrap()
   }
 
   /// Moves only if the current token is a specific kind.
   #[inline]
-  fn expect(&mut self, kind: TokenKind) -> Result<()> {
+  pub(crate) fn expect(&mut self, kind: TokenKind) -> Result<()> {
     self
       .maybe_token_current
       .map(|token| {
@@ -136,7 +136,7 @@ impl<'tokens> Parser<'tokens> {
 
   /// Moves only if the next token is a specific kind.
   #[inline]
-  fn expect_peek(&mut self, kind: TokenKind) -> Result<()> {
+  pub(crate) fn expect_peek(&mut self, kind: TokenKind) -> Result<()> {
     self
       .maybe_token_next
       .map(|token| {
@@ -398,11 +398,34 @@ impl<'tokens> Parser<'tokens> {
     self.next();
 
     let pattern = self.parse_pattern()?;
-    let ty = self.parse_ty()?;
 
-    self.next();
+    let (ty, value) = self
+      .maybe_token_next
+      .map(|token| match token.kind {
+        TokenKind::Punctuation(Punctuation::Colon) => {
+          let ty = self.parse_ty().unwrap();
 
-    let value = self.parse_expr(Precedence::Low)?;
+          self.next();
+
+          let value = self.parse_expr(Precedence::Low).unwrap();
+
+          (ty, value)
+        }
+        TokenKind::Punctuation(Punctuation::ColonColonEqual) => {
+          self.next(); // eat `pattern`.
+          self.next(); // eat `::=`.
+
+          (Ty::UNIT, self.parse_zsx().unwrap())
+        }
+        _ => panic!(),
+      })
+      .unwrap();
+
+    // let ty = ;
+
+    // self.next();
+
+    // let value = self.parse_expr(Precedence::Low)?;
 
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
@@ -435,6 +458,10 @@ impl<'tokens> Parser<'tokens> {
       _ => Err(error::syntax::expected_local_var(span, kind)),
     }
   }
+
+  // fn parse_zsx(&mut self) -> Result<Expr> {
+  //   todo!()
+  // }
 
   /// Parses a type.
   fn parse_ty(&mut self) -> Result<Ty> {
@@ -765,7 +792,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses an identifier expression.
-  fn parse_expr_lit_ident(parser: &mut Parser) -> Result<Expr> {
+  pub(crate) fn parse_expr_lit_ident(parser: &mut Parser) -> Result<Expr> {
     parser
       .maybe_token_current
       .map(|token| {
