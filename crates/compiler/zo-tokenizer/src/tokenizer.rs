@@ -3,7 +3,7 @@ use super::token::int::Base;
 use super::token::punctuation::Punctuation;
 use super::token::{Token, TokenKind};
 use crate::token::group::Group;
-use crate::token::kw::KEYWORD;
+use crate::token::kw::KEYWORDS;
 
 use zo_interner::interner::Interner;
 use zo_reporter::reporter::Reporter;
@@ -112,7 +112,7 @@ impl<'bytes> Tokenizer<'bytes> {
   }
 
   /// Eats the source code byte-by-byte.
-  fn step(&mut self) -> Option<Token> {
+  fn scan(&mut self) -> Option<Token> {
     let mut state = TokenizerState::Start;
     let mut base = Base::Dec;
     let mut cursor_pos = self.cursor.pos();
@@ -394,7 +394,7 @@ impl<'bytes> Tokenizer<'bytes> {
       }
     }
 
-    self.scan(
+    self.scanning(
       state,
       Span::of(cursor_pos as u32, self.cursor.pos() as u32),
       base,
@@ -402,7 +402,7 @@ impl<'bytes> Tokenizer<'bytes> {
   }
 
   /// Detects the token from state and span.
-  fn scan(
+  fn scanning(
     &mut self,
     state: TokenizerState,
     span: Span,
@@ -437,7 +437,7 @@ impl<'bytes> Tokenizer<'bytes> {
       TokenizerState::Group => {
         Some(TokenKind::Group(source.chars().next().map(Group::from)?))
       }
-      TokenizerState::Ident => KEYWORD.get::<str>(&source).map_or_else(
+      TokenizerState::Ident => KEYWORDS.get::<str>(&source).map_or_else(
         || {
           let symbol = self.interner.intern(&source);
 
@@ -477,7 +477,7 @@ impl<'bytes> Iterator for Tokenizer<'bytes> {
 
   /// Moves to the next token.
   fn next(&mut self) -> Option<Self::Item> {
-    self.step()
+    self.scan()
   }
 }
 
