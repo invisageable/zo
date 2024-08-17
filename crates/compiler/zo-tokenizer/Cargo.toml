@@ -16,3 +16,4 @@ zo-session = { workspace = true }
 hashbrown = { workspace = true }
 lazy_static = { workspace = true }
 smol_str = { workspace = true }
+thin-vec = { workspace = true }

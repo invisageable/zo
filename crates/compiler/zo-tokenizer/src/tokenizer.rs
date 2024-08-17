@@ -15,7 +15,9 @@ use swisskit::span::Span;
 
 /// The representation of the tokeinzer.
 struct Tokenizer<'bytes> {
-  /// The cursor.
+  /// A tokenizer mode.
+  mode: TokenizerMode,
+  /// A cursor.
   cursor: Cursor<'bytes>,
   /// See [`Interner`].
   interner: &'bytes mut Interner,
@@ -32,6 +34,7 @@ impl<'bytes> Tokenizer<'bytes> {
     source: &'bytes [u8],
   ) -> Self {
     Self {
+      mode: TokenizerMode::Program,
       cursor: Cursor::new(source),
       interner,
       reporter,
@@ -65,6 +68,13 @@ impl<'bytes> Tokenizer<'bytes> {
     Ok(tokens)
   }
 
+  fn switch(&mut self) {
+    self.mode = match self.mode {
+      TokenizerMode::Program => TokenizerMode::Template,
+      TokenizerMode::Template => TokenizerMode::Program,
+    };
+  }
+
   /// Gets the current state from byte.
   ///
   /// The state tells to the tokenizer how to deal with the current character.
@@ -77,15 +87,27 @@ impl<'bytes> Tokenizer<'bytes> {
   /// The resulting should be the current state.
   #[inline]
   fn transition(&mut self, byte: u8) -> TokenizerState {
-    match byte {
-      b if is!(space b) => TokenizerState::Space,
-      b if is!(number_zero b) => TokenizerState::Zero,
-      b if is!(number_non_zero b) => TokenizerState::Int,
-      b if is!(punctuation b) => TokenizerState::Punctuation,
-      b if is!(group b) => TokenizerState::Group,
-      b if is!(ident_start b) => TokenizerState::Ident,
-      b if is!(quote b) => TokenizerState::Quote,
-      _ => TokenizerState::Unknown,
+    match self.mode {
+      TokenizerMode::Program => match byte {
+        b if is!(space b) => TokenizerState::Space,
+        b if is!(number_zero b) => TokenizerState::Zero,
+        b if is!(number_non_zero b) => TokenizerState::Int,
+        b if is!(punctuation b) => TokenizerState::Punctuation,
+        b if is!(group b) => TokenizerState::Group,
+        b if is!(ident_start b) => TokenizerState::Ident,
+        b if is!(quote b) => TokenizerState::Quote,
+        _ => TokenizerState::Unknown,
+      },
+      TokenizerMode::Template => match byte {
+        b if is!(space b) => TokenizerState::Space,
+        b if is!(number_zero b) => TokenizerState::Zero,
+        b if is!(number_non_zero b) => TokenizerState::Int,
+        b if is!(punctuation b) => TokenizerState::Punctuation,
+        b if is!(group b) => TokenizerState::Group,
+        b if is!(ident_start b) => TokenizerState::Ident,
+        b if is!(quote b) => TokenizerState::Quote,
+        _ => TokenizerState::PlainText,
+      },
     }
   }
 
@@ -99,6 +121,7 @@ impl<'bytes> Tokenizer<'bytes> {
       let byte = self.byte();
 
       match state {
+        // mode — programming.
         TokenizerState::Start => {
           state = self.transition(byte);
 
@@ -246,7 +269,12 @@ impl<'bytes> Tokenizer<'bytes> {
                   self.bump();
 
                   match self.byte() {
-                    b'=' => self.bump(),
+                    b'=' => {
+                      self.switch();
+                      self.bump();
+
+                      break;
+                    }
                     _ => break,
                   }
                 }
@@ -358,6 +386,11 @@ impl<'bytes> Tokenizer<'bytes> {
 
           self.reporter.raise(error::lexical::unknown(span, byte));
         }
+        // mode — template.
+        TokenizerState::PlainText => match byte {
+          b if b != b';' => self.bump(),
+          _ => break,
+        },
       }
     }
 
@@ -379,6 +412,7 @@ impl<'bytes> Tokenizer<'bytes> {
       String::from_utf8_lossy(self.bytes(span.lo as usize, span.hi as usize));
 
     let maybe_kind = match state {
+      // mode — program.
       TokenizerState::Int => {
         let source = source.replace('_', "");
         let symbol = self.interner.intern(&source);
@@ -409,7 +443,7 @@ impl<'bytes> Tokenizer<'bytes> {
 
           Some(TokenKind::Ident(symbol))
         },
-        |kind| Some(*kind),
+        |kind| Some(kind.to_owned()),
       ),
       TokenizerState::Char => {
         let symbol = self.interner.intern(&source);
@@ -420,6 +454,12 @@ impl<'bytes> Tokenizer<'bytes> {
         let symbol = self.interner.intern(&source);
 
         Some(TokenKind::Str(symbol))
+      }
+      // mode — template.
+      TokenizerState::PlainText => {
+        let symbol = self.interner.intern(&source);
+
+        Some(TokenKind::PlainText(symbol))
       }
       _ => None,
     };
@@ -441,43 +481,55 @@ impl<'bytes> Iterator for Tokenizer<'bytes> {
   }
 }
 
+/// The representation of a tokenizer mode.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) enum TokenizerMode {
+  /// A mode for program.
+  Program,
+  /// A mode for template.
+  Template,
+}
+
 /// The tokenizer follows these commands like a finite state machine.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum TokenizerState {
-  /// The initial state.
+  /// A initial state.
   Start,
-  /// The state for whitespace.
+  /// A state for whitespace.
   Space,
-  /// The state for comments.
+  /// A state for comments.
   Comment,
-  /// The state for `0`.
+  /// A state for `0`.
   Zero,
-  /// The integer state.
+  /// A integer state.
   Int,
-  /// The hexadecimal state.
+  /// A hexadecimal state.
   Hex,
-  /// The octal state.
+  /// A octal state.
   Oct,
-  /// The binary state.
+  /// A binary state.
   Bin,
-  /// The float state.
+  /// A float state.
   Float,
-  /// The [E notation](https://en.wikipedia.org/wiki/Scientific_notation#E_notation).
+  /// A [E notation](https://en.wikipedia.org/wiki/Scientific_notation#E_notation).
   ENotation,
-  /// The punctuation state.
+  /// A punctuation state.
   Punctuation,
-  /// The delimiter state.
+  /// A delimiter state.
   Group,
-  /// The identifier state.
+  /// A identifier state.
   Ident,
-  /// The quote state.
+  /// A quote state.
   Quote,
-  /// The character state.
+  /// A character state.
   Char,
-  /// The string state.
+  /// A string state.
   Str,
-  /// The unknown state.
+  /// A unknown state.
   Unknown,
+
+  /// A plain text state.
+  PlainText,
 }
 
 /// Transform the source code into an array of tokens.

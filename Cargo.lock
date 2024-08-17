@@ -952,6 +952,7 @@ dependencies = [
  "lazy_static",
  "smol_str",
  "swisskit",
+ "thin-vec",
  "zo-interner",
  "zo-reporter",
  "zo-session",

@@ -13,10 +13,12 @@
 //! * characters.
 //! * strings.
 
+pub mod comment;
 pub mod group;
 pub mod int;
 pub mod kw;
 pub mod punctuation;
+pub mod tag;
 
 use group::Group;
 use kw::Kw;
@@ -29,7 +31,7 @@ use swisskit::span::Span;
 use smol_str::{SmolStr, ToSmolStr};
 
 /// The representation of a token.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Token {
   /// The current token kind — see also [`TokenKind`].
   pub kind: TokenKind,
@@ -57,7 +59,7 @@ impl Token {
 impl From<Token> for SmolStr {
   #[inline]
   fn from(token: Token) -> Self {
-    token.to_smolstr()
+    token.kind.to_smolstr()
   }
 }
 
@@ -68,32 +70,38 @@ impl std::fmt::Display for Token {
 }
 
 /// The representation of a token kind.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TokenKind {
-  /// end of file — `'\0'`.
+  /// An end of file — `'\0'`.
   Eof,
-  /// unknown character.
+  /// An unknown character.
   Unknown,
-  /// a space — `' '`.
+  /// A space — `' '`.
   Space,
-  /// end of line - `'\n'`.
+  /// And end of line - `'\n'`.
   Eol,
-  /// integer.
+  /// A comment.
+  Comment(comment::Comment),
+  /// An integer.
   Int(Symbol, int::Base),
-  /// float.
+  /// A float.
   Float(Symbol),
-  /// punctuation.
+  /// A punctuation.
   Punctuation(punctuation::Punctuation),
-  /// group.
+  /// A group.
   Group(group::Group),
-  /// identifier.
+  /// An identifier.
   Ident(Symbol),
-  /// keyword.
+  /// A keyword.
   Kw(kw::Kw),
-  /// character.
+  /// A character.
   Char(Symbol),
-  /// string.
+  /// A string.
   Str(Symbol),
+  /// A plain text.
+  PlainText(Symbol),
+  /// A tag — `<>`, `</>`.
+  Tag(tag::Tag),
 }
 
 impl TokenKind {
@@ -343,13 +351,21 @@ impl TokenKind {
   }
 }
 
+impl From<TokenKind> for SmolStr {
+  #[inline]
+  fn from(kind: TokenKind) -> Self {
+    kind.to_smolstr()
+  }
+}
+
 impl std::fmt::Display for TokenKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Eof => write!(f, "eof"),
       Self::Unknown => write!(f, "unknown"),
       Self::Space => write!(f, "space"),
-      Self::Eol => write!(f, "Eol"),
+      Self::Eol => write!(f, "eol"),
+      Self::Comment(comment) => write!(f, "{comment}"),
       Self::Int(sym, base) => {
         write!(f, "{sym}--base--{base:?}")
       }
@@ -359,9 +375,11 @@ impl std::fmt::Display for TokenKind {
       }
       Self::Group(group) => write!(f, "{group}"),
       Self::Ident(sym) => write!(f, "{sym}"),
-      Self::Kw(sym) => write!(f, "{sym}"),
+      Self::Kw(kw) => write!(f, "{kw}"),
       Self::Char(sym) => write!(f, "{sym}"),
       Self::Str(sym) => write!(f, "{sym}"),
+      Self::PlainText(plain_text) => write!(f, "{plain_text}"),
+      Self::Tag(tag) => write!(f, "{tag}"),
     }
   }
 }

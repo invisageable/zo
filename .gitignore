@@ -1,5 +1,6 @@
 /program
 /target
+/tmp
 
 **.DS_Store
 .todo.md
