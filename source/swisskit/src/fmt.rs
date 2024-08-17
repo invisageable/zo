@@ -33,12 +33,6 @@ pub fn sep<'a>(
   Sep(nodes, separator).to_string()
 }
 
-/// Separates elements by new line.
-#[inline]
-pub fn sep_newline(nodes: &[impl std::fmt::Display]) -> String {
-  sep(nodes, "\n")
-}
-
 /// Separates elements by colon.
 #[inline]
 pub fn sep_colon(nodes: &[impl std::fmt::Display]) -> String {
@@ -49,4 +43,16 @@ pub fn sep_colon(nodes: &[impl std::fmt::Display]) -> String {
 #[inline]
 pub fn sep_comma(nodes: &[impl std::fmt::Display]) -> String {
   sep(nodes, ", ")
+}
+
+/// Separates elements by new line.
+#[inline]
+pub fn sep_newline(nodes: &[impl std::fmt::Display]) -> String {
+  sep(nodes, "\n")
+}
+
+/// Separates elements by new line.
+#[inline]
+pub fn sep_space(nodes: &[impl std::fmt::Display]) -> String {
+  sep(nodes, " ")
 }
