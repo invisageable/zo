@@ -429,6 +429,14 @@ impl<'tokens> Parser<'tokens> {
 
           (ty, value)
         }
+        TokenKind::Punctuation(Punctuation::ColonEqual) => {
+          self.next();
+          self.next();
+
+          let value = self.parse_expr(Precedence::Low).unwrap();
+
+          (Ty::infer(token.span), value)
+        }
         TokenKind::Punctuation(Punctuation::ColonColonEqual) => {
           self.next(); // eat `pattern`.
           self.next(); // eat `::=`.
