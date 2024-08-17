@@ -1,5 +1,3 @@
-use super::ast_zsx::Tag;
-
 use zo_interner::interner::symbol::{Symbol, Symbolize};
 use zo_tokenizer::token::int::Base;
 use zo_tokenizer::token::punctuation::Punctuation;
@@ -491,7 +489,7 @@ pub enum ExprKind {
   /// A range — `1..2`, `x..y`, `foo()..bar()`.
   Range(Option<Box<Expr>>, Option<Box<Expr>>),
   /// A tag element — `<></>`, <div>hello</div>.
-  Tag(Tag),
+  Elmt(Elmt),
 }
 
 impl Symbolize for ExprKind {
@@ -847,4 +845,87 @@ pub struct For {
   pub block: Block,
   /// A span — see also [`Span`] for more information.
   pub span: Span,
+}
+
+/// The representation of an element.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Elmt {
+  pub kind: ElmtKind,
+  /// A list of attributes
+  pub attrs: ThinVec<Attr>,
+  /// A list of child elements.
+  pub children: ThinVec<Elmt>,
+  /// A span — see also [`Span`].
+  pub span: Span,
+}
+
+/// The representation of element kind.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ElmtKind {
+  /// A comment — `<!-- foo bar oofrab arbfoo -->`.
+  Comment(Symbol),
+  /// An element — see also [`Name`].
+  Name(Name),
+  /// A text — see also [`Text`].
+  Text(Text),
+}
+
+// /// The representation of an attribute.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Attr {
+  /// An attribute kind.
+  pub kind: AttrKind,
+  /// A span — see also [`Span`].
+  pub span: Span,
+}
+
+/// The representation of an attribute.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AttrKind {
+  /// A static attribute — `foo="bar"`.
+  Static(Symbol, Option<Symbol>),
+  /// A dynamic attribute — `foo={bar}`, `{bar}`.
+  Dynamic(Symbol, Option<Symbol>),
+}
+
+/// The representation of a text — `foobar ra boo far boof`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Text {
+  /// A raw text.
+  pub text: Symbol,
+  /// A span — see also [`Span`].
+  pub span: Span,
+}
+
+/// The representation of an name.
+///
+/// A name must follow the kebab-case naming convention.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Name {
+  /// A html name.
+  Html(Html),
+  /// A custom name.
+  Custom(String),
+}
+
+impl From<&str> for Name {
+  // todo(ivs) — this should be done on the parser side because we need to set a
+  // `Symbol` instead of a String.
+  #[inline]
+  fn from(name: &str) -> Self {
+    match name {
+      "a" => Self::Html(Html::A),
+      "div" => Self::Html(Html::Div),
+      _ => Self::Custom(name.into()),
+    }
+  }
+}
+
+/// The representation of html tag name.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Html {
+  /// An anchor tag name — `<a>`.
+  A,
+  /// An div tag name — `<div>`.
+  Div,
 }

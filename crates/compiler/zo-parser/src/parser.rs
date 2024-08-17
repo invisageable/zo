@@ -129,7 +129,10 @@ impl<'tokens> Parser<'tokens> {
           return Ok(());
         }
 
-        Err(error::syntax::unexpected_token(token.span, *token))
+        Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_owned(),
+        ))
       })
       .unwrap()
   }
@@ -146,7 +149,10 @@ impl<'tokens> Parser<'tokens> {
           return Ok(());
         }
 
-        Err(error::syntax::unexpected_token(token.span, *token))
+        Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_owned(),
+        ))
       })
       .unwrap()
   }
@@ -183,7 +189,10 @@ impl<'tokens> Parser<'tokens> {
       .map(|token| match token.kind {
         TokenKind::Kw(Kw::Val) => self.parse_item_val(),
         TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
-        _ => Err(error::syntax::unexpected_token(token.span, *token)),
+        _ => Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_owned(),
+        )),
       })
       .unwrap()
   }
@@ -206,7 +215,10 @@ impl<'tokens> Parser<'tokens> {
           return Ok(VarKind::Val);
         }
 
-        Err(error::syntax::expected_global_var(token.span, *token))
+        Err(error::syntax::expected_global_var(
+          token.span,
+          token.to_owned(),
+        ))
       })
       .unwrap()?;
 
@@ -269,7 +281,10 @@ impl<'tokens> Parser<'tokens> {
 
           Ok(Block { stmts, span })
         }
-        _ => Err(error::syntax::unexpected_token(token.span, *token)),
+        _ => Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_owned(),
+        )),
       })
       .unwrap()?;
 
@@ -359,7 +374,7 @@ impl<'tokens> Parser<'tokens> {
   fn parse_stmt(&mut self) -> Result<Stmt> {
     let stmt = self
       .maybe_token_current
-      .map(|token| match token.kind {
+      .map(|token| match &token.kind {
         k if k.is_var_local() => self.parse_stmt_var(),
         k if k.is_item() => self.parse_stmt_item(),
         _ => self.parse_stmt_expr(),
@@ -389,7 +404,10 @@ impl<'tokens> Parser<'tokens> {
           TokenKind::Kw(Kw::Imu) => VarKind::Imu,
           TokenKind::Kw(Kw::Mut) => VarKind::Mut,
           _ => {
-            return Err(error::syntax::expected_local_var(token.span, *token))
+            return Err(error::syntax::expected_local_var(
+              token.span,
+              token.to_owned(),
+            ))
           }
         })
       })
@@ -415,13 +433,13 @@ impl<'tokens> Parser<'tokens> {
           self.next(); // eat `pattern`.
           self.next(); // eat `::=`.
 
-          (Ty::UNIT, self.parse_zsx().unwrap())
+          todo!()
         }
         _ => panic!(),
       })
       .unwrap();
 
-    // let ty = ;
+    // let ty = self.parse_ty();
 
     // self.next();
 
@@ -474,7 +492,7 @@ impl<'tokens> Parser<'tokens> {
         TokenKind::Punctuation(Punctuation::ColonEqual) => {
           Ok(Ty::infer(token.span))
         }
-        _ => Err(error::syntax::expected_ty(token.span, *token)),
+        _ => Err(error::syntax::expected_ty(token.span, token.to_owned())),
       })
       .unwrap()?;
 
@@ -497,7 +515,10 @@ impl<'tokens> Parser<'tokens> {
         }
         TokenKind::Group(Group::ParenOpen) => self.parse_ty_tuple(token.span),
         TokenKind::Kw(Kw::FnUpper) => self.parse_ty_closure(token.span),
-        _ => Err(error::syntax::unexpected_token(token.span, *token)),
+        _ => Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_owned(),
+        )),
       })
       .unwrap()
   }
@@ -666,7 +687,10 @@ impl<'tokens> Parser<'tokens> {
             span,
           })
         }
-        _ => Err(error::syntax::unexpected_token(token.span, *token)),
+        _ => Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_owned(),
+        )),
       })
       .unwrap()
   }
@@ -747,7 +771,9 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Kw(Kw::Break) => Box::new(Self::parse_expr_break),
       TokenKind::Kw(Kw::Continue) => Box::new(Self::parse_expr_continue),
       TokenKind::Kw(Kw::FnLower) => Box::new(Self::parse_expr_fn),
-      _ => return Err(error::syntax::invalid_prefix(token.span, *token)),
+      _ => {
+        return Err(error::syntax::invalid_prefix(token.span, token.to_owned()))
+      }
     })
   }
 
@@ -757,7 +783,10 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| {
         let TokenKind::Int(sym, base) = token.kind else {
-          return Err(error::syntax::expected_int(token.span, *token));
+          return Err(error::syntax::expected_int(
+            token.span,
+            token.to_owned(),
+          ));
         };
 
         Ok(Expr {
@@ -777,7 +806,10 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| {
         let TokenKind::Float(sym) = token.kind else {
-          return Err(error::syntax::expected_float(token.span, *token));
+          return Err(error::syntax::expected_float(
+            token.span,
+            token.to_owned(),
+          ));
         };
 
         Ok(Expr {
@@ -797,7 +829,10 @@ impl<'tokens> Parser<'tokens> {
       .maybe_token_current
       .map(|token| {
         let TokenKind::Ident(sym) = token.kind else {
-          return Err(error::syntax::expected_ident(token.span, *token));
+          return Err(error::syntax::expected_ident(
+            token.span,
+            token.to_owned(),
+          ));
         };
 
         Ok(Expr {
@@ -822,7 +857,10 @@ impl<'tokens> Parser<'tokens> {
               TokenKind::Kw(Kw::False) => LitKind::Bool(false),
               TokenKind::Kw(Kw::True) => LitKind::Bool(true),
               _ => {
-                return Err(error::syntax::expected_bool(token.span, *token))
+                return Err(error::syntax::expected_bool(
+                  token.span,
+                  token.to_owned(),
+                ))
               }
             },
             span: token.span,
@@ -889,7 +927,12 @@ impl<'tokens> Parser<'tokens> {
             kind: UnOpKind::Not,
             span: token.span,
           },
-          _ => return Err(error::syntax::expected_unop(token.span, *token)),
+          _ => {
+            return Err(error::syntax::expected_unop(
+              token.span,
+              token.to_owned(),
+            ))
+          }
         };
 
         parser.next();
@@ -1059,7 +1102,10 @@ impl<'tokens> Parser<'tokens> {
 
           Ok(Block { stmts, span })
         }
-        _ => Err(error::syntax::unexpected_token(token.span, *token)),
+        _ => Err(error::syntax::unexpected_token(
+          token.span,
+          token.to_owned(),
+        )),
       })
       .unwrap()
   }
@@ -1274,13 +1320,15 @@ impl<'tokens> Parser<'tokens> {
   fn parse_infix_fn(&self) -> Result<InfixFn> {
     let token = self.maybe_token_next.unwrap();
 
-    Ok(match token.kind {
+    Ok(match &token.kind {
       k if k.is_binop() => Box::new(Self::parse_expr_infix),
       k if k.is_assignment() => Box::new(Self::parse_expr_assignment),
       k if k.is_index() => Box::new(Self::parse_expr_array_access),
       k if k.is_chaining() => Box::new(Self::parse_expr_tuple_access),
       k if k.is_calling() => Box::new(Self::parse_expr_call),
-      _ => return Err(error::syntax::invalid_infix(token.span, *token)),
+      _ => {
+        return Err(error::syntax::invalid_infix(token.span, token.to_owned()))
+      }
     })
   }
 
@@ -1291,7 +1339,7 @@ impl<'tokens> Parser<'tokens> {
       .map(|token| {
         let binop = BinOp::from(token);
 
-        match token.kind {
+        match &token.kind {
           k if k.is_assignment() => (Precedence::Assignement, Some(binop)),
           k if k.is_conditional() => (Precedence::Conditional, Some(binop)),
           k if k.is_comparison() => (Precedence::Comparison, Some(binop)),
@@ -1371,7 +1419,12 @@ impl<'tokens> Parser<'tokens> {
           TokenKind::Punctuation(Punctuation::GreaterThanGreaterThanEqual) => {
             (BinOpKind::Shr, token.span)
           }
-          _ => return Err(error::syntax::expected_binop(token.span, *token)),
+          _ => {
+            return Err(error::syntax::expected_binop(
+              token.span,
+              token.to_owned(),
+            ))
+          }
         })
       })
       .unwrap()

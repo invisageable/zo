@@ -1,13 +1,13 @@
 use super::ast::{
-  Alias, Ast, Async, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Ident,
-  Input, Item, ItemKind, Lit, LitKind, OutputTy, Path, PathSegment, Pattern,
-  PatternKind, Prototype, Pub, Slf, Stmt, StmtKind, UnOp, UnOpKind, Var,
-  VarKind, Wasm,
+  Alias, Ast, Async, Attr, AttrKind, BinOp, BinOpKind, Block, Elmt, ElmtKind,
+  Expr, ExprKind, Fun, Html, Ident, Input, Item, ItemKind, Lit, LitKind, Name,
+  OutputTy, Path, PathSegment, Pattern, PatternKind, Prototype, Pub, Slf, Stmt,
+  StmtKind, Text, UnOp, UnOpKind, Var, VarKind, Wasm,
 };
 
 use zo_ty::ty::TyKind;
 
-use swisskit::fmt::{sep, sep_comma, sep_newline};
+use swisskit::fmt::{sep, sep_comma, sep_newline, sep_space};
 
 use smol_str::ToSmolStr;
 
@@ -327,6 +327,74 @@ impl std::fmt::Display for OutputTy {
     match self {
       Self::Default(_) => write!(f, "()"),
       Self::Ty(ty) => write!(f, "{ty}"),
+    }
+  }
+}
+
+impl std::fmt::Display for Elmt {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let Self {
+      kind,
+      attrs,
+      children,
+      ..
+    } = self;
+
+    match kind {
+      ElmtKind::Comment(sym) => write!(f, "<!-- {sym} -->"),
+      ElmtKind::Name(name) => write!(
+        f,
+        "<{name} {attrs}>{children}</{name}>",
+        attrs = sep_space(attrs),
+        children = sep_newline(children),
+      ),
+      ElmtKind::Text(text) => write!(f, "{text}"),
+    }
+  }
+}
+
+impl std::fmt::Display for ElmtKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Comment(sym) => write!(f, "<!-- {sym} -->"),
+      Self::Name(name) => write!(f, "{name}"),
+      Self::Text(text) => write!(f, "{text}"),
+    }
+  }
+}
+
+impl std::fmt::Display for Attr {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "")
+  }
+}
+
+impl std::fmt::Display for AttrKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "")
+  }
+}
+
+impl std::fmt::Display for Text {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.text)
+  }
+}
+
+impl std::fmt::Display for Name {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Html(html) => write!(f, "{html}"),
+      Self::Custom(name) => write!(f, "{name}"),
+    }
+  }
+}
+
+impl std::fmt::Display for Html {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::A => write!(f, "a"),
+      Self::Div => write!(f, "div"),
     }
   }
 }
