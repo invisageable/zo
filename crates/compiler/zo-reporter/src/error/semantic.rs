@@ -39,8 +39,22 @@ impl<'a> Diagnostic<'a> for Semantic {
         ],
         ..Default::default()
       },
-      Self::NamingConvention(_span, _name, _convention) => Report {
+      Self::NamingConvention(span, name, naming) => Report {
         kind: ReportKind::WARNING,
+        message: format!(
+          "{} {} {} {}",
+          "variable".fg(color::title()),
+          format!("`{name}`").fg(color::hint()),
+          "should have a".fg(color::title()),
+          format!("`{naming}`").fg(color::title()),
+        )
+        .into(),
+        labels: vec![(
+          *span,
+          format!("change this identifier to {naming} convention: `{name}`")
+            .into(),
+          color::warning(),
+        )],
         ..Default::default()
       },
     }

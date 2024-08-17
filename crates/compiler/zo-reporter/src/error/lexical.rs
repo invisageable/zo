@@ -21,12 +21,12 @@ impl<'a> Diagnostic<'a> for Lexical {
     match self {
       Self::Unknown(span, byte) => Report {
         kind: ReportKind::ERROR,
-        message: format!("{}", "invalid character".fg(color::title())).into(),
+        message: format!("{}", "invalid character.".fg(color::title())).into(),
         labels: vec![(
           *span,
           format!(
             "{}: `{}`",
-            "this character does not ring a bell".fg(color::error()),
+            "this character does not ring a bell.".fg(color::error()),
             *byte as char
           )
           .into(),
@@ -34,7 +34,7 @@ impl<'a> Diagnostic<'a> for Lexical {
         )],
         notes: vec![format!(
           "{}",
-          "🤖 what language are you trying to speak to me in? i only speak zhoo"
+          "🤖 bruh! what language are you speaking to me in? speeks zo."
             .fg(color::note())
         )
         .into()],
@@ -44,7 +44,21 @@ impl<'a> Diagnostic<'a> for Lexical {
         )
         .into()],
       },
-      Self::InvalidNumber(span, byte) => todo!("invalid num — {span}-{byte}"),
+      Self::InvalidNumber(span, byte) => Report {
+        kind: ReportKind::ERROR,
+        message: format!("{}", "leading zero.".fg(color::title())).into(),
+        labels: vec![(
+          *span,
+          format!(
+            "{}: `{}`",
+            "this digit is leading by zero.".fg(color::error()),
+            *byte as char
+          )
+          .into(),
+          color::error(),
+        )],
+        ..Default::default()
+      },
     }
   }
 }
