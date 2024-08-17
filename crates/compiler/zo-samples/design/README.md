@@ -101,3 +101,6 @@ variables
 
 webassembly
   - [wasm](./webassembly/wasm.zo)
+
+zo syntax extension
+  - [zsx](./zsx)

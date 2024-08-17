@@ -1,0 +1,15 @@
+-- functions: declaration.
+
+-- implicit return.
+fun heading1(name: str): Html {
+  ::= <h1>hello, {name}!</h1>
+}
+
+-- explicit return.
+fun heading2(name: str): Html {
+  return ::= <h1>hello, {name}!</h1>;
+}
+
+fun main() {
+  #dom heading1("world");
+}

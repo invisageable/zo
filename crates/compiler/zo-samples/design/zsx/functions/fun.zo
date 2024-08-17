@@ -1,0 +1,9 @@
+-- functions: declaration.
+
+fun heading(name: str): Html {
+  ::= <h1>hello, {name}!</h1>
+}
+
+fun main() {
+  #dom heading("world");
+}

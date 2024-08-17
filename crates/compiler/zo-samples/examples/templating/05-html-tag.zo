@@ -1,0 +1,8 @@
+-- examples: html tag.
+
+fun main() {
+	imu string: str = "here's some <strong>HTML!!!</strong>";
+  imu paragraph ::= <p>{#html string}</p>;
+
+  #dom paragraph;
+}
