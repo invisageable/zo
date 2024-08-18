@@ -1,3 +1,6 @@
+// todo(ivs) — the `tokenizer` is still in work in progress. I'm revriting it to
+// support a kind a templating langage.
+
 use super::cursor::Cursor;
 use super::token::int::Base;
 use super::token::punctuation::Punctuation;
@@ -17,6 +20,8 @@ use swisskit::span::Span;
 struct Tokenizer<'bytes> {
   /// A tokenizer mode.
   mode: TokenizerMode,
+  /// A tokenizer mode.
+  state: TokenizerState,
   /// A cursor.
   cursor: Cursor<'bytes>,
   /// See [`Interner`].
@@ -35,6 +40,7 @@ impl<'bytes> Tokenizer<'bytes> {
   ) -> Self {
     Self {
       mode: TokenizerMode::Program,
+      state: TokenizerState::Idle,
       cursor: Cursor::new(source),
       interner,
       reporter,
@@ -99,13 +105,7 @@ impl<'bytes> Tokenizer<'bytes> {
         _ => TokenizerState::Unknown,
       },
       TokenizerMode::Template => match byte {
-        b if is!(space b) => TokenizerState::Space,
-        b if is!(number_zero b) => TokenizerState::Zero,
-        b if is!(number_non_zero b) => TokenizerState::Int,
-        b if is!(punctuation b) => TokenizerState::Punctuation,
-        b if is!(group b) => TokenizerState::Group,
-        b if is!(ident_start b) => TokenizerState::Ident,
-        b if is!(quote b) => TokenizerState::Quote,
+        b if b == b'<' || b == b'>' => TokenizerState::Template,
         _ => TokenizerState::PlainText,
       },
     }
@@ -113,19 +113,18 @@ impl<'bytes> Tokenizer<'bytes> {
 
   /// Eats the source code byte-by-byte.
   fn scan(&mut self) -> Option<Token> {
-    let mut state = TokenizerState::Start;
     let mut base = Base::Dec;
     let mut cursor_pos = self.cursor.pos();
 
     while self.cursor.has_bytes() {
       let byte = self.byte();
 
-      match state {
+      match self.state {
         // mode — programming.
-        TokenizerState::Start => {
-          state = self.transition(byte);
+        TokenizerState::Idle => {
+          self.state = self.transition(byte);
 
-          if state == TokenizerState::Start {
+          if self.state == TokenizerState::Idle {
             self.bump();
           } else {
             cursor_pos = self.cursor.pos();
@@ -133,11 +132,11 @@ impl<'bytes> Tokenizer<'bytes> {
         }
         TokenizerState::Space => match byte {
           b if is!(space b) => self.bump(),
-          _ => state = TokenizerState::Start,
+          _ => self.state = TokenizerState::Idle,
         },
         TokenizerState::Comment => match byte {
           b if !is!(eol b) => self.bump(),
-          _ => state = TokenizerState::Start,
+          _ => self.state = TokenizerState::Idle,
         },
         TokenizerState::Zero => match byte {
           b if is!(number_zero b) => self.bump(),
@@ -150,12 +149,12 @@ impl<'bytes> Tokenizer<'bytes> {
               .raise(error::lexical::invalid_number(span, byte));
           }
           b if is!(dot b) => {
-            state = TokenizerState::Float;
+            self.state = TokenizerState::Float;
 
             self.bump();
           }
           _ => {
-            state = TokenizerState::Int;
+            self.state = TokenizerState::Int;
 
             break;
           }
@@ -163,24 +162,24 @@ impl<'bytes> Tokenizer<'bytes> {
         TokenizerState::Int => match byte {
           b if is!(number_zero b) | is!(number_non_zero b) => self.bump(),
           b if is!(dot b) => {
-            state = TokenizerState::Float;
+            self.state = TokenizerState::Float;
 
             self.bump();
           }
           b'b' => {
-            state = TokenizerState::Bin;
+            self.state = TokenizerState::Bin;
             base = Base::Bin;
 
             self.bump();
           }
           b'o' => {
-            state = TokenizerState::Oct;
+            self.state = TokenizerState::Oct;
             base = Base::Oct;
 
             self.bump();
           }
           b'x' => {
-            state = TokenizerState::Hex;
+            self.state = TokenizerState::Hex;
             base = Base::Hex;
 
             self.bump();
@@ -190,7 +189,7 @@ impl<'bytes> Tokenizer<'bytes> {
         TokenizerState::Bin => match byte {
           b if is!(number_bin b) || is!(underscore b) => self.bump(),
           _ => {
-            state = TokenizerState::Int;
+            self.state = TokenizerState::Int;
 
             break;
           }
@@ -198,7 +197,7 @@ impl<'bytes> Tokenizer<'bytes> {
         TokenizerState::Oct => match byte {
           b if is!(number_oct b) || is!(underscore b) => self.bump(),
           _ => {
-            state = TokenizerState::Int;
+            self.state = TokenizerState::Int;
 
             break;
           }
@@ -206,7 +205,7 @@ impl<'bytes> Tokenizer<'bytes> {
         TokenizerState::Hex => match byte {
           b if is!(number_hex b) || is!(underscore b) => self.bump(),
           _ => {
-            state = TokenizerState::Int;
+            self.state = TokenizerState::Int;
 
             break;
           }
@@ -214,7 +213,7 @@ impl<'bytes> Tokenizer<'bytes> {
         TokenizerState::Float => match byte {
           b if is!(number b) || is!(underscore b) => self.bump(),
           b if b == b'e' || b == b'E' => {
-            state = TokenizerState::ENotation;
+            self.state = TokenizerState::ENotation;
 
             self.bump();
           }
@@ -239,12 +238,12 @@ impl<'bytes> Tokenizer<'bytes> {
               match self.byte() {
                 b'=' => self.bump(),
                 b'>' => {
-                  state = TokenizerState::Punctuation;
+                  self.state = TokenizerState::Punctuation;
 
                   self.bump();
                 }
                 b'-' | b'!' => {
-                  state = TokenizerState::Comment;
+                  self.state = TokenizerState::Comment;
                 }
                 _ => break,
               }
@@ -270,6 +269,8 @@ impl<'bytes> Tokenizer<'bytes> {
 
                   match self.byte() {
                     b'=' => {
+                      // self.state = TokenizerState::Template;
+
                       self.switch();
                       self.bump();
 
@@ -286,7 +287,7 @@ impl<'bytes> Tokenizer<'bytes> {
               match self.byte() {
                 b'=' => self.bump(),
                 b'>' => {
-                  state = TokenizerState::Punctuation;
+                  self.state = TokenizerState::Punctuation;
 
                   self.bump();
                 }
@@ -353,12 +354,12 @@ impl<'bytes> Tokenizer<'bytes> {
         },
         TokenizerState::Quote => match byte {
           b if is!(quote_single b) => {
-            state = TokenizerState::Char;
+            self.state = TokenizerState::Char;
 
             self.bump();
           }
           b if is!(quote_double b) => {
-            state = TokenizerState::Str;
+            self.state = TokenizerState::Str;
 
             self.bump();
           }
@@ -387,31 +388,53 @@ impl<'bytes> Tokenizer<'bytes> {
           self.reporter.raise(error::lexical::unknown(span, byte));
         }
         // mode — template.
+        TokenizerState::Template => match byte {
+          b'<' => self.state = TokenizerState::TagOpen,
+          _ => {
+            self.state = TokenizerState::PlainText;
+          }
+        },
+        TokenizerState::TagOpen => match byte {
+          b if b.is_ascii_alphabetic() => {
+            // create tag opening.
+            self.state = TokenizerState::TagName;
+          }
+          _ => {
+            self.state = TokenizerState::Unknown;
+            self.bump();
+          }
+        },
+        TokenizerState::TagName => match byte {
+          b'>' => self.state = TokenizerState::Template,
+          _ => {
+            self.bump();
+          }
+        },
         TokenizerState::PlainText => match byte {
-          b if b != b';' => self.bump(),
-          _ => break,
+          b if b != b';' => {
+            println!("char = {:?}", self.byte() as char);
+            self.bump();
+          }
+          _ => {
+            self.state = TokenizerState::PlainText;
+
+            self.switch();
+
+            break;
+          }
         },
       }
     }
 
-    self.scanning(
-      state,
-      Span::of(cursor_pos as u32, self.cursor.pos() as u32),
-      base,
-    )
+    self.scanning(Span::of(cursor_pos as u32, self.cursor.pos() as u32), base)
   }
 
   /// Detects the token from state and span.
-  fn scanning(
-    &mut self,
-    state: TokenizerState,
-    span: Span,
-    base: Base,
-  ) -> Option<Token> {
+  fn scanning(&mut self, span: Span, base: Base) -> Option<Token> {
     let source =
       String::from_utf8_lossy(self.bytes(span.lo as usize, span.hi as usize));
 
-    let maybe_kind = match state {
+    let maybe_kind = match self.state {
       // mode — program.
       TokenizerState::Int => {
         let source = source.replace('_', "");
@@ -464,6 +487,8 @@ impl<'bytes> Tokenizer<'bytes> {
       _ => None,
     };
 
+    self.state = TokenizerState::Idle;
+
     if let Some(kind) = maybe_kind {
       return Some(Token::new(kind, span));
     }
@@ -494,7 +519,7 @@ pub(crate) enum TokenizerMode {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum TokenizerState {
   /// A initial state.
-  Start,
+  Idle,
   /// A state for whitespace.
   Space,
   /// A state for comments.
@@ -527,9 +552,14 @@ pub(crate) enum TokenizerState {
   Str,
   /// A unknown state.
   Unknown,
-
+  /// A template state.
+  Template,
   /// A plain text state.
   PlainText,
+  /// A tag open state.
+  TagOpen,
+  /// A tag name state.
+  TagName,
 }
 
 /// Transform the source code into an array of tokens.

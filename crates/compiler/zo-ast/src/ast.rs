@@ -850,6 +850,7 @@ pub struct For {
 /// The representation of an element.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Elmt {
+  /// A element kind.
   pub kind: ElmtKind,
   /// A list of attributes
   pub attrs: ThinVec<Attr>,
@@ -862,6 +863,7 @@ pub struct Elmt {
 /// The representation of element kind.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ElmtKind {
+  // todo(ivs) — void element is missing.
   /// A comment — `<!-- foo bar oofrab arbfoo -->`.
   Comment(Symbol),
   /// An element — see also [`Name`].

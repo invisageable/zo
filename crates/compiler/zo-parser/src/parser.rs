@@ -59,6 +59,8 @@ impl<'tokens> Parser<'tokens> {
     reporter: &'tokens Reporter,
     tokens: &'tokens [Token],
   ) -> Self {
+    println!("{:?}", tokens);
+
     Self {
       idx: 0usize,
       maybe_token_current: None,
@@ -484,10 +486,6 @@ impl<'tokens> Parser<'tokens> {
       _ => Err(error::syntax::expected_local_var(span, kind)),
     }
   }
-
-  // fn parse_zsx(&mut self) -> Result<Expr> {
-  //   todo!()
-  // }
 
   /// Parses a type.
   fn parse_ty(&mut self) -> Result<Ty> {
