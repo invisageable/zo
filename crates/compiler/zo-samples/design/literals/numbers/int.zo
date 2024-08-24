@@ -4,12 +4,10 @@ fun main() {
   imu bin: int = 0b11110000;  -- binary.
   imu oct: int = 0o77;        -- octal.
   imu hex: int = 0xfff_fff;   -- hexadecimal.
-  imu dec: int = 1;           -- decimal.
 
   println("bin = {bin}");
   println("oct = {oct}");
   println("hex = {hex}");
-  println("dec = {dec}");
 
   -- parse to binary number.
   imu bina: int = b#30;
@@ -22,12 +20,7 @@ fun main() {
   println("octa = {octa}"); -- 113.
 
   -- parse to hexadecimal number.
-  imu hexa: int = h#76;
+  imu hexa: int = x#76;
 
   println("hexa = {hexa}"); -- 4c.
-
-  -- parse to integer number.
-  imu deci: int = d#25.0; 
-
-  println("deci = {deci}"); -- 25.
 }
