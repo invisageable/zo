@@ -71,7 +71,7 @@ impl<'a> Diagnostic<'a> for Channel {
 }
 
 /// An expected backend error.
-#[inline]
+#[inline(always)]
 pub fn expected_backend(
   events: Vec<impl Into<SmolStr>>,
   event: impl Into<SmolStr>,
@@ -83,19 +83,19 @@ pub fn expected_backend(
 }
 
 /// An expected event error.
-#[inline]
+#[inline(always)]
 pub fn expected_event(event: impl Into<SmolStr>) -> Error {
   Error::Internal(Internal::ExpectedEvent(event.into()))
 }
 
 /// A no sender error.
-#[inline]
+#[inline(always)]
 pub fn no_receiver(send_error: impl Into<SmolStr>) -> Error {
   Error::Internal(Internal::Channel(Channel::NoReceiver(send_error.into())))
 }
 
 /// A no receiver error.
-#[inline]
+#[inline(always)]
 pub fn no_sender(receive_error: impl Into<SmolStr>) -> Error {
   Error::Internal(Internal::Channel(Channel::NoSender(receive_error.into())))
 }
@@ -111,7 +111,7 @@ pub fn no_sender(receive_error: impl Into<SmolStr>) -> Error {
 ///   .map_err(error::internal::io)
 ///   .map(|f| /* do your stuff */);
 /// ```
-#[inline]
+#[inline(always)]
 pub const fn io(message: std::io::Error) -> Error {
   Error::Internal(Internal::Io(message))
 }

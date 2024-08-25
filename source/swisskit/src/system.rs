@@ -25,7 +25,7 @@ impl System {
   /// Returns the RAM size in bytes.
   ///
   /// See also [`sysinfo::System::total_memory`] for more information.
-  #[inline]
+  #[inline(always)]
   pub fn total(&self) -> u64 {
     self.info.total_memory()
   }
@@ -33,7 +33,7 @@ impl System {
   /// Returns the amount of used RAM in bytes.
   ///
   /// See also [`sysinfo::System::used_memory`] for more information.
-  #[inline]
+  #[inline(always)]
   pub fn used(&self) -> u64 {
     self.info.used_memory()
   }
@@ -41,7 +41,7 @@ impl System {
   /// Returns the amount of free RAM in bytes.
   ///
   /// See also [`sysinfo::System::free_memory`] for more information.
-  #[inline]
+  #[inline(always)]
   pub fn free(&self) -> u64 {
     self.info.free_memory()
   }
@@ -57,7 +57,7 @@ impl System {
   /// Returns the number of CPUs.
   ///
   /// See also [`sysinfo::Cpu`] for more information.
-  #[inline]
+  #[inline(always)]
   pub fn cpus_len(&self) -> usize {
     self.info.cpus().len()
   }

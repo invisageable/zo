@@ -10,7 +10,7 @@ struct Reader<'path> {
 
 impl<'path> Reader<'path> {
   /// Creates a new reader instance.
-  #[inline]
+  #[inline(always)]
   fn new(reporter: &'path mut Reporter) -> Self {
     Self { reporter }
   }

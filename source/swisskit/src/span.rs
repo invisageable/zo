@@ -42,7 +42,7 @@ impl Span {
   /// assert_eq!(spn.lo, 0);
   /// assert_eq!(spn.hi, 3);
   /// ```
-  #[inline]
+  #[inline(always)]
   pub const fn of(lo: u32, hi: u32) -> Self {
     Self { lo, hi }
   }
@@ -61,7 +61,7 @@ impl Span {
   /// assert_eq!(spn.lo, 5);
   /// assert_eq!(spn.hi, 24);
   /// ```
-  #[inline]
+  #[inline(always)]
   pub fn merge(a: Span, b: Span) -> Self {
     let lo = std::cmp::min(a.lo, b.lo);
     let hi = std::cmp::max(a.hi, b.hi);
@@ -80,7 +80,7 @@ impl Span {
   ///
   /// assert_eq!(spn.len(), 5);
   /// ```
-  #[inline]
+  #[inline(always)]
   pub fn len(&self) -> usize {
     (self.hi - self.lo) as usize
   }
@@ -96,7 +96,7 @@ impl Span {
   ///
   /// assert!(spn.is_empty());
   /// ```
-  #[inline]
+  #[inline(always)]
   pub fn is_empty(&self) -> bool {
     self.lo == self.hi
   }
@@ -113,14 +113,14 @@ impl Span {
   /// assert_eq!(spn.contains(7), true);
   /// assert_eq!(spn.contains(usize::MAX), false);
   /// ```
-  #[inline]
+  #[inline(always)]
   pub fn contains(&self, pos: u32) -> bool {
     self.lo <= pos && pos < self.hi
   }
 }
 
 impl Default for Span {
-  #[inline]
+  #[inline(always)]
   fn default() -> Self {
     Self::ZERO
   }
@@ -133,7 +133,7 @@ impl std::fmt::Display for Span {
 }
 
 impl From<Span> for std::ops::Range<usize> {
-  #[inline]
+  #[inline(always)]
   fn from(span: Span) -> Self {
     span.lo as usize..span.hi as usize
   }

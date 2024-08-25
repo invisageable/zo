@@ -19,25 +19,25 @@ pub struct Settings {
 
 impl Settings {
   /// Creates a new settings.
-  #[inline]
+  #[inline(always)]
   pub fn new() -> Self {
     Self::default()
   }
 
   /// Checks if the verbose mode is enabled.
-  #[inline]
+  #[inline(always)]
   pub fn has_verbose(&self) -> bool {
     self.verbose.load(std::sync::atomic::Ordering::Relaxed)
   }
 
   /// Checks if the profiling mode is enabled.
-  #[inline]
+  #[inline(always)]
   pub fn has_profile(&self) -> bool {
     self.profile.load(std::sync::atomic::Ordering::Relaxed)
   }
 
   /// Checks if the interactive mode is enabled.
-  #[inline]
+  #[inline(always)]
   pub fn is_interactive(&self) -> bool {
     self.interactive.load(std::sync::atomic::Ordering::Relaxed)
   }

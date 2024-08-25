@@ -4,6 +4,10 @@ use super::phase::{Phase, Process};
 use zo_reporter::Result;
 use zo_session::session::SESSION;
 
+// todo(ivs) — #1.
+//
+// implements an internal error.
+
 /// The compiler of the `zo` programming language.
 ///
 /// #### compiler phases.
@@ -41,15 +45,18 @@ impl<const L: usize> Compiler<L> {
 
     // the producer sends compiler phases to the consumer.
     let producer = std::thread::spawn(move || {
+      // todo(ivs) — #1.
       let guard_phase = phase.lock().unwrap();
 
       for phase in *guard_phase {
+        // todo(ivs) — #1.
         tx.send(phase).unwrap();
       }
     });
 
     // the consumer folds those compiler phases and pass the appropriate event.
     let consumer = std::thread::spawn(move || {
+      // todo(ivs) — #1.
       let mut session = session.lock().unwrap();
       let input = session.settings.input.as_str();
       let event = Event::Path(input.into());
@@ -75,6 +82,7 @@ impl<const L: usize> Compiler<L> {
       .join()
       .inspect(|_event| {
         let session = SESSION.clone();
+        // todo(ivs) — #1.
         let session = session.lock().unwrap();
 
         session.profile();

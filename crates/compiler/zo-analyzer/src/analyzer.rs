@@ -31,6 +31,7 @@ impl Analyzer {
     ast: &ast::Ast,
   ) -> Result<ast::Ast> {
     checker::name::check(session, ast)?;
+    checker::borrow::check(session, ast)?;
 
     Ok(ast.to_owned())
   }

@@ -19,7 +19,7 @@ pub struct Scope {
 
 impl Scope {
   /// Creates a new scope.
-  #[inline]
+  #[inline(always)]
   pub fn new() -> Self {
     Self {
       vars: HashMap::with_capacity(0usize),
@@ -94,7 +94,7 @@ impl Scope {
 }
 
 impl Default for Scope {
-  #[inline]
+  #[inline(always)]
   fn default() -> Self {
     Self::new()
   }
@@ -109,7 +109,7 @@ pub struct ScopeMap {
 
 impl ScopeMap {
   /// Creates a new scope map.
-  #[inline]
+  #[inline(always)]
   pub const fn new() -> Self {
     Self {
       scopes: std::collections::LinkedList::new(),
@@ -198,7 +198,7 @@ impl ScopeMap {
 }
 
 impl Default for ScopeMap {
-  #[inline]
+  #[inline(always)]
   fn default() -> Self {
     Self::new()
   }

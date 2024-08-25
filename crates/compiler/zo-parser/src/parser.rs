@@ -53,7 +53,7 @@ pub(crate) struct Parser<'tokens> {
 
 impl<'tokens> Parser<'tokens> {
   /// Creates a new parser instance from tokens, interner and reporter.
-  #[inline]
+  #[inline(always)]
   fn new(
     interner: &'tokens mut Interner,
     reporter: &'tokens Reporter,
@@ -72,25 +72,25 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Checks token availability.
-  #[inline]
+  #[inline(always)]
   fn has_tokens(&self) -> bool {
     self.idx < self.tokens.len()
   }
 
   /// Checks end of file.
-  #[inline]
+  #[inline(always)]
   fn is_eof(&self) -> bool {
     self.ensure(TokenKind::Eof)
   }
 
   /// Peeks ahead in the token stram to look at a token based of the index.
-  #[inline]
+  #[inline(always)]
   fn peek(&self) -> Option<&'tokens Token> {
     self.tokens.get(self.idx)
   }
 
   /// Chekcs and reveals the precendence ordering from other precedence.
-  #[inline]
+  #[inline(always)]
   fn should_precedence(&mut self, precedence: Precedence) -> bool {
     precedence < Precedence::from(self.maybe_token_next)
   }

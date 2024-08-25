@@ -27,7 +27,7 @@ struct Interpreter<'ast> {
 
 impl<'ast> Interpreter<'ast> {
   /// Creates a new interpreter.
-  #[inline]
+  #[inline(always)]
   fn new(interner: &'ast mut Interner, reporter: &'ast Reporter) -> Self {
     Self {
       scope_map: ScopeMap::new(),

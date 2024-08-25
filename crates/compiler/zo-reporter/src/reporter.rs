@@ -18,7 +18,7 @@ pub struct Reporter {
 
 impl Reporter {
   /// Creates a new reporter instance.
-  #[inline]
+  #[inline(always)]
   pub fn new() -> Self {
     Self::default()
   }
@@ -50,6 +50,7 @@ impl Reporter {
   /// Sets the errors flag.
   #[inline]
   pub fn errors(&self, has_errors: bool) {
+    // todo(ivs) — implement an internal error.
     match self.has_errors.lock() {
       Err(_) => {}
       Ok(mut mguard) => *mguard = has_errors,
@@ -59,6 +60,7 @@ impl Reporter {
   /// Checks if reporter contains any errors.
   #[inline]
   pub fn has_errors(&self) -> bool {
+    // todo(ivs) — implement an internal error.
     match self.has_errors.lock() {
       Err(_) => false,
       Ok(mguard) => *mguard,
@@ -66,7 +68,7 @@ impl Reporter {
   }
 
   /// Aborts the entire program. Game over, out!
-  #[inline]
+  #[inline(always)]
   fn abort(&self) -> ! {
     std::process::exit(EXIT_FAILURE)
   }
@@ -144,7 +146,8 @@ impl Reporter {
 }
 
 impl Default for Reporter {
-  #[inline]
+  /// Creates a default reporter instance.
+  #[inline(always)]
   fn default() -> Self {
     Self {
       has_errors: std::sync::Arc::default(),

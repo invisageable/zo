@@ -65,7 +65,7 @@ impl<'a> Diagnostic<'a> for Semantic {
 ///
 /// * t1 refers to the left-hand side.
 /// * t2 refers to the right-hand side.
-#[inline]
+#[inline(always)]
 pub const fn mismatched_types(
   t1: (Span, SmolStr),
   t2: (Span, SmolStr),
@@ -74,7 +74,7 @@ pub const fn mismatched_types(
 }
 
 /// The naming conventino error.
-#[inline]
+#[inline(always)]
 pub fn naming_convention(
   span: Span,
   name: impl Into<SmolStr>,

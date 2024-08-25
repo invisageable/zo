@@ -71,73 +71,73 @@ impl<'a> Diagnostic<'a> for Syntax {
 }
 
 /// The expected binary operator error.
-#[inline]
+#[inline(always)]
 pub fn expected_binop(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedBinOp(span, token.into()))
 }
 
 /// The expected boolean literal error.
-#[inline]
+#[inline(always)]
 pub fn expected_bool(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedBool(span, token.into()))
 }
 
 /// The expected float literal error.
-#[inline]
+#[inline(always)]
 pub fn expected_float(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedFloat(span, token.into()))
 }
 
 /// The expected global variable error.
-#[inline]
+#[inline(always)]
 pub fn expected_global_var(span: Span, var: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedGlobalVar(span, var.into()))
 }
 
 /// The expected identifier error.
-#[inline]
+#[inline(always)]
 pub fn expected_ident(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedIdent(span, token.into()))
 }
 
 /// The expected  error.
-#[inline]
+#[inline(always)]
 pub fn expected_int(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedInt(span, token.into()))
 }
 
 /// The expected local variable error.
-#[inline]
+#[inline(always)]
 pub fn expected_local_var(span: Span, var: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedLocalVar(span, var.into()))
 }
 
 /// The expected type error.
-#[inline]
+#[inline(always)]
 pub fn expected_ty(span: Span, ty: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedTy(span, ty.into()))
 }
 
 /// The expected unary operator error.
-#[inline]
+#[inline(always)]
 pub fn expected_unop(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::ExpectedUnOp(span, token.into()))
 }
 
 /// The invalid infix error.
-#[inline]
+#[inline(always)]
 pub fn invalid_infix(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::InvalidInfix(span, token.into()))
 }
 
 /// The invalid prefix error.
-#[inline]
+#[inline(always)]
 pub fn invalid_prefix(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::InvalidPrefix(span, token.into()))
 }
 
 /// The unexpected token error.
-#[inline]
+#[inline(always)]
 pub fn unexpected_token(span: Span, token: impl Into<SmolStr>) -> Error {
   Error::Syntax(Syntax::UnexpectedToken(span, token.into()))
 }

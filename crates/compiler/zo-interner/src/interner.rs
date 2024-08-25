@@ -16,7 +16,7 @@ pub struct Interner {
 }
 
 impl Interner {
-  #[inline]
+  #[inline(always)]
   pub fn new() -> Self {
     Self::with_capacity(1024usize)
   }

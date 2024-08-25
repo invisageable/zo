@@ -11,13 +11,13 @@ use clap::Parser;
 pub(crate) struct Version;
 impl Version {
   /// Executes the `version` command.
-  #[inline]
+  #[inline(always)]
   fn version(&self) -> Result<()> {
     self.versioning()
   }
 
   /// Typewrites the `zo` version compiler.
-  #[inline]
+  #[inline(always)]
   fn versioning(&self) -> Result<()> {
     println!("v{}", env!("CARGO_PKG_VERSION"));
 
@@ -26,7 +26,7 @@ impl Version {
 }
 
 impl Execute for Version {
-  #[inline]
+  #[inline(always)]
   fn exec(&self) {
     match self.version() {
       Ok(_) => std::process::exit(EXIT_SUCCESS),
