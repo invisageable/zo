@@ -9,8 +9,8 @@
 /// assert!(!spacecase::is_space(b'_'));
 /// ```
 #[inline(always)]
-pub fn is_space(b: u8) -> bool {
-  b.is_ascii_whitespace()
+pub const fn is_space(ch: char) -> bool {
+  ch.is_ascii_whitespace()
 }
 
 /// Gets the `whitespace` name from a single byte.
@@ -26,11 +26,11 @@ pub fn is_space(b: u8) -> bool {
 /// assert_eq!(spacecase::of_name(b'*'), None);
 /// ```
 #[inline]
-pub fn of_name(byte: u8) -> Option<&'static str> {
-  let name = match byte {
-    b' ' => "space",
-    b'\t' => "tab",
-    b'\r' => "carriage return",
+pub fn of_name(ch: char) -> Option<&'static str> {
+  let name = match ch {
+    ' ' => "space",
+    '\t' => "tab",
+    '\r' => "carriage return",
     _ => return None,
   };
 

@@ -9,20 +9,15 @@
 /// assert!(groupcase::is_group(b'{'));
 /// assert!(!groupcase::is_group(b'"'));
 /// ```
-#[inline]
-pub fn is_group<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  matches!(byte.into(), b'[' | b']' | b'(' | b')' | b'{' | b'}')
+#[inline(always)]
+pub const fn is_group(b: u8) -> bool {
+  matches!(b, b'[' | b']' | b'(' | b')' | b'{' | b'}')
 }
 
 /// Gets the `group` name from a single byte.
-pub fn of_name<B>(byte: B) -> Option<&'static str>
-where
-  B: Into<u8> + Copy,
-{
-  let name = match byte.into() {
+#[inline]
+pub const fn of_name(byte: u8) -> Option<&'static str> {
+  let name = match byte {
     b'[' => "bracket open",
     b']' => "bracket close",
     b'(' => "paren open",

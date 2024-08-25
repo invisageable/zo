@@ -1,68 +1,68 @@
 #[macro_export]
 macro_rules! is {
-  // bitcase.
+  // charcase.
   (eof $rhs:expr) => {
-    $crate::case::bitcase::endofcase::is_eof($rhs)
+    $crate::case::charcase::endofcase::is_eof($rhs)
   };
   (eol $rhs:expr) => {
-    $crate::case::bitcase::endofcase::is_eol($rhs)
+    $crate::case::charcase::endofcase::is_eol($rhs)
   };
   (group $rhs:expr) => {
-    $crate::case::bitcase::groupcase::is_group($rhs)
+    $crate::case::charcase::groupcase::is_group($rhs)
   };
   (space $rhs:expr) => {
-    $crate::case::bitcase::spacecase::is_space($rhs)
+    $crate::case::charcase::spacecase::is_space($rhs)
   };
   (quote $rhs:expr) => {
-    $crate::case::bitcase::quotecase::is_quote($rhs)
+    $crate::case::charcase::quotecase::is_quote($rhs)
   };
   (quote_single $rhs:expr) => {
-    $crate::case::bitcase::quotecase::is_quote_single($rhs)
+    $crate::case::charcase::quotecase::is_quote_single($rhs)
   };
   (quote_double $rhs:expr) => {
-    $crate::case::bitcase::quotecase::is_quote_double($rhs)
+    $crate::case::charcase::quotecase::is_quote_double($rhs)
   };
   (number $rhs:expr) => {
-    $crate::case::bitcase::numbercase::is_number($rhs)
+    $crate::case::charcase::numbercase::is_number($rhs)
   };
   (number_zero $rhs:expr) => {
-    $crate::case::bitcase::numbercase::is_number_zero($rhs)
+    $crate::case::charcase::numbercase::is_number_zero($rhs)
   };
   (number_non_zero $rhs:expr) => {
-    $crate::case::bitcase::numbercase::is_number_non_zero($rhs)
+    $crate::case::charcase::numbercase::is_number_non_zero($rhs)
   };
   (number_hex $rhs:expr) => {
-    $crate::case::bitcase::numbercase::is_number_hex($rhs)
+    $crate::case::charcase::numbercase::is_number_hex($rhs)
   };
   (number_oct $rhs:expr) => {
-    $crate::case::bitcase::numbercase::is_number_oct($rhs)
+    $crate::case::charcase::numbercase::is_number_oct($rhs)
   };
   (number_bin $rhs:expr) => {
-    $crate::case::bitcase::numbercase::is_number_bin($rhs)
+    $crate::case::charcase::numbercase::is_number_bin($rhs)
   };
   (punctuation $rhs:expr) => {
-    $crate::case::bitcase::punctuationcase::is_punctuation($rhs)
+    $crate::case::charcase::punctuationcase::is_punctuation($rhs)
   };
   (dot $rhs:expr) => {
-    $crate::case::bitcase::punctuationcase::is_period($rhs)
+    $crate::case::charcase::punctuationcase::is_dot($rhs)
   };
   (ident $rhs:expr) => {
-    $crate::case::bitcase::identcase::is_ident($rhs)
+    $crate::case::charcase::identcase::is_ident($rhs)
   };
   (ident_start $rhs:expr) => {
-    $crate::case::bitcase::identcase::is_ident_start($rhs)
+    $crate::case::charcase::identcase::is_ident_start($rhs)
   };
   (ident_continue $rhs:expr) => {
-    $crate::case::bitcase::identcase::is_ident_continue($rhs)
+    $crate::case::charcase::identcase::is_ident_continue($rhs)
   };
   (underscore $rhs:expr) => {
-    $crate::case::bitcase::identcase::is_underscore($rhs)
+    $crate::case::charcase::identcase::is_underscore($rhs)
   };
   (lowercase $rhs:expr) => {
-    $crate::case::bitcase::lowercase::is_lowercase($rhs)
+    $crate::case::charcase::lowercase::is_lowercase($rhs)
   };
   (uppercase $rhs:expr) => {
-    $crate::case::bitcase::uppercase::is_uppercase($rhs)
+    $crate::case::charcase::uppercase::is_uppercase($rhs)
   };
   // strcase
   (camel $rhs:expr) => {
