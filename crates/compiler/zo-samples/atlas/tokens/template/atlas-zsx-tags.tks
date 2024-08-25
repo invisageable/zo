@@ -1,0 +1,9 @@
+-- atlas: zsx tags.
+
+::=
+
+  <foobar>    <lorem>     </ipsum>      </raboof>     <input />
+  <>          <div>       <area />      </div>        </>
+  <svg>       </svg>      <math>        </math>       <track>
+
+;

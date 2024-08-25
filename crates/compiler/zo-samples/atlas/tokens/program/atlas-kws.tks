@@ -1,0 +1,9 @@
+-- atlas: kws.
+
+abstract    and         apply         as        async
+await       break       continue      else      enum
+ext         false       Fn            fn        fun
+for         if          imu           load      loop
+match       me          mut           pack      pub
+return      struct      true          type      _
+val         wasm        when          while

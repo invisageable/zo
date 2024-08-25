@@ -1,0 +1,21 @@
+pub #css html body
+  w: 100%
+  h: 100%
+;
+
+#css .btn
+  display: block
+  background: #b2f5ea
+  padding-left: 4px
+  padding-right: 4px
+
+  css .btn:hover
+    background: #81e6d9
+  ;
+;
+
+fun main() {
+  imu bar ::= <button.btn>Ok</button>;
+
+  #dom bar;
+}

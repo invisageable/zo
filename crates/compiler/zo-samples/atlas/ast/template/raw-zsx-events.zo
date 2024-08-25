@@ -1,0 +1,7 @@
+fun main() {
+  mut name = "ivs";
+
+  imu bar ::= <button :click={name = "world"}>hello, {name}!</button>;
+
+  #dom bar;
+}

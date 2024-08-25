@@ -1,0 +1,5 @@
+fun main() {
+  imu bar ::= <h1 $black-100="black">Ok</h1>;
+
+  #dom bar;
+}
