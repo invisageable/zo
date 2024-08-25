@@ -46,7 +46,7 @@ impl Error {
   /// #### notes.
   ///
   /// This is require by `ariadne` crate to display the current code report.
-  #[inline]
+  #[inline(always)]
   fn as_code(&self) -> i32 {
     match self {
       Self::Internal(_) => 0,

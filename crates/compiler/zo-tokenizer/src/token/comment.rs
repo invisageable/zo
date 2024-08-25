@@ -1,20 +1,17 @@
 /// The representation of a comment.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Comment {
-  /// A line comment — handled in [`TokenizerMode::Program`].
+  /// A line comment.
   Line,
-  /// A line doc comment — handled in [`TokenizerMode::Program`].
-  LineDoc,
-  /// A line html comment — handled in [`TokenizerMode::Template`].
-  LineHtml,
+  /// A line doc comment.
+  LineDoc(String),
 }
 
 impl std::fmt::Display for Comment {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Line => write!(f, "line-comment"),
-      Self::LineDoc => write!(f, "line-doc-comment"),
-      Self::LineHtml => write!(f, "line-html-comment"),
+      Self::LineDoc(_) => write!(f, "line-doc-comment"),
     }
   }
 }

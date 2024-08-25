@@ -12,7 +12,7 @@ impl Process for Building {
     if let Event::Bytecode(bytecode) = event {
       // todo — needs work.
       if session.settings.has_verbose() {
-        println!("phase:{self} — {bytecode:?}");
+        println!("phase:{self} — {bytecode:?}\n");
       }
 
       return builder::build(session, &bytecode).and_then(Event::output);

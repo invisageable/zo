@@ -10,12 +10,9 @@ use super::numbercase::is_number;
 /// assert!(identcase::is_ident(b'a'));
 /// assert!(!identcase::is_ident(b'/'));
 /// ```
-#[inline]
-pub fn is_ident<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into().is_ascii_alphabetic()
+#[inline(always)]
+pub const fn is_ident(b: u8) -> bool {
+  b.is_ascii_alphabetic()
 }
 
 /// Checks if a single byte is a 7-bit characters code of alphabetic or `_`
@@ -29,12 +26,9 @@ where
 /// assert!(identcase::is_ident_start(b'a'));
 /// assert!(!identcase::is_ident_start(b'2'));
 /// ```
-#[inline]
-pub fn is_ident_start<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  is_ident(byte) || is_underscore(byte)
+#[inline(always)]
+pub const fn is_ident_start(b: u8) -> bool {
+  is_ident(b) || is_underscore(b)
 }
 
 /// Checks if a single byte is a 7-bit characters code of alphabetic, digit or
@@ -50,12 +44,9 @@ where
 /// assert!(identcase::is_ident_continue(b'_'));
 /// assert!(!identcase::is_ident_continue(b'/'));
 /// ```
-#[inline]
-pub fn is_ident_continue<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  is_ident(byte) || is_number(byte) || is_underscore(byte)
+#[inline(always)]
+pub const fn is_ident_continue(b: u8) -> bool {
+  is_ident(b) || is_number(b) || is_underscore(b)
 }
 
 /// Checks if a single byte is a 7-bit characters code of `_` character.
@@ -68,20 +59,15 @@ where
 /// assert!(identcase::is_underscore(b'_'));
 /// assert!(!identcase::is_underscore(b'2'));
 /// ```
-#[inline]
-pub fn is_underscore<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into() == b'_'
+#[inline(always)]
+pub const fn is_underscore(b: u8) -> bool {
+  matches!(b, b'_')
 }
 
 /// Gets the `ident` name from a single byte.
-pub fn of_name<B>(byte: B) -> Option<&'static str>
-where
-  B: Into<u8> + Copy,
-{
-  let name = match byte.into() {
+#[inline]
+pub const fn of_name(byte: u8) -> Option<&'static str> {
+  let name = match byte {
     b if is_ident_start(b) => "ident start",
     b if is_ident_continue(b) => "ident continue",
     b if is_underscore(b) => "underscore",

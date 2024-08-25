@@ -64,13 +64,13 @@ impl<'a> Diagnostic<'a> for Lexical {
 }
 
 /// The unknown character error.
-#[inline]
+#[inline(always)]
 pub const fn unknown(span: Span, byte: u8) -> Error {
   Error::Lexical(Lexical::Unknown(span, byte))
 }
 
 /// The invalid number error.
-#[inline]
+#[inline(always)]
 pub const fn invalid_number(span: Span, byte: u8) -> Error {
   Error::Lexical(Lexical::InvalidNumber(span, byte))
 }

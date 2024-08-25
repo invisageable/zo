@@ -12,7 +12,7 @@ impl Process for Tokenizing {
     if let Event::Bytes(source) = event {
       // todo — needs work.
       if session.settings.has_verbose() {
-        println!("phase:{self} — {source:?}");
+        println!("phase:{self} — {source:?}\n");
       }
 
       return tokenizer::tokenize(session, &source).and_then(Event::tokens);

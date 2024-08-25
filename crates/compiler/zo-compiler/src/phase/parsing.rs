@@ -12,7 +12,7 @@ impl Process for Parsing {
     if let Event::Tokens(tokens) = event {
       // todo — needs work.
       if session.settings.has_verbose() {
-        println!("phase:{self} — {tokens:#?}");
+        println!("phase:{self} — {tokens:?}\n");
       }
 
       return parser::parse(session, &tokens).and_then(Event::ast);

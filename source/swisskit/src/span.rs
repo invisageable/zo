@@ -6,7 +6,7 @@ pub trait AsSpan {
   fn as_span(&self) -> Span;
 }
 
-/// A region in a source code.
+/// The representation of a span within a source file.
 ///
 /// #### understanding.
 ///
@@ -20,17 +20,17 @@ pub trait AsSpan {
 /// The span for `ìmu` starts at index 0 (lo) and ends at index 3 (hi).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Span {
-  /// The starting point of the [`Span`].
-  pub lo: u32,
-  /// The ending point of the [`Span`].
-  pub hi: u32,
+  /// A starting position.
+  pub lo: usize,
+  /// A ending position.
+  pub hi: usize,
 }
 
 impl Span {
-  /// A constant span, used as a placeholder.
-  pub const ZERO: Self = Self::of(0, 0);
+  /// A zero span.
+  pub const ZERO: Self = Self::of(0usize, 0usize);
 
-  /// Creates a [`Span`] instance from a specific location.
+  /// Create a new span from an union between two spans.
   ///
   /// #### examples.
   ///
@@ -42,29 +42,18 @@ impl Span {
   /// assert_eq!(spn.lo, 0);
   /// assert_eq!(spn.hi, 3);
   /// ```
-  #[inline]
-  pub const fn of(lo: u32, hi: u32) -> Self {
+  #[inline(always)]
+  pub const fn of(lo: usize, hi: usize) -> Self {
+    assert!(hi >= lo);
+
     Self { lo, hi }
   }
 
-  /// Crates a [`Span`] instance from an union between two spans.
-  ///
-  /// #### examples.
-  ///
-  /// ```
-  /// use swisskit::span::Span;
-  ///
-  /// let lhs = Span::of(5, 10);
-  /// let rhs = Span::of(20, 24);
-  /// let spn = Span::merge(lhs, rhs);
-  ///
-  /// assert_eq!(spn.lo, 5);
-  /// assert_eq!(spn.hi, 24);
-  /// ```
-  #[inline]
-  pub fn merge(a: Span, b: Span) -> Self {
-    let lo = std::cmp::min(a.lo, b.lo);
-    let hi = std::cmp::max(a.hi, b.hi);
+  /// Combines two spans.
+  #[inline(always)]
+  pub fn merge(self, rhs: Span) -> Self {
+    let lo = std::cmp::min(self.lo, rhs.lo);
+    let hi = std::cmp::max(self.hi, rhs.hi);
 
     Self::of(lo, hi)
   }
@@ -80,9 +69,9 @@ impl Span {
   ///
   /// assert_eq!(spn.len(), 5);
   /// ```
-  #[inline]
-  pub fn len(&self) -> usize {
-    (self.hi - self.lo) as usize
+  #[inline(always)]
+  pub const fn len(&self) -> usize {
+    self.hi - self.lo
   }
 
   /// Check if the span is empty.
@@ -96,8 +85,8 @@ impl Span {
   ///
   /// assert!(spn.is_empty());
   /// ```
-  #[inline]
-  pub fn is_empty(&self) -> bool {
+  #[inline(always)]
+  pub const fn is_empty(&self) -> bool {
     self.lo == self.hi
   }
 
@@ -113,14 +102,15 @@ impl Span {
   /// assert_eq!(spn.contains(7), true);
   /// assert_eq!(spn.contains(usize::MAX), false);
   /// ```
-  #[inline]
-  pub fn contains(&self, pos: u32) -> bool {
+  #[inline(always)]
+  pub const fn contains(&self, pos: usize) -> bool {
     self.lo <= pos && pos < self.hi
   }
 }
 
 impl Default for Span {
-  #[inline]
+  /// Creates a default Span — default values are sets to zero.
+  #[inline(always)]
   fn default() -> Self {
     Self::ZERO
   }
@@ -133,7 +123,7 @@ impl std::fmt::Display for Span {
 }
 
 impl From<Span> for std::ops::Range<usize> {
-  #[inline]
+  #[inline(always)]
   fn from(span: Span) -> Self {
     span.lo as usize..span.hi as usize
   }

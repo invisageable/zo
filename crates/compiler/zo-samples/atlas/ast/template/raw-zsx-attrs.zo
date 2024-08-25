@@ -1,0 +1,8 @@
+-- raw: attrs.
+
+fun main() {
+  mut on: bool = true;
+  imu foo ::= <div class:on={on}>hello, {name}!</div>;
+
+  #dom foo;
+}

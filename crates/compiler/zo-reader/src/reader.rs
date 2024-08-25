@@ -10,7 +10,7 @@ struct Reader<'path> {
 
 impl<'path> Reader<'path> {
   /// Creates a new reader instance.
-  #[inline]
+  #[inline(always)]
   fn new(reporter: &'path mut Reporter) -> Self {
     Self { reporter }
   }
@@ -23,17 +23,14 @@ impl<'path> Reader<'path> {
   /// #### result.
   ///
   /// The resulting is a vector of bytes.
-  fn read(&mut self, pathname: impl AsRef<std::ffi::OsStr>) -> Result<Vec<u8>> {
+  // fn read(&mut self, pathname: impl AsRef<std::ffi::OsStr>) ->
+  // Result<Vec<u8>> {
+  fn read(&mut self, pathname: impl AsRef<std::ffi::OsStr>) -> Result<String> {
     self
       .reporter
       .add_source(pathname.as_ref())
       .map_err(error::internal::io)
-      .map(|source_id| {
-        let source_code = self.reporter.source_code(source_id.get() as u32);
-        let source_bytes = source_code.as_bytes();
-
-        source_bytes.into()
-      })
+      .map(|source_id| self.reporter.source_code(source_id.get() as u32).into())
   }
 
   /// Reads file from pathname.
@@ -56,7 +53,7 @@ impl<'path> Reader<'path> {
   }
 
   /// Reads line.
-  fn read_line(&self) -> Result<Vec<u8>> {
+  fn read_line(&self) -> Result<String> {
     use std::io::Write;
 
     let stdout = std::io::stdout();
@@ -68,11 +65,7 @@ impl<'path> Reader<'path> {
     stdout.lock().flush().map_err(error::internal::io)?;
     stdin.read_line(&mut input).map_err(error::internal::io)?;
 
-    let line = input.as_bytes().into();
-
-    input.clear();
-
-    Ok(line)
+    Ok(input)
   }
 }
 
@@ -91,7 +84,7 @@ impl<'path> Reader<'path> {
 pub fn read(
   session: &mut Session,
   pathname: impl AsRef<std::ffi::OsStr>,
-) -> Result<Vec<u8>> {
+) -> Result<String> {
   Reader::new(&mut session.reporter).read(pathname)
 }
 
@@ -123,6 +116,6 @@ pub fn read_file(session: &mut Session) -> Result<Box<[u8]>> {
 ///
 /// reader::read_line();
 /// ```
-pub fn read_line(session: &mut Session) -> Result<Vec<u8>> {
+pub fn read_line(session: &mut Session) -> Result<String> {
   Reader::new(&mut session.reporter).read_line()
 }

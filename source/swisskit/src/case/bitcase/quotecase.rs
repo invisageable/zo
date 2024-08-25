@@ -9,12 +9,9 @@
 /// assert!(quotecase::is_quote(b'\''));
 /// assert!(quotecase::is_quote(b'"'));
 /// ```
-#[inline]
-pub fn is_quote<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  is_quote_single(byte) | is_quote_double(byte)
+#[inline(always)]
+pub const fn is_quote(b: u8) -> bool {
+  is_quote_single(b) | is_quote_double(b)
 }
 
 /// Check if a single byte is a 7-bit characters code of `'` symbol.
@@ -27,12 +24,9 @@ where
 /// assert!(quotecase::is_quote_single(b'\''));
 /// assert!(!quotecase::is_quote_single(b'^'));
 /// ```
-#[inline]
-pub fn is_quote_single<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into() == b'\''
+#[inline(always)]
+pub const fn is_quote_single(b: u8) -> bool {
+  matches!(b, b'\'')
 }
 
 /// Check if a single byte is a 7-bit characters code of `"` symbol.
@@ -45,12 +39,9 @@ where
 /// assert!(quotecase::is_quote_double(b'"'));
 /// assert!(!quotecase::is_quote_double(b'?'));
 /// ```
-#[inline]
-pub fn is_quote_double<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into() == b'"'
+#[inline(always)]
+pub const fn is_quote_double(b: u8) -> bool {
+  matches!(b, b'"')
 }
 
 /// Check if a single byte is a 7-bit characters code of `backtick` symbol.
@@ -63,12 +54,9 @@ where
 /// assert!(quotecase::is_quote_double(b'"'));
 /// assert!(!quotecase::is_quote_double(b'!'));
 /// ```
-#[inline]
-pub fn is_quote_backtick<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into() == b'`'
+#[inline(always)]
+pub const fn is_quote_backtick(b: u8) -> bool {
+  matches!(b, b'`')
 }
 
 /// Gets the `uppercase` name from a single byte.
@@ -83,11 +71,9 @@ where
 /// assert_eq!(quotecase::of_name(b'`'), Some("quote backtick"));
 /// assert_eq!(quotecase::of_name(b','), None);
 /// ```
-pub fn of_name<B>(byte: B) -> Option<&'static str>
-where
-  B: Into<u8> + Copy,
-{
-  let name = match byte.into() {
+#[inline]
+pub const fn of_name(byte: u8) -> Option<&'static str> {
+  let name = match byte {
     b if is_quote_single(b) => "quote single",
     b if is_quote_double(b) => "quote double",
     b if is_quote_backtick(b) => "quote backtick",

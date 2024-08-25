@@ -12,7 +12,7 @@ impl Process for Generating {
     if let Event::Ast(ast) = event {
       // todo — needs work.
       if session.settings.has_verbose() {
-        println!("phase:{self} — {ast:?}");
+        println!("phase:{self} — {ast:?}\n");
       }
 
       return codegen::generate(session, &ast).and_then(Event::bytecode);

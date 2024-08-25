@@ -8,10 +8,7 @@
 /// assert!(uppercase::is_uppercase(b'A'));
 /// assert!(!uppercase::is_uppercase(b'b'));
 /// ```
-#[inline]
-pub fn is_uppercase<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into().is_ascii_uppercase()
+#[inline(always)]
+pub const fn is_uppercase(b: u8) -> bool {
+  b.is_ascii_uppercase()
 }

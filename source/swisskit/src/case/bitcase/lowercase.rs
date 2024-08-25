@@ -8,10 +8,7 @@
 /// assert!(lowercase::is_lowercase(b'b'));
 /// assert!(!lowercase::is_lowercase(b'A'));
 /// ```
-#[inline]
-pub fn is_lowercase<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into().is_ascii_lowercase()
+#[inline(always)]
+pub const fn is_lowercase(b: u8) -> bool {
+  b.is_ascii_lowercase()
 }

@@ -8,13 +8,10 @@
 /// assert!(punctuationcase::is_punctuation(b','));
 /// assert!(!punctuationcase::is_punctuation(b'0'));
 /// ```
-#[inline]
-pub fn is_punctuation<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
+#[inline(always)]
+pub const fn is_punctuation(b: u8) -> bool {
   matches!(
-    byte.into(),
+    b,
     b'.'
       | b'='
       | b'+'
@@ -46,20 +43,15 @@ where
 /// assert!(punctuationcase::is_period(b'.'));
 /// assert!(!punctuationcase::is_period(b'0'));
 /// ```
-#[inline]
-pub fn is_period<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into() == b'.'
+#[inline(always)]
+pub const fn is_period(b: u8) -> bool {
+  matches!(b, b'.')
 }
 
 /// Gets the `punctuation` name from a single byte.
-pub fn of_name<B>(byte: B) -> Option<&'static str>
-where
-  B: Into<u8> + Copy,
-{
-  let name = match byte.into() {
+#[inline]
+pub const fn of_name(byte: u8) -> Option<&'static str> {
+  let name = match byte {
     b'.' => "period",
     b'=' => "equal",
     b'+' => "plus",

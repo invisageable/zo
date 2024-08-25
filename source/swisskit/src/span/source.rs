@@ -6,13 +6,13 @@ pub struct SourceId(usize);
 
 impl SourceId {
   /// Creates a new source id.
-  #[inline]
+  #[inline(always)]
   pub fn new(id: usize) -> Self {
     Self(id)
   }
 
   /// Gets the id.
-  #[inline]
+  #[inline(always)]
   pub fn get(self) -> usize {
     self.0
   }
@@ -29,7 +29,7 @@ pub struct Source {
 
 impl Source {
   /// Creates a new source from id and a pathname
-  #[inline]
+  #[inline(always)]
   pub fn new(id: usize, pathname: impl Into<std::path::PathBuf>) -> Self {
     Self {
       id: SourceId(id),
@@ -52,7 +52,7 @@ impl SourceMap {
   const OFFSET: usize = 1;
 
   /// Creates a new source map.
-  #[inline]
+  #[inline(always)]
   pub fn new() -> Self {
     Self {
       code: String::with_capacity(0usize),
@@ -104,7 +104,7 @@ impl SourceMap {
   }
 
   /// Gets the pathname of a source from a span.
-  #[inline]
+  #[inline(always)]
   pub fn pathname(&self, span: Span) -> &std::path::Path {
     &self.sources[self.source_id(span) as usize].pathname
   }

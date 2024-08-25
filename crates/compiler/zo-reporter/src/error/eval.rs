@@ -130,13 +130,13 @@ impl<'a> Diagnostic<'a> for OutOfBound {
 }
 
 /// A break in while loop with value error message.
-#[inline]
+#[inline(always)]
 pub fn break_in_while_loop_with_value(_span: Span) -> Error {
   todo!()
 }
 
 /// An invalid array access error message.
-#[inline]
+#[inline(always)]
 pub fn invalid_array_access(
   span: Span,
   indexed: impl Into<SmolStr>,
@@ -146,7 +146,7 @@ pub fn invalid_array_access(
 }
 
 /// An invalid array access error message.
-#[inline]
+#[inline(always)]
 pub fn invalid_tuple_access(
   span: Span,
   indexed: impl Into<SmolStr>,
@@ -156,79 +156,79 @@ pub fn invalid_tuple_access(
 }
 
 /// A mismatch arguments error message.
-#[inline]
+#[inline(always)]
 pub fn mismatch_args(lhs: (Span, usize), rhs: (Span, usize)) -> Error {
   Error::Eval(Eval::MismatchArgument(lhs, rhs))
 }
 
 /// A name clash error message for function.
-#[inline]
+#[inline(always)]
 pub fn name_clash_fun(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NameClash(NameClash::Fun(span, name.into())))
 }
 
 /// A name clash error message for type.
-#[inline]
+#[inline(always)]
 pub fn name_clash_ty(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NameClash(NameClash::Ty(span, name.into())))
 }
 
 /// A name clash error message for variable.
-#[inline]
+#[inline(always)]
 pub fn name_clash_var(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NameClash(NameClash::Var(span, name.into())))
 }
 
 /// A not found error message for function.
-#[inline]
+#[inline(always)]
 pub fn not_found_fun(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NotFound(NotFound::Fun(span, name.into())))
 }
 
 /// A not found error message for function.
-#[inline]
+#[inline(always)]
 pub fn not_found_ident(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NotFound(NotFound::Ident(span, name.into())))
 }
 
 /// A not found error message for type.
-#[inline]
+#[inline(always)]
 pub fn not_found_ty(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NotFound(NotFound::Ty(span, name.into())))
 }
 
 /// A not found error message for variable.
-#[inline]
+#[inline(always)]
 pub fn not_found_var(span: Span, name: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::NotFound(NotFound::Var(span, name.into())))
 }
 
 /// A out of bound error message for a array.
-#[inline]
+#[inline(always)]
 pub fn out_of_bound_array(span: Span, index: i64) -> Error {
   Error::Eval(Eval::OutOfBound(OutOfBound::Array(span, index)))
 }
 
 /// A out of bound error message for a tuple.
-#[inline]
+#[inline(always)]
 pub fn out_of_bound_tuple(span: Span, index: i64) -> Error {
   Error::Eval(Eval::OutOfBound(OutOfBound::Tuple(span, index)))
 }
 
 /// A out of loop error message.
-#[inline]
+#[inline(always)]
 pub fn out_of_loop(span: Span, behavior: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::OutOfLoop(span, behavior.into()))
 }
 
 /// The unknown binary operator error.
-#[inline]
+#[inline(always)]
 pub fn unknown_binop(span: Span, binop: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::UnknownUnOp(span, binop.into()))
 }
 
 /// The unknown unary operator error.
-#[inline]
+#[inline(always)]
 pub fn unknown_unop(span: Span, unop: impl Into<SmolStr>) -> Error {
   Error::Eval(Eval::UnknownUnOp(span, unop.into()))
 }

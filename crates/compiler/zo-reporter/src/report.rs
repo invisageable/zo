@@ -31,7 +31,7 @@ pub struct Report<'a> {
 }
 
 impl<'a> Default for Report<'a> {
-  #[inline]
+  #[inline(always)]
   fn default() -> Self {
     Self {
       kind: ReportKind::ERROR,
@@ -69,7 +69,8 @@ impl<'a> ReportKind<'a> {
 }
 
 impl Default for ReportKind<'_> {
-  #[inline]
+  /// Creates a report label error — default is [`REPORT_LABEL_ERROR`].
+  #[inline(always)]
   fn default() -> Self {
     Self::ERROR
   }

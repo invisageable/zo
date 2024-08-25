@@ -12,12 +12,9 @@
 /// assert!(endofcase::is_eo(b'\n'));
 /// assert!(!endofcase::is_eo(b'o'));
 /// ```
-#[inline]
-pub fn is_eo<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  is_eof(byte) || is_eol(byte)
+#[inline(always)]
+pub const fn is_eo(b: u8) -> bool {
+  is_eof(b) || is_eol(b)
 }
 
 /// Checks if a single byte is a 7-bit characters code of `\0` character.
@@ -34,12 +31,9 @@ where
 /// assert!(endofcase::is_eof(b'\0'));
 /// assert!(!endofcase::is_eof(b'_'));
 /// ```
-#[inline]
-pub fn is_eof<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into() == b'\0'
+#[inline(always)]
+pub const fn is_eof(b: u8) -> bool {
+  matches!(b, b'\0')
 }
 
 /// Checks if a single byte is a 7-bit characters code of `\n` character.
@@ -56,20 +50,15 @@ where
 /// assert!(endofcase::is_eol(b'\n'));
 /// assert!(!endofcase::is_eol(b'_'));
 /// ```
-#[inline]
-pub fn is_eol<B>(byte: B) -> bool
-where
-  B: Into<u8> + Copy,
-{
-  byte.into() == b'\n'
+#[inline(always)]
+pub const fn is_eol(b: u8) -> bool {
+  matches!(b, b'\n')
 }
 
 /// Gets the `endof` name from a single byte.
-pub fn of_name<B>(byte: B) -> Option<&'static str>
-where
-  B: Into<u8> + Copy,
-{
-  let name = match byte.into() {
+#[inline]
+pub fn of_name(b: u8) -> Option<&'static str> {
+  let name = match b {
     b'\0' => "eof",
     b'\n' => "eol",
     _ => return None,

@@ -12,7 +12,7 @@ impl Process for Reading {
     if let Event::Path(pathname) = &event {
       // todo — needs work.
       if session.settings.has_verbose() {
-        println!("phase:{self} — {pathname:?}");
+        println!("phase:{self} — {pathname:?}\n");
       }
 
       if session.settings.is_interactive() {

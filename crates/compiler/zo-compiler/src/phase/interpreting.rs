@@ -12,7 +12,7 @@ impl Process for Interpreting {
     if let Event::Ast(ast) = event {
       // todo — needs work.
       if session.settings.has_verbose() {
-        println!("phase:{self} — {ast:?}");
+        println!("phase:{self} — {ast:?}\n");
       }
 
       return interpreter::interpret(session, &ast).and_then(Event::value);

@@ -15,7 +15,7 @@ pub struct Profiler {
 
 impl Profiler {
   /// Creates a new profiler.
-  #[inline]
+  #[inline(always)]
   pub fn new() -> Self {
     Self::default()
   }
@@ -36,13 +36,13 @@ impl Profiler {
   }
 
   /// Starts profiling, a weapper of [`Timer::start`].
-  #[inline]
+  #[inline(always)]
   pub fn start(&mut self) {
     self.timer.start();
   }
 
   /// Ends profiling, a weapper of [`Timer::end`].
-  #[inline]
+  #[inline(always)]
   pub fn end(&mut self) {
     self.timer.end();
   }
@@ -62,7 +62,7 @@ impl Profiler {
   /// Gets the total profiling time.
   ///
   /// note — It is just a simple addition under the hood.
-  #[inline]
+  #[inline(always)]
   pub fn total(&mut self) -> f64 {
     self.profiles.total()
   }
@@ -135,7 +135,7 @@ impl Profiles {
   }
 
   /// Gets the sum of all profile duration time.
-  #[inline]
+  #[inline(always)]
   pub fn total(&self) -> f64 {
     self.iter().map(|profile| profile.time).sum()
   }
@@ -144,14 +144,14 @@ impl Profiles {
 impl std::ops::Deref for Profiles {
   type Target = Vec<Profile>;
 
-  #[inline]
+  #[inline(always)]
   fn deref(&self) -> &Self::Target {
     &self.0
   }
 }
 
 impl std::ops::DerefMut for Profiles {
-  #[inline]
+  #[inline(always)]
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.0
   }

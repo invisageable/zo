@@ -35,6 +35,7 @@ impl Session {
   }
 
   /// Sets the settings of the session.
+  #[inline(always)]
   pub fn with_settings(&mut self, settings: Settings) {
     self.settings = settings;
   }
@@ -61,7 +62,7 @@ impl Session {
 }
 
 impl Default for Session {
-  #[inline]
+  #[inline(always)]
   fn default() -> Self {
     Self {
       settings: Settings::new(),

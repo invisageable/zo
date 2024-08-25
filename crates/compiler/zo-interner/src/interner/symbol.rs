@@ -13,14 +13,14 @@ pub struct Symbol(u32);
 
 impl Symbol {
   /// Creates a new symbol from an index.
-  #[inline]
+  #[inline(always)]
   pub fn new(idx: u32) -> Self {
     Self(idx)
   }
 }
 
 impl From<Symbol> for SmolStr {
-  #[inline]
+  #[inline(always)]
   fn from(sym: Symbol) -> Self {
     sym.to_smolstr()
   }
@@ -35,7 +35,7 @@ impl std::fmt::Display for Symbol {
 impl std::ops::Deref for Symbol {
   type Target = u32;
 
-  #[inline]
+  #[inline(always)]
   fn deref(&self) -> &Self::Target {
     &self.0
   }
