@@ -1,27 +1,27 @@
-use compact_str::CompactString;
 use hashbrown::HashSet;
+use smol_str::SmolStr;
 
 /// The type dictionnary.
-type Types = HashSet<CompactString>;
+type Types = HashSet<SmolStr>;
 
 lazy_static::lazy_static! {
     // reserved words for types.
     pub static ref TYPES: Types = HashSet::from([
-      (CompactString::const_new("int")),
-      (CompactString::const_new("s8")),
-      (CompactString::const_new("s16")),
-      (CompactString::const_new("s32")),
-      (CompactString::const_new("s64")),
-      (CompactString::const_new("s128")),
-      (CompactString::const_new("u8")),
-      (CompactString::const_new("u16")),
-      (CompactString::const_new("u32")),
-      (CompactString::const_new("u64")),
-      (CompactString::const_new("u128")),
-      (CompactString::const_new("float")),
-      (CompactString::const_new("f32")),
-      (CompactString::const_new("f64")),
-      (CompactString::const_new("char")),
-      (CompactString::const_new("str")),
+      (SmolStr::new_inline("int")),
+      (SmolStr::new_inline("s8")),
+      (SmolStr::new_inline("s16")),
+      (SmolStr::new_inline("s32")),
+      (SmolStr::new_inline("s64")),
+      (SmolStr::new_inline("s128")),
+      (SmolStr::new_inline("u8")),
+      (SmolStr::new_inline("u16")),
+      (SmolStr::new_inline("u32")),
+      (SmolStr::new_inline("u64")),
+      (SmolStr::new_inline("u128")),
+      (SmolStr::new_inline("float")),
+      (SmolStr::new_inline("f32")),
+      (SmolStr::new_inline("f64")),
+      (SmolStr::new_inline("char")),
+      (SmolStr::new_inline("str")),
     ]);
 }

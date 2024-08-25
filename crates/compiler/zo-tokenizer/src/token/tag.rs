@@ -1,12 +1,12 @@
-use compact_str::CompactString;
+use german_str::GermanStr;
 use hashbrown::HashMap;
 use thin_vec::ThinVec;
 
-type HtmlTagNames = HashMap<CompactString, Html>;
-type AtomTagNames = HashMap<CompactString, Atom>;
-type MathMlTagNames = HashMap<CompactString, MathMl>;
-type SvgTagNames = HashMap<CompactString, Svg>;
-type CustomTagNames = HashMap<CompactString, Custom>;
+type HtmlTagNames = HashMap<GermanStr, Html>;
+type AtomTagNames = HashMap<GermanStr, Atom>;
+type MathMlTagNames = HashMap<GermanStr, MathMl>;
+type SvgTagNames = HashMap<GermanStr, Svg>;
+type CustomTagNames = HashMap<GermanStr, Custom>;
 
 /// The representation of zo syntax extension (zsx).
 #[derive(Clone, Debug, PartialEq)]
@@ -56,13 +56,21 @@ impl std::fmt::Display for Tag {
 
     match kind {
       TagKind::Opening => {
-        if *self_closing {
+        if *frag {
+          write!(f, "<>")
+        } else if *self_closing {
           write!(f, "<{name} {attrs:?} />")
         } else {
           write!(f, "<{name} {attrs:?}>")
         }
       }
-      TagKind::Closing => write!(f, "</{name}>"),
+      TagKind::Closing => {
+        if *frag {
+          write!(f, "</>")
+        } else {
+          write!(f, "</{name}>")
+        }
+      }
     }
   }
 }
@@ -186,13 +194,13 @@ pub enum Atom {
 lazy_static::lazy_static! {
   /// A static map of custom tag name elements.
   pub static ref ATOM_TAG_NAMES: AtomTagNames = HashMap::from([
-    (CompactString::const_new(":bin"), Atom::Bind),
-    (CompactString::const_new(":else"), Atom::Else),
-    (CompactString::const_new(":for"), Atom::For),
-    (CompactString::const_new(":if"), Atom::If),
-    (CompactString::const_new(":?"), Atom::Question),
-    (CompactString::const_new(":while"), Atom::While),
-    (CompactString::const_new(":"), Atom::Wildcard),
+    (GermanStr::new_inline(":bin"), Atom::Bind),
+    (GermanStr::new_inline(":else"), Atom::Else),
+    (GermanStr::new_inline(":for"), Atom::For),
+    (GermanStr::new_inline(":if"), Atom::If),
+    (GermanStr::new_inline(":?"), Atom::Question),
+    (GermanStr::new_inline(":while"), Atom::While),
+    (GermanStr::new_inline(":"), Atom::Wildcard),
   ]);
 }
 
@@ -673,114 +681,114 @@ impl std::fmt::Display for Html {
 lazy_static::lazy_static! {
   /// A static map of html tag name elements.
   pub static ref HTML_TAG_NAMES: HtmlTagNames = HashMap::from([
-    (CompactString::const_new("a"), Html::A),
-    (CompactString::const_new("abbr"), Html::Abbr),
-    (CompactString::const_new("address"), Html::Address),
-    (CompactString::const_new("area"), Html::Area),
-    (CompactString::const_new("article"), Html::Article),
-    (CompactString::const_new("aside"), Html::Aside),
-    (CompactString::const_new("audio"), Html::Audio),
-    (CompactString::const_new("b"), Html::B),
-    (CompactString::const_new("base"), Html::Base),
-    (CompactString::const_new("bdi"), Html::Bdi),
-    (CompactString::const_new("bdo"), Html::Bdo),
-    (CompactString::const_new("blockquote"), Html::BlockQuote),
-    (CompactString::const_new("body"), Html::Body),
-    (CompactString::const_new("br"), Html::Br),
-    (CompactString::const_new("button"), Html::Button),
-    (CompactString::const_new("canvas"), Html::Canvas),
-    (CompactString::const_new("caption"), Html::Caption),
-    (CompactString::const_new("cite"), Html::Cite),
-    (CompactString::const_new("code"), Html::Code),
-    (CompactString::const_new("col"), Html::Col),
-    (CompactString::const_new("colgroup"), Html::Colgroup),
-    (CompactString::const_new("command"), Html::Command),
-    (CompactString::const_new("datalist"), Html::Datalist),
-    (CompactString::const_new("dd"), Html::Dd),
-    (CompactString::const_new("del"), Html::Del),
-    (CompactString::const_new("details"), Html::Details),
-    (CompactString::const_new("dfn"), Html::Dfn),
-    (CompactString::const_new("div"), Html::Div),
-    (CompactString::const_new("dl"), Html::Dl),
-    (CompactString::const_new("dt"), Html::Dt),
-    (CompactString::const_new("em"), Html::Em),
-    (CompactString::const_new("embed"), Html::Embed),
-    (CompactString::const_new("fieldset"), Html::Fieldset),
-    (CompactString::const_new("figcaption"), Html::Figcaption),
-    (CompactString::const_new("figure"), Html::Figure),
-    (CompactString::const_new("footer"), Html::Footer),
-    (CompactString::const_new("form"), Html::Form),
-    (CompactString::const_new("h1"), Html::H1),
-    (CompactString::const_new("h2"), Html::H2),
-    (CompactString::const_new("h3"), Html::H3),
-    (CompactString::const_new("h4"), Html::H4),
-    (CompactString::const_new("h5"), Html::H5),
-    (CompactString::const_new("h6"), Html::H6),
-    (CompactString::const_new("head"), Html::Head),
-    (CompactString::const_new("header"), Html::Header),
-    (CompactString::const_new("hgroup"), Html::Hgroup),
-    (CompactString::const_new("hr"), Html::Hr),
-    (CompactString::const_new("html"), Html::Html),
-    (CompactString::const_new("i"), Html::I),
-    (CompactString::const_new("iframe"), Html::Iframe),
-    (CompactString::const_new("img"), Html::Img),
-    (CompactString::const_new("input"), Html::Input),
-    (CompactString::const_new("ins"), Html::Ins),
-    (CompactString::const_new("kdb"), Html::Kbd),
-    (CompactString::const_new("keygen"), Html::Keygen),
-    (CompactString::const_new("label"), Html::Label),
-    (CompactString::const_new("legend"), Html::Legend),
-    (CompactString::const_new("li"), Html::Li),
-    (CompactString::const_new("link"), Html::Link),
-    (CompactString::const_new("map"), Html::Map),
-    (CompactString::const_new("mark"), Html::Mark),
-    (CompactString::const_new("menu"), Html::Menu),
-    (CompactString::const_new("meta"), Html::Meta),
-    (CompactString::const_new("meter"), Html::Meter),
-    (CompactString::const_new("nav"), Html::Nav),
-    (CompactString::const_new("noscript"), Html::Noscript),
-    (CompactString::const_new("object"), Html::Object),
-    (CompactString::const_new("ol"), Html::Ol),
-    (CompactString::const_new("optgroup"), Html::Optgroup),
-    (CompactString::const_new("option"), Html::Option),
-    (CompactString::const_new("output"), Html::Output),
-    (CompactString::const_new("p"), Html::P),
-    (CompactString::const_new("param"), Html::Param),
-    (CompactString::const_new("pre"), Html::Pre),
-    (CompactString::const_new("progress"), Html::Progress),
-    (CompactString::const_new("q"), Html::Q),
-    (CompactString::const_new("rp"), Html::Rp),
-    (CompactString::const_new("rt"), Html::Rt),
-    (CompactString::const_new("ruby"), Html::Ruby),
-    (CompactString::const_new("s"), Html::S),
-    (CompactString::const_new("samp"), Html::Samp),
-    (CompactString::const_new("script"), Html::Script),
-    (CompactString::const_new("section"), Html::Section),
-    (CompactString::const_new("select"), Html::Select),
-    (CompactString::const_new("small"), Html::Small),
-    (CompactString::const_new("source"), Html::Source),
-    (CompactString::const_new("span"), Html::Span),
-    (CompactString::const_new("strong"), Html::Strong),
-    (CompactString::const_new("style"), Html::Style),
-    (CompactString::const_new("sub"), Html::Sub),
-    (CompactString::const_new("summary"), Html::Summary),
-    (CompactString::const_new("sup"), Html::Sup),
-    (CompactString::const_new("table"), Html::Table),
-    (CompactString::const_new("tbody"), Html::Tbody),
-    (CompactString::const_new("td"), Html::Td),
-    (CompactString::const_new("textarea"), Html::Textarea),
-    (CompactString::const_new("tfoot"), Html::Tfoot),
-    (CompactString::const_new("th"), Html::Th),
-    (CompactString::const_new("thead"), Html::Thead),
-    (CompactString::const_new("time"), Html::Time),
-    (CompactString::const_new("title"), Html::Title),
-    (CompactString::const_new("tr"), Html::Tr),
-    (CompactString::const_new("track"), Html::Track),
-    (CompactString::const_new("u"), Html::U),
-    (CompactString::const_new("ul"), Html::Ul),
-    (CompactString::const_new("var"), Html::Var),
-    (CompactString::const_new("video"), Html::Video),
-    (CompactString::const_new("wbr"), Html::Wbr),
+    (GermanStr::new_inline("a"), Html::A),
+    (GermanStr::new_inline("abbr"), Html::Abbr),
+    (GermanStr::new_inline("address"), Html::Address),
+    (GermanStr::new_inline("area"), Html::Area),
+    (GermanStr::new_inline("article"), Html::Article),
+    (GermanStr::new_inline("aside"), Html::Aside),
+    (GermanStr::new_inline("audio"), Html::Audio),
+    (GermanStr::new_inline("b"), Html::B),
+    (GermanStr::new_inline("base"), Html::Base),
+    (GermanStr::new_inline("bdi"), Html::Bdi),
+    (GermanStr::new_inline("bdo"), Html::Bdo),
+    (GermanStr::new_inline("blockquote"), Html::BlockQuote),
+    (GermanStr::new_inline("body"), Html::Body),
+    (GermanStr::new_inline("br"), Html::Br),
+    (GermanStr::new_inline("button"), Html::Button),
+    (GermanStr::new_inline("canvas"), Html::Canvas),
+    (GermanStr::new_inline("caption"), Html::Caption),
+    (GermanStr::new_inline("cite"), Html::Cite),
+    (GermanStr::new_inline("code"), Html::Code),
+    (GermanStr::new_inline("col"), Html::Col),
+    (GermanStr::new_inline("colgroup"), Html::Colgroup),
+    (GermanStr::new_inline("command"), Html::Command),
+    (GermanStr::new_inline("datalist"), Html::Datalist),
+    (GermanStr::new_inline("dd"), Html::Dd),
+    (GermanStr::new_inline("del"), Html::Del),
+    (GermanStr::new_inline("details"), Html::Details),
+    (GermanStr::new_inline("dfn"), Html::Dfn),
+    (GermanStr::new_inline("div"), Html::Div),
+    (GermanStr::new_inline("dl"), Html::Dl),
+    (GermanStr::new_inline("dt"), Html::Dt),
+    (GermanStr::new_inline("em"), Html::Em),
+    (GermanStr::new_inline("embed"), Html::Embed),
+    (GermanStr::new_inline("fieldset"), Html::Fieldset),
+    (GermanStr::new_inline("figcaption"), Html::Figcaption),
+    (GermanStr::new_inline("figure"), Html::Figure),
+    (GermanStr::new_inline("footer"), Html::Footer),
+    (GermanStr::new_inline("form"), Html::Form),
+    (GermanStr::new_inline("h1"), Html::H1),
+    (GermanStr::new_inline("h2"), Html::H2),
+    (GermanStr::new_inline("h3"), Html::H3),
+    (GermanStr::new_inline("h4"), Html::H4),
+    (GermanStr::new_inline("h5"), Html::H5),
+    (GermanStr::new_inline("h6"), Html::H6),
+    (GermanStr::new_inline("head"), Html::Head),
+    (GermanStr::new_inline("header"), Html::Header),
+    (GermanStr::new_inline("hgroup"), Html::Hgroup),
+    (GermanStr::new_inline("hr"), Html::Hr),
+    (GermanStr::new_inline("html"), Html::Html),
+    (GermanStr::new_inline("i"), Html::I),
+    (GermanStr::new_inline("iframe"), Html::Iframe),
+    (GermanStr::new_inline("img"), Html::Img),
+    (GermanStr::new_inline("input"), Html::Input),
+    (GermanStr::new_inline("ins"), Html::Ins),
+    (GermanStr::new_inline("kdb"), Html::Kbd),
+    (GermanStr::new_inline("keygen"), Html::Keygen),
+    (GermanStr::new_inline("label"), Html::Label),
+    (GermanStr::new_inline("legend"), Html::Legend),
+    (GermanStr::new_inline("li"), Html::Li),
+    (GermanStr::new_inline("link"), Html::Link),
+    (GermanStr::new_inline("map"), Html::Map),
+    (GermanStr::new_inline("mark"), Html::Mark),
+    (GermanStr::new_inline("menu"), Html::Menu),
+    (GermanStr::new_inline("meta"), Html::Meta),
+    (GermanStr::new_inline("meter"), Html::Meter),
+    (GermanStr::new_inline("nav"), Html::Nav),
+    (GermanStr::new_inline("noscript"), Html::Noscript),
+    (GermanStr::new_inline("object"), Html::Object),
+    (GermanStr::new_inline("ol"), Html::Ol),
+    (GermanStr::new_inline("optgroup"), Html::Optgroup),
+    (GermanStr::new_inline("option"), Html::Option),
+    (GermanStr::new_inline("output"), Html::Output),
+    (GermanStr::new_inline("p"), Html::P),
+    (GermanStr::new_inline("param"), Html::Param),
+    (GermanStr::new_inline("pre"), Html::Pre),
+    (GermanStr::new_inline("progress"), Html::Progress),
+    (GermanStr::new_inline("q"), Html::Q),
+    (GermanStr::new_inline("rp"), Html::Rp),
+    (GermanStr::new_inline("rt"), Html::Rt),
+    (GermanStr::new_inline("ruby"), Html::Ruby),
+    (GermanStr::new_inline("s"), Html::S),
+    (GermanStr::new_inline("samp"), Html::Samp),
+    (GermanStr::new_inline("script"), Html::Script),
+    (GermanStr::new_inline("section"), Html::Section),
+    (GermanStr::new_inline("select"), Html::Select),
+    (GermanStr::new_inline("small"), Html::Small),
+    (GermanStr::new_inline("source"), Html::Source),
+    (GermanStr::new_inline("span"), Html::Span),
+    (GermanStr::new_inline("strong"), Html::Strong),
+    (GermanStr::new_inline("style"), Html::Style),
+    (GermanStr::new_inline("sub"), Html::Sub),
+    (GermanStr::new_inline("summary"), Html::Summary),
+    (GermanStr::new_inline("sup"), Html::Sup),
+    (GermanStr::new_inline("table"), Html::Table),
+    (GermanStr::new_inline("tbody"), Html::Tbody),
+    (GermanStr::new_inline("td"), Html::Td),
+    (GermanStr::new_inline("textarea"), Html::Textarea),
+    (GermanStr::new_inline("tfoot"), Html::Tfoot),
+    (GermanStr::new_inline("th"), Html::Th),
+    (GermanStr::new_inline("thead"), Html::Thead),
+    (GermanStr::new_inline("time"), Html::Time),
+    (GermanStr::new_inline("title"), Html::Title),
+    (GermanStr::new_inline("tr"), Html::Tr),
+    (GermanStr::new_inline("track"), Html::Track),
+    (GermanStr::new_inline("u"), Html::U),
+    (GermanStr::new_inline("ul"), Html::Ul),
+    (GermanStr::new_inline("var"), Html::Var),
+    (GermanStr::new_inline("video"), Html::Video),
+    (GermanStr::new_inline("wbr"), Html::Wbr),
   ]);
 }
 
@@ -795,7 +803,7 @@ pub enum MathMl {
 lazy_static::lazy_static! {
   /// A static map of mathml foreign tag name elements.
   pub static ref MATHML_TAG_NAMES: MathMlTagNames = HashMap::from([
-    (CompactString::const_new("math"), MathMl::Math),
+    (GermanStr::new_inline("math"), MathMl::Math),
   ]);
 }
 
@@ -820,8 +828,8 @@ pub enum Svg {
 lazy_static::lazy_static! {
   /// A static map of svg foreign tag name elements.
   pub static ref SVG_TAG_NAMES: SvgTagNames = HashMap::from([
-    (CompactString::const_new("a"), Svg::A),
-    (CompactString::const_new("svg"), Svg::Svg),
+    (GermanStr::new_inline("a"), Svg::A),
+    (GermanStr::new_inline("svg"), Svg::Svg),
   ]);
 }
 
@@ -846,7 +854,7 @@ pub enum Custom {
 lazy_static::lazy_static! {
   /// A static map of custom tag name elements.
   pub static ref CUSTOM_TAG_NAMES: CustomTagNames = HashMap::from([
-    (CompactString::const_new("_"), Custom::Fragment),
+    (GermanStr::new_inline("_"), Custom::Fragment),
   ]);
 }
 

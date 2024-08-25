@@ -1,10 +1,10 @@
 use super::TokenKind;
 
-use compact_str::CompactString;
+use german_str::GermanStr;
 use hashbrown::HashMap;
 
 /// The keyword dictionnary.
-type Keywords = HashMap<CompactString, TokenKind>;
+type Keywords = HashMap<GermanStr, TokenKind>;
 
 /// The representation of a keyword.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -89,39 +89,39 @@ impl std::fmt::Display for Kw {
 lazy_static::lazy_static! {
   // A static map of available keywords.
   pub static ref KEYWORDS: Keywords = HashMap::from([
-    (CompactString::const_new("abstract"), TokenKind::Kw(Kw::Abstract)),
-    (CompactString::const_new("and"), TokenKind::Kw(Kw::And)),
-    (CompactString::const_new("apply"), TokenKind::Kw(Kw::Apply)),
-    (CompactString::const_new("as"), TokenKind::Kw(Kw::As)),
-    (CompactString::const_new("async"), TokenKind::Kw(Kw::Async)),
-    (CompactString::const_new("await"), TokenKind::Kw(Kw::Await)),
-    (CompactString::const_new("break"), TokenKind::Kw(Kw::Break)),
-    (CompactString::const_new("continue"), TokenKind::Kw(Kw::Continue)),
-    (CompactString::const_new("else"), TokenKind::Kw(Kw::Else)),
-    (CompactString::const_new("enum"), TokenKind::Kw(Kw::Enum)),
-    (CompactString::const_new("ext"), TokenKind::Kw(Kw::Ext)),
-    (CompactString::const_new("false"), TokenKind::Kw(Kw::False)),
-    (CompactString::const_new("Fn"), TokenKind::Kw(Kw::FnUpper)),
-    (CompactString::const_new("fn"), TokenKind::Kw(Kw::FnLower)),
-    (CompactString::const_new("fun"), TokenKind::Kw(Kw::Fun)),
-    (CompactString::const_new("for"), TokenKind::Kw(Kw::For)),
-    (CompactString::const_new("if"), TokenKind::Kw(Kw::If)),
-    (CompactString::const_new("imu"), TokenKind::Kw(Kw::Imu)),
-    (CompactString::const_new("load"), TokenKind::Kw(Kw::Load)),
-    (CompactString::const_new("loop"), TokenKind::Kw(Kw::Loop)),
-    (CompactString::const_new("match"), TokenKind::Kw(Kw::Match)),
-    (CompactString::const_new("me"), TokenKind::Kw(Kw::Me)),
-    (CompactString::const_new("mut"), TokenKind::Kw(Kw::Mut)),
-    (CompactString::const_new("pack"), TokenKind::Kw(Kw::Pack)),
-    (CompactString::const_new("pub"), TokenKind::Kw(Kw::Pub)),
-    (CompactString::const_new("return"), TokenKind::Kw(Kw::Return)),
-    (CompactString::const_new("struct"), TokenKind::Kw(Kw::Struct)),
-    (CompactString::const_new("true"), TokenKind::Kw(Kw::True)),
-    (CompactString::const_new("type"), TokenKind::Kw(Kw::Type)),
-    (CompactString::const_new("_"), TokenKind::Kw(Kw::Underscore)),
-    (CompactString::const_new("val"), TokenKind::Kw(Kw::Val)),
-    (CompactString::const_new("wasm"), TokenKind::Kw(Kw::Wasm)),
-    (CompactString::const_new("when"), TokenKind::Kw(Kw::When)),
-    (CompactString::const_new("while"), TokenKind::Kw(Kw::While)),
+    (GermanStr::new_inline("abstract"), TokenKind::Kw(Kw::Abstract)),
+    (GermanStr::new_inline("and"), TokenKind::Kw(Kw::And)),
+    (GermanStr::new_inline("apply"), TokenKind::Kw(Kw::Apply)),
+    (GermanStr::new_inline("as"), TokenKind::Kw(Kw::As)),
+    (GermanStr::new_inline("async"), TokenKind::Kw(Kw::Async)),
+    (GermanStr::new_inline("await"), TokenKind::Kw(Kw::Await)),
+    (GermanStr::new_inline("break"), TokenKind::Kw(Kw::Break)),
+    (GermanStr::new_inline("continue"), TokenKind::Kw(Kw::Continue)),
+    (GermanStr::new_inline("else"), TokenKind::Kw(Kw::Else)),
+    (GermanStr::new_inline("enum"), TokenKind::Kw(Kw::Enum)),
+    (GermanStr::new_inline("ext"), TokenKind::Kw(Kw::Ext)),
+    (GermanStr::new_inline("false"), TokenKind::Kw(Kw::False)),
+    (GermanStr::new_inline("Fn"), TokenKind::Kw(Kw::FnUpper)),
+    (GermanStr::new_inline("fn"), TokenKind::Kw(Kw::FnLower)),
+    (GermanStr::new_inline("fun"), TokenKind::Kw(Kw::Fun)),
+    (GermanStr::new_inline("for"), TokenKind::Kw(Kw::For)),
+    (GermanStr::new_inline("if"), TokenKind::Kw(Kw::If)),
+    (GermanStr::new_inline("imu"), TokenKind::Kw(Kw::Imu)),
+    (GermanStr::new_inline("load"), TokenKind::Kw(Kw::Load)),
+    (GermanStr::new_inline("loop"), TokenKind::Kw(Kw::Loop)),
+    (GermanStr::new_inline("match"), TokenKind::Kw(Kw::Match)),
+    (GermanStr::new_inline("me"), TokenKind::Kw(Kw::Me)),
+    (GermanStr::new_inline("mut"), TokenKind::Kw(Kw::Mut)),
+    (GermanStr::new_inline("pack"), TokenKind::Kw(Kw::Pack)),
+    (GermanStr::new_inline("pub"), TokenKind::Kw(Kw::Pub)),
+    (GermanStr::new_inline("return"), TokenKind::Kw(Kw::Return)),
+    (GermanStr::new_inline("struct"), TokenKind::Kw(Kw::Struct)),
+    (GermanStr::new_inline("true"), TokenKind::Kw(Kw::True)),
+    (GermanStr::new_inline("type"), TokenKind::Kw(Kw::Type)),
+    (GermanStr::new_inline("_"), TokenKind::Kw(Kw::Underscore)),
+    (GermanStr::new_inline("val"), TokenKind::Kw(Kw::Val)),
+    (GermanStr::new_inline("wasm"), TokenKind::Kw(Kw::Wasm)),
+    (GermanStr::new_inline("when"), TokenKind::Kw(Kw::When)),
+    (GermanStr::new_inline("while"), TokenKind::Kw(Kw::While)),
   ]);
 }

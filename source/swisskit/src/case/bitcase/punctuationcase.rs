@@ -40,11 +40,11 @@ pub const fn is_punctuation(b: u8) -> bool {
 /// ```
 /// use swisskit::case::bitcase::punctuationcase;
 ///
-/// assert!(punctuationcase::is_period(b'.'));
-/// assert!(!punctuationcase::is_period(b'0'));
+/// assert!(punctuationcase::is_dot(b'.'));
+/// assert!(!punctuationcase::is_dot(b'0'));
 /// ```
 #[inline(always)]
-pub const fn is_period(b: u8) -> bool {
+pub const fn is_dot(b: u8) -> bool {
   matches!(b, b'.')
 }
 
