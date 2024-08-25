@@ -1,123 +1,114 @@
 /// The representation of punctuation tokens.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Punctuation {
-  /// The `=` punctuation.
+  /// A equal punctuation — `=`.
   Equal,
-  /// The `+` punctuation.
+  /// A equal punctuation — `+`.
   Plus,
-  /// The `-` punctuation.
+  /// A equal punctuation — `-`.
   Minus,
-  /// The `*` punctuation.
+  /// A equal punctuation — `*`.
   Asterisk,
-  /// The `/` punctuation.
+  /// A equal punctuation — `/`.
   Slash,
-  /// The `%` punctuation.
+  /// A equal punctuation — `%`.
   Percent,
-  /// The `^` punctuation.
+  /// A equal punctuation — `^`.
   Circumflex,
-  /// The `?` punctuation.
+  /// A equal punctuation — `?`.
   Question,
-  /// The `!` punctuation.
+  /// A equal punctuation — `!`.
   Exclamation,
-  /// The `&` punctuation.
+  /// A equal punctuation — `&`.
   Ampersand,
-  /// The `|` punctuation.
+  /// A equal punctuation — `|`.
   Pipe,
-  /// The `#` punctuation.
+  /// A equal punctuation — `#`.
   Pound,
-  /// The `<` punctuation.
+  /// A equal punctuation — `<`.
   LessThan,
-  /// The `>` punctuation.
+  /// A equal punctuation — `>`.
   GreaterThan,
-  /// The `.` punctuation.
-  Period,
-  /// `,` punctuation.
+  /// A equal punctuation — `.`.
+  Dot,
+  /// A comma punctustion — `,`.
   Comma,
-  /// `:` punctuation.
+  /// A comma punctustion — `:`.
   Colon,
-  /// `;` punctuation.
-  Semicolon,
-  /// The `==` punctuation.
+  /// A comma punctustion — `;`.
+  Semi,
+  /// A equal punctuation — `==`.
   EqualEqual,
-  /// The `!=` punctuation.
+  /// A equal punctuation — `!=`.
   ExclamationEqual,
-  /// The `+=` punctuation.
+  /// A equal punctuation — `+=`.
   PlusEqual,
-  /// The `-=` punctuation.
+  /// A equal punctuation — `-=`.
   MinusEqual,
-  /// The `*=` punctuation.
+  /// A equal punctuation — `*=`.
   AsteriskEqual,
-  /// The `/=` punctuation.
+  /// A equal punctuation — `/=`.
   SlashEqual,
-  /// The `%=` punctuation.
+  /// A equal punctuation — `%=`.
   PercentEqual,
-  /// The `&=` punctuation.
+  /// A equal punctuation — `&=`.
   AmspersandEqual,
-  /// The `|=` punctuation.
+  /// A equal punctuation — `|=`.
   PipeEqual,
-  /// The `^=` punctuation.
+  /// A equal punctuation — `^=`.
   CircumflexEqual,
-  /// The `<<=` punctuation.
+  /// A equal punctuation — `<<=`.
   LessThanLessThanEqual,
-  /// The `>>=` punctuation.
+  /// A equal punctuation — `>>=`.
   GreaterThanGreaterThanEqual,
-  /// The `:=` punctuation.
+  /// A equal punctuation — `:=`.
   ColonEqual,
-  /// The `::=` punctuation.
+  /// A equal punctuation — `::=`.
   ColonColonEqual,
-  /// The `<=` punctuation.
+  /// A equal punctuation — `<=`.
   LessThanEqual,
-  /// The `>=` punctuation.
+  /// A equal punctuation — `>=`.
   GreaterThanEqual,
-  /// The `<<` punctuation.
+  /// A equal punctuation — `<<`.
   LessThanLessThan,
-  /// The `>>` punctuation.
+  /// A equal punctuation — `>>`.
   GreaterThanGreaterThan,
-  /// The `&&` punctuation.
+  /// A equal punctuation — `&&`.
   AmpersandAmpersand,
-  /// The `||` punctuation.
+  /// A equal punctuation — `||`.
   PipePipe,
-  /// The `..` punctuation.
-  PeriodPeriod,
-  /// `::` punctuation.
+  /// A equal punctuation — `..`.
+  DotDot,
+  /// A colon colon punctuation — `::`.
   ColonColon,
-  /// `->` punctuation.
+  /// A colon colon punctuation — `->`.
   MinusGreaterThan,
-  /// `=>` punctuation.
+  /// A colon colon punctuation — `=>`.
   EqualGreaterThan,
-}
-
-impl From<char> for Punctuation {
-  #[inline]
-  fn from(op: char) -> Self {
-    match op as u8 {
-      b'=' => Self::Equal,
-      b'+' => Self::Plus,
-      b'-' => Self::Minus,
-      b'*' => Self::Asterisk,
-      b'/' => Self::Slash,
-      b'%' => Self::Percent,
-      b'^' => Self::Circumflex,
-      b'?' => Self::Question,
-      b'!' => Self::Exclamation,
-      b'&' => Self::Ampersand,
-      b'|' => Self::Pipe,
-      b'#' => Self::Pound,
-      b'<' => Self::LessThan,
-      b'>' => Self::GreaterThan,
-      b'.' => Self::Period,
-      b',' => Self::Comma,
-      b':' => Self::Colon,
-      b';' => Self::Semicolon,
-      _ => unreachable!("{op}"),
-    }
-  }
 }
 
 impl From<&str> for Punctuation {
   #[inline]
   fn from(op: &str) -> Self {
     match op {
+      "=" => Self::Equal,
+      "+" => Self::Plus,
+      "-" => Self::Minus,
+      "*" => Self::Asterisk,
+      "/" => Self::Slash,
+      "%" => Self::Percent,
+      "^" => Self::Circumflex,
+      "?" => Self::Question,
+      "!" => Self::Exclamation,
+      "&" => Self::Ampersand,
+      "|" => Self::Pipe,
+      "#" => Self::Pound,
+      "<" => Self::LessThan,
+      ">" => Self::GreaterThan,
+      "." => Self::Dot,
+      "," => Self::Comma,
+      ":" => Self::Colon,
+      ";" => Self::Semi,
       "==" => Self::EqualEqual,
       "!=" => Self::ExclamationEqual,
       "+=" => Self::PlusEqual,
@@ -138,7 +129,7 @@ impl From<&str> for Punctuation {
       ">>" => Self::GreaterThanGreaterThan,
       "&&" => Self::AmpersandAmpersand,
       "||" => Self::PipePipe,
-      ".." => Self::PeriodPeriod,
+      ".." => Self::DotDot,
       "::" => Self::ColonColon,
       "->" => Self::MinusGreaterThan,
       "=>" => Self::EqualGreaterThan,
@@ -164,10 +155,10 @@ impl std::fmt::Display for Punctuation {
       Self::Pound => write!(f, "#"),
       Self::LessThan => write!(f, "<"),
       Self::GreaterThan => write!(f, ">"),
-      Self::Period => write!(f, "."),
+      Self::Dot => write!(f, "."),
       Self::Comma => write!(f, ","),
       Self::Colon => write!(f, ":"),
-      Self::Semicolon => write!(f, ";"),
+      Self::Semi => write!(f, ";"),
       Self::EqualEqual => write!(f, "=="),
       Self::ExclamationEqual => write!(f, "!="),
       Self::PlusEqual => write!(f, "+="),
@@ -188,7 +179,7 @@ impl std::fmt::Display for Punctuation {
       Self::GreaterThanGreaterThan => write!(f, ">>"),
       Self::AmpersandAmpersand => write!(f, "&&"),
       Self::PipePipe => write!(f, "||"),
-      Self::PeriodPeriod => write!(f, ".."),
+      Self::DotDot => write!(f, ".."),
       Self::ColonColon => write!(f, "::"),
       Self::MinusGreaterThan => write!(f, "->"),
       Self::EqualGreaterThan => write!(f, "=>"),

@@ -13,6 +13,7 @@ zo-reporter = { workspace = true }
 zo-session = { workspace = true }
 
 # external:crates.
+compact_str = { workspace = true }
 hashbrown = { workspace = true }
 lazy_static = { workspace = true }
 smol_str = { workspace = true }

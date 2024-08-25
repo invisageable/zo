@@ -28,6 +28,8 @@ use zo_tokenizer::token::{Token, TokenKind};
 use zo_ty::ty::{FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, UintTy};
 
 use swisskit::span::{AsSpan, Span};
+
+use smol_str::ToSmolStr;
 use thin_vec::ThinVec;
 
 /// A type that defines a prefix function.
@@ -59,8 +61,6 @@ impl<'tokens> Parser<'tokens> {
     reporter: &'tokens Reporter,
     tokens: &'tokens [Token],
   ) -> Self {
-    println!("{:?}", tokens);
-
     Self {
       idx: 0usize,
       maybe_token_current: None,
@@ -110,13 +110,16 @@ impl<'tokens> Parser<'tokens> {
     self
       .maybe_token_current
       .map(|token| token.is(kind))
-      .unwrap()
+      .unwrap_or_default()
   }
 
   /// Checks if the next token is a specific kind.
   #[inline]
   pub(crate) fn ensure_peek(&self, kind: TokenKind) -> bool {
-    self.maybe_token_next.map(|token| token.is(kind)).unwrap()
+    self
+      .maybe_token_next
+      .map(|token| token.is(kind))
+      .unwrap_or_default()
   }
 
   /// Moves only if the current token is a specific kind.
@@ -133,7 +136,7 @@ impl<'tokens> Parser<'tokens> {
 
         Err(error::syntax::unexpected_token(
           token.span,
-          token.to_owned(),
+          token.to_smolstr(),
         ))
       })
       .unwrap()
@@ -153,7 +156,7 @@ impl<'tokens> Parser<'tokens> {
 
         Err(error::syntax::unexpected_token(
           token.span,
-          token.to_owned(),
+          token.to_smolstr(),
         ))
       })
       .unwrap()
@@ -193,7 +196,7 @@ impl<'tokens> Parser<'tokens> {
         TokenKind::Kw(Kw::Fun) => self.parse_item_fun(),
         _ => Err(error::syntax::unexpected_token(
           token.span,
-          token.to_owned(),
+          token.to_smolstr(),
         )),
       })
       .unwrap()
@@ -219,7 +222,7 @@ impl<'tokens> Parser<'tokens> {
 
         Err(error::syntax::expected_global_var(
           token.span,
-          token.to_owned(),
+          token.to_smolstr(),
         ))
       })
       .unwrap()?;
@@ -285,7 +288,7 @@ impl<'tokens> Parser<'tokens> {
         }
         _ => Err(error::syntax::unexpected_token(
           token.span,
-          token.to_owned(),
+          token.to_smolstr(),
         )),
       })
       .unwrap()?;
@@ -383,7 +386,7 @@ impl<'tokens> Parser<'tokens> {
       })
       .unwrap()?;
 
-    if self.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+    if self.ensure_peek(TokenKind::Punctuation(Punctuation::Semi)) {
       self.next();
     }
 
@@ -408,7 +411,7 @@ impl<'tokens> Parser<'tokens> {
           _ => {
             return Err(error::syntax::expected_local_var(
               token.span,
-              token.to_owned(),
+              token.to_string(),
             ))
           }
         })
@@ -440,10 +443,12 @@ impl<'tokens> Parser<'tokens> {
           (Ty::infer(token.span), value)
         }
         TokenKind::Punctuation(Punctuation::ColonColonEqual) => {
-          self.next(); // eat `pattern`.
+          self.next(); // eat `<pattern>`.
           self.next(); // eat `::=`.
 
-          todo!()
+          let zsx = self.parse_zsx().unwrap();
+
+          (Ty::infer(token.span), zsx)
         }
         _ => panic!(),
       })
@@ -487,6 +492,12 @@ impl<'tokens> Parser<'tokens> {
     }
   }
 
+  /// Parses zsx template.
+  fn parse_zsx(&mut self) -> Result<Expr> {
+    // self.ma
+    todo!()
+  }
+
   /// Parses a type.
   fn parse_ty(&mut self) -> Result<Ty> {
     self.next();
@@ -498,7 +509,7 @@ impl<'tokens> Parser<'tokens> {
         TokenKind::Punctuation(Punctuation::ColonEqual) => {
           Ok(Ty::infer(token.span))
         }
-        _ => Err(error::syntax::expected_ty(token.span, token.to_owned())),
+        _ => Err(error::syntax::expected_ty(token.span, token.to_smolstr())),
       })
       .unwrap()?;
 
@@ -516,14 +527,12 @@ impl<'tokens> Parser<'tokens> {
     self
       .maybe_token_current
       .map(|token| match &token.kind {
-        TokenKind::Ident(symbol) => {
-          self.parse_ty_ident_or_array(symbol, token.span)
-        }
+        TokenKind::Ident(sym) => self.parse_ty_ident_or_array(sym, token.span),
         TokenKind::Group(Group::ParenOpen) => self.parse_ty_tuple(token.span),
         TokenKind::Kw(Kw::FnUpper) => self.parse_ty_closure(token.span),
         _ => Err(error::syntax::unexpected_token(
           token.span,
-          token.to_owned(),
+          token.to_smolstr(),
         )),
       })
       .unwrap()
@@ -652,7 +661,7 @@ impl<'tokens> Parser<'tokens> {
     let hi = self.current_span();
     let span = Span::merge(lo, hi);
 
-    if self.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+    if self.ensure_peek(TokenKind::Punctuation(Punctuation::Semi)) {
       self.next();
     }
 
@@ -695,7 +704,7 @@ impl<'tokens> Parser<'tokens> {
         }
         _ => Err(error::syntax::unexpected_token(
           token.span,
-          token.to_owned(),
+          token.to_smolstr(),
         )),
       })
       .unwrap()
@@ -732,7 +741,7 @@ impl<'tokens> Parser<'tokens> {
     self.parse_prefix_fn().and_then(|prefix_fn| {
       let mut lhs = prefix_fn(self)?;
 
-      while !self.ensure(TokenKind::Punctuation(Punctuation::Semicolon))
+      while !self.ensure(TokenKind::Punctuation(Punctuation::Semi))
         && self.should_precedence(precedence)
       {
         if let Ok(infix_fn) = self.parse_infix_fn() {
@@ -778,7 +787,10 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Kw(Kw::Continue) => Box::new(Self::parse_expr_continue),
       TokenKind::Kw(Kw::FnLower) => Box::new(Self::parse_expr_fn),
       _ => {
-        return Err(error::syntax::invalid_prefix(token.span, token.to_owned()))
+        return Err(error::syntax::invalid_prefix(
+          token.span,
+          token.to_smolstr(),
+        ))
       }
     })
   }
@@ -788,16 +800,16 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| {
-        let TokenKind::Int(sym, base) = token.kind else {
+        let TokenKind::Int(sym, base) = &token.kind else {
           return Err(error::syntax::expected_int(
             token.span,
-            token.to_owned(),
+            token.to_smolstr(),
           ));
         };
 
         Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Int(sym, base),
+            kind: LitKind::Int(*sym, *base),
             span: token.span,
           }),
           span: token.span,
@@ -811,16 +823,16 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| {
-        let TokenKind::Float(sym) = token.kind else {
+        let TokenKind::Float(sym) = &token.kind else {
           return Err(error::syntax::expected_float(
             token.span,
-            token.to_owned(),
+            token.to_smolstr(),
           ));
         };
 
         Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Float(sym),
+            kind: LitKind::Float(sym.to_owned()),
             span: token.span,
           }),
           span: token.span,
@@ -834,16 +846,16 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| {
-        let TokenKind::Ident(sym) = token.kind else {
+        let TokenKind::Ident(sym) = &token.kind else {
           return Err(error::syntax::expected_ident(
             token.span,
-            token.to_owned(),
+            token.to_smolstr(),
           ));
         };
 
         Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Ident(sym),
+            kind: LitKind::Ident(sym.to_owned()),
             span: token.span,
           }),
           span: token.span,
@@ -865,7 +877,7 @@ impl<'tokens> Parser<'tokens> {
               _ => {
                 return Err(error::syntax::expected_bool(
                   token.span,
-                  token.to_owned(),
+                  token.to_smolstr(),
                 ))
               }
             },
@@ -882,13 +894,13 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| {
-        let TokenKind::Char(sym) = token.kind else {
+        let TokenKind::Char(sym) = &token.kind else {
           panic!();
         };
 
         Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Char(sym),
+            kind: LitKind::Char(sym.to_owned()),
             span: token.span,
           }),
           span: token.span,
@@ -902,13 +914,13 @@ impl<'tokens> Parser<'tokens> {
     parser
       .maybe_token_current
       .map(|token| {
-        let TokenKind::Str(sym) = token.kind else {
+        let TokenKind::Str(sym) = &token.kind else {
           panic!();
         };
 
         Ok(Expr {
           kind: ExprKind::Lit(Lit {
-            kind: LitKind::Str(sym),
+            kind: LitKind::Str(sym.to_owned()),
             span: token.span,
           }),
           span: token.span,
@@ -936,7 +948,7 @@ impl<'tokens> Parser<'tokens> {
           _ => {
             return Err(error::syntax::expected_unop(
               token.span,
-              token.to_owned(),
+              token.to_smolstr(),
             ))
           }
         };
@@ -1110,7 +1122,7 @@ impl<'tokens> Parser<'tokens> {
         }
         _ => Err(error::syntax::unexpected_token(
           token.span,
-          token.to_owned(),
+          token.to_smolstr(),
         )),
       })
       .unwrap()
@@ -1179,7 +1191,7 @@ impl<'tokens> Parser<'tokens> {
 
     parser.next();
 
-    if parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Semi)) {
       let hi = parser.current_span();
 
       return Ok(Expr {
@@ -1203,7 +1215,7 @@ impl<'tokens> Parser<'tokens> {
 
     parser.next();
 
-    if parser.ensure(TokenKind::Punctuation(Punctuation::Semicolon)) {
+    if parser.ensure(TokenKind::Punctuation(Punctuation::Semi)) {
       let hi = parser.current_span();
       let span = Span::merge(lo, hi);
 
@@ -1228,7 +1240,7 @@ impl<'tokens> Parser<'tokens> {
 
     parser.next();
 
-    if parser.ensure_peek(TokenKind::Punctuation(Punctuation::Semicolon)) {
+    if parser.ensure_peek(TokenKind::Punctuation(Punctuation::Semi)) {
       let hi = parser.current_span();
       let span = Span::merge(lo, hi);
 
@@ -1251,7 +1263,7 @@ impl<'tokens> Parser<'tokens> {
     let lo = parser.current_span();
     let sym = parser.interner.intern(&format!("fn_{}", parser.idx));
     let name = parser.interner.lookup(*sym);
-    let span = Span::of(lo.hi, lo.hi + name.len() as u32);
+    let span = Span::of(lo.hi, lo.hi + name.len());
 
     let pattern = Pattern {
       kind: PatternKind::Ident(Box::new(Expr {
@@ -1328,12 +1340,15 @@ impl<'tokens> Parser<'tokens> {
 
     Ok(match &token.kind {
       k if k.is_binop() => Box::new(Self::parse_expr_infix),
-      k if k.is_assignment() => Box::new(Self::parse_expr_assignment),
+      k if k.is_assignop() => Box::new(Self::parse_expr_assignment),
       k if k.is_index() => Box::new(Self::parse_expr_array_access),
       k if k.is_chaining() => Box::new(Self::parse_expr_tuple_access),
       k if k.is_calling() => Box::new(Self::parse_expr_call),
       _ => {
-        return Err(error::syntax::invalid_infix(token.span, token.to_owned()))
+        return Err(error::syntax::invalid_infix(
+          token.span,
+          token.to_smolstr(),
+        ))
       }
     })
   }
@@ -1346,11 +1361,11 @@ impl<'tokens> Parser<'tokens> {
         let binop = BinOp::from(token);
 
         match &token.kind {
-          k if k.is_assignment() => (Precedence::Assignement, Some(binop)),
-          k if k.is_conditional() => (Precedence::Conditional, Some(binop)),
-          k if k.is_comparison() => (Precedence::Comparison, Some(binop)),
+          k if k.is_assignop() => (Precedence::Assignement, Some(binop)),
+          k if k.is_cond() => (Precedence::Conditional, Some(binop)),
+          k if k.is_comp() => (Precedence::Comparison, Some(binop)),
           k if k.is_sum() => (Precedence::Sum, Some(binop)),
-          k if k.is_exponent() => (Precedence::Exponent, Some(binop)),
+          k if k.is_expo() => (Precedence::Exponent, Some(binop)),
           k if k.is_calling() => (Precedence::Calling, None),
           k if k.is_index() => (Precedence::Index, None),
           _ => (Precedence::Low, None),
@@ -1428,7 +1443,7 @@ impl<'tokens> Parser<'tokens> {
           _ => {
             return Err(error::syntax::expected_binop(
               token.span,
-              token.to_owned(),
+              token.to_smolstr(),
             ))
           }
         })

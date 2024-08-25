@@ -19,47 +19,48 @@ pub mod int;
 pub mod kw;
 pub mod punctuation;
 pub mod tag;
+pub mod typ;
 
 use group::Group;
 use kw::Kw;
 use punctuation::Punctuation;
+use tag::Tag;
 
 use zo_interner::interner::symbol::Symbol;
 
 use swisskit::span::Span;
 
-use smol_str::{SmolStr, ToSmolStr};
-
 /// The representation of a token.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Token {
-  /// The current token kind — see also [`TokenKind`].
+  /// A token kind.
   pub kind: TokenKind,
-  /// The span of the current token — see also [`Span`].
+  /// A span location within a source file.
   pub span: Span,
 }
 
 impl Token {
-  /// A constant, it is used as a placeholder.
-  pub const EOF: Self = Self::new(TokenKind::Eof, Span::ZERO);
+  /// An end of file token.
+  pub const EOF: Self = Token::new(TokenKind::Eof, Span::ZERO);
 
-  /// Creates a new token instance from a token kind and a span.
-  #[inline]
+  /// Creates a new token.
+  #[inline(always)]
   pub const fn new(kind: TokenKind, span: Span) -> Self {
     Self { kind, span }
   }
 
-  /// Check if the kind of a token matched from a other token kind.
+  /// Checks if the kind of a token matched from a other token kind.
   #[inline]
   pub fn is(&self, kind: TokenKind) -> bool {
     self.kind.is(kind)
   }
 }
 
-impl From<Token> for SmolStr {
-  #[inline]
-  fn from(token: Token) -> Self {
-    token.kind.to_smolstr()
+impl Default for Token {
+  /// Creates a default token — his default kind is EOF.
+  #[inline(always)]
+  fn default() -> Self {
+    Self::EOF
   }
 }
 
@@ -69,39 +70,49 @@ impl std::fmt::Display for Token {
   }
 }
 
-/// The representation of a token kind.
-#[derive(Clone, Debug, PartialEq)]
+/// The representation of a token's kind.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum TokenKind {
-  /// An end of file — `'\0'`.
+  // --- START:MODE:PROGRAM.
+  ///
+  /// An end of file token kind.
+  #[default]
   Eof,
-  /// An unknown character.
-  Unknown,
-  /// A space — `' '`.
-  Space,
-  /// And end of line - `'\n'`.
-  Eol,
-  /// A comment.
+  /// A comment token kind.
   Comment(comment::Comment),
-  /// An integer.
+  /// A integer token kind.
   Int(Symbol, int::Base),
-  /// A float.
+  /// A float token kind.
   Float(Symbol),
-  /// A punctuation.
+  /// A punctuation token kind.
   Punctuation(punctuation::Punctuation),
-  /// A group.
+  /// A group token kind.
   Group(group::Group),
-  /// An identifier.
+  /// A identifier token kind.
   Ident(Symbol),
-  /// A keyword.
+  /// A keyword token kind.
   Kw(kw::Kw),
-  /// A character.
+  /// A keyword token kind.
+  Typ(String),
+  /// A byte token kind.
+  Byte(Symbol),
+  /// A character token kind.
   Char(Symbol),
-  /// A string.
+  /// A string token kind.
   Str(Symbol),
-  /// A plain text.
-  PlainText(Symbol),
-  /// A tag — `<>`, `</>`.
-  Tag(tag::Tag),
+
+  // --- START:MODE:TEMPLATE.
+  ///
+  /// A zsx's comment token kind.
+  ZsxComment(String),
+  /// A zsx's raw text token kind.
+  ZsxIdent(String),
+  /// A zsx's raw text token kind.
+  ZsxCharacter(char),
+  /// A zsx's tag token kind.
+  ZsxTag(Tag),
+  /// A zsx's delimiter token kind.
+  ZsxDelimiter(group::Group),
 }
 
 impl TokenKind {
@@ -111,7 +122,7 @@ impl TokenKind {
   ///
   /// The resulting returns `true` if the token kind is equal to the right-hand
   /// side.
-  #[inline]
+  #[inline(always)]
   pub fn is(&self, kind: TokenKind) -> bool {
     *self == kind
   }
@@ -121,7 +132,7 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is a literal one.
-  #[inline]
+  #[inline(always)]
   pub fn is_lit(&self) -> bool {
     matches!(
       self,
@@ -140,7 +151,7 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is a unary operator.
-  #[inline]
+  #[inline(always)]
   pub fn is_unop(&self) -> bool {
     matches!(
       self,
@@ -154,7 +165,7 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is a binary operator.
-  #[inline]
+  #[inline(always)]
   pub fn is_binop(&self) -> bool {
     matches!(
       self,
@@ -173,29 +184,33 @@ impl TokenKind {
     )
   }
 
-  /// Checks if the token kind is a group open.
+  /// Checks if the token kind is a sum.
   ///
   /// #### returns.
   ///
-  /// The resulting returns `true` if the token kind is a delimiter.
-  #[inline]
-  pub fn is_group(&self) -> bool {
+  /// The resulting returns `true` if the token kind is a sum.
+  #[inline(always)]
+  pub fn is_sum(&self) -> bool {
     matches!(
       self,
-      Self::Group(Group::ParenOpen)
-        | Self::Group(Group::BraceOpen)
-        | Self::Group(Group::BracketOpen)
+      Self::Punctuation(Punctuation::Plus)
+        | Self::Punctuation(Punctuation::Minus)
     )
   }
 
-  /// Checks if the token kind is a keyword.
+  /// Checks if the token kind is a exponent.
   ///
   /// #### returns.
   ///
-  /// The resulting returns `true` if the token kind is a keyword.
-  #[inline]
-  pub fn is_kw(&self) -> bool {
-    matches!(self, Self::Kw(..))
+  /// The resulting returns `true` if the token kind is an exponent.
+  #[inline(always)]
+  pub fn is_expo(&self) -> bool {
+    matches!(
+      self,
+      Self::Punctuation(Punctuation::Asterisk)
+        | Self::Punctuation(Punctuation::Slash)
+        | Self::Punctuation(Punctuation::Percent)
+    )
   }
 
   /// Checks if the token kind is an assignment.
@@ -203,8 +218,8 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is an assignment operator.
-  #[inline]
-  pub fn is_assignment(&self) -> bool {
+  #[inline(always)]
+  pub fn is_assignop(&self) -> bool {
     matches!(
       self,
       Self::Punctuation(Punctuation::Equal)
@@ -226,8 +241,8 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is a logical operator.
-  #[inline]
-  pub fn is_conditional(&self) -> bool {
+  #[inline(always)]
+  pub fn is_cond(&self) -> bool {
     matches!(
       self,
       Self::Punctuation(Punctuation::AmpersandAmpersand)
@@ -240,8 +255,8 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is a comparaison operator.
-  #[inline]
-  pub fn is_comparison(&self) -> bool {
+  #[inline(always)]
+  pub fn is_comp(&self) -> bool {
     matches!(
       self,
       Self::Punctuation(Punctuation::EqualEqual)
@@ -253,32 +268,38 @@ impl TokenKind {
     )
   }
 
-  /// Checks if the token kind is a sum.
+  /// Checks if the token kind is a chaining.
   ///
   /// #### returns.
   ///
-  /// The resulting returns `true` if the token kind is a sum.
-  #[inline]
-  pub fn is_sum(&self) -> bool {
-    matches!(
-      self,
-      Self::Punctuation(Punctuation::Plus)
-        | Self::Punctuation(Punctuation::Minus)
-    )
+  /// The resulting returns `true` if the token kind is a chaining one.
+  #[inline(always)]
+  pub fn is_chaining(&self) -> bool {
+    matches!(self, Self::Punctuation(Punctuation::Dot))
   }
 
-  /// Checks if the token kind is a exponent.
+  /// Checks if the token kind is a range.
   ///
   /// #### returns.
   ///
-  /// The resulting returns `true` if the token kind is an exponent.
-  #[inline]
-  pub fn is_exponent(&self) -> bool {
+  /// The resulting returns `true` if the token kind is a range.
+  #[inline(always)]
+  pub fn is_range(&self) -> bool {
+    matches!(self, Self::Punctuation(Punctuation::DotDot))
+  }
+
+  /// Checks if the token kind is a group open.
+  ///
+  /// #### returns.
+  ///
+  /// The resulting returns `true` if the token kind is a delimiter.
+  #[inline(always)]
+  pub fn is_group(&self) -> bool {
     matches!(
       self,
-      Self::Punctuation(Punctuation::Asterisk)
-        | Self::Punctuation(Punctuation::Slash)
-        | Self::Punctuation(Punctuation::Percent)
+      Self::Group(Group::ParenOpen)
+        | Self::Group(Group::BraceOpen)
+        | Self::Group(Group::BracketOpen)
     )
   }
 
@@ -287,7 +308,7 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is a function call.
-  #[inline]
+  #[inline(always)]
   pub fn is_calling(&self) -> bool {
     matches!(self, Self::Group(Group::ParenOpen))
   }
@@ -297,29 +318,19 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is an index.
-  #[inline]
+  #[inline(always)]
   pub fn is_index(&self) -> bool {
     matches!(self, Self::Group(Group::BracketOpen))
   }
 
-  /// Checks if the token kind is a chaining.
+  /// Checks if the token kind is a keyword.
   ///
   /// #### returns.
   ///
-  /// The resulting returns `true` if the token kind is a chaining one.
-  #[inline]
-  pub fn is_chaining(&self) -> bool {
-    matches!(self, Self::Punctuation(Punctuation::Period))
-  }
-
-  /// Checks if the token kind is a range.
-  ///
-  /// #### returns.
-  ///
-  /// The resulting returns `true` if the token kind is a range.
-  #[inline]
-  pub fn is_range(&self) -> bool {
-    matches!(self, Self::Punctuation(Punctuation::PeriodPeriod))
+  /// The resulting returns `true` if the token kind is a keyword.
+  #[inline(always)]
+  pub fn is_kw(&self) -> bool {
+    matches!(self, Self::Kw(..))
   }
 
   /// Checks if the token kind is an item.
@@ -327,7 +338,7 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is an item.
-  #[inline]
+  #[inline(always)]
   pub fn is_item(&self) -> bool {
     matches!(
       self,
@@ -345,27 +356,21 @@ impl TokenKind {
   /// #### returns.
   ///
   /// The resulting returns `true` if the token kind is a local variable.
-  #[inline]
+  #[inline(always)]
   pub fn is_var_local(&self) -> bool {
     matches!(self, Self::Kw(Kw::Imu) | Self::Kw(Kw::Mut))
-  }
-}
-
-impl From<TokenKind> for SmolStr {
-  #[inline]
-  fn from(kind: TokenKind) -> Self {
-    kind.to_smolstr()
   }
 }
 
 impl std::fmt::Display for TokenKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
+      // --- MODE:PROGRAM:START. ---
       Self::Eof => write!(f, "eof"),
-      Self::Unknown => write!(f, "unknown"),
-      Self::Space => write!(f, "space"),
-      Self::Eol => write!(f, "eol"),
-      Self::Comment(comment) => write!(f, "{comment}"),
+      Self::Comment(comment::Comment::Line) => write!(f, ""),
+      Self::Comment(comment::Comment::LineDoc(comment)) => {
+        write!(f, "{comment}")
+      }
       Self::Int(sym, base) => {
         write!(f, "{sym}--base--{base:?}")
       }
@@ -376,10 +381,19 @@ impl std::fmt::Display for TokenKind {
       Self::Group(group) => write!(f, "{group}"),
       Self::Ident(sym) => write!(f, "{sym}"),
       Self::Kw(kw) => write!(f, "{kw}"),
-      Self::Char(sym) => write!(f, "{sym}"),
-      Self::Str(sym) => write!(f, "{sym}"),
-      Self::PlainText(plain_text) => write!(f, "{plain_text}"),
-      Self::Tag(tag) => write!(f, "{tag}"),
+      Self::Typ(typ) => write!(f, "{typ}"),
+      Self::Byte(b) => write!(f, "{b}"),
+      Self::Char(c) => write!(f, "{c}"),
+      Self::Str(s) => write!(f, "{s}"),
+      // --- MODE:PROGRAM:END. ---
+
+      // --- MODE:TEMPLATE:START. ---
+      Self::ZsxComment(comment) => write!(f, "{comment}"),
+      Self::ZsxIdent(ident) => write!(f, "{ident}"),
+      Self::ZsxCharacter(char) => write!(f, "{char}"),
+      Self::ZsxTag(tag) => write!(f, "{tag}"),
+      Self::ZsxDelimiter(delimiter) => write!(f, "{delimiter}"),
+      // --- MODE:TEMPLATE:END. ---
     }
   }
 }

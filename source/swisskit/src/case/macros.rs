@@ -16,6 +16,9 @@ macro_rules! is {
   (quote $rhs:expr) => {
     $crate::case::charcase::quotecase::is_quote($rhs)
   };
+  (quote_tick $ch:expr) => {
+    $crate::case::charcase::quotecase::is_quote_backtick($ch)
+  };
   (quote_single $rhs:expr) => {
     $crate::case::charcase::quotecase::is_quote_single($rhs)
   };
@@ -31,14 +34,14 @@ macro_rules! is {
   (number_non_zero $rhs:expr) => {
     $crate::case::charcase::numbercase::is_number_non_zero($rhs)
   };
-  (number_hex $rhs:expr) => {
-    $crate::case::charcase::numbercase::is_number_hex($rhs)
+  (number_bin $rhs:expr) => {
+    $crate::case::charcase::numbercase::is_number_bin($rhs)
   };
   (number_oct $rhs:expr) => {
     $crate::case::charcase::numbercase::is_number_oct($rhs)
   };
-  (number_bin $rhs:expr) => {
-    $crate::case::charcase::numbercase::is_number_bin($rhs)
+  (number_hex $rhs:expr) => {
+    $crate::case::charcase::numbercase::is_number_hex($rhs)
   };
   (punctuation $rhs:expr) => {
     $crate::case::charcase::punctuationcase::is_punctuation($rhs)
@@ -64,6 +67,7 @@ macro_rules! is {
   (uppercase $rhs:expr) => {
     $crate::case::charcase::uppercase::is_uppercase($rhs)
   };
+
   // strcase
   (camel $rhs:expr) => {
     $crate::case::strcase::camelcase::is_camel_case($rhs)
@@ -87,6 +91,11 @@ macro_rules! is {
 
 #[macro_export]
 macro_rules! to {
+  // charcase.
+  (lower_ascii $ch:expr) => {
+    $crate::case::charcase::lowercase::to_lowercase_ascii($ch)
+  };
+
   // strcase.
   (camel $rhs:expr) => {
     $crate::case::strcase::camelcase::to_camel_case($rhs)

@@ -18,7 +18,7 @@ fun main() {
   mut e: int = d[2];
   mut f: Fn(int): int = fn(x) -> x * x * d[x];
 
+  -- imu foo ::= <></>;
+
   f(2)
 }
-
-

@@ -1,33 +1,34 @@
-/// The representation of group tokens.
+/// The representation of group.
 ///
 /// A group is a [`super::TokenKind`] used as a delimiter as a separation.
+/// The representation of group tokens.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Group {
-  /// An open parenthesis i.e `(`.
+  /// An open parenthesis group — `(`.
   ParenOpen,
-  /// A close parenthesis i.e `)`.
+  /// A close parenthesis group — `)`.
   ParenClose,
-  /// An open brace i.e `{`.
+  /// An open brace group — `{`.
   BraceOpen,
-  /// A close brace i.e `}`.
+  /// A close brace group — `}`.
   BraceClose,
-  /// An open bracket i.e `[`.
+  /// An open bracket group — `[`.
   BracketOpen,
-  /// A close bracket i.e `]`.
+  /// A close bracket group — `]`.
   BracketClose,
 }
 
 impl From<char> for Group {
   #[inline]
-  fn from(group: char) -> Self {
-    match group as u8 {
-      b'(' => Self::ParenOpen,
-      b')' => Self::ParenClose,
-      b'{' => Self::BraceOpen,
-      b'}' => Self::BraceClose,
-      b'[' => Self::BracketOpen,
-      b']' => Self::BracketClose,
-      _ => unreachable!("{group}"),
+  fn from(ch: char) -> Self {
+    match ch {
+      '(' => Self::ParenOpen,
+      ')' => Self::ParenClose,
+      '{' => Self::BraceOpen,
+      '}' => Self::BraceClose,
+      '[' => Self::BracketOpen,
+      ']' => Self::BracketClose,
+      _ => unreachable!("{ch}"),
     }
   }
 }
