@@ -108,6 +108,8 @@ impl<'source> Tokenizer<'source> {
 
     tokens.push(Token::new(TokenKind::Eof, Span::of(len, len + 1)));
 
+    // println!("{tokens:?}");
+
     Ok(tokens)
   }
 
@@ -354,7 +356,7 @@ impl<'source> Tokenizer<'source> {
 
           //# num-bin-state.
           TokenizerState::Num(Num::Bin) => match ch {
-            c if is!(number_bin c) => {
+            c if is!(number_bin c) || is!(underscore c) => {
               self.cursor.next();
             }
             _ => {
@@ -366,7 +368,7 @@ impl<'source> Tokenizer<'source> {
 
           //# num-oct-state.
           TokenizerState::Num(Num::Oct) => match ch {
-            c if is!(number_oct c) => {
+            c if is!(number_oct c) || is!(underscore c) => {
               self.cursor.next();
             }
             _ => {
@@ -378,7 +380,7 @@ impl<'source> Tokenizer<'source> {
 
           //# num-hex-state.
           TokenizerState::Num(Num::Hex) => match ch {
-            c if is!(number_hex c) => {
+            c if is!(number_hex c) || is!(underscore c) => {
               self.cursor.next();
             }
             _ => {

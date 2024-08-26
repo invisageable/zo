@@ -9,6 +9,8 @@ use smol_str::{SmolStr, ToSmolStr};
 pub enum Backend {
   /// The `cranelift` backend.
   Clif,
+  /// The `llvm` backend.
+  Llvm,
   /// The `python` backend.
   Py,
   /// The `webassembly` backend.
@@ -29,6 +31,7 @@ impl std::fmt::Display for Backend {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Clif => write!(f, "clif"),
+      Self::Llvm => write!(f, "llvm"),
       Self::Py => write!(f, "py"),
       Self::Wasm => write!(f, "wasm"),
       Self::Zo => write!(f, "zo"),
@@ -44,6 +47,7 @@ impl ValueEnum for Backend {
   fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
     match self {
       Self::Clif => Some(PossibleValue::new("clif")),
+      Self::Llvm => Some(PossibleValue::new("llvm")),
       Self::Py => Some(PossibleValue::new("py")),
       Self::Wasm => Some(PossibleValue::new("wasm")),
       Self::Zo => Some(PossibleValue::new("zo")),

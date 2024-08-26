@@ -36,6 +36,7 @@ zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.0.0" }
 zo-ast = { path = "crates/compiler/zo-ast", version = "0.0.0" }
 zo-builder = { path = "crates/compiler/zo-builder", version = "0.0.0" }
 zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.0.0" }
+zo-codegen-llvm = { path = "crates/compiler/zo-codegen-llvm", version = "0.0.0" }
 zo-codegen-py = { path = "crates/compiler/zo-codegen-py", version = "0.0.0" }
 zo-codegen-wasm = { path = "crates/compiler/zo-codegen-wasm", version = "0.0.0" }
 zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.0.0" }
@@ -84,8 +85,12 @@ env_logger = "0.11.3"
 ffmpeg-next = "7.0.2"
 flume = "0.11.0"
 hashbrown = "0.14.5"
-html_parser = "0.7.0"
 image = { version = "0.25.1", features = ["jpeg", "png", "gif"] }
+
+inkwell = { git = "https://github.com/roc-lang/inkwell", branch = "inkwell-llvm-15", features = [
+  "llvm15-0",
+] }
+
 itoa = "1.0.11"
 Inflector = "0.11.4"
 lazy_static = "1.5.0"

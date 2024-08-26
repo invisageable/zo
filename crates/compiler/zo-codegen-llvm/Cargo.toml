@@ -1,5 +1,5 @@
 [package]
-name = "zo-codegen"
+name = "zo-codegen-llvm"
 version.workspace = true
 edition.workspace = true
 
@@ -9,11 +9,9 @@ swisskit = { workspace = true }
 
 # internal:crates.
 zo-ast = { workspace = true }
-zo-codegen-llvm = { workspace = true }
-zo-codegen-py = { workspace = true }
-zo-codegen-wasm = { workspace = true }
 zo-interner = { workspace = true }
 zo-reporter = { workspace = true }
 zo-session = { workspace = true }
 
 # external:crates.
+inkwell = { workspace = true }
