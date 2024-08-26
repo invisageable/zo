@@ -1,3 +1,7 @@
+mod doc;
+
+pub use doc::{pp, Doc};
+
 /// The representation of a separator.
 ///
 /// it takes a collection of `<T>`` and a separator.
