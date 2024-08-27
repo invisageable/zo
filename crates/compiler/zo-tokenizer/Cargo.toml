@@ -19,6 +19,9 @@ lazy_static = { workspace = true }
 smol_str = { workspace = true }
 thin-vec = { workspace = true }
 
+[dev-dependencies]
+zo-reader = { workspace = true }
+
 # [[bench]]
 # name = "tokenization"
 # harness = false

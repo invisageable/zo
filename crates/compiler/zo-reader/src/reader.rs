@@ -34,10 +34,7 @@ impl<'path> Reader<'path> {
   }
 
   /// Reads file from pathname.
-  fn read_file(
-    &self,
-    pathname: impl AsRef<std::ffi::OsStr>,
-  ) -> Result<Box<[u8]>> {
+  fn read_file(&self, pathname: impl AsRef<std::ffi::OsStr>) -> Result<String> {
     use std::io::Read;
 
     let pathname = std::path::Path::new(&pathname);
@@ -49,7 +46,7 @@ impl<'path> Reader<'path> {
       .read_to_string(&mut source_code)
       .map_err(error::internal::io)?;
 
-    Ok(source_code.as_bytes().into())
+    Ok(source_code)
   }
 
   /// Reads line.
@@ -99,7 +96,7 @@ pub fn read(
 ///
 /// reader::read_file(&mut session, "path/to/file");
 /// ```
-pub fn read_file(session: &mut Session) -> Result<Box<[u8]>> {
+pub fn read_file(session: &mut Session) -> Result<String> {
   Reader::new(&mut session.reporter).read_file(session.settings.input.as_str())
 }
 

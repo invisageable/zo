@@ -5649,6 +5649,7 @@ dependencies = [
  "swisskit",
  "thin-vec",
  "zo-interner",
+ "zo-reader",
  "zo-reporter",
  "zo-session",
 ]
