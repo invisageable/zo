@@ -8,7 +8,8 @@ edition.workspace = true
 swisskit = { workspace = true }
 
 # internal:crates.
-zo-ast = { workspace = true }
+# zo-ast = { workspace = true }
 
 # external:crates.
 gpui = { workspace = true }
+smallvec = { workspace = true }

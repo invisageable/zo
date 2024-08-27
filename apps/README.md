@@ -4,7 +4,7 @@
     
 ## [about](https://www.reddit.com/r/rust/comments/1c69mrj/do_you_think_egui_is_ready_for_real_industry).
 
-This is a programming EP, it contains native applications for MacOS (I do not have a Linux or WIndows laptop to tested it). All applications are build on the top of [egui](https://github.com/emilk/egui) and used [wgpu](https://github.com/gfx-rs/wgpu) under the hood.   
+This is a programming EP, it contains native applications for MacOS (I do not have a Linux or Windows laptop to tested it). All applications are build on the top of [egui](https://github.com/emilk/egui) and used [wgpu](https://github.com/gfx-rs/wgpu) under the hood.   
 
 **EP**
 

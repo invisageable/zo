@@ -9,6 +9,6 @@ A serie of compilers, all of them are standalone and does not know something abo
 ### members.
 
 - [compiler](./compiler) — A compiler for the `zo` programming language.
-- [documenter](./documenter) — A compiler for the `oz` documenting language.
+- [marker](./marker) — A compiler for the `oz` documenting language.
 
 *These compilers will be integrated into the [code editor](../apps/coder).*
