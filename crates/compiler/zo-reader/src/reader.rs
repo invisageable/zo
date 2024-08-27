@@ -56,16 +56,15 @@ impl<'path> Reader<'path> {
   fn read_line(&self) -> Result<String> {
     use std::io::Write;
 
-    let stdout = std::io::stdout();
+    let mut stdout = std::io::stdout();
     let stdin = std::io::stdin();
-    let mut input = String::with_capacity(0usize);
+    let mut line = String::with_capacity(0usize);
 
     stdout.lock().flush().map_err(error::internal::io)?;
-    print!("📡 ");
-    stdout.lock().flush().map_err(error::internal::io)?;
-    stdin.read_line(&mut input).map_err(error::internal::io)?;
+    write!(stdout, "📡 ").map_err(error::internal::io)?;
+    stdin.read_line(&mut line).map_err(error::internal::io)?;
 
-    Ok(input)
+    Ok(line)
   }
 }
 

@@ -28,14 +28,15 @@ A compiler of a compiler inside another giant compiler that is itself inside a g
 
 | name                          | description                        |
 | ----------------------------- | ---------------------------------- |
-| [swisskit](./crates/compiler) | A collection of shareable modules. |
+| [swisskit](./source/swisskit) | A collection of shareable modules. |
 
 **-crates**
 
-| name                    | description                                   |
-| ----------------------- | --------------------------------------------- |
-| [zo](./crates/compiler) | A compiler for the `zo` programming language. |
-| [zom](./crates/marker)  | A compiler for the `oz` markup language.      |
+| name                     | description                                   |
+| ------------------------ | --------------------------------------------- |
+| [zo](./crates/compiler)  | A compiler for the `zo` programming language. |
+| [zom](./crates/marker)   | A compiler for the `oz` markup language.      |
+| [zod](./crates/designer) | A designer for the `zo` programming language  |
 
 **-apps**
 
@@ -58,7 +59,7 @@ Stars, [donate](https://patreon.com/invisageable) or sponsors are welcoming.
 Thanks to:
 
 - [@ledruidd](https://github.com/ledruidd) Quaalude never ends.
-- [@SiegfriedEhret](https://github.com/SiegfriedEhret) to keep up to date with the latest US rap bangers.
+- [@SiegfriedEhret](https://github.com/SiegfriedEhret) to keep me up to date with the latest US rap bangers.
 - [@emilk](https://github.com/emilk) for all the work he did to bring `egui` into life.
 - [@zesterer](https://github.com/zesterer) `ariadne`, `flume`, `pollster` are so gaddamn good.
 - [@tamo](https://github.com/irevoire) for the great job done for `zearch`.

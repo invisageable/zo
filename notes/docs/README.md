@@ -34,8 +34,7 @@ Voilà, if everything has been done without any error. You can run the project y
 | crates | command               |
 | ------ | --------------------- |
 | zo     | `cargo run --bin zo`  |
-| zom    | `cargo run --bin zom` |
-| zow    | `cargo run --bin zow` |
+| zod    | `cargo run --bin zod` |
 
 | apps | command               |
 | ---- | --------------------- |
@@ -43,7 +42,7 @@ Voilà, if everything has been done without any error. You can run the project y
 | zoa  | `cargo run --bin zoa` |
 | zop  | `cargo run --bin zop` |
 
-*not — run also `cargo run --bin <project-name> --help` for more informations.*
+*note — run also `cargo run --bin <project-name> --help` for more informations.*
 
 **-release**
 
