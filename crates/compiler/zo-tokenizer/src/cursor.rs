@@ -60,7 +60,7 @@ impl<'source> Cursor<'source> {
     self
       .source
       .chars()
-      .clone()
+      // .clone()
       .nth(self.pos() - 1usize)
       .unwrap_or_default()
   }
@@ -71,7 +71,7 @@ impl<'source> Cursor<'source> {
     self
       .source
       .chars()
-      .clone()
+      // .clone()
       .nth(self.pos() + 1usize)
       .unwrap_or_default()
   }

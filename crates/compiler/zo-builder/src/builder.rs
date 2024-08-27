@@ -11,10 +11,11 @@ impl Builder {
   #[inline]
   fn build(&self, session: &mut Session, _bytecode: &[u8]) -> Result<Output> {
     match &session.settings.backend {
+      Backend::Llvm => Ok(Output::default()),
       Backend::Py => Ok(Output::default()),
       Backend::Wasm => Ok(Output::default()),
       backend => Err(error::internal::expected_backend(
-        vec![Backend::Py, Backend::Wasm],
+        vec![Backend::Llvm, Backend::Py, Backend::Wasm],
         *backend,
       )),
     }

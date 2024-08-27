@@ -26,6 +26,8 @@ impl<'a> Diagnostic<'a> for Llvm {
 pub enum Engine {
   /// An engine creation error.
   Creation(String),
+  /// An engine execution error.
+  Execution(String),
 }
 
 impl<'a> Diagnostic<'a> for Engine {
@@ -36,7 +38,16 @@ impl<'a> Diagnostic<'a> for Engine {
         kind: ReportKind::ERROR,
         message: format!(
           "{} {error}",
-          "create execution engine failed.".fg(color::title())
+          "creation engine failed.".fg(color::title())
+        )
+        .into(),
+        ..Default::default()
+      },
+      Self::Execution(error) => Report {
+        kind: ReportKind::ERROR,
+        message: format!(
+          "{} {error}",
+          "execution engine failed.".fg(color::title())
         )
         .into(),
         ..Default::default()
@@ -49,6 +60,14 @@ impl<'a> Diagnostic<'a> for Engine {
 #[inline(always)]
 pub fn engine(msg: impl ToString) -> Error {
   Error::Generate(Generate::Llvm(Llvm::Engine(Engine::Creation(
+    msg.to_string(),
+  ))))
+}
+
+/// An engine execution error.
+#[inline(always)]
+pub fn engine_execution(msg: impl ToString) -> Error {
+  Error::Generate(Generate::Llvm(Llvm::Engine(Engine::Execution(
     msg.to_string(),
   ))))
 }

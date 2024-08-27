@@ -24,6 +24,7 @@ use zo_session::session::Session;
 use zo_tokenizer::token::group::Group;
 use zo_tokenizer::token::kw::Kw;
 use zo_tokenizer::token::punctuation::Punctuation;
+use zo_tokenizer::token::tag::{Tag, TagKind};
 use zo_tokenizer::token::{Token, TokenKind};
 use zo_ty::ty::{FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, UintTy};
 
@@ -79,7 +80,7 @@ impl<'tokens> Parser<'tokens> {
 
   /// Checks end of file.
   #[inline(always)]
-  fn is_eof(&self) -> bool {
+  fn at_eof(&self) -> bool {
     self.ensure(TokenKind::Eof)
   }
 
@@ -173,7 +174,7 @@ impl<'tokens> Parser<'tokens> {
     self.next();
     self.next();
 
-    while !self.is_eof() {
+    while !self.at_eof() {
       match self.parse_stmt() {
         Ok(stmt) => ast.add_stmt(stmt),
         Err(error) => self.reporter.add_report(error),
@@ -494,7 +495,25 @@ impl<'tokens> Parser<'tokens> {
 
   /// Parses zsx template.
   fn parse_zsx(&mut self) -> Result<Expr> {
-    // self.ma
+    self
+      .maybe_token_current
+      .map(|token| match &token.kind {
+        TokenKind::ZsxTag(tag) => self.parse_zsx_tag(tag),
+        TokenKind::ZsxCharacter(ch) => self.parse_zsx_raw_text(*ch),
+        _ => todo!(),
+      })
+      .unwrap()
+  }
+
+  /// Parses zsx raw text template.
+  fn parse_zsx_tag(&mut self, tag: &Tag) -> Result<Expr> {
+    todo!()
+  }
+
+  /// Parses zsx raw text template.
+  fn parse_zsx_raw_text(&mut self, ch: char) -> Result<Expr> {
+    let mut buf = String::from(ch);
+
     todo!()
   }
 

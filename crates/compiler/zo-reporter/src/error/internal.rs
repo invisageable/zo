@@ -73,12 +73,12 @@ impl<'a> Diagnostic<'a> for Channel {
 /// An expected backend error.
 #[inline(always)]
 pub fn expected_backend(
-  events: Vec<impl Into<SmolStr>>,
-  event: impl Into<SmolStr>,
+  backends: Vec<impl Into<SmolStr>>,
+  backend: impl Into<SmolStr>,
 ) -> Error {
   Error::Internal(Internal::ExpectedBackend(
-    events.into_iter().map(|e| e.into()).collect(),
-    event.into(),
+    backends.into_iter().map(|e| e.into()).collect(),
+    backend.into(),
   ))
 }
 

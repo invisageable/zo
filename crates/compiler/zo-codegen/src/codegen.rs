@@ -16,7 +16,7 @@ impl Codegen {
       Backend::Llvm => llvm::codegen::generate(session, ast),
       Backend::Py => py::codegen::generate(session, ast),
       Backend::Wasm => wasm::codegen::generate(session, ast),
-      _ => panic!(),
+      _ => panic!(), // todo(ivs) — unsupported backend error message.
     }
   }
 }

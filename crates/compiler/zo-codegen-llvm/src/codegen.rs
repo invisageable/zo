@@ -20,8 +20,8 @@ impl Codegen {
 
     run_passes_on(&module);
 
-    let _engine = module
-      .create_execution_engine()
+    let engine = module
+      .create_jit_execution_engine(inkwell::OptimizationLevel::None)
       .map_err(error::generate::llvm::engine)?;
 
     let mut translator = Translator {
@@ -32,9 +32,19 @@ impl Codegen {
       reporter: &mut session.reporter,
     };
 
-    translator.translate(ast)?;
+    let _value = translator.translate(ast)?;
 
-    Ok(vec![].into_boxed_slice())
+    // let entry = engine
+    //   .get_function_value("main")
+    //   .map_err(error::generate::llvm::engine_execution)?;
+
+    // println!("Entry = {entry:?}");
+
+    let ir = translator.module.print_to_string();
+
+    println!("Content = {ir}");
+
+    Ok(ir.to_bytes().into())
   }
 }
 

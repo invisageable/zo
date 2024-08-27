@@ -22,8 +22,8 @@ impl<'a, 'ctx> Translator<'a, 'ctx> {
   /// Translates an AST.
   pub fn translate(&mut self, ast: &ast::Ast) -> Result<()> {
     for stmt in ast.iter() {
-      let res = self.translate_stmt(stmt)?;
-      println!("Res = {res}");
+      let value = self.translate_stmt(stmt)?;
+      println!("Value = {value}");
     }
 
     self.reporter.abort_if_has_errors();
