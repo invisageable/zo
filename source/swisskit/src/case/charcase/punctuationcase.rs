@@ -5,8 +5,8 @@
 /// ```
 /// use swisskit::case::charcase::punctuationcase;
 ///
-/// assert!(punctuationcase::is_punctuation(b','));
-/// assert!(!punctuationcase::is_punctuation(b'0'));
+/// assert!(punctuationcase::is_punctuation(','));
+/// assert!(!punctuationcase::is_punctuation('0'));
 /// ```
 #[inline(always)]
 pub const fn is_punctuation(ch: char) -> bool {
@@ -40,8 +40,8 @@ pub const fn is_punctuation(ch: char) -> bool {
 /// ```
 /// use swisskit::case::charcase::punctuationcase;
 ///
-/// assert!(punctuationcase::is_dot(b'.'));
-/// assert!(!punctuationcase::is_dot(b'0'));
+/// assert!(punctuationcase::is_dot('.'));
+/// assert!(!punctuationcase::is_dot('0'));
 /// ```
 #[inline(always)]
 pub const fn is_dot(ch: char) -> bool {

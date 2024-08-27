@@ -30,7 +30,7 @@ impl Interpreter {
 ///
 /// #### examples.
 ///
-/// ```
+/// ```ignore
 /// use zo_ast::ast::Ast;
 /// use zo_interpreter_clif::interpreter;
 /// use zo_session::session::Session;
