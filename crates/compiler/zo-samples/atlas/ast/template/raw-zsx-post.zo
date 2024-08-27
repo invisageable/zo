@@ -8,17 +8,5 @@ fun main() {
     </div>
   </form>;
 
-  mut name = "ivs";
-
-  imu bar ::= <button
-    .btn.primary
-    @get="contact/1"
-    :click={name = "world"}
-  >
-    hello, {name}!
-  </button>;
-
-  #dom foo
-    bar
-  ;
+  #dom foo;
 }

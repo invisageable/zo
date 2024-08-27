@@ -1,0 +1,13 @@
+fun main() {
+  mut name = "ivs";
+
+  imu bar ::= <button
+    .btn.primary
+    @get{name}="contact/1"
+    :click={name = "world"}
+  >
+    hello, {name}!
+  </button>;
+
+  #dom bar;
+}

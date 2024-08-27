@@ -1,17 +1,39 @@
-pub #css html body
+pub $: html body
   w: 100%
   h: 100%
 ;
 
-#css .btn
+$: .btn
   display: block
   background: #b2f5ea
   padding-left: 4px
   padding-right: 4px
 
-  css .btn:hover
-    background: #81e6d9
+  .btn:hover
+    background : #81e6d9
   ;
+;
+
+pub $:
+  .btn {
+    body: 100%;
+  }
+
+  .btn:hover {
+    body: 100%
+  }
+;
+
+$: .btn
+   display: block
+   background: #b2f5ea
+   padding-left: 4px
+   padding-right: 4px
+
+  :hover
+    background: #81e6d9
+
+  .btn d:block px:4px bg:#b2f5ea :hover bg: #81e6d9
 ;
 
 fun main() {
