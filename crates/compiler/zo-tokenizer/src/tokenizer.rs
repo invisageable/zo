@@ -63,6 +63,8 @@ struct Tokenizer<'source> {
   interner: &'source mut Interner,
   /// See [`Reporter`].
   reporter: &'source Reporter,
+  styling: std::cell::Cell<bool>,
+  cascading: std::cell::Cell<bool>,
 }
 
 impl<'source> Tokenizer<'source> {
@@ -98,6 +100,8 @@ impl<'source> Tokenizer<'source> {
       cursor: Cursor::new(source),
       interner,
       reporter,
+      styling: std::cell::Cell::new(false),
+      cascading: std::cell::Cell::new(false),
     }
   }
 
@@ -279,9 +283,55 @@ impl<'source> Tokenizer<'source> {
               }
               c if is!(ident_start c) => self.state.set(TokenizerState::Ident),
               c if is!(quote c) => self.state.set(TokenizerState::Quote),
+              '$' => {
+                self.cursor.next();
+                self.state.set(TokenizerState::ZssStart);
+              }
               _ => self.state.set(TokenizerState::Unknown),
             }
           }
+
+          //# style-start-state.
+          TokenizerState::ZssStart => match ch {
+            ':' => {
+              self.styling.set(true);
+              self.state.set(TokenizerState::Zss);
+            }
+            _ => {
+              panic!("wrong following symbol")
+            }
+          },
+
+          //# style-state.
+          TokenizerState::Zss => match ch {
+            ';' if !self.cascading.get() => {
+              self.styling.set(false);
+              self.cursor.next();
+              self.state.set(TokenizerState::ZssEnd)
+            }
+            '{' => {
+              self.cascading.set(true);
+              self.cursor.next();
+            }
+            '}' => {
+              self.cascading.set(false);
+              self.cursor.next();
+            }
+            _ => {
+              self.cursor.next();
+            }
+          },
+
+          //# style-end-state.
+          TokenizerState::ZssEnd => match ch {
+            c if c == '\n' => {
+              self.cursor.next();
+              self.state.set(TokenizerState::Zss);
+
+              return self.scan(pos);
+            }
+            c => panic!("should have a newline: {c:?}"),
+          },
 
           //# comment-line-state.
           TokenizerState::CommentLine => match ch {
@@ -1052,21 +1102,7 @@ impl<'source> Tokenizer<'source> {
 
   /// Scans a token.
   fn scan(&mut self, pos: usize) -> Option<Token> {
-    // todo(ivs) — does not work with emojis.
-    // let _scanned = String::from_utf8_lossy(
-    //   self.cursor.source()[pos..self.cursor.pos()].as_bytes(),
-    // );
-
-    // todo(ivs) — is it the best solution?
-    let scanned = self
-      .cursor
-      .source()
-      .chars()
-      .take(self.cursor.pos())
-      .skip(pos)
-      .map(|c| c.to_string())
-      .collect::<Vec<_>>()
-      .join("");
+    let scanned = &self.cursor.source()[pos..self.cursor.pos()];
 
     // println!(
     //   "\nSCAN => State = {:?} | Scanned = {:?} | Span = {:?}\n",
@@ -1079,7 +1115,7 @@ impl<'source> Tokenizer<'source> {
       TokenizerState::CommentLine => Some(TokenKind::Comment(Comment::Line)),
 
       TokenizerState::CommentLineDoc => {
-        Some(TokenKind::Comment(Comment::LineDoc(scanned)))
+        Some(TokenKind::Comment(Comment::LineDoc(scanned.into())))
       }
 
       TokenizerState::Num(Num::Int) => {
@@ -1116,7 +1152,7 @@ impl<'source> Tokenizer<'source> {
       }
 
       TokenizerState::Punctuation => {
-        Some(TokenKind::Punctuation(Punctuation::from(scanned.as_str())))
+        Some(TokenKind::Punctuation(Punctuation::from(scanned)))
       }
 
       TokenizerState::Group => {
@@ -1150,6 +1186,8 @@ impl<'source> Tokenizer<'source> {
 
         Some(TokenKind::Str(sym))
       }
+
+      TokenizerState::Zss => Some(TokenKind::Zss(scanned.into())),
 
       TokenizerState::ZsxComment => {
         let comment = std::mem::take(&mut *self.comment_current.borrow_mut());

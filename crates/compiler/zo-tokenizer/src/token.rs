@@ -101,6 +101,8 @@ pub enum TokenKind {
   /// A string token kind.
   Str(Symbol),
 
+  Zss(String),
+
   // --- START:MODE:TEMPLATE.
   ///
   /// A zsx's comment token kind.
@@ -386,6 +388,10 @@ impl std::fmt::Display for TokenKind {
       Self::Char(c) => write!(f, "{c}"),
       Self::Str(s) => write!(f, "{s}"),
       // --- MODE:PROGRAM:END. ---
+
+      //
+      Self::Zss(style) => write!(f, "{style}"),
+      //
 
       // --- MODE:TEMPLATE:START. ---
       Self::ZsxComment(comment) => write!(f, "{comment}"),

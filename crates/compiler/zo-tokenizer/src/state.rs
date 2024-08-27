@@ -34,6 +34,12 @@ pub enum TokenizerState {
   /// A unicode state.
   Unicode(In),
 
+  // --- STYLE. ---
+  ZssStart,
+  Zss,
+  ZssEnd,
+  // --- STYLE. ---
+
   // --- MODE:TEMPLATE:START. ---
   ///
   /// An initial state for zsx templating langage.
