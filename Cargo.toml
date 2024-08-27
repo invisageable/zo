@@ -91,6 +91,7 @@ egui_tiles = "0.9.0"
 env_logger = "0.11.3"
 ffmpeg-next = "7.0.2"
 flume = "0.11.0"
+gpui = { git = "https://github.com/zed-industries/zed" }
 hashbrown = "0.14.5"
 image = { version = "0.25.1", features = ["jpeg", "png", "gif"] }
 
@@ -113,6 +114,7 @@ ropey = "1.6.1"
 ryu = "1.0.18"
 serde = "1.0.203"
 similar = "2.5.0"
+smallvec = "1.13.2"
 smol = "2.0.0"
 smol_str = "0.2.2"
 sysinfo = "0.30.12"
