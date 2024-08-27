@@ -95,6 +95,7 @@ impl Reporter {
       Error::Lexical(diagnostic) => diagnostic.report(),
       Error::Syntax(diagnostic) => diagnostic.report(),
       Error::Semantic(diagnostic) => diagnostic.report(),
+      Error::Generate(diagnostic) => diagnostic.report(),
       Error::Eval(diagnostic) => diagnostic.report(),
     };
 

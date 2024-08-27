@@ -1,4 +1,5 @@
 pub mod eval;
+pub mod generate;
 pub mod internal;
 pub mod lexical;
 pub mod semantic;
@@ -36,6 +37,8 @@ pub enum Error {
   Syntax(syntax::Syntax),
   /// An error used by the analyzer during the semantic analysis.
   Semantic(semantic::Semantic),
+  /// An error used by the codegen during translation.
+  Generate(generate::Generate),
   /// An error used by the interpreter during the evaluation.
   Eval(eval::Eval),
 }
@@ -53,6 +56,7 @@ impl Error {
       Self::Lexical(_) => 1,
       Self::Syntax(_) => 2,
       Self::Semantic(_) => 3,
+      Self::Generate(_) => 4,
       Self::Eval(_) => 5,
     }
   }

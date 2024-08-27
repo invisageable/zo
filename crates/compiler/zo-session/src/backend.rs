@@ -41,7 +41,7 @@ impl std::fmt::Display for Backend {
 
 impl ValueEnum for Backend {
   fn value_variants<'a>() -> &'a [Self] {
-    &[Self::Clif, Self::Py, Self::Wasm, Self::Zo]
+    &[Self::Clif, Self::Llvm, Self::Py, Self::Wasm, Self::Zo]
   }
 
   fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
