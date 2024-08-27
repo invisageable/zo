@@ -1,6 +1,6 @@
 # zo.
 
-> *Codify human thoughts into energy-efficient, sane and reliable cross-platform software 🧠*
+> *Codify human thoughts into energy-efficient, sane and reliable cross-platform software.*
 
 ## about.
 
