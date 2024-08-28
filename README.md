@@ -20,9 +20,11 @@ You should come back in ten years. Stay tuned.
 
 ## [about](https://youtu.be/GJfsbhJY8gk?feature=shared&t=196).
 
-A compiler of a compiler inside another giant compiler that is itself inside a gigantic compiler.  
+A compiler of a compiler inside another giant compiler that is itself inside a gigantic compiler. The aim of the project is to create a modulable, easy-to-use and green cross-platform tooling ecosystem.
 
 ## ecosystem.
+
+> A cross-platform tooling ecosystem to codify your creative thoughts into robust and green softwares.
 
 **-sources**
 

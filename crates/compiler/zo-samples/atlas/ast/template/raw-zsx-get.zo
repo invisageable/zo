@@ -1,5 +1,5 @@
 fun main() {
-  mut name = "ivs";
+  mut name: str = "ivs";
 
   imu bar ::= <button
     .btn.primary
