@@ -6,15 +6,74 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>zo.</title>
   <style>
+    /* @font-face {
+      font-family: iosevka;
+      font-weight: normal;
+      src: url('assets/font-iosevka-regular.ttf') format('TTF');
+    }
+
+    textarea {
+      font-family: iosevka;
+    } */
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: black;
+      color: white;
+      overflow-x: hidden;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    body {
+      padding: 15px;
+    }
+
+    pre {
+      margin: 0;
+      /* white-space: no-wrap; */
+    }
+
+    section {
+      margin: 40px 0;
+    }
+
+    .fs-xl {
+      font-size: 48px;
+    }
+
+    .heading-1 {
+      margin: 0;
+    }
+
+    .int {
+      color: palegoldenrod;
+    }
+
+    .float {
+      color: palegoldenrod;
+    }
+
     .punc {
       color: yellow;
+    }
+
+    .id {
+      color: greenyellow;
     }
 
     .kw {
       color: purple;
     }
 
-    .id {
+    .ch {
       color: greenyellow;
     }
 
@@ -27,112 +86,138 @@
 <body>
   <header class="header">
     <nav class="navbar">
-      <h1>
-        <a href="/">zo.</a>
-        <span>
-          — The symphonie of compilers.
-        </span>
-      </h1>
-      <p class="mantra">JOiN THE DEVOLUTiON</p>
-      <ul class="menu">
+      <center>
+        <h1 class="heading-1">
+          <a href="/">zo</a>
+        </h1>
+        <p class="mantra">THE SYMPHONiE OF COMPiLERS.</p>
+      </center>
+      <!-- <ul class="menu">
         <li class="menu-item">Docs</li>
-      </ul>
+      </ul> -->
     </nav>
   </header>
 
   <main class="main">
     <section class="hero">
-      <p class="pitch-slogan">
-        Codify human thoughts into energy-efficient, sane and reliable cross-platform software.
-      </p>
+      <center>
+        <p class="pitch-slogan" style="max-width: 800px; font-size: 48px;">
+          CODiFY HUMAN THOUGHTS iNTO ENERGY-EFFiCiENT, SANE AND RELiABLE CROSS-PLATFORM SOFTWARE.
+        </p>
+        <a class="btn btn-getting-started" href="/get-started">
+          Get Started
+        </a>
+      </center>
     </section>
 
     <section class="gondola">
-      <p class="pitch-resume">
-        zo is tiny, simple, fast and elegant for creating meticulously optimized software.
-        zo is focusing on creativity, wasm and performance.
-        zo is the turfu of the future.
-      </p>
-      <div>
-        <pre class="editor" role="presentation" aria-roledescription="a code editor view for an `hello, world!`
-          program" data-edit="no">
-          <span class="kw">fun</span> <span class="id">main</span>() {
-            println(<span class="str">"hello, world!"</span>);
-          }
-        </pre>
+      <div style="margin-right: 20px; display: flex; align-items: center; justify-content: center;">
+        <pre class="editor" role="presentation" aria-roledescription="A code editor view for an `hello, world!`
+            program" data-edit="no">
+  <span class="kw">fun</span> <span class="id">main</span>() {
+    println(<span class="str">"hello, world!"</span>);
+  }
+          </pre>
       </div>
+      <p class="pitch-resume">
+        At zo, we are dedicated to enhancing the developer experience, making it seamless to build software that
+        reflects your creativity. We focus on the details that matter, opening new dimensions in the software
+        world where transforming your thoughts into programs is not just easy, but enjoyable. zo is designed to be tiny,
+        simple, and elegant, enabling you to create optimized applications with precision and without friction.
+        Programming should always be fun, and with zo, it is.
+      </p>
     </section>
 
     <section class="warning">
-      <p>zo is under development so it is no stable yet. You should come back in ten years OR joining the waitlist to
-        be
-        informed about improvements, beta version and news.</p>
+      <p>
+        Please note that zo is still in development and not yet stable. You should come back in ten years, OR join the
+        waitlist to stay updated on improvements, releases, and news.</p>
       <center>
         <div>
-          <input class="input" type="text" name="waitlist" id="" placeholder="enter your email..."
+          <input class="input" type="text" name="input-waitlist" id="inputWaitlist" placeholder="enter your email..."
             aria-placeholder="enter your email..." aria-label="enter your email...">
-          <input class="btn btn-input" role="button" name="btn-waitlist" type="submit" value="JOiN THE DEVOLUTiON">
+          <input id="btnWaitlist" class="btn btn-input" role="button" name="btn-waitlist" type="submit"
+            value="JOiN THE DEVOLUTiON">
         </div>
-        <p>We'll never share your email with anyone else.</p>
+        <p class="" style="font-size: 10px;">Your email is safe with us—we'll never share it with anyone.</p>
       </center>
     </section>
 
     <section class="feature">
-      <h2>8 features to highlight the power of zo.</h2>
+      <center>
+        <h2 class="heading-2">6 features to highlight the power of zo.</h2>
+      </center>
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>1.</span> zo syntax extension — zsx.</h3>
-          <p class="feature-description">zo included his own templating language inspired by E4X. it brings to you a
-            meticulous way to build graphical user interface.</p>
+          <h3 class="heading-3"><span>1.</span> zo Syntax Extension — zSX.</h3>
+          <p class="feature-description">
+            Building dynamic apps often requires templating, a common alternative to static development. zo includes its
+            own templating language, inspired by <a href="https://en.wikipedia.org/wiki/ECMAScript_for_XML">E4X</a>
+            called zSX,
+            offering an intuitive way to create graphical user interfaces
+            effortlessly.</p>
         </div>
         <div>
-          <pre class="editor" data-edit="no">
-              fun main() {  
-                imu hey ::= &lt;h1&gt;hey!&lt;/h1&gt;;
-                imu zsx ::= &lt;&gt;{hey}&lt;/&gt;;
-              
-                #dom zsx;
-              }
-            </pre>
-          <div></div>
+          <div style="display: flex;">
+            <div class="ed-gutters">
+              <pre id="ed-numlines" class="ed-numlines" style="padding-right: 10px;"></pre>
+            </div>
+            <pre id="ed-view-1" class="ed-view" data-edit="no">
+              <code>
+fun main() {  
+  imu hey ::= &lt;h1&gt;hey!&lt;/h1&gt;;
+  imu zsx ::= &lt;&gt;{hey}&lt;/&gt;;
+
+  #dom zsx;
+}
+</code></pre>
+          </div>
         </div>
       </div>
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>2.</span> zo style sheets — zss.</h3>
-          <p class="feature-description">_</p>
+          <h3 class="heading-3"><span>2.</span> zo Style Sheets — zSS.</h3>
+          <p class="feature-description">
+            Designing apps across different platforms — whether mobile, native, or web — usually requires switching
+            between various approaches or using multiple UI libraries. What if we standardized the process? That's our
+            mantra. We created zSS, a fast CSS preprocessor that supports mainstream syntaxes and generates optimized
+            CSS. zSS is easy to learn and offers convenient syntactic sugar. Check out our <a
+              href="/syntax-tricks">Syntax Tricks</a> for more details.</p>
         </div>
         <div>
           <pre>
-            $: .btn
-              display: block
-              background: #b2f5ea
-              padding-left: 4px
-              padding-right: 4px
+$: .btn
+  display: block
+  background: #b2f5ea
+  padding-left: 4px
+  padding-right: 4px
 
-              :hover
-                background: #81e6d9
-            ;
-          </pre>
+  :hover
+    background: #81e6d9
+;</pre>
         </div>
       </div>
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>3.</span> new dom api.</h3>
-          <p class="feature-description">zo DOM is one of the best feature combine with zsx.</p>
+          <h3 class="heading-3"><span>3.</span> Smart DOM API.</h3>
+          <p class="feature-description">
+            In the web world, we use the Document Object Model (DOM) API to manipulate elements on a page, but in native
+            development, there's no DOM. zo provides a universal DOM API usable on both platforms. Combined with zSX,
+            this feature allows you to develop GUIs as quickly as possible.
+          </p>
         </div>
         <div>
           <pre>
-            <span class="kw">fun</span> <span class="id">main</span>() {
-              <span class="kw">imu</span> p := #dom.<span class="id">select</span>(<span class="str">"p"</span>)
-                .<span class="id">add</span>(<span class="str">"div"</span>)
-                .<span class="id">with_class</span>(<span class="str">"widget"</span>);
-  
-              #dom p;
-            }
-          </pre>
+            <code>
+<span class="kw">fun</span> <span class="id">main</span>() {
+  <span class="kw">imu</span> p := #dom.<span class="id">select</span>(<span class="str">"p"</span>)
+    .<span class="id">add</span>(<span class="str">"div"</span>)
+    .<span class="id">with_class</span>(<span class="str">"widget"</span>);
+
+  #dom p;
+}</pre></code>
           <div class="control">
             <span class="btn-run">▶</span>
           </div>
@@ -141,130 +226,179 @@
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>4.</span> user-friendly error messages.</h3>
-          <p class="feature-description">zo is your buddy, not your copilot or whatever. It gives you precise feedback
-            about what's wrong in your code. helping, noticing and localizing the problem to you.</p>
+          <h3 class="heading-3"><span>4.</span> User-friendly Error Messages.</h3>
+          <p class="feature-description">Dealing with errors is a daily part of a programmer's journey, and many
+            languages fail at this stage. zo is different — it's not just a tool, it's your buddy. Our advanced type
+            inference system catches those tricky edge cases early, ensuring your code runs smoothly. And when something
+            seems off, Zo provides clear, and rich diagnostics to help you understand what's wrong with your code. The
+            graphical error display is designed with accessibility in mind, ensuring visibility for everyone, including
+            those with color blindness. The zo compiler is your first ally. you can focus on building, knowing that
+            potential issues are handled before they even arise.
+          </p>
+        </div>
+        <div>
+          <div style="
+            overflow: auto;
+            white-space: nowrap;">
+            <pre>
+   [0001] error: invalid character.
+   ╭─[src/main.zo:2:1]
+   │
+ 2 │ §
+   │ │ 
+   │ ╰─ this character does not ring a bell.: `§`
+   │ 
+   │ Help: 👉 please go read the doc: <doc-link>
+   │ 
+   │ Note: 🤖 bruh! what language are you speaking to me in? speeks zo.
+───╯
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-item">
+        <div>
+          <h3 class="heading-3"><span>5.</span> WebAssembly Everywhere.</h3>
+          <p class="feature-description">WebAssembly (WASM) is a powerful language designed to enhance web performance
+            and provide a safe way to interact with the web. But WASM goes beyond the web — it's a low-level, embeddable
+            environment that can be used everywhere. zo is a first-class WASM language, meaning its entire ecosystem is
+            built around it. The goal is to create an Erlang-inspired runtime in WASM.</p>
         </div>
         <div>
           <pre>
-            [0001] error: invalid character.
-                ╭─[main.zo:28:1]
-                │
-             28 │ §
-                │ │ 
-                │ ╰─ this character does not ring a bell.: `§`
-                │ 
-                │ Help: 👉 please go read the doc: &lt;doc-link&gt;
-                │ 
-                │ Note: 🤖 bruh! what language are you speaking to me in? speaks zo.
-            ────╯
+wasm fun main() {
+  -- welcome to the WASM world.
+}
           </pre>
         </div>
       </div>
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>5.</span> wasm everywhere.</h3>
-          <p class="feature-description">zo is a first-class wasm langage. the whole ecosystem is based on wasm. You go
-            now going to the web with more confident.</p>
+          <h3 class="heading-3"><span>6.</span> Syntactic Expressiveness.</h3>
+          <p class="feature-description">
+            Syntax is a key part of semantics, as Robert Virding said — « <a
+              href="https://www.youtube.com/watch?v=afLRmoSOnHA">semantic is king</a> ». Many programming languages
+            overlook how syntax can enhance readability and convey powerful information. zo’s syntax is compact and
+            optimized for relevance and efficiency. Each symbol has a clear role, making it ideal for one-liners and
+            code golf. See <a href="/syntax-tricks" target="_blank">Syntax Tricks</a> to discover the secret sauce.</p>
         </div>
         <div>
           <pre>
-            -- go to the safe web.
-            wasm fun main() {}
+fun main() {
+  imu f := fn(x) -> when x <= 1
+    ? 1
+    : x * f(x - 1);
+
+  println("{}", f(20));
+}
           </pre>
         </div>
       </div>
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>6.</span> expressiveness.</h3>
-          <p class="feature-description">zo syntax is optimized to be relevant and efficient. A symbol do one thing
-            only.</p>
+          <h3 class="heading-3"><span>7.</span> LiveView.</h3>
+          <p class="feature-description">LiveView is an old technology that became more popular today. It's a clever way
+            to writes apps that interacts like Ping Pong between a server and a user interface.
+
+            Clearly, zo follow that road, in a manner to re-render only the thing that need to be updated without
+            reloading the whole page. The less your reload, the best it is.
+          </p>
         </div>
         <div>
           <pre>
-            fun main() {
-              imu f := fn(x) -> when x <= 1
-                ? 1
-                : x * f(x - 1);
+fun main() {
+  mut name: str = "ivs";
 
-              println("{}", f(20));
-            }
+  imu bar ::= &lt;button
+    .btn.primary
+    @get{name}="contact/1"
+    :click={name = "world"}
+  &gt;
+    hello, {name}!
+  &lt;/button&gt;;
+
+  #dom bar;
+}            
           </pre>
         </div>
       </div>
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>7.</span> liveview.</h3>
-          <p class="feature-description">_</p>
+          <h3 class="heading-3"><span>8.</span> Metaprogramming.</h3>
+          <p class="feature-description">The concept behind the metaprogramming technique is to treat other programs as
+            their data. As a versatile element, zo allows you a fine-grain control on the behavior of your program to
+            fine tuned compilation time to read, generate, analyse, or transform other programs, and even modify itself
+            while executing a piece of code at compile-time.</p>
         </div>
         <div>
           <pre>
-            fun main() {
-              mut name: str = "ivs";
-            
-              imu bar ::= &lt;button
-                .btn.primary
-                @get{name}="contact/1"
-                :click={name = "world"}
-              &gt;
-                hello, {name}!
-              &lt;/button&gt;;
-            
-              #dom bar;
-            }            
+fun foobar() {
+  println("running at compile-time.");
+}
+
+fun main() {
+  #run foobar();
+}
           </pre>
         </div>
       </div>
 
-      <div class="feature-item">
-        <div>
-          <h3 class="heading-3"><span>8.</span> meta-programming.</h3>
-          <p class="feature-description">zo is versatile, you-re able to get fine-grain control of the behavior of your
-            program to fine tuned
-            compilation time by running piece of code at compile
-            time.</p>
-        </div>
-        <div>
-          <pre>
-            fun foobar() {
-              println("i'm running at compile time.");
-            }
-
-            fun main() {
-              #run foobar();
-            }
-          </pre>
-        </div>
-      </div>
+      <p>
+        Voilà, that's it. Those features hightlights a few part of the zo ecosystem. There are also a bunch of stuff
+        including such as Bidirectional TypeChecking, Borrow Checker, text editor OS-like, FFI, package manager,
+        formatter, highlighter, REPL and also an UI framework.
+      </p>
     </section>
 
     <section class="try-it">
-      <h3>try zo</h3>
-      <p>A real-time interactive interpreter.</p>
+      <center>
+        <h2 class="heading-2">Are You <a href="https://www.youtube.com/watch?v=cTGQrA5HHIU" target="_blank">With
+            That</a>?
+          Just Try It.
+        </h2>
+      </center>
 
-      <div>
-        <div class="editor" role="presentation" aria-roledescription="interactive read-eval-print-loop">
-          <pre class="editor-view">
-            <p class="intro">enter an expression</p>
-            <div class="editor-view-content"></div>
-          </pre>
-          <div class="editor-repl" style="display: flex;">
-            <div class="editor-repl-prompt" role="presentation">»</div>
-            <textarea class="editor-repl-input" name="" placeholder="enter some zo code here." rows="1"></textarea>
+      <div style="display: flex; position: relative;">
+        <div class="embedded-compiler" style="margin-right: 20px; padding: 8px; border: 1px solid white;">
+          <div class="embedded-compiler-header" role="presentation"
+            aria-roledescription="An real-time compiler sandbox">
+            <pre class="editor-view" style="white-space: normal; margin: 0;">
+              <code>
+                <p class="intro" style="margin: 0; padding: 0;">Play with me by entering an instructions.</p>
+                <div id="embedded-compiler-output" class="embedded-compiler-output"></div>
+              </code>
+            </pre>
           </div>
-          <div class="editor-stats">
-            <span class="cursor-stats">1:1</span>
+          <div class="embedded-compiler-footer">
+            <div style="display: flex; align-items: center; position: relative;">
+              <div id="embedded-compiler-prompt" class="embedded-compiler-prompt"
+                style="left: 4px; position: absolute;">»</div>
+              <textarea id="embedded-compiler-input" name="embedded-compiler-input" cols="30" rows="1"
+                placeholder="Enter the 6 * 7 answer..." aria-placeholder="Enter the 6 * 7 answer..."
+                aria-label="Enter the 6 * 7 answer..."
+                style="background: black; color: white; border: none; padding: 0 20px; border: 1px solid transparent; resize: none;"></textarea>
+              <div class="embedded-compiler-stats"
+                style="right: 4px; position: absolute; display: flex; justify-content: end;">
+                <span>1</span>:<span>1</span>
+              </div>
+            </div>
+
           </div>
+
         </div>
-      </div>
 
-      <div>
-        You can give a chance to zo by playing with the langage.
-        <kbd>Shift+Enter</kbd>
-        try entering <code>6 * 7</code>
+        <div style="margin-left: 20px;">
+          <p>This is a real-time zo compiler sandbox. It is interactive, that mean, you can write instructions
+            to play directly with the langage.</p>
+
+          <p>Use <kbd>Shift+Enter</kbd> to add a newline.</p>
+
+          <p></p>
+        </div>
       </div>
     </section>
 
@@ -272,33 +406,143 @@
 
     </section>
 
-    <!-- <section class="community gang-members">
-      <h2 class="heading-2">gang members</h2>
-      <p>As a member of the community, we </p>
-    </section> -->
-
     <section class="sponsors">
-      <p>zo development can be supported via <a href="">github sponsors</a> and <a>patreon</a></p>
-      <p class="sponsors-thanks">thank you to all our generous supporters, including:</p>
-      <div class="sponsors-companies">
-        <!-- logo companies -->
-      </div>
+      <center>
+        <h2 class="heading-2 fs-xl">Sponsors</h2>
+        <p>We are grateful to everyone who brings us closer to our ambitions.</p>
+        <div class="sponsors-companies">
+          <!-- companies logo. -->
+        </div>
+        <!-- <div class="sponsors-thanks">
+          <p>Thank you to all our generous supporters, including:</p>
+          <p></p> -->
+        </div>
+        <div>
+          <p>zo development can be supported via <a href="">Github Sponsors</a> and <a href="">Patreon</a>.</p>
+        </div>
+      </center>
     </section>
   </main>
 
   <br>
 
-  <footer class="footer">
-    <h3>reachout</h3>
-    <a href="">the [at] compilords [dot] house</a>
-    <div class="copyright">
-      Compilords© 2024
-      All rights reserved.
-    </div>
-    <div class="socials">
-      <a href="https://github.com/invisageable/zo">github</a>
+  <footer class="footer" style="padding: 40px 0;">
+    <center>
+      <h2 class="heading-2 fs-xl">reachout</h2>
+      <a href="">the [at] compilords [dot] house</a>
+    </center>
+    <div style="display: flex;">
+      <div class="copyright" style="margin-right: auto;">
+        <p>
+          Compilords© 2024
+        </p>
+        <p>
+          All rights reserved.
+        </p>
+      </div>
+      <div class="socials" style="margin-left: auto;">
+        <a href="https://github.com/invisageable/zo">github</a>
+      </div>
     </div>
   </footer>
 </body>
+
+<script>
+  function fmtzoPat(str) {
+    const pat = /zo/ig;
+    return str.match(pat) ? str.replace(new RegExp(pat), "zo") : str;
+  }
+
+  function fmtzXSPat(str) {
+    const pat = /zsx/ig;
+    return str.match(pat) ? str.replace(new RegExp(pat), "zSX") : str;
+  }
+
+  function fmtzSSPat(str) {
+    const pat = /zss/ig;
+    return str.match(pat) ? str.replace(new RegExp(pat), "zSS") : str;
+  }
+
+  function replacePat(str, pat) {
+    let pattern = "";
+    let replace = "";
+
+    switch (pat) {
+      case "zo":
+        pattern = 'zo';
+        replace = 'zo';
+        break;
+      case "zss":
+        pattern = 'zss';
+        replace = 'zSS';
+        break;
+      case "zsx":
+        pattern = 'zsx';
+        replace = 'zSX';
+        break;
+      default:
+        return str;
+    }
+
+    return str.replace(new RegExp(pattern), replace);
+  }
+
+  // Converts a string into an formatted SCREAMiNG CASE.
+  function processScreamingCase(str) {
+    return str
+      .toUpperCase()
+      .split("")
+      .map((l) => l === "I" ? "i" : l).join("");
+  }
+
+  // Formats the content from a list of elements to SCREAMiNG CASE.
+  function toScreamingCase(elmts, str) {
+    for (let i = 0; i < elmts.length; i++) {
+      const elmt = elmts[i];
+
+      elmt.innerHTML = fmtzoPat(fmtzXSPat(fmtzSSPat(
+        processScreamingCase(elmt.innerHTML))));
+    }
+  }
+
+  // Converts the content from a list of elements to lower case.
+  function toLowerCase(elmts, str) {
+    for (let i = 0; i < elmts.length; i++) {
+      const elmt = elmts[i];
+
+      elmt.innerHTML = elmt.innerHTML.toLowerCase();
+    }
+  }
+
+  // Gets the number of lines of a editor view.
+  function numlines() {
+    const eds = document.querySelector("#ed-view-1");
+    return eds.innerHTML.split("\n").length;
+  }
+
+  /// Adds the number lines to their dedicated place.
+  function addNumlines(numlines) {
+    const edGutters = document.querySelector("#ed-numlines");
+
+    for (let idx = 0; idx < numlines; idx++) {
+      edGutters.innerHTML += `${idx}\n`;
+    }
+  }
+
+  function main() {
+    const paragraphs = document.querySelectorAll("p");
+    toScreamingCase(paragraphs);
+
+    const h2s = document.querySelectorAll(".heading-2");
+    toScreamingCase(h2s);
+
+    const anchors = document.querySelectorAll("a");
+    toLowerCase(anchors);
+
+    addNumlines(numlines());
+  }
+
+  window.addEventListener("DOMContentLoaded", main);
+</script>
 
 </html>

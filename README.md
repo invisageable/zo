@@ -12,11 +12,11 @@
 
 ## warning.
 
-**NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**
+**WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP.**
 
 You should come back in ten years. Stay tuned.
 
-**NOT READY TO BE USED | NOT READY TO BE USED | NOT READY TO BE USED.**   
+**WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP.**  
 
 ## [about](https://youtu.be/GJfsbhJY8gk?feature=shared&t=196).
 
@@ -52,9 +52,9 @@ A compiler of a compiler inside another giant compiler that is itself inside a g
 
 Feel free to open an issue if you want contribute or join the [discord](https://discord.gg/JaNc4Nk5xw). Also you can contact me at the [at] compilords [dot] house.
 
-## supports.
+## sponsors.
 
-Stars, [donate](https://patreon.com/invisageable) or sponsors are welcoming.
+Stars, [donation](https://patreon.com/invisageable) and sponsors are welcoming. Spread the word e-ve-ry-where.
 
 ## credits.
 
