@@ -10,4 +10,10 @@ swisskit = { workspace = true }
 # internal:crates.
 
 # external:crates.
+flume = { workspace = true }
+hashbrown = { workspace = true }
+kanal = { workspace = true }
+lazy_static = { workspace = true }
 smol = { workspace = true }
+tokio = { workspace = true }
+wasmtime = { workspace = true, features = ["async"] }

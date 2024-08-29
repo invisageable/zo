@@ -108,6 +108,7 @@ inkwell = { git = "https://github.com/roc-lang/inkwell", branch = "inkwell-llvm-
   "llvm15-0",
 ] }
 
+kanal = "0.1.0-pre8"
 itoa = "1.0.11"
 Inflector = "0.11.4"
 lazy_static = "1.5.0"
@@ -127,12 +128,13 @@ smallvec = "1.13.2"
 smol = "2.0.0"
 smol_str = "0.2.2"
 sysinfo = "0.30.12"
+tokio = { version = "1.39.3", features = ["full"] }
 toml = "0.8.15"
 thin-vec = "0.2.13"
 # issue open — https://github.com/abey79/vsvg/issues/146.
 vsvg-viewer = "0.4.0"
 walkdir = "2.5.0"
-wasmtime = "24.0.0"
+wasmtime = { version = "24.0.0", features = ["async"] }
 wat = "1.212.0"
 zearch = { git = "https://github.com/u-search/u-search" }
 
