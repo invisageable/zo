@@ -1,159 +1,154 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-// use tokio::sync::mpsc::{self, Receiver, Sender};
-use wasmtime::*;
+use core::panic;
 
-use kanal::{AsyncSender, Receiver, Sender};
+// use flume::{Receiver, Sender};
+use hashbrown::{hash_map::Entry, HashMap};
+use kanal::{AsyncReceiver, AsyncSender, Receiver, Sender};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Message {
   Text(String),
+  Fail,
   Exit,
 }
 
 #[derive(Debug)]
 pub struct Process {
   pub id: PID,
-  pub sender: AsyncSender<Message>,
+  pub sender: Sender<Message>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct PID(pub usize);
 
-struct MyState {
-  pub name: String,
-  pub count: usize,
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct ProcessState {
+  pub retry_count: usize,
+  pub last_failure: Option<tokio::time::Instant>,
 }
 
-struct Runtime<'conf> {
-  processes: Arc<Mutex<HashMap<PID, Process>>>,
-  config: &'conf mut Config,
+#[derive(Debug)]
+pub struct Scheduler {
+  pub processes: std::sync::Arc<tokio::sync::Mutex<HashMap<PID, ProcessState>>>,
 }
 
-impl<'conf> Runtime<'conf> {
-  pub fn new(config: &'conf mut Config) -> Self {
+impl Scheduler {
+  fn new() -> Self {
     Self {
-      processes: Arc::new(Mutex::new(HashMap::new())),
-      config,
+      processes: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     }
   }
+}
 
-  pub async fn new_async(config: &'conf mut Config) -> Self {
-    Self {
-      processes: Arc::new(Mutex::new(HashMap::new())),
-      config,
-    }
-  }
+impl Scheduler {
+  const MAX_RETRIES: usize = 3;
 
-  async fn spawn(&mut self, wat: &str) -> PID {
-    let (tx, rx) = kanal::unbounded_async();
-    let processes = Arc::clone(&self.processes);
-    let engine = Engine::new(&self.config).unwrap();
-
-    let pid = {
-      let mut processes_guard = processes.lock().unwrap();
-      let pid = PID(processes_guard.len() + 1);
-
-      processes_guard.insert(
-        pid,
-        Process {
-          id: pid,
-          sender: tx.clone(),
-        },
-      );
-
-      pid
-    };
-
-    let wat = wat.to_owned();
+  async fn run_process(&self, pid: PID, rx: AsyncReceiver<Message>) {
+    let processes = self.processes.clone();
 
     tokio::spawn(async move {
-      let mut store = Store::new(
-        &engine,
-        MyState {
-          name: "hello, world!".to_string(),
-          count: 0,
-        },
-      );
+      let mut interval =
+        tokio::time::interval(tokio::time::Duration::from_secs(1));
 
-      let module = Module::new(&store.engine(), wat).unwrap();
+      let mut rcount = 0i32;
+      let mut start = tokio::time::Instant::now();
 
-      let hello = Func::wrap(&mut store, |mut caller: Caller<'_, MyState>| {
-        // println!("Calling back...");
-        // println!("> {}", caller.data().name);
-        caller.data_mut().count += 1 * 200 + 400 / 2;
-      });
+      loop {
+        tokio::select! {
+          Ok(msg) = rx.recv() => {
+            rcount += 1i32;
 
-      let instance = Instance::new_async(&mut store, &module, &[hello.into()])
-        .await
-        .unwrap();
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+              match msg {
+                Message::Text(_text) => {
+                  // println!("Received message: {}", text);
+                }
+                Message::Fail => {
+                  panic!("Fail = {rcount:?}");
 
-      let run = instance
-        .get_typed_func::<(), ()>(&mut store, "run")
-        .unwrap();
+                }
+                Message::Exit => {
+                  // println!("Received exit signal");
+                  return Err(());
+                }
+              }
 
-      while let Ok(msg) = rx.recv().await {
-        match msg {
-          Message::Text(text) => {
-            // println!("Text = {}", text);
-            run.call_async(&mut store, ()).await.unwrap();
+              Ok(())
+            }));
+
+            if let Err(_err) = res {
+              // note(ivs) — at this stage, we need to save the state, relaunch
+              // the server and so on.
+
+              let mut processes = processes.lock().await;
+
+              println!("PID = {pid:?}");
+
+              // let state = processes.entry(pid).or_insert(ProcessState { retry_count: 0usize, last_failure: None });
+              // let mut state = processes.get_mut(&pid).unwrap();
+              if let Some(state) = processes.get_mut(&pid) {
+                println!("State = {state:?}");
+
+                if state.retry_count < Self::MAX_RETRIES {
+                  state.retry_count += 1usize;
+                  state.last_failure = Some(tokio::time::Instant::now());
+
+                  tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+                  continue;
+                } else {
+                  println!("Max retries reached for process {:?}", pid);
+                  return;
+                }
+              }
+
+              continue;
+            }
+
+            // Calculate time elapsed and print the rate
+            if rcount % 1_000_000i32 == 0i32 {
+              let elapsed = start.elapsed().as_secs_f64();
+
+              println!("Processed 1.000.000 messages in {:.6} seconds", elapsed);
+
+              start = tokio::time::Instant::now(); // reset the timer
+            }
           }
-          Message::Exit => {
-            println!("Exit");
-            break;
+
+          _ = interval.tick() => {
+            // Do some periodic work
+            // println!("Periodic task");
           }
         }
       }
-
-      let mut processes_guard = processes.lock().unwrap();
-
-      processes_guard.remove(&pid);
     });
-
-    pid
-  }
-
-  async fn send(&self, pid: PID, msg: Message) {
-    let processes = self.processes.lock().unwrap();
-
-    if let Some(process) = processes.get(&pid) {
-      process.sender.send(msg).await.unwrap();
-    } else {
-      eprintln!("PID(not-found) = {pid:?}");
-    }
   }
 }
 
 #[tokio::main]
 async fn main() {
-  let mut config = Config::new();
+  let (tx, rx) = kanal::unbounded_async();
+  let scheduler = Scheduler::new();
+  let pid = PID(1usize);
 
-  config.async_support(true);
+  scheduler.run_process(pid, rx).await;
 
-  let mut runtime = Runtime::new_async(&mut config).await;
+  let msg = Message::Text("delkde".into());
 
-  let wat = r#"
-(module
-  (func $hello (import "" "hello"))
-  (func (export "run") (call $hello))
-)
-  "#;
-
-  let pid = runtime.spawn(wat).await;
-
-  let start = std::time::Instant::now();
-
-  for _ in 0..1_000_000 {
-    runtime
-      .send(pid, Message::Text(String::from("hello!")))
-      .await;
+  for _ in 0i32..10_000_000i32 {
+    tx.send(msg.clone()).await.unwrap();
   }
 
-  runtime.send(pid, Message::Exit).await;
+  tx.send(Message::Fail).await.unwrap();
+  tx.send(Message::Text("".into())).await.unwrap();
+  // tx.send(Message::Fail).await.unwrap();
+  tx.send(Message::Text("".into())).await.unwrap();
+  tx.send(Message::Text("".into())).await.unwrap();
+  tx.send(Message::Text("".into())).await.unwrap();
+  tx.send(Message::Text("".into())).await.unwrap();
+  tx.send(Message::Text("".into())).await.unwrap();
+  tx.send(Message::Text("".into())).await.unwrap();
+  tx.send(Message::Text("".into())).await.unwrap();
+  // tx.send(Message::Fail).await.unwrap();
 
-  let end = start.elapsed();
-
-  println!("{}", end.as_secs());
-
-  tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+  // tx.send(Message::Exit).await.unwrap();
 }

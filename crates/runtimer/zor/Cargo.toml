@@ -10,6 +10,7 @@ swisskit = { workspace = true }
 # internal:crates.
 
 # external:crates.
+axum = { workspace = true }
 flume = { workspace = true }
 hashbrown = { workspace = true }
 kanal = { workspace = true }
