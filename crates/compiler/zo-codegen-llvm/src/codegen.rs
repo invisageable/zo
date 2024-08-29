@@ -1,12 +1,14 @@
 use super::translator::Translator;
 
+use inkwell::targets::{InitializationConfig, Target, TargetMachine};
+use inkwell::OptimizationLevel;
 use zo_ast::ast::Ast;
 use zo_reporter::{error, Result};
 use zo_session::session::Session;
 
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::passes::PassManager;
+use inkwell::passes::{PassManager, PassManagerBuilder};
 
 /// The representation of `llvm` code generation.
 struct Codegen;
@@ -34,6 +36,14 @@ impl Codegen {
 
     let _value = translator.translate(ast)?;
 
+    Target::initialize_native(&InitializationConfig::default()).unwrap();
+
+    let triple = TargetMachine::get_default_triple();
+    let t = Target::from_triple(&triple).unwrap();
+
+    println!("Trip Def = {triple}");
+    println!("Target = {t:?}");
+
     // let entry = engine
     //   .get_function_value("main")
     //   .map_err(error::generate::llvm::engine_execution)?;
@@ -50,7 +60,11 @@ impl Codegen {
 
 /// Runs passess
 fn run_passes_on(module: &Module) {
+  // let fpmb = PassManagerBuilder::create();
+  // fpmb.set_optimization_level(OptimizationLevel::Aggressive);
+
   let fpm = PassManager::create(());
+  // fpmb.populate_module_pass_manager(&fpm);
 
   // todo(ivs) — some passes does not work on my architecture.
   // I'm disabling all of them for now. I will investigate next time to
@@ -82,12 +96,30 @@ fn run_passes_on(module: &Module) {
   // invocation)
   // ```
 
-  // fpm.add_instruction_combining_pass();
-  // fpm.add_reassociate_pass();
-  // fpm.add_gvn_pass();
-  // fpm.add_cfg_simplification_pass();
-  // fpm.add_basic_alias_analysis_pass();
+  // fpm.add_constant_merge_pass();
+  // fpm.add_dead_arg_elimination_pass();
+  // fpm.add_dead_store_elimination_pass();
+  // fpm.add_global_dce_pass();
+  // fpm.add_sccp_pass();
+  // fpm.add_strip_dead_prototypes_pass();
+  // fpm.add_strip_symbol_pass();
+  // fpm.add_loop_vectorize_pass();
+  // fpm.add_loop_unroll_pass();
   // fpm.add_promote_memory_to_register_pass();
+  // fpm.add_reassociate_pass();
+  // fpm.add_memcpy_optimize_pass();
+  // fpm.add_global_optimizer_pass();
+  // fpm.add_basic_alias_analysis_pass();
+  // fpm.add_cfg_simplification_pass();
+  // fpm.add_instruction_combining_pass();
+  // fpm.add_gvn_pass();
+  // fpm.add_licm_pass();
+  // fpm.add_loop_deletion_pass();
+  // fpm.add_loop_idiom_pass();
+  // fpm.add_loop_rotate_pass();
+  // fpm.add_function_inlining_pass();
+  // fpm.add_merge_functions_pass();
+  // fpm.add_verifier_pass();
 
   fpm.run_on(module);
 }
