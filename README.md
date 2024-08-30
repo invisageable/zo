@@ -8,72 +8,64 @@
 
 > *zo — The symphonie of compilers.*
 
-[Home](https://github.com/invisageable/zo) — [Install](./notes/docs/README.md#install) — [Speeches](notes/speeches) — [License](#license)   
+[home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [speeches](notes/speeches) — [license](#license)   
 
 ## warning.
 
-**WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP.**
+**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
 
-You should come back in ten years. Stay tuned.
+YOU SHOULD COME BACK iN TEN YEARS. STAY TUNED.
 
-**WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP WIP.**  
+**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
 
 ## [about](https://youtu.be/GJfsbhJY8gk?feature=shared&t=196).
 
-A compiler of a compiler inside another giant compiler that is itself inside a gigantic compiler. The aim of the project is to create a modulable, easy-to-use and green cross-platform tooling ecosystem.
+A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A GiGANTiC COMPiLER. THE AiM OF THE PROJECT iS TO CREATE A MODULABLE, EASY-TO-USE AND GREEN CROSS-PLATFORM TOOLiNG ECOSYSTEM.
 
 ## ecosystem.
 
-> A cross-platform tooling ecosystem to codify your creative thoughts into robust and green softwares.
+> A CROSS-PLATFORM TOOLiNG ECOSYSTEM TO CODiFY YOUR CREATiVE THOUGHTS iNTO ROBUST AND GREEN SOFTWARES.
 
 **-sources**
 
-| name                          | description                        |
+| NAME                          | DESCRiPTiON                        |
 | ----------------------------- | ---------------------------------- |
-| [swisskit](./source/swisskit) | A collection of shareable modules. |
+| [swisskit](./source/swisskit) | A COLLECTiON OF SHAREABLE MODULES. |
 
 **-crates**
 
-| name                     | description                                   |
-| ------------------------ | --------------------------------------------- |
-| [zo](./crates/compiler)  | A compiler for the `zo` programming language. |
-| [zom](./crates/marker)   | A compiler for the `oz` markup language.      |
-| [zod](./crates/designer) | A designer for the `zo` programming language  |
+| NAME                     | DESCRiPTiON                                  |
+| ------------------------ | -------------------------------------------- |
+| [zo](./crates/compiler)  | A COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE. |
+| [zom](./crates/marker)   | A COMPiLER FOR THE `oz` MARKUP LANGAGE.      |
+| [zod](./crates/designer) | A DESiGNER for the `zo` PROGRAMMiNG LANGAGE  |
 
 **-apps**
 
-| name                             | description                                              |
-| -------------------------------- | -------------------------------------------------------- |
-| [calculius](./apps/adder)        | A small machina for mathematical computations.           |
-| [codelord](./apps/coder)         | A code editor OS-like for the `zo` programming language. |
-| [prezentation](./apps/presenter) | A lively presentation software.                          |
+| NAME                             | DESCRIPTION                                             |
+| -------------------------------- | ------------------------------------------------------- |
+| [calculius](./apps/adder)        | A SMALL MACHiNA FOR MATHEMATiCAL COMPUTATiONS.          |
+| [codelord](./apps/coder)         | A CODE EDiTOR OS-LiKE FOR THE `zo` PROGRAMMiNG LANGAGE. |
+| [prezentation](./apps/presenter) | A LiVELY PRESENTAtiON SOFTWARE.                         |
 
 ## contributing.
 
-Feel free to open an issue if you want contribute or join the [discord](https://discord.gg/JaNc4Nk5xw). Also you can contact me at the [at] compilords [dot] house.
+FEEL FREE TO OPEN AN iSSUE iF YOU WANT TO CONTRiBUTE OR COME TO SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). ALSO YOU CAN CONTACT US AT THE [at] COMPiLORDS [dot] HOUSE.
 
 ## sponsors.
 
-Stars, [donation](https://patreon.com/invisageable) and sponsors are welcoming. Spread the word e-ve-ry-where.
+STARS, [donation](https://patreon.com/invisageable) AND SPONSORS ARE WELCOMiNG. SPREAD THE WORD e-ve-ry-where.
 
 ## credits.
 
-Thanks to:
+THANKS TO:
 
-- [@ledruidd](https://github.com/ledruidd) Quaalude never ends.
-- [@SiegfriedEhret](https://github.com/SiegfriedEhret) to keep me up to date with the latest US rap bangers.
-- [@emilk](https://github.com/emilk) for all the work he did to bring `egui` into life.
-- [@zesterer](https://github.com/zesterer) `ariadne`, `flume`, `pollster` are so gaddamn good.
-- [@tamo](https://github.com/irevoire) for the great job done for `zearch`.
-- [@harzu](https://github.com/Harzu) for nice terminal `egui-term` and the blind debugging in remote.
-- [@rvirding](https://github.com/rvirding) I got the mantra now — *focus focus focus.*
-- [@worrydream](https://x.com/worrydream) Ahead-of-time creativity.
-- [@akimd](https://github.com/akimd) for all the knowledge he has made available on the internet.
-- [@j_blow](https://www.twitch.tv/j_blow) real advice for doing your things on your own.
-- [@tsoding](https://www.twitch.tv/j_blow) so far so long, a real creative and inspired programmer.
+[@ledruidd](https://github.com/ledruidd), [@SiegfriedEhret](https://github.com/SiegfriedEhret), [@zesterer](https://github.com/zesterer), [@tamo](https://github.com/irevoire), [@harzu](https://github.com/Harzu), [@rvirding](https://github.com/rvirding), [@worrydream](https://x.com/worrydream), [@akimd](https://github.com/akimd), [@j_blow](https://www.twitch.tv/j_blow), [@tsoding](https://www.twitch.tv/j_blow), [graydon](https://github.com/graydon), [@emilk](https://github.com/emilk).
+
+> « DE PRèS COMME DE LOIN VOUS M'AVEZ INSPIRé à MENER CE PROJET. QUE LE TURFU VOUS ACCOMPAGNE ! »
 
 ## license.
 
-[APACHE](./LICENSE-APACHE) — [MIT](./LICENSE-MIT)
+[apache](./LICENSE-APACHE) — [mit](./LICENSE-MIT)
 
-Copyright (©) **29** july **2024** — *present, [`@invisageable`](https://twitter.com/invisageable).*   
+COPYRiGHT (©) **29** JULY **2024** — *PRESENT, [`@invisageable`](https://twitter.com/invisageable).*   

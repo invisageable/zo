@@ -1,0 +1,7 @@
+fun main() {
+  fun foo(x: int) {
+    check@eq (x == 10);
+  }
+
+  foo(10);
+}

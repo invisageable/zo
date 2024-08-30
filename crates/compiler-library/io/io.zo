@@ -1,0 +1,7 @@
+abstract BufReader  {
+  fun read(buf: u8[] ): int;
+}
+
+abstract BufWriter = obj {
+  fun write( buf: u8[] ): int;
+}

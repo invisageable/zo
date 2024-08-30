@@ -1,0 +1,5 @@
+fun main() {
+  imu x: int = 6.0 * 7.0;
+  
+  check@eq (x, 42.0);
+}

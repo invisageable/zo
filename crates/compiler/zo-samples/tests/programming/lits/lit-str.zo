@@ -1,0 +1,5 @@
+fun main() {
+  imu x: str = "ivs";
+  
+  check@eq (x, "ivs");
+}

@@ -3,4 +3,14 @@
 pack a;
 pub pack b;
 
+pack foo {
+  pub val BAR: str = "foo::BAR";
+}
+
+pack zo {
+  pub fun turfu(): str {
+    return "zo::turfu()";
+  }
+}
+
 fun main() {}
