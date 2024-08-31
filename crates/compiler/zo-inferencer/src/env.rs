@@ -9,18 +9,18 @@ pub enum Env {
   /// An empty environment.
   Empty,
   /// A frame environment.
-  Frame(SmolStr, Scheme, Box<Self>),
+  Frame(SmolStr, Scheme, Box<Env>),
 }
 
 impl Env {
   /// Creates an empty environment.
-  #[inline]
+  #[inline(always)]
   pub fn empty() -> Self {
     Self::Empty
   }
 
   /// Creates an frame environment from a scheme.
-  #[inline]
+  #[inline(always)]
   pub fn extend(&self, ident: SmolStr, scheme: Scheme) -> Self {
     Self::Frame(ident, scheme, Box::new(self.to_owned()))
   }

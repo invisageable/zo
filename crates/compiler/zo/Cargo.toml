@@ -11,3 +11,7 @@ swisskit = { workspace = true }
 zo-driver = { workspace = true }
 
 # external:crates.
+futures = { workspace = true }
+petgraph = { workspace = true }
+rayon = { workspace = true }
+tokio = { workspace = true }

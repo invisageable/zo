@@ -141,8 +141,10 @@ zearch = { git = "https://github.com/u-search/u-search" }
 
 # external:crates:draft.
 axum = "0.7.5"
+futures = "0.3.30"
 generational-box = "0.5.6"
 german-str = "0.1.0"
+petgraph = "0.6.5"
 tendril = "0.4.3"
 
 [profile.release]

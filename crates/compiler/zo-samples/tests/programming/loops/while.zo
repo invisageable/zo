@@ -2,7 +2,7 @@ fun main() {
   imu z: int = 1;
   
   while z < 10 {
-	  z += 1;
+    z += 1;
   }
 
   check@eq (z == 10);

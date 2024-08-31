@@ -11,9 +11,9 @@
 use super::precedence::Precedence;
 
 use zo_ast::ast::{
-  Ast, BinOp, BinOpKind, Block, Expr, ExprKind, Fun, Input, Inputs, Item,
-  ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern, PatternKind,
-  Prototype, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
+  Ast, BinOp, BinOpKind, Block, Elmt, ElmtKind, Expr, ExprKind, Fun, Input,
+  Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern,
+  PatternKind, Prototype, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
 };
 
 use zo_interner::interner::symbol::Symbol;
@@ -495,14 +495,66 @@ impl<'tokens> Parser<'tokens> {
 
   /// Parses zsx template.
   fn parse_zsx(&mut self) -> Result<Expr> {
-    self
-      .maybe_token_current
-      .map(|token| match &token.kind {
-        TokenKind::ZsxTag(tag) => self.parse_zsx_tag(tag),
-        TokenKind::ZsxCharacter(ch) => self.parse_zsx_raw_text(*ch),
-        _ => todo!(),
-      })
-      .unwrap()
+    let mut stack: Vec<Elmt> = Vec::new();
+    let mut ivs = String::new();
+    let mut current_node: Option<Elmt> = None;
+
+    while !self.ensure_peek(TokenKind::Punctuation(Punctuation::Semi)) {
+      let token = self.maybe_token_current.map(|token| token).unwrap();
+
+      self.next();
+
+      match &token.kind {
+        TokenKind::Punctuation(Punctuation::Semi) => break,
+        TokenKind::ZsxCharacter(c) => {
+          println!("Ch = {}", c);
+          ivs.push(*c);
+        }
+        TokenKind::ZsxTag(tag) => match tag.kind {
+          TagKind::Opening => {
+            let elmt = Elmt {
+              kind: ElmtKind::Tag(if tag.name.to_string().len() == 0 {
+                "fragment".into()
+              } else {
+                tag.name.to_string()
+              }),
+              span: token.span,
+              ..Default::default()
+            };
+
+            println!("Tag = {tag:?}");
+            println!("Elmt = {elmt:?}");
+
+            if let Some(mut parent) = current_node {
+              parent.children.push(elmt);
+            } else {
+              stack.push(elmt);
+            }
+
+            current_node = Some(stack.last().unwrap().to_owned());
+
+            // self.next();
+          }
+          TagKind::Closing => {
+            println!("ChhC");
+            // stack.push(elmt);
+            self.next();
+            // stack.push(value);
+          }
+        },
+
+        k => panic!("Kind = {k:?}"),
+      }
+    }
+
+    println!("ivs = {ivs:?}");
+
+    let elmt = current_node.unwrap();
+
+    return Ok(Expr {
+      kind: ExprKind::Elmt(elmt.clone()),
+      span: elmt.span,
+    });
   }
 
   /// Parses zsx raw text template.

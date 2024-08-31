@@ -6,7 +6,7 @@ pub enum Subst {
   /// An empty substitution.
   Empty,
   /// An non-empty substitution.
-  Pair(Ty, Ty, Box<Self>),
+  Pair(Ty, Ty, Box<Subst>),
 }
 
 impl Subst {

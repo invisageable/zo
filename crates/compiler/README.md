@@ -15,7 +15,7 @@ zo is focusing on creativity, wasm and performance.
 - [ ] meta-language.
 - [ ] statically-typed.
 - [ ] robust `type system` — *hindley-milner algorithm.*.
-- [ ] safe concurrency model — *Actor Model `erlang` like.*
+- [ ] safe concurrency model — *Actor Model Erlang-like.*
 - [ ] powerfull `tools` — *native REPL, code editor, etc.*
 
 ## compiler phases.
@@ -36,6 +36,7 @@ zo is focusing on creativity, wasm and performance.
 |-- zo-ast              # The `zo` abstract syntax tree.
 |-- zo-builder          # The builder — used to build the ouput machine code.
 |-- zo-codegen          # The code generation phase of the compiler.
+|-- zo-codegen-llvm     # The LLVM code generation phase of the compiler.
 |-- zo-codegen-py       # The Python code generation phase of the compiler.
 |-- zo-codegen-wasm     # The WASM code generation phase of the compiler.
 |-- zo-compiler         # The `zo` compiler.
@@ -60,36 +61,36 @@ zo is focusing on creativity, wasm and performance.
 
 **[-hello](./zo-samples/examples/hello.zo)**
 
-The superstar [`Hello, World!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *prints `hello, world!`.*
+THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *PRiNTS `hello, world!`.*
 
 ![hello](./zo-notes/preview/preview-zo-hello.png)
 
 **[-square-root](./zo-samples/examples/square-root.zo)**
 
-The elegant [Square root](https://en.wikipedia.org/wiki/Square_root) — *prints the square root of `5`.*
+THE ELEGANT [Square root](https://en.wikipedia.org/wiki/Square_root) — *PRiNTS THE SQUARE ROOT OF `5`.*
 
 ![square-root](./zo-notes/preview/preview-zo-square-root.png)
 
 **[-greatest-common-root](./zo-samples/examples/greatest-common-root.zo)**
 
-The recursive [GCD](https://en.wikipedia.org/wiki/Greatest_common_divisor) — *prints the greatest common divisor of `48` and `18`.*
+THE RECURSiVE [GCD](https://en.wikipedia.org/wiki/Greatest_common_divisor) — *PRiNTS THE GREATEST COMMON DiViSOR OF `48` AND `18`.*
 
 ![greatest-common-divisor](./zo-notes/preview/preview-zo-greatest-common-divisor.png)
 
 **[-factorial](./zo-samples/examples/factorial.zo)**
 
-The smooth [factorial](https://en.wikipedia.org/wiki/Square_root) criminal — *prints the factorial of `20`.*
+THE SMOOTH [factorial](https://en.wikipedia.org/wiki/Square_root) CRiMiNAL — *PRiNTS THE FACTORiAL OF `20`.*
 
 ![factorial](./zo-notes/preview/preview-zo-factorial.png)
 
 **[-fibonacci](./zo-samples/examples/fibonacci.zo)**
 
-Sir [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) — *prints the `11` rank in the Fibonacci sequence.*
+SiR [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) — *PRiNTS THE `11` RANK iN THE FiBONACCi SEQUENCE.*
 
 ![fibonacci](./zo-notes/preview/preview-zo-fibonacci.png)
 
 **[-fizzbuzz](./zo-samples/examples/fizzbuzz.zo)**
 
-The recreational [Fizz Buzz](https://en.wikipedia.org/wiki/Fizz_buzz) Game — *prints the integers from `1` to `100`, then for every multiple of `3`, write `"Fizz"`, and for every multiple of `5`, it prints `"Buzz"`. For numbers which are multiples of both `3` and `5`, it should prints `"FizzBuzz"`; for every other number, it should print the number unchanged.*
+THE RECREATiONAL [Fizz Buzz](https://en.wikipedia.org/wiki/Fizz_buzz) GAME — *PRiNTS THE iNTEGERS FROM `1` TO `100`, THEN FOR EVERY MULTiPLE OF `3`, WRiTE `"Fizz"`, AND FOR EVERY MULTiPLE OF `5`, iT PRiNTS `"Buzz"`. FOR NUMBERS WHiCH ARE MULTiPLES OF BOTH `3` AND `5`, iT SHOULD PRiNTS `"FizzBuzz"`; FOR EVERY OTHER NUMBER, iT SHOULD PRiNT THE NUMBER UNCHANGED.*
 
 ![fizzbuzz](./zo-notes/preview/preview-zo-fizzbuzz.png)

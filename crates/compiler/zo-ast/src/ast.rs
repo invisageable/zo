@@ -848,7 +848,7 @@ pub struct For {
 }
 
 /// The representation of an element.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Elmt {
   /// A element kind.
   pub kind: ElmtKind,
@@ -861,13 +861,16 @@ pub struct Elmt {
 }
 
 /// The representation of element kind.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum ElmtKind {
+  #[default]
+  Unknown,
   // todo(ivs) — void element is missing.
   /// A comment — `<!-- foo bar oofrab arbfoo -->`.
   Comment(Symbol),
   /// An element — see also [`Name`].
   Name(Name),
+  Tag(String),
   /// A text — see also [`Text`].
   Text(Text),
 }

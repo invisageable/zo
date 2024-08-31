@@ -341,6 +341,7 @@ impl std::fmt::Display for Elmt {
     } = self;
 
     match kind {
+      ElmtKind::Unknown => panic!(),
       ElmtKind::Comment(sym) => write!(f, "<!-- {sym} -->"),
       ElmtKind::Name(name) => write!(
         f,
@@ -348,6 +349,7 @@ impl std::fmt::Display for Elmt {
         attrs = sep_space(attrs),
         children = sep_newline(children),
       ),
+      ElmtKind::Tag(tag) => write!(f, "{tag}"),
       ElmtKind::Text(text) => write!(f, "{text}"),
     }
   }
@@ -356,8 +358,10 @@ impl std::fmt::Display for Elmt {
 impl std::fmt::Display for ElmtKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
+      Self::Unknown => write!(f, ""),
       Self::Comment(sym) => write!(f, "<!-- {sym} -->"),
       Self::Name(name) => write!(f, "{name}"),
+      Self::Tag(tag) => write!(f, "{tag}"),
       Self::Text(text) => write!(f, "{text}"),
     }
   }

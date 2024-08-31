@@ -6,7 +6,7 @@ impl Supply {
   /// Creates a new supply.
   #[inline]
   pub fn new() -> Self {
-    Self(0)
+    Self(0usize)
   }
 
   /// Gets the next supply id.
