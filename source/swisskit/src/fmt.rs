@@ -1,6 +1,8 @@
 mod doc;
+mod formatter;
 
 pub use doc::{pp, Doc};
+pub use formatter::{format, Formatter};
 
 /// The representation of a separator.
 ///
