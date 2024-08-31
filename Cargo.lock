@@ -6393,6 +6393,7 @@ version = "0.0.0"
 dependencies = [
  "swisskit",
  "zo-ast",
+ "zo-hir",
  "zo-inferencer",
  "zo-interner",
  "zo-reporter",
@@ -6506,6 +6507,20 @@ dependencies = [
  "zo-compiler",
  "zo-reporter",
  "zo-session",
+]
+
+[[package]]
+name = "zo-hir"
+version = "0.0.0"
+dependencies = [
+ "smol_str",
+ "swisskit",
+ "thin-vec",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+ "zo-ty",
 ]
 
 [[package]]

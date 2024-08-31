@@ -1,5 +1,5 @@
 [package]
-name = "zo-analyzer"
+name = "zo-hir"
 version.workspace = true
 edition.workspace = true
 
@@ -9,10 +9,11 @@ swisskit = { workspace = true }
 
 # internal:crates.
 zo-ast = { workspace = true }
-zo-hir = { workspace = true }
-zo-inferencer = { workspace = true }
 zo-interner = { workspace = true }
 zo-reporter = { workspace = true }
 zo-session = { workspace = true }
+zo-ty = { workspace = true }
 
 # external:crates.
+smol_str = { workspace = true }
+thin-vec = { workspace = true }

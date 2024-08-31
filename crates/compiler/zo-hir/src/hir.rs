@@ -1,17 +1,11 @@
+use zo_ast::ast;
 use zo_interner::interner::symbol::{Symbol, Symbolize};
-use zo_tokenizer::token::int::Base;
-use zo_tokenizer::token::punctuation::Punctuation;
-use zo_tokenizer::token::{Token, TokenKind};
 use zo_ty::ty::Ty;
 
 use swisskit::span::{AsSpan, Span};
 
-use smol_str::{SmolStr, ToSmolStr};
+// use smol_str::SmolStr;
 use thin_vec::ThinVec;
-
-/// The representation of an unique id of a node in an AST.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(pub usize);
 
 /// The representation of a public access.
 #[derive(Clone, Debug)]
@@ -20,6 +14,16 @@ pub enum Pub {
   Yes(Span),
   /// Disallows access.
   No,
+}
+
+impl From<ast::Pub> for Pub {
+  #[inline(always)]
+  fn from(pubness: ast::Pub) -> Self {
+    match pubness {
+      ast::Pub::Yes(span) => Self::Yes(span),
+      ast::Pub::No => Self::No,
+    }
+  }
 }
 
 /// The representation of a asyncness.
@@ -31,6 +35,16 @@ pub enum Async {
   No,
 }
 
+impl From<ast::Async> for Async {
+  #[inline(always)]
+  fn from(asyncness: ast::Async) -> Self {
+    match asyncness {
+      ast::Async::Yes(span) => Self::Yes(span),
+      ast::Async::No => Self::No,
+    }
+  }
+}
+
 /// The representation of a wasmness.
 #[derive(Clone, Debug)]
 pub enum Wasm {
@@ -38,6 +52,16 @@ pub enum Wasm {
   Yes(Span),
   /// Disallows wasmness.
   No,
+}
+
+impl From<ast::Wasm> for Wasm {
+  #[inline(always)]
+  fn from(wasmness: ast::Wasm) -> Self {
+    match wasmness {
+      ast::Wasm::Yes(span) => Self::Yes(span),
+      ast::Wasm::No => Self::No,
+    }
+  }
 }
 
 /// The representation of a mutability.
@@ -49,6 +73,16 @@ pub enum Mutability {
   No,
 }
 
+impl From<ast::Mutability> for Mutability {
+  #[inline(always)]
+  fn from(kind: ast::Mutability) -> Self {
+    match kind {
+      ast::Mutability::Yes => Self::Yes,
+      ast::Mutability::No => Self::No,
+    }
+  }
+}
+
 /// The representation of a path.
 #[derive(Clone, Debug)]
 pub struct Path {
@@ -58,6 +92,20 @@ pub struct Path {
   pub span: Span,
 }
 
+impl From<ast::Path> for Path {
+  #[inline(always)]
+  fn from(path: ast::Path) -> Self {
+    Self {
+      segments: path
+        .segments
+        .iter()
+        .map(|s| PathSegment::from(*s))
+        .collect(),
+      span: path.span,
+    }
+  }
+}
+
 /// The representation of a path segment.
 #[derive(Clone, Copy, Debug)]
 pub struct PathSegment {
@@ -65,6 +113,16 @@ pub struct PathSegment {
   pub ident: Ident,
   /// A span — see also [`Span`] for more information.
   pub span: Span,
+}
+
+impl From<ast::PathSegment> for PathSegment {
+  #[inline(always)]
+  fn from(seg: ast::PathSegment) -> Self {
+    Self {
+      ident: Ident::from(seg.ident),
+      span: seg.span,
+    }
+  }
 }
 
 /// The representation of a pattern.
@@ -80,6 +138,16 @@ impl Symbolize for Pattern {
   #[inline]
   fn as_symbol(&self) -> &Symbol {
     self.kind.as_symbol()
+  }
+}
+
+impl From<ast::Pattern> for Pattern {
+  #[inline(always)]
+  fn from(pat: ast::Pattern) -> Self {
+    Self {
+      kind: PatternKind::from(pat.kind),
+      span: pat.span,
+    }
   }
 }
 
@@ -102,6 +170,39 @@ pub enum PatternKind {
   Slf(Slf),
 }
 
+impl From<ast::PatternKind> for PatternKind {
+  #[inline(always)]
+  fn from(kind: ast::PatternKind) -> Self {
+    match kind {
+      ast::PatternKind::Underscore => Self::Underscore,
+      ast::PatternKind::Lit(lit) => Self::Lit(Lit::from(lit)),
+      ast::PatternKind::Ident(ident) => {
+        Self::Ident(Box::new(Expr::from(*ident)))
+      }
+      ast::PatternKind::Path(path) => Self::Path(Path::from(path)),
+      ast::PatternKind::Array(array) => Self::Array(
+        array
+          .iter()
+          .map(|p| Pattern {
+            kind: PatternKind::from(p.kind.to_owned()),
+            span: p.span,
+          })
+          .collect(),
+      ),
+      ast::PatternKind::Tuple(tuple) => Self::Tuple(
+        tuple
+          .iter()
+          .map(|p| Pattern {
+            kind: PatternKind::from(p.kind.to_owned()),
+            span: p.span,
+          })
+          .collect(),
+      ),
+      ast::PatternKind::Slf(slf) => Self::Slf(Slf::from(slf)),
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub enum Slf {
   /// A lower case self — `self`.
@@ -110,12 +211,22 @@ pub enum Slf {
   Upper,
 }
 
+impl From<ast::Slf> for Slf {
+  #[inline(always)]
+  fn from(slf: ast::Slf) -> Self {
+    match slf {
+      ast::Slf::Lower => Self::Lower,
+      ast::Slf::Upper => Self::Upper,
+    }
+  }
+}
+
 impl Symbolize for PatternKind {
   #[inline]
   fn as_symbol(&self) -> &Symbol {
     match self {
-      Self::Ident(ident) => ident.as_symbol(),
-      Self::Lit(lit) => lit.as_symbol(),
+      // Self::Ident(ident) => ident.as_symbol(),
+      // Self::Lit(lit) => lit.as_symbol(),
       // tmp.
       Self::Array(patterns) if let [pat] = patterns.as_slice() => {
         pat.as_symbol()
@@ -129,48 +240,23 @@ impl Symbolize for PatternKind {
   }
 }
 
-/// The representation of an abstract syntax tree.
-#[derive(Clone, Debug, Default)]
-pub struct Ast {
-  /// The nodes of the AST.
+/// The representation of a High Intermediaire Representation.
+pub struct Hir {
+  /// A list of HIR statements.
   pub stmts: ThinVec<Stmt>,
 }
 
-impl Ast {
-  /// Creates a new abstract syntax tree.
-  #[inline]
+impl Hir {
+  #[inline(always)]
   pub fn new() -> Self {
     Self {
       stmts: ThinVec::with_capacity(0usize),
     }
   }
 
-  /// Checks if the AST is empty, means that it contains zero statements.
-  #[inline]
-  pub fn is_empty(&self) -> bool {
-    self.stmts.is_empty()
-  }
-
-  /// Adds a new statement.
   #[inline]
   pub fn add_stmt(&mut self, stmt: Stmt) {
     self.stmts.push(stmt);
-  }
-}
-
-impl std::convert::AsMut<Self> for Ast {
-  #[inline]
-  fn as_mut(&mut self) -> &mut Self {
-    self
-  }
-}
-
-impl std::ops::Deref for Ast {
-  type Target = ThinVec<Stmt>;
-
-  #[inline]
-  fn deref(&self) -> &Self::Target {
-    &self.stmts
   }
 }
 
@@ -181,6 +267,16 @@ pub struct Item {
   pub kind: ItemKind,
   /// A span — see also [`Span`] for more information.
   pub span: Span,
+}
+
+impl From<ast::Item> for Item {
+  #[inline(always)]
+  fn from(item: ast::Item) -> Self {
+    Self {
+      kind: ItemKind::from(item.kind),
+      span: item.span,
+    }
+  }
 }
 
 /// The representation of different kinds of statements.
@@ -206,6 +302,16 @@ pub enum ItemKind {
   Apply(Apply),
   /// A function — `fun foo(x: int): int {..}`.
   Fun(Fun),
+}
+
+impl From<ast::ItemKind> for ItemKind {
+  #[inline(always)]
+  fn from(kind: ast::ItemKind) -> Self {
+    match kind {
+      ast::ItemKind::Var(var) => Self::Var(Var::from(var)),
+      _ => panic!(),
+    }
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -363,6 +469,16 @@ pub struct Stmt {
   pub span: Span,
 }
 
+impl From<ast::Stmt> for Stmt {
+  #[inline(always)]
+  fn from(stmt: ast::Stmt) -> Self {
+    Self {
+      kind: StmtKind::from(stmt.kind),
+      span: stmt.span,
+    }
+  }
+}
+
 /// The representation of different kinds of statements.
 #[derive(Clone, Debug)]
 pub enum StmtKind {
@@ -372,6 +488,17 @@ pub enum StmtKind {
   Item(Item),
   /// An expression statement.
   Expr(Box<Expr>),
+}
+
+impl From<ast::StmtKind> for StmtKind {
+  #[inline(always)]
+  fn from(kind: ast::StmtKind) -> Self {
+    match kind {
+      ast::StmtKind::Var(var) => Self::Var(Var::from(var)),
+      ast::StmtKind::Item(item) => Self::Item(Item::from(item)),
+      ast::StmtKind::Expr(expr) => Self::Expr(Box::new(Expr::from(*expr))),
+    }
+  }
 }
 
 /// The representation of a variable.
@@ -396,12 +523,27 @@ pub struct Var {
   pub span: Span,
 }
 
-impl Symbolize for Var {
-  #[inline]
-  fn as_symbol(&self) -> &Symbol {
-    self.pattern.as_symbol()
+impl From<ast::Var> for Var {
+  #[inline(always)]
+  fn from(var: ast::Var) -> Self {
+    Self {
+      pubness: Pub::from(var.pubness),
+      mutability: Mutability::from(var.mutability),
+      kind: VarKind::from(var.kind),
+      pattern: Pattern::from(var.pattern),
+      ty: Ty::from(var.ty),
+      value: Box::new(Expr::from(*var.value)),
+      span: var.span,
+    }
   }
 }
+
+// impl Symbolize for Var {
+//   #[inline]
+//   fn as_symbol(&self) -> &Symbol {
+//     self.pattern.as_symbol()
+//   }
+// }
 
 /// The representation of different kinds of variable.
 #[derive(Clone, Debug)]
@@ -414,28 +556,52 @@ pub enum VarKind {
   Mut,
 }
 
-impl From<VarKind> for SmolStr {
-  #[inline]
-  fn from(kind: VarKind) -> Self {
-    kind.to_smolstr()
+impl From<ast::VarKind> for VarKind {
+  #[inline(always)]
+  fn from(kind: ast::VarKind) -> Self {
+    match kind {
+      ast::VarKind::Val => Self::Val,
+      ast::VarKind::Imu => Self::Imu,
+      ast::VarKind::Mut => Self::Mut,
+    }
   }
 }
+
+// impl From<VarKind> for SmolStr {
+//   #[inline]
+//   fn from(kind: VarKind) -> Self {
+//     kind.to_smolstr()
+//   }
+// }
 
 /// The representation of an expression.
 #[derive(Clone, Debug)]
 pub struct Expr {
   /// See [`ExprKind`].
   pub kind: ExprKind,
+  /// See [`Ty`]
+  pub ty: Ty,
   /// See [`Span`].
   pub span: Span,
 }
 
-impl Symbolize for Expr {
-  #[inline]
-  fn as_symbol(&self) -> &Symbol {
-    self.kind.as_symbol()
+impl From<ast::Expr> for Expr {
+  #[inline(always)]
+  fn from(expr: ast::Expr) -> Self {
+    Self {
+      kind: ExprKind::from(expr.kind),
+      ty: Ty::UNIT,
+      span: expr.span,
+    }
   }
 }
+
+// impl Symbolize for Expr {
+//   #[inline]
+//   fn as_symbol(&self) -> &Symbol {
+//     self.kind.as_symbol()
+//   }
+// }
 
 /// The representation of different kinds of expressions.
 #[derive(Clone, Debug)]
@@ -492,37 +658,60 @@ pub enum ExprKind {
   Elmt(Elmt),
 }
 
-impl Symbolize for ExprKind {
-  #[inline]
-  fn as_symbol(&self) -> &Symbol {
-    match self {
-      Self::Lit(lit) => lit.as_symbol(),
-      _ => todo!(),
+impl From<ast::ExprKind> for ExprKind {
+  #[inline(always)]
+  fn from(kind: ast::ExprKind) -> Self {
+    match kind {
+      ast::ExprKind::Lit(lit) => Self::Lit(Lit::from(lit)),
+      _ => panic!(),
     }
   }
 }
+
+// impl Symbolize for ExprKind {
+//   #[inline]
+//   fn as_symbol(&self) -> &Symbol {
+//     match self {
+//       Self::Lit(lit) => lit.as_symbol(),
+//       _ => todo!(),
+//     }
+//   }
+// }
 
 /// The representation of a literal.
 #[derive(Clone, Debug)]
 pub struct Lit {
   /// See [`LitKind`].
   pub kind: LitKind,
+  /// See [`Ty`]
+  pub ty: Ty,
   /// See [`Span`].
   pub span: Span,
 }
 
-impl Symbolize for Lit {
-  #[inline]
-  fn as_symbol(&self) -> &Symbol {
-    self.kind.as_symbol()
+impl From<ast::Lit> for Lit {
+  #[inline(always)]
+  fn from(lit: ast::Lit) -> Self {
+    Self {
+      kind: LitKind::from(lit.kind),
+      ty: Ty::UNIT,
+      span: lit.span,
+    }
   }
 }
+
+// impl Symbolize for Lit {
+//   #[inline]
+//   fn as_symbol(&self) -> &Symbol {
+//     self.kind.as_symbol()
+//   }
+// }
 
 /// The representation of different kinds of literals.
 #[derive(Clone, Debug)]
 pub enum LitKind {
   /// integer — `1`.
-  Int(Symbol, Base),
+  Int(Symbol /* Base */),
   /// integer — `1.2`, `1e4`.
   Float(Symbol),
   /// identifier — `foo`, `Bar`, `foobar1234`.
@@ -535,19 +724,33 @@ pub enum LitKind {
   Str(Symbol),
 }
 
-impl Symbolize for LitKind {
-  #[inline]
-  fn as_symbol(&self) -> &Symbol {
-    match self {
-      Self::Int(symbol, _)
-      | Self::Float(symbol)
-      | Self::Ident(symbol)
-      | Self::Char(symbol)
-      | Self::Str(symbol) => symbol,
-      _ => unreachable!(),
+impl From<ast::LitKind> for LitKind {
+  #[inline(always)]
+  fn from(kind: ast::LitKind) -> Self {
+    match kind {
+      ast::LitKind::Int(sym, _) => Self::Int(sym),
+      ast::LitKind::Float(sym) => Self::Float(sym),
+      ast::LitKind::Ident(sym) => Self::Ident(sym),
+      ast::LitKind::Bool(sym) => Self::Bool(sym),
+      ast::LitKind::Char(sym) => Self::Char(sym),
+      ast::LitKind::Str(sym) => Self::Str(sym),
     }
   }
 }
+
+// impl Symbolize for LitKind {
+//   #[inline]
+//   fn as_symbol(&self) -> &Symbol {
+//     match self {
+//       Self::Int(symbol, _)
+//       | Self::Float(symbol)
+//       | Self::Ident(symbol)
+//       | Self::Char(symbol)
+//       | Self::Str(symbol) => symbol,
+//       _ => unreachable!(),
+//     }
+//   }
+// }
 
 /// The representation of an identifier.
 #[derive(Clone, Copy, Debug)]
@@ -556,6 +759,16 @@ pub struct Ident {
   pub sym: Symbol,
   /// A span — see also [`Span`] for more information.
   pub span: Span,
+}
+
+impl From<ast::Ident> for Ident {
+  #[inline(always)]
+  fn from(kind: ast::Ident) -> Self {
+    Self {
+      sym: kind.sym,
+      span: kind.span,
+    }
+  }
 }
 
 impl Symbolize for Ident {
@@ -574,12 +787,12 @@ pub struct UnOp {
   pub span: Span,
 }
 
-impl From<UnOp> for SmolStr {
-  #[inline]
-  fn from(unop: UnOp) -> Self {
-    unop.to_smolstr()
-  }
-}
+// impl From<UnOp> for SmolStr {
+//   #[inline]
+//   fn from(unop: UnOp) -> Self {
+//     unop.to_smolstr()
+//   }
+// }
 
 /// The representation of different kinds of unary operators.
 #[derive(Clone, Copy, Debug)]
@@ -599,25 +812,25 @@ pub struct BinOp {
   pub span: Span,
 }
 
-impl From<BinOp> for SmolStr {
-  #[inline]
-  fn from(binop: BinOp) -> Self {
-    binop.to_smolstr()
-  }
-}
+// impl From<BinOp> for SmolStr {
+//   #[inline]
+//   fn from(binop: BinOp) -> Self {
+//     binop.to_smolstr()
+//   }
+// }
 
-impl From<&Token> for BinOp {
-  #[inline]
-  fn from(token: &Token) -> Self {
-    match token.kind {
-      TokenKind::Punctuation(punctuation) => Self {
-        kind: BinOpKind::from(punctuation),
-        span: token.span,
-      },
-      _ => unreachable!(),
-    }
-  }
-}
+// impl From<&Token> for BinOp {
+//   #[inline]
+//   fn from(token: &Token) -> Self {
+//     match token.kind {
+//       TokenKind::Punctuation(punctuation) => Self {
+//         kind: BinOpKind::from(punctuation),
+//         span: token.span,
+//       },
+//       _ => unreachable!(),
+//     }
+//   }
+// }
 
 /// The representation of different kinds of binary operators.
 #[derive(Clone, Copy, Debug)]
@@ -660,32 +873,32 @@ pub enum BinOpKind {
   Shr,
 }
 
-impl From<Punctuation> for BinOpKind {
-  #[inline]
-  fn from(punctuation: Punctuation) -> Self {
-    match punctuation {
-      Punctuation::Plus => Self::Add,
-      Punctuation::Minus => Self::Sub,
-      Punctuation::Asterisk => Self::Mul,
-      Punctuation::Slash => Self::Div,
-      Punctuation::Percent => Self::Rem,
-      Punctuation::AmpersandAmpersand => Self::And,
-      Punctuation::PipePipe => Self::Or,
-      Punctuation::Circumflex => Self::BitXor,
-      Punctuation::Ampersand => Self::BitAnd,
-      Punctuation::Pipe => Self::BitOr,
-      Punctuation::LessThan => Self::Lt,
-      Punctuation::GreaterThan => Self::Gt,
-      Punctuation::LessThanEqual => Self::Le,
-      Punctuation::GreaterThanEqual => Self::Ge,
-      Punctuation::EqualEqual => Self::Eq,
-      Punctuation::ExclamationEqual => Self::Ne,
-      Punctuation::LessThanLessThan => Self::Shl,
-      Punctuation::GreaterThanGreaterThan => Self::Shr,
-      _ => unreachable!(),
-    }
-  }
-}
+// impl From<Punctuation> for BinOpKind {
+//   #[inline]
+//   fn from(punctuation: Punctuation) -> Self {
+//     match punctuation {
+//       Punctuation::Plus => Self::Add,
+//       Punctuation::Minus => Self::Sub,
+//       Punctuation::Asterisk => Self::Mul,
+//       Punctuation::Slash => Self::Div,
+//       Punctuation::Percent => Self::Rem,
+//       Punctuation::AmpersandAmpersand => Self::And,
+//       Punctuation::PipePipe => Self::Or,
+//       Punctuation::Circumflex => Self::BitXor,
+//       Punctuation::Ampersand => Self::BitAnd,
+//       Punctuation::Pipe => Self::BitOr,
+//       Punctuation::LessThan => Self::Lt,
+//       Punctuation::GreaterThan => Self::Gt,
+//       Punctuation::LessThanEqual => Self::Le,
+//       Punctuation::GreaterThanEqual => Self::Ge,
+//       Punctuation::EqualEqual => Self::Eq,
+//       Punctuation::ExclamationEqual => Self::Ne,
+//       Punctuation::LessThanLessThan => Self::Shl,
+//       Punctuation::GreaterThanGreaterThan => Self::Shr,
+//       _ => unreachable!(),
+//     }
+//   }
+// }
 
 /// The representation of a block — `{ .. }`.
 #[derive(Clone, Debug)]

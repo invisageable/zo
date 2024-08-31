@@ -45,6 +45,7 @@ zo-codegen-py = { path = "crates/compiler/zo-codegen-py", version = "0.0.0" }
 zo-codegen-wasm = { path = "crates/compiler/zo-codegen-wasm", version = "0.0.0" }
 zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.0.0" }
 zo-driver = { path = "crates/compiler/zo-driver", version = "0.0.0" }
+zo-hir = { path = "crates/compiler/zo-hir", version = "0.0.0" }
 zo-inferencer = { path = "crates/compiler/zo-inferencer", version = "0.0.0" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
 zo-interpreter = { path = "crates/compiler/zo-interpreter", version = "0.0.0" }
@@ -138,7 +139,7 @@ wasmtime = { version = "24.0.0", features = ["async"] }
 wat = "1.212.0"
 zearch = { git = "https://github.com/u-search/u-search" }
 
-# external:crates:in-draft.
+# external:crates:draft.
 axum = "0.7.5"
 generational-box = "0.5.6"
 german-str = "0.1.0"
