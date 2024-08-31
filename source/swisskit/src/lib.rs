@@ -1,4 +1,5 @@
 pub mod case;
+pub mod cursor;
 pub mod fmt;
 pub mod global;
 pub mod io;

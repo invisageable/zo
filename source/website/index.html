@@ -98,7 +98,7 @@
     </nav>
   </header>
 
-  <main class="main">
+  <main class="main" style="padding: 0 60px;">
     <section class="hero">
       <center>
         <p class="pitch-slogan" style="max-width: 800px; font-size: 48px;">
@@ -153,9 +153,7 @@
           <p class="feature-description">
             Building dynamic apps often requires templating, a common alternative to static development. zo includes its
             own templating language, inspired by <a href="https://en.wikipedia.org/wiki/ECMAScript_for_XML">E4X</a>
-            called zSX,
-            offering an intuitive way to create graphical user interfaces
-            effortlessly.</p>
+            called zSX, offering an intuitive way to create graphical user interfaces effortlessly.</p>
         </div>
         <div>
           <div style="display: flex;">
@@ -182,8 +180,8 @@ fun main() {
             Designing apps across different platforms — whether mobile, native, or web — usually requires switching
             between various approaches or using multiple UI libraries. What if we standardized the process? That's our
             mantra. We created zSS, a fast CSS preprocessor that supports mainstream syntaxes and generates optimized
-            CSS. zSS is easy to learn and offers convenient syntactic sugar. Check out our <a
-              href="/syntax-tricks">Syntax Tricks</a> for more details.</p>
+            CSS. zSS is easy to learn and offers convenient syntactic sugar. See <a href="/syntax-tricks">Syntax
+              Tricks</a> for more details.</p>
         </div>
         <div>
           <pre>
@@ -350,7 +348,7 @@ fun main() {
       <p>
         Voilà, that's it. Those features hightlights a few part of the zo ecosystem. There are also a bunch of stuff
         including such as Bidirectional TypeChecking, Borrow Checker, text editor OS-like, FFI, package manager,
-        formatter, highlighter, REPL and also an UI framework.
+        formatter, highlighter, REPL, Cranelift back-end, LLVM back-end and also an UI framework.
       </p>
     </section>
 
@@ -452,21 +450,17 @@ fun main() {
     const pat = /zo/ig;
     return str.match(pat) ? str.replace(new RegExp(pat), "zo") : str;
   }
-
   function fmtzXSPat(str) {
     const pat = /zsx/ig;
     return str.match(pat) ? str.replace(new RegExp(pat), "zSX") : str;
   }
-
   function fmtzSSPat(str) {
     const pat = /zss/ig;
     return str.match(pat) ? str.replace(new RegExp(pat), "zSS") : str;
   }
-
   function replacePat(str, pat) {
     let pattern = "";
     let replace = "";
-
     switch (pat) {
       case "zo":
         pattern = 'zo';
@@ -483,10 +477,8 @@ fun main() {
       default:
         return str;
     }
-
     return str.replace(new RegExp(pattern), replace);
   }
-
   // Converts a string into an formatted SCREAMiNG CASE.
   function processScreamingCase(str) {
     return str
@@ -494,7 +486,6 @@ fun main() {
       .split("")
       .map((l) => l === "I" ? "i" : l).join("");
   }
-
   // Formats the content from a list of elements to SCREAMiNG CASE.
   function toScreamingCase(elmts, str) {
     for (let i = 0; i < elmts.length; i++) {
@@ -504,7 +495,6 @@ fun main() {
         processScreamingCase(elmt.innerHTML))));
     }
   }
-
   // Converts the content from a list of elements to lower case.
   function toLowerCase(elmts, str) {
     for (let i = 0; i < elmts.length; i++) {
@@ -513,13 +503,11 @@ fun main() {
       elmt.innerHTML = elmt.innerHTML.toLowerCase();
     }
   }
-
   // Gets the number of lines of a editor view.
   function numlines() {
     const eds = document.querySelector("#ed-view-1");
     return eds.innerHTML.split("\n").length;
   }
-
   /// Adds the number lines to their dedicated place.
   function addNumlines(numlines) {
     const edGutters = document.querySelector("#ed-numlines");

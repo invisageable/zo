@@ -8,7 +8,7 @@
 
 > *zo — The symphonie of compilers.*
 
-[home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [speeches](notes/speeches) — [license](#license)   
+[home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [speeches](notes/speeches) — [license](#license)  
 
 ## warning.
 
@@ -29,13 +29,13 @@ A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A G
 **-sources**
 
 | NAME                          | DESCRiPTiON                        |
-| ----------------------------- | ---------------------------------- |
+| :---------------------------- | :--------------------------------- |
 | [swisskit](./source/swisskit) | A COLLECTiON OF SHAREABLE MODULES. |
 
 **-crates**
 
 | NAME                     | DESCRiPTiON                                  |
-| ------------------------ | -------------------------------------------- |
+| :----------------------- | :------------------------------------------- |
 | [zo](./crates/compiler)  | A COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE. |
 | [zom](./crates/marker)   | A COMPiLER FOR THE `oz` MARKUP LANGAGE.      |
 | [zod](./crates/designer) | A DESiGNER for the `zo` PROGRAMMiNG LANGAGE  |
@@ -43,10 +43,10 @@ A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A G
 **-apps**
 
 | NAME                             | DESCRIPTION                                             |
-| -------------------------------- | ------------------------------------------------------- |
+| :------------------------------- | :------------------------------------------------------ |
 | [calculius](./apps/adder)        | A SMALL MACHiNA FOR MATHEMATiCAL COMPUTATiONS.          |
 | [codelord](./apps/coder)         | A CODE EDiTOR OS-LiKE FOR THE `zo` PROGRAMMiNG LANGAGE. |
-| [prezentation](./apps/presenter) | A LiVELY PRESENTAtiON SOFTWARE.                         |
+| [prezentation](./apps/presenter) | A LiVELY PRESENTATiON SOFTWARE.                         |
 
 ## contributing.
 
@@ -60,7 +60,7 @@ STARS, [donation](https://patreon.com/invisageable) AND SPONSORS ARE WELCOMiNG. 
 
 THANKS TO:
 
-[@ledruidd](https://github.com/ledruidd), [@SiegfriedEhret](https://github.com/SiegfriedEhret), [@zesterer](https://github.com/zesterer), [@tamo](https://github.com/irevoire), [@harzu](https://github.com/Harzu), [@rvirding](https://github.com/rvirding), [@worrydream](https://x.com/worrydream), [@akimd](https://github.com/akimd), [@j_blow](https://www.twitch.tv/j_blow), [@tsoding](https://www.twitch.tv/j_blow), [graydon](https://github.com/graydon), [@emilk](https://github.com/emilk).
+[@ledruidd](https://github.com/ledruidd) [@SiegfriedEhret](https://github.com/SiegfriedEhret) [@akimd](https://github.com/akimd) [graydon](https://github.com/graydon) [@rvirding](https://github.com/rvirding) [@worrydream](https://x.com/worrydream) [@j_blow](https://www.twitch.tv/j_blow) [@tsoding](https://www.twitch.tv/j_blow) 
 
 > « DE PRèS COMME DE LOIN VOUS M'AVEZ INSPIRé à MENER CE PROJET. QUE LE TURFU VOUS ACCOMPAGNE ! »
 
@@ -68,4 +68,4 @@ THANKS TO:
 
 [apache](./LICENSE-APACHE) — [mit](./LICENSE-MIT)
 
-COPYRiGHT (©) **29** JULY **2024** — *PRESENT, [`@invisageable`](https://twitter.com/invisageable).*   
+COPYRiGHT© **29** JULY **2024** — *PRESENT, [`@invisageable`](https://twitter.com/invisageable).*   

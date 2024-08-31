@@ -1,0 +1,8 @@
+-- boxes — box.
+
+fun main() {
+  imu x: @int = box 1;
+  imu y: @int = box 1;
+
+  check (x + y == 2);
+}

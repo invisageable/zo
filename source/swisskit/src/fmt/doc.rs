@@ -191,7 +191,7 @@ pub fn fmt(w: i32, k: i32, mut docs: Vec<(i32, Mode, Doc)>) -> SDoc {
 ///   ),
 /// ));
 ///
-/// println!("{}", fmt::pp(1, doc));
+/// println!("{}", fmt::pp(2, doc));
 /// ```
 pub fn pp(width: i32, doc: Doc) -> String {
   let sdoc = fmt(
