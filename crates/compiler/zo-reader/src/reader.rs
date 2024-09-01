@@ -49,6 +49,28 @@ impl<'path> Reader<'path> {
     Ok(source_code)
   }
 
+  /// Reads a list of files from a pathname.
+  fn read_files(
+    &mut self,
+    pathnames: Vec<impl AsRef<std::ffi::OsStr>>,
+  ) -> Result<Vec<String>> {
+    let mut sources = Vec::with_capacity(0usize);
+
+    for pathname in pathnames {
+      let source = self
+        .reporter
+        .add_source(pathname.as_ref())
+        .map_err(error::internal::io)
+        .map(|source_id| {
+          self.reporter.source_code(source_id.get() as u32).into()
+        })?;
+
+      sources.push(source);
+    }
+
+    Ok(sources)
+  }
+
   /// Reads line.
   fn read_line(&self) -> Result<String> {
     use std::io::Write;
@@ -94,10 +116,48 @@ pub fn read(
 ///
 /// let mut session = Session::default();
 ///
-/// reader::read_file(&mut session, "path/to/file");
+/// reader::read_file(&mut session);
 /// ```
 pub fn read_file(session: &mut Session) -> Result<String> {
   Reader::new(&mut session.reporter).read_file(session.settings.input.as_str())
+}
+
+/// A wrapper of [`Reader::new`] and [`Reader::read_file`].
+///
+/// #### examples.
+///
+/// ```ignore
+/// use zo_reader::reader;
+/// use zo_session::session::Session;
+///
+/// let mut session = Session::default();
+///
+/// reader::read_file(&mut session, "path/to/file");
+/// ```
+pub fn read_file_from_path(
+  session: &mut Session,
+  pathname: impl AsRef<std::ffi::OsStr>,
+) -> Result<String> {
+  Reader::new(&mut session.reporter).read_file(pathname)
+}
+
+/// A wrapper of [`Reader::new`] and [`Reader::read_files`].
+///
+/// #### examples.
+///
+/// ```ignore
+/// use zo_reader::reader;
+/// use zo_session::session::Session;
+///
+/// let mut session = Session::default();
+///
+/// reader::read_files(&mut session, vec!["path/to/file-1", "path/to/file-2"]);
+/// ```
+pub fn read_files(
+  session: &mut Session,
+  pathdirs: Vec<String>,
+) -> Result<Vec<String>> {
+  Reader::new(&mut session.reporter).read_files(pathdirs)
 }
 
 /// A wrapper of [`Reader::new`] and [`Reader::read_line`].

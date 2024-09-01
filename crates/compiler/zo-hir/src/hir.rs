@@ -260,6 +260,13 @@ impl Hir {
   }
 }
 
+impl Default for Hir {
+  #[inline(always)]
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 /// The representation of an item.
 #[derive(Clone, Debug)]
 pub struct Item {
@@ -531,7 +538,7 @@ impl From<ast::Var> for Var {
       mutability: Mutability::from(var.mutability),
       kind: VarKind::from(var.kind),
       pattern: Pattern::from(var.pattern),
-      ty: Ty::from(var.ty),
+      ty: var.ty,
       value: Box::new(Expr::from(*var.value)),
       span: var.span,
     }

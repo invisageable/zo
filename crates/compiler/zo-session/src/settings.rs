@@ -3,7 +3,7 @@ use super::backend::Backend;
 use smol_str::SmolStr;
 
 /// The representation of a settings session.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Settings {
   /// The pathname of the input source code.
   pub input: SmolStr,

@@ -51,6 +51,7 @@ zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
 zo-interpreter = { path = "crates/compiler/zo-interpreter", version = "0.0.0" }
 zo-interpreter-clif = { path = "crates/compiler/zo-interpreter-clif", version = "0.0.0" }
 zo-interpreter-zo = { path = "crates/compiler/zo-interpreter-zo", version = "0.0.0" }
+zo-packer = { path = "crates/compiler/zo-packer", version = "0.0.0" }
 zo-parser = { path = "crates/compiler/zo-parser", version = "0.0.0" }
 zo-reader = { path = "crates/compiler/zo-reader", version = "0.0.0" }
 zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.0.0" }

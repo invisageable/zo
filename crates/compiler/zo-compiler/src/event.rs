@@ -14,7 +14,7 @@ pub enum Event {
   /// A path event — used during the `reading` phase.
   Path(std::path::PathBuf),
   /// A bytes event — used during the `tokenizer` phase.
-  Bytes(String),
+  Bytes(std::collections::HashMap<String, String>),
   /// A token event — used during the `parsing` phase.
   Tokens(Vec<Token>),
   /// An AST event — used during the `analyzing` and `generating` phase.
@@ -36,7 +36,9 @@ impl Event {
 
   /// Creates a new bytes event.
   #[inline]
-  pub const fn bytes(bytes: String) -> Result<Self> {
+  pub const fn bytes(
+    bytes: std::collections::HashMap<String, String>,
+  ) -> Result<Self> {
     Ok(Event::Bytes(bytes))
   }
 
@@ -82,7 +84,7 @@ impl std::fmt::Display for Event {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Path(pathname) => write!(f, "{}", pathname.display()),
-      Self::Bytes(bytes) => write!(f, "{}", bytes),
+      Self::Bytes(bytes) => write!(f, "{:?}", bytes),
       Self::Tokens(tokens) => write!(f, "{}", sep_comma(tokens)),
       Self::Ast(ast) => write!(f, "{ast}"),
       Self::Bytecode(bytecode) => write!(f, "{}", sep_comma(bytecode)),

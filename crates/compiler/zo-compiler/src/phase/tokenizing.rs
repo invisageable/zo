@@ -9,13 +9,18 @@ use zo_tokenizer::tokenizer;
 pub struct Tokenizing;
 impl Process for Tokenizing {
   fn process(&self, session: &mut Session, event: Event) -> Result<Event> {
-    if let Event::Bytes(source) = event {
+    if let Event::Bytes(sources) = event {
       // todo — needs work.
       if session.settings.has_verbose() {
-        println!("phase:{self} — {source:?}\n");
+        println!("phase:{self} — {sources:?}\n");
       }
 
-      return tokenizer::tokenize(session, &source).and_then(Event::tokens);
+      let mut tokens = Vec::with_capacity(0usize);
+      for (_, source) in sources {
+        tokens.push(tokenizer::tokenize(session, &source)?);
+      }
+
+      return Event::tokens(tokens.into_iter().flatten().collect());
     }
 
     Err(error::internal::expected_event(event))

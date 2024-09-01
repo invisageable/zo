@@ -7,7 +7,7 @@ use symbol::Symbol;
 
 use hashbrown::HashMap;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Interner {
   map: HashMap<&'static str, Symbol>,
   vec: Vec<&'static str>,

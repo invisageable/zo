@@ -1,0 +1,18 @@
+[package]
+name = "zo-packer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:source.
+swisskit = { workspace = true }
+
+# internal:crates.
+zo-reader = { workspace = true }
+zo-reporter = { workspace = true }
+zo-session = { workspace = true }
+
+# external:crates.
+petgraph = { workspace = true }
+rayon = { workspace = true }
+smol_str = { workspace = true }

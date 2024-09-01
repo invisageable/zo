@@ -71,7 +71,7 @@ async fn main() {
     .send(Message::Ping("hello from main".into()));
 
   // Spawn 1,000,000 actors to benchmark performance.
-  for i in 0..1_000_000 {
+  for i in 0i32..1_000_000_i32 {
     let name = format!("actor{}", i);
     let actor = Actor::new(name.clone());
 
@@ -85,14 +85,14 @@ async fn main() {
   actor1.lock().unwrap().send(Message::Stop);
 
   // allow some time for all actors to process the messages.
-  tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+  tokio::time::sleep(std::time::Duration::from_secs(1u64)).await;
 
   let duration = start.elapsed();
   println!("completed in {:?}", duration);
-  let actors_per_second = 1_000_000 as f64 / duration.as_secs_f64();
+  let actors_per_second = 1_000_000_f64 / duration.as_secs_f64();
   println!("actors per second: {}", actors_per_second);
 
-  if actors_per_second >= 1_000_000.0 {
+  if actors_per_second >= 1_000_000.0_f64 {
     println!("GOAT Status Achieved 🐐");
   } else {
     println!("keep optimizing!");

@@ -24,7 +24,7 @@ use zo_session::session::Session;
 use zo_tokenizer::token::group::Group;
 use zo_tokenizer::token::kw::Kw;
 use zo_tokenizer::token::punctuation::Punctuation;
-use zo_tokenizer::token::tag::{Tag, TagKind};
+use zo_tokenizer::token::tag::TagKind;
 use zo_tokenizer::token::{Token, TokenKind};
 use zo_ty::ty::{FloatTy, IntTy, LitFloatTy, LitIntTy, SintTy, Ty, UintTy};
 
@@ -500,7 +500,7 @@ impl<'tokens> Parser<'tokens> {
     let mut current_node: Option<Elmt> = None;
 
     while !self.ensure_peek(TokenKind::Punctuation(Punctuation::Semi)) {
-      let token = self.maybe_token_current.map(|token| token).unwrap();
+      let token = self.maybe_token_current.unwrap();
 
       self.next();
 
@@ -513,7 +513,7 @@ impl<'tokens> Parser<'tokens> {
         TokenKind::ZsxTag(tag) => match tag.kind {
           TagKind::Opening => {
             let elmt = Elmt {
-              kind: ElmtKind::Tag(if tag.name.to_string().len() == 0 {
+              kind: ElmtKind::Tag(if tag.name.to_string().is_empty() {
                 "fragment".into()
               } else {
                 tag.name.to_string()
@@ -551,22 +551,10 @@ impl<'tokens> Parser<'tokens> {
 
     let elmt = current_node.unwrap();
 
-    return Ok(Expr {
+    Ok(Expr {
       kind: ExprKind::Elmt(elmt.clone()),
       span: elmt.span,
-    });
-  }
-
-  /// Parses zsx raw text template.
-  fn parse_zsx_tag(&mut self, tag: &Tag) -> Result<Expr> {
-    todo!()
-  }
-
-  /// Parses zsx raw text template.
-  fn parse_zsx_raw_text(&mut self, ch: char) -> Result<Expr> {
-    let mut buf = String::from(ch);
-
-    todo!()
+    })
   }
 
   /// Parses a type.

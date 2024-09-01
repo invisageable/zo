@@ -39,7 +39,7 @@ impl Source {
 }
 
 /// The representation of a source map database.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SourceMap {
   /// The code source.
   pub code: String,

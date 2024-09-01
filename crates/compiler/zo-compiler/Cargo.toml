@@ -14,6 +14,7 @@ zo-builder = { workspace = true }
 zo-codegen = { workspace = true }
 zo-interner = { workspace = true }
 zo-interpreter = { workspace = true }
+zo-packer = { workspace = true }
 zo-parser = { workspace = true }
 zo-reader = { workspace = true }
 zo-reporter = { workspace = true }

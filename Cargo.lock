@@ -6399,11 +6399,7 @@ dependencies = [
 name = "zo"
 version = "0.0.0"
 dependencies = [
- "futures",
- "petgraph",
- "rayon",
  "swisskit",
- "tokio",
  "zo-driver",
 ]
 
@@ -6502,6 +6498,7 @@ dependencies = [
  "zo-codegen",
  "zo-interner",
  "zo-interpreter",
+ "zo-packer",
  "zo-parser",
  "zo-reader",
  "zo-reporter",
@@ -6607,6 +6604,19 @@ dependencies = [
  "zo-session",
  "zo-ty",
  "zo-value",
+]
+
+[[package]]
+name = "zo-packer"
+version = "0.0.0"
+dependencies = [
+ "petgraph",
+ "rayon",
+ "smol_str",
+ "swisskit",
+ "zo-reader",
+ "zo-reporter",
+ "zo-session",
 ]
 
 [[package]]

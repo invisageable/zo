@@ -11,7 +11,7 @@ use smol_str::SmolStr;
 /// The representation of a compiler's session.
 ///
 /// The session is used in each compiler phases.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Session {
   /// The settings of the session.
   pub settings: Settings,

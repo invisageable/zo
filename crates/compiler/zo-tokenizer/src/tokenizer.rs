@@ -112,8 +112,6 @@ impl<'source> Tokenizer<'source> {
 
     tokens.push(Token::new(TokenKind::Eof, Span::of(len, len + 1)));
 
-    // println!("{tokens:?}");
-
     Ok(tokens)
   }
 
@@ -1160,23 +1158,23 @@ impl<'source> Tokenizer<'source> {
       }
 
       TokenizerState::Ident => {
-        if let Some(kind) = KEYWORDS.get::<str>(&scanned) {
+        if let Some(kind) = KEYWORDS.get::<str>(scanned) {
           Some(kind.to_owned())
         } else {
-          let sym = self.interner.intern(&scanned);
+          let sym = self.interner.intern(scanned);
 
           Some(TokenKind::Ident(sym))
         }
       }
 
       TokenizerState::Byte => {
-        let sym = self.interner.intern(&scanned);
+        let sym = self.interner.intern(scanned);
 
         Some(TokenKind::Byte(sym))
       }
 
       TokenizerState::Char => {
-        let sym = self.interner.intern(&scanned);
+        let sym = self.interner.intern(scanned);
 
         Some(TokenKind::Char(sym))
       }

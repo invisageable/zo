@@ -5,7 +5,7 @@ use gpui::{div, prelude::FluentBuilder as _, RenderOnce};
 pub struct Style;
 
 impl Style {
-  fn new() -> StyleRefinement {
+  fn refinement() -> StyleRefinement {
     StyleRefinement {
       display: Some(Display::Flex),
       background: Some(Fill::Color(rgb(0x2e7d32).into())),
@@ -17,7 +17,7 @@ impl Style {
       },
       text: Some(TextStyleRefinement {
         color: Some(rgb(0xffffff).into()),
-        font_size: Some(AbsoluteLength::Rems(rems(1.25f32).into())),
+        font_size: Some(AbsoluteLength::Rems(rems(1.25f32))),
         ..Default::default()
       }),
       ..Default::default()
@@ -33,18 +33,18 @@ pub struct Node {
 impl Node {
   pub fn new(text: &str) -> Self {
     Self {
-      text: format!("{}", text).into(),
+      text: text.to_string().into(),
     }
   }
 }
 
 impl RenderOnce for Node {
   fn render(self, _cx: &mut WindowContext) -> impl IntoElement {
-    let mut styling = Style::new();
     let mut div = div();
     let style = div.style();
+    let styling = Style::refinement();
 
-    style.refine(&mut styling);
+    style.refine(&styling);
     div.children(vec![format!("hello, {}!", self.text)])
   }
 }
