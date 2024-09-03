@@ -9,6 +9,19 @@
     @import url("https://assets.soracom.io/fonts/aeonik/Aeonik.css");
     @import url("https://assets.soracom.io/fonts/source-han-sans/SourceHanSansJP-VF.css");
 
+    .nope {
+      background: var(--pink-to-highlight-to-purple-to-blue-horizontal-gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      font-size: .875rem;
+      margin-block: 0;
+      transition: background-position 1.8s ease-out;
+      background-size: 200% 100%;
+      background-position: 100% 0%;
+      position: relative;
+    }
+
     .f-aeonik {
       /* font-feature-settings: "ss02", "ss08"; */
       font-family: Aeonik, 'Source Han Sans JP', Arial, Helvetica, sans-serif;
@@ -57,15 +70,10 @@
       justify-content: center;
     }
 
-    main {
-      padding: 0 60px;
-      width: 100%;
-      display: flex;
-      align-items: center;
-      flex-direction: column;
+    section {
+      margin: 40px 0;
     }
 
-    header,
     footer {
       width: 100%;
     }
@@ -77,8 +85,27 @@
       /* white-space: no-wrap; */
     }
 
-    section {
-      margin: 40px 0;
+    p {
+      line-height: 30px;
+    }
+
+    .header {
+      top: 0;
+      width: 100%;
+      z-index: 2;
+      position: fixed;
+      background-color: rgba(0, 0, 0, 0.5);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px);
+    }
+
+    .main {
+      margin: 100px 0 0 0;
+      padding: 0 60px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      flex-direction: column;
     }
 
     .green {
@@ -243,7 +270,8 @@
     }
 
     @media only screen and (min-width: 600px) {
-      main {
+      .main {
+        padding: 0;
         max-width: 1024px;
       }
 
