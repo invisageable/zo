@@ -8,5 +8,5 @@ fun main() {
   val A: int = 48;
   val B: int = 18;
 
-  println("GCD of {a} and {b} = {}", gcd(A, B)); -- returns `GCD of 48 and 18 is 6`.
+  showln("GCD of {a} and {b} = {}", gcd(A, B)); -- returns `GCD of 48 and 18 is 6`.
 }

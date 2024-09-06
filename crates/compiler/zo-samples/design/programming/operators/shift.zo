@@ -4,5 +4,5 @@ fun main() {
   imu x: int = 1 << 2;
   imu y: int = 1 >> 2;
 
-  println("{x}, {y}");
+  showln("{x}, {y}");
 }

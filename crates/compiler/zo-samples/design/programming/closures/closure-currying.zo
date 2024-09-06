@@ -5,6 +5,6 @@ fun main(): int {
   imu add := adder(1);
   imu x := add(2);
 
-  println("{x}");
-  println("{}", adder(21)(21));
+  showln("{x}");
+  showln("{}", adder(21)(21));
 }

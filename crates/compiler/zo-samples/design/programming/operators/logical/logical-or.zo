@@ -5,8 +5,8 @@ fun main() {
   imu is_or2: bool = true;
 
   if is_or1 || is_or2 {
-    println("yes.");
+    showln("yes.");
   } else {
-    println("no.");
+    showln("no.");
   }
 }

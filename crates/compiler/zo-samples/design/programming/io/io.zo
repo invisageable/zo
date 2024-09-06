@@ -1,7 +1,7 @@
-abstract BufReader  {
+meta BufReader  {
   fun read(buf: u8[]): int;
 }
 
-abstract BufWriter {
+meta BufWriter {
   fun write(buf: u8[]): int;
 }

@@ -3,9 +3,9 @@
 fun main() {
   imu foo: Fn(int): int = fn(x) -> x + x;
 
-  println("foo = {}", foo(7));
+  showln("foo = {}", foo(7));
 
   imu bar := fn(x) -> x * x;
 
-  println("bar = {}", bar(7));
+  showln("bar = {}", bar(7));
 }

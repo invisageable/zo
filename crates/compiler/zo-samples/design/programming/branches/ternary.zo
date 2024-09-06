@@ -3,5 +3,5 @@
 fun main() {
   imu x: int = when true ? 1 : 2;
 
-  println("{x}");
+  showln("{x}");
 }

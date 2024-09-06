@@ -4,6 +4,10 @@ abstract Bar {
   fun as_span(): Span;
 }
 
+meta Bar {
+  fun as_span(): Span;
+}
+
 struct Span {
   lo: int = 0,
   hi: int = 0,
@@ -12,6 +16,12 @@ struct Span {
 struct Foo {}
 
 apply Bar for Foo {
+  fun as_span(): Span {
+    Span { lo = 0, hi = 0 }
+  }
+}
+
+feat Bar for Foo {
   fun as_span(): Span {
     Span { lo = 0, hi = 0 }
   }

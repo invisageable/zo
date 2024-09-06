@@ -13,5 +13,5 @@ fun main() {
     z = 3,
   };
 
-  println("{x}, {y}, {z}");
+  showln("{x}, {y}, {z}");
 }

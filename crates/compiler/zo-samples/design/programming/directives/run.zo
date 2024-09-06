@@ -1,7 +1,7 @@
 -- directives: run.
 
 fun foobar() {
-  println("compile-time.");
+  showln("compile-time.");
 }
 
 fun main() {

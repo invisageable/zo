@@ -11,5 +11,5 @@ fun main() {
     x = 30
   }
 
-  println("x = {x}");
+  showln("x = {x}");
 }

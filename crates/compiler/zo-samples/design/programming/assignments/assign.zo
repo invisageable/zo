@@ -7,5 +7,5 @@ fun main() {
 
   foobar = foo + bar;
 
-  println("foobar = {foobar}");
+  showln("foobar = {foobar}");
 }

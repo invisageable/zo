@@ -13,5 +13,5 @@ fun main() {
     }
   };
 
-  println("{}", fib(11)); -- returns `89`.
+  showln("{}", fib(11)); -- returns `89`.
 }

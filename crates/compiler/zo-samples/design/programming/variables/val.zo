@@ -4,5 +4,5 @@ val X: int = 2;
 val Y: int = 4;
 
 fun main() {
-  println("{}", X * Y);
+  showln("{}", X * Y);
 }

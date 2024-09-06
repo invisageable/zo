@@ -3,5 +3,5 @@
 fun main() {
   imu x: char = 'a';
 
-  println("{x}");
+  showln("{x}");
 }

@@ -6,17 +6,17 @@ fun fb(n: int) {
 
   while x <= n {
     if x % 15 == 0 {
-      println("fizzbuzz");
+      showln("fizzbuzz");
     } else if x % 5 == 0 {
-      println("buzz");
+      showln("buzz");
     } else if x % 3 == 0 {
-      println("fizz");
+      showln("fizz");
     } else {
-      println("{x}");
+      showln("{x}");
     }
   }
 }
 
 fun main() {
-  println("{}", fb(100));
+  showln("{}", fb(100));
 }

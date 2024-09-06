@@ -1,8 +1,8 @@
 -- interface: abstract.
 
-abstract Foo {}
+meta Foo {}
 
-abstract Bar {
+meta Bar {
   fun foobar();
 }
 

@@ -8,17 +8,17 @@ type Foo = int
 fun main() {
   imu w: Foo = 0;
   
-  println("{w}");
+  showln("{w}");
 
   imu x: Bar = (1.0, 200);
 
-  println("{x}");
+  showln("{x}");
 
   imu y: Oof = [1, 2, 3, 4];
 
-  println("{y}");
+  showln("{y}");
 
   imu z: Rab = fn(x) -> x * x;
 
-  println("{}", z(2));
+  showln("{}", z(2));
 }

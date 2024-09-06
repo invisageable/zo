@@ -5,5 +5,5 @@ fun foo(x: int): int {
 }
 
 fun main() {
-  println("foo = {}", foo(12));
+  showln("foo = {}", foo(12));
 }

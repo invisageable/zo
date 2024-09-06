@@ -5,22 +5,22 @@ fun main() {
   imu oct: int = 0o77;        -- octal.
   imu hex: int = 0xfff_fff;   -- hexadecimal.
 
-  println("bin = {bin}");
-  println("oct = {oct}");
-  println("hex = {hex}");
+  showln("bin = {bin}");
+  showln("oct = {oct}");
+  showln("hex = {hex}");
 
   -- parse to binary number.
   imu bina: int = b#30;
 
-  println("bina = {bina}"); -- 11110.
+  showln("bina = {bina}"); -- 11110.
 
   -- parse to octal number.
   imu octa: int = o#75;
 
-  println("octa = {octa}"); -- 113.
+  showln("octa = {octa}"); -- 113.
 
   -- parse to hexadecimal number.
   imu hexa: int = x#76;
 
-  println("hexa = {hexa}"); -- 4c.
+  showln("hexa = {hexa}"); -- 4c.
 }

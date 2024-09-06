@@ -1,5 +1,5 @@
 -- webassembly: wasm.
 
 wasm fun main() {
-  -- do something.
+  -- welcome to the WASM world.
 }

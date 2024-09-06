@@ -5,17 +5,17 @@ fun matches(n: int): str {
   if n == {
     1 => "one",
     2 => "two",
-    else => println("{n}"), -- `n` is added implicitly to the scope.
+    else => showln("{n}"), -- `n` is added implicitly to the scope.
   }
 
   -- second idea.
   match n {
     1 => "one",
     2 => "two",
-    else => println("{n}"), -- `n` is added implicitly to the scope.
+    else => showln("{n}"), -- `n` is added implicitly to the scope.
   }
 }
 
 fun main() {
-  println("{}", matches(1));
+  showln("{}", matches(1));
 }

@@ -6,5 +6,5 @@ fun main() {
   imu hey ::= <h1 style="background: {BLACK_100};">hey!</h1>;
   imu zsx ::= <>{hey}</>;
 
-  println("{zsx}"); -- prints a string `<h1 style="background: black;">hey!</h1>`.
+  showln("{zsx}"); -- prints a string `<h1 style="background: black;">hey!</h1>`.
 }

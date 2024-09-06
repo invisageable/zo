@@ -5,8 +5,8 @@ fun main() {
   imu is_and2: bool = true;
 
   if is_and1 && is_and2 {
-    println("yes.");
+    showln("yes.");
   } else {
-    println("no.");
+    showln("no.");
   }
 }

@@ -9,5 +9,5 @@ fun main() {
     x = 3
   }
 
-  println("{x}");
+  showln("{x}");
 }

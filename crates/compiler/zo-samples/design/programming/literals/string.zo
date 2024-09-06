@@ -5,7 +5,7 @@ fun main() {
   imu y: str = "foo\n";
   imu z: str = "\"bar\"";
 
-  println("x = {x}");
-  println("y = {y}");
-  println("z = {z}");
+  showln("x = {x}");
+  showln("y = {y}");
+  showln("z = {z}");
 }

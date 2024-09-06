@@ -9,5 +9,5 @@ fun main() {
 
   imu zsx ::= <>{hey}</>;
 
-  println("{zsx}");
+  showln("{zsx}");
 }

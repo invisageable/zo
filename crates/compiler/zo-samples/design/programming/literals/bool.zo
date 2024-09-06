@@ -5,7 +5,7 @@ fun main() {
   imu y: bool = !x;
   imu z: bool = y == false;
 
-  println("x = {x}"); -- true.
-  println("y = {y}"); -- false.
-  println("z = {z}"); -- true.
+  showln("x = {x}"); -- true.
+  showln("y = {y}"); -- false.
+  showln("z = {z}"); -- true.
 }

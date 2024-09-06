@@ -13,5 +13,5 @@ fun main() {
     z = 1,
   };
 
-  println("{}, {}, {}", foo.x, foo.y, foo.z);
+  showln("{}, {}, {}", foo.x, foo.y, foo.z);
 }

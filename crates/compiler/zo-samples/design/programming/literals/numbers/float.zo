@@ -5,7 +5,7 @@ fun main() {
   imu y: float = 1.0E+77;
   imu z: float = 1e4;
 
-  println("x = {x}");
-  println("y = {y}");
-  println("z = {z}");
+  showln("x = {x}");
+  showln("y = {y}");
+  showln("z = {z}");
 }

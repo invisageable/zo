@@ -7,5 +7,5 @@ fun main() {
   -- this is another line comments.
   imu x: int = 1_000_000_000; -- this is another line comments.
 
-  println("{x}");
+  showln("{x}");
 } -- YALC! yet another line comments.
