@@ -6,7 +6,7 @@ use zo_interner::interner::Interner;
 use zo_reporter::reporter::Reporter;
 use zo_reporter::{error, Result};
 use zo_session::session::Session;
-use zo_value::builtin::BuiltinFn;
+use zo_value::builtin::{lookup_builtin, BuiltinFn};
 use zo_value::value::{Args, Value, ValueKind};
 
 use swisskit::span::{AsSpan, Span};
@@ -271,6 +271,8 @@ impl<'ast> Interpreter<'ast> {
       return Ok(var.to_owned());
     } else if let Some(fun) = self.scope_map.fun(sym) {
       return Ok(fun.to_owned());
+    } else if let Some(builtin) = lookup_builtin(&self.interner, *sym) {
+      return Ok(builtin.to_owned());
     }
 
     let name = self.interner.lookup(**sym);

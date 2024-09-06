@@ -1,23 +1,23 @@
 use swisskit::fmt;
 
 /// Prints to the io.
-pub fn print<V: std::fmt::Display + std::convert::AsRef<str>>(
-  fmt: V,
+pub fn show<V: std::fmt::Display + std::convert::AsRef<str>>(
+  source: V,
   value: V,
 ) {
-  match fmt::format(fmt, &[value]) {
-    Ok(fmt) => println!("{fmt}"),
-    Err(err) => panic!("{err}"), // todo(ivs) — shoudl raise an internal error.
+  match fmt::format(source, &[value]) {
+    Ok(fmt) => print!("{fmt}"),
+    Err(err) => panic!("{err}"), // todo(ivs) — should raise an internal error.
   }
 }
 
 /// Prints to the io with a newline at the end.
-pub fn println<V: std::fmt::Display + std::convert::AsRef<str>>(
-  fmt: V,
+pub fn showln<V: std::fmt::Display + std::convert::AsRef<str>>(
+  source: V,
   value: V,
 ) {
-  match fmt::format(fmt, &[value]) {
+  match fmt::format(source, &[value]) {
     Ok(fmt) => println!("{fmt}"),
-    Err(err) => panic!("{err}"), // todo(ivs) — shoudl raise an internal error.
+    Err(err) => panic!("{err}"), // todo(ivs) — should raise an internal error.
   }
 }
