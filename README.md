@@ -60,7 +60,7 @@ STARS, [donation](https://patreon.com/invisageable) AND SPONSORS ARE WELCOMiNG. 
 
 THANKS TO:
 
-[@ledruidd](https://github.com/ledruidd) [@SiegfriedEhret](https://github.com/SiegfriedEhret) [@akimd](https://github.com/akimd) [graydon](https://github.com/graydon) [@rvirding](https://github.com/rvirding) [@worrydream](https://x.com/worrydream) [@j_blow](https://www.twitch.tv/j_blow) [@tsoding](https://www.twitch.tv/j_blow) 
+[@ledruidd](https://github.com/ledruidd) [@SiegfriedEhret](https://github.com/SiegfriedEhret) [@akimd](https://github.com/akimd) [graydon](https://github.com/graydon) [@rvirding](https://github.com/rvirding) [@worrydream](https://x.com/worrydream) [@j_blow](https://www.twitch.tv/j_blow) [@tsoding](https://www.twitch.tv/j_blow) [@geohot](https://github.com/geohot)
 
 > « DE PRèS COMME DE LOIN VOUS M'AVEZ INSPIRé à MENER CE PROJET. QUE LE TURFU VOUS ACCOMPAGNE ! »
 

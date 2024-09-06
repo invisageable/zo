@@ -51,6 +51,8 @@
     *::before,
     *::after {
       box-sizing: border-box;
+      /* -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale; */
     }
 
     html,
@@ -269,6 +271,12 @@
       color: var(--color-black-100);
     }
 
+    @media(prefers-reduced-motion: no-preference) {
+      html {
+        scroll-behavior: smooth;
+      }
+    }
+
     @media only screen and (min-width: 600px) {
       .main {
         padding: 0;
@@ -324,6 +332,8 @@
       <div style="margin-right: 20px;">
         <h2>The zo Programming Language.</h2>
         <p class="pitch-resume">
+          « A janky programming language made by janyk people. »
+
           Codify human thoughts into <b>robust</b>, <b>sane</b> and meticulously <b>optimized</b> cross-platform
           software.
         </p>
