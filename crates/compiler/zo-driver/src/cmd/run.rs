@@ -88,10 +88,7 @@ impl Run {
     ]);
 
     match compiler.compile()? {
-      Event::Value(value) => {
-        println!("{value}");
-        Ok(())
-      }
+      Event::Value(_value) => Ok(()),
       event => Err(error::internal::expected_event(event)),
     }
   }

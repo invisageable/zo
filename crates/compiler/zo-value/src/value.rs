@@ -50,6 +50,12 @@ impl Value {
     Self::new(ValueKind::Bool(boolean), span)
   }
 
+  /// Creates a new string value.
+  #[inline]
+  pub const fn str(string: String, span: Span) -> Self {
+    Self::new(ValueKind::Str(string), span)
+  }
+
   /// Creates a new array value.
   #[inline]
   pub const fn array(array: ThinVec<Value>, span: Span) -> Self {
@@ -131,6 +137,8 @@ pub enum ValueKind {
   Float(f64),
   /// bool — `false` or `true`.
   Bool(bool),
+  /// A string — `"foo"` or `"bar oof rab"`.
+  Str(String),
   /// array — `[1, 2, 3, 4]`.
   Array(ThinVec<Value>),
   /// tuple — `(1, 2, 3, 4)`.

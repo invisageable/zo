@@ -15,6 +15,7 @@ impl std::fmt::Display for ValueKind {
       Self::Int(int) => write!(f, "{int}"),
       Self::Float(float) => write!(f, "{float}"),
       Self::Bool(boolean) => write!(f, "{boolean}"),
+      Self::Str(string) => write!(f, "\"{string}\""),
       Self::Array(array) => write!(f, "[{}]", sep_comma(array)),
       Self::Tuple(tuple) => write!(f, "({})", sep_comma(tuple)),
       Self::Loop(body) => write!(f, "loop {body}"),

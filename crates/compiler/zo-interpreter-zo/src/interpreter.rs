@@ -235,6 +235,7 @@ impl<'ast> Interpreter<'ast> {
       ast::LitKind::Bool(boolean) => {
         self.interpret_expr_lit_bool(boolean, lit.span)
       }
+      ast::LitKind::Str(sym) => self.interpret_expr_lit_str(sym, lit.span),
       _ => todo!(),
     }
   }
@@ -287,6 +288,17 @@ impl<'ast> Interpreter<'ast> {
     span: Span,
   ) -> Result<Value> {
     Ok(Value::bool(*boolean, span))
+  }
+
+  /// Interprets a float literal expression.
+  fn interpret_expr_lit_str(
+    &mut self,
+    sym: &Symbol,
+    span: Span,
+  ) -> Result<Value> {
+    let string = self.interner.lookup(**sym);
+
+    Ok(Value::str(string.into(), span))
   }
 
   /// Interprets an unary operation expression.

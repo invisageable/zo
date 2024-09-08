@@ -22,7 +22,7 @@ pub struct Builtin {
 pub fn lookup_builtin(interner: &Interner, sym: Symbol) -> Option<Value> {
   let name = interner.lookup(*sym);
 
-  BUILTINS.get(name).map(|b| b.builtin.clone())
+  BUILTINS.get(name).map(|b| b.builtin.to_owned())
 }
 
 lazy_static::lazy_static! {
