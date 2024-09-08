@@ -24,6 +24,8 @@ zo (PRONOUNCED `/zuː/`) iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiL
 
 ## ecosystem.
 
+
+
 **-sources**
 
 | NAME                          | DESCRiPTiON                        |
@@ -32,10 +34,10 @@ zo (PRONOUNCED `/zuː/`) iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiL
 
 **-crates**
 
-| NAME                    | DESCRiPTiON                                  |
-| :---------------------- | :------------------------------------------- |
-| [zo](./crates/compiler) | A COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE. |
-| [zom](./crates/marker)  | A COMPiLER FOR THE `oz` MARKUP LANGAGE.      |
+| NAME                    | DESCRiPTiON                                               |
+| :---------------------- | :-------------------------------------------------------- |
+| [zo](./crates/compiler) | A COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE.              |
+| [zom](./crates/marker)  | A COMPiLER FOR THE `oz` MARKUP LANGAGE. *NOT iMPLEMENTED* |
 
 ## contributing.
 
