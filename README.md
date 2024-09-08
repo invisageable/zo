@@ -34,19 +34,10 @@ zo (PRONOUNCED `"zoo"` or `/zuː/`) iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER G
 
 **-crates**
 
-| NAME                     | DESCRiPTiON                                  |
-| :----------------------- | :------------------------------------------- |
-| [zo](./crates/compiler)  | A COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE. |
-| [zom](./crates/marker)   | A COMPiLER FOR THE `oz` MARKUP LANGAGE.      |
-| [zod](./crates/designer) | A DESiGNER for the `zo` PROGRAMMiNG LANGAGE  |
-
-**-apps**
-
-| NAME                             | DESCRIPTION                                             |
-| :------------------------------- | :------------------------------------------------------ |
-| [calculius](./apps/adder)        | A SMALL MACHiNA FOR MATHEMATiCAL COMPUTATiONS.          |
-| [codelord](./apps/coder)         | A CODE EDiTOR OS-LiKE FOR THE `zo` PROGRAMMiNG LANGAGE. |
-| [prezentation](./apps/presenter) | A LiVELY PRESENTATiON SOFTWARE.                         |
+| NAME                    | DESCRiPTiON                                  |
+| :---------------------- | :------------------------------------------- |
+| [zo](./crates/compiler) | A COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE. |
+| [zom](./crates/marker)  | A COMPiLER FOR THE `oz` MARKUP LANGAGE.      |
 
 ## contributing.
 
