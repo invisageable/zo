@@ -1,4 +1,4 @@
-# zo.
+# zo — The symphonie of compilers.
 
 [![invisage/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
@@ -6,25 +6,23 @@
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ---
 
-> *zo — The symphonie of compilers.*
+> *Codify your creative thoughts into __robust__, __sane__ and meticulously __optimized__ cross-platform software.*
 
 [home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [speeches](notes/speeches) — [license](#license)  
 
 ## warning.
 
-**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
+**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
 
 YOU SHOULD COME BACK iN TEN YEARS. STAY TUNED.
 
-**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
+**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
 
 ## [about](https://youtu.be/GJfsbhJY8gk?feature=shared&t=196).
 
-zo (PRONOUNCED `"zoo"` or `/zuː/`) iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A GiGANTiC COMPiLER. THE AiM OF THE PROJECT iS TO CREATE A MODULABLE, EASY-TO-USE AND GREEN CROSS-PLATFORM TOOLiNG ECOSYSTEM.
+zo (PRONOUNCED `/zuː/`) iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A GiGANTiC COMPiLER. THE AiM OF THE PROJECT iS TO ENHANCiNG THE DEVELOPER EXPERiENCE, MAKiNG iT SEAMLESS TO BUiLD SOFTWARE THAT REFLECTS YOUR CREATiViTY. WE FOCUS ON THE DETAiLS THAT MATTER, OPENiNG NEW DiMENSiONS iN THE SOFTWARE WORLD WHERE TRANSFORMiNG YOUR THOUGHTS iNTO PROGRAMS iS NOT JUST EASY, BUT ENJOYABLE. zo iS DESIGNED TO BE SiMPLE, USEFUL, VERSATiLE WiTH AN ELEGANT SYNTATiC ALLURE, ENABLiNG YOU TO CREATE OPTiMiZED APPLiCATiONS WiTH PRECiSiON AND WiTHOUT FRiCTiON. PROGRAMMiNG SHOULD ALWAYS BE FUN, AND WiTH zo, iT iS.
 
 ## ecosystem.
-
-> A CROSS-PLATFORM TOOLiNG ECOSYSTEM TO CODiFY YOUR CREATiVE THOUGHTS iNTO ROBUST AND GREEN SOFTWARES.
 
 **-sources**
 
