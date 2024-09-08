@@ -475,7 +475,7 @@ pub enum ExprKind {
   /// exit return — `return`, `return foo`.
   Return(Option<Box<Expr>>),
   /// exit break — `break`, `break foo`.
-  Break(Option<Box<Expr>>),
+  Stop(Option<Box<Expr>>),
   /// exit continue — `continue`.
   Continue,
   /// variable — `imu foo : int = 0`, `mut foo := 0`.

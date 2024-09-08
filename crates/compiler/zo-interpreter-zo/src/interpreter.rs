@@ -211,8 +211,8 @@ impl<'ast> Interpreter<'ast> {
       ast::ExprKind::Return(maybe_expr) => {
         self.interpret_expr_return(maybe_expr, expr.span)
       }
-      ast::ExprKind::Break(maybe_expr) => {
-        self.interpret_expr_break(maybe_expr, expr.span)
+      ast::ExprKind::Stop(maybe_expr) => {
+        self.interpret_expr_stop(maybe_expr, expr.span)
       }
       ast::ExprKind::Continue => self.interpret_expr_continue(expr.span),
       ast::ExprKind::Var(var) => self.interpret_expr_var(var),
@@ -682,7 +682,7 @@ impl<'ast> Interpreter<'ast> {
   }
 
   /// Interprets a break expression.
-  fn interpret_expr_break(
+  fn interpret_expr_stop(
     &mut self,
     maybe_expr: &Option<Box<ast::Expr>>,
     span: Span,

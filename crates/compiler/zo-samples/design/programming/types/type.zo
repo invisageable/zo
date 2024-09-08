@@ -1,6 +1,6 @@
--- types: alias.
+-- types: type.
 
-alias Idx = int;
+type Idx = int;
 
 fun main() {
   imu x: Idx = 0;

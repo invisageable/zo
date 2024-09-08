@@ -1,7 +1,7 @@
--- interface: apply.
+-- interface: abstract.
 
-meta Bar {
-  fun as_span(): Span;
+abstract Bar {
+  fun as_span();
 }
 
 struct Span {
@@ -11,10 +11,10 @@ struct Span {
 
 struct Foo {}
 
-feat Bar for Foo {
+apply Bar for Foo {
   fun as_span(): Span {
     Span { lo = 0, hi = 0 }
   }
-} 
+}
 
 fun main() {}

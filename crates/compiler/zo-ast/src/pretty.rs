@@ -203,9 +203,9 @@ impl std::fmt::Display for ExprKind {
         Some(expr) => write!(f, "return {expr};"),
         None => write!(f, "return;"),
       },
-      Self::Break(maybe_expr) => match maybe_expr {
-        Some(expr) => write!(f, "break {expr};"),
-        None => write!(f, "break;"),
+      Self::Stop(maybe_expr) => match maybe_expr {
+        Some(expr) => write!(f, "stop {expr};"),
+        None => write!(f, "stop;"),
       },
       Self::Continue => write!(f, "continue"),
       Self::Var(var) => write!(f, "{var}"),

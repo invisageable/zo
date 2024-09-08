@@ -1,0 +1,9 @@
+-- interface: abstract.
+
+meta Foo {}
+
+meta Bar {
+  fun foobar();
+}
+
+fun main() {}

@@ -5,7 +5,9 @@ fun main() {
 
   loop {
     if x == 3 {
-      break;
+      stop;
+    } else {
+      skip;
     }
 
     x += 1;

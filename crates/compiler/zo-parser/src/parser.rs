@@ -842,7 +842,7 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Kw(Kw::Loop) => Box::new(Self::parse_expr_loop),
       TokenKind::Kw(Kw::While) => Box::new(Self::parse_expr_while),
       TokenKind::Kw(Kw::Return) => Box::new(Self::parse_expr_return),
-      TokenKind::Kw(Kw::Break) => Box::new(Self::parse_expr_break),
+      TokenKind::Kw(Kw::Stop) => Box::new(Self::parse_expr_stop),
       TokenKind::Kw(Kw::Continue) => Box::new(Self::parse_expr_continue),
       TokenKind::Kw(Kw::FnLower) => Box::new(Self::parse_expr_fn),
       _ => {
@@ -1269,7 +1269,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses a break expression.
-  fn parse_expr_break(parser: &mut Parser) -> Result<Expr> {
+  fn parse_expr_stop(parser: &mut Parser) -> Result<Expr> {
     let lo = parser.current_span();
 
     parser.next();
@@ -1279,7 +1279,7 @@ impl<'tokens> Parser<'tokens> {
       let span = Span::merge(lo, hi);
 
       return Ok(Expr {
-        kind: ExprKind::Break(None),
+        kind: ExprKind::Stop(None),
         span,
       });
     }
@@ -1288,7 +1288,7 @@ impl<'tokens> Parser<'tokens> {
     let hi = parser.current_span();
 
     Ok(Expr {
-      kind: ExprKind::Break(Some(Box::new(value))),
+      kind: ExprKind::Stop(Some(Box::new(value))),
       span: Span::merge(lo, hi),
     })
   }

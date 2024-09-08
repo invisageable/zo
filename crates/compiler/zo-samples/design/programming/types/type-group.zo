@@ -1,9 +1,10 @@
--- types: group.
+-- types: type-group.
 
-type Foo = int
+group type Foo = int
   and Bar = (float, int)
   and Oof = float[]
-  and Rab = Fn(int): int;
+  and Rab = Fn(int): int
+;
 
 fun main() {
   imu w: Foo = 0;

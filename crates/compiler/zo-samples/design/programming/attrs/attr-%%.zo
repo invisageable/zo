@@ -1,0 +1,9 @@
+%% foo(bar).
+shadow Foo {
+  fun bar(): int;
+}
+
+%% inline.
+fun foo() {}
+
+fun main() {}
