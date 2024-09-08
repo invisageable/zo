@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zo.</title>
+  <title>zo — JOiN THE DEVOLUTiON</title>
   <style>
     @import url("https://assets.soracom.io/fonts/aeonik/Aeonik.css");
     @import url("https://assets.soracom.io/fonts/source-han-sans/SourceHanSansJP-VF.css");
@@ -31,15 +31,16 @@
       font-weight: 100;
     }
 
-    /* @font-face {
-      font-family: iosevka;
+    @font-face {
+      font-family: "Iosevka";
       font-weight: normal;
-      src: url('assets/font-iosevka-regular.ttf') format('TTF');
+      font-display: swap;
+      font-weight: 400;
+      font-stretch: normal;
+      font-style: normal;
+      src: url('assets/font-iosevka-regular.woff2') format('woff2'), url('assets/font-iosevka-regular.ttf') format('truetype');
     }
 
-    textarea {
-      font-family: iosevka;
-    } */
 
     :root {
       --color-black-100: rgb(0, 0, 0);
@@ -50,9 +51,12 @@
     *,
     *::before,
     *::after {
+      scrollbar-width: thin;
+      -moz-tab-size: 2;
+      tab-size: 2;
       box-sizing: border-box;
-      /* -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale; */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     html,
@@ -63,6 +67,7 @@
       color: white;
       overflow-x: hidden;
       font-family: Arial, Helvetica, sans-serif;
+      font-family: Aeonik, 'Source Han Sans JP', Arial, Helvetica, sans-serif;
     }
 
     body {
@@ -76,19 +81,20 @@
       margin: 40px 0;
     }
 
-    footer {
-      width: 100%;
-    }
-
     pre {
       margin: 0;
-      font-family: monospace;
+      font-family: "Iosevka";
+      /* font-family: monospace; */
       /* white-space: pre; */
       /* white-space: no-wrap; */
     }
 
     p {
       line-height: 30px;
+    }
+
+    a {
+      color: var(--color-green-100);
     }
 
     .header {
@@ -99,6 +105,7 @@
       background-color: rgba(0, 0, 0, 0.5);
       -webkit-backdrop-filter: saturate(180%) blur(20px);
       backdrop-filter: saturate(180%) blur(20px);
+      box-shadow: 0 4px 6px -2px rgb(0, 0, 0);
     }
 
     .main {
@@ -110,6 +117,14 @@
       flex-direction: column;
     }
 
+    .hero {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      height: calc(100vh - 100px);
+      position: relative;
+    }
+
     .green {
       color: var(--color-green-100);
     }
@@ -119,11 +134,16 @@
     }
 
     .heading-2 {
-      text-transform: uppercase;
+      /* text-transform: uppercase; */
     }
 
     .heading-3 {
       color: var(--color-green-100);
+      /* font-family: "Fira Code"; */
+      font-family: "Iosevka";
+
+      font-size: 2rem;
+      /* text-transform: uppercase; */
     }
 
     .header {
@@ -182,6 +202,25 @@
       text-transform: uppercase;
     }
 
+    .feature-title {
+      font-size: 100px;
+      font-weight: 400;
+    }
+
+    .feature-item {
+      margin: 100px 0;
+    }
+
+    .line {
+      display: block;
+      /* background: red; */
+      transition: background 100ms ease-out;
+    }
+
+    .line-focus {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
     .hlink {}
 
     .hlink-no {
@@ -193,7 +232,12 @@
       font-size: 100px;
     }
 
-
+    /* line wrap. */
+    .lw {
+      white-space: break-spaces;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
 
     .int {
       color: palegoldenrod;
@@ -257,6 +301,36 @@
       text-decoration: none;
     }
 
+    .btn.btn-smol {
+      right: 0;
+      bottom: 0;
+      display: block;
+      background: transparent;
+      border: none;
+      color: white;
+      font-size: 8px;
+      text-transform: uppercase;
+      position: absolute;
+    }
+
+    .command-line {
+      padding: 10px;
+      width: 230px;
+      display: block;
+      color: var(--color-white-100);
+      border: 1px solid var(--color-white-100);
+      text-decoration: none;
+      position: relative;
+    }
+
+    .command-line::before {
+      content: "📡";
+      /* content: "»"; */
+      margin: 0 10px 0 0;
+      position: relative;
+      font-size: 12px;
+    }
+
     .gondola {
       display: block;
     }
@@ -266,9 +340,38 @@
     }
 
     .footer {
-      padding: 40px;
+      margin: 100px 0 0 0;
+      padding: 80px 40px 0 40px;
+      width: 100%;
       background: var(--color-green-100);
       color: var(--color-black-100);
+    }
+
+    .copyright>p {
+      margin: 0;
+      line-height: normal;
+    }
+
+    .contact {
+      padding: 10px 20px;
+      border: 1px solid var(--color-black-100);
+      color: var(--color-black-100);
+      text-decoration: none;
+    }
+
+    .socials>a {
+      padding: 10px 14px;
+      border: 1px solid var(--color-black-100);
+      color: var(--color-black-100);
+      text-decoration: none;
+    }
+
+    .cursor-caret {
+      top: 0;
+      width: 4px;
+      height: 10px;
+      background: red;
+      position: absolute;
     }
 
     @media(prefers-reduced-motion: no-preference) {
@@ -318,32 +421,48 @@
 
   <main class="main" style="padding: 0 60px;">
     <section class="hero">
-      <center>
-        <h1 class="pitch-slogan" style="max-width: 800px; font-size: 100px; font-weight: 400;margin: 100px 0;">
+      <div style="
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        text-align: center;
+      ">
+        <h1 class="pitch-slogan" style="max-width: 800px; font-size: 100px; font-weight: 400;margin: 0 0 100px 0;">
           JOiN THE <span class="green">DEV</span>OLUTiON.
         </h1>
         <a class="btn btn-getting-started hlink-no" href="/get-started">
           Get Started
         </a>
-      </center>
+      </div>
     </section>
 
     <section class="gondola">
       <div style="margin-right: 20px;">
-        <h2>The zo Programming Language.</h2>
-        <p class="pitch-resume">
-          « A janky programming language made by janyk people. »
+        <h2 style="margin: 0;">The zo Programming Language.</h2>
+        <div>
+          <p class="pitch-resume">
+            <!-- « A janky programming language made by janyk people. » -->
 
-          Codify human thoughts into <b>robust</b>, <b>sane</b> and meticulously <b>optimized</b> cross-platform
-          software.
-        </p>
+            Codify your creative thoughts into <b>robust</b>, <b>sane</b> and meticulously <b>optimized</b>
+            cross-platform
+            software.
+          </p>
+          <a href="/" class="command-line"><code>zo
+            make hello.c3</code></a>
+        </div>
       </div>
-      <div style="display: flex; align-items: center; border: 1px solid white;">
+      <div style="display: flex; align-items: center; overflow: hidden; position: relative;">
         <pre class="editor" role="presentation" aria-roledescription="A code editor view for an `hello, world!`
             program" data-edit="no">
-<span class="kw">fun</span> <span class="id">main</span>() {
-  showln(<span class="str">"hello, world!"</span>);
-}</pre>
+fun main() {
+  imu sqrt := fn(x) -> x * x;
+
+  showln(sqrt(5)); -- returns `25`.
+}
+</pre>
+        <!-- <input id="btnPlayground" class="btn btn-input btn-smol" role="button" name="btn-playground" type="submit"
+          value="Play with zo"> -->
       </div>
     </section>
 
@@ -351,14 +470,17 @@
       <p class="pitch-resume">
         At zo, we are dedicated to enhancing the developer experience, making it seamless to build software that
         reflects your creativity. We focus on the details that matter, opening new dimensions in the software
-        world where transforming your thoughts into programs is not just easy, but enjoyable. zo is designed to be tiny,
-        simple, and elegant, enabling you to create optimized applications with precision and without friction.
-        Programming should always be fun, and with zo, it is.
+        world where transforming your thoughts into programs is not just easy, but enjoyable. zo is designed to be
+        simple,
+        useful, versatile with an elegant syntactic allure, enabling you to create optimized applications with precision
+        and without friction. Programming should always be fun, and with zo, it is.
       </p>
-      <p>
+      <p style="font-weight: 800;">
         Please note that zo is still in development and not yet stable. You should come back in ten years, OR join the
-        waitlist to stay updated on improvements, releases, and news.</p>
-      <center>
+        waitlist to stay updated on improvements, releases, and news.
+      </p>
+      <div
+        style="margin: 100px 0 0 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
         <div>
           <input id="inputNewsletter" class="input" type="text" name="input-newsletter"
             placeholder="enter your email..." aria-placeholder="enter your email..." aria-label="enter your email...">
@@ -366,49 +488,57 @@
             value="Stay tuned">
         </div>
         <p class="" style="font-size: 10px;">Your email is safe with us—we'll never share it with anyone.</p>
-      </center>
+      </div>
     </section>
 
     <section class="feature">
       <center>
-        <h2 class="heading-2 sc">6 features to highlight the power of zo.</h2>
+        <h2 class="heading-2 sc feature-title"><span style="color: var(--color-green-100);">4</span> features to
+          highlight the power
+          of zo.</h2>
       </center>
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>6.</span> Syntactic Expressiveness.</h3>
+          <h3 class="heading-3"><span>#</span>Expressiveness.</h3>
           <p class="feature-description">
             Syntax is a key part of semantics, as Robert Virding said — « <a
               href="https://www.youtube.com/watch?v=afLRmoSOnHA">semantic is king</a> ». Many programming languages
-            overlook how syntax can enhance readability and convey powerful information. zo’s syntax is compact and
-            optimized for relevance and efficiency. Each symbol has a clear role, making it ideal for one-liners and
-            code golf. See <a href="/syntax-tricks" target="_blank">Syntax Tricks</a> to discover the secret sauce.</p>
+            overlook how syntax can enhance readability and convey powerful information. zo's syntax is authentic,
+            compact and optimized for relevance and efficiency. Each symbol has a clear role, making it ideal for
+            one-liners and code golf. See <a href="/syntax-tricks" target="_blank">Syntax Tricks</a> to discover the
+            secret sauce.
+          </p>
         </div>
         <div>
 
-          <pre>
-            <code>
-<span class="kw">fun</span> main() {
-  imu f := fn(x) -> when x <= 1
-    ? 1
-    : x * f(x - 1);
+          <div id="editor" aria-autocomplete="list" aria-multiline="true" autocapitalize="none" autocorrect="off"
+            contenteditable="true" spellcheck="false" role="textbox" style="tab-size: 2;outline: none;">
+            <pre class="lw" style="display: flex; flex-direction: column; position: relative;">
+<!-- <span id="cursorCaret" class="cursor-caret"></span> -->
+<div class="line">fun main() {</div>
+<div class="line">  imu f := fn(x) -> when x <= 1</div>
+<div class="line">    ? 1</div>
+<div class="line">    : x * f(x - 1);</div>
+<div class="line"></div>
+<div class="line">  showln("{}", f(20));</div>
+<div class="line">}</div>
 
-  showln("{}", f(20));
-}
-            </code>
-          </pre>
+</pre>
+            <div id="selectionLog"></div>
+          </div>
         </div>
       </div>
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>4.</span> User-friendly Error Messages.</h3>
+          <h3 class="heading-3"><span>#</span>Reliable.</h3>
           <p class="feature-description">Dealing with errors is a daily part of a programmer's journey, and many
             languages fail at this stage. zo is different — it's not just a tool, it's your buddy. Our advanced type
             inference system catches those tricky edge cases early, ensuring your code runs smoothly. And when something
             seems off, Zo provides clear, and rich diagnostics to help you understand what's wrong with your code. The
             graphical error display is designed with accessibility in mind, ensuring visibility for everyone, including
-            those with color blindness. The zo compiler is your first ally. you can focus on building, knowing that
+            those with color blindness. The zo compiler is your byakugan. you can focus on building, knowing that
             potential issues are handled before they even arise.
           </p>
         </div>
@@ -426,7 +556,7 @@
    │ 
    │ Help: 👉 please go read the doc: <doc-link>
    │ 
-   │ Note: 🤖 bruh! what language are you speaking to me in? speeks zo.
+   │ Note: 🤖 bruh! what language are you speaking to me in? speaks zo.
 ───╯
             </pre>
           </div>
@@ -435,11 +565,14 @@
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>1.</span> zo Syntax Extension — zSX.</h3>
+          <h3 class="heading-3"><span>#</span>GPUI-ready.</h3>
           <p class="feature-description">
             Building dynamic apps often requires templating, a common alternative to static development. zo includes its
             own templating language, inspired by <a href="https://en.wikipedia.org/wiki/ECMAScript_for_XML">E4X</a>
-            called zSX, offering an intuitive way to create graphical user interfaces effortlessly.</p>
+            called zSX, offering an intuitive and universal way to create graphical user interfaces effortlessly. Take
+            advantage of
+            the GPU's high performance, just like html Sensei.
+          </p>
         </div>
         <div>
           <div style="display: flex;">
@@ -447,103 +580,62 @@
               <pre id="ed-numlines" class="ed-numlines" style="padding-right: 10px;"></pre>
             </div>
             <pre id="ed-view-1" class="ed-view" data-edit="no">
-              <code>
+
 fun main() {
   imu hey ::= &lt;h1&gt;hey!&lt;/h1&gt;;
   imu zsx ::= &lt;&gt;{hey}&lt;/&gt;;
 
   #dom zsx;
 }
-</code></pre>
+</pre>
           </div>
         </div>
       </div>
 
       <div class="feature-item">
         <div>
-          <h3 class="heading-3"><span>3.</span> Smart DOM API.</h3>
+          <h3 class="heading-3"><span>#</span>Feature-smart.</h3>
           <p class="feature-description">
             In the web world, we use the Document Object Model (DOM) API to manipulate elements on a page, but in native
-            development, there's no DOM. zo provides a universal DOM API usable on both platforms. Combined with zSX,
-            this feature allows you to develop GUIs as quickly as possible.
+            development, there's no DOM — We need our Shikamaru! zo provides an effective DOM API usable on both
+            platforms — « Write less, do more » like Jquery sensei.
           </p>
         </div>
         <div>
           <pre>
-            <code>
+
 <span class="kw">fun</span> <span class="id">main</span>() {
   <span class="kw">imu</span> p := <span class="id">`#</span>(<span class="str">"p"</span>)
     .<span class="id">add</span>(<span class="str">"div"</span>)
     .<span class="id">with</span>.class(<span class="str">"widget"</span>);
 
   #dom p;
-}</pre></code>
+}</pre>
           <div class="control">
             <span class="btn-run">▶</span>
           </div>
         </div>
       </div>
 
-      <div class="feature-item">
-        <div>
-          <h3 class="heading-3"><span>5.</span> WebAssembly Everywhere.</h3>
-          <p class="feature-description">WebAssembly (WASM) is a powerful language designed to enhance web performance
-            and provide a safe way to interact with the web. But WASM goes beyond the web — it's a low-level, embeddable
-            environment that can be used everywhere. zo is a first-class WASM language, meaning its entire ecosystem is
-            built around it. The goal is to create an Erlang-inspired runtime in WASM.</p>
-        </div>
-        <div>
-          <pre>
-wasm fun main() {
-  -- welcome to the WASM world.
-}
-          </pre>
-        </div>
-      </div>
-
-
-
-      <div class="feature-item">
-        <div>
-          <h3 class="heading-3"><span>8.</span> Metaprogramming.</h3>
-          <p class="feature-description">The concept behind the metaprogramming technique is to treat other programs as
-            their data. As a versatile element, zo allows you a fine-grain control on the behavior of your program to
-            fine tuned compilation time to read, generate, analyse, or transform other programs, and even modify itself
-            while executing a piece of code at compile-time.</p>
-        </div>
-        <div>
-          <pre>
-fun foobar() {
-  showln("running at compile-time.");
-}
-
-fun main() {
-  #run foobar();
-}
-          </pre>
-        </div>
-      </div>
-
       <p>
         Voilà, that's it. Those features hightlights a few part of the zo ecosystem. There are also a bunch of stuff
-        including such as Bidirectional TypeChecking, Borrow Checker, text editor OS-like, FFI, package manager,
-        formatter, highlighter, REPL, Cranelift back-end, LLVM back-end and also an UI framework.
+        including — REPL, formatter, highlighter, package manager and text editor OS-like.
       </p>
     </section>
 
     <section class="try-it">
       <center>
-        <h2 class="heading-2 sc">Are You With That? Just Try It.</h2>
+        <h2 class="heading-2 sc feature-title">Are You With That? Just Try It.</h2>
       </center>
 
-      <div style="display: flex; position: relative;">
+      <div style="display: flex; position: relative; margin: 100px 0 0 0;">
         <div class="embedded-compiler" style="margin-right: 20px; padding: 8px; border: 1px solid white;">
           <div class="embedded-compiler-header" role="presentation"
             aria-roledescription="An real-time compiler sandbox">
             <pre class="editor-view" style="white-space: normal; margin: 0;">
               <code>
                 <p class="intro" style="margin: 0; padding: 0;">Play with me by entering an instructions.</p>
-                <div id="embedded-compiler-output" class="embedded-compiler-output"></div>
+                <div id="embedded-compiler-output" class="embedded-compiler-output" style="height: 70px;"></div>
               </code>
             </pre>
           </div>
@@ -554,7 +646,8 @@ fun main() {
               <textarea id="embedded-compiler-input" name="embedded-compiler-input" cols="30" rows="1"
                 placeholder="Enter the 6 * 7 answer..." aria-placeholder="Enter the 6 * 7 answer..."
                 aria-label="Enter the 6 * 7 answer..."
-                style="background: black; color: white; border: none; padding: 0 20px; border: 1px solid transparent; resize: none;"></textarea>
+                style="background: black; color: white; border: none; padding: 0 20px; border: 1px solid transparent; resize: none;">
+              </textarea>
               <div class="embedded-compiler-stats"
                 style="right: 4px; position: absolute; display: flex; justify-content: end;">
                 <span>1</span>:<span>1</span>
@@ -565,8 +658,10 @@ fun main() {
         </div>
 
         <div style="margin-left: 20px;">
-          <p>This is a real-time zo compiler sandbox. It is interactive, that mean, you can write instructions
-            to play directly with the langage.</p>
+          <p>
+            This is a real-time zo compiler sandbox. It is interactive, that mean, you can write instructions
+            to play directly with the langage.
+          </p>
 
           <p>Use <kbd>Shift+Enter</kbd> to add a newline.</p>
         </div>
@@ -579,7 +674,7 @@ fun main() {
 
     <section class="sponsors">
       <center>
-        <h2 class="heading-2 fs-xl">Sponsors</h2>
+        <h2 class="heading-2 sc feature-title">Sponsors</h2>
         <p>We are grateful to everyone who brings us closer to our ambitions.</p>
         <div class="sponsors-companies">
           <!-- companies logo. -->
@@ -598,21 +693,34 @@ fun main() {
   <br>
 
   <footer class="footer">
-    <center>
-      <h2 class="fs-xl" style="font-weight: 400;"><span class="f f-aeonik">reach</span><span
-          class="f f-cirka">out</span></h2>
-      <a href="mailto:the@compilords.house">the [at] compilords [dot] house</a>
-    </center>
-    <div style="display: flex;">
+    <div style="
+      margin: 0 0 80px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    ">
+      <h2 class="fs-xl" style="margin: 0; font-weight: 400;"><span class="f f-aeonik">reach</span><span
+          class="f f-cirka">out</span>
+      </h2>
+      <a class="contact" href="mailto:the@compilords.house" style="position: relative;">the [at] compilords [dot]
+        house</a>
+    </div>
+    <div style="
+      margin: 0 0 20px 0;
+      display: flex;
+      align-items: center;
+      position: relative;
+    ">
       <div class="copyright" style="margin-right: auto;">
-        <p>
-          Compilords© 2024
-        </p>
-        <p>
-          All rights reserved.
-        </p>
+        <p>Compilords© 2024</p>
+        <p>All rights reserved.</p>
       </div>
-      <div class="socials" style="margin-left: auto;">
+      <div class="socials" style="
+        margin-left: auto;
+        display: flex;
+        column-gap: 10px;
+      ">
         <a href="https://discord.gg/JaNc4Nk5xw">discord</a>
         <a href="https://github.com/invisageable/zo">github</a>
       </div>
@@ -621,6 +729,16 @@ fun main() {
 </body>
 
 <script>
+  function focusLine(event) {
+    const lines = document.querySelectorAll(".line");
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      line.classList.remove("line-focus");
+    }
+
+    event.target.classList.add("line-focus");
+  }
   function fmtzoPat(str) {
     const pat = /zo/ig;
     return str.match(pat) ? str.replace(new RegExp(pat), "zo") : str;
@@ -710,10 +828,8 @@ fun main() {
 
   // The typewriter element
   var typeWriterElement = document.getElementById('ed-view-1');
-
   // The TextArray: 
   var textArray = [typeWriterElement.innerHTML];
-
   // You can also do this by transfering it through a data-attribute
   // var textArray = typeWriterElement.getAttribute('data-array');
 
@@ -730,8 +846,7 @@ fun main() {
     } else if (typeof cb == 'function') {
       setTimeout(cb, 1000);
     }
-  };
-
+  }
   // function to generate the keyhitting effect
   function typeWriter(text, i, cb) {
     if (i < text.length + 1) {
@@ -746,8 +861,7 @@ fun main() {
         delWriter(text, i, cb)
       }, 600);
     }
-  };
-
+  }
   // the main writer function
   function StartWriter(i) {
     if (typeof textArray[i] == "undefined") {
@@ -759,26 +873,78 @@ fun main() {
         StartWriter(i + 1);
       });
     }
-  };
+  }
   // wait one second then start the typewriter
   // setTimeout(function () {
   //   StartWriter(0);
   // }, 300);
 
-
+  // https://stackoverflow.com/questions/4811822/get-a-ranges-start-and-end-offsets-relative-to-its-parent-container/4812022#4812022.
+  // https://stackoverflow.com/a/54352392.
+  // https://css-tricks.com/almanac/properties/c/caret-shape.
+  // https://phuoc.ng/collection/mirror-a-text-area/create-your-own-custom-cursor-in-a-text-area.
+  // https://stackoverflow.com/questions/7339333/styling-text-input-caret.
+  function getSelectionCharacterOffsetWithin(element) {
+    const doc = element.ownerDocument || element.document;
+    const win = doc.defaultView || doc.parentWindow;
+    let start = 0;
+    let end = 0;
+    let sel;
+    if (typeof win.getSelection != "undefined") {
+      sel = win.getSelection();
+      if (sel.rangeCount > 0) {
+        let range = win.getSelection().getRangeAt(0);
+        let preCaretRange = range.cloneRange();
+        preCaretRange.selectNodeContents(element);
+        preCaretRange.setEnd(range.startContainer, range.startOffset);
+        start = preCaretRange.toString().length;
+        preCaretRange.setEnd(range.endContainer, range.endOffset);
+        end = preCaretRange.toString().length;
+      }
+    } else if ((sel = doc.selection) && sel.type != "Control") {
+      let textRange = sel.createRange();
+      let preCaretTextRange = doc.body.createTextRange();
+      preCaretTextRange.moveToElementText(element);
+      preCaretTextRange.setEndPoint("EndToStart", textRange);
+      start = preCaretTextRange.text.length;
+      preCaretTextRange.setEndPoint("EndToEnd", textRange);
+      end = preCaretTextRange.text.length;
+    }
+    return { start: start, end: end };
+  }
+  function reportSelection() {
+    let selOffsets = getSelectionCharacterOffsetWithin(document.getElementById("editor"));
+    document.getElementById("selectionLog").innerHTML = "Selection offsets: " + selOffsets.start + ", " + selOffsets.end;
+    // let caret = document.getElementById("cursorCaret");
+    // caret.style.transform = `translate3d(${caret.style.left + selOffsets.start}px, ${caret.style.top + selOffsets.end}px, 0)`;
+  }
+  function listeners(elmt) {
+    elmt.addEventListener("selectionchange", reportSelection, false);
+    elmt.addEventListener("mouseup", reportSelection, false);
+    elmt.addEventListener("mousedown", reportSelection, false);
+    elmt.addEventListener("keyup", reportSelection, false);
+  }
   function main() {
-    const paragraphs = document.querySelectorAll("p");
-    toScreamingCase(paragraphs);
-
     const h2s = document.querySelectorAll(".sc");
     toScreamingCase(h2s);
+
+    const h3s = document.querySelectorAll("h3");
+    toScreamingCase(h3s);
+
+    const paragraphs = document.querySelectorAll("p");
+    toScreamingCase(paragraphs);
 
     const anchors = document.querySelectorAll("a");
     toLowerCase(anchors);
 
     addNumlines(numlines());
-  }
 
+    [...document.querySelectorAll(".line")]
+      .forEach((line) => line.addEventListener("click", focusLine));
+
+    const editor = document.getElementById("editor");
+    listeners(editor);
+  }
   window.addEventListener("DOMContentLoaded", main);
 </script>
 
