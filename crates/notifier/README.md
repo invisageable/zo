@@ -1,6 +1,6 @@
 # ivs.
 
-> *in-vi-sa-gea-ble's smol language.*
+> *in-vi-sa-gea-ble's smol configuration language.*
 
 ## overview.
 

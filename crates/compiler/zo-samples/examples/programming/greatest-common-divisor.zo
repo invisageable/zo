@@ -1,5 +1,5 @@
 -- examples: GCD.
--- see https://en.wikipedia.org/wiki/Greatest_common_divisor.
+-- @see https://en.wikipedia.org/wiki/Greatest_common_divisor.
 
 fun main() {
   -- recursive gcd of a and b in single line.

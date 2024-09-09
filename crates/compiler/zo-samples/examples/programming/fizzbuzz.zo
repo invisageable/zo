@@ -1,5 +1,5 @@
 -- examples: fizzbuzz.
--- see https://en.wikipedia.org/wiki/Fizz_buzz.
+-- @see https://en.wikipedia.org/wiki/Fizz_buzz.
 
 fun fb(n: int) {
   mut x := 1;
