@@ -1,13 +1,13 @@
 use super::ast::{
   Alias, Ast, Async, Attr, AttrKind, BinOp, BinOpKind, Block, Elmt, ElmtKind,
   Expr, ExprKind, Fun, Html, Ident, Input, Item, ItemKind, Lit, LitKind, Name,
-  OutputTy, Path, PathSegment, Pattern, PatternKind, Prototype, Pub, Slf, Stmt,
-  StmtKind, Text, UnOp, UnOpKind, Var, VarKind, Wasm,
+  Node, NodeKind, OutputTy, Path, PathSegment, Pattern, PatternKind, Prototype,
+  Pub, Slf, Stmt, StmtKind, Text, UnOp, UnOpKind, Var, VarKind, Wasm,
 };
 
 use zo_ty::ty::TyKind;
 
-use swisskit::fmt::{sep, sep_comma, sep_newline, sep_space};
+use swisskit::fmt::{sep, sep_comma, sep_newline};
 
 use smol_str::ToSmolStr;
 
@@ -207,7 +207,7 @@ impl std::fmt::Display for ExprKind {
         Some(expr) => write!(f, "stop {expr};"),
         None => write!(f, "stop;"),
       },
-      Self::Continue => write!(f, "continue"),
+      Self::Skip => write!(f, "skip"),
       Self::Var(var) => write!(f, "{var}"),
       Self::Closure(prototype, block) => {
         if let [expr] = block.as_slice() {
@@ -331,38 +331,34 @@ impl std::fmt::Display for OutputTy {
   }
 }
 
+impl std::fmt::Display for Node {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.kind)
+  }
+}
+
+impl std::fmt::Display for NodeKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Dummy => write!(f, ""),
+      Self::Comment(sym) => write!(f, "<!-- {sym} -->"),
+      Self::Elmt(elmt) => write!(f, "{elmt}"),
+      Self::Text(text) => write!(f, "{text}"),
+    }
+  }
+}
+
 impl std::fmt::Display for Elmt {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let Self {
-      kind,
-      attrs,
-      children,
-      ..
-    } = self;
-
-    match kind {
-      ElmtKind::Unknown => panic!(),
-      ElmtKind::Comment(sym) => write!(f, "<!-- {sym} -->"),
-      ElmtKind::Name(name) => write!(
-        f,
-        "<{name} {attrs}>{children}</{name}>",
-        attrs = sep_space(attrs),
-        children = sep_newline(children),
-      ),
-      ElmtKind::Tag(tag) => write!(f, "{tag}"),
-      ElmtKind::Text(text) => write!(f, "{text}"),
-    }
+    write!(f, "{}", self.kind)
   }
 }
 
 impl std::fmt::Display for ElmtKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::Unknown => write!(f, ""),
-      Self::Comment(sym) => write!(f, "<!-- {sym} -->"),
-      Self::Name(name) => write!(f, "{name}"),
+      Self::Fragment => write!(f, "fragment"),
       Self::Tag(tag) => write!(f, "{tag}"),
-      Self::Text(text) => write!(f, "{text}"),
     }
   }
 }

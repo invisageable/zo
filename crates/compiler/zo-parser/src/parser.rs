@@ -12,8 +12,9 @@ use super::precedence::Precedence;
 
 use zo_ast::ast::{
   Ast, BinOp, BinOpKind, Block, Elmt, ElmtKind, Expr, ExprKind, Fun, Input,
-  Inputs, Item, ItemKind, Lit, LitKind, Mutability, OutputTy, Pattern,
-  PatternKind, Prototype, Pub, Stmt, StmtKind, UnOp, UnOpKind, Var, VarKind,
+  Inputs, Item, ItemKind, Lit, LitKind, Mutability, Node, NodeKind, OutputTy,
+  Pattern, PatternKind, Prototype, Pub, Stmt, StmtKind, Text, UnOp, UnOpKind,
+  Var, VarKind,
 };
 
 use zo_interner::interner::symbol::Symbol;
@@ -496,50 +497,59 @@ impl<'tokens> Parser<'tokens> {
   /// Parses zsx template.
   fn parse_zsx(&mut self) -> Result<Expr> {
     let mut stack: Vec<Elmt> = Vec::new();
-    let mut ivs = String::new();
-    let mut current_node: Option<Elmt> = None;
+    let mut buf = String::new();
+    let mut current_node = Node::DUMMY;
+    let mut is_text = false;
+    let mut is_tag_open = false;
 
-    while !self.ensure_peek(TokenKind::Punctuation(Punctuation::Semi)) {
+    while !self.ensure(TokenKind::Punctuation(Punctuation::Semi)) {
       let token = self.maybe_token_current.unwrap();
 
-      self.next();
+      println!("{token:?}");
 
       match &token.kind {
         TokenKind::Punctuation(Punctuation::Semi) => break,
+
         TokenKind::ZsxCharacter(c) => {
+          is_text = true;
           println!("Ch = {}", c);
-          ivs.push(*c);
+          buf.push(*c);
+          self.next();
         }
+
         TokenKind::ZsxTag(tag) => match tag.kind {
           TagKind::Opening => {
-            let elmt = Elmt {
-              kind: ElmtKind::Tag(if tag.name.to_string().is_empty() {
-                "fragment".into()
-              } else {
-                tag.name.to_string()
-              }),
-              span: token.span,
-              ..Default::default()
-            };
+            is_tag_open = true;
 
-            println!("Tag = {tag:?}");
-            println!("Elmt = {elmt:?}");
+            // current_node = Node {
+            //   kind: NodeKind::Elmt(if tag.name.to_string().is_empty() {
+            //     "fragment".into()
+            //   } else {
+            //     tag.name.to_string()
+            //   }),
+            //   span: token.span,
+            //   ..Default::default()
+            // };
 
-            if let Some(mut parent) = current_node {
-              parent.children.push(elmt);
-            } else {
-              stack.push(elmt);
-            }
+            // println!("Tag = {tag:?}");
+            // println!("Elmt = {elmt:?}");
 
-            current_node = Some(stack.last().unwrap().to_owned());
+            // if let Some(mut parent) = current_node {
+            //   parent.children.push(elmt);
+            // } else {
+            //   stack.push(elmt);
+            // }
 
-            // self.next();
-          }
-          TagKind::Closing => {
-            println!("ChhC");
-            // stack.push(elmt);
+            // current_node = Some(stack.last().unwrap().to_owned());
+
             self.next();
-            // stack.push(value);
+          }
+
+          TagKind::Closing => {
+            is_tag_open = false;
+
+            println!("Closing = {tag}");
+            self.next();
           }
         },
 
@@ -547,14 +557,44 @@ impl<'tokens> Parser<'tokens> {
       }
     }
 
-    println!("ivs = {ivs:?}");
+    println!("Buf = {buf:?}");
 
-    let elmt = current_node.unwrap();
+    panic!()
+    // if is_text {
+    //   is_text = false;
 
-    Ok(Expr {
-      kind: ExprKind::Elmt(elmt.clone()),
-      span: elmt.span,
-    })
+    //   let elmt = Expr {
+    //     kind: ExprKind::Elmt(Elmt {
+    //       kind: ElmtKind::Text(Text {
+    //         text: buf.trim_ascii().to_owned(),
+    //         span: Span::ZERO,
+    //       }),
+    //       attrs: ThinVec::with_capacity(0usize),
+    //       children: ThinVec::with_capacity(0usize),
+    //       span: Span::ZERO,
+    //     }),
+    //     span: Span::ZERO,
+    //   };
+
+    //   if is_tag_open {
+    //     if let Some(mut parent) = current_node {
+    //       parent.children.push(elmt);
+    //     }
+    //   } else {
+    //   }
+
+    //   Ok(Expr {
+    //     kind: ExprKind::Elmt(),
+    //     span: Span::ZERO,
+    //   })
+    // } else {
+    //   let elmt = current_node.unwrap();
+
+    //   Ok(Expr {
+    //     kind: ExprKind::Elmt(elmt.clone()),
+    //     span: elmt.span,
+    //   })
+    // }
   }
 
   /// Parses a type.
@@ -843,7 +883,7 @@ impl<'tokens> Parser<'tokens> {
       TokenKind::Kw(Kw::While) => Box::new(Self::parse_expr_while),
       TokenKind::Kw(Kw::Return) => Box::new(Self::parse_expr_return),
       TokenKind::Kw(Kw::Stop) => Box::new(Self::parse_expr_stop),
-      TokenKind::Kw(Kw::Continue) => Box::new(Self::parse_expr_continue),
+      TokenKind::Kw(Kw::Skip) => Box::new(Self::parse_expr_skip),
       TokenKind::Kw(Kw::FnLower) => Box::new(Self::parse_expr_fn),
       _ => {
         return Err(error::syntax::invalid_prefix(
@@ -1294,7 +1334,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   /// Parses a continue expression.
-  fn parse_expr_continue(parser: &mut Parser) -> Result<Expr> {
+  fn parse_expr_skip(parser: &mut Parser) -> Result<Expr> {
     let lo = parser.current_span();
 
     parser.next();
@@ -1304,7 +1344,7 @@ impl<'tokens> Parser<'tokens> {
       let span = Span::merge(lo, hi);
 
       return Ok(Expr {
-        kind: ExprKind::Continue,
+        kind: ExprKind::Skip,
         span,
       });
     }
@@ -1312,7 +1352,7 @@ impl<'tokens> Parser<'tokens> {
     let hi = parser.current_span();
 
     Ok(Expr {
-      kind: ExprKind::Continue,
+      kind: ExprKind::Skip,
       span: Span::merge(lo, hi),
     })
   }

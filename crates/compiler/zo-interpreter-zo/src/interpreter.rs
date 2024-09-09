@@ -214,7 +214,7 @@ impl<'ast> Interpreter<'ast> {
       ast::ExprKind::Stop(maybe_expr) => {
         self.interpret_expr_stop(maybe_expr, expr.span)
       }
-      ast::ExprKind::Continue => self.interpret_expr_continue(expr.span),
+      ast::ExprKind::Skip => self.interpret_expr_skip(expr.span),
       ast::ExprKind::Var(var) => self.interpret_expr_var(var),
       ast::ExprKind::Closure(prototype, block) => {
         self.interpret_expr_closure(prototype, block, expr.span)
@@ -622,13 +622,13 @@ impl<'ast> Interpreter<'ast> {
 
       match &value.kind {
         ValueKind::Return(value) => return Ok(*value.to_owned()),
-        ValueKind::Break(value) => match value.kind {
+        ValueKind::Stop(value) => match value.kind {
           ValueKind::Unit => break,
           _ => {
             return Err(error::eval::break_in_while_loop_with_value(value.span))
           }
         },
-        ValueKind::Continue => continue,
+        ValueKind::Skip => continue,
         _ => {}
       }
     }
@@ -653,13 +653,13 @@ impl<'ast> Interpreter<'ast> {
 
       match &value.kind {
         ValueKind::Return(value) => return Ok(*value.to_owned()),
-        ValueKind::Break(value) => match value.kind {
+        ValueKind::Stop(value) => match value.kind {
           ValueKind::Unit => break,
           _ => {
             return Err(error::eval::break_in_while_loop_with_value(value.span))
           }
         },
-        ValueKind::Continue => continue,
+        ValueKind::Skip => continue,
         _ => {}
       }
     }
@@ -688,22 +688,22 @@ impl<'ast> Interpreter<'ast> {
     span: Span,
   ) -> Result<Value> {
     if self.counter_loop == 0 {
-      return Err(error::eval::out_of_loop(span, "break"));
+      return Err(error::eval::out_of_loop(span, "stop"));
     }
 
     match maybe_expr {
       Some(expr) => self.interpret_expr(expr),
-      None => Ok(Value::brk(Box::new(Value::unit(span)), span)),
+      None => Ok(Value::stop(Box::new(Value::unit(span)), span)),
     }
   }
 
   /// Interprets a continue expression.
-  fn interpret_expr_continue(&mut self, span: Span) -> Result<Value> {
+  fn interpret_expr_skip(&mut self, span: Span) -> Result<Value> {
     if self.counter_loop == 0 {
-      return Err(error::eval::out_of_loop(span, "continue"));
+      return Err(error::eval::out_of_loop(span, "skip"));
     }
 
-    Ok(Value::ctn(span))
+    Ok(Value::skip(span))
   }
 
   /// Interprets a local variable expression.

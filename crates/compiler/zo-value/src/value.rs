@@ -74,16 +74,16 @@ impl Value {
     Self::new(ValueKind::Return(Box::new(value)), span)
   }
 
-  /// Creates a new break value.
+  /// Creates a new stop value.
   #[inline]
-  pub fn brk(value: Box<Value>, span: Span) -> Self {
-    Self::new(ValueKind::Break(value), span)
+  pub fn stop(value: Box<Value>, span: Span) -> Self {
+    Self::new(ValueKind::Stop(value), span)
   }
 
-  /// Creates a new continue value.
+  /// Creates a new skip value.
   #[inline]
-  pub fn ctn(span: Span) -> Self {
-    Self::new(ValueKind::Continue, span)
+  pub fn skip(span: Span) -> Self {
+    Self::new(ValueKind::Skip, span)
   }
 
   /// Creates a new while.
@@ -150,9 +150,9 @@ pub enum ValueKind {
   /// return — `return foobar;`, `return;`.
   Return(Box<Value>),
   /// break — `break foobar;`, `break;`.
-  Break(Box<Value>),
-  /// continue — `continue;`.
-  Continue,
+  Stop(Box<Value>),
+  /// skip — `skip;`.
+  Skip,
   /// closure — `fn (x) -> x`, `fn (x) {..}`.
   Closure(ast::Prototype, ast::Block),
   /// function — `fun foo() {}`.

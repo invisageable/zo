@@ -854,9 +854,9 @@ impl<'source> Tokenizer<'source> {
             pos = self.cursor.pos();
 
             match ch {
-              c if is!(space c) => {
-                self.cursor.next();
-              }
+              // c if is!(space c) => {
+              //   self.cursor.next();
+              // }
               ';' => {
                 self.switch();
                 self.state.set(TokenizerState::Punctuation);

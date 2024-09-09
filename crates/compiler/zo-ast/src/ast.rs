@@ -476,8 +476,8 @@ pub enum ExprKind {
   Return(Option<Box<Expr>>),
   /// exit break — `break`, `break foo`.
   Stop(Option<Box<Expr>>),
-  /// exit continue — `continue`.
-  Continue,
+  /// exit skip — `skip`.
+  Skip,
   /// variable — `imu foo : int = 0`, `mut foo := 0`.
   Var(Var),
   /// closure — `fn(x) -> x`, `fn() {..}`.
@@ -849,6 +849,40 @@ pub struct For {
 
 /// The representation of an element.
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct Node {
+  /// A node kind  — see also [`NodeKind`].
+  pub kind: NodeKind,
+  /// A span — see also [`Span`].
+  pub span: Span,
+}
+
+impl Node {
+  /// A dummy node with a zero span.
+  pub const DUMMY: Self = Self::new(NodeKind::Dummy, Span::ZERO);
+
+  /// Creates a new node.
+  #[inline]
+  pub const fn new(kind: NodeKind, span: Span) -> Self {
+    Self { kind, span }
+  }
+}
+
+/// The representation of a node kind.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum NodeKind {
+  /// A placeholder.
+  #[default]
+  Dummy,
+  /// A comment — `<!-- foo bar oofrab arbfoo -->`.
+  Comment(Symbol),
+  /// A element — `<div></div>`.
+  Elmt(Elmt),
+  /// A text — `foo bar oofrab arbfoo`.
+  Text(Text),
+}
+
+/// The representation of an element.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Elmt {
   /// A element kind.
   pub kind: ElmtKind,
@@ -860,22 +894,17 @@ pub struct Elmt {
   pub span: Span,
 }
 
-/// The representation of element kind.
+/// The representation of a element kind.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum ElmtKind {
+  /// A fragment.
   #[default]
-  Unknown,
-  // todo(ivs) — void element is missing.
-  /// A comment — `<!-- foo bar oofrab arbfoo -->`.
-  Comment(Symbol),
-  /// An element — see also [`Name`].
-  Name(Name),
+  Fragment,
+  /// An element.
   Tag(String),
-  /// A text — see also [`Text`].
-  Text(Text),
 }
 
-// /// The representation of an attribute.
+/// The representation of an attribute.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attr {
   /// An attribute kind.
@@ -897,7 +926,7 @@ pub enum AttrKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
   /// A raw text.
-  pub text: Symbol,
+  pub text: String,
   /// A span — see also [`Span`].
   pub span: Span,
 }

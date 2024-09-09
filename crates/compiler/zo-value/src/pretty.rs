@@ -21,8 +21,8 @@ impl std::fmt::Display for ValueKind {
       Self::Loop(body) => write!(f, "loop {body}"),
       Self::While(condition, body) => write!(f, "while {condition} {body}"),
       Self::Return(value) => write!(f, "return {value};"),
-      Self::Break(value) => write!(f, "break {value};"),
-      Self::Continue => write!(f, "continue;"),
+      Self::Stop(value) => write!(f, "stop {value};"),
+      Self::Skip => write!(f, "skip;"),
       Self::Closure(prototype, body) => {
         if let [expr] = body.as_slice() {
           return write!(f, "fn {prototype} -> {expr}");
