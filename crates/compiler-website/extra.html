@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <style>
+    *,
+    *::after,
+    *::before {
+      box-sizing: border-box;
+    }
+
+    :root {
+      font-size: 15px;
+    }
+
+    body {
+      margin: 0;
+      --color-text: #111;
+      --color-bg: #fff;
+      --color-link: #aaa;
+      --color-link-hover: #000;
+      color: var(--color-text);
+      background-color: var(--color-bg);
+      font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100vh;
+      pointer-events: none;
+    }
+
+    .fold-scroller {
+      height: 100%;
+    }
+
+    .fold-content {
+      pointer-events: all;
+      width: 100%;
+    }
+
+    .fold-size-fix {
+      width: 100%;
+      height: 100%;
+    }
+
+    .fold-before .fold-size-fix {
+      transform-origin: bottom center;
+    }
+
+    .fold-after .fold-size-fix {
+      transform-origin: top center;
+    }
+
+    #base-content {
+      display: none;
+    }
+
+    /*  Debug */
+    .debug .fold:nth-child(2n) {
+      background: #dadada;
+    }
+
+    .debug .fold:nth-child(2n + 1) {
+      background: #bababa;
+    }
+
+    .btn-debug {
+      position: fixed;
+      top: 10px;
+      padding: 1rem;
+      font-size: 16px;
+      text-transform: uppercase;
+      right: 10px;
+      cursor: pointer;
+      z-index: 100;
+      display: none;
+    }
+
+    .square {
+      width: 100%;
+      padding-bottom: 100%;
+      background: coral;
+    }
+
+    .rectangle {
+      width: 100%;
+      padding-bottom: 50%;
+      background: coral;
+      box-shadow: 1px 0 coral, 0 1px coral;
+    }
+
+
+    /* Page Loader */
+    .js .loading::before,
+    .js .loading::after {
+      content: '';
+      position: fixed;
+      z-index: 1000;
+    }
+
+    .js .loading::before {
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--color-bg);
+    }
+
+    .js .loading::after {
+      top: 50%;
+      left: 50%;
+      width: 60px;
+      height: 60px;
+      margin: -30px 0 0 -30px;
+      border-radius: 50%;
+      opacity: 0.4;
+      background: var(--color-link);
+      animation: loaderAnim 0.7s linear infinite alternate forwards;
+
+    }
+
+    @keyframes loaderAnim {
+      to {
+        opacity: 1;
+        transform: scale3d(0.5, 0.5, 1);
+      }
+    }
+
+    a {
+      text-decoration: none;
+      color: var(--color-link);
+      outline: none;
+    }
+
+    a:hover,
+    a:focus {
+      color: var(--color-link-hover);
+      outline: none;
+    }
+
+    .message {
+      background: var(--color-text);
+      color: var(--color-bg);
+      padding: 1rem;
+      text-align: center;
+      display: none;
+    }
+
+    .frame {
+      padding: 3rem 5vw;
+      text-align: center;
+      position: relative;
+      z-index: 1000;
+    }
+
+    .frame__title {
+      font-size: 1rem;
+      margin: 0 0 1rem;
+      font-weight: normal;
+    }
+
+    .frame__links {
+      display: inline;
+    }
+
+    .frame__links a:not(:last-child),
+    .frame__demos a:not(:last-child) {
+      margin-right: 1rem;
+    }
+
+    .frame__demos {
+      margin: 1rem 0;
+    }
+
+    .frame__demo--current,
+    .frame__demo--current:hover {
+      color: var(--color-text);
+    }
+
+    .content {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      height: calc(100vh - 13rem);
+      position: relative;
+      justify-content: flex-start;
+      align-items: center;
+    }
+
+    @media screen and (min-width: 53em) {
+      .message {
+        display: none;
+      }
+
+      .frame {
+        position: fixed;
+        text-align: left;
+        z-index: 100;
+        top: 0;
+        left: 0;
+        display: grid;
+        align-content: space-between;
+        width: 100%;
+        max-width: none;
+        height: 100vh;
+        padding: 3rem;
+        pointer-events: none;
+        grid-template-columns: 50% 50%;
+        grid-template-rows: auto auto auto;
+        grid-template-areas: 'title links'
+          '... ...'
+          '... demos';
+      }
+
+      .frame__title-wrap {
+        grid-area: title;
+        display: flex;
+      }
+
+      .frame__title {
+        margin: 0;
+      }
+
+      .frame__tagline {
+        position: relative;
+        margin: 0 0 0 1rem;
+        padding: 0 0 0 1rem;
+        opacity: 0.5;
+      }
+
+      .frame__demos {
+        margin: 0;
+        grid-area: demos;
+        justify-self: end;
+      }
+
+      .frame__links {
+        grid-area: links;
+        padding: 0;
+        justify-self: end;
+      }
+
+      .frame a {
+        pointer-events: auto;
+      }
+
+      .content {
+        height: 100vh;
+        justify-content: center;
+      }
+    }
+
+    *,
+    *::before,
+    *::after {
+      scrollbar-width: thin;
+      -moz-tab-size: 2;
+      tab-size: 2;
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Styling */
+
+    body {
+      --color-bg: #000;
+      --color-text: #fff;
+      --color-link: #ff1662;
+      --color-link-hover: #900935;
+    }
+
+    .content__line {
+      text-align: center;
+      margin: 1vh 0 2vh -5vw;
+      display: flex;
+      backface-visibility: hidden;
+      -webkit-user-select: none;
+      -khtml-user-select: none;
+      -moz-user-select: -moz-none;
+      -o-user-select: none;
+      user-select: none;
+    }
+
+    .type {
+      --type-size: 9vw;
+      font-size: var(--type-size);
+      line-height: 0.9;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+
+    .type--1 {
+      font-family: termina, sans-serif;
+      font-weight: 100;
+    }
+
+    .type--2 {
+      font-family: termina, sans-serif;
+      font-weight: 700;
+    }
+
+    .type--3 {
+      font-family: mongoose, sans-serif;
+      font-weight: 300;
+      font-size: calc(var(--type-size) * 1.04);
+    }
+
+    .type--4 {
+      font-family: bely-display, sans-serif;
+      font-weight: 400;
+    }
+
+    .type--5 {
+      font-family: retiro-std-24pt, sans-serif;
+      font-weight: 700;
+      line-height: 0.97;
+    }
+
+    .type--6 {
+      font-family: rig-solid-bold-halftone, sans-serif;
+      font-weight: 700;
+    }
+
+    .type--7 {
+      font-family: tenez, sans-serif;
+      font-weight: 900;
+      font-size: 10vw;
+      line-height: 0.7;
+    }
+
+    /* Effect Styles */
+
+    .fold {
+      overflow: hidden;
+      width: 100vw;
+      height: 80vh;
+      will-change: transform;
+    }
+
+    .wrapper-3d {
+      position: relative;
+      perspective: 250px;
+      transform-style: preserve-3d;
+    }
+
+    .fold-scroller {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+
+    .fold-center {
+      transform-origin: center center;
+      transform: translateZ(0px) translate3d(0, 0, 0) rotateX(0) scale3d(1, 1.002004008016032, 1);
+    }
+
+    .fold-after {
+      /* background: #dadada; */
+      position: absolute;
+      transform-origin: top center;
+      transform: translateZ(0px) translate3d(0, 80vh, 0) rotateX(120deg) scale3d(1, 1.002004008016032, 1);
+      right: 0;
+      left: 0;
+      top: 0;
+      bottom: 0;
+    }
+
+    /* .fold-size-fix {
+  transform: scaleY(0.995);
+} */
+    .fold-size-fix {
+      transform-origin: center center;
+      transform: scaleY(0.998);
+    }
+
+    .fold-before {
+      /* background: #dadada; */
+      position: absolute;
+      transform-origin: bottom center;
+      transform: translateZ(0px) translate3d(0, -80vh, 0) rotateX(-120deg) scale3d(1, 1.002004008016032, 1);
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+    }
+
+    .fold-before h1 {
+      /* color: red !important; */
+    }
+
+    .fold-after .fold-scroller {
+      transform: translateY(-100%);
+    }
+
+    .fold-before .fold-scroller {
+      transform: translateY(100%);
+    }
+
+    /* Debug */
+
+    .debug .fold:nth-child(2n) {
+      background: #dadada;
+    }
+
+    .debug .fold:nth-child(2n + 1) {
+      background: #bababa;
+    }
+
+    .btn-debug {
+      position: fixed;
+      top: 10px;
+      padding: 1rem;
+      font-size: 16px;
+      text-transform: uppercase;
+      right: 10px;
+      cursor: pointer;
+      z-index: 100;
+    }
+  </style>
+</head>
+
+<body>
+
+  <main>
+    <!-- <div class="message">Some message for mobile (if needed).</div> -->
+    <!-- <div class="frame">
+      <h1 class="frame__title">3D Folded Layout</h1>
+      <div class="frame__links">
+        <a href="http://tympanus.net/Tutorials/TextureProjection/">Previous Demo</a>
+        <a href="https://tympanus.net/codrops/?p=46441">Article</a>
+        <a href="https://github.com/Anemolo/FoldingDOM">GitHub</a>
+      </div>
+      <div class="frame__demos">
+        <a href="index.html" class="frame__demo frame__demo--current">demo 1</a>
+        <a href="index2.html" class="frame__demo">demo 2</a><a href="index3.html" class="frame__demo">demo 3</a><a
+          href="index4.html" class="frame__demo">demo 4</a><a href="index5.html" class="frame__demo">demo 5</a>
+      </div>
+    </div> -->
+    <div class="content">
+      <div class="fold-content" id="base-content">
+        <section class=" hero">
+          <h1 class="tagline-compilords">
+            JOiN THE <span class="green">DEV</span>OLUTiON.
+          </h1>
+          <a class="btn btn-getting-started hlink-no" href="/get-started">
+            Get Started
+          </a>
+        </section>
+
+        <section class="gondola">
+          <div>
+            <h2>The zo Programming Language.</h2>
+            <div>
+              <p class="tagline-zo">
+                Codify your creative thoughts into <b>robust</b>, <b>sane</b> and meticulously <b>optimized</b>
+                cross-platform software.
+              </p>
+              <a href="/" class="command-line"><code>zo make hello.c3</code></a>
+            </div>
+          </div>
+          <div>
+            <pre class="editor" role="presentation" aria-roledescription="A code editor view for an `hello, world!`
+                program" data-edit="no">
+fun main() {
+  imu sqrt := fn(x) -> x * x;
+
+  showln(sqrt(5)); -- returns `25`.
+}
+</pre>
+          </div>
+        </section>
+
+        <section class="warning">
+          <p class="pitch-resume">
+            At zo, we are dedicated to enhancing the developer experience, making it seamless to build software that
+            reflects your creativity. We focus on the details that matter, opening new dimensions in the software
+            world where transforming your thoughts into programs is not just easy, but enjoyable. zo is designed to be
+            simple, useful, versatile with an elegant syntactic allure, enabling you to create optimized applications
+            with precision and without friction. Programming should always be fun, and with zo, it is.
+          </p>
+          <p>
+            Please note that zo is still in development and not yet stable. You should come back in ten years, OR join
+            the waitlist to stay updated on improvements, releases, and news.
+          </p>
+          <div>
+            <div>
+              <input id="inputNewsletter" class="input" type="text" name="input-newsletter"
+                placeholder="enter your email..." aria-placeholder="enter your email..."
+                aria-label="enter your email...">
+              <input id="btnNewsletter" class="btn btn-input" role="button" name="btn-newsletter" type="submit"
+                value="Stay tuned">
+            </div>
+            <p class="">Your email is safe with us—we'll never share it with anyone.</p>
+          </div>
+        </section>
+
+        <section class="feature">
+          <div>
+            <h2 class="heading-2 sc feature-title"><span>4</span> features to
+              highlight the power
+              of zo.</h2>
+          </div>
+
+          <div class="feature-item">
+            <div>
+              <h3 class="heading-3"><span>#</span>Expressiveness.</h3>
+              <p class="feature-description">
+                Syntax is a key part of semantics, as Robert Virding said — « <a
+                  href="https://www.youtube.com/watch?v=afLRmoSOnHA">semantic is king</a> ». Many programming languages
+                overlook how syntax can enhance readability and convey powerful information. zo's syntax is authentic,
+                compact and optimized for relevance and efficiency. Each symbol has a clear role, making it ideal for
+                one-liners and code golf. See <a href="/syntax-tricks" target="_blank">Syntax Tricks</a> to discover the
+                secret sauce.
+              </p>
+            </div>
+            <div>
+              <div id="editor" aria-autocomplete="list" aria-multiline="true" autocapitalize="none" autocorrect="off"
+                contenteditable="true" spellcheck="false" role="textbox" style="tab-size: 2;outline: none;">
+                <pre class="lw">
+
+<div class="line">fun main() {</div>
+<div class="line">  imu f := fn(x) -> when x <= 1</div>
+<div class="line">    ? 1</div>
+<div class="line">    : x * f(x - 1);</div>
+<div class="line"></div>
+<div class="line">  showln("{}", f(20));</div>
+<div class="line">}</div>
+
+</pre>
+                <div id="selectionLog"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="feature-item">
+            <div>
+              <h3 class="heading-3"><span>#</span>Reliable.</h3>
+              <p class="feature-description">Dealing with errors is a daily part of a programmer's journey, and many
+                languages fail at this stage. zo is different — it's not just a tool, it's your buddy. Our advanced type
+                inference system catches those tricky edge cases early, ensuring your code runs smoothly. And when
+                something
+                seems off, Zo provides clear, and rich diagnostics to help you understand what's wrong with your code.
+                The
+                graphical error display is designed with accessibility in mind, ensuring visibility for everyone,
+                including
+                those with color blindness. The zo compiler is your byakugan. you can focus on building, knowing that
+                potential issues are handled before they even arise.
+              </p>
+            </div>
+            <div>
+              <div>
+                <pre>
+       [0001] error: invalid character.
+       ╭─[src/main.zo:2:1]
+       │
+     2 │ §
+       │ │ 
+       │ ╰─ this character does not ring a bell.: `§`
+       │ 
+       │ Help: 👉 please go read the doc: <doc-link>
+       │ 
+       │ Note: 🤖 bruh! what language are you speaking to me in? speaks zo.
+    ───╯
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="feature-item">
+            <div>
+              <h3 class="heading-3"><span>#</span>GPUI-ready.</h3>
+              <p class="feature-description">
+                Building dynamic apps often requires templating, a common alternative to static development. zo includes
+                its
+                own templating language, inspired by <a href="https://en.wikipedia.org/wiki/ECMAScript_for_XML">E4X</a>
+                called zSX, offering an intuitive and universal way to create graphical user interfaces effortlessly.
+                Take
+                advantage of
+                the GPU's high performance, just like html Sensei.
+              </p>
+            </div>
+            <div>
+              <div>
+                <div class="ed-gutters">
+                  <pre id="ed-numlines" class="ed-numlines" style="padding-right: 10px;"></pre>
+                </div>
+                <pre id="ed-view-1" class="ed-view" data-edit="no">
+
+    fun main() {
+      imu hey ::= &lt;h1&gt;hey!&lt;/h1&gt;;
+      imu zsx ::= &lt;&gt;{hey}&lt;/&gt;;
+    
+      #dom zsx;
+    }
+    </pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="feature-item">
+            <div>
+              <h3 class="heading-3"><span>#</span>Feature-smart.</h3>
+              <p class="feature-description">
+                In the web world, we use the Document Object Model (DOM) API to manipulate elements on a page, but in
+                native
+                development, there's no DOM — We need our Shikamaru! zo provides an effective DOM API usable on both
+                platforms — « Write less, do more » like Jquery sensei.
+              </p>
+            </div>
+            <div>
+              <pre>
+
+    <span class="kw">fun</span> <span class="id">main</span>() {
+      <span class="kw">imu</span> p := <span class="id">`#</span>(<span class="str">"p"</span>)
+        .<span class="id">add</span>(<span class="str">"div"</span>)
+        .<span class="id">with</span>.class(<span class="str">"widget"</span>);
+    
+      #dom p;
+    }</pre>
+              <div class="control">
+                <span class="btn-run">▶</span>
+              </div>
+            </div>
+          </div>
+
+          <p>
+            Voilà, that's it. Those features hightlights a few part of the zo ecosystem. There are also a bunch of stuff
+            including — REPL, formatter, highlighter, package manager and text editor OS-like.
+          </p>
+        </section>
+
+        <section class="try-it">
+          <div>
+            <h2>Are You With That? Just Try It.</h2>
+          </div>
+
+          <div>
+            <div>
+              <div role="presentation" aria-roledescription="An real-time compiler sandbox">
+                <pre class="editor-view">
+                  <code>
+                    <p class="intro" >Play with me by entering an instructions.</p>
+                    <div id="embedded-compiler-output"></div>
+                  </code>
+                </pre>
+              </div>
+              <div>
+                <div>
+                  <div id="embedded-compiler-prompt">»</div>
+                  <textarea id="embedded-compiler-input" name="embedded-compiler-input" cols="30" rows="1"
+                    placeholder="Enter the 6 * 7 answer..." aria-placeholder="Enter the 6 * 7 answer..."
+                    aria-label="Enter the 6 * 7 answer...">
+                  </textarea>
+                  <div>
+                    <span>1</span>:<span>1</span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <div>
+              <p>
+                This is a real-time zo compiler sandbox. It is interactive, that mean, you can write instructions
+                to play directly with the langage.
+              </p>
+              <p>Use <kbd>Shift+Enter</kbd> to add a newline.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="tooling">
+          <!-- codelord, calculius, prezentation. -->
+        </section>
+
+        <section class="hackerspace">
+          <h2>Join the hackerspace.</h2>
+          <p>become part of the decision making process and meet your zolu gang members on the compilords discord.</p>
+        </section>
+
+        <section class="sponsors">
+          <div>
+            <h2>Sponsors</h2>
+            <p>We are grateful to everyone who brings us closer to our ambitions.</p>
+          </div>
+          <div>
+            <p>zo development can be supported via <a href="">Github Sponsors</a> and <a href="">Patreon</a>.</p>
+          </div>
+
+        </section>
+
+        <footer>
+          <div>
+            <h2><span class="f f-aeonik">reach</span><span>out</span></h2>
+            <a class="contact" href="mailto:the@compilords.house">
+              the [at] compilords [dot] house
+            </a>
+          </div>
+          <div>
+            <div class="copyright">
+              <p>Compilords© 2024</p>
+              <p>All rights reserved.</p>
+            </div>
+            <div class="socials">
+              <a href="https://discord.gg/JaNc4Nk5xw">discord</a>
+              <a href="https://github.com/invisageable/zo">github</a>
+            </div>
+          </div>
+        </footer>
+
+      </div>
+
+      <div class="screen" id="fold-effect">
+        <div class="wrapper-3d">
+          <div class="fold fold-before"></div>
+          <div class="fold fold-center"></div>
+          <div class="fold fold-after"></div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    (function () {
+      function focusLine(event) {
+        const lines = document.querySelectorAll(".line");
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          line.classList.remove("line-focus");
+        }
+
+        event.target.classList.add("line-focus");
+      }
+      function fmtzoPat(str) {
+        const pat = /zo/ig;
+        return str.match(pat) ? str.replace(new RegExp(pat), "zo") : str;
+      }
+      function fmtzXSPat(str) {
+        const pat = /zsx/ig;
+        return str.match(pat) ? str.replace(new RegExp(pat), "zSX") : str;
+      }
+      function fmtzSSPat(str) {
+        const pat = /zss/ig;
+        return str.match(pat) ? str.replace(new RegExp(pat), "zSS") : str;
+      }
+      function replacePat(str, pat) {
+        let pattern = "";
+        let replace = "";
+        switch (pat) {
+          case "zo":
+            pattern = 'zo';
+            replace = 'zo';
+            break;
+          case "zss":
+            pattern = 'zss';
+            replace = 'zSS';
+            break;
+          case "zsx":
+            pattern = 'zsx';
+            replace = 'zSX';
+            break;
+          default:
+            return str;
+        }
+        return str.replace(new RegExp(pattern), replace);
+      }
+      // Converts a string into an formatted SCREAMiNG CASE.
+      function processScreamingCase(str) {
+        return str
+          .toUpperCase()
+          .split("")
+          .map((l) => l === "I" ? "i" : l).join("");
+      }
+      // Formats the content from a list of elements to SCREAMiNG CASE.
+      function toScreamingCase(elmts, str) {
+        for (let i = 0; i < elmts.length; i++) {
+          const elmt = elmts[i];
+
+          elmt.innerHTML = fmtzoPat(fmtzXSPat(fmtzSSPat(
+            processScreamingCase(elmt.innerHTML))));
+        }
+      }
+      // Converts the content from a list of elements to lower case.
+      function toLowerCase(elmts, str) {
+        for (let i = 0; i < elmts.length; i++) {
+          const elmt = elmts[i];
+
+          elmt.innerHTML = elmt.innerHTML.toLowerCase();
+        }
+      }
+      // ------------------------------------- 
+      const wrapper = document.getElementById("fold-effect");
+      const folds = Array.from(document.getElementsByClassName("fold"));
+      const baseContent = document.getElementById("base-content");
+
+      let state = {
+        disposed: false,
+        targetScroll: 0,
+        scroll: 0
+      };
+
+      function lerp(current, target, speed = 0.1, limit = 0.001) {
+        let change = (target - current) * speed;
+        if (Math.abs(change) < limit) {
+          change = target - current;
+        }
+        return change;
+      }
+
+      let scaleFix = 0.992;
+
+      class FoldedDom {
+        constructor(wrapper, folds = null, scrollers = null) {
+          this.wrapper = wrapper;
+          this.folds = folds;
+          this.scrollers = [];
+        }
+        setContent(baseContent, createScrollers = true) {
+          const folds = this.folds;
+          if (!folds) return;
+
+          let scrollers = [];
+
+          for (let i = 0; i < folds.length; i++) {
+            const fold = folds[i];
+            const copyContent = baseContent.cloneNode(true);
+            copyContent.id = "";
+            let scroller;
+            if (createScrollers) {
+              let sizeFixEle = document.createElement("div");
+              sizeFixEle.classList.add("fold-size-fix");
+              // sizeFixEle.style.transform = `scaleY(${scaleFix})`;
+
+              scroller = document.createElement("div");
+              scroller.classList.add("fold-scroller");
+              sizeFixEle.append(scroller);
+              fold.append(sizeFixEle);
+            } else {
+              scroller = this.scrollers[i];
+            }
+            scroller.append(copyContent);
+
+            scrollers[i] = scroller;
+          }
+          this.scrollers = scrollers;
+        }
+        updateStyles(scroll, skewAmp, rotationAmp) {
+          const folds = this.folds;
+          const scrollers = this.scrollers;
+
+          for (let i = 0; i < folds.length; i++) {
+            const scroller = scrollers[i];
+
+            // Scroller fixed so its aligned
+            // scroller.style.transform = `translateY(${100 * -i}%)`;
+            // And the content is the one that scrolls
+            scroller.children[0].style.transform = `translateY(${scroll}px)`;
+          }
+        }
+      }
+
+      let insideFold;
+
+      const centerFold = folds[Math.floor(folds.length / 2)];
+      let render = () => {
+        if (state.disposed) return;
+
+        // Calculate the scroll based on how much the content is outside the centerFold
+        document.body.style.height =
+          insideFold.scrollers[0].children[0].clientHeight -
+          centerFold.clientHeight +
+          window.innerHeight +
+          "px";
+
+        state.targetScroll = -(
+          document.documentElement.scrollTop || document.body.scrollTop
+        );
+        state.scroll += lerp(state.scroll, state.targetScroll, 0.1, 0.0001);
+
+        insideFold.updateStyles(state.scroll);
+        // setScrollStyles(state.currentY);
+
+        requestAnimationFrame(render);
+      };
+
+      insideFold = new FoldedDom(wrapper, folds);
+      insideFold.setContent(baseContent);
+
+      render();
+
+      function main() {
+        const h2s = document.querySelectorAll("h2");
+        toScreamingCase(h2s);
+
+        const h3s = document.querySelectorAll("h3");
+        toScreamingCase(h3s);
+
+        const paragraphs = document.querySelectorAll("p");
+        toScreamingCase(paragraphs);
+
+        // const anchors = document.querySelectorAll("a");
+        // toLowerCase(anchors);
+
+        // addNumlines(numlines());
+
+        // [...document.querySelectorAll(".line")]
+        //   .forEach((line) => line.addEventListener("click", focusLine));
+
+        // const editor = document.getElementById("editor");
+        // listeners(editor);
+
+        render();
+      }
+
+      window.addEventListener("DOMContentLoaded", main);
+
+
+    })();
+  </script>
+
+</body>
+
+
+</html>
