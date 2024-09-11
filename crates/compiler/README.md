@@ -1,6 +1,6 @@
 # zo.
 
-> *Codify human thoughts into energy-efficient, sane and reliable cross-platform software.*
+> *CODiFY YOUR CREATiVE THOUGHTS iNTO __ROBUST__, __SANE__ AND METiCULOUSLY __OPTiMiZED__ CROSS-PLATFORM SOFTWARE.*
 
 ## about.
 
@@ -89,8 +89,8 @@ SiR [Fibonacci](https://en.wikipedia.org/wiki/Fibonacci_sequence) — *PRiNTS TH
 
 ![fibonacci](./zo-notes/preview/preview-zo-fibonacci.png)
 
-**[-fizzbuzz](./zo-samples/examples/fizzbuzz.zo)**
+<!-- **[-fizzbuzz](./zo-samples/examples/fizzbuzz.zo)**
 
 THE RECREATiONAL [Fizz Buzz](https://en.wikipedia.org/wiki/Fizz_buzz) GAME — *PRiNTS THE iNTEGERS FROM `1` TO `100`, THEN FOR EVERY MULTiPLE OF `3`, WRiTE `"Fizz"`, AND FOR EVERY MULTiPLE OF `5`, iT PRiNTS `"Buzz"`. FOR NUMBERS WHiCH ARE MULTiPLES OF BOTH `3` AND `5`, iT SHOULD PRiNTS `"FizzBuzz"`; FOR EVERY OTHER NUMBER, iT SHOULD PRiNT THE NUMBER UNCHANGED.*
 
-![fizzbuzz](./zo-notes/preview/preview-zo-fizzbuzz.png)
+![fizzbuzz](./zo-notes/preview/preview-zo-fizzbuzz.png) -->

@@ -1,4 +1,4 @@
-# zo — The symphonie of compilers.
+# zo.
 
 [![invisage/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
@@ -6,7 +6,7 @@
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ---
 
-> *CODiFY YOUR CREATiVE THOUGHTS iNTO __ROBUST__, __SANE__ AND METiCULOUSLY __OPTiMiZED__ CROSS-PLATFORM SOFTWARE.*
+> The symphonie of compilers.
 
 [home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [speeches](notes/speeches) — [license](#license)  
 
