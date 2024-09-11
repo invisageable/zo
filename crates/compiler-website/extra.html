@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Document</title>
   <style>
-    :root {
+    /* :root {
       --color-black-100: rgb(0, 0, 0);
       --color-blue-100: rgb(120, 220, 232);
       --color-green-100: rgb(204, 253, 62);
@@ -15,7 +15,8 @@
       --color-orange-100: rgb(252, 152, 103);
       --color-white-100: rgb(255, 255, 255);
       --color-yellow-100: rgb(255, 216, 102);
-    }
+      --color-gray-200: rgb(248, 248, 242);
+    } */
 
     /* ------------------- */
 
@@ -25,9 +26,9 @@
       box-sizing: border-box;
     }
 
-    :root {
+    /* :root {
       font-size: 15px;
-    }
+    } */
 
     body {
       margin: 0;
@@ -109,33 +110,7 @@
       display: none;
     }
 
-    .a {
-      color: var(--color-orange-100);
-    }
 
-    .c {
-      color: var(--color-gray-100);
-    }
-
-    .k {
-      color: var(--color-blue-100);
-    }
-
-    .i {
-      color: var(--color-green-100);
-    }
-
-    .n {
-      color: var(--color-purple-100);
-    }
-
-    .p {
-      color: var(--color-red-100);
-    }
-
-    .s {
-      color: var(--color-yellow-100);
-    }
 
     /* Page Loader */
     .js .loading::before,
@@ -324,7 +299,9 @@
       --color-cyan-100: #a1efe4;
       --color-green-100: #a6e22e;
       --color-magenta-100: #fd5ff0;
-      --color-gray-100: #75715e;
+      --color-gray-100: #43443b;
+      --color-gray-200: #75715e;
+      --color-gray-300: #cfcfc2;
     }
 
     *,
@@ -365,6 +342,38 @@
     pre {
       /* font-family: Aeonik, 'Source Han Sans JP', Arial, Helvetica, sans-serif; */
       font-family: "Iosevka";
+    }
+
+    .a {
+      color: var(--color-orange-100);
+    }
+
+    .g {
+      color: var(--color-gray-200);
+    }
+
+    .c {
+      color: var(--color-gray-100);
+    }
+
+    .k {
+      color: var(--color-blue-100);
+    }
+
+    .i {
+      color: var(--color-green-100);
+    }
+
+    .n {
+      color: var(--color-purple-100);
+    }
+
+    .p {
+      color: var(--color-red-100);
+    }
+
+    .s {
+      color: var(--color-yellow-100);
     }
 
     .ovx {
@@ -580,37 +589,244 @@
       text-align: center;
     }
 
+    .menu {
+      position: fixed;
+      bottom: 0px;
+      left: 0;
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      list-style: none;
+      text-align: center;
+      white-space: nowrap;
+      height: 0;
+      -webkit-transition: height 0s 300ms;
+      transition: height 0s 300ms;
+    }
 
+    .navbar {
+      height: 0;
+      /* width: 0; */
+      bottom: 0;
+      z-index: 100;
+      width: 100vw;
+      /* height: 40px; */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: fixed;
+      transition: height 300ms, background 300ms;
+    }
 
+    .navbar:has(.navbar-btn-menu:checked) {
+      height: 40px;
+      background: rgba(0, 0, 0, 0.5);
+      /* -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px); */
+      /* box-shadow: 0 4px 6px 10px rgba(0, 0, 0, 0.85); */
+    }
 
-    /* --yellowish: var(yellow),
-        --orangish: var(orange),
-        --redish: var(red),
-        --purplish: var(violet),
-        --bluish: var(blue),
-        --cyanish: var(cyan),
-        --greenish: var(green),
-        --pinkish: var(magenta), */
+    .menu {
+      padding: 0 10px;
+      width: 100vw;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .menu-item {
+      /* margin: 0 10px 0 0; */
+      /* display: flex;
+      align-items: center;
+      justify-content: center; */
+      opacity: 0;
+      font-size: 12px;
+      /* text-transform: uppercase; */
+      text-align: center;
+      -webkit-transform: translate3d(0, 100%, 0);
+      transform: translate3d(0, 100[], 0);
+      -webkit-transition: -webkit-transform 0.3s, opacity 0.3s;
+      transition: transform 300ms, opacity 300ms;
+    }
+
+    .menu-item:nth-child(1) {
+      -webkit-transition-delay: 100ms;
+      transition-delay: 150ms;
+    }
+
+    .menu-item:nth-child(2) {
+      margin: 0 auto 0 10px;
+      -webkit-transition-delay: 50ms;
+      transition-delay: 100ms;
+    }
+
+    .menu-item:nth-child(3) {
+      margin: 0 10px 0 auto;
+      -webkit-transition-delay: 50ms;
+      transition-delay: 50ms;
+    }
+
+    .menu-item:nth-child(4) {
+      -webkit-transition-delay: 100ms;
+      transition-delay: 100ms;
+    }
+
+    .navbar-box {
+      z-index: 100;
+      display: block;
+      cursor: pointer;
+      position: relative;
+      /* -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none; */
+    }
+
+    .navbar-box {
+      bottom: 0;
+      width: 40px;
+      height: 40px;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: fixed;
+      cursor: pointer;
+      /* opacity: 0; */
+      background: rgba(0, 0, 0, 0.5);
+      -webkit-transition: background 300ms;
+      transition: background 300ms;
+    }
+
+    .btn-hamburger {
+      content: '';
+      width: 20px;
+      height: 2px;
+      position: absolute;
+      background: var(--color-white-100);
+      box-shadow:
+        0 6px var(--color-white-100), 0 12px var(--color-white-100);
+      -webkit-transform: translate3d(0, calc(50% - 6px), 0);
+      transform: translate3d(0, calc(50% - 6px), 0);
+      -webkit-transition: -webkit-transform 300ms, background-color 300ms;
+      transition: transform 300ms, background-color 300ms;
+    }
+
+    .navbar-btn-menu {
+      position: absolute;
+      opacity: 0;
+      cursor: pointer;
+      height: 0;
+      width: 0;
+    }
+
+    .navbar:has(.navbar-btn-menu:checked) .navbar-box {
+      background: rgba(0, 0, 0, 0);
+    }
+
+    .navbar-btn-menu:after {
+      border: 1px solid transparent;
+      background: transparent;
+    }
+
+    .icon {
+      width: 40px;
+      height: 40px;
+      position: relative;
+      fill: var(--color-white-100);
+    }
+
+    .hlink-goto {
+      display: flex;
+      flex-direction: column;
+      color: var(--color-white-100);
+      text-decoration: none;
+    }
+
+    .navbar:has(.navbar-btn-menu:checked) .menu-item {
+      opacity: 1;
+      -webkit-transform: translate3d(0, 0, 0);
+      transform: translate3d(0, 0, 0);
+    }
+
+    .contact {
+      font-size: 10px;
+    }
+
+    .footer {
+      margin: 0 0 40px 0;
+    }
+
+    .reachout {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+
+    .credits {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      font-size: 10px;
+      text-align: center;
+    }
+
+    .socials {
+      display: flex;
+      align-items: center;
+      /* justify-content: space-between; */
+    }
+
+    .socials a {
+      margin: 0 10px 0 0;
+      padding: 10px 20px;
+      border: 1px solid var(--color-green-100);
+      font-size: 14px;
+      text-decoration: none;
+    }
+
+    .socials a:last-child {
+      margin: 0;
+    }
   </style>
 </head>
 
 <body>
 
+  <nav class="navbar">
+    <label class="navbar-box navbar-box-trigger">
+      <input type="checkbox" class="navbar-btn-menu">
+      <span class="btn-hamburger"></span>
+    </label>
+    <ul class="menu">
+      <li class="menu-item">
+        <a href="" class="hlink-goto">
+          <span>TRiCKS</span>
+        </a>
+      </li>
+      <li class="menu-item">
+        <a href="" class="hlink-goto">
+          <span>TRiCKS</span>
+        </a>
+      </li>
+      <li class="menu-item">
+        <a href="" class="hlink-goto">
+          <span>TRiCKS</span>
+        </a>
+      </li>
+      <li class="menu-item">
+        <a href="" class="hlink-goto">
+          <span>TRiCKS</span>
+        </a>
+      </li>
+    </ul>
+  </nav>
+
   <main>
-    <!-- <div class="message">Some message for mobile (if needed).</div> -->
-    <!-- <div class="frame">
-      <h1 class="frame__title">3D Folded Layout</h1>
-      <div class="frame__links">
-        <a href="http://tympanus.net/Tutorials/TextureProjection/">Previous Demo</a>
-        <a href="https://tympanus.net/codrops/?p=46441">Article</a>
-        <a href="https://github.com/Anemolo/FoldingDOM">GitHub</a>
-      </div>
-      <div class="frame__demos">
-        <a href="index.html" class="frame__demo frame__demo--current">demo 1</a>
-        <a href="index2.html" class="frame__demo">demo 2</a><a href="index3.html" class="frame__demo">demo 3</a><a
-          href="index4.html" class="frame__demo">demo 4</a><a href="index5.html" class="frame__demo">demo 5</a>
-      </div>
-    </div> -->
+
     <div class="content">
       <div class="fold-content" id="base-content">
         <section class=" hero">
@@ -636,11 +852,11 @@
           <div>
             <pre class="editor" role="presentation" aria-roledescription="A code editor view for an `hello, world!`
                 program" data-edit="no">
-<span class="k">fun</span> <span class="i">main</span>() <span class="c">{</span>
-  <span class="k">imu</span> sqrt <span class="p">:=</span> <span class="k">fn</span>(<span class="a">x</span>) <span class="p">-></span> x <span class="p">*</span> x<span class="c">;</span>
+<span class="k">fun</span> <span class="i">main</span>() <span class="g">{</span>
+  <span class="k">imu</span> sqrt <span class="p">:=</span> <span class="k">fn</span>(<span class="a">x</span>) <span class="p">-></span> x <span class="p">*</span> x<span class="g">;</span>
 
-  <span class="i">showln</span>(<span class="i">sqrt</span>(<span class="n">5</span>))<span class="c">;</span> <span class="c">-- returns `25`.</span>
-<span class="c">}</span>
+  <span class="i">showln</span>(<span class="i">sqrt</span>(<span class="n">5</span>))<span class="g">;</span> <span class="c">-- returns `25`.</span>
+<span class="g">}</span>
 </pre>
           </div>
         </section>
@@ -695,13 +911,13 @@
                 contenteditable="false" spellcheck="false" role="textbox" style="tab-size: 2;outline: none;">
                 <pre class="ovx">
 
-<span class="k">fun</span> <span class="i">main</span>() <span class="c">{</span>
+<span class="k">fun</span> <span class="i">main</span>() <span class="g">{</span>
   <span class="k">imu</span> f <span class="p">:=</span> <span class="k">fn</span>(<span class="a">x</span>) <span class="p">-></span> <span class="k">when</span> x <span class="p"><=</span> <span class="n">1</span>
     <span class="p">?</span> <span class="n">1</span>
-    <span class="p">:</span> x <span class="p">*</span> <span class="i">f</span>(x <span class="p">-</span> <span class="n">1</span>)<span class="c">;</span>
+    <span class="p">:</span> x <span class="p">*</span> <span class="i">f</span>(x <span class="p">-</span> <span class="n">1</span>)<span class="g">;</span>
 
-  <span class="i">showln</span>(<span class="s">"{}"</span>, <span class="i">f</span>(<span class="n">20</span>))<span class="c">;</span> <span class="c">-- returns `2432902008176640000`.</span>
-<span class="c">}</span>
+  <span class="i">showln</span>(<span class="s">"{}"</span>, <span class="i">f</span>(<span class="n">20</span>))<span class="g">;</span> <span class="c">-- returns `2432902008176640000`.</span>
+<span class="g">}</span>
 
 </pre>
                 <div id="selectionLog"></div>
@@ -758,12 +974,12 @@
                 </div> -->
                 <pre id="ed-view-1" class="ed-view" data-edit="no">
 
-<span class="k">fun</span> <span class="i">main</span>() <span class="c">{</span>
-  <span class="k">imu</span> hey <span class="p">::=</span> &lt;<span class="k">h1</span>&gt;hey!&lt;/<span class="k">h1</span>&gt;<span class="c">;</span>
-  <span class="k">imu</span> zsx <span class="p">::=</span> &lt;&gt;<span class="c">{</span>hey<span class="c">}</span>&lt;/&gt;<span class="c">;</span>
+<span class="k">fun</span> <span class="i">main</span>() <span class="g">{</span>
+  <span class="k">imu</span> hey <span class="p">::=</span> &lt;<span class="k">h1</span>&gt;hey!&lt;/<span class="k">h1</span>&gt;<span class="g">;</span>
+  <span class="k">imu</span> zsx <span class="p">::=</span> &lt;&gt;<span class="g">{</span>hey<span class="g">}</span>&lt;/&gt;<span class="g">;</span>
 
-  <span class="s">#dom</span> zsx<span class="c">;</span>
-<span class="c">}</span>
+  <span class="s">#dom</span> zsx<span class="g">;</span>
+<span class="g">}</span>
     </pre>
               </div>
             </div>
@@ -781,13 +997,13 @@
             <div>
               <pre>
 
-<span class="k">fun</span> <span class="i">main</span>() <span class="c">{</span>
+<span class="k">fun</span> <span class="i">main</span>() <span class="g">{</span>
   <span class="k">imu</span> p <span class="p">:=</span> <span class="id">`#</span>(<span class="s">"p"</span>)
     .<span class="i">add</span>(<span class="s">"div"</span>)
-    .<span class="i">with</span>.<span class="i">class</span>(<span class="s">"widget"</span>)<span class="c">;</span>
+    .<span class="i">with</span>.<span class="i">class</span>(<span class="s">"widget"</span>)<span class="g">;</span>
 
-  <span class="s">#dom</span> p<span class="c">;</span>
-<span class="c">}</span></pre>
+  <span class="s">#dom</span> p<span class="g">;</span>
+<span class="g">}</span></pre>
               <!-- <div class="control">
                 <span class="btn-run">▶</span>
               </div> -->
@@ -862,21 +1078,19 @@
 
         </section>
 
-        <footer>
-          <div>
+        <footer class="footer">
+          <div class="reachout">
             <h2><span class="f f-aeonik green-100">REACH</span><span>OUT</span></h2>
-            <a class="contact" href="mailto:the@compilords.house">
-              the [at] compilords [dot] house
-            </a>
+            <a class="contact" href="mailto:the@compilords.house">THE [at] COMPiLORDS [dot] HOUSE</a>
           </div>
-          <div>
+          <div class="credits">
             <div class="copyright">
               <p>Compilords© 2024 — present.</p>
               <p>All rights reserved.</p>
             </div>
             <div class="socials">
-              <a href="https://discord.gg/JaNc4Nk5xw">discord</a>
-              <a href="https://github.com/invisageable/zo">github</a>
+              <a href="https://discord.gg/JaNc4Nk5xw">DC</a>
+              <a href="https://github.com/invisageable/zo">GH</a>
             </div>
           </div>
         </footer>
@@ -1038,7 +1252,8 @@
       let insideFold;
 
       const centerFold = folds[Math.floor(folds.length / 2)];
-      let render = () => {
+
+      function render() {
         if (state.disposed) return;
 
         // Calculate the scroll based on how much the content is outside the centerFold
@@ -1051,18 +1266,14 @@
         state.targetScroll = -(
           document.documentElement.scrollTop || document.body.scrollTop
         );
+
         state.scroll += lerp(state.scroll, state.targetScroll, 0.1, 0.0001);
 
         insideFold.updateStyles(state.scroll);
         // setScrollStyles(state.currentY);
 
-        requestAnimationFrame(render);
+        window.requestAnimationFrame(render);
       };
-
-      insideFold = new FoldedDom(wrapper, folds);
-      insideFold.setContent(baseContent);
-
-      render();
 
       function main() {
         // const h2s = document.querySelectorAll("h2");
@@ -1085,11 +1296,13 @@
         // const editor = document.getElementById("editor");
         // listeners(editor);
 
+        insideFold = new FoldedDom(wrapper, folds);
+        insideFold.setContent(baseContent);
+
         render();
       }
 
       window.addEventListener("DOMContentLoaded", main);
-
 
     })();
   </script>
