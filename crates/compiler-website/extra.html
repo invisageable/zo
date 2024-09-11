@@ -4,120 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document</title>
+  <title>zo — JOiN THE DEVOLUTiON</title>
   <style>
-    /* :root {
-      --color-black-100: rgb(0, 0, 0);
-      --color-blue-100: rgb(120, 220, 232);
-      --color-green-100: rgb(204, 253, 62);
-      --color-pink-100: rgb(255, 97, 136);
-      --color-purple-100: rgb(171, 157, 242);
-      --color-orange-100: rgb(252, 152, 103);
-      --color-white-100: rgb(255, 255, 255);
-      --color-yellow-100: rgb(255, 216, 102);
-      --color-gray-200: rgb(248, 248, 242);
-    } */
-
-    /* ------------------- */
-
-    *,
-    *::after,
-    *::before {
-      box-sizing: border-box;
-    }
-
-    /* :root {
-      font-size: 15px;
-    } */
-
-    body {
-      margin: 0;
-      --color-text: #111;
-      --color-bg: #fff;
-      --color-link: #aaa;
-      --color-link-hover: #000;
-      color: var(--color-text);
-      background-color: var(--color-bg);
-      font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      position: relative;
-      width: 100%;
-      height: 100vh;
-      overflow-x: hidden;
-    }
-
-    section {
-      margin: 0 10px;
-    }
-
-    .screen {
-      position: fixed;
-      top: 0;
-      left: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      height: 100vh;
-      /* pointer-events: none; */
-    }
-
-    .fold-scroller {
-      height: 100%;
-    }
-
-    .fold-content {
-      /* pointer-events: all; */
-      width: 100%;
-    }
-
-    .fold-size-fix {
-      width: 100%;
-      height: 100%;
-    }
-
-    .fold-before .fold-size-fix {
-      transform-origin: bottom center;
-    }
-
-    .fold-after .fold-size-fix {
-      transform-origin: top center;
-    }
-
-    #base-content {
-      display: none;
-    }
-
-    a {
-      /* text-decoration: none; */
-      color: var(--color-green-100);
-      outline: none;
-    }
-
-    a:hover,
-    a:focus {
-      /* color: var(--color-link-hover); */
-      outline: none;
-    }
-
-    .content {
-      display: flex;
-      flex-direction: column;
-      width: 100vw;
-      height: calc(100vh - 13rem);
-      position: relative;
-      justify-content: flex-start;
-      align-items: center;
-    }
-
-    @media screen and (min-width: 53em) {
-      .content {
-        height: 100vh;
-        justify-content: center;
-      }
-    }
-
     /* --------------------------- */
     @import url("https://assets.soracom.io/fonts/aeonik/Aeonik.css");
     @import url("https://assets.soracom.io/fonts/source-han-sans/SourceHanSansJP-VF.css");
@@ -129,7 +17,16 @@
       font-weight: 400;
       font-stretch: normal;
       font-style: normal;
-      src: url('assets/font-iosevka-regular.woff2') format('woff2'), url('assets/font-iosevka-regular.ttf') format('truetype');
+      src: url('assets/font/font-iosevka-regular.woff2') format('woff2'), url('assets/font/font-iosevka-regular.ttf') format('truetype');
+    }
+
+    @font-face {
+      font-family: 'SuisseIntl';
+      font-weight: 400;
+      font-style: normal;
+      src:
+        url('assets/font/font-suisse-intl-regular.woff') format('woff'),
+        url('assets/font/font-suisse-intl-regular.woff2') format('woff2');
     }
 
     @media (prefers-color-scheme: dark) {}
@@ -139,13 +36,14 @@
       --color-green-100: rgb(204, 253, 62);
       --color-white-100: rgb(255, 255, 255);
 
+      /* editor theme. */
       --color-yellow-100: #e6db74;
       --color-orange-100: #fd971f;
       --color-red-100: #f92672;
       --color-violet-100: #ae81ff;
       --color-blue-100: #66d9ef;
       --color-cyan-100: #a1efe4;
-      --color-green-100: #a6e22e;
+      --color-green-100: rgb(166, 226, 46);
       --color-magenta-100: #fd5ff0;
       --color-gray-100: #43443b;
       --color-gray-200: #75715e;
@@ -163,13 +61,29 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    /* Styling */
-
     body {
-      --color-bg: #000;
-      --color-text: #fff;
-      --color-link: #ff1662;
-      --color-link-hover: #900935;
+      margin: 0;
+      width: 100%;
+      height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+      background: var(--color-black-100);
+      color: var(--color-white-100);
+      font-family: 'SuisseIntl', cursive;
+    }
+
+    a {
+      color: var(--color-green-100);
+      outline: none;
+    }
+
+    a:hover,
+    a:focus {
+      outline: none;
+    }
+
+    section {
+      margin: 0 10px;
     }
 
     h2 {
@@ -178,7 +92,6 @@
     }
 
     h3 {
-      /* color: var(--color-green-100); */
       font-size: 30px;
     }
 
@@ -188,8 +101,8 @@
     }
 
     pre {
-      /* font-family: Aeonik, 'Source Han Sans JP', Arial, Helvetica, sans-serif; */
       font-family: "Iosevka";
+      font-size: 18px;
     }
 
     kbd {
@@ -238,37 +151,11 @@
 
     .green-100 {
       color: var(--color-green-100);
-      /* text-shadow: */
-      /* White glow */
-      /* 0 0 7px rgba(255, 255, 255, 0.5),
-        0 0 10px rgba(255, 255, 255, 0.5),
-        0 0 21px rgba(255, 255, 255, 0.5), */
-      /* Green glow */
-      /* 0 0 42px hsl(75, 98%, 62%),
-        0 0 82px hsl(75, 98%, 62%),
-        0 0 92px hsl(75, 98%, 62%),
-        0 0 102px hsl(75, 98%, 62%),
-        0 0 142px hsl(75, 98%, 62%); */
-      /* hsl(75, 98%, 62%) */
     }
 
     .f-aeonik {
-      /* font-feature-settings: "ss02", "ss08"; */
-      /* font-family: "Aeonik"; */
-      /* font-family: Aeonik, 'Source Han Sans JP', Arial, Helvetica, sans-serif; */
+      font-family: Aeonik, "Source Han Sans JP", Arial, Helvetica, sans-serif;
     }
-
-    /* .screen:before {
-      content: "";
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: rgba(0, 0, 0, 0.5);
-      filter: blur(10px);
-      z-index: 0;
-    } */
 
     .f-iosevka {
       font-family: "Iosevka";
@@ -281,37 +168,45 @@
       text-decoration: none;
     }
 
-    .btn {}
-
-    .btn-getting-started {
-      width: 160px;
-      height: 40px;
-      border: 1px solid var(--color-green-100);
-      background: var(--color-green-100);
-      padding: 20px;
-      position: relative;
-      font-weight: 400;
+    .screen {
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh;
       display: flex;
-      color: black;
-      text-transform: uppercase;
       align-items: center;
       justify-content: center;
-      text-decoration: none;
+      position: fixed;
+    }
+
+    .fold-scroller {
+      height: 100%;
+    }
+
+    .fold-content {
+      /* pointer-events: all; */
+      width: 100%;
+    }
+
+    .fold-size-fix {
+      width: 100%;
+      height: 100%;
+    }
+
+    .fold-before .fold-size-fix {
+      transform-origin: bottom center;
+    }
+
+    .fold-after .fold-size-fix {
+      transform-origin: top center;
     }
 
     .content__line {
-      text-align: center;
       margin: 1vh 0 2vh -5vw;
       display: flex;
       backface-visibility: hidden;
-      /* -webkit-user-select: none;
-      -khtml-user-select: none;
-      -moz-user-select: -moz-none;
-      -o-user-select: none;
-      user-select: none; */
+      text-align: center;
     }
-
-    /* Effect Styles */
 
     .fold {
       overflow: hidden;
@@ -339,7 +234,6 @@
     }
 
     .fold-after {
-      /* background: #dadada; */
       position: absolute;
       transform-origin: top center;
       transform: translateZ(0px) translate3d(0, 80vh, 0) rotateX(120deg) scale3d(1, 1.002004008016032, 1);
@@ -350,15 +244,15 @@
     }
 
     /* .fold-size-fix {
-  transform: scaleY(0.995);
-} */
+      transform: scaleY(0.995);
+    } */
+
     .fold-size-fix {
       transform-origin: center center;
       transform: scaleY(0.998);
     }
 
     .fold-before {
-      /* background: #dadada; */
       position: absolute;
       transform-origin: bottom center;
       transform: translateZ(0px) translate3d(0, -80vh, 0) rotateX(-120deg) scale3d(1, 1.002004008016032, 1);
@@ -366,10 +260,6 @@
       right: 0;
       top: 0;
       bottom: 0;
-    }
-
-    .fold-before h1 {
-      /* color: red !important; */
     }
 
     .fold-after .fold-scroller {
@@ -380,26 +270,47 @@
       transform: translateY(100%);
     }
 
-    /* Debug */
-
-    .debug .fold:nth-child(2n) {
-      background: #dadada;
+    #base-content {
+      display: none;
     }
 
-    .debug .fold:nth-child(2n + 1) {
-      background: #bababa;
+    .content {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      height: calc(100vh - 13rem);
+      position: relative;
+      justify-content: flex-start;
+      align-items: center;
     }
 
-    .btn-debug {
-      position: fixed;
-      top: 10px;
-      padding: 1rem;
-      font-size: 16px;
+
+    @media screen and (min-width: 53em) {
+      .content {
+        height: 100vh;
+        justify-content: center;
+      }
+    }
+
+    .btn {}
+
+    .btn-getting-started {
+      width: 160px;
+      height: 40px;
+      border: 1px solid var(--color-green-100);
+      background: var(--color-green-100);
+      padding: 20px;
+      position: relative;
+      font-weight: 400;
+      display: flex;
+      color: black;
       text-transform: uppercase;
-      right: 10px;
-      cursor: pointer;
-      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
     }
+
+
 
     .hero {
       height: calc(100vh - 150px);
@@ -457,11 +368,9 @@
 
     .navbar {
       height: 0;
-      /* width: 0; */
       bottom: 0;
       z-index: 100;
       width: 100vw;
-      /* height: 40px; */
       display: flex;
       align-items: center;
       justify-content: center;
@@ -472,9 +381,6 @@
     .navbar:has(.navbar-btn-menu:checked) {
       height: 40px;
       background: rgba(0, 0, 0, 0.5);
-      /* -webkit-backdrop-filter: saturate(180%) blur(20px);
-      backdrop-filter: saturate(180%) blur(20px); */
-      /* box-shadow: 0 4px 6px 10px rgba(0, 0, 0, 0.85); */
     }
 
     .menu {
@@ -487,13 +393,8 @@
     }
 
     .menu-item {
-      /* margin: 0 10px 0 0; */
-      /* display: flex;
-      align-items: center;
-      justify-content: center; */
       opacity: 0;
       font-size: 12px;
-      /* text-transform: uppercase; */
       text-align: center;
       -webkit-transform: translate3d(0, 100%, 0);
       transform: translate3d(0, 100[], 0);
@@ -528,10 +429,6 @@
       display: block;
       cursor: pointer;
       position: relative;
-      /* -webkit-user-select: none;
-      -moz-user-select: none;
-      -ms-user-select: none;
-      user-select: none; */
     }
 
     .navbar-box {
@@ -544,7 +441,6 @@
       justify-content: center;
       position: fixed;
       cursor: pointer;
-      /* opacity: 0; */
       background: rgba(0, 0, 0, 0.5);
       -webkit-transition: background 300ms;
       transition: background 300ms;
@@ -581,6 +477,12 @@
       background: transparent;
     }
 
+    .navbar:has(.navbar-btn-menu:checked) .menu-item {
+      opacity: 1;
+      -webkit-transform: translate3d(0, 0, 0);
+      transform: translate3d(0, 0, 0);
+    }
+
     .icon {
       width: 40px;
       height: 40px;
@@ -595,10 +497,26 @@
       text-decoration: none;
     }
 
-    .navbar:has(.navbar-btn-menu:checked) .menu-item {
-      opacity: 1;
-      -webkit-transform: translate3d(0, 0, 0);
-      transform: translate3d(0, 0, 0);
+    .input-newsletter {
+      padding: 11px 20px 11px 20px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      width: 2400px;
+      height: 40px;
+      outline: none;
+      z-index: 100;
+      background: transparent;
+      color: rgb(65, 65, 65);
+      font-size: 14px;
+    }
+
+    .btn-newsletter {
+      padding: 11px 28px 11px 28px;
+      width: 240px;
+      height: 40px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      background: var(--color-green-100);
+      font-size: 14px;
     }
 
     .contact {
@@ -616,6 +534,11 @@
       flex-direction: column;
     }
 
+    .reachout h2 {
+      font-size: 50px;
+      font-weight: 400;
+    }
+
     .credits {
       display: flex;
       align-items: center;
@@ -625,10 +548,13 @@
       text-align: center;
     }
 
+    .copyright {
+      font-size: 10px;
+    }
+
     .socials {
       display: flex;
       align-items: center;
-      /* justify-content: space-between; */
     }
 
     .socials a {
@@ -648,7 +574,7 @@
     }
 
     .embedded-editor-box {
-      border: 1px solid white;
+      border: 1px solid rgba(255, 255, 255, 0.2);
     }
 
     .embedded-editor-header {
@@ -691,9 +617,14 @@
       z-index: 200;
       outline: none;
       display: flex;
-      border: 1px solid var(--color-white-100);
+      border: 0 solid transparent;
       background: transparent;
       color: var(--color-white-100);
+      transition: border 300ms;
+    }
+
+    .embedded-editor-input:focus {
+      border: 1px solid rgba(255, 255, 255, 0.2);
     }
 
     .embedded-editor-cursor-stats {
@@ -701,11 +632,19 @@
       position: absolute;
       font-size: 12px;
     }
+
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
   </style>
 </head>
 
 <body>
-
 
   <nav class="navbar">
     <label class="navbar-box navbar-box-trigger">
@@ -737,6 +676,7 @@
   </nav>
 
   <main>
+
     <div class="content">
       <div class="fold-content" id="base-content">
         <section class=" hero">
@@ -756,7 +696,6 @@
                 Codify your creative thoughts into <b>robust</b>, <b>sane</b> and meticulously <b>optimized</b>
                 cross-platform software.
               </p>
-              <!-- <a href="/" class="command-line"><code>zo make hello.c3</code></a> -->
             </div>
           </div>
           <div>
@@ -787,7 +726,7 @@
           </p>
           <div>
             <div class="newsletter">
-              <input id="inputNewsletter" class="input input-newsletter" type="text" name="input-newsletter"
+              <input id="input-newsletter" class="input input-newsletter" type="text" name="input-newsletter"
                 placeholder="enter your email..." aria-placeholder="enter your email..."
                 aria-label="enter your email...">
               <input id="btnNewsletter" class="btn btn-input btn-newsletter" role="button" name="btn-newsletter"
@@ -803,7 +742,6 @@
               <span class="green-100">zo.</span>
             </h2>
           </div>
-
           <div class="feature-item">
             <div>
               <h3 class="heading-3"><span class="c">#</span><span class="green-100">EXPRESSiVE</span>NESS.</h3>
@@ -879,9 +817,6 @@
             </div>
             <div>
               <div>
-                <!-- <div class="ed-gutters">
-                  <pre id="ed-numlines" class="ed-numlines" style="padding-right: 10px;"></pre>
-                </div> -->
                 <pre id="ed-view-1" class="ed-view" data-edit="no">
 
 <span class="k">fun</span> <span class="i">main</span>() <span class="g">{</span>
@@ -890,7 +825,7 @@
 
   <span class="s">#dom</span> zsx<span class="g">;</span>
 <span class="g">}</span>
-    </pre>
+</pre>
               </div>
             </div>
           </div>
@@ -927,7 +862,6 @@
           <div>
             <h2>ARE YOU <span class="green-100">WiTH THAT</span>? JUST TRY iT.</h2>
           </div>
-
           <div>
             <div class="embedded-editor">
               <div class="embedded-editor-description">
@@ -937,7 +871,6 @@
                 </p>
                 <p>Use <kbd>Shift+Enter</kbd> to add a newline.</p>
               </div>
-
               <div class="embedded-editor-box">
                 <div class="embedded-editor-header" role="presentation"
                   aria-roledescription="A real-time compiler sandbox">
@@ -948,21 +881,22 @@
                 </div>
                 <div class="embedded-editor-main">
                   <div id="embedded-editor-prompt" class="embedded-editor-prompt">»</div>
-                  <textarea id="embedded-editor-input" class="embedded-editor-input f f-iosevka"
+                  <textarea id="embedded-editor-input" class="embedded-editor-input f f-iosevka no-scrollbar"
                     name="embedded-editor-input" cols="30" rows="1" placeholder="Enter the 6 * 7 answer..."
                     aria-placeholder="Enter the 6 * 7 answer..." aria-label="Enter the 6 * 7 answer..."></textarea>
                   <div class="embedded-editor-cursor-stats"><span>1</span>:<span>1</span></div>
                 </div>
               </div>
             </div>
-
           </div>
         </section>
 
         <section class="hackerspace">
           <h2>JOiN THE <span class="green-100">HACK</span>ERSPACE.</h2>
-          <p>become part of the decision making process and meet your zolu gang members on the <a
-              href="https://discord.gg/JaNc4Nk5xw" target="_blank" class="smol">compilords</a> discord.</p>
+          <p>
+            become part of the decision making process and meet your zolu gang members on the
+            <a href="https://discord.gg/JaNc4Nk5xw" target="_blank" class="smol">compilords</a> discord.
+          </p>
         </section>
 
         <section class="sponsors">
@@ -971,15 +905,16 @@
             <p>We are grateful to everyone who brings us closer to our ambitions.</p>
           </div>
           <div>
-            <p>zo development can be supported via <a href="" target="_blank" class="smol">Github Sponsors</a> and <a
-                href="" target="_blank" class="smol">Patreon</a>.</p>
+            <p>
+              zo development can be supported via <a href="" target="_blank" class="smol">Github Sponsors</a> and
+              <a href="" target="_blank" class="smol">Patreon</a>.
+            </p>
           </div>
-
         </section>
 
         <footer class="footer">
           <div class="reachout">
-            <h2><span class="f f-aeonik green-100">REACH</span><span>OUT</span></h2>
+            <h2><span class="f f-aeonik green-100">reach</span><span>out</span></h2>
             <a class="contact" href="mailto:the@compilords.house">THE [at] COMPiLORDS [dot] HOUSE</a>
           </div>
           <div class="credits">
@@ -1167,6 +1102,9 @@
             answer.innerHTML = value;
 
             output.appendChild(answer);
+
+            output.scrollTop = output.scrollHeight;
+
             console.log({ value });
             console.log({ output: output.innerHTML });
           }
@@ -1177,8 +1115,8 @@
       elmt.addEventListener("keydown", on_key_down(output), false);
     }
     function init_embedded_editor() {
-      const editorInput = document.getElementById("embedded-editor-input");
-      const editorOuput = document.getElementById("embedded-editor-output");
+      const editorInput = document.querySelectorAll(".embedded-editor-input")[2];
+      const editorOuput = document.querySelectorAll(".embedded-editor-output")[2];
 
       init_listeners(editorInput, editorOuput);
     }
@@ -1192,11 +1130,17 @@
       insideFold = new FoldedDom(wrapper, folds);
       insideFold.set_content(baseContent);
 
+      const inputNewsletter = document.querySelectorAll(".input-newsletter")[2];
+
+      inputNewsletter.addEventListener("change", function (event) {
+        console.log({ value: event.target.value });
+      }, false);
+
       init_embedded_editor();
       render();
     }
 
-    window.addEventListener("DOMContentLoaded", main);
+    window.addEventListener("DOMContentLoaded", main, false);
 
   </script>
 
