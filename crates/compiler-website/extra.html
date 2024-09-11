@@ -60,7 +60,7 @@
       justify-content: center;
       width: 100%;
       height: 100vh;
-      pointer-events: none;
+      /* pointer-events: none; */
     }
 
     .fold-scroller {
@@ -68,7 +68,7 @@
     }
 
     .fold-content {
-      pointer-events: all;
+      /* pointer-events: all; */
       width: 100%;
     }
 
@@ -89,65 +89,6 @@
       display: none;
     }
 
-    /*  Debug */
-    .debug .fold:nth-child(2n) {
-      background: #dadada;
-    }
-
-    .debug .fold:nth-child(2n + 1) {
-      background: #bababa;
-    }
-
-    .btn-debug {
-      position: fixed;
-      top: 10px;
-      padding: 1rem;
-      font-size: 16px;
-      text-transform: uppercase;
-      right: 10px;
-      cursor: pointer;
-      z-index: 100;
-      display: none;
-    }
-
-
-
-    /* Page Loader */
-    .js .loading::before,
-    .js .loading::after {
-      content: '';
-      position: fixed;
-      z-index: 1000;
-    }
-
-    .js .loading::before {
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: var(--color-bg);
-    }
-
-    .js .loading::after {
-      top: 50%;
-      left: 50%;
-      width: 60px;
-      height: 60px;
-      margin: -30px 0 0 -30px;
-      border-radius: 50%;
-      opacity: 0.4;
-      background: var(--color-link);
-      animation: loaderAnim 0.7s linear infinite alternate forwards;
-
-    }
-
-    @keyframes loaderAnim {
-      to {
-        opacity: 1;
-        transform: scale3d(0.5, 0.5, 1);
-      }
-    }
-
     a {
       /* text-decoration: none; */
       color: var(--color-green-100);
@@ -158,45 +99,6 @@
     a:focus {
       /* color: var(--color-link-hover); */
       outline: none;
-    }
-
-    .message {
-      background: var(--color-text);
-      color: var(--color-bg);
-      padding: 1rem;
-      text-align: center;
-      display: none;
-    }
-
-    .frame {
-      padding: 3rem 5vw;
-      text-align: center;
-      position: relative;
-      z-index: 1000;
-    }
-
-    .frame__title {
-      font-size: 1rem;
-      margin: 0 0 1rem;
-      font-weight: normal;
-    }
-
-    .frame__links {
-      display: inline;
-    }
-
-    .frame__links a:not(:last-child),
-    .frame__demos a:not(:last-child) {
-      margin-right: 1rem;
-    }
-
-    .frame__demos {
-      margin: 1rem 0;
-    }
-
-    .frame__demo--current,
-    .frame__demo--current:hover {
-      color: var(--color-text);
     }
 
     .content {
@@ -210,62 +112,6 @@
     }
 
     @media screen and (min-width: 53em) {
-      .message {
-        display: none;
-      }
-
-      .frame {
-        position: fixed;
-        text-align: left;
-        z-index: 100;
-        top: 0;
-        left: 0;
-        display: grid;
-        align-content: space-between;
-        width: 100%;
-        max-width: none;
-        height: 100vh;
-        padding: 3rem;
-        pointer-events: none;
-        grid-template-columns: 50% 50%;
-        grid-template-rows: auto auto auto;
-        grid-template-areas: 'title links'
-          '... ...'
-          '... demos';
-      }
-
-      .frame__title-wrap {
-        grid-area: title;
-        display: flex;
-      }
-
-      .frame__title {
-        margin: 0;
-      }
-
-      .frame__tagline {
-        position: relative;
-        margin: 0 0 0 1rem;
-        padding: 0 0 0 1rem;
-        opacity: 0.5;
-      }
-
-      .frame__demos {
-        margin: 0;
-        grid-area: demos;
-        justify-self: end;
-      }
-
-      .frame__links {
-        grid-area: links;
-        padding: 0;
-        justify-self: end;
-      }
-
-      .frame a {
-        pointer-events: auto;
-      }
-
       .content {
         height: 100vh;
         justify-content: center;
@@ -285,6 +131,8 @@
       font-style: normal;
       src: url('assets/font-iosevka-regular.woff2') format('woff2'), url('assets/font-iosevka-regular.ttf') format('truetype');
     }
+
+    @media (prefers-color-scheme: dark) {}
 
     :root {
       --color-black-100: rgb(0, 0, 0);
@@ -342,6 +190,10 @@
     pre {
       /* font-family: Aeonik, 'Source Han Sans JP', Arial, Helvetica, sans-serif; */
       font-family: "Iosevka";
+    }
+
+    kbd {
+      color: var(--color-green-100);
     }
 
     .a {
@@ -404,7 +256,6 @@
       /* font-feature-settings: "ss02", "ss08"; */
       /* font-family: "Aeonik"; */
       /* font-family: Aeonik, 'Source Han Sans JP', Arial, Helvetica, sans-serif; */
-
     }
 
     /* .screen:before {
@@ -791,10 +642,70 @@
     .socials a:last-child {
       margin: 0;
     }
+
+    .embedded-editor {
+      min-height: 0;
+    }
+
+    .embedded-editor-box {
+      border: 1px solid white;
+    }
+
+    .embedded-editor-header {
+      padding: 0 10px;
+    }
+
+    .embedded-editor-main {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .embedded-editor-prompt {
+      left: 10px;
+      position: absolute;
+      /* transform: translate3d(0, 50%, 0); */
+    }
+
+    .editor-view {
+      width: 100vw;
+      display: block;
+      position: relative;
+    }
+
+    .embedded-editor-output {
+      width: 100vw;
+      height: 80px;
+      max-height: 80px;
+      overflow: hidden;
+      overflow-y: scroll;
+      position: relative;
+    }
+
+    .embedded-editor-input {
+      padding: 12px 24px;
+      width: 100vw;
+      height: 44px;
+      z-index: 200;
+      outline: none;
+      display: flex;
+      border: 1px solid var(--color-white-100);
+      background: transparent;
+      color: var(--color-white-100);
+    }
+
+    .embedded-editor-cursor-stats {
+      right: 10px;
+      position: absolute;
+      font-size: 12px;
+    }
   </style>
 </head>
 
 <body>
+
 
   <nav class="navbar">
     <label class="navbar-box navbar-box-trigger">
@@ -826,7 +737,6 @@
   </nav>
 
   <main>
-
     <div class="content">
       <div class="fold-content" id="base-content">
         <section class=" hero">
@@ -889,7 +799,7 @@
 
         <section class="feature">
           <div>
-            <h2 class="heading-2 sc feature-title">4 <span class="green-100">FEAT</span>URES TO HiGHLiGHT THE POWER OF
+            <h2 class="heading-2 sc feature-title">3<span class="green-100"> FEAT</span>URES TO HiGHLiGHT THE POWER OF
               <span class="green-100">zo.</span>
             </h2>
           </div>
@@ -902,8 +812,8 @@
                   href="https://www.youtube.com/watch?v=afLRmoSOnHA" target="_blank" class="smol">semantic is king</a>
                 ». Many programming languages overlook how syntax can enhance readability and convey powerful
                 information. zo's syntax is authentic, compact and optimized for relevance and efficiency. Each symbol
-                has a clear role, making it ideal for one-liners and code golf. See <a href="/syntax-tricks"
-                  target="_blank" class="smol">Syntax Tricks</a> to discover the secret sauce.
+                has a clear role, making it ideal for one-liners and code golf. See <a href="/tricks" target="_blank"
+                  class="smol">tricks</a> to discover the secret sauce.
               </p>
             </div>
             <div>
@@ -964,7 +874,7 @@
                 its own templating language, inspired by <a href="https://en.wikipedia.org/wiki/ECMAScript_for_XML"
                   target="_blank" class="smol">E4X</a> called zSX, offering an intuitive and universal way to create
                 graphical user interfaces effortlessly. Take advantage of the GPU's high performance, just like html
-                Sensei.
+                Sensei. of course templating can be used for web apps, webassembly will be used instead of gpu.
               </p>
             </div>
             <div>
@@ -985,7 +895,7 @@
             </div>
           </div>
 
-          <div class="feature-item">
+          <!-- <div class="feature-item">
             <div>
               <h3 class="heading-3"><span class="c">#</span><span class="green-100">FEAT</span>URE-SMART.</h3>
               <p class="feature-description">
@@ -1004,11 +914,8 @@
 
   <span class="s">#dom</span> p<span class="g">;</span>
 <span class="g">}</span></pre>
-              <!-- <div class="control">
-                <span class="btn-run">▶</span>
-              </div> -->
             </div>
-          </div>
+          </div> -->
 
           <p>
             Voilà, that's it. Those features hightlights a few part of the zo ecosystem. There are also a bunch of stuff
@@ -1022,42 +929,34 @@
           </div>
 
           <div>
-            <div>
-              <div role="presentation" aria-roledescription="An real-time compiler sandbox">
-                <pre class="editor-view">
-                  <code>
+            <div class="embedded-editor">
+              <div class="embedded-editor-description">
+                <p>
+                  This is a real-time zo compiler sandbox. It is interactive, that mean, you can write instructions
+                  to play directly with the language.
+                </p>
+                <p>Use <kbd>Shift+Enter</kbd> to add a newline.</p>
+              </div>
+
+              <div class="embedded-editor-box">
+                <div class="embedded-editor-header" role="presentation"
+                  aria-roledescription="A real-time compiler sandbox">
+                  <code class="editor-view">
                     <p class="intro" >Play with me by entering an instructions.</p>
-                    <div id="embedded-compiler-output"></div>
+                    <div id="embedded-editor-output" class="embedded-editor-output"></div>
                   </code>
-                </pre>
-              </div>
-              <div>
-                <div>
-                  <div id="embedded-compiler-prompt">»</div>
-                  <textarea id="embedded-compiler-input" name="embedded-compiler-input" cols="30" rows="1"
-                    placeholder="Enter the 6 * 7 answer..." aria-placeholder="Enter the 6 * 7 answer..."
-                    aria-label="Enter the 6 * 7 answer...">
-                  </textarea>
-                  <div>
-                    <span>1</span>:<span>1</span>
-                  </div>
                 </div>
-
+                <div class="embedded-editor-main">
+                  <div id="embedded-editor-prompt" class="embedded-editor-prompt">»</div>
+                  <textarea id="embedded-editor-input" class="embedded-editor-input f f-iosevka"
+                    name="embedded-editor-input" cols="30" rows="1" placeholder="Enter the 6 * 7 answer..."
+                    aria-placeholder="Enter the 6 * 7 answer..." aria-label="Enter the 6 * 7 answer..."></textarea>
+                  <div class="embedded-editor-cursor-stats"><span>1</span>:<span>1</span></div>
+                </div>
               </div>
             </div>
 
-            <div>
-              <p>
-                This is a real-time zo compiler sandbox. It is interactive, that mean, you can write instructions
-                to play directly with the langage.
-              </p>
-              <p>Use <kbd>Shift+Enter</kbd> to add a newline.</p>
-            </div>
           </div>
-        </section>
-
-        <section class="tooling">
-          <!-- codelord, calculius, prezentation. -->
         </section>
 
         <section class="hackerspace">
@@ -1110,201 +1009,195 @@
   </main>
 
   <script>
-    (function () {
-      function focusLine(event) {
-        const lines = document.querySelectorAll(".line");
+    function focus_line(event) {
+      const lines = document.querySelectorAll(".line");
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          line.classList.remove("line-focus");
-        }
-
-        event.target.classList.add("line-focus");
-      }
-      function fmtzoPat(str) {
-        const pat = /zo/ig;
-        return str.match(pat) ? str.replace(new RegExp(pat), "zo") : str;
-      }
-      function fmtzXSPat(str) {
-        const pat = /zsx/ig;
-        return str.match(pat) ? str.replace(new RegExp(pat), "zSX") : str;
-      }
-      function fmtzSSPat(str) {
-        const pat = /zss/ig;
-        return str.match(pat) ? str.replace(new RegExp(pat), "zSS") : str;
-      }
-      function replacePat(str, pat) {
-        let pattern = "";
-        let replace = "";
-        switch (pat) {
-          case "zo":
-            pattern = 'zo';
-            replace = 'zo';
-            break;
-          case "zss":
-            pattern = 'zss';
-            replace = 'zSS';
-            break;
-          case "zsx":
-            pattern = 'zsx';
-            replace = 'zSX';
-            break;
-          default:
-            return str;
-        }
-        return str.replace(new RegExp(pattern), replace);
-      }
-      // Converts a string into an formatted SCREAMiNG CASE.
-      function processScreamingCase(str) {
-        return str
-          .toUpperCase()
-          .split("")
-          .map((l) => l === "I" ? "i" : l).join("");
-      }
-      // Formats the content from a list of elements to SCREAMiNG CASE.
-      function toScreamingCase(elmts, str) {
-        for (let i = 0; i < elmts.length; i++) {
-          const elmt = elmts[i];
-
-          elmt.innerHTML = fmtzoPat(fmtzXSPat(fmtzSSPat(
-            processScreamingCase(elmt.innerHTML))));
-        }
-      }
-      // Converts the content from a list of elements to lower case.
-      function toLowerCase(elmts, str) {
-        for (let i = 0; i < elmts.length; i++) {
-          const elmt = elmts[i];
-
-          elmt.innerHTML = elmt.innerHTML.toLowerCase();
-        }
-      }
-      // ------------------------------------- 
-      const wrapper = document.getElementById("fold-effect");
-      const folds = Array.from(document.getElementsByClassName("fold"));
-      const baseContent = document.getElementById("base-content");
-
-      let state = {
-        disposed: false,
-        targetScroll: 0,
-        scroll: 0
-      };
-
-      function lerp(current, target, speed = 0.1, limit = 0.001) {
-        let change = (target - current) * speed;
-        if (Math.abs(change) < limit) {
-          change = target - current;
-        }
-        return change;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        line.classList.remove("line-focus");
       }
 
-      let scaleFix = 0.992;
+      event.target.classList.add("line-focus");
+    }
+    function fmt_zo_pat(str) {
+      const pat = /zo/ig;
+      return str.match(pat) ? str.replace(new RegExp(pat), "zo") : str;
+    }
+    function fmt_zsx_pat(str) {
+      const pat = /zsx/ig;
+      return str.match(pat) ? str.replace(new RegExp(pat), "zSX") : str;
+    }
+    function fmt_zss_pat(str) {
+      const pat = /zss/ig;
+      return str.match(pat) ? str.replace(new RegExp(pat), "zSS") : str;
+    }
+    // Converts a string into an formatted SCREAMiNG CASE.
+    function process_screaming_case(str) {
+      return str
+        .toUpperCase()
+        .split("")
+        .map((l) => l === "I" ? "i" : l).join("");
+    }
+    // Formats the content from a list of elements to SCREAMiNG CASE.
+    function to_screaming_case(elmts, str) {
+      for (let i = 0; i < elmts.length; i++) {
+        const elmt = elmts[i];
 
-      class FoldedDom {
-        constructor(wrapper, folds = null, scrollers = null) {
-          this.wrapper = wrapper;
-          this.folds = folds;
-          this.scrollers = [];
-        }
-        setContent(baseContent, createScrollers = true) {
-          const folds = this.folds;
-          if (!folds) return;
+        elmt.innerHTML = fmt_zo_pat(fmt_zsx_pat(fmt_zss_pat(
+          process_screaming_case(elmt.innerHTML))));
+      }
+    }
+    // Converts the content from a list of elements to lower case.
+    function to_lower_case(elmts, str) {
+      for (let i = 0; i < elmts.length; i++) {
+        const elmt = elmts[i];
 
-          let scrollers = [];
+        elmt.innerHTML = elmt.innerHTML.toLowerCase();
+      }
+    }
+    // -------------------------------------
+    const wrapper = document.getElementById("fold-effect");
+    const folds = Array.from(document.getElementsByClassName("fold"));
+    const baseContent = document.getElementById("base-content");
 
-          for (let i = 0; i < folds.length; i++) {
-            const fold = folds[i];
-            const copyContent = baseContent.cloneNode(true);
-            copyContent.id = "";
-            let scroller;
-            if (createScrollers) {
-              let sizeFixEle = document.createElement("div");
-              sizeFixEle.classList.add("fold-size-fix");
-              // sizeFixEle.style.transform = `scaleY(${scaleFix})`;
+    let state = {
+      disposed: false,
+      targetScroll: 0,
+      scroll: 0
+    };
 
-              scroller = document.createElement("div");
-              scroller.classList.add("fold-scroller");
-              sizeFixEle.append(scroller);
-              fold.append(sizeFixEle);
-            } else {
-              scroller = this.scrollers[i];
-            }
-            scroller.append(copyContent);
+    function lerp(current, target, speed = 0.1, limit = 0.001) {
+      let change = (target - current) * speed;
+      if (Math.abs(change) < limit) {
+        change = target - current;
+      }
+      return change;
+    }
 
-            scrollers[i] = scroller;
+    let scaleFix = 0.992;
+
+    class FoldedDom {
+      constructor(wrapper, folds = null, scrollers = null) {
+        this.wrapper = wrapper;
+        this.folds = folds;
+        this.scrollers = [];
+      }
+      set_content(baseContent, createScrollers = true) {
+        const folds = this.folds;
+        if (!folds) return;
+
+        let scrollers = [];
+
+        for (let i = 0; i < folds.length; i++) {
+          const fold = folds[i];
+          const copyContent = baseContent.cloneNode(true);
+          copyContent.id = "";
+          let scroller;
+          if (createScrollers) {
+            let sizeFixEle = document.createElement("div");
+            sizeFixEle.classList.add("fold-size-fix");
+            // sizeFixEle.style.transform = `scaleY(${scaleFix})`;
+
+            scroller = document.createElement("div");
+            scroller.classList.add("fold-scroller");
+            sizeFixEle.append(scroller);
+            fold.append(sizeFixEle);
+          } else {
+            scroller = this.scrollers[i];
           }
-          this.scrollers = scrollers;
+          scroller.append(copyContent);
+
+          scrollers[i] = scroller;
         }
-        updateStyles(scroll, skewAmp, rotationAmp) {
-          const folds = this.folds;
-          const scrollers = this.scrollers;
+        this.scrollers = scrollers;
+      }
+      update_styles(scroll, skewAmp, rotationAmp) {
+        const folds = this.folds;
+        const scrollers = this.scrollers;
 
-          for (let i = 0; i < folds.length; i++) {
-            const scroller = scrollers[i];
+        for (let i = 0; i < folds.length; i++) {
+          const scroller = scrollers[i];
 
-            // Scroller fixed so its aligned
-            // scroller.style.transform = `translateY(${100 * -i}%)`;
-            // And the content is the one that scrolls
-            scroller.children[0].style.transform = `translateY(${scroll}px)`;
+          // Scroller fixed so its aligned
+          // scroller.style.transform = `translateY(${100 * -i}%)`;
+          // And the content is the one that scrolls
+          scroller.children[0].style.transform = `translateY(${scroll}px)`;
+        }
+      }
+    }
+
+    let insideFold;
+
+    const centerFold = folds[Math.floor(folds.length / 2)];
+
+    function render() {
+      if (state.disposed) return;
+
+      // Calculate the scroll based on how much the content is outside the centerFold
+      document.body.style.height =
+        insideFold.scrollers[0].children[0].clientHeight -
+        centerFold.clientHeight +
+        window.innerHeight +
+        "px";
+
+      state.targetScroll = -(
+        document.documentElement.scrollTop || document.body.scrollTop
+      );
+
+      state.scroll += lerp(state.scroll, state.targetScroll, 0.1, 0.0001);
+
+      insideFold.update_styles(state.scroll);
+
+      window.requestAnimationFrame(render);
+    }
+    function on_key_down(output) {
+      return (event) => {
+        const key = event.key;
+
+        if (key === "Enter") {
+          if (!event.shiftKey && !event.ctrlKey && !event.altKey) {
+            console.log(output);
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            const value = event.target.value.trim();
+            const answer = document.createElement("p");
+
+            answer.innerHTML = value;
+
+            output.appendChild(answer);
+            console.log({ value });
+            console.log({ output: output.innerHTML });
           }
         }
       }
+    }
+    function init_listeners(elmt, output) {
+      elmt.addEventListener("keydown", on_key_down(output), false);
+    }
+    function init_embedded_editor() {
+      const editorInput = document.getElementById("embedded-editor-input");
+      const editorOuput = document.getElementById("embedded-editor-output");
 
-      let insideFold;
+      init_listeners(editorInput, editorOuput);
+    }
+    function main() {
+      const paragraphs = document.querySelectorAll("p");
+      to_screaming_case(paragraphs);
 
-      const centerFold = folds[Math.floor(folds.length / 2)];
+      const anchors = document.querySelectorAll(".SMOL"); // todoivs() — implements a specific tokenizer to handle that properly.
+      to_lower_case(anchors);
 
-      function render() {
-        if (state.disposed) return;
+      insideFold = new FoldedDom(wrapper, folds);
+      insideFold.set_content(baseContent);
 
-        // Calculate the scroll based on how much the content is outside the centerFold
-        document.body.style.height =
-          insideFold.scrollers[0].children[0].clientHeight -
-          centerFold.clientHeight +
-          window.innerHeight +
-          "px";
+      init_embedded_editor();
+      render();
+    }
 
-        state.targetScroll = -(
-          document.documentElement.scrollTop || document.body.scrollTop
-        );
+    window.addEventListener("DOMContentLoaded", main);
 
-        state.scroll += lerp(state.scroll, state.targetScroll, 0.1, 0.0001);
-
-        insideFold.updateStyles(state.scroll);
-        // setScrollStyles(state.currentY);
-
-        window.requestAnimationFrame(render);
-      };
-
-      function main() {
-        // const h2s = document.querySelectorAll("h2");
-        // toScreamingCase(h2s);
-
-        // const h3s = document.querySelectorAll("h3");
-        // toScreamingCase(h3s);
-
-        const paragraphs = document.querySelectorAll("p");
-        toScreamingCase(paragraphs);
-
-        const anchors = document.querySelectorAll(".SMOL"); // todoivs() — implements a specific tokenizer to handle that properly.
-        toLowerCase(anchors);
-
-        // addNumlines(numlines());
-
-        // [...document.querySelectorAll(".line")]
-        //   .forEach((line) => line.addEventListener("click", focusLine));
-
-        // const editor = document.getElementById("editor");
-        // listeners(editor);
-
-        insideFold = new FoldedDom(wrapper, folds);
-        insideFold.setContent(baseContent);
-
-        render();
-      }
-
-      window.addEventListener("DOMContentLoaded", main);
-
-    })();
   </script>
 
 </body>
