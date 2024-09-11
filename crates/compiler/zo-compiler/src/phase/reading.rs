@@ -16,17 +16,10 @@ impl Process for Reading {
         println!("phase:{self} — {pathname:?}\n");
       }
       if session.settings.is_interactive() {
-        return reader::read_line(session).and_then(|l| {
-          Event::bytes(std::collections::HashMap::from([(
-            String::from("line"),
-            l,
-          )]))
-        });
+        return reader::read_line(session).and_then(|l| Event::bytes(l));
       } else {
-        return Ok(Event::Bytes(packer::pack(
-          session.to_owned(),
-          pathname.display(),
-        )?));
+        return reader::read(session, session.settings.input.to_string())
+          .and_then(|source| Ok(Event::Bytes(source)));
       }
     }
 

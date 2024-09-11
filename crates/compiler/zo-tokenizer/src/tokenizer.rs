@@ -838,7 +838,7 @@ impl<'source> Tokenizer<'source> {
 
           //# unknwon-state.
           TokenizerState::Unknown => {
-            let span = Span::of(pos, self.cursor.pos());
+            let span = Span::of(pos, self.cursor.pos() + 1);
 
             self.reporter.raise(error::lexical::unknown(span, ch as u8));
           }

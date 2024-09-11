@@ -14,7 +14,8 @@ pub enum Event {
   /// A path event — used during the `reading` phase.
   Path(std::path::PathBuf),
   /// A bytes event — used during the `tokenizer` phase.
-  Bytes(std::collections::HashMap<String, String>),
+  // Bytes(std::collections::HashMap<String, String>),
+  Bytes(String),
   /// A token event — used during the `parsing` phase.
   Tokens(Vec<Token>),
   /// An AST event — used during the `analyzing` and `generating` phase.
@@ -35,10 +36,15 @@ impl Event {
   }
 
   /// Creates a new bytes event.
+  // #[inline]
+  // pub const fn bytes(
+  //   bytes: std::collections::HashMap<String, String>,
+  // ) -> Result<Self> {
+  //   Ok(Event::Bytes(bytes))
+  // }
+
   #[inline]
-  pub const fn bytes(
-    bytes: std::collections::HashMap<String, String>,
-  ) -> Result<Self> {
+  pub const fn bytes(bytes: String) -> Result<Self> {
     Ok(Event::Bytes(bytes))
   }
 
