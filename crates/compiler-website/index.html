@@ -10,6 +10,7 @@
   <meta name="og:description"
     content="CODiFY YOUR CREATiVE THOUGHTS iNTO ROBUST, SANE AND METiCULOUSLY OPTiMiZED CROSS-PLATFORM SOFTWARE.">
   <title>zo — JOiN THE DEVOLUTiON</title>
+  <meta name="author" content="invisageable" />
   <style>
     @import url("https://assets.soracom.io/fonts/aeonik/Aeonik.css");
     @import url("https://assets.soracom.io/fonts/source-han-sans/SourceHanSansJP-VF.css");
@@ -164,6 +165,7 @@
     .ovx {
       overflow-x: scroll;
       position: relative;
+      scroll-behavior: smooth;
     }
 
     .b {
@@ -368,7 +370,7 @@
     .btn-newsletter {}
 
     .reinsurance {
-      font-size: 10px;
+      font-size: 8px;
       text-align: center;
     }
 
@@ -624,24 +626,54 @@
       position: relative;
     }
 
+    .embedded-editor-banner {
+      padding: 10px 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 10px;
+    }
+
     .embedded-editor-prompt {
       left: 10px;
       position: absolute;
     }
 
     .editor-view {
-      width: 100vw;
+      width: 100%;
       display: block;
       position: relative;
     }
 
     .embedded-editor-output {
-      width: 100vw;
+      width: 100%;
       height: 80px;
       max-height: 80px;
       overflow: hidden;
       overflow-y: scroll;
       position: relative;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    .embedded-editor-output::before,
+    .embedded-editor-output::after {
+      /* right: 0; */
+      /* height: 100%; */
+      content: "";
+      background: linear-gradient(90deg, transparent, var(--color-black-100));
+      pointer-events: none;
+      position: absolute;
+      width: 100%;
+      height: 10px;
+      z-index: 200;
+    }
+
+    .embedded-editor-output::before {
+
+      top: 0;
+    }
+
+    .embedded-editor-output::after {
+      bottom: 0;
     }
 
     .embedded-editor-input {
@@ -935,7 +967,7 @@
                 ». Many programming languages overlook how syntax can enhance readability and convey powerful
                 information. zo's syntax is <b>authentic</b>, <b>compact</b> and <b>optimized</b> for relevance and
                 efficiency. Each symbol has a clear role, making it ideal for one-liners and code golf. See <a
-                  href="/tricks" target="_blank" class="smol">tricks</a> to discover the secret sauce.
+                  href="/pages/tricks" class="smol">tricks</a> to discover the secret sauce.
               </p>
             </div>
             <div>
@@ -1048,6 +1080,9 @@
                   aria-roledescription="A real-time compiler sandbox">
                   <code class="editor-view">
                     <p class="intro" >Play with me by entering an instructions.</p>
+                    <div class="embedded-editor-banner">
+                      zo 0.0.1 on darwin — hello incognito! use <span class="green-100">:help</span>, <span class="green-100">:copyright</span> or <span class="green-100">:license</span> for more information.
+                    </div>
                     <div id="embedded-editor-output" class="embedded-editor-output"></div>
                   </code>
                 </div>
@@ -1251,7 +1286,7 @@
       insideFold.update_styles(state.scroll);
       window.requestAnimationFrame(render);
     }
-    function on_key_down(output) {
+    function on_key_down(input, output) {
       return (event) => {
         const key = event.key;
 
@@ -1267,6 +1302,7 @@
 
             output.appendChild(answer);
 
+            input.value = "";
             output.scrollTop = output.scrollHeight;
 
             console.log({ value });
@@ -1276,7 +1312,7 @@
       }
     }
     function init_listeners(elmt, output) {
-      elmt.addEventListener("keydown", on_key_down(output), false);
+      elmt.addEventListener("keydown", on_key_down(elmt, output), false);
     }
     function init_embedded_editor() {
       const editorInput = document.querySelectorAll(".embedded-editor-input")[2];
