@@ -4,18 +4,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description"
+    content="CODiFY YOUR CREATiVE THOUGHTS iNTO ROBUST, SANE AND METiCULOUSLY OPTiMiZED CROSS-PLATFORM SOFTWARE.">
+  <meta name="og:title" content="zo">
+  <meta name="og:description"
+    content="CODiFY YOUR CREATiVE THOUGHTS iNTO ROBUST, SANE AND METiCULOUSLY OPTiMiZED CROSS-PLATFORM SOFTWARE.">
   <title>zo — JOiN THE DEVOLUTiON</title>
   <style>
-    /* --------------------------- */
     @import url("https://assets.soracom.io/fonts/aeonik/Aeonik.css");
     @import url("https://assets.soracom.io/fonts/source-han-sans/SourceHanSansJP-VF.css");
 
     @font-face {
       font-family: 'Cirka';
-      /* font-weight: 400; */
-      /* font-style: normal; */
-      src:
-        url('assets/font/font-cirka-variable.ttf') format('ttf');
+      src: url('assets/font/font-cirka-variable.ttf') format('ttf');
     }
 
     @font-face {
@@ -25,7 +26,9 @@
       font-weight: 400;
       font-stretch: normal;
       font-style: normal;
-      src: url('assets/font/font-iosevka-regular.woff2') format('woff2'), url('assets/font/font-iosevka-regular.ttf') format('truetype');
+      src:
+        url('assets/font/font-iosevka-regular.woff2') format('woff2'),
+        url('assets/font/font-iosevka-regular.ttf') format('truetype');
     }
 
     @font-face {
@@ -177,7 +180,6 @@
 
     .f-cirka {
       font-family: "Cirka";
-      /* font-size: 56px; */
     }
 
     .f-iosevka {
@@ -207,7 +209,6 @@
     }
 
     .fold-content {
-      /* pointer-events: all; */
       width: 100%;
     }
 
@@ -265,10 +266,6 @@
       top: 0;
       bottom: 0;
     }
-
-    /* .fold-size-fix {
-      transform: scaleY(0.995);
-    } */
 
     .fold-size-fix {
       transform-origin: center center;
@@ -344,6 +341,11 @@
       font-weight: 400;
     }
 
+    .feature-title>span:nth-child(2),
+    .feature-title>span:nth-child(3) {
+      font-weight: 400;
+    }
+
     .lw {
       white-space: break-spaces;
       word-break: break-word;
@@ -394,6 +396,7 @@
       align-items: center;
       justify-content: center;
       position: fixed;
+      -webkit-transition: height 300ms, background 300ms;
       transition: height 300ms, background 300ms;
     }
 
@@ -417,7 +420,7 @@
       font-size: 12px;
       text-align: center;
       -webkit-transform: translate3d(0, 100%, 0);
-      transform: translate3d(0, 100[], 0);
+      transform: translate3d(0, 100%, 0);
       -webkit-transition: -webkit-transform 0.3s, opacity 0.3s;
       transition: transform 300ms, opacity 300ms;
     }
@@ -624,7 +627,6 @@
     .embedded-editor-prompt {
       left: 10px;
       position: absolute;
-      /* transform: translate3d(0, 50%, 0); */
     }
 
     .editor-view {
@@ -643,12 +645,13 @@
     }
 
     .embedded-editor-input {
-      padding: 12px 24px;
       width: 100vw;
       height: 44px;
+      padding: 12px 24px;
       z-index: 200;
       outline: none;
       display: flex;
+      resize: none;
       border: 0 solid transparent;
       background: transparent;
       color: var(--color-white-100);
@@ -685,6 +688,9 @@
       z-index: 200;
     }
 
+
+
+
     @media screen and (min-width: 53em) {
       .content {
         height: 100vh;
@@ -692,7 +698,9 @@
       }
     }
 
-    @media (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) {
+    /* @media (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) { */
+    /* @media only screen and (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) { */
+    @media only screen and (min-width: 768px) {
       main {
         background: black;
       }
@@ -706,10 +714,12 @@
       }
 
       .navbar {
-        padding: 0 20px;
         top: 0;
-        bottom: initial;
+        height: 40px;
+        padding: 0 20px;
+        bottom: unset;
         position: fixed;
+        background: rgba(0, 0, 0, 0.5);
       }
 
       .navbar>h1 {
@@ -734,6 +744,9 @@
 
       .menu-item {
         margin: 0 20px 0 0 !important;
+        opacity: 1;
+        -webkit-transform: translate3d(0, 0, 0);
+        transform: translate3d(0, 0, 0);
       }
 
       .tagline-compilords {
@@ -811,11 +824,10 @@
 <body>
 
   <nav class="navbar">
-    <h1>
+    <h1 class="navbar-title">
       <span class="f f-aeonik green-100">z</span><span class="f f-cirka green-100">o</span> —
       THE SYMPHONiE OF COMPiLERS.
     </h1>
-
     <label class="navbar-box navbar-box-trigger">
       <input type="checkbox" class="navbar-btn-menu">
       <span class="btn-hamburger"></span>
@@ -833,12 +845,12 @@
       </li>
       <li class="menu-item">
         <a href="" class="hlink-goto">
-          <span>TRiCKS</span>
+          <span>EXAMPLES</span>
         </a>
       </li>
       <li class="menu-item">
         <a href="" class="hlink-goto">
-          <span>EXAMPLES</span>
+          <span>BLOG</span>
         </a>
       </li>
     </ul>
@@ -848,7 +860,7 @@
 
     <div class="content">
       <div class="fold-content" id="base-content">
-        <section class=" hero">
+        <section class="hero">
           <h1 class="tagline-compilords">
             JOiN THE <span class="green-100">DEV</span>OLUTiON.
           </h1>
@@ -881,15 +893,16 @@
           </div>
         </section>
 
-        <section class="warning">
-          <p class="pitch-resume">
-            At zo, we are dedicated to enhancing the developer experience, making it seamless to build software that
-            reflects your creativity. We focus on the details that matter, opening new dimensions in the software
-            world where transforming your thoughts into programs is not just easy, but enjoyable. zo is designed to be
-            simple, useful, versatile with an elegant syntactic allure, enabling you to create optimized applications
-            with precision and without friction. Programming should always be fun, and with zo, it is.
+        <section class="pitch">
+          <p class="mantra">
+            At zo, we are dedicated to enhancing the <b>developer experience</b>, making it seamless to build software
+            that reflects your <b>creativity</b>. We focus on the details that matter, opening <b>new dimensions</b> in
+            the software world where transforming your thoughts into programs is not just easy, but enjoyable. zo is
+            designed to be <b>simple</b>, <b>useful</b>, <b>versatile</b> with an <b>elegant</b> syntactic allure,
+            enabling you to create optimized applications with precision and without friction. Programming should always
+            be fun, and with zo, it is.
           </p>
-          <p>
+          <p class="warning">
             <b>
               « Please note that zo is still in development and not yet stable. You should come back in ten years, OR
               join the waitlist to stay updated on improvements, releases, and news. »
@@ -909,20 +922,20 @@
 
         <section class="feature">
           <div>
-            <h2 class="heading-2 sc feature-title">3<span class="green-100"> FEAT</span>URES TO HiGHLiGHT THE POWER OF
-              <span class="green-100">zo.</span>
+            <h2 class="heading-2 sc feature-title">3 <span class="green-100">FEAT</span>URES TO HiGHLiGHT THE POWER OF
+              <span class="f f-aeonik green-100">z</span><span class="f f-cirka green-100">o</span>
             </h2>
           </div>
           <div class="feature-item">
             <div>
               <h3 class="heading-3"><span class="c">#</span><span class="green-100">EXPRESSiVE</span>NESS.</h3>
               <p class="feature-description">
-                Syntax is a key part of semantics, as Robert Virding said — « <a
+                Syntax is a key part of semantics, as <b>Robert Virding</b> said — « <a
                   href="https://www.youtube.com/watch?v=afLRmoSOnHA" target="_blank" class="smol">semantic is king</a>
                 ». Many programming languages overlook how syntax can enhance readability and convey powerful
-                information. zo's syntax is authentic, compact and optimized for relevance and efficiency. Each symbol
-                has a clear role, making it ideal for one-liners and code golf. See <a href="/tricks" target="_blank"
-                  class="smol">tricks</a> to discover the secret sauce.
+                information. zo's syntax is <b>authentic</b>, <b>compact</b> and <b>optimized</b> for relevance and
+                efficiency. Each symbol has a clear role, making it ideal for one-liners and code golf. See <a
+                  href="/tricks" target="_blank" class="smol">tricks</a> to discover the secret sauce.
               </p>
             </div>
             <div>
@@ -949,12 +962,13 @@
             <div>
               <h3 class="heading-3"><span class="c">#</span>RELi<span class="green-100">ABLE</span>.</h3>
               <p class="feature-description">Dealing with errors is a daily part of a programmer's journey, and many
-                languages fail at this stage. zo is different — it's not just a tool, it's your buddy. Our advanced type
-                inference system catches those tricky edge cases early, ensuring your code runs smoothly. And when
-                something seems off, Zo provides clear, and rich diagnostics to help you understand what's wrong with
-                your code. The graphical error display is designed with accessibility in mind, ensuring visibility for
-                everyone, including those with color blindness. The zo compiler is your byakugan. you can focus on
-                building, knowing that potential issues are handled before they even arise.
+                languages fail at this stage. zo is different — it's not just a tool, it's your buddy. Our advanced
+                <b>type inference system</b> catches those tricky edge cases early, ensuring your code runs smoothly.
+                And when something seems off, zo provides <b>clear</b>, and <b>rich diagnostics</b> to help you
+                understand what's wrong with your code. The graphical error display is designed with
+                <b>accessibility</b> in mind, ensuring visibility for everyone, including those with color blindness.
+                The zo compiler is your <b>byakugan</b>. you can focus on building, knowing that potential issues are
+                handled before they even arise.
               </p>
             </div>
             <div>
@@ -970,7 +984,7 @@
     <span class="g">│</span> <span class="e">│</span>
     <span class="g">│</span> <span class="e">╰─ this character does not ring a bell:</span> `§`
     <span class="g">│</span> 
-    <span class="g">│</span> <span class="i">Help: 👉 please go read the doc: <doc-link></span>
+    <span class="g">│</span> <span class="i">Help: 👉 please go read the doc: zo.compilords.house/initiation.</span>
     <span class="g">│</span> 
     <span class="g">│</span> <span class="r">Note: 🤖 bruh! what language are you speaking to me in? speaks zo.</span>
  <span class="g">───╯</span>
@@ -984,10 +998,12 @@
               <h3 class="heading-3"><span class="c">#</span><span class="green-100">GPU</span>i-READY.</h3>
               <p class="feature-description">
                 Building dynamic apps often requires templating, a common alternative to static development. zo includes
-                its own templating language, inspired by <a href="https://en.wikipedia.org/wiki/ECMAScript_for_XML"
-                  target="_blank" class="smol">E4X</a> called zSX, offering an intuitive and universal way to create
-                graphical user interfaces effortlessly. Take advantage of the GPU's high performance, just like html
-                Sensei. of course templating can be used for web apps, webassembly will be used instead of gpu.
+                its own <b>templating language</b>, inspired by <a
+                  href="https://en.wikipedia.org/wiki/ECMAScript_for_XML" target="_blank" class="smol">E4X</a> called
+                <b>zSX</b>, offering an <b>intuitive</b> and <b>universal</b> way to create
+                graphical user interfaces effortlessly. Take advantage of the <b>GPU</b>'s high performance, just like
+                html Sensei. of course templating can be used for web apps, <b>webassembly</b> will be used instead of
+                <b>gpu</b>.
               </p>
             </div>
             <div>
@@ -1008,31 +1024,9 @@
             </div>
           </div>
 
-          <!-- <div class="feature-item">
-            <div>
-              <h3 class="heading-3"><span class="c">#</span><span class="green-100">FEAT</span>URE-SMART.</h3>
-              <p class="feature-description">
-                In the web world, we use the Document Object Model (DOM) API to manipulate elements on a page, but in
-                native development, there's no DOM — We need our Shikamaru! zo provides an effective DOM API usable on
-                both platforms — « Write less, do more » like Jquery sensei.
-              </p>
-            </div>
-            <div>
-              <pre>
-
-<span class="k">fun</span> <span class="i">main</span>() <span class="g">{</span>
-  <span class="k">imu</span> p <span class="p">:=</span> <span class="id">`#</span>(<span class="s">"p"</span>)
-    .<span class="i">add</span>(<span class="s">"div"</span>)
-    .<span class="i">with</span>.<span class="i">class</span>(<span class="s">"widget"</span>)<span class="g">;</span>
-
-  <span class="s">#dom</span> p<span class="g">;</span>
-<span class="g">}</span></pre>
-            </div>
-          </div> -->
-
           <p>
             Voilà, that's it. Those features hightlights a few part of the zo ecosystem. There are also a bunch of stuff
-            including — REPL, formatter, highlighter, package manager and text editor OS-like.
+            including — <b>REPL, formatter, highlighter, package manager and text editor OS-like.</b>
           </p>
         </section>
 
@@ -1072,7 +1066,7 @@
         <section class="hackerspace">
           <h2>JOiN THE <span class="green-100">HACK</span>ERSPACE.</h2>
           <p>
-            become part of the decision making process and meet your zolu gang members on the
+            become part of the decision making process and meet your zolo gang members on the
             <a href="https://discord.gg/JaNc4Nk5xw" target="_blank" class="smol">compilords</a> discord.
           </p>
         </section>
@@ -1168,7 +1162,9 @@
         elmt.innerHTML = elmt.innerHTML.toLowerCase();
       }
     }
+
     // -------------------------------------
+
     const wrapper = document.getElementById("fold-effect");
     const folds = Array.from(document.getElementsByClassName("fold"));
     const baseContent = document.getElementById("base-content");
@@ -1186,8 +1182,6 @@
       }
       return change;
     }
-
-    let scaleFix = 0.992;
 
     class FoldedDom {
       constructor(wrapper, folds = null, scrollers = null) {
@@ -1209,7 +1203,6 @@
           if (createScrollers) {
             let sizeFixEle = document.createElement("div");
             sizeFixEle.classList.add("fold-size-fix");
-            // sizeFixEle.style.transform = `scaleY(${scaleFix})`;
 
             scroller = document.createElement("div");
             scroller.classList.add("fold-scroller");
@@ -1231,9 +1224,6 @@
         for (let i = 0; i < folds.length; i++) {
           const scroller = scrollers[i];
 
-          // Scroller fixed so its aligned
-          // scroller.style.transform = `translateY(${100 * -i}%)`;
-          // And the content is the one that scrolls
           scroller.children[0].style.transform = `translateY(${scroll}px)`;
         }
       }
@@ -1246,7 +1236,6 @@
     function render() {
       if (state.disposed) return;
 
-      // Calculate the scroll based on how much the content is outside the centerFold
       document.body.style.height =
         insideFold.scrollers[0].children[0].clientHeight -
         centerFold.clientHeight +
@@ -1260,7 +1249,6 @@
       state.scroll += lerp(state.scroll, state.targetScroll, 0.1, 0.0001);
 
       insideFold.update_styles(state.scroll);
-
       window.requestAnimationFrame(render);
     }
     function on_key_down(output) {
@@ -1269,8 +1257,6 @@
 
         if (key === "Enter") {
           if (!event.shiftKey && !event.ctrlKey && !event.altKey) {
-            console.log(output);
-
             event.preventDefault();
             event.stopPropagation();
 
@@ -1319,7 +1305,6 @@
     }
 
     window.addEventListener("DOMContentLoaded", main, false);
-
   </script>
 
 </body>
