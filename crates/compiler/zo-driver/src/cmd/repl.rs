@@ -43,16 +43,16 @@ impl Repl {
 
     drop(session);
 
-    loop {
-      // phases will be execute in order.
-      let compiler = Compiler::new([
-        Phase::Reading(Reading),
-        Phase::Tokenizing(Tokenizing),
-        Phase::Parsing(Parsing),
-        Phase::Analyzing(Analyzing),
-        Phase::Interpreting(Interpreting),
-      ]);
+    // phases will be execute in order.
+    let compiler = Compiler::new([
+      Phase::Reading(Reading),
+      Phase::Tokenizing(Tokenizing),
+      Phase::Parsing(Parsing),
+      Phase::Analyzing(Analyzing),
+      Phase::Interpreting(Interpreting),
+    ]);
 
+    loop {
       match compiler.compile()? {
         Event::Value(value) => println!("{value}"),
         event => return Err(error::internal::expected_event(event)),
