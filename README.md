@@ -12,11 +12,11 @@
 
 ## warning.
 
-**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
+**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
 
 YOU SHOULD COME BACK iN TEN YEARS. STAY TUNED.
 
-**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
+**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
 
 ## [about](https://youtu.be/GJfsbhJY8gk?feature=shared&t=196).
 
