@@ -6,6 +6,7 @@ members = [
   "apps/coder/zoc",
   "apps/presenter/zop",
   "crates/compiler/zo",
+  "crates/compiler/zo-wasm",
   "crates/designer/zod",
   "crates/marker/zom",
   "crates/runtimer/zor",

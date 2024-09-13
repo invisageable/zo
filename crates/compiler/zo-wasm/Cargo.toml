@@ -11,7 +11,17 @@ crate-type = ["cdylib", "rlib"]
 swisskit = { workspace = true }
 
 # internal:crates.
-zo-compiler = { workspace = true }
+zo-analyzer = { workspace = true }
+zo-ast = { workspace = true }
+zo-interner = { workspace = true }
+zo-interpreter = { workspace = true }
+zo-interpreter-zo = { workspace = true }
+zo-parser = { workspace = true }
+zo-reader = { workspace = true }
+zo-reporter = { workspace = true }
+zo-session = { workspace = true }
+zo-tokenizer = { workspace = true }
+zo-value = { workspace = true }
 
 # external:crates.
 console_error_panic_hook = "0.1.7"

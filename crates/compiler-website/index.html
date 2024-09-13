@@ -11,6 +11,7 @@
     content="CODiFY YOUR CREATiVE THOUGHTS iNTO ROBUST, SANE AND METiCULOUSLY OPTiMiZED CROSS-PLATFORM SOFTWARE.">
   <title>zo — JOiN THE DEVOLUTiON</title>
   <meta name="author" content="invisageable" />
+  <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
   <style>
     @import url("https://assets.soracom.io/fonts/aeonik/Aeonik.css");
     @import url("https://assets.soracom.io/fonts/source-han-sans/SourceHanSansJP-VF.css");
@@ -418,6 +419,7 @@
     }
 
     .menu-item {
+      /* width: 20%; */
       opacity: 0;
       font-size: 12px;
       text-align: center;
@@ -650,8 +652,6 @@
       overflow: hidden;
       overflow-y: scroll;
       position: relative;
-      -ms-overflow-style: none;
-      scrollbar-width: none;
     }
 
     .embedded-editor-output::before,
@@ -719,9 +719,6 @@
       width: 26px;
       z-index: 200;
     }
-
-
-
 
     @media screen and (min-width: 53em) {
       .content {
@@ -882,7 +879,7 @@
       </li>
       <li class="menu-item">
         <a href="" class="hlink-goto">
-          <span>BLOG</span>
+          <span>SPEECHES</span>
         </a>
       </li>
     </ul>
@@ -975,7 +972,7 @@
                 contenteditable="false" spellcheck="false" role="textbox"
                 style="tab-size: 2;outline: none; position: relative;">
                 <div class="shadowing"></div>
-                <pre class="ovx">
+                <pre class="ovx no-scrollbar">
 <span class="k">fun</span> <span class="i">main</span>() <span class="g">{</span>
   <span class="k">imu</span> f <span class="p">:=</span> <span class="k">fn</span>(<span class="a">x</span>) <span class="p">-></span> <span class="k">when</span> x <span class="p"><=</span> <span class="n">1</span>
     <span class="p">?</span> <span class="n">1</span>
@@ -1008,7 +1005,7 @@
                 contenteditable="false" spellcheck="false" role="textbox"
                 style="tab-size: 2;outline: none; position: relative;">
                 <div class="shadowing"></div>
-                <pre class="snippet ovx">
+                <pre class="snippet ovx no-scrollbar">
     <span class="e">[0001] error:</span> <span class="r">invalid character.</span>
     <span class="g">╭─[</span>src/main.zo:2:1<span class="g">]</span>
     <span class="g">│</span>
@@ -1034,8 +1031,8 @@
                   href="https://en.wikipedia.org/wiki/ECMAScript_for_XML" target="_blank" class="smol">E4X</a> called
                 <b>zSX</b>, offering an <b>intuitive</b> and <b>universal</b> way to create
                 graphical user interfaces effortlessly. Take advantage of the <b>GPU</b>'s high performance, just like
-                html Sensei. of course templating can be used for web apps, <b>webassembly</b> will be used instead of
-                <b>gpu</b>.
+                <b>html</b> Sensei. of course templating can be used for web apps, <b>webassembly</b> will be used
+                instead of <b>gpu</b>.
               </p>
             </div>
             <div>
@@ -1064,7 +1061,7 @@
 
         <section class="try-it">
           <div>
-            <h2>ARE YOU <span class="green-100">WiTH THAT</span>? JUST TRY iT.</h2>
+            <h2>ARE YOU <span class="green-100">WiTH THAT</span>? JUST TRY iT</h2>
           </div>
           <div>
             <div class="embedded-editor">
@@ -1083,7 +1080,7 @@
                     <div class="embedded-editor-banner">
                       zo 0.0.1 on darwin — hello incognito! use <span class="green-100">:help</span>, <span class="green-100">:copyright</span> or <span class="green-100">:license</span> for more information.
                     </div>
-                    <div id="embedded-editor-output" class="embedded-editor-output"></div>
+                    <div id="embedded-editor-output" class="embedded-editor-output no-scrollbar"></div>
                   </code>
                 </div>
                 <div class="embedded-editor-main">
@@ -1099,7 +1096,7 @@
         </section>
 
         <section class="hackerspace">
-          <h2>JOiN THE <span class="green-100">HACK</span>ERSPACE.</h2>
+          <h2>JOiN THE <span class="green-100">HACK</span>ERSPACE</h2>
           <p>
             become part of the decision making process and meet your zolo gang members on the
             <a href="https://discord.gg/JaNc4Nk5xw" target="_blank" class="smol">compilords</a> discord.
@@ -1150,7 +1147,13 @@
 
   </main>
 
-  <script>
+  <script type="module">
+    import init, { Repl } from '../compiler/zo-wasm/pkg/zo_wasm.js';
+
+
+
+
+
     function focus_line(event) {
       const lines = document.querySelectorAll(".line");
 
@@ -1286,7 +1289,7 @@
       insideFold.update_styles(state.scroll);
       window.requestAnimationFrame(render);
     }
-    function on_key_down(input, output) {
+    function on_key_down(repl, input, output) {
       return (event) => {
         const key = event.key;
 
@@ -1298,29 +1301,30 @@
             const value = event.target.value.trim();
             const answer = document.createElement("p");
 
-            answer.innerHTML = value;
+            repl.add_value(`${value}\n`);
+
+            answer.innerHTML = repl.eval();
 
             output.appendChild(answer);
 
             input.value = "";
             output.scrollTop = output.scrollHeight;
-
-            console.log({ value });
-            console.log({ output: output.innerHTML });
           }
         }
       }
     }
-    function init_listeners(elmt, output) {
-      elmt.addEventListener("keydown", on_key_down(elmt, output), false);
+    function init_listeners(repl, elmt, output) {
+      elmt.addEventListener("keydown", on_key_down(repl, elmt, output), false);
     }
-    function init_embedded_editor() {
+    function init_embedded_editor(repl) {
       const editorInput = document.querySelectorAll(".embedded-editor-input")[2];
       const editorOuput = document.querySelectorAll(".embedded-editor-output")[2];
 
-      init_listeners(editorInput, editorOuput);
+      init_listeners(repl, editorInput, editorOuput);
     }
-    function main() {
+    async function main() {
+      await init();
+
       const paragraphs = document.querySelectorAll("p");
       to_screaming_case(paragraphs);
 
@@ -1336,14 +1340,13 @@
         console.log({ value: event.target.value });
       }, false);
 
-      init_embedded_editor();
+      init_embedded_editor(new Repl());
       render();
     }
 
-    window.addEventListener("DOMContentLoaded", main, false);
+    window.addEventListener("DOMContentLoaded", async () => await main(), false);
   </script>
 
 </body>
-
 
 </html>
