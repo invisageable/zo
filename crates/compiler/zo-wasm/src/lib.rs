@@ -14,30 +14,26 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+/// The reprensetation of a REPL.
 #[wasm_bindgen]
-pub struct Repl {
-  value: JsValue,
-}
+pub struct Repl {}
 
 #[wasm_bindgen]
 impl Repl {
+  /// Creates a new REPL.
   #[wasm_bindgen(constructor)]
   #[inline(always)]
   pub fn new() -> Self {
-    Self {
-      value: JsValue::from_str(""),
-    }
+    Self {}
   }
 
-  #[wasm_bindgen]
-  #[inline(always)]
-  pub fn add_value(&mut self, value: JsValue) {
-    self.value = value;
-  }
-
+  /// Evaluates a zo instruction.
   #[wasm_bindgen]
   #[inline]
-  pub fn eval(&self) -> Result<JsValue, JsValue> {
+  pub fn eval(&self, value: JsValue) -> Result<JsValue, JsValue> {
+    // note(ivs) — the session should not be called here. actually we do not
+    // have a smart evaluation, that mean each time we call `eval` the context
+    // is erase by a new one. this is not the correct behavior.
     let session = std::sync::Arc::clone(&SESSION);
     let mut session = session.lock().unwrap();
 
@@ -51,14 +47,15 @@ impl Repl {
 
     // drop(session);
 
-    let tokens =
-      tokenizer::tokenize(&mut session, &self.value.as_string().unwrap())
-        .unwrap();
+    if let Some(value) = value.as_string() {
+      let tokens = tokenizer::tokenize(&mut session, &value).unwrap();
+      let ast = parser::parse(&mut session, &tokens).unwrap();
+      let ast = analyzer::analyze(&mut session, &ast).unwrap();
+      let value = interpreter::interpret(&mut session, &ast).unwrap();
 
-    let ast = parser::parse(&mut session, &tokens).unwrap();
-    let ast = analyzer::analyze(&mut session, &ast).unwrap();
-    let value = interpreter::interpret(&mut session, &ast).unwrap();
-
-    Ok(JsValue::from_str(&format!("{value}")))
+      Ok(JsValue::from_str(&value.to_string()))
+    } else {
+      Err(JsValue::from_str("not a string."))
+    }
   }
 }

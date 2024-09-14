@@ -18,12 +18,15 @@
 
     @font-face {
       font-family: 'Cirka';
-      src: url('assets/font/font-cirka-variable.ttf') format('ttf');
+      font-weight: 400;
+      font-style: normal;
+      font-stretch: normal;
+      font-variation-settings: normal;
+      src: url('assets/font/font-cirka-variable.ttf') format('truetype');
     }
 
     @font-face {
       font-family: "Iosevka";
-      font-weight: normal;
       font-display: swap;
       font-weight: 400;
       font-stretch: normal;
@@ -366,10 +369,6 @@
       text-transform: lowercase;
     }
 
-    .input-newsletter {}
-
-    .btn-newsletter {}
-
     .reinsurance {
       font-size: 8px;
       text-align: center;
@@ -536,8 +535,18 @@
       outline: none;
       z-index: 100;
       background: transparent;
-      color: rgb(65, 65, 65);
+      /* color: rgb(65, 65, 65); */
+      color: rgba(255, 255, 255, 0.2);
+      /* color: var(--color-white-100); */
       font-size: 14px;
+    }
+
+    .input-newsletter::placeholder,
+    .input-newsletter::-moz-placeholder,
+    .input-newsletter::-ms-input-placeholder,
+    .input-newsletter::-webkit-input-placeholder {
+      color: var(--color-white-100);
+      opacity: 1;
     }
 
     .btn-newsletter {
@@ -576,6 +585,10 @@
 
     .reachout h2>span:first-child {
       line-height: 20px;
+    }
+
+    .reachout h2>span:last-child {
+      line-height: 50px;
     }
 
     .credits {
@@ -668,7 +681,6 @@
     }
 
     .embedded-editor-output::before {
-
       top: 0;
     }
 
@@ -692,6 +704,7 @@
 
     .embedded-editor-input:focus {
       border: 1px solid rgba(255, 255, 255, 0.2);
+      border: 1px solid var(--color-green-100);
     }
 
     .embedded-editor-cursor-stats {
@@ -778,6 +791,10 @@
         transform: translate3d(0, 0, 0);
       }
 
+      .menu-item:last-child {
+        margin: 0 !important;
+      }
+
       .tagline-compilords {
         font-size: 100px;
       }
@@ -844,7 +861,7 @@
       }
 
       .reachout>h2 span:last-child {
-        font-size: 80px;
+        font-size: 78px;
       }
     }
   </style>
@@ -1150,10 +1167,6 @@
   <script type="module">
     import init, { Repl } from '../compiler/zo-wasm/pkg/zo_wasm.js';
 
-
-
-
-
     function focus_line(event) {
       const lines = document.querySelectorAll(".line");
 
@@ -1289,6 +1302,43 @@
       insideFold.update_styles(state.scroll);
       window.requestAnimationFrame(render);
     }
+    const db = {
+      async read_db() {
+        try {
+          const res = await fetch("db.json");
+          return await res.json();
+        } catch (err) {
+          console.error(err);
+        }
+      },
+      async save_db(db, pathname) {
+        try {
+          const data = JSON.stringify(db, null, 2);
+          const blob = new Blob([data], { type: 'application/json' });
+
+          console.log({ db, blob });
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    };
+    function init_newsletter_listeners() {
+      const inputNewsletter = document.querySelectorAll(".input-newsletter")[2];
+
+      inputNewsletter.addEventListener("change", async function (event) {
+        const data = await db.read_db();
+        const emailRegex = new RegExp(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+        const isValidEmail = (email) => emailRegex.test(email);
+        const email = event.target.value;
+
+        if (!data.newsletter.includes(email) && isValidEmail(email)) {
+          data.newsletter.push(email);
+          await db.save_db(data, "./db.json");
+        } else {
+          console.log("email is invalid or already exist.");
+        }
+      }, false);
+    }
     function on_key_down(repl, input, output) {
       return (event) => {
         const key = event.key;
@@ -1301,9 +1351,7 @@
             const value = event.target.value.trim();
             const answer = document.createElement("p");
 
-            repl.add_value(`${value}\n`);
-
-            answer.innerHTML = repl.eval();
+            answer.innerHTML = repl.eval(`${value}\n`);
 
             output.appendChild(answer);
 
@@ -1313,14 +1361,14 @@
         }
       }
     }
-    function init_listeners(repl, elmt, output) {
+    function init_embedded_editor_listeners(repl, elmt, output) {
       elmt.addEventListener("keydown", on_key_down(repl, elmt, output), false);
     }
     function init_embedded_editor(repl) {
       const editorInput = document.querySelectorAll(".embedded-editor-input")[2];
       const editorOuput = document.querySelectorAll(".embedded-editor-output")[2];
 
-      init_listeners(repl, editorInput, editorOuput);
+      init_embedded_editor_listeners(repl, editorInput, editorOuput);
     }
     async function main() {
       await init();
@@ -1334,12 +1382,7 @@
       insideFold = new FoldedDom(wrapper, folds);
       insideFold.set_content(baseContent);
 
-      const inputNewsletter = document.querySelectorAll(".input-newsletter")[2];
-
-      inputNewsletter.addEventListener("change", function (event) {
-        console.log({ value: event.target.value });
-      }, false);
-
+      init_newsletter_listeners();
       init_embedded_editor(new Repl());
       render();
     }
