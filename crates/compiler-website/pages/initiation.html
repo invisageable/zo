@@ -137,6 +137,121 @@ fun main() {
       </p>
     </section>
 
+    <section class="doc literals">
+      <h2 class="doc-title">Littérales</h2>
+      <h3 class="doc-subtitle">Les bases du chakra.</h3>
+      <p class="doc-description">
+        Les littérales sont les valeurs brutes que tu utilises directement dans ton code pour représenter des données
+        comme des nombres, des caractères ou du texte. Chaque type de littérale correspond à une catégorie de données.
+      </p>
+      <h5 class="doc-subheading">1. Littérales — entières.</h5>
+      <p class="doc-description">
+        Ce sont des nombres entiers que tu peux utiliser pour représenter des choses comme des points de vie ou le
+        nombre de kunai que tu possèdes. En zo, il y plusieurs sorte de littérales entières, je te les décrirai au
+        chapitre suivant.
+      </p>
+      <h4 class="doc-heading">Exemple</h4>
+      <p class="doc-example">
+        Les kunai de Naruto peuvent être comptés avec des entiers : 10 kunai. Pareil pour les 100 points de vie.
+      </p>
+      <pre class="ovx">
+
+fun main() {
+  imu kunai := 10;  -- littérale entière.
+  imu pv := 100;    -- points de vie d'un personnage.
+
+  showln("Naruto possède {} kunai et a {} points de vie.", kunai, pv);
+}
+      </pre>
+      <h5 class="doc-subheading">2. Littérales — flottantes.</h5>
+      <p class="doc-description">
+        Les nombres à virgule flottante sont des nombres qui peuvent avoir une partie décimale. Tu peux les utiliser
+        pour représenter des valeurs plus précises, comme la distance parcourue par Naruto ou une fraction de chakra
+        utilisée dans une technique.
+      </p>
+      <h4 class="doc-heading">Exemple</h4>
+      <p class="doc-example">
+        La distance qu'il parcourt pendant un entraînement peut être exprimée en flottants : 3,14 km pour une course. Un
+        ninja pourrait avoir utilisé 25,5 % de son chakra dans un combat.
+      </p>
+      <pre class="ovx">
+
+fun main() {
+  imu distance := 3.14;        -- distance en kilomètres.
+  imu chakra_utilise := 25.5;  -- chakra utilisé.
+
+  showln("Naruto a parcouru {} km et a utilisé {} % de chakra après utilisé son jutsu Kage Bunshin no Jutsu.", distance, chakra_utilise);
+}
+      </pre>
+      <h5 class="doc-subheading">3. Littérales — booléennes.</h5>
+      <p class="doc-description">
+        Les littérales booléennes ne peuvent avoir que deux valeurs : true (vrai) ou false (faux). Elles sont utilisées
+        pour représenter des conditions dans un programme, comme savoir si Naruto a assez de chakra pour lancer une
+        technique.
+      </p>
+      <h4 class="doc-heading">Exemple</h4>
+      <p class="doc-example">
+        Est-ce que Naruto a assez de chakra ? Cela peut être représenté par un booléen : true (oui) ou false (non).
+      </p>
+      <pre class="ovx">
+
+fun main() {
+  imu a_assez_de_chakra := true;  -- naruto a assez de chakra.
+  imu mission_accomplie := false; -- la mission a échouée.
+}
+      </pre>
+      <h5 class="doc-subheading">4. Littérales — caractères.</h5>
+      <p class="doc-description">
+        Un littéral de type caractère représente une seule lettre ou un symbole ascii. En zo, les caractères sont
+        entourés de guillemets simples (<code>'</code>), et peuvent être des lettres, des chiffres ou des symboles
+        ascii.
+      </p>
+      <h4 class="doc-heading">Exemple</h4>
+      <p class="doc-example">
+        Les initiales des personnages, comme 'N' pour Naruto ou 'S' pour Sasuke ou encore le symboles du village de
+        Konoha pourraient être représentés comme un caractère.
+      </p>
+      <pre class="ovx">
+
+fun main() {
+  imu initiale_sasuke := 'S';   -- naruto a assez de chakra.
+  imu symbole_village := '🔱';  -- la mission a échouée.
+}
+      </pre>
+      <h5 class="doc-subheading">5. Littérales — chaînes de caractères.</h5>
+      <p class="doc-description">
+        Les littérales de chaînes de caractères représentent des séquences de texte, comme le nom d’un personnage ou une
+        phrase entière. En Rust, les chaînes de caractères sont entourées de guillemets doubles (<code>"</code>).
+      </p>
+      <h4 class="doc-heading">Exemple</h4>
+      <p class="doc-example">
+        Tu pourrais utiliser les chaînes de caractères pour définir les noms des personnages, par exemple "Madara". Tu
+        pourrais aussi les utiliser pour les dialogues et jutsus utilisées : "Madara utilise Mangekyô Sharingan".
+      </p>
+      <pre class="ovx">
+
+fun main() {
+  imu nom := "Madara";                                -- nom du personnage.
+  imu jutsu := "Madara utilise Mangekyô Sharingan";   -- nom du jutsu.
+}
+      </pre>
+      <h4 class="doc-heading">Synthèse</h4>
+      <p class="doc-resume">
+        Les littérales sont les représentations directes des valeurs que ton programme manipule. Elles permettent
+        d’initialiser des variables avec des données précises :
+      </p>
+      <ul class="list">
+        <li class="list-item">Entiers : Comptage simple (ex. le nombre de kunai).</li>
+        <li class="list-item">Flottants : Valeurs précises avec des décimales (ex. pourcentages de chakra).</li>
+        <li class="list-item">Booléens : Vrai ou faux (ex. une technique est-elle possible ?).</li>
+        <li class="list-item">Caractères : Une lettre ou un symbole (ex. initiales, symboles).</li>
+        <li class="list-item">Chaînes de caractères : Séquences de texte (ex. dialogues, noms).</li>
+      </ul>
+      <p class="note">
+        C’est comme si tu écrivais directement sur un parchemin les informations dont tu as besoin pour la mission !
+      </p>
+    </section>
+
     <section class="doc types">
       <h2 class="doc-title">Types de données primitifs</h2>
       <h3 class="doc-subtitle">La nature du chakra.</h3>
