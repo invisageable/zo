@@ -1,0 +1,14 @@
+[package]
+name = "compiler-website"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+actix-files = { workspace = true }
+actix-web = { workspace = true }
+dotenv = { workspace = true }
+dotenv_codegen = { workspace = true }
+env_logger = { workspace = true }
