@@ -738,6 +738,42 @@
       z-index: 200;
     }
 
+    .popup {
+      margin: 20px;
+      padding: 20px;
+      width: calc(100vw - 40px);
+      height: calc(100vh - 40px);
+      z-index: 200;
+      display: none;
+      position: fixed;
+      background: var(166, 226, 46, 0.5);
+      color: var(--color-white-100);
+    }
+
+    .popup.is-active {
+      display: block;
+    }
+
+    .popup .heading-2 {
+      color: var(--color-green-100);
+    }
+
+    .popup .contact {
+      color: var(--color-white-100);
+    }
+
+    .icon-cross {
+      top: 20px;
+      right: 20px;
+      cursor: pointer;
+      position: absolute;
+    }
+
+    .blur {
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px);
+    }
+
     @media screen and (min-width: 53em) {
       .content {
         height: 100vh;
@@ -874,12 +910,25 @@
 
 <body>
 
+  <div class="popup blur is-active">
+    <h2 class="heading-2">HAVE FEEDBACK?</h2>
+    <span id="popup-close" class="icon-cross">x</span>
+    <p>
+      Have you seen a bug? please let me know so that I can fix it.
+      Keep in mind that i'm a human so be nice then I'll fix it.
+    </p>
+    <a class="contact" href="mailto:the@compilords.house">THE [at] COMPiLORDS [dot] HOUSE</a>
+    <p>
+      for new features, send me an email also.
+    </p>
+  </div>
+
   <nav class="navbar">
     <h1 class="navbar-title">
       <span class="f f-aeonik green-100">z</span><span class="f f-cirka green-100">o</span> —
       THE SYMPHONiE OF COMPiLERS.
     </h1>
-    <label class="navbar-box navbar-box-trigger">
+    <label class="navbar-box navbar-box-trigger blur">
       <input type="checkbox" class="navbar-btn-menu">
       <span class="btn-hamburger"></span>
     </label>
@@ -1307,6 +1356,18 @@
       insideFold.update_styles(state.scroll);
       window.requestAnimationFrame(render);
     }
+    function onpopup(event) {
+      if (event.target.parentNode.classList.contains("is-active")) {
+        event.target.parentNode.classList.remove("is-active");
+      } else {
+        event.target.parentNode.classList.add("is-active");
+      }
+    }
+    function init_popup() {
+      const popup_btn_close = document.getElementById("popup-close");
+
+      popup_btn_close.addEventListener("click", onpopup, false);
+    }
     const db = {
       async read_db() {
         try {
@@ -1387,6 +1448,7 @@
       insideFold = new FoldedDom(wrapper, folds);
       insideFold.set_content(baseContent);
 
+      init_popup();
       init_newsletter_listeners();
       init_embedded_editor(new Repl());
       render();
