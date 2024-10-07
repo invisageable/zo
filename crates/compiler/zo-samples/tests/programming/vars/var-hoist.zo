@@ -3,7 +3,7 @@ fun main() {
 
   fun f(n: int) {
     if n > 10 {
-      imu x = 20;
+      imu x := 20;
     }
 
     x

@@ -2,27 +2,10 @@
 
 > *in-vi-sa-gea-ble's smol configuration language.*
 
-## overview.
+## about.
 
-```
+*NOT iMPLEMENTED YET*
 
--- This is a line comment within a zo document.
+## license.
 
-title = "ivs notifier example."
-
-#: pack
-  name = "@invisageable"
-  version = "1.0.0"
-.
-
-#: dependencies
-  zo = { version = "1.0.0" features = [] }
-.
-
-#: dev-dependencies
-  program = true
-.
-
-#: foo.bar.
-
-```
+[APACHE](../../LICENSE-APACHE) — [MIT](../../LICENSE-MIT)

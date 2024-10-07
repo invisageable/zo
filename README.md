@@ -36,10 +36,10 @@ zo iS DESIGNED TO BE SiMPLE, USEFUL, VERSATiLE WiTH AN ELEGANT SYNTATiC ALLURE, 
 
 **-crates**
 
-| NAME                    | DESCRiPTiON                                               |
-| :---------------------- | :-------------------------------------------------------- |
-| [zo](./crates/compiler) | A COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE.              |
-| [zom](./crates/marker)  | A COMPiLER FOR THE `oz` MARKUP LANGAGE. *NOT iMPLEMENTED* |
+| NAME                    | DESCRiPTiON                                                   |
+| :---------------------- | :------------------------------------------------------------ |
+| [zo](./crates/compiler) | A COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE.                  |
+| [zom](./crates/marker)  | A COMPiLER FOR THE `oz` MARKUP LANGAGE. *NOT iMPLEMENTED YET* |
 
 ## contributing.
 
