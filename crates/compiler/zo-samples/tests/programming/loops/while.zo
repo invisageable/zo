@@ -5,12 +5,12 @@ fun main() {
     z += 1;
   }
 
-  check@eq ( z == 10 );
+  check@eq (z == 10);
 
-  mut x : int = 10;
-  mut y : int = 0;
+  mut x: int = 10;
+  mut y: int = 0;
 
   while x > 0 -> y += 1 =:= x += 1;
 
-  check@eq ( x == 0 ) =:= check@eq ( y == 10 );
+  check@eq (x == 0) =:= check@eq (y == 10);
 }

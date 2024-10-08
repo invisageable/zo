@@ -23,6 +23,30 @@
 --   f(2)
 -- }
 
-fun main() {
-  4 * 4 / 2 - 2
-}
+-- fun main() {
+--   showln(4 * 4 / 2 - 2);
+-- }
+
+-- fun fb(n: int) {
+--   mut x := 1;
+
+--   while x <= n {
+--     if x % 15 == 0 {
+--       showln("fizzbuzz");
+--     } else if x % 5 == 0 {
+--       showln("buzz");
+--     } else if x % 3 == 0 {
+--       showln("fizz");
+--     } else {
+--       showln(x);
+--     }
+
+--     x += 1;
+--   }
+-- }
+
+-- fun main() {
+--   showln(fb(100));
+-- }
+
+::= <div checked></div>;
