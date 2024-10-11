@@ -2,27 +2,13 @@
 
 [workspace]
 members = [
-  "apps/adder/zoa",
-  "apps/coder/zoc",
-  "apps/presenter/zop",
   "crates/compiler-website",
   "crates/compiler/zo",
   "crates/compiler/zo-wasm",
-  "crates/designer/zod",
-  "crates/marker/zom",
-  "crates/runtimer/zor",
   "source/swisskit",
 ]
 
-default-members = [
-  "apps/adder/zoa",
-  "apps/coder/zoc",
-  "apps/presenter/zop",
-  "crates/compiler/zo",
-  "crates/designer/zod",
-  "crates/marker/zom",
-  "crates/runtimer/zor",
-]
+default-members = ["crates/compiler/zo"]
 
 exclude = ["/.github/*", ".todo.md"]
 resolver = '2'
@@ -67,22 +53,6 @@ zo-wasm = { path = "crates/compiler/zo-wasm", version = "0.0.0" }
 
 # internal:crates(library):zo.
 zo-core = { path = "crates/compiler-library/core", version = "0.0.0" }
-
-# internal:crates:zod.
-zom = { path = "crates/marker/zom", version = "0.0.0" }
-
-# internal:crates:zod.
-zod = { path = "crates/designer/zom", version = "0.0.0" }
-
-# apps:zoa
-zoa = { path = "apps/adder/zoa", version = "0.0.0" }
-zoa-adder = { path = "apps/adder/zoa-adder", version = "0.0.0" }
-
-# apps:zoc
-zoc = { path = "apps/coder/zoc", version = "0.0.0" }
-
-# apps:zop
-zop = { path = "apps/presenter/zop", version = "0.0.0" }
 
 # external:crates.
 actix-files = "0.6.6"
@@ -142,8 +112,7 @@ sysinfo = "0.30.12"
 tokio = { version = "1.39.3", features = ["full"] }
 toml = "0.8.15"
 thin-vec = "0.2.13"
-# issue open — https://github.com/abey79/vsvg/issues/146.
-vsvg-viewer = "0.4.0"
+vsvg-viewer = "0.5.0"
 walkdir = "2.5.0"
 wasmtime = { version = "24.0.0", features = ["async"] }
 wat = "1.212.0"
