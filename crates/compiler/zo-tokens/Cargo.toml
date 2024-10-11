@@ -1,5 +1,5 @@
 [package]
-name = "zo-tokenizer"
+name = "zo-tokens"
 version.workspace = true
 edition.workspace = true
 
@@ -8,6 +8,5 @@ edition.workspace = true
 swisskit = { workspace = true }
 
 # internal:crates.
-zo-tokens = { workspace = true }
 
 # external:crates.

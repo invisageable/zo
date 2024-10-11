@@ -1,13 +1,13 @@
 [package]
-name = "zo-tokenizer"
+name = "zo"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# internal:sources.
+# internal:source.
 swisskit = { workspace = true }
 
 # internal:crates.
-zo-tokens = { workspace = true }
+zo-driver = { workspace = true }
 
 # external:crates.

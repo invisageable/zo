@@ -193,16 +193,21 @@ impl<'source> Tokenizer<'source> {
     self.finish_attribute();
 
     self.attr_current_name.borrow_mut().push(ch);
+    println!("ATTR: {:?}", self.attr_current_name);
   }
 
   /// Finishes to create the current attribute.
   fn finish_attribute(&mut self) {
+    println!("FINISH: {:?}", self.attr_current_name);
+
     if self.attr_current_name.borrow().len() == 0usize {
       return;
     }
 
     let dup = {
       let attr_name = self.attr_current_name.borrow();
+
+      println!("DUP: {:?}", self.attr_current_name);
 
       self
         .tag_current_attrs
@@ -274,7 +279,6 @@ impl<'source> Tokenizer<'source> {
               c if is!(number_non_zero c) => {
                 self.state.set(TokenizerState::Num(Num::Int))
               }
-
               c if is!(group c) => self.state.set(TokenizerState::Group),
               c if is!(punctuation c) => {
                 self.state.set(TokenizerState::Punctuation)
@@ -296,7 +300,7 @@ impl<'source> Tokenizer<'source> {
               self.state.set(TokenizerState::Zss);
             }
             _ => {
-              panic!("wrong following symbol")
+              panic!("wrong following symbol");
             }
           },
 
@@ -848,250 +852,317 @@ impl<'source> Tokenizer<'source> {
         //# --- MODE:PROGRAM:END. ---
 
         //# --- MODE:TEMPLATE:START. ---
-        TokenizerMode::Template => match self.state.get() {
-          //# zsx-data-state.
-          TokenizerState::ZsxData => {
-            pos = self.cursor.pos();
+        TokenizerMode::Template => {
+          match self.state.get() {
+            //# zsx-data-state.
+            TokenizerState::ZsxData => {
+              pos = self.cursor.pos();
 
-            match ch {
-              // c if is!(space c) => {
-              //   self.cursor.next();
-              // }
-              ';' => {
-                self.switch();
-                self.state.set(TokenizerState::Punctuation);
+              match ch {
+                '\0' => {
+                  // unexpected_null_character.
+                  panic!("unexpected_null_character: '\0'");
+                }
+                ';' => {
+                  self.switch();
+                  self.state.set(TokenizerState::Punctuation);
+                }
+                '<' => {
+                  self.cursor.next();
+                  self.state.set(TokenizerState::ZsxTagOpen);
+                }
+                _ => {
+                  self.cursor.next();
+                  self.state.set(TokenizerState::ZsxCharacter);
+
+                  return self.scan(pos);
+                }
               }
-              '<' => {
+            }
+
+            //# zsx-raw-text-state.
+            TokenizerState::ZsxRawText => {
+              match ch {
+                '\0' => {
+                  let span = Span::of(pos, self.cursor.pos() + 1);
+
+                  self.reporter.add_report(
+                    error::lexical::eof_before_tag_name(span, ch as u8),
+                  );
+                }
+                _ => {
+                  self.cursor.next();
+
+                  return self.scan(pos);
+                }
+              }
+            }
+
+            //# zsx-tag-open-state.
+            TokenizerState::ZsxTagOpen => {
+              match ch {
+                '/' => {
+                  self.cursor.next();
+                  self.state.set(TokenizerState::ZsxTagOpenEnd);
+                }
+                '>' => {
+                  if self.cursor.back() == '<' {
+                    self.tag_current_frag.set(true);
+                    self.create_tag(TagKind::Opening, '_');
+                    self.cursor.next();
+                    self.state.set(TokenizerState::ZsxTag);
+
+                    return self.scan(pos);
+                  } else {
+                    self.tag_current_frag.set(false);
+                    self.cursor.next();
+                  }
+                }
+                '?' => {
+                  let span = Span::of(pos, self.cursor.pos() + 1);
+
+                  self.reporter.add_report(
+                    error::lexical::unexpected_question_mark(span, ch as u8),
+                  );
+                }
+                '\0' => {
+                  let span = Span::of(pos, self.cursor.pos() + 1);
+
+                  self.reporter.add_report(
+                    error::lexical::eof_before_tag_name(span, ch as u8),
+                  );
+                }
+                _ => match to!(lower_ascii ch) {
+                  Some(ch) => {
+                    self.create_tag(TagKind::Opening, ch);
+                    self.cursor.next();
+                    self.state.set(TokenizerState::ZsxTagName)
+                  }
+                  None => {
+                    if ch == ':' {
+                      self.create_tag(TagKind::Opening, ch);
+                      self.cursor.next();
+                      self.state.set(TokenizerState::ZsxTagName)
+                    } else {
+                      self.state.set(TokenizerState::ZsxData);
+                      panic!();
+                    }
+                  }
+                },
+              }
+            }
+
+            //# zsx-tag-open-end-state.
+            TokenizerState::ZsxTagOpenEnd => {
+              match ch {
+                '>' => {
+                  if self.cursor.back() == '/' {
+                    self.tag_current_frag.set(true);
+                    self.create_tag(TagKind::Closing, '_');
+                    self.cursor.next();
+                    self.state.set(TokenizerState::ZsxTag);
+
+                    return self.scan(pos);
+                  } else {
+                    self.tag_current_frag.set(false);
+                    self.state.set(TokenizerState::ZsxData);
+                    panic!();
+                  }
+                }
+                '\0' => {
+                  let span = Span::of(pos, self.cursor.pos() + 1);
+
+                  self.reporter.add_report(
+                    error::lexical::eof_before_tag_name(span, ch as u8),
+                  );
+                }
+                _ => match to!(lower_ascii ch) {
+                  Some(c) => {
+                    self.create_tag(TagKind::Closing, c);
+                    self.cursor.next();
+                    self.state.set(TokenizerState::ZsxTagName);
+                  }
+                  None => {
+                    // self.state.set(TokenizerState::BogusComment);
+                    panic!();
+                  }
+                },
+              }
+            }
+
+            //# zsx-tag-name-state.
+            TokenizerState::ZsxTagName => match ch {
+              '\t' | '\n' | '\x0C' | ' ' => {
+                self.state.set(TokenizerState::ZsxBeforeAttributeName)
+              }
+              '/' => self.state.set(TokenizerState::ZsxTagSelfClosingStart),
+              '>' => {
                 self.cursor.next();
-                self.state.set(TokenizerState::ZsxTagOpen);
+                self.state.set(TokenizerState::ZsxTag);
+
+                return self.scan(pos);
+              }
+              '\0' => {
+                let span = Span::of(pos, self.cursor.pos() + 1);
+
+                self
+                  .reporter
+                  .add_report(error::lexical::eof_in_tag(span, '\0' as u8));
+              }
+              _ => match to!(lower_ascii ch) {
+                Some(c) => {
+                  self.append_to_tag_name(c);
+                  self.cursor.next();
+                }
+                None => {
+                  self.append_to_tag_name(ch);
+                  self.cursor.next();
+                }
+              },
+            },
+
+            //# zsx-before-attribute-name-state.
+            TokenizerState::ZsxBeforeAttributeName => match ch {
+              '\t' | '\n' | '\x0C' | ' ' => {
+                // ignore the character.
+                self.cursor.next();
+              }
+              '/' => {
+                // todo(ivs) — this must be a go to "after attribute name
+                // state".
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxTagSelfClosingStart)
+              }
+              '>' => {
+                // todo(ivs) — this must be a go to "after attribute name
+                // state".
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxTag);
+
+                return self.scan(pos);
+              }
+              '\0' => {
+                // '\u{fffd}'
+              }
+              '=' => {
+                panic!("unexpected_equals_sign_before_attribute_name.");
+              }
+              _ => match to!(lower_ascii ch) {
+                Some(c) => {
+                  self.create_attribute(c);
+                  self.cursor.next();
+                  self.state.set(TokenizerState::ZsxAttributeName)
+                }
+                None => {
+                  self.create_attribute(ch);
+                  self.cursor.next();
+                  self.state.set(TokenizerState::ZsxAttributeName)
+                }
+              },
+            },
+
+            //# zsx-attribute-name-state.
+            TokenizerState::ZsxAttributeName => match ch {
+              '\t' | '\n' | '\x0C' | ' ' => {
+                self.cursor.next();
+              }
+              '/' => {
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxTagSelfClosingStart)
+              }
+              '=' => {
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxBeforeAttributeValue);
+              }
+              '>' => {
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxTag);
+                // self.state.set(TokenizerState::ZsxAfterAttributeName);
+
+                return self.scan(pos);
+              }
+              c => match to!(lower_ascii c) {
+                Some(c) => {
+                  self.attr_current_name.borrow_mut().push(c);
+                  self.cursor.next();
+                }
+                None => {
+                  self.attr_current_name.borrow_mut().push(c);
+                  self.cursor.next();
+                }
+              },
+            },
+
+            //# zsx-after-attribute-name-state.
+            TokenizerState::ZsxAfterAttributeName => match ch {
+              '\t' | '\n' | '\x0C' | ' ' => {
+                self.cursor.next();
+              }
+              '/' => {
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxTagSelfClosingStart)
+              }
+              '=' => {
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxBeforeAttributeValue);
+              }
+              '>' => {
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxTag);
+
+                println!("FIN: {:?}", self.attr_current_name);
+
+                return self.scan(pos);
+              }
+              c => match to!(lower_ascii c) {
+                Some(c) => {
+                  self.create_attribute(c);
+                  self.cursor.next();
+                  self.state.set(TokenizerState::ZsxAttributeName);
+                }
+                None => {
+                  self.create_attribute(c);
+                  self.cursor.next();
+                  self.state.set(TokenizerState::ZsxAttributeName)
+                }
+              },
+            },
+
+            //# zsx-before-attribute-value-state.
+            TokenizerState::ZsxBeforeAttributeValue => match ch {
+              '{' => {
+                self.cursor.next();
+
+                self
+                  .state
+                  .set(TokenizerState::ZsxAttributeValue(Quoted::Brace));
               }
               _ => {
                 self.cursor.next();
-                self.state.set(TokenizerState::ZsxCharacter);
+
+                self
+                  .state
+                  .set(TokenizerState::ZsxAttributeValue(Quoted::No));
+              }
+            },
+
+            //# zsx-self-closing-start-tag-state
+            TokenizerState::ZsxTagSelfClosingStart => match ch {
+              '>' => {
+                self.tag_current_self_closing.set(true);
+                self.cursor.next();
+                self.state.set(TokenizerState::ZsxTag);
 
                 return self.scan(pos);
               }
-            }
+              _ => {
+                panic!("error; go to before attr name");
+              }
+            },
+
+            s => panic!("State = {s:?}"),
           }
-
-          //# zsx-tag-open-state.
-          TokenizerState::ZsxTagOpen => match ch {
-            '/' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTagOpenEnd);
-            }
-            '>' => {
-              if self.cursor.back() == '<' {
-                self.tag_current_frag.set(true);
-                self.create_tag(TagKind::Opening, '_');
-                self.cursor.next();
-                self.state.set(TokenizerState::ZsxTag);
-
-                return self.scan(pos);
-              } else {
-                self.tag_current_frag.set(false);
-                self.cursor.next();
-              }
-            }
-            _ => match to!(lower_ascii ch) {
-              Some(ch) => {
-                self.create_tag(TagKind::Opening, ch);
-                self.cursor.next();
-                self.state.set(TokenizerState::ZsxTagName)
-              }
-              None => {
-                if ch == ':' {
-                  self.create_tag(TagKind::Opening, ch);
-                  self.cursor.next();
-                  self.state.set(TokenizerState::ZsxTagName)
-                } else {
-                  self.state.set(TokenizerState::ZsxData);
-                  panic!();
-                }
-              }
-            },
-          },
-
-          //# zsx-tag-open-end-state.
-          TokenizerState::ZsxTagOpenEnd => match ch {
-            '>' => {
-              if self.cursor.back() == '/' {
-                self.tag_current_frag.set(true);
-                self.create_tag(TagKind::Closing, '_');
-                self.cursor.next();
-                self.state.set(TokenizerState::ZsxTag);
-
-                return self.scan(pos);
-              } else {
-                self.tag_current_frag.set(false);
-                self.state.set(TokenizerState::ZsxData);
-                panic!();
-              }
-            }
-            _ => match to!(lower_ascii ch) {
-              Some(c) => {
-                self.create_tag(TagKind::Closing, c);
-                self.cursor.next();
-                self.state.set(TokenizerState::ZsxTagName);
-              }
-              None => {
-                // self.state.set(TokenizerState::BogusComment);
-                panic!();
-              }
-            },
-          },
-
-          //# zsx-tag-name-state.
-          TokenizerState::ZsxTagName => match ch {
-            '\t' | '\n' | '\x0C' | ' ' => {
-              self.state.set(TokenizerState::ZsxBeforeAttributeName)
-            }
-            '/' => self.state.set(TokenizerState::ZsxTagSelfClosingStart),
-            '>' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTag);
-
-              return self.scan(pos);
-            }
-            _ => match to!(lower_ascii ch) {
-              Some(c) => {
-                self.append_to_tag_name(c);
-                self.cursor.next();
-              }
-              None => {
-                self.append_to_tag_name(ch);
-                self.cursor.next();
-              }
-            },
-          },
-
-          //# zsx-before-attribute-name-state.
-          TokenizerState::ZsxBeforeAttributeName => match ch {
-            '\t' | '\n' | '\x0C' | ' ' => {
-              self.cursor.next();
-            }
-            '>' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTag);
-
-              return self.scan(pos);
-            }
-            '/' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTagSelfClosingStart)
-            }
-            _ => match to!(lower_ascii ch) {
-              Some(c) => {
-                self.create_attribute(c);
-                self.cursor.next();
-                self.state.set(TokenizerState::ZsxAttributeName)
-              }
-              None => {
-                self.create_attribute(ch);
-                self.cursor.next();
-                self.state.set(TokenizerState::ZsxAttributeName)
-              }
-            },
-          },
-
-          //# zsx-attribute-name-state.
-          TokenizerState::ZsxAttributeName => match ch {
-            '\t' | '\n' | '\x0C' | ' ' => {
-              self.cursor.next();
-            }
-            '/' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTagSelfClosingStart)
-            }
-            '=' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxBeforeAttributeValue);
-            }
-            '>' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTag);
-
-              return self.scan(pos);
-            }
-            c => match to!(lower_ascii c) {
-              Some(c) => {
-                self.attr_current_name.borrow_mut().push(c);
-                self.cursor.next();
-              }
-              None => {
-                self.attr_current_name.borrow_mut().push(c);
-                self.cursor.next();
-              }
-            },
-          },
-
-          //# zsx-after-attribute-name-state.
-          TokenizerState::ZsxAfterAttributeName => match ch {
-            '\t' | '\n' | '\x0C' | ' ' => {
-              self.cursor.next();
-            }
-            '/' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTagSelfClosingStart)
-            }
-            '=' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxBeforeAttributeValue);
-            }
-            '>' => {
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTag);
-
-              return self.scan(pos);
-            }
-            c => match to!(lower_ascii c) {
-              Some(c) => {
-                self.create_attribute(c);
-                self.cursor.next();
-                self.state.set(TokenizerState::ZsxAttributeName);
-              }
-              None => {
-                self.create_attribute(c);
-                self.cursor.next();
-                self.state.set(TokenizerState::ZsxAttributeName)
-              }
-            },
-          },
-
-          //# zsx-before-attribute-value-state.
-          TokenizerState::ZsxBeforeAttributeValue => match ch {
-            '{' => {
-              self.cursor.next();
-
-              self
-                .state
-                .set(TokenizerState::ZsxAttributeValue(Quoted::Brace));
-            }
-            _ => {
-              self.cursor.next();
-
-              self
-                .state
-                .set(TokenizerState::ZsxAttributeValue(Quoted::No));
-            }
-          },
-
-          //# zsx-self-closing-start-tag-state
-          TokenizerState::ZsxTagSelfClosingStart => match ch {
-            '>' => {
-              self.tag_current_self_closing.set(true);
-              self.cursor.next();
-              self.state.set(TokenizerState::ZsxTag);
-
-              return self.scan(pos);
-            }
-            _ => {
-              panic!("error; go to before attr name");
-            }
-          },
-
-          s => panic!("State = {s:?}"),
-        },
+        }
       }
     }
 
@@ -1210,6 +1281,8 @@ impl<'source> Tokenizer<'source> {
         let self_closing = self.tag_current_self_closing.get();
         let frag = self.tag_current_frag.get();
         let attrs = std::mem::take(&mut *self.tag_current_attrs.borrow_mut());
+
+        println!("{:?}", self.attr_current_name);
 
         self.tag_current_frag.set(false);
 

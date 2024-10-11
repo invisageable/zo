@@ -44,6 +44,8 @@ pub enum TokenizerState {
   ///
   /// An initial state for zsx templating langage.
   ZsxData,
+  /// A zsx's raws text.
+  ZsxRawText,
   /// A zsx's text state.
   ZsxCharacter,
   /// A zsx's tag state.

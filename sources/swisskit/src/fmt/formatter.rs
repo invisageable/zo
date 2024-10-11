@@ -172,7 +172,7 @@ pub fn format(
         },
         c => unimplemented!("Ch = {c} at State = {:?}", state),
       },
-      _ => todo!("State = {state:?}"),
+      // _ => todo!("State = {state:?}"),
     }
   }
 

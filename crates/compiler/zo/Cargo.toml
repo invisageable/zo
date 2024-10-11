@@ -4,10 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# internal:source.
+# internal:sources.
 swisskit = { workspace = true }
 
 # internal:crates.
-zo-driver = { workspace = true }
+zo-tokenizer = { workspace = true }
+zo-tokens = { workspace = true }
 
 # external:crates.

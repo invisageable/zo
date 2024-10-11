@@ -1,7 +1,7 @@
 # cargo-features = ["edition2024"]
 
 [workspace]
-members = ["crates/compiler/zo", "crates/compiler/zo-wasm", "sources/swisskit"]
+members = ["crates/compiler/zo", "sources/swisskit"]
 
 default-members = ["crates/compiler/zo"]
 
@@ -21,30 +21,31 @@ swisskit = { path = "sources/swisskit", version = "0.0.0" }
 
 # internal:crates:zo.
 zo = { path = "crates/compiler/zo", version = "0.0.0" }
-zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.0.0" }
-zo-ast = { path = "crates/compiler/zo-ast", version = "0.0.0" }
-zo-builder = { path = "crates/compiler/zo-builder", version = "0.0.0" }
-zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.0.0" }
-zo-codegen-llvm = { path = "crates/compiler/zo-codegen-llvm", version = "0.0.0" }
-zo-codegen-py = { path = "crates/compiler/zo-codegen-py", version = "0.0.0" }
-zo-codegen-wasm = { path = "crates/compiler/zo-codegen-wasm", version = "0.0.0" }
-zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.0.0" }
-zo-driver = { path = "crates/compiler/zo-driver", version = "0.0.0" }
-zo-hir = { path = "crates/compiler/zo-hir", version = "0.0.0" }
-zo-inferencer = { path = "crates/compiler/zo-inferencer", version = "0.0.0" }
-zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
-zo-interpreter = { path = "crates/compiler/zo-interpreter", version = "0.0.0" }
-zo-interpreter-clif = { path = "crates/compiler/zo-interpreter-clif", version = "0.0.0" }
-zo-interpreter-zo = { path = "crates/compiler/zo-interpreter-zo", version = "0.0.0" }
-zo-packer = { path = "crates/compiler/zo-packer", version = "0.0.0" }
-zo-parser = { path = "crates/compiler/zo-parser", version = "0.0.0" }
-zo-reader = { path = "crates/compiler/zo-reader", version = "0.0.0" }
-zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.0.0" }
-zo-session = { path = "crates/compiler/zo-session", version = "0.0.0" }
+# zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.0.0" }
+# zo-ast = { path = "crates/compiler/zo-ast", version = "0.0.0" }
+# zo-builder = { path = "crates/compiler/zo-builder", version = "0.0.0" }
+# zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.0.0" }
+# zo-codegen-llvm = { path = "crates/compiler/zo-codegen-llvm", version = "0.0.0" }
+# zo-codegen-py = { path = "crates/compiler/zo-codegen-py", version = "0.0.0" }
+# zo-codegen-wasm = { path = "crates/compiler/zo-codegen-wasm", version = "0.0.0" }
+# zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.0.0" }
+# zo-driver = { path = "crates/compiler/zo-driver", version = "0.0.0" }
+# zo-hir = { path = "crates/compiler/zo-hir", version = "0.0.0" }
+# zo-inferencer = { path = "crates/compiler/zo-inferencer", version = "0.0.0" }
+# zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
+# zo-interpreter = { path = "crates/compiler/zo-interpreter", version = "0.0.0" }
+# zo-interpreter-clif = { path = "crates/compiler/zo-interpreter-clif", version = "0.0.0" }
+# zo-interpreter-zo = { path = "crates/compiler/zo-interpreter-zo", version = "0.0.0" }
+# zo-packer = { path = "crates/compiler/zo-packer", version = "0.0.0" }
+# zo-parser = { path = "crates/compiler/zo-parser", version = "0.0.0" }
+# zo-reader = { path = "crates/compiler/zo-reader", version = "0.0.0" }
+# zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.0.0" }
+# zo-session = { path = "crates/compiler/zo-session", version = "0.0.0" }
 zo-tokenizer = { path = "crates/compiler/zo-tokenizer", version = "0.0.0" }
-zo-value = { path = "crates/compiler/zo-value", version = "0.0.0" }
-zo-ty = { path = "crates/compiler/zo-ty", version = "0.0.0" }
-zo-wasm = { path = "crates/compiler/zo-wasm", version = "0.0.0" }
+zo-tokens = { path = "crates/compiler/zo-tokens", version = "0.0.0" }
+# zo-value = { path = "crates/compiler/zo-value", version = "0.0.0" }
+# zo-ty = { path = "crates/compiler/zo-ty", version = "0.0.0" }
+# zo-wasm = { path = "crates/compiler/zo-wasm", version = "0.0.0" }
 
 # external:crates.
 actix-files = "0.6.6"
