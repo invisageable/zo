@@ -15,9 +15,6 @@ zo-session = { workspace = true }
 zo-value = { workspace = true }
 zo-ty = { workspace = true }
 
-# internal:crates.
-zo-core = { workspace = true }
-
 # external:crates.
 hashbrown = { workspace = true }
 smol_str = { workspace = true }

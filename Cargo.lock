@@ -1107,13 +1107,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zo-core"
-version = "0.0.0"
-dependencies = [
- "swisskit",
-]
-
-[[package]]
 name = "zo-driver"
 version = "0.0.0"
 dependencies = [
@@ -1197,7 +1190,6 @@ dependencies = [
  "swisskit",
  "thin-vec",
  "zo-ast",
- "zo-core",
  "zo-interner",
  "zo-reporter",
  "zo-session",

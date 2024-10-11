@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# internal:source.
+# internal:sources.
 swisskit = { workspace = true }
 
 # internal:crates.
