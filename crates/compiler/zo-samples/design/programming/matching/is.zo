@@ -9,7 +9,7 @@ fun main() {
   imu succ: Foo = Foo::Ok(0);
   imu fail: Foo = Foo::Err(1);
 
-  if x is Foo::Ok {
+  if x is Foo::Ok(0) {
     return succ as int;
   }
 

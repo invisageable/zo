@@ -1,6 +1,6 @@
 -- types: type-group.
 
-group type Foo = int
+group alias Foo = int
   and Bar = (float, int)
   and Oof = float[]
   and Rab = Fn(int): int

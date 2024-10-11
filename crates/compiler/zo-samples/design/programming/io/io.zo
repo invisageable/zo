@@ -1,7 +1,0 @@
-meta BufReader  {
-  fun read(buf: u8[]): int;
-}
-
-meta BufWriter {
-  fun write(buf: u8[]): int;
-}

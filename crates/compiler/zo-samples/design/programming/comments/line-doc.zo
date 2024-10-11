@@ -1,0 +1,11 @@
+-- comments: lines.
+
+-- this is a line comments.
+
+-! this is doc line comments.
+fun main() {
+  -- this is another line comments.
+  imu x: int = 1_000_000_000; -- this is another line comments.
+
+  showln("{x}");
+} -- YALC! yet another line comments.

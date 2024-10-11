@@ -1,6 +1,0 @@
--- directives: gpu.
-
-fun main() {
-  -- this will be execute on the `gpu`.
-  #gpu for n := 0..3 -> showln("{}", n += 1);
-}

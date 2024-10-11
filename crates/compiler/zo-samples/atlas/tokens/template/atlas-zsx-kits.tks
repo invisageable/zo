@@ -1,7 +1,0 @@
--- atlas: zsx atoms.
-
-::=
-
-  <in@fade>     <in-out:expo@rotate>     <out@bounce>       <anim@move>   
-
-;

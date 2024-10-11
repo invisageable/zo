@@ -1,4 +1,4 @@
--- interface: abstract.
+-- interface: meta.
 
 meta Foo {}
 

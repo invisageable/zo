@@ -1,9 +1,11 @@
 -- examples: styling.
 
-#css p {
-  color: purple;
-  font-family: 'Comic Sans MS', cursive;
-  font-size: 2em;
+#css {
+  p {
+    color: purple;
+    font-family: 'Comic Sans MS', cursive;
+    font-size: 2em;
+  }
 };
 
 fun main() {
@@ -15,7 +17,7 @@ fun main() {
     that I'm breaking now. We said we'd say it was the snow that killed the 
     other two, but it wasn't. Nature is lethal but it doesn't hold a candle to 
     man.
-  </P>;
+  </p>;
 
   #dom paragraph;
 }

@@ -2,8 +2,8 @@
 
 fun main() {
   for x := 0..3 {
-    x += 1
+    showln("{x}");
   }
 
-  for n := 0..3 -> n += 1;
+  for x := 0..3 -> showln("{x}");
 }

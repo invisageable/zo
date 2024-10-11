@@ -1,7 +1,0 @@
--- types: type.
-
-type Idx = int;
-
-fun main() {
-  imu x: Idx = 0;
-}

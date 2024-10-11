@@ -1,17 +1,17 @@
 -- matches: match.
 
 fun matches(n: int): str {
-  -- first idea.
-  if n == {
+  if n => {
     1 => "one",
     2 => "two",
-    else => showln("{n}"), -- `n` is added implicitly to the scope.
+    3 => { "three" },
+    _ => ...
   }
 
-  -- second idea.
   match n {
     1 => "one",
     2 => "two",
+    3 => "three",
     else => showln("{n}"), -- `n` is added implicitly to the scope.
   }
 }

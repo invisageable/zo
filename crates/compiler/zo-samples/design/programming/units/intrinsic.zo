@@ -1,7 +1,0 @@
-test my_test_name() {
-  imu [x, y, z] = [1.5, 1.5, 3.0];
-
-  check@eq (x + y, z);
-  check@eq (x + 1.5, z);
-  check@eq (z / 2.0, x);
-}

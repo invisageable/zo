@@ -1,13 +1,15 @@
 -- branches: if-else (experimental).
 
-val SAY_HI: bool = true;
-
 fun main() {
-  imu hey ::= <:if SAY_HI>
+  imu say_hi: bool = true;
+
+  imu hello ::= <:if say_hi>
+    <h1>hi!</h1>
+  <:else>
     <h1>hey!</h1>
   <:>;
 
-  imu zsx ::= <>{hey}</>;
+  imu zsx ::= <>{hello}</>;
 
   showln("{zsx}");
 }

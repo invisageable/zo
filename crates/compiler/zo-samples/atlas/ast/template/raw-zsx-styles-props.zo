@@ -1,5 +1,0 @@
-fun main() {
-  imu bar ::= <h1[ta:center; pt: 20px;] $black-100="black">johndoe</h1>;
-
-  #dom bar;
-}

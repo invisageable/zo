@@ -10,97 +10,96 @@ It provides an overview of present and future functionalities.
 
 My choices in terms of syntax focus on simplicity, expressiveness and intuitivity. Keep in mind that the syntax is still improving, based on that some changes will may comes.
 
+## dirmap.
+
 arrays
-  - [array](./arrays/array.zo)
-  - [array-access](./arrays/array-access.zo)
-  - [array-destructuring](./arrays/array-destructuring.zo)
+  - [array](./programming/arrays/array.zo)
+  - [array-accessprogramming/](./arrays/array-access.zo)
+  - [array-destructuringprogramming/](./arrays/array-destructuring.zo)
 
 assignments
-  - [assign](./assignments/assign.zo)
-  - [assignop](./assignments/assignop.zo)
+  - [assign](./programming/assignments/assign.zo)
+  - [assignop](./programming/assignments/assignop.zo)
 
 branches
-  - [if-else](./branches/if-else.zo)
-  - [else-if](./branches/else-if.zo)
-  - [ternary](./branches/ternary.zo)
+  - [if-elseprogramming/](./branches/if-else.zo)
+  - [else-ifprogramming/](./branches/else-if.zo)
+  - [ternary](./programming/branches/ternary.zo)
 
 closures
-  - [closure](./closures/closure.zo)
-  - [closure-call](./closures/closure-call.zo)
-  - [closure-currying](./closures/closure-currying.zo)
+  - [closure](./programming/closures/closure.zo)
+  - [closure-callprogramming/](./closures/closure-call.zo)
+  - [closure-curryingprogramming/](./closures/closure-currying.zo)
 
 comments
-  - [line](./comments/line.zo)
+  - [line](./programming/comments/line.zo)
 
 directives
-  - [gpu](./directives/gpu.zo)
-  - [run](./directives/run.zo)
+  - [gpu](./programming/directives/gpu.zo)
+  - [run](./programming/directives/run.zo)
 
 enums
-  - [enum](./enums/enum.zo)
+  - [enum](./programming/enums/enum.zo)
 
 ffi
-  - [ffi](./ffi/ext.zo)
+  - [ffi](./programming/ffi/ext.zo)
 
 functions
-  - [fun](./functions/fun.zo)
-  - [fun-call](./functions/fun-call.zo)
+  - [fun](./programming/functions/fun.zo)
+  - [fun-callprogramming/](./functions/fun-call.zo)
 
 interfaces
-  - [abstract](./interfaces/abstract.zo)
-  - [abstract-apply](./interfaces/abstract-apply.zo)
+  - [abstract](./programming/interfaces/abstract.zo)
+  - [abstract-applyprogramming/](./interfaces/abstract-apply.zo)
 
 literals
   - numbers
-    - [float](./literals/numbers/float.zo)
-    - [int](./literals/numbers/int.zo)
-  - [bool](./literals/bool.zo)
-  - [char](./literals/char.zo)
-  - [string](./literals/string.zo)
+    - [float](./programming/literals/numbers/float.zo)
+    - [int](./programming/literals/numbers/int.zo)
+  - [bool](./programming/literals/bool.zo)
+  - [char](./programming/literals/char.zo)
+  - [string](./programming/literals/string.zo)
 
 loops
-  - [for](./loops/for.zo)
-  - [loop](./loops/loop.zo)
-  - [while](./loops/while.zo)
+  - [for](./programming/loops/for.zo)
+  - [loop](./programming/loops/loop.zo)
+  - [while](./programming/loops/while.zo)
 
 matching
-  - [is](./matching/is.zo)
-  - [match](./matching/match.zo)
+  - [is](./programming/matching/is.zo)
+  - [match](./programming/matching/match.zo)
 
 operators
   - arithmetic
   - logical
-  - [bitwize](./operators/bitwize.zo)
-  - [cast](./operators/cast.zo)
-  - [comparison](./operators/comparison.zo)
-  - [shift](./operators/shift.zo)
+  - [bitwize](./programming/operators/bitwize.zo)
+  - [cast](./programming/operators/cast.zo)
+  - [comparison](./programming/operators/comparison.zo)
+  - [shift](./programming/operators/shift.zo)
 
 packages
-  - [load](./packages/load.zo)
-  - [pack](./packages/pack.zo)
+  - [load](./programming/packages/load.zo)
+  - [pack](./programming/packages/pack.zo)
 
 structures
-  - [struct](./structures/struct.zo)
-  - [struct-apply](./structures/struct-apply.zo)
-  - [struct-expr](./structures/struct-expr.zo)
-  - [struct-destructuring](./structures/struct-destructuring.zo)
+  - [struct](./programming/structures/struct.zo)
+  - [struct-applyprogramming/](./structures/struct-apply.zo)
+  - [struct-exprprogramming/](./structures/struct-expr.zo)
+  - [struct-destructuringprogramming/](./structures/struct-destructuring.zo)
 
 tuples
-  - [tuple](./tuples/tuple.zo)
-  - [tuple-access](./tuples/tuple-access.zo)
-  - [tuple-destructuring](./tuples/tuple-destructuring.zo)
+  - [tuple](./programming/tuples/tuple.zo)
+  - [tuple-accessprogramming/](./tuples/tuple-access.zo)
+  - [tuple-destructuringprogramming/](./tuples/tuple-destructuring.zo)
 
 types
-  - [alias](./types/alias.zo)
-  - [group](./types/group.zo)
+  - [alias](./programming/types/alias.zo)
+  - [group](./programming/types/group.zo)
 
 variables
-  - [imu](./variables/imu.zo)
-  - [mut](./variables/mut.zo)
-  - [val](./variables/val.zo)
+  - [imu](./programming/variables/imu.zo)
+  - [mut](./programming/variables/mut.zo)
+  - [val](./programming/variables/val.zo)
 
 webassembly
-  - [wasm](./webassembly/wasm.zo)
-
-zo syntax extension
-  - [zsx](./zsx)
+  - [wasm](./programming/webassembly/wasm.zo)

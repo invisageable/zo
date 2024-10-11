@@ -1,9 +1,7 @@
--- closures: declaration.
+-- closures: declaration (experimental).
 
 fun main() {
-  imu zsx := fn() ::= <>
-    <h1>hey!</h1>
-  </>;
+  imu zsx := fn() ::= <h1>hey!</h1>;
 
   #dom zsx();
 }

@@ -1,8 +1,0 @@
--- atlas: zsx atoms.
-
-::=
-
-  <:>       <:bind>     <:?>      <:else>       <:for>       
-  <:if>     <:me>
-
-;

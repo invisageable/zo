@@ -1,6 +1,10 @@
 -- arrays: access.
 
 fun main() {
+  imu x: float[] = [1.0, 2.0, 3.0];
+
+  showln("{}", x[0]);
+
   imu x := [1.0, 2.0, 3.0];
 
   showln("{}", x[1]);

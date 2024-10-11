@@ -1,6 +1,0 @@
--- directives: sim.
-
-fun main() {
-  -- this will be execute it parallel on the `simd`.
-  #sim for n := 0..3 -> println("{}", n += 1);
-}

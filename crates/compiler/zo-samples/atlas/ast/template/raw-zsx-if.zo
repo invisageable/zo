@@ -1,9 +1,0 @@
-fun main() {
-  mut count: int = 0;
-
-  imu bar ::= <:if true>
-    <button.btn :click={fn() -> count += 1}>{count}</button>
-  <:>;
-
-  #dom bar;
-}

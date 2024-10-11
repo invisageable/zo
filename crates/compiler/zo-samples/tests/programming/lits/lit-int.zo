@@ -1,5 +1,0 @@
-fun main() {
-  imu x: int = 10;
-  
-  check@eq (x, 10);
-}

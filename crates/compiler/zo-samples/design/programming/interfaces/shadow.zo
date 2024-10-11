@@ -1,0 +1,9 @@
+-- interface: shadow.
+
+shadow Foo {}
+
+shadow Bar {
+  fun foobar();
+}
+
+fun main() {}

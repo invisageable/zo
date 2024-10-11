@@ -1,7 +1,0 @@
--- atlas: zsx events.
-
-::=
-
-  <div :click={}>       <h1 :mousemove={}>
-
-;
