@@ -1,12 +1,7 @@
 # cargo-features = ["edition2024"]
 
 [workspace]
-members = [
-  "crates/compiler-website",
-  "crates/compiler/zo",
-  "crates/compiler/zo-wasm",
-  "source/swisskit",
-]
+members = ["crates/compiler/zo", "crates/compiler/zo-wasm", "source/swisskit"]
 
 default-members = ["crates/compiler/zo"]
 
@@ -52,7 +47,7 @@ zo-ty = { path = "crates/compiler/zo-ty", version = "0.0.0" }
 zo-wasm = { path = "crates/compiler/zo-wasm", version = "0.0.0" }
 
 # internal:crates(library):zo.
-zo-core = { path = "crates/compiler-library/core", version = "0.0.0" }
+zo-core = { path = "kits/compiler-kit/core", version = "0.0.0" }
 
 # external:crates.
 actix-files = "0.6.6"
