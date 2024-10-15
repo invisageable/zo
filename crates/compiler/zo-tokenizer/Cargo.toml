@@ -4,10 +4,23 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# internal:sources.
+# internal:source.
 swisskit = { workspace = true }
 
 # internal:crates.
-zo-tokens = { workspace = true }
+zo-interner = { workspace = true }
+zo-reporter = { workspace = true }
+zo-session = { workspace = true }
 
 # external:crates.
+hashbrown = { workspace = true }
+lazy_static = { workspace = true }
+smol_str = { workspace = true }
+thin-vec = { workspace = true }
+
+[dev-dependencies]
+zo-reader = { workspace = true }
+
+# [[bench]]
+# name = "tokenization"
+# harness = false

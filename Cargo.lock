@@ -13,6 +13,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ahash"
+version = "0.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e89da841a80418a9b391ebaea17f5c112ffaaa96f621d2c285b5174da76b9011"
+dependencies = [
+ "cfg-if",
+ "once_cell",
+ "version_check",
+ "zerocopy",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -22,10 +34,87 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-api2"
+version = "0.2.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c6cb57a04249c6480766f7f7cef5467412af1490f8d1e243141daddada3264f"
+
+[[package]]
+name = "anstream"
+version = "0.6.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64e15c1ab1f89faffbf04a634d5e1962e9074f2741eef6d97f3c4e322426d526"
+dependencies = [
+ "anstyle",
+ "anstyle-parse",
+ "anstyle-query",
+ "anstyle-wincon",
+ "colorchoice",
+ "is_terminal_polyfill",
+ "utf8parse",
+]
+
+[[package]]
+name = "anstyle"
+version = "1.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bec1de6f59aedf83baf9ff929c98f2ad654b97c9510f4e70cf6f661d49fd5b1"
+
+[[package]]
+name = "anstyle-parse"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb47de1e80c2b463c735db5b217a0ddc39d612e7ac9e2e96a5aed1f57616c1cb"
+dependencies = [
+ "utf8parse",
+]
+
+[[package]]
+name = "anstyle-query"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d36fc52c7f6c869915e99412912f22093507da8d9e942ceaf66fe4b7c14422a"
+dependencies = [
+ "windows-sys",
+]
+
+[[package]]
+name = "anstyle-wincon"
+version = "3.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bf74e1b6e971609db8ca7a9ce79fd5768ab6ae46441c572e46cf596f59e57f8"
+dependencies = [
+ "anstyle",
+ "windows-sys",
+]
+
+[[package]]
+name = "anyhow"
+version = "1.0.89"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86fdf8605db99b54d3cd748a44c6d04df638eb5dafb219b135d0149bd0db01f6"
+
+[[package]]
+name = "ariadne"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44055e597c674aef7cb903b2b9f6e4cba1277ed0d2d61dae7cd52d7ffa81f8e2"
+dependencies = [
+ "unicode-width",
+ "yansi",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
+
+[[package]]
+name = "bitflags"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
 
 [[package]]
 name = "bumpalo"
@@ -34,10 +123,65 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 
 [[package]]
+name = "cc"
+version = "1.1.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b16803a61b81d9eabb7eae2588776c4c1e584b738ede45fdbb4c972cec1e9945"
+dependencies = [
+ "shlex",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "clap"
+version = "4.5.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b97f376d85a664d5837dbae44bf546e6477a679ff6610010f17276f686d867e8"
+dependencies = [
+ "clap_builder",
+ "clap_derive",
+]
+
+[[package]]
+name = "clap_builder"
+version = "4.5.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19bc80abd44e4bed93ca373a0704ccbd1b710dc5749406201bb018272808dc54"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "clap_lex",
+ "strsim",
+]
+
+[[package]]
+name = "clap_derive"
+version = "4.5.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ac6a0c7b1a9e9a5186361f67dfa1b88213572f427fb9ab038efb2bd8c582dab"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.72",
+]
+
+[[package]]
+name = "clap_lex"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1462739cb27611015575c0c11df5df7601141071f07518d56fcc1be504cbec97"
+
+[[package]]
+name = "colorchoice"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fd119d74b830634cea2a0f58bbd0d54540518a14397557951e79340abc28c0"
 
 [[package]]
 name = "core-foundation-sys"
@@ -77,6 +221,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
 
 [[package]]
+name = "equivalent"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
+
+[[package]]
+name = "fixedbitset"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
+
+[[package]]
 name = "flume"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -114,6 +270,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashbrown"
+version = "0.14.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
+dependencies = [
+ "ahash",
+ "allocator-api2",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e087f84d4f86bf4b218b927129862374b72199ae7d8657835f1e89000eea4fb"
+
+[[package]]
+name = "heck"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "indexmap"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "707907fe3c25f5424cce2cb7e1cbcafee6bdbe735ca90ef77c29e84591e5b9da"
+dependencies = [
+ "equivalent",
+ "hashbrown 0.15.0",
+]
+
+[[package]]
+name = "inkwell"
+version = "0.1.0"
+source = "git+https://github.com/roc-lang/inkwell?branch=inkwell-llvm-15#95a3a13c99289539f5cdd91193a4def38711117d"
+dependencies = [
+ "either",
+ "inkwell_internals",
+ "libc",
+ "llvm-sys",
+ "once_cell",
+ "parking_lot",
+]
+
+[[package]]
+name = "inkwell_internals"
+version = "0.7.0"
+source = "git+https://github.com/roc-lang/inkwell?branch=inkwell-llvm-15#95a3a13c99289539f5cdd91193a4def38711117d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "is_terminal_polyfill"
+version = "1.70.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
+
+[[package]]
 name = "js-sys"
 version = "0.3.70"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -133,6 +350,19 @@ name = "libc"
 version = "0.2.155"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
+
+[[package]]
+name = "llvm-sys"
+version = "150.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa55828745895d37233756307ded95a235b058aeb89cd12717ec7c3912089ee9"
+dependencies = [
+ "cc",
+ "lazy_static",
+ "libc",
+ "regex",
+ "semver",
+]
 
 [[package]]
 name = "lock_api"
@@ -181,6 +411,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
+name = "parking_lot"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1bf18183cf54e8d6059647fc3063646a1801cf30896933ec2311622cc4b9a27"
+dependencies = [
+ "lock_api",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "redox_syscall",
+ "smallvec",
+ "windows-targets",
+]
+
+[[package]]
+name = "petgraph"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
+dependencies = [
+ "fixedbitset",
+ "indexmap",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.86"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -219,6 +482,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_syscall"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b6dfecf2c74bce2466cabf93f6664d6998a69eb21e39f4207930065b27b771f"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "regex"
 version = "1.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -254,6 +526,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "semver"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61697e0a1c7e512e84a621326239844a24d8207b4669b41bc18b32ea5cbf988b"
+
+[[package]]
 name = "serde"
 version = "1.0.204"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -270,8 +548,20 @@ checksum = "e0cd7e117be63d3c3678776753929474f3b04a43a080c744d6b0ae2a8c28e222"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.72",
 ]
+
+[[package]]
+name = "shlex"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+
+[[package]]
+name = "smallvec"
+version = "1.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "smol_str"
@@ -292,6 +582,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "strsim"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
 name = "swisskit"
 version = "0.0.0"
 dependencies = [
@@ -299,6 +595,17 @@ dependencies = [
  "flume",
  "smol_str",
  "sysinfo",
+]
+
+[[package]]
+name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -328,10 +635,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "thin-vec"
+version = "0.2.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a38c90d48152c236a3ab59271da4f4ae63d678c5d7ad6b7714d7cb9760be5e4b"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
+
+[[package]]
+name = "unicode-width"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
+
+[[package]]
+name = "utf8parse"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "version_check"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wasi"
@@ -361,7 +692,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.72",
  "wasm-bindgen-shared",
 ]
 
@@ -383,7 +714,7 @@ checksum = "afc340c74d9005395cf9dd098506f7f44e38f2b4a21c6aaacf9a105ea5e1e836"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.72",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -431,6 +762,15 @@ name = "windows-core"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
+dependencies = [
+ "windows-targets",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.52.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
 dependencies = [
  "windows-targets",
 ]
@@ -500,25 +840,366 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
+
+[[package]]
+name = "zerocopy"
+version = "0.7.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.7.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.72",
+]
+
+[[package]]
 name = "zo"
 version = "0.0.0"
 dependencies = [
  "swisskit",
+ "zo-driver",
+]
+
+[[package]]
+name = "zo-analyzer"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-hir",
+ "zo-inferencer",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-ast"
+version = "0.0.0"
+dependencies = [
+ "smol_str",
+ "swisskit",
+ "thin-vec",
+ "zo-interner",
  "zo-tokenizer",
- "zo-tokens",
+ "zo-ty",
+]
+
+[[package]]
+name = "zo-builder"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-codegen"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-codegen-llvm",
+ "zo-codegen-py",
+ "zo-codegen-wasm",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-codegen-llvm"
+version = "0.0.0"
+dependencies = [
+ "inkwell",
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-codegen-py"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-codegen-wasm"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-compiler"
+version = "0.0.0"
+dependencies = [
+ "flume",
+ "smol_str",
+ "swisskit",
+ "zo-analyzer",
+ "zo-ast",
+ "zo-builder",
+ "zo-codegen",
+ "zo-interner",
+ "zo-interpreter",
+ "zo-packer",
+ "zo-parser",
+ "zo-reader",
+ "zo-reporter",
+ "zo-session",
+ "zo-tokenizer",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-driver"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "smol_str",
+ "swisskit",
+ "zo-compiler",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-hir"
+version = "0.0.0"
+dependencies = [
+ "smol_str",
+ "swisskit",
+ "thin-vec",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+ "zo-ty",
+]
+
+[[package]]
+name = "zo-inferencer"
+version = "0.0.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "smol_str",
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+ "zo-ty",
+]
+
+[[package]]
+name = "zo-interner"
+version = "0.0.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "smol_str",
+ "swisskit",
+]
+
+[[package]]
+name = "zo-interpreter"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-interpreter-clif",
+ "zo-interpreter-zo",
+ "zo-reporter",
+ "zo-session",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-interpreter-clif"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-interpreter-zo"
+version = "0.0.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "smol_str",
+ "swisskit",
+ "thin-vec",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+ "zo-ty",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-packer"
+version = "0.0.0"
+dependencies = [
+ "petgraph",
+ "rayon",
+ "smol_str",
+ "swisskit",
+ "zo-reader",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-parser"
+version = "0.0.0"
+dependencies = [
+ "smol_str",
+ "swisskit",
+ "thin-vec",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+ "zo-tokenizer",
+ "zo-ty",
+]
+
+[[package]]
+name = "zo-reader"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zo-reporter"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "ariadne",
+ "smol_str",
+ "swisskit",
+ "zo-interner",
+]
+
+[[package]]
+name = "zo-session"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "lazy_static",
+ "smol_str",
+ "swisskit",
+ "zo-interner",
+ "zo-reporter",
 ]
 
 [[package]]
 name = "zo-tokenizer"
 version = "0.0.0"
 dependencies = [
+ "hashbrown 0.14.5",
+ "lazy_static",
+ "smol_str",
  "swisskit",
- "zo-tokens",
+ "thin-vec",
+ "zo-interner",
+ "zo-reader",
+ "zo-reporter",
+ "zo-session",
 ]
 
 [[package]]
-name = "zo-tokens"
+name = "zo-ty"
+version = "0.0.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "smol_str",
+ "swisskit",
+ "thin-vec",
+ "zo-interner",
+ "zo-reporter",
+]
+
+[[package]]
+name = "zo-value"
+version = "0.0.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "lazy_static",
+ "smol_str",
+ "swisskit",
+ "thin-vec",
+ "zo-ast",
+ "zo-interner",
+ "zo-reporter",
+ "zo-session",
+]
+
+[[package]]
+name = "zor"
 version = "0.0.0"
 dependencies = [
  "swisskit",
+ "zor-token",
+ "zor-tokenizer",
+]
+
+[[package]]
+name = "zor-reporter"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "swisskit",
+]
+
+[[package]]
+name = "zor-token"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+]
+
+[[package]]
+name = "zor-tokenizer"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zor-reporter",
+ "zor-token",
 ]

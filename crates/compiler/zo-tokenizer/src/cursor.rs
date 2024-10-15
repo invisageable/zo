@@ -15,7 +15,6 @@
 ///   println!("{ch}");
 /// }
 /// ```
-/// The representation of a cursor.
 #[derive(Debug)]
 pub struct Cursor<'source> {
   /// The position of a cursor within a source file.

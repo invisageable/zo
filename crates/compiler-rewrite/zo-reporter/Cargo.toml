@@ -1,5 +1,5 @@
 [package]
-name = "zo-tokens"
+name = "zor-reporter"
 version.workspace = true
 edition.workspace = true
 
@@ -10,3 +10,4 @@ swisskit = { workspace = true }
 # internal:crates.
 
 # external:crates.
+anyhow = { workspace = true }

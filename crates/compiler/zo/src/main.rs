@@ -1,3 +1,4 @@
+/// The entry point of the `zo` compiler.
 fn main() {
-  println!("zo");
+  zo_driver::driver::main();
 }

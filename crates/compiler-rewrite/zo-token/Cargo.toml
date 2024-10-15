@@ -1,13 +1,12 @@
 [package]
-name = "zo"
+name = "zor-token"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# internal:source.
+# internal:sources.
 swisskit = { workspace = true }
 
 # internal:crates.
-zo-driver = { workspace = true }
 
 # external:crates.
