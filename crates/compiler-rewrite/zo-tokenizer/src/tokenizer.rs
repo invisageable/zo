@@ -4,11 +4,12 @@ use super::state::{Expo, Num, Program, Quoted, Style, Template};
 
 use zor_reporter::Result;
 use zor_token::token::style::AtKeyword;
-use zor_token::token::template::{Attr, TagKind};
+use zor_token::token::template;
+use zor_token::token::template::{Attr, Tag, TagKind};
 use zor_token::token::{program, style, Token, TokenKind};
 
-use swisskit::is;
 use swisskit::span::Span;
+use swisskit::{is, to};
 
 // note(ivs) — this tokenizer tries to tokenize multiple language symbols such
 // as programming, styling and templating symbols. to do it, it owns a mode
@@ -47,14 +48,18 @@ pub struct Tokenizer {
   char_current: char,
   /// A program keywords collection.
   keywords: std::collections::HashMap<&'static str, TokenKind>,
+  /// A current tag.
+  tag_current: Option<Tag>,
   /// A current tag name.
   tag_current_name: String,
+  /// ...
+  tag_last_start_name: Option<String>,
   /// A current tag kind.
   tag_current_kind: TagKind,
   /// A flag to checks if the current tag is a self closing tag.
   tag_current_self_closing: bool,
   /// A current attribute.
-  tag_current_attr: String,
+  tag_current_attr: Attr,
   /// A collection of attributes.
   tag_current_attrs: Vec<Attr>,
   /// A style keywords collection.
@@ -73,10 +78,12 @@ impl Tokenizer {
       reconsume: false,
       char_current: '\0',
       keywords: program::keywords(),
+      tag_current: None,
       tag_current_name: String::with_capacity(0usize),
+      tag_last_start_name: None,
       tag_current_kind: TagKind::Opening,
       tag_current_self_closing: false,
-      tag_current_attr: String::with_capacity(0usize),
+      tag_current_attr: Attr::new(),
       tag_current_attrs: Vec::with_capacity(0usize),
       at_keywords: style::keywords(),
     }
@@ -138,6 +145,81 @@ impl Tokenizer {
     self.char_current = ch;
 
     Some(ch)
+  }
+
+  /// Creates the current tag.
+  fn create_tag(&mut self, kind: TagKind, ch: char) {
+    let mut tag = Tag::new(kind);
+
+    tag.name.push(ch);
+
+    self.tag_current = Some(tag);
+  }
+
+  /// Appends the tag name.
+  fn append_to_tag_name(&mut self, ch: char) {
+    self.tag_current.as_mut().unwrap().name.push(ch);
+  }
+
+  fn have_appropriate_end_tag(&self) -> bool {
+    match (self.tag_last_start_name.as_ref(), self.tag_current.as_ref()) {
+      (Some(last), Some(tag)) => {
+        (tag.kind == TagKind::Closing) && (tag.name == *last)
+      }
+      _ => false,
+    }
+  }
+
+  /// Makes the tag.
+  fn make_tag_current(&mut self) -> TokenKind {
+    self.finish_attribute();
+
+    let tag = self.tag_current.take().unwrap();
+
+    match tag.kind {
+      TagKind::Opening => self.tag_last_start_name = Some(tag.name.clone()),
+      _ => (),
+    };
+
+    TokenKind::Template(template::Template::Tag(tag))
+  }
+
+  /// Creates the current attribute.
+  fn create_attr(&mut self, ch: char) {
+    self.finish_attribute();
+
+    let attr = &mut self.tag_current_attr;
+
+    attr.name.push(ch);
+  }
+
+  /// Finalizes the attribute creation.
+  fn finish_attribute(&mut self) {
+    if self.tag_current_attr.name.len() == 0 {
+      return;
+    }
+
+    let duplicate = {
+      let name = &self.tag_current_attr.name;
+
+      self
+        .tag_current
+        .as_ref()
+        .unwrap()
+        .attrs
+        .iter()
+        .any(|a| a.name == name.to_owned())
+    };
+
+    if duplicate {
+      // add report — duplicate attribute.
+      self.tag_current_attr.clear();
+    } else {
+      let attr = std::mem::replace(&mut self.tag_current_attr, Attr::new());
+
+      self.tag_current.as_mut().unwrap().attrs.push(attr);
+      // self.tag_current_attrs.push(attr);
+    }
   }
 }
 
@@ -453,37 +535,199 @@ impl Tokenizer {
 
           // template-tag-open-state.
           TokenizerState::Template(Template::TagOpen) => match ch {
-            _ => todo!(),
+            '/' => {
+              self.cursor.next();
+
+              self.state = TokenizerState::Template(Template::TagOpenEnd);
+            }
+            _ => match to!(lower_ascii ch) {
+              Some(c) => {
+                self.create_tag(TagKind::Opening, c);
+                self.cursor.next();
+                self.state = TokenizerState::Template(Template::TagName);
+              }
+              None => {
+                // add report.
+                // state to Template::Data.
+                // reconsume.
+                panic!()
+              }
+            },
           },
 
           // template-tag-open-end-state.
           TokenizerState::Template(Template::TagOpenEnd) => match ch {
-            _ => todo!(),
+            _ => match to!(lower_ascii ch) {
+              Some(c) => {
+                self.create_tag(TagKind::Closing, c);
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(Template::TagName);
+              }
+              None => {
+                // add report.
+                // state to Template::BogusComment.
+                panic!();
+              }
+            },
           },
 
           // template-tag-name-state.
           TokenizerState::Template(Template::TagName) => match ch {
-            _ => todo!(),
+            '\t' | '\n' | '\x0C' | ' ' => {
+              self.state =
+                TokenizerState::Template(Template::BeforeAttributeName);
+            }
+            '/' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Template(Template::TagSelfClosingStart);
+            }
+            '>' => {
+              self.cursor.next();
+
+              self.state = TokenizerState::Template(Template::Tag);
+
+              return self.scan(pos);
+            }
+            c => match to!(lower_ascii c) {
+              Some(c) => {
+                self.append_to_tag_name(c);
+                self.cursor.next();
+              }
+              None => {
+                self.append_to_tag_name(ch);
+                self.cursor.next();
+              }
+            },
           },
 
           // template-before-attribute-name-state.
           TokenizerState::Template(Template::BeforeAttributeName) => match ch {
-            _ => todo!(),
+            '\t' | '\n' | '\x0C' | ' ' => {
+              // ignore the character.
+              self.cursor.next();
+            }
+            '/' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Template(Template::TagSelfClosingStart);
+            }
+            '>' => {
+              self.cursor.next();
+
+              self.state = TokenizerState::Template(Template::Tag);
+
+              return self.scan(pos);
+            }
+            c => match to!(lower_ascii c) {
+              Some(c) => {
+                self.create_attr(c);
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(Template::AttributeName);
+              }
+              None => {
+                self.create_attr(ch);
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(Template::AttributeName);
+              }
+            },
           },
 
           // template-attribute-name-state.
           TokenizerState::Template(Template::AttributeName) => match ch {
-            _ => todo!(),
+            '\t' | '\n' | '\x0C' | ' ' => {
+              self.cursor.next();
+              self.finish_attribute();
+
+              self.state =
+                TokenizerState::Template(Template::AfterAttributeName);
+            }
+            '/' => {
+              self.cursor.next();
+              self.finish_attribute();
+
+              self.state =
+                TokenizerState::Template(Template::TagSelfClosingStart);
+            }
+            '=' => {
+              self.cursor.next();
+              self.finish_attribute();
+
+              self.state =
+                TokenizerState::Template(Template::BeforeAttributeValue);
+            }
+            '>' => {
+              self.cursor.next();
+              self.finish_attribute();
+
+              self.state = TokenizerState::Template(Template::Tag);
+
+              return self.scan(pos);
+            }
+            '\0' => panic!(),
+            c => match to!(lower_ascii c) {
+              Some(c) => {
+                self.tag_current_attr.name.push(c);
+                self.cursor.next();
+              }
+              None => {
+                self.tag_current_attr.name.push(ch);
+                self.cursor.next();
+              }
+            },
           },
 
           // template-after-attribute-name-state.
           TokenizerState::Template(Template::AfterAttributeName) => match ch {
-            _ => todo!(),
+            '\t' | '\n' | '\x0C' | ' ' => {
+              self.cursor.next();
+            }
+            '/' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Template(Template::TagSelfClosingStart);
+            }
+            '=' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Template(Template::BeforeAttributeValue);
+            }
+            '>' => {
+              self.cursor.next();
+
+              self.state = TokenizerState::Template(Template::Tag);
+
+              return self.scan(pos);
+            }
+            c => match to!(lower_ascii c) {
+              Some(c) => {
+                self.create_attr(c);
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(Template::AttributeName);
+              }
+              None => {
+                self.create_attr(ch);
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(Template::AttributeName);
+              }
+            },
           },
 
           // template-before-attribute-value-state.
           TokenizerState::Template(Template::BeforeAttributeValue) => {
             match ch {
+              '\t' | '\n' | '\x0C' | ' ' => {
+                self.cursor.next();
+              }
               _ => todo!(),
             }
           }
@@ -563,7 +807,13 @@ impl Tokenizer {
           source.chars().next().unwrap_or_default(),
         )))
       }
-      TokenizerState::Template(Template::TagOpen) => todo!(),
+      TokenizerState::Template(Template::Tag) => {
+        // removes extra character in a string tag.
+        // let source = source.replace("<", "").replace("/", "").replace(">",
+        // "");
+
+        Some(self.make_tag_current())
+      }
 
       TokenizerState::Style(Style::Delim) => {
         Some(TokenKind::Style(token::Style::Delim(
@@ -601,6 +851,7 @@ mod tests {
   #[test]
   fn tokenize_tokens() {
     let source = "return 1 + 2 ;";
+    let source = "::= <a foo></a>";
     let mut tokenizer = Tokenizer::new(source);
     let actual = tokenizer.tokenize().unwrap();
 

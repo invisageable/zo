@@ -7,6 +7,8 @@ pub enum Template {
   Character,
   /// A raw text state.
   RawText,
+  /// A tag state.
+  Tag,
   /// A tag open state.
   TagOpen,
   /// A tag open end state.

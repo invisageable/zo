@@ -1,6 +1,6 @@
 mod tag;
 
-pub use tag::{Attr, Name, Tag, TagKind};
+pub use tag::{Attr, Tag, TagKind};
 
 /// The representation of a template token kind.
 #[derive(Clone, Debug, PartialEq)]

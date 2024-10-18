@@ -4,13 +4,26 @@ pub struct Tag {
   /// A tag kind — see also [`TagKind`].
   pub kind: TagKind,
   /// A tag name — see also [`Name`].
-  pub name: Name,
+  pub name: String,
   /// A self closing tag flag.
   pub self_closing: bool,
   /// A fragment tag flag.
   pub frag: bool,
   /// A list of attributes — see also [`Attr`].
   pub attrs: Vec<Attr>,
+}
+
+impl Tag {
+  /// Creates a new tag.
+  pub fn new(kind: TagKind) -> Self {
+    Self {
+      name: String::with_capacity(0usize),
+      self_closing: false,
+      frag: false,
+      attrs: Vec::with_capacity(0usize),
+      kind,
+    }
+  }
 }
 
 /// The representation of tag kind.
@@ -20,15 +33,6 @@ pub enum TagKind {
   Opening,
   /// A closing tag.
   Closing,
-}
-
-/// The representation of a tag name.
-///
-/// A name must follow the kebab-case naming convention.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Name {
-  /// A custom name.
-  Custom(Custom),
 }
 
 /// The representation of a custom tag name.
@@ -44,9 +48,34 @@ pub enum Custom {
 
 /// The representation of an attribute.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Attr {
+pub struct Attr {
+  pub kind: AttrKind,
+  pub name: String,
+  pub value: Option<String>,
+}
+
+impl Attr {
+  /// Creates a new atribute.
+  pub fn new() -> Self {
+    Self {
+      kind: AttrKind::Static,
+      name: String::with_capacity(0usize),
+      value: None,
+    }
+  }
+
+  /// Clear the attribute.
+  pub fn clear(&mut self) {
+    self.name.truncate(0);
+    self.value = None;
+  }
+}
+
+/// The representation of an attribute kind.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AttrKind {
   /// A static attribute — `foo="bar"`.
-  Static(String, Option<String>),
+  Static,
   /// A dynamic attribute — `foo={bar}`, `{bar}`.
-  Dynamic(String, Option<String>),
+  Dynamic,
 }
