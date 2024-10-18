@@ -68,6 +68,10 @@ macro_rules! is {
     $crate::case::charcase::uppercase::is_uppercase($rhs)
   };
 
+  (delim $rhs:expr) => {
+    $crate::case::charcase::delimcase::is_delim($rhs)
+  };
+
   // strcase
   (camel $rhs:expr) => {
     $crate::case::strcase::camelcase::is_camel_case($rhs)

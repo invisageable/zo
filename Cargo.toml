@@ -52,6 +52,7 @@ zo-wasm = { path = "crates/compiler/zo-wasm", version = "0.0.0" }
 
 # internal:crates:zor.
 zor = { path = "crates/compiler-rewrite/zo", version = "0.0.0" }
+zor-interner = { path = "crates/compiler-rewrite/zo-interner", version = "0.0.0" }
 zor-reporter = { path = "crates/compiler-rewrite/zo-reporter", version = "0.0.0" }
 zor-token = { path = "crates/compiler-rewrite/zo-token", version = "0.0.0" }
 zor-tokenizer = { path = "crates/compiler-rewrite/zo-tokenizer", version = "0.0.0" }

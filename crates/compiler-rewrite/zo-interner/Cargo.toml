@@ -1,13 +1,14 @@
 [package]
-name = "zor-token"
+name = "zor-interner"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# internal:sources.
+# internal:source.
 swisskit = { workspace = true }
 
 # internal:crates.
 
 # external:crates.
-zor-interner = { workspace = true }
+hashbrown = { workspace = true }
+smol_str = { workspace = true }
