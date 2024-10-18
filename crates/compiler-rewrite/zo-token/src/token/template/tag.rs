@@ -51,7 +51,7 @@ pub enum Custom {
 pub struct Attr {
   pub kind: AttrKind,
   pub name: String,
-  pub value: Option<String>,
+  pub value: String,
 }
 
 impl Attr {
@@ -60,14 +60,14 @@ impl Attr {
     Self {
       kind: AttrKind::Static,
       name: String::with_capacity(0usize),
-      value: None,
+      value: String::with_capacity(0usize),
     }
   }
 
   /// Clear the attribute.
   pub fn clear(&mut self) {
-    self.name.truncate(0);
-    self.value = None;
+    self.name.truncate(0usize);
+    self.value.truncate(0usize);
   }
 }
 

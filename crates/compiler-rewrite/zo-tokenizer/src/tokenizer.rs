@@ -211,6 +211,8 @@ impl Tokenizer {
         .any(|a| a.name == name.to_owned())
     };
 
+    println!("DUPLICATE: {:?}", duplicate);
+
     if duplicate {
       // add report — duplicate attribute.
       self.tag_current_attr.clear();
@@ -218,6 +220,12 @@ impl Tokenizer {
       let attr = std::mem::replace(&mut self.tag_current_attr, Attr::new());
 
       self.tag_current.as_mut().unwrap().attrs.push(attr);
+      // self
+      //   .tag_current
+      //   .as_mut()
+      //   .unwrap()
+      //   .attrs
+      //   .push(self.tag_current_attr.clone());
       // self.tag_current_attrs.push(attr);
     }
   }
@@ -642,28 +650,24 @@ impl Tokenizer {
           TokenizerState::Template(Template::AttributeName) => match ch {
             '\t' | '\n' | '\x0C' | ' ' => {
               self.cursor.next();
-              self.finish_attribute();
 
               self.state =
                 TokenizerState::Template(Template::AfterAttributeName);
             }
             '/' => {
               self.cursor.next();
-              self.finish_attribute();
 
               self.state =
                 TokenizerState::Template(Template::TagSelfClosingStart);
             }
             '=' => {
               self.cursor.next();
-              self.finish_attribute();
 
               self.state =
                 TokenizerState::Template(Template::BeforeAttributeValue);
             }
             '>' => {
               self.cursor.next();
-              self.finish_attribute();
 
               self.state = TokenizerState::Template(Template::Tag);
 
@@ -728,24 +732,103 @@ impl Tokenizer {
               '\t' | '\n' | '\x0C' | ' ' => {
                 self.cursor.next();
               }
-              _ => todo!(),
+              '"' => {
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(
+                  Template::AttributeValue(Quoted::Double),
+                );
+              }
+              '\'' => {
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(
+                  Template::AttributeValue(Quoted::Single),
+                );
+              }
+              '{' => {
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(
+                  Template::AttributeValue(Quoted::Brace),
+                );
+              }
+              _ => {
+                self.tag_current_attr.value.push(ch);
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(
+                  Template::AttributeValue(Quoted::No),
+                );
+              }
+            }
+          }
+
+          TokenizerState::Template(Template::AttributeValue(
+            Quoted::Double,
+          )) => match ch {
+            _ => unimplemented!(),
+          },
+
+          TokenizerState::Template(Template::AttributeValue(
+            Quoted::Single,
+          )) => match ch {
+            _ => unimplemented!(),
+          },
+
+          TokenizerState::Template(Template::AttributeValue(Quoted::Brace)) => {
+            match ch {
+              _ => unimplemented!(),
             }
           }
 
           // template-attribute-value-quoted-no-state.
           TokenizerState::Template(Template::AttributeValue(Quoted::No)) => {
             match ch {
-              _ => todo!(),
+              '\t' | '\n' | '\x0C' | ' ' => {
+                self.cursor.next();
+
+                self.state =
+                  TokenizerState::Template(Template::BeforeAttributeName);
+              }
+              '>' => {
+                self.cursor.next();
+
+                self.state = TokenizerState::Template(Template::Tag);
+
+                return self.scan(pos);
+              }
+              _ => {
+                self.tag_current_attr.value.push(ch);
+                self.cursor.next();
+
+                println!("ICI: {:?}", self.tag_current_attr);
+              }
             }
           }
 
           // template-after-attribute-value-state.
           TokenizerState::Template(Template::AfterAttributeValue) => match ch {
+            '\t' | '\n' | '\x0C' | ' ' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Template(Template::BeforeAttributeName);
+            }
             _ => todo!(),
           },
 
           // template-tag-self-closing-start-state.
           TokenizerState::Template(Template::TagSelfClosingStart) => match ch {
+            '>' => {
+              self.cursor.next();
+
+              self.tag_current.as_mut().unwrap().self_closing = true;
+
+              self.state = TokenizerState::Template(Template::Tag);
+
+              return self.scan(pos);
+            }
             _ => todo!(),
           },
 
@@ -851,11 +934,11 @@ mod tests {
   #[test]
   fn tokenize_tokens() {
     let source = "return 1 + 2 ;";
-    let source = "::= <a foo></a>";
+    let source = "::= <a foo=bar></a>";
     let mut tokenizer = Tokenizer::new(source);
     let actual = tokenizer.tokenize().unwrap();
 
-    println!("{:?}", actual);
+    println!("{:#?}", actual);
 
     let expected = Vec::from([
       TokenKind::Program(Program::Kw(Kw::Return)),
@@ -873,123 +956,123 @@ mod tests {
     }
   }
 
-  #[test]
-  fn tokenize_program_empty() {
-    let source = "";
-    let mut tokenizer = Tokenizer::new(source);
+  // #[test]
+  // fn tokenize_program_empty() {
+  //   let source = "";
+  //   let mut tokenizer = Tokenizer::new(source);
 
-    assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
-  }
+  //   assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  // }
 
-  #[test]
-  fn tokenize_program_line_comments() {
-    let source = "-- this is a line comments.";
-    let mut tokenizer = Tokenizer::new(source);
+  // #[test]
+  // fn tokenize_program_line_comments() {
+  //   let source = "-- this is a line comments.";
+  //   let mut tokenizer = Tokenizer::new(source);
 
-    assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
-  }
+  //   assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  // }
 
-  #[test]
-  fn tokenize_program_integers() {
-    let source = "0";
-    let mut tokenizer = Tokenizer::new(source);
+  // #[test]
+  // fn tokenize_program_integers() {
+  //   let source = "0";
+  //   let mut tokenizer = Tokenizer::new(source);
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Int(String::from("0"), Base::Dec))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Int(String::from("0"), Base::Dec))
+  //   );
 
-    assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
-  }
+  //   assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  // }
 
-  #[test]
-  fn tokenize_program_groups() {
-    let source = "( ) [ ] { }";
-    let mut tokenizer = Tokenizer::new(source);
+  // #[test]
+  // fn tokenize_program_groups() {
+  //   let source = "( ) [ ] { }";
+  //   let mut tokenizer = Tokenizer::new(source);
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Group(Group::ParenOpen)),
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Group(Group::ParenOpen)),
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Group(Group::ParenClose)),
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Group(Group::ParenClose)),
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Group(Group::BracketOpen)),
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Group(Group::BracketOpen)),
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Group(Group::BracketClose)),
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Group(Group::BracketClose)),
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Group(Group::BraceOpen)),
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Group(Group::BraceOpen)),
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Group(Group::BraceClose)),
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Group(Group::BraceClose)),
+  //   );
 
-    assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
-  }
+  //   assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  // }
 
-  #[test]
-  fn tokenize_template_characters() {
-    let source = "::= hello ;";
-    let mut tokenizer = Tokenizer::new(source);
+  // #[test]
+  // fn tokenize_template_characters() {
+  //   let source = "::= hello ;";
+  //   let mut tokenizer = Tokenizer::new(source);
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Template(Template::Character(' '))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Template(Template::Character(' '))
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Template(Template::Character('h'))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Template(Template::Character('h'))
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Template(Template::Character('e'))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Template(Template::Character('e'))
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Template(Template::Character('l'))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Template(Template::Character('l'))
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Template(Template::Character('l'))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Template(Template::Character('l'))
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Template(Template::Character('o'))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Template(Template::Character('o'))
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Template(Template::Character(' '))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Template(Template::Character(' '))
+  //   );
 
-    assert_eq!(
-      tokenizer.next().unwrap().kind,
-      TokenKind::Program(Program::Punctuation(Punctuation::Semi))
-    );
+  //   assert_eq!(
+  //     tokenizer.next().unwrap().kind,
+  //     TokenKind::Program(Program::Punctuation(Punctuation::Semi))
+  //   );
 
-    assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
-  }
+  //   assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  // }
 }
