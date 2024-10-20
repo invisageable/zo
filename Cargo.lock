@@ -1176,6 +1176,7 @@ name = "zor"
 version = "0.0.0"
 dependencies = [
  "swisskit",
+ "zor-parser",
  "zor-token",
  "zor-tokenizer",
 ]
@@ -1187,6 +1188,23 @@ dependencies = [
  "hashbrown 0.14.5",
  "smol_str",
  "swisskit",
+]
+
+[[package]]
+name = "zor-node"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+]
+
+[[package]]
+name = "zor-parser"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zor-interner",
+ "zor-node",
+ "zor-tokenizer",
 ]
 
 [[package]]

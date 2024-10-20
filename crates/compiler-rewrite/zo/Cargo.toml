@@ -8,6 +8,7 @@ edition.workspace = true
 swisskit = { workspace = true }
 
 # internal:crates.
+zor-parser = { workspace = true }
 zor-token = { workspace = true }
 zor-tokenizer = { workspace = true }
 
