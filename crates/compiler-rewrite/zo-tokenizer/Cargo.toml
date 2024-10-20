@@ -10,6 +10,7 @@ swisskit = { workspace = true }
 # internal:crates.
 zor-interner = { workspace = true }
 zor-reporter = { workspace = true }
+zor-session = { workspace = true }
 zor-token = { workspace = true }
 
 # external:crates.

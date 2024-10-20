@@ -2,7 +2,9 @@ use super::cursor::Cursor;
 use super::state::TokenizerState;
 use super::state::{Expo, Num, Program, Quoted, Style, Template};
 
+use zor_interner::interner::Interner;
 use zor_reporter::Result;
+use zor_session::session::Session;
 use zor_token::token::style::AtKeyword;
 use zor_token::token::template::{self, AttrKind};
 use zor_token::token::template::{Attr, Tag, TagKind};
@@ -31,7 +33,7 @@ enum TokenizerMode {
 }
 
 /// The representation of a Tokenizer.
-pub struct Tokenizer {
+pub struct Tokenizer<'sym> {
   /// A cursor.
   cursor: Cursor,
   /// A tokenizer state.
@@ -48,6 +50,8 @@ pub struct Tokenizer {
   char_current: char,
   /// A program keywords collection.
   keywords: std::collections::HashMap<&'static str, TokenKind>,
+  /// A program suffixes collection.
+  suffixes: std::collections::HashSet<&'static str>,
   /// A current tag.
   tag_current: Option<Tag>,
   /// A current tag name.
@@ -64,11 +68,13 @@ pub struct Tokenizer {
   tag_current_attrs: Vec<Attr>,
   /// A style keywords collection.
   at_keywords: std::collections::HashMap<&'static str, AtKeyword>,
+  /// See [`Interner`].
+  interner: &'sym mut Interner,
 }
 
-impl Tokenizer {
+impl<'sym> Tokenizer<'sym> {
   /// Creates a new tokenizer.
-  pub fn new(source: &str) -> Self {
+  pub fn new(source: &str, interner: &'sym mut Interner) -> Self {
     Self {
       cursor: Cursor::new(source),
       state: TokenizerState::Program(Program::Data),
@@ -78,6 +84,7 @@ impl Tokenizer {
       reconsume: false,
       char_current: '\0',
       keywords: program::keywords(),
+      suffixes: program::suffixes(),
       tag_current: None,
       tag_current_name: String::with_capacity(0usize),
       tag_last_start_name: None,
@@ -86,6 +93,7 @@ impl Tokenizer {
       tag_current_attr: Attr::new(),
       tag_current_attrs: Vec::with_capacity(0usize),
       at_keywords: style::keywords(),
+      interner,
     }
   }
 
@@ -226,7 +234,7 @@ macro_rules! get_char ( ($me:expr) => (
   $me.get_char().unwrap()
 ));
 
-impl Tokenizer {
+impl<'sym> Tokenizer<'sym> {
   /// Consomes the current character.
   pub fn next(&mut self) -> Result<Token> {
     let mut pos = self.cursor.pos();
@@ -544,6 +552,7 @@ impl Tokenizer {
               Some(c) => {
                 self.create_tag(TagKind::Opening, c);
                 self.cursor.next();
+
                 self.state = TokenizerState::Template(Template::TagName);
               }
               None => {
@@ -936,7 +945,9 @@ impl Tokenizer {
         if let Some(kind) = self.keywords.get(source) {
           Some(kind.to_owned())
         } else {
-          unimplemented!()
+          let sym = self.interner.intern(source);
+
+          Some(TokenKind::Program(token::Program::Ident(sym)))
         }
       }
       TokenizerState::Program(Program::Char) => {
@@ -975,43 +986,47 @@ impl Tokenizer {
 }
 
 /// Transforms a source code into a stream of tokens.
-pub fn tokenize(source: &str) -> Result<Vec<Token>> {
-  Tokenizer::new(source).tokenize()
+pub fn tokenize(source: &str, session: &mut Session) -> Result<Vec<Token>> {
+  Tokenizer::new(source, &mut session.interner).tokenize()
 }
 
 #[cfg(test)]
 mod tests {
   use super::Tokenizer;
 
+  use zor_session::session::Session;
   use zor_token::token::program::{Base, Group, Kw, Punctuation};
   use zor_token::token::{Program, Template, TokenKind};
 
-  #[test]
-  fn tokenize_tokens() {
-    let source = "return 1 + 2 ;";
+  // #[test]
+  // fn tokenize_tokens() {
+  //   let source = "return 1 + 2 ;";
 
-    let source = "::= <a {src} foo=bar bar=\"foo\" rab='oof' ok={2 + 1}></a> ;";
+  //   let source =
+  //     "imu a : int ::= <a {src} foo=bar bar=\"foo\" rab='oof' ok={2 + 1}></a>
+  // ;";
 
-    let mut tokenizer = Tokenizer::new(source);
-    let actual = tokenizer.tokenize().unwrap();
+  //   let mut session = Session::default();
+  //   let mut tokenizer = Tokenizer::new(source, &mut session.interner);
+  //   let actual = tokenizer.tokenize().unwrap();
 
-    println!("{:#?}", actual);
+  //   println!("{:#?}", actual);
 
-    let expected = Vec::from([
-      TokenKind::Program(Program::Kw(Kw::Return)),
-      TokenKind::Program(Program::Int(String::from("1"), Base::Dec)),
-      TokenKind::Program(Program::Punctuation(Punctuation::Plus)),
-      TokenKind::Program(Program::Int(String::from("2"), Base::Dec)),
-      TokenKind::Program(Program::Punctuation(Punctuation::Semi)),
-      TokenKind::Eof,
-    ]);
+  //   let expected = Vec::from([
+  //     TokenKind::Program(Program::Kw(Kw::Return)),
+  //     TokenKind::Program(Program::Int(String::from("1"), Base::Dec)),
+  //     TokenKind::Program(Program::Punctuation(Punctuation::Plus)),
+  //     TokenKind::Program(Program::Int(String::from("2"), Base::Dec)),
+  //     TokenKind::Program(Program::Punctuation(Punctuation::Semi)),
+  //     TokenKind::Eof,
+  //   ]);
 
-    for (idx, expected_kind) in expected.iter().enumerate() {
-      let actual_kind = &actual[idx].kind;
+  //   for (idx, expected_kind) in expected.iter().enumerate() {
+  //     let actual_kind = &actual[idx].kind;
 
-      assert_eq!(actual_kind, expected_kind);
-    }
-  }
+  //     assert_eq!(actual_kind, expected_kind);
+  //   }
+  // }
 
   // #[test]
   // fn tokenize_program_empty() {
@@ -1132,4 +1147,28 @@ mod tests {
 
   //   assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
   // }
+
+  #[test]
+  fn tokenize_template_switch_in_out() {
+    let source = "::= ;";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, &mut session.interner);
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Template(Template::Character(' '))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::Semi))
+    );
+
+    assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  }
 }

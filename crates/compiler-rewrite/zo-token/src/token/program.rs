@@ -3,12 +3,14 @@ mod group;
 mod int;
 mod kw;
 mod punctuation;
+mod suffix;
 
 pub use comment::Comment;
 pub use group::Group;
 pub use int::Base;
 pub use kw::{keywords, Kw};
 pub use punctuation::Punctuation;
+pub use suffix::suffixes;
 
 use zor_interner::symbol::Symbol;
 

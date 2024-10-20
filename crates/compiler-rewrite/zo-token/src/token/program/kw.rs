@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use super::Program;
 
 use crate::token::TokenKind;
@@ -13,6 +11,7 @@ pub enum Kw {
   As,
   Async,
   Await,
+  Css,
   Else,
   Enum,
   Ext,
@@ -22,6 +21,7 @@ pub enum Kw {
   Fun,
   For,
   If,
+  Is,
   Imu,
   Load,
   Loop,
@@ -52,6 +52,7 @@ impl std::fmt::Display for Kw {
       Self::As => write!(f, "as"),
       Self::Async => write!(f, "async"),
       Self::Await => write!(f, "await"),
+      Self::Css => write!(f, "css"),
       Self::Else => write!(f, "else"),
       Self::Enum => write!(f, "enum"),
       Self::Ext => write!(f, "ext"),
@@ -61,6 +62,7 @@ impl std::fmt::Display for Kw {
       Self::Fun => write!(f, "fun"),
       Self::For => write!(f, "for"),
       Self::If => write!(f, "if"),
+      Self::Is => write!(f, "is"),
       Self::Imu => write!(f, "imu"),
       Self::Load => write!(f, "load"),
       Self::Loop => write!(f, "loop"),
@@ -85,14 +87,15 @@ impl std::fmt::Display for Kw {
 }
 
 /// The keywords dictionnary.
-pub fn keywords() -> HashMap<&'static str, TokenKind> {
-  HashMap::from([
+pub fn keywords() -> std::collections::HashMap<&'static str, TokenKind> {
+  std::collections::HashMap::from([
     ("abstract", TokenKind::Program(Program::Kw(Kw::Abstract))),
     ("and", TokenKind::Program(Program::Kw(Kw::And))),
     ("apply", TokenKind::Program(Program::Kw(Kw::Apply))),
     ("as", TokenKind::Program(Program::Kw(Kw::As))),
     ("async", TokenKind::Program(Program::Kw(Kw::Async))),
     ("await", TokenKind::Program(Program::Kw(Kw::Await))),
+    ("css", TokenKind::Program(Program::Kw(Kw::Css))),
     ("else", TokenKind::Program(Program::Kw(Kw::Else))),
     ("enum", TokenKind::Program(Program::Kw(Kw::Enum))),
     ("ext", TokenKind::Program(Program::Kw(Kw::Ext))),
@@ -102,6 +105,7 @@ pub fn keywords() -> HashMap<&'static str, TokenKind> {
     ("fun", TokenKind::Program(Program::Kw(Kw::Fun))),
     ("for", TokenKind::Program(Program::Kw(Kw::For))),
     ("if", TokenKind::Program(Program::Kw(Kw::If))),
+    ("is", TokenKind::Program(Program::Kw(Kw::Is))),
     ("imu", TokenKind::Program(Program::Kw(Kw::Imu))),
     ("load", TokenKind::Program(Program::Kw(Kw::Load))),
     ("loop", TokenKind::Program(Program::Kw(Kw::Loop))),
