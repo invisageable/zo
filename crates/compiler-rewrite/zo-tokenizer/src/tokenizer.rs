@@ -4,7 +4,7 @@ use super::state::{Expo, Num, Program, Quoted, Style, Template};
 
 use zor_reporter::Result;
 use zor_token::token::style::AtKeyword;
-use zor_token::token::template;
+use zor_token::token::template::{self, AttrKind};
 use zor_token::token::template::{Attr, Tag, TagKind};
 use zor_token::token::{program, style, Token, TokenKind};
 
@@ -211,8 +211,6 @@ impl Tokenizer {
         .any(|a| a.name == name.to_owned())
     };
 
-    println!("DUPLICATE: {:?}", duplicate);
-
     if duplicate {
       // add report — duplicate attribute.
       self.tag_current_attr.clear();
@@ -220,13 +218,6 @@ impl Tokenizer {
       let attr = std::mem::replace(&mut self.tag_current_attr, Attr::new());
 
       self.tag_current.as_mut().unwrap().attrs.push(attr);
-      // self
-      //   .tag_current
-      //   .as_mut()
-      //   .unwrap()
-      //   .attrs
-      //   .push(self.tag_current_attr.clone());
-      // self.tag_current_attrs.push(attr);
     }
   }
 }
@@ -239,6 +230,7 @@ impl Tokenizer {
   /// Consomes the current character.
   pub fn next(&mut self) -> Result<Token> {
     let mut pos = self.cursor.pos();
+    let mut dynamic = false;
 
     while let Some(ch) = self.get_char() {
       match self.mode {
@@ -614,7 +606,6 @@ impl Tokenizer {
           // template-before-attribute-name-state.
           TokenizerState::Template(Template::BeforeAttributeName) => match ch {
             '\t' | '\n' | '\x0C' | ' ' => {
-              // ignore the character.
               self.cursor.next();
             }
             '/' => {
@@ -629,6 +620,17 @@ impl Tokenizer {
               self.state = TokenizerState::Template(Template::Tag);
 
               return self.scan(pos);
+            }
+            '{' => {
+              self.cursor.next();
+
+              dynamic = true;
+
+              self.tag_current_attr.kind = AttrKind::Dynamic;
+
+              self.state = TokenizerState::Template(Template::AttributeValue(
+                Quoted::Brace,
+              ));
             }
             c => match to!(lower_ascii c) {
               Some(c) => {
@@ -749,6 +751,8 @@ impl Tokenizer {
               '{' => {
                 self.cursor.next();
 
+                self.tag_current_attr.kind = AttrKind::Dynamic;
+
                 self.state = TokenizerState::Template(
                   Template::AttributeValue(Quoted::Brace),
                 );
@@ -764,21 +768,57 @@ impl Tokenizer {
             }
           }
 
+          // template-attribute-value-quoted-double-state.
           TokenizerState::Template(Template::AttributeValue(
             Quoted::Double,
           )) => match ch {
-            _ => unimplemented!(),
+            '"' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Template(Template::AfterAttributeValue);
+            }
+            _ => {
+              self.tag_current_attr.value.push(ch);
+              self.cursor.next();
+            }
           },
 
+          // template-attribute-value-quoted-single-state.
           TokenizerState::Template(Template::AttributeValue(
             Quoted::Single,
           )) => match ch {
-            _ => unimplemented!(),
+            '\'' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Template(Template::AfterAttributeValue);
+            }
+            _ => {
+              self.tag_current_attr.value.push(ch);
+              self.cursor.next();
+            }
           },
 
+          // template-attribute-value-quoted-brace-state.
           TokenizerState::Template(Template::AttributeValue(Quoted::Brace)) => {
             match ch {
-              _ => unimplemented!(),
+              '}' => {
+                self.cursor.next();
+
+                dynamic = false;
+
+                self.state =
+                  TokenizerState::Template(Template::AfterAttributeValue);
+              }
+              _ => {
+                if dynamic {
+                  self.tag_current_attr.name.push(ch);
+                }
+
+                self.tag_current_attr.value.push(ch);
+                self.cursor.next();
+              }
             }
           }
 
@@ -801,8 +841,6 @@ impl Tokenizer {
               _ => {
                 self.tag_current_attr.value.push(ch);
                 self.cursor.next();
-
-                println!("ICI: {:?}", self.tag_current_attr);
               }
             }
           }
@@ -815,7 +853,25 @@ impl Tokenizer {
               self.state =
                 TokenizerState::Template(Template::BeforeAttributeName);
             }
-            _ => todo!(),
+            '/' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Template(Template::TagSelfClosingStart);
+            }
+            '>' => {
+              self.cursor.next();
+
+              self.state = TokenizerState::Template(Template::Tag);
+
+              return self.scan(pos);
+            }
+            _ => {
+              // add report error.
+              // reconsume.
+              // state to BeforeAttributeName.
+              panic!();
+            }
           },
 
           // template-tag-self-closing-start-state.
@@ -829,7 +885,12 @@ impl Tokenizer {
 
               return self.scan(pos);
             }
-            _ => todo!(),
+            _ => {
+              // add report error.
+              // reconsume.
+              // state to BeforeAttributeName.
+              panic!();
+            }
           },
 
           // template-state-unimplemented-yet.
@@ -890,13 +951,7 @@ impl Tokenizer {
           source.chars().next().unwrap_or_default(),
         )))
       }
-      TokenizerState::Template(Template::Tag) => {
-        // removes extra character in a string tag.
-        // let source = source.replace("<", "").replace("/", "").replace(">",
-        // "");
-
-        Some(self.make_tag_current())
-      }
+      TokenizerState::Template(Template::Tag) => Some(self.make_tag_current()),
 
       TokenizerState::Style(Style::Delim) => {
         Some(TokenKind::Style(token::Style::Delim(
@@ -934,7 +989,9 @@ mod tests {
   #[test]
   fn tokenize_tokens() {
     let source = "return 1 + 2 ;";
-    let source = "::= <a foo=bar></a>";
+
+    let source = "::= <a {src} foo=bar bar=\"foo\" rab='oof' ok={2 + 1}></a> ;";
+
     let mut tokenizer = Tokenizer::new(source);
     let actual = tokenizer.tokenize().unwrap();
 
