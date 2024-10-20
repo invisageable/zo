@@ -1,0 +1,15 @@
+[package]
+name = "zor-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:source.
+swisskit = { workspace = true }
+
+# internal:crates.
+zor-interner = { workspace = true }
+zor-node = { workspace = true }
+zor-tokenizer = { workspace = true }
+
+# external:crates.
