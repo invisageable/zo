@@ -1198,6 +1198,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "zor-session"
+version = "0.0.0"
+dependencies = [
+ "swisskit",
+ "zor-interner",
+ "zor-reporter",
+]
+
+[[package]]
 name = "zor-token"
 version = "0.0.0"
 dependencies = [
@@ -1212,5 +1221,6 @@ dependencies = [
  "swisskit",
  "zor-interner",
  "zor-reporter",
+ "zor-session",
  "zor-token",
 ]
