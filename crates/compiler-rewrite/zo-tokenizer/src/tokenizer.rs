@@ -5,7 +5,6 @@ use super::state::{Expo, Num, Program, Quoted, Style, Template};
 use zor_interner::interner::Interner;
 use zor_reporter::Result;
 use zor_session::session::Session;
-use zor_token::token::style::AtKeyword;
 use zor_token::token::template::{self, AttrKind};
 use zor_token::token::template::{Attr, Tag, TagKind};
 use zor_token::token::{program, style, Token, TokenKind};
@@ -33,66 +32,73 @@ enum TokenizerMode {
 }
 
 /// The representation of a Tokenizer.
-pub struct Tokenizer<'sym> {
+pub struct Tokenizer<'source> {
   /// A cursor.
   cursor: Cursor,
   /// A tokenizer state.
   state: TokenizerState,
   /// A tokenizer mode.
   mode: TokenizerMode,
-  /// An exponent significand.
-  expo_sign: i8,
-  /// An integer base.
-  int_base: program::Base,
   /// A flag to check if we have reconsume the current character.
   reconsume: bool,
   /// A current character.
   char_current: char,
+  /// A skip whitespace flag.
+  skip_whitespace: bool,
+  /// A program integer base.
+  int_base: program::Base,
+  /// A program exponent significand.
+  expo_sign: i8,
   /// A program keywords collection.
   keywords: std::collections::HashMap<&'static str, TokenKind>,
   /// A program suffixes collection.
   suffixes: std::collections::HashSet<&'static str>,
-  /// A current tag.
+  /// A style keywords collection.
+  at_keywords: std::collections::HashMap<&'static str, TokenKind>,
+  /// A template current tag.
   tag_current: Option<Tag>,
-  /// A current tag name.
+  /// A template current tag name.
   tag_current_name: String,
-  /// ...
+  /// A template last opening tag name.
   tag_last_start_name: Option<String>,
-  /// A current tag kind.
+  /// A template current tag kind.
   tag_current_kind: TagKind,
   /// A flag to checks if the current tag is a self closing tag.
   tag_current_self_closing: bool,
-  /// A current attribute.
-  tag_current_attr: Attr,
-  /// A collection of attributes.
-  tag_current_attrs: Vec<Attr>,
-  /// A style keywords collection.
-  at_keywords: std::collections::HashMap<&'static str, AtKeyword>,
+  /// A template current attribute.
+  attr_current: Attr,
+  /// A template collection of attributes.
+  attrs_current: Vec<Attr>,
   /// See [`Interner`].
-  interner: &'sym mut Interner,
+  interner: &'source mut Interner,
 }
 
-impl<'sym> Tokenizer<'sym> {
+impl<'source> Tokenizer<'source> {
   /// Creates a new tokenizer.
-  pub fn new(source: &str, interner: &'sym mut Interner) -> Self {
+  pub fn new(
+    source: &str,
+    skip_whitespace: bool,
+    interner: &'source mut Interner,
+  ) -> Self {
     Self {
       cursor: Cursor::new(source),
       state: TokenizerState::Program(Program::Data),
       mode: TokenizerMode::Program,
-      expo_sign: 1i8,
-      int_base: program::Base::Dec,
       reconsume: false,
       char_current: '\0',
+      skip_whitespace,
+      int_base: program::Base::Dec,
+      expo_sign: 1i8,
       keywords: program::keywords(),
       suffixes: program::suffixes(),
+      at_keywords: style::keywords(),
       tag_current: None,
       tag_current_name: String::with_capacity(0usize),
       tag_last_start_name: None,
       tag_current_kind: TagKind::Opening,
       tag_current_self_closing: false,
-      tag_current_attr: Attr::new(),
-      tag_current_attrs: Vec::with_capacity(0usize),
-      at_keywords: style::keywords(),
+      attr_current: Attr::new(),
+      attrs_current: Vec::with_capacity(0usize),
       interner,
     }
   }
@@ -196,19 +202,19 @@ impl<'sym> Tokenizer<'sym> {
   fn create_attr(&mut self, ch: char) {
     self.finish_attribute();
 
-    let attr = &mut self.tag_current_attr;
+    let attr = &mut self.attr_current;
 
     attr.name.push(ch);
   }
 
   /// Finalizes the attribute creation.
   fn finish_attribute(&mut self) {
-    if self.tag_current_attr.name.len() == 0 {
+    if self.attr_current.name.len() == 0 {
       return;
     }
 
     let duplicate = {
-      let name = &self.tag_current_attr.name;
+      let name = &self.attr_current.name;
 
       self
         .tag_current
@@ -221,9 +227,9 @@ impl<'sym> Tokenizer<'sym> {
 
     if duplicate {
       // add report — duplicate attribute.
-      self.tag_current_attr.clear();
+      self.attr_current.clear();
     } else {
-      let attr = std::mem::replace(&mut self.tag_current_attr, Attr::new());
+      let attr = std::mem::replace(&mut self.attr_current, Attr::new());
 
       self.tag_current.as_mut().unwrap().attrs.push(attr);
     }
@@ -234,7 +240,7 @@ macro_rules! get_char ( ($me:expr) => (
   $me.get_char().unwrap()
 ));
 
-impl<'sym> Tokenizer<'sym> {
+impl<'source> Tokenizer<'source> {
   /// Consomes the current character.
   pub fn next(&mut self) -> Result<Token> {
     let mut pos = self.cursor.pos();
@@ -265,11 +271,16 @@ impl<'sym> Tokenizer<'sym> {
               c if is!(ident_start c) => {
                 self.state = TokenizerState::Program(Program::Ident);
               }
+              c if is!(quote c) => {
+                self.state = TokenizerState::Program(Program::Quote);
+              }
               '$' => {
                 self.cursor.next();
                 self.switch(TokenizerMode::Style);
 
-                self.state = TokenizerState::Style(Style::Data);
+                self.state = TokenizerState::Program(Program::Ident);
+
+                return self.scan(pos);
               }
               _ => self.state = TokenizerState::Program(Program::Unknown),
             }
@@ -324,27 +335,49 @@ impl<'sym> Tokenizer<'sym> {
 
               self.state = TokenizerState::Program(Program::Num(Num::Float));
             }
-            '#' => todo!(),
-            'b' => todo!(),
-            'o' => todo!(),
-            'x' => todo!(),
-            'e' | 'E' => todo!(),
+            'e' | 'E' => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Program(Program::Num(Num::Expo(Expo::E)));
+            }
             _ => return self.scan(pos),
           },
 
           // program-num-bin-state.
           TokenizerState::Program(Program::Num(Num::Bin)) => match ch {
-            _ => todo!(),
+            c if is!(number_bin c) || is!(underscore c) => {
+              self.cursor.next();
+            }
+            _ => {
+              self.state = TokenizerState::Program(Program::Num(Num::Int));
+
+              return self.scan(pos);
+            }
           },
 
           // program-num-oct-state.
           TokenizerState::Program(Program::Num(Num::Oct)) => match ch {
-            _ => todo!(),
+            c if is!(number_oct c) || is!(underscore c) => {
+              self.cursor.next();
+            }
+            _ => {
+              self.state = TokenizerState::Program(Program::Num(Num::Int));
+
+              return self.scan(pos);
+            }
           },
 
           // program-num-hex-state.
           TokenizerState::Program(Program::Num(Num::Hex)) => match ch {
-            _ => todo!(),
+            c if is!(number_hex c) || is!(underscore c) => {
+              self.cursor.next();
+            }
+            _ => {
+              self.state = TokenizerState::Program(Program::Num(Num::Hex));
+
+              return self.scan(pos);
+            }
           },
 
           // program-num-float-state.
@@ -358,20 +391,68 @@ impl<'sym> Tokenizer<'sym> {
           // program-num-expo-e-state.
           TokenizerState::Program(Program::Num(Num::Expo(Expo::E))) => match ch
           {
-            _ => todo!(),
+            '+' => {
+              self.cursor.next();
+
+              self.expo_sign = 1i8;
+
+              self.state =
+                TokenizerState::Program(Program::Num(Num::Expo(Expo::Sign)));
+            }
+            '-' => {
+              self.cursor.next();
+
+              self.expo_sign = -1i8;
+
+              self.state =
+                TokenizerState::Program(Program::Num(Num::Expo(Expo::Sign)));
+            }
+            c if is!(number c) => {
+              self.cursor.next();
+
+              self.state =
+                TokenizerState::Program(Program::Num(Num::Expo(Expo::Digits)));
+            }
+            _ => {
+              // todo(ivs) — add a report error message.
+              // moves the cursor to the next character.
+              panic!()
+            }
           },
 
           // program-num-expo-sign-state.
           TokenizerState::Program(Program::Num(Num::Expo(Expo::Sign))) => {
             match ch {
-              _ => todo!(),
+              c if is!(number c) => {
+                self.cursor.next();
+
+                self.state = TokenizerState::Program(Program::Num(Num::Expo(
+                  Expo::Digits,
+                )));
+              }
+              _ => {
+                // todo(ivs) — add a report error message.
+                // moves the cursor to the next character.
+                panic!()
+              }
             }
           }
 
           // program-num-expo-digits-state.
           TokenizerState::Program(Program::Num(Num::Expo(Expo::Digits))) => {
             match ch {
-              _ => todo!(),
+              c if is!(number c) => {
+                self.cursor.next();
+
+                self.state = TokenizerState::Program(Program::Num(Num::Expo(
+                  Expo::Digits,
+                )));
+              }
+              _ => {
+                self.state = TokenizerState::Program(Program::Num(Num::Float));
+
+                return self.scan(pos);
+              }
             }
           }
 
@@ -449,9 +530,36 @@ impl<'sym> Tokenizer<'sym> {
 
           // program-ident-state.
           TokenizerState::Program(Program::Ident) => match ch {
-            'b' => todo!(),
-            'o' => todo!(),
-            'x' => todo!(),
+            'b' => {
+              if self.cursor.front() == '#' {
+                self.int_base = program::Base::Bin;
+                self.cursor.next();
+
+                self.state = TokenizerState::Program(Program::Num(Num::Bin));
+              } else {
+                self.cursor.next();
+              }
+            }
+            'o' => {
+              if self.cursor.front() == '#' {
+                self.int_base = program::Base::Oct;
+                self.cursor.next();
+
+                self.state = TokenizerState::Program(Program::Num(Num::Oct));
+              } else {
+                self.cursor.next();
+              }
+            }
+            'x' => {
+              if self.cursor.front() == '#' {
+                self.int_base = program::Base::Hex;
+                self.cursor.next();
+
+                self.state = TokenizerState::Program(Program::Num(Num::Hex));
+              } else {
+                self.cursor.next();
+              }
+            }
             c if is!(ident_continue c) => {
               self.cursor.next();
             }
@@ -489,11 +597,23 @@ impl<'sym> Tokenizer<'sym> {
             pos = self.cursor.pos();
 
             match ch {
+              c if is!(space c) => self.consume_whitespace(),
               c if is!(quote c) => {
                 self.state = TokenizerState::Style(Style::Quote);
               }
               c if is!(delim c) => {
                 self.state = TokenizerState::Style(Style::Delim);
+              }
+              c if is!(group c) => {
+                self.state = TokenizerState::Style(Style::Group);
+              }
+              c if is!(ident_start c) => {
+                self.state = TokenizerState::Style(Style::Ident);
+              }
+              ';' => {
+                self.switch(TokenizerMode::Program);
+
+                self.state = TokenizerState::Program(Program::Punctuation);
               }
               _ => todo!(),
             }
@@ -504,6 +624,21 @@ impl<'sym> Tokenizer<'sym> {
             c if is!(quote_double c) | is!(quote_single c) => todo!(),
             _ => todo!(),
           },
+
+          // style-ident-state.
+          TokenizerState::Style(Style::Ident) => match ch {
+            c if is!(ident_continue c) => {
+              self.cursor.next();
+            }
+            _ => return self.scan(pos),
+          },
+
+          // style-group-state.
+          TokenizerState::Style(Style::Group) => {
+            self.cursor.next();
+
+            return self.scan(pos);
+          }
 
           // style-state-unimplemented-yet.
           _ => panic!("State::Style = {:?}", self.state),
@@ -516,15 +651,20 @@ impl<'sym> Tokenizer<'sym> {
             pos = self.cursor.pos();
 
             match ch {
-              ';' => {
-                self.switch(TokenizerMode::Program);
+              '{' => {
+                self.cursor.next();
 
-                self.state = TokenizerState::Program(Program::Punctuation);
+                self.state = TokenizerState::Template(Template::Expr);
               }
               '<' => {
                 self.cursor.next();
 
                 self.state = TokenizerState::Template(Template::TagOpen);
+              }
+              ';' => {
+                self.switch(TokenizerMode::Program);
+
+                self.state = TokenizerState::Program(Program::Punctuation);
               }
               _ => {
                 self.cursor.next();
@@ -537,12 +677,29 @@ impl<'sym> Tokenizer<'sym> {
           }
 
           // template-raw-text-state.
+          TokenizerState::Template(Template::Expr) => match ch {
+            '}' => {
+              self.cursor.next();
+
+              return self.scan(pos);
+            }
+            _ => {
+              self.cursor.next();
+            }
+          },
+
+          // template-raw-text-state.
           TokenizerState::Template(Template::RawText) => match ch {
             _ => todo!(),
           },
 
           // template-tag-open-state.
           TokenizerState::Template(Template::TagOpen) => match ch {
+            ':' => {
+              self.cursor.next();
+
+              self.state = TokenizerState::Template(Template::Directive);
+            }
             '/' => {
               self.cursor.next();
 
@@ -562,6 +719,14 @@ impl<'sym> Tokenizer<'sym> {
                 panic!()
               }
             },
+          },
+
+          // template-directive-state.
+          TokenizerState::Template(Template::Directive) => match ch {
+            c if is!(ident c) => {
+              self.cursor.next();
+            }
+            _ => return self.scan(pos),
           },
 
           // template-tag-open-end-state.
@@ -635,7 +800,7 @@ impl<'sym> Tokenizer<'sym> {
 
               dynamic = true;
 
-              self.tag_current_attr.kind = AttrKind::Dynamic;
+              self.attr_current.kind = AttrKind::Dynamic;
 
               self.state = TokenizerState::Template(Template::AttributeValue(
                 Quoted::Brace,
@@ -687,11 +852,11 @@ impl<'sym> Tokenizer<'sym> {
             '\0' => panic!(),
             c => match to!(lower_ascii c) {
               Some(c) => {
-                self.tag_current_attr.name.push(c);
+                self.attr_current.name.push(c);
                 self.cursor.next();
               }
               None => {
-                self.tag_current_attr.name.push(ch);
+                self.attr_current.name.push(ch);
                 self.cursor.next();
               }
             },
@@ -760,14 +925,14 @@ impl<'sym> Tokenizer<'sym> {
               '{' => {
                 self.cursor.next();
 
-                self.tag_current_attr.kind = AttrKind::Dynamic;
+                self.attr_current.kind = AttrKind::Dynamic;
 
                 self.state = TokenizerState::Template(
                   Template::AttributeValue(Quoted::Brace),
                 );
               }
               _ => {
-                self.tag_current_attr.value.push(ch);
+                self.attr_current.value.push(ch);
                 self.cursor.next();
 
                 self.state = TokenizerState::Template(
@@ -788,7 +953,7 @@ impl<'sym> Tokenizer<'sym> {
                 TokenizerState::Template(Template::AfterAttributeValue);
             }
             _ => {
-              self.tag_current_attr.value.push(ch);
+              self.attr_current.value.push(ch);
               self.cursor.next();
             }
           },
@@ -804,7 +969,7 @@ impl<'sym> Tokenizer<'sym> {
                 TokenizerState::Template(Template::AfterAttributeValue);
             }
             _ => {
-              self.tag_current_attr.value.push(ch);
+              self.attr_current.value.push(ch);
               self.cursor.next();
             }
           },
@@ -822,10 +987,10 @@ impl<'sym> Tokenizer<'sym> {
               }
               _ => {
                 if dynamic {
-                  self.tag_current_attr.name.push(ch);
+                  self.attr_current.name.push(ch);
                 }
 
-                self.tag_current_attr.value.push(ch);
+                self.attr_current.value.push(ch);
                 self.cursor.next();
               }
             }
@@ -848,7 +1013,7 @@ impl<'sym> Tokenizer<'sym> {
                 return self.scan(pos);
               }
               _ => {
-                self.tag_current_attr.value.push(ch);
+                self.attr_current.value.push(ch);
                 self.cursor.next();
               }
             }
@@ -923,8 +1088,26 @@ impl<'sym> Tokenizer<'sym> {
 
     let maybe_kind = match self.state {
       TokenizerState::Program(Program::Num(Num::Int)) => {
+        let mut source = source.replace('_', "");
+
+        if source.contains("b#")
+          || source.contains("o#")
+          || source.contains("x#")
+        {
+          source = source.replace("b#", "").replace("o#", "").replace("x#", "");
+
+          if let Ok(int) = source.parse::<u32>() {
+            match self.int_base {
+              token::program::Base::Bin => source = format!("{int:#b}"),
+              token::program::Base::Oct => source = format!("{int:#o}"),
+              token::program::Base::Hex => source = format!("{int:#x}"),
+              b => panic!("invalid parse base = {b:?}"),
+            }
+          }
+        }
+
         Some(TokenKind::Program(token::Program::Int(
-          source.to_string(),
+          source,
           self.int_base,
         )))
       }
@@ -957,18 +1140,40 @@ impl<'sym> Tokenizer<'sym> {
         todo!()
       }
 
+      TokenizerState::Style(Style::Delim) => {
+        Some(TokenKind::Style(token::Style::Delim(
+          source.chars().next().map(style::Delim::from).unwrap(),
+        )))
+      }
+      TokenizerState::Style(Style::Group) => {
+        Some(TokenKind::Style(token::Style::Group(
+          source.chars().next().map(style::Group::from).unwrap(),
+        )))
+      }
+      TokenizerState::Style(Style::Ident) => {
+        if let Some(kind) = self.at_keywords.get(source) {
+          Some(kind.to_owned())
+        } else {
+          let sym = self.interner.intern(source);
+
+          Some(TokenKind::Style(token::Style::Ident(sym)))
+        }
+      }
+
+      TokenizerState::Template(Template::Expr) => {
+        let source = source.replace("{", "").replace("}", "");
+
+        println!("EXPR: {:?}", source);
+
+        Some(TokenKind::Template(token::Template::Expr(source)))
+      }
+
       TokenizerState::Template(Template::Character) => {
         Some(TokenKind::Template(token::Template::Character(
           source.chars().next().unwrap_or_default(),
         )))
       }
       TokenizerState::Template(Template::Tag) => Some(self.make_tag_current()),
-
-      TokenizerState::Style(Style::Delim) => {
-        Some(TokenKind::Style(token::Style::Delim(
-          source.chars().next().map(style::Delim::from).unwrap(),
-        )))
-      }
 
       _ => None,
     };
@@ -986,47 +1191,49 @@ impl<'sym> Tokenizer<'sym> {
 }
 
 /// Transforms a source code into a stream of tokens.
-pub fn tokenize(source: &str, session: &mut Session) -> Result<Vec<Token>> {
-  Tokenizer::new(source, &mut session.interner).tokenize()
+pub fn tokenize(
+  source: &str,
+  skip_whitespace: bool,
+  session: &mut Session,
+) -> Result<Vec<Token>> {
+  Tokenizer::new(source, skip_whitespace, &mut session.interner).tokenize()
 }
 
 #[cfg(test)]
 mod tests {
   use super::Tokenizer;
 
+  use zor_interner::symbol::Symbol;
   use zor_session::session::Session;
   use zor_token::token::program::{Base, Group, Kw, Punctuation};
-  use zor_token::token::{Program, Template, TokenKind};
+  use zor_token::token::{style, Program, Style, Template, TokenKind};
 
-  // #[test]
-  // fn tokenize_tokens() {
-  //   let source = "return 1 + 2 ;";
+  #[test]
+  fn tokenize_tokens() {
+    let source = "return 1 + 2 ;";
+    let source = "::= <a bar=\"foo\" foo={}></a>;";
 
-  //   let source =
-  //     "imu a : int ::= <a {src} foo=bar bar=\"foo\" rab='oof' ok={2 + 1}></a>
-  // ;";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
+    let actual = tokenizer.tokenize().unwrap();
 
-  //   let mut session = Session::default();
-  //   let mut tokenizer = Tokenizer::new(source, &mut session.interner);
-  //   let actual = tokenizer.tokenize().unwrap();
+    println!("{:#?}", actual);
 
-  //   println!("{:#?}", actual);
+    let expected = Vec::from([
+      TokenKind::Program(Program::Kw(Kw::Return)),
+      TokenKind::Program(Program::Int(String::from("1"), Base::Dec)),
+      TokenKind::Program(Program::Punctuation(Punctuation::Plus)),
+      TokenKind::Program(Program::Int(String::from("2"), Base::Dec)),
+      TokenKind::Program(Program::Punctuation(Punctuation::Semi)),
+      TokenKind::Eof,
+    ]);
 
-  //   let expected = Vec::from([
-  //     TokenKind::Program(Program::Kw(Kw::Return)),
-  //     TokenKind::Program(Program::Int(String::from("1"), Base::Dec)),
-  //     TokenKind::Program(Program::Punctuation(Punctuation::Plus)),
-  //     TokenKind::Program(Program::Int(String::from("2"), Base::Dec)),
-  //     TokenKind::Program(Program::Punctuation(Punctuation::Semi)),
-  //     TokenKind::Eof,
-  //   ]);
+    for (idx, expected_kind) in expected.iter().enumerate() {
+      let actual_kind = &actual[idx].kind;
 
-  //   for (idx, expected_kind) in expected.iter().enumerate() {
-  //     let actual_kind = &actual[idx].kind;
-
-  //     assert_eq!(actual_kind, expected_kind);
-  //   }
-  // }
+      assert_eq!(actual_kind, expected_kind);
+    }
+  }
 
   // #[test]
   // fn tokenize_program_empty() {
@@ -1095,64 +1302,45 @@ mod tests {
   //   assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
   // }
 
-  // #[test]
-  // fn tokenize_template_characters() {
-  //   let source = "::= hello ;";
-  //   let mut tokenizer = Tokenizer::new(source);
+  #[test]
+  fn tokenize_style_declaration() {
+    let source = "$ css {};";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
 
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
-  //   );
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Kw(Kw::Style))
+    );
 
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Template(Template::Character(' '))
-  //   );
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Style(Style::Ident(Symbol::new(0u32)))
+    );
 
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Template(Template::Character('h'))
-  //   );
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Style(Style::Group(style::Group::BraceOpen))
+    );
 
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Template(Template::Character('e'))
-  //   );
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Style(Style::Group(style::Group::BraceClose))
+    );
 
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Template(Template::Character('l'))
-  //   );
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::Semi))
+    );
 
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Template(Template::Character('l'))
-  //   );
-
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Template(Template::Character('o'))
-  //   );
-
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Template(Template::Character(' '))
-  //   );
-
-  //   assert_eq!(
-  //     tokenizer.next().unwrap().kind,
-  //     TokenKind::Program(Program::Punctuation(Punctuation::Semi))
-  //   );
-
-  //   assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
-  // }
+    assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  }
 
   #[test]
-  fn tokenize_template_switch_in_out() {
+  fn tokenize_template_declaration() {
     let source = "::= ;";
     let mut session = Session::default();
-    let mut tokenizer = Tokenizer::new(source, &mut session.interner);
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
 
     assert_eq!(
       tokenizer.next().unwrap().kind,
@@ -1170,5 +1358,131 @@ mod tests {
     );
 
     assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  }
+
+  #[test]
+  fn tokenize_template_characters() {
+    let source = "::= hello ;";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Template(Template::Character(' '))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Template(Template::Character('h'))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Template(Template::Character('e'))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Template(Template::Character('l'))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Template(Template::Character('l'))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Template(Template::Character('o'))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Template(Template::Character(' '))
+    );
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::Semi))
+    );
+
+    assert_eq!(tokenizer.next().unwrap().kind, TokenKind::Eof);
+  }
+
+  #[test]
+  fn tokenize_template_tag() {
+    let mut source = "::= <a></a>";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+    );
+  }
+
+  #[test]
+  fn tokenize_template_tag_with_attribute_name() {
+    let mut source = "::= <a foo></a>";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+    );
+  }
+
+  #[test]
+  fn tokenize_template_tag_with_attribute_name_and_value_double_quoted() {
+    let mut source = "::= <a bar=\"foo\"></a>";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+    );
+  }
+
+  #[test]
+  fn tokenize_template_tag_with_attribute_name_and_value_single_quoted() {
+    let mut source = "::= <a rab='oof'></a>";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+    );
+  }
+
+  #[test]
+  fn tokenize_template_tag_with_attribute_name_and_value_no_quoted() {
+    let mut source = "::= <a oof=rab></a>";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+    );
+  }
+
+  #[test]
+  fn tokenize_template_tag_with_attribute_name_and_dynamic_value() {
+    let mut source = "::= <a {ivs} svi={2 + 1}></a>";
+    let mut session = Session::default();
+    let mut tokenizer = Tokenizer::new(source, true, &mut session.interner);
+
+    assert_eq!(
+      tokenizer.next().unwrap().kind,
+      TokenKind::Program(Program::Punctuation(Punctuation::ColonColonEqual))
+    );
   }
 }

@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use super::Style;
+
+use crate::token::TokenKind;
 
 /// The representation of at keyword.
 #[derive(Clone, Debug, PartialEq)]
@@ -97,26 +99,80 @@ impl std::fmt::Display for AtKeyword {
 }
 
 /// The At keywords dictionnary.
-pub fn keywords() -> HashMap<&'static str, AtKeyword> {
-  HashMap::from([
-    ("@charset", AtKeyword::Charset),
-    ("@color-profile", AtKeyword::ColorProfile),
-    ("@container", AtKeyword::Container),
-    ("@counter-style", AtKeyword::CounterStyle),
-    ("@font-face", AtKeyword::FontFace),
-    ("@font-feature-values", AtKeyword::FontFeatureValues),
-    ("@font-palette-values", AtKeyword::FontPaletteValues),
-    ("@import", AtKeyword::Import),
-    ("@keyframes", AtKeyword::Keyframes),
-    ("@layer", AtKeyword::Layer),
-    ("@media", AtKeyword::Media),
-    ("@namespace", AtKeyword::Namespace),
-    ("@page", AtKeyword::Page),
-    ("@position-try", AtKeyword::PositionTry),
-    ("@property", AtKeyword::Property),
-    ("@scope", AtKeyword::Scope),
-    ("@starting-style", AtKeyword::StartingStyle),
-    ("@supports", AtKeyword::Supports),
-    ("@view-transition", AtKeyword::ViewTransition),
+pub fn keywords() -> std::collections::HashMap<&'static str, TokenKind> {
+  std::collections::HashMap::from([
+    (
+      "@charset",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Charset)),
+    ),
+    (
+      "@color-profile",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::ColorProfile)),
+    ),
+    (
+      "@container",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Container)),
+    ),
+    (
+      "@counter-style",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::CounterStyle)),
+    ),
+    (
+      "@font-face",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::FontFace)),
+    ),
+    (
+      "@font-feature-values",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::FontFeatureValues)),
+    ),
+    (
+      "@font-palette-values",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::FontPaletteValues)),
+    ),
+    (
+      "@import",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Import)),
+    ),
+    (
+      "@keyframes",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Keyframes)),
+    ),
+    (
+      "@layer",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Layer)),
+    ),
+    (
+      "@media",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Media)),
+    ),
+    (
+      "@namespace",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Namespace)),
+    ),
+    ("@page", TokenKind::Style(Style::AtKeyword(AtKeyword::Page))),
+    (
+      "@position-try",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::PositionTry)),
+    ),
+    (
+      "@property",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Property)),
+    ),
+    (
+      "@scope",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Scope)),
+    ),
+    (
+      "@starting-style",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::StartingStyle)),
+    ),
+    (
+      "@supports",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::Supports)),
+    ),
+    (
+      "@view-transition",
+      TokenKind::Style(Style::AtKeyword(AtKeyword::ViewTransition)),
+    ),
   ])
 }

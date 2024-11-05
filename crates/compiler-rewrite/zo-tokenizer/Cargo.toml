@@ -14,3 +14,10 @@ zor-session = { workspace = true }
 zor-token = { workspace = true }
 
 # external:crates.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "tokenize"
+harness = false

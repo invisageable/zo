@@ -3,6 +3,10 @@
 pub enum Template {
   /// A data state.
   Data,
+  /// An expression state.
+  Expr,
+  /// A directive state.
+  Directive,
   /// A character state.
   Character,
   /// A raw text state.

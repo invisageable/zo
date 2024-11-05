@@ -1,7 +1,7 @@
 /// The representation of delimiter tokens.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Delim {
-  /// An dot delimiter — `.`.
+  /// A dot delimiter — `.`.
   Dot,
   /// A comma delimiter — `,`.
   Comma,

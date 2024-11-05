@@ -37,6 +37,8 @@ pub enum TagKind {
 
 /// The representation of a custom tag name.
 ///
+/// #### note.
+///
 /// A name must follow the kebab-case naming convention.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Custom {
@@ -74,7 +76,7 @@ impl Attr {
 /// The representation of an attribute kind.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AttrKind {
-  /// A static attribute — `foo="bar"`.
+  /// A static attribute — `foo=bar`, `foo="bar"`, `foo='bar'`.
   Static,
   /// A dynamic attribute — `foo={bar}`, `{bar}`.
   Dynamic,

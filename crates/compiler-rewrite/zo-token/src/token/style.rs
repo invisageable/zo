@@ -14,9 +14,11 @@ pub use punctuation::Punctuation;
 
 use zor_interner::symbol::Symbol;
 
+// https://www.w3.org/TR/css-syntax-3/#token-diagrams.
+
 /// The representation of a style token kind.
 ///
-/// @see — https://www.w3.org/TR/css-syntax-3/#typedef-delim-token.
+/// @see — https://www.w3.org/TR/css-syntax-3.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Style {
   /// A comment token kind.

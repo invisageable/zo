@@ -11,9 +11,13 @@ pub struct Parser<'source> {
 
 impl<'source> Parser<'source> {
   /// Creates a new parser.
-  pub fn new(source: &'source str, interner: &'source mut Interner) -> Self {
+  pub fn new(
+    source: &'source str,
+    skip_whitespace: bool,
+    interner: &'source mut Interner,
+  ) -> Self {
     Self {
-      tokenizer: Tokenizer::new(source, interner),
+      tokenizer: Tokenizer::new(source, skip_whitespace, interner),
       // interner,
     }
   }

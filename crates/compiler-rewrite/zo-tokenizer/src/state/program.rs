@@ -9,12 +9,14 @@ pub enum Program {
   CommentLineDoc,
   /// A number state.
   Num(Num),
-  /// A punctuation state.
-  Punctuation,
   /// A group state.
   Group,
+  /// A punctuation state.
+  Punctuation,
   /// An identifier state.
   Ident,
+  /// A quote state.
+  Quote,
   /// A character state.
   Char,
   /// A string state.

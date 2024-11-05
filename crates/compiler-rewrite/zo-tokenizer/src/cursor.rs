@@ -43,6 +43,15 @@ impl Cursor {
     }
   }
 
+  /// Moves cursor to the next position.
+  pub fn front(&mut self) -> char {
+    self
+      .source
+      .chars()
+      .nth(self.pos() + 1usize)
+      .unwrap_or_default()
+  }
+
   /// Consumes while the next character is a whitespace character.
   pub fn consume_whitespace(&mut self) {
     self.consume_while(char::is_whitespace);
