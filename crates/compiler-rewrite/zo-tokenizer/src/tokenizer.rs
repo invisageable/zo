@@ -512,6 +512,69 @@ impl<'source> Tokenizer<'source> {
                   }
                   _ => return self.scan(pos),
                 }
+              } else if ch == '=' {
+                self.cursor.next();
+
+                match get_char!(self) {
+                  '=' | '>' => {
+                    self.cursor.next();
+                  }
+                  _ => return self.scan(pos),
+                }
+              } else if ch == '&' {
+                self.cursor.next();
+
+                match get_char!(self) {
+                  '=' | '&' => {
+                    self.cursor.next();
+                  }
+                  _ => return self.scan(pos),
+                }
+              } else if ch == '|' {
+                self.cursor.next();
+
+                match get_char!(self) {
+                  '=' | '|' => {
+                    self.cursor.next();
+                  }
+                  _ => return self.scan(pos),
+                }
+              } else if ch == '<' {
+                self.cursor.next();
+
+                match get_char!(self) {
+                  '=' | '<' => {
+                    self.cursor.next();
+                  }
+                  _ => return self.scan(pos),
+                }
+              } else if ch == '>' {
+                self.cursor.next();
+
+                match get_char!(self) {
+                  '=' | '>' => {
+                    self.cursor.next();
+                  }
+                  _ => return self.scan(pos),
+                }
+              } else if ch == '.' {
+                self.cursor.next();
+
+                match get_char!(self) {
+                  '.' => {
+                    self.cursor.next();
+                  }
+                  _ => return self.scan(pos),
+                }
+              } else if ch == '#' {
+                self.cursor.next();
+
+                match get_char!(self) {
+                  '>' => {
+                    self.cursor.next();
+                  }
+                  _ => return self.scan(pos),
+                }
               } else {
                 self.cursor.next();
 
@@ -564,6 +627,11 @@ impl<'source> Tokenizer<'source> {
               self.cursor.next();
             }
             _ => return self.scan(pos),
+          },
+
+          // program-quote-state.
+          TokenizerState::Program(Program::Quote) => match ch {
+            _ => todo!(),
           },
 
           // program-char-state.
