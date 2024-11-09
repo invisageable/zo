@@ -631,7 +631,15 @@ impl<'source> Tokenizer<'source> {
 
           // program-quote-state.
           TokenizerState::Program(Program::Quote) => match ch {
-            _ => todo!(),
+            c if is!(quote_single c) => {
+              self.cursor.next();
+              self.state = TokenizerState::Program(Program::Char);
+            }
+            c if is!(quote_double c) => {
+              self.cursor.next();
+              self.state = TokenizerState::Program(Program::Str);
+            }
+            _ => panic!("expected quote"),
           },
 
           // program-char-state.
