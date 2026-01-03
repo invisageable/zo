@@ -1,0 +1,31 @@
+-- tests-run-pass: arithmetic.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/arithmetic.zo -o crates/compiler/zo-tests/build-pass/programming/arithmetic 
+
+-- fun add(a: int, b: int): int {
+--   return a + b;
+-- }
+
+-- fun sub(a: int, b: int): int {
+--   return a - b;
+-- }
+
+-- fun mul(a: int, b: int): int {
+--   return a * b;
+-- }
+
+-- fun div(a: int, b: int): int {
+--   return a / b;
+-- }
+
+-- fun main(): int {
+--   imu x: int = add(10, 20);
+--   imu y: int = sub(x, 5);
+--   imu z: int = mul(y, 2);
+--   imu result: int = div(z, 5);
+
+--   return result;
+-- }
+
+fun main() -> int {
+  return 10 + 20 * 3 - 15;
+}

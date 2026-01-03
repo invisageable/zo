@@ -1,0 +1,5 @@
+load foo::bar;
+
+fun main() {
+  bar();
+}

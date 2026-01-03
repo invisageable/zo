@@ -1,0 +1,16 @@
+[package]
+name = "zo-runtime-render"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-ui-protocol = { workspace = true }
+
+# external:crates.
+thin-vec = { workspace = true }

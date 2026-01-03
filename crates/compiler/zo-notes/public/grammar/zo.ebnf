@@ -1,0 +1,365 @@
+(* EBNF Grammar for the zo Programming Language *)
+(* Version 1.0 *)
+
+(* ===== Top Level Program ===== *)
+
+program = { item } ;
+
+(* ===== Items (Top Level Constructs) ===== *)
+
+item = [ attributes ], [ visibility ], item_content ;
+
+item_content = pack_decl
+             | load_decl
+             | directive
+             | type_decl
+             | ext_decl
+             | abstract_decl
+             | apply_decl
+             | fun_decl
+             | val_decl
+             | struct_decl
+             | enum_decl
+             | group_type_decl
+             ;
+
+(* ===== Attributes ===== *)
+
+attributes = { attribute } ;
+attribute = "%%", identifier, [ "(", identifier, ")" ] ;
+
+(* ===== Visibility ===== *)
+
+visibility = "pub" ;
+
+(* ===== Pack Declaration ===== *)
+
+pack_decl = "pack", identifier, [ pack_body ] ;
+pack_body = "{", { item }, "}" ;
+
+(* ===== Load Declaration ===== *)
+
+load_decl = "load", module_path, [ "::", "(", import_list, ")" ] ;
+module_path = identifier, { "::", identifier } ;
+import_list = identifier, { ",", identifier } ;
+
+(* ===== Directive ===== *)
+
+directive = "#", identifier, expr ;
+
+(* ===== Type Declaration ===== *)
+
+type_decl = "type", identifier, "=", type ;
+
+(* ===== Group Type Declaration ===== *)
+
+group_type_decl = "group", "type", type_binding, { "and", type_binding }, ";" ;
+type_binding = identifier, "=", type ;
+
+(* ===== External Declaration ===== *)
+
+ext_decl = "ext", identifier, "(", [ param_list ], ")", "->", type, ";" ;
+
+(* ===== Abstract Declaration ===== *)
+
+abstract_decl = "abstract", identifier, "{", { abstract_method }, "}" ;
+abstract_method = "fun", identifier, "(", [ param_list ], ")", [ "->", type ], ";" ;
+
+(* ===== Apply Declaration ===== *)
+
+apply_decl = "apply", identifier, [ "for", identifier ], "{", { apply_content }, "}" ;
+apply_content = fun_decl | state_decl ;
+
+(* ===== State Declaration (for typestates) ===== *)
+
+state_decl = "state", state_variant, { "and", state_variant } ;
+state_variant = identifier, [ "{", field_list, "}" ] ;
+
+(* ===== Function Declaration ===== *)
+
+fun_decl = [ "raw" ], "fun", identifier, [ generic_params ], "(", [ param_list ], ")", 
+           [ "->", type, [ "->>", "(", identifier, ")" ] ], fun_body ;
+
+fun_body = "{", { stmt }, [ expr ], "}"
+         | "{", expr, "}"
+         ;
+
+generic_params = "<", generic_param, { ",", generic_param }, ">" ;
+generic_param = "$", identifier ;
+
+param_list = param, { ",", param } ;
+param = [ "self", ":" ], [ "&", [ "mut" ] ], identifier, ":", type ;
+
+(* ===== Value Declaration ===== *)
+
+val_decl = "val", identifier, ":", type, "=", expr, ";" ;
+
+(* ===== Struct Declaration ===== *)
+
+struct_decl = [ "type@state" ], "struct", identifier, [ generic_params ], "{", [ field_list ], "}" ;
+field_list = field, { ",", field }, [ "," ] ;
+field = [ visibility ], identifier, ":", type, [ "=", expr ] ;
+
+(* ===== Enum Declaration ===== *)
+
+enum_decl = "enum", identifier, [ generic_params ], "{", enum_variant_list, "}" ;
+enum_variant_list = enum_variant, { ",", enum_variant }, [ "," ] ;
+enum_variant = identifier, [ "(", type, ")" ], [ "=", int_literal ] ;
+
+(* ===== Statements ===== *)
+stmt = imu_stmt
+     | mut_stmt
+     | assign_stmt
+     | loop_stmt
+     | while_stmt
+     | for_stmt
+     | nursery_stmt
+     | if_stmt
+     | block_stmt
+     | directive
+     | expr_stmt
+     ;
+
+imu_stmt = "imu", pattern, ( ":", type, "=", expr | ":=", expr | "::=", template_literal ), ";" ;
+mut_stmt = "mut", pattern, ( ":", type, "=", expr | ":=", expr ), ";" ;
+assign_stmt = expr, assign_op, expr, ";" ;
+expr_stmt = expr, ";" ;
+
+(* ===== Control Flow Statements ===== *)
+loop_stmt =
+    "loop", block
+  | "loop", "=>", expr
+  ;
+
+while_stmt =
+    "while", expr, block
+  | "while", expr, "=>", expr ;
+
+for_stmt =
+    "for", pattern, ":=", expr, block
+  | "for", identifier, ":=", expr, "=>", expr
+  ;
+
+nursery_stmt = "nursery", "{", { nursery_item }, "}" ;
+nursery_item = "imu", identifier, ":=", ( "spawn", expr | "await", expr ), ";" ;
+if_stmt = "if", expr, block, [ "else", ( if_stmt | block ) ] ;
+
+(* ===== Block Statement ===== *)
+block_stmt = block ;
+block = "{", { stmt }, [ expr ], "}" ;
+
+(* ===== Expressions ===== *)
+
+expr = ternary_expr ;
+
+ternary_expr = or_expr, [ "when", or_expr, "?", expr, ":", expr ] ;
+or_expr = and_expr, { "||", and_expr } ;
+and_expr = eq_expr, { "&&", eq_expr } ;
+eq_expr = cmp_expr, { ( "==" | "!=" ), cmp_expr } ;
+cmp_expr = bit_or_expr, { ( "<" | ">" | "<=" | ">=" ), bit_or_expr } ;
+bit_or_expr = bit_xor_expr, { "|", bit_xor_expr } ;
+bit_xor_expr = bit_and_expr, { "^", bit_and_expr } ;
+bit_and_expr = shift_expr, { "&", shift_expr } ;
+shift_expr = add_expr, { ( "<<" | ">>" ), add_expr } ;
+add_expr = mul_expr, { ( "+" | "-" ), mul_expr } ;
+mul_expr = cast_expr, { ( "*" | "/" | "%" ), cast_expr } ;
+cast_expr = unary_expr, [ "as", type ] ;
+
+unary_expr = ( "!" | "-" | "+" ), unary_expr
+           | postfix_expr
+           ;
+
+postfix_expr = primary_expr, { postfix_op } ;
+postfix_op = ".", identifier
+           | ".", int_literal
+           | "[", expr, "]"
+           | "(", [ arg_list ], ")"
+           | "is", pattern
+           ;
+
+arg_list = expr, { ",", expr } ;
+
+primary_expr = literal
+             | identifier
+             | path_expr
+             | "self"
+             | paren_expr
+             | array_expr
+             | tuple_expr
+             | struct_expr
+             | closure_expr
+             | if_expr
+             | match_expr
+             | loop_expr
+             | block_expr
+             | return_expr
+             | break_expr
+             | continue_expr
+             | "..."
+             ;
+
+paren_expr = "(", expr, ")" ;
+array_expr = "[", [ expr, { ",", expr }, [ "," ] ], "]" ;
+tuple_expr = "(", [ expr, ",", { expr, "," }, [ expr ] ], ")" ;
+
+struct_expr = path_expr, "{", [ struct_field_list ], "}" ;
+struct_field_list = struct_field, { ",", struct_field }, [ "," ] ;
+struct_field = identifier, [ ":", expr ] | identifier, "=", expr ;
+
+closure_expr = "fn", "(", [ param_list ], ")", [ "->", type ], ( "=>", expr | block ) ;
+
+if_expr = "if", expr, block, [ "else", ( if_expr | block ) ] ;
+
+match_expr = "match", expr, "{", match_arm, { ",", match_arm }, [ "," ], "}" ;
+match_arm = pattern, "=>", ( expr | block ) ;
+
+loop_expr =
+    "loop", block
+  | "loop", "=>", expr
+  ;
+
+while_expr = 
+    "while", expr, block
+  | "while", expr, "->", expr ;
+
+for_expr = 
+    "for", identifier, ":=", expr, block
+  | "for", identifier, ":=", expr, "=>", expr ;
+
+block_expr = block ;
+
+return_expr = "return", [ expr ] ;
+break_expr = "break" ;
+continue_expr = "continue" ;
+
+(* ===== Patterns ===== *)
+pattern = "_"
+        | identifier
+        | literal
+        | path_pattern
+        | tuple_pattern
+        | array_pattern
+        | struct_pattern
+        ;
+
+path_pattern = path_expr, [ "(", pattern, ")" ] ;
+tuple_pattern = "(", pattern, { ",", pattern }, ")" ;
+array_pattern = "[", pattern, { ",", pattern }, "]" ;
+struct_pattern = "{", struct_pattern_field, { ",", struct_pattern_field }, "}" ;
+struct_pattern_field = identifier, [ ":", pattern ] ;
+
+(* ===== Template Literals ===== *)
+
+template_literal = template_element | template_fragment ;
+template_fragment = "<>", { template_node }, "</>" ;
+template_element = "<", identifier, { template_attribute }, ( "/>", | ">", { template_node }, "</", identifier, ">" ) ;
+
+template_node = template_element
+              | template_text
+              | "{", expr, "}"
+              ;
+
+template_attribute = identifier, "=", ( "{", expr, "}" | string_literal ) ;
+template_text = { template_char } ;
+template_char = ? any character except '<', '>', '{', '}' ? ;
+
+(* ===== Typess ===== *)
+
+type = primitive_type
+     | path_type
+     | array_type
+     | tuple_type
+     | function_type
+     | generic_type
+     | reference_type
+     | template_type
+     | "Self"
+     ;
+
+primitive_type = "int" | "s8" | "s16" | "s32" | "s64"
+               | "uint" | "u8" | "u16" | "u32" | "u64"
+               | "float" | "f32" | "f64"
+               | "bool" | "bytes" | "char" | "str"
+               ;
+
+path_type = path_expr ;
+array_type = "[", [ int_literal ], "]", type ;
+tuple_type = "(", type, { ",", type }, ")" ;
+function_type = "Fn", "(", [ type, { ",", type } ], ")", "->", type ;
+generic_type = "$", identifier ;
+reference_type = "&", [ "mut" ], type ;
+template_type = "</>" ;
+
+(* ===== Paths ===== *)
+
+path_expr = [ "::" ], path_segment, { "::", path_segment } ;
+path_segment = identifier ;
+
+(* ===== Assignment Operators ===== *)
+
+assign_op = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "<<=" | ">>=" | "&=" | "|=" | "^=" ;
+
+(* ===== Literals ===== *)
+
+literal = int_literal
+        | float_literal
+        | bool_literal
+        | bytes_literal
+        | char_literal
+        | string_literal
+        | raw_string_literal
+        ;
+
+int_literal = decimal_literal
+            | binary_literal
+            | octal_literal
+            | hex_literal
+            | base_literal
+            ;
+
+decimal_literal = digit, { digit | "_" } ;
+binary_literal = "0b", binary_digit, { binary_digit | "_" } ;
+octal_literal = "0o", octal_digit, { octal_digit | "_" } ;
+hex_literal = "0x", hex_digit, { hex_digit | "_" } ;
+
+base_literal = ( "b#" | "o#" | "x#" ), digit, { digit } ;
+
+float_literal = decimal_literal, ".", decimal_literal, [ exponent ]
+              | decimal_literal, exponent
+              ;
+
+exponent = ( "e" | "E" ), [ "+" | "-" ], decimal_literal ;
+
+bool_literal = "true" | "false" ;
+
+char_literal = "'", ( char_escape | ? any unicode character except '\' and newline ? ), "'" ;
+bytes_literal = "`", char_escape , "`" ;
+
+string_literal = '"', { string_char }, '"' ;
+string_char = char_escape | ? any unicode character except '"', '\' and newline ? ;
+
+raw_string_literal = "$", '"', ? any character sequence ?, '"' ;
+
+char_escape = "\", ( "n" | "r" | "t" | "\" | "'" | '"' | "0" | "x", hex_digit, hex_digit ) ;
+
+(* ===== Identifiers ===== *)
+
+identifier = letter, { letter | digit | "_" } ;
+
+(* ===== Character Classes ===== *)
+
+letter = ? 'a'..'z' | 'A'..'Z' | unicode letter ? ;
+digit = ? '0'..'9' ? ;
+binary_digit = ? '0' | '1' ? ;
+octal_digit = ? '0'..'7' ? ;
+hex_digit = ? '0'..'9' | 'a'..'f' | 'A'..'F' ? ;
+
+(* ===== Comments ===== *)
+
+comment = line_comment | block_comment ;
+line_comment = "--", { ? any character except newline ? }, ? newline ? ;
+block_comment = "-*", { ? any character sequence not containing "*-" ? }, "*-" ;
+
+(* ===== Whitespace ===== *)
+
+whitespace = ? space | tab | newline | carriage return ? ;

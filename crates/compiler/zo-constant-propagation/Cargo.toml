@@ -1,0 +1,25 @@
+[package]
+name = "zo-constant-propagation"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-tree = { workspace = true }
+# zo-interner = { workspace = true }
+zo-sir = { workspace = true }
+zo-ty = { workspace = true }
+zo-value = { workspace = true }
+
+# external:crates.
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+# internal:crates.
+zo-parser = { workspace = true }
+zo-tokenizer = { workspace = true }

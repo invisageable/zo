@@ -1,0 +1,39 @@
+[package]
+name = "tree-sitter-zo"
+version = "0.0.0"
+edition = "2021"
+description = "zo grammar for tree-sitter"
+repository = "https://github.com/invisageable/zo/tree/main/sources/sitter/tree-sitter-zo"
+license = "MIT"
+build = "bindings/rust/build.rs"
+
+include = [
+  "bindings/rust/*",
+  "grammar.js",
+  "queries/*",
+  "src/*",
+  "tree-sitter.json",
+]
+
+[lib]
+name = "tree_sitter_zo"
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+# internals:sources.
+
+# internals:crates.
+
+# externals:crates.
+tree-sitter-language = { workspace = true }
+
+[dev-dependencies]
+# internals:sources.
+
+# internals:crates.
+
+# externals:crates.
+tree-sitter = { workspace = true }
+
+[build-dependencies]
+cc = "1.1"

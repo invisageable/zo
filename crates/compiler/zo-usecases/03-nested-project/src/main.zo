@@ -1,0 +1,8 @@
+load calculator::compute;
+
+fun main(): int {
+  imu a: int = 15;
+  imu b: int = 25;
+  imu result: int = compute(a, b);
+  return result;
+}

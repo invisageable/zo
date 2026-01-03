@@ -1,0 +1,27 @@
+[package]
+name = "zo-driver"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-analyzer = { workspace = true }
+zo-codegen-backend = { workspace = true }
+zo-compiler = { workspace = true }
+zo-error = { workspace = true }
+zo-parser = { workspace = true }
+zo-reporter = { workspace = true }
+zo-runtime = { workspace = true }
+zo-sir = { workspace = true }
+zo-span = { workspace = true }
+zo-tokenizer = { workspace = true }
+
+# external:crates.
+clap = { workspace = true }
+# hashbrown = { workspace = true }
+num_cpus = { workspace = true }

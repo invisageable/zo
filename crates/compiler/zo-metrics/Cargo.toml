@@ -1,0 +1,16 @@
+[package]
+name = "zo-metrics"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+
+[dev-dependencies]

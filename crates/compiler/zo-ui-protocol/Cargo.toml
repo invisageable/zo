@@ -1,0 +1,17 @@
+[package]
+name = "zo-ui-protocol"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+libloading = { workspace = true }
+serde = { workspace = true }
+thin-vec = { workspace = true }

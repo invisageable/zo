@@ -1,0 +1,15 @@
+[package]
+name = "swisskit-case"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+Inflector = { workspace = true }

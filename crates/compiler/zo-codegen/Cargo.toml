@@ -1,0 +1,35 @@
+[package]
+name = "zo-codegen"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-codegen-arm = { workspace = true }
+zo-codegen-backend = { workspace = true }
+zo-error = { workspace = true }
+zo-interner = { workspace = true }
+zo-sir = { workspace = true }
+
+# external:crates.
+
+[dev-dependencies]
+# internal:crates.
+zo-analyzer = { workspace = true }
+zo-executor = { workspace = true }
+zo-parser = { workspace = true }
+zo-tokenizer = { workspace = true }
+
+# external:crates.
+criterion = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true }
+
+# [[bench]]
+# name = "generate"
+# harness = false

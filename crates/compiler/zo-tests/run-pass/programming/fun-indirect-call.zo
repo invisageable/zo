@@ -1,0 +1,12 @@
+-- tests-run-pass: fun-indirect-call.
+
+fun f() -> int {
+  return 42;
+}
+
+fun main() {
+  imu g: fn() -> int = f;
+  imu i: int = g();
+
+  check(i == 42);
+}

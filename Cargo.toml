@@ -1,0 +1,308 @@
+[workspace]
+members = [
+  "sources/tweener/eazy",
+  "sources/tweener/eazy-bevy",
+  "sources/crafter/swisskit",
+  "crates/compiler/zo",
+  "crates/compiler/zo-benches",
+  "crates/packager/fret",
+]
+
+default-members = [
+  "crates/compiler/zo",
+  "crates/compiler/zo-benches",
+  "crates/packager/fret",
+]
+
+exclude = [
+  "/.github/*",
+  ".todo.md",
+]
+
+resolver = '2'
+
+[workspace.package]
+authors = ["the compilords team"]
+edition = "2024"
+license = "APACHE — MIT"
+repository = "https://github.com/invisageable/zo"
+version = "0.0.0"
+
+[workspace.dependencies]
+# internal:sources:swisskit.
+swisskit = { path = "sources/crafter/swisskit", version = "0.0.0" }
+swisskit-case = { path = "sources/crafter/swisskit-case", version = "0.0.0" }
+swisskit-io = { path = "sources/crafter/swisskit-io", version = "0.0.0" }
+swisskit-renderer = { path = "sources/crafter/swisskit-renderer", version = "0.0.0" }
+swisskit-span = { path = "sources/crafter/swisskit-span", version = "0.0.0" }
+
+# internal:sources:eazy.
+eazy = { path = "sources/tweener/eazy", version = "0.0.0" }
+eazy-bevy = { path = "sources/tweener/eazy-bevy", version = "0.0.0" }
+eazy-data = { path = "sources/tweener/eazy-data", version = "0.0.0" }
+eazy-derive = { path = "sources/tweener/eazy-derive", version = "0.0.0" }
+eazy-examples = { path = "sources/tweener/eazy-examples", version = "0.0.0" }
+eazy-keyframes = { path = "sources/tweener/eazy-keyframes", version = "0.0.0" }
+eazy-tweener = { path = "sources/tweener/eazy-tweener", version = "0.0.0" }
+eazy-wasm = { path = "sources/tweener/eazy-wasm", version = "0.0.0" }
+
+# internal:sources:sitter.
+tree-sitter-zo = { path = "sources/sitter/tree-sitter-zo", version = "0.0.0" }
+
+# internal:crates:zo.
+zo = { path = "crates/compiler/zo", version = "0.0.0" }
+zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.0.0" }
+zo-benches = { path = "crates/compiler/zo-benches", version = "0.0.0" }
+zo-buffer = { path = "crates/compiler/zo-buffer", version = "0.0.0" }
+zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.0.0" }
+zo-codegen-arm = { path = "crates/compiler/zo-codegen-arm", version = "0.0.0" }
+zo-codegen-backend = { path = "crates/compiler/zo-codegen-backend", version = "0.0.0" }
+zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.0.0" }
+zo-constant-folding = { path = "crates/compiler/zo-constant-folding", version = "0.0.0" }
+zo-constant-propagation = { path = "crates/compiler/zo-constant-propagation", version = "0.0.0" }
+zo-dce = { path = "crates/compiler/zo-dce", version = "0.0.0" }
+zo-driver = { path = "crates/compiler/zo-driver", version = "0.0.0" }
+zo-emitter = { path = "crates/compiler/zo-emitter", version = "0.0.0" }
+zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.0.0" }
+zo-error = { path = "crates/compiler/zo-error", version = "0.0.0" }
+zo-executor = { path = "crates/compiler/zo-executor", version = "0.0.0" }
+zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
+zo-metrics = { path = "crates/compiler/zo-metrics", version = "0.0.0" }
+zo-name-resolver = { path = "crates/compiler/zo-name-resolver", version = "0.0.0" }
+zo-parser = { path = "crates/compiler/zo-parser", version = "0.0.0" }
+zo-pp = { path = "crates/compiler/zo-pp", version = "0.0.0" }
+zo-profiler = { path = "crates/compiler/zo-profiler", version = "0.0.0" }
+zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.0.0" }
+zo-runtime = { path = "crates/compiler/zo-runtime", version = "0.0.0" }
+zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.0.0" }
+zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.0.0" }
+zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.0.0" }
+zo-sir = { path = "crates/compiler/zo-sir", version = "0.0.0" }
+zo-span = { path = "crates/compiler/zo-span", version = "0.0.0" }
+zo-token = { path = "crates/compiler/zo-token", version = "0.0.0" }
+zo-tokenizer = { path = "crates/compiler/zo-tokenizer", version = "0.0.0" }
+zo-tree = { path = "crates/compiler/zo-tree", version = "0.0.0" }
+zo-ty = { path = "crates/compiler/zo-ty", version = "0.0.0" }
+zo-ty-checker = { path = "crates/compiler/zo-ty-checker", version = "0.0.0" }
+zo-ty-state = { path = "crates/compiler/zo-ty-state", version = "0.0.0" }
+zo-template-optimizer = { path = "crates/compiler/zo-template-optimizer", version = "0.0.0" }
+zo-ui-protocol = { path = "crates/compiler/zo-ui-protocol", version = "0.0.0" }
+zo-value = { path = "crates/compiler/zo-value", version = "0.0.0" }
+zo-writer = { path = "crates/compiler/zo-writer", version = "0.0.0" }
+zo-writer-macho = { path = "crates/compiler/zo-writer-macho", version = "0.0.0" }
+
+# internal:crates:fret.
+fret = { path = "crates/packager/fret", version = "0.0.0" }
+
+# external:crates.
+aho-corasick = "1.1.3"
+base64 = "0.22.1"
+alacritty_terminal = "0.25.1-rc1"
+ammonia = "4.1.2"
+anyhow = "1.0.100"
+ariadne = "0.4.1"
+async-openai = "0.30.1"
+async-trait = "0.1.89"
+axum = { version = "0.8.6", features = ["ws"]}
+bevy = { version = "0.15", default-features = false, features = [
+  "bevy_asset",
+  "bevy_core_pipeline",
+  "bevy_render",
+  "bevy_sprite",
+  "bevy_winit",
+  "bevy_window",
+  "multi_threaded",
+  "x11",
+] }
+bevy_ecs = "0.17.3"
+blake3 = "1.8.2"
+bincode = "2.0.1"
+bumpalo = { version = "3.19.0", features = ["collections"] }
+bytemuck = "1.16.1"
+calamine = "0.32.0"
+clap = { version = "4.5.49", features = ["derive"] }
+chrono = { version = "0.4.42", features = ["serde"] }
+console_error_panic_hook = { version = "0.1.7" }
+cpal = "0.16.0"
+criterion = { version = "0.7.0", features = ["html_reports"] }
+crossbeam = "0.8.4"
+csv = "1.4.0"
+dashmap = "6.1.0"
+dirs = "6.0.0"
+dotenv = "0.15.0"
+eframe = { version = "0.33.3", default-features = false, features = [
+  "accesskit",
+  "default_fonts",
+  "persistence",
+  "wgpu",
+  "wayland",   # Linux
+  "x11",       # Linux
+] }
+egui_extras = { version = "0.33.3", default-features = false, features = [
+  "file",
+  "gif",
+  "http",
+  "image",
+  "svg",
+] }
+egui_kittest = { version = "0.33.3", default-features = false, features = [
+  "snapshot",
+  "wgpu",
+]}
+env_logger = "0.11.5"
+fastrand = "2.3.0"
+flume = { version = "0.11.1", default-features = true, features = ["async"] }
+futures = "0.3.31"
+gif = "0.14.0"
+gilrs = "0.11.0"
+glyphon = "0.9.0"
+hashbrown = { version = "0.16.0",  default-features = true, features = [
+  "rayon",
+  "serde",
+] }
+hayro = "0.4.0"
+hypher = "0.1.6"
+js-sys = "0.3.81"
+kanal = "0.1.1"
+libm = "0.2.15"
+lyon_geom = "1.0.17"
+image = "0.25.6"
+itoa = "1.0.15"
+Inflector = "0.11.4"
+insta = { version = "1.43.2", features = ["yaml"] }
+lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
+libc = "0.2.176"
+libloading = "0.9.0"
+log = "0.4.27"
+nanorand = "0.7.0"
+noise = "0.9.0"
+notify = "8.2.0"
+nucleo = "0.5.0"
+num_cpus = "1.17.0"
+objc = "0.2.7"
+parking_lot = { version = "0.12.4", features = ["nightly"] }
+pdfium-render = "0.8.37"
+posthog-rs = "0.3.7"
+profiling = "1.0.17"
+proptest = "1.7.0"
+prost = "0.14.1"
+# pubgrub = "0.3.0"
+puffin = "0.19.1"
+puffin_http = "0.16.1"
+pulldown-cmark = "0.13.0"
+pyo3 = { version = "0.27.2", features = ["auto-initialize"] }
+raw-window-handle = "0.6.2"
+rayon = { version = "1.11.0" }
+regex = "1.12.2"
+reqwest = { version = "0.12.24", default-features = false, features = [
+  "json",
+  "multipart",
+  "native-tls",
+  "stream",
+] }
+resvg = "0.45.1"
+rfd = "0.13"
+rodio = { version = "0.21.1", features = ["symphonia-all"] }
+ron = "0.10.1"
+ropey = "1.6.1"
+rubato = "0.16.2"
+rustc-hash = "2.1.1"
+rustfft = "6.4.1"
+rust-i18n = "3.1.5"
+scraper = "0.25.0"
+secrecy = "0.10.3"
+serde = { version = "1.0.228", features = ["derive"] }
+sha2 = "0.10.9"
+similar = "2.7.0"
+smallvec = { version = "1.13.2", features = ["const_new", "serde"] }
+smol_str = { version = "0.3.2", features = ["serde"] }
+sonic-rs = "0.5.6"
+symphonia = "0.5.5"
+sysinfo = "0.37.2"
+sqlx = { version = "0.8.6", features = [
+  "runtime-tokio",
+  "sqlite"
+]}
+# taffy = "0.9.1"
+teloxide = "0.17.0"
+tempfile = "3.23.0"
+thin-vec = "0.2.14"
+tokio = { version = "1.47.1", default-features = true , features = [
+  "fs",
+  "macros",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
+tokio-cron-scheduler = "0.15.1"
+tokio-tungstenite = { version = "0.28.0", features = ["connect"] }
+toml = "0.8.15"
+tower = "0.5.2"
+tower-http = { version = "0.6.6", features = ["cors", "trace"] }
+thumbhash = "0.1.0"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tree-sitter = "0.25.10"
+tree-sitter-bash = "0.25.0"
+tree-sitter-c = "0.24.1"
+tree-sitter-css = "0.25.0"
+tree-sitter-diff = "0.1.0"
+tree-sitter-elixir = "0.3.4"
+tree-sitter-gleam = "1.0.0"
+tree-sitter-go = "0.25.0"
+tree-sitter-highlight = "0.25.10"
+tree-sitter-html = "0.23.2"
+tree-sitter-javascript = "0.23.1"
+tree-sitter-json = "0.24.8"
+tree-sitter-language = "0.1.6"
+tree-sitter-md = "0.5.1"
+# tree-sitter-ocaml = "0.24.2"
+tree-sitter-python = "0.23.6"
+tree-sitter-regex = "0.25.0"
+tree-sitter-rust = "0.24.0"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-yaml = "0.7.2"
+tree-sitter-zig = "1.1.2"
+usvg = "0.45.1"
+uuid = { version = "1.17.0", features = ["serde", "v4", "v7"] }
+walkdir = "2.5.0"
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
+wasmi = "0.51.1"
+web-sys = { version = "0.3.81", features = [
+  "Comment",
+  "console",
+  "CssStyleDeclaration",
+  "Document",
+  "Element",
+  "Event",
+  "EventListener",
+  "EventTarget",
+  "HtmlCollection",
+  "HtmlElement",
+  "HtmlHeadElement",
+  "HtmlInputElement",
+  "InputEvent",
+  "KeyboardEvent",
+  "MouseEvent",
+  "Node",
+  "NodeList",
+  "Performance",
+  "Response",
+  "Text",
+  "Window",
+] }
+wgpu = { version = "27.0.1", features = ["metal", "dx12", "vulkan"] }
+whisper-rs = "0.15.1"
+wide = { version = "0.8.1", features = ["serde"] }
+winit = "0.30.9"
+wit-bindgen = "0.46.0"
+wry = "0.53.5"
+zmij = "1.0.7"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

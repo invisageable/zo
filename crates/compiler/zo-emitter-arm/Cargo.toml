@@ -1,0 +1,15 @@
+[package]
+name = "zo-emitter-arm"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-emitter = { workspace = true }
+
+# external:crates.

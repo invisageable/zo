@@ -1,0 +1,126 @@
+---
+source: crates/compiler-new/zo-parser/tests/parsekit.rs
+assertion_line: 34
+expression: snapshot
+---
+hir:
+  nodes:
+    - TypeName:
+        name: 27
+    - TypeName:
+        name: 27
+    - Param:
+        name: 26
+        ty: 0
+    - Param:
+        name: 28
+        ty: 1
+    - Params:
+        start: 2
+        count: 2
+    - TypeName:
+        name: 27
+    - VarRef:
+        name: 26
+    - VarRef:
+        name: 28
+    - BinaryOp:
+        op: Add
+        lhs: 6
+        rhs: 7
+    - Return:
+        value: 8
+    - Block:
+        children:
+          - 9
+    - Fun:
+        name: 25
+        params: 4
+        ret_ty: 5
+        body: 10
+  spans:
+    - start: 19
+      len: 1
+    - start: 27
+      len: 1
+    - start: 28
+      len: 1
+    - start: 28
+      len: 1
+    - start: 28
+      len: 1
+    - start: 34
+      len: 1
+    - start: 51
+      len: 1
+    - start: 54
+      len: 1
+    - start: 54
+      len: 1
+    - start: 60
+      len: 1
+    - start: 64
+      len: 0
+    - start: 5
+      len: 59
+interner:
+  storage: _funmutimuifelsewhileforreturnbreakcontinuematchwhenasistruefalseSelfselfstructenumtypepubvaladdaintb
+  spans:
+    - - 0
+      - 0
+    - - 0
+      - 1
+    - - 1
+      - 3
+    - - 4
+      - 3
+    - - 7
+      - 3
+    - - 10
+      - 2
+    - - 12
+      - 4
+    - - 16
+      - 5
+    - - 21
+      - 3
+    - - 24
+      - 6
+    - - 30
+      - 5
+    - - 35
+      - 8
+    - - 43
+      - 5
+    - - 48
+      - 4
+    - - 52
+      - 2
+    - - 54
+      - 2
+    - - 56
+      - 4
+    - - 60
+      - 5
+    - - 65
+      - 4
+    - - 69
+      - 4
+    - - 73
+      - 6
+    - - 79
+      - 4
+    - - 83
+      - 4
+    - - 87
+      - 3
+    - - 90
+      - 3
+    - - 93
+      - 3
+    - - 96
+      - 1
+    - - 97
+      - 3
+    - - 100
+      - 1

@@ -1,0 +1,12 @@
+-- error-pattern: mismatched types.
+
+fun main() {
+  type X = int;
+  type Y = X;
+
+  if (true) {
+    type X = str;
+
+    imu y: Y = "hello";
+  }
+}

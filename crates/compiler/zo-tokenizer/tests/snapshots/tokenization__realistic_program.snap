@@ -1,0 +1,389 @@
+---
+source: crates/compiler-new/zo-tokenizer/tests/tokenization.rs
+expression: tokenization
+---
+tokens:
+  kinds:
+    - Pack
+    - Ident
+    - Semicolon
+    - Load
+    - Ident
+    - ColonColon
+    - Ident
+    - ColonColon
+    - LParen
+    - Ident
+    - Comma
+    - Ident
+    - RParen
+    - Semicolon
+    - Load
+    - Ident
+    - Semicolon
+    - Struct
+    - Ident
+    - LBrace
+    - Ident
+    - Colon
+    - F32Type
+    - Comma
+    - Ident
+    - Colon
+    - F32Type
+    - Comma
+    - RBrace
+    - Pub
+    - Fun
+    - Ident
+    - LParen
+    - Ident
+    - Colon
+    - Ident
+    - Comma
+    - Ident
+    - Colon
+    - Ident
+    - RParen
+    - Arrow
+    - F32Type
+    - LBrace
+    - Imu
+    - Ident
+    - ColonEq
+    - Ident
+    - Dot
+    - Ident
+    - Minus
+    - Ident
+    - Dot
+    - Ident
+    - Semicolon
+    - Imu
+    - Ident
+    - ColonEq
+    - Ident
+    - Dot
+    - Ident
+    - Minus
+    - Ident
+    - Dot
+    - Ident
+    - Semicolon
+    - LParen
+    - Ident
+    - Star
+    - Ident
+    - Plus
+    - Ident
+    - Star
+    - Ident
+    - RParen
+    - As
+    - F32Type
+    - RBrace
+    - Eof
+  starts:
+    - 5
+    - 10
+    - 14
+    - 21
+    - 26
+    - 29
+    - 31
+    - 33
+    - 35
+    - 36
+    - 40
+    - 42
+    - 48
+    - 49
+    - 55
+    - 60
+    - 64
+    - 71
+    - 78
+    - 84
+    - 92
+    - 93
+    - 95
+    - 98
+    - 106
+    - 107
+    - 109
+    - 112
+    - 118
+    - 125
+    - 129
+    - 133
+    - 141
+    - 142
+    - 144
+    - 146
+    - 151
+    - 153
+    - 155
+    - 157
+    - 162
+    - 164
+    - 167
+    - 171
+    - 179
+    - 183
+    - 186
+    - 189
+    - 191
+    - 192
+    - 194
+    - 196
+    - 198
+    - 199
+    - 200
+    - 208
+    - 212
+    - 215
+    - 218
+    - 220
+    - 221
+    - 223
+    - 225
+    - 227
+    - 228
+    - 229
+    - 238
+    - 239
+    - 242
+    - 244
+    - 247
+    - 249
+    - 252
+    - 254
+    - 256
+    - 258
+    - 261
+    - 269
+    - 273
+  lengths:
+    - 4
+    - 4
+    - 1
+    - 4
+    - 3
+    - 2
+    - 2
+    - 2
+    - 1
+    - 4
+    - 1
+    - 6
+    - 1
+    - 1
+    - 4
+    - 4
+    - 1
+    - 6
+    - 5
+    - 1
+    - 1
+    - 1
+    - 3
+    - 1
+    - 1
+    - 1
+    - 3
+    - 1
+    - 1
+    - 3
+    - 3
+    - 8
+    - 1
+    - 2
+    - 1
+    - 5
+    - 1
+    - 2
+    - 1
+    - 5
+    - 1
+    - 2
+    - 3
+    - 1
+    - 3
+    - 2
+    - 2
+    - 2
+    - 1
+    - 1
+    - 1
+    - 2
+    - 1
+    - 1
+    - 1
+    - 3
+    - 2
+    - 2
+    - 2
+    - 1
+    - 1
+    - 1
+    - 2
+    - 1
+    - 1
+    - 1
+    - 1
+    - 2
+    - 1
+    - 2
+    - 1
+    - 2
+    - 1
+    - 2
+    - 1
+    - 2
+    - 3
+    - 1
+    - 0
+  literal_indices:
+    - 0
+    - 0
+    - 0
+    - 0
+    - 1
+    - 0
+    - 2
+    - 0
+    - 0
+    - 3
+    - 0
+    - 4
+    - 0
+    - 0
+    - 0
+    - 5
+    - 0
+    - 0
+    - 6
+    - 0
+    - 7
+    - 0
+    - 0
+    - 0
+    - 8
+    - 0
+    - 0
+    - 0
+    - 0
+    - 0
+    - 0
+    - 9
+    - 0
+    - 10
+    - 0
+    - 11
+    - 0
+    - 12
+    - 0
+    - 13
+    - 0
+    - 0
+    - 0
+    - 0
+    - 0
+    - 14
+    - 0
+    - 15
+    - 0
+    - 16
+    - 0
+    - 17
+    - 0
+    - 18
+    - 0
+    - 0
+    - 19
+    - 0
+    - 20
+    - 0
+    - 21
+    - 0
+    - 22
+    - 0
+    - 23
+    - 0
+    - 0
+    - 24
+    - 0
+    - 25
+    - 0
+    - 26
+    - 0
+    - 27
+    - 0
+    - 0
+    - 0
+    - 0
+    - 0
+literals:
+  identifiers:
+    - - 10
+      - 4
+    - - 26
+      - 3
+    - - 31
+      - 2
+    - - 36
+      - 4
+    - - 42
+      - 6
+    - - 60
+      - 4
+    - - 78
+      - 5
+    - - 92
+      - 1
+    - - 106
+      - 1
+    - - 133
+      - 8
+    - - 142
+      - 2
+    - - 146
+      - 5
+    - - 153
+      - 2
+    - - 157
+      - 5
+    - - 183
+      - 2
+    - - 189
+      - 2
+    - - 192
+      - 1
+    - - 196
+      - 2
+    - - 199
+      - 1
+    - - 212
+      - 2
+    - - 218
+      - 2
+    - - 221
+      - 1
+    - - 225
+      - 2
+    - - 228
+      - 1
+    - - 239
+      - 2
+    - - 244
+      - 2
+    - - 249
+      - 2
+    - - 254
+      - 2
+  string_literals: []
+  int_literals: []
+  float_literals: []
+  char_literals: []
+  byte_literals: []
+source_len: 273

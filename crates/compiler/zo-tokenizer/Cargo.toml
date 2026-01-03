@@ -1,0 +1,29 @@
+[package]
+name = "zo-tokenizer"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-error = { workspace = true }
+zo-interner = { workspace = true }
+zo-reporter = { workspace = true }
+zo-span = { workspace = true }
+zo-token = { workspace = true }
+
+# external:crates.
+serde = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true }
+
+[[bench]]
+name = "tokenize"
+harness = false

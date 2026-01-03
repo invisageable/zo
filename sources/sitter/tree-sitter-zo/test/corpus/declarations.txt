@@ -1,0 +1,210 @@
+================================================================================
+Function declaration
+================================================================================
+
+fun add(a: int, b: int) -> int {
+  a + b
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (primitive_type))
+      (parameter
+        name: (identifier)
+        type: (primitive_type)))
+    return_type: (primitive_type)
+    body: (block
+      value: (binary_expression
+        left: (primary_expression
+          (identifier))
+        right: (primary_expression
+          (identifier))))))
+
+================================================================================
+Struct declaration
+================================================================================
+
+struct Point {
+  x: f32,
+  y: f32,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct_declaration
+    name: (identifier)
+    (field_list
+      (field
+        name: (identifier)
+        type: (primitive_type))
+      (field
+        name: (identifier)
+        type: (primitive_type)))))
+
+================================================================================
+Enum declaration
+================================================================================
+
+enum Option<$T> {
+  Some($T),
+  None,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    name: (identifier)
+    (generic_parameters
+      (generic_parameter
+        (identifier)))
+    (enum_variant_list
+      (enum_variant
+        name: (identifier)
+        type: (generic_type
+          (identifier)))
+      (enum_variant
+        name: (identifier)))))
+
+================================================================================
+Load declaration
+================================================================================
+
+load std::io::(print, println);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (load_declaration
+    path: (module_path
+      (identifier)
+      (identifier))
+    (import_list
+      (identifier)
+      (identifier))))
+
+================================================================================
+Pack declaration
+================================================================================
+
+pack my_module {
+  pub fun hello() {
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pack_declaration
+    name: (identifier)
+    (pack_body
+      (visibility)
+      (function_declaration
+        name: (identifier)
+        body: (block)))))
+
+================================================================================
+Val declaration
+================================================================================
+
+val PI: f64 = 3.14159265359;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (val_declaration
+    name: (identifier)
+    type: (primitive_type)
+    value: (primary_expression
+      (float_literal))))
+
+================================================================================
+Abstract declaration
+================================================================================
+
+abstract Drawable {
+  fun draw(s: &Self);
+  fun area(s: &Self) -> f64;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (abstract_declaration
+    name: (identifier)
+    (abstract_method
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (reference_type
+            (self_type)))))
+    (abstract_method
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (reference_type
+            (self_type))))
+      return_type: (primitive_type))))
+
+================================================================================
+Apply declaration
+================================================================================
+
+apply Drawable for Circle {
+  fun draw(s: &Self) {
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (apply_declaration
+    trait: (identifier)
+    type: (identifier)
+    (function_declaration
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (reference_type
+            (self_type))))
+      body: (block))))
+
+================================================================================
+External declaration
+================================================================================
+
+ext printf(format: str) -> int;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (ext_declaration
+    name: (identifier)
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (primitive_type)))
+    return_type: (primitive_type)))
+
+================================================================================
+Type alias
+================================================================================
+
+type UserId = u64
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    name: (identifier)
+    type: (primitive_type)))

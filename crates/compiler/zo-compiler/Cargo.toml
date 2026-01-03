@@ -1,0 +1,34 @@
+[package]
+name = "zo-compiler"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-analyzer = { workspace = true }
+zo-codegen = { workspace = true }
+zo-codegen-backend = { workspace = true }
+zo-error = { workspace = true }
+zo-parser = { workspace = true }
+zo-pp = { workspace = true }
+zo-profiler = { workspace = true }
+zo-reporter = { workspace = true }
+zo-runtime = { workspace = true } # tmp.
+zo-span = { workspace = true }
+zo-tokenizer = { workspace = true }
+zo-writer = { workspace = true }
+
+# external:crates.
+hashbrown = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+# [[bench]]
+# name = "compile"
+# harness = false

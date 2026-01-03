@@ -1,0 +1,19 @@
+[package]
+name = "eazy-tweener"
+edition.workspace = true
+version = "0.0.0"
+
+[lib]
+doc-test = false
+
+[dependencies]
+# internal:sources.
+eazy-data = { workspace = true }
+eazy-derive = { path = "../eazy-derive" }
+
+# internal:crates.
+
+# external:crates.
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

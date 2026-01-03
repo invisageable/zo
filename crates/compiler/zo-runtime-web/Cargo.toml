@@ -1,0 +1,17 @@
+[package]
+name = "zo-runtime-web"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-ui-protocol = { workspace = true }
+
+# external:crates.
+winit = { workspace = true }
+wry = { workspace = true }

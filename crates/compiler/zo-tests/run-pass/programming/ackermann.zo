@@ -1,0 +1,18 @@
+-- tests-run-pass: ackermann.
+-- @see https://en.wikipedia.org/wiki/Ackermann_function.
+
+fun ack(m: int, n: int) {
+  if m == 0 {
+    return n + 1;
+  } 
+
+  if n == 0 {
+    return ack(m - 1, 1);
+  }
+
+  return ack(m - 1, ack(m, n - 1))
+}
+
+fun main() {
+  showln(ack(2, 2));
+}

@@ -1,0 +1,112 @@
+pack math;
+
+-- mathematical constants.
+pub val PI: f64 = 3.141592653589793;
+pub val E: f64 = 2.718281828459045;
+pub val TAU: f64 = 6.283185307179586;
+
+-- basic arithmetic operations.
+pub fun abs(x: f64) -> f64 {
+  -- Implemented by codegen backends (Python: abs(x), LLVM: fabs, etc.)
+  return 0.0;
+}
+
+pub fun max(a: f64, b: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+pub fun min(a: f64, b: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+-- power and exponential functions.
+pub fun pow(base: f64, exp: f64) -> f64 {
+  -- Implemented by codegen backends (Python: pow(base, exp), LLVM: pow, etc.)
+  return 0.0;
+}
+
+pub fun sqrt(x: f64) -> f64 {
+  -- Implemented by codegen backends (Python: math.sqrt(x), LLVM: sqrt, etc.)
+  return 0.0;
+}
+
+pub fun exp(x: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+pub fun ln(x: f64) -> f64 {
+  -- Implemented by codegen backends (natural logarithm)
+  return 0.0;
+}
+
+pub fun log10(x: f64) -> f64 {
+  -- Implemented by codegen backends (base-10 logarithm)
+  return 0.0;
+}
+
+-- trigonometric functions.
+pub fun sin(x: f64) -> f64 {
+  -- Implemented by codegen backends (Python: math.sin(x), LLVM: sin, etc.)
+  return 0.0;
+}
+
+pub fun cos(x: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+pub fun tan(x: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+pub fun asin(x: f64) -> f64 {
+  -- Implemented by codegen backends (arc sine)
+  return 0.0;
+}
+
+pub fun acos(x: f64) -> f64 {
+  -- Implemented by codegen backends (arc cosine)
+  return 0.0;
+}
+
+pub fun atan(x: f64) -> f64 {
+  -- Implemented by codegen backends (arc tangent)
+  return 0.0;
+}
+
+pub fun atan2(y: f64, x: f64) -> f64 {
+  -- Implemented by codegen backends (two-argument arc tangent)
+  return 0.0;
+}
+
+-- rounding and ceiling functions.
+pub fun floor(x: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+pub fun ceil(x: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+pub fun round(x: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+-- utility functions.
+pub fun clamp(value: f64, min_val: f64, max_val: f64) -> f64 {
+  -- Implemented by codegen backends
+  return 0.0;
+}
+
+pub fun lerp(a: f64, b: f64, t: f64) -> f64 {
+  -- Linear interpolation: a + t * (b - a)
+  -- Implemented by codegen backends
+  return 0.0;
+}

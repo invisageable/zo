@@ -1,0 +1,13 @@
+[package]
+name = "zo"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-driver = { workspace = true }
+
+# external:crates.
+

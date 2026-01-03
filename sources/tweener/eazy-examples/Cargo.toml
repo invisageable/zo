@@ -1,0 +1,24 @@
+[package]
+name = "eazy-examples"
+edition.workspace = true
+version = "0.0.0"
+
+[lib]
+doc-test = false
+
+[dependencies]
+# internal:sources.
+eazy = { workspace = true }
+
+# internal:crates.
+
+# external:crates.
+
+
+[[example]]
+name = "smooth-progress-animation-with-ease-in-out-back"
+path = "01-smooth-progress-animation-with-ease-in-out-back/src/main.rs"
+
+[[example]]
+name = "derive-tweenable"
+path = "11-derive-tweenable/src/main.rs"

@@ -1,0 +1,17 @@
+[package]
+name = "zo-interner"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-span = { workspace = true }
+
+# external:crates.
+rustc-hash = { workspace = true }
+serde = { workspace = true }

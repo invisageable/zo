@@ -1,0 +1,14 @@
+├─ KIND      LEXEME    SPAN
+│
+├─ Fun       fun       (94..97)
+├─ Ident     main      (98..102)
+├─ LParen    (         (102..103)
+├─ RParen    )         (103..104)
+├─ LBrace    {         (105..106)
+├─ Ident     showln    (109..115)
+├─ LParen    (         (115..116)
+├─ String    "hello, world!"(116..131)
+├─ RParen    )         (131..132)
+├─ Semicolon ;         (132..133)
+├─ RBrace    }         (134..135)
+└─ Eof                 (136..136)

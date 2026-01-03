@@ -1,0 +1,16 @@
+[package]
+name = "zo-template-optimizer"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-ui-protocol = { workspace = true }
+zo-interner = { workspace = true }
+
+# external:crates.

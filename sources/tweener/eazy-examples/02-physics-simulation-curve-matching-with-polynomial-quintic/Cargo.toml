@@ -1,0 +1,14 @@
+[package]
+name = "physics-simulation-curve-matching-with-polynomial-quintic"
+description = ""
+version = "0.0.0"
+repository = ""
+edition = "2024"
+publish = false
+
+[lib]
+doc-test = false
+
+[dependencies]
+eazy = { workspace = true }
+

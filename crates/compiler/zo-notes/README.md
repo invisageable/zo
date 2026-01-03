@@ -1,0 +1,55 @@
+# zo — notes.
+
+> *..*.
+
+## warning.
+
+**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
+
+zo iS CURRENTLY UNDER DEVELOPMENT, AND THiS CONSTANT EVOLUTiON REQUiRES DELETiNG, REPLACiNG, ADDiNG, AND CONCEPTUALiSiNG PARTS OF THE CODE. iT iS OKAY iF SOME FEATURES DO NOT WORK PROPERLY OR DO NOT WORK AT ALL.   
+
+THiS MANUAL iS NOT iNTENDED TO BE CONVENTiONAL OR COMPREHENSiVE. iT WAS WRiTTEN AT A SPECiFiC POiNT iN TiME, AT THE BEGiNNiNG OF THE PROJECT, AND DESCRiBES CONCEPTS THAT HAVE NOT YET BEEN iMPLEMENTED. THiS iS BECAUSE WE NEED TO HAVE AN OVERALL ViEW OF THE LANGUAGE. iT iS NOT A SPECiFiCATiON WORTHY OF THE GREATEST PROGRAMMiNG LANGUAGES.   
+
+AS FOR SUGGESTiONS, THEY SHOULD PRiMARiLY CONCERN THE REDUCTiON OF THE LANGUAGE: AN OMiTTED FEATURE, A POSSiBiLiTY TO COMBiNE FEATURES. iF YOUR REQUEST iS TO ADD A FEATURE, iT iS A LOST CAUSE; WE HAVE ALREADY DEFiNED THE SCOPE OF THE LANGUAGE. THE TASK AHEAD OF US iS TO COMBiNE, REDUCE AND iMPLEMENT.   
+
+JOiN THE DEVOLUTiON.
+
+**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.** 
+
+## introduction.
+
+> *« why accept slow compilers? just make them faster. »*   
+> &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— Jonathan Blow
+
+zo iS A NEW, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE DESiGNED FROM FiRST PRiNCiPLES FOR THE NEXT-GEN OF CREATiVE AND iNTERACTiVE SOFTWARE. iT iS A MULTi-PARADiGM LANGUAGE, SEAMLESSLY BLENDiNG HiGH-PERFORMANCE SYSTEMS PROGRAMMiNG WiTH A HiGH-LEVEL, DECLARATiVE, AND REACTiVE Ui FRAMEWORK.  
+
+iT iS COMPOSED OF SEVERAL CONCEPTS: PURE FUNCTiONAL, CONCURRENT ACTOR MODEL, ETC. zo SUPPORTS GENERiC PROGRAMMiNG AND META-PROGRAMMiNG iN BOTH STATiC AND DYNAMiC STYLES.    
+
+## goals.
+
+> « The Speed Demon » - Compile Everything, Every Time, Instantly.
+> &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— i10e
+
+- COMPiLE-TiME ERROR DETECTiON AND PREVENTiON — *be aware of what's going on*.
+- CLARiTY AND PRECiSION OF EXPRESSiON — *ux syntax design*.
+- iMPLEMENTATiON SiMPLiCiTY — *no painfull to do thing quickly*.
+- RUN-TiME EFFiCiENCY — *get the full speed demon of your program*.
+- HiGH CONCURRENCY — *green threads*.
+- FAST COMPiLE-TIME — *we target __10M LoC/s__*.
+
+## compiler pipeline.
+
+WE HAVE ELiMiNATED ALL UNNECESSARY iNTERMEDiATE STAGES. THE FRONTEND iS A LEAN, BRUTALLY FAST DATAFLOW PiPELiNE.    
+    
+```
+source -> tokenizer -> tokens -> parser -> hir -> analyzer/executor -> sir -> codegen -> executable
+```
+
+## a "holy trinity" features.
+
+THE LANGUAGE iTSELF iS DESiGNED TO BE A PRAGMATiC SYNTHESiS OF POWERFUL, MODERN iDEAS, CREATiNG A UNiQUE "SiMPLE SAFETY" PARADiGM.    
+    
+1. A TiERED, "GAME-LiKE" MEMORY MODEL: MANAGED (DEFAULT), OWNED (WiTH FiRST-CLASS TYPESTATE FOR RESOURCE SAFETY), AND RAW (WiTH UNSAFE FOR ULTiMATE CONTROL).
+2. FiRST-CLASS STRUCTURED CONCURRENCY: THE NURSERY BLOCK FOR PROVABLY SAFE, SiMPLE, AND LEAK-FREE CONCURRENT PROGRAMMiNG.
+3. DECLARATiVE Ui TEMPLATiNG: A UNiFiED SYNTAX FOR PROGRAMMiNG AND Ui. TEMPLATES ARE "DATA, NOT CONTROL FLOW," COMPiLiNG DOWN TO A PLATFORM-AGNOSTiC Ui COMMAND PROTOCOL.
+

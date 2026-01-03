@@ -1,0 +1,30 @@
+{
+  "name": "fret-oz-syntax",
+  "displayName": "Fret Configuration Syntax",
+  "description": "Syntax highlighting for .oz fret configuration files",
+  "version": "0.1.0",
+  "publisher": "invisageable",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "fret-oz",
+        "aliases": ["Fret Config", "fret-oz"],
+        "extensions": [".oz"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fret-oz",
+        "scopeName": "source.fret-oz",
+        "path": "./syntaxes/fret-oz.tmLanguage.json"
+      }
+    ]
+  }
+}

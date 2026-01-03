@@ -1,0 +1,50 @@
+name: release-zo-compiler
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on tags like v0.1.0, v0.2.0, etc.
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        # This is the key. GitHub Actions will run one job for each of these targets.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      
+      # Step for installing dependencies like clang/LLVM
+      - name: Install build dependencies
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then sudo apt-get update && sudo apt-get install -y clang; fi
+          if [ "$RUNNER_OS" == "macOS" ]; then brew install llvm; fi
+          # Windows runner often has clang pre-installed
+
+      - name: Build the `zo` compiler in release mode
+        run: cargo build --release --bin zo-compiler-orchestrator
+
+      - name: Package the artifacts
+        # This step takes the executable and zips/tar.gz's it.
+        run: |
+          # ... logic to find the executable in `target/release/` ...
+          # ... create a zip for windows, a tar.gz for mac/linux ...
+          # ... name it like `zo-v0.1.0-x86_64-unknown-linux-gnu.tar.gz` ...
+
+      - name: Upload artifacts to the GitHub Release
+        uses: actions/upload-release-asset@v1
+        with:
+          # This uses the tag name to find the release to upload to.
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./path/to/your/archive.zip
+          asset_name: ...
+          asset_content_type: application/zip

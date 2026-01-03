@@ -1,0 +1,12 @@
+-- examples: counter.
+
+fun main() {
+  mut count: int = 0;
+  
+  imu counter ::= <>
+    <input type="number" bind:value={count} />
+    <button on:click={fn() -> count += 1}>count</button>
+  </>;
+
+  #dom counter;
+}

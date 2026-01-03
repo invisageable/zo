@@ -1,0 +1,26 @@
+[package]
+name = "zo-ty-checker"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-error = { workspace = true }
+zo-interner = { workspace = true }
+zo-reporter = { workspace = true }
+zo-sir = { workspace = true }
+zo-span = { workspace = true }
+zo-tree = { workspace = true }
+zo-ty = { workspace = true }
+
+# external:crates.
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+# external:crates.
+proptest = { workspace = true }

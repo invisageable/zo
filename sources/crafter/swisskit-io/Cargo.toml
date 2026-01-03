@@ -1,0 +1,19 @@
+[package]
+name = "swisskit-io"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+default = []
+async = ["tokio"]
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+tokio = { workspace = true, optional = true }

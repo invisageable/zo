@@ -1,0 +1,9 @@
+-- tests-run-pass: square root.
+-- @see https://en.wikipedia.org/wiki/Methods_of_computing_square_roots.
+
+fun main() {
+  imu sqrt := fn(x) -> x * x;
+
+  check(sqrt(5) == 25);
+  showln(sqrt(5));
+}

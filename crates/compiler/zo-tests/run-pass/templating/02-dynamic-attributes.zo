@@ -1,0 +1,9 @@
+-- examples: dynamic attributes.
+
+fun main() {
+  imu src: str = "/assets/image.gif";
+	imu name: str = "johndoe";
+  imu image ::= <img {src} alt="a picture of '{name}'" />;
+
+  #dom image;
+}

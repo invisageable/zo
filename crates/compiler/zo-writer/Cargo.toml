@@ -1,0 +1,18 @@
+[package]
+name = "zo-writer"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-codegen-backend = { workspace = true }
+zo-writer-macho = { workspace = true }
+
+# external:crates.
+
+[dev-dependencies]

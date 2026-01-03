@@ -1,0 +1,22 @@
+[package]
+name = "zo-reporter"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-error = { workspace = true }
+zo-span = { workspace = true }
+
+# external:crates.
+ariadne = { workspace = true }
+
+[dev-dependencies]
+# external:crates.
+criterion = { workspace = true }
+insta = { workspace = true }

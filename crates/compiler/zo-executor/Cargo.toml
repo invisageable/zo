@@ -1,0 +1,44 @@
+[package]
+name = "zo-executor"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-constant-folding = { workspace = true }
+zo-constant-propagation = { workspace = true }
+zo-dce = { workspace = true }
+zo-error = { workspace = true }
+zo-interner = { workspace = true }
+zo-reporter = { workspace = true }
+zo-sir = { workspace = true }
+zo-span = { workspace = true }
+zo-template-optimizer = { workspace = true }
+zo-token = { workspace = true }
+zo-tree = { workspace = true }
+zo-ty = { workspace = true }
+zo-ty-checker = { workspace = true }
+zo-ty-state = { workspace = true }
+zo-ui-protocol = { workspace = true }
+zo-value = { workspace = true }
+
+# external:crates.
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+# internal:crates.
+zo-analyzer = { workspace = true }
+zo-parser = { workspace = true }
+zo-tokenizer = { workspace = true }
+
+# external:crates.
+criterion = { workspace = true }
+
+[[bench]]
+name = "execute"
+harness = false

@@ -1,0 +1,9 @@
+-- tests-run-pass: utf8.
+
+fun main() {
+  imu yen: char = '¥';         -- 0xa5.
+  imu c_cedilla: char = 'ç';   -- 0xe7.
+  imu thorn: char = 'þ';       -- 0xfe.
+  imu y_diaeresis: char = 'ÿ'; -- 0xff.
+  imu pi: char = 'Π';          -- 0x3a0.
+}

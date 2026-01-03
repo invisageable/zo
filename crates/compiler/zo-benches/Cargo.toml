@@ -1,0 +1,12 @@
+[package]
+name = "zo-benches"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+clap = { workspace = true }

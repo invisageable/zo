@@ -1,0 +1,25 @@
+[package]
+name = "zo-profiler"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-buffer = { workspace = true }
+
+# external:crates.
+nanorand = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+# external:crates.
+insta = { workspace = true }
+
+[[bench]]
+name = "profile"
+harness = false

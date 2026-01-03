@@ -1,0 +1,24 @@
+[package]
+name = "zo-writer-macho"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+rustc-hash = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[[bench]]
+name = "write"
+harness = false

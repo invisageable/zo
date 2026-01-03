@@ -1,0 +1,8 @@
+load math::add;
+load utils::format_result;
+
+fun main(): int {
+  imu result: int = add(10, 20);
+  imu message: str = format_result(result);
+  return result;
+}

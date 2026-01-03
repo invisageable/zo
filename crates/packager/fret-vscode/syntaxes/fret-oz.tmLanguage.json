@@ -1,0 +1,181 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Fret Config",
+  "scopeName": "source.fret-oz",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#directive"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#keywords"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.fret-oz",
+          "match": "--.*$"
+        }
+      ]
+    },
+    "directive": {
+      "patterns": [
+        {
+          "name": "meta.directive.fret-oz",
+          "begin": "(@)(pack)(?:(:)([a-zA-Z_][a-zA-Z0-9_-]*))*\\s*(=)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.directive.fret-oz"
+            },
+            "2": {
+              "name": "keyword.control.directive.fret-oz"
+            },
+            "3": {
+              "name": "punctuation.separator.namespace.fret-oz"
+            },
+            "4": {
+              "name": "entity.name.namespace.fret-oz"
+            },
+            "5": {
+              "name": "keyword.operator.assignment.fret-oz"
+            },
+            "6": {
+              "name": "punctuation.section.parens.begin.fret-oz"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.parens.end.fret-oz"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#field-pair"
+            },
+            {
+              "include": "#comments"
+            }
+          ]
+        }
+      ]
+    },
+    "field-pair": {
+      "patterns": [
+        {
+          "name": "meta.field.fret-oz",
+          "begin": "([a-zA-Z_][a-zA-Z0-9_-]*)\\s*(:)",
+          "beginCaptures": {
+            "1": {
+              "name": "variable.other.property.fret-oz"
+            },
+            "2": {
+              "name": "punctuation.separator.key-value.fret-oz"
+            }
+          },
+          "end": "(?=[,)])",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#arrays"
+            },
+            {
+              "include": "#booleans"
+            },
+            {
+              "include": "#comments"
+            }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.fret-oz",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.fret-oz",
+              "match": "\\\\([\"\\\\/bfnrt])"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.fret-oz",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "arrays": {
+      "patterns": [
+        {
+          "name": "meta.array.fret-oz",
+          "begin": "\\[",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.brackets.begin.fret-oz"
+            }
+          },
+          "end": "\\]",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.brackets.end.fret-oz"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "name": "punctuation.separator.array.fret-oz",
+              "match": ","
+            },
+            {
+              "include": "#comments"
+            }
+          ]
+        }
+      ]
+    },
+    "booleans": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.fret-oz",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.fret-oz",
+          "match": "\\b(pack)\\b"
+        }
+      ]
+    }
+  }
+}

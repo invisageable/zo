@@ -1,0 +1,15 @@
+[package]
+name = "zo-codegen-backend"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-sir = { workspace = true }
+
+# external:crates.

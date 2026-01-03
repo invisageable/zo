@@ -1,0 +1,23 @@
+[package]
+name = "zo-buffer"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+itoa = { workspace = true }
+zmij = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "bytes"
+harness = false

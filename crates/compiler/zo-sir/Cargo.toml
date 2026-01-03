@@ -1,0 +1,23 @@
+[package]
+name = "zo-sir"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-error = { workspace = true }
+zo-interner = { workspace = true }
+zo-span = { workspace = true }
+zo-token = { workspace = true }
+zo-ty = { workspace = true }
+zo-ui-protocol = { workspace = true }
+zo-value = { workspace = true }
+
+# external:crates.
+serde = { workspace = true }
+rustc-hash = { workspace = true }

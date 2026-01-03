@@ -1,0 +1,16 @@
+[package]
+name = "eazy-keyframes"
+edition.workspace = true
+version = "0.0.0"
+
+[lib]
+doc-test = false
+
+[dependencies]
+# internal:sources.
+eazy-data = { workspace = true }
+eazy-tweener = { workspace = true }
+
+# internal:crates.
+
+# external:crates.

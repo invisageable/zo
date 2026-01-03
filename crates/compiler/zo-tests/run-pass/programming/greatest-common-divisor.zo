@@ -1,0 +1,12 @@
+-- tests-run-pass: GCD.
+-- @see https://en.wikipedia.org/wiki/Greatest_common_divisor.
+
+fun main() {
+  -- recursive gcd of a and b in single line.
+  imu gcd := fn(a, b) -> when b == 0 ? a : gcd(b, a % b);
+
+  imu A: int = 48;
+  imu B: int = 18;
+
+  showln("GCD of {a} and {b} = {}", gcd(A, B)); -- returns `GCD of 48 and 18 is 6`.
+}

@@ -1,0 +1,69 @@
+[package]
+name = "eazy"
+description = "The tweening & easing functions kit for high-performance animation."
+repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+version = "0.0.0"
+
+exclude = [
+  "./benches/*",
+]
+
+keywords = [
+  "easing",
+  "interpolation",
+  "animation",
+]
+
+[lib]
+doctest = false
+
+[features]
+default = []
+wasm = ["eazy-wasm"]
+
+[dependencies]
+# internals:sources.
+# eazy-bevy = { workspace = true, optional = true }
+eazy-data = { workspace = true }
+eazy-derive = { workspace = true }
+eazy-keyframes = { workspace = true }
+eazy-tweener = { workspace = true }
+eazy-wasm = { workspace = true, optional = true }
+
+# internals:crates.
+
+# externals:crates.
+
+[dev-dependencies]
+# externals:crates.
+criterion = { workspace = true }
+eframe = { workspace = true }
+nanorand = { workspace = true }
+wgpu = { version = "27.0", default-features = false, features = ["metal"] }
+
+# bench:only.
+glissade = "0.2.6"
+emath = "0.31.1"
+easings = "0.1.0"
+interpolation = "0.3.0"
+keyframe = "1.1.1"
+lilt = "0.8.1"
+simple-easing2 = "1.0.2"
+
+[profile.bench]
+debug = false
+
+[[bench]]
+name = "easing"
+harness = false
+
+[[example]]
+name = "tweener-timeline-stagger"
+path = "../eazy-examples/10-tweener-timeline-stagger/src/main.rs"
+
+[[example]]
+name = "derive-tweenable"
+path = "../eazy-examples/11-derive-tweenable/src/main.rs"

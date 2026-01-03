@@ -1,0 +1,40 @@
+{
+  "name": "tree-sitter-zo",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Zo programming language",
+  "main": "bindings/node",
+  "types": "bindings/node",
+  "keywords": [
+    "parser",
+    "tree-sitter",
+    "zo",
+    "syntax-highlighting"
+  ],
+  "files": [
+    "grammar.js",
+    "binding.gyp",
+    "prebuilds/**",
+    "bindings/node/*",
+    "queries/*",
+    "src/**",
+    "*.wasm"
+  ],
+  "devDependencies": {
+    "tree-sitter-cli": "^0.24.0"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "build": "tree-sitter generate && tree-sitter build",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.zo",
+      "file-types": ["zo"],
+      "injection-regex": "^zo$",
+      "highlights": "queries/highlights.scm",
+      "locals": "queries/locals.scm"
+    }
+  ]
+}

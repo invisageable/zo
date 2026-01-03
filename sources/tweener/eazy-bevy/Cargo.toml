@@ -1,0 +1,20 @@
+[package]
+name = "eazy-bevy"
+description = "Bevy plugin for eazy animation library."
+edition.workspace = true
+version = "0.0.0"
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+eazy-data = { workspace = true }
+eazy-tweener = { workspace = true }
+
+# external:crates.
+bevy = { workspace = true }
+
+[[example]]
+name = "eazy-bevy"
+path = "examples/main.rs"

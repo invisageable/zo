@@ -1,0 +1,13 @@
+[package]
+name = "eazy-derive"
+description = "Derive macros for the eazy animation library."
+edition.workspace = true
+version = "0.0.0"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }

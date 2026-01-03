@@ -1,0 +1,56 @@
+(* ========================================================================= *)
+(*  Fret Configuration File Grammar (`.oz`)                                  *)
+(*  Version 1.0                                                              *)
+(* ========================================================================= *)
+
+(* --- Whitespace and Comments --- *)
+(* 
+  Whitespace (spaces, tabs, newlines) and comments are implicitly allowed between 
+  any of the tokens defined above and should be skipped by the tokenizer.
+*)
+comment = "--", { ? any character except newline ? } ;
+
+(* --- Top Level --- *)
+(* A `fret.oz` file is a sequence of top-level directives. *)
+config_file = { directive } ;
+
+(* --- Directives --- *)
+(* A directive starts with '@' followed by a name and a value tuple. *)
+directive = "@", identifier, value_tuple ;
+
+(* --- Core Data Structures --- *)
+
+(* A tuple holds a comma-separated list of key-value pairs. *)
+value_tuple = "(", [ pair, { ",", pair } ], [ "," ], ")" ;
+
+(* A key-value pair. The key is always an identifier. *)
+pair = identifier, ":", value ;
+
+(* A value can be a string, an integer, an array, or a nested tuple. *)
+value = 
+    string_literal
+  | integer_literal
+  | array
+  | value_tuple ;
+
+(* An array is a comma-separated list of values inside square brackets. *)
+array = "[", [ value, { ",", value } ], [ "," ], "]" ;
+
+(* --- Literals and Identifiers --- *)
+
+(* An identifier starts with a letter, followed by letters, digits, or underscores. *)
+identifier = letter, { letter | digit | "_" } ;
+
+(* A string literal is enclosed in double quotes with support for escaped quotes. *)
+string_literal = '"', { character | escape_sequence }, '"' ;
+
+(* An integer literal is a sequence of one or more digits. *)
+integer_literal = digit, { digit } ;
+
+
+(* --- Character Classes and Terminals --- *)
+
+letter = ? A-Z or a-z ? ;
+digit = ? 0-9 ? ;
+character = ? any character except '"' or '\' ? ;
+escape_sequence = '\', '"' ;

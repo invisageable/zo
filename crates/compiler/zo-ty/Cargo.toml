@@ -1,0 +1,18 @@
+[package]
+name = "zo-ty"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-interner = { workspace = true }
+
+# external:crates.
+rustc-hash = { workspace = true }
+serde = { workspace = true }
+thin-vec = { workspace = true }

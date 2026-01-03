@@ -1,0 +1,19 @@
+[package]
+name = "fret"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-compiler = { workspace = true }
+zo-codegen-backend = { workspace = true }
+zo-error = { workspace = true }
+
+# external:crates.
+hashbrown = { workspace = true }
+rayon = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,21 @@
+[package]
+name = "zo-value"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-interner = { workspace = true }
+zo-ty = { workspace = true }
+
+# external:crates.
+itoa = { workspace = true }
+zmij = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }

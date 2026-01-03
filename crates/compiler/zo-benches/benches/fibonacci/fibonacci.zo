@@ -1,0 +1,21 @@
+fun fib(n: int) -> int {
+  -- Several of the posted 'benchmark' versions of this compute the
+  -- wrong Fibonacci numbers, of course.
+
+  if n == 0 {
+    return 0;
+  } else {
+    if (n <= 2) {
+      return 1;
+    } else {
+      return fib(n - 1) + fib(n - 2);
+    }
+  }
+}
+
+fun main() {
+  check (fib(8) == 21);
+  check (fib(15) == 610);
+  showln(fib(8));
+  showln(fib(15));
+}

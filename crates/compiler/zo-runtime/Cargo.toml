@@ -1,0 +1,20 @@
+[package]
+name = "zo-runtime"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-error = { workspace = true }
+zo-reporter = { workspace = true }
+zo-ui-protocol = { workspace = true }
+zo-runtime-native = { workspace = true }
+zo-runtime-render = { workspace = true }
+zo-runtime-web = { workspace = true }
+
+# external:crates.

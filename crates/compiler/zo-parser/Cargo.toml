@@ -1,0 +1,34 @@
+[package]
+name = "zo-parser"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-error = { workspace = true }
+zo-reporter = { workspace = true }
+zo-span = { workspace = true }
+zo-tree = { workspace = true }
+zo-token = { workspace = true }
+zo-tokenizer = { workspace = true }
+
+# external:crates.
+serde = { workspace = true }
+
+[dev-dependencies]
+# internal:crates.
+zo-interner = { workspace = true }
+
+# external:crates.
+criterion = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true }
+
+[[bench]]
+name = "parse"
+harness = false

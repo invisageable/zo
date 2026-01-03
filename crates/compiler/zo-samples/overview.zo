@@ -1,0 +1,554 @@
+-- this is a line comment in zo.
+-! this is a doc line comment in zo.
+
+-- https://docs.python.org/3/library/string.html#formatspec
+
+-- zo is an ecosystem for creative, scientists and gamer. inside this ecosystem
+
+-- item:pack;
+pub pack io;
+pack io;
+
+pack foo {
+  pub val BAR: str = "foo::BAR";
+}
+
+pack zo {
+  pub fun turfu() -> str {
+    return "zo::turfu()";
+  }
+}
+
+-- item:load;
+pub load core::io::(read, readln);
+load core::math::(abs, sin);
+load core::math;
+
+-- item:directive.
+#run foobar();
+
+-- item:type.
+pub type FooBar = int;
+
+-- item:ext.
+pub ext foo(bar: s32) -> int;
+ext foo(bar: s32) -> int;
+
+-- item:abstract:declaration.
+abstract Foo {}
+
+-- item:abstract:declaration (with methods).
+abstract Bar {
+  fun foobar();
+  fun raboof();
+}
+
+-- item:abstract:apply.
+abstract Bar {
+  fun as_span();
+}
+
+struct Span {
+  pub lo: int = 0,
+  pub hi: int = 0,
+}
+
+struct Foo {}
+
+apply Bar for Foo {
+  fun as_span(): Span {
+    Span { lo: 0, hi: 0 }
+  }
+}
+
+-- item:attr.
+%% inline.
+fun foo() {}
+
+-- item:attr (with argument).
+%% foo(bar).
+fun bar() {}
+
+-- item:fun.
+pub raw fun foo() {}
+pub fun foo() {}
+fun bar() {}
+fun bar() {}
+
+-- modifiers:wasm.
+pub raw wasm fun main() {
+  -- welcome to the WASM world.
+}
+
+-- item:fun (with return type).
+pub raw fun foo() -> int { 0 }
+pub fun foo() -> f32 { 0.0 }
+fun bar() -> str { "42" }
+
+-- item:fun (implicit return without semicolon and return keyword).
+fun foobar(x: float, y: float) -> float {
+  x * y
+}
+
+-- item:fun (explicit return with semicolon and return keyword).
+fun barfoo(x: float, y: float) -> float {
+  return x * y;
+}
+
+-- item:val (constant).
+val BAR_FOO: str = "hello";
+
+-- item:struct.
+pub struct Foo {}
+
+-- item:typestate.
+type@state FileState {
+  state Open { handle: u64 }
+  and Closed {}
+}
+pub struct Foo {}
+
+-- item:enum:declaration.
+pub enum Result {
+  Ok,
+  Err(error),
+}
+
+-- item:enum:declaration (with default value).
+enum Bar {
+  FooBar,
+  RabOof = 0,
+}
+
+-- generics.
+pub fun foo(x: $T)  {}
+fun bar(): $T {}
+
+-- item:type-alias:declaration.
+pub type Idx = int;
+type Idx = int;
+
+-- item:type-alias:declaration (grouped).
+group type Foo = int
+  and Bar = (float, int)
+  and Oof = float[]
+  and Rab = Fn(int): int
+;
+
+pub group type Foo = int
+  and Bar = (float, int)
+;
+
+-- stmt:imu.
+fun add() {
+  imu x: int = 2; -- static type.
+  imu y := 4;     -- infered type via `:=`.
+}
+
+-- stmt:mut.
+fun add() {
+  mut x: int = 42; -- static type.
+  mut y := 24;     -- infered type via `:=`.
+}
+
+-- stmt:shadowing.
+fun bar() {
+  imu x: int = 1;
+  imu x: int = 2;
+  imu x: int = x + 3;
+}
+
+-- stmt:assign.
+fun main() {
+  imu foo: int = 3;
+  imu bar: int = 10;
+  mut foobar: int = 0;
+
+  foobar = foo + bar;
+
+  showln("[debug] = {foobar}");
+}
+
+-- stmt:loops:while.
+fun main() {
+  mut x := 0;
+
+  -- while:block.
+  while x < 3 {
+    showln("{}", x += 1);
+  }
+
+  mut x := 3;
+
+  -- while:line.
+  while x < 6 => showln("{}", x += 1);
+}
+
+-- stmt:loops:for.
+fun main() {
+  -- for:block.
+  for x := 0..3 {
+    showln("{x}");
+  }
+
+  -- for:line.
+  for x := 0..3 => showln("{x}");
+}
+
+-- expr:loops:loop.
+fun main() {
+  mut x: int = 0;
+
+  loop {
+    if x == 3 {
+      break;
+    } else {
+      continue;
+    }
+
+    x += 1;
+  }
+
+  showln("{x}");
+}
+
+-- stmt:nursery.
+fun bar() -> User {
+  nursery {
+    -- Spawn two tasks that run CONCURRENTLY.
+    imu profile_task := spawn fetch_profile(user_id);
+    imu posts_task := spawn fetch_posts(user_id);
+    
+    -- `await` waits for the tasks to finish.
+    -- If `fetch_profile` fails, `fetch_posts` is automatically cancelled.
+    imu profile := await profile_task;
+    imu posts := await posts_task;
+    
+    return User { profile, posts };
+  }
+}
+
+apply Foo {
+  state Unopened
+    and Opened { handle: FileHandle }
+    and Closed;
+
+  fun new(path: str) -> Self(Unopened) { ... }
+  fun open(self: &mut Unopened) -> Result<(), Error> ->> shift(Opened) {
+    self.state = Opened { handle: ... };
+  }
+  fun read(self: &Opened, buffer: &mut u8[]) -> usize { ... }
+  fun close(self: &mut Opened) -> shift(Closed) {
+    self.state = Closed;
+  }
+}
+
+-- expr:zsx.
+fun main() {
+  imu name: str = "world";
+  imu comp: </> ::= <h1>hello, {name}!</h1>;
+}
+
+-- expr:zsx.
+fun main() {
+  mut count: int = 0;
+  imu comp: </> ::= <>
+    <button onclick={fn() -> count -= 1}>-</button>
+    {count}
+    <button onclick={fn() -> count += 1}>+</button>
+  </>;
+}
+
+-- stmt:if.
+fun main() {
+  mut x: int = 3;
+  if x < 1 {
+    x = 1
+  }
+}
+
+-- stmt:if-else.
+fun main() {
+  mut x: int = 42;
+  if x < 1 {
+    x = 1
+  } else {
+    x = 3
+  }
+}
+
+-- expr:if.
+fun main() {
+  mut name: str = if true {
+    "hello"
+  };
+}
+
+-- expr:if-else.
+fun main() {
+  mut x: int = if true {
+    x = 1
+  } else {
+    x = 3
+  };
+}
+
+-- expr:ternary.
+fun main() {
+  imu x: int = when true ? 1 : 2;
+}
+
+-- expr:closure.
+fun main() {
+  imu foo: Fn(int): int = fn(x) { x + x}; -- closure:line.
+  imu bar := fn(x) { x * x };              -- closure:line.
+
+  imu foo: Fn(int): int = fn(x) => x + x; -- closure:line.
+  imu bar := fn(x) => x * x;              -- closure:line.
+}
+
+-- expr:closure:currying.
+fun main(): int {
+  imu adder := fn(x) => fn(y) => x + y;
+  imu add := adder(1);
+  imu x := add(2);
+}
+
+-- expr:call.
+fun main() {
+  imu foo: Fn(int): int = fn(x) => x + x;
+
+  showln(foo(7));
+}
+
+enum Foo {
+  Ok(int),
+  Err(int),
+}
+
+-- expr:matches:is.
+fun main(): Result<Foo, Foo> {
+  imu succ: Foo = Foo::Ok(0);
+  imu fail: Foo = Foo::Err(1);
+
+  if x is Foo::Ok(0) {
+    return succ as int;
+  }
+
+  fail as int
+}
+
+-- expr:matches:match.
+fun matches(n: int) -> str {
+  match n {
+    1 => "one",
+    2 => "two",
+    3 => { "three" },
+    _ => ...
+  }
+}
+
+fun main() {
+  showln("{}", matches(1));
+}
+
+-- stmt:directive.
+fun main() {
+  #run foobar();
+}
+
+-- expr:lit:int.
+fun main() {
+  imu bin: int = 0b11110000;  -- binary.
+  imu oct: int = 0o77;        -- octal.
+  imu hex: int = 0xfff_fff;   -- hexadecimal.
+
+  showln("bin = {bin}");
+  showln("oct = {oct}");
+  showln("hex = {hex}");
+
+  -- parse to binary number.
+  imu bina: int = b#30;
+
+  showln("bina = {bina}"); -- 11110.
+
+  -- parse to octal number.
+  imu octa: int = o#75;
+
+  showln("octa = {octa}"); -- 113.
+
+  -- parse to hexadecimal number.
+  imu hexa: int = x#76;
+
+  showln("hexa = {hexa}"); -- 4c.
+}
+
+-- expr:lit:floating-point.
+fun main() {
+  imu x: float = 0.0;
+  imu y: float = 1.0E+77; -- enotation.
+  imu z: float = 1e4;     -- enotation.
+
+  showln("x = {x}");
+  showln("y = {y}");
+  showln("z = {z}");
+}
+
+-- expr:lit:booleans.
+fun main() {
+  imu x: bool = true;
+  imu y: bool = !x;
+  imu z: bool = y == false;
+
+  showln("x = {x}"); -- true.
+  showln("y = {y}"); -- false.
+  showln("z = {z}"); -- true.
+}
+
+-- expr:lit:characters.
+fun main() {
+  imu x: char = 'a';
+
+  showln("{x}");
+}
+
+-- expr:lit:strings.
+fun main() {
+  imu x: str = "你好!";
+  imu y: str = "foo\n";
+  imu z: str = "\"bar\"";
+
+  showln("x = {x}");
+  showln("y = {y}");
+  showln("z = {z}");
+}
+
+-- expr:lit:strings:raw.
+fun main() {
+  imu x := $"
+foo bar
+  foobar ""
+    barfoo
+  ";
+}
+
+-- stmt:block.
+fun main() {
+  {
+    imu x: int = 1 << 2;
+    {
+      imu y: int = 1 >> 2;
+      showln("{x}, {y}");
+    }
+  }
+}
+
+-- operators:shift.
+fun main() {
+  imu x: int = 1 << 2;
+  imu y: int = 1 >> 2;
+  showln("{x}, {y}");
+}
+
+-- operators:bitwize.
+fun main() {
+  imu x := 1 & 2;
+  imu y := 3 | 4;
+  imu z := 5 ^ 6;
+}
+
+-- operators:logical:or.
+fun main() {
+  imu is_or1: bool = true;
+  imu is_or2: bool = true;
+
+  if is_or1 || is_or2 {
+    showln("yes.");
+  }  else if true {
+    showln("no.");
+  } else {
+    showln("no.");
+  }
+}
+
+-- operators:and.
+fun main() {
+  imu is_and1: bool = true;
+  imu is_and2: bool = true;
+
+  if is_and1 && is_and2 {
+    showln("yes.");
+  } else {
+    showln("no.");
+  }
+}
+
+-- expr:struct:destructuring.
+struct Foo {
+  x: int,
+  y: int,
+  z: int,
+}
+
+fun main() {
+  imu { x, y, z } = Foo {
+    x = 1,
+    y = 2,
+    z = 3,
+  };
+
+  showln("{x}, {y}, {z}");
+}
+
+-- expr:arrays:declaration.
+fun main() {
+  imu x: float[3] = [1.0, 2.0, 3.0];   -- sized array.
+  showln("x = {x}");
+
+  imu y: float[] = [1.0, 2.0, 3.0];    -- dynamic array.
+  showln("y = {y}");
+}
+
+-- expr:arrays:access.
+fun main() {
+  imu x: float[] = [1.0, 2.0, 3.0];
+  showln("{}", x[0]);
+
+  imu x := [1.0, 2.0, 3.0];
+  showln("{}", x[1]);
+}
+
+-- expr:arrays:destructuring.
+fun main() {
+  imu [x, y, z]: float[] = [0.0, 0.0, 1.0];
+  showln("{x}, {y}, {z}");
+
+  imu [x, y, z] := [0.0, 0.0, 1.0];
+  showln("{x}, {y}, {z}");
+}
+
+-- expr:tuples:declaration.
+fun main() {
+  imu tup: (int, float, str) = (0, 0.0, "yo!");
+
+  showln("{tup}");
+}
+
+-- expr:tuples:indexes.
+fun main() {
+  imu tup := (1.0, 2.0, 3.0);
+  showln("{}", tup.0);
+}
+
+-- expr:tuples:destructuring.
+fun main() {
+  imu (x, y, z): (float, float, float) = (0.0, 0.0, 1.0);
+  showln("{x}, {y}, {z}");
+
+  imu (x, y, z) := (0.0, 0.0, 1.0);
+  showln("{x}, {y}, {z}");
+}
+
+fun main() {
+  showln("👋 🌍 👽"); -- prints `👋 🌍 👽`.
+}

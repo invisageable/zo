@@ -1,0 +1,17 @@
+[package]
+name = "eazy-wasm"
+edition.workspace = true
+version = "0.0.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+# internal:sources.
+eazy-data = { workspace = true }
+
+# internal:crates.
+
+# external:crates.
+wasm-bindgen = { workspace = true }

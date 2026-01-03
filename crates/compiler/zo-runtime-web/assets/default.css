@@ -1,0 +1,21 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  padding: 1rem;
+}
+
+.container-vertical {
+  display: flex;
+  flex-direction: column;
+}
+
+.container-horizontal {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}

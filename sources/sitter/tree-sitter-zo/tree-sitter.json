@@ -1,0 +1,24 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "zo",
+      "path": ".",
+      "scope": "source.zo",
+      "file-types": ["zo"],
+      "highlights": "queries/highlights.scm",
+      "locals": "queries/locals.scm",
+      "tags": "queries/tags.scm",
+      "injection-regex": "^zo$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "authors": [
+      {
+        "name": "invisageable"
+      }
+    ]
+  }
+}

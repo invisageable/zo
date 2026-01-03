@@ -1,0 +1,18 @@
+[package]
+name = "swisskit-span"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

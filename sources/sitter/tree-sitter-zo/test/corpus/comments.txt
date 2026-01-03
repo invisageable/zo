@@ -1,0 +1,21 @@
+================================================================================
+Line comments
+================================================================================
+
+-- This is a line comment
+fun test() {
+  -- Another comment
+  42
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (line_comment)
+  (function_declaration
+    name: (identifier)
+    body: (block
+      (line_comment)
+      value: (primary_expression
+        (integer_literal
+          (decimal_literal))))))

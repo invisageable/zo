@@ -1,0 +1,17 @@
+[package]
+name = "zo-error"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-span = { workspace = true }
+
+# external:crates.
+anyhow = { workspace = true }
+serde = { workspace = true }

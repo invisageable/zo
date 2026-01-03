@@ -1,0 +1,5 @@
+pub fun compute(x: int, y: int): int {
+  imu sum: int = x + y;
+  imu product: int = x * y;
+  return sum + product;
+}

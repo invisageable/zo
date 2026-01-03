@@ -1,0 +1,5 @@
+-- tests-run-pass: uint.
+
+fun main() {
+  imu x: uint = 10;
+}

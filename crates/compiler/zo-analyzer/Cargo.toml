@@ -1,0 +1,39 @@
+[package]
+name = "zo-analyzer"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-constant-propagation = { workspace = true }
+zo-error = { workspace = true }
+zo-executor = { workspace = true }
+zo-interner = { workspace = true }
+zo-parser = { workspace = true }
+zo-reporter = { workspace = true }
+zo-sir = { workspace = true }
+zo-span = { workspace = true }
+zo-token = { workspace = true }
+zo-tokenizer = { workspace = true }
+zo-tree = { workspace = true }
+zo-ty = { workspace = true }
+zo-ty-checker = { workspace = true }
+
+# external:crates.
+rayon = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+# external:crates.
+criterion = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true }
+
+[[bench]]
+name = "analyze"
+harness = false

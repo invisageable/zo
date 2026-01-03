@@ -1,0 +1,4 @@
+pub fun add(x: int, y: int) { x + y }
+pub fun sub(x: int, y: int) { x - y }
+pub fun mul(x: int, y: int) { x * y }
+pub fun div(x: int, y: int) { x / y }
