@@ -22,16 +22,16 @@ doctest = false
 
 [features]
 default = []
-wasm = ["eazy-wasm"]
+# wasm = ["eazy-wasm"]
 
 [dependencies]
 # internals:sources.
 # eazy-bevy = { workspace = true, optional = true }
 eazy-data = { workspace = true }
 eazy-derive = { workspace = true }
-eazy-keyframes = { workspace = true }
+eazy-keyframe = { workspace = true }
 eazy-tweener = { workspace = true }
-eazy-wasm = { workspace = true, optional = true }
+# eazy-wasm = { workspace = true, optional = true }
 
 # internals:crates.
 
@@ -53,17 +53,6 @@ keyframe = "1.1.1"
 lilt = "0.8.1"
 simple-easing2 = "1.0.2"
 
-[profile.bench]
-debug = false
-
 [[bench]]
 name = "easing"
 harness = false
-
-[[example]]
-name = "tweener-timeline-stagger"
-path = "../eazy-examples/10-tweener-timeline-stagger/src/main.rs"
-
-[[example]]
-name = "derive-tweenable"
-path = "../eazy-examples/11-derive-tweenable/src/main.rs"

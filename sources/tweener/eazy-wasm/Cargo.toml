@@ -1,5 +1,9 @@
 [package]
 name = "eazy-wasm"
+description = "WebAssembly bindings for the eazy animation library."
+authors.workspace = true
+license.workspace = true
+repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
 edition.workspace = true
 version = "0.0.0"
 

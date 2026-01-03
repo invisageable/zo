@@ -1,6 +1,9 @@
 [package]
 name = "eazy-derive"
 description = "Derive macros for the eazy animation library."
+authors.workspace = true
+license.workspace = true
+repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
 edition.workspace = true
 version = "0.0.0"
 

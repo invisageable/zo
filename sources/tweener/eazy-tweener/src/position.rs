@@ -3,6 +3,8 @@
 //! The [`Position`] enum provides flexible ways to specify when a child
 //! animation should start within a timeline.
 
+use rustc_hash::FxHashMap as HashMap;
+
 /// Specifies when a child animation starts within a timeline.
 ///
 /// Similar to GSAP's position parameter, this allows for:
@@ -83,7 +85,7 @@ impl Position {
     previous_end: f32,
     previous_start: f32,
     timeline_end: f32,
-    labels: &std::collections::HashMap<String, f32>,
+    labels: &HashMap<String, f32>,
   ) -> Option<f32> {
     let time = match self {
       Self::Absolute(t) => *t,
@@ -160,19 +162,20 @@ impl From<String> for Position {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use std::collections::HashMap;
+
+  use rustc_hash::FxHashMap as HashMap;
 
   #[test]
   fn test_absolute_position() {
     let pos = Position::Absolute(2.0);
-    let labels = HashMap::new();
+    let labels = HashMap::default();
 
     assert_eq!(pos.resolve(1.0, 0.0, 3.0, &labels), Some(2.0));
   }
 
   #[test]
   fn test_relative_position() {
-    let labels = HashMap::new();
+    let labels = HashMap::default();
 
     let pos = Position::Relative(0.5);
     assert_eq!(pos.resolve(1.0, 0.0, 3.0, &labels), Some(1.5));
@@ -184,7 +187,7 @@ mod tests {
   #[test]
   fn test_after_previous() {
     let pos = Position::AfterPrevious;
-    let labels = HashMap::new();
+    let labels = HashMap::default();
 
     assert_eq!(pos.resolve(1.5, 0.5, 3.0, &labels), Some(1.5));
   }
@@ -192,14 +195,14 @@ mod tests {
   #[test]
   fn test_with_previous() {
     let pos = Position::WithPrevious;
-    let labels = HashMap::new();
+    let labels = HashMap::default();
 
     assert_eq!(pos.resolve(1.5, 0.5, 3.0, &labels), Some(0.5));
   }
 
   #[test]
   fn test_label_position() {
-    let mut labels = HashMap::new();
+    let mut labels = HashMap::default();
 
     labels.insert("intro".to_string(), 1.0);
 
@@ -228,7 +231,7 @@ mod tests {
   #[test]
   fn test_clamp_negative() {
     let pos = Position::Relative(-10.0);
-    let labels = HashMap::new();
+    let labels = HashMap::default();
 
     // Should clamp to 0.0
     assert_eq!(pos.resolve(1.0, 0.0, 3.0, &labels), Some(0.0));

@@ -3,8 +3,6 @@
 //! A [`Timeline`] orchestrates multiple tweens, controlling their playback
 //! as a single unit with precise timing control.
 
-use std::collections::HashMap;
-
 use crate::callback::Callbacks;
 use crate::control::Controllable;
 use crate::control::Direction;
@@ -14,6 +12,8 @@ use crate::repeat::RepeatConfig;
 use crate::stagger::Stagger;
 use crate::tween::Tween;
 use crate::value::Tweenable;
+
+use rustc_hash::FxHashMap as HashMap;
 
 /// A child animation within a timeline.
 struct TimelineChild {
@@ -96,7 +96,7 @@ impl Timeline {
       state: TweenState::Idle,
       direction: Direction::Forward,
       time_scale: 1.0,
-      labels: HashMap::new(),
+      labels: HashMap::default(),
       repeat_config: RepeatConfig::default(),
       iteration: 0,
       callbacks: Callbacks::default(),
@@ -379,7 +379,11 @@ impl TimelineBuilder {
   }
 
   /// Add a tween at a specific position.
-  pub fn push_at<T: Tweenable>(mut self, tween: Tween<T>, position: Position) -> Self {
+  pub fn push_at<T: Tweenable>(
+    mut self,
+    tween: Tween<T>,
+    position: Position,
+  ) -> Self {
     let previous_end = self.timeline.last_child_end();
     let previous_start = self.timeline.last_child_start();
 
@@ -476,8 +480,7 @@ impl TimelineBuilder {
   where
     F: Fn() + Send + Sync + 'static,
   {
-    self.timeline.callbacks.on_start =
-      Some(crate::callback::Callback::sync(f));
+    self.timeline.callbacks.on_start = Some(crate::callback::Callback::sync(f));
     self
   }
 

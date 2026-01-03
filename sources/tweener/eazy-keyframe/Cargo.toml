@@ -1,6 +1,6 @@
 [package]
-name = "eazy-data"
-description = "Core data types for the eazy animation library."
+name = "eazy-keyframe"
+description = "Keyframe animation support for the eazy animation library."
 authors.workspace = true
 license.workspace = true
 repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
@@ -8,13 +8,13 @@ edition.workspace = true
 version = "0.0.0"
 
 [lib]
-doctest = false
+doc-test = false
 
 [dependencies]
 # internal:sources.
+eazy-data = { workspace = true }
+eazy-tweener = { workspace = true }
 
 # internal:crates.
-libm = { workspace = true }
-wide = { workspace = true }
 
 # external:crates.

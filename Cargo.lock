@@ -2400,9 +2400,8 @@ dependencies = [
  "easings",
  "eazy-data",
  "eazy-derive",
- "eazy-keyframes",
+ "eazy-keyframe",
  "eazy-tweener",
- "eazy-wasm",
  "eframe",
  "emath 0.31.1",
  "glissade",
@@ -2441,7 +2440,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eazy-keyframes"
+name = "eazy-keyframe"
 version = "0.0.0"
 dependencies = [
  "eazy-data",
@@ -2454,15 +2453,8 @@ version = "0.0.0"
 dependencies = [
  "eazy-data",
  "eazy-derive",
+ "rustc-hash 2.1.1",
  "tokio",
-]
-
-[[package]]
-name = "eazy-wasm"
-version = "0.0.0"
-dependencies = [
- "eazy-data",
- "wasm-bindgen",
 ]
 
 [[package]]

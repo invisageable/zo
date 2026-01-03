@@ -1,5 +1,9 @@
 [package]
 name = "eazy-tweener"
+description = "Core tweening engine for the eazy animation library."
+authors.workspace = true
+license.workspace = true
+repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
 edition.workspace = true
 version = "0.0.0"
 
@@ -9,11 +13,12 @@ doc-test = false
 [dependencies]
 # internal:sources.
 eazy-data = { workspace = true }
-eazy-derive = { path = "../eazy-derive" }
+eazy-derive = { workspace = true }
 
 # internal:crates.
 
 # external:crates.
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }
