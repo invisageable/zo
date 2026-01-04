@@ -1,6 +1,5 @@
 ---
-source: crates/compiler-new/zo-tokenizer/tests/snapshots.rs
-assertion_line: 11
+source: crates/compiler/zo-tokenizer/tests/snapshots.rs
 expression: tokenization
 ---
 tokens:
@@ -348,60 +347,36 @@ literals:
   int_literals: []
   float_literals: []
   identifiers:
-    - - 9
-      - 4
-    - - 28
-      - 4
-    - - 38
-      - 3
-    - - 42
-      - 5
-    - - 70
-      - 5
-    - - 76
-      - 3
-    - - 83
-      - 4
-    - - 104
-      - 2
-    - - 107
-      - 3
-    - - 112
-      - 4
-    - - 117
-      - 2
-    - - 135
-      - 4
-    - - 141
-      - 4
-    - - 146
-      - 4
-    - - 153
-      - 4
-    - - 172
-      - 6
-    - - 179
-      - 7
-    - - 196
-      - 6
-    - - 203
-      - 4
-    - - 214
-      - 6
-    - - 234
-      - 2
-    - - 257
-      - 3
-    - - 271
-      - 3
-    - - 275
-      - 4
+    - 25
+    - 26
+    - 27
+    - 28
+    - 30
+    - 31
+    - 32
+    - 33
+    - 34
+    - 32
+    - 35
+    - 36
+    - 32
+    - 37
+    - 36
+    - 38
+    - 39
+    - 40
+    - 32
+    - 38
+    - 33
+    - 27
+    - 41
+    - 26
   bytes_literals: []
   char_literals: []
   string_literals:
-    - 25
+    - 29
 interner:
-  storage: _funmutimuifelsewhileforreturnbreakcontinuematchwhenasistruefalseSelfselfstructenumtypepubvalcontainer
+  storage: _funmutimuifelsewhileforreturnbreakcontinuematchwhenasistruefalseSelfselfstructenumtypepubvalmainviewdivclasscontaineritemsmapitemlikeyidspannamebuttononclickdeletedom
   spans:
     - - 0
       - 0
@@ -454,5 +429,37 @@ interner:
     - - 90
       - 3
     - - 93
+      - 4
+    - - 97
+      - 4
+    - - 101
+      - 3
+    - - 104
+      - 5
+    - - 109
       - 9
+    - - 118
+      - 5
+    - - 123
+      - 3
+    - - 126
+      - 4
+    - - 130
+      - 2
+    - - 132
+      - 3
+    - - 135
+      - 2
+    - - 137
+      - 4
+    - - 141
+      - 4
+    - - 145
+      - 6
+    - - 151
+      - 7
+    - - 158
+      - 6
+    - - 164
+      - 3
 source_len: 289

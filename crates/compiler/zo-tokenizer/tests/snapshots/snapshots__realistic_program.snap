@@ -1,6 +1,5 @@
 ---
-source: crates/compiler-new/zo-tokenizer/tests/snapshots.rs
-assertion_line: 11
+source: crates/compiler/zo-tokenizer/tests/snapshots.rs
 expression: tokenization
 ---
 tokens:
@@ -328,67 +327,39 @@ literals:
   int_literals: []
   float_literals: []
   identifiers:
-    - - 10
-      - 4
-    - - 26
-      - 3
-    - - 31
-      - 2
-    - - 36
-      - 4
-    - - 42
-      - 6
-    - - 60
-      - 4
-    - - 78
-      - 5
-    - - 92
-      - 1
-    - - 106
-      - 1
-    - - 133
-      - 8
-    - - 142
-      - 2
-    - - 146
-      - 5
-    - - 153
-      - 2
-    - - 157
-      - 5
-    - - 183
-      - 2
-    - - 189
-      - 2
-    - - 192
-      - 1
-    - - 196
-      - 2
-    - - 199
-      - 1
-    - - 212
-      - 2
-    - - 218
-      - 2
-    - - 221
-      - 1
-    - - 225
-      - 2
-    - - 228
-      - 1
-    - - 239
-      - 2
-    - - 244
-      - 2
-    - - 249
-      - 2
-    - - 254
-      - 2
+    - 25
+    - 26
+    - 27
+    - 28
+    - 29
+    - 30
+    - 31
+    - 32
+    - 33
+    - 34
+    - 35
+    - 31
+    - 36
+    - 31
+    - 37
+    - 35
+    - 32
+    - 36
+    - 32
+    - 38
+    - 35
+    - 33
+    - 36
+    - 33
+    - 37
+    - 37
+    - 38
+    - 38
   bytes_literals: []
   char_literals: []
   string_literals: []
 interner:
-  storage: _funmutimuifelsewhileforreturnbreakcontinuematchwhenasistruefalseSelfselfstructenumtypepubval
+  storage: _funmutimuifelsewhileforreturnbreakcontinuematchwhenasistruefalseSelfselfstructenumtypepubvalmainstdioreadreadlnmathPointxydistancep1p2dxdy
   spans:
     - - 0
       - 0
@@ -440,4 +411,32 @@ interner:
       - 3
     - - 90
       - 3
+    - - 93
+      - 4
+    - - 97
+      - 3
+    - - 100
+      - 2
+    - - 102
+      - 4
+    - - 106
+      - 6
+    - - 112
+      - 4
+    - - 116
+      - 5
+    - - 121
+      - 1
+    - - 122
+      - 1
+    - - 123
+      - 8
+    - - 131
+      - 2
+    - - 133
+      - 2
+    - - 135
+      - 2
+    - - 137
+      - 2
 source_len: 273

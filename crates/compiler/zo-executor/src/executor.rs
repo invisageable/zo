@@ -259,6 +259,9 @@ impl<'a> Executor<'a> {
         self.push_scope();
       }
       Token::RBrace => {
+        // Check for pending return (explicit return without semicolon)
+        self.check_pending_return();
+
         // Check if we're closing a function body
         if let Some(fun_ctx) = &self.current_function {
           // Only emit implicit return if there wasn't an explicit one

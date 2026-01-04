@@ -1,0 +1,333 @@
+---
+source: crates/compiler/zo-parser/tests/snapshots.rs
+expression: parsing
+---
+tree:
+  nodes:
+    - token: Fun
+      flags: 0
+      child_start: 1
+      child_count: 40
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LParen
+      flags: 0
+      child_start: 3
+      child_count: 5
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: IntType
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Comma
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: IntType
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Arrow
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: IntType
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LBrace
+      flags: 0
+      child_start: 12
+      child_count: 5
+      _reserved: 0
+    - token: Return
+      flags: 0
+      child_start: 13
+      child_count: 4
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Plus
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Semicolon
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RBrace
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Fun
+      flags: 0
+      child_start: 19
+      child_count: 22
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LBrace
+      flags: 0
+      child_start: 23
+      child_count: 17
+      _reserved: 0
+    - token: Imu
+      flags: 0
+      child_start: 24
+      child_count: 11
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: IntType
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Colon
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Eq
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Int
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Comma
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Int
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Semicolon
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Semicolon
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RBrace
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+  values:
+    - Symbol: 25
+    - Symbol: 26
+    - Symbol: 27
+    - Symbol: 26
+    - Symbol: 27
+    - Symbol: 28
+    - Symbol: 29
+    - Symbol: 25
+    - Literal: 0
+    - Literal: 1
+    - Symbol: 30
+    - Symbol: 29
+  child_indices: []
+  spans:
+    - start: 7
+      len: 3
+    - start: 11
+      len: 3
+    - start: 14
+      len: 1
+    - start: 15
+      len: 1
+    - start: 18
+      len: 3
+    - start: 21
+      len: 1
+    - start: 23
+      len: 1
+    - start: 26
+      len: 3
+    - start: 29
+      len: 1
+    - start: 31
+      len: 2
+    - start: 34
+      len: 3
+    - start: 38
+      len: 1
+    - start: 48
+      len: 6
+    - start: 55
+      len: 1
+    - start: 59
+      len: 1
+    - start: 57
+      len: 1
+    - start: 60
+      len: 1
+    - start: 68
+      len: 1
+    - start: 77
+      len: 3
+    - start: 81
+      len: 4
+    - start: 85
+      len: 1
+    - start: 86
+      len: 1
+    - start: 88
+      len: 1
+    - start: 98
+      len: 3
+    - start: 102
+      len: 6
+    - start: 110
+      len: 3
+    - start: 114
+      len: 1
+    - start: 114
+      len: 1
+    - start: 116
+      len: 3
+    - start: 119
+      len: 1
+    - start: 120
+      len: 2
+    - start: 122
+      len: 1
+    - start: 124
+      len: 1
+    - start: 125
+      len: 1
+    - start: 126
+      len: 1
+    - start: 137
+      len: 6
+    - start: 143
+      len: 1
+    - start: 144
+      len: 6
+    - start: 150
+      len: 1
+    - start: 151
+      len: 1
+    - start: 159
+      len: 1
+  value_map:
+    - - 1
+      - 0
+    - - 3
+      - 1
+    - - 6
+      - 2
+    - - 13
+      - 3
+    - - 14
+      - 4
+    - - 19
+      - 5
+    - - 24
+      - 6
+    - - 28
+      - 7
+    - - 30
+      - 8
+    - - 32
+      - 9
+    - - 35
+      - 10
+    - - 37
+      - 11

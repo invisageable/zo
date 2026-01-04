@@ -1,0 +1,254 @@
+---
+source: crates/compiler/zo-parser/tests/snapshots.rs
+expression: parsing
+---
+tree:
+  nodes:
+    - token: Fun
+      flags: 0
+      child_start: 1
+      child_count: 30
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RParen
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LBrace
+      flags: 0
+      child_start: 5
+      child_count: 25
+      _reserved: 0
+    - token: Imu
+      flags: 0
+      child_start: 6
+      child_count: 20
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: TemplateAssign
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LAngle
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Eq
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LBrace
+      flags: 0
+      child_start: 13
+      child_count: 9
+      _reserved: 0
+    - token: If
+      flags: 0
+      child_start: 14
+      child_count: 8
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LBrace
+      flags: 0
+      child_start: 16
+      child_count: 1
+      _reserved: 0
+    - token: String
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RBrace
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Else
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: LBrace
+      flags: 0
+      child_start: 20
+      child_count: 1
+      _reserved: 0
+    - token: String
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RBrace
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RBrace
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Slash2
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RAngle
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Semicolon
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Hash
+      flags: 0
+      child_start: 27
+      child_count: 3
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Ident
+      flags: 1
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: Semicolon
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+    - token: RBrace
+      flags: 0
+      child_start: 0
+      child_count: 0
+      _reserved: 0
+  values:
+    - Symbol: 25
+    - Symbol: 26
+    - Symbol: 27
+    - Symbol: 28
+    - Symbol: 29
+    - Symbol: 30
+    - Symbol: 31
+    - Symbol: 32
+    - Symbol: 26
+  child_indices: []
+  spans:
+    - start: 7
+      len: 3
+    - start: 11
+      len: 4
+    - start: 15
+      len: 1
+    - start: 16
+      len: 1
+    - start: 18
+      len: 1
+    - start: 28
+      len: 3
+    - start: 32
+      len: 9
+    - start: 42
+      len: 3
+    - start: 46
+      len: 1
+    - start: 47
+      len: 3
+    - start: 51
+      len: 5
+    - start: 56
+      len: 1
+    - start: 57
+      len: 1
+    - start: 58
+      len: 2
+    - start: 61
+      len: 7
+    - start: 69
+      len: 1
+    - start: 70
+      len: 4
+    - start: 74
+      len: 1
+    - start: 76
+      len: 4
+    - start: 81
+      len: 1
+    - start: 82
+      len: 5
+    - start: 87
+      len: 1
+    - start: 88
+      len: 1
+    - start: 90
+      len: 1
+    - start: 91
+      len: 1
+    - start: 92
+      len: 1
+    - start: 103
+      len: 1
+    - start: 104
+      len: 3
+    - start: 108
+      len: 9
+    - start: 117
+      len: 1
+    - start: 125
+      len: 1
+  value_map:
+    - - 1
+      - 0
+    - - 6
+      - 1
+    - - 9
+      - 2
+    - - 10
+      - 3
+    - - 14
+      - 4
+    - - 16
+      - 5
+    - - 20
+      - 6
+    - - 27
+      - 7
+    - - 28
+      - 8

@@ -3,6 +3,7 @@ use zo_codegen_arm::ARM64Gen;
 use std::process::Command;
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "requires macOS codesign/otool")]
 fn test_production_code_signature() {
   // Generate a signed Hello World binary
   let binary = ARM64Gen::generate_hello_world_signed();

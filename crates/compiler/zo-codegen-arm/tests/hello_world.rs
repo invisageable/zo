@@ -3,6 +3,10 @@ use zo_codegen_arm::ARM64Gen;
 use std::process::Command;
 
 #[test]
+#[cfg_attr(
+  not(all(target_os = "macos", target_arch = "aarch64")),
+  ignore = "requires macOS ARM64 with codesign"
+)]
 fn test_hello_world_generation() {
   // Generate the Hello World binary
   let binary = ARM64Gen::generate_hello_world();
