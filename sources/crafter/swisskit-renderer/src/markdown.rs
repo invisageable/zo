@@ -22,6 +22,8 @@
 //! ```
 
 pub mod parser;
-pub mod renderer;
+mod renderer;
+mod state;
 
-pub use renderer::{MarkdownRenderer, RenderState};
+pub use renderer::MarkdownRenderer;
+pub use state::RenderState;

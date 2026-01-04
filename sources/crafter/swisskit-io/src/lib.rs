@@ -1,1 +1,2 @@
-pub mod timer;
+pub mod macros;
+pub mod typewriter;

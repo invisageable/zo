@@ -6,11 +6,16 @@ edition.workspace = true
 [lib]
 doctest = false
 
+[features]
+default = []
+future = ["swisskit-io"]
+
 [dependencies]
 # internal:sources.
 
 # internal:crates.
 swisskit-case = { workspace = true }
+swisskit-io = { workspace =  true, optional = true }
 swisskit-renderer = { workspace =  true }
 swisskit-span = { workspace =  true }
 

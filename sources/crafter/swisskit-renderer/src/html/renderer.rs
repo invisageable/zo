@@ -1,4 +1,4 @@
-//! WebView wrapper for cross-platform HTML rendering.
+//! HTML renderer for cross-platform HTML rendering.
 //!
 //! Provides a generic WebView component using wry that can be embedded
 //! in egui applications for rendering HTML content.
@@ -9,23 +9,26 @@ use raw_window_handle::{
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::{Rect, WebViewBuilder};
 
-/// WebView wrapper for embedding HTML content in applications.
+// implement Error enum to handle load_url, set_bounds result
+// and avoid `let _ = webview.load_url(&self.url);`
+
+/// An HTML renderer for embedding HTML content in applications.
 ///
 /// Uses wry for cross-platform WebView support (WKWebView on macOS,
 /// WebView2 on Windows, WebKitGTK on Linux).
-pub struct WebView {
-  /// The URL currently loaded in the WebView.
+pub struct HtmlRenderer {
+  /// The URL currently loaded in the Html renderer.
   pub url: String,
   /// The underlying wry WebView instance.
   pub webview: Option<wry::WebView>,
-  /// Raw window handle for embedding the WebView.
+  /// Raw window handle for embedding the Html Renderer.
   pub window_handle_raw: Option<RawWindowHandle>,
-  /// Whether the WebView is currently visible.
+  /// Whether the Html renderer is currently visible.
   pub visible: bool,
 }
 
-impl WebView {
-  /// Creates a new WebView with the specified URL.
+impl HtmlRenderer {
+  /// Creates a new HTML renderer with the specified URL.
   pub fn new(url: impl Into<String>) -> Self {
     Self {
       url: url.into(),
@@ -35,14 +38,15 @@ impl WebView {
     }
   }
 
-  /// Shows the WebView.
+  /// Shows the HTML renderer.
   pub fn show(&mut self) {
     self.visible = true;
   }
 
-  /// Hides the WebView by moving it off-screen.
+  /// Hides the HTML renderer by moving it off-screen.
   pub fn hide(&mut self) {
     self.visible = false;
+
     if let Some(webview) = &self.webview {
       let off_screen_bounds = Rect {
         position: LogicalPosition::new(-10000.0, -10000.0).into(),
@@ -53,7 +57,7 @@ impl WebView {
     }
   }
 
-  /// Sets the window handle for WebView creation.
+  /// Sets the window handle for HTML renderer creation.
   pub fn set_window_handle(
     &mut self,
     handle: raw_window_handle::RawWindowHandle,
@@ -61,60 +65,67 @@ impl WebView {
     self.window_handle_raw = Some(handle);
   }
 
-  /// Loads a URL in the WebView.
+  /// Loads a URL in the HTML renderer.
   pub fn load_url(&mut self, url: impl Into<String>) {
     self.url = url.into();
-    log::debug!("[WebView] load_url called with: {}", self.url);
+
+    log::debug!("[HTML renderer] load_url called with: {}", self.url);
 
     if self.webview.is_none() {
-      log::debug!("[WebView] WebView doesn't exist, trying to create");
-
+      log::debug!(
+        "[HTML renderer] HTML renderer doesn't exist, trying to create"
+      );
       self.try_create_webview();
     } else if let Some(webview) = &self.webview {
-      log::debug!("[WebView] WebView exists, loading URL");
+      log::debug!("[HTML renderer] HTML renderer exists, loading URL");
 
       let _ = webview.load_url(&self.url);
     }
   }
 
-  /// Reloads the current URL in the WebView.
+  /// Reloads the current URL in the HTML renderer.
   pub fn reload(&self) {
     if let Some(webview) = &self.webview {
-      log::debug!("[WebView] Reloading WebView");
+      log::debug!("[HTML renderer] Reloading HTML renderer");
 
       let _ = webview.load_url(&self.url);
     }
   }
 
-  /// Attempts to create the WebView if window handle and URL are available.
+  /// Attempts to create the HTML renderer if window handle and URL are
+  /// available.
   pub fn try_create_webview(&mut self) {
     if let Some(handle) = &self.window_handle_raw {
       if !self.url.is_empty() {
         log::debug!(
-          "[WebView] Attempting to create WebView with URL: {}",
+          "[HTML renderer] Attempting to create HTML renderer with URL: {}",
           self.url
         );
 
         match self.create_webview(*handle) {
           Ok(()) => {
             log::info!(
-              "[WebView] WebView created successfully for URL: {}",
+              "[HTML renderer] HTML renderer created successfully for URL: {}",
               self.url
             );
           }
           Err(e) => {
-            log::error!("[WebView] Failed to create WebView: {e}");
+            log::error!("[HTML renderer] Failed to create HTML renderer: {e}");
           }
         }
       } else {
-        log::warn!("[WebView] Cannot create WebView - URL is empty");
+        log::warn!(
+          "[HTML renderer] Cannot create HTML renderer - URL is empty"
+        );
       }
     } else {
-      log::warn!("[WebView] Cannot create WebView - no window handle");
+      log::warn!(
+        "[HTML renderer] Cannot create HTML renderer - no window handle"
+      );
     }
   }
 
-  /// Updates the WebView bounds to match the given rectangle.
+  /// Updates the HTML renderer bounds to match the given rectangle.
   pub fn update_bounds(&self, x: f64, y: f64, width: f64, height: f64) {
     if let Some(webview) = &self.webview
       && self.visible
@@ -133,12 +144,12 @@ impl WebView {
     &self.url
   }
 
-  /// Returns whether the WebView has been created.
+  /// Returns whether the HTML renderer has been created.
   pub fn is_created(&self) -> bool {
     self.webview.is_some()
   }
 
-  /// Creates and positions the WebView as a child of the main window.
+  /// Creates and positions the HTML renderer as a child of the main window.
   fn create_webview(
     &mut self,
     handle: RawWindowHandle,
@@ -171,13 +182,13 @@ impl WebView {
   }
 }
 
-impl Default for WebView {
+impl Default for HtmlRenderer {
   fn default() -> Self {
     Self::new("")
   }
 }
 
-impl Drop for WebView {
+impl Drop for HtmlRenderer {
   fn drop(&mut self) {
     self.webview = None;
     self.window_handle_raw = None;

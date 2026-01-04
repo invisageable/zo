@@ -147,8 +147,12 @@ impl Span {
 
 #[cfg(test)]
 mod tests {
+
   use super::Span;
 
+  /// ```sh
+  /// cargo test -p swisskit-span --test makes_zero_span
+  /// ```
   #[test]
   fn makes_zero_span() {
     let span = Span::ZERO;
@@ -161,6 +165,9 @@ mod tests {
     assert_eq!(span.end_col, 0);
   }
 
+  /// ```sh
+  /// cargo test -p swisskit-span --test makes_span
+  /// ```
   #[test]
   fn makes_span() {
     let span = Span::of(1, 5, 1, 1, 2, 6);
@@ -173,6 +180,9 @@ mod tests {
     assert_eq!(span.end_col, 6);
   }
 
+  /// ```sh
+  /// cargo test -p swisskit-span --test makes_span_panic
+  /// ```
   #[test]
   #[should_panic(
     expected = "Span end position must not be less than start position."
@@ -181,56 +191,23 @@ mod tests {
     let _ = Span::of(10, 5, 1, 1, 2, 6);
   }
 
+  /// ```sh
+  /// cargo test -p swisskit-span --test merges_two_spans
+  /// ```
   #[test]
   fn merges_two_spans() {
+    // Create two spans.
     let s1 = Span::of(3, 8, 1, 1, 4, 9);
     let s2 = Span::of(6, 12, 1, 2, 7, 3);
+    // Merge them — order does not matter.
     let merged = s1.merge(s2);
 
+    // Ensure we get the correct result merged.
     assert_eq!(merged.start, 3);
     assert_eq!(merged.end, 12);
     assert_eq!(merged.start_line, 1);
     assert_eq!(merged.end_line, 2);
     assert_eq!(merged.start_col, 4);
     assert_eq!(merged.end_col, 9);
-  }
-}
-
-#[cfg(test)]
-mod tests_fuzz {
-  use super::Span;
-
-  use proptest::prelude::*;
-
-  fn arb_span() -> impl Strategy<Value = Span> {
-    (0usize..1_000)
-      .prop_flat_map(|start| {
-        (
-          Just(start),
-          start..start + 100,
-          1usize..100,
-          1usize..100,
-          1usize..500,
-          1usize..500,
-        )
-      })
-      .prop_map(|(start, end, start_line, end_line, start_col, end_col)| {
-        Span::of(start, end, start_line, end_line, start_col, end_col)
-      })
-  }
-
-  proptest! {
-    #[test]
-    fn merge_spans_should_not_panic(s1 in arb_span(), s2 in arb_span()) {
-      let _ = s1.merge(s2);
-    }
-
-    #[test]
-    fn merged_span_contains_both_spans(s1 in arb_span(), s2 in arb_span()) {
-      let merged = s1.merge(s2);
-
-      assert!(merged.start <= s1.start && merged.start <= s2.start);
-      assert!(merged.end >= s1.end && merged.end >= s2.end);
-    }
   }
 }

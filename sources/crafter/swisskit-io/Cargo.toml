@@ -8,7 +8,7 @@ doctest = false
 
 [features]
 default = []
-async = ["tokio"]
+future = ["tokio"]
 
 [dependencies]
 # internal:sources.

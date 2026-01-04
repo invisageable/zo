@@ -7485,6 +7485,7 @@ dependencies = [
  "regex",
  "smol_str 0.3.4",
  "swisskit-case",
+ "swisskit-io",
  "swisskit-renderer",
  "swisskit-span",
 ]
@@ -7494,6 +7495,13 @@ name = "swisskit-case"
 version = "0.0.0"
 dependencies = [
  "Inflector",
+]
+
+[[package]]
+name = "swisskit-io"
+version = "0.0.0"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
