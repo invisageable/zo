@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
 SRC = ROOT / "target" / "criterion"
-DST = ROOT / "docs" / "benches" / "eazy"
+DST = ROOT / "docs" / "eazy" / "benches"
 
 def sync():
   if not SRC.exists():
