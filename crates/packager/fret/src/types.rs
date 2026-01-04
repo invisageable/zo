@@ -178,7 +178,6 @@ impl Target {
     )
   }
 
-
   /// Get the file extension for this target's output
   pub fn output_extension(&self) -> &'static str {
     match self {

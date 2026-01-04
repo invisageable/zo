@@ -155,27 +155,27 @@ fn test_arithmetic_ops_code() {
 
   // Look for our instruction sequences in the binary
   let add_pattern = vec![0x20, 0x00, 0x02, 0x8b];
-  
+
   let add_found = binary
     .windows(4)
     .any(|window| window == add_pattern.as_slice());
-  
+
   assert!(add_found, "ADD instruction not found in binary");
 
   let sub_pattern = vec![0x83, 0x00, 0x05, 0xcb];
-  
+
   let sub_found = binary
     .windows(4)
     .any(|window| window == sub_pattern.as_slice());
-  
+
   assert!(sub_found, "SUB instruction not found in binary");
 
   let mul_pattern = vec![0xe6, 0x7c, 0x08, 0x9b];
-  
+
   let mul_found = binary
     .windows(4)
     .any(|window| window == mul_pattern.as_slice());
-  
+
   assert!(mul_found, "MUL instruction not found in binary");
 }
 

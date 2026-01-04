@@ -1,7 +1,8 @@
 //! Example: Building a zo project for multiple native targets
 //!
 //! This demonstrates how to use fret to compile the same project
-//! for different native platforms (x86_64 and aarch64 on Linux, macOS, Windows).
+//! for different native platforms (x86_64 and aarch64 on Linux, macOS,
+//! Windows).
 
 use fret::{Pipeline, Target};
 

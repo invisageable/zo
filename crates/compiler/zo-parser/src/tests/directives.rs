@@ -84,9 +84,12 @@ fn test_directive_dom_with_template() {
       (Ident, Some(NodeValue::Symbol(Symbol(26)))), // "view"
       (TemplateType, None), // </> as a single token for type annotation
       (TemplateAssign, None), // ::= switches to template mode
-      (TemplateFragmentStart, None), // <> (now properly recognized in template mode)
-      (TemplateText, Some(NodeValue::Symbol(Symbol(27)))), // "hello world" (interned)
-      (TemplateFragmentEnd, None),   // </> (properly recognized in template mode)
+      (TemplateFragmentStart, None), /* <> (now properly recognized in
+                             * template mode) */
+      (TemplateText, Some(NodeValue::Symbol(Symbol(27)))), /* "hello world"
+                                                            * (interned) */
+      (TemplateFragmentEnd, None), /* </> (properly recognized in template
+                                    * mode) */
       (Semicolon, None),
       (Hash, None),
       (Ident, Some(NodeValue::Symbol(Symbol(28)))), // "dom"

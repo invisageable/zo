@@ -1,7 +1,8 @@
 //! Dependency graph for reactive template updates
 //!
 //! This module tracks which UI commands depend on which data sources.
-//! Inspired by Malina.js's watcher system but adapted for compile-time analysis.
+//! Inspired by Malina.js's watcher system but adapted for compile-time
+//! analysis.
 //!
 //! Key concepts:
 //! - **Dependency Node**: A UI command that may need updates
@@ -101,10 +102,8 @@ impl DependencyGraph {
   /// Add a watcher for a data source
   fn add_watcher(&mut self, source: DataSource, command_index: usize) {
     // Find existing watcher entry or create new one
-    if let Some((_, watchers)) = self
-      .watchers
-      .iter_mut()
-      .find(|(s, _)| s == &source)
+    if let Some((_, watchers)) =
+      self.watchers.iter_mut().find(|(s, _)| s == &source)
     {
       if !watchers.contains(&command_index) {
         watchers.push(command_index);

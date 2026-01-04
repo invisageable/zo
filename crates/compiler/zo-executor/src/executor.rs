@@ -1067,120 +1067,120 @@ impl<'a> Executor<'a> {
           if let Some(local) =
             self.locals.iter_mut().rev().find(|l| l.name == name)
           {
-              // Check mutability
-              if local.mutability != Mutability::Yes {
-                let span = self.tree.spans[node_idx];
-
-                report_error(Error::new(ErrorKind::ImmutableVariable, span));
-
-                return;
-              }
-
-              // Type check and perform operation
+            // Check mutability
+            if local.mutability != Mutability::Yes {
               let span = self.tree.spans[node_idx];
 
-              if let Some(unified_ty) =
-                self.ty_checker.unify(local.ty_id, rhs_ty, span)
+              report_error(Error::new(ErrorKind::ImmutableVariable, span));
+
+              return;
+            }
+
+            // Type check and perform operation
+            let span = self.tree.spans[node_idx];
+
+            if let Some(unified_ty) =
+              self.ty_checker.unify(local.ty_id, rhs_ty, span)
+            {
+              // Try constant folding if both values are compile-time known
+              let constprop = ConstFold::new(&self.values);
+
+              if let Some(folded) =
+                constprop.fold_binop(op, local.value_id, rhs_value, span)
               {
-                // Try constant folding if both values are compile-time known
-                let constprop = ConstFold::new(&self.values);
+                match folded {
+                  FoldResult::Int(value) => {
+                    let new_value = self.values.store_int(value);
 
-                if let Some(folded) =
-                  constprop.fold_binop(op, local.value_id, rhs_value, span)
-                {
-                  match folded {
-                    FoldResult::Int(value) => {
-                      let new_value = self.values.store_int(value);
+                    local.value_id = new_value;
 
-                      local.value_id = new_value;
+                    let sir_value = self.sir.emit(Insn::ConstInt {
+                      value,
+                      ty_id: unified_ty,
+                    });
 
-                      let sir_value = self.sir.emit(Insn::ConstInt {
-                        value,
-                        ty_id: unified_ty,
-                      });
+                    self.sir.emit(Insn::Store {
+                      name,
+                      value: sir_value,
+                      ty_id: unified_ty,
+                    });
 
-                      self.sir.emit(Insn::Store {
-                        name,
-                        value: sir_value,
-                        ty_id: unified_ty,
-                      });
+                    return;
+                  }
+                  FoldResult::Float(value) => {
+                    let new_value = self.values.store_float(value);
 
-                      return;
-                    }
-                    FoldResult::Float(value) => {
-                      let new_value = self.values.store_float(value);
+                    local.value_id = new_value;
 
-                      local.value_id = new_value;
+                    let sir_value = self.sir.emit(Insn::ConstFloat {
+                      value,
+                      ty_id: unified_ty,
+                    });
 
-                      let sir_value = self.sir.emit(Insn::ConstFloat {
-                        value,
-                        ty_id: unified_ty,
-                      });
+                    self.sir.emit(Insn::Store {
+                      name,
+                      value: sir_value,
+                      ty_id: unified_ty,
+                    });
 
-                      self.sir.emit(Insn::Store {
-                        name,
-                        value: sir_value,
-                        ty_id: unified_ty,
-                      });
+                    return;
+                  }
+                  FoldResult::Bool(value) => {
+                    let new_value = self.values.store_bool(value);
 
-                      return;
-                    }
-                    FoldResult::Bool(value) => {
-                      let new_value = self.values.store_bool(value);
+                    local.value_id = new_value;
 
-                      local.value_id = new_value;
+                    let sir_value = self.sir.emit(Insn::ConstBool {
+                      value,
+                      ty_id: unified_ty,
+                    });
 
-                      let sir_value = self.sir.emit(Insn::ConstBool {
-                        value,
-                        ty_id: unified_ty,
-                      });
+                    self.sir.emit(Insn::Store {
+                      name,
+                      value: sir_value,
+                      ty_id: unified_ty,
+                    });
 
-                      self.sir.emit(Insn::Store {
-                        name,
-                        value: sir_value,
-                        ty_id: unified_ty,
-                      });
-
-                      return;
-                    }
-                    FoldResult::Error(error) => {
-                      report_error(error);
-                      return;
-                    }
+                    return;
+                  }
+                  FoldResult::Error(error) => {
+                    report_error(error);
+                    return;
                   }
                 }
-
-                // Runtime operation - emit BinOp then Store
-                // We need to load the current value first (but we don't have
-                // Load yet) For now, we'll emit the BinOp with
-                // a placeholder
-                if let Some(rhs_sir) = rhs_sir {
-                  // Create a placeholder for the LHS (the current variable
-                  // value) This is a simplification - proper
-                  // SSA would need Load instruction
-                  let lhs_sir = ValueId(local.value_id.0); // Use the variable's value ID as placeholder
-                  let dst = ValueId(self.sir.next_value_id);
-
-                  self.sir.next_value_id += 1;
-
-                  let result_sir = self.sir.emit(Insn::BinOp {
-                    dst,
-                    op,
-                    lhs: lhs_sir,
-                    rhs: rhs_sir,
-                    ty_id: unified_ty,
-                  });
-
-                  self.sir.emit(Insn::Store {
-                    name,
-                    value: result_sir,
-                    ty_id: unified_ty,
-                  });
-
-                  // Update local's value to runtime
-                  local.value_id = self.values.store_runtime(0);
-                }
               }
+
+              // Runtime operation - emit BinOp then Store
+              // We need to load the current value first (but we don't have
+              // Load yet) For now, we'll emit the BinOp with
+              // a placeholder
+              if let Some(rhs_sir) = rhs_sir {
+                // Create a placeholder for the LHS (the current variable
+                // value) This is a simplification - proper
+                // SSA would need Load instruction
+                let lhs_sir = ValueId(local.value_id.0); // Use the variable's value ID as placeholder
+                let dst = ValueId(self.sir.next_value_id);
+
+                self.sir.next_value_id += 1;
+
+                let result_sir = self.sir.emit(Insn::BinOp {
+                  dst,
+                  op,
+                  lhs: lhs_sir,
+                  rhs: rhs_sir,
+                  ty_id: unified_ty,
+                });
+
+                self.sir.emit(Insn::Store {
+                  name,
+                  value: result_sir,
+                  ty_id: unified_ty,
+                });
+
+                // Update local's value to runtime
+                local.value_id = self.values.store_runtime(0);
+              }
+            }
           } else {
             let span = self.tree.spans[target_idx];
 

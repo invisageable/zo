@@ -177,7 +177,7 @@ pub fn fmt(w: i32, k: i32, mut docs: Vec<(i32, Mode, Doc)>) -> SDoc {
 /// #### examples.
 ///
 /// ```
-/// 
+///
 /// use swisskit::fmt;
 /// use swisskit::fmt::Doc;
 ///

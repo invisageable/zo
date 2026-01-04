@@ -83,11 +83,7 @@ impl Curve for InOutQuadratic {
     let m = p - 1.0;
     let t = p * 2.0;
 
-    if t < 1.0 {
-      p * t
-    } else {
-      1.0 - m * m * 2.0
-    }
+    if t < 1.0 { p * t } else { 1.0 - m * m * 2.0 }
   }
 }
 

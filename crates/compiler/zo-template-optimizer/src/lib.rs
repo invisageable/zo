@@ -1,6 +1,7 @@
 //! zo-template-optimizer - Compile-time optimization for UI templates
 //!
-//! This crate implements the template optimization strategy inspired by Malina.js:
+//! This crate implements the template optimization strategy inspired by
+//! Malina.js:
 //! - Analyze static vs dynamic parts
 //! - Merge adjacent commands
 //! - Flatten unnecessary nesting

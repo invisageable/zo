@@ -3,7 +3,7 @@
 //! This module provides utilities for parsing markdown text and
 //! converting it to sanitized HTML.
 
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{Options, Parser, html};
 
 /// Create a markdown parser with default options.
 ///

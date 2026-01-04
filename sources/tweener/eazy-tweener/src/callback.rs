@@ -292,7 +292,8 @@ mod tests {
     assert!(callbacks.has_async());
 
     // Fire async callbacks via as_future.
-    if let Some(fut) = callbacks.on_start.as_ref().and_then(|cb| cb.as_future()) {
+    if let Some(fut) = callbacks.on_start.as_ref().and_then(|cb| cb.as_future())
+    {
       fut.await;
     }
     if let Some(fut) =

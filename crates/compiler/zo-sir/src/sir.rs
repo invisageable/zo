@@ -1,8 +1,8 @@
 use zo_interner::Symbol;
 use zo_token::Token;
 use zo_ty::TyId;
-use zo_value::{Mutability, ValueId};
 use zo_ui_protocol::UiCommand;
+use zo_value::{Mutability, ValueId};
 
 /// Represents a semantic intermediate representation.
 #[derive(Debug)]

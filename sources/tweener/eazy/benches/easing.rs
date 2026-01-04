@@ -33,7 +33,8 @@ fn test_values() -> Vec<f32> {
 
 /// Benchmark an easing function across multiple implementations.
 ///
-/// Usage: `bench_easing!(group, "quad_in", eazy: InQuadratic, emath: quadratic_in, ...)`
+/// Usage: `bench_easing!(group, "quad_in", eazy: InQuadratic, emath:
+/// quadratic_in, ...)`
 macro_rules! bench_easing {
   ($group:expr, $nums:expr, {
     eazy: $eazy_curve:expr,
@@ -554,23 +555,11 @@ criterion_group!(
   bench_quintic,
 );
 
-criterion_group!(
-  trigonometric_benches,
-  bench_sine,
-  bench_circle,
-);
+criterion_group!(trigonometric_benches, bench_sine, bench_circle,);
 
-criterion_group!(
-  oscillatory_benches,
-  bench_elastic,
-  bench_bounce,
-);
+criterion_group!(oscillatory_benches, bench_elastic, bench_bounce,);
 
-criterion_group!(
-  other_benches,
-  bench_back,
-  bench_expo,
-);
+criterion_group!(other_benches, bench_back, bench_expo,);
 
 criterion_main!(
   polynomial_benches,

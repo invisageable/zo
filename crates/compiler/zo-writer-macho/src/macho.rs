@@ -1223,7 +1223,8 @@ impl MachO {
       },
       segments: Vec::new(),
       sections: Vec::new(),
-      load_commands_buf: Vec::with_capacity(4096), // Pre-allocate for typical usage
+      load_commands_buf: Vec::with_capacity(4096), /* Pre-allocate for
+                                                    * typical usage */
       load_command_offsets: Vec::with_capacity(16), // Typically 10-15 commands
       code: Vec::new(),
       data: Vec::new(),
@@ -1267,9 +1268,8 @@ impl MachO {
 
     // Serialize directly to buffer - NO ALLOCATION!
     let size = std::mem::size_of::<T>();
-    let bytes = unsafe {
-      std::slice::from_raw_parts(cmd as *const T as *const u8, size)
-    };
+    let bytes =
+      unsafe { std::slice::from_raw_parts(cmd as *const T as *const u8, size) };
     self.load_commands_buf.extend_from_slice(bytes);
   }
 
@@ -5802,7 +5802,9 @@ impl MachO {
     }
 
     // Update header with correct counts
-    self.header.ncmds = commands.len() as u32 + load_command_count + if with_signature { 1 } else { 0 };
+    self.header.ncmds = commands.len() as u32
+      + load_command_count
+      + if with_signature { 1 } else { 0 };
     self.header.sizeofcmds = sizeofcmds;
 
     // Write header

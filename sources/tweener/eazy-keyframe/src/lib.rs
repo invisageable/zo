@@ -38,9 +38,9 @@ pub mod keyframe;
 pub mod track;
 
 // Re-export main types.
+pub use keyframe::Keyframe;
 pub use keyframe::keyframe;
 pub use keyframe::keyframe_eased;
-pub use keyframe::Keyframe;
 pub use track::KeyframeTrack;
 
 // Re-export dependencies for convenience.

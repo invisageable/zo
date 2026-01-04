@@ -224,7 +224,7 @@ fn bench_realistic_compiler_output(c: &mut Criterion) {
 
       // Float constants
       for i in 0..50 {
-        let float_val = (i as f64) * 3.14159;
+        let float_val = (i as f64) * std::f64::consts::PI;
 
         data.extend_from_slice(&float_val.to_le_bytes());
       }
