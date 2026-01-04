@@ -74,6 +74,7 @@ impl Pipeline {
 
     // Execute each stage in sequence
     for stage in &self.stages {
+      #[cfg(debug_assertions)]
       let stage_start = Instant::now();
 
       if let Err(e) = stage.execute(&mut ctx) {
@@ -83,11 +84,13 @@ impl Pipeline {
         });
       }
 
-      let stage_time = stage_start.elapsed();
-
       // Log stage completion in debug builds
       #[cfg(debug_assertions)]
-      eprintln!("[fret] {} completed in {:?}", stage.name(), stage_time);
+      eprintln!(
+        "[fret] {} completed in {:?}",
+        stage.name(),
+        stage_start.elapsed()
+      );
     }
 
     // Calculate final binary path based on target

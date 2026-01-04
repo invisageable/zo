@@ -7,15 +7,15 @@ pub fn search_paths() -> Vec<PathBuf> {
   let mut paths = Vec::new();
 
   // Get executable directory
-  if let Ok(exe_path) = std::env::current_exe() {
-    if let Some(exe_dir) = exe_path.parent() {
-      // Same directory as executable
-      paths.push(exe_dir.to_path_buf());
+  if let Ok(exe_path) = std::env::current_exe()
+    && let Some(exe_dir) = exe_path.parent()
+  {
+    // Same directory as executable
+    paths.push(exe_dir.to_path_buf());
 
-      // AppImage/Flatpak: lib subdirectory
-      paths.push(exe_dir.join("lib"));
-      paths.push(exe_dir.join("../lib"));
-    }
+    // AppImage/Flatpak: lib subdirectory
+    paths.push(exe_dir.join("lib"));
+    paths.push(exe_dir.join("../lib"));
   }
 
   // Standard Linux library paths
