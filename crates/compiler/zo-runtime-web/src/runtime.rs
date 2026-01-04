@@ -105,6 +105,11 @@ impl Runtime {
       ) {
         match event {
           WindowEvent::CloseRequested => event_loop.exit(),
+          WindowEvent::AxisMotion {
+            device_id: _,
+            axis: _,
+            value: _,
+          } => {}
           _ => {}
         }
       }

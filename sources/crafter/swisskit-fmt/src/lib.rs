@@ -1,5 +1,5 @@
 pub mod doc;
-mod formatter;
+pub mod formatter;
 mod utils;
 pub mod zo;
 

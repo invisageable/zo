@@ -2,7 +2,7 @@ use crate::Parser;
 
 use zo_error::ErrorKind;
 use zo_reporter::collect_errors;
-use zo_span::Span;
+// use zo_span::Span;
 use zo_token::Token;
 use zo_tokenizer::Tokenizer;
 use zo_tree::NodeValue;
@@ -53,21 +53,21 @@ pub(crate) fn assert_error(source: &str, expected_error: ErrorKind) {
   );
 }
 
-pub(crate) fn assert_errors(source: &str, expected_errors: &[ErrorKind]) {
-  let tokenizer = Tokenizer::new(source);
-  let tokenization = tokenizer.tokenize();
+// pub(crate) fn assert_errors(source: &str, expected_errors: &[ErrorKind]) {
+//   let tokenizer = Tokenizer::new(source);
+//   let tokenization = tokenizer.tokenize();
 
-  let parser = Parser::new(&tokenization, source);
-  let _parsing = parser.parse();
+//   let parser = Parser::new(&tokenization, source);
+//   let _parsing = parser.parse();
 
-  let actual_errors = collect_errors()
-    .iter()
-    .map(|error| error.kind())
-    .collect::<Vec<_>>();
+//   let actual_errors = collect_errors()
+//     .iter()
+//     .map(|error| error.kind())
+//     .collect::<Vec<_>>();
 
-  assert_eq!(
-    actual_errors, expected_errors,
-    "\n\nError kinds mismatch for source:\n'{}'\n\nExpected:\n{:#?}\n\nActual:\n{:#?}\n",
-    source, expected_errors, actual_errors
-  );
-}
+//   assert_eq!(
+//     actual_errors, expected_errors,
+//     "\n\nError kinds mismatch for
+// source:\n'{}'\n\nExpected:\n{:#?}\n\nActual:\n{:#?}\n",     source,
+// expected_errors, actual_errors   );
+// }

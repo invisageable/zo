@@ -18,3 +18,13 @@ libm = { workspace = true }
 wide = { workspace = true }
 
 # external:crates.
+
+[dev-dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+criterion = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true }

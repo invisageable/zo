@@ -2,17 +2,17 @@ use crate::tests::common::assert_error;
 
 use zo_error::ErrorKind;
 
-// #[test]
-// fn test_mismatched_tags() {
-//   assert_error(
-//     r#"
-//       fun main() {
-//         imu component ::= <div>Content</span>;
-//       }
-//     "#,
-//     ErrorKind::MismatchedTags,
-//   );
-// }
+#[test]
+fn test_mismatched_tags() {
+  assert_error(
+    r#"
+      fun main() {
+        imu component ::= <div>Content</span>;
+      }
+    "#,
+    ErrorKind::MismatchedTags,
+  );
+}
 
 // #[test]
 // fn test_unclosed_element() {

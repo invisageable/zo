@@ -1,6 +1,5 @@
 use crate::Executor;
 
-use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
@@ -63,21 +62,21 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
   );
 }
 
-/// Assert SIR stream structure without caring about exact Symbol/TyId values
-pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
-  let tokenizer = Tokenizer::new(source);
-  let tokenization = tokenizer.tokenize();
+// /// Assert SIR stream structure without caring about exact Symbol/TyId values
+// pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
+//   let tokenizer = Tokenizer::new(source);
+//   let tokenization = tokenizer.tokenize();
 
-  let parser = Parser::new(&tokenization, source);
-  let parsing = parser.parse();
+//   let parser = Parser::new(&tokenization, source);
+//   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &tokenization.interner,
-    &tokenization.literals,
-  );
-  let (sir, _, _) = executor.execute_with_tychecker();
+//   let executor = Executor::new(
+//     &parsing.tree,
+//     &tokenization.interner,
+//     &tokenization.literals,
+//   );
+//   let (sir, _, _) = executor.execute_with_tychecker();
 
-  eprintln!("Full SIR instructions: {:#?}", sir.instructions);
-  check(&sir.instructions);
-}
+//   eprintln!("Full SIR instructions: {:#?}", sir.instructions);
+//   check(&sir.instructions);
+// }

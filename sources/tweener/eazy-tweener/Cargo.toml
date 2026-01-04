@@ -8,7 +8,7 @@ edition.workspace = true
 version = "0.0.0"
 
 [lib]
-doc-test = false
+doctest = false
 
 [dependencies]
 # internal:sources.
@@ -21,4 +21,12 @@ eazy-derive = { workspace = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+criterion = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }

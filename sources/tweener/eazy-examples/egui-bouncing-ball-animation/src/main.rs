@@ -3,7 +3,7 @@ use eazy::oscillatory::bounce::OutBounce;
 
 use eframe::egui;
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub struct BounceApp {
   start_time: Instant,

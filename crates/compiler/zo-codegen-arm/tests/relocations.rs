@@ -1,4 +1,4 @@
-use zo_writer_macho::{ARM64RelocationType, MachO, SymbolVisibility};
+use zo_writer_macho::{MachO, SymbolVisibility};
 
 #[test]
 fn test_external_function_call() {

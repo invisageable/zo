@@ -463,6 +463,21 @@ pub struct DyldInfoCommand {
   pub export_size: u32,
 }
 
+/// Parameters for add_dyld_info_only function
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DyldInfo {
+  pub rebase_off: u32,
+  pub rebase_size: u32,
+  pub bind_off: u32,
+  pub bind_size: u32,
+  pub weak_bind_off: u32,
+  pub weak_bind_size: u32,
+  pub lazy_bind_off: u32,
+  pub lazy_bind_size: u32,
+  pub export_off: u32,
+  pub export_size: u32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Nlist64 {
@@ -3917,19 +3932,7 @@ impl MachO {
   }
 
   /// Add dyld info only (LC_DYLD_INFO_ONLY)
-  pub fn add_dyld_info_only(
-    &mut self,
-    rebase_off: u32,
-    rebase_size: u32,
-    bind_off: u32,
-    bind_size: u32,
-    weak_bind_off: u32,
-    weak_bind_size: u32,
-    lazy_bind_off: u32,
-    lazy_bind_size: u32,
-    export_off: u32,
-    export_size: u32,
-  ) {
+  pub fn add_dyld_info_only(&mut self, info: DyldInfo) {
     #[repr(C)]
     struct DyldInfoCommand {
       cmd: u32,
@@ -3949,16 +3952,16 @@ impl MachO {
     let cmd = DyldInfoCommand {
       cmd: LC_DYLD_INFO_ONLY,
       cmdsize: std::mem::size_of::<DyldInfoCommand>() as u32,
-      rebase_off,
-      rebase_size,
-      bind_off,
-      bind_size,
-      weak_bind_off,
-      weak_bind_size,
-      lazy_bind_off,
-      lazy_bind_size,
-      export_off,
-      export_size,
+      rebase_off: info.rebase_off,
+      rebase_size: info.rebase_size,
+      bind_off: info.bind_off,
+      bind_size: info.bind_size,
+      weak_bind_off: info.weak_bind_off,
+      weak_bind_size: info.weak_bind_size,
+      lazy_bind_off: info.lazy_bind_off,
+      lazy_bind_size: info.lazy_bind_size,
+      export_off: info.export_off,
+      export_size: info.export_size,
     };
 
     self.add_load_command(&cmd);

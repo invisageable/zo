@@ -110,7 +110,7 @@ fn collect_zo_files(
         }
       } else if file_type.is_file() {
         // Check if it's a .zo file
-        if path.extension().map_or(false, |ext| ext == "zo") {
+        if path.extension().is_some_and(|ext| ext == "zo") {
           files.push(path);
         }
       }

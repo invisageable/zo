@@ -1,6 +1,8 @@
 use zo_writer_macho::{ARM64RelocationType, MachO, SymbolVisibility};
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
+
+use std::hint::black_box;
 
 fn bench_small_binary(c: &mut Criterion) {
   c.bench_function("small_binary_generation", |b| {

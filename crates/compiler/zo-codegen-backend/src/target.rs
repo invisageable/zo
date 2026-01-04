@@ -38,7 +38,7 @@ impl Target {
     #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
     return Self::X8664UnknownLinuxGnu;
 
-    #[cfg(all(target_arch = "wasm32"))]
+    #[cfg(target_arch = "wasm32")]
     return Self::Wasm32UnknownUnknown;
   }
 

@@ -151,11 +151,14 @@ impl Compiler {
 
     if !errors.is_empty() {
       let mut aggregator = ErrorAggregator::new();
-      aggregator.add_errors(&errors);
+
+      aggregator.add_errors(errors);
+
       for (path, source) in files.iter() {
         let filename = path.to_string_lossy();
         let _ = render_errors_to_stderr(&aggregator, source, &filename);
       }
+
       aggregator.clear();
 
       return Err(Error::new(ErrorKind::InternalCompilerError, Span::ZERO));

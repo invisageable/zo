@@ -77,6 +77,10 @@ impl Buffer {
     self.bytes(b"  ");
   }
 
+  pub fn is_empty(self) -> bool {
+    self.inner.is_empty()
+  }
+
   pub fn len(self) -> usize {
     self.inner.len()
   }

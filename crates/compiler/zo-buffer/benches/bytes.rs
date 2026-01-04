@@ -1,13 +1,12 @@
 //! ```rs
-//! cargo bench --package zo-writer --bench bytes
+//! cargo bench --package zo-buffer --bench bytes
 //! ```
 
 use zo_buffer::Buffer;
 
-use criterion::{
-  Criterion, Throughput, black_box, criterion_group, criterion_main,
-};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
+use std::hint::black_box;
 use std::io::{BufWriter, Write};
 
 const ITERATIONS: u32 = 1000;

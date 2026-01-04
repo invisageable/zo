@@ -37,7 +37,7 @@ impl Default for Formatter {
 }
 impl std::fmt::Display for Formatter {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}", self.buf.to_string())
+    write!(f, "{}", self.buf)
   }
 }
 impl std::fmt::Write for Formatter {
@@ -123,12 +123,10 @@ pub fn format(
         }
       },
       //# format-state.
-      FormatterState::Format => match ch {
-        _ => {
-          formatter.push(ch);
-          cursor.next();
-        }
-      },
+      FormatterState::Format => {
+        formatter.push(ch);
+        cursor.next();
+      }
       //# out-format-state.
       FormatterState::OutFormat => {
         state = FormatterState::Idle;

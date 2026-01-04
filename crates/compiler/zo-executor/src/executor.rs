@@ -10,7 +10,9 @@ use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, TyId};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
-use zo_value::{FunDef, Local, Mutability, Value, ValueId, ValueStorage};
+use zo_value::{
+  FunDef, Local, Mutability, Pubness, Value, ValueId, ValueStorage,
+};
 
 /// Scope frame for variable tracking
 pub struct ScopeFrame {
@@ -100,12 +102,11 @@ impl<'a> Executor<'a> {
   fn get_var_name(&self, start_idx: usize, end_idx: usize) -> Option<Symbol> {
     // Look for the Ident token after imu/mut
     for idx in (start_idx + 1)..end_idx {
-      if let Some(node) = self.tree.nodes.get(idx) {
-        if node.token == Token::Ident {
-          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
-            return Some(sym);
-          }
-        }
+      if let Some(node) = self.tree.nodes.get(idx)
+        && node.token == Token::Ident
+        && let Some(NodeValue::Symbol(sym)) = self.node_value(idx)
+      {
+        return Some(sym);
       }
     }
     None
@@ -236,9 +237,9 @@ impl<'a> Executor<'a> {
 
           // Now set the context with the correct body start
           self.current_function = Some(FunCtx {
-            name: pending_func.name,
+            // name: pending_func.name,
             return_ty: pending_func.return_ty,
-            body_start,
+            // body_start,
             has_explicit_return: false,
             pending_return: false,
           });
@@ -905,6 +906,7 @@ impl<'a> Executor<'a> {
         name: *param_name,
         ty_id: *param_ty,
         value_id,
+        pubness: Pubness::No,
         mutability: Mutability::No,
       });
 
@@ -971,6 +973,7 @@ impl<'a> Executor<'a> {
           name,
           ty_id: init_ty,
           value_id: init_value,
+          pubness: Pubness::No,
           mutability: Mutability::No,
         });
 
@@ -1022,6 +1025,7 @@ impl<'a> Executor<'a> {
           ty_id: init_ty,
           value_id: init_value,
           mutability: Mutability::Yes,
+          pubness: Pubness::No,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -1056,12 +1060,13 @@ impl<'a> Executor<'a> {
       // Look back to find the target variable
       if node_idx >= 2 {
         let target_idx = node_idx - 2;
-        if let Token::Ident = self.tree.nodes[target_idx].token {
-          if let Some(NodeValue::Symbol(name)) = self.node_value(target_idx) {
-            // Find the variable
-            if let Some(local) =
-              self.locals.iter_mut().rev().find(|l| l.name == name)
-            {
+        if let Token::Ident = self.tree.nodes[target_idx].token
+          && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
+        {
+          // Find the variable
+          if let Some(local) =
+            self.locals.iter_mut().rev().find(|l| l.name == name)
+          {
               // Check mutability
               if local.mutability != Mutability::Yes {
                 let span = self.tree.spans[node_idx];
@@ -1176,11 +1181,10 @@ impl<'a> Executor<'a> {
                   local.value_id = self.values.store_runtime(0);
                 }
               }
-            } else {
-              let span = self.tree.spans[target_idx];
+          } else {
+            let span = self.tree.spans[target_idx];
 
-              report_error(Error::new(ErrorKind::UndefinedVariable, span));
-            }
+            report_error(Error::new(ErrorKind::UndefinedVariable, span));
           }
         }
       }
@@ -1201,31 +1205,31 @@ impl<'a> Executor<'a> {
 
   /// Check if we have a pending return and emit it with the current stack value
   fn check_pending_return(&mut self) {
-    if let Some(ref mut ctx) = self.current_function {
-      if ctx.pending_return {
-        // We have a pending return and a value on the stack
-        let (return_value, return_ty) =
-          if !self.sir_values.is_empty() && !self.ty_stack.is_empty() {
-            let ty = self
-              .ty_stack
-              .last()
-              .copied()
-              .unwrap_or(self.ty_checker.unit_type());
-            let sir_value = self.sir_values.last().copied();
-            (sir_value, ty)
-          } else {
-            (None, self.ty_checker.unit_type())
-          };
+    if let Some(ref mut ctx) = self.current_function
+      && ctx.pending_return
+    {
+      // We have a pending return and a value on the stack
+      let (return_value, return_ty) =
+        if !self.sir_values.is_empty() && !self.ty_stack.is_empty() {
+          let ty = self
+            .ty_stack
+            .last()
+            .copied()
+            .unwrap_or(self.ty_checker.unit_type());
+          let sir_value = self.sir_values.last().copied();
+          (sir_value, ty)
+        } else {
+          (None, self.ty_checker.unit_type())
+        };
 
-        // Emit the Return instruction
-        self.sir.emit(Insn::Return {
-          value: return_value,
-          ty_id: return_ty,
-        });
+      // Emit the Return instruction
+      self.sir.emit(Insn::Return {
+        value: return_value,
+        ty_id: return_ty,
+      });
 
-        // Clear the pending flag
-        ctx.pending_return = false;
-      }
+      // Clear the pending flag
+      ctx.pending_return = false;
     }
   }
 
@@ -1528,39 +1532,38 @@ impl<'a> Executor<'a> {
 
     if dir_idx < self.tree.nodes.len()
       && self.tree.nodes[dir_idx].token == Token::Ident
+      && let Some(NodeValue::Symbol(sym)) = self.node_value(dir_idx)
     {
-      if let Some(NodeValue::Symbol(sym)) = self.node_value(dir_idx) {
-        let dir_name = self.interner.get(sym);
+      let dir_name = self.interner.get(sym);
 
-        // Handle different directives
-        match dir_name {
-          "run" => {
-            // #run executes code at compile time
-            // For now, just note it was encountered
-            // Future: execute the expression and store result
-          }
-          "dom" => {
-            // #dom renders a template to the DOM
-            // Pop the template value from the stack
-            if !self.value_stack.is_empty() {
-              let template_value = self.value_stack.pop().unwrap();
-              let template_ty = self.ty_stack.pop().unwrap();
+      // Handle different directives
+      match dir_name {
+        "run" => {
+          // #run executes code at compile time
+          // For now, just note it was encountered
+          // Future: execute the expression and store result
+        }
+        "dom" => {
+          // #dom renders a template to the DOM
+          // Pop the template value from the stack
+          if !self.value_stack.is_empty() {
+            let template_value = self.value_stack.pop().unwrap();
+            let template_ty = self.ty_stack.pop().unwrap();
 
-              // Emit DOM rendering instruction
-              self.sir.emit(Insn::Directive {
-                name: sym,
-                value: template_value,
-                ty_id: template_ty,
-              });
-            }
+            // Emit DOM rendering instruction
+            self.sir.emit(Insn::Directive {
+              name: sym,
+              value: template_value,
+              ty_id: template_ty,
+            });
           }
-          "inline" => {
-            // #inline hints for inlining
-            // Store as metadata for optimization pass
-          }
-          _ => {
-            // Unknown directive - could be user-defined
-          }
+        }
+        "inline" => {
+          // #inline hints for inlining
+          // Store as metadata for optimization pass
+        }
+        _ => {
+          // Unknown directive - could be user-defined
         }
       }
     }
@@ -1625,13 +1628,12 @@ impl<'a> Executor<'a> {
             // Look for text content after the tag
             if idx + 1 < end_idx {
               let next_node = &self.tree.nodes[idx + 1];
-              if next_node.token == Token::TemplateText {
-                if let Some(NodeValue::Symbol(text_sym)) =
+              if next_node.token == Token::TemplateText
+                && let Some(NodeValue::Symbol(text_sym)) =
                   self.node_value(idx + 1)
-                {
-                  let content = self.interner.get(text_sym).to_string();
-                  commands.push(UiCommand::Text { content, style });
-                }
+              {
+                let content = self.interner.get(text_sym).to_string();
+                commands.push(UiCommand::Text { content, style });
               }
             }
           }
@@ -1689,10 +1691,10 @@ impl<'a> Executor<'a> {
 /// Tracks context when compiling inside a function
 #[derive(Clone)]
 struct FunCtx {
-  name: Symbol,
-  return_ty: TyId,
-  body_start: u32,
-  has_explicit_return: bool,
+  // pub(crate) name: Symbol,
+  pub(crate) return_ty: TyId,
+  // pub(crate) body_start: u32,
+  pub(crate) has_explicit_return: bool,
   /// Set when we see 'return' keyword, cleared when we emit Return insn.
-  pending_return: bool,
+  pub(crate) pending_return: bool,
 }

@@ -24,7 +24,10 @@ pub struct Cursor<'source> {
 }
 impl<'source> Cursor<'source> {
   /// A cursor zero.
-  pub const ZERO: Self = Self::new("");
+  #[inline(always)]
+  pub fn zero() -> Self {
+    Self::new("")
+  }
 
   /// The reprensentation of a cursor.
   #[inline(always)]
@@ -98,7 +101,7 @@ impl<'source> Cursor<'source> {
 impl<'source> Default for Cursor<'source> {
   /// Creates a default cursor — default values is sets to zero.
   fn default() -> Self {
-    Self::ZERO
+    Self::zero()
   }
 }
 impl<'a> Iterator for Cursor<'a> {

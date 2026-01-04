@@ -3,7 +3,7 @@ use crate::ARM64Gen;
 use zo_interner::Interner;
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
-use zo_ui_protocol::{UiCommand, ContainerDirection, TextStyle};
+use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
 use zo_value::ValueId;
 
 #[test]
@@ -47,7 +47,10 @@ fn test_template_with_ui_commands() {
   // Verify that template data was stored
   assert!(codegen.has_templates, "Should have templates flag set");
 
-  println!("Generated {} bytes for template with commands", artifact.code.len());
+  println!(
+    "Generated {} bytes for template with commands",
+    artifact.code.len()
+  );
 }
 
 #[test]
@@ -59,12 +62,10 @@ fn test_template_data_layout() {
   let ty_id = TyId(0);
 
   // Simple template with one text command
-  let commands = vec![
-    UiCommand::Text {
-      content: "Test Text".to_string(),
-      style: TextStyle::Paragraph,
-    },
-  ];
+  let commands = vec![UiCommand::Text {
+    content: "Test Text".to_string(),
+    style: TextStyle::Paragraph,
+  }];
 
   sir.emit(Insn::Template {
     id: template_id,
@@ -88,12 +89,15 @@ fn test_template_data_layout() {
   // It should start after the code section
   // We can validate the structure by checking specific byte patterns
 
-  println!("Generated {} bytes for single text command", artifact.code.len());
+  println!(
+    "Generated {} bytes for single text command",
+    artifact.code.len()
+  );
 }
 
 #[test]
 fn test_template_entry_point_export() {
-  let mut interner = Interner::new();
+  let interner = Interner::new();
   let mut sir = Sir::new();
 
   let template_id = ValueId(1);
@@ -117,7 +121,8 @@ fn test_template_entry_point_export() {
   // The Mach-O should contain the _zo_ui_entry_point symbol
   // We can check for the symbol name in the binary
   let entry_point = b"_zo_ui_entry_point";
-  let has_entry = macho.windows(entry_point.len())
+  let has_entry = macho
+    .windows(entry_point.len())
     .any(|window| window == entry_point);
 
   assert!(has_entry, "Should export _zo_ui_entry_point symbol");
@@ -171,5 +176,8 @@ fn test_template_with_dom_directive() {
   assert!(!artifact.code.is_empty(), "Should generate code");
   assert!(codegen.has_templates, "Should have templates");
 
-  println!("Generated {} bytes with #dom directive", artifact.code.len());
+  println!(
+    "Generated {} bytes with #dom directive",
+    artifact.code.len()
+  );
 }

@@ -7,6 +7,7 @@
 
 /// Represents a [`Writer`] instance.
 pub struct Writer {}
+
 impl Writer {
   /// Creates a new [`Writer`] instance.
   pub fn new() -> Self {
@@ -48,4 +49,10 @@ impl Writer {
 
   //   Ok(())
   // }
+}
+
+impl Default for Writer {
+  fn default() -> Self {
+    Self::new()
+  }
 }

@@ -1,6 +1,7 @@
-use std::process::Command;
 use zo_codegen_arm::ARM64Gen;
-use zo_writer_macho::{MachO, UniversalBinary};
+use zo_writer_macho::UniversalBinary;
+
+use std::process::Command;
 
 #[test]
 fn test_universal_binary_creation() {

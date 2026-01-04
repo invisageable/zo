@@ -1040,8 +1040,8 @@ impl<'a> Parser<'a> {
     if prec > 0 { Some((prec, assoc)) } else { None }
   }
 
-  fn debug_print_tree(&self) {
-    println!("\n=== Parse Tree (State Machine with Introducers) ===");
+  pub fn debug_print_tree(&self) {
+    println!("\n——— Parse Tree (State Machine with Introducers) ———");
 
     for (i, node) in self.tree.nodes.iter().enumerate() {
       let token_str = format!("{:?}", node.token);
@@ -1070,7 +1070,5 @@ impl<'a> Parser<'a> {
 
       println!("{i:3}: {token_str:<20}{value_str}{children_str}");
     }
-
-    println!("=====================================================\n");
   }
 }

@@ -3427,7 +3427,10 @@ dependencies = [
 name = "eazy-core"
 version = "0.0.0"
 dependencies = [
+ "criterion",
+ "insta",
  "libm",
+ "proptest",
  "wide",
 ]
 
@@ -3435,7 +3438,10 @@ dependencies = [
 name = "eazy-derive"
 version = "0.0.0"
 dependencies = [
+ "criterion",
+ "insta",
  "proc-macro2",
+ "proptest",
  "quote",
  "syn 2.0.113",
 ]
@@ -3444,16 +3450,22 @@ dependencies = [
 name = "eazy-keyframe"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "eazy-core",
  "eazy-tweener",
+ "insta",
+ "proptest",
 ]
 
 [[package]]
 name = "eazy-tweener"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "eazy-core",
  "eazy-derive",
+ "insta",
+ "proptest",
  "rustc-hash 2.1.1",
  "tokio",
 ]

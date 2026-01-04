@@ -10,18 +10,11 @@ use std::fmt;
 /// Designed for zero-allocation tokenization where possible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
-  // Literals
   String,
   Number,
   Identifier,
-
-  // Keywords
-  Pack, // pack
-
-  // Directives
-  At, // @
-
-  // Punctuation
+  Pack,
+  At,           // @
   LeftParen,    // (
   RightParen,   // )
   LeftBracket,  // [
@@ -29,8 +22,6 @@ pub enum TokenKind {
   Comma,        // ,
   Colon,        // :
   Equal,        // =
-
-  // Special
   Eof,
   Error,
 }
@@ -58,8 +49,13 @@ impl Token {
     &source[self.start..self.end]
   }
 
-  /// Get the length of this token in bytes.
   #[inline]
+  pub fn is_empty(&self) -> bool {
+    matches!(self.kind, TokenKind::Eof)
+  }
+
+  /// Get the length of this token in bytes.
+  #[inline(always)]
   pub fn len(&self) -> usize {
     self.end - self.start
   }

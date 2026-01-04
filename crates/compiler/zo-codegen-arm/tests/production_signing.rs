@@ -1,5 +1,6 @@
-use std::process::Command;
 use zo_codegen_arm::ARM64Gen;
+
+use std::process::Command;
 
 #[test]
 fn test_production_code_signature() {
@@ -130,7 +131,7 @@ fn test_signature_load_command_offset() {
 
       if sig_offset + 4 <= binary.len() {
         let magic = &binary[sig_offset..sig_offset + 4];
-        
+
         // Should be CSMAGIC_EMBEDDED_SIGNATURE in big-endian
         assert_eq!(
           magic,

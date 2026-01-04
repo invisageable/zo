@@ -153,8 +153,9 @@ impl TemplateOptimizer {
   /// Flatten unnecessary container nesting (Phase 2.2)
   ///
   /// Merges consecutive containers with the same direction:
-  /// Before: BeginContainer(V), Text("a"), EndContainer, BeginContainer(V), Text("b"), EndContainer
-  /// After:  BeginContainer(V), Text("a"), Text("b"), EndContainer
+  /// Before: BeginContainer(V), Text("a"), EndContainer, BeginContainer(V),
+  /// Text("b"), EndContainer After:  BeginContainer(V), Text("a"), Text("b"),
+  /// EndContainer
   fn flatten_containers(&self, commands: Vec<UiCommand>) -> Vec<UiCommand> {
     let mut optimized = Vec::with_capacity(commands.len());
     let mut i = 0;
@@ -165,38 +166,38 @@ impl TemplateOptimizer {
           // Check if next container (after EndContainer) has same direction
           if let Some(end_idx) = self.find_matching_end(i, &commands) {
             // Check what comes after this container
-            if end_idx + 1 < commands.len() {
-              if let UiCommand::BeginContainer {
+            if end_idx + 1 < commands.len()
+              && let UiCommand::BeginContainer {
                 direction: next_dir,
                 ..
               } = &commands[end_idx + 1]
+              && direction == next_dir
+            {
+              // Same direction! Flatten by merging contents
+              optimized.push(UiCommand::BeginContainer {
+                id: id.clone(),
+                direction: direction.clone(),
+              });
+
+              // Add contents of first container
+              for cmd in commands.iter().take(end_idx).skip(i + 1) {
+                optimized.push(cmd.clone());
+              }
+
+              // Find end of second container
+              if let Some(second_end) =
+                self.find_matching_end(end_idx + 1, &commands)
               {
-                if direction == next_dir {
-                  // Same direction! Flatten by merging contents
-                  optimized.push(UiCommand::BeginContainer {
-                    id: id.clone(),
-                    direction: direction.clone(),
-                  });
-
-                  // Add contents of first container
-                  for j in (i + 1)..end_idx {
-                    optimized.push(commands[j].clone());
-                  }
-
-                  // Find end of second container
-                  if let Some(second_end) = self.find_matching_end(end_idx + 1, &commands) {
-                    // Add contents of second container
-                    for j in (end_idx + 2)..second_end {
-                      optimized.push(commands[j].clone());
-                    }
-
-                    optimized.push(UiCommand::EndContainer);
-
-                    // Skip past both containers
-                    i = second_end + 1;
-                    continue;
-                  }
+                // Add contents of second container
+                for cmd in commands.iter().take(second_end).skip(end_idx + 2) {
+                  optimized.push(cmd.clone());
                 }
+
+                optimized.push(UiCommand::EndContainer);
+
+                // Skip past both containers
+                i = second_end + 1;
+                continue;
               }
             }
           }
@@ -216,7 +217,11 @@ impl TemplateOptimizer {
   }
 
   /// Find the matching EndContainer for a BeginContainer at index
-  fn find_matching_end(&self, start: usize, commands: &[UiCommand]) -> Option<usize> {
+  fn find_matching_end(
+    &self,
+    start: usize,
+    commands: &[UiCommand],
+  ) -> Option<usize> {
     let mut depth = 0;
 
     for (i, cmd) in commands.iter().enumerate().skip(start) {
@@ -427,10 +432,7 @@ mod tests {
 
     // Should be flattened to 1 container with 2 text nodes
     assert_eq!(optimized.len(), 4);
-    assert!(matches!(
-      optimized[0],
-      UiCommand::BeginContainer { .. }
-    ));
+    assert!(matches!(optimized[0], UiCommand::BeginContainer { .. }));
     assert!(matches!(optimized[1], UiCommand::Text { .. }));
     assert!(matches!(optimized[2], UiCommand::Text { .. }));
     assert!(matches!(optimized[3], UiCommand::EndContainer));

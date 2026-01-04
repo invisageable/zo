@@ -1,44 +1,45 @@
-use rustc_hash::FxHashMap as HashMap;
 use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{ARM64Emitter, SP, X0, X1, X2, X16};
 use zo_interner::{Interner, Symbol};
 use zo_sir::{BinOp, Insn, Sir};
-use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
+use zo_ui_protocol::UiCommand;
 use zo_value::ValueId;
 use zo_writer_macho::{DebugFrameEntry, MachO};
+
+use rustc_hash::FxHashMap as HashMap;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-// Helper trait extensions for UI protocol types
-trait DirectionExt {
-  fn as_u32(&self) -> u32;
-}
-impl DirectionExt for ContainerDirection {
-  fn as_u32(&self) -> u32 {
-    match self {
-      ContainerDirection::Horizontal => 0,
-      ContainerDirection::Vertical => 1,
-    }
-  }
-}
+// // Helper trait extensions for UI protocol types
+// trait DirectionExt {
+//   fn as_u32(&self) -> u32;
+// }
+// impl DirectionExt for ContainerDirection {
+//   fn as_u32(&self) -> u32 {
+//     match self {
+//       ContainerDirection::Horizontal => 0,
+//       ContainerDirection::Vertical => 1,
+//     }
+//   }
+// }
 
-trait StyleExt {
-  fn as_u32(&self) -> u32;
-}
-impl StyleExt for TextStyle {
-  fn as_u32(&self) -> u32 {
-    match self {
-      TextStyle::Normal => 0,
-      TextStyle::Heading1 => 1,
-      TextStyle::Heading2 => 2,
-      TextStyle::Heading3 => 3,
-      TextStyle::Paragraph => 4,
-    }
-  }
-}
+// trait StyleExt {
+//   fn as_u32(&self) -> u32;
+// }
+// impl StyleExt for TextStyle {
+//   fn as_u32(&self) -> u32 {
+//     match self {
+//       TextStyle::Normal => 0,
+//       TextStyle::Heading1 => 1,
+//       TextStyle::Heading2 => 2,
+//       TextStyle::Heading3 => 3,
+//       TextStyle::Paragraph => 4,
+//     }
+//   }
+// }
 
 /// Represents the [`ARM64Gen`] code generation instance.
 pub struct ARM64Gen<'a> {
@@ -151,7 +152,7 @@ impl<'a> ARM64Gen<'a> {
     macho.add_data_segment();
 
     // Add main symbol if it exists
-    if let Some(_) = self.interner.symbol("main") {
+    if self.interner.symbol("main").is_some() {
       macho.add_function_symbol("_main", 1, 0x100000400, false);
     }
 

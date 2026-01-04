@@ -1,5 +1,6 @@
-use std::process::Command;
 use zo_codegen_arm::ARM64Gen;
+
+use std::process::Command;
 
 #[test]
 fn test_hello_world_generation() {
@@ -13,7 +14,7 @@ fn test_hello_world_generation() {
   assert_eq!(&binary[0..4], &[0xCF, 0xFA, 0xED, 0xFE]); // MH_MAGIC_64 in little-endian
 
   // Write to file in tests directory
-  let path = "tests/hello_zo";
+  let path = "tests/bin/hello_zo";
 
   ARM64Gen::write_executable(binary, path).expect("Failed to write executable");
 

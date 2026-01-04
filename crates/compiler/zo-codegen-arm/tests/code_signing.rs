@@ -1,5 +1,6 @@
-use std::process::Command;
 use zo_codegen_arm::ARM64Gen;
+
+use std::process::Command;
 
 #[test]
 fn test_signed_binary() {
@@ -8,7 +9,7 @@ fn test_signed_binary() {
   assert!(!binary.is_empty());
   assert_eq!(&binary[0..4], &[0xCF, 0xFA, 0xED, 0xFE]);
 
-  let path = "tests/hello_signed";
+  let path = "tests/bin/hello_signed";
 
   ARM64Gen::write_executable(binary, path).expect("Failed to write executable");
 

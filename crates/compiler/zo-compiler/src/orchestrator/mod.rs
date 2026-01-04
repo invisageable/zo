@@ -82,7 +82,7 @@ impl Orchestrator {
     // individually with its specific output path in the output directory.
     if let Some(out_dir) = output_dir {
       // Ensure output directory exists
-      if let Err(_) = std::fs::create_dir_all(out_dir) {
+      if std::fs::create_dir_all(out_dir).is_err() {
         let duration = start_time.elapsed();
         let error = Error::new(ErrorKind::InternalCompilerError, Span::ZERO);
         return BatchResult::from_error(error).with_duration(duration);

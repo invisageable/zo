@@ -1,11 +1,11 @@
+use crate::printee::Printee;
+
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, Target};
 use zo_interner::Interner;
 use zo_sir::{BinOp, Insn, Sir, UnOp};
 use zo_token::{Token, TokenBuffer};
 use zo_tree::Tree;
-use zo_ty::Ty;
-use zo_value::ValueId;
 
 /// Represents a [`PrettyPrinter`] instance.
 pub struct PrettyPrinter {
@@ -132,7 +132,7 @@ impl PrettyPrinter {
     self.sir_header();
 
     // Track function definitions and bodies
-    let mut current_function: Option<String> = None;
+    // let mut current_function: Option<String> = None;
     let mut in_function_body = false;
 
     for (idx, insn) in sir.instructions.iter().enumerate() {
@@ -141,11 +141,11 @@ impl PrettyPrinter {
           if in_function_body {
             self.buffer.newline();
 
-            in_function_body = false;
+            // in_function_body = false;
           }
 
           let name = interner.get(*name);
-          current_function = Some(name.to_string());
+          // current_function = Some(name.to_string());
 
           self.sir_function(name);
 
@@ -356,8 +356,8 @@ impl PrettyPrinter {
     }
 
     // Extract common fields
-    let op0 = (insn >> 25) & 0xF;
-    let op1 = (insn >> 21) & 0xF;
+    // let op0 = (insn >> 25) & 0xF;
+    // let op1 = (insn >> 21) & 0xF;
     let rd = insn & 0x1F;
 
     // Decode based on instruction class
@@ -551,33 +551,28 @@ impl PrettyPrinter {
     }
 
     // Print all root nodes
-    let mut printed = vec![false; tree.nodes.len()];
+    let printed = vec![false; tree.nodes.len()];
 
     for (i, &root_idx) in roots.iter().enumerate() {
       let is_last = i == roots.len() - 1;
 
-      self.print_tree_node(
+      self.print_tree_node(Printee {
         tree,
-        root_idx,
+        node_idx: root_idx,
         source,
-        0,
+        depth: 0,
         is_last,
-        &[],
-        &mut printed,
-      );
+        parent_continues: Vec::new(),
+        printed: printed.to_vec(),
+      });
     }
   }
 
-  fn print_tree_node(
-    &mut self,
-    tree: &Tree,
-    node_idx: usize,
-    source: &str,
-    depth: usize,
-    is_last: bool,
-    parent_continues: &[bool],
-    printed: &mut Vec<bool>,
-  ) {
+  fn print_tree_node(&mut self, printee: Printee) {
+    let node_idx = printee.node_idx;
+    let tree = printee.tree;
+    let mut printed = printee.printed;
+
     if node_idx >= tree.nodes.len() || printed[node_idx] {
       return;
     }
@@ -585,15 +580,18 @@ impl PrettyPrinter {
     printed[node_idx] = true;
 
     let node = &tree.nodes[node_idx];
+    let parent_continues = printee.parent_continues;
 
     // Print indentation for parent levels
-    for &continues in parent_continues {
-      if continues {
+    for continues in &parent_continues {
+      if *continues {
         self.buffer.str("│   ");
       } else {
         self.buffer.str("    ");
       }
     }
+
+    let is_last = printee.is_last;
 
     // Print branch character for this level
     if is_last {
@@ -614,7 +612,7 @@ impl PrettyPrinter {
 
       match node.token {
         Token::Ident | Token::Int | Token::Float | Token::String => {
-          let value = &source[start..end];
+          let value = &printee.source[start..end];
 
           format!("{:?}({value})", node.token)
         }
@@ -643,15 +641,15 @@ impl PrettyPrinter {
 
         let is_last_child = i == node.child_count as usize - 1;
 
-        self.print_tree_node(
+        self.print_tree_node(Printee {
           tree,
-          child_idx,
-          source,
-          depth + 1,
-          is_last_child,
-          &new_parent_continues,
-          printed,
-        );
+          node_idx: child_idx,
+          source: printee.source,
+          depth: printee.depth + 1,
+          is_last: is_last_child,
+          parent_continues: new_parent_continues.to_vec(),
+          printed: printed.to_vec(),
+        });
       }
     }
   }

@@ -10,5 +10,4 @@ A COLLECTiON OF DOCS, NOTES AND SPEECHES. iT'S ALL ABOUT READiNG HERE.
 
 | NAME                   | DESCRiPTiON                                                       |
 | :--------------------- | :---------------------------------------------------------------- |
-| [docs](./docs)         | GENERAL iNFORMATiON REGARDiNG THE WHOLE zo ECOSYSTEM.             |
 | [speeches](./speeches) | SOME ~~`bullshit`~~ iDEAS OF MY DAY-TO-DAY JOURNAL (FRENCH ONLY). |

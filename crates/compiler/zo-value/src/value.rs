@@ -248,4 +248,6 @@ pub struct Local {
   pub value_id: ValueId,
   /// The mutability flag.
   pub mutability: Mutability,
+  /// The pubness flag.
+  pub pubness: Pubness,
 }
