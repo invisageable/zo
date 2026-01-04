@@ -10,6 +10,7 @@ use zo_writer_macho::{DebugFrameEntry, MachO};
 use rustc_hash::FxHashMap as HashMap;
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -701,12 +702,14 @@ impl<'a> ARM64Gen<'a> {
   ) -> std::io::Result<()> {
     fs::write(&path, binary)?;
 
-    let metadata = fs::metadata(&path)?;
-    let mut permissions = metadata.permissions();
-
-    permissions.set_mode(0o755); // make executable (chmod +x).
-
-    fs::set_permissions(path, permissions)?;
+    // make executable on Unix (chmod +x).
+    #[cfg(unix)]
+    {
+      let metadata = fs::metadata(&path)?;
+      let mut permissions = metadata.permissions();
+      permissions.set_mode(0o755);
+      fs::set_permissions(&path, permissions)?;
+    }
 
     Ok(())
   }
