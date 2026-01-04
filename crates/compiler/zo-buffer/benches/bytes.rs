@@ -26,7 +26,7 @@ fn writer_workload(writer: &mut Buffer) {
 
 fn std_bufwriter_workload(writer: &mut impl Write) {
   for i in 0..ITERATIONS {
-    write!(writer, "  %{} = add nsw i32 %{}, %{}\n", i, i * 2, i * 3).unwrap();
+    writeln!(writer, "  %{} = add nsw i32 %{}, %{}", i, i * 2, i * 3).unwrap();
   }
 }
 

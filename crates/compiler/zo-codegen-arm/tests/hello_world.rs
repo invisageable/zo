@@ -20,7 +20,7 @@ fn test_hello_world_generation() {
 
   // Sign the binary (required on macOS Apple Silicon)
   let sign_output = Command::new("codesign")
-    .args(&["-s", "-", path])
+    .args(["-s", "-", path])
     .output()
     .expect("Failed to sign binary");
 

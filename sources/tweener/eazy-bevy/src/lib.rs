@@ -345,36 +345,36 @@ pub mod tweens {
 }
 
 // ============================================================================
-// Events (optional, for when animations complete)
+// Messages (optional, for when animations complete)
 // ============================================================================
 
-/// Event fired when an animator completes.
-#[derive(Event)]
+/// Message fired when an animator completes.
+#[derive(Message)]
 pub struct AnimationComplete<T: Tweenable> {
   pub entity: Entity,
   pub _marker: std::marker::PhantomData<T>,
 }
 
-/// Plugin that adds completion events for a type.
+/// Plugin that adds completion messages for a type.
 #[derive(Default)]
 pub struct EazyEventsPlugin<T: Tweenable>(std::marker::PhantomData<T>);
 
 impl<T: Tweenable> Plugin for EazyEventsPlugin<T> {
   fn build(&self, app: &mut App) {
-    app.add_event::<AnimationComplete<T>>().add_systems(
+    app.add_message::<AnimationComplete<T>>().add_systems(
       Update,
-      emit_completion_events::<T>.after(tick_animators::<T>),
+      (tick_animators::<T>, emit_completion_events::<T>).chain(),
     );
   }
 }
 
 fn emit_completion_events<T: Tweenable>(
   query: Query<(Entity, &Animator<T>), Changed<Animator<T>>>,
-  mut events: EventWriter<AnimationComplete<T>>,
+  mut events: MessageWriter<AnimationComplete<T>>,
 ) {
   for (entity, animator) in &query {
     if animator.is_complete() {
-      events.send(AnimationComplete {
+      events.write(AnimationComplete {
         entity,
         _marker: std::marker::PhantomData,
       });

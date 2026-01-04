@@ -6,7 +6,7 @@
 use fret::Pipeline;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Create a minimal test project
-fn setup_test_project(dir: &PathBuf) -> std::io::Result<()> {
+fn setup_test_project(dir: &Path) -> std::io::Result<()> {
   fs::create_dir_all(dir.join("src"))?;
 
   // Write fret.oz configuration

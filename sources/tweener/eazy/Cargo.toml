@@ -42,10 +42,7 @@ eazy-tweener = { workspace = true }
 [dev-dependencies]
 # externals:crates.
 criterion = { workspace = true }
-# eframe = { workspace = true }
 fastrand = { workspace = true }
-# wgpu = { version = "27.0", default-features = false, features = ["metal"] }
-# wgpu = { version = "26.0", default-features = false, features = ["metal"] }
 
 # bench:only.
 bevy_tween = "0.11.0"

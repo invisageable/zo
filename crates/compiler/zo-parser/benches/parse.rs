@@ -199,7 +199,7 @@ fn bench_parser_throughput(c: &mut Criterion) {
 }
 
 fn bench_mixed_multiple_sizes(c: &mut Criterion) {
-  for size in vec![100, 500, 1000, 5000] {
+  for size in [100, 500, 1000, 5000] {
     let code = generate_code(size);
     let numbytes = code.len() as u64;
     let numlines = code.lines().count() as u64;

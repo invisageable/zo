@@ -335,7 +335,7 @@ fn test_const_section_variables() {
   macho.add_local_symbol("_const_data", 4, 0);
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 // ============================================================================
@@ -399,7 +399,7 @@ fn test_reference_relocation() {
   );
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -438,7 +438,7 @@ fn test_address_of_relocation() {
   );
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 // ============================================================================
@@ -623,7 +623,7 @@ fn test_branch_relocations() {
   macho.add_text_relocation(0, "_func", ARM64RelocationType::Branch26, true);
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -638,7 +638,7 @@ fn test_page_relocations() {
   macho.add_text_relocation(4, "_var", ARM64RelocationType::Pageoff12, false);
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -663,7 +663,7 @@ fn test_got_relocations() {
   );
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -682,7 +682,7 @@ fn test_external_relocations() {
   );
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -694,7 +694,7 @@ fn test_pc_relative_relocations() {
   macho.add_text_relocation(0, "_target", ARM64RelocationType::Unsigned, true);
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 // ============================================================================
@@ -711,7 +711,7 @@ fn test_dwarf_compilation_unit() {
   let binary = macho.finish();
 
   // Check for DWARF sections
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -722,7 +722,7 @@ fn test_line_number_table() {
   macho.add_debug_file("test.zo");
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -733,7 +733,7 @@ fn test_variable_debug_info() {
   macho.add_debug_file("test.zo");
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -744,7 +744,7 @@ fn test_function_debug_info() {
   macho.add_debug_file("test.zo");
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -759,7 +759,7 @@ fn test_debug_frame_info() {
   macho.add_debug_frame_entry(frame);
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 // ============================================================================
@@ -840,7 +840,7 @@ fn test_thread_local_variables() {
   macho.add_local_symbol("_tls_var", 5, 0); // Section 5 for TLS
 
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -1064,7 +1064,7 @@ fn test_large_symbol_table_performance() {
 
   // Should complete in reasonable time (< 1 second)
   assert!(elapsed.as_secs() < 1);
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -1119,7 +1119,7 @@ fn test_many_relocations_performance() {
 
   // Should handle many relocations efficiently
   assert!(elapsed.as_secs() < 2);
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 // ============================================================================
@@ -1164,7 +1164,7 @@ fn test_relocation_out_of_bounds() {
 
   // This should complete without panic (implementation doesn't validate bounds)
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }
 
 #[test]
@@ -1177,5 +1177,5 @@ fn test_malformed_debug_info() {
 
   // Should not crash, but handle gracefully
   let binary = macho.finish();
-  assert!(binary.len() > 0);
+  assert!(!binary.is_empty());
 }

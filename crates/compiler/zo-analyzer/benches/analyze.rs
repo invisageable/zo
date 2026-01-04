@@ -311,7 +311,7 @@ fn bench_xlarge(c: &mut Criterion) {
 }
 
 fn bench_scaling(c: &mut Criterion) {
-  for size in vec![100, 500, 1000, 5000] {
+  for size in [100, 500, 1000, 5000] {
     let source = generate_realistic_code(size);
     let numlines = source.lines().count() as u64;
     let numbytes = source.len() as u64;

@@ -7,7 +7,7 @@ use fret::Pipeline;
 use rayon::prelude::*;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 const NUM_FILES: usize = 100;
@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Create a large benchmark project
-fn setup_benchmark_project(dir: &PathBuf) -> std::io::Result<()> {
+fn setup_benchmark_project(dir: &Path) -> std::io::Result<()> {
   fs::create_dir_all(dir.join("src"))?;
 
   // Write fret.oz

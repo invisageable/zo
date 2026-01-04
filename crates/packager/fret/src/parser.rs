@@ -427,7 +427,7 @@ mod tests {
     assert_eq!(config.source_dir, PathBuf::from("source"));
     assert_eq!(config.binary_name, "my-app");
     assert_eq!(config.optimization_level, 3);
-    assert_eq!(config.debug_symbols, false);
+    assert!(!config.debug_symbols);
   }
 
   #[test]

@@ -21,7 +21,7 @@ fn test_production_code_signature() {
 
   // Verify with codesign tool
   let verify_output = Command::new("codesign")
-    .args(&["-v", path])
+    .args(["-v", path])
     .output()
     .expect("Failed to run codesign");
 
@@ -34,7 +34,7 @@ fn test_production_code_signature() {
 
   // Check that LC_CODE_SIGNATURE is present
   let otool_output = Command::new("otool")
-    .args(&["-l", path])
+    .args(["-l", path])
     .output()
     .expect("Failed to run otool");
 

@@ -216,7 +216,7 @@ mod tests {
   #[test]
   fn test_cell_to_string_float() {
     assert_eq!(cell_to_string(&Data::Float(42.0)), "42");
-    assert_eq!(cell_to_string(&Data::Float(3.14)), "3.14");
+    assert_eq!(cell_to_string(&Data::Float(3.15)), "3.15");
   }
 
   #[test]
