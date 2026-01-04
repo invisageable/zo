@@ -3,7 +3,7 @@
 //! A [`Keyframe`] represents a value at a specific point in time,
 //! with optional easing to control interpolation to this keyframe.
 
-use eazy_data::{Curve, Easing};
+use eazy_core::{Curve, Easing};
 use eazy_tweener::Tweenable;
 
 /// A keyframe representing a value at a specific time.
@@ -16,7 +16,7 @@ use eazy_tweener::Tweenable;
 ///
 /// ```rust
 /// use eazy_keyframes::Keyframe;
-/// use eazy_data::Easing;
+/// use eazy_core::Easing;
 ///
 /// // Keyframe at 50% with OutBounce easing
 /// let kf = Keyframe::new(0.5, 100.0_f32)
@@ -90,7 +90,7 @@ impl<T: Tweenable> Keyframe<T> {
   ///
   /// ```rust
   /// use eazy_keyframes::Keyframe;
-  /// use eazy_data::Easing;
+  /// use eazy_core::Easing;
   ///
   /// let kf1 = Keyframe::new(0.0, 0.0_f32);
   /// let kf2 = Keyframe::new(1.0, 100.0_f32).with_easing(Easing::OutBounce);

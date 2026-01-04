@@ -3,8 +3,8 @@
 //! A [`Tween`] interpolates between two values over time using an easing
 //! function from `eazy-data`.
 
-use eazy_data::Curve;
-use eazy_data::Easing;
+use eazy_core::Curve;
+use eazy_core::Easing;
 
 use crate::callback::Callbacks;
 use crate::control::Controllable;
@@ -396,8 +396,7 @@ impl<T: Tweenable> TweenBuilder<T> {
   where
     F: Fn() + Send + Sync + 'static,
   {
-    self.tween.callbacks.on_start =
-      Some(crate::callback::Callback::sync(f));
+    self.tween.callbacks.on_start = Some(crate::callback::Callback::sync(f));
     self
   }
 
@@ -406,8 +405,7 @@ impl<T: Tweenable> TweenBuilder<T> {
   where
     F: Fn() + Send + Sync + 'static,
   {
-    self.tween.callbacks.on_update =
-      Some(crate::callback::Callback::sync(f));
+    self.tween.callbacks.on_update = Some(crate::callback::Callback::sync(f));
     self
   }
 
@@ -416,8 +414,7 @@ impl<T: Tweenable> TweenBuilder<T> {
   where
     F: Fn() + Send + Sync + 'static,
   {
-    self.tween.callbacks.on_complete =
-      Some(crate::callback::Callback::sync(f));
+    self.tween.callbacks.on_complete = Some(crate::callback::Callback::sync(f));
     self
   }
 
@@ -426,8 +423,7 @@ impl<T: Tweenable> TweenBuilder<T> {
   where
     F: Fn() + Send + Sync + 'static,
   {
-    self.tween.callbacks.on_repeat =
-      Some(crate::callback::Callback::sync(f));
+    self.tween.callbacks.on_repeat = Some(crate::callback::Callback::sync(f));
     self
   }
 
@@ -471,10 +467,8 @@ mod tests {
 
   #[test]
   fn test_repeat() {
-    let mut tween = Tween::to(0.0_f32, 100.0)
-      .duration(1.0)
-      .repeat(2u32)
-      .build();
+    let mut tween =
+      Tween::to(0.0_f32, 100.0).duration(1.0).repeat(2u32).build();
 
     tween.play();
     tween.tick(1.0); // Complete first
@@ -513,10 +507,7 @@ mod tests {
 
   #[test]
   fn test_delay() {
-    let mut tween = Tween::to(0.0_f32, 100.0)
-      .duration(1.0)
-      .delay(0.5)
-      .build();
+    let mut tween = Tween::to(0.0_f32, 100.0).duration(1.0).delay(0.5).build();
 
     tween.play();
 

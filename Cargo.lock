@@ -3191,6 +3191,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-tweenable"
+version = "0.1.0"
+dependencies = [
+ "eazy",
+]
+
+[[package]]
 name = "derive_arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3394,7 +3401,7 @@ dependencies = [
  "bevy_tween",
  "criterion",
  "easings",
- "eazy-data",
+ "eazy-core",
  "eazy-derive",
  "eazy-keyframe",
  "eazy-tweener",
@@ -3412,12 +3419,12 @@ name = "eazy-bevy"
 version = "0.0.0"
 dependencies = [
  "bevy 0.15.1",
- "eazy-data",
+ "eazy-core",
  "eazy-tweener",
 ]
 
 [[package]]
-name = "eazy-data"
+name = "eazy-core"
 version = "0.0.0"
 dependencies = [
  "libm",
@@ -3437,7 +3444,7 @@ dependencies = [
 name = "eazy-keyframe"
 version = "0.0.0"
 dependencies = [
- "eazy-data",
+ "eazy-core",
  "eazy-tweener",
 ]
 
@@ -3445,7 +3452,7 @@ dependencies = [
 name = "eazy-tweener"
 version = "0.0.0"
 dependencies = [
- "eazy-data",
+ "eazy-core",
  "eazy-derive",
  "rustc-hash 2.1.1",
  "tokio",
@@ -3519,6 +3526,14 @@ dependencies = [
  "serde",
  "smallvec",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "egui-bouncing-ball-animation"
+version = "0.0.0"
+dependencies = [
+ "eazy",
+ "eframe",
 ]
 
 [[package]]
@@ -7480,11 +7495,9 @@ dependencies = [
 name = "swisskit"
 version = "0.0.0"
 dependencies = [
- "Inflector",
- "flume",
- "regex",
- "smol_str 0.3.4",
  "swisskit-case",
+ "swisskit-core",
+ "swisskit-fmt",
  "swisskit-io",
  "swisskit-renderer",
  "swisskit-span",
@@ -7495,6 +7508,26 @@ name = "swisskit-case"
 version = "0.0.0"
 dependencies = [
  "Inflector",
+]
+
+[[package]]
+name = "swisskit-core"
+version = "0.0.0"
+dependencies = [
+ "flume",
+ "proptest",
+ "regex",
+ "smol_str 0.3.4",
+]
+
+[[package]]
+name = "swisskit-fmt"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "regex",
+ "swisskit-case",
+ "swisskit-core",
 ]
 
 [[package]]
@@ -8035,6 +8068,14 @@ name = "ttf-parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+
+[[package]]
+name = "tweener-timeline-stagger"
+version = "0.1.0"
+dependencies = [
+ "eazy",
+ "eframe",
+]
 
 [[package]]
 name = "type-map"

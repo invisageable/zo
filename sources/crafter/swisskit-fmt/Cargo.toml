@@ -1,0 +1,20 @@
+[package]
+name = "swisskit-fmt"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+swisskit-case = { workspace = true }
+swisskit-core = { workspace = true }
+
+# external:crates.
+regex = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

@@ -22,13 +22,14 @@ doctest = false
 
 [features]
 default = []
+derive = ["eazy-derive"]
 # wasm = ["eazy-wasm"]
 
 [dependencies]
 # internals:sources.
 # eazy-bevy = { workspace = true, optional = true }
-eazy-data = { workspace = true }
-eazy-derive = { workspace = true }
+eazy-core = { workspace = true }
+eazy-derive = { workspace = true, optional = true }
 eazy-keyframe = { workspace = true }
 eazy-tweener = { workspace = true }
 # eazy-wasm = { workspace = true, optional = true }

@@ -15,7 +15,7 @@
 //! use bevy::prelude::*;
 //! use eazy_bevy::{EazyPlugin, Animator, AnimatorBundle};
 //! use eazy_tweener::{Tween, Tweenable};
-//! use eazy_data::Easing;
+//! use eazy_core::Easing;
 //!
 //! fn setup(mut commands: Commands) {
 //!   commands.spawn((
@@ -386,7 +386,7 @@ fn emit_completion_events<T: Tweenable>(
 // Re-exports for convenience
 // ============================================================================
 
-pub use eazy_data::{Curve, Easing};
+pub use eazy_core::{Curve, Easing};
 pub use eazy_tweener::{
   Controllable, Direction, Position, Repeat, RepeatConfig, Stagger,
   StaggerFrom, Timeline, TimelineBuilder, Tween, TweenBuilder, TweenState,

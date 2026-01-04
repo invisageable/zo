@@ -5,8 +5,8 @@
 
 use crate::keyframe::Keyframe;
 
-use eazy_data::Curve;
-use eazy_data::Easing;
+use eazy_core::Curve;
+use eazy_core::Easing;
 use eazy_tweener::Tweenable;
 
 /// A track containing keyframes that can be sampled at any time.
@@ -19,7 +19,7 @@ use eazy_tweener::Tweenable;
 ///
 /// ```rust
 /// use eazy_keyframes::{KeyframeTrack, Keyframe};
-/// use eazy_data::Easing;
+/// use eazy_core::Easing;
 ///
 /// let track = KeyframeTrack::new()
 ///   .keyframe(0.0, 0.0_f32)

@@ -71,7 +71,7 @@ pub fn derive_tweenable(input: TokenStream) -> TokenStream {
         });
 
         quote! {
-          impl #impl_generics eazy_tweener::Tweenable for #struct_name #ty_generics #where_clause {
+          impl #impl_generics eazy::Tweenable for #struct_name #ty_generics #where_clause {
             #[inline(always)]
             fn lerp(self, other: Self, t: f32) -> Self {
               Self {
@@ -93,7 +93,7 @@ pub fn derive_tweenable(input: TokenStream) -> TokenStream {
         });
 
         quote! {
-          impl #impl_generics eazy_tweener::Tweenable for #struct_name #ty_generics #where_clause {
+          impl #impl_generics eazy::Tweenable for #struct_name #ty_generics #where_clause {
             #[inline(always)]
             fn lerp(self, other: Self, t: f32) -> Self {
               Self(
@@ -107,7 +107,7 @@ pub fn derive_tweenable(input: TokenStream) -> TokenStream {
       // Unit struct: struct Foo;
       Fields::Unit => {
         quote! {
-          impl #impl_generics eazy_tweener::Tweenable for #struct_name #ty_generics #where_clause {
+          impl #impl_generics eazy::Tweenable for #struct_name #ty_generics #where_clause {
             #[inline(always)]
             fn lerp(self, _other: Self, _t: f32) -> Self {
               self

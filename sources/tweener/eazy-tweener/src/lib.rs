@@ -10,7 +10,7 @@
 //!
 //! ```rust
 //! use eazy_tweener::{Tween, Controllable};
-//! use eazy_data::Easing;
+//! use eazy_core::Easing;
 //!
 //! let mut tween = Tween::to(0.0_f32, 100.0)
 //!   .duration(1.0)
@@ -89,19 +89,11 @@ pub mod tween;
 pub mod value;
 
 // Re-export main types at crate root.
-pub use callback::Callback;
-pub use callback::Callbacks;
-pub use control::Controllable;
-pub use control::Direction;
-pub use control::TweenState;
-pub use position::Position;
-pub use repeat::Repeat;
-pub use repeat::RepeatConfig;
-pub use stagger::Stagger;
-pub use stagger::StaggerFrom;
-pub use timeline::Timeline;
-pub use timeline::TimelineBuilder;
-pub use tween::Tween;
-pub use tween::TweenBuilder;
-pub use value::Tweenable;
-
+pub use callback::*;
+pub use control::*;
+pub use position::*;
+pub use repeat::*;
+pub use stagger::*;
+pub use timeline::*;
+pub use tween::*;
+pub use value::*;

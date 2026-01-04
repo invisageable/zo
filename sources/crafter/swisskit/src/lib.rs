@@ -1,8 +1,9 @@
-pub mod cursor;
-pub mod fmt;
-pub mod io;
-pub mod writer;
-
+pub mod core {
+  pub use swisskit_core::*;
+}
+pub mod fmt {
+  pub use swisskit_fmt::*;
+}
 pub mod case {
   pub use swisskit_case::*;
 }

@@ -4,6 +4,7 @@
 //! note — for more support go to:
 //!
 //! - [`crate::case::bitcase`].
+//! - [`crate::case::charcase`].
 
 pub mod camelcase;
 pub mod kebabcase;

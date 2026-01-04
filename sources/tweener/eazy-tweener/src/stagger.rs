@@ -3,8 +3,8 @@
 //! Staggers offset the start time of multiple animations to create
 //! cascading effects like domino falls or wave animations.
 
-use eazy_data::Curve;
-use eazy_data::Easing;
+use eazy_core::Curve;
+use eazy_core::Easing;
 
 /// Direction from which staggering originates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -74,7 +74,7 @@ impl StaggerFrom {
 /// let stagger = Stagger::each(0.1).from(StaggerFrom::Center);
 ///
 /// // Apply easing to the stagger distribution
-/// let stagger = Stagger::each(0.1).ease(eazy_data::Easing::OutQuadratic);
+/// let stagger = Stagger::each(0.1).ease(eazy_core::Easing::OutQuadratic);
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct Stagger {
@@ -193,9 +193,7 @@ impl Stagger {
 ///
 /// Returns a vector of delays corresponding to each index.
 pub fn calculate_stagger_delays(stagger: &Stagger, count: usize) -> Vec<f32> {
-  (0..count)
-    .map(|i| stagger.delay_for(i, count))
-    .collect()
+  (0..count).map(|i| stagger.delay_for(i, count)).collect()
 }
 
 #[cfg(test)]

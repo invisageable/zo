@@ -9,7 +9,7 @@
 //!
 //! ```rust
 //! use eazy_keyframes::{KeyframeTrack, Keyframe};
-//! use eazy_data::Easing;
+//! use eazy_core::Easing;
 //!
 //! let track = KeyframeTrack::new()
 //!   .keyframe(0.0, [0.0_f32, 0.0, 0.0])
@@ -44,7 +44,7 @@ pub use keyframe::Keyframe;
 pub use track::KeyframeTrack;
 
 // Re-export dependencies for convenience.
-pub use eazy_data::Easing;
+pub use eazy_core::Easing;
 pub use eazy_tweener::Tweenable;
 
 /// Create a [`KeyframeTrack`] from a list of keyframe tuples.

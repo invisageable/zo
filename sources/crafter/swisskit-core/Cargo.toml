@@ -1,0 +1,20 @@
+[package]
+name = "swisskit-core"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+flume = { workspace = true }
+regex = { workspace = true }
+smol_str = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

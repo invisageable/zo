@@ -1,7 +1,15 @@
 [package]
 name = "swisskit"
+repository = "https://github.com/invisageable/zo/tree/main/sources/crafter/swisskit"
 version.workspace = true
 edition.workspace = true
+
+keywords = [
+  "compilers",
+  "renderers",
+  "parsers",
+  "utils",
+]
 
 [lib]
 doctest = false
@@ -14,13 +22,11 @@ future = ["swisskit-io"]
 # internal:sources.
 
 # internal:crates.
+
+# internal:crates.
 swisskit-case = { workspace = true }
+swisskit-core = { workspace =  true }
+swisskit-fmt = { workspace =  true }
 swisskit-io = { workspace =  true, optional = true }
 swisskit-renderer = { workspace =  true }
 swisskit-span = { workspace =  true }
-
-# external:crates.
-flume = { workspace = true }
-Inflector = { workspace = true }
-regex = { workspace = true }
-smol_str = { workspace = true }

@@ -1,6 +1,6 @@
 [package]
-name = "eazy-wasm"
-description = "WebAssembly bindings for the eazy animation library."
+name = "eazy-core"
+description = "Core of eazy animation library."
 authors.workspace = true
 license.workspace = true
 repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
@@ -8,14 +8,13 @@ edition.workspace = true
 version = "0.0.0"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
 # internal:sources.
-eazy-core = { workspace = true }
 
 # internal:crates.
+libm = { workspace = true }
+wide = { workspace = true }
 
 # external:crates.
-wasm-bindgen = { workspace = true }

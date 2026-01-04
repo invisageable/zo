@@ -1,4 +1,4 @@
-use eazy_data::{Curve, easing};
+use eazy_core::{Curve, easing};
 
 use wasm_bindgen::prelude::wasm_bindgen;
 

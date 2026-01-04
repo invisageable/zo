@@ -12,7 +12,7 @@ doc-test = false
 
 [dependencies]
 # internal:sources.
-eazy-data = { workspace = true }
+eazy-core = { workspace = true }
 eazy-tweener = { workspace = true }
 
 # internal:crates.

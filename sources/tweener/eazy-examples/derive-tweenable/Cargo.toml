@@ -1,0 +1,11 @@
+[package]
+name = "derive-tweenable"
+version = "0.1.0"
+authors = ["@invisageable <iam@compilords.house>"]
+license = "MIT OR Apache-2.0"
+edition = "2024"
+rust-version = "1.92"
+publish = false
+
+[dependencies]
+eazy = { workspace = true, features = ["derive"] }
