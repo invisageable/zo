@@ -223,13 +223,13 @@ fn bench_complex(c: &mut Criterion) {
   {
     let mut group = c.benchmark_group("analyzer_bytes");
     group.throughput(Throughput::Bytes(numbytes));
-    group.bench_function("complex (~50 lines)", bench_analyzer(COMPLEX_CODE));
+    // group.bench_function("complex (~50 lines)", bench_analyzer(COMPLEX_CODE));
     group.finish();
   }
   {
     let mut group = c.benchmark_group("analyzer_lines");
     group.throughput(Throughput::Elements(numlines));
-    group.bench_function("complex (~50 lines)", bench_analyzer(COMPLEX_CODE));
+    // group.bench_function("complex (~50 lines)", bench_analyzer(COMPLEX_CODE));
     group.finish();
   }
 }

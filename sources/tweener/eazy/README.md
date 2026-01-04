@@ -25,7 +25,7 @@
 
 ## about.
 
-eazy iS AMONG THE FASTEST, ATOMiC AND ENHANCED `easing` FUNCTiONS KiT WRiTTEN iN RUST FOR CREATiVE, GAMERS, PROGRAMMERS, SCiENTiSTS, ETC WHO CARES ABOUT METRiCS — @see [benchmark](../eazy-notes/docs/benchmark.md).    
+eazy iS AMONG THE FASTEST, ATOMiC AND ENHANCED `easing` FUNCTiONS KiT WRiTTEN iN RUST FOR CREATiVE, GAMERS, PROGRAMMERS, SCiENTiSTS, ETC WHO CARES ABOUT METRiCS — @see [benchmark](https://invisageable.github.io/zo/eazy/benches).    
 
 eazy iS METiCULOUSLY OPTiMiZED iT'S A PERFECT MATCH FOR PRECiSiON OR SOPHiSTiCATED PROGRAMS — SUCH AS GUi, GAME ENGiNE, PLOTS, WEB AND NATiVE APPLiCATiON.    
 
@@ -38,8 +38,7 @@ eazy iS METiCULOUSLY OPTiMiZED iT'S A PERFECT MATCH FOR PRECiSiON OR SOPHiSTiCAT
 ## example.
 
 ```rs
-use eazy::Curve;
-use eazy::easing::oscillatory::bounce::OutBounce;
+use eazy::{Curve, OutBounce};
 
 fn main() {
   for time in (0..=100).map(|x| x as f32 / 100.0) {
@@ -52,42 +51,28 @@ fn main() {
 
 MORE EXAMPLES [`here`](../eazy-examples).    
 
-## embbedable.
+## examples.
 
-YOU ARE A bevy GAMER USER? @see — [eazy-bevy](../eazy-bevy).    
-YOU ARE A egui CRAFTER USER? @see — [eazy-egui](../eazy-egui).    
-YOU ARE A wasm HACKER USER? @see — [eazy-wasm](../eazy-wasm).   
-YOU ARE A low-level PROGRAMMER USER? @see — [eazy](../eazy).    
-
-> those contains everything you need to use eazy in without changing your paradigme.
+- Goto `sources/tweener/eazy-examples/*`
+- supports for egui.
 
 ## functions.
 
 **easing.**
 
-- POLYNOMiAL — _linear, quadratic, cubic, quartic, quintic, sextic, septic, octic, monic, decic, hectic_.
-- TRiGONOMETRiC — _sine, circle_.
-- EXPONENTiAL — _expo2, expoe_.
-- LOGARiTHMiC — _log10_.
-- ROOT — _sqrt_.
-- OSCiLLATORY — _elastic, bounce_.
-- BACKTRACKiNG — _back_.
+- _linear, quadratic, cubic, quartic, quintic, sextic, septic, octic, monic, decic, hectic, sine, circle, expo2, expoe, log10, sqrt, elastic, bounce, back_.
 
 **interpolation.**
 
-- LiNEAR — _lerp_.
-- POLYNOMiAL — _smoothstep, smootherstep, cubic, quartic, quintic, lagrange, newton_.
-- RATiONAL — _quadratic, cubic_.
-- PiECEWiZE — _polynomial, quadratic_.
-- TRiGONOMETRiC — _sinusoidal_.
+- _lerp, smoothstep, smootherstep, cubic, quartic, quintic, lagrange, newton, quadratic, cubic, polynomial, quadratic, sinusoidal_.
 
 ## benches.
 
 > *beat'em up!*
 
-BENCHES ARE DONE iN COMPARiSON BETWEEN `bevy_tween`, `easings`, `emath` (FROM `egui`) , `glissade`, `interpolation`, `keyframe`, `simple-easing2` CRATES. MOST OF THEM ARE FOLLOW THE ROBERT PENNER'S EASiNG FuNCTiONS, THEY ONLY iMPLEMENTED THE BASiCS ONE. REGARDiNG PERFORMANCE SOME OF OuR iMPLEMENTATiONS ARE SLiGHTLY FASTER AND STABLE, SO DEPENDiNG YOUR NEEDED, YOu SHOuLD TRY eazy. THE SAMPLE BELOW CONFiRM THAT OuR EASiNG FuNCTiONS ARE PRETTY WELL OPTiMiZED.
+BENCHES ARE DONE iN COMPARiSON BETWEEN `bevy_tween`, `easings`, `emath`<sup>egui</sup> , `glissade`, `interpolation`<sup>pisthon</sup>, `keyframe`, `simple-easing2` CRATES. MOST OF THEM ARE FOLLOW THE ROBERT PENNER'S EASiNG FuNCTiONS, THEY ONLY iMPLEMENTED THE BASiCS ONE. REGARDiNG PERFORMANCE SOME OF OuR iMPLEMENTATiONS ARE SLiGHTLY FASTER AND STABLE, SO DEPENDiNG YOUR NEEDED, YOu SHOuLD TRY eazy. THE SAMPLE BELOW CONFiRM THAT OuR EASiNG FuNCTiONS ARE PRETTY WELL OPTiMiZED.
 
-![bench-in-back-average-time](./eazy-notes/assets/image/benchmark/bench-average-time-in-back.png)
+@see [@benchmark-reports](https://invisageable.github.io/zo/eazy/benches).
 
 **what's next?**
 

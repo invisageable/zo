@@ -39,13 +39,13 @@ swisskit-renderer = { path = "sources/crafter/swisskit-renderer", version = "0.0
 swisskit-span = { path = "sources/crafter/swisskit-span", version = "0.0.0" }
 
 # internal:sources:eazy.
-eazy = { path = "sources/tweener/eazy", version = "0.0.0" }
+eazy = { path = "sources/tweener/eazy", version = "0.0.1" }
 # eazy-bevy = { path = "sources/tweener/eazy-bevy", version = "0.0.0" }
-eazy-core = { path = "sources/tweener/eazy-core", version = "0.0.0" }
-eazy-derive = { path = "sources/tweener/eazy-derive", version = "0.0.0" }
+eazy-core = { path = "sources/tweener/eazy-core", version = "0.0.1" }
+eazy-derive = { path = "sources/tweener/eazy-derive", version = "0.0.1" }
 eazy-examples = { path = "sources/tweener/eazy-examples", version = "0.0.0" }
-eazy-keyframe = { path = "sources/tweener/eazy-keyframe", version = "0.0.0" }
-eazy-tweener = { path = "sources/tweener/eazy-tweener", version = "0.0.0" }
+eazy-keyframe = { path = "sources/tweener/eazy-keyframe", version = "0.0.1" }
+eazy-tweener = { path = "sources/tweener/eazy-tweener", version = "0.0.1" }
 eazy-wasm = { path = "sources/tweener/eazy-wasm", version = "0.0.0" }
 
 # internal:sources:sitter.

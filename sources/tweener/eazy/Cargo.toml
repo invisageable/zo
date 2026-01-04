@@ -5,7 +5,7 @@ repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
-version = "0.0.0"
+version = "0.0.1"
 
 exclude = [
   "./benches/*",
