@@ -40,11 +40,13 @@ eazy-tweener = { workspace = true }
 [dev-dependencies]
 # externals:crates.
 criterion = { workspace = true }
-eframe = { workspace = true }
-nanorand = { workspace = true }
-wgpu = { version = "27.0", default-features = false, features = ["metal"] }
+# eframe = { workspace = true }
+fastrand = { workspace = true }
+# wgpu = { version = "27.0", default-features = false, features = ["metal"] }
+# wgpu = { version = "26.0", default-features = false, features = ["metal"] }
 
 # bench:only.
+bevy_tween = "0.11.0"
 glissade = "0.2.6"
 emath = "0.31.1"
 easings = "0.1.0"
@@ -54,5 +56,5 @@ lilt = "0.8.1"
 simple-easing2 = "1.0.2"
 
 [[bench]]
-name = "easing"
+name = "all"
 harness = false

@@ -1,4 +1,6 @@
-use criterion::{Criterion, black_box};
+use criterion::Criterion;
+
+use std::hint::black_box;
 
 pub fn in_quadratic(c: &mut Criterion) {
   let mut group = c.benchmark_group("in_quadratic");
@@ -13,7 +15,7 @@ pub fn in_quadratic(c: &mut Criterion) {
     use eazy::polynomial::quadratic::InQuadratic;
 
     let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
+      .map(|_num| fastrand::f32() * 1000.0)
       .collect::<Vec<_>>();
 
     b.iter(|| {
@@ -27,7 +29,7 @@ pub fn in_quadratic(c: &mut Criterion) {
     use bevy_tween::interpolation::EaseKind;
 
     let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
+      .map(|_num| fastrand::f32() * 1000.0)
       .collect::<Vec<_>>();
 
     b.iter(|| {
@@ -41,7 +43,7 @@ pub fn in_quadratic(c: &mut Criterion) {
     use emath::easing;
 
     let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
+      .map(|_num| fastrand::f32() * 1000.0)
       .collect::<Vec<_>>();
 
     b.iter(|| {
@@ -55,7 +57,7 @@ pub fn in_quadratic(c: &mut Criterion) {
     use glissade::Easing;
 
     let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
+      .map(|_num| fastrand::f32() * 1000.0)
       .collect::<Vec<_>>();
 
     b.iter(|| {
@@ -69,7 +71,7 @@ pub fn in_quadratic(c: &mut Criterion) {
     use interpolation::Ease;
 
     let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
+      .map(|_num| fastrand::f32() * 1000.0)
       .collect::<Vec<_>>();
 
     b.iter(|| {
@@ -81,7 +83,7 @@ pub fn in_quadratic(c: &mut Criterion) {
 
   group.bench_function("simple_easing2", |b| {
     let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
+      .map(|_num| fastrand::f32() * 1000.0)
       .collect::<Vec<_>>();
 
     b.iter(|| {
