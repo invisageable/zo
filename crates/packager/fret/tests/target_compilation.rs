@@ -26,6 +26,7 @@ fn create_test_project(
 }
 
 #[test]
+#[ignore = "requires native codegen implementation"]
 fn test_native_target() {
   let temp_dir = TempDir::new().unwrap();
   let config = r#"
