@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'zo-*'
+      - '[0-9]+.[0-9]+.[0-9]+'
 
 env:
   CARGO_TERM_COLOR: always
@@ -97,14 +97,10 @@ jobs:
       - name: List artifacts
         run: ls -laR artifacts/
 
-      - name: Get version
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#zo-}" >> $GITHUB_OUTPUT
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "zo ${{ steps.version.outputs.VERSION }}"
+          name: "zo ${{ github.ref_name }}"
           files: |
             artifacts/*.tar.gz
             artifacts/*.zip

@@ -175,13 +175,13 @@ publish_swisskit:
 
 # Create a release tag: just release 0.1.0
 release version:
-  git tag -a zo-{{version}} -m "zo {{version}}"
-  git push origin zo-{{version}}
+  git tag -a {{version}} -m "zo {{version}}"
+  git push origin {{version}}
 
 # Delete a tag (if you made a mistake): just delete-tag 0.1.0
 delete-tag version:
-  git tag -d zo-{{version}}
-  git push origin :refs/tags/zo-{{version}}
+  git tag -d {{version}}
+  git push origin :refs/tags/{{version}}
 
 # List all tags
 list-tags:
