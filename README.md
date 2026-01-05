@@ -40,17 +40,17 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
 **-sources**
 
-| NAME                           | DESCRiPTiON                                                        |
-| :----------------------------- | :----------------------------------------------------------------- |
-| [eazy](./sources/tweener)      | THE TWEENiNG & EASiNG FUNCTiONS KiT FOR HiGH-PERFORMACE ANiMATiON. |
-| [swisskit](./sources/coder)    | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG COMPiLERS.                    |
+| NAME                                   | DESCRiPTiON                                                        |
+| :------------------------------------- | :----------------------------------------------------------------- |
+| [eazy](./sources/tweener/eazy)         | THE TWEENiNG & EASiNG FUNCTiONS KiT FOR HiGH-PERFORMACE ANiMATiON. |
+| [swisskit](./sources/crafter/swisskit) | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG COMPiLERS.                    |
 
 **-crates**
 
-| NAME                      | DESCRiPTiON                                             |
-| :------------------------ | :------------------------------------------------------ |
-| [fret](./crates/packager) | THE PACKAGE MANAGER FOR THE `zo` PROGRAMMiNG LANGAGE.   |
-| [zo](./crates/compiler)   | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE. |
+| NAME                           | DESCRiPTiON                                             |
+| :----------------------------- | :------------------------------------------------------ |
+| [fret](./crates/packager/fret) | THE PACKAGE MANAGER FOR THE `zo` PROGRAMMiNG LANGAGE.   |
+| [zo](./crates/compiler/zo)     | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGAGE. |
 
 > _more crates are coming. the architecture is modular and composable. be gentle_.
 
