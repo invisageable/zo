@@ -173,15 +173,15 @@ publish_swisskit:
 
 # === GitHub Releases ===
 
-# Create a release tag: just release v0.1.0
+# Create a release tag: just release 0.1.0
 release version:
-  git tag -a {{version}} -m "Release {{version}}"
-  git push origin {{version}}
+  git tag -a zo-{{version}} -m "zo {{version}}"
+  git push origin zo-{{version}}
 
-# Delete a tag (if you made a mistake)
+# Delete a tag (if you made a mistake): just delete-tag 0.1.0
 delete-tag version:
-  git tag -d {{version}}
-  git push origin :refs/tags/{{version}}
+  git tag -d zo-{{version}}
+  git push origin :refs/tags/zo-{{version}}
 
 # List all tags
 list-tags:
