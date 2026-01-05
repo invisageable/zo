@@ -159,11 +159,7 @@ publish_eazy:
 
 # Publish all swisskit-* crates (in dependency order)
 publish_swisskit:
-  cargo publish -p swisskit-case
   cargo publish -p swisskit-core
-  cargo publish -p swisskit-fmt
-  cargo publish -p swisskit-io
-  cargo publish -p swisskit-span
   cargo publish -p swisskit-renderer
   cargo publish -p swisskit
 

@@ -33,9 +33,6 @@ version = "0.0.0"
 # internal:sources:swisskit.
 swisskit = { path = "sources/crafter/swisskit", version = "0.0.0" }
 swisskit-core = { path = "sources/crafter/swisskit-core", version = "0.0.0" }
-swisskit-case = { path = "sources/crafter/swisskit-case", version = "0.0.0" }
-swisskit-fmt = { path = "sources/crafter/swisskit-fmt", version = "0.0.0" }
-swisskit-io = { path = "sources/crafter/swisskit-io", version = "0.0.0" }
 swisskit-renderer = { path = "sources/crafter/swisskit-renderer", version = "0.0.0" }
 swisskit-span = { path = "sources/crafter/swisskit-span", version = "0.0.0" }
 

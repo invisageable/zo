@@ -16,7 +16,6 @@ doctest = false
 
 [features]
 default = []
-future = ["swisskit-io"]
 
 [dependencies]
 # internal:sources.
@@ -24,9 +23,5 @@ future = ["swisskit-io"]
 # internal:crates.
 
 # internal:crates.
-swisskit-case = { workspace = true }
 swisskit-core = { workspace =  true }
-swisskit-fmt = { workspace =  true }
-swisskit-io = { workspace =  true, optional = true }
 swisskit-renderer = { workspace =  true }
-swisskit-span = { workspace =  true }

@@ -1,8 +1,8 @@
 //! ```sh
-//! cargo test -p swisskit-span --test fuzzing
+//! cargo test -p swisskit-core --test span_fuzzing
 //! ```
 
-use swisskit_span::Span;
+use swisskit_core::span::Span;
 
 use proptest::prelude::{Just, Strategy};
 use proptest::proptest;

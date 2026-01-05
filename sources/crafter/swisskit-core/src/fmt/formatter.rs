@@ -8,8 +8,8 @@
 //!
 //! [0]: https://docs.python.org/3/tutorial/inputoutput.html
 
-use swisskit_case::is;
-use swisskit_core::cursor::Cursor;
+use crate::cursor::Cursor;
+use crate::is;
 
 /// The representation of a formatter;
 #[derive(Debug)]

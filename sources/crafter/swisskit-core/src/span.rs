@@ -1,3 +1,5 @@
+pub mod source;
+
 use serde::{Deserialize, Serialize};
 
 /// Represents a continuous segment or region within a source text,

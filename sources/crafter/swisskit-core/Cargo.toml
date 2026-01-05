@@ -13,7 +13,9 @@ doctest = false
 
 # external:crates.
 flume = { workspace = true }
+Inflector = { workspace = true }
 regex = { workspace = true }
+serde = { workspace = true }
 smol_str = { workspace = true }
 
 [dev-dependencies]

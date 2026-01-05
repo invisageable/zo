@@ -6496,46 +6496,20 @@ dependencies = [
 name = "swisskit"
 version = "0.0.0"
 dependencies = [
- "swisskit-case",
  "swisskit-core",
- "swisskit-fmt",
- "swisskit-io",
  "swisskit-renderer",
- "swisskit-span",
-]
-
-[[package]]
-name = "swisskit-case"
-version = "0.0.0"
-dependencies = [
- "Inflector",
 ]
 
 [[package]]
 name = "swisskit-core"
 version = "0.0.0"
 dependencies = [
+ "Inflector",
  "flume",
  "proptest",
  "regex",
+ "serde",
  "smol_str 0.3.4",
-]
-
-[[package]]
-name = "swisskit-fmt"
-version = "0.0.0"
-dependencies = [
- "proptest",
- "regex",
- "swisskit-case",
- "swisskit-core",
-]
-
-[[package]]
-name = "swisskit-io"
-version = "0.0.0"
-dependencies = [
- "tokio",
 ]
 
 [[package]]
@@ -6549,14 +6523,6 @@ dependencies = [
  "pulldown-cmark",
  "raw-window-handle",
  "wry",
-]
-
-[[package]]
-name = "swisskit-span"
-version = "0.0.0"
-dependencies = [
- "proptest",
- "serde",
 ]
 
 [[package]]
