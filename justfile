@@ -39,11 +39,19 @@ eazy_run_bench:
 
 # Sync eazy benchmark reports to docs/ for GitHub Pages
 eazy_build_bench_reports:
-  uv run tasks/eazy/build_bench_reports.py
+  uv run sources/tweener/eazy-tasks/build_bench_reports.py
 
 # Run benchmarks and sync to docs (for GitHub Pages deployment)
 eazy_publish_bench_reports: eazy_run_bench eazy_build_bench_reports
   @echo "Benchmarks published to docs/"
+
+# Dry-run publish all eazy-* crates                                          
+eazy_publish_dry:                                                            
+  cargo publish -p eazy-core --dry-run                                       
+  cargo publish -p eazy-derive --dry-run                                     
+  cargo publish -p eazy-tweener --dry-run                                    
+  cargo publish -p eazy-keyframe --dry-run                                   
+  cargo publish -p eazy --dry-run  
 
 # === Cross-platform testing (requires Docker) ===
 
@@ -128,11 +136,11 @@ bump-zo bump:
   cargo set-version -p zo --bump {{bump}}
 
 # List all workspace crates and their versions
-list-versions:
+list_versions:
   cargo ws list -l
 
 # Show what would change without applying
-release-dry-run bump="patch":
+release_dry_run bump="patch":
   cargo ws version {{bump}} --no-git-push --dry-run
 
 # === Publishing ===
@@ -142,11 +150,11 @@ publish crate:
   cargo publish -p {{crate}}
 
 # Dry-run publish (verify without uploading)
-publish-dry crate:
+publish_dry crate:
   cargo publish -p {{crate}} --dry-run
 
 # Publish all eazy-* crates (in dependency order)
-publish-eazy:
+publish_eazy:
   cargo publish -p eazy-core
   cargo publish -p eazy-derive
   cargo publish -p eazy-tweener
@@ -154,7 +162,7 @@ publish-eazy:
   cargo publish -p eazy
 
 # Publish all swisskit-* crates (in dependency order)
-publish-swisskit:
+publish_swisskit:
   cargo publish -p swisskit-case
   cargo publish -p swisskit-core
   cargo publish -p swisskit-fmt
@@ -162,3 +170,19 @@ publish-swisskit:
   cargo publish -p swisskit-span
   cargo publish -p swisskit-renderer
   cargo publish -p swisskit
+
+# === GitHub Releases ===
+
+# Create a release tag: just release v0.1.0
+release version:
+  git tag -a {{version}} -m "Release {{version}}"
+  git push origin {{version}}
+
+# Delete a tag (if you made a mistake)
+delete-tag version:
+  git tag -d {{version}}
+  git push origin :refs/tags/{{version}}
+
+# List all tags
+list-tags:
+  git tag -l --sort=-v:refname

@@ -25,9 +25,9 @@
 
 ## about.
 
-eazy iS AMONG THE FASTEST, ATOMiC AND ENHANCED `easing` FUNCTiONS KiT WRiTTEN iN RUST FOR CREATiVE, GAMERS, PROGRAMMERS, SCiENTiSTS, ETC WHO CARES ABOUT METRiCS — @see [benchmark](https://invisageable.github.io/zo/eazy/benches).    
+eazy iS AMONG THE FASTEST, ATOMiC AND ENHANCED `easing` FUNCTiONS KiT FOR CREATiVE, GAMERS, PROGRAMMERS, SCiENTiSTS, ETC WHO CARES ABOUT METRiCS — @see [benchmark](https://invisageable.github.io/zo/eazy/benches).    
 
-eazy iS METiCULOUSLY OPTiMiZED iT'S A PERFECT MATCH FOR PRECiSiON OR SOPHiSTiCATED PROGRAMS — SUCH AS GUi, GAME ENGiNE, PLOTS, WEB AND NATiVE APPLiCATiON.    
+eazy iS METiCULOUSLY OPTiMiZED iT'S A PERFECT MATCH FOR PRECiSiON OR SOPHiSTiCATED PROGRAMS — SUCH AS GUi, GAME ENGiNE, PLOTS, WEB AND NATiVE APPLiCATiON. VERY USEFUL FOR iMMEDiATE MODE GUi.
 
 > OK-AY, OK-AY — BUT WHY eazy iS OUTPERFORMiNG?
 
@@ -43,13 +43,12 @@ use eazy::{Curve, OutBounce};
 fn main() {
   for time in (0..=100).map(|x| x as f32 / 100.0) {
     let bounce = OutBounce.y(time);
-
     println!("reaction bounce: {bounce:.3}");
   }
 }
 ```
 
-MORE EXAMPLES [`here`](../eazy-examples).    
+MORE EXAMPLES [`here`](https://github.com/invisageable/zo/tree/main/sources/tweener/eazy-examples).    
 
 ## examples.
 
@@ -58,13 +57,20 @@ MORE EXAMPLES [`here`](../eazy-examples).
 
 ## functions.
 
-**easing.**
+**easing.** —  _linear, quadratic, cubic, quartic, quintic, sextic, septic, octic, monic, decic, hectic, sine, circle, expo2, expoe, log10, sqrt, elastic, bounce, back_.
 
-- _linear, quadratic, cubic, quartic, quintic, sextic, septic, octic, monic, decic, hectic, sine, circle, expo2, expoe, log10, sqrt, elastic, bounce, back_.
+**interpolation.** — _lerp, smoothstep, smootherstep, cubic, quartic, quintic, lagrange, newton, quadratic, cubic, polynomial, quadratic, sinusoidal_.
 
-**interpolation.**
+```rs
+use eazy::{Curve, OutBounce};
 
-- _lerp, smoothstep, smootherstep, cubic, quartic, quintic, lagrange, newton, quadratic, cubic, polynomial, quadratic, sinusoidal_.
+fn main() {
+  for time in (0..=100).map(|x| x as f32 / 100.0) {
+    let bounce = OutBounce.y(time);
+    println!("reaction bounce: {bounce:.3}");
+  }
+}
+```
 
 ## benches.
 

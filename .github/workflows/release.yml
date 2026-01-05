@@ -18,19 +18,21 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            archive: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
-            archive: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
-            archive: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            archive: zip
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev libgtk-3-dev libatk1.0-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
@@ -43,25 +45,40 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: List release directory
+        run: ls -la target/${{ matrix.target }}/release/
+        shell: bash
+
       - name: Package (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czvf ../../../zo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz zo
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/zo dist/
+          cd dist
+          tar czvf zo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz zo
+          mv zo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../
         shell: bash
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cd target/${{ matrix.target }}/release
-          7z a ../../../zo-${{ github.ref_name }}-${{ matrix.target }}.zip zo.exe
-        shell: pwsh
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/zo.exe dist/
+          cd dist
+          7z a zo-${{ github.ref_name }}-${{ matrix.target }}.zip zo.exe
+          mv zo-${{ github.ref_name }}-${{ matrix.target }}.zip ../
+        shell: bash
+
+      - name: List packaged files
+        run: ls -la zo-*
+        shell: bash
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: zo-${{ matrix.target }}
           path: zo-${{ github.ref_name }}-${{ matrix.target }}.*
+          if-no-files-found: error
 
   release:
     name: Create Release
@@ -77,8 +94,13 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: List artifacts
+        run: ls -laR artifacts/
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
           generate_release_notes: true
