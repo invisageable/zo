@@ -27,20 +27,6 @@ pub fn out_back(c: &mut Criterion) {
     })
   });
 
-  group.bench_function("bevy_tween", |b| {
-    use bevy_tween::interpolation::EaseKind;
-
-    let nums = (0..10_000)
-      .map(|_num| fastrand::f32() * 1000.0)
-      .collect::<Vec<_>>();
-
-    b.iter(|| {
-      for num in nums.iter() {
-        black_box(EaseKind::BackOut.sample(*num % 1.0));
-      }
-    })
-  });
-
   group.bench_function("easings", |b| {
     let nums = (0..10_000)
       .map(|_num| fastrand::f32() * 1000.0)

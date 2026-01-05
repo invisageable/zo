@@ -1,4 +1,4 @@
-use criterion::{black_box, Criterion};
+use criterion::{Criterion, black_box};
 
 pub fn in_elastic(c: &mut Criterion) {
   let mut group = c.benchmark_group("in_elastic");
@@ -14,25 +14,12 @@ pub fn in_elastic(c: &mut Criterion) {
     .collect::<Vec<_>>();
 
   group.bench_function("eazy", |b| {
-    use eazy::oscillatory::elastic::InElastic;
     use eazy::Curve;
+    use eazy::oscillatory::elastic::InElastic;
 
     b.iter(|| {
       let _ =
         black_box(nums.iter().map(|num| InElastic.y(*num)).collect::<Vec<_>>());
-    })
-  });
-
-  group.bench_function("bevy_tween", |b| {
-    b.iter(|| {
-      let _ = black_box(
-        nums
-          .iter()
-          .map(|num| {
-            bevy_tween::interpolation::EaseFunction::ElasticIn.sample(*num)
-          })
-          .collect::<Vec<_>>(),
-      );
     })
   });
 

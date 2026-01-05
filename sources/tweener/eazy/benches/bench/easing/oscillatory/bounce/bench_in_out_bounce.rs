@@ -1,4 +1,4 @@
-use criterion::{black_box, Criterion};
+use criterion::{Criterion, black_box};
 
 pub fn in_out_bounce(c: &mut Criterion) {
   let mut group = c.benchmark_group("in_out_bounce");
@@ -14,27 +14,14 @@ pub fn in_out_bounce(c: &mut Criterion) {
     .collect::<Vec<_>>();
 
   group.bench_function("eazy", |b| {
-    use eazy::oscillatory::bounce::InOutBounce;
     use eazy::Curve;
+    use eazy::oscillatory::bounce::InOutBounce;
 
     b.iter(|| {
       let _ = black_box(
         nums
           .iter()
           .map(|num| InOutBounce.y(*num))
-          .collect::<Vec<_>>(),
-      );
-    })
-  });
-
-  group.bench_function("bevy_tween", |b| {
-    b.iter(|| {
-      let _ = black_box(
-        nums
-          .iter()
-          .map(|num| {
-            bevy_tween::interpolation::EaseFunction::BounceInOut.sample(*num)
-          })
           .collect::<Vec<_>>(),
       );
     })

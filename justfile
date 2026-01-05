@@ -139,8 +139,6 @@ list_versions:
 release_dry_run bump="patch":
   cargo ws version {{bump}} --no-git-push --dry-run
 
-# === Publishing ===
-
 # Publish a single crate: just publish eazy
 publish crate:
   cargo publish -p {{crate}}
@@ -162,8 +160,6 @@ publish_swisskit:
   cargo publish -p swisskit-core
   cargo publish -p swisskit-renderer
   cargo publish -p swisskit
-
-# === GitHub Releases ===
 
 # Create a release tag: just release 0.1.0
 release version:

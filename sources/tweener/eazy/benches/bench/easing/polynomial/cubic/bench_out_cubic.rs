@@ -23,20 +23,6 @@ pub fn out_cubic(c: &mut Criterion) {
     })
   });
 
-  group.bench_function("bevy_tween", |b| {
-    use bevy_tween::interpolation::EaseKind;
-
-    let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
-      .collect::<Vec<_>>();
-
-    b.iter(|| {
-      for num in nums.iter() {
-        black_box(EaseKind::CubicOut.sample(*num));
-      }
-    })
-  });
-
   group.bench_function("emath", |b| {
     use emath::easing;
 

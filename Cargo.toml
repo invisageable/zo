@@ -103,17 +103,17 @@ ariadne = "0.4.1"
 async-openai = "0.30.1"
 async-trait = "0.1.89"
 axum = { version = "0.8.6", features = ["ws"]}
-bevy = { version = "0.17", features = [
-  "bevy_asset",
-  "bevy_core_pipeline",
-  "bevy_render",
-  "bevy_sprite",
-  "bevy_winit",
-  "bevy_window",
-  "multi_threaded",
-  "x11",
-] }
-bevy_ecs = "0.17.3"
+# bevy = { version = "0.17.3", features = [
+#   "bevy_asset",
+#   "bevy_core_pipeline",
+#   "bevy_render",
+#   "bevy_sprite",
+#   "bevy_winit",
+#   "bevy_window",
+#   "multi_threaded",
+#   "x11",
+# ] }
+# bevy_ecs = "0.17.3"
 blake3 = "1.8.2"
 bincode = "2.0.1"
 bumpalo = { version = "3.19.0", features = ["collections"] }
@@ -129,7 +129,7 @@ csv = "1.4.0"
 dashmap = "6.1.0"
 dirs = "6.0.0"
 dotenv = "0.15.0"
-eframe = { version = "0.31.0", features = [
+eframe = { version = "0.33.3", features = [
   "accesskit",
   "default_fonts",
   "persistence",
@@ -137,14 +137,14 @@ eframe = { version = "0.31.0", features = [
   "wayland",   # Linux
   "x11",       # Linux
 ] }
-egui_extras = { version = "0.31.0", default-features = false, features = [
+egui_extras = { version = "0.33.3", default-features = false, features = [
   "file",
   "image",
   "svg",
 ] }
-egui_kittest = { version = "0.31.0", default-features = false, features = [
+egui_kittest = { version = "0.33.3", default-features = false, features = [
   "snapshot",
-  "wgpu",
+  # "wgpu",
 ]}
 env_logger = "0.11.5"
 fastrand = "2.3.0"
@@ -289,12 +289,12 @@ web-sys = { version = "0.3.81", features = [
   "Text",
   "Window",
 ] }
-wgpu = { version = "26.0.0", default-features = false, features = [
-  "std",
-  "metal",
-  "dx12",
-  "vulkan",
-] }
+# wgpu = { version = "28.0.0", default-features = false, features = [
+#   "std",
+#   "metal",
+#   "dx12",
+#   "vulkan",
+# ] }
 wide = { version = "0.8.1", features = ["serde"] }
 winit = "0.30.9"
 wit-bindgen = "0.46.0"

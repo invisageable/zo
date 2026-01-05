@@ -9,4 +9,4 @@ publish = false
 [dependencies]
 eazy = { workspace = true, features = ["derive"] }
 eframe = { workspace = true }
-wgpu = { workspace = true }
+# wgpu = { workspace = true }

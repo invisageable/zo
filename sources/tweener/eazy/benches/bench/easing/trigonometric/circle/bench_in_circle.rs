@@ -23,20 +23,6 @@ pub fn in_circle(c: &mut Criterion) {
     })
   });
 
-  group.bench_function("bevy_tween", |b| {
-    use bevy_tween::interpolation::EaseKind;
-
-    let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
-      .collect::<Vec<_>>();
-
-    b.iter(|| {
-      for num in nums.iter() {
-        black_box(EaseKind::CircularIn.sample(*num));
-      }
-    })
-  });
-
   group.bench_function("easings", |b| {
     let nums = (0..10_000)
       .map(|_num| rand::random::<f32>() * 1000.0)

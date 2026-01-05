@@ -1,4 +1,4 @@
-use criterion::{black_box, Criterion};
+use criterion::{Criterion, black_box};
 
 pub fn out_expo2(c: &mut Criterion) {
   let mut group = c.benchmark_group("out_expo2");
@@ -14,25 +14,12 @@ pub fn out_expo2(c: &mut Criterion) {
     .collect::<Vec<_>>();
 
   group.bench_function("eazy", |b| {
-    use eazy::exponential::expo2::OutExpo2;
     use eazy::Curve;
+    use eazy::exponential::expo2::OutExpo2;
 
     b.iter(|| {
       let _ =
         black_box(nums.iter().map(|num| OutExpo2.y(*num)).collect::<Vec<_>>());
-    })
-  });
-
-  group.bench_function("bevy_tween", |b| {
-    b.iter(|| {
-      let _ = black_box(
-        nums
-          .iter()
-          .map(|num| {
-            bevy_tween::interpolation::EaseFunction::ExponentialOut.sample(*num)
-          })
-          .collect::<Vec<_>>(),
-      );
     })
   });
 

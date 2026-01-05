@@ -44,7 +44,7 @@ criterion = { workspace = true }
 fastrand = { workspace = true }
 
 # bench:only.
-bevy_tween = "0.11.0"
+# bevy_tween = "0.11.0"  # BLOCKED: pulls in bevy → naga v27.0.3 bug
 glissade = "0.2.6"
 emath = "0.31.1"
 easings = "0.1.0"

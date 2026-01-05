@@ -9,8 +9,7 @@ pub fn in_out_quintic(c: &mut Criterion) {
     .significance_level(0.05);
 
   group.bench_function("eazy", |b| {
-    use eazy::Curve;
-    use eazy::polynomial::quintic::InOutQuintic;
+    use eazy::{Curve, InOutQuintic};
 
     let nums = (0..10_000)
       .map(|_num| rand::random::<f32>() * 1000.0)
@@ -19,20 +18,6 @@ pub fn in_out_quintic(c: &mut Criterion) {
     b.iter(|| {
       for num in nums.iter() {
         black_box(InOutQuintic.y(*num));
-      }
-    })
-  });
-
-  group.bench_function("bevy_tween", |b| {
-    use bevy_tween::interpolation::EaseKind;
-
-    let nums = (0..10_000)
-      .map(|_num| rand::random::<f32>() * 1000.0)
-      .collect::<Vec<_>>();
-
-    b.iter(|| {
-      for num in nums.iter() {
-        black_box(EaseKind::QuinticInOut.sample(*num));
       }
     })
   });
