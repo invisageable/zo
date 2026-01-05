@@ -1,8 +1,11 @@
 [package]
 name = "swisskit"
+description = "The Swiss-Army-Knife kit for writing robust apps."
 repository = "https://github.com/invisageable/zo/tree/main/sources/crafter/swisskit"
-version.workspace = true
+authors.workspace = true
+license.workspace = true
 edition.workspace = true
+version = "0.0.0"
 
 keywords = [
   "compilers",
