@@ -1,6 +1,6 @@
 //! # The Exponent E Curve.
 //!
-//! An algebric curve of degree infinite.
+//! An algebraic curve of degree infinite.
 //!
 //! #### formula.
 //!

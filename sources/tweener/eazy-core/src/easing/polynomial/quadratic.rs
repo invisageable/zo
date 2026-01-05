@@ -1,6 +1,6 @@
 //! # The Quadratic Curve.
 //!
-//! An algebric curve of degree two.
+//! An algebraic curve of degree two.
 //!
 //! #### formula.
 //!

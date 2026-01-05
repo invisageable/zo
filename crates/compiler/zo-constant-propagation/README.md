@@ -1,1 +1,1 @@
-# zo — contant propagation.
+# zo — constant propagation.

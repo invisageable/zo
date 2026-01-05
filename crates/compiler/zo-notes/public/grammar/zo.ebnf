@@ -263,7 +263,7 @@ template_attribute = identifier, "=", ( "{", expr, "}" | string_literal ) ;
 template_text = { template_char } ;
 template_char = ? any character except '<', '>', '{', '}' ? ;
 
-(* ===== Typess ===== *)
+(* ===== Types ===== *)
 
 type = primitive_type
      | path_type

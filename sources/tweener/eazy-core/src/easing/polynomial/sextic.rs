@@ -1,6 +1,6 @@
 //! # The Sextic Curve.
 //!
-//! An algebric curve of degree six.
+//! An algebraic curve of degree six.
 //!
 //! #### formula.
 //!

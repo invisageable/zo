@@ -209,7 +209,7 @@ pub enum UnOp {
   Ref,
   // Deref — `*x`.
   Deref,
-  // Bitwize not — ``.
+  // Bitwise not — ``.
   BitNot,
 }
 impl UnOp {

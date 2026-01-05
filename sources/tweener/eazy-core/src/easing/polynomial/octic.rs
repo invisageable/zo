@@ -1,6 +1,6 @@
 //! # The Octic Curve.
 //!
-//! An algebric curve of degree eight.
+//! An algebraic curve of degree eight.
 //!
 //! #### formula.
 //!

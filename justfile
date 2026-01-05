@@ -1,7 +1,8 @@
-# zo project task runner
+default:
+  @just --list
 
 # Run all pre-commit checks
-pre-commit: fmt-check clippy test
+pre-commit: fmt_check clippy test
   @echo "All pre-commit checks passed!"
 
 # Format all code
@@ -9,7 +10,7 @@ fmt:
   cargo fmt --all
 
 # Check formatting without modifying
-fmt-check:
+fmt_check:
   cargo fmt --all -- --check
 
 # Run clippy with warnings as errors
@@ -27,8 +28,6 @@ build:
 # Clean build artifacts
 clean:
   cargo clean
-
-# === Benchmarks ===
 
 # Run all cargo benchmarks
 bench:
@@ -56,7 +55,7 @@ eazy_publish_dry:
 # === Cross-platform testing (requires Docker) ===
 
 # Run all checks in Linux container
-test-linux:
+test_linux:
   docker run --rm -v {{justfile_directory()}}:/workspace -w /workspace rust:latest \
     sh -c "apt-get update && apt-get install -y libglib2.0-dev libgtk-3-dev libatk1.0-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev && \
            cargo fmt --all -- --check && \
@@ -64,53 +63,50 @@ test-linux:
            cargo test --all"
 
 # Build for Linux (quick compile check)
-build-linux:
+build_linux:
   docker run --rm -v {{justfile_directory()}}:/workspace -w /workspace rust:latest \
     sh -c "apt-get update && apt-get install -y libglib2.0-dev libgtk-3-dev libatk1.0-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev && \
            cargo build --all"
 
 # Cross-compile check for Windows (no tests, just build)
-build-windows:
+build_windows:
   docker run --rm -v {{justfile_directory()}}:/workspace -w /workspace rust:latest \
     sh -c "rustup target add x86_64-pc-windows-gnu && \
            apt-get update && apt-get install -y mingw-w64 && \
            cargo build --all --target x86_64-pc-windows-gnu"
 
 # Run full CI simulation locally
-ci: fmt-check clippy test test-linux
+ci: fmt_check clippy test test_linux
   @echo "Full CI simulation passed!"
 
-# Install the pre-commit hook
-install-hooks:
-  @echo '#!/bin/sh' > .git/hooks/pre-commit
-  @echo 'just pre-commit' >> .git/hooks/pre-commit
-  @chmod +x .git/hooks/pre-commit
-  @echo "Pre-commit hook installed"
+# Install git hooks via lefthook
+install_hooks:
+  lefthook install
 
 # === Version Management (cargo-workspaces) ===
 
 # Bump patch version (0.1.0 -> 0.1.1) for all crates
-release-patch:
+release_patch:
   cargo ws version patch --no-git-push --yes
 
 # Bump minor version (0.1.0 -> 0.2.0) for all crates
-release-minor:
+release_minor:
   cargo ws version minor --no-git-push --yes
 
 # Bump major version (0.1.0 -> 1.0.0) for all crates
-release-major:
+release_major:
   cargo ws version major --no-git-push --yes
 
-# Set exact version for a crate: just set-version eazy 0.2.0
-set-version crate version:
+# Set exact version for a crate: just set_version eazy 0.2.0
+set_version crate version:
   cargo set-version -p {{crate}} {{version}}
 
-# Bump a specific crate: just bump-crate eazy patch
-bump-crate crate bump:
+# Bump a specific crate: just bump_crate eazy patch
+bump_crate crate bump:
   cargo set-version -p {{crate}} --bump {{bump}}
 
 # Bump all eazy-* crates together
-bump-eazy bump:
+bump_eazy bump:
   cargo set-version -p eazy-core --bump {{bump}}
   cargo set-version -p eazy-derive --bump {{bump}}
   cargo set-version -p eazy-tweener --bump {{bump}}
@@ -118,7 +114,7 @@ bump-eazy bump:
   cargo set-version -p eazy --bump {{bump}}
 
 # Bump all swisskit-* crates together
-bump-swisskit bump:
+bump_swisskit bump:
   cargo set-version -p swisskit-case --bump {{bump}}
   cargo set-version -p swisskit-core --bump {{bump}}
   cargo set-version -p swisskit-fmt --bump {{bump}}
@@ -128,7 +124,7 @@ bump-swisskit bump:
   cargo set-version -p swisskit --bump {{bump}}
 
 # Bump all zo-* crates together
-bump-zo bump:
+bump_zo bump:
   #!/usr/bin/env sh
   for crate in $(cargo ws list | grep '^zo-'); do
     cargo set-version -p "$crate" --bump {{bump}}
@@ -178,11 +174,11 @@ release version:
   git tag -a {{version}} -m "zo {{version}}"
   git push origin {{version}}
 
-# Delete a tag (if you made a mistake): just delete-tag 0.1.0
-delete-tag version:
+# Delete a tag (if you made a mistake): just delete_tag 0.1.0
+delete_tag version:
   git tag -d {{version}}
   git push origin :refs/tags/{{version}}
 
 # List all tags
-list-tags:
+list_tags:
   git tag -l --sort=-v:refname

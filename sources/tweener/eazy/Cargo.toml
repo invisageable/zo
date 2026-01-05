@@ -1,7 +1,7 @@
 [package]
 name = "eazy"
 description = "The tweening & easing functions kit for high-performance animation."
-repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
+repository = "https://github.com/invisageable/zo/tree/main/sources/tweener/eazy"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -23,7 +23,6 @@ doctest = false
 [features]
 default = []
 derive = ["eazy-derive"]
-
 # wasm = ["eazy-wasm"]
 
 [dependencies]

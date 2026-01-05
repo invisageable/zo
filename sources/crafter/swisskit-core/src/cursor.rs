@@ -29,7 +29,7 @@ impl<'source> Cursor<'source> {
     Self::new("")
   }
 
-  /// The reprensentation of a cursor.
+  /// The representation of a cursor.
   #[inline(always)]
   pub const fn new(source: &'source str) -> Self {
     Self {

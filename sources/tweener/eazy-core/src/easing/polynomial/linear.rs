@@ -1,6 +1,6 @@
 //! # The Linear Curve.
 //!
-//! An algebric curve of degree one.
+//! An algebraic curve of degree one.
 //!
 //! #### formula.
 //!

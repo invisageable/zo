@@ -1,6 +1,6 @@
 //! # The Constant Curve.
 //!
-//! An algebric curve of degree zero.
+//! An algebraic curve of degree zero.
 //!
 //! #### formula.
 //!

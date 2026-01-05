@@ -121,7 +121,7 @@ fn test_in_out_smooth() {
 /// The Non-linear Interpolation.
 ///
 /// Interpolates smoothly between `min` and `max`. It will accelerated from the
-/// start and deccelerated toward the end with a cubic easing.
+/// start and decelerated toward the end with a cubic easing.
 ///
 /// #### params.
 ///

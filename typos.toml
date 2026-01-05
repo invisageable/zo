@@ -1,0 +1,14 @@
+[files]
+extend-exclude = [
+  "target/",
+  "*.lock",
+  "**/*.md",
+  "docs/",
+  "notes/",
+]
+
+[default.extend-words]
+eazy = "eazy"
+
+[default.extend-identifiers]
+bitcase = "bitcase"

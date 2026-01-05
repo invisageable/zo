@@ -131,7 +131,7 @@ fn test_logical_operators() {
 }
 
 #[test]
-fn test_bitwize_operators() {
+fn test_bitwise_operators() {
   assert_tokens_stream(
     "& | ^ << >>",
     &[

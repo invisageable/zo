@@ -11,13 +11,13 @@ impl Buffer {
     }
   }
 
-  /// Adds bytes to the buufer.
+  /// Adds bytes to the buffer.
   #[inline(always)]
   pub fn bytes(&mut self, s: &[u8]) {
     self.inner.extend_from_slice(s);
   }
 
-  /// Adds str to the buufer.
+  /// Adds str to the buffer.
   #[inline(always)]
   pub fn str(&mut self, s: &str) {
     self.bytes(s.as_bytes());

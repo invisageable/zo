@@ -223,7 +223,7 @@ impl ARM64Emitter {
     self.emit_u32(insn);
   }
 
-  /// Emits `SUB` (substract) register from register.
+  /// Emits `SUB` (subtract) register from register.
   pub fn emit_sub(&mut self, dst: Register, src1: Register, src2: Register) {
     // SUB Xd, Xn, Xm
     // Encoding: sf=1 10 01011 shift=00 0 Rm Rn Rd

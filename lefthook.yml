@@ -1,0 +1,19 @@
+pre-commit:
+  piped: true
+  commands:
+    typos:
+      root: ""
+      run: typos --format=brief
+
+    fmt:
+      run: cargo fmt --all
+      stage_fixed: true
+
+    check:
+      run: cargo check --all
+
+    clippy:
+      run: cargo clippy --all --all-targets -- -D warnings
+
+    test:
+      run: cargo test --all

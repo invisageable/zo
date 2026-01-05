@@ -32,7 +32,7 @@ iT iS COMPOSED OF SEVERAL CONCEPTS: PURE FUNCTiONAL, CONCURRENT ACTOR MODEL, ETC
 
 - COMPiLE-TiME ERROR DETECTiON AND PREVENTiON — *be aware of what's going on*.
 - CLARiTY AND PRECiSION OF EXPRESSiON — *ux syntax design*.
-- iMPLEMENTATiON SiMPLiCiTY — *no painfull to do thing quickly*.
+- iMPLEMENTATiON SiMPLiCiTY — *no painful to do thing quickly*.
 - RUN-TiME EFFiCiENCY — *get the full speed demon of your program*.
 - HiGH CONCURRENCY — *green threads*.
 - FAST COMPiLE-TIME — *we target __10M LoC/s__*.

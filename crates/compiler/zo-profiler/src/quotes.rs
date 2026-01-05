@@ -13,7 +13,7 @@ pub(crate) const QUOTES: &[&str] = &[
   "\"Why accept slow compilers? Just make them faster.\" — Jonathan Blow",
   "\"DoD is about organizing your data for the transformations you want to perform.\" — Mike Acton",
   "\"Simplicity is a prerequisite for reliability.\" — Edsger W. Dijkstra",
-  "\"The faster your software runs, the less power his consummed.\" — Chandler Carruth",
+  "\"The faster your software runs, the less power his consumed.\" — Chandler Carruth",
   "\"Re-think traditional compiler design.\" — Chandler Carruth",
   "\"Challenge assumptions with aggressive goals.\" — Chandler Carruth",
   "\"Do less work by not wasting effort.\" — Chandler Carruth",

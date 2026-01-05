@@ -1,4 +1,4 @@
-# sources — tweener.
+# eazy.
 
 [![invisage/zov](https://img.shields.io/badge/github-invisageable/zov-black?logo=github)](https://github.com/invisageable/zov)
 [![Latest version](https://img.shields.io/crates/v/eazy.svg)](https://crates.io/crates/eazy)
@@ -42,8 +42,8 @@ use eazy::{Curve, OutBounce};
 
 fn main() {
   for time in (0..=100).map(|x| x as f32 / 100.0) {
-    let bounce = OutBounce.y(time);
-    println!("reaction bounce: {bounce:.3}");
+    let p = OutBounce.y(time);
+    println!("p (value): {p:.3}");
   }
 }
 ```
@@ -62,12 +62,12 @@ MORE EXAMPLES [`here`](https://github.com/invisageable/zo/tree/main/sources/twee
 **interpolation.** — _lerp, smoothstep, smootherstep, cubic, quartic, quintic, lagrange, newton, quadratic, cubic, polynomial, quadratic, sinusoidal_.
 
 ```rs
-use eazy::{Curve, OutBounce};
+use eazy::{Curve, InSmooth};
 
 fn main() {
   for time in (0..=100).map(|x| x as f32 / 100.0) {
-    let bounce = OutBounce.y(time);
-    println!("reaction bounce: {bounce:.3}");
+    let p = InSmooth.y(time);
+    println!("p  (value): {p:.3}");
   }
 }
 ```

@@ -30,7 +30,8 @@ extern "C" {
 }
 
 /// The tree-sitter [`LanguageFn`] for the Zo grammar.
-pub const LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_zo) };
+pub const LANGUAGE: LanguageFn =
+  unsafe { LanguageFn::from_raw(tree_sitter_zo) };
 
 /// The content of the [`node-types.json`] file for this grammar.
 pub const NODE_TYPES: &str = include_str!("../../src/node-types.json");

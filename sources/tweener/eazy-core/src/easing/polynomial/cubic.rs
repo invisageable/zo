@@ -1,6 +1,6 @@
 //! # The Cubic Curve.
 //!
-//! An algebric curve of degree three.
+//! An algebraic curve of degree three.
 //!
 //! #### formula.
 //!

@@ -290,7 +290,7 @@ impl Curve for Easing {
       Self::InOutBack => backtracking::back::InOutBack.y(p),
       Self::CubicBezier(bezier) => bezier.y(p),
       Self::Interpolation(interpolation) => interpolation.y(p),
-      // shoud stay at the last place. New ones must be place above it.
+      // should stay at the last place. New ones must be place above it.
       // Self::Custom(curve) => curve.y(p),
     }
   }

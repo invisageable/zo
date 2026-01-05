@@ -1,6 +1,6 @@
 //! # The Nonic Curve.
 //!
-//! An algebric curve of degree nine.
+//! An algebraic curve of degree nine.
 //!
 //! #### formula.
 //!

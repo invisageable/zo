@@ -1,6 +1,6 @@
 //! # The Quintic Curve.
 //!
-//! An algebric curve of degree five.
+//! An algebraic curve of degree five.
 //!
 //! #### formula.
 //!

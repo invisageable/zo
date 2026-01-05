@@ -142,13 +142,13 @@ pub group type Foo = int
 -- stmt:imu.
 fun add() {
   imu x: int = 2; -- static type.
-  imu y := 4;     -- infered type via `:=`.
+  imu y := 4;     -- inferred type via `:=`.
 }
 
 -- stmt:mut.
 fun add() {
   mut x: int = 42; -- static type.
-  mut y := 24;     -- infered type via `:=`.
+  mut y := 24;     -- inferred type via `:=`.
 }
 
 -- stmt:shadowing.
@@ -450,7 +450,7 @@ fun main() {
   showln("{x}, {y}");
 }
 
--- operators:bitwize.
+-- operators:bitwise.
 fun main() {
   imu x := 1 & 2;
   imu y := 3 | 4;

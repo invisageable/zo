@@ -1,6 +1,6 @@
 //! # The Quartic Curve.
 //!
-//! An algebric curve of degree four.
+//! An algebraic curve of degree four.
 //!
 //! #### formula.
 //!

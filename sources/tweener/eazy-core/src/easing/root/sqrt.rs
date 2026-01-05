@@ -1,6 +1,6 @@
 //! # The Square Root Curve.
 //!
-//! An algebric curve of degree 1/2.
+//! An algebraic curve of degree 1/2.
 
 use crate::easing::Curve;
 

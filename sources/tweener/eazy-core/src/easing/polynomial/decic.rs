@@ -1,6 +1,6 @@
 //! # The Decic Curve.
 //!
-//! An algebric curve of degree ten.
+//! An algebraic curve of degree ten.
 //!
 //! #### formula.
 //!

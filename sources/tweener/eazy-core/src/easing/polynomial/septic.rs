@@ -1,6 +1,6 @@
 //! # The Septic Curve.
 //!
-//! An algebric curve of degree seven.
+//! An algebraic curve of degree seven.
 //!
 //! #### formula.
 //!
