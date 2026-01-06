@@ -30,9 +30,7 @@ impl Curve for InHectic {
 
 #[test]
 fn test_in_hectic() {
-  let p = InHectic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InHectic.y(1.0), 1.0);
 }
 
 /// ### The [`OutHectic`] Easing Function.
@@ -59,9 +57,7 @@ impl Curve for OutHectic {
 
 #[test]
 fn test_out_hectic() {
-  let p = OutHectic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutHectic.y(1.0), 1.0);
 }
 
 /// ### The [`InOutHectic`] Easing Function.
@@ -93,7 +89,5 @@ impl Curve for InOutHectic {
 
 #[test]
 fn test_in_out_hectic() {
-  let p = InOutHectic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutHectic.y(1.0), 1.0);
 }

@@ -30,9 +30,7 @@ impl Curve for InDecic {
 
 #[test]
 fn test_in_decic() {
-  let p = InDecic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InDecic.y(1.0), 1.0);
 }
 
 /// ### The [`OutDecic`] Easing Function.
@@ -59,9 +57,7 @@ impl Curve for OutDecic {
 
 #[test]
 fn test_out_decic() {
-  let p = OutDecic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutDecic.y(1.0), 1.0);
 }
 
 /// ### The [`InOutDecic`] Easing Function.
@@ -93,7 +89,5 @@ impl Curve for InOutDecic {
 
 #[test]
 fn test_in_out_decic() {
-  let p = InOutDecic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutDecic.y(1.0), 1.0);
 }

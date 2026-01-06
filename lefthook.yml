@@ -2,18 +2,25 @@ pre-commit:
   piped: true
   commands:
     typos:
-      root: ""
       run: typos --format=brief
 
     fmt:
+      glob: "**/*.rs"
       run: cargo fmt --all
       stage_fixed: true
 
-    check:
-      run: cargo check --all
+    eazy-clippy:
+      glob: "sources/tweener/**/*.rs"
+      run: cargo clippy -p eazy -p eazy-core -p eazy-derive -p eazy-keyframe -p eazy-tweener --all-targets -- -D warnings
 
-    clippy:
-      run: cargo clippy --all --all-targets -- -D warnings
+    swisskit-clippy:
+      glob: "sources/crafter/**/*.rs"
+      run: cargo clippy -p swisskit -p swisskit-core --all-targets -- -D warnings
+
+    zo-clippy:
+      glob: "crates/compiler/**/*.rs"
+      run: cargo clippy -p zo -p zo-driver -p zo-compiler -p zo-tokenizer -p zo-parser --all-targets -- -D warnings
 
     test:
-      run: cargo test --all
+      glob: "**/*.rs"
+      run: cargo nextest run --workspace --all-features

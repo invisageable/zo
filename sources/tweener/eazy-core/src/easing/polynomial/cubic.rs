@@ -6,9 +6,9 @@
 //!
 //! `p^3`
 
-use wide::f32x8;
-
 use crate::easing::Curve;
+
+use wide::{CmpLt, f32x8};
 
 /// ### The [`InCubic`] Easing Function.
 ///
@@ -33,9 +33,7 @@ impl Curve for InCubic {
 
 #[test]
 fn test_in_cubic() {
-  let p = InCubic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InCubic.y(1.0), 1.0);
 }
 
 /// ### The [`OutCubic`] Easing Function.
@@ -62,9 +60,7 @@ impl Curve for OutCubic {
 
 #[test]
 fn test_out_cubic() {
-  let p = OutCubic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutCubic.y(1.0), 1.0);
 }
 
 /// ### The [`InOutCubic`] Easing Function.
@@ -94,8 +90,6 @@ impl Curve for InOutCubic {
   }
 }
 
-use wide::CmpLt;
-
 pub fn in_out_cubic_simd(p: f32x8) -> f32x8 {
   let one = f32x8::splat(1.0);
   let two = f32x8::splat(2.0);
@@ -114,7 +108,5 @@ pub fn in_out_cubic_simd(p: f32x8) -> f32x8 {
 
 #[test]
 fn test_in_out_cubic() {
-  let p = InOutCubic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutCubic.y(1.0), 1.0);
 }

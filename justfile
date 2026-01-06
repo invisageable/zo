@@ -1,6 +1,16 @@
 default:
   @just --list
 
+# Install typos.
+setup_typos:
+  @cargo install typos-cli
+
+setup: setup_typos
+
+# Install git hooks via lefthook.
+install_hooks:
+  lefthook install
+
 # Run all pre-commit checks
 pre-commit: fmt_check clippy test
   @echo "All pre-commit checks passed!"
@@ -78,10 +88,6 @@ build_windows:
 # Run full CI simulation locally
 ci: fmt_check clippy test test_linux
   @echo "Full CI simulation passed!"
-
-# Install git hooks via lefthook
-install_hooks:
-  lefthook install
 
 # === Version Management (cargo-workspaces) ===
 

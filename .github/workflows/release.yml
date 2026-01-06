@@ -55,8 +55,8 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zo dist/
           cd dist
-          tar czvf zo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz zo
-          mv zo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../
+          tar czvf ${{ github.ref_name }}-${{ matrix.target }}.tar.gz zo
+          mv ${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../
         shell: bash
 
       - name: Package (Windows)
@@ -65,19 +65,19 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zo.exe dist/
           cd dist
-          7z a zo-${{ github.ref_name }}-${{ matrix.target }}.zip zo.exe
-          mv zo-${{ github.ref_name }}-${{ matrix.target }}.zip ../
+          7z a ${{ github.ref_name }}-${{ matrix.target }}.zip zo.exe
+          mv ${{ github.ref_name }}-${{ matrix.target }}.zip ../
         shell: bash
 
       - name: List packaged files
-        run: ls -la zo-*
+        run: ls -la ${{ github.ref_name }}-*
         shell: bash
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zo-${{ matrix.target }}
-          path: zo-${{ github.ref_name }}-${{ matrix.target }}.*
+          name: ${{ github.ref_name }}-${{ matrix.target }}
+          path: ${{ github.ref_name }}-${{ matrix.target }}.*
           if-no-files-found: error
 
   release:
@@ -97,10 +97,14 @@ jobs:
       - name: List artifacts
         run: ls -laR artifacts/
 
+      - name: Set version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#zo-}" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "zo ${{ github.ref_name }}"
+          name: "zo ${{ steps.version.outputs.version }}"
           files: |
             artifacts/*.tar.gz
             artifacts/*.zip
