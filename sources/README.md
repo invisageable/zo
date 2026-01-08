@@ -10,6 +10,6 @@ WE CONTRiBUTE TO OPEN SOURCE TO PROViDE THE COMMUNiTY WiTH HiGH-PERFORMANCE LiBR
 
 | NAME                                        | DESCRiPTiON                                                          |
 | :------------------------------------------ | :------------------------------------------------------------------- |
-| [eazy](./tweener/)                          | THE TWEENiNG AND EASiNG FUNCTiONS KiT FOR HiGH-PERFORMACE ANiMATiON. |
-| [swisskit](./crafter)                       | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG COMPiLERS.                      |
-| [tree-sitter-zo](./sitter/tree-sitter-zo/)  | THE zo GRAMMAR FOR for `tree-sitter`.                                |
+| [eazy](./tweener)                           | THE TWEENiNG AND EASiNG FUNCTiONS KiT FOR HiGH-PERFORMACE ANiMATiON. |
+| [swisskit](./crafter)                       | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG ROBUST PROGRAM.                 |
+| [tree-sitter-zo](./sitter/tree-sitter-zo)   | THE zo GRAMMAR FOR for `tree-sitter`.                                |

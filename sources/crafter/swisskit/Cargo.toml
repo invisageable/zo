@@ -1,6 +1,7 @@
 [package]
 name = "swisskit"
-description = "The Swiss-Army-Knife kit for writing robust apps."
+description = "THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG ROBUST PROGRAM."
+documentation = "https://docs.rs/swisskit"
 repository = "https://github.com/invisageable/zo/tree/main/sources/crafter/swisskit"
 authors.workspace = true
 license.workspace = true

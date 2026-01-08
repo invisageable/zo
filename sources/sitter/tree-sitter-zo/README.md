@@ -1,4 +1,4 @@
 # tree-sitter-zo.
 
-> *the official zo tree-sitter.*
+> *zo grammar for tree-sitter.*
 

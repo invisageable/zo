@@ -1,6 +1,8 @@
 [package]
 name = "eazy"
-description = "The tweening & easing functions kit for high-performance animation."
+description = "THE HiGH-PERFORMANCE TWEENiNG & EASiNG FUNCTiONS KiT FOR ANiMATiON."
+homepage = "https://invisageable.github.io/zo/eazy"
+documentation = "https://docs.rs/eazy"
 repository = "https://github.com/invisageable/zo/tree/main/sources/tweener/eazy"
 authors.workspace = true
 license.workspace = true

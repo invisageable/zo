@@ -40,10 +40,11 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
 **-sources**
 
-| NAME                                   | DESCRiPTiON                                                         |
-| :------------------------------------- | :------------------------------------------------------------------ |
-| [eazy](./sources/tweener/eazy)         | THE TWEENiNG & EASiNG FUNCTiONS KiT FOR HiGH-PERFORMANCE ANiMATiON. |
-| [swisskit](./sources/crafter/swisskit) | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG COMPiLERS.                     |
+| NAME                                               | DESCRiPTiON                                                         |
+| :------------------------------------------------- | :------------------------------------------------------------------ |
+| [eazy](./sources/tweener/eazy)                     | THE HiGH-PERFORMANCE TWEENiNG & EASiNG FUNCTiONS KiT FOR ANiMATiON. |
+| [swisskit](./sources/crafter/swisskit)             | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG ROBUST PROGRAM.                |
+| [tree-sitter-zo](./sources/crafter/tree-sitter-zo) | THE zo GRAMMAR FOR tree-sitter.                                     |
 
 **-crates**
 
