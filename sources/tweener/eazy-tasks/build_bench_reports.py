@@ -5,7 +5,7 @@ import shutil
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent.parent
+ROOT = Path(__file__).parent.parent.parent.parent
 SRC = ROOT / "target" / "criterion"
 DST = ROOT / "docs" / "eazy" / "benches"
 

@@ -67,6 +67,20 @@ pub fn out_quadratic(c: &mut Criterion) {
     })
   });
 
+  group.bench_function("nova-easing", |b| {
+    use nova_easing::EasingArgument;
+
+    let nums = (0..10_000)
+      .map(|_num| fastrand::f32() * 1000.0)
+      .collect::<Vec<_>>();
+
+    b.iter(|| {
+      for num in nums.iter() {
+        black_box(num.ease_out_quad());
+      }
+    })
+  });
+
   group.bench_function("simple_easing2", |b| {
     let nums = (0..10_000)
       .map(|_num| fastrand::f32() * 1000.0)

@@ -1,9 +1,9 @@
 # zo.
 
 [![invisage/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
+![license: MIT/APACHE](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+[![CI](https://github.com/invisageable/zo/workflows/CI/badge.svg)](https://github.com/invisageable/zo/actions)
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
-![license: APACHE](https://img.shields.io/badge/license-APACHE-blue?style=flat-square)
-![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ---
 
 > _the symphonie of compilers_.
@@ -60,7 +60,7 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
 
 - COMPiLER + CODE EDiTOR + METRiCS + iNTELLiGENCE — *in the same world*.
-- DATA-FiRST ARCHiTECTURE <sup>bevy-ecs</sup> — *inspired by game engine*.
+- DATA-FiRST ARCHiTECTURE <sup>zo-ecs</sup> — *inspired by game engine*.
 - GPU RENDERiNG <sup>egui</sup> — *low memory footprint, zero runtime fluff*.
 - NO MORE `electron` APPS. — *no bloat*.
 

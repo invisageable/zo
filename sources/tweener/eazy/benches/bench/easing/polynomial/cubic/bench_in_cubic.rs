@@ -11,8 +11,7 @@ pub fn in_cubic(c: &mut Criterion) {
     .significance_level(BENCH_CONFIG.significance_level);
 
   group.bench_function("eazy", |b| {
-    use eazy::Curve;
-    use eazy::polynomial::cubic::InCubic;
+    use eazy::{Curve, InCubic};
 
     let nums = (0..10_000)
       .map(|_num| rand::random::<f32>() * 1000.0)

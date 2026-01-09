@@ -47,12 +47,13 @@ fastrand = { workspace = true }
 
 # bench:only.
 # bevy_tween = "0.11.0"  # BLOCKED: pulls in bevy → naga v27.0.3 bug
-glissade = "0.2.6"
 emath = "0.31.1"
 easings = "0.1.0"
+glissade = "0.2.6"
 interpolation = "0.3.0"
 keyframe = "1.1.1"
 lilt = "0.8.1"
+nova-easing = "0.1.0"
 simple-easing2 = "1.0.2"
 
 [[bench]]

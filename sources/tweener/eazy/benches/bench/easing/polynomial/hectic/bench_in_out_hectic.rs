@@ -9,8 +9,7 @@ pub fn in_out_hectic(c: &mut Criterion) {
     .significance_level(0.05);
 
   group.bench_function("eazy", |b| {
-    use eazy::Curve;
-    use eazy::polynomial::hectic::InOutHectic;
+    use eazy::{Curve, InOutHectic};
 
     let nums = (0..10_000)
       .map(|_num| rand::random::<f32>() * 1000.0)

@@ -1409,6 +1409,7 @@ dependencies = [
  "interpolation",
  "keyframe",
  "lilt",
+ "nova-easing",
  "simple-easing2",
 ]
 
@@ -3197,6 +3198,15 @@ name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
+
+[[package]]
+name = "nova-easing"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc90456033d59dc70c0cd3eaa95fa05fbd321524ac5ac26dab9fee58b4cd23a8"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "num-conv"

@@ -75,13 +75,9 @@ fn main() {
 
 > *beat'em up!*
 
-BENCHES ARE DONE iN COMPARiSON BETWEEN `bevy_tween`, `easings`, `emath`<sup>egui</sup> , `glissade`, `interpolation`<sup>pisthon</sup>, `keyframe`, `simple-easing2` CRATES. MOST OF THEM ARE FOLLOW THE ROBERT PENNER'S EASiNG FuNCTiONS, THEY ONLY iMPLEMENTED THE BASiCS ONE. REGARDiNG PERFORMANCE SOME OF OuR iMPLEMENTATiONS ARE SLiGHTLY FASTER AND STABLE, SO DEPENDiNG YOUR NEEDED, YOu SHOuLD TRY eazy. THE SAMPLE BELOW CONFiRM THAT OuR EASiNG FuNCTiONS ARE PRETTY WELL OPTiMiZED.
+BENCHES ARE DONE iN COMPARiSON BETWEEN `easings`, `emath`<sup>egui</sup> , `glissade`, `interpolation`<sup>pisthon</sup>, `keyframe`, `nova-easing`, `simple-easing2` CRATES. MOST OF THEM ARE FOLLOW THE ROBERT PENNER'S EASiNG FUNCTiONS, THEY ONLY iMPLEMENTED THE BASiCS ONE. REGARDiNG PERFORMANCE SOME OF OUR iMPLEMENTATiONS ARE SLiGHTLY FASTER AND STABLE, SO DEPENDiNG YOUR NEEDED, YOU SHOULD TRY eazy. THE SAMPLE BELOW CONFiRM THAT OUR EASiNG FUNCTiONS ARE PRETTY WELL OPTiMiZED.
 
 @see [@benchmark-reports](https://invisageable.github.io/zo/eazy/benches).
-
-**what's next?**
-
-- COMPARE WiTH OTHERS LANGUAGES — *`js`, `python`, `c++`, `c#`.*
 
 ## contributing.
 
