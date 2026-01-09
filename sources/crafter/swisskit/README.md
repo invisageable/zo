@@ -1,10 +1,9 @@
 # swisskit.
 
 [![invisageable/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
+![license: MIT/APACHE](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 [![Latest version](https://img.shields.io/crates/v/swisskit.svg)](https://crates.io/crates/swisskit)
 [![Documentation](https://docs.rs/swisskit/badge.svg)](https://docs.rs/swisskit)
-![license: APACHE](https://img.shields.io/badge/license-APACHE-blue?style=flat-square)
-![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ---
 
 ```
@@ -32,6 +31,6 @@ FEEL FREE TO OPEN AN iSSUE iF YOU WANT TO CONTRiBUTE OR COME TO SAY HELLO ON [di
 
 ## license.
 
-[APACHE](https://github.com/invisageable/zo/blob/main/.github/LICENSE-APACHE) — [MIT](https://github.com/invisageable/zo/blob/main/.github/LICENSE-MIT)   
+[APACHE](https://github.com/invisageable/zo/blob/main/LICENSE-APACHE) — [MIT](https://github.com/invisageable/zo/blob/main/LICENSE-MIT)   
 
 COPYRiGHT© **10** JULY **2024** — *PRESENT, [@invisageable](https://github.com/invisageable).*     

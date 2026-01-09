@@ -1,5 +1,4 @@
-use eazy::Curve;
-use eazy::oscillatory::bounce::OutBounce;
+use eazy::{Curve, Easing};
 
 use eframe::egui;
 
@@ -27,8 +26,7 @@ impl eframe::App for BounceApp {
   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
     let elapsed = self.start_time.elapsed().as_secs_f32();
     let t = (elapsed % self.duration) / self.duration; // Normalize to [0,1]
-
-    let bounce_height = OutBounce.y(t); // Apply easing
+    let bounce_height = Easing::OutBounce.y(t); // Apply easing
 
     egui::CentralPanel::default().show(ctx, |ui| {
       ui.vertical_centered(|ui| {
@@ -51,19 +49,15 @@ impl eframe::App for BounceApp {
       });
     });
 
-    ctx.request_repaint(); // Keep animating
+    // Keep animating
+    ctx.request_repaint();
   }
 }
 
 fn main() -> eframe::Result<()> {
-  let native_options = eframe::NativeOptions {
-    // window_size: Some(egui::vec2(400.0, 400.0)),
-    ..Default::default()
-  };
-
   eframe::run_native(
     "egui-bouncing-ball-animation",
-    native_options,
+    eframe::NativeOptions::default(),
     Box::new(|_cc| Ok(Box::new(BounceApp::default()))),
   )
 }

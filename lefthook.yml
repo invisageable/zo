@@ -9,17 +9,9 @@ pre-commit:
       run: cargo fmt --all
       stage_fixed: true
 
-    eazy-clippy:
-      glob: "sources/tweener/**/*.rs"
-      run: cargo clippy -p eazy -p eazy-core -p eazy-derive -p eazy-keyframe -p eazy-tweener --all-targets -- -D warnings
-
-    swisskit-clippy:
-      glob: "sources/crafter/**/*.rs"
-      run: cargo clippy -p swisskit -p swisskit-core --all-targets -- -D warnings
-
-    zo-clippy:
-      glob: "crates/compiler/**/*.rs"
-      run: cargo clippy -p zo -p zo-driver -p zo-compiler -p zo-tokenizer -p zo-parser --all-targets -- -D warnings
+    clippy:
+      glob: "**/*.rs"
+      run: cargo clippy --all --all-targets -- -D warnings
 
     test:
       glob: "**/*.rs"

@@ -1,0 +1,16 @@
+fun add(x: u8, y: u8) -> u8 { x + y }
+fun sub(x: u8, y: u8) -> u8 { x - y }
+fun mul(x: u8, y: u8) -> u8 { x * y }
+fun div(x: u8, y: u8) -> u8 { x / y }
+fun rem(x: u8, y: u8) -> u8 { x % y }
+
+fun abs(n: u8) -> u8 { n < 0 ? -n : n       }
+fun min(a: u8, b: u8) -> u8 { a < b ? b : a }
+fun max(a: u8, b: u8) -> u8 { a > b ? a : b }
+
+fun lt(x: u8, y: u8) -> bool { x < y  }
+fun le(x: u8, y: u8) -> bool { x <= y }
+fun eq(x: u8, y: u8) -> bool { x == y }
+fun ne(x: u8, y: u8) -> bool { x != y }
+fun ge(x: u8, y: u8) -> bool { x >= y }
+fun gt(x: u8, y: u8) -> bool { x > y  }

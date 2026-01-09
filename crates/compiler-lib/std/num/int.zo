@@ -1,0 +1,16 @@
+fun add(x: int, y: int) -> int { x + y }
+fun sub(x: int, y: int) -> int { x - y }
+fun mul(x: int, y: int) -> int { x * y }
+fun div(x: int, y: int) -> int { x / y }
+fun rem(x: int, y: int) -> int { x % y }
+
+fun abs(n: int) -> int { n < 0 ? -n : n        }
+fun min(a: int, b: int) -> int { a < b ? b : a }
+fun max(a: int, b: int) -> int { a > b ? a : b }
+
+fun lt(x: int, y: int) -> bool { x < y  }
+fun le(x: int, y: int) -> bool { x <= y }
+fun eq(x: int, y: int) -> bool { x == y }
+fun ne(x: int, y: int) -> bool { x != y }
+fun ge(x: int, y: int) -> bool { x >= y }
+fun gt(x: int, y: int) -> bool { x > y  }

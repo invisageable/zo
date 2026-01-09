@@ -62,7 +62,7 @@ eazy_publish_dry:
   cargo publish -p eazy-keyframe --dry-run                                   
   cargo publish -p eazy --dry-run  
 
-# === Cross-platform testing (requires Docker) ===
+# Cross-platform testing (requires Docker)
 
 # Run all checks in Linux container
 test_linux:
@@ -89,7 +89,7 @@ build_windows:
 ci: fmt_check clippy test test_linux
   @echo "Full CI simulation passed!"
 
-# === Version Management (cargo-workspaces) ===
+# Version Management (cargo-workspaces)
 
 # Bump patch version (0.1.0 -> 0.1.1) for all crates
 release_patch:

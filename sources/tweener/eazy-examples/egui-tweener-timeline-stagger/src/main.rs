@@ -4,12 +4,15 @@
 //! GSAP-like animation runtime built on eazy.
 
 use eazy::Controllable;
+use eazy::Curve;
 use eazy::Easing;
 use eazy::Stagger;
 use eazy::StaggerFrom;
 use eazy::Timeline;
 use eazy::Tween;
+
 use eframe::egui;
+
 use std::time::Instant;
 
 const BALL_COUNT: usize = 5;
@@ -25,14 +28,14 @@ pub struct TweenerApp {
 impl Default for TweenerApp {
   fn default() -> Self {
     // Create staggered bounce animations for each ball.
-    let tweens: Vec<_> = (0..BALL_COUNT)
+    let tweens = (0..BALL_COUNT)
       .map(|_| {
         Tween::to(0.0_f32, 1.0)
           .duration(1.0)
           .easing(Easing::OutBounce)
           .build()
       })
-      .collect();
+      .collect::<Vec<_>>();
 
     // Build timeline with staggered start times from center outward.
     let mut timeline = Timeline::builder()
@@ -52,14 +55,14 @@ impl Default for TweenerApp {
 impl TweenerApp {
   fn restart(&mut self) {
     // Rebuild the timeline.
-    let tweens: Vec<_> = (0..BALL_COUNT)
+    let tweens = (0..BALL_COUNT)
       .map(|_| {
         Tween::to(0.0_f32, 1.0)
           .duration(1.0)
           .easing(Easing::OutBounce)
           .build()
       })
-      .collect();
+      .collect::<Vec<_>>();
 
     self.timeline = Timeline::builder()
       .push_staggered(tweens, Stagger::each(0.15).from(StaggerFrom::Center))
@@ -98,7 +101,7 @@ impl eframe::App for TweenerApp {
         ((progress * total_duration - stagger_offset) / 1.0).clamp(0.0, 1.0);
 
       // Apply OutBounce easing.
-      *pos = eazy::Curve::y(&Easing::OutBounce, ball_progress);
+      *pos = Easing::OutBounce.y(ball_progress);
     }
 
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -159,11 +162,9 @@ impl eframe::App for TweenerApp {
 }
 
 fn main() -> eframe::Result<()> {
-  let native_options = eframe::NativeOptions::default();
-
   eframe::run_native(
-    "eazy-tweener Demo",
-    native_options,
+    "egui-tweener-timeline-stagger",
+    eframe::NativeOptions::default(),
     Box::new(|_cc| Ok(Box::new(TweenerApp::default()))),
   )
 }
