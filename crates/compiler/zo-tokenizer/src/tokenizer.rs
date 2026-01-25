@@ -854,8 +854,12 @@ impl<'a> Tokenizer<'a> {
 
       let len = (self.cursor - start) as u16;
 
-      let text = unsafe {
-        std::str::from_utf8_unchecked(&self.source[start + 2..self.cursor])
+      let text = if start + 2 <= self.cursor {
+        unsafe {
+          std::str::from_utf8_unchecked(&self.source[start + 2..self.cursor])
+        }
+      } else {
+        ""
       };
 
       let value = u64::from_str_radix(text, base as u32).unwrap_or(0);
@@ -901,8 +905,12 @@ impl<'a> Tokenizer<'a> {
 
         let len = (self.cursor - start) as u16;
 
-        let text = unsafe {
-          std::str::from_utf8_unchecked(&self.source[start + 2..self.cursor])
+        let text = if start + 2 <= self.cursor {
+          unsafe {
+            std::str::from_utf8_unchecked(&self.source[start + 2..self.cursor])
+          }
+        } else {
+          ""
         };
 
         let clean_text = text.replace('_', "");
