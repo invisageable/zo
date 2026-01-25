@@ -109,26 +109,24 @@ impl<'a> ConstFold<'a> {
               span,
             )))
           }),
-        BinOp::Div => {
-          if rhs_val == 0 {
+        BinOp::Div => lhs_val
+          .checked_div(rhs_val)
+          .map(FoldResult::Int)
+          .or_else(|| {
             Some(FoldResult::Error(Error::new(
               ErrorKind::DivisionByZero,
               span,
             )))
-          } else {
-            Some(FoldResult::Int(lhs_val / rhs_val))
-          }
-        }
-        BinOp::Rem => {
-          if rhs_val == 0 {
+          }),
+        BinOp::Rem => lhs_val
+          .checked_rem(rhs_val)
+          .map(FoldResult::Int)
+          .or_else(|| {
             Some(FoldResult::Error(Error::new(
               ErrorKind::RemainderByZero,
               span,
             )))
-          } else {
-            Some(FoldResult::Int(lhs_val % rhs_val))
-          }
-        }
+          }),
 
         BinOp::Eq => Some(FoldResult::Bool(lhs_val == rhs_val)),
         BinOp::Neq => Some(FoldResult::Bool(lhs_val != rhs_val)),
