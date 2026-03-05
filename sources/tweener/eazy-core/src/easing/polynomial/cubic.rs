@@ -15,10 +15,9 @@ use wide::{CmpLt, f32x8};
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::cubic::InCubic;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = InCubic.y(1.0);
+/// let p = Easing::InCubic.y(1.0);
 /// ```
 /// `f(t) = 2.0^(10.0 * (t - 1.0))`
 #[derive(Debug)]
@@ -43,10 +42,9 @@ fn test_in_cubic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::cubic::OutCubic;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = OutCubic.y(1.0);
+/// let p = Easing::OutCubic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutCubic;
@@ -72,10 +70,9 @@ fn test_out_cubic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::cubic::InOutCubic;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = InOutCubic.y(1.0);
+/// let p = Easing::InOutCubic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutCubic;

@@ -11,10 +11,9 @@ use core::f32::consts::PI;
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::trigonometric::sine::InSine;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = InSine.y(0.5);
+/// let p = Easing::InSine.y(0.5);
 ///
 /// assert_eq!(p, 0.29289323);
 /// ```
@@ -30,9 +29,7 @@ impl Curve for InSine {
 
 #[test]
 fn test_in_sine() {
-  let p = InSine.y(0.5);
-
-  assert_eq!(p, 0.29289323);
+  assert_eq!(InSine.y(0.5), 0.29289323);
 }
 
 /// ### The [`OutSine`] Easing Function.
@@ -42,10 +39,9 @@ fn test_in_sine() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::trigonometric::sine::OutSine;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = OutSine.y(0.1264);
+/// let p = Easing::OutSine.y(0.1264);
 ///
 /// assert_eq!(p, 0.1972467);
 /// ```
@@ -61,9 +57,7 @@ impl Curve for OutSine {
 
 #[test]
 fn test_out_sine() {
-  let p = OutSine.y(0.1264);
-
-  assert_eq!(p, 0.1972467);
+  assert_eq!(OutSine.y(0.1264), 0.1972467);
 }
 
 /// ### The [`InOutSine`] Easing Function.
@@ -71,10 +65,9 @@ fn test_out_sine() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::trigonometric::sine::InOutSine;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = InOutSine.y(0.248608);
+/// let p = Easing::InOutSine.y(0.248608);
 ///
 /// assert_eq!(p, 0.14490387);
 /// ```
@@ -90,7 +83,5 @@ impl Curve for InOutSine {
 
 #[test]
 fn test_in_out_sine() {
-  let p = InOutSine.y(0.248608);
-
-  assert_eq!(p, 0.14490387);
+  assert_eq!(InOutSine.y(0.248608), 0.14490387);
 }

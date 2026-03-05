@@ -9,10 +9,9 @@ use libm::sqrtf;
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::trigonetric::circle::InCircle;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = InCircle.y(1.0);
+/// let p = Easing::InCircle.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InCircle;
@@ -26,9 +25,7 @@ impl Curve for InCircle {
 
 #[test]
 fn test_in_circle() {
-  let p = InCircle.y(0.5);
-
-  assert_eq!(p, 0.13397461);
+  assert_eq!(InCircle.y(0.5), 0.13397461);
 }
 
 /// ### The [`OutCircle`] Easing Function.
@@ -36,10 +33,9 @@ fn test_in_circle() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::trigonetric::circle::OutCircle;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = OutCircle.y(1.0);
+/// let p = Easing::OutCircle.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutCircle;
@@ -55,9 +51,7 @@ impl Curve for OutCircle {
 
 #[test]
 fn test_out_circle() {
-  let p = OutCircle.y(0.5);
-
-  assert_eq!(p, 0.8660254);
+  assert_eq!(OutCircle.y(0.5), 0.8660254);
 }
 
 /// ### The [`InOutCircle`] Easing Function.
@@ -65,10 +59,9 @@ fn test_out_circle() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::trigonetric::circle::InOutCircle;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = InOutCircle.y(1.0);
+/// let p = Easing::InOutCircle.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutCircle;
@@ -89,7 +82,5 @@ impl Curve for InOutCircle {
 
 #[test]
 fn test_in_out_circle() {
-  let p = InOutCircle.y(0.5);
-
-  assert_eq!(p, 0.5);
+  assert_eq!(InOutCircle.y(0.5), 0.5);
 }
