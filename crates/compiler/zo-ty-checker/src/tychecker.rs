@@ -478,10 +478,8 @@ impl TyChecker {
   /// Collect free type variables in a type
   fn collect_free_vars(&mut self, ty: TyId, vars: &mut Vec<InferVarId>) {
     match self.kind_of(ty) {
-      Ty::Infer(v) => {
-        if !vars.contains(&v) {
-          vars.push(v);
-        }
+      Ty::Infer(v) if !vars.contains(&v) => {
+        vars.push(v);
       }
       Ty::Fun(f) => {
         let fun = *self.ty_table.fun(&f).unwrap();
