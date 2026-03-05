@@ -1546,10 +1546,10 @@ impl<'a> Executor<'a> {
           // For now, just note it was encountered
           // Future: execute the expression and store result
         }
-        "dom" => {
+        "dom"
           // #dom renders a template to the DOM
           // Pop the template value from the stack
-          if !self.value_stack.is_empty() {
+          if !self.value_stack.is_empty() => {
             let template_value = self.value_stack.pop().unwrap();
             let template_ty = self.ty_stack.pop().unwrap();
 
@@ -1560,7 +1560,6 @@ impl<'a> Executor<'a> {
               ty_id: template_ty,
             });
           }
-        }
         "inline" => {
           // #inline hints for inlining
           // Store as metadata for optimization pass
