@@ -1,4 +1,6 @@
-use criterion::{Criterion, black_box};
+use criterion::Criterion;
+
+use std::hint::black_box;
 
 pub fn out_elastic(c: &mut Criterion) {
   let mut group = c.benchmark_group("out_elastic");
@@ -10,18 +12,17 @@ pub fn out_elastic(c: &mut Criterion) {
     .significance_level(0.1);
 
   let nums = (0..10_000)
-    .map(|_num| rand::random::<f32>() * 1000.0)
+    .map(|_num| fastrand::f32() * 1000.0)
     .collect::<Vec<_>>();
 
   group.bench_function("eazy", |b| {
-    use eazy::Curve;
-    use eazy::oscillatory::elastic::OutElastic;
+    use eazy::{Curve, Easing};
 
     b.iter(|| {
-      let _ = black_box(
+      black_box(
         nums
           .iter()
-          .map(|num| OutElastic.y(*num))
+          .map(|num| Easing::OutElastic.y(*num))
           .collect::<Vec<_>>(),
       );
     })
@@ -29,7 +30,7 @@ pub fn out_elastic(c: &mut Criterion) {
 
   group.bench_function("easings", |b| {
     b.iter(|| {
-      let _ = black_box(
+      black_box(
         nums
           .iter()
           .map(|num| easings::elastic_out(*num as f64))
@@ -42,27 +43,13 @@ pub fn out_elastic(c: &mut Criterion) {
     use interpolation::Ease;
 
     b.iter(|| {
-      let _ =
-        black_box(nums.iter().map(|num| num.elastic_out()).collect::<Vec<_>>());
-    })
-  });
-
-  group.bench_function("bevy_motiongfx", |b| {
-    b.iter(|| {
-      let _ = black_box(
-        nums
-          .iter()
-          .map(|num| {
-            bevy_motiongfx::motiongfx_core::ease::elastic::ease_out(*num)
-          })
-          .collect::<Vec<_>>(),
-      );
+      black_box(nums.iter().map(|num| num.elastic_out()).collect::<Vec<_>>());
     })
   });
 
   group.bench_function("simple_easing2", |b| {
     b.iter(|| {
-      let _ = black_box(
+      black_box(
         nums
           .iter()
           .map(|num| simple_easing2::elastic_out(*num))

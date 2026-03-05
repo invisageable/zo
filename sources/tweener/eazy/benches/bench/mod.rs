@@ -1,6 +1,8 @@
 pub mod easing;
 // pub mod interpolation;
-// pub mod internal;
+pub mod internal;
+
+use criterion::SamplingMode;
 
 use std::sync::LazyLock;
 
@@ -9,6 +11,7 @@ pub(crate) static BENCH_CONFIG: LazyLock<BenchConfig> =
     confidence_level: 0.99,
     sample_size: 500,
     significance_level: 0.05,
+    sampling_mode: SamplingMode::Flat,
   });
 
 /// The benchmark configuration.
@@ -19,4 +22,6 @@ pub(crate) struct BenchConfig {
   sample_size: usize,
   /// The size of bench samples.
   significance_level: f64,
+  /// The sampling mode samples.
+  sampling_mode: SamplingMode,
 }

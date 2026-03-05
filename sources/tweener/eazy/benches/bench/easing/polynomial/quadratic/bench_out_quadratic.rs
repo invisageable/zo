@@ -1,3 +1,5 @@
+use crate::bench::BENCH_CONFIG;
+
 use criterion::Criterion;
 
 use std::hint::black_box;
@@ -6,9 +8,9 @@ pub fn out_quadratic(c: &mut Criterion) {
   let mut group = c.benchmark_group("out_quadratic");
 
   group
-    .confidence_level(0.99)
-    .sample_size(1000)
-    .significance_level(0.05);
+    .confidence_level(BENCH_CONFIG.confidence_level)
+    .sample_size(BENCH_CONFIG.sample_size)
+    .significance_level(BENCH_CONFIG.significance_level);
 
   group.bench_function("eazy", |b| {
     use eazy::Curve;

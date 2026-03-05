@@ -1,47 +1,45 @@
-use criterion::{Criterion, black_box};
+use crate::bench::BENCH_CONFIG;
+
+use criterion::Criterion;
+
+use std::hint::black_box;
 
 pub fn out_bounce(c: &mut Criterion) {
   let mut group = c.benchmark_group("out_bounce");
 
   group
-    .confidence_level(0.99)
-    .sample_size(1000)
-    .sampling_mode(criterion::SamplingMode::Flat)
-    .significance_level(0.1);
+    .confidence_level(BENCH_CONFIG.confidence_level)
+    .sample_size(BENCH_CONFIG.sample_size)
+    .sampling_mode(BENCH_CONFIG.sampling_mode)
+    .significance_level(BENCH_CONFIG.significance_level);
 
   let nums = (0..10_000)
-    .map(|_num| rand::random::<f32>() * 1000.0)
+    .map(|_num| fastrand::f32() * 1000.0)
     .collect::<Vec<_>>();
 
   group.bench_function("eazy", |b| {
-    use eazy::Curve;
-    use eazy::oscillatory::bounce::OutBounce;
+    use eazy::{Curve, Easing};
 
     b.iter(|| {
-      let _ =
-        black_box(nums.iter().map(|num| OutBounce.y(*num)).collect::<Vec<_>>());
+      nums.iter().for_each(|num| {
+        black_box(Easing::OutBounce.y(*num));
+      });
     })
   });
 
   group.bench_function("easings", |b| {
     b.iter(|| {
-      let _ = black_box(
-        nums
-          .iter()
-          .map(|num| easings::bounce_out(*num as f64))
-          .collect::<Vec<_>>(),
-      );
+      nums.iter().for_each(|num| {
+        black_box(easings::bounce_out(*num as f64));
+      });
     })
   });
 
   group.bench_function("emath", |b| {
     b.iter(|| {
-      let _ = black_box(
-        nums
-          .iter()
-          .map(|num: &f32| emath::easing::bounce_out(*num))
-          .collect::<Vec<_>>(),
-      );
+      nums.iter().for_each(|num: &f32| {
+        black_box(emath::easing::bounce_out(*num));
+      });
     })
   });
 
@@ -49,19 +47,17 @@ pub fn out_bounce(c: &mut Criterion) {
     use interpolation::Ease;
 
     b.iter(|| {
-      let _ =
-        black_box(nums.iter().map(|num| num.bounce_out()).collect::<Vec<_>>());
+      nums.iter().for_each(|num| {
+        black_box(num.bounce_out());
+      });
     })
   });
 
   group.bench_function("simple_easing2", |b| {
     b.iter(|| {
-      let _ = black_box(
-        nums
-          .iter()
-          .map(|num| simple_easing2::bounce_out(*num))
-          .collect::<Vec<_>>(),
-      );
+      nums.iter().for_each(|num| {
+        black_box(simple_easing2::bounce_out(*num));
+      })
     })
   });
 
