@@ -20,7 +20,7 @@ pub struct InCircle;
 impl Curve for InCircle {
   #[inline(always)]
   fn y(&self, p: f32) -> f32 {
-    1.0 - (1.0 - p * p)
+    1.0 - sqrtf(1.0 - p * p)
   }
 }
 
@@ -28,7 +28,7 @@ impl Curve for InCircle {
 fn test_in_circle() {
   let p = InCircle.y(0.5);
 
-  assert_eq!(p, 0.25);
+  assert_eq!(p, 0.13397461);
 }
 
 /// ### The [`OutCircle`] Easing Function.
