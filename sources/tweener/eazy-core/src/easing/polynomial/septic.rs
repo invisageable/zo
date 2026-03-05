@@ -30,9 +30,9 @@ impl Curve for InSeptic {
 
 #[test]
 fn test_in_septic() {
-  let p = InSeptic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InSeptic.y(0.0), 0.0);
+  assert_eq!(InSeptic.y(0.5), 0.0078125);
+  assert_eq!(InSeptic.y(1.0), 1.0);
 }
 
 /// ### The [`OutSeptic`] Easing Function.
@@ -59,9 +59,9 @@ impl Curve for OutSeptic {
 
 #[test]
 fn test_out_septic() {
-  let p = OutSeptic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutSeptic.y(0.0), 0.0);
+  assert_eq!(OutSeptic.y(0.5), 0.9921875);
+  assert_eq!(OutSeptic.y(1.0), 1.0);
 }
 
 /// ### The [`InOutSeptic`] Easing Function.
@@ -93,7 +93,8 @@ impl Curve for InOutSeptic {
 
 #[test]
 fn test_in_out_septic() {
-  let p = InOutSeptic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutSeptic.y(0.0), 0.0);
+  assert_eq!(InOutSeptic.y(0.25), 0.00390625);
+  assert_eq!(InOutSeptic.y(0.5), 0.5);
+  assert_eq!(InOutSeptic.y(1.0), 1.0);
 }

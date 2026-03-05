@@ -10,10 +10,9 @@ const C2: f32 = C1 * 1.525;
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::standard::back::InBack;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = InBack.y(1.0);
+/// let p = Easing::InBack.y(1.0);
 ///
 /// assert_eq!(p, 1.0);
 /// ```
@@ -31,9 +30,12 @@ impl Curve for InBack {
 
 #[test]
 fn test_in_back() {
-  let p = InBack.y(1.0);
+  assert_eq!(InBack.y(0.0), 0.0);
+  assert_eq!(InBack.y(1.0), 1.0);
 
-  assert_eq!(p, 1.0);
+  let p = InBack.y(0.5);
+
+  assert!((p - (-0.08770)).abs() < 1e-4, "InBack(0.5) = {p}");
 }
 
 /// ### The [`OutBack`] Easing Function.
@@ -63,9 +65,11 @@ impl Curve for OutBack {
 
 #[test]
 fn test_out_back() {
-  let p = OutBack.y(1.0);
+  assert_eq!(OutBack.y(0.0), 0.0);
+  assert_eq!(OutBack.y(1.0), 1.0);
 
-  assert_eq!(p, 1.0);
+  let p = OutBack.y(0.5);
+  assert!((p - 1.08770).abs() < 1e-4, "OutBack(0.5) = {p}");
 }
 
 /// ### The [`InOutBack`] Easing Function.
@@ -88,7 +92,7 @@ impl Curve for InOutBack {
   fn y(&self, p: f32) -> f32 {
     let m = p - 1.0;
     let t = p * 2.0;
-    let k = C1 * C2;
+    let k = C2;
 
     if t < 1.0 {
       return p * t * (t * (k + 1.0) - k);
@@ -100,7 +104,9 @@ impl Curve for InOutBack {
 
 #[test]
 fn test_in_out_back() {
-  let p = InOutBack.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutBack.y(0.0), 0.0);
+  assert_eq!(InOutBack.y(1.0), 1.0);
+  assert_eq!(InOutBack.y(0.5), 0.5);
+  let p = InOutBack.y(0.25);
+  assert!((p - (-0.09968)).abs() < 1e-4, "InOutBack(0.25) = {p}");
 }

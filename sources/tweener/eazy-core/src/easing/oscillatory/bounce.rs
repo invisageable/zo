@@ -24,9 +24,10 @@ impl Curve for InBounce {
 
 #[test]
 fn test_in_bounce() {
-  let p = InBounce.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InBounce.y(0.0), 0.0);
+  assert_eq!(InBounce.y(1.0), 1.0);
+  let p = InBounce.y(0.5);
+  assert!((p - 0.234375).abs() < 1e-4, "InBounce(0.5) = {p}");
 }
 
 /// ### [`OutBounce`] Easing Function.
@@ -74,9 +75,9 @@ impl Curve for OutBounce {
 
 #[test]
 fn test_out_bounce() {
-  let p = OutBounce.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutBounce.y(0.0), 0.0);
+  assert_eq!(OutBounce.y(1.0), 1.0);
+  assert_eq!(OutBounce.y(0.5), 0.765625);
 }
 
 /// ### The [`InOutBounce`] Easing Function.
@@ -107,7 +108,7 @@ impl Curve for InOutBounce {
 
 #[test]
 fn test_in_out_bounce() {
-  let p = InOutBounce.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutBounce.y(0.0), 0.0);
+  assert_eq!(InOutBounce.y(1.0), 1.0);
+  assert_eq!(InOutBounce.y(0.5), 0.5);
 }

@@ -30,9 +30,9 @@ impl Curve for InOctic {
 
 #[test]
 fn test_in_octic() {
-  let p = InOctic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOctic.y(0.0), 0.0);
+  assert_eq!(InOctic.y(0.5), 0.00390625);
+  assert_eq!(InOctic.y(1.0), 1.0);
 }
 
 /// ### The [`OutOctic`] Easing Function.
@@ -59,9 +59,9 @@ impl Curve for OutOctic {
 
 #[test]
 fn test_out_octic() {
-  let p = OutOctic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutOctic.y(0.0), 0.0);
+  assert_eq!(OutOctic.y(0.5), 0.99609375);
+  assert_eq!(OutOctic.y(1.0), 1.0);
 }
 
 /// ### The [`InOutOctic`] Easing Function.
@@ -93,7 +93,8 @@ impl Curve for InOutOctic {
 
 #[test]
 fn test_in_out_octic() {
-  let p = InOutOctic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutOctic.y(0.0), 0.0);
+  assert_eq!(InOutOctic.y(0.25), 0.001953125);
+  assert_eq!(InOutOctic.y(0.5), 0.5);
+  assert_eq!(InOutOctic.y(1.0), 1.0);
 }

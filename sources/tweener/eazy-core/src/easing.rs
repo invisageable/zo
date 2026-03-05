@@ -220,8 +220,6 @@ pub enum Easing {
   CubicBezier(bezier::Bezier),
   // interpolation.
   Interpolation(crate::interpolation::Interpolation),
-  // custom easing function.
-  // Custom(dyn Curve),
 }
 
 impl Curve for Easing {
@@ -290,8 +288,6 @@ impl Curve for Easing {
       Self::InOutBack => backtracking::back::InOutBack.y(p),
       Self::CubicBezier(bezier) => bezier.y(p),
       Self::Interpolation(interpolation) => interpolation.y(p),
-      // should stay at the last place. New ones must be place above it.
-      // Self::Custom(curve) => curve.y(p),
     }
   }
 }

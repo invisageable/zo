@@ -35,9 +35,9 @@ impl Curve for InExpo2 {
 
 #[test]
 fn test_in_expo2() {
-  let p = InExpo2.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InExpo2.y(0.0), 0.0);
+  assert_eq!(InExpo2.y(0.5), 0.03125);
+  assert_eq!(InExpo2.y(1.0), 1.0);
 }
 
 /// ### The [`OutExpo2`] Easing Function.
@@ -66,9 +66,9 @@ impl Curve for OutExpo2 {
 
 #[test]
 fn test_out_expo2() {
-  let p = OutExpo2.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutExpo2.y(0.0), 0.0);
+  assert_eq!(OutExpo2.y(0.5), 0.96875);
+  assert_eq!(OutExpo2.y(1.0), 1.0);
 }
 
 /// ### The [`InOutExpo2`] Easing Function.
@@ -105,7 +105,8 @@ impl Curve for InOutExpo2 {
 
 #[test]
 fn test_in_out_expo2() {
-  let p = InOutExpo2.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutExpo2.y(0.0), 0.0);
+  assert_eq!(InOutExpo2.y(0.25), 0.015625);
+  assert_eq!(InOutExpo2.y(0.5), 0.5);
+  assert_eq!(InOutExpo2.y(1.0), 1.0);
 }

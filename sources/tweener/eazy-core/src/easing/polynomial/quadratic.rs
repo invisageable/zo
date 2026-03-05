@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quadratic::InQuadratic;
+/// use eazy::{Curve, Easing};
 ///
-/// let p = InQuadratic.y(1.0);
+/// let p = Easing::InQuadratic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InQuadratic;
@@ -30,9 +29,9 @@ impl Curve for InQuadratic {
 
 #[test]
 fn test_in_quadratic() {
-  let p = InQuadratic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InQuadratic.y(0.0), 0.0);
+  assert_eq!(InQuadratic.y(0.5), 0.25);
+  assert_eq!(InQuadratic.y(1.0), 1.0);
 }
 
 /// ### The [`OutQuadratic`] Easing Function.
@@ -59,9 +58,9 @@ impl Curve for OutQuadratic {
 
 #[test]
 fn test_out_quadratic() {
-  let p = OutQuadratic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutQuadratic.y(0.0), 0.0);
+  assert_eq!(OutQuadratic.y(0.5), 0.75);
+  assert_eq!(OutQuadratic.y(1.0), 1.0);
 }
 
 /// ### The [`InOutQuadratic`] Easing Function.
@@ -89,7 +88,8 @@ impl Curve for InOutQuadratic {
 
 #[test]
 fn test_in_out_quadratic() {
-  let p = InOutQuadratic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutQuadratic.y(0.0), 0.0);
+  assert_eq!(InOutQuadratic.y(0.25), 0.125);
+  assert_eq!(InOutQuadratic.y(0.5), 0.5);
+  assert_eq!(InOutQuadratic.y(1.0), 1.0);
 }

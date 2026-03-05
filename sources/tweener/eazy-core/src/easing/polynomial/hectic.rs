@@ -30,6 +30,8 @@ impl Curve for InHectic {
 
 #[test]
 fn test_in_hectic() {
+  assert_eq!(InHectic.y(0.0), 0.0);
+  assert!(InHectic.y(0.5) < 0.001);
   assert_eq!(InHectic.y(1.0), 1.0);
 }
 
@@ -57,6 +59,8 @@ impl Curve for OutHectic {
 
 #[test]
 fn test_out_hectic() {
+  assert_eq!(OutHectic.y(0.0), 0.0);
+  assert!(OutHectic.y(0.5) > 0.999);
   assert_eq!(OutHectic.y(1.0), 1.0);
 }
 
@@ -80,14 +84,16 @@ impl Curve for InOutHectic {
     let t = p * 2.0;
 
     if t < 1.0 {
-      return p.powi(100) * 2.0;
+      return 0.5 * t.powi(100);
     }
 
-    1.0 - m.powi(100) * 2.0
+    1.0 - 0.5 * (2.0 * m).powi(100)
   }
 }
 
 #[test]
 fn test_in_out_hectic() {
+  assert_eq!(InOutHectic.y(0.0), 0.0);
+  assert_eq!(InOutHectic.y(0.5), 0.5);
   assert_eq!(InOutHectic.y(1.0), 1.0);
 }

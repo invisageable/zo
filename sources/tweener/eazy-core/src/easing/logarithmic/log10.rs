@@ -26,9 +26,10 @@ impl Curve for InLog10 {
 
 #[test]
 fn test_in_log10() {
-  let p = InLog10.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InLog10.y(0.0), 0.0);
+  assert_eq!(InLog10.y(1.0), 1.0);
+  let p = InLog10.y(0.5);
+  assert!((p - 0.25964).abs() < 1e-4, "InLog10(0.5) = {p}");
 }
 
 /// ### The [`OutLog10`] Easing Function.
@@ -53,9 +54,10 @@ impl Curve for OutLog10 {
 
 #[test]
 fn test_out_log10() {
-  let p = OutLog10.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutLog10.y(0.0), 0.0);
+  assert_eq!(OutLog10.y(1.0), 1.0);
+  let p = OutLog10.y(0.5);
+  assert!((p - 0.74036).abs() < 1e-4, "OutLog10(0.5) = {p}");
 }
 
 /// ### The [`InOutLog10`] Easing Function.
@@ -86,7 +88,8 @@ impl Curve for InOutLog10 {
 
 #[test]
 fn test_in_out_log10() {
-  let p = InOutLog10.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutLog10.y(0.0), 0.0);
+  assert_eq!(InOutLog10.y(1.0), 1.0);
+  let p = InOutLog10.y(0.5);
+  assert!((p - 0.5).abs() < 1e-4, "InOutLog10(0.5) = {p}");
 }

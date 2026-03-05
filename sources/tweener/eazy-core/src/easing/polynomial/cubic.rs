@@ -33,6 +33,8 @@ impl Curve for InCubic {
 
 #[test]
 fn test_in_cubic() {
+  assert_eq!(InCubic.y(0.0), 0.0);
+  assert_eq!(InCubic.y(0.5), 0.125);
   assert_eq!(InCubic.y(1.0), 1.0);
 }
 
@@ -60,6 +62,8 @@ impl Curve for OutCubic {
 
 #[test]
 fn test_out_cubic() {
+  assert_eq!(OutCubic.y(0.0), 0.0);
+  assert_eq!(OutCubic.y(0.5), 0.875);
   assert_eq!(OutCubic.y(1.0), 1.0);
 }
 
@@ -90,6 +94,14 @@ impl Curve for InOutCubic {
   }
 }
 
+#[test]
+fn test_in_out_cubic() {
+  assert_eq!(InOutCubic.y(0.0), 0.0);
+  assert_eq!(InOutCubic.y(0.25), 0.0625);
+  assert_eq!(InOutCubic.y(0.5), 0.5);
+  assert_eq!(InOutCubic.y(1.0), 1.0);
+}
+
 pub fn in_out_cubic_simd(p: f32x8) -> f32x8 {
   let one = f32x8::splat(1.0);
   let two = f32x8::splat(2.0);
@@ -104,9 +116,4 @@ pub fn in_out_cubic_simd(p: f32x8) -> f32x8 {
   let mask = t.simd_lt(one);
 
   mask.blend(t_branch, m_branch)
-}
-
-#[test]
-fn test_in_out_cubic() {
-  assert_eq!(InOutCubic.y(1.0), 1.0);
 }

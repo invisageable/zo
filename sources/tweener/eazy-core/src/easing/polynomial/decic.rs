@@ -30,6 +30,8 @@ impl Curve for InDecic {
 
 #[test]
 fn test_in_decic() {
+  assert_eq!(InDecic.y(0.0), 0.0);
+  assert_eq!(InDecic.y(0.5), 0.0009765625);
   assert_eq!(InDecic.y(1.0), 1.0);
 }
 
@@ -57,6 +59,8 @@ impl Curve for OutDecic {
 
 #[test]
 fn test_out_decic() {
+  assert_eq!(OutDecic.y(0.0), 0.0);
+  assert_eq!(OutDecic.y(0.5), 0.99902344);
   assert_eq!(OutDecic.y(1.0), 1.0);
 }
 
@@ -80,7 +84,7 @@ impl Curve for InOutDecic {
     let t = p * 2.0;
 
     if t < 1.0 {
-      return p * t * t * t * t * t * t * t * t;
+      return p * t * t * t * t * t * t * t * t * t;
     }
 
     1.0 - m * m * m * m * m * m * m * m * m * m * 512.0
@@ -89,5 +93,8 @@ impl Curve for InOutDecic {
 
 #[test]
 fn test_in_out_decic() {
+  assert_eq!(InOutDecic.y(0.0), 0.0);
+  assert_eq!(InOutDecic.y(0.25), 0.00048828125);
+  assert_eq!(InOutDecic.y(0.5), 0.5);
   assert_eq!(InOutDecic.y(1.0), 1.0);
 }

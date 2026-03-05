@@ -30,9 +30,9 @@ impl Curve for InSextic {
 
 #[test]
 fn test_in_sextic() {
-  let p = InSextic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InSextic.y(0.0), 0.0);
+  assert_eq!(InSextic.y(0.5), 0.015625);
+  assert_eq!(InSextic.y(1.0), 1.0);
 }
 
 /// ### The [`OutSextic`] Easing Function.
@@ -59,9 +59,9 @@ impl Curve for OutSextic {
 
 #[test]
 fn test_out_sextic() {
-  let p = OutSextic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutSextic.y(0.0), 0.0);
+  assert_eq!(OutSextic.y(0.5), 0.984375);
+  assert_eq!(OutSextic.y(1.0), 1.0);
 }
 
 /// ### [`InOutSextic`] Easing Function.
@@ -93,7 +93,8 @@ impl Curve for InOutSextic {
 
 #[test]
 fn test_in_out_sextic() {
-  let p = InOutSextic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutSextic.y(0.0), 0.0);
+  assert_eq!(InOutSextic.y(0.25), 0.0078125);
+  assert_eq!(InOutSextic.y(0.5), 0.5);
+  assert_eq!(InOutSextic.y(1.0), 1.0);
 }

@@ -30,9 +30,9 @@ impl Curve for InQuartic {
 
 #[test]
 fn test_in_quartic() {
-  let p = InQuartic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InQuartic.y(0.0), 0.0);
+  assert_eq!(InQuartic.y(0.5), 0.0625);
+  assert_eq!(InQuartic.y(1.0), 1.0);
 }
 
 /// ### The [`OutQuartic`] Easing Function.
@@ -59,9 +59,9 @@ impl Curve for OutQuartic {
 
 #[test]
 fn test_out_quartic() {
-  let p = OutQuartic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutQuartic.y(0.0), 0.0);
+  assert_eq!(OutQuartic.y(0.5), 0.9375);
+  assert_eq!(OutQuartic.y(1.0), 1.0);
 }
 
 /// ### The [`InOutQuartic`] Easing Function.
@@ -93,7 +93,8 @@ impl Curve for InOutQuartic {
 
 #[test]
 fn test_in_out_quartic() {
-  let p = InOutQuartic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutQuartic.y(0.0), 0.0);
+  assert_eq!(InOutQuartic.y(0.25), 0.03125);
+  assert_eq!(InOutQuartic.y(0.5), 0.5);
+  assert_eq!(InOutQuartic.y(1.0), 1.0);
 }

@@ -30,9 +30,9 @@ impl Curve for InQuintic {
 
 #[test]
 fn test_in_quintic() {
-  let p = InQuintic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InQuintic.y(0.0), 0.0);
+  assert_eq!(InQuintic.y(0.5), 0.03125);
+  assert_eq!(InQuintic.y(1.0), 1.0);
 }
 
 /// ### The [`OutQuintic`] Easing Function.
@@ -59,9 +59,9 @@ impl Curve for OutQuintic {
 
 #[test]
 fn test_out_quintic() {
-  let p = OutQuintic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(OutQuintic.y(0.0), 0.0);
+  assert_eq!(OutQuintic.y(0.5), 0.96875);
+  assert_eq!(OutQuintic.y(1.0), 1.0);
 }
 
 /// ### The [`InOutQuintic`] Easing Function.
@@ -93,7 +93,8 @@ impl Curve for InOutQuintic {
 
 #[test]
 fn test_in_out_quintic() {
-  let p = InOutQuintic.y(1.0);
-
-  assert_eq!(p, 1.0);
+  assert_eq!(InOutQuintic.y(0.0), 0.0);
+  assert_eq!(InOutQuintic.y(0.25), 0.015625);
+  assert_eq!(InOutQuintic.y(0.5), 0.5);
+  assert_eq!(InOutQuintic.y(1.0), 1.0);
 }
