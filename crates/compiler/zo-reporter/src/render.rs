@@ -97,9 +97,10 @@ impl ErrorRenderer {
   ) -> io::Result<()> {
     let span = error.span();
     let kind = error.kind();
+    let range = span_to_range(span);
 
     let mut report =
-      Report::build(ReportKind::Error, filename, span.start as usize);
+      Report::build(ReportKind::Error, (filename, range.clone()));
 
     // Add error code if configured
     if self.config.show_codes {
@@ -117,7 +118,7 @@ impl ErrorRenderer {
     };
     let color = colors.next();
     report = report.with_label(
-      Label::new((filename, span_to_range(span)))
+      Label::new((filename, range.clone()))
         .with_message(label_msg)
         .with_color(color),
     );
