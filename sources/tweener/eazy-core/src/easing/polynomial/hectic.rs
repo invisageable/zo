@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### Examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::hectic::InHectic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InHectic.y(1.0);
+/// let p = Easing::InHectic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InHectic;
@@ -40,10 +39,9 @@ fn test_in_hectic() {
 /// #### Examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::hectic::OutHectic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutHectic.y(1.0);
+/// let p = Easing::OutHectic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutHectic;
@@ -69,10 +67,9 @@ fn test_out_hectic() {
 /// #### Examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::hectic::InOutHectic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutHectic.y(1.0);
+/// let p = Easing::InOutHectic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutHectic;

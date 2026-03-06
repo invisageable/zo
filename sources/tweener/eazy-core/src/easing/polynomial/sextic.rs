@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::sextic::InSextic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InSextic.y(1.0);
+/// let p = Easing::InSextic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InSextic;
@@ -40,10 +39,9 @@ fn test_in_sextic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::sextic::OutSextic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutSextic.y(1.0);
+/// let p = Easing::OutSextic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutSextic;
@@ -69,10 +67,9 @@ fn test_out_sextic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::sextic::InOutSextic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutSextic.y(1.0);
+/// let p = Easing::InOutSextic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutSextic;

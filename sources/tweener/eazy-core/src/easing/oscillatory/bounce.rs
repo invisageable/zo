@@ -7,10 +7,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::standard::bounce::InBounce;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InBounce.y(1.0);
+/// let p = Easing::InBounce.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InBounce;
@@ -26,7 +25,9 @@ impl Curve for InBounce {
 fn test_in_bounce() {
   assert_eq!(InBounce.y(0.0), 0.0);
   assert_eq!(InBounce.y(1.0), 1.0);
+
   let p = InBounce.y(0.5);
+
   assert!((p - 0.234375).abs() < 1e-4, "InBounce(0.5) = {p}");
 }
 
@@ -35,9 +36,9 @@ fn test_in_bounce() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::standard::bounce::OutBounce;
-/// let p = OutBounce.y(1.0);
+/// use eazy_core::{Curve, Easing};
+///
+/// let p = Easing::OutBounce.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutBounce;
@@ -85,10 +86,9 @@ fn test_out_bounce() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::standard::bounce::InOutBounce;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutBounce.y(1.0);
+/// let p = Easing::InOutBounce.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutBounce;

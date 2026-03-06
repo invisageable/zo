@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::linear::Linear;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = Linear.y(1.0);
+/// let p = Easing::Linear.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct Linear;

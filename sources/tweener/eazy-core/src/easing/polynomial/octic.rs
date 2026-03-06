@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::octic::InOctic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOctic.y(1.0);
+/// let p = Easing::InOctic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOctic;
@@ -40,10 +39,9 @@ fn test_in_octic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::octic::OutOctic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutOctic.y(1.0);
+/// let p = Easing::OutOctic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutOctic;
@@ -69,10 +67,9 @@ fn test_out_octic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::octic::InOutOctic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutOctic.y(1.0);
+/// let p = Easing::InOutOctic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutOctic;

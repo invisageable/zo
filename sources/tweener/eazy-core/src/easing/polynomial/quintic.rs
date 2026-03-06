@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quintic::InQuintic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InQuintic.y(1.0);
+/// let p = Easing::InQuintic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InQuintic;
@@ -40,10 +39,9 @@ fn test_in_quintic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quintic::OutQuintic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutQuintic.y(1.0);
+/// let p = Easing::OutQuintic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutQuintic;
@@ -69,10 +67,9 @@ fn test_out_quintic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quintic::InOutQuintic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutQuintic.y(1.0);
+/// let p = Easing::InOutQuintic.y(1.0);
 /// ```   
 #[derive(Debug)]
 pub struct InOutQuintic;

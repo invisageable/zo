@@ -15,7 +15,7 @@ use wide::{CmpLt, f32x8};
 /// #### examples.
 ///
 /// ```
-/// use eazy::{Curve, Easing};
+/// use eazy_core::{Curve, Easing};
 ///
 /// let p = Easing::InCubic.y(1.0);
 /// ```
@@ -42,7 +42,7 @@ fn test_in_cubic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::{Curve, Easing};
+/// use eazy_core::{Curve, Easing};
 ///
 /// let p = Easing::OutCubic.y(1.0);
 /// ```
@@ -70,7 +70,7 @@ fn test_out_cubic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::{Curve, Easing};
+/// use eazy_core::{Curve, Easing};
 ///
 /// let p = Easing::InOutCubic.y(1.0);
 /// ```

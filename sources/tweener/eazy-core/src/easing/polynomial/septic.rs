@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::septic::InSeptic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InSeptic.y(1.0);
+/// let p = Easing::InSeptic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InSeptic;
@@ -40,10 +39,9 @@ fn test_in_septic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::septic::OutSeptic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutSeptic.y(1.0);
+/// let p = Easing::OutSeptic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutSeptic;
@@ -69,10 +67,9 @@ fn test_out_septic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::septic::InOutSeptic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutSeptic.y(1.0);
+/// let p = Easing::InOutSeptic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutSeptic;

@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::nonic::InNonic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InNonic.y(1.0);
+/// let p = Easing::InNonic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InNonic;
@@ -40,10 +39,9 @@ fn test_in_nonic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::nonic::OutNonic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutNonic.y(1.0);
+/// let p = Easing::OutNonic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutNonic;
@@ -69,10 +67,9 @@ fn test_out_nonic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::nonic::InOutNonic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutNonic.y(1.0);
+/// let p = Easing::InOutNonic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutNonic;

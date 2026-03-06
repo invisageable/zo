@@ -10,7 +10,7 @@ const C2: f32 = C1 * 1.525;
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::{Curve, Easing};
+/// use eazy_core::{Curve, Easing};
 ///
 /// let p = Easing::InBack.y(1.0);
 ///
@@ -43,7 +43,7 @@ fn test_in_back() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::{Curve, Easing};
+/// use eazy_core::{Curve, Easing};
 ///
 /// let p = Easing::OutBack.y(1.0);
 ///
@@ -68,6 +68,7 @@ fn test_out_back() {
   assert_eq!(OutBack.y(1.0), 1.0);
 
   let p = OutBack.y(0.5);
+
   assert!((p - 1.08770).abs() < 1e-4, "OutBack(0.5) = {p}");
 }
 
@@ -76,7 +77,7 @@ fn test_out_back() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::{Curve, Easing};
+/// use eazy_core::{Curve, Easing};
 ///
 /// let p = Easing::InOutBack.y(1.0);
 ///
@@ -107,5 +108,6 @@ fn test_in_out_back() {
   assert_eq!(InOutBack.y(0.5), 0.5);
 
   let p = InOutBack.y(0.25);
+
   assert!((p - (-0.09968)).abs() < 1e-4, "InOutBack(0.25) = {p}");
 }

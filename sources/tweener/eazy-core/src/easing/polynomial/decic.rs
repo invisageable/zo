@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::decic::InDecic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InDecic.y(1.0);
+/// let p = Easing::InDecic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InDecic;
@@ -40,10 +39,9 @@ fn test_in_decic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::decic::OutDecic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutDecic.y(1.0);
+/// let p = Easing::OutDecic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutDecic;
@@ -69,10 +67,9 @@ fn test_out_decic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::decic::InOutDecic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutDecic.y(1.0);
+/// let p = Easing::InOutDecic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutDecic;

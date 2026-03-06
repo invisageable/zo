@@ -13,7 +13,7 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::{Curve, Easing};
+/// use eazy_core::{Curve, Easing};
 ///
 /// let p = Easing::InQuadratic.y(1.0);
 /// ```
@@ -39,10 +39,9 @@ fn test_in_quadratic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quadratic::OutQuadratic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutQuadratic.y(1.0);
+/// let p = Easing::OutQuadratic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutQuadratic;
@@ -68,10 +67,9 @@ fn test_out_quadratic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quadratic::InOutQuadratic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutQuadratic.y(1.0);
+/// let p = Easing::InOutQuadratic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutQuadratic;

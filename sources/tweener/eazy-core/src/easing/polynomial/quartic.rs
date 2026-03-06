@@ -13,10 +13,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quartic::InQuartic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InQuartic.y(1.0);
+/// let p = Easing::InQuartic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InQuartic;
@@ -40,10 +39,9 @@ fn test_in_quartic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quartic::OutQuartic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutQuartic.y(1.0);
+/// let p = Easing::OutQuartic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutQuartic;
@@ -69,10 +67,9 @@ fn test_out_quartic() {
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::polynomial::quartic::InOutQuartic;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutQuartic.y(1.0);
+/// let p = Easing::InOutQuartic.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutQuartic;

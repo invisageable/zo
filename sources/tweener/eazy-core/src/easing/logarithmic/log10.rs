@@ -8,10 +8,9 @@ use crate::math::log10f;
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::logarithmic::log10::InLog10;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InLog10.y(0.25);
+/// let p = Easing::InLog10.y(0.25);
 /// ```
 #[derive(Debug)]
 pub struct InLog10;
@@ -27,7 +26,9 @@ impl Curve for InLog10 {
 fn test_in_log10() {
   assert_eq!(InLog10.y(0.0), 0.0);
   assert_eq!(InLog10.y(1.0), 1.0);
+
   let p = InLog10.y(0.5);
+
   assert!((p - 0.25964).abs() < 1e-4, "InLog10(0.5) = {p}");
 }
 
@@ -36,10 +37,9 @@ fn test_in_log10() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::logarithmic::log10::OutLog10;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutLog10.y(0.25);
+/// let p = Easing::OutLog10.y(0.25);
 /// ```
 #[derive(Debug)]
 pub struct OutLog10;
@@ -55,7 +55,9 @@ impl Curve for OutLog10 {
 fn test_out_log10() {
   assert_eq!(OutLog10.y(0.0), 0.0);
   assert_eq!(OutLog10.y(1.0), 1.0);
+
   let p = OutLog10.y(0.5);
+
   assert!((p - 0.74036).abs() < 1e-4, "OutLog10(0.5) = {p}");
 }
 
@@ -64,10 +66,9 @@ fn test_out_log10() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::logarithmic::log10::InOutLog10;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutLog10.y(0.25);
+/// let p = Easing::InOutLog10.y(0.25);
 /// ```
 #[derive(Debug)]
 pub struct InOutLog10;
@@ -89,6 +90,8 @@ impl Curve for InOutLog10 {
 fn test_in_out_log10() {
   assert_eq!(InOutLog10.y(0.0), 0.0);
   assert_eq!(InOutLog10.y(1.0), 1.0);
+
   let p = InOutLog10.y(0.5);
+
   assert!((p - 0.5).abs() < 1e-4, "InOutLog10(0.5) = {p}");
 }

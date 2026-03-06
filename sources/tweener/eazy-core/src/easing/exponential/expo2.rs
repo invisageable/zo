@@ -13,10 +13,9 @@ use crate::math::exp2f;
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::exponential::expo2::InExpo2;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InExpo2.y(1.0);
+/// let p = Easing::InExpo2.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InExpo2;
@@ -44,10 +43,9 @@ fn test_in_expo2() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::exponential::expo2::OutExpo2;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = OutExpo2.y(1.0);
+/// let p = Easing::OutExpo2.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct OutExpo2;
@@ -75,10 +73,9 @@ fn test_out_expo2() {
 /// #### examples.
 ///
 /// ```rust
-/// use eazy::Curve;
-/// use eazy::exponential::expo2::InOutExpo2;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = InOutExpo2.y(1.0);
+/// let p = Easing::InOutExpo2.y(1.0);
 /// ```
 #[derive(Debug)]
 pub struct InOutExpo2;

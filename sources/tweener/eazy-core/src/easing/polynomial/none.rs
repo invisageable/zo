@@ -17,10 +17,9 @@ use crate::easing::Curve;
 /// #### examples.
 ///
 /// ```
-/// use eazy::Curve;
-/// use eazy::power::none::None;
+/// use eazy_core::{Curve, Easing};
 ///
-/// let p = None.y(0.0);
+/// let p = Easing::None.y(0.0);
 /// ```
 #[derive(Debug)]
 pub struct None;

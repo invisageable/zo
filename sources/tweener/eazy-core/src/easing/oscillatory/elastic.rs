@@ -47,7 +47,9 @@ impl Curve for InElastic {
 fn test_in_elastic() {
   assert_eq!(InElastic.y(0.0), 0.0);
   assert_eq!(InElastic.y(1.0), 1.0);
+
   let p = InElastic.y(0.5);
+
   assert!((p - -0.015625).abs() < 1e-4, "InElastic(0.5) = {p}");
 }
 
@@ -82,7 +84,9 @@ impl Curve for OutElastic {
 fn test_out_elastic() {
   assert_eq!(OutElastic.y(0.0), 0.0);
   assert_eq!(OutElastic.y(1.0), 1.0);
+
   let p = OutElastic.y(0.5);
+
   assert!((p - 1.015625).abs() < 1e-4, "OutElastic(0.5) = {p}");
 }
 
@@ -126,6 +130,8 @@ impl Curve for InOutElastic {
 fn test_in_out_elastic() {
   assert_eq!(InOutElastic.y(0.0), 0.0);
   assert_eq!(InOutElastic.y(1.0), 1.0);
+
   let p = InOutElastic.y(0.5);
+
   assert!((p - 0.5).abs() < 1e-4, "InOutElastic(0.5) = {p}");
 }
