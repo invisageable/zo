@@ -267,7 +267,7 @@ impl Curve for Easing {
       Self::InExpo2 => exponential::expo2::InExpo2.y(p),
       Self::InExpoE => exponential::expoe::InExpoE.y(p),
       Self::OutExpo2 => exponential::expo2::OutExpo2.y(p),
-      Self::OutExpoE => exponential::expoe::InExpoE.y(p),
+      Self::OutExpoE => exponential::expoe::OutExpoE.y(p),
       Self::InOutExpo2 => exponential::expo2::InOutExpo2.y(p),
       Self::InOutExpoE => exponential::expoe::InOutExpoE.y(p),
       Self::InLog10 => logarithmic::log10::InLog10.y(p),

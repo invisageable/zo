@@ -10,8 +10,7 @@
 //! Default parameters: decay=6.0, frequency=10.0
 
 use crate::easing::Curve;
-
-use libm::{cosf, expf};
+use crate::math::{cosf, expf};
 
 /// ### The [`Spring`] Easing Function.
 ///

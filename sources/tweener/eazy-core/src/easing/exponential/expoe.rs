@@ -7,8 +7,7 @@
 //! `e^x`
 
 use crate::easing::Curve;
-
-use libm::powf;
+use crate::math::expf;
 
 /// ### The [`InExpoE`] Easing Function.
 ///
@@ -30,7 +29,7 @@ impl Curve for InExpoE {
       return 0.0;
     }
 
-    powf(core::f32::consts::E, -10.0 * (1.0 - p))
+    expf(-10.0 * (1.0 - p))
   }
 }
 

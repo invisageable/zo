@@ -1,8 +1,7 @@
 //! # The Circle Curve.
 
 use crate::easing::Curve;
-
-use libm::sqrtf;
+use crate::math::sqrtf;
 
 /// ### The [`InCircle`] Easing Function.
 ///

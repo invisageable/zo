@@ -1,8 +1,7 @@
 //! # The Sine Curve.
 
 use crate::easing::Curve;
-
-use libm::{cosf, sinf};
+use crate::math::{cosf, sinf};
 
 use core::f32::consts::PI;
 

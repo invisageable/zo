@@ -1,8 +1,7 @@
 //! # The Log10 Curve.
 
 use crate::easing::Curve;
-
-use libm::log10f;
+use crate::math::log10f;
 
 /// ### The [`InLog10`] Easing Function.
 ///

@@ -3,8 +3,7 @@
 //! An algebraic curve of degree 1/2.
 
 use crate::easing::Curve;
-
-use libm::sqrtf;
+use crate::math::sqrtf;
 
 /// ### The [`InSqrt`] Easing Function.
 ///

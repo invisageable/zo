@@ -7,6 +7,10 @@ repository = "https://github.com/invisageable/zo/tree/main/sources/tweener"
 edition.workspace = true
 version = "0.0.1"
 
+[features]
+default = ["std"]
+std = []
+
 [lib]
 doctest = false
 

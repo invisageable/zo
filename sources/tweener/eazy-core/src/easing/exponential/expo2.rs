@@ -6,8 +6,7 @@
 //! Use exp2f instead of powf(2.0, x) - exp2f is optimized for base 2.
 
 use crate::easing::Curve;
-
-use libm::exp2f;
+use crate::math::exp2f;
 
 /// ### The [`InExpo2`] Easing Function.
 ///

@@ -4,7 +4,7 @@
 
 use crate::easing::Curve;
 
-use libm::{exp2f, sinf};
+use crate::math::{exp2f, sinf};
 
 /// ### The [`InElastic`] Easing Function.
 ///
