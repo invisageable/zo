@@ -1395,7 +1395,7 @@ checksum = "a6b671ae6e952cac23e817bd222705c8b1d242951cca4511cb356371e8f469b0"
 
 [[package]]
 name = "eazy"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "criterion",
  "easings",
@@ -1415,7 +1415,7 @@ dependencies = [
 
 [[package]]
 name = "eazy-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "criterion",
  "insta",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "eazy-derive"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "criterion",
  "insta",
@@ -1438,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "eazy-keyframe"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "criterion",
  "eazy-core",
@@ -1449,7 +1449,7 @@ dependencies = [
 
 [[package]]
 name = "eazy-tweener"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "criterion",
  "eazy-core",
