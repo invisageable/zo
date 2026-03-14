@@ -13,7 +13,7 @@ doctest = false
 zo-buffer = { workspace = true }
 
 # external:crates.
-nanorand = { workspace = true }
+fastrand = { workspace = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]

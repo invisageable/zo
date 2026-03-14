@@ -1,4 +1,4 @@
-use zo_constant_folding::{ConstFold, FoldResult};
+use zo_constant_folding::{ConstFold, FoldResult, Operand};
 use zo_error::{Error, ErrorKind};
 use zo_interner::{Interner, Symbol};
 use zo_reporter::report_error;
@@ -565,8 +565,11 @@ impl<'a> Executor<'a> {
       Some(ty_id) => {
         // Try constant folding using the ConstFold module
         let constprop = ConstFold::new(&self.values);
+        let resolved_ty = self.ty_checker.resolve_ty(ty_id);
 
-        if let Some(folded) = constprop.fold_binop(op, lhs, rhs, span) {
+        if let Some(folded) =
+          constprop.fold_binop(op, lhs, rhs, span, resolved_ty)
+        {
           match folded {
             FoldResult::Int(value) => {
               let sir_value = self.sir.emit(Insn::ConstInt { value, ty_id });
@@ -597,6 +600,48 @@ impl<'a> Executor<'a> {
               let value_id = self.values.store_bool(value);
 
               self.value_stack.push(value_id);
+              self.ty_stack.push(ty_id);
+              self.sir_values.push(sir_value);
+              self.annotations.push(Annotation { node_idx, ty_id });
+
+              return;
+            }
+            FoldResult::Forward(operand) => {
+              let (fwd_val, fwd_sir) = match operand {
+                Operand::Lhs => (lhs, lhs_sir),
+                Operand::Rhs => (rhs, rhs_sir),
+              };
+
+              self.value_stack.push(fwd_val);
+              self.ty_stack.push(ty_id);
+              self.sir_values.push(fwd_sir);
+              self.annotations.push(Annotation { node_idx, ty_id });
+
+              return;
+            }
+            FoldResult::Strength(new_op, const_rhs) => {
+              // emit the constant rhs (shift amount or mask).
+              let rhs_sir_val = self.sir.emit(Insn::ConstInt {
+                value: const_rhs,
+                ty_id,
+              });
+
+              // emit the cheaper op with lhs forwarded.
+              let dst = ValueId(self.sir.next_value_id);
+
+              self.sir.next_value_id += 1;
+
+              let sir_value = self.sir.emit(Insn::BinOp {
+                dst,
+                op: new_op,
+                lhs: lhs_sir,
+                rhs: rhs_sir_val,
+                ty_id,
+              });
+
+              let runtime_id = self.values.store_runtime(0);
+
+              self.value_stack.push(runtime_id);
               self.ty_stack.push(ty_id);
               self.sir_values.push(sir_value);
               self.annotations.push(Annotation { node_idx, ty_id });
@@ -688,8 +733,9 @@ impl<'a> Executor<'a> {
 
     // Try constant folding using the ConstFold module
     let constprop = ConstFold::new(&self.values);
+    let resolved_ty = self.ty_checker.resolve_ty(ty_id);
 
-    if let Some(folded) = constprop.fold_unop(op, rhs_id, span) {
+    if let Some(folded) = constprop.fold_unop(op, rhs_id, span, resolved_ty) {
       match folded {
         FoldResult::Int(value) => {
           let sir_value = self.sir.emit(Insn::ConstInt { value, ty_id });
@@ -720,6 +766,16 @@ impl<'a> Executor<'a> {
           self.value_stack.push(value_id);
           self.ty_stack.push(ty_id);
           self.sir_values.push(sir_value);
+          self.annotations.push(Annotation { node_idx, ty_id });
+
+          return;
+        }
+        // note: Forward/Strength are unreachable for unary ops,
+        // but handle for exhaustiveness.
+        FoldResult::Forward(_) | FoldResult::Strength(..) => {
+          self.value_stack.push(rhs_id);
+          self.ty_stack.push(ty_id);
+          self.sir_values.push(operand_sir);
           self.annotations.push(Annotation { node_idx, ty_id });
 
           return;
@@ -1087,10 +1143,15 @@ impl<'a> Executor<'a> {
             {
               // Try constant folding if both values are compile-time known
               let constprop = ConstFold::new(&self.values);
+              let resolved_ty = self.ty_checker.resolve_ty(unified_ty);
 
-              if let Some(folded) =
-                constprop.fold_binop(op, local.value_id, rhs_value, span)
-              {
+              if let Some(folded) = constprop.fold_binop(
+                op,
+                local.value_id,
+                rhs_value,
+                span,
+                resolved_ty,
+              ) {
                 match folded {
                   FoldResult::Int(value) => {
                     let new_value = self.values.store_int(value);
@@ -1141,6 +1202,61 @@ impl<'a> Executor<'a> {
                     self.sir.emit(Insn::Store {
                       name,
                       value: sir_value,
+                      ty_id: unified_ty,
+                    });
+
+                    return;
+                  }
+                  FoldResult::Forward(operand) => {
+                    match operand {
+                      Operand::Lhs => {
+                        // identity: value unchanged (e.g. x += 0).
+                        return;
+                      }
+                      Operand::Rhs => {
+                        // absorbing: result is rhs.
+                        local.value_id = rhs_value;
+
+                        if let Some(sir_val) = rhs_sir {
+                          self.sir.emit(Insn::Store {
+                            name,
+                            value: sir_val,
+                            ty_id: unified_ty,
+                          });
+                        }
+
+                        return;
+                      }
+                    }
+                  }
+                  FoldResult::Strength(new_op, const_rhs) => {
+                    // strength reduction for compound assign.
+                    // e.g. x *= 8 → x <<= 3.
+                    let rhs_sir_val = self.sir.emit(Insn::ConstInt {
+                      value: const_rhs,
+                      ty_id: unified_ty,
+                    });
+
+                    let lhs_sir_val = ValueId(local.value_id.0);
+                    let dst = ValueId(self.sir.next_value_id);
+
+                    self.sir.next_value_id += 1;
+
+                    let result_sir = self.sir.emit(Insn::BinOp {
+                      dst,
+                      op: new_op,
+                      lhs: lhs_sir_val,
+                      rhs: rhs_sir_val,
+                      ty_id: unified_ty,
+                    });
+
+                    let runtime_id = self.values.store_runtime(0);
+
+                    local.value_id = runtime_id;
+
+                    self.sir.emit(Insn::Store {
+                      name,
+                      value: result_sir,
                       ty_id: unified_ty,
                     });
 

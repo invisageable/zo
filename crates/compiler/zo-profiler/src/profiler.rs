@@ -2,7 +2,6 @@ use crate::quotes::QUOTES;
 
 use zo_buffer::Buffer;
 
-use nanorand::{Rng, WyRand};
 use rustc_hash::FxHashMap as HashMap;
 
 use std::time::{Duration, Instant};
@@ -165,8 +164,7 @@ impl Profiler {
 
   /// Sets the number of artifacts linked.
   pub fn quote(&self) -> &str {
-    let mut rng = WyRand::new();
-    let index = rng.generate_range(0..QUOTES.len());
+    let index = fastrand::usize(0..QUOTES.len());
 
     QUOTES[index]
   }

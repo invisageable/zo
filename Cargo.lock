@@ -7166,8 +7166,8 @@ dependencies = [
 name = "zo-profiler"
 version = "0.0.0"
 dependencies = [
+ "fastrand",
  "insta",
- "nanorand",
  "rustc-hash 2.1.1",
  "zo-buffer",
 ]
