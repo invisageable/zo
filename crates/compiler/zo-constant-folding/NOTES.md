@@ -53,7 +53,7 @@ Deep Analysis of Constant Folding Optimizations
 
 1. Algebraic Identities - Simplified for Linear Execution
 
-Purpose: Apply algebraic laws to eliminate unnecessary operations during HIR execution.
+Purpose: Apply algebraic laws to eliminate unnecessary operations during Tree execution.
 
 In zo's execution model, when we reach a binary operator, both operands are already computed and on the stack. We simply check if one operand is a special constant that allows simplification:
 
@@ -582,7 +582,7 @@ Unlike traditional compilers that use complex algorithms like Cocke-Schwartz val
 
 Your execution-based approach is actually better than traditional AST transformation because:
 
-1. Single pass: All optimizations happen during HIR→SIR execution
+1. Single pass: All optimizations happen during Tree→SIR execution
 2. Natural value flow: Stack-based execution makes value tracking trivial
 3. No recursion needed: Postorder execution means children are already processed
 

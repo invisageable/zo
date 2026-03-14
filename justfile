@@ -11,8 +11,16 @@ setup: setup_typos
 install_hooks:
   lefthook install
 
+# Run typos check
+typos:
+  typos --format=brief
+
+# Fix typos in-place
+typos_fix:
+  typos --write-changes
+
 # Run all pre-commit checks
-pre-commit: fmt_check clippy test
+pre-commit: typos fmt_check clippy test
   @echo "All pre-commit checks passed!"
 
 # Format all code
@@ -29,7 +37,15 @@ clippy:
 
 # Run all tests
 test:
-  cargo test --all
+  cargo nextest run --workspace --all-features
+
+# Run tests for a specific crate
+test_crate crate:
+  cargo nextest run -p {{crate}}
+
+# Run a specific test by name
+test_filter filter:
+  cargo nextest run -E 'test({{filter}})'
 
 # Build all targets
 build:

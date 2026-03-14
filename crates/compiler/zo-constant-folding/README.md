@@ -10,7 +10,7 @@ Constant expression evaluation for the zo compiler's execution-based compilation
   
 ## Overview
 
-This module provides compile-time evaluation of constant expressions during HIR execution. It's designed for maximum performance (targeting 5M LoC/s for semantic analysis) while maintaining correctness.
+This module provides compile-time evaluation of constant expressions during Tree execution. It's designed for maximum performance (targeting 5M LoC/s for semantic analysis) while maintaining correctness.
 
 ## Scope
 
@@ -27,7 +27,7 @@ This module provides compile-time evaluation of constant expressions during HIR 
 
 **Logical Operations**
 - Boolean: `&&`, `||`
-- Note: Short-circuiting happens at HIR execution level, not here
+- Note: Short-circuiting happens at Tree execution level, not here
 
 **Bitwise Operations**
 - Integer: `&`, `|`, `^`, `<<`, `>>`
@@ -45,7 +45,7 @@ This module provides compile-time evaluation of constant expressions during HIR 
 - Tuple access: `tuple.0`
 - Struct field access: `struct.field`
 
-**Why?** These operations are handled by the executor during HIR execution because:
+**Why?** These operations are handled by the executor during Tree execution because:
 1. They require type information that's resolved during execution
 2. They may involve memory access patterns beyond simple values
 3. The executor already has the context needed for these operations
@@ -72,7 +72,7 @@ This module follows zo's execution-based compilation model where:
 The separation of concerns:
 - **ConstFolding**: Evaluates constant expressions (this module)
 - **ConstProp**: Tracks variable values through control flow
-- **Executor**: Orchestrates both during HIR execution
+- **Executor**: Orchestrates both during Tree execution
 - **Type Checker**: Ensures type correctness during execution
 
 ## Error Handling
@@ -106,7 +106,7 @@ Value::Bool(b)  // Constant boolean
 
 ## Integration
 
-The constant folder is used by the executor during HIR execution:
+The constant folder is used by the executor during Tree execution:
 
 ```rust
 // In executor.rs
