@@ -20,6 +20,7 @@ zo-runtime = { workspace = true }
 zo-sir = { workspace = true }
 zo-span = { workspace = true }
 zo-tokenizer = { workspace = true }
+zo-ui-protocol = { workspace = true }
 
 # external:crates.
 clap = { workspace = true }

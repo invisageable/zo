@@ -259,7 +259,9 @@ template_node = template_element
               | "{", expr, "}"
               ;
 
-template_attribute = identifier, "=", ( "{", expr, "}" | string_literal ) ;
+template_attribute = prop_attribute | event_attribute ;
+prop_attribute = identifier, "=", ( "{", expr, "}" | string_literal ) ;
+event_attribute = "@", identifier, "=", "{", expr, "}" ;
 template_text = { template_char } ;
 template_char = ? any character except '<', '>', '{', '}' ? ;
 

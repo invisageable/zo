@@ -9,10 +9,14 @@ use zo_token::{LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, TyId};
 use zo_ty_checker::TyChecker;
-use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
+use zo_ui_protocol::{
+  Attr, ContainerDirection, EventKind, PropValue, TextStyle, UiCommand,
+};
 use zo_value::{
   FunDef, Local, Mutability, Pubness, Value, ValueId, ValueStorage,
 };
+
+use std::cell::Cell;
 
 /// Scope frame for variable tracking
 pub struct ScopeFrame {
@@ -62,6 +66,8 @@ pub struct Executor<'a> {
   template_counter: u32,
   /// Pending variable name from imu/mut for template assignment
   pending_var_name: Option<Symbol>,
+  /// Counter for unique widget IDs (buttons, inputs)
+  widget_counter: Cell<u32>,
 }
 impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
@@ -90,6 +96,7 @@ impl<'a> Executor<'a> {
       pending_function: None,
       template_counter: 0,
       pending_var_name: None,
+      widget_counter: Cell::new(0),
     }
   }
 
@@ -1705,96 +1712,226 @@ impl<'a> Executor<'a> {
   fn execute_template_fragment(&mut self, start_idx: usize, end_idx: usize) {
     let mut commands = Vec::new();
 
-    // Start with a container for the fragment
-    let container_id = format!("elem_{}", self.template_counter);
-    commands.push(UiCommand::BeginContainer {
-      id: container_id,
-      direction: ContainerDirection::Vertical,
-    });
+    // Walk the flat token stream with a cursor, building
+    // UiCommands via tag registry + attribute extraction.
+    let mut idx = start_idx + 1;
 
-    // Process children to build template content
-    for idx in (start_idx + 1)..end_idx {
+    while idx < end_idx {
       let node = &self.tree.nodes[idx];
+
       match node.token {
         Token::TemplateText => {
-          // Add text command
-          if let Some(NodeValue::Symbol(symbol)) = self.node_value(idx) {
-            let text = self.interner.get(symbol).to_string();
-            commands.push(UiCommand::Text {
-              content: text,
-              style: TextStyle::Normal,
-            });
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+            let text = self.interner.get(sym).to_string();
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+              commands.push(UiCommand::Text {
+                content: trimmed.to_string(),
+                style: TextStyle::Normal,
+              });
+            }
           }
+          idx += 1;
         }
-        Token::TemplateFragmentEnd => {
-          // End of fragment
-          break;
-        }
-        Token::Ident => {
-          // Could be an HTML tag like <h1>
-          if let Some(NodeValue::Symbol(symbol)) = self.node_value(idx) {
-            let tag = self.interner.get(symbol);
-            // Check if it's an HTML tag
-            let style = match tag {
-              "h1" => TextStyle::Heading1,
-              "h2" => TextStyle::Heading2,
-              "h3" => TextStyle::Heading3,
-              "p" => TextStyle::Paragraph,
-              _ => TextStyle::Normal,
-            };
+        Token::TemplateFragmentEnd => break,
+        Token::LAngle => {
+          // Opening tag or closing tag.
+          idx += 1;
+          if idx >= end_idx {
+            break;
+          }
 
-            // Look for text content after the tag
-            if idx + 1 < end_idx {
-              let next_node = &self.tree.nodes[idx + 1];
-              if next_node.token == Token::TemplateText
-                && let Some(NodeValue::Symbol(text_sym)) =
-                  self.node_value(idx + 1)
-              {
-                let content = self.interner.get(text_sym).to_string();
-                commands.push(UiCommand::Text { content, style });
+          let next = &self.tree.nodes[idx];
+
+          if next.token == Token::Slash2 {
+            // Closing tag: </ ident >
+            // Skip slash, tag name, and closing >
+            idx += 1; // skip ident
+            if idx < end_idx && self.tree.nodes[idx].token == Token::Ident {
+              idx += 1; // skip past ident
+            }
+            if idx < end_idx && self.tree.nodes[idx].token == Token::RAngle {
+              idx += 1;
+            }
+            self.close_template_tag(&mut commands);
+          } else if next.token == Token::Ident {
+            // Opening tag: < ident [attrs...] > or
+            //              < ident [attrs...] / >
+            let tag_name = self
+              .node_value(idx)
+              .and_then(|v| match v {
+                NodeValue::Symbol(s) => Some(s),
+                _ => None,
+              })
+              .map(|s| self.interner.get(s).to_string())
+              .unwrap_or_default();
+
+            idx += 1;
+
+            // Extract typed attributes until > or />
+            let mut attrs = Vec::with_capacity(4);
+            let mut self_closing = false;
+
+            while idx < end_idx {
+              let n = &self.tree.nodes[idx];
+              match n.token {
+                Token::RAngle => {
+                  idx += 1;
+                  break;
+                }
+                Token::Slash2 => {
+                  self_closing = true;
+                  idx += 1;
+                  if idx < end_idx
+                    && self.tree.nodes[idx].token == Token::RAngle
+                  {
+                    idx += 1;
+                  }
+                  break;
+                }
+                Token::Ident => {
+                  let attr_name = self
+                    .node_value(idx)
+                    .and_then(|v| match v {
+                      NodeValue::Symbol(s) => Some(s),
+                      _ => None,
+                    })
+                    .map(|s| self.interner.get(s).to_string())
+                    .unwrap_or_default();
+                  idx += 1;
+
+                  // name="value" pair
+                  if idx < end_idx && self.tree.nodes[idx].token == Token::Eq {
+                    idx += 1;
+                  }
+                  if idx < end_idx
+                    && self.tree.nodes[idx].token == Token::String
+                  {
+                    let raw = self
+                      .node_value(idx)
+                      .and_then(|v| match v {
+                        NodeValue::Symbol(s) => Some(s),
+                        _ => None,
+                      })
+                      .map(|s| self.interner.get(s).to_string())
+                      .unwrap_or_default();
+                    idx += 1;
+                    attrs.push(Attr::parse_prop(&attr_name, &raw));
+                  } else {
+                    // Boolean attribute: <input disabled />
+                    attrs.push(Attr::Prop {
+                      name: attr_name,
+                      value: PropValue::Bool(true),
+                    });
+                  }
+                }
+                Token::At => {
+                  // @click={handler} — event binding
+                  idx += 1;
+                  if idx < end_idx && self.tree.nodes[idx].token == Token::Ident
+                  {
+                    let event_name = self
+                      .node_value(idx)
+                      .and_then(|v| match v {
+                        NodeValue::Symbol(s) => Some(s),
+                        _ => None,
+                      })
+                      .map(|s| self.interner.get(s).to_string())
+                      .unwrap_or_default();
+                    idx += 1;
+                    // Expect ={handler}
+                    if idx < end_idx && self.tree.nodes[idx].token == Token::Eq
+                    {
+                      idx += 1;
+                    }
+                    // { handler_ident }
+                    if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::LBrace
+                    {
+                      idx += 1;
+                    }
+                    let handler = if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::Ident
+                    {
+                      let h = self
+                        .node_value(idx)
+                        .and_then(|v| match v {
+                          NodeValue::Symbol(s) => Some(s),
+                          _ => None,
+                        })
+                        .map(|s| self.interner.get(s).to_string())
+                        .unwrap_or_default();
+                      idx += 1;
+                      h
+                    } else {
+                      String::new()
+                    };
+                    if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::RBrace
+                    {
+                      idx += 1;
+                    }
+                    let event_kind = match event_name.as_str() {
+                      "click" => EventKind::Click,
+                      "hover" => EventKind::Hover,
+                      "change" => EventKind::Change,
+                      "input" => EventKind::Input,
+                      "focus" => EventKind::Focus,
+                      "blur" => EventKind::Blur,
+                      _ => EventKind::Click,
+                    };
+                    attrs.push(Attr::Event {
+                      name: event_name,
+                      event_kind,
+                      handler,
+                    });
+                  }
+                }
+                Token::Eq => {
+                  idx += 1;
+                }
+                _ => {
+                  idx += 1;
+                }
               }
             }
+
+            self.emit_opening_tag(
+              &tag_name,
+              &attrs,
+              self_closing,
+              &mut commands,
+            );
+          } else {
+            idx += 1;
           }
         }
         _ => {
-          // Other template content
+          idx += 1;
         }
       }
     }
 
-    // End the container
-    commands.push(UiCommand::EndContainer);
-
     if !commands.is_empty() {
-      // PHASE 2: Optimize commands using compile-time analysis
       let optimizer = TemplateOptimizer::new();
       commands = optimizer.optimize(commands);
     }
 
-    // Create a template value
     let template_id = self.values.store_template(self.template_counter);
     self.template_counter += 1;
 
-    // Push the template value to stack for the parent (e.g., Imu) to consume
     self.value_stack.push(template_id);
     self.ty_stack.push(self.ty_checker.template_ty());
 
-    // DON'T emit the Template instruction here - let the VarDef handle it
-    // The Template instruction will be emitted as part of the VarDef's init
-    // value
-
-    // Store commands for later use when the Template instruction is created
-    // For now, emit it directly since we need to pass commands
     let sir_value = self.sir.emit(Insn::Template {
       id: template_id,
-      name: None, // Fragment for now
+      name: None,
       ty_id: self.ty_checker.template_ty(),
-      commands, // Pass commands directly in the instruction
+      commands,
     });
 
     self.sir_values.push(sir_value);
 
-    // If there's a pending variable name, create VarDef
     if let Some(var_name) = self.pending_var_name.take() {
       self.sir.emit(Insn::VarDef {
         name: var_name,
@@ -1803,6 +1940,186 @@ impl<'a> Executor<'a> {
         mutability: Mutability::No,
       });
     }
+  }
+
+  /// Tag registry: maps HTML tag names to UiCommand emissions.
+  fn emit_opening_tag(
+    &mut self,
+    tag: &str,
+    attrs: &[Attr],
+    self_closing: bool,
+    commands: &mut Vec<UiCommand>,
+  ) {
+    // Track widget id for event binding.
+    let mut widget_id: Option<String> = None;
+
+    match classify_tag(tag) {
+      TagKind::Container(dir) => {
+        let direction = resolve_direction(dir, attrs);
+        let id = format!("{}_{}", tag, self.template_counter);
+        widget_id = Some(id.clone());
+        commands.push(UiCommand::BeginContainer { id, direction });
+        if self_closing {
+          commands.push(UiCommand::EndContainer);
+        }
+      }
+      TagKind::Text(style) => {
+        if self_closing {
+          commands.push(UiCommand::Text {
+            content: String::new(),
+            style,
+          });
+        } else {
+          // Sentinel that close_template_tag converts to Text.
+          commands.push(UiCommand::BeginContainer {
+            id: format!("__text_{}__", style as u32),
+            direction: ContainerDirection::Vertical,
+          });
+        }
+      }
+      TagKind::Button => {
+        let wid = self.next_widget_id();
+        widget_id = Some(wid.to_string());
+        if self_closing {
+          commands.push(UiCommand::Button {
+            id: wid,
+            content: String::new(),
+          });
+        } else {
+          // Stash widget id in sentinel for close_template_tag
+          commands.push(UiCommand::BeginContainer {
+            id: format!("__button_{}__", wid),
+            direction: ContainerDirection::Vertical,
+          });
+        }
+      }
+      TagKind::Input => {
+        let wid = self.next_widget_id();
+        widget_id = Some(wid.to_string());
+        let placeholder = attr_prop_str(attrs, "placeholder");
+        let value = attr_prop_str(attrs, "value");
+        commands.push(UiCommand::TextInput {
+          id: wid,
+          placeholder,
+          value,
+        });
+      }
+      TagKind::Image => {
+        let id = format!("img_{}", self.template_counter);
+        widget_id = Some(id.clone());
+        let src = attr_prop_str(attrs, "src");
+        let width = attr_prop_num(attrs, "width");
+        let height = attr_prop_num(attrs, "height");
+        commands.push(UiCommand::Image {
+          id,
+          src,
+          width,
+          height,
+        });
+      }
+      TagKind::Unknown => {
+        let id = format!("{}_{}", tag, self.template_counter);
+        widget_id = Some(id.clone());
+        commands.push(UiCommand::BeginContainer {
+          id,
+          direction: ContainerDirection::Vertical,
+        });
+        if self_closing {
+          commands.push(UiCommand::EndContainer);
+        }
+      }
+    }
+
+    // Emit UiCommand::Event for each @event attribute.
+    if let Some(wid) = widget_id {
+      for attr in attrs {
+        if let Attr::Event {
+          event_kind,
+          handler,
+          ..
+        } = attr
+        {
+          commands.push(UiCommand::Event {
+            widget_id: wid.clone(),
+            event_kind: event_kind.clone(),
+            handler: handler.clone(),
+          });
+        }
+      }
+    }
+  }
+
+  /// Handle closing tag: convert sentinel BeginContainers
+  /// back to their actual UiCommand.
+  fn close_template_tag(&mut self, commands: &mut Vec<UiCommand>) {
+    // Collect text content from any Text commands added since
+    // the last sentinel BeginContainer.
+    let sentinel_pos = commands.iter().rposition(|cmd| {
+      matches!(cmd, UiCommand::BeginContainer { id, .. }
+        if id.starts_with("__"))
+    });
+
+    if let Some(pos) = sentinel_pos {
+      let sentinel_id = match &commands[pos] {
+        UiCommand::BeginContainer { id, .. } => id.clone(),
+        _ => unreachable!(),
+      };
+
+      // Collect text and preserve event commands after sentinel
+      let mut content = String::new();
+      let mut events = Vec::new();
+      for cmd in &commands[pos + 1..] {
+        match cmd {
+          UiCommand::Text { content: text, .. } => {
+            if !content.is_empty() {
+              content.push(' ');
+            }
+            content.push_str(text);
+          }
+          UiCommand::Event { .. } => {
+            events.push(cmd.clone());
+          }
+          _ => {}
+        }
+      }
+
+      // Remove sentinel and collected children
+      commands.truncate(pos);
+
+      if sentinel_id.starts_with("__button_") {
+        let id: u32 = sentinel_id
+          .trim_start_matches("__button_")
+          .trim_end_matches("__")
+          .parse()
+          .unwrap_or(0);
+        commands.push(UiCommand::Button { id, content });
+      } else if sentinel_id.starts_with("__text_") {
+        let style_num: u32 = sentinel_id
+          .trim_start_matches("__text_")
+          .trim_end_matches("__")
+          .parse()
+          .unwrap_or(0);
+        let style = match style_num {
+          0 => TextStyle::Heading1,
+          1 => TextStyle::Heading2,
+          2 => TextStyle::Heading3,
+          3 => TextStyle::Paragraph,
+          _ => TextStyle::Normal,
+        };
+        commands.push(UiCommand::Text { content, style });
+      }
+      // Re-append preserved event commands
+      commands.extend(events);
+    } else {
+      // Regular container close
+      commands.push(UiCommand::EndContainer);
+    }
+  }
+
+  fn next_widget_id(&mut self) -> u32 {
+    let id = self.widget_counter.get();
+    self.widget_counter.set(id + 1);
+    id
   }
 }
 
@@ -1815,4 +2132,101 @@ struct FunCtx {
   pub(crate) has_explicit_return: bool,
   /// Set when we see 'return' keyword, cleared when we emit Return insn.
   pub(crate) pending_return: bool,
+}
+
+/// Tag classification for the template tag registry.
+enum TagKind {
+  Container(ContainerDirection),
+  Text(TextStyle),
+  Button,
+  Input,
+  Image,
+  Unknown,
+}
+
+/// Static tag registry — no allocation, no HashMap.
+fn classify_tag(tag: &str) -> TagKind {
+  match tag {
+    // Containers (vertical by default)
+    "div" | "section" | "main" | "article" | "aside" | "header" | "footer"
+    | "nav" | "form" | "ul" | "ol" | "li" => {
+      TagKind::Container(ContainerDirection::Vertical)
+    }
+    // Inline container
+    "span" => TagKind::Container(ContainerDirection::Horizontal),
+    // Text
+    "h1" => TagKind::Text(TextStyle::Heading1),
+    "h2" => TagKind::Text(TextStyle::Heading2),
+    "h3" => TagKind::Text(TextStyle::Heading3),
+    "p" => TagKind::Text(TextStyle::Paragraph),
+    // Interactive
+    "button" => TagKind::Button,
+    "input" | "textarea" => TagKind::Input,
+    // Media
+    "img" => TagKind::Image,
+    _ => TagKind::Unknown,
+  }
+}
+
+/// Resolve container direction from attributes.
+fn resolve_direction(
+  default: ContainerDirection,
+  attrs: &[Attr],
+) -> ContainerDirection {
+  for attr in attrs {
+    if let Attr::Prop {
+      name,
+      value: PropValue::Str(v),
+    } = attr
+      && name == "class"
+      && v.contains("horizontal")
+    {
+      return ContainerDirection::Horizontal;
+    }
+  }
+  default
+}
+
+/// Look up a string property by name.
+fn attr_prop_str(attrs: &[Attr], name: &str) -> String {
+  for attr in attrs {
+    if attr.name() == name {
+      return match attr {
+        Attr::Prop {
+          value: PropValue::Str(s),
+          ..
+        } => s.clone(),
+        Attr::Prop {
+          value: PropValue::Num(n),
+          ..
+        } => n.to_string(),
+        Attr::Prop {
+          value: PropValue::Bool(b),
+          ..
+        } => b.to_string(),
+        _ => String::new(),
+      };
+    }
+  }
+  String::new()
+}
+
+/// Look up a numeric property by name, defaulting to 0.
+fn attr_prop_num(attrs: &[Attr], name: &str) -> u32 {
+  for attr in attrs {
+    if attr.name() == name {
+      return match attr {
+        Attr::Prop {
+          value: PropValue::Num(n),
+          ..
+        } => *n,
+        Attr::Prop {
+          value: PropValue::Str(s),
+          ..
+        } => s.parse().unwrap_or(0),
+        _ => 0,
+      };
+    }
+  }
+  0
 }

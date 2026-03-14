@@ -147,8 +147,8 @@ fn test_template_self_closing() {
       (TemplateAssign, None),
       (LAngle, None),
       (Ident, Some(NodeValue::TextRange(43, 5))), // "input"
-      // "type" keyword - tokenizer doesn't provide value.
-      (Type, None),
+      // "type" is now Ident in template tag markup (Phase 0 fix).
+      (Ident, Some(NodeValue::TextRange(49, 4))), // "type"
       (Eq, None),
       (String, Some(NodeValue::TextRange(54, 6))), // "text"
       (Slash2, None),

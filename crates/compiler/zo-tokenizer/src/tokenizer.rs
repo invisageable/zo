@@ -287,8 +287,20 @@ impl<'a> Tokenizer<'a> {
     let len = (self.cursor - start) as u16;
     let bytes = &self.source[start..self.cursor];
 
+    // In template mode inside tag markup (between < and >),
+    // all identifiers are plain Ident — never keywords.
+    // This prevents `type`, `for`, `loop` etc. from losing
+    // their string value when used as HTML attribute names.
+    // Exclude interpolation blocks (brace_depth > 0) where
+    // keywords like `if`/`else` must remain keywords.
+    let in_tag_markup = self.state.is_template()
+      && !self.state.template_text_mode()
+      && self.state.brace_depth() == 0;
+
     // Perfect hash for keywords using first 2 bytes
-    let kind = if len <= 8 {
+    let kind = if in_tag_markup {
+      Token::Ident
+    } else if len <= 8 {
       match len {
         2 => {
           // Use read_unaligned for safe access

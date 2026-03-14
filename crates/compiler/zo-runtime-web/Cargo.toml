@@ -10,8 +10,10 @@ doctest = false
 # internal:sources.
 
 # internal:crates.
+zo-runtime-render = { workspace = true }
 zo-ui-protocol = { workspace = true }
 
 # external:crates.
+rustc-hash = { workspace = true }
 winit = { workspace = true }
 wry = { workspace = true }

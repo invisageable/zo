@@ -1,6 +1,6 @@
 //! Main runtime dispatcher for zo applications
 
-use zo_runtime_render::render::Graphics;
+use zo_runtime_render::render::{EventRegistry, Graphics};
 use zo_ui_protocol::UiCommand;
 
 /// Runtime configuration
@@ -30,6 +30,7 @@ impl Default for RuntimeConfig {
 pub struct Runtime {
   config: RuntimeConfig,
   commands: Vec<UiCommand>,
+  events: EventRegistry,
 }
 
 impl Runtime {
@@ -43,12 +44,18 @@ impl Runtime {
     Self {
       config,
       commands: Vec::new(),
+      events: EventRegistry::new(),
     }
   }
 
   /// Set UI commands directly (for testing)
   pub fn set_commands(&mut self, commands: Vec<UiCommand>) {
     self.commands = commands;
+  }
+
+  /// Set the event handler registry.
+  pub fn set_events(&mut self, events: EventRegistry) {
+    self.events = events;
   }
 
   /// Run the application with the configured graphics backend
@@ -64,6 +71,7 @@ impl Runtime {
         let mut native_runtime =
           zo_runtime_native::runtime::Runtime::with_config(native_config);
         native_runtime.set_commands(self.commands);
+        native_runtime.set_events(self.events);
         native_runtime.run()
       }
       Graphics::Web => {
@@ -74,6 +82,7 @@ impl Runtime {
 
         let mut web_runtime = zo_runtime_web::Runtime::with_config(web_config);
         web_runtime.set_commands(self.commands);
+        web_runtime.set_events(self.events);
         web_runtime.run()
       }
     }

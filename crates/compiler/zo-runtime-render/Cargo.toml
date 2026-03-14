@@ -13,4 +13,5 @@ doctest = false
 zo-ui-protocol = { workspace = true }
 
 # external:crates.
+rustc-hash = { workspace = true }
 thin-vec = { workspace = true }

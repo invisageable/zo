@@ -5,10 +5,11 @@ use crate::constants::{EXIT_CODE_ERROR, EXIT_CODE_SUCCESS};
 use zo_analyzer::Analyzer;
 use zo_error::{Error, ErrorKind};
 use zo_parser::Parser;
-use zo_runtime::{Graphics, Runtime, RuntimeConfig};
+use zo_runtime::{EventRegistry, Graphics, Runtime, RuntimeConfig};
 use zo_sir::Insn;
 use zo_span::Span;
 use zo_tokenizer::Tokenizer;
+use zo_ui_protocol::UiCommand;
 
 #[derive(clap::Args, Debug)]
 pub(crate) struct Run {
@@ -100,6 +101,36 @@ impl Run {
         graphics
       );
 
+      // Build event registry: collect handler names from Event
+      // commands, find matching FunDef in SIR, register handler.
+      let mut event_registry = EventRegistry::new();
+      let mut handler_names: Vec<String> = Vec::new();
+
+      for cmd in &ui_commands {
+        if let UiCommand::Event { handler, .. } = cmd
+          && !handler.is_empty()
+          && !handler_names.contains(handler)
+        {
+          handler_names.push(handler.clone());
+        }
+      }
+
+      // Match handler names to SIR FunDefs and register
+      for insn in &semantic.sir.instructions {
+        if let Insn::FunDef { name, .. } = insn {
+          let fun_name = tokenization.interner.get(*name).to_string();
+          if handler_names.contains(&fun_name) {
+            let handler_name = fun_name.clone();
+            event_registry.register(
+              fun_name,
+              Box::new(move || {
+                println!("[zo] event handler '{handler_name}' called");
+              }),
+            );
+          }
+        }
+      }
+
       let config = RuntimeConfig {
         library_path: None,
         title: format!(
@@ -112,6 +143,7 @@ impl Run {
 
       let mut runtime = Runtime::with_config(config);
       runtime.set_commands(ui_commands);
+      runtime.set_events(event_registry);
 
       runtime.run().map_err(|_| {
         Error::new(ErrorKind::InternalCompilerError, Span::ZERO)

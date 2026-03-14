@@ -4,15 +4,16 @@ use zo_runtime_render::render::{EventId, Render, WidgetId};
 use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
 
 use eframe::egui;
+use rustc_hash::FxHashMap as HashMap;
 use thin_vec::ThinVec;
 
 /// State for managing UI elements
 #[derive(Default)]
 pub struct UiState {
   /// Text input values indexed by ID
-  text_inputs: std::collections::HashMap<u32, String>,
+  text_inputs: HashMap<u32, String>,
   /// Button click events to send back
-  pending_events: ThinVec<(u32, u32)>, // (widget_id, event_type)
+  pending_events: ThinVec<(u32, u32)>, // (widget_id, event_kind)
 }
 
 /// Egui-based renderer for zo UI commands

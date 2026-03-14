@@ -1,9 +1,13 @@
 use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
 
+use rustc_hash::FxHashMap as HashMap;
+
 /// HTML renderer that converts UiCommands to HTML
 pub struct HtmlRenderer {
   html_buffer: String,
   container_stack: Vec<String>,
+  /// Maps widget_id → handler name (built from Event commands)
+  event_map: HashMap<String, String>,
 }
 
 impl HtmlRenderer {
@@ -11,6 +15,7 @@ impl HtmlRenderer {
     Self {
       html_buffer: String::with_capacity(4096),
       container_stack: Vec::with_capacity(16),
+      event_map: HashMap::default(),
     }
   }
 
@@ -44,6 +49,17 @@ impl HtmlRenderer {
       .push_str(include_str!("../assets/default.css"));
     self.html_buffer.push_str("</style>");
     self.html_buffer.push_str("</head><body>");
+
+    // Build widget_id → handler map from Event commands
+    self.event_map.clear();
+    for cmd in commands {
+      if let UiCommand::Event {
+        widget_id, handler, ..
+      } = cmd
+      {
+        self.event_map.insert(widget_id.clone(), handler.clone());
+      }
+    }
 
     // Render commands
     for cmd in commands {
@@ -101,18 +117,34 @@ impl HtmlRenderer {
           .push_str(&format!("<{tag}>{}</{tag}>\n", escape_html(content),));
       }
 
-      UiCommand::Button { id, content } => self.html_buffer.push_str(&format!(
-        "<button data-id=\"{id}\" onclick=\"handleClick({id})\">{}</button>\n",
-        escape_html(content)
-      )),
+      UiCommand::Button { id, content } => {
+        let wid = id.to_string();
+        let handler = self
+          .event_map
+          .get(&wid)
+          .map(|h| format!("onclick=\"ZoRuntime.call('{h}')\""))
+          .unwrap_or_else(|| format!("onclick=\"handleClick({id})\""));
+        self.html_buffer.push_str(&format!(
+          "<button data-id=\"{id}\" {handler}>{}</button>\n",
+          escape_html(content)
+        ));
+      }
 
       UiCommand::TextInput {
         id,
         placeholder,
         value,
       } => {
+        let wid = id.to_string();
+        let handler = self
+          .event_map
+          .get(&wid)
+          .map(|h| format!("oninput=\"ZoRuntime.call('{h}', this.value)\""))
+          .unwrap_or_else(|| {
+            format!("oninput=\"handleInput({id}, this.value)\"")
+          });
         self.html_buffer.push_str(&format!(
-          "<input type=\"text\" data-id=\"{id}\" placeholder=\"{}\" value=\"{}\" oninput=\"handleInput({id}, this.value)\" />\n",
+          "<input type=\"text\" data-id=\"{id}\" placeholder=\"{}\" value=\"{}\" {handler} />\n",
           escape_html(placeholder), escape_html(value)
         ));
       }

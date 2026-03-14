@@ -2,6 +2,7 @@
 
 use crate::renderer::HtmlRenderer;
 
+use zo_runtime_render::render::EventRegistry;
 use zo_ui_protocol::UiCommand;
 
 /// Runtime configuration for web rendering
@@ -25,6 +26,7 @@ impl Default for RuntimeConfig {
 pub struct Runtime {
   config: RuntimeConfig,
   commands: Vec<UiCommand>,
+  events: EventRegistry,
 }
 
 impl Runtime {
@@ -38,6 +40,7 @@ impl Runtime {
     Self {
       config,
       commands: Vec::new(),
+      events: EventRegistry::new(),
     }
   }
 
@@ -46,14 +49,9 @@ impl Runtime {
     self.commands = commands;
   }
 
-  /// Get the configuration
-  pub fn get_config(&self) -> &RuntimeConfig {
-    &self.config
-  }
-
-  /// Get the commands
-  pub fn get_commands(&self) -> &[UiCommand] {
-    &self.commands
+  /// Set event handler registry.
+  pub fn set_events(&mut self, events: EventRegistry) {
+    self.events = events;
   }
 
   /// Run the application with HTML in webview

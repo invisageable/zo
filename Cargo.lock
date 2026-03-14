@@ -7072,6 +7072,7 @@ dependencies = [
  "zo-sir",
  "zo-span",
  "zo-tokenizer",
+ "zo-ui-protocol",
 ]
 
 [[package]]
@@ -7201,6 +7202,7 @@ version = "0.0.0"
 dependencies = [
  "eframe",
  "libloading 0.9.0",
+ "rustc-hash 2.1.1",
  "serde",
  "thin-vec",
  "zo-error",
@@ -7213,6 +7215,7 @@ dependencies = [
 name = "zo-runtime-render"
 version = "0.0.0"
 dependencies = [
+ "rustc-hash 2.1.1",
  "thin-vec",
  "zo-ui-protocol",
 ]
@@ -7221,8 +7224,10 @@ dependencies = [
 name = "zo-runtime-web"
 version = "0.0.0"
 dependencies = [
+ "rustc-hash 2.1.1",
  "winit",
  "wry",
+ "zo-runtime-render",
  "zo-ui-protocol",
 ]
 

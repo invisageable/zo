@@ -2,11 +2,12 @@
 
 use crate::renderer::Renderer;
 
-use zo_runtime_render::render::Render;
+use zo_runtime_render::render::{EventRegistry, Render};
 use zo_ui_protocol::UiCommand;
 use zo_ui_protocol::loader::LibraryLoader;
 
 use eframe::egui;
+use rustc_hash::FxHashMap as HashMap;
 
 /// Runtime configuration
 pub struct RuntimeConfig {
@@ -34,6 +35,7 @@ pub struct Runtime {
   renderer: Renderer,
   loader: LibraryLoader,
   commands: Vec<UiCommand>,
+  events: EventRegistry,
 }
 
 impl Runtime {
@@ -49,6 +51,7 @@ impl Runtime {
       renderer: Renderer::new(),
       loader: LibraryLoader::new(),
       commands: Vec::new(),
+      events: EventRegistry::new(),
     }
   }
 
@@ -67,19 +70,13 @@ impl Runtime {
     self.commands = commands;
   }
 
-  /// Get the configuration (for dispatcher)
-  pub fn get_config(&self) -> &RuntimeConfig {
-    &self.config
-  }
-
-  /// Get the commands (for dispatcher)
-  pub fn get_commands(&self) -> &[UiCommand] {
-    &self.commands
+  /// Set event handler registry.
+  pub fn set_events(&mut self, events: EventRegistry) {
+    self.events = events;
   }
 
   /// Run the application with egui
   pub fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-    // Try to load library if specified
     if let Some(path) = self.config.library_path.clone() {
       self.load_library(&path)?;
     }
@@ -93,6 +90,17 @@ impl Runtime {
 
     let commands = self.commands.clone();
 
+    // Build widget_id → handler_name map from Event commands
+    let mut event_map: HashMap<String, String> = HashMap::default();
+    for cmd in &commands {
+      if let UiCommand::Event {
+        widget_id, handler, ..
+      } = cmd
+      {
+        event_map.insert(widget_id.clone(), handler.clone());
+      }
+    }
+
     eframe::run_native(
       &self.config.title,
       options,
@@ -100,6 +108,8 @@ impl Runtime {
         Ok(Box::new(App {
           renderer: self.renderer,
           commands,
+          events: self.events,
+          event_map,
         }))
       }),
     )
@@ -119,6 +129,9 @@ impl Default for Runtime {
 struct App {
   renderer: Renderer,
   commands: Vec<UiCommand>,
+  events: EventRegistry,
+  /// Maps widget_id → handler_name
+  event_map: HashMap<String, String>,
 }
 
 impl eframe::App for App {
@@ -130,10 +143,13 @@ impl eframe::App for App {
     egui::CentralPanel::default().show(ctx, |ui| {
       self.renderer.render_with_ui(ui);
 
-      let events = self.renderer.take_pending_events();
-      for (widget_id, event_type) in events {
-        // in a real app, these would be sent back to the zo program.
-        println!("Event: widget {widget_id} type {event_type}");
+      // Dispatch pending events to zo handlers
+      let pending = self.renderer.take_pending_events();
+      for (widget_id, _event_kind) in pending {
+        let wid = widget_id.to_string();
+        if let Some(handler_name) = self.event_map.get(&wid) {
+          self.events.dispatch(handler_name);
+        }
       }
     });
   }

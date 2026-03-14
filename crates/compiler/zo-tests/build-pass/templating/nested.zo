@@ -1,0 +1,21 @@
+-- examples: nested containers.
+
+fun main() {
+  imu layout: </> ::= <>
+    <div>
+      <header>
+        <h1>App Title</h1>
+      </header>
+      <main>
+        <section>
+          <h2>Content</h2>
+          <p>Nested containers work.</p>
+        </section>
+      </main>
+      <footer>
+        <p>Footer text.</p>
+      </footer>
+    </div>
+  </>;
+  #dom layout;
+}

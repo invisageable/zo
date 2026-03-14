@@ -1,0 +1,10 @@
+-- examples: attribute extraction.
+
+fun main() {
+  imu form: </> ::= <>
+    <img src="logo.png" width="128" height="128" />
+    <input type="text" placeholder="Enter name" />
+    <button class="primary">Submit</button>
+  </>;
+  #dom form;
+}

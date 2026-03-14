@@ -1,0 +1,14 @@
+-- examples: button + input widgets (static, no events yet).
+
+fun main() {
+  imu form: </> ::= <>
+    <div>
+      <h1>Sign Up</h1>
+      <input type="text" placeholder="Username" />
+      <input type="text" placeholder="Email" />
+      <button>Submit</button>
+      <button>Cancel</button>
+    </div>
+  </>;
+  #dom form;
+}

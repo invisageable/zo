@@ -1,5 +1,6 @@
 use zo_ui_protocol::UiCommand;
 
+use rustc_hash::FxHashMap;
 use thin_vec::ThinVec;
 
 /// Graphics backend selection
@@ -9,6 +10,44 @@ pub enum Graphics {
   Native,
   /// Web HTML rendering
   Web,
+}
+
+/// Event handler callback.
+pub type EventHandler = Box<dyn Fn() + Send>;
+
+/// Registry mapping handler names to callable functions.
+/// Built by the driver from SIR, consumed by runtimes.
+pub struct EventRegistry {
+  handlers: FxHashMap<String, EventHandler>,
+}
+impl EventRegistry {
+  pub fn new() -> Self {
+    Self {
+      handlers: FxHashMap::default(),
+    }
+  }
+
+  pub fn register(&mut self, name: String, handler: EventHandler) {
+    self.handlers.insert(name, handler);
+  }
+
+  pub fn dispatch(&self, name: &str) -> bool {
+    if let Some(handler) = self.handlers.get(name) {
+      handler();
+      true
+    } else {
+      false
+    }
+  }
+
+  pub fn has(&self, name: &str) -> bool {
+    self.handlers.contains_key(name)
+  }
+}
+impl Default for EventRegistry {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 /// Represents a [`WidgetId`] instance.
