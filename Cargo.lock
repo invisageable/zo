@@ -7049,6 +7049,7 @@ dependencies = [
  "zo-codegen",
  "zo-codegen-backend",
  "zo-error",
+ "zo-interner",
  "zo-module-resolver",
  "zo-parser",
  "zo-pp",

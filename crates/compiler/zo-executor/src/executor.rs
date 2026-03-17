@@ -100,6 +100,16 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Checks if the node immediately before `idx` is `Token::Pub`.
+  fn is_pub(&self, idx: usize) -> bool {
+    idx > 0
+      && self
+        .tree
+        .nodes
+        .get(idx - 1)
+        .is_some_and(|n| n.token == Token::Pub)
+  }
+
   /// Gets the value associated with a node (if any).
   fn node_value(&self, node_idx: usize) -> Option<NodeValue> {
     self.tree.value(node_idx as u32)
@@ -256,6 +266,7 @@ impl<'a> Executor<'a> {
             return_ty: pending_func.return_ty,
             body_start,
             is_intrinsic: false,
+            is_pub: pending_func.is_pub,
           });
 
           // Now set the context with the correct body start
@@ -909,7 +920,7 @@ impl<'a> Executor<'a> {
     if let Some(name) = name {
       self.sir.emit(Insn::PackDecl {
         name,
-        is_pub: false,
+        is_pub: self.is_pub(_start_idx),
       });
     }
   }
@@ -1031,12 +1042,15 @@ impl<'a> Executor<'a> {
     }
 
     // Set the function as pending - it will be processed when we hit LBrace
+    let is_pub = self.is_pub(start_idx);
+
     self.pending_function = Some(FunDef {
       name,
       params: params.clone(),
       return_ty,
       body_start: 0, // Will be set when we emit FunDef
       is_intrinsic: false,
+      is_pub,
     });
 
     // Push a scope for the function parameters
@@ -1107,18 +1121,21 @@ impl<'a> Executor<'a> {
         });
 
       if let Some(name) = name {
+        let is_pub = self.is_pub(start_idx);
+
         let sir_value = self.sir.emit(Insn::VarDef {
           name,
           ty_id: init_ty,
           init: sir_init,
           mutability: Mutability::No,
+          is_pub,
         });
 
         self.locals.push(Local {
           name,
           ty_id: init_ty,
           value_id: init_value,
-          pubness: Pubness::No,
+          pubness: if is_pub { Pubness::Yes } else { Pubness::No },
           mutability: Mutability::No,
         });
 
@@ -1158,11 +1175,14 @@ impl<'a> Executor<'a> {
         });
 
       if let Some(name) = name {
+        let is_pub = self.is_pub(_start_idx);
+
         let sir_value = self.sir.emit(Insn::VarDef {
           name,
           ty_id: init_ty,
           init: sir_init,
           mutability: Mutability::Yes,
+          is_pub,
         });
 
         self.locals.push(Local {
@@ -1170,7 +1190,7 @@ impl<'a> Executor<'a> {
           ty_id: init_ty,
           value_id: init_value,
           mutability: Mutability::Yes,
-          pubness: Pubness::No,
+          pubness: if is_pub { Pubness::Yes } else { Pubness::No },
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -2017,6 +2037,7 @@ impl<'a> Executor<'a> {
         ty_id: self.ty_checker.template_ty(),
         init: Some(template_id),
         mutability: Mutability::No,
+        is_pub: false,
       });
     }
   }

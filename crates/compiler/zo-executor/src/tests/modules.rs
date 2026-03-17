@@ -54,6 +54,7 @@ fun main() { 42 }"#,
         return_ty: zo_ty::TyId(0),
         body_start: 2,
         is_intrinsic: false,
+        is_pub: false,
       },
       Insn::ConstInt {
         value: 42,
@@ -96,6 +97,7 @@ fn test_empty_body_is_intrinsic() {
         return_ty: TyId(0),
         body_start: 1,
         is_intrinsic: true,
+        is_pub: false,
       },
       Insn::Return {
         value: None,
@@ -116,6 +118,7 @@ fn test_non_empty_body_not_intrinsic() {
         return_ty: TyId(1),
         body_start: 1,
         is_intrinsic: false,
+        is_pub: false,
       },
       Insn::ConstInt {
         value: 42,
@@ -126,5 +129,37 @@ fn test_non_empty_body_not_intrinsic() {
         ty_id: TyId(1),
       },
     ],
+  );
+}
+
+#[test]
+fn test_pub_fun_visibility() {
+  assert_sir_stream(
+    "pub fun greet() {}",
+    &[
+      Insn::FunDef {
+        name: Symbol(25),
+        params: vec![],
+        return_ty: TyId(0),
+        body_start: 1,
+        is_intrinsic: true,
+        is_pub: true,
+      },
+      Insn::Return {
+        value: None,
+        ty_id: TyId(0),
+      },
+    ],
+  );
+}
+
+#[test]
+fn test_pub_pack_visibility() {
+  assert_sir_stream(
+    "pub pack math;",
+    &[Insn::PackDecl {
+      name: Symbol(25),
+      is_pub: true,
+    }],
   );
 }

@@ -237,6 +237,8 @@ pub struct FunDef {
   pub body_start: u32,
   /// Whether this function is an intrinsic (empty body).
   pub is_intrinsic: bool,
+  /// Visibility modifier.
+  pub is_pub: bool,
 }
 
 /// Represents a [`Local`] variable entry instance.

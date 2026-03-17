@@ -98,6 +98,7 @@ fn test_main_function_detection() {
     return_ty: TyId(0),
     body_start: 1,
     is_intrinsic: false,
+    is_pub: false,
   });
   sir.emit(Insn::Return {
     value: None,
@@ -127,6 +128,7 @@ fn test_string_fixup() {
     return_ty: TyId(0),
     body_start: 1,
     is_intrinsic: false,
+    is_pub: false,
   });
 
   sir.emit(Insn::ConstString {

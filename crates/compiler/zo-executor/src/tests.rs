@@ -158,6 +158,7 @@ fn test_simple_function() {
         return_ty: TyId(1),
         body_start: 1,
         is_intrinsic: false,
+        is_pub: false,
       },
       // Load x parameter
       Insn::Load {
@@ -206,6 +207,7 @@ fn test_function_call() {
         return_ty: TyId(1),
         body_start: 1,
         is_intrinsic: false,
+        is_pub: false,
       },
       // add body: load x
       Insn::Load {
@@ -239,6 +241,7 @@ fn test_function_call() {
         return_ty: TyId(1),
         body_start: 6,
         is_intrinsic: false,
+        is_pub: false,
       },
       // main body: 10
       Insn::ConstInt {
@@ -277,6 +280,7 @@ fn test_main_with_show() {
         return_ty: TyId(0), // unit (void)
         body_start: 1,
         is_intrinsic: false,
+        is_pub: false,
       },
       // main body: "hello world" string literal
       Insn::ConstString {
@@ -313,6 +317,7 @@ fn test_function_with_return() {
         return_ty: TyId(1),
         body_start: 1,
         is_intrinsic: false,
+        is_pub: false,
       },
       // Load n parameter (first use)
       Insn::Load {
@@ -360,6 +365,7 @@ fn test_directives() {
         return_ty: TyId(0),
         body_start: 1,
         is_intrinsic: false,
+        is_pub: false,
       },
       Insn::Template {
         id: ValueId(3),

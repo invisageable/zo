@@ -74,6 +74,7 @@ pub enum Insn {
     ty_id: TyId,
     init: Option<ValueId>,
     mutability: Mutability,
+    is_pub: bool,
   },
   /// Store to variable/memory
   Store {
@@ -88,6 +89,7 @@ pub enum Insn {
     return_ty: TyId,
     body_start: u32, // Index where function body starts in instruction stream
     is_intrinsic: bool, // True for std functions with empty bodies
+    is_pub: bool,    // Visibility modifier
   },
   /// Return from function
   Return {

@@ -251,6 +251,14 @@ impl<'a> ARM64Gen<'a> {
             asm.push_str("  mov x0, #1   ; stdout\n");
             asm.push_str("  svc #0\n");
           }
+          "eshow" | "eshowln" => {
+            asm.push_str("  mov x16, #4  ; write syscall\n");
+            asm.push_str("  mov x0, #2   ; stderr\n");
+            asm.push_str("  svc #0\n");
+          }
+          "flush" => {
+            asm.push_str("  ; flush (no-op)\n");
+          }
           _ => {
             asm.push_str(&format!("  bl _{}\n", func_name));
           }
@@ -363,6 +371,31 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_mov_imm(X16, 4); // write syscall
             self.emitter.emit_mov_imm(X0, 1); // stdout
             self.emitter.emit_svc(0);
+          }
+          "eshow" => {
+            // write to stderr (fd=2)
+            self.emitter.emit_mov_imm(X16, 4); // write syscall
+            self.emitter.emit_mov_imm(X0, 2); // stderr
+            self.emitter.emit_svc(0);
+          }
+          "eshowln" => {
+            // write to stderr then newline
+            self.emitter.emit_mov_imm(X16, 4); // write syscall
+            self.emitter.emit_mov_imm(X0, 2); // stderr
+            self.emitter.emit_svc(0);
+
+            // newline
+            self.emitter.emit_mov_imm(X1, 10);
+            self.emitter.emit_sub_imm(X2, SP, 16);
+            self.emitter.emit_strb(X1, X2, 0);
+            self.emitter.emit_mov_reg(X1, X2);
+            self.emitter.emit_mov_imm(X2, 1);
+            self.emitter.emit_mov_imm(X16, 4); // write syscall
+            self.emitter.emit_mov_imm(X0, 2); // stderr
+            self.emitter.emit_svc(0);
+          }
+          "flush" => {
+            // No-op on macOS — stdio is already line-buffered.
           }
           _ => {
             // Check if it's a user-defined function

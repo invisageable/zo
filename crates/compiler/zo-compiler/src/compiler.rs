@@ -122,19 +122,57 @@ impl Compiler {
       self.stats.numinferences += semantic.annotations.len();
       self.profiler.end_phase(ANALYZER_NAME);
 
-      // Resolve module loads from SIR.
-      for insn in &semantic.sir.instructions {
-        if let Insn::ModuleLoad { path, .. } = insn {
-          let resolved =
-            self.module_resolver.resolve(path, &tokenization.interner);
-
-          if resolved.is_none() {
-            let path_str: Vec<&str> =
-              path.iter().map(|s| tokenization.interner.get(*s)).collect();
-
-            eprintln!("Error: unresolved module `{}`", path_str.join("::"));
+      // Resolve and compile loaded modules, merge their SIR.
+      let mut semantic = semantic;
+      let module_loads: Vec<Vec<zo_interner::Symbol>> = semantic
+        .sir
+        .instructions
+        .iter()
+        .filter_map(|insn| {
+          if let Insn::ModuleLoad { path, .. } = insn {
+            Some(path.clone())
+          } else {
+            None
           }
-        }
+        })
+        .collect();
+
+      for module_path in &module_loads {
+        let source = {
+          let resolved = self
+            .module_resolver
+            .resolve(module_path, &tokenization.interner);
+
+          match resolved {
+            Some(m) => m.source.clone(),
+            None => {
+              let path_str: Vec<&str> = module_path
+                .iter()
+                .map(|s| tokenization.interner.get(*s))
+                .collect();
+
+              eprintln!("Error: unresolved module `{}`", path_str.join("::"));
+
+              continue;
+            }
+          }
+        };
+
+        // Compile the resolved module.
+        let mod_tokenization = Tokenizer::new(&source).tokenize();
+        let mod_parsing = Parser::new(&mod_tokenization, &source).parse();
+        let mod_analyzer = Analyzer::new(
+          &mod_parsing.tree,
+          &mod_tokenization.interner,
+          &mod_tokenization.literals,
+        );
+        let mod_semantic = mod_analyzer.analyze();
+
+        // Prepend module's SIR before the current file's SIR
+        // so codegen sees the definitions first.
+        let mut merged = mod_semantic.sir.instructions;
+        merged.append(&mut semantic.sir.instructions);
+        semantic.sir.instructions = merged;
       }
 
       if should_emit_sir {

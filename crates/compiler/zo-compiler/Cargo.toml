@@ -15,6 +15,7 @@ zo-module-resolver = { workspace = true }
 zo-codegen = { workspace = true }
 zo-codegen-backend = { workspace = true }
 zo-error = { workspace = true }
+zo-interner = { workspace = true }
 zo-parser = { workspace = true }
 zo-sir = { workspace = true }
 zo-pp = { workspace = true }

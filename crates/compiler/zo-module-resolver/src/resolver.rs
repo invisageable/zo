@@ -78,6 +78,28 @@ impl ModuleResolver {
         self.cache.insert(key.clone(), resolved);
         return self.cache.get(&key);
       }
+
+      // Selective import fallback: `load foo::bar;` where
+      // `bar` is a symbol inside `foo.zo`, not a submodule.
+      // Try resolving with all-but-last segment as the module.
+      if names.len() > 1 {
+        let parent = &names[..names.len() - 1];
+
+        if let Some(resolved) = Self::try_resolve(search_path, parent) {
+          self.cache.insert(key.clone(), resolved);
+          return self.cache.get(&key);
+        }
+
+        // Also try with dir-name skip for selective imports.
+        if !parent.is_empty()
+          && let Some(dir_name) = search_path.file_name()
+          && dir_name == parent[0]
+          && let Some(resolved) = Self::try_resolve(search_path, &parent[1..])
+        {
+          self.cache.insert(key.clone(), resolved);
+          return self.cache.get(&key);
+        }
+      }
     }
 
     None
