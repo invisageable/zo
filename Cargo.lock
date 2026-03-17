@@ -1880,13 +1880,54 @@ dependencies = [
 name = "fret"
 version = "0.0.0"
 dependencies = [
+ "fret-driver",
+]
+
+[[package]]
+name = "fret-driver"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "fret-pipeline",
+ "fret-types",
+]
+
+[[package]]
+name = "fret-parser"
+version = "0.0.0"
+dependencies = [
+ "fret-tokenizer",
+ "fret-tokens",
+ "fret-types",
+]
+
+[[package]]
+name = "fret-pipeline"
+version = "0.0.0"
+dependencies = [
+ "fret-parser",
+ "fret-types",
  "hashbrown 0.16.1",
  "rayon",
  "tempfile",
  "zo-codegen-backend",
  "zo-compiler",
- "zo-error",
 ]
+
+[[package]]
+name = "fret-tokenizer"
+version = "0.0.0"
+dependencies = [
+ "fret-tokens",
+]
+
+[[package]]
+name = "fret-tokens"
+version = "0.0.0"
+
+[[package]]
+name = "fret-types"
+version = "0.0.0"
 
 [[package]]
 name = "futf"

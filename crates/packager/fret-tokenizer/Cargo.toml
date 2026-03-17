@@ -1,8 +1,7 @@
 [package]
-name = "fret"
+name = "fret-tokenizer"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# internal:crates:fret.
-fret-driver = { workspace = true }
+fret-tokens = { workspace = true }

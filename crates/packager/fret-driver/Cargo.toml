@@ -1,0 +1,15 @@
+[package]
+name = "fret-driver"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:crates:fret.
+fret-pipeline = { workspace = true }
+fret-types = { workspace = true }
+
+# external:crates.
+clap = { workspace = true }

@@ -145,6 +145,16 @@ bump_swisskit bump:
   cargo set-version -p swisskit-span --bump {{bump}}
   cargo set-version -p swisskit --bump {{bump}}
 
+# Bump all fret-* crates together
+bump_fret bump:
+  cargo set-version -p fret-tokens --bump {{bump}}
+  cargo set-version -p fret-tokenizer --bump {{bump}}
+  cargo set-version -p fret-types --bump {{bump}}
+  cargo set-version -p fret-parser --bump {{bump}}
+  cargo set-version -p fret-pipeline --bump {{bump}}
+  cargo set-version -p fret-driver --bump {{bump}}
+  cargo set-version -p fret --bump {{bump}}
+
 # Bump all zo-* crates together
 bump_zo bump:
   #!/usr/bin/env sh
@@ -182,6 +192,26 @@ publish_swisskit:
   cargo publish -p swisskit-core
   cargo publish -p swisskit-renderer
   cargo publish -p swisskit
+
+# Dry-run publish all fret-* crates
+fret_publish_dry:
+  cargo publish -p fret-tokens --dry-run
+  cargo publish -p fret-types --dry-run
+  cargo publish -p fret-tokenizer --dry-run
+  cargo publish -p fret-parser --dry-run
+  cargo publish -p fret-pipeline --dry-run
+  cargo publish -p fret-driver --dry-run
+  cargo publish -p fret --dry-run
+
+# Publish all fret-* crates (in dependency order)
+publish_fret:
+  cargo publish -p fret-tokens
+  cargo publish -p fret-types
+  cargo publish -p fret-tokenizer
+  cargo publish -p fret-parser
+  cargo publish -p fret-pipeline
+  cargo publish -p fret-driver
+  cargo publish -p fret
 
 # Create a release tag: just release 0.1.0
 release version:

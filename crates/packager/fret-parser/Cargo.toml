@@ -1,0 +1,9 @@
+[package]
+name = "fret-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fret-tokens = { workspace = true }
+fret-tokenizer = { workspace = true }
+fret-types = { workspace = true }

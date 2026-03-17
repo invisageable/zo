@@ -1,53 +1,51 @@
 # fret.
 
-> _a package manager for the zo programming language ecosystem_.
+> the blazing fast package manager for zo.
 
-## overview.
+## about.
 
-`fret` iS DESiGNED FROM FiRST PRiNCiPLES TO ACHiEVE:
+fret is the build system and package manager for the zo programming language. it follows the same architecture as zo itself: a thin binary that delegates to a driver.
 
 ## architecture.
 
-### pipeline design.
-
-The `fret` pipeline is a state machine that transforms `BuildContext` through discrete stages:
-
 ```
-LoadConfig → CollectSources → ResolveDependencies → GeneratePlan → ExecutePlan
+fret (binary)
+  -> fret-driver (cli, command routing)
+    -> fret-pipeline (build orchestration, stages)
+      -> fret-parser (recursive descent parser)
+        -> fret-tokenizer (zero-allocation tokenizer)
+        -> fret-tokens (token types)
+      -> fret-types (core data structures)
 ```
 
-In "Simple Mode" (no dependencies), the pipeline achieves microsecond-level performance per stage.
+## crates.
 
-### key features.
-
-- ZERO-CONFiGURATiON — _builds for simple projects_.
-
-## configuration Format.
-
-THE `.oz` FORMAT iS CLEAN, DECLARATiVE, AND PARSED BY A ZERO-ALLOCATiON HAND-WRiTTEN PARSER:
-
-```oz
--- project configuration.
-
-@pack = (
-  name: "my-project",
-  version: "0.1.0",
-  authors: ["invisageable <you@example.com>"],
-  license: "MIT OR Apache-2.0",
-)
-```
+| crate | role |
+| :---- | :--- |
+| `fret` | binary entry point |
+| `fret-driver` | cli parsing (clap), command dispatch |
+| `fret-pipeline` | build pipeline, all stages |
+| `fret-parser` | fret.oz config parser |
+| `fret-tokenizer` | zero-allocation tokenizer |
+| `fret-tokens` | token types |
+| `fret-types` | core types, traits, errors |
 
 ## usage.
 
-```bash
-# Build current directory
-fret build
+```sh
+fret build [path]    # build a zo project
+fret init <name>     # create a new zo project
+```
 
-# Build with release optimizations
-fret build --release
+## configuration.
 
-# Future: dependency management
-fret add http@1.2.0
-fret update
-fret test
+projects are configured via `fret.oz`:
+
+```
+@pack = (
+  name: "my-project",
+  version: "0.1.0",
+  authors: ["you <you@example.com>"],
+  license: "MIT",
+)
 ```

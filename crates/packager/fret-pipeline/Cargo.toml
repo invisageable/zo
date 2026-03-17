@@ -1,0 +1,20 @@
+[package]
+name = "fret-pipeline"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:crates:fret.
+fret-parser = { workspace = true }
+fret-types = { workspace = true }
+
+# internal:crates:zo.
+zo-compiler = { workspace = true }
+zo-codegen-backend = { workspace = true }
+
+# external:crates.
+hashbrown = { workspace = true }
+rayon = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
