@@ -21,6 +21,7 @@ enum ParserState {
   Expression,        // Inside an expression
   TypeAnnotation,    // After : expecting type
   TemplateMode,      // Inside template content
+  ModulePath,        // Inside load/pack path (direct emit)
 }
 
 /// Introducer info for tracking nested structures
@@ -122,6 +123,10 @@ impl<'a> Parser<'a> {
 
   fn process_token(&mut self, kind: Token) {
     match kind {
+      // Module statements
+      Token::Load => self.handle_load_statement(),
+      Token::Pack => self.handle_pack_statement(),
+
       // Introducers - these start new contexts
       Token::Fun => self.handle_fun_introducer(),
       Token::LParen => self.handle_lparen_introducer(),
@@ -201,6 +206,36 @@ impl<'a> Parser<'a> {
         self.emit_node(kind);
       }
     }
+  }
+
+  fn handle_load_statement(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Load);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Load,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::ModulePath;
+  }
+
+  fn handle_pack_statement(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Pack);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Pack,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::ModulePath;
   }
 
   fn handle_fun_introducer(&mut self) {
@@ -497,7 +532,13 @@ impl<'a> Parser<'a> {
     // Check if we need to close a statement introducer
     if let Some(introducer) = self.introducer_stack.last() {
       match introducer.token {
-        Token::Return | Token::Imu | Token::Mut | Token::Val | Token::Hash => {
+        Token::Return
+        | Token::Imu
+        | Token::Mut
+        | Token::Val
+        | Token::Hash
+        | Token::Load
+        | Token::Pack => {
           self.close_introducer();
         }
         _ => {}

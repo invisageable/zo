@@ -97,6 +97,7 @@ fn test_main_function_detection() {
     params: vec![],
     return_ty: TyId(0),
     body_start: 1,
+    is_intrinsic: false,
   });
   sir.emit(Insn::Return {
     value: None,
@@ -125,6 +126,7 @@ fn test_string_fixup() {
     params: vec![],
     return_ty: TyId(0),
     body_start: 1,
+    is_intrinsic: false,
   });
 
   sir.emit(Insn::ConstString {

@@ -7049,11 +7049,13 @@ dependencies = [
  "zo-codegen",
  "zo-codegen-backend",
  "zo-error",
+ "zo-module-resolver",
  "zo-parser",
  "zo-pp",
  "zo-profiler",
  "zo-reporter",
  "zo-runtime",
+ "zo-sir",
  "zo-span",
  "zo-tokenizer",
  "zo-writer",
@@ -7170,6 +7172,13 @@ dependencies = [
  "rustc-hash 2.1.1",
  "serde",
  "zo-span",
+]
+
+[[package]]
+name = "zo-module-resolver"
+version = "0.0.0"
+dependencies = [
+ "zo-interner",
 ]
 
 [[package]]

@@ -1,0 +1,15 @@
+[package]
+name = "zo-module-resolver"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:crates.
+zo-interner = { workspace = true }
+
+# external:crates.
+
+[dev-dependencies]

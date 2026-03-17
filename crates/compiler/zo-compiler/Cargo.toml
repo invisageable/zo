@@ -11,10 +11,12 @@ doctest = false
 
 # internal:crates.
 zo-analyzer = { workspace = true }
+zo-module-resolver = { workspace = true }
 zo-codegen = { workspace = true }
 zo-codegen-backend = { workspace = true }
 zo-error = { workspace = true }
 zo-parser = { workspace = true }
+zo-sir = { workspace = true }
 zo-pp = { workspace = true }
 zo-profiler = { workspace = true }
 zo-reporter = { workspace = true }

@@ -1,5 +1,6 @@
 pub(crate) mod common;
 pub(crate) mod errors;
+pub(crate) mod modules;
 
 use crate::tests::common::{assert_annotations_stream, assert_sir_stream};
 
@@ -156,6 +157,7 @@ fn test_simple_function() {
         ],
         return_ty: TyId(1),
         body_start: 1,
+        is_intrinsic: false,
       },
       // Load x parameter
       Insn::Load {
@@ -203,6 +205,7 @@ fn test_function_call() {
         ],
         return_ty: TyId(1),
         body_start: 1,
+        is_intrinsic: false,
       },
       // add body: load x
       Insn::Load {
@@ -235,6 +238,7 @@ fn test_function_call() {
         params: vec![],
         return_ty: TyId(1),
         body_start: 6,
+        is_intrinsic: false,
       },
       // main body: 10
       Insn::ConstInt {
@@ -272,6 +276,7 @@ fn test_main_with_show() {
         params: vec![],
         return_ty: TyId(0), // unit (void)
         body_start: 1,
+        is_intrinsic: false,
       },
       // main body: "hello world" string literal
       Insn::ConstString {
@@ -307,6 +312,7 @@ fn test_function_with_return() {
         ],
         return_ty: TyId(1),
         body_start: 1,
+        is_intrinsic: false,
       },
       // Load n parameter (first use)
       Insn::Load {
@@ -353,6 +359,7 @@ fn test_directives() {
         params: Vec::new(),
         return_ty: TyId(0),
         body_start: 1,
+        is_intrinsic: false,
       },
       Insn::Template {
         id: ValueId(3),

@@ -11,10 +11,12 @@ use zo_analyzer::Analyzer;
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_error::{Error, ErrorKind};
+use zo_module_resolver::ModuleResolver;
 use zo_parser::Parser;
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{ErrorAggregator, Reporter, render_errors_to_stderr};
+use zo_sir::Insn;
 use zo_span::Span;
 use zo_tokenizer::Tokenizer;
 
@@ -26,6 +28,7 @@ pub struct Compiler {
   stats: Stats,
   profiler: Profiler,
   reporter: Reporter,
+  module_resolver: ModuleResolver,
 }
 impl Compiler {
   /// Creates a new [`Compiler`] instance.
@@ -34,6 +37,18 @@ impl Compiler {
       stats: Stats::new(),
       profiler: Profiler::new(),
       reporter: Reporter::new(),
+      module_resolver: ModuleResolver::new(Vec::new()),
+    }
+  }
+
+  /// Creates a new [`Compiler`] with explicit search paths for
+  /// module resolution.
+  pub fn with_search_paths(search_paths: Vec<PathBuf>) -> Self {
+    Self {
+      stats: Stats::new(),
+      profiler: Profiler::new(),
+      reporter: Reporter::new(),
+      module_resolver: ModuleResolver::new(search_paths),
     }
   }
 
@@ -106,6 +121,21 @@ impl Compiler {
       let semantic = analyzer.analyze();
       self.stats.numinferences += semantic.annotations.len();
       self.profiler.end_phase(ANALYZER_NAME);
+
+      // Resolve module loads from SIR.
+      for insn in &semantic.sir.instructions {
+        if let Insn::ModuleLoad { path, .. } = insn {
+          let resolved =
+            self.module_resolver.resolve(path, &tokenization.interner);
+
+          if resolved.is_none() {
+            let path_str: Vec<&str> =
+              path.iter().map(|s| tokenization.interner.get(*s)).collect();
+
+            eprintln!("Error: unresolved module `{}`", path_str.join("::"));
+          }
+        }
+      }
 
       if should_emit_sir {
         let sir_path = path.with_extension("sir");

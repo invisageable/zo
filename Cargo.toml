@@ -67,6 +67,7 @@ zo-error = { path = "crates/compiler/zo-error", version = "0.0.0" }
 zo-executor = { path = "crates/compiler/zo-executor", version = "0.0.0" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.0.0" }
 zo-metrics = { path = "crates/compiler/zo-metrics", version = "0.0.0" }
+zo-module-resolver = { path = "crates/compiler/zo-module-resolver", version = "0.0.0" }
 zo-name-resolver = { path = "crates/compiler/zo-name-resolver", version = "0.0.0" }
 zo-parser = { path = "crates/compiler/zo-parser", version = "0.0.0" }
 zo-pp = { path = "crates/compiler/zo-pp", version = "0.0.0" }

@@ -235,6 +235,8 @@ pub struct FunDef {
   pub return_ty: TyId,
   /// The id of the block entry.
   pub body_start: u32,
+  /// Whether this function is an intrinsic (empty body).
+  pub is_intrinsic: bool,
 }
 
 /// Represents a [`Local`] variable entry instance.

@@ -186,6 +186,19 @@ impl<'a> Executor<'a> {
         self.execute_fun(idx, children_end);
       }
 
+      // === MODULE STATEMENTS ===
+      Token::Load => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_load(idx, children_end);
+      }
+
+      Token::Pack => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_pack(idx, children_end);
+      }
+
       // === DECLARATIONS ===
       Token::Imu => {
         let children_end = (header.child_start + header.child_count) as usize;
@@ -235,18 +248,22 @@ impl<'a> Executor<'a> {
           // Body will start at the NEXT instruction after FunDef
           let body_start = (self.sir.instructions.len() + 1) as u32;
 
+          let fundef_idx = self.sir.instructions.len();
+
           self.sir.emit(Insn::FunDef {
             name: pending_func.name,
             params: pending_func.params.clone(),
             return_ty: pending_func.return_ty,
             body_start,
+            is_intrinsic: false,
           });
 
           // Now set the context with the correct body start
           self.current_function = Some(FunCtx {
             // name: pending_func.name,
             return_ty: pending_func.return_ty,
-            // body_start,
+            body_start,
+            fundef_idx,
             has_explicit_return: false,
             pending_return: false,
           });
@@ -297,6 +314,20 @@ impl<'a> Executor<'a> {
               value: return_value,
               ty_id: return_ty,
             });
+          }
+
+          // Detect intrinsic: empty body (no instructions
+          // between body_start and the return we just emitted).
+          let current_insn_count = self.sir.instructions.len() as u32;
+
+          if current_insn_count == fun_ctx.body_start + 1 {
+            // Only instruction is the implicit return — body
+            // was empty. Mark the FunDef as intrinsic.
+            if let Some(Insn::FunDef { is_intrinsic, .. }) =
+              self.sir.instructions.get_mut(fun_ctx.fundef_idx)
+            {
+              *is_intrinsic = true;
+            }
           }
 
           // Clear function context
@@ -836,6 +867,53 @@ impl<'a> Executor<'a> {
   }
 
   /// Executes function declaration.
+  /// Executes a `load` statement.
+  ///
+  /// Extracts path segments from children (Ident nodes between
+  /// ColonColon separators) and emits `Insn::ModuleLoad`.
+  fn execute_load(&mut self, _start_idx: usize, end_idx: usize) {
+    let mut path = Vec::new();
+
+    for child_idx in (_start_idx + 1)..end_idx {
+      if let Some(node) = self.tree.nodes.get(child_idx)
+        && node.token == Token::Ident
+        && let Some(NodeValue::Symbol(sym)) = self.node_value(child_idx)
+      {
+        path.push(sym);
+      }
+    }
+
+    self.sir.emit(Insn::ModuleLoad {
+      path,
+      imported_symbols: Vec::new(),
+    });
+  }
+
+  /// Executes a `pack` statement.
+  ///
+  /// Extracts the pack name from children and emits
+  /// `Insn::PackDecl`.
+  fn execute_pack(&mut self, _start_idx: usize, end_idx: usize) {
+    let mut name = None;
+
+    for child_idx in (_start_idx + 1)..end_idx {
+      if let Some(node) = self.tree.nodes.get(child_idx)
+        && node.token == Token::Ident
+        && let Some(NodeValue::Symbol(sym)) = self.node_value(child_idx)
+      {
+        name = Some(sym);
+        break;
+      }
+    }
+
+    if let Some(name) = name {
+      self.sir.emit(Insn::PackDecl {
+        name,
+        is_pub: false,
+      });
+    }
+  }
+
   fn execute_fun(&mut self, start_idx: usize, _end_idx: usize) {
     // Parse the function signature and set it as pending
     // The actual FunDef will be emitted when we hit LBrace
@@ -958,6 +1036,7 @@ impl<'a> Executor<'a> {
       params: params.clone(),
       return_ty,
       body_start: 0, // Will be set when we emit FunDef
+      is_intrinsic: false,
     });
 
     // Push a scope for the function parameters
@@ -2128,7 +2207,8 @@ impl<'a> Executor<'a> {
 struct FunCtx {
   // pub(crate) name: Symbol,
   pub(crate) return_ty: TyId,
-  // pub(crate) body_start: u32,
+  pub(crate) body_start: u32,
+  pub(crate) fundef_idx: usize,
   pub(crate) has_explicit_return: bool,
   /// Set when we see 'return' keyword, cleared when we emit Return insn.
   pub(crate) pending_return: bool,

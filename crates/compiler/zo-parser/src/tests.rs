@@ -2,6 +2,7 @@ pub(crate) mod assignments;
 pub(crate) mod common;
 pub(crate) mod directives;
 pub(crate) mod errors;
+pub(crate) mod modules;
 pub(crate) mod templates;
 pub(crate) mod unary;
 

@@ -31,7 +31,9 @@ impl Sir {
       Insn::FunDef { .. }
       | Insn::Return { .. }
       | Insn::VarDef { .. }
-      | Insn::Store { .. } => {
+      | Insn::Store { .. }
+      | Insn::ModuleLoad { .. }
+      | Insn::PackDecl { .. } => {
         ValueId(u32::MAX) // Sentinel value for non-value-producing instructions
       }
       // Constants and other value-producing instructions
@@ -85,6 +87,7 @@ pub enum Insn {
     params: Vec<(Symbol, TyId)>, // Parameter names and types
     return_ty: TyId,
     body_start: u32, // Index where function body starts in instruction stream
+    is_intrinsic: bool, // True for std functions with empty bodies
   },
   /// Return from function
   Return {
@@ -119,6 +122,13 @@ pub enum Insn {
     value: ValueId,
     ty_id: TyId,
   },
+  /// Module import — resolved at compile time.
+  ModuleLoad {
+    path: Vec<Symbol>,
+    imported_symbols: Vec<Symbol>,
+  },
+  /// Pack declaration — defines a namespace.
+  PackDecl { name: Symbol, is_pub: bool },
   /// Template literal (fragment or HTML tag)
   Template {
     id: ValueId,

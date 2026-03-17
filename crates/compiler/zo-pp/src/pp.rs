@@ -254,6 +254,18 @@ impl PrettyPrinter {
           let call = format!("%{idx} = call {name}({})", args.join(", "));
           self.sir_instruction(&call);
         }
+        Insn::ModuleLoad { path, .. } => {
+          let path_str: Vec<&str> =
+            path.iter().map(|s| interner.get(*s)).collect();
+          let load = format!("load {}", path_str.join("::"));
+          self.sir_instruction(&load);
+        }
+        Insn::PackDecl { name, is_pub } => {
+          let name = interner.get(*name);
+          let vis = if *is_pub { "pub " } else { "" };
+          let decl = format!("{vis}pack {name}");
+          self.sir_instruction(&decl);
+        }
         _ => todo!(),
       }
     }
