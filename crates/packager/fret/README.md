@@ -20,15 +20,15 @@ fret (binary)
 
 ## crates.
 
-| crate | role |
-| :---- | :--- |
-| `fret` | binary entry point |
-| `fret-driver` | cli parsing (clap), command dispatch |
-| `fret-pipeline` | build pipeline, all stages |
-| `fret-parser` | fret.oz config parser |
-| `fret-tokenizer` | zero-allocation tokenizer |
-| `fret-tokens` | token types |
-| `fret-types` | core types, traits, errors |
+| crate            | role                                 |
+| :--------------- | :----------------------------------- |
+| `fret`           | binary entry point                   |
+| `fret-driver`    | cli parsing (clap), command dispatch |
+| `fret-pipeline`  | build pipeline, all stages           |
+| `fret-parser`    | fret.oz config parser                |
+| `fret-tokenizer` | zero-allocation tokenizer            |
+| `fret-tokens`    | token types                          |
+| `fret-types`     | core types, traits, errors           |
 
 ## usage.
 
@@ -41,7 +41,7 @@ fret init <name>     # create a new zo project
 
 projects are configured via `fret.oz`:
 
-```
+```js
 @pack = (
   name: "my-project",
   version: "0.1.0",

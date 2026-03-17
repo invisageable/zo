@@ -1,32 +1,19 @@
 pack io;
 
 -- show something to stdout without newline.
-pub fun show(msg: str) {
-  -- Implemented by codegen backends (Python: print(msg, end=""), LLVM: printf, etc.)
-}
+pub fun show(msg: str) {}
 
 -- show something to stdout with ending line.
-pub fun showln(msg: str) {
-  -- Implemented by codegen backends (Python: print(msg), LLVM: printf + newline, etc.)
-}
+pub fun showln(msg: str) {}
 
 -- show error message to stderr without newline.
-pub fun eshow(msg: str) {
-  -- Implemented by codegen backends for stderr output
-}
+pub fun eshow(msg: str) {}
 
 -- show error message to stderr with ending line.
-pub fun eshowln(msg: str) {
-  -- Implemented by codegen backends for stderr output with newline
-}
+pub fun eshowln(msg: str) {}
 
 -- read a line from stdin.
-pub fun readln() -> str {
-  -- Implemented by codegen backends for input reading
-  return "";
-}
+pub fun readln() -> str {}
 
 -- flush output buffers.
-pub fun flush() {
-  -- Implemented by codegen backends to flush stdout
-}
+pub fun flush() {}
