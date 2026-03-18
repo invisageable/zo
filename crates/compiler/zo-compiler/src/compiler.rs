@@ -22,10 +22,11 @@ use zo_span::Span;
 use zo_token::Token;
 use zo_tokenizer::Tokenizer;
 use zo_tree::{NodeValue, Tree};
+use zo_value::FunDef;
 
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Represents a [`Compiler`] instance.
 pub struct Compiler {
@@ -89,6 +90,49 @@ impl Compiler {
     loads
   }
 
+  /// Checks if `lib.zo` exists alongside the given file.
+  fn discover_lib(file_path: &Path) -> Option<PathBuf> {
+    let lib_path = file_path.with_file_name("lib.zo");
+
+    if lib_path.is_file() && lib_path != file_path {
+      Some(lib_path)
+    } else {
+      None
+    }
+  }
+
+  /// Scans a parse tree for `Token::Pack` introducer nodes
+  /// and extracts pack names with their visibility.
+  fn scan_packs(
+    tree: &Tree,
+    interner: &zo_interner::Interner,
+  ) -> Vec<(String, bool)> {
+    let mut packs = Vec::new();
+    let nodes = &tree.nodes;
+
+    for (i, node) in nodes.iter().enumerate() {
+      if node.token != Token::Pack || node.child_count == 0 {
+        continue;
+      }
+
+      // Check if previous node is Pub.
+      let is_pub =
+        i > 0 && nodes.get(i - 1).is_some_and(|n| n.token == Token::Pub);
+
+      for child_idx in node.children_range() {
+        if let Some(child) = nodes.get(child_idx)
+          && child.token == Token::Ident
+          && let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32)
+        {
+          packs.push((interner.get(sym).to_string(), is_pub));
+          break;
+        }
+      }
+    }
+
+    packs
+  }
+
   /// Compiles a collections of files based on the [`Target`].
   pub fn compile(
     &mut self,
@@ -149,13 +193,60 @@ impl Compiler {
         }
       }
 
+      // Auto-discover and compile lib.zo for pack validation.
+      let mut tokenization = tokenization;
+      let declared_packs: Vec<(String, bool)> =
+        if let Some(lib_path) = Self::discover_lib(path) {
+          let lib_source = fs::read_to_string(&lib_path).unwrap_or_default();
+          let lib_tokenization = Tokenizer::new(&lib_source).tokenize();
+          let lib_parsing = Parser::new(&lib_tokenization, &lib_source).parse();
+          let packs =
+            Self::scan_packs(&lib_parsing.tree, &lib_tokenization.interner);
+
+          // Validate declared packs against filesystem.
+          let dir = lib_path.parent().unwrap_or(Path::new("."));
+
+          for (pack_name, _) in &packs {
+            let pack_file = dir.join(format!("{pack_name}.zo"));
+            let pack_dir = dir.join(pack_name).join("lib.zo");
+
+            if !pack_file.is_file() && !pack_dir.is_file() {
+              eprintln!(
+                "Error: pack `{pack_name}` declared in lib.zo \
+                 but `{pack_name}.zo` not found"
+              );
+            }
+          }
+
+          packs
+        } else {
+          Vec::new()
+        };
+
       // Resolve and compile loaded modules BEFORE analysis
       // so the executor has imported symbols in scope.
-      let mut tokenization = tokenization;
       let module_paths = Self::scan_loads(&parsing.tree);
-      let mut imported_funs = Vec::new();
+      let mut imported_funs: Vec<FunDef> = Vec::new();
       let mut module_sir_instructions = Vec::new();
       let mut module_next_value_id: u32 = 0;
+
+      // Validate load paths against declared packs.
+      if !declared_packs.is_empty() {
+        for module_path in &module_paths {
+          if let Some(first_seg) = module_path.first() {
+            let first_name = tokenization.interner.get(*first_seg);
+            let is_declared =
+              declared_packs.iter().any(|(name, _)| name == first_name);
+
+            if !is_declared {
+              eprintln!(
+                "Warning: module `{first_name}` \
+                 not declared in lib.zo"
+              );
+            }
+          }
+        }
+      }
 
       for module_path in &module_paths {
         let (source, selective, resolved_path) = {
