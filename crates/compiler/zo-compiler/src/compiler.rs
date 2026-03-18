@@ -22,7 +22,6 @@ use zo_span::Span;
 use zo_token::Token;
 use zo_tokenizer::Tokenizer;
 use zo_tree::{NodeValue, Tree};
-use zo_value::FunDef;
 
 use std::collections::HashSet;
 use std::fs;
@@ -226,7 +225,7 @@ impl Compiler {
       // Resolve and compile loaded modules BEFORE analysis
       // so the executor has imported symbols in scope.
       let module_paths = Self::scan_loads(&parsing.tree);
-      let mut imported_funs: Vec<FunDef> = Vec::new();
+      let mut imported_funs = Vec::new();
       let mut module_sir_instructions = Vec::new();
       let mut module_next_value_id: u32 = 0;
 
@@ -259,10 +258,10 @@ impl Compiler {
               (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
             }
             None => {
-              let path_str: Vec<&str> = module_path
+              let path_str = module_path
                 .iter()
                 .map(|s| tokenization.interner.get(*s))
-                .collect();
+                .collect::<Vec<_>>();
 
               eprintln!("Error: unresolved module `{}`", path_str.join("::"));
 
@@ -332,6 +331,9 @@ impl Compiler {
         merged.append(&mut semantic.sir.instructions);
         semantic.sir.instructions = merged;
       }
+
+      // Dead code elimination — remove uncalled functions.
+      zo_dce::eliminate_dead_functions(&mut semantic.sir);
 
       if should_emit_sir {
         let sir_path = path.with_extension("sir");
