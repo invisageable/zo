@@ -1,4 +1,5 @@
+pub mod exports;
 pub mod resolver;
 
-pub use resolver::ModuleResolver;
-pub use resolver::ResolvedModule;
+pub use exports::{ModuleExports, extract_exports};
+pub use resolver::{ModuleResolver, ResolvedModule, translate_symbol};

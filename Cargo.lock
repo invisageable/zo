@@ -6969,6 +6969,7 @@ dependencies = [
  "zo-tree",
  "zo-ty",
  "zo-ty-checker",
+ "zo-value",
 ]
 
 [[package]]
@@ -7058,7 +7059,10 @@ dependencies = [
  "zo-runtime",
  "zo-sir",
  "zo-span",
+ "zo-token",
  "zo-tokenizer",
+ "zo-tree",
+ "zo-value",
  "zo-writer",
 ]
 
@@ -7180,6 +7184,9 @@ name = "zo-module-resolver"
 version = "0.0.0"
 dependencies = [
  "zo-interner",
+ "zo-sir",
+ "zo-ty",
+ "zo-value",
 ]
 
 [[package]]

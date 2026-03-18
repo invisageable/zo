@@ -4,6 +4,7 @@ use zo_sir::Sir;
 use zo_token::LiteralStore;
 use zo_tree::Tree;
 use zo_ty::Annotation;
+use zo_value::FunDef;
 
 /// Represents the result of semantic analysis.
 pub struct SemanticResult {
@@ -21,6 +22,8 @@ pub struct Analyzer<'a> {
   interner: &'a Interner,
   /// The reference of a [`LiteralStore`].
   literals: &'a LiteralStore,
+  /// Imported function definitions from loaded modules.
+  imported_funs: Option<Vec<FunDef>>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -34,12 +37,24 @@ impl<'a> Analyzer<'a> {
       tree,
       interner,
       literals,
+      imported_funs: None,
     }
+  }
+
+  /// Sets imported function definitions from loaded modules.
+  pub fn with_imports(mut self, funs: Vec<FunDef>) -> Self {
+    self.imported_funs = Some(funs);
+    self
   }
 
   /// Analyzes a parse [`Tree`] to build semantic IR.
   pub fn analyze(self) -> SemanticResult {
-    let executor = Executor::new(self.tree, self.interner, self.literals);
+    let mut executor = Executor::new(self.tree, self.interner, self.literals);
+
+    if let Some(funs) = self.imported_funs {
+      executor = executor.with_imports(funs);
+    }
+
     let (sir, annotations) = executor.execute();
 
     SemanticResult { sir, annotations }

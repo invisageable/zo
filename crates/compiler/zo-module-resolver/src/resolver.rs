@@ -1,7 +1,17 @@
-use zo_interner::Symbol;
+use zo_interner::{Interner, Symbol};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// Re-interns a symbol from one interner into another.
+pub fn translate_symbol(
+  src: Symbol,
+  src_interner: &Interner,
+  dst_interner: &mut Interner,
+) -> Symbol {
+  let name = src_interner.get(src);
+  dst_interner.intern(name)
+}
 
 /// Result of resolving a module path to a file.
 pub struct ResolvedModule {
@@ -9,6 +19,9 @@ pub struct ResolvedModule {
   pub path: PathBuf,
   /// File contents.
   pub source: String,
+  /// If resolution used the selective import fallback,
+  /// this is the last path segment (the symbol to import).
+  pub selective_symbol: Option<String>,
 }
 
 /// Maps module paths (e.g., `std::math`) to filesystem files.
@@ -63,7 +76,7 @@ impl ModuleResolver {
 
     for search_path in &self.search_paths {
       // Try direct path: {search_path}/{seg0}/{seg1}/...zo
-      if let Some(resolved) = Self::try_resolve(search_path, &names) {
+      if let Some(resolved) = Self::try_resolve(search_path, &names, None) {
         self.cache.insert(key.clone(), resolved);
         return self.cache.get(&key);
       }
@@ -73,7 +86,8 @@ impl ModuleResolver {
       if names.len() > 1
         && let Some(dir_name) = search_path.file_name()
         && dir_name == names[0]
-        && let Some(resolved) = Self::try_resolve(search_path, &names[1..])
+        && let Some(resolved) =
+          Self::try_resolve(search_path, &names[1..], None)
       {
         self.cache.insert(key.clone(), resolved);
         return self.cache.get(&key);
@@ -83,9 +97,12 @@ impl ModuleResolver {
       // `bar` is a symbol inside `foo.zo`, not a submodule.
       // Try resolving with all-but-last segment as the module.
       if names.len() > 1 {
+        let last = names.last().unwrap().to_string();
         let parent = &names[..names.len() - 1];
 
-        if let Some(resolved) = Self::try_resolve(search_path, parent) {
+        if let Some(resolved) =
+          Self::try_resolve(search_path, parent, Some(last.clone()))
+        {
           self.cache.insert(key.clone(), resolved);
           return self.cache.get(&key);
         }
@@ -94,7 +111,8 @@ impl ModuleResolver {
         if !parent.is_empty()
           && let Some(dir_name) = search_path.file_name()
           && dir_name == parent[0]
-          && let Some(resolved) = Self::try_resolve(search_path, &parent[1..])
+          && let Some(resolved) =
+            Self::try_resolve(search_path, &parent[1..], Some(last))
         {
           self.cache.insert(key.clone(), resolved);
           return self.cache.get(&key);
@@ -106,7 +124,11 @@ impl ModuleResolver {
   }
 
   /// Tries to resolve segments relative to a base path.
-  fn try_resolve(base: &Path, names: &[&str]) -> Option<ResolvedModule> {
+  fn try_resolve(
+    base: &Path,
+    names: &[&str],
+    selective: Option<String>,
+  ) -> Option<ResolvedModule> {
     if names.is_empty() {
       return None;
     }
@@ -122,26 +144,30 @@ impl ModuleResolver {
     let zo_path = file_path.with_extension("zo");
 
     if zo_path.is_file() {
-      return Self::read_module(&zo_path);
+      return Self::read_module(&zo_path, selective);
     }
 
     // Try as directory module: base/seg0/seg1/lib.zo
     let lib_path = file_path.join("lib.zo");
 
     if lib_path.is_file() {
-      return Self::read_module(&lib_path);
+      return Self::read_module(&lib_path, selective);
     }
 
     None
   }
 
   /// Reads a .zo file into a ResolvedModule.
-  fn read_module(path: &Path) -> Option<ResolvedModule> {
+  fn read_module(
+    path: &Path,
+    selective_symbol: Option<String>,
+  ) -> Option<ResolvedModule> {
     std::fs::read_to_string(path)
       .ok()
       .map(|source| ResolvedModule {
         path: path.to_path_buf(),
         source,
+        selective_symbol,
       })
   }
 
@@ -162,6 +188,7 @@ impl ModuleResolver {
 #[cfg(test)]
 mod tests {
   use super::*;
+
   use zo_interner::Interner;
 
   fn std_path() -> PathBuf {
@@ -175,7 +202,6 @@ mod tests {
     let math_sym = interner.intern("math");
 
     let mut resolver = ModuleResolver::new(vec![std_path()]);
-
     let result = resolver.resolve(&[std_sym, math_sym], &interner);
 
     assert!(result.is_some(), "should resolve std::math");
@@ -193,7 +219,6 @@ mod tests {
     let io_sym = interner.intern("io");
 
     let mut resolver = ModuleResolver::new(vec![std_path()]);
-
     let result = resolver.resolve(&[std_sym, io_sym], &interner);
 
     assert!(result.is_some(), "should resolve std::io");
@@ -211,7 +236,6 @@ mod tests {
     let nope_sym = interner.intern("nope");
 
     let mut resolver = ModuleResolver::new(vec![std_path()]);
-
     let result = resolver.resolve(&[std_sym, nope_sym], &interner);
 
     assert!(result.is_none(), "should not resolve std::nope");

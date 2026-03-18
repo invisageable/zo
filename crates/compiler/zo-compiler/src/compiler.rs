@@ -5,21 +5,25 @@
 use crate::constants::{
   ANALYZER_NAME, CODEGEN_NAME, PARSER_NAME, TOKENIZER_NAME,
 };
+
 use crate::stage::Stage;
 
 use zo_analyzer::Analyzer;
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_error::{Error, ErrorKind};
-use zo_module_resolver::ModuleResolver;
+use zo_interner::Symbol;
+use zo_module_resolver::{ModuleResolver, extract_exports};
 use zo_parser::Parser;
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{ErrorAggregator, Reporter, render_errors_to_stderr};
-use zo_sir::Insn;
 use zo_span::Span;
+use zo_token::Token;
 use zo_tokenizer::Tokenizer;
+use zo_tree::{NodeValue, Tree};
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
@@ -29,6 +33,8 @@ pub struct Compiler {
   profiler: Profiler,
   reporter: Reporter,
   module_resolver: ModuleResolver,
+  /// Guard against circular imports.
+  compiling: HashSet<PathBuf>,
 }
 impl Compiler {
   /// Creates a new [`Compiler`] instance.
@@ -38,6 +44,7 @@ impl Compiler {
       profiler: Profiler::new(),
       reporter: Reporter::new(),
       module_resolver: ModuleResolver::new(Vec::new()),
+      compiling: HashSet::new(),
     }
   }
 
@@ -49,7 +56,37 @@ impl Compiler {
       profiler: Profiler::new(),
       reporter: Reporter::new(),
       module_resolver: ModuleResolver::new(search_paths),
+      compiling: HashSet::new(),
     }
+  }
+
+  /// Scans a parse tree for `Token::Load` introducer nodes
+  /// and extracts module paths from their Ident children.
+  fn scan_loads(tree: &Tree) -> Vec<Vec<Symbol>> {
+    let mut loads = Vec::new();
+
+    for node in tree.nodes.iter() {
+      if node.token != Token::Load || node.child_count == 0 {
+        continue;
+      }
+
+      let mut path = Vec::new();
+
+      for child_idx in node.children_range() {
+        if let Some(child) = tree.nodes.get(child_idx)
+          && child.token == Token::Ident
+          && let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32)
+        {
+          path.push(sym);
+        }
+      }
+
+      if !path.is_empty() {
+        loads.push(path);
+      }
+    }
+
+    loads
   }
 
   /// Compiles a collections of files based on the [`Target`].
@@ -112,39 +149,24 @@ impl Compiler {
         }
       }
 
-      self.profiler.start_phase(ANALYZER_NAME);
-      let analyzer = Analyzer::new(
-        &parsing.tree,
-        &tokenization.interner,
-        &tokenization.literals,
-      );
-      let semantic = analyzer.analyze();
-      self.stats.numinferences += semantic.annotations.len();
-      self.profiler.end_phase(ANALYZER_NAME);
+      // Resolve and compile loaded modules BEFORE analysis
+      // so the executor has imported symbols in scope.
+      let mut tokenization = tokenization;
+      let module_paths = Self::scan_loads(&parsing.tree);
+      let mut imported_funs = Vec::new();
+      let mut module_sir_instructions = Vec::new();
+      let mut module_next_value_id: u32 = 0;
 
-      // Resolve and compile loaded modules, merge their SIR.
-      let mut semantic = semantic;
-      let module_loads: Vec<Vec<zo_interner::Symbol>> = semantic
-        .sir
-        .instructions
-        .iter()
-        .filter_map(|insn| {
-          if let Insn::ModuleLoad { path, .. } = insn {
-            Some(path.clone())
-          } else {
-            None
-          }
-        })
-        .collect();
-
-      for module_path in &module_loads {
-        let source = {
+      for module_path in &module_paths {
+        let (source, selective, resolved_path) = {
           let resolved = self
             .module_resolver
             .resolve(module_path, &tokenization.interner);
 
           match resolved {
-            Some(m) => m.source.clone(),
+            Some(m) => {
+              (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
+            }
             None => {
               let path_str: Vec<&str> = module_path
                 .iter()
@@ -158,6 +180,14 @@ impl Compiler {
           }
         };
 
+        // Circular import guard.
+        if self.compiling.contains(&resolved_path) {
+          eprintln!("Error: circular import detected");
+          continue;
+        }
+
+        self.compiling.insert(resolved_path.clone());
+
         // Compile the resolved module.
         let mod_tokenization = Tokenizer::new(&source).tokenize();
         let mod_parsing = Parser::new(&mod_tokenization, &source).parse();
@@ -168,9 +198,46 @@ impl Compiler {
         );
         let mod_semantic = mod_analyzer.analyze();
 
-        // Prepend module's SIR before the current file's SIR
-        // so codegen sees the definitions first.
-        let mut merged = mod_semantic.sir.instructions;
+        // Extract pub exports with symbol translation.
+        let exports = extract_exports(
+          &mod_semantic.sir,
+          selective.as_deref(),
+          &mod_tokenization.interner,
+          &mut tokenization.interner,
+        );
+
+        imported_funs.extend(exports.funs);
+        module_sir_instructions.extend(exports.sir_instructions);
+        module_next_value_id += exports.next_value_id;
+
+        self.compiling.remove(&resolved_path);
+      }
+
+      // Analyze with imported symbols pre-loaded.
+      self.profiler.start_phase(ANALYZER_NAME);
+      let analyzer = Analyzer::new(
+        &parsing.tree,
+        &tokenization.interner,
+        &tokenization.literals,
+      );
+
+      let analyzer = if !imported_funs.is_empty() {
+        analyzer.with_imports(imported_funs)
+      } else {
+        analyzer
+      };
+
+      let mut semantic = analyzer.analyze();
+      self.stats.numinferences += semantic.annotations.len();
+      self.profiler.end_phase(ANALYZER_NAME);
+
+      // Merge module SIR before main SIR for codegen.
+      if !module_sir_instructions.is_empty() {
+        // Offset main SIR ValueIds to avoid collisions.
+        offset_value_ids(&mut semantic.sir.instructions, module_next_value_id);
+        semantic.sir.next_value_id += module_next_value_id;
+
+        let mut merged = module_sir_instructions;
         merged.append(&mut semantic.sir.instructions);
         semantic.sir.instructions = merged;
       }
@@ -270,6 +337,52 @@ impl Stats {
       numnodes: 0,
       numinferences: 0,
       numartifacts: 0,
+    }
+  }
+}
+
+/// Offsets all ValueIds in SIR instructions by `offset`.
+/// Used when prepending module SIR to avoid ID collisions.
+fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
+  use zo_sir::Insn;
+  use zo_value::ValueId;
+
+  let off = |v: &mut ValueId| v.0 += offset;
+
+  for insn in instructions.iter_mut() {
+    match insn {
+      Insn::ConstInt { .. }
+      | Insn::ConstFloat { .. }
+      | Insn::ConstBool { .. }
+      | Insn::ConstString { .. }
+      | Insn::ModuleLoad { .. }
+      | Insn::PackDecl { .. } => {}
+      Insn::VarDef { init, .. } => {
+        if let Some(v) = init {
+          off(v);
+        }
+      }
+      Insn::Store { value, .. } => off(value),
+      Insn::FunDef { .. } => {}
+      Insn::Return { value, .. } => {
+        if let Some(v) = value {
+          off(v);
+        }
+      }
+      Insn::Call { args, .. } => {
+        for a in args.iter_mut() {
+          off(a);
+        }
+      }
+      Insn::Load { dst, .. } => off(dst),
+      Insn::BinOp { dst, lhs, rhs, .. } => {
+        off(dst);
+        off(lhs);
+        off(rhs);
+      }
+      Insn::UnOp { rhs, .. } => off(rhs),
+      Insn::Directive { value, .. } => off(value),
+      Insn::Template { id, .. } => off(id),
     }
   }
 }

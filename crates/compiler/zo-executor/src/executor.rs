@@ -167,6 +167,13 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Pre-populates the executor with imported function
+  /// definitions so they're available during execution.
+  pub fn with_imports(mut self, funs: Vec<FunDef>) -> Self {
+    self.funs = funs;
+    self
+  }
+
   /// Executes a parse tree in one pass at once to build a semantic IR.
   pub fn execute(mut self) -> (Sir, Vec<Annotation>) {
     for (idx, header) in self.tree.nodes.iter().enumerate() {

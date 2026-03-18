@@ -23,7 +23,10 @@ zo-profiler = { workspace = true }
 zo-reporter = { workspace = true }
 zo-runtime = { workspace = true } # tmp.
 zo-span = { workspace = true }
+zo-token = { workspace = true }
 zo-tokenizer = { workspace = true }
+zo-tree = { workspace = true }
+zo-value = { workspace = true }
 zo-writer = { workspace = true }
 
 # external:crates.
