@@ -168,9 +168,25 @@ impl<'a> Executor<'a> {
   }
 
   /// Pre-populates the executor with imported function
-  /// definitions so they're available during execution.
-  pub fn with_imports(mut self, funs: Vec<FunDef>) -> Self {
+  /// definitions and constants so they're available during
+  /// execution.
+  pub fn with_imports(
+    mut self,
+    funs: Vec<FunDef>,
+    vars: Vec<(Symbol, TyId, ValueId)>,
+  ) -> Self {
     self.funs = funs;
+
+    for (name, ty_id, value_id) in vars {
+      self.locals.push(Local {
+        name,
+        ty_id,
+        value_id,
+        pubness: Pubness::Yes,
+        mutability: Mutability::No,
+      });
+    }
+
     self
   }
 
@@ -218,6 +234,12 @@ impl<'a> Executor<'a> {
 
       // === DECLARATIONS ===
       Token::Imu => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_imu(idx, children_end);
+      }
+
+      Token::Val => {
         let children_end = (header.child_start + header.child_count) as usize;
 
         self.execute_imu(idx, children_end);

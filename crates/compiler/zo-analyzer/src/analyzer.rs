@@ -1,10 +1,10 @@
 use zo_executor::Executor;
-use zo_interner::Interner;
+use zo_interner::{Interner, Symbol};
 use zo_sir::Sir;
 use zo_token::LiteralStore;
 use zo_tree::Tree;
-use zo_ty::Annotation;
-use zo_value::FunDef;
+use zo_ty::{Annotation, TyId};
+use zo_value::{FunDef, ValueId};
 
 /// Represents the result of semantic analysis.
 pub struct SemanticResult {
@@ -12,6 +12,12 @@ pub struct SemanticResult {
   pub sir: Sir,
   /// The collections of types [`Annotation`].
   pub annotations: Vec<Annotation>,
+}
+
+/// Imported module symbols to pre-load into the executor.
+pub struct ImportedSymbols {
+  pub funs: Vec<FunDef>,
+  pub vars: Vec<(Symbol, TyId, ValueId)>,
 }
 
 /// Represents the [`Analyzer`] phase.
@@ -22,13 +28,13 @@ pub struct Analyzer<'a> {
   interner: &'a Interner,
   /// The reference of a [`LiteralStore`].
   literals: &'a LiteralStore,
-  /// Imported function definitions from loaded modules.
-  imported_funs: Option<Vec<FunDef>>,
+  /// Imported symbols from loaded modules.
+  imports: Option<ImportedSymbols>,
 }
 
 impl<'a> Analyzer<'a> {
   /// Creates a new [`Analyzer`] instance.
-  pub const fn new(
+  pub fn new(
     tree: &'a Tree,
     interner: &'a Interner,
     literals: &'a LiteralStore,
@@ -37,13 +43,13 @@ impl<'a> Analyzer<'a> {
       tree,
       interner,
       literals,
-      imported_funs: None,
+      imports: None,
     }
   }
 
-  /// Sets imported function definitions from loaded modules.
-  pub fn with_imports(mut self, funs: Vec<FunDef>) -> Self {
-    self.imported_funs = Some(funs);
+  /// Sets imported symbols from loaded modules.
+  pub fn with_imports(mut self, imports: ImportedSymbols) -> Self {
+    self.imports = Some(imports);
     self
   }
 
@@ -51,8 +57,8 @@ impl<'a> Analyzer<'a> {
   pub fn analyze(self) -> SemanticResult {
     let mut executor = Executor::new(self.tree, self.interner, self.literals);
 
-    if let Some(funs) = self.imported_funs {
-      executor = executor.with_imports(funs);
+    if let Some(imports) = self.imports {
+      executor = executor.with_imports(imports.funs, imports.vars);
     }
 
     let (sir, annotations) = executor.execute();

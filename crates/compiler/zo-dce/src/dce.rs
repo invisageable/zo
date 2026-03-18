@@ -38,7 +38,7 @@ pub fn eliminate_dead_functions(sir: &mut Sir) {
     .map(|f| (f.start, f.end))
     .collect();
 
-  dead_ranges.sort_by(|a, b| b.0.cmp(&a.0));
+  dead_ranges.sort_by_key(|r| std::cmp::Reverse(r.0));
 
   for (start, end) in dead_ranges {
     if end < sir.instructions.len() {

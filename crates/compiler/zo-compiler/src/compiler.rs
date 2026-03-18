@@ -226,6 +226,7 @@ impl Compiler {
       // so the executor has imported symbols in scope.
       let module_paths = Self::scan_loads(&parsing.tree);
       let mut imported_funs = Vec::new();
+      let mut imported_vars = Vec::new();
       let mut module_sir_instructions = Vec::new();
       let mut module_next_value_id: u32 = 0;
 
@@ -297,6 +298,15 @@ impl Compiler {
         );
 
         imported_funs.extend(exports.funs);
+
+        for var in exports.vars {
+          imported_vars.push((
+            var.name,
+            var.ty_id,
+            var.init.unwrap_or(zo_value::ValueId(0)),
+          ));
+        }
+
         module_sir_instructions.extend(exports.sir_instructions);
         module_next_value_id += exports.next_value_id;
 
@@ -311,8 +321,11 @@ impl Compiler {
         &tokenization.literals,
       );
 
-      let analyzer = if !imported_funs.is_empty() {
-        analyzer.with_imports(imported_funs)
+      let analyzer = if !imported_funs.is_empty() || !imported_vars.is_empty() {
+        analyzer.with_imports(zo_analyzer::ImportedSymbols {
+          funs: imported_funs,
+          vars: imported_vars,
+        })
       } else {
         analyzer
       };
