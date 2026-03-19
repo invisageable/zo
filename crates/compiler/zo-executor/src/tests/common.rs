@@ -1,6 +1,8 @@
 use crate::Executor;
 
+use zo_error::ErrorKind;
 use zo_parser::Parser;
+use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
 use zo_ty::Ty;
@@ -79,3 +81,28 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
 //   eprintln!("Full SIR instructions: {:#?}", sir.instructions);
 //   check(&sir.instructions);
 // }
+
+/// Assert that execution produces the expected error.
+pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
+  let tokenizer = Tokenizer::new(source);
+  let tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &tokenization.interner,
+    &tokenization.literals,
+  );
+  let _ = executor.execute();
+
+  let errors = collect_errors();
+
+  assert!(
+    errors.iter().any(|e| e.kind() == expected_error),
+    "Expected error {:?}, but got: {:?}",
+    expected_error,
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}

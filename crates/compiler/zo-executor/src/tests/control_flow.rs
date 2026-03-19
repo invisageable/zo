@@ -1,5 +1,6 @@
-use crate::tests::common::assert_sir_stream;
+use crate::tests::common::{assert_execution_error, assert_sir_stream};
 
+use zo_error::ErrorKind;
 use zo_interner::Symbol;
 use zo_sir::Insn;
 use zo_ty::TyId;
@@ -125,4 +126,34 @@ fn test_while_loop() {
       Insn::Label { id: 1 },
     ],
   );
+}
+
+#[test]
+fn test_implicit_return_literal() {
+  assert_sir_stream(
+    "fun foo() -> int { 42 }",
+    &[
+      Insn::FunDef {
+        name: Symbol(25),
+        params: vec![],
+        return_ty: TyId(8),
+        body_start: 1,
+        is_intrinsic: false,
+        is_pub: false,
+      },
+      Insn::ConstInt {
+        value: 42,
+        ty_id: TyId(8),
+      },
+      Insn::Return {
+        value: Some(ValueId(0)),
+        ty_id: TyId(8),
+      },
+    ],
+  );
+}
+
+#[test]
+fn test_void_function_with_value_is_type_error() {
+  assert_execution_error("fun foo() { 42 }", ErrorKind::TypeMismatch);
 }

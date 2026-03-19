@@ -38,11 +38,10 @@ fn test_pack_emits_pack_decl() {
 }
 
 #[test]
-#[ignore = "implicit return without type annotation not yet implemented"]
 fn test_load_before_function() {
   assert_sir_stream(
     r#"load foo::bar;
-fun main() { 42 }"#,
+fun main() -> int { 42 }"#,
     &[
       Insn::ModuleLoad {
         path: vec![Symbol(25), Symbol(26)],
@@ -51,7 +50,7 @@ fun main() { 42 }"#,
       Insn::FunDef {
         name: Symbol(27),
         params: vec![],
-        return_ty: TyId(1),
+        return_ty: TyId(8),
         body_start: 2,
         is_intrinsic: false,
         is_pub: false,

@@ -351,17 +351,33 @@ impl<'a> Executor<'a> {
             let unit_ty = self.ty_checker.unit_type();
             let func_return_ty = fun_ctx.return_ty;
 
-            let (return_value, return_ty) = if func_return_ty == unit_ty {
-              (None, unit_ty)
-            } else if !self.value_stack.is_empty() && !self.ty_stack.is_empty()
-            {
-              // Non-void function with value on stack
-              let sir_value = self.sir_values.last().copied();
-              let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+            let has_value =
+              !self.value_stack.is_empty() && !self.ty_stack.is_empty();
+            let body_ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
-              (sir_value, ty)
+            let (return_value, return_ty) = if func_return_ty == unit_ty {
+              // Void function — check for unused value.
+              if has_value && body_ty != unit_ty {
+                let span = self.tree.spans[idx];
+
+                report_error(Error::new(ErrorKind::TypeMismatch, span));
+              }
+
+              (None, unit_ty)
+            } else if has_value {
+              // Non-void function with value on stack.
+              // Filter sentinels from non-value-producing
+              // instructions (Label, Jump, BranchIfNot).
+              let sir_value =
+                self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
+
+              (sir_value, body_ty)
             } else {
-              // Non-void function but no value - error case, return None
+              // Non-void function but no value — type error.
+              let span = self.tree.spans[idx];
+
+              report_error(Error::new(ErrorKind::TypeMismatch, span));
+
               (None, unit_ty)
             };
 
