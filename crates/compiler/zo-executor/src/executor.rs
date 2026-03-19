@@ -495,7 +495,7 @@ impl<'a> Executor<'a> {
             let error_id = self.values.store_runtime(u32::MAX);
 
             self.value_stack.push(error_id);
-            self.ty_stack.push(TyId(u32::MAX));
+            self.ty_stack.push(self.ty_checker.error_type());
           }
         }
       }
@@ -714,7 +714,7 @@ impl<'a> Executor<'a> {
               let error_id = self.values.store_runtime(u32::MAX);
 
               self.value_stack.push(error_id);
-              self.ty_stack.push(TyId(u32::MAX));
+              self.ty_stack.push(self.ty_checker.error_type());
               self.sir_values.push(ValueId(u32::MAX));
 
               return;
@@ -748,7 +748,7 @@ impl<'a> Executor<'a> {
         let error_id = self.values.store_runtime(u32::MAX);
 
         self.value_stack.push(error_id);
-        self.ty_stack.push(TyId(u32::MAX)); // Error type
+        self.ty_stack.push(self.ty_checker.error_type()); // Error type
       }
     }
   }
@@ -780,7 +780,7 @@ impl<'a> Executor<'a> {
           Some(ty_id) => ty_id,
           None => {
             self.value_stack.push(self.values.store_runtime(u32::MAX));
-            self.ty_stack.push(TyId(u32::MAX));
+            self.ty_stack.push(self.ty_checker.error_type());
 
             return;
           }
@@ -846,7 +846,7 @@ impl<'a> Executor<'a> {
           let error_id = self.values.store_runtime(u32::MAX);
 
           self.value_stack.push(error_id);
-          self.ty_stack.push(TyId(u32::MAX));
+          self.ty_stack.push(self.ty_checker.error_type());
           self.sir_values.push(ValueId(u32::MAX));
 
           return;
