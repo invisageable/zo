@@ -273,6 +273,15 @@ impl PrettyPrinter {
 
           self.sir_instruction(&decl);
         }
+        Insn::Label { id } => {
+          self.sir_instruction(&format!("L{id}:"));
+        }
+        Insn::Jump { target } => {
+          self.sir_instruction(&format!("  jmp L{target}"));
+        }
+        Insn::BranchIfNot { cond, target } => {
+          self.sir_instruction(&format!("  br_ifnot %{cond}, L{target}"));
+        }
         _ => todo!(),
       }
     }

@@ -1,6 +1,8 @@
 use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
-use zo_emitter_arm::{ARM64Emitter, SP, X0, X1, X2, X16};
+use zo_emitter_arm::{
+  ARM64Emitter, Register, SP, X0, X1, X2, X3, X4, X5, X6, X7, X16,
+};
 use zo_interner::{Interner, Symbol};
 use zo_sir::{BinOp, Insn, Sir};
 use zo_ui_protocol::UiCommand;
@@ -60,6 +62,10 @@ pub struct ARM64Gen<'a> {
   template_data: Vec<(Symbol, Vec<u8>)>,
   /// Whether we have templates that need the entry point
   pub has_templates: bool,
+  /// The label offsets: label_id → byte offset in code.
+  labels: HashMap<u32, u32>,
+  /// The branch fixups: (code_offset, target_label_id).
+  branch_fixups: Vec<(u32, u32)>,
 }
 impl<'a> ARM64Gen<'a> {
   /// Creates a new [`ARM64Gen`] instance.
@@ -73,6 +79,8 @@ impl<'a> ARM64Gen<'a> {
       string_fixups: Vec::new(),
       template_data: Vec::new(),
       has_templates: false,
+      labels: HashMap::default(),
+      branch_fixups: Vec::new(),
     }
   }
 
@@ -125,6 +133,31 @@ impl<'a> ARM64Gen<'a> {
         // Patch the instruction
         let pos = *fixup_pos as usize;
         code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
+      }
+    }
+
+    // Apply branch fixups — patch B/CBZ with resolved offsets.
+    for (fixup_pos, target_label) in &self.branch_fixups {
+      if let Some(&label_offset) = self.labels.get(target_label) {
+        let relative = (label_offset as i32 - *fixup_pos as i32) >> 2;
+        let pos = *fixup_pos as usize;
+        let existing =
+          u32::from_le_bytes(code[pos..pos + 4].try_into().unwrap());
+
+        // Detect instruction type by top bits.
+        let patched = if existing & 0xFC000000 == 0x14000000 {
+          // B (unconditional): 0 00101 imm26
+          0x14000000 | ((relative as u32) & 0x3FFFFFF)
+        } else if existing & 0x7F000000 == 0x34000000 {
+          // CBZ/CBNZ: sf 011010 op imm19 Rt
+          let sf_and_op = existing & 0xFF000000;
+          let rt = existing & 0x1F;
+          sf_and_op | (((relative as u32) & 0x7FFFF) << 5) | rt
+        } else {
+          existing
+        };
+
+        code[pos..pos + 4].copy_from_slice(&patched.to_le_bytes());
       }
     }
 
@@ -525,9 +558,45 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
+      Insn::Label { id } => {
+        self.labels.insert(*id, self.emitter.current_offset());
+      }
+
+      Insn::Jump { target } => {
+        self
+          .branch_fixups
+          .push((self.emitter.current_offset(), *target));
+        self.emitter.emit_b(0); // placeholder
+      }
+
+      Insn::BranchIfNot { cond, target } => {
+        // cond is a boolean — 0 means false.
+        // CBZ branches if register is zero.
+        let reg = self.value_to_reg(*cond);
+        self
+          .branch_fixups
+          .push((self.emitter.current_offset(), *target));
+        self.emitter.emit_cbz(reg, 0); // placeholder
+      }
+
       _ => {
         // Other instructions not yet implemented
       }
+    }
+  }
+
+  /// Maps a ValueId to a register. Currently uses a simple
+  /// mapping — proper register allocation is future work.
+  fn value_to_reg(&self, value: ValueId) -> Register {
+    match value.0 % 8 {
+      0 => X0,
+      1 => X1,
+      2 => X2,
+      3 => X3,
+      4 => X4,
+      5 => X5,
+      6 => X6,
+      _ => X7,
     }
   }
 

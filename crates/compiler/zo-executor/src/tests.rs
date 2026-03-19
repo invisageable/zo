@@ -1,4 +1,5 @@
 pub(crate) mod common;
+pub(crate) mod control_flow;
 pub(crate) mod errors;
 pub(crate) mod modules;
 

@@ -11,6 +11,7 @@ fn make_sir(instructions: Vec<Insn>) -> Sir {
   Sir {
     instructions,
     next_value_id,
+    next_label_id: 0,
   }
 }
 

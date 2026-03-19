@@ -11,6 +11,8 @@ pub struct Sir {
   pub instructions: Vec<Insn>,
   /// The next value ID for SSA.
   pub next_value_id: u32,
+  /// The next label ID for branch targets.
+  pub next_label_id: u32,
 }
 impl Sir {
   /// Creates a new [`SirBuilder`] instance.
@@ -18,7 +20,15 @@ impl Sir {
     Self {
       instructions: Vec::with_capacity(1024),
       next_value_id: 0,
+      next_label_id: 0,
     }
+  }
+
+  /// Allocates a fresh label ID.
+  pub fn next_label(&mut self) -> u32 {
+    let id = self.next_label_id;
+    self.next_label_id += 1;
+    id
   }
 
   /// Emits an instruction and return its result [`ValueId`].
@@ -33,7 +43,10 @@ impl Sir {
       | Insn::VarDef { .. }
       | Insn::Store { .. }
       | Insn::ModuleLoad { .. }
-      | Insn::PackDecl { .. } => {
+      | Insn::PackDecl { .. }
+      | Insn::Label { .. }
+      | Insn::Jump { .. }
+      | Insn::BranchIfNot { .. } => {
         ValueId(u32::MAX) // Sentinel value for non-value-producing instructions
       }
       // Constants and other value-producing instructions
@@ -131,6 +144,12 @@ pub enum Insn {
   },
   /// Pack declaration — defines a namespace.
   PackDecl { name: Symbol, is_pub: bool },
+  /// The branch target label.
+  Label { id: u32 },
+  /// The unconditional jump to a label.
+  Jump { target: u32 },
+  /// The conditional branch — jump to target if false.
+  BranchIfNot { cond: ValueId, target: u32 },
   /// Template literal (fragment or HTML tag)
   Template {
     id: ValueId,

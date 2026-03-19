@@ -383,6 +383,16 @@ impl ARM64Emitter {
   }
 
   // Generic conditional branch
+  /// Compare and branch if zero.
+  pub fn emit_cbz(&mut self, rt: Register, offset: i32) {
+    // CBZ Xt, label
+    // Encoding: sf=1 011010 0 imm19 Rt
+    let imm19 = ((offset >> 2) & 0x7FFFF) as u32;
+    let insn = 0xB4000000 | (imm19 << 5) | (rt.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
   fn emit_bcond(&mut self, cond: u8, offset: i32) {
     // B.cond label
     // Encoding: 0101010 0 imm19 0 cond

@@ -68,6 +68,8 @@ pub struct Executor<'a> {
   pending_var_name: Option<Symbol>,
   /// Counter for unique widget IDs (buttons, inputs)
   widget_counter: Cell<u32>,
+  /// The pending branch contexts for control flow.
+  branch_stack: Vec<BranchCtx>,
 }
 impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
@@ -97,6 +99,7 @@ impl<'a> Executor<'a> {
       template_counter: 0,
       pending_var_name: None,
       widget_counter: Cell::new(0),
+      branch_stack: Vec::with_capacity(8),
     }
   }
 
@@ -241,6 +244,23 @@ impl<'a> Executor<'a> {
         self.execute_while(idx, children_end);
       }
 
+      // === CONTROL FLOW ELSE ===
+      Token::Else => {
+        if let Some(ctx) = self.branch_stack.last()
+          && ctx.kind == BranchKind::If
+        {
+          // Jump over else block.
+          self.sir.emit(Insn::Jump {
+            target: ctx.end_label,
+          });
+
+          // Emit else label.
+          if let Some(else_label) = ctx.else_label {
+            self.sir.emit(Insn::Label { id: else_label });
+          }
+        }
+      }
+
       // === DIRECTIVES ===
       Token::Hash => {
         let children_end = (header.child_start + header.child_count) as usize;
@@ -297,6 +317,25 @@ impl<'a> Executor<'a> {
           self.sir_values.clear();
         }
 
+        // Emit branch instruction for control flow.
+        if let Some(ctx) = self.branch_stack.last_mut()
+          && !ctx.branch_emitted
+        {
+          if let Some(cond_sir) = self.sir_values.last().copied() {
+            let target = match ctx.kind {
+              BranchKind::If => ctx.else_label.unwrap_or(ctx.end_label),
+              BranchKind::While => ctx.end_label,
+            };
+
+            self.sir.emit(Insn::BranchIfNot {
+              cond: cond_sir,
+              target,
+            });
+          }
+
+          ctx.branch_emitted = true;
+        }
+
         self.push_scope();
       }
       Token::RBrace => {
@@ -349,6 +388,28 @@ impl<'a> Executor<'a> {
 
           // Clear function context
           self.current_function = None;
+        }
+
+        // Close control flow block.
+        if let Some(ctx) = self.branch_stack.last() {
+          match ctx.kind {
+            BranchKind::While => {
+              // Jump back to loop start.
+              if let Some(loop_label) = ctx.loop_label {
+                self.sir.emit(Insn::Jump { target: loop_label });
+              }
+
+              self.sir.emit(Insn::Label { id: ctx.end_label });
+              self.branch_stack.pop();
+            }
+            BranchKind::If => {
+              // Emit end label. Pop only when there's no
+              // pending else (the parser closes If at RBrace
+              // only if no else follows).
+              self.sir.emit(Insn::Label { id: ctx.end_label });
+              self.branch_stack.pop();
+            }
+          }
         }
 
         self.pop_scope();
@@ -1236,14 +1297,37 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Executes if statement.
+  /// Sets up an if branch context. The actual branch instruction
+  /// is emitted when LBrace is hit (condition is on the stack
+  /// by then).
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
-    // TODO: Implement control flow
+    let end_label = self.sir.next_label();
+    let else_label = self.sir.next_label();
+
+    self.branch_stack.push(BranchCtx {
+      kind: BranchKind::If,
+      end_label,
+      else_label: Some(else_label),
+      loop_label: None,
+      branch_emitted: false,
+    });
   }
 
-  /// Executes while loop.
+  /// Sets up a while loop context. Emits the loop-start label
+  /// immediately (before the condition is evaluated).
   fn execute_while(&mut self, _start_idx: usize, _end_idx: usize) {
-    // TODO: Implement control flow
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    self.branch_stack.push(BranchCtx {
+      kind: BranchKind::While,
+      end_label,
+      else_label: None,
+      loop_label: Some(loop_label),
+      branch_emitted: false,
+    });
   }
 
   /// Executes compound assignment (+=, -=, etc).
@@ -2254,6 +2338,28 @@ impl<'a> Executor<'a> {
     self.widget_counter.set(id + 1);
     id
   }
+}
+
+/// The kind of control flow branch.
+#[derive(Clone, Copy, PartialEq)]
+enum BranchKind {
+  If,
+  While,
+}
+
+/// Tracks context for a pending control flow branch.
+#[derive(Clone)]
+struct BranchCtx {
+  /// The kind of branch.
+  kind: BranchKind,
+  /// The label id for the end of the construct.
+  end_label: u32,
+  /// The label id for the else block (if only).
+  else_label: Option<u32>,
+  /// The label for loop start (while only).
+  loop_label: Option<u32>,
+  /// Whether the branch instruction has been emitted.
+  branch_emitted: bool,
 }
 
 /// Tracks context when compiling inside a function

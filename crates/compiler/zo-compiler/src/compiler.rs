@@ -471,7 +471,9 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
       | Insn::ConstBool { .. }
       | Insn::ConstString { .. }
       | Insn::ModuleLoad { .. }
-      | Insn::PackDecl { .. } => {}
+      | Insn::PackDecl { .. }
+      | Insn::Label { .. }
+      | Insn::Jump { .. } => {}
       Insn::VarDef { init, .. } => {
         if let Some(v) = init {
           off(v);
@@ -496,6 +498,7 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
         off(rhs);
       }
       Insn::UnOp { rhs, .. } => off(rhs),
+      Insn::BranchIfNot { cond, .. } => off(cond),
       Insn::Directive { value, .. } => off(value),
       Insn::Template { id, .. } => off(id),
     }
