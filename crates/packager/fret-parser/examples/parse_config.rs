@@ -1,6 +1,7 @@
 //! Example demonstrating how to parse a fret.oz configuration file.
 
 use fret_parser::parse_config;
+
 use std::fs;
 
 fn main() {
@@ -42,8 +43,8 @@ fn main() {
         println!("\nParsed fret.oz from disk:");
         println!("  Project: {} v{}", config.name, config.version);
       }
-      Err(e) => {
-        eprintln!("Failed to parse fret.oz: {}", e);
+      Err(error) => {
+        eprintln!("Failed to parse fret.oz: {error}");
       }
     }
   }

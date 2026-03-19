@@ -220,30 +220,33 @@ pub enum StageError {
   /// Compilation error from zo-compiler
   Compilation(String),
 }
+
 impl std::fmt::Display for StageError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      StageError::Io(e) => write!(f, "IO error: {}", e),
-      StageError::ConfigParse(e) => {
-        write!(f, "Config parse error: {}", e)
+      StageError::Io(error) => write!(f, "IO error: {error}"),
+      StageError::ConfigParse(error) => {
+        write!(f, "Config parse error: {error}")
       }
-      StageError::SourceCollection(e) => {
-        write!(f, "Source collection error: {}", e)
+      StageError::SourceCollection(error) => {
+        write!(f, "Source collection error: {error}")
       }
-      StageError::Compilation(e) => {
-        write!(f, "Compilation error: {}", e)
+      StageError::Compilation(error) => {
+        write!(f, "Compilation error: {error}")
       }
     }
   }
 }
+
 impl std::error::Error for StageError {
   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
     match self {
-      StageError::Io(e) => Some(e),
+      StageError::Io(error) => Some(error),
       _ => None,
     }
   }
 }
+
 impl From<std::io::Error> for StageError {
   fn from(e: std::io::Error) -> Self {
     StageError::Io(e)

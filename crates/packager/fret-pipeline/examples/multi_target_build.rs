@@ -14,6 +14,7 @@ use std::time::Instant;
 fn main() {
   // Get project path from command line or use current directory
   let args = std::env::args().collect::<Vec<_>>();
+
   let project_path = if args.len() > 1 {
     PathBuf::from(&args[1])
   } else {
@@ -37,23 +38,25 @@ fn main() {
 
   // Build for each target
   for (name, target) in targets {
-    println!("\nBuilding for {}...", name);
+    println!("\nBuilding for {name}...");
+
     let start = Instant::now();
 
     match pipeline.execute_with_target(project_path.clone(), Some(target)) {
       Ok(output_path) => {
         let elapsed = start.elapsed();
+
         println!("✓ Success: {}", output_path.display());
         println!("  Time: {:.2}s", elapsed.as_secs_f64());
 
         // Show file size
         if let Ok(metadata) = fs::metadata(&output_path) {
           let size = metadata.len();
-          println!("  Size: {} bytes", size);
+          println!("  Size: {size} bytes");
         }
       }
-      Err(e) => {
-        println!("✗ Failed: {}", e);
+      Err(error) => {
+        println!("✗ Failed: {error}");
       }
     }
   }
