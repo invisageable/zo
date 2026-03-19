@@ -379,6 +379,25 @@ impl<'a> Executor<'a> {
         }
       }
 
+      Token::Float => {
+        if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
+          let value = self.literals.float_literals[lit_idx as usize];
+          let ty_id = self.ty_checker.f64_type();
+
+          let sir_value = self.sir.emit(Insn::ConstFloat { value, ty_id });
+          let value_id = self.values.store_float(value);
+
+          self.value_stack.push(value_id);
+          self.ty_stack.push(ty_id);
+          self.sir_values.push(sir_value);
+
+          self.annotations.push(Annotation {
+            node_idx: idx,
+            ty_id,
+          });
+        }
+      }
+
       Token::True => {
         let ty_id = self.ty_checker.bool_type();
         let sir_value = self.sir.emit(Insn::ConstBool { value: true, ty_id });
@@ -482,16 +501,8 @@ impl<'a> Executor<'a> {
       }
 
       // === TYPE LITERALS ===
-      Token::S32Type => {
-        let ty_id = self.ty_checker.s32_type();
-        let value_id = self.values.store_type(ty_id);
-
-        self.value_stack.push(value_id);
-        self.ty_stack.push(self.ty_checker.type_type()); // Type of types
-      }
-
-      Token::BoolType => {
-        let ty_id = self.ty_checker.bool_type();
+      _ if header.token.is_ty() => {
+        let ty_id = self.resolve_type_token(idx);
         let value_id = self.values.store_type(ty_id);
 
         self.value_stack.push(value_id);
@@ -537,13 +548,6 @@ impl<'a> Executor<'a> {
       Token::Colon => self.execute_ty_annotation(),
 
       // === TEMPLATE TOKENS ===
-      Token::TemplateType => {
-        let ty_id = self.ty_checker.template_ty();
-        let value_id = self.values.store_type(ty_id);
-        self.value_stack.push(value_id);
-        self.ty_stack.push(self.ty_checker.type_type());
-      }
-
       Token::TemplateAssign => {
         let children_end = (header.child_start + header.child_count) as usize;
         self.execute_template_assign(idx, children_end);
@@ -931,6 +935,62 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Resolves a type token at `idx` to a [`TyId`].
+  fn resolve_type_token(&mut self, idx: usize) -> TyId {
+    match self.tree.nodes[idx].token {
+      Token::IntType => self.ty_checker.int_type(),
+      Token::S8Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+        signed: true,
+        width: zo_ty::IntWidth::S8,
+      }),
+      Token::S16Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+        signed: true,
+        width: zo_ty::IntWidth::S16,
+      }),
+      Token::S32Type => self.ty_checker.s32_type(),
+      Token::S64Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+        signed: true,
+        width: zo_ty::IntWidth::S64,
+      }),
+      Token::UintType => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+        signed: false,
+        width: zo_ty::IntWidth::U32,
+      }),
+      Token::U8Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+        signed: false,
+        width: zo_ty::IntWidth::U8,
+      }),
+      Token::U16Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+        signed: false,
+        width: zo_ty::IntWidth::U16,
+      }),
+      Token::U32Type => self.ty_checker.u32_type(),
+      Token::U64Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+        signed: false,
+        width: zo_ty::IntWidth::U64,
+      }),
+      Token::FloatType => self.ty_checker.f64_type(),
+      Token::F32Type => self.ty_checker.f32_type(),
+      Token::F64Type => self.ty_checker.f64_type(),
+      Token::BoolType => self.ty_checker.bool_type(),
+      Token::CharType => self.ty_checker.char_type(),
+      Token::StrType => self.ty_checker.str_type(),
+      Token::BytesType => self.ty_checker.intern_ty(zo_ty::Ty::Bytes),
+      Token::TemplateType => self.ty_checker.template_ty(),
+      Token::Ident => {
+        if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+          self
+            .ty_checker
+            .resolve_ty_symbol(sym, self.interner)
+            .unwrap_or_else(|| self.ty_checker.unit_type())
+        } else {
+          self.ty_checker.unit_type()
+        }
+      }
+      _ => self.ty_checker.unit_type(),
+    }
+  }
+
   fn execute_fun(&mut self, start_idx: usize, _end_idx: usize) {
     // Parse the function signature and set it as pending
     // The actual FunDef will be emitted when we hit LBrace
@@ -978,24 +1038,7 @@ impl<'a> Executor<'a> {
 
               // Next should be the type (no colon token)
               if idx < _end_idx {
-                let param_ty = match self.tree.nodes[idx].token {
-                  Token::IntType => self.ty_checker.int_type(),
-                  Token::S32Type => self.ty_checker.s32_type(),
-                  Token::BoolType => self.ty_checker.bool_type(),
-                  Token::StrType => self.ty_checker.str_type(),
-                  Token::Ident => {
-                    // Check if it's "unit"
-                    if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
-                      self
-                        .ty_checker
-                        .resolve_ty_symbol(sym, self.interner)
-                        .unwrap_or_else(|| self.ty_checker.unit_type())
-                    } else {
-                      self.ty_checker.unit_type()
-                    }
-                  }
-                  _ => self.ty_checker.unit_type(),
-                };
+                let param_ty = self.resolve_type_token(idx);
                 params.push((param_name, param_ty));
                 idx += 1;
 
@@ -1020,23 +1063,7 @@ impl<'a> Executor<'a> {
         // Next token should be the return type
         if idx + 1 < _end_idx {
           idx += 1;
-
-          match self.tree.nodes[idx].token {
-            Token::IntType => return_ty = self.ty_checker.int_type(),
-            Token::S32Type => return_ty = self.ty_checker.s32_type(),
-            Token::BoolType => return_ty = self.ty_checker.bool_type(),
-            Token::StrType => return_ty = self.ty_checker.str_type(),
-            Token::Ident => {
-              // Check if it's "unit"
-              if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
-                return_ty = self
-                  .ty_checker
-                  .resolve_ty_symbol(sym, self.interner)
-                  .unwrap_or_else(|| self.ty_checker.unit_type());
-              }
-            }
-            _ => {}
-          }
+          return_ty = self.resolve_type_token(idx);
         }
         break;
       } else if let Token::LBrace = self.tree.nodes[idx].token {
