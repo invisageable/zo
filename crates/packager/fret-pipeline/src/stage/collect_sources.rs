@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 pub struct CollectSources;
 
 impl Stage for CollectSources {
+  fn name(&self) -> &'static str {
+    "CollectSources"
+  }
+
   fn execute(&self, ctx: &mut BuildContext) -> Result<(), StageError> {
     let source_dir = if ctx.config.source_dir.is_absolute() {
       ctx.config.source_dir.clone()
@@ -51,10 +55,6 @@ impl Stage for CollectSources {
     ctx.source_files.sort_unstable();
 
     Ok(())
-  }
-
-  fn name(&self) -> &'static str {
-    "CollectSources"
   }
 }
 

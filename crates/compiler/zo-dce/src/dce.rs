@@ -32,11 +32,11 @@ pub fn eliminate_dead_functions(sir: &mut Sir) {
   let reachable = mark_reachable(&functions, &called);
 
   // Collect dead ranges in reverse order for safe removal.
-  let mut dead_ranges: Vec<(usize, usize)> = functions
+  let mut dead_ranges = functions
     .iter()
     .filter(|f| !reachable.contains(&f.name))
     .map(|f| (f.start, f.end))
-    .collect();
+    .collect::<Vec<_>>();
 
   dead_ranges.sort_by_key(|r| std::cmp::Reverse(r.0));
 

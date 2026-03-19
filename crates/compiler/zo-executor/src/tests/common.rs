@@ -21,8 +21,8 @@ pub(crate) fn assert_annotations_stream(
     &tokenization.interner,
     &tokenization.literals,
   );
-  let (sir, annotations, ty_checker) = executor.execute_with_tychecker();
-  let mut actual: Vec<(usize, Ty, Insn)> = Vec::new();
+  let (sir, annotations, ty_checker) = executor.execute();
+  let mut actual = Vec::new();
 
   for (idx, annotation) in annotations.iter().enumerate() {
     let ty = ty_checker.resolve_ty(annotation.ty_id);
@@ -52,9 +52,8 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
     &tokenization.interner,
     &tokenization.literals,
   );
-  let (sir, _, _) = executor.execute_with_tychecker();
+  let (sir, _, _) = executor.execute();
 
-  // eprintln!("Full SIR instructions: {:#?}", sir.instructions);
   assert_eq!(
     sir.instructions, expected,
     "\n\nSIR instructions mismatch.\n\nExpected:\n{:#?}\n\nActual:\n{:#?}\n",
@@ -75,7 +74,7 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
 //     &tokenization.interner,
 //     &tokenization.literals,
 //   );
-//   let (sir, _, _) = executor.execute_with_tychecker();
+//   let (sir, _, _) = executor.execute();
 
 //   eprintln!("Full SIR instructions: {:#?}", sir.instructions);
 //   check(&sir.instructions);

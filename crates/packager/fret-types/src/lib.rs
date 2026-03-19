@@ -202,10 +202,10 @@ impl Target {
 
 /// Each pipeline stage transforms [`BuildContext`] in place.
 pub trait Stage {
-  /// Execute this stage, transforming the build context
-  fn execute(&self, ctx: &mut BuildContext) -> Result<(), StageError>;
   /// Name of this stage for logging/debugging
   fn name(&self) -> &'static str;
+  /// Execute this stage, transforming the build context
+  fn execute(&self, ctx: &mut BuildContext) -> Result<(), StageError>;
 }
 
 /// Errors from pipeline stage execution.

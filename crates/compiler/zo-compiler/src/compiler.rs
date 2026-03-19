@@ -8,7 +8,7 @@ use crate::constants::{
 
 use crate::stage::Stage;
 
-use zo_analyzer::Analyzer;
+use zo_analyzer::{Analyzer, ImportedSymbols};
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_error::{Error, ErrorKind};
@@ -22,6 +22,8 @@ use zo_span::Span;
 use zo_token::Token;
 use zo_tokenizer::Tokenizer;
 use zo_tree::{NodeValue, Tree};
+use zo_ty_checker::TyChecker;
+use zo_value::{Local, Mutability, Pubness, ValueId};
 
 use std::collections::HashSet;
 use std::fs;
@@ -289,22 +291,28 @@ impl Compiler {
         );
         let mod_semantic = mod_analyzer.analyze();
 
-        // Extract pub exports with symbol translation.
+        // Extract pub exports with symbol + type translation.
+        let mut dst_ty_checker = TyChecker::new();
+
         let exports = extract_exports(
-          &mod_semantic.sir,
+          mod_semantic.sir,
           selective.as_deref(),
           &mod_tokenization.interner,
           &mut tokenization.interner,
+          &mod_semantic.ty_checker,
+          &mut dst_ty_checker,
         );
 
         imported_funs.extend(exports.funs);
 
         for var in exports.vars {
-          imported_vars.push((
-            var.name,
-            var.ty_id,
-            var.init.unwrap_or(zo_value::ValueId(0)),
-          ));
+          imported_vars.push(Local {
+            name: var.name,
+            ty_id: var.ty_id,
+            value_id: var.init.unwrap_or(ValueId(0)),
+            pubness: Pubness::Yes,
+            mutability: Mutability::No,
+          });
         }
 
         module_sir_instructions.extend(exports.sir_instructions);
@@ -322,7 +330,7 @@ impl Compiler {
       );
 
       let analyzer = if !imported_funs.is_empty() || !imported_vars.is_empty() {
-        analyzer.with_imports(zo_analyzer::ImportedSymbols {
+        analyzer.with_imports(ImportedSymbols {
           funs: imported_funs,
           vars: imported_vars,
         })
@@ -382,9 +390,10 @@ impl Compiler {
       };
 
       codegen.generate(&tokenization.interner, &semantic.sir, &output_path);
-      self.stats.numartifacts += 1;
-      self.profiler.end_phase(CODEGEN_NAME);
 
+      self.stats.numartifacts += 1;
+
+      self.profiler.end_phase(CODEGEN_NAME);
       self.profiler.set_output(path.display().to_string());
     }
 

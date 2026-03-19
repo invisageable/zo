@@ -565,9 +565,9 @@ mod tests {
 
   #[test]
   fn test_staggered_timeline() {
-    let tweens: Vec<_> = (0..5)
+    let tweens = (0..5)
       .map(|_| Tween::to(0.0_f32, 100.0).duration(0.5).build())
-      .collect();
+      .collect::<Vec<_>>();
 
     let timeline = Timeline::builder()
       .push_staggered(tweens, Stagger::each(0.1))

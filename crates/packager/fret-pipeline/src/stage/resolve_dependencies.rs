@@ -9,11 +9,11 @@ use fret_types::{BuildContext, Stage, StageError};
 pub struct ResolveDependencies;
 
 impl Stage for ResolveDependencies {
-  fn execute(&self, _ctx: &mut BuildContext) -> Result<(), StageError> {
-    Ok(())
-  }
-
   fn name(&self) -> &'static str {
     "ResolveDependencies"
+  }
+
+  fn execute(&self, _ctx: &mut BuildContext) -> Result<(), StageError> {
+    Ok(())
   }
 }

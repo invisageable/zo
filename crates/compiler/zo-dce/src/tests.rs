@@ -1,9 +1,9 @@
+use crate::eliminate_dead_functions;
+
 use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
 use zo_value::ValueId;
-
-use crate::eliminate_dead_functions;
 
 fn make_sir(instructions: Vec<Insn>) -> Sir {
   let next_value_id = instructions.len() as u32;
@@ -27,56 +27,56 @@ fn test_removes_uncalled_function() {
     Insn::FunDef {
       name: show,
       params: vec![],
-      return_ty: TyId(0),
+      return_ty: TyId(1),
       body_start: 1,
       is_intrinsic: true,
       is_pub: true,
     },
     Insn::Return {
       value: None,
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
     // showln — called by main, should be kept.
     Insn::FunDef {
       name: showln,
       params: vec![],
-      return_ty: TyId(0),
+      return_ty: TyId(1),
       body_start: 3,
       is_intrinsic: true,
       is_pub: true,
     },
     Insn::Return {
       value: None,
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
     // main — entry point, always kept.
     Insn::FunDef {
       name: main,
       params: vec![],
-      return_ty: TyId(0),
+      return_ty: TyId(1),
       body_start: 5,
       is_intrinsic: false,
       is_pub: false,
     },
     Insn::ConstString {
       symbol: hello,
-      ty_id: TyId(1),
+      ty_id: TyId(4),
     },
     Insn::Call {
       name: showln,
       args: vec![ValueId(0)],
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
     Insn::Return {
       value: None,
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
   ]);
 
   eliminate_dead_functions(&mut sir);
 
   // show should be gone. showln + main should remain.
-  let fun_names: Vec<Symbol> = sir
+  let fun_names = sir
     .instructions
     .iter()
     .filter_map(|i| {
@@ -86,7 +86,7 @@ fn test_removes_uncalled_function() {
         None
       }
     })
-    .collect();
+    .collect::<Vec<_>>();
 
   assert_eq!(fun_names, vec![showln, main]);
 }
@@ -102,31 +102,31 @@ fn test_keeps_all_when_all_called() {
     Insn::FunDef {
       name: foo,
       params: vec![],
-      return_ty: TyId(0),
+      return_ty: TyId(1),
       body_start: 1,
       is_intrinsic: true,
       is_pub: true,
     },
     Insn::Return {
       value: None,
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
     Insn::FunDef {
       name: bar,
       params: vec![],
-      return_ty: TyId(0),
+      return_ty: TyId(1),
       body_start: 3,
       is_intrinsic: true,
       is_pub: true,
     },
     Insn::Return {
       value: None,
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
     Insn::FunDef {
       name: main,
       params: vec![],
-      return_ty: TyId(0),
+      return_ty: TyId(1),
       body_start: 5,
       is_intrinsic: false,
       is_pub: false,
@@ -134,16 +134,16 @@ fn test_keeps_all_when_all_called() {
     Insn::Call {
       name: foo,
       args: vec![],
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
     Insn::Call {
       name: bar,
       args: vec![],
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
     Insn::Return {
       value: None,
-      ty_id: TyId(0),
+      ty_id: TyId(1),
     },
   ]);
 

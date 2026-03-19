@@ -6,6 +6,10 @@ use fret_types::{BuildContext, Stage, StageError};
 pub struct GeneratePlan;
 
 impl Stage for GeneratePlan {
+  fn name(&self) -> &'static str {
+    "GeneratePlan"
+  }
+
   fn execute(&self, ctx: &mut BuildContext) -> Result<(), StageError> {
     if ctx.source_files.is_empty() {
       return Err(StageError::Compilation(
@@ -28,9 +32,5 @@ impl Stage for GeneratePlan {
     );
 
     Ok(())
-  }
-
-  fn name(&self) -> &'static str {
-    "GeneratePlan"
   }
 }

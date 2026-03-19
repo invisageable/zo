@@ -115,11 +115,11 @@ pub enum PipelineError {
 impl std::fmt::Display for PipelineError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      PipelineError::ConfigParse(e) => {
-        write!(f, "Failed to parse fret.oz: {}", e)
+      PipelineError::ConfigParse(error) => {
+        write!(f, "Failed to parse fret.oz: {error}")
       }
       PipelineError::Stage { stage, error } => {
-        write!(f, "Stage '{}' failed: {}", stage, error)
+        write!(f, "Stage '{stage}' failed: {error}")
       }
     }
   }
@@ -139,15 +139,17 @@ mod tests {
 
   #[test]
   fn test_pipeline_error_display() {
-    let err = PipelineError::ConfigParse("test error".to_string());
-    assert_eq!(err.to_string(), "Failed to parse fret.oz: test error");
+    let error = PipelineError::ConfigParse("test error".to_string());
 
-    let err = PipelineError::Stage {
+    assert_eq!(error.to_string(), "Failed to parse fret.oz: test error");
+
+    let error = PipelineError::Stage {
       stage: "TestStage".to_string(),
       error: StageError::Compilation("compilation failed".to_string()),
     };
+
     assert_eq!(
-      err.to_string(),
+      error.to_string(),
       "Stage 'TestStage' failed: Compilation error: \
        compilation failed"
     );

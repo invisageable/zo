@@ -7063,6 +7063,7 @@ dependencies = [
  "zo-token",
  "zo-tokenizer",
  "zo-tree",
+ "zo-ty-checker",
  "zo-value",
  "zo-writer",
 ]
@@ -7188,6 +7189,7 @@ dependencies = [
  "zo-interner",
  "zo-sir",
  "zo-ty",
+ "zo-ty-checker",
  "zo-value",
 ]
 

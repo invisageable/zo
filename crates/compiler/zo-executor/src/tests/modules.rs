@@ -51,18 +51,18 @@ fun main() { 42 }"#,
       Insn::FunDef {
         name: Symbol(27),
         params: vec![],
-        return_ty: zo_ty::TyId(0),
+        return_ty: TyId(1),
         body_start: 2,
         is_intrinsic: false,
         is_pub: false,
       },
       Insn::ConstInt {
         value: 42,
-        ty_id: zo_ty::TyId(1),
+        ty_id: TyId(8),
       },
       Insn::Return {
         value: Some(zo_value::ValueId(0)),
-        ty_id: zo_ty::TyId(1),
+        ty_id: TyId(8),
       },
     ],
   );
@@ -94,14 +94,14 @@ fn test_empty_body_is_intrinsic() {
       Insn::FunDef {
         name: Symbol(25),
         params: vec![],
-        return_ty: TyId(0),
+        return_ty: TyId(1),
         body_start: 1,
         is_intrinsic: true,
         is_pub: false,
       },
       Insn::Return {
         value: None,
-        ty_id: TyId(0),
+        ty_id: TyId(1),
       },
     ],
   );
@@ -115,18 +115,18 @@ fn test_non_empty_body_not_intrinsic() {
       Insn::FunDef {
         name: Symbol(25),
         params: vec![],
-        return_ty: TyId(1),
+        return_ty: TyId(8),
         body_start: 1,
         is_intrinsic: false,
         is_pub: false,
       },
       Insn::ConstInt {
         value: 42,
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       Insn::Return {
         value: Some(zo_value::ValueId(0)),
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
     ],
   );
@@ -140,14 +140,14 @@ fn test_pub_fun_visibility() {
       Insn::FunDef {
         name: Symbol(25),
         params: vec![],
-        return_ty: TyId(0),
+        return_ty: TyId(1),
         body_start: 1,
         is_intrinsic: true,
         is_pub: true,
       },
       Insn::Return {
         value: None,
-        ty_id: TyId(0),
+        ty_id: TyId(1),
       },
     ],
   );

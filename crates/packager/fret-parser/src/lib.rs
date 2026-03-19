@@ -172,7 +172,7 @@ impl<'src> Parser<'src> {
 
   /// Parse a version string like "1.2.3".
   fn parse_version(&self, version_str: &str) -> Result<Version, StageError> {
-    let parts: Vec<&str> = version_str.split('.').collect();
+    let parts = version_str.split('.').collect::<Vec<_>>();
 
     if parts.len() != 3 {
       return Err(self.error("Version must be in format 'major.minor.patch'"));
@@ -345,7 +345,7 @@ impl<'src> Parser<'src> {
 
   /// Get a snippet of the source around the error.
   fn get_error_snippet(&self, line: usize, column: usize) -> String {
-    let lines: Vec<&str> = self.source.lines().collect();
+    let lines = self.source.lines().collect::<Vec<_>>();
 
     if line > 0 && line <= lines.len() {
       let line_text = lines[line - 1];

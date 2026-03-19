@@ -54,9 +54,13 @@ pub struct TyChecker {
   type_aliases_stack: Vec<HashMap<Symbol, TyId>>,
 }
 impl TyChecker {
-  /// Create a new type checker with pre-allocated capacity
+  /// Create a new type checker with pre-registered primitives.
+  ///
+  /// All primitive types are registered eagerly so their TyIds
+  /// are deterministic across all TyChecker instances. This is
+  /// critical for cross-module type compatibility.
   pub fn new() -> Self {
-    Self {
+    let mut checker = Self {
       next_ty_id: 0,
       next_infer_var: InferVarId(0),
       tys: Vec::with_capacity(1024),
@@ -70,7 +74,67 @@ impl TyChecker {
       poly_schemes: HashMap::default(),
       ty_aliases: HashMap::default(),
       type_aliases_stack: Vec::new(),
-    }
+    };
+
+    // Core types.
+    checker.intern_ty(Ty::Error); // TyId(0)
+    checker.intern_ty(Ty::Unit); // TyId(1)
+    checker.intern_ty(Ty::Bool); // TyId(2)
+    checker.intern_ty(Ty::Char); // TyId(3)
+    checker.intern_ty(Ty::Str); // TyId(4)
+    checker.intern_ty(Ty::Bytes); // TyId(5)
+
+    // Signed integers.
+    checker.intern_ty(Ty::Int {
+      signed: true,
+      width: IntWidth::S8,
+    }); // TyId(6)
+    checker.intern_ty(Ty::Int {
+      signed: true,
+      width: IntWidth::S16,
+    }); // TyId(7)
+    checker.intern_ty(Ty::Int {
+      signed: true,
+      width: IntWidth::S32,
+    }); // TyId(8)
+    checker.intern_ty(Ty::Int {
+      signed: true,
+      width: IntWidth::S64,
+    }); // TyId(9)
+    checker.intern_ty(Ty::Int {
+      signed: true,
+      width: IntWidth::Arch,
+    }); // TyId(10)
+
+    // Unsigned integers.
+    checker.intern_ty(Ty::Int {
+      signed: false,
+      width: IntWidth::U8,
+    }); // TyId(11)
+    checker.intern_ty(Ty::Int {
+      signed: false,
+      width: IntWidth::U16,
+    }); // TyId(12)
+    checker.intern_ty(Ty::Int {
+      signed: false,
+      width: IntWidth::U32,
+    }); // TyId(13)
+    checker.intern_ty(Ty::Int {
+      signed: false,
+      width: IntWidth::U64,
+    }); // TyId(14)
+
+    // Floats.
+    checker.intern_ty(Ty::Float(FloatWidth::F32)); // TyId(15)
+    checker.intern_ty(Ty::Float(FloatWidth::F64)); // TyId(16)
+    checker.intern_ty(Ty::Float(FloatWidth::Arch)); // TyId(17)
+
+    // Special.
+    checker.intern_ty(Ty::Template); // TyId(18)
+    checker.intern_ty(Ty::Type); // TyId(19)
+    checker.intern_ty(Ty::Unknown); // TyId(20)
+
+    checker
   }
 
   /// Create a fresh type variable (α, β, γ, ...)

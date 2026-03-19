@@ -2,12 +2,17 @@
 
 use fret_parser::parse_config;
 use fret_types::{BuildContext, Stage, StageError};
+
 use std::fs;
 
 /// Stage that loads and parses the fret.oz configuration file.
 pub struct LoadConfig;
 
 impl Stage for LoadConfig {
+  fn name(&self) -> &'static str {
+    "LoadConfig"
+  }
+
   fn execute(&self, ctx: &mut BuildContext) -> Result<(), StageError> {
     let config_path = ctx.project_root.join("fret.oz");
 
@@ -45,9 +50,5 @@ impl Stage for LoadConfig {
     fs::create_dir_all(&ctx.output_dir)?;
 
     Ok(())
-  }
-
-  fn name(&self) -> &'static str {
-    "LoadConfig"
   }
 }

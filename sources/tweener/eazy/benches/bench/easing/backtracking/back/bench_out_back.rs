@@ -12,13 +12,13 @@ pub fn out_back(c: &mut Criterion) {
     .sample_size(BENCH_CONFIG.sample_size)
     .significance_level(BENCH_CONFIG.significance_level);
 
+  let nums = (0..10_000)
+    .map(|_num| fastrand::f32() * 1000.0)
+    .collect::<Vec<_>>();
+
   group.bench_function("eazy", |b| {
     use eazy::Curve;
     use eazy::backtracking::back::OutBack;
-
-    let nums = (0..10_000)
-      .map(|_num| fastrand::f32() * 1000.0)
-      .collect::<Vec<_>>();
 
     b.iter(|| {
       for num in nums.iter() {
@@ -28,10 +28,6 @@ pub fn out_back(c: &mut Criterion) {
   });
 
   group.bench_function("easings", |b| {
-    let nums = (0..10_000)
-      .map(|_num| fastrand::f32() * 1000.0)
-      .collect::<Vec<_>>();
-
     b.iter(|| {
       for num in nums.iter() {
         black_box(easings::back_out((*num % 1.0) as f64));
@@ -41,10 +37,6 @@ pub fn out_back(c: &mut Criterion) {
 
   group.bench_function("emath", |b| {
     use emath::easing;
-
-    let nums = (0..10_000)
-      .map(|_num| fastrand::f32() * 1000.0)
-      .collect::<Vec<_>>();
 
     b.iter(|| {
       for num in nums.iter() {
@@ -56,10 +48,6 @@ pub fn out_back(c: &mut Criterion) {
   group.bench_function("interpolation", |b| {
     use interpolation::Ease;
 
-    let nums = (0..10_000)
-      .map(|_num| fastrand::f32() * 1000.0)
-      .collect::<Vec<_>>();
-
     b.iter(|| {
       for num in nums.iter() {
         black_box(num.back_out());
@@ -69,10 +57,6 @@ pub fn out_back(c: &mut Criterion) {
 
   group.bench_function("lilt", |b| {
     use lilt::Easing;
-
-    let nums = (0..10_000)
-      .map(|_num| fastrand::f32() * 1000.0)
-      .collect::<Vec<_>>();
 
     b.iter(|| {
       for num in nums.iter() {
@@ -84,10 +68,6 @@ pub fn out_back(c: &mut Criterion) {
   group.bench_function("nova-easing", |b| {
     use nova_easing::EasingArgument;
 
-    let nums = (0..10_000)
-      .map(|_num| fastrand::f32() * 1000.0)
-      .collect::<Vec<_>>();
-
     b.iter(|| {
       for num in nums.iter() {
         black_box((*num % 1.0).ease_out_back());
@@ -96,10 +76,6 @@ pub fn out_back(c: &mut Criterion) {
   });
 
   group.bench_function("simple_easing2", |b| {
-    let nums = (0..10_000)
-      .map(|_num| fastrand::f32() * 1000.0)
-      .collect::<Vec<_>>();
-
     b.iter(|| {
       for num in nums.iter() {
         black_box(simple_easing2::back_out(*num % 1.0));

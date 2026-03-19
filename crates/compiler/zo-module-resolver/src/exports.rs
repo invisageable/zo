@@ -3,39 +3,60 @@ use crate::resolver::translate_symbol;
 use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
+use zo_ty_checker::TyChecker;
 use zo_value::{FunDef, ValueId};
 
 /// An exported compile-time constant from a module.
 #[derive(Clone, Debug)]
 pub struct ExportedVar {
+  /// The name of the constant (re-interned).
   pub name: Symbol,
+  /// The type of the constant.
   pub ty_id: TyId,
+  /// The initializer value (if compile-time known).
   pub init: Option<ValueId>,
 }
 
 /// Exported symbols from a compiled module.
 pub struct ModuleExports {
-  /// Public function definitions (symbols re-interned).
+  /// The function definitions (re-interned symbols).
   pub funs: Vec<FunDef>,
-  /// Public constant definitions (symbols re-interned).
+  /// The constant definitions (re-interned symbols).
   pub vars: Vec<ExportedVar>,
-  /// Full SIR instruction stream for codegen merging.
+  /// The SIR instruction stream for codegen merging.
   pub sir_instructions: Vec<Insn>,
-  /// Module's next_value_id (for ValueId offset).
+  /// The next value id (for ValueId offset).
   pub next_value_id: u32,
+}
+
+/// Translates a TyId from one TyChecker to another.
+///
+/// Resolves the `Ty` value in the source checker, then interns
+/// it in the destination checker. For pre-registered primitives
+/// this is a no-op (same ID). For complex types this remaps.
+pub fn translate_ty_id(
+  src_id: TyId,
+  src_checker: &TyChecker,
+  dst_checker: &mut TyChecker,
+) -> TyId {
+  let ty = src_checker.resolve_ty(src_id);
+  dst_checker.intern_ty(ty)
 }
 
 /// Extracts pub exports from a compiled module's SIR.
 ///
-/// Scans for `Insn::FunDef` and `Insn::VarDef` with
-/// `is_pub: true` and translates symbol names from the
-/// module's interner into the caller's. If `selective` is
-/// `Some(name)`, only the matching export is included.
+/// Translates symbol names and TyIds from the module's
+/// interner/type checker into the caller's.
+///
+/// If `selective` is `Some(name)`, only the matching export
+/// is included.
 pub fn extract_exports(
-  sir: &Sir,
+  sir: Sir,
   selective: Option<&str>,
   src_interner: &Interner,
   dst_interner: &mut Interner,
+  src_ty_checker: &TyChecker,
+  dst_ty_checker: &mut TyChecker,
 ) -> ModuleExports {
   let mut funs = Vec::new();
   let mut vars = Vec::new();
@@ -66,14 +87,20 @@ pub fn extract_exports(
         let dst_params = params
           .iter()
           .map(|(p, ty)| {
-            (translate_symbol(*p, src_interner, dst_interner), *ty)
+            (
+              translate_symbol(*p, src_interner, dst_interner),
+              translate_ty_id(*ty, src_ty_checker, dst_ty_checker),
+            )
           })
           .collect::<Vec<_>>();
+
+        let dst_return_ty =
+          translate_ty_id(*return_ty, src_ty_checker, dst_ty_checker);
 
         funs.push(FunDef {
           name: dst_name,
           params: dst_params,
-          return_ty: *return_ty,
+          return_ty: dst_return_ty,
           body_start: *body_start,
           is_intrinsic: *is_intrinsic,
           is_pub: *is_pub,
@@ -100,10 +127,11 @@ pub fn extract_exports(
         }
 
         let dst_name = dst_interner.intern(src_name);
+        let dst_ty_id = translate_ty_id(*ty_id, src_ty_checker, dst_ty_checker);
 
         vars.push(ExportedVar {
           name: dst_name,
-          ty_id: *ty_id,
+          ty_id: dst_ty_id,
           init: *init,
         });
       }
@@ -115,7 +143,7 @@ pub fn extract_exports(
   ModuleExports {
     funs,
     vars,
-    sir_instructions: sir.instructions.clone(),
+    sir_instructions: sir.instructions,
     next_value_id: sir.next_value_id,
   }
 }

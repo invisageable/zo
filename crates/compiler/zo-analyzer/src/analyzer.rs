@@ -1,10 +1,11 @@
 use zo_executor::Executor;
-use zo_interner::{Interner, Symbol};
+use zo_interner::Interner;
 use zo_sir::Sir;
 use zo_token::LiteralStore;
 use zo_tree::Tree;
-use zo_ty::{Annotation, TyId};
-use zo_value::{FunDef, ValueId};
+use zo_ty::Annotation;
+use zo_ty_checker::TyChecker;
+use zo_value::{FunDef, Local};
 
 /// Represents the result of semantic analysis.
 pub struct SemanticResult {
@@ -12,12 +13,16 @@ pub struct SemanticResult {
   pub sir: Sir,
   /// The collections of types [`Annotation`].
   pub annotations: Vec<Annotation>,
+  /// The type checker state for cross-module translation.
+  pub ty_checker: TyChecker,
 }
 
 /// Imported module symbols to pre-load into the executor.
 pub struct ImportedSymbols {
+  /// The Function definitions from loaded modules.
   pub funs: Vec<FunDef>,
-  pub vars: Vec<(Symbol, TyId, ValueId)>,
+  /// Constants from loaded modules.
+  pub vars: Vec<Local>,
 }
 
 /// Represents the [`Analyzer`] phase.
@@ -61,8 +66,12 @@ impl<'a> Analyzer<'a> {
       executor = executor.with_imports(imports.funs, imports.vars);
     }
 
-    let (sir, annotations) = executor.execute();
+    let (sir, annotations, ty_checker) = executor.execute();
 
-    SemanticResult { sir, annotations }
+    SemanticResult {
+      sir,
+      annotations,
+      ty_checker,
+    }
   }
 }

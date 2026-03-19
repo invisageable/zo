@@ -76,7 +76,7 @@ impl Orchestrator {
     let files_count = sources.len();
 
     // Convert HashMap to Vec.
-    let files_vec: Vec<(PathBuf, String)> = sources.into_iter().collect();
+    let files_vec = sources.into_iter().collect::<Vec<_>>();
 
     // For batch compilation with output_dir, we need to compile each file
     // individually with its specific output path in the output directory.
@@ -85,6 +85,7 @@ impl Orchestrator {
       if std::fs::create_dir_all(out_dir).is_err() {
         let duration = start_time.elapsed();
         let error = Error::new(ErrorKind::InternalCompilerError, Span::ZERO);
+
         return BatchResult::from_error(error).with_duration(duration);
       }
 
@@ -94,6 +95,7 @@ impl Orchestrator {
           .file_stem()
           .and_then(|s| s.to_str())
           .unwrap_or("output");
+
         let output_path = out_dir.join(filename);
 
         // Compile single file.
@@ -104,19 +106,21 @@ impl Orchestrator {
             .compile(&file_ref, target, &[], &Some(output_path))
         {
           let duration = start_time.elapsed();
+
           return BatchResult::from_error(e).with_duration(duration);
         }
       }
 
       let duration = start_time.elapsed();
+
       return BatchResult::success(files_count).with_duration(duration);
     }
 
     // No output_dir: use default per-file output (same location as source).
-    let files_refs: Vec<(&PathBuf, String)> = files_vec
+    let files_refs = files_vec
       .iter()
       .map(|(path, content)| (path, content.clone()))
-      .collect();
+      .collect::<Vec<_>>();
 
     let result = match self.compiler.compile(&files_refs, target, &[], &None) {
       Ok(()) => BatchResult::success(files_count),
@@ -124,6 +128,7 @@ impl Orchestrator {
     };
 
     let duration = start_time.elapsed();
+
     result.with_duration(duration)
   }
 }

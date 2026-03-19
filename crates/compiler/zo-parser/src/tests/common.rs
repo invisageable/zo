@@ -36,13 +36,13 @@ pub(crate) fn assert_nodes_stream(
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let actual: Vec<_> = parsing
+  let actual = parsing
     .tree
     .nodes
     .iter()
     .enumerate()
     .map(|(i, node)| (node.token, parsing.tree.value(i as u32)))
-    .collect();
+    .collect::<Vec<_>>();
 
   // Check length first
   assert_eq!(

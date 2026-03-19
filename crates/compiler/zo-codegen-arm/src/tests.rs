@@ -28,7 +28,7 @@ fn test_complete_pipeline_hello_world() {
     &tokenization.literals,
   );
 
-  let (sir, _annotations) = executor.execute();
+  let (sir, _annotations, _ty_checker) = executor.execute();
 
   assert_eq!(sir.instructions.len(), 4);
 
@@ -95,14 +95,14 @@ fn test_main_function_detection() {
   sir.emit(Insn::FunDef {
     name: interner.intern("main"),
     params: vec![],
-    return_ty: TyId(0),
+    return_ty: TyId(1),
     body_start: 1,
     is_intrinsic: false,
     is_pub: false,
   });
   sir.emit(Insn::Return {
     value: None,
-    ty_id: TyId(0),
+    ty_id: TyId(1),
   });
 
   let mut codegen = ARM64Gen::new(&interner);
@@ -125,7 +125,7 @@ fn test_string_fixup() {
   sir.emit(Insn::FunDef {
     name: main_sym,
     params: vec![],
-    return_ty: TyId(0),
+    return_ty: TyId(1),
     body_start: 1,
     is_intrinsic: false,
     is_pub: false,
@@ -133,25 +133,25 @@ fn test_string_fixup() {
 
   sir.emit(Insn::ConstString {
     symbol: hello_sym,
-    ty_id: TyId(1),
+    ty_id: TyId(4),
   });
   sir.emit(Insn::Call {
     name: show_sym,
     args: vec![ValueId(0)],
-    ty_id: TyId(0),
+    ty_id: TyId(1),
   });
   sir.emit(Insn::ConstString {
     symbol: world_sym,
-    ty_id: TyId(1),
+    ty_id: TyId(4),
   });
   sir.emit(Insn::Call {
     name: show_sym,
     args: vec![ValueId(1)],
-    ty_id: TyId(0),
+    ty_id: TyId(1),
   });
   sir.emit(Insn::Return {
     value: None,
-    ty_id: TyId(0),
+    ty_id: TyId(1),
   });
 
   let mut codegen = ARM64Gen::new(&interner);

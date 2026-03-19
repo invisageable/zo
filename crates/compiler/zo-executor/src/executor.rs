@@ -170,38 +170,15 @@ impl<'a> Executor<'a> {
   /// Pre-populates the executor with imported function
   /// definitions and constants so they're available during
   /// execution.
-  pub fn with_imports(
-    mut self,
-    funs: Vec<FunDef>,
-    vars: Vec<(Symbol, TyId, ValueId)>,
-  ) -> Self {
+  pub fn with_imports(mut self, funs: Vec<FunDef>, vars: Vec<Local>) -> Self {
     self.funs = funs;
-
-    for (name, ty_id, value_id) in vars {
-      self.locals.push(Local {
-        name,
-        ty_id,
-        value_id,
-        pubness: Pubness::Yes,
-        mutability: Mutability::No,
-      });
-    }
+    self.locals.extend(vars);
 
     self
   }
 
-  /// Executes a parse tree in one pass at once to build a semantic IR.
-  pub fn execute(mut self) -> (Sir, Vec<Annotation>) {
-    for (idx, header) in self.tree.nodes.iter().enumerate() {
-      self.execute_node(header, idx);
-    }
-
-    (self.sir, self.annotations)
-  }
-
-  #[cfg(test)]
-  /// Executes a parse tree in one pass at once to build a semantic IR.
-  pub fn execute_with_tychecker(mut self) -> (Sir, Vec<Annotation>, TyChecker) {
+  /// Executes a parse tree in one pass to build semantic IR.
+  pub fn execute(mut self) -> (Sir, Vec<Annotation>, TyChecker) {
     for (idx, header) in self.tree.nodes.iter().enumerate() {
       self.execute_node(header, idx);
     }

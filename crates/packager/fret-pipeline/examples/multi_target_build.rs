@@ -13,7 +13,7 @@ use std::time::Instant;
 
 fn main() {
   // Get project path from command line or use current directory
-  let args: Vec<String> = std::env::args().collect();
+  let args = std::env::args().collect::<Vec<_>>();
   let project_path = if args.len() > 1 {
     PathBuf::from(&args[1])
   } else {

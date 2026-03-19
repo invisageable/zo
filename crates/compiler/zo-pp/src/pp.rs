@@ -6,6 +6,7 @@ use zo_interner::Interner;
 use zo_sir::{BinOp, Insn, Sir, UnOp};
 use zo_token::{Token, TokenBuffer};
 use zo_tree::Tree;
+use zo_value::Mutability;
 
 /// Represents a [`PrettyPrinter`] instance.
 pub struct PrettyPrinter {
@@ -227,8 +228,8 @@ impl PrettyPrinter {
           let name = interner.get(*name);
 
           let mutability = match mutability {
-            zo_value::Mutability::No => "imu",
-            zo_value::Mutability::Yes => "mut",
+            Mutability::No => "imu",
+            Mutability::Yes => "mut",
           };
 
           if let Some(value) = init {
@@ -242,28 +243,34 @@ impl PrettyPrinter {
         Insn::Store { name, value, .. } => {
           let name = interner.get(*name);
           let store = format!("store {name}, %{value}");
+
           self.sir_instruction(&store);
         }
         Insn::Load { dst, src, .. } => {
           let load = format!("%{dst} = load param[{src}]");
+
           self.sir_instruction(&load);
         }
         Insn::Call { name, args, .. } => {
           let name = interner.get(*name);
           let args = args.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
           let call = format!("%{idx} = call {name}({})", args.join(", "));
+
           self.sir_instruction(&call);
         }
         Insn::ModuleLoad { path, .. } => {
-          let path_str: Vec<&str> =
-            path.iter().map(|s| interner.get(*s)).collect();
+          let path_str =
+            path.iter().map(|s| interner.get(*s)).collect::<Vec<_>>();
+
           let load = format!("load {}", path_str.join("::"));
+
           self.sir_instruction(&load);
         }
         Insn::PackDecl { name, is_pub } => {
           let name = interner.get(*name);
           let vis = if *is_pub { "pub " } else { "" };
           let decl = format!("{vis}pack {name}");
+
           self.sir_instruction(&decl);
         }
         _ => todo!(),

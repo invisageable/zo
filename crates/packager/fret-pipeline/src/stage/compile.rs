@@ -25,7 +25,7 @@ impl Stage for CompileStage {
     let mut source_map = HashMap::with_capacity(ctx.source_files.len());
 
     use rayon::prelude::*;
-    let file_contents: Result<Vec<_>, _> = ctx
+    let file_contents = ctx
       .source_files
       .par_iter()
       .map(|path| {
@@ -39,7 +39,7 @@ impl Stage for CompileStage {
             ))
           })
       })
-      .collect();
+      .collect::<Result<Vec<_>, _>>();
 
     for (path, content) in file_contents? {
       source_map.insert(path, content);
@@ -55,9 +55,10 @@ impl Stage for CompileStage {
       let error_msg = result
         .errors()
         .iter()
-        .map(|e| format!("{:?}", e))
+        .map(|e| format!("{e:?}"))
         .collect::<Vec<_>>()
         .join("\n");
+
       return Err(StageError::Compilation(error_msg));
     }
 

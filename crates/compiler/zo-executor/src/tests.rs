@@ -21,7 +21,7 @@ fn test_integer_literal() {
       },
       Insn::ConstInt {
         value: 42,
-        ty_id: TyId(0),
+        ty_id: TyId(8),
       },
     )],
   );
@@ -37,7 +37,7 @@ fn test_boolean_literals() {
         Ty::Bool,
         Insn::ConstBool {
           value: true,
-          ty_id: TyId(0),
+          ty_id: TyId(2),
         },
       ),
       (
@@ -45,7 +45,7 @@ fn test_boolean_literals() {
         Ty::Bool,
         Insn::ConstBool {
           value: false,
-          ty_id: TyId(0),
+          ty_id: TyId(2),
         },
       ),
     ],
@@ -67,7 +67,7 @@ fn test_simple_addition() {
         s32_ty,
         Insn::ConstInt {
           value: 1,
-          ty_id: TyId(0),
+          ty_id: TyId(8),
         },
       ),
       (
@@ -75,7 +75,7 @@ fn test_simple_addition() {
         s32_ty,
         Insn::ConstInt {
           value: 2,
-          ty_id: TyId(0),
+          ty_id: TyId(8),
         },
       ),
       (
@@ -83,7 +83,7 @@ fn test_simple_addition() {
         s32_ty,
         Insn::ConstInt {
           value: 3,
-          ty_id: TyId(0),
+          ty_id: TyId(8),
         },
       ),
     ],
@@ -106,7 +106,7 @@ fn test_division_by_zero() {
         s32_ty,
         Insn::ConstInt {
           value: 5,
-          ty_id: TyId(0),
+          ty_id: TyId(8),
         },
       ),
       (
@@ -114,7 +114,7 @@ fn test_division_by_zero() {
         s32_ty,
         Insn::ConstInt {
           value: 0,
-          ty_id: TyId(0),
+          ty_id: TyId(8),
         },
       ),
       // No third instruction - division by zero produces error
@@ -137,7 +137,7 @@ fn test_large_integer_literal() {
       s32_ty,
       Insn::ConstInt {
         value: 12345, // Should be 12345, not 0 (the index)
-        ty_id: TyId(0),
+        ty_id: TyId(8),
       },
     )],
   );
@@ -152,10 +152,10 @@ fn test_simple_function() {
       Insn::FunDef {
         name: Symbol(25), // "add" - Symbol IDs vary based on interner state
         params: vec![
-          (Symbol(26), TyId(1)), // x: int
-          (Symbol(27), TyId(1)), // y: int
+          (Symbol(26), TyId(8)), // x: int
+          (Symbol(27), TyId(8)), // y: int
         ],
-        return_ty: TyId(1),
+        return_ty: TyId(8),
         body_start: 1,
         is_intrinsic: false,
         is_pub: false,
@@ -164,13 +164,13 @@ fn test_simple_function() {
       Insn::Load {
         dst: ValueId(0),
         src: 0, // First parameter
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // Load y parameter
       Insn::Load {
         dst: ValueId(1),
         src: 1, // Second parameter
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // x + y
       Insn::BinOp {
@@ -178,12 +178,12 @@ fn test_simple_function() {
         op: BinOp::Add,
         lhs: ValueId(0), // x (loaded)
         rhs: ValueId(1), // y (loaded)
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // implicit return
       Insn::Return {
         value: Some(ValueId(2)), // Result of addition
-        ty_id: TyId(1),          // int type (matches function return type)
+        ty_id: TyId(8),          // int type (matches function return type)
       },
     ],
   );
@@ -201,10 +201,10 @@ fn test_function_call() {
       Insn::FunDef {
         name: Symbol(25), // "add"
         params: vec![
-          (Symbol(26), TyId(1)), // x: int
-          (Symbol(27), TyId(1)), // y: int
+          (Symbol(26), TyId(8)), // x: int
+          (Symbol(27), TyId(8)), // y: int
         ],
-        return_ty: TyId(1),
+        return_ty: TyId(8),
         body_start: 1,
         is_intrinsic: false,
         is_pub: false,
@@ -213,13 +213,13 @@ fn test_function_call() {
       Insn::Load {
         dst: ValueId(0),
         src: 0, // x param
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // add body: load y
       Insn::Load {
         dst: ValueId(1),
         src: 1, // y param
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // add body: x + y
       Insn::BinOp {
@@ -227,18 +227,18 @@ fn test_function_call() {
         op: BinOp::Add,
         lhs: ValueId(0), // x loaded
         rhs: ValueId(1), // y loaded
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // add body: implicit return
       Insn::Return {
         value: Some(ValueId(2)),
-        ty_id: TyId(1), // int type
+        ty_id: TyId(8), // int type
       },
       // main function definition
       Insn::FunDef {
         name: Symbol(28), // "main"
         params: vec![],
-        return_ty: TyId(1),
+        return_ty: TyId(8),
         body_start: 6,
         is_intrinsic: false,
         is_pub: false,
@@ -246,23 +246,23 @@ fn test_function_call() {
       // main body: 10
       Insn::ConstInt {
         value: 10,
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // main body: 20
       Insn::ConstInt {
         value: 20,
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // main body: call add(10, 20)
       Insn::Call {
         name: Symbol(25), // "add"
         args: vec![ValueId(3), ValueId(4)],
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // main body: implicit return
       Insn::Return {
         value: Some(ValueId(5)),
-        ty_id: TyId(1), // int type
+        ty_id: TyId(8), // int type
       },
     ],
   );
@@ -277,7 +277,7 @@ fn test_main_with_show() {
       Insn::FunDef {
         name: Symbol(25), // "main"
         params: vec![],
-        return_ty: TyId(0), // unit (void)
+        return_ty: TyId(1), // unit (void)
         body_start: 1,
         is_intrinsic: false,
         is_pub: false,
@@ -285,19 +285,19 @@ fn test_main_with_show() {
       // main body: "hello world" string literal
       Insn::ConstString {
         symbol: Symbol(27), // "hello world" interned
-        ty_id: TyId(1),     // str type
+        ty_id: TyId(4),     // str type
       },
       // main body: call show("hello world")
       // show is an external/builtin function, not defined here
       Insn::Call {
         name: Symbol(26),       // "show"
         args: vec![ValueId(0)], // the string constant
-        ty_id: TyId(0),         // unit return type
+        ty_id: TyId(1),         // unit return type
       },
       // main body: implicit return
       Insn::Return {
         value: None,    // void return
-        ty_id: TyId(0), // unit type
+        ty_id: TyId(1), // unit type
       },
     ],
   );
@@ -312,9 +312,9 @@ fn test_function_with_return() {
       Insn::FunDef {
         name: Symbol(25), // "square"
         params: vec![
-          (Symbol(26), TyId(1)), // n: int
+          (Symbol(26), TyId(8)), // n: int
         ],
-        return_ty: TyId(1),
+        return_ty: TyId(8),
         body_start: 1,
         is_intrinsic: false,
         is_pub: false,
@@ -323,13 +323,13 @@ fn test_function_with_return() {
       Insn::Load {
         dst: ValueId(0),
         src: 0, // n param
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // Load n parameter (second use - SSA requires separate loads)
       Insn::Load {
         dst: ValueId(1),
         src: 0, // n param
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // n * n
       Insn::BinOp {
@@ -337,12 +337,12 @@ fn test_function_with_return() {
         op: BinOp::Mul,
         lhs: ValueId(0), // first n load
         rhs: ValueId(1), // second n load
-        ty_id: TyId(1),
+        ty_id: TyId(8),
       },
       // explicit return
       Insn::Return {
         value: Some(ValueId(2)), // Result of multiplication
-        ty_id: TyId(1),          // int type
+        ty_id: TyId(8),          // int type
       },
     ],
   );
@@ -362,7 +362,7 @@ fn test_directives() {
       Insn::FunDef {
         name: Symbol(25),
         params: Vec::new(),
-        return_ty: TyId(0),
+        return_ty: TyId(1),
         body_start: 1,
         is_intrinsic: false,
         is_pub: false,
@@ -370,7 +370,7 @@ fn test_directives() {
       Insn::Template {
         id: ValueId(3),
         name: None,
-        ty_id: TyId(1),
+        ty_id: TyId(18),
         commands: vec![], // Empty for test
       },
       Insn::Directive {
@@ -380,7 +380,7 @@ fn test_directives() {
       },
       Insn::Return {
         value: None,
-        ty_id: TyId(0),
+        ty_id: TyId(1),
       },
     ],
   );
