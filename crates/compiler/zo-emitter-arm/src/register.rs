@@ -60,3 +60,37 @@ pub const SP: Register = Register::new(31); // Stack pointer (same encoding as X
 // Special register aliases
 pub const FP: Register = X29; // Frame pointer
 pub const LR: Register = X30; // Link register
+
+/// Represents an ARM64 floating-point/SIMD [`FpRegister`].
+/// Uses the same 0-31 encoding as GP registers but accessed
+/// via FP instructions (FMOV, FADD, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FpRegister {
+  /// The index of the register.
+  index: u8,
+}
+
+impl FpRegister {
+  /// Creates a new [`FpRegister`] instance.
+  pub const fn new(index: u8) -> Self {
+    assert!(index < 32);
+
+    Self { index }
+  }
+
+  /// Gets the index of the [`FpRegister`].
+  #[inline(always)]
+  pub fn index(&self) -> u8 {
+    self.index
+  }
+}
+
+// Floating-point registers (64-bit double)
+pub const D0: FpRegister = FpRegister::new(0);
+pub const D1: FpRegister = FpRegister::new(1);
+pub const D2: FpRegister = FpRegister::new(2);
+pub const D3: FpRegister = FpRegister::new(3);
+pub const D4: FpRegister = FpRegister::new(4);
+pub const D5: FpRegister = FpRegister::new(5);
+pub const D6: FpRegister = FpRegister::new(6);
+pub const D7: FpRegister = FpRegister::new(7);

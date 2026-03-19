@@ -1,4 +1,4 @@
-use crate::register::Register;
+use crate::register::{FpRegister, Register};
 
 /// Represents an [`ARM64Emitter`] instance.
 pub struct ARM64Emitter {
@@ -488,6 +488,112 @@ impl ARM64Emitter {
       | ((rt2.index() as u32) << 10)
       | ((base.index() as u32) << 5)
       | (rt1.index() as u32);
+
+    self.emit_u32(insn);
+  }
+  // === FLOATING-POINT INSTRUCTIONS ===
+
+  /// FMOV Dd, Xn — move GP register to FP register.
+  pub fn emit_fmov_gp_to_fp(&mut self, dst: FpRegister, src: Register) {
+    // Encoding: 1 00 11110 01 1 00 111 000000 Rn Rd
+    let insn = 0x9E670000 | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FADD Dd, Dn, Dm — FP add (double).
+  pub fn emit_fadd(
+    &mut self,
+    dst: FpRegister,
+    src1: FpRegister,
+    src2: FpRegister,
+  ) {
+    // Encoding: 0 00 11110 01 1 Rm 001010 Rn Rd
+    let insn = 0x1E602800
+      | ((src2.index() as u32) << 16)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FSUB Dd, Dn, Dm — FP subtract (double).
+  pub fn emit_fsub(
+    &mut self,
+    dst: FpRegister,
+    src1: FpRegister,
+    src2: FpRegister,
+  ) {
+    // Encoding: 0 00 11110 01 1 Rm 001110 Rn Rd
+    let insn = 0x1E603800
+      | ((src2.index() as u32) << 16)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FMUL Dd, Dn, Dm — FP multiply (double).
+  pub fn emit_fmul(
+    &mut self,
+    dst: FpRegister,
+    src1: FpRegister,
+    src2: FpRegister,
+  ) {
+    // Encoding: 0 00 11110 01 1 Rm 000010 Rn Rd
+    let insn = 0x1E600800
+      | ((src2.index() as u32) << 16)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FDIV Dd, Dn, Dm — FP divide (double).
+  pub fn emit_fdiv(
+    &mut self,
+    dst: FpRegister,
+    src1: FpRegister,
+    src2: FpRegister,
+  ) {
+    // Encoding: 0 00 11110 01 1 Rm 000110 Rn Rd
+    let insn = 0x1E601800
+      | ((src2.index() as u32) << 16)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FCMP Dn, Dm — FP compare (sets NZCV flags).
+  pub fn emit_fcmp(&mut self, src1: FpRegister, src2: FpRegister) {
+    // Encoding: 0 00 11110 01 1 Rm 00 1000 Rn 00 000
+    let insn =
+      0x1E602000 | ((src2.index() as u32) << 16) | ((src1.index() as u32) << 5);
+
+    self.emit_u32(insn);
+  }
+
+  /// LDR Dt, [Xn, #offset] — load double from memory.
+  pub fn emit_ldr_fp(&mut self, dst: FpRegister, base: Register, offset: u16) {
+    // Encoding: 11 111 1 01 01 imm12 Rn Rt
+    let imm12 = ((offset / 8) as u32) & 0xFFF;
+    let insn = 0xFD400000
+      | (imm12 << 10)
+      | ((base.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// STR Dt, [Xn, #offset] — store double to memory.
+  pub fn emit_str_fp(&mut self, src: FpRegister, base: Register, offset: u16) {
+    // Encoding: 11 111 1 01 00 imm12 Rn Rt
+    let imm12 = ((offset / 8) as u32) & 0xFFF;
+    let insn = 0xFD000000
+      | (imm12 << 10)
+      | ((base.index() as u32) << 5)
+      | (src.index() as u32);
 
     self.emit_u32(insn);
   }

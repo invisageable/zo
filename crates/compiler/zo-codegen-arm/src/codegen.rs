@@ -1,7 +1,7 @@
 use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
-  ARM64Emitter, Register, SP, X0, X1, X2, X3, X4, X5, X6, X7, X16,
+  ARM64Emitter, D0, D1, Register, SP, X0, X1, X2, X3, X4, X5, X6, X7, X16,
 };
 use zo_interner::{Interner, Symbol};
 use zo_sir::{BinOp, Insn, Sir};
@@ -362,6 +362,34 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
+      Insn::ConstFloat { value, .. } => {
+        // Load f64 bit pattern into GP register, then FMOV
+        // to FP register.
+        let bits = value.to_bits();
+
+        self.emitter.emit_mov_imm(X0, (bits & 0xFFFF) as u16);
+
+        if (bits >> 16) & 0xFFFF != 0 {
+          self
+            .emitter
+            .emit_movk(X0, ((bits >> 16) & 0xFFFF) as u16, 16);
+        }
+
+        if (bits >> 32) & 0xFFFF != 0 {
+          self
+            .emitter
+            .emit_movk(X0, ((bits >> 32) & 0xFFFF) as u16, 32);
+        }
+
+        if (bits >> 48) & 0xFFFF != 0 {
+          self
+            .emitter
+            .emit_movk(X0, ((bits >> 48) & 0xFFFF) as u16, 48);
+        }
+
+        self.emitter.emit_fmov_gp_to_fp(D0, X0);
+      }
+
       Insn::ConstString { symbol, .. } => {
         let mut buffer = Buffer::new();
 
@@ -457,86 +485,108 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_ret();
       }
 
-      Insn::BinOp { op, .. } => {
-        // For now, assume operands are in X0 and X1
-        // Real implementation would track values properly
-        let lhs_reg = X0;
-        let rhs_reg = X1;
-        let dst_reg = X0;
+      Insn::BinOp { op, ty_id, .. } => {
+        // Check if this is a float operation.
+        let is_float = ty_id.0 >= 15 && ty_id.0 <= 17;
 
-        match op {
-          BinOp::Add => {
-            self.emitter.emit_add(dst_reg, lhs_reg, rhs_reg);
-          }
-          BinOp::Sub => {
-            self.emitter.emit_sub(dst_reg, lhs_reg, rhs_reg);
-          }
-          BinOp::Mul => {
-            self.emitter.emit_mul(dst_reg, lhs_reg, rhs_reg);
-          }
-          BinOp::Div => {
-            // Use signed division for now
-            self.emitter.emit_sdiv(dst_reg, lhs_reg, rhs_reg);
-          }
-          BinOp::Rem => {
-            // Modulo: dst = lhs - (lhs / rhs) * rhs
-            // Need a temp register for division result
-            let temp = X0; // Use X0 as temp
+        if is_float {
+          let lhs = D0;
+          let rhs = D1;
+          let dst = D0;
 
-            self.emitter.emit_sdiv(temp, lhs_reg, rhs_reg);
-            self.emitter.emit_mul(temp, temp, rhs_reg);
-            self.emitter.emit_sub(dst_reg, lhs_reg, temp);
+          match op {
+            BinOp::Add => self.emitter.emit_fadd(dst, lhs, rhs),
+            BinOp::Sub => self.emitter.emit_fsub(dst, lhs, rhs),
+            BinOp::Mul => self.emitter.emit_fmul(dst, lhs, rhs),
+            BinOp::Div => self.emitter.emit_fdiv(dst, lhs, rhs),
+            BinOp::Lt
+            | BinOp::Lte
+            | BinOp::Gt
+            | BinOp::Gte
+            | BinOp::Eq
+            | BinOp::Neq => {
+              self.emitter.emit_fcmp(lhs, rhs);
+            }
+            _ => {}
           }
-          BinOp::BitAnd => {
-            self.emitter.emit_and(dst_reg, lhs_reg, rhs_reg);
-          }
-          BinOp::BitOr => {
-            self.emitter.emit_orr(dst_reg, lhs_reg, rhs_reg);
-          }
-          BinOp::Shl => {
-            self.emitter.emit_lsl(dst_reg, lhs_reg, 1);
-          }
-          BinOp::Shr => {
-            self.emitter.emit_lsr(dst_reg, lhs_reg, 1);
-          }
-          BinOp::Lt => {
-            self.emitter.emit_cmp(lhs_reg, rhs_reg);
-            self.emitter.emit_mov_imm(dst_reg, 1);
-            self.emitter.emit_mov_imm(X0, 0);
-            self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xB);
-          }
-          BinOp::Lte => {
-            self.emitter.emit_cmp(lhs_reg, rhs_reg);
-            self.emitter.emit_mov_imm(dst_reg, 1);
-            self.emitter.emit_mov_imm(X0, 0);
-            self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xD);
-          }
-          BinOp::Gt => {
-            self.emitter.emit_cmp(lhs_reg, rhs_reg);
-            self.emitter.emit_mov_imm(dst_reg, 1);
-            self.emitter.emit_mov_imm(X0, 0);
-            self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xC);
-          }
-          BinOp::Gte => {
-            self.emitter.emit_cmp(lhs_reg, rhs_reg);
-            self.emitter.emit_mov_imm(dst_reg, 1);
-            self.emitter.emit_mov_imm(X0, 0);
-            self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xA);
-          }
-          BinOp::Eq => {
-            self.emitter.emit_cmp(lhs_reg, rhs_reg);
-            self.emitter.emit_mov_imm(dst_reg, 1);
-            self.emitter.emit_mov_imm(X0, 0);
-            self.emitter.emit_csel(dst_reg, dst_reg, X0, 0x0);
-          }
-          BinOp::Neq => {
-            self.emitter.emit_cmp(lhs_reg, rhs_reg);
-            self.emitter.emit_mov_imm(dst_reg, 1);
-            self.emitter.emit_mov_imm(X0, 0);
-            self.emitter.emit_csel(dst_reg, dst_reg, X0, 0x1);
-          }
-          _ => {
-            // Other operations not yet implemented
+        } else {
+          let lhs_reg = X0;
+          let rhs_reg = X1;
+          let dst_reg = X0;
+
+          match op {
+            BinOp::Add => {
+              self.emitter.emit_add(dst_reg, lhs_reg, rhs_reg);
+            }
+            BinOp::Sub => {
+              self.emitter.emit_sub(dst_reg, lhs_reg, rhs_reg);
+            }
+            BinOp::Mul => {
+              self.emitter.emit_mul(dst_reg, lhs_reg, rhs_reg);
+            }
+            BinOp::Div => {
+              self.emitter.emit_sdiv(dst_reg, lhs_reg, rhs_reg);
+            }
+            BinOp::Rem => {
+              // Modulo: dst = lhs - (lhs / rhs) * rhs
+              // Need a temp register for division result
+              let temp = X0; // Use X0 as temp
+
+              self.emitter.emit_sdiv(temp, lhs_reg, rhs_reg);
+              self.emitter.emit_mul(temp, temp, rhs_reg);
+              self.emitter.emit_sub(dst_reg, lhs_reg, temp);
+            }
+            BinOp::BitAnd => {
+              self.emitter.emit_and(dst_reg, lhs_reg, rhs_reg);
+            }
+            BinOp::BitOr => {
+              self.emitter.emit_orr(dst_reg, lhs_reg, rhs_reg);
+            }
+            BinOp::Shl => {
+              self.emitter.emit_lsl(dst_reg, lhs_reg, 1);
+            }
+            BinOp::Shr => {
+              self.emitter.emit_lsr(dst_reg, lhs_reg, 1);
+            }
+            BinOp::Lt => {
+              self.emitter.emit_cmp(lhs_reg, rhs_reg);
+              self.emitter.emit_mov_imm(dst_reg, 1);
+              self.emitter.emit_mov_imm(X0, 0);
+              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xB);
+            }
+            BinOp::Lte => {
+              self.emitter.emit_cmp(lhs_reg, rhs_reg);
+              self.emitter.emit_mov_imm(dst_reg, 1);
+              self.emitter.emit_mov_imm(X0, 0);
+              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xD);
+            }
+            BinOp::Gt => {
+              self.emitter.emit_cmp(lhs_reg, rhs_reg);
+              self.emitter.emit_mov_imm(dst_reg, 1);
+              self.emitter.emit_mov_imm(X0, 0);
+              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xC);
+            }
+            BinOp::Gte => {
+              self.emitter.emit_cmp(lhs_reg, rhs_reg);
+              self.emitter.emit_mov_imm(dst_reg, 1);
+              self.emitter.emit_mov_imm(X0, 0);
+              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xA);
+            }
+            BinOp::Eq => {
+              self.emitter.emit_cmp(lhs_reg, rhs_reg);
+              self.emitter.emit_mov_imm(dst_reg, 1);
+              self.emitter.emit_mov_imm(X0, 0);
+              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0x0);
+            }
+            BinOp::Neq => {
+              self.emitter.emit_cmp(lhs_reg, rhs_reg);
+              self.emitter.emit_mov_imm(dst_reg, 1);
+              self.emitter.emit_mov_imm(X0, 0);
+              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0x1);
+            }
+            _ => {
+              // Other operations not yet implemented
+            }
           }
         }
       }
