@@ -55,6 +55,10 @@ build:
 clean:
   cargo clean
 
+# Run zo compiler benchmark
+zo_bench program:
+  cargo build --release --bin zo && cargo run --release -p zo-benches -- {{program}}
+
 # Run all cargo benchmarks
 bench:
   cargo bench --all

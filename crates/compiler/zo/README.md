@@ -37,7 +37,7 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
 - [x] build native apps — *`gpu` (egui) and `wasm` (web-sys)*.
 - [ ] safe concurrency model — *actor model erlang-like*.
 - [x] fast `compilation-time` — *insanely faster, usain is jealous*.
-- [ ] powerful `tools` — *native REPL, code editor, packager, etc*.
+- [x] powerful `tools` — *native REPL, code editor, packager, etc*.
 
 ## what's next?
 
@@ -106,6 +106,18 @@ cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/templating/hello.z
 
 THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *PRiNTS `hello, world!`.*
 
-![hello](./zo-notes/public/preview/preview-zo-hello.png)
+![hello](../zo-notes/public/preview/preview-zo-hello.png)
+
+**[-hello-(native)](./crates/compiler/zo-tests/run-pass/templating/01-hello.zo)**
+
+THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *RENDERS `hello, world!` iN NATiVE APP.*
+
+![hello](../zo-notes/public/preview/preview-zo-hello-template-native.png)
+
+**[-hello-(web)](./crates/compiler/zo-tests/run-pass/templating/01-hello.zo)**
+
+THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *RENDERS `hello, world!` iN WEB APP.*
+
+![hello](../zo-notes/public/preview/preview-zo-hello-template-web.png)
 
 > « The universe needs to preserve guys like Graydon Hoare! » — *because they challenge us to reject "accepted" solutions and build something better*.
