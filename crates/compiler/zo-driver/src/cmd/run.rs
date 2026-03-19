@@ -2,14 +2,14 @@ use crate::args;
 use crate::cmd::Handle;
 use crate::constants::{EXIT_CODE_ERROR, EXIT_CODE_SUCCESS};
 
-use zo_analyzer::Analyzer;
+use zo_compiler::Compiler;
 use zo_error::{Error, ErrorKind};
-use zo_parser::Parser;
 use zo_runtime::{EventRegistry, Graphics, Runtime, RuntimeConfig};
 use zo_sir::Insn;
 use zo_span::Span;
-use zo_tokenizer::Tokenizer;
 use zo_ui_protocol::UiCommand;
+
+use std::path::PathBuf;
 
 #[derive(clap::Args, Debug)]
 pub(crate) struct Run {
@@ -43,21 +43,29 @@ impl Run {
       }
     };
 
-    // Tokenize
-    let tokenizer = Tokenizer::new(&source);
-    let tokenization = tokenizer.tokenize();
+    // Build search paths for module resolution.
+    let mut search_paths = Vec::new();
 
-    // Parse
-    let parser = Parser::new(&tokenization, &source);
-    let parsing = parser.parse();
+    if let Ok(std_path) = std::env::var("ZO_STD_PATH") {
+      search_paths.push(PathBuf::from(std_path));
+    } else if let Ok(exe) = std::env::current_exe()
+      && let Some(parent) = exe.parent()
+    {
+      let std_path = parent.join("../lib/std");
 
-    // Analyze
-    let analyzer = Analyzer::new(
-      &parsing.tree,
-      &tokenization.interner,
-      &tokenization.literals,
-    );
-    let semantic = analyzer.analyze();
+      if std_path.is_dir() {
+        search_paths.push(std_path);
+      }
+    }
+
+    if let Some(parent) = input_path.parent() {
+      search_paths.push(parent.to_path_buf());
+    }
+
+    // Analyze with full module resolution.
+    let mut compiler = Compiler::with_search_paths(search_paths);
+    let (semantic, tokenization, _parsing) =
+      compiler.analyze_source(&source, input_path);
 
     // Extract UI commands from templates in SIR
     let mut ui_commands = Vec::new();

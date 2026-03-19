@@ -8,19 +8,19 @@ use crate::constants::{
 
 use crate::stage::Stage;
 
-use zo_analyzer::{Analyzer, ImportedSymbols};
+use zo_analyzer::{Analyzer, ImportedSymbols, SemanticResult};
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
 use zo_module_resolver::{ModuleResolver, extract_exports};
-use zo_parser::Parser;
+use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{ErrorAggregator, Reporter, render_errors_to_stderr};
 use zo_span::Span;
 use zo_token::Token;
-use zo_tokenizer::Tokenizer;
+use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree};
 use zo_ty_checker::TyChecker;
 use zo_value::{Local, Mutability, Pubness, ValueId};
@@ -134,6 +134,181 @@ impl Compiler {
     packs
   }
 
+  /// Analyzes a single source file with full module resolution.
+  /// Returns the semantic result and tokenization for further
+  /// processing (codegen or runtime execution).
+  pub fn analyze_source(
+    &mut self,
+    source: &str,
+    file_path: &Path,
+  ) -> (SemanticResult, TokenizationResult, ParsingResult) {
+    self.profiler.start_phase(TOKENIZER_NAME);
+    let tokenizer = Tokenizer::new(source);
+    let mut tokenization = tokenizer.tokenize();
+    self.profiler.end_phase(TOKENIZER_NAME);
+
+    self.profiler.start_phase(PARSER_NAME);
+    let parser = Parser::new(&tokenization, source);
+    let parsing = parser.parse();
+    self.profiler.end_phase(PARSER_NAME);
+
+    // Auto-discover and compile lib.zo for pack validation.
+    let declared_packs: Vec<(String, bool)> =
+      if let Some(lib_path) = Self::discover_lib(file_path) {
+        let lib_source = fs::read_to_string(&lib_path).unwrap_or_default();
+        let lib_tokenization = Tokenizer::new(&lib_source).tokenize();
+        let lib_parsing = Parser::new(&lib_tokenization, &lib_source).parse();
+        let packs =
+          Self::scan_packs(&lib_parsing.tree, &lib_tokenization.interner);
+
+        let dir = lib_path.parent().unwrap_or(Path::new("."));
+
+        for (pack_name, _) in &packs {
+          let pack_file = dir.join(format!("{pack_name}.zo"));
+          let pack_dir = dir.join(pack_name).join("lib.zo");
+
+          if !pack_file.is_file() && !pack_dir.is_file() {
+            eprintln!(
+              "Error: pack `{pack_name}` declared in lib.zo \
+               but `{pack_name}.zo` not found"
+            );
+          }
+        }
+
+        packs
+      } else {
+        Vec::new()
+      };
+
+    // Resolve and compile loaded modules BEFORE analysis.
+    let module_paths = Self::scan_loads(&parsing.tree);
+    let mut imported_funs = Vec::new();
+    let mut imported_vars = Vec::new();
+    let mut module_sir_instructions = Vec::new();
+    let mut module_next_value_id: u32 = 0;
+
+    if !declared_packs.is_empty() {
+      for module_path in &module_paths {
+        if let Some(first_seg) = module_path.first() {
+          let first_name = tokenization.interner.get(*first_seg);
+          let is_declared =
+            declared_packs.iter().any(|(name, _)| name == first_name);
+
+          if !is_declared {
+            eprintln!(
+              "Warning: module `{first_name}` \
+               not declared in lib.zo"
+            );
+          }
+        }
+      }
+    }
+
+    for module_path in &module_paths {
+      let (mod_source, selective, resolved_path) = {
+        let resolved = self
+          .module_resolver
+          .resolve(module_path, &tokenization.interner);
+
+        match resolved {
+          Some(m) => {
+            (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
+          }
+          None => {
+            let path_str = module_path
+              .iter()
+              .map(|s| tokenization.interner.get(*s))
+              .collect::<Vec<_>>();
+
+            eprintln!("Error: unresolved module `{}`", path_str.join("::"));
+
+            continue;
+          }
+        }
+      };
+
+      if self.compiling.contains(&resolved_path) {
+        eprintln!("Error: circular import detected");
+        continue;
+      }
+
+      self.compiling.insert(resolved_path.clone());
+
+      let mod_tokenization = Tokenizer::new(&mod_source).tokenize();
+      let mod_parsing = Parser::new(&mod_tokenization, &mod_source).parse();
+      let mod_analyzer = Analyzer::new(
+        &mod_parsing.tree,
+        &mod_tokenization.interner,
+        &mod_tokenization.literals,
+      );
+      let mod_semantic = mod_analyzer.analyze();
+
+      let mut dst_ty_checker = TyChecker::new();
+
+      let exports = extract_exports(
+        mod_semantic.sir,
+        selective.as_deref(),
+        &mod_tokenization.interner,
+        &mut tokenization.interner,
+        &mod_semantic.ty_checker,
+        &mut dst_ty_checker,
+      );
+
+      imported_funs.extend(exports.funs);
+
+      for var in exports.vars {
+        imported_vars.push(Local {
+          name: var.name,
+          ty_id: var.ty_id,
+          value_id: var.init.unwrap_or(ValueId(0)),
+          pubness: Pubness::Yes,
+          mutability: Mutability::No,
+        });
+      }
+
+      module_sir_instructions.extend(exports.sir_instructions);
+      module_next_value_id += exports.next_value_id;
+
+      self.compiling.remove(&resolved_path);
+    }
+
+    // Analyze with imported symbols pre-loaded.
+    self.profiler.start_phase(ANALYZER_NAME);
+
+    let analyzer = Analyzer::new(
+      &parsing.tree,
+      &tokenization.interner,
+      &tokenization.literals,
+    );
+
+    let analyzer = if !imported_funs.is_empty() || !imported_vars.is_empty() {
+      analyzer.with_imports(ImportedSymbols {
+        funs: imported_funs,
+        vars: imported_vars,
+      })
+    } else {
+      analyzer
+    };
+
+    let mut semantic = analyzer.analyze();
+    self.profiler.end_phase(ANALYZER_NAME);
+
+    // Merge module SIR before main SIR for codegen.
+    if !module_sir_instructions.is_empty() {
+      offset_value_ids(&mut semantic.sir.instructions, module_next_value_id);
+      semantic.sir.next_value_id += module_next_value_id;
+
+      let mut merged = module_sir_instructions;
+      merged.append(&mut semantic.sir.instructions);
+      semantic.sir.instructions = merged;
+    }
+
+    // Dead code elimination.
+    zo_dce::eliminate_dead_functions(&mut semantic.sir);
+
+    (semantic, tokenization, parsing)
+  }
+
   /// Compiles a collections of files based on the [`Target`].
   pub fn compile(
     &mut self,
@@ -160,11 +335,11 @@ impl Compiler {
     self.profiler.set_total_lines(self.stats.numlines);
 
     for (path, code) in files.iter() {
-      self.profiler.start_phase(TOKENIZER_NAME);
-      let tokenizer = Tokenizer::new(code);
-      let tokenization = tokenizer.tokenize();
+      let (semantic, tokenization, parsing) = self.analyze_source(code, path);
+
       self.stats.numtokens += tokenization.tokens.len();
-      self.profiler.end_phase(TOKENIZER_NAME);
+      self.stats.numnodes += parsing.tree.nodes.len();
+      self.stats.numinferences += semantic.annotations.len();
 
       if should_emit_tokens {
         let tokens_path = path.with_extension("tokens");
@@ -177,12 +352,6 @@ impl Compiler {
         }
       }
 
-      self.profiler.start_phase(PARSER_NAME);
-      let parser = Parser::new(&tokenization, code);
-      let parsing = parser.parse();
-      self.stats.numnodes += parsing.tree.nodes.len();
-      self.profiler.end_phase(PARSER_NAME);
-
       if should_emit_tree {
         let tree_path = path.with_extension("tree");
         let mut pp = PrettyPrinter::new();
@@ -193,168 +362,6 @@ impl Compiler {
           eprintln!("Failed to write tree to {tree_path:?}: {error}");
         }
       }
-
-      // Auto-discover and compile lib.zo for pack validation.
-      let mut tokenization = tokenization;
-      let declared_packs: Vec<(String, bool)> =
-        if let Some(lib_path) = Self::discover_lib(path) {
-          let lib_source = fs::read_to_string(&lib_path).unwrap_or_default();
-          let lib_tokenization = Tokenizer::new(&lib_source).tokenize();
-          let lib_parsing = Parser::new(&lib_tokenization, &lib_source).parse();
-          let packs =
-            Self::scan_packs(&lib_parsing.tree, &lib_tokenization.interner);
-
-          // Validate declared packs against filesystem.
-          let dir = lib_path.parent().unwrap_or(Path::new("."));
-
-          for (pack_name, _) in &packs {
-            let pack_file = dir.join(format!("{pack_name}.zo"));
-            let pack_dir = dir.join(pack_name).join("lib.zo");
-
-            if !pack_file.is_file() && !pack_dir.is_file() {
-              eprintln!(
-                "Error: pack `{pack_name}` declared in lib.zo \
-                 but `{pack_name}.zo` not found"
-              );
-            }
-          }
-
-          packs
-        } else {
-          Vec::new()
-        };
-
-      // Resolve and compile loaded modules BEFORE analysis
-      // so the executor has imported symbols in scope.
-      let module_paths = Self::scan_loads(&parsing.tree);
-      let mut imported_funs = Vec::new();
-      let mut imported_vars = Vec::new();
-      let mut module_sir_instructions = Vec::new();
-      let mut module_next_value_id: u32 = 0;
-
-      // Validate load paths against declared packs.
-      if !declared_packs.is_empty() {
-        for module_path in &module_paths {
-          if let Some(first_seg) = module_path.first() {
-            let first_name = tokenization.interner.get(*first_seg);
-            let is_declared =
-              declared_packs.iter().any(|(name, _)| name == first_name);
-
-            if !is_declared {
-              eprintln!(
-                "Warning: module `{first_name}` \
-                 not declared in lib.zo"
-              );
-            }
-          }
-        }
-      }
-
-      for module_path in &module_paths {
-        let (source, selective, resolved_path) = {
-          let resolved = self
-            .module_resolver
-            .resolve(module_path, &tokenization.interner);
-
-          match resolved {
-            Some(m) => {
-              (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
-            }
-            None => {
-              let path_str = module_path
-                .iter()
-                .map(|s| tokenization.interner.get(*s))
-                .collect::<Vec<_>>();
-
-              eprintln!("Error: unresolved module `{}`", path_str.join("::"));
-
-              continue;
-            }
-          }
-        };
-
-        // Circular import guard.
-        if self.compiling.contains(&resolved_path) {
-          eprintln!("Error: circular import detected");
-          continue;
-        }
-
-        self.compiling.insert(resolved_path.clone());
-
-        // Compile the resolved module.
-        let mod_tokenization = Tokenizer::new(&source).tokenize();
-        let mod_parsing = Parser::new(&mod_tokenization, &source).parse();
-        let mod_analyzer = Analyzer::new(
-          &mod_parsing.tree,
-          &mod_tokenization.interner,
-          &mod_tokenization.literals,
-        );
-        let mod_semantic = mod_analyzer.analyze();
-
-        // Extract pub exports with symbol + type translation.
-        let mut dst_ty_checker = TyChecker::new();
-
-        let exports = extract_exports(
-          mod_semantic.sir,
-          selective.as_deref(),
-          &mod_tokenization.interner,
-          &mut tokenization.interner,
-          &mod_semantic.ty_checker,
-          &mut dst_ty_checker,
-        );
-
-        imported_funs.extend(exports.funs);
-
-        for var in exports.vars {
-          imported_vars.push(Local {
-            name: var.name,
-            ty_id: var.ty_id,
-            value_id: var.init.unwrap_or(ValueId(0)),
-            pubness: Pubness::Yes,
-            mutability: Mutability::No,
-          });
-        }
-
-        module_sir_instructions.extend(exports.sir_instructions);
-        module_next_value_id += exports.next_value_id;
-
-        self.compiling.remove(&resolved_path);
-      }
-
-      // Analyze with imported symbols pre-loaded.
-      self.profiler.start_phase(ANALYZER_NAME);
-      let analyzer = Analyzer::new(
-        &parsing.tree,
-        &tokenization.interner,
-        &tokenization.literals,
-      );
-
-      let analyzer = if !imported_funs.is_empty() || !imported_vars.is_empty() {
-        analyzer.with_imports(ImportedSymbols {
-          funs: imported_funs,
-          vars: imported_vars,
-        })
-      } else {
-        analyzer
-      };
-
-      let mut semantic = analyzer.analyze();
-      self.stats.numinferences += semantic.annotations.len();
-      self.profiler.end_phase(ANALYZER_NAME);
-
-      // Merge module SIR before main SIR for codegen.
-      if !module_sir_instructions.is_empty() {
-        // Offset main SIR ValueIds to avoid collisions.
-        offset_value_ids(&mut semantic.sir.instructions, module_next_value_id);
-        semantic.sir.next_value_id += module_next_value_id;
-
-        let mut merged = module_sir_instructions;
-        merged.append(&mut semantic.sir.instructions);
-        semantic.sir.instructions = merged;
-      }
-
-      // Dead code elimination — remove uncalled functions.
-      zo_dce::eliminate_dead_functions(&mut semantic.sir);
 
       if should_emit_sir {
         let sir_path = path.with_extension("sir");
