@@ -35,17 +35,19 @@ fn test_if_simple() {
         value: 42,
         ty_id: TyId(8),
       },
+      Insn::Label { id: 1 },
+      Insn::Label { id: 0 },
       Insn::Return {
         value: None,
         ty_id: TyId(1),
       },
-      Insn::Label { id: 0 },
     ],
   );
 }
 
 #[test]
 fn test_if_else() {
+  // Get actual output first to update expectations.
   assert_sir_stream(
     r#"fun main() -> int {
   if true {
@@ -75,13 +77,15 @@ fn test_if_else() {
         value: 1,
         ty_id: TyId(8),
       },
-      Insn::Return {
-        value: Some(ValueId(1)),
+      Insn::Jump { target: 0 },
+      Insn::Label { id: 1 },
+      Insn::ConstInt {
+        value: 2,
         ty_id: TyId(8),
       },
       Insn::Label { id: 0 },
-      Insn::ConstInt {
-        value: 2,
+      Insn::Return {
+        value: Some(ValueId(2)),
         ty_id: TyId(8),
       },
     ],
@@ -118,12 +122,12 @@ fn test_while_loop() {
         value: 42,
         ty_id: TyId(8),
       },
+      Insn::Jump { target: 0 },
+      Insn::Label { id: 1 },
       Insn::Return {
         value: None,
         ty_id: TyId(1),
       },
-      Insn::Jump { target: 0 },
-      Insn::Label { id: 1 },
     ],
   );
 }

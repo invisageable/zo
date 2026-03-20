@@ -255,16 +255,16 @@ impl<'a> Executor<'a> {
 
       // === CONTROL FLOW ELSE ===
       Token::Else => {
-        if let Some(ctx) = self.branch_stack.last()
+        if let Some(ctx) = self.branch_stack.last_mut()
           && ctx.kind == BranchKind::If
         {
-          // Jump over else block.
+          // Jump over else block (from if-body).
           self.sir.emit(Insn::Jump {
             target: ctx.end_label,
           });
 
           // Emit else label.
-          if let Some(else_label) = ctx.else_label {
+          if let Some(else_label) = ctx.else_label.take() {
             self.sir.emit(Insn::Label { id: else_label });
           }
         }
@@ -304,14 +304,16 @@ impl<'a> Executor<'a> {
             is_pub: pending_func.is_pub,
           });
 
-          // Now set the context with the correct body start
+          // Now set the context with the correct body start.
+          // scope_depth tracks where we are so only the
+          // function body's RBrace triggers function-close.
           self.current_function = Some(FunCtx {
-            // name: pending_func.name,
             return_ty: pending_func.return_ty,
             body_start,
             fundef_idx,
             has_explicit_return: false,
             pending_return: false,
+            scope_depth: self.scope_stack.len(),
           });
 
           // Update body_start in the pending function
@@ -351,8 +353,18 @@ impl<'a> Executor<'a> {
         // Check for pending return (explicit return without semicolon)
         self.check_pending_return();
 
-        // Check if we're closing a function body
-        if let Some(fun_ctx) = &self.current_function {
+        // Check if we're closing the function body (not an
+        // inner block like if/else/while).
+        // The function body scope is about to be popped.
+        // It was pushed AFTER scope_depth was captured, so
+        // current depth is scope_depth + 1 at the function
+        // body's RBrace, and deeper for inner blocks.
+        let at_fn_depth = self
+          .current_function
+          .as_ref()
+          .is_some_and(|c| self.scope_stack.len() == c.scope_depth + 1);
+
+        if at_fn_depth && let Some(fun_ctx) = &self.current_function {
           // Only emit implicit return if there wasn't an explicit one
           if !fun_ctx.has_explicit_return {
             // Emit implicit return if needed
@@ -365,7 +377,8 @@ impl<'a> Executor<'a> {
             let body_ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
             let (return_value, return_ty) = if func_return_ty == unit_ty {
-              // Void function — check for unused value.
+              // Void function with implicit non-unit return
+              // → user likely forgot `-> T` annotation.
               if has_value && body_ty != unit_ty {
                 let span = self.tree.spans[idx];
 
@@ -428,11 +441,26 @@ impl<'a> Executor<'a> {
               self.branch_stack.pop();
             }
             BranchKind::If => {
-              // Emit end label. Pop only when there's no
-              // pending else (the parser closes If at RBrace
-              // only if no else follows).
-              self.sir.emit(Insn::Label { id: ctx.end_label });
-              self.branch_stack.pop();
+              // Check if the next tree token is Else.
+              let next_is_else = self
+                .tree
+                .nodes
+                .get(idx + 1)
+                .is_some_and(|n| n.token == Token::Else);
+
+              if next_is_else {
+                // Else follows — don't close yet.
+                // Token::Else will emit Jump + Label.
+              } else {
+                // No else — emit the label that
+                // BranchIfNot targets (else_label),
+                // plus end_label, then pop.
+                if let Some(el) = ctx.else_label {
+                  self.sir.emit(Insn::Label { id: el });
+                }
+                self.sir.emit(Insn::Label { id: ctx.end_label });
+                self.branch_stack.pop();
+              }
             }
           }
         }
@@ -579,7 +607,10 @@ impl<'a> Executor<'a> {
           } else {
             // Check if this identifier is a known function
             // — call handling happens at RParen, not here.
-            let is_fun = self.funs.iter().any(|f| f.name == sym);
+            let name = self.interner.get(sym);
+            let is_builtin =
+              matches!(name, "show" | "showln" | "eshow" | "eshowln" | "flush");
+            let is_fun = is_builtin || self.funs.iter().any(|f| f.name == sym);
 
             if !is_fun {
               let span = self.tree.spans[idx];
@@ -669,9 +700,26 @@ impl<'a> Executor<'a> {
       // === STATEMENT TERMINATOR ===
       Token::Semicolon => {
         // Finalize any pending variable declaration.
+        let had_decl = self.pending_decl.is_some();
+
         self.finalize_pending_decl();
+
         // Check if we have a pending return to complete.
+        let had_return = self
+          .current_function
+          .as_ref()
+          .is_some_and(|ctx| ctx.pending_return);
+
         self.check_pending_return();
+
+        // If neither a declaration nor a return consumed
+        // the stacks, this is an expression statement —
+        // discard the value so it doesn't leak to `}`.
+        if !had_decl && !had_return {
+          self.value_stack.pop();
+          self.ty_stack.pop();
+          self.sir_values.pop();
+        }
       }
 
       // === ASSIGNMENT ===
@@ -2540,6 +2588,9 @@ struct FunCtx {
   pub(crate) has_explicit_return: bool,
   /// Set when we see 'return' keyword, cleared when we emit Return insn.
   pub(crate) pending_return: bool,
+  /// Scope depth when the function body was entered.
+  /// Only close the function at this depth's RBrace.
+  pub(crate) scope_depth: usize,
 }
 
 /// Tag classification for the template tag registry.
