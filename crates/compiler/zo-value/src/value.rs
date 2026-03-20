@@ -254,4 +254,9 @@ pub struct Local {
   pub mutability: Mutability,
   /// The pubness flag.
   pub pubness: Pubness,
+  /// SIR ValueId from the init expression (locals) or
+  /// None (params — Load emitted on each reference).
+  pub sir_value: Option<ValueId>,
+  /// Whether this local is a function parameter.
+  pub is_param: bool,
 }

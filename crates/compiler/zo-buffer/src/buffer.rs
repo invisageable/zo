@@ -3,6 +3,7 @@ pub struct Buffer {
   /// The inner buffer.
   inner: Vec<u8>,
 }
+
 impl Buffer {
   /// Creates a new [`Buffer`] instance.
   pub fn new() -> Self {
@@ -89,6 +90,7 @@ impl Buffer {
     self.inner
   }
 }
+
 impl Default for Buffer {
   fn default() -> Self {
     Self::new()

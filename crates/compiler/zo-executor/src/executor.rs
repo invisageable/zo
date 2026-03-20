@@ -70,6 +70,17 @@ pub struct Executor<'a> {
   widget_counter: Cell<u32>,
   /// The pending branch contexts for control flow.
   branch_stack: Vec<BranchCtx>,
+  /// Skip main-loop processing until this index.
+  skip_until: usize,
+  /// Pending variable declaration (deferred to Semicolon).
+  pending_decl: Option<PendingDecl>,
+}
+
+/// Deferred variable declaration, finalized at Semicolon.
+struct PendingDecl {
+  name: Symbol,
+  is_mutable: bool,
+  is_pub: bool,
 }
 impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
@@ -100,6 +111,8 @@ impl<'a> Executor<'a> {
       pending_var_name: None,
       widget_counter: Cell::new(0),
       branch_stack: Vec::with_capacity(8),
+      skip_until: 0,
+      pending_decl: None,
     }
   }
 
@@ -182,8 +195,12 @@ impl<'a> Executor<'a> {
 
   /// Executes a parse tree in one pass to build semantic IR.
   pub fn execute(mut self) -> (Sir, Vec<Annotation>, TyChecker) {
-    for (idx, header) in self.tree.nodes.iter().enumerate() {
-      self.execute_node(header, idx);
+    for idx in 0..self.tree.nodes.len() {
+      if idx < self.skip_until {
+        continue;
+      }
+      let header = self.tree.nodes[idx];
+      self.execute_node(&header, idx);
     }
 
     (self.sir, self.annotations, self.ty_checker)
@@ -202,33 +219,25 @@ impl<'a> Executor<'a> {
       // === MODULE STATEMENTS ===
       Token::Load => {
         let children_end = (header.child_start + header.child_count) as usize;
-
         self.execute_load(idx, children_end);
+        self.skip_until = children_end;
       }
 
       Token::Pack => {
         let children_end = (header.child_start + header.child_count) as usize;
-
         self.execute_pack(idx, children_end);
+        self.skip_until = children_end;
       }
 
       // === DECLARATIONS ===
-      Token::Imu => {
-        let children_end = (header.child_start + header.child_count) as usize;
-
-        self.execute_imu(idx, children_end);
-      }
-
-      Token::Val => {
-        let children_end = (header.child_start + header.child_count) as usize;
-
-        self.execute_imu(idx, children_end);
+      // Deferred: children are processed first by the main
+      // loop, then finalized at the Semicolon.
+      Token::Imu | Token::Val => {
+        self.begin_decl(idx, header, false);
       }
 
       Token::Mut => {
-        let children_end = (header.child_start + header.child_count) as usize;
-
-        self.execute_mut(idx, children_end);
+        self.begin_decl(idx, header, true);
       }
 
       // === CONTROL FLOW ===
@@ -537,38 +546,48 @@ impl<'a> Executor<'a> {
       // === IDENTIFIERS ===
       Token::Ident => {
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
-          // Look up in locals (copy values to avoid borrow issues)
-          let local_info =
-            self.lookup_local(sym).map(|l| (l.value_id, l.ty_id));
+          // Copy fields to avoid borrow issues.
+          let local_info = self
+            .lookup_local(sym)
+            .map(|l| (l.value_id, l.ty_id, l.sir_value, l.is_param));
 
-          if let Some((value_id, ty_id)) = local_info {
-            // Only emit Load instruction if we're inside a function body
+          if let Some((value_id, ty_id, sir_value, is_param)) = local_info {
             if self.current_function.is_some() {
-              // Emit Load instruction to load the local/parameter into a new
-              // SSA value
-              let dst = ValueId(self.sir.next_value_id);
-              self.sir.next_value_id += 1;
-              let src = value_id.0; // The parameter/local index
-              let sir_value = self.sir.emit(Insn::Load { dst, src, ty_id });
-
-              // Store as runtime value since it's loaded at runtime
-              let runtime_id = self.values.store_runtime(0);
-
-              self.value_stack.push(runtime_id);
-              self.ty_stack.push(ty_id);
-              self.sir_values.push(sir_value);
+              if is_param {
+                // Parameter: emit Load from param register.
+                let dst = ValueId(self.sir.next_value_id);
+                self.sir.next_value_id += 1;
+                let src = value_id.0;
+                let sv = self.sir.emit(Insn::Load { dst, src, ty_id });
+                let rid = self.values.store_runtime(0);
+                self.value_stack.push(rid);
+                self.ty_stack.push(ty_id);
+                self.sir_values.push(sv);
+              } else if let Some(sv) = sir_value {
+                // Local variable: reuse the SIR ValueId
+                // from its init expression.
+                let rid = self.values.store_runtime(0);
+                self.value_stack.push(rid);
+                self.ty_stack.push(ty_id);
+                self.sir_values.push(sv);
+              }
             } else {
-              // During function signature parsing, just push the values
               self.value_stack.push(value_id);
               self.ty_stack.push(ty_id);
               self.sir_values.push(value_id);
             }
           } else {
-            let span = self.tree.spans[idx];
+            // Check if this identifier is a known function
+            // — call handling happens at RParen, not here.
+            let is_fun = self.funs.iter().any(|f| f.name == sym);
 
-            report_error(Error::new(ErrorKind::UndefinedVariable, span));
+            if !is_fun {
+              let span = self.tree.spans[idx];
 
-            // push error values to maintain stack consistency.
+              report_error(Error::new(ErrorKind::UndefinedVariable, span));
+            }
+
+            // Push error values for stack consistency.
             let error_id = self.values.store_runtime(u32::MAX);
 
             self.value_stack.push(error_id);
@@ -649,7 +668,9 @@ impl<'a> Executor<'a> {
 
       // === STATEMENT TERMINATOR ===
       Token::Semicolon => {
-        // Check if we have a pending return to complete
+        // Finalize any pending variable declaration.
+        self.finalize_pending_decl();
+        // Check if we have a pending return to complete.
         self.check_pending_return();
       }
 
@@ -1136,20 +1157,37 @@ impl<'a> Executor<'a> {
 
     // Look for return type
     while idx < _end_idx {
-      if let Token::Arrow = self.tree.nodes[idx].token {
-        // Next token should be the return type
-        if idx + 1 < _end_idx {
-          idx += 1;
-          return_ty = self.resolve_type_token(idx);
+      match self.tree.nodes[idx].token {
+        Token::Arrow => {
+          if idx + 1 < _end_idx {
+            idx += 1;
+            return_ty = self.resolve_type_token(idx);
+          }
+          break;
         }
-        break;
-      } else if let Token::LBrace = self.tree.nodes[idx].token {
-        // Hit the body, stop looking
-        break;
+        Token::LBrace => break,
+        Token::Colon => {
+          // `:` after `)` is wrong — user meant `->`.
+          let span = self.tree.spans[idx];
+          report_error(Error::new(ErrorKind::ExpectedArrow, span));
+          // Recover: treat as `->` so codegen proceeds.
+          if idx + 1 < _end_idx {
+            idx += 1;
+            return_ty = self.resolve_type_token(idx);
+          }
+          break;
+        }
+        _ => idx += 1,
       }
-
-      idx += 1;
     }
+
+    // Skip signature tokens in the main loop — they've
+    // been consumed above.  The LBrace must still be
+    // processed (it triggers function body entry).
+    let lbrace_idx = (start_idx + 1.._end_idx)
+      .find(|&i| self.tree.nodes[i].token == Token::LBrace)
+      .unwrap_or(_end_idx);
+    self.skip_until = lbrace_idx;
 
     // Set the function as pending - it will be processed when we hit LBrace
     let is_pub = self.is_pub(start_idx);
@@ -1177,6 +1215,8 @@ impl<'a> Executor<'a> {
         value_id,
         pubness: Pubness::No,
         mutability: Mutability::No,
+        sir_value: None,
+        is_param: true,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {
@@ -1185,7 +1225,115 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Executes immutable declaration.
+  /// Begin a variable declaration (Imu/Val/Mut).
+  ///
+  /// Instead of processing children immediately, we defer to
+  /// [`finalize_pending_decl`] at the Semicolon. This lets
+  /// the main loop process children (especially the init
+  /// expression) so the init value is on the stacks.
+  fn begin_decl(&mut self, idx: usize, header: &NodeHeader, is_mutable: bool) {
+    let children_end = (header.child_start + header.child_count) as usize;
+
+    // Check if this is a template assignment.
+    let has_template = ((idx + 1)..children_end)
+      .any(|i| matches!(self.tree.nodes[i].token, Token::TemplateAssign));
+
+    if has_template {
+      // Template declarations still use the old path.
+      if is_mutable {
+        self.execute_mut(idx, children_end);
+      } else {
+        self.execute_imu(idx, children_end);
+      }
+      self.skip_until = children_end;
+      return;
+    }
+
+    // Extract variable name from tree (first Ident child).
+    let name = self
+      .tree
+      .nodes
+      .get(idx + 1)
+      .filter(|n| matches!(n.token, Token::Ident))
+      .and_then(|_| self.node_value(idx + 1))
+      .and_then(|val| match val {
+        NodeValue::Symbol(sym) => Some(sym),
+        _ => None,
+      });
+
+    if let Some(name) = name {
+      let is_pub = self.is_pub(idx);
+
+      self.pending_decl = Some(PendingDecl {
+        name,
+        is_mutable,
+        is_pub,
+      });
+
+      // Skip: name ident, type annotation, colon, eq.
+      // Find the Eq token — init expression starts after it.
+      let mut skip_to = idx + 1; // at least skip the Imu
+      for i in (idx + 1)..children_end {
+        skip_to = i + 1;
+        if self.tree.nodes[i].token == Token::Eq {
+          break;
+        }
+      }
+      self.skip_until = skip_to;
+    }
+  }
+
+  /// Finalize a pending variable declaration.
+  ///
+  /// Called at Semicolon after the init expression has been
+  /// evaluated and its value is on the stacks.
+  fn finalize_pending_decl(&mut self) {
+    let decl = match self.pending_decl.take() {
+      Some(d) => d,
+      None => return,
+    };
+
+    if let (Some(init_value), Some(init_ty)) =
+      (self.value_stack.pop(), self.ty_stack.pop())
+    {
+      let sir_init = self.sir_values.pop();
+
+      let mutability = if decl.is_mutable {
+        Mutability::Yes
+      } else {
+        Mutability::No
+      };
+
+      let _sir_value = self.sir.emit(Insn::VarDef {
+        name: decl.name,
+        ty_id: init_ty,
+        init: sir_init,
+        mutability,
+        is_pub: decl.is_pub,
+      });
+
+      self.locals.push(Local {
+        name: decl.name,
+        ty_id: init_ty,
+        value_id: init_value,
+        pubness: if decl.is_pub {
+          Pubness::Yes
+        } else {
+          Pubness::No
+        },
+        mutability,
+        sir_value: sir_init,
+        is_param: false,
+      });
+
+      if let Some(frame) = self.scope_stack.last_mut() {
+        frame.count += 1;
+      }
+    }
+  }
+
+  /// Executes immutable declaration (legacy path for
+  /// template assignments).
   fn execute_imu(&mut self, start_idx: usize, end_idx: usize) {
     // Check if this is a template assignment by looking for TemplateAssign in
     // children
@@ -1247,6 +1395,8 @@ impl<'a> Executor<'a> {
           value_id: init_value,
           pubness: if is_pub { Pubness::Yes } else { Pubness::No },
           mutability: Mutability::No,
+          sir_value: sir_init,
+          is_param: false,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -1301,6 +1451,8 @@ impl<'a> Executor<'a> {
           value_id: init_value,
           mutability: Mutability::Yes,
           pubness: if is_pub { Pubness::Yes } else { Pubness::No },
+          sir_value: sir_init,
+          is_param: false,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {

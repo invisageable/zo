@@ -9,6 +9,7 @@ use std::path::Path;
 pub struct Codegen {
   target: Target,
 }
+
 impl Codegen {
   /// Creates a new [`Codegen`] instance.
   pub const fn new(target: Target) -> Self {
@@ -37,6 +38,7 @@ impl Codegen {
     match self.target {
       Target::Arm64AppleDarwin => {
         let mut codegen = ARM64Gen::new(interner);
+
         codegen.generate(sir)
       }
       target => todo!("{target:?} not implemented"),
@@ -48,6 +50,7 @@ impl Codegen {
     match self.target {
       Target::Arm64AppleDarwin => {
         let mut codegen = ARM64Gen::new(interner);
+
         codegen.generate_asm(sir)
       }
       target => todo!("{target:?} not implemented"),

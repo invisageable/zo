@@ -49,13 +49,13 @@ impl UiCommand {
   /// Get the numeric type code for memory layout (used in ARM codegen)
   pub fn type_code(&self) -> u32 {
     match self {
-      UiCommand::BeginContainer { .. } => 0,
-      UiCommand::EndContainer => 1,
-      UiCommand::Text { .. } => 2,
-      UiCommand::Button { .. } => 3,
-      UiCommand::TextInput { .. } => 4,
-      UiCommand::Image { .. } => 5,
-      UiCommand::Event { .. } => 6,
+      Self::BeginContainer { .. } => 0,
+      Self::EndContainer => 1,
+      Self::Text { .. } => 2,
+      Self::Button { .. } => 3,
+      Self::TextInput { .. } => 4,
+      Self::Image { .. } => 5,
+      Self::Event { .. } => 6,
     }
   }
 }
@@ -70,8 +70,8 @@ impl ContainerDirection {
   /// Get numeric value for memory layout
   pub fn as_u32(&self) -> u32 {
     match self {
-      ContainerDirection::Horizontal => 0,
-      ContainerDirection::Vertical => 1,
+      Self::Horizontal => 0,
+      Self::Vertical => 1,
     }
   }
 }
@@ -89,11 +89,11 @@ impl TextStyle {
   /// Get numeric value for memory layout
   pub fn as_u32(&self) -> u32 {
     match self {
-      TextStyle::Normal => 0,
-      TextStyle::Heading1 => 1,
-      TextStyle::Heading2 => 2,
-      TextStyle::Heading3 => 3,
-      TextStyle::Paragraph => 4,
+      Self::Normal => 0,
+      Self::Heading1 => 1,
+      Self::Heading2 => 2,
+      Self::Heading3 => 3,
+      Self::Paragraph => 4,
     }
   }
 }
@@ -140,7 +140,7 @@ pub enum Attr {
 impl Attr {
   /// Create a string property.
   pub fn str_prop(name: &str, value: &str) -> Self {
-    Attr::Prop {
+    Self::Prop {
       name: name.to_string(),
       value: PropValue::Str(value.to_string()),
     }
@@ -157,7 +157,8 @@ impl Attr {
         _ => PropValue::Str(raw.to_string()),
       },
     };
-    Attr::Prop {
+
+    Self::Prop {
       name: name.to_string(),
       value,
     }
@@ -166,7 +167,7 @@ impl Attr {
   /// Get the string value of a Prop, or None.
   pub fn as_str(&self) -> Option<&str> {
     match self {
-      Attr::Prop {
+      Self::Prop {
         value: PropValue::Str(s),
         ..
       } => Some(s),
@@ -177,7 +178,7 @@ impl Attr {
   /// Get the numeric value of a Prop, or None.
   pub fn as_num(&self) -> Option<u32> {
     match self {
-      Attr::Prop {
+      Self::Prop {
         value: PropValue::Num(n),
         ..
       } => Some(*n),
@@ -188,10 +189,10 @@ impl Attr {
   /// Get the attribute name.
   pub fn name(&self) -> &str {
     match self {
-      Attr::Prop { name, .. } => name,
-      Attr::Event { name, .. } => name,
-      Attr::Style { name, .. } => name,
-      Attr::Dynamic { name, .. } => name,
+      Self::Prop { name, .. } => name,
+      Self::Event { name, .. } => name,
+      Self::Style { name, .. } => name,
+      Self::Dynamic { name, .. } => name,
     }
   }
 }

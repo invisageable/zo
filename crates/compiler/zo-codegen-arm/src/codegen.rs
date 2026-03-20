@@ -1,9 +1,10 @@
 use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
-  ARM64Emitter, D0, D1, Register, SP, X0, X1, X2, X3, X4, X5, X6, X7, X16,
+  ARM64Emitter, D0, D1, FpRegister, Register, SP, X0, X1, X2, X16, X29, X30,
 };
 use zo_interner::{Interner, Symbol};
+use zo_register_allocation::{RegAlloc, SpillKind};
 use zo_sir::{BinOp, Insn, Sir};
 use zo_ui_protocol::UiCommand;
 use zo_value::ValueId;
@@ -16,57 +17,34 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-// // Helper trait extensions for UI protocol types
-// trait DirectionExt {
-//   fn as_u32(&self) -> u32;
-// }
-// impl DirectionExt for ContainerDirection {
-//   fn as_u32(&self) -> u32 {
-//     match self {
-//       ContainerDirection::Horizontal => 0,
-//       ContainerDirection::Vertical => 1,
-//     }
-//   }
-// }
-
-// trait StyleExt {
-//   fn as_u32(&self) -> u32;
-// }
-// impl StyleExt for TextStyle {
-//   fn as_u32(&self) -> u32 {
-//     match self {
-//       TextStyle::Normal => 0,
-//       TextStyle::Heading1 => 1,
-//       TextStyle::Heading2 => 2,
-//       TextStyle::Heading3 => 3,
-//       TextStyle::Paragraph => 4,
-//     }
-//   }
-// }
-
 /// Represents the [`ARM64Gen`] code generation instance.
 pub struct ARM64Gen<'a> {
   /// The [`ARM64Emitter`].
   emitter: ARM64Emitter,
-  /// String interner for resolving symbols
+  /// String interner for resolving symbols.
   interner: &'a Interner,
-  /// Function labels (name -> code offset)
+  /// Function labels (name -> code offset).
   functions: HashMap<Symbol, u32>,
-  /// String data to emit at end
+  /// String data to emit at end.
   string_data: Vec<(Symbol, Vec<u8>)>,
-  /// Current function context
+  /// Current function context.
   current_function: Option<Symbol>,
-  /// Fixups for string references (position in code -> symbol)
+  /// Fixups for string references (position in code -> symbol).
   string_fixups: Vec<(u32, Symbol)>,
-  /// Template data sections (symbol -> data)
+  /// Template data sections (symbol -> data).
   template_data: Vec<(Symbol, Vec<u8>)>,
-  /// Whether we have templates that need the entry point
+  /// Whether we have templates that need the entry point.
   pub has_templates: bool,
   /// The label offsets: label_id → byte offset in code.
   labels: HashMap<u32, u32>,
   /// The branch fixups: (code_offset, target_label_id).
   branch_fixups: Vec<(u32, u32)>,
+  /// Register allocation result.
+  reg_alloc: Option<RegAlloc>,
+  /// Current function's start index into SIR instructions.
+  current_fn_start: Option<usize>,
 }
+
 impl<'a> ARM64Gen<'a> {
   /// Creates a new [`ARM64Gen`] instance.
   pub fn new(interner: &'a Interner) -> Self {
@@ -81,16 +59,171 @@ impl<'a> ARM64Gen<'a> {
       has_templates: false,
       labels: HashMap::default(),
       branch_fixups: Vec::new(),
+      reg_alloc: None,
+      current_fn_start: None,
     }
   }
 
+  // --- Register allocation helpers ---
+
+  /// Look up the allocated register for a ValueId.
+  fn alloc_reg(&self, vid: ValueId) -> Option<Register> {
+    self
+      .reg_alloc
+      .as_ref()
+      .and_then(|a| a.get(vid))
+      .map(Register::new)
+  }
+
+  /// Look up the allocated GP register for the value
+  /// defined at instruction `idx`.
+  fn reg_for_insn(&self, idx: usize) -> Option<Register> {
+    self
+      .reg_alloc
+      .as_ref()
+      .and_then(|a| a.value_id_at(idx))
+      .and_then(|vid| self.alloc_reg(vid))
+  }
+
+  /// Look up the allocated FP register for a ValueId.
+  fn alloc_fp_reg(&self, vid: ValueId) -> Option<FpRegister> {
+    self
+      .reg_alloc
+      .as_ref()
+      .and_then(|a| a.get_fp(vid))
+      .map(FpRegister::new)
+  }
+
+  /// Look up the allocated FP register for the value
+  /// defined at instruction `idx`.
+  fn fp_reg_for_insn(&self, idx: usize) -> Option<FpRegister> {
+    self
+      .reg_alloc
+      .as_ref()
+      .and_then(|a| a.value_id_at(idx))
+      .and_then(|vid| self.alloc_fp_reg(vid))
+  }
+
+  /// Emit a single spill operation (GP or FP).
+  fn emit_spill_op(&mut self, kind: &SpillKind) {
+    match kind {
+      SpillKind::Store {
+        reg,
+        slot,
+        is_fp: false,
+      } => {
+        self
+          .emitter
+          .emit_str(Register::new(*reg), SP, (*slot * 8) as i16);
+      }
+      SpillKind::Load {
+        reg,
+        slot,
+        is_fp: false,
+      } => {
+        self
+          .emitter
+          .emit_ldr(Register::new(*reg), SP, (*slot * 8) as i16);
+      }
+      SpillKind::Store {
+        reg,
+        slot,
+        is_fp: true,
+      } => {
+        self
+          .emitter
+          .emit_str_fp(FpRegister::new(*reg), SP, (*slot * 8) as u16);
+      }
+      SpillKind::Load {
+        reg,
+        slot,
+        is_fp: true,
+      } => {
+        self
+          .emitter
+          .emit_ldr_fp(FpRegister::new(*reg), SP, (*slot * 8) as u16);
+      }
+    }
+  }
+
+  /// Emit spill ops before instruction `idx`.
+  fn emit_spills_before(&mut self, idx: usize) {
+    let ops = self
+      .reg_alloc
+      .as_ref()
+      .map(|a| {
+        a.spill_ops
+          .iter()
+          .filter(|op| op.insn_idx == idx && op.before)
+          .map(|op| op.kind.clone())
+          .collect::<Vec<_>>()
+      })
+      .unwrap_or_default();
+
+    for kind in &ops {
+      self.emit_spill_op(kind);
+    }
+  }
+
+  /// Emit spill ops after instruction `idx`.
+  fn emit_spills_after(&mut self, idx: usize) {
+    let ops = self
+      .reg_alloc
+      .as_ref()
+      .map(|a| {
+        a.spill_ops
+          .iter()
+          .filter(|op| op.insn_idx == idx && !op.before)
+          .map(|op| op.kind.clone())
+          .collect::<Vec<_>>()
+      })
+      .unwrap_or_default();
+
+    for kind in &ops {
+      self.emit_spill_op(kind);
+    }
+  }
+
+  /// Load a 64-bit immediate into a register using
+  /// MOV + MOVK sequence.
+  fn emit_mov_imm_64(&mut self, reg: Register, value: u64) {
+    if value <= 65535 {
+      self.emitter.emit_mov_imm(reg, value as u16);
+    } else {
+      self.emitter.emit_mov_imm(reg, (value & 0xFFFF) as u16);
+      if (value >> 16) & 0xFFFF != 0 {
+        self
+          .emitter
+          .emit_movk(reg, ((value >> 16) & 0xFFFF) as u16, 16);
+      }
+      if (value >> 32) & 0xFFFF != 0 {
+        self
+          .emitter
+          .emit_movk(reg, ((value >> 32) & 0xFFFF) as u16, 32);
+      }
+      if (value >> 48) & 0xFFFF != 0 {
+        self
+          .emitter
+          .emit_movk(reg, ((value >> 48) & 0xFFFF) as u16, 48);
+      }
+    }
+  }
+
+  // --- Code generation ---
+
   /// Generates `ARM64` code from SIR.
   pub fn generate(&mut self, sir: &Sir) -> Artifact {
-    for insn in &sir.instructions {
-      self.translate_insn(insn);
+    // Run register allocation before codegen.
+    self.reg_alloc =
+      Some(RegAlloc::allocate(&sir.instructions, sir.next_value_id));
+
+    for (idx, insn) in sir.instructions.iter().enumerate() {
+      self.emit_spills_before(idx);
+      self.translate_insn(insn, idx);
+      self.emit_spills_after(idx);
     }
 
-    // Generate _zo_ui_entry_point if we have templates
+    // Generate _zo_ui_entry_point if we have templates.
     if self.has_templates {
       self.generate_ui_entry_point();
     }
@@ -100,43 +233,35 @@ impl<'a> ARM64Gen<'a> {
     let mut template_offsets = HashMap::default();
     let mut current_offset = code.len();
 
-    // Calculate offsets for string data
     for (symbol, bytes) in &self.string_data {
       string_offsets.insert(*symbol, current_offset);
       current_offset += bytes.len();
     }
 
-    // Calculate offsets for template data
     for (symbol, bytes) in &self.template_data {
       template_offsets.insert(*symbol, current_offset);
       current_offset += bytes.len();
     }
 
-    // Apply fixups - patch ADR instructions with correct offsets
+    // Apply string fixups.
     for (fixup_pos, symbol) in &self.string_fixups {
       let target_offset = string_offsets
         .get(symbol)
         .or_else(|| template_offsets.get(symbol));
 
       if let Some(offset) = target_offset {
-        // Calculate offset from ADR instruction to target
         let offset = (*offset as i32) - (*fixup_pos as i32);
-
-        // Build ADR instruction with correct offset
         let reg = X1;
         let immlo = (offset & 0x3) as u32;
         let immhi = ((offset >> 2) & 0x7FFFF) as u32;
-
         let insn =
           0x10000000 | (immlo << 29) | (immhi << 5) | (reg.index() as u32);
-
-        // Patch the instruction
         let pos = *fixup_pos as usize;
         code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
       }
     }
 
-    // Apply branch fixups — patch B/CBZ with resolved offsets.
+    // Apply branch fixups.
     for (fixup_pos, target_label) in &self.branch_fixups {
       if let Some(&label_offset) = self.labels.get(target_label) {
         let relative = (label_offset as i32 - *fixup_pos as i32) >> 2;
@@ -144,12 +269,9 @@ impl<'a> ARM64Gen<'a> {
         let existing =
           u32::from_le_bytes(code[pos..pos + 4].try_into().unwrap());
 
-        // Detect instruction type by top bits.
         let patched = if existing & 0xFC000000 == 0x14000000 {
-          // B (unconditional): 0 00101 imm26
           0x14000000 | ((relative as u32) & 0x3FFFFFF)
         } else if existing & 0x7F000000 == 0x34000000 {
-          // CBZ/CBNZ: sf 011010 op imm19 Rt
           let sf_and_op = existing & 0xFF000000;
           let rt = existing & 0x1F;
           sf_and_op | (((relative as u32) & 0x7FFFF) << 5) | rt
@@ -161,12 +283,9 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Append string data
     for (_symbol, bytes) in &self.string_data {
       code.extend_from_slice(bytes);
     }
-
-    // Append template data
     for (_symbol, bytes) in &self.template_data {
       code.extend_from_slice(bytes);
     }
@@ -185,14 +304,18 @@ impl<'a> ARM64Gen<'a> {
     macho.add_text_segment();
     macho.add_data_segment();
 
-    // Add main symbol if it exists
-    if self.interner.symbol("main").is_some() {
-      macho.add_function_symbol("_main", 1, 0x100000400, false);
+    if let Some(main_sym) = self.interner.symbol("main") {
+      let offset = self.functions.get(&main_sym).copied().unwrap_or(0);
+      macho.add_function_symbol(
+        "_main",
+        1,
+        0x100000400u64 + offset as u64,
+        false,
+      );
     }
 
-    // Add _zo_ui_entry_point symbol if we have templates
     if self.has_templates {
-      let entry_symbol = Symbol(0xFFFF); // Same fixed symbol ID
+      let entry_symbol = Symbol(0xFFFF);
       if let Some(&offset) = self.functions.get(&entry_symbol) {
         macho.add_function_symbol(
           "_zo_ui_entry_point",
@@ -208,22 +331,35 @@ impl<'a> ARM64Gen<'a> {
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
-    macho.add_main(0x400); // Entry point at start of __text section
+
+    // Entry point must point to the actual main function,
+    // not always 0x400 (which is only correct when main
+    // is the first function in the code section).
+    let main_entry = self
+      .interner
+      .symbol("main")
+      .and_then(|s| self.functions.get(&s).copied())
+      .map(|off| 0x400u64 + off as u64)
+      .unwrap_or(0x400);
+    macho.add_main(main_entry);
+
     macho.add_dyld_info();
     macho.finish_with_signature()
   }
 
-  /// Generate a complete executable from SIR
+  /// Generate a complete executable from SIR.
   pub fn generate_executable(&mut self, sir: &Sir) -> Vec<u8> {
     let artifact = self.generate(sir);
-
     self.generate_macho(artifact)
   }
 
-  /// Generates ARM64 assembly text from SIR for display
+  /// Generates ARM64 assembly text from SIR for display.
   pub fn generate_asm(&mut self, sir: &Sir) -> String {
     let mut asm = String::new();
-    asm.push_str("  .section __TEXT,__text,regular,pure_instructions\n");
+    asm.push_str(
+      "  .section __TEXT,__text,\
+       regular,pure_instructions\n",
+    );
     asm.push_str("  .build_version macos, 11, 0\n");
     asm.push_str("  .globl _main\n");
     asm.push_str("  .p2align 2\n");
@@ -235,7 +371,7 @@ impl<'a> ARM64Gen<'a> {
     asm
   }
 
-  /// Translate a single SIR instruction to assembly text
+  /// Translate a single SIR instruction to assembly text.
   fn translate_insn_to_text(&mut self, insn: &Insn, asm: &mut String) {
     match insn {
       Insn::FunDef { name, .. } => {
@@ -243,7 +379,6 @@ impl<'a> ARM64Gen<'a> {
         asm.push_str(&format!("\n_{}:\n", func_name));
         self.current_function = Some(*name);
       }
-
       Insn::ConstInt { value, .. } => {
         if *value <= 65535 {
           asm.push_str(&format!("  mov x0, #{}\n", value));
@@ -269,13 +404,11 @@ impl<'a> ARM64Gen<'a> {
           }
         }
       }
-
       Insn::ConstString { symbol, .. } => {
         let string = self.interner.get(*symbol);
         asm.push_str(&format!("  adr x1, .L_str_{}\n", symbol.as_u32()));
         asm.push_str(&format!("  mov x2, #{}\n", string.len()));
       }
-
       Insn::Call { name, .. } => {
         let func_name = self.interner.get(*name);
         match func_name {
@@ -297,12 +430,10 @@ impl<'a> ARM64Gen<'a> {
           }
         }
       }
-
       Insn::Return { .. } => {
         asm.push_str("  mov x0, #0\n");
         asm.push_str("  ret\n");
       }
-
       Insn::BinOp { op, .. } => match op {
         BinOp::Add => asm.push_str("  add x0, x0, x1\n"),
         BinOp::Sub => asm.push_str("  sub x0, x0, x1\n"),
@@ -310,295 +441,286 @@ impl<'a> ARM64Gen<'a> {
         BinOp::Div => asm.push_str("  sdiv x0, x0, x1\n"),
         _ => asm.push_str(&format!("  ; TODO: {:?}\n", op)),
       },
-
       _ => {
         asm.push_str(&format!("  ; TODO: {:?}\n", insn));
       }
     }
   }
 
-  /// Translate a single SIR instruction to ARM64
-  fn translate_insn(&mut self, insn: &Insn) {
+  /// Translate a single SIR instruction to ARM64.
+  fn translate_insn(&mut self, insn: &Insn, idx: usize) {
     match insn {
       Insn::FunDef { name, .. } => {
         let offset = self.emitter.current_offset();
-
         self.functions.insert(*name, offset);
-
         self.current_function = Some(*name);
+        self.current_fn_start = Some(idx);
 
-        // Function prologue would go here
-        // For now, we'll keep it simple
+        // Function prologue: save FP/LR if non-leaf.
+        if let Some(info) = self
+          .reg_alloc
+          .as_ref()
+          .and_then(|a| a.function_info.get(&idx))
+        {
+          if info.has_calls {
+            self.emitter.emit_stp(X29, X30, SP, -16);
+          }
+          if info.spill_size > 0 {
+            self.emitter.emit_sub_imm(SP, SP, info.spill_size as u16);
+          }
+        }
       }
 
       Insn::ConstInt { value, .. } => {
-        // Constants just get loaded into X0 for now
-        // In a real implementation, we'd track which value this creates
-        let reg = X0;
-        // MOV reg, #value (for small values)
-        if *value <= 65535 {
-          self.emitter.emit_mov_imm(reg, *value as u16);
-        } else {
-          // For larger values, use multiple MOV instructions
-          self.emitter.emit_mov_imm(reg, (*value & 0xFFFF) as u16);
-
-          if (*value >> 16) & 0xFFFF != 0 {
-            self
-              .emitter
-              .emit_movk(reg, ((*value >> 16) & 0xFFFF) as u16, 16);
-          }
-
-          if (*value >> 32) & 0xFFFF != 0 {
-            self
-              .emitter
-              .emit_movk(reg, ((*value >> 32) & 0xFFFF) as u16, 32);
-          }
-
-          if (*value >> 48) & 0xFFFF != 0 {
-            self
-              .emitter
-              .emit_movk(reg, ((*value >> 48) & 0xFFFF) as u16, 48);
-          }
+        if let Some(reg) = self.reg_for_insn(idx) {
+          self.emit_mov_imm_64(reg, *value);
         }
       }
 
       Insn::ConstFloat { value, .. } => {
-        // Load f64 bit pattern into GP register, then FMOV
-        // to FP register.
+        // Load f64 bits into GP scratch, FMOV to FP.
+        let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
         let bits = value.to_bits();
+        self.emit_mov_imm_64(X16, bits);
+        self.emitter.emit_fmov_gp_to_fp(fp_dst, X16);
+      }
 
-        self.emitter.emit_mov_imm(X0, (bits & 0xFFFF) as u16);
-
-        if (bits >> 16) & 0xFFFF != 0 {
-          self
-            .emitter
-            .emit_movk(X0, ((bits >> 16) & 0xFFFF) as u16, 16);
+      Insn::ConstBool { value, .. } => {
+        if let Some(reg) = self.reg_for_insn(idx) {
+          self.emitter.emit_mov_imm(reg, *value as u16);
         }
-
-        if (bits >> 32) & 0xFFFF != 0 {
-          self
-            .emitter
-            .emit_movk(X0, ((bits >> 32) & 0xFFFF) as u16, 32);
-        }
-
-        if (bits >> 48) & 0xFFFF != 0 {
-          self
-            .emitter
-            .emit_movk(X0, ((bits >> 48) & 0xFFFF) as u16, 48);
-        }
-
-        self.emitter.emit_fmov_gp_to_fp(D0, X0);
       }
 
       Insn::ConstString { symbol, .. } => {
         let mut buffer = Buffer::new();
-
         let string = self.interner.get(*symbol);
-
         buffer.bytes(string.as_bytes());
         buffer.bytes(b"\0");
-
-        // Store string data for later emission
         self.string_data.push((*symbol, buffer.finish()));
 
-        // Record fixup position and emit placeholder ADR
         let fixup_pos = self.emitter.current_offset();
         self.string_fixups.push((fixup_pos, *symbol));
-
         self.emitter.emit_adr(X1, 0);
         self.emitter.emit_mov_imm(X2, string.len() as u16);
       }
 
-      Insn::Call { name, .. } => {
-        match self.interner.get(*name) {
-          "show" => {
-            // System call for write(1, string_ptr, string_len)
-            self.emitter.emit_mov_imm(X16, 4); // write syscall
-            self.emitter.emit_mov_imm(X0, 1); // stdout
-            self.emitter.emit_svc(0);
+      Insn::Load { dst, src, .. } => {
+        // Parameter load: value arrives in X[src].
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          let src_reg = Register::new(*src as u8);
+          if dst_reg != src_reg {
+            self.emitter.emit_mov_reg(dst_reg, src_reg);
           }
-          "showln" => {
-            // First write the string (X1=ptr, X2=len already set)
-            self.emitter.emit_mov_imm(X16, 4); // write syscall
-            self.emitter.emit_mov_imm(X0, 1); // stdout
-            self.emitter.emit_svc(0);
-
-            // Write newline using stack
-            self.emitter.emit_mov_imm(X1, 10); // '\n' = 10 in ASCII
-            self.emitter.emit_sub_imm(X2, SP, 16); // Use stack pointer - 16 for safety
-            self.emitter.emit_strb(X1, X2, 0); // Store byte at stack location
-            self.emitter.emit_mov_reg(X1, X2); // X1 = pointer to newline on stack
-            self.emitter.emit_mov_imm(X2, 1); // Length = 1
-            self.emitter.emit_mov_imm(X16, 4); // write syscall
-            self.emitter.emit_mov_imm(X0, 1); // stdout
-            self.emitter.emit_svc(0);
-          }
-          "eshow" => {
-            // write to stderr (fd=2)
-            self.emitter.emit_mov_imm(X16, 4); // write syscall
-            self.emitter.emit_mov_imm(X0, 2); // stderr
-            self.emitter.emit_svc(0);
-          }
-          "eshowln" => {
-            // write to stderr then newline
-            self.emitter.emit_mov_imm(X16, 4); // write syscall
-            self.emitter.emit_mov_imm(X0, 2); // stderr
-            self.emitter.emit_svc(0);
-
-            // newline
-            self.emitter.emit_mov_imm(X1, 10);
-            self.emitter.emit_sub_imm(X2, SP, 16);
-            self.emitter.emit_strb(X1, X2, 0);
-            self.emitter.emit_mov_reg(X1, X2);
-            self.emitter.emit_mov_imm(X2, 1);
-            self.emitter.emit_mov_imm(X16, 4); // write syscall
-            self.emitter.emit_mov_imm(X0, 2); // stderr
-            self.emitter.emit_svc(0);
-          }
-          "flush" => {
-            // No-op on macOS — stdio is already line-buffered.
-          }
-          _ => {
-            // Check if it's a user-defined function
-            if let Some(&func_offset) = self.functions.get(name) {
-              // Calculate relative offset for BL instruction
-              let current = self.emitter.current_offset();
-              let offset = func_offset - current;
-
-              self.emitter.emit_bl(offset as i32);
-            }
-            // Otherwise, it's an unknown external function
-          }
+          // else: already in correct register.
         }
       }
 
-      Insn::Return { value, .. } => {
-        // For all functions (including main), just return normally
-        // The return value should already be in X0 from the previous
-        // instruction
-        if value.is_none() {
-          // No return value specified, use 0
-          self.emitter.emit_mov_imm(X0, 0);
-        }
-
-        // Use normal function return for all functions
-        self.emitter.emit_ret();
-      }
-
-      Insn::BinOp { op, ty_id, .. } => {
-        // Check if this is a float operation.
+      Insn::BinOp {
+        dst,
+        op,
+        lhs,
+        rhs,
+        ty_id,
+      } => {
         let is_float = ty_id.0 >= 15 && ty_id.0 <= 17;
 
         if is_float {
-          let lhs = D0;
-          let rhs = D1;
-          let dst = D0;
-
+          let fl = self.alloc_fp_reg(*lhs).unwrap_or(D0);
+          let fr = self.alloc_fp_reg(*rhs).unwrap_or(D1);
+          let fd = self.alloc_fp_reg(*dst).unwrap_or(D0);
           match op {
-            BinOp::Add => self.emitter.emit_fadd(dst, lhs, rhs),
-            BinOp::Sub => self.emitter.emit_fsub(dst, lhs, rhs),
-            BinOp::Mul => self.emitter.emit_fmul(dst, lhs, rhs),
-            BinOp::Div => self.emitter.emit_fdiv(dst, lhs, rhs),
+            BinOp::Add => self.emitter.emit_fadd(fd, fl, fr),
+            BinOp::Sub => self.emitter.emit_fsub(fd, fl, fr),
+            BinOp::Mul => self.emitter.emit_fmul(fd, fl, fr),
+            BinOp::Div => self.emitter.emit_fdiv(fd, fl, fr),
             BinOp::Lt
             | BinOp::Lte
             | BinOp::Gt
             | BinOp::Gte
             | BinOp::Eq
             | BinOp::Neq => {
-              self.emitter.emit_fcmp(lhs, rhs);
+              self.emitter.emit_fcmp(fl, fr);
             }
             _ => {}
           }
         } else {
-          let lhs_reg = X0;
-          let rhs_reg = X1;
-          let dst_reg = X0;
+          // Integer: use allocated registers.
+          let d = self.alloc_reg(*dst).unwrap_or(X0);
+          let l = self.alloc_reg(*lhs).unwrap_or(X0);
+          let r = self.alloc_reg(*rhs).unwrap_or(X1);
 
           match op {
             BinOp::Add => {
-              self.emitter.emit_add(dst_reg, lhs_reg, rhs_reg);
+              self.emitter.emit_add(d, l, r);
             }
             BinOp::Sub => {
-              self.emitter.emit_sub(dst_reg, lhs_reg, rhs_reg);
+              self.emitter.emit_sub(d, l, r);
             }
             BinOp::Mul => {
-              self.emitter.emit_mul(dst_reg, lhs_reg, rhs_reg);
+              self.emitter.emit_mul(d, l, r);
             }
             BinOp::Div => {
-              self.emitter.emit_sdiv(dst_reg, lhs_reg, rhs_reg);
+              self.emitter.emit_sdiv(d, l, r);
             }
             BinOp::Rem => {
-              // Modulo: dst = lhs - (lhs / rhs) * rhs
-              // Need a temp register for division result
-              let temp = X0; // Use X0 as temp
-
-              self.emitter.emit_sdiv(temp, lhs_reg, rhs_reg);
-              self.emitter.emit_mul(temp, temp, rhs_reg);
-              self.emitter.emit_sub(dst_reg, lhs_reg, temp);
+              // dst = lhs - (lhs / rhs) * rhs
+              // Use X16 as scratch.
+              self.emitter.emit_sdiv(X16, l, r);
+              self.emitter.emit_mul(X16, X16, r);
+              self.emitter.emit_sub(d, l, X16);
             }
             BinOp::BitAnd => {
-              self.emitter.emit_and(dst_reg, lhs_reg, rhs_reg);
+              self.emitter.emit_and(d, l, r);
             }
             BinOp::BitOr => {
-              self.emitter.emit_orr(dst_reg, lhs_reg, rhs_reg);
+              self.emitter.emit_orr(d, l, r);
             }
             BinOp::Shl => {
-              self.emitter.emit_lsl(dst_reg, lhs_reg, 1);
+              self.emitter.emit_lsl(d, l, 1);
             }
             BinOp::Shr => {
-              self.emitter.emit_lsr(dst_reg, lhs_reg, 1);
+              self.emitter.emit_lsr(d, l, 1);
             }
             BinOp::Lt => {
-              self.emitter.emit_cmp(lhs_reg, rhs_reg);
-              self.emitter.emit_mov_imm(dst_reg, 1);
-              self.emitter.emit_mov_imm(X0, 0);
-              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xB);
+              self.emit_cmp_csel(d, l, r, 0xB);
             }
             BinOp::Lte => {
-              self.emitter.emit_cmp(lhs_reg, rhs_reg);
-              self.emitter.emit_mov_imm(dst_reg, 1);
-              self.emitter.emit_mov_imm(X0, 0);
-              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xD);
+              self.emit_cmp_csel(d, l, r, 0xD);
             }
             BinOp::Gt => {
-              self.emitter.emit_cmp(lhs_reg, rhs_reg);
-              self.emitter.emit_mov_imm(dst_reg, 1);
-              self.emitter.emit_mov_imm(X0, 0);
-              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xC);
+              self.emit_cmp_csel(d, l, r, 0xC);
             }
             BinOp::Gte => {
-              self.emitter.emit_cmp(lhs_reg, rhs_reg);
-              self.emitter.emit_mov_imm(dst_reg, 1);
-              self.emitter.emit_mov_imm(X0, 0);
-              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0xA);
+              self.emit_cmp_csel(d, l, r, 0xA);
             }
             BinOp::Eq => {
-              self.emitter.emit_cmp(lhs_reg, rhs_reg);
-              self.emitter.emit_mov_imm(dst_reg, 1);
-              self.emitter.emit_mov_imm(X0, 0);
-              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0x0);
+              self.emit_cmp_csel(d, l, r, 0x0);
             }
             BinOp::Neq => {
-              self.emitter.emit_cmp(lhs_reg, rhs_reg);
-              self.emitter.emit_mov_imm(dst_reg, 1);
-              self.emitter.emit_mov_imm(X0, 0);
-              self.emitter.emit_csel(dst_reg, dst_reg, X0, 0x1);
+              self.emit_cmp_csel(d, l, r, 0x1);
             }
-            _ => {
-              // Other operations not yet implemented
+            _ => {}
+          }
+        }
+      }
+
+      Insn::Call { name, args, .. } => {
+        match self.interner.get(*name) {
+          "show" => {
+            self.emitter.emit_mov_imm(X16, 4);
+            self.emitter.emit_mov_imm(X0, 1);
+            self.emitter.emit_svc(0);
+          }
+          "showln" => {
+            self.emitter.emit_mov_imm(X16, 4);
+            self.emitter.emit_mov_imm(X0, 1);
+            self.emitter.emit_svc(0);
+
+            self.emitter.emit_mov_imm(X1, 10);
+            self.emitter.emit_sub_imm(X2, SP, 16);
+            self.emitter.emit_strb(X1, X2, 0);
+            self.emitter.emit_mov_reg(X1, X2);
+            self.emitter.emit_mov_imm(X2, 1);
+            self.emitter.emit_mov_imm(X16, 4);
+            self.emitter.emit_mov_imm(X0, 1);
+            self.emitter.emit_svc(0);
+          }
+          "eshow" => {
+            self.emitter.emit_mov_imm(X16, 4);
+            self.emitter.emit_mov_imm(X0, 2);
+            self.emitter.emit_svc(0);
+          }
+          "eshowln" => {
+            self.emitter.emit_mov_imm(X16, 4);
+            self.emitter.emit_mov_imm(X0, 2);
+            self.emitter.emit_svc(0);
+
+            self.emitter.emit_mov_imm(X1, 10);
+            self.emitter.emit_sub_imm(X2, SP, 16);
+            self.emitter.emit_strb(X1, X2, 0);
+            self.emitter.emit_mov_reg(X1, X2);
+            self.emitter.emit_mov_imm(X2, 1);
+            self.emitter.emit_mov_imm(X16, 4);
+            self.emitter.emit_mov_imm(X0, 2);
+            self.emitter.emit_svc(0);
+          }
+          "flush" => {}
+          _ => {
+            // Move args to X0-X7.
+            for (i, arg) in args.iter().enumerate() {
+              if i >= 8 {
+                break;
+              }
+              let dst_reg = Register::new(i as u8);
+              if let Some(src_reg) = self.alloc_reg(*arg)
+                && src_reg != dst_reg
+              {
+                self.emitter.emit_mov_reg(dst_reg, src_reg);
+              }
+            }
+
+            // BL to user-defined function.
+            if let Some(&func_offset) = self.functions.get(name) {
+              let current = self.emitter.current_offset();
+              let offset = func_offset as i32 - current as i32;
+              self.emitter.emit_bl(offset);
+            }
+
+            // Move result from X0 to allocated reg.
+            if let Some(result_reg) = self.reg_for_insn(idx)
+              && result_reg != X0
+            {
+              self.emitter.emit_mov_reg(result_reg, X0);
             }
           }
         }
       }
 
+      Insn::Return { value, .. } => {
+        // Move return value to X0.
+        if let Some(vid) = value {
+          if let Some(src_reg) = self.alloc_reg(*vid)
+            && src_reg != X0
+          {
+            self.emitter.emit_mov_reg(X0, src_reg);
+          }
+        } else {
+          self.emitter.emit_mov_imm(X0, 0);
+        }
+
+        // Function epilogue.
+        if let Some(start) = self.current_fn_start
+          && let Some(info) = self
+            .reg_alloc
+            .as_ref()
+            .and_then(|a| a.function_info.get(&start))
+        {
+          if info.spill_size > 0 {
+            self.emitter.emit_add_imm(SP, SP, info.spill_size as u16);
+          }
+          if info.has_calls {
+            self.emitter.emit_ldp(X29, X30, SP, 16);
+          }
+        }
+
+        self.emitter.emit_ret();
+      }
+
       Insn::VarDef { .. } => {
-        // Variable definitions handled in execution phase
+        // Handled in execution phase.
+      }
+
+      Insn::Store { .. } => {
+        // TODO: mutable variable reassignment.
       }
 
       Insn::Template {
-        id, name, commands, ..
+        id,
+        name: tpl_name,
+        commands,
+        ..
       } => {
-        self.handle_template(*id, *name, commands);
+        self.handle_template(*id, *tpl_name, commands);
       }
 
       Insn::Directive { name, value, .. } => {
@@ -616,60 +738,50 @@ impl<'a> ARM64Gen<'a> {
         self
           .branch_fixups
           .push((self.emitter.current_offset(), *target));
-        self.emitter.emit_b(0); // placeholder
+        self.emitter.emit_b(0);
       }
 
       Insn::BranchIfNot { cond, target } => {
-        // cond is a boolean — 0 means false.
-        // CBZ branches if register is zero.
-        let reg = self.value_to_reg(*cond);
+        let reg = self.alloc_reg(*cond).unwrap_or(X0);
         self
           .branch_fixups
           .push((self.emitter.current_offset(), *target));
-        self.emitter.emit_cbz(reg, 0); // placeholder
+        self.emitter.emit_cbz(reg, 0);
       }
 
-      _ => {
-        // Other instructions not yet implemented
-      }
+      _ => {}
     }
   }
 
-  /// Maps a ValueId to a register. Currently uses a simple
-  /// mapping — proper register allocation is future work.
-  fn value_to_reg(&self, value: ValueId) -> Register {
-    match value.0 % 8 {
-      0 => X0,
-      1 => X1,
-      2 => X2,
-      3 => X3,
-      4 => X4,
-      5 => X5,
-      6 => X6,
-      _ => X7,
-    }
+  /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for
+  /// comparisons. Uses X16 as zero scratch to avoid
+  /// clobbering dst.
+  fn emit_cmp_csel(
+    &mut self,
+    dst: Register,
+    lhs: Register,
+    rhs: Register,
+    cond: u8,
+  ) {
+    self.emitter.emit_cmp(lhs, rhs);
+    self.emitter.emit_mov_imm(dst, 1);
+    self.emitter.emit_mov_imm(X16, 0);
+    self.emitter.emit_csel(dst, dst, X16, cond);
   }
 
-  /// Handle template compilation to static data
+  /// Handle template compilation to static data.
   fn handle_template(
     &mut self,
     id: ValueId,
     _name: Option<Symbol>,
     commands: &[UiCommand],
   ) {
-    // Generate static command table matching runtime's expected layout:
-    // Header: [u32 count][u32 padding]
-    // Commands: Each is 16 bytes [u32 type][u32 padding][u64 data_ptr]
-    // Command data structures follow
-    // String table at the end
-
     let mut header_data = Vec::new();
     let mut command_data = Vec::new();
     let mut cmd_specific_data = Vec::new();
     let mut string_table = Vec::new();
     let mut string_offsets = HashMap::default();
 
-    // Helper to add string to table and return offset
     let mut add_string = |s: &str| -> u32 {
       if let Some(&offset) = string_offsets.get(s) {
         return offset;
@@ -677,22 +789,17 @@ impl<'a> ARM64Gen<'a> {
       let offset = string_table.len() as u32;
       string_offsets.insert(s.to_string(), offset);
       string_table.extend_from_slice(s.as_bytes());
-      string_table.push(0); // null terminate
+      string_table.push(0);
       offset
     };
 
-    // Write header: count + padding
     header_data.extend_from_slice(&(commands.len() as u32).to_le_bytes());
-    header_data.extend_from_slice(&0u32.to_le_bytes()); // padding for 8-byte alignment
+    header_data.extend_from_slice(&0u32.to_le_bytes());
 
-    // Calculate base offset for command-specific data structures
-    // Header (8) + Commands (16 * count)
     let cmd_data_base = 8 + (16 * commands.len());
     let mut cmd_data_offset = 0usize;
 
-    // Write each command (exactly 16 bytes each)
     for cmd in commands {
-      // Command type (4 bytes)
       let cmd_type = match cmd {
         UiCommand::BeginContainer { .. } => 0u32,
         UiCommand::EndContainer => 1u32,
@@ -703,50 +810,43 @@ impl<'a> ARM64Gen<'a> {
         UiCommand::Event { .. } => 6u32,
       };
       command_data.extend_from_slice(&cmd_type.to_le_bytes());
-      command_data.extend_from_slice(&0u32.to_le_bytes()); // padding
+      command_data.extend_from_slice(&0u32.to_le_bytes());
 
-      // Data pointer (8 bytes) - will need relocation
-      // For now, store offset that will be converted to pointer
       match cmd {
         UiCommand::BeginContainer { id, direction } => {
-          // Store offset to command-specific data
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
-
-          // Build command-specific data structure
           let str_offset = add_string(id);
           cmd_specific_data.extend_from_slice(&str_offset.to_le_bytes());
-          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes()); // padding
+          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
           cmd_specific_data
             .extend_from_slice(&direction.as_u32().to_le_bytes());
-          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes()); // padding
-          cmd_data_offset += 16; // Each data structure is 16 bytes
+          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
+          cmd_data_offset += 16;
         }
         UiCommand::EndContainer => {
-          command_data.extend_from_slice(&0u64.to_le_bytes()); // null pointer
+          command_data.extend_from_slice(&0u64.to_le_bytes());
         }
         UiCommand::Text { content, style } => {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
-
           let str_offset = add_string(content);
           cmd_specific_data.extend_from_slice(&str_offset.to_le_bytes());
-          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes()); // padding
+          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
           cmd_specific_data.extend_from_slice(&style.as_u32().to_le_bytes());
-          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes()); // padding
+          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
           cmd_data_offset += 16;
         }
         UiCommand::Button { id, content } => {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
-
           cmd_specific_data.extend_from_slice(&id.to_le_bytes());
           let str_offset = add_string(content);
           cmd_specific_data.extend_from_slice(&str_offset.to_le_bytes());
-          cmd_specific_data.extend_from_slice(&0u64.to_le_bytes()); // padding
+          cmd_specific_data.extend_from_slice(&0u64.to_le_bytes());
           cmd_data_offset += 16;
         }
         UiCommand::TextInput {
@@ -757,14 +857,12 @@ impl<'a> ARM64Gen<'a> {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
-
           cmd_specific_data.extend_from_slice(&id.to_le_bytes());
-          let placeholder_offset = add_string(placeholder);
-          cmd_specific_data
-            .extend_from_slice(&placeholder_offset.to_le_bytes());
-          let value_offset = add_string(value);
-          cmd_specific_data.extend_from_slice(&value_offset.to_le_bytes());
-          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes()); // padding
+          let po = add_string(placeholder);
+          cmd_specific_data.extend_from_slice(&po.to_le_bytes());
+          let vo = add_string(value);
+          cmd_specific_data.extend_from_slice(&vo.to_le_bytes());
+          cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
           cmd_data_offset += 16;
         }
         UiCommand::Image {
@@ -776,85 +874,68 @@ impl<'a> ARM64Gen<'a> {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
-
-          let id_offset = add_string(id);
-          cmd_specific_data.extend_from_slice(&id_offset.to_le_bytes());
-          let src_offset = add_string(src);
-          cmd_specific_data.extend_from_slice(&src_offset.to_le_bytes());
+          let io = add_string(id);
+          cmd_specific_data.extend_from_slice(&io.to_le_bytes());
+          let so = add_string(src);
+          cmd_specific_data.extend_from_slice(&so.to_le_bytes());
           cmd_specific_data.extend_from_slice(&width.to_le_bytes());
           cmd_specific_data.extend_from_slice(&height.to_le_bytes());
           cmd_data_offset += 16;
         }
         UiCommand::Event { .. } => {
-          command_data.extend_from_slice(&0u64.to_le_bytes()); // null pointer for now
+          command_data.extend_from_slice(&0u64.to_le_bytes());
         }
       }
     }
 
-    // Combine all data sections
     let mut final_data = Vec::new();
     final_data.extend_from_slice(&header_data);
     final_data.extend_from_slice(&command_data);
     final_data.extend_from_slice(&cmd_specific_data);
     final_data.extend_from_slice(&string_table);
 
-    // Store template data with a generated symbol
-    let template_symbol = Symbol(id.0 + 0x1000); // Offset to avoid collisions
+    let template_symbol = Symbol(id.0 + 0x1000);
     self.template_data.push((template_symbol, final_data));
     self.has_templates = true;
   }
 
-  /// Generate the _zo_ui_entry_point function that returns template data
+  /// Generate the _zo_ui_entry_point function.
   fn generate_ui_entry_point(&mut self) {
-    // Function prologue
-    let entry_symbol = Symbol(0xFFFF); // Use a fixed symbol ID for _zo_ui_entry_point
+    let entry_symbol = Symbol(0xFFFF);
     self
       .functions
       .insert(entry_symbol, self.emitter.current_offset());
 
-    // Return pointer to first template data
-    // For now, return the first template if it exists
     if let Some((symbol, _)) = self.template_data.first() {
       let fixup_pos = self.emitter.current_offset();
       self.string_fixups.push((fixup_pos, *symbol));
-      self.emitter.emit_adr(X0, 0); // Will be fixed up to point to template data
+      self.emitter.emit_adr(X0, 0);
     } else {
-      // Return null if no templates
       self.emitter.emit_mov_imm(X0, 0);
     }
 
-    // Return
     self.emitter.emit_ret();
   }
 
-  /// Emit a call to the runtime render function
-  fn emit_render_call(&mut self, value: zo_value::ValueId) {
-    // Load template data pointer into X0
-    // For now, use a placeholder approach
-    // In a real implementation, we'd look up the template data location
-
-    // ADR X0, template_data
+  /// Emit a call to the runtime render function.
+  fn emit_render_call(&mut self, value: ValueId) {
     let template_symbol = Symbol(value.0 + 0x1000);
     let fixup_pos = self.emitter.current_offset();
     self.string_fixups.push((fixup_pos, template_symbol));
-    self.emitter.emit_adr(X0, 0); // Placeholder offset
+    self.emitter.emit_adr(X0, 0);
 
-    // Call runtime render function
-    // BL _zo_render_template
-    // For now, we'll emit a placeholder system call
-    self.emitter.emit_mov_imm(X16, 4); // write syscall as placeholder
-    self.emitter.emit_mov_imm(X0, 1); // stdout
+    self.emitter.emit_mov_imm(X16, 4);
+    self.emitter.emit_mov_imm(X0, 1);
     self.emitter.emit_svc(0);
   }
 
-  /// Write binary to file and make it executable
+  /// Write binary to file and make it executable.
   pub fn write_executable(
     binary: Vec<u8>,
     path: impl AsRef<Path>,
   ) -> std::io::Result<()> {
     fs::write(&path, binary)?;
 
-    // make executable on Unix (chmod +x).
     #[cfg(unix)]
     {
       let metadata = fs::metadata(&path)?;
@@ -866,135 +947,89 @@ impl<'a> ARM64Gen<'a> {
     Ok(())
   }
 
-  /// Generate a complete "Hello, World" executable
-  /// This is a minimal implementation for testing
+  /// Generate a complete "Hello, World" executable.
   pub fn generate_hello_world() -> Vec<u8> {
     let mut emitter = ARM64Emitter::new();
-
-    // "Hello, World!\n" string will be in __DATA segment
     let hello_str = b"Hello, World!\n";
 
-    // Generate ARM64 code for main function
-    // On macOS ARM64:
-    // - Syscall number goes in X16 register
-    // - Arguments in X0-X7
-    // - Use svc #0 to make the call
-    // - write = 4, exit = 1
+    emitter.emit_mov_imm(X16, 4);
+    emitter.emit_mov_imm(X0, 1);
 
-    // write(1, "Hello, World!\n", 14)
-    emitter.emit_mov_imm(X16, 4); // syscall 4 = write
-    emitter.emit_mov_imm(X0, 1); // fd = stdout
-
-    // Calculate offset to string data that will be placed right after this code
-    // PC at ADR instruction: 0x408
-    // String location: 0x420
-    // Offset = 0x420 - 0x408 = 0x18 = 24 bytes
     let string_offset_from_adr = 0x18;
-
-    // Use a simple forward reference to data placed right after the code
     emitter.emit_adr(X1, string_offset_from_adr);
+    emitter.emit_mov_imm(X2, 14);
+    emitter.emit_svc(0);
 
-    emitter.emit_mov_imm(X2, 14); // length = 14 bytes
-    emitter.emit_svc(0); // Make system call with #0
+    emitter.emit_mov_imm(X16, 1);
+    emitter.emit_mov_imm(X0, 0);
+    emitter.emit_svc(0);
 
-    // exit(0)
-    emitter.emit_mov_imm(X16, 1); // syscall 1 = exit
-    emitter.emit_mov_imm(X0, 0); // exit code = 0
-    emitter.emit_svc(0); // Make system call with #0
-
-    // Get the code and append the string data directly after it
     let mut code = emitter.code();
     code.extend_from_slice(hello_str);
 
-    // Create Mach-O executable
     let mut macho = MachO::new();
-
-    // Add the combined code+data
     macho.add_code(code);
-
-    // No separate data segment needed - data is embedded in code
     macho.add_data(Vec::new());
-
-    // Build the Mach-O file structure
-    // IMPORTANT: Segments must be added first!
     macho.add_pagezero_segment();
     macho.add_text_segment();
     macho.add_data_segment();
-
-    // Add _main symbol at the entry point (section 1 = __TEXT,__text)
     macho.add_function_symbol("_main", 1, 0x100000400, false);
-
-    // Then add other load commands
     macho.add_dylinker();
     macho.add_dylib("/usr/lib/libSystem.B.dylib");
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
-    macho.add_main(0x400); // Entry point at start of __text section
+    macho.add_main(0x400);
     macho.add_dyld_info();
     macho.finish()
   }
 
-  /// Generate a complete "Hello, World" executable with code signature
+  /// Generate a complete "Hello, World" executable with
+  /// code signature.
   pub fn generate_hello_world_signed() -> Vec<u8> {
     let mut emitter = ARM64Emitter::new();
-
-    // "Hello, World!\n" string will be in __DATA segment
     let hello_str = b"Hello, World!\n";
 
-    // Generate ARM64 code for main function (same as before)
-    emitter.emit_mov_imm(X16, 4); // syscall 4 = write
-    emitter.emit_mov_imm(X0, 1); // fd = stdout
+    emitter.emit_mov_imm(X16, 4);
+    emitter.emit_mov_imm(X0, 1);
 
     let string_offset_from_adr = 0x18;
     emitter.emit_adr(X1, string_offset_from_adr);
+    emitter.emit_mov_imm(X2, 14);
+    emitter.emit_svc(0);
 
-    emitter.emit_mov_imm(X2, 14); // length = 14 bytes
-    emitter.emit_svc(0); // Make system call
+    emitter.emit_mov_imm(X16, 1);
+    emitter.emit_mov_imm(X0, 0);
+    emitter.emit_svc(0);
 
-    // exit(0)
-    emitter.emit_mov_imm(X16, 1); // syscall 1 = exit
-    emitter.emit_mov_imm(X0, 0); // exit code = 0
-    emitter.emit_svc(0); // Make system call
-
-    // Get the code and append the string data
     let mut code = emitter.code();
-
     code.extend_from_slice(hello_str);
-
     let code_len = code.len();
 
     let mut macho = MachO::new();
-
     macho.add_code(code);
     macho.add_data(Vec::new());
-
     macho.add_pagezero_segment();
     macho.add_text_segment();
     macho.add_data_segment();
-
-    // Add _main symbol at the entry point (section 1 = __TEXT,__text)
     macho.add_function_symbol("_main", 1, 0x100000400, false);
 
-    // Add comprehensive debug symbols
     macho.add_source_file_info("hello_world.zo", "/tmp/zo");
-    macho.add_compiler_info("zo v0.1.0", 2); // Optimization level 2
+    macho.add_compiler_info("zo v0.1.0", 2);
     macho.add_function_brackets("_main", 1, 0x100000400, code_len as u64);
-    macho.add_source_line(1, 0x100000400); // Line 1 at function start
+    macho.add_source_line(1, 0x100000400);
 
     let mut frame_entry = DebugFrameEntry::new(0x100000400, code_len as u64);
-
-    frame_entry.add_def_cfa(31, 0); // Define CFA as SP+0
-    frame_entry.add_nop(); // Padding
+    frame_entry.add_def_cfa(31, 0);
+    frame_entry.add_nop();
     macho.add_debug_frame_entry(frame_entry);
 
-    // Add load commands
     macho.add_dylinker();
     macho.add_dylib("/usr/lib/libSystem.B.dylib");
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
-    macho.add_main(0x400); // Entry point at start of __text section
+    macho.add_main(0x400);
     macho.add_dyld_info();
     macho.finish_with_signature()
   }

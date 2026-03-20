@@ -94,3 +94,21 @@ pub const D4: FpRegister = FpRegister::new(4);
 pub const D5: FpRegister = FpRegister::new(5);
 pub const D6: FpRegister = FpRegister::new(6);
 pub const D7: FpRegister = FpRegister::new(7);
+// D8-D15: callee-saved (skip for now)
+// D16-D31: caller-saved temps
+pub const D16: FpRegister = FpRegister::new(16);
+pub const D17: FpRegister = FpRegister::new(17);
+pub const D18: FpRegister = FpRegister::new(18);
+pub const D19: FpRegister = FpRegister::new(19);
+pub const D20: FpRegister = FpRegister::new(20);
+pub const D21: FpRegister = FpRegister::new(21);
+pub const D22: FpRegister = FpRegister::new(22);
+pub const D23: FpRegister = FpRegister::new(23);
+pub const D24: FpRegister = FpRegister::new(24);
+pub const D25: FpRegister = FpRegister::new(25);
+pub const D26: FpRegister = FpRegister::new(26);
+pub const D27: FpRegister = FpRegister::new(27);
+pub const D28: FpRegister = FpRegister::new(28);
+pub const D29: FpRegister = FpRegister::new(29);
+pub const D30: FpRegister = FpRegister::new(30);
+pub const D31: FpRegister = FpRegister::new(31);

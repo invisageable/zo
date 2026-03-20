@@ -14,6 +14,7 @@ zo-buffer = { workspace = true }
 zo-emitter-arm = { workspace = true }
 zo-codegen-backend = { workspace = true }
 zo-error = { workspace = true }
+zo-register-allocation = { workspace = true }
 zo-interner = { workspace = true }
 zo-reporter = { workspace = true }
 zo-sir = { workspace = true }

@@ -1,0 +1,12 @@
+[package]
+name = "zo-register-allocation"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:crates.
+zo-sir = { workspace = true }
+zo-value = { workspace = true }
+
+# external:crates.
+rustc-hash = { workspace = true }

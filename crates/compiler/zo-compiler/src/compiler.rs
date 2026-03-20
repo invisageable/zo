@@ -35,7 +35,7 @@ pub struct Compiler {
   profiler: Profiler,
   reporter: Reporter,
   module_resolver: ModuleResolver,
-  /// Guard against circular imports.
+  /// The Guard against circular imports.
   compiling: HashSet<PathBuf>,
 }
 impl Compiler {
@@ -263,6 +263,8 @@ impl Compiler {
           value_id: var.init.unwrap_or(ValueId(0)),
           pubness: Pubness::Yes,
           mutability: Mutability::No,
+          sir_value: var.init,
+          is_param: false,
         });
       }
 
@@ -292,6 +294,12 @@ impl Compiler {
 
     let mut semantic = analyzer.analyze();
     self.profiler.end_phase(ANALYZER_NAME);
+
+    // Drain thread-local errors into the compiler reporter.
+    let tl_errors = zo_reporter::collect_errors();
+    if !tl_errors.is_empty() {
+      self.reporter.collect_errors(&tl_errors);
+    }
 
     // Merge module SIR before main SIR for codegen.
     if !module_sir_instructions.is_empty() {

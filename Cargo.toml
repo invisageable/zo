@@ -72,6 +72,7 @@ zo-name-resolver = { path = "crates/compiler/zo-name-resolver", version = "0.0.0
 zo-parser = { path = "crates/compiler/zo-parser", version = "0.0.0" }
 zo-pp = { path = "crates/compiler/zo-pp", version = "0.0.0" }
 zo-profiler = { path = "crates/compiler/zo-profiler", version = "0.0.0" }
+zo-register-allocation = { path = "crates/compiler/zo-register-allocation", version = "0.0.0" }
 zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.0.0" }
 zo-runtime = { path = "crates/compiler/zo-runtime", version = "0.0.0" }
 zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.0.0" }

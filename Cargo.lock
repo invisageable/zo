@@ -7022,6 +7022,7 @@ dependencies = [
  "zo-executor",
  "zo-interner",
  "zo-parser",
+ "zo-register-allocation",
  "zo-reporter",
  "zo-sir",
  "zo-span",
@@ -7233,6 +7234,15 @@ dependencies = [
  "insta",
  "rustc-hash 2.1.1",
  "zo-buffer",
+]
+
+[[package]]
+name = "zo-register-allocation"
+version = "0.0.0"
+dependencies = [
+ "rustc-hash 2.1.1",
+ "zo-sir",
+ "zo-value",
 ]
 
 [[package]]
