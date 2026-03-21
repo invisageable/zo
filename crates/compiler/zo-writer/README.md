@@ -1,3 +1,3 @@
 # zo — writer.
 
-> _the writer dispatcher_.
+> *the writer dispatcher.*

@@ -412,3 +412,24 @@ fn test_showln_int_emits_call() {
     },
   );
 }
+
+#[test]
+fn test_ext_declaration() {
+  assert_sir_structure(
+    r#"ext readln() -> str;
+fun main() -> int { 42 }"#,
+    |sir| {
+      let ext_fn = sir.iter().find(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            is_intrinsic: true,
+            ..
+          }
+        )
+      });
+
+      assert!(ext_fn.is_some(), "expected FunDef with is_intrinsic: true");
+    },
+  );
+}

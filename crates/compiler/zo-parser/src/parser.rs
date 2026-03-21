@@ -128,7 +128,7 @@ impl<'a> Parser<'a> {
       Token::Pack => self.handle_pack_statement(),
 
       // Introducers - these start new contexts
-      Token::Fun => self.handle_fun_introducer(),
+      Token::Fun | Token::Ext => self.handle_fun_introducer(kind),
       Token::LParen => self.handle_lparen_introducer(),
       Token::LBrace => self.handle_lbrace_introducer(),
       Token::LBracket => self.handle_lbracket(),
@@ -238,22 +238,18 @@ impl<'a> Parser<'a> {
     self.state = ParserState::ModulePath;
   }
 
-  fn handle_fun_introducer(&mut self) {
-    // Flush any pending expression first
+  fn handle_fun_introducer(&mut self, token: Token) {
     self.flush_expr();
 
-    // Emit the Fun token
-    let node_index = self.emit_node(Token::Fun);
+    let node_index = self.emit_node(token);
 
-    // Push introducer to stack
     self.introducer_stack.push(Introducer {
       state: self.state,
-      token: Token::Fun,
+      token,
       node_index,
       children_start: self.tree.nodes.len() as u32,
     });
 
-    // Transition to function signature state
     self.state = ParserState::FunctionSignature;
   }
 

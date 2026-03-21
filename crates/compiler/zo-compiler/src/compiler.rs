@@ -187,6 +187,56 @@ impl Compiler {
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
 
+    // --- Prelude: auto-import std/io so showln etc.
+    // are available without explicit `load io::showln;`.
+    let prelude = ["io"];
+
+    for module_name in prelude {
+      let sym = tokenization.interner.intern(module_name);
+      let prelude_path = vec![sym];
+
+      let resolved = self
+        .module_resolver
+        .resolve(&prelude_path, &tokenization.interner);
+
+      if let Some(m) = resolved {
+        let src = m.source.clone();
+        let mod_tok = Tokenizer::new(&src).tokenize();
+        let mod_par = Parser::new(&mod_tok, &src).parse();
+        let mod_ana =
+          Analyzer::new(&mod_par.tree, &mod_tok.interner, &mod_tok.literals);
+        let mod_sem = mod_ana.analyze();
+        let mut dst_tc = TyChecker::new();
+
+        let exports = extract_exports(
+          mod_sem.sir,
+          None,
+          &mod_tok.interner,
+          &mut tokenization.interner,
+          &mod_sem.ty_checker,
+          &mut dst_tc,
+        );
+
+        imported_funs.extend(exports.funs);
+
+        for var in exports.vars {
+          imported_vars.push(Local {
+            name: var.name,
+            ty_id: var.ty_id,
+            value_id: var.init.unwrap_or(ValueId(0)),
+            pubness: Pubness::Yes,
+            mutability: Mutability::No,
+            sir_value: var.init,
+            is_param: false,
+          });
+        }
+
+        module_sir_instructions.extend(exports.sir_instructions);
+
+        module_next_value_id += exports.next_value_id;
+      }
+    }
+
     if !declared_packs.is_empty() {
       for module_path in &module_paths {
         if let Some(first_seg) = module_path.first() {

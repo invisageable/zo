@@ -222,6 +222,12 @@ impl<'a> Executor<'a> {
         self.execute_fun(idx, children_end);
       }
 
+      Token::Ext => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_ext(idx, children_end);
+      }
+
       // === MODULE STATEMENTS ===
       Token::Load => {
         let children_end = (header.child_start + header.child_count) as usize;
@@ -682,10 +688,9 @@ impl<'a> Executor<'a> {
           } else {
             // Check if this identifier is a known function
             // — call handling happens at RParen, not here.
-            let name = self.interner.get(sym);
-            let is_builtin =
-              matches!(name, "show" | "showln" | "eshow" | "eshowln" | "flush");
-            let is_fun = is_builtin || self.funs.iter().any(|f| f.name == sym);
+            // Functions come from prelude imports or
+            // explicit `load` — no hardcoded builtins.
+            let is_fun = self.funs.iter().any(|f| f.name == sym);
 
             if !is_fun {
               let span = self.tree.spans[idx];
@@ -952,25 +957,21 @@ impl<'a> Executor<'a> {
       }
 
       // === ASSIGNMENT ===
-      Token::Eq => {
-        // Defer: the RHS hasn't been processed yet.
-        // Pop the target identifier's value (it was pushed
-        // as a variable reference but it's actually the
-        // assignment target). Record the target name.
-        // The Semicolon will finalize after the RHS.
-        if idx >= 1 {
-          let target_idx = idx - 1;
-          if let Token::Ident = self.tree.nodes[target_idx].token
-            && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
-          {
-            // Pop the target's value from stacks
-            // (it was a spurious "use").
-            self.value_stack.pop();
-            self.ty_stack.pop();
-            self.sir_values.pop();
+      // Defer: the RHS hasn't been processed yet.
+      // Pop the target identifier's value (it was pushed
+      // as a variable reference but it's actually the
+      // assignment target). Record the target name.
+      // The Semicolon will finalize after the RHS.
+      Token::Eq if idx >= 1 => {
+        let target_idx = idx - 1;
+        if let Token::Ident = self.tree.nodes[target_idx].token
+          && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
+        {
+          self.value_stack.pop();
+          self.ty_stack.pop();
+          self.sir_values.pop();
 
-            self.pending_assign = Some(name);
-          }
+          self.pending_assign = Some(name);
         }
       }
 
@@ -1813,9 +1814,109 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Sets up an if branch context. The actual branch instruction
-  /// is emitted when LBrace is hit (condition is on the stack
-  /// by then).
+  /// Executes an `ext` declaration — an intrinsic function
+  /// with no body. Emits `FunDef { is_intrinsic: true }`.
+  fn execute_ext(&mut self, start_idx: usize, end_idx: usize) {
+    // Parse signature: ext name(params) -> return_ty;
+    let name = self
+      .tree
+      .nodes
+      .get(start_idx + 1)
+      .filter(|n| n.token == Token::Ident)
+      .and_then(|_| self.node_value(start_idx + 1))
+      .and_then(|v| match v {
+        NodeValue::Symbol(s) => Some(s),
+        _ => None,
+      });
+
+    if name.is_none() {
+      self.skip_until = end_idx;
+
+      return;
+    }
+
+    let name = name.unwrap();
+    let mut params = Vec::new();
+    let mut return_ty = self.ty_checker.unit_type();
+    let mut idx = start_idx + 2;
+
+    // Parse parameters.
+    if idx < end_idx && self.tree.nodes[idx].token == Token::LParen {
+      idx += 1;
+
+      while idx < end_idx {
+        match &self.tree.nodes[idx].token {
+          Token::RParen => {
+            idx += 1;
+
+            break;
+          }
+          Token::Ident => {
+            if let Some(NodeValue::Symbol(param_name)) = self.node_value(idx) {
+              idx += 1;
+
+              if idx < end_idx {
+                let param_ty = self.resolve_type_token(idx);
+
+                params.push((param_name, param_ty));
+
+                idx += 1;
+
+                if idx < end_idx && self.tree.nodes[idx].token == Token::Comma {
+                  idx += 1;
+                }
+              }
+            } else {
+              idx += 1;
+            }
+          }
+          _ => idx += 1,
+        }
+      }
+    }
+
+    // Parse return type.
+    while idx < end_idx {
+      match self.tree.nodes[idx].token {
+        Token::Arrow => {
+          if idx + 1 < end_idx {
+            idx += 1;
+            return_ty = self.resolve_type_token(idx);
+          }
+
+          break;
+        }
+        Token::Semicolon => break,
+        _ => idx += 1,
+      }
+    }
+
+    let is_pub = self.is_pub(start_idx);
+
+    self.sir.emit(Insn::FunDef {
+      name,
+      params: params.clone(),
+      return_ty,
+      body_start: 0,
+      is_intrinsic: true,
+      is_pub,
+    });
+
+    // Register as known function.
+    self.funs.push(FunDef {
+      name,
+      params,
+      return_ty,
+      body_start: 0,
+      is_intrinsic: true,
+      is_pub,
+    });
+
+    // Skip all children — no body to process.
+    self.skip_until = end_idx;
+  }
+
+  /// Sets up an if branch context.
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
     let end_label = self.sir.next_label();
     let else_label = self.sir.next_label();

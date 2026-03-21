@@ -1,19 +1,22 @@
 pack io;
 
 -- show something to stdout without newline.
-pub fun show(msg: str) {}
+pub ext show(msg: str);
 
 -- show something to stdout with ending line.
-pub fun showln(msg: str) {}
+pub ext showln(msg: str);
 
 -- show error message to stderr without newline.
-pub fun eshow(msg: str) {}
+pub ext eshow(msg: str);
 
 -- show error message to stderr with ending line.
-pub fun eshowln(msg: str) {}
+pub ext eshowln(msg: str);
 
 -- read a line from stdin.
-pub fun readln() -> str {}
+pub ext readln() -> str;
+
+-- read all of stdin into a string.
+pub ext read_all() -> str;
 
 -- flush output buffers.
-pub fun flush() {}
+pub ext flush();

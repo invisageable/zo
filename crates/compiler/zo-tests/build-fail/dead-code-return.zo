@@ -1,4 +1,4 @@
 fun main() {
   return 42;
-  showln("Paul is dead");
+  showln("john doe is dead");
 }
