@@ -316,3 +316,59 @@ fn test_float_param_produces_load() {
     },
   );
 }
+
+#[test]
+fn test_break_in_while() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  mut i: int = 0;
+  while i < 100 {
+    if i == 5 {
+      break;
+    }
+    i = i + 1;
+  }
+  return i;
+}"#,
+    |sir| {
+      // break emits a Jump to end_label.
+      let jumps = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Jump { .. }))
+        .count();
+
+      assert!(
+        jumps >= 2,
+        "expected >= 2 Jumps (break + loop-back), got {jumps}"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_continue_in_for() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  mut sum: int = 0;
+  for i := 0..10 {
+    if i == 3 {
+      continue;
+    }
+    sum = sum + i;
+  }
+  return sum;
+}"#,
+    |sir| {
+      // continue emits a Jump to loop_label.
+      let jumps = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Jump { .. }))
+        .count();
+
+      assert!(
+        jumps >= 2,
+        "expected >= 2 Jumps (continue + loop-back), got {jumps}"
+      );
+    },
+  );
+}

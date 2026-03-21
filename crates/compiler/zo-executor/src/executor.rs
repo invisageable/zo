@@ -769,6 +769,72 @@ impl<'a> Executor<'a> {
       // === CONTROL FLOW ===
       Token::Return => self.execute_return(idx),
 
+      Token::Break => {
+        if let Some(ctx) = self
+          .branch_stack
+          .iter()
+          .rev()
+          .find(|c| matches!(c.kind, BranchKind::While | BranchKind::For))
+        {
+          self.sir.emit(Insn::Jump {
+            target: ctx.end_label,
+          });
+        }
+      }
+
+      Token::Continue => {
+        if let Some(ctx) = self
+          .branch_stack
+          .iter()
+          .rev()
+          .find(|c| matches!(c.kind, BranchKind::While | BranchKind::For))
+        {
+          // For `for` loops, emit the increment before
+          // jumping back to the condition.
+          if ctx.kind == BranchKind::For
+            && let Some(var_name) = ctx.for_var
+          {
+            let int_ty = self.ty_checker.int_type();
+            let ld = ValueId(self.sir.next_value_id);
+
+            self.sir.next_value_id += 1;
+
+            let ld_sir = self.sir.emit(Insn::Load {
+              dst: ld,
+              src: 100 + var_name.as_u32(),
+              ty_id: int_ty,
+            });
+
+            let one_sir = self.sir.emit(Insn::ConstInt {
+              value: 1,
+              ty_id: int_ty,
+            });
+
+            let add_dst = ValueId(self.sir.next_value_id);
+
+            self.sir.next_value_id += 1;
+
+            let add_sir = self.sir.emit(Insn::BinOp {
+              dst: add_dst,
+              op: zo_sir::BinOp::Add,
+              lhs: ld_sir,
+              rhs: one_sir,
+              ty_id: int_ty,
+            });
+
+            self.sir.emit(Insn::Store {
+              name: var_name,
+              value: add_sir,
+              ty_id: int_ty,
+            });
+          }
+
+          if let Some(loop_label) = ctx.loop_label {
+            self.sir.emit(Insn::Jump { target: loop_label });
+          }
+        }
+      }
+
       // === STATEMENT TERMINATOR ===
       Token::Semicolon => {
         // Finalize pending assignment (x = expr;).
