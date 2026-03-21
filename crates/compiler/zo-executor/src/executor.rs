@@ -256,6 +256,12 @@ impl<'a> Executor<'a> {
         self.execute_while(idx, children_end);
       }
 
+      Token::For => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_for(idx, children_end);
+      }
+
       // === CONTROL FLOW ELSE ===
       Token::Else => {
         if let Some(ctx) = self.branch_stack.last_mut()
@@ -338,7 +344,7 @@ impl<'a> Executor<'a> {
           if let Some(cond_sir) = self.sir_values.last().copied() {
             let target = match ctx.kind {
               BranchKind::If => ctx.else_label.unwrap_or(ctx.end_label),
-              BranchKind::While => ctx.end_label,
+              BranchKind::While | BranchKind::For => ctx.end_label,
             };
 
             self.sir.emit(Insn::BranchIfNot {
@@ -435,7 +441,54 @@ impl<'a> Executor<'a> {
         if let Some(ctx) = self.branch_stack.last() {
           match ctx.kind {
             BranchKind::While => {
-              // Jump back to loop start.
+              if let Some(loop_label) = ctx.loop_label {
+                self.sir.emit(Insn::Jump { target: loop_label });
+              }
+
+              self.sir.emit(Insn::Label { id: ctx.end_label });
+
+              self.branch_stack.pop();
+            }
+            BranchKind::For => {
+              // Emit: i = i + 1; jump loop_start; label end
+              let int_ty = self.ty_checker.int_type();
+
+              if let Some(var_name) = ctx.for_var {
+                let load_src = 100 + var_name.as_u32();
+                let ld = ValueId(self.sir.next_value_id);
+
+                self.sir.next_value_id += 1;
+
+                let ld_sir = self.sir.emit(Insn::Load {
+                  dst: ld,
+                  src: load_src,
+                  ty_id: int_ty,
+                });
+
+                let one_sir = self.sir.emit(Insn::ConstInt {
+                  value: 1,
+                  ty_id: int_ty,
+                });
+
+                let add_dst = ValueId(self.sir.next_value_id);
+
+                self.sir.next_value_id += 1;
+
+                let add_sir = self.sir.emit(Insn::BinOp {
+                  dst: add_dst,
+                  op: zo_sir::BinOp::Add,
+                  lhs: ld_sir,
+                  rhs: one_sir,
+                  ty_id: int_ty,
+                });
+
+                self.sir.emit(Insn::Store {
+                  name: var_name,
+                  value: add_sir,
+                  ty_id: int_ty,
+                });
+              }
+
               if let Some(loop_label) = ctx.loop_label {
                 self.sir.emit(Insn::Jump { target: loop_label });
               }
@@ -1617,11 +1670,11 @@ impl<'a> Executor<'a> {
       else_label: Some(else_label),
       loop_label: None,
       branch_emitted: false,
+      for_var: None,
     });
   }
 
-  /// Sets up a while loop context. Emits the loop-start label
-  /// immediately (before the condition is evaluated).
+  /// Sets up a while loop context.
   fn execute_while(&mut self, _start_idx: usize, _end_idx: usize) {
     let loop_label = self.sir.next_label();
     let end_label = self.sir.next_label();
@@ -1634,7 +1687,152 @@ impl<'a> Executor<'a> {
       else_label: None,
       loop_label: Some(loop_label),
       branch_emitted: false,
+      for_var: None,
     });
+  }
+
+  /// Desugars `for i := start..end { body }` into
+  /// while-loop SIR:
+  ///   mut i = start;
+  ///   while i < end { body; i = i + 1; }
+  fn execute_for(&mut self, start_idx: usize, end_idx: usize) {
+    // Tree: For → [Ident(i), ColonEq, start, DotDot, end,
+    //              LBrace, ...body..., RBrace]
+    // Scan children for the variable name, start, and end.
+    let mut var_name = None;
+    let mut range_start = None;
+    let mut range_end = None;
+    let mut i = start_idx + 1;
+
+    while i < end_idx {
+      match self.tree.nodes[i].token {
+        Token::Ident if var_name.is_none() => {
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(i) {
+            var_name = Some(sym);
+          }
+        }
+        Token::Int => {
+          if let Some(NodeValue::Literal(lit)) = self.node_value(i) {
+            let val = self.literals.int_literals[lit as usize];
+            if range_start.is_none() {
+              range_start = Some(val);
+            } else {
+              range_end = Some(val);
+            }
+          }
+        }
+        Token::LBrace => break,
+        _ => {}
+      }
+
+      i += 1;
+    }
+
+    let var_name = match var_name {
+      Some(n) => n,
+      None => return,
+    };
+
+    let start_val = range_start.unwrap_or(0);
+    let end_val = range_end.unwrap_or(0);
+    let int_ty = self.ty_checker.int_type();
+
+    // --- Emit: mut i = start ---
+    let init_sir = self.sir.emit(Insn::ConstInt {
+      value: start_val,
+      ty_id: int_ty,
+    });
+
+    let init_vid = self.values.store_int(start_val);
+
+    self.sir.emit(Insn::VarDef {
+      name: var_name,
+      ty_id: int_ty,
+      init: Some(init_sir),
+      mutability: Mutability::Yes,
+      is_pub: false,
+    });
+
+    self.locals.push(Local {
+      name: var_name,
+      ty_id: int_ty,
+      value_id: init_vid,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(init_sir),
+      is_param: false,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // Emit initial Store (mutable lives on stack).
+    self.sir.emit(Insn::Store {
+      name: var_name,
+      value: init_sir,
+      ty_id: int_ty,
+    });
+
+    // --- Emit: loop header ---
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    // Condition: Load i < end
+    let cond_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let load_src = 100 + var_name.as_u32();
+
+    let load_sir = self.sir.emit(Insn::Load {
+      dst: cond_dst,
+      src: load_src,
+      ty_id: int_ty,
+    });
+
+    let end_sir = self.sir.emit(Insn::ConstInt {
+      value: end_val,
+      ty_id: int_ty,
+    });
+
+    let cmp_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let cmp_sir = self.sir.emit(Insn::BinOp {
+      dst: cmp_dst,
+      op: zo_sir::BinOp::Lt,
+      lhs: load_sir,
+      rhs: end_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cmp_sir,
+      target: end_label,
+    });
+
+    // Push branch context — RBrace will emit increment
+    // + jump.
+    self.branch_stack.push(BranchCtx {
+      kind: BranchKind::For,
+      end_label,
+      else_label: None,
+      loop_label: Some(loop_label),
+      branch_emitted: true,
+      for_var: Some(var_name),
+    });
+
+    // Skip header tokens (Ident, ColonEq, start, DotDot,
+    // end) — let the main loop process from LBrace onward.
+    let lbrace_idx = (start_idx + 1..end_idx)
+      .find(|&j| self.tree.nodes[j].token == Token::LBrace)
+      .unwrap_or(end_idx);
+
+    self.skip_until = lbrace_idx;
   }
 
   /// Executes compound assignment (+=, -=, etc).
@@ -2594,6 +2792,7 @@ impl<'a> Executor<'a> {
 enum BranchKind {
   If,
   While,
+  For,
 }
 
 /// Tracks context for a pending control flow branch.
@@ -2609,6 +2808,8 @@ struct BranchCtx {
   loop_label: Option<u32>,
   /// Whether the branch instruction has been emitted.
   branch_emitted: bool,
+  /// For-loop variable name (For only).
+  for_var: Option<Symbol>,
 }
 
 /// Tracks context when compiling inside a function

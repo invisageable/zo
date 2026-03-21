@@ -237,3 +237,51 @@ fn test_while_loop_sum() {
     },
   );
 }
+
+#[test]
+fn test_for_loop_sum() {
+  // for i := 0..5 desugars to:
+  //   mut i = 0; while i < 5 { body; i = i + 1; }
+  assert_sir_structure(
+    r#"fun main() -> int {
+  mut sum: int = 0;
+  for i := 0..5 {
+    sum = sum + i;
+  }
+  return sum;
+}"#,
+    |sir| {
+      // Must have loop structure: Label, BranchIfNot, Jump
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::Label { .. })),
+        "expected Label for loop start"
+      );
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. })),
+        "expected BranchIfNot for loop condition"
+      );
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::Jump { .. })),
+        "expected Jump back to loop start"
+      );
+
+      // Must have Stores for sum and the loop variable i
+      let store_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Store { .. }))
+        .count();
+
+      assert!(
+        store_count >= 3,
+        "expected >= 3 Store instructions, got {store_count}"
+      );
+      // Must have a Return with a value
+      assert!(
+        sir
+          .iter()
+          .any(|i| matches!(i, Insn::Return { value: Some(_), .. })),
+        "expected Return with value"
+      );
+    },
+  );
+}
