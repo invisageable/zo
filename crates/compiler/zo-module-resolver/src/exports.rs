@@ -140,10 +140,18 @@ pub fn extract_exports(
     }
   }
 
+  // Filter out PackDecl — only code-generating
+  // instructions should be merged into the user's SIR.
+  let sir_instructions = sir
+    .instructions
+    .into_iter()
+    .filter(|i| !matches!(i, Insn::PackDecl { .. }))
+    .collect();
+
   ModuleExports {
     funs,
     vars,
-    sir_instructions: sir.instructions,
+    sir_instructions,
     next_value_id: sir.next_value_id,
   }
 }

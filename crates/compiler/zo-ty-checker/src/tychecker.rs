@@ -397,6 +397,10 @@ impl TyChecker {
       (Ty::Str, Ty::Str) => Some(repr1),
       (Ty::Unit, Ty::Unit) => Some(repr1),
 
+      // Error absorbs — don't cascade errors.
+      (Ty::Error, _) => Some(repr2),
+      (_, Ty::Error) => Some(repr1),
+
       _ => {
         report_error(Error::new(ErrorKind::TypeMismatch, span));
         None

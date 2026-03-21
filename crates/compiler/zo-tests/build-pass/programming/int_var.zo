@@ -1,0 +1,7 @@
+-- tests-run-pass: integer variable declaration (from rust-prehistory).
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/int_var.zo -o crates/compiler/zo-tests/build-pass/programming/int_var
+
+fun main() {
+  imu x: int = 10;
+  check(x == 10);
+}

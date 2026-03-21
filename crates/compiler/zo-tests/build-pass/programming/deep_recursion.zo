@@ -1,0 +1,15 @@
+-- tests-run-pass: deep recursion (from rust-prehistory).
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/deep_recursion.zo -o crates/compiler/zo-tests/build-pass/programming/deep_recursion
+
+fun f(x: int) -> int {
+  if x == 1 {
+    return 1;
+  } else {
+    imu y: int = 1 + f(x - 1);
+    return y;
+  }
+}
+
+fun main() {
+  check(f(5000) == 5000);
+}

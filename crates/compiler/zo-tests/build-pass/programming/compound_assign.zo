@@ -1,0 +1,18 @@
+-- tests-run-pass: compound assignment operators (from rust-prehistory).
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/compound_assign.zo -o crates/compiler/zo-tests/build-pass/programming/compound_assign
+
+fun main() {
+  mut x: int = 1;
+
+  x = x * 2;
+  check(x == 2);
+
+  x = x + 3;
+  check(x == 5);
+
+  x = x * x;
+  check(x == 25);
+
+  x = x / 5;
+  check(x == 5);
+}

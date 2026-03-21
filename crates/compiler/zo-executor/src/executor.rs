@@ -397,11 +397,8 @@ impl<'a> Executor<'a> {
             let body_ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
             let (return_value, return_ty) = if func_return_ty == unit_ty {
-              // Void function with implicit non-unit return
-              // → user likely forgot `-> T` annotation.
               if has_value && body_ty != unit_ty {
                 let span = self.tree.spans[idx];
-
                 report_error(Error::new(ErrorKind::TypeMismatch, span));
               }
 
@@ -415,9 +412,7 @@ impl<'a> Executor<'a> {
 
               (sir_value, body_ty)
             } else {
-              // Non-void function but no value — type error.
               let span = self.tree.spans[idx];
-
               report_error(Error::new(ErrorKind::TypeMismatch, span));
 
               (None, unit_ty)
@@ -699,13 +694,12 @@ impl<'a> Executor<'a> {
               let span = self.tree.spans[idx];
 
               report_error(Error::new(ErrorKind::UndefinedVariable, span));
+
+              let error_id = self.values.store_runtime(u32::MAX);
+
+              self.value_stack.push(error_id);
+              self.ty_stack.push(self.ty_checker.error_type());
             }
-
-            // Push error values for stack consistency.
-            let error_id = self.values.store_runtime(u32::MAX);
-
-            self.value_stack.push(error_id);
-            self.ty_stack.push(self.ty_checker.error_type());
           }
         }
       }
@@ -1121,8 +1115,19 @@ impl<'a> Executor<'a> {
           }
         }
 
-        // Runtime operation - emit SIR
-        // The destination is the new SSA value being created
+        // Comparison ops produce bool for the type
+        // stack; the SIR keeps the operand type so
+        // codegen can distinguish int vs float.
+        let stack_ty = match op {
+          BinOp::Eq
+          | BinOp::Neq
+          | BinOp::Lt
+          | BinOp::Lte
+          | BinOp::Gt
+          | BinOp::Gte => self.ty_checker.bool_type(),
+          _ => ty_id,
+        };
+
         let dst = ValueId(self.sir.next_value_id);
 
         self.sir.next_value_id += 1;
@@ -1138,12 +1143,14 @@ impl<'a> Executor<'a> {
         let runtime_id = self.values.store_runtime(0);
 
         self.value_stack.push(runtime_id);
-        self.ty_stack.push(ty_id);
+        self.ty_stack.push(stack_ty);
         self.sir_values.push(sir_value);
-        self.annotations.push(Annotation { node_idx, ty_id });
+        self.annotations.push(Annotation {
+          node_idx,
+          ty_id: stack_ty,
+        });
       }
       None => {
-        // Type error - push error values
         let error_id = self.values.store_runtime(u32::MAX);
 
         self.value_stack.push(error_id);
@@ -2442,8 +2449,10 @@ impl<'a> Executor<'a> {
 
       let arg_count = if has_content { comma_count + 1 } else { 0 };
 
-      // Type check: correct number of arguments
-      if arg_count != func.params.len() {
+      // Type check: correct number of arguments.
+      // Skip for intrinsics — codegen handles them.
+      if func.kind != FunctionKind::Intrinsic && arg_count != func.params.len()
+      {
         let span = self.tree.spans[rparen_idx];
 
         report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
@@ -2474,15 +2483,18 @@ impl<'a> Executor<'a> {
       arg_types.reverse();
       arg_sirs.reverse();
 
-      // Type check arguments against parameter types
-      for (i, ((_, param_ty), arg_ty)) in
-        func.params.iter().zip(arg_types.iter()).enumerate()
-      {
-        let span = self.tree.spans[lparen_idx + 1 + i * 2]; // Approximate span
+      // Type check arguments against parameter types.
+      // Skip for intrinsic functions — codegen handles
+      // them via compile-time type dispatch.
+      if func.kind != FunctionKind::Intrinsic {
+        for (i, ((_, param_ty), arg_ty)) in
+          func.params.iter().zip(arg_types.iter()).enumerate()
+        {
+          let span = self.tree.spans[lparen_idx + 1 + i * 2];
 
-        if self.ty_checker.unify(*param_ty, *arg_ty, span).is_none() {
-          // Type error already reported by unify
-          return;
+          if self.ty_checker.unify(*param_ty, *arg_ty, span).is_none() {
+            return;
+          }
         }
       }
 

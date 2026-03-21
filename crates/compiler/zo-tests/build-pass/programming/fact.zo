@@ -1,0 +1,12 @@
+fun f(x: int) -> int {
+  if x == 1 {
+    return 1;
+  } else {
+    imu y: int = x * f(x - 1);
+    return y;
+  }
+}
+
+fun main() {
+  showln(f(5));
+}

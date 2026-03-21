@@ -1,0 +1,8 @@
+-- tests-run-pass: bitwise operations (from rust-prehistory).
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/bitwise.zo -o crates/compiler/zo-tests/build-pass/programming/bitwise
+
+fun main() {
+  check(0xf0 | 0xf == 0xff);
+  check(0xf << 4 == 0xf0);
+  check(0xf0 >> 4 == 0xf);
+}
