@@ -280,7 +280,38 @@ fn test_for_loop_sum() {
         sir
           .iter()
           .any(|i| matches!(i, Insn::Return { value: Some(_), .. })),
-        "expected Return with value"
+        "expected Return with value (for)"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_float_param_produces_load() {
+  assert_sir_structure(
+    r#"fun add_f(a: float, b: float) -> float {
+  return a + b;
+}"#,
+    |sir| {
+      let loads = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Load { .. }))
+        .collect::<Vec<_>>();
+
+      assert!(
+        loads.len() >= 2,
+        "expected >= 2 Load for float params, got {}",
+        loads.len()
+      );
+      assert!(
+        sir.iter().any(|i| matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Add,
+            ..
+          }
+        )),
+        "expected BinOp Add for a + b"
       );
     },
   );

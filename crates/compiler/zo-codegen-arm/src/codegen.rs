@@ -519,14 +519,23 @@ impl<'a> ARM64Gen<'a> {
         if *src >= 100 {
           // Mutable variable: LDR from stack slot.
           let slot = *src - 100;
+
           if let Some(dst_reg) = self.alloc_reg(*dst)
             && let Some(&offset) = self.mutable_slots.get(&slot)
           {
             self.emitter.emit_ldr(dst_reg, SP, offset as i16);
           }
+        } else if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
+          // Float parameter: arrives in D[src].
+          let fp_src = FpRegister::new(*src as u8);
+
+          if fp_dst != fp_src {
+            self.emitter.emit_fmov_fp(fp_dst, fp_src);
+          }
         } else if let Some(dst_reg) = self.alloc_reg(*dst) {
-          // Parameter load: value arrives in X[src].
+          // GP parameter: arrives in X[src].
           let src_reg = Register::new(*src as u8);
+
           if dst_reg != src_reg {
             self.emitter.emit_mov_reg(dst_reg, src_reg);
           }
@@ -664,16 +673,24 @@ impl<'a> ARM64Gen<'a> {
           }
           "flush" => {}
           _ => {
-            // Move args to X0-X7.
+            // Move args to X0-X7 (GP) or D0-D7 (FP).
             for (i, arg) in args.iter().enumerate() {
               if i >= 8 {
                 break;
               }
-              let dst_reg = Register::new(i as u8);
-              if let Some(src_reg) = self.alloc_reg(*arg)
-                && src_reg != dst_reg
-              {
-                self.emitter.emit_mov_reg(dst_reg, src_reg);
+
+              if let Some(fp_src) = self.alloc_fp_reg(*arg) {
+                let fp_dst = FpRegister::new(i as u8);
+
+                if fp_src != fp_dst {
+                  self.emitter.emit_fmov_fp(fp_dst, fp_src);
+                }
+              } else if let Some(src_reg) = self.alloc_reg(*arg) {
+                let dst_reg = Register::new(i as u8);
+
+                if src_reg != dst_reg {
+                  self.emitter.emit_mov_reg(dst_reg, src_reg);
+                }
               }
             }
 
@@ -684,8 +701,13 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_bl(offset);
             }
 
-            // Move result from X0 to allocated reg.
-            if let Some(result_reg) = self.reg_for_insn(idx)
+            // Move result to allocated register.
+            // Float results arrive in D0, GP in X0.
+            if let Some(fp_result) = self.fp_reg_for_insn(idx) {
+              if fp_result != D0 {
+                self.emitter.emit_fmov_fp(fp_result, D0);
+              }
+            } else if let Some(result_reg) = self.reg_for_insn(idx)
               && result_reg != X0
             {
               self.emitter.emit_mov_reg(result_reg, X0);

@@ -209,10 +209,17 @@ pub fn allocate_function(
   let mut state = AllocState::new();
   let mut has_calls = false;
 
-  // Reserve GP parameter registers.
+  // Reserve parameter registers in the correct pool.
   let n_params = params.len().min(8);
-  for i in 0..n_params {
-    state.gp.free.retain(|&r| r != i as u8);
+
+  for (i, (_name, ty_id)) in params.iter().enumerate().take(n_params) {
+    let is_fp = ty_id.0 >= 15 && ty_id.0 <= 17;
+
+    if is_fp {
+      state.fp.free.retain(|&r| r != i as u8);
+    } else {
+      state.gp.free.retain(|&r| r != i as u8);
+    }
   }
 
   for i in 0..n {

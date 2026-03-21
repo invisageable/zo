@@ -501,6 +501,14 @@ impl ARM64Emitter {
     self.emit_u32(insn);
   }
 
+  /// FMOV Dd, Dn — move between FP registers (double).
+  pub fn emit_fmov_fp(&mut self, dst: FpRegister, src: FpRegister) {
+    // Encoding: 0 00 11110 01 1 0000 00 10000 Rn Rd
+    let insn = 0x1E604000 | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
   /// FADD Dd, Dn, Dm — FP add (double).
   pub fn emit_fadd(
     &mut self,
