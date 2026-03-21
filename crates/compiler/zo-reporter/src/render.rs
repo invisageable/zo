@@ -19,6 +19,7 @@ pub struct RenderConfig {
   /// Whether to show help messages.
   pub show_help: bool,
 }
+
 impl Default for RenderConfig {
   fn default() -> Self {
     Self {
@@ -34,6 +35,7 @@ impl Default for RenderConfig {
 pub struct ErrorRenderer {
   config: RenderConfig,
 }
+
 impl ErrorRenderer {
   /// Creates a new error renderer with default config.
   pub fn new() -> Self {
@@ -326,6 +328,7 @@ fn error_note(kind: ErrorKind) -> Option<&'static str> {
     _ => None,
   }
 }
+
 impl Default for ErrorRenderer {
   fn default() -> Self {
     Self::new()

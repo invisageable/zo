@@ -68,6 +68,7 @@ pub struct LibraryLoader {
   event_handler: Option<Symbol<'static, EventHandler>>,
   base_address: *const u8,
 }
+
 impl LibraryLoader {
   /// Creates a new [`LibraryLooader`] instance.
   pub fn new() -> Self {
@@ -84,6 +85,7 @@ impl LibraryLoader {
     path: &str,
   ) -> Result<ThinVec<UiCommand>, Box<dyn std::error::Error>> {
     let lib = unsafe { Library::new(path) }?;
+
     let entry_point: Symbol<UiEntryPoint> =
       unsafe { lib.get(b"_zo_ui_entry_point") }?;
 
@@ -127,6 +129,7 @@ impl LibraryLoader {
     let array = unsafe { &*array_ptr };
     let count = array.count as usize;
     let mut commands = ThinVec::with_capacity(count);
+
     let commands_base =
       unsafe { (array_ptr as *const u8).add(COMMAND_START_OFFSET) };
 
@@ -135,8 +138,8 @@ impl LibraryLoader {
       let cmd_ptr =
         unsafe { commands_base.add(cmd_offset) } as *const RawUiCommand;
       let raw_cmd = unsafe { &*cmd_ptr };
-
       let ui_cmd = self.parse_command(raw_cmd);
+
       if let Some(cmd) = ui_cmd {
         commands.push(cmd);
       }
@@ -153,6 +156,7 @@ impl LibraryLoader {
         if !raw_cmd.data.is_null() {
           let data_ptr =
             self.resolve_pointer(raw_cmd.data) as *const ContainerData;
+
           let data = unsafe { &*data_ptr };
           let id = self.resolve_string(data.id_offset);
 
@@ -199,6 +203,7 @@ impl LibraryLoader {
         if !raw_cmd.data.is_null() {
           let data_ptr =
             self.resolve_pointer(raw_cmd.data) as *const ButtonData;
+
           let data = unsafe { &*data_ptr };
           let content = self.resolve_string(data.content_offset);
 
@@ -234,6 +239,7 @@ impl LibraryLoader {
   fn resolve_pointer(&self, ptr: *mut c_void) -> *mut c_void {
     // Check if this looks like an offset (small value)
     let value = ptr as usize;
+
     if value < 0x10000 {
       // It's an offset - add base address
       unsafe { self.base_address.add(value) as *mut c_void }
@@ -269,11 +275,13 @@ impl LibraryLoader {
     }
   }
 }
+
 impl Default for LibraryLoader {
   fn default() -> Self {
     Self::new()
   }
 }
+
 impl Drop for LibraryLoader {
   fn drop(&mut self) {
     self.library = None;

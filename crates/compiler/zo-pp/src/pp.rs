@@ -13,6 +13,7 @@ pub struct PrettyPrinter {
   /// The bytes buffer.
   buffer: Buffer,
 }
+
 impl PrettyPrinter {
   /// Creates a new [`PrettyPrinter`] instance.
   pub fn new() -> Self {
@@ -682,6 +683,7 @@ impl PrettyPrinter {
     }
   }
 }
+
 impl Default for PrettyPrinter {
   fn default() -> Self {
     Self::new()

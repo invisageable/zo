@@ -144,6 +144,7 @@ pub struct TyTable {
   /// Global array for all function parameter types.
   pub param_tys: Vec<TyId>,
 }
+
 impl TyTable {
   pub fn new() -> Self {
     Self::default()

@@ -45,6 +45,7 @@ pub enum UiCommand {
     handler: String,
   },
 }
+
 impl UiCommand {
   /// Get the numeric type code for memory layout (used in ARM codegen)
   pub fn type_code(&self) -> u32 {
@@ -66,6 +67,7 @@ pub enum ContainerDirection {
   Horizontal, // for <div>, <span>
   Vertical,   // for <section>, default
 }
+
 impl ContainerDirection {
   /// Get numeric value for memory layout
   pub fn as_u32(&self) -> u32 {
@@ -85,6 +87,7 @@ pub enum TextStyle {
   Paragraph, // <p>
   Normal,    // plain text
 }
+
 impl TextStyle {
   /// Get numeric value for memory layout
   pub fn as_u32(&self) -> u32 {
@@ -137,6 +140,7 @@ pub enum Attr {
   /// Dynamic binding: class={expr} (post-MVP)
   Dynamic { name: String },
 }
+
 impl Attr {
   /// Create a string property.
   pub fn str_prop(name: &str, value: &str) -> Self {

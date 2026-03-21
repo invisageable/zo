@@ -5,6 +5,7 @@ use zo_ty::TyId;
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ValueId(pub u32);
+
 impl std::ops::Deref for ValueId {
   type Target = u32;
 
@@ -12,6 +13,7 @@ impl std::ops::Deref for ValueId {
     &self.0
   }
 }
+
 impl std::fmt::Display for ValueId {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.0)
@@ -65,6 +67,7 @@ pub struct ValueStorage {
   /// Index into the appropriate side array
   pub indices: Vec<u32>,
 }
+
 impl ValueStorage {
   pub fn new(capacity: usize) -> Self {
     Self {

@@ -148,6 +148,7 @@ pub enum Token {
   TemplateFragmentEnd,   // </>
   TemplateText,          // Raw text inside a tag - uses main token span
 }
+
 impl Token {
   /// Checks if the token kind is an operand.
   #[inline(always)]
@@ -225,6 +226,7 @@ pub struct TokenBuffer {
   // For tokens without literals (Semicolon, Plus, etc), this is 0.
   pub literal_indices: Vec<u32>,
 }
+
 impl TokenBuffer {
   pub fn new() -> Self {
     Self {
@@ -306,6 +308,7 @@ impl TokenBuffer {
     }
   }
 }
+
 impl Default for TokenBuffer {
   fn default() -> Self {
     Self::new()
@@ -323,6 +326,7 @@ pub struct LiteralStore {
   pub char_literals: Vec<(u32, u16)>,
   pub string_literals: Vec<Symbol>,
 }
+
 impl LiteralStore {
   pub fn new() -> Self {
     Self {
@@ -398,6 +402,7 @@ impl LiteralStore {
     idx
   }
 }
+
 impl Default for LiteralStore {
   fn default() -> Self {
     Self::new()

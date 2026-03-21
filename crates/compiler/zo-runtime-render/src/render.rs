@@ -1,6 +1,6 @@
 use zo_ui_protocol::UiCommand;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::FxHashMap as HashMap;
 use thin_vec::ThinVec;
 
 /// Graphics backend selection
@@ -18,12 +18,13 @@ pub type EventHandler = Box<dyn Fn() + Send>;
 /// Registry mapping handler names to callable functions.
 /// Built by the driver from SIR, consumed by runtimes.
 pub struct EventRegistry {
-  handlers: FxHashMap<String, EventHandler>,
+  handlers: HashMap<String, EventHandler>,
 }
+
 impl EventRegistry {
   pub fn new() -> Self {
     Self {
-      handlers: FxHashMap::default(),
+      handlers: HashMap::default(),
     }
   }
 
@@ -44,6 +45,7 @@ impl EventRegistry {
     self.handlers.contains_key(name)
   }
 }
+
 impl Default for EventRegistry {
   fn default() -> Self {
     Self::new()

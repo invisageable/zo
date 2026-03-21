@@ -61,7 +61,9 @@ impl Runtime {
     path: &str,
   ) -> Result<(), Box<dyn std::error::Error>> {
     let commands = self.loader.load(path)?;
+
     self.commands = commands.into();
+
     Ok(())
   }
 
@@ -91,7 +93,8 @@ impl Runtime {
     let commands = self.commands.clone();
 
     // Build widget_id → handler_name map from Event commands
-    let mut event_map: HashMap<String, String> = HashMap::default();
+    let mut event_map = HashMap::default();
+
     for cmd in &commands {
       if let UiCommand::Event {
         widget_id, handler, ..
@@ -145,8 +148,10 @@ impl eframe::App for App {
 
       // Dispatch pending events to zo handlers
       let pending = self.renderer.take_pending_events();
+
       for (widget_id, _event_kind) in pending {
         let wid = widget_id.to_string();
+
         if let Some(handler_name) = self.event_map.get(&wid) {
           self.events.dispatch(handler_name);
         }

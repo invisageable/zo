@@ -14,6 +14,7 @@ pub struct Sir {
   /// The next label ID for branch targets.
   pub next_label_id: u32,
 }
+
 impl Sir {
   /// Creates a new [`SirBuilder`] instance.
   pub fn new() -> Self {
@@ -27,7 +28,9 @@ impl Sir {
   /// Allocates a fresh label ID.
   pub fn next_label(&mut self) -> u32 {
     let id = self.next_label_id;
+
     self.next_label_id += 1;
+
     id
   }
 
@@ -66,6 +69,7 @@ impl Sir {
     value_id
   }
 }
+
 impl Default for Sir {
   fn default() -> Self {
     Self::new()
@@ -216,6 +220,7 @@ pub enum BinOp {
   /// `>>`
   Shr,
 }
+
 impl BinOp {
   /// Gets the related [`BinOp`] from a [`Token`].
   pub const fn from(&self, kind: Token) -> Option<BinOp> {
@@ -260,6 +265,7 @@ pub enum UnOp {
   // Bitwise not — ``.
   BitNot,
 }
+
 impl UnOp {
   /// Gets the related [`UnOp`] from a [`Token`].
   pub const fn from(&self, kind: Token) -> Option<UnOp> {

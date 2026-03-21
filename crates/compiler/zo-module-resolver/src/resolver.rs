@@ -78,6 +78,7 @@ impl ModuleResolver {
       // Try direct path: {search_path}/{seg0}/{seg1}/...zo
       if let Some(resolved) = Self::try_resolve(search_path, &names, None) {
         self.cache.insert(key.clone(), resolved);
+
         return self.cache.get(&key);
       }
 
@@ -90,6 +91,7 @@ impl ModuleResolver {
           Self::try_resolve(search_path, &names[1..], None)
       {
         self.cache.insert(key.clone(), resolved);
+
         return self.cache.get(&key);
       }
 
@@ -104,6 +106,7 @@ impl ModuleResolver {
           Self::try_resolve(search_path, parent, Some(last.clone()))
         {
           self.cache.insert(key.clone(), resolved);
+
           return self.cache.get(&key);
         }
 
@@ -115,6 +118,7 @@ impl ModuleResolver {
             Self::try_resolve(search_path, &parent[1..], Some(last))
         {
           self.cache.insert(key.clone(), resolved);
+
           return self.cache.get(&key);
         }
       }

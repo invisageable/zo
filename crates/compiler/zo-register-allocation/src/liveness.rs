@@ -1,7 +1,7 @@
 use zo_sir::Insn;
 use zo_value::ValueId;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 /// Compact bitvector for liveness sets.
 #[derive(Clone)]
@@ -25,6 +25,7 @@ impl BitVec {
   #[inline]
   pub fn set(&mut self, bit: usize) {
     let word = bit / 64;
+
     if word < self.words.len() {
       self.words[word] |= 1u64 << (bit % 64);
     }
@@ -33,17 +34,20 @@ impl BitVec {
   #[inline]
   pub fn test(&self, bit: usize) -> bool {
     let word = bit / 64;
+
     word < self.words.len() && self.words[word] & (1u64 << (bit % 64)) != 0
   }
 
   /// self |= other. Returns true if self changed.
   pub fn union_with(&mut self, other: &Self) -> bool {
     let mut changed = false;
+
     for (a, b) in self.words.iter_mut().zip(other.words.iter()) {
       let old = *a;
       *a |= *b;
       changed |= *a != old;
     }
+
     changed
   }
 
@@ -86,9 +90,11 @@ pub fn analyze(
 
   for i in 0..n {
     let gi = start + i;
+
     if let Some(vid) = value_ids[gi] {
       defs[i].set(vid.0 as usize);
     }
+
     for u in crate::insn_uses(&insns[gi]) {
       if u.0 != u32::MAX {
         uses[i].set(u.0 as usize);
@@ -98,7 +104,7 @@ pub fn analyze(
 
   // --- label → local index map ---
 
-  let mut label_map: FxHashMap<u32, usize> = FxHashMap::default();
+  let mut label_map = HashMap::default();
 
   for i in 0..n {
     if let Insn::Label { id } = &insns[start + i] {
@@ -108,11 +114,12 @@ pub fn analyze(
 
   // --- successors ---
 
-  let mut succs: Vec<Vec<usize>> = Vec::with_capacity(n);
+  let mut succs = Vec::with_capacity(n);
 
   for i in 0..n {
     let gi = start + i;
     let mut s = Vec::new();
+
     match &insns[gi] {
       Insn::Jump { target } => {
         if let Some(&idx) = label_map.get(target) {
@@ -136,6 +143,7 @@ pub fn analyze(
         }
       }
     }
+
     succs.push(s);
   }
 
@@ -145,14 +153,18 @@ pub fn analyze(
   let mut live_out = vec![BitVec::new(nbits); n];
 
   let mut changed = true;
+
   while changed {
     changed = false;
+
     for i in (0..n).rev() {
       // live_out[i] = ∪ live_in[successors of i]
       let mut new_out = BitVec::new(nbits);
+
       for &succ in &succs[i] {
         new_out.union_with(&live_in[succ]);
       }
+
       if new_out != live_out[i] {
         live_out[i] = new_out;
         changed = true;
@@ -161,8 +173,10 @@ pub fn analyze(
       // live_in[i] = uses[i] ∪ (live_out[i] \ defs[i])
       let mut new_in = uses[i].clone();
       let mut out_minus_def = live_out[i].clone();
+
       out_minus_def.difference_with(&defs[i]);
       new_in.union_with(&out_minus_def);
+
       if new_in != live_in[i] {
         live_in[i] = new_in;
         changed = true;

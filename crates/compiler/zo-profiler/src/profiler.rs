@@ -28,6 +28,7 @@ pub struct Profiler {
   /// Number of artifacts linked.
   artifacts_linked: usize,
 }
+
 impl Profiler {
   /// Create a new profiler.
   pub fn new() -> Self {
@@ -320,6 +321,7 @@ impl Profiler {
     print!("{}", String::from_utf8_lossy(&buffer.finish()));
   }
 }
+
 impl Default for Profiler {
   fn default() -> Self {
     Self::new()

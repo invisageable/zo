@@ -11,6 +11,7 @@ pub struct HtmlRenderer {
 }
 
 impl HtmlRenderer {
+  /// Creates an html [`Renderer`] instance.
   pub fn new() -> Self {
     Self {
       html_buffer: String::with_capacity(4096),
@@ -119,11 +120,13 @@ impl HtmlRenderer {
 
       UiCommand::Button { id, content } => {
         let wid = id.to_string();
+
         let handler = self
           .event_map
           .get(&wid)
           .map(|h| format!("onclick=\"ZoRuntime.call('{h}')\""))
           .unwrap_or_else(|| format!("onclick=\"handleClick({id})\""));
+
         self.html_buffer.push_str(&format!(
           "<button data-id=\"{id}\" {handler}>{}</button>\n",
           escape_html(content)
@@ -136,6 +139,7 @@ impl HtmlRenderer {
         value,
       } => {
         let wid = id.to_string();
+
         let handler = self
           .event_map
           .get(&wid)
@@ -143,6 +147,7 @@ impl HtmlRenderer {
           .unwrap_or_else(|| {
             format!("oninput=\"handleInput({id}, this.value)\"")
           });
+
         self.html_buffer.push_str(&format!(
           "<input type=\"text\" data-id=\"{id}\" placeholder=\"{}\" value=\"{}\" {handler} />\n",
           escape_html(placeholder), escape_html(value)

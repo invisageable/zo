@@ -11,6 +11,7 @@ pub enum Phase {
   Codegen,
   Runtime,
 }
+
 impl Phase {
   /// Returns a human-readable name for the phase.
   pub fn name(&self) -> &'static str {
@@ -32,6 +33,7 @@ pub struct PhaseErrors {
   /// The errors collected during this phase.
   pub errors: Vec<Error>,
 }
+
 impl PhaseErrors {
   /// Creates a new PhaseErrors collection.
   pub const fn new(phase: Phase, errors: Vec<Error>) -> Self {
@@ -56,6 +58,7 @@ pub struct ErrorAggregator {
   /// All phase errors collected.
   phase_errors: Vec<PhaseErrors>,
 }
+
 impl ErrorAggregator {
   /// Creates a new empty aggregator.
   pub fn new() -> Self {

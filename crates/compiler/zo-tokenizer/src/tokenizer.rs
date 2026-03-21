@@ -109,6 +109,7 @@ pub struct Tokenizer<'a> {
   state: ModeState,
   delimiter_stack: Vec<DelimiterInfo>,
 }
+
 impl<'a> Tokenizer<'a> {
   pub fn new(source: &'a str) -> Self {
     let bytes = source.as_bytes();
@@ -1189,12 +1190,15 @@ impl<'a> Tokenizer<'a> {
 
       if ch == b'`' {
         self.advance();
+
         found_closing = true;
+
         break;
       }
 
       if ch == b'\\' {
         self.advance();
+
         if self.cursor < self.source.len() {
           self.advance();
         }

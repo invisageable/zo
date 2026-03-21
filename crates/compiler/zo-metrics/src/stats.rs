@@ -11,6 +11,7 @@ pub struct Stats {
   /// The number of artifacts.
   numartifacts: usize,
 }
+
 impl Stats {
   /// Creates a new [`Stats`] instance.
   pub fn new() -> Self {

@@ -30,6 +30,7 @@ fn test_runtime_with_commands() {
 
   // Verify we can create runtime without panic
   assert_eq!(commands.len(), 4);
+
   println!(
     "Runtime created successfully with {} commands",
     commands.len()

@@ -20,6 +20,7 @@ pub struct ThreadLocalReporter {
   /// Current number of errors.
   count: usize,
 }
+
 impl ThreadLocalReporter {
   /// Creates a new empty reporter.
   pub const fn new() -> Self {
@@ -71,6 +72,7 @@ impl ThreadLocalReporter {
     errors
   }
 }
+
 impl Default for ThreadLocalReporter {
   fn default() -> Self {
     Self::new()

@@ -7,7 +7,7 @@
 //!
 //! Inspired by Malina.js's compile-time template analysis.
 
-use zo_ui_protocol::UiCommand;
+use zo_ui_protocol::{TextStyle, UiCommand};
 
 /// Classification of a UiCommand based on compile-time analysis
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,7 +58,6 @@ impl TemplateOptimizer {
       // Structural commands - static if content is static
       UiCommand::BeginContainer { .. } => CommandClassification::Static,
       UiCommand::EndContainer => CommandClassification::Static,
-
       // Text with literal strings is static
       UiCommand::Text { content, .. } => {
         if self.is_static_string(content) {
@@ -67,12 +66,10 @@ impl TemplateOptimizer {
           CommandClassification::Dynamic
         }
       }
-
       // Interactive elements are dynamic by nature
       UiCommand::Button { .. } => CommandClassification::Dynamic,
       UiCommand::TextInput { .. } => CommandClassification::Dynamic,
       UiCommand::Event { .. } => CommandClassification::Dynamic,
-
       // Images with static src are static
       UiCommand::Image { src, .. } => {
         if self.is_static_string(src) {
@@ -104,7 +101,7 @@ impl TemplateOptimizer {
   /// Merge adjacent Text commands with same style (Phase 2.1)
   fn merge_adjacent_text(&self, commands: Vec<UiCommand>) -> Vec<UiCommand> {
     let mut optimized = Vec::with_capacity(commands.len());
-    let mut pending_text: Option<(String, zo_ui_protocol::TextStyle)> = None;
+    let mut pending_text: Option<(String, TextStyle)> = None;
 
     for cmd in commands {
       match cmd {
@@ -119,6 +116,7 @@ impl TemplateOptimizer {
                 content: buffer.clone(),
                 style: pending_style.clone(),
               });
+
               pending_text = Some((content, style));
             }
           } else {
@@ -134,6 +132,7 @@ impl TemplateOptimizer {
               style,
             });
           }
+
           optimized.push(cmd);
         }
       }
@@ -204,10 +203,12 @@ impl TemplateOptimizer {
 
           // Not flattenable - add as-is
           optimized.push(commands[i].clone());
+
           i += 1;
         }
         _ => {
           optimized.push(commands[i].clone());
+
           i += 1;
         }
       }
@@ -250,12 +251,14 @@ impl TemplateOptimizer {
       .enumerate()
       .map(|(index, cmd)| {
         let classification = self.classify_command(cmd);
+
         let needs_interactivity = matches!(
           cmd,
           UiCommand::Button { .. }
             | UiCommand::TextInput { .. }
             | UiCommand::Event { .. }
         );
+
         let mergeable = matches!(cmd, UiCommand::Text { .. });
 
         CommandMetadata {
@@ -284,6 +287,7 @@ mod tests {
   #[test]
   fn test_classify_static_text() {
     let optimizer = TemplateOptimizer::new();
+
     let cmd = UiCommand::Text {
       content: "Hello, world!".to_string(),
       style: TextStyle::Normal,
@@ -298,6 +302,7 @@ mod tests {
   #[test]
   fn test_classify_button_as_dynamic() {
     let optimizer = TemplateOptimizer::new();
+
     let cmd = UiCommand::Button {
       id: 1,
       content: "Click me".to_string(),
@@ -312,6 +317,7 @@ mod tests {
   #[test]
   fn test_merge_adjacent_text() {
     let optimizer = TemplateOptimizer::new();
+
     let commands = vec![
       UiCommand::Text {
         content: "Hello ".to_string(),
@@ -324,6 +330,7 @@ mod tests {
     ];
 
     let optimized = optimizer.merge_adjacent_text(commands);
+
     assert_eq!(optimized.len(), 1);
 
     if let UiCommand::Text { content, .. } = &optimized[0] {
@@ -336,6 +343,7 @@ mod tests {
   #[test]
   fn test_no_merge_different_styles() {
     let optimizer = TemplateOptimizer::new();
+
     let commands = vec![
       UiCommand::Text {
         content: "Hello".to_string(),
@@ -348,12 +356,14 @@ mod tests {
     ];
 
     let optimized = optimizer.merge_adjacent_text(commands);
+
     assert_eq!(optimized.len(), 2);
   }
 
   #[test]
   fn test_analyze_mixed_commands() {
     let optimizer = TemplateOptimizer::new();
+
     let commands = vec![
       UiCommand::BeginContainer {
         id: "root".to_string(),
@@ -371,6 +381,7 @@ mod tests {
     ];
 
     let classifications = optimizer.analyze(&commands);
+
     assert_eq!(classifications.len(), 4);
     assert_eq!(classifications[0], CommandClassification::Static);
     assert_eq!(classifications[1], CommandClassification::Static);
@@ -381,6 +392,7 @@ mod tests {
   #[test]
   fn test_metadata_generation() {
     let optimizer = TemplateOptimizer::new();
+
     let commands = vec![
       UiCommand::Text {
         content: "Hello".to_string(),
@@ -393,12 +405,11 @@ mod tests {
     ];
 
     let metadata = optimizer.generate_metadata(&commands);
-    assert_eq!(metadata.len(), 2);
 
+    assert_eq!(metadata.len(), 2);
     assert_eq!(metadata[0].classification, CommandClassification::Static);
     assert!(metadata[0].mergeable);
     assert!(!metadata[0].needs_interactivity);
-
     assert_eq!(metadata[1].classification, CommandClassification::Dynamic);
     assert!(!metadata[1].mergeable);
     assert!(metadata[1].needs_interactivity);
@@ -407,6 +418,7 @@ mod tests {
   #[test]
   fn test_flatten_consecutive_containers() {
     let optimizer = TemplateOptimizer::new();
+
     let commands = vec![
       UiCommand::BeginContainer {
         id: "first".to_string(),
@@ -441,6 +453,7 @@ mod tests {
   #[test]
   fn test_no_flatten_different_directions() {
     let optimizer = TemplateOptimizer::new();
+
     let commands = vec![
       UiCommand::BeginContainer {
         id: "first".to_string(),
@@ -471,6 +484,7 @@ mod tests {
   #[test]
   fn test_find_matching_end() {
     let optimizer = TemplateOptimizer::new();
+
     let commands = vec![
       UiCommand::BeginContainer {
         id: "outer".to_string(),

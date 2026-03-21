@@ -10,17 +10,16 @@ pub struct Interner {
   // The actual string storage - we store all strings concatenated
   // This is append-only, so pointers into it remain valid forever
   storage: String,
-
   // Map from string slices to their Symbol
   // We use &'static str as keys, which are actually slices into `storage`
   // SAFETY: storage is append-only, so these pointers remain valid
   #[serde(skip)] // Can't serialize raw pointers
   map: HashMap<&'static str, Symbol>,
-
   // For each symbol, where does its string start and how long is it?
   // We keep this for the `get` method and error reporting
   spans: Vec<(usize, usize)>,
 }
+
 impl Interner {
   /// Creates a new interner with pre-interned keywords
   pub fn new() -> Self {
@@ -144,6 +143,7 @@ impl Interner {
     self.map.get(s).copied()
   }
 }
+
 impl Default for Interner {
   fn default() -> Self {
     Self::new()

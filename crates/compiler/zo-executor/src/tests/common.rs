@@ -23,6 +23,7 @@ pub(crate) fn assert_annotations_stream(
     &tokenization.interner,
     &tokenization.literals,
   );
+
   let (sir, annotations, ty_checker) = executor.execute();
   let mut actual = Vec::new();
 
@@ -54,6 +55,7 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
     &tokenization.interner,
     &tokenization.literals,
   );
+
   let (sir, _, _) = executor.execute();
 
   assert_eq!(
@@ -95,6 +97,7 @@ pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
     &tokenization.interner,
     &tokenization.literals,
   );
+
   let _ = executor.execute();
 
   let errors = collect_errors();

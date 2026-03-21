@@ -617,6 +617,7 @@ pub struct RelocationInfo {
   /// Length: 0=byte, 1=word, 2=long, 3=quad
   pub r_length: u8,
 }
+
 impl RelocationInfo {
   /// Create a new relocation entry
   pub const fn new(
@@ -761,6 +762,7 @@ pub struct LineNumberProgramState {
   /// End sequence flag
   pub end_sequence: bool,
 }
+
 impl LineNumberProgramState {
   /// Create a new line number program state with defaults
   pub const fn new() -> Self {
@@ -924,6 +926,7 @@ pub struct DebugFrameEntry {
   /// CFA (Canonical Frame Address) instructions
   pub cfa_instructions: Vec<u8>,
 }
+
 impl DebugFrameEntry {
   /// Create a new debug frame entry
   pub fn new(start_addr: u64, size: u64) -> Self {
@@ -1174,6 +1177,7 @@ pub struct MachO {
   /// Code signing entitlements (optional)
   entitlements: Option<String>,
 }
+
 impl MachO {
   /// Creates a new MachO builder configured for ARM64 executables
   pub fn new() -> Self {
@@ -6003,6 +6007,7 @@ impl MachO {
     self.finish_internal(true)
   }
 }
+
 impl Default for MachO {
   fn default() -> Self {
     Self::new()
@@ -6017,6 +6022,7 @@ pub struct UniversalBinary {
   /// Whether to use 64-bit fat format
   use_64bit: bool,
 }
+
 impl UniversalBinary {
   /// Create a new universal binary builder
   pub fn new() -> Self {
@@ -6179,6 +6185,7 @@ impl UniversalBinary {
     output
   }
 }
+
 impl Default for UniversalBinary {
   fn default() -> Self {
     Self::new()

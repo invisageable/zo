@@ -84,16 +84,13 @@ impl DependencyGraph {
       // Static structural commands
       UiCommand::BeginContainer { .. } => vec![DataSource::Static],
       UiCommand::EndContainer => vec![DataSource::Static],
-
       // Text commands - check for interpolations
       // TODO: Parse content for {expr} when we add string interpolation
       UiCommand::Text { .. } => vec![DataSource::Static],
-
       // Interactive elements - always dynamic
       UiCommand::Button { .. } => vec![DataSource::Static],
       UiCommand::TextInput { .. } => vec![DataSource::Static],
       UiCommand::Event { .. } => vec![DataSource::Static],
-
       // Images - check for dynamic src
       UiCommand::Image { .. } => vec![DataSource::Static],
     }
@@ -168,11 +165,13 @@ impl DependencyGraph {
   /// Get statistics about the dependency graph
   pub fn stats(&self) -> DependencyStats {
     let total_nodes = self.nodes.len();
+
     let static_nodes = self
       .nodes
       .iter()
       .filter(|n| n.depends_on.iter().all(|d| matches!(d, DataSource::Static)))
       .count();
+
     let dynamic_nodes = total_nodes - static_nodes;
     let total_watchers = self.watchers.len();
 
@@ -207,11 +206,13 @@ pub struct DependencyStats {
 #[cfg(test)]
 mod tests {
   use super::*;
+
   use zo_ui_protocol::{ContainerDirection, TextStyle};
 
   #[test]
   fn test_empty_graph() {
     let graph = DependencyGraph::new();
+
     assert_eq!(graph.nodes.len(), 0);
     assert_eq!(graph.watchers.len(), 0);
   }

@@ -114,6 +114,7 @@ impl Runtime {
     }
 
     let event_loop = EventLoop::new()?;
+
     let mut app = App {
       title: self.config.title,
       size: self.config.size,

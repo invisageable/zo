@@ -3,6 +3,7 @@ use zo_error::Error;
 pub struct Reporter {
   errors: Vec<Error>,
 }
+
 impl Reporter {
   pub fn new() -> Self {
     Self {
@@ -18,6 +19,7 @@ impl Reporter {
     &self.errors
   }
 }
+
 impl Default for Reporter {
   fn default() -> Self {
     Self::new()

@@ -136,9 +136,11 @@ impl AllocState {
     }
 
     let pool = self.pool_mut(fp);
+
     pool.val_to_reg.remove(&vid);
     pool.reg_to_val.remove(&reg);
     self.is_fp_value.remove(&vid);
+
     reg
   }
 
@@ -151,6 +153,7 @@ impl AllocState {
     fp: bool,
   ) -> u8 {
     let pool = self.pool_mut(fp);
+
     if let Some(reg) = pool.alloc_free() {
       return reg;
     }
@@ -185,6 +188,7 @@ pub fn allocate_function(
   result: &mut RegAlloc,
 ) {
   let n = end - start;
+
   if n == 0 {
     return;
   }
@@ -244,7 +248,9 @@ pub fn allocate_function(
         state.assign(*dst, reg, fp);
         insert_assignment(result, *dst, reg, fp);
       }
+
       free_dead(&mut state, &liveness, i);
+
       continue;
     }
 
@@ -252,10 +258,10 @@ pub fn allocate_function(
     if let Insn::Call { args, .. } = insn {
       has_calls = true;
 
-      let arg_set: Vec<u32> = args.iter().map(|a| a.0).collect();
+      let arg_set = args.iter().map(|a| a.0).collect::<Vec<_>>();
 
       // Collect values to save (both GP and FP).
-      let gp_save: Vec<(u32, u8)> = state
+      let gp_save = state
         .gp
         .val_to_reg
         .iter()
@@ -263,8 +269,9 @@ pub fn allocate_function(
           liveness.live_out[i].test(**vid as usize) && !arg_set.contains(vid)
         })
         .map(|(vid, reg)| (*vid, *reg))
-        .collect();
-      let fp_save: Vec<(u32, u8)> = state
+        .collect::<Vec<_>>();
+
+      let fp_save = state
         .fp
         .val_to_reg
         .iter()
@@ -272,10 +279,11 @@ pub fn allocate_function(
           liveness.live_out[i].test(**vid as usize) && !arg_set.contains(vid)
         })
         .map(|(vid, reg)| (*vid, *reg))
-        .collect();
+        .collect::<Vec<_>>();
 
       for &(vid, reg) in &gp_save {
         let slot = state.spill_slot(vid);
+
         result.spill_ops.push(SpillOp {
           insn_idx: gi,
           before: true,
@@ -286,8 +294,10 @@ pub fn allocate_function(
           },
         });
       }
+
       for &(vid, reg) in &fp_save {
         let slot = state.spill_slot(vid);
+
         result.spill_ops.push(SpillOp {
           insn_idx: gi,
           before: true,
@@ -303,8 +313,10 @@ pub fn allocate_function(
 
       // Call result goes to X0 (GP) or D0 (FP).
       let result_fp = insn_is_fp(insn);
+
       if let Some(vid) = value_ids[gi] {
         let reg = 0; // X0 or D0
+
         state.assign(vid, reg, result_fp);
         insert_assignment(result, vid, reg, result_fp);
       }
@@ -314,6 +326,7 @@ pub fn allocate_function(
         for &(vid, _) in &gp_save {
           let slot = state.spill_slots[&vid];
           let reg = state.gp.alloc_free().expect("out of GP regs for reload");
+
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
             before: true,
@@ -323,12 +336,14 @@ pub fn allocate_function(
               is_fp: false,
             },
           });
+
           state.assign(ValueId(vid), reg, false);
           result.assignments.insert(vid, reg);
         }
         for &(vid, _) in &fp_save {
           let slot = state.spill_slots[&vid];
           let reg = state.fp.alloc_free().expect("out of FP regs for reload");
+
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
             before: true,
@@ -338,28 +353,34 @@ pub fn allocate_function(
               is_fp: true,
             },
           });
+
           state.assign(ValueId(vid), reg, true);
           result.fp_assignments.insert(vid, reg);
         }
       }
 
       free_dead(&mut state, &liveness, i);
+
       continue;
     }
 
     // --- General case ---
 
     let uses = crate::insn_uses(insn);
+
     for &use_vid in &uses {
       if use_vid.0 == u32::MAX {
         continue;
       }
+
       if state.get(use_vid).is_some() {
         continue;
       }
+
       if let Some(&slot) = state.spill_slots.get(&use_vid.0) {
         let ufp = state.is_fp(use_vid);
         let reg = state.alloc_or_spill(gi, &liveness, i, result, ufp);
+
         result.spill_ops.push(SpillOp {
           insn_idx: gi,
           before: true,
@@ -369,6 +390,7 @@ pub fn allocate_function(
             is_fp: ufp,
           },
         });
+
         state.assign(use_vid, reg, ufp);
         insert_assignment(result, use_vid, reg, ufp);
       }
@@ -378,6 +400,7 @@ pub fn allocate_function(
       if use_vid.0 == u32::MAX {
         continue;
       }
+
       if !liveness.live_out[i].test(use_vid.0 as usize) {
         state.free_value(use_vid);
       }
@@ -385,6 +408,7 @@ pub fn allocate_function(
 
     if let Some(vid) = value_ids[gi] {
       let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
+
       state.assign(vid, reg, fp);
       insert_assignment(result, vid, reg, fp);
     }
@@ -419,6 +443,7 @@ fn free_dead(
     .filter(|vid| !liveness.live_out[local_idx].test(**vid as usize))
     .copied()
     .collect::<Vec<_>>();
+
   let dead_fp = state
     .fp
     .val_to_reg

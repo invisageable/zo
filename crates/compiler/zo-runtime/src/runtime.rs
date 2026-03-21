@@ -70,6 +70,7 @@ impl Runtime {
 
         let mut native_runtime =
           zo_runtime_native::runtime::Runtime::with_config(native_config);
+
         native_runtime.set_commands(self.commands);
         native_runtime.set_events(self.events);
         native_runtime.run()

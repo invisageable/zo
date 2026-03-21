@@ -25,6 +25,7 @@ pub struct Tree {
   /// Only has entries for nodes with values
   value_map: Vec<(u16, u16)>, // (node_index, value_index) pairs
 }
+
 impl Tree {
   pub fn new() -> Self {
     Self {
@@ -210,6 +211,7 @@ impl Tree {
     self.value_map.sort_by_key(|(node_idx, _)| *node_idx);
   }
 }
+
 impl Default for Tree {
   fn default() -> Self {
     Self::new()
@@ -241,6 +243,7 @@ pub struct NodeHeader {
   /// Reserved for alignment and future use
   pub _reserved: u16,
 }
+
 impl NodeHeader {
   pub const FLAG_HAS_VALUE: u8 = 0x01;
   pub const FLAG_HAS_EXPLICIT_CHILDREN: u8 = 0x02;

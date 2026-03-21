@@ -24,6 +24,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
+  /// Creates native [`Renderer`] instance.
   pub fn new() -> Self {
     Self {
       state: UiState::default(),
@@ -84,6 +85,7 @@ impl Renderer {
             self.state.pending_events.push((*id, 0)); // 0 = Click event
             println!("Button {} clicked: {}", id, content);
           }
+
           idx += 1;
         }
 
@@ -117,6 +119,7 @@ impl Renderer {
         } => {
           // for now, show placeholder.
           ui.label(format!("[Image: {src} ({width}x{height})]"));
+
           idx += 1;
         }
 

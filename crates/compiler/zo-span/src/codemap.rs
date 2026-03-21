@@ -7,6 +7,7 @@ pub struct CodeMap {
   /// For each file, store line-by-line locations
   lines_info: Vec<Vec<Span>>,
 }
+
 impl CodeMap {
   pub fn new() -> Self {
     Self {
@@ -21,6 +22,7 @@ impl CodeMap {
     self.lines_info.push(Vec::new());
   }
 }
+
 impl Default for CodeMap {
   fn default() -> Self {
     Self::new()

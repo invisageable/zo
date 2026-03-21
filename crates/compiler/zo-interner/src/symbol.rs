@@ -6,6 +6,7 @@ use serde::Serialize;
   Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize,
 )]
 pub struct Symbol(pub u32);
+
 impl Symbol {
   /// Creates a new Symbol from a raw index.
   /// This is primarily for internal use by the Interner.
@@ -20,6 +21,7 @@ impl Symbol {
     self.0
   }
 }
+
 impl Symbol {
   pub const EMPTY: Symbol = Symbol(0);
   pub const UNDERSCORE: Symbol = Symbol(1);
@@ -48,6 +50,7 @@ impl Symbol {
   pub const VAL: Symbol = Symbol(24);
   pub const FIRST_DYNAMIC: u32 = 25;
 }
+
 impl std::ops::Deref for Symbol {
   type Target = u32;
 
@@ -55,6 +58,7 @@ impl std::ops::Deref for Symbol {
     &self.0
   }
 }
+
 impl std::fmt::Display for Symbol {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.0)

@@ -9,6 +9,7 @@ pub struct Span {
   /// The length of the span.
   pub len: u16,
 }
+
 impl Span {
   /// A span initialize at zero.
   pub const ZERO: Self = Self::new(0, 0);
@@ -36,6 +37,7 @@ impl Span {
     self.start + self.len as u32
   }
 }
+
 impl Default for Span {
   /// Creates a default Span — default values are sets to zero.
   #[inline(always)]
@@ -43,6 +45,7 @@ impl Default for Span {
     Self::ZERO
   }
 }
+
 impl std::fmt::Display for Span {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(f, "{}..{}", self.start, self.end())

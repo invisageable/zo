@@ -10,7 +10,9 @@ pub struct Annotation {
   /// The type ID for this node
   pub ty_id: TyId,
 }
+
 impl Annotation {
+  /// Creates a new [`Annotation`] instance.
   pub const fn new(node_idx: usize, ty_id: TyId) -> Self {
     Self { node_idx, ty_id }
   }
