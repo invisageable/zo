@@ -534,7 +534,8 @@ impl<'a> Parser<'a> {
         | Token::Val
         | Token::Hash
         | Token::Load
-        | Token::Pack => {
+        | Token::Pack
+        | Token::Ext => {
           self.close_introducer();
         }
         _ => {}

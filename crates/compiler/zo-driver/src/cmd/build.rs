@@ -41,14 +41,16 @@ impl Build {
     // then fall back to relative path from the binary.
     if let Ok(std_path) = std::env::var("ZO_STD_PATH") {
       search_paths.push(PathBuf::from(std_path));
-    } else if let Ok(exe) = std::env::current_exe() {
-      // Assume std lives at ../lib/std relative to binary.
-      if let Some(parent) = exe.parent() {
-        let std_path = parent.join("../lib/std");
+    } else if let Ok(exe) = std::env::current_exe()
+      && let Some(parent) = exe.parent()
+    {
+      let installed = parent.join("../lib/std");
+      let dev = parent.join("../../crates/compiler-lib/std");
 
-        if std_path.is_dir() {
-          search_paths.push(std_path);
-        }
+      if installed.is_dir() {
+        search_paths.push(installed);
+      } else if dev.is_dir() {
+        search_paths.push(dev);
       }
     }
 
