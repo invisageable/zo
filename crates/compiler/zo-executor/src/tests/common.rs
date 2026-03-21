@@ -63,24 +63,24 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
   );
 }
 
-// /// Assert SIR stream structure without caring about exact Symbol/TyId values
-// pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
-//   let tokenizer = Tokenizer::new(source);
-//   let tokenization = tokenizer.tokenize();
+/// Assert SIR structure via a predicate.
+pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
+  let tokenizer = Tokenizer::new(source);
+  let tokenization = tokenizer.tokenize();
 
-//   let parser = Parser::new(&tokenization, source);
-//   let parsing = parser.parse();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
 
-//   let executor = Executor::new(
-//     &parsing.tree,
-//     &tokenization.interner,
-//     &tokenization.literals,
-//   );
-//   let (sir, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &tokenization.interner,
+    &tokenization.literals,
+  );
 
-//   eprintln!("Full SIR instructions: {:#?}", sir.instructions);
-//   check(&sir.instructions);
-// }
+  let (sir, _, _) = executor.execute();
+
+  check(&sir.instructions);
+}
 
 /// Assert that execution produces the expected error.
 pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {

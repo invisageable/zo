@@ -43,6 +43,10 @@ pub struct ARM64Gen<'a> {
   reg_alloc: Option<RegAlloc>,
   /// Current function's start index into SIR instructions.
   current_fn_start: Option<usize>,
+  /// Mutable variable stack slots: name → offset from SP.
+  mutable_slots: HashMap<u32, u32>,
+  /// Next mutable variable slot.
+  next_mut_slot: u32,
 }
 
 impl<'a> ARM64Gen<'a> {
@@ -61,6 +65,8 @@ impl<'a> ARM64Gen<'a> {
       branch_fixups: Vec::new(),
       reg_alloc: None,
       current_fn_start: None,
+      mutable_slots: HashMap::default(),
+      next_mut_slot: 0,
     }
   }
 
@@ -455,6 +461,8 @@ impl<'a> ARM64Gen<'a> {
         self.functions.insert(*name, offset);
         self.current_function = Some(*name);
         self.current_fn_start = Some(idx);
+        self.mutable_slots.clear();
+        self.next_mut_slot = 0;
 
         // Function prologue: save FP/LR if non-leaf.
         if let Some(info) = self
@@ -465,8 +473,11 @@ impl<'a> ARM64Gen<'a> {
           if info.has_calls {
             self.emitter.emit_stp(X29, X30, SP, -16);
           }
-          if info.spill_size > 0 {
-            self.emitter.emit_sub_imm(SP, SP, info.spill_size as u16);
+          // Reserve space for spills + mutable slots.
+          // Add 64 bytes (8 slots) for mutable vars.
+          let frame = (info.spill_size + 64 + 15) & !15;
+          if frame > 0 {
+            self.emitter.emit_sub_imm(SP, SP, frame as u16);
           }
         }
       }
@@ -505,13 +516,20 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::Load { dst, src, .. } => {
-        // Parameter load: value arrives in X[src].
-        if let Some(dst_reg) = self.alloc_reg(*dst) {
+        if *src >= 100 {
+          // Mutable variable: LDR from stack slot.
+          let slot = *src - 100;
+          if let Some(dst_reg) = self.alloc_reg(*dst)
+            && let Some(&offset) = self.mutable_slots.get(&slot)
+          {
+            self.emitter.emit_ldr(dst_reg, SP, offset as i16);
+          }
+        } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+          // Parameter load: value arrives in X[src].
           let src_reg = Register::new(*src as u8);
           if dst_reg != src_reg {
             self.emitter.emit_mov_reg(dst_reg, src_reg);
           }
-          // else: already in correct register.
         }
       }
 
@@ -695,8 +713,9 @@ impl<'a> ARM64Gen<'a> {
             .as_ref()
             .and_then(|a| a.function_info.get(&start))
         {
-          if info.spill_size > 0 {
-            self.emitter.emit_add_imm(SP, SP, info.spill_size as u16);
+          let frame = (info.spill_size + 64 + 15) & !15;
+          if frame > 0 {
+            self.emitter.emit_add_imm(SP, SP, frame as u16);
           }
           if info.has_calls {
             self.emitter.emit_ldp(X29, X30, SP, 16);
@@ -710,8 +729,37 @@ impl<'a> ARM64Gen<'a> {
         // Handled in execution phase.
       }
 
-      Insn::Store { .. } => {
-        // TODO: mutable variable reassignment.
+      Insn::Store { name, value, .. } => {
+        // Mutable variable write: STR value to stack slot.
+        // Allocate slot on first Store, reuse after.
+        let slot_key = name.as_u32();
+        let offset = if let Some(&off) = self.mutable_slots.get(&slot_key) {
+          off
+        } else {
+          // Allocate after spill slots. Use the
+          // function's spill_size as base offset.
+          let base = self
+            .current_fn_start
+            .and_then(|s| {
+              self
+                .reg_alloc
+                .as_ref()
+                .and_then(|a| a.function_info.get(&s))
+            })
+            .map(|info| info.spill_size)
+            .unwrap_or(0);
+
+          let off = base + self.next_mut_slot * 8;
+
+          self.mutable_slots.insert(slot_key, off);
+
+          self.next_mut_slot += 1;
+
+          off
+        };
+        if let Some(src_reg) = self.alloc_reg(*value) {
+          self.emitter.emit_str(src_reg, SP, offset as i16);
+        }
       }
 
       Insn::Template {

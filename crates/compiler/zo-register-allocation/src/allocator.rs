@@ -220,11 +220,23 @@ pub fn allocate_function(
     let insn = &insns[gi];
     let fp = insn_is_fp(insn);
 
-    // --- Handle Load (parameter) ---
+    // --- Handle Load (parameter or mutable) ---
     if let Insn::Load { dst, src, .. } = insn {
-      let param_reg = *src as u8;
-      state.assign(*dst, param_reg, fp);
-      insert_assignment(result, *dst, param_reg, fp);
+      if *src < 100 {
+        // Parameter: assign to the param register.
+        let param_reg = *src as u8;
+
+        state.assign(*dst, param_reg, fp);
+        insert_assignment(result, *dst, param_reg, fp);
+      } else {
+        // Mutable variable: allocate a fresh register
+        // (the value will be loaded from stack at
+        // runtime by the codegen LDR).
+        let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
+
+        state.assign(*dst, reg, fp);
+        insert_assignment(result, *dst, reg, fp);
+      }
       free_dead(&mut state, &liveness, i);
       continue;
     }

@@ -1,4 +1,6 @@
-use crate::tests::common::{assert_execution_error, assert_sir_stream};
+use crate::tests::common::{
+  assert_execution_error, assert_sir_stream, assert_sir_structure,
+};
 
 use zo_error::ErrorKind;
 use zo_interner::Symbol;
@@ -160,4 +162,78 @@ fn test_implicit_return_literal() {
 #[test]
 fn test_void_function_with_value_is_type_error() {
   assert_execution_error("fun foo() { 42 }", ErrorKind::TypeMismatch);
+}
+
+#[test]
+fn test_mutable_reassignment() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  mut x: int = 10;
+  x = 20;
+  return x;
+}"#,
+    |sir| {
+      // Must have Store (assignment) and Load with
+      // src >= 100 (mutable variable read from stack).
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::Store { .. })),
+        "expected Store instruction for mutable assignment"
+      );
+      assert!(
+        sir
+          .iter()
+          .any(|i| matches!(i, Insn::Load { src, .. } if *src >= 100)),
+        "expected Load from mutable slot (src >= 100)"
+      );
+      // Return must carry a value (not None).
+      assert!(
+        sir
+          .iter()
+          .any(|i| matches!(i, Insn::Return { value: Some(_), .. })),
+        "expected Return with value"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_while_loop_sum() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  mut i: int = 0;
+  mut sum: int = 0;
+  while i < 5 {
+    sum = sum + i;
+    i = i + 1;
+  }
+  return sum;
+}"#,
+    |sir| {
+      // Must have: Label (loop start), BranchIfNot (condition),
+      // Jump (back to loop), Store (i = i + 1), BinOp (sum + i).
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::Label { .. })),
+        "expected Label for loop start"
+      );
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. })),
+        "expected BranchIfNot for loop condition"
+      );
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::Jump { .. })),
+        "expected Jump back to loop start"
+      );
+
+      let store_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Store { .. }))
+        .count();
+
+      // At least 4 Stores: init i, init sum, reassign sum, reassign i
+      assert!(
+        store_count >= 4,
+        "expected >= 4 Store instructions, got {store_count}"
+      );
+    },
+  );
 }

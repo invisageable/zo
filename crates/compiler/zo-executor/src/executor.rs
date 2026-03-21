@@ -74,6 +74,8 @@ pub struct Executor<'a> {
   skip_until: usize,
   /// Pending variable declaration (deferred to Semicolon).
   pending_decl: Option<PendingDecl>,
+  /// Pending assignment target name (deferred to Semicolon).
+  pending_assign: Option<Symbol>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -113,6 +115,7 @@ impl<'a> Executor<'a> {
       branch_stack: Vec::with_capacity(8),
       skip_until: 0,
       pending_decl: None,
+      pending_assign: None,
     }
   }
 
@@ -575,26 +578,42 @@ impl<'a> Executor<'a> {
       Token::Ident => {
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
           // Copy fields to avoid borrow issues.
-          let local_info = self
-            .lookup_local(sym)
-            .map(|l| (l.value_id, l.ty_id, l.sir_value, l.is_param));
+          let local_info = self.lookup_local(sym).map(|l| {
+            (l.value_id, l.ty_id, l.sir_value, l.is_param, l.mutability)
+          });
 
-          if let Some((value_id, ty_id, sir_value, is_param)) = local_info {
+          if let Some((value_id, ty_id, sir_value, is_param, mutability)) =
+            local_info
+          {
             if self.current_function.is_some() {
-              if is_param {
-                // Parameter: emit Load from param register.
+              let is_mut = mutability == Mutability::Yes;
+
+              if is_param || is_mut {
+                // Parameter or mutable local: emit Load.
+                // Params use src=param_index (0-7).
+                // Mutables use src=100+slot so codegen
+                // can distinguish and read from stack.
                 let dst = ValueId(self.sir.next_value_id);
+
                 self.sir.next_value_id += 1;
-                let src = value_id.0;
+
+                let src = if is_param {
+                  value_id.0
+                } else {
+                  100 + sym.as_u32()
+                };
+
                 let sv = self.sir.emit(Insn::Load { dst, src, ty_id });
+
                 let rid = self.values.store_runtime(0);
+
                 self.value_stack.push(rid);
                 self.ty_stack.push(ty_id);
                 self.sir_values.push(sv);
               } else if let Some(sv) = sir_value {
-                // Local variable: reuse the SIR ValueId
-                // from its init expression.
+                // Immutable local: reuse SIR ValueId.
                 let rid = self.values.store_runtime(0);
+
                 self.value_stack.push(rid);
                 self.ty_stack.push(ty_id);
                 self.sir_values.push(sv);
@@ -699,9 +718,12 @@ impl<'a> Executor<'a> {
 
       // === STATEMENT TERMINATOR ===
       Token::Semicolon => {
+        // Finalize pending assignment (x = expr;).
+        let had_assign = self.pending_assign.is_some();
+        self.finalize_pending_assign();
+
         // Finalize any pending variable declaration.
         let had_decl = self.pending_decl.is_some();
-
         self.finalize_pending_decl();
 
         // Check if we have a pending return to complete.
@@ -709,13 +731,11 @@ impl<'a> Executor<'a> {
           .current_function
           .as_ref()
           .is_some_and(|ctx| ctx.pending_return);
-
         self.check_pending_return();
 
-        // If neither a declaration nor a return consumed
-        // the stacks, this is an expression statement —
-        // discard the value so it doesn't leak to `}`.
-        if !had_decl && !had_return {
+        // If nothing consumed the stacks, discard the
+        // expression value so it doesn't leak to `}`.
+        if !had_assign && !had_decl && !had_return {
           self.value_stack.pop();
           self.ty_stack.pop();
           self.sir_values.pop();
@@ -723,7 +743,27 @@ impl<'a> Executor<'a> {
       }
 
       // === ASSIGNMENT ===
-      Token::Eq => self.execute_assignment(idx),
+      Token::Eq => {
+        // Defer: the RHS hasn't been processed yet.
+        // Pop the target identifier's value (it was pushed
+        // as a variable reference but it's actually the
+        // assignment target). Record the target name.
+        // The Semicolon will finalize after the RHS.
+        if idx >= 1 {
+          let target_idx = idx - 1;
+          if let Token::Ident = self.tree.nodes[target_idx].token
+            && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
+          {
+            // Pop the target's value from stacks
+            // (it was a spurious "use").
+            self.value_stack.pop();
+            self.ty_stack.pop();
+            self.sir_values.pop();
+
+            self.pending_assign = Some(name);
+          }
+        }
+      }
 
       // === COMPOUND ASSIGNMENTS ===
       Token::PlusEq => self.execute_compound_assignment(BinOp::Add, idx),
@@ -1333,6 +1373,44 @@ impl<'a> Executor<'a> {
 
   /// Finalize a pending variable declaration.
   ///
+  /// Finalize a pending assignment (x = expr;).
+  fn finalize_pending_assign(&mut self) {
+    let name = match self.pending_assign.take() {
+      Some(n) => n,
+      None => return,
+    };
+
+    if let (Some(value), Some(value_ty)) =
+      (self.value_stack.pop(), self.ty_stack.pop())
+    {
+      let value_sir = self.sir_values.pop();
+
+      if let Some(local) = self.locals.iter_mut().rev().find(|l| l.name == name)
+      {
+        if local.mutability != Mutability::Yes {
+          report_error(Error::new(ErrorKind::ImmutableVariable, Span::ZERO));
+
+          return;
+        }
+
+        if let Some(unified_ty) =
+          self.ty_checker.unify(local.ty_id, value_ty, Span::ZERO)
+        {
+          local.value_id = value;
+          local.sir_value = value_sir;
+
+          if let Some(sv) = value_sir {
+            self.sir.emit(Insn::Store {
+              name,
+              value: sv,
+              ty_id: unified_ty,
+            });
+          }
+        }
+      }
+    }
+  }
+
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
   fn finalize_pending_decl(&mut self) {
@@ -1373,6 +1451,19 @@ impl<'a> Executor<'a> {
         sir_value: sir_init,
         is_param: false,
       });
+
+      // For mutable variables, emit an initial Store so
+      // the value is on the stack frame. Loop iterations
+      // will read it via Load and write it via Store.
+      if decl.is_mutable
+        && let Some(sv) = sir_init
+      {
+        self.sir.emit(Insn::Store {
+          name: decl.name,
+          value: sv,
+          ty_id: init_ty,
+        });
+      }
 
       if let Some(frame) = self.scope_stack.last_mut() {
         frame.count += 1;
@@ -1788,64 +1879,6 @@ impl<'a> Executor<'a> {
 
       // Clear the pending flag
       ctx.pending_return = false;
-    }
-  }
-
-  /// Executes assignment (=).
-  fn execute_assignment(&mut self, node_idx: usize) {
-    // In postorder: target, value, Eq
-    // So when we hit Eq, we have value on top of stack
-    if let (Some(value), Some(value_ty)) =
-      (self.value_stack.pop(), self.ty_stack.pop())
-    {
-      let value_sir = self.sir_values.pop();
-
-      // Look back to find the target variable
-      // The target should be node_idx - 2 (before the value)
-      if node_idx >= 2 {
-        let target_idx = node_idx - 2;
-        if let Token::Ident = self.tree.nodes[target_idx].token
-          && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
-        {
-          // Check if variable exists and is mutable
-          if let Some(local) =
-            self.locals.iter_mut().rev().find(|l| l.name == name)
-          {
-            // Check mutability
-            if local.mutability != Mutability::Yes {
-              let span = self.tree.spans[node_idx];
-
-              report_error(Error::new(ErrorKind::ImmutableVariable, span));
-
-              return;
-            }
-
-            // Type check assignment
-            let span = self.tree.spans[node_idx];
-
-            if let Some(unified_ty) =
-              self.ty_checker.unify(local.ty_id, value_ty, span)
-            {
-              // Update the local's value
-              local.value_id = value;
-
-              // Emit Store instruction
-              if let Some(sir_value) = value_sir {
-                self.sir.emit(Insn::Store {
-                  name,
-                  value: sir_value,
-                  ty_id: unified_ty,
-                });
-              }
-            }
-          } else {
-            // Variable not found
-            let span = self.tree.spans[target_idx];
-
-            report_error(Error::new(ErrorKind::UndefinedVariable, span));
-          }
-        }
-      }
     }
   }
 
