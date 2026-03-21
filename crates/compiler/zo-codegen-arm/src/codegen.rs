@@ -61,7 +61,7 @@ const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 // --- Branch Fixup Masks ---
 const B_FIXUP_MASK: u32 = 0xFC000000;
 const B_FIXUP_OPCODE: u32 = 0x14000000;
-const CBZ_FIXUP_MASK: u32 = 0x7F000000;
+const CBZ_FIXUP_MASK: u32 = 0x7E000000;
 const CBZ_FIXUP_OPCODE: u32 = 0x34000000;
 const INSN_RD_MASK: u32 = 0x1F;
 const FIXUP_IMM26_MASK: u32 = 0x3FFFFFF;
@@ -216,46 +216,38 @@ impl<'a> ARM64Gen<'a> {
         reg,
         slot,
         class: RegisterClass::GP,
-      } => {
-        self.emitter.emit_str(
-          Register::new(*reg),
-          SP,
-          (*slot * STACK_SLOT_SIZE) as i16,
-        );
-      }
+      } => self.emitter.emit_str(
+        Register::new(*reg),
+        SP,
+        (*slot * STACK_SLOT_SIZE) as i16,
+      ),
       SpillKind::Load {
         reg,
         slot,
         class: RegisterClass::GP,
-      } => {
-        self.emitter.emit_ldr(
-          Register::new(*reg),
-          SP,
-          (*slot * STACK_SLOT_SIZE) as i16,
-        );
-      }
+      } => self.emitter.emit_ldr(
+        Register::new(*reg),
+        SP,
+        (*slot * STACK_SLOT_SIZE) as i16,
+      ),
       SpillKind::Store {
         reg,
         slot,
         class: RegisterClass::FP,
-      } => {
-        self.emitter.emit_str_fp(
-          FpRegister::new(*reg),
-          SP,
-          (*slot * STACK_SLOT_SIZE) as u16,
-        );
-      }
+      } => self.emitter.emit_str_fp(
+        FpRegister::new(*reg),
+        SP,
+        (*slot * STACK_SLOT_SIZE) as u16,
+      ),
       SpillKind::Load {
         reg,
         slot,
         class: RegisterClass::FP,
-      } => {
-        self.emitter.emit_ldr_fp(
-          FpRegister::new(*reg),
-          SP,
-          (*slot * STACK_SLOT_SIZE) as u16,
-        );
-      }
+      } => self.emitter.emit_ldr_fp(
+        FpRegister::new(*reg),
+        SP,
+        (*slot * STACK_SLOT_SIZE) as u16,
+      ),
     }
   }
 
@@ -290,16 +282,19 @@ impl<'a> ARM64Gen<'a> {
       self.emitter.emit_mov_imm(reg, value as u16);
     } else {
       self.emitter.emit_mov_imm(reg, (value & 0xFFFF) as u16);
+
       if (value >> 16) & 0xFFFF != 0 {
         self
           .emitter
           .emit_movk(reg, ((value >> 16) & 0xFFFF) as u16, 16);
       }
+
       if (value >> 32) & 0xFFFF != 0 {
         self
           .emitter
           .emit_movk(reg, ((value >> 32) & 0xFFFF) as u16, 32);
       }
+
       if (value >> 48) & 0xFFFF != 0 {
         self
           .emitter
@@ -336,11 +331,13 @@ impl<'a> ARM64Gen<'a> {
 
     for (symbol, bytes) in &self.string_data {
       string_offsets.insert(*symbol, current_offset);
+
       current_offset += bytes.len();
     }
 
     for (symbol, bytes) in &self.template_data {
       template_offsets.insert(*symbol, current_offset);
+
       current_offset += bytes.len();
     }
 
@@ -375,6 +372,7 @@ impl<'a> ARM64Gen<'a> {
         } else if existing & CBZ_FIXUP_MASK == CBZ_FIXUP_OPCODE {
           let sf_and_op = existing & 0xFF000000;
           let rt = existing & INSN_RD_MASK;
+
           sf_and_op | (((relative as u32) & FIXUP_IMM19_MASK) << 5) | rt
         } else {
           existing
@@ -387,6 +385,7 @@ impl<'a> ARM64Gen<'a> {
     for (_symbol, bytes) in &self.string_data {
       code.extend_from_slice(bytes);
     }
+
     for (_symbol, bytes) in &self.template_data {
       code.extend_from_slice(bytes);
     }
@@ -407,6 +406,7 @@ impl<'a> ARM64Gen<'a> {
 
     if let Some(main_sym) = self.interner.symbol("main") {
       let offset = self.functions.get(&main_sym).copied().unwrap_or(0);
+
       macho.add_function_symbol(
         "_main",
         1,
@@ -417,6 +417,7 @@ impl<'a> ARM64Gen<'a> {
 
     if self.has_templates {
       let entry_symbol = Symbol(UI_ENTRY_SYMBOL);
+
       if let Some(&offset) = self.functions.get(&entry_symbol) {
         macho.add_function_symbol(
           "_zo_ui_entry_point",
@@ -442,6 +443,7 @@ impl<'a> ARM64Gen<'a> {
       .and_then(|s| self.functions.get(&s).copied())
       .map(|off| CODE_OFFSET + off as u64)
       .unwrap_or(CODE_OFFSET);
+
     macho.add_main(main_entry);
 
     macho.add_dyld_info();
@@ -451,16 +453,19 @@ impl<'a> ARM64Gen<'a> {
   /// Generate a complete executable from SIR.
   pub fn generate_executable(&mut self, sir: &Sir) -> Vec<u8> {
     let artifact = self.generate(sir);
+
     self.generate_macho(artifact)
   }
 
   /// Generates ARM64 assembly text from SIR for display.
   pub fn generate_asm(&mut self, sir: &Sir) -> String {
     let mut asm = String::new();
+
     asm.push_str(
       "  .section __TEXT,__text,\
        regular,pure_instructions\n",
     );
+
     asm.push_str("  .build_version macos, 11, 0\n");
     asm.push_str("  .globl _main\n");
     asm.push_str("  .p2align 2\n");
@@ -477,7 +482,9 @@ impl<'a> ARM64Gen<'a> {
     match insn {
       Insn::FunDef { name, .. } => {
         let func_name = self.interner.get(*name);
+
         asm.push_str(&format!("\n_{}:\n", func_name));
+
         self.current_function = Some(*name);
       }
       Insn::ConstInt { value, .. } => {
@@ -485,18 +492,21 @@ impl<'a> ARM64Gen<'a> {
           asm.push_str(&format!("  mov x0, #{}\n", value));
         } else {
           asm.push_str(&format!("  mov x0, #{}\n", value & 0xFFFF));
+
           if (*value >> 16) & 0xFFFF != 0 {
             asm.push_str(&format!(
               "  movk x0, #{}, lsl #16\n",
               (*value >> 16) & 0xFFFF
             ));
           }
+
           if (*value >> 32) & 0xFFFF != 0 {
             asm.push_str(&format!(
               "  movk x0, #{}, lsl #32\n",
               (*value >> 32) & 0xFFFF
             ));
           }
+
           if (*value >> 48) & 0xFFFF != 0 {
             asm.push_str(&format!(
               "  movk x0, #{}, lsl #48\n",
@@ -507,11 +517,13 @@ impl<'a> ARM64Gen<'a> {
       }
       Insn::ConstString { symbol, .. } => {
         let string = self.interner.get(*symbol);
+
         asm.push_str(&format!("  adr x1, .L_str_{}\n", symbol.as_u32()));
         asm.push_str(&format!("  mov x2, #{}\n", string.len()));
       }
       Insn::Call { name, .. } => {
         let func_name = self.interner.get(*name);
+
         match func_name {
           "show" | "showln" => {
             asm.push_str("  mov x16, #4  ; write syscall\n");
@@ -670,9 +682,7 @@ impl<'a> ARM64Gen<'a> {
             | BinOp::Gt
             | BinOp::Gte
             | BinOp::Eq
-            | BinOp::Neq => {
-              self.emitter.emit_fcmp(fl, fr);
-            }
+            | BinOp::Neq => self.emitter.emit_fcmp(fl, fr),
             _ => {}
           }
         } else {
@@ -682,18 +692,10 @@ impl<'a> ARM64Gen<'a> {
           let r = self.alloc_reg(*rhs).unwrap_or(X1);
 
           match op {
-            BinOp::Add => {
-              self.emitter.emit_add(d, l, r);
-            }
-            BinOp::Sub => {
-              self.emitter.emit_sub(d, l, r);
-            }
-            BinOp::Mul => {
-              self.emitter.emit_mul(d, l, r);
-            }
-            BinOp::Div => {
-              self.emitter.emit_sdiv(d, l, r);
-            }
+            BinOp::Add => self.emitter.emit_add(d, l, r),
+            BinOp::Sub => self.emitter.emit_sub(d, l, r),
+            BinOp::Mul => self.emitter.emit_mul(d, l, r),
+            BinOp::Div => self.emitter.emit_sdiv(d, l, r),
             BinOp::Rem => {
               // dst = lhs - (lhs / rhs) * rhs
               // Use X16 as scratch.
@@ -701,36 +703,16 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_mul(X16, X16, r);
               self.emitter.emit_sub(d, l, X16);
             }
-            BinOp::BitAnd => {
-              self.emitter.emit_and(d, l, r);
-            }
-            BinOp::BitOr => {
-              self.emitter.emit_orr(d, l, r);
-            }
-            BinOp::Shl => {
-              self.emitter.emit_lsl(d, l, 1);
-            }
-            BinOp::Shr => {
-              self.emitter.emit_lsr(d, l, 1);
-            }
-            BinOp::Lt => {
-              self.emit_cmp_csel(d, l, r, COND_LT);
-            }
-            BinOp::Lte => {
-              self.emit_cmp_csel(d, l, r, COND_LE);
-            }
-            BinOp::Gt => {
-              self.emit_cmp_csel(d, l, r, COND_GT);
-            }
-            BinOp::Gte => {
-              self.emit_cmp_csel(d, l, r, COND_GE);
-            }
-            BinOp::Eq => {
-              self.emit_cmp_csel(d, l, r, COND_EQ);
-            }
-            BinOp::Neq => {
-              self.emit_cmp_csel(d, l, r, COND_NE);
-            }
+            BinOp::BitAnd => self.emitter.emit_and(d, l, r),
+            BinOp::BitOr => self.emitter.emit_orr(d, l, r),
+            BinOp::Shl => self.emitter.emit_lsl(d, l, 1),
+            BinOp::Shr => self.emitter.emit_lsr(d, l, 1),
+            BinOp::Lt => self.emit_cmp_csel(d, l, r, COND_LT),
+            BinOp::Lte => self.emit_cmp_csel(d, l, r, COND_LE),
+            BinOp::Gt => self.emit_cmp_csel(d, l, r, COND_GT),
+            BinOp::Gte => self.emit_cmp_csel(d, l, r, COND_GE),
+            BinOp::Eq => self.emit_cmp_csel(d, l, r, COND_EQ),
+            BinOp::Neq => self.emit_cmp_csel(d, l, r, COND_NE),
             _ => {}
           }
         }
@@ -808,6 +790,19 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_mov_imm(X0, FD_STDERR);
             self.emitter.emit_svc(0);
           }
+          "check" => {
+            // check(condition: bool) — abort if false.
+            // Arg is in allocated register; move to X0.
+            let arg_vid = if args.is_empty() { None } else { Some(args[0]) };
+
+            if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
+              && src != X0
+            {
+              self.emitter.emit_mov_reg(X0, src);
+            }
+
+            self.emit_check_fail();
+          }
           "flush" => {}
           _ => {
             // Move args to X0-X7 (GP) or D0-D7 (FP).
@@ -835,6 +830,7 @@ impl<'a> ARM64Gen<'a> {
             if let Some(&func_offset) = self.functions.get(name) {
               let current = self.emitter.current_offset();
               let offset = func_offset as i32 - current as i32;
+
               self.emitter.emit_bl(offset);
             }
 
@@ -875,9 +871,11 @@ impl<'a> ARM64Gen<'a> {
           let frame =
             (info.spill_size + MUTABLE_VAR_RESERVE + FRAME_ALIGN_MASK)
               & !FRAME_ALIGN_MASK;
+
           if frame > 0 {
             self.emitter.emit_add_imm(SP, SP, frame as u16);
           }
+
           if info.has_calls {
             self.emitter.emit_ldp(X29, X30, SP, FP_LR_LOAD_OFFSET);
           }
@@ -894,6 +892,7 @@ impl<'a> ARM64Gen<'a> {
         // Mutable variable write: STR value to stack slot.
         // Allocate slot on first Store, reuse after.
         let slot_key = name.as_u32();
+
         let offset = if let Some(&off) = self.mutable_slots.get(&slot_key) {
           off
         } else {
@@ -918,6 +917,7 @@ impl<'a> ARM64Gen<'a> {
 
           off
         };
+
         if let Some(src_reg) = self.alloc_reg(*value) {
           self.emitter.emit_str(src_reg, SP, offset as i16);
         }
@@ -934,6 +934,7 @@ impl<'a> ARM64Gen<'a> {
 
       Insn::Directive { name, value, .. } => {
         let n = self.interner.get(*name);
+
         if n == "dom" {
           self.emit_render_call(*value);
         }
@@ -947,14 +948,17 @@ impl<'a> ARM64Gen<'a> {
         self
           .branch_fixups
           .push((self.emitter.current_offset(), *target));
+
         self.emitter.emit_b(0);
       }
 
       Insn::BranchIfNot { cond, target } => {
         let reg = self.alloc_reg(*cond).unwrap_or(X0);
+
         self
           .branch_fixups
           .push((self.emitter.current_offset(), *target));
+
         self.emitter.emit_cbz(reg, 0);
       }
 
@@ -1131,6 +1135,53 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_add_imm(SP, SP, ITOA_BUFFER_SIZE);
   }
 
+  /// Emit check(bool) — if X0 == 0, write
+  /// "check failed\n" to stderr and exit(1).
+  fn emit_check_fail(&mut self) {
+    // CBNZ X0, +ok_label → if true, skip fail.
+    // Use code offset as unique label ID (won't
+    // collide with SIR labels which are sequential
+    // from 0).
+    let ok_label = 0x80000000 | self.emitter.current_offset();
+
+    self
+      .branch_fixups
+      .push((self.emitter.current_offset(), ok_label));
+
+    self.emitter.emit_cbnz(X0, 0);
+
+    // Fail path: write "check failed\n" to stderr.
+    let msg = b"check failed\n";
+    let msg_sym = Symbol(0xFFFE);
+
+    // Only push string data once.
+    if !self.string_data.iter().any(|(s, _)| *s == msg_sym) {
+      let mut buf = Buffer::new();
+
+      buf.bytes(msg);
+      buf.bytes(b"\0");
+
+      self.string_data.push((msg_sym, buf.finish()));
+    }
+
+    let fixup_pos = self.emitter.current_offset();
+
+    self.string_fixups.push((fixup_pos, msg_sym));
+    self.emitter.emit_adr(X1, 0);
+    self.emitter.emit_mov_imm(X2, msg.len() as u16);
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
+    self.emitter.emit_mov_imm(X0, FD_STDERR);
+    self.emitter.emit_svc(0);
+
+    // exit(1).
+    self.emitter.emit_mov_imm(X16, SYS_EXIT);
+    self.emitter.emit_mov_imm(X0, 1);
+    self.emitter.emit_svc(0);
+
+    // Ok label: continue execution.
+    self.labels.insert(ok_label, self.emitter.current_offset());
+  }
+
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for
   /// comparisons. Uses X16 as zero scratch to avoid
   /// clobbering dst.
@@ -1164,10 +1215,13 @@ impl<'a> ARM64Gen<'a> {
       if let Some(&offset) = string_offsets.get(s) {
         return offset;
       }
+
       let offset = string_table.len() as u32;
+
       string_offsets.insert(s.to_string(), offset);
       string_table.extend_from_slice(s.as_bytes());
       string_table.push(0);
+
       offset
     };
 
@@ -1194,9 +1248,12 @@ impl<'a> ARM64Gen<'a> {
       match cmd {
         UiCommand::BeginContainer { id, direction } => {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
+
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
+
           let str_offset = add_string(id);
+
           cmd_specific_data.extend_from_slice(&str_offset.to_le_bytes());
           cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
           cmd_specific_data
@@ -1209,9 +1266,12 @@ impl<'a> ARM64Gen<'a> {
         }
         UiCommand::Text { content, style } => {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
+
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
+
           let str_offset = add_string(content);
+
           cmd_specific_data.extend_from_slice(&str_offset.to_le_bytes());
           cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
           cmd_specific_data.extend_from_slice(&style.as_u32().to_le_bytes());
@@ -1220,9 +1280,12 @@ impl<'a> ARM64Gen<'a> {
         }
         UiCommand::Button { id, content } => {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
+
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
+
           cmd_specific_data.extend_from_slice(&id.to_le_bytes());
+
           let str_offset = add_string(content);
           cmd_specific_data.extend_from_slice(&str_offset.to_le_bytes());
           cmd_specific_data.extend_from_slice(&0u64.to_le_bytes());
@@ -1234,11 +1297,16 @@ impl<'a> ARM64Gen<'a> {
           value,
         } => {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
+
           command_data
             .extend_from_slice(&(data_ptr_offset as u64).to_le_bytes());
+
           cmd_specific_data.extend_from_slice(&id.to_le_bytes());
+
           let po = add_string(placeholder);
+
           cmd_specific_data.extend_from_slice(&po.to_le_bytes());
+
           let vo = add_string(value);
           cmd_specific_data.extend_from_slice(&vo.to_le_bytes());
           cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
@@ -1274,6 +1342,7 @@ impl<'a> ARM64Gen<'a> {
     final_data.extend_from_slice(&string_table);
 
     let template_symbol = Symbol(id.0 + TEMPLATE_SYMBOL_OFFSET);
+
     self.template_data.push((template_symbol, final_data));
     self.has_templates = true;
   }
@@ -1287,6 +1356,7 @@ impl<'a> ARM64Gen<'a> {
 
     if let Some((symbol, _)) = self.template_data.first() {
       let fixup_pos = self.emitter.current_offset();
+
       self.string_fixups.push((fixup_pos, *symbol));
       self.emitter.emit_adr(X0, 0);
     } else {
@@ -1300,6 +1370,7 @@ impl<'a> ARM64Gen<'a> {
   fn emit_render_call(&mut self, value: ValueId) {
     let template_symbol = Symbol(value.0 + TEMPLATE_SYMBOL_OFFSET);
     let fixup_pos = self.emitter.current_offset();
+
     self.string_fixups.push((fixup_pos, template_symbol));
     self.emitter.emit_adr(X0, 0);
 
@@ -1319,6 +1390,7 @@ impl<'a> ARM64Gen<'a> {
     {
       let metadata = fs::metadata(&path)?;
       let mut permissions = metadata.permissions();
+
       permissions.set_mode(0o755);
       fs::set_permissions(&path, permissions)?;
     }
@@ -1381,6 +1453,7 @@ impl<'a> ARM64Gen<'a> {
 
     let mut code = emitter.code();
     code.extend_from_slice(hello_str);
+
     let code_len = code.len();
 
     let mut macho = MachO::new();
@@ -1398,6 +1471,7 @@ impl<'a> ARM64Gen<'a> {
 
     let mut frame_entry =
       DebugFrameEntry::new(TEXT_SECTION_BASE, code_len as u64);
+
     frame_entry.add_def_cfa(CFA_FP_REG, 0);
     frame_entry.add_nop();
     macho.add_debug_frame_entry(frame_entry);

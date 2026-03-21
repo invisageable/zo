@@ -1,0 +1,9 @@
+-- tests-run-fail: check assertion failure.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/run-fail/check_fail.zo -o crates/compiler/zo-tests/run-fail/check_fail
+
+fun main() {
+  check(true);
+  showln("first ok");
+  check(1 == 2);
+  showln("should not reach here");
+}

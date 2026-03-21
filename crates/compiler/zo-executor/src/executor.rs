@@ -2423,45 +2423,24 @@ impl<'a> Executor<'a> {
     let fun_def = self.funs.iter().find(|f| f.name == fun_name).cloned();
 
     if let Some(func) = fun_def {
-      // Count arguments between LParen and RParen
-      let mut arg_count = 0;
-      let mut idx = lparen_idx + 1;
+      // Count arguments by commas at depth 0.
+      // 0 commas + non-empty = 1 arg, N commas = N+1.
+      let has_content = lparen_idx + 1 < rparen_idx;
+      let mut comma_count = 0;
+      let mut depth = 0;
 
-      // Arguments are already evaluated and on the stack in postorder
-      // We just need to count them
-      while idx < rparen_idx {
-        let token = &self.tree.nodes[idx].token;
-
-        match token {
-          Token::Comma => {}
-          Token::LParen | Token::RParen => {
-            // Skip nested parens
-            let mut depth = 1;
-
-            if *token == Token::LParen {
-              idx += 1;
-
-              while idx < rparen_idx && depth > 0 {
-                match self.tree.nodes[idx].token {
-                  Token::LParen => depth += 1,
-                  Token::RParen => depth -= 1,
-                  _ => {}
-                }
-
-                idx += 1;
-              }
-
-              continue;
-            }
+      for i in (lparen_idx + 1)..rparen_idx {
+        match self.tree.nodes[i].token {
+          Token::LParen => depth += 1,
+          Token::RParen => depth -= 1,
+          Token::Comma if depth == 0 => {
+            comma_count += 1;
           }
-          _ => {
-            // This is an argument
-            arg_count += 1;
-          }
+          _ => {}
         }
-
-        idx += 1;
       }
+
+      let arg_count = if has_content { comma_count + 1 } else { 0 };
 
       // Type check: correct number of arguments
       if arg_count != func.params.len() {
