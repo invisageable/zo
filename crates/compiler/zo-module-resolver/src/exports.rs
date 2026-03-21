@@ -4,7 +4,7 @@ use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
 use zo_ty_checker::TyChecker;
-use zo_value::{FunDef, ValueId};
+use zo_value::{FunDef, Pubness, ValueId};
 
 /// An exported compile-time constant from a module.
 #[derive(Clone, Debug)]
@@ -68,10 +68,10 @@ pub fn extract_exports(
         params,
         return_ty,
         body_start,
-        is_intrinsic,
-        is_pub,
+        kind,
+        pubness,
       } => {
-        if !is_pub {
+        if *pubness != Pubness::Yes {
           continue;
         }
 
@@ -102,8 +102,8 @@ pub fn extract_exports(
           params: dst_params,
           return_ty: dst_return_ty,
           body_start: *body_start,
-          is_intrinsic: *is_intrinsic,
-          is_pub: *is_pub,
+          kind: *kind,
+          pubness: *pubness,
         });
       }
 
@@ -111,10 +111,10 @@ pub fn extract_exports(
         name,
         ty_id,
         init,
-        is_pub,
+        pubness,
         ..
       } => {
-        if !is_pub {
+        if *pubness != Pubness::Yes {
           continue;
         }
 

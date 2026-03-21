@@ -5,7 +5,7 @@ use zo_emitter_arm::{
   FpRegister, Register, SP, X0, X1, X2, X16, X29, X30,
 };
 use zo_interner::{Interner, Symbol};
-use zo_register_allocation::{RegAlloc, SpillKind};
+use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
 use zo_sir::{BinOp, Insn, Sir};
 use zo_ui_protocol::UiCommand;
 use zo_value::ValueId;
@@ -215,7 +215,7 @@ impl<'a> ARM64Gen<'a> {
       SpillKind::Store {
         reg,
         slot,
-        is_fp: false,
+        class: RegisterClass::GP,
       } => {
         self.emitter.emit_str(
           Register::new(*reg),
@@ -226,7 +226,7 @@ impl<'a> ARM64Gen<'a> {
       SpillKind::Load {
         reg,
         slot,
-        is_fp: false,
+        class: RegisterClass::GP,
       } => {
         self.emitter.emit_ldr(
           Register::new(*reg),
@@ -237,7 +237,7 @@ impl<'a> ARM64Gen<'a> {
       SpillKind::Store {
         reg,
         slot,
-        is_fp: true,
+        class: RegisterClass::FP,
       } => {
         self.emitter.emit_str_fp(
           FpRegister::new(*reg),
@@ -248,7 +248,7 @@ impl<'a> ARM64Gen<'a> {
       SpillKind::Load {
         reg,
         slot,
-        is_fp: true,
+        class: RegisterClass::FP,
       } => {
         self.emitter.emit_ldr_fp(
           FpRegister::new(*reg),
@@ -267,7 +267,7 @@ impl<'a> ARM64Gen<'a> {
       .map(|a| {
         a.spill_ops
           .iter()
-          .filter(|op| op.insn_idx == idx && op.before)
+          .filter(|op| op.insn_idx == idx && op.timing == EmitTiming::Before)
           .map(|op| op.kind.clone())
           .collect::<Vec<_>>()
       })
@@ -286,7 +286,7 @@ impl<'a> ARM64Gen<'a> {
       .map(|a| {
         a.spill_ops
           .iter()
-          .filter(|op| op.insn_idx == idx && !op.before)
+          .filter(|op| op.insn_idx == idx && op.timing == EmitTiming::After)
           .map(|op| op.kind.clone())
           .collect::<Vec<_>>()
       })

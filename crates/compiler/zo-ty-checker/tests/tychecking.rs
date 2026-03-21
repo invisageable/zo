@@ -294,7 +294,7 @@ proptest! {
       checker.intern_ty(Ty::Array(arr_id))
     } else {
       // Reference to itself
-      let ref_id = checker.ty_table.intern_ref(false, var);
+      let ref_id = checker.ty_table.intern_ref(zo_ty::Mutability::No, var);
 
       checker.intern_ty(Ty::Ref(ref_id))
     };

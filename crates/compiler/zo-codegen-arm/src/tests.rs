@@ -3,6 +3,7 @@ pub(crate) mod errors;
 pub(crate) mod templates;
 
 use crate::ARM64Gen;
+use zo_value::{FunctionKind, Pubness};
 
 use zo_executor::Executor;
 use zo_interner::Interner;
@@ -97,8 +98,8 @@ fn test_main_function_detection() {
     params: vec![],
     return_ty: TyId(1),
     body_start: 1,
-    is_intrinsic: false,
-    is_pub: false,
+    kind: FunctionKind::UserDefined,
+    pubness: Pubness::No,
   });
   sir.emit(Insn::Return {
     value: None,
@@ -127,8 +128,8 @@ fn test_string_fixup() {
     params: vec![],
     return_ty: TyId(1),
     body_start: 1,
-    is_intrinsic: false,
-    is_pub: false,
+    kind: FunctionKind::UserDefined,
+    pubness: Pubness::No,
   });
 
   sir.emit(Insn::ConstString {

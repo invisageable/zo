@@ -71,8 +71,10 @@ impl Runtime {
       title: String,
       size: (f32, f32),
       html: String,
-      window: Option<Window>,
+      // WebView must drop before Window (drop order
+      // is declaration order in Rust).
       webview: Option<WebView>,
+      window: Option<Window>,
     }
 
     impl ApplicationHandler for App {
@@ -88,7 +90,15 @@ impl Runtime {
 
         let webview = wry::WebViewBuilder::new()
           .with_html(&self.html)
-          .build(&window)
+          .with_bounds(wry::Rect {
+            position: wry::dpi::LogicalPosition::new(0, 0).into(),
+            size: wry::dpi::LogicalSize::new(
+              self.size.0 as u32,
+              self.size.1 as u32,
+            )
+            .into(),
+          })
+          .build_as_child(&window)
           .unwrap();
 
         self.window = Some(window);
@@ -103,11 +113,15 @@ impl Runtime {
       ) {
         match event {
           WindowEvent::CloseRequested => event_loop.exit(),
-          WindowEvent::AxisMotion {
-            device_id: _,
-            axis: _,
-            value: _,
-          } => {}
+          WindowEvent::Resized(size) => {
+            if let Some(wv) = &self.webview {
+              let _ = wv.set_bounds(wry::Rect {
+                position: wry::dpi::LogicalPosition::new(0, 0).into(),
+                size: wry::dpi::LogicalSize::new(size.width, size.height)
+                  .into(),
+              });
+            }
+          }
           _ => {}
         }
       }
@@ -119,8 +133,8 @@ impl Runtime {
       title: self.config.title,
       size: self.config.size,
       html,
-      window: None,
       webview: None,
+      window: None,
     };
 
     event_loop.run_app(&mut app)?;

@@ -13,7 +13,7 @@ use crate::TyChecker;
 use zo_interner::Interner;
 use zo_sir::{BinOp, UnOp};
 use zo_span::Span;
-use zo_ty::{IntWidth, Ty};
+use zo_ty::{IntWidth, Mutability, Ty};
 
 fn dummy_span() -> Span {
   Span::new(0, 0)
@@ -317,7 +317,7 @@ fn test_occurs_check_nested() {
   let array_ty = checker.intern_ty(Ty::Array(array_id));
 
   // Create Ref<Array<α>>
-  let ref_id = checker.ty_table.intern_ref(false, array_ty);
+  let ref_id = checker.ty_table.intern_ref(Mutability::No, array_ty);
   let ref_ty = checker.intern_ty(Ty::Ref(ref_id));
 
   // Should fail occurs check
@@ -418,12 +418,12 @@ fn test_nested_array_ref() {
 
   let arr1_id = checker.ty_table.intern_array(int_ty, None);
   let arr1_ty = checker.intern_ty(Ty::Array(arr1_id));
-  let ref1_id = checker.ty_table.intern_ref(false, arr1_ty);
+  let ref1_id = checker.ty_table.intern_ref(Mutability::No, arr1_ty);
   let ref1 = checker.intern_ty(Ty::Ref(ref1_id));
 
   let arr2_id = checker.ty_table.intern_array(alpha, None);
   let arr2_ty = checker.intern_ty(Ty::Array(arr2_id));
-  let ref2_id = checker.ty_table.intern_ref(false, arr2_ty);
+  let ref2_id = checker.ty_table.intern_ref(Mutability::No, arr2_ty);
   let ref2 = checker.intern_ty(Ty::Ref(ref2_id));
 
   let result = checker.unify(ref1, ref2, dummy_span());
@@ -572,10 +572,10 @@ fn test_ref_interning() {
   let int_ty = checker.s32_type();
 
   // Create same ref type twice
-  let ref1_id = checker.ty_table.intern_ref(false, int_ty);
+  let ref1_id = checker.ty_table.intern_ref(Mutability::No, int_ty);
   let ref1 = checker.intern_ty(Ty::Ref(ref1_id));
 
-  let ref2_id = checker.ty_table.intern_ref(false, int_ty);
+  let ref2_id = checker.ty_table.intern_ref(Mutability::No, int_ty);
   let ref2 = checker.intern_ty(Ty::Ref(ref2_id));
 
   // Should intern to same TyId

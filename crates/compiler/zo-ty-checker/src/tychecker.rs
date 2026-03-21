@@ -366,7 +366,7 @@ impl TyChecker {
         let ref2 = *self.ty_table.reference(r2)?;
 
         // Check mutability matches
-        if ref1.is_mut != ref2.is_mut {
+        if ref1.mutability != ref2.mutability {
           report_error(Error::new(ErrorKind::TypeMismatch, span));
           return None;
         }
@@ -608,7 +608,7 @@ impl TyChecker {
       Ty::Ref(r) => {
         let ref_ty = *self.ty_table.reference(r).unwrap();
         let new_inner = self.substitute_ty(&ref_ty.inner_ty, subst);
-        let new_ref_id = self.ty_table.intern_ref(ref_ty.is_mut, new_inner);
+        let new_ref_id = self.ty_table.intern_ref(ref_ty.mutability, new_inner);
 
         self.intern_ty(Ty::Ref(new_ref_id))
       }

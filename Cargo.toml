@@ -232,7 +232,7 @@ web-sys = { version = "0.3.81", features = [
   "Window",
 ] }
 wide = { version = "0.8.1", features = ["serde"] }
-winit = "0.30.9"
+winit = "0.30.13"
 wry = "0.53.5"
 zmij = "1.0.7"
 

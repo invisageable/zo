@@ -6,7 +6,8 @@ use zo_interner::Interner;
 use zo_sir::{BinOp, Insn, Sir, UnOp};
 use zo_token::{Token, TokenBuffer};
 use zo_tree::Tree;
-use zo_value::Mutability;
+use zo_ty::Mutability;
+use zo_value::Pubness;
 
 /// Represents a [`PrettyPrinter`] instance.
 pub struct PrettyPrinter {
@@ -267,9 +268,11 @@ impl PrettyPrinter {
 
           self.sir_instruction(&load);
         }
-        Insn::PackDecl { name, is_pub } => {
+        Insn::PackDecl { name, pubness } => {
           let name = interner.get(*name);
-          let vis = if *is_pub { "pub " } else { "" };
+
+          let vis = if *pubness == Pubness::Yes { "pub " } else { "" };
+
           let decl = format!("{vis}pack {name}");
 
           self.sir_instruction(&decl);

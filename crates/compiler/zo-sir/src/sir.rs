@@ -1,8 +1,9 @@
 use zo_interner::Symbol;
 use zo_token::Token;
+use zo_ty::Mutability;
 use zo_ty::TyId;
 use zo_ui_protocol::UiCommand;
-use zo_value::{Mutability, ValueId};
+use zo_value::{FunctionKind, Pubness, ValueId};
 
 /// Represents a semantic intermediate representation.
 #[derive(Debug)]
@@ -93,7 +94,7 @@ pub enum Insn {
     ty_id: TyId,
     init: Option<ValueId>,
     mutability: Mutability,
-    is_pub: bool,
+    pubness: Pubness,
   },
   /// Store to variable/memory
   Store {
@@ -104,11 +105,11 @@ pub enum Insn {
   /// Function definition
   FunDef {
     name: Symbol,
-    params: Vec<(Symbol, TyId)>, // Parameter names and types
+    params: Vec<(Symbol, TyId)>,
     return_ty: TyId,
-    body_start: u32, // Index where function body starts in instruction stream
-    is_intrinsic: bool, // True for std functions with empty bodies
-    is_pub: bool,    // Visibility modifier
+    body_start: u32,
+    kind: FunctionKind,
+    pubness: Pubness,
   },
   /// Return from function
   Return {
@@ -149,7 +150,7 @@ pub enum Insn {
     imported_symbols: Vec<Symbol>,
   },
   /// Pack declaration — defines a namespace.
-  PackDecl { name: Symbol, is_pub: bool },
+  PackDecl { name: Symbol, pubness: Pubness },
   /// The branch target label.
   Label { id: u32 },
   /// The unconditional jump to a label.

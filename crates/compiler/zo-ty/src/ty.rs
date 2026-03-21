@@ -1,5 +1,12 @@
 use zo_interner::Symbol;
 
+/// Represents [`Mutability`] flag for variables/refs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Mutability {
+  No,
+  Yes,
+}
+
 use rustc_hash::FxHashMap as HashMap;
 
 /// A type identifier - an index into the type table.
@@ -97,8 +104,7 @@ pub struct RefTyId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RefTy {
-  pub is_mut: bool,
-  // Type ID for inner type
+  pub mutability: Mutability,
   pub inner_ty: TyId,
 }
 
@@ -223,8 +229,15 @@ impl TyTable {
 
   /// Intern a reference type, returning its ID.
   /// Uses HashMap for O(1) deduplication.
-  pub fn intern_ref(&mut self, is_mut: bool, inner_ty: TyId) -> RefTyId {
-    let ref_ty = RefTy { is_mut, inner_ty };
+  pub fn intern_ref(
+    &mut self,
+    mutability: Mutability,
+    inner_ty: TyId,
+  ) -> RefTyId {
+    let ref_ty = RefTy {
+      mutability,
+      inner_ty,
+    };
 
     // Check if already interned in O(1)
     if let Some(&id) = self.ref_intern.get(&ref_ty) {

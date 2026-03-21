@@ -3,6 +3,7 @@ use crate::tests::common::assert_sir_stream;
 use zo_interner::Symbol;
 use zo_sir::Insn;
 use zo_ty::TyId;
+use zo_value::{FunctionKind, Pubness};
 
 #[test]
 fn test_load_emits_module_load() {
@@ -32,7 +33,7 @@ fn test_pack_emits_pack_decl() {
     "pack io;",
     &[Insn::PackDecl {
       name: Symbol(25),
-      is_pub: false,
+      pubness: Pubness::No,
     }],
   );
 }
@@ -52,8 +53,8 @@ fun main() -> int { 42 }"#,
         params: vec![],
         return_ty: TyId(8),
         body_start: 2,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       Insn::ConstInt {
         value: 42,
@@ -75,11 +76,11 @@ pack math;"#,
     &[
       Insn::PackDecl {
         name: Symbol(25),
-        is_pub: false,
+        pubness: Pubness::No,
       },
       Insn::PackDecl {
         name: Symbol(26),
-        is_pub: false,
+        pubness: Pubness::No,
       },
     ],
   );
@@ -95,8 +96,8 @@ fn test_empty_body_is_intrinsic() {
         params: vec![],
         return_ty: TyId(1),
         body_start: 1,
-        is_intrinsic: true,
-        is_pub: false,
+        kind: FunctionKind::Intrinsic,
+        pubness: Pubness::No,
       },
       Insn::Return {
         value: None,
@@ -116,8 +117,8 @@ fn test_non_empty_body_not_intrinsic() {
         params: vec![],
         return_ty: TyId(8),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       Insn::ConstInt {
         value: 42,
@@ -141,8 +142,8 @@ fn test_pub_fun_visibility() {
         params: vec![],
         return_ty: TyId(1),
         body_start: 1,
-        is_intrinsic: true,
-        is_pub: true,
+        kind: FunctionKind::Intrinsic,
+        pubness: Pubness::Yes,
       },
       Insn::Return {
         value: None,
@@ -158,7 +159,7 @@ fn test_pub_pack_visibility() {
     "pub pack math;",
     &[Insn::PackDecl {
       name: Symbol(25),
-      is_pub: true,
+      pubness: Pubness::Yes,
     }],
   );
 }

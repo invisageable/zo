@@ -2,7 +2,7 @@ pub mod allocator;
 pub mod liveness;
 
 use zo_sir::Insn;
-use zo_value::ValueId;
+use zo_value::{FunctionKind, ValueId};
 
 use rustc_hash::FxHashMap as HashMap;
 
@@ -18,6 +18,21 @@ pub const ALLOCATABLE_FP: [u8; 24] = [
   4, 5, 6, 7,
 ];
 
+/// GP vs FP register classification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegisterClass {
+  GP,
+  FP,
+}
+
+/// When to emit a spill operation relative to an
+/// instruction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmitTiming {
+  Before,
+  After,
+}
+
 /// Per-function metadata produced by the allocator.
 pub struct FunctionInfo {
   /// Whether the function contains any Call instructions.
@@ -32,8 +47,8 @@ pub struct FunctionInfo {
 pub struct SpillOp {
   /// SIR instruction index this is associated with.
   pub insn_idx: usize,
-  /// Emit before (true) or after (false) the instruction.
-  pub before: bool,
+  /// Emit before or after the instruction.
+  pub timing: EmitTiming,
   /// The load or store to emit.
   pub kind: SpillKind,
 }
@@ -42,9 +57,17 @@ pub struct SpillOp {
 #[derive(Clone)]
 pub enum SpillKind {
   /// STR reg, [SP, #slot*8]
-  Store { reg: u8, slot: u32, is_fp: bool },
+  Store {
+    reg: u8,
+    slot: u32,
+    class: RegisterClass,
+  },
   /// LDR reg, [SP, #slot*8]
-  Load { reg: u8, slot: u32, is_fp: bool },
+  Load {
+    reg: u8,
+    slot: u32,
+    class: RegisterClass,
+  },
 }
 
 /// The result of register allocation over the entire SIR.
@@ -173,26 +196,28 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
 /// ranges into the instruction stream.
 fn find_functions(insns: &[Insn]) -> Vec<(usize, usize)> {
   // Collect all FunDef positions.
-  let positions: Vec<(usize, bool)> = insns
+  let positions = insns
     .iter()
     .enumerate()
     .filter_map(|(i, insn)| match insn {
-      Insn::FunDef { is_intrinsic, .. } => Some((i, *is_intrinsic)),
+      Insn::FunDef { kind, .. } => Some((i, *kind)),
       _ => None,
     })
-    .collect();
+    .collect::<Vec<_>>();
 
   let mut result = Vec::new();
 
-  for (j, &(start, is_intrinsic)) in positions.iter().enumerate() {
-    if is_intrinsic {
+  for (j, &(start, kind)) in positions.iter().enumerate() {
+    if kind == FunctionKind::Intrinsic {
       continue;
     }
+
     let end = if j + 1 < positions.len() {
       positions[j + 1].0
     } else {
       insns.len()
     };
+
     result.push((start, end));
   }
 

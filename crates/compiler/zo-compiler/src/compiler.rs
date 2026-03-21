@@ -22,8 +22,9 @@ use zo_span::Span;
 use zo_token::Token;
 use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree};
+use zo_ty::Mutability;
 use zo_ty_checker::TyChecker;
-use zo_value::{Local, Mutability, Pubness, ValueId};
+use zo_value::{Local, LocalKind, Pubness, ValueId};
 
 use std::collections::HashSet;
 use std::fs;
@@ -227,7 +228,7 @@ impl Compiler {
             pubness: Pubness::Yes,
             mutability: Mutability::No,
             sir_value: var.init,
-            is_param: false,
+            local_kind: LocalKind::Variable,
           });
         }
 
@@ -314,7 +315,7 @@ impl Compiler {
           pubness: Pubness::Yes,
           mutability: Mutability::No,
           sir_value: var.init,
-          is_param: false,
+          local_kind: LocalKind::Variable,
         });
       }
 

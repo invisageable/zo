@@ -1,8 +1,10 @@
 use crate::liveness::{self, LivenessInfo};
 use crate::{
-  ALLOCATABLE_FP, ALLOCATABLE_GP, FunctionInfo, RegAlloc, SpillKind, SpillOp,
+  ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FunctionInfo, RegAlloc,
+  RegisterClass, SpillKind, SpillOp,
 };
 use zo_sir::Insn;
+use zo_value::FunctionKind;
 use zo_value::ValueId;
 
 use rustc_hash::FxHashMap;
@@ -124,13 +126,18 @@ impl AllocState {
 
     if liveness.live_out[local_idx].test(vid as usize) {
       let slot = self.spill_slot(vid);
+
       result.spill_ops.push(SpillOp {
         insn_idx,
-        before: true,
+        timing: EmitTiming::Before,
         kind: SpillKind::Store {
           reg,
           slot,
-          is_fp: fp,
+          class: if fp {
+            RegisterClass::FP
+          } else {
+            RegisterClass::GP
+          },
         },
       });
     }
@@ -194,16 +201,12 @@ pub fn allocate_function(
   }
 
   // Extract params.
-  let (params, is_intrinsic) = match &insns[start] {
-    Insn::FunDef {
-      params,
-      is_intrinsic,
-      ..
-    } => (params.clone(), *is_intrinsic),
+  let (params, fn_kind) = match &insns[start] {
+    Insn::FunDef { params, kind, .. } => (params.clone(), *kind),
     _ => return,
   };
 
-  if is_intrinsic {
+  if fn_kind == FunctionKind::Intrinsic {
     return;
   }
 
@@ -286,11 +289,11 @@ pub fn allocate_function(
 
         result.spill_ops.push(SpillOp {
           insn_idx: gi,
-          before: true,
+          timing: EmitTiming::Before,
           kind: SpillKind::Store {
             reg,
             slot,
-            is_fp: false,
+            class: RegisterClass::GP,
           },
         });
       }
@@ -300,11 +303,11 @@ pub fn allocate_function(
 
         result.spill_ops.push(SpillOp {
           insn_idx: gi,
-          before: true,
+          timing: EmitTiming::Before,
           kind: SpillKind::Store {
             reg,
             slot,
-            is_fp: true,
+            class: RegisterClass::FP,
           },
         });
       }
@@ -329,11 +332,11 @@ pub fn allocate_function(
 
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
-            before: true,
+            timing: EmitTiming::Before,
             kind: SpillKind::Load {
               reg,
               slot,
-              is_fp: false,
+              class: RegisterClass::GP,
             },
           });
 
@@ -346,11 +349,11 @@ pub fn allocate_function(
 
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
-            before: true,
+            timing: EmitTiming::Before,
             kind: SpillKind::Load {
               reg,
               slot,
-              is_fp: true,
+              class: RegisterClass::FP,
             },
           });
 
@@ -383,11 +386,15 @@ pub fn allocate_function(
 
         result.spill_ops.push(SpillOp {
           insn_idx: gi,
-          before: true,
+          timing: EmitTiming::Before,
           kind: SpillKind::Load {
             reg,
             slot,
-            is_fp: ufp,
+            class: if ufp {
+              RegisterClass::FP
+            } else {
+              RegisterClass::GP
+            },
           },
         });
 

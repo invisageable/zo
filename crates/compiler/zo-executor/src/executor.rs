@@ -7,13 +7,14 @@ use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
+use zo_ty::Mutability;
 use zo_ty::{Annotation, TyId};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
   Attr, ContainerDirection, EventKind, PropValue, TextStyle, UiCommand,
 };
 use zo_value::{
-  FunDef, Local, Mutability, Pubness, Value, ValueId, ValueStorage,
+  FunDef, FunctionKind, Local, LocalKind, Pubness, Value, ValueId, ValueStorage,
 };
 
 use std::cell::Cell;
@@ -84,7 +85,7 @@ pub struct Executor<'a> {
 struct PendingDecl {
   name: Symbol,
   is_mutable: bool,
-  is_pub: bool,
+  pubness: Pubness,
 }
 impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
@@ -319,8 +320,8 @@ impl<'a> Executor<'a> {
             params: pending_func.params.clone(),
             return_ty: pending_func.return_ty,
             body_start,
-            is_intrinsic: false,
-            is_pub: pending_func.is_pub,
+            kind: FunctionKind::UserDefined,
+            pubness: pending_func.pubness,
           });
 
           // Now set the context with the correct body start.
@@ -436,10 +437,10 @@ impl<'a> Executor<'a> {
           if current_insn_count == fun_ctx.body_start + 1 {
             // Only instruction is the implicit return — body
             // was empty. Mark the FunDef as intrinsic.
-            if let Some(Insn::FunDef { is_intrinsic, .. }) =
+            if let Some(Insn::FunDef { kind, .. }) =
               self.sir.instructions.get_mut(fun_ctx.fundef_idx)
             {
-              *is_intrinsic = true;
+              *kind = FunctionKind::Intrinsic;
             }
           }
 
@@ -642,14 +643,15 @@ impl<'a> Executor<'a> {
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
           // Copy fields to avoid borrow issues.
           let local_info = self.lookup_local(sym).map(|l| {
-            (l.value_id, l.ty_id, l.sir_value, l.is_param, l.mutability)
+            (l.value_id, l.ty_id, l.sir_value, l.local_kind, l.mutability)
           });
 
-          if let Some((value_id, ty_id, sir_value, is_param, mutability)) =
+          if let Some((value_id, ty_id, sir_value, local_kind, mutability)) =
             local_info
           {
             if self.current_function.is_some() {
               let is_mut = mutability == Mutability::Yes;
+              let is_param = local_kind == LocalKind::Parameter;
 
               if is_param || is_mut {
                 // Parameter or mutable local: emit Load.
@@ -1327,7 +1329,11 @@ impl<'a> Executor<'a> {
     if let Some(name) = name {
       self.sir.emit(Insn::PackDecl {
         name,
-        is_pub: self.is_pub(_start_idx),
+        pubness: if self.is_pub(_start_idx) {
+          Pubness::Yes
+        } else {
+          Pubness::No
+        },
       });
     }
   }
@@ -1489,15 +1495,19 @@ impl<'a> Executor<'a> {
     self.skip_until = lbrace_idx;
 
     // Set the function as pending - it will be processed when we hit LBrace
-    let is_pub = self.is_pub(start_idx);
+    let pubness = if self.is_pub(start_idx) {
+      Pubness::Yes
+    } else {
+      Pubness::No
+    };
 
     self.pending_function = Some(FunDef {
       name,
       params: params.clone(),
       return_ty,
       body_start: 0, // Will be set when we emit FunDef
-      is_intrinsic: false,
-      is_pub,
+      kind: FunctionKind::UserDefined,
+      pubness,
     });
 
     // Push a scope for the function parameters
@@ -1515,7 +1525,7 @@ impl<'a> Executor<'a> {
         pubness: Pubness::No,
         mutability: Mutability::No,
         sir_value: None,
-        is_param: true,
+        local_kind: LocalKind::Parameter,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {
@@ -1561,12 +1571,16 @@ impl<'a> Executor<'a> {
       });
 
     if let Some(name) = name {
-      let is_pub = self.is_pub(idx);
+      let pubness = if self.is_pub(idx) {
+        Pubness::Yes
+      } else {
+        Pubness::No
+      };
 
       self.pending_decl = Some(PendingDecl {
         name,
         is_mutable,
-        is_pub,
+        pubness,
       });
 
       // Skip: name ident, type annotation, colon, eq.
@@ -1646,21 +1660,17 @@ impl<'a> Executor<'a> {
         ty_id: init_ty,
         init: sir_init,
         mutability,
-        is_pub: decl.is_pub,
+        pubness: decl.pubness,
       });
 
       self.locals.push(Local {
         name: decl.name,
         ty_id: init_ty,
         value_id: init_value,
-        pubness: if decl.is_pub {
-          Pubness::Yes
-        } else {
-          Pubness::No
-        },
+        pubness: decl.pubness,
         mutability,
         sir_value: sir_init,
-        is_param: false,
+        local_kind: LocalKind::Variable,
       });
 
       // For mutable variables, emit an initial Store so
@@ -1733,24 +1743,28 @@ impl<'a> Executor<'a> {
         });
 
       if let Some(name) = name {
-        let is_pub = self.is_pub(start_idx);
+        let pubness = if self.is_pub(start_idx) {
+          Pubness::Yes
+        } else {
+          Pubness::No
+        };
 
         let sir_value = self.sir.emit(Insn::VarDef {
           name,
           ty_id: init_ty,
           init: sir_init,
           mutability: Mutability::No,
-          is_pub,
+          pubness,
         });
 
         self.locals.push(Local {
           name,
           ty_id: init_ty,
           value_id: init_value,
-          pubness: if is_pub { Pubness::Yes } else { Pubness::No },
+          pubness,
           mutability: Mutability::No,
           sir_value: sir_init,
-          is_param: false,
+          local_kind: LocalKind::Variable,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -1789,14 +1803,18 @@ impl<'a> Executor<'a> {
         });
 
       if let Some(name) = name {
-        let is_pub = self.is_pub(_start_idx);
+        let pubness = if self.is_pub(_start_idx) {
+          Pubness::Yes
+        } else {
+          Pubness::No
+        };
 
         let sir_value = self.sir.emit(Insn::VarDef {
           name,
           ty_id: init_ty,
           init: sir_init,
           mutability: Mutability::Yes,
-          is_pub,
+          pubness,
         });
 
         self.locals.push(Local {
@@ -1804,9 +1822,9 @@ impl<'a> Executor<'a> {
           ty_id: init_ty,
           value_id: init_value,
           mutability: Mutability::Yes,
-          pubness: if is_pub { Pubness::Yes } else { Pubness::No },
+          pubness,
           sir_value: sir_init,
-          is_param: false,
+          local_kind: LocalKind::Variable,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -1896,15 +1914,19 @@ impl<'a> Executor<'a> {
       }
     }
 
-    let is_pub = self.is_pub(start_idx);
+    let pubness = if self.is_pub(start_idx) {
+      Pubness::Yes
+    } else {
+      Pubness::No
+    };
 
     self.sir.emit(Insn::FunDef {
       name,
       params: params.clone(),
       return_ty,
       body_start: 0,
-      is_intrinsic: true,
-      is_pub,
+      kind: FunctionKind::Intrinsic,
+      pubness,
     });
 
     // Register as known function.
@@ -1913,8 +1935,8 @@ impl<'a> Executor<'a> {
       params,
       return_ty,
       body_start: 0,
-      is_intrinsic: true,
-      is_pub,
+      kind: FunctionKind::Intrinsic,
+      pubness,
     });
 
     // Skip all children — no body to process.
@@ -2012,7 +2034,7 @@ impl<'a> Executor<'a> {
       ty_id: int_ty,
       init: Some(init_sir),
       mutability: Mutability::Yes,
-      is_pub: false,
+      pubness: Pubness::No,
     });
 
     self.locals.push(Local {
@@ -2022,7 +2044,7 @@ impl<'a> Executor<'a> {
       pubness: Pubness::No,
       mutability: Mutability::Yes,
       sir_value: Some(init_sir),
-      is_param: false,
+      local_kind: LocalKind::Variable,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -2862,7 +2884,7 @@ impl<'a> Executor<'a> {
         ty_id: self.ty_checker.template_ty(),
         init: Some(template_id),
         mutability: Mutability::No,
-        is_pub: false,
+        pubness: Pubness::No,
       });
     }
   }

@@ -1,5 +1,5 @@
 use zo_interner::Symbol;
-use zo_ty::TyId;
+use zo_ty::{Mutability, TyId};
 
 /// VALUE AS FLYWEIGHT INDEX (Manifesto: everything is an index).
 #[repr(transparent)]
@@ -220,11 +220,20 @@ pub enum Pubness {
   Yes,
 }
 
-/// Represents [`Mutability`] flag for variables.
+/// Represents a [`FunctionKind`] — user-defined vs
+/// intrinsic (external, empty body).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mutability {
-  No,
-  Yes,
+pub enum FunctionKind {
+  UserDefined,
+  Intrinsic,
+}
+
+/// Represents a [`LocalKind`] — parameter vs local
+/// variable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalKind {
+  Parameter,
+  Variable,
 }
 
 /// Represents a [`FunDef`] entry instance.
@@ -238,10 +247,10 @@ pub struct FunDef {
   pub return_ty: TyId,
   /// The id of the block entry.
   pub body_start: u32,
-  /// Whether this function is an intrinsic (empty body).
-  pub is_intrinsic: bool,
+  /// Whether this function is intrinsic (empty body).
+  pub kind: FunctionKind,
   /// Visibility modifier.
-  pub is_pub: bool,
+  pub pubness: Pubness,
 }
 
 /// Represents a [`Local`] variable entry instance.
@@ -261,5 +270,5 @@ pub struct Local {
   /// None (params — Load emitted on each reference).
   pub sir_value: Option<ValueId>,
   /// Whether this local is a function parameter.
-  pub is_param: bool,
+  pub local_kind: LocalKind,
 }

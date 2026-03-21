@@ -1,6 +1,7 @@
 use crate::tests::common::{
   assert_execution_error, assert_sir_stream, assert_sir_structure,
 };
+use zo_value::{FunctionKind, Pubness};
 
 use zo_error::ErrorKind;
 use zo_interner::Symbol;
@@ -22,8 +23,8 @@ fn test_if_simple() {
         params: vec![],
         return_ty: TyId(1),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       Insn::ConstBool {
         value: true,
@@ -64,8 +65,8 @@ fn test_if_else() {
         params: vec![],
         return_ty: TyId(8),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       Insn::ConstBool {
         value: true,
@@ -108,8 +109,8 @@ fn test_while_loop() {
         params: vec![],
         return_ty: TyId(1),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       Insn::Label { id: 0 },
       Insn::ConstBool {
@@ -144,8 +145,8 @@ fn test_implicit_return_literal() {
         params: vec![],
         return_ty: TyId(8),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       Insn::ConstInt {
         value: 42,
@@ -423,13 +424,13 @@ fun main() -> int { 42 }"#,
         matches!(
           i,
           Insn::FunDef {
-            is_intrinsic: true,
+            kind: FunctionKind::Intrinsic,
             ..
           }
         )
       });
 
-      assert!(ext_fn.is_some(), "expected FunDef with is_intrinsic: true");
+      assert!(ext_fn.is_some(), "expected FunDef with kind: Intrinsic");
     },
   );
 }

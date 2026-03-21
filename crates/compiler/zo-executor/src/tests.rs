@@ -8,7 +8,7 @@ use crate::tests::common::{assert_annotations_stream, assert_sir_stream};
 use zo_interner::Symbol;
 use zo_sir::{BinOp, Insn};
 use zo_ty::{IntWidth, Ty, TyId};
-use zo_value::ValueId;
+use zo_value::{FunctionKind, Pubness, ValueId};
 
 #[test]
 fn test_integer_literal() {
@@ -158,8 +158,8 @@ fn test_simple_function() {
         ],
         return_ty: TyId(8),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       // Load x parameter
       Insn::Load {
@@ -207,8 +207,8 @@ fn test_function_call() {
         ],
         return_ty: TyId(8),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       // add body: load x
       Insn::Load {
@@ -241,8 +241,8 @@ fn test_function_call() {
         params: vec![],
         return_ty: TyId(8),
         body_start: 6,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       // main body: 10
       Insn::ConstInt {
@@ -280,8 +280,8 @@ fn test_main_with_show() {
         params: vec![],
         return_ty: TyId(1), // unit (void)
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       // main body: "hello world" string literal
       Insn::ConstString {
@@ -317,8 +317,8 @@ fn test_function_with_return() {
         ],
         return_ty: TyId(8),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       // Load n parameter (first use)
       Insn::Load {
@@ -365,8 +365,8 @@ fn test_directives() {
         params: Vec::new(),
         return_ty: TyId(1),
         body_start: 1,
-        is_intrinsic: false,
-        is_pub: false,
+        kind: FunctionKind::UserDefined,
+        pubness: Pubness::No,
       },
       Insn::Template {
         id: ValueId(3),

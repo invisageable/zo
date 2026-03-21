@@ -4,6 +4,7 @@ use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
 use zo_value::ValueId;
+use zo_value::{FunctionKind, Pubness};
 
 fn make_sir(instructions: Vec<Insn>) -> Sir {
   let next_value_id = instructions.len() as u32;
@@ -30,8 +31,8 @@ fn test_removes_uncalled_function() {
       params: vec![],
       return_ty: TyId(1),
       body_start: 1,
-      is_intrinsic: true,
-      is_pub: true,
+      kind: FunctionKind::Intrinsic,
+      pubness: Pubness::Yes,
     },
     Insn::Return {
       value: None,
@@ -43,8 +44,8 @@ fn test_removes_uncalled_function() {
       params: vec![],
       return_ty: TyId(1),
       body_start: 3,
-      is_intrinsic: true,
-      is_pub: true,
+      kind: FunctionKind::Intrinsic,
+      pubness: Pubness::Yes,
     },
     Insn::Return {
       value: None,
@@ -56,8 +57,8 @@ fn test_removes_uncalled_function() {
       params: vec![],
       return_ty: TyId(1),
       body_start: 5,
-      is_intrinsic: false,
-      is_pub: false,
+      kind: FunctionKind::UserDefined,
+      pubness: Pubness::No,
     },
     Insn::ConstString {
       symbol: hello,
@@ -105,8 +106,8 @@ fn test_keeps_all_when_all_called() {
       params: vec![],
       return_ty: TyId(1),
       body_start: 1,
-      is_intrinsic: true,
-      is_pub: true,
+      kind: FunctionKind::Intrinsic,
+      pubness: Pubness::Yes,
     },
     Insn::Return {
       value: None,
@@ -117,8 +118,8 @@ fn test_keeps_all_when_all_called() {
       params: vec![],
       return_ty: TyId(1),
       body_start: 3,
-      is_intrinsic: true,
-      is_pub: true,
+      kind: FunctionKind::Intrinsic,
+      pubness: Pubness::Yes,
     },
     Insn::Return {
       value: None,
@@ -129,8 +130,8 @@ fn test_keeps_all_when_all_called() {
       params: vec![],
       return_ty: TyId(1),
       body_start: 5,
-      is_intrinsic: false,
-      is_pub: false,
+      kind: FunctionKind::UserDefined,
+      pubness: Pubness::No,
     },
     Insn::Call {
       name: foo,
