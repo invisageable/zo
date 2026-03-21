@@ -443,23 +443,16 @@ fn free_dead(
   liveness: &LivenessInfo,
   local_idx: usize,
 ) {
-  let dead_gp = state
+  let dead = state
     .gp
     .val_to_reg
     .keys()
+    .chain(state.fp.val_to_reg.keys())
     .filter(|vid| !liveness.live_out[local_idx].test(**vid as usize))
     .copied()
     .collect::<Vec<_>>();
 
-  let dead_fp = state
-    .fp
-    .val_to_reg
-    .keys()
-    .filter(|vid| !liveness.live_out[local_idx].test(**vid as usize))
-    .copied()
-    .collect::<Vec<_>>();
-
-  for vid in dead_gp.into_iter().chain(dead_fp) {
+  for vid in dead {
     state.free_value(ValueId(vid));
   }
 }

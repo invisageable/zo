@@ -5,8 +5,6 @@ use crate::{args, constants::EXIT_CODE_ERROR};
 use zo_compiler::{Compiler, Stage};
 use zo_error::Error;
 
-use std::path::PathBuf;
-
 #[derive(clap::Args, Debug)]
 pub(crate) struct Build {
   #[command(flatten)]
@@ -34,32 +32,8 @@ impl Build {
       source_files.push((input_path, content));
     }
 
-    // Build search paths for module resolution.
-    let mut search_paths = Vec::new();
-
-    // Standard library path: check ZO_STD_PATH env var,
-    // then fall back to relative path from the binary.
-    if let Ok(std_path) = std::env::var("ZO_STD_PATH") {
-      search_paths.push(PathBuf::from(std_path));
-    } else if let Ok(exe) = std::env::current_exe()
-      && let Some(parent) = exe.parent()
-    {
-      let installed = parent.join("../lib/std");
-      let dev = parent.join("../../crates/compiler-lib/std");
-
-      if installed.is_dir() {
-        search_paths.push(installed);
-      } else if dev.is_dir() {
-        search_paths.push(dev);
-      }
-    }
-
-    // Project source directory (relative to first input file).
-    if let Some((first_file, _)) = source_files.first()
-      && let Some(parent) = first_file.parent()
-    {
-      search_paths.push(parent.to_path_buf());
-    }
+    let first_path = &source_files[0].0;
+    let search_paths = crate::cmd::search_paths(first_path);
 
     let mut compiler = Compiler::with_search_paths(search_paths);
 

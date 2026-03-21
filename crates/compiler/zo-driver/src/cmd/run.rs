@@ -9,8 +9,6 @@ use zo_sir::Insn;
 use zo_span::Span;
 use zo_ui_protocol::UiCommand;
 
-use std::path::PathBuf;
-
 #[derive(clap::Args, Debug)]
 pub(crate) struct Run {
   #[command(flatten)]
@@ -43,29 +41,8 @@ impl Run {
       }
     };
 
-    // Build search paths for module resolution.
-    let mut search_paths = Vec::new();
+    let search_paths = crate::cmd::search_paths(input_path);
 
-    if let Ok(std_path) = std::env::var("ZO_STD_PATH") {
-      search_paths.push(PathBuf::from(std_path));
-    } else if let Ok(exe) = std::env::current_exe()
-      && let Some(parent) = exe.parent()
-    {
-      let installed = parent.join("../lib/std");
-      let dev = parent.join("../../crates/compiler-lib/std");
-
-      if installed.is_dir() {
-        search_paths.push(installed);
-      } else if dev.is_dir() {
-        search_paths.push(dev);
-      }
-    }
-
-    if let Some(parent) = input_path.parent() {
-      search_paths.push(parent.to_path_buf());
-    }
-
-    // Analyze with full module resolution.
     let mut compiler = Compiler::with_search_paths(search_paths);
     let (semantic, tokenization, _parsing) =
       compiler.analyze_source(&source, input_path);

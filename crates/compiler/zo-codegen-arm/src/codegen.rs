@@ -259,41 +259,27 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// Emit spill ops before instruction `idx`.
-  fn emit_spills_before(&mut self, idx: usize) {
-    let ops = self
-      .reg_alloc
-      .as_ref()
-      .map(|a| {
-        a.spill_ops
-          .iter()
-          .filter(|op| op.insn_idx == idx && op.timing == EmitTiming::Before)
-          .map(|op| op.kind.clone())
-          .collect::<Vec<_>>()
-      })
-      .unwrap_or_default();
+  /// Emit spill ops for instruction `idx` with given
+  /// timing (before or after).
+  fn emit_spills(&mut self, idx: usize, timing: EmitTiming) {
+    let Some(alloc) = self.reg_alloc.as_ref() else {
+      return;
+    };
 
-    for kind in &ops {
-      self.emit_spill_op(kind);
-    }
-  }
+    // Collect indices first to avoid borrow conflict
+    // with self.emit_spill_op.
+    let indices = alloc
+      .spill_ops
+      .iter()
+      .enumerate()
+      .filter(|(_, op)| op.insn_idx == idx && op.timing == timing)
+      .map(|(i, _)| i)
+      .collect::<Vec<_>>();
 
-  /// Emit spill ops after instruction `idx`.
-  fn emit_spills_after(&mut self, idx: usize) {
-    let ops = self
-      .reg_alloc
-      .as_ref()
-      .map(|a| {
-        a.spill_ops
-          .iter()
-          .filter(|op| op.insn_idx == idx && op.timing == EmitTiming::After)
-          .map(|op| op.kind.clone())
-          .collect::<Vec<_>>()
-      })
-      .unwrap_or_default();
+    for i in indices {
+      let kind = self.reg_alloc.as_ref().unwrap().spill_ops[i].kind.clone();
 
-    for kind in &ops {
-      self.emit_spill_op(kind);
+      self.emit_spill_op(&kind);
     }
   }
 
@@ -333,9 +319,9 @@ impl<'a> ARM64Gen<'a> {
     let insns = &sir.instructions;
 
     for (idx, insn) in insns.iter().enumerate() {
-      self.emit_spills_before(idx);
+      self.emit_spills(idx, EmitTiming::Before);
       self.translate_insn(insn, idx, insns);
-      self.emit_spills_after(idx);
+      self.emit_spills(idx, EmitTiming::After);
     }
 
     // Generate _zo_ui_entry_point if we have templates.
