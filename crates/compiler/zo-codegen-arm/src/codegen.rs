@@ -110,6 +110,41 @@ impl<'a> ARM64Gen<'a> {
       .and_then(|vid| self.alloc_fp_reg(vid))
   }
 
+  /// Check if a ValueId was produced by a ConstString.
+  fn is_string_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
+    self
+      .find_producing_insn(vid, all_insns)
+      .is_some_and(|insn| matches!(insn, Insn::ConstString { .. }))
+  }
+
+  /// Check if a ValueId was produced by a float instruction.
+  fn is_float_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
+    self
+      .find_producing_insn(vid, all_insns)
+      .is_some_and(|insn| match insn {
+        Insn::ConstFloat { .. } => true,
+        Insn::BinOp { ty_id, .. }
+        | Insn::Load { ty_id, .. }
+        | Insn::Call { ty_id, .. } => ty_id.0 >= 15 && ty_id.0 <= 17,
+        _ => false,
+      })
+  }
+
+  /// Find the SIR instruction that produced a ValueId.
+  fn find_producing_insn<'b>(
+    &self,
+    vid: ValueId,
+    all_insns: &'b [Insn],
+  ) -> Option<&'b Insn> {
+    self.reg_alloc.as_ref().and_then(|a| {
+      a.value_ids
+        .iter()
+        .enumerate()
+        .find(|(_, v)| **v == Some(vid))
+        .and_then(|(i, _)| all_insns.get(i))
+    })
+  }
+
   /// Emit a single spill operation (GP or FP).
   fn emit_spill_op(&mut self, kind: &SpillKind) {
     match kind {
@@ -223,9 +258,11 @@ impl<'a> ARM64Gen<'a> {
     self.reg_alloc =
       Some(RegAlloc::allocate(&sir.instructions, sir.next_value_id));
 
-    for (idx, insn) in sir.instructions.iter().enumerate() {
+    let insns = &sir.instructions;
+
+    for (idx, insn) in insns.iter().enumerate() {
       self.emit_spills_before(idx);
-      self.translate_insn(insn, idx);
+      self.translate_insn(insn, idx, insns);
       self.emit_spills_after(idx);
     }
 
@@ -454,10 +491,11 @@ impl<'a> ARM64Gen<'a> {
   }
 
   /// Translate a single SIR instruction to ARM64.
-  fn translate_insn(&mut self, insn: &Insn, idx: usize) {
+  fn translate_insn(&mut self, insn: &Insn, idx: usize, all_insns: &[Insn]) {
     match insn {
       Insn::FunDef { name, .. } => {
         let offset = self.emitter.current_offset();
+
         self.functions.insert(*name, offset);
         self.current_function = Some(*name);
         self.current_fn_start = Some(idx);
@@ -473,9 +511,11 @@ impl<'a> ARM64Gen<'a> {
           if info.has_calls {
             self.emitter.emit_stp(X29, X30, SP, -16);
           }
+
           // Reserve space for spills + mutable slots.
           // Add 64 bytes (8 slots) for mutable vars.
           let frame = (info.spill_size + 64 + 15) & !15;
+
           if frame > 0 {
             self.emitter.emit_sub_imm(SP, SP, frame as u16);
           }
@@ -492,6 +532,7 @@ impl<'a> ARM64Gen<'a> {
         // Load f64 bits into GP scratch, FMOV to FP.
         let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
         let bits = value.to_bits();
+
         self.emit_mov_imm_64(X16, bits);
         self.emitter.emit_fmov_gp_to_fp(fp_dst, X16);
       }
@@ -505,11 +546,14 @@ impl<'a> ARM64Gen<'a> {
       Insn::ConstString { symbol, .. } => {
         let mut buffer = Buffer::new();
         let string = self.interner.get(*symbol);
+
         buffer.bytes(string.as_bytes());
         buffer.bytes(b"\0");
+
         self.string_data.push((*symbol, buffer.finish()));
 
         let fixup_pos = self.emitter.current_offset();
+
         self.string_fixups.push((fixup_pos, *symbol));
         self.emitter.emit_adr(X1, 0);
         self.emitter.emit_mov_imm(X2, string.len() as u16);
@@ -639,10 +683,42 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_svc(0);
           }
           "showln" => {
-            self.emitter.emit_mov_imm(X16, 4);
-            self.emitter.emit_mov_imm(X0, 1);
-            self.emitter.emit_svc(0);
+            // Compile-time type dispatch (Graydon style).
+            let arg_vid = if args.is_empty() { None } else { Some(args[0]) };
 
+            let is_str =
+              arg_vid.is_some_and(|v| self.is_string_value(v, all_insns));
+
+            let is_flt =
+              arg_vid.is_some_and(|v| self.is_float_value(v, all_insns));
+
+            if is_flt {
+              // Float: convert to int part + "." + frac,
+              // then write. Move float arg to D0 first.
+              if let Some(fp_src) = arg_vid.and_then(|v| self.alloc_fp_reg(v))
+                && fp_src != D0
+              {
+                self.emitter.emit_fmov_fp(D0, fp_src);
+              }
+
+              self.emit_ftoa_and_write(1);
+            } else if !is_str && arg_vid.is_some() {
+              // Int: move to X0, itoa, write.
+              if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
+                && src != X0
+              {
+                self.emitter.emit_mov_reg(X0, src);
+              }
+
+              self.emit_itoa_and_write(1);
+            } else {
+              // String: X1=ptr, X2=len already set.
+              self.emitter.emit_mov_imm(X16, 4);
+              self.emitter.emit_mov_imm(X0, 1);
+              self.emitter.emit_svc(0);
+            }
+
+            // Write newline.
             self.emitter.emit_mov_imm(X1, 10);
             self.emitter.emit_sub_imm(X2, SP, 16);
             self.emitter.emit_strb(X1, X2, 0);
@@ -876,6 +952,117 @@ impl<'a> ARM64Gen<'a> {
 
       _ => {}
     }
+  }
+
+  /// Convert X0 (unsigned int) to decimal string on the
+  /// stack and write it to file descriptor `fd`.
+  ///
+  /// Algorithm: repeatedly divide by 10, push ASCII digits
+  /// onto a stack buffer in reverse, then write.
+  /// Convert D0 (double) to decimal string and write to fd.
+  ///
+  /// Strategy: print integer part, ".", then 6 fractional
+  /// digits. Handles negative by printing "-" prefix.
+  fn emit_ftoa_and_write(&mut self, fd: u16) {
+    // FCVTZS X0, D0 — integer part (truncated).
+    self.emitter.emit_fcvtzs(X0, D0);
+
+    // Print the integer part via itoa.
+    self.emit_itoa_and_write(fd);
+
+    // Print "."
+    self.emitter.emit_sub_imm(SP, SP, 16);
+    self.emitter.emit_mov_imm(X1, b'.' as u16);
+    self.emitter.emit_strb(X1, SP, 0);
+    // ADD X1, SP, #0 (can't use MOV for SP — XZR alias).
+    self.emitter.emit_add_imm(X1, SP, 0);
+    self.emitter.emit_mov_imm(X2, 1);
+    self.emitter.emit_mov_imm(X16, 4);
+    self.emitter.emit_mov_imm(X0, fd);
+    self.emitter.emit_svc(0);
+    self.emitter.emit_add_imm(SP, SP, 16);
+
+    // Compute fractional part: frac = (D0 - int_part) * 1e6.
+    // Reload D0's integer part into X0, convert back to D1.
+    self.emitter.emit_fcvtzs(X0, D0);
+    self.emitter.emit_scvtf(D1, X0);
+    // D0 = D0 - D1 (fractional part, 0.0 to 0.999...)
+    self.emitter.emit_fsub(D0, D0, D1);
+
+    // Multiply by 1000000 to get 6 decimal digits.
+    // Load 1000000.0 into D1 via GP.
+    let million_bits = 1_000_000.0f64.to_bits();
+
+    self
+      .emitter
+      .emit_mov_imm(X0, (million_bits & 0xFFFF) as u16);
+    self
+      .emitter
+      .emit_movk(X0, ((million_bits >> 16) & 0xFFFF) as u16, 16);
+    self
+      .emitter
+      .emit_movk(X0, ((million_bits >> 32) & 0xFFFF) as u16, 32);
+    self
+      .emitter
+      .emit_movk(X0, ((million_bits >> 48) & 0xFFFF) as u16, 48);
+
+    self.emitter.emit_fmov_gp_to_fp(D1, X0);
+
+    // D0 = frac * 1000000.0
+    self.emitter.emit_fmul(D0, D0, D1);
+    // X0 = int(D0)
+    self.emitter.emit_fcvtzs(X0, D0);
+
+    // Print 6 digits via itoa.
+    self.emit_itoa_and_write(fd);
+  }
+
+  fn emit_itoa_and_write(&mut self, fd: u16) {
+    // Reserve 32-byte buffer on stack.
+    self.emitter.emit_sub_imm(SP, SP, 32);
+
+    // X1 = end of buffer (write pointer, works backward)
+    self.emitter.emit_add_imm(X1, SP, 31);
+    // X2 = 0 (length counter)
+    self.emitter.emit_mov_imm(X2, 0);
+    // X3 = 10 (divisor)
+    let x3 = Register::new(3);
+
+    self.emitter.emit_mov_imm(x3, 10);
+
+    // Handle zero case: if X0 == 0, write "0".
+    let loop_start = self.emitter.current_offset();
+
+    // X4 = X0 / 10
+    let x4 = Register::new(4);
+    let x5 = Register::new(5);
+
+    self.emitter.emit_udiv(x4, X0, x3);
+    // X5 = X0 - X4 * 10 (remainder = digit)
+    self.emitter.emit_msub(x5, x4, x3, X0);
+    // X5 += '0'
+    self.emitter.emit_add_imm(x5, x5, 48);
+    // Store byte at [X1], X1 -= 1
+    self.emitter.emit_strb_post_dec(x5, X1);
+    // X2 += 1 (length)
+    self.emitter.emit_add_imm(X2, X2, 1);
+    // X0 = quotient
+    self.emitter.emit_mov_reg(X0, x4);
+    // If X0 != 0, loop
+    let cbnz_offset = loop_start as i32 - self.emitter.current_offset() as i32;
+
+    self.emitter.emit_cbnz(X0, cbnz_offset);
+
+    // X1 points one past the first digit — adjust.
+    self.emitter.emit_add_imm(X1, X1, 1);
+
+    // Write syscall: write(fd, X1, X2)
+    self.emitter.emit_mov_imm(X16, 4);
+    self.emitter.emit_mov_imm(X0, fd);
+    self.emitter.emit_svc(0);
+
+    // Restore stack.
+    self.emitter.emit_add_imm(SP, SP, 32);
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for

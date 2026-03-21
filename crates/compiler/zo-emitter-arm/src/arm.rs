@@ -393,6 +393,47 @@ impl ARM64Emitter {
     self.emit_u32(insn);
   }
 
+  /// CBNZ Xt, label — branch if register is non-zero.
+  pub fn emit_cbnz(&mut self, rt: Register, offset: i32) {
+    // Encoding: sf=1 011010 1 imm19 Rt
+    let imm19 = ((offset >> 2) & 0x7FFFF) as u32;
+    let insn = 0xB5000000 | (imm19 << 5) | (rt.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// MSUB Xd, Xn, Xm, Xa — Xd = Xa - Xn * Xm.
+  pub fn emit_msub(
+    &mut self,
+    dst: Register,
+    src1: Register,
+    src2: Register,
+    acc: Register,
+  ) {
+    // Encoding: sf=1 00 11011 000 Rm 1 Ra Rn Rd
+    let insn = 0x9B008000
+      | ((src2.index() as u32) << 16)
+      | ((acc.index() as u32) << 10)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// STRB Wt, [Xn], #-1 — store byte with post-decrement.
+  pub fn emit_strb_post_dec(&mut self, reg: Register, base: Register) {
+    // STR (post-index): 00 111000 00 0 imm9 01 Rn Rt
+    // imm9 = -1 = 0x1FF
+    let imm9 = 0x1FFu32;
+
+    let insn = 0x38000400
+      | (imm9 << 12)
+      | ((base.index() as u32) << 5)
+      | (reg.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
   fn emit_bcond(&mut self, cond: u8, offset: i32) {
     // B.cond label
     // Encoding: 0101010 0 imm19 0 cond
@@ -578,6 +619,23 @@ impl ARM64Emitter {
     // Encoding: 0 00 11110 01 1 Rm 00 1000 Rn 00 000
     let insn =
       0x1E602000 | ((src2.index() as u32) << 16) | ((src1.index() as u32) << 5);
+
+    self.emit_u32(insn);
+  }
+
+  /// FCVTZS Xd, Dn — convert double to signed int
+  /// (truncate toward zero).
+  pub fn emit_fcvtzs(&mut self, dst: Register, src: FpRegister) {
+    // Encoding: sf=1 00 11110 01 1 11 000 000000 Rn Rd
+    let insn = 0x9E780000 | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// SCVTF Dd, Xn — convert signed int to double.
+  pub fn emit_scvtf(&mut self, dst: FpRegister, src: Register) {
+    // Encoding: sf=1 00 11110 01 1 00 010 000000 Rn Rd
+    let insn = 0x9E620000 | ((src.index() as u32) << 5) | (dst.index() as u32);
 
     self.emit_u32(insn);
   }

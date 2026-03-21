@@ -392,3 +392,23 @@ fn test_array_literal_and_index() {
     },
   );
 }
+
+#[test]
+fn test_showln_int_emits_call() {
+  // showln(42) should emit a Call instruction with an
+  // int argument (not just a string).
+  assert_sir_structure(
+    r#"fun main() {
+  showln(42);
+}"#,
+    |sir| {
+      assert!(
+        sir.iter().any(|i| matches!(
+          i,
+          Insn::Call { args, .. } if !args.is_empty()
+        )),
+        "expected Call with argument for showln(42)"
+      );
+    },
+  );
+}

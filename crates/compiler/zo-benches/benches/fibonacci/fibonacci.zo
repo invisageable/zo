@@ -14,8 +14,8 @@ fun fib(n: int) -> int {
 }
 
 fun main() {
-  check (fib(8) == 21);
-  check (fib(15) == 610);
+  check(fib(8) == 21);
+  check(fib(15) == 610);
   showln(fib(8));
   showln(fib(15));
 }

@@ -11,7 +11,7 @@ fun ack(m: int, n: int) -> int {
 }
 
 fun main() {
-  check (ack(0, 0) == 1);
-  check (ack(3, 2) == 29);
-  check (ack(3, 4) == 125);
+  check(ack(0, 0) == 1);
+  check(ack(3, 2) == 29);
+  check(ack(3, 4) == 125);
 }
