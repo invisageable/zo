@@ -96,9 +96,9 @@ cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/templating/hello.z
 
 ### bench summary.
 
-- zo achieves **sub-10ms compilation** for typical programs.
-- zo is **5-7x faster** than `clang` (`c` compiler).
-- zo is **24-32x faster** than `rustc` (`rust` compiler).
+- zo ACHiEVES **sub-10ms compilation** FOR TYPiCAL PROGRAMS.
+- zo iS **5-7x faster** THAN `clang` (`c` COMPiLER).
+- zo iS **24-32x faster** THAN `rustc` (`rust` COMPiLER).
 
 ## examples.
 

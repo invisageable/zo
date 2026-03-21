@@ -516,6 +516,22 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
       Insn::BranchIfNot { cond, .. } => off(cond),
       Insn::Directive { value, .. } => off(value),
       Insn::Template { id, .. } => off(id),
+      Insn::ArrayLiteral { elements, .. } => {
+        for e in elements.iter_mut() {
+          off(e);
+        }
+      }
+      Insn::ArrayIndex {
+        dst, array, index, ..
+      } => {
+        off(dst);
+        off(array);
+        off(index);
+      }
+      Insn::ArrayLen { dst, array, .. } => {
+        off(dst);
+        off(array);
+      }
     }
   }
 }

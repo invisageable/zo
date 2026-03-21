@@ -76,6 +76,8 @@ pub struct Executor<'a> {
   pending_decl: Option<PendingDecl>,
   /// Pending assignment target name (deferred to Semicolon).
   pending_assign: Option<Symbol>,
+  /// Array context stack: (is_indexing, stack_depth_at_open).
+  array_ctx: Vec<(bool, usize)>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -116,6 +118,7 @@ impl<'a> Executor<'a> {
       skip_until: 0,
       pending_decl: None,
       pending_assign: None,
+      array_ctx: Vec::new(),
     }
   }
 
@@ -695,6 +698,93 @@ impl<'a> Executor<'a> {
 
             self.value_stack.push(error_id);
             self.ty_stack.push(self.ty_checker.error_type());
+          }
+        }
+      }
+
+      // === ARRAYS ===
+      Token::LBracket => {
+        // Determine context: indexing (preceded by an
+        // array value on the stack) or literal.
+        // For indexing: the array value was pushed by
+        // the preceding Ident. For literals: stacks
+        // have whatever was there before.
+        let is_indexing =
+          idx > 0 && matches!(self.tree.nodes[idx - 1].token, Token::Ident);
+
+        let depth = self.sir_values.len();
+
+        self.array_ctx.push((is_indexing, depth));
+      }
+
+      Token::RBracket => {
+        if let Some((is_indexing, depth)) = self.array_ctx.pop() {
+          let int_ty = self.ty_checker.int_type();
+
+          if is_indexing {
+            // Pop index and array from stacks.
+            if let (Some(_idx_val), Some(_idx_ty)) =
+              (self.value_stack.pop(), self.ty_stack.pop())
+            {
+              let idx_sir = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
+
+              // Pop array value.
+              if let (Some(_arr_val), Some(_arr_ty)) =
+                (self.value_stack.pop(), self.ty_stack.pop())
+              {
+                let arr_sir =
+                  self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
+
+                let dst = ValueId(self.sir.next_value_id);
+
+                self.sir.next_value_id += 1;
+
+                let elem_ty = int_ty; // TODO: resolve from array type
+
+                let sv = self.sir.emit(Insn::ArrayIndex {
+                  dst,
+                  array: arr_sir,
+                  index: idx_sir,
+                  ty_id: elem_ty,
+                });
+
+                let rid = self.values.store_runtime(0);
+
+                self.value_stack.push(rid);
+                self.ty_stack.push(elem_ty);
+                self.sir_values.push(sv);
+              }
+            }
+          } else {
+            // Array literal: collect elements from
+            // stacks (everything since depth).
+            let count = self.sir_values.len().saturating_sub(depth);
+            let mut elements = Vec::with_capacity(count);
+
+            // Pop elements in reverse, then reverse.
+            for _ in 0..count {
+              if let Some(sv) = self.sir_values.pop() {
+                elements.push(sv);
+              }
+
+              self.value_stack.pop();
+              self.ty_stack.pop();
+            }
+
+            elements.reverse();
+
+            let arr_ty = int_ty; // TODO: proper array type
+
+            let sv = self.sir.emit(Insn::ArrayLiteral {
+              elements,
+              ty_id: arr_ty,
+            });
+
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(arr_ty);
+            self.sir_values.push(sv);
           }
         }
       }

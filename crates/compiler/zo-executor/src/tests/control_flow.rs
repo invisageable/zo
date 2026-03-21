@@ -372,3 +372,23 @@ fn test_continue_in_for() {
     },
   );
 }
+
+#[test]
+fn test_array_literal_and_index() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu arr: []int = [10, 20, 30];
+  return arr[1];
+}"#,
+    |sir| {
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::ArrayLiteral { .. })),
+        "expected ArrayLiteral instruction"
+      );
+      assert!(
+        sir.iter().any(|i| matches!(i, Insn::ArrayIndex { .. })),
+        "expected ArrayIndex instruction"
+      );
+    },
+  );
+}

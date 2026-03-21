@@ -819,6 +819,61 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_cbz(reg, 0);
       }
 
+      Insn::ArrayLiteral { elements, .. } => {
+        // Layout on stack: [len, e0, e1, ..., eN]
+        // Allocate (1 + N) * 8 bytes below current SP.
+        let n = elements.len() as u16;
+        let size = (n + 1) * 8;
+        let aligned = (size + 15) & !15;
+
+        self.emitter.emit_sub_imm(SP, SP, aligned);
+
+        // Store length at [SP + 0].
+        self.emitter.emit_mov_imm(X16, n);
+        self.emitter.emit_str(X16, SP, 0);
+
+        // Store each element at [SP + (i+1)*8].
+        for (i, elem) in elements.iter().enumerate() {
+          if let Some(reg) = self.alloc_reg(*elem) {
+            self.emitter.emit_str(reg, SP, ((i + 1) * 8) as i16);
+          }
+        }
+
+        // Result: pointer to array (SP).
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emitter.emit_mov_reg(dst, SP);
+        }
+      }
+
+      Insn::ArrayIndex {
+        dst, array, index, ..
+      } => {
+        // Load element at base + 8 + index * 8.
+        // Use X16 as scratch.
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
+          let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
+
+          // X16 = index << 3 (index * 8)
+          self.emitter.emit_lsl(X16, idx_reg, 3);
+          // X16 = array_base + X16
+          self.emitter.emit_add(X16, arr_reg, X16);
+          // X16 = X16 + 8 (skip length field)
+          self.emitter.emit_add_imm(X16, X16, 8);
+          // dst = [X16]
+          self.emitter.emit_ldr(dst_reg, X16, 0);
+        }
+      }
+
+      Insn::ArrayLen { dst, array, .. } => {
+        // Length at [base + 0].
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
+
+          self.emitter.emit_ldr(dst_reg, arr_reg, 0);
+        }
+      }
+
       _ => {}
     }
   }

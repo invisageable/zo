@@ -124,8 +124,10 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
   insns
     .iter()
     .map(|insn| match insn {
-      Insn::Load { dst, .. } | Insn::BinOp { dst, .. } => {
-        // Advance past the explicitly-assigned id.
+      Insn::Load { dst, .. }
+      | Insn::BinOp { dst, .. }
+      | Insn::ArrayIndex { dst, .. }
+      | Insn::ArrayLen { dst, .. } => {
         counter = counter.max(dst.0 + 1);
         Some(*dst)
       }
@@ -158,6 +160,11 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
     Insn::BranchIfNot { cond, .. } => vec![*cond],
     Insn::Directive { value, .. } => vec![*value],
     Insn::VarDef { init: Some(v), .. } => vec![*v],
+    Insn::ArrayLiteral { elements, .. } => elements.clone(),
+    Insn::ArrayIndex { array, index, .. } => {
+      vec![*array, *index]
+    }
+    Insn::ArrayLen { array, .. } => vec![*array],
     _ => vec![],
   }
 }

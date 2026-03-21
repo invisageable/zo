@@ -12,7 +12,7 @@ iT'S REALLY ABOUT CHALLENGiNG. zo DOESN'T CLAiM TO BE A DiRECT COMPETiTOR TO c O
 
 #### hello.
 
-RUN: `cargo build --release --bin zo && cargo run --release -p zo-benches -- hello`
+RUN: `just zo_bench hello`
 
 __compile-time (ARM64)__
 
@@ -32,7 +32,7 @@ __average execution time__
 
 #### arithmetic.
 
-RUN: `cargo build --release --bin zo && cargo run --release -p zo-benches -- arithmetic`
+RUN: `just zo_bench arithmetic`
 
 __compile-time (ARM64)__
 

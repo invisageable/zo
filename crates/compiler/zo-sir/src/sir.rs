@@ -35,8 +35,10 @@ impl Sir {
   pub fn emit(&mut self, insn: Insn) -> ValueId {
     // For instructions with explicit destinations, return that dst
     let value_id = match &insn {
-      Insn::Load { dst, .. } => *dst,
-      Insn::BinOp { dst, .. } => *dst,
+      Insn::Load { dst, .. }
+      | Insn::BinOp { dst, .. }
+      | Insn::ArrayIndex { dst, .. }
+      | Insn::ArrayLen { dst, .. } => *dst,
       // Instructions that don't produce values return a dummy ValueId
       Insn::FunDef { .. }
       | Insn::Return { .. }
@@ -150,6 +152,21 @@ pub enum Insn {
   Jump { target: u32 },
   /// The conditional branch — jump to target if false.
   BranchIfNot { cond: ValueId, target: u32 },
+  /// Array literal: [e0, e1, ..., eN].
+  ArrayLiteral { elements: Vec<ValueId>, ty_id: TyId },
+  /// Array index: arr[idx].
+  ArrayIndex {
+    dst: ValueId,
+    array: ValueId,
+    index: ValueId,
+    ty_id: TyId,
+  },
+  /// Array length: arr.len.
+  ArrayLen {
+    dst: ValueId,
+    array: ValueId,
+    ty_id: TyId,
+  },
   /// Template literal (fragment or HTML tag)
   Template {
     id: ValueId,
