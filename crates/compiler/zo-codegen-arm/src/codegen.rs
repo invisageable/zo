@@ -1,7 +1,8 @@
 use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
-  ARM64Emitter, D0, D1, FpRegister, Register, SP, X0, X1, X2, X16, X29, X30,
+  ARM64Emitter, COND_EQ, COND_GE, COND_GT, COND_LE, COND_LT, COND_NE, D0, D1,
+  FpRegister, Register, SP, X0, X1, X2, X16, X29, X30,
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{RegAlloc, SpillKind};
@@ -16,6 +17,67 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+
+// --- macOS ARM64 System Calls ---
+const SYS_WRITE: u16 = 4;
+const SYS_EXIT: u16 = 1;
+const FD_STDOUT: u16 = 1;
+const FD_STDERR: u16 = 2;
+
+// --- ASCII Constants ---
+const ASCII_NEWLINE: u16 = 10;
+const ASCII_ZERO: u16 = 48;
+
+// --- Stack Frame Layout ---
+const STACK_SLOT_SIZE: u32 = 8;
+const FP_LR_SAVE_OFFSET: i16 = -16;
+const FP_LR_LOAD_OFFSET: i16 = 16;
+const MUTABLE_VAR_RESERVE: u32 = 64;
+const FRAME_ALIGN_MASK: u32 = 15;
+const MAX_REG_ARGS: usize = 8;
+
+// --- Buffer Sizes ---
+const ITOA_BUFFER_SIZE: u16 = 32;
+const ITOA_BUFFER_END: u16 = 31;
+const NEWLINE_BUFFER_OFFSET: u16 = 16;
+
+// --- Array Layout ---
+const ARRAY_ELEMENT_SHIFT: u8 = 3;
+const ARRAY_HEADER_SIZE: u16 = 8;
+
+// --- Float Type Detection ---
+const FLOAT_TYPE_ID_MIN: u32 = 15;
+const FLOAT_TYPE_ID_MAX: u32 = 17;
+
+// --- Mutable Variable Encoding ---
+const MUTABLE_VAR_OFFSET: u32 = 100;
+
+// --- Mach-O Layout ---
+const TEXT_SECTION_BASE: u64 = 0x100000400;
+const CODE_OFFSET: u64 = 0x400;
+const UI_ENTRY_SYMBOL: u32 = 0xFFFF;
+const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
+
+// --- Branch Fixup Masks ---
+const B_FIXUP_MASK: u32 = 0xFC000000;
+const B_FIXUP_OPCODE: u32 = 0x14000000;
+const CBZ_FIXUP_MASK: u32 = 0x7F000000;
+const CBZ_FIXUP_OPCODE: u32 = 0x34000000;
+const INSN_RD_MASK: u32 = 0x1F;
+const FIXUP_IMM26_MASK: u32 = 0x3FFFFFF;
+const FIXUP_IMM19_MASK: u32 = 0x7FFFF;
+const FIXUP_ADR: u32 = 0x10000000;
+const FIXUP_ADR_IMMLO: u32 = 0x3;
+const FIXUP_ADR_IMMHI: u32 = 0x7FFFF;
+
+// --- Template Layout ---
+const TEMPLATE_HEADER_SIZE: usize = 8;
+const TEMPLATE_CMD_SIZE: usize = 16;
+
+// --- Hello World ---
+const HELLO_STR_OFFSET: i32 = 0x18;
+const HELLO_STR_LEN: u16 = 14;
+const CFA_FP_REG: u8 = 31;
 
 /// Represents the [`ARM64Gen`] code generation instance.
 pub struct ARM64Gen<'a> {
@@ -125,7 +187,9 @@ impl<'a> ARM64Gen<'a> {
         Insn::ConstFloat { .. } => true,
         Insn::BinOp { ty_id, .. }
         | Insn::Load { ty_id, .. }
-        | Insn::Call { ty_id, .. } => ty_id.0 >= 15 && ty_id.0 <= 17,
+        | Insn::Call { ty_id, .. } => {
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX
+        }
         _ => false,
       })
   }
@@ -153,36 +217,44 @@ impl<'a> ARM64Gen<'a> {
         slot,
         is_fp: false,
       } => {
-        self
-          .emitter
-          .emit_str(Register::new(*reg), SP, (*slot * 8) as i16);
+        self.emitter.emit_str(
+          Register::new(*reg),
+          SP,
+          (*slot * STACK_SLOT_SIZE) as i16,
+        );
       }
       SpillKind::Load {
         reg,
         slot,
         is_fp: false,
       } => {
-        self
-          .emitter
-          .emit_ldr(Register::new(*reg), SP, (*slot * 8) as i16);
+        self.emitter.emit_ldr(
+          Register::new(*reg),
+          SP,
+          (*slot * STACK_SLOT_SIZE) as i16,
+        );
       }
       SpillKind::Store {
         reg,
         slot,
         is_fp: true,
       } => {
-        self
-          .emitter
-          .emit_str_fp(FpRegister::new(*reg), SP, (*slot * 8) as u16);
+        self.emitter.emit_str_fp(
+          FpRegister::new(*reg),
+          SP,
+          (*slot * STACK_SLOT_SIZE) as u16,
+        );
       }
       SpillKind::Load {
         reg,
         slot,
         is_fp: true,
       } => {
-        self
-          .emitter
-          .emit_ldr_fp(FpRegister::new(*reg), SP, (*slot * 8) as u16);
+        self.emitter.emit_ldr_fp(
+          FpRegister::new(*reg),
+          SP,
+          (*slot * STACK_SLOT_SIZE) as u16,
+        );
       }
     }
   }
@@ -295,10 +367,10 @@ impl<'a> ARM64Gen<'a> {
       if let Some(offset) = target_offset {
         let offset = (*offset as i32) - (*fixup_pos as i32);
         let reg = X1;
-        let immlo = (offset & 0x3) as u32;
-        let immhi = ((offset >> 2) & 0x7FFFF) as u32;
+        let immlo = (offset as u32) & FIXUP_ADR_IMMLO;
+        let immhi = ((offset >> 2) as u32) & FIXUP_ADR_IMMHI;
         let insn =
-          0x10000000 | (immlo << 29) | (immhi << 5) | (reg.index() as u32);
+          FIXUP_ADR | (immlo << 29) | (immhi << 5) | (reg.index() as u32);
         let pos = *fixup_pos as usize;
         code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
       }
@@ -312,12 +384,12 @@ impl<'a> ARM64Gen<'a> {
         let existing =
           u32::from_le_bytes(code[pos..pos + 4].try_into().unwrap());
 
-        let patched = if existing & 0xFC000000 == 0x14000000 {
-          0x14000000 | ((relative as u32) & 0x3FFFFFF)
-        } else if existing & 0x7F000000 == 0x34000000 {
+        let patched = if existing & B_FIXUP_MASK == B_FIXUP_OPCODE {
+          B_FIXUP_OPCODE | ((relative as u32) & FIXUP_IMM26_MASK)
+        } else if existing & CBZ_FIXUP_MASK == CBZ_FIXUP_OPCODE {
           let sf_and_op = existing & 0xFF000000;
-          let rt = existing & 0x1F;
-          sf_and_op | (((relative as u32) & 0x7FFFF) << 5) | rt
+          let rt = existing & INSN_RD_MASK;
+          sf_and_op | (((relative as u32) & FIXUP_IMM19_MASK) << 5) | rt
         } else {
           existing
         };
@@ -352,18 +424,18 @@ impl<'a> ARM64Gen<'a> {
       macho.add_function_symbol(
         "_main",
         1,
-        0x100000400u64 + offset as u64,
+        TEXT_SECTION_BASE + offset as u64,
         false,
       );
     }
 
     if self.has_templates {
-      let entry_symbol = Symbol(0xFFFF);
+      let entry_symbol = Symbol(UI_ENTRY_SYMBOL);
       if let Some(&offset) = self.functions.get(&entry_symbol) {
         macho.add_function_symbol(
           "_zo_ui_entry_point",
           1,
-          0x100000400u64 + offset as u64,
+          TEXT_SECTION_BASE + offset as u64,
           true,
         );
       }
@@ -382,8 +454,8 @@ impl<'a> ARM64Gen<'a> {
       .interner
       .symbol("main")
       .and_then(|s| self.functions.get(&s).copied())
-      .map(|off| 0x400u64 + off as u64)
-      .unwrap_or(0x400);
+      .map(|off| CODE_OFFSET + off as u64)
+      .unwrap_or(CODE_OFFSET);
     macho.add_main(main_entry);
 
     macho.add_dyld_info();
@@ -509,12 +581,14 @@ impl<'a> ARM64Gen<'a> {
           .and_then(|a| a.function_info.get(&idx))
         {
           if info.has_calls {
-            self.emitter.emit_stp(X29, X30, SP, -16);
+            self.emitter.emit_stp(X29, X30, SP, FP_LR_SAVE_OFFSET);
           }
 
           // Reserve space for spills + mutable slots.
           // Add 64 bytes (8 slots) for mutable vars.
-          let frame = (info.spill_size + 64 + 15) & !15;
+          let frame =
+            (info.spill_size + MUTABLE_VAR_RESERVE + FRAME_ALIGN_MASK)
+              & !FRAME_ALIGN_MASK;
 
           if frame > 0 {
             self.emitter.emit_sub_imm(SP, SP, frame as u16);
@@ -560,9 +634,9 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::Load { dst, src, .. } => {
-        if *src >= 100 {
+        if *src >= MUTABLE_VAR_OFFSET {
           // Mutable variable: LDR from stack slot.
-          let slot = *src - 100;
+          let slot = *src - MUTABLE_VAR_OFFSET;
 
           if let Some(dst_reg) = self.alloc_reg(*dst)
             && let Some(&offset) = self.mutable_slots.get(&slot)
@@ -593,7 +667,8 @@ impl<'a> ARM64Gen<'a> {
         rhs,
         ty_id,
       } => {
-        let is_float = ty_id.0 >= 15 && ty_id.0 <= 17;
+        let is_float =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
         if is_float {
           let fl = self.alloc_fp_reg(*lhs).unwrap_or(D0);
@@ -653,22 +728,22 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_lsr(d, l, 1);
             }
             BinOp::Lt => {
-              self.emit_cmp_csel(d, l, r, 0xB);
+              self.emit_cmp_csel(d, l, r, COND_LT);
             }
             BinOp::Lte => {
-              self.emit_cmp_csel(d, l, r, 0xD);
+              self.emit_cmp_csel(d, l, r, COND_LE);
             }
             BinOp::Gt => {
-              self.emit_cmp_csel(d, l, r, 0xC);
+              self.emit_cmp_csel(d, l, r, COND_GT);
             }
             BinOp::Gte => {
-              self.emit_cmp_csel(d, l, r, 0xA);
+              self.emit_cmp_csel(d, l, r, COND_GE);
             }
             BinOp::Eq => {
-              self.emit_cmp_csel(d, l, r, 0x0);
+              self.emit_cmp_csel(d, l, r, COND_EQ);
             }
             BinOp::Neq => {
-              self.emit_cmp_csel(d, l, r, 0x1);
+              self.emit_cmp_csel(d, l, r, COND_NE);
             }
             _ => {}
           }
@@ -678,8 +753,8 @@ impl<'a> ARM64Gen<'a> {
       Insn::Call { name, args, .. } => {
         match self.interner.get(*name) {
           "show" => {
-            self.emitter.emit_mov_imm(X16, 4);
-            self.emitter.emit_mov_imm(X0, 1);
+            self.emitter.emit_mov_imm(X16, SYS_WRITE);
+            self.emitter.emit_mov_imm(X0, FD_STDOUT);
             self.emitter.emit_svc(0);
           }
           "showln" => {
@@ -701,7 +776,7 @@ impl<'a> ARM64Gen<'a> {
                 self.emitter.emit_fmov_fp(D0, fp_src);
               }
 
-              self.emit_ftoa_and_write(1);
+              self.emit_ftoa_and_write(FD_STDOUT);
             } else if !is_str && arg_vid.is_some() {
               // Int: move to X0, itoa, write.
               if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
@@ -710,48 +785,48 @@ impl<'a> ARM64Gen<'a> {
                 self.emitter.emit_mov_reg(X0, src);
               }
 
-              self.emit_itoa_and_write(1);
+              self.emit_itoa_and_write(FD_STDOUT);
             } else {
               // String: X1=ptr, X2=len already set.
-              self.emitter.emit_mov_imm(X16, 4);
-              self.emitter.emit_mov_imm(X0, 1);
+              self.emitter.emit_mov_imm(X16, SYS_WRITE);
+              self.emitter.emit_mov_imm(X0, FD_STDOUT);
               self.emitter.emit_svc(0);
             }
 
             // Write newline.
-            self.emitter.emit_mov_imm(X1, 10);
-            self.emitter.emit_sub_imm(X2, SP, 16);
+            self.emitter.emit_mov_imm(X1, ASCII_NEWLINE);
+            self.emitter.emit_sub_imm(X2, SP, NEWLINE_BUFFER_OFFSET);
             self.emitter.emit_strb(X1, X2, 0);
             self.emitter.emit_mov_reg(X1, X2);
             self.emitter.emit_mov_imm(X2, 1);
-            self.emitter.emit_mov_imm(X16, 4);
-            self.emitter.emit_mov_imm(X0, 1);
+            self.emitter.emit_mov_imm(X16, SYS_WRITE);
+            self.emitter.emit_mov_imm(X0, FD_STDOUT);
             self.emitter.emit_svc(0);
           }
           "eshow" => {
-            self.emitter.emit_mov_imm(X16, 4);
-            self.emitter.emit_mov_imm(X0, 2);
+            self.emitter.emit_mov_imm(X16, SYS_WRITE);
+            self.emitter.emit_mov_imm(X0, FD_STDERR);
             self.emitter.emit_svc(0);
           }
           "eshowln" => {
-            self.emitter.emit_mov_imm(X16, 4);
-            self.emitter.emit_mov_imm(X0, 2);
+            self.emitter.emit_mov_imm(X16, SYS_WRITE);
+            self.emitter.emit_mov_imm(X0, FD_STDERR);
             self.emitter.emit_svc(0);
 
-            self.emitter.emit_mov_imm(X1, 10);
-            self.emitter.emit_sub_imm(X2, SP, 16);
+            self.emitter.emit_mov_imm(X1, ASCII_NEWLINE);
+            self.emitter.emit_sub_imm(X2, SP, NEWLINE_BUFFER_OFFSET);
             self.emitter.emit_strb(X1, X2, 0);
             self.emitter.emit_mov_reg(X1, X2);
             self.emitter.emit_mov_imm(X2, 1);
-            self.emitter.emit_mov_imm(X16, 4);
-            self.emitter.emit_mov_imm(X0, 2);
+            self.emitter.emit_mov_imm(X16, SYS_WRITE);
+            self.emitter.emit_mov_imm(X0, FD_STDERR);
             self.emitter.emit_svc(0);
           }
           "flush" => {}
           _ => {
             // Move args to X0-X7 (GP) or D0-D7 (FP).
             for (i, arg) in args.iter().enumerate() {
-              if i >= 8 {
+              if i >= MAX_REG_ARGS {
                 break;
               }
 
@@ -811,12 +886,14 @@ impl<'a> ARM64Gen<'a> {
             .as_ref()
             .and_then(|a| a.function_info.get(&start))
         {
-          let frame = (info.spill_size + 64 + 15) & !15;
+          let frame =
+            (info.spill_size + MUTABLE_VAR_RESERVE + FRAME_ALIGN_MASK)
+              & !FRAME_ALIGN_MASK;
           if frame > 0 {
             self.emitter.emit_add_imm(SP, SP, frame as u16);
           }
           if info.has_calls {
-            self.emitter.emit_ldp(X29, X30, SP, 16);
+            self.emitter.emit_ldp(X29, X30, SP, FP_LR_LOAD_OFFSET);
           }
         }
 
@@ -847,7 +924,7 @@ impl<'a> ARM64Gen<'a> {
             .map(|info| info.spill_size)
             .unwrap_or(0);
 
-          let off = base + self.next_mut_slot * 8;
+          let off = base + self.next_mut_slot * STACK_SLOT_SIZE;
 
           self.mutable_slots.insert(slot_key, off);
 
@@ -899,8 +976,9 @@ impl<'a> ARM64Gen<'a> {
         // Layout on stack: [len, e0, e1, ..., eN]
         // Allocate (1 + N) * 8 bytes below current SP.
         let n = elements.len() as u16;
-        let size = (n + 1) * 8;
-        let aligned = (size + 15) & !15;
+        let size = (n + 1) * (STACK_SLOT_SIZE as u16);
+        let aligned =
+          (size + (FRAME_ALIGN_MASK as u16)) & !(FRAME_ALIGN_MASK as u16);
 
         self.emitter.emit_sub_imm(SP, SP, aligned);
 
@@ -911,7 +989,11 @@ impl<'a> ARM64Gen<'a> {
         // Store each element at [SP + (i+1)*8].
         for (i, elem) in elements.iter().enumerate() {
           if let Some(reg) = self.alloc_reg(*elem) {
-            self.emitter.emit_str(reg, SP, ((i + 1) * 8) as i16);
+            self.emitter.emit_str(
+              reg,
+              SP,
+              ((i + 1) * STACK_SLOT_SIZE as usize) as i16,
+            );
           }
         }
 
@@ -931,11 +1013,11 @@ impl<'a> ARM64Gen<'a> {
           let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
 
           // X16 = index << 3 (index * 8)
-          self.emitter.emit_lsl(X16, idx_reg, 3);
+          self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
           // X16 = array_base + X16
           self.emitter.emit_add(X16, arr_reg, X16);
-          // X16 = X16 + 8 (skip length field)
-          self.emitter.emit_add_imm(X16, X16, 8);
+          // X16 = X16 + header (skip length field)
+          self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
           // dst = [X16]
           self.emitter.emit_ldr(dst_reg, X16, 0);
         }
@@ -971,16 +1053,16 @@ impl<'a> ARM64Gen<'a> {
     self.emit_itoa_and_write(fd);
 
     // Print "."
-    self.emitter.emit_sub_imm(SP, SP, 16);
+    self.emitter.emit_sub_imm(SP, SP, NEWLINE_BUFFER_OFFSET);
     self.emitter.emit_mov_imm(X1, b'.' as u16);
     self.emitter.emit_strb(X1, SP, 0);
     // ADD X1, SP, #0 (can't use MOV for SP — XZR alias).
     self.emitter.emit_add_imm(X1, SP, 0);
     self.emitter.emit_mov_imm(X2, 1);
-    self.emitter.emit_mov_imm(X16, 4);
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
     self.emitter.emit_mov_imm(X0, fd);
     self.emitter.emit_svc(0);
-    self.emitter.emit_add_imm(SP, SP, 16);
+    self.emitter.emit_add_imm(SP, SP, NEWLINE_BUFFER_OFFSET);
 
     // Compute fractional part: frac = (D0 - int_part) * 1e6.
     // Reload D0's integer part into X0, convert back to D1.
@@ -1018,37 +1100,35 @@ impl<'a> ARM64Gen<'a> {
   }
 
   fn emit_itoa_and_write(&mut self, fd: u16) {
-    // Reserve 32-byte buffer on stack.
-    self.emitter.emit_sub_imm(SP, SP, 32);
+    self.emitter.emit_sub_imm(SP, SP, ITOA_BUFFER_SIZE);
 
-    // X1 = end of buffer (write pointer, works backward)
-    self.emitter.emit_add_imm(X1, SP, 31);
-    // X2 = 0 (length counter)
+    // X1 = end of buffer (write pointer, works backward).
+    self.emitter.emit_add_imm(X1, SP, ITOA_BUFFER_END);
+    // X2 = 0 (length counter).
     self.emitter.emit_mov_imm(X2, 0);
-    // X3 = 10 (divisor)
+    // X3 = 10 (divisor).
     let x3 = Register::new(3);
 
-    self.emitter.emit_mov_imm(x3, 10);
+    self.emitter.emit_mov_imm(x3, ASCII_NEWLINE);
 
-    // Handle zero case: if X0 == 0, write "0".
     let loop_start = self.emitter.current_offset();
 
-    // X4 = X0 / 10
+    // X4 = X0 / 10.
     let x4 = Register::new(4);
     let x5 = Register::new(5);
 
     self.emitter.emit_udiv(x4, X0, x3);
-    // X5 = X0 - X4 * 10 (remainder = digit)
+    // X5 = X0 - X4 * 10 (remainder = digit).
     self.emitter.emit_msub(x5, x4, x3, X0);
-    // X5 += '0'
-    self.emitter.emit_add_imm(x5, x5, 48);
-    // Store byte at [X1], X1 -= 1
+    // X5 += '0'.
+    self.emitter.emit_add_imm(x5, x5, ASCII_ZERO);
+    // Store byte at [X1], X1 -= 1.
     self.emitter.emit_strb_post_dec(x5, X1);
-    // X2 += 1 (length)
+    // X2 += 1 (length).
     self.emitter.emit_add_imm(X2, X2, 1);
-    // X0 = quotient
+    // X0 = quotient.
     self.emitter.emit_mov_reg(X0, x4);
-    // If X0 != 0, loop
+    // If X0 != 0, loop.
     let cbnz_offset = loop_start as i32 - self.emitter.current_offset() as i32;
 
     self.emitter.emit_cbnz(X0, cbnz_offset);
@@ -1056,13 +1136,13 @@ impl<'a> ARM64Gen<'a> {
     // X1 points one past the first digit — adjust.
     self.emitter.emit_add_imm(X1, X1, 1);
 
-    // Write syscall: write(fd, X1, X2)
-    self.emitter.emit_mov_imm(X16, 4);
+    // Write syscall: write(fd, X1, X2).
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
     self.emitter.emit_mov_imm(X0, fd);
     self.emitter.emit_svc(0);
 
     // Restore stack.
-    self.emitter.emit_add_imm(SP, SP, 32);
+    self.emitter.emit_add_imm(SP, SP, ITOA_BUFFER_SIZE);
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for
@@ -1108,7 +1188,8 @@ impl<'a> ARM64Gen<'a> {
     header_data.extend_from_slice(&(commands.len() as u32).to_le_bytes());
     header_data.extend_from_slice(&0u32.to_le_bytes());
 
-    let cmd_data_base = 8 + (16 * commands.len());
+    let cmd_data_base =
+      TEMPLATE_HEADER_SIZE + (TEMPLATE_CMD_SIZE * commands.len());
     let mut cmd_data_offset = 0usize;
 
     for cmd in commands {
@@ -1135,7 +1216,7 @@ impl<'a> ARM64Gen<'a> {
           cmd_specific_data
             .extend_from_slice(&direction.as_u32().to_le_bytes());
           cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
-          cmd_data_offset += 16;
+          cmd_data_offset += TEMPLATE_CMD_SIZE;
         }
         UiCommand::EndContainer => {
           command_data.extend_from_slice(&0u64.to_le_bytes());
@@ -1149,7 +1230,7 @@ impl<'a> ARM64Gen<'a> {
           cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
           cmd_specific_data.extend_from_slice(&style.as_u32().to_le_bytes());
           cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
-          cmd_data_offset += 16;
+          cmd_data_offset += TEMPLATE_CMD_SIZE;
         }
         UiCommand::Button { id, content } => {
           let data_ptr_offset = cmd_data_base + cmd_data_offset;
@@ -1159,7 +1240,7 @@ impl<'a> ARM64Gen<'a> {
           let str_offset = add_string(content);
           cmd_specific_data.extend_from_slice(&str_offset.to_le_bytes());
           cmd_specific_data.extend_from_slice(&0u64.to_le_bytes());
-          cmd_data_offset += 16;
+          cmd_data_offset += TEMPLATE_CMD_SIZE;
         }
         UiCommand::TextInput {
           id,
@@ -1175,7 +1256,7 @@ impl<'a> ARM64Gen<'a> {
           let vo = add_string(value);
           cmd_specific_data.extend_from_slice(&vo.to_le_bytes());
           cmd_specific_data.extend_from_slice(&0u32.to_le_bytes());
-          cmd_data_offset += 16;
+          cmd_data_offset += TEMPLATE_CMD_SIZE;
         }
         UiCommand::Image {
           id,
@@ -1192,7 +1273,7 @@ impl<'a> ARM64Gen<'a> {
           cmd_specific_data.extend_from_slice(&so.to_le_bytes());
           cmd_specific_data.extend_from_slice(&width.to_le_bytes());
           cmd_specific_data.extend_from_slice(&height.to_le_bytes());
-          cmd_data_offset += 16;
+          cmd_data_offset += TEMPLATE_CMD_SIZE;
         }
         UiCommand::Event { .. } => {
           command_data.extend_from_slice(&0u64.to_le_bytes());
@@ -1206,14 +1287,14 @@ impl<'a> ARM64Gen<'a> {
     final_data.extend_from_slice(&cmd_specific_data);
     final_data.extend_from_slice(&string_table);
 
-    let template_symbol = Symbol(id.0 + 0x1000);
+    let template_symbol = Symbol(id.0 + TEMPLATE_SYMBOL_OFFSET);
     self.template_data.push((template_symbol, final_data));
     self.has_templates = true;
   }
 
   /// Generate the _zo_ui_entry_point function.
   fn generate_ui_entry_point(&mut self) {
-    let entry_symbol = Symbol(0xFFFF);
+    let entry_symbol = Symbol(UI_ENTRY_SYMBOL);
     self
       .functions
       .insert(entry_symbol, self.emitter.current_offset());
@@ -1231,13 +1312,13 @@ impl<'a> ARM64Gen<'a> {
 
   /// Emit a call to the runtime render function.
   fn emit_render_call(&mut self, value: ValueId) {
-    let template_symbol = Symbol(value.0 + 0x1000);
+    let template_symbol = Symbol(value.0 + TEMPLATE_SYMBOL_OFFSET);
     let fixup_pos = self.emitter.current_offset();
     self.string_fixups.push((fixup_pos, template_symbol));
     self.emitter.emit_adr(X0, 0);
 
-    self.emitter.emit_mov_imm(X16, 4);
-    self.emitter.emit_mov_imm(X0, 1);
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
+    self.emitter.emit_mov_imm(X0, FD_STDOUT);
     self.emitter.emit_svc(0);
   }
 
@@ -1264,15 +1345,14 @@ impl<'a> ARM64Gen<'a> {
     let mut emitter = ARM64Emitter::new();
     let hello_str = b"Hello, World!\n";
 
-    emitter.emit_mov_imm(X16, 4);
-    emitter.emit_mov_imm(X0, 1);
+    emitter.emit_mov_imm(X16, SYS_WRITE);
+    emitter.emit_mov_imm(X0, FD_STDOUT);
 
-    let string_offset_from_adr = 0x18;
-    emitter.emit_adr(X1, string_offset_from_adr);
-    emitter.emit_mov_imm(X2, 14);
+    emitter.emit_adr(X1, HELLO_STR_OFFSET);
+    emitter.emit_mov_imm(X2, HELLO_STR_LEN);
     emitter.emit_svc(0);
 
-    emitter.emit_mov_imm(X16, 1);
+    emitter.emit_mov_imm(X16, SYS_EXIT);
     emitter.emit_mov_imm(X0, 0);
     emitter.emit_svc(0);
 
@@ -1285,13 +1365,13 @@ impl<'a> ARM64Gen<'a> {
     macho.add_pagezero_segment();
     macho.add_text_segment();
     macho.add_data_segment();
-    macho.add_function_symbol("_main", 1, 0x100000400, false);
+    macho.add_function_symbol("_main", 1, TEXT_SECTION_BASE, false);
     macho.add_dylinker();
     macho.add_dylib("/usr/lib/libSystem.B.dylib");
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
-    macho.add_main(0x400);
+    macho.add_main(CODE_OFFSET);
     macho.add_dyld_info();
     macho.finish()
   }
@@ -1302,15 +1382,14 @@ impl<'a> ARM64Gen<'a> {
     let mut emitter = ARM64Emitter::new();
     let hello_str = b"Hello, World!\n";
 
-    emitter.emit_mov_imm(X16, 4);
-    emitter.emit_mov_imm(X0, 1);
+    emitter.emit_mov_imm(X16, SYS_WRITE);
+    emitter.emit_mov_imm(X0, FD_STDOUT);
 
-    let string_offset_from_adr = 0x18;
-    emitter.emit_adr(X1, string_offset_from_adr);
-    emitter.emit_mov_imm(X2, 14);
+    emitter.emit_adr(X1, HELLO_STR_OFFSET);
+    emitter.emit_mov_imm(X2, HELLO_STR_LEN);
     emitter.emit_svc(0);
 
-    emitter.emit_mov_imm(X16, 1);
+    emitter.emit_mov_imm(X16, SYS_EXIT);
     emitter.emit_mov_imm(X0, 0);
     emitter.emit_svc(0);
 
@@ -1324,15 +1403,16 @@ impl<'a> ARM64Gen<'a> {
     macho.add_pagezero_segment();
     macho.add_text_segment();
     macho.add_data_segment();
-    macho.add_function_symbol("_main", 1, 0x100000400, false);
+    macho.add_function_symbol("_main", 1, TEXT_SECTION_BASE, false);
 
     macho.add_source_file_info("hello_world.zo", "/tmp/zo");
     macho.add_compiler_info("zo v0.1.0", 2);
-    macho.add_function_brackets("_main", 1, 0x100000400, code_len as u64);
-    macho.add_source_line(1, 0x100000400);
+    macho.add_function_brackets("_main", 1, TEXT_SECTION_BASE, code_len as u64);
+    macho.add_source_line(1, TEXT_SECTION_BASE);
 
-    let mut frame_entry = DebugFrameEntry::new(0x100000400, code_len as u64);
-    frame_entry.add_def_cfa(31, 0);
+    let mut frame_entry =
+      DebugFrameEntry::new(TEXT_SECTION_BASE, code_len as u64);
+    frame_entry.add_def_cfa(CFA_FP_REG, 0);
     frame_entry.add_nop();
     macho.add_debug_frame_entry(frame_entry);
 
@@ -1341,7 +1421,7 @@ impl<'a> ARM64Gen<'a> {
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
-    macho.add_main(0x400);
+    macho.add_main(CODE_OFFSET);
     macho.add_dyld_info();
     macho.finish_with_signature()
   }

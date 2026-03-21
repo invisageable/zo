@@ -41,6 +41,11 @@ struct ModeState(u32);
 impl ModeState {
   const CODE: u32 = 0;
   const TEMPLATE: u32 = 1;
+  const MODE_MASK: u32 = 0x3;
+  const DEPTH_SHIFT: u32 = 2;
+  const DEPTH_MASK: u32 = 0x3FFF;
+  const DEPTH_FIELD: u32 = 0xFFFC;
+  const TEXT_BIT: u32 = 16;
 
   #[inline(always)]
   const fn new() -> Self {
@@ -49,35 +54,35 @@ impl ModeState {
 
   #[inline(always)]
   fn mode(self) -> u32 {
-    self.0 & 0x3
+    self.0 & Self::MODE_MASK
   }
 
   #[inline(always)]
   fn is_template(self) -> bool {
-    (self.0 & 0x3) == Self::TEMPLATE
+    (self.0 & Self::MODE_MASK) == Self::TEMPLATE
   }
 
   #[inline(always)]
   fn brace_depth(self) -> u32 {
-    (self.0 >> 2) & 0x3FFF
+    (self.0 >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK
   }
 
   #[inline(always)]
   fn template_text_mode(self) -> bool {
-    (self.0 >> 16) & 0x1 == 1
+    (self.0 >> Self::TEXT_BIT) & 0x1 == 1
   }
 
   #[inline(always)]
   fn set_mode(&mut self, mode: u32) {
-    self.0 = (self.0 & !0x3) | (mode & 0x3);
+    self.0 = (self.0 & !Self::MODE_MASK) | (mode & Self::MODE_MASK);
   }
 
   #[inline(always)]
   fn set_template_text(&mut self, enabled: bool) {
     if enabled {
-      self.0 |= 1 << 16;
+      self.0 |= 1 << Self::TEXT_BIT;
     } else {
-      self.0 &= !(1 << 16);
+      self.0 &= !(1 << Self::TEXT_BIT);
     }
   }
 
@@ -85,8 +90,9 @@ impl ModeState {
   fn inc_brace_depth(&mut self) {
     let depth = self.brace_depth();
 
-    if depth < 0x3FFF {
-      self.0 = (self.0 & !0xFFFC) | ((depth + 1) << 2);
+    if depth < Self::DEPTH_MASK {
+      self.0 =
+        (self.0 & !Self::DEPTH_FIELD) | ((depth + 1) << Self::DEPTH_SHIFT);
     }
   }
 
@@ -95,7 +101,8 @@ impl ModeState {
     let depth = self.brace_depth();
 
     if depth > 0 {
-      self.0 = (self.0 & !0xFFFC) | ((depth - 1) << 2);
+      self.0 =
+        (self.0 & !Self::DEPTH_FIELD) | ((depth - 1) << Self::DEPTH_SHIFT);
     }
   }
 }
@@ -111,10 +118,13 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
+  const BYTES_PER_TOKEN: usize = 5;
+  const TOKENS_PER_LITERAL: usize = 3;
+
   pub fn new(source: &'a str) -> Self {
     let bytes = source.as_bytes();
-    let estimated_tokens = bytes.len() / 5;
-    let estimated_literals = estimated_tokens / 3;
+    let estimated_tokens = bytes.len() / Self::BYTES_PER_TOKEN;
+    let estimated_literals = estimated_tokens / Self::TOKENS_PER_LITERAL;
 
     Self {
       source: bytes,

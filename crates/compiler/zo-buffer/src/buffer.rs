@@ -6,9 +6,11 @@ pub struct Buffer {
 
 impl Buffer {
   /// Creates a new [`Buffer`] instance.
+  const INITIAL_CAPACITY: usize = 16 * 1024;
+
   pub fn new() -> Self {
     Self {
-      inner: Vec::with_capacity(16 * 1024), // Start with 16KB.
+      inner: Vec::with_capacity(Self::INITIAL_CAPACITY),
     }
   }
 

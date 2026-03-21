@@ -60,7 +60,7 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
 
 - COMPiLER + CODE EDiTOR + METRiCS + iNTELLiGENCE — *in the same world*.
-- DATA-FiRST ARCHiTECTURE <sup>zo-ecs</sup> — *inspired by game engine*.
+<!-- - DATA-FiRST ARCHiTECTURE <sup>zo-ecs</sup> — *inspired by game engine*. -->
 - GPU RENDERiNG <sup>egui</sup> — *low memory footprint, zero runtime fluff*.
 - NO MORE `electron` APPS. — *no bloat*.
 

@@ -59,6 +59,10 @@ pub struct Parser<'a> {
   operator_stack: Vec<(Token, u8, u8)>,
 }
 impl<'a> Parser<'a> {
+  const INTRODUCER_STACK_CAP: usize = 32;
+  const EXPR_BUFFER_CAP: usize = 64;
+  const OPERATOR_STACK_CAP: usize = 16;
+
   /// Creates a new [`Parser`] instance.
   pub fn new(tokenization: &'a TokenizationResult, source: &'a str) -> Self {
     Self {
@@ -68,9 +72,9 @@ impl<'a> Parser<'a> {
       tree: Tree::new(),
       pos: 0,
       state: ParserState::TopLevel,
-      introducer_stack: Vec::with_capacity(32),
-      expr_buffer: Vec::with_capacity(64),
-      operator_stack: Vec::with_capacity(16),
+      introducer_stack: Vec::with_capacity(Self::INTRODUCER_STACK_CAP),
+      expr_buffer: Vec::with_capacity(Self::EXPR_BUFFER_CAP),
+      operator_stack: Vec::with_capacity(Self::OPERATOR_STACK_CAP),
     }
   }
 

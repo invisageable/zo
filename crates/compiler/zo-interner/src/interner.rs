@@ -22,11 +22,18 @@ pub struct Interner {
 
 impl Interner {
   /// Creates a new interner with pre-interned keywords
+  const STORAGE_CAPACITY: usize = 4096;
+  const MAP_CAPACITY: usize = 512;
+  const SPANS_CAPACITY: usize = 512;
+
   pub fn new() -> Self {
     let mut interner = Self {
-      storage: String::with_capacity(4096),
-      map: HashMap::with_capacity_and_hasher(512, Default::default()),
-      spans: Vec::with_capacity(512),
+      storage: String::with_capacity(Self::STORAGE_CAPACITY),
+      map: HashMap::with_capacity_and_hasher(
+        Self::MAP_CAPACITY,
+        Default::default(),
+      ),
+      spans: Vec::with_capacity(Self::SPANS_CAPACITY),
     };
 
     // Pre-intern common keywords and symbols

@@ -293,6 +293,7 @@ impl<'a> Executor<'a> {
         let children_end = (header.child_start + header.child_count) as usize;
 
         self.execute_directive(idx, children_end);
+        self.skip_until = children_end;
       }
 
       // === FUNCTION CALLS ===
@@ -1697,11 +1698,15 @@ impl<'a> Executor<'a> {
 
     if has_template {
       // Template assignment: imu view: </> ::= <>...
-      // Don't create VarDef here - the template will handle it
-      // Store the variable name for the template to use
+      // Store variable name, then execute children so the
+      // TemplateAssign → TemplateFragment pipeline runs.
       if let Some(name) = self.get_var_name(start_idx, end_idx) {
-        // Store in a temporary location for the template to pick up
         self.pending_var_name = Some(name);
+      }
+
+      for i in (start_idx + 1)..end_idx {
+        let node = self.tree.nodes[i];
+        self.execute_node(&node, i);
       }
       return;
     }
@@ -2565,52 +2570,51 @@ impl<'a> Executor<'a> {
   }
 
   fn execute_directive(&mut self, start_idx: usize, end_idx: usize) {
-    // Directives follow pattern: #identifier expression
-    // Children: identifier, [expression nodes], semicolon
+    // Directives: #identifier [expression]
+    // Children come after Hash in the tree. We skip
+    // them in the main loop (skip_until) and execute
+    // the argument nodes here.
 
-    // Skip the Hash token itself
     if start_idx + 1 >= end_idx {
       return;
     }
 
-    // Get the directive name
+    // First child is the directive name.
     let dir_idx = start_idx + 1;
 
-    if dir_idx < self.tree.nodes.len()
-      && self.tree.nodes[dir_idx].token == Token::Ident
-      && let Some(NodeValue::Symbol(sym)) = self.node_value(dir_idx)
+    if dir_idx >= self.tree.nodes.len()
+      || self.tree.nodes[dir_idx].token != Token::Ident
     {
-      let dir_name = self.interner.get(sym);
+      return;
+    }
 
-      // Handle different directives
-      match dir_name {
-        "run" => {
-          // #run executes code at compile time
-          // For now, just note it was encountered
-          // Future: execute the expression and store result
-        }
-        "dom"
-          // #dom renders a template to the DOM
-          // Pop the template value from the stack
-          if !self.value_stack.is_empty() => {
-            let template_value = self.value_stack.pop().unwrap();
-            let template_ty = self.ty_stack.pop().unwrap();
+    let sym = match self.node_value(dir_idx) {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => return,
+    };
 
-            // Emit DOM rendering instruction
-            self.sir.emit(Insn::Directive {
-              name: sym,
-              value: template_value,
-              ty_id: template_ty,
-            });
-          }
-        "inline" => {
-          // #inline hints for inlining
-          // Store as metadata for optimization pass
-        }
-        _ => {
-          // Unknown directive - could be user-defined
-        }
+    let dir_name = self.interner.get(sym);
+
+    // Execute argument children (after the name).
+    for i in (dir_idx + 1)..end_idx {
+      let node = self.tree.nodes[i];
+      self.execute_node(&node, i);
+    }
+
+    match dir_name {
+      "run" => {}
+      "dom" if !self.value_stack.is_empty() => {
+        let template_value = self.value_stack.pop().unwrap();
+        let template_ty = self.ty_stack.pop().unwrap();
+
+        self.sir.emit(Insn::Directive {
+          name: sym,
+          value: template_value,
+          ty_id: template_ty,
+        });
       }
+      "inline" => {}
+      _ => {}
     }
   }
 
