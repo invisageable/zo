@@ -5,14 +5,18 @@ fun main() {
   mut x: int = 1;
 
   x *= 2;
+  -- showln(x);
   check(x == 2);
 
   x += 3;
+  -- showln(x);
   check(x == 5);
 
   x *= x;
+  -- showln(x);
   check(x == 25);
 
   x /= 5;
+  -- showln(x);
   check(x == 5);
 }

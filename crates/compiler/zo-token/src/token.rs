@@ -323,7 +323,7 @@ pub struct LiteralStore {
   pub float_literals: Vec<f64>,
   pub identifiers: Vec<Symbol>,
   pub bytes_literals: Vec<(u32, u16)>,
-  pub char_literals: Vec<(u32, u16)>,
+  pub char_literals: Vec<u32>,
   pub string_literals: Vec<Symbol>,
 }
 
@@ -385,10 +385,10 @@ impl LiteralStore {
   }
 
   #[inline(always)]
-  pub fn push_char_span(&mut self, start: u32, len: u16) -> u32 {
+  pub fn push_char(&mut self, value: u32) -> u32 {
     let idx = self.char_literals.len() as u32;
 
-    self.char_literals.push((start, len));
+    self.char_literals.push(value);
 
     idx
   }

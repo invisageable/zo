@@ -614,6 +614,25 @@ impl<'a> Executor<'a> {
         });
       }
 
+      Token::Char => {
+        if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
+          let value = self.literals.char_literals[lit_idx as usize] as u64;
+          let ty_id = self.ty_checker.char_type();
+
+          let sir_value = self.sir.emit(Insn::ConstInt { value, ty_id });
+          let value_id = self.values.store_int(value);
+
+          self.value_stack.push(value_id);
+          self.ty_stack.push(ty_id);
+          self.sir_values.push(sir_value);
+
+          self.annotations.push(Annotation {
+            node_idx: idx,
+            ty_id,
+          });
+        }
+      }
+
       Token::String | Token::RawString => {
         // String literals are already interned during tokenization
         if let Some(NodeValue::Symbol(symbol)) = self.node_value(idx) {

@@ -1180,7 +1180,26 @@ impl<'a> Tokenizer<'a> {
       self.tokens.push(Token::Unknown, start as u32, len);
     } else {
       let len = (self.cursor - start) as u16;
-      let id = self.literals.push_char_span((start + 1) as u32, len - 2);
+
+      // Parse char value from source between quotes.
+      let content = &self.source[start + 1..self.cursor - 1];
+      let ch = if content.len() >= 2 && content[0] == b'\\' {
+        match content[1] {
+          b'n' => '\n',
+          b'r' => '\r',
+          b't' => '\t',
+          b'\\' => '\\',
+          b'\'' => '\'',
+          b'0' => '\0',
+          _ => content[1] as char,
+        }
+      } else if let Ok(s) = std::str::from_utf8(content) {
+        s.chars().next().unwrap_or('\0')
+      } else {
+        content[0] as char
+      };
+
+      let id = self.literals.push_char(ch as u32);
 
       self
         .tokens
