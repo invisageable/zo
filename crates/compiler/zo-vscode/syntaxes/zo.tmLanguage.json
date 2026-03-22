@@ -309,19 +309,62 @@
     "zsx_attribute": {
       "patterns": [
         {
-          "comment": "zsx event binding @event={handler}",
-          "match": "(@)([A-Za-z][A-Za-z0-9_]*)",
-          "captures": {
+          "comment": "zsx event binding @event={expression}",
+          "begin": "(@)([A-Za-z][A-Za-z0-9_]*)(=)(\\{)",
+          "end": "(\\})",
+          "beginCaptures": {
             "1": {
               "name": "keyword.operator.modifier.zo"
             },
             "2": {
               "name": "entity.other.attribute-name.zo"
+            },
+            "3": {
+              "name": "keyword.operator.assignment.zo"
+            },
+            "4": {
+              "name": "punctuation.section.embedded.begin.zo"
             }
-          }
+          },
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.section.embedded.end.zo"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
         },
         {
-          "comment": "zsx attribute",
+          "comment": "zsx attribute with expression value",
+          "begin": "\\b([A-Za-z][A-Za-z0-9_-]*)(=)(\\{)",
+          "end": "(\\})",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.other.attribute-name.zo"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.zo"
+            },
+            "3": {
+              "name": "punctuation.section.embedded.begin.zo"
+            }
+          },
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.section.embedded.end.zo"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        },
+        {
+          "comment": "zsx attribute with string value",
           "match": "\\b([A-Za-z][A-Za-z0-9_-]*)(?=\\s*=)",
           "captures": {
             "1": {
