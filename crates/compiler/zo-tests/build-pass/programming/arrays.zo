@@ -1,9 +1,9 @@
 fun main() {
   imu x: int[] = [1, 2, 3, 4, 5];
 
-  check@eq (x[0] ,1);
-  check@eq (x[1] ,2);
-  check@eq (x[2] ,3);
-  check@eq (x[3] ,4);
-  check@eq (x[4] ,5);
+  check@eq(x[0] ,1);
+  check@eq(x[1] ,2);
+  check@eq(x[2] ,3);
+  check@eq(x[3] ,4);
+  check@eq(x[4] ,5);
 }
