@@ -99,6 +99,21 @@
       "include": "#core_types"
     },
     {
+      "comment": "function call with modifier",
+      "match": "\\b([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+)(@)([A-Za-z][A-Za-z0-9_]*)\\s*\\(",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.zo"
+        },
+        "2": {
+          "name": "keyword.operator.modifier.zo"
+        },
+        "3": {
+          "name": "entity.name.tag.modifier.zo"
+        }
+      }
+    },
+    {
       "comment": "function call",
       "match": "\\b([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+)\\s*\\(",
       "captures": {
