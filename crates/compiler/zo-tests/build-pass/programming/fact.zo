@@ -1,3 +1,6 @@
+-- tests-run-pass: factorial (from rust-prehistory).
+-- @cmd — cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/programming/fact.zo
+
 fun f(x: int) -> int {
   if x == 1 {
     return 1;
@@ -8,5 +11,5 @@ fun f(x: int) -> int {
 }
 
 fun main() {
-  showln(f(5));
+  check(f(5) == 120);
 }

@@ -6,5 +6,6 @@ fun main() {
     <input type="text" placeholder="Enter name" />
     <button class="primary">Submit</button>
   </>;
+
   #dom form;
 }

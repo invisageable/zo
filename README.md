@@ -6,7 +6,7 @@
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
 ---
 
-> _the symphonie of compilers_.
+> *the symphonie of compilers.*
 
 [home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [speeches](notes/speeches) — [license](#license)  
 
@@ -21,6 +21,8 @@ WE ARE BUiLDiNG THE CATHEDRAL. THE FOUNDATiON iS LAiD, BUT THE SPiRES ARE STiLL 
 JOiN THE DEVOLUTiON.  
 
 **wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
+
+> *if you’re curious, do take the time to explore the project in its entirety.*
 
 ## [about](https://youtu.be/GJfsbhJY8gk?feature=shared&t=196).
 
@@ -53,7 +55,7 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 | [fret](./crates/packager/fret) | THE PACKAGE MANAGER FOR THE `zo` PROGRAMMiNG LANGUAGE.   |
 | [zo](./crates/compiler/zo)     | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGUAGE. |
 
-> _more crates are coming. the architecture is modular and composable. be gentle_.
+> *more crates are coming. the architecture is modular and composable. be gentle.*
 
 ## goals.
 
@@ -61,8 +63,8 @@ iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
 
 - COMPiLER + CODE EDiTOR + METRiCS + iNTELLiGENCE — *in the same world*.
 <!-- - DATA-FiRST ARCHiTECTURE <sup>zo-ecs</sup> — *inspired by game engine*. -->
-- GPU RENDERiNG <sup>egui</sup> — *low memory footprint, zero runtime fluff*.
-- NO MORE `electron` APPS. — *no bloat*.
+- GPU RENDERiNG <sup>egui</sup> (NATiVE APP ONLY) — *low memory footprint, zero runtime fluff*.
+- NO MORE `electron` APPS (WEB APP ONLY) — *no bloat*.
 
 JOiN THE DEVOLUTiON.
 
@@ -78,7 +80,7 @@ STARS, DONATiON AND SPONSORS ARE WELCOMiNG. SPREAD THE WORD e-ve-ry-where.
 
 ## supports.
 
-IF THiS PROJECT RESONATES WiTH YOU — PLEASE STAR iT. iT HELPS US GROW, ATTRACTS CONTRiBUTORS, AND VALiDATES THE DiRECTiON.    
+iF THiS PROJECT RESONATES WiTH YOU — PLEASE STAR iT. iT HELPS US GROW, ATTRACTS CONTRiBUTORS, AND VALiDATES THE DiRECTiON.    
 
 ## credits.
 
@@ -86,7 +88,7 @@ THANKS TO:
 
 [@ledruidd](https://github.com/ledruidd) [@SiegfriedEhret](https://github.com/SiegfriedEhret) [@akimd](https://github.com/akimd) [@graydon](https://github.com/graydon) [@rvirding](https://github.com/rvirding) [@worrydream](https://x.com/worrydream) [@j_blow](https://www.twitch.tv/j_blow) [@tsoding](https://x.com/tsoding) [@geohot](https://github.com/geohot) [@mike_acton](https://x.com/mike_acton)
 
-> « DE PRèS COMME DE LOIN VOUS M'AVEZ INSPIRé à MENER CE PROJET. TRiLU ! » — _i10e_.    
+> « DE PRèS COMME DE LOIN VOUS M'AVEZ INSPIRé à MENER CE PROJET. TRiLU ! » — *i10e*.    
 
 ## license.
 

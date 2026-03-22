@@ -57,14 +57,20 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
     if let Insn::FunDef { name, .. } = &instructions[i] {
       let start = i;
 
-      // Scan forward for the terminating Return.
+      // Scan forward for Return. Stop at the next
+      // FunDef to avoid swallowing adjacent bodies
+      // (intrinsic functions have no Return).
       let mut end = i + 1;
 
       while end < instructions.len() {
-        if matches!(instructions[end], Insn::Return { .. }) {
-          break;
+        match &instructions[end] {
+          Insn::Return { .. } => break,
+          Insn::FunDef { .. } => {
+            end -= 1;
+            break;
+          }
+          _ => end += 1,
         }
-        end += 1;
       }
 
       // Clamp to last valid index.

@@ -3,5 +3,6 @@
 
 fun main() {
   imu x: int = 10;
+
   check(x == 10);
 }

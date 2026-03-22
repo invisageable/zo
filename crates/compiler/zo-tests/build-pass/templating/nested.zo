@@ -2,7 +2,7 @@
 
 fun main() {
   imu layout: </> ::= <>
-    <div>
+    <section>
       <header>
         <h1>App Title</h1>
       </header>
@@ -15,7 +15,8 @@ fun main() {
       <footer>
         <p>Footer text.</p>
       </footer>
-    </div>
+    </section>
   </>;
+
   #dom layout;
 }

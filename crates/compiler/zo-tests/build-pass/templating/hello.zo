@@ -1,4 +1,5 @@
 fun main() {
   imu view: </> ::= <>hello world!</>;
+
   #dom view;
 }

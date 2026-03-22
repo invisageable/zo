@@ -44,6 +44,7 @@ impl Run {
     let search_paths = crate::cmd::search_paths(input_path);
 
     let mut compiler = Compiler::with_search_paths(search_paths);
+
     let (semantic, tokenization, _parsing) =
       compiler.analyze_source(&source, input_path);
 
@@ -58,6 +59,7 @@ impl Run {
         }
         Insn::Directive { name, .. } => {
           let directive_name = tokenization.interner.get(*name);
+
           if directive_name == "dom" {
             has_dom_directive = true;
           }
@@ -66,16 +68,7 @@ impl Run {
       }
     }
 
-    // Debug: print what we found
-    eprintln!(
-      "DEBUG: has_dom_directive={has_dom_directive}, ui_commands.len()={}",
-      ui_commands.len()
-    );
-    for (i, cmd) in ui_commands.iter().enumerate() {
-      eprintln!("DEBUG: Command {i}: {cmd:?}");
-    }
-
-    // Run UI if we have templates with #dom directive
+    // Template path: launch runtime.
     if has_dom_directive && !ui_commands.is_empty() {
       let graphics = if self.html {
         Graphics::Web
@@ -84,9 +77,8 @@ impl Run {
       };
 
       println!(
-        "Running template with {} UI commands ({:?} mode)...",
+        "Running template with {} UI commands ({graphics:?} mode)...",
         ui_commands.len(),
-        graphics
       );
 
       // Build event registry: collect handler names from Event
@@ -107,8 +99,10 @@ impl Run {
       for insn in &semantic.sir.instructions {
         if let Insn::FunDef { name, .. } = insn {
           let fun_name = tokenization.interner.get(*name).to_string();
+
           if handler_names.contains(&fun_name) {
             let handler_name = fun_name.clone();
+
             event_registry.register(
               fun_name,
               Box::new(move || {
@@ -136,11 +130,36 @@ impl Run {
       runtime.run().map_err(|_| {
         Error::new(ErrorKind::InternalCompilerError, Span::ZERO)
       })?;
-    } else if !ui_commands.is_empty() {
-      println!("Template found but no #dom directive - not launching UI");
     } else {
-      // Regular program - just compile and run (future: execute non-UI code)
-      println!("No UI templates found - program compiled successfully");
+      // Programming path: compile to temp binary, execute, clean up.
+      let temp_path =
+        std::env::temp_dir().join(format!("zo_run_{}", std::process::id()));
+
+      compiler.compile(
+        &[(input_path, source.clone())],
+        self.args.target.into(),
+        &[],
+        &Some(temp_path.clone()),
+      )?;
+
+      let status = std::process::Command::new(&temp_path)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status();
+
+      let _ = std::fs::remove_file(&temp_path);
+
+      match status {
+        Ok(s) if !s.success() => {
+          std::process::exit(s.code().unwrap_or(EXIT_CODE_ERROR));
+        }
+        Err(e) => {
+          eprintln!("Error executing program: {e}");
+          std::process::exit(EXIT_CODE_ERROR);
+        }
+        _ => {}
+      }
     }
 
     Ok(())

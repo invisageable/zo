@@ -9,5 +9,6 @@ fun main() {
       <p>Paragraph text.</p>
     </div>
   </>;
+
   #dom page;
 }

@@ -661,7 +661,21 @@ impl<'a> Executor<'a> {
                 self.sir.next_value_id += 1;
 
                 let src = if is_param {
-                  value_id.0
+                  // Look up param index from the
+                  // current function's param list.
+                  self
+                    .current_function
+                    .as_ref()
+                    .and_then(|ctx| {
+                      self
+                        .funs
+                        .iter()
+                        .find(|f| f.body_start == ctx.body_start)
+                        .and_then(|f| {
+                          f.params.iter().position(|(n, _)| *n == sym)
+                        })
+                    })
+                    .unwrap_or(0) as u32
                 } else {
                   100 + sym.as_u32()
                 };
@@ -1534,10 +1548,9 @@ impl<'a> Executor<'a> {
     // Push a scope for the function parameters
     self.push_scope();
 
-    // Add parameters as local variables
-    for (param_name, param_ty) in &params {
-      // Parameters are immutable by default
-      let value_id = self.values.store_runtime(self.locals.len() as u32);
+    // Add parameters as local variables.
+    for (i, (param_name, param_ty)) in params.iter().enumerate() {
+      let value_id = self.values.store_runtime(i as u32);
 
       self.locals.push(Local {
         name: *param_name,
