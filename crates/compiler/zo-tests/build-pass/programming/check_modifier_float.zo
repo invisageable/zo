@@ -1,0 +1,16 @@
+-- tests-run-pass: check modifier with floats.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/check_modifier_float.zo -o crates/compiler/zo-tests/build-pass/programming/check_modifier_float
+
+fun main() {
+  check@lt(5.5, 6.0);
+  check@le(5.5, 6.0);
+  check@gt(6.0, 5.5);
+  check@ge(6.0, 5.5);
+  check@eq(1 + 1, 2);
+  check@le(1 + 1, 2);
+  check@ge(1 + 1, 2);
+  check@eq(77 % 3, 2);
+  check@eq(5 * 4, 20);
+  
+  showln("all float modifier checks passed!");
+}

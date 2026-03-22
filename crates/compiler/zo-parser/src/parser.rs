@@ -194,6 +194,9 @@ impl<'a> Parser<'a> {
       // Directives
       Token::Hash => self.handle_directive(),
 
+      // Modifier syntax: ident@ident (e.g., check@lt)
+      Token::At => self.handle_at(),
+
       // Template tokens
       Token::TemplateFragmentStart => self.handle_template_fragment_start(),
       Token::TemplateFragmentEnd => self.handle_template_fragment_end(),
@@ -660,6 +663,20 @@ impl<'a> Parser<'a> {
       )
     } else {
       false
+    }
+  }
+
+  fn handle_at(&mut self) {
+    // Modifier syntax: ident@ident (e.g., check@lt).
+    // Buffer the @ in expr_buffer so it stays ordered
+    // with the preceding identifier and following modifier.
+    if self.state == ParserState::Expression || self.state == ParserState::Block
+    {
+      let span = self.current_span();
+
+      self.expr_buffer.push((Token::At, span, None));
+    } else {
+      self.emit_node(Token::At);
     }
   }
 

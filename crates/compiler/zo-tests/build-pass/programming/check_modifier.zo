@@ -1,0 +1,15 @@
+-- tests-run-pass: check modifier assertions.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/check_modifier.zo -o crates/compiler/zo-tests/build-pass/programming/check_modifier
+
+fun main() {
+  check@lt(5, 10);
+  check@le(5, 5);
+  check@gt(10, 5);
+  check@ge(5, 5);
+  check@eq(1 + 1, 2);
+  check@eq(77 % 3, 2);
+  check@eq(5 * 4, 20);
+  check(1 == 1);
+
+  showln("all modifier checks passed!");
+}

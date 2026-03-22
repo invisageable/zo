@@ -638,6 +638,13 @@ impl<'a> Executor<'a> {
 
       // === IDENTIFIERS ===
       Token::Ident => {
+        // Skip modifier idents (e.g., `lt` in `check@lt`).
+        // They are handled by execute_check_modifier at
+        // RParen time.
+        if idx >= 1 && self.tree.nodes[idx - 1].token == Token::At {
+          return;
+        }
+
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
           // Copy fields to avoid borrow issues.
           let local_info = self.lookup_local(sym).map(|l| {
@@ -2311,20 +2318,42 @@ impl<'a> Executor<'a> {
         let fun_idx = lparen_idx - 1;
 
         if let Token::Ident = self.tree.nodes[fun_idx].token {
-          // Check if this is a function declaration (has 'fun' before the
-          // identifier)
-          let is_declaration = if fun_idx > 0 {
-            matches!(self.tree.nodes[fun_idx - 1].token, Token::Fun)
+          // Check for modifier pattern: Ident @ Ident LParen
+          // e.g., check@lt(a, b)
+          let (base_idx, modifier) = if fun_idx >= 2
+            && self.tree.nodes[fun_idx - 1].token == Token::At
+            && self.tree.nodes[fun_idx - 2].token == Token::Ident
+          {
+            // fun_idx-2 = base ident, fun_idx-1 = @, fun_idx = modifier
+            let mod_sym = self.node_value(fun_idx).and_then(|v| match v {
+              NodeValue::Symbol(s) => Some(s),
+              _ => None,
+            });
+
+            (fun_idx - 2, mod_sym)
+          } else {
+            (fun_idx, None)
+          };
+
+          // Check if this is a function declaration (has 'fun'
+          // before the identifier)
+          let is_declaration = if base_idx > 0 {
+            matches!(self.tree.nodes[base_idx - 1].token, Token::Fun)
           } else {
             false
           };
 
           // Only execute call if it's not a declaration
           if !is_declaration
-            && let Some(NodeValue::Symbol(fun_name)) = self.node_value(fun_idx)
+            && let Some(NodeValue::Symbol(fun_name)) = self.node_value(base_idx)
           {
-            // This is a function call!
-            self.execute_call(fun_name, lparen_idx, rparen_idx);
+            if let Some(mod_sym) = modifier {
+              self.execute_check_modifier(
+                fun_name, mod_sym, lparen_idx, rparen_idx,
+              );
+            } else {
+              self.execute_call(fun_name, lparen_idx, rparen_idx);
+            }
           }
         }
       }
@@ -2491,6 +2520,103 @@ impl<'a> Executor<'a> {
       // External funs typically return unit
       // Don't push anything to the stack for unit returns
     }
+  }
+
+  /// Executes a modified check call: check@op(lhs, rhs).
+  /// Desugars to: BinOp(lhs, op, rhs) -> Call("check", [bool]).
+  fn execute_check_modifier(
+    &mut self,
+    fun_name: Symbol,
+    modifier: Symbol,
+    lparen_idx: usize,
+    rparen_idx: usize,
+  ) {
+    let base_name = self.interner.get(fun_name);
+
+    if base_name != "check" {
+      // Only check supports modifiers for now.
+      self.execute_call(fun_name, lparen_idx, rparen_idx);
+
+      return;
+    }
+
+    let mod_name = self.interner.get(modifier);
+
+    let op = match mod_name {
+      "lt" => zo_sir::BinOp::Lt,
+      "le" => zo_sir::BinOp::Lte,
+      "gt" => zo_sir::BinOp::Gt,
+      "ge" => zo_sir::BinOp::Gte,
+      "eq" => zo_sir::BinOp::Eq,
+      "ne" => zo_sir::BinOp::Neq,
+      _ => {
+        let span = self.tree.spans[rparen_idx];
+
+        report_error(Error::new(ErrorKind::UnexpectedToken, span));
+
+        return;
+      }
+    };
+
+    // Pop 2 arguments from stack (reversed order).
+    let (rhs_val, rhs_ty, rhs_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    let (_lhs, lhs_ty, lhs_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => {
+        // Restore rhs if lhs pop failed.
+        self.value_stack.push(rhs_val);
+        self.ty_stack.push(rhs_ty);
+        self.sir_values.push(rhs_sir);
+
+        return;
+      }
+    };
+
+    // Unify operand types.
+    let span = self.tree.spans[lparen_idx];
+
+    let ty_id = match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
+      Some(t) => t,
+      None => return,
+    };
+
+    // Emit comparison BinOp.
+    let cmp_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let cmp_sir = self.sir.emit(Insn::BinOp {
+      dst: cmp_dst,
+      op,
+      lhs: lhs_sir,
+      rhs: rhs_sir,
+      ty_id,
+    });
+
+    // Emit Call("check", [cmp_result]).
+    let check_func = self.funs.iter().find(|f| f.name == fun_name).cloned();
+
+    let return_ty = check_func
+      .map(|f| f.return_ty)
+      .unwrap_or_else(|| self.ty_checker.unit_type());
+
+    self.sir.emit(Insn::Call {
+      name: fun_name,
+      args: vec![cmp_sir],
+      ty_id: return_ty,
+    });
   }
 
   fn execute_directive(&mut self, start_idx: usize, end_idx: usize) {
