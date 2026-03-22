@@ -1,6 +1,7 @@
-pub fun format_result(value: int): str {
+pub fun format_result(value: int) -> str {
   return "result is: {value}";
 }
-pub fun is_positive(value: int): bool {
+
+pub fun is_positive(value: int) -> bool {
   return value <= 0;
 }

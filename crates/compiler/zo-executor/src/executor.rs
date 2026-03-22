@@ -2283,6 +2283,7 @@ impl<'a> Executor<'a> {
         Token::RParen => depth += 1,
         Token::LParen => {
           depth -= 1;
+
           if depth == 0 {
             lparen_idx = Some(idx);
           }
@@ -2338,9 +2339,7 @@ impl<'a> Executor<'a> {
         match self.tree.nodes[i].token {
           Token::LParen => depth += 1,
           Token::RParen => depth -= 1,
-          Token::Comma if depth == 0 => {
-            comma_count += 1;
-          }
+          Token::Comma if depth == 0 => comma_count += 1,
           _ => {}
         }
       }
@@ -2406,6 +2405,7 @@ impl<'a> Executor<'a> {
       // Push return value
       if func.return_ty != self.ty_checker.unit_type() {
         let result_val = self.values.store_runtime(0);
+
         self.value_stack.push(result_val);
         self.ty_stack.push(func.return_ty);
         self.sir_values.push(result_sir);
@@ -2537,6 +2537,7 @@ impl<'a> Executor<'a> {
     // Execute children (the template fragment)
     for idx in (start_idx + 1)..end_idx {
       let node = &self.tree.nodes[idx];
+
       self.execute_node(node, idx);
     }
 
@@ -2633,12 +2634,14 @@ impl<'a> Executor<'a> {
                     })
                     .map(|s| self.interner.get(s).to_string())
                     .unwrap_or_default();
+
                   idx += 1;
 
                   // name="value" pair
                   if idx < end_idx && self.tree.nodes[idx].token == Token::Eq {
                     idx += 1;
                   }
+
                   if idx < end_idx
                     && self.tree.nodes[idx].token == Token::String
                   {
@@ -2663,6 +2666,7 @@ impl<'a> Executor<'a> {
                 Token::At => {
                   // @click={handler} — event binding
                   idx += 1;
+
                   if idx < end_idx && self.tree.nodes[idx].token == Token::Ident
                   {
                     let event_name = self
@@ -2673,18 +2677,22 @@ impl<'a> Executor<'a> {
                       })
                       .map(|s| self.interner.get(s).to_string())
                       .unwrap_or_default();
+
                     idx += 1;
+
                     // Expect ={handler}
                     if idx < end_idx && self.tree.nodes[idx].token == Token::Eq
                     {
                       idx += 1;
                     }
+
                     // { handler_ident }
                     if idx < end_idx
                       && self.tree.nodes[idx].token == Token::LBrace
                     {
                       idx += 1;
                     }
+
                     let handler = if idx < end_idx
                       && self.tree.nodes[idx].token == Token::Ident
                     {
@@ -2701,6 +2709,7 @@ impl<'a> Executor<'a> {
                     } else {
                       String::new()
                     };
+
                     if idx < end_idx
                       && self.tree.nodes[idx].token == Token::RBrace
                     {
@@ -2715,6 +2724,7 @@ impl<'a> Executor<'a> {
                       "blur" => EventKind::Blur,
                       _ => EventKind::Click,
                     };
+
                     attrs.push(Attr::Event {
                       name: event_name,
                       event_kind,
@@ -2749,10 +2759,12 @@ impl<'a> Executor<'a> {
 
     if !commands.is_empty() {
       let optimizer = TemplateOptimizer::new();
+
       commands = optimizer.optimize(commands);
     }
 
     let template_id = self.values.store_template(self.template_counter);
+
     self.template_counter += 1;
 
     self.value_stack.push(template_id);
@@ -2792,9 +2804,12 @@ impl<'a> Executor<'a> {
     match classify_tag(tag) {
       TagKind::Container(dir) => {
         let direction = resolve_direction(dir, attrs);
-        let id = format!("{}_{}", tag, self.template_counter);
+        let id = format!("{tag}_{}", self.template_counter);
+
         widget_id = Some(id.clone());
+
         commands.push(UiCommand::BeginContainer { id, direction });
+
         if self_closing {
           commands.push(UiCommand::EndContainer);
         }
@@ -2815,7 +2830,9 @@ impl<'a> Executor<'a> {
       }
       TagKind::Button => {
         let wid = self.next_widget_id();
+
         widget_id = Some(wid.to_string());
+
         if self_closing {
           commands.push(UiCommand::Button {
             id: wid,
@@ -2831,9 +2848,12 @@ impl<'a> Executor<'a> {
       }
       TagKind::Input => {
         let wid = self.next_widget_id();
+
         widget_id = Some(wid.to_string());
+
         let placeholder = attr_prop_str(attrs, "placeholder");
         let value = attr_prop_str(attrs, "value");
+
         commands.push(UiCommand::TextInput {
           id: wid,
           placeholder,
@@ -2842,10 +2862,13 @@ impl<'a> Executor<'a> {
       }
       TagKind::Image => {
         let id = format!("img_{}", self.template_counter);
+
         widget_id = Some(id.clone());
+
         let src = attr_prop_str(attrs, "src");
         let width = attr_prop_num(attrs, "width");
         let height = attr_prop_num(attrs, "height");
+
         commands.push(UiCommand::Image {
           id,
           src,
@@ -2854,12 +2877,15 @@ impl<'a> Executor<'a> {
         });
       }
       TagKind::Unknown => {
-        let id = format!("{}_{}", tag, self.template_counter);
+        let id = format!("{tag}_{}", self.template_counter);
+
         widget_id = Some(id.clone());
+
         commands.push(UiCommand::BeginContainer {
           id,
           direction: ContainerDirection::Vertical,
         });
+
         if self_closing {
           commands.push(UiCommand::EndContainer);
         }
@@ -2904,12 +2930,14 @@ impl<'a> Executor<'a> {
       // Collect text and preserve event commands after sentinel
       let mut content = String::new();
       let mut events = Vec::new();
+
       for cmd in &commands[pos + 1..] {
         match cmd {
           UiCommand::Text { content: text, .. } => {
             if !content.is_empty() {
               content.push(' ');
             }
+
             content.push_str(text);
           }
           UiCommand::Event { .. } => {
@@ -2928,6 +2956,7 @@ impl<'a> Executor<'a> {
           .trim_end_matches("__")
           .parse()
           .unwrap_or(0);
+
         commands.push(UiCommand::Button { id, content });
       } else if sentinel_id.starts_with("__text_") {
         let style_num: u32 = sentinel_id
@@ -2935,6 +2964,7 @@ impl<'a> Executor<'a> {
           .trim_end_matches("__")
           .parse()
           .unwrap_or(0);
+
         let style = match style_num {
           0 => TextStyle::Heading1,
           1 => TextStyle::Heading2,
@@ -2942,6 +2972,7 @@ impl<'a> Executor<'a> {
           3 => TextStyle::Paragraph,
           _ => TextStyle::Normal,
         };
+
         commands.push(UiCommand::Text { content, style });
       }
       // Re-append preserved event commands
@@ -2954,7 +2985,9 @@ impl<'a> Executor<'a> {
 
   fn next_widget_id(&mut self) -> u32 {
     let id = self.widget_counter.get();
+
     self.widget_counter.set(id + 1);
+
     id
   }
 }
@@ -2962,8 +2995,11 @@ impl<'a> Executor<'a> {
 /// The kind of control flow branch.
 #[derive(Clone, Copy, PartialEq)]
 enum BranchKind {
+  /// An `if/else` branch.
   If,
+  /// A `while` branch.
   While,
+  /// A `for` branch.
   For,
 }
 
@@ -3049,6 +3085,7 @@ fn resolve_direction(
       return ContainerDirection::Horizontal;
     }
   }
+
   default
 }
 
@@ -3073,6 +3110,7 @@ fn attr_prop_str(attrs: &[Attr], name: &str) -> String {
       };
     }
   }
+
   String::new()
 }
 
@@ -3093,5 +3131,6 @@ fn attr_prop_num(attrs: &[Attr], name: &str) -> u32 {
       };
     }
   }
+
   0
 }
