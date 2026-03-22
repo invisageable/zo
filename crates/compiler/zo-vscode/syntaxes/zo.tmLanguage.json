@@ -4,24 +4,18 @@
   "scopeName": "source.zo",
   "patterns": [
     {
-      "comment": "thin arrow",
-      "name": "keyword.operator.arrow.skinny.zo",
-      "match": "->"
+      "include": "#line_comment"
     },
     {
-      "comment": "fat arrow",
-      "name": "keyword.operator.arrow.fat.zo",
-      "match": "=>"
+      "include": "#line_doc_comment"
+    },
+    {
+      "include": "#string_literal"
     },
     {
       "comment": "booleans",
       "name": "constant.language.boolean.zo",
       "match": "\\b(true|false)\\b"
-    },
-    {
-      "comment": "integers literal (dec)",
-      "name": "constant.numeric.integer.decimal.zo",
-      "match": "\\b([0-9][0-9_]*)\\b"
     },
     {
       "comment": "integers literal (hex)",
@@ -44,12 +38,14 @@
       "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?(f32|f64)?\\b"
     },
     {
+      "comment": "integers literal (dec)",
+      "name": "constant.numeric.integer.decimal.zo",
+      "match": "\\b([0-9][0-9_]*)\\b"
+    },
+    {
       "comment": "single-quote string literal (character)",
       "name": "string.quoted.single.zo",
       "match": "b?'([^'\\\\]|\\\\(x[0-9A-Fa-f]{2}|[0-2][0-7]{0,2}|3[0-6][0-7]?|37[0-7]?|[4-7][0-7]?|.))'"
-    },
-    {
-      "include": "#string_literal"
     },
     {
       "comment": "control flow keywords",
@@ -62,18 +58,90 @@
       "match": "\\b(apply|as|async|and|css|ext|global|imu|load|macro|mock|mut|pack|pub|test|unit|unsafe|val|wasm)\\b"
     },
     {
-      "include": "#line_comment"
-    },
-    {
-      "include": "#line_doc_comment"
-    },
-    {
       "include": "#me"
+    },
+    {
+      "comment": "directive",
+      "match": "(#)([A-Za-z][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.directive.zo"
+        },
+        "2": {
+          "name": "keyword.control.directive.zo"
+        }
+      }
+    },
+    {
+      "comment": "zsx closing tag",
+      "match": "(<)(/)([A-Za-z][A-Za-z0-9_-]*)(>)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.zo"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.zo"
+        },
+        "3": {
+          "name": "entity.name.tag.zo"
+        },
+        "4": {
+          "name": "punctuation.definition.tag.end.zo"
+        }
+      }
+    },
+    {
+      "comment": "zsx fragment <>...</>",
+      "match": "(<)(/)?(>)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.tag.zo"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.zo"
+        },
+        "3": {
+          "name": "punctuation.definition.tag.zo"
+        }
+      }
+    },
+    {
+      "comment": "zsx opening tag",
+      "begin": "(<)([A-Za-z][A-Za-z0-9_-]*)",
+      "end": "(/?>)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.zo"
+        },
+        "2": {
+          "name": "entity.name.tag.zo"
+        }
+      },
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.zo"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#zsx_attribute"
+        }
+      ]
+    },
+    {
+      "comment": "thin arrow",
+      "name": "keyword.operator.arrow.skinny.zo",
+      "match": "->"
+    },
+    {
+      "comment": "fat arrow",
+      "name": "keyword.operator.arrow.fat.zo",
+      "match": "=>"
     },
     {
       "comment": "miscellaneous op",
       "name": "keyword.operator.misc.zo",
-      "match": "(::|:=|::=|=|\\?)"
+      "match": "(::|:=|::=|\\?)"
     },
     {
       "comment": "comparison op",
@@ -238,10 +306,33 @@
       "name": "keyword.other.zo",
       "match": "\\b(and)\\b"
     },
-    "arrow": {
-      "comment": "thin arrow (return type)",
-      "name": "keyword.operator.arrow.zo",
-      "match": "->"
+    "zsx_attribute": {
+      "patterns": [
+        {
+          "comment": "zsx event binding @event={handler}",
+          "match": "(@)([A-Za-z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.modifier.zo"
+            },
+            "2": {
+              "name": "entity.other.attribute-name.zo"
+            }
+          }
+        },
+        {
+          "comment": "zsx attribute",
+          "match": "\\b([A-Za-z][A-Za-z0-9_-]*)(?=\\s*=)",
+          "captures": {
+            "1": {
+              "name": "entity.other.attribute-name.zo"
+            }
+          }
+        },
+        {
+          "include": "#string_literal"
+        }
+      ]
     },
     "core_types": {
       "comment": "built-in/core type",
