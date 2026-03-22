@@ -4,15 +4,15 @@
 fun main() {
   mut x: int = 1;
 
-  x = x * 2;
+  x *= 2;
   check(x == 2);
 
-  x = x + 3;
+  x += 3;
   check(x == 5);
 
-  x = x * x;
+  x *= x;
   check(x == 25);
 
-  x = x / 5;
+  x /= 5;
   check(x == 5);
 }

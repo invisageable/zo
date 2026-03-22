@@ -77,6 +77,8 @@ pub struct Executor<'a> {
   pending_decl: Option<PendingDecl>,
   /// Pending assignment target name (deferred to Semicolon).
   pending_assign: Option<Symbol>,
+  /// Pending compound assignment (deferred to Semicolon).
+  pending_compound: Option<(Symbol, BinOp)>,
   /// Array context stack: (is_indexing, stack_depth_at_open).
   array_ctx: Vec<(bool, usize)>,
 }
@@ -119,6 +121,7 @@ impl<'a> Executor<'a> {
       skip_until: 0,
       pending_decl: None,
       pending_assign: None,
+      pending_compound: None,
       array_ctx: Vec::new(),
     }
   }
@@ -670,8 +673,15 @@ impl<'a> Executor<'a> {
                 self.value_stack.push(rid);
                 self.ty_stack.push(ty_id);
                 self.sir_values.push(sv);
-              } else if let Some(sv) = sir_value {
-                // Immutable local: reuse SIR ValueId.
+              } else if sir_value.is_some() {
+                // Immutable local: emit Load so
+                // liveness analysis tracks it.
+                let dst = ValueId(self.sir.next_value_id);
+                self.sir.next_value_id += 1;
+
+                let src = 100 + sym.as_u32();
+                let sv = self.sir.emit(Insn::Load { dst, src, ty_id });
+
                 let rid = self.values.store_runtime(0);
 
                 self.value_stack.push(rid);
@@ -929,6 +939,10 @@ impl<'a> Executor<'a> {
 
       // === STATEMENT TERMINATOR ===
       Token::Semicolon => {
+        // Finalize pending compound assignment (x += expr;).
+        let _had_compound = self.pending_compound.is_some();
+        self.finalize_pending_compound();
+
         // Finalize pending assignment (x = expr;).
         let had_assign = self.pending_assign.is_some();
         self.finalize_pending_assign();
@@ -1680,10 +1694,10 @@ impl<'a> Executor<'a> {
         local_kind: LocalKind::Variable,
       });
 
-      // For mutable variables, emit an initial Store so
-      // the value is on the stack frame. Loop iterations
-      // will read it via Load and write it via Store.
-      if decl.is_mutable
+      // Emit initial Store so the value is on the stack
+      // frame. Load instructions will read from this
+      // slot.
+      if self.current_function.is_some()
         && let Some(sv) = sir_init
       {
         self.sir.emit(Insn::Store {
@@ -2126,206 +2140,90 @@ impl<'a> Executor<'a> {
     self.skip_until = lbrace_idx;
   }
 
-  /// Executes compound assignment (+=, -=, etc).
+  /// Begins compound assignment (+=, -=, etc).
+  /// Tree order: target, CompoundOp, rhs_expr.
+  /// We save the target + op, discard the LHS from the
+  /// stack (it was pushed by the Ident handler), and let
+  /// the main loop process the RHS. Finalized at
+  /// Semicolon.
   fn execute_compound_assignment(&mut self, op: BinOp, node_idx: usize) {
-    // In postorder: target, value, CompoundOp
-    // So when we hit CompoundOp, we have value on top of stack
-    if let (Some(rhs_value), Some(rhs_ty)) =
-      (self.value_stack.pop(), self.ty_stack.pop())
-    {
-      let rhs_sir = self.sir_values.pop();
+    // Look back to find the target variable.
+    if node_idx >= 1 {
+      let target_idx = node_idx - 1;
 
-      // Look back to find the target variable
-      if node_idx >= 2 {
-        let target_idx = node_idx - 2;
-        if let Token::Ident = self.tree.nodes[target_idx].token
-          && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
-        {
-          // Find the variable
-          if let Some(local) =
-            self.locals.iter_mut().rev().find(|l| l.name == name)
-          {
-            // Check mutability
-            if local.mutability != Mutability::Yes {
-              let span = self.tree.spans[node_idx];
+      if let Token::Ident = self.tree.nodes[target_idx].token
+        && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
+      {
+        // Discard the LHS pushed by the Ident handler.
+        self.value_stack.pop();
+        self.ty_stack.pop();
+        self.sir_values.pop();
 
-              report_error(Error::new(ErrorKind::ImmutableVariable, span));
-
-              return;
-            }
-
-            // Type check and perform operation
-            let span = self.tree.spans[node_idx];
-
-            if let Some(unified_ty) =
-              self.ty_checker.unify(local.ty_id, rhs_ty, span)
-            {
-              // Try constant folding if both values are compile-time known
-              let constprop = ConstFold::new(&self.values);
-              let resolved_ty = self.ty_checker.resolve_ty(unified_ty);
-
-              if let Some(folded) = constprop.fold_binop(
-                op,
-                local.value_id,
-                rhs_value,
-                span,
-                resolved_ty,
-              ) {
-                match folded {
-                  FoldResult::Int(value) => {
-                    let new_value = self.values.store_int(value);
-
-                    local.value_id = new_value;
-
-                    let sir_value = self.sir.emit(Insn::ConstInt {
-                      value,
-                      ty_id: unified_ty,
-                    });
-
-                    self.sir.emit(Insn::Store {
-                      name,
-                      value: sir_value,
-                      ty_id: unified_ty,
-                    });
-
-                    return;
-                  }
-                  FoldResult::Float(value) => {
-                    let new_value = self.values.store_float(value);
-
-                    local.value_id = new_value;
-
-                    let sir_value = self.sir.emit(Insn::ConstFloat {
-                      value,
-                      ty_id: unified_ty,
-                    });
-
-                    self.sir.emit(Insn::Store {
-                      name,
-                      value: sir_value,
-                      ty_id: unified_ty,
-                    });
-
-                    return;
-                  }
-                  FoldResult::Bool(value) => {
-                    let new_value = self.values.store_bool(value);
-
-                    local.value_id = new_value;
-
-                    let sir_value = self.sir.emit(Insn::ConstBool {
-                      value,
-                      ty_id: unified_ty,
-                    });
-
-                    self.sir.emit(Insn::Store {
-                      name,
-                      value: sir_value,
-                      ty_id: unified_ty,
-                    });
-
-                    return;
-                  }
-                  FoldResult::Forward(operand) => {
-                    match operand {
-                      Operand::Lhs => {
-                        // identity: value unchanged (e.g. x += 0).
-                        return;
-                      }
-                      Operand::Rhs => {
-                        // absorbing: result is rhs.
-                        local.value_id = rhs_value;
-
-                        if let Some(sir_val) = rhs_sir {
-                          self.sir.emit(Insn::Store {
-                            name,
-                            value: sir_val,
-                            ty_id: unified_ty,
-                          });
-                        }
-
-                        return;
-                      }
-                    }
-                  }
-                  FoldResult::Strength(new_op, const_rhs) => {
-                    // strength reduction for compound assign.
-                    // e.g. x *= 8 → x <<= 3.
-                    let rhs_sir_val = self.sir.emit(Insn::ConstInt {
-                      value: const_rhs,
-                      ty_id: unified_ty,
-                    });
-
-                    let lhs_sir_val = ValueId(local.value_id.0);
-                    let dst = ValueId(self.sir.next_value_id);
-
-                    self.sir.next_value_id += 1;
-
-                    let result_sir = self.sir.emit(Insn::BinOp {
-                      dst,
-                      op: new_op,
-                      lhs: lhs_sir_val,
-                      rhs: rhs_sir_val,
-                      ty_id: unified_ty,
-                    });
-
-                    let runtime_id = self.values.store_runtime(0);
-
-                    local.value_id = runtime_id;
-
-                    self.sir.emit(Insn::Store {
-                      name,
-                      value: result_sir,
-                      ty_id: unified_ty,
-                    });
-
-                    return;
-                  }
-                  FoldResult::Error(error) => {
-                    report_error(error);
-                    return;
-                  }
-                }
-              }
-
-              // Runtime operation - emit BinOp then Store
-              // We need to load the current value first (but we don't have
-              // Load yet) For now, we'll emit the BinOp with
-              // a placeholder
-              if let Some(rhs_sir) = rhs_sir {
-                // Create a placeholder for the LHS (the current variable
-                // value) This is a simplification - proper
-                // SSA would need Load instruction
-                let lhs_sir = ValueId(local.value_id.0); // Use the variable's value ID as placeholder
-                let dst = ValueId(self.sir.next_value_id);
-
-                self.sir.next_value_id += 1;
-
-                let result_sir = self.sir.emit(Insn::BinOp {
-                  dst,
-                  op,
-                  lhs: lhs_sir,
-                  rhs: rhs_sir,
-                  ty_id: unified_ty,
-                });
-
-                self.sir.emit(Insn::Store {
-                  name,
-                  value: result_sir,
-                  ty_id: unified_ty,
-                });
-
-                // Update local's value to runtime
-                local.value_id = self.values.store_runtime(0);
-              }
-            }
-          } else {
-            let span = self.tree.spans[target_idx];
-
-            report_error(Error::new(ErrorKind::UndefinedVariable, span));
-          }
-        }
+        self.pending_compound = Some((name, op));
       }
+    }
+  }
+
+  /// Finalize a pending compound assignment at Semicolon.
+  fn finalize_pending_compound(&mut self) {
+    let (name, op) = match self.pending_compound.take() {
+      Some(c) => c,
+      None => return,
+    };
+
+    // Pop the RHS value (processed by the main loop).
+    let (Some(_rhs_value), Some(rhs_ty)) =
+      (self.value_stack.pop(), self.ty_stack.pop())
+    else {
+      return;
+    };
+    let rhs_sir = self.sir_values.pop();
+
+    // Find the mutable variable.
+    let local = self.locals.iter_mut().rev().find(|l| l.name == name);
+
+    let Some(local) = local else { return };
+
+    if local.mutability != Mutability::Yes {
+      report_error(Error::new(ErrorKind::ImmutableVariable, Span::ZERO));
+      return;
+    }
+
+    let span = Span::ZERO;
+    let Some(unified_ty) = self.ty_checker.unify(local.ty_id, rhs_ty, span)
+    else {
+      return;
+    };
+
+    // Emit Load(x) + BinOp(op, loaded, rhs) + Store(x).
+    if let Some(rhs_s) = rhs_sir {
+      let load_dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      self.sir.emit(Insn::Load {
+        dst: load_dst,
+        src: 100 + name.as_u32(),
+        ty_id: unified_ty,
+      });
+
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      let result_sir = self.sir.emit(Insn::BinOp {
+        dst,
+        op,
+        lhs: load_dst,
+        rhs: rhs_s,
+        ty_id: unified_ty,
+      });
+
+      self.sir.emit(Insn::Store {
+        name,
+        value: result_sir,
+        ty_id: unified_ty,
+      });
+
+      local.value_id = self.values.store_runtime(0);
     }
   }
 

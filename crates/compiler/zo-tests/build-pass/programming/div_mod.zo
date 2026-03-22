@@ -5,21 +5,15 @@ fun main() {
   imu x: int = 15;
   imu y: int = 5;
 
-  imu d1: int = x / 5;
-  check(d1 == 3);
-  imu d2: int = x / 4;
-  check(d2 == 3);
-  imu d3: int = x / 3;
-  check(d3 == 5);
-  imu d4: int = x / y;
-  check(d4 == 3);
-  imu d5: int = 15 / y;
-  check(d5 == 3);
+  check(x / 5 == 3);
+  check(x / 4 == 3);
+  check(x / 3 == 5);
+  check(x / y == 3);
+  check(15 / y == 3);
 
-  imu m1: int = x % 5;
-  check(m1 == 0);
-  imu m2: int = x % 4;
-  check(m2 == 3);
-  imu m3: int = x % 3;
-  check(m3 == 0);
+  check(x % 5 == 0);
+  check(x % 4 == 3);
+  check(x % 3 == 0);
+  check(x % y == 0);
+  check(15 % y == 0);
 }

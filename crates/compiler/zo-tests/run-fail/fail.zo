@@ -1,4 +1,4 @@
--- error-pattern:1 == 2.
+-- error-pattern: 1 == 2.
 
 fun main() {
   check (1 == 2);
