@@ -1,0 +1,237 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "zo",
+  "scopeName": "source.zo",
+  "patterns": [
+    {
+      "comment": "thin arrow",
+      "name": "keyword.operator.arrow.skinny.zo",
+      "match": "->"
+    },
+    {
+      "comment": "fat arrow",
+      "name": "keyword.operator.arrow.fat.zo",
+      "match": "=>"
+    },
+    {
+      "comment": "booleans",
+      "name": "constant.language.boolean.zo",
+      "match": "\\b(true|false)\\b"
+    },
+    {
+      "comment": "integers literal (dec)",
+      "name": "constant.numeric.integer.decimal.zo",
+      "match": "\\b([0-9][0-9_]*)\\b"
+    },
+    {
+      "comment": "integers literal (hex)",
+      "name": "constant.numeric.integer.hexadecimal.zo",
+      "match": "\\b(0x[a-fA-F0-9_]+)\\b"
+    },
+    {
+      "comment": "integers literal (oct)",
+      "name": "constant.numeric.integer.octal.zo",
+      "match": "\\b(0o[0-7_]+)\\b"
+    },
+    {
+      "comment": "integers literal (bin)",
+      "name": "constant.numeric.integer.binary.zo",
+      "match": "\\b(0b[01_]+)\\b"
+    },
+    {
+      "comment": "floats literal",
+      "name": "constant.numeric.float.zo",
+      "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?(f32|f64)?\\b"
+    },
+    {
+      "comment": "single-quote string literal (character)",
+      "name": "string.quoted.single.zo",
+      "match": "b?'([^'\\\\]|\\\\(x[0-9A-Fa-f]{2}|[0-2][0-7]{0,2}|3[0-6][0-7]?|37[0-7]?|[4-7][0-7]?|.))'"
+    },
+    {
+      "include": "#string_literal"
+    },
+    {
+      "comment": "control flow keywords",
+      "name": "keyword.control.zo",
+      "match": "\\b(await|break|continue|each|else|for|if|is|loop|match|return|skip|stop|until|when|while)\\b"
+    },
+    {
+      "comment": "keyword",
+      "name": "keyword.other.zo",
+      "match": "\\b(apply|as|async|and|css|ext|global|imu|load|macro|mock|mut|pack|pub|test|unit|unsafe|val|wasm)\\b"
+    },
+    {
+      "include": "#line_comment"
+    },
+    {
+      "include": "#line_doc_comment"
+    },
+    {
+      "include": "#me"
+    },
+    {
+      "comment": "miscellaneous op",
+      "name": "keyword.operator.misc.zo",
+      "match": "(::|:=|::=|=|\\?)"
+    },
+    {
+      "comment": "comparison op",
+      "name": "keyword.operator.comparison.zo",
+      "match": "(&&|\\|\\||==|!=)"
+    },
+    {
+      "comment": "assignment op",
+      "name": "keyword.operator.assignment.zo",
+      "match": "(\\+=|-=|/=|\\*=|%=|\\^=|&=|\\|=|<<=|>>=|=)"
+    },
+    {
+      "comment": "arithmetic op",
+      "name": "keyword.operator.arithmetic.zo",
+      "match": "(!|\\+|(-(?!>))|(/(?!/))|\\*|%|\\^|&|\\||<<|>>)"
+    },
+    {
+      "comment": "comparison op",
+      "name": "keyword.operator.comparison.zo",
+      "match": "(<=|>=|(<(?!<))|(>(?!>)))"
+    },
+    {
+      "include": "#core_types"
+    },
+    {
+      "comment": "function call",
+      "match": "\\b([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+)\\s*\\(",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.zo"
+        }
+      }
+    },
+    {
+      "comment": "function call with type parameters",
+      "begin": "\\b([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+)\\s*(::)(?=\\s*<.*>\\s*\\()",
+      "end": "\\(",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.zo"
+        },
+        "2": {
+          "name": "keyword.operator.misc.zo"
+        }
+      },
+      "patterns": []
+    },
+    {
+      "comment": "function definition",
+      "match": "\\b(fun)\\s+([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+)",
+      "captures": {
+        "1": {
+          "name": "keyword.other.fun.zo"
+        },
+        "2": {
+          "name": "entity.name.function.zo"
+        }
+      }
+    },
+    {
+      "comment": "type declaration",
+      "begin": "\\b(abstract|Fn|fn|enum|Me|struct|union)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "end": "[\\{\\(;]",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.zo"
+        },
+        "2": {
+          "name": "entity.name.type.zo"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#line_comment"
+        },
+        {
+          "include": "#line_doc_comment"
+        },
+        {
+          "include": "#and"
+        },
+        {
+          "include": "#core_types"
+        }
+      ]
+    },
+    {
+      "comment": "type alias",
+      "begin": "\\b(type)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "end": ";",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.zo"
+        },
+        "2": {
+          "name": "entity.name.type.zo"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#line_comment"
+        },
+        {
+          "include": "#line_doc_comment"
+        },
+        {
+          "include": "#core_types"
+        }
+      ]
+    }
+  ],
+  "repository": {
+    "line_comment": {
+      "comment": "line comment",
+      "name": "comment.line.double-slash.zo",
+      "begin": "--",
+      "end": "$"
+    },
+    "line_doc_comment": {
+      "comment": "line doc comment",
+      "name": "comment.line.documentation.zo",
+      "begin": "-!",
+      "end": "$"
+    },
+    "escaped_character": {
+      "name": "constant.character.escape.zo",
+      "match": "\\\\(x[0-9A-Fa-f]{2}|[0-2][0-7]{0,2}|3[0-6][0-7]?|37[0-7]?|[4-7][0-7]?|.)"
+    },
+    "string_literal": {
+      "comment": "double-quote string literal",
+      "name": "string.quoted.double.zo",
+      "begin": "b?\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "include": "#escaped_character"
+        }
+      ]
+    },
+    "me": {
+      "comment": "me variable",
+      "name": "variable.language.zo",
+      "match": "\\b(me|Me)\\b"
+    },
+    "and": {
+      "comment": "and keyword",
+      "name": "keyword.other.zo",
+      "match": "\\b(and)\\b"
+    },
+    "arrow": {
+      "comment": "thin arrow (return type)",
+      "name": "keyword.operator.arrow.zo",
+      "match": "->"
+    },
+    "core_types": {
+      "comment": "built-in/core type",
+      "name": "support.type.primitive.zo",
+      "match": "\\b(bool|i32|i64|int|f32|f64|float|char|str)\\b"
+    }
+  }
+}

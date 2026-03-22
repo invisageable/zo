@@ -1,0 +1,24 @@
+{
+  "name": "zo-vscode",
+  "displayName": "zo-vscode",
+  "description": "zo programming language support",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.71.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "zo",
+      "extensions": [".zo"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "zo",
+      "scopeName": "source.zo",
+      "path": "./syntaxes/zo.tmLanguage.json"
+    }]
+  }
+}

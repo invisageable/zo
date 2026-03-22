@@ -6,6 +6,7 @@ fun f(x: int) -> int {
     return 1;
   } else {
     imu y: int = x * f(x - 1);
+
     return y;
   }
 }
