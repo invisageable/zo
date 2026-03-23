@@ -80,6 +80,7 @@ pub enum Token {
   CharType,     // char
   StrType,      // str
   TemplateType, // </>
+  FnType,       // Fn (uppercase, function type annotation)
 
   // Punctuation & Delimiters
   LParen,
@@ -192,6 +193,7 @@ impl Token {
         | Self::StrType
         | Self::BytesType
         | Self::TemplateType
+        | Self::FnType
     )
   }
 

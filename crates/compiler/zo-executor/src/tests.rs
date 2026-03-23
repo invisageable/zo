@@ -1,7 +1,9 @@
+pub(crate) mod closures;
 pub(crate) mod common;
 pub(crate) mod control_flow;
 pub(crate) mod errors;
 pub(crate) mod modules;
+pub(crate) mod tuples;
 
 use crate::tests::common::{assert_annotations_stream, assert_sir_stream};
 

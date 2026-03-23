@@ -37,6 +37,7 @@ pub enum Value {
   Template,
   Runtime,
   Binding,
+  Closure,
 }
 
 /// Represents a [`ValueStorage`] instance.
@@ -63,9 +64,20 @@ pub struct ValueStorage {
   pub runtimes: Vec<u32>,
   // Binding name + type.
   pub bindings: Vec<(Symbol, TyId)>,
+  /// Closure values (fun_name, captures).
+  pub closures: Vec<ClosureValue>,
   /// Mapping from ValueId to index in side array
   /// Index into the appropriate side array
   pub indices: Vec<u32>,
+}
+
+/// A closure value: generated function name + captured values.
+#[derive(Clone, Debug)]
+pub struct ClosureValue {
+  /// Generated function name (e.g. `__closure_0`).
+  pub fun_name: Symbol,
+  /// Captured values from enclosing scope.
+  pub captures: Vec<(Symbol, ValueId)>,
 }
 
 impl ValueStorage {
@@ -82,6 +94,7 @@ impl ValueStorage {
       templates: Vec::new(),
       runtimes: Vec::new(),
       bindings: Vec::new(),
+      closures: Vec::new(),
       indices: Vec::with_capacity(capacity / 10),
     }
   }
@@ -206,6 +219,21 @@ impl ValueStorage {
     value_id
   }
 
+  /// Stores a closure value and return its [`ValueId`].
+  #[inline(always)]
+  pub fn store_closure(&mut self, cv: ClosureValue) -> ValueId {
+    let idx = self.closures.len() as u32;
+
+    self.closures.push(cv);
+
+    let value_id = ValueId(self.kinds.len() as u32);
+
+    self.kinds.push(Value::Closure);
+    self.indices.push(idx);
+
+    value_id
+  }
+
   /// Gets the next [`ValueId`] that will be allocated.
   #[inline(always)]
   pub fn next_value_id(&self) -> u32 {
@@ -221,11 +249,16 @@ pub enum Pubness {
 }
 
 /// Represents a [`FunctionKind`] — user-defined vs
-/// intrinsic (external, empty body).
+/// intrinsic (external, empty body) vs closure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FunctionKind {
   UserDefined,
   Intrinsic,
+  /// Closure — captures are prepended to params.
+  /// `capture_count` distinguishes captures from user params.
+  Closure {
+    capture_count: u32,
+  },
 }
 
 /// Represents a [`LocalKind`] — parameter vs local

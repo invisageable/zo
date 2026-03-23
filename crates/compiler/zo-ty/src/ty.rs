@@ -46,6 +46,9 @@ pub enum Ty {
   /// An array type - points to interned storage
   Array(ArrayTyId),
 
+  /// A tuple type - points to interned storage
+  Tuple(TupleTyId),
+
   /// Template Fragment type with unique ID for each template literal
   Fragment(FragmentTyId),
 
@@ -120,6 +123,18 @@ pub struct ArrayTy {
   pub size: Option<u32>,
 }
 
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TupleTyId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TupleTy {
+  /// Start index in the global tuple_elem_tys array.
+  pub elem_start: u32,
+  /// Number of elements.
+  pub elem_count: u32,
+}
+
 /// An identifier for inference variables - distinct from TyId.
 /// This makes the type system's invariants explicit.
 /// In pure W algorithm, all type variables are uniform.
@@ -147,8 +162,14 @@ pub struct TyTable {
   pub ref_types: Vec<RefTy>,
   /// Reference type interning map for O(1) deduplication.
   ref_intern: HashMap<RefTy, RefTyId>,
+  /// Tuple types stored contiguously.
+  pub tuple_types: Vec<TupleTy>,
+  /// Tuple type interning map for O(1) deduplication.
+  tuple_intern: HashMap<Vec<TyId>, TupleTyId>,
   /// Global array for all function parameter types.
   pub param_tys: Vec<TyId>,
+  /// Global array for all tuple element types.
+  pub tuple_elem_tys: Vec<TyId>,
 }
 
 impl TyTable {
@@ -254,5 +275,43 @@ impl TyTable {
   /// Get a reference type by ID.
   pub fn reference(&self, id: RefTyId) -> Option<&RefTy> {
     self.ref_types.get(id.0 as usize)
+  }
+
+  /// Intern a tuple type, returning its ID.
+  /// Uses HashMap for O(1) deduplication.
+  pub fn intern_tuple(&mut self, elem_tys: Vec<TyId>) -> TupleTyId {
+    if let Some(&id) = self.tuple_intern.get(&elem_tys) {
+      return id;
+    }
+
+    let elem_start = self.tuple_elem_tys.len() as u32;
+    let elem_count = elem_tys.len() as u32;
+
+    self.tuple_elem_tys.extend(&elem_tys);
+
+    let tuple_ty = TupleTy {
+      elem_start,
+      elem_count,
+    };
+
+    let id = TupleTyId(self.tuple_types.len() as u32);
+
+    self.tuple_types.push(tuple_ty);
+    self.tuple_intern.insert(elem_tys, id);
+
+    id
+  }
+
+  /// Get a tuple type by ID.
+  pub fn tuple(&self, id: TupleTyId) -> Option<&TupleTy> {
+    self.tuple_types.get(id.0 as usize)
+  }
+
+  /// Get the element types of a tuple.
+  pub fn tuple_elems(&self, tup: &TupleTy) -> &[TyId] {
+    let start = tup.elem_start as usize;
+    let end = (tup.elem_start + tup.elem_count) as usize;
+
+    &self.tuple_elem_tys[start..end]
   }
 }

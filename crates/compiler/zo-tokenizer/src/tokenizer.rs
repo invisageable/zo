@@ -319,6 +319,7 @@ impl<'a> Tokenizer<'a> {
 
           match key {
             0x6E66 => Token::Fn,     // "fn"
+            0x6E46 => Token::FnType, // "Fn"
             0x6669 => Token::If,     // "if"
             0x7361 => Token::As,     // "as"
             0x7369 => Token::Is,     // "is"

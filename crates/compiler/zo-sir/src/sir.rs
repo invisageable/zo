@@ -172,6 +172,15 @@ pub enum Insn {
     array: ValueId,
     ty_id: TyId,
   },
+  /// Tuple literal: (e0, e1, ..., eN).
+  TupleLiteral { elements: Vec<ValueId>, ty_id: TyId },
+  /// Tuple field access: tup.N (compile-time index).
+  TupleIndex {
+    dst: ValueId,
+    tuple: ValueId,
+    index: u32,
+    ty_id: TyId,
+  },
   /// Template literal (fragment or HTML tag)
   Template {
     id: ValueId,

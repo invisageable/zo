@@ -57,6 +57,8 @@ pub struct Parser<'a> {
   expr_buffer: Vec<(Token, Span, Option<NodeValue>)>,
   /// The operators stack — (token, precedence, associativity).
   operator_stack: Vec<(Token, u8, u8)>,
+  /// Nesting depth inside type annotation parens: Fn(...) or (ty, ty).
+  type_paren_depth: u32,
 }
 impl<'a> Parser<'a> {
   const INTRODUCER_STACK_CAP: usize = 32;
@@ -75,6 +77,7 @@ impl<'a> Parser<'a> {
       introducer_stack: Vec::with_capacity(Self::INTRODUCER_STACK_CAP),
       expr_buffer: Vec::with_capacity(Self::EXPR_BUFFER_CAP),
       operator_stack: Vec::with_capacity(Self::OPERATOR_STACK_CAP),
+      type_paren_depth: 0,
     }
   }
 
@@ -132,7 +135,8 @@ impl<'a> Parser<'a> {
       Token::Pack => self.handle_pack_statement(),
 
       // Introducers - these start new contexts
-      Token::Fun | Token::Ext => self.handle_fun_introducer(kind),
+      Token::Fun | Token::Ext | Token::Fn => self.handle_fun_introducer(kind),
+
       Token::LParen => self.handle_lparen_introducer(),
       Token::LBrace => self.handle_lbrace_introducer(),
       Token::LBracket => self.handle_lbracket(),
@@ -147,6 +151,7 @@ impl<'a> Parser<'a> {
       Token::ColonEq => self.handle_colon_eq(),
       Token::TemplateAssign => self.handle_template_assign(),
       Token::Arrow => self.handle_arrow(),
+      Token::FatArrow => self.handle_fat_arrow(),
       Token::Comma => self.handle_comma(),
       Token::Semicolon => self.handle_semicolon(),
       Token::Eq => self.handle_assignment(),
@@ -261,6 +266,17 @@ impl<'a> Parser<'a> {
   }
 
   fn handle_lparen_introducer(&mut self) {
+    // Inside Fn(...) type annotation, buffer ( as part of type
+    if self.state == ParserState::TypeAnnotation {
+      self
+        .expr_buffer
+        .push((Token::LParen, self.current_span(), None));
+
+      self.type_paren_depth += 1;
+
+      return;
+    }
+
     // In function signature, this starts parameter list
     if self.state == ParserState::FunctionSignature {
       self.flush_expr();
@@ -368,6 +384,17 @@ impl<'a> Parser<'a> {
   }
 
   fn handle_rparen_closer(&mut self) {
+    // Inside Fn(...) type annotation, buffer ) as part of type
+    if self.type_paren_depth > 0 {
+      self
+        .expr_buffer
+        .push((Token::RParen, self.current_span(), None));
+
+      self.type_paren_depth -= 1;
+
+      return;
+    }
+
     self.flush_expr();
 
     // Check if we have a matching LParen introducer
@@ -422,6 +449,9 @@ impl<'a> Parser<'a> {
             }
           } else if parent.token == Token::While || parent.token == Token::For {
             // While/For is complete after its block
+            self.close_introducer();
+          } else if parent.token == Token::Fn {
+            // Closure block is complete after its block
             self.close_introducer();
           }
         }
@@ -498,6 +528,15 @@ impl<'a> Parser<'a> {
   }
 
   fn handle_arrow(&mut self) {
+    // Inside Fn(...) -> R type annotation, buffer ->
+    if self.state == ParserState::TypeAnnotation {
+      self
+        .expr_buffer
+        .push((Token::Arrow, self.current_span(), None));
+
+      return;
+    }
+
     // Arrow marks return type in function signature
     self.flush_expr();
     self.emit_node(Token::Arrow);
@@ -505,7 +544,24 @@ impl<'a> Parser<'a> {
     self.state = ParserState::TypeAnnotation;
   }
 
+  fn handle_fat_arrow(&mut self) {
+    // Fat arrow marks inline closure body: fn(x) => expr
+    self.flush_expr();
+    self.emit_node(Token::FatArrow);
+
+    self.state = ParserState::Expression;
+  }
+
   fn handle_comma(&mut self) {
+    // Inside Fn(T1, T2) type annotation, buffer comma
+    if self.type_paren_depth > 0 {
+      self
+        .expr_buffer
+        .push((Token::Comma, self.current_span(), None));
+
+      return;
+    }
+
     // Comma separates parameters, array elements, or expressions
     self.flush_expr();
     self.emit_node(Token::Comma);
@@ -532,9 +588,15 @@ impl<'a> Parser<'a> {
     self.flush_expr();
     self.emit_node(Token::Semicolon);
 
-    // Check if we need to close a statement introducer
-    if let Some(introducer) = self.introducer_stack.last() {
+    // Close introducers that terminate on semicolon.
+    // Loop handles nested closures: fn(x) => fn(y) => x + y;
+    // closes inner Fn, outer Fn, then the binding (Imu/Mut/Val).
+    while let Some(introducer) = self.introducer_stack.last() {
       match introducer.token {
+        Token::Fn => {
+          // Inline closure body ends at semicolon
+          self.close_introducer();
+        }
         Token::Return
         | Token::Imu
         | Token::Mut
@@ -544,8 +606,9 @@ impl<'a> Parser<'a> {
         | Token::Pack
         | Token::Ext => {
           self.close_introducer();
+          break;
         }
-        _ => {}
+        _ => break,
       }
     }
   }

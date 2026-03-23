@@ -1,0 +1,8 @@
+-- tests-build-pass: closure inline syntax.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/closure-inline.zo -o crates/compiler/zo-tests/build-pass/programming/closure-inline
+
+fun main() -> int {
+  imu f: Fn(int) -> int = fn(x: int) -> int => x * x;
+
+  f(7)
+}

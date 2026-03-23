@@ -583,6 +583,15 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
         off(dst);
         off(array);
       }
+      Insn::TupleLiteral { elements, .. } => {
+        for e in elements.iter_mut() {
+          off(e);
+        }
+      }
+      Insn::TupleIndex { dst, tuple, .. } => {
+        off(dst);
+        off(tuple);
+      }
     }
   }
 }

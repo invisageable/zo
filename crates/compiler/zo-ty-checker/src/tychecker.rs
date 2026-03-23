@@ -378,6 +378,27 @@ impl TyChecker {
         Some(self.resolve_id(repr1))
       }
 
+      // Tuple types — unify element-wise.
+      (Ty::Tuple(t1), Ty::Tuple(t2)) => {
+        let tup1 = *self.ty_table.tuple(t1)?;
+        let tup2 = *self.ty_table.tuple(t2)?;
+
+        if tup1.elem_count != tup2.elem_count {
+          report_error(Error::new(ErrorKind::TypeMismatch, span));
+
+          return None;
+        }
+
+        let e1 = self.ty_table.tuple_elems(&tup1).to_vec();
+        let e2 = self.ty_table.tuple_elems(&tup2).to_vec();
+
+        for (a, b) in e1.iter().zip(e2.iter()) {
+          self.unify(*a, *b, span)?;
+        }
+
+        Some(self.resolve_id(repr1))
+      }
+
       // Concrete types must match exactly
       // No substitutions were added, so repr1 is still canonical
       (

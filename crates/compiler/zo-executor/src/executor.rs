@@ -7,14 +7,14 @@ use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
-use zo_ty::Mutability;
-use zo_ty::{Annotation, TyId};
+use zo_ty::{Annotation, Mutability, Ty, TyId};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
   Attr, ContainerDirection, EventKind, PropValue, TextStyle, UiCommand,
 };
 use zo_value::{
-  FunDef, FunctionKind, Local, LocalKind, Pubness, Value, ValueId, ValueStorage,
+  ClosureValue, FunDef, FunctionKind, Local, LocalKind, Pubness, Value,
+  ValueId, ValueStorage,
 };
 
 use std::cell::Cell;
@@ -81,6 +81,10 @@ pub struct Executor<'a> {
   pending_compound: Option<(Symbol, BinOp)>,
   /// Array context stack: (is_indexing, stack_depth_at_open).
   array_ctx: Vec<(bool, usize)>,
+  /// Tuple context stack: stack_depth_at_open.
+  tuple_ctx: Vec<usize>,
+  /// Counter for generating unique closure names.
+  closure_counter: u32,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -123,6 +127,8 @@ impl<'a> Executor<'a> {
       pending_assign: None,
       pending_compound: None,
       array_ctx: Vec::new(),
+      tuple_ctx: Vec::new(),
+      closure_counter: 0,
     }
   }
 
@@ -226,6 +232,12 @@ impl<'a> Executor<'a> {
         self.execute_fun(idx, children_end);
       }
 
+      Token::Fn => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_closure(idx, children_end);
+      }
+
       Token::Ext => {
         let children_end = (header.child_start + header.child_count) as usize;
 
@@ -300,11 +312,75 @@ impl<'a> Executor<'a> {
         self.skip_until = children_end;
       }
 
-      // === FUNCTION CALLS ===
+      // === TUPLES / GROUPING / TUPLE TYPE ===
+      Token::LParen => {
+        // If preceded by Ident → function call (handled at RParen).
+        let is_call =
+          idx > 0 && matches!(self.tree.nodes[idx - 1].token, Token::Ident);
+
+        if is_call {
+          // Skip — RParen handles call.
+        } else if idx + 1 < self.tree.nodes.len()
+          && self.tree.nodes[idx + 1].token.is_ty()
+        {
+          // Tuple type annotation: (int, float, str).
+          let (ty_id, skip_to) = self.resolve_tuple_type(idx);
+          let value_id = self.values.store_type(ty_id);
+
+          self.value_stack.push(value_id);
+          self.ty_stack.push(self.ty_checker.type_type());
+          self.skip_until = skip_to;
+        } else {
+          // Tuple literal or grouping.
+          let depth = self.sir_values.len();
+
+          self.tuple_ctx.push(depth);
+        }
+      }
+
+      // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
-        // Check if this is a function call by looking back
-        // Function calls have the pattern: Ident, LParen, [args...], RParen
-        self.execute_potential_call(idx);
+        // Check if this closes a tuple/grouping context.
+        if let Some(depth) = self.tuple_ctx.pop() {
+          let count = self.sir_values.len().saturating_sub(depth);
+
+          if count > 1 {
+            // Tuple literal: collect elements.
+            let mut elements = Vec::with_capacity(count);
+            let mut elem_tys = Vec::with_capacity(count);
+
+            for _ in 0..count {
+              if let Some(sv) = self.sir_values.pop() {
+                elements.push(sv);
+              }
+
+              self.value_stack.pop();
+
+              if let Some(ty) = self.ty_stack.pop() {
+                elem_tys.push(ty);
+              }
+            }
+
+            elements.reverse();
+            elem_tys.reverse();
+
+            // Build tuple type.
+            let tuple_ty_id = self.ty_checker.ty_table.intern_tuple(elem_tys);
+
+            let ty_id = self.ty_checker.intern_ty(Ty::Tuple(tuple_ty_id));
+
+            let sv = self.sir.emit(Insn::TupleLiteral { elements, ty_id });
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(ty_id);
+            self.sir_values.push(sv);
+          }
+          // count <= 1: grouping — leave value on stack as-is.
+        } else {
+          // No tuple context → function call.
+          self.execute_potential_call(idx);
+        }
       }
 
       // === SCOPE BOUNDARIES ===
@@ -841,6 +917,17 @@ impl<'a> Executor<'a> {
         }
       }
 
+      // === FUNCTION TYPE ANNOTATION: Fn(T1, T2) -> R ===
+      Token::FnType => {
+        let (ty_id, skip_to) = self.resolve_fn_type(idx);
+        let value_id = self.values.store_type(ty_id);
+
+        self.value_stack.push(value_id);
+        self.ty_stack.push(self.ty_checker.type_type());
+
+        self.skip_until = skip_to;
+      }
+
       // === TYPE LITERALS ===
       _ if header.token.is_ty() => {
         let ty_id = self.resolve_type_token(idx);
@@ -848,6 +935,81 @@ impl<'a> Executor<'a> {
 
         self.value_stack.push(value_id);
         self.ty_stack.push(self.ty_checker.type_type());
+      }
+
+      // === TUPLE FIELD ACCESS: tup.0, tup.1 ===
+      Token::Dot => {
+        // Shunting Yard reorders `tup . 0` to postfix: `tup 0 .`
+        // Stack has: [..., tuple_val, index_val].
+        if self.value_stack.len() >= 2 {
+          // Pop index (integer literal).
+          let idx_val = self.value_stack.pop().unwrap();
+          let _idx_ty = self.ty_stack.pop();
+
+          self.sir_values.pop();
+
+          // Pop tuple.
+          let _tup_val = self.value_stack.pop().unwrap();
+
+          let tup_ty =
+            self.ty_stack.pop().unwrap_or(self.ty_checker.unit_type());
+
+          let tup_sir = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
+
+          // Read the integer index from ValueStorage.
+          let field_idx = {
+            let vi = idx_val.0 as usize;
+
+            if vi < self.values.kinds.len()
+              && matches!(self.values.kinds[vi], Value::Int)
+            {
+              let ii = self.values.indices[vi] as usize;
+              self.values.ints[ii] as u32
+            } else {
+              0
+            }
+          };
+
+          // Resolve element type from tuple type.
+          let elem_ty =
+            if let Ty::Tuple(tid) = self.ty_checker.resolve_ty(tup_ty) {
+              if let Some(tup) = self.ty_checker.ty_table.tuple(tid) {
+                let elems = self.ty_checker.ty_table.tuple_elems(tup);
+
+                if (field_idx as usize) < elems.len() {
+                  elems[field_idx as usize]
+                } else {
+                  // Out of bounds — compile error.
+                  let span = self.tree.spans[idx];
+
+                  report_error(Error::new(ErrorKind::TypeMismatch, span));
+                  self.ty_checker.error_type()
+                }
+              } else {
+                self.ty_checker.unit_type()
+              }
+            } else {
+              // Not a tuple type — might be struct field access later.
+              self.ty_checker.unit_type()
+            };
+
+          let dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+
+          let sv = self.sir.emit(Insn::TupleIndex {
+            dst,
+            tuple: tup_sir,
+            index: field_idx,
+            ty_id: elem_ty,
+          });
+
+          let rid = self.values.store_runtime(0);
+
+          self.value_stack.push(rid);
+          self.ty_stack.push(elem_ty);
+          self.sir_values.push(sv);
+        }
       }
 
       // === BINARY OPERATORS ===
@@ -1403,33 +1565,33 @@ impl<'a> Executor<'a> {
   fn resolve_type_token(&mut self, idx: usize) -> TyId {
     match self.tree.nodes[idx].token {
       Token::IntType => self.ty_checker.int_type(),
-      Token::S8Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+      Token::S8Type => self.ty_checker.intern_ty(Ty::Int {
         signed: true,
         width: zo_ty::IntWidth::S8,
       }),
-      Token::S16Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+      Token::S16Type => self.ty_checker.intern_ty(Ty::Int {
         signed: true,
         width: zo_ty::IntWidth::S16,
       }),
       Token::S32Type => self.ty_checker.s32_type(),
-      Token::S64Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+      Token::S64Type => self.ty_checker.intern_ty(Ty::Int {
         signed: true,
         width: zo_ty::IntWidth::S64,
       }),
-      Token::UintType => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+      Token::UintType => self.ty_checker.intern_ty(Ty::Int {
         signed: false,
         width: zo_ty::IntWidth::U32,
       }),
-      Token::U8Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+      Token::U8Type => self.ty_checker.intern_ty(Ty::Int {
         signed: false,
         width: zo_ty::IntWidth::U8,
       }),
-      Token::U16Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+      Token::U16Type => self.ty_checker.intern_ty(Ty::Int {
         signed: false,
         width: zo_ty::IntWidth::U16,
       }),
       Token::U32Type => self.ty_checker.u32_type(),
-      Token::U64Type => self.ty_checker.intern_ty(zo_ty::Ty::Int {
+      Token::U64Type => self.ty_checker.intern_ty(Ty::Int {
         signed: false,
         width: zo_ty::IntWidth::U64,
       }),
@@ -1439,7 +1601,7 @@ impl<'a> Executor<'a> {
       Token::BoolType => self.ty_checker.bool_type(),
       Token::CharType => self.ty_checker.char_type(),
       Token::StrType => self.ty_checker.str_type(),
-      Token::BytesType => self.ty_checker.intern_ty(zo_ty::Ty::Bytes),
+      Token::BytesType => self.ty_checker.intern_ty(Ty::Bytes),
       Token::TemplateType => self.ty_checker.template_ty(),
       Token::Ident => {
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
@@ -1453,6 +1615,445 @@ impl<'a> Executor<'a> {
       }
       _ => self.ty_checker.unit_type(),
     }
+  }
+
+  /// Resolves a `Fn(T1, T2) -> R` type annotation.
+  ///
+  /// Scans forward from the FnType token to consume the full
+  /// pattern: `FnType ( type1 , type2 ) -> return_type`.
+  /// Returns `(TyId, skip_to)` where skip_to is the index
+  /// past the last consumed node.
+  fn resolve_fn_type(&mut self, idx: usize) -> (TyId, usize) {
+    let len = self.tree.nodes.len();
+    let mut j = idx + 1;
+    let mut param_tys = Vec::new();
+    let mut return_ty = self.ty_checker.unit_type();
+
+    // Skip (
+    if j < len && self.tree.nodes[j].token == Token::LParen {
+      j += 1;
+    }
+
+    // Collect param types until )
+    while j < len && self.tree.nodes[j].token != Token::RParen {
+      let tok = self.tree.nodes[j].token;
+
+      if tok == Token::Comma {
+        j += 1;
+
+        continue;
+      }
+
+      if tok == Token::FnType {
+        // Nested Fn type: Fn(Fn(int) -> int) -> int
+        let (nested_ty, skip) = self.resolve_fn_type(j);
+
+        param_tys.push(nested_ty);
+
+        j = skip;
+
+        continue;
+      }
+
+      if tok.is_ty() {
+        param_tys.push(self.resolve_type_token(j));
+      }
+
+      j += 1;
+    }
+
+    // Skip )
+    if j < len && self.tree.nodes[j].token == Token::RParen {
+      j += 1;
+    }
+
+    // Check for -> return type
+    if j < len && self.tree.nodes[j].token == Token::Arrow {
+      j += 1;
+
+      if j < len {
+        let tok = self.tree.nodes[j].token;
+
+        if tok == Token::FnType {
+          // Return type is a Fn type
+          let (nested_ty, skip) = self.resolve_fn_type(j);
+
+          return_ty = nested_ty;
+          j = skip;
+        } else if tok.is_ty() {
+          return_ty = self.resolve_type_token(j);
+
+          j += 1;
+        }
+      }
+    }
+
+    let fun_ty_id = self.ty_checker.ty_table.intern_fun(param_tys, return_ty);
+    let ty_id = self.ty_checker.intern_ty(Ty::Fun(fun_ty_id));
+
+    (ty_id, j)
+  }
+
+  /// Resolves a `(T1, T2, ...) ` tuple type annotation.
+  ///
+  /// Scans forward from `(` to consume the full pattern.
+  /// Returns `(TyId, skip_to)`.
+  fn resolve_tuple_type(&mut self, idx: usize) -> (TyId, usize) {
+    let len = self.tree.nodes.len();
+    let mut j = idx + 1; // Skip (
+    let mut elem_tys = Vec::new();
+
+    while j < len && self.tree.nodes[j].token != Token::RParen {
+      let tok = self.tree.nodes[j].token;
+
+      if tok == Token::Comma {
+        j += 1;
+
+        continue;
+      }
+
+      if tok == Token::FnType {
+        let (nested, skip) = self.resolve_fn_type(j);
+        elem_tys.push(nested);
+
+        j = skip;
+
+        continue;
+      }
+
+      if tok == Token::LParen {
+        // Nested tuple type.
+        let (nested, skip) = self.resolve_tuple_type(j);
+        elem_tys.push(nested);
+
+        j = skip;
+
+        continue;
+      }
+
+      if tok.is_ty() {
+        elem_tys.push(self.resolve_type_token(j));
+      }
+
+      j += 1;
+    }
+
+    // Skip )
+    if j < len && self.tree.nodes[j].token == Token::RParen {
+      j += 1;
+    }
+
+    let tuple_ty_id = self.ty_checker.ty_table.intern_tuple(elem_tys);
+    let ty_id = self.ty_checker.intern_ty(Ty::Tuple(tuple_ty_id));
+
+    (ty_id, j)
+  }
+
+  /// Scans closure body for identifiers that reference
+  /// outer-scope locals (captures). Returns deduplicated list.
+  fn identify_captures(
+    &self,
+    body_start: usize,
+    body_end: usize,
+    params: &[(Symbol, TyId)],
+  ) -> Vec<(Symbol, TyId)> {
+    let mut captures = Vec::new();
+    let mut seen = Vec::new();
+
+    for idx in body_start..body_end {
+      if self.tree.nodes[idx].token != Token::Ident {
+        continue;
+      }
+
+      if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+        // Skip closure params.
+        if params.iter().any(|(n, _)| *n == sym) {
+          continue;
+        }
+
+        // Skip already captured.
+        if seen.contains(&sym) {
+          continue;
+        }
+
+        // Check if it's an outer local.
+        if let Some(local) = self.lookup_local(sym) {
+          captures.push((sym, local.ty_id));
+          seen.push(sym);
+        }
+      }
+    }
+
+    captures
+  }
+
+  /// Executes a closure expression: `fn(params) { body }`
+  /// or `fn(params) => expr`.
+  ///
+  /// Closures are anonymous functions with by-copy capture.
+  /// Captures become prepended parameters in the generated
+  /// FunDef. The closure value is pushed onto the stack.
+  fn execute_closure(&mut self, start_idx: usize, end_idx: usize) {
+    // -- 1. Parse parameters ---------------------------------
+
+    let mut params: Vec<(Symbol, TyId)> = Vec::new();
+    let mut return_ty = self.ty_checker.unit_type();
+    let mut idx = start_idx + 1; // Skip Fn token.
+
+    // Skip LParen.
+    if idx < end_idx && self.tree.nodes[idx].token == Token::LParen {
+      idx += 1;
+
+      while idx < end_idx {
+        match self.tree.nodes[idx].token {
+          Token::RParen => {
+            idx += 1;
+
+            break;
+          }
+          Token::Ident => {
+            if let Some(NodeValue::Symbol(pname)) = self.node_value(idx) {
+              idx += 1;
+
+              // Typed param: `x: int` or untyped: `x`
+              let pty = if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
+                let ty = self.resolve_type_token(idx);
+
+                idx += 1;
+
+                ty
+              } else {
+                self.ty_checker.fresh_var()
+              };
+
+              params.push((pname, pty));
+
+              // Skip comma.
+              if idx < end_idx && self.tree.nodes[idx].token == Token::Comma {
+                idx += 1;
+              }
+            } else {
+              idx += 1;
+            }
+          }
+          _ => idx += 1,
+        }
+      }
+    }
+
+    // Check for return type annotation.
+    while idx < end_idx {
+      match self.tree.nodes[idx].token {
+        Token::Arrow => {
+          if idx + 1 < end_idx {
+            idx += 1;
+
+            if self.tree.nodes[idx].token == Token::FnType {
+              let (ty, skip) = self.resolve_fn_type(idx);
+              return_ty = ty;
+              idx = skip;
+            } else {
+              return_ty = self.resolve_type_token(idx);
+              idx += 1;
+            }
+          }
+
+          break;
+        }
+        Token::LBrace | Token::FatArrow => break,
+        _ => idx += 1,
+      }
+    }
+
+    // -- 2. Determine body range -----------------------------
+
+    let (body_start_idx, body_end_idx) =
+      if idx < end_idx && self.tree.nodes[idx].token == Token::FatArrow {
+        // Inline form: fn(x) => expr
+        (idx + 1, end_idx)
+      } else if idx < end_idx && self.tree.nodes[idx].token == Token::LBrace {
+        // Block form: fn(x) { body }
+        // Find matching RBrace within children.
+        let brace_start = idx;
+        let brace_header = self.tree.nodes[brace_start];
+
+        let brace_children_end =
+          (brace_header.child_start + brace_header.child_count) as usize;
+
+        // Body is the block's children.
+        // RBrace is at end_idx - 1 (sibling after block).
+        (brace_start + 1, brace_children_end)
+      } else {
+        // Malformed closure.
+        self.skip_until = end_idx;
+        return;
+      };
+
+    // -- 3. Capture analysis ---------------------------------
+
+    let captures =
+      self.identify_captures(body_start_idx, body_end_idx, &params);
+
+    // -- 4. Build combined params: captures + user params ----
+
+    let capture_count = captures.len() as u32;
+    let mut combined_params = Vec::with_capacity(captures.len() + params.len());
+
+    for (name, ty_id) in &captures {
+      combined_params.push((*name, *ty_id));
+    }
+
+    combined_params.extend_from_slice(&params);
+
+    // -- 5. Generate unique closure name ---------------------
+
+    let closure_name = Symbol::new(0x80000000 | self.closure_counter);
+
+    self.closure_counter += 1;
+
+    // -- 6. Save outer state ---------------------------------
+
+    let outer_value_stack = std::mem::take(&mut self.value_stack);
+    let outer_ty_stack = std::mem::take(&mut self.ty_stack);
+    let outer_sir_values = std::mem::take(&mut self.sir_values);
+    let outer_function = self.current_function.take();
+
+    // -- 7. Emit FunDef --------------------------------------
+
+    let body_start = (self.sir.instructions.len() + 1) as u32;
+    let fundef_idx = self.sir.instructions.len();
+
+    self.sir.emit(Insn::FunDef {
+      name: closure_name,
+      params: combined_params.clone(),
+      return_ty,
+      body_start,
+      kind: FunctionKind::Closure { capture_count },
+      pubness: Pubness::No,
+    });
+
+    // Register for call resolution.
+    self.funs.push(FunDef {
+      name: closure_name,
+      params: combined_params.clone(),
+      return_ty,
+      body_start,
+      kind: FunctionKind::Closure { capture_count },
+      pubness: Pubness::No,
+    });
+
+    // -- 8. Set function context + scope ---------------------
+
+    self.current_function = Some(FunCtx {
+      return_ty,
+      body_start,
+      fundef_idx,
+      has_explicit_return: false,
+      pending_return: false,
+      scope_depth: self.scope_stack.len(),
+    });
+
+    // Param scope.
+    self.push_scope();
+
+    for (i, (pname, pty)) in combined_params.iter().enumerate() {
+      let value_id = self.values.store_runtime(i as u32);
+
+      self.locals.push(Local {
+        name: *pname,
+        ty_id: *pty,
+        value_id,
+        pubness: Pubness::No,
+        mutability: Mutability::No,
+        sir_value: None,
+        local_kind: LocalKind::Parameter,
+      });
+
+      if let Some(frame) = self.scope_stack.last_mut() {
+        frame.count += 1;
+      }
+    }
+
+    // Body scope (maintains scope_depth invariant).
+    self.push_scope();
+
+    // -- 9. Execute body nodes -------------------------------
+
+    let saved_skip = self.skip_until;
+
+    self.skip_until = 0;
+
+    for i in body_start_idx..body_end_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+    }
+
+    // -- 10. Emit implicit return ----------------------------
+
+    let has_explicit = self
+      .current_function
+      .as_ref()
+      .is_some_and(|c| c.has_explicit_return);
+
+    if !has_explicit {
+      let return_value =
+        self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
+
+      let return_ty_actual = self.ty_stack.last().copied().unwrap_or(return_ty);
+
+      self.sir.emit(Insn::Return {
+        value: return_value,
+        ty_id: return_ty_actual,
+      });
+    }
+
+    // -- 11. Tear down ---------------------------------------
+
+    self.pop_scope(); // Body scope.
+    self.pop_scope(); // Param scope.
+
+    self.current_function = outer_function;
+    self.skip_until = saved_skip;
+
+    // Restore outer stacks.
+    self.value_stack = outer_value_stack;
+    self.ty_stack = outer_ty_stack;
+    self.sir_values = outer_sir_values;
+
+    // -- 12. Push closure value onto outer stack -------------
+
+    // Build Ty::Fun for the user-visible params (not captures).
+    let user_param_tys = params.iter().map(|(_, ty)| *ty).collect::<Vec<_>>();
+
+    let fun_ty_id = self
+      .ty_checker
+      .ty_table
+      .intern_fun(user_param_tys, return_ty);
+
+    let closure_ty = self.ty_checker.intern_ty(Ty::Fun(fun_ty_id));
+
+    // Collect capture SIR values for prepending at call sites.
+    let capture_sirs = captures
+      .iter()
+      .map(|(name, _)| (*name, ValueId(u32::MAX)))
+      .collect::<Vec<_>>();
+
+    let closure_val = self.values.store_closure(ClosureValue {
+      fun_name: closure_name,
+      captures: capture_sirs,
+    });
+
+    self.value_stack.push(closure_val);
+    self.ty_stack.push(closure_ty);
+    self.sir_values.push(ValueId(u32::MAX));
+
+    // Skip past the closure in the main loop.
+    self.skip_until = end_idx;
   }
 
   fn execute_fun(&mut self, start_idx: usize, _end_idx: usize) {
@@ -1503,7 +2104,9 @@ impl<'a> Executor<'a> {
               // Next should be the type (no colon token)
               if idx < _end_idx {
                 let param_ty = self.resolve_type_token(idx);
+
                 params.push((param_name, param_ty));
+
                 idx += 1;
 
                 // Skip comma if present
@@ -1643,12 +2246,14 @@ impl<'a> Executor<'a> {
         pubness,
       });
 
-      // Skip: name ident, type annotation, colon, eq.
-      // Find the Eq token — init expression starts after it.
+      // Skip: name ident, type annotation, colon, eq/colon_eq.
+      // Find the Eq or ColonEq token — init expression starts
+      // after it.
       let mut skip_to = idx + 1; // at least skip the Imu
       for i in (idx + 1)..children_end {
         skip_to = i + 1;
-        if self.tree.nodes[i].token == Token::Eq {
+
+        if matches!(self.tree.nodes[i].token, Token::Eq | Token::ColonEq) {
           break;
         }
       }
@@ -2379,6 +2984,41 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Resolves a closure variable to its FunDef + capture count.
+  /// Returns `(Some(func), capture_count)` if found, else `(None, 0)`.
+  fn resolve_closure_call(&self, name: Symbol) -> (Option<FunDef>, u32) {
+    let local = match self.lookup_local(name) {
+      Some(l) => l,
+      None => return (None, 0),
+    };
+
+    let idx = local.value_id.0 as usize;
+
+    if idx >= self.values.kinds.len() {
+      return (None, 0);
+    }
+
+    if !matches!(self.values.kinds[idx], Value::Closure) {
+      return (None, 0);
+    }
+
+    let ci = self.values.indices[idx] as usize;
+    let cv = &self.values.closures[ci];
+    let maybe_fun = self.funs.iter().find(|f| f.name == cv.fun_name).cloned();
+
+    match maybe_fun {
+      Some(f) => {
+        let cc = match f.kind {
+          FunctionKind::Closure { capture_count } => capture_count,
+          _ => 0,
+        };
+
+        (Some(f), cc)
+      }
+      None => (None, 0),
+    }
+  }
+
   /// Executes a function call.
   fn execute_call(
     &mut self,
@@ -2386,10 +3026,21 @@ impl<'a> Executor<'a> {
     lparen_idx: usize,
     rparen_idx: usize,
   ) {
-    // Find the function definition
+    // Find the function definition — direct or via closure variable.
     let fun_def = self.funs.iter().find(|f| f.name == fun_name).cloned();
+    let (func, capture_count) = if let Some(func) = fun_def {
+      let cc = match func.kind {
+        FunctionKind::Closure { capture_count } => capture_count,
+        _ => 0,
+      };
 
-    if let Some(func) = fun_def {
+      (Some(func), cc)
+    } else {
+      // Check if fun_name is a local holding a closure value.
+      self.resolve_closure_call(fun_name)
+    };
+
+    if let Some(func) = func {
       // Count arguments by commas at depth 0.
       // 0 commas + non-empty = 1 arg, N commas = N+1.
       let has_content = lparen_idx + 1 < rparen_idx;
@@ -2408,9 +3059,10 @@ impl<'a> Executor<'a> {
       let arg_count = if has_content { comma_count + 1 } else { 0 };
 
       // Type check: correct number of arguments.
-      // Skip for intrinsics — codegen handles them.
-      if func.kind != FunctionKind::Intrinsic && arg_count != func.params.len()
-      {
+      // For closures, user args = total params - capture_count.
+      let expected_args = func.params.len() - capture_count as usize;
+
+      if func.kind != FunctionKind::Intrinsic && arg_count != expected_args {
         let span = self.tree.spans[rparen_idx];
 
         report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
@@ -2418,7 +3070,7 @@ impl<'a> Executor<'a> {
         return;
       }
 
-      // Pop arguments from stack (they're in reverse order)
+      // Pop user arguments from stack (they're in reverse order).
       let mut args = Vec::with_capacity(arg_count);
       let mut arg_types = Vec::with_capacity(arg_count);
       let mut arg_sirs = Vec::with_capacity(arg_count);
@@ -2436,17 +3088,43 @@ impl<'a> Executor<'a> {
         }
       }
 
-      // Arguments were in reverse order, fix that
+      // Arguments were in reverse order, fix that.
       args.reverse();
       arg_types.reverse();
       arg_sirs.reverse();
 
-      // Type check arguments against parameter types.
-      // Skip for intrinsic functions — codegen handles
-      // them via compile-time type dispatch.
+      // For closures, prepend capture Loads before user args.
+      if capture_count > 0 {
+        let mut full_sirs =
+          Vec::with_capacity(capture_count as usize + arg_sirs.len());
+
+        for i in 0..capture_count as usize {
+          let (cap_name, cap_ty) = func.params[i];
+          let dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+
+          let sv = self.sir.emit(Insn::Load {
+            dst,
+            src: 100 + cap_name.as_u32(),
+            ty_id: cap_ty,
+          });
+
+          full_sirs.push(sv);
+        }
+
+        full_sirs.extend_from_slice(&arg_sirs);
+
+        arg_sirs = full_sirs;
+      }
+
+      // Type check user arguments against user parameter types.
+      // Skip captures (first capture_count params).
       if func.kind != FunctionKind::Intrinsic {
+        let user_params = &func.params[capture_count as usize..];
+
         for (i, ((_, param_ty), arg_ty)) in
-          func.params.iter().zip(arg_types.iter()).enumerate()
+          user_params.iter().zip(arg_types.iter()).enumerate()
         {
           let span = self.tree.spans[lparen_idx + 1 + i * 2];
 
@@ -2456,14 +3134,16 @@ impl<'a> Executor<'a> {
         }
       }
 
-      // Emit Call instruction
+      // Emit Call instruction.
+      let call_name = func.name;
+
       let result_sir = self.sir.emit(Insn::Call {
-        name: fun_name,
+        name: call_name,
         args: arg_sirs,
         ty_id: func.return_ty,
       });
 
-      // Push return value
+      // Push return value.
       if func.return_ty != self.ty_checker.unit_type() {
         let result_val = self.values.store_runtime(0);
 
