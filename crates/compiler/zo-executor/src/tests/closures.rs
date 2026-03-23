@@ -239,3 +239,40 @@ fun main() {
     },
   );
 }
+
+#[test]
+fn test_recursive_closure() {
+  // Recursive closure: fib calls itself by name.
+  assert_sir_structure(
+    r#"ext check(b: bool);
+fun main() {
+  imu fib := fn(n: int) -> int {
+    if n <= 1 {
+      return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+  };
+  check@eq(fib(8), 21);
+}"#,
+    |sir| {
+      // Recursive calls should NOT return unit —
+      // they must resolve through the letrec local.
+      let unit_calls = sir
+        .iter()
+        .filter(|i| {
+          matches!(
+            i,
+            Insn::Call { ty_id, .. }
+            if *ty_id == TyId(1) // unit
+          )
+        })
+        .count();
+
+      // Only check@eq should return unit (1 call).
+      assert!(
+        unit_calls <= 1,
+        "expected at most 1 unit Call (check), got {unit_calls}",
+      );
+    },
+  );
+}

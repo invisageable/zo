@@ -962,80 +962,76 @@ impl<'a> Executor<'a> {
       }
 
       // === TUPLE FIELD ACCESS: tup.0, tup.1 ===
-      Token::Dot => {
-        // Shunting Yard reorders `tup . 0` to postfix: `tup 0 .`
-        // Stack has: [..., tuple_val, index_val].
-        if self.value_stack.len() >= 2 {
-          // Pop index (integer literal).
-          let idx_val = self.value_stack.pop().unwrap();
-          let _idx_ty = self.ty_stack.pop();
+      Token::Dot if self.value_stack.len() >= 2 => {
+        // Shunting Yard reorders `tup . 0` to postfix:
+        // `tup 0 .`. Stack has: [..., tuple_val, index_val].
+        // Pop index (integer literal).
+        let idx_val = self.value_stack.pop().unwrap();
+        let _idx_ty = self.ty_stack.pop();
 
-          self.sir_values.pop();
+        self.sir_values.pop();
 
-          // Pop tuple.
-          let _tup_val = self.value_stack.pop().unwrap();
+        // Pop tuple.
+        let _tup_val = self.value_stack.pop().unwrap();
 
-          let tup_ty =
-            self.ty_stack.pop().unwrap_or(self.ty_checker.unit_type());
+        let tup_ty = self.ty_stack.pop().unwrap_or(self.ty_checker.unit_type());
 
-          let tup_sir = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
+        let tup_sir = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
 
-          // Read the integer index from ValueStorage.
-          let field_idx = {
-            let vi = idx_val.0 as usize;
+        // Read the integer index from ValueStorage.
+        let field_idx = {
+          let vi = idx_val.0 as usize;
 
-            if vi < self.values.kinds.len()
-              && matches!(self.values.kinds[vi], Value::Int)
-            {
-              let ii = self.values.indices[vi] as usize;
-              self.values.ints[ii] as u32
-            } else {
-              0
-            }
-          };
-
-          // Resolve element type from tuple type.
-          // Use kind_of to follow type variable indirections
-          // (e.g. when tuple was inferred via := binding).
-          let elem_ty = if let Ty::Tuple(tid) = self.ty_checker.kind_of(tup_ty)
+          if vi < self.values.kinds.len()
+            && matches!(self.values.kinds[vi], Value::Int)
           {
-            if let Some(tup) = self.ty_checker.ty_table.tuple(tid) {
-              let elems = self.ty_checker.ty_table.tuple_elems(tup);
+            let ii = self.values.indices[vi] as usize;
+            self.values.ints[ii] as u32
+          } else {
+            0
+          }
+        };
 
-              if (field_idx as usize) < elems.len() {
-                elems[field_idx as usize]
-              } else {
-                // Out of bounds — compile error.
-                let span = self.tree.spans[idx];
+        // Resolve element type from tuple type.
+        // Use kind_of to follow type variable indirections
+        // (e.g. when tuple was inferred via := binding).
+        let elem_ty = if let Ty::Tuple(tid) = self.ty_checker.kind_of(tup_ty) {
+          if let Some(tup) = self.ty_checker.ty_table.tuple(tid) {
+            let elems = self.ty_checker.ty_table.tuple_elems(tup);
 
-                report_error(Error::new(ErrorKind::TypeMismatch, span));
-                self.ty_checker.error_type()
-              }
+            if (field_idx as usize) < elems.len() {
+              elems[field_idx as usize]
             } else {
-              self.ty_checker.unit_type()
+              // Out of bounds — compile error.
+              let span = self.tree.spans[idx];
+
+              report_error(Error::new(ErrorKind::TypeMismatch, span));
+              self.ty_checker.error_type()
             }
           } else {
-            // Not a tuple type — might be struct field access later.
             self.ty_checker.unit_type()
-          };
+          }
+        } else {
+          // Not a tuple type — might be struct field access later.
+          self.ty_checker.unit_type()
+        };
 
-          let dst = ValueId(self.sir.next_value_id);
+        let dst = ValueId(self.sir.next_value_id);
 
-          self.sir.next_value_id += 1;
+        self.sir.next_value_id += 1;
 
-          let sv = self.sir.emit(Insn::TupleIndex {
-            dst,
-            tuple: tup_sir,
-            index: field_idx,
-            ty_id: elem_ty,
-          });
+        let sv = self.sir.emit(Insn::TupleIndex {
+          dst,
+          tuple: tup_sir,
+          index: field_idx,
+          ty_id: elem_ty,
+        });
 
-          let rid = self.values.store_runtime(0);
+        let rid = self.values.store_runtime(0);
 
-          self.value_stack.push(rid);
-          self.ty_stack.push(elem_ty);
-          self.sir_values.push(sv);
-        }
+        self.value_stack.push(rid);
+        self.ty_stack.push(elem_ty);
+        self.sir_values.push(sv);
       }
 
       // === BINARY OPERATORS ===
@@ -1797,6 +1793,11 @@ impl<'a> Executor<'a> {
           continue;
         }
 
+        // Skip self-reference (recursive closure).
+        if self.pending_decl.as_ref().is_some_and(|d| d.name == sym) {
+          continue;
+        }
+
         // Skip already captured.
         if seen.contains(&sym) {
           continue;
@@ -1982,6 +1983,26 @@ impl<'a> Executor<'a> {
       pubness: Pubness::No,
     });
 
+    // Update pre-registered letrec local (if any) so
+    // recursive calls inside the closure body can
+    // resolve via resolve_closure_call.
+    if let Some(decl) = &self.pending_decl {
+      let decl_name = decl.name;
+
+      if let Some(pos) = self.locals.iter().rposition(|l| l.name == decl_name) {
+        let cv = self.values.store_closure(ClosureValue {
+          fun_name: closure_name,
+          captures: Vec::new(),
+        });
+
+        self.locals[pos].value_id = cv;
+      }
+    }
+
+    // Save pending_decl so the closure body's semicolons
+    // don't consume the outer imu declaration.
+    let outer_pending_decl = self.pending_decl.take();
+
     // -- 8. Set function context + scope ---------------------
 
     self.current_function = Some(FunCtx {
@@ -2059,6 +2080,7 @@ impl<'a> Executor<'a> {
 
     self.current_function = outer_function;
     self.skip_until = saved_skip;
+    self.pending_decl = outer_pending_decl;
 
     // Restore outer stacks.
     self.value_stack = outer_value_stack;
@@ -2311,6 +2333,39 @@ impl<'a> Executor<'a> {
           break;
         }
       }
+
+      // Pre-register for recursive closures (letrec).
+      // If the init expression is a closure, the body
+      // may reference the variable by name. Register a
+      // placeholder local so lookup_local succeeds
+      // during closure body execution.
+      let has_closure =
+        (skip_to..children_end).any(|i| self.tree.nodes[i].token == Token::Fn);
+
+      if has_closure {
+        let placeholder = self.values.store_runtime(u32::MAX);
+
+        let ty = self.ty_checker.fresh_var();
+
+        self.locals.push(Local {
+          name,
+          ty_id: ty,
+          value_id: placeholder,
+          pubness,
+          mutability: if is_mutable {
+            Mutability::Yes
+          } else {
+            Mutability::No
+          },
+          sir_value: Some(ValueId(u32::MAX)),
+          local_kind: LocalKind::Variable,
+        });
+
+        if let Some(frame) = self.scope_stack.last_mut() {
+          frame.count += 1;
+        }
+      }
+
       self.skip_until = skip_to;
     }
   }
@@ -2382,15 +2437,28 @@ impl<'a> Executor<'a> {
         pubness: decl.pubness,
       });
 
-      self.locals.push(Local {
-        name: decl.name,
-        ty_id: init_ty,
-        value_id: init_value,
-        pubness: decl.pubness,
-        mutability,
-        sir_value: sir_init,
-        local_kind: LocalKind::Variable,
-      });
+      // Update pre-registered local (letrec) or push new.
+      if let Some(local) =
+        self.locals.iter_mut().rev().find(|l| l.name == decl.name)
+      {
+        local.ty_id = init_ty;
+        local.value_id = init_value;
+        local.sir_value = sir_init;
+      } else {
+        self.locals.push(Local {
+          name: decl.name,
+          ty_id: init_ty,
+          value_id: init_value,
+          pubness: decl.pubness,
+          mutability,
+          sir_value: sir_init,
+          local_kind: LocalKind::Variable,
+        });
+
+        if let Some(frame) = self.scope_stack.last_mut() {
+          frame.count += 1;
+        }
+      }
 
       // Emit initial Store so the value is on the stack
       // frame. Load instructions will read from this
@@ -2403,10 +2471,6 @@ impl<'a> Executor<'a> {
           value: sv,
           ty_id: init_ty,
         });
-      }
-
-      if let Some(frame) = self.scope_stack.last_mut() {
-        frame.count += 1;
       }
     }
   }
