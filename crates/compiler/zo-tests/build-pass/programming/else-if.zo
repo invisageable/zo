@@ -1,4 +1,4 @@
--- tests-run-pass: else-if chains (from rust-prehistory).
+-- tests-build-pass: else-if chains (from rust-prehistory).
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/else_if.zo -o crates/compiler/zo-tests/build-pass/programming/else_if
 
 fun main() {

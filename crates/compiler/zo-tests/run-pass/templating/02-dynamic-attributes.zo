@@ -1,4 +1,4 @@
--- examples: dynamic attributes.
+-- test-run-pass: dynamic attributes.
 
 fun main() {
   imu src: str = "/assets/image.gif";

@@ -1,4 +1,4 @@
--- examples: styling.
+-- test-run-pass: styling.
 
 fun main() {
   imu paragraph ::= <p>You think water moves fast? You should see ice. It 

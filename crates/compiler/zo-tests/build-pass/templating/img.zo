@@ -1,4 +1,4 @@
--- examples: self-closing image tag.
+-- test-build-pass: self-closing image tag.
 
 fun main() {
   imu banner: </> ::= <>

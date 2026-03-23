@@ -1,4 +1,4 @@
--- tests-run-pass: arithmetic with user-defined functions.
+-- tests-build-pass: arithmetic with user-defined functions.
 -- @cmd — cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/programming/arithmetic.zo
 
 fun add(a: int, b: int) -> int {

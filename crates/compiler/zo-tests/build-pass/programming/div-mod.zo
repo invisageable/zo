@@ -1,4 +1,4 @@
--- tests-run-pass: division and modulo (from rust-prehistory).
+-- tests-build-pass: division and modulo (from rust-prehistory).
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/div_mod.zo -o crates/compiler/zo-tests/build-pass/programming/div_mod
 
 fun main() {

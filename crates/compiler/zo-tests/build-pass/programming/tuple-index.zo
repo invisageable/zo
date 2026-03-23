@@ -1,7 +1,10 @@
 -- tests-build-pass: tuple field access.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/tuple-index.zo -o crates/compiler/zo-tests/build-pass/programming/tuple-index
 
-fun main() -> int {
+fun main() {
   imu t := (10, 20);
-  t.0 + t.1
+
+  check@eq(t.0, 10);
+  check@eq(t.1, 20);
+  check@eq(t.0 + t.1, 30);
 }

@@ -1,13 +1,13 @@
 use zo_interner::Symbol;
 
+use rustc_hash::FxHashMap as HashMap;
+
 /// Represents [`Mutability`] flag for variables/refs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Mutability {
   No,
   Yes,
 }
-
-use rustc_hash::FxHashMap as HashMap;
 
 /// A type identifier - an index into the type table.
 /// This is a newtype wrapper around u32 for type safety.

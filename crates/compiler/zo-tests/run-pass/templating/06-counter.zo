@@ -1,4 +1,4 @@
--- examples: counter.
+-- test-run-pass: counter.
 
 fun main() {
   mut count: int = 0;

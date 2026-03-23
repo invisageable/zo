@@ -1,4 +1,4 @@
--- examples: html tag.
+-- test-run-pass: html tag.
 
 fun main() {
 	imu strong: str = "here's some <strong>html!!!</strong>";

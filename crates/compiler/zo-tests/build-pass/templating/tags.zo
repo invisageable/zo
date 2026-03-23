@@ -1,4 +1,4 @@
--- examples: all supported tags.
+-- test-build-pass: all supported tags.
 
 fun main() {
   imu page: </> ::= <>

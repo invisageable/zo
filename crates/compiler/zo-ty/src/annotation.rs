@@ -1,7 +1,5 @@
 use crate::ty::TyId;
 
-// use zo_interner::Symbol;
-
 /// Annotation maps a HIR node to its type
 #[derive(Clone, Copy, Debug)]
 pub struct Annotation {

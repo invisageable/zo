@@ -1,4 +1,4 @@
--- examples: nested containers.
+-- test-build-pass: nested containers.
 
 fun main() {
   imu layout: </> ::= <>

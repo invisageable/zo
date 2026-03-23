@@ -1,9 +1,9 @@
 -- tests-build-pass: closure captures outer variable.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/closure-capture.zo -o crates/compiler/zo-tests/build-pass/programming/closure-capture
 
-fun main() -> int {
+fun main() {
   imu y: int = 10;
   imu f := fn(x: int) -> int => x + y;
 
-  f(5)
+  check@eq(f(5), 15);
 }

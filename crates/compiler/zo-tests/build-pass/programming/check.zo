@@ -1,4 +1,4 @@
--- tests-run-pass: check assertion.
+-- tests-build-pass: check assertion.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/check.zo -o crates/compiler/zo-tests/build-pass/programming/check
 
 fun main() {

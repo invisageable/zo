@@ -1,4 +1,4 @@
--- examples: nested component.
+-- test-run-pass: nested component.
 
 fun main() {
   imu nested ::= <p>lorem ipsum.</p>;

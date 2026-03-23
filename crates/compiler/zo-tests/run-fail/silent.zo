@@ -1,8 +1,8 @@
-fun foobar(): int {
+fun foobar() -> int {
   ... -- equivalent as todo or unimplemented.
 }
 
-fun foobar(): int {
+fun foobar() -> int {
   ..."the foobar method needs to do something." -- equivalent as todo or unimplemented with error message.
 }
 

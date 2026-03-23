@@ -1,4 +1,4 @@
--- examples: button + input widgets (static, no events yet).
+-- test-build-pass: button + input widgets (static, no events yet).
 
 fun main() {
   imu form: </> ::= <>

@@ -1,4 +1,4 @@
--- tests-run-pass: check modifier with floats.
+-- tests-build-pass: check modifier with floats.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/check_modifier_float.zo -o crates/compiler/zo-tests/build-pass/programming/check_modifier_float
 
 fun main() {

@@ -1,4 +1,4 @@
--- examples: attribute extraction.
+-- test-build-pass: attribute extraction.
 
 fun main() {
   imu form: </> ::= <>

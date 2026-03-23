@@ -1,4 +1,4 @@
--- tests-run-pass: check modifier assertions.
+-- tests-build-pass: check modifier assertions.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/check_modifier.zo -o crates/compiler/zo-tests/build-pass/programming/check_modifier
 
 fun main() {

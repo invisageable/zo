@@ -1,8 +1,8 @@
 -- tests-build-pass: closure block syntax.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/closure-block.zo -o crates/compiler/zo-tests/build-pass/programming/closure-block
 
-fun main() -> int {
+fun main() {
   imu f: Fn(int) -> int = fn(x: int) -> int { x + x };
 
-  f(21)
+  check@eq(f(21), 42);
 }

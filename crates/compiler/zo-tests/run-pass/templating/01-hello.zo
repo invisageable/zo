@@ -1,4 +1,4 @@
--- examples: hello (templating).
+-- test-run-pass: the superstar `hello, world!` (templating).
 
 fun main() {
   imu name: str = "world";

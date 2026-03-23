@@ -1,4 +1,4 @@
--- examples: event binding with @event syntax.
+-- test-build-pass: event binding with @event syntax.
 
 fun handle_click() {}
 fun handle_focus() {}
