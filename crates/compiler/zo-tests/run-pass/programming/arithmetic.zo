@@ -22,5 +22,10 @@ fun main() -> int {
   imu z: int = mul(y, 2);
   imu result: int = div(z, 5);
 
+  check@eq(x, 30);
+  check@eq(y, 25);
+  check@eq(z, 50);
+  check@eq(result, 10);
+
   return result;
 }

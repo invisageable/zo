@@ -1,0 +1,7 @@
+fun foo() {
+  showln("function called!");
+}
+
+fun main() {
+  foo();
+}

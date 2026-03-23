@@ -1,0 +1,14 @@
+-- tests-build-pass: if-else chains.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/else_if.zo -o crates/compiler/zo-tests/build-pass/programming/else_if
+
+fun main() {
+  mut x: int = 3;
+
+  if x == 1 {
+    x = 1
+  } else {
+    x = 3
+  }
+
+  showln(x);
+}

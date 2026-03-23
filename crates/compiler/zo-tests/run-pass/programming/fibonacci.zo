@@ -2,7 +2,7 @@
 -- @see https://en.wikipedia.org/wiki/Fibonacci_sequence.
 
 fun main() {
-  imu fib := fn (n) {
+  imu fib := fn(n: int) -> int {
     if n == 0 {
       return 0;
     } else {

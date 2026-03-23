@@ -2,4 +2,6 @@
 
 fun main() {
   imu x: uint = 10;
+
+  check@eq(x, 10);
 }

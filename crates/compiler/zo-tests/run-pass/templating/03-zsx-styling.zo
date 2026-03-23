@@ -1,5 +1,19 @@
 -- test-run-pass: styling.
 
+pub $: {
+  html body {
+    w: 100%
+    h: 100%
+  }
+};
+
+$: {
+  p {
+    color: cyan;
+    font-weight: 800;
+  }  
+}
+
 fun main() {
   imu paragraph ::= <p>You think water moves fast? You should see ice. It 
     moves like it has a mind. Like it knows it killed the world once and got a 
