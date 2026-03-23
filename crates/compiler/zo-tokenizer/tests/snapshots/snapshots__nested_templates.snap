@@ -375,6 +375,8 @@ literals:
   char_literals: []
   string_literals:
     - 29
+  interp_segments: []
+  interp_ranges: []
 interner:
   storage: _funmutimuifelsewhileforreturnbreakcontinuematchwhenasistruefalseSelfselfstructenumtypepubvalmainviewdivclasscontaineritemsmapitemlikeyidspannamebuttononclickdeletedom
   spans:

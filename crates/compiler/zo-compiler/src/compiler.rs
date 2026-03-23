@@ -202,10 +202,15 @@ impl Compiler {
 
       if let Some(m) = resolved {
         let src = m.source.clone();
-        let mod_tok = Tokenizer::new(&src).tokenize();
+        let mut mod_tok = Tokenizer::new(&src).tokenize();
         let mod_par = Parser::new(&mod_tok, &src).parse();
-        let mod_ana =
-          Analyzer::new(&mod_par.tree, &mod_tok.interner, &mod_tok.literals);
+
+        let mod_ana = Analyzer::new(
+          &mod_par.tree,
+          &mut mod_tok.interner,
+          &mod_tok.literals,
+        );
+
         let mod_sem = mod_ana.analyze();
         let mut dst_tc = TyChecker::new();
 
@@ -285,13 +290,15 @@ impl Compiler {
 
       self.compiling.insert(resolved_path.clone());
 
-      let mod_tokenization = Tokenizer::new(&mod_source).tokenize();
+      let mut mod_tokenization = Tokenizer::new(&mod_source).tokenize();
       let mod_parsing = Parser::new(&mod_tokenization, &mod_source).parse();
+
       let mod_analyzer = Analyzer::new(
         &mod_parsing.tree,
-        &mod_tokenization.interner,
+        &mut mod_tokenization.interner,
         &mod_tokenization.literals,
       );
+
       let mod_semantic = mod_analyzer.analyze();
 
       let mut dst_ty_checker = TyChecker::new();
@@ -330,7 +337,7 @@ impl Compiler {
 
     let analyzer = Analyzer::new(
       &parsing.tree,
-      &tokenization.interner,
+      &mut tokenization.interner,
       &tokenization.literals,
     );
 

@@ -12,12 +12,13 @@ pub enum Token {
   Eof,
 
   // Literals
-  Int,       // Side table index
-  Float,     // Side table index
-  String,    // Side table index
-  RawString, // Side table index
-  Char,      // Side table index
-  Bytes,     // Side table index
+  Int,          // Side table index
+  Float,        // Side table index
+  String,       // Side table index
+  InterpString, // Side table index (string with {var} interpolation)
+  RawString,    // Side table index
+  Char,         // Side table index
+  Bytes,        // Side table index
 
   // Identifiers & Keywords
   Ident, // Side table index
@@ -160,6 +161,7 @@ impl Token {
         | Self::Int
         | Self::Float
         | Self::String
+        | Self::InterpString
         | Self::RawString
         | Self::Char
         | Self::Bytes
@@ -317,6 +319,15 @@ impl Default for TokenBuffer {
   }
 }
 
+/// Segment of an interpolation string, pre-parsed by tokenizer.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum InterpSegment {
+  /// Static text between {} markers.
+  Literal(Symbol),
+  /// Variable name inside {}.
+  Variable(Symbol),
+}
+
 /// Storage for literal values extracted during tokenization
 /// The tokenizer stores parsed literal values
 #[derive(Serialize)]
@@ -327,6 +338,10 @@ pub struct LiteralStore {
   pub bytes_literals: Vec<(u32, u16)>,
   pub char_literals: Vec<u32>,
   pub string_literals: Vec<Symbol>,
+  /// Interpolation segments (flat array, indexed by ranges).
+  pub interp_segments: Vec<InterpSegment>,
+  /// Per-InterpString token: (start, count) into interp_segments.
+  pub interp_ranges: Vec<(u32, u16)>,
 }
 
 impl LiteralStore {
@@ -338,6 +353,8 @@ impl LiteralStore {
       float_literals: Vec::new(),
       char_literals: Vec::new(),
       bytes_literals: Vec::new(),
+      interp_segments: Vec::new(),
+      interp_ranges: Vec::new(),
     }
   }
 
@@ -349,6 +366,8 @@ impl LiteralStore {
       bytes_literals: Vec::with_capacity(cap / 100),
       char_literals: Vec::with_capacity(cap / 20),
       string_literals: Vec::with_capacity(cap / 10),
+      interp_segments: Vec::new(),
+      interp_ranges: Vec::new(),
     }
   }
 
@@ -402,6 +421,31 @@ impl LiteralStore {
     self.bytes_literals.push((start, len));
 
     idx
+  }
+
+  /// Push interpolation segments for an InterpString token.
+  /// Returns the index into interp_ranges.
+  #[inline(always)]
+  pub fn push_interp(&mut self, segments: &[InterpSegment]) -> u32 {
+    let idx = self.interp_ranges.len() as u32;
+    let start = self.interp_segments.len() as u32;
+
+    self.interp_segments.extend_from_slice(segments);
+
+    self.interp_ranges.push((start, segments.len() as u16));
+
+    idx
+  }
+
+  /// Get interpolation segments for a given interp range
+  /// index.
+  #[inline(always)]
+  pub fn interp_segs(&self, range_idx: u32) -> &[InterpSegment] {
+    let (start, count) = self.interp_ranges[range_idx as usize];
+
+    let end = start as usize + count as usize;
+
+    &self.interp_segments[start as usize..end]
   }
 }
 

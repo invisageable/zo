@@ -1,0 +1,10 @@
+-- tests-run-pass: multi-variable string interpolation.
+-- @cmd — cargo run --bin zo -- run crates/compiler/zo-tests/run-pass/programming/interp-multi.zo
+
+fun main() {
+  imu x: int = 1;
+  imu y: int = 2;
+  imu z: int = 3;
+
+  showln("{x}, {y}, {z}");
+}

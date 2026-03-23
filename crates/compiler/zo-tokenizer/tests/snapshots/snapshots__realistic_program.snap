@@ -358,6 +358,8 @@ literals:
   bytes_literals: []
   char_literals: []
   string_literals: []
+  interp_segments: []
+  interp_ranges: []
 interner:
   storage: _funmutimuifelsewhileforreturnbreakcontinuematchwhenasistruefalseSelfselfstructenumtypepubvalmainstdioreadreadlnmathPointxydistancep1p2dxdy
   spans:

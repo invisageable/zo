@@ -2,7 +2,7 @@ use zo_error::{Error, ErrorKind};
 use zo_interner::Interner;
 use zo_reporter::report_error;
 use zo_span::Span;
-use zo_token::{LiteralStore, Token, TokenBuffer};
+use zo_token::{InterpSegment, LiteralStore, Token, TokenBuffer};
 
 use serde::Serialize;
 
@@ -1067,6 +1067,8 @@ impl<'a> Tokenizer<'a> {
     self.advance(); // Skip opening "
 
     let mut found_closing = false;
+    let mut has_interpolation = false;
+
     while self.cursor < self.source.len() {
       let ch = self.current();
 
@@ -1076,11 +1078,16 @@ impl<'a> Tokenizer<'a> {
         break;
       }
       if ch == b'\\' {
-        self.advance();
+        self.advance(); // skip backslash
+
         if self.cursor < self.source.len() {
-          self.advance();
+          self.advance(); // skip escaped char (including \{)
         }
       } else {
+        if ch == b'{' {
+          has_interpolation = true;
+        }
+
         self.advance();
       }
     }
@@ -1106,15 +1113,106 @@ impl<'a> Tokenizer<'a> {
         std::str::from_utf8(&self.source[start + 1..self.cursor - 1])
           .unwrap_or("");
 
-      // Intern the string
-      let symbol = self.interner.intern(string_content);
-      // Store the Symbol in literals
-      let id = self.literals.push_string_symbol(symbol);
+      if has_interpolation {
+        // Parse segments and store in side table.
+        let interp_id = self.parse_interp_segments(string_content);
+        // Also intern the full string for the tree node.
+        let symbol = self.interner.intern(string_content);
+        let str_id = self.literals.push_string_symbol(symbol);
+        // Encode both indices: str_id in literal_indices,
+        // interp_id stored via push_with_literal on a
+        // parallel field. We pack interp_id into the high
+        // 16 bits of the literal index.
+        let packed = str_id | ((interp_id as u32) << 16);
 
-      self
-        .tokens
-        .push_with_literal(Token::String, start as u32, len, id);
+        self.tokens.push_with_literal(
+          Token::InterpString,
+          start as u32,
+          len,
+          packed,
+        );
+      } else {
+        // Intern the string
+        let symbol = self.interner.intern(string_content);
+        // Store the Symbol in literals
+        let id = self.literals.push_string_symbol(symbol);
+
+        self
+          .tokens
+          .push_with_literal(Token::String, start as u32, len, id);
+      }
     }
+  }
+
+  /// Parses interpolation segments from string content.
+  /// Returns the interp_ranges index.
+  fn parse_interp_segments(&mut self, content: &str) -> u32 {
+    let bytes = content.as_bytes();
+    let mut segments: Vec<InterpSegment> = Vec::new();
+    let mut lit_start = 0;
+    let mut i = 0;
+
+    while i < bytes.len() {
+      // Escaped brace: \{ → literal {
+      if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
+        let mut lit = content[lit_start..i].to_owned();
+
+        lit.push('{');
+
+        if !lit.is_empty() {
+          let sym = self.interner.intern(&lit);
+
+          segments.push(InterpSegment::Literal(sym));
+        }
+
+        i += 2;
+        lit_start = i;
+
+        continue;
+      }
+
+      if bytes[i] == b'{' {
+        // Flush preceding literal.
+        if i > lit_start {
+          let lit = &content[lit_start..i];
+          let sym = self.interner.intern(lit);
+
+          segments.push(InterpSegment::Literal(sym));
+        }
+
+        // Scan variable name until '}'.
+        let var_start = i + 1;
+
+        i += 1;
+
+        while i < bytes.len() && bytes[i] != b'}' {
+          i += 1;
+        }
+
+        if i < bytes.len() {
+          let var_name = &content[var_start..i];
+          let sym = self.interner.intern(var_name);
+
+          segments.push(InterpSegment::Variable(sym));
+
+          i += 1; // skip }
+        }
+
+        lit_start = i;
+      } else {
+        i += 1;
+      }
+    }
+
+    // Flush trailing literal.
+    if lit_start < bytes.len() {
+      let lit = &content[lit_start..];
+      let sym = self.interner.intern(lit);
+
+      segments.push(InterpSegment::Literal(sym));
+    }
+
+    self.literals.push_interp(&segments)
   }
 
   fn scan_char(&mut self) {

@@ -1,0 +1,8 @@
+-- tests-build-pass: basic string interpolation.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/interp-basic.zo -o crates/compiler/zo-tests/build-pass/programming/interp-basic
+
+fun main() {
+  imu x: int = 42;
+
+  showln("{x}");
+}

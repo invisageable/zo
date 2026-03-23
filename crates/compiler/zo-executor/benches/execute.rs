@@ -22,14 +22,14 @@ fn bench_executor_body<'a>(
   move |b: &mut criterion::Bencher| {
     b.iter(|| {
       let tokenizer = Tokenizer::new(black_box(source));
-      let tokenization = tokenizer.tokenize();
+      let mut tokenization = tokenizer.tokenize();
 
       let parser = Parser::new(&tokenization, source);
       let parsing = parser.parse();
 
       let executor = Executor::new(
         &parsing.tree,
-        &tokenization.interner,
+        &mut tokenization.interner,
         &tokenization.literals,
       );
 

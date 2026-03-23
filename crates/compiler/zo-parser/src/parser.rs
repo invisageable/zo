@@ -1097,22 +1097,33 @@ impl<'a> Parser<'a> {
       Token::Ident => {
         let lit_idx = self.tokens.literal_indices[self.pos];
         let symbol = self.literals.identifiers[lit_idx as usize];
+
         Some(NodeValue::Symbol(symbol))
       }
       Token::Bytes => {
         let start = self.tokens.starts[self.pos];
         let len = self.tokens.lengths[self.pos];
+
         Some(NodeValue::TextRange(start, len))
       }
       Token::TemplateText => {
         // Template text is now interned like identifiers
         let lit_idx = self.tokens.literal_indices[self.pos];
         let symbol = self.literals.identifiers[lit_idx as usize];
+
         Some(NodeValue::Symbol(symbol))
+      }
+      Token::InterpString => {
+        // Packed: low 16 = string_literals idx,
+        // high 16 = interp_ranges idx.
+        let packed = self.tokens.literal_indices[self.pos];
+        // Store packed value so executor can unpack both.
+        Some(NodeValue::Literal(packed))
       }
       Token::String | Token::RawString => {
         let lit_idx = self.tokens.literal_indices[self.pos];
         let symbol = self.literals.string_literals[lit_idx as usize];
+
         Some(NodeValue::Symbol(symbol))
       }
       Token::Int | Token::Float | Token::Char => {

@@ -18,14 +18,14 @@ fn test_complete_pipeline_hello_world() {
   let source = r#"fun main() { show("hello world") }"#;
 
   let tokenizer = Tokenizer::new(source);
-  let tokenization = tokenizer.tokenize();
+  let mut tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing_result = parser.parse();
 
   let executor = Executor::new(
     &parsing_result.tree,
-    &tokenization.interner,
+    &mut tokenization.interner,
     &tokenization.literals,
   );
 

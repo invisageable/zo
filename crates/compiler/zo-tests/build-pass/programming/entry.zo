@@ -1,3 +1,3 @@
--- tests-run-pass: entry.
+-- tests-build-pass: entry.
 
 fun main() {}

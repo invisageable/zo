@@ -5,7 +5,7 @@ use zo_reporter::report_error;
 use zo_sir::{BinOp, Insn, Sir, UnOp};
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
-use zo_token::{LiteralStore, Token};
+use zo_token::{InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, Mutability, Ty, TyId};
 use zo_ty_checker::TyChecker;
@@ -34,9 +34,10 @@ pub struct ScopeFrame {
 pub struct Executor<'a> {
   /// Parse tree to execute
   tree: &'a Tree,
-  /// String interner (mostly read-only - symbols already interned during
-  /// parsing)
-  interner: &'a Interner,
+  /// String interner — mutable so the executor can intern
+  /// new symbols during compile-time execution (e.g.
+  /// interpolation desugaring).
+  interner: &'a mut Interner,
   /// Literal values from tokenization
   literals: &'a LiteralStore,
   /// Operand stack (4 bytes per value - just indices!)
@@ -97,7 +98,7 @@ impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
   pub fn new(
     tree: &'a Tree,
-    interner: &'a Interner,
+    interner: &'a mut Interner,
     literals: &'a LiteralStore,
   ) -> Self {
     let capacity = tree.nodes.len();
@@ -709,15 +710,38 @@ impl<'a> Executor<'a> {
         }
       }
 
+      Token::InterpString => {
+        // InterpString stores packed value:
+        // low 16 = string_literals idx,
+        // high 16 = interp_ranges idx.
+        if let Some(NodeValue::Literal(packed)) = self.node_value(idx) {
+          let str_idx = (packed & 0xFFFF) as usize;
+          let symbol = self.literals.string_literals[str_idx];
+          let ty_id = self.ty_checker.str_type();
+
+          // Emit ConstString for the full format string
+          // (may become dead code after desugaring).
+          let sir_value = self.sir.emit(Insn::ConstString { symbol, ty_id });
+          let value_id = self.values.store_string(symbol);
+
+          self.value_stack.push(value_id);
+          self.ty_stack.push(ty_id);
+          self.sir_values.push(sir_value);
+
+          self.annotations.push(Annotation {
+            node_idx: idx,
+            ty_id,
+          });
+        }
+      }
+
       Token::String | Token::RawString => {
-        // String literals are already interned during tokenization
+        // String literals are already interned during
+        // tokenization.
         if let Some(NodeValue::Symbol(symbol)) = self.node_value(idx) {
           let ty_id = self.ty_checker.str_type();
 
-          // Emit SIR instruction for string constant
           let sir_value = self.sir.emit(Insn::ConstString { symbol, ty_id });
-
-          // Store in value storage and push to stack
           let value_id = self.values.store_string(symbol);
 
           self.value_stack.push(value_id);
@@ -3019,6 +3043,126 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Checks if the call has a single InterpString argument.
+  fn is_single_interp_arg(&self, lparen_idx: usize, rparen_idx: usize) -> bool {
+    // Single arg: exactly one non-comma token between parens.
+    let arg_idx = lparen_idx + 1;
+
+    arg_idx < rparen_idx
+      && self.tree.nodes[arg_idx].token == Token::InterpString
+  }
+
+  /// Desugars `showln("{x}, {y}")` into a sequence of
+  /// typed show() calls. Compile-time interpolation.
+  ///
+  /// Segments are pre-parsed by the tokenizer and stored
+  /// in LiteralStore. The executor reads them and emits
+  /// one show/showln Call per segment.
+  fn execute_interp_call(
+    &mut self,
+    fun_name: Symbol,
+    lparen_idx: usize,
+    rparen_idx: usize,
+  ) {
+    let name_str = self.interner.get(fun_name);
+    let wants_newline = name_str == "showln" || name_str == "eshowln";
+    let is_stderr = name_str.starts_with('e');
+
+    // Resolve the "show"/"eshow" symbol for intermediate
+    // calls. Intern if not yet present.
+    let base_name = if is_stderr { "eshow" } else { "show" };
+    let show_sym = self.interner.intern(base_name);
+
+    // Pop the already-pushed ConstString arg from stacks.
+    self.value_stack.pop();
+    self.ty_stack.pop();
+    self.sir_values.pop();
+
+    // Get pre-parsed segments from LiteralStore.
+    // Tree node stores Literal(packed): low 16 = string
+    // idx, high 16 = interp_ranges idx.
+    let arg_idx = lparen_idx + 1;
+
+    let packed = match self.tree.value(arg_idx as u32) {
+      Some(NodeValue::Literal(p)) => p,
+      _ => return,
+    };
+
+    let interp_id = packed >> 16;
+    let segments = self.literals.interp_segs(interp_id);
+
+    let unit_ty = self.ty_checker.unit_type();
+    let str_ty = self.ty_checker.str_type();
+    let n = segments.len();
+    let span = self.tree.spans[rparen_idx];
+
+    // Collect segments into a local vec to avoid borrow
+    // issues with self.literals.
+    let segments = segments.to_vec();
+
+    for (si, seg) in segments.iter().enumerate() {
+      let is_last = si == n - 1;
+
+      let call_name = if is_last && wants_newline {
+        fun_name
+      } else {
+        show_sym
+      };
+
+      match seg {
+        InterpSegment::Literal(sym) => {
+          let sir_val = self.sir.emit(Insn::ConstString {
+            symbol: *sym,
+            ty_id: str_ty,
+          });
+
+          self.sir.emit(Insn::Call {
+            name: call_name,
+            args: vec![sir_val],
+            ty_id: unit_ty,
+          });
+        }
+        InterpSegment::Variable(sym) => {
+          // Resolve variable from scope.
+          let local_info =
+            self.lookup_local(*sym).map(|l| (l.ty_id, l.sir_value));
+
+          if let Some((var_ty, sir_value)) = local_info {
+            // Get or emit the SIR value for this var.
+            let sir_val = match sir_value {
+              Some(sv) => sv,
+              None => {
+                // Parameter — emit a Load.
+                let param_idx =
+                  self.locals.iter().position(|l| l.name == *sym).unwrap_or(0)
+                    as u32;
+
+                let dst = ValueId(self.sir.next_value_id);
+
+                self.sir.next_value_id += 1;
+
+                self.sir.emit(Insn::Load {
+                  dst,
+                  src: param_idx,
+                  ty_id: var_ty,
+                })
+              }
+            };
+
+            self.sir.emit(Insn::Call {
+              name: call_name,
+              args: vec![sir_val],
+              ty_id: unit_ty,
+            });
+          } else {
+            // Undefined variable in interpolation.
+            report_error(Error::new(ErrorKind::UndefinedVariable, span));
+          }
+        }
+      }
+    }
+  }
+
   /// Executes a function call.
   fn execute_call(
     &mut self,
@@ -3026,6 +3170,18 @@ impl<'a> Executor<'a> {
     lparen_idx: usize,
     rparen_idx: usize,
   ) {
+    // Interpolation desugaring: showln("{x}, {y}") →
+    // show(x) + show(", ") + showln(y)
+    let name_str = self.interner.get(fun_name);
+
+    if matches!(name_str, "show" | "showln" | "eshow" | "eshowln")
+      && self.is_single_interp_arg(lparen_idx, rparen_idx)
+    {
+      self.execute_interp_call(fun_name, lparen_idx, rparen_idx);
+
+      return;
+    }
+
     // Find the function definition — direct or via closure variable.
     let fun_def = self.funs.iter().find(|f| f.name == fun_name).cloned();
     let (func, capture_count) = if let Some(func) = fun_def {
@@ -3342,7 +3498,7 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
-    let dir_name = self.interner.get(sym);
+    let dir_name = self.interner.get(sym).to_owned();
 
     // Execute argument children (after the name).
     for i in (dir_idx + 1)..end_idx {
@@ -3350,7 +3506,7 @@ impl<'a> Executor<'a> {
       self.execute_node(&node, i);
     }
 
-    match dir_name {
+    match dir_name.as_str() {
       "run" => {}
       "dom" if !self.value_stack.is_empty() => {
         let template_value = self.value_stack.pop().unwrap();

@@ -311,6 +311,8 @@ literals:
   bytes_literals: []
   char_literals: []
   string_literals: []
+  interp_segments: []
+  interp_ranges: []
 interner:
   storage: "_funmutimuifelsewhileforreturnbreakcontinuematchwhenasistruefalseSelfselfstructenumtypepubvalmaincountcounterbuttononclick--- this is a comment.\n        simple text to see if it work.\n        +dom"
   spans:

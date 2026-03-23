@@ -1,4 +1,4 @@
--- tests-run-pass: hello.
+-- tests-build-pass: hello.
 -- @see https://en.wikipedia.org/wiki/%22Hello,_World!%22_program.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/hello.zo -o crates/compiler/zo-tests/build-pass/programming/hello
 

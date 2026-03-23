@@ -30,7 +30,7 @@ pub struct Analyzer<'a> {
   /// The reference of parse [`Tree`].
   tree: &'a Tree,
   /// The reference of a string [`Interner`].
-  interner: &'a Interner,
+  interner: &'a mut Interner,
   /// The reference of a [`LiteralStore`].
   literals: &'a LiteralStore,
   /// Imported symbols from loaded modules.
@@ -41,7 +41,7 @@ impl<'a> Analyzer<'a> {
   /// Creates a new [`Analyzer`] instance.
   pub fn new(
     tree: &'a Tree,
-    interner: &'a Interner,
+    interner: &'a mut Interner,
     literals: &'a LiteralStore,
   ) -> Self {
     Self {

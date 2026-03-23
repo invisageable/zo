@@ -13,14 +13,14 @@ pub(crate) fn assert_annotations_stream(
   expected: &[(usize, Ty, Insn)],
 ) {
   let tokenizer = Tokenizer::new(source);
-  let tokenization = tokenizer.tokenize();
+  let mut tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
   let executor = Executor::new(
     &parsing.tree,
-    &tokenization.interner,
+    &mut tokenization.interner,
     &tokenization.literals,
   );
 
@@ -45,14 +45,14 @@ pub(crate) fn assert_annotations_stream(
 /// Assert that execution produces the expected SIR instructions
 pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
   let tokenizer = Tokenizer::new(source);
-  let tokenization = tokenizer.tokenize();
+  let mut tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
   let executor = Executor::new(
     &parsing.tree,
-    &tokenization.interner,
+    &mut tokenization.interner,
     &tokenization.literals,
   );
 
@@ -68,14 +68,14 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
 /// Assert SIR structure via a predicate.
 pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
   let tokenizer = Tokenizer::new(source);
-  let tokenization = tokenizer.tokenize();
+  let mut tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
   let executor = Executor::new(
     &parsing.tree,
-    &tokenization.interner,
+    &mut tokenization.interner,
     &tokenization.literals,
   );
 
@@ -87,14 +87,14 @@ pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
 /// Assert that execution produces the expected error.
 pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
   let tokenizer = Tokenizer::new(source);
-  let tokenization = tokenizer.tokenize();
+  let mut tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
   let executor = Executor::new(
     &parsing.tree,
-    &tokenization.interner,
+    &mut tokenization.interner,
     &tokenization.literals,
   );
 

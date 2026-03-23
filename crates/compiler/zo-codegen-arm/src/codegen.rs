@@ -720,75 +720,22 @@ impl<'a> ARM64Gen<'a> {
 
       Insn::Call { name, args, .. } => {
         match self.interner.get(*name) {
-          "show" => {
-            self.emitter.emit_mov_imm(X16, SYS_WRITE);
-            self.emitter.emit_mov_imm(X0, FD_STDOUT);
-            self.emitter.emit_svc(0);
-          }
-          "showln" => {
-            // Compile-time type dispatch (Graydon style).
+          "show" | "showln" | "eshow" | "eshowln" => {
+            let fn_name = self.interner.get(*name);
+
+            let fd = if fn_name.starts_with('e') {
+              FD_STDERR
+            } else {
+              FD_STDOUT
+            };
+
             let arg_vid = if args.is_empty() { None } else { Some(args[0]) };
 
-            let is_str =
-              arg_vid.is_some_and(|v| self.is_string_value(v, all_insns));
+            self.emit_typed_write(arg_vid, all_insns, fd);
 
-            let is_flt =
-              arg_vid.is_some_and(|v| self.is_float_value(v, all_insns));
-
-            if is_flt {
-              // Float: convert to int part + "." + frac,
-              // then write. Move float arg to D0 first.
-              if let Some(fp_src) = arg_vid.and_then(|v| self.alloc_fp_reg(v))
-                && fp_src != D0
-              {
-                self.emitter.emit_fmov_fp(D0, fp_src);
-              }
-
-              self.emit_ftoa_and_write(FD_STDOUT);
-            } else if !is_str && arg_vid.is_some() {
-              // Int: move to X0, itoa, write.
-              if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
-                && src != X0
-              {
-                self.emitter.emit_mov_reg(X0, src);
-              }
-
-              self.emit_itoa_and_write(FD_STDOUT);
-            } else {
-              // String: X1=ptr, X2=len already set.
-              self.emitter.emit_mov_imm(X16, SYS_WRITE);
-              self.emitter.emit_mov_imm(X0, FD_STDOUT);
-              self.emitter.emit_svc(0);
+            if fn_name.ends_with("ln") {
+              self.emit_newline(fd);
             }
-
-            // Write newline.
-            self.emitter.emit_mov_imm(X1, ASCII_NEWLINE);
-            self.emitter.emit_sub_imm(X2, SP, NEWLINE_BUFFER_OFFSET);
-            self.emitter.emit_strb(X1, X2, 0);
-            self.emitter.emit_mov_reg(X1, X2);
-            self.emitter.emit_mov_imm(X2, 1);
-            self.emitter.emit_mov_imm(X16, SYS_WRITE);
-            self.emitter.emit_mov_imm(X0, FD_STDOUT);
-            self.emitter.emit_svc(0);
-          }
-          "eshow" => {
-            self.emitter.emit_mov_imm(X16, SYS_WRITE);
-            self.emitter.emit_mov_imm(X0, FD_STDERR);
-            self.emitter.emit_svc(0);
-          }
-          "eshowln" => {
-            self.emitter.emit_mov_imm(X16, SYS_WRITE);
-            self.emitter.emit_mov_imm(X0, FD_STDERR);
-            self.emitter.emit_svc(0);
-
-            self.emitter.emit_mov_imm(X1, ASCII_NEWLINE);
-            self.emitter.emit_sub_imm(X2, SP, NEWLINE_BUFFER_OFFSET);
-            self.emitter.emit_strb(X1, X2, 0);
-            self.emitter.emit_mov_reg(X1, X2);
-            self.emitter.emit_mov_imm(X2, 1);
-            self.emitter.emit_mov_imm(X16, SYS_WRITE);
-            self.emitter.emit_mov_imm(X0, FD_STDERR);
-            self.emitter.emit_svc(0);
           }
           "check" => {
             // check(condition: bool) — abort if false.
@@ -1031,6 +978,53 @@ impl<'a> ARM64Gen<'a> {
   ///
   /// Algorithm: repeatedly divide by 10, push ASCII digits
   /// onto a stack buffer in reverse, then write.
+  /// Compile-time type dispatch for a single argument
+  /// (Graydon style). Emits the appropriate write for
+  /// str, int, or float to the given fd.
+  fn emit_typed_write(
+    &mut self,
+    arg_vid: Option<ValueId>,
+    all_insns: &[Insn],
+    fd: u16,
+  ) {
+    let is_str = arg_vid.is_some_and(|v| self.is_string_value(v, all_insns));
+    let is_flt = arg_vid.is_some_and(|v| self.is_float_value(v, all_insns));
+
+    if is_flt {
+      if let Some(fp_src) = arg_vid.and_then(|v| self.alloc_fp_reg(v))
+        && fp_src != D0
+      {
+        self.emitter.emit_fmov_fp(D0, fp_src);
+      }
+
+      self.emit_ftoa_and_write(fd);
+    } else if !is_str && arg_vid.is_some() {
+      if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
+        && src != X0
+      {
+        self.emitter.emit_mov_reg(X0, src);
+      }
+
+      self.emit_itoa_and_write(fd);
+    } else {
+      self.emitter.emit_mov_imm(X16, SYS_WRITE);
+      self.emitter.emit_mov_imm(X0, fd);
+      self.emitter.emit_svc(0);
+    }
+  }
+
+  /// Emit a newline write to the given fd.
+  fn emit_newline(&mut self, fd: u16) {
+    self.emitter.emit_mov_imm(X1, ASCII_NEWLINE);
+    self.emitter.emit_sub_imm(X2, SP, NEWLINE_BUFFER_OFFSET);
+    self.emitter.emit_strb(X1, X2, 0);
+    self.emitter.emit_mov_reg(X1, X2);
+    self.emitter.emit_mov_imm(X2, 1);
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
+    self.emitter.emit_mov_imm(X0, fd);
+    self.emitter.emit_svc(0);
+  }
+
   /// Convert D0 (double) to decimal string and write to fd.
   ///
   /// Strategy: print integer part, ".", then 6 fractional
