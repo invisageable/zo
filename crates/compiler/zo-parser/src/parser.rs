@@ -985,8 +985,10 @@ impl<'a> Parser<'a> {
         if should_pop {
           self.operator_stack.pop();
           // Find the operator and move it to the end of buffer
-          if let Some(pos) =
-            self.expr_buffer.iter().position(|(t, _, _)| *t == op_token)
+          if let Some(pos) = self
+            .expr_buffer
+            .iter()
+            .rposition(|(t, _, _)| *t == op_token)
           {
             let op = self.expr_buffer.remove(pos);
             self.expr_buffer.push(op);
@@ -1035,9 +1037,13 @@ impl<'a> Parser<'a> {
 
     // Pop remaining operators from stack
     while let Some((op_token, _, _)) = self.operator_stack.pop() {
-      // Find operator in buffer and move it to the end
-      if let Some(pos) =
-        self.expr_buffer.iter().position(|(t, _, _)| *t == op_token)
+      // Find the most recent instance of this operator
+      // in the buffer (rposition avoids grabbing an
+      // already-placed duplicate like a second `.`).
+      if let Some(pos) = self
+        .expr_buffer
+        .iter()
+        .rposition(|(t, _, _)| *t == op_token)
       {
         let op = self.expr_buffer.remove(pos);
         self.expr_buffer.push(op);

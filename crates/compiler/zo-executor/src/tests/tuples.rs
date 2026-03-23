@@ -107,3 +107,19 @@ fn test_tuple_type_annotation() {
     },
   );
 }
+
+#[test]
+fn test_tuple_element_arithmetic() {
+  // t.0 + t.1 should produce a BinOp with int type.
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu t := (10, 20);
+  t.0 + t.1
+}"#,
+    |sir| {
+      let has_binop = sir.iter().any(|i| matches!(i, Insn::BinOp { .. }));
+
+      assert!(has_binop, "expected BinOp for t.0 + t.1");
+    },
+  );
+}

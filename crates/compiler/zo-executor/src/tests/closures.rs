@@ -1,6 +1,7 @@
 use crate::tests::common::assert_sir_structure;
 
 use zo_sir::Insn;
+use zo_ty::TyId;
 use zo_value::FunctionKind;
 
 #[test]
@@ -183,6 +184,58 @@ fn test_closure_call_emits_call_insn() {
       let has_call = sir.iter().any(|i| matches!(i, Insn::Call { .. }));
 
       assert!(has_call, "expected Call instruction for closure invocation");
+    },
+  );
+}
+
+#[test]
+fn test_closure_inline_call_in_check_eq() {
+  // Inline closure result as check@eq argument.
+  assert_sir_structure(
+    r#"ext check(b: bool);
+fun main() {
+  imu f := fn(x: int) -> int => x * x;
+  check@eq(f(7), 49);
+}"#,
+    |sir| {
+      let closure_call = sir.iter().find(|i| {
+        matches!(
+          i,
+          Insn::Call { ty_id, .. }
+          if *ty_id == TyId(8)
+        )
+      });
+
+      assert!(
+        closure_call.is_some(),
+        "expected closure Call with int return type"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_closure_block_call_in_check_eq() {
+  // Block closure result as check@eq argument.
+  assert_sir_structure(
+    r#"ext check(b: bool);
+fun main() {
+  imu f: Fn(int) -> int = fn(x: int) -> int { x + x };
+  check@eq(f(21), 42);
+}"#,
+    |sir| {
+      let closure_call = sir.iter().find(|i| {
+        matches!(
+          i,
+          Insn::Call { ty_id, .. }
+          if *ty_id == TyId(8)
+        )
+      });
+
+      assert!(
+        closure_call.is_some(),
+        "expected block closure Call with int return type"
+      );
     },
   );
 }

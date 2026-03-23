@@ -458,8 +458,10 @@ impl TyChecker {
     ty
   }
 
-  /// Get the kind of a type (after resolution)
-  pub(crate) fn kind_of(&mut self, ty: TyId) -> Ty {
+  /// Get the kind of a type (after resolution).
+  /// Follows type variable indirections via
+  /// resolve_id + path compression.
+  pub fn kind_of(&mut self, ty: TyId) -> Ty {
     let repr = self.resolve_id(ty);
 
     self.tys[repr.0 as usize]

@@ -794,8 +794,8 @@ fn test_field_access() {
       (Eq, None),
       (Ident, Some(NodeValue::TextRange(32, 5))), // "point"
       (Ident, Some(NodeValue::TextRange(38, 1))), // "x"
-      (Ident, Some(NodeValue::TextRange(42, 5))), // "point"
       (Dot, None),
+      (Ident, Some(NodeValue::TextRange(42, 5))), // "point"
       (Ident, Some(NodeValue::TextRange(48, 1))), // "y"
       (Dot, None),
       (Plus, None),

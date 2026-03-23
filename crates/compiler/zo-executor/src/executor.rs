@@ -995,27 +995,29 @@ impl<'a> Executor<'a> {
           };
 
           // Resolve element type from tuple type.
-          let elem_ty =
-            if let Ty::Tuple(tid) = self.ty_checker.resolve_ty(tup_ty) {
-              if let Some(tup) = self.ty_checker.ty_table.tuple(tid) {
-                let elems = self.ty_checker.ty_table.tuple_elems(tup);
+          // Use kind_of to follow type variable indirections
+          // (e.g. when tuple was inferred via := binding).
+          let elem_ty = if let Ty::Tuple(tid) = self.ty_checker.kind_of(tup_ty)
+          {
+            if let Some(tup) = self.ty_checker.ty_table.tuple(tid) {
+              let elems = self.ty_checker.ty_table.tuple_elems(tup);
 
-                if (field_idx as usize) < elems.len() {
-                  elems[field_idx as usize]
-                } else {
-                  // Out of bounds — compile error.
-                  let span = self.tree.spans[idx];
-
-                  report_error(Error::new(ErrorKind::TypeMismatch, span));
-                  self.ty_checker.error_type()
-                }
+              if (field_idx as usize) < elems.len() {
+                elems[field_idx as usize]
               } else {
-                self.ty_checker.unit_type()
+                // Out of bounds — compile error.
+                let span = self.tree.spans[idx];
+
+                report_error(Error::new(ErrorKind::TypeMismatch, span));
+                self.ty_checker.error_type()
               }
             } else {
-              // Not a tuple type — might be struct field access later.
               self.ty_checker.unit_type()
-            };
+            }
+          } else {
+            // Not a tuple type — might be struct field access later.
+            self.ty_checker.unit_type()
+          };
 
           let dst = ValueId(self.sir.next_value_id);
 
@@ -1894,7 +1896,21 @@ impl<'a> Executor<'a> {
     let (body_start_idx, body_end_idx) =
       if idx < end_idx && self.tree.nodes[idx].token == Token::FatArrow {
         // Inline form: fn(x) => expr
-        (idx + 1, end_idx)
+        // Exclude trailing Semicolon — it belongs to the
+        // enclosing declaration, not the closure body.
+        let end = if end_idx > 0
+          && self
+            .tree
+            .nodes
+            .get(end_idx - 1)
+            .is_some_and(|n| n.token == Token::Semicolon)
+        {
+          end_idx - 1
+        } else {
+          end_idx
+        };
+
+        (idx + 1, end)
       } else if idx < end_idx && self.tree.nodes[idx].token == Token::LBrace {
         // Block form: fn(x) { body }
         // Find matching RBrace within children.
@@ -2076,8 +2092,22 @@ impl<'a> Executor<'a> {
     self.ty_stack.push(closure_ty);
     self.sir_values.push(ValueId(u32::MAX));
 
-    // Skip past the closure in the main loop.
-    self.skip_until = end_idx;
+    // Skip past the closure tokens in the main loop,
+    // but not the trailing Semicolon — it belongs to the
+    // enclosing `imu`/`mut` declaration.
+    let skip_end = if end_idx > 0
+      && self
+        .tree
+        .nodes
+        .get(end_idx - 1)
+        .is_some_and(|n| n.token == Token::Semicolon)
+    {
+      end_idx - 1
+    } else {
+      end_idx
+    };
+
+    self.skip_until = skip_end;
   }
 
   fn execute_fun(&mut self, start_idx: usize, _end_idx: usize) {
