@@ -1,0 +1,8 @@
+-- fun main() {
+--   imu a: str = "hello";
+--   imu b: str = "world";
+--   imu s: str = a ++ b;
+  
+--   showln(s);
+--   check(s[9] == u8('d'));
+-- }

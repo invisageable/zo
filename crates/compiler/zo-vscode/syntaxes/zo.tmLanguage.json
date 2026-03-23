@@ -50,15 +50,53 @@
     {
       "comment": "control flow keywords",
       "name": "keyword.control.zo",
-      "match": "\\b(await|break|continue|each|else|for|if|is|loop|match|return|skip|stop|until|when|while)\\b"
+      "match": "\\b(await|break|continue|each|else|for|if|is|loop|match|return|skip|spawn|stop|until|when|while)\\b"
     },
     {
       "comment": "keyword",
       "name": "keyword.other.zo",
-      "match": "\\b(apply|as|async|and|css|ext|global|imu|load|macro|mock|mut|pack|pub|test|unit|unsafe|val|wasm)\\b"
+      "match": "\\b(apply|as|async|and|css|ext|global|group|imu|load|macro|mock|mut|nursery|pack|pub|raw|state|test|unit|unsafe|val|wasm)\\b"
     },
     {
       "include": "#me"
+    },
+    {
+      "comment": "attribute with args: %% foo(bar, ...)",
+      "begin": "(%%)\\s*([A-Za-z][A-Za-z0-9_]*)(\\()",
+      "end": "(\\))",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.attribute.zo"
+        },
+        "2": {
+          "name": "entity.other.attribute-name.zo"
+        },
+        "3": {
+          "name": "punctuation.definition.attribute.zo"
+        }
+      },
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.attribute.zo"
+        }
+      },
+      "patterns": [
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    {
+      "comment": "attribute: %% inline",
+      "match": "(%%)\\s*([A-Za-z][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.attribute.zo"
+        },
+        "2": {
+          "name": "entity.other.attribute-name.zo"
+        }
+      }
     },
     {
       "comment": "directive",
@@ -167,6 +205,18 @@
       "include": "#core_types"
     },
     {
+      "comment": "generic type parameter $T",
+      "match": "(\\$)([A-Z][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.generic.zo"
+        },
+        "2": {
+          "name": "entity.name.type.parameter.zo"
+        }
+      }
+    },
+    {
       "comment": "function call with modifier",
       "match": "\\b([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+)(@)([A-Za-z][A-Za-z0-9_]*)\\s*\\(",
       "captures": {
@@ -203,6 +253,24 @@
         }
       },
       "patterns": []
+    },
+    {
+      "comment": "closure expression: fn(...)",
+      "match": "\\b(fn)\\s*(?=\\()",
+      "captures": {
+        "1": {
+          "name": "keyword.other.fn.zo"
+        }
+      }
+    },
+    {
+      "comment": "function type annotation: Fn(...)",
+      "match": "\\b(Fn)\\s*(?=\\()",
+      "captures": {
+        "1": {
+          "name": "support.type.primitive.zo"
+        }
+      }
     },
     {
       "comment": "function definition",
@@ -263,6 +331,9 @@
           "include": "#line_doc_comment"
         },
         {
+          "include": "#and"
+        },
+        {
           "include": "#core_types"
         }
       ]
@@ -297,9 +368,9 @@
       ]
     },
     "me": {
-      "comment": "me variable",
+      "comment": "me/self variable",
       "name": "variable.language.zo",
-      "match": "\\b(me|Me)\\b"
+      "match": "\\b(me|Me|self|Self)\\b"
     },
     "and": {
       "comment": "and keyword",
@@ -380,7 +451,7 @@
     "core_types": {
       "comment": "built-in/core type",
       "name": "support.type.primitive.zo",
-      "match": "\\b(bool|i32|i64|int|f32|f64|float|char|str)\\b"
+      "match": "\\b(bool|int|uint|s8|s16|s32|s64|u8|u16|u32|u64|float|f32|f64|char|str|bytes)\\b"
     }
   }
 }
