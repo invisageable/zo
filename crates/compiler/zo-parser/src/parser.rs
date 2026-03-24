@@ -192,6 +192,7 @@ impl<'a> Parser<'a> {
       // Control flow keywords
       Token::If => self.handle_if_keyword(),
       Token::Else => self.handle_else_keyword(),
+      Token::When => self.handle_when_keyword(),
       Token::While => self.handle_while_keyword(),
       Token::For => self.handle_for_keyword(),
       Token::Return => self.handle_return_keyword(),
@@ -212,6 +213,19 @@ impl<'a> Parser<'a> {
       }
       Token::Slash | Token::Slash2 => self.handle_slash(),
       Token::TemplateText => self.handle_template_text(),
+
+      // Ternary delimiters: flush the expression so
+      // operators in the condition/arms are correctly
+      // placed before ? and : in the tree.
+      Token::Question
+        if self
+          .introducer_stack
+          .last()
+          .is_some_and(|i| i.token == Token::When) =>
+      {
+        self.flush_expr();
+        self.emit_node(kind);
+      }
 
       // Everything else gets emitted as-is
       _ => {
@@ -450,6 +464,9 @@ impl<'a> Parser<'a> {
           } else if parent.token == Token::While || parent.token == Token::For {
             // While/For is complete after its block
             self.close_introducer();
+          } else if parent.token == Token::When {
+            // Ternary ends at block boundary
+            self.close_introducer();
           } else if parent.token == Token::Fn {
             // Closure block is complete after its block
             self.close_introducer();
@@ -495,6 +512,19 @@ impl<'a> Parser<'a> {
   }
 
   fn handle_colon(&mut self) {
+    // Ternary false-arm delimiter — flush the true
+    // arm expression so operators land correctly.
+    if self
+      .introducer_stack
+      .last()
+      .is_some_and(|i| i.token == Token::When)
+    {
+      self.flush_expr();
+      self.emit_node(Token::Colon);
+
+      return;
+    }
+
     if self.state == ParserState::ParameterList {
       // In parameter list, : starts type annotation
       // We need to reorder: `a : int` becomes `a int :`
@@ -593,8 +623,7 @@ impl<'a> Parser<'a> {
     // closes inner Fn, outer Fn, then the binding (Imu/Mut/Val).
     while let Some(introducer) = self.introducer_stack.last() {
       match introducer.token {
-        Token::Fn => {
-          // Inline closure body ends at semicolon
+        Token::Fn | Token::When => {
           self.close_introducer();
         }
         Token::Return
@@ -780,6 +809,21 @@ impl<'a> Parser<'a> {
     });
 
     // Next expect condition expression
+    self.state = ParserState::Expression;
+  }
+
+  fn handle_when_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::When);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::When,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
     self.state = ParserState::Expression;
   }
 

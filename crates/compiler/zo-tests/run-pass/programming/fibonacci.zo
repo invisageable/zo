@@ -1,22 +1,20 @@
 -- tests-run-pass: fibonacci.
 -- @see https://en.wikipedia.org/wiki/Fibonacci_sequence.
 
-fun main() {
-  imu fib := fn(n: int) -> int {
-    if n == 0 {
-      return 0;
-    } else {
-      if n <= 2 {
-        return 1;
-      } else {
-        return fib(n - 1) + fib(n - 2);
-      }
-    }
-  };
+fun fib(n: int) -> int {
+  if n == 0 {
+    return 0;
+  } else if n <= 2 {
+    return 1;
+  } else {
+    return fib(n - 1) + fib(n - 2);
+  }
+}
 
-  check(fib(8) == 21);
-  check(fib(11) == 89);
-  check(fib(15) == 610);
+fun main() {
+  check@eq(fib(8), 21);
+  check@eq(fib(11), 89);
+  check@eq(fib(15), 610);
   showln(fib(8));
   showln(fib(11));
   showln(fib(15));

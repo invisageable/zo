@@ -106,6 +106,7 @@ type@state FileState {
   state Open { handle: u64 }
   and Closed {}
 }
+
 pub struct Foo {}
 
 -- item:enum:declaration.

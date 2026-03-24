@@ -1,0 +1,5 @@
+fun main() {
+  imu hi: str = "👋 🌍 👽";
+  
+  check@eq(hi, "👋 🌍 👽");
+}

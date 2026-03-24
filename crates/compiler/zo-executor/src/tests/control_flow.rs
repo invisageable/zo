@@ -434,3 +434,119 @@ fun main() -> int { 42 }"#,
     },
   );
 }
+
+// === TERNARY EXPRESSION ===
+
+#[test]
+fn test_ternary_basic() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  when true ? 1 : 2
+}"#,
+    |sir| {
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+
+      assert!(has_branch, "expected BranchIfNot for ternary condition");
+
+      let label_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Label { .. }))
+        .count();
+
+      // else_label + end_label.
+      assert!(label_count >= 2, "expected >= 2 Labels, got {label_count}");
+    },
+  );
+}
+
+#[test]
+fn test_ternary_variable() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu x: int = 5;
+  when x > 0 ? x : 0
+}"#,
+    |sir| {
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+
+      assert!(has_branch, "expected BranchIfNot");
+
+      let has_jump = sir.iter().any(|i| matches!(i, Insn::Jump { .. }));
+
+      assert!(has_jump, "expected Jump to skip false arm");
+    },
+  );
+}
+
+#[test]
+fn test_ternary_in_binding() {
+  assert_sir_structure(
+    r#"fun main() {
+  imu x: int = when true ? 42 : 0;
+}"#,
+    |sir| {
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+
+      assert!(has_branch, "expected BranchIfNot");
+
+      let has_vardef = sir.iter().any(|i| matches!(i, Insn::VarDef { .. }));
+
+      assert!(has_vardef, "expected VarDef for ternary binding");
+    },
+  );
+}
+
+#[test]
+fn test_ternary_with_check() {
+  assert_sir_structure(
+    r#"ext check(b: bool);
+fun main() {
+  imu x: int = when true ? 42 : 0;
+  check@eq(x, 42);
+}"#,
+    |sir| {
+      let calls: Vec<_> = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Call { .. }))
+        .collect();
+
+      assert!(!calls.is_empty(), "expected check Call after ternary");
+    },
+  );
+}
+
+#[test]
+fn test_ternary_operator_in_condition() {
+  assert_sir_structure(
+    r#"fun main() {
+  imu a: int = 10;
+  imu b: int = 20;
+  imu max: int = when a > b ? a : b;
+}"#,
+    |sir| {
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+
+      assert!(has_branch, "expected BranchIfNot");
+    },
+  );
+}
+
+#[test]
+fn test_ternary_operator_in_arms() {
+  assert_sir_structure(
+    r#"fun main() {
+  imu x: int = 5;
+  imu y: int = when x > 3 ? x * 2 : x + 1;
+}"#,
+    |sir| {
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+
+      assert!(has_branch, "expected BranchIfNot");
+    },
+  );
+}

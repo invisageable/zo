@@ -276,6 +276,45 @@ impl<'a> Executor<'a> {
         self.execute_if(idx, children_end);
       }
 
+      // === TERNARY EXPRESSION: when cond ? true : false ===
+      Token::When => {
+        let end_label = self.sir.next_label();
+        let else_label = self.sir.next_label();
+
+        self.branch_stack.push(BranchCtx {
+          kind: BranchKind::Ternary,
+          end_label,
+          else_label: Some(else_label),
+          // Store stack depth at When for deferred
+          // branch detection.
+          loop_label: Some(self.sir_values.len() as u32),
+          branch_emitted: false,
+          for_var: None,
+        });
+      }
+
+      Token::Question => {
+        // Condition is now on the stack — emit branch.
+        if let Some(ctx) = self.branch_stack.last_mut()
+          && ctx.kind == BranchKind::Ternary
+          && !ctx.branch_emitted
+        {
+          if let Some(cond_sir) = self.sir_values.last().copied() {
+            let target = ctx.else_label.unwrap();
+
+            self.sir.emit(Insn::BranchIfNot {
+              cond: cond_sir,
+              target,
+            });
+          }
+
+          self.value_stack.pop();
+          self.ty_stack.pop();
+          self.sir_values.pop();
+          ctx.branch_emitted = true;
+        }
+      }
+
       Token::While => {
         let children_end = (header.child_start + header.child_count) as usize;
 
@@ -434,7 +473,9 @@ impl<'a> Executor<'a> {
         {
           if let Some(cond_sir) = self.sir_values.last().copied() {
             let target = match ctx.kind {
-              BranchKind::If => ctx.else_label.unwrap_or(ctx.end_label),
+              BranchKind::If | BranchKind::Ternary => {
+                ctx.else_label.unwrap_or(ctx.end_label)
+              }
               BranchKind::While | BranchKind::For => ctx.end_label,
             };
 
@@ -603,6 +644,10 @@ impl<'a> Executor<'a> {
                 self.sir.emit(Insn::Label { id: ctx.end_label });
                 self.branch_stack.pop();
               }
+            }
+            BranchKind::Ternary => {
+              self.sir.emit(Insn::Label { id: ctx.end_label });
+              self.branch_stack.pop();
             }
           }
         }
@@ -1069,8 +1114,24 @@ impl<'a> Executor<'a> {
       // === UNARY OPERATORS ===
       Token::Bang => self.execute_unop(UnOp::Not, idx),
 
+      // === TYPE ANNOTATION / TERNARY FALSE ARM ===
       // === TYPE ANNOTATION ===
-      Token::Colon => self.execute_ty_annotation(),
+      Token::Colon => {
+        if self
+          .branch_stack
+          .last()
+          .is_some_and(|c| c.kind == BranchKind::Ternary && c.branch_emitted)
+        {
+          let ctx = self.branch_stack.last().unwrap();
+          let end_label = ctx.end_label;
+          let else_label = ctx.else_label.unwrap();
+
+          self.sir.emit(Insn::Jump { target: end_label });
+          self.sir.emit(Insn::Label { id: else_label });
+        } else {
+          self.execute_ty_annotation();
+        }
+      }
 
       // === TEMPLATE TOKENS ===
       Token::TemplateAssign => {
@@ -1163,6 +1224,16 @@ impl<'a> Executor<'a> {
 
       // === STATEMENT TERMINATOR ===
       Token::Semicolon => {
+        // Close ternary expressions.
+        while self
+          .branch_stack
+          .last()
+          .is_some_and(|c| c.kind == BranchKind::Ternary)
+        {
+          let ctx = self.branch_stack.pop().unwrap();
+          self.sir.emit(Insn::Label { id: ctx.end_label });
+        }
+
         // Finalize pending compound assignment (x += expr;).
         let _had_compound = self.pending_compound.is_some();
         self.finalize_pending_compound();
@@ -2726,7 +2797,6 @@ impl<'a> Executor<'a> {
     self.skip_until = end_idx;
   }
 
-  /// Sets up an if branch context.
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
     let end_label = self.sir.next_label();
     let else_label = self.sir.next_label();
@@ -4089,6 +4159,8 @@ enum BranchKind {
   While,
   /// A `for` branch.
   For,
+  /// A `when ? :` ternary expression.
+  Ternary,
 }
 
 /// Tracks context for a pending control flow branch.

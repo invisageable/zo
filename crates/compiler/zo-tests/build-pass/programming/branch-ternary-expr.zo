@@ -1,0 +1,11 @@
+-- tests-build-pass: ternary with expression condition.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/branch-ternary-expr.zo -o crates/compiler/zo-tests/build-pass/programming/branch-ternary-expr
+
+fun abs(x: int) -> int {
+  when x >= 0 ? x : 0 - x
+}
+
+fun main() {
+  check@eq(abs(5), 5);
+  check@eq(abs(0), 0);
+}
