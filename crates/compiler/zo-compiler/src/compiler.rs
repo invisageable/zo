@@ -545,6 +545,7 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
       | Insn::ConstString { .. }
       | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
+      | Insn::EnumDef { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. } => {}
       Insn::VarDef { init, .. } => {

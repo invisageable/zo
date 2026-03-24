@@ -34,8 +34,8 @@ pub enum Ty {
   /// A struct type, identified by its name.
   Struct(Symbol),
 
-  /// An enum type, identified by its name.
-  Enum(Symbol),
+  /// An enum type, identified by its interned ID.
+  Enum(EnumTyId),
 
   /// A function type - points to interned storage
   Fun(FunTyId),
@@ -135,6 +135,34 @@ pub struct TupleTy {
   pub elem_count: u32,
 }
 
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EnumTyId(pub u32);
+
+/// Enum type: name + variant range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EnumTy {
+  /// Name of the enum.
+  pub name: Symbol,
+  /// Start index in the global enum_variants array.
+  pub variant_start: u32,
+  /// Number of variants.
+  pub variant_count: u32,
+}
+
+/// A single enum variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EnumVariant {
+  /// Variant name.
+  pub name: Symbol,
+  /// Discriminant value (auto-incremented or explicit).
+  pub discriminant: u32,
+  /// Start index in the global variant_fields array.
+  pub field_start: u32,
+  /// Number of payload fields (0 for unit variants).
+  pub field_count: u32,
+}
+
 /// An identifier for inference variables - distinct from TyId.
 /// This makes the type system's invariants explicit.
 /// In pure W algorithm, all type variables are uniform.
@@ -170,6 +198,14 @@ pub struct TyTable {
   pub param_tys: Vec<TyId>,
   /// Global array for all tuple element types.
   pub tuple_elem_tys: Vec<TyId>,
+  /// Enum types stored contiguously.
+  pub enum_types: Vec<EnumTy>,
+  /// Enum type interning map for O(1) deduplication.
+  enum_intern: HashMap<Symbol, EnumTyId>,
+  /// All enum variants across all enums.
+  pub enum_variants: Vec<EnumVariant>,
+  /// Global array for variant payload field types.
+  pub variant_field_tys: Vec<TyId>,
 }
 
 impl TyTable {
@@ -313,5 +349,67 @@ impl TyTable {
     let end = (tup.elem_start + tup.elem_count) as usize;
 
     &self.tuple_elem_tys[start..end]
+  }
+
+  /// Intern an enum type, returning its ID.
+  pub fn intern_enum(
+    &mut self,
+    name: Symbol,
+    variants: &[(Symbol, u32, Vec<TyId>)],
+  ) -> EnumTyId {
+    if let Some(&id) = self.enum_intern.get(&name) {
+      return id;
+    }
+
+    let variant_start = self.enum_variants.len() as u32;
+
+    for (vname, disc, fields) in variants {
+      let field_start = self.variant_field_tys.len() as u32;
+
+      let field_count = fields.len() as u32;
+
+      self.variant_field_tys.extend(fields);
+
+      self.enum_variants.push(EnumVariant {
+        name: *vname,
+        discriminant: *disc,
+        field_start,
+        field_count,
+      });
+    }
+
+    let enum_ty = EnumTy {
+      name,
+      variant_start,
+      variant_count: variants.len() as u32,
+    };
+
+    let id = EnumTyId(self.enum_types.len() as u32);
+
+    self.enum_types.push(enum_ty);
+    self.enum_intern.insert(name, id);
+
+    id
+  }
+
+  /// Get an enum type by ID.
+  pub fn enum_ty(&self, id: EnumTyId) -> Option<&EnumTy> {
+    self.enum_types.get(id.0 as usize)
+  }
+
+  /// Get the variants of an enum.
+  pub fn enum_variants(&self, e: &EnumTy) -> &[EnumVariant] {
+    let start = e.variant_start as usize;
+    let end = start + e.variant_count as usize;
+
+    &self.enum_variants[start..end]
+  }
+
+  /// Get the field types of a variant.
+  pub fn variant_fields(&self, v: &EnumVariant) -> &[TyId] {
+    let start = v.field_start as usize;
+    let end = start + v.field_count as usize;
+
+    &self.variant_field_tys[start..end]
   }
 }

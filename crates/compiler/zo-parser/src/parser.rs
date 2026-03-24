@@ -136,6 +136,7 @@ impl<'a> Parser<'a> {
 
       // Introducers - these start new contexts
       Token::Fun | Token::Ext | Token::Fn => self.handle_fun_introducer(kind),
+      Token::Enum => self.handle_enum_keyword(),
 
       Token::LParen => self.handle_lparen_introducer(),
       Token::LBrace => self.handle_lbrace_introducer(),
@@ -469,6 +470,8 @@ impl<'a> Parser<'a> {
             self.close_introducer();
           } else if parent.token == Token::Fn {
             // Closure block is complete after its block
+            self.close_introducer();
+          } else if parent.token == Token::Enum {
             self.close_introducer();
           }
         }
@@ -809,6 +812,21 @@ impl<'a> Parser<'a> {
     });
 
     // Next expect condition expression
+    self.state = ParserState::Expression;
+  }
+
+  fn handle_enum_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Enum);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Enum,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
     self.state = ParserState::Expression;
   }
 

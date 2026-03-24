@@ -245,6 +245,12 @@ impl<'a> Executor<'a> {
         self.execute_ext(idx, children_end);
       }
 
+      Token::Enum => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_enum(idx, children_end);
+      }
+
       // === MODULE STATEMENTS ===
       Token::Load => {
         let children_end = (header.child_start + header.child_count) as usize;
@@ -2794,6 +2800,132 @@ impl<'a> Executor<'a> {
     });
 
     // Skip all children — no body to process.
+    self.skip_until = end_idx;
+  }
+
+  /// Executes an enum declaration.
+  ///
+  /// Parses: `enum Name { V1, V2(Type), V3 = N, ... }`
+  /// Emits `Insn::EnumDef` and registers the enum type.
+  fn execute_enum(&mut self, start_idx: usize, end_idx: usize) {
+    // Parse name.
+    let name = self
+      .tree
+      .nodes
+      .get(start_idx + 1)
+      .filter(|n| n.token == Token::Ident)
+      .and_then(|_| self.node_value(start_idx + 1))
+      .and_then(|v| match v {
+        NodeValue::Symbol(s) => Some(s),
+        _ => None,
+      });
+
+    let name = match name {
+      Some(n) => n,
+      None => {
+        self.skip_until = end_idx;
+        return;
+      }
+    };
+
+    let pubness = if self.is_pub(start_idx) {
+      Pubness::Yes
+    } else {
+      Pubness::No
+    };
+
+    // Parse variants inside { ... }.
+    // Tree children: Ident(name), LBrace, [variant tokens], RBrace
+    let mut variants: Vec<(Symbol, u32, Vec<TyId>)> = Vec::new();
+    let mut disc: u32 = 0;
+    let mut idx = start_idx + 2;
+
+    // Skip to LBrace.
+    while idx < end_idx && self.tree.nodes[idx].token != Token::LBrace {
+      idx += 1;
+    }
+
+    if idx < end_idx {
+      idx += 1; // skip LBrace
+    }
+
+    // Parse variants.
+    while idx < end_idx {
+      match self.tree.nodes[idx].token {
+        Token::RBrace => break,
+        Token::Comma => idx += 1,
+
+        Token::Ident => {
+          let vname = self.node_value(idx).and_then(|v| match v {
+            NodeValue::Symbol(s) => Some(s),
+            _ => None,
+          });
+
+          if let Some(vname) = vname {
+            idx += 1;
+            let mut fields = Vec::new();
+
+            // Check for tuple payload: Variant(Type, ...)
+            if idx < end_idx && self.tree.nodes[idx].token == Token::LParen {
+              idx += 1; // skip (
+
+              while idx < end_idx {
+                match self.tree.nodes[idx].token {
+                  Token::RParen => {
+                    idx += 1;
+                    break;
+                  }
+                  Token::Comma => idx += 1,
+                  _ if self.tree.nodes[idx].token.is_ty() => {
+                    let ty = self.resolve_type_token(idx);
+                    fields.push(ty);
+                    idx += 1;
+                  }
+                  Token::Ident => {
+                    // Named type (e.g. error).
+                    let ty = self.ty_checker.fresh_var();
+                    fields.push(ty);
+                    idx += 1;
+                  }
+                  _ => idx += 1,
+                }
+              }
+            }
+
+            // Check for explicit discriminant: V = N
+            if idx < end_idx && self.tree.nodes[idx].token == Token::Eq {
+              idx += 1; // skip =
+
+              if idx < end_idx {
+                if let Some(NodeValue::Literal(lit)) = self.node_value(idx) {
+                  disc = self.literals.int_literals[lit as usize] as u32;
+                }
+
+                idx += 1;
+              }
+            }
+
+            variants.push((vname, disc, fields));
+            disc += 1;
+          } else {
+            idx += 1;
+          }
+        }
+        _ => idx += 1,
+      }
+    }
+
+    // Intern enum type.
+    let enum_ty_id = self.ty_checker.ty_table.intern_enum(name, &variants);
+    let ty_id = self.ty_checker.intern_ty(Ty::Enum(enum_ty_id));
+
+    self.sir.emit(Insn::EnumDef {
+      name,
+      ty_id,
+      variants,
+      pubness,
+    });
+
     self.skip_until = end_idx;
   }
 

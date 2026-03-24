@@ -181,6 +181,14 @@ pub enum Insn {
     index: u32,
     ty_id: TyId,
   },
+  /// Enum type definition.
+  EnumDef {
+    name: Symbol,
+    ty_id: TyId,
+    /// (variant_name, discriminant, field_types).
+    variants: Vec<(Symbol, u32, Vec<TyId>)>,
+    pubness: Pubness,
+  },
   /// Template literal (fragment or HTML tag)
   Template {
     id: ValueId,

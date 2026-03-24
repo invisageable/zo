@@ -1,0 +1,9 @@
+-- tests-build-pass: enum with explicit discriminant.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/enum-discriminant.zo -o crates/compiler/zo-tests/build-pass/programming/enum-discriminant
+
+enum Bar {
+  FooBar,
+  RabOof = 0,
+}
+
+fun main() {}

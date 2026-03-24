@@ -1,6 +1,7 @@
 pub(crate) mod closures;
 pub(crate) mod common;
 pub(crate) mod control_flow;
+pub(crate) mod enums;
 pub(crate) mod errors;
 pub(crate) mod interpolation;
 pub(crate) mod modules;

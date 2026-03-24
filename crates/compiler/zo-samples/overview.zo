@@ -371,17 +371,17 @@ fun main() {
   -- parse to binary number.
   imu bina: int = b#30;
 
-  showln("bina = {bina}"); -- 11110.
+  showln("bina = {bina}"); -- prints `bina = 11110`.
 
   -- parse to octal number.
   imu octa: int = o#75;
 
-  showln("octa = {octa}"); -- 113.
+  showln("octa = {octa}"); -- prints `octa = 113`.
 
   -- parse to hexadecimal number.
   imu hexa: int = x#76;
 
-  showln("hexa = {hexa}"); -- 4c.
+  showln("hexa = {hexa}"); -- prints `hexa = 4c`.
 }
 
 -- expr:lit:floating-point.
