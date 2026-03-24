@@ -86,6 +86,11 @@ pub struct Executor<'a> {
   tuple_ctx: Vec<usize>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
+  /// Known enum types by name → (EnumTyId, TyId).
+  enum_defs: Vec<(Symbol, zo_ty::EnumTyId, TyId)>,
+  /// Pending enum construction: (enum_name, variant_disc,
+  /// variant_field_count, ty_id).
+  pending_enum_construct: Option<(Symbol, u32, u32, TyId)>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -130,6 +135,8 @@ impl<'a> Executor<'a> {
       array_ctx: Vec::new(),
       tuple_ctx: Vec::new(),
       closure_counter: 0,
+      enum_defs: Vec::new(),
+      pending_enum_construct: None,
     }
   }
 
@@ -386,8 +393,37 @@ impl<'a> Executor<'a> {
 
       // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
+        // Check if this closes an enum variant constructor.
+        if let Some((enum_name, disc, field_count, ty_id)) =
+          self.pending_enum_construct.take()
+        {
+          let mut fields = Vec::with_capacity(field_count as usize);
+
+          for _ in 0..field_count {
+            if let Some(sv) = self.sir_values.pop() {
+              fields.push(sv);
+            }
+            self.value_stack.pop();
+            self.ty_stack.pop();
+          }
+
+          fields.reverse();
+
+          let sv = self.sir.emit(Insn::EnumConstruct {
+            enum_name,
+            variant: disc,
+            fields,
+            ty_id,
+          });
+
+          let rid = self.values.store_runtime(0);
+
+          self.value_stack.push(rid);
+          self.ty_stack.push(ty_id);
+          self.sir_values.push(sv);
+        }
         // Check if this closes a tuple/grouping context.
-        if let Some(depth) = self.tuple_ctx.pop() {
+        else if let Some(depth) = self.tuple_ctx.pop() {
           let count = self.sir_values.len().saturating_sub(depth);
 
           if count > 1 {
@@ -890,8 +926,9 @@ impl<'a> Executor<'a> {
             // Functions come from prelude imports or
             // explicit `load` — no hardcoded builtins.
             let is_fun = self.funs.iter().any(|f| f.name == sym);
+            let is_enum = self.enum_defs.iter().any(|e| e.0 == sym);
 
-            if !is_fun {
+            if !is_fun && !is_enum {
               let span = self.tree.spans[idx];
 
               report_error(Error::new(ErrorKind::UndefinedVariable, span));
@@ -1119,6 +1156,11 @@ impl<'a> Executor<'a> {
 
       // === UNARY OPERATORS ===
       Token::Bang => self.execute_unop(UnOp::Not, idx),
+
+      // === ENUM VARIANT ACCESS: Foo::Ok ===
+      Token::ColonColon => {
+        self.execute_enum_access(idx);
+      }
 
       // === TYPE ANNOTATION / TERNARY FALSE ARM ===
       // === TYPE ANNOTATION ===
@@ -2926,7 +2968,84 @@ impl<'a> Executor<'a> {
       pubness,
     });
 
+    // Register for variant construction lookup.
+    self.enum_defs.push((name, enum_ty_id, ty_id));
+
     self.skip_until = end_idx;
+  }
+
+  /// Resolves `Foo::Ok` or `Foo::Ok(42)` enum variant
+  /// access at `::` position.
+  fn execute_enum_access(&mut self, idx: usize) {
+    if idx < 1 || idx + 1 >= self.tree.nodes.len() {
+      return;
+    }
+
+    // Previous token: enum name.
+    let enum_name = match self.node_value(idx - 1) {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => return,
+    };
+
+    // Look up enum definition.
+    let entry = self.enum_defs.iter().find(|e| e.0 == enum_name).copied();
+
+    let (_, ety_id, ty_id) = match entry {
+      Some(e) => e,
+      None => return,
+    };
+
+    // Next token: variant name.
+    if self.tree.nodes[idx + 1].token != Token::Ident {
+      return;
+    }
+
+    let var_name = match self.node_value(idx + 1) {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => return,
+    };
+
+    // Resolve variant.
+    let enum_ty = match self.ty_checker.ty_table.enum_ty(ety_id) {
+      Some(et) => *et,
+      None => return,
+    };
+
+    let var_str = self.interner.get(var_name).to_owned();
+    let variants = self.ty_checker.ty_table.enum_variants(&enum_ty);
+
+    let found = variants
+      .iter()
+      .find(|v| self.interner.get(v.name) == var_str)
+      .copied();
+
+    let variant = match found {
+      Some(v) => v,
+      None => return,
+    };
+
+    // Skip the variant ident.
+    self.skip_until = idx + 2;
+
+    if variant.field_count == 0 {
+      // Unit variant — emit immediately.
+      let sv = self.sir.emit(Insn::EnumConstruct {
+        enum_name,
+        variant: variant.discriminant,
+        fields: Vec::new(),
+        ty_id,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.value_stack.push(rid);
+      self.ty_stack.push(ty_id);
+      self.sir_values.push(sv);
+    } else {
+      // Tuple variant — defer to RParen.
+      self.pending_enum_construct =
+        Some((enum_name, variant.discriminant, variant.field_count, ty_id));
+    }
   }
 
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {

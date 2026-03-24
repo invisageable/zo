@@ -228,6 +228,12 @@ impl<'a> Parser<'a> {
         self.emit_node(kind);
       }
 
+      // Enum variant access: Foo::Ok
+      Token::ColonColon => {
+        self.flush_expr();
+        self.emit_node(kind);
+      }
+
       // Everything else gets emitted as-is
       _ => {
         self.emit_node(kind);

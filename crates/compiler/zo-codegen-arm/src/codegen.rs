@@ -969,6 +969,41 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
+      // Enum definition — compile-time only.
+      Insn::EnumDef { .. } => {}
+
+      // Enum construction: [tag, f0, f1, ...] on stack.
+      Insn::EnumConstruct {
+        variant, fields, ..
+      } => {
+        let slot_count = 1 + fields.len() as u16;
+        let size = slot_count * (STACK_SLOT_SIZE as u16);
+        let aligned =
+          (size + (FRAME_ALIGN_MASK as u16)) & !(FRAME_ALIGN_MASK as u16);
+
+        self.emitter.emit_sub_imm(SP, SP, aligned);
+
+        // Store discriminant at [SP + 0].
+        self.emitter.emit_mov_imm(X16, *variant as u16);
+        self.emitter.emit_str(X16, SP, 0);
+
+        // Store fields at [SP + (i+1)*8].
+        for (i, field) in fields.iter().enumerate() {
+          if let Some(reg) = self.alloc_reg(*field) {
+            self.emitter.emit_str(
+              reg,
+              SP,
+              ((i + 1) * STACK_SLOT_SIZE as usize) as i16,
+            );
+          }
+        }
+
+        // Result: pointer to enum value (SP).
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emitter.emit_mov_reg(dst, SP);
+        }
+      }
+
       _ => {}
     }
   }

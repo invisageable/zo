@@ -118,3 +118,56 @@ fn test_enum_mixed_variants() {
     },
   );
 }
+
+// === ENUM CONSTRUCTION ===
+
+#[test]
+fn test_enum_construct_unit() {
+  assert_sir_structure(
+    r#"enum Color { Red, Green, Blue }
+fun main() {
+  imu c = Color::Red;
+}"#,
+    |sir| {
+      let construct =
+        sir.iter().find(|i| matches!(i, Insn::EnumConstruct { .. }));
+
+      assert!(construct.is_some(), "expected EnumConstruct for Color::Red");
+
+      if let Some(Insn::EnumConstruct {
+        variant, fields, ..
+      }) = construct
+      {
+        assert_eq!(*variant, 0, "Red is discriminant 0");
+        assert!(fields.is_empty(), "unit has no fields");
+      }
+    },
+  );
+}
+
+#[test]
+fn test_enum_construct_tuple() {
+  assert_sir_structure(
+    r#"enum Foo { Ok(int), Err(int) }
+fun main() {
+  imu x = Foo::Ok(42);
+}"#,
+    |sir| {
+      let construct =
+        sir.iter().find(|i| matches!(i, Insn::EnumConstruct { .. }));
+
+      assert!(
+        construct.is_some(),
+        "expected EnumConstruct for Foo::Ok(42)"
+      );
+
+      if let Some(Insn::EnumConstruct {
+        variant, fields, ..
+      }) = construct
+      {
+        assert_eq!(*variant, 0, "Ok is discriminant 0");
+        assert_eq!(fields.len(), 1, "Ok has 1 field");
+      }
+    },
+  );
+}

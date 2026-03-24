@@ -600,6 +600,11 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
         off(dst);
         off(tuple);
       }
+      Insn::EnumConstruct { fields, .. } => {
+        for f in fields.iter_mut() {
+          off(f);
+        }
+      }
     }
   }
 }

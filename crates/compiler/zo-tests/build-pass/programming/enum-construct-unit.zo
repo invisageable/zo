@@ -1,0 +1,14 @@
+-- tests-build-pass: enum unit variant construction.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/enum-construct-unit.zo -o crates/compiler/zo-tests/build-pass/programming/enum-construct-unit
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+fun main() {
+  imu c = Color::Red;
+  imu g = Color::Green;
+  imu b = Color::Blue;
+}

@@ -189,6 +189,13 @@ pub enum Insn {
     variants: Vec<(Symbol, u32, Vec<TyId>)>,
     pubness: Pubness,
   },
+  /// Enum variant construction: `Foo::Ok(42)`.
+  EnumConstruct {
+    enum_name: Symbol,
+    variant: u32,
+    fields: Vec<ValueId>,
+    ty_id: TyId,
+  },
   /// Template literal (fragment or HTML tag)
   Template {
     id: ValueId,
