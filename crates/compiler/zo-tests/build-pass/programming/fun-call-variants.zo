@@ -1,0 +1,16 @@
+fun ho(f: Fn(int) -> int) -> int {
+  imu n: int = f(3);
+  
+  return n;
+}
+
+fun direct(x: int) -> int {
+  x + 1
+}
+
+fun main() {
+  imu a: int = direct(3); -- direct.
+  imu b: int = ho(direct); -- indirect unbound.
+
+  check@eq(a, b);
+}

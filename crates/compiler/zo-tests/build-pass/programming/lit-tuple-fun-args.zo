@@ -1,0 +1,23 @@
+-- tests-build-pass: tuple function access.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/lit-tuple-fun-args.zo -o crates/compiler/zo-tests/build-pass/programming/lit-tuple-fun-args
+
+type Point = (int, int);
+
+fun f(p: Point, x: int, y: int) {
+  check@eq(p.0, x);
+  check@eq(p.1, y);
+}
+
+fun main() {
+  imu p1: Point = (10, 20);
+
+  check@eq(p1.0, 10);
+  check@eq(p1.1, 20);
+
+  imu p2: Point = p1;
+  imu x: int = p2.0;
+
+  check(x == 10);
+  f(p1, 10, 20);
+  f(p2, 10, 20);
+}

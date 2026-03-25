@@ -1,0 +1,19 @@
+pack foo {
+  fun x(y: int) {
+    showln(y);
+  }
+}
+
+pack bar {
+  fun main() {
+    load::foo::x;
+
+    
+    fun main() {
+      x(10);
+      z(10);
+    }
+  }
+}
+
+fun main() {}

@@ -1,0 +1,21 @@
+fun find_first_div(n: int) -> int {
+  mut i: int = 2;
+
+  while i < n {
+    if n % i == 0 {
+      return i;
+    }
+
+    i += 1;
+  }
+
+  return n;
+}
+
+fun main() {
+  imu r: int = find_first_div(15);
+
+  check@eq(r, 3);
+
+  showln("{r}");
+}

@@ -1,0 +1,16 @@
+pack inner {
+  pack inner2 {
+    fun hello() {
+      showln("hello, modular world");
+    }
+  }
+
+  fun hello() {
+    inner2.hello();
+  }
+}
+
+fun main() {
+  inner.hello();
+  inner.inner2.hello();
+}

@@ -1,0 +1,10 @@
+fun f() -> int {
+  return 42;
+}
+
+fun main() {
+  imu g: Fn() -> int = f;
+  imu i: int = g();
+
+  check@eq(i, 42);
+}

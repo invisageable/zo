@@ -2,9 +2,19 @@
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/arrays.zo -o crates/compiler/zo-tests/build-pass/programming/arrays
 
 fun main() {
-  imu x: int[] = [1, 2, 3, 4, 5];
+  imu v: int[] = [1, 2, 3, 4, 5];
 
-  check@eq(x[0], 1);
-  check@eq(x[1], 2);
-  check@eq(x[2] * x[3], 12);
+  check@eq(v[0], 1);
+  check@eq(v[1], 2);
+  check@eq(v[2] * v[3], 12);
+
+  mut x: int = 0;
+
+  check@eq(v[x], 1);
+  check@eq(v[x + 1], 2);
+
+  x = x + 1;
+
+  check@eq(v[x] == 1);
+  check@eq(v[x - 1] == 2);
 }

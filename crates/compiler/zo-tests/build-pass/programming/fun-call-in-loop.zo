@@ -1,0 +1,14 @@
+fun double(x: int) -> int {
+  x * 2
+}
+
+fun main() {
+  mut sum: int = 0;
+
+  for i := 1..5 {
+    sum += double(i);
+  }
+
+  check@eq(sum, 20);
+  showln("{sum}");
+}

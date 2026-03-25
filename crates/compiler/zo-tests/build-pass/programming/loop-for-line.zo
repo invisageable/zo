@@ -1,0 +1,7 @@
+fun main() {
+  -- for:line.
+  for x := 0..3 => showln("{x}");
+
+  -- for:line:mut.
+  -- for mut n := 0..3 => n += 1;
+}

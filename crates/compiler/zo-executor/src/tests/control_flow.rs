@@ -615,6 +615,33 @@ fn test_euler_01_modulo_or_in_for() {
 }
 
 #[test]
+fn test_return_inside_while() {
+  // Early return from inside a while + if body.
+  assert_sir_structure(
+    r#"fun find(n: int) -> int {
+  mut i: int = 2;
+  while i < n {
+    if n % i == 0 {
+      return i;
+    }
+    i += 1;
+  }
+  return n;
+}
+fun main() -> int { find(15) }"#,
+    |sir| {
+      // Must have at least 2 Return instructions
+      // (one inside the while, one at the end).
+      let returns = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Return { .. }))
+        .count();
+      assert!(returns >= 2, "expected >= 2 Returns, got {returns}");
+    },
+  );
+}
+
+#[test]
 fn test_for_loop_sum_with_showln_interp() {
   // For loop sum with showln interpolation — verifies
   // that {ans} emits a Load (not a stale ValueId).

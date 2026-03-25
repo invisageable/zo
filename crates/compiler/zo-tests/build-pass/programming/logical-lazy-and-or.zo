@@ -1,0 +1,25 @@
+fun incr(mut x: int) -> bool {
+  x += 1;
+
+  check(false);
+
+  false
+}
+
+fun main() {
+  imu x := (1 == 2) || (3 == 3);
+
+  check(x);
+
+  imu y: int = 10;
+
+  showln(x || incr(y));
+
+  check@eq(x, 10);
+
+  if true && x {
+    check(true);
+  } else {
+    check(false);
+  }
+}

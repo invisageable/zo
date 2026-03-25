@@ -33,6 +33,10 @@ const STACK_SLOT_SIZE: u32 = 8;
 const FP_LR_SAVE_OFFSET: i16 = -16;
 const FP_LR_LOAD_OFFSET: i16 = 16;
 const MUTABLE_VAR_RESERVE: u32 = 64;
+// 7 caller-saved temp regs (X9-X15) * 8 bytes each.
+const CALLER_SAVE_RESERVE: u32 = 56;
+const CALLER_SAVE_COUNT: usize = 7;
+const CALLER_SAVE_START: u8 = 9; // X9..X15
 const FRAME_ALIGN_MASK: u32 = 15;
 const MAX_REG_ARGS: usize = 8;
 
@@ -104,6 +108,10 @@ pub struct ARM64Gen<'a> {
   current_fn_start: Option<usize>,
   /// Mutable variable stack slots: name → offset from SP.
   mutable_slots: HashMap<u32, u32>,
+  /// Parameter spill slots: param_index → offset from SP.
+  param_slots: HashMap<u32, u32>,
+  /// Base offset for caller-save spill area.
+  caller_save_base: u32,
   /// Next mutable variable slot.
   next_mut_slot: u32,
 }
@@ -125,6 +133,8 @@ impl<'a> ARM64Gen<'a> {
       reg_alloc: None,
       current_fn_start: None,
       mutable_slots: HashMap::default(),
+      param_slots: HashMap::default(),
+      caller_save_base: 0,
       next_mut_slot: 0,
     }
   }
@@ -560,7 +570,7 @@ impl<'a> ARM64Gen<'a> {
   /// Translate a single SIR instruction to ARM64.
   fn translate_insn(&mut self, insn: &Insn, idx: usize, all_insns: &[Insn]) {
     match insn {
-      Insn::FunDef { name, .. } => {
+      Insn::FunDef { name, params, .. } => {
         let offset = self.emitter.current_offset();
 
         self.functions.insert(*name, offset);
@@ -568,6 +578,7 @@ impl<'a> ARM64Gen<'a> {
         self.current_fn_start = Some(idx);
         self.mutable_slots.clear();
         self.next_mut_slot = 0;
+        self.param_slots.clear();
 
         // Function prologue: save FP/LR if non-leaf.
         if let Some(info) = self
@@ -579,14 +590,39 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_stp(X29, X30, SP, FP_LR_SAVE_OFFSET);
           }
 
-          // Reserve space for spills + mutable slots.
-          // Add 64 bytes (8 slots) for mutable vars.
-          let frame =
-            (info.spill_size + MUTABLE_VAR_RESERVE + FRAME_ALIGN_MASK)
-              & !FRAME_ALIGN_MASK;
+          // Reserve space for spills + mutable slots +
+          // parameter spill slots.
+          let param_reserve = params.len() as u32 * STACK_SLOT_SIZE;
+          let caller_save = if info.has_calls {
+            CALLER_SAVE_RESERVE
+          } else {
+            0
+          };
+          let frame = (info.spill_size
+            + MUTABLE_VAR_RESERVE
+            + param_reserve
+            + caller_save
+            + FRAME_ALIGN_MASK)
+            & !FRAME_ALIGN_MASK;
 
           if frame > 0 {
             self.emitter.emit_sub_imm(SP, SP, frame as u16);
+          }
+
+          // Set caller-save spill base for BL save/restore.
+          self.caller_save_base =
+            info.spill_size + MUTABLE_VAR_RESERVE + param_reserve;
+
+          // Spill parameters to stack so they survive
+          // register reuse. Params arrive in X0-X7 / D0-D7.
+          let param_base = info.spill_size + MUTABLE_VAR_RESERVE;
+
+          for (i, _) in params.iter().enumerate() {
+            let off = param_base + i as u32 * STACK_SLOT_SIZE;
+            let src = Register::new(i as u8);
+
+            self.emitter.emit_str(src, SP, off as i16);
+            self.param_slots.insert(i as u32, off);
           }
         }
       }
@@ -631,7 +667,6 @@ impl<'a> ARM64Gen<'a> {
       Insn::Load { dst, src, .. } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
-
           if let Some(dst_reg) = self.alloc_reg(*dst)
             && let Some(&offset) = self.mutable_slots.get(&slot)
           {
@@ -639,13 +674,21 @@ impl<'a> ARM64Gen<'a> {
           }
         }
         LoadSource::Param(idx) => {
-          if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
+          // Load from parameter spill slot (saved in
+          // prologue). This is safe even after registers
+          // have been reused for other values.
+          if let Some(dst_reg) = self.alloc_reg(*dst)
+            && let Some(&off) = self.param_slots.get(idx)
+          {
+            self.emitter.emit_ldr(dst_reg, SP, off as i16);
+          } else if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
             let fp_src = FpRegister::new(*idx as u8);
 
             if fp_dst != fp_src {
               self.emitter.emit_fmov_fp(fp_dst, fp_src);
             }
           } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+            // Fallback: no spill slot (e.g. intrinsic).
             let src_reg = Register::new(*idx as u8);
 
             if dst_reg != src_reg {
@@ -770,12 +813,32 @@ impl<'a> ARM64Gen<'a> {
               }
             }
 
+            // Save caller-saved temp regs (X9-X15) before BL.
+            // These may hold live values that the callee
+            // will clobber (ARM64: X0-X15 are caller-saved).
+            let base = self.caller_save_base;
+
+            for i in 0..CALLER_SAVE_COUNT {
+              let reg = Register::new(CALLER_SAVE_START + i as u8);
+              let off = base + i as u32 * STACK_SLOT_SIZE;
+
+              self.emitter.emit_str(reg, SP, off as i16);
+            }
+
             // BL to user-defined function.
             if let Some(&func_offset) = self.functions.get(name) {
               let current = self.emitter.current_offset();
               let offset = func_offset as i32 - current as i32;
 
               self.emitter.emit_bl(offset);
+            }
+
+            // Restore caller-saved temp regs after BL.
+            for i in 0..CALLER_SAVE_COUNT {
+              let reg = Register::new(CALLER_SAVE_START + i as u8);
+              let off = base + i as u32 * STACK_SLOT_SIZE;
+
+              self.emitter.emit_ldr(reg, SP, off as i16);
             }
 
             // Move result to allocated register.
@@ -805,16 +868,25 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_imm(X0, 0);
         }
 
-        // Function epilogue.
+        // Function epilogue — frame size must match prologue.
         if let Some(start) = self.current_fn_start
           && let Some(info) = self
             .reg_alloc
             .as_ref()
             .and_then(|a| a.function_info.get(&start))
         {
-          let frame =
-            (info.spill_size + MUTABLE_VAR_RESERVE + FRAME_ALIGN_MASK)
-              & !FRAME_ALIGN_MASK;
+          let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
+          let caller_save = if info.has_calls {
+            CALLER_SAVE_RESERVE
+          } else {
+            0
+          };
+          let frame = (info.spill_size
+            + MUTABLE_VAR_RESERVE
+            + param_reserve
+            + caller_save
+            + FRAME_ALIGN_MASK)
+            & !FRAME_ALIGN_MASK;
 
           if frame > 0 {
             self.emitter.emit_add_imm(SP, SP, frame as u16);

@@ -1,0 +1,14 @@
+fun main() {
+  mut i: int = 0;
+
+  while true {
+    i += 1;
+
+    if i == 5 {
+      break;
+    }
+  }
+
+  check@eq(i, 5);
+  showln("{i}");
+}

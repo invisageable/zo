@@ -1,0 +1,4 @@
+fun main() {
+  imu n: int = 600851475143;
+  showln("{n}");
+}

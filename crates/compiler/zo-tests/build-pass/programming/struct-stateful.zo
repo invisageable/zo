@@ -1,0 +1,36 @@
+struct Counter {
+  x: int,
+}
+
+apply Counter {
+  fun new() -> Self {
+    Self { x: 0 }
+  }
+
+  fun hello(self) -> int {
+    return 12345;
+  }
+
+  fun incr(self) {
+    self.x += self.x + x;
+  }
+
+  fun x(self) -> int {
+    self.x
+  }
+}
+
+fun main() {
+  imu counter: Counter = Counter::new();
+
+  check@eq(counter.hello(), 12345);
+
+  showln(counter.x());
+
+  counter.incr();
+  counter.incr();
+
+  showln(counter.x());
+
+  check@eq(counter.x(), 2);
+}

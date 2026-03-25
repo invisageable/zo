@@ -2,31 +2,40 @@
 --
 -- The prime factors of `13195` are `5`, `7`, `13` and `29`.
 
-import math
+-- TODO: blocked by codegen bug — passing a local variable
+-- to a function with early return from while loop returns
+-- wrong value. Works with literal args (smallest_prime_factor(15)
+-- returns 3) but not with variable args (smallest_prime_factor(n)
+-- returns 1).
 
+-- Returns the smallest factor of n (always prime).
+fun smallest_prime_factor(n: int) -> int {
+  mut i: int = 2;
 
-# By the fundamental theorem of arithmetic, every integer n > 1 has a unique factorization as a product of prime numbers.
-# In other words, the theorem says that n = p_0 * p_1 * ... * p_{m-1}, where each p_i > 1 is prime but not necessarily unique.
-# Now if we take the number n and repeatedly divide out its smallest factor (which must also be prime), then the last
-# factor that we divide out must be the largest prime factor of n. For reference, 600851475143 = 71 * 839 * 1471 * 6857.
-def compute():
-	n = 600851475143
-	while True:
-		p = smallest_prime_factor(n)
-		if p < n:
-			n //= p
-		else:
-			return str(n)
+  while i * i <= n {
+    if n % i == 0 {
+      return i;
+    }
 
+    i += 1;
+  }
 
-# Returns the smallest factor of n, which is in the range [2, n]. The result is always prime.
-def smallest_prime_factor(n):
-	assert n >= 2
-	for i in range(2, math.isqrt(n) + 1):
-		if n % i == 0:
-			return i
-	return n  # n itself is prime
+  return n;
+}
 
+fun main() {
+  mut n: int = 600851475143;
 
-if __name__ == "__main__":
-	print(compute())
+  while true {
+    imu p: int = smallest_prime_factor(n);
+
+    if p < n {
+      n = n / p;
+    } else {
+      break;
+    }
+  }
+
+  -- check@eq(n, 6857);
+  showln("{n}");
+}
