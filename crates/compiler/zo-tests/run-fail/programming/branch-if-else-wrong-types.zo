@@ -1,0 +1,9 @@
+fun messed_up_if() -> str {
+  if true {
+    "fish"
+  } else {
+    3.1415
+  }
+}
+
+fun main() {}

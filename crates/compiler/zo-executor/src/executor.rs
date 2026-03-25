@@ -77,9 +77,9 @@ pub struct Executor<'a> {
   /// Pending variable declaration (deferred to Semicolon).
   pending_decl: Option<PendingDecl>,
   /// Pending assignment target name (deferred to Semicolon).
-  pending_assign: Option<Symbol>,
+  pending_assign: Option<(Symbol, Span)>,
   /// Pending compound assignment (deferred to Semicolon).
-  pending_compound: Option<(Symbol, BinOp)>,
+  pending_compound: Option<(Symbol, BinOp, Span)>,
   /// Array context stack: (is_indexing, stack_depth_at_open).
   array_ctx: Vec<(bool, usize)>,
   /// Tuple context stack: stack_depth_at_open.
@@ -103,6 +103,8 @@ struct PendingDecl {
   pubness: Pubness,
   /// Explicit type annotation, if provided.
   annotated_ty: Option<TyId>,
+  /// Source span of the declaration (for error reporting).
+  span: Span,
 }
 impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
@@ -603,10 +605,13 @@ impl<'a> Executor<'a> {
               !self.value_stack.is_empty() && !self.ty_stack.is_empty();
             let body_ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
+            // Use the function definition span for return
+            // type errors (not the closing `}`).
+            let fn_span = self.tree.spans[fun_ctx.fundef_idx];
+
             let (return_value, return_ty) = if func_return_ty == unit_ty {
               if has_value && body_ty != unit_ty {
-                let span = self.tree.spans[idx];
-                report_error(Error::new(ErrorKind::TypeMismatch, span));
+                report_error(Error::new(ErrorKind::TypeMismatch, fn_span));
               }
 
               (None, unit_ty)
@@ -619,8 +624,7 @@ impl<'a> Executor<'a> {
 
               (sir_value, body_ty)
             } else {
-              let span = self.tree.spans[idx];
-              report_error(Error::new(ErrorKind::TypeMismatch, span));
+              report_error(Error::new(ErrorKind::TypeMismatch, fn_span));
 
               (None, unit_ty)
             };
@@ -1287,7 +1291,7 @@ impl<'a> Executor<'a> {
           self.sir.emit(Insn::Jump { target: end_label });
           self.sir.emit(Insn::Label { id: else_label });
         } else {
-          self.execute_ty_annotation();
+          self.execute_ty_annotation(idx);
         }
       }
 
@@ -1435,7 +1439,9 @@ impl<'a> Executor<'a> {
           self.ty_stack.pop();
           self.sir_values.pop();
 
-          self.pending_assign = Some(name);
+          let span = self.tree.spans[target_idx];
+
+          self.pending_assign = Some((name, span));
         }
       }
 
@@ -1743,16 +1749,17 @@ impl<'a> Executor<'a> {
   }
 
   /// Executes type annotation.
-  fn execute_ty_annotation(&mut self) {
+  fn execute_ty_annotation(&mut self, idx: usize) {
     if self.value_stack.len() >= 2 && self.ty_stack.len() >= 2 {
       // Pop type value
       let ty_value = self.value_stack.pop().unwrap();
       let _ty_ty = self.ty_stack.pop().unwrap(); // Should be Type type
+      let span = self.tree.spans[idx];
 
       if let Some(unified) = self
         .ty_value(ty_value)
         .and_then(|ty| self.ty_stack.last().map(|&var_ty| (ty, var_ty)))
-        .and_then(|(ty, var_ty)| self.ty_checker.unify(var_ty, ty, Span::ZERO))
+        .and_then(|(ty, var_ty)| self.ty_checker.unify(var_ty, ty, span))
       {
         self.ty_stack.pop();
         self.ty_stack.push(unified);
@@ -2637,6 +2644,7 @@ impl<'a> Executor<'a> {
         is_mutable,
         pubness,
         annotated_ty,
+        span: self.tree.spans[idx],
       });
 
       // Pre-register for recursive closures (letrec).
@@ -2679,8 +2687,8 @@ impl<'a> Executor<'a> {
   ///
   /// Finalize a pending assignment (x = expr;).
   fn finalize_pending_assign(&mut self) {
-    let name = match self.pending_assign.take() {
-      Some(n) => n,
+    let (name, span) = match self.pending_assign.take() {
+      Some(ns) => ns,
       None => return,
     };
 
@@ -2692,13 +2700,13 @@ impl<'a> Executor<'a> {
       if let Some(local) = self.locals.iter_mut().rev().find(|l| l.name == name)
       {
         if local.mutability != Mutability::Yes {
-          report_error(Error::new(ErrorKind::ImmutableVariable, Span::ZERO));
+          report_error(Error::new(ErrorKind::ImmutableVariable, span));
 
           return;
         }
 
         if let Some(unified_ty) =
-          self.ty_checker.unify(local.ty_id, value_ty, Span::ZERO)
+          self.ty_checker.unify(local.ty_id, value_ty, span)
         {
           local.value_id = value;
           local.sir_value = value_sir;
@@ -2730,11 +2738,9 @@ impl<'a> Executor<'a> {
 
       // Unify annotated type with init type.
       let ty_id = if let Some(ann_ty) = decl.annotated_ty {
-        let span = zo_span::Span::ZERO;
-
         self
           .ty_checker
-          .unify(ann_ty, init_ty, span)
+          .unify(ann_ty, init_ty, decl.span)
           .unwrap_or(init_ty)
       } else {
         init_ty
@@ -4163,14 +4169,16 @@ impl<'a> Executor<'a> {
         self.ty_stack.pop();
         self.sir_values.pop();
 
-        self.pending_compound = Some((name, op));
+        let span = self.tree.spans[target_idx];
+
+        self.pending_compound = Some((name, op, span));
       }
     }
   }
 
   /// Finalize a pending compound assignment at Semicolon.
   fn finalize_pending_compound(&mut self) {
-    let (name, op) = match self.pending_compound.take() {
+    let (name, op, span) = match self.pending_compound.take() {
       Some(c) => c,
       None => return,
     };
@@ -4189,11 +4197,10 @@ impl<'a> Executor<'a> {
     let Some(local) = local else { return };
 
     if local.mutability != Mutability::Yes {
-      report_error(Error::new(ErrorKind::ImmutableVariable, Span::ZERO));
+      report_error(Error::new(ErrorKind::ImmutableVariable, span));
       return;
     }
 
-    let span = Span::ZERO;
     let Some(unified_ty) = self.ty_checker.unify(local.ty_id, rhs_ty, span)
     else {
       return;

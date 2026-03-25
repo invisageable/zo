@@ -6,6 +6,8 @@ SOME OF THESE TESTS ARE BEiNG PORTED FROM GRAYDON HOARE'S ORiGiNAL RUST COMPiLER
 
 THE GOAL iS TO PROVE zo'S COMPiLER CORRECTNESS BY PASSiNG THE SAME FOUNDATiONAL TESTS THAT VALiDATED THE VERY FiRST RUST COMPiLER. WE FOLLOW OUR MASTERS (S/O [@graydon](https://github.com/graydon)).
 
+port: https://github.com/elm/error-message-catalog
+
 ## commands.
 
 ```bash

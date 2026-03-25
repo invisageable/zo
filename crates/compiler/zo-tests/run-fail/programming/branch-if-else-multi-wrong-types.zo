@@ -1,0 +1,11 @@
+fun messed_up_if(n: int) -> str {
+  if n {
+    "negative"
+  } else if n > 0 {
+    "positive"
+  } else {
+    3.1415
+  }
+}
+
+fun main() {}
