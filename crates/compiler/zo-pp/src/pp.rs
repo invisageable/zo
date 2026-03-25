@@ -3,7 +3,7 @@ use crate::printee::Printee;
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, Target};
 use zo_interner::Interner;
-use zo_sir::{BinOp, Insn, Sir, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
 use zo_token::{Token, TokenBuffer};
 use zo_tree::Tree;
 use zo_ty::Mutability;
@@ -249,7 +249,14 @@ impl PrettyPrinter {
           self.sir_instruction(&store);
         }
         Insn::Load { dst, src, .. } => {
-          let load = format!("%{dst} = load param[{src}]");
+          let load = match src {
+            LoadSource::Param(idx) => {
+              format!("%{dst} = load param[{idx}]")
+            }
+            LoadSource::Local(sym) => {
+              format!("%{dst} = load local[{sym}]")
+            }
+          };
 
           self.sir_instruction(&load);
         }

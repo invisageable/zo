@@ -8,7 +8,7 @@ enum Color {
 }
 
 fun main() {
-  imu c = Color::Red;
-  imu g = Color::Green;
-  imu b = Color::Blue;
+  imu r := Color::Red;
+  imu g := Color::Green;
+  imu b := Color::Blue;
 }

@@ -1,3 +1,3 @@
 mod sir;
 
-pub use sir::{BinOp, Insn, Sir, UnOp};
+pub use sir::{BinOp, Insn, LoadSource, Sir, UnOp};

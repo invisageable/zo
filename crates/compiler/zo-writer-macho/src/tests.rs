@@ -899,7 +899,7 @@ fn test_linker_optimization_hints() {
   macho.add_code(vec![0x00, 0x00, 0x00, 0x90]); // adrp x0, _var@PAGE
   macho.add_code(vec![0x00, 0x00, 0x00, 0x91]); // add x0, x0, _var@PAGEOFF
 
-  macho.add_linker_optimization_hint(0, 8); // Hint for 8 bytes
+  macho.add_linker_optimization_hint(FileOffset(0), FileSize(8)); // Hint for 8 bytes
 
   let binary = macho.finish();
   assert!(has_load_command(&binary, LC_LINKER_OPTIMIZATION_HINT));

@@ -2,7 +2,7 @@ use zo_constant_folding::{ConstFold, FoldResult, Operand};
 use zo_error::{Error, ErrorKind};
 use zo_interner::{Interner, Symbol};
 use zo_reporter::report_error;
-use zo_sir::{BinOp, Insn, Sir, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
@@ -667,14 +667,13 @@ impl<'a> Executor<'a> {
               let int_ty = self.ty_checker.int_type();
 
               if let Some(var_name) = ctx.for_var {
-                let load_src = 100 + var_name.as_u32();
                 let ld = ValueId(self.sir.next_value_id);
 
                 self.sir.next_value_id += 1;
 
                 let ld_sir = self.sir.emit(Insn::Load {
                   dst: ld,
-                  src: load_src,
+                  src: LoadSource::Local(var_name),
                   ty_id: int_ty,
                 });
 
@@ -929,7 +928,7 @@ impl<'a> Executor<'a> {
                 let src = if is_param {
                   // Look up param index from the
                   // current function's param list.
-                  self
+                  let idx = self
                     .current_function
                     .as_ref()
                     .and_then(|ctx| {
@@ -941,9 +940,11 @@ impl<'a> Executor<'a> {
                           f.params.iter().position(|(n, _)| *n == sym)
                         })
                     })
-                    .unwrap_or(0) as u32
+                    .unwrap_or(0) as u32;
+
+                  LoadSource::Param(idx)
                 } else {
-                  100 + sym.as_u32()
+                  LoadSource::Local(sym)
                 };
 
                 let sv = self.sir.emit(Insn::Load { dst, src, ty_id });
@@ -959,8 +960,11 @@ impl<'a> Executor<'a> {
                 let dst = ValueId(self.sir.next_value_id);
                 self.sir.next_value_id += 1;
 
-                let src = 100 + sym.as_u32();
-                let sv = self.sir.emit(Insn::Load { dst, src, ty_id });
+                let sv = self.sir.emit(Insn::Load {
+                  dst,
+                  src: LoadSource::Local(sym),
+                  ty_id,
+                });
 
                 let rid = self.values.store_runtime(0);
 
@@ -1342,7 +1346,7 @@ impl<'a> Executor<'a> {
 
             let ld_sir = self.sir.emit(Insn::Load {
               dst: ld,
-              src: 100 + var_name.as_u32(),
+              src: LoadSource::Local(var_name),
               ty_id: int_ty,
             });
 
@@ -2585,10 +2589,29 @@ impl<'a> Executor<'a> {
       let mut annotated_ty = None;
       let mut skip_to = idx + 2; // skip Imu + name
 
+      let mut has_colon = false;
+
       for i in (idx + 2)..children_end {
         let tok = self.tree.nodes[i].token;
 
-        if matches!(tok, Token::Eq | Token::ColonEq) {
+        if tok == Token::Colon {
+          has_colon = true;
+        }
+
+        if tok == Token::ColonEq {
+          skip_to = i + 1;
+          break;
+        }
+
+        if tok == Token::Eq {
+          // `=` requires a type annotation (`: Type =`).
+          // Without `:`, use `:=` for inference.
+          if !has_colon && annotated_ty.is_none() {
+            let span = self.tree.spans[i];
+
+            report_error(Error::new(ErrorKind::ExpectedTypeAnnotation, span));
+          }
+
           skip_to = i + 1;
           break;
         }
@@ -3275,11 +3298,9 @@ impl<'a> Executor<'a> {
                     let dst = ValueId(self.sir.next_value_id);
                     self.sir.next_value_id += 1;
 
-                    let src = 100 + fname.as_u32();
-
                     self.sir.emit(Insn::Load {
                       dst,
-                      src,
+                      src: LoadSource::Local(fname),
                       ty_id: var_ty,
                     })
                   }
@@ -4075,11 +4096,9 @@ impl<'a> Executor<'a> {
 
     self.sir.next_value_id += 1;
 
-    let load_src = 100 + var_name.as_u32();
-
     let load_sir = self.sir.emit(Insn::Load {
       dst: cond_dst,
-      src: load_src,
+      src: LoadSource::Local(var_name),
       ty_id: int_ty,
     });
 
@@ -4187,7 +4206,7 @@ impl<'a> Executor<'a> {
 
       self.sir.emit(Insn::Load {
         dst: load_dst,
-        src: 100 + name.as_u32(),
+        src: LoadSource::Local(name),
         ty_id: unified_ty,
       });
 
@@ -4497,30 +4516,21 @@ impl<'a> Executor<'a> {
         }
         InterpSegment::Variable(sym) => {
           // Resolve variable from scope.
-          let local_info =
-            self.lookup_local(*sym).map(|l| (l.ty_id, l.sir_value));
+          let local_info = self.lookup_local(*sym).map(|l| l.ty_id);
 
-          if let Some((var_ty, sir_value)) = local_info {
-            // Get or emit the SIR value for this var.
-            let sir_val = match sir_value {
-              Some(sv) => sv,
-              None => {
-                // Parameter — emit a Load.
-                let param_idx =
-                  self.locals.iter().position(|l| l.name == *sym).unwrap_or(0)
-                    as u32;
+          if let Some(var_ty) = local_info {
+            // Always emit a Load — the value may have
+            // changed since init (e.g. after a for loop).
+            // Use same src encoding as regular variable
+            // references: 100 + symbol id.
+            let dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
 
-                let dst = ValueId(self.sir.next_value_id);
-
-                self.sir.next_value_id += 1;
-
-                self.sir.emit(Insn::Load {
-                  dst,
-                  src: param_idx,
-                  ty_id: var_ty,
-                })
-              }
-            };
+            let sir_val = self.sir.emit(Insn::Load {
+              dst,
+              src: LoadSource::Local(*sym),
+              ty_id: var_ty,
+            });
 
             self.sir.emit(Insn::Call {
               name: call_name,
@@ -4635,7 +4645,7 @@ impl<'a> Executor<'a> {
 
           let sv = self.sir.emit(Insn::Load {
             dst,
-            src: 100 + cap_name.as_u32(),
+            src: LoadSource::Local(cap_name),
             ty_id: cap_ty,
           });
 

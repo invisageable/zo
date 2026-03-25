@@ -137,6 +137,7 @@ pub enum ErrorKind {
   UninitializedVariable,
   InvalidSelfReference,
   InvalidTypeAnnotation,
+  ExpectedTypeAnnotation,
   UndefinedLabel,
 
   // Constant folding errors

@@ -239,6 +239,10 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::InvalidBreak => "Invalid break statement",
     ErrorKind::InvalidContinue => "Invalid continue statement",
 
+    ErrorKind::ExpectedTypeAnnotation => {
+      "Expected type annotation: use `imu x: Type = expr` or `imu x := expr`"
+    }
+
     // Code generation errors
     ErrorKind::StackUnderflow => "Stack underflow",
     ErrorKind::UnknownLocal => "Unknown local variable",
@@ -277,6 +281,9 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::TypeMismatch => "types don't match here",
     ErrorKind::DuplicateDefinition => "already defined",
     ErrorKind::StackUnderflow => "stack underflow occurred here",
+    ErrorKind::ExpectedTypeAnnotation => {
+      "`=` requires a type annotation; use `:=` to infer"
+    }
     _ => "here",
   }
 }
@@ -309,6 +316,9 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::InvalidReturn => {
       Some("'return' can only be used inside a function")
     }
+    ErrorKind::ExpectedTypeAnnotation => Some(
+      "Either add a type: `imu x: int = 42` or use `:=` to infer: `imu x := 42`",
+    ),
     _ => None,
   }
 }

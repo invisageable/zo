@@ -3,7 +3,7 @@ use crate::{
   ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FunctionInfo, RegAlloc,
   RegisterClass, SpillKind, SpillOp,
 };
-use zo_sir::Insn;
+use zo_sir::{Insn, LoadSource};
 use zo_value::FunctionKind;
 use zo_value::ValueId;
 
@@ -236,20 +236,22 @@ pub fn allocate_function(
 
     // --- Handle Load (parameter or mutable) ---
     if let Insn::Load { dst, src, .. } = insn {
-      if *src < 100 {
-        // Parameter: assign to the param register.
-        let param_reg = *src as u8;
+      match src {
+        LoadSource::Param(idx) => {
+          let param_reg = *idx as u8;
 
-        state.assign(*dst, param_reg, fp);
-        insert_assignment(result, *dst, param_reg, fp);
-      } else {
-        // Mutable variable: allocate a fresh register
-        // (the value will be loaded from stack at
-        // runtime by the codegen LDR).
-        let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
+          state.assign(*dst, param_reg, fp);
+          insert_assignment(result, *dst, param_reg, fp);
+        }
+        LoadSource::Local(_) => {
+          // Local variable: allocate a fresh register
+          // (the value will be loaded from stack at
+          // runtime by the codegen LDR).
+          let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
 
-        state.assign(*dst, reg, fp);
-        insert_assignment(result, *dst, reg, fp);
+          state.assign(*dst, reg, fp);
+          insert_assignment(result, *dst, reg, fp);
+        }
       }
 
       free_dead(&mut state, &liveness, i);

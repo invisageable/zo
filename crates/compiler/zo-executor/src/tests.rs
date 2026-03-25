@@ -12,7 +12,7 @@ pub(crate) mod type_aliases;
 use crate::tests::common::{assert_annotations_stream, assert_sir_stream};
 
 use zo_interner::Symbol;
-use zo_sir::{BinOp, Insn};
+use zo_sir::{BinOp, Insn, LoadSource};
 use zo_ty::{IntWidth, Ty, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
@@ -170,13 +170,13 @@ fn test_simple_function() {
       // Load x parameter
       Insn::Load {
         dst: ValueId(0),
-        src: 0, // First parameter
+        src: LoadSource::Param(0),
         ty_id: TyId(8),
       },
       // Load y parameter
       Insn::Load {
         dst: ValueId(1),
-        src: 1, // Second parameter
+        src: LoadSource::Param(1),
         ty_id: TyId(8),
       },
       // x + y
@@ -219,13 +219,13 @@ fn test_function_call() {
       // add body: load x
       Insn::Load {
         dst: ValueId(0),
-        src: 0, // x param
+        src: LoadSource::Param(0),
         ty_id: TyId(8),
       },
       // add body: load y
       Insn::Load {
         dst: ValueId(1),
-        src: 1, // y param
+        src: LoadSource::Param(1),
         ty_id: TyId(8),
       },
       // add body: x + y
@@ -329,13 +329,13 @@ fn test_function_with_return() {
       // Load n parameter (first use)
       Insn::Load {
         dst: ValueId(0),
-        src: 0, // n param
+        src: LoadSource::Param(0),
         ty_id: TyId(8),
       },
       // Load n parameter (second use - SSA requires separate loads)
       Insn::Load {
         dst: ValueId(1),
-        src: 0, // n param
+        src: LoadSource::Param(0),
         ty_id: TyId(8),
       },
       // n * n

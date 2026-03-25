@@ -23,6 +23,56 @@
 use rustc_hash::FxHashMap as HashMap;
 use sha2::{Digest, Sha256};
 
+/// A file offset.
+#[derive(Clone, Copy, Debug)]
+pub struct FileOffset(pub u32);
+
+impl FileOffset {
+  pub const fn as_u32(self) -> u32 {
+    self.0
+  }
+  pub const fn as_u64(self) -> u64 {
+    self.0 as u64
+  }
+}
+
+impl From<FileOffset> for u32 {
+  fn from(o: FileOffset) -> u32 {
+    o.0
+  }
+}
+
+impl From<FileOffset> for u64 {
+  fn from(o: FileOffset) -> u64 {
+    o.0 as u64
+  }
+}
+
+/// A file size.
+#[derive(Clone, Copy, Debug)]
+pub struct FileSize(pub u32);
+
+impl FileSize {
+  pub const fn as_u32(self) -> u32 {
+    self.0
+  }
+  pub const fn as_u64(self) -> u64 {
+    self.0 as u64
+  }
+}
+
+impl From<FileSize> for u32 {
+  fn from(s: FileSize) -> u32 {
+    s.0
+  }
+}
+
+impl From<FileSize> for u64 {
+  fn from(s: FileSize) -> u64 {
+    s.0 as u64
+  }
+}
+
 // Mach-O constants - ported from Graydon's OCaml implementation
 
 // Fat binary constants
@@ -1696,15 +1746,15 @@ impl MachO {
   /// * `offset` - File offset for the segment
   /// * `size` - Size of the segment
   #[inline(always)]
-  pub fn add_linkedit_segment(&mut self, offset: u32, size: u32) {
+  pub fn add_linkedit_segment(&mut self, offset: FileOffset, size: FileSize) {
     let cmd = SegmentCommand64 {
       cmd: LC_SEGMENT_64,
       cmdsize: std::mem::size_of::<SegmentCommand64>() as u32,
       segname: Self::make_cstring("__LINKEDIT"),
       vmaddr: LINKEDIT_VM_ADDR,
-      vmsize: size as u64,
-      fileoff: offset as u64,
-      filesize: size as u64,
+      vmsize: size.as_u64(),
+      fileoff: offset.as_u64(),
+      filesize: size.as_u64(),
       maxprot: VM_PROT_READ,
       initprot: VM_PROT_READ,
       nsects: 0,
@@ -3633,12 +3683,12 @@ impl MachO {
 
   /// Add function starts (LC_FUNCTION_STARTS).
   #[inline(always)]
-  pub fn add_function_starts(&mut self, offset: u32, size: u32) {
+  pub fn add_function_starts(&mut self, offset: FileOffset, size: FileSize) {
     let cmd = LinkeditDataCommand {
       cmd: LC_FUNCTION_STARTS,
       cmdsize: std::mem::size_of::<LinkeditDataCommand>() as u32,
-      dataoff: offset,
-      datasize: size,
+      dataoff: offset.as_u32(),
+      datasize: size.as_u32(),
     };
 
     self.add_load_command(&cmd);
@@ -3646,12 +3696,12 @@ impl MachO {
 
   /// Add data in code entries (LC_DATA_IN_CODE).
   #[inline(always)]
-  pub fn add_data_in_code(&mut self, offset: u32, size: u32) {
+  pub fn add_data_in_code(&mut self, offset: FileOffset, size: FileSize) {
     let cmd = LinkeditDataCommand {
       cmd: LC_DATA_IN_CODE,
       cmdsize: std::mem::size_of::<LinkeditDataCommand>() as u32,
-      dataoff: offset,
-      datasize: size,
+      dataoff: offset.as_u32(),
+      datasize: size.as_u32(),
     };
 
     self.add_load_command(&cmd);
@@ -3661,8 +3711,8 @@ impl MachO {
   #[inline(always)]
   pub fn add_encryption_info_64(
     &mut self,
-    crypt_offset: u32,
-    crypt_size: u32,
+    crypt_offset: FileOffset,
+    crypt_size: FileSize,
     crypt_id: u32,
   ) {
     #[repr(C)]
@@ -3678,8 +3728,8 @@ impl MachO {
     let cmd = EncryptionInfo64Command {
       cmd: LC_ENCRYPTION_INFO_64,
       cmdsize: std::mem::size_of::<EncryptionInfo64Command>() as u32,
-      cryptoff: crypt_offset,
-      cryptsize: crypt_size,
+      cryptoff: crypt_offset.as_u32(),
+      cryptsize: crypt_size.as_u32(),
       cryptid: crypt_id,
       pad: 0,
     };
@@ -3771,36 +3821,44 @@ impl MachO {
   }
 
   /// Add linker optimization hint (LC_LINKER_OPTIMIZATION_HINT)
-  pub fn add_linker_optimization_hint(&mut self, offset: u32, size: u32) {
+  pub fn add_linker_optimization_hint(
+    &mut self,
+    offset: FileOffset,
+    size: FileSize,
+  ) {
     let cmd = LinkeditDataCommand {
       cmd: LC_LINKER_OPTIMIZATION_HINT,
       cmdsize: std::mem::size_of::<LinkeditDataCommand>() as u32,
-      dataoff: offset,
-      datasize: size,
+      dataoff: offset.as_u32(),
+      datasize: size.as_u32(),
     };
 
     self.add_load_command(&cmd);
   }
 
   /// Add dyld exports trie (LC_DYLD_EXPORTS_TRIE)
-  pub fn add_dyld_exports_trie(&mut self, offset: u32, size: u32) {
+  pub fn add_dyld_exports_trie(&mut self, offset: FileOffset, size: FileSize) {
     let cmd = LinkeditDataCommand {
       cmd: LC_DYLD_EXPORTS_TRIE,
       cmdsize: std::mem::size_of::<LinkeditDataCommand>() as u32,
-      dataoff: offset,
-      datasize: size,
+      dataoff: offset.as_u32(),
+      datasize: size.as_u32(),
     };
 
     self.add_load_command(&cmd);
   }
 
   /// Add dyld chained fixups (LC_DYLD_CHAINED_FIXUPS)
-  pub fn add_dyld_chained_fixups(&mut self, offset: u32, size: u32) {
+  pub fn add_dyld_chained_fixups(
+    &mut self,
+    offset: FileOffset,
+    size: FileSize,
+  ) {
     let cmd = LinkeditDataCommand {
       cmd: LC_DYLD_CHAINED_FIXUPS,
       cmdsize: std::mem::size_of::<LinkeditDataCommand>() as u32,
-      dataoff: offset,
-      datasize: size,
+      dataoff: offset.as_u32(),
+      datasize: size.as_u32(),
     };
 
     self.add_load_command(&cmd);
@@ -4015,12 +4073,12 @@ impl MachO {
   }
 
   /// Add LC_CODE_SIGNATURE load command
-  pub fn add_code_signature(&mut self, offset: u32, size: u32) {
+  pub fn add_code_signature(&mut self, offset: FileOffset, size: FileSize) {
     let cmd = LinkeditDataCommand {
       cmd: LC_CODE_SIGNATURE,
       cmdsize: std::mem::size_of::<LinkeditDataCommand>() as u32,
-      dataoff: offset,
-      datasize: size,
+      dataoff: offset.as_u32(),
+      datasize: size.as_u32(),
     };
 
     self.add_load_command(&cmd);
@@ -5738,7 +5796,10 @@ impl MachO {
     }
 
     // Add LINKEDIT segment with total size (including signature)
-    self.add_linkedit_segment(linkedit_start, total_linkedit_size);
+    self.add_linkedit_segment(
+      FileOffset(linkedit_start),
+      FileSize(total_linkedit_size),
+    );
 
     // Add entry point if set
     if let Some(entry_offset) = self.entry_point {

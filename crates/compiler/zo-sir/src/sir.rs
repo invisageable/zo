@@ -5,6 +5,16 @@ use zo_ty::TyId;
 use zo_ui_protocol::UiCommand;
 use zo_value::{FunctionKind, Pubness, ValueId};
 
+/// Source of a Load instruction — either a function parameter
+/// or a local variable on the stack.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LoadSource {
+  /// Function parameter by index (X0-X7 or D0-D7).
+  Param(u32),
+  /// Local variable by symbol (stack-allocated).
+  Local(Symbol),
+}
+
 /// Represents a semantic intermediate representation.
 #[derive(Debug)]
 pub struct Sir {
@@ -122,10 +132,10 @@ pub enum Insn {
     args: Vec<ValueId>,
     ty_id: TyId, // Return type
   },
-  /// Load a parameter or local into an SSA value
+  /// Load a parameter or local into an SSA value.
   Load {
-    dst: ValueId, // Destination SSA value
-    src: u32,     // Parameter index or local ID
+    dst: ValueId,
+    src: LoadSource,
     ty_id: TyId,
   },
   /// Binary operation

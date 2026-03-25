@@ -5,7 +5,7 @@ use zo_value::{FunctionKind, Pubness};
 
 use zo_error::ErrorKind;
 use zo_interner::Symbol;
-use zo_sir::Insn;
+use zo_sir::{Insn, LoadSource};
 use zo_ty::TyId;
 use zo_value::ValueId;
 
@@ -181,10 +181,14 @@ fn test_mutable_reassignment() {
         "expected Store instruction for mutable assignment"
       );
       assert!(
-        sir
-          .iter()
-          .any(|i| matches!(i, Insn::Load { src, .. } if *src >= 100)),
-        "expected Load from mutable slot (src >= 100)"
+        sir.iter().any(|i| matches!(
+          i,
+          Insn::Load {
+            src: LoadSource::Local(_),
+            ..
+          }
+        )),
+        "expected Load from local variable"
       );
       // Return must carry a value (not None).
       assert!(
@@ -547,6 +551,102 @@ fn test_ternary_operator_in_arms() {
         sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
 
       assert!(has_branch, "expected BranchIfNot");
+    },
+  );
+}
+
+#[test]
+fn test_euler_01_modulo_or_in_for() {
+  // Euler #1: sum of multiples of 3 or 5 below 10 = 23.
+  // Tests: for loop, %, ==, ||, +=, if inside for.
+  assert_sir_structure(
+    r#"fun main() -> int {
+  mut ans: int = 0;
+  for x := 1..10 {
+    if x % 3 == 0 || x % 5 == 0 {
+      ans += x;
+    }
+  }
+  return ans;
+}"#,
+    |sir| {
+      // Must have Rem (%) operator.
+      let has_rem = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Rem,
+            ..
+          }
+        )
+      });
+      assert!(has_rem, "expected BinOp::Rem for %");
+
+      // Must have Eq (==) comparison.
+      let has_eq = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Eq,
+            ..
+          }
+        )
+      });
+      assert!(has_eq, "expected BinOp::Eq for ==");
+
+      // Must have Or (||) operator.
+      let has_or = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Or,
+            ..
+          }
+        )
+      });
+      assert!(has_or, "expected BinOp::Or for ||");
+
+      // Must have BranchIfNot for the if condition.
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+      assert!(has_branch, "expected BranchIfNot for if");
+    },
+  );
+}
+
+#[test]
+fn test_for_loop_sum_with_showln_interp() {
+  // For loop sum with showln interpolation — verifies
+  // that {ans} emits a Load (not a stale ValueId).
+  assert_sir_structure(
+    r#"fun main() {
+  mut ans: int = 0;
+  for x := 1..10 {
+    ans += x;
+  }
+  showln("{ans}");
+}"#,
+    |sir| {
+      // The showln("{ans}") call must reference a Load,
+      // not the init ConstInt(0).
+      let last_call = sir.iter().rev().find(|i| matches!(i, Insn::Call { .. }));
+
+      if let Some(Insn::Call { args, .. }) = last_call {
+        assert!(!args.is_empty(), "showln call must have an argument");
+
+        // The arg should come from a Load, not ConstInt.
+        let arg = args[0];
+
+        let producer = sir.iter().find(|i| match i {
+          Insn::Load { dst, .. } => *dst == arg,
+          _ => false,
+        });
+
+        assert!(
+          producer.is_some(),
+          "showln arg must come from a Load (not stale init)"
+        );
+      }
     },
   );
 }

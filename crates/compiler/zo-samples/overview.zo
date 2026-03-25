@@ -63,12 +63,10 @@ struct Span {
 struct Foo {}
 
 apply Foo {
+  pub val BAR: Self = Self {};
+
   fun new() -> Self {
     Self {}
-  }
-
-  pub fun is_span(self) -> bool {
-    Span { lo: 0, hi: 0 }
   }
 
   pub fun len(self) -> int {

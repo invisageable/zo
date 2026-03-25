@@ -14,5 +14,5 @@ apply Color {
 }
 
 fun main() {
-  imu c := Color::red();
+  imu c: Color = Color::red();
 }

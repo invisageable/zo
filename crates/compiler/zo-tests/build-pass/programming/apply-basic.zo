@@ -10,5 +10,5 @@ apply Foo {
 }
 
 fun main() {
-  imu f := Foo::new();
+  imu f: Foo = Foo::new();
 }

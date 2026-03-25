@@ -6,7 +6,7 @@ use zo_emitter_arm::{
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
-use zo_sir::{BinOp, Insn, Sir};
+use zo_sir::{BinOp, Insn, LoadSource, Sir};
 use zo_ui_protocol::UiCommand;
 use zo_value::ValueId;
 use zo_writer_macho::{DebugFrameEntry, MachO};
@@ -48,9 +48,6 @@ const ARRAY_HEADER_SIZE: u16 = 8;
 // --- Float Type Detection ---
 const FLOAT_TYPE_ID_MIN: u32 = 15;
 const FLOAT_TYPE_ID_MAX: u32 = 17;
-
-// --- Mutable Variable Encoding ---
-const MUTABLE_VAR_OFFSET: u32 = 100;
 
 // --- Mach-O Layout ---
 const TEXT_SECTION_BASE: u64 = 0x100000400;
@@ -631,32 +628,32 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_mov_imm(X2, string.len() as u16);
       }
 
-      Insn::Load { dst, src, .. } => {
-        if *src >= MUTABLE_VAR_OFFSET {
-          // Mutable variable: LDR from stack slot.
-          let slot = *src - MUTABLE_VAR_OFFSET;
+      Insn::Load { dst, src, .. } => match src {
+        LoadSource::Local(sym) => {
+          let slot = sym.as_u32();
 
           if let Some(dst_reg) = self.alloc_reg(*dst)
             && let Some(&offset) = self.mutable_slots.get(&slot)
           {
             self.emitter.emit_ldr(dst_reg, SP, offset as i16);
           }
-        } else if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
-          // Float parameter: arrives in D[src].
-          let fp_src = FpRegister::new(*src as u8);
+        }
+        LoadSource::Param(idx) => {
+          if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
+            let fp_src = FpRegister::new(*idx as u8);
 
-          if fp_dst != fp_src {
-            self.emitter.emit_fmov_fp(fp_dst, fp_src);
-          }
-        } else if let Some(dst_reg) = self.alloc_reg(*dst) {
-          // GP parameter: arrives in X[src].
-          let src_reg = Register::new(*src as u8);
+            if fp_dst != fp_src {
+              self.emitter.emit_fmov_fp(fp_dst, fp_src);
+            }
+          } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+            let src_reg = Register::new(*idx as u8);
 
-          if dst_reg != src_reg {
-            self.emitter.emit_mov_reg(dst_reg, src_reg);
+            if dst_reg != src_reg {
+              self.emitter.emit_mov_reg(dst_reg, src_reg);
+            }
           }
         }
-      }
+      },
 
       Insn::BinOp {
         dst,
@@ -703,8 +700,8 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_mul(X16, X16, r);
               self.emitter.emit_sub(d, l, X16);
             }
-            BinOp::BitAnd => self.emitter.emit_and(d, l, r),
-            BinOp::BitOr => self.emitter.emit_orr(d, l, r),
+            BinOp::And | BinOp::BitAnd => self.emitter.emit_and(d, l, r),
+            BinOp::Or | BinOp::BitOr => self.emitter.emit_orr(d, l, r),
             BinOp::Shl => self.emitter.emit_lsl(d, l, 1),
             BinOp::Shr => self.emitter.emit_lsr(d, l, 1),
             BinOp::Lt => self.emit_cmp_csel(d, l, r, COND_LT),
