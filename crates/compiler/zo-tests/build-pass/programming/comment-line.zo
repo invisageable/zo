@@ -1,4 +1,3 @@
--! this is doc line comments
--- this is a line comments
+-- this is a line comments.
 
 fun main() {}

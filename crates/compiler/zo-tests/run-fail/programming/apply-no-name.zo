@@ -1,0 +1,5 @@
+apply {
+  fun foo() {}
+}
+
+fun main() {}
