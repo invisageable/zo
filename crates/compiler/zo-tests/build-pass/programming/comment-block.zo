@@ -1,0 +1,5 @@
+-*
+  this is a block comments.
+*-
+
+fun main() {}

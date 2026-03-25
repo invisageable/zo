@@ -10,6 +10,9 @@
       "include": "#line_doc_comment"
     },
     {
+      "include": "#block_comment"
+    },
+    {
       "include": "#string_literal"
     },
     {
@@ -304,6 +307,9 @@
           "include": "#line_doc_comment"
         },
         {
+          "include": "#block_comment"
+        },
+        {
           "include": "#and"
         },
         {
@@ -331,6 +337,9 @@
           "include": "#line_doc_comment"
         },
         {
+          "include": "#block_comment"
+        },
+        {
           "include": "#and"
         },
         {
@@ -351,6 +360,12 @@
       "name": "comment.line.documentation.zo",
       "begin": "-!",
       "end": "$"
+    },
+    "block_comment": {
+      "comment": "block comment",
+      "name": "comment.block.zo",
+      "begin": "-\\*",
+      "end": "\\*-"
     },
     "escaped_character": {
       "name": "constant.character.escape.zo",
