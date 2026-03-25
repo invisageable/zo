@@ -24,20 +24,20 @@ const SIMPLE_CODE: &str = r#"
 
 const COMPLEX_CODE: &str = r#"
   fun max(a: s32, b: s32) -> s32 {
-    -- if a > b {
-      -- return a;
-    -- } else {
+    if a > b {
+      return a;
+    } else {
       return b;
-    -- }
+    }
   }
 
   fun fibonacci(n: s32) -> s32 {
-    -- if n <= 1 {
-      -- return n;
-    -- }
+    if n <= 1 {
+      return n;
+    }
     
-    -- imu a := fibonacci(n - 1);
-    -- imu b := fibonacci(n - 2);
+    imu a := fibonacci(n - 1);
+    imu b := fibonacci(n - 2);
     
     return a + b;
   }
@@ -46,10 +46,10 @@ const COMPLEX_CODE: &str = r#"
     mut result := 1;
     mut i := 2;
     
-    -- while i <= n {
-      -- result = result * i;
-      -- i = i + 1;
-    -- }
+    while i <= n {
+      result = result * i;
+      i = i + 1;
+    }
     
     return result;
   }
@@ -69,27 +69,27 @@ fn generate_realistic_code(num_functions: usize) -> String {
   code.push_str(
     r#"
     fun abs(x: s32) -> s32 {
-      -- if x < 0 {
+      if x < 0 {
         return -x;
-      -- } else {
-      --   return x;
-      -- }
+      } else {
+        return x;
+      }
     }
 
     fun min(a: s32, b: s32) -> s32 {
-      -- if a < b {
+      if a < b {
         return a;
-      -- } else {
-      --   return b;
-      -- }
+      } else {
+        return b;
+      }
     }
 
     fun max(a: s32, b: s32) -> s32 {
-      -- if a > b {
+      if a > b {
         return a;
-      -- } else {
-      --   return b;
-      -- }
+      } else {
+        return b;
+      }
     }
   "#,
   );
@@ -104,25 +104,25 @@ fn generate_realistic_code(num_functions: usize) -> String {
           mut result := 0;
           
           -- Control flow with nested blocks.
-          -- if sum > product {{
-          --   {{
-          --     imu temp := sum - product;
-          --     result = abs(temp);
-          --   }}
-          -- }} else {{
-          --   {{
-          --     imu diff := product - sum;
-          --     imu bounded := min(diff, 1000);
-          --     result = max(bounded, 1);
-          --   }}
-          -- }}
+          if sum > product {{
+            {{
+              imu temp := sum - product;
+              result = abs(temp);
+            }}
+          }} else {{
+            {{
+              imu diff := product - sum;
+              imu bounded := min(diff, 1000);
+              result = max(bounded, 1);
+            }}
+          }}
           
           -- more computation.
           mut counter := 0;
-          -- while counter < 10 {{
-          --   result = result + counter;
-          --   counter = counter + 1;
-          -- }}
+          while counter < 10 {{
+            result = result + counter;
+            counter = counter + 1;
+          }}
           
           -- function calls.
           imu final_result := min(result, 10000);
@@ -139,15 +139,15 @@ fn generate_realistic_code(num_functions: usize) -> String {
           -- nested control flow.
           mut output := 0;
 
-          -- if c > 100 {{
-          --   if c > 1000 {{
-          --     output = c / 10;
-          --   }} else {{
-          --     output = c / 2;
-          --   }}
-          -- }} else {{
-          --   output = c * 2;
-          -- }}
+          if c > 100 {{
+            if c > 1000 {{
+              output = c / 10;
+            }} else {{
+              output = c / 2;
+            }}
+          }} else {{
+            output = c * 2;
+          }}
           
           return output;
         }}

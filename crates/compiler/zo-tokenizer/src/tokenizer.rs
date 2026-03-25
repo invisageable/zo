@@ -1069,10 +1069,37 @@ impl<'a> Tokenizer<'a> {
         break;
       }
       if ch == b'\\' {
+        let esc_start = self.cursor;
+
         self.advance(); // skip backslash
 
         if self.cursor < self.source.len() {
-          self.advance(); // skip escaped char (including \{)
+          let esc = self.current();
+
+          if !matches!(
+            esc,
+            b'n'
+              | b'r'
+              | b't'
+              | b'\\'
+              | b'"'
+              | b'0'
+              | b'{'
+              | b'}'
+              | b'x'
+              | b'u'
+              | b'U'
+          ) {
+            report_error(Error::new(
+              ErrorKind::InvalidEscapeSequence,
+              Span {
+                start: esc_start as u32,
+                len: 2,
+              },
+            ));
+          }
+
+          self.advance(); // skip escaped char
         }
       } else {
         if ch == b'{' {
@@ -1281,7 +1308,16 @@ impl<'a> Tokenizer<'a> {
           b'\\' => '\\',
           b'\'' => '\'',
           b'0' => '\0',
-          _ => content[1] as char,
+          _ => {
+            report_error(Error::new(
+              ErrorKind::InvalidEscapeSequence,
+              Span {
+                start: (start + 1) as u32,
+                len: 2,
+              },
+            ));
+            content[1] as char
+          }
         }
       } else if let Ok(s) = std::str::from_utf8(content) {
         s.chars().next().unwrap_or('\0')

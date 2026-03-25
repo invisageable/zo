@@ -1,3 +1,5 @@
+use zo_error::{Error, ErrorKind};
+use zo_reporter::report_error;
 use zo_span::Span;
 use zo_token::{LiteralStore, Token, TokenBuffer};
 use zo_tokenizer::TokenizationResult;
@@ -100,6 +102,25 @@ impl<'a> Parser<'a> {
     } else {
       None
     }
+  }
+
+  /// Reports a parse error at the current token.
+  fn error(&self, kind: ErrorKind) {
+    report_error(Error::new(kind, self.current_span()));
+  }
+
+  /// Reports a parse error at a specific position.
+  fn error_at(&self, kind: ErrorKind, pos: usize) {
+    let span = if pos < self.tokens.kinds.len() {
+      Span {
+        start: self.tokens.starts[pos],
+        len: self.tokens.lengths[pos],
+      }
+    } else {
+      self.current_span()
+    };
+
+    report_error(Error::new(kind, span));
   }
 
   /// Parses an array of tokens.
@@ -278,6 +299,16 @@ impl<'a> Parser<'a> {
 
   fn handle_fun_introducer(&mut self, token: Token) {
     self.flush_expr();
+
+    // `fun` must be followed by an identifier (name)
+    // or `(` for closures (fn).
+    if token == Token::Fun
+      && self
+        .peek()
+        .is_some_and(|n| !matches!(n, Token::Ident | Token::Pub))
+    {
+      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+    }
 
     let node_index = self.emit_node(token);
 
@@ -795,6 +826,15 @@ impl<'a> Parser<'a> {
     // Variable declaration: imu/mut/val are introducers
     self.flush_expr();
 
+    // imu/mut/val must be followed by an identifier.
+    match self.peek() {
+      Some(Token::Ident) => {}
+      Some(_) => {
+        self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+      }
+      None => self.error(ErrorKind::ExpectedIdentifier),
+    }
+
     // Emit the binding keyword as introducer
     let node_index = self.emit_node(kind);
 
@@ -834,6 +874,11 @@ impl<'a> Parser<'a> {
   fn handle_enum_keyword(&mut self) {
     self.flush_expr();
 
+    // `enum` must be followed by an identifier (name).
+    if self.peek().is_some_and(|n| n != Token::Ident) {
+      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+    }
+
     let node_index = self.emit_node(Token::Enum);
 
     self.introducer_stack.push(Introducer {
@@ -848,6 +893,11 @@ impl<'a> Parser<'a> {
 
   fn handle_struct_keyword(&mut self) {
     self.flush_expr();
+
+    // `struct` must be followed by an identifier (name).
+    if self.peek().is_some_and(|n| n != Token::Ident) {
+      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+    }
 
     let node_index = self.emit_node(Token::Struct);
 
@@ -864,6 +914,11 @@ impl<'a> Parser<'a> {
   fn handle_apply_keyword(&mut self) {
     self.flush_expr();
 
+    // `apply` must be followed by an identifier (type name).
+    if self.peek().is_some_and(|n| n != Token::Ident) {
+      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+    }
+
     let node_index = self.emit_node(Token::Apply);
 
     self.introducer_stack.push(Introducer {
@@ -878,6 +933,11 @@ impl<'a> Parser<'a> {
 
   fn handle_type_alias_keyword(&mut self) {
     self.flush_expr();
+
+    // `type` must be followed by an identifier (alias name).
+    if self.peek().is_some_and(|n| n != Token::Ident) {
+      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+    }
 
     let node_index = self.emit_node(Token::Type);
 
