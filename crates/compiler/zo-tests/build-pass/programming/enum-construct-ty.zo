@@ -1,0 +1,12 @@
+-- tests-build-pass: enum construction with explicit type annotation.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/enum-construct-ty.zo -o crates/compiler/zo-tests/build-pass/programming/enum-construct-ty
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+fun main() {
+  imu c: Color = Color::Red;
+}

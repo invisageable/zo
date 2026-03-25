@@ -31,8 +31,8 @@ pub enum Ty {
   Char,
   Str,
 
-  /// A struct type, identified by its name.
-  Struct(Symbol),
+  /// A struct type, identified by its interned ID.
+  Struct(StructTyId),
 
   /// An enum type, identified by its interned ID.
   Enum(EnumTyId),
@@ -137,6 +137,32 @@ pub struct TupleTy {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StructTyId(pub u32);
+
+/// Struct type: name + field range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StructTy {
+  /// Name of the struct.
+  pub name: Symbol,
+  /// Start index in the global struct_fields array.
+  pub field_start: u32,
+  /// Number of fields.
+  pub field_count: u32,
+}
+
+/// A single struct field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StructField {
+  /// Field name.
+  pub name: Symbol,
+  /// Field type.
+  pub ty_id: TyId,
+  /// Whether this field has a default value.
+  pub has_default: bool,
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EnumTyId(pub u32);
 
 /// Enum type: name + variant range.
@@ -206,6 +232,12 @@ pub struct TyTable {
   pub enum_variants: Vec<EnumVariant>,
   /// Global array for variant payload field types.
   pub variant_field_tys: Vec<TyId>,
+  /// Struct types stored contiguously.
+  pub struct_types: Vec<StructTy>,
+  /// Struct type interning map for O(1) deduplication.
+  struct_intern: HashMap<Symbol, StructTyId>,
+  /// All struct fields across all structs.
+  pub struct_fields: Vec<StructField>,
 }
 
 impl TyTable {
@@ -411,5 +443,62 @@ impl TyTable {
     let end = start + v.field_count as usize;
 
     &self.variant_field_tys[start..end]
+  }
+
+  /// Intern a struct type, returning its ID.
+  pub fn intern_struct(
+    &mut self,
+    name: Symbol,
+    fields: &[(Symbol, TyId, bool)],
+  ) -> StructTyId {
+    if let Some(&id) = self.struct_intern.get(&name) {
+      return id;
+    }
+
+    let field_start = self.struct_fields.len() as u32;
+
+    for &(fname, fty, has_default) in fields {
+      self.struct_fields.push(StructField {
+        name: fname,
+        ty_id: fty,
+        has_default,
+      });
+    }
+
+    let struct_ty = StructTy {
+      name,
+      field_start,
+      field_count: fields.len() as u32,
+    };
+
+    let id = StructTyId(self.struct_types.len() as u32);
+
+    self.struct_types.push(struct_ty);
+    self.struct_intern.insert(name, id);
+
+    id
+  }
+
+  /// Get a struct type by ID.
+  pub fn struct_ty(&self, id: StructTyId) -> Option<&StructTy> {
+    self.struct_types.get(id.0 as usize)
+  }
+
+  /// Look up a struct by name.
+  pub fn struct_intern_lookup(&self, name: Symbol) -> Option<&StructTyId> {
+    self.struct_intern.get(&name)
+  }
+
+  /// Look up an enum by name.
+  pub fn enum_intern_lookup(&self, name: Symbol) -> Option<&EnumTyId> {
+    self.enum_intern.get(&name)
+  }
+
+  /// Get the fields of a struct.
+  pub fn struct_fields(&self, s: &StructTy) -> &[StructField] {
+    let start = s.field_start as usize;
+    let end = start + s.field_count as usize;
+
+    &self.struct_fields[start..end]
   }
 }

@@ -1,0 +1,6 @@
+-- tests-build-pass: empty struct declaration.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-basic.zo -o crates/compiler/zo-tests/build-pass/programming/struct-basic
+
+struct Foo {}
+
+fun main() {}

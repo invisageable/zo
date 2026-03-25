@@ -196,6 +196,20 @@ pub enum Insn {
     fields: Vec<ValueId>,
     ty_id: TyId,
   },
+  /// Struct type definition.
+  StructDef {
+    name: Symbol,
+    ty_id: TyId,
+    /// (field_name, field_ty, has_default).
+    fields: Vec<(Symbol, TyId, bool)>,
+    pubness: Pubness,
+  },
+  /// Struct construction: `Span { lo: 0, hi: 10 }`.
+  StructConstruct {
+    struct_name: Symbol,
+    fields: Vec<ValueId>,
+    ty_id: TyId,
+  },
   /// Template literal (fragment or HTML tag)
   Template {
     id: ValueId,

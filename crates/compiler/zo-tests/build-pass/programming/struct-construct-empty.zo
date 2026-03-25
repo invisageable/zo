@@ -1,0 +1,8 @@
+-- tests-build-pass: empty struct construction.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-construct-empty.zo -o crates/compiler/zo-tests/build-pass/programming/struct-construct-empty
+
+struct Foo {}
+
+fun main() {
+  imu f := Foo {};
+}

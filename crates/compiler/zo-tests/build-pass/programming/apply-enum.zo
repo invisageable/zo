@@ -1,0 +1,18 @@
+-- tests-build-pass: apply block on enum type.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/apply-enum.zo -o crates/compiler/zo-tests/build-pass/programming/apply-enum
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+apply Color {
+  fun red() -> Self {
+    Self::Red
+  }
+}
+
+fun main() {
+  imu c := Color::red();
+}

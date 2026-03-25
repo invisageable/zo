@@ -1,0 +1,7 @@
+type Pair = (int, int);
+
+fun main() {
+  imu p: Pair = (10, 20);
+
+  check@eq(p.0, 10);
+}

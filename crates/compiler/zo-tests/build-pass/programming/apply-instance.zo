@@ -1,0 +1,24 @@
+-- tests-build-pass: apply with self instance method.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/apply-instance.zo -o crates/compiler/zo-tests/build-pass/programming/apply-instance
+
+struct Span {
+  lo: int,
+  hi: int,
+}
+
+apply Span {
+  pub fun new(lo: int, hi: int) -> Self {
+    Self { lo, hi }
+  }
+
+  fun sum(self) -> int {
+    self.lo + self.hi
+  }
+}
+
+fun main() {
+  imu s := Span::new(3, 7);
+  imu n := s.sum();
+
+  check@eq(n, 10);
+}

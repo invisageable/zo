@@ -1,0 +1,17 @@
+-- tests-build-pass: apply with Self type and struct return.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/apply-self.zo -o crates/compiler/zo-tests/build-pass/programming/apply-self
+
+struct Span {
+  lo: int,
+  hi: int,
+}
+
+apply Span {
+  fun zero() -> Self {
+    Self { lo: 0, hi: 0 }
+  }
+}
+
+fun main() {
+  imu s := Span::zero();
+}

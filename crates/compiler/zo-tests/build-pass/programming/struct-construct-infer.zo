@@ -1,0 +1,11 @@
+-- tests-build-pass: struct construction with inferred type.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-construct-infer.zo -o crates/compiler/zo-tests/build-pass/programming/struct-construct-infer
+
+struct Span {
+  lo: int,
+  hi: int,
+}
+
+fun main() {
+  imu s := Span { lo: 0, hi: 10 };
+}

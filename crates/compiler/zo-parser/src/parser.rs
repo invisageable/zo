@@ -137,6 +137,11 @@ impl<'a> Parser<'a> {
       // Introducers - these start new contexts
       Token::Fun | Token::Ext | Token::Fn => self.handle_fun_introducer(kind),
       Token::Enum => self.handle_enum_keyword(),
+      Token::Struct => self.handle_struct_keyword(),
+      Token::Apply => self.handle_apply_keyword(),
+      Token::Type => self.handle_type_alias_keyword(),
+      Token::Group => self.handle_group_keyword(),
+      Token::And => self.handle_and_keyword(),
 
       Token::LParen => self.handle_lparen_introducer(),
       Token::LBrace => self.handle_lbrace_introducer(),
@@ -477,7 +482,10 @@ impl<'a> Parser<'a> {
           } else if parent.token == Token::Fn {
             // Closure block is complete after its block
             self.close_introducer();
-          } else if parent.token == Token::Enum {
+          } else if matches!(
+            parent.token,
+            Token::Enum | Token::Struct | Token::Apply
+          ) {
             self.close_introducer();
           }
         }
@@ -642,7 +650,9 @@ impl<'a> Parser<'a> {
         | Token::Hash
         | Token::Load
         | Token::Pack
-        | Token::Ext => {
+        | Token::Ext
+        | Token::Type
+        | Token::Group => {
           self.close_introducer();
           break;
         }
@@ -832,6 +842,83 @@ impl<'a> Parser<'a> {
       node_index,
       children_start: self.tree.nodes.len() as u32,
     });
+
+    self.state = ParserState::Expression;
+  }
+
+  fn handle_struct_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Struct);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Struct,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::Expression;
+  }
+
+  fn handle_apply_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Apply);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Apply,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::Expression;
+  }
+
+  fn handle_type_alias_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Type);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Type,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::Expression;
+  }
+
+  fn handle_group_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Group);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Group,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::Expression;
+  }
+
+  fn handle_and_keyword(&mut self) {
+    self.flush_expr();
+
+    // Close the current Type introducer inside a Group.
+    if self
+      .introducer_stack
+      .last()
+      .is_some_and(|i| i.token == Token::Type)
+    {
+      self.close_introducer();
+    }
+
+    self.emit_node(Token::And);
 
     self.state = ParserState::Expression;
   }

@@ -1,0 +1,9 @@
+-- tests-build-pass: struct with default field values.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-default.zo -o crates/compiler/zo-tests/build-pass/programming/struct-default
+
+struct Bar {
+  x: int = 0,
+  y: int = 0,
+}
+
+fun main() {}

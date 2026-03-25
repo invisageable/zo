@@ -1,0 +1,9 @@
+-- tests-build-pass: struct with typed fields.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-fields.zo -o crates/compiler/zo-tests/build-pass/programming/struct-fields
+
+struct Span {
+  lo: int,
+  hi: int,
+}
+
+fun main() {}

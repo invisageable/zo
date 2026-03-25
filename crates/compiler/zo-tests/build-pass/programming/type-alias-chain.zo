@@ -1,0 +1,8 @@
+type A = int;
+type B = A;
+
+fun main() {
+  imu x: B = 42;
+
+  check@eq(x, 42);
+}

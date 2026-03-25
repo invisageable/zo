@@ -1,0 +1,11 @@
+group type Idx = int
+  and Pair = (int, int)
+;
+
+fun main() {
+  imu x: Idx = 42;
+  imu p: Pair = (1, 2);
+
+  check@eq(x, 42);
+  check@eq(p.0, 1);
+}

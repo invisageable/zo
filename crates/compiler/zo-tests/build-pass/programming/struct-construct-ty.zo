@@ -1,0 +1,11 @@
+-- tests-build-pass: struct construction with explicit type annotation.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-construct-ty.zo -o crates/compiler/zo-tests/build-pass/programming/struct-construct-ty
+
+struct Span {
+  lo: int,
+  hi: int,
+}
+
+fun main() {
+  imu s: Span = Span { lo: 0, hi: 10 };
+}

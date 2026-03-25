@@ -5,7 +5,9 @@ pub(crate) mod enums;
 pub(crate) mod errors;
 pub(crate) mod interpolation;
 pub(crate) mod modules;
+pub(crate) mod structs;
 pub(crate) mod tuples;
+pub(crate) mod type_aliases;
 
 use crate::tests::common::{assert_annotations_stream, assert_sir_stream};
 

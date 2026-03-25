@@ -846,30 +846,20 @@ impl<'a> Tokenizer<'a> {
     let start = self.cursor;
     let first = self.current();
 
-    // Check for base literals (b#, o#, x#)
+    // Check for display-base literals (b#, o#, x#).
+    // These store the VALUE as decimal, with a display hint.
+    // b#30 = decimal 30, displayed as binary "11110".
+    // o#75 = decimal 75, displayed as octal "113".
+    // x#76 = decimal 76, displayed as hex "4c".
     if (first == b'b' || first == b'o' || first == b'x') && self.peek(1) == b'#'
     {
       self.cursor += 2; // Skip base prefix
 
-      let base = match first {
-        b'b' => 2,
-        b'o' => 8,
-        b'x' => 16,
-        _ => unreachable!(),
-      };
-
-      // Scan digits for base literal
+      // Scan decimal digits (the value is always decimal).
       while self.cursor < self.source.len() {
         let ch = self.current();
 
-        let valid = match base {
-          2 => ch == b'0' || ch == b'1',
-          8 => (b'0'..=b'7').contains(&ch),
-          16 => ch.is_ascii_hexdigit(),
-          _ => false,
-        };
-
-        if valid {
+        if ch.is_ascii_digit() || ch == b'_' {
           self.cursor += 1;
         } else {
           break;
@@ -886,7 +876,8 @@ impl<'a> Tokenizer<'a> {
         ""
       };
 
-      let value = u64::from_str_radix(text, base as u32).unwrap_or(0);
+      let clean = text.replace('_', "");
+      let value = clean.parse::<u64>().unwrap_or(0);
       let id = self.literals.push_int(value);
 
       self

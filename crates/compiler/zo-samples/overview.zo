@@ -48,12 +48,33 @@ abstract Bar {
   fun as_span();
 }
 
+-- default user field value.
 struct Span {
   pub lo: int = 0,
   pub hi: int = 0,
 }
 
+-- `field`: `user types`
+struct Span {
+  pub lo: int,
+  pub hi: int,
+}
+
 struct Foo {}
+
+apply Foo {
+  fun new() -> Self {
+    Self {}
+  }
+
+  pub fun is_span(self) -> bool {
+    Span { lo: 0, hi: 0 }
+  }
+
+  pub fun len(self) -> int {
+    self.lo + self.hi
+  }
+}
 
 apply Bar for Foo {
   fun as_span() -> Span {

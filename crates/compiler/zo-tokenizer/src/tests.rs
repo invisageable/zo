@@ -313,22 +313,27 @@ fn test_integers() {
 
 #[test]
 fn test_base_integers() {
+  // b#/o#/x# = display-base hints. The value after # is
+  // always decimal. The prefix controls showln formatting.
+  // b#30 = decimal 30, displayed as binary "11110".
+  // o#75 = decimal 75, displayed as octal "113".
+  // x#76 = decimal 76, displayed as hex "4c".
   assert_tokens_stream(
     r#"
-      b#0 b#101 b#110011
-      o#7 o#123 o#7654
-      x#F x#1A3 x#deadbeef
+      b#0 b#30 b#255
+      o#7 o#75 o#1000
+      x#0 x#76 x#255
     "#,
     &[
       (Token::Int, "b#0"),
-      (Token::Int, "b#101"),
-      (Token::Int, "b#110011"),
+      (Token::Int, "b#30"),
+      (Token::Int, "b#255"),
       (Token::Int, "o#7"),
-      (Token::Int, "o#123"),
-      (Token::Int, "o#7654"),
-      (Token::Int, "x#F"),
-      (Token::Int, "x#1A3"),
-      (Token::Int, "x#deadbeef"),
+      (Token::Int, "o#75"),
+      (Token::Int, "o#1000"),
+      (Token::Int, "x#0"),
+      (Token::Int, "x#76"),
+      (Token::Int, "x#255"),
       (Token::Eof, ""),
     ],
   );

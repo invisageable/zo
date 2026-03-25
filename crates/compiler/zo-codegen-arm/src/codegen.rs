@@ -969,8 +969,8 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      // Enum definition — compile-time only.
-      Insn::EnumDef { .. } => {}
+      // Type definitions — compile-time only.
+      Insn::EnumDef { .. } | Insn::StructDef { .. } => {}
 
       // Enum construction: [tag, f0, f1, ...] on stack.
       Insn::EnumConstruct {
@@ -999,6 +999,33 @@ impl<'a> ARM64Gen<'a> {
         }
 
         // Result: pointer to enum value (SP).
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emitter.emit_mov_reg(dst, SP);
+        }
+      }
+
+      // Struct construction: [f0, f1, ...] on stack.
+      Insn::StructConstruct { fields, .. } => {
+        let slot_count = fields.len() as u16;
+        let size = slot_count * (STACK_SLOT_SIZE as u16);
+
+        let aligned =
+          (size + (FRAME_ALIGN_MASK as u16)) & !(FRAME_ALIGN_MASK as u16);
+
+        if aligned > 0 {
+          self.emitter.emit_sub_imm(SP, SP, aligned);
+        }
+
+        for (i, field) in fields.iter().enumerate() {
+          if let Some(reg) = self.alloc_reg(*field) {
+            self.emitter.emit_str(
+              reg,
+              SP,
+              (i * STACK_SLOT_SIZE as usize) as i16,
+            );
+          }
+        }
+
         if let Some(dst) = self.reg_for_insn(idx) {
           self.emitter.emit_mov_reg(dst, SP);
         }

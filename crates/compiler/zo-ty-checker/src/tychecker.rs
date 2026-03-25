@@ -862,10 +862,17 @@ impl TyChecker {
       return Some(ty);
     }
 
-    // Check if it's a struct type
-    // For now, we create a Struct type on demand
-    // In a real compiler, we'd check if the struct is defined
-    Some(self.intern_ty(Ty::Struct(name)))
+    // Check if it's a known struct type.
+    if let Some(&id) = self.ty_table.struct_intern_lookup(name) {
+      return Some(self.intern_ty(Ty::Struct(id)));
+    }
+
+    // Check if it's a known enum type.
+    if let Some(&id) = self.ty_table.enum_intern_lookup(name) {
+      return Some(self.intern_ty(Ty::Enum(id)));
+    }
+
+    None
   }
 
   /// Resolve a type from its Symbol (already interned during tokenization)

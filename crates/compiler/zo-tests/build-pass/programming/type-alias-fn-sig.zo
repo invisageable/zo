@@ -1,0 +1,9 @@
+type Idx = int;
+
+fun add(a: Idx, b: Idx) -> Idx {
+  a + b
+}
+
+fun main() {
+  check@eq(add(1, 2), 3);
+}

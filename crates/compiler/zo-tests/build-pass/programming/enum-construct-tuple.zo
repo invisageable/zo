@@ -1,0 +1,12 @@
+-- tests-build-pass: enum tuple variant construction.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/enum-construct-tuple.zo -o crates/compiler/zo-tests/build-pass/programming/enum-construct-tuple
+
+enum Foo {
+  Ok(int),
+  Err(int),
+}
+
+fun main() {
+  imu x := Foo::Ok(42);
+  imu y: Foo = Foo::Err(1);
+}

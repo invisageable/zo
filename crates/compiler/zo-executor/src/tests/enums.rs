@@ -171,3 +171,26 @@ fun main() {
     },
   );
 }
+
+// === APPLY ON ENUMS ===
+
+#[test]
+fn test_apply_enum_static() {
+  assert_sir_structure(
+    r#"enum Color { Red, Green, Blue }
+apply Color {
+  fun red() -> Self {
+    Self::Red
+  }
+}
+fun main() {
+  imu c := Color::red();
+}"#,
+    |sir| {
+      // Should have a FunDef with mangled name.
+      let method = sir.iter().find(|i| matches!(i, Insn::Call { .. }));
+
+      assert!(method.is_some(), "expected Call for Color::red()");
+    },
+  );
+}
