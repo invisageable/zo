@@ -7,7 +7,7 @@ tree:
     - token: Fun
       flags: 0
       child_start: 1
-      child_count: 40
+      child_count: 17
       _reserved: 0
     - token: Ident
       flags: 1

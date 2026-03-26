@@ -11,7 +11,7 @@ apply Counter {
     return 12345;
   }
 
-  fun incr(self) {
+  fun incr(mut self) {
     self.x += 1;
   }
 
@@ -24,13 +24,15 @@ fun main() {
   imu counter: Counter = Counter::new();
 
   check@eq(counter.hello(), 12345);
+  check@eq(counter.x(), 0);
 
-  showln(counter.x());
+  showln(counter.x);
 
   counter.incr();
   counter.incr();
 
-  showln(counter.x());
+  showln(counter.x);
 
+  check@eq(counter.x, 2);
   check@eq(counter.x(), 2);
 }

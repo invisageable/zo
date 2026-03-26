@@ -118,6 +118,8 @@ pub struct ARM64Gen<'a> {
   struct_base: u32,
   /// Next struct slot offset (relative to struct_base).
   next_struct_slot: u32,
+  /// Functions that return structs: name -> field count.
+  struct_return_fns: HashMap<Symbol, u32>,
 }
 
 impl<'a> ARM64Gen<'a> {
@@ -142,6 +144,7 @@ impl<'a> ARM64Gen<'a> {
       next_mut_slot: 0,
       struct_base: 0,
       next_struct_slot: 0,
+      struct_return_fns: HashMap::default(),
     }
   }
 
@@ -325,6 +328,34 @@ impl<'a> ARM64Gen<'a> {
       Some(RegAlloc::allocate(&sir.instructions, sir.next_value_id));
 
     let insns = &sir.instructions;
+
+    // Pre-pass: identify functions that return structs.
+    // Scan for patterns: FunDef ... StructConstruct ... Return.
+    {
+      let mut cur_fn: Option<Symbol> = None;
+      let mut last_struct_fields: Option<u32> = None;
+
+      for insn in insns.iter() {
+        match insn {
+          Insn::FunDef { name, .. } => {
+            cur_fn = Some(*name);
+            last_struct_fields = None;
+          }
+          Insn::StructConstruct { fields, .. } => {
+            last_struct_fields = Some(fields.len() as u32);
+          }
+          Insn::Return { value: Some(_), .. } => {
+            if let (Some(name), Some(n)) = (cur_fn, last_struct_fields) {
+              self.struct_return_fns.insert(name, n);
+            }
+
+            cur_fn = None;
+            last_struct_fields = None;
+          }
+          _ => {}
+        }
+      }
+    }
 
     for (idx, insn) in insns.iter().enumerate() {
       self.emit_spills(idx, EmitTiming::Before);
@@ -853,9 +884,30 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_ldr(reg, SP, off as i16);
             }
 
-            // Move result to allocated register.
-            // Float results arrive in D0, GP in X0.
-            if let Some(fp_result) = self.fp_reg_for_insn(idx) {
+            // If callee returns a struct, x0 holds a
+            // dangling pointer into the callee's frame.
+            // Copy the struct fields into the caller's
+            // own struct area before x0 becomes stale.
+            if let Some(&field_count) = self.struct_return_fns.get(name) {
+              let dst_base = self.struct_base + self.next_struct_slot;
+
+              for i in 0..field_count {
+                let src_off = (i * STACK_SLOT_SIZE) as i16;
+                let dst_off = dst_base + i * STACK_SLOT_SIZE;
+
+                self.emitter.emit_ldr(X16, X0, src_off);
+                self.emitter.emit_str(X16, SP, dst_off as i16);
+              }
+
+              // Point result at the caller's copy.
+              if let Some(result_reg) = self.reg_for_insn(idx) {
+                self.emitter.emit_add_imm(result_reg, SP, dst_base as u16);
+              }
+
+              self.next_struct_slot += field_count * STACK_SLOT_SIZE;
+            } else if let Some(fp_result) = self.fp_reg_for_insn(idx) {
+              // Move result to allocated register.
+              // Float results arrive in D0, GP in X0.
               if fp_result != D0 {
                 self.emitter.emit_fmov_fp(fp_result, D0);
               }

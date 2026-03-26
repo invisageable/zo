@@ -903,6 +903,34 @@ impl<'a> Executor<'a> {
         // context type name.
       }
 
+      // === SELF VALUE ===
+      // `self` in expression context — load the receiver
+      // parameter. Added as a local with
+      // LocalKind::Parameter during function parameter
+      // parsing.
+      Token::SelfLower => {
+        let sym = Symbol::SELF_LOWER;
+
+        let local_info = self
+          .lookup_local(sym)
+          .map(|l| (l.value_id, l.ty_id, l.local_kind));
+
+        if let Some((_, ty_id, LocalKind::Parameter)) = local_info {
+          let dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+
+          // self is always param 0.
+          let src = LoadSource::Param(0);
+          let sv = self.sir.emit(Insn::Load { dst, src, ty_id });
+          let rid = self.values.store_runtime(0);
+
+          self.value_stack.push(rid);
+          self.ty_stack.push(ty_id);
+          self.sir_values.push(sv);
+        }
+      }
+
       // === IDENTIFIERS ===
       Token::Ident => {
         // Skip modifier idents (e.g., `lt` in `check@lt`).
@@ -4277,15 +4305,15 @@ impl<'a> Executor<'a> {
         None => return,
       };
 
-      // Check receiver mutability.
+      // Check receiver mutability and local kind.
       let recv_info = self
         .locals
         .iter()
         .rev()
         .find(|l| l.name == recv_sym)
-        .map(|l| (l.ty_id, l.mutability, l.sir_value));
+        .map(|l| (l.ty_id, l.mutability, l.local_kind));
 
-      let Some((recv_ty, recv_mut, _recv_sir)) = recv_info else {
+      let Some((recv_ty, recv_mut, recv_kind)) = recv_info else {
         return;
       };
 
@@ -4319,13 +4347,33 @@ impl<'a> Executor<'a> {
       };
 
       if let Some(rhs_s) = rhs_sir {
-        // Load receiver pointer.
+        // Load receiver pointer. Use Param source for
+        // parameters (e.g., self) so the codegen reads
+        // from the param spill slot, not mutable_slots.
+        let recv_src = if recv_kind == LocalKind::Parameter {
+          let param_idx = self
+            .current_function
+            .as_ref()
+            .and_then(|ctx| {
+              self
+                .funs
+                .iter()
+                .find(|f| f.body_start == ctx.body_start)
+                .and_then(|f| f.params.iter().position(|(n, _)| *n == recv_sym))
+            })
+            .unwrap_or(0) as u32;
+
+          LoadSource::Param(param_idx)
+        } else {
+          LoadSource::Local(recv_sym)
+        };
+
         let recv_dst = ValueId(self.sir.next_value_id);
         self.sir.next_value_id += 1;
 
         self.sir.emit(Insn::Load {
           dst: recv_dst,
-          src: LoadSource::Local(recv_sym),
+          src: recv_src,
           ty_id: recv_ty,
         });
 

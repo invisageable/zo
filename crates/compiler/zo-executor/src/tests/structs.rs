@@ -1,6 +1,7 @@
 use crate::Executor;
-use crate::tests::common::assert_sir_structure;
+use crate::tests::common::{assert_execution_error, assert_sir_structure};
 
+use zo_error::ErrorKind;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
@@ -193,5 +194,209 @@ fun main() {
     errors.is_empty(),
     "apply instance method should not error: {:?}",
     errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
+
+// === PUB FIELDS ===
+
+#[test]
+fn test_struct_pub_fields() {
+  assert_sir_structure(
+    r#"struct Color {
+  pub r: int,
+  pub g: int,
+  pub b: int,
+}
+fun main() {}"#,
+    |sir| {
+      let def = sir.iter().find(|i| matches!(i, Insn::StructDef { .. }));
+
+      if let Some(Insn::StructDef { fields, .. }) = def {
+        assert_eq!(fields.len(), 3, "Color has 3 fields");
+      } else {
+        panic!("expected StructDef for pub fields");
+      }
+    },
+  );
+}
+
+#[test]
+fn test_struct_mixed_pub_fields() {
+  assert_sir_structure(
+    r#"struct Mixed {
+  pub name: str,
+  age: int,
+  pub active: bool,
+}
+fun main() {}"#,
+    |sir| {
+      let def = sir.iter().find(|i| matches!(i, Insn::StructDef { .. }));
+
+      if let Some(Insn::StructDef { fields, .. }) = def {
+        assert_eq!(fields.len(), 3);
+      } else {
+        panic!("expected StructDef for mixed pub fields");
+      }
+    },
+  );
+}
+
+// === FIELD ACCESS (TupleIndex) ===
+
+#[test]
+fn test_struct_field_access_emits_tuple_index() {
+  assert_sir_structure(
+    r#"struct Point { x: int, y: int }
+fun main() {
+  imu p: Point = Point { x: 10, y: 20 };
+  check@eq(p.x, 10);
+}"#,
+    |sir| {
+      let has_tuple_index =
+        sir.iter().any(|i| matches!(i, Insn::TupleIndex { .. }));
+
+      assert!(has_tuple_index, "field access should emit TupleIndex");
+    },
+  );
+}
+
+// === MUT SELF ===
+
+#[test]
+fn test_mut_self_allows_field_mutation() {
+  assert_sir_structure(
+    r#"struct Counter { x: int }
+apply Counter {
+  fun new() -> Self { Self { x: 0 } }
+  fun incr(mut self) { self.x += 1; }
+}
+fun main() {
+  imu c: Counter = Counter::new();
+  c.incr();
+}"#,
+    |sir| {
+      let has_field_store =
+        sir.iter().any(|i| matches!(i, Insn::FieldStore { .. }));
+
+      assert!(
+        has_field_store,
+        "mut self compound assign should emit FieldStore"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_immutable_self_rejects_field_mutation() {
+  assert_execution_error(
+    r#"struct Counter { x: int }
+apply Counter {
+  fun new() -> Self { Self { x: 0 } }
+  fun incr(self) { self.x += 1; }
+}
+fun main() {}"#,
+    ErrorKind::ImmutableVariable,
+  );
+}
+
+// === SELF VALUE IN METHOD BODY ===
+
+#[test]
+fn test_self_lower_emits_load() {
+  assert_sir_structure(
+    r#"struct Foo { x: int }
+apply Foo {
+  fun get(self) -> int { self.x }
+}
+fun main() {}"#,
+    |sir| {
+      // Inside the method body, self should produce a
+      // Load from Param(0).
+      let has_self_load = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::Load {
+            src: zo_sir::LoadSource::Param(0),
+            ..
+          }
+        )
+      });
+
+      assert!(
+        has_self_load,
+        "self in method body should emit Load Param(0)"
+      );
+    },
+  );
+}
+
+// === APPLY STATIC + INSTANCE END-TO-END ===
+
+#[test]
+fn test_apply_static_and_instance_no_errors() {
+  let source = r#"struct Rect { w: int, h: int }
+apply Rect {
+  fun new(w: int, h: int) -> Self {
+    Self { w: w, h: h }
+  }
+  fun area(self) -> int {
+    self.w
+  }
+}
+fun main() {
+  imu r: Rect = Rect::new(10, 20);
+  imu a := r.area();
+}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (_, _, _) = executor.execute();
+  let errors = collect_errors();
+
+  assert!(
+    errors.is_empty(),
+    "apply static+instance should not error: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
+
+// === MUT PARAM (NON-SELF) ===
+
+#[test]
+fn test_mut_param_allows_reassign() {
+  assert_sir_structure(
+    r#"fun double(mut x: int) -> int {
+  x += x;
+  x
+}
+fun main() {}"#,
+    |sir| {
+      // mut x should allow compound assignment — no
+      // ImmutableVariable error.
+      let has_store = sir.iter().any(|i| matches!(i, Insn::Store { .. }));
+
+      assert!(has_store, "mut param should allow Store");
+    },
+  );
+}
+
+#[test]
+fn test_immutable_param_rejects_reassign() {
+  assert_execution_error(
+    r#"fun double(x: int) -> int {
+  x += x;
+  x
+}
+fun main() {}"#,
+    ErrorKind::ImmutableVariable,
   );
 }

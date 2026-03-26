@@ -237,11 +237,14 @@ pub fn allocate_function(
     // --- Handle Load (parameter or mutable) ---
     if let Insn::Load { dst, src, .. } = insn {
       match src {
-        LoadSource::Param(idx) => {
-          let param_reg = *idx as u8;
+        LoadSource::Param(_) => {
+          // Allocate a fresh register — don't force the
+          // physical param register. The codegen will load
+          // from the param's spill slot on the stack.
+          let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
 
-          state.assign(*dst, param_reg, fp);
-          insert_assignment(result, *dst, param_reg, fp);
+          state.assign(*dst, reg, fp);
+          insert_assignment(result, *dst, reg, fp);
         }
         LoadSource::Local(_) => {
           // Local variable: allocate a fresh register

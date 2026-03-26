@@ -518,8 +518,9 @@ impl<'a> Parser<'a> {
           } else if parent.token == Token::When {
             // Ternary ends at block boundary
             self.close_introducer();
-          } else if parent.token == Token::Fn {
-            // Closure block is complete after its block
+          } else if matches!(parent.token, Token::Fun | Token::Fn | Token::Ext)
+          {
+            // Function/closure is complete after body.
             self.close_introducer();
           } else if matches!(
             parent.token,
