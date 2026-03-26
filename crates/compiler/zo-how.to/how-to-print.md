@@ -1,4 +1,7 @@
 # how to print.
 
-```zo
+```rust:zo
+fun main() {
+  showln("hello");
+}
 ```
