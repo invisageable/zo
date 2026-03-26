@@ -855,6 +855,11 @@ impl<'a> Parser<'a> {
     // Flush any pending expression
     self.flush_expr();
 
+    // `if` condition must not use parentheses.
+    if self.peek() == Some(Token::LParen) {
+      self.error_at(ErrorKind::ParenthesizedCondition, self.pos + 1);
+    }
+
     // Emit 'if' as introducer
     let node_index = self.emit_node(Token::If);
 
@@ -1009,6 +1014,11 @@ impl<'a> Parser<'a> {
   fn handle_while_keyword(&mut self) {
     // Flush any pending expression
     self.flush_expr();
+
+    // `while` condition must not use parentheses.
+    if self.peek() == Some(Token::LParen) {
+      self.error_at(ErrorKind::ParenthesizedCondition, self.pos + 1);
+    }
 
     // Emit 'while' as introducer
     let node_index = self.emit_node(Token::While);

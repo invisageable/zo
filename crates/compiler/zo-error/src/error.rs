@@ -156,6 +156,9 @@ pub enum ErrorKind {
   UnresolvedJump,
   CraneliftError,
 
+  // Syntax style errors
+  ParenthesizedCondition,
+
   // linker errors
   LinkerError,
 

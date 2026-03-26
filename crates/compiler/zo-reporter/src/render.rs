@@ -279,6 +279,9 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::UnknownLocal => "Unknown local variable",
     ErrorKind::UnresolvedJump => "Unresolved jump target",
     ErrorKind::CraneliftError => "Code generation error",
+    ErrorKind::ParenthesizedCondition => {
+      "Parentheses are not allowed around conditions"
+    }
 
     _ => "Unknown error",
   }
@@ -340,6 +343,7 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::ExpectedTypeAnnotation => {
       "`=` requires a type annotation; use `:=` to infer"
     }
+    ErrorKind::ParenthesizedCondition => "remove these parentheses",
     _ => "here",
   }
 }
@@ -375,6 +379,9 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::ExpectedTypeAnnotation => Some(
       "Either add a type: `imu x: int = 42` or use `:=` to infer: `imu x := 42`",
     ),
+    ErrorKind::ParenthesizedCondition => {
+      Some("Write `if cond {` instead of `if (cond) {`")
+    }
     _ => None,
   }
 }

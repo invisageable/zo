@@ -1,0 +1,11 @@
+struct Person {
+  name: str,
+  age: u8,
+}
+
+fun main() {
+  check@eq(
+    Person { name = "john", age = 24 },
+    Person { name = "jane", age = 28 },
+  );
+}

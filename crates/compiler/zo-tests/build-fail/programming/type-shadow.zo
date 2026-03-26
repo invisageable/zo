@@ -4,7 +4,7 @@ fun main() {
   type X = int;
   type Y = X;
 
-  if (true) {
+  if true {
     type X = str;
 
     imu y: Y = "hello";

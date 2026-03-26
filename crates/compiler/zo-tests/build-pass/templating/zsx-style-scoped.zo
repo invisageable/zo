@@ -1,0 +1,12 @@
+$: {
+  p {
+    color: blue;
+    font-weight: 800;
+  }
+}
+
+fun main() {
+  imu view: </> ::= <p>JOiN THE DEVOLUTiON</p>;
+
+  #dom view;
+}

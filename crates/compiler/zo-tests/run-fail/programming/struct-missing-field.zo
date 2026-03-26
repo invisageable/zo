@@ -1,0 +1,10 @@
+struct Person {
+  name: str,
+  nickname: str,
+}
+
+fun main() {
+  imu ivs: Person = Person { name: "invisageable", nickname: "ivs" };
+
+  showln(ivs.age);
+}
