@@ -12,7 +12,7 @@ apply Counter {
   }
 
   fun incr(self) {
-    self.x += self.x + x;
+    self.x += 1;
   }
 
   fun x(self) -> int {

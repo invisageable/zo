@@ -58,14 +58,18 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
       let start = i;
 
       // Scan forward for Return. Stop at the next
-      // FunDef to avoid swallowing adjacent bodies
-      // (intrinsic functions have no Return).
+      // FunDef or top-level declaration (StructDef,
+      // EnumDef) to avoid swallowing adjacent bodies
+      // or type definitions. Intrinsic functions have
+      // no Return so this also handles them.
       let mut end = i + 1;
 
       while end < instructions.len() {
         match &instructions[end] {
           Insn::Return { .. } => break,
-          Insn::FunDef { .. } => {
+          Insn::FunDef { .. }
+          | Insn::StructDef { .. }
+          | Insn::EnumDef { .. } => {
             end -= 1;
             break;
           }

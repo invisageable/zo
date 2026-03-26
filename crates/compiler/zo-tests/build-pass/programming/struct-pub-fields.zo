@@ -1,0 +1,22 @@
+-- tests-build-pass: struct with pub fields.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-pub-fields.zo -o crates/compiler/zo-tests/build-pass/programming/struct-pub-fields
+
+struct Color {
+  pub r: int,
+  pub g: int,
+  pub b: int,
+}
+
+struct Mixed {
+  pub name: str,
+  age: int,
+  pub active: bool,
+}
+
+fun main() {
+  imu c: Color = Color { r: 255, g: 128, b: 0 };
+
+  check@eq(c.r, 255);
+  check@eq(c.g, 128);
+  check@eq(c.b, 0);
+}

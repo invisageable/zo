@@ -213,7 +213,15 @@ impl<'a> Parser<'a> {
       // Operands (identifiers, literals)
       _ if kind.is_operand() => self.handle_operand(kind),
 
-      // Keywords that introduce statements
+      // Keywords that introduce statements.
+      // In parameter lists, `mut` is a modifier (e.g.,
+      // `mut self`) — emit it directly so the executor
+      // can read it.
+      Token::Mut if self.state == ParserState::ParameterList => {
+        let span = self.current_span();
+
+        self.emit_node_internal(Token::Mut, span, None);
+      }
       Token::Imu | Token::Mut | Token::Val => self.handle_binding_keyword(kind),
 
       // Control flow keywords

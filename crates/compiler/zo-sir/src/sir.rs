@@ -47,13 +47,18 @@ impl Sir {
 
   /// Emits an instruction and return its result [`ValueId`].
   pub fn emit(&mut self, insn: Insn) -> ValueId {
-    // For instructions with explicit destinations, return that dst
+    // For instructions with explicit destinations,
+    // return that dst. These have pre-allocated ValueIds
+    // from the executor.
     let value_id = match &insn {
       Insn::Load { dst, .. }
       | Insn::BinOp { dst, .. }
       | Insn::ArrayIndex { dst, .. }
-      | Insn::ArrayLen { dst, .. } => *dst,
-      // Instructions that don't produce values return a dummy ValueId
+      | Insn::ArrayLen { dst, .. }
+      | Insn::TupleIndex { dst, .. } => *dst,
+      // Instructions that don't produce runtime values
+      // return a sentinel. Type/struct/enum definitions
+      // are compile-time-only metadata.
       Insn::FunDef { .. }
       | Insn::Return { .. }
       | Insn::VarDef { .. }
@@ -62,9 +67,10 @@ impl Sir {
       | Insn::PackDecl { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
-      | Insn::BranchIfNot { .. } => {
-        ValueId(u32::MAX) // Sentinel value for non-value-producing instructions
-      }
+      | Insn::BranchIfNot { .. }
+      | Insn::StructDef { .. }
+      | Insn::EnumDef { .. }
+      | Insn::FieldStore { .. } => ValueId(u32::MAX),
       // Constants and other value-producing instructions
       _ => {
         let id = ValueId(self.next_value_id);
@@ -184,11 +190,18 @@ pub enum Insn {
   },
   /// Tuple literal: (e0, e1, ..., eN).
   TupleLiteral { elements: Vec<ValueId>, ty_id: TyId },
-  /// Tuple field access: tup.N (compile-time index).
+  /// Tuple/struct field read: tup.N (compile-time index).
   TupleIndex {
     dst: ValueId,
     tuple: ValueId,
     index: u32,
+    ty_id: TyId,
+  },
+  /// Struct field write: struct.N = value.
+  FieldStore {
+    base: ValueId,
+    index: u32,
+    value: ValueId,
     ty_id: TyId,
   },
   /// Enum type definition.
@@ -223,9 +236,9 @@ pub enum Insn {
   /// Template literal (fragment or HTML tag)
   Template {
     id: ValueId,
-    name: Option<Symbol>, // None for fragments (<>), Some for tags (<h1>)
+    name: Option<Symbol>,
     ty_id: TyId,
-    commands: Vec<UiCommand>, // UI commands for this template
+    commands: Vec<UiCommand>,
   },
 }
 

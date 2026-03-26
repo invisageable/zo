@@ -114,6 +114,10 @@ pub struct ARM64Gen<'a> {
   caller_save_base: u32,
   /// Next mutable variable slot.
   next_mut_slot: u32,
+  /// Base offset for struct allocations in the frame.
+  struct_base: u32,
+  /// Next struct slot offset (relative to struct_base).
+  next_struct_slot: u32,
 }
 
 impl<'a> ARM64Gen<'a> {
@@ -136,6 +140,8 @@ impl<'a> ARM64Gen<'a> {
       param_slots: HashMap::default(),
       caller_save_base: 0,
       next_mut_slot: 0,
+      struct_base: 0,
+      next_struct_slot: 0,
     }
   }
 
@@ -578,6 +584,7 @@ impl<'a> ARM64Gen<'a> {
         self.current_fn_start = Some(idx);
         self.mutable_slots.clear();
         self.next_mut_slot = 0;
+        self.next_struct_slot = 0;
         self.param_slots.clear();
 
         // Function prologue: save FP/LR if non-leaf.
@@ -591,7 +598,7 @@ impl<'a> ARM64Gen<'a> {
           }
 
           // Reserve space for spills + mutable slots +
-          // parameter spill slots.
+          // parameter spill slots + struct allocations.
           let param_reserve = params.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = if info.has_calls {
             CALLER_SAVE_RESERVE
@@ -602,6 +609,7 @@ impl<'a> ARM64Gen<'a> {
             + MUTABLE_VAR_RESERVE
             + param_reserve
             + caller_save
+            + info.struct_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -612,6 +620,10 @@ impl<'a> ARM64Gen<'a> {
           // Set caller-save spill base for BL save/restore.
           self.caller_save_base =
             info.spill_size + MUTABLE_VAR_RESERVE + param_reserve;
+
+          // Struct base: after caller-save area.
+          self.struct_base =
+            info.spill_size + MUTABLE_VAR_RESERVE + param_reserve + caller_save;
 
           // Spill parameters to stack so they survive
           // register reuse. Params arrive in X0-X7 / D0-D7.
@@ -885,6 +897,7 @@ impl<'a> ARM64Gen<'a> {
             + MUTABLE_VAR_RESERVE
             + param_reserve
             + caller_save
+            + info.struct_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -1068,36 +1081,60 @@ impl<'a> ARM64Gen<'a> {
         }
 
         // Result: pointer to enum value (SP).
+        // Use ADD (not MOV) — ARM64 MOV via ORR
+        // encodes register 31 as XZR, not SP.
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_mov_reg(dst, SP);
+          self.emitter.emit_add_imm(dst, SP, 0);
         }
       }
 
-      // Struct construction: [f0, f1, ...] on stack.
+      // Struct construction: store fields into
+      // pre-allocated frame slots. struct_base +
+      // next_struct_slot is this struct's start offset
+      // from SP.
       Insn::StructConstruct { fields, .. } => {
-        let slot_count = fields.len() as u16;
-        let size = slot_count * (STACK_SLOT_SIZE as u16);
-
-        let aligned =
-          (size + (FRAME_ALIGN_MASK as u16)) & !(FRAME_ALIGN_MASK as u16);
-
-        if aligned > 0 {
-          self.emitter.emit_sub_imm(SP, SP, aligned);
-        }
+        let base = self.struct_base + self.next_struct_slot;
 
         for (i, field) in fields.iter().enumerate() {
+          let off = base + i as u32 * STACK_SLOT_SIZE;
+
           if let Some(reg) = self.alloc_reg(*field) {
-            self.emitter.emit_str(
-              reg,
-              SP,
-              (i * STACK_SLOT_SIZE as usize) as i16,
-            );
+            self.emitter.emit_str(reg, SP, off as i16);
           }
         }
 
+        // Set dst register to point at this struct's
+        // base. Use ADD (not MOV) because ARM64 MOV
+        // via ORR encodes register 31 as XZR, not SP.
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_mov_reg(dst, SP);
+          self.emitter.emit_add_imm(dst, SP, base as u16);
         }
+
+        self.next_struct_slot += fields.len() as u32 * STACK_SLOT_SIZE;
+      }
+
+      // Struct/tuple field access: load from
+      // base + index * 8.
+      Insn::TupleIndex {
+        dst, tuple, index, ..
+      } => {
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          let base_reg = self.alloc_reg(*tuple).unwrap_or(X0);
+          let offset = (*index as i16) * (STACK_SLOT_SIZE as i16);
+
+          self.emitter.emit_ldr(dst_reg, base_reg, offset);
+        }
+      }
+
+      // Struct field write: STR value to base + index * 8.
+      Insn::FieldStore {
+        base, index, value, ..
+      } => {
+        let base_reg = self.alloc_reg(*base).unwrap_or(X0);
+        let val_reg = self.alloc_reg(*value).unwrap_or(X1);
+        let offset = (*index as i16) * (STACK_SLOT_SIZE as i16);
+
+        self.emitter.emit_str(val_reg, base_reg, offset);
       }
 
       _ => {}

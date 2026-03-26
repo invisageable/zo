@@ -429,12 +429,24 @@ pub fn allocate_function(
   let spill_count = state.next_spill;
   let spill_size = (spill_count * 8 + 15) & !15;
 
+  // Compute total struct allocation space needed.
+  let mut struct_slots: u32 = 0;
+
+  for insn in &insns[start..end] {
+    if let Insn::StructConstruct { fields, .. } = insn {
+      struct_slots += fields.len() as u32;
+    }
+  }
+
+  let struct_size = (struct_slots * 8 + 15) & !15;
+
   result.function_info.insert(
     start,
     FunctionInfo {
       has_calls,
       spill_count,
       spill_size,
+      struct_size,
     },
   );
 }

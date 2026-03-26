@@ -607,6 +607,10 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
           off(f);
         }
       }
+      Insn::FieldStore { base, value, .. } => {
+        off(base);
+        off(value);
+      }
     }
   }
 }

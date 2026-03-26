@@ -41,6 +41,10 @@ pub struct FunctionInfo {
   pub spill_count: u32,
   /// Stack space for spills, aligned to 16.
   pub spill_size: u32,
+  /// Total stack bytes for struct allocations in this
+  /// function (sum of all StructConstruct field counts
+  /// * 8, aligned to 16).
+  pub struct_size: u32,
 }
 
 /// A spill operation to emit during codegen.
@@ -137,9 +141,11 @@ impl RegAlloc {
 /// Compute the ValueId produced by each SIR instruction.
 ///
 /// Replays the numbering logic from `Sir::emit()`:
-/// - Load / BinOp have explicit `dst`.
+/// - Load / BinOp / TupleIndex / ArrayIndex / ArrayLen
+///   have explicit `dst`.
 /// - FunDef, Return, VarDef, Store, ModuleLoad, PackDecl,
-///   Label, Jump, BranchIfNot produce no value.
+///   Label, Jump, BranchIfNot, StructDef, EnumDef produce
+///   no value.
 /// - Everything else auto-increments a counter.
 pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
   let mut counter = 0u32;
@@ -150,7 +156,8 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       Insn::Load { dst, .. }
       | Insn::BinOp { dst, .. }
       | Insn::ArrayIndex { dst, .. }
-      | Insn::ArrayLen { dst, .. } => {
+      | Insn::ArrayLen { dst, .. }
+      | Insn::TupleIndex { dst, .. } => {
         counter = counter.max(dst.0 + 1);
         Some(*dst)
       }
@@ -162,7 +169,10 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       | Insn::PackDecl { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
-      | Insn::BranchIfNot { .. } => None,
+      | Insn::BranchIfNot { .. }
+      | Insn::StructDef { .. }
+      | Insn::EnumDef { .. }
+      | Insn::FieldStore { .. } => None,
       _ => {
         let id = ValueId(counter);
         counter += 1;
@@ -187,7 +197,12 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
     Insn::ArrayIndex { array, index, .. } => {
       vec![*array, *index]
     }
+    Insn::TupleIndex { tuple, .. } => vec![*tuple],
+    Insn::FieldStore { base, value, .. } => vec![*base, *value],
     Insn::ArrayLen { array, .. } => vec![*array],
+    Insn::StructConstruct { fields, .. } => fields.clone(),
+    Insn::EnumConstruct { fields, .. } => fields.clone(),
+    Insn::TupleLiteral { elements, .. } => elements.clone(),
     _ => vec![],
   }
 }

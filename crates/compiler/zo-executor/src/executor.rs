@@ -80,6 +80,10 @@ pub struct Executor<'a> {
   pending_assign: Option<(Symbol, Span)>,
   /// Pending compound assignment (deferred to Semicolon).
   pending_compound: Option<(Symbol, BinOp, Span)>,
+  /// Receiver of a field compound assign (e.g., `self`
+  /// in `self.x += 1`). Set when the target is a field,
+  /// consumed by `finalize_pending_compound`.
+  pending_compound_receiver: Option<Symbol>,
   /// Array context stack: (is_indexing, stack_depth_at_open).
   array_ctx: Vec<(bool, usize)>,
   /// Tuple context stack: stack_depth_at_open.
@@ -139,6 +143,7 @@ impl<'a> Executor<'a> {
       pending_decl: None,
       pending_assign: None,
       pending_compound: None,
+      pending_compound_receiver: None,
       array_ctx: Vec::new(),
       tuple_ctx: Vec::new(),
       closure_counter: 0,
@@ -991,13 +996,21 @@ impl<'a> Executor<'a> {
             let is_struct =
               self.ty_checker.ty_table.struct_intern_lookup(sym).is_some();
 
-            // Skip method name idents — they appear
-            // before Dot in postfix order and will be
-            // consumed by the Dot handler.
-            let is_method_name = idx + 1 < self.tree.nodes.len()
+            // Field/method name idents appear before Dot
+            // in postfix order. Push a placeholder so the
+            // Dot handler has two values to pop (receiver +
+            // member). The actual field name is resolved
+            // from the tree node, not the stack value.
+            let is_dot_member = idx + 1 < self.tree.nodes.len()
               && self.tree.nodes[idx + 1].token == Token::Dot;
 
-            if !is_fun && !is_enum && !is_struct && !is_method_name {
+            if is_dot_member {
+              let placeholder = self.values.store_runtime(0);
+
+              self.value_stack.push(placeholder);
+              self.ty_stack.push(self.ty_checker.unit_type());
+              self.sir_values.push(ValueId(u32::MAX));
+            } else if !is_fun && !is_enum && !is_struct {
               let span = self.tree.spans[idx];
 
               report_error(Error::new(ErrorKind::UndefinedVariable, span));
@@ -2409,8 +2422,8 @@ impl<'a> Executor<'a> {
       name.unwrap()
     };
 
-    // Parse parameters
-    let mut params = Vec::new();
+    // Parse parameters: (name, type, mutability).
+    let mut params: Vec<(Symbol, TyId, Mutability)> = Vec::new();
     let mut return_ty = self.ty_checker.unit_type();
     let mut idx = start_idx + 2; // Skip Fun and name
 
@@ -2420,7 +2433,14 @@ impl<'a> Executor<'a> {
 
       // Parse parameters until we hit RParen
       while idx < _end_idx {
-        let token = &self.tree.nodes[idx].token;
+        // Check for `mut` modifier before the param name.
+        let is_mut = self.tree.nodes[idx].token == Token::Mut;
+
+        if is_mut {
+          idx += 1;
+        }
+
+        let token = self.tree.nodes[idx].token;
 
         match token {
           Token::RParen => {
@@ -2438,7 +2458,13 @@ impl<'a> Executor<'a> {
                 .resolve_ty_name(type_name)
                 .unwrap_or_else(|| self.ty_checker.unit_type());
 
-              params.push((self_sym, self_ty));
+              let mutability = if is_mut {
+                Mutability::Yes
+              } else {
+                Mutability::No
+              };
+
+              params.push((self_sym, self_ty, mutability));
             }
 
             idx += 1;
@@ -2456,7 +2482,13 @@ impl<'a> Executor<'a> {
               if idx < _end_idx {
                 let param_ty = self.resolve_type_token(idx);
 
-                params.push((param_name, param_ty));
+                let mutability = if is_mut {
+                  Mutability::Yes
+                } else {
+                  Mutability::No
+                };
+
+                params.push((param_name, param_ty, mutability));
 
                 idx += 1;
 
@@ -2516,9 +2548,13 @@ impl<'a> Executor<'a> {
       Pubness::No
     };
 
+    // FunDef stores (name, ty) — strip mutability.
+    let sir_params =
+      params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
+
     self.pending_function = Some(FunDef {
       name,
-      params: params.clone(),
+      params: sir_params,
       return_ty,
       body_start: 0, // Will be set when we emit FunDef
       kind: FunctionKind::UserDefined,
@@ -2529,7 +2565,7 @@ impl<'a> Executor<'a> {
     self.push_scope();
 
     // Add parameters as local variables.
-    for (i, (param_name, param_ty)) in params.iter().enumerate() {
+    for (i, (param_name, param_ty, mutability)) in params.iter().enumerate() {
       let value_id = self.values.store_runtime(i as u32);
 
       self.locals.push(Local {
@@ -2537,7 +2573,7 @@ impl<'a> Executor<'a> {
         ty_id: *param_ty,
         value_id,
         pubness: Pubness::No,
-        mutability: Mutability::No,
+        mutability: *mutability,
         sir_value: None,
         local_kind: LocalKind::Parameter,
       });
@@ -4158,21 +4194,57 @@ impl<'a> Executor<'a> {
   /// Semicolon.
   fn execute_compound_assignment(&mut self, op: BinOp, node_idx: usize) {
     // Look back to find the target variable.
-    if node_idx >= 1 {
-      let target_idx = node_idx - 1;
+    if node_idx < 1 {
+      return;
+    }
 
-      if let Token::Ident = self.tree.nodes[target_idx].token
-        && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
-      {
-        // Discard the LHS pushed by the Ident handler.
+    let target_idx = node_idx - 1;
+
+    // Field compound assign: `receiver.field +=`.
+    // In postfix the tree is: receiver, field, Dot, +=.
+    // So target_idx points at Dot.
+    if self.tree.nodes[target_idx].token == Token::Dot && target_idx >= 2 {
+      // field is at target_idx - 1, receiver at - 2.
+      let field_idx = target_idx - 1;
+      let recv_idx = target_idx - 2;
+
+      if let Some(NodeValue::Symbol(field_name)) = self.node_value(field_idx) {
+        // Pop the dot result (or whatever is on the stack).
         self.value_stack.pop();
         self.ty_stack.pop();
         self.sir_values.pop();
 
-        let span = self.tree.spans[target_idx];
+        let span = self.tree.spans[field_idx];
 
-        self.pending_compound = Some((name, op, span));
+        // Record receiver so finalize can check mutability.
+        let recv_sym = match self.tree.nodes[recv_idx].token {
+          Token::SelfLower => Some(zo_interner::Symbol::SELF_LOWER),
+          Token::Ident => self.node_value(recv_idx).and_then(|v| match v {
+            NodeValue::Symbol(s) => Some(s),
+            _ => None,
+          }),
+          _ => None,
+        };
+
+        self.pending_compound_receiver = recv_sym;
+        self.pending_compound = Some((field_name, op, span));
       }
+      return;
+    }
+
+    // Direct variable compound assign: `x +=`.
+    if let Token::Ident = self.tree.nodes[target_idx].token
+      && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
+    {
+      // Discard the LHS pushed by the Ident handler.
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      self.sir_values.pop();
+
+      let span = self.tree.spans[target_idx];
+
+      self.pending_compound_receiver = None;
+      self.pending_compound = Some((name, op, span));
     }
   }
 
@@ -4191,10 +4263,105 @@ impl<'a> Executor<'a> {
     };
     let rhs_sir = self.sir_values.pop();
 
-    // Find the mutable variable.
+    // Find the mutable variable. For field access
+    // (`self.x += 1`), `name` is the field — look up
+    // the receiver (`self`) and check its mutability.
     let local = self.locals.iter_mut().rev().find(|l| l.name == name);
 
-    let Some(local) = local else { return };
+    let Some(local) = local else {
+      // Not a direct local — field compound assign
+      // (e.g., `self.x += 1`). Emit SIR for:
+      //   TupleIndex (read) + BinOp + FieldStore (write).
+      let recv_sym = match self.pending_compound_receiver.take() {
+        Some(s) => s,
+        None => return,
+      };
+
+      // Check receiver mutability.
+      let recv_info = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == recv_sym)
+        .map(|l| (l.ty_id, l.mutability, l.sir_value));
+
+      let Some((recv_ty, recv_mut, _recv_sir)) = recv_info else {
+        return;
+      };
+
+      if recv_mut != Mutability::Yes {
+        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+        return;
+      }
+
+      // Resolve field index from the struct type.
+      let field_info = if let Ty::Struct(sid) = self.ty_checker.kind_of(recv_ty)
+      {
+        if let Some(st) = self.ty_checker.ty_table.struct_ty(sid) {
+          let st = *st;
+          let fields = self.ty_checker.ty_table.struct_fields(&st).to_vec();
+          let fname_str = self.interner.get(name).to_owned();
+
+          fields
+            .iter()
+            .enumerate()
+            .find(|(_, f)| self.interner.get(f.name) == fname_str)
+            .map(|(i, f)| (i as u32, f.ty_id))
+        } else {
+          None
+        }
+      } else {
+        None
+      };
+
+      let Some((field_idx, field_ty)) = field_info else {
+        return;
+      };
+
+      if let Some(rhs_s) = rhs_sir {
+        // Load receiver pointer.
+        let recv_dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::Load {
+          dst: recv_dst,
+          src: LoadSource::Local(recv_sym),
+          ty_id: recv_ty,
+        });
+
+        // Read current field value.
+        let old_val = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::TupleIndex {
+          dst: old_val,
+          tuple: recv_dst,
+          index: field_idx,
+          ty_id: field_ty,
+        });
+
+        // Compute new value.
+        let new_val = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::BinOp {
+          dst: new_val,
+          op,
+          lhs: old_val,
+          rhs: rhs_s,
+          ty_id: field_ty,
+        });
+
+        // Write back to field.
+        self.sir.emit(Insn::FieldStore {
+          base: recv_dst,
+          index: field_idx,
+          value: new_val,
+          ty_id: field_ty,
+        });
+      }
+      return;
+    };
 
     if local.mutability != Mutability::Yes {
       report_error(Error::new(ErrorKind::ImmutableVariable, span));
