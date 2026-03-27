@@ -202,6 +202,7 @@ impl PrettyPrinter {
             BinOp::BitXor => "bitxor",
             BinOp::Shl => "shl",
             BinOp::Shr => "shr",
+            BinOp::Concat => "concat",
           };
 
           let binop = format!("%{dst} = {op} %{lhs}, %{rhs}");

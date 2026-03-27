@@ -109,7 +109,8 @@ pub enum Token {
   Bang,
   BangEq, // !, !=
   Plus,
-  PlusEq, // +, +=
+  PlusPlus,
+  PlusEq, // +, ++, +=
   Minus,
   MinusEq, // -, -=
   Star,

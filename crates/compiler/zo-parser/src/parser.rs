@@ -793,6 +793,7 @@ impl<'a> Parser<'a> {
           | Token::LShiftEq
           | Token::RShiftEq
           | Token::Plus
+          | Token::PlusPlus
           | Token::Minus
           | Token::Star
           | Token::Slash
@@ -1401,6 +1402,7 @@ impl<'a> Parser<'a> {
       table[Token::DotDot as usize] = (2, 0); // Range has low precedence
       table[Token::DotDotEq as usize] = (2, 0); // so a+b..c+d works correctly
       table[Token::Plus as usize] = (9, 0);
+      table[Token::PlusPlus as usize] = (9, 0);
       table[Token::Minus as usize] = (9, 0);
       table[Token::Star as usize] = (10, 0);
       table[Token::Slash as usize] = (10, 0);

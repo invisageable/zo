@@ -761,6 +761,17 @@ impl TyChecker {
           }
         }
       }
+
+      // String concatenation
+      BinOp::Concat => {
+        // Both operands must be str.
+        let str_ty = self.str_type();
+
+        self.unify(lhs_ty, str_ty, span)?;
+        self.unify(rhs_ty, str_ty, span)?;
+
+        Some(str_ty)
+      }
     }
   }
 

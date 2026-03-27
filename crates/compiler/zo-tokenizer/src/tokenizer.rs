@@ -567,7 +567,10 @@ impl<'a> Tokenizer<'a> {
         }
       }
       b'+' => {
-        if self.current() == b'=' {
+        if self.current() == b'+' {
+          self.advance();
+          self.tokens.push(Token::PlusPlus, start as u32, 2);
+        } else if self.current() == b'=' {
           self.advance();
           self.tokens.push(Token::PlusEq, start as u32, 2);
         } else {

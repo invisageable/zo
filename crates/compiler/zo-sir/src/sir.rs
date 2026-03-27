@@ -290,6 +290,8 @@ pub enum BinOp {
   Shl,
   /// `>>`
   Shr,
+  /// `++` (string concatenation)
+  Concat,
 }
 
 impl BinOp {
@@ -315,6 +317,7 @@ impl BinOp {
       table[Token::PipePipe as usize] = Some(BinOp::BitXor);
       table[Token::PipePipe as usize] = Some(BinOp::Shl);
       table[Token::PipePipe as usize] = Some(BinOp::Shr);
+      table[Token::PlusPlus as usize] = Some(BinOp::Concat);
       table
     };
 

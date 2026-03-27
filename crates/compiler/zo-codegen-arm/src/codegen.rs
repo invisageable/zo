@@ -188,11 +188,16 @@ impl<'a> ARM64Gen<'a> {
       .and_then(|vid| self.alloc_fp_reg(vid))
   }
 
-  /// Check if a ValueId was produced by a ConstString.
+  /// Check if a ValueId was produced by a ConstString or
+  /// is a Load of a str-typed variable.
   fn is_string_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
     self
       .find_producing_insn(vid, all_insns)
-      .is_some_and(|insn| matches!(insn, Insn::ConstString { .. }))
+      .is_some_and(|insn| match insn {
+        Insn::ConstString { .. } => true,
+        Insn::Load { ty_id, .. } => ty_id.0 == 4, // Ty::Str
+        _ => false,
+      })
   }
 
   /// Check if a ValueId was produced by a float instruction.
@@ -711,13 +716,23 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_mov_imm(X2, string.len() as u16);
       }
 
-      Insn::Load { dst, src, .. } => match src {
+      Insn::Load { dst, src, ty_id } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
-          if let Some(dst_reg) = self.alloc_reg(*dst)
-            && let Some(&offset) = self.mutable_slots.get(&slot)
-          {
-            self.emitter.emit_ldr(dst_reg, SP, offset as i16);
+
+          if let Some(&offset) = self.mutable_slots.get(&slot) {
+            // Check if this is a string variable (str type).
+            let is_str = ty_id.0 == 4; // Ty::Str
+
+            if is_str {
+              // Restore string pointer + length to X1, X2.
+              self.emitter.emit_ldr(X1, SP, offset as i16);
+              self
+                .emitter
+                .emit_ldr(X2, SP, (offset + STACK_SLOT_SIZE) as i16);
+            } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+              self.emitter.emit_ldr(dst_reg, SP, offset as i16);
+            }
           }
         }
         LoadSource::Param(idx) => {
@@ -974,15 +989,17 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::Store { name, value, .. } => {
-        // Mutable variable write: STR value to stack slot.
+        // Variable write: STR value to stack slot.
         // Allocate slot on first Store, reuse after.
         let slot_key = name.as_u32();
+        let is_str = self.is_string_value(*value, all_insns);
+
+        // Strings need 2 slots (pointer + length).
+        let slot_count = if is_str { 2 } else { 1 };
 
         let offset = if let Some(&off) = self.mutable_slots.get(&slot_key) {
           off
         } else {
-          // Allocate after spill slots. Use the
-          // function's spill_size as base offset.
           let base = self
             .current_fn_start
             .and_then(|s| {
@@ -997,13 +1014,18 @@ impl<'a> ARM64Gen<'a> {
           let off = base + self.next_mut_slot * STACK_SLOT_SIZE;
 
           self.mutable_slots.insert(slot_key, off);
-
-          self.next_mut_slot += 1;
+          self.next_mut_slot += slot_count;
 
           off
         };
 
-        if let Some(src_reg) = self.alloc_reg(*value) {
+        if is_str {
+          // String: store pointer (X1) and length (X2).
+          self.emitter.emit_str(X1, SP, offset as i16);
+          self
+            .emitter
+            .emit_str(X2, SP, (offset + STACK_SLOT_SIZE) as i16);
+        } else if let Some(src_reg) = self.alloc_reg(*value) {
           self.emitter.emit_str(src_reg, SP, offset as i16);
         }
       }

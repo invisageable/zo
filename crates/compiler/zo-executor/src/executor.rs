@@ -1404,6 +1404,7 @@ impl<'a> Executor<'a> {
 
       // === BINARY OPERATORS ===
       Token::Plus => self.execute_binop(BinOp::Add, idx),
+      Token::PlusPlus => self.execute_concat(idx),
       Token::Minus => {
         if self.value_stack.len() >= 2 {
           self.execute_binop(BinOp::Sub, idx);
@@ -1796,6 +1797,140 @@ impl<'a> Executor<'a> {
         self.ty_stack.push(self.ty_checker.error_type()); // Error type
       }
     }
+  }
+
+  /// Executes string concatenation (`++`).
+  ///
+  /// If both operands are compile-time strings, folds into
+  /// a single interned ConstString. Otherwise emits a
+  /// runtime BinOp::Concat.
+  fn execute_concat(&mut self, node_idx: usize) {
+    if self.value_stack.len() < 2
+      || self.ty_stack.len() < 2
+      || self.sir_values.len() < 2
+    {
+      return;
+    }
+
+    let rhs = self.value_stack.pop().unwrap();
+    let lhs = self.value_stack.pop().unwrap();
+
+    let rhs_ty = self.ty_stack.pop().unwrap();
+    let lhs_ty = self.ty_stack.pop().unwrap();
+
+    let rhs_sir = self.sir_values.pop().unwrap();
+    let lhs_sir = self.sir_values.pop().unwrap();
+
+    let span = self.tree.spans[node_idx];
+    let str_ty = self.ty_checker.str_type();
+
+    // Type check: both must be str.
+    if self.ty_checker.unify(lhs_ty, str_ty, span).is_none()
+      || self.ty_checker.unify(rhs_ty, str_ty, span).is_none()
+    {
+      let error_id = self.values.store_runtime(u32::MAX);
+
+      self.value_stack.push(error_id);
+      self.ty_stack.push(self.ty_checker.error_type());
+
+      return;
+    }
+
+    // Compile-time fold. Resolve string symbols from
+    // value storage (direct literals) or by tracing the
+    // SIR Load back to the local's original string value.
+    let resolve_sym = |vid: ValueId,
+                       sir_vid: ValueId,
+                       values: &ValueStorage,
+                       locals: &[Local],
+                       sir: &Sir|
+     -> Option<Symbol> {
+      // Direct string value (literal operand).
+      let vi = vid.0 as usize;
+
+      if vi < values.kinds.len() && matches!(values.kinds[vi], Value::String) {
+        let si = values.indices[vi] as usize;
+
+        return Some(values.strings[si]);
+      }
+
+      // Runtime value — find the Load instruction in
+      // SIR, get the local name, then resolve.
+      for insn in sir.instructions.iter() {
+        if let Insn::Load {
+          dst,
+          src: LoadSource::Local(sym),
+          ..
+        } = insn
+          && *dst == sir_vid
+          && let Some(local) = locals.iter().rev().find(|l| l.name == *sym)
+        {
+          let lvi = local.value_id.0 as usize;
+
+          if lvi < values.kinds.len()
+            && matches!(values.kinds[lvi], Value::String)
+          {
+            let si = values.indices[lvi] as usize;
+
+            return Some(values.strings[si]);
+          }
+        }
+      }
+
+      None
+    };
+
+    let lhs_sym =
+      resolve_sym(lhs, lhs_sir, &self.values, &self.locals, &self.sir);
+    let rhs_sym =
+      resolve_sym(rhs, rhs_sir, &self.values, &self.locals, &self.sir);
+
+    if let (Some(ls), Some(rs)) = (lhs_sym, rhs_sym) {
+      let lstr = self.interner.get(ls);
+      let rstr = self.interner.get(rs);
+      let result = format!("{lstr}{rstr}");
+      let sym = self.interner.intern(&result);
+
+      let sir_value = self.sir.emit(Insn::ConstString {
+        symbol: sym,
+        ty_id: str_ty,
+      });
+      let value_id = self.values.store_string(sym);
+
+      self.value_stack.push(value_id);
+      self.ty_stack.push(str_ty);
+      self.sir_values.push(sir_value);
+
+      self.annotations.push(Annotation {
+        node_idx,
+        ty_id: str_ty,
+      });
+
+      return;
+    }
+
+    // Runtime concat — emit BinOp::Concat.
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sir_value = self.sir.emit(Insn::BinOp {
+      dst,
+      op: BinOp::Concat,
+      lhs: lhs_sir,
+      rhs: rhs_sir,
+      ty_id: str_ty,
+    });
+
+    let runtime_id = self.values.store_runtime(0);
+
+    self.value_stack.push(runtime_id);
+    self.ty_stack.push(str_ty);
+    self.sir_values.push(sir_value);
+    self.annotations.push(Annotation {
+      node_idx,
+      ty_id: str_ty,
+    });
   }
 
   /// Executes a unary operator.
@@ -2674,12 +2809,15 @@ impl<'a> Executor<'a> {
         Token::Colon => {
           // `:` after `)` is wrong — user meant `->`.
           let span = self.tree.spans[idx];
+
           report_error(Error::new(ErrorKind::ExpectedArrow, span));
+
           // Recover: treat as `->` so codegen proceeds.
           if idx + 1 < _end_idx {
             idx += 1;
             return_ty = self.resolve_type_token(idx);
           }
+
           break;
         }
         _ => idx += 1,
