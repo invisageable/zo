@@ -172,7 +172,8 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       | Insn::BranchIfNot { .. }
       | Insn::StructDef { .. }
       | Insn::EnumDef { .. }
-      | Insn::FieldStore { .. } => None,
+      | Insn::FieldStore { .. }
+      | Insn::ConstDef { .. } => None,
       _ => {
         let id = ValueId(counter);
         counter += 1;

@@ -611,6 +611,7 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
         off(base);
         off(value);
       }
+      Insn::ConstDef { .. } => {}
     }
   }
 }

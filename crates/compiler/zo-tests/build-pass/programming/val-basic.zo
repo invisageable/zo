@@ -1,0 +1,19 @@
+-- tests-build-pass: val compile-time constants.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/val-basic.zo -o crates/compiler/zo-tests/build-pass/programming/val-basic
+
+val ANSWER: int = 42;
+val COUNT: int = 10;
+
+fun main() {
+  val LOCAL: int = 99;
+
+  showln(ANSWER);
+  showln(COUNT);
+  showln(LOCAL);
+  showln(ANSWER + COUNT);
+
+  check@eq(ANSWER, 42);
+  check@eq(COUNT, 10);
+  check@eq(LOCAL, 99);
+  check@eq(ANSWER + COUNT, 52);
+}

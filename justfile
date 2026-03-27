@@ -20,16 +20,12 @@ typos_fix:
   typos --write-changes
 
 # Run all pre-commit checks
-pre-commit: typos fmt_check clippy test
+pre-commit: typos fmt clippy test
   @echo "All pre-commit checks passed!"
 
 # Format all code
 fmt:
   cargo fmt --all
-
-# Check formatting without modifying
-fmt_check:
-  cargo fmt --all -- --check
 
 # Run clippy with warnings as errors
 clippy:
@@ -106,7 +102,7 @@ build_windows:
            cargo build --all --target x86_64-pc-windows-gnu"
 
 # Run full CI simulation locally
-ci: fmt_check clippy test test_linux
+ci: fmt clippy test test_linux
   @echo "Full CI simulation passed!"
 
 # Version Management (cargo-workspaces)

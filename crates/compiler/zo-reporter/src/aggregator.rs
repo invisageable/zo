@@ -158,6 +158,8 @@ impl ErrorAggregator {
         | ErrorKind::ArgumentCountMismatch
         | ErrorKind::InvalidAssignment
         | ErrorKind::ImmutableVariable
+        | ErrorKind::ValRequiresTypeAnnotation
+        | ErrorKind::ValRequiresConstantInit
         | ErrorKind::InvalidReturn
         | ErrorKind::InvalidBreak
         | ErrorKind::InvalidContinue

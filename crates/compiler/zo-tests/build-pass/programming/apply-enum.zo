@@ -15,4 +15,6 @@ apply Color {
 
 fun main() {
   imu c: Color = Color::red();
+
+  check@eq(c, Color::Red);
 }

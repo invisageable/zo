@@ -140,6 +140,10 @@ pub enum ErrorKind {
   ExpectedTypeAnnotation,
   UndefinedLabel,
 
+  // val (compile-time constant) errors
+  ValRequiresTypeAnnotation,
+  ValRequiresConstantInit,
+
   // Constant folding errors
   DivisionByZero,
   RemainderByZero,

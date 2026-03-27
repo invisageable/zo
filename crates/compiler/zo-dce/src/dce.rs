@@ -69,7 +69,8 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
           Insn::Return { .. } => break,
           Insn::FunDef { .. }
           | Insn::StructDef { .. }
-          | Insn::EnumDef { .. } => {
+          | Insn::EnumDef { .. }
+          | Insn::ConstDef { .. } => {
             end -= 1;
             break;
           }

@@ -1,16 +1,19 @@
 -- tests-build-pass: apply with self instance method.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/apply-instance.zo -o crates/compiler/zo-tests/build-pass/programming/apply-instance
 
+-! Represents a `Span` instance.
 struct Span {
   lo: int,
   hi: int,
 }
 
 apply Span {
+  -! Creates a new `Span` instance.
   pub fun new(lo: int, hi: int) -> Self {
     Self { lo, hi }
   }
 
+  -! Gets the length of the `Span`.
   fun sum(self) -> int {
     self.lo + self.hi
   }

@@ -671,7 +671,11 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ConstInt { value, .. } => {
-        if let Some(reg) = self.reg_for_insn(idx) {
+        // Skip module-level constants (val inits) —
+        // they have no function context.
+        if self.current_function.is_some()
+          && let Some(reg) = self.reg_for_insn(idx)
+        {
           self.emit_mov_imm_64(reg, *value);
         }
       }
@@ -1104,39 +1108,47 @@ impl<'a> ARM64Gen<'a> {
       }
 
       // Type definitions — compile-time only.
-      Insn::EnumDef { .. } | Insn::StructDef { .. } => {}
+      Insn::EnumDef { .. } | Insn::StructDef { .. } | Insn::ConstDef { .. } => {
+      }
 
-      // Enum construction: [tag, f0, f1, ...] on stack.
+      // Enum construction: for unit variants (no fields),
+      // the value is just the discriminant. For tuple
+      // variants, allocate [tag, f0, f1, ...] on stack.
       Insn::EnumConstruct {
         variant, fields, ..
       } => {
-        let slot_count = 1 + fields.len() as u16;
-        let size = slot_count * (STACK_SLOT_SIZE as u16);
-        let aligned =
-          (size + (FRAME_ALIGN_MASK as u16)) & !(FRAME_ALIGN_MASK as u16);
-
-        self.emitter.emit_sub_imm(SP, SP, aligned);
-
-        // Store discriminant at [SP + 0].
-        self.emitter.emit_mov_imm(X16, *variant as u16);
-        self.emitter.emit_str(X16, SP, 0);
-
-        // Store fields at [SP + (i+1)*8].
-        for (i, field) in fields.iter().enumerate() {
-          if let Some(reg) = self.alloc_reg(*field) {
-            self.emitter.emit_str(
-              reg,
-              SP,
-              ((i + 1) * STACK_SLOT_SIZE as usize) as i16,
-            );
+        if fields.is_empty() {
+          // Unit variant — discriminant is the value.
+          if let Some(dst) = self.reg_for_insn(idx) {
+            self.emitter.emit_mov_imm(dst, *variant as u16);
           }
-        }
+        } else {
+          // Tuple variant — allocate in struct area.
+          let slot_count = 1 + fields.len() as u32;
+          let base = self.struct_base + self.next_struct_slot;
 
-        // Result: pointer to enum value (SP).
-        // Use ADD (not MOV) — ARM64 MOV via ORR
-        // encodes register 31 as XZR, not SP.
-        if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_add_imm(dst, SP, 0);
+          // Store discriminant at base.
+          self.emitter.emit_mov_imm(X16, *variant as u16);
+          self.emitter.emit_str(X16, SP, base as i16);
+
+          // Store fields at base + (i+1)*8.
+          for (i, field) in fields.iter().enumerate() {
+            let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
+
+            if let Some(reg) = self.alloc_reg(*field) {
+              self.emitter.emit_str(reg, SP, off as i16);
+            }
+          }
+
+          if let Some(dst) = self.reg_for_insn(idx) {
+            if base > 0 {
+              self.emitter.emit_add_imm(dst, SP, base as u16);
+            } else {
+              self.emitter.emit_add_imm(dst, SP, 0);
+            }
+          }
+
+          self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
         }
       }
 

@@ -70,7 +70,8 @@ impl Sir {
       | Insn::BranchIfNot { .. }
       | Insn::StructDef { .. }
       | Insn::EnumDef { .. }
-      | Insn::FieldStore { .. } => ValueId(u32::MAX),
+      | Insn::FieldStore { .. }
+      | Insn::ConstDef { .. } => ValueId(u32::MAX),
       // Constants and other value-producing instructions
       _ => {
         let id = ValueId(self.next_value_id);
@@ -110,6 +111,14 @@ pub enum Insn {
     ty_id: TyId,
     init: Option<ValueId>,
     mutability: Mutability,
+    pubness: Pubness,
+  },
+  /// Compile-time constant definition: `val X: int = 42;`
+  /// No stack slot — value is inlined at every use site.
+  ConstDef {
+    name: Symbol,
+    ty_id: TyId,
+    value: ValueId,
     pubness: Pubness,
   },
   /// Store to variable/memory

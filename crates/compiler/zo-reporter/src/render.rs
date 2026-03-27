@@ -246,6 +246,12 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::ArgumentCountMismatch => "Argument count mismatch",
     ErrorKind::InvalidAssignment => "Invalid assignment",
     ErrorKind::ImmutableVariable => "Cannot mutate immutable variable",
+    ErrorKind::ValRequiresTypeAnnotation => {
+      "`val` requires explicit type annotation"
+    }
+    ErrorKind::ValRequiresConstantInit => {
+      "`val` requires a compile-time constant initializer"
+    }
     ErrorKind::InvalidReturn => "Invalid return statement",
     ErrorKind::InvalidBreak => "Invalid break statement",
     ErrorKind::InvalidContinue => "Invalid continue statement",
@@ -320,6 +326,12 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::ArgumentCountMismatch => "wrong number of arguments",
     ErrorKind::DuplicateDefinition => "already defined",
     ErrorKind::ImmutableVariable => "cannot assign to immutable variable",
+    ErrorKind::ValRequiresTypeAnnotation => {
+      "`val` requires `val x: Type = value`, not `:=`"
+    }
+    ErrorKind::ValRequiresConstantInit => {
+      "initializer is not a compile-time constant"
+    }
     ErrorKind::InvalidFieldAccess => "field not found on this type",
     ErrorKind::InvalidMethodCall => "method not found on this type",
     ErrorKind::ArityMismatch => "wrong number of arguments",
@@ -369,6 +381,12 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::ImmutableVariable => {
       Some("Use 'mut' to declare a mutable variable")
     }
+    ErrorKind::ValRequiresTypeAnnotation => Some(
+      "Use `val X: int = 42;` — `:=` inference is not allowed for constants",
+    ),
+    ErrorKind::ValRequiresConstantInit => Some(
+      "Only literals and constant expressions are allowed: `42`, `3.14`, `\"hello\"`, `true`",
+    ),
     ErrorKind::InvalidBreak => Some("'break' can only be used inside a loop"),
     ErrorKind::InvalidContinue => {
       Some("'continue' can only be used inside a loop")

@@ -98,12 +98,16 @@ pub struct Executor<'a> {
   /// Current `apply Type` context — the type name being
   /// applied. Methods get mangled as `Type::method`.
   apply_context: Option<Symbol>,
+  /// Global compile-time constants (`val` at module level).
+  /// Visible from all functions.
+  global_constants: Vec<Local>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
 struct PendingDecl {
   name: Symbol,
   is_mutable: bool,
+  is_constant: bool,
   pubness: Pubness,
   /// Explicit type annotation, if provided.
   annotated_ty: Option<TyId>,
@@ -150,6 +154,7 @@ impl<'a> Executor<'a> {
       enum_defs: Vec::new(),
       pending_enum_construct: None,
       apply_context: None,
+      global_constants: Vec::new(),
     }
   }
 
@@ -316,12 +321,16 @@ impl<'a> Executor<'a> {
       // === DECLARATIONS ===
       // Deferred: children are processed first by the main
       // loop, then finalized at the Semicolon.
-      Token::Imu | Token::Val => {
-        self.begin_decl(idx, header, false);
+      Token::Imu => {
+        self.begin_decl(idx, header, false, false);
+      }
+
+      Token::Val => {
+        self.begin_decl(idx, header, false, true);
       }
 
       Token::Mut => {
-        self.begin_decl(idx, header, true);
+        self.begin_decl(idx, header, true, false);
       }
 
       // === CONTROL FLOW ===
@@ -584,6 +593,12 @@ impl<'a> Executor<'a> {
         self.push_scope();
       }
       Token::RBrace => {
+        // Finalize pending assignments/compounds before
+        // closing the block. Assignments evaluate to unit
+        // regardless of whether a semicolon follows.
+        self.finalize_pending_compound();
+        self.finalize_pending_assign();
+
         // Check for pending return (explicit return without semicolon)
         self.check_pending_return();
 
@@ -949,6 +964,58 @@ impl<'a> Executor<'a> {
           if let Some((value_id, ty_id, sir_value, local_kind, mutability)) =
             local_info
           {
+            // Compile-time constant: re-emit the literal
+            // value as a fresh SIR instruction each time.
+            // No Load, no stack slot.
+            if local_kind == LocalKind::Constant {
+              let vi = value_id.0 as usize;
+
+              if vi < self.values.kinds.len() {
+                let sv = match self.values.kinds[vi] {
+                  Value::Int => {
+                    let ii = self.values.indices[vi] as usize;
+                    let v = self.values.ints[ii];
+
+                    self.sir.emit(Insn::ConstInt { value: v, ty_id })
+                  }
+                  Value::Float => {
+                    let fi = self.values.indices[vi] as usize;
+                    let v = self.values.floats[fi];
+
+                    self.sir.emit(Insn::ConstFloat { value: v, ty_id })
+                  }
+                  Value::Bool => {
+                    let bi = self.values.indices[vi] as usize;
+                    let v = self.values.bools[bi];
+
+                    self.sir.emit(Insn::ConstBool { value: v, ty_id })
+                  }
+                  Value::String => {
+                    let si = self.values.indices[vi] as usize;
+                    let s = self.values.strings[si];
+
+                    self.sir.emit(Insn::ConstString { symbol: s, ty_id })
+                  }
+                  _ => {
+                    self.value_stack.push(value_id);
+                    self.ty_stack.push(ty_id);
+
+                    if let Some(s) = sir_value {
+                      self.sir_values.push(s);
+                    }
+
+                    return;
+                  }
+                };
+
+                self.value_stack.push(value_id);
+                self.ty_stack.push(ty_id);
+                self.sir_values.push(sv);
+              }
+
+              return;
+            }
+
             if self.current_function.is_some() {
               let is_mut = mutability == Mutability::Yes;
               let is_param = local_kind == LocalKind::Parameter;
@@ -1015,6 +1082,64 @@ impl<'a> Executor<'a> {
               self.sir_values.push(value_id);
             }
           } else {
+            // Check global constants (module-level val).
+            let global = self
+              .global_constants
+              .iter()
+              .find(|c| c.name == sym)
+              .map(|c| (c.value_id, c.ty_id));
+
+            if let Some((gval, gty)) = global {
+              // Inline re-emission: emit a fresh ConstInt/
+              // ConstFloat/etc into the current function's
+              // SIR with a proper ValueId.
+              let vi = gval.0 as usize;
+
+              if vi < self.values.kinds.len() {
+                let sv = match self.values.kinds[vi] {
+                  Value::Int => {
+                    let ii = self.values.indices[vi] as usize;
+
+                    self.sir.emit(Insn::ConstInt {
+                      value: self.values.ints[ii],
+                      ty_id: gty,
+                    })
+                  }
+                  Value::Float => {
+                    let fi = self.values.indices[vi] as usize;
+
+                    self.sir.emit(Insn::ConstFloat {
+                      value: self.values.floats[fi],
+                      ty_id: gty,
+                    })
+                  }
+                  Value::Bool => {
+                    let bi = self.values.indices[vi] as usize;
+
+                    self.sir.emit(Insn::ConstBool {
+                      value: self.values.bools[bi],
+                      ty_id: gty,
+                    })
+                  }
+                  Value::String => {
+                    let si = self.values.indices[vi] as usize;
+
+                    self.sir.emit(Insn::ConstString {
+                      symbol: self.values.strings[si],
+                      ty_id: gty,
+                    })
+                  }
+                  _ => ValueId(u32::MAX),
+                };
+
+                self.value_stack.push(gval);
+                self.ty_stack.push(gty);
+                self.sir_values.push(sv);
+
+                return;
+              }
+            }
+
             // Check if this identifier is a known function
             // — call handling happens at RParen, not here.
             // Functions come from prelude imports or
@@ -2618,7 +2743,13 @@ impl<'a> Executor<'a> {
   /// [`finalize_pending_decl`] at the Semicolon. This lets
   /// the main loop process children (especially the init
   /// expression) so the init value is on the stacks.
-  fn begin_decl(&mut self, idx: usize, header: &NodeHeader, is_mutable: bool) {
+  fn begin_decl(
+    &mut self,
+    idx: usize,
+    header: &NodeHeader,
+    is_mutable: bool,
+    is_constant: bool,
+  ) {
     let children_end = (header.child_start + header.child_count) as usize;
 
     // Check if this is a template assignment.
@@ -2670,7 +2801,22 @@ impl<'a> Executor<'a> {
         }
 
         if tok == Token::ColonEq {
+          // val forbids `:=` — requires explicit type.
+          if is_constant {
+            let span = self.tree.spans[i];
+
+            report_error(Error::new(
+              ErrorKind::ValRequiresTypeAnnotation,
+              span,
+            ));
+
+            self.skip_until = children_end;
+
+            return;
+          }
+
           skip_to = i + 1;
+
           break;
         }
 
@@ -2684,6 +2830,7 @@ impl<'a> Executor<'a> {
           }
 
           skip_to = i + 1;
+
           break;
         }
 
@@ -2706,6 +2853,7 @@ impl<'a> Executor<'a> {
       self.pending_decl = Some(PendingDecl {
         name,
         is_mutable,
+        is_constant,
         pubness,
         annotated_ty,
         span: self.tree.spans[idx],
@@ -2810,6 +2958,84 @@ impl<'a> Executor<'a> {
         init_ty
       };
 
+      if decl.is_constant {
+        // --- val path: compile-time constant ---
+        // Validate: init must be a compile-time value.
+        let vi = init_value.0 as usize;
+
+        let is_const = vi < self.values.kinds.len()
+          && matches!(
+            self.values.kinds[vi],
+            Value::Int
+              | Value::Float
+              | Value::Bool
+              | Value::String
+              | Value::Char
+          );
+
+        if !is_const {
+          report_error(Error::new(
+            ErrorKind::ValRequiresConstantInit,
+            decl.span,
+          ));
+
+          return;
+        }
+
+        let constant_local = Local {
+          name: decl.name,
+          ty_id,
+          value_id: init_value,
+          pubness: decl.pubness,
+          mutability: Mutability::No,
+          sir_value: sir_init,
+          local_kind: LocalKind::Constant,
+        };
+
+        if self.current_function.is_none() {
+          // Module-level val — strip the ConstInt that the
+          // main loop emitted for the init expression. It
+          // would shift ValueId numbering after DCE.
+          // Don't emit ConstDef either — the constant is
+          // fully resolved at the executor level.
+          if let Some(
+            Insn::ConstInt { .. }
+            | Insn::ConstFloat { .. }
+            | Insn::ConstBool { .. }
+            | Insn::ConstString { .. },
+          ) = self.sir.instructions.last()
+          {
+            self.sir.instructions.pop();
+            // Undo the auto-increment from sir.emit()
+            // so inline re-emissions get correct ValueIds.
+            if self.sir.next_value_id > 0 {
+              self.sir.next_value_id -= 1;
+            }
+          }
+
+          self.global_constants.push(constant_local);
+        } else {
+          // Function-local val — emit ConstDef as
+          // metadata and push to locals for inline
+          // re-emission.
+          self.sir.emit(Insn::ConstDef {
+            name: decl.name,
+            ty_id,
+            value: sir_init.unwrap_or(ValueId(u32::MAX)),
+            pubness: decl.pubness,
+          });
+
+          self.locals.push(constant_local);
+
+          if let Some(frame) = self.scope_stack.last_mut() {
+            frame.count += 1;
+          }
+        }
+
+        return;
+      }
+
+      // --- imu/mut path ---
       let mutability = if decl.is_mutable {
         Mutability::Yes
       } else {

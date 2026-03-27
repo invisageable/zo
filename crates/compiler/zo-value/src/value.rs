@@ -267,6 +267,7 @@ pub enum FunctionKind {
 pub enum LocalKind {
   Parameter,
   Variable,
+  Constant,
 }
 
 /// Represents a [`FunDef`] entry instance.

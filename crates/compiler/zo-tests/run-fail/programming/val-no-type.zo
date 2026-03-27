@@ -1,0 +1,6 @@
+-- tests-run-fail: val with := should error.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/run-fail/programming/val-no-type.zo -o crates/compiler/zo-tests/run-fail/programming/val-no-type
+
+val x := 42;
+
+fun main() {}

@@ -11,4 +11,6 @@ apply Foo {
 
 fun main() {
   imu f: Foo = Foo::new();
+
+  check@eq(f, Foo {});
 }
