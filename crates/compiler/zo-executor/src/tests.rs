@@ -8,6 +8,7 @@ pub(crate) mod errors;
 pub(crate) mod interpolation;
 pub(crate) mod modules;
 pub(crate) mod structs;
+pub(crate) mod templates;
 pub(crate) mod tuples;
 pub(crate) mod type_aliases;
 

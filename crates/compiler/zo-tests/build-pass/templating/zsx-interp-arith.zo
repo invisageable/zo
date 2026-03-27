@@ -1,0 +1,9 @@
+-- tests-build-pass: template interpolation with arithmetic.
+
+fun main() {
+  imu x: int = 10;
+  imu y: int = 20;
+  imu view: </> ::= <p>total: {x + y}</p>;
+
+  #dom view;
+}

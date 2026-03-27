@@ -1,0 +1,8 @@
+-- tests-build-pass: attribute interpolation.
+
+fun main() {
+  imu src: str = "logo.png";
+  imu view: </> ::= <img src={src} width="128" height="128" />;
+
+  #dom view;
+}

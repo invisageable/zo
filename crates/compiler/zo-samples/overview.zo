@@ -141,8 +141,29 @@ enum Bar {
 }
 
 -- generics.
-pub fun foo(x: $T)  {}
+pub fun foo<$T>(x: $T)  {}
 fun bar() -> $T {}
+
+-- Type alias with generics
+type Pair<$T> = ($T, $T);
+type Result<$T, $E> = Ok($T) | Err($E);
+
+-- Generic function
+fun identity<$T>(x: $T) -> $T { x }
+
+-- Multiple params, same type enforced
+fun add<$T>(x: $T, y: $T) -> $T { x + y }
+
+-- Channel types use the same syntax
+fun producer<$T>(tx: Tx<$T>, value: $T) {
+  tx.send(value);
+}
+
+-- Struct with generics
+struct Vec<$T> {
+  data: [$T],
+  len: int,
+}
 
 -- item:type-alias:declaration.
 pub type Idx = int;

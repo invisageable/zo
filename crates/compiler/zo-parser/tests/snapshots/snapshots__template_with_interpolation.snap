@@ -7,7 +7,7 @@ tree:
     - token: Fun
       flags: 0
       child_start: 1
-      child_count: 30
+      child_count: 31
       _reserved: 0
     - token: Ident
       flags: 1
@@ -27,12 +27,12 @@ tree:
     - token: LBrace
       flags: 0
       child_start: 5
-      child_count: 25
+      child_count: 26
       _reserved: 0
     - token: Imu
       flags: 0
       child_start: 6
-      child_count: 20
+      child_count: 21
       _reserved: 0
     - token: Ident
       flags: 1
@@ -43,6 +43,11 @@ tree:
       flags: 0
       child_start: 0
       child_count: 0
+      _reserved: 0
+    - token: TemplateFragmentStart
+      flags: 0
+      child_start: 9
+      child_count: 18
       _reserved: 0
     - token: LAngle
       flags: 0
@@ -66,12 +71,12 @@ tree:
       _reserved: 0
     - token: LBrace
       flags: 0
-      child_start: 13
+      child_start: 14
       child_count: 9
       _reserved: 0
     - token: If
       flags: 0
-      child_start: 14
+      child_start: 15
       child_count: 8
       _reserved: 0
     - token: Ident
@@ -81,7 +86,7 @@ tree:
       _reserved: 0
     - token: LBrace
       flags: 0
-      child_start: 16
+      child_start: 17
       child_count: 1
       _reserved: 0
     - token: String
@@ -101,7 +106,7 @@ tree:
       _reserved: 0
     - token: LBrace
       flags: 0
-      child_start: 20
+      child_start: 21
       child_count: 1
       _reserved: 0
     - token: String
@@ -136,7 +141,7 @@ tree:
       _reserved: 0
     - token: Hash
       flags: 0
-      child_start: 27
+      child_start: 28
       child_count: 3
       _reserved: 0
     - token: Ident
@@ -185,6 +190,8 @@ tree:
       len: 3
     - start: 32
       len: 9
+    - start: 42
+      len: 3
     - start: 42
       len: 3
     - start: 46
@@ -238,17 +245,17 @@ tree:
       - 0
     - - 6
       - 1
-    - - 9
-      - 2
     - - 10
+      - 2
+    - - 11
       - 3
-    - - 14
+    - - 15
       - 4
-    - - 16
+    - - 17
       - 5
-    - - 20
+    - - 21
       - 6
-    - - 27
-      - 7
     - - 28
+      - 7
+    - - 29
       - 8

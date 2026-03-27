@@ -53,7 +53,7 @@ WE SHARED THE SAME ENGiNEERiNG PHiLOSOPHY THAN __JONATHAN BLOW__, __MiKE ACTON__
 # programming mode.
 cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/hello.zo -o crates/compiler/zo-tests/build-pass/programming/hello
 # template mode.
-cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/templating/hello.zo
+cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/templating/zsx-hello.zo
 ```
 
 ## benchmarks.

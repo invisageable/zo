@@ -1,0 +1,7 @@
+-- tests-run-fail: interpolation with undefined variable.
+
+fun main() {
+  imu view: </> ::= <p>{unknown}</p>;
+
+  #dom view;
+}

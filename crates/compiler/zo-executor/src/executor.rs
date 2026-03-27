@@ -1471,6 +1471,9 @@ impl<'a> Executor<'a> {
       Token::TemplateFragmentStart => {
         let children_end = (header.child_start + header.child_count) as usize;
         self.execute_template_fragment(idx, children_end);
+        // Skip past the fragment so the parent loop
+        // doesn't reprocess tag/text tokens.
+        self.skip_until = children_end;
       }
 
       Token::TemplateText => {
@@ -2830,6 +2833,7 @@ impl<'a> Executor<'a> {
     let lbrace_idx = (start_idx + 1.._end_idx)
       .find(|&i| self.tree.nodes[i].token == Token::LBrace)
       .unwrap_or(_end_idx);
+
     self.skip_until = lbrace_idx;
 
     // Set the function as pending - it will be processed when we hit LBrace
@@ -3242,16 +3246,29 @@ impl<'a> Executor<'a> {
 
     if has_template {
       // Template assignment: imu view: </> ::= <>...
-      // Store variable name, then execute children so the
-      // TemplateAssign → TemplateFragment pipeline runs.
-      if let Some(name) = self.get_var_name(start_idx, end_idx) {
+      // Store variable name, then execute children
+      // starting from the TemplateAssign token onward.
+      // Skip the declaration header (ident, colon, type)
+      // to avoid treating the variable name as a
+      // reference.
+      let tpl_name = self.get_var_name(start_idx, end_idx);
+
+      if let Some(name) = tpl_name {
         self.pending_var_name = Some(name);
       }
 
-      for i in (start_idx + 1)..end_idx {
-        let node = self.tree.nodes[i];
-        self.execute_node(&node, i);
+      // Find TemplateAssign (::=) and execute only that.
+      // It internally finds and runs the fragment.
+      // Don't iterate other children — the fragment
+      // handles all tag/text tokens internally.
+      let tpl_assign = ((start_idx + 1)..end_idx)
+        .find(|&i| self.tree.nodes[i].token == Token::TemplateAssign);
+
+      if let Some(ta_idx) = tpl_assign {
+        let node = self.tree.nodes[ta_idx];
+        self.execute_node(&node, ta_idx);
       }
+
       return;
     }
 
@@ -5492,20 +5509,70 @@ impl<'a> Executor<'a> {
     }
   }
 
-  fn execute_template_assign(&mut self, start_idx: usize, end_idx: usize) {
-    // Template assignment: ::= switches parser to template mode
-    // The template fragment should be the next token after ::=
-    // Process children which should include the template fragment
+  /// Converts a ValueId to its string representation.
+  /// Used by template interpolation and showln.
+  fn value_to_string(&self, value_id: ValueId) -> String {
+    let vi = value_id.0 as usize;
 
-    // Execute children (the template fragment)
-    for idx in (start_idx + 1)..end_idx {
-      let node = &self.tree.nodes[idx];
-
-      self.execute_node(node, idx);
+    if vi >= self.values.kinds.len() {
+      return String::new();
     }
 
-    // After executing children, the template value should be on the stack
-    // (pushed by execute_template_fragment)
+    match self.values.kinds[vi] {
+      Value::String => {
+        let si = self.values.indices[vi] as usize;
+        let sym = self.values.strings[si];
+
+        self.interner.get(sym).to_string()
+      }
+      Value::Int => {
+        let ii = self.values.indices[vi] as usize;
+
+        self.values.ints[ii].to_string()
+      }
+      Value::Float => {
+        let fi = self.values.indices[vi] as usize;
+
+        self.values.floats[fi].to_string()
+      }
+      Value::Bool => {
+        let bi = self.values.indices[vi] as usize;
+
+        if self.values.bools[bi] {
+          "true".to_string()
+        } else {
+          "false".to_string()
+        }
+      }
+      Value::Char => {
+        let ci = self.values.indices[vi] as usize;
+
+        self.values.chars[ci].to_string()
+      }
+      _ => String::new(),
+    }
+  }
+
+  fn execute_template_assign(&mut self, _start_idx: usize, _end_idx: usize) {
+    // Template assignment: ::= switches parser to template mode.
+    // Find the TemplateFragmentStart forward in the flat tree
+    // (it's a sibling, not a child of ::=) and execute it.
+    for idx in (_start_idx + 1)..self.tree.nodes.len() {
+      let tok = self.tree.nodes[idx].token;
+
+      if tok == Token::TemplateFragmentStart {
+        let header = self.tree.nodes[idx];
+
+        self.execute_node(&header, idx);
+
+        break;
+      }
+
+      // Stop if we hit a statement boundary.
+      if tok == Token::Semicolon || tok == Token::RBrace {
+        break;
+      }
+    }
   }
 
   fn execute_template_fragment(&mut self, start_idx: usize, end_idx: usize) {
@@ -5618,6 +5685,35 @@ impl<'a> Executor<'a> {
                       .unwrap_or_default();
                     idx += 1;
                     attrs.push(Attr::parse_prop(&attr_name, &raw));
+                  } else if idx < end_idx
+                    && self.tree.nodes[idx].token == Token::LBrace
+                  {
+                    // Attribute interpolation: attr={expr}.
+                    idx += 1;
+
+                    while idx < end_idx
+                      && self.tree.nodes[idx].token != Token::RBrace
+                    {
+                      let n = self.tree.nodes[idx];
+
+                      self.execute_node(&n, idx);
+                      idx += 1;
+                    }
+
+                    if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::RBrace
+                    {
+                      idx += 1;
+                    }
+
+                    if let Some(vid) = self.value_stack.pop() {
+                      self.ty_stack.pop();
+                      self.sir_values.pop();
+
+                      let val = self.value_to_string(vid);
+
+                      attrs.push(Attr::parse_prop(&attr_name, &val));
+                    }
                   } else {
                     // Boolean attribute: <input disabled />
                     attrs.push(Attr::Prop {
@@ -5714,6 +5810,50 @@ impl<'a> Executor<'a> {
             idx += 1;
           }
         }
+        // Template interpolation: {expr}.
+        // Execute tokens between { and } as a normal zo
+        // expression, convert the result to string, and
+        // append as UiCommand::Text.
+        Token::LBrace => {
+          let brace_span = self.tree.spans[idx];
+
+          idx += 1;
+
+          // Detect empty braces {}.
+          if idx < end_idx && self.tree.nodes[idx].token == Token::RBrace {
+            report_error(Error::new(ErrorKind::ExpectedExpression, brace_span));
+            idx += 1;
+          } else {
+            // Execute expression tokens until matching }.
+            while idx < end_idx && self.tree.nodes[idx].token != Token::RBrace {
+              let n = self.tree.nodes[idx];
+
+              self.execute_node(&n, idx);
+              idx += 1;
+            }
+
+            // Skip the closing }.
+            if idx < end_idx && self.tree.nodes[idx].token == Token::RBrace {
+              idx += 1;
+            }
+
+            // Pop the expression result and convert to
+            // string.
+            if let Some(value_id) = self.value_stack.pop() {
+              self.ty_stack.pop();
+              self.sir_values.pop();
+
+              let text = self.value_to_string(value_id);
+
+              if !text.is_empty() {
+                commands.push(UiCommand::Text {
+                  content: text,
+                  style: TextStyle::Normal,
+                });
+              }
+            }
+          }
+        }
         _ => {
           idx += 1;
         }
@@ -5750,6 +5890,22 @@ impl<'a> Executor<'a> {
         mutability: Mutability::No,
         pubness: Pubness::No,
       });
+
+      // Register in locals so later references
+      // (e.g., `#dom view`) can find the variable.
+      self.locals.push(Local {
+        name: var_name,
+        ty_id: self.ty_checker.template_ty(),
+        value_id: template_id,
+        pubness: Pubness::No,
+        mutability: Mutability::No,
+        sir_value: Some(sir_value),
+        local_kind: LocalKind::Variable,
+      });
+
+      if let Some(frame) = self.scope_stack.last_mut() {
+        frame.count += 1;
+      }
     }
   }
 

@@ -1,0 +1,8 @@
+-- tests-build-pass: template interpolation with int.
+
+fun main() {
+  imu count: int = 42;
+  imu view: </> ::= <p>count: {count}</p>;
+
+  #dom view;
+}

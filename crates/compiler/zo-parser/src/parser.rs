@@ -680,6 +680,11 @@ impl<'a> Parser<'a> {
     // closes inner Fn, outer Fn, then the binding (Imu/Mut/Val).
     while let Some(introducer) = self.introducer_stack.last() {
       match introducer.token {
+        // Auto-close synthetic template fragments at
+        // semicolon (for named tags like <h1>...</h1>;).
+        Token::TemplateFragmentStart => {
+          self.close_introducer();
+        }
         Token::Fn | Token::When => {
           self.close_introducer();
         }
@@ -1125,6 +1130,21 @@ impl<'a> Parser<'a> {
     self.emit_node(Token::TemplateAssign);
 
     self.state = ParserState::TemplateMode;
+
+    // If the next token is a named tag (LAngle, not
+    // TemplateFragmentStart), auto-wrap in a synthetic
+    // fragment so execute_template_fragment handles all
+    // template content uniformly.
+    if self.peek() == Some(Token::LAngle) {
+      let node_index = self.emit_node(Token::TemplateFragmentStart);
+
+      self.introducer_stack.push(Introducer {
+        state: self.state,
+        token: Token::TemplateFragmentStart,
+        node_index,
+        children_start: self.tree.nodes.len() as u32,
+      });
+    }
   }
 
   fn handle_template_fragment_start(&mut self) {

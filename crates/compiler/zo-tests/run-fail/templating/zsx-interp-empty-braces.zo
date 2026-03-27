@@ -1,0 +1,7 @@
+-- tests-run-fail: empty interpolation braces {}.
+
+fun main() {
+  imu view: </> ::= <p>{}</p>;
+
+  #dom view;
+}

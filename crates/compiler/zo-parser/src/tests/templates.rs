@@ -46,6 +46,7 @@ fn test_template_element_simple() {
       (Imu, None),
       (Ident, Some(NodeValue::TextRange(32, 4))), // "view"
       (TemplateAssign, None),
+      (TemplateFragmentStart, None),
       (LAngle, None),
       (Ident, Some(NodeValue::TextRange(42, 3))), // "div"
       (RAngle, None),
@@ -77,6 +78,7 @@ fn test_template_with_interpolation() {
       (Imu, None),
       (Ident, Some(NodeValue::TextRange(32, 8))), // "greeting"
       (TemplateAssign, None),
+      (TemplateFragmentStart, None),
       (LAngle, None),
       (Ident, Some(NodeValue::TextRange(46, 3))), // "div"
       (RAngle, None),
@@ -111,6 +113,7 @@ fn test_template_with_attributes() {
       (Imu, None),
       (Ident, Some(NodeValue::TextRange(32, 3))), // "btn"
       (TemplateAssign, None),
+      (TemplateFragmentStart, None),
       (LAngle, None),
       (Ident, Some(NodeValue::TextRange(41, 6))), // "button"
       (Ident, Some(NodeValue::TextRange(48, 5))), // "class"
@@ -145,6 +148,7 @@ fn test_template_self_closing() {
       (Imu, None),
       (Ident, Some(NodeValue::TextRange(32, 5))), // "input"
       (TemplateAssign, None),
+      (TemplateFragmentStart, None),
       (LAngle, None),
       (Ident, Some(NodeValue::TextRange(43, 5))), // "input"
       // "type" is now Ident in template tag markup (Phase 0 fix).
@@ -176,6 +180,7 @@ fn test_template_nested() {
       (Imu, None),
       (Ident, Some(NodeValue::TextRange(32, 4))), // "card"
       (TemplateAssign, None),
+      (TemplateFragmentStart, None),
       // Outer div
       (LAngle, None),
       (Ident, Some(NodeValue::TextRange(42, 3))), // "div"

@@ -1,0 +1,9 @@
+-- tests-build-pass: template interpolation with multiple variables.
+
+fun main() {
+  imu first: str = "hello";
+  imu second: str = "world";
+  imu view: </> ::= <p>{first}, {second}!</p>;
+
+  #dom view;
+}

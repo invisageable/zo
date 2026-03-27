@@ -7,7 +7,7 @@ tree:
     - token: Fun
       flags: 0
       child_start: 1
-      child_count: 37
+      child_count: 38
       _reserved: 0
     - token: Ident
       flags: 1
@@ -27,7 +27,7 @@ tree:
     - token: LBrace
       flags: 0
       child_start: 5
-      child_count: 32
+      child_count: 33
       _reserved: 0
     - token: Imu
       flags: 0
@@ -67,7 +67,7 @@ tree:
     - token: Imu
       flags: 0
       child_start: 13
-      child_count: 20
+      child_count: 21
       _reserved: 0
     - token: Ident
       flags: 1
@@ -78,6 +78,11 @@ tree:
       flags: 0
       child_start: 0
       child_count: 0
+      _reserved: 0
+    - token: TemplateFragmentStart
+      flags: 0
+      child_start: 16
+      child_count: 18
       _reserved: 0
     - token: LAngle
       flags: 0
@@ -101,7 +106,7 @@ tree:
       _reserved: 0
     - token: LBrace
       flags: 0
-      child_start: 20
+      child_start: 21
       child_count: 1
       _reserved: 0
     - token: Ident
@@ -171,7 +176,7 @@ tree:
       _reserved: 0
     - token: Hash
       flags: 0
-      child_start: 34
+      child_start: 35
       child_count: 3
       _reserved: 0
     - token: Ident
@@ -240,6 +245,8 @@ tree:
       len: 9
     - start: 78
       len: 3
+    - start: 78
+      len: 3
     - start: 82
       len: 1
     - start: 83
@@ -295,21 +302,21 @@ tree:
       - 2
     - - 13
       - 3
-    - - 16
+    - - 17
       - 4
-    - - 18
+    - - 19
       - 5
-    - - 20
+    - - 21
       - 6
-    - - 22
+    - - 23
       - 7
-    - - 24
+    - - 25
       - 8
-    - - 27
+    - - 28
       - 9
-    - - 30
+    - - 31
       - 10
-    - - 34
-      - 11
     - - 35
+      - 11
+    - - 36
       - 12
