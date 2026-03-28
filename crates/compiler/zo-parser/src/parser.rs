@@ -207,6 +207,16 @@ impl<'a> Parser<'a> {
         self.handle_unary_operator(kind)
       }
 
+      // Generic type parameters: <$T, $A> after fun/struct/enum.
+      // Must be checked before the operator path, otherwise
+      // `<` would be parsed as less-than.
+      Token::Lt
+        if self.state == ParserState::FunctionSignature
+          && self.peek() == Some(Token::Dollar) =>
+      {
+        self.parse_type_params();
+      }
+
       // Binary operators
       _ if self.is_operator(kind) => self.handle_operator(kind),
 
@@ -303,6 +313,59 @@ impl<'a> Parser<'a> {
     });
 
     self.state = ParserState::ModulePath;
+  }
+
+  /// Parses `<$T, $A, $B>` type parameter lists.
+  /// Emits each `$T` as `Dollar` + `Ident` nodes.
+  /// Called when `Lt` is seen in `FunctionSignature` state
+  /// with `Dollar` as the next token.
+  fn parse_type_params(&mut self) {
+    // Emit `<` as LAngle (generic open, not less-than).
+    let span = self.current_span();
+
+    self.emit_node_internal(Token::LAngle, span, None);
+
+    // Parse $T, $A, ... until >
+    loop {
+      self.pos += 1;
+
+      if self.pos >= self.tokens.kinds.len() {
+        break;
+      }
+
+      let kind = self.tokens.kinds[self.pos];
+
+      match kind {
+        Token::Gt => {
+          let span = self.current_span();
+
+          self.emit_node_internal(Token::RAngle, span, None);
+
+          break;
+        }
+        Token::Dollar => {
+          let span = self.current_span();
+
+          self.emit_node_internal(Token::Dollar, span, None);
+
+          // Next should be the type param name ident.
+          if self.peek() == Some(Token::Ident) {
+            self.pos += 1;
+
+            let span = self.current_span();
+            let value = self.extract_value(Token::Ident);
+
+            self.emit_node_internal(Token::Ident, span, value);
+          }
+        }
+        Token::Comma => {
+          let span = self.current_span();
+
+          self.emit_node_internal(Token::Comma, span, None);
+        }
+        _ => break,
+      }
+    }
   }
 
   fn handle_fun_introducer(&mut self, token: Token) {

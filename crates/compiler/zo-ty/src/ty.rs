@@ -59,6 +59,10 @@ pub enum Ty {
   /// In pure W algorithm, all type variables are uniform.
   Infer(InferVarId),
 
+  /// A named type parameter: `$T`, `$A`, `$K`, etc.
+  /// Used in generic function/struct/enum definitions.
+  Param(Symbol),
+
   /// The type of types (for type expressions like `s32`)
   Type,
 

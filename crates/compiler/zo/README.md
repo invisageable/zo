@@ -24,11 +24,11 @@ zo iS A NEW, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE DESiGNED FROM FiRST PRiNCiPLES
 zo GiVES YOU BACK CONTROL, GUARANTEES STRONG STATiC TYPiNG WiTH EXCEPTiONAL EXECUTiON SPEED. WHETHER YOU'RE A __CREATiVE__, A __HACKER__, A __CODE GOLFER__ OR A __PROGRAMMER__, AS LONG AS YOU'RE PASSiONATE ABOUT WRiTiNG ROBUST SOFTWARE, YOU'LL FiND iN zo — THE DARK SiDE OF THE FORCE.   
 
 iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.         
-    
+
 ## goals.
 
 - [x] statically, strongly typed.
-- [ ] meticulous `type system` — *type checking, inference, type state*.
+- [ ] meticulous `type system` — *type checking, inference, monomorphization, type state*.
 - [ ] algebraic `optimization` — *folding, propagation*.
 - [x] user-friendly `error` messages — *like elm*.
 - [ ] target support — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.

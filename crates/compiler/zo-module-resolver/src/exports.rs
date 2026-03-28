@@ -104,6 +104,7 @@ pub fn extract_exports(
           body_start: *body_start,
           kind: *kind,
           pubness: *pubness,
+          type_params: Vec::new(),
         });
       }
 

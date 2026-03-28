@@ -1,0 +1,14 @@
+-- tests-build-pass: monomorphization of generic functions.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/generic-mono.zo -o crates/compiler/zo-tests/build-pass/programming/generic-mono
+
+fun wrap<$T>(x: $T) -> $T { x }
+
+fun main() {
+  imu a: int = wrap(42);
+  imu b: int = wrap(99);
+  imu c: str = wrap("hello");
+
+  showln(a);
+  showln(b);
+  showln(c);
+}

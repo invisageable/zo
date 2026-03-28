@@ -398,12 +398,15 @@ impl<'a> ARM64Gen<'a> {
 
       if let Some(offset) = target_offset {
         let offset = (*offset as i32) - (*fixup_pos as i32);
-        let reg = X1;
+        let pos = *fixup_pos as usize;
+        // Read the destination register from the emitted ADR.
+        let existing =
+          u32::from_le_bytes(code[pos..pos + 4].try_into().unwrap());
+        let rd = existing & INSN_RD_MASK;
         let immlo = (offset as u32) & FIXUP_ADR_IMMLO;
         let immhi = ((offset >> 2) as u32) & FIXUP_ADR_IMMHI;
-        let insn =
-          FIXUP_ADR | (immlo << 29) | (immhi << 5) | (reg.index() as u32);
-        let pos = *fixup_pos as usize;
+        let insn = FIXUP_ADR | (immlo << 29) | (immhi << 5) | rd;
+
         code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
       }
     }
@@ -704,33 +707,30 @@ impl<'a> ARM64Gen<'a> {
         let mut buffer = Buffer::new();
         let string = self.interner.get(*symbol);
 
+        // Length-prefixed layout: [len: u64][bytes][null].
+        let len = string.len() as u64;
+
+        buffer.bytes(&len.to_le_bytes());
         buffer.bytes(string.as_bytes());
         buffer.bytes(b"\0");
 
         self.string_data.push((*symbol, buffer.finish()));
 
+        // String is a single pointer to the struct.
+        let ptr_reg = self.reg_for_insn(idx).unwrap_or(X1);
         let fixup_pos = self.emitter.current_offset();
 
         self.string_fixups.push((fixup_pos, *symbol));
-        self.emitter.emit_adr(X1, 0);
-        self.emitter.emit_mov_imm(X2, string.len() as u16);
+        self.emitter.emit_adr(ptr_reg, 0);
       }
 
-      Insn::Load { dst, src, ty_id } => match src {
+      Insn::Load { dst, src, .. } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
-            // Check if this is a string variable (str type).
-            let is_str = ty_id.0 == 4; // Ty::Str
-
-            if is_str {
-              // Restore string pointer + length to X1, X2.
-              self.emitter.emit_ldr(X1, SP, offset as i16);
-              self
-                .emitter
-                .emit_ldr(X2, SP, (offset + STACK_SLOT_SIZE) as i16);
-            } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+            // Strings are single-register pointers, same as int.
+            if let Some(dst_reg) = self.alloc_reg(*dst) {
               self.emitter.emit_ldr(dst_reg, SP, offset as i16);
             }
           }
@@ -992,10 +992,6 @@ impl<'a> ARM64Gen<'a> {
         // Variable write: STR value to stack slot.
         // Allocate slot on first Store, reuse after.
         let slot_key = name.as_u32();
-        let is_str = self.is_string_value(*value, all_insns);
-
-        // Strings need 2 slots (pointer + length).
-        let slot_count = if is_str { 2 } else { 1 };
 
         let offset = if let Some(&off) = self.mutable_slots.get(&slot_key) {
           off
@@ -1014,18 +1010,13 @@ impl<'a> ARM64Gen<'a> {
           let off = base + self.next_mut_slot * STACK_SLOT_SIZE;
 
           self.mutable_slots.insert(slot_key, off);
-          self.next_mut_slot += slot_count;
+          self.next_mut_slot += 1;
 
           off
         };
 
-        if is_str {
-          // String: store pointer (X1) and length (X2).
-          self.emitter.emit_str(X1, SP, offset as i16);
-          self
-            .emitter
-            .emit_str(X2, SP, (offset + STACK_SLOT_SIZE) as i16);
-        } else if let Some(src_reg) = self.alloc_reg(*value) {
+        // Strings are single-register pointers, same as int.
+        if let Some(src_reg) = self.alloc_reg(*value) {
           self.emitter.emit_str(src_reg, SP, offset as i16);
         }
       }
@@ -1260,7 +1251,20 @@ impl<'a> ARM64Gen<'a> {
       }
 
       self.emit_itoa_and_write(fd);
+    } else if is_str {
+      // String: single pointer to [len: u64][bytes][null].
+      // Read length and data pointer from the struct.
+      let ptr = arg_vid.and_then(|v| self.alloc_reg(v)).unwrap_or(X1);
+
+      // LDR X2, [ptr, #0] — load length from struct.
+      self.emitter.emit_ldr(X2, ptr, 0);
+      // ADD X1, ptr, #8 — data starts at offset 8.
+      self.emitter.emit_add_imm(X1, ptr, 8);
+      self.emitter.emit_mov_imm(X16, SYS_WRITE);
+      self.emitter.emit_mov_imm(X0, fd);
+      self.emitter.emit_svc(0);
     } else {
+      // No argument — emit empty write.
       self.emitter.emit_mov_imm(X16, SYS_WRITE);
       self.emitter.emit_mov_imm(X0, fd);
       self.emitter.emit_svc(0);
@@ -1405,7 +1409,9 @@ impl<'a> ARM64Gen<'a> {
     // Only push string data once.
     if !self.string_data.iter().any(|(s, _)| *s == msg_sym) {
       let mut buf = Buffer::new();
+      let len = msg.len() as u64;
 
+      buf.bytes(&len.to_le_bytes());
       buf.bytes(msg);
       buf.bytes(b"\0");
 
@@ -1415,8 +1421,10 @@ impl<'a> ARM64Gen<'a> {
     let fixup_pos = self.emitter.current_offset();
 
     self.string_fixups.push((fixup_pos, msg_sym));
-    self.emitter.emit_adr(X1, 0);
-    self.emitter.emit_mov_imm(X2, msg.len() as u16);
+    // ADR X16 -> string struct, then unpack.
+    self.emitter.emit_adr(X16, 0);
+    self.emitter.emit_ldr(X2, X16, 0);
+    self.emitter.emit_add_imm(X1, X16, 8);
     self.emitter.emit_mov_imm(X16, SYS_WRITE);
     self.emitter.emit_mov_imm(X0, FD_STDERR);
     self.emitter.emit_svc(0);

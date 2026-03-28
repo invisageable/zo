@@ -5,6 +5,7 @@ pub(crate) mod constants;
 pub(crate) mod control_flow;
 pub(crate) mod enums;
 pub(crate) mod errors;
+pub(crate) mod generics;
 pub(crate) mod interpolation;
 pub(crate) mod modules;
 pub(crate) mod structs;

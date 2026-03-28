@@ -259,12 +259,12 @@ fun bar() -> User {
     -- Spawn two tasks that run CONCURRENTLY.
     imu profile_task := spawn fetch_profile(user_id);
     imu posts_task := spawn fetch_posts(user_id);
-    
+
     -- `await` waits for the tasks to finish.
     -- If `fetch_profile` fails, `fetch_posts` is automatically cancelled.
     imu profile := await profile_task;
     imu posts := await posts_task;
-    
+
     return User { profile, posts };
   }
 }
@@ -342,10 +342,10 @@ fun main() {
 -- expr:closure.
 fun main() {
   imu foo: Fn(int) -> int = fn(x) { x + x }; -- closure:block.
-  imu bar := fn(x) { x * x };              -- closure:block.
+  imu bar := fn(x) { x * x };                -- closure:block.
 
   imu foo: Fn(int) -> int = fn(x) => x + x; -- closure:inline.
-  imu bar := fn(x) => x * x;              -- closure:inline.
+  imu bar := fn(x) => x * x;                -- closure:inline.
 }
 
 -- expr:closure:currying.
@@ -410,17 +410,14 @@ fun main() {
 
   -- parse to binary number.
   imu bina: int = b#30;
-
   showln("bina = {bina}"); -- prints `bina = 11110`.
 
   -- parse to octal number.
   imu octa: int = o#75;
-
   showln("octa = {octa}"); -- prints `octa = 113`.
 
   -- parse to hexadecimal number.
   imu hexa: int = x#76;
-
   showln("hexa = {hexa}"); -- prints `hexa = 4c`.
 }
 
@@ -449,7 +446,6 @@ fun main() {
 -- expr:lit:characters.
 fun main() {
   imu x: char = 'a';
-
   showln("{x}");
 }
 
@@ -496,6 +492,7 @@ fun main() {
   imu x := 1 & 2;
   imu y := 3 | 4;
   imu z := 5 ^ 6;
+  showln("{x}, {y}, {z}");
 }
 
 -- operators:logical:or.
@@ -571,7 +568,6 @@ fun main() {
 -- expr:tuples:declaration.
 fun main() {
   imu tup: (int, float, str) = (0, 0.0, "yo!");
-
   showln("{tup}");
 }
 

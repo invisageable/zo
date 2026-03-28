@@ -101,6 +101,9 @@ pub struct Executor<'a> {
   /// Global compile-time constants (`val` at module level).
   /// Visible from all functions.
   global_constants: Vec<Local>,
+  /// Active type parameters: `$T → TyId`. Set during
+  /// generic function definition, cleared after.
+  type_params: Vec<(Symbol, TyId)>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -155,6 +158,7 @@ impl<'a> Executor<'a> {
       pending_enum_construct: None,
       apply_context: None,
       global_constants: Vec::new(),
+      type_params: Vec::new(),
     }
   }
 
@@ -241,9 +245,15 @@ impl<'a> Executor<'a> {
       if idx < self.skip_until {
         continue;
       }
+
       let header = self.tree.nodes[idx];
+
       self.execute_node(&header, idx);
     }
+
+    // Monomorphization: duplicate generic function bodies
+    // for each instantiation.
+    self.monomorphize();
 
     (self.sir, self.annotations, self.ty_checker)
   }
@@ -672,6 +682,13 @@ impl<'a> Executor<'a> {
 
           // Clear function context
           self.current_function = None;
+
+          // Pop body scope + param scope. The param
+          // scope was pushed in execute_fun; the body
+          // scope was pushed at LBrace. Both must be
+          // cleaned up so parameter locals don't leak.
+          self.pop_scope(); // body scope
+          self.pop_scope(); // param scope
         }
 
         // Close control flow block.
@@ -761,7 +778,9 @@ impl<'a> Executor<'a> {
           }
         }
 
-        self.pop_scope();
+        if !at_fn_depth {
+          self.pop_scope();
+        }
       }
 
       // === LITERALS (push compile-time constants) ===
@@ -2186,6 +2205,28 @@ impl<'a> Executor<'a> {
           self.ty_checker.unit_type()
         }
       }
+      // Generic type parameter: $T.
+      // Dollar is followed by Ident(T). Look up in the
+      // active type_params mapping.
+      Token::Dollar => {
+        if idx + 1 < self.tree.nodes.len()
+          && self.tree.nodes[idx + 1].token == Token::Ident
+        {
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx + 1) {
+            // Find the type param's inference var.
+            self
+              .type_params
+              .iter()
+              .find(|(name, _)| *name == sym)
+              .map(|(_, ty)| *ty)
+              .unwrap_or_else(|| self.ty_checker.fresh_var())
+          } else {
+            self.ty_checker.fresh_var()
+          }
+        } else {
+          self.ty_checker.fresh_var()
+        }
+      }
       _ => self.ty_checker.unit_type(),
     }
   }
@@ -2532,6 +2573,7 @@ impl<'a> Executor<'a> {
       body_start,
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
+      type_params: Vec::new(),
     });
 
     // Update pre-registered letrec local (if any) so
@@ -2718,6 +2760,36 @@ impl<'a> Executor<'a> {
     let mut return_ty = self.ty_checker.unit_type();
     let mut idx = start_idx + 2; // Skip Fun and name
 
+    // Parse optional type parameters: <$T, $A>.
+    // Creates fresh inference vars for each.
+    self.type_params.clear();
+
+    if idx < _end_idx && self.tree.nodes[idx].token == Token::LAngle {
+      idx += 1; // skip <
+
+      while idx < _end_idx {
+        let tok = self.tree.nodes[idx].token;
+
+        if tok == Token::RAngle {
+          idx += 1;
+
+          break;
+        }
+
+        if tok == Token::Dollar && idx + 1 < _end_idx {
+          idx += 1; // skip $
+
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+            let var = self.ty_checker.fresh_var();
+
+            self.type_params.push((sym, var));
+          }
+        }
+
+        idx += 1;
+      }
+    }
+
     // Skip past LParen
     if idx < _end_idx && self.tree.nodes[idx].token == Token::LParen {
       idx += 1;
@@ -2769,9 +2841,15 @@ impl<'a> Executor<'a> {
             if let Some(NodeValue::Symbol(param_name)) = self.node_value(idx) {
               idx += 1;
 
-              // Next should be the type (no colon token)
+              // Next should be the type (no colon token).
+              // For `$T`, skip Dollar + Ident (2 tokens).
               if idx < _end_idx {
                 let param_ty = self.resolve_type_token(idx);
+
+                // Skip extra token for $T type params.
+                if self.tree.nodes[idx].token == Token::Dollar {
+                  idx += 1; // skip Dollar
+                }
 
                 let mutability = if is_mut {
                   Mutability::Yes
@@ -2854,6 +2932,7 @@ impl<'a> Executor<'a> {
       body_start: 0, // Will be set when we emit FunDef
       kind: FunctionKind::UserDefined,
       pubness,
+      type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
     });
 
     // Push a scope for the function parameters
@@ -3488,6 +3567,7 @@ impl<'a> Executor<'a> {
       body_start: 0,
       kind: FunctionKind::Intrinsic,
       pubness,
+      type_params: Vec::new(),
     });
 
     // Skip all children — no body to process.
@@ -5260,13 +5340,45 @@ impl<'a> Executor<'a> {
         arg_sirs = full_sirs;
       }
 
+      // For generic functions, create fresh inference vars
+      // at each call site so different calls can use
+      // different types.
+      let mut return_ty = func.return_ty;
+      let mut param_types: Vec<TyId> =
+        func.params.iter().map(|(_, ty)| *ty).collect();
+
+      if !func.type_params.is_empty() {
+        // Build substitution: old var → fresh var.
+        let subs: Vec<(TyId, TyId)> = func
+          .type_params
+          .iter()
+          .map(|old| (*old, self.ty_checker.fresh_var()))
+          .collect();
+
+        // Substitute in param types.
+        for pty in param_types.iter_mut() {
+          for (old, new) in &subs {
+            if *pty == *old {
+              *pty = *new;
+            }
+          }
+        }
+
+        // Substitute in return type.
+        for (old, new) in &subs {
+          if return_ty == *old {
+            return_ty = *new;
+          }
+        }
+      }
+
       // Type check user arguments against user parameter types.
       // Skip captures (first capture_count params).
       if func.kind != FunctionKind::Intrinsic {
-        let user_params = &func.params[capture_count as usize..];
+        let user_param_types = &param_types[capture_count as usize..];
 
-        for (i, ((_, param_ty), arg_ty)) in
-          user_params.iter().zip(arg_types.iter()).enumerate()
+        for (i, (param_ty, arg_ty)) in
+          user_param_types.iter().zip(arg_types.iter()).enumerate()
         {
           let span = self.tree.spans[lparen_idx + 1 + i * 2];
 
@@ -5276,21 +5388,60 @@ impl<'a> Executor<'a> {
         }
       }
 
-      // Emit Call instruction.
-      let call_name = func.name;
+      // Resolve return type after unification.
+      let resolved_ret = self.ty_checker.resolve_id(return_ty);
+
+      // For generic functions, mangle the call name with
+      // resolved types so each instantiation gets its own
+      // function copy (monomorphization).
+      let call_name = if !func.type_params.is_empty() {
+        let base = self.interner.get(func.name).to_owned();
+        let mut mangled = base;
+
+        for tp in &func.type_params {
+          let resolved = self.ty_checker.resolve_id(*tp);
+          let ty = self.ty_checker.resolve_ty(resolved);
+          let ty_name = match ty {
+            Ty::Int { .. } => "int",
+            Ty::Float(_) => "float",
+            Ty::Bool => "bool",
+            Ty::Str => "str",
+            Ty::Char => "char",
+            _ => "unknown",
+          };
+
+          mangled = format!("{mangled}__{ty_name}");
+        }
+
+        let sym = self.interner.intern(&mangled);
+
+        // Record instantiation for the mono pass.
+        if !self.funs.iter().any(|f| f.name == sym) {
+          let mut mono_def = func.clone();
+
+          mono_def.name = sym;
+          mono_def.type_params = Vec::new();
+
+          self.funs.push(mono_def);
+        }
+
+        sym
+      } else {
+        func.name
+      };
 
       let result_sir = self.sir.emit(Insn::Call {
         name: call_name,
         args: arg_sirs,
-        ty_id: func.return_ty,
+        ty_id: resolved_ret,
       });
 
       // Push return value.
-      if func.return_ty != self.ty_checker.unit_type() {
+      if resolved_ret != self.ty_checker.unit_type() {
         let result_val = self.values.store_runtime(0);
 
         self.value_stack.push(result_val);
-        self.ty_stack.push(func.return_ty);
+        self.ty_stack.push(resolved_ret);
         self.sir_values.push(result_sir);
       }
     } else {
@@ -5506,6 +5657,95 @@ impl<'a> Executor<'a> {
       }
       "inline" => {}
       _ => {}
+    }
+  }
+
+  /// Duplicates generic function SIR bodies for each
+  /// monomorphized instantiation.
+  ///
+  /// Scans `self.funs` for entries whose `body_start`
+  /// matches an existing generic function but whose name
+  /// is a mangled variant. For each, copies the SIR
+  /// instructions from `FunDef..Return` and appends them
+  /// with the mangled name.
+  fn monomorphize(&mut self) {
+    // Find generic function SIR ranges: (name, start_idx, end_idx).
+    let mut generic_ranges: Vec<(Symbol, usize, usize)> = Vec::new();
+
+    for (i, insn) in self.sir.instructions.iter().enumerate() {
+      if let Insn::FunDef { name, .. } = insn {
+        // Check if this function is generic by looking
+        // up its FunDef in self.funs.
+        let is_generic = self
+          .funs
+          .iter()
+          .any(|f| f.name == *name && !f.type_params.is_empty());
+
+        if is_generic {
+          // Find the matching Return to get the range.
+          let end = (i + 1..self.sir.instructions.len())
+            .find(|&j| matches!(self.sir.instructions[j], Insn::Return { .. }))
+            .unwrap_or(self.sir.instructions.len() - 1);
+
+          generic_ranges.push((*name, i, end));
+        }
+      }
+    }
+
+    // For each mangled instantiation, duplicate the body.
+    let mono_funs: Vec<(Symbol, Symbol)> = self
+      .funs
+      .iter()
+      .filter(|f| f.type_params.is_empty())
+      .filter_map(|f| {
+        // Find which generic this is an instance of.
+        let name_str = self.interner.get(f.name);
+
+        for (gen_name, _, _) in &generic_ranges {
+          let gen_str = self.interner.get(*gen_name);
+
+          if name_str.starts_with(gen_str)
+            && name_str.len() > gen_str.len()
+            && name_str.as_bytes()[gen_str.len()..].starts_with(b"__")
+          {
+            return Some((*gen_name, f.name));
+          }
+        }
+
+        None
+      })
+      .collect();
+
+    for (gen_name, mono_name) in &mono_funs {
+      let range = generic_ranges.iter().find(|(n, _, _)| n == gen_name);
+
+      let Some((_, start, end)) = range else {
+        continue;
+      };
+
+      // Clone the SIR range.
+      let mut cloned: Vec<Insn> = self.sir.instructions[*start..=*end].to_vec();
+
+      // Replace the FunDef name with the mangled name.
+      if let Some(Insn::FunDef { name, .. }) = cloned.first_mut() {
+        *name = *mono_name;
+      }
+
+      // Insert BEFORE the last function (main) so DCE
+      // treats main as the entry point, not the mono'd fn.
+      let main_idx = self
+        .sir
+        .instructions
+        .iter()
+        .rposition(|i| matches!(i, Insn::FunDef { .. }))
+        .unwrap_or(self.sir.instructions.len());
+
+      // Splice the cloned instructions before main.
+      let pos = main_idx;
+
+      for (j, insn) in cloned.into_iter().enumerate() {
+        self.sir.instructions.insert(pos + j, insn);
+      }
     }
   }
 

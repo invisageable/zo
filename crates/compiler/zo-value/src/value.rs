@@ -285,6 +285,10 @@ pub struct FunDef {
   pub kind: FunctionKind,
   /// Visibility modifier.
   pub pubness: Pubness,
+  /// Generic type parameters: original inference var TyIds.
+  /// Empty for non-generic functions. At each call site,
+  /// these are substituted with fresh vars.
+  pub type_params: Vec<TyId>,
 }
 
 /// Represents a [`Local`] variable entry instance.
