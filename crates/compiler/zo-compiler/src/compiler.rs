@@ -359,14 +359,30 @@ impl Compiler {
       self.reporter.collect_errors(&tl_errors);
     }
 
-    // Merge module SIR before main SIR for codegen.
+    // Merge module SIR into main SIR. Insert module
+    // functions BEFORE the main function (last FunDef)
+    // so DCE treats main as the entry point. The main
+    // program keeps its original ValueIds (0-based).
+    // Module ValueIds are offset to avoid collisions.
     if !module_sir_instructions.is_empty() {
-      offset_value_ids(&mut semantic.sir.instructions, module_next_value_id);
-      semantic.sir.next_value_id += module_next_value_id;
+      let main_next_vid = semantic.sir.next_value_id;
 
-      let mut merged = module_sir_instructions;
-      merged.append(&mut semantic.sir.instructions);
-      semantic.sir.instructions = merged;
+      offset_value_ids(&mut module_sir_instructions, main_next_vid);
+
+      // Find the last FunDef (main) and insert before it.
+      let main_pos = semantic
+        .sir
+        .instructions
+        .iter()
+        .rposition(|i| matches!(i, zo_sir::Insn::FunDef { .. }))
+        .unwrap_or(semantic.sir.instructions.len());
+
+      // Splice module instructions before main.
+      let tail = semantic.sir.instructions.split_off(main_pos);
+
+      semantic.sir.instructions.extend(module_sir_instructions);
+      semantic.sir.instructions.extend(tail);
+      semantic.sir.next_value_id += module_next_value_id;
     }
 
     // Dead code elimination.

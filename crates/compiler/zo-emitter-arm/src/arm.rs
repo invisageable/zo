@@ -71,6 +71,8 @@ pub const COND_GE: u8 = 0xA;
 pub const COND_LT: u8 = 0xB;
 pub const COND_GT: u8 = 0xC;
 pub const COND_LE: u8 = 0xD;
+pub const COND_VS: u8 = 0x6; // overflow set (NaN)
+pub const COND_VC: u8 = 0x7; // overflow clear (not NaN)
 
 /// Represents an [`ARM64Emitter`] instance.
 pub struct ARM64Emitter {
@@ -360,6 +362,18 @@ impl ARM64Emitter {
       | ((cond as u32) << 12)
       | ((src1.index() as u32) << 5)
       | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// CSET Xd, cond — set register to 1 if condition true,
+  /// 0 otherwise. Encoded as CSINC Xd, XZR, XZR, !cond.
+  pub fn emit_cset(&mut self, dst: Register, cond: u8) {
+    // CSINC: 0x9A9F0400 | (invert_cond << 12) | Rd
+    // XZR = register 31
+    let inv_cond = cond ^ 1; // invert condition
+    let insn: u32 =
+      0x9A9F07E0 | ((inv_cond as u32) << 12) | (dst.index() as u32);
 
     self.emit_u32(insn);
   }
