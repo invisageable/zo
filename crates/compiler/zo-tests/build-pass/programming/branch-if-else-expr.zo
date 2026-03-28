@@ -1,0 +1,14 @@
+-- tests-build-pass: if-else expression.
+-- @cmd — zo build branch-if-else-expr.zo
+
+-- expr:if-else.
+fun main() {
+  mut x: int = if true {
+    1
+  } else {
+    3
+  };
+
+  check@eq(x, 1);
+  showln(x);
+}

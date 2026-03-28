@@ -1,0 +1,41 @@
+-- tests-build-pass: integer square root via binary search.
+-- @cmd — zo build sqrt.zo
+
+fun isqrt(n: int) -> int {
+  if n < 2 {
+    return n;
+  }
+
+  mut low: int = 1;
+  mut high: int = n / 2;
+  mut result: int = 1;
+
+  while low <= high {
+    imu diff: int = high - low;
+    imu mid: int = low + diff / 2;
+    imu square: int = mid * mid;
+
+    if square == n {
+      return mid;
+    }
+
+    if square < n {
+      result = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return result;
+}
+
+fun main() {
+  check@eq(isqrt(0), 0);
+  check@eq(isqrt(1), 1);
+  check@eq(isqrt(4), 2);
+  check@eq(isqrt(9), 3);
+  check@eq(isqrt(16), 4);
+  check@eq(isqrt(100), 10);
+  check@eq(isqrt(144), 12);
+}

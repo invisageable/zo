@@ -258,9 +258,42 @@ impl<'a> Executor<'a> {
     (self.sir, self.annotations, self.ty_checker)
   }
 
+  /// Returns true if the token introduces a statement —
+  /// a construct only valid inside a function body per
+  /// the grammar (`fun_body = "{", { stmt }, "}"`)
+  fn is_stmt_introducer(token: Token) -> bool {
+    matches!(
+      token,
+      Token::Imu
+        | Token::Mut
+        | Token::If
+        | Token::While
+        | Token::For
+        | Token::Loop
+        | Token::Return
+        | Token::Break
+        | Token::Continue
+    )
+  }
+
   /// Executes a single node from the parse tree.
   /// This is the core of the execution-based compilation model
   fn execute_node(&mut self, header: &NodeHeader, idx: usize) {
+    // Enforce grammar: `program = { item }`.
+    // Statement introducers are only valid inside function
+    // bodies. Reject them at top level.
+    if self.current_function.is_none()
+      && self.apply_context.is_none()
+      && self.pending_function.is_none()
+      && Self::is_stmt_introducer(header.token)
+    {
+      let span = self.tree.spans[idx];
+
+      report_error(Error::new(ErrorKind::InvalidTopLevelItem, span));
+
+      return;
+    }
+
     match header.token {
       Token::Fun => {
         let children_end = (header.child_start + header.child_count) as usize;
@@ -588,6 +621,20 @@ impl<'a> Executor<'a> {
           self.value_stack.clear();
           self.ty_stack.clear();
           self.sir_values.clear();
+        }
+
+        // Reject bare blocks at top level: `block_stmt`
+        // is only valid inside function bodies.
+        if self.current_function.is_none()
+          && self.apply_context.is_none()
+          && self.pending_function.is_none()
+          && self.branch_stack.is_empty()
+        {
+          let span = self.tree.spans[idx];
+
+          report_error(Error::new(ErrorKind::InvalidTopLevelItem, span));
+
+          return;
         }
 
         // Emit branch instruction for control flow.
@@ -1698,6 +1745,17 @@ impl<'a> Executor<'a> {
           .as_ref()
           .is_some_and(|ctx| ctx.pending_return);
         self.check_pending_return();
+
+        // Enforce grammar: assign_stmt and expr_stmt are
+        // only valid inside function bodies.
+        if self.current_function.is_none()
+          && self.apply_context.is_none()
+          && (had_assign || (!had_decl && !had_return))
+        {
+          let span = self.tree.spans[idx];
+
+          report_error(Error::new(ErrorKind::InvalidTopLevelItem, span));
+        }
 
         // If nothing consumed the stacks, discard the
         // expression value so it doesn't leak to `}`.

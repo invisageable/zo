@@ -1,0 +1,9 @@
+-- tests-run-fail: check assertion failure.
+-- @cmd — zo build check-eq-fail.zo
+
+fun main() {
+  check@eq(true, true);
+  showln("first ok");
+  check(1 == 2);
+  showln("should not reach here");
+}
