@@ -1,0 +1,61 @@
+-! # how to tuples: 006-tuples.zo
+-!
+-! @cmd: `zo run 006-tuples.zo`
+-!
+-! Sometimes you need to group data, but you don't want the overhead of
+-! defining a whole `struct`.
+-!
+-! Tuples group different types together in a fixed "shape." Unlike arrays
+-! (where every item must be the same type), tuples are happy to mix and
+-! match. No names — just positions.
+
+fun main() {
+  -- create a tuple with parentheses. access fields with `.0`, `.1`.
+  -- perfect for quick coordinate pairs.
+  imu pos: (int, int) = (3, 7);
+  imu px: int = pos.0;
+  imu py: int = pos.1;
+  showln("hero is at ({px}, {py})");
+
+  -- tuples can hold totally different types.
+  -- here we group a name (str), health (int), and attack (int).
+  imu hero: (str, int, int) = ("johndoe", 100, 15);
+  imu name: str = hero.0;
+  imu hp: int = hero.1;
+  imu atk: int = hero.2;
+  showln("name: {name}");
+  showln("hp: {hp}, atk: {atk}");
+
+  -- tuples are useful for "status + value" patterns.
+  imu dmg: (int, bool) = (25, true);
+  imu amount: int = dmg.0;
+  showln("damage: {amount}");
+
+  -- tuples work great with functions that return multiple values.
+  -- we'll see that in lesson 036!
+}
+
+-! ## tuple access.
+-!
+-!   `.0` — first element.
+-!   `.1` — second element.
+-!   `.2` — third element, and so on.
+-!
+-! tuples are laid out flat in memory. they are just anonymous data
+-! packets on the stack. no pointers, no hidden heap costs.
+-!
+-! if you need names, use a struct. if you need a collection, use
+-! an array.
+-!
+-! ## try this.
+-!
+-!   - create a `(int, int, int)` tuple for RGB color values.
+-!   - nest a tuple inside another:
+-!     `imu nested: ((int, int), (int, int)) = ((1, 2), (3, 4));`
+-!   - access the nested value: `imu v: int = nested.0.1;`
+
+-- EXPECTED OUTPUT:
+-- hero is at (3, 7)
+-- name: johndoe
+-- hp: 100, atk: 15
+-- damage: 25

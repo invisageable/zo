@@ -1522,6 +1522,26 @@ impl<'a> ARM64Gen<'a> {
 
       // Struct/tuple field access: load from
       // base + index * 8.
+      // Tuple construction: same layout as structs.
+      // Store each element at pre-allocated frame slots.
+      Insn::TupleLiteral { elements, .. } => {
+        let base = self.struct_base + self.next_struct_slot;
+
+        for (i, elem) in elements.iter().enumerate() {
+          let off = base + i as u32 * STACK_SLOT_SIZE;
+
+          if let Some(reg) = self.alloc_reg(*elem) {
+            self.emitter.emit_str(reg, SP, off as i16);
+          }
+        }
+
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emitter.emit_add_imm(dst, SP, base as u16);
+        }
+
+        self.next_struct_slot += elements.len() as u32 * STACK_SLOT_SIZE;
+      }
+
       Insn::TupleIndex {
         dst, tuple, index, ..
       } => {

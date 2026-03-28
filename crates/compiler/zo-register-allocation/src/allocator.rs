@@ -448,6 +448,9 @@ pub fn allocate_function(
         // length header + elements.
         struct_slots += 1 + elements.len() as u32;
       }
+      Insn::TupleLiteral { elements, .. } => {
+        struct_slots += elements.len() as u32;
+      }
       _ => {}
     }
   }

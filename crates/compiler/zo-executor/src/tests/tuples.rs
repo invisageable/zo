@@ -1,4 +1,4 @@
-use crate::tests::common::assert_sir_structure;
+use crate::tests::common::{assert_no_errors, assert_sir_structure};
 
 use zo_sir::Insn;
 
@@ -105,6 +105,24 @@ fn test_tuple_type_annotation() {
         "expected TupleLiteral for typed tuple declaration"
       );
     },
+  );
+}
+
+#[test]
+fn test_tuple_typed_no_errors() {
+  assert_no_errors(
+    r#"fun main() {
+  imu t: (int, int) = (3, 7);
+}"#,
+  );
+}
+
+#[test]
+fn test_tuple_mixed_typed_no_errors() {
+  assert_no_errors(
+    r#"fun main() {
+  imu hero: (str, int, int) = ("johndoe", 100, 15);
+}"#,
   );
 }
 

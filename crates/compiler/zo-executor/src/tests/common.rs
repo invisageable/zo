@@ -84,6 +84,31 @@ pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
   check(&sir.instructions);
 }
 
+/// Assert that execution produces NO errors.
+pub(crate) fn assert_no_errors(source: &str) {
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let _ = executor.execute();
+
+  let errors = collect_errors();
+
+  assert!(
+    errors.is_empty(),
+    "Expected no errors, but got: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
+
 /// Assert that execution produces the expected error.
 pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
   let tokenizer = Tokenizer::new(source);

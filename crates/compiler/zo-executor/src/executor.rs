@@ -3214,7 +3214,9 @@ impl<'a> Executor<'a> {
 
       let mut has_colon = false;
 
-      for i in (idx + 2)..children_end {
+      let mut i = idx + 2;
+
+      while i < children_end {
         let tok = self.tree.nodes[i].token;
 
         if tok == Token::Colon {
@@ -3255,6 +3257,15 @@ impl<'a> Executor<'a> {
           break;
         }
 
+        // Tuple type annotation: (int, float, str).
+        if tok == Token::LParen && annotated_ty.is_none() {
+          let (ty_id, skip) = self.resolve_tuple_type(i);
+          annotated_ty = Some(ty_id);
+          i = skip;
+
+          continue;
+        }
+
         // Type token after the colon.
         if tok.is_ty() {
           annotated_ty = Some(self.resolve_type_token(i));
@@ -3269,6 +3280,7 @@ impl<'a> Executor<'a> {
         }
 
         skip_to = i + 1;
+        i += 1;
       }
 
       self.pending_decl = Some(PendingDecl {
