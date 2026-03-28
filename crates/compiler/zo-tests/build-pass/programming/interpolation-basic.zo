@@ -1,5 +1,5 @@
 -- tests-build-pass: basic string interpolation.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/interp-basic.zo -o crates/compiler/zo-tests/build-pass/programming/interp-basic
+-- @cmd — zo build interpolation-basic.zo
 
 fun main() {
   imu x: int = 42;

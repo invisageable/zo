@@ -1,5 +1,5 @@
 -- tests-build-pass: tuple function access.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/lit-tuple-fun-args.zo -o crates/compiler/zo-tests/build-pass/programming/lit-tuple-fun-args
+-- @cmd — zo build lit-tuple-fun-args.zo
 
 type Point = (int, int);
 

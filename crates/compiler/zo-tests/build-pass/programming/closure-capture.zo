@@ -1,5 +1,5 @@
 -- tests-build-pass: closure captures outer variable.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/closure-capture.zo -o crates/compiler/zo-tests/build-pass/programming/closure-capture
+-- @cmd — zo build closure-capture.zo
 
 fun main() {
   imu y: int = 10;

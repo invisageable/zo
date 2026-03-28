@@ -1,5 +1,5 @@
 -- tests-build-pass: empty struct construction.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-construct-empty.zo -o crates/compiler/zo-tests/build-pass/programming/struct-construct-empty
+-- @cmd — zo build struct-construct-empty.zo
 
 struct Foo {}
 

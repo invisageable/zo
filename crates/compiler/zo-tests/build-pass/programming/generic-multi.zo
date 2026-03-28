@@ -1,5 +1,5 @@
 -- tests-build-pass: generic function with multiple type params.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/generic-multi.zo -o crates/compiler/zo-tests/build-pass/programming/generic-multi
+-- @cmd — zo build generic-multi.zo
 
 fun first<$A, $B>(a: $A, b: $B) -> $A { a }
 fun second<$A, $B>(a: $A, b: $B) -> $B { b }

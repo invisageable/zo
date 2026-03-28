@@ -1,5 +1,5 @@
 -- tests-build-pass: apply block with associated function.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/apply-basic.zo -o crates/compiler/zo-tests/build-pass/programming/apply-basic
+-- @cmd — zo build apply-basic.zo
 
 struct Foo {}
 

@@ -1,5 +1,5 @@
 -- tests-build-pass: mixed literal and variable interpolation.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/interp-mixed.zo -o crates/compiler/zo-tests/build-pass/programming/interp-mixed
+-- @cmd — zo build interpolation-mixed.zo
 
 fun main() {
   imu name: str = "zo";

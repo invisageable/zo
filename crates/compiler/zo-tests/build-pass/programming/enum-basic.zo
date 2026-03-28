@@ -1,5 +1,5 @@
 -- tests-build-pass: basic enum declaration.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/enum-basic.zo -o crates/compiler/zo-tests/build-pass/programming/enum-basic
+-- @cmd — zo build enum-basic.zo
 
 enum Color {
   Red,

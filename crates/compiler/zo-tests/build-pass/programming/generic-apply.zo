@@ -1,5 +1,5 @@
 -- tests-build-pass: generic apply block.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/generic-apply.zo -o crates/compiler/zo-tests/build-pass/programming/generic-apply
+-- @cmd — zo build generic-apply.zo
 
 struct Pair<$T> {
   first: $T,

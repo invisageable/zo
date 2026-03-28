@@ -1,5 +1,5 @@
 -- tests-build-pass: closure with no parameters.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/closure-no-param.zo -o crates/compiler/zo-tests/build-pass/programming/closure-no-param
+-- @cmd — zo build closure-no-param.zo
 
 fun main() {
   imu f := fn() -> int => 42;

@@ -1,5 +1,5 @@
 -- tests-build-pass: val compile-time constants.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/val-basic.zo -o crates/compiler/zo-tests/build-pass/programming/val-basic
+-- @cmd — zo build val-basic.zo
 
 val ANSWER: int = 42;
 val COUNT: int = 10;

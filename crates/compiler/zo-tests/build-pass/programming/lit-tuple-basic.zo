@@ -1,5 +1,5 @@
 -- tests-build-pass: tuple literal.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/tuple-basic.zo -o crates/compiler/zo-tests/build-pass/programming/tuple-basic
+-- @cmd — zo build lit-tuple-basic.zo
 
 fun main() {
   imu t := (1, 2, 3);

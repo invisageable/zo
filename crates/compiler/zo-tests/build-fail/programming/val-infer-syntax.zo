@@ -1,5 +1,5 @@
 -- tests-run-fail: val with := infer on string should error.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/run-fail/programming/val-infer-syntax.zo -o crates/compiler/zo-tests/run-fail/programming/val-infer-syntax
+-- @cmd — zo build val-infer-syntax.zo
 
 val name := "hello";
 

@@ -1,5 +1,5 @@
 -- tests-build-pass: apply with self instance method.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/apply-instance.zo -o crates/compiler/zo-tests/build-pass/programming/apply-instance
+-- @cmd — zo build apply-instance.zo
 
 -! Represents a `Span` instance.
 struct Span {

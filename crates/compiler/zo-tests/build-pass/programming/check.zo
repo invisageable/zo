@@ -1,5 +1,5 @@
 -- tests-build-pass: check assertion.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/check.zo -o crates/compiler/zo-tests/build-pass/programming/check
+-- @cmd — zo build check.zo
 
 fun main() {
   check(1 == 1);

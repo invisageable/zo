@@ -1,5 +1,5 @@
 -- tests-build-pass: string concatenation with ++.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/lit-str-concat.zo -o crates/compiler/zo-tests/build-pass/programming/lit-str-concat
+-- @cmd — zo build lit-str-concat.zo
 
 fun main() {
   imu a: str = "hello";

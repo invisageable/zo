@@ -1,5 +1,5 @@
 -- tests-build-pass: closure with multiple parameters.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/closure-multi-param.zo -o crates/compiler/zo-tests/build-pass/programming/closure-multi-param
+-- @cmd — zo build closure-multi-param.zo
 
 fun main() {
   imu add := fn(x: int, y: int) -> int => x + y;

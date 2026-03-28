@@ -1,5 +1,5 @@
 -- tests-build-pass: enum with tuple variants.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/enum-tuple-variant.zo -o crates/compiler/zo-tests/build-pass/programming/enum-tuple-variant
+-- @cmd — zo build enum-tuple-variant.zo
 
 enum Foo {
   Ok(int),

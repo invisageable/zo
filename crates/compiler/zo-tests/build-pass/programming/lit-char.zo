@@ -1,5 +1,5 @@
 -- tests-build-pass: char literals and equality.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/char.zo -o crates/compiler/zo-tests/build-pass/programming/char
+-- @cmd — zo build lit-char.zo
 
 fun main() {
   imu c: char = 'x';

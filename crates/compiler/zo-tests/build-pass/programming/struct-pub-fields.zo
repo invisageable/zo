@@ -1,5 +1,5 @@
 -- tests-build-pass: struct with pub fields.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-pub-fields.zo -o crates/compiler/zo-tests/build-pass/programming/struct-pub-fields
+-- @cmd — zo build struct-pub-fields.zo
 
 struct Color {
   pub r: int,

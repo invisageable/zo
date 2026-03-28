@@ -1,5 +1,5 @@
 -- tests-build-pass: plain string should still work.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/interp-no-interp.zo -o crates/compiler/zo-tests/build-pass/programming/interp-no-interp
+-- @cmd — zo build interpolation-no-interp.zo
 
 fun main() {
   showln("no interpolation here");

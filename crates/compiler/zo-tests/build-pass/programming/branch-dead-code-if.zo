@@ -1,5 +1,5 @@
 -- tests-build-pass: early return from if (from rust-prehistory).
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/dead_code_if.zo -o crates/compiler/zo-tests/build-pass/programming/dead_code_if
+-- @cmd — zo build branch-dead-code-if.zo
 
 fun f() -> int {
   if 1 == 1 {

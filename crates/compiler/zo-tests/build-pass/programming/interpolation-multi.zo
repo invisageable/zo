@@ -1,5 +1,5 @@
 -- tests-build-pass: multi-variable string interpolation.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/interp-multi.zo -o crates/compiler/zo-tests/build-pass/programming/interp-multi
+-- @cmd — zo build interpolation-multi.zo
 
 fun main() {
   imu x: int = 1;

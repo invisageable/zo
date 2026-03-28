@@ -19,4 +19,4 @@ pre-commit:
 
     test_programs:
       glob: "**/*.zo"
-      run: cargo run --bin zo-test-runner -- --quick
+      run: cargo run --bin zo-test-runner

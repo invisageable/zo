@@ -1,5 +1,5 @@
 -- tests-build-pass: ternary with expression condition.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/branch-ternary-expr.zo -o crates/compiler/zo-tests/build-pass/programming/branch-ternary-expr
+-- @cmd — zo build branch-ternary-expr.zo
 
 fun abs(x: int) -> int {
   when x >= 0 ? x : 0 - x

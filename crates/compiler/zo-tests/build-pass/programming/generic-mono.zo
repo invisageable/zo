@@ -1,5 +1,5 @@
 -- tests-build-pass: monomorphization of generic functions.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/generic-mono.zo -o crates/compiler/zo-tests/build-pass/programming/generic-mono
+-- @cmd — zo build generic-mono.zo
 
 fun wrap<$T>(x: $T) -> $T { x }
 

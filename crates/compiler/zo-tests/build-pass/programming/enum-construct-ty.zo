@@ -1,5 +1,5 @@
 -- tests-build-pass: enum construction with explicit type annotation.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/enum-construct-ty.zo -o crates/compiler/zo-tests/build-pass/programming/enum-construct-ty
+-- @cmd — zo build enum-construct-ty.zo
 
 enum Color {
   Red,

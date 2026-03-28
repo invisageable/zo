@@ -1,5 +1,5 @@
 -- tests-build-pass: array literals and indexing.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/arrays.zo -o crates/compiler/zo-tests/build-pass/programming/arrays
+-- @cmd — zo build lit-array-index.zo
 
 fun main() {
   imu v: int[] = [1, 2, 3, 4, 5];

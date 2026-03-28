@@ -1,4 +1,4 @@
 -- tests-build-pass: entry.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/entry.zo -o crates/compiler/zo-tests/build-pass/programming/entry
+-- @cmd — zo build entry.zo
 
 fun main() {}

@@ -1,5 +1,5 @@
 -- tests-build-pass: struct construction with explicit type annotation.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-construct-ty.zo -o crates/compiler/zo-tests/build-pass/programming/struct-construct-ty
+-- @cmd — zo build struct-construct-ty.zo
 
 struct Span {
   lo: int,

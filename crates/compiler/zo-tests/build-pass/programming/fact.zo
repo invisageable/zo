@@ -1,5 +1,5 @@
 -- tests-build-pass: factorial (from rust-prehistory).
--- @cmd — cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/programming/fact.zo
+-- @cmd — zo run fact.zo
 
 fun f(x: int) -> int {
   if x == 1 {

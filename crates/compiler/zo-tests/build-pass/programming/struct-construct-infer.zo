@@ -1,5 +1,5 @@
 -- tests-build-pass: struct construction with inferred type.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/struct-construct-infer.zo -o crates/compiler/zo-tests/build-pass/programming/struct-construct-infer
+-- @cmd — zo build struct-construct-infer.zo
 
 struct Span {
   lo: int,

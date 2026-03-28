@@ -1,5 +1,5 @@
 -- tests-build-pass: early return from conditional.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/early-return.zo -o crates/compiler/zo-tests/build-pass/programming/early-return
+-- @cmd — zo build early-return.zo
 
 fun f() -> int {
   if true {

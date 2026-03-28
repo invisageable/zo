@@ -1,5 +1,5 @@
 -- tests-run-fail: string concat with int should error.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/run-fail/programming/str-concat-int.zo -o crates/compiler/zo-tests/run-fail/programming/str-concat-int
+-- @cmd — zo build str-concat-int.zo
 
 fun main() {
   imu s: str = "hello" ++ 42;

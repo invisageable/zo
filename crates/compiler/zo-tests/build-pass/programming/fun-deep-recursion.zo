@@ -1,5 +1,5 @@
 -- tests-build-pass: deep recursion (from rust-prehistory).
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/deep_recursion.zo -o crates/compiler/zo-tests/build-pass/programming/deep_recursion
+-- @cmd — zo build fun-deep-recursion.zo
 
 fun f(x: int) -> int {
   if x == 1 {
