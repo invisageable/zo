@@ -252,6 +252,8 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::ValRequiresConstantInit => {
       "`val` requires a compile-time constant initializer"
     }
+    ErrorKind::UndefinedTypeParam => "Undefined type parameter",
+    ErrorKind::MissingDollarPrefix => "Type parameter requires `$` prefix",
     ErrorKind::InvalidReturn => "Invalid return statement",
     ErrorKind::InvalidBreak => "Invalid break statement",
     ErrorKind::InvalidContinue => "Invalid continue statement",
@@ -329,6 +331,12 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::ValRequiresTypeAnnotation => {
       "`val` requires `val x: Type = value`, not `:=`"
     }
+    ErrorKind::UndefinedTypeParam => {
+      "not declared in the type parameter list `<$T, ...>`"
+    }
+    ErrorKind::MissingDollarPrefix => {
+      "type parameters must start with `$`, e.g. `<$T>`"
+    }
     ErrorKind::ValRequiresConstantInit => {
       "initializer is not a compile-time constant"
     }
@@ -380,6 +388,12 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     }
     ErrorKind::ImmutableVariable => {
       Some("Use 'mut' to declare a mutable variable")
+    }
+    ErrorKind::UndefinedTypeParam => {
+      Some("Add `$U` to the type parameter list: `<$T, $U>`")
+    }
+    ErrorKind::MissingDollarPrefix => {
+      Some("Use `$T` instead of `T` in the parameter list")
     }
     ErrorKind::ValRequiresTypeAnnotation => Some(
       "Use `val X: int = 42;` — `:=` inference is not allowed for constants",

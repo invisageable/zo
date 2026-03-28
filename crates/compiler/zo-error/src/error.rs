@@ -144,6 +144,10 @@ pub enum ErrorKind {
   ValRequiresTypeAnnotation,
   ValRequiresConstantInit,
 
+  // Generic type parameter errors
+  UndefinedTypeParam,
+  MissingDollarPrefix,
+
   // Constant folding errors
   DivisionByZero,
   RemainderByZero,

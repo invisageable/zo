@@ -2,7 +2,9 @@
 
 ## Mission
 
-Build the `zo` compiler using execution-based compilation (Carbon/Chandler Carruth approach) to achieve **10,000,000 lines of code per second** AOT compilation. Systems, not features. Performance, simplicity, total control.
+Build the `zo` compiler using execution-based compilation (Carbon/Chandler Carruth approach) to achieve **10,000,000 lines of code per second** AOT compilation. Systems, not features. Performance, simplicity, total control.     
+
+The grammar can be found here: @crates/compiler/zo-notes/public/grammar/zo.ebnf     
 
 ---
 

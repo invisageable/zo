@@ -160,6 +160,8 @@ impl ErrorAggregator {
         | ErrorKind::ImmutableVariable
         | ErrorKind::ValRequiresTypeAnnotation
         | ErrorKind::ValRequiresConstantInit
+        | ErrorKind::UndefinedTypeParam
+        | ErrorKind::MissingDollarPrefix
         | ErrorKind::InvalidReturn
         | ErrorKind::InvalidBreak
         | ErrorKind::InvalidContinue

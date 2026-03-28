@@ -1,2 +1,2 @@
 
-based on svelte.
+based on svelte tutorial.

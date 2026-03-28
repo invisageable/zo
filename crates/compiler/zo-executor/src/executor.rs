@@ -2214,12 +2214,18 @@ impl<'a> Executor<'a> {
         {
           if let Some(NodeValue::Symbol(sym)) = self.node_value(idx + 1) {
             // Find the type param's inference var.
-            self
-              .type_params
-              .iter()
-              .find(|(name, _)| *name == sym)
-              .map(|(_, ty)| *ty)
-              .unwrap_or_else(|| self.ty_checker.fresh_var())
+            if let Some((_, ty)) =
+              self.type_params.iter().find(|(name, _)| *name == sym)
+            {
+              *ty
+            } else {
+              // $U not declared in <$T, ...>.
+              let span = self.tree.spans[idx];
+
+              report_error(Error::new(ErrorKind::UndefinedTypeParam, span));
+
+              self.ty_checker.error_type()
+            }
           } else {
             self.ty_checker.fresh_var()
           }
@@ -2762,7 +2768,9 @@ impl<'a> Executor<'a> {
 
     // Parse optional type parameters: <$T, $A>.
     // Creates fresh inference vars for each.
-    self.type_params.clear();
+    // Preserve apply-level type params so $T from
+    // `apply Pair<$T>` is available inside methods.
+    let outer_type_params = std::mem::take(&mut self.type_params);
 
     if idx < _end_idx && self.tree.nodes[idx].token == Token::LAngle {
       idx += 1; // skip <
@@ -2788,6 +2796,12 @@ impl<'a> Executor<'a> {
 
         idx += 1;
       }
+    }
+
+    // If no function-level type params, restore
+    // apply-level params (e.g., $T from apply Pair<$T>).
+    if self.type_params.is_empty() {
+      self.type_params = outer_type_params;
     }
 
     // Skip past LParen
@@ -3808,9 +3822,16 @@ impl<'a> Executor<'a> {
                 && let Some(sir_val) = self.sir_values.pop()
               {
                 self.value_stack.pop();
-                self.ty_stack.pop();
+                let val_ty =
+                  self.ty_stack.pop().unwrap_or(self.ty_checker.unit_type());
 
                 if let Some(fi) = field_idx {
+                  // Unify value type with field type.
+                  let field_ty = field_defs[fi].ty_id;
+                  let span = self.tree.spans[expr_start];
+
+                  self.ty_checker.unify(field_ty, val_ty, span);
+
                   field_values[fi] = Some(sir_val);
                 }
               }
@@ -4052,9 +4073,37 @@ impl<'a> Executor<'a> {
       Pubness::No
     };
 
-    // Skip to LBrace.
+    // Parse optional type parameters: <$T, $A>.
+    self.type_params.clear();
+
     let mut idx = start_idx + 2;
 
+    if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
+      idx += 1; // skip <
+
+      while idx < end_idx {
+        let tok = self.tree.nodes[idx].token;
+
+        if tok == Token::RAngle {
+          idx += 1;
+          break;
+        }
+
+        if tok == Token::Dollar && idx + 1 < end_idx {
+          idx += 1;
+
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+            let var = self.ty_checker.fresh_var();
+
+            self.type_params.push((sym, var));
+          }
+        }
+
+        idx += 1;
+      }
+    }
+
+    // Skip to LBrace.
     while idx < end_idx && self.tree.nodes[idx].token != Token::LBrace {
       idx += 1;
     }
@@ -4087,13 +4136,21 @@ impl<'a> Executor<'a> {
             }
 
             // Expect type token after field name.
-            let fty = if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
-              let ty = self.resolve_type_token(idx);
-              idx += 1;
-              ty
-            } else {
-              self.ty_checker.fresh_var()
-            };
+            // Handle $T (Dollar + Ident) for generic fields.
+            let fty =
+              if idx < end_idx && self.tree.nodes[idx].token == Token::Dollar {
+                let ty = self.resolve_type_token(idx);
+
+                idx += 2; // skip Dollar + Ident
+                ty
+              } else if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
+                let ty = self.resolve_type_token(idx);
+
+                idx += 1;
+                ty
+              } else {
+                self.ty_checker.fresh_var()
+              };
 
             // Check for default value: = expr
             let has_default =
@@ -4161,11 +4218,40 @@ impl<'a> Executor<'a> {
 
     self.apply_context = Some(type_name);
 
+    // Parse optional type parameters: <$T, $A>.
+    // These become available in method signatures.
+    self.type_params.clear();
+
+    let mut idx = start_idx + 2;
+
+    if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
+      idx += 1;
+
+      while idx < end_idx {
+        let tok = self.tree.nodes[idx].token;
+
+        if tok == Token::RAngle {
+          idx += 1;
+          break;
+        }
+
+        if tok == Token::Dollar && idx + 1 < end_idx {
+          idx += 1;
+
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+            let var = self.ty_checker.fresh_var();
+
+            self.type_params.push((sym, var));
+          }
+        }
+
+        idx += 1;
+      }
+    }
+
     // Skip to LBrace, then process children normally.
     // The fun handler will read apply_context to mangle
     // names and resolve Self.
-    let mut idx = start_idx + 2;
-
     while idx < end_idx && self.tree.nodes[idx].token != Token::LBrace {
       idx += 1;
     }

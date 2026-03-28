@@ -210,9 +210,21 @@ impl<'a> Parser<'a> {
       // Generic type parameters: <$T, $A> after fun/struct/
       // enum/apply/type. Must be checked before the operator
       // path, otherwise `<` would be parsed as less-than.
-      Token::Lt if self.peek() == Some(Token::Dollar) => {
-        // Only parse as generics if we're in a context
-        // where type params make sense.
+      Token::Lt
+        if self.peek() == Some(Token::Dollar)
+          || (self.peek() == Some(Token::Ident)
+            && (self.state == ParserState::FunctionSignature
+              || self.introducer_stack.last().is_some_and(|i| {
+                matches!(
+                  i.token,
+                  Token::Struct
+                    | Token::Enum
+                    | Token::Apply
+                    | Token::Type
+                    | Token::Group
+                )
+              }))) =>
+      {
         let in_generic_ctx = self.state == ParserState::FunctionSignature
           || self.introducer_stack.last().is_some_and(|i| {
             matches!(
@@ -226,6 +238,7 @@ impl<'a> Parser<'a> {
           });
 
         if in_generic_ctx {
+          self.flush_expr();
           self.parse_type_params();
         } else {
           self.handle_operator(kind);
@@ -377,6 +390,12 @@ impl<'a> Parser<'a> {
           let span = self.current_span();
 
           self.emit_node_internal(Token::Comma, span, None);
+        }
+        // Bare ident without $ — report helpful error.
+        Token::Ident => {
+          self.error_at(ErrorKind::MissingDollarPrefix, self.pos);
+
+          break;
         }
         _ => break,
       }

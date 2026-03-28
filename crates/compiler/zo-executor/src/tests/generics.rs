@@ -1,6 +1,7 @@
 use crate::Executor;
-use crate::tests::common::assert_sir_structure;
+use crate::tests::common::{assert_execution_error, assert_sir_structure};
 
+use zo_error::ErrorKind;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
@@ -457,5 +458,27 @@ fun main() {}"#;
     errors.is_empty(),
     "generic type alias should not error: {:?}",
     errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
+
+// === ERROR CASES ===
+
+#[test]
+fn test_generic_undefined_type_param() {
+  assert_execution_error(
+    r#"fun foo<$T>(x: $U) -> $T { x }
+fun main() {}"#,
+    ErrorKind::UndefinedTypeParam,
+  );
+}
+
+#[test]
+fn test_generic_struct_field_type_mismatch() {
+  assert_execution_error(
+    r#"struct Pair<$T> { first: $T, second: $T }
+fun main() {
+  imu p := Pair { first: 1, second: "hello" };
+}"#,
+    ErrorKind::TypeMismatch,
   );
 }

@@ -20,4 +20,4 @@ cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/hell
 cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/templating/zsx-hello.zo
 ```
 
-> this command is only for `native` app, if you want to build for `web` you should add the `--zsx` flag.
+> this command is only for `native` app, if you want to build for `web` you should add the `--web` flag.

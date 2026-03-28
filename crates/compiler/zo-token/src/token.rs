@@ -170,6 +170,7 @@ impl Token {
         | Self::False
         | Self::SelfLower
         | Self::SelfUpper
+        | Self::Dollar
     )
   }
 

@@ -1,4 +1,4 @@
--- tests-build-pass: generic enum declaration.
+-- tests-build-pass: generic enum construction.
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/generic-enum.zo -o crates/compiler/zo-tests/build-pass/programming/generic-enum
 
 enum Option<$T> {
@@ -6,4 +6,7 @@ enum Option<$T> {
   None,
 }
 
-fun main() {}
+fun main() {
+  imu x: Option = Option::Some(42);
+  imu y: Option = Option::None;
+}

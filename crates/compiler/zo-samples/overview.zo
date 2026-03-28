@@ -3,7 +3,7 @@
 
 -- https://docs.python.org/3/library/string.html#formatspec
 
--- zo is an ecosystem for creative, scientists and gamer. inside this ecosystem
+-- zo is an ecosystem for creative, scientists and gamer.
 
 -- item:pack;
 pub pack io;
@@ -287,17 +287,21 @@ apply Foo {
 -- expr:zsx.
 fun main() {
   imu name: str = "world";
-  imu comp: </> ::= <h1>hello, {name}!</h1>;
+  imu hello: </> ::= <h1>hello, {name}!</h1>;
+
+  #dom hello;
 }
 
 -- expr:zsx.
 fun main() {
   mut count: int = 0;
-  imu comp: </> ::= <>
+  imu counter: </> ::= <>
     <button onclick={fn() -> count -= 1}>-</button>
     {count}
     <button onclick={fn() -> count += 1}>+</button>
   </>;
+
+  #dom counter
 }
 
 -- stmt:if.

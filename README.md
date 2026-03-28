@@ -8,7 +8,21 @@
 
 > *the symphonie of compilers.*
 
-[home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [speeches](notes/speeches) — [license](#license)  
+[home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [tests](./crates/compiler/zo-tests) — [speeches](./notes/speeches) — [license](#license)  
+
+```js
+fun main() {
+  mut count: int = 0;
+
+  imu counter: </> ::= <>
+    <button onclick={fn() -> count -= 1}>-</button>
+    {count}
+    <button onclick={fn() -> count += 1}>+</button>
+  </>;
+
+  #dom counter;
+}
+```
 
 ## warning.
 
@@ -61,7 +75,7 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
 iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
 
-- COMPiLER + CODE EDiTOR + METRiCS + iNTELLiGENCE — *in the same world*.
+<!-- - COMPiLER + CODE EDiTOR + METRiCS + iNTELLiGENCE — *in the same world*. -->
 <!-- - DATA-FiRST ARCHiTECTURE <sup>zo-ecs</sup> — *inspired by game engine*. -->
 - GPU RENDERiNG <sup>egui</sup> (NATiVE APP ONLY) — *low memory footprint, zero runtime fluff*.
 - NO MORE `electron` APPS (WEB APP ONLY) — *no bloat*.
@@ -70,9 +84,9 @@ JOiN THE DEVOLUTiON.
 
 ## contributing.
 
-WE LOVE CONTRiBUTORS.   
+WE LOVE CONTRiBUTORS. THiS iS A PLAYGROUND FOR COMPiLER __NERDS__, FRONTEND __HACKERS__, AND __CREATIVE__.    
 
-FEEL FREE TO OPEN AN iSSUE iF YOU WANT TO CONTRiBUTE OR COME TO SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). ALSO YOU CAN CONTACT US AT THE [at] COMPiLORDS [dot] HOUSE. THiS iS A PLAYGROUND FOR COMPiLER __NERDS__, FRONTEND __HACKERS__, AND __CREATIVE__.    
+FEEL FREE TO OPEN AN iSSUE iF YOU WANT TO CONTRiBUTE OR COME TO SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). ALSO YOU CAN CONTACT US AT `echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode`.   
 
 ## sponsors.
 
