@@ -1,0 +1,6 @@
+-- tests-build-pass: generic type alias.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/generic-type-alias.zo -o crates/compiler/zo-tests/build-pass/programming/generic-type-alias
+
+type Wrapper<$T> = $T;
+
+fun main() {}

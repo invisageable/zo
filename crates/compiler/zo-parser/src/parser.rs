@@ -207,14 +207,29 @@ impl<'a> Parser<'a> {
         self.handle_unary_operator(kind)
       }
 
-      // Generic type parameters: <$T, $A> after fun/struct/enum.
-      // Must be checked before the operator path, otherwise
-      // `<` would be parsed as less-than.
-      Token::Lt
-        if self.state == ParserState::FunctionSignature
-          && self.peek() == Some(Token::Dollar) =>
-      {
-        self.parse_type_params();
+      // Generic type parameters: <$T, $A> after fun/struct/
+      // enum/apply/type. Must be checked before the operator
+      // path, otherwise `<` would be parsed as less-than.
+      Token::Lt if self.peek() == Some(Token::Dollar) => {
+        // Only parse as generics if we're in a context
+        // where type params make sense.
+        let in_generic_ctx = self.state == ParserState::FunctionSignature
+          || self.introducer_stack.last().is_some_and(|i| {
+            matches!(
+              i.token,
+              Token::Struct
+                | Token::Enum
+                | Token::Apply
+                | Token::Type
+                | Token::Group
+            )
+          });
+
+        if in_generic_ctx {
+          self.parse_type_params();
+        } else {
+          self.handle_operator(kind);
+        }
       }
 
       // Binary operators

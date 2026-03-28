@@ -304,3 +304,158 @@ fun main() {
     errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
   );
 }
+
+// === GENERIC STRUCT PARSING ===
+
+#[test]
+fn test_generic_struct_no_errors() {
+  let source = r#"struct Pair<$T> {
+  first: $T,
+  second: $T,
+}
+fun main() {}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (_, _, _) = executor.execute();
+  let errors = collect_errors();
+
+  assert!(
+    errors.is_empty(),
+    "generic struct should not error: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
+
+#[test]
+fn test_generic_struct_multi_param_no_errors() {
+  let source = r#"struct Map<$K, $V> {
+  key: $K,
+  value: $V,
+}
+fun main() {}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (_, _, _) = executor.execute();
+  let errors = collect_errors();
+
+  assert!(
+    errors.is_empty(),
+    "multi-param generic struct should not error: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
+
+// === GENERIC ENUM PARSING ===
+
+#[test]
+fn test_generic_enum_no_errors() {
+  let source = r#"enum Option<$T> {
+  Some($T),
+  None,
+}
+fun main() {}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (_, _, _) = executor.execute();
+  let errors = collect_errors();
+
+  assert!(
+    errors.is_empty(),
+    "generic enum should not error: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
+
+// === GENERIC APPLY PARSING ===
+
+#[test]
+fn test_generic_apply_no_errors() {
+  let source = r#"struct Pair<$T> {
+  first: $T,
+  second: $T,
+}
+apply Pair<$T> {
+  fun new(a: $T, b: $T) -> Self {
+    Self { first: a, second: b }
+  }
+}
+fun main() {}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (_, _, _) = executor.execute();
+  let errors = collect_errors();
+
+  assert!(
+    errors.is_empty(),
+    "generic apply should not error: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
+
+// === GENERIC TYPE ALIAS ===
+
+#[test]
+fn test_generic_type_alias_no_errors() {
+  let source = r#"type Wrapper<$T> = $T;
+fun main() {}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (_, _, _) = executor.execute();
+  let errors = collect_errors();
+
+  assert!(
+    errors.is_empty(),
+    "generic type alias should not error: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}
