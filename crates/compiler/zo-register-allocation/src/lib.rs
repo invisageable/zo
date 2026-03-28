@@ -140,45 +140,29 @@ impl RegAlloc {
 
 /// Compute the ValueId produced by each SIR instruction.
 ///
-/// Replays the numbering logic from `Sir::emit()`:
-/// - Load / BinOp / TupleIndex / ArrayIndex / ArrayLen
-///   have explicit `dst`.
-/// - FunDef, Return, VarDef, Store, ModuleLoad, PackDecl,
-///   Label, Jump, BranchIfNot, StructDef, EnumDef produce
-///   no value.
-/// - Everything else auto-increments a counter.
+/// Every value-producing instruction carries an explicit
+/// `dst: ValueId`. Non-value instructions return `None`.
 pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
-  let mut counter = 0u32;
-
   insns
     .iter()
     .map(|insn| match insn {
-      Insn::Load { dst, .. }
+      Insn::ConstInt { dst, .. }
+      | Insn::ConstFloat { dst, .. }
+      | Insn::ConstBool { dst, .. }
+      | Insn::ConstString { dst, .. }
+      | Insn::Call { dst, .. }
+      | Insn::Load { dst, .. }
       | Insn::BinOp { dst, .. }
+      | Insn::UnOp { dst, .. }
+      | Insn::ArrayLiteral { dst, .. }
       | Insn::ArrayIndex { dst, .. }
       | Insn::ArrayLen { dst, .. }
-      | Insn::TupleIndex { dst, .. } => {
-        counter = counter.max(dst.0 + 1);
-        Some(*dst)
-      }
-      Insn::FunDef { .. }
-      | Insn::Return { .. }
-      | Insn::VarDef { .. }
-      | Insn::Store { .. }
-      | Insn::ModuleLoad { .. }
-      | Insn::PackDecl { .. }
-      | Insn::Label { .. }
-      | Insn::Jump { .. }
-      | Insn::BranchIfNot { .. }
-      | Insn::StructDef { .. }
-      | Insn::EnumDef { .. }
-      | Insn::FieldStore { .. }
-      | Insn::ConstDef { .. } => None,
-      _ => {
-        let id = ValueId(counter);
-        counter += 1;
-        Some(id)
-      }
+      | Insn::TupleLiteral { dst, .. }
+      | Insn::TupleIndex { dst, .. }
+      | Insn::EnumConstruct { dst, .. }
+      | Insn::StructConstruct { dst, .. } => Some(*dst),
+      Insn::Template { id, .. } => Some(*id),
+      _ => None,
     })
     .collect()
 }

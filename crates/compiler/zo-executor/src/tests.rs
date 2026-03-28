@@ -1,3 +1,4 @@
+pub(crate) mod arrays;
 pub(crate) mod closures;
 pub(crate) mod common;
 pub(crate) mod concat;
@@ -31,6 +32,7 @@ fn test_integer_literal() {
         width: IntWidth::S32,
       },
       Insn::ConstInt {
+        dst: ValueId(0),
         value: 42,
         ty_id: TyId(8),
       },
@@ -47,6 +49,7 @@ fn test_boolean_literals() {
         0,
         Ty::Bool,
         Insn::ConstBool {
+          dst: ValueId(0),
           value: true,
           ty_id: TyId(2),
         },
@@ -55,6 +58,7 @@ fn test_boolean_literals() {
         1,
         Ty::Bool,
         Insn::ConstBool {
+          dst: ValueId(1),
           value: false,
           ty_id: TyId(2),
         },
@@ -77,6 +81,7 @@ fn test_simple_addition() {
         0,
         s32_ty,
         Insn::ConstInt {
+          dst: ValueId(0),
           value: 1,
           ty_id: TyId(8),
         },
@@ -85,6 +90,7 @@ fn test_simple_addition() {
         1,
         s32_ty,
         Insn::ConstInt {
+          dst: ValueId(1),
           value: 2,
           ty_id: TyId(8),
         },
@@ -93,6 +99,7 @@ fn test_simple_addition() {
         2,
         s32_ty,
         Insn::ConstInt {
+          dst: ValueId(2),
           value: 3,
           ty_id: TyId(8),
         },
@@ -116,6 +123,7 @@ fn test_division_by_zero() {
         0,
         s32_ty,
         Insn::ConstInt {
+          dst: ValueId(0),
           value: 5,
           ty_id: TyId(8),
         },
@@ -124,6 +132,7 @@ fn test_division_by_zero() {
         1, // The second operand is at index 1 in postfix order
         s32_ty,
         Insn::ConstInt {
+          dst: ValueId(1),
           value: 0,
           ty_id: TyId(8),
         },
@@ -147,6 +156,7 @@ fn test_large_integer_literal() {
       0,
       s32_ty,
       Insn::ConstInt {
+        dst: ValueId(0),
         value: 12345, // Should be 12345, not 0 (the index)
         ty_id: TyId(8),
       },
@@ -256,16 +266,19 @@ fn test_function_call() {
       },
       // main body: 10
       Insn::ConstInt {
+        dst: ValueId(3),
         value: 10,
         ty_id: TyId(8),
       },
       // main body: 20
       Insn::ConstInt {
+        dst: ValueId(4),
         value: 20,
         ty_id: TyId(8),
       },
       // main body: call add(10, 20)
       Insn::Call {
+        dst: ValueId(5),
         name: Symbol(25), // "add"
         args: vec![ValueId(3), ValueId(4)],
         ty_id: TyId(8),
@@ -295,12 +308,14 @@ fn test_main_with_show() {
       },
       // main body: "hello world" string literal
       Insn::ConstString {
+        dst: ValueId(0),
         symbol: Symbol(27), // "hello world" interned
         ty_id: TyId(4),     // str type
       },
       // main body: call show("hello world")
       // show is an external/builtin function, not defined here
       Insn::Call {
+        dst: ValueId(1),
         name: Symbol(26),       // "show"
         args: vec![ValueId(0)], // the string constant
         ty_id: TyId(1),         // unit return type

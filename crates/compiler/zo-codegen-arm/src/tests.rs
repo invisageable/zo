@@ -133,21 +133,25 @@ fn test_string_fixup() {
   });
 
   sir.emit(Insn::ConstString {
+    dst: ValueId(0),
     symbol: hello_sym,
     ty_id: TyId(4),
   });
   sir.emit(Insn::Call {
+    dst: ValueId(1),
     name: show_sym,
     args: vec![ValueId(0)],
     ty_id: TyId(1),
   });
   sir.emit(Insn::ConstString {
+    dst: ValueId(2),
     symbol: world_sym,
     ty_id: TyId(4),
   });
   sir.emit(Insn::Call {
+    dst: ValueId(3),
     name: show_sym,
-    args: vec![ValueId(1)],
+    args: vec![ValueId(2)],
     ty_id: TyId(1),
   });
   sir.emit(Insn::Return {

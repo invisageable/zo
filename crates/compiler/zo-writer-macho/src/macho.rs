@@ -1,3 +1,8 @@
+// TODO(@invisageable): consolidate three duplicate ULEB128
+// encoding functions (add_uleb128, encode_uleb128,
+// push_uleb128) into one canonical implementation.
+// See: lines ~1070, ~4836, ~6179.
+
 //! Mach-O file format writer for ARM64 executables
 //!
 //! This module provides functionality to generate Mach-O executables for macOS
@@ -90,7 +95,7 @@ pub(crate) const DATA_SEGMENT_SIZE: u32 = PAGE_SIZE * 4; // 16KB for DATA segmen
 // Virtual memory addresses
 pub(crate) const VM_BASE: u64 = 0x100000000; // Base VM address for 64-bit executables
 pub(crate) const TEXT_VM_ADDR: u64 = VM_BASE;
-pub(crate) const DATA_VM_ADDR: u64 = VM_BASE + TEXT_SEGMENT_SIZE as u64;
+pub const DATA_VM_ADDR: u64 = VM_BASE + TEXT_SEGMENT_SIZE as u64;
 
 pub(crate) const LINKEDIT_VM_ADDR: u64 =
   VM_BASE + (TEXT_SEGMENT_SIZE + DATA_SEGMENT_SIZE) as u64;
@@ -285,6 +290,15 @@ pub(crate) const REFERENCE_FLAG_DEFINED: u16 = 0x2;
 pub(crate) const REFERENCE_FLAG_PRIVATE_DEFINED: u16 = 0x3;
 pub(crate) const REFERENCE_FLAG_PRIVATE_UNDEFINED_NON_LAZY: u16 = 0x4;
 pub(crate) const REFERENCE_FLAG_PRIVATE_UNDEFINED_LAZY: u16 = 0x5;
+
+// Bind opcodes (dyld non-lazy binding)
+pub const BIND_OPCODE_DONE: u8 = 0x00;
+pub const BIND_OPCODE_SET_DYLIB_ORDINAL_IMM: u8 = 0x10;
+pub const BIND_OPCODE_SET_SYMBOL_TRAILING: u8 = 0x40;
+pub const BIND_OPCODE_SET_TYPE_IMM: u8 = 0x50;
+pub const BIND_OPCODE_SET_SEGMENT_AND_OFFSET: u8 = 0x70;
+pub const BIND_OPCODE_DO_BIND: u8 = 0x90;
+pub const BIND_TYPE_POINTER: u8 = 1;
 
 // Symbol description flags (n_desc high bits)
 pub(crate) const N_WEAK_REF: u16 = 0x0040; // Symbol is a weak reference
@@ -1226,6 +1240,13 @@ pub struct MachO {
   requirements: Option<Vec<u8>>,
   /// Code signing entitlements (optional)
   entitlements: Option<String>,
+  /// Bind opcodes for dyld (non-lazy binding).
+  /// Written at start of LINKEDIT; DyldInfoCommand patched
+  /// in finish_internal to reference these bytes.
+  bind_data: Vec<u8>,
+  /// Offset of the DyldInfoCommand in load_commands_buf,
+  /// so finish_internal can patch bind_off/bind_size.
+  dyld_info_cmd_offset: Option<usize>,
 }
 
 impl MachO {
@@ -1300,6 +1321,8 @@ impl MachO {
       data_relocations: Vec::new(),
       requirements: None,
       entitlements: None,
+      bind_data: Vec::new(),
+      dyld_info_cmd_offset: None,
     }
   }
 
@@ -1764,9 +1787,13 @@ impl MachO {
     self.segments.push(cmd);
   }
 
-  /// Adds LC_DYLD_INFO_ONLY load command (required for dynamic linking)
+  /// Adds LC_DYLD_INFO_ONLY load command (required for dynamic linking).
+  /// Records position so finish_internal can patch bind_off/bind_size
+  /// when bind_data is non-empty.
   #[inline(always)]
   pub fn add_dyld_info(&mut self) {
+    self.dyld_info_cmd_offset = Some(self.load_commands_buf.len());
+
     let cmd = DyldInfoCommand {
       cmd: LC_DYLD_INFO_ONLY,
       cmdsize: std::mem::size_of::<DyldInfoCommand>() as u32,
@@ -1783,6 +1810,12 @@ impl MachO {
     };
 
     self.add_load_command(&cmd);
+  }
+
+  /// Sets the bind opcodes for non-lazy symbol binding.
+  /// These tell dyld which GOT entries to fill at load time.
+  pub fn set_bind_data(&mut self, data: Vec<u8>) {
+    self.bind_data = data;
   }
 
   /// Adds symbol table load command
@@ -5741,9 +5774,34 @@ impl MachO {
       symbol_string_offsets.push(offset);
     }
 
-    // Calculate LINKEDIT content offsets and sizes
+    // Calculate LINKEDIT content offsets and sizes.
+    // Bind data (if any) goes first, then symtab, strtab,
+    // indirect symtab.
     let linkedit_start = LINKEDIT_FILE_OFFSET as u32;
-    let symtab_offset = linkedit_start;
+    let bind_size = self.bind_data.len() as u32;
+    let bind_offset = if bind_size > 0 { linkedit_start } else { 0 };
+
+    // Patch DyldInfoCommand in load_commands_buf if we
+    // have bind data. The command was recorded earlier by
+    // add_dyld_info().
+    if bind_size > 0 {
+      if let Some(off) = self.dyld_info_cmd_offset {
+        // bind_off is at byte offset 16 in DyldInfoCommand
+        // (after cmd + cmdsize + rebase_off + rebase_size).
+        let bo = off + 16;
+        let bs = off + 20;
+
+        self.load_commands_buf[bo..bo + 4]
+          .copy_from_slice(&bind_offset.to_le_bytes());
+        self.load_commands_buf[bs..bs + 4]
+          .copy_from_slice(&bind_size.to_le_bytes());
+      }
+
+      // Clear MH_NOUNDEFS — we have undefined symbols now.
+      self.header.flags &= !MH_NOUNDEFS;
+    }
+
+    let symtab_offset = linkedit_start + bind_size;
     let symtab_size = n_symbols * std::mem::size_of::<Nlist64>() as u32;
     let strtab_offset = symtab_offset + symtab_size;
     let strtab_size = string_table.len() as u32;
@@ -5751,7 +5809,8 @@ impl MachO {
     let indirect_symtab_size = self.indirect_symbols.len() as u32 * 4;
 
     // Calculate base LINKEDIT content size
-    let base_linkedit_size = symtab_size + strtab_size + indirect_symtab_size;
+    let base_linkedit_size =
+      bind_size + symtab_size + strtab_size + indirect_symtab_size;
 
     // Calculate signature size if needed
     let mut signature_size = 0u32;
@@ -5924,6 +5983,11 @@ impl MachO {
       output.push(0);
     }
 
+    // Write bind data (dyld non-lazy binding opcodes).
+    if !self.bind_data.is_empty() {
+      output.extend_from_slice(&self.bind_data);
+    }
+
     // Write symbol table
     for (symbol, str_offset) in
       all_symbols.iter().zip(symbol_string_offsets.iter())
@@ -6066,6 +6130,73 @@ impl MachO {
   /// Finalize with ad-hoc code signature
   pub fn finish_with_signature(self) -> Vec<u8> {
     self.finish_internal(true)
+  }
+
+  /// Builds bind opcodes for a set of GOT entries.
+  ///
+  /// Each entry is (symbol_name, segment_index,
+  /// offset_in_segment). The segment_index is typically 2
+  /// for __DATA. The offset is the byte offset of the GOT
+  /// slot within that segment.
+  ///
+  /// Bind opcode format (dyld):
+  ///   SET_DYLIB_ORDINAL_IMM(ordinal)
+  ///   SET_SYMBOL_TRAILING(name\0)
+  ///   SET_TYPE_IMM(POINTER)
+  ///   SET_SEGMENT_AND_OFFSET(seg, uleb128 offset)
+  ///   DO_BIND
+  ///   ... repeat for each symbol ...
+  ///   DONE
+  pub fn build_bind_opcodes(
+    entries: &[(&str, u8, u64)],
+    dylib_ordinal: u8,
+  ) -> Vec<u8> {
+    let mut data = Vec::new();
+
+    for &(name, segment, offset) in entries {
+      // SET_DYLIB_ORDINAL_IMM | ordinal
+      data.push(BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | dylib_ordinal);
+
+      // SET_SYMBOL_TRAILING_FLAGS_IMM | 0
+      data.push(BIND_OPCODE_SET_SYMBOL_TRAILING);
+      data.extend_from_slice(name.as_bytes());
+      data.push(0); // null terminator
+
+      // SET_TYPE_IMM | BIND_TYPE_POINTER
+      data.push(BIND_OPCODE_SET_TYPE_IMM | BIND_TYPE_POINTER);
+
+      // SET_SEGMENT_AND_OFFSET_ULEB | segment
+      data.push(BIND_OPCODE_SET_SEGMENT_AND_OFFSET | segment);
+      // Encode offset as ULEB128.
+      Self::push_uleb128(&mut data, offset);
+
+      // DO_BIND
+      data.push(BIND_OPCODE_DO_BIND);
+    }
+
+    // DONE
+    data.push(BIND_OPCODE_DONE);
+
+    data
+  }
+
+  /// Encodes a u64 value as ULEB128 into a byte buffer.
+  fn push_uleb128(buf: &mut Vec<u8>, mut val: u64) {
+    loop {
+      let mut byte = (val & 0x7F) as u8;
+
+      val >>= 7;
+
+      if val != 0 {
+        byte |= 0x80;
+      }
+
+      buf.push(byte);
+
+      if val == 0 {
+        break;
+      }
+    }
   }
 }
 

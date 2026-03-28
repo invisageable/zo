@@ -27,6 +27,7 @@ fn test_if_simple() {
         pubness: Pubness::No,
       },
       Insn::ConstBool {
+        dst: ValueId(0),
         value: true,
         ty_id: TyId(2),
       },
@@ -35,6 +36,7 @@ fn test_if_simple() {
         target: 1,
       },
       Insn::ConstInt {
+        dst: ValueId(1),
         value: 42,
         ty_id: TyId(8),
       },
@@ -69,6 +71,7 @@ fn test_if_else() {
         pubness: Pubness::No,
       },
       Insn::ConstBool {
+        dst: ValueId(0),
         value: true,
         ty_id: TyId(2),
       },
@@ -77,12 +80,14 @@ fn test_if_else() {
         target: 1,
       },
       Insn::ConstInt {
+        dst: ValueId(1),
         value: 1,
         ty_id: TyId(8),
       },
       Insn::Jump { target: 0 },
       Insn::Label { id: 1 },
       Insn::ConstInt {
+        dst: ValueId(2),
         value: 2,
         ty_id: TyId(8),
       },
@@ -114,6 +119,7 @@ fn test_while_loop() {
       },
       Insn::Label { id: 0 },
       Insn::ConstBool {
+        dst: ValueId(0),
         value: true,
         ty_id: TyId(2),
       },
@@ -122,6 +128,7 @@ fn test_while_loop() {
         target: 1,
       },
       Insn::ConstInt {
+        dst: ValueId(1),
         value: 42,
         ty_id: TyId(8),
       },
@@ -149,6 +156,7 @@ fn test_implicit_return_literal() {
         pubness: Pubness::No,
       },
       Insn::ConstInt {
+        dst: ValueId(0),
         value: 42,
         ty_id: TyId(8),
       },

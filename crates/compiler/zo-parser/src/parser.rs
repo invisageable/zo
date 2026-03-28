@@ -59,6 +59,12 @@ pub struct Parser<'a> {
   expr_buffer: Vec<(Token, Span, Option<NodeValue>)>,
   /// The operators stack — (token, precedence, associativity).
   operator_stack: Vec<(Token, u8, u8)>,
+  /// Saved operator stacks for array indexing — the outer
+  /// operators are parked here while the index expression
+  /// is parsed, then restored on `]`.
+  saved_op_stacks: Vec<Vec<(Token, u8, u8)>>,
+  /// Saved expr buffers for array indexing.
+  saved_expr_bufs: Vec<Vec<(Token, Span, Option<NodeValue>)>>,
   /// Nesting depth inside type annotation parens: Fn(...) or (ty, ty).
   type_paren_depth: u32,
 }
@@ -79,6 +85,8 @@ impl<'a> Parser<'a> {
       introducer_stack: Vec::with_capacity(Self::INTRODUCER_STACK_CAP),
       expr_buffer: Vec::with_capacity(Self::EXPR_BUFFER_CAP),
       operator_stack: Vec::with_capacity(Self::OPERATOR_STACK_CAP),
+      saved_op_stacks: Vec::new(),
+      saved_expr_bufs: Vec::new(),
       type_paren_depth: 0,
     }
   }
@@ -510,9 +518,19 @@ impl<'a> Parser<'a> {
     } else if !self.expr_buffer.is_empty()
       && self.state == ParserState::Expression
     {
-      // We have a pending expression - this is array indexing
-      // Flush the array name first
-      self.flush_expr();
+      // Array indexing: emit the array name only. Save
+      // outer operators and expr buffer — they bind to the
+      // complete a[i] result, not the bare array name.
+      if let Some((tok, span, val)) = self.expr_buffer.pop() {
+        self.emit_node_internal(tok, span, val);
+      }
+
+      // Park outer context while we parse the index.
+      let saved_ops = std::mem::take(&mut self.operator_stack);
+      let saved_buf = std::mem::take(&mut self.expr_buffer);
+
+      self.saved_op_stacks.push(saved_ops);
+      self.saved_expr_bufs.push(saved_buf);
 
       let node_index = self.emit_node(Token::LBracket);
 
@@ -655,6 +673,16 @@ impl<'a> Parser<'a> {
         // Emit RBracket
         self.emit_node(Token::RBracket);
         self.close_introducer();
+
+        // Restore outer operator/expr context saved when
+        // entering array indexing `[`.
+        if let Some(ops) = self.saved_op_stacks.pop() {
+          self.operator_stack = ops;
+        }
+
+        if let Some(buf) = self.saved_expr_bufs.pop() {
+          self.expr_buffer = buf;
+        }
       } else {
         // Mismatched delimiter - emit anyway
         self.emit_node(Token::RBracket);

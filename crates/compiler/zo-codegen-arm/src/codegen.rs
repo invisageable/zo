@@ -9,7 +9,7 @@ use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
 use zo_sir::{BinOp, Insn, LoadSource, Sir};
 use zo_ui_protocol::UiCommand;
 use zo_value::ValueId;
-use zo_writer_macho::{DebugFrameEntry, MachO};
+use zo_writer_macho::{DATA_VM_ADDR, DebugFrameEntry, MachO};
 
 use rustc_hash::FxHashMap as HashMap;
 
@@ -60,6 +60,7 @@ const UI_ENTRY_SYMBOL: u32 = 0xFFFF;
 const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 
 // --- Branch Fixup Masks ---
+const BL_OPCODE: u32 = 0x94000000;
 const B_FIXUP_MASK: u32 = 0xFC000000;
 const B_FIXUP_OPCODE: u32 = 0x14000000;
 const CBZ_FIXUP_MASK: u32 = 0x7E000000;
@@ -79,6 +80,29 @@ const TEMPLATE_CMD_SIZE: usize = 16;
 const HELLO_STR_OFFSET: i32 = 0x18;
 const HELLO_STR_LEN: u16 = 14;
 const CFA_FP_REG: u8 = 31;
+
+// --- Page Layout ---
+const PAGE_MASK: u64 = 0xFFF;
+
+// --- Dynamic Linking ---
+const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
+const DATA_SEGMENT_INDEX: u8 = 2;
+
+// --- Libm Functions ---
+
+/// Maps a zo function name to its C library symbol.
+fn libm_c_symbol(name: &str) -> String {
+  format!("_{name}")
+}
+
+/// Returns the number of float arguments a libm function
+/// takes. All return a single f64 in D0.
+fn libm_arg_count(name: &str) -> usize {
+  match name {
+    "pow" => 2,
+    _ => 1,
+  }
+}
 
 /// Represents the [`ARM64Gen`] code generation instance.
 pub struct ARM64Gen<'a> {
@@ -123,6 +147,15 @@ pub struct ARM64Gen<'a> {
   /// Set when the last emitted instruction was a math
   /// intrinsic (FSQRT, FRINT*). Result is in D0.
   last_was_math_intrinsic: bool,
+  /// Libm functions used (ordered, no duplicates).
+  /// Each entry is the C symbol name (e.g. "_pow").
+  libm_used: Vec<String>,
+  /// Code offsets of stubs for each libm function.
+  /// Populated after all user code is emitted.
+  libm_stub_offsets: HashMap<String, u32>,
+  /// BL fixups: (code_offset, c_symbol_name).
+  /// Patched in assemble() to point at stubs.
+  libm_fixups: Vec<(u32, String)>,
 }
 
 impl<'a> ARM64Gen<'a> {
@@ -149,6 +182,9 @@ impl<'a> ARM64Gen<'a> {
       next_struct_slot: 0,
       struct_return_fns: HashMap::default(),
       last_was_math_intrinsic: false,
+      libm_used: Vec::new(),
+      libm_stub_offsets: HashMap::default(),
+      libm_fixups: Vec::new(),
     }
   }
 
@@ -192,6 +228,21 @@ impl<'a> ARM64Gen<'a> {
       .and_then(|vid| self.alloc_fp_reg(vid))
   }
 
+  /// Scan backward from `idx` (exclusive) to find the
+  /// nearest instruction with an allocated FP register.
+  /// Skips VarDef, Store, Label, and other non-value
+  /// instructions. Used when `alloc_fp_reg` fails due to
+  /// ValueId mismatch between SIR and register allocator.
+  fn scan_fp_reg_back(&self, idx: usize) -> Option<FpRegister> {
+    for i in (0..idx).rev() {
+      if let Some(fp) = self.fp_reg_for_insn(i) {
+        return Some(fp);
+      }
+    }
+
+    None
+  }
+
   /// Check if a ValueId was produced by a ConstString or
   /// is a Load of a str-typed variable.
   fn is_string_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
@@ -225,10 +276,13 @@ impl<'a> ARM64Gen<'a> {
     vid: ValueId,
     all_insns: &'b [Insn],
   ) -> Option<&'b Insn> {
+    let fn_start = self.current_fn_start.unwrap_or(0);
+
     self.reg_alloc.as_ref().and_then(|a| {
       a.value_ids
         .iter()
         .enumerate()
+        .skip(fn_start)
         .find(|(_, v)| **v == Some(vid))
         .and_then(|(i, _)| all_insns.get(i))
     })
@@ -377,7 +431,43 @@ impl<'a> ARM64Gen<'a> {
       self.generate_ui_entry_point();
     }
 
+    // Emit libm stubs at end of code section. Each stub is
+    // 12 bytes (3 instructions): ADRP X16, page; LDR X16,
+    // [X16, off]; BR X16. The actual page/offset values are
+    // placeholders — they get patched in generate_macho()
+    // once we know the final GOT layout.
+    for i in 0..self.libm_used.len() {
+      let sym = self.libm_used[i].clone();
+      let offset = self.emitter.current_offset();
+
+      self.libm_stub_offsets.insert(sym, offset);
+
+      // ADRP X16, 0 — placeholder, patched later.
+      self.emitter.emit_adrp(X16, 0);
+      // LDR X16, [X16, #0] — placeholder, patched later.
+      self.emitter.emit_ldr(X16, X16, 0);
+      // BR X16
+      self.emitter.emit_br(X16);
+    }
+
+    // Fix up libm BL instructions to target stubs.
+    // Both BL and stub are in the same code section,
+    // so this is a simple PC-relative patch.
+    let libm_fixups = std::mem::take(&mut self.libm_fixups);
+
     let mut code = self.emitter.code();
+
+    for (fixup_pos, c_sym) in &libm_fixups {
+      if let Some(&stub_off) = self.libm_stub_offsets.get(c_sym) {
+        let relative = (stub_off as i32 - *fixup_pos as i32) >> 2;
+        let pos = *fixup_pos as usize;
+        let insn = BL_OPCODE | ((relative as u32) & FIXUP_IMM26_MASK);
+
+        code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
+      }
+    }
+
+    self.libm_fixups = libm_fixups;
     let mut string_offsets = HashMap::default();
     let mut template_offsets = HashMap::default();
     let mut current_offset = code.len();
@@ -452,9 +542,71 @@ impl<'a> ARM64Gen<'a> {
   /// Generates Mach-O executable from [`Artifact`].
   pub fn generate_macho(&mut self, artifact: Artifact) -> Vec<u8> {
     let mut macho = MachO::new();
+    let mut code = artifact.code;
 
-    macho.add_code(artifact.code);
-    macho.add_data(Vec::new());
+    // --- Libm GOT + stub patching ---
+    // Each libm function gets one 8-byte GOT slot in __DATA
+    // and one 12-byte stub in __TEXT. The stub does:
+    //   ADRP X16, got_page
+    //   LDR  X16, [X16, #got_page_off]
+    //   BR   X16
+    // dyld fills the GOT slot at load time via bind opcodes.
+    let n_got = self.libm_used.len();
+    let mut got_data = Vec::with_capacity(n_got * 8);
+    let mut bind_entries: Vec<(&str, u8, u64)> = Vec::new();
+
+    for (i, c_sym) in self.libm_used.iter().enumerate() {
+      let got_offset_in_data = (i * 8) as u64;
+      let got_vm_addr = DATA_VM_ADDR + got_offset_in_data;
+
+      // Populate GOT slot with zero (dyld overwrites).
+      got_data.extend_from_slice(&[0u8; 8]);
+
+      // Patch the stub: ADRP X16, page_diff; LDR X16,
+      // [X16, #page_off]; BR X16.
+      if let Some(&stub_off) = self.libm_stub_offsets.get(c_sym) {
+        let stub_vm = TEXT_SECTION_BASE + stub_off as u64;
+        let stub_page = stub_vm & !PAGE_MASK;
+        let got_page = got_vm_addr & !PAGE_MASK;
+        let page_diff = ((got_page as i64 - stub_page as i64) >> 12) as i32;
+        let page_off = (got_vm_addr & PAGE_MASK) as u32;
+
+        // ADRP X16, page_diff
+        let immlo = (page_diff as u32) & 0x3;
+        let immhi = ((page_diff >> 2) as u32) & 0x7FFFF;
+        let adrp =
+          0x90000000u32 | (immlo << 29) | (immhi << 5) | (X16.index() as u32);
+
+        // LDR X16, [X16, #page_off]
+        // Unsigned offset: imm12 = page_off / 8
+        let imm12 = (page_off >> 3) & 0xFFF;
+        let ldr = 0xF9400000u32
+          | (imm12 << 10)
+          | ((X16.index() as u32) << 5)
+          | (X16.index() as u32);
+
+        let pos = stub_off as usize;
+
+        code[pos..pos + 4].copy_from_slice(&adrp.to_le_bytes());
+        code[pos + 4..pos + 8].copy_from_slice(&ldr.to_le_bytes());
+        // BR X16 is already correct from emit_br().
+      }
+
+      // segment 2 = __DATA (pagezero=0, __TEXT=1, __DATA=2)
+      bind_entries.push((c_sym, DATA_SEGMENT_INDEX, got_offset_in_data));
+    }
+
+    // Build bind opcodes for dyld.
+    // dylib ordinal 1 = first LC_LOAD_DYLIB (libSystem).
+    if !bind_entries.is_empty() {
+      let bind_data =
+        MachO::build_bind_opcodes(&bind_entries, LIBSYSTEM_DYLIB_ORDINAL);
+
+      macho.set_bind_data(bind_data);
+    }
+
+    macho.add_code(code);
+    macho.add_data(got_data);
 
     macho.add_pagezero_segment();
     macho.add_text_segment();
@@ -482,6 +634,12 @@ impl<'a> ARM64Gen<'a> {
           true,
         );
       }
+    }
+
+    // Add undefined symbols for each libm function.
+    // dylib ordinal 1 = libSystem.
+    for c_sym in &self.libm_used {
+      macho.add_undefined_symbol(c_sym, LIBSYSTEM_DYLIB_ORDINAL as u16);
     }
 
     macho.add_dylinker();
@@ -733,9 +891,14 @@ impl<'a> ARM64Gen<'a> {
           let slot = sym.as_u32();
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
-            // Strings are single-register pointers, same as int.
             if let Some(dst_reg) = self.alloc_reg(*dst) {
               self.emitter.emit_ldr(dst_reg, SP, offset as i16);
+            } else if let Some(fp_dst) = self
+              .alloc_fp_reg(*dst)
+              .or_else(|| self.fp_reg_for_insn(idx))
+            {
+              // Float local: LDR Dt, [SP, #offset].
+              self.emitter.emit_ldr_fp(fp_dst, SP, offset as u16);
             }
           }
         }
@@ -939,6 +1102,86 @@ impl<'a> ARM64Gen<'a> {
             }
           }
 
+          // Libm functions — require dynamic library call.
+          // Move float args to D0 (and D1 for pow), emit BL
+          // to stub (fixup recorded), result arrives in D0.
+          //
+          // Re-materialize float constants directly into the
+          // target registers. The register allocator may
+          // assign the same FP register to multiple ConstFloat
+          // values preceding a Call (since it sees them as
+          // consumed at the same point), causing clobbering.
+          // Loading fresh from the constant avoids this.
+          "pow" | "sin" | "cos" | "tan" | "log" | "log2" | "log10" | "exp" => {
+            let fn_name = self.interner.get(*name).to_string();
+            let c_sym = libm_c_symbol(&fn_name);
+            let nargs = libm_arg_count(&fn_name);
+
+            // Load each float arg directly into D0..Dn.
+            // Scan backwards from the Call to find the
+            // producing ConstFloat for each arg. If the
+            // producing instruction is not a ConstFloat,
+            // fall back to the allocated FP register.
+            for (i, _arg) in args.iter().enumerate().take(nargs) {
+              let fp_dst = FpRegister::new(i as u8);
+              let producing_idx = idx.wrapping_sub(nargs - i);
+
+              if let Some(Insn::ConstFloat { value, .. }) =
+                all_insns.get(producing_idx)
+              {
+                // Re-materialize the constant directly
+                // into the target FP register.
+                let bits = value.to_bits();
+
+                self.emit_mov_imm_64(X16, bits);
+                self.emitter.emit_fmov_gp_to_fp(fp_dst, X16);
+              } else if let Some(fp_src) = self.fp_reg_for_insn(producing_idx)
+                && fp_src != fp_dst
+              {
+                self.emitter.emit_fmov_fp(fp_dst, fp_src);
+              }
+            }
+
+            // Save caller-saved regs before BL.
+            let base = self.caller_save_base;
+
+            for i in 0..CALLER_SAVE_COUNT {
+              let reg = Register::new(CALLER_SAVE_START + i as u8);
+              let off = base + i as u32 * STACK_SLOT_SIZE;
+
+              self.emitter.emit_str(reg, SP, off as i16);
+            }
+
+            // Emit BL placeholder (offset 0). Will be
+            // patched in assemble() to target the stub.
+            let fixup_pos = self.emitter.current_offset();
+
+            self.emitter.emit_bl(0);
+            self.libm_fixups.push((fixup_pos, c_sym.clone()));
+
+            // Track used libm functions (no duplicates).
+            if !self.libm_used.contains(&c_sym) {
+              self.libm_used.push(c_sym);
+            }
+
+            // Restore caller-saved regs after BL.
+            for i in 0..CALLER_SAVE_COUNT {
+              let reg = Register::new(CALLER_SAVE_START + i as u8);
+              let off = base + i as u32 * STACK_SLOT_SIZE;
+
+              self.emitter.emit_ldr(reg, SP, off as i16);
+            }
+
+            // Result is in D0. Move to allocated FP reg.
+            if let Some(fp_result) = self.fp_reg_for_insn(idx)
+              && fp_result != D0
+            {
+              self.emitter.emit_fmov_fp(fp_result, D0);
+            }
+
+            self.last_was_math_intrinsic = true;
+          }
+
           _ => {
             // Move args to X0-X7 (GP) or D0-D7 (FP).
             for (i, arg) in args.iter().enumerate() {
@@ -1101,9 +1344,14 @@ impl<'a> ARM64Gen<'a> {
           off
         };
 
-        // Strings are single-register pointers, same as int.
         if let Some(src_reg) = self.alloc_reg(*value) {
           self.emitter.emit_str(src_reg, SP, offset as i16);
+        } else if let Some(fp_src) = self
+          .alloc_fp_reg(*value)
+          .or_else(|| self.scan_fp_reg_back(idx))
+        {
+          // Float variable: STR Dt, [SP, #offset].
+          self.emitter.emit_str_fp(fp_src, SP, offset as u16);
         }
       }
 
@@ -1147,34 +1395,30 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ArrayLiteral { elements, .. } => {
-        // Layout on stack: [len, e0, e1, ..., eN]
-        // Allocate (1 + N) * 8 bytes below current SP.
+        // Layout in pre-allocated frame: [len, e0, e1, ..., eN]
+        // Uses struct_base + next_struct_slot (frame-relative).
+        let base = self.struct_base + self.next_struct_slot;
         let n = elements.len() as u16;
-        let size = (n + 1) * (STACK_SLOT_SIZE as u16);
-        let aligned =
-          (size + (FRAME_ALIGN_MASK as u16)) & !(FRAME_ALIGN_MASK as u16);
 
-        self.emitter.emit_sub_imm(SP, SP, aligned);
-
-        // Store length at [SP + 0].
+        // Store length at [SP + base].
         self.emitter.emit_mov_imm(X16, n);
-        self.emitter.emit_str(X16, SP, 0);
+        self.emitter.emit_str(X16, SP, base as i16);
 
-        // Store each element at [SP + (i+1)*8].
+        // Store each element at [SP + base + (i+1)*8].
         for (i, elem) in elements.iter().enumerate() {
           if let Some(reg) = self.alloc_reg(*elem) {
-            self.emitter.emit_str(
-              reg,
-              SP,
-              ((i + 1) * STACK_SLOT_SIZE as usize) as i16,
-            );
+            let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
+            self.emitter.emit_str(reg, SP, off as i16);
           }
         }
 
-        // Result: pointer to array (SP).
+        // Result: pointer to array base.
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_mov_reg(dst, SP);
+          self.emitter.emit_add_imm(dst, SP, base as u16);
         }
+
+        // Advance slot for next allocation.
+        self.next_struct_slot += (1 + elements.len() as u32) * STACK_SLOT_SIZE;
       }
 
       Insn::ArrayIndex {
@@ -1347,12 +1591,18 @@ impl<'a> ARM64Gen<'a> {
     } else if is_str {
       // String: single pointer to [len: u64][bytes][null].
       // Read length and data pointer from the struct.
+      // Move to X16 first to avoid clobbering if ptr is
+      // X1 or X2 (used by syscall args).
       let ptr = arg_vid.and_then(|v| self.alloc_reg(v)).unwrap_or(X1);
 
-      // LDR X2, [ptr, #0] — load length from struct.
-      self.emitter.emit_ldr(X2, ptr, 0);
-      // ADD X1, ptr, #8 — data starts at offset 8.
-      self.emitter.emit_add_imm(X1, ptr, 8);
+      if ptr != X16 {
+        self.emitter.emit_mov_reg(X16, ptr);
+      }
+
+      // LDR X2, [X16, #0] — load length from struct.
+      self.emitter.emit_ldr(X2, X16, 0);
+      // ADD X1, X16, #8 — data starts at offset 8.
+      self.emitter.emit_add_imm(X1, X16, 8);
       self.emitter.emit_mov_imm(X16, SYS_WRITE);
       self.emitter.emit_mov_imm(X0, fd);
       self.emitter.emit_svc(0);

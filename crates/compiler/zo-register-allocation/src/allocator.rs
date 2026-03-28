@@ -444,6 +444,10 @@ pub fn allocate_function(
         // tag + fields.
         struct_slots += 1 + fields.len() as u32;
       }
+      Insn::ArrayLiteral { elements, .. } => {
+        // length header + elements.
+        struct_slots += 1 + elements.len() as u32;
+      }
       _ => {}
     }
   }

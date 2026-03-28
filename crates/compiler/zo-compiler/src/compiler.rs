@@ -359,34 +359,29 @@ impl Compiler {
       self.reporter.collect_errors(&tl_errors);
     }
 
-    // Merge module SIR into main SIR. Insert module
-    // functions BEFORE the main function (last FunDef)
-    // so DCE treats main as the entry point. The main
-    // program keeps its original ValueIds (0-based).
-    // Module ValueIds are offset to avoid collisions.
+    // Merge module SIR into main SIR. Modules must appear
+    // before main so their FunDefs are registered before
+    // main calls them. All ValueIds are explicit and
+    // offsettable — no implicit/explicit mismatch.
     if !module_sir_instructions.is_empty() {
       let main_next_vid = semantic.sir.next_value_id;
 
       offset_value_ids(&mut module_sir_instructions, main_next_vid);
 
-      // Find the last FunDef (main) and insert before it.
-      let main_pos = semantic
-        .sir
-        .instructions
-        .iter()
-        .rposition(|i| matches!(i, zo_sir::Insn::FunDef { .. }))
-        .unwrap_or(semantic.sir.instructions.len());
+      // Prepend: modules first, then main.
+      let main_insns = std::mem::replace(
+        &mut semantic.sir.instructions,
+        module_sir_instructions,
+      );
 
-      // Splice module instructions before main.
-      let tail = semantic.sir.instructions.split_off(main_pos);
-
-      semantic.sir.instructions.extend(module_sir_instructions);
-      semantic.sir.instructions.extend(tail);
+      semantic.sir.instructions.extend(main_insns);
       semantic.sir.next_value_id += module_next_value_id;
     }
 
-    // Dead code elimination.
-    zo_dce::eliminate_dead_functions(&mut semantic.sir);
+    // Dead code elimination — find main by name.
+    let main_sym = tokenization.interner.intern("main");
+
+    zo_dce::eliminate_dead_functions(&mut semantic.sir, main_sym);
 
     (semantic, tokenization, parsing)
   }
@@ -555,11 +550,11 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
 
   for insn in instructions.iter_mut() {
     match insn {
-      Insn::ConstInt { .. }
-      | Insn::ConstFloat { .. }
-      | Insn::ConstBool { .. }
-      | Insn::ConstString { .. }
-      | Insn::ModuleLoad { .. }
+      Insn::ConstInt { dst, .. }
+      | Insn::ConstFloat { dst, .. }
+      | Insn::ConstBool { dst, .. }
+      | Insn::ConstString { dst, .. } => off(dst),
+      Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
       | Insn::EnumDef { .. }
       | Insn::StructDef { .. }
@@ -577,7 +572,8 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
           off(v);
         }
       }
-      Insn::Call { args, .. } => {
+      Insn::Call { dst, args, .. } => {
+        off(dst);
         for a in args.iter_mut() {
           off(a);
         }
@@ -588,11 +584,15 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
         off(lhs);
         off(rhs);
       }
-      Insn::UnOp { rhs, .. } => off(rhs),
+      Insn::UnOp { dst, rhs, .. } => {
+        off(dst);
+        off(rhs);
+      }
       Insn::BranchIfNot { cond, .. } => off(cond),
       Insn::Directive { value, .. } => off(value),
       Insn::Template { id, .. } => off(id),
-      Insn::ArrayLiteral { elements, .. } => {
+      Insn::ArrayLiteral { dst, elements, .. } => {
+        off(dst);
         for e in elements.iter_mut() {
           off(e);
         }
@@ -608,7 +608,8 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
         off(dst);
         off(array);
       }
-      Insn::TupleLiteral { elements, .. } => {
+      Insn::TupleLiteral { dst, elements, .. } => {
+        off(dst);
         for e in elements.iter_mut() {
           off(e);
         }
@@ -617,8 +618,14 @@ fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
         off(dst);
         off(tuple);
       }
-      Insn::EnumConstruct { fields, .. }
-      | Insn::StructConstruct { fields, .. } => {
+      Insn::EnumConstruct { dst, fields, .. } => {
+        off(dst);
+        for f in fields.iter_mut() {
+          off(f);
+        }
+      }
+      Insn::StructConstruct { dst, fields, .. } => {
+        off(dst);
         for f in fields.iter_mut() {
           off(f);
         }

@@ -9,7 +9,7 @@
 -! most important thing: Zo is smart. It "infers" types so you don't have to be
 -! a keyboard typist just to declare a number.
 
-  fun main() {
+fun main() {
   -- A bare number like `42` is an `int` — a signed 32-bit integer.
   -- zo supports big numbers natively — `600851475143` just works.
   showln(42);

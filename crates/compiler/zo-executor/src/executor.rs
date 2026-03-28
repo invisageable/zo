@@ -474,7 +474,11 @@ impl<'a> Executor<'a> {
 
           fields.reverse();
 
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
           let sv = self.sir.emit(Insn::EnumConstruct {
+            dst,
             enum_name,
             variant: disc,
             fields,
@@ -516,7 +520,14 @@ impl<'a> Executor<'a> {
 
             let ty_id = self.ty_checker.intern_ty(Ty::Tuple(tuple_ty_id));
 
-            let sv = self.sir.emit(Insn::TupleLiteral { elements, ty_id });
+            let dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
+            let sv = self.sir.emit(Insn::TupleLiteral {
+              dst,
+              elements,
+              ty_id,
+            });
             let rid = self.values.store_runtime(0);
 
             self.value_stack.push(rid);
@@ -718,7 +729,11 @@ impl<'a> Executor<'a> {
                   ty_id: int_ty,
                 });
 
+                let one_dst = ValueId(self.sir.next_value_id);
+                self.sir.next_value_id += 1;
+
                 let one_sir = self.sir.emit(Insn::ConstInt {
+                  dst: one_dst,
                   value: 1,
                   ty_id: int_ty,
                 });
@@ -793,7 +808,10 @@ impl<'a> Executor<'a> {
           // Infer type based on value
           let ty_id = self.ty_checker.int_type();
 
-          let sir_value = self.sir.emit(Insn::ConstInt { value, ty_id });
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value = self.sir.emit(Insn::ConstInt { dst, value, ty_id });
           let value_id = self.values.store_int(value);
 
           self.value_stack.push(value_id);
@@ -813,7 +831,10 @@ impl<'a> Executor<'a> {
           let value = self.literals.float_literals[lit_idx as usize];
           let ty_id = self.ty_checker.f64_type();
 
-          let sir_value = self.sir.emit(Insn::ConstFloat { value, ty_id });
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value = self.sir.emit(Insn::ConstFloat { dst, value, ty_id });
           let value_id = self.values.store_float(value);
 
           self.value_stack.push(value_id);
@@ -829,7 +850,14 @@ impl<'a> Executor<'a> {
 
       Token::True => {
         let ty_id = self.ty_checker.bool_type();
-        let sir_value = self.sir.emit(Insn::ConstBool { value: true, ty_id });
+        let dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let sir_value = self.sir.emit(Insn::ConstBool {
+          dst,
+          value: true,
+          ty_id,
+        });
         let value_id = self.values.store_bool(true);
 
         self.value_stack.push(value_id);
@@ -846,7 +874,11 @@ impl<'a> Executor<'a> {
         let ty_id = self.ty_checker.bool_type();
 
         // Emit SIR instruction for boolean constant
+        let dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
         let sir_value = self.sir.emit(Insn::ConstBool {
+          dst,
           value: false,
           ty_id,
         });
@@ -869,7 +901,10 @@ impl<'a> Executor<'a> {
           let value = self.literals.char_literals[lit_idx as usize] as u64;
           let ty_id = self.ty_checker.char_type();
 
-          let sir_value = self.sir.emit(Insn::ConstInt { value, ty_id });
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value = self.sir.emit(Insn::ConstInt { dst, value, ty_id });
           let value_id = self.values.store_int(value);
 
           self.value_stack.push(value_id);
@@ -894,7 +929,11 @@ impl<'a> Executor<'a> {
 
           // Emit ConstString for the full format string
           // (may become dead code after desugaring).
-          let sir_value = self.sir.emit(Insn::ConstString { symbol, ty_id });
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value =
+            self.sir.emit(Insn::ConstString { dst, symbol, ty_id });
           let value_id = self.values.store_string(symbol);
 
           self.value_stack.push(value_id);
@@ -914,7 +953,11 @@ impl<'a> Executor<'a> {
         if let Some(NodeValue::Symbol(symbol)) = self.node_value(idx) {
           let ty_id = self.ty_checker.str_type();
 
-          let sir_value = self.sir.emit(Insn::ConstString { symbol, ty_id });
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value =
+            self.sir.emit(Insn::ConstString { dst, symbol, ty_id });
           let value_id = self.values.store_string(symbol);
 
           self.value_stack.push(value_id);
@@ -995,25 +1038,53 @@ impl<'a> Executor<'a> {
                     let ii = self.values.indices[vi] as usize;
                     let v = self.values.ints[ii];
 
-                    self.sir.emit(Insn::ConstInt { value: v, ty_id })
+                    let dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
+                    self.sir.emit(Insn::ConstInt {
+                      dst,
+                      value: v,
+                      ty_id,
+                    })
                   }
                   Value::Float => {
                     let fi = self.values.indices[vi] as usize;
                     let v = self.values.floats[fi];
 
-                    self.sir.emit(Insn::ConstFloat { value: v, ty_id })
+                    let dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
+                    self.sir.emit(Insn::ConstFloat {
+                      dst,
+                      value: v,
+                      ty_id,
+                    })
                   }
                   Value::Bool => {
                     let bi = self.values.indices[vi] as usize;
                     let v = self.values.bools[bi];
 
-                    self.sir.emit(Insn::ConstBool { value: v, ty_id })
+                    let dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
+                    self.sir.emit(Insn::ConstBool {
+                      dst,
+                      value: v,
+                      ty_id,
+                    })
                   }
                   Value::String => {
                     let si = self.values.indices[vi] as usize;
                     let s = self.values.strings[si];
 
-                    self.sir.emit(Insn::ConstString { symbol: s, ty_id })
+                    let dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
+                    self.sir.emit(Insn::ConstString {
+                      dst,
+                      symbol: s,
+                      ty_id,
+                    })
                   }
                   _ => {
                     self.value_stack.push(value_id);
@@ -1119,7 +1190,11 @@ impl<'a> Executor<'a> {
                   Value::Int => {
                     let ii = self.values.indices[vi] as usize;
 
+                    let dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
                     self.sir.emit(Insn::ConstInt {
+                      dst,
                       value: self.values.ints[ii],
                       ty_id: gty,
                     })
@@ -1127,7 +1202,11 @@ impl<'a> Executor<'a> {
                   Value::Float => {
                     let fi = self.values.indices[vi] as usize;
 
+                    let dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
                     self.sir.emit(Insn::ConstFloat {
+                      dst,
                       value: self.values.floats[fi],
                       ty_id: gty,
                     })
@@ -1135,7 +1214,11 @@ impl<'a> Executor<'a> {
                   Value::Bool => {
                     let bi = self.values.indices[vi] as usize;
 
+                    let dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
                     self.sir.emit(Insn::ConstBool {
+                      dst,
                       value: self.values.bools[bi],
                       ty_id: gty,
                     })
@@ -1143,7 +1226,11 @@ impl<'a> Executor<'a> {
                   Value::String => {
                     let si = self.values.indices[vi] as usize;
 
+                    let dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
                     self.sir.emit(Insn::ConstString {
+                      dst,
                       symbol: self.values.strings[si],
                       ty_id: gty,
                     })
@@ -1269,7 +1356,11 @@ impl<'a> Executor<'a> {
 
             let arr_ty = int_ty; // TODO: proper array type
 
+            let dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
             let sv = self.sir.emit(Insn::ArrayLiteral {
+              dst,
               elements,
               ty_id: arr_ty,
             });
@@ -1543,7 +1634,11 @@ impl<'a> Executor<'a> {
               ty_id: int_ty,
             });
 
+            let one_dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
             let one_sir = self.sir.emit(Insn::ConstInt {
+              dst: one_dst,
               value: 1,
               ty_id: int_ty,
             });
@@ -1686,7 +1781,11 @@ impl<'a> Executor<'a> {
         {
           match folded {
             FoldResult::Int(value) => {
-              let sir_value = self.sir.emit(Insn::ConstInt { value, ty_id });
+              let dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+
+              let sir_value =
+                self.sir.emit(Insn::ConstInt { dst, value, ty_id });
               let value_id = self.values.store_int(value);
 
               self.value_stack.push(value_id);
@@ -1697,7 +1796,11 @@ impl<'a> Executor<'a> {
               return;
             }
             FoldResult::Float(value) => {
-              let sir_value = self.sir.emit(Insn::ConstFloat { value, ty_id });
+              let dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+
+              let sir_value =
+                self.sir.emit(Insn::ConstFloat { dst, value, ty_id });
               let value_id = self.values.store_float(value);
 
               self.value_stack.push(value_id);
@@ -1710,7 +1813,11 @@ impl<'a> Executor<'a> {
             FoldResult::Bool(value) => {
               let ty_id = self.ty_checker.bool_type();
 
-              let sir_value = self.sir.emit(Insn::ConstBool { value, ty_id });
+              let dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+
+              let sir_value =
+                self.sir.emit(Insn::ConstBool { dst, value, ty_id });
               let value_id = self.values.store_bool(value);
 
               self.value_stack.push(value_id);
@@ -1735,7 +1842,11 @@ impl<'a> Executor<'a> {
             }
             FoldResult::Strength(new_op, const_rhs) => {
               // emit the constant rhs (shift amount or mask).
+              let rhs_dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+
               let rhs_sir_val = self.sir.emit(Insn::ConstInt {
+                dst: rhs_dst,
                 value: const_rhs,
                 ty_id,
               });
@@ -1913,7 +2024,11 @@ impl<'a> Executor<'a> {
       let result = format!("{lstr}{rstr}");
       let sym = self.interner.intern(&result);
 
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
       let sir_value = self.sir.emit(Insn::ConstString {
+        dst,
         symbol: sym,
         ty_id: str_ty,
       });
@@ -1999,7 +2114,10 @@ impl<'a> Executor<'a> {
     if let Some(folded) = constprop.fold_unop(op, rhs_id, span, resolved_ty) {
       match folded {
         FoldResult::Int(value) => {
-          let sir_value = self.sir.emit(Insn::ConstInt { value, ty_id });
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value = self.sir.emit(Insn::ConstInt { dst, value, ty_id });
           let value_id = self.values.store_int(value);
 
           self.value_stack.push(value_id);
@@ -2010,7 +2128,10 @@ impl<'a> Executor<'a> {
           return;
         }
         FoldResult::Float(value) => {
-          let sir_value = self.sir.emit(Insn::ConstFloat { value, ty_id });
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value = self.sir.emit(Insn::ConstFloat { dst, value, ty_id });
           let value_id = self.values.store_float(value);
 
           self.value_stack.push(value_id);
@@ -2021,7 +2142,10 @@ impl<'a> Executor<'a> {
           return;
         }
         FoldResult::Bool(value) => {
-          let sir_value = self.sir.emit(Insn::ConstBool { value, ty_id });
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value = self.sir.emit(Insn::ConstBool { dst, value, ty_id });
           let value_id = self.values.store_bool(value);
 
           self.value_stack.push(value_id);
@@ -2057,7 +2181,11 @@ impl<'a> Executor<'a> {
     }
 
     // Runtime operation
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
     let sir_value = self.sir.emit(Insn::UnOp {
+      dst,
       op,
       rhs: operand_sir,
       ty_id,
@@ -3913,7 +4041,11 @@ impl<'a> Executor<'a> {
       .map(|v| v.unwrap_or(ValueId(u32::MAX)))
       .collect::<Vec<_>>();
 
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
     let sv = self.sir.emit(Insn::StructConstruct {
+      dst,
       struct_name,
       fields,
       ty_id,
@@ -4409,7 +4541,11 @@ impl<'a> Executor<'a> {
 
     if variant.field_count == 0 {
       // Unit variant — emit immediately.
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
       let sv = self.sir.emit(Insn::EnumConstruct {
+        dst,
         enum_name,
         variant: variant.discriminant,
         fields: Vec::new(),
@@ -4608,7 +4744,11 @@ impl<'a> Executor<'a> {
     full_args.extend(arg_sirs);
 
     // Emit call.
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
     let result_sir = self.sir.emit(Insn::Call {
+      dst,
       name: mangled_name,
       args: full_args,
       ty_id: func.return_ty,
@@ -4701,7 +4841,11 @@ impl<'a> Executor<'a> {
     let int_ty = self.ty_checker.int_type();
 
     // --- Emit: mut i = start ---
+    let init_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
     let init_sir = self.sir.emit(Insn::ConstInt {
+      dst: init_dst,
       value: start_val,
       ty_id: int_ty,
     });
@@ -4754,7 +4898,11 @@ impl<'a> Executor<'a> {
       ty_id: int_ty,
     });
 
+    let end_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
     let end_sir = self.sir.emit(Insn::ConstInt {
+      dst: end_dst,
       value: end_val,
       ty_id: int_ty,
     });
@@ -5307,12 +5455,20 @@ impl<'a> Executor<'a> {
 
       match seg {
         InterpSegment::Literal(sym) => {
+          let str_dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
           let sir_val = self.sir.emit(Insn::ConstString {
+            dst: str_dst,
             symbol: *sym,
             ty_id: str_ty,
           });
 
+          let call_dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
           self.sir.emit(Insn::Call {
+            dst: call_dst,
             name: call_name,
             args: vec![sir_val],
             ty_id: unit_ty,
@@ -5336,7 +5492,11 @@ impl<'a> Executor<'a> {
               ty_id: var_ty,
             });
 
+            let call_dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
             self.sir.emit(Insn::Call {
+              dst: call_dst,
               name: call_name,
               args: vec![sir_val],
               ty_id: unit_ty,
@@ -5551,7 +5711,11 @@ impl<'a> Executor<'a> {
         func.name
       };
 
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
       let result_sir = self.sir.emit(Insn::Call {
+        dst,
         name: call_name,
         args: arg_sirs,
         ty_id: resolved_ret,
@@ -5624,7 +5788,11 @@ impl<'a> Executor<'a> {
       let return_ty = self.ty_checker.unit_type();
 
       // Emit Call instruction for external function
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
       self.sir.emit(Insn::Call {
+        dst,
         name: fun_name,
         args: arg_sirs,
         ty_id: return_ty,
@@ -5725,7 +5893,11 @@ impl<'a> Executor<'a> {
       .map(|f| f.return_ty)
       .unwrap_or_else(|| self.ty_checker.unit_type());
 
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
     self.sir.emit(Insn::Call {
+      dst,
       name: fun_name,
       args: vec![cmp_sir],
       ty_id: return_ty,

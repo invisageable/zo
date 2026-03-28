@@ -17,7 +17,7 @@ struct FunRange {
 /// Builds a call graph, marks functions reachable from `main`
 /// transitively, and removes unreachable function bodies.
 /// Top-level instructions (outside any function) are always kept.
-pub fn eliminate_dead_functions(sir: &mut Sir) {
+pub fn eliminate_dead_functions(sir: &mut Sir, main_sym: Symbol) {
   if sir.instructions.is_empty() {
     return;
   }
@@ -29,7 +29,7 @@ pub fn eliminate_dead_functions(sir: &mut Sir) {
   }
 
   let called = collect_called_names(&sir.instructions);
-  let reachable = mark_reachable(&functions, &called);
+  let reachable = mark_reachable(&functions, &called, main_sym);
 
   // Collect dead ranges in reverse order for safe removal.
   let mut dead_ranges = functions
@@ -123,12 +123,16 @@ fn collect_called_names(instructions: &[Insn]) -> HashSet<Symbol> {
 fn mark_reachable(
   functions: &[FunRange],
   called: &HashSet<Symbol>,
+  main_sym: Symbol,
 ) -> HashSet<Symbol> {
   let mut reachable = HashSet::default();
 
-  // The last function is the entry point (main by convention).
-  if let Some(last) = functions.last() {
-    reachable.insert(last.name);
+  // Mark main as the entry point (by name, not position).
+  for func in functions {
+    if func.name == main_sym {
+      reachable.insert(func.name);
+      break;
+    }
   }
 
   // A function is reachable if any Call references it.

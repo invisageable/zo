@@ -46,40 +46,31 @@ impl Sir {
   }
 
   /// Emits an instruction and return its result [`ValueId`].
+  ///
+  /// Every value-producing instruction has an explicit `dst`
+  /// field. Non-value instructions return a sentinel.
   pub fn emit(&mut self, insn: Insn) -> ValueId {
-    // For instructions with explicit destinations,
-    // return that dst. These have pre-allocated ValueIds
-    // from the executor.
     let value_id = match &insn {
-      Insn::Load { dst, .. }
+      // All value-producing instructions have explicit dst.
+      Insn::ConstInt { dst, .. }
+      | Insn::ConstFloat { dst, .. }
+      | Insn::ConstBool { dst, .. }
+      | Insn::ConstString { dst, .. }
+      | Insn::Call { dst, .. }
+      | Insn::Load { dst, .. }
       | Insn::BinOp { dst, .. }
+      | Insn::UnOp { dst, .. }
+      | Insn::ArrayLiteral { dst, .. }
       | Insn::ArrayIndex { dst, .. }
       | Insn::ArrayLen { dst, .. }
-      | Insn::TupleIndex { dst, .. } => *dst,
-      // Instructions that don't produce runtime values
-      // return a sentinel. Type/struct/enum definitions
-      // are compile-time-only metadata.
-      Insn::FunDef { .. }
-      | Insn::Return { .. }
-      | Insn::VarDef { .. }
-      | Insn::Store { .. }
-      | Insn::ModuleLoad { .. }
-      | Insn::PackDecl { .. }
-      | Insn::Label { .. }
-      | Insn::Jump { .. }
-      | Insn::BranchIfNot { .. }
-      | Insn::StructDef { .. }
-      | Insn::EnumDef { .. }
-      | Insn::FieldStore { .. }
-      | Insn::ConstDef { .. } => ValueId(u32::MAX),
-      // Constants and other value-producing instructions
-      _ => {
-        let id = ValueId(self.next_value_id);
-
-        self.next_value_id += 1;
-
-        id
-      }
+      | Insn::TupleLiteral { dst, .. }
+      | Insn::TupleIndex { dst, .. }
+      | Insn::EnumConstruct { dst, .. }
+      | Insn::StructConstruct { dst, .. } => *dst,
+      // Template uses `id` as its value.
+      Insn::Template { id, .. } => *id,
+      // Non-value instructions.
+      _ => ValueId(u32::MAX),
     };
 
     self.instructions.push(insn);
@@ -98,13 +89,29 @@ impl Default for Sir {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Insn {
   /// Constant integer literal.
-  ConstInt { value: u64, ty_id: TyId },
+  ConstInt {
+    dst: ValueId,
+    value: u64,
+    ty_id: TyId,
+  },
   /// Constant float literal.
-  ConstFloat { value: f64, ty_id: TyId },
+  ConstFloat {
+    dst: ValueId,
+    value: f64,
+    ty_id: TyId,
+  },
   /// Constant boolean value
-  ConstBool { value: bool, ty_id: TyId },
+  ConstBool {
+    dst: ValueId,
+    value: bool,
+    ty_id: TyId,
+  },
   /// Constant string value (interned as Symbol).
-  ConstString { symbol: Symbol, ty_id: TyId },
+  ConstString {
+    dst: ValueId,
+    symbol: Symbol,
+    ty_id: TyId,
+  },
   /// Variable definition (compile-time binding).
   VarDef {
     name: Symbol,
@@ -143,6 +150,7 @@ pub enum Insn {
   },
   /// Function call
   Call {
+    dst: ValueId,
     name: Symbol,
     args: Vec<ValueId>,
     ty_id: TyId, // Return type
@@ -162,7 +170,12 @@ pub enum Insn {
     ty_id: TyId,
   },
   /// Unary operation
-  UnOp { op: UnOp, rhs: ValueId, ty_id: TyId },
+  UnOp {
+    dst: ValueId,
+    op: UnOp,
+    rhs: ValueId,
+    ty_id: TyId,
+  },
   /// Directive execution (e.g., #dom, #run)
   Directive {
     name: Symbol,
@@ -183,7 +196,11 @@ pub enum Insn {
   /// The conditional branch — jump to target if false.
   BranchIfNot { cond: ValueId, target: u32 },
   /// Array literal: [e0, e1, ..., eN].
-  ArrayLiteral { elements: Vec<ValueId>, ty_id: TyId },
+  ArrayLiteral {
+    dst: ValueId,
+    elements: Vec<ValueId>,
+    ty_id: TyId,
+  },
   /// Array index: arr[idx].
   ArrayIndex {
     dst: ValueId,
@@ -198,7 +215,11 @@ pub enum Insn {
     ty_id: TyId,
   },
   /// Tuple literal: (e0, e1, ..., eN).
-  TupleLiteral { elements: Vec<ValueId>, ty_id: TyId },
+  TupleLiteral {
+    dst: ValueId,
+    elements: Vec<ValueId>,
+    ty_id: TyId,
+  },
   /// Tuple/struct field read: tup.N (compile-time index).
   TupleIndex {
     dst: ValueId,
@@ -223,6 +244,7 @@ pub enum Insn {
   },
   /// Enum variant construction: `Foo::Ok(42)`.
   EnumConstruct {
+    dst: ValueId,
     enum_name: Symbol,
     variant: u32,
     fields: Vec<ValueId>,
@@ -238,6 +260,7 @@ pub enum Insn {
   },
   /// Struct construction: `Span { lo: 0, hi: 10 }`.
   StructConstruct {
+    dst: ValueId,
     struct_name: Symbol,
     fields: Vec<ValueId>,
     ty_id: TyId,

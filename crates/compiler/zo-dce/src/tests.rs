@@ -61,10 +61,12 @@ fn test_removes_uncalled_function() {
       pubness: Pubness::No,
     },
     Insn::ConstString {
+      dst: ValueId(0),
       symbol: hello,
       ty_id: TyId(4),
     },
     Insn::Call {
+      dst: ValueId(1),
       name: showln,
       args: vec![ValueId(0)],
       ty_id: TyId(1),
@@ -75,7 +77,7 @@ fn test_removes_uncalled_function() {
     },
   ]);
 
-  eliminate_dead_functions(&mut sir);
+  eliminate_dead_functions(&mut sir, main);
 
   // show should be gone. showln + main should remain.
   let fun_names = sir
@@ -134,11 +136,13 @@ fn test_keeps_all_when_all_called() {
       pubness: Pubness::No,
     },
     Insn::Call {
+      dst: ValueId(0),
       name: foo,
       args: vec![],
       ty_id: TyId(1),
     },
     Insn::Call {
+      dst: ValueId(1),
       name: bar,
       args: vec![],
       ty_id: TyId(1),
@@ -149,7 +153,7 @@ fn test_keeps_all_when_all_called() {
     },
   ]);
 
-  eliminate_dead_functions(&mut sir);
+  eliminate_dead_functions(&mut sir, main);
 
   let fun_names: Vec<Symbol> = sir
     .instructions
@@ -170,7 +174,7 @@ fn test_keeps_all_when_all_called() {
 fn test_empty_sir_is_noop() {
   let mut sir = make_sir(vec![]);
 
-  eliminate_dead_functions(&mut sir);
+  eliminate_dead_functions(&mut sir, Symbol(0));
 
   assert!(sir.instructions.is_empty());
 }
@@ -182,7 +186,7 @@ fn test_no_functions_is_noop() {
     imported_symbols: vec![],
   }]);
 
-  eliminate_dead_functions(&mut sir);
+  eliminate_dead_functions(&mut sir, Symbol(0));
 
   assert_eq!(sir.instructions.len(), 1);
 }

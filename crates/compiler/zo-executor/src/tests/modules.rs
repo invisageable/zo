@@ -57,6 +57,7 @@ fun main() -> int { 42 }"#,
         pubness: Pubness::No,
       },
       Insn::ConstInt {
+        dst: zo_value::ValueId(0),
         value: 42,
         ty_id: TyId(8),
       },
@@ -121,6 +122,7 @@ fn test_non_empty_body_not_intrinsic() {
         pubness: Pubness::No,
       },
       Insn::ConstInt {
+        dst: zo_value::ValueId(0),
         value: 42,
         ty_id: TyId(8),
       },

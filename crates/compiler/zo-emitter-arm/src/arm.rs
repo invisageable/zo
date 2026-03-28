@@ -52,6 +52,7 @@ const FCVTZS: u32 = 0x9E780000;
 const SCVTF: u32 = 0x9E620000;
 const LDR_FP: u32 = 0xFD400000;
 const STR_FP: u32 = 0xFD000000;
+const BR: u32 = 0xD61F0000;
 
 // --- Encoding Masks ---
 const IMM2_MASK: u32 = 0x3;
@@ -691,6 +692,15 @@ impl ARM64Emitter {
       | (imm12 << 10)
       | ((base.index() as u32) << 5)
       | (src.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// BR Xn — branch to register (indirect jump).
+  ///
+  /// Encoding: 1101011_0000_11111_000000_Xn_00000
+  pub fn emit_br(&mut self, reg: Register) {
+    let insn = BR | ((reg.index() as u32) << 5);
 
     self.emit_u32(insn);
   }

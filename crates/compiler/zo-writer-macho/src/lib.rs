@@ -4,6 +4,6 @@ mod macho;
 mod tests;
 
 pub use macho::{
-  ARM64RelocationType, DebugFrameEntry, MachO, SymbolVisibility,
+  ARM64RelocationType, DATA_VM_ADDR, DebugFrameEntry, MachO, SymbolVisibility,
   UniversalBinary,
 };
