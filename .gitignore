@@ -1,4 +1,5 @@
 /.vscode
+/crates/compiler/zo-how-zo/wip
 /crates/compiler/zo-notes/personal
 /crates/packager/fret-notes/personal
 /program
