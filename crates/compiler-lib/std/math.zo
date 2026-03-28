@@ -39,7 +39,14 @@ pub fun clamp<$T>(x: $T, lo: $T, hi: $T) -> $T {
   }
 }
 
--- power and roots (requires libm linking).
+-- interpolation.
+
+-! Linear interpolation between a and b by factor t (0..1).
+pub fun lerp<$T>(a: $T, b: $T, t: $T) -> $T {
+  a + (b - a) * t
+}
+
+-- power and roots.
 
 -! Returns the square root of x.
 pub ext sqrt(x: float) -> float;

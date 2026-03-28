@@ -2,10 +2,17 @@
 -- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/math-intrinsics.zo -o crates/compiler/zo-tests/build-pass/programming/math-intrinsics
 
 fun main() {
+  -- sqrt
   showln(sqrt(9.0));
   showln(sqrt(25.0));
+
+  -- rounding
   showln(floor(3.7));
   showln(ceil(3.2));
   showln(trunc(3.9));
   showln(round(3.5));
+
+  -- classification
+  showln(is_nan(1.0));
+  showln(is_finite(1.0));
 }
