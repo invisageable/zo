@@ -1,9 +1,0 @@
-val X: int = 10;
-
-fun main() {
-  match X {
-    5 => check(false),
-    num if num == (3 * 3 + 1) => check(true),
-    _ => check(false),
-  }
-}

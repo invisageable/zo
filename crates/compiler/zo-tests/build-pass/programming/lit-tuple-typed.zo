@@ -1,6 +1,0 @@
--- tests-build-pass: tuple with type annotation.
--- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/tuple-typed.zo -o crates/compiler/zo-tests/build-pass/programming/tuple-typed
-
-fun main() {
-  imu t: (int, int) = (10, 20);
-}

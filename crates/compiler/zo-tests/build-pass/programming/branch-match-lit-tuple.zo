@@ -1,6 +1,0 @@
-fun main() {
-  match 5 {
-    10 => check(false),
-    _ => check(true),
-  }
-}

@@ -1,11 +1,11 @@
 fun main() {
-  imu z: int = 1;
+  mut z: int = 1;
   
   while z < 10 {
     z += 1;
   }
 
-  check@eq (z == 10);
+  check@eq(z, 10);
 
   -- mut x: int = 10;
   -- mut y: int = 0;

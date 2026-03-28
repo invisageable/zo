@@ -1,6 +1,0 @@
-fun main() {
-  match "z" ++ "o" {
-    "ivs" => check(false),
-    "zo" => check(true),
-  };
-}

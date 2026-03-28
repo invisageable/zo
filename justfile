@@ -19,8 +19,16 @@ typos:
 typos_fix:
   typos --write-changes
 
+# Run zo program integration tests
+test_programs:
+  cargo run --bin zo-test-runner
+
+# Run zo program tests (quick — skip build-pass)
+test_programs_quick:
+  cargo run --bin zo-test-runner -- --quick
+
 # Run all pre-commit checks
-pre-commit: typos fmt clippy test
+pre-commit: typos fmt clippy test test_programs
   @echo "All pre-commit checks passed!"
 
 # Format all code

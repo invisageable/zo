@@ -16,3 +16,7 @@ pre-commit:
     test:
       glob: "**/*.rs"
       run: cargo nextest run --workspace --all-features
+
+    test_programs:
+      glob: "**/*.zo"
+      run: cargo run --bin zo-test-runner -- --quick
