@@ -586,6 +586,9 @@ impl<'a> Tokenizer<'a> {
           self.tokens.push(Token::Arrow, start as u32, 2);
         } else if self.current() == b'-' {
           self.skip_line_comment();
+        } else if self.current() == b'!' {
+          // Doc line comment: -! ...
+          self.skip_line_comment();
         } else if self.current() == b'*' {
           self.skip_block_comment(start);
         } else {

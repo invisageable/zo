@@ -43,6 +43,11 @@ const FSUB: u32 = 0x1E603800;
 const FMUL: u32 = 0x1E600800;
 const FDIV: u32 = 0x1E601800;
 const FCMP: u32 = 0x1E602000;
+const FSQRT: u32 = 0x1E61C000;
+const FRINTM: u32 = 0x1E654000; // floor
+const FRINTP: u32 = 0x1E64C000; // ceil
+const FRINTZ: u32 = 0x1E65C000; // trunc
+const FRINTN: u32 = 0x1E644000; // round nearest
 const FCVTZS: u32 = 0x9E780000;
 const SCVTF: u32 = 0x9E620000;
 const LDR_FP: u32 = 0xFD400000;
@@ -615,6 +620,41 @@ impl ARM64Emitter {
   /// SCVTF Dd, Xn — convert signed int to double.
   pub fn emit_scvtf(&mut self, dst: FpRegister, src: Register) {
     let insn = SCVTF | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FSQRT Dd, Dn — FP square root (double).
+  pub fn emit_fsqrt(&mut self, dst: FpRegister, src: FpRegister) {
+    let insn = FSQRT | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FRINTM Dd, Dn — round toward minus infinity (floor).
+  pub fn emit_frintm(&mut self, dst: FpRegister, src: FpRegister) {
+    let insn = FRINTM | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FRINTP Dd, Dn — round toward plus infinity (ceil).
+  pub fn emit_frintp(&mut self, dst: FpRegister, src: FpRegister) {
+    let insn = FRINTP | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FRINTZ Dd, Dn — round toward zero (trunc).
+  pub fn emit_frintz(&mut self, dst: FpRegister, src: FpRegister) {
+    let insn = FRINTZ | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FRINTN Dd, Dn — round to nearest (round).
+  pub fn emit_frintn(&mut self, dst: FpRegister, src: FpRegister) {
+    let insn = FRINTN | ((src.index() as u32) << 5) | (dst.index() as u32);
 
     self.emit_u32(insn);
   }

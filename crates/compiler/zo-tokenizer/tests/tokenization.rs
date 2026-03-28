@@ -177,6 +177,7 @@ proptest! {
     code in "[a-zA-Z_][a-zA-Z0-9_]{0,10}",
     comment in prop::sample::select(vec![
       "-- comment\n",
+      "-! doc comment\n",
       "-* block comment *-",
       "-* nested -* comment *- *-"
     ])

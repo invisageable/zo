@@ -3507,6 +3507,38 @@ impl<'a> Executor<'a> {
     let mut return_ty = self.ty_checker.unit_type();
     let mut idx = start_idx + 2;
 
+    // Parse optional type parameters: <$T>.
+    let outer_type_params = std::mem::take(&mut self.type_params);
+
+    if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
+      idx += 1;
+
+      while idx < end_idx {
+        let tok = self.tree.nodes[idx].token;
+
+        if tok == Token::RAngle {
+          idx += 1;
+          break;
+        }
+
+        if tok == Token::Dollar && idx + 1 < end_idx {
+          idx += 1;
+
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+            let var = self.ty_checker.fresh_var();
+
+            self.type_params.push((sym, var));
+          }
+        }
+
+        idx += 1;
+      }
+    }
+
+    if self.type_params.is_empty() {
+      self.type_params = outer_type_params;
+    }
+
     // Parse parameters.
     if idx < end_idx && self.tree.nodes[idx].token == Token::LParen {
       idx += 1;
@@ -3515,7 +3547,6 @@ impl<'a> Executor<'a> {
         match &self.tree.nodes[idx].token {
           Token::RParen => {
             idx += 1;
-
             break;
           }
           Token::Ident => {
@@ -3525,8 +3556,12 @@ impl<'a> Executor<'a> {
               if idx < end_idx {
                 let param_ty = self.resolve_type_token(idx);
 
-                params.push((param_name, param_ty));
+                // Skip extra token for $T.
+                if self.tree.nodes[idx].token == Token::Dollar {
+                  idx += 1;
+                }
 
+                params.push((param_name, param_ty));
                 idx += 1;
 
                 if idx < end_idx && self.tree.nodes[idx].token == Token::Comma {
@@ -3581,7 +3616,7 @@ impl<'a> Executor<'a> {
       body_start: 0,
       kind: FunctionKind::Intrinsic,
       pubness,
-      type_params: Vec::new(),
+      type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
     });
 
     // Skip all children — no body to process.

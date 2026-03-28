@@ -1,4 +1,70 @@
--- mathematical constants.
+pack math;
+
+-- constants.
+
+-! The ratio of a circle's circumference to its diameter.
 pub val PI: f64 = 3.141592653589793;
-pub val E: f64 = 2.718281828459045;
+
+-! A full turn in radians. Equal to 2 * PI.
 pub val TAU: f64 = 6.283185307179586;
+
+-! Euler's number. Base of the natural logarithm.
+pub val E: f64 = 2.718281828459045;
+
+-- basic arithmetic.
+
+-! Returns the absolute value of x.
+pub fun abs<$T>(x: $T) -> $T {
+  when x >= 0 ? x : 0 - x
+}
+
+-! Returns the smaller of a and b.
+pub fun min<$T>(a: $T, b: $T) -> $T {
+  when a <= b ? a : b
+}
+
+-! Returns the larger of a and b.
+pub fun max<$T>(a: $T, b: $T) -> $T {
+  when a >= b ? a : b
+}
+
+-! Clamps x between lo and hi.
+pub fun clamp<$T>(x: $T, lo: $T, hi: $T) -> $T {
+  if x < lo {
+    lo
+  } else if x > hi {
+    hi
+  } else {
+    x
+  }
+}
+
+-- power and roots (requires libm linking).
+
+-! Returns the square root of x.
+pub ext sqrt(x: float) -> float;
+
+-! Returns x raised to the power y.
+pub ext pow(x: float, y: float) -> float;
+
+-- rounding (requires libm linking).
+
+-! Returns the largest integer less than or equal to x.
+pub ext floor(x: float) -> float;
+
+-! Returns the smallest integer greater than or equal to x.
+pub ext ceil(x: float) -> float;
+
+-! Removes the fractional part. Rounds toward zero.
+pub ext trunc(x: float) -> float;
+
+-! Rounds to the nearest integer.
+pub ext round(x: float) -> float;
+
+-- float classification.
+
+-! Returns true if x is finite (not infinity or NaN).
+pub ext is_finite(x: float) -> bool;
+
+-! Returns true if x is NaN.
+pub ext is_nan(x: float) -> bool;

@@ -190,7 +190,7 @@ impl Compiler {
 
     // --- Prelude: auto-import std/io so showln etc.
     // are available without explicit `load io::showln;`.
-    let prelude = ["io", "assert"];
+    let prelude = ["io", "assert", "math"];
 
     for module_name in prelude {
       let sym = tokenization.interner.intern(module_name);

@@ -1,0 +1,11 @@
+-- tests-build-pass: math hardware intrinsics from prelude.
+-- @cmd — cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/math-intrinsics.zo -o crates/compiler/zo-tests/build-pass/programming/math-intrinsics
+
+fun main() {
+  showln(sqrt(9.0));
+  showln(sqrt(25.0));
+  showln(floor(3.7));
+  showln(ceil(3.2));
+  showln(trunc(3.9));
+  showln(round(3.5));
+}

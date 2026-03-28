@@ -1,22 +1,22 @@
 pack io;
 
--- show something to stdout without newline.
-pub ext show(msg: str);
+-! Writes a value to stdout without a trailing newline.
+pub ext show<$T>(msg: $T);
 
--- show something to stdout with ending line.
-pub ext showln(msg: str);
+-! Writes a value to stdout with a trailing newline.
+pub ext showln<$T>(msg: $T);
 
--- show error message to stderr without newline.
-pub ext eshow(msg: str);
+-! Writes a value to stderr without a trailing newline.
+pub ext eshow<$T>(msg: $T);
 
--- show error message to stderr with ending line.
-pub ext eshowln(msg: str);
+-! Writes a value to stderr with a trailing newline.
+pub ext eshowln<$T>(msg: $T);
 
--- read a line from stdin.
+-! Reads a single line from stdin.
 pub ext readln() -> str;
 
--- read all of stdin into a string.
+-! Reads all remaining input from stdin.
 pub ext read_all() -> str;
 
--- flush output buffers.
+-! Flushes stdout and stderr output buffers.
 pub ext flush();

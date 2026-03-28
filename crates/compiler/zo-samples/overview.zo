@@ -295,6 +295,7 @@ fun main() {
 -- expr:zsx.
 fun main() {
   mut count: int = 0;
+
   imu counter: </> ::= <>
     <button onclick={fn() -> count -= 1}>-</button>
     {count}

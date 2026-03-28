@@ -1,6 +1,15 @@
 # fret.
 
-> the blazing fast package manager for zo.
+> *the blazing fast package manager for zo.*
+
+```js
+@pack = (
+  name: "my-project",
+  version: "0.1.0",
+  authors: ["you <you@example.com>"],
+  license: "MIT",
+)
+```
 
 ## about.
 
@@ -40,12 +49,3 @@ fret init <name>     # create a new zo project
 ## configuration.
 
 projects are configured via `fret.oz`:
-
-```js
-@pack = (
-  name: "my-project",
-  version: "0.1.0",
-  authors: ["you <you@example.com>"],
-  license: "MIT",
-)
-```

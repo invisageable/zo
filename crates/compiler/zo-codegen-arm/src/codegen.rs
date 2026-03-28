@@ -120,6 +120,9 @@ pub struct ARM64Gen<'a> {
   next_struct_slot: u32,
   /// Functions that return structs: name -> field count.
   struct_return_fns: HashMap<Symbol, u32>,
+  /// Set when the last emitted instruction was a math
+  /// intrinsic (FSQRT, FRINT*). Result is in D0.
+  last_was_math_intrinsic: bool,
 }
 
 impl<'a> ARM64Gen<'a> {
@@ -145,6 +148,7 @@ impl<'a> ARM64Gen<'a> {
       struct_base: 0,
       next_struct_slot: 0,
       struct_return_fns: HashMap::default(),
+      last_was_math_intrinsic: false,
     }
   }
 
@@ -853,6 +857,47 @@ impl<'a> ARM64Gen<'a> {
             self.emit_check_fail();
           }
           "flush" => {}
+
+          // Math intrinsics — ARM64 hardware instructions.
+          // The arg is a float in a FP register. Move it
+          // to D0, execute the instruction, leave result
+          // in D0 for showln/binding to consume.
+          "sqrt" | "floor" | "ceil" | "trunc" | "round" => {
+            let fn_name = self.interner.get(*name);
+
+            // Use the regular arg passing for FP: move
+            // the first arg to D0.
+            if let Some(arg) = args.first() {
+              if let Some(fp_src) = self.alloc_fp_reg(*arg) {
+                if fp_src != D0 {
+                  self.emitter.emit_fmov_fp(D0, fp_src);
+                }
+              } else {
+                // Arg might be in GP reg (from
+                // ConstFloat via fmov_gp_to_fp).
+                // The ConstFloat handler already put
+                // it in a FP register — find it by
+                // checking all FP allocations.
+                if let Some(fp) = self.fp_reg_for_insn(idx.wrapping_sub(1))
+                  && fp != D0
+                {
+                  self.emitter.emit_fmov_fp(D0, fp);
+                }
+              }
+            }
+
+            match fn_name {
+              "sqrt" => self.emitter.emit_fsqrt(D0, D0),
+              "floor" => self.emitter.emit_frintm(D0, D0),
+              "ceil" => self.emitter.emit_frintp(D0, D0),
+              "trunc" => self.emitter.emit_frintz(D0, D0),
+              "round" => self.emitter.emit_frintn(D0, D0),
+              _ => {}
+            }
+
+            self.last_was_math_intrinsic = true;
+          }
+
           _ => {
             // Move args to X0-X7 (GP) or D0-D7 (FP).
             for (i, arg) in args.iter().enumerate() {
@@ -1234,6 +1279,13 @@ impl<'a> ARM64Gen<'a> {
   ) {
     let is_str = arg_vid.is_some_and(|v| self.is_string_value(v, all_insns));
     let is_flt = arg_vid.is_some_and(|v| self.is_float_value(v, all_insns));
+
+    // Check if the most recent emitted instruction was a
+    // math intrinsic (FSQRT, FRINTM, etc.). The result
+    // is in D0 and should use the float showln path.
+    let is_flt = is_flt || self.last_was_math_intrinsic;
+
+    self.last_was_math_intrinsic = false;
 
     if is_flt {
       if let Some(fp_src) = arg_vid.and_then(|v| self.alloc_fp_reg(v))
