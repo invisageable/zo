@@ -1,3 +1,36 @@
+-! how to data: 003-structs.zo
+-!
+-! @cmd: zo run 003-structs.zo
+-!
+-! To group data, we use `struct`. To add behavior to that data,
+-! we use `apply`. This keeps data and logic separate but connected.
+
+-- merge all example in one entry point function.
+
+struct Player {
+  name: str,
+  health: int,
+}
+
+apply Player {
+  fun is_alive(self) -> bool {
+    return self.health > 0;
+  }
+}
+
+fun main() {
+  imu hero: Player = Player { name: "johndoe", health: 100 };
+  
+  -- We call the applied function using dot notation.
+  imu alive: bool = hero.is_alive();
+  
+  showln("Is {hero.name} alive? {alive}");
+}
+
+-- EXPECTED OUTPUT:
+-- Is johndoe alive? true
+
+
 # 07 — the inventory.
 
 a hero carries items. each item has a name and a power level. you need
@@ -30,14 +63,14 @@ let's build a proper hero:
 struct Hero {
   name: str,
   hp: int,
-  atk: int,
+  attack: int,
   def: int,
 }
 
 fun show_hero(h: Hero) {
   showln("=== {h.name} ===");
   showln("hp:  {h.hp}");
-  showln("atk: {h.atk}");
+  showln("attack: {h.attack}");
   showln("def: {h.def}");
 }
 
@@ -45,7 +78,7 @@ fun main() {
   imu hero := Hero {
     name: "arya",
     hp: 100,
-    atk: 15,
+    attack: 15,
     def: 8,
   };
 
@@ -56,7 +89,7 @@ fun main() {
 ```
 === arya ===
 hp:  100
-atk: 15
+attack: 15
 def: 8
 ```
 
@@ -68,10 +101,3 @@ the function takes a `Hero`.
 - add a `level: int` field to `Hero`.
 - create a `Potion` struct with `name` and `heal_amount`.
 - write a function `describe_item(item: Item)` that prints the item.
-
-## what you learned.
-
-- `struct` groups named fields into a type.
-- create instances with `Type { field: value }`.
-- access fields with `.` — `hero.name`, `hero.hp`.
-- pass structs to functions like any other type.

@@ -1,0 +1,1 @@
+-- Explain Hindley-Milner. Show a complex function with no type annotations and explain how the compiler "figures it out" perfectly.

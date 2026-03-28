@@ -1,0 +1,67 @@
+-! # how to variables: 003-variables-and-shadowing.zo
+-!
+-! @cmd: `zo run 003-variables-and-shadowing.zo`
+-!
+-! Data needs a name. In zo, you have three ways to name a value:
+-! `val` for constants, `imu` for immutable locals, and `mut` when things change.
+-!
+-! Pick the least powerful one that works — that's the zo way.
+
+-- `val` is a compile-time constant. The compiler inlines it everywhere.
+-- No stack slot, no runtime cost. Use it for things that never change.
+val VERSION: str = "1.0.0";
+val MAX_HEALTH: int = 100;
+
+fun main() {
+  -- `imu` declares an immutable local. Once set, it cannot change.
+  -- Use this for 90% of your variables. It makes code easier to read.
+  imu name: str = "johndoe";
+  showln(name);
+
+  -- `mut` declares a mutable local. The value can be reassigned.
+  -- Reach for `mut` only when something genuinely changes over time.
+  mut health: int = 22;
+  showln(health);
+
+  -- We can reassign a `mut` variable like this:
+  health = 50;
+  showln(health);
+
+  -- Shadowing: You can re-declare a name in the same scope.
+  -- This creates a NEW variable — the original is untouched.
+  imu x: int = 1;
+  imu x: int = 2;
+  imu x: int = x + 3; -- Uses the '2' to create a new '5'
+  showln(x);
+
+  -- Constants work anywhere — even inside functions.
+  showln(VERSION);
+}
+
+-! ## when to use what?
+-!
+-!   `val`  — Global constant. Known before the program even runs.
+-!   `imu`  — Immutable local. Set once, read many. (The Default).
+-!   `mut`  — Mutable local. Changes over time.
+-!
+-! Rule of thumb: `val` > `imu` > `mut`. Use the strictest one that works.
+-!
+-! ## a note on types.
+-!
+-! In this lesson, we wrote every type explicitly (like `: int`).
+-! In practice, you'll rarely need to. Zo can almost always figure it out.
+-! We'll stay explicit for now to help you learn, but soon we'll let the
+-! compiler do the heavy lifting!
+-!
+-! ## try this.
+-!
+-! - Add `imu level: int = 1;` and print it.
+-! - Try changing `name` after declaring it — see the compiler error?
+-! - Try creating a `val` inside `main` and a `val` outside. Both work!
+
+-- EXPECTED OUTPUT:
+-- johndoe
+-- 22
+-- 50
+-- 5
+-- 1.0.0

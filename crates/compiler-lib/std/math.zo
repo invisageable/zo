@@ -54,7 +54,32 @@ pub ext sqrt(x: float) -> float;
 -! Returns x raised to the power y.
 pub ext pow(x: float, y: float) -> float;
 
--- rounding (requires libm linking).
+-- trigonometry.
+
+-! Returns the sine of x (radians).
+pub ext sin(x: float) -> float;
+
+-! Returns the cosine of x (radians).
+pub ext cos(x: float) -> float;
+
+-! Returns the tangent of x (radians).
+pub ext tan(x: float) -> float;
+
+-- logarithms and exponentials.
+
+-! Returns the natural logarithm of x.
+pub ext log(x: float) -> float;
+
+-! Returns the base-2 logarithm of x.
+pub ext log2(x: float) -> float;
+
+-! Returns the base-10 logarithm of x.
+pub ext log10(x: float) -> float;
+
+-! Returns e raised to the power x.
+pub ext exp(x: float) -> float;
+
+-- rounding.
 
 -! Returns the largest integer less than or equal to x.
 pub ext floor(x: float) -> float;

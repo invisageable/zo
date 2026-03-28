@@ -1,0 +1,12 @@
+-- How the "builtin styling" works. Is it scoped CSS? we should check the plan.
+
+fun main() {
+  imu src: str = "/assets/image.gif";
+	imu name: str = "johndoe";
+  -- interpolation can be use as attribute or inside a string.
+  --
+  -- Note: `{src}` this is the shorthand of: `src={src}`.
+  imu image: </> ::= <img {src} alt="a picture of '{name}'" />;
+
+  #dom image;
+}

@@ -1,7 +1,6 @@
-# 12 — the armory.
+-- How to use pack and load to organize code. merge all in one.
 
-your game is growing. everything in one file gets messy. zo lets you
-split code into modules with `pack` and `load`.
+-! zo lets you split code into modules with `pack` and `load`.
 
 `pack` declares a module. `load` brings its contents into scope.
 

@@ -34,7 +34,7 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
 - [ ] target support — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
 - [x] meta-language — *`#asm`, `#dom`, `#run` (directives)*.
 - [x] templating syntax — *like the abandoned `E4X`*.
-- [x] build native apps — *`gpu` (egui) and `js` (web)*.
+- [x] build native apps — *`gpu` (egui) and `js` (wry)*.
 - [ ] safe concurrency model — *actor model erlang-like*.
 - [x] fast `compilation-time` — *insanely faster, usain is jealous*.
 - [x] powerful `tools` — *native REPL, code editor, packager, etc*.

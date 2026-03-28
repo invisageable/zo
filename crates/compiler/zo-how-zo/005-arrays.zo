@@ -1,0 +1,67 @@
+-! # how to arrays: 005-arrays.zo
+-!
+-! @cmd: `zo run 005-arrays.zo`
+-!
+-! An array is a fixed-size list of values, all the same type. you declare
+-! the size up front and it never changes. no heap. no growing. just a flat
+-! block of memory on the stack.
+
+fun main() {
+  -- declare an array with `type[]` and fill it with `[a, b, c]`.
+  -- zo infers the length from the literal.
+  imu loot: int[] = [10, 25, 50, 5, 100];
+
+  -- access elements with `arr[index]`. indices start at 0.
+  imu first: int = loot[0];
+  imu last: int = loot[4];
+
+  showln("first chest: {first} gold");
+  showln("last chest: {last} gold");
+
+  -- you can index with expressions too.
+  imu mid: int = loot[2];
+  showln("middle chest: {mid} gold");
+
+  -- arrays + loops = power. iterate with `for` and a range.
+  mut total: int = 0;
+
+  for i := 0..5 {
+    total = total + loot[i];
+  }
+
+  showln("total gold: {total}");
+
+  -- array math — pull values out, combine them.
+  imu dmg: int[] = [5, 12, 8, 20, 3];
+  imu combo: int = dmg[0] + dmg[1];
+  showln("combo damage: {combo}");
+
+  -- verify with check@eq.
+  check@eq(loot[0], 10);
+  check@eq(dmg[2] * dmg[4], 24);
+  check@eq(combo, 17);
+}
+
+-! ## array types.
+-!
+-!   ```
+-!   int[]   — array of signed 32-bit integers.
+-!   float[] — array of 64-bit floats.
+-!   str[]   — array of strings.
+-!   ```
+-!
+-! The length is fixed at creation. no push, no pop, no resize. if you
+-! need dynamic collections, that's a different chapter.
+-!
+-! ## try this.
+-!
+-!   - create a `float[]` of temperatures and find the average with a loop.
+-!   - use `check@eq(arr[2] * arr[3], 24)` to verify array math.
+-!   - what happens if you access `loot[5]`? (out of bounds — try it.)
+
+-- EXPECTED OUTPUT:
+-- first chest: 10 gold
+-- last chest: 100 gold
+-- middle chest: 50 gold
+-- total gold: 190
+-- combo damage: 17

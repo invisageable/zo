@@ -1,0 +1,66 @@
+-! # how to zo: 000-welcome.zo
+-!
+-! @cmd: `zo run 001-hello.zo`
+-!
+-! Welcome. I'm happy you decided to JOiN THE DEVOLUTiON.
+-!
+-! This folder is your guide. Each file is a lesson — a program you can read,
+-! run, and modify. The comments are the manual. The code is the proof.
+-!
+-! ## what is zo?
+-!
+-! zo is a compiled systems language. It turns your source code into a 
+-! native binary that runs directly on your hardware. 
+-!
+-! There is no interpreter, no virtual machine, and no garbage collector 
+-! standing between you and the CPU. When you type `zo run 001-hello.zo`, 
+-! the compiler analyzes your code, performs type inference, generates 
+-! machine code, and executes it — all in milliseconds.
+-!
+-! ## why zo?
+-!
+-! Compilers are everywhere. Every app you use, every game you play, and 
+-! every OS you boot was compiled. Understanding this process gives you 
+-! ultimate power over your craft. 
+-!
+-! I fell in love with compiler science as a "not-scientist." I wanted a 
+-! language I could build from scratch, understand completely, and use 
+-! to build real, high-performance tools.
+-!
+-! ## the philosophy.
+-!
+-!   - Speed Demon Compiler: *no magic. no hidden allocations.*
+-!   - Data-Oriented: *your program is just a transformation of data.*
+-!   - Total Control: *you own the stack. You see the instructions.*
+-!
+-! ## your roadmap.
+-!
+-!  The Basics (001-010) — *hello world, types, and variables.*
+-!  Logic & Control (011-020) — *branching, matching, and loops.*
+-!  Architecture (021-035) — *structs, Enums, and apply blocks.*
+-!  The Type System (036-050) — *functions, closures, and inference.*
+-!  Systems (051-060) — *modules and FFI (calling C/JS).*
+-!  Built-in UI (061-080) — *zsx templates and Cross-platform apps.*
+-!
+-! Every file here is a valid zo program. Run this one now:
+-! 
+-!   ```bash
+-!   zo run 000-welcome.zo
+-!   ```
+
+-- This is a "line comment." The compiler ignores it. 
+-- Everything after `--` is just for humans.
+
+-* This is a "block comment."
+   It can span multiple lines.
+   It's great for long-winded explanations like this one. *-
+
+-- And `-!` is a "doc comment." It documents the code that follows it.
+-- You saw it at the top of this file!
+
+-- `fun` declares a function. 
+-- `main` is the "Entry Point" — the first piece of code that runs.
+fun main() {
+  -- This program does nothing... yet.
+  -- See you in `001-hello.zo`!
+}

@@ -1,0 +1,7 @@
+-- tests-run-pass: libm sin.
+
+ext sin(x: float) -> float;
+
+fun main() {
+  showln(sin(1.5707963267948966));
+}

@@ -1,8 +1,4 @@
-# 11 — the map.
-
-your hero moves on a grid. each position is an x and y coordinate.
-tuples are perfect for this — lightweight pairs (or triples, or more)
-of values.
+-- here we explain heterogeneous tuples. we should first merged all examples into one. we keep the RPG feel or course.
 
 ```zo
 fun main() {
@@ -72,10 +68,3 @@ hp: 100, atk: 15, def: 8
 - make a `distance` function using `(x1 - x2) * (x1 - x2)`.
 - return a tuple `(str, int)` from a function — hero name and level.
 - simulate a 3-step path using a loop and position updates.
-
-## what you learned.
-
-- `(a, b)` creates a tuple.
-- `.0`, `.1`, `.2` access tuple elements by position.
-- functions can return tuples for multiple return values.
-- tuples are lighter than structs when names aren't needed.

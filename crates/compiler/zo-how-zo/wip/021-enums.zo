@@ -1,7 +1,5 @@
-# 06 — the bestiary.
-
-your game has one monster. boring. you need different kinds. that's
-what `enum` is for — a type that can be one of several variants.
+--  Sum types (Tagged Unions). Essential for state management. what `enum` is for — a type that can be one of several variants.
+-- same merge all examples in one, then work from that to preserve the RPG feel.
 
 ```zo
 enum Monster {
@@ -57,10 +55,3 @@ fun main() {
 - add a `Boss(int, int)` variant with HP and ATK.
 - create an enum `Weapon` with `Sword`, `Bow`, `Staff`.
 - make a `Direction` enum: `North`, `South`, `East`, `West`.
-
-## what you learned.
-
-- `enum` defines a type with distinct variants.
-- variants can carry data: `Variant(type)`.
-- `::` accesses enum variants: `Enum::Variant`.
-- unit variants (no data) are like named constants.

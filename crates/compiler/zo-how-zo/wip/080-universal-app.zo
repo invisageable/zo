@@ -1,0 +1,3 @@
+-- a single file that creates a window with a enough sophisticated app based on what we actually support.
+-- we need to show to the user how to build for both platform native and web in one program.
+-- this as to be elegant because this is a killer feature.

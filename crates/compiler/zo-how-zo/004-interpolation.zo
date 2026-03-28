@@ -1,0 +1,82 @@
+-! # how to interpolation: 004-interpolation.zo
+-!
+-! @cmd: `zo run 004-interpolation.zo`
+-!
+-! Numbers are useless if you can't show them. In zo, you drop values
+-! directly into strings with `{curly braces}`.
+-!
+-! No complex format functions. No clunky string concatenation.
+-! Just write it, and the compiler handles the rest at compile-time.
+
+fun main() {
+  -- Simply put `{variable}` inside a string.
+  imu name: str = "johndoe";
+  imu hp: int = 100;
+  imu attack: int = 15;
+
+  showln("hero: {name}");
+  showln("hp: {hp}");
+
+  -- Arithmetic works how you'd expect: `+`, `-`, `*`, `/`, `%`.
+  -- We compute the power level first, then print it.
+  imu power: int = hp + attack;
+  showln("power level: {power}");
+
+  -- You can interpolate as many values as you want in one go.
+  imu x: int = 10;
+  imu y: int = 12;
+  showln("position: {x}, {y}");
+
+  -- When a hero takes damage, we need a value that *changes*.
+  -- That's where `mut` comes in.
+  mut current_hp: int = 100;
+  imu damage: int = 25;
+  showln("hp before hit: {current_hp}");
+
+  -- Regular reassignment:
+  current_hp = current_hp - damage;
+  showln("hp after hit: {current_hp}");
+
+  -- Compound assignment: `-=`, `+=`, `*=`, `/=` also work.
+  -- These are just shorter ways to write `x = x - y`.
+  current_hp -= 10;
+  showln("hp after poison: {current_hp}");
+
+  current_hp += 30; -- A quick heal!
+  showln("hp after heal: {current_hp}");
+}
+
+-! ## how it works under the hood.
+-!
+-! `showln("{name}")` is NOT a slow runtime "format" call.
+-! The zo compiler breaks it down (desugars it) into separate calls:
+-!
+-!   ```
+-!   showln("hero: {name}")
+-!     → show("hero: ")
+-!     → showln(name)
+-!   ```
+-!
+-! This means:
+-!
+-!   1. Zero extra memory allocations.
+-!   2. Zero runtime parsing of strings.
+-!   3. Zero surprises. It's as fast as writing the calls manually.
+-!
+-! ## try this.
+-!
+-!   - Add a `crit_multiplier: int = 2;` and print `attack * crit_multiplier`.
+-!   - Use `%` (modulo) to see what's left: `showln(10 % 3);`.
+-!   - Try to interpolate a variable that hasn't been declared yet.
+-!
+-! Watch how the compiler protects you!
+
+-- EXPECTED OUTPUT:
+-- hero: johndoe
+-- hp: 100
+-- power level: 115
+-- position: 10, 12
+-- hp before hit: 100
+-- hp after hit: 75
+-- hp after poison: 65
+-- hp after heal: 95

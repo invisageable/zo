@@ -1,0 +1,21 @@
+-- tests-run-pass: all libm functions.
+
+ext pow(x: float, y: float) -> float;
+ext sin(x: float) -> float;
+ext cos(x: float) -> float;
+ext tan(x: float) -> float;
+ext log(x: float) -> float;
+ext log2(x: float) -> float;
+ext log10(x: float) -> float;
+ext exp(x: float) -> float;
+
+fun main() {
+  showln(pow(2.0, 10.0));
+  showln(sin(0.0));
+  showln(cos(0.0));
+  showln(tan(0.0));
+  showln(log(1.0));
+  showln(log2(8.0));
+  showln(log10(100.0));
+  showln(exp(0.0));
+}

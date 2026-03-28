@@ -103,3 +103,7 @@ just pre-commit    # Full pipeline: typos -> fmt_check -> clippy -> test
 ```
 
 Pre-commit hooks via `lefthook` run the same pipeline automatically. Always use `just` recipes — never raw cargo commands.
+
+## IMPORTANT
+
+- ALWAYS verify to clean all stuff that you add in `/tmp` for debugging. Pollution is bad.

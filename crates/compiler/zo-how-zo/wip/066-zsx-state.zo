@@ -1,0 +1,24 @@
+-- how to use state to mutate something.
+
+fun main() {
+  -- the old friend `mut` is the right guy for that.
+  mut count: int = 0;
+  
+  imu counter ::= <>
+    -- does comments works in template? we should make it work.
+    -- we define a button to with a closure function that will be fired
+    -- when we user will click to the button.
+    --
+    --  each time the user click the closure is triggered to increment the value of `count` by `1`
+    -- this happen ... WE NEED TO EXPLAIN HE BEHAVIOR.
+    <button on:click={fn() -> count += 1}>
+      -- we interpolate `count` to display the result in real time.
+      -- HOW THIS VALUE iS UPDATED?
+      clicked {count}
+      -- as you can see, all expressions works when interpolate
+      {when count == 1 ? "time" : "times"}
+    </button>
+  </>;
+
+  #dom counter;
+}

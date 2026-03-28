@@ -1,0 +1,88 @@
+-! # how to primitives: 002-primitives.zo
+-!
+-! @cmd: `zo run 002-primitives.zo`
+-!
+-! Programming is just moving data around. In zo, data comes in a few  basic
+-! flavors called "primitives". 
+-!
+-! You don't need to memorize all of these right now. Just know they exist. The
+-! most important thing: Zo is smart. It "infers" types so you don't have to be
+-! a keyboard typist just to declare a number.
+
+  fun main() {
+  -- A bare number like `42` is an `int` — a signed 32-bit integer.
+  -- zo supports big numbers natively — `600851475143` just works.
+  showln(42);
+
+  showln(600851475143);
+
+  -- You can also write integers in different bases:
+  showln(0b11110000); -- binary (prefix `0b`).
+  showln(0o77);       -- octal (prefix `0o`).
+  showln(0xff);       -- hexadecimal notation.
+
+  -- zo has parse modifiers — a shorthand to mark the base inline:
+  showln(b#30); -- binary notation.
+  showln(o#75); -- octal notation.
+  showln(x#76); -- hexadecimal notation.
+
+  -- `float` adding `.0` tells zo it's a float (64-bit double).
+  showln(14.0);
+  showln(3.14159);
+
+  -- Scientific e-notation is supported: `1.0e10`, `2.5e-3`:
+  showln(1.0e10);
+  showln(2.5e-3);
+
+  -- `str` and `char` are simple, double quotes for text ("str"), single
+  -- quotes for one letter ('char').
+  --
+  -- Note: strings live in the binary's read-only data section — no heap
+  -- allocation for literals.
+  showln("JOiN THE DEVOLUTiON.");
+  showln('z');
+
+  -- `bytes` are written with backticks. Gives the raw byte value (no Unicode).
+  -- 
+  -- Note: This is a work in progress!
+  -- showln(`z`);
+
+  -- booleans are basic, only 'true' and 'false'. No "truthy" or "falsy" logic
+  -- here!.
+  showln(true);
+  showln(false);
+}
+
+-! ## the integer family.
+-!
+-!   signed:    s8, s16, s32 (int), s64
+-!   unsigned:  u8, u16, u32 (uint), u64
+-!
+-! ## the float family (La FF).
+-!
+-!   f32: 32-bit (for GPUs/Games)
+-!   f64: 64-bit (float/default)
+-! 
+-! ## try this.
+-!
+-!   - Try a really big number: `showln(99999999999999);`
+-!   - Mix bases: what does `0b1010 + 0xA` give you?
+-!   - Write `showln(0.1 + 0.2);` — welcome to floating point.
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 600851475143
+-- 240
+-- 63
+-- 255
+-- 30
+-- 75
+-- 76
+-- 14.0
+-- 3.141589      (float precision loss in ftoa)
+-- 10000000000.0
+-- 0.2500
+-- JOiN THE DEVOLUTiON.
+-- 122           (char prints as its ASCII code for now)
+-- 1             (true = 1)
+-- 0             (false = 0)

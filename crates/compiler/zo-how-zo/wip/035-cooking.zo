@@ -1,7 +1,4 @@
-# 15 — game over.
-
-every game needs a clean ending. `return` exits a function early — use
-it when the outcome is decided and there's nothing left to do.
+-- let's use all the previous concepts (001-034) together in a solid manner. merge all in one.
 
 ```zo
 fun battle(hero_hp: int, monster_atk: int) -> str {

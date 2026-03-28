@@ -1,0 +1,7 @@
+-- tests-run-pass: libm pow.
+
+ext pow(x: float, y: float) -> float;
+
+fun main() {
+  showln(pow(2.0, 3.0));
+}
