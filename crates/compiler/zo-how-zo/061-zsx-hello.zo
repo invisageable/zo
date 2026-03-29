@@ -57,4 +57,4 @@ fun main() {
 -!   - add a second element: `imu sub: </> ::= <p>welcome back</p>;`
 
 -- NOTE: in a real app, you define these as 'components',
--- which we cover in 062-components.zo.
+-- which we cover in 065-components.zo.

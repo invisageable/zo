@@ -14,12 +14,5 @@ pre-commit:
       run: just clippy
       stage_fixed: true
 
-    test:
-      glob: "**/*.rs"
-      run: just test
-      stage_fixed: true
-
-    zo_test_programs:
-      glob: "**/*.zo"
-      run: just zo_test_programs
-      stage_fixed: true
+    test_all:
+      run: just test_all

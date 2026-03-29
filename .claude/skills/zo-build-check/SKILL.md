@@ -32,6 +32,8 @@ just pre-commit
 
 IMPORTANT: Always use `just` recipes. Do not run raw cargo commands — the justfile is the single source of truth for build commands.
 
+> Get the full list of `just` commands; @justfile
+
 ### Step 2: Analyze failures
 
 For each failure:

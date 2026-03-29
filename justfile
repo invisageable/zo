@@ -22,17 +22,12 @@ typos:
 typos_fix:
   typos --write-changes
 
-# Run zo program integration tests
-zo_test_programs:
-  cargo run --bin zo-test-runner
-
-# Run zo program tests (quick — skip build-pass)
-zo_test_programs_quick:
-  cargo run --bin zo-test-runner -- --quick
-
 # Run all pre-commit checks
-pre-commit: typos fmt clippy test zo_test_programs
-  @echo "All pre-commit checks passed!"
+pre-commit: lefthook
+
+# Run all pre-commit checks (old)
+# pre-commit: typos fmt clippy test zo_test
+# @echo "All pre-commit checks passed!"
 
 # Format all code
 fmt:
@@ -42,15 +37,27 @@ fmt:
 clippy:
   cargo clippy --all --all-targets -- -D warnings
 
+# Run all cargo benchmarks
+bench:
+  cargo bench --all
+
+# Run both test suites in parallel
+[group('test')]
+[parallel]
+test_all: test zo_test
+
 # Run all tests
+[group('test')]
 test:
   cargo nextest run --workspace --all-features
 
 # Run tests for a specific crate
+[group('test')]
 test_crate crate:
   cargo nextest run -p {{crate}}
 
 # Run a specific test by name
+[group('test')]
 test_filter filter:
   cargo nextest run -E 'test({{filter}})'
 
@@ -62,14 +69,42 @@ build:
 clean:
   cargo clean
 
+# Check a specific crate (faster than build)
+check crate:
+  cargo check -p {{crate}}
+
+# Build the zo compiler binary
+[group("zo")]
+zo_build_compiler:
+  cargo build --bin zo
+
+# Build a zo program
+[group("zo")]
+zo_build program:
+  cargo run --bin zo -- build {{program}}
+
+# Run a zo program
+[group("zo")]
+zo_run program:
+  cargo run --bin zo -- run {{program}}
+
+# Run zo program integration tests
+[group("zo")]
+zo_test:
+  cargo run --bin zo-test-runner
+
+# Run zo program tests (quick — skip build-pass)
+[group("zo")]
+[group('test')]
+zo_test_quick:
+  cargo run --bin zo-test-runner -- --quick
+
 # Run zo compiler benchmark
+[group('zo')]
 zo_bench program:
   cargo build --release --bin zo && cargo run --release -p zo-benches -- {{program}}
 
-# Run all cargo benchmarks
-bench:
-  cargo bench --all
-
+# Run `eazy` bench
 eazy_run_bench:
   cargo bench -p eazy 
 
@@ -166,7 +201,9 @@ bump_fret bump:
   cargo set-version -p fret-driver --bump {{bump}}
   cargo set-version -p fret --bump {{bump}}
 
+
 # Bump all zo-* crates together
+[group('zo')]
 bump_zo bump:
   #!/usr/bin/env sh
   for crate in $(cargo ws list | grep '^zo-'); do

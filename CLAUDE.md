@@ -67,11 +67,11 @@ We do **NOT** use traditional AST -> TypeCheck -> IR phases.
 
 ### Performance Targets
 
-| Phase | Target | Benchmark |
-|-------|--------|-----------|
-| Tokenize + Parse (-> Tree) | **10M LoC/s** | Carbon: 8M |
-| Semantic Analysis (Tree -> SIR) | **5M LoC/s** | Carbon: 1M |
-| Codegen (SIR -> machine code) | **5M LoC/s** | excl. LLVM |
+| Phase                           | Target        | Benchmark  |
+|---------------------------------|---------------|------------|
+| Tokenize + Parse (-> Tree)      | **10M LoC/s** | Carbon: 8M |
+| Semantic Analysis (Tree -> SIR) | **5M LoC/s**  | Carbon: 1M |
+| Codegen (SIR -> machine code)   | **5M LoC/s**  | excl. LLVM |
 
 ---
 
@@ -80,30 +80,39 @@ We do **NOT** use traditional AST -> TypeCheck -> IR phases.
 1. **Indentation**: 2 spaces (no tabs).
 2. **Line width**: 80 characters max (per `rustfmt.toml`).
 3. **File operations**: Exclude read/write in `tmp/` folder.
-4. **Bug fixes**: Never mark fixed without testing the solution.
-5. **Warnings**: Never ignore — they often indicate bugs or incomplete code.
-6. **Root causes**: Fix the cause, not silence the symptom.
-7. **Understand before removing**: Know why code exists before deleting it.
+4. **Issues**: Always write an integration/unit test in the specific crate.
+5. **Bug fixes**: Never mark fixed without testing the solution.
+6. **Warnings**: Never ignore — they often indicate bugs or incomplete code.
+7. **Root causes**: Fix the cause, not silence the symptom.
+8. **Ownership**: If a unit/integration test don't have an equivalent or do not exist we should implemet it.
+9. **Understand before removing**: Know why code exists before deleting it.
+10. **Focus on details**: Use an agent without code review is not allowed.
 
 ## Build System
 
 All build commands go through `just` (the justfile is the single source of truth):
 
-```
-just typos         # Check for typos
-just fmt           # Format code
-just fmt_check     # Check formatting without modifying
-just clippy        # Clippy with -D warnings
-just test          # Run all tests (nextest)
-just test_crate X  # Test a single crate
-just test_filter X # Test by name filter
-just build         # Build all targets
-just bench         # Run all benchmarks
-just pre-commit    # Full pipeline: typos -> fmt_check -> clippy -> test
+```bash
+just typos         # Check for typos.
+just fmt           # Format code.
+just fmt           # Format code.
+just clippy        # Clippy with -D warnings.
+just test          # Run all tests (nextest).
+just test_crate X  # Test a single crate.
+just test_filter X # Test by name filter.
+just check         # Check all workspace crates.
+just build         # Build all targets.
+just bench         # Run all benchmarks.
+just zo_test       # Run `zo-test-runner` to ensure all zo programs still works.
+just pre-commit    # Full pipeline: typos -> fmt_check -> clippy -> test.
 ```
 
-Pre-commit hooks via `lefthook` run the same pipeline automatically. Always use `just` recipes — never raw cargo commands.
+Pre-commit hooks via `lefthook` run the same pipeline automatically. Always use `just` recipes — never raw cargo commands.    
+
+more commands in @justfile.
 
 ## IMPORTANT
 
 - ALWAYS verify to clean all stuff that you add in `/tmp` for debugging. Pollution is bad.
+- USE THE `check` COMMAND WHEREVER POSSiBLE WHEN YOU NEED TO CHECK THAT THE PROJECT COMPiLES.
+- 

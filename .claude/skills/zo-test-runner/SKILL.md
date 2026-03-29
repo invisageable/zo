@@ -27,7 +27,7 @@ crates/compiler/zo-tests/
 ### Step 1: Run tests
 
 ```bash
-just test
+just test_all
 ```
 
 If user specifies a scope, narrow it:
