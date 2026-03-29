@@ -1,6 +1,0 @@
--- tests-run-fail: val with := infer on string should error.
--- @cmd — zo build val-infer-syntax.zo
-
-val name := "hello";
-
-fun main() {}

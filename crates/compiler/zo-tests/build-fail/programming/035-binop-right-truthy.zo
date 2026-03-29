@@ -1,0 +1,48 @@
+-! # how to errors: 035-binop-right-truthy.zo
+-!
+-! @cmd: `zo build 035-binop-right-truthy.zo`
+-!
+-! To have total control, you must be able to see your mistakes before they 
+-! reach your users. zo uses the `ariadne` diagnostic system to provide 
+-! beautiful error messages.
+-!
+-! In this lesson, we intentionally break the program to learn how to 
+-! read the compiler's user-friendly reports.
+
+fun main() {
+  -- Here is a "Triple Threat" error:
+  -- 1. `true` is a `bool`.
+  -- 2. `"false"` is a `str`.
+  -- 3. `||` (OR) only works on two bools.
+  -- 4. We are trying to save the result into an `int`.
+  
+  imu x: int = true || "false"; -- This guy failed.
+}
+
+-! ## how to read the diagnostic.
+-!
+-! When a program fails, zo doesn't just give you a line number. It 
+-! provides a map. Look for:
+-!
+-!   1. **The Label:** The exact characters that caused the problem.
+-!   2. **The Color:** Red for errors, Yellow for warnings.
+-!   3. **The Hint:** A suggestion on how to fix the mismatch.
+-!   4. **The Note:** Extra context about why the error happened.
+-!   5. **The Help:** A concrete suggestion on how to fix it.
+-!
+-! ## no runtime surprises.
+-! 
+-! In the Web world, a line like this might just return `"true|false"` or 
+-! `NaN`. That is "Working Blind." zo stops you here so you never have 
+-! to debug a "weird value" in production.
+
+-- EXPECTED OUTPUT:
+-- [E0575] Error: Type mismatch
+--     ╭─[ 035-binop-right-truthy.zo:19:21 ]
+--     │
+--  19 │   imu x: int = true || "false";
+--     │                     ─┬
+--     │                      ╰── incompatible types for this operation
+--     │
+--     │ Note: The types of both operands must be compatible
+-- ────╯

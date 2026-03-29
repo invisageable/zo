@@ -9,6 +9,8 @@
 //!   cargo run --bin zo-test-runner -- --quick
 //!   cargo run --bin zo-test-runner -- --filter arrays
 
+use swisskit_core::fmt::ansi::strip_ansi;
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -282,16 +284,37 @@ fn run_test(
     }
 
     Category::BuildFail => {
-      let status = Command::new(zo)
+      let output = Command::new(zo)
         .args(["build", &file.to_string_lossy(), "-o"])
         .arg(&out)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+        .stderr(Stdio::piped())
+        .output();
 
-      match status {
-        Ok(s) if !s.success() => ok(name),
-        Ok(_) => fail(name, "compilation succeeded (expected failure)"),
+      match output {
+        Ok(o) if o.status.success() => {
+          fail(name, "compilation succeeded (expected failure)")
+        }
+        Ok(o) => {
+          let expected = extract_expected(file);
+
+          if expected.is_empty() {
+            return ok(name);
+          }
+
+          let stderr = strip_ansi(&String::from_utf8_lossy(&o.stderr));
+
+          for line in expected.lines() {
+            if !line.is_empty() && !stderr.contains(line) {
+              return fail(
+                name,
+                &format!("missing in error output: '{}'", line),
+              );
+            }
+          }
+
+          ok(name)
+        }
         Err(e) => fail(name, &format!("exec error: {e}")),
       }
     }
@@ -438,6 +461,7 @@ fn run_test(
   }
 }
 
+/// Strip ANSI escape codes from a string.
 /// Extract expected output from `-- EXPECTED OUTPUT:` marker.
 fn extract_expected(file: &Path) -> String {
   let content = fs::read_to_string(file).unwrap_or_default();

@@ -1781,12 +1781,10 @@ impl<'a> ARM64Gen<'a> {
     // Allocate: 8 (header) + total + 1 (null), aligned
     // to 16. Use fixed over-allocation: round up by adding
     // 24 (8+1+15) then masking. We use ADD+AND via two
-    // steps: X4 = (total + 25) & ~15.
-    // Since we can't easily encode ~15 as immediate,
-    // allocate (total + 25) rounded to next 16 by shifting.
-    // Simpler: allocate 256 bytes (covers most strings).
-    // TODO: proper dynamic alignment for large strings.
-    self.emitter.emit_sub_imm(SP, SP, 256);
+    // X4 = (total + 9 + 15) & ~15 — 16-byte aligned.
+    self.emitter.emit_add_imm(x4, x3, 24);
+    self.emitter.emit_and_align16(x4, x4);
+    self.emitter.emit_sub(SP, SP, x4);
 
     // Store combined length at [SP + 0].
     self.emitter.emit_str(x3, SP, 0);

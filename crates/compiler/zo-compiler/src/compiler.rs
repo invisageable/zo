@@ -489,7 +489,11 @@ impl Compiler {
       aggregator.add_errors(errors);
 
       for (path, source) in files.iter() {
-        let filename = path.to_string_lossy();
+        let filename = path
+          .file_name()
+          .map(|n| n.to_string_lossy())
+          .unwrap_or_else(|| path.to_string_lossy());
+
         let _ = render_errors_to_stderr(&aggregator, source, &filename);
       }
 

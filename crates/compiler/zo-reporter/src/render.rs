@@ -99,7 +99,7 @@ impl ErrorRenderer {
   ) -> io::Result<()> {
     let span = error.span();
     let kind = error.kind();
-    let range = span_to_range(span);
+    let range = span_to_range(span, source);
 
     let mut report =
       Report::build(ReportKind::Error, (filename, range.clone()));
@@ -146,9 +146,16 @@ impl ErrorRenderer {
   }
 }
 
-/// Converts a Span to a range for ariadne.
-fn span_to_range(span: Span) -> std::ops::Range<usize> {
-  span.start as usize..(span.start + span.len as u32) as usize
+/// Converts a byte-offset Span to a char-offset range
+/// for ariadne. Multi-byte characters (like `—`) shift
+/// byte positions relative to char positions.
+fn span_to_range(span: Span, source: &str) -> std::ops::Range<usize> {
+  let byte_start = span.start as usize;
+  let byte_end = (span.start + span.len as u32) as usize;
+  let start = source[..byte_start.min(source.len())].chars().count();
+  let end = source[..byte_end.min(source.len())].chars().count();
+
+  start..end
 }
 
 /// Generates an error code based on phase and kind.

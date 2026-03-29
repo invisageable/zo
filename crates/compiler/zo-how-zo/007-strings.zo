@@ -1,0 +1,53 @@
+-! # how to strings: 007-strings.zo
+-!
+-! @cmd: `zo run 007-strings.zo`
+-!
+-! Strings are sequences of bytes. In zo, string literals live in the
+-! binary's read-only data section — no heap allocation. You already
+-! know `showln("hello")`. Now let's combine and work with them.
+
+fun main() {
+  -- string literals are double-quoted.
+  imu greeting: str = "hello";
+  imu name: str = "johndoe";
+
+  -- `++` concatenates two strings at runtime.
+  -- the result is a new string on the stack.
+  imu full: str = greeting ++ ", " ++ name ++ "!";
+  showln(full);
+
+  -- the originals are unchanged — strings are immutable.
+  showln(greeting);
+  showln(name);
+
+  -- you can also concat literals directly.
+  -- the compiler folds them at compile-time — zero cost.
+  imu title: str = "the " ++ "devolution";
+  showln(title);
+
+  -- recall from lesson 004: interpolation embeds values
+  -- into strings. `{variable}` is resolved at compile-time.
+  imu hp: int = 100;
+  showln("hp: {hp}");
+}
+
+-! ## string operations.
+-!
+-!   `++`        — concatenation (runtime or compile-time).
+-!   `{var}`     — interpolation inside `showln` (compile-time).
+-!
+-! strings in zo are length-prefixed: `[len:u64][bytes][null]`.
+-! no scanning for terminators — the length is always known.
+-!
+-! ## try this.
+-!
+-!   - concat three variables into a sentence.
+-!   - try `"hello" ++ 42` — zo stops you (type mismatch).
+-!   - build a multi-line message with `++` and `"\n"`.
+
+-- EXPECTED OUTPUT:
+-- hello, johndoe!
+-- hello
+-- johndoe
+-- the devolution
+-- hp: 100

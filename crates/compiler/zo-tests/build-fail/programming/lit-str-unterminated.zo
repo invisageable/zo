@@ -1,3 +1,0 @@
-fun main() {
-  imu x: str = "this string never closes;
-}

@@ -7338,6 +7338,9 @@ dependencies = [
 [[package]]
 name = "zo-test-runner"
 version = "0.0.0"
+dependencies = [
+ "swisskit-core",
+]
 
 [[package]]
 name = "zo-token"

@@ -1,0 +1,21 @@
+-! # how to errors: 001-comments-block-unterminated.zo
+-!
+-! @cmd: `zo build 001-comments-block-unterminated.zo`
+-!
+-! Block comments in zo start with `-*` and end with `*-`.
+-! If you forget to close one, the compiler eats everything
+-! after it — your entire program disappears into the comment.
+
+-* this block comment never closes
+fun main() {}
+
+-- EXPECTED OUTPUT:
+-- [E0002] Error: Unterminated block comment
+--     ╭─[ 001-comments-block-unterminated.zo:9:1 ]
+--     │
+--   9 │ ╭─▶ -* this block comment never closes
+--     ┆ ┆
+--  21 │ ├─▶ -- ────╯
+--     │ │
+--     │ ╰────────────── here
+-- ────╯

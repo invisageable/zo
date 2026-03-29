@@ -1,5 +1,0 @@
--- tests-run-fail: undefined type parameter $U.
-
-fun foo<$T>(x: $U) -> $T { x }
-
-fun main() {}

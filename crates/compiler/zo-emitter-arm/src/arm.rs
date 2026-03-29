@@ -441,6 +441,17 @@ impl ARM64Emitter {
     self.code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
   }
 
+  /// AND Xd, Xn, #~15 — clear bottom 4 bits (align down
+  /// to 16). Used for stack alignment.
+  pub fn emit_and_align16(&mut self, dst: Register, src: Register) {
+    // AND (immediate) 64-bit: sf=1, opc=00, N=1,
+    // immr=0, imms=59 encodes mask 0xFFFFFFFFFFFFFFF0.
+    let insn: u32 =
+      0x9240EC00 | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
   /// CBNZ Xt, label — branch if register is non-zero.
   pub fn emit_cbnz(&mut self, rt: Register, offset: i32) {
     let imm19 = ((offset >> 2) as u32) & IMM19_MASK;

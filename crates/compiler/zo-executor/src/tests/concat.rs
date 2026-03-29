@@ -1,7 +1,7 @@
 use crate::tests::common::{assert_execution_error, assert_sir_structure};
 
 use zo_error::ErrorKind;
-use zo_sir::Insn;
+use zo_sir::{BinOp, Insn};
 
 // === LITERAL CONCAT ===
 
@@ -43,7 +43,7 @@ fn test_concat_no_binop_for_literals() {
         matches!(
           i,
           Insn::BinOp {
-            op: zo_sir::BinOp::Concat,
+            op: BinOp::Concat,
             ..
           }
         )
@@ -72,7 +72,7 @@ fn test_concat_triple_folds() {
         matches!(
           i,
           Insn::BinOp {
-            op: zo_sir::BinOp::Concat,
+            op: BinOp::Concat,
             ..
           }
         )
@@ -105,6 +105,36 @@ fn test_concat_int_str_error() {
   imu s: str = 42 ++ "hello";
 }"#,
     ErrorKind::TypeMismatch,
+  );
+}
+
+// === RUNTIME CONCAT ===
+
+#[test]
+fn test_concat_runtime_emits_binop() {
+  // When concat can't be folded (e.g., function params),
+  // the executor must emit BinOp::Concat.
+  assert_sir_structure(
+    r#"fun join(a: str, b: str) -> str {
+  a ++ b
+}
+
+fun main() {
+  imu s: str = join("hello", " world");
+}"#,
+    |sir| {
+      let has_concat = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: BinOp::Concat,
+            ..
+          }
+        )
+      });
+
+      assert!(has_concat, "runtime concat should emit BinOp::Concat");
+    },
   );
 }
 
