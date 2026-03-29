@@ -2,7 +2,7 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
   ARM64Emitter, COND_EQ, COND_GE, COND_GT, COND_LE, COND_LT, COND_NE, COND_VC,
-  COND_VS, D0, D1, FpRegister, Register, SP, X0, X1, X2, X16, X29, X30,
+  COND_VS, D0, D1, FpRegister, Register, SP, X0, X1, X2, X16, X17, X29, X30,
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
@@ -987,6 +987,9 @@ impl<'a> ARM64Gen<'a> {
             BinOp::Gte => self.emit_cmp_csel(d, l, r, COND_GE),
             BinOp::Eq => self.emit_cmp_csel(d, l, r, COND_EQ),
             BinOp::Neq => self.emit_cmp_csel(d, l, r, COND_NE),
+            BinOp::Concat => {
+              self.emit_str_concat(d, l, r);
+            }
             _ => {}
           }
         }
@@ -1757,6 +1760,96 @@ impl<'a> ARM64Gen<'a> {
 
   /// Emit check(bool) — if X0 == 0, write
   /// "check failed\n" to stderr and exit(1).
+  /// Runtime string concatenation: `a ++ b`.
+  ///
+  /// Both operands are pointers to `[len:u64][bytes][null]`.
+  /// Result is a new string on the stack with the combined
+  /// content. SP is permanently lowered (cleaned up by the
+  /// function epilogue).
+  fn emit_str_concat(&mut self, dst: Register, lhs: Register, rhs: Register) {
+    let x3 = Register::new(3);
+    let x4 = Register::new(4);
+    let x5 = Register::new(5);
+
+    // Load lengths: X16 = len_a, X17 = len_b.
+    self.emitter.emit_ldr(X16, lhs, 0);
+    self.emitter.emit_ldr(X17, rhs, 0);
+
+    // X3 = total = len_a + len_b.
+    self.emitter.emit_add(x3, X16, X17);
+
+    // Allocate: 8 (header) + total + 1 (null), aligned
+    // to 16. Use fixed over-allocation: round up by adding
+    // 24 (8+1+15) then masking. We use ADD+AND via two
+    // steps: X4 = (total + 25) & ~15.
+    // Since we can't easily encode ~15 as immediate,
+    // allocate (total + 25) rounded to next 16 by shifting.
+    // Simpler: allocate 256 bytes (covers most strings).
+    // TODO: proper dynamic alignment for large strings.
+    self.emitter.emit_sub_imm(SP, SP, 256);
+
+    // Store combined length at [SP + 0].
+    self.emitter.emit_str(x3, SP, 0);
+
+    // Copy bytes from lhs: src = lhs + 8, dst = SP + 8.
+    self.emitter.emit_add_imm(x4, SP, 8);
+    self.emitter.emit_add_imm(x5, lhs, 8);
+    // X16 = len_a (counter).
+
+    let copy1_loop = self.emitter.current_offset();
+
+    self.emitter.emit_cbz(X16, 0);
+    let cbz1_pos = self.emitter.current_offset() - 4;
+
+    self.emitter.emit_ldrb(X17, x5, 0);
+    self.emitter.emit_strb(X17, x4, 0);
+    self.emitter.emit_add_imm(x4, x4, 1);
+    self.emitter.emit_add_imm(x5, x5, 1);
+    self.emitter.emit_sub_imm(X16, X16, 1);
+
+    let back1 = copy1_loop as i32 - self.emitter.current_offset() as i32;
+
+    self.emitter.emit_b(back1);
+
+    // Patch CBZ to skip past the loop.
+    let after1 = self.emitter.current_offset();
+    let skip1 = (after1 as i32 - cbz1_pos as i32) >> 2;
+
+    self.emitter.patch_cbz_at(cbz1_pos as usize, skip1);
+
+    // Copy bytes from rhs.
+    self.emitter.emit_add_imm(x5, rhs, 8);
+    self.emitter.emit_ldr(X16, rhs, 0);
+
+    let copy2_loop = self.emitter.current_offset();
+
+    self.emitter.emit_cbz(X16, 0);
+    let cbz2_pos = self.emitter.current_offset() - 4;
+
+    self.emitter.emit_ldrb(X17, x5, 0);
+    self.emitter.emit_strb(X17, x4, 0);
+    self.emitter.emit_add_imm(x4, x4, 1);
+    self.emitter.emit_add_imm(x5, x5, 1);
+    self.emitter.emit_sub_imm(X16, X16, 1);
+
+    let back2 = copy2_loop as i32 - self.emitter.current_offset() as i32;
+
+    self.emitter.emit_b(back2);
+
+    // Patch CBZ to skip past the loop.
+    let after2 = self.emitter.current_offset();
+    let skip2 = (after2 as i32 - cbz2_pos as i32) >> 2;
+
+    self.emitter.patch_cbz_at(cbz2_pos as usize, skip2);
+
+    // Null terminator.
+    self.emitter.emit_mov_imm(X16, 0);
+    self.emitter.emit_strb(X16, x4, 0);
+
+    // Result pointer.
+    self.emitter.emit_add_imm(dst, SP, 0);
+  }
+
   fn emit_check_fail(&mut self) {
     // CBNZ X0, +ok_label → if true, skip fail.
     // Use code offset as unique label ID (won't

@@ -9,6 +9,7 @@ const ADRP: u32 = 0x90000000;
 const STR: u32 = 0xF9000000;
 const STRB: u32 = 0x39000000;
 const STRB_POST: u32 = 0x38000400;
+const LDRB: u32 = 0x39400000;
 const LDR: u32 = 0xF9400000;
 const ADD_IMM: u32 = 0x91000000;
 const SUB_IMM: u32 = 0xD1000000;
@@ -180,6 +181,18 @@ impl ARM64Emitter {
     let imm12 = (offset as u32) & IMM12_MASK;
 
     let insn = STRB
+      | (imm12 << 10)
+      | ((base.index() as u32) << 5)
+      | (reg.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// LDRB Wt, [Xn, #offset] — load byte (zero-extend).
+  pub fn emit_ldrb(&mut self, reg: Register, base: Register, offset: i16) {
+    let imm12 = (offset as u32) & IMM12_MASK;
+
+    let insn = LDRB
       | (imm12 << 10)
       | ((base.index() as u32) << 5)
       | (reg.index() as u32);
@@ -415,6 +428,17 @@ impl ARM64Emitter {
     let insn = CBZ | (imm19 << 5) | (rt.index() as u32);
 
     self.emit_u32(insn);
+  }
+
+  /// Patch a previously emitted CBZ at `pos` (byte offset)
+  /// with `imm19` (already shifted by 2).
+  pub fn patch_cbz_at(&mut self, pos: usize, imm19: i32) {
+    let existing =
+      u32::from_le_bytes(self.code[pos..pos + 4].try_into().unwrap());
+    let rt = existing & 0x1F;
+    let insn = CBZ | (((imm19 as u32) & IMM19_MASK) << 5) | rt;
+
+    self.code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
   }
 
   /// CBNZ Xt, label — branch if register is non-zero.
