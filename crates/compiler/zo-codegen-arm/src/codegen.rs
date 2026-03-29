@@ -32,6 +32,11 @@ const ASCII_ZERO: u16 = 48;
 const STACK_SLOT_SIZE: u32 = 8;
 const FP_LR_SAVE_OFFSET: i16 = -16;
 const FP_LR_LOAD_OFFSET: i16 = 16;
+// TODO(codegen): MUTABLE_VAR_RESERVE is a fixed 64-byte budget
+// (8 mutable slots). Functions with many locals + showln calls
+// (~13+ interpolated showlns) overflow this and segfault. The
+// reserve should be computed from the actual number of Store
+// instructions in the function body, not hardcoded.
 const MUTABLE_VAR_RESERVE: u32 = 64;
 // 7 caller-saved temp regs (X9-X15) * 8 bytes each.
 const CALLER_SAVE_RESERVE: u32 = 56;

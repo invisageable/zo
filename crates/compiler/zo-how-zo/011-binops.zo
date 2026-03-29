@@ -1,0 +1,72 @@
+-! # how to binops: 011-binops.zo
+-!
+-! @cmd: `zo run 011-binops.zo`
+-!
+-! Operators are the verbs of your program. They take two values and
+-! produce a new one. In zo, operators are predictable — no hidden
+-! type conversions, no magic rounding. Just pure data transformation.
+
+fun main() {
+  -- arithmetic: `+`, `-`, `*`, `/`, `%`.
+  imu a: int = 10;
+  imu b: int = 3;
+
+  imu sum: int = a + b;
+  imu diff: int = a - b;
+  imu prod: int = a * b;
+  imu div: int = a / b;
+  imu mod: int = a % b;
+
+  showln("sum: {sum}");
+  showln("diff: {diff}");
+  showln("prod: {prod}");
+  showln("div: {div}");
+  showln("mod: {mod}");
+
+  -- comparison operators always produce a `bool`.
+  imu eq: bool = 10 == 20;
+  imu neq: bool = 10 != 20;
+  imu gt: bool = 10 > 20;
+  imu lte: bool = 20 <= 20;
+
+  showln("equal: {eq}");
+  showln("not equal: {neq}");
+  showln("greater: {gt}");
+  showln("less or equal: {lte}");
+
+  -- bitwise operators work on individual bits.
+  imu flags: int = 0b1010 & 0b1100;
+  imu shifted: int = 1 << 3;
+
+  showln("bitwise and: {flags}");
+  showln("bit shift: {shifted}");
+}
+
+-! ## operator table.
+-!
+-!   arithmetic:  `+`  `-`  `*`  `/`  `%`
+-!   comparison:  `==`  `!=`  `<`  `>`  `<=`  `>=`
+-!   logical:     `&&`  `||`  `!`
+-!   bitwise:     `&`  `|`  `^`  `<<`  `>>`
+-!
+-! these map directly to CPU instructions. they are the fastest
+-! operations your computer can perform.
+-!
+-! ## try this.
+-!
+-!   - try `10.0 / 3.0` — float division keeps decimals.
+-!   - try bitwise OR: `imu v: int = 10 | 12;`
+-!   - try XOR: `imu v: int = 0b1010 ^ 0b1100;`
+
+-- EXPECTED OUTPUT:
+-- sum: 13
+-- diff: 7
+-- prod: 30
+-- div: 3
+-- mod: 1
+-- equal: 0
+-- not equal: 1
+-- greater: 0
+-- less or equal: 1
+-- bitwise and: 8
+-- bit shift: 8
