@@ -1,3 +1,3 @@
 # zo — compiler.
 
-> _the zo compiler pipeline_.
+> *the zo compiler pipeline.*

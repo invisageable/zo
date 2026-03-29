@@ -1,4 +1,6 @@
-# zo — writer mach-o.
+# zo — writer (mach-o).
+
+> *...*
 
 ### tests.
 
@@ -12,7 +14,7 @@ tests are separate by concepts:
 
 ## benchmarks.
 
-RUN: `cargo bench --package zo-writer-macho --bench write --quiet`
+@RUN: `cargo bench --package zo-writer-macho --bench write --quiet`
 
 ### benchmarks — results.
 

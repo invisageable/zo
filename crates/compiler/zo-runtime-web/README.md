@@ -1,4 +1,6 @@
-# zo-runtime-web
+# zo — runtime (web).
+
+> *...*
 
 HTML renderer for zo templates - converts `UiCommand[]` to beautiful HTML.
 
@@ -8,11 +10,11 @@ This crate provides the web rendering backend for zo's templating system. It tak
 
 ## Features
 
-- ✅ **Security**: XSS prevention through proper HTML escaping
-- ✅ **Styling**: Beautiful glassmorphism-inspired CSS included
-- ✅ **Interactivity**: JavaScript bridge for events (prepared for LiveView)
-- ✅ **Performance**: Single-pass rendering, pre-allocated buffers
-- ✅ **Zero Dependencies**: Only depends on `zo-ui-protocol`
+- **Security**: XSS prevention through proper HTML escaping
+- **Styling**: Beautiful glassmorphism-inspired CSS included
+- **Interactivity**: JavaScript bridge for events (prepared for LiveView)
+- **Performance**: Single-pass rendering, pre-allocated buffers
+- **Zero Dependencies**: Only depends on `zo-ui-protocol`
 
 ## Usage
 

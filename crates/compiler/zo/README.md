@@ -38,6 +38,7 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
   - [ ] safe concurrency model — *actor model erlang-like*.
   - [x] fast `compilation-time` — *insanely faster, usain is jealous*.
   - [x] powerful `tools` — *native REPL, code editor, packager, etc*.
+  - [x] optimized syntax — *elegant and consice syntax to turn programmer experience more productive.*
 
 ## what's next?
 
@@ -56,49 +57,12 @@ WE SHARED THE SAME ENGiNEERiNG PHiLOSOPHY THAN __JONATHAN BLOW__, __MiKE ACTON__
   cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/templating/zsx-hello.zo
   ```
 
-## benchmarks.
+## get started.
 
-### hello world compilation speed.
-
-| Compiler | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Average     | Speed vs zo      |
-| :------- | :---- |:----- | :---- | :---- | :---- | :---------- | :--------------- |
-| **zo**   | 16ms  | 6ms   | 5ms   | 6ms   | 6ms   | **7.8ms**   | **1.0x**         |
-| clang    | 122ms | 44ms  | 43ms  | 43ms  | 42ms  | **58.8ms**  | **7.5x slower**  |
-| rustc    | 910ms | 93ms  | 84ms  | 81ms  | 84ms  | **250.4ms** | **32.1x slower** |
-
-**AWTY — Are we tiny yet?**
-
-| Compiler | Size   |
-| :------- | :----- |
-| **zo**   | 33 KB  |
-| clang    | 33 KB  |
-| rustc    | 441 KB |
-
-*Test program: `showln("Hello, World!");` (3 lines)*
-
-### arithmetic operations compilation speed.
-
-| Compiler | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Average     | Speed vs zo      |
-| :------- | :---- |:----- | :---- | :---- | :---- | :---------- | :--------------- |
-| **zo**   | 18ms  | 10ms  | 12ms  | 8ms   | 5ms   | **10.6ms**  | **1.0x**         |
-| clang    | 94ms  | 44ms  | 44ms  | 42ms  | 42ms  | **53.2ms**  | **5.0x slower**  |
-| rustc    | 910ms | 95ms  | 90ms  | 89ms  | 90ms  | **254.8ms** | **24.0x slower** |
-
-**AWTY — Are we tiny yet?**
-
-| Compiler | Size   |
-| :------- | :----- |
-| clang    | 17 KB  |
-| **zo**   | 33 KB  |
-| rustc    | 439 KB |
-
-*Test program: `return 10 + 20 * 3 - 15;` (Result: 55)*
-
-### bench summary.
-
-- zo ACHiEVES **sub-10ms compilation** FOR TYPiCAL PROGRAMS.
-- zo iS **5-7x faster** THAN `clang` (`c` COMPiLER).
-- zo iS **24-32x faster** THAN `rustc` (`rust` COMPiLER).
+  - [install](../zo-notes/public/guidelines/02-install.md) — *setup the zo ecosystem.*
+  - [how-to](../zo-how-zo) — *learn rust by practice.*
+  - [tests](../zo-tests) — *workable zo's programs and error messages catalog.*
+  - [benches](../zo-benches) — *zo compiler benchmark vs modern programming languages.*
 
 ## examples.
 
@@ -120,4 +84,4 @@ THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%2
 
 ![hello](../zo-notes/public/preview/preview-zo-hello-template-web.png)
 
-> « The universe needs to preserve guys like Graydon Hoare! » — *because they challenge us to reject "accepted" solutions and build something better*.
+> « The universe needs to preserve guys like Graydon Hoare! » — *because they challenge us to reject "accepted" solutions and build something better.*

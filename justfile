@@ -2,10 +2,19 @@ default:
   @just --list
 
 # Install typos.
+[group('setup')]
 setup_typos:
   @cargo install typos-cli
 
-setup: setup_typos
+# Install `uv`.
+[group('setup')]
+setup_uv:
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install the dev environment.
+[group('setup')]
+[parallel]
+setup: setup_typos setup_uv
 
 # Install git hooks via lefthook.
 install_hooks:
@@ -175,30 +184,26 @@ bump_crate crate bump:
 
 # Bump all eazy-* crates together
 bump_eazy bump:
-  cargo set-version -p eazy-core --bump {{bump}}
-  cargo set-version -p eazy-derive --bump {{bump}}
-  cargo set-version -p eazy-tweener --bump {{bump}}
-  cargo set-version -p eazy-keyframe --bump {{bump}}
+  #!/usr/bin/env sh
+  for crate in $(cargo ws list | grep '^eazy-'); do
+    cargo set-version -p "$crate" --bump {{bump}}
+  done
   cargo set-version -p eazy --bump {{bump}}
 
 # Bump all swisskit-* crates together
 bump_swisskit bump:
-  cargo set-version -p swisskit-case --bump {{bump}}
-  cargo set-version -p swisskit-core --bump {{bump}}
-  cargo set-version -p swisskit-fmt --bump {{bump}}
-  cargo set-version -p swisskit-io --bump {{bump}}
-  cargo set-version -p swisskit-renderer --bump {{bump}}
-  cargo set-version -p swisskit-span --bump {{bump}}
+  #!/usr/bin/env sh
+  for crate in $(cargo ws list | grep '^swisskit-'); do
+    cargo set-version -p "$crate" --bump {{bump}}
+  done
   cargo set-version -p swisskit --bump {{bump}}
 
 # Bump all fret-* crates together
 bump_fret bump:
-  cargo set-version -p fret-tokens --bump {{bump}}
-  cargo set-version -p fret-tokenizer --bump {{bump}}
-  cargo set-version -p fret-types --bump {{bump}}
-  cargo set-version -p fret-parser --bump {{bump}}
-  cargo set-version -p fret-pipeline --bump {{bump}}
-  cargo set-version -p fret-driver --bump {{bump}}
+  #!/usr/bin/env sh
+  for crate in $(cargo ws list | grep '^fret-'); do
+    cargo set-version -p "$crate" --bump {{bump}}
+  done
   cargo set-version -p fret --bump {{bump}}
 
 

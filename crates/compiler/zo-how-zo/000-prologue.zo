@@ -1,6 +1,6 @@
--! # how to zo: 000-welcome.zo
+-! # how to zo: 000-prologue.zo
 -!
--! @cmd: `zo run 001-hello.zo`
+-! @cmd: `zo run 000-prologue.zo`
 -!
 -! Welcome. You are here because you believe software should be better.
 -!
@@ -47,7 +47,7 @@
 -! and see the instructions for yourself. Run this one now:
 -! 
 -!   ```bash
--!   zo run 000-welcome.zo
+-!   zo run 000-prologue.zo
 -!   ```
 -!
 -! JOiN THE DEVOLUTiON.

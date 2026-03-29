@@ -22,7 +22,7 @@ tests are separate by concepts:
 
 ## benchmarks.
 
-RUN: `cargo bench --package zo-tokenizer --bench tokenize`
+@RUN: `cargo bench --package zo-tokenizer --bench tokenize`
 
 ### benchmarks — results.
 

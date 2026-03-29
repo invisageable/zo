@@ -51,6 +51,17 @@
       "match": "b?'([^'\\\\]|\\\\(x[0-9A-Fa-f]{2}|[0-2][0-7]{0,2}|3[0-6][0-7]?|37[0-7]?|[4-7][0-7]?|.))'"
     },
     {
+      "comment": "backtick byte literal",
+      "name": "string.quoted.other.byte.zo",
+      "begin": "`",
+      "end": "`",
+      "patterns": [
+        {
+          "include": "#escaped_character"
+        }
+      ]
+    },
+    {
       "comment": "control flow keywords",
       "name": "keyword.control.zo",
       "match": "\\b(await|break|continue|each|else|for|if|is|loop|match|return|skip|spawn|stop|until|when|while)\\b"

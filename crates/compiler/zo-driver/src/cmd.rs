@@ -44,7 +44,7 @@ pub(crate) fn search_paths(input: &Path) -> Vec<PathBuf> {
 pub(crate) enum Cmd {
   /// builds a program.
   Build(build::Build),
-  /// read eval print and loop a program.
+  /// read eval print and loop a program (not implemented yet).
   Repl(repl::Repl),
   /// runs a program.
   Run(run::Run),

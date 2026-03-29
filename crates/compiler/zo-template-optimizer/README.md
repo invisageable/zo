@@ -1,1 +1,3 @@
-# zo-template-optimizer.
+# zo — template optimizer.
+
+> *...*

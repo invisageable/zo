@@ -90,9 +90,28 @@ install() {
     echo ""
   fi
 
-  echo "Add this to your shell profile (.bashrc, .zshrc, etc.):"
-  echo ""
-  echo "  export PATH=\"\$HOME/.zo/bin:\$PATH\""
+  # Add to PATH permanently.
+  SHELL_PROFILE=""
+
+  case "$SHELL" in
+    */zsh)  SHELL_PROFILE="$HOME/.zshrc" ;;
+    */bash) SHELL_PROFILE="$HOME/.bashrc" ;;
+    */fish) SHELL_PROFILE="$HOME/.config/fish/config.fish" ;;
+  esac
+
+  if [ -n "$SHELL_PROFILE" ] && ! grep -q '.zo/bin' "$SHELL_PROFILE" 2>/dev/null; then
+    echo 'export PATH="$HOME/.zo/bin:$PATH"' >> "$SHELL_PROFILE"
+    echo "Added zo to PATH in $SHELL_PROFILE"
+    echo ""
+    echo "To start using zo, run:"
+    echo ""
+    echo "  source $SHELL_PROFILE"
+    echo ""
+    echo "Or open a new terminal window."
+  else
+    echo "zo is already in your PATH."
+  fi
+
   echo ""
 }
 

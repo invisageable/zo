@@ -15,4 +15,6 @@ pre-commit:
       stage_fixed: true
 
     test_all:
+      glob: "**/*.zo"
       run: just test_all
+      stage_fixed: true

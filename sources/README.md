@@ -1,6 +1,6 @@
 # sources.
 
-> _shareable open source kits and tools_.
+> *shareable open source kits and tools.*
 
 ## about.
 

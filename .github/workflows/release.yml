@@ -54,8 +54,9 @@ jobs:
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zo dist/
+          cp target/${{ matrix.target }}/release/fret dist/
           cd dist
-          tar czvf ${{ github.ref_name }}-${{ matrix.target }}.tar.gz zo
+          tar czvf ${{ github.ref_name }}-${{ matrix.target }}.tar.gz zo fret
           mv ${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../
         shell: bash
 
@@ -64,8 +65,9 @@ jobs:
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zo.exe dist/
+          cp target/${{ matrix.target }}/release/fret.exe dist/
           cd dist
-          7z a ${{ github.ref_name }}-${{ matrix.target }}.zip zo.exe
+          7z a ${{ github.ref_name }}-${{ matrix.target }}.zip zo.exe fret.exe
           mv ${{ github.ref_name }}-${{ matrix.target }}.zip ../
         shell: bash
 

@@ -1,3 +1,4 @@
 # zo — name resolver.
 
-> _resolve identifiers_.
+> *resolve identifiers.*
+

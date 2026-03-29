@@ -1,3 +1,3 @@
 # zo — ty state.
 
-> _the type state system_.
+> *the type state system.*

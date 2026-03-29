@@ -1,6 +1,6 @@
 # zo — notes.
 
-> *..*.
+> *...*
 
 ## warning.
 
@@ -18,7 +18,7 @@ JOiN THE DEVOLUTiON.
 
 ## introduction.
 
-> *« why accept slow compilers? just make them faster. »*   
+> *« Why accept slow compilers? Just make them faster. »*   
 > &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— Jonathan Blow
 
 zo iS A NEW, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE DESiGNED FROM FiRST PRiNCiPLES FOR THE NEXT-GEN OF CREATiVE AND iNTERACTiVE SOFTWARE. iT iS A MULTi-PARADiGM LANGUAGE, SEAMLESSLY BLENDiNG HiGH-PERFORMANCE SYSTEMS PROGRAMMiNG WiTH A HiGH-LEVEL, DECLARATiVE, AND REACTiVE Ui FRAMEWORK.  
@@ -27,7 +27,7 @@ iT iS COMPOSED OF SEVERAL CONCEPTS: PURE FUNCTiONAL, CONCURRENT ACTOR MODEL, ETC
 
 ## goals.
 
-> « The Speed Demon » - Compile Everything, Every Time, Instantly.
+> *« Compile everything, every time, instantly. »*
 > &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— i10e
 
 - COMPiLE-TiME ERROR DETECTiON AND PREVENTiON — *be aware of what's going on*.
