@@ -39,15 +39,14 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
   1. BUMP ALL VERSiONS:
 
   ```sh
-  just bump_zo patch      # 0.1.0 → 0.1.1
-  just bump_fret patch    # same
+  just bump patch
   ```
   
   2. VERiFY THE BUMP CORRECTNESS:
 
   ```sh
-  just list_versions      # check versions
-  just pre-commit         # all tests pass
+  just list_versions
+  just pre-commit
   ```
 
   3. THEN COMMiT AND TAG:

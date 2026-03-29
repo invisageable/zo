@@ -198,22 +198,9 @@ bump_swisskit bump:
   done
   cargo set-version -p swisskit --bump {{bump}}
 
-# Bump all fret-* crates together
-bump_fret bump:
-  #!/usr/bin/env sh
-  for crate in $(cargo ws list | grep '^fret-'); do
-    cargo set-version -p "$crate" --bump {{bump}}
-  done
-  cargo set-version -p fret --bump {{bump}}
-
-
-# Bump all zo-* crates together
+# Bump zo + fret (one ecosystem, one version)
 [group('zo')]
-bump_zo bump:
-  #!/usr/bin/env sh
-  for crate in $(cargo ws list | grep '^zo-'); do
-    cargo set-version -p "$crate" --bump {{bump}}
-  done
+bump bump:
   cargo set-version -p zo --bump {{bump}}
 
 # List all workspace crates and their versions

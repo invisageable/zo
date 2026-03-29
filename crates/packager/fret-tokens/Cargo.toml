@@ -1,4 +1,4 @@
 [package]
 name = "fret-tokens"
-version.workspace = true
 edition.workspace = true
+version.workspace = true

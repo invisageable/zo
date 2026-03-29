@@ -471,13 +471,13 @@ fn run_test(
         .output();
 
       match output {
-        Ok(o) => {
+        Ok(_o) => {
           // Check for signal death (crash).
           #[cfg(unix)]
           {
             use std::os::unix::process::ExitStatusExt;
 
-            if let Some(signal) = o.status.signal() {
+            if let Some(signal) = _o.status.signal() {
               return fail(
                 name,
                 &format!("compiler crashed (signal {})", signal),
