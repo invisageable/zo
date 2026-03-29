@@ -2917,6 +2917,23 @@ impl<'a> Executor<'a> {
     self.skip_until = skip_end;
   }
 
+  /// Finds the span of the return type token after `->`.
+  fn find_return_type_span(&self, start: usize, end: usize) -> Option<Span> {
+    let mut found_arrow = false;
+
+    for i in start..end {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Arrow {
+        found_arrow = true;
+      } else if found_arrow && (tok.is_ty() || tok == Token::Ident) {
+        return Some(self.tree.spans[i]);
+      }
+    }
+
+    None
+  }
+
   fn execute_fun(&mut self, start_idx: usize, _end_idx: usize) {
     // Parse the function signature and set it as pending
     // The actual FunDef will be emitted when we hit LBrace
@@ -3120,6 +3137,20 @@ impl<'a> Executor<'a> {
     } else {
       Pubness::No
     };
+
+    // main() must return unit — no other return type.
+    let unit_ty = self.ty_checker.unit_type();
+
+    if self.interner.get(name) == "main" && return_ty != unit_ty {
+      // Point the span at the return type token (after ->).
+      let span = self
+        .find_return_type_span(start_idx, _end_idx)
+        .unwrap_or(self.tree.spans[start_idx]);
+
+      report_error(Error::new(ErrorKind::InvalidReturnType, span));
+
+      return_ty = unit_ty;
+    }
 
     // FunDef stores (name, ty) — strip mutability.
     let sir_params =

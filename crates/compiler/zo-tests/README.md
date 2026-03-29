@@ -19,7 +19,7 @@ THE GOAL iS TO PROVE zo'S COMPiLER CORRECTNESS BY PASSiNG THE SAME FOUNDATiONAL 
 
 > if you need more arguments, flags or whatever — just run `zo --help`.
 
-## development.
+## dev.
 
   - `programming` MODE PROGRAMS GOES iNTO `/programming` folder.
   - `templating` MODE PROGRAMS GOES iNTO `/templating` folder.

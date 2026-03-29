@@ -1,0 +1,46 @@
+-! # how to errors: 042-main-invalid-return.zo
+-!
+-! @cmd: `zo build 042-main-invalid-return.zo`
+-!
+-! The `main` function is the "Front Door" of your workstation. 
+-! When it finishes, it returns control to the Operating System.
+-!
+-! The OS is simple: it only understands a status number (like `0` for 
+-! success). If you try to return a `str` or a `tuple`, the OS will 
+-! be "Working Blind." zo prevents this mismatch at the very start.
+
+-- Mistake: `main` cannot return a string.
+fun main() -> str {
+  "done"
+}
+
+-! ## try this.
+-!
+-!   1. Change the return type to `int` and return `0`.
+-!   2. Remove the `-> str` entirely. In zo, functions return `void` (nothing)
+-!      by default.
+-!   3. The entry point is a contract with the hardware. We keep that contract
+-!      strict to ensure your program exits cleanly.
+
+-- EXPECTED OUTPUT:
+-- [E0582] Error: Invalid return type
+--     ╭─[ 042-main-invalid-return.zo:13:15 ]
+--     │
+--  13 │ fun main() -> str {
+--     │               ─┬─
+--     │                ╰─── invalid return type
+--     │
+--     │ Help: Remove the return type or use `fun main() {}`
+--     │
+--     │ Note: The `main` function is the program entry point.
+--     │       It must return unit (no value)
+-- ────╯
+-- [E0575] Error: Type mismatch
+--     ╭─[ 042-main-invalid-return.zo:13:1 ]
+--     │
+--  13 │ fun main() -> str {
+--     │ ─┬─
+--     │  ╰─── incompatible types for this operation
+--     │
+--     │ Note: The types of both operands must be compatible
+-- ────╯

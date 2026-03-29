@@ -42,7 +42,7 @@ fn test_pack_emits_pack_decl() {
 fn test_load_before_function() {
   assert_sir_stream(
     r#"load foo::bar;
-fun main() -> int { 42 }"#,
+fun main() { 42; }"#,
     &[
       Insn::ModuleLoad {
         path: vec![Symbol(25), Symbol(26)],
@@ -51,7 +51,7 @@ fun main() -> int { 42 }"#,
       Insn::FunDef {
         name: Symbol(27),
         params: vec![],
-        return_ty: TyId(8),
+        return_ty: TyId(1),
         body_start: 2,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
@@ -62,8 +62,8 @@ fun main() -> int { 42 }"#,
         ty_id: TyId(8),
       },
       Insn::Return {
-        value: Some(zo_value::ValueId(0)),
-        ty_id: TyId(8),
+        value: None,
+        ty_id: TyId(1),
       },
     ],
   );

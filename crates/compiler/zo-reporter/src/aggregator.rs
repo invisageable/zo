@@ -163,6 +163,7 @@ impl ErrorAggregator {
         | ErrorKind::UndefinedTypeParam
         | ErrorKind::MissingDollarPrefix
         | ErrorKind::InvalidReturn
+        | ErrorKind::InvalidReturnType
         | ErrorKind::InvalidBreak
         | ErrorKind::InvalidContinue
         | ErrorKind::CyclicDependency

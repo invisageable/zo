@@ -274,6 +274,7 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::UndefinedTypeParam => "Undefined type parameter",
     ErrorKind::MissingDollarPrefix => "Type parameter requires `$` prefix",
     ErrorKind::InvalidReturn => "Invalid return statement",
+    ErrorKind::InvalidReturnType => "Invalid return type",
     ErrorKind::InvalidBreak => "Invalid break statement",
     ErrorKind::InvalidContinue => "Invalid continue statement",
     ErrorKind::CyclicDependency => "Cyclic dependency detected",
@@ -386,6 +387,7 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::UnterminatedChar => "unterminated character",
     ErrorKind::InvalidEscapeSequence => "unknown escape code",
     ErrorKind::EmptyCharLiteral | ErrorKind::EmptyCharLit => "empty here",
+    ErrorKind::InvalidReturnType => "invalid return type",
     ErrorKind::UnterminatedBytes => "unterminated byte literal",
     _ => "here",
   }
@@ -460,6 +462,9 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::MismatchedDelimiter => {
       Some("Change the closing delimiter to match the opening one")
     }
+    ErrorKind::InvalidReturnType => {
+      Some("Remove the return type or use `fun main() {}`")
+    }
     _ => None,
   }
 }
@@ -484,6 +489,9 @@ fn error_note(kind: ErrorKind) -> Option<&'static str> {
         "Every opening delimiter must be closed by its matching partner.\n`(` with `)`, `[` with `]`, `{` with `}`",
       )
     }
+    ErrorKind::InvalidReturnType => Some(
+      "The `main` function is the program entry point.\nIt must return unit (no value)",
+    ),
     ErrorKind::TypeMismatch => {
       Some("The types of both operands must be compatible")
     }

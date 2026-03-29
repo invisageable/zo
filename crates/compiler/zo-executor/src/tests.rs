@@ -215,7 +215,7 @@ fn test_function_call() {
   assert_sir_stream(
     r#"
       fun add(x: int, y: int) -> int { x + y }
-      fun main() -> int { add(10, 20) }
+      fun main() { add(10, 20); }
     "#,
     &[
       // add function definition
@@ -259,7 +259,7 @@ fn test_function_call() {
       Insn::FunDef {
         name: Symbol(28), // "main"
         params: vec![],
-        return_ty: TyId(8),
+        return_ty: TyId(1),
         body_start: 6,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
@@ -283,10 +283,10 @@ fn test_function_call() {
         args: vec![ValueId(3), ValueId(4)],
         ty_id: TyId(8),
       },
-      // main body: implicit return
+      // main body: return void
       Insn::Return {
-        value: Some(ValueId(5)),
-        ty_id: TyId(8), // int type
+        value: None,
+        ty_id: TyId(1),
       },
     ],
   );

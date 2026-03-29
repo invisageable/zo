@@ -164,6 +164,7 @@ pub enum ErrorKind {
   InvalidAssignment,
   ImmutableVariable,
   InvalidReturn,
+  InvalidReturnType,
   InvalidBreak,
   InvalidContinue,
   CyclicDependency,

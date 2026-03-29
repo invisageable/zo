@@ -52,15 +52,15 @@ fn test_if_simple() {
 
 #[test]
 fn test_if_else() {
-  // Get actual output first to update expectations.
   assert_sir_stream(
-    r#"fun main() -> int {
+    r#"fun choose() -> int {
   if true {
     1
   } else {
     2
   }
-}"#,
+}
+fun main() {}"#,
     &[
       Insn::FunDef {
         name: Symbol(25),
@@ -95,6 +95,18 @@ fn test_if_else() {
       Insn::Return {
         value: Some(ValueId(2)),
         ty_id: TyId(8),
+      },
+      Insn::FunDef {
+        name: Symbol(26),
+        params: vec![],
+        return_ty: TyId(1),
+        body_start: 10,
+        kind: FunctionKind::Intrinsic,
+        pubness: Pubness::No,
+      },
+      Insn::Return {
+        value: None,
+        ty_id: TyId(1),
       },
     ],
   );

@@ -1,0 +1,4 @@
+-- tests-build-pass: entry.
+-- @cmd — zo build entry.zo
+
+fun main() -> unit {}
