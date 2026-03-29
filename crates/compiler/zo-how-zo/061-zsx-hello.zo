@@ -52,9 +52,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - change `name` to your own name and run it.
--!   - try `{name}` with a variable that doesn't exist — see the error.
--!   - add a second element: `imu sub: </> ::= <p>welcome back</p>;`
+-!   - Change `name` to your own name and run it.
+-!   - Try `{name}` with a variable that doesn't exist — see the error.
+-!   - Add a second element: `imu sub: </> ::= <p>welcome back</p>;`
 
 -- NOTE: in a real app, you define these as 'components',
 -- which we cover in 065-components.zo.

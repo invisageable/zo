@@ -53,9 +53,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - add a `describe(self)` method that prints the hero's name.
--!   - create a `Weapon` struct with `apply` and a `damage(self)` method.
--!   - try calling a method on a different struct — see the error.
+-!   - Add a `describe(self)` method that prints the hero's name.
+-!   - Create a `Weapon` struct with `apply` and a `damage(self)` method.
+-!   - Try calling a method on a different struct — see the error.
 
 -- EXPECTED OUTPUT:
 -- hero: arya

@@ -52,9 +52,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - write `fun max(a: int, b: int) -> int` using `if`.
--!   - write `fun clamp(x: int, lo: int, hi: int) -> int`.
--!   - try calling a function that doesn't exist — see the error.
+-!   - Write `fun max(a: int, b: int) -> int` using `if`.
+-!   - Write `fun clamp(x: int, lo: int, hi: int) -> int`.
+-!   - Try calling a function that doesn't exist — see the error.
 
 -- EXPECTED OUTPUT:
 -- 30

@@ -1,0 +1,39 @@
+-! # how to errors: 006-lit-char-empty.zo
+-!
+-! @cmd: `zo build 006-lit-char-empty.zo`
+-!
+-! In zo, every `char` must represent exactly one "atom" of data. 
+-! When you write `''` (two single quotes with nothing inside), 
+-! you've created a vacuum—a "nothingness" that zo cannot store.
+-!
+-! It’s a common mistake, but the compiler is here to help you fill the gap.
+
+fun main() {
+  -- Mistake: A character literal cannot be empty.
+  imu c: char = '';
+}
+
+-! ## the diagnostic map.
+-!
+-! Notice the "Note" and "Help" sections in the output. zo explains 
+-! the *why* (a char needs a value) and the *how* (here is the fix). 
+-!
+-! ## try this.
+-!
+-!   1. If you wanted a "blank" character, put a space inside: `' '`.
+-!   2. If you wanted "nothing" as text, use an empty string: `""`.
+
+-- EXPECTED OUTPUT:
+-- [E0007] Error: Empty character literal
+--     ╭─[ 006-lit-char-empty.zo:13:17 ]
+--     │
+--  13 │   imu c: char = '';
+--     │                 ─┬
+--     │                  ╰── empty here
+--     │
+--     │ Help: If you meant to use a space, try `' '`.
+--     │       If you need an empty sequence of text, use a string `""` instead
+--     │
+--     │ Note: A `char` represents exactly one Unicode scalar.
+--     │       It cannot be empty because it must have a value in memory
+-- ────╯

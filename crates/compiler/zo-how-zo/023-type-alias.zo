@@ -37,9 +37,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - create `type Damage = int;` and use it in a function.
--!   - alias a tuple: `type Color = (int, int, int);`
--!   - try using a `Position` where an `(int, int)` is expected.
+-!   - Create `type Damage = int;` and use it in a function.
+-!   - Alias a tuple: `type Color = (int, int, int);`
+-!   - Try using a `Position` where an `(int, int)` is expected.
 
 -- EXPECTED OUTPUT:
 -- 100

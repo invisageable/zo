@@ -1,0 +1,42 @@
+-! # how to errors: 005-lit-char-bad-escape.zo
+-!
+-! @cmd: `zo build 005-lit-char-bad-escape.zo`
+-!
+-! Sometimes we need to store "invisible" characters, like a Newline or a Tab.
+-! We use a backslash `\` to tell zo: "A special code is coming next."
+-!
+-! But if you provide a code that zo doesn't recognize (like `\q`), the
+-! compiler stops you. It’s like a typo in a secret language.
+
+fun main() {
+  -- Mistake: `\q` is not a valid escape sequence.
+  imu c: char = '\q';
+}
+
+-! ## the diagnostic map.
+-!
+-! zo points exactly at the character following the backslash. 
+-! The "Note" explains the rule, and the "Help" offers the most common fixes.
+-!
+-! ## try this.
+-!
+-!   1. Change `\q` to `\n` for a Newline or `\t` for a Tab.
+-!   2. If you actually wanted a backslash in your character, use a double
+-!      backslash: `'\\'`.
+-!   3. Characters are strictly for **one** value. Even an escape sequence like
+-!      `\n` counts as exactly **one** character!
+
+-- EXPECTED OUTPUT:
+-- [E0004] Error: Invalid escape sequence
+--     ╭─[ 005-lit-char-bad-escape.zo:13:18 ]
+--     │
+--  13 │   imu c: char = '\q';
+--     │                  ─┬
+--     │                   ╰── unknown escape code
+--     │
+--     │ Help: Check if you have a typo. If you want a literal backslash,
+--     │       use the double escape `\\` instead
+--     │
+--     │ Note: A backslash `\` starts a special sequence like `\n` (newline).
+--     │       zo only supports: `\n`, `\r`, `\t`, `\\`, `\'`, `\"`, `\0`
+-- ────╯

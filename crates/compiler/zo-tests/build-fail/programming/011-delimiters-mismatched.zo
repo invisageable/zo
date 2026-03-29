@@ -1,0 +1,93 @@
+-! # how to errors: 011-delimiters-mismatched.zo
+-!
+-! @cmd: `zo build 011-delimiters-mismatched.zo`
+-!
+-! In zo, every "Open" symbol has a specific "Partner." 
+-!   - `(` always looks for `)`
+-!   - `[` always looks for `]`
+-!   - `{` always looks for `}`
+-!
+-! If you mix them up—like opening a circle `(` and trying to close it with a
+-! square `]`—the compiler gets confused. It’s like trying to fit a puzzle
+-! piece into the wrong set.
+
+fun main() {
+  -- Mistake: We opened a tuple with `(` but tried to close with `}`.
+  imu pos := (10, 20};
+  imu pos := [10, 20);
+}
+
+-! ## The Diagnostic Map:
+-!
+-! Notice how Ariadne points to both symbols. It remembers where you "Opened"
+-! the thought and identifies the exact moment you provided the "Wrong" closing
+-! symbol.
+-!
+-! ## try this.
+-!
+-!   1. Fix the mistake by changing `}` to `)`. 
+-!   2. Try another mismatch: `imu list = [1, 2);`. 
+-!      Observe how zo always identifies the "Partner" it was expecting.
+
+
+-- EXPECTED OUTPUT:
+-- [E0019] Error: Unmatched opening delimiter
+--     ╭─[ 011-delimiters-mismatched.zo:16:14 ]
+--     │
+--  16 │   imu pos := (10, 20};
+--     │              ┬      ┬
+--     │              ╰───────── this delimiter has no matching closing delimiter
+--     │                     │
+--     │                     ╰── this closing delimiter skipped over it
+--     │
+--     │ Help: Add the corresponding closing delimiter
+--     │
+--     │ Note: Every opening delimiter must be closed by its matching partner.
+--     │       `(` with `)`, `[` with `]`, `{` with `}`
+-- ────╯
+-- [E0021] Error: Mismatched delimiter
+--     ╭─[ 011-delimiters-mismatched.zo:17:21 ]
+--     │
+--  17 │   imu pos := [10, 20);
+--     │              ┬      ┬
+--     │              ╰───────── opened here
+--     │                     │
+--     │                     ╰── delimiter type doesn't match opening
+--     │
+--     │ Help: Change the closing delimiter to match the opening one
+--     │
+--     │ Note: Every opening delimiter must be closed by its matching partner.
+--     │       `(` with `)`, `[` with `]`, `{` with `}`
+-- ────╯
+-- [E0020] Error: Unmatched closing delimiter
+--     ╭─[ 011-delimiters-mismatched.zo:18:1 ]
+--     │
+--  18 │ }
+--     │ ┬
+--     │ ╰── no matching opening delimiter for this
+--     │
+--     │ Help: Remove this delimiter or add its opening pair
+-- ────╯
+-- [E0284] Error: Invalid top-level item
+--     ╭─[ 011-delimiters-mismatched.zo:17:3 ]
+--     │
+--  17 │   imu pos := [10, 20);
+--     │   ─┬─
+--     │    ╰─── here
+-- ────╯
+-- [E0284] Error: Invalid top-level item
+--     ╭─[ 011-delimiters-mismatched.zo:17:22 ]
+--     │
+--  17 │   imu pos := [10, 20);
+--     │                      ┬
+--     │                      ╰── here
+-- ────╯
+-- [E0575] Error: Type mismatch
+--     ╭─[ 011-delimiters-mismatched.zo:14:1 ]
+--     │
+--  14 │ fun main() {
+--     │ ─┬─
+--     │  ╰─── incompatible types for this operation
+--     │
+--     │ Note: The types of both operands must be compatible
+-- ────╯

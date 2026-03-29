@@ -125,6 +125,18 @@ impl ErrorRenderer {
         .with_color(color),
     );
 
+    // Add secondary label if the error has two spans.
+    if let Some(secondary) = error.secondary_span() {
+      let sec_range = span_to_range(secondary, source);
+      let sec_color = colors.next();
+
+      report = report.with_label(
+        Label::new((filename, sec_range))
+          .with_message(secondary_label(kind))
+          .with_color(sec_color),
+      );
+    }
+
     // Add help message if configured
     if self.config.show_help
       && let Some(help) = error_help(kind)
@@ -371,11 +383,26 @@ fn error_label(kind: ErrorKind) -> &'static str {
       "`=` requires a type annotation; use `:=` to infer"
     }
     ErrorKind::ParenthesizedCondition => "remove these parentheses",
+    ErrorKind::UnterminatedChar => "unterminated character",
+    ErrorKind::InvalidEscapeSequence => "unknown escape code",
+    ErrorKind::EmptyCharLiteral | ErrorKind::EmptyCharLit => "empty here",
+    ErrorKind::UnterminatedBytes => "unterminated byte literal",
     _ => "here",
   }
 }
 
 /// Returns a help message for the error.
+/// Label for the secondary span (e.g., the opening delimiter).
+fn secondary_label(kind: ErrorKind) -> &'static str {
+  match kind {
+    ErrorKind::MismatchedDelimiter => "opened here",
+    ErrorKind::UnmatchedOpeningDelimiter => {
+      "this closing delimiter skipped over it"
+    }
+    _ => "related location",
+  }
+}
+
 fn error_help(kind: ErrorKind) -> Option<&'static str> {
   match kind {
     ErrorKind::UnterminatedString => {
@@ -421,6 +448,18 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::ParenthesizedCondition => {
       Some("Write `if cond {` instead of `if (cond) {`")
     }
+    ErrorKind::InvalidEscapeSequence => Some(
+      "Check if you have a typo. If you want a literal backslash,\nuse the double escape `\\\\` instead",
+    ),
+    ErrorKind::EmptyCharLiteral | ErrorKind::EmptyCharLit => Some(
+      "If you meant to use a space, try `' '`.\nIf you need an empty sequence of text, use a string `\"\"` instead",
+    ),
+    ErrorKind::UnterminatedBytes => {
+      Some("Close the literal by adding a backtick at the end")
+    }
+    ErrorKind::MismatchedDelimiter => {
+      Some("Change the closing delimiter to match the opening one")
+    }
     _ => None,
   }
 }
@@ -431,8 +470,19 @@ fn error_note(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::NumberTooLarge => {
       Some("The maximum value for integers is 2^64 - 1")
     }
-    ErrorKind::EmptyCharLiteral => {
-      Some("Character literals must contain exactly one character")
+    ErrorKind::EmptyCharLiteral | ErrorKind::EmptyCharLit => Some(
+      "A `char` represents exactly one Unicode scalar.\nIt cannot be empty because it must have a value in memory",
+    ),
+    ErrorKind::InvalidEscapeSequence => Some(
+      "A backslash `\\` starts a special sequence like `\\n` (newline).\nzo only supports: `\\n`, `\\r`, `\\t`, `\\\\`, `\\'`, `\\\"`, `\\0`",
+    ),
+    ErrorKind::UnterminatedBytes => Some(
+      "A byte literal represents a single 8-bit value.\nIt must start and end with a backtick",
+    ),
+    ErrorKind::MismatchedDelimiter | ErrorKind::UnmatchedOpeningDelimiter => {
+      Some(
+        "Every opening delimiter must be closed by its matching partner.\n`(` with `)`, `[` with `]`, `{` with `}`",
+      )
     }
     ErrorKind::TypeMismatch => {
       Some("The types of both operands must be compatible")

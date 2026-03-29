@@ -47,9 +47,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - write `fun max<$T>(a: $T, b: $T) -> $T` using `when`.
--!   - call `identity` with a `bool` — what type does zo pick?
--!   - try passing an `int` where a `str` is expected — see the error.
+-!   - Write `fun max<$T>(a: $T, b: $T) -> $T` using `when`.
+-!   - Call `identity` with a `bool` — what type does zo pick?
+-!   - Try passing an `int` where a `str` is expected — see the error.
 
 -- EXPECTED OUTPUT:
 -- 42

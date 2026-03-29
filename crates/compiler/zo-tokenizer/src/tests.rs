@@ -448,7 +448,7 @@ fn test_chars() {
 #[test]
 fn test_bytes() {
   assert_tokens_stream(
-    "`` `hello` `abc123` `test` `123` `hello world` `\n\t`",
+    "`` `hello` `abc123` `test` `123` `hello world` `\\n`",
     &[
       (Token::Bytes, "``"),
       (Token::Bytes, "`hello`"),
@@ -456,7 +456,7 @@ fn test_bytes() {
       (Token::Bytes, "`test`"),
       (Token::Bytes, "`123`"),
       (Token::Bytes, "`hello world`"),
-      (Token::Bytes, "`\n\t`"),
+      (Token::Bytes, "`\\n`"),
       (Token::Eof, ""),
     ],
   );

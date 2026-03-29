@@ -51,10 +51,10 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - add a hero hp that decreases each turn. print "you died" if it hits zero
+-!   - Add a hero hp that decreases each turn. print "you died" if it hits zero
 -!     before the monster.
--!   - use `for` to sum an array of damage values.
--!   - try `loop { break; }` — the infinite loop that exits immediately.
+-!   - Use `for` to sum an array of damage values.
+-!   - Try `loop { break; }` — the infinite loop that exits immediately.
 
 -- EXPECTED OUTPUT:
 -- turn 3: monster falls!

@@ -54,9 +54,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - try `10.0 / 3.0` — float division keeps decimals.
--!   - try bitwise OR: `imu v: int = 10 | 12;`
--!   - try XOR: `imu v: int = 0b1010 ^ 0b1100;`
+-!   - Try `10.0 / 3.0` — float division keeps decimals.
+-!   - Try bitwise OR: `imu v: int = 10 | 12;`
+-!   - Try XOR: `imu v: int = 0b1010 ^ 0b1100;`
 
 -- EXPECTED OUTPUT:
 -- sum: 13

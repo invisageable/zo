@@ -1,0 +1,46 @@
+-! # how to errors: 007-lit-bytes-unterminated.zo
+-!
+-! @cmd: `zo build 007-lit-bytes-unterminated.zo`
+-!
+-! Sometimes, Unicode is too much. When you are talking to a network 
+-! or reading a file, you just want the raw "Byte"—a number from 0 to 255. 
+-!
+-! In zo, we write a byte using backticks: `` `z` ``. 
+-!
+-! Just like strings and characters, a byte must be enclosed. If you leave a
+-! backtick hanging, the compiler will go looking for its partner until the end
+-! of the line.
+
+fun main() {
+  -- Mistake: The byte literal is never closed.
+  imu b: bytes = `z;
+}
+
+-! ## the diagnostic map.
+-!
+-! zo identifies the opening backtick `` ` `` and expects exactly one 
+-! character and a closing backtick. When it doesn't find it, it 
+-! alerts you that the "Raw Byte" is incomplete.
+-!
+-! ## try this.
+-!
+-!   1. Add the closing backtick: `` `z` ``.
+-!   2. Compare a byte to a char: what is the difference between `` `z` `` and
+-!      `'z'`? (Hint: One is 8-bit, the other is 32-bit!).
+-!
+-! Note: Byte literals are currently being refined in the compiler. They are 
+-!       "parsed" but not yet fully ready for runtime work.
+
+-- EXPECTED OUTPUT:
+-- [E0518] Error: Unterminated bytes literal
+--     ╭─[ 007-lit-bytes-unterminated.zo:16:18 ]
+--     │
+--  16 │   imu b: bytes = `z;
+--     │                  ─┬─
+--     │                   ╰─── unterminated byte literal
+--     │
+--     │ Help: Close the literal by adding a backtick at the end
+--     │
+--     │ Note: A byte literal represents a single 8-bit value.
+--     │       It must start and end with a backtick
+-- ────╯

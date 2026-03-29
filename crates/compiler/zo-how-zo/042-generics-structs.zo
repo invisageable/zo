@@ -31,9 +31,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - create a `Triple<$T>` with three fields.
--!   - make a `Pair` of booleans.
--!   - try mixing types in one `Pair` — zo stops you.
+-!   - Create a `Triple<$T>` with three fields.
+-!   - Make a `Pair` of booleans.
+-!   - Try mixing types in one `Pair` — zo stops you.
 
 -- EXPECTED OUTPUT:
 -- 10

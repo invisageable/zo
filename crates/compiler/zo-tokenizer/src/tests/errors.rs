@@ -38,35 +38,17 @@ fn test_unmatched_closing_bracket() {
 
 #[test]
 fn test_mismatched_paren_bracket() {
-  assert_errors(
-    "(hello]",
-    &[
-      ErrorKind::UnmatchedClosingDelimiter,
-      ErrorKind::UnmatchedOpeningDelimiter,
-    ],
-  );
+  assert_error("(hello]", ErrorKind::MismatchedDelimiter);
 }
 
 #[test]
 fn test_mismatched_brace_paren() {
-  assert_errors(
-    "{hello)",
-    &[
-      ErrorKind::UnmatchedClosingDelimiter,
-      ErrorKind::UnmatchedOpeningDelimiter,
-    ],
-  );
+  assert_error("{hello)", ErrorKind::MismatchedDelimiter);
 }
 
 #[test]
 fn test_mismatched_bracket_brace() {
-  assert_errors(
-    "[hello}",
-    &[
-      ErrorKind::UnmatchedClosingDelimiter,
-      ErrorKind::UnmatchedOpeningDelimiter,
-    ],
-  );
+  assert_error("[hello}", ErrorKind::MismatchedDelimiter);
 }
 
 #[test]
@@ -90,10 +72,8 @@ fn test_complex_mismatched() {
   assert_errors(
     "{{[hello}]",
     &[
+      ErrorKind::UnmatchedOpeningDelimiter,
       ErrorKind::MismatchedDelimiter,
-      ErrorKind::UnmatchedOpeningDelimiter,
-      ErrorKind::UnmatchedClosingDelimiter,
-      ErrorKind::UnmatchedOpeningDelimiter,
     ],
   );
 }
@@ -103,9 +83,8 @@ fn test_multiple_delimiter_errors() {
   assert_errors(
     "(hello} world [foo)",
     &[
-      ErrorKind::UnmatchedClosingDelimiter,
       ErrorKind::MismatchedDelimiter,
-      ErrorKind::UnmatchedOpeningDelimiter,
+      ErrorKind::MismatchedDelimiter,
     ],
   );
 }
@@ -152,7 +131,6 @@ fn test_nested_delimiters_wrong_order() {
   assert_errors(
     "([)]",
     &[
-      ErrorKind::MismatchedDelimiter,
       ErrorKind::UnmatchedOpeningDelimiter,
       ErrorKind::UnmatchedClosingDelimiter,
     ],

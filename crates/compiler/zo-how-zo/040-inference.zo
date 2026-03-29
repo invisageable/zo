@@ -47,8 +47,8 @@ fun main() {
 -! ## when to use `:=` vs `: type =`.
 -!
 -!   `:=`         — let zo figure it out. use when the type is obvious.
--!   `: type =`   — write the type yourself. use for documentation
--!                  or when the compiler needs a hint.
+-!   `: type =`   — write the type yourself. use for documentation or when the
+-!                  compiler needs a hint.
 -!
 -! rule of thumb: if the value makes the type obvious, use `:=`.
 -! if the reader would have to think, write the type.
@@ -61,9 +61,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - try `imu x := 10; x = "hello";` — zo stops you.
--!   - use `:=` with an array: `imu nums := [1, 2, 3];`
--!   - try `mut count := 0; count += 1;` — inference + mutation.
+-!   - Try `imu x := 10; x = "hello";` — zo stops you.
+-!   - Use `:=` with an array: `imu nums := [1, 2, 3];`
+-!   - Try `mut count := 0; count += 1;` — inference + mutation.
 
 -- EXPECTED OUTPUT:
 -- 10

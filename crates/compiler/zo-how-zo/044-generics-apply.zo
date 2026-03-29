@@ -27,7 +27,7 @@ fun main() {
 
 -! ## the pattern.
 -!
--!   ```
+-!   ```zo
 -!   struct Name<$T> { ... }
 -!   apply Name<$T> { fun method(self) -> $T { ... } }
 -!   ```
@@ -37,9 +37,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - add a second method `fun double(self) -> $T`.
--!   - create `Pair<$T>` with `fun sum(self) -> $T`.
--!   - chain methods: `Box { value: 5 }.unwrap()`.
+-!   - Add a second method `fun double(self) -> $T`.
+-!   - Create `Pair<$T>` with `fun sum(self) -> $T`.
+-!   - Chain methods: `Box { value: 5 }.unwrap()`.
 
 -- EXPECTED OUTPUT:
 -- 42

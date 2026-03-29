@@ -34,9 +34,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - write `fun swap<$A, $B>(a: $A, b: $B) -> ($B, $A)`.
--!   - try three params: `fun triple<$A, $B, $C>(...)`.
--!   - what if `$A` and `$B` happen to be the same type?
+-!   - Write `fun swap<$A, $B>(a: $A, b: $B) -> ($B, $A)`.
+-!   - Try three params: `fun triple<$A, $B, $C>(...)`.
+-!   - What if `$A` and `$B` happen to be the same type?
 
 -- EXPECTED OUTPUT:
 -- 42

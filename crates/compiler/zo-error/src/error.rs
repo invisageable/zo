@@ -2,16 +2,23 @@ use zo_span::Span;
 
 use serde::Serialize;
 
-/// Compact error representation that fits in exactly 8 bytes.
+/// Compact error representation — 16 bytes.
 ///
-/// Layout (64 bits total):
-/// - bits 0-15:  ErrorKind (16 bits).
-/// - bits 16-47: offset in source (32 bits).
-/// - bits 48-63: additional data (16 bits).
+/// Primary span (64 bits):
+/// - bits 0-31:  start offset (32 bits).
+/// - bits 32-47: length (16 bits).
+/// - bits 48-63: ErrorKind (16 bits).
+///
+/// Secondary span (64 bits, optional):
+/// - Same layout as primary. `u64::MAX` means absent.
+///
+/// Used for errors that reference two locations (e.g., mismatched delimiters:
+/// opening + closing).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct Error {
   data: u64,
+  extra: u64,
 }
 
 impl Error {
@@ -21,7 +28,28 @@ impl Error {
     let packed =
       (span.start as u64) | ((span.len as u64) << 32) | ((kind as u64) << 48);
 
-    Self { data: packed }
+    Self {
+      data: packed,
+      extra: u64::MAX,
+    }
+  }
+
+  /// Creates an [`Error`] with a secondary span.
+  #[inline(always)]
+  pub const fn with_secondary(
+    kind: ErrorKind,
+    span: Span,
+    secondary: Span,
+  ) -> Self {
+    let packed =
+      (span.start as u64) | ((span.len as u64) << 32) | ((kind as u64) << 48);
+
+    let extra = (secondary.start as u64) | ((secondary.len as u64) << 32);
+
+    Self {
+      data: packed,
+      extra,
+    }
   }
 
   /// Returns the logical span (start and length) of the error.
@@ -33,11 +61,22 @@ impl Error {
     Span { start, len }
   }
 
+  /// Returns the secondary span, if present.
+  #[inline(always)]
+  pub fn secondary_span(&self) -> Option<Span> {
+    if self.extra == u64::MAX {
+      return None;
+    }
+
+    let start = (self.extra & 0xFFFFFFFF) as u32;
+    let len = ((self.extra >> 32) & 0xFFFF) as u16;
+
+    Some(Span { start, len })
+  }
+
   /// Returns the error kind.
   #[inline(always)]
   pub fn kind(&self) -> ErrorKind {
-    // This is a bit unsafe, but as long as we control Error creation, it's
-    // fine. In a production compiler, you might add a check here.
     unsafe { std::mem::transmute((self.data >> 48) as u16) }
   }
 }

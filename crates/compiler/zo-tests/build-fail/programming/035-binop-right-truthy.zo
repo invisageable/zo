@@ -24,11 +24,11 @@ fun main() {
 -! When a program fails, zo doesn't just give you a line number. It 
 -! provides a map. Look for:
 -!
--!   1. **The Label:** The exact characters that caused the problem.
--!   2. **The Color:** Red for errors, Yellow for warnings.
--!   3. **The Hint:** A suggestion on how to fix the mismatch.
--!   4. **The Note:** Extra context about why the error happened.
--!   5. **The Help:** A concrete suggestion on how to fix it.
+-!   1. The Label: *the exact characters that caused the problem.*
+-!   2. The Color: *everything is perfectly understable with colors.*
+-!   3. The Hint: *a suggestion on how to fix the mismatch.*
+-!   4. The Note: *extra context about why the error happened.*
+-!   5. The Help: *a concrete suggestion on how to fix it.*
 -!
 -! ## no runtime surprises.
 -! 

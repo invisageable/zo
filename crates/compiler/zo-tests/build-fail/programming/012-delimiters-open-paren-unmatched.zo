@@ -1,0 +1,47 @@
+-! # how to errors: 012-delimiters-open-paren-unmatched.zo
+-!
+-! @cmd: `zo build 012-delimiters-open-paren-unmatched.zo`
+-!
+-! A program is like a conversation. When you open a parenthesis `(`, 
+-! you are starting a new sub-thought. 
+-!
+-! If you never close it with a `)`, zo is left hanging. It doesn't 
+-! know where your thought ends and the next one begins. This is an 
+-! "Unmatched" error.
+
+fun main() {
+  -- Mistake: We opened a group but never closed it.
+  imu result := (10 + 5;
+  
+  showln(result);
+}
+
+-! ## the diagnostic map.
+-!
+-! zo points to the exact `(` that is lonely. Because it hit a 
+-! semicolon `;` (the end of the statement) before finding a `)`, 
+-! it knows the structure is broken.
+-!
+-! ## try this.
+-!
+-!   1. Finish the thought: add a `)` after the `5`.
+-!   2. Try leaving a brace `{` open. Notice how the error message changes to
+-!      reflect the different shape of the delimiter.
+
+-- EXPECTED OUTPUT:
+-- [E0019] Error: Unmatched opening delimiter
+--     ╭─[ 012-delimiters-open-paren-unmatched.zo:14:17 ]
+--     │
+--  14 │   imu result := (10 + 5;
+--     │                 ┬
+--     │                 ╰── this delimiter has no matching closing delimiter
+--     │
+--  17 │ }
+--     │ ┬
+--     │ ╰── this closing delimiter skipped over it
+--     │
+--     │ Help: Add the corresponding closing delimiter
+--     │
+--     │ Note: Every opening delimiter must be closed by its matching partner.
+--     │       `(` with `)`, `[` with `]`, `{` with `}`
+-- ────╯

@@ -809,41 +809,59 @@ impl<'a> Tokenizer<'a> {
           // It's the top of the stack - perfect match
           self.delimiter_stack.pop();
         } else {
-          // It's not at the top - we have mismatched delimiters
-          // Report mismatch error
-          report_error(Error::new(
-            ErrorKind::MismatchedDelimiter,
-            Span {
-              start: position,
-              len: 1,
-            },
-          ));
-          // Pop everything above the matching opener (they're mismatched)
+          // Match found deeper — everything above it is
+          // unmatched. Report each with a secondary span
+          // pointing at the closing delimiter that skipped
+          // over them.
           let to_remove = self.delimiter_stack.len() - index - 1;
+
           for _ in 0..to_remove {
             if let Some(unmatched) = self.delimiter_stack.pop() {
-              report_error(Error::new(
+              report_error(Error::with_secondary(
                 ErrorKind::UnmatchedOpeningDelimiter,
                 Span {
                   start: unmatched.position,
                   len: 1,
                 },
+                Span {
+                  start: position,
+                  len: 1,
+                },
               ));
             }
           }
-          // Now pop the matching one
+
+          // Pop the matching one.
           self.delimiter_stack.pop();
         }
       }
       None => {
-        // No matching opener - report unmatched closing delimiter
-        report_error(Error::new(
-          ErrorKind::UnmatchedClosingDelimiter,
-          Span {
-            start: position,
-            len: 1,
-          },
-        ));
+        // No matching opener found. If the stack has an
+        // opener of a different kind, it's a mismatch.
+        // Otherwise it's a truly unmatched closer.
+        if let Some(opener) = self.delimiter_stack.last() {
+          report_error(Error::with_secondary(
+            ErrorKind::MismatchedDelimiter,
+            Span {
+              start: position,
+              len: 1,
+            },
+            Span {
+              start: opener.position,
+              len: 1,
+            },
+          ));
+
+          self.delimiter_stack.pop();
+        } else {
+          report_error(Error::new(
+            ErrorKind::UnmatchedClosingDelimiter,
+            Span {
+              start: position,
+              len: 1,
+            },
+          ));
+        }
       }
     }
   }
@@ -1074,6 +1092,13 @@ impl<'a> Tokenizer<'a> {
         found_closing = true;
         break;
       }
+
+      // Unterminated at newline — don't eat the rest
+      // of the file.
+      if ch == b'\n' {
+        break;
+      }
+
       if ch == b'\\' {
         let esc_start = self.cursor;
 
@@ -1354,6 +1379,12 @@ impl<'a> Tokenizer<'a> {
 
         found_closing = true;
 
+        break;
+      }
+
+      // Unterminated at newline — don't eat the rest
+      // of the file.
+      if ch == b'\n' {
         break;
       }
 

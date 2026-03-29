@@ -313,6 +313,25 @@ fn run_test(
             }
           }
 
+          // Strict: verify all errors are covered.
+          // Count `Error:` lines in actual vs expected.
+          let actual_errors =
+            stderr.lines().filter(|l| l.contains("] Error:")).count();
+
+          let expected_errors =
+            expected.lines().filter(|l| l.contains("] Error:")).count();
+
+          if actual_errors > expected_errors {
+            return fail(
+              name,
+              &format!(
+                "expected output covers {} error(s) but \
+                 compiler produced {}",
+                expected_errors, actual_errors
+              ),
+            );
+          }
+
           ok(name)
         }
         Err(e) => fail(name, &format!("exec error: {e}")),

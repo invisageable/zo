@@ -41,9 +41,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - concat three variables into a sentence.
--!   - try `"hello" ++ 42` — zo stops you (type mismatch).
--!   - build a multi-line message with `++` and `"\n"`.
+-!   - Concat three variables into a sentence.
+-!   - Try `"hello" ++ 42` — zo stops you (type mismatch).
+-!   - Build a multi-line message with `++` and `"\n"`.
 
 -- EXPECTED OUTPUT:
 -- hello, johndoe!

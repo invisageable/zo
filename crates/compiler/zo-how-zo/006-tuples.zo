@@ -49,10 +49,10 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - create a `(int, int, int)` tuple for RGB color values.
--!   - nest a tuple inside another:
+-!   - Create a `(int, int, int)` tuple for RGB color values.
+-!   - Nest a tuple inside another:
 -!     `imu nested: ((int, int), (int, int)) = ((1, 2), (3, 4));`
--!   - access the nested value: `imu v: int = nested.0.1;`
+-!   - Access the nested value: `imu v: int = nested.0.1;`
 
 -- EXPECTED OUTPUT:
 -- hero is at (3, 7)

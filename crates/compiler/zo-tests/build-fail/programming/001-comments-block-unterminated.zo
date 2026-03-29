@@ -2,20 +2,36 @@
 -!
 -! @cmd: `zo build 001-comments-block-unterminated.zo`
 -!
--! Block comments in zo start with `-*` and end with `*-`.
--! If you forget to close one, the compiler eats everything
--! after it — your entire program disappears into the comment.
+-! Block comments in Zo start with `-*` and end with `*-`. 
+-!
+-! If you forget to close one, the compiler eats everything after it — 
+-! your entire program disappears into the comment. You are "Working 
+-! Blind" because the code you see isn't actually being compiled.
 
--* this block comment never closes
-fun main() {}
+-* This block comment never closes, so everything below is "dead."
+fun main() {
+  showln("Hello?");
+}
+
+-! ## the diagnostic map.
+-!
+-! Look at the arrows (╭─▶) in the expected output. Zo shows you exactly 
+-! where the "hunger" started and how much of your file was swallowed. 
+-! 
+-! ## try this.
+-!
+-!   - close the comment by adding the closing marker at line 11.
+-!   - run the program. suddenly, `fun main()` is "visible" to the
+-!     compiler again.
+-!   - can you nest block comments? try putting one inside another.
 
 -- EXPECTED OUTPUT:
 -- [E0002] Error: Unterminated block comment
---     ╭─[ 001-comments-block-unterminated.zo:9:1 ]
+--     ╭─[ 001-comments-block-unterminated.zo:11:1 ]
 --     │
---   9 │ ╭─▶ -* this block comment never closes
+--  11 │ ╭─▶ -* This block comment never closes, so everything below is "dead."
 --     ┆ ┆
---  21 │ ├─▶ -- ────╯
+--  37 │ ├─▶ -- ────╯
 --     │ │
---     │ ╰────────────── here
+--     │ ╰───────────── here
 -- ────╯

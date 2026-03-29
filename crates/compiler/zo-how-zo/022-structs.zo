@@ -47,9 +47,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - add a `def: int` field to `Hero`.
--!   - create a `Potion` struct with `name: str` and `heal: int`.
--!   - compare two heroes by their `hp` field.
+-!   - Add a `def: int` field to `Hero`.
+-!   - Create a `Potion` struct with `name: str` and `heal: int`.
+-!   - Compare two heroes by their `hp` field.
 
 -- EXPECTED OUTPUT:
 -- equipped: iron sword

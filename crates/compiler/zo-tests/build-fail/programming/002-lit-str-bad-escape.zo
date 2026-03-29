@@ -1,0 +1,35 @@
+-! # how to errors: 002-lit-str-bad-escape.zo
+-!
+-! @cmd: `zo build 002-lit-str-bad-escape.zo`
+-!
+-! zo supports standard escape sequences in strings: `\n`, `\t`,
+-! `\\`, `\"`, `\0`. Anything else is an error — no silent
+-! corruption of your data.
+
+fun main() {
+  -- `\q` is not a valid escape. zo catches it immediately.
+  imu s: str = "hello\qworld";
+}
+
+-! ## try this.
+-!
+-!   - Change `\q` to `\\q`. the error disappears because you "escaped" the
+-!     backslash.
+-!   - Try adding `\n` to make the string span two lines in output.
+-!   - Try `\0` — the null character, used to mark end of data in systems
+-!     programming.
+
+-- EXPECTED OUTPUT:
+-- [E0004] Error: Invalid escape sequence
+--     ╭─[ 002-lit-str-bad-escape.zo:11:22 ]
+--     │
+--  11 │   imu s: str = "hello\qworld";
+--     │                      ─┬
+--     │                       ╰── unknown escape code
+--     │
+--     │ Help: Check if you have a typo. If you want a literal backslash,
+--     │       use the double escape `\\` instead
+--     │
+--     │ Note: A backslash `\` starts a special sequence like `\n` (newline).
+--     │       zo only supports: `\n`, `\r`, `\t`, `\\`, `\'`, `\"`, `\0`
+-- ────╯

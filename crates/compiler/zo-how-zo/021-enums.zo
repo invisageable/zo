@@ -43,9 +43,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - create a `Direction` enum: `North`, `South`, `East`, `West`.
--!   - create a `Weapon` enum: `Sword`, `Bow`, `Staff`.
--!   - compare two enum values: `if enemy == boss { ... }`
+-!   - Create a `Direction` enum: `North`, `South`, `East`, `West`.
+-!   - Create a `Weapon` enum: `Sword`, `Bow`, `Staff`.
+-!   - Compare two enum values: `if enemy == boss { ... }`
 
 -- EXPECTED OUTPUT:
 -- 0

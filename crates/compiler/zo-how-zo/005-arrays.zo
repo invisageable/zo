@@ -55,9 +55,9 @@ fun main() {
 -!
 -! ## try this.
 -!
--!   - create a `float[]` of temperatures and find the average with a loop.
--!   - use `check@eq(arr[2] * arr[3], 24)` to verify array math.
--!   - what happens if you access `loot[5]`? (out of bounds — try it.)
+-!   - Create a `float[]` of temperatures and find the average with a loop.
+-!   - Use `check@eq(arr[2] * arr[3], 24)` to verify array math.
+-!   - What happens if you access `loot[5]`? (out of bounds — try it.)
 
 -- EXPECTED OUTPUT:
 -- first chest: 10 gold

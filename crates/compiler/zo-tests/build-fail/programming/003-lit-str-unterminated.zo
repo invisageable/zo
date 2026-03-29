@@ -1,0 +1,41 @@
+-! # how to errors: 003-lit-str-unterminated.zo
+-!
+-! @cmd: `zo build 003-lit-str-unterminated.zo`
+-!
+-! Every string must be closed with a matching `"`. 
+-!
+-! If you forget, the compiler "swallows" everything after the opening 
+-! quote—including your semicolons and closing braces. You get "two  errors for
+-! the price of one." This is why we always fix the **first** error in the list
+-! first.
+
+fun main() {
+  -- The quote below is never closed.
+  -- Everything until the end of the file is now just "text" to zo.
+  imu x: str = "this string never closes;
+}
+
+-! ## the diagnostic map.
+-!
+-! Notice how ariadne highlights the opening double quote and points to the end
+-! of the line. Because the string never ended, the compiler never saw the
+-! closing brace of your function.
+-!
+-! ## try this.
+-!
+-!   1. Add the closing quote after the word closes.
+-!   2. Both errors will disappear—the string was the root cause.
+-!   3. Try putting a newline inside the string. Does zo allow multi-line
+-!      strings, or does it throw another error?
+-!      (Hint: Most systems languages require a special syntax for multi-line).
+
+-- EXPECTED OUTPUT:
+-- [E0001] Error: Unterminated string literal
+--     ╭─[ 003-lit-str-unterminated.zo:15:16 ]
+--     │
+--  15 │   imu x: str = "this string never closes;
+--     │                ─────────────┬────────────
+--     │                             ╰────────────── string literal started here
+--     │
+--     │ Help: Add a closing quote to terminate the string
+-- ────╯
