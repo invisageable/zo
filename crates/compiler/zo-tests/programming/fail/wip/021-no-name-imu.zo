@@ -1,0 +1,46 @@
+-! # how to errors: 021-no-name-imu.zo
+-!
+-! @cmd: `zo build 021-no-name-imu.zo`
+-!
+-! Every piece of data in your workstation needs a handle. 
+-! In zo, we don't allow "Ghost Variables"—values that exist 
+-! but have no name. 
+-!
+-! If you provide a type and a value, but forget the identifier (the name), 
+-! the compiler stops you. You cannot grasp what you cannot name.
+
+fun main() {
+  -- Mistake: Missing the name between `imu` and `: int`.
+  imu : int = 42;
+
+  -- Mistake: Missing the name between `imu` and `:= 42`.
+  imu := 42;
+}
+
+-! ## the diagnostic:
+-!
+-! The compiler identifies the `imu` keyword and scans for a name. 
+-! Because it finds a colon `:` instead of an identifier, it triggers 
+
+-! ## try this.
+-!
+-! 1. Give the variable a name, like `imu age: int = 42;`. 
+-!    Now you have a handle to use this data later in your program.
+-! 2. Try removing the `: int` part entirely: `imu = 42;`. 
+-!    Notice how the error remains the same—Zo always needs a name, even if it
+-!    can figure out the type for you.
+-! 3. Try this with `mut`. Does `mut : int = 10;` produce the same total
+-!    information map?
+
+-- EXPECTED OUTPUT:
+-- [E0021] Error: Expected identifier after `imu`
+--    ┌─ 021-no-name-imu.zo:13:7
+--    │
+-- 13 │   imu : int = 42;
+--    │       ^ expected a name here
+--    │
+--    = Note: An immutable local declaration requires a name so you can refer to it.
+--    = Help: Insert a name at line 13, column 7. Example: `imu my_value: int = 42;`
+-- ────╯
+
+-- this is the design based `hint`, `title`, `note`, `help` as to be implement in error message.

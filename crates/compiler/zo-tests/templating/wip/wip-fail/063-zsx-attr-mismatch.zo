@@ -1,0 +1,44 @@
+-! # how to errors: 063-zsx-attr-type-mismatch.zo
+-!
+-! @cmd: `zo build 063-zsx-attr-type-mismatch.zo`
+-!
+-! #template
+-!
+-! In the old web, `onclick` was a string of text. In Zo, everything is 
+-! strictly typed. An `onclick` attribute expects a **Function**, 
+-! not a **String**. 
+-!
+-! We catch this to prevent "Dead Buttons"—actions that look like 
+-! code but never actually run.
+
+fun main() {
+  -- Mistake: Passing a string "showln('hi')" to an event handler.
+  imu btn: </> ::= <button @click="showln('hi')">"Click"</button>;
+  imu btn: </> ::= <button @click={42}>"Click"</button>;
+}
+
+-! ## The Diagnostic:
+-! Zo's Type Checker looks at the `onclick` attribute and sees a `str`. 
+-! It knows that for a button to work, it needs a "Logic Block" `{}`.
+-!
+-! - **For the Human:** You're trying to give the button a "Label" 
+-!   instead of an "Action." 
+-! - **For the Agent:** Error [E0063]. Target: Line 16, Column 34. 
+-!   Expected: `{}` block (Function Type). Found: `str`.
+
+-! ## Try this:
+-! 1. **The Fix:** Wrap the action in braces: `onclick={showln("hi")}`.
+-! 2. **Dynamic Attributes:** Try setting `class="active"`. This works 
+-!    because `class` *wants* a string. 
+-! 3. **The Goal:** Match the data type to the attribute's intent.
+
+-- EXPECTED OUTPUT:
+-- [E0063] Error: Type mismatch in ZSX attribute
+--    ┌─ 063-zsx-attr-type-mismatch.zo:16:34
+--    │
+-- 16 │   imu btn: </> = <button onclick="showln('hi')">"Click"</button>;
+--    │                                  ^^^^^^^^^^^^^^ expected a function block {}, found a string
+--    │
+--    = Note: Event handlers like `onclick` require executable code inside braces.
+--    = Help: Use braces for the attribute: `onclick={showln("hi")}`.
+-- ────╯

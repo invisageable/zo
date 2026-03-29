@@ -1,0 +1,9 @@
+fun bad_condition(n: int) -> str {
+  if n {
+    "has stuff in it"
+  } else if n > 0 {
+    "has no stuff"
+  }
+}
+
+fun main() {}

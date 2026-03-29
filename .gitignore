@@ -2,6 +2,7 @@
 /crates/compiler/zo-how-zo/wip
 /crates/compiler/zo-tests/wip
 crates/compiler/zo-tests/build-fail/programming/wip
+crates/compiler/zo-tests/build-fail/templating/wip
 /crates/compiler/zo-notes/personal
 /crates/packager/fret-notes/personal
 /program

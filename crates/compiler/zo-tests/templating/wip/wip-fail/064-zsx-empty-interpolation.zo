@@ -1,0 +1,45 @@
+-! # how to errors: 064-zsx-empty-interpolation.zo
+-!
+-! @cmd: `zo build 064-zsx-empty-interpolation.zo`
+-!
+-! #template
+-!
+-! Braces `{}` in ZSX are a "Signal." They tell the compiler: 
+-! "Switch from Templating Mode to Programming Mode." 
+-!
+-! If you provide empty braces `{}`, you are sending a silent 
+-! signal—a thought with no content. Zo nuke this to keep your 
+-! code clean and meaningful.
+
+fun main() {
+  -- Mistake: Empty interpolation braces.
+  imu view: </> ::= <div> {} </div>;
+}
+
+-! ## The Diagnostic:
+-! The compiler sees the `{` and prepares for an expression. When 
+-! it immediately sees `}`, it realizes there is no data to transform.
+-!
+-! - **For the Human:** You called for a value but didn't provide one.
+-! - **For the Agent:** Error [E0064]. Target: Line 15, Column 19. 
+-!   Content: Empty Block.
+
+-! ## Try this:
+-!
+-! 1. **The Fix:** Either remove the `{}` entirely or fill it with 
+-!    a variable: `{ "Something" }` or `{ 42 }`.
+-! 2. **The Meaning:** In Zo, every character must earn its place. 
+-!    Empty braces are "noise" that we remove to maintain focus.
+-! 3. **The Test:** Try putting a space inside: `{  }`. Does Zo 
+-!    count "space" as an expression? (Hint: No! Only code matters).
+
+-- EXPECTED OUTPUT:
+-- [E0064] Error: Empty ZSX interpolation
+--    ┌─ 064-zsx-empty-interpolation.zo:15:19
+--    │
+-- 15 │   imu view: </> = <div> {} </div>;
+--    │                         ^^ empty interpolation
+--    │
+--    = Note: Interpolation blocks `{}` must contain a valid expression.
+--    = Help: Provide a variable or value inside the braces, or remove them.
+-- ────╯

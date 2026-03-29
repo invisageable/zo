@@ -1,0 +1,11 @@
+$: {
+  html {
+    w: "100%";
+    h: '100%';
+  }
+}
+
+fun main() {
+  -- fragment are root cannot be nested.
+  imu view: </> ::= <div></div>;
+}

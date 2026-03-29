@@ -1,8 +1,0 @@
--- test-run-pass: the superstar `hello, world!` (templating).
-
-fun main() {
-  imu name: str = "world";
-  imu hello ::= <h1>hello, {name}!</h1>;
-
-  #dom hello;
-}

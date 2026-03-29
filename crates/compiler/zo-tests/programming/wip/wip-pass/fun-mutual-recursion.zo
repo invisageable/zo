@@ -1,0 +1,23 @@
+-- tests-build-pass: mutual recursion even/odd (from rust-prehistory).
+-- @cmd — zo build fun-mutual-recursion.zo
+
+fun even(n: int) -> bool {
+  if n == 0 {
+    return true;
+  } else {
+    return odd(n - 1);
+  }
+}
+
+fun odd(n: int) -> bool {
+  if n == 0 {
+    return false;
+  } else {
+    return even(n - 1);
+  }
+}
+
+fun main() {
+  check(even(42));
+  check(odd(45));
+}

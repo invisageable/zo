@@ -1,0 +1,8 @@
+-- test-run-pass: html tag.
+
+fun main() {
+	imu strong: str = "here's some <strong>html!!!</strong>";
+  imu paragraph ::= <p>{#html strong}</p>;
+
+  #dom paragraph;
+}

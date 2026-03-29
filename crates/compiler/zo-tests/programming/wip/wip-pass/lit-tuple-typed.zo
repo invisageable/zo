@@ -1,0 +1,6 @@
+-- tests-build-pass: tuple with type annotation.
+-- @cmd — zo build lit-tuple-typed.zo
+
+fun main() {
+  imu t: (int, int) = (10, 20);
+}

@@ -1,0 +1,52 @@
+-! # how to errors: 068-zsx-undefined-var.zo
+-!
+-! @cmd: `zo build 068-zsx-undefined-var.zo`
+-!
+-! #template
+-!
+-! When you use `{}` in ZSX, you are calling a name from your 
+-! "Programming Mode." 
+-!
+-! If you call a name that doesn't exist (like `{username}` when 
+-! you haven't declared it), Zo stops you. This is how we fulfill the 
+-! promise of "No Runtime Surprises." You'll never see "undefined" 
+-! on a user's screen.
+
+fun main() {
+  -- Mistake: Calling `user_id` which has not been declared.
+  imu view: </> ::= <p>Welcome, {user_id}</p>;
+
+  #dom view;
+}
+
+-! ## the diagnostic.
+-!
+-! Zo's Type Checker looks at the name inside the braces and 
+-! searches your local scope. If it finds nothing, it flags 
+-! it as a "Missing Name."
+-!
+-! - **For the Human:** You're calling for someone who isn't in the room!
+-! - **For the Agent:** Error [E0068]. Target: Line 17, Column 35. 
+-!   Symbol: `user_id`. Action: Declare variable or fix typo.
+
+-! ## try this.
+-!
+-!   1. **The Fix:** Change `{user_id}` to `{name}`. 
+-!   2. **Typo Test:** Try `{nme}`. Notice how Zo identifies the exact 
+-!      missing name.
+-!   3. **Scope Test:** Try to use a variable from a different function. 
+-!      Names must be visible in the current scope to be used in ZSX.
+-!   4. Total Information means knowing where 
+-!      every piece of data comes from. No "Ghost Variables."
+
+-- EXPECTED OUTPUT:
+-- [E0068] Error: Undefined variable in ZSX interpolation
+--    ┌─ 068-zsx-undefined-var.zo:17:35
+--    │
+-- 17 │   imu view: </> = <div> "Welcome, {user_id}" </div>;
+--    │                                   ^^^^^^^ unknown variable
+--    │
+--    = Note: You are trying to use a variable that hasn't been declared yet.
+--    = Help: Did you mean `name`? Check for typos or declare `user_id` 
+--            before using it in the template.
+-- ────╯

@@ -1,0 +1,5 @@
+-- tests-run-fail: type param without $ prefix.
+
+fun identity<T>(x: T) -> T { x }
+
+fun main() {}

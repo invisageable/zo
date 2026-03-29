@@ -1,0 +1,1 @@
+-- Struct A contains Struct B, and Struct B contains Struct A. Without pointers, this creates an "Infinite Size" error.

@@ -1,0 +1,11 @@
+$: {
+  div {
+    w: "100%";
+    h: '100%';
+  }
+}
+
+fun main() {
+  -- Unused CSS selector `div`.
+  imu view: </> ::= <div></div>;
+}

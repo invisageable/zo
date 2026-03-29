@@ -1,2 +1,0 @@
-
-based on svelte tutorial.

@@ -1,0 +1,6 @@
+-- tests-run-fail: val with := should error.
+-- @cmd — zo build val-no-type.zo
+
+val x := 42;
+
+fun main() {}

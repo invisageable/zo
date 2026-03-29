@@ -1,0 +1,1 @@
+-- A function that calls itself in a way that the Hindley-Milner system cannot determine the final type (e.g., infinite recursion without a base case type).

@@ -1,0 +1,5 @@
+-- tests-run-fail: empty generic parameter list.
+
+fun identity<>(x: int) -> int { x }
+
+fun main() {}

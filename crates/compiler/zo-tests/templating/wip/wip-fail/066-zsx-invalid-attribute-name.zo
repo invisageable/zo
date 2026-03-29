@@ -1,0 +1,51 @@
+-! # how to errors: 066-zsx-invalid-attribute-name.zo
+-!
+-! @cmd: `zo build 066-zsx-invalid-attribute-name.zo`
+-!
+-! #template
+-!
+-! Every ZSX attribute name must be a valid "Identifier." Just like 
+-! variable names, they should start with a letter and contain only 
+-! alphanumeric characters or hyphens.
+-!
+-! If you use symbols like `@`, `!`, or start with a digit, Zo 
+-! identifies this as "Noise." We nuke it at compile-time to 
+-! ensure your UI data is always well-formed and predictable.
+
+fun main() {
+  -- Mistake: An attribute name starting with a number.
+  -- Attribute names cannot start with digits or contain illegal symbols.
+  imu view: </> ::= <div 1st-class="hero"> "Invalid Name" </div>;
+}
+
+-! ## The Diagnostic:
+-! The parser sees the space after `div` and expects a valid name. 
+-! When it hits `1`, it realizes this cannot be a valid attribute "handle."
+-!
+-! - **For the Human:** A name cannot start with a number. It's like 
+-!   trying to put a "1" on the front of a person's name—it's confusing!
+-! - **For the Agent:** Error [E0066]. Target: Line 16, Column 24. 
+-!   Token: `1`. Action: Rename attribute to start with a letter.
+
+-! ## Try this:
+-!
+-! 1. **The Fix:** Change `1st-class` to `first-class` or just `class`.
+-! 2. **Hyphen Test:** Try `data-id="123"`. Notice that hyphens are 
+-!    allowed *inside* names, but not at the very start!
+-! 3. **The Symbol Test:** Try `class!="top"`. See how Zo detects the 
+-!    `!` as an unexpected character in a name.
+-! 4. **The Philosophy:** Well-formed names lead to well-formed 
+-!    software. Total Information means no ambiguous names.
+
+-- EXPECTED OUTPUT:
+-- [E0066] Error: Invalid ZSX attribute name
+--    ┌─ 066-zsx-invalid-attribute-name.zo:16:24
+--    │
+-- 16 │   imu view: </> = <div 1st-class="hero"> "Invalid Name" </div>;
+--    │                        ^ invalid start of attribute name
+--    │
+--    = Note: Attribute names must start with a letter (a-z) and can 
+--            contain letters, numbers, or hyphens.
+--    = Help: Rename this attribute to start with a letter. 
+--            Example: `first-class` or `primary-class`.
+-- ────╯

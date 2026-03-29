@@ -20,16 +20,12 @@ use std::time::Instant;
 /// Test category — determines how to run and what to expect.
 #[derive(Clone, Copy)]
 enum Category {
-  /// `zo build` must succeed (exit 0).
-  BuildPass,
-  /// `zo build` must fail (exit != 0).
-  BuildFail,
-  /// `zo build` + run binary must succeed (exit 0).
-  RunPass,
-  /// `zo build` + run binary must fail (exit != 0).
-  RunFail,
-  /// Like RunPass but also checks `-- EXPECTED OUTPUT:`.
-  RunPassOutput,
+  /// Build + run + optional output check.
+  Pass,
+  /// Must fail to compile. Check error output if present.
+  Fail,
+  /// Build only (no run). For ZSX/UI programs.
+  BuildOnly,
 }
 
 struct TestResult {
@@ -39,8 +35,8 @@ struct TestResult {
 }
 
 fn main() {
-  let args: Vec<String> = env::args().collect();
-  let quick = args.iter().any(|a| a == "--quick");
+  let args = env::args().collect::<Vec<_>>();
+
   let filter = args
     .iter()
     .position(|a| a == "--filter")
@@ -61,86 +57,49 @@ fn main() {
   let start = Instant::now();
   let mut results: Vec<TestResult> = Vec::new();
 
-  if !quick {
-    run_dir(
-      &tests_dir.join("build-pass/programming"),
-      Category::BuildPass,
-      &zo,
-      &tmp,
-      filter,
-      &mut results,
-    );
-    run_dir(
-      &tests_dir.join("build-pass/templating"),
-      Category::BuildPass,
-      &zo,
-      &tmp,
-      filter,
-      &mut results,
-    );
-  }
-
+  // programming/ — build + run + optional output check.
   run_dir(
-    &tests_dir.join("build-fail/programming"),
-    Category::BuildFail,
-    &zo,
-    &tmp,
-    filter,
-    &mut results,
-  );
-  run_dir(
-    &tests_dir.join("build-fail/templating"),
-    Category::BuildFail,
+    &tests_dir.join("programming"),
+    Category::Pass,
     &zo,
     &tmp,
     filter,
     &mut results,
   );
 
+  // programming/fail/ — must fail to compile.
   run_dir(
-    &tests_dir.join("run-pass/programming"),
-    Category::RunPass,
-    &zo,
-    &tmp,
-    filter,
-    &mut results,
-  );
-  run_dir(
-    &tests_dir.join("run-pass/templating"),
-    Category::RunPass,
+    &tests_dir.join("programming/fail"),
+    Category::Fail,
     &zo,
     &tmp,
     filter,
     &mut results,
   );
 
+  // templating/ — build only (ZSX renders to UI, no stdout).
   run_dir(
-    &tests_dir.join("run-fail/programming"),
-    Category::RunFail,
-    &zo,
-    &tmp,
-    filter,
-    &mut results,
-  );
-  run_dir(
-    &tests_dir.join("run-fail/templating"),
-    Category::RunFail,
+    &tests_dir.join("templating"),
+    Category::BuildOnly,
     &zo,
     &tmp,
     filter,
     &mut results,
   );
 
-  // zo-how-to tutorials — run-pass with output checking.
+  // templating/fail/ — must fail to compile.
+  run_dir(
+    &tests_dir.join("templating/fail"),
+    Category::Fail,
+    &zo,
+    &tmp,
+    filter,
+    &mut results,
+  );
+
+  // zo-how-to tutorials — build + run + output check.
   if howto_dir.exists() {
-    run_dir(
-      &howto_dir,
-      Category::RunPassOutput,
-      &zo,
-      &tmp,
-      filter,
-      &mut results,
-    );
+    run_dir(&howto_dir, Category::Pass, &zo, &tmp, filter, &mut results);
   }
 
   // Cleanup.
@@ -192,12 +151,12 @@ fn run_dir(
     return;
   }
 
-  let mut files: Vec<PathBuf> = fs::read_dir(dir)
+  let mut files = fs::read_dir(dir)
     .expect("failed to read dir")
     .filter_map(|e| e.ok())
     .map(|e| e.path())
     .filter(|p| p.extension().is_some_and(|e| e == "zo"))
-    .collect();
+    .collect::<Vec<_>>();
 
   files.sort();
 
@@ -206,7 +165,9 @@ fn run_dir(
   }
 
   // For how-to, only pick numbered files (0*.zo).
-  let files: Vec<PathBuf> = if matches!(category, Category::RunPassOutput) {
+  let is_howto = dir.to_string_lossy().contains("zo-how-zo");
+
+  let files = if is_howto {
     files
       .into_iter()
       .filter(|p| {
@@ -214,7 +175,7 @@ fn run_dir(
           .and_then(|n| n.to_str())
           .is_some_and(|n| n.starts_with('0'))
       })
-      .collect()
+      .collect::<Vec<_>>()
   } else {
     files
   };
@@ -268,7 +229,7 @@ fn run_test(
   let out = tmp.join(name);
 
   match category {
-    Category::BuildPass => {
+    Category::BuildOnly => {
       let status = Command::new(zo)
         .args(["build", &file.to_string_lossy(), "-o"])
         .arg(&out)
@@ -283,7 +244,7 @@ fn run_test(
       }
     }
 
-    Category::BuildFail => {
+    Category::Fail => {
       let output = Command::new(zo)
         .args(["build", &file.to_string_lossy(), "-o"])
         .arg(&out)
@@ -314,7 +275,6 @@ fn run_test(
           }
 
           // Strict: verify all errors are covered.
-          // Count `Error:` lines in actual vs expected.
           let actual_errors =
             stderr.lines().filter(|l| l.contains("] Error:")).count();
 
@@ -325,8 +285,8 @@ fn run_test(
             return fail(
               name,
               &format!(
-                "expected output covers {} error(s) but \
-                 compiler produced {}",
+                "expected output covers {} error(s) \
+                 but compiler produced {}",
                 expected_errors, actual_errors
               ),
             );
@@ -338,40 +298,7 @@ fn run_test(
       }
     }
 
-    Category::RunPass => {
-      let build = Command::new(zo)
-        .args(["build", &file.to_string_lossy(), "-o"])
-        .arg(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-      match build {
-        Ok(s) if !s.success() => {
-          return fail(name, "compilation failed");
-        }
-        Err(e) => {
-          return fail(name, &format!("build exec error: {e}"));
-        }
-        _ => {}
-      }
-
-      let run = Command::new(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-      match run {
-        Ok(s) if s.success() => ok(name),
-        Ok(s) => fail(
-          name,
-          &format!("runtime crash (exit {})", s.code().unwrap_or(-1)),
-        ),
-        Err(e) => fail(name, &format!("run exec error: {e}")),
-      }
-    }
-
-    Category::RunPassOutput => {
+    Category::Pass => {
       let build = Command::new(zo)
         .args(["build", &file.to_string_lossy(), "-o"])
         .arg(&out)
@@ -407,7 +334,6 @@ fn run_test(
           let expected = extract_expected(file);
 
           if expected.is_empty() {
-            // No expected output — just check exit 0.
             return ok(name);
           }
 
@@ -417,10 +343,9 @@ fn run_test(
           if actual_trimmed == expected_trimmed {
             ok(name)
           } else {
-            let a_lines: Vec<&str> = actual_trimmed.lines().collect();
-            let e_lines: Vec<&str> = expected_trimmed.lines().collect();
+            let a_lines = actual_trimmed.lines().collect::<Vec<_>>();
+            let e_lines = expected_trimmed.lines().collect::<Vec<_>>();
 
-            // Find first mismatch.
             for (i, (a, e)) in a_lines.iter().zip(e_lines.iter()).enumerate() {
               if a != e {
                 return fail(
@@ -444,36 +369,6 @@ fn run_test(
             }
           }
         }
-        Err(e) => fail(name, &format!("run exec error: {e}")),
-      }
-    }
-
-    Category::RunFail => {
-      let build = Command::new(zo)
-        .args(["build", &file.to_string_lossy(), "-o"])
-        .arg(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-      match build {
-        Ok(s) if !s.success() => {
-          return fail(name, "compilation failed (should compile)");
-        }
-        Err(e) => {
-          return fail(name, &format!("build exec error: {e}"));
-        }
-        _ => {}
-      }
-
-      let run = Command::new(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-      match run {
-        Ok(s) if !s.success() => ok(name),
-        Ok(_) => fail(name, "program succeeded (expected failure)"),
         Err(e) => fail(name, &format!("run exec error: {e}")),
       }
     }

@@ -1,6 +1,0 @@
--- tests-run-pass: the superstar `hello, world!`.
--- @see https://en.wikipedia.org/wiki/%22Hello,_World!%22_program.
-
-fun main() {
-  showln("hello, world!");
-}

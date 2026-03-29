@@ -1,0 +1,30 @@
+struct Rect {
+  x: int = 10,
+  y: int = 20,
+  w: int = 100,
+  h: int =. 200,
+}
+
+fun f(rect: Rect, x: int, y: int, w: int, h: int) {
+  check@eq(rect.x, x);
+  check@eq(rect.y, y);
+  check@eq(rect.w, w);
+  check@eq(rect.h, h);
+}
+
+fun main() {
+  imu r1: Rect = Rect::default();
+
+  check@eq(r1.x, 10);
+  check@eq(r1.y, 20);
+  check@eq(r1.w, 100);
+  check@eq(r1.h, 200);
+
+  imu r2: Rect = rect;
+  imu x: int = r2.x;
+
+  check@eq(x, 10);
+
+  f(r1, 10, 20, 100, 200);
+  f(r2, 10, 20, 100, 200);
+}

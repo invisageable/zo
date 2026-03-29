@@ -1,7 +1,0 @@
--- test-build-pass: the superstar `hello`.
-
-fun main() {
-  imu view: </> ::= <>hello world!</>;
-
-  #dom view;
-}

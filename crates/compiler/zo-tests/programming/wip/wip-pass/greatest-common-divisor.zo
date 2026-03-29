@@ -1,0 +1,17 @@
+-- tests-run-pass: GCD.
+-- @see https://en.wikipedia.org/wiki/Greatest_common_divisor.
+
+fun gcd(a: int, b: int) -> int {
+  when b == 0 ? a : gcd(b, a % b)
+}
+
+fun main() {
+  imu a: int = 48;
+  imu b: int = 18;
+
+  check@eq(gcd(a, b), 6);
+  check@eq(gcd(100, 75), 25);
+
+  showln(gcd(a, b));
+  -- showln("GCD of {a} and {b} = {}", gcd(A, B)); -- returns `GCD of 48 and 18 is 6`.
+}

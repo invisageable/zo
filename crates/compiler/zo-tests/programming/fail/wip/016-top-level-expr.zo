@@ -1,0 +1,55 @@
+-! # how to errors: 016-top-level-expr.zo
+-!
+-! @cmd: `zo build 016-top-level-expr.zo`
+-!
+-! A program is a transformation of data. But data needs a context to be
+-! transformed. In Zo, expressions (like `10 + 20`) cannot just float at
+-! the "Top Level" of your file. 
+-!
+-! This keeps your program's entry points clear and prevents 
+-! "unintended execution"—a major source of runtime surprises.
+
+-- Mistake: An expression sitting outside of any function.
+10 + 20;
+
+showln(12345); -- same for this expression. not allowed.
+
+fun main() {
+  -- This is where the math belongs.
+}
+
+-! ## try this.
+-!
+-!   1. Move the `10 + 20;` inside the `main` function. Suddenly, the compiler
+-!      understands that you want this math to 
+-!      actually *happen* when the program runs.
+-!   2. If you want `10 + 20` to be available at the top level, you must name
+-!      it: `val result = 10 + 20;`.
+-!   3. Try to put a `showln("hi");` at the top level. Notice how the error
+-!      message remains consistent—actions must always be inside functions.
+
+-- EXPECTED OUTPUT:
+-- [E0016] Error: Unexpected expression at top-level
+--    ┌─ 016-top-level-expr.zo:11:1
+--    │
+-- 11 │ 10 + 20;
+--    │ ^^ floating expression
+--    │
+--    = Note: Only declarations (fun, val, struct, enum, apply, type) 
+--            are allowed at the top-level.
+--    = Help: Move the expression `10 + 20;` into a function like `main` 
+--            at line 13.
+-- ────╯
+--
+-- EXPECTED OUTPUT:
+-- [E0016] Error: Unexpected expression at top-level
+--    ┌─ 016-top-level-expr.zo:11:1
+--    │
+-- 14 │ showln(12345);
+--    │ ^^ call expression
+--    │
+--    = Note: Only declarations (fun, val, struct, enum, apply, type) are
+--            allowed at the top-level.
+--    = Help: Move the expression `10 + 20;` into a function like `main` 
+--            at line 13.
+-- ────╯

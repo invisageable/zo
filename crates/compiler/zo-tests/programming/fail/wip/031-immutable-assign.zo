@@ -1,0 +1,5 @@
+fun main() {
+  imu x: int = 42;
+  
+  x = 10;
+}

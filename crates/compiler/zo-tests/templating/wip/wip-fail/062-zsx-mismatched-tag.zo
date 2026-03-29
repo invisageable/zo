@@ -1,0 +1,47 @@
+-! # how to errors: 062-zsx-mismatched-tag.zo
+-!
+-! @cmd: `zo build 062-zsx-mismatched-tag.zo`
+-!
+-! #template
+-!
+-! A ZSX tag is like a specialized room. If you enter through a `<div>`, 
+-! you cannot exit through a `</span>`. They are two different 
+-! dimensions of data.
+-!
+-! In the "Great Divide" of the old web, this might go unnoticed or 
+-! lead to a broken layout. In Zo, we catch the "Wrong Exit" during 
+-! the build so your workstation stays solid.
+
+fun main() {
+  -- Mistake: Opening a <div> but trying to close with a </span>.
+  imu view: </> ::= <div>"Mismatched Exit"</span>;
+}
+
+-! ## The Diagnostic:
+-! Zo's parser remembers the "Open" tag and compares it to the "Close" 
+-! tag. If they don't match, it identifies both so you can see 
+-! the discrepancy.
+-!
+-! - **For the Human:** You're trying to close a box with the wrong lid.
+-! - **For the Agent:** Error [E0062]. Open: `<div>` (Col 19). 
+-!   Close: `</span>` (Col 37). Action: Match close to open.
+
+-! ## Try this:
+-! 
+-! 1. **The Fix:** Change `</span>` to `</div>`. 
+-! 2. **The Reverse:** Change the opening `<div>` to `<span>`. 
+-!    Notice how the error stays consistent—they must always be a pair.
+-! 3. **The Philosophy:** Symmetry is speed. Total Control.
+
+-- EXPECTED OUTPUT:
+-- [E0062] Error: Mismatched ZSX tags
+--    ┌─ 062-zsx-mismatched-tag.zo:16:19
+--    │
+-- 16 │   imu view: </> = <div>"Mismatched Exit"</span>;
+--    │                   ──┬──                 ──┬───
+--    │                     │                     ╰── mismatched closing tag
+--    │                     ╰── opened as `<div>` here
+--    │
+--    = Note: The closing tag must exactly match the name of the opening tag.
+--    = Help: Change the `</span>` to `</div>` at line 16, column 37.
+-- ────╯

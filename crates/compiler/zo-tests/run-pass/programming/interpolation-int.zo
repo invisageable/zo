@@ -1,8 +1,0 @@
--- tests-run-pass: string interpolation with int variable.
--- @cmd — zo run interpolation-int.zo
-
-fun main() {
-  imu x: int = 42;
-
-  showln("{x}");
-}

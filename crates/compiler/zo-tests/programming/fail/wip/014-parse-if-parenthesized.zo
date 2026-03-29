@@ -1,0 +1,40 @@
+-! # how to errors: 014-parse-if-parenthesized.zo
+-!
+-! @cmd: `zo build 014-parse-if-parenthesized.zo`
+-!
+-! In languages like C, Java, or JavaScript, you are forced to wrap your `if`
+-! conditions in parentheses: `if (x > 0)`. 
+-!
+-! In term of syntax, we believe in "Less Noise". We stripped these away to
+-! make your code look cleaner. Using them isn't just unnecessary—it's a syntax
+-! error.
+
+fun main() {
+  -- Mistake: Using parentheses around the condition.
+  if (x > 0) {
+    showln("Don't do that.");
+  }
+}
+
+-! ## the diagnostic map.
+-!
+-! zo identifies the `(` right after the `if` keyword. It knows you’re likely
+-! following an old habit! 
+-!
+-! ## try this.
+-!
+-!   1. Remove the `(` and `)`. The code becomes: `if x > 0 {`.
+-!   2. Notice how much easier it is to read the logic without the extra "ink"
+-!      on the screen.
+
+-- EXPECTED OUTPUT:
+-- [E0014] Error: Unexpected `(` in conditional
+--    ┌─ 014-parse-if-parenthesized.zo:16:6
+--    │
+-- 16 │   if (x > 0) {
+--    │      ^ unnecessary parenthesis
+--    │
+--    │ = Help: Remove the parentheses to match the zo style: `if x > 0 {`.
+--    │
+--    │ = Note: zo does not require parentheses around `if` or `while` conditions.
+-- ───╯

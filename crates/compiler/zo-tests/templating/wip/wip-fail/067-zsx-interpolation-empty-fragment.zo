@@ -1,0 +1,47 @@
+-! # how to errors: 067-zsx-interpolation-empty-fragment.zo
+-!
+-! @cmd: `zo build 067-zsx-interpolation-empty-fragment.zo`
+-!
+-! #template
+-!
+-! A Fragment `<>` is an invisible container. An interpolation `{}` is 
+-! a window to your code. When you combine them into `<> {} </>`, you 
+-! have created "Double Nothingness"—a container for a ghost.
+-!
+-! Zo doesn't just "warn" you; it nukes this at compile-time to prevent 
+-! your workstation from being cluttered with meaningless "Hollow Signals."
+
+fun main() {
+  -- Mistake: Empty interpolation inside an empty fragment.
+  -- This creates a UI node with zero purpose and zero data.
+  imu view: </> ::= <>{}</>;
+  imu view: </> ::= <p>{}</p>;
+}
+
+-! ## The Diagnostic:
+-! The compiler enters the Fragment and finds a "Programming Mode" 
+-! block `{}` that contains no expression. It stops the build to 
+-! maintain structural integrity.
+-!
+-! - **For the Human:** You've built an invisible box for a value that 
+-!   doesn't exist. It's like a picture frame with no picture.
+-! - **For the Agent:** Error [E0067]. Target: Line 15, Column 22. 
+-!   Parent: `<>`. Content: Empty `{}`. Action: Remove node.
+
+-! ## Try this:
+-!
+-! 1. **The Fix:** Fill the window: `<> { "Signal" } </>`. 
+-! 2. **The Cleanup:** If you don't have data, delete the whole line. 
+-! 3. **The Philosophy:** Every character in Zo must earn its place. 
+-!    Hollow fragments are "noise" that we do not allow.
+
+-- EXPECTED OUTPUT:
+-- [E0067] Error: Empty interpolation inside fragment
+--    ┌─ 067-zsx-interpolation-empty-fragment.zo:15:22
+--    │
+-- 15 │   imu view: </> = <> {} </>;
+--    │                      ^^ empty signal inside fragment
+--    │
+--    = Note: An interpolation `{}` must contain a valid expression to produce a value.
+--    = Help: Add a variable or value inside the braces `{}` or remove the fragment.
+-- ────╯

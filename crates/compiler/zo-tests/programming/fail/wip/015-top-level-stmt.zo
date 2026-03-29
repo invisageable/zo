@@ -1,0 +1,7 @@
+if true {
+  "hello"
+}
+
+imu x: int = 1234567890;
+
+fun main() {}

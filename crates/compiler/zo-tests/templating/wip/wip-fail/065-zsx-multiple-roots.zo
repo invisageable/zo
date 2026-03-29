@@ -1,0 +1,41 @@
+-! # how to errors: 065-zsx-multiple-roots.zo
+-!
+-! @cmd: `zo build 065-zsx-multiple-roots.zo`
+-!
+-! #template
+-!
+-! A `</>` type represents a single UI "Tree." In Zo, you cannot 
+-! return two "Floating Roots" in the same variable. 
+-!
+-! This ensures that your components always have a predictable 
+-! shape in memory.
+
+fun main() {
+  -- Mistake: Two adjacent top-level <div> tags.
+  imu view: </> ::= <div>"One"</div><div>"Two"</div>;
+}
+
+-! ## The Diagnostic:
+-! Zo sees the first `</div>` and thinks the template is finished. 
+-! When it sees the next `<div>`, it realizes the structure is 
+-! ambiguous.
+-!
+-! - **For the Human:** Every tree needs a single trunk. 
+-! - **For the Agent:** Error [E0065]. Target: Line 16, Column 34.
+
+-! ## Try this:
+-! 1. **The Fix:** Wrap both divs in a single parent `<div>...</div>`.
+-! 2. **The Fragment:** Does Zo support empty fragments `<>...</>`? 
+-!    Try it and see if the compiler allows "Invisible" parents!
+-! 3. **The Philosophy:** One variable, one tree. Total Control.
+
+-- EXPECTED OUTPUT:
+-- [E0065] Error: Multiple root elements in ZSX template
+--    ┌─ 065-zsx-multiple-roots.zo:16:34
+--    │
+-- 16 │   imu view: </> = <div>"One"</div> <div>"Two"</div>;
+--    │                                    ^─── unexpected second root
+--    │
+--    = Note: A template variable of type `</>` can only hold one root element.
+--    = Help: Wrap these elements in a parent container like `<div>` or `<>`.
+-- ────╯

@@ -1,0 +1,43 @@
+-! # how to errors: 061-zsx-unclosed-tag.zo
+-!
+-! @cmd: `zo build 061-zsx-unclosed-tag.zo`
+-!
+-! #template
+-!
+-! Every ZSX tag is like a room. If you open a `<div>`, you must 
+-! close it with a `</div>`. If you leave it open, your layout 
+-! "leaks" into the rest of the file. 
+-!
+-! zo stops you here so your UI structure is always solid.
+
+fun main() {
+  -- Mistake: Missing the closing </div> tag.
+  imu view: </> ::= <div>
+    <h1>"Unfinished UI"</h1>;
+}
+
+-! ## The Diagnostic:
+-!
+-! The compiler finds the end of the expression (the `;`) before it finds the
+-! closing tag. 
+-!
+-!   - For the Human:** You opened a `<div>` but forgot to shut the door.
+-!   - **For the Agent:** Error [E0061]. Target: Line 15, Column 19. 
+-!     Expected: `</div>`.
+-!
+-! ## try this.
+-!
+-! 1. Add `</div>` before the semicolon on line 16.
+-! 2. Try using a self-closing tag for empty elements: 
+-!    `<img src="logo.png" />`. Notice how this doesn't need a partner!
+
+-- EXPECTED OUTPUT:
+-- [E0061] Error: Unclosed ZSX tag
+--    ┌─ 061-zsx-unclosed-tag.zo:15:19
+--    │
+-- 15 │   imu view: </> = <div>
+--    │                   ^─── unclosed tag started here
+--    │
+--    = Note: Every ZSX element must be closed with either `</tag>` or a self-closing `/>`.
+--    = Help: Add a closing `</div>` tag at line 16, column 1.
+-- ────╯
