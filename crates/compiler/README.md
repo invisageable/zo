@@ -10,13 +10,13 @@ EVERYTHiNG REGARDiNG THE zo COMPiLER MUST BE PLACED HERE.
 
 **programming**
 
-```bash
+```sh
 cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/hello.zo -o crates/compiler/zo-tests/build-pass/programming/hello
 ```
 
 **templating**
 
-```bash
+```sh
 cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/templating/zsx-hello.zo
 ```
 

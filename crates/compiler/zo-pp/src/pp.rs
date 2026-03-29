@@ -294,7 +294,143 @@ impl PrettyPrinter {
         Insn::BranchIfNot { cond, target } => {
           self.sir_instruction(&format!("  br_ifnot %{cond}, L{target}"));
         }
-        _ => todo!(),
+        Insn::ConstDef { name, value, .. } => {
+          let name = interner.get(*name);
+          let def = format!("val {name} = %{value}");
+
+          self.sir_instruction(&def);
+        }
+        Insn::Directive { name, value, .. } => {
+          let name = interner.get(*name);
+          let dir = format!("#{name} %{value}");
+
+          self.sir_instruction(&dir);
+        }
+        Insn::ArrayLiteral { dst, elements, .. } => {
+          let elems =
+            elements.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
+
+          let arr = format!("%{dst} = array [{}]", elems.join(", "));
+
+          self.sir_instruction(&arr);
+        }
+        Insn::ArrayIndex {
+          dst, array, index, ..
+        } => {
+          let ai = format!("%{dst} = index %{array}[%{index}]");
+
+          self.sir_instruction(&ai);
+        }
+        Insn::ArrayLen { dst, array, .. } => {
+          let al = format!("%{dst} = len %{array}");
+
+          self.sir_instruction(&al);
+        }
+        Insn::TupleLiteral { dst, elements, .. } => {
+          let elems =
+            elements.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
+
+          let tup = format!("%{dst} = tuple ({})", elems.join(", "));
+
+          self.sir_instruction(&tup);
+        }
+        Insn::TupleIndex {
+          dst, tuple, index, ..
+        } => {
+          let ti = format!("%{dst} = field %{tuple}.{index}");
+
+          self.sir_instruction(&ti);
+        }
+        Insn::FieldStore {
+          base, index, value, ..
+        } => {
+          let fs = format!("store_field %{base}.{index}, %{value}");
+
+          self.sir_instruction(&fs);
+        }
+        Insn::EnumDef {
+          name,
+          variants,
+          pubness,
+          ..
+        } => {
+          let name = interner.get(*name);
+          let vis = if *pubness == Pubness::Yes { "pub " } else { "" };
+
+          let vars = variants
+            .iter()
+            .map(|(n, disc, fields)| {
+              let n = interner.get(*n);
+
+              if fields.is_empty() {
+                format!("{n} = {disc}")
+              } else {
+                format!("{n} = {disc}(...)")
+              }
+            })
+            .collect::<Vec<_>>();
+
+          let def = format!("{vis}enum_def {name} {{ {} }}", vars.join(", "));
+
+          self.sir_instruction(&def);
+        }
+        Insn::EnumConstruct {
+          dst,
+          enum_name,
+          variant,
+          fields,
+          ..
+        } => {
+          let name = interner.get(*enum_name);
+          let fs = fields.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
+
+          let ec = if fs.is_empty() {
+            format!("%{dst} = enum {name}::{variant}")
+          } else {
+            format!("%{dst} = enum {name}::{variant}({})", fs.join(", "))
+          };
+
+          self.sir_instruction(&ec);
+        }
+        Insn::StructDef {
+          name,
+          fields,
+          pubness,
+          ..
+        } => {
+          let name = interner.get(*name);
+          let vis = if *pubness == Pubness::Yes { "pub " } else { "" };
+
+          let fs = fields
+            .iter()
+            .map(|(n, _, _)| interner.get(*n).to_string())
+            .collect::<Vec<_>>();
+
+          let def = format!("{vis}struct_def {name} {{ {} }}", fs.join(", "));
+
+          self.sir_instruction(&def);
+        }
+        Insn::StructConstruct {
+          dst,
+          struct_name,
+          fields,
+          ..
+        } => {
+          let name = interner.get(*struct_name);
+          let fs = fields.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
+          let sc = format!("%{dst} = struct {name} {{ {} }}", fs.join(", "));
+
+          self.sir_instruction(&sc);
+        }
+        Insn::Template { id, name, .. } => {
+          let name = name
+            .map(|s| interner.get(s).to_string())
+            .unwrap_or_else(|| "fragment".to_string());
+
+          let tmpl = format!("template #{id} <{name}>");
+
+          self.sir_instruction(&tmpl);
+        }
       }
     }
 

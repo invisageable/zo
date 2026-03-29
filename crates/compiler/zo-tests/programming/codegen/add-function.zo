@@ -1,0 +1,11 @@
+-- @emit asm
+
+fun add(a: int, b: int) -> int {
+  -- CHECK: add x10, x9, x10
+  return a + b;
+}
+
+fun main() {
+  imu x: int = add(10, 20);
+  showln(x);
+}

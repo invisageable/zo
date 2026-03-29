@@ -26,6 +26,10 @@ enum Category {
   Fail,
   /// Build only (no run). For ZSX/UI programs.
   BuildOnly,
+  /// Build with `--emit`, verify `-- CHECK:` directives.
+  Check,
+  /// Build only, pass if no crash (signal death).
+  Crash,
 }
 
 struct TestResult {
@@ -91,6 +95,36 @@ fn main() {
   run_dir(
     &tests_dir.join("templating/fail"),
     Category::Fail,
+    &zo,
+    &tmp,
+    filter,
+    &mut results,
+  );
+
+  // programming/sir/ — SIR verification (-- CHECK:).
+  run_dir(
+    &tests_dir.join("programming/sir"),
+    Category::Check,
+    &zo,
+    &tmp,
+    filter,
+    &mut results,
+  );
+
+  // programming/codegen/ — ARM64 verification (-- CHECK:).
+  run_dir(
+    &tests_dir.join("programming/codegen"),
+    Category::Check,
+    &zo,
+    &tmp,
+    filter,
+    &mut results,
+  );
+
+  // programming/crashes/ — ICE regression tests.
+  run_dir(
+    &tests_dir.join("programming/crashes"),
+    Category::Crash,
     &zo,
     &tmp,
     filter,
@@ -370,6 +404,91 @@ fn run_test(
           }
         }
         Err(e) => fail(name, &format!("run exec error: {e}")),
+      }
+    }
+
+    Category::Check => {
+      // Parse -- @emit directive from the file.
+      let content = fs::read_to_string(file).unwrap_or_default();
+      let emit_flag = content
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("-- @emit "))
+        .unwrap_or("sir")
+        .trim();
+
+      // Collect -- CHECK: lines.
+      let checks: Vec<String> = content
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("-- CHECK: ").map(String::from))
+        .collect();
+
+      if checks.is_empty() {
+        return fail(name, "no -- CHECK: directives found");
+      }
+
+      // Build with --emit flag.
+      let status = Command::new(zo)
+        .args(["build", &file.to_string_lossy(), "--emit", emit_flag, "-o"])
+        .arg(&out)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+      match status {
+        Ok(s) if !s.success() => {
+          return fail(name, "compilation failed");
+        }
+        Err(e) => {
+          return fail(name, &format!("build exec error: {e}"));
+        }
+        _ => {}
+      }
+
+      // Read the emitted file (.sir or .asm).
+      let emit_path = file.with_extension(emit_flag);
+      let emit_content = fs::read_to_string(&emit_path).unwrap_or_default();
+
+      // Clean up emitted file.
+      let _ = fs::remove_file(&emit_path);
+
+      // Verify each CHECK line.
+      for check in &checks {
+        if !emit_content.contains(check.as_str()) {
+          return fail(name, &format!("CHECK failed: '{}'", check));
+        }
+      }
+
+      ok(name)
+    }
+
+    Category::Crash => {
+      // Build only — pass if the compiler doesn't crash.
+      let output = Command::new(zo)
+        .args(["build", &file.to_string_lossy(), "-o"])
+        .arg(&out)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+
+      match output {
+        Ok(o) => {
+          // Check for signal death (crash).
+          #[cfg(unix)]
+          {
+            use std::os::unix::process::ExitStatusExt;
+
+            if let Some(signal) = o.status.signal() {
+              return fail(
+                name,
+                &format!("compiler crashed (signal {})", signal),
+              );
+            }
+          }
+
+          // Any exit (0 or error code) is fine — just no crash.
+          ok(name)
+        }
+        Err(e) => fail(name, &format!("exec error: {e}")),
       }
     }
   }

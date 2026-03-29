@@ -1,0 +1,15 @@
+-- @known-bug
+-- Global `val` constants had a ValueId tracking bug after SIR
+-- merge. `showln(X)` worked but `check@eq` with multiple globals
+-- failed due to offset rewriting. Fixed by explicit dst ValueIds
+-- on all SIR instructions.
+
+val X: int = 42;
+val Y: int = 99;
+
+fun main() {
+  showln(X);
+  showln(Y);
+  check@eq(X, 42);
+  check@eq(Y, 99);
+}

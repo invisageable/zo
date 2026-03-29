@@ -1,0 +1,10 @@
+-- @emit sir
+
+fun main() {
+  -- CHECK: const 42 : i32
+  imu x: int = 42;
+  -- CHECK: store x
+  -- CHECK: load local
+  -- CHECK: call showln
+  showln(x);
+}

@@ -1,0 +1,9 @@
+-- @known-bug
+-- Array indexing used to crash the compiler before frame
+-- allocation was fixed. This ensures the regression stays fixed.
+
+fun main() {
+  imu a: int[] = [1, 2, 3];
+  imu b: int = a[0] + a[1];
+  showln(b);
+}

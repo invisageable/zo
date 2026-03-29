@@ -1,0 +1,9 @@
+-- @emit sir
+
+fun main() {
+  imu a: int = 10;
+  imu b: int = 20;
+  -- CHECK: add %
+  imu c: int = a + b;
+  showln(c);
+}
