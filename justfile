@@ -11,6 +11,9 @@ setup: setup_typos
 install_hooks:
   lefthook install
 
+lefthook:
+  lefthook run pre-commit
+
 # Run typos check
 typos:
   typos --format=brief
@@ -20,15 +23,15 @@ typos_fix:
   typos --write-changes
 
 # Run zo program integration tests
-test_programs:
+zo_test_programs:
   cargo run --bin zo-test-runner
 
 # Run zo program tests (quick — skip build-pass)
-test_programs_quick:
+zo_test_programs_quick:
   cargo run --bin zo-test-runner -- --quick
 
 # Run all pre-commit checks
-pre-commit: typos fmt clippy test test_programs
+pre-commit: typos fmt clippy test zo_test_programs
   @echo "All pre-commit checks passed!"
 
 # Format all code

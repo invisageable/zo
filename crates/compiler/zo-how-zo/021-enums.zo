@@ -1,0 +1,52 @@
+-! # how to enums: 021-enums.zo
+-!
+-! @cmd: `zo run 021-enums.zo`
+-!
+-! An enum is a type that can be one of several variants. Think of it
+-! as a "choice" — the data is always exactly one of the options.
+-! No nulls, no ambiguity. One type, many shapes.
+
+enum Monster {
+  Goblin,
+  Skeleton,
+  Dragon,
+}
+
+-- TODO: tuple variants are a work in progress.
+-- enum Loot {
+--   Gold(int),
+--   Potion(int),
+--   Nothing,
+-- }
+
+fun main() {
+  -- create enum values with `EnumName::Variant`.
+  -- unit variants (no data) are just tags — fast and small.
+  imu enemy: Monster = Monster::Goblin;
+  imu boss: Monster = Monster::Dragon;
+
+  -- each variant gets a discriminant: 0, 1, 2, ...
+  -- so Goblin = 0, Skeleton = 1, Dragon = 2.
+  showln(enemy);
+  showln(boss);
+}
+
+-! ## enum layout.
+-!
+-! unit variants are just integers under the hood — the
+-! discriminant. no heap, no pointers. just a number that
+-! tells you which variant it is.
+-!
+-!   `Goblin  = 0`
+-!   `Skeleton = 1`
+-!   `Dragon  = 2`
+-!
+-! ## try this.
+-!
+-!   - create a `Direction` enum: `North`, `South`, `East`, `West`.
+-!   - create a `Weapon` enum: `Sword`, `Bow`, `Staff`.
+-!   - compare two enum values: `if enemy == boss { ... }`
+
+-- EXPECTED OUTPUT:
+-- 0
+-- 2

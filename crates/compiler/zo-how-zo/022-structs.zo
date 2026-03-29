@@ -1,0 +1,59 @@
+-! # how to structs: 022-structs.zo
+-!
+-! @cmd: `zo run 022-structs.zo`
+-!
+-! A struct groups named fields into one type. It's how you model
+-! real things — a hero, an item, a position. Access fields with `.`.
+
+struct Item {
+  -- fields are `name: type` pairs, separated by commas.
+  name: str,
+  power: int,
+}
+
+struct Hero {
+  name: str,
+  hp: int,
+  attack: int,
+}
+
+fun main() {
+  -- create a struct with `Name { field: value }`.
+  imu sword: Item = Item { name: "iron sword", power: 12 };
+  imu sword_name: str = sword.name;
+  imu sword_power: int = sword.power;
+  showln("equipped: {sword_name}");
+  showln("power: {sword_power}");
+
+  -- build a hero.
+  imu hero: Hero = Hero { name: "arya", hp: 100, attack: 15 };
+  imu hero_name: str = hero.name;
+  imu hero_hp: int = hero.hp;
+  showln("hero: {hero_name}");
+  showln("hp: {hero_hp}");
+
+  -- use fields directly for logic.
+  imu alive: bool = hero.hp > 0;
+  showln("alive: {alive}");
+}
+
+-! ## struct layout.
+-!
+-! structs are flat data on the stack. each field occupies a slot.
+-! no hidden pointers, no heap allocation for the struct itself.
+-!
+-! want to attach methods to a struct? that's `apply` — covered
+-! in lesson 024.
+-!
+-! ## try this.
+-!
+-!   - add a `def: int` field to `Hero`.
+-!   - create a `Potion` struct with `name: str` and `heal: int`.
+-!   - compare two heroes by their `hp` field.
+
+-- EXPECTED OUTPUT:
+-- equipped: iron sword
+-- power: 12
+-- hero: arya
+-- hp: 100
+-- alive: 1

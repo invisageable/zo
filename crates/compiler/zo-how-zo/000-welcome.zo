@@ -2,36 +2,37 @@
 -!
 -! @cmd: `zo run 001-hello.zo`
 -!
--! Welcome. I'm happy you decided to JOiN THE DEVOLUTiON.
+-! Welcome. You are here because you believe software should be better.
 -!
--! This folder is your guide. Each file is a lesson — a program you can read,
--! run, and modify. The comments are the manual. The code is the proof.
+-! For too long, we’ve accepted a "Great Divide." On one side, the Web: 
+-! easy to build, but buried under layers of bloat and "runtime 
+-! surprises." On the other, Native: powerful and fast, but rigid and 
+-! painful to craft. Low-level UI design can be more accessible.
 -!
--! ## what is zo?
+-! zo (pronounced /zuː/) is more than a language. It is a compiler of a 
+-! compiler inside another giant compiler that is itself inside a 
+-! gigantic compiler. 
 -!
--! zo is a compiled systems language. It turns your source code into a 
--! native binary that runs directly on your hardware. 
+-! We are here to enhance the developer experience, making it seamless 
+-! to build software that reflects **your** creativity. We focus on the 
+-! details that matter, opening new dimensions where transforming 
+-! your thoughts into programs is not just easy, but enjoyable.
 -!
--! There is no interpreter, no virtual machine, and no garbage collector 
--! standing between you and the CPU. When you type `zo run 001-hello.zo`, 
--! the compiler analyzes your code, performs type inference, generates 
--! machine code, and executes it — all in milliseconds.
+-! This folder is the gateway to your workstation. We are giving you 
+-! the keys. You will never have to work blind again.
 -!
--! ## why zo?
+-! Whether you are building a high-performance GPU tool or a lightweight web
+-! app, you should use the same brain, the same logic, and the same  elegant
+-! syntax (ZSX).
 -!
--! Compilers are everywhere. Every app you use, every game you play, and 
--! every OS you boot was compiled. Understanding this process gives you 
--! ultimate power over your craft. 
+-! ## the vision.
 -!
--! I fell in love with compiler science as a "not-scientist." I wanted a 
--! language I could build from scratch, understand completely, and use 
--! to build real, high-performance tools.
--!
--! ## the philosophy.
--!
--!   - Speed Demon Compiler: *no magic. no hidden allocations.*
--!   - Data-Oriented: *your program is just a transformation of data.*
--!   - Total Control: *you own the stack. You see the instructions.*
+-! - End the Uniformity: "we are against the abundant software uniformity
+-!   of today. zo exists to push the boundaries of innovation to the limit.*
+-! - Total Information: *from design to delivery, zo provides every bit of 
+-!   information you need about your program. no hidden ayers. no black boxes.*
+-! - The Next Generation: *we aren't just creating tools; we are redefining user
+-!   interfaces to create high-performance software on a global scale.*
 -!
 -! ## your roadmap.
 -!
@@ -42,11 +43,14 @@
 -!  Systems (051-060) — *modules and FFI (calling C/JS).*
 -!  Built-in UI (061-080) — *zsx templates and Cross-platform apps.*
 -!
--! Every file here is a valid zo program. Run this one now:
+-! Every file in this guide is a valid zo program. Run it, break it, 
+-! and see the instructions for yourself. Run this one now:
 -! 
 -!   ```bash
 -!   zo run 000-welcome.zo
 -!   ```
+-!
+-! JOiN THE DEVOLUTiON.
 
 -- This is a "line comment." The compiler ignores it. 
 -- Everything after `--` is just for humans.

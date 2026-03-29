@@ -1,0 +1,47 @@
+-! # how to type aliases: 023-type-alias.zo
+-!
+-! @cmd: `zo run 023-type-alias.zo`
+-!
+-! Types can get verbose. A type alias gives a complex type a
+-! simple name. It doesn't create a new type — it's just a
+-! shorthand. The compiler treats it as the original.
+
+-- `type Name = ExistingType;` creates an alias.
+type Health = int;
+type Name = str;
+type Position = (int, int);
+
+fun main() {
+  -- use aliases exactly like the original type.
+  imu hp: Health = 100;
+  imu hero: Name = "arya";
+  showln(hp);
+  showln(hero);
+
+  -- tuple aliases make complex types readable.
+  imu pos: Position = (3, 7);
+  imu x: int = pos.0;
+  imu y: int = pos.1;
+  showln("x: {x}, y: {y}");
+}
+
+-! ## when to use aliases.
+-!
+-! aliases shine when a type appears many times:
+-!
+-!   `type Color = (int, int, int);`
+-!   `type Grid = int[];`
+-!
+-! the reader sees `Color` and knows what it means. the
+-! compiler sees `(int, int, int)` and does its job.
+-!
+-! ## try this.
+-!
+-!   - create `type Damage = int;` and use it in a function.
+-!   - alias a tuple: `type Color = (int, int, int);`
+-!   - try using a `Position` where an `(int, int)` is expected.
+
+-- EXPECTED OUTPUT:
+-- 100
+-- arya
+-- x: 3, y: 7

@@ -1,0 +1,58 @@
+-! # how to generics: 041-generics.zo
+-!
+-! @cmd: `zo run 041-generics.zo`
+-!
+-! Sometimes you want a function to work for any type. Instead of
+-! writing `add_int`, `add_float`, etc., you use a placeholder.
+-! In zo, generic params are prefixed with `$`.
+
+-- `$T` stands for "any type." when you call this function,
+-- zo replaces `$T` with the actual type you use.
+fun identity<$T>(x: $T) -> $T { x }
+
+fun double<$T>(x: $T, y: $T) -> $T {
+  return x + y;
+}
+
+fun main() {
+  -- zo infers `$T = int` from the argument.
+  imu a: int = identity(42);
+  imu b: int = identity(99);
+  showln(a);
+  showln(b);
+
+  -- same function, different types — no rewrite needed.
+  imu c: str = identity("hello");
+  showln(c);
+
+  -- generics work with multiple params of the same type.
+  imu sum: int = double(10, 20);
+  showln(sum);
+
+  -- TODO: explicit type params at call site (turbofish).
+  -- this syntax is a work in progress:
+  -- imu d: int = identity<int>(7);
+}
+
+-! ## how it works: monomorphization.
+-!
+-! when zo sees `identity(42)` and `identity("hello")`, it generates
+-! two separate functions in the binary:
+-!
+-!   `identity_int` — fast, optimized for integers.
+-!   `identity_str` — fast, optimized for strings.
+-!
+-! generic code with zero runtime cost. just as fast as writing
+-! the specialized functions by hand.
+-!
+-! ## try this.
+-!
+-!   - write `fun max<$T>(a: $T, b: $T) -> $T` using `when`.
+-!   - call `identity` with a `bool` — what type does zo pick?
+-!   - try passing an `int` where a `str` is expected — see the error.
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 99
+-- hello
+-- 30

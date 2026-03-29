@@ -1,0 +1,64 @@
+-! # how to apply: 024-apply.zo
+-!
+-! @cmd: `zo run 024-apply.zo`
+-!
+-! In lesson 022, we built structs. Now we attach behavior to them.
+-! `apply` connects methods to a type — data and logic, together
+-! but separate.
+
+struct Hero {
+  name: str,
+  hp: int,
+  atk: int,
+}
+
+apply Hero {
+  -- instance methods take `self` as the first parameter.
+  -- `self` is the struct this method is called on.
+  fun is_alive(self) -> bool {
+    return self.hp > 0;
+  }
+
+  fun power(self) -> int {
+    return self.hp + self.atk;
+  }
+}
+
+fun main() {
+  imu hero: Hero = Hero { name: "arya", hp: 100, atk: 15 };
+
+  -- call methods with dot notation: `instance.method()`.
+  imu alive: bool = hero.is_alive();
+  imu pow: int = hero.power();
+
+  imu hero_name: str = hero.name;
+  showln("hero: {hero_name}");
+  showln("alive: {alive}");
+  showln("power: {pow}");
+
+  -- methods are just functions scoped to a type.
+  -- `hero.is_alive()` is sugar for `Hero::is_alive(hero)`.
+  imu dead_hero: Hero = Hero { name: "ghost", hp: 0, atk: 0 };
+  imu dead: bool = dead_hero.is_alive();
+  showln("ghost alive: {dead}");
+}
+
+-! ## two kinds of methods.
+-!
+-!   instance — takes `self`, called with `.`
+-!     `hero.is_alive()` acts on an existing value.
+-!
+-!   static — no `self`, called with `::`  (coming soon)
+-!     `Hero::new(...)` creates a new value.
+-!
+-! ## try this.
+-!
+-!   - add a `describe(self)` method that prints the hero's name.
+-!   - create a `Weapon` struct with `apply` and a `damage(self)` method.
+-!   - try calling a method on a different struct — see the error.
+
+-- EXPECTED OUTPUT:
+-- hero: arya
+-- alive: 1
+-- power: 115
+-- ghost alive: 0

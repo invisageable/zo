@@ -1,0 +1,76 @@
+-! # how to inference: 040-inference.zo
+-!
+-! @cmd: `zo run 040-inference.zo`
+-!
+-! Let's be honest — you really thought zo wouldn't give you the
+-! joy of type inference?! No way!
+-!
+-! Until now, we wrote every type explicitly: `imu x: int = 42;`.
+-! But zo can figure types out on its own. The `:=` operator tells
+-! the compiler: "look at the value and deduce the type."
+-!
+-! This is not dynamic typing. Once zo decides `x` is an `int`,
+-! it stays an `int` forever. It's just less typing for you.
+
+fun add(a: int, b: int) -> int {
+  return a + b;
+}
+
+fun main() {
+  -- `:=` infers the type from the right-hand side.
+  imu x := 10;           -- zo sees 10, deduces int.
+  imu y := 3.14;         -- zo sees 3.14, deduces float.
+  imu name := "arya";    -- zo sees "arya", deduces str.
+  imu alive := true;     -- zo sees true, deduces bool.
+
+  showln(x);
+  showln(y);
+  showln(name);
+  showln(alive);
+
+  -- inference flows through expressions.
+  imu sum := x + 20;     -- int + int = int.
+  showln(sum);
+
+  -- inference works with tuples.
+  imu pair := (x, alive);  -- zo deduces (int, bool).
+  imu a: int = pair.0;
+  imu b: bool = pair.1;
+  showln(a);
+  showln(b);
+
+  -- inference works with function calls.
+  imu result := add(10, 20); -- add returns int, so result is int.
+  showln(result);
+}
+
+-! ## when to use `:=` vs `: type =`.
+-!
+-!   `:=`         — let zo figure it out. use when the type is obvious.
+-!   `: type =`   — write the type yourself. use for documentation
+-!                  or when the compiler needs a hint.
+-!
+-! rule of thumb: if the value makes the type obvious, use `:=`.
+-! if the reader would have to think, write the type.
+-!
+-! ## how it works.
+-!
+-! zo uses Hindley-Milner type inference. it looks at constants
+-! (`42`, `"hi"`), operators (`+`, `>`), and function signatures
+-! to deduce every type at compile time. zero runtime cost.
+-!
+-! ## try this.
+-!
+-!   - try `imu x := 10; x = "hello";` — zo stops you.
+-!   - use `:=` with an array: `imu nums := [1, 2, 3];`
+-!   - try `mut count := 0; count += 1;` — inference + mutation.
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 3.140000
+-- arya
+-- 1
+-- 30
+-- 10
+-- 1
+-- 30

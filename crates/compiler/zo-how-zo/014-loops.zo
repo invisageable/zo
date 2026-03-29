@@ -1,0 +1,66 @@
+-! # how to loops: 014-loops.zo
+-!
+-! @cmd: `zo run 014-loops.zo`
+-!
+-! Loops let your code repeat. zo has two kinds: `while` for
+-! condition-based looping, and `for` for counted iteration over
+-! ranges. No parentheses, no ceremony.
+
+fun main() {
+  -- `while condition { body }` repeats until condition is false.
+  -- A simple combat loop: hero attacks until the monster falls.
+  mut monster_hp: int = 50;
+  imu hero_atk: int = 18;
+  mut turn: int = 1;
+
+  while monster_hp > 0 {
+    monster_hp -= hero_atk;
+
+    -- `break` exits the loop early.
+    if monster_hp <= 0 {
+      showln("turn {turn}: monster falls!");
+    }
+
+    turn += 1;
+  }
+
+  -- `for` loops iterate over a range.
+  -- `0..5` produces 0, 1, 2, 3, 4. upper bound is exclusive.
+  for i := 0..5 {
+    showln("chest {i}");
+  }
+
+  -- combine loops with arrays for real power.
+  imu loot: int[] = [10, 25, 50];
+  mut total: int = 0;
+
+  for i := 0..3 {
+    total = total + loot[i];
+  }
+
+  showln("total gold: {total}");
+}
+
+-! ## loop types.
+-!
+-!   `while cond { ... }`   — repeat while condition is true.
+-!   `for i := 0..n { ... }` — counted loop, i goes from 0 to n-1.
+-!   `loop { ... }`          — infinite loop (use `break` to exit).
+-!
+-! `break` exits the loop. `continue` skips to the next iteration.
+-!
+-! ## try this.
+-!
+-!   - add a hero hp that decreases each turn. print "you died" if it hits zero
+-!     before the monster.
+-!   - use `for` to sum an array of damage values.
+-!   - try `loop { break; }` — the infinite loop that exits immediately.
+
+-- EXPECTED OUTPUT:
+-- turn 3: monster falls!
+-- chest 0
+-- chest 1
+-- chest 2
+-- chest 3
+-- chest 4
+-- total gold: 85

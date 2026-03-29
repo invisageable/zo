@@ -1,0 +1,44 @@
+-! # how to multi-param generics: 043-generics-multi.zo
+-!
+-! @cmd: `zo run 043-generics-multi.zo`
+-!
+-! One type param is great. Two is powerful. With multiple generic
+-! params, a single function handles any combination of types.
+
+-- `$A` and `$B` can be different types.
+fun first<$A, $B>(a: $A, b: $B) -> $A { a }
+fun second<$A, $B>(a: $A, b: $B) -> $B { b }
+
+fun main() {
+  -- `first` keeps the first arg, ignores the second.
+  imu a: int = first(42, "hello");
+  showln(a);
+
+  -- `second` keeps the second arg, ignores the first.
+  imu b: int = second("world", 99);
+  showln(b);
+
+  -- zo infers both `$A` and `$B` independently.
+  imu c: str = first("zo", 0);
+  showln(c);
+}
+
+-! ## naming convention.
+-!
+-!   `$T`       — one type param (the common case).
+-!   `$A, $B`   — two different type params.
+-!   `$K, $V`   — key/value (for maps, later).
+-!
+-! the `$` prefix is required. it tells zo "this is a type
+-! parameter, not a concrete type."
+-!
+-! ## try this.
+-!
+-!   - write `fun swap<$A, $B>(a: $A, b: $B) -> ($B, $A)`.
+-!   - try three params: `fun triple<$A, $B, $C>(...)`.
+-!   - what if `$A` and `$B` happen to be the same type?
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 99
+-- zo

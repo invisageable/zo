@@ -1,0 +1,60 @@
+-! # how to zsx: 061-zsx-hello.zo
+-!
+-! @cmd: `zo run 061-zsx-hello.zo`
+-!
+-! Writing native apps used to be hard for web developers. Different
+-! tools, different rules, not the same paradigm, and a lot of pain.
+-! For example, you don't style using CSS in the native world. WTF
+-! are you doing!? do not bring CSS into the native side! Sorry my
+-! friend...
+-!
+-! **zsx — zo Syntax Extension** — changes that. It brings the
+-! ergonomy of web templates to the power of native systems. One
+-! syntax, two worlds.
+
+fun main() {
+  imu name: str = "johndoe";
+
+  -- this is zsx. it's not a string — it's a first-class UI element.
+  -- it works on your desktop (GPU rendered) and your browser (JS).
+  --
+  -- `::=` declares a template. its type is `</>`.
+  -- embed variables with `{name}` — evaluated at compile-time.
+  -- no slow runtime lookups!
+  imu hello: </> ::= <h1>hello, {name}!</h1>;
+
+  -- We print it to see the structure (or render it to a window/browser).
+  -- showln(hello); -- TODO: Let's define how to do it.
+
+  -- `#dom` is the directive that activates the template engine.
+  -- on native, it renders to a GPU-accelerated window.
+  -- on web, it compiles to optimized JavaScript.
+  #dom hello;
+}
+
+-! ## what is zsx?
+-!
+-! inspired by the abandoned E4X project, zsx treats UI as a
+-! first-class citizen. it isn't "embedded HTML" — it's part of
+-! the zo language itself.
+-!
+-! ## universal rendering.
+-!
+-!   - **native:** compiles to high-performance GPU calls (via egui).
+-!   - **web:** compiles to highly optimized, thin JavaScript.
+-!
+-! ## the elm promise: no runtime errors.
+-!
+-! most UI frameworks fail at runtime because of `undefined` values.
+-! in zo, the compiler checks your zsx at build-time. if the data
+-! doesn't exist or the type is wrong, it won't compile. total
+-! safety, zero crashes.
+-!
+-! ## try this.
+-!
+-!   - change `name` to your own name and run it.
+-!   - try `{name}` with a variable that doesn't exist — see the error.
+-!   - add a second element: `imu sub: </> ::= <p>welcome back</p>;`
+
+-- NOTE: in a real app, you define these as 'components',
+-- which we cover in 062-components.zo.

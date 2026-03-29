@@ -1,0 +1,46 @@
+-! # how to generic apply: 044-generics-apply.zo
+-!
+-! @cmd: `zo run 044-generics-apply.zo`
+-!
+-! Generic structs + apply = reusable data with reusable behavior.
+-! Define the struct once, attach methods once, use with any type.
+
+struct Box<$T> {
+  value: $T,
+}
+
+apply Box<$T> {
+  fun unwrap(self) -> $T {
+    return self.value;
+  }
+}
+
+fun main() {
+  imu a := Box { value: 42 };
+  imu va: int = a.unwrap();
+  showln(va);
+
+  imu b := Box { value: 99 };
+  imu vb: int = b.unwrap();
+  showln(vb);
+}
+
+-! ## the pattern.
+-!
+-!   ```
+-!   struct Name<$T> { ... }
+-!   apply Name<$T> { fun method(self) -> $T { ... } }
+-!   ```
+-!
+-! `self` inside `apply` is the concrete instance. zo
+-! monomorphizes the entire apply block for each type used.
+-!
+-! ## try this.
+-!
+-!   - add a second method `fun double(self) -> $T`.
+-!   - create `Pair<$T>` with `fun sum(self) -> $T`.
+-!   - chain methods: `Box { value: 5 }.unwrap()`.
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 99

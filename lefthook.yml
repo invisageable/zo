@@ -2,21 +2,24 @@ pre-commit:
   piped: true
   commands:
     typos:
-      run: typos --format=brief
+      run: just typos
 
     fmt:
       glob: "**/*.rs"
-      run: cargo fmt --all
+      run: just fmt
       stage_fixed: true
 
     clippy:
       glob: "**/*.rs"
-      run: cargo clippy --all --all-targets -- -D warnings
+      run: just clippy
+      stage_fixed: true
 
     test:
       glob: "**/*.rs"
-      run: cargo nextest run --workspace --all-features
+      run: just test
+      stage_fixed: true
 
-    test_programs:
+    zo_test_programs:
       glob: "**/*.zo"
-      run: cargo run --bin zo-test-runner
+      run: just zo_test_programs
+      stage_fixed: true

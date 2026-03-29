@@ -1,0 +1,59 @@
+-! # how to branching: 012-branching.zo
+-!
+-! @cmd: `zo run 012-branching.zo`
+-!
+-! A program that always does the same thing is just a script. To build
+-! something real, your code needs to make decisions based on data.
+-!
+-! In zo, we use `if` for branching and `when` for quick expressions.
+-! No parentheses required around conditions — keep it clean.
+
+fun main() {
+  -- The basic branch: `if` followed by a block `{}`.
+  imu courage: int = 7;
+
+  if courage >= 5 {
+    showln("you enter the dark of the devolution.");
+    showln("a faint glow ahead...");
+  } else {
+    showln("you take the forest path.");
+    showln("birds sing overhead.");
+  }
+
+  -- Chain decisions with `else if`.
+  -- The compiler checks in order, stops at the first true one.
+  imu hp: int = 40;
+
+  if hp > 75 {
+    showln("you feel strong.");
+  } else if hp > 25 {
+    showln("you've seen better days.");
+  } else {
+    showln("barely standing...");
+  }
+
+  -- `when` is a ternary expression: it evaluates to a value.
+  -- `when cond ? a : b` — true gives `a`, false gives `b`.
+  imu status: str = when hp > 50 ? "healthy" : "wounded";
+  showln("status: {status}");
+}
+
+-! ## the expression difference.
+-!
+-! `if` is a statement — it does something.
+-! `when` is an expression — it represents a value.
+-!
+-! That's why you can assign `when` to a variable:
+-!   `imu x: str = when 1 > 0 ? "yes" : "no";`
+-!
+-! ## try this.
+-!
+-!   - Add a third `else if` branch for `hp > 50`.
+-!   - Use `when` to set a damage multiplier: `1` if `hp > 10`, else `2`.
+-!   - Nest an `if` inside another `if` — check courage AND hp.
+
+-- EXPECTED OUTPUT:
+-- you enter the dark of the devolution.
+-- a faint glow ahead...
+-- you've seen better days.
+-- status: wounded

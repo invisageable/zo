@@ -1,0 +1,41 @@
+-! # how to generic structs: 042-generics-structs.zo
+-!
+-! @cmd: `zo run 042-generics-structs.zo`
+-!
+-! In lesson 041 we made generic functions. The same idea applies to
+-! structs — define the shape once, fill it with any type.
+
+struct Pair<$T> {
+  first: $T,
+  second: $T,
+}
+
+fun main() {
+  -- zo infers `$T = int` from the field values.
+  imu p := Pair { first: 10, second: 20 };
+  showln(p.first);
+  showln(p.second);
+
+  -- use the result in expressions.
+  imu sum: int = p.first + p.second;
+  showln(sum);
+}
+
+-! ## what happens under the hood.
+-!
+-! zo generates a separate struct for each type you use:
+-!
+-!   `Pair_int` with two `int` fields.
+-!
+-! same monomorphization as generic functions — zero cost.
+-!
+-! ## try this.
+-!
+-!   - create a `Triple<$T>` with three fields.
+-!   - make a `Pair` of booleans.
+-!   - try mixing types in one `Pair` — zo stops you.
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 20
+-- 30
