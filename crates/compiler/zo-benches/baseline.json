@@ -1,0 +1,14 @@
+{
+  "ackermann": {
+    "zo_hot_avg_ms": 4
+  },
+  "arithmetic": {
+    "zo_hot_avg_ms": 3
+  },
+  "fibonacci": {
+    "zo_hot_avg_ms": 3
+  },
+  "hello": {
+    "zo_hot_avg_ms": 4
+  }
+}

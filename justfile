@@ -51,8 +51,8 @@ bench:
   cargo bench --all
 
 # Run both test suites in parallel
+# [parallel]
 [group('test')]
-[parallel]
 test_all: test zo_test
 
 # Run all tests
@@ -112,6 +112,21 @@ zo_test_quick:
 [group('zo')]
 zo_bench program:
   cargo build --release --bin zo && cargo run --release -p zo-benches -- {{program}}
+
+# Run zo benchmark with regression check (strict — fails on regression)
+[group('zo')]
+zo_bench_check program:
+  cargo build --release --bin zo && cargo run --release -p zo-benches -- {{program}} --strict
+
+# Quick zo benchmark for pre-commit (hello only, 3 runs, zo only)
+[group('zo')]
+zo_bench_quick:
+  cargo build --release --bin zo && cargo run --release -p zo-benches -- hello --quick --strict
+
+# Update zo benchmark baseline
+[group('zo')]
+zo_bench_update:
+  cargo build --release --bin zo && cargo run --release -p zo-benches -- all --update-baseline
 
 # Run `eazy` bench
 eazy_run_bench:
