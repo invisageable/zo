@@ -1,6 +1,6 @@
 # introduction.
 
-> *the guidelines catalog.*
+> *The guidelines catalog.*
 
 ## about.
 
