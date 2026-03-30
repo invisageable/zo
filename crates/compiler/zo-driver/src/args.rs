@@ -26,6 +26,9 @@ pub struct Args {
   /// The compilation metrics flag.
   #[arg(short, long)]
   pub metrics: bool,
+  /// Render templates in a webview.
+  #[arg(long)]
+  pub(crate) web: bool,
 }
 
 /// Represents an [`ArgsTarget`] instance.

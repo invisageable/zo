@@ -4,19 +4,31 @@
 
 ## about.
 
-@SEE: [zo](../compiler/zo)
+- @SEE: [zo](../compiler/zo)
 
 ## commands.
 
 **-programming-mode**
 
-`build` YOUR PROGRAM AS AN EXECUTABLE:
+`build` YOUR PROGRAM AS AN EXECUTABLE. GO TO `crates/compiler/zo-tests/programming` AND RUN:
 
   ```sh
   zo -- build hello.zo -o hello
   ```
 
 > it will creates an executable named `hello` in the current folder.
+
+THEN, YOU CAN RUN iT:
+
+  ```sh
+  ./hello
+  ```
+
+iT WiLL PRiNTS:
+
+  ```
+  hello, world!
+  ```
 
 **-templating-mode**
 
@@ -27,6 +39,11 @@
   ```
 
 > this command is only for `native` app, if you want to build for `web` you should add the `--web` flag.
+
+<p align="center">
+  <img width="340" src="./zo-notes/public/preview/preview-zo-hello-template-native.png" />
+  <img width="340" src="./zo-notes/public/preview/preview-zo-hello-template-web.png" />
+</p>
 
 ## dev.
 

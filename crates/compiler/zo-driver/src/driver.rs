@@ -7,7 +7,8 @@ use clap::Parser;
 #[clap(
   name = "\nzo",
   about = "The zo Programming Language",
-  author = "compilords"
+  author = "compilords",
+  version
 )]
 pub(crate) struct Driver {
   /// The commands that can be run be the [`Driver`].

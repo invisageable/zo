@@ -38,7 +38,7 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
   - [ ] safe concurrency model — *actor model erlang-like*.
   - [x] fast `compilation-time` — *insanely faster, usain is jealous*.
   - [x] powerful `tools` — *native REPL, code editor, packager, etc*.
-  - [x] optimized syntax — *elegant and consice syntax to turn programmer experience more productive.*
+  - [x] expressiveness — *optimized and concise syntax.*
 
 ## what's next?
 
@@ -71,17 +71,5 @@ WE SHARED THE SAME ENGiNEERiNG PHiLOSOPHY THAN __JONATHAN BLOW__, __MiKE ACTON__
 THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *PRiNTS `hello, world!`.*
 
 ![hello](../zo-notes/public/preview/preview-zo-hello.png)
-
-**[-hello-(native)](./crates/compiler/zo-tests/run-pass/templating/01-hello.zo)**
-
-THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *RENDERS `hello, world!` iN NATiVE APP.*
-
-![hello](../zo-notes/public/preview/preview-zo-hello-template-native.png)
-
-**[-hello-(web)](./crates/compiler/zo-tests/run-pass/templating/01-hello.zo)**
-
-THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *RENDERS `hello, world!` iN WEB APP.*
-
-![hello](../zo-notes/public/preview/preview-zo-hello-template-web.png)
 
 > « The universe needs to preserve guys like Graydon Hoare! » — *because they challenge us to reject "accepted" solutions and build something better.*

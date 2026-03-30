@@ -38,7 +38,7 @@ JOiN THE DEVOLUTiON.
 
 > *if you’re curious, do take the time to explore the project in its entirety.*
 
-## [about](https://youtu.be/GJfsbhJY8gk?feature=shared&t=196).
+## about.
 
 zo (PRONOUNCED `/zuː/`) iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A GiGANTiC COMPiLER.    
 
@@ -73,15 +73,15 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
 ## goals.
 
-> *« why accept slow compilers? just make them faster. »*   
-> &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— Jonathan Blow
-
 iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
 
   <!-- - COMPiLER + CODE EDiTOR + METRiCS + iNTELLiGENCE — *in the same world*. -->
   <!-- - DATA-FiRST ARCHiTECTURE <sup>zo-ecs</sup> — *inspired by game engine*. -->
   - GPU RENDERiNG <sup>egui</sup> (NATiVE APP ONLY) — *low memory footprint, zero runtime fluff*.
   - NO MORE `electron` APPS (WEB APP ONLY) — *no bloat*.
+
+> *« why accept slow compilers? just make them faster. »*   
+> &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— Jonathan Blow
 
 JOiN THE DEVOLUTiON.
 

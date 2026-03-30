@@ -13,9 +13,6 @@ use zo_ui_protocol::UiCommand;
 pub(crate) struct Run {
   #[command(flatten)]
   pub(crate) args: args::Args,
-  /// Render templates to HTML and open in webview
-  #[arg(long)]
-  pub(crate) html: bool,
 }
 
 impl Run {
@@ -70,7 +67,7 @@ impl Run {
 
     // Template path: launch runtime.
     if has_dom_directive && !ui_commands.is_empty() {
-      let graphics = if self.html {
+      let graphics = if self.args.web {
         Graphics::Web
       } else {
         Graphics::Native

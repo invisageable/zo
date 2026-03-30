@@ -6,7 +6,7 @@
 -! flavors called "primitives". 
 -!
 -! You don't need to memorize all of these right now. Just know they exist. The
--! most important thing: Zo is smart. It "infers" types so you don't have to be
+-! most important thing: zo is smart. It "infers" types so you don't have to be
 -! a keyboard typist just to declare a number.
 
 fun main() {

@@ -25,6 +25,7 @@ THEN RUN `zo --help` — iT MUST RETURNS:
 
   Options:
     -h, --help  Print help
+    -V, --version  Print version
   ```
 
 ## dev.
@@ -48,7 +49,7 @@ iT iNSTALLS:
 
 UNFORTUNALY SOME TOOLS NEEDS TO BE iNSTALL MANUALLY DEPENDiNG OF YOUR OS:
 
-  - `nextest` — *@SEE [`nextest — pre-build binaries`](https://nexte.st/docs/installation/pre-built-binaries).*
+  - @SEE [`nextest — pre-build binaries`](https://nexte.st/docs/installation/pre-built-binaries)
 
 **-optional-tools**
 
