@@ -1,4 +1,7 @@
 # zo — name resolver.
 
-> *resolve identifiers.*
+> *The name resolution stage for identifiers.*
 
+## about.
+
+...

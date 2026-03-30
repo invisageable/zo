@@ -1,6 +1,6 @@
 # zo — analyzer.
 
-> *the semantic analysis of the zo compiler.*
+> *The semantic analysis of the zo compiler.*
 
 ## about.
 

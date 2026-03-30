@@ -1,3 +1,3 @@
 # zo — usecases.
 
-> *a zo template that simulate how zo project must looks like.*
+> *A zo template that simulate how zo project must looks like.*

@@ -1,6 +1,6 @@
 # notes.
 
-> *understanding the big picture of the zo ecosystem.*
+> *Understanding the big picture of the zo ecosystem philosophy.*
 
 ## about.
 

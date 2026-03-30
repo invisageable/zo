@@ -1,3 +1,7 @@
-# zo — emitter arm.
+# zo — emitter (arm).
 
 > *...*
+
+## about.
+
+...

@@ -1,1 +1,7 @@
-# eazy-examples.
+# eazy — examples.
+
+> *...*
+
+## about.
+
+...

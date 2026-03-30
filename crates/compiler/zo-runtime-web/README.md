@@ -2,6 +2,10 @@
 
 > *...*
 
+## about.
+
+...
+
 HTML renderer for zo templates - converts `UiCommand[]` to beautiful HTML.
 
 ## Overview

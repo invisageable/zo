@@ -1,4 +1,4 @@
-# zo — buffer.
+# eazy — derive.
 
 > *...*
 

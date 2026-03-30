@@ -1,12 +1,21 @@
 # fret — driver.
 
+> *The fret driver.*
+
 ## about.
 
-cli driver for fret, mirroring the `zo-driver` pattern. parses command-line arguments via clap and routes to command handlers.
+CLi DRiVER FOR FRET, MiRRORiNG THE zo-DRiVER PATTERN. PARSES COMMAND-LiNE ARGUMENTS ViA CLAP AND ROUTES TO COMMAND HANDLERS.
 
 ## commands.
 
-| command | description |
-| :------ | :---------- |
-| `fret build [path]` | build a zo project at the given path |
-| `fret init <name>` | scaffold a new zo project |
+| command             | description                          |
+| :------------------ | :----------------------------------- |
+| `fret build [path]` | BUiLD A zo PROJECT AT THE GiVEN PATH |
+| `fret init <name>`  | SCAFFOLD A NEW zo PROJECT            |
+
+**-details**
+
+  - `build` — *create an executable in the current directory.*
+    - `-out`, `-o` — DEFiNE THE PATH DESTiNATiON.
+  - `init` — *initialize a new project in the current directory.*
+    - `-out`, `-o` — DEFiNE THE PATH DESTiNATiON.

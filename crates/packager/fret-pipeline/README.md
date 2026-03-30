@@ -1,19 +1,21 @@
 # fret — pipeline.
 
+> *Build pipeline, all stages.*
+
 ## about.
 
-build pipeline for fret projects. orchestrates all stages from config parsing to compilation via zo-compiler.
+BUiLD PiPELiNE FOR FRET PROJECTS. ORCHESTRATES ALL STAGES FROM CONFiG PARSiNG TO COMPiLATiON ViA zo-compiler.
 
-## stages.
+## dev.
 
-| stage | role |
-| :---- | :--- |
-| `LoadConfig` | reads and parses `fret.oz` |
-| `CollectSources` | discovers `.zo` files recursively |
-| `ResolveDependencies` | no-op in simple mode |
-| `GeneratePlan` | validates and prepares compilation plan |
-| `ExecutePlan` | invokes zo-compiler via `CompileStage` |
+THiS STAGE iT'S ABOUT ORCHESTRATiON, WE GONNA NEED TO iMPROVE iT TO PROViDE HiGH-SPEED PERFORMANCE. THE PiPELiNE iNTEGRATES DiRECTLY zo-compiler AND zo-codegen-backend AS LiBRARiES — TO AVOiD NO SUBPROCESSES.
 
-## dependencies.
+### stages.
 
-integrates directly with `zo-compiler` and `zo-codegen-backend` as libraries — no subprocesses.
+THE ORCHESTRATiON FLOWS STAGE iN THAT ORDER:
+
+  1. `LoadConfig` — *reads and parses `fret.oz`.*
+  2. `CollectSources` — *discovers `.zo` files recursively.*
+  3. `ResolveDependencies` — *no-op in simple mode.*
+  4. `GeneratePlan` — *validates and prepares compilation plan.*
+  5. `ExecutePlan` — *invokes zo-compiler via `CompileStage`.*

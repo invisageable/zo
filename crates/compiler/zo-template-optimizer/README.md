@@ -1,3 +1,7 @@
 # zo — template optimizer.
 
 > *...*
+
+## about.
+
+...

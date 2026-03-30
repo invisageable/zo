@@ -1,5 +1,7 @@
 # fret — parser.
 
+> *The syntax analysis stage.*
+
 ## about.
 
 hand-written recursive descent parser for the fret.oz configuration format. transforms tokens into `ProjectConfig` with clear error messages and source location reporting.

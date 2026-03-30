@@ -1,6 +1,6 @@
 # fret.
 
-> *the blazing fast package manager for zo.*
+> *The high-performance package manager for zo.*
 
 ```js
 @pack = (
@@ -13,7 +13,10 @@
 
 ## about.
 
-fret is the build system and package manager for the zo programming language. it follows the same architecture as zo itself: a thin binary that delegates to a driver.
+FRET iS AN HiGH-PERFORMANCE BUiLD SYSTEM AND PACKAGE MANAGER FOR THE zo PROGRAMMiNG LANGUAGE.
+
+
+iT FOLLOWS THE SAME ARCHiTECTURE AS zo iTSELF — A THiN BiNARY THAT DELEGATES TO A DRiVER.
 
 ## architecture.
 

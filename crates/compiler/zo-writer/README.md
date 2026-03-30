@@ -1,3 +1,7 @@
 # zo — writer.
 
-> *the writer dispatcher.*
+> *The writer dispatcher.*
+
+## about.
+
+...

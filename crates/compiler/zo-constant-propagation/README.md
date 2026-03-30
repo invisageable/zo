@@ -1,3 +1,7 @@
 # zo — constant propagation.
 
 > *...*
+
+## about.
+
+...

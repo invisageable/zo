@@ -1,10 +1,10 @@
 # crates.
 
-> *compilers-in-compiler.*
+> *Compilers-in-compiler.*
 
 ## about.
 
-A COLLECTiON OF THE CRATES NEEDED FOR THE zo ECOSYSTEM. 
+A COLLECTiON OF THE CRATES NEEDED FOR THE zo ECOSYSTEM — THiS iS zo SPECiFiC TOPiC, SHARED CRATES LiKE eazy OR swisskit LiVES iN `sources` folder. EVERYTHiNG iS SPLiT BY CONCEPT AND iT SHOULD STAY AS iT iS, AT LEAST FOR NOW.
 
 ### members.
 

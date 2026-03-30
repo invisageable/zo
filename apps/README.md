@@ -1,3 +1,3 @@
 # apps.
 
-> *all apps from the zo ecosystem.*
+> *All apps from the zo ecosystem.*

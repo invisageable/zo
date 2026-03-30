@@ -1,6 +1,6 @@
 # zo — tests.
 
-> *a list of zo programs that should pass or fail.*
+> *A list of zo programs that should pass or fail.*
 
 ## about.
 

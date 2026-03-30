@@ -1,3 +1,3 @@
 # site.
 
-> *the official zo website.*
+> *The official zo website.*

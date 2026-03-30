@@ -1,10 +1,16 @@
 # fret — tokens.
 
+> *The token definition for the fret.*
+
 ## about.
 
-token types for the fret.oz configuration format. zero-allocation design — tokens store byte offsets into the source text, not owned strings.
+TOKEN TYPES FOR THE `fret.oz` CONFiGURATiON FORMAT.
 
 ## types.
 
-- `TokenKind` — enum of all token variants (`String`, `Number`, `Identifier`, `Pack`, `@`, `(`, `)`, etc.)
-- `Token` — kind + byte range (`start`, `end`) into source text
+  - `TokenKind` — *enum of all token variants (`String`, `Number`, `Ident`, etc.).*
+  - `Token` — *kind + byte range (`start`, `end`) into source text.*
+
+## dev.
+
+ZERO-ALLOCATiON DESiGN — TOKENS STORE BYTE OFFSETS iNTO THE SOURCE TEXT, NOT OWNED STRiNGS.

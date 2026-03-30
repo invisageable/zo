@@ -1,3 +1,7 @@
 # zo — module resolver.
 
 > *...*
+
+## about.
+
+...

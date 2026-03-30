@@ -1,52 +1,58 @@
-# Fret Configuration Syntax Highlighting
+# fret — vscode.
 
-Syntax highlighting for `.oz` fret configuration files in Visual Studio Code.
+> *The fret syntax highligting extension for vscode.*
+
+## about.
+
+THE VSCODE PLUGiN FOR fret. iT PROViDES. SYNTAX HiGHLiGHTiNG FOR `.oz` fret CONFiGURATiON FiLES in ViSUAL STUDiO CODE.
 
 ## Features
 
-- **Syntax Highlighting** for fret configuration files
-- **Comment Support** with `--` line comments
-- **Auto-closing** brackets and quotes
-- **Code Folding** support
-- **Namespace Support** for directives like `@pack:zo:release`
+  - **Syntax Highlighting** for fret configuration files
+  - **Comment Support** with `--` line comments
+  - **Auto-closing** brackets and quotes
+  - **Code Folding** support
+  - **Namespace Support** for directives like `@pack:zo:release`
 
 ## Supported Syntax
 
-```oz
--- This is a comment
-@pack = (
-  name: "my-project",
-  version: "1.0.0",
-  authors: ["invisageable"],
-  license: "MIT",
-)
+  ```oz
+  -- This is a comment
+  @pack = (
+    name: "my-project",
+    version: "1.0.0",
+    authors: ["invisageable"],
+    license: "MIT",
+  )
 
--- Namespaced directives
-@pack:zo:release = (
-  name: "production-build",
-  version: "2.0.0",
-)
-```
+  -- Namespaced directives
+  @pack:zo:release = (
+    name: "production-build",
+    version: "2.0.0",
+  )
+  ```
 
 ## Installation
 
 ### From Source
 
-1. Navigate to the extension directory:
-   ```bash
-   cd crates/packager/fret-vscode
-   ```
+  1. Navigate to the extension directory:
 
-2. Copy the extension to your VS Code extensions folder:
-   ```bash
-   # macOS/Linux
-   cp -r . ~/.vscode/extensions/fret-oz-syntax-0.1.0/
+  ```bash
+  cd crates/packager/fret-vscode
+  ```
 
-   # Windows
-   xcopy /E /I . %USERPROFILE%\.vscode\extensions\fret-oz-syntax-0.1.0\
-   ```
+  2. Copy the extension to your VS Code extensions folder:
 
-3. Reload VS Code or restart the editor
+  ```bash
+  # macOS/Linux
+  cp -r . ~/.vscode/extensions/fret-oz-syntax-0.1.0/
+
+  # Windows
+  xcopy /E /I . %USERPROFILE%\.vscode\extensions\fret-oz-syntax-0.1.0\
+  ```
+
+  3. Reload VS Code or restart the editor
 
 ### Verify Installation
 

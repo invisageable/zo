@@ -1,6 +1,6 @@
 # zo-how-to.
 
-> *the `zo` tutorial for hackers.*
+> *The `zo` tutorial for hackers.*
 
 ## about.
 

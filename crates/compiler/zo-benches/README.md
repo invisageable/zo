@@ -1,6 +1,6 @@
 # crates — compiler — benches.
 
-> *a series of benches to compare compile-time between c, rust and zo.*
+> *A series of benches to compare compile-time between c, rust and zo.*
 
 ## about.
 

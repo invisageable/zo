@@ -1,6 +1,6 @@
 # zo — tokenizer.
 
-> *memory and cache-bandwidth will almost always be limiting factor*.
+> *The lexical analysis stage of the zo compiler.*
 
 ## about.
 

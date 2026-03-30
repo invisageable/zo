@@ -1,3 +1,7 @@
 # zo — runtime (native).
 
 > *...*
+
+## about.
+
+...

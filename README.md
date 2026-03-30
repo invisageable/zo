@@ -6,9 +6,9 @@
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
 ---
 
-> *the symphonie of compilers.*
+> *The symphonie of compilers.*
 
-[home](https://github.com/invisageable/zo) — [install](./notes/docs/README.md#install) — [how-to](./crates/compiler/zo-how-zo) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
+[home](https://github.com/invisageable/zo) — [install](./crates/compiler/zo-notes/public/guidelines/02-install.md) — [how-to](./crates/compiler/zo-how-zo) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
 
   ```js
   fun main() {
@@ -36,7 +36,7 @@ JOiN THE DEVOLUTiON.
 
 **wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
 
-> *if you’re curious, do take the time to explore the project in its entirety.*
+> *If you’re curious, do take the time to explore the project in its entirety.*
 
 ## about.
 
@@ -69,7 +69,7 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 | [fret](./crates/packager/fret) | THE PACKAGE MANAGER FOR THE `zo` PROGRAMMiNG LANGUAGE.   |
 | [zo](./crates/compiler/zo)     | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGUAGE. |
 
-> *more crates are coming. the architecture is modular and composable. be gentle.*
+> *More crates are coming. the architecture is modular and composable. be gentle.*
 
 ## goals.
 
@@ -80,8 +80,8 @@ iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
   - GPU RENDERiNG <sup>egui</sup> (NATiVE APP ONLY) — *low memory footprint, zero runtime fluff*.
   - NO MORE `electron` APPS (WEB APP ONLY) — *no bloat*.
 
-> *« why accept slow compilers? just make them faster. »*   
-> &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— Jonathan Blow
+<!-- > *« Why accept slow compilers? just make them faster. »*   
+> &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— Jonathan Blow -->
 
 JOiN THE DEVOLUTiON.
 

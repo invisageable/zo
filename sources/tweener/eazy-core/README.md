@@ -1,3 +1,7 @@
-# eazy-data.
+# eazy — data.
 
-> *regroup all easing functions.*
+> *Regroup all easing functions.*
+
+## about.
+
+...

@@ -32,11 +32,13 @@ iT WiLL PRiNTS:
 
 **-templating-mode**
 
-  `run` YOUR PROGRAM iN A NATiVE WiNDOW<sup>`winit`</sup> OR A LiGHTWEiGHT WEBViEW<sup>`wry`</sup> DEPENDiNG OF THE TARGET.
+  `run` YOUR PROGRAM iN A NATiVE WiNDOW<sup>`winit`</sup> OR A LiGHTWEiGHT WEBViEW<sup>`wry`</sup> DEPENDiNG OF THE TARGET. `crates/compiler/zo-tests/templating` AND RUN:
 
   ```sh
   zo -- run zsx-hello.zo
   ```
+
+THAT'S iT, YOU SHOULD SEE A NATiVE APP ON YOUR SCREEN.
 
 > this command is only for `native` app, if you want to build for `web` you should add the `--web` flag.
 
@@ -48,6 +50,10 @@ iT WiLL PRiNTS:
 ## dev.
 
 FOR AN iNTRODUCTiON, [HERE](./zo-notes/public/guidelines/02-install.md) iS WHERE iT STARTS.
+
+## architecture.
+
+
 
 ## release.
 
