@@ -53,13 +53,14 @@ fn main() {
   let howto_dir = root.join("crates/compiler/zo-how-zo");
 
   println!("zo: {}", zo.display());
+
   let tmp =
     env::temp_dir().join(format!("zo-test-runner-{}", std::process::id()));
 
   fs::create_dir_all(&tmp).expect("failed to create temp dir");
 
   let start = Instant::now();
-  let mut results: Vec<TestResult> = Vec::new();
+  let mut results = Vec::new();
 
   // programming/ — build + run + optional output check.
   run_dir(
@@ -148,10 +149,7 @@ fn main() {
   println!();
   println!("────────────────────────────────────");
   println!(
-    "  {} passed, {} failed ({} total) in {:.2}s",
-    passed,
-    failed,
-    total,
+    "  {passed} passed, {failed} failed ({total} total) in {:.2}s",
     elapsed.as_secs_f64()
   );
 
@@ -224,7 +222,7 @@ fn run_dir(
     .display();
 
   println!();
-  println!("[{}] {} files", dir_name, files.len());
+  println!("[{dir_name}] {} files", files.len());
 
   for file in &files {
     let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
@@ -244,9 +242,9 @@ fn run_dir(
     };
 
     if result.passed {
-      println!("  {} {}", icon, name);
+      println!("  {icon} {name}");
     } else {
-      println!("  {} {} — {}", icon, name, result.reason);
+      println!("  {icon} {name} — {}", result.reason);
     }
 
     results.push(result);
@@ -301,10 +299,7 @@ fn run_test(
 
           for line in expected.lines() {
             if !line.is_empty() && !stderr.contains(line) {
-              return fail(
-                name,
-                &format!("missing in error output: '{}'", line),
-              );
+              return fail(name, &format!("missing in error output: '{line}'"));
             }
           }
 
@@ -319,9 +314,8 @@ fn run_test(
             return fail(
               name,
               &format!(
-                "expected output covers {} error(s) \
-                 but compiler produced {}",
-                expected_errors, actual_errors
+                "expected output covers {expected_errors} error(s) \
+                 but compiler produced {actual_errors}",
               ),
             );
           }
@@ -377,10 +371,12 @@ fn run_test(
           if actual_trimmed == expected_trimmed {
             ok(name)
           } else {
-            let a_lines = actual_trimmed.lines().collect::<Vec<_>>();
-            let e_lines = expected_trimmed.lines().collect::<Vec<_>>();
+            let actual_lines = actual_trimmed.lines().collect::<Vec<_>>();
+            let expected_lines = expected_trimmed.lines().collect::<Vec<_>>();
 
-            for (i, (a, e)) in a_lines.iter().zip(e_lines.iter()).enumerate() {
+            for (i, (a, e)) in
+              actual_lines.iter().zip(expected_lines.iter()).enumerate()
+            {
               if a != e {
                 return fail(
                   name,
@@ -389,13 +385,13 @@ fn run_test(
               }
             }
 
-            if a_lines.len() != e_lines.len() {
+            if actual_lines.len() != expected_lines.len() {
               fail(
                 name,
                 &format!(
                   "expected {} lines, got {}",
-                  e_lines.len(),
-                  a_lines.len()
+                  expected_lines.len(),
+                  actual_lines.len()
                 ),
               )
             } else {
@@ -410,6 +406,7 @@ fn run_test(
     Category::Check => {
       // Parse -- @emit directive from the file.
       let content = fs::read_to_string(file).unwrap_or_default();
+
       let emit_flag = content
         .lines()
         .find_map(|l| l.trim().strip_prefix("-- @emit "))
@@ -417,10 +414,10 @@ fn run_test(
         .trim();
 
       // Collect -- CHECK: lines.
-      let checks: Vec<String> = content
+      let checks = content
         .lines()
         .filter_map(|l| l.trim().strip_prefix("-- CHECK: ").map(String::from))
-        .collect();
+        .collect::<Vec<_>>();
 
       if checks.is_empty() {
         return fail(name, "no -- CHECK: directives found");
@@ -454,7 +451,7 @@ fn run_test(
       // Verify each CHECK line.
       for check in &checks {
         if !emit_content.contains(check.as_str()) {
-          return fail(name, &format!("CHECK failed: '{}'", check));
+          return fail(name, &format!("CHECK failed: '{check}'"));
         }
       }
 
@@ -480,7 +477,7 @@ fn run_test(
             if let Some(signal) = _o.status.signal() {
               return fail(
                 name,
-                &format!("compiler crashed (signal {})", signal),
+                &format!("compiler crashed (signal {signal})"),
               );
             }
           }
@@ -504,6 +501,7 @@ fn extract_expected(file: &Path) -> String {
   for line in content.lines() {
     if line.contains("EXPECTED OUTPUT:") {
       in_expected = true;
+
       continue;
     }
 
@@ -515,6 +513,7 @@ fn extract_expected(file: &Path) -> String {
       } else {
         rest.trim_end()
       };
+
       lines.push(trimmed.to_string());
     }
   }

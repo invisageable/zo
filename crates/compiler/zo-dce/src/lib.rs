@@ -1,6 +1,6 @@
 mod dce;
 
-pub use dce::eliminate_dead_functions;
+pub use dce::Dce;
 
 #[cfg(test)]
 mod tests;

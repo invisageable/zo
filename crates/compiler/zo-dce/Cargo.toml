@@ -10,10 +10,22 @@ doctest = false
 # internal:sources.
 
 # internal:crates.
+zo-error = { workspace = true }
 zo-interner = { workspace = true }
+zo-liveness = { workspace = true }
+zo-reporter = { workspace = true }
 zo-sir = { workspace = true }
+zo-span = { workspace = true }
 zo-ty = { workspace = true }
 zo-value = { workspace = true }
 
 # external:crates.
 rustc-hash = { workspace = true }
+
+[dev-dependencies]
+# external:crates.
+criterion = { workspace = true }
+
+[[bench]]
+name = "eliminate"
+harness = false

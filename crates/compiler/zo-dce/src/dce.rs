@@ -1,5 +1,10 @@
+use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
+use zo_liveness::compute_value_ids;
+use zo_reporter::report_error;
 use zo_sir::{Insn, Sir};
+use zo_span::Span;
+use zo_value::Pubness;
 
 use rustc_hash::FxHashSet as HashSet;
 
@@ -10,41 +15,293 @@ struct FunRange {
   start: usize,
   /// Index of the terminating `Return` instruction.
   end: usize,
+  /// Whether the function is `pub` (exported).
+  pubness: Pubness,
 }
 
-/// Eliminates unreachable functions from the SIR.
+/// Dead code elimination pipeline.
 ///
-/// Builds a call graph, marks functions reachable from `main`
-/// transitively, and removes unreachable function bodies.
-/// Top-level instructions (outside any function) are always kept.
-pub fn eliminate_dead_functions(sir: &mut Sir, main_sym: Symbol) {
-  if sir.instructions.is_empty() {
-    return;
+/// Runs three passes in order:
+///   1. Dead function elimination (interprocedural).
+///   2. Unreachable code after `return` (intraprocedural).
+///   3. Dead instruction elimination (liveness-based, fixpoint).
+pub struct Dce<'a> {
+  sir: &'a mut Sir,
+  main_sym: Symbol,
+}
+
+impl<'a> Dce<'a> {
+  /// Creates a new DCE pipeline for the given SIR.
+  pub fn new(sir: &'a mut Sir, main_sym: Symbol) -> Self {
+    Self { sir, main_sym }
   }
 
-  let functions = build_function_map(&sir.instructions);
-
-  if functions.is_empty() {
-    return;
+  /// Runs the full DCE pipeline.
+  pub fn eliminate(&mut self) {
+    self.eliminate_dead_functions();
+    self.eliminate_unreachable_after_return();
+    // TODO: dead variable elimination disabled — insn_var_use
+    // only tracks Load{Local} but variables are referenced
+    // through other instructions. needs complete var-use
+    // extraction before re-enabling.
+    // self.eliminate_dead_variables();
+    self.eliminate_dead_instructions();
   }
 
-  let called = collect_called_names(&sir.instructions);
-  let reachable = mark_reachable(&functions, &called, main_sym);
+  // ==============================================================
+  // Pass 1: Dead function elimination (interprocedural).
+  // ==============================================================
 
-  // Collect dead ranges in reverse order for safe removal.
-  let mut dead_ranges = functions
-    .iter()
-    .filter(|f| !reachable.contains(&f.name))
-    .map(|f| (f.start, f.end))
-    .collect::<Vec<_>>();
+  /// Builds a call graph from function bodies, then walks from
+  /// roots (`main` + pub) via a worklist to find all
+  /// transitively reachable functions. Removes the rest.
+  fn eliminate_dead_functions(&mut self) {
+    if self.sir.instructions.is_empty() {
+      return;
+    }
 
-  dead_ranges.sort_by_key(|r| std::cmp::Reverse(r.0));
+    let functions = build_function_map(&self.sir.instructions);
 
-  for (start, end) in dead_ranges {
-    if end < sir.instructions.len() {
-      sir.instructions.drain(start..=end);
+    if functions.is_empty() {
+      return;
+    }
+
+    let reachable =
+      mark_reachable(&functions, &self.sir.instructions, self.main_sym);
+
+    let dead = functions
+      .iter()
+      .filter(|f| !reachable.contains(&f.name))
+      .collect::<Vec<_>>();
+
+    // TODO: report UnusedFunction warnings once zo-error has
+    // Severity::Warning so warnings don't block compilation.
+    // for _f in &dead {
+    //   report_error(Error::new(
+    //     ErrorKind::UnusedFunction,
+    //     Span::ZERO,
+    //   ));
+    // }
+
+    let mut dead_ranges =
+      dead.iter().map(|f| (f.start, f.end)).collect::<Vec<_>>();
+
+    dead_ranges.sort_by_key(|r| std::cmp::Reverse(r.0));
+
+    for (start, end) in dead_ranges {
+      if end < self.sir.instructions.len() {
+        self.sir.instructions.drain(start..=end);
+      }
     }
   }
+
+  // ==============================================================
+  // Pass 2: Unreachable code after return.
+  // ==============================================================
+
+  /// Removes instructions between a `Return` and the next
+  /// `Label` or `FunDef`. Single linear scan, O(N).
+  fn eliminate_unreachable_after_return(&mut self) {
+    let mut i = 0;
+    let mut in_dead_zone = false;
+
+    while i < self.sir.instructions.len() {
+      if in_dead_zone {
+        match &self.sir.instructions[i] {
+          Insn::Label { .. }
+          | Insn::FunDef { .. }
+          | Insn::StructDef { .. }
+          | Insn::EnumDef { .. }
+          | Insn::ConstDef { .. } => {
+            in_dead_zone = false;
+            i += 1;
+          }
+          _ => {
+            self.sir.instructions.remove(i);
+          }
+        }
+      } else {
+        if matches!(&self.sir.instructions[i], Insn::Return { .. }) {
+          in_dead_zone = true;
+        }
+
+        i += 1;
+      }
+    }
+  }
+
+  // ==============================================================
+  // Pass 3: Dead variable (Store) elimination (liveness-based).
+  // ==============================================================
+
+  /// Eliminates dead `Store` instructions.
+  ///
+  /// A `Store { name }` is dead if the named variable is not
+  /// live-out at that instruction — meaning no path from that
+  /// point ever reads the stored value before it's overwritten
+  /// or the function exits.
+  #[allow(dead_code)]
+  fn eliminate_dead_variables(&mut self) {
+    if self.sir.instructions.is_empty() {
+      return;
+    }
+
+    let num_values = self.sir.next_value_id;
+
+    loop {
+      let functions = find_functions(&self.sir.instructions);
+
+      if functions.is_empty() {
+        return;
+      }
+
+      let value_ids = compute_value_ids(&self.sir.instructions);
+      let mut any_removed = false;
+
+      for &(start, end) in functions.iter().rev() {
+        if start >= self.sir.instructions.len()
+          || end > self.sir.instructions.len()
+        {
+          continue;
+        }
+
+        let liveness = zo_liveness::analyze(
+          &self.sir.instructions,
+          start,
+          end,
+          &value_ids,
+          num_values,
+        );
+
+        let mut dead = Vec::new();
+
+        for i in 0..(end - start) {
+          let gi = start + i;
+
+          if let Insn::Store { name, .. } = &self.sir.instructions[gi]
+            && !liveness.is_var_live_out(i, *name)
+          {
+            report_error(Error::new(ErrorKind::UnusedVariable, Span::ZERO));
+
+            dead.push(gi);
+          }
+        }
+
+        dead.sort_unstable_by(|a, b| b.cmp(a));
+
+        for idx in dead {
+          self.sir.instructions.remove(idx);
+          any_removed = true;
+        }
+      }
+
+      if !any_removed {
+        break;
+      }
+    }
+  }
+
+  // ==============================================================
+  // Pass 4: Dead instruction elimination (liveness-based).
+  // ==============================================================
+
+  /// Eliminates dead instructions within each function body.
+  ///
+  /// An instruction is dead if:
+  ///   1. It defines a `ValueId` (has a `dst`).
+  ///   2. That `ValueId` is not live-out at the instruction.
+  ///   3. The instruction is pure (no side effects).
+  ///
+  /// Iterates to fixpoint — removing one instruction may make
+  /// others dead.
+  fn eliminate_dead_instructions(&mut self) {
+    if self.sir.instructions.is_empty() {
+      return;
+    }
+
+    let num_values = self.sir.next_value_id;
+
+    loop {
+      let functions = find_functions(&self.sir.instructions);
+
+      if functions.is_empty() {
+        return;
+      }
+
+      let value_ids = compute_value_ids(&self.sir.instructions);
+      let mut any_removed = false;
+
+      for &(start, end) in functions.iter().rev() {
+        if start >= self.sir.instructions.len()
+          || end > self.sir.instructions.len()
+        {
+          continue;
+        }
+
+        let liveness = zo_liveness::analyze(
+          &self.sir.instructions,
+          start,
+          end,
+          &value_ids,
+          num_values,
+        );
+
+        let mut dead = Vec::new();
+
+        for i in 0..(end - start) {
+          let gi = start + i;
+          let insn = &self.sir.instructions[gi];
+
+          if is_impure(insn) {
+            continue;
+          }
+
+          if matches!(
+            insn,
+            Insn::Label { .. }
+              | Insn::Jump { .. }
+              | Insn::BranchIfNot { .. }
+              | Insn::FunDef { .. }
+          ) {
+            continue;
+          }
+
+          if let Some(vid) = value_ids[gi]
+            && !liveness.live_out[i].test(vid.0 as usize)
+          {
+            dead.push(gi);
+          }
+        }
+
+        dead.sort_unstable_by(|a, b| b.cmp(a));
+
+        for idx in dead {
+          self.sir.instructions.remove(idx);
+          any_removed = true;
+        }
+      }
+
+      if !any_removed {
+        break;
+      }
+    }
+  }
+}
+
+// ================================================================
+// Helpers (module-level, stateless).
+// ================================================================
+
+/// Returns true if an instruction has side effects.
+fn is_impure(insn: &Insn) -> bool {
+  matches!(
+    insn,
+    Insn::Call { .. }
+      | Insn::Store { .. }
+      | Insn::FieldStore { .. }
+      | Insn::Directive { .. }
+      | Insn::Return { .. }
+  )
 }
 
 /// Scans the instruction stream and pairs each `FunDef` with
@@ -54,14 +311,8 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
   let mut i = 0;
 
   while i < instructions.len() {
-    if let Insn::FunDef { name, .. } = &instructions[i] {
+    if let Insn::FunDef { name, pubness, .. } = &instructions[i] {
       let start = i;
-
-      // Scan forward for Return. Stop at the next
-      // FunDef or top-level declaration (StructDef,
-      // EnumDef) to avoid swallowing adjacent bodies
-      // or type definitions. Intrinsic functions have
-      // no Return so this also handles them.
       let mut end = i + 1;
 
       while end < instructions.len() {
@@ -78,7 +329,6 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
         }
       }
 
-      // Clamp to last valid index.
       if end >= instructions.len() {
         end = instructions.len() - 1;
       }
@@ -87,6 +337,7 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
         name: *name,
         start,
         end,
+        pubness: *pubness,
       });
 
       i = end + 1;
@@ -98,49 +349,81 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
   functions
 }
 
-/// Collects all function names that appear in `Insn::Call`.
-fn collect_called_names(instructions: &[Insn]) -> HashSet<Symbol> {
-  let mut called = HashSet::default();
+/// Collects call targets from a slice of instructions.
+fn collect_calls_in_range(
+  instructions: &[Insn],
+  start: usize,
+  end: usize,
+) -> Vec<Symbol> {
+  let mut calls = Vec::new();
 
-  for insn in instructions {
+  for insn in &instructions[start..=end.min(instructions.len() - 1)] {
     if let Insn::Call { name, .. } = insn {
-      called.insert(*name);
+      calls.push(*name);
     }
   }
 
-  called
+  calls
 }
 
-/// Marks functions reachable from `main` via transitive calls.
-///
-/// Roots: `main` + any function name found in a `Call` instruction
-/// that itself appears inside a reachable function body.
-/// Marks functions reachable from the entry point (last
-/// function) and any function referenced by a `Call`.
-///
-/// A function is dead if no `Call` references it and it's
-/// not the entry point.
+/// Marks functions reachable from roots via transitive call
+/// graph walk (worklist algorithm).
 fn mark_reachable(
   functions: &[FunRange],
-  called: &HashSet<Symbol>,
+  instructions: &[Insn],
   main_sym: Symbol,
 ) -> HashSet<Symbol> {
   let mut reachable = HashSet::default();
+  let mut worklist = Vec::new();
 
-  // Mark main as the entry point (by name, not position).
   for func in functions {
-    if func.name == main_sym {
-      reachable.insert(func.name);
-      break;
+    if func.name == main_sym || func.pubness == Pubness::Yes {
+      worklist.push(func.name);
     }
   }
 
-  // A function is reachable if any Call references it.
-  for func in functions {
-    if called.contains(&func.name) {
-      reachable.insert(func.name);
+  while let Some(name) = worklist.pop() {
+    if !reachable.insert(name) {
+      continue;
+    }
+
+    if let Some(func) = functions.iter().find(|f| f.name == name) {
+      for callee in collect_calls_in_range(instructions, func.start, func.end) {
+        if !reachable.contains(&callee) {
+          worklist.push(callee);
+        }
+      }
     }
   }
 
   reachable
+}
+
+/// Helper: find non-intrinsic function ranges.
+fn find_functions(insns: &[Insn]) -> Vec<(usize, usize)> {
+  let mut positions = Vec::new();
+
+  for (i, insn) in insns.iter().enumerate() {
+    if let Insn::FunDef { kind, .. } = insn {
+      positions.push((i, *kind));
+    }
+  }
+
+  let mut result = Vec::new();
+
+  for (j, &(start, kind)) in positions.iter().enumerate() {
+    if kind == zo_value::FunctionKind::Intrinsic {
+      continue;
+    }
+
+    let end = if j + 1 < positions.len() {
+      positions[j + 1].0
+    } else {
+      insns.len()
+    };
+
+    result.push((start, end));
+  }
+
+  result
 }

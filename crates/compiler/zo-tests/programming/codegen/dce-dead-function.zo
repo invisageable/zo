@@ -1,0 +1,10 @@
+-- @emit asm
+
+fun dead_fn() -> int {
+  return 42;
+}
+
+fun main() {
+  -- CHECK: mov x9, #10
+  showln(10);
+}

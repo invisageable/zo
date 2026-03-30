@@ -68,6 +68,7 @@ zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.1.1" }
 zo-error = { path = "crates/compiler/zo-error", version = "0.1.1" }
 zo-executor = { path = "crates/compiler/zo-executor", version = "0.1.1" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.1.1" }
+zo-liveness = { path = "crates/compiler/zo-liveness", version = "0.1.1" }
 zo-metrics = { path = "crates/compiler/zo-metrics", version = "0.1.0" }
 zo-module-resolver = { path = "crates/compiler/zo-module-resolver", version = "0.1.1" }
 zo-name-resolver = { path = "crates/compiler/zo-name-resolver", version = "0.1.0" }

@@ -7104,9 +7104,14 @@ dependencies = [
 name = "zo-dce"
 version = "0.1.1"
 dependencies = [
+ "criterion",
  "rustc-hash 2.1.1",
+ "zo-error",
  "zo-interner",
+ "zo-liveness",
+ "zo-reporter",
  "zo-sir",
+ "zo-span",
  "zo-ty",
  "zo-value",
 ]
@@ -7187,6 +7192,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-liveness"
+version = "0.1.1"
+dependencies = [
+ "rustc-hash 2.1.1",
+ "zo-interner",
+ "zo-sir",
+ "zo-value",
+]
+
+[[package]]
 name = "zo-module-resolver"
 version = "0.1.1"
 dependencies = [
@@ -7244,6 +7259,7 @@ name = "zo-register-allocation"
 version = "0.1.1"
 dependencies = [
  "rustc-hash 2.1.1",
+ "zo-liveness",
  "zo-sir",
  "zo-value",
 ]
