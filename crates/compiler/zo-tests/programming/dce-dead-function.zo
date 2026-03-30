@@ -1,0 +1,15 @@
+-- tests-build-pass: dead function eliminated, program runs.
+-- @cmd — zo run dce-dead-function.zo
+
+fun dead_fn() -> int {
+  return 42;
+}
+
+fun helper(x: int) -> int {
+  return x * 2;
+}
+
+fun main() {
+  imu a: int = helper(10);
+  check(a == 20);
+}

@@ -212,4 +212,8 @@ pub enum ErrorKind {
 
   // Internal compiler errors (bugs in the compiler itself)
   InternalCompilerError,
+
+  // DCE warnings (appended to preserve existing error codes).
+  UnusedVariable,
+  UnusedFunction,
 }

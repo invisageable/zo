@@ -1,0 +1,11 @@
+-- tests-build-pass: unused variable eliminated, program runs.
+-- @cmd — zo run dce-unused-variable.zo
+
+fun main() {
+  imu x: int = 42;
+  imu y: int = 99;
+  -- y is unused but program still compiles and runs.
+  showln("{x}");
+}
+
+-- CHECK: 42

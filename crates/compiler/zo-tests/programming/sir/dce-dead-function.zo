@@ -1,0 +1,11 @@
+-- @emit sir
+
+fun dead_fn() -> int {
+  return 42;
+}
+
+fun main() {
+  -- CHECK: const 10 : i32
+  -- CHECK: call showln
+  showln(10);
+}

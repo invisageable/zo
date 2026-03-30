@@ -1,10 +1,13 @@
 pub mod allocator;
-pub mod liveness;
 
 use zo_sir::Insn;
 use zo_value::{FunctionKind, ValueId};
 
 use rustc_hash::FxHashMap as HashMap;
+
+// Re-export liveness utilities so existing consumers
+// don't need to add zo-liveness directly.
+pub use zo_liveness::{compute_value_ids, insn_uses};
 
 /// Caller-saved GP register indices, preferred order.
 /// Temps (X9-X15) first, then args (X0-X7).
@@ -135,60 +138,6 @@ impl RegAlloc {
   #[inline]
   pub fn value_id_at(&self, idx: usize) -> Option<ValueId> {
     self.value_ids.get(idx).copied().flatten()
-  }
-}
-
-/// Compute the ValueId produced by each SIR instruction.
-///
-/// Every value-producing instruction carries an explicit
-/// `dst: ValueId`. Non-value instructions return `None`.
-pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
-  insns
-    .iter()
-    .map(|insn| match insn {
-      Insn::ConstInt { dst, .. }
-      | Insn::ConstFloat { dst, .. }
-      | Insn::ConstBool { dst, .. }
-      | Insn::ConstString { dst, .. }
-      | Insn::Call { dst, .. }
-      | Insn::Load { dst, .. }
-      | Insn::BinOp { dst, .. }
-      | Insn::UnOp { dst, .. }
-      | Insn::ArrayLiteral { dst, .. }
-      | Insn::ArrayIndex { dst, .. }
-      | Insn::ArrayLen { dst, .. }
-      | Insn::TupleLiteral { dst, .. }
-      | Insn::TupleIndex { dst, .. }
-      | Insn::EnumConstruct { dst, .. }
-      | Insn::StructConstruct { dst, .. } => Some(*dst),
-      Insn::Template { id, .. } => Some(*id),
-      _ => None,
-    })
-    .collect()
-}
-
-/// Extract the ValueIds read by an instruction.
-pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
-  match insn {
-    Insn::BinOp { lhs, rhs, .. } => vec![*lhs, *rhs],
-    Insn::Return { value: Some(v), .. } => vec![*v],
-    Insn::Store { value, .. } => vec![*value],
-    Insn::Call { args, .. } => args.clone(),
-    Insn::UnOp { rhs, .. } => vec![*rhs],
-    Insn::BranchIfNot { cond, .. } => vec![*cond],
-    Insn::Directive { value, .. } => vec![*value],
-    Insn::VarDef { init: Some(v), .. } => vec![*v],
-    Insn::ArrayLiteral { elements, .. } => elements.clone(),
-    Insn::ArrayIndex { array, index, .. } => {
-      vec![*array, *index]
-    }
-    Insn::TupleIndex { tuple, .. } => vec![*tuple],
-    Insn::FieldStore { base, value, .. } => vec![*base, *value],
-    Insn::ArrayLen { array, .. } => vec![*array],
-    Insn::StructConstruct { fields, .. } => fields.clone(),
-    Insn::EnumConstruct { fields, .. } => fields.clone(),
-    Insn::TupleLiteral { elements, .. } => elements.clone(),
-    _ => vec![],
   }
 }
 

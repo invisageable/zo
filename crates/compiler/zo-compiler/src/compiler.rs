@@ -11,6 +11,7 @@ use crate::stage::Stage;
 use zo_analyzer::{Analyzer, ImportedSymbols, SemanticResult};
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
+use zo_dce::Dce;
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
 use zo_module_resolver::{ModuleResolver, extract_exports};
@@ -381,7 +382,7 @@ impl Compiler {
     // Dead code elimination — find main by name.
     let main_sym = tokenization.interner.intern("main");
 
-    zo_dce::eliminate_dead_functions(&mut semantic.sir, main_sym);
+    Dce::new(&mut semantic.sir, main_sym).eliminate();
 
     (semantic, tokenization, parsing)
   }

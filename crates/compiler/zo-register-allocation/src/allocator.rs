@@ -1,8 +1,8 @@
-use crate::liveness::{self, LivenessInfo};
 use crate::{
   ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FunctionInfo, RegAlloc,
   RegisterClass, SpillKind, SpillOp,
 };
+use zo_liveness::{LivenessInfo, liveness};
 use zo_sir::{Insn, LoadSource};
 use zo_value::FunctionKind;
 use zo_value::ValueId;
@@ -374,7 +374,7 @@ pub fn allocate_function(
 
     // --- General case ---
 
-    let uses = crate::insn_uses(insn);
+    let uses = zo_liveness::insn_uses(insn);
 
     for &use_vid in &uses {
       if use_vid.0 == u32::MAX {

@@ -173,6 +173,8 @@ impl ErrorAggregator {
         | ErrorKind::InvalidCast
         | ErrorKind::InvalidPattern
         | ErrorKind::UnreachableCode
+        | ErrorKind::UnusedVariable
+        | ErrorKind::UnusedFunction
         | ErrorKind::UninitializedVariable
         | ErrorKind::InvalidSelfReference
         | ErrorKind::InvalidTypeAnnotation => {
