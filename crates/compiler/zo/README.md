@@ -25,11 +25,18 @@ zo GiVES YOU BACK CONTROL, GUARANTEES STRONG STATiC TYPiNG WiTH EXCEPTiONAL EXEC
 
 iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.         
 
+## get started.
+
+  - [install](../zo-notes/public/guidelines/02-install.md) — *setup the zo ecosystem.*
+  - [how-to](../zo-how-zo) — *learn rust by practice.*
+  - [tests](../zo-tests) — *workable zo's programs and error messages catalog.*
+  - [benches](../zo-benches) — *zo compiler benchmark vs modern programming languages.*
+
 ## goals.
 
   - [x] statically, strongly typed.
-  - [ ] meticulous `type system` — *type checking, inference, monomorphization, type state.*
-  - [ ] algebraic `optimization` — *folding, propagation.*
+  - [x] meticulous `type system` — *type checking, inference, monomorphization, type state.*
+  - [x] algebraic `optimization` — *folding, propagation.*
   - [x] user-friendly `error` messages — *like elm, for better debugging.*
   - [ ] target support — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
   - [x] meta-language — *`#asm`, `#dom`, `#run` (directives).*
@@ -40,36 +47,16 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
   - [x] powerful `tools` — *native REPL, code editor, packager, etc.*
   - [x] expressiveness — *optimized and concise syntax.*
 
-## what's next?
+> *Be ahead, JOiN THE DEVOLUTiON.*
 
-iF YOU'RE READiNG THiS, YOU'RE EARLY. COME BACK SOON. OR BETTER — *stay*.
+## .
 
-WE SHARED THE SAME ENGiNEERiNG PHiLOSOPHY THAN __JONATHAN BLOW__, __MiKE ACTON__, __CHANDLER CARRUTH__, __GRAYDON HOARE__ AND __BRET ViCTOR__.
-
-> *be ahead, JOiN THE DEVOLUTiON.*
-
-## commands.
-
-  ```sh
-  # programming mode.
-  cargo run --bin zo -- build crates/compiler/zo-tests/build-pass/programming/hello.zo -o crates/compiler/zo-tests/build-pass/programming/hello
-  # template mode.
-  cargo run --bin zo -- run crates/compiler/zo-tests/build-pass/templating/zsx-hello.zo
-  ```
-
-## get started.
-
-  - [install](../zo-notes/public/guidelines/02-install.md) — *setup the zo ecosystem.*
-  - [how-to](../zo-how-zo) — *learn rust by practice.*
-  - [tests](../zo-tests) — *workable zo's programs and error messages catalog.*
-  - [benches](../zo-benches) — *zo compiler benchmark vs modern programming languages.*
-
-## examples.
+<!-- ## examples.
 
 **[-hello](./zo-samples/examples/hello.zo)**
 
 THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *PRiNTS `hello, world!`.*
 
-![hello](../zo-notes/public/preview/preview-zo-hello.png)
+![hello](../zo-notes/public/preview/preview-zo-hello.png) -->
 
-> « The universe needs to preserve guys like Graydon Hoare! » — *because they challenge us to reject "accepted" solutions and build something better.*
+> *« The universe needs to preserve guys like Graydon Hoare! » — because they challenge us to reject "accepted" solutions and build something better.*

@@ -88,6 +88,9 @@ pub struct Executor<'a> {
   array_ctx: Vec<(bool, usize)>,
   /// Tuple context stack: stack_depth_at_open.
   tuple_ctx: Vec<usize>,
+  /// Deferred binary operators waiting for RHS group to close.
+  /// (op, lhs_value, lhs_ty, lhs_sir, node_idx)
+  deferred_binops: Vec<(BinOp, ValueId, TyId, ValueId, usize)>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
@@ -153,6 +156,7 @@ impl<'a> Executor<'a> {
       pending_compound_receiver: None,
       array_ctx: Vec::new(),
       tuple_ctx: Vec::new(),
+      deferred_binops: Vec::new(),
       closure_counter: 0,
       enum_defs: Vec::new(),
       pending_enum_construct: None,
@@ -249,6 +253,13 @@ impl<'a> Executor<'a> {
       let header = self.tree.nodes[idx];
 
       self.execute_node(&header, idx);
+
+      // Apply deferred binary operators only when:
+      // 1. We're not inside a tuple/grouping context.
+      // 2. The RHS value has been pushed to the stack.
+      if self.tuple_ctx.is_empty() {
+        self.apply_deferred_binop();
+      }
     }
 
     // Monomorphization: duplicate generic function bodies
@@ -568,6 +579,7 @@ impl<'a> Executor<'a> {
             self.sir_values.push(sv);
           }
           // count <= 1: grouping — leave value on stack as-is.
+          self.apply_deferred_binop();
         } else {
           // No tuple context → function call.
           self.execute_potential_call(idx);
@@ -1804,6 +1816,32 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Applies a deferred binary operator if its RHS is ready.
+  fn apply_deferred_binop(&mut self) {
+    while !self.deferred_binops.is_empty()
+      && !self.value_stack.is_empty()
+      && !self.ty_stack.is_empty()
+      && !self.sir_values.is_empty()
+    {
+      let (op, lhs, lhs_ty, lhs_sir, op_idx) =
+        self.deferred_binops.pop().unwrap();
+
+      let rhs = self.value_stack.pop().unwrap();
+      let rhs_ty = self.ty_stack.pop().unwrap();
+      let rhs_sir = self.sir_values.pop().unwrap();
+
+      self.value_stack.push(lhs);
+      self.ty_stack.push(lhs_ty);
+      self.sir_values.push(lhs_sir);
+
+      self.value_stack.push(rhs);
+      self.ty_stack.push(rhs_ty);
+      self.sir_values.push(rhs_sir);
+
+      self.execute_binop(op, op_idx);
+    }
+  }
+
   /// Executes a binary operator.
   fn execute_binop(&mut self, op: BinOp, node_idx: usize) {
     // Pop operands (postfix order: left then right)
@@ -1811,7 +1849,19 @@ impl<'a> Executor<'a> {
       || self.ty_stack.len() < 2
       || self.sir_values.len() < 2
     {
-      // Error: not enough operands
+      // Not enough operands — the RHS is inside a grouping
+      // that hasn't closed yet. Defer this operator: pop the
+      // LHS now and re-apply when RParen closes the group.
+      if let (Some(lhs_sir), Some(lhs_ty), Some(lhs)) = (
+        self.sir_values.pop(),
+        self.ty_stack.pop(),
+        self.value_stack.pop(),
+      ) {
+        self
+          .deferred_binops
+          .push((op, lhs, lhs_ty, lhs_sir, node_idx));
+      }
+
       return;
     }
 

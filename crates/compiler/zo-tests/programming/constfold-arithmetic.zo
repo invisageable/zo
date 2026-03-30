@@ -21,4 +21,14 @@ fun main() {
   -- chained constant expressions.
   imu f: int = 2 + 3 * 4;
   check(f == 14);
+
+  -- parenthesized grouping.
+  imu g: int = (2 + 3) * (4 + 1);
+  check(g == 25);
+
+  imu h: int = (10 - 3) * 2;
+  check(h == 14);
+
+  imu i: int = (100 / 5) + (3 * 2);
+  check(i == 26);
 }
