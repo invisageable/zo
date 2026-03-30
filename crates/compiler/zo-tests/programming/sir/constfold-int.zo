@@ -1,0 +1,15 @@
+-- @emit sir
+
+fun main() {
+  -- CHECK: const 5 : i32
+  imu a: int = 2 + 3;
+  -- CHECK: const 6 : i32
+  imu b: int = 10 - 4;
+  -- CHECK: const 42 : i32
+  imu c: int = 7 * 6;
+  -- CHECK: const 20 : i32
+  imu d: int = 100 / 5;
+  -- CHECK: const 2 : i32
+  imu e: int = 17 % 5;
+  showln(a);
+}

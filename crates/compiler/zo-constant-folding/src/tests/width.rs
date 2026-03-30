@@ -4,7 +4,7 @@ use crate::FoldResult;
 
 use zo_error::{Error, ErrorKind};
 use zo_sir::{BinOp, UnOp};
-use zo_ty::{IntWidth, Ty};
+use zo_ty::{FloatWidth, IntWidth, Ty};
 
 const U8: Ty = Ty::Int {
   signed: false,
@@ -295,4 +295,93 @@ fn s16_arithmetic_shr() {
     // -4 masked to 16 bits = 0xFFFC.
     Some(FoldResult::Int((-4i64 as u64) & 0xFFFF)),
   );
+}
+
+// — float f32 precision narrowing.
+
+const F32: Ty = Ty::Float(FloatWidth::F32);
+const F64_TY: Ty = Ty::Float(FloatWidth::F64);
+
+#[test]
+fn f32_add_narrows_precision() {
+  let mut h = Harness::new();
+  // 0.1 + 0.2 in f64 = 0.30000000000000004
+  // in f32 = 0.3 (less precise)
+  let a = h.float(0.1);
+  let b = h.float(0.2);
+
+  let result = h.fold().fold_binop(BinOp::Add, a, b, SPAN, F32);
+
+  // Should be the f32-precision value, not f64-precision.
+  let expected = (0.1f64 + 0.2f64) as f32 as f64;
+
+  assert_eq!(result, Some(FoldResult::Float(expected)));
+}
+
+#[test]
+fn f64_add_keeps_precision() {
+  let mut h = Harness::new();
+  let a = h.float(0.1);
+  let b = h.float(0.2);
+
+  let result = h.fold().fold_binop(BinOp::Add, a, b, SPAN, F64_TY);
+
+  // Should be full f64-precision.
+  assert_eq!(result, Some(FoldResult::Float(0.1 + 0.2)));
+}
+
+#[test]
+fn f32_overflow_to_infinity() {
+  let mut h = Harness::new();
+  // f32::MAX ≈ 3.4e38, so 3.5e38 * 2.0 overflows f32 to infinity.
+  let a = h.float(3.5e38);
+  let b = h.float(2.0);
+
+  let result = h.fold().fold_binop(BinOp::Mul, a, b, SPAN, F32);
+
+  assert!(matches!(result, Some(FoldResult::Error(err))
+    if err == zo_error::Error::new(
+      zo_error::ErrorKind::FloatInfinity, SPAN
+    )
+  ));
+}
+
+#[test]
+fn f32_within_range_ok() {
+  let mut h = Harness::new();
+  let a = h.float(1.0e10);
+  let b = h.float(2.0);
+
+  let result = h.fold().fold_binop(BinOp::Mul, a, b, SPAN, F32);
+
+  let expected = (1.0e10f64 * 2.0f64) as f32 as f64;
+
+  assert_eq!(result, Some(FoldResult::Float(expected)));
+}
+
+#[test]
+fn f32_neg_validates() {
+  let mut h = Harness::new();
+  let a = h.float(1.5);
+
+  let result = h.fold().fold_unop(UnOp::Neg, a, SPAN, F32);
+
+  let expected = (-1.5f64) as f32 as f64;
+
+  assert_eq!(result, Some(FoldResult::Float(expected)));
+}
+
+#[test]
+fn f64_mul_overflow_to_infinity() {
+  let mut h = Harness::new();
+  let a = h.float(f64::MAX);
+  let b = h.float(2.0);
+
+  let result = h.fold().fold_binop(BinOp::Mul, a, b, SPAN, F64_TY);
+
+  assert!(matches!(result, Some(FoldResult::Error(err))
+    if err == zo_error::Error::new(
+      zo_error::ErrorKind::FloatInfinity, SPAN
+    )
+  ));
 }

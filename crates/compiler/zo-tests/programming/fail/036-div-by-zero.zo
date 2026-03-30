@@ -1,0 +1,20 @@
+-! # how to errors: 036-div-by-zero.zo
+-!
+-! @cmd: `zo build 036-div-by-zero.zo`
+-!
+-! Division by zero is caught at compile time when both operands
+-! are constants. The constant folder evaluates `10 / 0` and
+-! reports the error before any code is generated.
+
+fun main() {
+  imu x: int = 10 / 0;
+}
+
+-- EXPECTED OUTPUT:
+-- [E0601] Error: Division by zero
+--    ╭─[ 036-div-by-zero.zo:10:19 ]
+--    │
+--  10 │   imu x: int = 10 / 0;
+--    │                   ┬
+--    │                   ╰── division by zero here
+-- ───╯

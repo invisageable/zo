@@ -3,6 +3,7 @@ use super::common::{BOOL, F64, Harness, S64, SPAN, U64};
 use crate::FoldResult;
 
 use zo_sir::{BinOp, UnOp};
+use zo_ty::Ty;
 
 // — integer arithmetic.
 
@@ -229,6 +230,30 @@ fn float_div() {
 }
 
 #[test]
+fn float_rem() {
+  let mut h = Harness::new();
+  let a = h.float(10.0);
+  let b = h.float(3.0);
+
+  assert_eq!(
+    h.fold().fold_binop(BinOp::Rem, a, b, SPAN, F64),
+    Some(FoldResult::Float(10.0 % 3.0)),
+  );
+}
+
+#[test]
+fn float_rem_exact() {
+  let mut h = Harness::new();
+  let a = h.float(10.0);
+  let b = h.float(5.0);
+
+  assert_eq!(
+    h.fold().fold_binop(BinOp::Rem, a, b, SPAN, F64),
+    Some(FoldResult::Float(0.0)),
+  );
+}
+
+#[test]
 fn float_lt() {
   let mut h = Harness::new();
   let a = h.float(1.0);
@@ -427,4 +452,70 @@ fn bool_add_returns_none() {
   let b = h.bool(false);
 
   assert_eq!(h.fold().fold_binop(BinOp::Add, a, b, SPAN, BOOL), None,);
+}
+
+// — string concatenation.
+
+#[test]
+fn str_concat() {
+  let mut h = Harness::new();
+  let (a, _) = h.string("hello");
+  let (b, _) = h.string(" world");
+
+  let result = h.fold().fold_binop(BinOp::Concat, a, b, SPAN, Ty::Str);
+
+  assert!(matches!(result, Some(FoldResult::Str(sym))
+    if h.interner.get(sym) == "hello world"
+  ));
+}
+
+#[test]
+fn str_concat_empty_lhs() {
+  let mut h = Harness::new();
+  let (a, _) = h.string("");
+  let (b, _) = h.string("world");
+
+  let result = h.fold().fold_binop(BinOp::Concat, a, b, SPAN, Ty::Str);
+
+  assert!(matches!(result, Some(FoldResult::Str(sym))
+    if h.interner.get(sym) == "world"
+  ));
+}
+
+#[test]
+fn str_concat_empty_rhs() {
+  let mut h = Harness::new();
+  let (a, _) = h.string("hello");
+  let (b, _) = h.string("");
+
+  let result = h.fold().fold_binop(BinOp::Concat, a, b, SPAN, Ty::Str);
+
+  assert!(matches!(result, Some(FoldResult::Str(sym))
+    if h.interner.get(sym) == "hello"
+  ));
+}
+
+#[test]
+fn str_concat_both_empty() {
+  let mut h = Harness::new();
+  let (a, _) = h.string("");
+  let (b, _) = h.string("");
+
+  let result = h.fold().fold_binop(BinOp::Concat, a, b, SPAN, Ty::Str);
+
+  assert!(matches!(result, Some(FoldResult::Str(sym))
+    if h.interner.get(sym).is_empty()
+  ));
+}
+
+#[test]
+fn str_concat_runtime_returns_none() {
+  let mut h = Harness::new();
+  let (a, _) = h.string("hello");
+  let b = h.runtime();
+
+  assert_eq!(
+    h.fold().fold_binop(BinOp::Concat, a, b, SPAN, Ty::Str),
+    None,
+  );
 }

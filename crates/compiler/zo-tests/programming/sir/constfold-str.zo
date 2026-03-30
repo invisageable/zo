@@ -1,0 +1,7 @@
+-- @emit sir
+
+fun main() {
+  -- CHECK: const "hello world" : str
+  imu s: str = "hello" ++ " world";
+  showln(s);
+}

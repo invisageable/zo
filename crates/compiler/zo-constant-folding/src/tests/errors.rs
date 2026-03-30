@@ -88,6 +88,18 @@ fn float_div_by_zero() {
   ));
 }
 
+#[test]
+fn float_rem_by_zero() {
+  let mut h = Harness::new();
+  let a = h.float(1.0);
+  let b = h.float(0.0);
+
+  assert!(is_error(
+    h.fold().fold_binop(BinOp::Rem, a, b, SPAN, F64),
+    ErrorKind::RemainderByZero,
+  ));
+}
+
 // — shift amount too large.
 
 #[test]

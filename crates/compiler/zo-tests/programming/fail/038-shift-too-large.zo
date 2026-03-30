@@ -1,0 +1,20 @@
+-! # how to errors: 038-shift-too-large.zo
+-!
+-! @cmd: `zo build 038-shift-too-large.zo`
+-!
+-! Shifting by an amount >= the bit width is undefined behavior
+-! in most languages. zo catches this at compile time when the
+-! shift amount is a constant.
+
+fun main() {
+  imu x: int = 1 << 64;
+}
+
+-- EXPECTED OUTPUT:
+-- [E0604] Error: Shift amount too large
+--    ╭─[ 038-shift-too-large.zo:10:18 ]
+--    │
+--  10 │   imu x: int = 1 << 64;
+--    │                  ─┬
+--    │                   ╰── shift exceeds bit width
+-- ───╯

@@ -1831,7 +1831,7 @@ impl<'a> Executor<'a> {
     match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
       Some(ty_id) => {
         // Try constant folding using the ConstFold module
-        let constprop = ConstFold::new(&self.values);
+        let mut constprop = ConstFold::new(&self.values, self.interner);
         let resolved_ty = self.ty_checker.resolve_ty(ty_id);
 
         if let Some(folded) =
@@ -1882,6 +1882,29 @@ impl<'a> Executor<'a> {
               self.ty_stack.push(ty_id);
               self.sir_values.push(sir_value);
               self.annotations.push(Annotation { node_idx, ty_id });
+
+              return;
+            }
+            FoldResult::Str(symbol) => {
+              let str_ty = self.ty_checker.str_type();
+
+              let dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+
+              let sir_value = self.sir.emit(Insn::ConstString {
+                dst,
+                symbol,
+                ty_id: str_ty,
+              });
+              let value_id = self.values.store_string(symbol);
+
+              self.value_stack.push(value_id);
+              self.ty_stack.push(str_ty);
+              self.sir_values.push(sir_value);
+              self.annotations.push(Annotation {
+                node_idx,
+                ty_id: str_ty,
+              });
 
               return;
             }
@@ -2166,7 +2189,7 @@ impl<'a> Executor<'a> {
     };
 
     // Try constant folding using the ConstFold module
-    let constprop = ConstFold::new(&self.values);
+    let constprop = ConstFold::new(&self.values, self.interner);
     let resolved_ty = self.ty_checker.resolve_ty(ty_id);
 
     if let Some(folded) = constprop.fold_unop(op, rhs_id, span, resolved_ty) {
@@ -2213,9 +2236,11 @@ impl<'a> Executor<'a> {
 
           return;
         }
-        // note: Forward/Strength are unreachable for unary ops,
+        // note: Forward/Strength/Str are unreachable for unary ops,
         // but handle for exhaustiveness.
-        FoldResult::Forward(_) | FoldResult::Strength(..) => {
+        FoldResult::Str(_)
+        | FoldResult::Forward(_)
+        | FoldResult::Strength(..) => {
           self.value_stack.push(rhs_id);
           self.ty_stack.push(ty_id);
           self.sir_values.push(operand_sir);

@@ -11,7 +11,7 @@ doctest = false
 
 # internal:crates.
 zo-error = { workspace = true }
-# zo-interner = { workspace = true }
+zo-interner = { workspace = true }
 zo-reporter = { workspace = true }
 zo-sir = { workspace = true }
 zo-span = { workspace = true }
@@ -25,3 +25,10 @@ rustc-hash = { workspace = true }
 # internal:crates.
 zo-parser = { workspace = true }
 zo-tokenizer = { workspace = true }
+
+# external:crates.
+criterion = { workspace = true }
+
+[[bench]]
+name = "fold"
+harness = false

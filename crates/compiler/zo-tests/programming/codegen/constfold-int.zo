@@ -1,0 +1,9 @@
+-- @emit asm
+
+fun main() {
+  -- CHECK: mov x9, #5
+  imu a: int = 2 + 3;
+  -- CHECK: mov x9, #40
+  imu b: int = 10 * 4;
+  showln(a);
+}

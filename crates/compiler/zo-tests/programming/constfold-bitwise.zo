@@ -1,0 +1,19 @@
+-- tests-build-pass: constant folding of bitwise operations.
+-- @cmd — zo run constfold-bitwise.zo
+
+fun main() {
+  imu a: int = 0b1100 & 0b1010;
+  check(a == 8);
+
+  imu b: int = 0b1100 | 0b1010;
+  check(b == 14);
+
+  imu c: int = 0b1100 ^ 0b1010;
+  check(c == 6);
+
+  imu d: int = 1 << 4;
+  check(d == 16);
+
+  imu e: int = 16 >> 4;
+  check(e == 1);
+}

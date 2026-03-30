@@ -7074,8 +7074,10 @@ dependencies = [
 name = "zo-constant-folding"
 version = "0.1.1"
 dependencies = [
+ "criterion",
  "rustc-hash 2.1.1",
  "zo-error",
+ "zo-interner",
  "zo-parser",
  "zo-reporter",
  "zo-sir",
@@ -7389,6 +7391,7 @@ dependencies = [
 name = "zo-ty-checker"
 version = "0.1.1"
 dependencies = [
+ "criterion",
  "proptest",
  "rustc-hash 2.1.1",
  "zo-error",

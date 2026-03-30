@@ -1,0 +1,19 @@
+-! # how to errors: 037-rem-by-zero.zo
+-!
+-! @cmd: `zo build 037-rem-by-zero.zo`
+-!
+-! Remainder by zero is caught at compile time. The constant
+-! folder evaluates `10 % 0` and reports the error.
+
+fun main() {
+  imu x: int = 10 % 0;
+}
+
+-- EXPECTED OUTPUT:
+-- [E0602] Error: Remainder by zero
+--    ╭─[ 037-rem-by-zero.zo:9:19 ]
+--    │
+--  9 │   imu x: int = 10 % 0;
+--    │                   ┬
+--    │                   ╰── remainder by zero here
+-- ───╯

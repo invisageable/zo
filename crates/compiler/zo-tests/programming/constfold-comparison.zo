@@ -1,0 +1,27 @@
+-- tests-build-pass: constant folding of comparison and logic.
+-- @cmd — zo run constfold-comparison.zo
+
+fun main() {
+  -- integer comparisons fold to bool.
+  imu a: bool = 3 < 5;
+  check(a == true);
+
+  imu b: bool = 10 == 10;
+  check(b == true);
+
+  imu c: bool = 5 != 3;
+  check(c == true);
+
+  imu d: bool = 7 >= 7;
+  check(d == true);
+
+  -- boolean logic.
+  imu e: bool = true && true;
+  check(e == true);
+
+  imu f: bool = true && false;
+  check(f == false);
+
+  imu g: bool = false || true;
+  check(g == true);
+}

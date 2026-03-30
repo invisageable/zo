@@ -1,0 +1,18 @@
+-- tests-build-pass: constant folding of string concatenation.
+-- @cmd — zo run constfold-str-concat.zo
+
+fun main() {
+  imu a: str = "hello" ++ " world";
+  showln(a);
+
+  imu b: str = "zo" ++ " " ++ "compiler";
+  showln(b);
+
+  -- empty concat.
+  imu c: str = "" ++ "test";
+  showln(c);
+}
+
+-- CHECK: hello world
+-- CHECK: zo compiler
+-- CHECK: test

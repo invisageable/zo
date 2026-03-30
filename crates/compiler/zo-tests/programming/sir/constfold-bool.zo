@@ -1,0 +1,9 @@
+-- @emit sir
+
+fun main() {
+  -- CHECK: const true : bool
+  imu a: bool = 3 < 5;
+  -- CHECK: const false : bool
+  imu b: bool = true && false;
+  showln(a);
+}

@@ -1,0 +1,24 @@
+-- tests-build-pass: constant folding of arithmetic expressions.
+-- @cmd — zo run constfold-arithmetic.zo
+
+fun main() {
+  -- integer arithmetic folded at compile time.
+  imu a: int = 2 + 3;
+  check(a == 5);
+
+  imu b: int = 10 - 4;
+  check(b == 6);
+
+  imu c: int = 7 * 6;
+  check(c == 42);
+
+  imu d: int = 100 / 5;
+  check(d == 20);
+
+  imu e: int = 17 % 5;
+  check(e == 2);
+
+  -- chained constant expressions.
+  imu f: int = 2 + 3 * 4;
+  check(f == 14);
+}

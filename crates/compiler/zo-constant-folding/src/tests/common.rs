@@ -1,11 +1,11 @@
 use crate::ConstFold;
 
+use zo_interner::{Interner, Symbol};
 use zo_span::Span;
 use zo_ty::{IntWidth, Ty};
 use zo_value::{ValueId, ValueStorage};
 
-/// A dummy span for tests.
-pub const SPAN: Span = Span { start: 0, len: 0 };
+pub const SPAN: Span = Span::ZERO;
 
 /// Default types for tests.
 pub const U64: Ty = Ty::Int {
@@ -24,11 +24,13 @@ pub const BOOL: Ty = Ty::Bool;
 /// [`ConstFold`] instance.
 pub struct Harness {
   pub values: ValueStorage,
+  pub interner: Interner,
 }
 impl Harness {
   pub fn new() -> Self {
     Self {
       values: ValueStorage::new(64),
+      interner: Interner::new(),
     }
   }
 
@@ -44,11 +46,18 @@ impl Harness {
     self.values.store_bool(value)
   }
 
+  pub fn string(&mut self, value: &str) -> (ValueId, Symbol) {
+    let sym = self.interner.intern(value);
+    let id = self.values.store_string(sym);
+
+    (id, sym)
+  }
+
   pub fn runtime(&mut self) -> ValueId {
     self.values.store_runtime(0)
   }
 
-  pub fn fold(&self) -> ConstFold<'_> {
-    ConstFold::new(&self.values)
+  pub fn fold(&mut self) -> ConstFold<'_> {
+    ConstFold::new(&self.values, &mut self.interner)
   }
 }

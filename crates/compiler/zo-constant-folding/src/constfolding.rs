@@ -10,20 +10,23 @@
 //! | b & false               | false               |
 
 use zo_error::{Error, ErrorKind};
+use zo_interner::{Interner, Symbol};
 use zo_sir::{BinOp, UnOp};
 use zo_span::Span;
-use zo_ty::{IntWidth, Ty};
+use zo_ty::{FloatWidth, IntWidth, Ty};
 use zo_value::{Value, ValueId, ValueStorage};
 
 /// Represents a [`ConstFold`] instance for compile-time evaluation.
 pub struct ConstFold<'a> {
   /// The [`ValueStorage`].
   values: &'a ValueStorage,
+  /// The string interner (for concat folding).
+  interner: &'a mut Interner,
 }
 impl<'a> ConstFold<'a> {
   /// Creates a new [`ConstFold`] instance.
-  pub const fn new(values: &'a ValueStorage) -> Self {
-    Self { values }
+  pub fn new(values: &'a ValueStorage, interner: &'a mut Interner) -> Self {
+    Self { values, interner }
   }
 
   /// Bit width for an [`IntWidth`].
@@ -83,6 +86,37 @@ impl<'a> ConstFold<'a> {
     }
   }
 
+  /// Narrow a float result to the target width.
+  ///
+  /// For f32: compute as f64 then cast to f32 precision. Reports
+  /// `FloatInfinity` if a finite f64 becomes infinite in f32, and
+  /// `FloatNaN` if the result is NaN.
+  fn validate_float(value: f64, width: FloatWidth, span: Span) -> FoldResult {
+    if value.is_nan() {
+      return FoldResult::Error(Error::new(ErrorKind::FloatNaN, span));
+    }
+
+    match width {
+      FloatWidth::F32 => {
+        let narrow = value as f32;
+
+        if narrow.is_infinite() && value.is_finite() {
+          FoldResult::Error(Error::new(ErrorKind::FloatInfinity, span))
+        } else {
+          FoldResult::Float(narrow as f64)
+        }
+      }
+      // f64 / arch — no narrowing needed.
+      FloatWidth::F64 | FloatWidth::Arch => {
+        if value.is_infinite() {
+          FoldResult::Error(Error::new(ErrorKind::FloatInfinity, span))
+        } else {
+          FoldResult::Float(value)
+        }
+      }
+    }
+  }
+
   /// Gets integer value.
   fn int_value(&self, value_id: ValueId) -> Option<u64> {
     let idx = value_id.0 as usize;
@@ -128,13 +162,28 @@ impl<'a> ConstFold<'a> {
       })
   }
 
+  /// Gets string symbol value.
+  fn str_value(&self, value_id: ValueId) -> Option<Symbol> {
+    let idx = value_id.0 as usize;
+
+    self
+      .values
+      .kinds
+      .get(idx)
+      .zip(self.values.indices.get(idx))
+      .and_then(|(kind, &raw_idx)| match kind {
+        Value::String => self.values.strings.get(raw_idx as usize).copied(),
+        _ => None,
+      })
+  }
+
   /// Evaluates a binary operation at compile time.
   ///
   /// `ty` is the unified result type from the type checker. When
   /// it is `Ty::Int { signed, width }`, overflow is checked
   /// against the actual bit width instead of raw u64.
   pub fn fold_binop(
-    &self,
+    &mut self,
     op: BinOp,
     lhs: ValueId,
     rhs: ValueId,
@@ -151,6 +200,7 @@ impl<'a> ConstFold<'a> {
       };
 
       let bits = Self::bit_width(width) as u64;
+
       let overflow =
         || FoldResult::Error(Error::new(ErrorKind::IntegerOverflow, span));
 
@@ -316,10 +366,21 @@ impl<'a> ConstFold<'a> {
     } else if let (Some(lhs_val), Some(rhs_val)) =
       (self.float_value(lhs), self.float_value(rhs))
     {
+      let width = match ty {
+        Ty::Float(w) => w,
+        _ => FloatWidth::F64,
+      };
+
       match op {
-        BinOp::Add => Some(FoldResult::Float(lhs_val + rhs_val)),
-        BinOp::Sub => Some(FoldResult::Float(lhs_val - rhs_val)),
-        BinOp::Mul => Some(FoldResult::Float(lhs_val * rhs_val)),
+        BinOp::Add => {
+          Some(Self::validate_float(lhs_val + rhs_val, width, span))
+        }
+        BinOp::Sub => {
+          Some(Self::validate_float(lhs_val - rhs_val, width, span))
+        }
+        BinOp::Mul => {
+          Some(Self::validate_float(lhs_val * rhs_val, width, span))
+        }
         BinOp::Div => {
           if rhs_val == 0.0 {
             Some(FoldResult::Error(Error::new(
@@ -327,7 +388,17 @@ impl<'a> ConstFold<'a> {
               span,
             )))
           } else {
-            Some(FoldResult::Float(lhs_val / rhs_val))
+            Some(Self::validate_float(lhs_val / rhs_val, width, span))
+          }
+        }
+        BinOp::Rem => {
+          if rhs_val == 0.0 {
+            Some(FoldResult::Error(Error::new(
+              ErrorKind::RemainderByZero,
+              span,
+            )))
+          } else {
+            Some(Self::validate_float(lhs_val % rhs_val, width, span))
           }
         }
 
@@ -349,6 +420,16 @@ impl<'a> ConstFold<'a> {
         BinOp::Neq => Some(FoldResult::Bool(lhs_val != rhs_val)),
         _ => None,
       }
+    } else if op == BinOp::Concat
+      && let (Some(lhs_sym), Some(rhs_sym)) =
+        (self.str_value(lhs), self.str_value(rhs))
+    {
+      let lstr = self.interner.get(lhs_sym);
+      let rstr = self.interner.get(rhs_sym);
+      let result = format!("{lstr}{rstr}");
+      let sym = self.interner.intern(&result);
+
+      Some(FoldResult::Str(sym))
     } else {
       // algebraic simplification — one or both operands may be
       // constant, enabling identity/absorbing rewrites.
@@ -519,7 +600,14 @@ impl<'a> ConstFold<'a> {
             ))),
           }
         } else {
-          self.float_value(rhs).map(|val| FoldResult::Float(-val))
+          let float_width = match ty {
+            Ty::Float(w) => w,
+            _ => FloatWidth::F64,
+          };
+
+          self
+            .float_value(rhs)
+            .map(|val| Self::validate_float(-val, float_width, span))
         }
       }
       UnOp::Not => self.bool_value(rhs).map(|val| FoldResult::Bool(!val)),
@@ -545,9 +633,12 @@ pub enum FoldResult {
   Forward(Operand),
   /// Strength reduction: replace the op with a cheaper one.
   /// e.g. `x * 8 → Strength(Shl, 3)` means emit `Shl(lhs, 3)`.
-  /// The lhs operand is always forwarded; the `u64` becomes
-  /// the new rhs constant.
+  /// The lhs operand is always forwarded; the `u64` becomes the new rhs
+  /// constant.
   Strength(BinOp, u64),
+  /// Folded string constant (interned symbol).
+  /// e.g. `"hello" ++ "world"` → `Str(sym("helloworld"))`.
+  Str(Symbol),
   /// The error.
   Error(Error),
 }
