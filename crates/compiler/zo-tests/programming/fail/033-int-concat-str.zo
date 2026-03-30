@@ -1,0 +1,22 @@
+-! # how to errors: 033-int-concat-str.zo
+-!
+-! @cmd: `zo build 033-int-concat-str.zo`
+-!
+-! The `++` operator only works on two `str` values. Trying to
+-! concatenate an `int` with a `str` is a type mismatch. zo catches
+-! this at compile time so you never get a silent coercion.
+
+fun main() {
+  imu s: str = 42 ++ "hello";
+}
+
+-- EXPECTED OUTPUT:
+-- [E0575] Error: Type mismatch
+--     ╭─[ 033-int-concat-str.zo:10:19 ]
+--     │
+--  10 │   imu s: str = 42 ++ "hello";
+--     │                   ─┬
+--     │                    ╰── incompatible types for this operation
+--     │
+--     │ Note: The types of both operands must be compatible
+-- ────╯

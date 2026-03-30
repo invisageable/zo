@@ -1,0 +1,21 @@
+-! # how to errors: 034-str-concat-int.zo
+-!
+-! @cmd: `zo build 034-str-concat-int.zo`
+-!
+-! Mirror of 033: `str ++ int` is also a type mismatch. The `++`
+-! operator requires both sides to be `str`. No implicit conversion.
+
+fun main() {
+  imu s: str = "hello" ++ 42;
+}
+
+-- EXPECTED OUTPUT:
+-- [E0575] Error: Type mismatch
+--    ╭─[ 034-str-concat-int.zo:9:24 ]
+--    │
+--  9 │   imu s: str = "hello" ++ 42;
+--    │                        ─┬
+--    │                         ╰── incompatible types for this operation
+--    │
+--    │ Note: The types of both operands must be compatible
+-- ───╯

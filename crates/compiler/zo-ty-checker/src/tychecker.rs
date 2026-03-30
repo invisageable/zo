@@ -18,6 +18,16 @@ pub struct TyScheme {
   pub ty: TyId,
 }
 
+/// Undo log entry for O(1) scope push / O(k) scope pop.
+/// Tracks what changed so we can restore on pop_scope.
+#[derive(Debug)]
+enum UndoEntry {
+  /// Key was freshly inserted (remove on undo).
+  Insert(Symbol),
+  /// Key was overwritten (restore old value on undo).
+  Overwrite(Symbol, TyId),
+}
+
 /// Type checker implementing Hindley-Milner W algorithm
 pub struct TyChecker {
   /// Counter for fresh type IDs (for all types in tys)
@@ -38,20 +48,24 @@ pub struct TyChecker {
   /// Level for each inference variable (for efficient generalization)
   /// Maps inference variable ID to its creation level
   var_levels: HashMap<InferVarId, u32>,
-  /// Current scope level (incremented on push_scope, decremented on pop_scope)
+  /// Current scope level (incremented on push_scope, decremented on pop)
   current_level: u32,
   /// Variable to type mapping (current scope)
   ty_env: HashMap<Symbol, TyId>,
-  /// Stack of type environments for nested scopes
-  ty_env_stack: Vec<HashMap<Symbol, TyId>>,
+  /// Undo log for ty_env — replays on pop_scope
+  env_undo: Vec<UndoEntry>,
+  /// Scope boundaries into env_undo (index at each push_scope)
+  env_marks: Vec<usize>,
   /// Let-polymorphism: Track which type variables can be generalized
   /// Maps a let-bound variable to its generic type scheme
   poly_schemes: HashMap<Symbol, TyScheme>,
   /// Type aliases: maps alias name to underlying type
   /// e.g., "type FooBar = u32" stores FooBar -> u32
   ty_aliases: HashMap<Symbol, TyId>,
-  /// Stack of type alias environments for nested scopes
-  type_aliases_stack: Vec<HashMap<Symbol, TyId>>,
+  /// Undo log for ty_aliases — replays on pop_scope
+  alias_undo: Vec<UndoEntry>,
+  /// Scope boundaries into alias_undo
+  alias_marks: Vec<usize>,
 }
 impl TyChecker {
   /// Create a new type checker with pre-registered primitives.
@@ -70,10 +84,12 @@ impl TyChecker {
       var_levels: HashMap::default(),
       current_level: 0,
       ty_env: HashMap::default(),
-      ty_env_stack: Vec::new(),
+      env_undo: Vec::new(),
+      env_marks: Vec::new(),
       poly_schemes: HashMap::default(),
       ty_aliases: HashMap::default(),
-      type_aliases_stack: Vec::new(),
+      alias_undo: Vec::new(),
+      alias_marks: Vec::new(),
     };
 
     // Core types.
@@ -399,6 +415,9 @@ impl TyChecker {
         Some(self.resolve_id(repr1))
       }
 
+      // Named type parameters — nominal equality.
+      (Ty::Param(s1), Ty::Param(s2)) if s1 == s2 => Some(repr1),
+
       // Concrete types must match exactly
       // No substitutions were added, so repr1 is still canonical
       (
@@ -493,28 +512,59 @@ impl TyChecker {
 
         self.occurs_check(var, ref_ty.inner_ty)
       }
+      Ty::Tuple(t) => {
+        let tup = *self.ty_table.tuple(t).unwrap();
+        let elems = self.ty_table.tuple_elems(&tup).to_vec();
+
+        for elem in elems {
+          if self.occurs_check(var, elem) {
+            return true;
+          }
+        }
+
+        false
+      }
       _ => false,
     }
   }
 
   // === PHASE 1.3: TYPE ENVIRONMENT ===
 
-  /// Push a new scope onto the environment stack
+  /// Push a new scope. O(1) — just records a boundary marker.
   pub fn push_scope(&mut self) {
-    self.ty_env_stack.push(self.ty_env.clone());
-    self.type_aliases_stack.push(self.ty_aliases.clone());
+    self.env_marks.push(self.env_undo.len());
+    self.alias_marks.push(self.alias_undo.len());
 
     self.current_level += 1;
   }
 
-  /// Pop a scope from the environment stack
+  /// Pop a scope. O(k) where k = bindings added in this scope.
+  /// Replays the undo log to restore the previous state.
   pub fn pop_scope(&mut self) {
-    if let Some(prev_env) = self.ty_env_stack.pop() {
-      self.ty_env = prev_env;
+    if let Some(mark) = self.env_marks.pop() {
+      while self.env_undo.len() > mark {
+        match self.env_undo.pop().unwrap() {
+          UndoEntry::Insert(sym) => {
+            self.ty_env.remove(&sym);
+          }
+          UndoEntry::Overwrite(sym, old_ty) => {
+            self.ty_env.insert(sym, old_ty);
+          }
+        }
+      }
     }
 
-    if let Some(prev_aliases) = self.type_aliases_stack.pop() {
-      self.ty_aliases = prev_aliases;
+    if let Some(mark) = self.alias_marks.pop() {
+      while self.alias_undo.len() > mark {
+        match self.alias_undo.pop().unwrap() {
+          UndoEntry::Insert(sym) => {
+            self.ty_aliases.remove(&sym);
+          }
+          UndoEntry::Overwrite(sym, old_ty) => {
+            self.ty_aliases.insert(sym, old_ty);
+          }
+        }
+      }
     }
 
     if self.current_level > 0 {
@@ -522,8 +572,15 @@ impl TyChecker {
     }
   }
 
-  /// Bind a variable to a type in the current scope
+  /// Bind a variable to a type in the current scope.
+  /// Records an undo entry for pop_scope restoration.
   pub fn bind_var(&mut self, name: Symbol, ty: TyId) {
+    let entry = match self.ty_env.get(&name) {
+      Some(&old) => UndoEntry::Overwrite(name, old),
+      None => UndoEntry::Insert(name),
+    };
+
+    self.env_undo.push(entry);
     self.ty_env.insert(name, ty);
   }
 
@@ -599,6 +656,14 @@ impl TyChecker {
 
         self.collect_free_vars(ref_ty.inner_ty, vars);
       }
+      Ty::Tuple(t) => {
+        let tup = *self.ty_table.tuple(t).unwrap();
+        let elems = self.ty_table.tuple_elems(&tup).to_vec();
+
+        for elem in elems {
+          self.collect_free_vars(elem, vars);
+        }
+      }
       _ => {}
     }
   }
@@ -638,6 +703,19 @@ impl TyChecker {
         let new_ref_id = self.ty_table.intern_ref(ref_ty.mutability, new_inner);
 
         self.intern_ty(Ty::Ref(new_ref_id))
+      }
+      Ty::Tuple(t) => {
+        let tup = *self.ty_table.tuple(t).unwrap();
+        let elems = self.ty_table.tuple_elems(&tup).to_vec();
+
+        let new_elems = elems
+          .iter()
+          .map(|e| self.substitute_ty(e, subst))
+          .collect::<Vec<_>>();
+
+        let new_tup_id = self.ty_table.intern_tuple(new_elems);
+
+        self.intern_ty(Ty::Tuple(new_tup_id))
       }
       _ => *ty,
     }
@@ -849,9 +927,15 @@ impl TyChecker {
 
   // === PHASE 1.5: TYPE ALIASES ===
 
-  /// Define a type alias in the current scope
-  /// e.g., "type FooBar = u32" binds FooBar -> u32
+  /// Define a type alias in the current scope.
+  /// Records an undo entry for pop_scope restoration.
   pub fn define_ty_alias(&mut self, name: Symbol, ty: TyId) {
+    let entry = match self.ty_aliases.get(&name) {
+      Some(&old) => UndoEntry::Overwrite(name, old),
+      None => UndoEntry::Insert(name),
+    };
+
+    self.alias_undo.push(entry);
     self.ty_aliases.insert(name, ty);
   }
 

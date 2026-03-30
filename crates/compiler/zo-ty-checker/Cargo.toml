@@ -23,4 +23,9 @@ rustc-hash = { workspace = true }
 
 [dev-dependencies]
 # external:crates.
+criterion = { workspace = true }
 proptest = { workspace = true }
+
+[[bench]]
+name = "tycheck"
+harness = false

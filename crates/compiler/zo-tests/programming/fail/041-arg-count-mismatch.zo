@@ -1,0 +1,23 @@
+-! # how to errors: 041-arg-count-mismatch.zo
+-!
+-! @cmd: `zo build 041-arg-count-mismatch.zo`
+-!
+-! Calling a function with the wrong number of arguments is caught
+-! at compile time. `add` expects 2 arguments but receives 1.
+
+fun add(a: int, b: int) -> int {
+  return a + b;
+}
+
+fun main() {
+  imu x: int = add(1);
+}
+
+-- EXPECTED OUTPUT:
+-- [E0578] Error: Argument count mismatch
+--     ╭─[ 041-arg-count-mismatch.zo:13:21 ]
+--     │
+--  13 │   imu x: int = add(1);
+--     │                     ┬
+--     │                     ╰── wrong number of arguments
+-- ────╯

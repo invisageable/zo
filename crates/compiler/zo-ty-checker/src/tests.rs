@@ -15,10 +15,6 @@ use zo_sir::{BinOp, UnOp};
 use zo_span::Span;
 use zo_ty::{IntWidth, Mutability, Ty};
 
-fn dummy_span() -> Span {
-  Span::new(0, 0)
-}
-
 // ===== LITERAL TYPING TESTS =====
 
 #[test]
@@ -91,7 +87,7 @@ fn test_int_addition() {
   let lhs = checker.infer_int_literal(1);
   let rhs = checker.infer_int_literal(2);
 
-  let result = checker.infer_binop(BinOp::Add, lhs, rhs, dummy_span());
+  let result = checker.infer_binop(BinOp::Add, lhs, rhs, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -110,7 +106,7 @@ fn test_mixed_literals_unify() {
   let lhs = checker.infer_int_literal(1);
   let rhs = checker.infer_float_literal(1.0);
 
-  let result = checker.infer_binop(BinOp::Add, lhs, rhs, dummy_span());
+  let result = checker.infer_binop(BinOp::Add, lhs, rhs, Span::ZERO);
 
   // In pure W, this succeeds - both unify to same type var
   assert!(result.is_some());
@@ -130,7 +126,7 @@ fn test_float_arithmetic() {
   let lhs = checker.infer_float_literal(1.5);
   let rhs = checker.infer_float_literal(2.5);
 
-  let result = checker.infer_binop(BinOp::Mul, lhs, rhs, dummy_span());
+  let result = checker.infer_binop(BinOp::Mul, lhs, rhs, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -148,7 +144,7 @@ fn test_comparison_operations() {
   let rhs = checker.infer_int_literal(2);
 
   // Comparison returns bool
-  let result = checker.infer_binop(BinOp::Lt, lhs, rhs, dummy_span());
+  let result = checker.infer_binop(BinOp::Lt, lhs, rhs, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -164,7 +160,7 @@ fn test_logical_operations() {
   let lhs = checker.infer_bool_literal(true);
   let rhs = checker.infer_bool_literal(false);
 
-  let result = checker.infer_binop(BinOp::And, lhs, rhs, dummy_span());
+  let result = checker.infer_binop(BinOp::And, lhs, rhs, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -180,7 +176,7 @@ fn test_bitwise_operations() {
   let lhs = checker.infer_int_literal(0b1010);
   let rhs = checker.infer_int_literal(0b0101);
 
-  let result = checker.infer_binop(BinOp::BitAnd, lhs, rhs, dummy_span());
+  let result = checker.infer_binop(BinOp::BitAnd, lhs, rhs, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -196,19 +192,19 @@ fn test_unary_operations() {
 
   // Negation on int
   let int_ty = checker.infer_int_literal(42);
-  let neg_result = checker.infer_unop(UnOp::Neg, int_ty, dummy_span());
+  let neg_result = checker.infer_unop(UnOp::Neg, int_ty, Span::ZERO);
 
   assert!(neg_result.is_some());
 
   // Not on bool
   let bool_ty = checker.infer_bool_literal(true);
-  let not_result = checker.infer_unop(UnOp::Not, bool_ty, dummy_span());
+  let not_result = checker.infer_unop(UnOp::Not, bool_ty, Span::ZERO);
 
   assert!(not_result.is_some());
   assert_eq!(checker.kind_of(not_result.unwrap()), Ty::Bool);
 
   // BitNot on int
-  let bitnot_result = checker.infer_unop(UnOp::BitNot, int_ty, dummy_span());
+  let bitnot_result = checker.infer_unop(UnOp::BitNot, int_ty, Span::ZERO);
 
   assert!(bitnot_result.is_some());
 }
@@ -282,7 +278,7 @@ fn test_occurs_check_direct() {
   let array_ty = checker.intern_ty(Ty::Array(array_id));
 
   // This should fail due to occurs check
-  let result = checker.unify(alpha, array_ty, dummy_span());
+  let result = checker.unify(alpha, array_ty, Span::ZERO);
 
   assert!(result.is_none());
 }
@@ -300,7 +296,7 @@ fn test_occurs_check_in_function() {
   let fun_ty = checker.intern_ty(Ty::Fun(fun_id));
 
   // Should fail occurs check
-  let result = checker.unify(alpha, fun_ty, dummy_span());
+  let result = checker.unify(alpha, fun_ty, Span::ZERO);
 
   assert!(result.is_none());
 }
@@ -321,7 +317,7 @@ fn test_occurs_check_nested() {
   let ref_ty = checker.intern_ty(Ty::Ref(ref_id));
 
   // Should fail occurs check
-  let result = checker.unify(alpha, ref_ty, dummy_span());
+  let result = checker.unify(alpha, ref_ty, Span::ZERO);
 
   assert!(result.is_none());
 }
@@ -347,7 +343,7 @@ fn test_function_unification() {
   let fun2 = checker.intern_ty(Ty::Fun(fun2_id));
 
   // Unify them
-  let result = checker.unify(fun1, fun2, dummy_span());
+  let result = checker.unify(fun1, fun2, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -377,7 +373,7 @@ fn test_function_arity_mismatch() {
   let fun2 = checker.intern_ty(Ty::Fun(fun2_id));
 
   // Should fail - different arity
-  let result = checker.unify(fun1, fun2, dummy_span());
+  let result = checker.unify(fun1, fun2, Span::ZERO);
 
   assert!(result.is_none());
 }
@@ -398,7 +394,7 @@ fn test_array_unification() {
   let arr2_id = checker.ty_table.intern_array(alpha, None);
   let arr2 = checker.intern_ty(Ty::Array(arr2_id));
 
-  let result = checker.unify(arr1, arr2, dummy_span());
+  let result = checker.unify(arr1, arr2, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -426,7 +422,7 @@ fn test_nested_array_ref() {
   let ref2_id = checker.ty_table.intern_ref(Mutability::No, arr2_ty);
   let ref2 = checker.intern_ty(Ty::Ref(ref2_id));
 
-  let result = checker.unify(ref1, ref2, dummy_span());
+  let result = checker.unify(ref1, ref2, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -450,7 +446,7 @@ fn test_array_size_mismatch() {
   let arr2 = checker.intern_ty(Ty::Array(arr2_id));
 
   // Should fail - different sizes
-  let result = checker.unify(arr1, arr2, dummy_span());
+  let result = checker.unify(arr1, arr2, Span::ZERO);
 
   assert!(result.is_none());
 }
@@ -467,12 +463,12 @@ fn test_substitution_chain() {
   let int_ty = checker.s32_type();
 
   // Unify α = β
-  let result1 = checker.unify(alpha, beta, dummy_span());
+  let result1 = checker.unify(alpha, beta, Span::ZERO);
 
   assert!(result1.is_some());
 
   // Unify β = Int
-  let result2 = checker.unify(beta, int_ty, dummy_span());
+  let result2 = checker.unify(beta, int_ty, Span::ZERO);
 
   assert!(result2.is_some());
 
@@ -498,10 +494,10 @@ fn test_complex_substitution_chain() {
   let delta = checker.fresh_var();
   let int_ty = checker.s32_type();
 
-  checker.unify(alpha, beta, dummy_span()).unwrap();
-  checker.unify(beta, gamma, dummy_span()).unwrap();
-  checker.unify(gamma, delta, dummy_span()).unwrap();
-  checker.unify(delta, int_ty, dummy_span()).unwrap();
+  checker.unify(alpha, beta, Span::ZERO).unwrap();
+  checker.unify(beta, gamma, Span::ZERO).unwrap();
+  checker.unify(gamma, delta, Span::ZERO).unwrap();
+  checker.unify(delta, int_ty, Span::ZERO).unwrap();
 
   // All should resolve to Int
   assert_eq!(checker.resolve_id(alpha), int_ty);
@@ -609,7 +605,7 @@ fn test_type_annotation() {
   let annotated = checker.s32_type();
   let inferred = checker.infer_int_literal(42);
 
-  let result = checker.handle_ty_annotation(annotated, inferred, dummy_span());
+  let result = checker.handle_ty_annotation(annotated, inferred, Span::ZERO);
 
   assert!(result.is_some());
 
@@ -639,7 +635,7 @@ fn test_type_annotation_mismatch() {
   let concrete_int = checker.s32_type();
 
   let result =
-    checker.handle_ty_annotation(annotated, concrete_int, dummy_span());
+    checker.handle_ty_annotation(annotated, concrete_int, Span::ZERO);
 
   assert!(result.is_none()); // Type mismatch between bool and s32
 }
@@ -675,4 +671,267 @@ fn test_scope_management() {
 
   // Original binding restored
   assert_eq!(checker.lookup_var(x_name), Some(x_ty));
+}
+
+// ===== TUPLE TYPE TESTS =====
+
+#[test]
+fn test_tuple_unification() {
+  let mut checker = TyChecker::new();
+
+  // (s32, bool) = (α, β)
+  let int_ty = checker.s32_type();
+  let bool_ty = checker.bool_type();
+  let alpha = checker.fresh_var();
+  let beta = checker.fresh_var();
+
+  let tup1_id = checker.ty_table.intern_tuple(vec![int_ty, bool_ty]);
+  let tup1 = checker.intern_ty(Ty::Tuple(tup1_id));
+
+  let tup2_id = checker.ty_table.intern_tuple(vec![alpha, beta]);
+  let tup2 = checker.intern_ty(Ty::Tuple(tup2_id));
+
+  let result = checker.unify(tup1, tup2, Span::ZERO);
+
+  assert!(result.is_some());
+
+  // α should resolve to s32, β to bool
+  assert_eq!(checker.resolve_id(alpha), int_ty);
+  assert_eq!(checker.resolve_id(beta), bool_ty);
+}
+
+#[test]
+fn test_tuple_occurs_check() {
+  let mut checker = TyChecker::new();
+
+  // α = (α, s32) — infinite type
+  let alpha = checker.fresh_var();
+  let int_ty = checker.s32_type();
+
+  let tup_id = checker.ty_table.intern_tuple(vec![alpha, int_ty]);
+  let tup_ty = checker.intern_ty(Ty::Tuple(tup_id));
+
+  let result = checker.unify(alpha, tup_ty, Span::ZERO);
+
+  assert!(result.is_none());
+}
+
+#[test]
+fn test_tuple_nested_occurs_check() {
+  let mut checker = TyChecker::new();
+
+  // α = (s32, (α, bool)) — nested infinite type
+  let alpha = checker.fresh_var();
+  let int_ty = checker.s32_type();
+  let bool_ty = checker.bool_type();
+
+  let inner_id = checker.ty_table.intern_tuple(vec![alpha, bool_ty]);
+  let inner_ty = checker.intern_ty(Ty::Tuple(inner_id));
+
+  let outer_id = checker.ty_table.intern_tuple(vec![int_ty, inner_ty]);
+  let outer_ty = checker.intern_ty(Ty::Tuple(outer_id));
+
+  let result = checker.unify(alpha, outer_ty, Span::ZERO);
+
+  assert!(result.is_none());
+}
+
+#[test]
+fn test_tuple_generalization() {
+  let mut checker = TyChecker::new();
+  let mut interner = Interner::new();
+
+  // Simulate: let swap = \(a, b) -> (b, a)
+  // Type: ∀α β. (α, β) -> (β, α)
+  checker.push_scope();
+
+  let alpha = checker.fresh_var();
+  let beta = checker.fresh_var();
+
+  let input_id = checker.ty_table.intern_tuple(vec![alpha, beta]);
+  let input_ty = checker.intern_ty(Ty::Tuple(input_id));
+
+  let output_id = checker.ty_table.intern_tuple(vec![beta, alpha]);
+  let output_ty = checker.intern_ty(Ty::Tuple(output_id));
+
+  let fun_id = checker.ty_table.intern_fun(vec![input_ty], output_ty);
+  let fun_ty = checker.intern_ty(Ty::Fun(fun_id));
+
+  checker.pop_scope();
+
+  let scheme = checker.generalize(fun_ty);
+
+  // Both α and β should be quantified
+  assert_eq!(scheme.quantified.len(), 2);
+
+  // Two instantiations should produce different fresh vars
+  let swap_name = interner.intern("swap");
+
+  checker.bind_poly(swap_name, scheme);
+
+  let inst1 = checker.lookup_poly(swap_name).unwrap();
+  let inst2 = checker.lookup_poly(swap_name).unwrap();
+
+  assert_ne!(inst1, inst2);
+}
+
+#[test]
+fn test_tuple_arity_mismatch() {
+  let mut checker = TyChecker::new();
+
+  let int_ty = checker.s32_type();
+  let bool_ty = checker.bool_type();
+
+  // (s32,) vs (s32, bool)
+  let tup1_id = checker.ty_table.intern_tuple(vec![int_ty]);
+  let tup1 = checker.intern_ty(Ty::Tuple(tup1_id));
+
+  let tup2_id = checker.ty_table.intern_tuple(vec![int_ty, bool_ty]);
+  let tup2 = checker.intern_ty(Ty::Tuple(tup2_id));
+
+  let result = checker.unify(tup1, tup2, Span::ZERO);
+
+  assert!(result.is_none());
+}
+
+// ===== TYPE PARAMETER TESTS =====
+
+#[test]
+fn test_param_unifies_with_same_param() {
+  let mut checker = TyChecker::new();
+  let mut interner = Interner::new();
+
+  let t_sym = interner.intern("T");
+  let param_t1 = checker.intern_ty(Ty::Param(t_sym));
+  let param_t2 = checker.intern_ty(Ty::Param(t_sym));
+
+  // Same named param unifies with itself
+  let result = checker.unify(param_t1, param_t2, Span::ZERO);
+
+  assert!(result.is_some());
+  assert_eq!(result.unwrap(), param_t1);
+}
+
+#[test]
+fn test_param_mismatch_different_names() {
+  let mut checker = TyChecker::new();
+  let mut interner = Interner::new();
+
+  let t_sym = interner.intern("T");
+  let u_sym = interner.intern("U");
+  let param_t = checker.intern_ty(Ty::Param(t_sym));
+  let param_u = checker.intern_ty(Ty::Param(u_sym));
+
+  // Different named params don't unify
+  let result = checker.unify(param_t, param_u, Span::ZERO);
+
+  assert!(result.is_none());
+}
+
+#[test]
+fn test_param_unifies_with_infer() {
+  let mut checker = TyChecker::new();
+  let mut interner = Interner::new();
+
+  let t_sym = interner.intern("T");
+  let param_t = checker.intern_ty(Ty::Param(t_sym));
+  let alpha = checker.fresh_var();
+
+  // Inference var should bind to Param
+  let result = checker.unify(alpha, param_t, Span::ZERO);
+
+  assert!(result.is_some());
+  assert_eq!(checker.resolve_id(alpha), param_t);
+}
+
+#[test]
+fn test_param_does_not_unify_with_concrete() {
+  let mut checker = TyChecker::new();
+  let mut interner = Interner::new();
+
+  let t_sym = interner.intern("T");
+  let param_t = checker.intern_ty(Ty::Param(t_sym));
+  let int_ty = checker.s32_type();
+
+  // Rigid param does not unify with concrete
+  let result = checker.unify(param_t, int_ty, Span::ZERO);
+
+  assert!(result.is_none());
+}
+
+// ===== SCOPE UNDO LOG TESTS =====
+
+#[test]
+fn test_scope_undo_restores_bindings() {
+  let mut checker = TyChecker::new();
+  let mut interner = Interner::new();
+
+  let x = interner.intern("x");
+  let y = interner.intern("y");
+  let int_ty = checker.s32_type();
+  let bool_ty = checker.bool_type();
+
+  checker.bind_var(x, int_ty);
+
+  checker.push_scope();
+  checker.bind_var(x, bool_ty); // shadow
+  checker.bind_var(y, bool_ty); // new in inner scope
+
+  assert_eq!(checker.lookup_var(x), Some(bool_ty));
+  assert_eq!(checker.lookup_var(y), Some(bool_ty));
+
+  checker.pop_scope();
+
+  // x restored, y gone
+  assert_eq!(checker.lookup_var(x), Some(int_ty));
+  assert_eq!(checker.lookup_var(y), None);
+}
+
+#[test]
+fn test_scope_undo_nested() {
+  let mut checker = TyChecker::new();
+  let mut interner = Interner::new();
+
+  let x = interner.intern("x");
+  let int_ty = checker.s32_type();
+  let bool_ty = checker.bool_type();
+  let str_ty = checker.str_type();
+
+  checker.bind_var(x, int_ty);
+
+  checker.push_scope();
+  checker.bind_var(x, bool_ty);
+
+  checker.push_scope();
+  checker.bind_var(x, str_ty);
+
+  assert_eq!(checker.lookup_var(x), Some(str_ty));
+
+  checker.pop_scope();
+  assert_eq!(checker.lookup_var(x), Some(bool_ty));
+
+  checker.pop_scope();
+  assert_eq!(checker.lookup_var(x), Some(int_ty));
+}
+
+#[test]
+fn test_scope_undo_alias() {
+  let mut checker = TyChecker::new();
+  let mut interner = Interner::new();
+
+  let alias = interner.intern("MyInt");
+  let int_ty = checker.s32_type();
+  let bool_ty = checker.bool_type();
+
+  checker.define_ty_alias(alias, int_ty);
+
+  checker.push_scope();
+  checker.define_ty_alias(alias, bool_ty); // shadow alias
+
+  assert_eq!(checker.lookup_ty_alias(alias), Some(bool_ty));
+
+  checker.pop_scope();
+
+  // Alias restored
+  assert_eq!(checker.lookup_ty_alias(alias), Some(int_ty));
 }
