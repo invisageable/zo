@@ -14,3 +14,7 @@ zo-value = { workspace = true }
 
 # external:crates.
 rustc-hash = { workspace = true }
+
+[dev-dependencies]
+# internal:crates.
+zo-ty = { workspace = true }

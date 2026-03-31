@@ -1,0 +1,8 @@
+-- @emit sir
+
+fun main() {
+  mut arr: []int = [0, 0, 0];
+  -- CHECK: array_store %
+  arr[0] = 10;
+  showln(arr[0]);
+}

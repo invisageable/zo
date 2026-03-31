@@ -234,6 +234,13 @@ pub enum Insn {
     value: ValueId,
     ty_id: TyId,
   },
+  /// Array element write: arr[i] = value.
+  ArrayStore {
+    array: ValueId,
+    index: ValueId,
+    value: ValueId,
+    ty_id: TyId,
+  },
   /// Enum type definition.
   EnumDef {
     name: Symbol,

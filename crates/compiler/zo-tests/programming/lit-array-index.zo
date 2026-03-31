@@ -2,7 +2,7 @@
 -- @cmd — zo build lit-array-index.zo
 
 fun main() {
-  imu v: int[] = [1, 2, 3, 4, 5];
+  imu v: []int = [1, 2, 3, 4, 5];
 
   check@eq(v[0], 1);
   check@eq(v[1], 2);

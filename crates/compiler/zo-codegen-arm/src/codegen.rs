@@ -1449,6 +1449,27 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
+      Insn::ArrayStore {
+        array,
+        index,
+        value,
+        ..
+      } => {
+        // Store value at base + 8 + index * 8.
+        let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
+        let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
+        let val_reg = self.alloc_reg(*value).unwrap_or(X2);
+
+        // X16 = index << 3 (index * 8)
+        self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
+        // X16 = array_base + X16
+        self.emitter.emit_add(X16, arr_reg, X16);
+        // X16 = X16 + header (skip length field)
+        self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
+        // [X16] = value
+        self.emitter.emit_str(val_reg, X16, 0);
+      }
+
       Insn::ArrayLen { dst, array, .. } => {
         // Length at [base + 0].
         if let Some(dst_reg) = self.alloc_reg(*dst) {

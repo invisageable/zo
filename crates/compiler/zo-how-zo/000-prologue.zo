@@ -52,19 +52,26 @@
 -!
 -! JOiN THE DEVOLUTiON.
 
--- This is a "line comment." The compiler ignores it. 
--- Everything after `--` is just for humans.
+-- This is a "line comment." The compiler ignores it.
+-- Everything after `--` is just for humans and AI now.
 
--* This is a "block comment."
-   It can span multiple lines.
-   It's great for long-winded explanations like this one. *-
+-* 
+  This is a "block comment."
+  It can span multiple lines.
+  It's great for long-winded explanations like this one.
+*-
 
 -- And `-!` is a "doc comment." It documents the code that follows it.
 -- You saw it at the top of this file!
 
 -- `fun` declares a function. 
--- `main` is the "Entry Point" — the first piece of code that runs.
+-- `main` is the entry point — the first piece of code that runs.
 fun main() {
   -- This program does nothing... yet.
   -- See you in `001-hello.zo`!
 }
+
+-! ## the capstone.
+-!
+-!   - `fun` is the keyword for function declaration.
+-!

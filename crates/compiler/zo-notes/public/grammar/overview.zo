@@ -172,7 +172,7 @@ type Idx = int;
 -- item:type-alias:declaration (grouped).
 group type Foo = int
   and Bar = (float, int)
-  and Oof = float[]
+  and Oof = []float
   and Rab = Fn(int) -> int
 ;
 
@@ -548,13 +548,13 @@ fun main() {
   imu x: float[3] = [1.0, 2.0, 3.0];   -- sized array.
   showln("x = {x}");
 
-  imu y: float[] = [1.0, 2.0, 3.0];    -- dynamic array.
+  imu y: []float = [1.0, 2.0, 3.0];    -- dynamic array.
   showln("y = {y}");
 }
 
 -- expr:arrays:access.
 fun main() {
-  imu x: float[] = [1.0, 2.0, 3.0];
+  imu x: []float = [1.0, 2.0, 3.0];
   showln("{}", x[0]);
 
   imu x := [1.0, 2.0, 3.0];
@@ -563,7 +563,7 @@ fun main() {
 
 -- expr:arrays:destructuring.
 fun main() {
-  imu [x, y, z]: float[] = [0.0, 0.0, 1.0];
+  imu [x, y, z]: []float = [0.0, 0.0, 1.0];
   showln("{x}, {y}, {z}");
 
   imu [x, y, z] := [0.0, 0.0, 1.0];

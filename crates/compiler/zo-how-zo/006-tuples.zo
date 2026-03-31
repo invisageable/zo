@@ -32,7 +32,7 @@ fun main() {
   showln("damage: {amount}");
 
   -- tuples work great with functions that return multiple values.
-  -- we'll see that in lesson 036!
+  -- we'll see that in lesson `036-functions.zo`!
 }
 
 -! ## tuple access.
@@ -41,12 +41,17 @@ fun main() {
 -!   `.1` — second element.
 -!   `.2` — third element, and so on.
 -!
--! tuples are laid out flat in memory. they are just anonymous data
+-! Tuples are laid out flat in memory. They are just anonymous data
 -! packets on the stack. no pointers, no hidden heap costs.
 -!
 -! if you need names, use a struct. if you need a collection, use
 -! an array.
+-! 
+-! ## the capstone.
 -!
+-!   - Tuple must be declared with `()`.
+-!   - Access tuple is done with `tup.0`.
+-! 
 -! ## try this.
 -!
 -!   - Create a `(int, int, int)` tuple for RGB color values.

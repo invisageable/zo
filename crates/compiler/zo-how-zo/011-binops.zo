@@ -44,12 +44,14 @@ fun main() {
 
 -! ## operator table.
 -!
+-!   ```
 -!   arithmetic:  `+`  `-`  `*`  `/`  `%`
 -!   comparison:  `==`  `!=`  `<`  `>`  `<=`  `>=`
 -!   logical:     `&&`  `||`  `!`
 -!   bitwise:     `&`  `|`  `^`  `<<`  `>>`
+-!   ```
 -!
--! these map directly to CPU instructions. they are the fastest
+-! These map directly to CPU instructions. They are the fastest
 -! operations your computer can perform.
 -!
 -! ## try this.

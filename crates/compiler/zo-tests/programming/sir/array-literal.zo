@@ -5,7 +5,7 @@ fun main() {
   -- CHECK: const 20 : i32
   -- CHECK: const 30 : i32
   -- CHECK: array [
-  imu a: int[] = [10, 20, 30];
+  imu a: []int = [10, 20, 30];
   -- CHECK: index
   imu v: int = a[0];
   showln(v);

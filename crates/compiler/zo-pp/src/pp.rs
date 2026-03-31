@@ -348,6 +348,16 @@ impl PrettyPrinter {
 
           self.sir_instruction(&fs);
         }
+        Insn::ArrayStore {
+          array,
+          index,
+          value,
+          ..
+        } => {
+          let fs = format!("array_store %{array}[%{index}] = %{value}");
+
+          self.sir_instruction(&fs);
+        }
         Insn::EnumDef {
           name,
           variants,

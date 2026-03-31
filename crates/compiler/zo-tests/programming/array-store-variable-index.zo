@@ -1,0 +1,16 @@
+-- tests-build-pass: array store with variable and expression indices.
+-- @cmd — zo run array-store-variable-index.zo
+
+fun main() {
+  mut arr: []int = [0, 0, 0, 0];
+
+  -- variable index.
+  mut idx: int = 2;
+
+  arr[idx] = 42;
+  check(arr[2] == 42);
+
+  -- overwrite.
+  arr[idx] = 99;
+  check(arr[2] == 99);
+}

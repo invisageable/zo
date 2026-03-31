@@ -36,8 +36,12 @@ fun main() {
 -!   `++`        — concatenation (runtime or compile-time).
 -!   `{var}`     — interpolation inside `showln` (compile-time).
 -!
--! strings in zo are length-prefixed: `[len:u64][bytes][null]`.
+-! Strings in zo are length-prefixed: `[len:u64][bytes][null]`.
 -! no scanning for terminators — the length is always known.
+-!
+-! ## the capstone.
+-!
+-!   - ...
 -!
 -! ## try this.
 -!

@@ -9,7 +9,7 @@
 fun main() {
   -- declare an array with `type[]` and fill it with `[a, b, c]`.
   -- zo infers the length from the literal.
-  imu loot: int[] = [10, 25, 50, 5, 100];
+  imu loot: []int = [10, 25, 50, 5, 100];
 
   -- access elements with `arr[index]`. indices start at 0.
   imu first: int = loot[0];
@@ -32,7 +32,7 @@ fun main() {
   showln("total gold: {total}");
 
   -- array math — pull values out, combine them.
-  imu dmg: int[] = [5, 12, 8, 20, 3];
+  imu dmg: []int = [5, 12, 8, 20, 3];
   imu combo: int = dmg[0] + dmg[1];
   showln("combo damage: {combo}");
 
@@ -40,22 +40,48 @@ fun main() {
   check@eq(loot[0], 10);
   check@eq(dmg[2] * dmg[4], 24);
   check@eq(combo, 17);
+
+  -- mutate array elements with `arr[i] = value`.
+  -- the array must be declared `mut`.
+  mut hp: []int = [100, 80, 60];
+
+  hp[0] = hp[0] - 25;
+  hp[1] = hp[1] - 10;
+  hp[2] = hp[2] - 40;
+
+  imu warrior: int = hp[0];
+  imu mage: int = hp[1];
+  imu rogue: int = hp[2];
+
+  showln("warrior: {warrior} hp");
+  showln("mage: {mage} hp");
+  showln("rogue: {rogue} hp");
+
+  check@eq(hp[0], 75);
+  check@eq(hp[1], 70);
+  check@eq(hp[2], 20);
 }
 
 -! ## array types.
 -!
 -!   ```
--!   int[]   — array of signed 32-bit integers.
--!   float[] — array of 64-bit floats.
--!   str[]   — array of strings.
+-!   []int   — array of signed 32-bit integers.
+-!   []float — array of 64-bit floats.
+-!   []str   — array of strings.
 -!   ```
 -!
 -! The length is fixed at creation. no push, no pop, no resize. if you
 -! need dynamic collections, that's a different chapter.
 -!
+-! ## the capstone.
+-!
+-!   - Arrays can store the same type values only.
+-!     - Declare `static` array by using `[3]int` type.
+-!     - Declare `dynamic` array by using `[]int` type.
+-!
 -! ## try this.
 -!
--!   - Create a `float[]` of temperatures and find the average with a loop.
+-!   - Create a `[]float` of temperatures and find the average with a loop.
 -!   - Use `check@eq(arr[2] * arr[3], 24)` to verify array math.
 -!   - What happens if you access `loot[5]`? (out of bounds — try it.)
 
@@ -65,3 +91,6 @@ fun main() {
 -- middle chest: 50 gold
 -- total gold: 190
 -- combo damage: 17
+-- warrior: 75 hp
+-- mage: 70 hp
+-- rogue: 20 hp

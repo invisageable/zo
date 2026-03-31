@@ -1,0 +1,18 @@
+-- tests-build-pass: array element assignment in a loop.
+-- @cmd — zo run array-store-loop.zo
+
+fun main() {
+  mut squares: []int = [0, 0, 0, 0, 0];
+  mut i: int = 0;
+
+  while i < 5 {
+    squares[i] = i * i;
+    i = i + 1;
+  }
+
+  check(squares[0] == 0);
+  check(squares[1] == 1);
+  check(squares[2] == 4);
+  check(squares[3] == 9);
+  check(squares[4] == 16);
+}

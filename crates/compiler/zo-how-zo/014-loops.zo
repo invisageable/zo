@@ -31,7 +31,7 @@ fun main() {
   }
 
   -- combine loops with arrays for real power.
-  imu loot: int[] = [10, 25, 50];
+  imu loot: []int = [10, 25, 50];
   mut total: int = 0;
 
   for i := 0..3 {

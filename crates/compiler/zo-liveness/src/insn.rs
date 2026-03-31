@@ -52,6 +52,14 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
     Insn::FieldStore { base, value, .. } => {
       vec![*base, *value]
     }
+    Insn::ArrayStore {
+      array,
+      index,
+      value,
+      ..
+    } => {
+      vec![*array, *index, *value]
+    }
     Insn::ArrayLen { array, .. } => vec![*array],
     Insn::StructConstruct { fields, .. } => fields.clone(),
     Insn::EnumConstruct { fields, .. } => fields.clone(),

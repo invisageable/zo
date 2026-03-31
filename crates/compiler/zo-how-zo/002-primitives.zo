@@ -63,6 +63,10 @@ fun main() {
 -!   f32: 32-bit (for GPUs/Games)
 -!   f64: 64-bit (float/default)
 -! 
+-! ## the capstone.
+-!
+-!   - ...
+-! 
 -! ## try this.
 -!
 -!   - Try a really big number: `showln(99999999999999);`

@@ -15,6 +15,11 @@ fun main() {
   showln("hello, hacker hero");
 }
 
+-! ## the capstone.
+-!
+-!   - every zo programs must have a `main` function.
+-!   - `showln` comes from `io` and must be used to print.
+-!
 -! ## try this.
 -! 
 -!   - Change `hello` by whatever you want.

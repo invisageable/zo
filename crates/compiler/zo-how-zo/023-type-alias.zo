@@ -30,7 +30,7 @@ fun main() {
 -! aliases shine when a type appears many times:
 -!
 -!   `type Color = (int, int, int);`
--!   `type Grid = int[];`
+-!   `type Grid = []int;`
 -!
 -! the reader sees `Color` and knows what it means. the
 -! compiler sees `(int, int, int)` and does its job.

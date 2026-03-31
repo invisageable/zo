@@ -15,16 +15,18 @@
 fun main() {
   imu name: str = "johndoe";
 
-  -- this is zsx. it's not a string — it's a first-class UI element.
-  -- it works on your desktop (GPU rendered) and your browser (JS).
+  -- This is zsx. it's not a string — it's a first-class UI element.
+  -- It works on your desktop (GPU rendered) and your browser (JS).
   --
   -- `::=` declares a template. its type is `</>`.
-  -- embed variables with `{name}` — evaluated at compile-time.
-  -- no slow runtime lookups!
+  -- Embed variables with `{name}` — evaluated at compile-time.
+  -- No slow runtime lookups!
   imu hello: </> ::= <h1>hello, {name}!</h1>;
 
   -- We print it to see the structure (or render it to a window/browser).
-  -- showln(hello); -- TODO: Let's define how to do it.
+  showln(hello);
+  -- Template can also been checked. The compiler understand how to treats them.
+  check@eq(hello, "<h1>hello, johndoe!</h1>");
 
   -- `#dom` is the directive that activates the template engine.
   -- on native, it renders to a GPU-accelerated window.

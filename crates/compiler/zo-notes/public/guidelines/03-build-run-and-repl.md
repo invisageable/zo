@@ -10,3 +10,5 @@
   # repl me.
   zo repl
   ```
+
+Run the generated executable.

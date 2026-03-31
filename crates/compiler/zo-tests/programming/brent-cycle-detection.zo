@@ -1,0 +1,55 @@
+-- tests-build-pass: Brent's cycle detection algorithm.
+-- @cmd — zo run brent-cycle-detection.zo
+
+fun f(x: int) -> int {
+  return (x * x + 1) % 255;
+}
+
+fun brent_lam(x0: int) -> int {
+  mut power: int = 1;
+  mut lam: int = 1;
+  mut tortoise: int = x0;
+  mut hare: int = f(x0);
+
+  while tortoise != hare {
+    if power == lam {
+      tortoise = hare;
+      power = power * 2;
+      lam = 0;
+    }
+
+    hare = f(hare);
+    lam = lam + 1;
+  }
+
+  return lam;
+}
+
+fun brent_mu(x0: int, lam: int) -> int {
+  mut tortoise: int = x0;
+  mut hare: int = x0;
+  mut i: int = 0;
+
+  while i < lam {
+    hare = f(hare);
+    i = i + 1;
+  }
+
+  mut mu: int = 0;
+
+  while tortoise != hare {
+    tortoise = f(tortoise);
+    hare = f(hare);
+    mu = mu + 1;
+  }
+
+  return mu;
+}
+
+fun main() {
+  imu lam: int = brent_lam(3);
+  imu mu: int = brent_mu(3, lam);
+
+  check(lam == 6);
+  check(mu == 2);
+}

@@ -68,6 +68,11 @@ fun main() {
 -!   - Add a `crit_multiplier: int = 2;` and print `attack * crit_multiplier`.
 -!   - Use `%` (modulo) to see what's left: `showln(10 % 3);`.
 -!   - Try to interpolate a variable that hasn't been declared yet.
+-! 
+-! ## the capstone.
+-!
+-!   - only variable can be interpolate.
+-!   - interpolation can supported any types.
 -!
 -! Watch how the compiler protects you!
 

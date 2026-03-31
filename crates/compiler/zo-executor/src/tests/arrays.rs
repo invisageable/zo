@@ -6,7 +6,7 @@ use zo_sir::Insn;
 fn test_array_literal_produces_sir() {
   assert_sir_structure(
     r#"fun main() {
-  imu x: int[] = [1, 2, 3];
+  imu x: []int = [1, 2, 3];
 }"#,
     |sir| {
       let has_array =
@@ -21,7 +21,7 @@ fn test_array_literal_produces_sir() {
 fn test_array_index_produces_sir() {
   assert_sir_structure(
     r#"fun main() {
-  imu x: int[] = [10, 20, 30];
+  imu x: []int = [10, 20, 30];
   imu v: int = x[0];
 }"#,
     |sir| {
@@ -36,7 +36,7 @@ fn test_array_index_produces_sir() {
 fn test_array_with_showln() {
   assert_sir_structure(
     r#"fun main() {
-  imu x: int[] = [10, 25, 50];
+  imu x: []int = [10, 25, 50];
   imu v: int = x[0];
   showln(v);
 }"#,
@@ -60,7 +60,7 @@ fn test_array_binop_two_indices() {
   // a[0] + a[1] should produce two ArrayIndex then BinOp.
   assert_sir_structure(
     r#"fun main() {
-  imu a: int[] = [5, 12, 8];
+  imu a: []int = [5, 12, 8];
   imu c: int = a[0] + a[1];
   showln(c);
 }"#,
@@ -97,7 +97,7 @@ fn test_array_with_interp_showln() {
   // Array + interpolation with prefix text.
   assert_sir_structure(
     r#"fun main() {
-  imu x: int[] = [10, 25, 50];
+  imu x: []int = [10, 25, 50];
   imu v: int = x[0];
   showln("value: {v}");
 }"#,
@@ -113,6 +113,68 @@ fn test_array_with_interp_showln() {
          interpolation desugaring, got {}",
         calls
       );
+    },
+  );
+}
+
+#[test]
+fn test_array_store_produces_sir() {
+  assert_sir_structure(
+    r#"fun main() {
+  mut arr: []int = [0, 0, 0];
+  arr[0] = 10;
+  showln(arr[0]);
+}"#,
+    |sir| {
+      let has_store = sir.iter().any(|i| matches!(i, Insn::ArrayStore { .. }));
+
+      assert!(has_store, "expected ArrayStore instruction");
+    },
+  );
+}
+
+#[test]
+fn test_array_store_in_loop() {
+  assert_sir_structure(
+    r#"fun main() {
+  mut arr: []int = [0, 0, 0];
+  mut i: int = 0;
+  while i < 3 {
+    arr[i] = i * i;
+    i = i + 1;
+  }
+  showln(arr[2]);
+}"#,
+    |sir| {
+      let store_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::ArrayStore { .. }))
+        .count();
+
+      assert!(
+        store_count >= 1,
+        "expected ArrayStore in loop, got {store_count}"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_array_store_read_modify_write() {
+  assert_sir_structure(
+    r#"fun main() {
+  mut arr: []int = [100, 80, 60];
+  arr[0] = arr[0] - 25;
+  showln(arr[0]);
+}"#,
+    |sir| {
+      // Should have both ArrayIndex (read) and ArrayStore (write).
+      let has_index = sir.iter().any(|i| matches!(i, Insn::ArrayIndex { .. }));
+
+      let has_store = sir.iter().any(|i| matches!(i, Insn::ArrayStore { .. }));
+
+      assert!(has_index, "expected ArrayIndex for read");
+      assert!(has_store, "expected ArrayStore for write");
     },
   );
 }

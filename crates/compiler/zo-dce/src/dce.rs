@@ -40,10 +40,7 @@ impl<'a> Dce<'a> {
   pub fn eliminate(&mut self) {
     self.eliminate_dead_functions();
     self.eliminate_unreachable_after_return();
-    // TODO: dead variable elimination disabled — insn_var_use
-    // only tracks Load{Local} but variables are referenced
-    // through other instructions. needs complete var-use
-    // extraction before re-enabling.
+    // TODO: dead variable elimination disabled.
     // self.eliminate_dead_variables();
     self.eliminate_dead_instructions();
   }
@@ -299,6 +296,7 @@ fn is_impure(insn: &Insn) -> bool {
     Insn::Call { .. }
       | Insn::Store { .. }
       | Insn::FieldStore { .. }
+      | Insn::ArrayStore { .. }
       | Insn::Directive { .. }
       | Insn::Return { .. }
   )
@@ -333,12 +331,17 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
         end = instructions.len() - 1;
       }
 
-      functions.push(FunRange {
-        name: *name,
-        start,
-        end,
-        pubness: *pubness,
-      });
+      // Skip zero-body functions (intrinsic stubs).
+      // Removing them would shift indices and break
+      // codegen function offsets.
+      if start < end {
+        functions.push(FunRange {
+          name: *name,
+          start,
+          end,
+          pubness: *pubness,
+        });
+      }
 
       i = end + 1;
     } else {
@@ -387,7 +390,9 @@ fn mark_reachable(
       continue;
     }
 
-    if let Some(func) = functions.iter().find(|f| f.name == name) {
+    // Scan ALL entries with this name (there may be
+    // duplicates: intrinsic stub + user-defined body).
+    for func in functions.iter().filter(|f| f.name == name) {
       for callee in collect_calls_in_range(instructions, func.start, func.end) {
         if !reachable.contains(&callee) {
           worklist.push(callee);

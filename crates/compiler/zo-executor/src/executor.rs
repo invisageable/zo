@@ -84,8 +84,11 @@ pub struct Executor<'a> {
   /// in `self.x += 1`). Set when the target is a field,
   /// consumed by `finalize_pending_compound`.
   pending_compound_receiver: Option<Symbol>,
-  /// Array context stack: (is_indexing, stack_depth_at_open).
-  array_ctx: Vec<(bool, usize)>,
+  /// Array context stack: (is_indexing, stack_depth, array_name).
+  array_ctx: Vec<(bool, usize, Option<Symbol>)>,
+  /// Pending array element assignment (deferred to Semicolon).
+  /// (array_sir, index_sir, array_name, span)
+  pending_array_assign: Option<(ValueId, ValueId, Symbol, Span)>,
   /// Tuple context stack: stack_depth_at_open.
   tuple_ctx: Vec<usize>,
   /// Deferred binary operators waiting for RHS group to close.
@@ -155,6 +158,7 @@ impl<'a> Executor<'a> {
       pending_compound: None,
       pending_compound_receiver: None,
       array_ctx: Vec::new(),
+      pending_array_assign: None,
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
       closure_counter: 0,
@@ -1352,13 +1356,22 @@ impl<'a> Executor<'a> {
         let is_indexing =
           idx > 0 && matches!(self.tree.nodes[idx - 1].token, Token::Ident);
 
+        let array_name = if is_indexing && idx > 0 {
+          self.node_value(idx - 1).and_then(|v| match v {
+            NodeValue::Symbol(s) => Some(s),
+            _ => None,
+          })
+        } else {
+          None
+        };
+
         let depth = self.sir_values.len();
 
-        self.array_ctx.push((is_indexing, depth));
+        self.array_ctx.push((is_indexing, depth, array_name));
       }
 
       Token::RBracket => {
-        if let Some((is_indexing, depth)) = self.array_ctx.pop() {
+        if let Some((is_indexing, depth, _array_name)) = self.array_ctx.pop() {
           let int_ty = self.ty_checker.int_type();
 
           if is_indexing {
@@ -1413,7 +1426,12 @@ impl<'a> Executor<'a> {
 
             elements.reverse();
 
-            let arr_ty = int_ty; // TODO: proper array type
+            let elem_ty = int_ty; // TODO: infer from elements.
+
+            let arr_ty_id =
+              self.ty_checker.ty_table.intern_array(elem_ty, None);
+
+            let arr_ty = self.ty_checker.intern_ty(Ty::Array(arr_ty_id));
 
             let dst = ValueId(self.sir.next_value_id);
             self.sir.next_value_id += 1;
@@ -1577,6 +1595,10 @@ impl<'a> Executor<'a> {
       Token::Minus => {
         if self.value_stack.len() >= 2 {
           self.execute_binop(BinOp::Sub, idx);
+        } else if !self.value_stack.is_empty() {
+          // One value on stack: this is binary subtraction
+          // with the RHS not yet evaluated. Defer it.
+          self.execute_binop(BinOp::Sub, idx);
         } else {
           self.execute_unop(UnOp::Neg, idx);
         }
@@ -1639,7 +1661,9 @@ impl<'a> Executor<'a> {
 
       Token::TemplateFragmentStart => {
         let children_end = (header.child_start + header.child_count) as usize;
+        eprintln!("PRE-FRAG vs={}", self.value_stack.len());
         self.execute_template_fragment(idx, children_end);
+        eprintln!("POST-FRAG vs={}", self.value_stack.len());
         // Skip past the fragment so the parent loop
         // doesn't reprocess tag/text tokens.
         self.skip_until = children_end;
@@ -1744,6 +1768,8 @@ impl<'a> Executor<'a> {
         self.finalize_pending_compound();
 
         // Finalize pending assignment (x = expr;).
+        self.finalize_pending_array_assign();
+
         let had_assign = self.pending_assign.is_some();
         self.finalize_pending_assign();
 
@@ -1796,6 +1822,44 @@ impl<'a> Executor<'a> {
           let span = self.tree.spans[target_idx];
 
           self.pending_assign = Some((name, span));
+        } else if self.tree.nodes[target_idx].token == Token::RBracket {
+          // Array element assignment: arr[i] = value.
+          // The ArrayIndex result is on the stack. Extract
+          // array and index from the last ArrayIndex insn.
+          if let Some(Insn::ArrayIndex { array, index, .. }) =
+            self.sir.instructions.last()
+          {
+            let array_sir = *array;
+            let index_sir = *index;
+
+            // Find the array name from the Load instruction.
+            let array_name =
+              self.sir.instructions.iter().rev().find_map(|insn| {
+                if let Insn::Load {
+                  dst,
+                  src: LoadSource::Local(sym),
+                  ..
+                } = insn
+                  && *dst == array_sir
+                {
+                  Some(*sym)
+                } else {
+                  None
+                }
+              });
+
+            if let Some(name) = array_name {
+              // Pop the ArrayIndex result from stacks.
+              self.value_stack.pop();
+              self.ty_stack.pop();
+              self.sir_values.pop();
+
+              let span = self.tree.spans[target_idx];
+
+              self.pending_array_assign =
+                Some((array_sir, index_sir, name, span));
+            }
+          }
         }
       }
 
@@ -2736,8 +2800,36 @@ impl<'a> Executor<'a> {
 
             if self.tree.nodes[idx].token == Token::FnType {
               let (ty, skip) = self.resolve_fn_type(idx);
+
               return_ty = ty;
               idx = skip;
+            } else if self.tree.nodes[idx].token == Token::LBracket {
+              // Array return type: -> []type or -> [N]type.
+              let mut j = idx + 1;
+              let mut size: Option<u32> = None;
+
+              if j < end_idx && self.tree.nodes[j].token == Token::Int {
+                if let Some(NodeValue::Literal(lit_idx)) = self.node_value(j) {
+                  size =
+                    Some(self.literals.int_literals[lit_idx as usize] as u32);
+                }
+
+                j += 1;
+              }
+
+              if j < end_idx && self.tree.nodes[j].token == Token::RBracket {
+                j += 1;
+              }
+
+              if j < end_idx && self.tree.nodes[j].token.is_ty() {
+                let elem_ty = self.resolve_type_token(j);
+
+                let arr_id =
+                  self.ty_checker.ty_table.intern_array(elem_ty, size);
+
+                return_ty = self.ty_checker.intern_ty(Ty::Array(arr_id));
+                idx = j + 1;
+              }
             } else {
               return_ty = self.resolve_type_token(idx);
               idx += 1;
@@ -3135,8 +3227,49 @@ impl<'a> Executor<'a> {
 
               // Next should be the type (no colon token).
               // For `$T`, skip Dollar + Ident (2 tokens).
+              // For `[]type`, skip LBracket + RBracket + type.
               if idx < _end_idx {
-                let param_ty = self.resolve_type_token(idx);
+                let param_ty = if self.tree.nodes[idx].token == Token::LBracket
+                {
+                  // Array parameter: []type or [N]type.
+                  let mut j = idx + 1;
+                  let mut size: Option<u32> = None;
+
+                  if j < _end_idx && self.tree.nodes[j].token == Token::Int {
+                    if let Some(NodeValue::Literal(lit_idx)) =
+                      self.node_value(j)
+                    {
+                      size = Some(
+                        self.literals.int_literals[lit_idx as usize] as u32,
+                      );
+                    }
+
+                    j += 1;
+                  }
+
+                  if j < _end_idx && self.tree.nodes[j].token == Token::RBracket
+                  {
+                    j += 1;
+                  }
+
+                  let elem_ty =
+                    if j < _end_idx && self.tree.nodes[j].token.is_ty() {
+                      let ty = self.resolve_type_token(j);
+
+                      idx = j;
+
+                      ty
+                    } else {
+                      self.ty_checker.int_type()
+                    };
+
+                  let arr_id =
+                    self.ty_checker.ty_table.intern_array(elem_ty, size);
+
+                  self.ty_checker.intern_ty(Ty::Array(arr_id))
+                } else {
+                  self.resolve_type_token(idx)
+                };
 
                 // Skip extra token for $T type params.
                 if self.tree.nodes[idx].token == Token::Dollar {
@@ -3174,8 +3307,38 @@ impl<'a> Executor<'a> {
         Token::Arrow => {
           if idx + 1 < _end_idx {
             idx += 1;
-            return_ty = self.resolve_type_token(idx);
+
+            // Array return type: -> []type or -> [N]type.
+            if self.tree.nodes[idx].token == Token::LBracket {
+              let mut j = idx + 1;
+              let mut size: Option<u32> = None;
+
+              if j < _end_idx && self.tree.nodes[j].token == Token::Int {
+                if let Some(NodeValue::Literal(lit_idx)) = self.node_value(j) {
+                  size =
+                    Some(self.literals.int_literals[lit_idx as usize] as u32);
+                }
+
+                j += 1;
+              }
+
+              if j < _end_idx && self.tree.nodes[j].token == Token::RBracket {
+                j += 1;
+              }
+
+              if j < _end_idx && self.tree.nodes[j].token.is_ty() {
+                let elem_ty = self.resolve_type_token(j);
+
+                let arr_id =
+                  self.ty_checker.ty_table.intern_array(elem_ty, size);
+
+                return_ty = self.ty_checker.intern_ty(Ty::Array(arr_id));
+              }
+            } else {
+              return_ty = self.resolve_type_token(idx);
+            }
           }
+
           break;
         }
         Token::LBrace => break,
@@ -3372,8 +3535,38 @@ impl<'a> Executor<'a> {
           continue;
         }
 
+        // Array type annotation: []type or [N]type.
+        if tok == Token::LBracket && annotated_ty.is_none() {
+          let mut j = i + 1;
+          let mut size: Option<u32> = None;
+
+          if j < children_end && self.tree.nodes[j].token == Token::Int {
+            if let Some(NodeValue::Literal(lit_idx)) = self.node_value(j) {
+              size = Some(self.literals.int_literals[lit_idx as usize] as u32);
+            }
+
+            j += 1;
+          }
+
+          if j < children_end && self.tree.nodes[j].token == Token::RBracket {
+            j += 1;
+          }
+
+          if j < children_end && self.tree.nodes[j].token.is_ty() {
+            let elem_ty = self.resolve_type_token(j);
+            let arr_id = self.ty_checker.ty_table.intern_array(elem_ty, size);
+
+            annotated_ty = Some(self.ty_checker.intern_ty(Ty::Array(arr_id)));
+
+            i = j + 1;
+            skip_to = i;
+
+            continue;
+          }
+        }
+
         // Type token after the colon.
-        if tok.is_ty() {
+        if tok.is_ty() && annotated_ty.is_none() {
           annotated_ty = Some(self.resolve_type_token(i));
         }
 
@@ -3431,6 +3624,45 @@ impl<'a> Executor<'a> {
       }
 
       self.skip_until = skip_to;
+    }
+  }
+
+  /// Finalize a pending array element assignment (arr[i] = value;).
+  fn finalize_pending_array_assign(&mut self) {
+    let (array_sir, index_sir, array_name, span) =
+      match self.pending_array_assign.take() {
+        Some(a) => a,
+        None => return,
+      };
+
+    // Pop the RHS value.
+    if let (Some(_value), Some(value_ty)) =
+      (self.value_stack.pop(), self.ty_stack.pop())
+    {
+      let value_sir = self.sir_values.pop();
+
+      // Check mutability.
+      let is_mutable = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == array_name)
+        .is_some_and(|l| l.mutability == Mutability::Yes);
+
+      if !is_mutable {
+        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+
+        return;
+      }
+
+      if let Some(sv) = value_sir {
+        self.sir.emit(Insn::ArrayStore {
+          array: array_sir,
+          index: index_sir,
+          value: sv,
+          ty_id: value_ty,
+        });
+      }
     }
   }
 
@@ -4328,19 +4560,6 @@ impl<'a> Executor<'a> {
         } else {
           self.resolve_type_token(idx)
         };
-
-        // Check for array suffix [].
-        if idx + 2 < end_idx
-          && self.tree.nodes[idx + 1].token == Token::LBracket
-          && self.tree.nodes[idx + 2].token == Token::RBracket
-        {
-          let arr_ty_id = self.ty_checker.ty_table.intern_array(base_ty, None);
-
-          target_ty = Some(self.ty_checker.intern_ty(Ty::Array(arr_ty_id)));
-          idx += 3;
-
-          continue;
-        }
 
         target_ty = Some(base_ty);
         idx += 1;
@@ -5887,6 +6106,39 @@ impl<'a> Executor<'a> {
         func.name
       };
 
+      // Template pretty-print: when showln/show is called
+      // with a template argument, replace with a ConstString.
+      let call_name_str = self.interner.get(call_name);
+
+      if matches!(call_name_str, "showln" | "show" | "eshowln" | "eshow")
+        && args.len() == 1
+      {
+        // Template pretty-print: trace the SIR Load arg
+        // back to its local, check if it's a template, and
+        // if so find the Template instruction and format it.
+        if let Some(text) = self.resolve_template_text(arg_sirs.first()) {
+          let sym = self.interner.intern(&text);
+          let str_ty = self.ty_checker.str_type();
+
+          // Use a fresh SIR value id that doesn't collide
+          // with template ids (which use value storage
+          // indices in a separate numbering space).
+          let fresh_id =
+            self.sir.next_value_id.max(self.values.kinds.len() as u32);
+
+          let str_dst = ValueId(fresh_id);
+          self.sir.next_value_id = fresh_id + 1;
+
+          let str_sir = self.sir.emit(Insn::ConstString {
+            dst: str_dst,
+            symbol: sym,
+            ty_id: str_ty,
+          });
+
+          arg_sirs = vec![str_sir];
+        }
+      }
+
       let dst = ValueId(self.sir.next_value_id);
       self.sir.next_value_id += 1;
 
@@ -6039,6 +6291,29 @@ impl<'a> Executor<'a> {
 
         return;
       }
+    };
+
+    // If lhs is a template, resolve to string for comparison.
+    let (lhs_ty, lhs_sir) = if let Some(text) =
+      self.resolve_template_text(Some(&lhs_sir))
+    {
+      let sym = self.interner.intern(&text);
+      let str_ty = self.ty_checker.str_type();
+
+      let fresh_id = self.sir.next_value_id.max(self.values.kinds.len() as u32);
+      let str_dst = ValueId(fresh_id);
+
+      self.sir.next_value_id = fresh_id + 1;
+
+      let str_sir = self.sir.emit(Insn::ConstString {
+        dst: str_dst,
+        symbol: sym,
+        ty_id: str_ty,
+      });
+
+      (str_ty, str_sir)
+    } else {
+      (lhs_ty, lhs_sir)
     };
 
     // Unify operand types.
@@ -6258,8 +6533,101 @@ impl<'a> Executor<'a> {
 
         self.values.chars[ci].to_string()
       }
+      Value::Template => {
+        let ti = self.values.indices[vi] as usize;
+        let template_ref = self.values.templates[ti];
+
+        // Find the Template instruction in SIR and
+        // pretty-print its commands.
+        for insn in &self.sir.instructions {
+          if let Insn::Template { id, commands, .. } = insn
+            && id.0 == value_id.0
+          {
+            return Self::pretty_print_commands(commands);
+          }
+        }
+
+        format!("<template #{template_ref}>")
+      }
       _ => String::new(),
     }
+  }
+
+  /// Pretty-prints template UI commands as HTML-like text.
+  fn pretty_print_commands(commands: &[UiCommand]) -> String {
+    let mut out = String::new();
+
+    for cmd in commands {
+      match cmd {
+        UiCommand::Text { content, style } => {
+          let tag = match style {
+            TextStyle::Heading1 => Some("h1"),
+            TextStyle::Heading2 => Some("h2"),
+            TextStyle::Heading3 => Some("h3"),
+            TextStyle::Paragraph => Some("p"),
+            TextStyle::Normal => None,
+          };
+
+          if let Some(tag) = tag {
+            out.push_str(&format!("<{tag}>{content}</{tag}>"));
+          } else {
+            out.push_str(content);
+          }
+        }
+        UiCommand::Button { content, .. } => {
+          out.push_str(&format!("<button>{content}</button>"));
+        }
+        _ => {}
+      }
+    }
+
+    out
+  }
+
+  /// Resolves a SIR argument to template text if it's a
+  /// template variable. Traces Load → local → Value::Template
+  /// → Insn::Template commands → pretty-print. Returns None
+  /// if the argument is not a template.
+  fn resolve_template_text(&self, sir_vid: Option<&ValueId>) -> Option<String> {
+    let sir_vid = sir_vid?;
+
+    // Find the Load instruction for this SIR value.
+    let sym = self.sir.instructions.iter().find_map(|insn| {
+      if let Insn::Load {
+        dst,
+        src: LoadSource::Local(sym),
+        ..
+      } = insn
+        && dst == sir_vid
+      {
+        Some(*sym)
+      } else {
+        None
+      }
+    })?;
+
+    // Check if the local's value is a template.
+    let local = self.locals.iter().rev().find(|l| l.name == sym)?;
+    let lvi = local.value_id.0 as usize;
+
+    if lvi >= self.values.kinds.len()
+      || !matches!(self.values.kinds[lvi], Value::Template)
+    {
+      return None;
+    }
+
+    // Find the Template instruction matching this local's
+    // ValueId — not the last one globally.
+    let target_id = local.value_id;
+
+    self.sir.instructions.iter().find_map(|i| match i {
+      Insn::Template { id, commands, .. }
+        if *id == target_id && !commands.is_empty() =>
+      {
+        Some(Self::pretty_print_commands(commands))
+      }
+      _ => None,
+    })
   }
 
   fn execute_template_assign(&mut self, _start_idx: usize, _end_idx: usize) {
@@ -6298,14 +6666,15 @@ impl<'a> Executor<'a> {
         Token::TemplateText => {
           if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
             let text = self.interner.get(sym).to_string();
-            let trimmed = text.trim();
-            if !trimmed.is_empty() {
+
+            if !text.trim().is_empty() {
               commands.push(UiCommand::Text {
-                content: trimmed.to_string(),
+                content: text,
                 style: TextStyle::Normal,
               });
             }
           }
+
           idx += 1;
         }
         Token::TemplateFragmentEnd => break,
@@ -6534,10 +6903,32 @@ impl<'a> Executor<'a> {
             idx += 1;
           } else {
             // Execute expression tokens until matching }.
+            // For simple identifiers, resolve the local's
+            // original value directly (not the runtime Load).
+            let mut interp_text = None;
+
             while idx < end_idx && self.tree.nodes[idx].token != Token::RBrace {
               let n = self.tree.nodes[idx];
 
-              self.execute_node(&n, idx);
+              // Simple identifier — resolve the local's
+              // compile-time value for template embedding.
+              if n.token == Token::Ident
+                && interp_text.is_none()
+                && let Some(NodeValue::Symbol(sym)) = self.node_value(idx)
+                && let Some(local) =
+                  self.locals.iter().rev().find(|l| l.name == sym)
+              {
+                let text = self.value_to_string(local.value_id);
+
+                if !text.is_empty() {
+                  interp_text = Some(text);
+                }
+              }
+
+              if interp_text.is_none() {
+                self.execute_node(&n, idx);
+              }
+
               idx += 1;
             }
 
@@ -6546,20 +6937,24 @@ impl<'a> Executor<'a> {
               idx += 1;
             }
 
-            // Pop the expression result and convert to
-            // string.
-            if let Some(value_id) = self.value_stack.pop() {
+            // Use resolved text, or fall back to executed
+            // expression result.
+            let text = if let Some(t) = interp_text {
+              // Clean up stacks if execute_node didn't run.
+              t
+            } else if let Some(value_id) = self.value_stack.pop() {
               self.ty_stack.pop();
               self.sir_values.pop();
+              self.value_to_string(value_id)
+            } else {
+              String::new()
+            };
 
-              let text = self.value_to_string(value_id);
-
-              if !text.is_empty() {
-                commands.push(UiCommand::Text {
-                  content: text,
-                  style: TextStyle::Normal,
-                });
-              }
+            if !text.is_empty() {
+              commands.push(UiCommand::Text {
+                content: text,
+                style: TextStyle::Normal,
+              });
             }
           }
         }
@@ -6615,6 +7010,13 @@ impl<'a> Executor<'a> {
       if let Some(frame) = self.scope_stack.last_mut() {
         frame.count += 1;
       }
+
+      // Pop the template value from the stacks — it's now
+      // stored in the local. Leaving it on the stack would
+      // corrupt subsequent function call arg counts.
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      self.sir_values.pop();
     }
   }
 
@@ -6762,10 +7164,6 @@ impl<'a> Executor<'a> {
       for cmd in &commands[pos + 1..] {
         match cmd {
           UiCommand::Text { content: text, .. } => {
-            if !content.is_empty() {
-              content.push(' ');
-            }
-
             content.push_str(text);
           }
           UiCommand::Event { .. } => {

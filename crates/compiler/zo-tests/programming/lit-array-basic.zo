@@ -2,5 +2,5 @@
 -- @cmd — zo build lit-array-basic.zo
 
 fun main() {
-  imu x: int[] = [1, 2, 3, 4, 5];
+  imu x: []int = [1, 2, 3, 4, 5];
 }

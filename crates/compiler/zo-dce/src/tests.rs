@@ -393,6 +393,40 @@ fn dead_insn_preserves_calls() {
   assert_eq!(sir.instructions.len(), before);
 }
 
+#[test]
+fn dead_insn_preserves_array_store() {
+  let mut i = Interner::new();
+  let main = i.intern("main");
+
+  let mut sir = make_sir(vec![
+    Insn::FunDef {
+      name: main,
+      params: vec![],
+      return_ty: TyId(1),
+      body_start: 1,
+      kind: zo_value::FunctionKind::UserDefined,
+      pubness: Pubness::No,
+    },
+    // ArrayStore is impure — must not be removed.
+    Insn::ArrayStore {
+      array: ValueId(0),
+      index: ValueId(1),
+      value: ValueId(2),
+      ty_id: TyId(8),
+    },
+    Insn::Return {
+      value: None,
+      ty_id: TyId(1),
+    },
+  ]);
+
+  let before = sir.instructions.len();
+
+  Dce::new(&mut sir, main).eliminate();
+
+  assert_eq!(sir.instructions.len(), before);
+}
+
 // ===== DEAD VARIABLE (STORE) ELIMINATION =====
 // Disabled: insn_var_use needs complete var-use extraction.
 

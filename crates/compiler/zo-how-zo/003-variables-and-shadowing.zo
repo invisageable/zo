@@ -49,15 +49,15 @@ fun main() {
 -! ## a note on types.
 -!
 -! In this lesson, we wrote every type explicitly (like `: int`).
--! In practice, you'll rarely need to. Zo can almost always figure it out.
+-! In practice, you'll rarely need to. zo can almost always figure it out.
 -! We'll stay explicit for now to help you learn, but soon we'll let the
--! compiler do the heavy lifting!
+-! compiler do the heavy lifting in `040-inference.zo`.
 -!
 -! ## try this.
 -!
--! - Add `imu level: int = 1;` and print it.
--! - Try changing `name` after declaring it — see the compiler error?
--! - Try creating a `val` inside `main` and a `val` outside. Both work!
+-!   - Add `imu level: int = 1;` and print it.
+-!   - Try changing `name` after declaring it — see the compiler error?
+-!   - Try creating a `val` inside `main` and a `val` outside. Both work!
 
 -- EXPECTED OUTPUT:
 -- johndoe
