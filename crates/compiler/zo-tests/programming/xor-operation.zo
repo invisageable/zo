@@ -1,0 +1,37 @@
+-- tests-build-pass: xor operation in an array.
+-- @cmd — zo run xor-operation.zo
+--
+-- given an integer n and an integer start, define an array nums
+-- where nums[i] = start + 2 * i (0-indexed) and n == nums.length.
+-- return the bitwise xor of all elements of nums.
+--
+-- builds the sequence on the fly and accumulates the xor result
+-- in a single pass, avoiding the need to allocate the array.
+
+fun xor_operation(n: int, start: int) -> int {
+  mut value: int = 0;
+  mut s: int = start;
+  mut i: int = 0;
+
+  while i < n {
+    value ^= s;
+    s += 2;
+    i += 1;
+  }
+
+  return value;
+}
+
+fun main() {
+  -- xor_operation(5, 0) => 0^2^4^6^8 = 8
+  check@eq(xor_operation(5, 0), 8);
+
+  -- xor_operation(4, 3) => 3^5^7^9 = 8
+  check@eq(xor_operation(4, 3), 8);
+
+  -- xor_operation(1, 7) => 7
+  check@eq(xor_operation(1, 7), 7);
+
+  -- xor_operation(10, 5) => 5^7^9^11^13^15^17^19^21^23 = 2
+  check@eq(xor_operation(10, 5), 2);
+}

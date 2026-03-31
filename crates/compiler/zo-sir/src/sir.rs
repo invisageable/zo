@@ -77,6 +77,117 @@ impl Sir {
 
     value_id
   }
+
+  /// Offsets all `ValueId`s in instructions by `offset`.
+  /// Used when prepending module SIR to avoid ID collisions.
+  pub fn offset_value_ids(instructions: &mut [Insn], offset: u32) {
+    let off = |v: &mut ValueId| v.0 += offset;
+
+    for insn in instructions.iter_mut() {
+      match insn {
+        Insn::ConstInt { dst, .. }
+        | Insn::ConstFloat { dst, .. }
+        | Insn::ConstBool { dst, .. }
+        | Insn::ConstString { dst, .. } => off(dst),
+        Insn::ModuleLoad { .. }
+        | Insn::PackDecl { .. }
+        | Insn::EnumDef { .. }
+        | Insn::StructDef { .. }
+        | Insn::Label { .. }
+        | Insn::Jump { .. }
+        | Insn::FunDef { .. }
+        | Insn::ConstDef { .. } => {}
+        Insn::VarDef { init, .. } => {
+          if let Some(v) = init {
+            off(v);
+          }
+        }
+        Insn::Store { value, .. } => off(value),
+        Insn::Return { value, .. } => {
+          if let Some(v) = value {
+            off(v);
+          }
+        }
+        Insn::Call { dst, args, .. } => {
+          off(dst);
+
+          for a in args.iter_mut() {
+            off(a);
+          }
+        }
+        Insn::Load { dst, .. } => off(dst),
+        Insn::BinOp { dst, lhs, rhs, .. } => {
+          off(dst);
+          off(lhs);
+          off(rhs);
+        }
+        Insn::UnOp { dst, rhs, .. } => {
+          off(dst);
+          off(rhs);
+        }
+        Insn::BranchIfNot { cond, .. } => off(cond),
+        Insn::Directive { value, .. } => off(value),
+        Insn::Template { id, .. } => off(id),
+        Insn::ArrayLiteral { dst, elements, .. } => {
+          off(dst);
+
+          for e in elements.iter_mut() {
+            off(e);
+          }
+        }
+        Insn::ArrayIndex {
+          dst, array, index, ..
+        } => {
+          off(dst);
+          off(array);
+          off(index);
+        }
+        Insn::ArrayStore {
+          array,
+          index,
+          value,
+          ..
+        } => {
+          off(array);
+          off(index);
+          off(value);
+        }
+        Insn::ArrayLen { dst, array, .. } => {
+          off(dst);
+          off(array);
+        }
+        Insn::TupleLiteral { dst, elements, .. } => {
+          off(dst);
+
+          for e in elements.iter_mut() {
+            off(e);
+          }
+        }
+        Insn::TupleIndex { dst, tuple, .. } => {
+          off(dst);
+          off(tuple);
+        }
+        Insn::EnumConstruct { dst, fields, .. } => {
+          off(dst);
+
+          for f in fields.iter_mut() {
+            off(f);
+          }
+        }
+        Insn::StructConstruct { dst, fields, .. } => {
+          off(dst);
+
+          for f in fields.iter_mut() {
+            off(f);
+          }
+        }
+        Insn::FieldStore { base, value, .. } => {
+          off(base);
+          off(value);
+        }
+      }
+    }
+  }
 }
 
 impl Default for Sir {

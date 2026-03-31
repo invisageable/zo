@@ -979,6 +979,7 @@ impl<'a> ARM64Gen<'a> {
             }
             BinOp::And | BinOp::BitAnd => self.emitter.emit_and(d, l, r),
             BinOp::Or | BinOp::BitOr => self.emitter.emit_orr(d, l, r),
+            BinOp::BitXor => self.emitter.emit_eor(d, l, r),
             BinOp::Shl => self.emitter.emit_lsl(d, l, 1),
             BinOp::Shr => self.emitter.emit_lsr(d, l, 1),
             BinOp::Lt => self.emit_cmp_csel(d, l, r, COND_LT),
@@ -990,7 +991,6 @@ impl<'a> ARM64Gen<'a> {
             BinOp::Concat => {
               self.emit_str_concat(d, l, r);
             }
-            _ => {}
           }
         }
       }

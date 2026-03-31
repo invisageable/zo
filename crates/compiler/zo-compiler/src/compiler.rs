@@ -19,13 +19,15 @@ use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{ErrorAggregator, Reporter, render_errors_to_stderr};
+use zo_sir::Sir;
 use zo_span::Span;
 use zo_token::Token;
 use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree};
 use zo_ty::Mutability;
 use zo_ty_checker::TyChecker;
-use zo_value::{Local, LocalKind, Pubness, ValueId};
+use zo_value::ValueId;
+use zo_value::{Local, LocalKind, Pubness};
 
 use std::collections::HashSet;
 use std::fs;
@@ -367,7 +369,7 @@ impl Compiler {
     if !module_sir_instructions.is_empty() {
       let main_next_vid = semantic.sir.next_value_id;
 
-      offset_value_ids(&mut module_sir_instructions, main_next_vid);
+      Sir::offset_value_ids(&mut module_sir_instructions, main_next_vid);
 
       // Prepend: modules first, then main.
       let main_insns = std::mem::replace(
@@ -541,115 +543,6 @@ impl Stats {
       numnodes: 0,
       numinferences: 0,
       numartifacts: 0,
-    }
-  }
-}
-
-/// Offsets all ValueIds in SIR instructions by `offset`.
-/// Used when prepending module SIR to avoid ID collisions.
-fn offset_value_ids(instructions: &mut [zo_sir::Insn], offset: u32) {
-  use zo_sir::Insn;
-  use zo_value::ValueId;
-
-  let off = |v: &mut ValueId| v.0 += offset;
-
-  for insn in instructions.iter_mut() {
-    match insn {
-      Insn::ConstInt { dst, .. }
-      | Insn::ConstFloat { dst, .. }
-      | Insn::ConstBool { dst, .. }
-      | Insn::ConstString { dst, .. } => off(dst),
-      Insn::ModuleLoad { .. }
-      | Insn::PackDecl { .. }
-      | Insn::EnumDef { .. }
-      | Insn::StructDef { .. }
-      | Insn::Label { .. }
-      | Insn::Jump { .. } => {}
-      Insn::VarDef { init, .. } => {
-        if let Some(v) = init {
-          off(v);
-        }
-      }
-      Insn::Store { value, .. } => off(value),
-      Insn::FunDef { .. } => {}
-      Insn::Return { value, .. } => {
-        if let Some(v) = value {
-          off(v);
-        }
-      }
-      Insn::Call { dst, args, .. } => {
-        off(dst);
-        for a in args.iter_mut() {
-          off(a);
-        }
-      }
-      Insn::Load { dst, .. } => off(dst),
-      Insn::BinOp { dst, lhs, rhs, .. } => {
-        off(dst);
-        off(lhs);
-        off(rhs);
-      }
-      Insn::UnOp { dst, rhs, .. } => {
-        off(dst);
-        off(rhs);
-      }
-      Insn::BranchIfNot { cond, .. } => off(cond),
-      Insn::Directive { value, .. } => off(value),
-      Insn::Template { id, .. } => off(id),
-      Insn::ArrayLiteral { dst, elements, .. } => {
-        off(dst);
-        for e in elements.iter_mut() {
-          off(e);
-        }
-      }
-      Insn::ArrayIndex {
-        dst, array, index, ..
-      } => {
-        off(dst);
-        off(array);
-        off(index);
-      }
-      Insn::ArrayLen { dst, array, .. } => {
-        off(dst);
-        off(array);
-      }
-      Insn::TupleLiteral { dst, elements, .. } => {
-        off(dst);
-        for e in elements.iter_mut() {
-          off(e);
-        }
-      }
-      Insn::TupleIndex { dst, tuple, .. } => {
-        off(dst);
-        off(tuple);
-      }
-      Insn::EnumConstruct { dst, fields, .. } => {
-        off(dst);
-        for f in fields.iter_mut() {
-          off(f);
-        }
-      }
-      Insn::StructConstruct { dst, fields, .. } => {
-        off(dst);
-        for f in fields.iter_mut() {
-          off(f);
-        }
-      }
-      Insn::FieldStore { base, value, .. } => {
-        off(base);
-        off(value);
-      }
-      Insn::ArrayStore {
-        array,
-        index,
-        value,
-        ..
-      } => {
-        off(array);
-        off(index);
-        off(value);
-      }
-      Insn::ConstDef { .. } => {}
     }
   }
 }
