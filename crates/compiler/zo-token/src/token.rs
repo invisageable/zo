@@ -112,7 +112,8 @@ pub enum Token {
   PlusPlus,
   PlusEq, // +, ++, +=
   Minus,
-  MinusEq, // -, -=
+  UnaryMinus, // Parser-only: prefix negation.
+  MinusEq,    // -, -=
   Star,
   StarEq, // *, *=
   Slash2,

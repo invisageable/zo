@@ -53,6 +53,11 @@ fun main() {
   showln(false);
 }
 
+-- missing:
+--
+--  - using `_` as a separator for clarity — 0b1010_0010_0101_1111, 16_777_216, etc.
+
+
 -! ## the integer family.
 -!
 -!   signed:    s8, s16, s32 (int), s64

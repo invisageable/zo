@@ -13,19 +13,38 @@ fn test_bitxor_emits_binop() {
     width: IntWidth::S32,
   };
 
-  // Postfix: [0b1100, 0b1010, ^] — folded to single ConstInt.
-  // node_idx 2 is the ^ operator node.
   assert_annotations_stream(
     "0b1100 ^ 0b1010",
-    &[(
-      2,
-      s32,
-      Insn::ConstInt {
-        dst: ValueId(0),
-        value: 6,
-        ty_id: TyId(8),
-      },
-    )],
+    &[
+      (
+        0,
+        s32,
+        Insn::ConstInt {
+          dst: ValueId(0),
+          value: 12,
+          ty_id: TyId(8),
+        },
+      ),
+      (
+        1,
+        s32,
+        Insn::ConstInt {
+          dst: ValueId(1),
+          value: 10,
+          ty_id: TyId(8),
+        },
+      ),
+      (
+        2,
+        s32,
+        // Constant folded: 0b1100 ^ 0b1010 = 6.
+        Insn::ConstInt {
+          dst: ValueId(2),
+          value: 6,
+          ty_id: TyId(8),
+        },
+      ),
+    ],
   );
 }
 

@@ -7,7 +7,9 @@
 -!
 -! Pick the least powerful one that works — that's the zo way.
 
--- `val` is a compile-time constant. The compiler inlines it everywhere.
+-- `val` is a compile-time constant. It cannot be inferred.
+--
+-- The compiler inlines it everywhere.
 -- No stack slot, no runtime cost. Use it for things that never change.
 val VERSION: str = "1.0.0";
 val MAX_HEALTH: int = 100;
@@ -65,3 +67,5 @@ fun main() {
 -- 50
 -- 5
 -- 1.0.0
+
+

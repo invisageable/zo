@@ -1,0 +1,29 @@
+-- tests-run-pass: binary operators between parenthesized expressions.
+-- @cmd — zo run paren-binop.zo
+
+fun main() {
+  -- parenthesized binop: (2 + 3) * (4 + 1).
+  imu a: int = (2 + 3) * (4 + 1);
+  check@eq(a, 25);
+
+  -- parenthesized binop: (10 - 3) * 2.
+  imu b: int = (10 - 3) * 2;
+  check@eq(b, 14);
+
+  -- nested parenthesized binop.
+  imu c: int = ((1 + 2) * 3) + (4 * (5 - 2));
+  check@eq(c, 21);
+
+  -- array index with binary ops.
+  imu v: []int = [10, 20, 30];
+  check@eq(v[0] + v[1], 30);
+  check@eq(v[0] * v[1], 200);
+  check@eq(v[1] - v[0], 10);
+  check@eq(v[2] + v[0] + v[1], 60);
+
+  -- parenthesized with array index.
+  imu d: int = (v[0] + v[1]) * v[2];
+  check@eq(d, 900);
+
+  showln("all paren-binop checks passed!");
+}

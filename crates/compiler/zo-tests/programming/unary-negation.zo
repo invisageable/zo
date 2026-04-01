@@ -1,0 +1,37 @@
+-- tests-run-pass: unary minus in various contexts.
+-- @cmd — zo run unary-negation.zo
+
+fun negate(n: int) -> int {
+  return -n;
+}
+
+fun main() {
+  -- negate a literal (constant folding).
+  imu a: int = -42;
+  check@eq(a, -42);
+
+  -- negate a variable.
+  mut x: int = 10;
+  x = -x;
+  check@eq(x, -10);
+
+  -- negate in function return.
+  imu r: int = negate(7);
+  check@eq(r, -7);
+
+  -- negate in expression: x + (-y) == x - y.
+  imu p: int = 20;
+  imu q: int = 5;
+  imu sum: int = p + (-q);
+  check@eq(sum, p - q);
+  check@eq(sum, 15);
+
+  -- double negation.
+  imu d: int = -(-8);
+  check@eq(d, 8);
+
+  -- sign display.
+  showln(-1);
+
+  showln("all unary negation checks passed!");
+}

@@ -3,10 +3,11 @@ use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
   ARM64Emitter, COND_EQ, COND_GE, COND_GT, COND_LE, COND_LT, COND_NE, COND_VC,
   COND_VS, D0, D1, FpRegister, Register, SP, X0, X1, X2, X16, X17, X29, X30,
+  XZR,
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
-use zo_sir::{BinOp, Insn, LoadSource, Sir};
+use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
 use zo_ui_protocol::UiCommand;
 use zo_value::ValueId;
 use zo_writer_macho::{DATA_VM_ADDR, DebugFrameEntry, MachO};
@@ -995,6 +996,21 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
+      Insn::UnOp { dst, op, rhs, .. } => {
+        let d = self.alloc_reg(*dst).unwrap_or(X0);
+        let r = self.alloc_reg(*rhs).unwrap_or(X0);
+
+        match op {
+          UnOp::Neg => self.emitter.emit_sub(d, XZR, r),
+          UnOp::Not => {
+            // !b => b ^ 1 (boolean not).
+            self.emitter.emit_mov_imm(X16, 1);
+            self.emitter.emit_eor(d, r, X16);
+          }
+          _ => {}
+        }
+      }
+
       Insn::Call { name, args, .. } => {
         match self.interner.get(*name) {
           "show" | "showln" | "eshow" | "eshowln" => {
@@ -1740,6 +1756,19 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_add_imm(X1, SP, ITOA_BUFFER_END);
     // X2 = 0 (length counter).
     self.emitter.emit_mov_imm(X2, 0);
+
+    // Handle negative signed integers: if MSB set,
+    // negate X0 and set X17 = 1 (neg flag) for later.
+    self.emitter.emit_mov_imm(X17, 0);
+    // CMP X0, #0 — sets flags.
+    self.emitter.emit_cmp_imm(X0, 0);
+    // B.GE +12 — skip the 3-insn neg block (3*4=12 bytes).
+    self.emitter.emit_bge(12);
+    // Negate: X0 = 0 - X0.
+    self.emitter.emit_sub(X0, XZR, X0);
+    // Mark as negative.
+    self.emitter.emit_mov_imm(X17, 1);
+
     // X3 = 10 (divisor).
     let x3 = Register::new(3);
 
@@ -1769,6 +1798,17 @@ impl<'a> ARM64Gen<'a> {
 
     // X1 points one past the first digit — adjust.
     self.emitter.emit_add_imm(X1, X1, 1);
+
+    // If negative (X17 == 1), prepend '-' before first digit.
+    self.emitter.emit_cmp_imm(X17, 0);
+    // B.EQ +20 — skip the 4-insn sign block (4*4+4=20).
+    self.emitter.emit_beq(20);
+    let x5 = Register::new(5);
+    self.emitter.emit_mov_imm(x5, b'-' as u16);
+    self.emitter.emit_sub_imm(X1, X1, 1);
+    // Store '-' at X1 (the position before the first digit).
+    self.emitter.emit_strb(x5, X1, 0);
+    self.emitter.emit_add_imm(X2, X2, 1);
 
     // Write syscall: write(fd, X1, X2).
     self.emitter.emit_mov_imm(X16, SYS_WRITE);

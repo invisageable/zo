@@ -65,6 +65,12 @@ pub struct Parser<'a> {
   saved_op_stacks: Vec<Vec<(Token, u8, u8)>>,
   /// Saved expr buffers for array indexing.
   saved_expr_bufs: Vec<Vec<(Token, Span, Option<NodeValue>)>>,
+  /// Spans for unary prefix operators (not in expr_buffer).
+  unary_spans: Vec<(Token, Span)>,
+  /// True after emitting a value-producing token (RParen,
+  /// RBracket, Ident, literal) when expr_buffer is empty.
+  /// Prevents `*` / `&` from being misidentified as unary.
+  last_was_value: bool,
   /// Nesting depth inside type annotation parens: Fn(...) or (ty, ty).
   type_paren_depth: u32,
 }
@@ -87,6 +93,8 @@ impl<'a> Parser<'a> {
       operator_stack: Vec::with_capacity(Self::OPERATOR_STACK_CAP),
       saved_op_stacks: Vec::new(),
       saved_expr_bufs: Vec::new(),
+      unary_spans: Vec::new(),
+      last_was_value: false,
       type_paren_depth: 0,
     }
   }
@@ -209,7 +217,7 @@ impl<'a> Parser<'a> {
       // Unary operators (check context to distinguish from binary)
       Token::Bang => self.handle_unary_operator(kind),
       Token::Minus if self.is_unary_context() => {
-        self.handle_unary_operator(kind)
+        self.handle_unary_operator(Token::UnaryMinus)
       }
       Token::Star | Token::Amp if self.is_unary_context() => {
         self.handle_unary_operator(kind)
@@ -516,7 +524,7 @@ impl<'a> Parser<'a> {
         .push((Token::LBracket, self.current_span(), None));
       // Keep TypeAnnotation state for the type that follows
     } else if !self.expr_buffer.is_empty()
-      && self.state == ParserState::Expression
+      && matches!(self.state, ParserState::Expression | ParserState::Block)
     {
       // Array indexing: emit the array name only. Save
       // outer operators and expr buffer — they bind to the
@@ -580,20 +588,17 @@ impl<'a> Parser<'a> {
     // Check if we have a matching LParen introducer
     if let Some(introducer) = self.introducer_stack.last() {
       if introducer.token == Token::LParen {
-        // Close the parameter list introducer BEFORE emitting RParen
-        // This ensures RParen is a sibling, not a child
         self.close_introducer();
-
-        // Now emit RParen as a sibling
         self.emit_node(Token::RParen);
       } else {
-        // Mismatched delimiter - emit anyway but don't pop
         self.emit_node(Token::RParen);
       }
     } else {
-      // No matching introducer - just emit
       self.emit_node(Token::RParen);
     }
+
+    // A closed paren is a value-producing context.
+    self.last_was_value = true;
   }
 
   fn handle_rbrace_closer(&mut self) {
@@ -691,6 +696,8 @@ impl<'a> Parser<'a> {
       // No matching introducer - just emit
       self.emit_node(Token::RBracket);
     }
+
+    self.last_was_value = true;
   }
 
   fn handle_colon(&mut self) {
@@ -873,23 +880,19 @@ impl<'a> Parser<'a> {
   }
 
   fn handle_unary_operator(&mut self, kind: Token) {
-    // Unary operators: !, -, *, & (in prefix position)
-    // These are prefix operators that apply to the following expression
-
-    // Don't flush expression buffer - unary ops have high precedence
-    // and should be part of the current expression
+    // Unary prefix operators: !, -, *, & .
+    // Stash them — they are emitted right after the next
+    // operand in handle_operand (postfix order). This keeps
+    // them completely out of the shunting-yard operator stack.
     let span = self.current_span();
 
-    // In expression context, buffer the unary operator
     if self.state == ParserState::Expression || self.state == ParserState::Block
     {
-      self.expr_buffer.push((kind, span, None));
+      self.unary_spans.push((kind, span));
     } else {
-      // Direct emission in other contexts
       self.emit_node(kind);
     }
 
-    // Stay in expression state to parse the operand
     if self.state != ParserState::Expression {
       self.state = ParserState::Expression;
     }
@@ -905,7 +908,7 @@ impl<'a> Parser<'a> {
     // 5. Last token is an assignment (e.g., "x = -y")
 
     if self.expr_buffer.is_empty() {
-      return true;
+      return !self.last_was_value;
     }
 
     if let Some((last_token, _, _)) = self.expr_buffer.last() {
@@ -1364,7 +1367,7 @@ impl<'a> Parser<'a> {
 
         if should_pop {
           self.operator_stack.pop();
-          // Find the operator and move it to the end of buffer
+          // Find the operator and move it to the end of buffer.
           if let Some(pos) = self
             .expr_buffer
             .iter()
@@ -1403,7 +1406,15 @@ impl<'a> Parser<'a> {
       || self.state == ParserState::TypeAnnotation
       || (self.state == ParserState::Block && !kind.is_keyword())
     {
+      self.last_was_value = false;
       self.expr_buffer.push((kind, span, value));
+
+      // Emit pending unary operators right after the operand
+      // (postfix order). Drain in reverse so !!x becomes
+      // [x, !, !] (inner first).
+      while let Some((tok, sp)) = self.unary_spans.pop() {
+        self.expr_buffer.push((tok, sp, None));
+      }
     } else {
       // Direct emission
       self.emit_node_internal(kind, span, value);
@@ -1415,11 +1426,10 @@ impl<'a> Parser<'a> {
       return;
     }
 
-    // Pop remaining operators from stack
+    self.last_was_value = false;
+
+    // Pop remaining binary operators from stack.
     while let Some((op_token, _, _)) = self.operator_stack.pop() {
-      // Find the most recent instance of this operator
-      // in the buffer (rposition avoids grabbing an
-      // already-placed duplicate like a second `.`).
       if let Some(pos) = self
         .expr_buffer
         .iter()

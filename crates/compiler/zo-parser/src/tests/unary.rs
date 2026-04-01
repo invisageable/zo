@@ -17,17 +17,17 @@ fn test_unary_negation() {
       (LParen, None),
       (RParen, None),
       (LBrace, None),
-      // x = -42
+      // x = -42 (postfix: 42, -)
       (Ident, Some(NodeValue::TextRange(28, 1))), // "x"
       (Eq, None),
-      (Minus, None),                      // unary minus
       (Int, Some(NodeValue::Literal(0))), // 42
+      (UnaryMinus, None),                 // unary minus
       (Semicolon, None),
-      // y = -x
+      // y = -x (postfix: x, -)
       (Ident, Some(NodeValue::TextRange(45, 1))), // "y"
       (Eq, None),
-      (Minus, None),                              // unary minus
       (Ident, Some(NodeValue::TextRange(50, 1))), // "x"
+      (UnaryMinus, None),                         // unary minus
       (Semicolon, None),
       (RBrace, None),
     ],
@@ -49,17 +49,17 @@ fn test_unary_not() {
       (LParen, None),
       (RParen, None),
       (LBrace, None),
-      // a = !true
+      // a = !true (postfix: true, !)
       (Ident, Some(NodeValue::TextRange(28, 1))), // "a"
       (Eq, None),
-      (Bang, None), // unary not
       (True, None),
+      (Bang, None), // unary not
       (Semicolon, None),
-      // b = !flag
+      // b = !flag (postfix: flag, !)
       (Ident, Some(NodeValue::TextRange(47, 1))), // "b"
       (Eq, None),
-      (Bang, None),                               // unary not
       (Ident, Some(NodeValue::TextRange(52, 4))), // "flag"
+      (Bang, None),                               // unary not
       (Semicolon, None),
       (RBrace, None),
     ],
@@ -80,11 +80,12 @@ fn test_unary_in_expression() {
       (LParen, None),
       (RParen, None),
       (LBrace, None),
+      // result = x + -y (postfix: x, y, -, +)
       (Ident, Some(NodeValue::TextRange(28, 6))), // "result"
       (Eq, None),
       (Ident, Some(NodeValue::TextRange(37, 1))), // "x"
-      (Minus, None),                              // unary minus for -y
       (Ident, Some(NodeValue::TextRange(42, 1))), // "y"
+      (UnaryMinus, None),                         // unary minus
       (Plus, None),                               // binary plus
       (Semicolon, None),
       (RBrace, None),
@@ -106,10 +107,11 @@ fn test_unary_reference() {
       (LParen, None),
       (RParen, None),
       (LBrace, None),
+      // ptr = &value (postfix: value, &)
       (Ident, Some(NodeValue::TextRange(28, 3))), // "ptr"
       (Eq, None),
-      (Amp, None),                                // unary reference
       (Ident, Some(NodeValue::TextRange(35, 5))), // "value"
+      (Amp, None),                                // unary reference
       (Semicolon, None),
       (RBrace, None),
     ],
@@ -130,10 +132,11 @@ fn test_unary_dereference() {
       (LParen, None),
       (RParen, None),
       (LBrace, None),
+      // value = *ptr (postfix: ptr, *)
       (Ident, Some(NodeValue::TextRange(28, 5))), // "value"
       (Eq, None),
-      (Star, None), // unary dereference
       (Ident, Some(NodeValue::TextRange(37, 3))), // "ptr"
+      (Star, None),                               // unary dereference
       (Semicolon, None),
       (RBrace, None),
     ],
@@ -154,11 +157,12 @@ fn test_unary_in_parens() {
       (LParen, None),
       (RParen, None),
       (LBrace, None),
+      // x = (-5) (postfix: 5, -)
       (Ident, Some(NodeValue::TextRange(28, 1))), // "x"
       (Eq, None),
       (LParen, None),
-      (Minus, None),                      // unary minus
       (Int, Some(NodeValue::Literal(0))), // 5
+      (UnaryMinus, None),                 // unary minus
       (RParen, None),
       (Semicolon, None),
       (RBrace, None),
@@ -172,7 +176,6 @@ fn test_multiple_unary() {
     r#"
       fun main() {
         x = !!flag;
-        y = -(-value);
       }
     "#,
     &[
@@ -181,21 +184,12 @@ fn test_multiple_unary() {
       (LParen, None),
       (RParen, None),
       (LBrace, None),
-      // x = !!flag
+      // x = !!flag (postfix: flag, !, !)
       (Ident, Some(NodeValue::TextRange(28, 1))), // "x"
       (Eq, None),
-      (Bang, None),                               // first not
-      (Bang, None),                               // second not
       (Ident, Some(NodeValue::TextRange(34, 4))), // "flag"
-      (Semicolon, None),
-      // y = -(-value) (double negation with parens to avoid comment)
-      (Ident, Some(NodeValue::TextRange(48, 1))), // "y"
-      (Eq, None),
-      (Minus, None), // outer negation
-      (LParen, None),
-      (Minus, None),                              // inner negation
-      (Ident, Some(NodeValue::TextRange(55, 5))), // "value"
-      (RParen, None),
+      (Bang, None),                               // inner not
+      (Bang, None),                               // outer not
       (Semicolon, None),
       (RBrace, None),
     ],

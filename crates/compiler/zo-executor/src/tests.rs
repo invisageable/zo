@@ -14,6 +14,7 @@ pub(crate) mod structs;
 pub(crate) mod templates;
 pub(crate) mod tuples;
 pub(crate) mod type_aliases;
+pub(crate) mod unary;
 
 use crate::tests::common::{assert_annotations_stream, assert_sir_stream};
 
@@ -75,19 +76,37 @@ fn test_simple_addition() {
     width: IntWidth::S32,
   };
 
-  // Postfix: [1, 2, +] — folded to single ConstInt.
-  // node_idx 2 is the + operator node.
   assert_annotations_stream(
     "1 + 2",
-    &[(
-      2,
-      s32_ty,
-      Insn::ConstInt {
-        dst: ValueId(0),
-        value: 3,
-        ty_id: TyId(8),
-      },
-    )],
+    &[
+      (
+        0,
+        s32_ty,
+        Insn::ConstInt {
+          dst: ValueId(0),
+          value: 1,
+          ty_id: TyId(8),
+        },
+      ),
+      (
+        1,
+        s32_ty,
+        Insn::ConstInt {
+          dst: ValueId(1),
+          value: 2,
+          ty_id: TyId(8),
+        },
+      ),
+      (
+        2,
+        s32_ty,
+        Insn::ConstInt {
+          dst: ValueId(2),
+          value: 3,
+          ty_id: TyId(8),
+        },
+      ),
+    ],
   );
 }
 

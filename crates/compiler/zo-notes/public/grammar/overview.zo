@@ -607,3 +607,29 @@ fun foobar() -> int {
 fun main() {
   foobar(); -- this should panic.
 }
+
+
+-- undefined syntax from jai.
+fun main() {
+  imu x: int = ...;
+}
+
+-- breaking out of an outer while loop with labels.
+fun main() {
+  mut x := 0;
+  
+  'out while x < 10 {
+    mut y := 0;
+    while y < 3 {
+      showln("{x}, {y}");
+
+      y += 1;
+      
+      if x > 3 {
+        break condition; // break out of an outer while loop
+      }
+    }
+
+    x += 1;
+  }
+}

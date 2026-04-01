@@ -10,9 +10,9 @@ EVERY FILES ACT LiKE AS A TUTORiAL. THEY ARE THERE TO HELP YOU TO UNDERSTAND THE
   zo build <FILENAME>
   ```
 
-> we assume that you already installed zo on your machine. if not it's achievable by following the [install](../zo-notes/public/guidelines/02-install.md) guidelines.
+> *We assume that you already installed zo on your machine. if not it's achievable by following the [install](../zo-notes/public/guidelines/02-install.md) guidelines.*
 > 
-> the first command must be: `zo build 001-welcome`.
+> *The first command must be: `zo build 001-welcome`.*
 
 ## categories.
 

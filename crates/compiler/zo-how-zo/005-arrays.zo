@@ -9,7 +9,7 @@
 fun main() {
   -- declare an array with `type[]` and fill it with `[a, b, c]`.
   -- zo infers the length from the literal.
-  imu loot: []int = [10, 25, 50, 5, 100];
+  imu loot: []int = [10, 25, 50, 5, 100]; -- // A dynamic of array of integers.
 
   -- access elements with `arr[index]`. indices start at 0.
   imu first: int = loot[0];

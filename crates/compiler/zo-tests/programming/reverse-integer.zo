@@ -1,0 +1,68 @@
+-- tests-build-pass: reverse integer.
+-- @cmd — zo run reverse-integer.zo
+--
+-- given a signed 32-bit integer x, return x with its digits
+-- reversed. if reversing causes overflow outside the signed
+-- 32-bit range [-2^31, 2^31 - 1], return 0.
+--
+-- handles the sign separately, then repeatedly extracts the
+-- last digit with modulo and builds the reversed number,
+-- checking for overflow before multiplying.
+
+fun reverse(x: int) -> int {
+  mut n: int = x;
+  mut negative: int = 0;
+
+  if n < 0 {
+    -- min s32: can't negate, overflow.
+    -- express -2147483648 without literal overflow.
+    if n == 0 - 2147483647 - 1 {
+      return 0;
+    }
+
+    n = -n;
+    negative = 1;
+  }
+
+  mut y: int = 0;
+
+  while n > 0 {
+    if y <= 214748364 {
+      y *= 10;
+    } else {
+      return 0;
+    }
+
+    y += n % 10;
+    n /= 10;
+  }
+
+  if negative == 1 {
+    return -y;
+  }
+
+  return y;
+}
+
+fun main() {
+  -- basic reversal.
+  check@eq(reverse(123), 321);
+
+  -- negative reversal.
+  check@eq(reverse(-123), -321);
+
+  -- trailing zeros.
+  check@eq(reverse(120), 21);
+
+  -- single digit.
+  check@eq(reverse(7), 7);
+
+  -- zero.
+  check@eq(reverse(0), 0);
+
+  -- overflow: reversed 1534236469 > 2^31-1.
+  check@eq(reverse(1534236469), 0);
+
+  -- min i32 overflow.
+  check@eq(reverse(0 - 2147483647 - 1), 0);
+}

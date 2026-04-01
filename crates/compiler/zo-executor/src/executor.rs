@@ -1592,17 +1592,8 @@ impl<'a> Executor<'a> {
       // === BINARY OPERATORS ===
       Token::Plus => self.execute_binop(BinOp::Add, idx),
       Token::PlusPlus => self.execute_concat(idx),
-      Token::Minus => {
-        if self.value_stack.len() >= 2 {
-          self.execute_binop(BinOp::Sub, idx);
-        } else if !self.value_stack.is_empty() {
-          // One value on stack: this is binary subtraction
-          // with the RHS not yet evaluated. Defer it.
-          self.execute_binop(BinOp::Sub, idx);
-        } else {
-          self.execute_unop(UnOp::Neg, idx);
-        }
-      }
+      Token::Minus => self.execute_binop(BinOp::Sub, idx),
+      Token::UnaryMinus => self.execute_unop(UnOp::Neg, idx),
       Token::Star => self.execute_binop(BinOp::Mul, idx),
       Token::Slash => self.execute_binop(BinOp::Div, idx),
       Token::Percent => self.execute_binop(BinOp::Rem, idx),
@@ -1953,8 +1944,6 @@ impl<'a> Executor<'a> {
         {
           match folded {
             FoldResult::Int(value) => {
-              self.remove_folded_operands(lhs_sir, rhs_sir);
-
               let dst = ValueId(self.sir.next_value_id);
               self.sir.next_value_id += 1;
 
@@ -1970,8 +1959,6 @@ impl<'a> Executor<'a> {
               return;
             }
             FoldResult::Float(value) => {
-              self.remove_folded_operands(lhs_sir, rhs_sir);
-
               let dst = ValueId(self.sir.next_value_id);
               self.sir.next_value_id += 1;
 
@@ -1987,8 +1974,6 @@ impl<'a> Executor<'a> {
               return;
             }
             FoldResult::Bool(value) => {
-              self.remove_folded_operands(lhs_sir, rhs_sir);
-
               let ty_id = self.ty_checker.bool_type();
 
               let dst = ValueId(self.sir.next_value_id);
@@ -2006,8 +1991,6 @@ impl<'a> Executor<'a> {
               return;
             }
             FoldResult::Str(symbol) => {
-              self.remove_folded_operands(lhs_sir, rhs_sir);
-
               let str_ty = self.ty_checker.str_type();
 
               let dst = ValueId(self.sir.next_value_id);
@@ -5406,50 +5389,6 @@ impl<'a> Executor<'a> {
 
       self.pending_compound_receiver = None;
       self.pending_compound = Some((name, op, span));
-    }
-  }
-
-  /// Remove SIR instructions and annotations for operands that
-  /// were folded away by constant folding.
-  fn remove_folded_operands(&mut self, lhs_sir: ValueId, rhs_sir: ValueId) {
-    let insn_len_before = self.sir.instructions.len();
-
-    // Remove operand SIR instructions by matching dst ValueId.
-    self.sir.instructions.retain(|insn| {
-      let dst = match insn {
-        Insn::ConstInt { dst, .. }
-        | Insn::ConstFloat { dst, .. }
-        | Insn::ConstBool { dst, .. }
-        | Insn::ConstString { dst, .. }
-        | Insn::BinOp { dst, .. }
-        | Insn::UnOp { dst, .. }
-        | Insn::Call { dst, .. }
-        | Insn::Load { dst, .. }
-        | Insn::ArrayLiteral { dst, .. }
-        | Insn::ArrayIndex { dst, .. }
-        | Insn::ArrayLen { dst, .. }
-        | Insn::TupleLiteral { dst, .. }
-        | Insn::TupleIndex { dst, .. }
-        | Insn::EnumConstruct { dst, .. }
-        | Insn::StructConstruct { dst, .. } => Some(*dst),
-        Insn::Template { id, .. } => Some(*id),
-        _ => None,
-      };
-
-      dst != Some(lhs_sir) && dst != Some(rhs_sir)
-    });
-
-    let removed = insn_len_before - self.sir.instructions.len();
-
-    if removed > 0 {
-      // Remove corresponding annotations — operands are the most
-      // recently annotated items before the fold.
-      let new_len = self.annotations.len().saturating_sub(removed);
-      self.annotations.truncate(new_len);
-
-      // Reclaim ValueIds so the folded constant gets a
-      // contiguous ID.
-      self.sir.next_value_id -= removed as u32;
     }
   }
 
