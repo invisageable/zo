@@ -369,22 +369,60 @@ fn error_array_size_mismatch() {
 }
 
 #[test]
-fn error_array_size_fixed_vs_dynamic() {
+fn array_dynamic_unifies_with_fixed() {
   let mut checker = TyChecker::new();
   let int_ty = checker.s32_type();
-
-  let arr_fixed_id = checker.ty_table.intern_array(int_ty, Some(5));
-  let arr_fixed = checker.intern_ty(Ty::Array(arr_fixed_id));
 
   let arr_dyn_id = checker.ty_table.intern_array(int_ty, None);
   let arr_dyn = checker.intern_ty(Ty::Array(arr_dyn_id));
 
-  assert_unify_error(
-    &mut checker,
-    arr_fixed,
-    arr_dyn,
-    ErrorKind::ArraySizeMismatch,
-  );
+  let arr_fixed_id = checker.ty_table.intern_array(int_ty, Some(3));
+  let arr_fixed = checker.intern_ty(Ty::Array(arr_fixed_id));
+
+  // []int unifies with [3]int — no error.
+  assert_unify_ok(&mut checker, arr_dyn, arr_fixed);
+}
+
+#[test]
+fn array_same_fixed_size_unifies() {
+  let mut checker = TyChecker::new();
+  let int_ty = checker.s32_type();
+
+  let a_id = checker.ty_table.intern_array(int_ty, Some(3));
+  let a = checker.intern_ty(Ty::Array(a_id));
+
+  let b_id = checker.ty_table.intern_array(int_ty, Some(3));
+  let b = checker.intern_ty(Ty::Array(b_id));
+
+  assert_unify_ok(&mut checker, a, b);
+}
+
+#[test]
+fn error_array_different_fixed_sizes() {
+  let mut checker = TyChecker::new();
+  let int_ty = checker.s32_type();
+
+  let a3_id = checker.ty_table.intern_array(int_ty, Some(3));
+  let a3 = checker.intern_ty(Ty::Array(a3_id));
+
+  let a4_id = checker.ty_table.intern_array(int_ty, Some(4));
+  let a4 = checker.intern_ty(Ty::Array(a4_id));
+
+  assert_unify_error(&mut checker, a3, a4, ErrorKind::ArraySizeMismatch);
+}
+
+#[test]
+fn array_dynamic_str_unifies() {
+  let mut checker = TyChecker::new();
+  let str_ty = checker.str_type();
+
+  let a_id = checker.ty_table.intern_array(str_ty, None);
+  let a = checker.intern_ty(Ty::Array(a_id));
+
+  let b_id = checker.ty_table.intern_array(str_ty, None);
+  let b = checker.intern_ty(Ty::Array(b_id));
+
+  assert_unify_ok(&mut checker, a, b);
 }
 
 // ===== UndefinedVariable =====

@@ -531,15 +531,16 @@ impl<'a> Parser<'a> {
         .expr_buffer
         .push((Token::LBracket, self.current_span(), None));
       // Keep TypeAnnotation state for the type that follows
-    } else if !self.expr_buffer.is_empty()
-      && matches!(self.state, ParserState::Expression | ParserState::Block)
+    } else if matches!(self.state, ParserState::Expression | ParserState::Block)
+      && (!self.expr_buffer.is_empty() || self.last_was_value)
     {
-      // Array indexing: emit the array name only. Save
-      // outer operators and expr buffer — they bind to the
-      // complete a[i] result, not the bare array name.
+      // Array indexing: emit the array name (if in buffer).
+      // For chained indexing (a[i][j]), the buffer is empty
+      // but last_was_value is true from the prior `]`.
       if let Some((tok, span, val)) = self.expr_buffer.pop() {
         self.emit_node_internal(tok, span, val);
       }
+      self.last_was_value = false;
 
       // Park outer context while we parse the index.
       let saved_ops = std::mem::take(&mut self.operator_stack);

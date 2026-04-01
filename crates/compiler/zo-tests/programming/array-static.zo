@@ -1,0 +1,17 @@
+-- tests-build-pass: static sized arrays.
+-- @cmd — zo run array-static.zo
+
+fun main() {
+  imu a: [3]int = [10, 20, 30];
+
+  check@eq(a[0], 10);
+  check@eq(a[1], 20);
+  check@eq(a[2], 30);
+
+  imu b: [2]str = ["foo", "bar"];
+
+  -- expected: foo
+  showln(b[0]);
+  -- expected: bar
+  showln(b[1]);
+}

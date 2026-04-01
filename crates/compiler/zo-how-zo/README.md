@@ -12,13 +12,15 @@ EVERY FILES ACT LiKE AS A TUTORiAL. THEY ARE THERE TO HELP YOU TO UNDERSTAND THE
 
 > *We assume that you already installed zo on your machine. if not it's achievable by following the [install](../zo-notes/public/guidelines/02-install.md) guidelines.*
 > 
-> *The first command must be: `zo build 001-welcome`.*
+> *The first command must be: `zo build 000-prologue`.*
 
 ## categories.
 
-- THE BASiCS (001-010) — *hello world, types, and variables.*
-- LOGiC & CONTROL (011-020) — *branching, matching, and loops.*
-- ARCHiTECTURE (021-035) — *structs, Enums, and apply blocks.*
-- THE TYPE SYSTEM (036-050) — *functions, closures, and inference.*
-- SYSTEMS (051-060) — *modules and ffi (calling `c`/`js`).*
-- BUiLT-iN UI (061-080) — *`zsx` templates and cross-platform apps.*
+THiS TUTORiAL iS SPLiT BY CONCEPTS:
+
+  - THE BASiCS (001-010) — *hello world, types, and variables.*
+  - LOGiC & CONTROL (011-020) — *branching, matching, and loops.*
+  - ARCHiTECTURE (021-035) — *structs, Enums, and apply blocks.*
+  - THE TYPE SYSTEM (036-050) — *functions, closures, and inference.*
+  - SYSTEMS (051-060) — *modules and ffi (calling `c`/`js`).*
+  - BUiLT-iN UI (061-080) — *`zsx` templates and cross-platform apps.*

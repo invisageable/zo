@@ -49,7 +49,13 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
 
 > *Be ahead, JOiN THE DEVOLUTiON.*
 
-## .
+## compiler pipeline.
+
+WE HAVE ELiMiNATED ALL UNNECESSARY iNTERMEDiATE STAGES. THE FRONTEND iS A LEAN, BRUTALLY FAST DATAFLOW PiPELiNE.    
+    
+```
+source -> tokenizer -> tokens -> parser -> hir -> analyzer/executor -> sir -> codegen -> executable
+```
 
 <!-- ## examples.
 

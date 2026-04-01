@@ -256,7 +256,9 @@ impl<'a> ARM64Gen<'a> {
       .find_producing_insn(vid, all_insns)
       .is_some_and(|insn| match insn {
         Insn::ConstString { .. } => true,
-        Insn::Load { ty_id, .. } => ty_id.0 == 4, // Ty::Str
+        Insn::Load { ty_id, .. } | Insn::ArrayIndex { ty_id, .. } => {
+          ty_id.0 == 4
+        }
         _ => false,
       })
   }
@@ -269,7 +271,8 @@ impl<'a> ARM64Gen<'a> {
         Insn::ConstFloat { .. } => true,
         Insn::BinOp { ty_id, .. }
         | Insn::Load { ty_id, .. }
-        | Insn::Call { ty_id, .. } => {
+        | Insn::Call { ty_id, .. }
+        | Insn::ArrayIndex { ty_id, .. } => {
           ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX
         }
         _ => false,
@@ -1429,9 +1432,13 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_str(X16, SP, base as i16);
 
         // Store each element at [SP + base + (i+1)*8].
+        // Floats use FP registers → emit_str_fp.
         for (i, elem) in elements.iter().enumerate() {
-          if let Some(reg) = self.alloc_reg(*elem) {
-            let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
+          let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
+
+          if let Some(fp) = self.alloc_fp_reg(*elem) {
+            self.emitter.emit_str_fp(fp, SP, off as u16);
+          } else if let Some(reg) = self.alloc_reg(*elem) {
             self.emitter.emit_str(reg, SP, off as i16);
           }
         }
@@ -1446,21 +1453,26 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ArrayIndex {
-        dst, array, index, ..
+        dst,
+        array,
+        index,
+        ty_id,
       } => {
-        // Load element at base + 8 + index * 8.
-        // Use X16 as scratch.
-        if let Some(dst_reg) = self.alloc_reg(*dst) {
-          let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
-          let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
+        let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
+        let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
 
-          // X16 = index << 3 (index * 8)
-          self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
-          // X16 = array_base + X16
-          self.emitter.emit_add(X16, arr_reg, X16);
-          // X16 = X16 + header (skip length field)
-          self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
-          // dst = [X16]
+        // Compute element address: base + header + index * 8.
+        self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
+        self.emitter.emit_add(X16, arr_reg, X16);
+        self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
+
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
+        if is_flt {
+          let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
+          self.emitter.emit_ldr_fp(fp_dst, X16, 0);
+        } else if let Some(dst_reg) = self.alloc_reg(*dst) {
           self.emitter.emit_ldr(dst_reg, X16, 0);
         }
       }
@@ -1469,21 +1481,27 @@ impl<'a> ARM64Gen<'a> {
         array,
         index,
         value,
-        ..
+        ty_id,
       } => {
         // Store value at base + 8 + index * 8.
         let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
         let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
-        let val_reg = self.alloc_reg(*value).unwrap_or(X2);
 
-        // X16 = index << 3 (index * 8)
+        // Compute element address.
         self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
-        // X16 = array_base + X16
         self.emitter.emit_add(X16, arr_reg, X16);
-        // X16 = X16 + header (skip length field)
         self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
-        // [X16] = value
-        self.emitter.emit_str(val_reg, X16, 0);
+
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
+        if is_flt {
+          let fp = self.alloc_fp_reg(*value).unwrap_or(D0);
+          self.emitter.emit_str_fp(fp, X16, 0);
+        } else {
+          let val_reg = self.alloc_reg(*value).unwrap_or(X2);
+          self.emitter.emit_str(val_reg, X16, 0);
+        }
       }
 
       Insn::ArrayLen { dst, array, .. } => {

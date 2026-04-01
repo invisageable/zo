@@ -1,6 +1,6 @@
 # zo — liveness.
 
-> *backward bitvector liveness analysis for SIR.*
+> *Backward bitvector liveness analysis for SIR.*
 
 ## about.
 
@@ -11,17 +11,15 @@
 
 ### overview.
 
-`zo-liveness` provides backward liveness analysis and SIR instruction
-introspection. extracted from `zo-register-allocation` so both
-register allocation and DCE can share the same analysis.
+zo-liveness provides backward liveness analysis and SIR instruction introspection. extracted from zo-register-allocation so both register allocation and DCE can share the same analysis.
 
 ### modules.
 
-| module | purpose |
-|--------|---------|
-| `bitvec` | compact bitvector (u64-word, set/test/union/difference) |
-| `insn` | `compute_value_ids()` and `insn_uses()` — def/use extraction |
-| `liveness` | `analyze()` — backward fixed-point liveness |
+| module     | purpose                                                      |
+| :--------- | :----------------------------------------------------------- |
+| `bitvec`   | compact bitvector (u64-word, set/test/union/difference)      |
+| `insn`     | `compute_value_ids()` and `insn_uses()` — def/use extraction |
+| `liveness` | `analyze()` — backward fixed-point liveness                  |
 
 ### algorithm.
 
@@ -36,6 +34,7 @@ classical backward bitvector dataflow:
   ```
 
 CFG successor computation handles:
+
   - `Jump { target }` → label target
   - `BranchIfNot { target }` → fall-through + label target
   - `Return` → no successors

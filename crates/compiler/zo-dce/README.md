@@ -1,6 +1,6 @@
 # zo — dce (dead code elimination).
 
-> *eliminate unreachable functions from the SIR.*
+> *Eliminate unreachable functions from the SIR.*
 
 ## about.
 
@@ -13,34 +13,32 @@
 
 ### overview.
 
-`zo-dce` removes unreachable function bodies from the SIR before
-codegen. it operates on the flat instruction stream — no CFG needed.
-called from `zo-compiler` after semantic analysis, before codegen.
+zo-dce removes unreachable function bodies from the SIR before codegen. it operates on the flat instruction stream — no CFG needed. Called from zo-compiler after semantic analysis, before codegen.
 
 ### pipeline.
 
 four passes, run in order from `Dce::eliminate()`:
 
-```
-1. eliminate_dead_functions        — interprocedural
-2. eliminate_unreachable_after_return — intraprocedural
-3. eliminate_dead_variables         — intraprocedural (symbol liveness)
-4. eliminate_dead_instructions     — intraprocedural (value liveness)
+  ```
+  1. eliminate_dead_functions        — interprocedural
+  2. eliminate_unreachable_after_return — intraprocedural
+  3. eliminate_dead_variables         — intraprocedural (symbol liveness)
+  4. eliminate_dead_instructions     — intraprocedural (value liveness)
 ```
 
 ### pass 1: dead function elimination.
 
 worklist-based transitive reachability:
 
-```
-1. build_function_map   — scan SIR, pair FunDef → Return ranges
-2. mark_reachable       — seed worklist with roots (main + pub)
-   while worklist not empty:
-     pop function, mark reachable
-     scan its body for Call instructions
-     add callees to worklist
-3. eliminate             — drain dead ranges in reverse order
-```
+  ```
+  1. build_function_map   — scan SIR, pair FunDef → Return ranges
+  2. mark_reachable       — seed worklist with roots (main + pub)
+    while worklist not empty:
+      pop function, mark reachable
+      scan its body for Call instructions
+      add callees to worklist
+  3. eliminate             — drain dead ranges in reverse order
+  ```
 
 O(F + E) where F = number of functions, E = number of call edges.
 

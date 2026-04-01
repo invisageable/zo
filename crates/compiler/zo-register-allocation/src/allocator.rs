@@ -495,7 +495,8 @@ fn insn_is_fp(insn: &Insn) -> bool {
     Insn::BinOp { ty_id, .. }
     | Insn::UnOp { ty_id, .. }
     | Insn::Load { ty_id, .. }
-    | Insn::Call { ty_id, .. } => ty_id.0 >= 15 && ty_id.0 <= 17,
+    | Insn::Call { ty_id, .. }
+    | Insn::ArrayIndex { ty_id, .. } => ty_id.0 >= 15 && ty_id.0 <= 17,
     _ => false,
   }
 }

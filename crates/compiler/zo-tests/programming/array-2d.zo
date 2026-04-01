@@ -1,0 +1,21 @@
+-- tests-build-pass: multi-dimensional arrays.
+-- @cmd — zo run array-2d.zo
+
+fun main() {
+  -- inline 2d array.
+  imu grid: [2][3]int = [[1, 2, 3], [4, 5, 6]];
+
+  check@eq(grid[0][0], 1);
+  check@eq(grid[0][1], 2);
+  check@eq(grid[0][2], 3);
+  check@eq(grid[1][0], 4);
+  check@eq(grid[1][1], 5);
+  check@eq(grid[1][2], 6);
+
+  -- separate rows.
+  imu row0: []int = [10, 20, 30];
+  imu row1: []int = [40, 50, 60];
+
+  check@eq(row0[0], 10);
+  check@eq(row1[2], 60);
+}

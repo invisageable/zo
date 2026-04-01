@@ -1353,8 +1353,11 @@ impl<'a> Executor<'a> {
         // For indexing: the array value was pushed by
         // the preceding Ident. For literals: stacks
         // have whatever was there before.
-        let is_indexing =
-          idx > 0 && matches!(self.tree.nodes[idx - 1].token, Token::Ident);
+        let is_indexing = idx > 0
+          && matches!(
+            self.tree.nodes[idx - 1].token,
+            Token::Ident | Token::RBracket
+          );
 
         let array_name = if is_indexing && idx > 0 {
           self.node_value(idx - 1).and_then(|v| match v {
@@ -1382,7 +1385,7 @@ impl<'a> Executor<'a> {
               let idx_sir = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
 
               // Pop array value.
-              if let (Some(_arr_val), Some(_arr_ty)) =
+              if let (Some(_arr_val), Some(arr_ty)) =
                 (self.value_stack.pop(), self.ty_stack.pop())
               {
                 let arr_sir =
@@ -1392,7 +1395,14 @@ impl<'a> Executor<'a> {
 
                 self.sir.next_value_id += 1;
 
-                let elem_ty = int_ty; // TODO: resolve from array type
+                // Resolve element type from the array's type.
+                let elem_ty = match self.ty_checker.resolve_ty(arr_ty) {
+                  Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
+                    Some(at) => at.elem_ty,
+                    None => int_ty,
+                  },
+                  _ => int_ty,
+                };
 
                 let sv = self.sir.emit(Insn::ArrayIndex {
                   dst,
@@ -1414,6 +1424,14 @@ impl<'a> Executor<'a> {
             let count = self.sir_values.len().saturating_sub(depth);
             let mut elements = Vec::with_capacity(count);
 
+            // Infer element type from the first element
+            // before popping the stacks.
+            let elem_ty = if depth < self.ty_stack.len() {
+              self.ty_stack[depth]
+            } else {
+              int_ty
+            };
+
             // Pop elements in reverse, then reverse.
             for _ in 0..count {
               if let Some(sv) = self.sir_values.pop() {
@@ -1426,10 +1444,10 @@ impl<'a> Executor<'a> {
 
             elements.reverse();
 
-            let elem_ty = int_ty; // TODO: infer from elements.
-
-            let arr_ty_id =
-              self.ty_checker.ty_table.intern_array(elem_ty, None);
+            let arr_ty_id = self
+              .ty_checker
+              .ty_table
+              .intern_array(elem_ty, Some(count as u32));
 
             let arr_ty = self.ty_checker.intern_ty(Ty::Array(arr_ty_id));
 
@@ -3551,13 +3569,65 @@ impl<'a> Executor<'a> {
             j += 1;
           }
 
-          if j < children_end && self.tree.nodes[j].token.is_ty() {
-            let elem_ty = self.resolve_type_token(j);
+          // Element type: either a primitive type token or
+          // another `[` for multi-dimensional arrays.
+          let elem_resolved = if j < children_end
+            && self.tree.nodes[j].token.is_ty()
+          {
+            let ty = self.resolve_type_token(j);
+            j += 1;
+            Some(ty)
+          } else if j < children_end
+            && self.tree.nodes[j].token == Token::LBracket
+          {
+            // Multi-dimensional: parse inner array type.
+            let mut inner_j = j + 1;
+            let mut inner_size: Option<u32> = None;
+
+            if inner_j < children_end
+              && self.tree.nodes[inner_j].token == Token::Int
+            {
+              if let Some(NodeValue::Literal(lit_idx)) =
+                self.node_value(inner_j)
+              {
+                inner_size =
+                  Some(self.literals.int_literals[lit_idx as usize] as u32);
+              }
+              inner_j += 1;
+            }
+
+            if inner_j < children_end
+              && self.tree.nodes[inner_j].token == Token::RBracket
+            {
+              inner_j += 1;
+            }
+
+            if inner_j < children_end && self.tree.nodes[inner_j].token.is_ty()
+            {
+              let inner_elem = self.resolve_type_token(inner_j);
+              inner_j += 1;
+
+              let inner_arr = self
+                .ty_checker
+                .ty_table
+                .intern_array(inner_elem, inner_size);
+              let inner_ty = self.ty_checker.intern_ty(Ty::Array(inner_arr));
+
+              j = inner_j;
+              Some(inner_ty)
+            } else {
+              None
+            }
+          } else {
+            None
+          };
+
+          if let Some(elem_ty) = elem_resolved {
             let arr_id = self.ty_checker.ty_table.intern_array(elem_ty, size);
 
             annotated_ty = Some(self.ty_checker.intern_ty(Ty::Array(arr_id)));
 
-            i = j + 1;
+            i = j;
             skip_to = i;
 
             continue;

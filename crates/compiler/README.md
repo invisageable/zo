@@ -16,7 +16,7 @@
   zo -- build hello.zo -o hello
   ```
 
-> it will creates an executable named `hello` in the current folder.
+> *It will creates an executable named `hello` in the current folder.*
 
 THEN, YOU CAN RUN iT:
 
@@ -40,7 +40,7 @@ iT WiLL PRiNTS:
 
 THAT'S iT, YOU SHOULD SEE A NATiVE APP ON YOUR SCREEN.
 
-> this command is only for `native` app, if you want to build for `web` you should add the `--web` flag.
+> *This command is only for `native` app, if you want to build for `web` you should add the `--web` flag.*
 
 <p align="center">
   <img width="340" src="./zo-notes/public/preview/preview-zo-hello-template-native.png" />
@@ -53,7 +53,7 @@ FOR AN iNTRODUCTiON, [HERE](./zo-notes/public/guidelines/02-install.md) iS WHERE
 
 ## architecture.
 
-
+...
 
 ## release.
 
@@ -79,7 +79,7 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
   git commit -m "ops(zo): release: `0.1.1`"
   ```
 
-  > here is our git naming-convention [guidelines](./zo-notes/public/guidelines/01-introduction.md#git-naming-convention).
+  > *Here is our git naming-convention [guidelines](./zo-notes/public/guidelines/01-introduction.md#git-naming-convention).*
 
   4. FiNALLY, CREATE THE TAG AND PUSH EVERYTHiNG:
 

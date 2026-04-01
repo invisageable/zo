@@ -1,0 +1,11 @@
+-- tests-build-pass: bool arrays.
+-- @cmd — zo run array-bool.zo
+
+fun main() {
+  imu flags: []bool = [true, false, true, false];
+
+  check(flags[0]);
+  check(!flags[1]);
+  check(flags[2]);
+  check(!flags[3]);
+}

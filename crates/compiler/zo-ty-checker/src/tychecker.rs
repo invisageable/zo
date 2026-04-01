@@ -366,9 +366,13 @@ impl TyChecker {
         // Unify element types
         self.unify(arr1.elem_ty, arr2.elem_ty, span)?;
 
-        // Check sizes match if both are fixed
-        if arr1.size != arr2.size {
+        // Check sizes match if both are fixed. A dynamic
+        // array (None) is compatible with any fixed size.
+        if let (Some(s1), Some(s2)) = (arr1.size, arr2.size)
+          && s1 != s2
+        {
           report_error(Error::new(ErrorKind::ArraySizeMismatch, span));
+
           return None;
         }
 
