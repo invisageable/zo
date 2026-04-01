@@ -104,3 +104,42 @@ fn test_2d_static_type_annotation_no_errors() {
 }"#,
   );
 }
+
+#[test]
+fn test_3d_type_annotation_no_errors() {
+  assert_no_errors(
+    r#"fun main() {
+  imu a: []int = [1, 2];
+  imu b: []int = [3, 4];
+  imu c: []int = [5, 6];
+  imu d: []int = [7, 8];
+  imu r0: [][]int = [a, b];
+  imu r1: [][]int = [c, d];
+  imu cube: [][][]int = [r0, r1];
+}"#,
+  );
+}
+
+#[test]
+fn test_3d_chained_index_emits_three_array_index() {
+  let (insns, _) = execute_raw(
+    r#"fun main() {
+  imu a: []int = [1, 2];
+  imu b: []int = [3, 4];
+  imu r0: [][]int = [a, b];
+  imu r1: [][]int = [a, b];
+  imu cube: [][][]int = [r0, r1];
+  imu v: int = cube[0][1][0];
+}"#,
+  );
+
+  let count = insns
+    .iter()
+    .filter(|i| matches!(i, Insn::ArrayIndex { .. }))
+    .count();
+
+  assert_eq!(
+    count, 3,
+    "expected 3 ArrayIndex for cube[0][1][0], got {count}"
+  );
+}

@@ -1,0 +1,27 @@
+-- tests-build-pass: 3d array indexing.
+-- @cmd — zo run array-3d.zo
+--
+-- builds a 3d cube from individual rows, then verifies
+-- triple-chained indexing cube[i][j][k] reaches the
+-- correct element at every corner.
+
+fun main() {
+  imu a: []int = [1, 2];
+  imu b: []int = [3, 4];
+  imu c: []int = [5, 6];
+  imu d: []int = [7, 8];
+
+  imu r0: [][]int = [a, b];
+  imu r1: [][]int = [c, d];
+
+  imu cube: [][][]int = [r0, r1];
+
+  check@eq(cube[0][0][0], 1);
+  check@eq(cube[0][0][1], 2);
+  check@eq(cube[0][1][0], 3);
+  check@eq(cube[0][1][1], 4);
+  check@eq(cube[1][0][0], 5);
+  check@eq(cube[1][0][1], 6);
+  check@eq(cube[1][1][0], 7);
+  check@eq(cube[1][1][1], 8);
+}

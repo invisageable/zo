@@ -2484,6 +2484,57 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Resolves an N-dimensional array type starting at `start`.
+  /// Parses `[N1][N2]...[Nk]T` and returns `(TyId, next_idx)`.
+  /// The first `[` is at `start`.
+  fn resolve_array_type(
+    &mut self,
+    start: usize,
+    end: usize,
+  ) -> Option<(TyId, usize)> {
+    let mut j = start;
+    let mut dims: Vec<Option<u32>> = Vec::new();
+
+    // Collect all [N] dimensions.
+    while j < end && self.tree.nodes[j].token == Token::LBracket {
+      let mut k = j + 1;
+      let mut dim_size: Option<u32> = None;
+
+      if k < end && self.tree.nodes[k].token == Token::Int {
+        if let Some(NodeValue::Literal(lit_idx)) = self.node_value(k) {
+          dim_size = Some(self.literals.int_literals[lit_idx as usize] as u32);
+        }
+        k += 1;
+      }
+
+      if k < end && self.tree.nodes[k].token == Token::RBracket {
+        k += 1;
+      }
+
+      dims.push(dim_size);
+      j = k;
+    }
+
+    // Resolve the base element type.
+    if j < end && self.tree.nodes[j].token.is_ty() {
+      let base_ty = self.resolve_type_token(j);
+      j += 1;
+
+      // Build from inside out:
+      // [2][3]int → [3]int → [2][3]int.
+      let mut ty = base_ty;
+
+      for dim in dims.iter().rev() {
+        let aid = self.ty_checker.ty_table.intern_array(ty, *dim);
+        ty = self.ty_checker.intern_ty(Ty::Array(aid));
+      }
+
+      Some((ty, j))
+    } else {
+      None
+    }
+  }
+
   /// Resolves a type token at `idx` to a [`TyId`].
   fn resolve_type_token(&mut self, idx: usize) -> TyId {
     match self.tree.nodes[idx].token {
@@ -2821,31 +2872,9 @@ impl<'a> Executor<'a> {
               return_ty = ty;
               idx = skip;
             } else if self.tree.nodes[idx].token == Token::LBracket {
-              // Array return type: -> []type or -> [N]type.
-              let mut j = idx + 1;
-              let mut size: Option<u32> = None;
-
-              if j < end_idx && self.tree.nodes[j].token == Token::Int {
-                if let Some(NodeValue::Literal(lit_idx)) = self.node_value(j) {
-                  size =
-                    Some(self.literals.int_literals[lit_idx as usize] as u32);
-                }
-
-                j += 1;
-              }
-
-              if j < end_idx && self.tree.nodes[j].token == Token::RBracket {
-                j += 1;
-              }
-
-              if j < end_idx && self.tree.nodes[j].token.is_ty() {
-                let elem_ty = self.resolve_type_token(j);
-
-                let arr_id =
-                  self.ty_checker.ty_table.intern_array(elem_ty, size);
-
-                return_ty = self.ty_checker.intern_ty(Ty::Array(arr_id));
-                idx = j + 1;
+              if let Some((ty, next)) = self.resolve_array_type(idx, end_idx) {
+                return_ty = ty;
+                idx = next;
               }
             } else {
               return_ty = self.resolve_type_token(idx);
@@ -3248,42 +3277,14 @@ impl<'a> Executor<'a> {
               if idx < _end_idx {
                 let param_ty = if self.tree.nodes[idx].token == Token::LBracket
                 {
-                  // Array parameter: []type or [N]type.
-                  let mut j = idx + 1;
-                  let mut size: Option<u32> = None;
-
-                  if j < _end_idx && self.tree.nodes[j].token == Token::Int {
-                    if let Some(NodeValue::Literal(lit_idx)) =
-                      self.node_value(j)
-                    {
-                      size = Some(
-                        self.literals.int_literals[lit_idx as usize] as u32,
-                      );
-                    }
-
-                    j += 1;
-                  }
-
-                  if j < _end_idx && self.tree.nodes[j].token == Token::RBracket
+                  if let Some((ty, next)) =
+                    self.resolve_array_type(idx, _end_idx)
                   {
-                    j += 1;
+                    idx = next - 1;
+                    ty
+                  } else {
+                    self.ty_checker.int_type()
                   }
-
-                  let elem_ty =
-                    if j < _end_idx && self.tree.nodes[j].token.is_ty() {
-                      let ty = self.resolve_type_token(j);
-
-                      idx = j;
-
-                      ty
-                    } else {
-                      self.ty_checker.int_type()
-                    };
-
-                  let arr_id =
-                    self.ty_checker.ty_table.intern_array(elem_ty, size);
-
-                  self.ty_checker.intern_ty(Ty::Array(arr_id))
                 } else {
                   self.resolve_type_token(idx)
                 };
@@ -3325,31 +3326,10 @@ impl<'a> Executor<'a> {
           if idx + 1 < _end_idx {
             idx += 1;
 
-            // Array return type: -> []type or -> [N]type.
             if self.tree.nodes[idx].token == Token::LBracket {
-              let mut j = idx + 1;
-              let mut size: Option<u32> = None;
-
-              if j < _end_idx && self.tree.nodes[j].token == Token::Int {
-                if let Some(NodeValue::Literal(lit_idx)) = self.node_value(j) {
-                  size =
-                    Some(self.literals.int_literals[lit_idx as usize] as u32);
-                }
-
-                j += 1;
-              }
-
-              if j < _end_idx && self.tree.nodes[j].token == Token::RBracket {
-                j += 1;
-              }
-
-              if j < _end_idx && self.tree.nodes[j].token.is_ty() {
-                let elem_ty = self.resolve_type_token(j);
-
-                let arr_id =
-                  self.ty_checker.ty_table.intern_array(elem_ty, size);
-
-                return_ty = self.ty_checker.intern_ty(Ty::Array(arr_id));
+              if let Some((ty, _next)) = self.resolve_array_type(idx, _end_idx)
+              {
+                return_ty = ty;
               }
             } else {
               return_ty = self.resolve_type_token(idx);
@@ -3552,86 +3532,15 @@ impl<'a> Executor<'a> {
           continue;
         }
 
-        // Array type annotation: []type or [N]type.
-        if tok == Token::LBracket && annotated_ty.is_none() {
-          let mut j = i + 1;
-          let mut size: Option<u32> = None;
-
-          if j < children_end && self.tree.nodes[j].token == Token::Int {
-            if let Some(NodeValue::Literal(lit_idx)) = self.node_value(j) {
-              size = Some(self.literals.int_literals[lit_idx as usize] as u32);
-            }
-
-            j += 1;
-          }
-
-          if j < children_end && self.tree.nodes[j].token == Token::RBracket {
-            j += 1;
-          }
-
-          // Element type: either a primitive type token or
-          // another `[` for multi-dimensional arrays.
-          let elem_resolved = if j < children_end
-            && self.tree.nodes[j].token.is_ty()
-          {
-            let ty = self.resolve_type_token(j);
-            j += 1;
-            Some(ty)
-          } else if j < children_end
-            && self.tree.nodes[j].token == Token::LBracket
-          {
-            // Multi-dimensional: parse inner array type.
-            let mut inner_j = j + 1;
-            let mut inner_size: Option<u32> = None;
-
-            if inner_j < children_end
-              && self.tree.nodes[inner_j].token == Token::Int
-            {
-              if let Some(NodeValue::Literal(lit_idx)) =
-                self.node_value(inner_j)
-              {
-                inner_size =
-                  Some(self.literals.int_literals[lit_idx as usize] as u32);
-              }
-              inner_j += 1;
-            }
-
-            if inner_j < children_end
-              && self.tree.nodes[inner_j].token == Token::RBracket
-            {
-              inner_j += 1;
-            }
-
-            if inner_j < children_end && self.tree.nodes[inner_j].token.is_ty()
-            {
-              let inner_elem = self.resolve_type_token(inner_j);
-              inner_j += 1;
-
-              let inner_arr = self
-                .ty_checker
-                .ty_table
-                .intern_array(inner_elem, inner_size);
-              let inner_ty = self.ty_checker.intern_ty(Ty::Array(inner_arr));
-
-              j = inner_j;
-              Some(inner_ty)
-            } else {
-              None
-            }
-          } else {
-            None
-          };
-
-          if let Some(elem_ty) = elem_resolved {
-            let arr_id = self.ty_checker.ty_table.intern_array(elem_ty, size);
-
-            annotated_ty = Some(self.ty_checker.intern_ty(Ty::Array(arr_id)));
-
-            i = j;
-            skip_to = i;
-
-            continue;
-          }
+        // Array type annotation: []type, [N]type, [N][M]type.
+        if tok == Token::LBracket
+          && annotated_ty.is_none()
+          && let Some((ty, next)) = self.resolve_array_type(i, children_end)
+        {
+          annotated_ty = Some(ty);
+          i = next;
+          skip_to = i;
+          continue;
         }
 
         // Type token after the colon.
