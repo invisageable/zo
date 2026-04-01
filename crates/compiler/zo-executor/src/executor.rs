@@ -1944,6 +1944,8 @@ impl<'a> Executor<'a> {
         {
           match folded {
             FoldResult::Int(value) => {
+              self.nop_folded_operands(lhs_sir, rhs_sir);
+
               let dst = ValueId(self.sir.next_value_id);
               self.sir.next_value_id += 1;
 
@@ -1959,6 +1961,8 @@ impl<'a> Executor<'a> {
               return;
             }
             FoldResult::Float(value) => {
+              self.nop_folded_operands(lhs_sir, rhs_sir);
+
               let dst = ValueId(self.sir.next_value_id);
               self.sir.next_value_id += 1;
 
@@ -1974,6 +1978,8 @@ impl<'a> Executor<'a> {
               return;
             }
             FoldResult::Bool(value) => {
+              self.nop_folded_operands(lhs_sir, rhs_sir);
+
               let ty_id = self.ty_checker.bool_type();
 
               let dst = ValueId(self.sir.next_value_id);
@@ -1991,6 +1997,8 @@ impl<'a> Executor<'a> {
               return;
             }
             FoldResult::Str(symbol) => {
+              self.nop_folded_operands(lhs_sir, rhs_sir);
+
               let str_ty = self.ty_checker.str_type();
 
               let dst = ValueId(self.sir.next_value_id);
@@ -5389,6 +5397,44 @@ impl<'a> Executor<'a> {
 
       self.pending_compound_receiver = None;
       self.pending_compound = Some((name, op, span));
+    }
+  }
+
+  /// Replace folded operand instructions with `Nop` in-place
+  /// and remove their annotations. Indices stay stable.
+  fn nop_folded_operands(&mut self, lhs_sir: ValueId, rhs_sir: ValueId) {
+    for insn in self.sir.instructions.iter_mut() {
+      let dst = match insn {
+        Insn::ConstInt { dst, .. }
+        | Insn::ConstFloat { dst, .. }
+        | Insn::ConstBool { dst, .. }
+        | Insn::ConstString { dst, .. }
+        | Insn::BinOp { dst, .. }
+        | Insn::UnOp { dst, .. }
+        | Insn::Call { dst, .. }
+        | Insn::Load { dst, .. }
+        | Insn::ArrayLiteral { dst, .. }
+        | Insn::ArrayIndex { dst, .. }
+        | Insn::ArrayLen { dst, .. }
+        | Insn::TupleLiteral { dst, .. }
+        | Insn::TupleIndex { dst, .. }
+        | Insn::EnumConstruct { dst, .. }
+        | Insn::StructConstruct { dst, .. } => Some(*dst),
+        Insn::Template { id, .. } => Some(*id),
+        _ => None,
+      };
+
+      if dst == Some(lhs_sir) || dst == Some(rhs_sir) {
+        *insn = Insn::Nop;
+      }
+    }
+
+    // Remove annotations that pointed at the now-dead
+    // operands. They are the most recent two.
+    let len = self.annotations.len();
+
+    if len >= 2 {
+      self.annotations.truncate(len - 2);
     }
   }
 

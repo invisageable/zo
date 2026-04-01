@@ -5,7 +5,7 @@ use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
-use zo_ty::Ty;
+use zo_ty::{Annotation, Ty};
 
 /// Assert that execution produces the expected type annotations and SIR
 pub(crate) fn assert_annotations_stream(
@@ -27,11 +27,18 @@ pub(crate) fn assert_annotations_stream(
   let (sir, annotations, ty_checker) = executor.execute();
   let mut actual = Vec::new();
 
+  // Zip annotations with non-Nop SIR instructions.
+  let live_insns: Vec<_> = sir
+    .instructions
+    .iter()
+    .filter(|i| !matches!(i, Insn::Nop))
+    .collect();
+
   for (idx, annotation) in annotations.iter().enumerate() {
     let ty = ty_checker.resolve_ty(annotation.ty_id);
 
-    if idx < sir.instructions.len() {
-      actual.push((annotation.node_idx, ty, sir.instructions[idx].clone()));
+    if idx < live_insns.len() {
+      actual.push((annotation.node_idx, ty, live_insns[idx].clone()));
     }
   }
 
@@ -133,4 +140,23 @@ pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
     expected_error,
     errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
   );
+}
+
+/// Execute source and return raw (SIR instructions, annotations).
+pub(crate) fn execute_raw(source: &str) -> (Vec<Insn>, Vec<Annotation>) {
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (sir, annotations, _) = executor.execute();
+
+  (sir.instructions, annotations)
 }

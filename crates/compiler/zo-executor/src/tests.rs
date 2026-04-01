@@ -7,6 +7,7 @@ pub(crate) mod constants;
 pub(crate) mod control_flow;
 pub(crate) mod enums;
 pub(crate) mod errors;
+pub(crate) mod folding;
 pub(crate) mod generics;
 pub(crate) mod interpolation;
 pub(crate) mod modules;
@@ -76,37 +77,18 @@ fn test_simple_addition() {
     width: IntWidth::S32,
   };
 
+  // Operands are folded away (Nop'd). Only the result remains.
   assert_annotations_stream(
     "1 + 2",
-    &[
-      (
-        0,
-        s32_ty,
-        Insn::ConstInt {
-          dst: ValueId(0),
-          value: 1,
-          ty_id: TyId(8),
-        },
-      ),
-      (
-        1,
-        s32_ty,
-        Insn::ConstInt {
-          dst: ValueId(1),
-          value: 2,
-          ty_id: TyId(8),
-        },
-      ),
-      (
-        2,
-        s32_ty,
-        Insn::ConstInt {
-          dst: ValueId(2),
-          value: 3,
-          ty_id: TyId(8),
-        },
-      ),
-    ],
+    &[(
+      2,
+      s32_ty,
+      Insn::ConstInt {
+        dst: ValueId(2),
+        value: 3,
+        ty_id: TyId(8),
+      },
+    )],
   );
 }
 

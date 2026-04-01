@@ -441,6 +441,7 @@ impl PrettyPrinter {
 
           self.sir_instruction(&tmpl);
         }
+        Insn::Nop => {}
       }
     }
 

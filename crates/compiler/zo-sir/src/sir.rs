@@ -185,6 +185,7 @@ impl Sir {
           off(base);
           off(value);
         }
+        Insn::Nop => {}
       }
     }
   }
@@ -390,6 +391,9 @@ pub enum Insn {
     ty_id: TyId,
     commands: Vec<UiCommand>,
   },
+  /// Dead instruction — replaces folded operands in-place
+  /// so instruction indices stay stable.
+  Nop,
 }
 
 /// Represents binary operators.
