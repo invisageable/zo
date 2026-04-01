@@ -1,0 +1,46 @@
+-- tests-build-pass: ugly number.
+-- @cmd — zo run ugly-number.zo
+--
+-- an ugly number is a positive integer whose only prime
+-- factors are 2, 3, and 5. repeatedly divide by each factor
+-- until indivisible. if the result is 1, the number is ugly.
+
+fun is_ugly(n: int) -> bool {
+  if n <= 0 {
+    return false;
+  }
+
+  mut x: int = n;
+
+  while x % 5 == 0 {
+    x /= 5;
+  }
+
+  while x % 3 == 0 {
+    x /= 3;
+  }
+
+  while x % 2 == 0 {
+    x /= 2;
+  }
+
+  return x == 1;
+}
+
+fun main() {
+  -- ugly numbers.
+  check(is_ugly(1));
+  check(is_ugly(2));
+  check(is_ugly(3));
+  check(is_ugly(5));
+  check(is_ugly(6));
+  check(is_ugly(8));
+  check(is_ugly(15));
+  check(is_ugly(30));
+
+  -- not ugly.
+  check(!is_ugly(0));
+  check(!is_ugly(-1));
+  check(!is_ugly(7));
+  check(!is_ugly(14));
+}

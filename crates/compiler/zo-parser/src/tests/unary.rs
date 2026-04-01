@@ -195,3 +195,31 @@ fn test_multiple_unary() {
     ],
   );
 }
+
+#[test]
+fn test_unary_not_on_function_call() {
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        x = !f(0);
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "main"
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      // x = !f(0) — ! comes AFTER the complete call.
+      (Ident, Some(NodeValue::TextRange(28, 1))), // "x"
+      (Eq, None),
+      (Ident, Some(NodeValue::TextRange(33, 1))), // "f"
+      (LParen, None),
+      (Int, Some(NodeValue::Literal(0))), // 0
+      (RParen, None),
+      (Bang, None), // unary not after call result
+      (Semicolon, None),
+      (RBrace, None),
+    ],
+  );
+}

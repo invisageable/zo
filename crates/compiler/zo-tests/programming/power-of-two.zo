@@ -1,0 +1,31 @@
+-- tests-build-pass: power of two.
+-- @cmd — zo run power-of-two.zo
+--
+-- a power of two has exactly one bit set. clearing the lowest
+-- set bit with n & (n - 1) yields zero iff n was a power of
+-- two. non-positive numbers are rejected.
+
+fun is_power_of_two(n: int) -> bool {
+  if n <= 0 {
+    return false;
+  }
+
+  mut x: int = n;
+  x &= x - 1;
+
+  return x == 0;
+}
+
+fun main() {
+  check(is_power_of_two(1));
+  check(is_power_of_two(2));
+  check(is_power_of_two(4));
+  check(is_power_of_two(16));
+  check(is_power_of_two(1024));
+
+  check(!is_power_of_two(0));
+  check(!is_power_of_two(-1));
+  check(!is_power_of_two(3));
+  check(!is_power_of_two(6));
+  check(!is_power_of_two(15));
+}

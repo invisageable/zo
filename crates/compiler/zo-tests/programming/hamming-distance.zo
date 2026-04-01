@@ -1,0 +1,33 @@
+-- tests-build-pass: hamming distance.
+-- @cmd — zo run hamming-distance.zo
+--
+-- xor isolates differing bits. count set bits with brian
+-- kernighan's algorithm: bits &= bits - 1 clears the
+-- lowest set bit each iteration.
+
+fun hamming_distance(x: int, y: int) -> int {
+  mut bits: int = x ^ y;
+  mut count: int = 0;
+
+  while bits != 0 {
+    count += 1;
+    bits &= bits - 1;
+  }
+
+  return count;
+}
+
+fun main() {
+  -- 1 (0001) vs 4 (0100) => 2 bits differ.
+  check@eq(hamming_distance(1, 4), 2);
+
+  -- 3 (011) vs 1 (001) => 1 bit differs.
+  check@eq(hamming_distance(3, 1), 1);
+
+  -- identical => 0.
+  check@eq(hamming_distance(0, 0), 0);
+  check@eq(hamming_distance(7, 7), 0);
+
+  -- 0 vs 255 => 8 bits.
+  check@eq(hamming_distance(0, 255), 8);
+}

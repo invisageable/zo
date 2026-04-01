@@ -67,6 +67,8 @@ pub struct Parser<'a> {
   saved_expr_bufs: Vec<Vec<(Token, Span, Option<NodeValue>)>>,
   /// Spans for unary prefix operators (not in expr_buffer).
   unary_spans: Vec<(Token, Span)>,
+  /// Saved unary spans for nested calls/indices.
+  saved_unary_spans: Vec<Vec<(Token, Span)>>,
   /// True after emitting a value-producing token (RParen,
   /// RBracket, Ident, literal) when expr_buffer is empty.
   /// Prevents `*` / `&` from being misidentified as unary.
@@ -94,6 +96,7 @@ impl<'a> Parser<'a> {
       saved_op_stacks: Vec::new(),
       saved_expr_bufs: Vec::new(),
       unary_spans: Vec::new(),
+      saved_unary_spans: Vec::new(),
       last_was_value: false,
       type_paren_depth: 0,
     }
@@ -470,8 +473,13 @@ impl<'a> Parser<'a> {
 
       self.state = ParserState::ParameterList;
     } else {
-      // For function/method calls, flush the expression first then emit LParen
+      // For function/method calls, flush the expression
+      // first then emit LParen. Save pending unary ops so
+      // nested calls don't consume them.
       self.flush_expr();
+      self
+        .saved_unary_spans
+        .push(std::mem::take(&mut self.unary_spans));
       self.emit_node(Token::LParen);
     }
   }
@@ -536,9 +544,11 @@ impl<'a> Parser<'a> {
       // Park outer context while we parse the index.
       let saved_ops = std::mem::take(&mut self.operator_stack);
       let saved_buf = std::mem::take(&mut self.expr_buffer);
+      let saved_unary = std::mem::take(&mut self.unary_spans);
 
       self.saved_op_stacks.push(saved_ops);
       self.saved_expr_bufs.push(saved_buf);
+      self.saved_unary_spans.push(saved_unary);
 
       let node_index = self.emit_node(Token::LBracket);
 
@@ -595,6 +605,17 @@ impl<'a> Parser<'a> {
       }
     } else {
       self.emit_node(Token::RParen);
+    }
+
+    // Restore outer unary ops saved by LParen.
+    if let Some(outer) = self.saved_unary_spans.pop() {
+      self.unary_spans = outer;
+    }
+
+    // Drain any pending unary ops that apply to the
+    // complete call/group result (e.g. `!f(x)`).
+    while let Some((tok, sp)) = self.unary_spans.pop() {
+      self.emit_node_internal(tok, sp, None);
     }
 
     // A closed paren is a value-producing context.
@@ -687,6 +708,17 @@ impl<'a> Parser<'a> {
 
         if let Some(buf) = self.saved_expr_bufs.pop() {
           self.expr_buffer = buf;
+        }
+
+        // Restore outer unary ops saved by LBracket.
+        if let Some(outer) = self.saved_unary_spans.pop() {
+          self.unary_spans = outer;
+        }
+
+        // Drain pending unary ops that apply to the
+        // complete index result (e.g. `!v[0]`).
+        while let Some((tok, sp)) = self.unary_spans.pop() {
+          self.emit_node_internal(tok, sp, None);
         }
       } else {
         // Mismatched delimiter - emit anyway
@@ -1410,10 +1442,15 @@ impl<'a> Parser<'a> {
       self.expr_buffer.push((kind, span, value));
 
       // Emit pending unary operators right after the operand
-      // (postfix order). Drain in reverse so !!x becomes
-      // [x, !, !] (inner first).
-      while let Some((tok, sp)) = self.unary_spans.pop() {
-        self.expr_buffer.push((tok, sp, None));
+      // (postfix order). But NOT if the next token starts a
+      // call `(` or index `[` — the unary applies to the
+      // complete result, not the bare name.
+      let next = self.peek();
+
+      if next != Some(Token::LParen) && next != Some(Token::LBracket) {
+        while let Some((tok, sp)) = self.unary_spans.pop() {
+          self.expr_buffer.push((tok, sp, None));
+        }
       }
     } else {
       // Direct emission

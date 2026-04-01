@@ -1,0 +1,32 @@
+-- tests-build-pass: single number.
+-- @cmd — zo run single-number.zo
+--
+-- given an array where every element appears twice except one,
+-- find the unique element. xor-ing cancels duplicates since
+-- x ^ x = 0 and x ^ 0 = x.
+
+fun single_number(nums: []int, n: int) -> int {
+  mut value: int = 0;
+  mut i: int = 0;
+
+  while i < n {
+    value ^= nums[i];
+    i += 1;
+  }
+
+  return value;
+}
+
+fun main() {
+  mut a: []int = [2, 2, 1];
+  check@eq(single_number(a, 3), 1);
+
+  mut b: []int = [4, 1, 2, 1, 2];
+  check@eq(single_number(b, 5), 4);
+
+  mut c: []int = [1];
+  check@eq(single_number(c, 1), 1);
+
+  mut d: []int = [0, 1, 0];
+  check@eq(single_number(d, 3), 1);
+}
