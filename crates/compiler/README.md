@@ -62,9 +62,9 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
   1. BUMP ALL VERSiONS:
 
   ```sh
-  just bump patch
+  just bump <major|minor|patch>
   ```
-  
+
   2. VERiFY THE BUMP CORRECTNESS:
 
   ```sh
@@ -76,7 +76,7 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
 
   ```sh
   git add -A
-  git commit -m "ops(zo): release: `0.1.1`"
+  git commit -m "ops(zo): release: `<version>`"
   ```
 
   > *Here is our git naming-convention [guidelines](./zo-notes/public/guidelines/01-introduction.md#git-naming-convention).*
@@ -84,5 +84,5 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
   4. FiNALLY, CREATE THE TAG AND PUSH EVERYTHiNG:
 
   ```sh
-  just release 0.1.1
+  just release <version>
   ```
