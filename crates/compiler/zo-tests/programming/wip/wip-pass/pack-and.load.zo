@@ -7,7 +7,6 @@ pack foo {
 pack bar {
   fun main() {
     load::foo::x;
-
     
     fun main() {
       x(10);
