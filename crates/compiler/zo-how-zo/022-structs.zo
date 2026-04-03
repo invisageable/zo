@@ -37,13 +37,13 @@ fun main() {
   showln("alive: {alive}");
 }
 
--! ## struct layout.
+-! ## the capstone.
 -!
--! structs are flat data on the stack. each field occupies a slot.
--! no hidden pointers, no heap allocation for the struct itself.
+-! Structs are flat data on the stack. each field occupies a slot.
+-! No hidden pointers, No heap allocation for the struct itself.
 -!
--! want to attach methods to a struct? that's `apply` — covered
--! in lesson 024.
+-! Want to attach methods to a struct? that's `apply` — covered in lesson
+-! 024-apply.zo.
 -!
 -! ## try this.
 -!
@@ -56,4 +56,4 @@ fun main() {
 -- power: 12
 -- hero: arya
 -- hp: 100
--- alive: 1
+-- alive: true

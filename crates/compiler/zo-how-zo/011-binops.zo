@@ -66,9 +66,9 @@ fun main() {
 -- prod: 30
 -- div: 3
 -- mod: 1
--- equal: 0
--- not equal: 1
--- greater: 0
--- less or equal: 1
+-- equal: false
+-- not equal: true
+-- greater: false
+-- less or equal: true
 -- bitwise and: 8
 -- bit shift: 8

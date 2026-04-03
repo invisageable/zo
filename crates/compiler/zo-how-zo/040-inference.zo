@@ -50,8 +50,8 @@ fun main() {
 -!   `: type =`   — write the type yourself. use for documentation or when the
 -!                  compiler needs a hint.
 -!
--! rule of thumb: if the value makes the type obvious, use `:=`.
--! if the reader would have to think, write the type.
+-! Rule of thumb: if the value makes the type obvious, use `:=`.
+-! If the reader would have to think, write the type.
 -!
 -! ## how it works.
 -!
@@ -69,8 +69,8 @@ fun main() {
 -- 10
 -- 3.140000
 -- arya
--- 1
+-- true
 -- 30
 -- 10
--- 1
+-- true
 -- 30

@@ -55,7 +55,8 @@ const NEWLINE_BUFFER_OFFSET: u16 = 16;
 const ARRAY_ELEMENT_SHIFT: u8 = 3;
 const ARRAY_HEADER_SIZE: u16 = 8;
 
-// --- Float Type Detection ---
+// --- Type Detection ---
+const BOOL_TYPE_ID: u32 = 2;
 const FLOAT_TYPE_ID_MIN: u32 = 15;
 const FLOAT_TYPE_ID_MAX: u32 = 17;
 
@@ -275,6 +276,19 @@ impl<'a> ARM64Gen<'a> {
         | Insn::ArrayIndex { ty_id, .. } => {
           ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX
         }
+        _ => false,
+      })
+  }
+
+  /// Check if a ValueId was produced by a bool instruction.
+  fn is_bool_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
+    self
+      .find_producing_insn(vid, all_insns)
+      .is_some_and(|insn| match insn {
+        Insn::ConstBool { .. } => true,
+        Insn::BinOp { ty_id, .. }
+        | Insn::Load { ty_id, .. }
+        | Insn::ArrayIndex { ty_id, .. } => ty_id.0 == BOOL_TYPE_ID,
         _ => false,
       })
   }
@@ -1647,6 +1661,7 @@ impl<'a> ARM64Gen<'a> {
   ) {
     let is_str = arg_vid.is_some_and(|v| self.is_string_value(v, all_insns));
     let is_flt = arg_vid.is_some_and(|v| self.is_float_value(v, all_insns));
+    let is_bool = arg_vid.is_some_and(|v| self.is_bool_value(v, all_insns));
 
     // Check if the most recent emitted instruction was a
     // math intrinsic (FSQRT, FRINTM, etc.). The result
@@ -1663,6 +1678,14 @@ impl<'a> ARM64Gen<'a> {
       }
 
       self.emit_ftoa_and_write(fd);
+    } else if is_bool && arg_vid.is_some() {
+      if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
+        && src != X0
+      {
+        self.emitter.emit_mov_reg(X0, src);
+      }
+
+      self.emit_bool_and_write(fd);
     } else if !is_str && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -1765,6 +1788,67 @@ impl<'a> ARM64Gen<'a> {
 
     // Print 6 digits via itoa.
     self.emit_itoa_and_write(fd);
+  }
+
+  /// Emit bool-to-string write: prints "true" or "false".
+  /// X0 holds the bool value (0 or 1).
+  fn emit_bool_and_write(&mut self, fd: u16) {
+    let sym_true = Symbol(0xFFFD);
+    let sym_false = Symbol(0xFFFC);
+
+    // Register "true" and "false" string data once.
+    if !self.string_data.iter().any(|(s, _)| *s == sym_true) {
+      let mut buf = Buffer::new();
+      let len = 4u64; // "true".len()
+
+      buf.bytes(&len.to_le_bytes());
+      buf.bytes(b"true");
+      buf.bytes(b"\0");
+
+      self.string_data.push((sym_true, buf.finish()));
+    }
+
+    if !self.string_data.iter().any(|(s, _)| *s == sym_false) {
+      let mut buf = Buffer::new();
+      let len = 5u64; // "false".len()
+
+      buf.bytes(&len.to_le_bytes());
+      buf.bytes(b"false");
+      buf.bytes(b"\0");
+
+      self.string_data.push((sym_false, buf.finish()));
+    }
+
+    // CBZ X0, false_path — if 0, print "false".
+    let cbz_pos = self.emitter.current_offset();
+
+    self.emitter.emit_cbz(X0, 0);
+
+    // True path: ADR X16 -> "true" string.
+    let true_fixup = self.emitter.current_offset();
+
+    self.string_fixups.push((true_fixup, sym_true));
+    self.emitter.emit_adr(X16, 0);
+    // B past the false path ADR (skip 1 instruction = 4).
+    self.emitter.emit_b(8);
+
+    // False path.
+    let false_start = self.emitter.current_offset();
+    let cbz_offset = (false_start as i32 - cbz_pos as i32) >> 2;
+
+    self.emitter.patch_cbz_at(cbz_pos as usize, cbz_offset);
+
+    let false_fixup = self.emitter.current_offset();
+
+    self.string_fixups.push((false_fixup, sym_false));
+    self.emitter.emit_adr(X16, 0);
+
+    // Merge: unpack string struct and write.
+    self.emitter.emit_ldr(X2, X16, 0);
+    self.emitter.emit_add_imm(X1, X16, 8);
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
+    self.emitter.emit_mov_imm(X0, fd);
+    self.emitter.emit_svc(0);
   }
 
   fn emit_itoa_and_write(&mut self, fd: u16) {

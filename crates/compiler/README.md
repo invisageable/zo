@@ -72,11 +72,11 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
   just pre-commit
   ```
 
-  3. THEN COMMiT AND TAG:
+  3. THEN COMMiT:
 
   ```sh
   git add -A
-  git commit -m "ops(zo): release: `<version>`"
+  git commit -m "ops(zo): release `<version>`"
   ```
 
   > *Here is our git naming-convention [guidelines](./zo-notes/public/guidelines/01-introduction.md#git-naming-convention).*
@@ -86,3 +86,12 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
   ```sh
   just release <version>
   ```
+
+THE RELEASE WiLL RUN iN THE PiPELiNE FOR THE FOLLOWiNG TARGETS:
+
+  - `aarch64-apple-darwin`
+  - `x86_64-apple-darwin`
+  - `x86_64-unknown-linux-gnu`
+  - `x86_64-pc-windows-msvc`
+
+TO UPDATE zo EXECUTABLE iN YOUR SYSTEM CHECK [`zo install`](./zo-notes/public/guidelines/02-install.md)
