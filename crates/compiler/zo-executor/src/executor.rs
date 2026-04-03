@@ -196,6 +196,7 @@ impl<'a> Executor<'a> {
         return Some(sym);
       }
     }
+
     None
   }
 
@@ -242,6 +243,7 @@ impl<'a> Executor<'a> {
   /// execution.
   pub fn with_imports(mut self, funs: Vec<FunDef>, vars: Vec<Local>) -> Self {
     self.funs = funs;
+
     self.locals.extend(vars);
 
     self
@@ -366,13 +368,17 @@ impl<'a> Executor<'a> {
       // === MODULE STATEMENTS ===
       Token::Load => {
         let children_end = (header.child_start + header.child_count) as usize;
+
         self.execute_load(idx, children_end);
+
         self.skip_until = children_end;
       }
 
       Token::Pack => {
         let children_end = (header.child_start + header.child_count) as usize;
+
         self.execute_pack(idx, children_end);
+
         self.skip_until = children_end;
       }
 
@@ -433,6 +439,7 @@ impl<'a> Executor<'a> {
           self.value_stack.pop();
           self.ty_stack.pop();
           self.sir_values.pop();
+
           ctx.branch_emitted = true;
         }
       }
@@ -471,6 +478,7 @@ impl<'a> Executor<'a> {
         let children_end = (header.child_start + header.child_count) as usize;
 
         self.execute_directive(idx, children_end);
+
         self.skip_until = children_end;
       }
 
@@ -523,6 +531,7 @@ impl<'a> Executor<'a> {
           fields.reverse();
 
           let dst = ValueId(self.sir.next_value_id);
+
           self.sir.next_value_id += 1;
 
           let sv = self.sir.emit(Insn::EnumConstruct {
@@ -565,10 +574,9 @@ impl<'a> Executor<'a> {
 
             // Build tuple type.
             let tuple_ty_id = self.ty_checker.ty_table.intern_tuple(elem_tys);
-
             let ty_id = self.ty_checker.intern_ty(Ty::Tuple(tuple_ty_id));
-
             let dst = ValueId(self.sir.next_value_id);
+
             self.sir.next_value_id += 1;
 
             let sv = self.sir.emit(Insn::TupleLiteral {
@@ -682,7 +690,6 @@ impl<'a> Executor<'a> {
         // regardless of whether a semicolon follows.
         self.finalize_pending_compound();
         self.finalize_pending_assign();
-
         // Check for pending return (explicit return without semicolon)
         self.check_pending_return();
 
@@ -774,7 +781,6 @@ impl<'a> Executor<'a> {
               }
 
               self.sir.emit(Insn::Label { id: ctx.end_label });
-
               self.branch_stack.pop();
             }
             BranchKind::For => {
@@ -845,11 +851,33 @@ impl<'a> Executor<'a> {
                 if let Some(el) = ctx.else_label {
                   self.sir.emit(Insn::Label { id: el });
                 }
+
                 self.sir.emit(Insn::Label { id: ctx.end_label });
                 self.branch_stack.pop();
               }
             }
             BranchKind::Ternary => {
+              // Emit Return for the false arm.
+              if let Some(ref mut fun_ctx) = self.current_function {
+                let unit_ty = self.ty_checker.unit_type();
+
+                let needs_return =
+                  fun_ctx.pending_return || fun_ctx.return_ty != unit_ty;
+
+                if needs_return {
+                  let sir_val = self.sir_values.last().copied();
+                  let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+
+                  self.sir.emit(Insn::Return {
+                    value: sir_val,
+                    ty_id: ty,
+                  });
+
+                  fun_ctx.pending_return = false;
+                  fun_ctx.has_explicit_return = true;
+                }
+              }
+
               self.sir.emit(Insn::Label { id: ctx.end_label });
               self.branch_stack.pop();
             }
@@ -1655,6 +1683,28 @@ impl<'a> Executor<'a> {
           let end_label = ctx.end_label;
           let else_label = ctx.else_label.unwrap();
 
+          // Emit Return for the true arm — handles both
+          // explicit `return when ...` and implicit return
+          // (when as last expression in non-void function).
+          if let Some(ref mut fun_ctx) = self.current_function {
+            let unit_ty = self.ty_checker.unit_type();
+
+            let needs_return =
+              fun_ctx.pending_return || fun_ctx.return_ty != unit_ty;
+
+            if needs_return {
+              let sir_val = self.sir_values.last().copied();
+              let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+
+              self.sir.emit(Insn::Return {
+                value: sir_val,
+                ty_id: ty,
+              });
+
+              fun_ctx.has_explicit_return = true;
+            }
+          }
+
           self.sir.emit(Insn::Jump { target: end_label });
           self.sir.emit(Insn::Label { id: else_label });
         } else {
@@ -1670,9 +1720,7 @@ impl<'a> Executor<'a> {
 
       Token::TemplateFragmentStart => {
         let children_end = (header.child_start + header.child_count) as usize;
-        eprintln!("PRE-FRAG vs={}", self.value_stack.len());
         self.execute_template_fragment(idx, children_end);
-        eprintln!("POST-FRAG vs={}", self.value_stack.len());
         // Skip past the fragment so the parent loop
         // doesn't reprocess tag/text tokens.
         self.skip_until = children_end;
@@ -5608,6 +5656,16 @@ impl<'a> Executor<'a> {
 
   /// Check if we have a pending return and emit it with the current stack value
   fn check_pending_return(&mut self) {
+    // Inside a ternary, the Colon and RBrace handlers
+    // emit per-arm Returns instead.
+    if self
+      .branch_stack
+      .last()
+      .is_some_and(|c| c.kind == BranchKind::Ternary)
+    {
+      return;
+    }
+
     if let Some(ref mut ctx) = self.current_function
       && ctx.pending_return
     {
@@ -5619,7 +5677,9 @@ impl<'a> Executor<'a> {
             .last()
             .copied()
             .unwrap_or(self.ty_checker.unit_type());
+
           let sir_value = self.sir_values.last().copied();
+
           (sir_value, ty)
         } else {
           (None, self.ty_checker.unit_type())
@@ -6398,8 +6458,15 @@ impl<'a> Executor<'a> {
     let dir_name = self.interner.get(sym).to_owned();
 
     // Execute argument children (after the name).
+    // Skip Semicolon — it's syntactic, not a statement
+    // terminator inside a directive.
     for i in (dir_idx + 1)..end_idx {
       let node = self.tree.nodes[i];
+
+      if node.token == Token::Semicolon {
+        continue;
+      }
+
       self.execute_node(&node, i);
     }
 
@@ -7087,7 +7154,7 @@ impl<'a> Executor<'a> {
         } else {
           // Stash widget id in sentinel for close_template_tag
           commands.push(UiCommand::BeginContainer {
-            id: format!("__button_{}__", wid),
+            id: format!("__button_{wid}__"),
             direction: ContainerDirection::Vertical,
           });
         }

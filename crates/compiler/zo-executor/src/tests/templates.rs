@@ -238,3 +238,21 @@ fn test_template_attr_interpolation() {
     errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
   );
 }
+
+// === DOM DIRECTIVE ===
+
+#[test]
+fn test_dom_directive_emits_insn() {
+  assert_sir_structure(
+    r#"fun main() {
+  imu view: </> ::= <>hello</>;
+  #dom view;
+}"#,
+    |sir| {
+      let has_directive =
+        sir.iter().any(|i| matches!(i, Insn::Directive { .. }));
+
+      assert!(has_directive, "#dom should emit Insn::Directive: {sir:#?}");
+    },
+  );
+}
