@@ -45,11 +45,11 @@ fun main() {
 
 -! ## two kinds of methods.
 -!
--!   instance — takes `self`, called with `.`
--!     `hero.is_alive()` acts on an existing value.
+-!   Instance — takes `self`, called with `.`
+-!     - `hero.is_alive()` acts on an existing value.
 -!
--!   static — no `self`, called with `::`  (coming soon)
--!     `Hero::new(...)` creates a new value.
+-!   Static — no `self`, called with `::`  (coming soon)
+-!     - `Hero::new(...)` creates a new value.
 -!
 -! ## try this.
 -!
@@ -59,6 +59,6 @@ fun main() {
 
 -- EXPECTED OUTPUT:
 -- hero: arya
--- alive: 1
+-- alive: true
 -- power: 115
--- ghost alive: 0
+-- ghost alive: false

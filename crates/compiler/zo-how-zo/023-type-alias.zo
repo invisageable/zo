@@ -25,15 +25,15 @@ fun main() {
   showln("x: {x}, y: {y}");
 }
 
--! ## when to use aliases.
+-! ## the capstone.
 -!
 -! aliases shine when a type appears many times:
 -!
 -!   `type Color = (int, int, int);`
 -!   `type Grid = []int;`
 -!
--! the reader sees `Color` and knows what it means. the
--! compiler sees `(int, int, int)` and does its job.
+-! The reader sees `Color` and knows what it means. The compiler 
+-! sees `(int, int, int)` and does its job.
 -!
 -! ## try this.
 -!

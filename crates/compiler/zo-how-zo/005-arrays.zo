@@ -2,12 +2,13 @@
 -!
 -! @cmd: `zo run 005-arrays.zo`
 -!
--! An array is a fixed-size list of values, all the same type. you declare
--! the size up front and it never changes. no heap. no growing. just a flat
--! block of memory on the stack.
+-! An array is a fixed-size list of values, all the same type. zo supports
+-! dynamic arrays (`[]int`), static arrays (`[3]int`), and N-dimensional
+-! arrays (`[4][4]float`, `[2][2][2]int`). No heap. No growing. Just flat
+-! blocks of memory on the stack.
 
 fun main() {
-  -- declare an array with `type[]` and fill it with `[a, b, c]`.
+  -- declare an array with `[]type` and fill it with `[a, b, c]`.
   -- zo infers the length from the literal.
   imu loot: []int = [10, 25, 50, 5, 100]; -- // A dynamic of array of integers.
 
@@ -60,30 +61,116 @@ fun main() {
   check@eq(hp[0], 75);
   check@eq(hp[1], 70);
   check@eq(hp[2], 20);
+
+  -- static arrays — size is part of the type.
+  imu slots: [3]int = [1, 2, 3];
+  imu names: [2]str = ["warrior", "mage"];
+
+  imu s0: int = slots[0];
+  imu s2: int = slots[2];
+  imu n0: str = names[0];
+  imu n1: str = names[1];
+
+  check@eq(s0, 1);
+  check@eq(s2, 3);
+  check@eq(n0, "warrior");
+  check@eq(n1, "mage");
+
+  showln("slot 0: {s0}");
+  showln("slot 2: {s2}");
+
+  -- 2D arrays — grids, matrices, tile maps.
+  imu grid: [2][3]int = [[1, 2, 3], [4, 5, 6]];
+
+  imu g00: int = grid[0][0];
+  imu g02: int = grid[0][2];
+  imu g11: int = grid[1][1];
+  imu g12: int = grid[1][2];
+
+  check@eq(g00, 1);
+  check@eq(g02, 3);
+  check@eq(g11, 5);
+  check@eq(g12, 6);
+
+  showln("grid[0][0]: {g00}");
+  showln("grid[1][2]: {g12}");
+
+  -- 3D arrays — voxels, spatial data, RGB volumes.
+  imu cube: [2][2][2]int = [
+    [[1, 2], [3, 4]],
+    [[5, 6], [7, 8]]
+  ];
+
+  imu c000: int = cube[0][0][0];
+  imu c011: int = cube[0][1][1];
+  imu c101: int = cube[1][0][1];
+  imu c111: int = cube[1][1][1];
+
+  check@eq(c000, 1);
+  check@eq(c011, 4);
+  check@eq(c101, 6);
+  check@eq(c111, 8);
+
+  showln("cube[0][0][0]: {c000}");
+  showln("cube[1][1][1]: {c111}");
+
+  -- arrays work with all types.
+  imu flags: [3]bool = [true, false, true];
+  imu temps: [3]float = [36.5, 37.0, 38.2];
+  imu labels: [2]str = ["fire", "ice"];
+
+  imu f0: bool = flags[0];
+  imu f1: bool = flags[1];
+  imu t1: float = temps[1];
+  imu l0: str = labels[0];
+  imu l1: str = labels[1];
+
+  check@eq(f0, true);
+  check@eq(f1, false);
+  check@eq(l0, "fire");
+  check@eq(l1, "ice");
+
+  showln("flag 0: {f0}");
+  showln("temp 1: {t1}");
+  showln("label 0: {l0}");
 }
 
 -! ## array types.
 -!
 -!   ```
--!   []int   — array of signed 32-bit integers.
--!   []float — array of 64-bit floats.
--!   []str   — array of strings.
+-!   -- dynamic arrays (size inferred from literal).
+-!   []int        — dynamic array of integers.
+-!   []float      — dynamic array of floats.
+-!   []bool       — dynamic array of booleans.
+-!   []str        — dynamic array of strings.
+-!
+-!   -- static arrays (size is part of the type).
+-!   [3]int       — static array of 3 integers.
+-!   [12]str      — static array of 12 strings.
+-!
+-!   -- N-dimensional arrays.
+-!   [4][4]float    — 2D static array (4x4 matrix).
+-!   [4][4][4]float — 3D static array (4x4x4 cube).
 -!   ```
 -!
--! The length is fixed at creation. no push, no pop, no resize. if you
--! need dynamic collections, that's a different chapter.
+-! Arrays support all primitive types: `int`, `float`, `bool`, `str`.
+-! The length is fixed at creation. no push, no pop, no resize.
 -!
 -! ## the capstone.
 -!
--!   - Arrays can store the same type values only.
--!     - Declare `static` array by using `[3]int` type.
--!     - Declare `dynamic` array by using `[]int` type.
+-!   - Arrays store same-type values only.
+-!     - `[]int`          — **dynamic array, size inferred.**
+-!     - `[3]int`         — **static array, size in the type.**
+-!     - `[2][3]int`      — **2D array (2 rows, 3 columns).**
+-!     - `[2][2][2]int`   — **3D array (2x2x2 cube).**
+-!   - Indexing is chained: `grid[row][col]`, `cube[x][y][z]`.
 -!
 -! ## try this.
 -!
 -!   - Create a `[]float` of temperatures and find the average with a loop.
 -!   - Use `check@eq(arr[2] * arr[3], 24)` to verify array math.
 -!   - What happens if you access `loot[5]`? (out of bounds — try it.)
+-!   - Create a `[3][3]float` identity matrix and verify the diagonal.
 
 -- EXPECTED OUTPUT:
 -- first chest: 10 gold
@@ -94,3 +181,12 @@ fun main() {
 -- warrior: 75 hp
 -- mage: 70 hp
 -- rogue: 20 hp
+-- slot 0: 1
+-- slot 2: 3
+-- grid[0][0]: 1
+-- grid[1][2]: 6
+-- cube[0][0][0]: 1
+-- cube[1][1][1]: 8
+-- flag 0: true
+-- temp 1: 37.0
+-- label 0: fire

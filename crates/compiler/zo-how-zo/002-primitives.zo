@@ -93,5 +93,5 @@ fun main() {
 -- 0.2500
 -- JOiN THE DEVOLUTiON.
 -- 122           (char prints as its ASCII code for now)
--- 1             (true = 1)
--- 0             (false = 0)
+-- true
+-- false

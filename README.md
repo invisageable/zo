@@ -8,7 +8,7 @@
 
 > *The symphonie of compilers.*
 
-[home](https://github.com/invisageable/zo) — [install](./crates/compiler/zo-notes/public/guidelines/02-install.md) — [how-to](./crates/compiler/zo-how-zo) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
+[home](https://github.com/invisageable/zo) — [install](./crates/compiler/zo-notes/public/guidelines/02-install.md) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
 
   ```js
   fun main() {

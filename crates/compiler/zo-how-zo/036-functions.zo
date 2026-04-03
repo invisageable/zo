@@ -41,14 +41,14 @@ fun main() {
 
 -! ## function anatomy.
 -!
--!   ```
+-!   ```zo
 -!   fun name(param: type, ...) -> ReturnType {
 -!     body
 -!   }
 -!   ```
 -!
--! `return expr;` exits the function with a value.
--! functions without `->` return unit (nothing).
+-! `return expr;` exits the function with a value. functions without `->`
+-! return unit (nothing).
 -!
 -! ## try this.
 -!
@@ -59,6 +59,6 @@ fun main() {
 -- EXPECTED OUTPUT:
 -- 30
 -- 14
--- 1
--- 0
+-- true
+-- false
 -- 44
