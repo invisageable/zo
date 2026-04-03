@@ -1,7 +1,7 @@
 -- tests-run-pass: closure squaring.
 
 fun main() {
-  imu square: Fn(int) -> int = fn(x) -> x * x;
+  imu square: Fn(int) -> int = fn(x) => x * x;
 
   check(square(5) == 25);
   showln(square(5));

@@ -2,7 +2,9 @@
 -- @cmd — zo build closure-block.zo
 
 fun main() {
-  imu f: Fn(int) -> int = fn(x: int) -> int { x + x };
+  imu f: Fn(int) -> int = fn(x: int) -> int {
+    x + x
+  };
 
   check@eq(f(21), 42);
 }

@@ -2,5 +2,8 @@
 -- @cmd — zo build lit-tuple-typed.zo
 
 fun main() {
-  imu t: (int, int) = (10, 20);
+  imu tup: (int, int) = (10, 20);
+
+  check@eq(tup.0, 10)
+  check@eq(tup.1, 20)
 }
