@@ -110,6 +110,11 @@ pub struct Executor<'a> {
   /// Active type parameters: `$T → TyId`. Set during
   /// generic function definition, cleared after.
   type_params: Vec<(Symbol, TyId)>,
+  /// Buffered closure SIR instructions. Closures emit
+  /// their FunDef + body here during execution. Flushed
+  /// to `self.sir` after the enclosing function's Return
+  /// so DCE sees them as separate, non-nested functions.
+  deferred_closures: Vec<Insn>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -167,6 +172,7 @@ impl<'a> Executor<'a> {
       apply_context: None,
       global_constants: Vec::new(),
       type_params: Vec::new(),
+      deferred_closures: Vec::new(),
     }
   }
 
@@ -627,6 +633,7 @@ impl<'a> Executor<'a> {
           // scope_depth tracks where we are so only the
           // function body's RBrace triggers function-close.
           self.current_function = Some(FunCtx {
+            name: pending_func.name,
             return_ty: pending_func.return_ty,
             body_start,
             fundef_idx,
@@ -758,6 +765,42 @@ impl<'a> Executor<'a> {
               self.sir.instructions.get_mut(fun_ctx.fundef_idx)
             {
               *kind = FunctionKind::Intrinsic;
+            }
+          }
+
+          // Flush deferred closure instructions BEFORE the
+          // enclosing function's FunDef. This places closure
+          // FunDefs as siblings preceding the containing
+          // function, so the codegen and register allocator
+          // process them first (no forward references).
+          if !self.deferred_closures.is_empty() {
+            let mut closures = std::mem::take(&mut self.deferred_closures);
+
+            // Fix body_start offsets: they were relative to
+            // the temporary SIR (FunDef at 0, body at 1).
+            // After insertion, rebase to the main SIR.
+            let insert_pos = fun_ctx.fundef_idx;
+
+            for insn in closures.iter_mut() {
+              if let Insn::FunDef { body_start, .. } = insn {
+                *body_start += insert_pos as u32;
+              }
+            }
+
+            let closure_len = closures.len();
+
+            // Splice closures before the enclosing FunDef.
+            self
+              .sir
+              .instructions
+              .splice(insert_pos..insert_pos, closures);
+
+            // Adjust the enclosing function's fundef_idx
+            // and body_start since we shifted instructions.
+            if let Some(Insn::FunDef { body_start, .. }) =
+              self.sir.instructions.get_mut(insert_pos + closure_len)
+            {
+              *body_start += closure_len as u32;
             }
           }
 
@@ -1117,6 +1160,19 @@ impl<'a> Executor<'a> {
           if let Some((value_id, ty_id, sir_value, local_kind, mutability)) =
             local_info
           {
+            // Closure variables are call targets only — they
+            // are never used as values in expressions. The
+            // call is handled at RParen by execute_call,
+            // which pushes the return value. Don't push the
+            // closure value itself — it would leak onto the
+            // type stack and cause type mismatches.
+            if matches!(
+              self.values.kinds.get(value_id.0 as usize),
+              Some(Value::Closure)
+            ) {
+              return;
+            }
+
             // Compile-time constant: re-emit the literal
             // value as a fresh SIR instruction each time.
             // No Load, no stack slot.
@@ -1213,17 +1269,15 @@ impl<'a> Executor<'a> {
                 let src = if is_param {
                   // Look up param index from the
                   // current function's param list.
+                  // Match by name (not body_start) to
+                  // avoid collisions with closures.
                   let idx = self
                     .current_function
                     .as_ref()
                     .and_then(|ctx| {
-                      self
-                        .funs
-                        .iter()
-                        .find(|f| f.body_start == ctx.body_start)
-                        .and_then(|f| {
-                          f.params.iter().position(|(n, _)| *n == sym)
-                        })
+                      self.funs.iter().find(|f| f.name == ctx.name).and_then(
+                        |f| f.params.iter().position(|(n, _)| *n == sym),
+                      )
                     })
                     .unwrap_or(0) as u32;
 
@@ -2001,12 +2055,27 @@ impl<'a> Executor<'a> {
 
     match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
       Some(ty_id) => {
-        // Try constant folding using the ConstFold module
+        // Try constant folding — but only if both operands
+        // are compile-time constants. Skip when either is a
+        // runtime value (e.g., function call result) to
+        // avoid incorrect folding across executor passes.
+        let lhs_is_const =
+          self.values.kinds.get(lhs.0 as usize).is_some_and(|k| {
+            matches!(k, Value::Int | Value::Float | Value::Bool | Value::Char)
+          });
+
+        let rhs_is_const =
+          self.values.kinds.get(rhs.0 as usize).is_some_and(|k| {
+            matches!(k, Value::Int | Value::Float | Value::Bool | Value::Char)
+          });
+
         let mut constprop = ConstFold::new(&self.values, self.interner);
         let resolved_ty = self.ty_checker.resolve_ty(ty_id);
 
-        if let Some(folded) =
-          constprop.fold_binop(op, lhs, rhs, span, resolved_ty)
+        if lhs_is_const
+          && rhs_is_const
+          && let Some(folded) =
+            constprop.fold_binop(op, lhs, rhs, span, resolved_ty)
         {
           match folded {
             FoldResult::Int(value) => {
@@ -2937,6 +3006,41 @@ impl<'a> Executor<'a> {
       }
     }
 
+    // -- 1b. Propagate types from declaration annotation ------
+    // If the enclosing declaration has a Fn type annotation,
+    // unify its param/return types with the closure's inferred
+    // types BEFORE executing the body. This allows untyped
+    // params like `fn(x)` to resolve via `Fn(int) -> int`.
+    if let Some(ref decl) = self.pending_decl
+      && let Some(ann_ty) = decl.annotated_ty
+    {
+      let ann = self.ty_checker.resolve_ty(ann_ty);
+
+      if let Ty::Fun(fun_ty_id) = ann
+        && let Some(fun_ty) = self.ty_checker.ty_table.fun(&fun_ty_id).copied()
+      {
+        let ann_params = self.ty_checker.ty_table.fun_params(&fun_ty).to_vec();
+
+        // Unify each param type pairwise.
+        for (i, (_, pty)) in params.iter_mut().enumerate() {
+          if let Some(&ann_pty) = ann_params.get(i) {
+            let span = self.tree.spans[start_idx];
+
+            if let Some(unified) = self.ty_checker.unify(*pty, ann_pty, span) {
+              *pty = unified;
+            }
+          }
+        }
+
+        // Propagate return type if closure has none.
+        if return_ty == self.ty_checker.unit_type()
+          && fun_ty.return_ty != self.ty_checker.unit_type()
+        {
+          return_ty = fun_ty.return_ty;
+        }
+      }
+    }
+
     // -- 2. Determine body range -----------------------------
 
     let (body_start_idx, body_end_idx) =
@@ -3004,10 +3108,18 @@ impl<'a> Executor<'a> {
     let outer_sir_values = std::mem::take(&mut self.sir_values);
     let outer_function = self.current_function.take();
 
-    // -- 7. Emit FunDef --------------------------------------
+    // -- 7. Emit FunDef into temporary SIR -------------------
+    // Closure instructions are buffered and flushed after the
+    // enclosing function's Return. This prevents DCE from
+    // treating nested FunDefs as function boundaries.
 
-    let body_start = (self.sir.instructions.len() + 1) as u32;
-    let fundef_idx = self.sir.instructions.len();
+    let mut closure_sir = Sir::new();
+    closure_sir.next_value_id = self.sir.next_value_id;
+
+    let outer_sir = std::mem::replace(&mut self.sir, closure_sir);
+
+    let body_start = 1u32; // Body starts right after FunDef.
+    let fundef_idx = 0;
 
     self.sir.emit(Insn::FunDef {
       name: closure_name,
@@ -3052,6 +3164,7 @@ impl<'a> Executor<'a> {
     // -- 8. Set function context + scope ---------------------
 
     self.current_function = Some(FunCtx {
+      name: closure_name,
       return_ty,
       body_start,
       fundef_idx,
@@ -3064,7 +3177,26 @@ impl<'a> Executor<'a> {
     self.push_scope();
 
     for (i, (pname, pty)) in combined_params.iter().enumerate() {
-      let value_id = self.values.store_runtime(i as u32);
+      // For captured closure variables, reuse the outer
+      // ClosureValue so resolve_closure_call works inside
+      // the closure body. Regular params get Value::Runtime.
+      let value_id = if (i as u32) < capture_count {
+        self
+          .locals
+          .iter()
+          .rev()
+          .find(|l| l.name == *pname)
+          .filter(|l| {
+            let vi = l.value_id.0 as usize;
+
+            vi < self.values.kinds.len()
+              && matches!(self.values.kinds[vi], Value::Closure)
+          })
+          .map(|l| l.value_id)
+          .unwrap_or_else(|| self.values.store_runtime(i as u32))
+      } else {
+        self.values.store_runtime(i as u32)
+      };
 
       self.locals.push(Local {
         name: *pname,
@@ -3124,6 +3256,12 @@ impl<'a> Executor<'a> {
     self.pop_scope(); // Body scope.
     self.pop_scope(); // Param scope.
 
+    // Move closure SIR to deferred buffer + restore outer SIR.
+    let closure_sir = std::mem::replace(&mut self.sir, outer_sir);
+
+    self.sir.next_value_id = closure_sir.next_value_id;
+    self.deferred_closures.extend(closure_sir.instructions);
+
     self.current_function = outer_function;
     self.skip_until = saved_skip;
     self.pending_decl = outer_pending_decl;
@@ -3146,9 +3284,21 @@ impl<'a> Executor<'a> {
     let closure_ty = self.ty_checker.intern_ty(Ty::Fun(fun_ty_id));
 
     // Collect capture SIR values for prepending at call sites.
+    // Use the outer scope's SIR values (by-copy semantics:
+    // the value is fixed at closure creation time).
     let capture_sirs = captures
       .iter()
-      .map(|(name, _)| (*name, ValueId(u32::MAX)))
+      .map(|(name, _)| {
+        let sir_val = self
+          .locals
+          .iter()
+          .rev()
+          .find(|l| l.name == *name)
+          .and_then(|l| l.sir_value)
+          .unwrap_or(ValueId(u32::MAX));
+
+        (*name, sir_val)
+      })
       .collect::<Vec<_>>();
 
     let closure_val = self.values.store_closure(ClosureValue {
@@ -3588,6 +3738,15 @@ impl<'a> Executor<'a> {
           annotated_ty = Some(ty);
           i = next;
           skip_to = i;
+          continue;
+        }
+
+        // Function type annotation: Fn(T1, T2) -> R.
+        if tok == Token::FnType && annotated_ty.is_none() {
+          let (ty_id, skip) = self.resolve_fn_type(i);
+          annotated_ty = Some(ty_id);
+          i = skip;
+
           continue;
         }
 
@@ -5540,17 +5699,16 @@ impl<'a> Executor<'a> {
         // parameters (e.g., self) so the codegen reads
         // from the param spill slot, not mutable_slots.
         let recv_src = if recv_kind == LocalKind::Parameter {
-          let param_idx = self
-            .current_function
-            .as_ref()
-            .and_then(|ctx| {
-              self
-                .funs
-                .iter()
-                .find(|f| f.body_start == ctx.body_start)
-                .and_then(|f| f.params.iter().position(|(n, _)| *n == recv_sym))
-            })
-            .unwrap_or(0) as u32;
+          let param_idx =
+            self
+              .current_function
+              .as_ref()
+              .and_then(|ctx| {
+                self.funs.iter().find(|f| f.name == ctx.name).and_then(|f| {
+                  f.params.iter().position(|(n, _)| *n == recv_sym)
+                })
+              })
+              .unwrap_or(0) as u32;
 
           LoadSource::Param(param_idx)
         } else {
@@ -6067,22 +6225,52 @@ impl<'a> Executor<'a> {
       arg_types.reverse();
       arg_sirs.reverse();
 
-      // For closures, prepend capture Loads before user args.
+      // For closures, prepend capture values before user args.
+      // By-copy: use the SIR values stored at closure
+      // creation time, not a fresh Load (which would read
+      // the current/mutated value — by-reference).
       if capture_count > 0 {
         let mut full_sirs =
           Vec::with_capacity(capture_count as usize + arg_sirs.len());
 
+        // Look up the ClosureValue for stored capture SIR.
+        let closure_captures = self
+          .lookup_local(fun_name)
+          .and_then(|l| {
+            let vi = l.value_id.0 as usize;
+
+            if vi < self.values.kinds.len()
+              && matches!(self.values.kinds[vi], Value::Closure)
+            {
+              let ci = self.values.indices[vi] as usize;
+
+              Some(self.values.closures[ci].captures.clone())
+            } else {
+              None
+            }
+          })
+          .unwrap_or_default();
+
         for i in 0..capture_count as usize {
           let (cap_name, cap_ty) = func.params[i];
-          let dst = ValueId(self.sir.next_value_id);
 
-          self.sir.next_value_id += 1;
+          // Use stored SIR value if available (by-copy).
+          // Fall back to Load (by-reference) if not stored.
+          let sv = closure_captures
+            .get(i)
+            .filter(|(_, v)| v.0 != u32::MAX)
+            .map(|(_, v)| *v)
+            .unwrap_or_else(|| {
+              let dst = ValueId(self.sir.next_value_id);
 
-          let sv = self.sir.emit(Insn::Load {
-            dst,
-            src: LoadSource::Local(cap_name),
-            ty_id: cap_ty,
-          });
+              self.sir.next_value_id += 1;
+
+              self.sir.emit(Insn::Load {
+                dst,
+                src: LoadSource::Local(cap_name),
+                ty_id: cap_ty,
+              })
+            });
 
           full_sirs.push(sv);
         }
@@ -7334,7 +7522,7 @@ struct BranchCtx {
 /// Tracks context when compiling inside a function
 #[derive(Clone)]
 struct FunCtx {
-  // pub(crate) name: Symbol,
+  pub(crate) name: Symbol,
   pub(crate) return_ty: TyId,
   pub(crate) body_start: u32,
   pub(crate) fundef_idx: usize,

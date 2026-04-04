@@ -87,6 +87,160 @@ fn test_complete_pipeline_hello_world() {
   );
 }
 
+// ================================================================
+// Closure codegen integration tests.
+// ================================================================
+
+/// Helper: run full pipeline (tokenize → parse → execute → codegen)
+/// and return the generated artifact's code bytes.
+fn compile_to_code(source: &str) -> Vec<u8> {
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (sir, _, _) = executor.execute();
+
+  let mut codegen = ARM64Gen::new(&tokenization.interner);
+  let artifact = codegen.generate(&sir);
+
+  artifact.code
+}
+
+#[test]
+fn test_closure_generates_code() {
+  let code = compile_to_code(
+    r#"fun main() {
+  imu f := fn(x: int) -> int => x * 2;
+}"#,
+  );
+
+  // Closure + main: at minimum prologue + epilogue
+  // for each (2 functions × ~3 insns × 4 bytes).
+  assert!(code.len() >= 24, "expected >= 24 bytes, got {}", code.len());
+}
+
+#[test]
+fn test_closure_with_call_generates_bl() {
+  let code = compile_to_code(
+    r#"fun main() -> int {
+  imu f := fn(x: int) -> int => x + 1;
+  f(5)
+}"#,
+  );
+
+  // BL instruction: 0b100101_xxxxxx = 0x94xxxxxx or 0x97xxxxxx.
+  // Scan for at least one BL in the generated code.
+  let has_bl = code.chunks_exact(4).any(|chunk| {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    (insn >> 26) == 0b100101
+  });
+
+  assert!(has_bl, "expected at least one BL instruction");
+}
+
+#[test]
+fn test_closure_forward_ref_patched() {
+  // Closure is hoisted before main in SIR. The Call
+  // inside main is a forward reference that gets patched.
+  // After patching, the BL offset should be negative
+  // (jumping backward to the closure).
+  let code = compile_to_code(
+    r#"fun main() -> int {
+  imu f := fn(x: int) -> int => x;
+  f(42)
+}"#,
+  );
+
+  // Find BL instructions and check at least one has a
+  // negative offset (backward jump to closure).
+  let has_backward_bl = code.chunks_exact(4).any(|chunk| {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    if (insn >> 26) == 0b100101 {
+      // imm26 is sign-extended.
+      let imm26 = insn & 0x03FF_FFFF;
+
+      // Bit 25 set means negative offset.
+      imm26 & (1 << 25) != 0
+    } else {
+      false
+    }
+  });
+
+  assert!(
+    has_backward_bl,
+    "expected backward BL (closure defined before main)"
+  );
+}
+
+#[test]
+fn test_closure_float_param_spill() {
+  // Float closure: param arrives in D0, must be spilled
+  // with STR Dt (FP store), not STR Xt (GP store).
+  let code = compile_to_code(
+    r#"fun main() {
+  imu f := fn(x: float) -> float => x;
+}"#,
+  );
+
+  // STR Dt, [Xn, #imm]: 1111_1101_00xx (0xFD0x).
+  // At least one FP store in the closure prologue.
+  let has_fp_str = code.chunks_exact(4).any(|chunk| {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    // STR (FP, unsigned offset): top 10 bits = 1111110100.
+    (insn >> 22) == 0b1111110100
+  });
+
+  assert!(has_fp_str, "expected FP STR for float param spill");
+}
+
+#[test]
+fn test_closure_multi_param_generates_code() {
+  let code = compile_to_code(
+    r#"fun main() -> int {
+  imu f := fn(a: int, b: int, c: int) -> int => a + b + c;
+  f(1, 2, 3)
+}"#,
+  );
+
+  assert!(
+    code.len() >= 32,
+    "expected >= 32 bytes for 3-param closure, got {}",
+    code.len()
+  );
+}
+
+#[test]
+fn test_closure_capture_generates_code() {
+  let code = compile_to_code(
+    r#"fun main() -> int {
+  imu y: int = 10;
+  imu f := fn(x: int) -> int => x + y;
+  f(5)
+}"#,
+  );
+
+  assert!(
+    code.len() >= 32,
+    "expected >= 32 bytes for closure with capture, got {}",
+    code.len()
+  );
+}
+
+// ================================================================
+// Original codegen tests.
+// ================================================================
+
 #[test]
 fn test_main_function_detection() {
   let mut interner = Interner::new();

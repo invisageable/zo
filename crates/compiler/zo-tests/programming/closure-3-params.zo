@@ -1,0 +1,7 @@
+-- tests-run-pass: closure with 3 parameters.
+
+fun main() {
+  imu add3 := fn(a: int, b: int, c: int) -> int => a + b + c;
+
+  check@eq(add3(1, 2, 3), 6);
+}

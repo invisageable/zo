@@ -163,6 +163,11 @@ pub struct ARM64Gen<'a> {
   /// BL fixups: (code_offset, c_symbol_name).
   /// Patched in assemble() to point at stubs.
   libm_fixups: Vec<(u32, String)>,
+  /// Forward-reference call fixups: (code_offset, func_name).
+  /// Used when a Call references a function (e.g., closure)
+  /// that appears later in the SIR stream. Patched after
+  /// all instructions are translated.
+  call_fixups: Vec<(u32, Symbol)>,
 }
 
 impl<'a> ARM64Gen<'a> {
@@ -192,6 +197,7 @@ impl<'a> ARM64Gen<'a> {
       libm_used: Vec::new(),
       libm_stub_offsets: HashMap::default(),
       libm_fixups: Vec::new(),
+      call_fixups: Vec::new(),
     }
   }
 
@@ -447,6 +453,16 @@ impl<'a> ARM64Gen<'a> {
       self.emit_spills(idx, EmitTiming::Before);
       self.translate_insn(insn, idx, insns);
       self.emit_spills(idx, EmitTiming::After);
+    }
+
+    // Patch forward-reference call fixups. Closures may
+    // appear after their call sites in the SIR stream.
+    for (fixup_pos, func_name) in &self.call_fixups {
+      if let Some(&func_offset) = self.functions.get(func_name) {
+        let offset = func_offset as i32 - *fixup_pos as i32;
+
+        self.emitter.patch_bl(*fixup_pos, offset);
+      }
     }
 
     // Generate _zo_ui_entry_point if we have templates.
@@ -850,14 +866,25 @@ impl<'a> ARM64Gen<'a> {
             info.spill_size + MUTABLE_VAR_RESERVE + param_reserve + caller_save;
 
           // Spill parameters to stack so they survive
-          // register reuse. Params arrive in X0-X7 / D0-D7.
+          // register reuse. Params arrive in X0-X7 (GP)
+          // or D0-D7 (FP) depending on type.
           let param_base = info.spill_size + MUTABLE_VAR_RESERVE;
 
-          for (i, _) in params.iter().enumerate() {
+          for (i, (_, ty_id)) in params.iter().enumerate() {
             let off = param_base + i as u32 * STACK_SLOT_SIZE;
-            let src = Register::new(i as u8);
+            let is_fp =
+              ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
-            self.emitter.emit_str(src, SP, off as i16);
+            if is_fp {
+              let src = FpRegister::new(i as u8);
+
+              self.emitter.emit_str_fp(src, SP, off as u16);
+            } else {
+              let src = Register::new(i as u8);
+
+              self.emitter.emit_str(src, SP, off as i16);
+            }
+
             self.param_slots.insert(i as u32, off);
           }
         }
@@ -929,18 +956,23 @@ impl<'a> ARM64Gen<'a> {
           // Load from parameter spill slot (saved in
           // prologue). This is safe even after registers
           // have been reused for other values.
-          if let Some(dst_reg) = self.alloc_reg(*dst)
-            && let Some(&off) = self.param_slots.get(idx)
-          {
-            self.emitter.emit_ldr(dst_reg, SP, off as i16);
+          if let Some(&off) = self.param_slots.get(idx) {
+            if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
+              // Float param: load from FP spill slot.
+              self.emitter.emit_ldr_fp(fp_dst, SP, off as u16);
+            } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+              // GP param: load from GP spill slot.
+              self.emitter.emit_ldr(dst_reg, SP, off as i16);
+            }
           } else if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
+            // Fallback: no spill slot — read from
+            // original register.
             let fp_src = FpRegister::new(*idx as u8);
 
             if fp_dst != fp_src {
               self.emitter.emit_fmov_fp(fp_dst, fp_src);
             }
           } else if let Some(dst_reg) = self.alloc_reg(*dst) {
-            // Fallback: no spill slot (e.g. intrinsic).
             let src_reg = Register::new(*idx as u8);
 
             if dst_reg != src_reg {
@@ -1225,6 +1257,12 @@ impl<'a> ARM64Gen<'a> {
 
           _ => {
             // Move args to X0-X7 (GP) or D0-D7 (FP).
+            // Collect moves first to detect clobbering:
+            // if src of move B == dst of move A, moving A
+            // first overwrites B's source. Save conflicting
+            // sources to X16 before any moves happen.
+            let mut gp_moves: Vec<(Register, Register)> = Vec::new();
+
             for (i, arg) in args.iter().enumerate() {
               if i >= MAX_REG_ARGS {
                 break;
@@ -1240,9 +1278,36 @@ impl<'a> ARM64Gen<'a> {
                 let dst_reg = Register::new(i as u8);
 
                 if src_reg != dst_reg {
-                  self.emitter.emit_mov_reg(dst_reg, src_reg);
+                  gp_moves.push((dst_reg, src_reg));
                 }
               }
+            }
+
+            // Pre-save: if any move's src is also another
+            // move's dst, save the src to X16 first. This
+            // handles the common case of register overlap
+            // in closure calls with captures.
+            let mut saved_reg: Option<Register> = None;
+
+            for j in 0..gp_moves.len() {
+              let (_, src) = gp_moves[j];
+
+              let is_clobbered = gp_moves
+                .iter()
+                .enumerate()
+                .any(|(k, (dst, _))| k != j && *dst == src);
+
+              if is_clobbered && saved_reg.is_none() {
+                self.emitter.emit_mov_reg(X16, src);
+                saved_reg = Some(src);
+              }
+            }
+
+            // Emit moves, replacing saved src with X16.
+            for (dst, src) in &gp_moves {
+              let actual_src = if Some(*src) == saved_reg { X16 } else { *src };
+
+              self.emitter.emit_mov_reg(*dst, actual_src);
             }
 
             // Save caller-saved temp regs (X9-X15) before BL.
@@ -1263,6 +1328,15 @@ impl<'a> ARM64Gen<'a> {
               let offset = func_offset as i32 - current as i32;
 
               self.emitter.emit_bl(offset);
+            } else {
+              // Forward reference (e.g., closure defined
+              // after the call site). Emit placeholder BL
+              // and record fixup for patching after all
+              // functions are registered.
+              let fixup_pos = self.emitter.current_offset();
+
+              self.emitter.emit_bl(0);
+              self.call_fixups.push((fixup_pos, *name));
             }
 
             // Restore caller-saved temp regs after BL.
@@ -1309,10 +1383,19 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      Insn::Return { value, .. } => {
-        // Move return value to X0.
+      Insn::Return { value, ty_id } => {
+        // Move return value to X0 (GP) or D0 (FP).
+        let is_fp_return =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
         if let Some(vid) = value {
-          if let Some(src_reg) = self.alloc_reg(*vid)
+          if is_fp_return {
+            if let Some(fp_src) = self.alloc_fp_reg(*vid)
+              && fp_src != D0
+            {
+              self.emitter.emit_fmov_fp(D0, fp_src);
+            }
+          } else if let Some(src_reg) = self.alloc_reg(*vid)
             && src_reg != X0
           {
             self.emitter.emit_mov_reg(X0, src_reg);

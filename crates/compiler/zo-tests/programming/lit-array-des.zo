@@ -1,5 +1,5 @@
 fun main() {
-  -- imu [a, b, _, c] = [1, 2, 3, 4];
+  -- imu [a, b, _, c] = [1, 2, 3, 4]; -- destructuring with wildcard
   
-  -- a + b + c; -- 7.
+  -- showln(a + b + c); -- prints 7
 }
