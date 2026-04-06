@@ -1,0 +1,8 @@
+-- tests-run-pass: closure with float params.
+
+fun main() {
+  imu half := fn(x: float) -> float => x / 2.0;
+
+  imu r: float = half(10.0);
+  showln(r);
+}

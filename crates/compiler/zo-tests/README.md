@@ -18,10 +18,10 @@ THE GOAL iS TO PROVE zo'S COMPiLER CORRECTNESS BY PASSiNG THE SAME FOUNDATiONAL 
 ## commands.
 
   ```sh
-  zo build <FILENAME>
+  cargo run --bin zo -- <command> <filename>
   ```
 
-> *If you need more arguments, flags or whatever — just run `zo --help`.*
+> *If you need more arguments, flags or whatever — just run `cargo run --bin zo -- --help`.*
 
 ## dev.
 

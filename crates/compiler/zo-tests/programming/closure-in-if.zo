@@ -1,0 +1,10 @@
+-- tests-run-pass: closure called inside an if block.
+
+fun main() {
+  imu double := fn(x: int) -> int => x * 2;
+  imu x: int = 5;
+
+  if x > 0 {
+    check@eq(double(x), 10);
+  }
+}

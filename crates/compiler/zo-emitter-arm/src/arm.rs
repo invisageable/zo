@@ -250,6 +250,17 @@ impl ARM64Emitter {
     self.emit_u32(insn);
   }
 
+  /// Patches a previously emitted BL at `pos` with a new
+  /// offset. Used for forward-reference fixups (closures).
+  pub fn patch_bl(&mut self, pos: u32, offset: i32) {
+    let imm26 = ((offset >> 2) as u32) & IMM26_MASK;
+    let insn = BL | imm26;
+    let bytes = insn.to_le_bytes();
+    let p = pos as usize;
+
+    self.code[p..p + 4].copy_from_slice(&bytes);
+  }
+
   /// Emits return.
   pub fn emit_ret(&mut self) {
     self.emit_u32(RET_INSN);

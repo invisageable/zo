@@ -1,0 +1,9 @@
+-- tests-run-pass: closure captures mutable variable by copy.
+
+fun main() {
+  mut x: int = 10;
+  imu f := fn(n: int) -> int => n + x;
+  x = 99;
+
+  check@eq(f(5), 15);
+}

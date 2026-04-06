@@ -1,0 +1,44 @@
+-! # how to closures: 037-closures.zo
+-!
+-! @cmd: `zo run 037-closures.zo`
+-!
+-! A closure is a function without a name, stored as a value.
+-! Different weapons have different damage formulas — you could
+-! write a function for each, or store the formula itself.
+
+fun main() {
+  -- `fn(params) -> type => expr` creates an inline closure.
+  imu double := fn(x: int) -> int => x * 2;
+  imu result: int = double(21);
+  showln(result);
+
+  -- closures with multiple params.
+  imu add := fn(a: int, b: int) -> int => a + b;
+  imu sum: int = add(10, 20);
+  showln(sum);
+
+  -- closures can capture outer variables.
+  imu bonus: int = 10;
+  imu with_bonus := fn(x: int) -> int => x + bonus;
+  imu boosted: int = with_bonus(5);
+  showln(boosted);
+}
+
+-! ## closure syntax.
+-!
+-!   inline:  `fn(x: int) -> int => x * 2`
+-!   block:   `fn(x: int) -> int { return x * 2; }`
+-!
+-! closures are values — store them, pass them, call them.
+-! `Fn(int) -> int` is the type signature for a closure.
+-!
+-! ## try this.
+-!
+-!   - create a `heal` closure: `fn(hp: int) -> int => hp + 30`.
+-!   - store different damage formulas and pick one at runtime.
+-!   - pass a closure to a function as a parameter.
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 30
+-- 15

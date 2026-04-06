@@ -1,0 +1,9 @@
+-- tests-run-pass: closure with multiple captures.
+
+fun main() {
+  imu a: int = 10;
+  imu b: int = 20;
+  imu f := fn(x: int) -> int => x + a + b;
+
+  check@eq(f(5), 35);
+}

@@ -1,0 +1,15 @@
+-- tests-run-pass: utf8.
+
+fun main() {
+  imu yen: bytes = `¥`;         -- 0xa5.
+  imu c_cedilla: bytes = `ç`;   -- 0xe7.
+  imu thorn: bytes = `þ`;       -- 0xfe.
+  imu y_diaeresis: bytes = `ÿ`; -- 0xff.
+  imu pi: bytes = `Π`;          -- 0x3a0.
+
+  check@eq(yen, `¥`);
+  check@eq(c_cedilla, `ç`);
+  check@eq(thorn, `þ`);
+  check@eq(y_diaeresis, `ÿ`);
+  check@eq(pi, `Π`);
+}

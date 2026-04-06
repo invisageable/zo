@@ -110,6 +110,16 @@ pub struct Executor<'a> {
   /// Active type parameters: `$T → TyId`. Set during
   /// generic function definition, cleared after.
   type_params: Vec<(Symbol, TyId)>,
+  /// Buffered closure SIR instructions. Closures emit
+  /// their FunDef + body here during execution. Flushed
+  /// to `self.sir` after the enclosing function's Return
+  /// so DCE sees them as separate, non-nested functions.
+  deferred_closures: Vec<Insn>,
+  /// RParen index of a pending call detected via operator-
+  /// skipping at LParen (`Ident Op LParen`). The main loop
+  /// suppresses deferred binops until this RParen is reached,
+  /// preventing call args from being consumed by the operator.
+  pending_call_rparen: Option<usize>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -167,6 +177,8 @@ impl<'a> Executor<'a> {
       apply_context: None,
       global_constants: Vec::new(),
       type_params: Vec::new(),
+      deferred_closures: Vec::new(),
+      pending_call_rparen: None,
     }
   }
 
@@ -263,7 +275,15 @@ impl<'a> Executor<'a> {
       // Apply deferred binary operators only when:
       // 1. We're not inside a tuple/grouping context.
       // 2. The RHS value has been pushed to the stack.
-      if self.tuple_ctx.is_empty() {
+      // 3. The next node is NOT an RParen for a call —
+      //    that would mean the current value is a call
+      //    arg, not the deferred binop's RHS.
+      // Clear pending call marker when RParen is reached.
+      if self.pending_call_rparen == Some(idx) {
+        self.pending_call_rparen = None;
+      }
+
+      if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
         self.apply_deferred_binop();
       }
     }
@@ -484,12 +504,38 @@ impl<'a> Executor<'a> {
 
       // === TUPLES / GROUPING / TUPLE TYPE ===
       Token::LParen => {
-        // If preceded by Ident → function call (handled at RParen).
-        let is_call =
-          idx > 0 && matches!(self.tree.nodes[idx - 1].token, Token::Ident);
+        // Function call: Ident before LParen (direct or
+        // with an operator in between). Uses semantic
+        // validation to distinguish `f(x)` from `a*(b)`.
+        let is_call = self.resolve_call_target(idx).is_some();
 
         if is_call {
           // Skip — RParen handles call.
+          // For operator-separated calls (Ident Op LParen),
+          // find the matching RParen and suppress deferred
+          // binops until the call args are fully evaluated.
+          if idx > 1
+            && !matches!(self.tree.nodes[idx - 1].token, Token::Ident)
+            && !self.deferred_binops.is_empty()
+          {
+            // Find matching RParen by depth counting.
+            let mut depth = 1;
+            let mut rp = idx + 1;
+
+            while rp < self.tree.nodes.len() && depth > 0 {
+              match self.tree.nodes[rp].token {
+                Token::LParen => depth += 1,
+                Token::RParen => depth -= 1,
+                _ => {}
+              }
+
+              if depth > 0 {
+                rp += 1;
+              }
+            }
+
+            self.pending_call_rparen = Some(rp);
+          }
         } else if idx + 1 < self.tree.nodes.len()
           && self.tree.nodes[idx + 1].token.is_ty()
         {
@@ -627,6 +673,7 @@ impl<'a> Executor<'a> {
           // scope_depth tracks where we are so only the
           // function body's RBrace triggers function-close.
           self.current_function = Some(FunCtx {
+            name: pending_func.name,
             return_ty: pending_func.return_ty,
             body_start,
             fundef_idx,
@@ -758,6 +805,42 @@ impl<'a> Executor<'a> {
               self.sir.instructions.get_mut(fun_ctx.fundef_idx)
             {
               *kind = FunctionKind::Intrinsic;
+            }
+          }
+
+          // Flush deferred closure instructions BEFORE the
+          // enclosing function's FunDef. This places closure
+          // FunDefs as siblings preceding the containing
+          // function, so the codegen and register allocator
+          // process them first (no forward references).
+          if !self.deferred_closures.is_empty() {
+            let mut closures = std::mem::take(&mut self.deferred_closures);
+
+            // Fix body_start offsets: they were relative to
+            // the temporary SIR (FunDef at 0, body at 1).
+            // After insertion, rebase to the main SIR.
+            let insert_pos = fun_ctx.fundef_idx;
+
+            for insn in closures.iter_mut() {
+              if let Insn::FunDef { body_start, .. } = insn {
+                *body_start += insert_pos as u32;
+              }
+            }
+
+            let closure_len = closures.len();
+
+            // Splice closures before the enclosing FunDef.
+            self
+              .sir
+              .instructions
+              .splice(insert_pos..insert_pos, closures);
+
+            // Adjust the enclosing function's fundef_idx
+            // and body_start since we shifted instructions.
+            if let Some(Insn::FunDef { body_start, .. }) =
+              self.sir.instructions.get_mut(insert_pos + closure_len)
+            {
+              *body_start += closure_len as u32;
             }
           }
 
@@ -1117,6 +1200,35 @@ impl<'a> Executor<'a> {
           if let Some((value_id, ty_id, sir_value, local_kind, mutability)) =
             local_info
           {
+            // Closure call target: skip pushing if the
+            // closure is about to be called. Check both:
+            // - direct: Ident LParen (idx+1 is LParen)
+            // - operator-separated: Ident Op LParen (idx+2
+            //   is LParen, e.g. `5 + f(10)`)
+            // If neither, the closure is being passed as an
+            // argument — push it for the callee.
+            if matches!(
+              self.values.kinds.get(value_id.0 as usize),
+              Some(Value::Closure)
+            ) {
+              let next_is_call = self
+                .tree
+                .nodes
+                .get(idx + 1)
+                .is_some_and(|n| n.token == Token::LParen);
+
+              let next2_is_call = !next_is_call
+                && self
+                  .tree
+                  .nodes
+                  .get(idx + 2)
+                  .is_some_and(|n| n.token == Token::LParen);
+
+              if next_is_call || next2_is_call {
+                return;
+              }
+            }
+
             // Compile-time constant: re-emit the literal
             // value as a fresh SIR instruction each time.
             // No Load, no stack slot.
@@ -1213,17 +1325,15 @@ impl<'a> Executor<'a> {
                 let src = if is_param {
                   // Look up param index from the
                   // current function's param list.
+                  // Match by name (not body_start) to
+                  // avoid collisions with closures.
                   let idx = self
                     .current_function
                     .as_ref()
                     .and_then(|ctx| {
-                      self
-                        .funs
-                        .iter()
-                        .find(|f| f.body_start == ctx.body_start)
-                        .and_then(|f| {
-                          f.params.iter().position(|(n, _)| *n == sym)
-                        })
+                      self.funs.iter().find(|f| f.name == ctx.name).and_then(
+                        |f| f.params.iter().position(|(n, _)| *n == sym),
+                      )
                     })
                     .unwrap_or(0) as u32;
 
@@ -1251,9 +1361,21 @@ impl<'a> Executor<'a> {
                   ty_id,
                 });
 
-                let rid = self.values.store_runtime(0);
+                // For closure locals being passed as
+                // arguments, preserve the original
+                // ClosureValue so the callee can detect
+                // and monomorphize the closure param.
+                let vi = value_id.0 as usize;
+                let is_closure = vi < self.values.kinds.len()
+                  && matches!(self.values.kinds[vi], Value::Closure);
 
-                self.value_stack.push(rid);
+                let push_id = if is_closure {
+                  value_id
+                } else {
+                  self.values.store_runtime(0)
+                };
+
+                self.value_stack.push(push_id);
                 self.ty_stack.push(ty_id);
                 self.sir_values.push(sv);
               }
@@ -2001,12 +2123,27 @@ impl<'a> Executor<'a> {
 
     match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
       Some(ty_id) => {
-        // Try constant folding using the ConstFold module
+        // Try constant folding — but only if both operands
+        // are compile-time constants. Skip when either is a
+        // runtime value (e.g., function call result) to
+        // avoid incorrect folding across executor passes.
+        let lhs_is_const =
+          self.values.kinds.get(lhs.0 as usize).is_some_and(|k| {
+            matches!(k, Value::Int | Value::Float | Value::Bool | Value::Char)
+          });
+
+        let rhs_is_const =
+          self.values.kinds.get(rhs.0 as usize).is_some_and(|k| {
+            matches!(k, Value::Int | Value::Float | Value::Bool | Value::Char)
+          });
+
         let mut constprop = ConstFold::new(&self.values, self.interner);
         let resolved_ty = self.ty_checker.resolve_ty(ty_id);
 
-        if let Some(folded) =
-          constprop.fold_binop(op, lhs, rhs, span, resolved_ty)
+        if lhs_is_const
+          && rhs_is_const
+          && let Some(folded) =
+            constprop.fold_binop(op, lhs, rhs, span, resolved_ty)
         {
           match folded {
             FoldResult::Int(value) => {
@@ -2937,6 +3074,41 @@ impl<'a> Executor<'a> {
       }
     }
 
+    // -- 1b. Propagate types from declaration annotation ------
+    // If the enclosing declaration has a Fn type annotation,
+    // unify its param/return types with the closure's inferred
+    // types BEFORE executing the body. This allows untyped
+    // params like `fn(x)` to resolve via `Fn(int) -> int`.
+    if let Some(ref decl) = self.pending_decl
+      && let Some(ann_ty) = decl.annotated_ty
+    {
+      let ann = self.ty_checker.resolve_ty(ann_ty);
+
+      if let Ty::Fun(fun_ty_id) = ann
+        && let Some(fun_ty) = self.ty_checker.ty_table.fun(&fun_ty_id).copied()
+      {
+        let ann_params = self.ty_checker.ty_table.fun_params(&fun_ty).to_vec();
+
+        // Unify each param type pairwise.
+        for (i, (_, pty)) in params.iter_mut().enumerate() {
+          if let Some(&ann_pty) = ann_params.get(i) {
+            let span = self.tree.spans[start_idx];
+
+            if let Some(unified) = self.ty_checker.unify(*pty, ann_pty, span) {
+              *pty = unified;
+            }
+          }
+        }
+
+        // Propagate return type if closure has none.
+        if return_ty == self.ty_checker.unit_type()
+          && fun_ty.return_ty != self.ty_checker.unit_type()
+        {
+          return_ty = fun_ty.return_ty;
+        }
+      }
+    }
+
     // -- 2. Determine body range -----------------------------
 
     let (body_start_idx, body_end_idx) =
@@ -3004,10 +3176,18 @@ impl<'a> Executor<'a> {
     let outer_sir_values = std::mem::take(&mut self.sir_values);
     let outer_function = self.current_function.take();
 
-    // -- 7. Emit FunDef --------------------------------------
+    // -- 7. Emit FunDef into temporary SIR -------------------
+    // Closure instructions are buffered and flushed after the
+    // enclosing function's Return. This prevents DCE from
+    // treating nested FunDefs as function boundaries.
 
-    let body_start = (self.sir.instructions.len() + 1) as u32;
-    let fundef_idx = self.sir.instructions.len();
+    let mut closure_sir = Sir::new();
+    closure_sir.next_value_id = self.sir.next_value_id;
+
+    let outer_sir = std::mem::replace(&mut self.sir, closure_sir);
+
+    let body_start = 1u32; // Body starts right after FunDef.
+    let fundef_idx = 0;
 
     self.sir.emit(Insn::FunDef {
       name: closure_name,
@@ -3052,6 +3232,7 @@ impl<'a> Executor<'a> {
     // -- 8. Set function context + scope ---------------------
 
     self.current_function = Some(FunCtx {
+      name: closure_name,
       return_ty,
       body_start,
       fundef_idx,
@@ -3064,7 +3245,26 @@ impl<'a> Executor<'a> {
     self.push_scope();
 
     for (i, (pname, pty)) in combined_params.iter().enumerate() {
-      let value_id = self.values.store_runtime(i as u32);
+      // For captured closure variables, reuse the outer
+      // ClosureValue so resolve_closure_call works inside
+      // the closure body. Regular params get Value::Runtime.
+      let value_id = if (i as u32) < capture_count {
+        self
+          .locals
+          .iter()
+          .rev()
+          .find(|l| l.name == *pname)
+          .filter(|l| {
+            let vi = l.value_id.0 as usize;
+
+            vi < self.values.kinds.len()
+              && matches!(self.values.kinds[vi], Value::Closure)
+          })
+          .map(|l| l.value_id)
+          .unwrap_or_else(|| self.values.store_runtime(i as u32))
+      } else {
+        self.values.store_runtime(i as u32)
+      };
 
       self.locals.push(Local {
         name: *pname,
@@ -3124,6 +3324,12 @@ impl<'a> Executor<'a> {
     self.pop_scope(); // Body scope.
     self.pop_scope(); // Param scope.
 
+    // Move closure SIR to deferred buffer + restore outer SIR.
+    let closure_sir = std::mem::replace(&mut self.sir, outer_sir);
+
+    self.sir.next_value_id = closure_sir.next_value_id;
+    self.deferred_closures.extend(closure_sir.instructions);
+
     self.current_function = outer_function;
     self.skip_until = saved_skip;
     self.pending_decl = outer_pending_decl;
@@ -3146,9 +3352,21 @@ impl<'a> Executor<'a> {
     let closure_ty = self.ty_checker.intern_ty(Ty::Fun(fun_ty_id));
 
     // Collect capture SIR values for prepending at call sites.
+    // Use the outer scope's SIR values (by-copy semantics:
+    // the value is fixed at closure creation time).
     let capture_sirs = captures
       .iter()
-      .map(|(name, _)| (*name, ValueId(u32::MAX)))
+      .map(|(name, _)| {
+        let sir_val = self
+          .locals
+          .iter()
+          .rev()
+          .find(|l| l.name == *name)
+          .and_then(|l| l.sir_value)
+          .unwrap_or(ValueId(u32::MAX));
+
+        (*name, sir_val)
+      })
       .collect::<Vec<_>>();
 
     let closure_val = self.values.store_closure(ClosureValue {
@@ -3333,6 +3551,12 @@ impl<'a> Executor<'a> {
                   } else {
                     self.ty_checker.int_type()
                   }
+                } else if self.tree.nodes[idx].token == Token::FnType {
+                  let (ty, skip) = self.resolve_fn_type(idx);
+
+                  idx = skip - 1;
+
+                  ty
                 } else {
                   self.resolve_type_token(idx)
                 };
@@ -3588,6 +3812,15 @@ impl<'a> Executor<'a> {
           annotated_ty = Some(ty);
           i = next;
           skip_to = i;
+          continue;
+        }
+
+        // Function type annotation: Fn(T1, T2) -> R.
+        if tok == Token::FnType && annotated_ty.is_none() {
+          let (ty_id, skip) = self.resolve_fn_type(i);
+          annotated_ty = Some(ty_id);
+          i = skip;
+
           continue;
         }
 
@@ -5540,17 +5773,16 @@ impl<'a> Executor<'a> {
         // parameters (e.g., self) so the codegen reads
         // from the param spill slot, not mutable_slots.
         let recv_src = if recv_kind == LocalKind::Parameter {
-          let param_idx = self
-            .current_function
-            .as_ref()
-            .and_then(|ctx| {
-              self
-                .funs
-                .iter()
-                .find(|f| f.body_start == ctx.body_start)
-                .and_then(|f| f.params.iter().position(|(n, _)| *n == recv_sym))
-            })
-            .unwrap_or(0) as u32;
+          let param_idx =
+            self
+              .current_function
+              .as_ref()
+              .and_then(|ctx| {
+                self.funs.iter().find(|f| f.name == ctx.name).and_then(|f| {
+                  f.params.iter().position(|(n, _)| *n == recv_sym)
+                })
+              })
+              .unwrap_or(0) as u32;
 
           LoadSource::Param(param_idx)
         } else {
@@ -5696,6 +5928,54 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Given a `LParen` tree index, returns the tree index of
+  /// the function/closure Ident if this paren starts a call.
+  ///
+  /// Handles two layouts:
+  ///   - `Ident LParen` → direct (idx - 1)
+  ///   - `Ident Op LParen` → operator between (idx - 2),
+  ///     validated by checking the Ident is a known function
+  ///     or closure to avoid false positives like `a * (b)`.
+  fn resolve_call_target(&self, lparen_idx: usize) -> Option<usize> {
+    if lparen_idx == 0 {
+      return None;
+    }
+
+    // Direct: Ident immediately before LParen.
+    let prev = self.tree.nodes[lparen_idx - 1].token;
+
+    if prev == Token::Ident {
+      return Some(lparen_idx - 1);
+    }
+
+    // Operator between: Ident Op LParen.
+    if lparen_idx >= 2 {
+      let prev2 = self.tree.nodes[lparen_idx - 2].token;
+
+      if prev2 == Token::Ident {
+        // Validate: the Ident must be a known function or
+        // closure. Otherwise it's a variable and the paren
+        // is grouping (e.g. `a * (b + c)`).
+        if let Some(NodeValue::Symbol(sym)) = self.node_value(lparen_idx - 2) {
+          let is_fun = self.funs.iter().any(|f| f.name == sym);
+
+          let is_closure = self.lookup_local(sym).is_some_and(|l| {
+            let vi = l.value_id.0 as usize;
+
+            vi < self.values.kinds.len()
+              && matches!(self.values.kinds[vi], Value::Closure)
+          });
+
+          if is_fun || is_closure {
+            return Some(lparen_idx - 2);
+          }
+        }
+      }
+    }
+
+    None
+  }
+
   /// Checks if RParen closes a function call and executes it.
   fn execute_potential_call(&mut self, rparen_idx: usize) {
     // Look back to find matching LParen
@@ -5720,9 +6000,13 @@ impl<'a> Executor<'a> {
     }
 
     if let Some(lparen_idx) = lparen_idx {
-      // Check if there's an identifier before LParen
+      // Check if there's an identifier before LParen.
+      // Also check idx-2 via resolve_call_target for the
+      // `1 + f(x)` pattern where an operator intervenes.
       if lparen_idx > 0 {
-        let fun_idx = lparen_idx - 1;
+        let fun_idx = self
+          .resolve_call_target(lparen_idx)
+          .unwrap_or(lparen_idx - 1);
 
         if let Token::Ident = self.tree.nodes[fun_idx].token {
           // Check for modifier pattern: Ident @ Ident LParen
@@ -6067,22 +6351,52 @@ impl<'a> Executor<'a> {
       arg_types.reverse();
       arg_sirs.reverse();
 
-      // For closures, prepend capture Loads before user args.
+      // For closures, prepend capture values before user args.
+      // By-copy: use the SIR values stored at closure
+      // creation time, not a fresh Load (which would read
+      // the current/mutated value — by-reference).
       if capture_count > 0 {
         let mut full_sirs =
           Vec::with_capacity(capture_count as usize + arg_sirs.len());
 
+        // Look up the ClosureValue for stored capture SIR.
+        let closure_captures = self
+          .lookup_local(fun_name)
+          .and_then(|l| {
+            let vi = l.value_id.0 as usize;
+
+            if vi < self.values.kinds.len()
+              && matches!(self.values.kinds[vi], Value::Closure)
+            {
+              let ci = self.values.indices[vi] as usize;
+
+              Some(self.values.closures[ci].captures.clone())
+            } else {
+              None
+            }
+          })
+          .unwrap_or_default();
+
         for i in 0..capture_count as usize {
           let (cap_name, cap_ty) = func.params[i];
-          let dst = ValueId(self.sir.next_value_id);
 
-          self.sir.next_value_id += 1;
+          // Use stored SIR value if available (by-copy).
+          // Fall back to Load (by-reference) if not stored.
+          let sv = closure_captures
+            .get(i)
+            .filter(|(_, v)| v.0 != u32::MAX)
+            .map(|(_, v)| *v)
+            .unwrap_or_else(|| {
+              let dst = ValueId(self.sir.next_value_id);
 
-          let sv = self.sir.emit(Insn::Load {
-            dst,
-            src: LoadSource::Local(cap_name),
-            ty_id: cap_ty,
-          });
+              self.sir.next_value_id += 1;
+
+              self.sir.emit(Insn::Load {
+                dst,
+                src: LoadSource::Local(cap_name),
+                ty_id: cap_ty,
+              })
+            });
 
           full_sirs.push(sv);
         }
@@ -6180,6 +6494,77 @@ impl<'a> Executor<'a> {
         sym
       } else {
         func.name
+      };
+
+      // Closure param monomorphization: when a closure is
+      // passed to a Fn-typed parameter, create a specialized
+      // copy of the function where `Call { name: param }` is
+      // replaced with the concrete closure function name.
+      // This enables direct BL without indirect dispatch.
+      let call_name = {
+        // Build substitution: param_name → closure_fun_name.
+        let mut closure_subs: Vec<(Symbol, Symbol)> = Vec::new();
+
+        for (i, arg_val) in args.iter().enumerate() {
+          let vi = arg_val.0 as usize;
+
+          if vi < self.values.kinds.len()
+            && matches!(self.values.kinds[vi], Value::Closure)
+          {
+            let ci = self.values.indices[vi] as usize;
+            let cv = &self.values.closures[ci];
+            let param_name =
+              func.params.get(capture_count as usize + i).map(|(n, _)| *n);
+
+            if let Some(name) = param_name {
+              closure_subs.push((name, cv.fun_name));
+            }
+          }
+        }
+
+        if !closure_subs.is_empty() {
+          // Mangle name with closure identifiers.
+          let base = self.interner.get(call_name).to_owned();
+          let mut mangled = base;
+
+          for (_, closure_name) in &closure_subs {
+            mangled = format!("{mangled}__cl{}", closure_name.as_u32());
+          }
+
+          let mono_sym = self.interner.intern(&mangled);
+
+          // Register monomorphized FunDef if not already.
+          if !self.funs.iter().any(|f| f.name == mono_sym) {
+            let mut mono_def = func.clone();
+
+            mono_def.name = mono_sym;
+
+            // Replace Fn-typed params with the concrete
+            // closure's params (keeping captures out).
+            for (param_name, closure_fn) in &closure_subs {
+              for p in mono_def.params.iter_mut() {
+                if p.0 == *param_name {
+                  // Change the param name to the closure
+                  // function name so resolve_closure_call
+                  // or direct lookup works.
+                  p.0 = *closure_fn;
+                }
+              }
+            }
+
+            self.funs.push(mono_def);
+          }
+
+          // Record SIR substitutions for the monomorphize
+          // pass: replace Call { name: param } with
+          // Call { name: closure_fn } in the duplicated body.
+          // Store in a field for monomorphize() to use.
+          // For now, do inline SIR patching after body dup.
+
+          mono_sym
+        } else {
+          call_name
+        }
       };
 
       // Template pretty-print: when showln/show is called
@@ -6287,23 +6672,40 @@ impl<'a> Executor<'a> {
 
       arg_sirs.reverse();
 
-      // For external funs, assume they return unit type
-      // In a real compiler, we'd have external function declarations
-      let return_ty = self.ty_checker.unit_type();
+      // Check if the unresolved function is a Fn-typed
+      // parameter. If so, use its return type and push the
+      // result for monomorphization at call sites.
+      let return_ty = self
+        .lookup_local(fun_name)
+        .and_then(|l| {
+          let ty = self.ty_checker.resolve_ty(l.ty_id);
 
-      // Emit Call instruction for external function
+          if let Ty::Fun(fid) = ty {
+            self.ty_checker.ty_table.fun(&fid).map(|ft| ft.return_ty)
+          } else {
+            None
+          }
+        })
+        .unwrap_or_else(|| self.ty_checker.unit_type());
+
       let dst = ValueId(self.sir.next_value_id);
       self.sir.next_value_id += 1;
 
-      self.sir.emit(Insn::Call {
+      let result_sir = self.sir.emit(Insn::Call {
         dst,
         name: fun_name,
         args: arg_sirs,
         ty_id: return_ty,
       });
 
-      // External funs typically return unit
-      // Don't push anything to the stack for unit returns
+      // Push return value if non-unit.
+      if return_ty != self.ty_checker.unit_type() {
+        let result_val = self.values.store_runtime(0);
+
+        self.value_stack.push(result_val);
+        self.ty_stack.push(return_ty);
+        self.sir_values.push(result_sir);
+      }
     }
   }
 
@@ -6572,6 +6974,100 @@ impl<'a> Executor<'a> {
 
       for (j, insn) in cloned.into_iter().enumerate() {
         self.sir.instructions.insert(pos + j, insn);
+      }
+    }
+
+    // Closure-param monomorphization: duplicate function
+    // bodies for `__cl` mangled names, replacing internal
+    // `Call { name: param }` with the concrete closure name.
+    // Collect closure-param monomorphization candidates.
+    let cl_indices: Vec<usize> = self
+      .funs
+      .iter()
+      .enumerate()
+      .filter(|(_, f)| self.interner.get(f.name).contains("__cl"))
+      .map(|(i, _)| i)
+      .collect();
+
+    #[allow(clippy::type_complexity)]
+    let mut cl_funs: Vec<(Symbol, Symbol, Vec<(Symbol, Symbol)>)> = Vec::new();
+
+    for idx in cl_indices {
+      let name_str = self.interner.get(self.funs[idx].name).to_owned();
+      let base_end = name_str.find("__cl").unwrap_or(name_str.len());
+      let base_str = &name_str[..base_end];
+      let base_sym = self.interner.intern(base_str);
+      let mono_name = self.funs[idx].name;
+      let mono_params = self.funs[idx].params.clone();
+
+      let mut subs: Vec<(Symbol, Symbol)> = Vec::new();
+
+      if let Some(orig) = self.funs.iter().find(|g| g.name == base_sym) {
+        for (op, mp) in orig.params.iter().zip(mono_params.iter()) {
+          if op.0 != mp.0 {
+            subs.push((op.0, mp.0));
+          }
+        }
+      }
+
+      cl_funs.push((base_sym, mono_name, subs));
+    }
+
+    for (base_sym, mono_name, subs) in &cl_funs {
+      // Find base function's SIR range.
+      let range = self
+        .sir
+        .instructions
+        .iter()
+        .enumerate()
+        .find(|(_, insn)| {
+          matches!(insn, Insn::FunDef { name, .. } if *name == *base_sym)
+        })
+        .map(|(i, _)| {
+          let end = (i + 1..self.sir.instructions.len())
+            .find(|&j| {
+              matches!(
+                self.sir.instructions[j],
+                Insn::Return { .. }
+              )
+            })
+            .unwrap_or(self.sir.instructions.len() - 1);
+
+          (i, end)
+        });
+
+      let Some((start, end)) = range else {
+        continue;
+      };
+
+      let mut cloned: Vec<Insn> = self.sir.instructions[start..=end].to_vec();
+
+      // Replace FunDef name.
+      if let Some(Insn::FunDef { name, .. }) = cloned.first_mut() {
+        *name = *mono_name;
+      }
+
+      // Replace Call names: param → closure.
+      for insn in cloned.iter_mut() {
+        if let Insn::Call { name, .. } = insn {
+          for (from, to) in subs {
+            if *name == *from {
+              *name = *to;
+            }
+          }
+        }
+      }
+
+      // Insert before main.
+      let main_idx = self
+        .sir
+        .instructions
+        .iter()
+        .rposition(|i| matches!(i, Insn::FunDef { .. }))
+        .unwrap_or(self.sir.instructions.len());
+
+      for (j, insn) in cloned.into_iter().enumerate() {
+        self.sir.instructions.insert(main_idx + j, insn);
       }
     }
   }
@@ -7334,7 +7830,7 @@ struct BranchCtx {
 /// Tracks context when compiling inside a function
 #[derive(Clone)]
 struct FunCtx {
-  // pub(crate) name: Symbol,
+  pub(crate) name: Symbol,
   pub(crate) return_ty: TyId,
   pub(crate) body_start: u32,
   pub(crate) fundef_idx: usize,

@@ -1,4 +1,4 @@
-use crate::tests::common::assert_sir_structure;
+use crate::tests::common::{assert_no_errors, assert_sir_structure};
 
 use zo_sir::Insn;
 use zo_ty::TyId;
@@ -272,6 +272,403 @@ fun main() {
       assert!(
         unit_calls <= 1,
         "expected at most 1 unit Call (check), got {unit_calls}",
+      );
+    },
+  );
+}
+
+// ================================================================
+// Fn(T) -> R type annotation with closure.
+// ================================================================
+
+#[test]
+fn test_closure_fn_type_annotation_unifies() {
+  assert_no_errors(
+    r#"fun main() {
+  imu f: Fn(int) -> int = fn(x: int) -> int => x * x;
+}"#,
+  );
+}
+
+#[test]
+fn test_closure_fn_type_annotation_propagates_params() {
+  assert_no_errors(
+    r#"fun main() {
+  imu f: Fn(int) -> int = fn(x) => x * x;
+}"#,
+  );
+}
+
+// ================================================================
+// Multiple captures.
+// ================================================================
+
+#[test]
+fn test_closure_multi_capture() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu a: int = 10;
+  imu b: int = 20;
+  imu f := fn(x: int) -> int => x + a + b;
+  f(5)
+}"#,
+    |sir| {
+      let closure = sir.iter().find(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { .. },
+            ..
+          }
+        )
+      });
+
+      if let Some(Insn::FunDef {
+        kind: FunctionKind::Closure { capture_count },
+        params,
+        ..
+      }) = closure
+      {
+        assert_eq!(
+          *capture_count, 2,
+          "expected 2 captures (a, b), got {capture_count}"
+        );
+
+        assert_eq!(
+          params.len(),
+          3,
+          "expected 3 total params, got {}",
+          params.len()
+        );
+      } else {
+        panic!("expected closure FunDef");
+      }
+    },
+  );
+}
+
+// ================================================================
+// Closure calling a captured closure.
+// ================================================================
+
+#[test]
+fn test_closure_captures_closure_value() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu double := fn(x: int) -> int => x * 2;
+  imu then_add := fn(x: int) -> int => double(x) + 1;
+  then_add(5)
+}"#,
+    |sir| {
+      let closure_count = sir
+        .iter()
+        .filter(|i| {
+          matches!(
+            i,
+            Insn::FunDef {
+              kind: FunctionKind::Closure { .. },
+              ..
+            }
+          )
+        })
+        .count();
+
+      assert_eq!(
+        closure_count, 2,
+        "expected 2 closures (double + then_add), got {closure_count}"
+      );
+    },
+  );
+}
+
+// ================================================================
+// Closure in control flow — no type stack leak.
+// ================================================================
+
+#[test]
+fn test_closure_call_in_if_emits_call() {
+  assert_sir_structure(
+    r#"fun main() {
+  imu f := fn(x: int) -> int => x * 2;
+  if 1 > 0 {
+    imu r: int = f(3);
+  }
+}"#,
+    |sir| {
+      // Closure FunDef + at least one Call must exist.
+      let has_closure = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { .. },
+            ..
+          }
+        )
+      });
+
+      let has_call = sir
+        .iter()
+        .any(|i| matches!(i, Insn::Call { ty_id, .. } if ty_id.0 != 1));
+
+      assert!(has_closure, "expected closure FunDef");
+      assert!(has_call, "expected closure Call inside if");
+    },
+  );
+}
+
+#[test]
+fn test_closure_call_in_while_emits_call() {
+  assert_sir_structure(
+    r#"fun main() {
+  imu f := fn(x: int) -> int => x * 2;
+  mut i: int = 0;
+  while i < 1 {
+    imu r: int = f(i);
+    i = i + 1;
+  }
+}"#,
+    |sir| {
+      let has_closure = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { .. },
+            ..
+          }
+        )
+      });
+
+      let has_call = sir
+        .iter()
+        .any(|i| matches!(i, Insn::Call { ty_id, .. } if ty_id.0 != 1));
+
+      assert!(has_closure, "expected closure FunDef");
+      assert!(has_call, "expected closure Call inside while");
+    },
+  );
+}
+
+// ================================================================
+// Mutable capture — by-copy semantics.
+// ================================================================
+
+#[test]
+fn test_closure_mutable_capture_by_copy() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  mut x: int = 10;
+  imu f := fn(n: int) -> int => n + x;
+  x = 99;
+  f(5)
+}"#,
+    |sir| {
+      let closure = sir.iter().find(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { capture_count: 1 },
+            ..
+          }
+        )
+      });
+
+      assert!(closure.is_some(), "expected closure with 1 capture (x)");
+    },
+  );
+}
+
+// ================================================================
+// 3+ parameters.
+// ================================================================
+
+#[test]
+fn test_closure_three_params() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu f := fn(a: int, b: int, c: int) -> int => a + b + c;
+  f(1, 2, 3)
+}"#,
+    |sir| {
+      let closure = sir.iter().find(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { capture_count: 0 },
+            ..
+          }
+        )
+      });
+
+      if let Some(Insn::FunDef { params, .. }) = closure {
+        assert_eq!(params.len(), 3, "expected 3 params, got {}", params.len());
+      } else {
+        panic!("expected closure FunDef with 3 params");
+      }
+    },
+  );
+}
+
+// ================================================================
+// Block closure with multiple statements + early return.
+// ================================================================
+
+#[test]
+fn test_closure_block_multi_stmt() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu f := fn(x: int) -> int {
+    imu y: int = x * 2;
+    imu z: int = y + 1;
+    return z;
+  };
+  f(10)
+}"#,
+    |sir| {
+      let has_closure = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { .. },
+            ..
+          }
+        )
+      });
+
+      // Block closure with locals should have VarDef + Store.
+      let has_vardef = sir.iter().any(|i| matches!(i, Insn::VarDef { .. }));
+
+      assert!(has_closure, "expected closure FunDef");
+      assert!(has_vardef, "expected VarDef for local in closure body");
+    },
+  );
+}
+
+#[test]
+fn test_closure_block_early_return() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu f := fn(x: int) -> int {
+    if x > 0 {
+      return x * 2;
+    }
+    return 0;
+  };
+  f(5)
+}"#,
+    |sir| {
+      let closure_idx = sir.iter().position(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { .. },
+            ..
+          }
+        )
+      });
+
+      assert!(closure_idx.is_some(), "expected closure FunDef");
+
+      let returns_after = sir[closure_idx.unwrap()..]
+        .iter()
+        .filter(|i| matches!(i, Insn::Return { .. }))
+        .count();
+
+      assert!(
+        returns_after >= 2,
+        "expected >= 2 Returns in closure, got {returns_after}"
+      );
+    },
+  );
+}
+
+// ================================================================
+// SIR layout: closure hoisted before containing function.
+// ================================================================
+
+#[test]
+fn test_closure_sir_hoisted_before_main() {
+  assert_sir_structure(
+    r#"fun main() {
+  imu f := fn(x: int) -> int => x + 1;
+}"#,
+    |sir| {
+      let closure_pos = sir.iter().position(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { .. },
+            ..
+          }
+        )
+      });
+
+      let main_pos = sir.iter().position(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::UserDefined,
+            ..
+          }
+        )
+      });
+
+      assert!(
+        closure_pos.is_some() && main_pos.is_some(),
+        "expected both closure and main FunDefs"
+      );
+
+      assert!(
+        closure_pos.unwrap() < main_pos.unwrap(),
+        "closure (idx={}) must precede main (idx={})",
+        closure_pos.unwrap(),
+        main_pos.unwrap()
+      );
+    },
+  );
+}
+
+// ================================================================
+// Call instruction uses closure's generated name.
+// ================================================================
+
+#[test]
+fn test_closure_call_uses_generated_name() {
+  assert_sir_structure(
+    r#"fun main() -> int {
+  imu f := fn(x: int) -> int => x;
+  f(42)
+}"#,
+    |sir| {
+      let closure_name = sir.iter().find_map(|i| {
+        if let Insn::FunDef {
+          name,
+          kind: FunctionKind::Closure { .. },
+          ..
+        } = i
+        {
+          Some(*name)
+        } else {
+          None
+        }
+      });
+
+      let call_name = sir.iter().find_map(|i| {
+        if let Insn::Call { name, ty_id, .. } = i {
+          if ty_id.0 != 1 { Some(*name) } else { None }
+        } else {
+          None
+        }
+      });
+
+      assert!(
+        closure_name.is_some() && call_name.is_some(),
+        "expected closure FunDef and non-unit Call"
+      );
+
+      assert_eq!(
+        closure_name.unwrap(),
+        call_name.unwrap(),
+        "Call must use the closure's generated name"
       );
     },
   );

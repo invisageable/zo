@@ -1,0 +1,8 @@
+-- tests-run-pass: closure calling a captured closure.
+
+fun main() {
+  imu double := fn(x: int) -> int => x * 2;
+  imu then_add := fn(x: int) -> int => double(x) + 1;
+
+  check@eq(then_add(5), 11);
+}

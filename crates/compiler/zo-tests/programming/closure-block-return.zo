@@ -1,0 +1,13 @@
+-- tests-run-pass: block closure with early return.
+
+fun main() {
+  imu f := fn(x: int) -> int {
+    if x > 0 {
+      return x * 2;
+    }
+    return 0;
+  };
+
+  check@eq(f(5), 10);
+  check@eq(f(0), 0);
+}
