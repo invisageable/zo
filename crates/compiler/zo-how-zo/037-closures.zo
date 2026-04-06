@@ -6,6 +6,11 @@
 -! Different weapons have different damage formulas — you could
 -! write a function for each, or store the formula itself.
 
+-- higher-order function: takes a closure and a value.
+fun transform(f: Fn(int) -> int, x: int) -> int {
+  return f(x);
+}
+
 fun main() {
   -- `fn(params) -> type => expr` creates an inline closure.
   imu double := fn(x: int) -> int => x * 2;
@@ -17,11 +22,44 @@ fun main() {
   imu sum: int = add(10, 20);
   showln(sum);
 
-  -- closures can capture outer variables.
+  -- closures can capture outer variables (by copy).
   imu bonus: int = 10;
   imu with_bonus := fn(x: int) -> int => x + bonus;
   imu boosted: int = with_bonus(5);
   showln(boosted);
+
+  -- block closures: multiple statements.
+  imu compute := fn(x: int) -> int {
+    imu doubled: int = x * 2;
+    imu shifted: int = doubled + 10;
+    return shifted;
+  };
+
+  showln(compute(5));
+
+  -- explicit Fn type annotation.
+  imu negate: Fn(int) -> int = fn(x: int) -> int => 0 - x;
+  showln(negate(7));
+
+  -- closure calling another closure.
+  imu triple := fn(x: int) -> int => x * 3;
+  imu triple_then_add := fn(x: int) -> int => triple(x) + 1;
+  showln(triple_then_add(10));
+
+  -- pass a closure to a function.
+  imu square := fn(x: int) -> int => x * x;
+  imu r: int = transform(square, 6);
+  showln(r);
+
+  -- closures in a loop.
+  imu inc := fn(x: int) -> int => x + 1;
+  mut counter: int = 0;
+
+  for i := 0..5 {
+    counter = inc(counter);
+  }
+
+  showln(counter);
 }
 
 -! ## closure syntax.
@@ -32,13 +70,22 @@ fun main() {
 -! closures are values — store them, pass them, call them.
 -! `Fn(int) -> int` is the type signature for a closure.
 -!
+-! closures capture outer variables by copy. mutations to the
+-! original variable after closure creation don't affect the
+-! captured value.
+-!
 -! ## try this.
 -!
 -!   - create a `heal` closure: `fn(hp: int) -> int => hp + 30`.
 -!   - store different damage formulas and pick one at runtime.
--!   - pass a closure to a function as a parameter.
+-!   - write a `compose` function that chains two closures.
 
 -- EXPECTED OUTPUT:
 -- 42
 -- 30
 -- 15
+-- 20
+-- -7
+-- 31
+-- 36
+-- 5
