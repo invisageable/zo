@@ -24,6 +24,21 @@ fun main() {
     turn += 1;
   }
 
+  -- nested while loops: multiplication table.
+  mut row2: int = 1;
+
+  while row2 <= 3 {
+    mut col2: int = 1;
+
+    while col2 <= 3 {
+      imu product: int = row2 * col2;
+      showln("{row2} x {col2} = {product}");
+      col2 += 1;
+    }
+
+    row2 += 1;
+  }
+
   -- `for` loops iterate over a range.
   -- `0..5` produces 0, 1, 2, 3, 4. upper bound is exclusive.
   for i := 0..5 {
@@ -39,6 +54,27 @@ fun main() {
   }
 
   showln("total gold: {total}");
+
+  -- nested for loops: traverse a 2D grid.
+  -- think of a 3x3 dungeon map.
+  for row := 0..3 {
+    for col := 0..3 {
+      showln("room ({row}, {col})");
+    }
+  }
+
+  -- nested for + array: sum a 2D grid.
+  imu grid: [][]int = [[1, 2, 3], [4, 5, 6]];
+  mut grid_sum: int = 0;
+
+  for r := 0..2 {
+    for c := 0..3 {
+      imu v: int = grid[r][c];
+      grid_sum = grid_sum + v;
+    }
+  }
+
+  showln("grid sum: {grid_sum}");
 }
 
 -! ## loop types.
@@ -48,19 +84,42 @@ fun main() {
 -!   `loop { ... }`          — infinite loop (use `break` to exit).
 -!
 -! `break` exits the loop. `continue` skips to the next iteration.
+-! nested loops work: put one loop inside another to traverse
+-! 2D grids, 3D arrays, or any multi-dimensional structure.
 -!
 -! ## try this.
 -!
--!   - Add a hero hp that decreases each turn. print "you died" if it hits zero
--!     before the monster.
--!   - Use `for` to sum an array of damage values.
--!   - Try `loop { break; }` — the infinite loop that exits immediately.
+-!   - add a hero hp that decreases each turn. print "you died"
+-!     if it hits zero before the monster.
+-!   - use `for` to sum an array of damage values.
+-!   - try `loop { break; }` — the infinite loop that exits
+-!     immediately.
+-!   - traverse a 4D array with four nested for loops.
 
 -- EXPECTED OUTPUT:
 -- turn 3: monster falls!
+-- 1 x 1 = 1
+-- 1 x 2 = 2
+-- 1 x 3 = 3
+-- 2 x 1 = 2
+-- 2 x 2 = 4
+-- 2 x 3 = 6
+-- 3 x 1 = 3
+-- 3 x 2 = 6
+-- 3 x 3 = 9
 -- chest 0
 -- chest 1
 -- chest 2
 -- chest 3
 -- chest 4
 -- total gold: 85
+-- room (0, 0)
+-- room (0, 1)
+-- room (0, 2)
+-- room (1, 0)
+-- room (1, 1)
+-- room (1, 2)
+-- room (2, 0)
+-- room (2, 1)
+-- room (2, 2)
+-- grid sum: 21

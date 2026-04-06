@@ -44,8 +44,7 @@ fun main() {
 -! Tuples are laid out flat in memory. They are just anonymous data
 -! packets on the stack. no pointers, no hidden heap costs.
 -!
--! if you need names, use a struct. if you need a collection, use
--! an array.
+-! If you need names, use a struct. If you need a collection, use an array.
 -! 
 -! ## the capstone.
 -!

@@ -19,6 +19,20 @@ fun is_positive(x: int) -> bool {
   return x > 0;
 }
 
+-- early return: abs returns x if positive, -x if negative.
+fun absolute(x: int) -> int {
+  if x >= 0 {
+    return x;
+  }
+
+  return 0 - x;
+}
+
+-- function calling another function.
+fun distance(a: int, b: int) -> int {
+  return absolute(a - b);
+}
+
 fun main() {
   -- call a function by name with arguments.
   imu sum: int = add(10, 20);
@@ -37,6 +51,16 @@ fun main() {
   -- use function results in expressions.
   imu total: int = add(sum, d);
   showln(total);
+
+  -- early return with branching.
+  imu abs1: int = absolute(-7);
+  showln(abs1);
+  imu abs2: int = absolute(3);
+  showln(abs2);
+
+  -- function calling function.
+  imu dist: int = distance(3, 10);
+  showln(dist);
 }
 
 -! ## function anatomy.
@@ -47,14 +71,17 @@ fun main() {
 -!   }
 -!   ```
 -!
--! `return expr;` exits the function with a value. functions without `->`
--! return unit (nothing).
+-! `return expr;` exits the function with a value. functions
+-! without `->` return unit (nothing).
+-!
+-! functions can call other functions. early return with `if`
+-! lets you handle special cases at the top.
 -!
 -! ## try this.
 -!
--!   - Write `fun max(a: int, b: int) -> int` using `if`.
--!   - Write `fun clamp(x: int, lo: int, hi: int) -> int`.
--!   - Try calling a function that doesn't exist — see the error.
+-!   - write `fun max(a: int, b: int) -> int` using `if`.
+-!   - write `fun clamp(x: int, lo: int, hi: int) -> int`.
+-!   - write a recursive `fun factorial(n: int) -> int`.
 
 -- EXPECTED OUTPUT:
 -- 30
@@ -62,3 +89,6 @@ fun main() {
 -- true
 -- false
 -- 44
+-- 7
+-- 3
+-- 7
