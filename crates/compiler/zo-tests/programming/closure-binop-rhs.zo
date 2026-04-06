@@ -1,0 +1,10 @@
+-- tests-run-pass: function call as RHS of binary operator.
+
+fun mul2(x: int) -> int {
+  return x * 2;
+}
+
+fun main() {
+  imu a: int = 3 + mul2(10);
+  showln(a);
+}

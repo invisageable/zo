@@ -264,6 +264,14 @@ impl<'a> Parser<'a> {
         }
       }
 
+      // Fn type annotation in type context: buffer as part
+      // of the type expression so the executor can see it.
+      Token::FnType if self.state == ParserState::TypeAnnotation => {
+        self
+          .expr_buffer
+          .push((Token::FnType, self.current_span(), None));
+      }
+
       // Binary operators
       _ if self.is_operator(kind) => self.handle_operator(kind),
 

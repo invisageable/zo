@@ -3,10 +3,13 @@
 
 fun main() {
   imu x: str = "abc" ++ "def";
-  imu y: char = x[0];
+  imu y: char = x[3];
+
+  showln(x);
   showln(y);
   check@eq(y, 'a');
 }
 
 -- EXPECTED OUTPUT:
--- a
+-- abcdef
+-- d

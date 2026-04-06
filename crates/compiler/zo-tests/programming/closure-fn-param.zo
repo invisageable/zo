@@ -1,0 +1,11 @@
+-- tests-run-pass: closure passed as Fn(T) -> R parameter.
+
+fun call_fn(f: Fn(int) -> int, x: int) -> int {
+  return f(x);
+}
+
+fun main() {
+  imu double := fn(n: int) -> int => n * 2;
+  imu r: int = call_fn(double, 21);
+  showln(r);
+}

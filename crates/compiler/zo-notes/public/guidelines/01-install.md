@@ -1,6 +1,6 @@
 # install.
 
-> **
+> *This is the beginning of zo. Get started.*
 
 ## about.
 
@@ -23,7 +23,7 @@ iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SET THE ENViRONM
 
   Commands:
     build  builds a program
-    repl   read eval print and loop a program
+    repl   read eval print and loop a program (not implemented yet)
     run    runs a program
     help   Print this message or the help of the given subcommand(s)
 
@@ -35,6 +35,8 @@ iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SET THE ENViRONM
   3. DONE! TO KNOW HOW YOU CAN COMPiLE A zo PROGRAM:
 
   - @SEE: [@build-run-and-repl](./03-build-run-and-repl.md)
+
+> *zo is in work in progress, if you find bugs, please feel open an [issue](https://github.com/invisageable/zo/issues).*
 
 ## dev.
 
@@ -66,3 +68,7 @@ UNFORTUNALY SOME TOOLS NEEDS TO BE iNSTALL MANUALLY DEPENDiNG OF YOUR OS:
 **-optional-tools**
 
   - `zo-vscode` — [`plugin`](..)
+
+---
+
+[prev](./00-prologue.md) — [next](./02-build-run-and-repl.md)
