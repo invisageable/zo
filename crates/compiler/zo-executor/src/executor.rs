@@ -10,7 +10,8 @@ use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, Mutability, Ty, TyId};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
-  Attr, ContainerDirection, EventKind, PropValue, TextStyle, UiCommand,
+  Attr, ContainerDirection, EventKind, PropValue, StyleScope, TextStyle,
+  UiCommand,
 };
 use zo_value::{
   ClosureValue, FunDef, FunctionKind, Local, LocalKind, Pubness, Value,
@@ -120,6 +121,9 @@ pub struct Executor<'a> {
   /// suppresses deferred binops until this RParen is reached,
   /// preventing call args from being consumed by the operator.
   pending_call_rparen: Option<usize>,
+  /// Pending stylesheet commands collected from `$:` blocks.
+  /// Injected into the next `Insn::Template`'s commands.
+  pending_styles: Vec<UiCommand>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -179,6 +183,7 @@ impl<'a> Executor<'a> {
       type_params: Vec::new(),
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
+      pending_styles: Vec::new(),
     }
   }
 
@@ -195,6 +200,17 @@ impl<'a> Executor<'a> {
   /// Gets the value associated with a node (if any).
   fn node_value(&self, node_idx: usize) -> Option<NodeValue> {
     self.tree.value(node_idx as u32)
+  }
+
+  /// Extracts a symbol's string value from a node, owned.
+  fn symbol_str(&self, idx: usize) -> String {
+    self
+      .node_value(idx)
+      .and_then(|v| match v {
+        NodeValue::Symbol(s) => Some(self.interner.get(s).to_owned()),
+        _ => None,
+      })
+      .unwrap_or_default()
   }
 
   /// Gets the variable name from an imu/mut declaration
@@ -491,6 +507,21 @@ impl<'a> Executor<'a> {
             self.sir.emit(Insn::Label { id: else_label });
           }
         }
+      }
+
+      // === STYLE BLOCKS ===
+      Token::Dollar
+        if header.child_count > 0
+          && (header.child_start as usize) < self.tree.nodes.len()
+          && self.tree.nodes[header.child_start as usize].token
+            == Token::Colon =>
+      {
+        let children_end =
+          (header.child_start as usize) + (header.child_count as usize);
+
+        self.execute_style_block(idx, children_end);
+
+        self.skip_until = children_end;
       }
 
       // === DIRECTIVES ===
@@ -6833,6 +6864,158 @@ impl<'a> Executor<'a> {
     });
   }
 
+  /// Executes a `$: { ... }` or `pub $: { ... }` style block.
+  ///
+  /// Walks the tree children to extract style rules, builds
+  /// a `zo_styler::StyleSheet`, compiles it to CSS, and pushes
+  /// `UiCommand::StyleSheet` to `pending_styles`.
+  fn execute_style_block(&mut self, start_idx: usize, end_idx: usize) {
+    let scope = if self.is_pub(start_idx) {
+      StyleScope::Global
+    } else {
+      StyleScope::Scoped
+    };
+
+    let mut rules = Vec::new();
+    let mut idx = start_idx + 1; // skip Dollar
+
+    // Skip Colon.
+    if idx < end_idx && self.tree.nodes[idx].token == Token::Colon {
+      idx += 1;
+    }
+
+    // Skip outer LBrace.
+    if idx < end_idx && self.tree.nodes[idx].token == Token::LBrace {
+      idx += 1;
+    }
+
+    // Parse rules until outer RBrace.
+    while idx < end_idx {
+      if self.tree.nodes[idx].token == Token::RBrace {
+        break;
+      }
+
+      // Collect selector tokens until LBrace.
+      let mut selector = String::new();
+
+      while idx < end_idx {
+        let t = self.tree.nodes[idx].token;
+
+        if t == Token::LBrace {
+          break;
+        }
+
+        match t {
+          Token::Dot => selector.push('.'),
+          Token::Hash => selector.push('#'),
+          Token::Ident => {
+            if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+              if !selector.is_empty()
+                && !selector.ends_with('.')
+                && !selector.ends_with('#')
+              {
+                selector.push(' ');
+              }
+
+              selector.push_str(self.interner.get(sym));
+            }
+          }
+          _ => {}
+        }
+
+        idx += 1;
+      }
+
+      // Skip inner LBrace.
+      if idx < end_idx && self.tree.nodes[idx].token == Token::LBrace {
+        idx += 1;
+      }
+
+      // Parse property declarations until RBrace.
+      let mut props = Vec::new();
+
+      while idx < end_idx {
+        let t = self.tree.nodes[idx].token;
+
+        if t == Token::RBrace {
+          idx += 1;
+          break;
+        }
+
+        if t == Token::Ident {
+          let name = self.symbol_str(idx);
+
+          idx += 1;
+
+          // Colon.
+          if idx < end_idx && self.tree.nodes[idx].token == Token::Colon {
+            idx += 1;
+          }
+
+          // StyleValue.
+          let value = if idx < end_idx
+            && self.tree.nodes[idx].token == Token::StyleValue
+          {
+            let v = self.symbol_str(idx);
+
+            idx += 1;
+            v
+          } else {
+            String::new()
+          };
+
+          // Semicolon.
+          if idx < end_idx && self.tree.nodes[idx].token == Token::Semicolon {
+            idx += 1;
+          }
+
+          props.push(zo_styler::StyleProp { name, value });
+        } else {
+          idx += 1;
+        }
+      }
+
+      rules.push(zo_styler::StyleRule { selector, props });
+    }
+
+    // Generate scope hash for scoped stylesheets.
+    // Use the span start as a unique-enough seed — each
+    // style block has a distinct position in the source.
+    let scope_hash = if scope == StyleScope::Scoped {
+      let span = self.tree.spans[start_idx];
+      let mut seed = [0u8; 6];
+
+      seed[0..4].copy_from_slice(&span.start.to_le_bytes());
+      seed[4..6].copy_from_slice(&span.len.to_le_bytes());
+
+      Some(zo_styler::scope_hash(&seed))
+    } else {
+      None
+    };
+
+    let sheet = zo_styler::StyleSheet {
+      rules,
+      scope_hash: scope_hash.clone(),
+    };
+
+    let css = zo_styler::compile(&sheet);
+
+    // Emit to SIR for the canonical IR record.
+    self.sir.emit(Insn::StyleSheet {
+      css: css.clone(),
+      scope: scope.clone(),
+      scope_hash: scope_hash.clone(),
+    });
+
+    // Push to pending_styles for injection into the next
+    // template's UiCommand list.
+    self.pending_styles.push(UiCommand::StyleSheet {
+      css,
+      scope,
+      scope_hash,
+    });
+  }
+
   fn execute_directive(&mut self, start_idx: usize, end_idx: usize) {
     // Directives: #identifier [expression]
     // Children come after Hash in the tree. We skip
@@ -7547,6 +7730,15 @@ impl<'a> Executor<'a> {
       let optimizer = TemplateOptimizer::new();
 
       commands = optimizer.optimize(commands);
+    }
+
+    // Prepend any pending stylesheets so they reach the
+    // runtime alongside the template's UI commands.
+    if !self.pending_styles.is_empty() {
+      let mut styled = std::mem::take(&mut self.pending_styles);
+
+      styled.append(&mut commands);
+      commands = styled;
     }
 
     let template_id = self.values.store_template(self.template_counter);

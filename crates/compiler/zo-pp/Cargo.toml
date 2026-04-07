@@ -15,6 +15,7 @@ zo-codegen-backend = { workspace = true }
 zo-interner = { workspace = true }
 zo-sir = { workspace = true }
 zo-span = { workspace = true }
+zo-ui-protocol = { workspace = true }
 zo-token = { workspace = true }
 zo-tree = { workspace = true }
 zo-ty = { workspace = true }

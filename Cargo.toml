@@ -89,6 +89,7 @@ zo-tree = { path = "crates/compiler/zo-tree", version = "0.2.0" }
 zo-ty = { path = "crates/compiler/zo-ty", version = "0.2.0" }
 zo-ty-checker = { path = "crates/compiler/zo-ty-checker", version = "0.2.0" }
 zo-ty-state = { path = "crates/compiler/zo-ty-state", version = "0.2.0" }
+zo-styler = { path = "crates/compiler/zo-styler", version = "0.2.0" }
 zo-template-optimizer = { path = "crates/compiler/zo-template-optimizer", version = "0.2.0" }
 zo-test-runner = { path = "crates/compiler/zo-test-runner", version = "0.2.0" }
 zo-ui-protocol = { path = "crates/compiler/zo-ui-protocol", version = "0.2.0" }

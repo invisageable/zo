@@ -7173,6 +7173,7 @@ dependencies = [
  "zo-reporter",
  "zo-sir",
  "zo-span",
+ "zo-styler",
  "zo-template-optimizer",
  "zo-token",
  "zo-tokenizer",
@@ -7244,6 +7245,7 @@ dependencies = [
  "zo-token",
  "zo-tree",
  "zo-ty",
+ "zo-ui-protocol",
  "zo-value",
 ]
 
@@ -7347,6 +7349,10 @@ dependencies = [
  "anyhow",
  "serde",
 ]
+
+[[package]]
+name = "zo-styler"
+version = "0.2.0"
 
 [[package]]
 name = "zo-template-optimizer"

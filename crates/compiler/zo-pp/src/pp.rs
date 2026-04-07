@@ -441,6 +441,14 @@ impl PrettyPrinter {
 
           self.sir_instruction(&tmpl);
         }
+        Insn::StyleSheet { scope, .. } => {
+          let s = match scope {
+            zo_ui_protocol::StyleScope::Scoped => "scoped",
+            zo_ui_protocol::StyleScope::Global => "global",
+          };
+
+          self.sir_instruction(&format!("stylesheet ({s})"));
+        }
         Insn::Nop => {}
       }
     }

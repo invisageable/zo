@@ -93,6 +93,7 @@ impl DependencyGraph {
       UiCommand::Event { .. } => vec![DataSource::Static],
       // Images - check for dynamic src
       UiCommand::Image { .. } => vec![DataSource::Static],
+      UiCommand::StyleSheet { .. } => vec![DataSource::Static],
     }
   }
 

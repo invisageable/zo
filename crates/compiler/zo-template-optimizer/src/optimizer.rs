@@ -78,6 +78,7 @@ impl TemplateOptimizer {
           CommandClassification::Dynamic
         }
       }
+      UiCommand::StyleSheet { .. } => CommandClassification::Static,
     }
   }
 

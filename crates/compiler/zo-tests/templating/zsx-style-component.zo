@@ -1,0 +1,25 @@
+-- test-build-pass: combined template and style.
+
+$: {
+  .title {
+    color: cyan;
+    ta: center;
+    fw: 800;
+  }
+
+  .subtitle {
+    color: gray;
+    fs: 14px;
+  }
+}
+
+fun main() {
+  imu name: str = "world";
+
+  imu view: </> ::= <>
+    <h1 class="title">hello, {name}!</h1>
+    <p class="subtitle">welcome to zo</p>
+  </>;
+
+  #dom view;
+}

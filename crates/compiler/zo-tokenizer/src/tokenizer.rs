@@ -41,6 +41,7 @@ struct ModeState(u32);
 impl ModeState {
   const CODE: u32 = 0;
   const TEMPLATE: u32 = 1;
+  const STYLE: u32 = 2;
   const MODE_MASK: u32 = 0x3;
   const DEPTH_SHIFT: u32 = 2;
   const DEPTH_MASK: u32 = 0x3FFF;
@@ -60,6 +61,11 @@ impl ModeState {
   #[inline(always)]
   fn is_template(self) -> bool {
     (self.0 & Self::MODE_MASK) == Self::TEMPLATE
+  }
+
+  #[inline(always)]
+  fn is_style(self) -> bool {
+    (self.0 & Self::MODE_MASK) == Self::STYLE
   }
 
   #[inline(always)]
@@ -496,6 +502,120 @@ impl<'a> Tokenizer<'a> {
     }
   }
 
+  fn scan_style_token(&mut self) {
+    let start = self.cursor;
+    let ch = self.advance();
+
+    match ch {
+      b'{' => {
+        self.delimiter_stack.push(DelimiterInfo {
+          kind: DelimiterKind::Brace,
+          position: start as u32,
+        });
+        self.tokens.push(Token::LBrace, start as u32, 1);
+        self.state.inc_brace_depth();
+      }
+      b'}' => {
+        self.check_closing_delimiter(DelimiterKind::Brace, start as u32);
+        self.tokens.push(Token::RBrace, start as u32, 1);
+        if self.state.brace_depth() > 0 {
+          self.state.dec_brace_depth();
+        }
+        if self.state.brace_depth() == 0 {
+          self.state.set_mode(ModeState::CODE);
+        }
+      }
+      b';' => {
+        self.tokens.push(Token::Semicolon, start as u32, 1);
+      }
+      b':' => {
+        self.tokens.push(Token::Colon, start as u32, 1);
+        // After colon in style context, scan the value.
+        self.skip_whitespace();
+        if self.cursor < self.source.len()
+          && self.current() != b'}'
+          && self.current() != b';'
+        {
+          self.scan_style_value();
+        }
+      }
+      b'.' => {
+        self.tokens.push(Token::Dot, start as u32, 1);
+      }
+      b'#' => {
+        self.tokens.push(Token::Hash, start as u32, 1);
+      }
+      b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'-' => {
+        // Selector or property name — scan as identifier.
+        // CSS allows hyphens in names (e.g. font-weight).
+        self.cursor = start;
+        self.scan_style_ident();
+      }
+      _ => {
+        self.tokens.push(Token::Unknown, start as u32, 1);
+      }
+    }
+  }
+
+  /// Scans a CSS identifier (allows hyphens unlike code idents).
+  fn scan_style_ident(&mut self) {
+    let start = self.cursor;
+
+    while self.cursor < self.source.len() {
+      let ch = self.current();
+
+      if !ch.is_ascii_alphanumeric() && ch != b'_' && ch != b'-' {
+        break;
+      }
+
+      self.cursor += 1;
+    }
+
+    let len = (self.cursor - start) as u16;
+    let bytes = &self.source[start..self.cursor];
+    let text = std::str::from_utf8(bytes).unwrap_or("");
+    let symbol = self.interner.intern(text);
+    let id = self.literals.push_identifier(symbol);
+
+    self
+      .tokens
+      .push_with_literal(Token::Ident, start as u32, len, id);
+  }
+
+  /// Scans an opaque CSS value (everything until `;` or `}`).
+  fn scan_style_value(&mut self) {
+    let start = self.cursor;
+
+    while self.cursor < self.source.len() {
+      let ch = self.current();
+
+      if ch == b';' || ch == b'}' {
+        break;
+      }
+
+      self.cursor += 1;
+    }
+
+    // Trim trailing whitespace from the value.
+    let mut end = self.cursor;
+
+    while end > start && self.source[end - 1].is_ascii_whitespace() {
+      end -= 1;
+    }
+
+    if end > start {
+      let len = (end - start) as u16;
+      let bytes = &self.source[start..end];
+      let text = std::str::from_utf8(bytes).unwrap_or("");
+      let symbol = self.interner.intern(text);
+      let id = self.literals.push_string_symbol(symbol);
+
+      self
+        .tokens
+        .push_with_literal(Token::StyleValue, start as u32, len, id);
+    }
+  }
+
   fn scan_code_token(&mut self) {
     let start = self.cursor;
     let ch = self.advance();
@@ -530,10 +650,17 @@ impl<'a> Tokenizer<'a> {
         self.scan_bytes();
       }
       b'$' => {
-        // Check for raw string literal $"..."
         if self.current() == b'"' {
-          self.advance(); // Skip the '"'
+          // Raw string literal $"..."
+          self.advance();
           self.scan_raw_string(start);
+        } else if self.current() == b':' {
+          // Style block $: { ... }
+          self.tokens.push(Token::Dollar, start as u32, 1);
+          let colon_start = self.cursor;
+          self.advance();
+          self.tokens.push(Token::Colon, colon_start as u32, 1);
+          self.state.set_mode(ModeState::STYLE);
         } else {
           self.tokens.push(Token::Dollar, start as u32, 1);
         }
@@ -1431,6 +1558,8 @@ impl<'a> Tokenizer<'a> {
 
       if self.state.is_template() {
         self.scan_template_token();
+      } else if self.state.is_style() {
+        self.scan_style_token();
       } else {
         self.scan_code_token();
       }

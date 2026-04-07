@@ -151,6 +151,9 @@ pub enum Token {
   TemplateFragmentStart, // <>
   TemplateFragmentEnd,   // </>
   TemplateText,          // Raw text inside a tag - uses main token span
+
+  // Style Syntax Tokens
+  StyleValue, // Raw CSS value text: "cyan", "#b2f5ea", "100%"
 }
 
 impl Token {

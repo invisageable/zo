@@ -601,3 +601,143 @@ fn test_nested_code_templates() {
     ],
   );
 }
+
+#[test]
+fn test_style_block_simple() {
+  assert_tokens_stream(
+    "$: { p { color: cyan; } }",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "p"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "color"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "cyan"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
+
+#[test]
+fn test_style_block_shorthand() {
+  assert_tokens_stream(
+    "$: { .title { fw: 800; ta: center; } }",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Dot, "."),
+      (Token::Ident, "title"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "fw"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "800"),
+      (Token::Semicolon, ";"),
+      (Token::Ident, "ta"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "center"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
+
+#[test]
+fn test_style_block_hex_color() {
+  assert_tokens_stream(
+    "$: { .card { bg: #b2f5ea; } }",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Dot, "."),
+      (Token::Ident, "card"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "bg"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "#b2f5ea"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
+
+#[test]
+fn test_style_block_compound_selector() {
+  assert_tokens_stream(
+    "$: { html body { w: 100%; } }",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "html"),
+      (Token::Ident, "body"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "w"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "100%"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
+
+#[test]
+fn test_style_returns_to_code() {
+  assert_tokens_stream(
+    "$: { p { color: cyan; } } fun main() {}",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "p"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "color"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "cyan"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Fun, "fun"),
+      (Token::Ident, "main"),
+      (Token::LParen, "("),
+      (Token::RParen, ")"),
+      (Token::LBrace, "{"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
+
+#[test]
+fn test_style_hyphenated_property() {
+  assert_tokens_stream(
+    "$: { .x { font-weight: bold; } }",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Dot, "."),
+      (Token::Ident, "x"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "font-weight"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "bold"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
