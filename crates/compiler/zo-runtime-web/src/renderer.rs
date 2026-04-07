@@ -8,6 +8,9 @@ pub struct HtmlRenderer {
   container_stack: Vec<String>,
   /// Maps widget_id → handler name (built from Event commands)
   event_map: HashMap<String, String>,
+  /// Pre-computed class attribute string from scoped
+  /// stylesheets. Empty when no scoped styles are active.
+  scope_class_attr: String,
 }
 
 impl HtmlRenderer {
@@ -17,6 +20,7 @@ impl HtmlRenderer {
       html_buffer: String::with_capacity(4096),
       container_stack: Vec::with_capacity(16),
       event_map: HashMap::default(),
+      scope_class_attr: String::new(),
     }
   }
 
@@ -50,6 +54,26 @@ impl HtmlRenderer {
       .push_str(include_str!("../assets/default.css"));
     self.html_buffer.push_str("</style>");
     self.html_buffer.push_str("</head><body>");
+
+    // Build scope class attribute once for all elements.
+    let mut scope_hashes = Vec::new();
+
+    for cmd in commands {
+      if let UiCommand::StyleSheet {
+        scope: zo_ui_protocol::StyleScope::Scoped,
+        scope_hash: Some(hash),
+        ..
+      } = cmd
+      {
+        scope_hashes.push(hash.as_str());
+      }
+    }
+
+    self.scope_class_attr = if scope_hashes.is_empty() {
+      String::new()
+    } else {
+      format!(" class=\"{}\"", scope_hashes.join(" "))
+    };
 
     // Build widget_id → handler map from Event commands
     self.event_map.clear();
@@ -88,14 +112,25 @@ impl HtmlRenderer {
   fn render_command(&mut self, cmd: &UiCommand) {
     match cmd {
       UiCommand::BeginContainer { id, direction } => {
-        let class = match direction {
+        let layout = match direction {
           ContainerDirection::Horizontal => "container-horizontal",
           ContainerDirection::Vertical => "container-vertical",
         };
 
+        // Append scope classes if present.
+        let sc = &self.scope_class_attr;
+        let class_attr = if sc.is_empty() {
+          format!("class=\"{layout}\"")
+        } else {
+          // sc already starts with ` class="..."`, extract
+          // the hashes and merge with layout class.
+          let hashes = sc.trim_start_matches(" class=\"").trim_end_matches('"');
+
+          format!("class=\"{layout} {hashes}\"")
+        };
+
         self.html_buffer.push_str(&format!(
-          "<div class=\"{}\" data-id=\"{}\">\n",
-          class,
+          "<div {class_attr} data-id=\"{}\">\n",
           escape_html(id)
         ));
 
@@ -113,13 +148,16 @@ impl HtmlRenderer {
           TextStyle::Normal => "span",
         };
 
+        let sc = &self.scope_class_attr;
+
         self
           .html_buffer
-          .push_str(&format!("<{tag}>{}</{tag}>\n", escape_html(content),));
+          .push_str(&format!("<{tag}{sc}>{}</{tag}>\n", escape_html(content),));
       }
 
       UiCommand::Button { id, content } => {
         let wid = id.to_string();
+        let sc = &self.scope_class_attr;
 
         let handler = self
           .event_map
@@ -128,7 +166,7 @@ impl HtmlRenderer {
           .unwrap_or_else(|| format!("onclick=\"handleClick({id})\""));
 
         self.html_buffer.push_str(&format!(
-          "<button data-id=\"{id}\" {handler}>{}</button>\n",
+          "<button{sc} data-id=\"{id}\" {handler}>{}</button>\n",
           escape_html(content)
         ));
       }
@@ -148,8 +186,10 @@ impl HtmlRenderer {
             format!("oninput=\"handleInput({id}, this.value)\"")
           });
 
+        let sc = &self.scope_class_attr;
+
         self.html_buffer.push_str(&format!(
-          "<input type=\"text\" data-id=\"{id}\" placeholder=\"{}\" value=\"{}\" {handler} />\n",
+          "<input type=\"text\"{sc} data-id=\"{id}\" placeholder=\"{}\" value=\"{}\" {handler} />\n",
           escape_html(placeholder), escape_html(value)
         ));
       }
@@ -160,8 +200,10 @@ impl HtmlRenderer {
         width,
         height,
       } => {
+        let sc = &self.scope_class_attr;
+
         self.html_buffer.push_str(&format!(
-          "<img data-id=\"{}\" src=\"{}\" width=\"{width}\" height=\"{height}\" />\n",
+          "<img{sc} data-id=\"{}\" src=\"{}\" width=\"{width}\" height=\"{height}\" />\n",
           escape_html(id),
           escape_html(src),
         ));
@@ -169,6 +211,19 @@ impl HtmlRenderer {
 
       UiCommand::Event { .. } => {
         // Events are handled via data attributes and JS
+      }
+
+      UiCommand::StyleSheet { css, scope, .. } => {
+        use zo_ui_protocol::StyleScope;
+
+        let scope_attr = match scope {
+          StyleScope::Scoped => " data-zo-scoped",
+          StyleScope::Global => "",
+        };
+
+        self
+          .html_buffer
+          .push_str(&format!("<style{scope_attr}>\n{css}</style>\n"));
       }
     }
   }
@@ -250,5 +305,71 @@ mod tests {
     let html = renderer.render_to_html(&commands);
     assert!(!html.contains("<script>alert"));
     assert!(html.contains("&lt;script&gt;"));
+  }
+
+  #[test]
+  fn test_scoped_style_adds_class_to_elements() {
+    use zo_ui_protocol::StyleScope;
+
+    let mut renderer = HtmlRenderer::new();
+    let commands = vec![
+      UiCommand::StyleSheet {
+        css: "p._zo_test { color: cyan; }\n".into(),
+        scope: StyleScope::Scoped,
+        scope_hash: Some("_zo_test".into()),
+      },
+      UiCommand::Text {
+        content: "styled".into(),
+        style: TextStyle::Paragraph,
+      },
+    ];
+
+    let html = renderer.render_to_html(&commands);
+
+    // The <p> should have the scope class.
+    assert!(
+      html.contains("<p class=\"_zo_test\">styled</p>"),
+      "scoped style should add class to <p>, got: {html}"
+    );
+    // The <style> tag should be present.
+    assert!(
+      html.contains("<style data-zo-scoped>"),
+      "should inject scoped style tag, got: {html}"
+    );
+    assert!(
+      html.contains("color: cyan;"),
+      "CSS content should be present, got: {html}"
+    );
+  }
+
+  #[test]
+  fn test_global_style_no_class_on_elements() {
+    use zo_ui_protocol::StyleScope;
+
+    let mut renderer = HtmlRenderer::new();
+    let commands = vec![
+      UiCommand::StyleSheet {
+        css: "body { margin: 0; }\n".into(),
+        scope: StyleScope::Global,
+        scope_hash: None,
+      },
+      UiCommand::Text {
+        content: "plain".into(),
+        style: TextStyle::Paragraph,
+      },
+    ];
+
+    let html = renderer.render_to_html(&commands);
+
+    // Global style: no class attribute on elements.
+    assert!(
+      html.contains("<p>plain</p>"),
+      "global style should NOT add class, got: {html}"
+    );
+    // Style tag should not have scoped attribute.
+    assert!(
+      html.contains("<style>\n"),
+      "global style tag should not be scoped, got: {html}"
+    );
   }
 }

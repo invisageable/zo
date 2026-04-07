@@ -1,3 +1,5 @@
+-- test-build-pass: scoped style block.
+
 $: {
   p {
     color: blue;

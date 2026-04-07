@@ -24,6 +24,7 @@ enum ParserState {
   TypeAnnotation,    // After : expecting type
   TemplateMode,      // Inside template content
   ModulePath,        // Inside load/pack path (direct emit)
+  StyleBlock,        // Inside $: { ... } style block
 }
 
 /// Introducer info for tracking nested structures
@@ -169,6 +170,38 @@ impl<'a> Parser<'a> {
   }
 
   fn process_token(&mut self, kind: Token) {
+    // In style blocks, tokens emit directly — no expression
+    // reordering, no type annotation, no keyword dispatch.
+    if self.state == ParserState::StyleBlock {
+      match kind {
+        Token::LBrace => {
+          let node_index = self.emit_node(Token::LBrace);
+
+          self.introducer_stack.push(Introducer {
+            state: ParserState::StyleBlock,
+            token: Token::LBrace,
+            node_index,
+            children_start: self.tree.nodes.len() as u32,
+          });
+        }
+        Token::RBrace => self.handle_rbrace_closer(),
+        Token::StyleValue => {
+          let span = self.current_span();
+          let value = self.extract_value(Token::StyleValue);
+
+          self.emit_node_internal(Token::StyleValue, span, value);
+        }
+        Token::Ident => {
+          self.emit_node(Token::Ident);
+        }
+        _ => {
+          self.emit_node(kind);
+        }
+      }
+
+      return;
+    }
+
     match kind {
       // Module statements
       Token::Load => self.handle_load_statement(),
@@ -275,6 +308,11 @@ impl<'a> Parser<'a> {
       // Binary operators
       _ if self.is_operator(kind) => self.handle_operator(kind),
 
+      // Style block: $: { ... }
+      Token::Dollar if self.peek() == Some(Token::Colon) => {
+        self.handle_style_block();
+      }
+
       // Operands (identifiers, literals)
       _ if kind.is_operand() => self.handle_operand(kind),
 
@@ -302,6 +340,14 @@ impl<'a> Parser<'a> {
 
       // Modifier syntax: ident@ident (e.g., check@lt)
       Token::At => self.handle_at(),
+
+      // Style value tokens
+      Token::StyleValue => {
+        let span = self.current_span();
+        let value = self.extract_value(Token::StyleValue);
+
+        self.emit_node_internal(Token::StyleValue, span, value);
+      }
 
       // Template tokens
       Token::TemplateFragmentStart => self.handle_template_fragment_start(),
@@ -676,6 +722,9 @@ impl<'a> Parser<'a> {
             parent.token,
             Token::Enum | Token::Struct | Token::Apply
           ) {
+            self.close_introducer();
+          } else if parent.token == Token::Dollar {
+            // Style block is complete after its outer brace.
             self.close_introducer();
           }
         }
@@ -1391,6 +1440,36 @@ impl<'a> Parser<'a> {
     self.emit_node_internal(Token::TemplateText, span, value);
   }
 
+  /// Handles `$: { ... }` style blocks.
+  ///
+  /// Checks if the previous node was `Pub` to determine global
+  /// scope. Emits Dollar as an introducer whose children are
+  /// the style rule tokens (selectors, properties, values).
+  /// Handles `$: { ... }` style blocks.
+  ///
+  /// Checks if the previous node was `Pub` to determine global
+  /// scope. Emits Dollar as an introducer whose children are
+  /// the style rule tokens (selectors, properties, values).
+  fn handle_style_block(&mut self) {
+    self.flush_expr();
+
+    // Emit Dollar as the style block introducer.
+    let node_index = self.emit_node(Token::Dollar);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Dollar,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::StyleBlock;
+
+    // Skip the Colon (already peeked).
+    self.pos += 1;
+    self.emit_node(Token::Colon);
+  }
+
   fn handle_operator(&mut self, kind: Token) {
     // Add to operator stack for Shunting Yard
     if let Some((prec, assoc)) = self.op_precedence(kind) {
@@ -1562,7 +1641,7 @@ impl<'a> Parser<'a> {
         // Store packed value so executor can unpack both.
         Some(NodeValue::Literal(packed))
       }
-      Token::String | Token::RawString => {
+      Token::String | Token::RawString | Token::StyleValue => {
         let lit_idx = self.tokens.literal_indices[self.pos];
         let symbol = self.literals.string_literals[lit_idx as usize];
 

@@ -2202,6 +2202,7 @@ impl<'a> ARM64Gen<'a> {
         UiCommand::TextInput { .. } => 4u32,
         UiCommand::Image { .. } => 5u32,
         UiCommand::Event { .. } => 6u32,
+        UiCommand::StyleSheet { .. } => 7u32,
       };
       command_data.extend_from_slice(&cmd_type.to_le_bytes());
       command_data.extend_from_slice(&0u32.to_le_bytes());
@@ -2291,6 +2292,11 @@ impl<'a> ARM64Gen<'a> {
           cmd_data_offset += TEMPLATE_CMD_SIZE;
         }
         UiCommand::Event { .. } => {
+          command_data.extend_from_slice(&0u64.to_le_bytes());
+        }
+        UiCommand::StyleSheet { .. } => {
+          // StyleSheet is handled at a higher level; no
+          // per-command binary data needed here.
           command_data.extend_from_slice(&0u64.to_le_bytes());
         }
       }

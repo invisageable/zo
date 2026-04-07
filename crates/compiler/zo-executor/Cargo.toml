@@ -18,6 +18,7 @@ zo-interner = { workspace = true }
 zo-reporter = { workspace = true }
 zo-sir = { workspace = true }
 zo-span = { workspace = true }
+zo-styler = { workspace = true }
 zo-template-optimizer = { workspace = true }
 zo-token = { workspace = true }
 zo-tree = { workspace = true }

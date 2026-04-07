@@ -1,0 +1,16 @@
+-- test-build-pass: shorthand CSS properties.
+
+$: {
+  .card {
+    p: 16px;
+    m: 8px;
+    br: 4px;
+    bg: #f0f0f0;
+  }
+}
+
+fun main() {
+  imu view: </> ::= <div class="card">content</div>;
+
+  #dom view;
+}

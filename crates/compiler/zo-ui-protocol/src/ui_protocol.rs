@@ -5,6 +5,15 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Stylesheet scope.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub enum StyleScope {
+  /// `$: { ... }` — styles only apply to the component.
+  Scoped,
+  /// `pub $: { ... }` — styles apply globally.
+  Global,
+}
+
 /// The core UI command enum - this is the entire UI language
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum UiCommand {
@@ -44,6 +53,15 @@ pub enum UiCommand {
     event_kind: EventKind,
     handler: String,
   },
+
+  /// Inject a stylesheet (scoped or global).
+  StyleSheet {
+    css: String,
+    scope: StyleScope,
+    /// Scope hash for class rewriting (e.g. `"_zo_a3f2"`).
+    /// Present only when `scope == Scoped`.
+    scope_hash: Option<String>,
+  },
 }
 
 impl UiCommand {
@@ -57,6 +75,7 @@ impl UiCommand {
       Self::TextInput { .. } => 4,
       Self::Image { .. } => 5,
       Self::Event { .. } => 6,
+      Self::StyleSheet { .. } => 7,
     }
   }
 }

@@ -2,7 +2,7 @@ use zo_interner::Symbol;
 use zo_token::Token;
 use zo_ty::Mutability;
 use zo_ty::TyId;
-use zo_ui_protocol::UiCommand;
+use zo_ui_protocol::{StyleScope, UiCommand};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 /// Source of a Load instruction — either a function parameter
@@ -185,6 +185,7 @@ impl Sir {
           off(base);
           off(value);
         }
+        Insn::StyleSheet { .. } => {}
         Insn::Nop => {}
       }
     }
@@ -390,6 +391,12 @@ pub enum Insn {
     name: Option<Symbol>,
     ty_id: TyId,
     commands: Vec<UiCommand>,
+  },
+  /// Stylesheet declaration: `$: { ... }` or `pub $: { ... }`.
+  StyleSheet {
+    css: String,
+    scope: StyleScope,
+    scope_hash: Option<String>,
   },
   /// Dead instruction — replaces folded operands in-place
   /// so instruction indices stay stable.
