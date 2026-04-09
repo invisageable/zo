@@ -138,24 +138,21 @@ struct App {
 }
 
 impl eframe::App for App {
-  fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+  fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     if !self.commands.is_empty() {
       self.renderer.render(&self.commands);
     }
 
-    egui::CentralPanel::default().show(ctx, |ui| {
-      self.renderer.render_with_ui(ui);
+    self.renderer.render_with_ui(ui);
 
-      // Dispatch pending events to zo handlers
-      let pending = self.renderer.take_pending_events();
+    let pending = self.renderer.take_pending_events();
 
-      for (widget_id, _event_kind) in pending {
-        let wid = widget_id.to_string();
+    for (widget_id, _event_kind) in pending {
+      let wid = widget_id.to_string();
 
-        if let Some(handler_name) = self.event_map.get(&wid) {
-          self.events.dispatch(handler_name);
-        }
+      if let Some(handler_name) = self.event_map.get(&wid) {
+        self.events.dispatch(handler_name);
       }
-    });
+    }
   }
 }

@@ -97,6 +97,7 @@ impl Renderer {
 
         UiCommand::Text { content, style } => {
           self.render_styled_text(ui, content, style);
+
           idx += 1;
         }
 
@@ -104,7 +105,7 @@ impl Renderer {
           if ui.button(content).clicked() {
             // Record button click event
             self.state.pending_events.push((*id, 0)); // 0 = Click event
-            println!("Button {} clicked: {}", id, content);
+            println!("Button {id} clicked: {content}");
           }
 
           idx += 1;

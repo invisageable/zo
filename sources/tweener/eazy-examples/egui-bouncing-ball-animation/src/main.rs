@@ -23,34 +23,29 @@ impl eframe::App for BounceApp {
     egui::Color32::WHITE.to_normalized_gamma_f32()
   }
 
-  fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+  fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     let elapsed = self.start_time.elapsed().as_secs_f32();
-    let t = (elapsed % self.duration) / self.duration; // Normalize to [0,1]
-    let bounce_height = Easing::OutBounce.y(t); // Apply easing
+    let t = (elapsed % self.duration) / self.duration;
+    let bounce_height = Easing::OutBounce.y(t);
 
-    egui::CentralPanel::default().show(ctx, |ui| {
-      ui.vertical_centered(|ui| {
-        let (w, h) = (300.0, 300.0);
-        let radius = 20.0;
-        let ypos = h - bounce_height * (h - radius * 2.0);
+    ui.vertical_centered(|ui| {
+      let (w, h) = (300.0, 300.0);
+      let radius = 20.0;
+      let ypos = h - bounce_height * (h - radius * 2.0);
 
-        let painter = ui.painter();
-        let center = egui::pos2(w / 2.0, ypos);
+      let painter = ui.painter();
+      let center = egui::pos2(w / 2.0, ypos);
 
-        // Background box
-        painter.rect_filled(
-          egui::Rect::from_min_size(ui.min_rect().min, egui::vec2(w, h)),
-          0.0,
-          egui::Color32::DARK_GRAY,
-        );
+      painter.rect_filled(
+        egui::Rect::from_min_size(ui.min_rect().min, egui::vec2(w, h)),
+        0.0,
+        egui::Color32::DARK_GRAY,
+      );
 
-        // Ball
-        painter.circle_filled(center, radius, egui::Color32::LIGHT_GREEN);
-      });
+      painter.circle_filled(center, radius, egui::Color32::LIGHT_GREEN);
     });
 
-    // Keep animating
-    ctx.request_repaint();
+    ui.ctx().request_repaint();
   }
 }
 

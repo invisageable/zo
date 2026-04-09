@@ -115,7 +115,7 @@ clap = { version = "4.5.49", features = ["derive"] }
 console_error_panic_hook = { version = "0.1.7" }
 criterion = { version = "0.7.0", features = ["html_reports"] }
 crossbeam = "0.8.4"
-eframe = { version = "0.33.3", features = [
+eframe = { version = "0.34.1", features = [
   "accesskit",
   "default_fonts",
   "persistence",
@@ -123,12 +123,12 @@ eframe = { version = "0.33.3", features = [
   "wayland",   # Linux
   "x11",       # Linux
 ] }
-egui_extras = { version = "0.33.3", default-features = false, features = [
+egui_extras = { version = "0.34.1", default-features = false, features = [
   "file",
   "image",
   "svg",
 ] }
-egui_kittest = { version = "0.33.3", default-features = false, features = [
+egui_kittest = { version = "0.34.1", default-features = false, features = [
   "snapshot",
   # "wgpu",
 ]}
