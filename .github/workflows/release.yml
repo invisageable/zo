@@ -22,8 +22,14 @@ jobs:
             target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+          # NOTE(windows): disabled until upstream resolves the
+          # `windows` crate version conflict (0.61 vs 0.62).
+          # `gpu-allocator 0.28` (via wgpu-hal) uses windows 0.61,
+          # `accesskit_windows` (via egui) uses windows 0.62.
+          # DX12 codepath in wgpu-hal mixes types from both versions.
+          # Track: wgpu 30 / gpu-allocator 0.29 should unify on 0.62.
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4

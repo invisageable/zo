@@ -82,6 +82,11 @@ clean:
 check crate:
   cargo check -p {{crate}}
 
+# Install/upgrade zo via the install script
+[group('zo')]
+zo_install:
+  sh tasks/zo-install.sh
+
 # Build the zo compiler binary
 [group("zo")]
 zo_build_compiler:
