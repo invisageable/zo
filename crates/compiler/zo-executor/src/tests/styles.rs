@@ -251,3 +251,47 @@ fn test_style_block_no_errors() {
     "#,
   );
 }
+
+#[test]
+fn test_style_grouped_selector() {
+  assert_sir_structure(
+    r#"
+      pub $: {
+        html, body {
+          m: 0;
+          p: 0;
+        }
+      }
+
+      fun main() {
+        imu view: </> ::= <p>hello</p>;
+        #dom view;
+      }
+    "#,
+    |sir| {
+      let template = sir.iter().find_map(|i| match i {
+        Insn::Template { commands, .. } => Some(commands),
+        _ => None,
+      });
+
+      let commands = template.expect("should emit Template SIR");
+
+      let style_cmd = commands
+        .iter()
+        .find(|c| matches!(c, UiCommand::StyleSheet { .. }))
+        .expect("template should contain StyleSheet");
+
+      match style_cmd {
+        UiCommand::StyleSheet { css, .. } => {
+          assert!(
+            css.contains("html, body"),
+            "grouped selector preserved, got: {css}"
+          );
+          assert!(css.contains("margin: 0;"), "m -> margin, got: {css}");
+          assert!(css.contains("padding: 0;"), "p -> padding, got: {css}");
+        }
+        _ => unreachable!(),
+      }
+    },
+  );
+}

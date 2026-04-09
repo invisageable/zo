@@ -539,6 +539,9 @@ impl<'a> Tokenizer<'a> {
           self.scan_style_value();
         }
       }
+      b',' => {
+        self.tokens.push(Token::Comma, start as u32, 1);
+      }
       b'.' => {
         self.tokens.push(Token::Dot, start as u32, 1);
       }

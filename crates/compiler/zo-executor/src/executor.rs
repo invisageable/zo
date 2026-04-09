@@ -6908,11 +6908,13 @@ impl<'a> Executor<'a> {
         match t {
           Token::Dot => selector.push('.'),
           Token::Hash => selector.push('#'),
+          Token::Comma => selector.push_str(", "),
           Token::Ident => {
             if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
               if !selector.is_empty()
                 && !selector.ends_with('.')
                 && !selector.ends_with('#')
+                && !selector.ends_with(' ')
               {
                 selector.push(' ');
               }

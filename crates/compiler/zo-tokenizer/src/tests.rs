@@ -741,3 +741,26 @@ fn test_style_hyphenated_property() {
     ],
   );
 }
+
+#[test]
+fn test_style_grouped_selector() {
+  assert_tokens_stream(
+    "$: { html, body { m: 0; } }",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "html"),
+      (Token::Comma, ","),
+      (Token::Ident, "body"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "m"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "0"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
