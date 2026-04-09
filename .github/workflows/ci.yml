@@ -65,8 +65,12 @@ jobs:
           sudo apt-get install -y libglib2.0-dev libgtk-3-dev libatk1.0-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
-      - name: Run tests
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
         run: cargo test --all
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: cargo test -p zo-tokenizer -p zo-parser -p zo-executor -p zo-sir -p zo-styler -p zo-codegen-arm -p zo-runtime-web -p zo-test-runner
 
   build:
     name: Build
@@ -84,5 +88,9 @@ jobs:
           sudo apt-get install -y libglib2.0-dev libgtk-3-dev libatk1.0-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
-      - name: Build release
+      - name: Build release (Unix)
+        if: runner.os != 'Windows'
         run: cargo build --release
+      - name: Build release (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release -p zo-tokenizer -p zo-parser -p zo-executor -p zo-sir -p zo-styler -p zo-codegen-arm -p zo-runtime-web -p zo-test-runner
