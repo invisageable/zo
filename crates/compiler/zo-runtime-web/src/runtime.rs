@@ -176,16 +176,11 @@ impl Runtime {
             if let Some(wv) = &self.webview {
               let mut js = String::new();
 
-              for (idx, (old, new)) in self
-                .commands
-                .iter()
-                .zip(updated.iter())
-                .enumerate()
+              for (idx, (old, new)) in
+                self.commands.iter().zip(updated.iter()).enumerate()
               {
                 if old != new
-                  && let UiCommand::Text {
-                    content, ..
-                  } = new
+                  && let UiCommand::Text { content, .. } = new
                 {
                   js.push_str(&format!(
                     "var e=document.getElementById(\
