@@ -156,17 +156,10 @@ impl HtmlRenderer {
       }
 
       UiCommand::Button { id, content } => {
-        let wid = id.to_string();
         let sc = &self.scope_class_attr;
 
-        let handler = self
-          .event_map
-          .get(&wid)
-          .map(|h| format!("onclick=\"ZoRuntime.call('{h}')\""))
-          .unwrap_or_else(|| format!("onclick=\"handleClick({id})\""));
-
         self.html_buffer.push_str(&format!(
-          "<button{sc} data-id=\"{id}\" {handler}>{}</button>\n",
+          "<button{sc} data-id=\"{id}\">{}</button>\n",
           escape_html(content)
         ));
       }
@@ -176,21 +169,13 @@ impl HtmlRenderer {
         placeholder,
         value,
       } => {
-        let wid = id.to_string();
-
-        let handler = self
-          .event_map
-          .get(&wid)
-          .map(|h| format!("oninput=\"ZoRuntime.call('{h}', this.value)\""))
-          .unwrap_or_else(|| {
-            format!("oninput=\"handleInput({id}, this.value)\"")
-          });
-
         let sc = &self.scope_class_attr;
 
         self.html_buffer.push_str(&format!(
-          "<input type=\"text\"{sc} data-id=\"{id}\" placeholder=\"{}\" value=\"{}\" {handler} />\n",
-          escape_html(placeholder), escape_html(value)
+          "<input type=\"text\"{sc} data-id=\"{id}\" \
+           placeholder=\"{}\" value=\"{}\" />\n",
+          escape_html(placeholder),
+          escape_html(value),
         ));
       }
 

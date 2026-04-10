@@ -5,7 +5,7 @@ fun main() {
   
   imu counter ::= <>
     <input type="number" bind:value={count} />
-    <button on:click={fn() -> count += 1}>count</button>
+    <button on:click={fn() => count += 1}>count</button>
   </>;
 
   #dom counter;

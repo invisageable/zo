@@ -10,7 +10,11 @@ doctest = false
 # internal:sources.
 
 # internal:crates.
+zo-interner = { workspace = true }
+zo-sir = { workspace = true }
+zo-ty = { workspace = true }
 zo-ui-protocol = { workspace = true }
+zo-value = { workspace = true }
 
 # external:crates.
 rustc-hash = { workspace = true }

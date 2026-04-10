@@ -10,14 +10,14 @@
 
 [home](https://github.com/invisageable/zo) — [install](./crates/compiler/zo-notes/public/guidelines/02-install.md) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
 
-  ```js
+  ```ts
   fun main() {
     mut count: int = 0;
 
     imu counter: </> ::= <>
-      <button onclick={fn() -> count -= 1}>-</button>
+      <button @click={fn() => count -= 1}>-</button>
       {count}
-      <button onclick={fn() -> count += 1}>+</button>
+      <button @click={fn() => count += 1}>+</button>
     </>;
 
     #dom counter;

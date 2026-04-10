@@ -1,0 +1,13 @@
+-- test-build-pass: reactive counter with state.
+
+fun main() {
+  mut count: int = 0;
+
+  imu counter: </> ::= <>
+    <button @click={fn() => count -= 1}>-</button>
+    {count}
+    <button @click={fn() => count += 1}>+</button>
+  </>;
+
+  #dom counter;
+}

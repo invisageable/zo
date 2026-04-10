@@ -680,6 +680,16 @@ impl<'a> Parser<'a> {
   fn handle_rbrace_closer(&mut self) {
     self.flush_expr();
 
+    // Inline closure boundary: `@click={fn() => expr}`.
+    // The `}` belongs to the enclosing LBrace, not the Fn.
+    // Close the Fn introducer first so the LBrace handler
+    // below can find its matching LBrace.
+    if let Some(top) = self.introducer_stack.last()
+      && top.token == Token::Fn
+    {
+      self.close_introducer();
+    }
+
     // Check if we have a matching LBrace introducer
     if let Some(introducer) = self.introducer_stack.last() {
       if introducer.token == Token::LBrace {
@@ -692,7 +702,7 @@ impl<'a> Parser<'a> {
         self.close_introducer();
         self.emit_node(Token::RBrace);
 
-        // If we were in template interpolation, return to template mode
+        // Return to template mode for interpolation.
         if was_template_interpolation {
           self.state = ParserState::TemplateMode;
           return;

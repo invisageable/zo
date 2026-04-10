@@ -77,3 +77,122 @@ pub trait Render {
   /// Cleanup resources — *called on shutdown*.
   fn cleanup(&mut self);
 }
+
+// === Reactive State ===
+
+/// A runtime value for reactive state slots.
+#[derive(Clone, Debug, PartialEq)]
+pub enum StateValue {
+  Int(i64),
+  Float(f64),
+  Bool(bool),
+  Str(String),
+}
+
+impl StateValue {
+  /// Display the value as a string (for template rendering).
+  pub fn display(&self) -> String {
+    match self {
+      Self::Int(v) => v.to_string(),
+      Self::Float(v) => v.to_string(),
+      Self::Bool(v) => v.to_string(),
+      Self::Str(v) => v.clone(),
+    }
+  }
+}
+
+impl std::fmt::Display for StateValue {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Int(v) => write!(f, "{v}"),
+      Self::Float(v) => write!(f, "{v}"),
+      Self::Bool(v) => write!(f, "{v}"),
+      Self::Str(v) => write!(f, "{v}"),
+    }
+  }
+}
+
+/// A shared mutable state cell. Thread-safe for use across
+/// handler closures and the render loop.
+#[derive(Clone, Debug)]
+pub struct StateCell(std::sync::Arc<std::sync::Mutex<StateValue>>);
+
+impl StateCell {
+  /// Create a new state cell with an initial value.
+  pub fn new(value: StateValue) -> Self {
+    Self(std::sync::Arc::new(std::sync::Mutex::new(value)))
+  }
+
+  /// Read the current value.
+  pub fn get(&self) -> StateValue {
+    self.0.lock().unwrap().clone()
+  }
+
+  /// Set a new value.
+  pub fn set(&self, value: StateValue) {
+    *self.0.lock().unwrap() = value;
+  }
+
+  /// Apply a mutation function to the value.
+  pub fn mutate(&self, f: impl FnOnce(&mut StateValue)) {
+    f(&mut self.0.lock().unwrap());
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_state_value_display() {
+    assert_eq!(StateValue::Int(42).display(), "42");
+    assert_eq!(StateValue::Float(2.5).display(), "2.5");
+    assert_eq!(StateValue::Bool(true).display(), "true");
+    assert_eq!(StateValue::Str("hello".into()).display(), "hello",);
+  }
+
+  #[test]
+  fn test_state_cell_get_set() {
+    let cell = StateCell::new(StateValue::Int(0));
+
+    assert_eq!(cell.get(), StateValue::Int(0));
+
+    cell.set(StateValue::Int(42));
+    assert_eq!(cell.get(), StateValue::Int(42));
+  }
+
+  #[test]
+  fn test_state_cell_mutate() {
+    let cell = StateCell::new(StateValue::Int(5));
+
+    cell.mutate(|v| {
+      if let StateValue::Int(n) = v {
+        *n -= 1;
+      }
+    });
+
+    assert_eq!(cell.get(), StateValue::Int(4));
+  }
+
+  #[test]
+  fn test_state_cell_shared() {
+    let cell = StateCell::new(StateValue::Int(0));
+    let cell2 = cell.clone();
+
+    cell.set(StateValue::Int(10));
+    assert_eq!(cell2.get(), StateValue::Int(10));
+  }
+
+  #[test]
+  fn test_state_cell_thread_safe() {
+    let cell = StateCell::new(StateValue::Int(0));
+    let cell2 = cell.clone();
+
+    let handle = std::thread::spawn(move || {
+      cell2.set(StateValue::Int(99));
+    });
+
+    handle.join().unwrap();
+    assert_eq!(cell.get(), StateValue::Int(99));
+  }
+}

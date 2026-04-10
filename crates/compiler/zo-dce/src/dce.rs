@@ -17,6 +17,9 @@ struct FunRange {
   end: usize,
   /// Whether the function is `pub` (exported).
   pubness: Pubness,
+  /// Whether this is a closure (always reachable — called
+  /// by the runtime via EventRegistry, not by static code).
+  is_closure: bool,
 }
 
 /// Dead code elimination pipeline.
@@ -309,7 +312,13 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
   let mut i = 0;
 
   while i < instructions.len() {
-    if let Insn::FunDef { name, pubness, .. } = &instructions[i] {
+    if let Insn::FunDef {
+      name,
+      pubness,
+      kind,
+      ..
+    } = &instructions[i]
+    {
       let start = i;
       let mut end = i + 1;
 
@@ -340,6 +349,7 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
           start,
           end,
           pubness: *pubness,
+          is_closure: matches!(kind, zo_value::FunctionKind::Closure { .. },),
         });
       }
 
@@ -380,7 +390,8 @@ fn mark_reachable(
   let mut worklist = Vec::new();
 
   for func in functions {
-    if func.name == main_sym || func.pubness == Pubness::Yes {
+    if func.name == main_sym || func.pubness == Pubness::Yes || func.is_closure
+    {
       worklist.push(func.name);
     }
   }

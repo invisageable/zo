@@ -27,6 +27,8 @@ pub struct Runtime {
   config: RuntimeConfig,
   commands: Vec<UiCommand>,
   events: EventRegistry,
+  /// Shared command buffer for reactive state updates.
+  shared_commands: Option<std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>>,
 }
 
 impl Runtime {
@@ -41,6 +43,7 @@ impl Runtime {
       config,
       commands: Vec::new(),
       events: EventRegistry::new(),
+      shared_commands: None,
     }
   }
 
@@ -54,12 +57,20 @@ impl Runtime {
     self.events = events;
   }
 
+  /// Set the shared command buffer (for reactive state).
+  pub fn set_shared_commands(
+    &mut self,
+    shared: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
+  ) {
+    self.shared_commands = Some(shared);
+  }
+
   /// Run the application with HTML in webview
   pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
     use winit::{
       application::ApplicationHandler,
       event::WindowEvent,
-      event_loop::{ActiveEventLoop, EventLoop},
+      event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
       window::{Window, WindowId},
     };
     use wry::WebView;
@@ -71,13 +82,16 @@ impl Runtime {
       title: String,
       size: (f32, f32),
       html: String,
-      // WebView must drop before Window (drop order
-      // is declaration order in Rust).
+      events: EventRegistry,
+      commands: Vec<UiCommand>,
+      shared_commands: Option<std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>>,
+      proxy: EventLoopProxy<String>,
+      // WebView must drop before Window.
       webview: Option<WebView>,
       window: Option<Window>,
     }
 
-    impl ApplicationHandler for App {
+    impl ApplicationHandler<String> for App {
       fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attrs = Window::default_attributes()
           .with_title(&self.title)
@@ -88,8 +102,17 @@ impl Runtime {
 
         let window = event_loop.create_window(window_attrs).unwrap();
 
+        // Clone proxy for the IPC handler closure.
+        let ipc_proxy = self.proxy.clone();
+
         let webview = wry::WebViewBuilder::new()
           .with_html(&self.html)
+          .with_ipc_handler(move |req| {
+            // Forward IPC messages to the event loop.
+            let body = req.body().clone();
+
+            ipc_proxy.send_event(body).ok();
+          })
           .with_bounds(wry::Rect {
             position: wry::dpi::LogicalPosition::new(0, 0).into(),
             size: wry::dpi::LogicalSize::new(
@@ -125,14 +148,69 @@ impl Runtime {
           _ => {}
         }
       }
+
+      fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: String) {
+        // IPC message from JS: "click:{widget_id}"
+        if let Some(widget_id) = event.strip_prefix("click:") {
+          // Find the handler name for this widget.
+          let handler_name = self.commands.iter().find_map(|cmd| {
+            if let UiCommand::Event {
+              widget_id: wid,
+              handler,
+              ..
+            } = cmd
+            {
+              if wid == widget_id {
+                Some(handler.clone())
+              } else {
+                None
+              }
+            } else {
+              None
+            }
+          });
+
+          if let Some(name) = handler_name {
+            // Dispatch the handler (mutates shared state).
+            self.events.dispatch(&name);
+
+            // Read updated commands from the shared buffer.
+            let updated_cmds = self
+              .shared_commands
+              .as_ref()
+              .map(|sc| sc.lock().unwrap().clone())
+              .unwrap_or_else(|| self.commands.clone());
+
+            // Push DOM updates to the WebView.
+            if let Some(wv) = &self.webview {
+              let mut renderer = HtmlRenderer::new();
+              let new_html = renderer.render_to_html(&updated_cmds);
+
+              let js = format!(
+                "document.open();document.write({});\
+                 document.close();",
+                escape_js_string(&new_html),
+              );
+
+              wv.evaluate_script(&js).ok();
+            }
+          }
+        }
+      }
     }
 
-    let event_loop = EventLoop::new()?;
+    // Create event loop with user event support for IPC.
+    let event_loop = EventLoop::<String>::with_user_event().build()?;
+    let proxy = event_loop.create_proxy();
 
     let mut app = App {
       title: self.config.title,
       size: self.config.size,
       html,
+      events: self.events,
+      commands: self.commands,
+      shared_commands: self.shared_commands,
+      proxy,
       webview: None,
       window: None,
     };
@@ -146,4 +224,26 @@ impl Default for Runtime {
   fn default() -> Self {
     Self::new()
   }
+}
+
+/// Escape a string for use as a JS string literal.
+fn escape_js_string(s: &str) -> String {
+  let mut out = String::with_capacity(s.len() + 2);
+
+  out.push('"');
+
+  for c in s.chars() {
+    match c {
+      '"' => out.push_str("\\\""),
+      '\\' => out.push_str("\\\\"),
+      '\n' => out.push_str("\\n"),
+      '\r' => out.push_str("\\r"),
+      '<' => out.push_str("\\x3c"),
+      '>' => out.push_str("\\x3e"),
+      _ => out.push(c),
+    }
+  }
+
+  out.push('"');
+  out
 }

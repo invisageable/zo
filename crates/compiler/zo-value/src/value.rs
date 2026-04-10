@@ -71,13 +71,24 @@ pub struct ValueStorage {
   pub indices: Vec<u32>,
 }
 
+/// Metadata about a single captured variable.
+#[derive(Clone, Copy, Debug)]
+pub struct CaptureInfo {
+  /// The variable name.
+  pub name: Symbol,
+  /// The SIR value of the captured variable.
+  pub sir_value: ValueId,
+  /// Whether the captured variable is mutable (`mut`).
+  pub is_mutable: bool,
+}
+
 /// A closure value: generated function name + captured values.
 #[derive(Clone, Debug)]
 pub struct ClosureValue {
   /// Generated function name (e.g. `__closure_0`).
   pub fun_name: Symbol,
-  /// Captured values from enclosing scope.
-  pub captures: Vec<(Symbol, ValueId)>,
+  /// Captured variables with metadata.
+  pub captures: Vec<CaptureInfo>,
 }
 
 impl ValueStorage {

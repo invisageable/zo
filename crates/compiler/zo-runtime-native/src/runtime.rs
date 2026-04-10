@@ -9,6 +9,8 @@ use zo_ui_protocol::loader::LibraryLoader;
 use eframe::egui;
 use rustc_hash::FxHashMap as HashMap;
 
+use std::sync::{Arc, Mutex};
+
 /// Runtime configuration
 pub struct RuntimeConfig {
   /// Path to the compiled zo library
@@ -34,7 +36,7 @@ pub struct Runtime {
   config: RuntimeConfig,
   renderer: Renderer,
   loader: LibraryLoader,
-  commands: Vec<UiCommand>,
+  commands: Arc<Mutex<Vec<UiCommand>>>,
   events: EventRegistry,
 }
 
@@ -50,7 +52,7 @@ impl Runtime {
       config,
       renderer: Renderer::new(),
       loader: LibraryLoader::new(),
-      commands: Vec::new(),
+      commands: Arc::new(Mutex::new(Vec::new())),
       events: EventRegistry::new(),
     }
   }
@@ -62,14 +64,28 @@ impl Runtime {
   ) -> Result<(), Box<dyn std::error::Error>> {
     let commands = self.loader.load(path)?;
 
-    self.commands = commands.into();
+    *self.commands.lock().unwrap() = commands.into();
 
     Ok(())
   }
 
   /// Set UI commands directly (for testing)
   pub fn set_commands(&mut self, commands: Vec<UiCommand>) {
-    self.commands = commands;
+    *self.commands.lock().unwrap() = commands;
+  }
+
+  /// Get a shared handle to the command buffer.
+  /// Handler closures use this to push updated commands
+  /// after state mutations.
+  pub fn shared_commands(&self) -> Arc<Mutex<Vec<UiCommand>>> {
+    self.commands.clone()
+  }
+
+  /// Set the shared command buffer (for reactive state).
+  /// Called by the parent Runtime to inject the buffer
+  /// that handler closures will update.
+  pub fn set_shared_commands(&mut self, shared: Arc<Mutex<Vec<UiCommand>>>) {
+    self.commands = shared;
   }
 
   /// Set event handler registry.
@@ -90,17 +106,19 @@ impl Runtime {
       ..Default::default()
     };
 
-    let commands = self.commands.clone();
-
     // Build widget_id → handler_name map from Event commands
     let mut event_map = HashMap::default();
 
-    for cmd in &commands {
-      if let UiCommand::Event {
-        widget_id, handler, ..
-      } = cmd
-      {
-        event_map.insert(widget_id.clone(), handler.clone());
+    {
+      let cmds = self.commands.lock().unwrap();
+
+      for cmd in cmds.iter() {
+        if let UiCommand::Event {
+          widget_id, handler, ..
+        } = cmd
+        {
+          event_map.insert(widget_id.clone(), handler.clone());
+        }
       }
     }
 
@@ -110,7 +128,7 @@ impl Runtime {
       Box::new(move |_cc| {
         Ok(Box::new(App {
           renderer: self.renderer,
-          commands,
+          commands: self.commands,
           events: self.events,
           event_map,
         }))
@@ -131,7 +149,9 @@ impl Default for Runtime {
 /// Egui application wrapper
 struct App {
   renderer: Renderer,
-  commands: Vec<UiCommand>,
+  /// Shared command buffer — handlers update this after
+  /// mutating state. Each frame reads the current commands.
+  commands: Arc<Mutex<Vec<UiCommand>>>,
   events: EventRegistry,
   /// Maps widget_id → handler_name
   event_map: HashMap<String, String>,
@@ -139,8 +159,10 @@ struct App {
 
 impl eframe::App for App {
   fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-    if !self.commands.is_empty() {
-      self.renderer.render(&self.commands);
+    let commands = self.commands.lock().unwrap().clone();
+
+    if !commands.is_empty() {
+      self.renderer.render(&commands);
     }
 
     self.renderer.render_with_ui(ui);
