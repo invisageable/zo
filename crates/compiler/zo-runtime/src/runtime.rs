@@ -3,6 +3,8 @@
 use zo_runtime_render::render::{EventRegistry, Graphics};
 use zo_ui_protocol::UiCommand;
 
+use std::sync::{Arc, Mutex};
+
 /// Runtime configuration
 pub struct RuntimeConfig {
   /// Path to the compiled zo library
@@ -31,6 +33,9 @@ pub struct Runtime {
   config: RuntimeConfig,
   commands: Vec<UiCommand>,
   events: EventRegistry,
+  /// Shared command buffer for reactive state updates.
+  /// Handler closures write here; the runtime reads each frame.
+  shared_commands: Arc<Mutex<Vec<UiCommand>>>,
 }
 
 impl Runtime {
@@ -41,21 +46,32 @@ impl Runtime {
 
   /// Create a new runtime with custom configuration
   pub fn with_config(config: RuntimeConfig) -> Self {
+    let shared = Arc::new(Mutex::new(Vec::new()));
+
     Self {
       config,
       commands: Vec::new(),
       events: EventRegistry::new(),
+      shared_commands: shared,
     }
   }
 
   /// Set UI commands directly (for testing)
   pub fn set_commands(&mut self, commands: Vec<UiCommand>) {
+    *self.shared_commands.lock().unwrap() = commands.clone();
     self.commands = commands;
   }
 
   /// Set the event handler registry.
   pub fn set_events(&mut self, events: EventRegistry) {
     self.events = events;
+  }
+
+  /// Get a shared handle to the command buffer.
+  /// Handler closures use this to push updated commands
+  /// after state mutations.
+  pub fn shared_commands(&self) -> Arc<Mutex<Vec<UiCommand>>> {
+    self.shared_commands.clone()
   }
 
   /// Run the application with the configured graphics backend
@@ -73,6 +89,7 @@ impl Runtime {
 
         native_runtime.set_commands(self.commands);
         native_runtime.set_events(self.events);
+        native_runtime.set_shared_commands(self.shared_commands);
         native_runtime.run()
       }
       Graphics::Web => {
@@ -82,8 +99,10 @@ impl Runtime {
         };
 
         let mut web_runtime = zo_runtime_web::Runtime::with_config(web_config);
+
         web_runtime.set_commands(self.commands);
         web_runtime.set_events(self.events);
+        web_runtime.set_shared_commands(self.shared_commands);
         web_runtime.run()
       }
     }

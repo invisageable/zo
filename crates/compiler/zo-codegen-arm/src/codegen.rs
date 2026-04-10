@@ -129,6 +129,11 @@ pub struct ARM64Gen<'a> {
   template_data: Vec<(Symbol, Vec<u8>)>,
   /// Whether we have templates that need the entry point.
   pub has_templates: bool,
+  /// Reactive template bindings: (command_index, var_symbol).
+  /// Stored so the runtime can re-render after state changes.
+  reactive_bindings: Vec<(usize, Symbol)>,
+  /// Event handler dispatch table: widget_id → closure_symbol.
+  event_handlers: Vec<(String, Symbol)>,
   /// The label offsets: label_id → byte offset in code.
   labels: HashMap<u32, u32>,
   /// The branch fixups: (code_offset, target_label_id).
@@ -182,6 +187,8 @@ impl<'a> ARM64Gen<'a> {
       string_fixups: Vec::new(),
       template_data: Vec::new(),
       has_templates: false,
+      reactive_bindings: Vec::new(),
+      event_handlers: Vec::new(),
       labels: HashMap::default(),
       branch_fixups: Vec::new(),
       reg_alloc: None,
@@ -470,6 +477,11 @@ impl<'a> ARM64Gen<'a> {
       self.generate_ui_entry_point();
     }
 
+    // Generate _zo_handle_event if we have event handlers.
+    if !self.event_handlers.is_empty() {
+      self.generate_handle_event();
+    }
+
     // Emit libm stubs at end of code section. Each stub is
     // 12 bytes (3 instructions): ADRP X16, page; LDR X16,
     // [X16, off]; BR X16. The actual page/offset values are
@@ -668,6 +680,20 @@ impl<'a> ARM64Gen<'a> {
       if let Some(&offset) = self.functions.get(&entry_symbol) {
         macho.add_function_symbol(
           "_zo_ui_entry_point",
+          1,
+          TEXT_SECTION_BASE + offset as u64,
+          true,
+        );
+      }
+    }
+
+    // Export _zo_handle_event if we have event handlers.
+    if !self.event_handlers.is_empty() {
+      let handle_symbol = Symbol(UI_ENTRY_SYMBOL - 1);
+
+      if let Some(&offset) = self.functions.get(&handle_symbol) {
+        macho.add_function_symbol(
+          "_zo_handle_event",
           1,
           TEXT_SECTION_BASE + offset as u64,
           true,
@@ -1483,9 +1509,26 @@ impl<'a> ARM64Gen<'a> {
         id,
         name: tpl_name,
         commands,
+        bindings,
         ..
       } => {
         self.handle_template(*id, *tpl_name, commands);
+
+        // Track reactive bindings for re-render.
+        if !bindings.is_empty() {
+          self.reactive_bindings.extend_from_slice(bindings);
+        }
+
+        // Collect event handlers for dispatch table.
+        for cmd in commands {
+          if let UiCommand::Event {
+            widget_id, handler, ..
+          } = cmd
+            && let Some(sym) = self.interner.symbol(handler)
+          {
+            self.event_handlers.push((widget_id.clone(), sym));
+          }
+        }
       }
 
       Insn::Directive { name, value, .. } => {
@@ -2330,6 +2373,71 @@ impl<'a> ARM64Gen<'a> {
       self.emitter.emit_mov_imm(X0, 0);
     }
 
+    self.emitter.emit_ret();
+  }
+
+  /// Generate the _zo_handle_event function.
+  ///
+  /// ABI: X0 = widget_id (u32), X1 = event_kind (u32).
+  /// Dispatches to the correct handler closure by widget_id.
+  ///
+  /// Generated code:
+  /// ```asm
+  /// STP X29, X30, [SP, #-16]!
+  /// CMP X0, #widget_id_0
+  /// B.NE .skip_0
+  /// BL __closure_0
+  /// .skip_0:
+  /// CMP X0, #widget_id_1
+  /// B.NE .skip_1
+  /// BL __closure_1
+  /// .skip_1:
+  /// LDP X29, X30, [SP], #16
+  /// RET
+  /// ```
+  fn generate_handle_event(&mut self) {
+    let handle_event_symbol = Symbol(UI_ENTRY_SYMBOL - 1);
+
+    self
+      .functions
+      .insert(handle_event_symbol, self.emitter.current_offset());
+
+    // Prologue: save LR for BL calls.
+    self.emitter.emit_stp(X29, X30, SP, -16);
+
+    // Collect handlers to avoid borrow issues.
+    let handlers: Vec<(u32, Symbol)> = self
+      .event_handlers
+      .iter()
+      .filter_map(|(wid_str, sym)| {
+        wid_str.parse::<u32>().ok().map(|wid| (wid, *sym))
+      })
+      .collect();
+
+    // For each handler: CMP + B.NE(skip 1 insn) + BL.
+    for (wid, handler_sym) in &handlers {
+      // CMP X0, #wid
+      self.emitter.emit_cmp_imm(X0, *wid as u16);
+
+      // B.NE — skip the next BL (1 instruction = 4 bytes).
+      self.emitter.emit_bne(8);
+
+      // BL handler
+      if let Some(&func_offset) = self.functions.get(handler_sym) {
+        let bl_pos = self.emitter.current_offset();
+        let offset = func_offset as i32 - bl_pos as i32;
+
+        self.emitter.emit_bl(offset);
+      } else {
+        let bl_pos = self.emitter.current_offset();
+
+        self.call_fixups.push((bl_pos, *handler_sym));
+        self.emitter.emit_bl(0);
+      }
+    }
+
+    // Epilogue: restore and return.
+    self.emitter.emit_ldp(X29, X30, SP, 16);
     self.emitter.emit_ret();
   }
 

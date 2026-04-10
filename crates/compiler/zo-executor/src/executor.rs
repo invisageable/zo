@@ -14,8 +14,8 @@ use zo_ui_protocol::{
   UiCommand,
 };
 use zo_value::{
-  ClosureValue, FunDef, FunctionKind, Local, LocalKind, Pubness, Value,
-  ValueId, ValueStorage,
+  CaptureInfo, ClosureValue, FunDef, FunctionKind, Local, LocalKind, Pubness,
+  Value, ValueId, ValueStorage,
 };
 
 use std::cell::Cell;
@@ -124,6 +124,10 @@ pub struct Executor<'a> {
   /// Pending stylesheet commands collected from `$:` blocks.
   /// Injected into the next `Insn::Template`'s commands.
   pending_styles: Vec<UiCommand>,
+  /// Dynamic template bindings: (command_index, variable).
+  /// Accumulated during template execution, consumed when
+  /// emitting `Insn::Template`.
+  template_bindings: Vec<(usize, Symbol)>,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -184,6 +188,7 @@ impl<'a> Executor<'a> {
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       pending_styles: Vec::new(),
+      template_bindings: Vec::new(),
     }
   }
 
@@ -302,6 +307,13 @@ impl<'a> Executor<'a> {
       if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
         self.apply_deferred_binop();
       }
+    }
+
+    // Safety net: flush any remaining deferred closures.
+    if !self.deferred_closures.is_empty() {
+      let closures = std::mem::take(&mut self.deferred_closures);
+
+      self.sir.instructions.extend(closures);
     }
 
     // Monomorphization: duplicate generic function bodies
@@ -2979,13 +2991,14 @@ impl<'a> Executor<'a> {
   }
 
   /// Scans closure body for identifiers that reference
-  /// outer-scope locals (captures). Returns deduplicated list.
+  /// outer-scope locals (captures). Returns deduplicated list
+  /// with type and mutability info.
   fn identify_captures(
     &self,
     body_start: usize,
     body_end: usize,
     params: &[(Symbol, TyId)],
-  ) -> Vec<(Symbol, TyId)> {
+  ) -> Vec<(Symbol, TyId, bool)> {
     let mut captures = Vec::new();
     let mut seen = Vec::new();
 
@@ -3012,7 +3025,9 @@ impl<'a> Executor<'a> {
 
         // Check if it's an outer local.
         if let Some(local) = self.lookup_local(sym) {
-          captures.push((sym, local.ty_id));
+          let is_mutable = local.mutability == Mutability::Yes;
+
+          captures.push((sym, local.ty_id, is_mutable));
           seen.push(sym);
         }
       }
@@ -3188,7 +3203,7 @@ impl<'a> Executor<'a> {
     let capture_count = captures.len() as u32;
     let mut combined_params = Vec::with_capacity(captures.len() + params.len());
 
-    for (name, ty_id) in &captures {
+    for (name, ty_id, _is_mutable) in &captures {
       combined_params.push((*name, *ty_id));
     }
 
@@ -3196,7 +3211,9 @@ impl<'a> Executor<'a> {
 
     // -- 5. Generate unique closure name ---------------------
 
-    let closure_name = Symbol::new(0x80000000 | self.closure_counter);
+    let closure_name = self
+      .interner
+      .intern(&format!("__closure_{}", self.closure_counter));
 
     self.closure_counter += 1;
 
@@ -3297,12 +3314,24 @@ impl<'a> Executor<'a> {
         self.values.store_runtime(i as u32)
       };
 
+      // Captured mut variables retain their mutability
+      // inside the closure so `count -= 1` works.
+      let param_mutability = if (i as u32) < capture_count {
+        captures
+          .get(i)
+          .filter(|(_, _, is_mut)| *is_mut)
+          .map(|_| Mutability::Yes)
+          .unwrap_or(Mutability::No)
+      } else {
+        Mutability::No
+      };
+
       self.locals.push(Local {
         name: *pname,
         ty_id: *pty,
         value_id,
         pubness: Pubness::No,
-        mutability: Mutability::No,
+        mutability: param_mutability,
         sir_value: None,
         local_kind: LocalKind::Parameter,
       });
@@ -3330,6 +3359,15 @@ impl<'a> Executor<'a> {
 
       self.execute_node(&node, i);
     }
+
+    // -- 9b. Finalize pending operations ----------------------
+    // Inline closures (`fn() => expr`) have no Semicolon to
+    // trigger compound assignment finalization. Do it here
+    // so `fn() => count += 1` emits the BinOp + Store.
+
+    self.apply_deferred_binop();
+    self.finalize_pending_compound();
+    self.finalize_pending_assign();
 
     // -- 10. Emit implicit return ----------------------------
 
@@ -3385,9 +3423,9 @@ impl<'a> Executor<'a> {
     // Collect capture SIR values for prepending at call sites.
     // Use the outer scope's SIR values (by-copy semantics:
     // the value is fixed at closure creation time).
-    let capture_sirs = captures
+    let capture_infos = captures
       .iter()
-      .map(|(name, _)| {
+      .map(|(name, _, is_mutable)| {
         let sir_val = self
           .locals
           .iter()
@@ -3396,13 +3434,17 @@ impl<'a> Executor<'a> {
           .and_then(|l| l.sir_value)
           .unwrap_or(ValueId(u32::MAX));
 
-        (*name, sir_val)
+        CaptureInfo {
+          name: *name,
+          sir_value: sir_val,
+          is_mutable: *is_mutable,
+        }
       })
       .collect::<Vec<_>>();
 
     let closure_val = self.values.store_closure(ClosureValue {
       fun_name: closure_name,
-      captures: capture_sirs,
+      captures: capture_infos,
     });
 
     self.value_stack.push(closure_val);
@@ -6415,8 +6457,8 @@ impl<'a> Executor<'a> {
           // Fall back to Load (by-reference) if not stored.
           let sv = closure_captures
             .get(i)
-            .filter(|(_, v)| v.0 != u32::MAX)
-            .map(|(_, v)| *v)
+            .filter(|c| c.sir_value.0 != u32::MAX)
+            .map(|c| c.sir_value)
             .unwrap_or_else(|| {
               let dst = ValueId(self.sir.next_value_id);
 
@@ -7607,6 +7649,45 @@ impl<'a> Executor<'a> {
                         .unwrap_or_default();
                       idx += 1;
                       h
+                    } else if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::Fn
+                    {
+                      // Inline closure as event handler:
+                      // @click={fn() => expr}
+                      let header = self.tree.nodes[idx];
+                      let children_end =
+                        (header.child_start + header.child_count) as usize;
+
+                      self.execute_closure(idx, children_end);
+
+                      // Pop the closure value and extract its
+                      // generated function name.
+                      let h = self
+                        .value_stack
+                        .pop()
+                        .and_then(|vid| {
+                          let vi = vid.0 as usize;
+
+                          if vi < self.values.kinds.len()
+                            && matches!(self.values.kinds[vi], Value::Closure)
+                          {
+                            let ci = self.values.indices[vi] as usize;
+                            let name = self.values.closures[ci].fun_name;
+
+                            Some(self.interner.get(name).to_string())
+                          } else {
+                            None
+                          }
+                        })
+                        .unwrap_or_default();
+
+                      // Pop the type and SIR value that
+                      // execute_closure pushed.
+                      self.ty_stack.pop();
+                      self.sir_values.pop();
+
+                      idx = children_end;
+                      h
                     } else {
                       String::new()
                     };
@@ -7687,6 +7768,11 @@ impl<'a> Executor<'a> {
                 if !text.is_empty() {
                   interp_text = Some(text);
                 }
+
+                // Track dynamic binding for mut variables.
+                if local.mutability == Mutability::Yes {
+                  self.template_bindings.push((commands.len(), sym));
+                }
               }
 
               if interp_text.is_none() {
@@ -7755,6 +7841,7 @@ impl<'a> Executor<'a> {
       name: None,
       ty_id: self.ty_checker.template_ty(),
       commands,
+      bindings: std::mem::take(&mut self.template_bindings),
     });
 
     self.sir_values.push(sir_value);

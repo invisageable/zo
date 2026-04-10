@@ -32,6 +32,7 @@ fn test_template_with_ui_commands() {
     name: None,
     ty_id,
     commands,
+    bindings: vec![],
   });
 
   let mut codegen = ARM64Gen::new(&interner);
@@ -72,6 +73,7 @@ fn test_template_data_layout() {
     name: None,
     ty_id,
     commands,
+    bindings: vec![],
   });
 
   let mut codegen = ARM64Gen::new(&interner);
@@ -108,6 +110,7 @@ fn test_template_entry_point_export() {
     name: None,
     ty_id,
     commands: vec![UiCommand::EndContainer], // Minimal command
+    bindings: vec![],
   });
 
   let mut codegen = ARM64Gen::new(&interner);
@@ -160,6 +163,7 @@ fn test_template_with_dom_directive() {
     name: Some(interner.intern("button_template")),
     ty_id,
     commands,
+    bindings: vec![],
   });
 
   // Add #dom directive

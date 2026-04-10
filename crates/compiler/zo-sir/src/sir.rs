@@ -391,6 +391,10 @@ pub enum Insn {
     name: Option<Symbol>,
     ty_id: TyId,
     commands: Vec<UiCommand>,
+    /// Dynamic bindings: (command_index, variable_name).
+    /// When the variable changes, the command at that index
+    /// must be regenerated with the new value.
+    bindings: Vec<(usize, Symbol)>,
   },
   /// Stylesheet declaration: `$: { ... }` or `pub $: { ... }`.
   StyleSheet {

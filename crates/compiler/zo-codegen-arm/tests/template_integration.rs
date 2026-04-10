@@ -39,6 +39,7 @@ fn test_complete_template_binary() {
     name: Some(interner.intern("hello_template")),
     ty_id,
     commands,
+    bindings: vec![],
   });
 
   // Add a #dom directive to render it
@@ -141,6 +142,7 @@ fn test_template_memory_layout() {
     name: None,
     ty_id: TyId(0),
     commands: commands.clone(),
+    bindings: vec![],
   });
 
   let mut codegen = ARM64Gen::new(&interner);
@@ -177,6 +179,7 @@ fn test_multiple_templates() {
       content: "Template 1".to_string(),
       style: TextStyle::Heading2,
     }],
+    bindings: vec![],
   });
 
   // Second template
@@ -188,6 +191,7 @@ fn test_multiple_templates() {
       content: "Template 2".to_string(),
       style: TextStyle::Heading3,
     }],
+    bindings: vec![],
   });
 
   let mut codegen = ARM64Gen::new(&interner);

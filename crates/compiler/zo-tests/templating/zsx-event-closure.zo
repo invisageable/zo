@@ -1,0 +1,9 @@
+-- test-build-pass: inline closure as event handler.
+
+fun main() {
+  imu app: </> ::= <>
+    <button @click={fn() => showln("clicked")}>click</button>
+  </>;
+
+  #dom app;
+}

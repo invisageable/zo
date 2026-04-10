@@ -7283,13 +7283,16 @@ dependencies = [
  "zo-codegen-backend",
  "zo-compiler",
  "zo-error",
+ "zo-interner",
  "zo-parser",
  "zo-reporter",
  "zo-runtime",
+ "zo-runtime-render",
  "zo-sir",
  "zo-span",
  "zo-tokenizer",
  "zo-ui-protocol",
+ "zo-value",
 ]
 
 [[package]]
@@ -7468,7 +7471,11 @@ version = "0.3.0"
 dependencies = [
  "rustc-hash 2.1.1",
  "thin-vec",
+ "zo-interner",
+ "zo-sir",
+ "zo-ty",
  "zo-ui-protocol",
+ "zo-value",
 ]
 
 [[package]]

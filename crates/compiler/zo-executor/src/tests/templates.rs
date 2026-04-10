@@ -239,6 +239,48 @@ fn test_template_attr_interpolation() {
   );
 }
 
+// === EVENT HANDLERS ===
+
+#[test]
+fn test_event_attribute_with_inline_closure() {
+  use zo_ui_protocol::UiCommand;
+
+  assert_sir_structure(
+    r#"fun main() {
+  imu app: </> ::= <>
+    <button @click={fn() => showln("clicked")}>click</button>
+  </>;
+  #dom app;
+}"#,
+    |sir| {
+      // Find the Template instruction and check its Event command.
+      for insn in sir {
+        if let Insn::Template { commands, .. } = insn {
+          let event_cmd = commands
+            .iter()
+            .find(|c| matches!(c, UiCommand::Event { .. }));
+
+          assert!(
+            event_cmd.is_some(),
+            "should emit Event command for @click with closure",
+          );
+
+          if let Some(UiCommand::Event { handler, .. }) = event_cmd {
+            assert!(
+              handler.starts_with("__closure_"),
+              "handler should be closure name, got: {handler}",
+            );
+          }
+
+          return;
+        }
+      }
+
+      panic!("no Template instruction found in SIR");
+    },
+  );
+}
+
 // === DOM DIRECTIVE ===
 
 #[test]
