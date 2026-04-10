@@ -384,7 +384,7 @@ impl Compiler {
     // Dead code elimination — find main by name.
     let main_sym = tokenization.interner.intern("main");
 
-    Dce::new(&mut semantic.sir, main_sym).eliminate();
+    Dce::new(&mut semantic.sir, main_sym, &tokenization.interner).eliminate();
 
     (semantic, tokenization, parsing)
   }

@@ -86,9 +86,9 @@ impl HtmlRenderer {
       }
     }
 
-    // Render commands
-    for cmd in commands {
-      self.render_command(cmd);
+    // Render commands with stable IDs for granular updates.
+    for (idx, cmd) in commands.iter().enumerate() {
+      self.render_command(cmd, idx);
     }
 
     // Close any remaining containers
@@ -109,7 +109,7 @@ impl HtmlRenderer {
     self.html_buffer.clone()
   }
 
-  fn render_command(&mut self, cmd: &UiCommand) {
+  fn render_command(&mut self, cmd: &UiCommand, idx: usize) {
     match cmd {
       UiCommand::BeginContainer { id, direction } => {
         let layout = match direction {
@@ -150,9 +150,10 @@ impl HtmlRenderer {
 
         let sc = &self.scope_class_attr;
 
-        self
-          .html_buffer
-          .push_str(&format!("<{tag}{sc}>{}</{tag}>\n", escape_html(content),));
+        self.html_buffer.push_str(&format!(
+          "<{tag}{sc} id=\"zo-cmd-{idx}\">{}</{tag}>\n",
+          escape_html(content),
+        ));
       }
 
       UiCommand::Button { id, content } => {
@@ -256,7 +257,8 @@ mod tests {
     }];
 
     let html = renderer.render_to_html(&commands);
-    assert!(html.contains("<h1>hello world!</h1>"));
+    assert!(html.contains("hello world!</h1>"));
+    assert!(html.contains("id=\"zo-cmd-0\""));
   }
 
   #[test]
@@ -313,7 +315,7 @@ mod tests {
 
     // The <p> should have the scope class.
     assert!(
-      html.contains("<p class=\"_zo_test\">styled</p>"),
+      html.contains("class=\"_zo_test\"") && html.contains(">styled</p>"),
       "scoped style should add class to <p>, got: {html}"
     );
     // The <style> tag should be present.
@@ -348,7 +350,7 @@ mod tests {
 
     // Global style: no class attribute on elements.
     assert!(
-      html.contains("<p>plain</p>"),
+      html.contains(">plain</p>") && !html.contains("class="),
       "global style should NOT add class, got: {html}"
     );
     // Style tag should not have scoped attribute.

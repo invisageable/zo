@@ -18,9 +18,9 @@ use zo_value::{FunctionKind, Pubness, ValueId};
 fn warns_on_unused_function() {
   let _ = collect_errors();
 
-  let mut i = Interner::new();
-  let dead = i.intern("dead_fn");
-  let main = i.intern("main");
+  let mut interner = Interner::new();
+  let dead = interner.intern("dead_fn");
+  let main = interner.intern("main");
 
   let mut sir = make_sir(vec![
     Insn::FunDef {
@@ -49,7 +49,7 @@ fn warns_on_unused_function() {
     },
   ]);
 
-  Dce::new(&mut sir, main).eliminate();
+  Dce::new(&mut sir, main, &interner).eliminate();
 
   let errors = collect_errors();
 
@@ -65,9 +65,9 @@ fn warns_on_unused_function() {
 fn warns_on_unused_variable() {
   let _ = collect_errors();
 
-  let mut i = Interner::new();
-  let main = i.intern("main");
-  let x = i.intern("x");
+  let mut interner = Interner::new();
+  let main = interner.intern("main");
+  let x = interner.intern("x");
 
   let mut sir = make_sir(vec![
     Insn::FunDef {
@@ -94,7 +94,7 @@ fn warns_on_unused_variable() {
     },
   ]);
 
-  Dce::new(&mut sir, main).eliminate();
+  Dce::new(&mut sir, main, &interner).eliminate();
 
   let errors = collect_errors();
 
@@ -109,9 +109,9 @@ fn warns_on_unused_variable() {
 fn no_warning_when_all_used() {
   let _ = collect_errors();
 
-  let mut i = Interner::new();
-  let main = i.intern("main");
-  let x = i.intern("x");
+  let mut interner = Interner::new();
+  let main = interner.intern("main");
+  let x = interner.intern("x");
 
   let mut sir = make_sir(vec![
     Insn::FunDef {
@@ -143,7 +143,7 @@ fn no_warning_when_all_used() {
     },
   ]);
 
-  Dce::new(&mut sir, main).eliminate();
+  Dce::new(&mut sir, main, &interner).eliminate();
 
   let errors = collect_errors();
 
