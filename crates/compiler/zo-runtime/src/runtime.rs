@@ -31,11 +31,10 @@ impl Default for RuntimeConfig {
 /// Main runtime dispatcher for zo applications
 pub struct Runtime {
   config: RuntimeConfig,
-  commands: Vec<UiCommand>,
   events: EventRegistry,
-  /// Shared command buffer for reactive state updates.
-  /// Handler closures write here; the runtime reads each frame.
-  shared_commands: Arc<Mutex<Vec<UiCommand>>>,
+  /// Shared command buffer. The single source of truth for
+  /// UI commands — both initial render and reactive updates.
+  commands: Arc<Mutex<Vec<UiCommand>>>,
 }
 
 impl Runtime {
@@ -46,20 +45,16 @@ impl Runtime {
 
   /// Create a new runtime with custom configuration
   pub fn with_config(config: RuntimeConfig) -> Self {
-    let shared = Arc::new(Mutex::new(Vec::new()));
-
     Self {
       config,
-      commands: Vec::new(),
       events: EventRegistry::new(),
-      shared_commands: shared,
+      commands: Arc::new(Mutex::new(Vec::new())),
     }
   }
 
-  /// Set UI commands directly (for testing)
+  /// Set UI commands.
   pub fn set_commands(&mut self, commands: Vec<UiCommand>) {
-    *self.shared_commands.lock().unwrap() = commands.clone();
-    self.commands = commands;
+    *self.commands.lock().unwrap() = commands;
   }
 
   /// Set the event handler registry.
@@ -68,10 +63,8 @@ impl Runtime {
   }
 
   /// Get a shared handle to the command buffer.
-  /// Handler closures use this to push updated commands
-  /// after state mutations.
   pub fn shared_commands(&self) -> Arc<Mutex<Vec<UiCommand>>> {
-    self.shared_commands.clone()
+    self.commands.clone()
   }
 
   /// Run the application with the configured graphics backend
@@ -87,9 +80,8 @@ impl Runtime {
         let mut native_runtime =
           zo_runtime_native::runtime::Runtime::with_config(native_config);
 
-        native_runtime.set_commands(self.commands);
+        native_runtime.set_shared_commands(self.commands);
         native_runtime.set_events(self.events);
-        native_runtime.set_shared_commands(self.shared_commands);
         native_runtime.run()
       }
       Graphics::Web => {
@@ -100,9 +92,8 @@ impl Runtime {
 
         let mut web_runtime = zo_runtime_web::Runtime::with_config(web_config);
 
-        web_runtime.set_commands(self.commands);
+        web_runtime.set_shared_commands(self.commands);
         web_runtime.set_events(self.events);
-        web_runtime.set_shared_commands(self.shared_commands);
         web_runtime.run()
       }
     }
