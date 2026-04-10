@@ -7983,17 +7983,51 @@ impl<'a> Executor<'a> {
         });
       }
       TagKind::Unknown => {
-        let id = format!("{tag}_{}", self.template_counter);
+        // Check if the tag name is a template variable.
+        // If so, inline its commands (component resolution).
+        let resolved = self.interner.symbol(tag).and_then(|sym| {
+          let local = self.locals.iter().rev().find(|l| l.name == sym)?;
 
-        widget_id = Some(id.clone());
+          let vi = local.value_id.0 as usize;
 
-        commands.push(UiCommand::BeginContainer {
-          id,
-          direction: ContainerDirection::Vertical,
+          if vi < self.values.kinds.len()
+            && matches!(self.values.kinds[vi], Value::Template)
+          {
+            let ti = self.values.indices[vi] as usize;
+            let tpl_ref = self.values.templates[ti];
+
+            // Find the matching Template instruction.
+            for insn in &self.sir.instructions {
+              if let Insn::Template {
+                id,
+                commands: child_cmds,
+                ..
+              } = insn
+                && id.0 == tpl_ref
+              {
+                return Some(child_cmds.clone());
+              }
+            }
+          }
+
+          None
         });
 
-        if self_closing {
-          commands.push(UiCommand::EndContainer);
+        if let Some(child_commands) = resolved {
+          commands.extend(child_commands);
+        } else {
+          let id = format!("{tag}_{}", self.template_counter);
+
+          widget_id = Some(id.clone());
+
+          commands.push(UiCommand::BeginContainer {
+            id,
+            direction: ContainerDirection::Vertical,
+          });
+
+          if self_closing {
+            commands.push(UiCommand::EndContainer);
+          }
         }
       }
     }
