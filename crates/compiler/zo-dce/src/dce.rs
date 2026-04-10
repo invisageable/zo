@@ -17,9 +17,6 @@ struct FunRange {
   end: usize,
   /// Whether the function is `pub` (exported).
   pubness: Pubness,
-  /// Whether this is a closure (always reachable — called
-  /// by the runtime via EventRegistry, not by static code).
-  is_closure: bool,
 }
 
 /// Dead code elimination pipeline.
@@ -31,12 +28,21 @@ struct FunRange {
 pub struct Dce<'a> {
   sir: &'a mut Sir,
   main_sym: Symbol,
+  interner: &'a zo_interner::Interner,
 }
 
 impl<'a> Dce<'a> {
   /// Creates a new DCE pipeline for the given SIR.
-  pub fn new(sir: &'a mut Sir, main_sym: Symbol) -> Self {
-    Self { sir, main_sym }
+  pub fn new(
+    sir: &'a mut Sir,
+    main_sym: Symbol,
+    interner: &'a zo_interner::Interner,
+  ) -> Self {
+    Self {
+      sir,
+      main_sym,
+      interner,
+    }
   }
 
   /// Runs the full DCE pipeline.
@@ -66,8 +72,15 @@ impl<'a> Dce<'a> {
       return;
     }
 
-    let reachable =
-      mark_reachable(&functions, &self.sir.instructions, self.main_sym);
+    let event_handlers =
+      collect_event_handler_syms(&self.sir.instructions, self.interner);
+
+    let reachable = mark_reachable(
+      &functions,
+      &self.sir.instructions,
+      self.main_sym,
+      &event_handlers,
+    );
 
     let dead = functions
       .iter()
@@ -312,13 +325,7 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
   let mut i = 0;
 
   while i < instructions.len() {
-    if let Insn::FunDef {
-      name,
-      pubness,
-      kind,
-      ..
-    } = &instructions[i]
-    {
+    if let Insn::FunDef { name, pubness, .. } = &instructions[i] {
       let start = i;
       let mut end = i + 1;
 
@@ -349,7 +356,6 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
           start,
           end,
           pubness: *pubness,
-          is_closure: matches!(kind, zo_value::FunctionKind::Closure { .. },),
         });
       }
 
@@ -385,12 +391,15 @@ fn mark_reachable(
   functions: &[FunRange],
   instructions: &[Insn],
   main_sym: Symbol,
+  event_handlers: &HashSet<Symbol>,
 ) -> HashSet<Symbol> {
   let mut reachable = HashSet::default();
   let mut worklist = Vec::new();
 
   for func in functions {
-    if func.name == main_sym || func.pubness == Pubness::Yes || func.is_closure
+    if func.name == main_sym
+      || func.pubness == Pubness::Yes
+      || event_handlers.contains(&func.name)
     {
       worklist.push(func.name);
     }
@@ -413,6 +422,30 @@ fn mark_reachable(
   }
 
   reachable
+}
+
+/// Collects handler function Symbols referenced by template
+/// Event commands. These closures are called by the runtime
+/// at event time, not by static code — they must survive DCE.
+fn collect_event_handler_syms(
+  instructions: &[Insn],
+  interner: &zo_interner::Interner,
+) -> HashSet<Symbol> {
+  let mut handlers = HashSet::default();
+
+  for insn in instructions {
+    if let Insn::Template { commands, .. } = insn {
+      for cmd in commands {
+        if let zo_ui_protocol::UiCommand::Event { handler, .. } = cmd
+          && let Some(sym) = interner.symbol(handler)
+        {
+          handlers.insert(sym);
+        }
+      }
+    }
+  }
+
+  handlers
 }
 
 /// Helper: find non-intrinsic function ranges.

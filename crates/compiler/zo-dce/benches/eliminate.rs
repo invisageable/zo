@@ -70,7 +70,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_label_id: 0,
       };
 
-      Dce::new(&mut sir, main).eliminate();
+      Dce::new(&mut sir, main, &interner).eliminate();
       black_box(&sir);
     })
   });
@@ -106,7 +106,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_label_id: 0,
       };
 
-      Dce::new(&mut sir, main).eliminate();
+      Dce::new(&mut sir, main, &interner).eliminate();
       black_box(&sir);
     })
   });
@@ -140,7 +140,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_label_id: 0,
       };
 
-      Dce::new(&mut sir, main).eliminate();
+      Dce::new(&mut sir, main, &interner).eliminate();
       black_box(&sir);
     })
   });
@@ -187,7 +187,7 @@ fn bench_scaling(c: &mut Criterion) {
           next_label_id: 0,
         };
 
-        Dce::new(&mut sir, main).eliminate();
+        Dce::new(&mut sir, main, &interner).eliminate();
         black_box(&sir);
       })
     });

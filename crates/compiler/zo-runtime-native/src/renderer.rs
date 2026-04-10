@@ -103,9 +103,8 @@ impl Renderer {
 
         UiCommand::Button { id, content } => {
           if ui.button(content).clicked() {
-            // Record button click event
-            self.state.pending_events.push((*id, 0)); // 0 = Click event
             println!("Button {id} clicked: {content}");
+            self.state.pending_events.push((*id, 0));
           }
 
           idx += 1;
@@ -126,8 +125,8 @@ impl Renderer {
             ui.add(egui::TextEdit::singleline(text).hint_text(placeholder));
 
           if response.changed() {
-            self.state.pending_events.push((*id, 1)); // 1 = Change event
             println!("Input {id} changed to: {text}");
+            self.state.pending_events.push((*id, 1));
           }
 
           idx += 1;

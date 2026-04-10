@@ -235,6 +235,11 @@ impl Run {
     let commands = ctx.commands;
     let shared_cmds = &ctx.shared_cmds;
     // Create state cells for each bound variable.
+    // Shared SIR instructions for all handler closures
+    // (avoids cloning per handler).
+    let sir_arc: std::sync::Arc<Vec<Insn>> =
+      std::sync::Arc::new(instructions.to_vec());
+
     let mut state_slots: Vec<(Symbol, String, StateCell)> = Vec::new();
 
     for (_cmd_idx, sym) in bindings {
@@ -243,7 +248,7 @@ impl Run {
       }
 
       let var_name = interner.get(*sym).to_string();
-      let initial = Self::find_initial_value(instructions, *sym);
+      let initial = Self::find_initial_value(instructions, *sym, interner);
 
       state_slots.push((*sym, var_name, StateCell::new(initial)));
     }
@@ -294,7 +299,7 @@ impl Run {
         .collect();
       let commands_copy = commands.to_vec();
       let shared = shared_cmds.clone();
-      let sir_copy = instructions.to_vec();
+      let sir = sir_arc.clone();
       let closure_sym = *name;
 
       registry.register(
@@ -303,7 +308,7 @@ impl Run {
           // 1. Execute the closure body via SIR evaluator.
           let mut eval = zo_runtime_render::evaluator::HandlerEvaluator::new();
 
-          eval.execute(&sir_copy, closure_sym, &cells, &capture_map);
+          eval.execute(&sir, closure_sym, &cells, &capture_map);
 
           // 2. Build updated commands from current state.
           let mut new_cmds = commands_copy.clone();
@@ -326,18 +331,33 @@ impl Run {
   }
 
   /// Find the initial value of a variable from VarDef in SIR.
-  fn find_initial_value(instructions: &[Insn], var_sym: Symbol) -> StateValue {
+  fn find_initial_value(
+    instructions: &[Insn],
+    var_sym: Symbol,
+    interner: &zo_interner::Interner,
+  ) -> StateValue {
     for insn in instructions {
       if let Insn::VarDef { name, init, .. } = insn
         && *name == var_sym
       {
-        // Look at the preceding instruction for the value.
         if let Some(init_id) = init {
           for prev in instructions {
-            if let Insn::ConstInt { dst, value, .. } = prev
-              && dst == init_id
-            {
-              return StateValue::Int(*value as i64);
+            match prev {
+              Insn::ConstInt { dst, value, .. } if dst == init_id => {
+                return StateValue::Int(*value as i64);
+              }
+              Insn::ConstFloat { dst, value, .. } if dst == init_id => {
+                return StateValue::Float(*value);
+              }
+              Insn::ConstBool { dst, value, .. } if dst == init_id => {
+                return StateValue::Bool(*value);
+              }
+              Insn::ConstString { dst, symbol, .. } if dst == init_id => {
+                let s = interner.get(*symbol).to_string();
+
+                return StateValue::Str(s);
+              }
+              _ => {}
             }
           }
         }

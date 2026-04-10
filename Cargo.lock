@@ -7270,6 +7270,7 @@ dependencies = [
  "zo-sir",
  "zo-span",
  "zo-ty",
+ "zo-ui-protocol",
  "zo-value",
 ]
 

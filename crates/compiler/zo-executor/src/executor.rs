@@ -3366,6 +3366,13 @@ impl<'a> Executor<'a> {
     // so `fn() => count += 1` emits the BinOp + Store.
 
     self.apply_deferred_binop();
+
+    // Compound/regular assignments are statements — they
+    // don't produce a return value. Track whether one was
+    // finalized so the implicit return emits unit.
+    let had_compound = self.pending_compound.is_some();
+    let had_assign = self.pending_assign.is_some();
+
     self.finalize_pending_compound();
     self.finalize_pending_assign();
 
@@ -3377,10 +3384,19 @@ impl<'a> Executor<'a> {
       .is_some_and(|c| c.has_explicit_return);
 
     if !has_explicit {
-      let return_value =
-        self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
+      // Assignments are statements — return unit, not
+      // the assignment result.
+      let return_value = if had_compound || had_assign {
+        None
+      } else {
+        self.sir_values.last().copied().filter(|v| v.0 != u32::MAX)
+      };
 
-      let return_ty_actual = self.ty_stack.last().copied().unwrap_or(return_ty);
+      let return_ty_actual = if had_compound || had_assign {
+        return_ty
+      } else {
+        self.ty_stack.last().copied().unwrap_or(return_ty)
+      };
 
       self.sir.emit(Insn::Return {
         value: return_value,

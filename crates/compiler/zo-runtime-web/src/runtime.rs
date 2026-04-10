@@ -181,18 +181,33 @@ impl Runtime {
               .map(|sc| sc.lock().unwrap().clone())
               .unwrap_or_else(|| self.commands.clone());
 
-            // Push DOM updates to the WebView.
+            // Granular DOM update: diff old vs new commands,
+            // update only the changed text nodes.
             if let Some(wv) = &self.webview {
-              let mut renderer = HtmlRenderer::new();
-              let new_html = renderer.render_to_html(&updated_cmds);
+              let mut js = String::new();
 
-              let js = format!(
-                "document.open();document.write({});\
-                 document.close();",
-                escape_js_string(&new_html),
-              );
+              for (idx, (old, new)) in
+                self.commands.iter().zip(updated_cmds.iter()).enumerate()
+              {
+                if old != new
+                  && let UiCommand::Text { content, .. } = new
+                {
+                  js.push_str(&format!(
+                    "var e=document.getElementById(\
+                     'zo-cmd-{}');\
+                     if(e)e.textContent={};",
+                    idx,
+                    escape_js_string(content),
+                  ));
+                }
+              }
 
-              wv.evaluate_script(&js).ok();
+              if !js.is_empty() {
+                wv.evaluate_script(&js).ok();
+              }
+
+              // Update local commands for next diff.
+              self.commands = updated_cmds;
             }
           }
         }
