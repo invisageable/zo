@@ -30,27 +30,13 @@ pub(crate) struct Run {
 
 impl Run {
   fn run(&self) -> Result<(), Error> {
-    // Check for input files
     if self.args.files.is_empty() {
       eprintln!("Error: No input files specified");
       std::process::exit(EXIT_CODE_ERROR);
     }
 
     let input_path = &self.args.files[0];
-    if !input_path.exists() {
-      eprintln!("Error: File not found: {}", input_path.display());
-      std::process::exit(EXIT_CODE_ERROR);
-    }
-
-    // Read source file
-    let source = match std::fs::read_to_string(input_path) {
-      Ok(c) => c,
-      Err(error) => {
-        eprintln!("Error reading file {}: {error}", input_path.display());
-        std::process::exit(EXIT_CODE_ERROR);
-      }
-    };
-
+    let source = crate::cmd::read_source(input_path);
     let search_paths = crate::cmd::search_paths(input_path);
 
     let mut compiler = Compiler::with_search_paths(search_paths);

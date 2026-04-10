@@ -39,6 +39,24 @@ pub(crate) fn search_paths(input: &Path) -> Vec<PathBuf> {
   paths
 }
 
+/// Reads source from a file, exiting on error.
+pub(crate) fn read_source(path: &Path) -> String {
+  if !path.exists() {
+    eprintln!("Error: File not found: {}", path.display());
+
+    std::process::exit(super::constants::EXIT_CODE_ERROR);
+  }
+
+  match std::fs::read_to_string(path) {
+    Ok(c) => c,
+    Err(error) => {
+      eprintln!("Error reading file {}: {error}", path.display());
+
+      std::process::exit(super::constants::EXIT_CODE_ERROR);
+    }
+  }
+}
+
 /// Represents a [`Cmd`] enumeration.
 #[derive(Debug, Subcommand)]
 pub(crate) enum Cmd {

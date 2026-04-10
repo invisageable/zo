@@ -110,139 +110,78 @@ impl ValueStorage {
     }
   }
 
-  /// Store an integer literal and return its [`ValueId`].
+  /// Register a value kind + side-array index pair.
+  #[inline(always)]
+  fn store(&mut self, kind: Value, idx: u32) -> ValueId {
+    let value_id = ValueId(self.kinds.len() as u32);
+
+    self.kinds.push(kind);
+    self.indices.push(idx);
+
+    value_id
+  }
+
   #[inline(always)]
   pub fn store_int(&mut self, value: u64) -> ValueId {
     let idx = self.ints.len() as u32;
-
     self.ints.push(value);
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::Int);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::Int, idx)
   }
 
-  /// Store an float literal and return its [`ValueId`].
   #[inline(always)]
   pub fn store_float(&mut self, value: f64) -> ValueId {
     let idx = self.floats.len() as u32;
-
     self.floats.push(value);
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::Float);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::Float, idx)
   }
 
-  /// Store a boolean value and return its [`ValueId`].
   #[inline(always)]
   pub fn store_bool(&mut self, value: bool) -> ValueId {
     let idx = self.bools.len() as u32;
-
     self.bools.push(value);
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::Bool);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::Bool, idx)
   }
 
-  /// Store a string value (as Symbol) and return its [`ValueId`].
   #[inline(always)]
   pub fn store_string(&mut self, symbol: Symbol) -> ValueId {
     let idx = self.strings.len() as u32;
-
     self.strings.push(symbol);
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::String);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::String, idx)
   }
 
-  /// Stores a type value and return its [`ValueId`].
   #[inline(always)]
   pub fn store_type(&mut self, ty: TyId) -> ValueId {
     let idx = self.types.len() as u32;
-
     self.types.push(ty);
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::Type);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::Type, idx)
   }
 
-  /// Stores a binding (identifier with type).
   #[inline(always)]
   pub fn store_binding(&mut self, name: Symbol, ty: TyId) -> ValueId {
     let idx = self.bindings.len() as u32;
-
     self.bindings.push((name, ty));
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::Binding);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::Binding, idx)
   }
 
-  /// Stores a template value and return its [`ValueId`].
   #[inline(always)]
   pub fn store_template(&mut self, template_ref: u32) -> ValueId {
     let idx = self.templates.len() as u32;
-
     self.templates.push(template_ref);
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::Template);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::Template, idx)
   }
 
-  /// Stores a runtime value (placeholder for SIR reference).
   #[inline(always)]
   pub fn store_runtime(&mut self, sir_ref: u32) -> ValueId {
     let idx = self.runtimes.len() as u32;
-
     self.runtimes.push(sir_ref);
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::Runtime);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::Runtime, idx)
   }
 
-  /// Stores a closure value and return its [`ValueId`].
   #[inline(always)]
   pub fn store_closure(&mut self, cv: ClosureValue) -> ValueId {
     let idx = self.closures.len() as u32;
-
     self.closures.push(cv);
-
-    let value_id = ValueId(self.kinds.len() as u32);
-
-    self.kinds.push(Value::Closure);
-    self.indices.push(idx);
-
-    value_id
+    self.store(Value::Closure, idx)
   }
 
   /// Gets the next [`ValueId`] that will be allocated.
