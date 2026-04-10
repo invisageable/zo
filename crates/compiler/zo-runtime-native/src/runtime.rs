@@ -69,21 +69,7 @@ impl Runtime {
     Ok(())
   }
 
-  /// Set UI commands directly (for testing)
-  pub fn set_commands(&mut self, commands: Vec<UiCommand>) {
-    *self.commands.lock().unwrap() = commands;
-  }
-
-  /// Get a shared handle to the command buffer.
-  /// Handler closures use this to push updated commands
-  /// after state mutations.
-  pub fn shared_commands(&self) -> Arc<Mutex<Vec<UiCommand>>> {
-    self.commands.clone()
-  }
-
-  /// Set the shared command buffer (for reactive state).
-  /// Called by the parent Runtime to inject the buffer
-  /// that handler closures will update.
+  /// Set the shared command buffer.
   pub fn set_shared_commands(&mut self, shared: Arc<Mutex<Vec<UiCommand>>>) {
     self.commands = shared;
   }

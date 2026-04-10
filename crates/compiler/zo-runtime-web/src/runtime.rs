@@ -25,10 +25,9 @@ impl Default for RuntimeConfig {
 /// Web runtime for zo applications
 pub struct Runtime {
   config: RuntimeConfig,
-  commands: Vec<UiCommand>,
   events: EventRegistry,
-  /// Shared command buffer for reactive state updates.
-  shared_commands: Option<std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>>,
+  /// Shared command buffer — single source of truth.
+  commands: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
 }
 
 impl Runtime {
@@ -41,28 +40,22 @@ impl Runtime {
   pub fn with_config(config: RuntimeConfig) -> Self {
     Self {
       config,
-      commands: Vec::new(),
       events: EventRegistry::new(),
-      shared_commands: None,
+      commands: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
     }
   }
 
-  /// Set UI commands
-  pub fn set_commands(&mut self, commands: Vec<UiCommand>) {
-    self.commands = commands;
+  /// Set the shared command buffer.
+  pub fn set_shared_commands(
+    &mut self,
+    shared: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
+  ) {
+    self.commands = shared;
   }
 
   /// Set event handler registry.
   pub fn set_events(&mut self, events: EventRegistry) {
     self.events = events;
-  }
-
-  /// Set the shared command buffer (for reactive state).
-  pub fn set_shared_commands(
-    &mut self,
-    shared: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
-  ) {
-    self.shared_commands = Some(shared);
   }
 
   /// Run the application with HTML in webview
@@ -75,16 +68,19 @@ impl Runtime {
     };
     use wry::WebView;
 
+    let commands = self.commands.lock().unwrap().clone();
     let mut html_renderer = HtmlRenderer::new();
-    let html = html_renderer.render_to_html(&self.commands);
+    let html = html_renderer.render_to_html(&commands);
 
     struct App {
       title: String,
       size: (f32, f32),
       html: String,
       events: EventRegistry,
+      /// Current commands for diffing.
       commands: Vec<UiCommand>,
-      shared_commands: Option<std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>>,
+      /// Shared buffer — handlers write here.
+      shared: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
       proxy: EventLoopProxy<String>,
       // WebView must drop before Window.
       webview: Option<WebView>,
@@ -171,26 +167,25 @@ impl Runtime {
           });
 
           if let Some(name) = handler_name {
-            // Dispatch the handler (mutates shared state).
             self.events.dispatch(&name);
 
-            // Read updated commands from the shared buffer.
-            let updated_cmds = self
-              .shared_commands
-              .as_ref()
-              .map(|sc| sc.lock().unwrap().clone())
-              .unwrap_or_else(|| self.commands.clone());
+            // Read updated commands from shared buffer.
+            let updated = self.shared.lock().unwrap().clone();
 
-            // Granular DOM update: diff old vs new commands,
-            // update only the changed text nodes.
+            // Granular DOM update: only changed text.
             if let Some(wv) = &self.webview {
               let mut js = String::new();
 
-              for (idx, (old, new)) in
-                self.commands.iter().zip(updated_cmds.iter()).enumerate()
+              for (idx, (old, new)) in self
+                .commands
+                .iter()
+                .zip(updated.iter())
+                .enumerate()
               {
                 if old != new
-                  && let UiCommand::Text { content, .. } = new
+                  && let UiCommand::Text {
+                    content, ..
+                  } = new
                 {
                   js.push_str(&format!(
                     "var e=document.getElementById(\
@@ -206,8 +201,7 @@ impl Runtime {
                 wv.evaluate_script(&js).ok();
               }
 
-              // Update local commands for next diff.
-              self.commands = updated_cmds;
+              self.commands = updated;
             }
           }
         }
@@ -223,8 +217,8 @@ impl Runtime {
       size: self.config.size,
       html,
       events: self.events,
-      commands: self.commands,
-      shared_commands: self.shared_commands,
+      commands,
+      shared: self.commands,
       proxy,
       webview: None,
       window: None,
