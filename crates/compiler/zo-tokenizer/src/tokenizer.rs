@@ -576,7 +576,21 @@ impl<'a> Tokenizer<'a> {
       b'#' => {
         self.tokens.push(Token::Hash, start as u32, 1);
       }
-      b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'-' => {
+      b'-' => {
+        // zo line comments (`--` and `-!`) inside style blocks.
+        // CSS identifiers can also contain `-` (e.g.
+        // `font-size`, `-webkit-foo`), so disambiguate on the
+        // next byte: two dashes or `-!` is a comment, anything
+        // else belongs to a CSS identifier.
+        if self.current() == b'-' || self.current() == b'!' {
+          self.skip_line_comment();
+        } else {
+          self.cursor = start;
+
+          self.scan_style_ident();
+        }
+      }
+      b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
         // Selector or property name — scan as identifier.
         // CSS allows hyphens in names (e.g. font-weight).
         self.cursor = start;

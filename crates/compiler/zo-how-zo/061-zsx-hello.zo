@@ -16,7 +16,7 @@ fun main() {
   imu name: str = "johndoe";
 
   -- This is zsx. it's not a string — it's a first-class UI element.
-  -- It works on your desktop (GPU rendered) and your browser (JS).
+  -- It works on `native` and `web`.
   --
   -- `::=` declares a template. its type is `</>`.
   -- Embed variables with `{name}` — evaluated at compile-time.

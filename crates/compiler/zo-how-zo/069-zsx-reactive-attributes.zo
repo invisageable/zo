@@ -1,0 +1,55 @@
+-- how to use reactive attributes.
+--
+-- zsx templates already support reactive text content (see
+-- 068-zsx-state-counter.zo). the same machinery extends to
+-- element attributes: when you bind an attribute to a `mut`
+-- variable, the DOM updates that attribute in place whenever
+-- the variable changes — no re-render of the whole element.
+--
+-- this is the zo equivalent of `document.querySelector(...)
+-- .setAttribute('width', newValue)` — but the compiler wires
+-- it for you.
+
+fun main() {
+  -- `mut` is what makes an attribute reactive. reading a
+  -- reactive source inside `<tag attr={var}>` (or the `{var}`
+  -- shorthand) tells the compiler to track the binding and
+  -- re-patch the element on every state change.
+  mut width: int = 128;
+  imu src: str = "../../zo-notes/public/assets/roll-safe-meme-1.jpg";
+
+  imu view: </> ::= <>
+    <!-- clicking `grow` bumps `width` by 32 — reactive. -->
+    <button @click={fn() => width += 32}>grow</button>
+
+    <!-- each rebuild resolves `width` to its current value. -->
+    <!-- the `{width}` shorthand expands to `width={width}`. -->
+    <img {src} {width} height="128" />
+  </>;
+
+  #dom view;
+}
+
+-- ## how does this work?
+--
+-- 1. the executor detects that `{width}` sources from a `mut`
+--    local and emits an `Attr::Dynamic { name, var, initial }`
+--    into the img element's attrs vec — instead of the plain
+--    `Attr::Prop` it would emit for an `imu` source.
+--
+-- 2. the executor records `(cmd_idx, Attr::Dynamic)` into the
+--    template's `attr_bindings`. `cmd_idx` points at the
+--    `<img>` element command in the SIR.
+--
+-- 3. when a click handler mutates `width`, the driver's
+--    reactive loop:
+--    - resolves the current state cell value
+--    - calls `cmd.set_attr("width", &new_value)` which rewrites
+--      the attr in place on the shared command buffer
+--
+-- 4. rendering:
+--    - native: reads the shared command buffer every frame and
+--      renders with the current width — no explicit patch step
+--    - web: diffs the old/new command pairs and emits a
+--      `document.querySelector('[data-zo-cmd="N"]').setAttribute(
+--      "width", "160")` via wry's `evaluate_script`

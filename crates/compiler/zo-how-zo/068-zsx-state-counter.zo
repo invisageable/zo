@@ -1,0 +1,21 @@
+-- how to use reactive state for interactive UI.
+--
+-- `mut` variables captured by closures in a template become
+-- reactive state. when the handler fires, the state changes
+-- and the display updates automatically.
+
+fun main() {
+  -- the old friend `mut` is the key to reactivity.
+  mut count: int = 0;
+
+  -- the template binds `{count}` to the display.
+  -- `@click` attaches inline closures as event handlers.
+  imu counter: </> ::= <>
+    <button @click={fn() => count -= 1}>-</button>
+    {count}
+    <button @click={fn() => count += 1}>+</button>
+  </>;
+
+  -- `#dom` renders the template. clicks update the count.
+  #dom counter;
+}

@@ -602,3 +602,217 @@ fn test_dom_directive_emits_insn() {
     },
   );
 }
+
+// === #HTML DIRECTIVE ===
+
+/// Format the commands of the first `Insn::Template` as a
+/// `{ tag content }` stream that's easy to eyeball in test
+/// output. Used by the smoke test below with `--nocapture` so
+/// the user can visually verify the splice landed correctly.
+fn format_template_commands(sir: &[Insn]) -> String {
+  use zo_ui_protocol::UiCommand;
+
+  let mut out = String::new();
+
+  for insn in sir {
+    if let Insn::Template { commands, .. } = insn {
+      out.push_str("Template commands:\n");
+
+      for (idx, cmd) in commands.iter().enumerate() {
+        match cmd {
+          UiCommand::Element {
+            tag,
+            attrs,
+            self_closing,
+          } => {
+            out.push_str(&format!(
+              "  [{idx}] Element {{ tag: {:?}, attrs: {}, self_closing: {} }}\n",
+              tag,
+              attrs.len(),
+              self_closing,
+            ));
+          }
+          UiCommand::EndElement => {
+            out.push_str(&format!("  [{idx}] EndElement\n"));
+          }
+          UiCommand::Text(s) => {
+            out.push_str(&format!("  [{idx}] Text({:?})\n", s));
+          }
+          UiCommand::Event { handler, .. } => {
+            out.push_str(&format!("  [{idx}] Event({handler})\n"));
+          }
+          UiCommand::StyleSheet { .. } => {
+            out.push_str(&format!("  [{idx}] StyleSheet\n"));
+          }
+        }
+      }
+
+      return out;
+    }
+  }
+
+  out.push_str("(no Template insn found)\n");
+  out
+}
+
+#[test]
+fn test_html_directive_diagnose_sub_parse() {
+  // Call parse_raw_html directly to see what the sub-parse
+  // returns for the exact string used in 064.
+  let commands =
+    crate::html_inline::parse_raw_html("here's some <strong>html!!!</strong>");
+
+  eprintln!("sub-parse returned {} commands:", commands.len());
+
+  for (i, cmd) in commands.iter().enumerate() {
+    eprintln!("  [{i}] {:?}", cmd);
+  }
+}
+
+/// Same zo source as `zo-how-zo/wip/064-zsx-html-directive.zo`
+/// — mirrored here as an executor-level smoke test so the
+/// rendered command stream is visible via `--nocapture` and
+/// checked in CI. Run with:
+///
+/// ```sh
+/// cargo test -p zo-executor test_html_directive_smoke -- --nocapture
+/// ```
+///
+/// Expected output (order matters):
+///
+/// ```text
+/// Template commands:
+///   [0] Element { tag: P, attrs: 1, self_closing: false }
+///   [1] Text("here's some ")
+///   [2] Element { tag: Custom("strong"), attrs: 1, self_closing: false }
+///   [3] Text("html!!!")
+///   [4] EndElement
+///   [5] EndElement
+/// ```
+#[test]
+fn test_html_directive_smoke() {
+  use zo_ui_protocol::{ElementTag, UiCommand};
+
+  let source = r#"fun main() {
+  imu strong: str = "here's some <strong>html!!!</strong>";
+  imu paragraph: </> ::= <p>{#html strong}</p>;
+  #dom paragraph;
+}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let (sir, _, _) = executor.execute();
+
+  // Print the rendered template commands. Visible with
+  // `--nocapture`.
+  println!("{}", format_template_commands(&sir.instructions));
+
+  // Programmatic structural assertions.
+  let template_commands = sir
+    .instructions
+    .iter()
+    .find_map(|i| match i {
+      Insn::Template { commands, .. } => Some(commands),
+      _ => None,
+    })
+    .expect("should find one Template insn");
+
+  // Expect: Element(P) — Text("here's some ") — Element(Custom("strong"))
+  //       — Text("html!!!") — EndElement — EndElement
+  assert!(
+    template_commands.len() >= 6,
+    "expected at least 6 commands, got {}: {:#?}",
+    template_commands.len(),
+    template_commands
+  );
+
+  // First command is the enclosing <p>.
+  assert!(
+    matches!(
+      &template_commands[0],
+      UiCommand::Element {
+        tag: ElementTag::P,
+        self_closing: false,
+        ..
+      }
+    ),
+    "first command should be <p>, got {:?}",
+    template_commands[0]
+  );
+
+  // Somewhere in the stream we must find an Element with a
+  // `Custom("strong")` tag — that's the spliced HTML.
+  let has_strong = template_commands.iter().any(|c| {
+    matches!(
+      c,
+      UiCommand::Element { tag: ElementTag::Custom(name), .. } if name == "strong"
+    )
+  });
+
+  assert!(
+    has_strong,
+    "spliced <strong> element missing from command stream: {:#?}",
+    template_commands
+  );
+
+  // And the spliced text "html!!!" must appear as a TextNode.
+  let has_html_text = template_commands
+    .iter()
+    .any(|c| matches!(c, UiCommand::Text(s) if s.contains("html!!!")));
+
+  assert!(
+    has_html_text,
+    "spliced text `html!!!` missing: {:#?}",
+    template_commands
+  );
+
+  // Two EndElements (one for the spliced <strong>, one for
+  // the enclosing <p>).
+  let end_count = template_commands
+    .iter()
+    .filter(|c| matches!(c, UiCommand::EndElement))
+    .count();
+
+  assert!(
+    end_count >= 2,
+    "expected at least 2 EndElements, got {end_count}: {:#?}",
+    template_commands
+  );
+}
+
+#[test]
+fn test_html_directive_rejects_mut_source() {
+  let source = r#"fun main() {
+  mut strong: str = "<strong>html</strong>";
+  imu paragraph: </> ::= <p>{#html strong}</p>;
+  #dom paragraph;
+}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+
+  let _ = executor.execute();
+  let errors = collect_errors();
+
+  assert!(
+    !errors.is_empty(),
+    "#html on a mut source should produce a diagnostic"
+  );
+}

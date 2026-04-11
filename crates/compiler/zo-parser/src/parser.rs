@@ -690,6 +690,17 @@ impl<'a> Parser<'a> {
       self.close_introducer();
     }
 
+    // Template interpolation directive: `{#html expr}`.
+    // The `Hash` introducer is normally closed on `;`, but
+    // inside a template interpolation there is no `;` — the
+    // directive spans until the matching `}`. Close the Hash
+    // introducer here so the enclosing LBrace is on top.
+    if let Some(top) = self.introducer_stack.last()
+      && top.token == Token::Hash
+    {
+      self.close_introducer();
+    }
+
     // Check if we have a matching LBrace introducer
     if let Some(introducer) = self.introducer_stack.last() {
       if introducer.token == Token::LBrace {

@@ -2,6 +2,7 @@
 //! INSTA_UPDATE=1 cargo test -p zo-tokenizer --test snapshots
 //! ```
 
+use zo_reporter::collect_errors;
 use zo_tokenizer::Tokenizer;
 
 fn assert_yaml_snapshot(name: &str, code: &str) {
@@ -270,6 +271,61 @@ fn zo_block_comment_inside_tag_attribute_list() {
 
   assert!(!joined.contains("multi-line"));
   assert!(!joined.contains("block comment"));
+}
+
+#[test]
+fn zo_line_comment_inside_style_block() {
+  // `--` line comments work inside `$: { ... }` style blocks.
+  // The comment body must not produce stray Ident/Unknown
+  // tokens that would corrupt the delimiter balance.
+  let code = r#"
+    $: {
+      -- custom css rules looks like `tailwind`.
+      -- `w`: `width`, `h`: `height`, `bc`, `background-color`.
+      p {
+        c: blue;
+        fw: 800;
+      }
+    }
+
+    fun main() {
+      imu view: </> ::= <p>hi</p>;
+      #dom view;
+    }
+  "#;
+
+  let tokenizer = Tokenizer::new(code);
+  let tokenization = tokenizer.tokenize();
+
+  // None of the comment words should appear as identifier or
+  // style-value literals.
+  let banned = ["custom", "tailwind", "width", "height"];
+
+  for (i, kind) in tokenization.tokens.kinds.iter().enumerate() {
+    if matches!(*kind, Token::Ident | Token::StyleValue) {
+      let lit_idx = tokenization.tokens.literal_indices[i] as usize;
+      let sym = tokenization.literals.identifiers[lit_idx];
+      let text = tokenization.interner.get(sym);
+
+      for word in &banned {
+        assert!(
+          !text.contains(word),
+          "comment body `{word}` leaked into token {:?} = {:?}",
+          kind,
+          text
+        );
+      }
+    }
+  }
+
+  // Surface any tokenization errors (delimiter imbalance).
+  let errors = collect_errors();
+
+  assert!(
+    errors.is_empty(),
+    "style-block comments should not produce errors, got {:?}",
+    errors
+  );
 }
 
 #[test]
