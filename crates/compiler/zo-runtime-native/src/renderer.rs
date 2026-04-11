@@ -3,6 +3,7 @@
 use crate::loader::image::{ImageLoader, ImageState};
 
 use zo_runtime_render::render::{EventId, Render, WidgetId};
+use zo_ui_protocol::style::{ComputedStyle, FontFamily, Rgba, cascade};
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
 use eframe::egui;
@@ -66,7 +67,17 @@ impl Renderer {
         }
       }
 
-      self.render_commands(ui, &commands, 0);
+      // Top-level inline-flow detection. Templates that use a
+      // fragment (`<></>`) emit their children as siblings at the
+      // root, so the inline-flow check inside `render_element`
+      // never fires for them. Mirror that branch here so a
+      // counter `<><button/>{n}<button/></>` lays out
+      // horizontally, like its block-parent equivalent would.
+      if children_are_inline_flow(&commands, 0) {
+        ui.horizontal(|ui| self.render_commands(ui, &commands, 0));
+      } else {
+        self.render_commands(ui, &commands, 0);
+      }
     }
   }
 
@@ -166,6 +177,14 @@ impl Renderer {
         // Button label is the concatenation of its TextNode
         // children. Render the button imperatively, then skip
         // past children to the matching EndElement.
+        //
+        // No cascade lookup yet — `UA_SHEET` has no `button`
+        // entry, so the resolved style would just overwrite
+        // egui's tuned button defaults (font, padding) with
+        // `ROOT` values. When PLAN_STYLER lands and we add a
+        // real `button` UA entry, this branch flows through
+        // `cascade::resolve("button", author, inline)` and
+        // applies font + min_size on the `egui::Button`.
         let content = peek_text_children(commands, children_start);
         let id = attr_num(attrs, "data-id").unwrap_or(0);
 
@@ -203,8 +222,19 @@ impl Renderer {
 
       _ => {
         // Block container (div, section, main, ...).
+        //
+        // Pre-Taffy hack for inline flow: if every direct child is
+        // an inline-ish element (span, button, input) or raw text,
+        // lay them out horizontally so siblings flow on a single
+        // line — matching how the web treats `inline-block`
+        // children inside a block parent. Mixed/all-block children
+        // fall back to vertical block flow. Phase 3 (Taffy)
+        // replaces this with the real CSS algorithm.
         if self_closing {
           children_start
+        } else if children_are_inline_flow(commands, children_start) {
+          ui.horizontal(|ui| self.render_commands(ui, commands, children_start))
+            .inner
         } else {
           ui.vertical(|ui| self.render_commands(ui, commands, children_start))
             .inner
@@ -251,22 +281,22 @@ impl Renderer {
     }
   }
 
-  /// Render styled text for an `ElementTag` text tag. Mirrors
-  /// `render_styled_text` for the legacy `UiCommand::Text` path.
+  /// Render styled text for an `ElementTag` text tag. Resolves
+  /// the computed style via the UA cascade so unstyled tags get
+  /// browser-like defaults (h1=32px/700, p=16px/400, code=mono,
+  /// ...). The author `styles` map still overrides on top until
+  /// PLAN_STYLER feeds the cascade directly.
   fn render_styled_text_for_tag(
     &self,
     ui: &mut egui::Ui,
     content: &str,
     tag: &ElementTag,
   ) {
-    let mut rt = match tag {
-      ElementTag::H1 => egui::RichText::new(content).size(24.0).strong(),
-      ElementTag::H2 => egui::RichText::new(content).size(20.0).strong(),
-      ElementTag::H3 => egui::RichText::new(content).size(16.0).strong(),
-      _ => egui::RichText::new(content),
-    };
+    let computed = cascade::resolve(tag.as_str(), None, None);
+    let mut rt = apply_computed(egui::RichText::new(content), &computed);
 
-    // Look up the tag name in the styles map.
+    // Author overlay (legacy path — replaced in Phase 2 by passing
+    // a real `StylePatch` into `cascade::resolve`).
     if let Some(props) = self.styles.get(tag.as_str()) {
       if let Some(c) = props.color {
         rt = rt.color(c);
@@ -277,7 +307,15 @@ impl Renderer {
       }
     }
 
+    // Block-flow vertical margin: top before, bottom after. The
+    // horizontal half (`margin.left/right`) is ignored at v1 — no
+    // real box model yet, that lands with Taffy in Phase 3. Note:
+    // browsers collapse adjacent vertical margins; egui's
+    // `add_space` doesn't, so consecutive paragraphs will have
+    // double the gap until margin collapsing lands in Phase 2.
+    ui.add_space(computed.margin.top);
     ui.label(rt);
+    ui.add_space(computed.margin.bottom);
   }
 
   /// Get pending events to send back to the application
@@ -381,6 +419,70 @@ fn peek_text_children(commands: &[UiCommand], start: usize) -> String {
   }
 
   out
+}
+
+/// Return `true` when every direct child between `start` and the
+/// matching `EndElement` is inline-flow (span, button, input,
+/// textarea, img) or non-blank raw text. Empty containers return
+/// `false`. Used by the block container branch to pick a
+/// horizontal layout when its content would flow on a single line
+/// on the web. Phase 3 (Taffy) replaces this with the real CSS
+/// inline-formatting-context algorithm.
+fn children_are_inline_flow(commands: &[UiCommand], start: usize) -> bool {
+  let mut depth: usize = 0;
+  let mut idx = start;
+  let mut saw_any = false;
+
+  while idx < commands.len() {
+    match &commands[idx] {
+      UiCommand::Element {
+        tag, self_closing, ..
+      } => {
+        if depth == 0 {
+          saw_any = true;
+
+          if !is_inline_flow_tag(tag) {
+            return false;
+          }
+        }
+
+        if !self_closing {
+          depth += 1;
+        }
+      }
+      UiCommand::EndElement => {
+        if depth == 0 {
+          return saw_any;
+        }
+
+        depth -= 1;
+      }
+      UiCommand::Text(s) if depth == 0 => {
+        if !s.trim().is_empty() {
+          saw_any = true;
+        }
+      }
+      _ => {}
+    }
+
+    idx += 1;
+  }
+
+  saw_any
+}
+
+/// Tags treated as inline flow at the parent-layout level. Mirrors
+/// CSS `display: inline | inline-block` for the small subset zo
+/// currently models.
+fn is_inline_flow_tag(tag: &ElementTag) -> bool {
+  matches!(
+    tag,
+    ElementTag::Span
+      | ElementTag::Button
+      | ElementTag::Input
+      | ElementTag::Textarea
+      | ElementTag::Img
+  )
 }
 
 /// Return the index just after the matching `EndElement` for the
@@ -593,6 +695,43 @@ fn hex_digit(b: u8) -> Option<u8> {
 
 fn hex_byte(hi: u8, lo: u8) -> Option<u8> {
   Some(hex_digit(hi)? * 16 + hex_digit(lo)?)
+}
+
+/// Convert a target-agnostic `Rgba` from `zo-ui-protocol::style`
+/// into the egui `Color32` the renderer talks to.
+fn rgba_to_color32(c: Rgba) -> egui::Color32 {
+  egui::Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a)
+}
+
+/// Apply a `ComputedStyle` to an `egui::RichText`. egui's text
+/// API is intentionally narrow (no arbitrary font weight, no
+/// percent line-height), so we collapse: weight ≥ 600 → strong,
+/// `FontFamily::Mono` → monospace, italic → italics. Margins,
+/// width, and the rest of the box model are honored by the
+/// surrounding layout code, not by `RichText`.
+fn apply_computed(rt: egui::RichText, style: &ComputedStyle) -> egui::RichText {
+  let mut rt = rt.size(style.font_size).color(rgba_to_color32(style.color));
+
+  if style.font_weight >= 600 {
+    rt = rt.strong();
+  }
+
+  if matches!(style.font_style, zo_ui_protocol::style::FontStyle::Italic) {
+    rt = rt.italics();
+  }
+
+  if matches!(style.font_family, FontFamily::Mono) {
+    rt = rt.monospace();
+  }
+
+  if matches!(
+    style.text_decoration,
+    zo_ui_protocol::style::TextDecoration::Underline
+  ) {
+    rt = rt.underline();
+  }
+
+  rt
 }
 
 #[cfg(test)]

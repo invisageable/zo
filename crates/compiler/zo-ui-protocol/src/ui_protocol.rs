@@ -119,6 +119,9 @@ pub enum ElementTag {
   H1,
   H2,
   H3,
+  H4,
+  H5,
+  H6,
   P,
   // Media
   Img,
@@ -150,6 +153,9 @@ impl ElementTag {
       Self::H1 => "h1",
       Self::H2 => "h2",
       Self::H3 => "h3",
+      Self::H4 => "h4",
+      Self::H5 => "h5",
+      Self::H6 => "h6",
       Self::P => "p",
       Self::Img => "img",
       Self::Button => "button",
@@ -174,10 +180,21 @@ impl ElementTag {
   /// specific font/weight on native. The web renderer renders them
   /// as-is; native renderers use this to pick a font size.
   pub fn is_text_tag(&self) -> bool {
-    matches!(self, Self::H1 | Self::H2 | Self::H3 | Self::P | Self::Span)
+    matches!(
+      self,
+      Self::H1
+        | Self::H2
+        | Self::H3
+        | Self::H4
+        | Self::H5
+        | Self::H6
+        | Self::P
+        | Self::Span
+    )
   }
 
-  /// Numeric tag code for binary layout (R1.2 encoder).
+  /// Numeric tag code for binary layout (R1.2 encoder). Codes
+  /// follow the enum declaration order so headings stay grouped.
   pub fn as_u32(&self) -> u32 {
     match self {
       Self::Div => 0,
@@ -196,13 +213,15 @@ impl ElementTag {
       Self::H1 => 13,
       Self::H2 => 14,
       Self::H3 => 15,
-      Self::P => 16,
-      Self::Img => 17,
-      Self::Button => 18,
-      Self::Input => 19,
-      Self::Textarea => 20,
-      // 21 reserved for Custom
-      Self::Custom(_) => 21,
+      Self::H4 => 16,
+      Self::H5 => 17,
+      Self::H6 => 18,
+      Self::P => 19,
+      Self::Img => 20,
+      Self::Button => 21,
+      Self::Input => 22,
+      Self::Textarea => 23,
+      Self::Custom(_) => 24,
     }
   }
 
@@ -226,11 +245,14 @@ impl ElementTag {
       13 => Self::H1,
       14 => Self::H2,
       15 => Self::H3,
-      16 => Self::P,
-      17 => Self::Img,
-      18 => Self::Button,
-      19 => Self::Input,
-      20 => Self::Textarea,
+      16 => Self::H4,
+      17 => Self::H5,
+      18 => Self::H6,
+      19 => Self::P,
+      20 => Self::Img,
+      21 => Self::Button,
+      22 => Self::Input,
+      23 => Self::Textarea,
       _ => return None,
     })
   }
