@@ -1,4 +1,5 @@
 pub mod loader;
+pub mod style;
 pub mod ui;
 mod ui_protocol;
 

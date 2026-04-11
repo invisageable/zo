@@ -161,10 +161,24 @@ impl<'a> Tokenizer<'a> {
 
   #[inline(always)]
   fn peek(&self, offset: usize) -> u8 {
+    static ZERO_BYTE: [u8; 1] = [0];
+
     let pos = self.cursor + offset;
     let in_bounds = (pos < self.source.len()) as usize;
 
-    unsafe { *self.source.as_ptr().add(pos * in_bounds) }
+    unsafe {
+      // When in_bounds = 1: read source[pos].
+      // When in_bounds = 0: read ZERO_BYTE[0]. The previous
+      // implementation read source[0] in the OOB case (because
+      // `pos * 0 = 0`), which made `peek` return stale bytes
+      // that could spoof a `0b/0o/0x` prefix and walk the
+      // tokenizer past the end of the source — the source of a
+      // long-standing fuzz panic on inputs like `"b:0"`.
+      let base_ptr = [ZERO_BYTE.as_ptr(), self.source.as_ptr()][in_bounds];
+      let offset = pos * in_bounds;
+
+      *base_ptr.add(offset)
+    }
   }
 
   #[inline(always)]

@@ -91,7 +91,9 @@ impl Runtime {
     eframe::run_native(
       &self.config.title,
       options,
-      Box::new(move |_cc| {
+      Box::new(move |cc| {
+        crate::theme::style_default(&cc.egui_ctx);
+
         Ok(Box::new(App {
           renderer: self.renderer,
           commands: self.commands,
@@ -125,22 +127,31 @@ struct App {
 
 impl eframe::App for App {
   fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-    let commands = self.commands.lock().unwrap().clone();
+    // eframe 0.34 hands us a raw `Ui`, not a CentralPanel — if we
+    // skip wrapping, the viewport clears to whatever the root
+    // area paints (black). Own the page background explicitly
+    // via `theme::body_frame`, which reads the canonical body
+    // gutter from `UA_SHEET`.
+    egui::CentralPanel::default()
+      .frame(crate::theme::body_frame())
+      .show_inside(ui, |ui| {
+        let commands = self.commands.lock().unwrap().clone();
 
-    if !commands.is_empty() {
-      self.renderer.render(&commands);
-    }
+        if !commands.is_empty() {
+          self.renderer.render(&commands);
+        }
 
-    self.renderer.render_with_ui(ui);
+        self.renderer.render_with_ui(ui);
 
-    let pending = self.renderer.take_pending_events();
+        let pending = self.renderer.take_pending_events();
 
-    for (widget_id, _event_kind) in pending {
-      let wid = widget_id.to_string();
+        for (widget_id, _event_kind) in pending {
+          let wid = widget_id.to_string();
 
-      if let Some(handler_name) = self.event_map.get(&wid) {
-        self.events.dispatch(handler_name);
-      }
-    }
+          if let Some(handler_name) = self.event_map.get(&wid) {
+            self.events.dispatch(handler_name);
+          }
+        }
+      });
   }
 }
