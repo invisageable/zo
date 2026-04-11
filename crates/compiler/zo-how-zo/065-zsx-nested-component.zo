@@ -1,0 +1,18 @@
+-- how nested component works.
+
+$: {
+  p {
+		color: goldenrod;
+		font-family: 'Comic Sans MS', cursive;
+		font-size: 2em;
+	}
+}
+
+fun main() {
+  -- 1. we create a component.
+  imu nested: </> ::= <p>lorem ipsum.</p>;
+  -- 2. we use this component inside this one as a nested one.
+  imu paragraph: </> ::= <p><nested /></p>;
+  -- 3- voilà! that's it!
+  #dom paragraph;
+}

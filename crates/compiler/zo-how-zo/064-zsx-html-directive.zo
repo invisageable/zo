@@ -1,0 +1,57 @@
+-! # how to zsx: `{#html expr}` — splice raw HTML into a template
+-!
+-! Ordinarily, strings embedded in templates are inserted as
+-! plain text — characters like `<` and `>` have no special
+-! meaning. But sometimes you want to render HTML directly into
+-! a component: a pre-rendered markdown blob, a documentation
+-! page imported at build time, a snippet fetched from a CMS.
+-!
+-! In zo, the special `{#html expr}` directive does exactly
+-! this. Equivalent to Svelte's `{@html expr}`, Vue's
+-! `v-html`, and React's `dangerouslySetInnerHTML`.
+
+fun main() {
+  -- Source string — a regular zo `str` literal that happens
+  -- to contain HTML markup. `imu` (immutable) is required —
+  -- MVP `#html` does not support dynamic sources.
+  imu strong: str = "here's some <strong>html!!!</strong>";
+
+  -- `{#html strong}` splices the string's structure into the
+  -- enclosing `<p>`. At compile time, the executor runs the
+  -- string through zo's template parser and extracts the
+  -- resulting commands (`Element { strong }`, text node,
+  -- `EndElement`) directly into the `<p>`'s command stream.
+  imu paragraph: </> ::= <p>{#html strong}</p>;
+
+  -- `showln` pretty-prints the template as HTML-like text so
+  -- we can see the structure at runtime. Expect:
+  --     <p>here's some <strong>html!!!</strong></p>
+  showln(paragraph);
+
+  -- Programmatic assertion — the test runner uses this to
+  -- verify the splice landed correctly in the command stream.
+  check@eq(paragraph, "<p>here's some <strong>html!!!</strong></p>");
+
+  -- `#dom` renders to native egui / web DOM as usual.
+  #dom paragraph;
+}
+
+-! ## caveats
+-!
+-! **XSS:** `#html` is an explicit opt-in to unescaped HTML.
+-! Anything in the source string ends up in the final DOM
+-! verbatim — including `<script>` tags, inline handlers, and
+-! style attributes. If the source came from user input,
+-! sanitize it first. Same rule as Svelte and React.
+-!
+-! **Entities:** MVP limitation — HTML entities like `&amp;`,
+-! `&lt;`, `&nbsp;` trip zo's template-text scanner (which
+-! exits on `;`). Users must pre-decode entities before
+-! passing them to `#html`. A follow-up adds a `;`-masking
+-! pre-pass so entities work transparently.
+-!
+-! **Static only:** the source must be an immutable (`imu`)
+-! local bound to a string literal. Dynamic `#html` against a
+-! `mut` variable is a planned follow-up — it needs a new
+-! reactive binding kind that points at spans of spliced
+-! commands rather than single command indices.

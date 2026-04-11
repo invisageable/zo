@@ -7838,6 +7838,13 @@ impl<'a> Executor<'a> {
           if idx < end_idx && self.tree.nodes[idx].token == Token::RBrace {
             report_error(Error::new(ErrorKind::ExpectedExpression, brace_span));
             idx += 1;
+          } else if self.try_handle_html_directive(
+            &mut idx,
+            end_idx,
+            &mut commands,
+            brace_span,
+          ) {
+            // `{#html expr}` consumed through matching `}`.
           } else {
             // Execute expression tokens until matching }.
             // For simple identifiers, resolve the local's
@@ -8126,6 +8133,107 @@ impl<'a> Executor<'a> {
     } else {
       String::new()
     }
+  }
+
+  /// Detect and handle a `{#html expr}` raw HTML splice inside
+  /// a template interpolation. Returns `true` when the directive
+  /// was recognized and consumed through its closing `}`, in
+  /// which case the caller must NOT fall through to the regular
+  /// `{expr}` interpolation path. Returns `false` when the
+  /// leading tokens do not form a `#html` directive, leaving
+  /// `idx` unchanged so the caller can try the normal path.
+  ///
+  /// Shape (MVP): `#` `Ident("html")` `Ident(src)` where `src`
+  /// is an immutable local bound to a string value. The source
+  /// string is resolved at compile time, parsed by
+  /// `html_inline::parse_raw_html`, and spliced into `commands`
+  /// at the interpolation site. Malformed directives emit a
+  /// diagnostic and still return `true` so the walker advances
+  /// past the closing brace.
+  fn try_handle_html_directive(
+    &mut self,
+    idx: &mut usize,
+    end_idx: usize,
+    commands: &mut Vec<UiCommand>,
+    brace_span: Span,
+  ) -> bool {
+    // Check the leading shape without consuming — if it doesn't
+    // match, we return false and the caller uses the normal
+    // interpolation path.
+    if *idx + 1 >= end_idx
+      || self.tree.nodes[*idx].token != Token::Hash
+      || self.tree.nodes[*idx + 1].token != Token::Ident
+    {
+      return false;
+    }
+
+    let name_sym = match self.node_value(*idx + 1) {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => return false,
+    };
+
+    if self.interner.get(name_sym) != "html" {
+      return false;
+    }
+
+    // From here on, we've committed to the directive — any
+    // error still returns `true` to advance past the closing
+    // brace.
+    *idx += 2; // past `#html`
+
+    // Expect a single identifier naming the source string.
+    let src_sym =
+      if *idx < end_idx && self.tree.nodes[*idx].token == Token::Ident {
+        match self.node_value(*idx) {
+          Some(NodeValue::Symbol(s)) => {
+            *idx += 1;
+            Some(s)
+          }
+          _ => None,
+        }
+      } else {
+        None
+      };
+
+    // Walk to the matching closing brace regardless of what's
+    // inside — we don't want to leave the walker stranded.
+    while *idx < end_idx && self.tree.nodes[*idx].token != Token::RBrace {
+      *idx += 1;
+    }
+
+    if *idx < end_idx {
+      *idx += 1; // past `}`
+    }
+
+    let Some(sym) = src_sym else {
+      report_error(Error::new(ErrorKind::ExpectedExpression, brace_span));
+
+      return true;
+    };
+
+    // Resolve the source — must be an immutable local bound to
+    // a string.
+    let Some(local) = self.locals.iter().rev().find(|l| l.name == sym) else {
+      report_error(Error::new(ErrorKind::UndefinedVariable, brace_span));
+
+      return true;
+    };
+
+    if local.mutability == Mutability::Yes {
+      // MVP: dynamic #html is not yet supported. The error
+      // kind is a close-enough semantic fit — a dedicated
+      // variant can be added later.
+      report_error(Error::new(ErrorKind::TypeMismatch, brace_span));
+
+      return true;
+    }
+
+    let html_source = self.value_to_string(local.value_id);
+    let html_commands = crate::html_inline::parse_raw_html(&html_source);
+
+    commands.extend(html_commands);
+
+    true
   }
 
   /// `true` when `sym` names a mutable local. Used by the

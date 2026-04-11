@@ -15,12 +15,14 @@ zo-constant-propagation = { workspace = true }
 zo-dce = { workspace = true }
 zo-error = { workspace = true }
 zo-interner = { workspace = true }
+zo-parser = { workspace = true }
 zo-reporter = { workspace = true }
 zo-sir = { workspace = true }
 zo-span = { workspace = true }
 zo-styler = { workspace = true }
 zo-template-optimizer = { workspace = true }
 zo-token = { workspace = true }
+zo-tokenizer = { workspace = true }
 zo-tree = { workspace = true }
 zo-ty = { workspace = true }
 zo-ty-checker = { workspace = true }
@@ -34,8 +36,6 @@ rustc-hash = { workspace = true }
 [dev-dependencies]
 # internal:crates.
 zo-analyzer = { workspace = true }
-zo-parser = { workspace = true }
-zo-tokenizer = { workspace = true }
 
 # external:crates.
 criterion = { workspace = true }

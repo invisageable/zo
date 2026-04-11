@@ -1,0 +1,20 @@
+-- How the "builtin styling" works. Is it scoped CSS? we should check the plan.
+-- global, scoped.
+
+-- this is scoped.
+$: {
+  -- custom css rules looks like `tailwind`.
+  -- `w`: `width`, `h`: `height`, `bc`, `background-color`, etc.
+  p {
+    c: blue;
+    fw: 800;
+    fs: 2em;
+  }
+}
+
+fun main() {
+  -- css rules for `p` will be applied to this tag element.
+  imu view: </> ::= <p>JOiN THE DEVOLUTiON</p>;
+
+  #dom view;
+}
