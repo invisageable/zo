@@ -1,4 +1,4 @@
-# zo — codegen arm.
+# zo — codegen (arm).
 
 > *...*
 
@@ -18,6 +18,6 @@ tests are separate by concepts:
 
 ## benchmarks.
 
-@RUN: `cargo bench --package zo-parser --bench parse`
+  - @RUN: `cargo bench --package zo-codegen-arm --bench parse`
 
 ### benchmarks — results.

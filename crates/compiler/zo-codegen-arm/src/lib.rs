@@ -1,5 +1,4 @@
 mod codegen;
-mod register;
 
 #[cfg(test)]
 mod tests;

@@ -13,24 +13,12 @@ pub(crate) struct Build {
 
 impl Build {
   fn build(&self) -> Result<(), Error> {
-    let mut source_files = Vec::new();
-
-    for input_path in &self.args.files {
-      if !input_path.exists() {
-        eprintln!("Error: File not found: {}", input_path.display());
-        std::process::exit(EXIT_CODE_ERROR);
-      }
-
-      let content = match std::fs::read_to_string(input_path) {
-        Ok(c) => c,
-        Err(error) => {
-          eprintln!("Error reading file {}: {error}", input_path.display());
-          std::process::exit(EXIT_CODE_ERROR);
-        }
-      };
-
-      source_files.push((input_path, content));
-    }
+    let source_files: Vec<_> = self
+      .args
+      .files
+      .iter()
+      .map(|p| (p, crate::cmd::read_source(p)))
+      .collect();
 
     let first_path = &source_files[0].0;
     let search_paths = crate::cmd::search_paths(first_path);
