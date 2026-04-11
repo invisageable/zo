@@ -10,7 +10,7 @@ use zo_runtime_render::render::{EventRegistry, Graphics, RuntimeConfig};
 use zo_runtime_render::render::{StateCell, StateValue};
 use zo_sir::Insn;
 use zo_span::Span;
-use zo_ui_protocol::UiCommand;
+use zo_ui_protocol::{Ui, UiCommand};
 use zo_value::FunctionKind;
 
 /// Parameters for building reactive event handlers.
@@ -73,6 +73,19 @@ impl Run {
         _ => {}
       }
     }
+
+    // Resolve relative image paths to absolute paths using
+    // the source file's parent directory as the base. Both
+    // native and web runtimes need absolute paths — native
+    // for filesystem reads, web for the `zo://localhost`
+    // custom protocol. Remote URLs pass through untouched.
+    let mut ui = Ui::new(ui_commands);
+
+    if let Some(base_dir) = input_path.parent() {
+      ui.resolve_image_paths(base_dir);
+    }
+
+    let ui_commands = ui.into_commands();
 
     // Template path: launch runtime.
     if has_dom_directive && !ui_commands.is_empty() {

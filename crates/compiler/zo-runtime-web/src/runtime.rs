@@ -84,8 +84,19 @@ impl Runtime {
         // Clone proxy for the IPC handler closure.
         let ipc_proxy = self.proxy.clone();
 
+        // Serve the document and local image assets through a
+        // custom `zo://` protocol. Loading the HTML via custom
+        // protocol (instead of `with_html`) gives the page a
+        // stable `zo://localhost` origin — same-origin requests
+        // for `zo://localhost/<abs-path>` assets then succeed
+        // where bare `file://` URLs would be blocked.
+        let html = self.html.clone();
+
         let webview = wry::WebViewBuilder::new()
-          .with_html(&self.html)
+          .with_custom_protocol("zo".into(), move |_id, request| {
+            serve_asset(&html, request)
+          })
+          .with_url("zo://localhost/")
           .with_ipc_handler(move |req| {
             // Forward IPC messages to the event loop.
             let body = req.body().clone();
@@ -213,6 +224,62 @@ impl Default for Runtime {
   }
 }
 
+/// Serve a request on the `zo://` custom protocol.
+///
+/// - `/` (or empty path) → the generated HTML document.
+/// - any other path → the file on disk at that absolute path.
+fn serve_asset(
+  html: &str,
+  request: wry::http::Request<Vec<u8>>,
+) -> wry::http::Response<std::borrow::Cow<'static, [u8]>> {
+  use wry::http::{Response, header::CONTENT_TYPE};
+
+  let path = request.uri().path();
+
+  if path.is_empty() || path == "/" {
+    return Response::builder()
+      .header(CONTENT_TYPE, "text/html")
+      .body(html.as_bytes().to_vec().into())
+      .unwrap();
+  }
+
+  // Custom protocol strips the scheme+host; `path` is the
+  // absolute filesystem path with a single leading `/`.
+  let fs_path: &std::path::Path = path.as_ref();
+
+  match std::fs::read(fs_path) {
+    Ok(bytes) => Response::builder()
+      .header(CONTENT_TYPE, mime_from_path(path))
+      .body(bytes.into())
+      .unwrap(),
+    Err(_) => Response::builder()
+      .status(404)
+      .header(CONTENT_TYPE, "text/plain")
+      .body(Vec::<u8>::new().into())
+      .unwrap(),
+  }
+}
+
+/// Infer a MIME type from a file extension.
+fn mime_from_path(path: &str) -> &'static str {
+  let ext = std::path::Path::new(path)
+    .extension()
+    .and_then(|e| e.to_str())
+    .map(|e| e.to_ascii_lowercase());
+
+  match ext.as_deref() {
+    Some("html" | "htm") => "text/html",
+    Some("js") => "text/javascript",
+    Some("css") => "text/css",
+    Some("jpg" | "jpeg") => "image/jpeg",
+    Some("png") => "image/png",
+    Some("gif") => "image/gif",
+    Some("webp") => "image/webp",
+    Some("svg") => "image/svg+xml",
+    _ => "application/octet-stream",
+  }
+}
+
 /// Escape a string for use as a JS string literal.
 fn escape_js_string(s: &str) -> String {
   let mut out = String::with_capacity(s.len() + 2);
@@ -233,4 +300,91 @@ fn escape_js_string(s: &str) -> String {
 
   out.push('"');
   out
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn request(path: &str) -> wry::http::Request<Vec<u8>> {
+    wry::http::Request::builder()
+      .uri(format!("zo://localhost{path}"))
+      .body(Vec::new())
+      .unwrap()
+  }
+
+  #[test]
+  fn mime_from_path_known_extensions() {
+    assert_eq!(mime_from_path("/a.html"), "text/html");
+    assert_eq!(mime_from_path("/a.htm"), "text/html");
+    assert_eq!(mime_from_path("/a.js"), "text/javascript");
+    assert_eq!(mime_from_path("/a.css"), "text/css");
+    assert_eq!(mime_from_path("/a.jpg"), "image/jpeg");
+    assert_eq!(mime_from_path("/a.jpeg"), "image/jpeg");
+    assert_eq!(mime_from_path("/a.png"), "image/png");
+    assert_eq!(mime_from_path("/a.gif"), "image/gif");
+    assert_eq!(mime_from_path("/a.webp"), "image/webp");
+    assert_eq!(mime_from_path("/a.svg"), "image/svg+xml");
+  }
+
+  #[test]
+  fn mime_from_path_case_insensitive() {
+    assert_eq!(mime_from_path("/a.PNG"), "image/png");
+    assert_eq!(mime_from_path("/a.JPG"), "image/jpeg");
+  }
+
+  #[test]
+  fn mime_from_path_unknown_is_octet_stream() {
+    assert_eq!(mime_from_path("/a.xyz"), "application/octet-stream");
+    assert_eq!(mime_from_path("/noext"), "application/octet-stream");
+  }
+
+  #[test]
+  fn serve_asset_root_returns_html_document() {
+    let html = "<!DOCTYPE html><html><body>hi</body></html>";
+    let response = serve_asset(html, request("/"));
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+      response
+        .headers()
+        .get(wry::http::header::CONTENT_TYPE)
+        .unwrap(),
+      "text/html",
+    );
+    assert_eq!(response.body().as_ref(), html.as_bytes());
+  }
+
+  #[test]
+  fn serve_asset_missing_file_returns_404() {
+    let response =
+      serve_asset("doc", request("/definitely/does/not/exist.png"));
+
+    assert_eq!(response.status(), 404);
+  }
+
+  #[test]
+  fn serve_asset_existing_file_returns_bytes_and_mime() {
+    // Write a real file so `std::fs::read` succeeds and we
+    // can verify the content-type dispatch.
+    let tmp = std::env::temp_dir().join("zo_serve_asset_test.png");
+    let payload: &[u8] = b"\x89PNG\r\n\x1a\nfake";
+
+    std::fs::write(&tmp, payload).unwrap();
+
+    let path = format!("{}", tmp.to_string_lossy());
+    let response = serve_asset("doc", request(&path));
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+      response
+        .headers()
+        .get(wry::http::header::CONTENT_TYPE)
+        .unwrap(),
+      "image/png",
+    );
+    assert_eq!(response.body().as_ref(), payload);
+
+    let _ = std::fs::remove_file(&tmp);
+  }
 }

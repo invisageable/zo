@@ -1,5 +1,7 @@
 //! Egui-based renderer for UI commands
 
+use crate::loader::image::{ImageLoader, ImageState};
+
 use zo_runtime_render::render::{EventId, Render, WidgetId};
 use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
 
@@ -30,6 +32,9 @@ pub struct Renderer {
   pending_commands: ThinVec<UiCommand>,
   /// Selector → style props, built from StyleSheet commands.
   styles: HashMap<String, StyleProps>,
+  /// Async image loader — decodes on a worker thread,
+  /// uploads textures to the GPU on the main thread.
+  image_loader: ImageLoader,
 }
 
 impl Renderer {
@@ -39,11 +44,15 @@ impl Renderer {
       state: UiState::default(),
       pending_commands: ThinVec::new(),
       styles: HashMap::default(),
+      image_loader: ImageLoader::new(),
     }
   }
 
   /// Render commands with an egui UI context
   pub fn render_with_ui(&mut self, ui: &mut egui::Ui) {
+    // Drain pending image loads before rendering.
+    self.image_loader.poll();
+
     if !self.pending_commands.is_empty() {
       let commands = std::mem::take(&mut self.pending_commands);
 
@@ -138,8 +147,48 @@ impl Renderer {
           width,
           height,
         } => {
-          // for now, show placeholder.
-          ui.label(format!("[Image: {src} ({width}x{height})]"));
+          let size = egui::Vec2::new(*width as f32, *height as f32);
+          let ctx = ui.ctx().clone();
+          let state = self.image_loader.state(src);
+
+          match state {
+            ImageState::Pending | ImageState::Loading => {
+              // Placeholder box with spinner.
+              ui.add_sized(size, egui::Spinner::new());
+            }
+            ImageState::Decoded(_) => {
+              // Upload to GPU on the main thread, then
+              // transition to Ready. Take the ColorImage
+              // out by replacing with a placeholder.
+              let image = match std::mem::replace(state, ImageState::Loading) {
+                ImageState::Decoded(img) => img,
+                _ => unreachable!(),
+              };
+
+              let texture = ctx.load_texture(
+                src.as_str(),
+                image,
+                egui::TextureOptions::default(),
+              );
+
+              ui.add(
+                egui::Image::from_texture(&texture).fit_to_exact_size(size),
+              );
+
+              *state = ImageState::Ready(texture);
+            }
+            ImageState::Ready(texture) => {
+              ui.add(
+                egui::Image::from_texture(&*texture).fit_to_exact_size(size),
+              );
+            }
+            ImageState::Failed(error) => {
+              ui.colored_label(
+                egui::Color32::RED,
+                format!("[image error: {error}]"),
+              );
+            }
+          }
 
           idx += 1;
         }

@@ -10,8 +10,8 @@ ALL TESTS ARE SPLiT BY CONCEPT, PROGRAMS THAT USE THE `build` VS `run` COMMANDS 
 
 SOME OF THESE TESTS ARE BEiNG PORTED FROM:
 
-- @SEE [`rust-prehistory/src/test`](https://github.com/graydon/rust-prehistory/tree/master/src/test) — by GRAYDON HOARE
-- @SEE[`error-essage-catalog`](https://github.com/elm/error-message-catalog) — by EVAN CZAPLiCKi
+  - @SEE [`rust-prehistory/src/test`](https://github.com/graydon/rust-prehistory/tree/master/src/test) — by GRAYDON HOARE
+  - @SEE[`error-message-catalog`](https://github.com/elm/error-message-catalog) — by EVAN CZAPLiCKi
 
 THE GOAL iS TO PROVE zo'S COMPiLER CORRECTNESS BY PASSiNG THE SAME FOUNDATiONAL TESTS. WE FOLLOW OUR MASTERS.
 

@@ -188,10 +188,22 @@ impl HtmlRenderer {
       } => {
         let sc = &self.scope_class_attr;
 
+        // The webview loads via the `zo://localhost` custom
+        // protocol (see zo-runtime-web/src/runtime.rs). Image
+        // assets are served through the same protocol — the
+        // handler strips the leading `/` and reads the file
+        // from disk. Absolute paths map to `zo://localhost`
+        // + the absolute path; relative paths pass through.
+        let url_src = if std::path::Path::new(src.as_str()).is_absolute() {
+          format!("zo://localhost{src}")
+        } else {
+          src.to_string()
+        };
+
         self.html_buffer.push_str(&format!(
           "<img{sc} data-id=\"{}\" src=\"{}\" width=\"{width}\" height=\"{height}\" />\n",
           escape_html(id),
-          escape_html(src),
+          escape_html(&url_src),
         ));
       }
 
@@ -327,6 +339,64 @@ mod tests {
       html.contains("color: cyan;"),
       "CSS content should be present, got: {html}"
     );
+  }
+
+  fn image_cmd(src: &str) -> UiCommand {
+    UiCommand::Image {
+      id: "img_0".into(),
+      src: src.into(),
+      width: 256,
+      height: 128,
+    }
+  }
+
+  #[test]
+  fn test_render_image_absolute_path_wraps_in_zo_protocol() {
+    let mut renderer = HtmlRenderer::new();
+    let html =
+      renderer.render_to_html(&[image_cmd("/Users/me/pictures/cat.png")]);
+
+    assert!(
+      html.contains("src=\"zo://localhost/Users/me/pictures/cat.png\""),
+      "absolute path should be wrapped in zo:// protocol, got: {html}"
+    );
+  }
+
+  #[test]
+  fn test_render_image_http_url_passes_through() {
+    let mut renderer = HtmlRenderer::new();
+    let html =
+      renderer.render_to_html(&[image_cmd("http://example.com/a.png")]);
+
+    assert!(
+      html.contains("src=\"http://example.com/a.png\""),
+      "http URL should pass through unchanged, got: {html}"
+    );
+    assert!(
+      !html.contains("zo://localhost"),
+      "http URL must not be wrapped in zo://, got: {html}"
+    );
+  }
+
+  #[test]
+  fn test_render_image_https_url_passes_through() {
+    let mut renderer = HtmlRenderer::new();
+    let html =
+      renderer.render_to_html(&[image_cmd("https://httpbin.org/image/png")]);
+
+    assert!(
+      html.contains("src=\"https://httpbin.org/image/png\""),
+      "https URL should pass through unchanged, got: {html}"
+    );
+  }
+
+  #[test]
+  fn test_render_image_preserves_dimensions() {
+    let mut renderer = HtmlRenderer::new();
+    let html = renderer.render_to_html(&[image_cmd("/tmp/x.png")]);
+
+    assert!(html.contains("width=\"256\""));
+    assert!(html.contains("height=\"128\""));
   }
 
   #[test]
