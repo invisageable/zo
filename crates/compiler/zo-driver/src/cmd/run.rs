@@ -192,16 +192,22 @@ impl Run {
   }
 
   /// Resolve relative image paths to absolute paths using
-  /// `base_dir` as the root. Absolute paths are left alone.
-  /// Both native and web runtimes need absolute paths —
-  /// canonicalize to collapse `..` segments and ensure the
-  /// result is truly absolute (not relative to CWD).
+  /// `base_dir` as the root. Absolute paths and remote URLs
+  /// are left alone. Canonicalize when possible so the result
+  /// is a truly absolute filesystem path (not relative to CWD).
   fn resolve_image_paths(
     commands: &mut [UiCommand],
     base_dir: &std::path::Path,
   ) {
     for cmd in commands {
       if let UiCommand::Image { src, .. } = cmd {
+        // Remote URLs pass through untouched — the native
+        // loader fetches them via HTTP, the webview loads
+        // them directly.
+        if src.starts_with("http://") || src.starts_with("https://") {
+          continue;
+        }
+
         let path = std::path::Path::new(src.as_str());
         let joined = if path.is_absolute() {
           path.to_path_buf()

@@ -143,15 +143,44 @@ fn worker_loop(
   }
 }
 
-/// Read and decode a single image file.
+/// Returns `true` if `src` is an `http://` or `https://` URL.
+fn is_http_url(src: &str) -> bool {
+  src.starts_with("http://") || src.starts_with("https://")
+}
+
+/// Blocking HTTP GET — fetches the full body into a `Vec`.
+fn fetch_http(url: &str) -> Result<Vec<u8>, String> {
+  let mut response = ureq::get(url)
+    .call()
+    .map_err(|e| format!("http error: {e}"))?;
+
+  response
+    .body_mut()
+    .read_to_vec()
+    .map_err(|e| format!("http read error: {e}"))
+}
+
+/// Read and decode a single image file or URL.
 fn decode(src: &str) -> LoadResponse {
-  let bytes = match std::fs::read(src) {
-    Ok(b) => b,
-    Err(e) => {
-      return LoadResponse::Err {
-        src: src.to_string(),
-        error: format!("read error: {e}"),
-      };
+  let bytes = if is_http_url(src) {
+    match fetch_http(src) {
+      Ok(b) => b,
+      Err(e) => {
+        return LoadResponse::Err {
+          src: src.to_string(),
+          error: e,
+        };
+      }
+    }
+  } else {
+    match std::fs::read(src) {
+      Ok(b) => b,
+      Err(e) => {
+        return LoadResponse::Err {
+          src: src.to_string(),
+          error: format!("read error: {e}"),
+        };
+      }
     }
   };
 
