@@ -74,6 +74,14 @@ impl Run {
       }
     }
 
+    // Resolve relative image paths to absolute paths
+    // using the source file's parent directory as the base.
+    // Both native and web runtimes need absolute paths —
+    // native for filesystem reads, web for file:// URLs.
+    if let Some(base_dir) = input_path.parent() {
+      Self::resolve_image_paths(&mut ui_commands, base_dir);
+    }
+
     // Template path: launch runtime.
     if has_dom_directive && !ui_commands.is_empty() {
       let graphics = if self.args.web {
@@ -181,6 +189,34 @@ impl Run {
     }
 
     Ok(())
+  }
+
+  /// Resolve relative image paths to absolute paths using
+  /// `base_dir` as the root. Absolute paths are left alone.
+  /// Both native and web runtimes need absolute paths —
+  /// canonicalize to collapse `..` segments and ensure the
+  /// result is truly absolute (not relative to CWD).
+  fn resolve_image_paths(
+    commands: &mut [UiCommand],
+    base_dir: &std::path::Path,
+  ) {
+    for cmd in commands {
+      if let UiCommand::Image { src, .. } = cmd {
+        let path = std::path::Path::new(src.as_str());
+        let joined = if path.is_absolute() {
+          path.to_path_buf()
+        } else {
+          base_dir.join(path)
+        };
+
+        // Canonicalize if the file exists; fall back to the
+        // joined path otherwise so missing files still surface
+        // a meaningful error at load time.
+        let resolved = std::fs::canonicalize(&joined).unwrap_or(joined);
+
+        *src = resolved.to_string_lossy().into_owned();
+      }
+    }
   }
 
   /// Register static event handlers (non-reactive path).

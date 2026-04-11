@@ -2,7 +2,7 @@
 
 fun main() {
   imu banner: </> ::= <>
-    <img src="logo.png" width="256" height="128" />
+    <img src="../assets/roll-safe-meme-1.jpg" width="256" height="128" />
   </>;
 
   #dom banner;

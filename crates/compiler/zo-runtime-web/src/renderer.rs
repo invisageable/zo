@@ -188,10 +188,22 @@ impl HtmlRenderer {
       } => {
         let sc = &self.scope_class_attr;
 
+        // The webview loads via the `zo://localhost` custom
+        // protocol (see zo-runtime-web/src/runtime.rs). Image
+        // assets are served through the same protocol — the
+        // handler strips the leading `/` and reads the file
+        // from disk. Absolute paths map to `zo://localhost`
+        // + the absolute path; relative paths pass through.
+        let url_src = if std::path::Path::new(src.as_str()).is_absolute() {
+          format!("zo://localhost{src}")
+        } else {
+          src.to_string()
+        };
+
         self.html_buffer.push_str(&format!(
           "<img{sc} data-id=\"{}\" src=\"{}\" width=\"{width}\" height=\"{height}\" />\n",
           escape_html(id),
-          escape_html(src),
+          escape_html(&url_src),
         ));
       }
 

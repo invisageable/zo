@@ -17,6 +17,7 @@ zo-runtime-render = { workspace = true }
 
 # external:crates.
 eframe = { workspace = true }
+image = { workspace = true }
 libloading = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }

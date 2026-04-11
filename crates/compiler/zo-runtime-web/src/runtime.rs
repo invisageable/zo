@@ -84,8 +84,19 @@ impl Runtime {
         // Clone proxy for the IPC handler closure.
         let ipc_proxy = self.proxy.clone();
 
+        // Serve the document and local image assets through a
+        // custom `zo://` protocol. Loading the HTML via custom
+        // protocol (instead of `with_html`) gives the page a
+        // stable `zo://localhost` origin — same-origin requests
+        // for `zo://localhost/<abs-path>` assets then succeed
+        // where bare `file://` URLs would be blocked.
+        let html = self.html.clone();
+
         let webview = wry::WebViewBuilder::new()
-          .with_html(&self.html)
+          .with_custom_protocol("zo".into(), move |_id, request| {
+            serve_asset(&html, request)
+          })
+          .with_url("zo://localhost/")
           .with_ipc_handler(move |req| {
             // Forward IPC messages to the event loop.
             let body = req.body().clone();
@@ -210,6 +221,62 @@ impl Runtime {
 impl Default for Runtime {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+/// Serve a request on the `zo://` custom protocol.
+///
+/// - `/` (or empty path) → the generated HTML document.
+/// - any other path → the file on disk at that absolute path.
+fn serve_asset(
+  html: &str,
+  request: wry::http::Request<Vec<u8>>,
+) -> wry::http::Response<std::borrow::Cow<'static, [u8]>> {
+  use wry::http::{Response, header::CONTENT_TYPE};
+
+  let path = request.uri().path();
+
+  if path.is_empty() || path == "/" {
+    return Response::builder()
+      .header(CONTENT_TYPE, "text/html")
+      .body(html.as_bytes().to_vec().into())
+      .unwrap();
+  }
+
+  // Custom protocol strips the scheme+host; `path` is the
+  // absolute filesystem path with a single leading `/`.
+  let fs_path: &std::path::Path = path.as_ref();
+
+  match std::fs::read(fs_path) {
+    Ok(bytes) => Response::builder()
+      .header(CONTENT_TYPE, mime_from_path(path))
+      .body(bytes.into())
+      .unwrap(),
+    Err(_) => Response::builder()
+      .status(404)
+      .header(CONTENT_TYPE, "text/plain")
+      .body(Vec::<u8>::new().into())
+      .unwrap(),
+  }
+}
+
+/// Infer a MIME type from a file extension.
+fn mime_from_path(path: &str) -> &'static str {
+  let ext = std::path::Path::new(path)
+    .extension()
+    .and_then(|e| e.to_str())
+    .map(|e| e.to_ascii_lowercase());
+
+  match ext.as_deref() {
+    Some("html" | "htm") => "text/html",
+    Some("js") => "text/javascript",
+    Some("css") => "text/css",
+    Some("jpg" | "jpeg") => "image/jpeg",
+    Some("png") => "image/png",
+    Some("gif") => "image/gif",
+    Some("webp") => "image/webp",
+    Some("svg") => "image/svg+xml",
+    _ => "application/octet-stream",
   }
 }
 

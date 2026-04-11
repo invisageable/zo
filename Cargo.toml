@@ -147,7 +147,12 @@ js-sys = "0.3.81"
 kanal = "0.1.1"
 libm = "0.2.15"
 lyon_geom = "1.0.17"
-image = "0.25.6"
+image = { version = "0.25.6", default-features = false, features = [
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+] }
 itoa = "1.0.15"
 Inflector = "0.11.4"
 insta = { version = "1.43.2", features = ["yaml"] }
@@ -197,6 +202,7 @@ tokio = { version = "1.47.1", default-features = true , features = [
 toml = "0.8.15"
 tree-sitter = "0.25.10"
 tree-sitter-language = "0.1.6"
+ureq = "3.3.0"
 usvg = "0.45.1"
 uuid = { version = "1.17.0", features = ["serde", "v4", "v7"] }
 walkdir = "2.5.0"
