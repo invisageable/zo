@@ -60,8 +60,11 @@ install() {
   # Release format: zo-VERSION-PLATFORM.tar.gz (e.g., zo-0.1.0-x86_64-apple-darwin.tar.gz)
   DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${VERSION}-${PLATFORM}.tar.gz"
 
-  INSTALL_DIR="${HOME}/.zo/bin"
+  ZO_HOME="${HOME}/.zo"
+  INSTALL_DIR="${ZO_HOME}/bin"
+  LIB_DIR="${ZO_HOME}/lib"
   mkdir -p "$INSTALL_DIR"
+  mkdir -p "$LIB_DIR"
 
   echo "Downloading from $DOWNLOAD_URL..."
 
@@ -76,6 +79,38 @@ install() {
 
   echo ""
   echo "zo installed to $INSTALL_DIR/$BINARY_NAME"
+  echo ""
+
+  # Download and install the stdlib alongside the binary so
+  # the compiler can auto-import the prelude (io, assert, math).
+  # The runtime looks for it at `<exe>/../lib/std`.
+  STD_URL="https://github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz"
+  TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t zo-std)"
+
+  echo "Downloading stdlib from $STD_URL..."
+
+  if ! curl -sL "$STD_URL" | tar xz -C "$TMP_DIR"; then
+    echo ""
+    echo "error: failed to download stdlib archive"
+    rm -rf "$TMP_DIR"
+    exit 1
+  fi
+
+  SRC_STD="$(find "$TMP_DIR" -type d -path '*/crates/compiler-lib/std' | head -n 1)"
+
+  if [ -z "$SRC_STD" ] || [ ! -d "$SRC_STD" ]; then
+    echo "error: stdlib not found in archive at crates/compiler-lib/std"
+    rm -rf "$TMP_DIR"
+    exit 1
+  fi
+
+  rm -rf "$LIB_DIR/std"
+  mkdir -p "$LIB_DIR/std"
+  # Copy contents (portable across BSD/GNU cp; no -T).
+  (cd "$SRC_STD" && tar cf - .) | (cd "$LIB_DIR/std" && tar xf -)
+  rm -rf "$TMP_DIR"
+
+  echo "stdlib installed to $LIB_DIR/std"
   echo ""
 
   # Check Linux dependencies
