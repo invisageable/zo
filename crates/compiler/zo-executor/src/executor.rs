@@ -2,7 +2,7 @@ use zo_constant_folding::{ConstFold, FoldResult, Operand};
 use zo_error::{Error, ErrorKind};
 use zo_interner::{Interner, Symbol};
 use zo_reporter::report_error;
-use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, Sir, TemplateBindings, UnOp};
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
@@ -123,10 +123,11 @@ pub struct Executor<'a> {
   /// Pending stylesheet commands collected from `$:` blocks.
   /// Injected into the next `Insn::Template`'s commands.
   pending_styles: Vec<UiCommand>,
-  /// Dynamic template bindings: (command_index, variable).
-  /// Accumulated during template execution, consumed when
-  /// emitting `Insn::Template`.
-  template_bindings: Vec<(usize, Symbol)>,
+  /// Reactive bindings collected during template execution,
+  /// consumed when emitting `Insn::Template`. Split into text
+  /// and attribute bindings so the runtime can dispatch each
+  /// kind to the right patch path.
+  template_bindings: zo_sir::TemplateBindings,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -187,7 +188,7 @@ impl<'a> Executor<'a> {
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       pending_styles: Vec::new(),
-      template_bindings: Vec::new(),
+      template_bindings: TemplateBindings::default(),
     }
   }
 
@@ -7587,33 +7588,70 @@ impl<'a> Executor<'a> {
                     idx += 1;
                     attrs.push(Attr::parse_prop(&attr_name, &raw));
                   } else if idx < end_idx
+                    && self.tree.nodes[idx].token == Token::InterpString
+                  {
+                    // Attribute value is an interpolated string
+                    // literal, e.g. `alt="a picture of '{name}'"`.
+                    // Walk the pre-parsed InterpSegment list from
+                    // the tokenizer side-table, resolving each
+                    // `Variable(sym)` segment against the local
+                    // scope, and concatenate the result.
+                    let resolved = self.resolve_interp_string_attr(idx);
+
+                    idx += 1;
+                    attrs.push(Attr::parse_prop(&attr_name, &resolved));
+                  } else if idx < end_idx
                     && self.tree.nodes[idx].token == Token::LBrace
                   {
                     // Attribute interpolation: attr={expr}.
                     idx += 1;
 
-                    while idx < end_idx
-                      && self.tree.nodes[idx].token != Token::RBrace
+                    // Fast path: single-identifier expression
+                    // resolves directly to the local for both
+                    // its compile-time value AND its reactive
+                    // metadata (mut → `Attr::Dynamic`).
+                    let single_ident_sym = if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::Ident
+                      && idx + 1 < end_idx
+                      && self.tree.nodes[idx + 1].token == Token::RBrace
+                      && let Some(NodeValue::Symbol(sym)) = self.node_value(idx)
                     {
-                      let n = self.tree.nodes[idx];
+                      Some(sym)
+                    } else {
+                      None
+                    };
 
-                      self.execute_node(&n, idx);
-                      idx += 1;
+                    if let Some(sym) = single_ident_sym {
+                      attrs.push(self.make_attr_from_local(&attr_name, sym));
+                      idx += 1; // past ident
+                    } else {
+                      // General expression — eager-only, no
+                      // reactive tracking.
+                      while idx < end_idx
+                        && self.tree.nodes[idx].token != Token::RBrace
+                      {
+                        let n = self.tree.nodes[idx];
+
+                        self.execute_node(&n, idx);
+                        idx += 1;
+                      }
+
+                      let val = if let Some(vid) = self.value_stack.pop() {
+                        self.ty_stack.pop();
+                        self.sir_values.pop();
+
+                        self.value_to_string(vid)
+                      } else {
+                        String::new()
+                      };
+
+                      attrs.push(Attr::parse_prop(&attr_name, &val));
                     }
 
                     if idx < end_idx
                       && self.tree.nodes[idx].token == Token::RBrace
                     {
                       idx += 1;
-                    }
-
-                    if let Some(vid) = self.value_stack.pop() {
-                      self.ty_stack.pop();
-                      self.sir_values.pop();
-
-                      let val = self.value_to_string(vid);
-
-                      attrs.push(Attr::parse_prop(&attr_name, &val));
                     }
                   } else {
                     // Boolean attribute: <input disabled />
@@ -7734,6 +7772,43 @@ impl<'a> Executor<'a> {
                 Token::Eq => {
                   idx += 1;
                 }
+                // Shorthand attribute: `<tag {ident} />` — sugar
+                // for `<tag ident={ident}>`. Resolves the local
+                // for both its compile-time value AND reactive
+                // metadata (mut → `Attr::Dynamic`).
+                Token::LBrace => {
+                  idx += 1;
+
+                  if idx < end_idx
+                    && self.tree.nodes[idx].token == Token::Ident
+                    && let Some(NodeValue::Symbol(sym)) = self.node_value(idx)
+                  {
+                    let shorthand_name = self.interner.get(sym).to_string();
+
+                    idx += 1;
+
+                    if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::RBrace
+                    {
+                      idx += 1;
+                    }
+
+                    attrs.push(self.make_attr_from_local(&shorthand_name, sym));
+                  } else {
+                    // Malformed shorthand — skip to matching
+                    // close brace to stay in sync with the
+                    // template token stream.
+                    while idx < end_idx
+                      && self.tree.nodes[idx].token != Token::RBrace
+                    {
+                      idx += 1;
+                    }
+
+                    if idx < end_idx {
+                      idx += 1;
+                    }
+                  }
+                }
                 _ => {
                   idx += 1;
                 }
@@ -7786,9 +7861,9 @@ impl<'a> Executor<'a> {
                   interp_text = Some(text);
                 }
 
-                // Track dynamic binding for mut variables.
+                // Track reactive text binding for mut vars.
                 if local.mutability == Mutability::Yes {
-                  self.template_bindings.push((commands.len(), sym));
+                  self.template_bindings.text.push((commands.len(), sym));
                 }
               }
 
@@ -7956,6 +8031,20 @@ impl<'a> Executor<'a> {
     let final_self_closing =
       self_closing || element_tag.is_self_closing_default();
 
+    // Record reactive attribute bindings against the element's
+    // command index BEFORE pushing the command (so cmd_idx =
+    // commands.len() points at the Element we're about to push).
+    let element_cmd_idx = commands.len();
+
+    for attr in &out_attrs {
+      if matches!(attr, Attr::Dynamic { .. }) {
+        self
+          .template_bindings
+          .attrs
+          .push((element_cmd_idx, attr.clone()));
+      }
+    }
+
     commands.push(UiCommand::Element {
       tag: element_tag,
       attrs: out_attrs,
@@ -8022,6 +8111,86 @@ impl<'a> Executor<'a> {
   /// commands between the open and close markers.
   fn close_template_tag(&mut self, commands: &mut Vec<UiCommand>) {
     commands.push(UiCommand::EndElement);
+  }
+
+  /// Resolve a local variable to its stringified compile-time
+  /// value for eager template embedding. Used by attribute
+  /// shorthand (`<img {src} />`) and by attribute string
+  /// interpolation (`alt="a picture of '{name}'"`). Returns an
+  /// empty string if the symbol does not resolve to a local —
+  /// matches the silently-empty semantics of the existing text
+  /// interpolation path.
+  fn resolve_local_for_template(&self, sym: Symbol) -> String {
+    if let Some(local) = self.locals.iter().rev().find(|l| l.name == sym) {
+      self.value_to_string(local.value_id)
+    } else {
+      String::new()
+    }
+  }
+
+  /// `true` when `sym` names a mutable local. Used by the
+  /// attribute emitters to decide between `Attr::Prop` and
+  /// `Attr::Dynamic`.
+  fn local_is_mut(&self, sym: Symbol) -> bool {
+    self
+      .locals
+      .iter()
+      .rev()
+      .find(|l| l.name == sym)
+      .map(|l| l.mutability == Mutability::Yes)
+      .unwrap_or(false)
+  }
+
+  /// Build an `Attr` for a single-identifier attribute source.
+  /// Immutable locals produce `Attr::Prop` (eager only);
+  /// mutable locals produce `Attr::Dynamic` carrying the
+  /// reactive binding metadata alongside the initial value.
+  fn make_attr_from_local(&self, name: &str, sym: Symbol) -> Attr {
+    let value_str = self.resolve_local_for_template(sym);
+    let initial = PropValue::parse(&value_str);
+
+    if self.local_is_mut(sym) {
+      Attr::Dynamic {
+        name: name.to_string(),
+        var: sym.0,
+        initial,
+      }
+    } else {
+      Attr::Prop {
+        name: name.to_string(),
+        value: initial,
+      }
+    }
+  }
+
+  /// Resolve a `Token::InterpString` template attribute value
+  /// by walking its pre-parsed `InterpSegment` list. Each
+  /// `Literal(sym)` segment contributes its raw text; each
+  /// `Variable(sym)` segment contributes the stringified
+  /// compile-time value of the matching local.
+  fn resolve_interp_string_attr(&self, node_idx: usize) -> String {
+    let packed = match self.node_value(node_idx) {
+      Some(NodeValue::Literal(p)) => p,
+      _ => return String::new(),
+    };
+
+    let interp_id = packed >> 16;
+    let segments = self.literals.interp_segs(interp_id).to_vec();
+
+    let mut out = String::new();
+
+    for seg in segments {
+      match seg {
+        InterpSegment::Literal(sym) => {
+          out.push_str(self.interner.get(sym));
+        }
+        InterpSegment::Variable(sym) => {
+          out.push_str(&self.resolve_local_for_template(sym));
+        }
+      }
+    }
+
+    out
   }
 
   fn next_widget_id(&mut self) -> u32 {

@@ -62,6 +62,37 @@ impl UiCommand {
       Self::StyleSheet { .. } => 4,
     }
   }
+
+  /// Generic attribute setter for reactive updates. Finds an
+  /// attribute named `name` on an `Element` command and
+  /// overwrites its value with the parsed form of `value`.
+  /// Updates both `Attr::Prop` and `Attr::Dynamic` entries so
+  /// reactive bindings stay in sync with the initial eager
+  /// value. No-op on non-`Element` commands or when the
+  /// attribute is absent.
+  pub fn set_attr(&mut self, name: &str, value: &str) {
+    let Self::Element { attrs, .. } = self else {
+      return;
+    };
+
+    for attr in attrs {
+      if attr.name() != name {
+        continue;
+      }
+
+      match attr {
+        Attr::Prop { value: v, .. } => {
+          *v = PropValue::parse(value);
+        }
+        Attr::Dynamic { initial, .. } => {
+          *initial = PropValue::parse(value);
+        }
+        _ => {}
+      }
+
+      return;
+    }
+  }
 }
 
 /// HTML-parity element tag. One variant per enumerated tag, plus
@@ -338,5 +369,94 @@ impl Attr {
       Self::Style { name, .. } => name,
       Self::Dynamic { name, .. } => name,
     }
+  }
+}
+
+#[cfg(test)]
+mod set_attr_tests {
+  use super::*;
+
+  fn img_with(attrs: Vec<Attr>) -> UiCommand {
+    UiCommand::Element {
+      tag: ElementTag::Img,
+      attrs,
+      self_closing: true,
+    }
+  }
+
+  #[test]
+  fn set_attr_updates_prop_value() {
+    let mut cmd = img_with(vec![Attr::str_prop("src", "/a.png")]);
+
+    cmd.set_attr("src", "/b.png");
+
+    if let UiCommand::Element { attrs, .. } = cmd {
+      assert_eq!(
+        attrs[0].as_str(),
+        Some("/b.png"),
+        "src should be updated in place"
+      );
+    } else {
+      panic!("expected Element");
+    }
+  }
+
+  #[test]
+  fn set_attr_updates_dynamic_initial_value() {
+    let mut cmd = img_with(vec![Attr::Dynamic {
+      name: "src".into(),
+      var: 7,
+      initial: PropValue::Str("/a.png".into()),
+    }]);
+
+    cmd.set_attr("src", "/b.png");
+
+    if let UiCommand::Element { attrs, .. } = cmd
+      && let Attr::Dynamic { initial, .. } = &attrs[0]
+    {
+      assert_eq!(
+        initial.to_display(),
+        "/b.png",
+        "dynamic initial should be updated"
+      );
+    } else {
+      panic!("expected Element with Dynamic attr");
+    }
+  }
+
+  #[test]
+  fn set_attr_parses_numeric_value() {
+    let mut cmd = img_with(vec![Attr::parse_prop("width", "10")]);
+
+    cmd.set_attr("width", "128");
+
+    if let UiCommand::Element { attrs, .. } = cmd {
+      assert_eq!(attrs[0].as_num(), Some(128));
+    } else {
+      panic!("expected Element");
+    }
+  }
+
+  #[test]
+  fn set_attr_unknown_attr_is_noop() {
+    let original = img_with(vec![Attr::str_prop("src", "/a.png")]);
+    let mut cmd = original.clone();
+
+    cmd.set_attr("bogus", "value");
+
+    assert_eq!(cmd, original, "unknown attr should be a no-op");
+  }
+
+  #[test]
+  fn set_attr_on_non_element_is_noop() {
+    let mut cmd = UiCommand::Text("hello".to_string());
+
+    cmd.set_attr("anything", "value");
+
+    assert_eq!(
+      cmd,
+      UiCommand::Text("hello".to_string()),
+      "non-element commands should be unaffected by set_attr"
+    );
   }
 }

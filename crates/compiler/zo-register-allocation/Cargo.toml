@@ -3,6 +3,9 @@ name = "zo-register-allocation"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+doctest = false
+
 [dependencies]
 # internal:crates.
 zo-liveness = { workspace = true }

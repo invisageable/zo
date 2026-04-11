@@ -3,8 +3,5 @@ name = "zo-test-runner"
 version.workspace = true
 edition.workspace = true
 
-# [lib]
-# doctest = false
-
 [dependencies]
 swisskit-core = { workspace = true }

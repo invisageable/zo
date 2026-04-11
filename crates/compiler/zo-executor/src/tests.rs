@@ -384,7 +384,7 @@ fn test_directives() {
         name: None,
         ty_id: TyId(18),
         commands: vec![], // Empty for test
-        bindings: vec![],
+        bindings: zo_sir::TemplateBindings::default(),
       },
       Insn::Directive {
         name: Symbol(28),
