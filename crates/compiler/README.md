@@ -28,7 +28,6 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
 
   ```sh
   just list_versions
-  just pre-commit
   ```
 
   3. THEN COMMiT:

@@ -13,10 +13,10 @@ fun main() {
   -- zsx specific.
   imu app: </> ::= <>
     <h1>Event Demo</h1>
-    -- `@click` it's an event, meaning that you can attach a function into it.
-    -- here we set our handle click function. to be triggered each time the user click on it. 
+    <!-- `@click` it's an event, meaning that you can attach a function into it. -->
+    <!-- here we set our handle click function. to be triggered each time the user click on it.  -->
     <button @click={handle_click}>Click me</button>
-    -- same for `@focus` event
+    <!-- same for `@focus` event -->
     <input type="text" placeholder="Focus me" @focus={handle_focus} />
   </>;
 

@@ -1910,14 +1910,14 @@ dependencies = [
 
 [[package]]
 name = "fret"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fret-driver",
 ]
 
 [[package]]
 name = "fret-driver"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "fret-pipeline",
@@ -1926,7 +1926,7 @@ dependencies = [
 
 [[package]]
 name = "fret-parser"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fret-tokenizer",
  "fret-tokens",
@@ -1935,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "fret-pipeline"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fret-parser",
  "fret-types",
@@ -1948,18 +1948,18 @@ dependencies = [
 
 [[package]]
 name = "fret-tokenizer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fret-tokens",
 ]
 
 [[package]]
 name = "fret-tokens"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "fret-types"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "futf"
@@ -7243,14 +7243,14 @@ checksum = "dcb2c125bd7365735bebeb420ccb880265ed2d2bddcbcd49f597fdfe6bd5e577"
 
 [[package]]
 name = "zo"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "zo-driver",
 ]
 
 [[package]]
 name = "zo-analyzer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "insta",
@@ -7275,7 +7275,7 @@ dependencies = [
 
 [[package]]
 name = "zo-benches"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "serde",
@@ -7284,7 +7284,7 @@ dependencies = [
 
 [[package]]
 name = "zo-buffer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "itoa",
@@ -7293,7 +7293,7 @@ dependencies = [
 
 [[package]]
 name = "zo-codegen"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "insta",
@@ -7311,7 +7311,7 @@ dependencies = [
 
 [[package]]
 name = "zo-codegen-arm"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "insta",
@@ -7339,14 +7339,14 @@ dependencies = [
 
 [[package]]
 name = "zo-codegen-backend"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "zo-sir",
 ]
 
 [[package]]
 name = "zo-compiler"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "hashbrown 0.16.1",
@@ -7375,7 +7375,7 @@ dependencies = [
 
 [[package]]
 name = "zo-constant-folding"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "rustc-hash 2.1.1",
@@ -7392,7 +7392,7 @@ dependencies = [
 
 [[package]]
 name = "zo-constant-propagation"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "zo-parser",
@@ -7405,7 +7405,7 @@ dependencies = [
 
 [[package]]
 name = "zo-dce"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "rustc-hash 2.1.1",
@@ -7422,7 +7422,7 @@ dependencies = [
 
 [[package]]
 name = "zo-driver"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "num_cpus",
@@ -7444,18 +7444,18 @@ dependencies = [
 
 [[package]]
 name = "zo-emitter"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "zo-emitter-arm"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "zo-emitter",
 ]
 
 [[package]]
 name = "zo-error"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -7464,7 +7464,7 @@ dependencies = [
 
 [[package]]
 name = "zo-executor"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "rustc-hash 2.1.1",
@@ -7492,7 +7492,7 @@ dependencies = [
 
 [[package]]
 name = "zo-interner"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "serde",
@@ -7501,7 +7501,7 @@ dependencies = [
 
 [[package]]
 name = "zo-liveness"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "zo-interner",
@@ -7512,7 +7512,7 @@ dependencies = [
 
 [[package]]
 name = "zo-module-resolver"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "zo-interner",
  "zo-sir",
@@ -7523,7 +7523,7 @@ dependencies = [
 
 [[package]]
 name = "zo-parser"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "insta",
@@ -7540,7 +7540,7 @@ dependencies = [
 
 [[package]]
 name = "zo-pp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "zo-buffer",
  "zo-codegen-backend",
@@ -7556,7 +7556,7 @@ dependencies = [
 
 [[package]]
 name = "zo-profiler"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fastrand",
  "insta",
@@ -7566,7 +7566,7 @@ dependencies = [
 
 [[package]]
 name = "zo-register-allocation"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "zo-liveness",
@@ -7576,7 +7576,7 @@ dependencies = [
 
 [[package]]
 name = "zo-reporter"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ariadne",
  "criterion",
@@ -7587,7 +7587,7 @@ dependencies = [
 
 [[package]]
 name = "zo-runtime"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "zo-error",
  "zo-reporter",
@@ -7599,7 +7599,7 @@ dependencies = [
 
 [[package]]
 name = "zo-runtime-native"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "eframe",
  "image",
@@ -7616,7 +7616,7 @@ dependencies = [
 
 [[package]]
 name = "zo-runtime-render"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "thin-vec",
@@ -7629,7 +7629,7 @@ dependencies = [
 
 [[package]]
 name = "zo-runtime-web"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "winit",
@@ -7640,7 +7640,7 @@ dependencies = [
 
 [[package]]
 name = "zo-sir"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "serde",
@@ -7655,7 +7655,7 @@ dependencies = [
 
 [[package]]
 name = "zo-span"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -7663,11 +7663,11 @@ dependencies = [
 
 [[package]]
 name = "zo-styler"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "zo-template-optimizer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "zo-interner",
  "zo-ui-protocol",
@@ -7675,14 +7675,14 @@ dependencies = [
 
 [[package]]
 name = "zo-test-runner"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "swisskit-core",
 ]
 
 [[package]]
 name = "zo-token"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "zo-interner",
@@ -7690,7 +7690,7 @@ dependencies = [
 
 [[package]]
 name = "zo-tokenizer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "insta",
@@ -7705,7 +7705,7 @@ dependencies = [
 
 [[package]]
 name = "zo-tree"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "zo-interner",
@@ -7715,7 +7715,7 @@ dependencies = [
 
 [[package]]
 name = "zo-ty"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "serde",
@@ -7725,7 +7725,7 @@ dependencies = [
 
 [[package]]
 name = "zo-ty-checker"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "proptest",
@@ -7741,7 +7741,7 @@ dependencies = [
 
 [[package]]
 name = "zo-ty-state"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
  "serde",
@@ -7753,7 +7753,7 @@ dependencies = [
 
 [[package]]
 name = "zo-ui-protocol"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libloading 0.9.0",
  "serde",
@@ -7762,7 +7762,7 @@ dependencies = [
 
 [[package]]
 name = "zo-value"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "itoa",
@@ -7773,7 +7773,7 @@ dependencies = [
 
 [[package]]
 name = "zo-writer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "zo-codegen-backend",
  "zo-writer-macho",
@@ -7781,7 +7781,7 @@ dependencies = [
 
 [[package]]
 name = "zo-writer-macho"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "proptest",

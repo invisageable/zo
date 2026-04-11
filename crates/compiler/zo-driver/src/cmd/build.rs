@@ -1,3 +1,4 @@
+use crate::cmd;
 use crate::cmd::Handle;
 use crate::constants::EXIT_CODE_SUCCESS;
 use crate::{args, constants::EXIT_CODE_ERROR};
@@ -17,12 +18,11 @@ impl Build {
       .args
       .files
       .iter()
-      .map(|p| (p, crate::cmd::read_source(p)))
+      .map(|p| (p, cmd::read_source(p)))
       .collect();
 
     let first_path = &source_files[0].0;
-    let search_paths = crate::cmd::search_paths(first_path);
-
+    let search_paths = cmd::search_paths(first_path);
     let mut compiler = Compiler::with_search_paths(search_paths);
 
     let stages = self
