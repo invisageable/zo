@@ -12,6 +12,29 @@ pub enum Graphics {
   Web,
 }
 
+/// Shared runtime configuration.
+pub struct RuntimeConfig {
+  /// Path to a compiled zo library (for `zo build` path).
+  pub library_path: Option<String>,
+  /// Window title.
+  pub title: String,
+  /// Initial window size (width, height).
+  pub size: (f32, f32),
+  /// Graphics backend.
+  pub graphics: Graphics,
+}
+
+impl Default for RuntimeConfig {
+  fn default() -> Self {
+    Self {
+      library_path: None,
+      title: "zo app".to_string(),
+      size: (800.0, 600.0),
+      graphics: Graphics::Native,
+    }
+  }
+}
+
 /// Event handler callback.
 pub type EventHandler = Box<dyn Fn() + Send>;
 

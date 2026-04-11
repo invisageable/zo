@@ -1,6 +1,7 @@
 //! Integration test for template loading and rendering
 
-use zo_runtime::{Graphics, Runtime, RuntimeConfig};
+use zo_runtime::Runtime;
+use zo_runtime_render::render::{Graphics, RuntimeConfig};
 use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
 
 #[test]

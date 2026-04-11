@@ -2,7 +2,7 @@
 
 use crate::renderer::Renderer;
 
-use zo_runtime_render::render::{EventRegistry, Render};
+use zo_runtime_render::render::{EventRegistry, Render, RuntimeConfig};
 use zo_ui_protocol::UiCommand;
 use zo_ui_protocol::loader::LibraryLoader;
 
@@ -10,26 +10,6 @@ use eframe::egui;
 use rustc_hash::FxHashMap as HashMap;
 
 use std::sync::{Arc, Mutex};
-
-/// Runtime configuration
-pub struct RuntimeConfig {
-  /// Path to the compiled zo library
-  pub library_path: Option<String>,
-  /// Window title
-  pub title: String,
-  /// Initial window size
-  pub size: (f32, f32),
-}
-
-impl Default for RuntimeConfig {
-  fn default() -> Self {
-    Self {
-      library_path: None,
-      title: "zo app".to_string(),
-      size: (800.0, 600.0),
-    }
-  }
-}
 
 /// Main runtime for zo applications
 pub struct Runtime {

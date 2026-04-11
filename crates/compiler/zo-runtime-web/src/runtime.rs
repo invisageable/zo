@@ -2,25 +2,8 @@
 
 use crate::renderer::HtmlRenderer;
 
-use zo_runtime_render::render::EventRegistry;
+use zo_runtime_render::render::{EventRegistry, RuntimeConfig};
 use zo_ui_protocol::UiCommand;
-
-/// Runtime configuration for web rendering
-pub struct RuntimeConfig {
-  /// Window title
-  pub title: String,
-  /// Initial window size
-  pub size: (f32, f32),
-}
-
-impl Default for RuntimeConfig {
-  fn default() -> Self {
-    Self {
-      title: "zo app".to_string(),
-      size: (800.0, 600.0),
-    }
-  }
-}
 
 /// Web runtime for zo applications
 pub struct Runtime {

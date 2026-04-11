@@ -1,32 +1,9 @@
 //! Main runtime dispatcher for zo applications
 
-use zo_runtime_render::render::{EventRegistry, Graphics};
+use zo_runtime_render::render::{EventRegistry, Graphics, RuntimeConfig};
 use zo_ui_protocol::UiCommand;
 
 use std::sync::{Arc, Mutex};
-
-/// Runtime configuration
-pub struct RuntimeConfig {
-  /// Path to the compiled zo library
-  pub library_path: Option<String>,
-  /// Window title
-  pub title: String,
-  /// Initial window size
-  pub size: (f32, f32),
-  /// Graphics backend
-  pub graphics: Graphics,
-}
-
-impl Default for RuntimeConfig {
-  fn default() -> Self {
-    Self {
-      library_path: None,
-      title: "zo app".to_string(),
-      size: (800.0, 600.0),
-      graphics: Graphics::Native,
-    }
-  }
-}
 
 /// Main runtime dispatcher for zo applications
 pub struct Runtime {
@@ -71,26 +48,15 @@ impl Runtime {
   pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
     match self.config.graphics {
       Graphics::Native => {
-        let native_config = zo_runtime_native::runtime::RuntimeConfig {
-          library_path: self.config.library_path,
-          title: self.config.title,
-          size: self.config.size,
-        };
-
         let mut native_runtime =
-          zo_runtime_native::runtime::Runtime::with_config(native_config);
+          zo_runtime_native::runtime::Runtime::with_config(self.config);
 
         native_runtime.set_shared_commands(self.commands);
         native_runtime.set_events(self.events);
         native_runtime.run()
       }
       Graphics::Web => {
-        let web_config = zo_runtime_web::RuntimeConfig {
-          title: self.config.title,
-          size: self.config.size,
-        };
-
-        let mut web_runtime = zo_runtime_web::Runtime::with_config(web_config);
+        let mut web_runtime = zo_runtime_web::Runtime::with_config(self.config);
 
         web_runtime.set_shared_commands(self.commands);
         web_runtime.set_events(self.events);

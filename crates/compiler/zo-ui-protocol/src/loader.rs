@@ -62,6 +62,24 @@ struct ButtonData {
   _padding: u64,
 }
 
+/// Text input data structure in memory
+#[repr(C)]
+struct TextInputData {
+  id: u32,
+  placeholder_offset: u32,
+  value_offset: u32,
+  _padding: u32,
+}
+
+/// Image data structure in memory
+#[repr(C)]
+struct ImageData {
+  id_offset: u32,
+  src_offset: u32,
+  width: u32,
+  height: u32,
+}
+
 /// Loads and manages dynamic libraries compiled from zo programs
 pub struct LibraryLoader {
   library: Option<Library>,
@@ -218,14 +236,42 @@ impl LibraryLoader {
 
       4 => {
         // TextInput
-        // TODO: Implement when needed
-        None
+        if !raw_cmd.data.is_null() {
+          let data_ptr =
+            self.resolve_pointer(raw_cmd.data) as *const TextInputData;
+
+          let data = unsafe { &*data_ptr };
+          let placeholder = self.resolve_string(data.placeholder_offset);
+          let value = self.resolve_string(data.value_offset);
+
+          Some(UiCommand::TextInput {
+            id: data.id,
+            placeholder,
+            value,
+          })
+        } else {
+          None
+        }
       }
 
       5 => {
         // Image
-        // TODO: Implement when needed
-        None
+        if !raw_cmd.data.is_null() {
+          let data_ptr = self.resolve_pointer(raw_cmd.data) as *const ImageData;
+
+          let data = unsafe { &*data_ptr };
+          let id = self.resolve_string(data.id_offset);
+          let src = self.resolve_string(data.src_offset);
+
+          Some(UiCommand::Image {
+            id,
+            src,
+            width: data.width,
+            height: data.height,
+          })
+        } else {
+          None
+        }
       }
 
       _ => {

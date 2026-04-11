@@ -81,112 +81,104 @@ impl Sir {
   /// Offsets all `ValueId`s in instructions by `offset`.
   /// Used when prepending module SIR to avoid ID collisions.
   pub fn offset_value_ids(instructions: &mut [Insn], offset: u32) {
-    let off = |v: &mut ValueId| v.0 += offset;
-
     for insn in instructions.iter_mut() {
-      match insn {
-        Insn::ConstInt { dst, .. }
-        | Insn::ConstFloat { dst, .. }
-        | Insn::ConstBool { dst, .. }
-        | Insn::ConstString { dst, .. } => off(dst),
-        Insn::ModuleLoad { .. }
-        | Insn::PackDecl { .. }
-        | Insn::EnumDef { .. }
-        | Insn::StructDef { .. }
-        | Insn::Label { .. }
-        | Insn::Jump { .. }
-        | Insn::FunDef { .. }
-        | Insn::ConstDef { .. } => {}
-        Insn::VarDef { init, .. } => {
-          if let Some(v) = init {
-            off(v);
-          }
-        }
-        Insn::Store { value, .. } => off(value),
-        Insn::Return { value, .. } => {
-          if let Some(v) = value {
-            off(v);
-          }
-        }
-        Insn::Call { dst, args, .. } => {
-          off(dst);
+      insn.visit_value_ids_mut(&mut |v| v.0 += offset);
+    }
+  }
+}
 
-          for a in args.iter_mut() {
-            off(a);
-          }
+impl Insn {
+  /// Walks every `ValueId` in this instruction, applying `f`.
+  /// Used by SIR passes that need to rewrite value IDs
+  /// (e.g., module merging, monomorphization).
+  pub fn visit_value_ids_mut(&mut self, f: &mut impl FnMut(&mut ValueId)) {
+    match self {
+      Insn::ConstInt { dst, .. }
+      | Insn::ConstFloat { dst, .. }
+      | Insn::ConstBool { dst, .. }
+      | Insn::ConstString { dst, .. }
+      | Insn::Load { dst, .. } => f(dst),
+      Insn::ModuleLoad { .. }
+      | Insn::PackDecl { .. }
+      | Insn::EnumDef { .. }
+      | Insn::StructDef { .. }
+      | Insn::Label { .. }
+      | Insn::Jump { .. }
+      | Insn::FunDef { .. }
+      | Insn::ConstDef { .. }
+      | Insn::StyleSheet { .. }
+      | Insn::Nop => {}
+      Insn::VarDef { init, .. } => {
+        if let Some(v) = init {
+          f(v);
         }
-        Insn::Load { dst, .. } => off(dst),
-        Insn::BinOp { dst, lhs, rhs, .. } => {
-          off(dst);
-          off(lhs);
-          off(rhs);
+      }
+      Insn::Store { value, .. } => f(value),
+      Insn::Return { value, .. } => {
+        if let Some(v) = value {
+          f(v);
         }
-        Insn::UnOp { dst, rhs, .. } => {
-          off(dst);
-          off(rhs);
-        }
-        Insn::BranchIfNot { cond, .. } => off(cond),
-        Insn::Directive { value, .. } => off(value),
-        Insn::Template { id, .. } => off(id),
-        Insn::ArrayLiteral { dst, elements, .. } => {
-          off(dst);
-
-          for e in elements.iter_mut() {
-            off(e);
-          }
-        }
-        Insn::ArrayIndex {
-          dst, array, index, ..
-        } => {
-          off(dst);
-          off(array);
-          off(index);
-        }
-        Insn::ArrayStore {
-          array,
-          index,
-          value,
-          ..
-        } => {
-          off(array);
-          off(index);
-          off(value);
-        }
-        Insn::ArrayLen { dst, array, .. } => {
-          off(dst);
-          off(array);
-        }
-        Insn::TupleLiteral { dst, elements, .. } => {
-          off(dst);
-
-          for e in elements.iter_mut() {
-            off(e);
-          }
-        }
-        Insn::TupleIndex { dst, tuple, .. } => {
-          off(dst);
-          off(tuple);
-        }
-        Insn::EnumConstruct { dst, fields, .. } => {
-          off(dst);
-
-          for f in fields.iter_mut() {
-            off(f);
-          }
-        }
-        Insn::StructConstruct { dst, fields, .. } => {
-          off(dst);
-
-          for f in fields.iter_mut() {
-            off(f);
-          }
-        }
-        Insn::FieldStore { base, value, .. } => {
-          off(base);
-          off(value);
-        }
-        Insn::StyleSheet { .. } => {}
-        Insn::Nop => {}
+      }
+      Insn::Call { dst, args, .. } => {
+        f(dst);
+        args.iter_mut().for_each(&mut *f);
+      }
+      Insn::BinOp { dst, lhs, rhs, .. } => {
+        f(dst);
+        f(lhs);
+        f(rhs);
+      }
+      Insn::UnOp { dst, rhs, .. } => {
+        f(dst);
+        f(rhs);
+      }
+      Insn::BranchIfNot { cond, .. } => f(cond),
+      Insn::Directive { value, .. } => f(value),
+      Insn::Template { id, .. } => f(id),
+      Insn::ArrayLiteral { dst, elements, .. } => {
+        f(dst);
+        elements.iter_mut().for_each(&mut *f);
+      }
+      Insn::ArrayIndex {
+        dst, array, index, ..
+      } => {
+        f(dst);
+        f(array);
+        f(index);
+      }
+      Insn::ArrayStore {
+        array,
+        index,
+        value,
+        ..
+      } => {
+        f(array);
+        f(index);
+        f(value);
+      }
+      Insn::ArrayLen { dst, array, .. } => {
+        f(dst);
+        f(array);
+      }
+      Insn::TupleLiteral { dst, elements, .. } => {
+        f(dst);
+        elements.iter_mut().for_each(&mut *f);
+      }
+      Insn::TupleIndex { dst, tuple, .. } => {
+        f(dst);
+        f(tuple);
+      }
+      Insn::EnumConstruct { dst, fields, .. } => {
+        f(dst);
+        fields.iter_mut().for_each(&mut *f);
+      }
+      Insn::StructConstruct { dst, fields, .. } => {
+        f(dst);
+        fields.iter_mut().for_each(&mut *f);
+      }
+      Insn::FieldStore { base, value, .. } => {
+        f(base);
+        f(value);
       }
     }
   }
