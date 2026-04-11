@@ -3,7 +3,7 @@
 use crate::loader::image::{ImageLoader, ImageState};
 
 use zo_runtime_render::render::{EventId, Render, WidgetId};
-use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
+use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
 use eframe::egui;
 use rustc_hash::FxHashMap as HashMap;
@@ -81,118 +81,6 @@ impl Renderer {
 
     while idx < commands.len() {
       match &commands[idx] {
-        UiCommand::BeginContainer { id: _, direction } => {
-          idx += 1;
-
-          // Render children in appropriate container
-          let end_idx = match direction {
-            ContainerDirection::Horizontal => {
-              ui.horizontal(|ui| self.render_commands(ui, commands, idx))
-                .inner
-            }
-            ContainerDirection::Vertical => {
-              ui.vertical(|ui| self.render_commands(ui, commands, idx))
-                .inner
-            }
-          };
-
-          idx = end_idx;
-        }
-
-        UiCommand::EndContainer => {
-          // Return to parent container
-          return idx + 1;
-        }
-
-        UiCommand::Text { content, style } => {
-          self.render_styled_text(ui, content, style);
-
-          idx += 1;
-        }
-
-        UiCommand::Button { id, content } => {
-          if ui.button(content).clicked() {
-            println!("Button {id} clicked: {content}");
-            self.state.pending_events.push((*id, 0));
-          }
-
-          idx += 1;
-        }
-
-        UiCommand::TextInput {
-          id,
-          placeholder,
-          value,
-        } => {
-          let text = self
-            .state
-            .text_inputs
-            .entry(*id)
-            .or_insert_with(|| value.clone());
-
-          let response =
-            ui.add(egui::TextEdit::singleline(text).hint_text(placeholder));
-
-          if response.changed() {
-            println!("Input {id} changed to: {text}");
-            self.state.pending_events.push((*id, 1));
-          }
-
-          idx += 1;
-        }
-
-        UiCommand::Image {
-          id: _,
-          src,
-          width,
-          height,
-        } => {
-          let size = egui::Vec2::new(*width as f32, *height as f32);
-          let ctx = ui.ctx().clone();
-          let state = self.image_loader.state(src);
-
-          match state {
-            ImageState::Pending | ImageState::Loading => {
-              // Placeholder box with spinner.
-              ui.add_sized(size, egui::Spinner::new());
-            }
-            ImageState::Decoded(_) => {
-              // Upload to GPU on the main thread, then
-              // transition to Ready. Take the ColorImage
-              // out by replacing with a placeholder.
-              let image = match std::mem::replace(state, ImageState::Loading) {
-                ImageState::Decoded(img) => img,
-                _ => unreachable!(),
-              };
-
-              let texture = ctx.load_texture(
-                src.as_str(),
-                image,
-                egui::TextureOptions::default(),
-              );
-
-              ui.add(
-                egui::Image::from_texture(&texture).fit_to_exact_size(size),
-              );
-
-              *state = ImageState::Ready(texture);
-            }
-            ImageState::Ready(texture) => {
-              ui.add(
-                egui::Image::from_texture(&*texture).fit_to_exact_size(size),
-              );
-            }
-            ImageState::Failed(error) => {
-              ui.colored_label(
-                egui::Color32::RED,
-                format!("[image error: {error}]"),
-              );
-            }
-          }
-
-          idx += 1;
-        }
-
         UiCommand::Event { .. } => {
           // events are handled separately.
           idx += 1;
@@ -202,37 +90,184 @@ impl Renderer {
           // Native style mapping is post-MVP.
           idx += 1;
         }
+
+        UiCommand::Element {
+          tag,
+          attrs,
+          self_closing,
+        } => {
+          idx =
+            self.render_element(ui, commands, idx, tag, attrs, *self_closing);
+        }
+
+        UiCommand::EndElement => {
+          // Close current element — hand control back to the
+          // caller (the enclosing container's closure).
+          return idx + 1;
+        }
+
+        UiCommand::Text(content) => {
+          ui.label(content);
+
+          idx += 1;
+        }
       }
     }
 
     idx
   }
 
-  /// Render text with HTML style + any CSS overrides.
-  fn render_styled_text(
+  /// Render a single `UiCommand::Element` and any inline children
+  /// up to the matching `EndElement`. Returns the index just after
+  /// the element's close (or just after the element itself, if
+  /// self-closing).
+  fn render_element(
+    &mut self,
+    ui: &mut egui::Ui,
+    commands: &[UiCommand],
+    idx: usize,
+    tag: &ElementTag,
+    attrs: &[Attr],
+    self_closing: bool,
+  ) -> usize {
+    let children_start = idx + 1;
+
+    match tag {
+      ElementTag::Img => {
+        let src = attr_str(attrs, "src").unwrap_or("");
+        let width = attr_num(attrs, "width").unwrap_or(0);
+        let height = attr_num(attrs, "height").unwrap_or(0);
+
+        self.render_image(ui, src, width, height);
+
+        // Img is always self-closing — no children to skip.
+        children_start
+      }
+
+      ElementTag::Input | ElementTag::Textarea => {
+        let id = attr_num(attrs, "data-id").unwrap_or(0);
+        let placeholder = attr_str(attrs, "placeholder").unwrap_or("");
+        let initial = attr_str(attrs, "value").unwrap_or("").to_string();
+
+        let text = self.state.text_inputs.entry(id).or_insert_with(|| initial);
+
+        let response =
+          ui.add(egui::TextEdit::singleline(text).hint_text(placeholder));
+
+        if response.changed() {
+          self.state.pending_events.push((id, 1));
+        }
+
+        // Self-closing in our model (input has no children).
+        children_start
+      }
+
+      ElementTag::Button => {
+        // Button label is the concatenation of its TextNode
+        // children. Render the button imperatively, then skip
+        // past children to the matching EndElement.
+        let content = peek_text_children(commands, children_start);
+        let id = attr_num(attrs, "data-id").unwrap_or(0);
+
+        if ui.button(&content).clicked() {
+          self.state.pending_events.push((id, 0));
+        }
+
+        skip_to_end_element(commands, children_start)
+      }
+
+      t if t.is_text_tag() => {
+        // h1/h2/h3/p/span with inline PCDATA — render as a styled
+        // label. Concatenate all TextNode children and skip past
+        // them.
+        let content = peek_text_children(commands, children_start);
+
+        self.render_styled_text_for_tag(ui, &content, tag);
+
+        if self_closing {
+          children_start
+        } else {
+          skip_to_end_element(commands, children_start)
+        }
+      }
+
+      t if t.is_inline() => {
+        // Inline container with non-text children → horizontal.
+        if self_closing {
+          children_start
+        } else {
+          ui.horizontal(|ui| self.render_commands(ui, commands, children_start))
+            .inner
+        }
+      }
+
+      _ => {
+        // Block container (div, section, main, ...).
+        if self_closing {
+          children_start
+        } else {
+          ui.vertical(|ui| self.render_commands(ui, commands, children_start))
+            .inner
+        }
+      }
+    }
+  }
+
+  /// Render an image from an attribute-described element.
+  fn render_image(
+    &mut self,
+    ui: &mut egui::Ui,
+    src: &str,
+    width: u32,
+    height: u32,
+  ) {
+    let size = egui::Vec2::new(width as f32, height as f32);
+    let ctx = ui.ctx().clone();
+    let state = self.image_loader.state(src);
+
+    match state {
+      ImageState::Pending | ImageState::Loading => {
+        ui.add_sized(size, egui::Spinner::new());
+      }
+      ImageState::Decoded(_) => {
+        let image = match std::mem::replace(state, ImageState::Loading) {
+          ImageState::Decoded(img) => img,
+          _ => unreachable!(),
+        };
+
+        let texture =
+          ctx.load_texture(src, image, egui::TextureOptions::default());
+
+        ui.add(egui::Image::from_texture(&texture).fit_to_exact_size(size));
+
+        *state = ImageState::Ready(texture);
+      }
+      ImageState::Ready(texture) => {
+        ui.add(egui::Image::from_texture(&*texture).fit_to_exact_size(size));
+      }
+      ImageState::Failed(error) => {
+        ui.colored_label(egui::Color32::RED, format!("[image error: {error}]"));
+      }
+    }
+  }
+
+  /// Render styled text for an `ElementTag` text tag. Mirrors
+  /// `render_styled_text` for the legacy `UiCommand::Text` path.
+  fn render_styled_text_for_tag(
     &self,
     ui: &mut egui::Ui,
     content: &str,
-    style: &TextStyle,
+    tag: &ElementTag,
   ) {
-    // Base RichText from the HTML tag type.
-    let mut rt = match style {
-      TextStyle::Heading1 => egui::RichText::new(content).size(24.0).strong(),
-      TextStyle::Heading2 => egui::RichText::new(content).size(20.0).strong(),
-      TextStyle::Heading3 => egui::RichText::new(content).size(16.0).strong(),
-      TextStyle::Paragraph | TextStyle::Normal => egui::RichText::new(content),
+    let mut rt = match tag {
+      ElementTag::H1 => egui::RichText::new(content).size(24.0).strong(),
+      ElementTag::H2 => egui::RichText::new(content).size(20.0).strong(),
+      ElementTag::H3 => egui::RichText::new(content).size(16.0).strong(),
+      _ => egui::RichText::new(content),
     };
 
     // Look up the tag name in the styles map.
-    let tag = match style {
-      TextStyle::Heading1 => "h1",
-      TextStyle::Heading2 => "h2",
-      TextStyle::Heading3 => "h3",
-      TextStyle::Paragraph => "p",
-      TextStyle::Normal => "span",
-    };
-
-    if let Some(props) = self.styles.get(tag) {
+    if let Some(props) = self.styles.get(tag.as_str()) {
       if let Some(c) = props.color {
         rt = rt.color(c);
       }
@@ -288,6 +323,96 @@ impl Default for Renderer {
   fn default() -> Self {
     Self::new()
   }
+}
+
+// --- Element dispatch helpers ---
+
+/// Look up the string value of a named attribute.
+fn attr_str<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
+  for attr in attrs {
+    if attr.name() == name {
+      return attr.as_str();
+    }
+  }
+
+  None
+}
+
+/// Look up the numeric value of a named attribute.
+fn attr_num(attrs: &[Attr], name: &str) -> Option<u32> {
+  for attr in attrs {
+    if attr.name() == name {
+      return attr
+        .as_num()
+        .or_else(|| attr.as_str().and_then(|s| s.parse().ok()));
+    }
+  }
+
+  None
+}
+
+/// Concatenate all `TextNode` children starting at `start`, up to
+/// (but not including) the matching `EndElement`. Nested elements
+/// are ignored — only direct text children contribute.
+fn peek_text_children(commands: &[UiCommand], start: usize) -> String {
+  let mut out = String::new();
+  let mut depth: usize = 0;
+  let mut idx = start;
+
+  while idx < commands.len() {
+    match &commands[idx] {
+      UiCommand::Element { self_closing, .. } => {
+        if !self_closing {
+          depth += 1;
+        }
+      }
+      UiCommand::EndElement => {
+        if depth == 0 {
+          break;
+        }
+
+        depth -= 1;
+      }
+      UiCommand::Text(s) if depth == 0 => {
+        out.push_str(s);
+      }
+      _ => {}
+    }
+
+    idx += 1;
+  }
+
+  out
+}
+
+/// Return the index just after the matching `EndElement` for the
+/// element whose children begin at `start`. If no matching
+/// `EndElement` is found, return `commands.len()`.
+fn skip_to_end_element(commands: &[UiCommand], start: usize) -> usize {
+  let mut depth: usize = 0;
+  let mut idx = start;
+
+  while idx < commands.len() {
+    match &commands[idx] {
+      UiCommand::Element { self_closing, .. } => {
+        if !self_closing {
+          depth += 1;
+        }
+      }
+      UiCommand::EndElement => {
+        if depth == 0 {
+          return idx + 1;
+        }
+
+        depth -= 1;
+      }
+      _ => {}
+    }
+
+    idx += 1;
+  }
+
+  commands.len()
 }
 
 // --- CSS → egui mapping ---

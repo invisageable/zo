@@ -10,8 +10,7 @@ use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, Mutability, Ty, TyId};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
-  Attr, ContainerDirection, EventKind, PropValue, StyleScope, TextStyle,
-  UiCommand,
+  Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
 };
 use zo_value::{
   CaptureInfo, ClosureValue, FunDef, FunctionKind, Local, LocalKind, Pubness,
@@ -7376,30 +7375,35 @@ impl<'a> Executor<'a> {
   }
 
   /// Pretty-prints template UI commands as HTML-like text.
+  /// Tracks a mini open-element stack so that `EndElement` can
+  /// recover the matching tag name for the closing `</tag>`.
   fn pretty_print_commands(commands: &[UiCommand]) -> String {
     let mut out = String::new();
+    let mut stack: Vec<&str> = Vec::new();
 
     for cmd in commands {
       match cmd {
-        UiCommand::Text { content, style } => {
-          let tag = match style {
-            TextStyle::Heading1 => Some("h1"),
-            TextStyle::Heading2 => Some("h2"),
-            TextStyle::Heading3 => Some("h3"),
-            TextStyle::Paragraph => Some("p"),
-            TextStyle::Normal => None,
-          };
+        UiCommand::Element {
+          tag, self_closing, ..
+        } => {
+          let name = tag.as_str();
 
-          if let Some(tag) = tag {
-            out.push_str(&format!("<{tag}>{content}</{tag}>"));
+          if *self_closing {
+            out.push_str(&format!("<{name} />"));
           } else {
-            out.push_str(content);
+            out.push_str(&format!("<{name}>"));
+            stack.push(name);
           }
         }
-        UiCommand::Button { content, .. } => {
-          out.push_str(&format!("<button>{content}</button>"));
+        UiCommand::EndElement => {
+          if let Some(name) = stack.pop() {
+            out.push_str(&format!("</{name}>"));
+          }
         }
-        _ => {}
+        UiCommand::Text(s) => {
+          out.push_str(s);
+        }
+        UiCommand::Event { .. } | UiCommand::StyleSheet { .. } => {}
       }
     }
 
@@ -7490,10 +7494,7 @@ impl<'a> Executor<'a> {
             let text = self.interner.get(sym).to_string();
 
             if !text.trim().is_empty() {
-              commands.push(UiCommand::Text {
-                content: text,
-                style: TextStyle::Normal,
-              });
+              commands.push(UiCommand::Text(text));
             }
           }
 
@@ -7817,10 +7818,7 @@ impl<'a> Executor<'a> {
             };
 
             if !text.is_empty() {
-              commands.push(UiCommand::Text {
-                content: text,
-                style: TextStyle::Normal,
-              });
+              commands.push(UiCommand::Text(text));
             }
           }
         }
@@ -7904,219 +7902,126 @@ impl<'a> Executor<'a> {
     self_closing: bool,
     commands: &mut Vec<UiCommand>,
   ) {
-    // Track widget id for event binding.
-    let mut widget_id: Option<String> = None;
+    // Component resolution: if the tag name is a local template
+    // variable, inline its commands directly (no wrapping
+    // element). Short-circuit before any classification.
+    if let Some(resolved) = self.try_resolve_template_component(tag) {
+      commands.extend(resolved);
+      return;
+    }
 
-    match classify_tag(tag) {
-      TagKind::Container(dir) => {
-        let direction = resolve_direction(dir, attrs);
-        let id = format!("{tag}_{}", self.template_counter);
+    let element_tag = tag_to_element(tag);
+    let mut out_attrs: Vec<Attr> = Vec::with_capacity(attrs.len() + 1);
 
-        widget_id = Some(id.clone());
-
-        commands.push(UiCommand::BeginContainer { id, direction });
-
-        if self_closing {
-          commands.push(UiCommand::EndContainer);
-        }
-      }
-      TagKind::Text(style) => {
-        if self_closing {
-          commands.push(UiCommand::Text {
-            content: String::new(),
-            style,
-          });
-        } else {
-          // Sentinel that close_template_tag converts to Text.
-          commands.push(UiCommand::BeginContainer {
-            id: format!("__text_{}__", style as u32),
-            direction: ContainerDirection::Vertical,
-          });
-        }
-      }
-      TagKind::Button => {
+    // Interactive elements get an auto-assigned widget id for
+    // event routing; the id goes into the attrs vec as a
+    // `data-id` Prop so the DOM bridge (bridge.js) can read it
+    // via `e.target.dataset.id` and forward clicks/input
+    // events back to the runtime.
+    let widget_id: String = match &element_tag {
+      ElementTag::Button | ElementTag::Input | ElementTag::Textarea => {
         let wid = self.next_widget_id();
 
-        widget_id = Some(wid.to_string());
+        out_attrs.push(Attr::parse_prop("data-id", &wid.to_string()));
 
-        if self_closing {
-          commands.push(UiCommand::Button {
-            id: wid,
-            content: String::new(),
-          });
-        } else {
-          // Stash widget id in sentinel for close_template_tag
-          commands.push(UiCommand::BeginContainer {
-            id: format!("__button_{wid}__"),
-            direction: ContainerDirection::Vertical,
-          });
-        }
+        wid.to_string()
       }
-      TagKind::Input => {
-        let wid = self.next_widget_id();
-
-        widget_id = Some(wid.to_string());
-
-        let placeholder = attr_prop_str(attrs, "placeholder");
-        let value = attr_prop_str(attrs, "value");
-
-        commands.push(UiCommand::TextInput {
-          id: wid,
-          placeholder,
-          value,
-        });
-      }
-      TagKind::Image => {
+      ElementTag::Img => {
         let id = format!("img_{}", self.template_counter);
 
-        widget_id = Some(id.clone());
-
-        let src = attr_prop_str(attrs, "src");
-        let width = attr_prop_num(attrs, "width");
-        let height = attr_prop_num(attrs, "height");
-
-        commands.push(UiCommand::Image {
-          id,
-          src,
-          width,
-          height,
-        });
+        out_attrs.push(Attr::str_prop("data-id", &id));
+        id
       }
-      TagKind::Unknown => {
-        // Check if the tag name is a template variable.
-        // If so, inline its commands (component resolution).
-        let resolved = self.interner.symbol(tag).and_then(|sym| {
-          let local = self.locals.iter().rev().find(|l| l.name == sym)?;
+      _ => {
+        let id = format!("{tag}_{}", self.template_counter);
 
-          let vi = local.value_id.0 as usize;
+        out_attrs.push(Attr::str_prop("data-id", &id));
+        id
+      }
+    };
 
-          if vi < self.values.kinds.len()
-            && matches!(self.values.kinds[vi], Value::Template)
-          {
-            let ti = self.values.indices[vi] as usize;
-            let tpl_ref = self.values.templates[ti];
-
-            // Find the matching Template instruction.
-            for insn in &self.sir.instructions {
-              if let Insn::Template {
-                id,
-                commands: child_cmds,
-                ..
-              } = insn
-                && id.0 == tpl_ref
-              {
-                return Some(child_cmds.clone());
-              }
-            }
-          }
-
-          None
-        });
-
-        if let Some(child_commands) = resolved {
-          commands.extend(child_commands);
-        } else {
-          let id = format!("{tag}_{}", self.template_counter);
-
-          widget_id = Some(id.clone());
-
-          commands.push(UiCommand::BeginContainer {
-            id,
-            direction: ContainerDirection::Vertical,
-          });
-
-          if self_closing {
-            commands.push(UiCommand::EndContainer);
-          }
+    // Copy through Prop/Style/Dynamic attributes. Events are
+    // pulled into separate UiCommand::Event commands below.
+    for attr in attrs {
+      match attr {
+        Attr::Prop { .. } | Attr::Style { .. } | Attr::Dynamic { .. } => {
+          out_attrs.push(attr.clone());
         }
+        Attr::Event { .. } => {}
       }
     }
 
-    // Emit UiCommand::Event for each @event attribute.
-    if let Some(wid) = widget_id {
-      for attr in attrs {
-        if let Attr::Event {
-          event_kind,
-          handler,
-          ..
-        } = attr
-        {
-          commands.push(UiCommand::Event {
-            widget_id: wid.clone(),
-            event_kind: event_kind.clone(),
-            handler: handler.clone(),
-          });
-        }
+    // Force self-closing for HTML5 void elements so the renderer
+    // doesn't expect an EndElement for them.
+    let final_self_closing =
+      self_closing || element_tag.is_self_closing_default();
+
+    commands.push(UiCommand::Element {
+      tag: element_tag,
+      attrs: out_attrs,
+      self_closing: final_self_closing,
+    });
+
+    // Emit UiCommand::Event for each @event attribute, routed
+    // to the widget id we just assigned.
+    for attr in attrs {
+      if let Attr::Event {
+        event_kind,
+        handler,
+        ..
+      } = attr
+      {
+        commands.push(UiCommand::Event {
+          widget_id: widget_id.clone(),
+          event_kind: event_kind.clone(),
+          handler: handler.clone(),
+        });
       }
     }
   }
 
-  /// Handle closing tag: convert sentinel BeginContainers
-  /// back to their actual UiCommand.
-  fn close_template_tag(&mut self, commands: &mut Vec<UiCommand>) {
-    // Collect text content from any Text commands added since
-    // the last sentinel BeginContainer.
-    let sentinel_pos = commands.iter().rposition(|cmd| {
-      matches!(cmd, UiCommand::BeginContainer { id, .. }
-        if id.starts_with("__"))
-    });
+  /// If `tag` names a local variable bound to a template value,
+  /// return that template's commands for inlining. Otherwise
+  /// returns None. Preserves the component-resolution behavior
+  /// from the legacy `TagKind::Unknown` path.
+  fn try_resolve_template_component(
+    &self,
+    tag: &str,
+  ) -> Option<Vec<UiCommand>> {
+    let sym = self.interner.symbol(tag)?;
+    let local = self.locals.iter().rev().find(|l| l.name == sym)?;
+    let vi = local.value_id.0 as usize;
 
-    if let Some(pos) = sentinel_pos {
-      let sentinel_id = match &commands[pos] {
-        UiCommand::BeginContainer { id, .. } => id.clone(),
-        _ => unreachable!(),
-      };
-
-      // Collect text and preserve event commands after sentinel
-      let mut content = String::new();
-      let mut events = Vec::new();
-
-      for cmd in &commands[pos + 1..] {
-        match cmd {
-          UiCommand::Text { content: text, .. } => {
-            content.push_str(text);
-          }
-          UiCommand::Event { .. } => {
-            events.push(cmd.clone());
-          }
-          _ => {}
-        }
-      }
-
-      // Remove sentinel and collected children
-      commands.truncate(pos);
-
-      if sentinel_id.starts_with("__button_") {
-        let id: u32 = sentinel_id
-          .trim_start_matches("__button_")
-          .trim_end_matches("__")
-          .parse()
-          .unwrap_or(0);
-
-        commands.push(UiCommand::Button { id, content });
-      } else if sentinel_id.starts_with("__text_") {
-        let style_num: u32 = sentinel_id
-          .trim_start_matches("__text_")
-          .trim_end_matches("__")
-          .parse()
-          .unwrap_or(0);
-
-        let style = match style_num {
-          0 => TextStyle::Heading1,
-          1 => TextStyle::Heading2,
-          2 => TextStyle::Heading3,
-          3 => TextStyle::Paragraph,
-          _ => TextStyle::Normal,
-        };
-
-        commands.push(UiCommand::Text { content, style });
-      }
-      // Re-append preserved event commands
-      commands.extend(events);
-    } else {
-      // Regular container close
-      commands.push(UiCommand::EndContainer);
+    if vi >= self.values.kinds.len()
+      || !matches!(self.values.kinds[vi], Value::Template)
+    {
+      return None;
     }
+
+    let ti = self.values.indices[vi] as usize;
+    let tpl_ref = self.values.templates[ti];
+
+    for insn in &self.sir.instructions {
+      if let Insn::Template {
+        id,
+        commands: child_cmds,
+        ..
+      } = insn
+        && id.0 == tpl_ref
+      {
+        return Some(child_cmds.clone());
+      }
+    }
+
+    None
+  }
+
+  /// Handle closing tag: emit `UiCommand::EndElement`. The
+  /// legacy sentinel-rewriting hack is gone — the Element
+  /// model's children are just inline `TextNode` / `Element`
+  /// commands between the open and close markers.
+  fn close_template_tag(&mut self, commands: &mut Vec<UiCommand>) {
+    commands.push(UiCommand::EndElement);
   }
 
   fn next_widget_id(&mut self) -> u32 {
@@ -8173,102 +8078,33 @@ struct FunCtx {
   pub(crate) scope_depth: usize,
 }
 
-/// Tag classification for the template tag registry.
-enum TagKind {
-  Container(ContainerDirection),
-  Text(TextStyle),
-  Button,
-  Input,
-  Image,
-  Unknown,
-}
-
-/// Static tag registry — no allocation, no HashMap.
-fn classify_tag(tag: &str) -> TagKind {
+/// Static tag registry — maps HTML tag names directly to
+/// `ElementTag`. Unknown tags fall through to
+/// `ElementTag::Custom` so the renderer can still stamp them
+/// verbatim (and component resolution is attempted one layer up).
+fn tag_to_element(tag: &str) -> ElementTag {
   match tag {
-    // Containers (vertical by default)
-    "div" | "section" | "main" | "article" | "aside" | "header" | "footer"
-    | "nav" | "form" | "ul" | "ol" | "li" => {
-      TagKind::Container(ContainerDirection::Vertical)
-    }
-    // Inline container
-    "span" => TagKind::Container(ContainerDirection::Horizontal),
-    // Text
-    "h1" => TagKind::Text(TextStyle::Heading1),
-    "h2" => TagKind::Text(TextStyle::Heading2),
-    "h3" => TagKind::Text(TextStyle::Heading3),
-    "p" => TagKind::Text(TextStyle::Paragraph),
-    // Interactive
-    "button" => TagKind::Button,
-    "input" | "textarea" => TagKind::Input,
-    // Media
-    "img" => TagKind::Image,
-    _ => TagKind::Unknown,
+    "div" => ElementTag::Div,
+    "section" => ElementTag::Section,
+    "main" => ElementTag::Main,
+    "article" => ElementTag::Article,
+    "aside" => ElementTag::Aside,
+    "header" => ElementTag::Header,
+    "footer" => ElementTag::Footer,
+    "nav" => ElementTag::Nav,
+    "form" => ElementTag::Form,
+    "ul" => ElementTag::Ul,
+    "ol" => ElementTag::Ol,
+    "li" => ElementTag::Li,
+    "span" => ElementTag::Span,
+    "h1" => ElementTag::H1,
+    "h2" => ElementTag::H2,
+    "h3" => ElementTag::H3,
+    "p" => ElementTag::P,
+    "img" => ElementTag::Img,
+    "button" => ElementTag::Button,
+    "input" => ElementTag::Input,
+    "textarea" => ElementTag::Textarea,
+    other => ElementTag::Custom(other.to_string()),
   }
-}
-
-/// Resolve container direction from attributes.
-fn resolve_direction(
-  default: ContainerDirection,
-  attrs: &[Attr],
-) -> ContainerDirection {
-  for attr in attrs {
-    if let Attr::Prop {
-      name,
-      value: PropValue::Str(v),
-    } = attr
-      && name == "class"
-      && v.contains("horizontal")
-    {
-      return ContainerDirection::Horizontal;
-    }
-  }
-
-  default
-}
-
-/// Look up a string property by name.
-fn attr_prop_str(attrs: &[Attr], name: &str) -> String {
-  for attr in attrs {
-    if attr.name() == name {
-      return match attr {
-        Attr::Prop {
-          value: PropValue::Str(s),
-          ..
-        } => s.clone(),
-        Attr::Prop {
-          value: PropValue::Num(n),
-          ..
-        } => n.to_string(),
-        Attr::Prop {
-          value: PropValue::Bool(b),
-          ..
-        } => b.to_string(),
-        _ => String::new(),
-      };
-    }
-  }
-
-  String::new()
-}
-
-/// Look up a numeric property by name, defaulting to 0.
-fn attr_prop_num(attrs: &[Attr], name: &str) -> u32 {
-  for attr in attrs {
-    if attr.name() == name {
-      return match attr {
-        Attr::Prop {
-          value: PropValue::Num(n),
-          ..
-        } => *n,
-        Attr::Prop {
-          value: PropValue::Str(s),
-          ..
-        } => s.parse().unwrap_or(0),
-        _ => 0,
-      };
-    }
-  }
-
-  0
 }

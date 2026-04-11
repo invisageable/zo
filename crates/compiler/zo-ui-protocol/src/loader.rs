@@ -1,11 +1,20 @@
-//! Dynamic library loader for zo applications
+//! Dynamic library loader for zo applications.
+//!
+//! Parses the binary UiCommand array produced by
+//! `zo-codegen-arm/src/codegen/template.rs` back into an
+//! in-memory `Vec<UiCommand>`. The binary format for the new
+//! unified Element model is a work in progress — for R1 the
+//! decoder returns empty commands for the new type codes so
+//! that the dylib path does not crash, without implementing the
+//! full attribute encoding. The interactive `zo run` path
+//! bypasses the loader entirely.
 
-use crate::ui_protocol::{ContainerDirection, TextStyle, UiCommand};
+use crate::ui_protocol::UiCommand;
 
 use libloading::{Library, Symbol};
 use thin_vec::ThinVec;
 
-use std::ffi::{c_char, c_void};
+use std::ffi::c_void;
 
 /// The signature for the ui entry point function from the compiled zo library.
 pub type UiEntryPoint = unsafe extern "C" fn() -> *mut c_void;
@@ -34,50 +43,6 @@ struct RawUiCommand {
   _padding: u32,
   /// Pointer to command-specific data.
   data: *mut c_void,
-}
-
-/// Container data structure in memory
-#[repr(C)]
-struct ContainerData {
-  id_offset: u32,
-  _padding1: u32,
-  direction: u32,
-  _padding2: u32,
-}
-
-/// Text data structure in memory
-#[repr(C)]
-struct TextData {
-  content_offset: u32,
-  _padding1: u32,
-  style: u32,
-  _padding2: u32,
-}
-
-/// Button data structure in memory
-#[repr(C)]
-struct ButtonData {
-  id: u32,
-  content_offset: u32,
-  _padding: u64,
-}
-
-/// Text input data structure in memory
-#[repr(C)]
-struct TextInputData {
-  id: u32,
-  placeholder_offset: u32,
-  value_offset: u32,
-  _padding: u32,
-}
-
-/// Image data structure in memory
-#[repr(C)]
-struct ImageData {
-  id_offset: u32,
-  src_offset: u32,
-  width: u32,
-  height: u32,
 }
 
 /// Loads and manages dynamic libraries compiled from zo programs
@@ -166,145 +131,15 @@ impl LibraryLoader {
     commands
   }
 
-  /// Parse a single command
+  /// Parse a single command. The binary format for the
+  /// unified Element model is not yet implemented — the
+  /// decoder currently returns `None` for every type code.
+  /// The AOT dylib path is a no-op for templates until the
+  /// encoder/decoder pair gets redesigned to carry attributes.
+  /// The interactive `zo run` path is unaffected.
   fn parse_command(&self, raw_cmd: &RawUiCommand) -> Option<UiCommand> {
-    match raw_cmd.command_type {
-      0 => {
-        // BeginContainer
-        if !raw_cmd.data.is_null() {
-          let data_ptr =
-            self.resolve_pointer(raw_cmd.data) as *const ContainerData;
-
-          let data = unsafe { &*data_ptr };
-          let id = self.resolve_string(data.id_offset);
-
-          let direction = match data.direction {
-            0 => ContainerDirection::Horizontal,
-            _ => ContainerDirection::Vertical,
-          };
-
-          Some(UiCommand::BeginContainer { id, direction })
-        } else {
-          None
-        }
-      }
-
-      1 => {
-        // EndContainer
-        Some(UiCommand::EndContainer)
-      }
-
-      2 => {
-        // Text
-        if !raw_cmd.data.is_null() {
-          let data_ptr = self.resolve_pointer(raw_cmd.data) as *const TextData;
-          let data = unsafe { &*data_ptr };
-          let content = self.resolve_string(data.content_offset);
-
-          let style = match data.style {
-            0 => TextStyle::Normal,
-            1 => TextStyle::Heading1,
-            2 => TextStyle::Heading2,
-            3 => TextStyle::Heading3,
-            4 => TextStyle::Paragraph,
-            _ => TextStyle::Normal,
-          };
-
-          Some(UiCommand::Text { content, style })
-        } else {
-          None
-        }
-      }
-
-      3 => {
-        // Button
-        if !raw_cmd.data.is_null() {
-          let data_ptr =
-            self.resolve_pointer(raw_cmd.data) as *const ButtonData;
-
-          let data = unsafe { &*data_ptr };
-          let content = self.resolve_string(data.content_offset);
-
-          Some(UiCommand::Button {
-            id: data.id,
-            content,
-          })
-        } else {
-          None
-        }
-      }
-
-      4 => {
-        // TextInput
-        if !raw_cmd.data.is_null() {
-          let data_ptr =
-            self.resolve_pointer(raw_cmd.data) as *const TextInputData;
-
-          let data = unsafe { &*data_ptr };
-          let placeholder = self.resolve_string(data.placeholder_offset);
-          let value = self.resolve_string(data.value_offset);
-
-          Some(UiCommand::TextInput {
-            id: data.id,
-            placeholder,
-            value,
-          })
-        } else {
-          None
-        }
-      }
-
-      5 => {
-        // Image
-        if !raw_cmd.data.is_null() {
-          let data_ptr = self.resolve_pointer(raw_cmd.data) as *const ImageData;
-
-          let data = unsafe { &*data_ptr };
-          let id = self.resolve_string(data.id_offset);
-          let src = self.resolve_string(data.src_offset);
-
-          Some(UiCommand::Image {
-            id,
-            src,
-            width: data.width,
-            height: data.height,
-          })
-        } else {
-          None
-        }
-      }
-
-      _ => {
-        eprintln!("Unknown command type: {}", raw_cmd.command_type);
-        None
-      }
-    }
-  }
-
-  /// Resolve a pointer that may be an offset from the base address.
-  fn resolve_pointer(&self, ptr: *mut c_void) -> *mut c_void {
-    // Check if this looks like an offset (small value)
-    let value = ptr as usize;
-
-    if value < 0x10000 {
-      // It's an offset - add base address
-      unsafe { self.base_address.add(value) as *mut c_void }
-    } else {
-      // It's already a valid pointer
-      ptr
-    }
-  }
-
-  /// Resolve a string from an offset in the string table.
-  fn resolve_string(&self, offset: u32) -> String {
-    let str_ptr =
-      unsafe { self.base_address.add(offset as usize) as *const c_char };
-
-    unsafe {
-      std::ffi::CStr::from_ptr(str_ptr)
-        .to_string_lossy()
-        .into_owned()
-    }
+    let _ = raw_cmd;
+    None
   }
 
   /// Call the event handler if available.

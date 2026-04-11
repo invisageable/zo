@@ -4,7 +4,7 @@
 //! — path resolution, validation, rewriting — belongs here,
 //! not scattered across runtime drivers.
 
-use crate::UiCommand;
+use crate::{Attr, ElementTag, PropValue, UiCommand};
 
 use std::path::Path;
 
@@ -56,24 +56,48 @@ impl Ui {
   ///   meaningful message.
   pub fn resolve_image_paths(&mut self, base_dir: &Path) {
     for cmd in &mut self.commands {
-      if let UiCommand::Image { src, .. } = cmd {
-        if is_remote_url(src) {
-          continue;
+      if let UiCommand::Element {
+        tag: ElementTag::Img,
+        attrs,
+        ..
+      } = cmd
+      {
+        for attr in attrs {
+          let (name, value) = match attr {
+            Attr::Prop { name, value } => (name, value),
+            Attr::Dynamic { name, initial, .. } => (name, initial),
+            _ => continue,
+          };
+
+          if name == "src"
+            && let PropValue::Str(s) = value
+          {
+            rewrite_path_in_place(s, base_dir);
+          }
         }
-
-        let path = Path::new(src.as_str());
-        let joined = if path.is_absolute() {
-          path.to_path_buf()
-        } else {
-          base_dir.join(path)
-        };
-
-        let resolved = std::fs::canonicalize(&joined).unwrap_or(joined);
-
-        *src = resolved.to_string_lossy().into_owned();
       }
     }
   }
+}
+
+/// Rewrite a path string in place: absolute paths and remote URLs
+/// pass through, relative paths are joined against `base_dir`,
+/// everything is canonicalized when possible.
+fn rewrite_path_in_place(src: &mut String, base_dir: &Path) {
+  if is_remote_url(src) {
+    return;
+  }
+
+  let path = Path::new(src.as_str());
+  let joined = if path.is_absolute() {
+    path.to_path_buf()
+  } else {
+    base_dir.join(path)
+  };
+
+  let resolved = std::fs::canonicalize(&joined).unwrap_or(joined);
+
+  *src = resolved.to_string_lossy().into_owned();
 }
 
 /// `true` when `src` is an `http://` or `https://` URL.
@@ -85,21 +109,31 @@ fn is_remote_url(src: &str) -> bool {
 mod tests {
   use super::*;
 
-  use crate::{ContainerDirection, TextStyle};
-
   fn image(src: &str) -> UiCommand {
-    UiCommand::Image {
-      id: "img_0".into(),
-      src: src.into(),
-      width: 10,
-      height: 10,
+    UiCommand::Element {
+      tag: ElementTag::Img,
+      attrs: vec![
+        Attr::str_prop("data-id", "img_0"),
+        Attr::str_prop("src", src),
+        Attr::parse_prop("width", "10"),
+        Attr::parse_prop("height", "10"),
+      ],
+      self_closing: true,
     }
   }
 
   fn image_src(ui: &Ui, idx: usize) -> &str {
     match &ui.as_slice()[idx] {
-      UiCommand::Image { src, .. } => src,
-      _ => panic!("expected Image at index {idx}"),
+      UiCommand::Element {
+        tag: ElementTag::Img,
+        attrs,
+        ..
+      } => attrs
+        .iter()
+        .find(|a| a.name() == "src")
+        .and_then(|a| a.as_str())
+        .expect("img element should have an src attr"),
+      _ => panic!("expected Element(Img) at index {idx}"),
     }
   }
 
@@ -165,20 +199,24 @@ mod tests {
   #[test]
   fn resolve_image_paths_ignores_non_image_commands() {
     let mut ui = Ui::new(vec![
-      UiCommand::Text {
-        content: "hi".into(),
-        style: TextStyle::Normal,
-      },
-      UiCommand::BeginContainer {
-        id: "c".into(),
-        direction: ContainerDirection::Vertical,
+      UiCommand::Text("hi".into()),
+      UiCommand::Element {
+        tag: ElementTag::Div,
+        attrs: vec![Attr::str_prop("data-id", "c")],
+        self_closing: false,
       },
     ]);
 
     ui.resolve_image_paths(Path::new("/tmp"));
 
-    assert!(matches!(ui.as_slice()[0], UiCommand::Text { .. }));
-    assert!(matches!(ui.as_slice()[1], UiCommand::BeginContainer { .. }));
+    assert!(matches!(ui.as_slice()[0], UiCommand::Text(_)));
+    assert!(matches!(
+      ui.as_slice()[1],
+      UiCommand::Element {
+        tag: ElementTag::Div,
+        ..
+      }
+    ));
   }
 
   #[test]
