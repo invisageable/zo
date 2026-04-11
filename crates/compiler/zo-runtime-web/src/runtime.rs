@@ -166,21 +166,32 @@ impl Runtime {
             // Read updated commands from shared buffer.
             let updated = self.shared.lock().unwrap().clone();
 
-            // Granular DOM update: only changed text.
+            // Granular DOM update: walk the command diff and
+            // emit a targeted JS patch for each changed
+            // command. All elements now carry uniform
+            // `data-zo-cmd="{idx}"` ids, so the same
+            // `[data-zo-cmd="N"]` selector works for text,
+            // attributes, and future element types.
             if let Some(wv) = &self.webview {
               let mut js = String::new();
 
               for (idx, (old, new)) in
                 self.commands.iter().zip(updated.iter()).enumerate()
               {
-                if old != new
-                  && let UiCommand::Text { content, .. } = new
-                {
+                if old == new {
+                  continue;
+                }
+
+                // PCDATA node changed — replace element's text
+                // content via the uniform `[data-zo-cmd]`
+                // selector. R3 will extend this to emit
+                // `setAttribute` for changed Dynamic attributes
+                // on `Element` commands; R1 only patches text.
+                if let UiCommand::Text(content) = new {
                   js.push_str(&format!(
-                    "var e=document.getElementById(\
-                     'zo-cmd-{}');\
+                    "var e=document.querySelector(\
+                     '[data-zo-cmd=\"{idx}\"]');\
                      if(e)e.textContent={};",
-                    idx,
                     escape_js_string(content),
                   ));
                 }
@@ -245,7 +256,11 @@ fn serve_asset(
 
   // Custom protocol strips the scheme+host; `path` is the
   // absolute filesystem path with a single leading `/`.
-  let fs_path: &std::path::Path = path.as_ref();
+  // On Windows, drive-letter paths reach us as `/C:/foo.png`
+  // — strip the leading `/` so `std::fs::read` sees a valid
+  // `C:/foo.png` path.
+  let fs_path_str = uri_path_to_fs(path);
+  let fs_path: &std::path::Path = fs_path_str.as_ref();
 
   match std::fs::read(fs_path) {
     Ok(bytes) => Response::builder()
@@ -258,6 +273,29 @@ fn serve_asset(
       .body(Vec::<u8>::new().into())
       .unwrap(),
   }
+}
+
+/// Convert a URI path (`/C:/foo.png` or `/tmp/foo.png`) to a
+/// filesystem path string. On Windows, a leading `/` followed
+/// by a drive letter is stripped (`/C:/foo.png` → `C:/foo.png`).
+/// Unix paths pass through unchanged.
+fn uri_path_to_fs(uri_path: &str) -> String {
+  #[cfg(windows)]
+  {
+    // Match `/X:/...` where X is an ASCII letter.
+    let bytes = uri_path.as_bytes();
+
+    if bytes.len() >= 4
+      && bytes[0] == b'/'
+      && bytes[1].is_ascii_alphabetic()
+      && bytes[2] == b':'
+      && (bytes[3] == b'/' || bytes[3] == b'\\')
+    {
+      return uri_path[1..].to_string();
+    }
+  }
+
+  uri_path.to_string()
 }
 
 /// Infer a MIME type from a file extension.
@@ -306,9 +344,20 @@ fn escape_js_string(s: &str) -> String {
 mod tests {
   use super::*;
 
+  /// Build a `zo://localhost{path}` request. The path is
+  /// normalized to forward slashes with a leading `/` so
+  /// Windows temp paths (which contain backslashes) produce a
+  /// valid URI instead of `InvalidUriChar`.
   fn request(path: &str) -> wry::http::Request<Vec<u8>> {
+    let forward = path.replace('\\', "/");
+    let with_leading = if forward.starts_with('/') {
+      forward
+    } else {
+      format!("/{forward}")
+    };
+
     wry::http::Request::builder()
-      .uri(format!("zo://localhost{path}"))
+      .uri(format!("zo://localhost{with_leading}"))
       .body(Vec::new())
       .unwrap()
   }

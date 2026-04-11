@@ -78,23 +78,11 @@ impl DependencyGraph {
     graph
   }
 
-  /// Extract data dependencies from a UiCommand
-  fn extract_dependencies(cmd: &UiCommand) -> Vec<DataSource> {
-    match cmd {
-      // Static structural commands
-      UiCommand::BeginContainer { .. } => vec![DataSource::Static],
-      UiCommand::EndContainer => vec![DataSource::Static],
-      // Text commands - check for interpolations
-      // TODO: Parse content for {expr} when we add string interpolation
-      UiCommand::Text { .. } => vec![DataSource::Static],
-      // Interactive elements - always dynamic
-      UiCommand::Button { .. } => vec![DataSource::Static],
-      UiCommand::TextInput { .. } => vec![DataSource::Static],
-      UiCommand::Event { .. } => vec![DataSource::Static],
-      // Images - check for dynamic src
-      UiCommand::Image { .. } => vec![DataSource::Static],
-      UiCommand::StyleSheet { .. } => vec![DataSource::Static],
-    }
+  /// Extract data dependencies from a UiCommand. For the
+  /// unified Element model every command currently reports as
+  /// static — reactive dependency tracking is the job of R3.
+  fn extract_dependencies(_cmd: &UiCommand) -> Vec<DataSource> {
+    vec![DataSource::Static]
   }
 
   /// Add a watcher for a data source
@@ -208,7 +196,15 @@ pub struct DependencyStats {
 mod tests {
   use super::*;
 
-  use zo_ui_protocol::{ContainerDirection, TextStyle};
+  use zo_ui_protocol::{Attr, ElementTag};
+
+  fn div(id: &str) -> UiCommand {
+    UiCommand::Element {
+      tag: ElementTag::Div,
+      attrs: vec![Attr::str_prop("data-id", id)],
+      self_closing: false,
+    }
+  }
 
   #[test]
   fn test_empty_graph() {
@@ -221,15 +217,9 @@ mod tests {
   #[test]
   fn test_static_commands() {
     let commands = vec![
-      UiCommand::BeginContainer {
-        id: "root".to_string(),
-        direction: ContainerDirection::Vertical,
-      },
-      UiCommand::Text {
-        content: "Static text".to_string(),
-        style: TextStyle::Normal,
-      },
-      UiCommand::EndContainer,
+      div("root"),
+      UiCommand::Text("Static text".into()),
+      UiCommand::EndElement,
     ];
 
     let graph = DependencyGraph::from_commands(&commands);
@@ -242,24 +232,17 @@ mod tests {
 
   #[test]
   fn test_get_dependents() {
-    let commands = vec![UiCommand::Text {
-      content: "test".to_string(),
-      style: TextStyle::Normal,
-    }];
+    let commands = vec![UiCommand::Text("test".into())];
 
     let graph = DependencyGraph::from_commands(&commands);
     let deps = graph.get_dependents(&DataSource::Static);
 
-    // All static commands should be in the dependents list
     assert!(deps.contains(&0));
   }
 
   #[test]
   fn test_get_node() {
-    let commands = vec![UiCommand::Text {
-      content: "test".to_string(),
-      style: TextStyle::Normal,
-    }];
+    let commands = vec![UiCommand::Text("test".into())];
 
     let graph = DependencyGraph::from_commands(&commands);
     let node = graph.get_node(0);
@@ -271,20 +254,13 @@ mod tests {
   #[test]
   fn test_update_order() {
     let commands = vec![
-      UiCommand::Text {
-        content: "first".to_string(),
-        style: TextStyle::Normal,
-      },
-      UiCommand::Text {
-        content: "second".to_string(),
-        style: TextStyle::Normal,
-      },
+      UiCommand::Text("first".into()),
+      UiCommand::Text("second".into()),
     ];
 
     let graph = DependencyGraph::from_commands(&commands);
     let order = graph.calculate_update_order(&DataSource::Static);
 
-    // Both nodes depend on Static, so both should be in update order
     assert_eq!(order.len(), 2);
   }
 }

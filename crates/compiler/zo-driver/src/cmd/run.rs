@@ -316,10 +316,8 @@ impl Run {
           for &(cmd_idx, slot_idx) in &bindings_copy {
             let value = cells[slot_idx].get().display();
 
-            if let Some(UiCommand::Text { content, .. }) =
-              new_cmds.get_mut(cmd_idx)
-            {
-              *content = value;
+            if let Some(UiCommand::Text(s)) = new_cmds.get_mut(cmd_idx) {
+              *s = value;
             }
           }
 

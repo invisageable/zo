@@ -1,4 +1,4 @@
-use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
+use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
 use rustc_hash::FxHashMap as HashMap;
 
@@ -29,14 +29,18 @@ impl HtmlRenderer {
     self.html_buffer.clear();
     self.container_stack.clear();
 
-    // Detect if interactivity is needed
+    // Detect if interactivity is needed — any `<button>`,
+    // `<input>`, `<textarea>` element or any `UiCommand::Event`
+    // triggers the bridge JS injection.
     let needs_interactivity = commands.iter().any(|cmd| {
-      matches!(
-        cmd,
-        UiCommand::Button { .. }
-          | UiCommand::TextInput { .. }
-          | UiCommand::Event { .. }
-      )
+      matches!(cmd, UiCommand::Event { .. })
+        || matches!(
+          cmd,
+          UiCommand::Element {
+            tag: ElementTag::Button | ElementTag::Input | ElementTag::Textarea,
+            ..
+          }
+        )
     });
 
     // Minimal HTML boilerplate
@@ -111,102 +115,6 @@ impl HtmlRenderer {
 
   fn render_command(&mut self, cmd: &UiCommand, idx: usize) {
     match cmd {
-      UiCommand::BeginContainer { id, direction } => {
-        let layout = match direction {
-          ContainerDirection::Horizontal => "container-horizontal",
-          ContainerDirection::Vertical => "container-vertical",
-        };
-
-        // Append scope classes if present.
-        let sc = &self.scope_class_attr;
-        let class_attr = if sc.is_empty() {
-          format!("class=\"{layout}\"")
-        } else {
-          // sc already starts with ` class="..."`, extract
-          // the hashes and merge with layout class.
-          let hashes = sc.trim_start_matches(" class=\"").trim_end_matches('"');
-
-          format!("class=\"{layout} {hashes}\"")
-        };
-
-        self.html_buffer.push_str(&format!(
-          "<div {class_attr} data-id=\"{}\">\n",
-          escape_html(id)
-        ));
-
-        self.container_stack.push(id.clone());
-      }
-
-      UiCommand::EndContainer => self.end_container(),
-
-      UiCommand::Text { content, style } => {
-        let tag = match style {
-          TextStyle::Heading1 => "h1",
-          TextStyle::Heading2 => "h2",
-          TextStyle::Heading3 => "h3",
-          TextStyle::Paragraph => "p",
-          TextStyle::Normal => "span",
-        };
-
-        let sc = &self.scope_class_attr;
-
-        self.html_buffer.push_str(&format!(
-          "<{tag}{sc} id=\"zo-cmd-{idx}\">{}</{tag}>\n",
-          escape_html(content),
-        ));
-      }
-
-      UiCommand::Button { id, content } => {
-        let sc = &self.scope_class_attr;
-
-        self.html_buffer.push_str(&format!(
-          "<button{sc} data-id=\"{id}\">{}</button>\n",
-          escape_html(content)
-        ));
-      }
-
-      UiCommand::TextInput {
-        id,
-        placeholder,
-        value,
-      } => {
-        let sc = &self.scope_class_attr;
-
-        self.html_buffer.push_str(&format!(
-          "<input type=\"text\"{sc} data-id=\"{id}\" \
-           placeholder=\"{}\" value=\"{}\" />\n",
-          escape_html(placeholder),
-          escape_html(value),
-        ));
-      }
-
-      UiCommand::Image {
-        id,
-        src,
-        width,
-        height,
-      } => {
-        let sc = &self.scope_class_attr;
-
-        // The webview loads via the `zo://localhost` custom
-        // protocol (see zo-runtime-web/src/runtime.rs). Image
-        // assets are served through the same protocol — the
-        // handler strips the leading `/` and reads the file
-        // from disk. Absolute paths map to `zo://localhost`
-        // + the absolute path; relative paths pass through.
-        let url_src = if std::path::Path::new(src.as_str()).is_absolute() {
-          format!("zo://localhost{src}")
-        } else {
-          src.to_string()
-        };
-
-        self.html_buffer.push_str(&format!(
-          "<img{sc} data-id=\"{}\" src=\"{}\" width=\"{width}\" height=\"{height}\" />\n",
-          escape_html(id),
-          escape_html(&url_src),
-        ));
-      }
-
       UiCommand::Event { .. } => {
         // Events are handled via data attributes and JS
       }
@@ -223,7 +131,114 @@ impl HtmlRenderer {
           .html_buffer
           .push_str(&format!("<style{scope_attr}>\n{css}</style>\n"));
       }
+
+      UiCommand::Element {
+        tag,
+        attrs,
+        self_closing,
+      } => {
+        let tag_name = tag.as_str();
+        let sc = &self.scope_class_attr;
+        let zo_cmd_attr = format!("data-zo-cmd=\"{idx}\"");
+
+        self
+          .html_buffer
+          .push_str(&format!("<{tag_name}{sc} {zo_cmd_attr}"));
+
+        for attr in attrs {
+          self.emit_attr(tag, attr);
+        }
+
+        if *self_closing {
+          self.html_buffer.push_str(" />\n");
+        } else {
+          self.html_buffer.push('>');
+          self.container_stack.push(tag_name.to_string());
+        }
+      }
+
+      UiCommand::EndElement => {
+        if let Some(tag_name) = self.container_stack.pop() {
+          self.html_buffer.push_str(&format!("</{tag_name}>\n"));
+        }
+      }
+
+      UiCommand::Text(content) => {
+        // Wrap text in an inline span carrying a uniform
+        // `data-zo-cmd` id so reactive updates can target it
+        // via `document.querySelector('[data-zo-cmd="N"]')`.
+        // Non-reactive text also gets the wrapper — the cost
+        // is negligible and it keeps patching uniform.
+        self.html_buffer.push_str(&format!(
+          "<span data-zo-cmd=\"{idx}\">{}</span>",
+          escape_html(content),
+        ));
+      }
     }
+  }
+
+  /// Emit a single HTML attribute onto `self.html_buffer` for the
+  /// given element tag. Handles per-tag rewrites (notably the
+  /// `zo://localhost` src prefix for Img).
+  fn emit_attr(&mut self, tag: &ElementTag, attr: &Attr) {
+    match attr {
+      Attr::Prop { name, value } => {
+        let s = value.to_display();
+        let rendered = self.rewrite_attr_value(tag, name, &s);
+
+        self
+          .html_buffer
+          .push_str(&format!(" {name}=\"{}\"", escape_html(&rendered),));
+      }
+      Attr::Dynamic { name, initial, .. } => {
+        let s = initial.to_display();
+        let rendered = self.rewrite_attr_value(tag, name, &s);
+
+        self
+          .html_buffer
+          .push_str(&format!(" {name}=\"{}\"", escape_html(&rendered),));
+      }
+      Attr::Style { name, value } => {
+        // Inline style shorthand — emit as a style=""
+        // segment. MVP: one shorthand per element; future
+        // work collapses multiple into a single style attr.
+        self.html_buffer.push_str(&format!(
+          " style=\"{}: {}\"",
+          escape_html(name),
+          escape_html(value),
+        ));
+      }
+      Attr::Event { .. } => {
+        // Events flow through UiCommand::Event + the bridge.js
+        // runtime, not inline HTML attributes.
+      }
+    }
+  }
+
+  /// Per-tag attribute value rewrites. Currently only Img `src`
+  /// needs the `zo://localhost` protocol prefix; everything else
+  /// passes through unchanged.
+  fn rewrite_attr_value(
+    &self,
+    tag: &ElementTag,
+    name: &str,
+    value: &str,
+  ) -> String {
+    if matches!(tag, ElementTag::Img)
+      && name == "src"
+      && is_absolute_fs_path(value)
+    {
+      // Bare absolute filesystem paths need the custom protocol
+      // prefix so wry's webview can fetch them through
+      // `zo://localhost/<abs-path>`. Remote URLs and relative
+      // paths pass through untouched. The path is normalized to
+      // forward slashes with a leading `/` so Windows drive
+      // paths (e.g. `C:\foo.png`) become valid URI paths
+      // (`zo://localhost/C:/foo.png`).
+      return format!("zo://localhost{}", normalize_uri_path(value));
+    }
+
+    value.to_string()
   }
 
   fn end_container(&mut self) {
@@ -237,6 +252,50 @@ impl HtmlRenderer {
 impl Default for HtmlRenderer {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+/// True for any path recognized as absolute on either host OS
+/// family. Accepts three forms regardless of the running
+/// platform so zo templates stay portable:
+///
+/// 1. Unix-style rooted paths (`/tmp/foo.png`) — absolute on
+///    Unix, treated as absolute on Windows too.
+/// 2. Windows drive-letter paths (`C:\foo.png`, `C:/foo.png`)
+///    — absolute on Windows, recognized on Unix too so the
+///    normalization logic can be unit-tested cross-platform.
+/// 3. Whatever else the host OS recognizes via
+///    `std::path::Path::is_absolute`.
+fn is_absolute_fs_path(value: &str) -> bool {
+  if value.starts_with('/') || is_windows_drive_path(value) {
+    return true;
+  }
+
+  std::path::Path::new(value).is_absolute()
+}
+
+/// Match `X:\...` or `X:/...` where X is an ASCII letter.
+fn is_windows_drive_path(value: &str) -> bool {
+  let bytes = value.as_bytes();
+
+  bytes.len() >= 3
+    && bytes[0].is_ascii_alphabetic()
+    && bytes[1] == b':'
+    && (bytes[2] == b'\\' || bytes[2] == b'/')
+}
+
+/// Normalize an absolute filesystem path into a URI path
+/// component: forward slashes, with a single leading `/`.
+/// Windows drive paths like `C:\Users\me\cat.png` become
+/// `/C:/Users/me/cat.png`; Unix paths like `/tmp/cat.png` pass
+/// through unchanged.
+fn normalize_uri_path(value: &str) -> String {
+  let forward = value.replace('\\', "/");
+
+  if forward.starts_with('/') {
+    forward
+  } else {
+    format!("/{forward}")
   }
 }
 
@@ -260,48 +319,68 @@ mod tests {
     assert_eq!(escape_html("\"quoted\""), "&quot;quoted&quot;");
   }
 
+  fn p_element(text: &str) -> Vec<UiCommand> {
+    vec![
+      UiCommand::Element {
+        tag: ElementTag::P,
+        attrs: vec![Attr::str_prop("data-id", "p_0")],
+        self_closing: false,
+      },
+      UiCommand::Text(text.into()),
+      UiCommand::EndElement,
+    ]
+  }
+
+  fn h1_element(text: &str) -> Vec<UiCommand> {
+    vec![
+      UiCommand::Element {
+        tag: ElementTag::H1,
+        attrs: vec![Attr::str_prop("data-id", "h1_0")],
+        self_closing: false,
+      },
+      UiCommand::Text(text.into()),
+      UiCommand::EndElement,
+    ]
+  }
+
   #[test]
   fn test_render_text() {
     let mut renderer = HtmlRenderer::new();
-    let commands = vec![UiCommand::Text {
-      content: "hello world!".to_string(),
-      style: TextStyle::Heading1,
-    }];
+    let html = renderer.render_to_html(&h1_element("hello world!"));
 
-    let html = renderer.render_to_html(&commands);
-    assert!(html.contains("hello world!</h1>"));
-    assert!(html.contains("id=\"zo-cmd-0\""));
+    assert!(html.contains("hello world!"));
+    assert!(html.contains("</h1>"));
+    // Every element carries a uniform `data-zo-cmd` id for
+    // granular reactive patching.
+    assert!(html.contains("data-zo-cmd=\"0\""));
   }
 
   #[test]
   fn test_render_container() {
     let mut renderer = HtmlRenderer::new();
     let commands = vec![
-      UiCommand::BeginContainer {
-        id: "root".to_string(),
-        direction: ContainerDirection::Vertical,
+      UiCommand::Element {
+        tag: ElementTag::Div,
+        attrs: vec![Attr::str_prop("data-id", "root")],
+        self_closing: false,
       },
-      UiCommand::Text {
-        content: "test".to_string(),
-        style: TextStyle::Normal,
-      },
-      UiCommand::EndContainer,
+      UiCommand::Text("test".into()),
+      UiCommand::EndElement,
     ];
 
     let html = renderer.render_to_html(&commands);
-    assert!(html.contains("<div class=\"container-vertical\""));
+
+    assert!(html.contains("<div"));
     assert!(html.contains("</div>"));
+    assert!(html.contains("test"));
   }
 
   #[test]
   fn test_xss_prevention() {
     let mut renderer = HtmlRenderer::new();
-    let commands = vec![UiCommand::Text {
-      content: "<script>alert('xss')</script>".to_string(),
-      style: TextStyle::Normal,
-    }];
+    let html =
+      renderer.render_to_html(&p_element("<script>alert('xss')</script>"));
 
-    let html = renderer.render_to_html(&commands);
     assert!(!html.contains("<script>alert"));
     assert!(html.contains("&lt;script&gt;"));
   }
@@ -311,26 +390,20 @@ mod tests {
     use zo_ui_protocol::StyleScope;
 
     let mut renderer = HtmlRenderer::new();
-    let commands = vec![
-      UiCommand::StyleSheet {
-        css: "p._zo_test { color: cyan; }\n".into(),
-        scope: StyleScope::Scoped,
-        scope_hash: Some("_zo_test".into()),
-      },
-      UiCommand::Text {
-        content: "styled".into(),
-        style: TextStyle::Paragraph,
-      },
-    ];
+    let mut commands = vec![UiCommand::StyleSheet {
+      css: "p._zo_test { color: cyan; }\n".into(),
+      scope: StyleScope::Scoped,
+      scope_hash: Some("_zo_test".into()),
+    }];
+
+    commands.extend(p_element("styled"));
 
     let html = renderer.render_to_html(&commands);
 
-    // The <p> should have the scope class.
     assert!(
-      html.contains("class=\"_zo_test\"") && html.contains(">styled</p>"),
+      html.contains("class=\"_zo_test\"") && html.contains("styled"),
       "scoped style should add class to <p>, got: {html}"
     );
-    // The <style> tag should be present.
     assert!(
       html.contains("<style data-zo-scoped>"),
       "should inject scoped style tag, got: {html}"
@@ -342,11 +415,15 @@ mod tests {
   }
 
   fn image_cmd(src: &str) -> UiCommand {
-    UiCommand::Image {
-      id: "img_0".into(),
-      src: src.into(),
-      width: 256,
-      height: 128,
+    UiCommand::Element {
+      tag: ElementTag::Img,
+      attrs: vec![
+        Attr::str_prop("data-id", "img_0"),
+        Attr::str_prop("src", src),
+        Attr::parse_prop("width", "256"),
+        Attr::parse_prop("height", "128"),
+      ],
+      self_closing: true,
     }
   }
 
@@ -359,6 +436,45 @@ mod tests {
     assert!(
       html.contains("src=\"zo://localhost/Users/me/pictures/cat.png\""),
       "absolute path should be wrapped in zo:// protocol, got: {html}"
+    );
+  }
+
+  #[test]
+  fn test_render_image_windows_drive_path_normalized() {
+    let mut renderer = HtmlRenderer::new();
+    let html = renderer.render_to_html(&[image_cmd("C:\\Users\\me\\cat.png")]);
+
+    // Windows paths should be normalized to forward slashes
+    // and prefixed with `/` so the URI is well-formed regardless
+    // of the host platform.
+    assert!(
+      html.contains("src=\"zo://localhost/C:/Users/me/cat.png\""),
+      "Windows drive path should be normalized, got: {html}"
+    );
+  }
+
+  #[test]
+  fn test_is_absolute_fs_path_cross_platform() {
+    // Unix-style roots are absolute on every platform so
+    // templates can use `/` paths portably.
+    assert!(is_absolute_fs_path("/tmp/foo.png"));
+    assert!(is_absolute_fs_path("/Users/me/cat.png"));
+    // Relative paths are not.
+    assert!(!is_absolute_fs_path("foo.png"));
+    assert!(!is_absolute_fs_path("./foo.png"));
+    assert!(!is_absolute_fs_path("assets/foo.png"));
+  }
+
+  #[test]
+  fn test_normalize_uri_path_forward_slashes() {
+    assert_eq!(normalize_uri_path("/tmp/foo.png"), "/tmp/foo.png");
+    assert_eq!(
+      normalize_uri_path("C:\\Users\\me\\cat.png"),
+      "/C:/Users/me/cat.png"
+    );
+    assert_eq!(
+      normalize_uri_path("C:/Users/me/cat.png"),
+      "/C:/Users/me/cat.png"
     );
   }
 
@@ -404,24 +520,20 @@ mod tests {
     use zo_ui_protocol::StyleScope;
 
     let mut renderer = HtmlRenderer::new();
-    let commands = vec![
-      UiCommand::StyleSheet {
-        css: "body { margin: 0; }\n".into(),
-        scope: StyleScope::Global,
-        scope_hash: None,
-      },
-      UiCommand::Text {
-        content: "plain".into(),
-        style: TextStyle::Paragraph,
-      },
-    ];
+    let mut commands = vec![UiCommand::StyleSheet {
+      css: "body { margin: 0; }\n".into(),
+      scope: StyleScope::Global,
+      scope_hash: None,
+    }];
+
+    commands.extend(p_element("plain"));
 
     let html = renderer.render_to_html(&commands);
 
-    // Global style: no class attribute on elements.
+    // Global style: no scope class attribute on elements.
     assert!(
-      html.contains(">plain</p>") && !html.contains("class="),
-      "global style should NOT add class, got: {html}"
+      html.contains("plain") && !html.contains(" class="),
+      "global style should NOT add a scope class, got: {html}"
     );
     // Style tag should not have scoped attribute.
     assert!(

@@ -2,35 +2,39 @@
 
 use zo_runtime::Runtime;
 use zo_runtime_render::render::{Graphics, RuntimeConfig};
-use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
+use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
 #[test]
 fn test_runtime_with_commands() {
-  // Create a runtime
   let mut runtime = Runtime::new();
 
-  // Create test commands
+  // <div><h1>Test Header</h1><button>Test Button</button></div>
   let commands = vec![
-    UiCommand::BeginContainer {
-      id: "test_container".to_string(),
-      direction: ContainerDirection::Vertical,
+    UiCommand::Element {
+      tag: ElementTag::Div,
+      attrs: vec![Attr::str_prop("data-id", "test_container")],
+      self_closing: false,
     },
-    UiCommand::Text {
-      content: "Test Header".to_string(),
-      style: TextStyle::Heading1,
+    UiCommand::Element {
+      tag: ElementTag::H1,
+      attrs: vec![Attr::str_prop("data-id", "h1_0")],
+      self_closing: false,
     },
-    UiCommand::Button {
-      id: 1,
-      content: "Test Button".to_string(),
+    UiCommand::Text("Test Header".into()),
+    UiCommand::EndElement,
+    UiCommand::Element {
+      tag: ElementTag::Button,
+      attrs: vec![Attr::parse_prop("data-id", "1")],
+      self_closing: false,
     },
-    UiCommand::EndContainer,
+    UiCommand::Text("Test Button".into()),
+    UiCommand::EndElement,
+    UiCommand::EndElement,
   ];
 
-  // Set commands
   runtime.set_commands(commands.clone());
 
-  // Verify we can create runtime without panic
-  assert_eq!(commands.len(), 4);
+  assert_eq!(commands.len(), 9);
 
   println!(
     "Runtime created successfully with {} commands",
@@ -41,7 +45,6 @@ fn test_runtime_with_commands() {
 #[test]
 #[ignore] // Ignore by default since it requires a compiled library
 fn test_runtime_library_loading() {
-  // This test would require an actual compiled zo library
   let config = RuntimeConfig {
     library_path: Some("/tmp/test_template.dylib".to_string()),
     title: "Test App".to_string(),
@@ -50,11 +53,6 @@ fn test_runtime_library_loading() {
   };
 
   let _runtime = Runtime::with_config(config);
-
-  // In a real test, we would:
-  // 1. Generate a test library with ARM codegen
-  // 2. Load it here
-  // 3. Verify commands were parsed correctly
 
   println!("Runtime configured for library loading");
 }
@@ -70,17 +68,21 @@ fn test_runtime_with_web_graphics() {
 
   let mut runtime = Runtime::with_config(config);
 
-  // Create simple test commands
+  // <div><span>Web Rendering Test</span></div>
   let commands = vec![
-    UiCommand::BeginContainer {
-      id: "container".to_string(),
-      direction: ContainerDirection::Vertical,
+    UiCommand::Element {
+      tag: ElementTag::Div,
+      attrs: vec![Attr::str_prop("data-id", "container")],
+      self_closing: false,
     },
-    UiCommand::Text {
-      content: "Web Rendering Test".to_string(),
-      style: TextStyle::Normal,
+    UiCommand::Element {
+      tag: ElementTag::Span,
+      attrs: vec![Attr::str_prop("data-id", "span_0")],
+      self_closing: false,
     },
-    UiCommand::EndContainer,
+    UiCommand::Text("Web Rendering Test".into()),
+    UiCommand::EndElement,
+    UiCommand::EndElement,
   ];
 
   runtime.set_commands(commands);

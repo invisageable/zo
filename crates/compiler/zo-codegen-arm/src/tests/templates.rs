@@ -3,8 +3,40 @@ use crate::ARM64Gen;
 use zo_interner::Interner;
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
-use zo_ui_protocol::{ContainerDirection, TextStyle, UiCommand};
+use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 use zo_value::ValueId;
+
+fn div_container(id: &str) -> UiCommand {
+  UiCommand::Element {
+    tag: ElementTag::Div,
+    attrs: vec![Attr::str_prop("data-id", id)],
+    self_closing: false,
+  }
+}
+
+fn h1(content: &str) -> Vec<UiCommand> {
+  vec![
+    UiCommand::Element {
+      tag: ElementTag::H1,
+      attrs: vec![Attr::str_prop("data-id", "h1_0")],
+      self_closing: false,
+    },
+    UiCommand::Text(content.into()),
+    UiCommand::EndElement,
+  ]
+}
+
+fn button(id: u32, label: &str) -> Vec<UiCommand> {
+  vec![
+    UiCommand::Element {
+      tag: ElementTag::Button,
+      attrs: vec![Attr::parse_prop("data-id", &id.to_string())],
+      self_closing: false,
+    },
+    UiCommand::Text(label.into()),
+    UiCommand::EndElement,
+  ]
+}
 
 #[test]
 fn test_template_with_ui_commands() {
@@ -14,18 +46,11 @@ fn test_template_with_ui_commands() {
   let template_id = ValueId(2);
   let ty_id = TyId(0);
 
-  // Create a template with actual UI commands
-  let commands = vec![
-    UiCommand::BeginContainer {
-      id: "container_0".to_string(),
-      direction: ContainerDirection::Vertical,
-    },
-    UiCommand::Text {
-      content: "Hello, World!".to_string(),
-      style: TextStyle::Heading1,
-    },
-    UiCommand::EndContainer,
-  ];
+  // Create a template: <div><h1>Hello, World!</h1></div>
+  let mut commands = vec![div_container("container_0")];
+
+  commands.extend(h1("Hello, World!"));
+  commands.push(UiCommand::EndElement);
 
   sir.emit(Insn::Template {
     id: template_id,
@@ -40,12 +65,7 @@ fn test_template_with_ui_commands() {
 
   assert!(!artifact.code.is_empty(), "Should generate code");
 
-  // The generated code should contain:
-  // 1. _zo_ui_entry_point function
-  // 2. Template data with proper layout
-  // 3. String table with "container_0" and "Hello, World!"
-
-  // Verify that template data was stored
+  // Verify that template data was stored.
   assert!(codegen.has_templates, "Should have templates flag set");
 
   println!(
@@ -62,11 +82,16 @@ fn test_template_data_layout() {
   let template_id = ValueId(1);
   let ty_id = TyId(0);
 
-  // Simple template with one text command
-  let commands = vec![UiCommand::Text {
-    content: "Test Text".to_string(),
-    style: TextStyle::Paragraph,
-  }];
+  // Simple template with one <p> text element.
+  let commands = vec![
+    UiCommand::Element {
+      tag: ElementTag::P,
+      attrs: vec![Attr::str_prop("data-id", "p_0")],
+      self_closing: false,
+    },
+    UiCommand::Text("Test Text".into()),
+    UiCommand::EndElement,
+  ];
 
   sir.emit(Insn::Template {
     id: template_id,
@@ -79,20 +104,10 @@ fn test_template_data_layout() {
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
 
-  // The data layout should be:
-  // [u32 count=1][u32 padding]
-  // [u32 type=2][u32 padding][u64 data_ptr]
-  // [command data structure]
-  // [string table with "Test Text\0"]
-
   assert!(!artifact.code.is_empty());
 
-  // Find the template data in the generated code
-  // It should start after the code section
-  // We can validate the structure by checking specific byte patterns
-
   println!(
-    "Generated {} bytes for single text command",
+    "Generated {} bytes for single text element",
     artifact.code.len()
   );
 }
@@ -109,7 +124,7 @@ fn test_template_entry_point_export() {
     id: template_id,
     name: None,
     ty_id,
-    commands: vec![UiCommand::EndContainer], // Minimal command
+    commands: vec![UiCommand::EndElement], // Minimal command
     bindings: vec![],
   });
 
@@ -122,7 +137,6 @@ fn test_template_entry_point_export() {
   assert!(!macho.is_empty(), "Should generate Mach-O binary");
 
   // The Mach-O should contain the _zo_ui_entry_point symbol
-  // We can check for the symbol name in the binary
   let entry_point = b"_zo_ui_entry_point";
   let has_entry = macho
     .windows(entry_point.len())
@@ -141,22 +155,20 @@ fn test_template_with_dom_directive() {
   let template_id = ValueId(1);
   let ty_id = TyId(0);
 
-  // Create template with button and text
-  let commands = vec![
-    UiCommand::BeginContainer {
-      id: "main".to_string(),
-      direction: ContainerDirection::Horizontal,
+  // Template: <div><button>Click Me</button><span>Button Label</span></div>
+  let mut commands = vec![div_container("main")];
+
+  commands.extend(button(1, "Click Me"));
+  commands.extend(vec![
+    UiCommand::Element {
+      tag: ElementTag::Span,
+      attrs: vec![Attr::str_prop("data-id", "span_0")],
+      self_closing: false,
     },
-    UiCommand::Button {
-      id: 1,
-      content: "Click Me".to_string(),
-    },
-    UiCommand::Text {
-      content: "Button Label".to_string(),
-      style: TextStyle::Normal,
-    },
-    UiCommand::EndContainer,
-  ];
+    UiCommand::Text("Button Label".into()),
+    UiCommand::EndElement,
+  ]);
+  commands.push(UiCommand::EndElement);
 
   sir.emit(Insn::Template {
     id: template_id,
@@ -168,6 +180,7 @@ fn test_template_with_dom_directive() {
 
   // Add #dom directive
   let dom_name = interner.intern("dom");
+
   sir.emit(Insn::Directive {
     name: dom_name,
     value: template_id,
