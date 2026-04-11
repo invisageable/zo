@@ -168,66 +168,12 @@ impl Runtime {
 
             // Granular DOM update: walk the command diff and
             // emit a targeted JS patch for each changed
-            // command. All elements now carry uniform
-            // `data-zo-cmd="{idx}"` ids, so the same
-            // `[data-zo-cmd="N"]` selector works for text,
-            // attributes, and future element types.
+            // command. All elements carry a uniform
+            // `data-zo-cmd="{idx}"` id, so the same selector
+            // works for text, attributes, and future element
+            // types.
             if let Some(wv) = &self.webview {
-              let mut js = String::new();
-
-              for (idx, (old, new)) in
-                self.commands.iter().zip(updated.iter()).enumerate()
-              {
-                if old == new {
-                  continue;
-                }
-
-                match (old, new) {
-                  // PCDATA node changed — replace element's
-                  // text content via the uniform
-                  // `[data-zo-cmd]` selector.
-                  (_, UiCommand::Text(content)) => {
-                    js.push_str(&format!(
-                      "var e=document.querySelector(\
-                       '[data-zo-cmd=\"{idx}\"]');\
-                       if(e)e.textContent={};",
-                      escape_js_string(content),
-                    ));
-                  }
-                  // Element attrs changed — diff pairwise and
-                  // emit `setAttribute` for each updated attr.
-                  // Works uniformly for reactive `Attr::Dynamic`
-                  // updates (the initial value is re-stringified
-                  // by the driver's patch loop) and any other
-                  // attribute source.
-                  (
-                    UiCommand::Element {
-                      attrs: old_attrs, ..
-                    },
-                    UiCommand::Element {
-                      attrs: new_attrs, ..
-                    },
-                  ) => {
-                    for (a, b) in old_attrs.iter().zip(new_attrs.iter()) {
-                      if a == b {
-                        continue;
-                      }
-
-                      let name = b.name();
-                      let value = attr_display_value(b);
-
-                      js.push_str(&format!(
-                        "var e=document.querySelector(\
-                         '[data-zo-cmd=\"{idx}\"]');\
-                         if(e)e.setAttribute({},{});",
-                        escape_js_string(name),
-                        escape_js_string(&value),
-                      ));
-                    }
-                  }
-                  _ => {}
-                }
-              }
+              let js = build_patch_js(&self.commands, &updated);
 
               if !js.is_empty() {
                 wv.evaluate_script(&js).ok();
@@ -348,6 +294,70 @@ fn mime_from_path(path: &str) -> &'static str {
     Some("svg") => "image/svg+xml",
     _ => "application/octet-stream",
   }
+}
+
+/// Build the JS patch string that brings the webview's DOM in
+/// sync with `new` given the previously-rendered `old`
+/// commands. Emits one `querySelector` + `textContent`
+/// assignment per changed `UiCommand::Text`, and one
+/// `querySelector` + `setAttribute` call per changed attribute
+/// on a `UiCommand::Element`. Returns an empty string when
+/// nothing changed. Extracted as a pure function so the logic
+/// is unit-testable without a live webview.
+fn build_patch_js(old: &[UiCommand], new: &[UiCommand]) -> String {
+  let mut js = String::new();
+
+  for (idx, (a, b)) in old.iter().zip(new.iter()).enumerate() {
+    if a == b {
+      continue;
+    }
+
+    match (a, b) {
+      // PCDATA node changed — replace element's text content
+      // via the uniform `[data-zo-cmd]` selector.
+      (_, UiCommand::Text(content)) => {
+        js.push_str(&format!(
+          "var e=document.querySelector(\
+           '[data-zo-cmd=\"{idx}\"]');\
+           if(e)e.textContent={};",
+          escape_js_string(content),
+        ));
+      }
+      // Element attrs changed — diff pairwise and emit
+      // `setAttribute` for each updated attr. Works uniformly
+      // for reactive `Attr::Dynamic` updates (the initial
+      // value is re-stringified by the driver's patch loop)
+      // and any other attribute source.
+      (
+        UiCommand::Element {
+          attrs: old_attrs, ..
+        },
+        UiCommand::Element {
+          attrs: new_attrs, ..
+        },
+      ) => {
+        for (oa, na) in old_attrs.iter().zip(new_attrs.iter()) {
+          if oa == na {
+            continue;
+          }
+
+          let name = na.name();
+          let value = attr_display_value(na);
+
+          js.push_str(&format!(
+            "var e=document.querySelector(\
+             '[data-zo-cmd=\"{idx}\"]');\
+             if(e)e.setAttribute({},{});",
+            escape_js_string(name),
+            escape_js_string(&value),
+          ));
+        }
+      }
+      _ => {}
+    }
+  }
+
+  js
 }
 
 /// Extract the display-string value of an `Attr`, collapsing
@@ -481,5 +491,145 @@ mod tests {
     assert_eq!(response.body().as_ref(), payload);
 
     let _ = std::fs::remove_file(&tmp);
+  }
+
+  // ─── build_patch_js tests ──────────────────────────────
+
+  use zo_ui_protocol::{Attr, ElementTag, PropValue};
+
+  fn text(s: &str) -> UiCommand {
+    UiCommand::Text(s.into())
+  }
+
+  fn img(attrs: Vec<Attr>) -> UiCommand {
+    UiCommand::Element {
+      tag: ElementTag::Img,
+      attrs,
+      self_closing: true,
+    }
+  }
+
+  #[test]
+  fn build_patch_js_empty_when_nothing_changed() {
+    let old = vec![text("hello"), text("world")];
+    let new = old.clone();
+
+    assert_eq!(build_patch_js(&old, &new), "");
+  }
+
+  #[test]
+  fn build_patch_js_text_change_emits_textcontent_patch() {
+    let old = vec![text("hello"), text("world")];
+    let new = vec![text("hello"), text("zo")];
+
+    let js = build_patch_js(&old, &new);
+
+    // Only the second command changed — expect one patch on
+    // idx=1 with the new content.
+    assert!(
+      js.contains("data-zo-cmd=\\\"1\\\"") || js.contains("data-zo-cmd=\"1\""),
+      "should target index 1, got: {js}"
+    );
+    assert!(js.contains("textContent"), "should set textContent: {js}");
+    assert!(js.contains("zo"), "should contain new value: {js}");
+    assert!(
+      !js.contains("hello"),
+      "should NOT contain unchanged value: {js}"
+    );
+  }
+
+  #[test]
+  fn build_patch_js_element_attr_change_emits_setattribute() {
+    let old = vec![img(vec![
+      Attr::str_prop("data-id", "img_0"),
+      Attr::str_prop("src", "/a.png"),
+    ])];
+    let new = vec![img(vec![
+      Attr::str_prop("data-id", "img_0"),
+      Attr::str_prop("src", "/b.png"),
+    ])];
+
+    let js = build_patch_js(&old, &new);
+
+    assert!(js.contains("setAttribute"), "should setAttribute: {js}");
+    assert!(js.contains("src"), "should target src attr: {js}");
+    assert!(js.contains("/b.png"), "should use new value: {js}");
+    assert!(!js.contains("/a.png"), "should NOT include old value: {js}");
+  }
+
+  #[test]
+  fn build_patch_js_dynamic_attr_change_emits_setattribute() {
+    let old = vec![img(vec![
+      Attr::str_prop("data-id", "img_0"),
+      Attr::Dynamic {
+        name: "width".into(),
+        var: 42,
+        initial: PropValue::Num(128),
+      },
+    ])];
+    let new = vec![img(vec![
+      Attr::str_prop("data-id", "img_0"),
+      Attr::Dynamic {
+        name: "width".into(),
+        var: 42,
+        initial: PropValue::Num(256),
+      },
+    ])];
+
+    let js = build_patch_js(&old, &new);
+
+    assert!(js.contains("setAttribute"), "should setAttribute: {js}");
+    assert!(js.contains("width"), "should target width attr: {js}");
+    assert!(js.contains("256"), "should use new value: {js}");
+  }
+
+  #[test]
+  fn build_patch_js_unchanged_attr_within_element_is_skipped() {
+    // Only `src` changed; `data-id` stayed the same — expect
+    // exactly one setAttribute call.
+    let old = vec![img(vec![
+      Attr::str_prop("data-id", "img_0"),
+      Attr::str_prop("src", "/a.png"),
+    ])];
+    let new = vec![img(vec![
+      Attr::str_prop("data-id", "img_0"),
+      Attr::str_prop("src", "/b.png"),
+    ])];
+
+    let js = build_patch_js(&old, &new);
+
+    assert_eq!(
+      js.matches("setAttribute").count(),
+      1,
+      "exactly one setAttribute call expected, got: {js}"
+    );
+  }
+
+  #[test]
+  fn build_patch_js_multiple_commands_one_patch_per_change() {
+    let old = vec![
+      img(vec![Attr::str_prop("src", "/a.png")]),
+      text("hello"),
+      img(vec![Attr::str_prop("src", "/c.png")]),
+    ];
+    let new = vec![
+      img(vec![Attr::str_prop("src", "/b.png")]),
+      text("hello"),
+      img(vec![Attr::str_prop("src", "/d.png")]),
+    ];
+
+    let js = build_patch_js(&old, &new);
+
+    // Two attr changes (idx 0 and idx 2), no text change.
+    assert_eq!(
+      js.matches("setAttribute").count(),
+      2,
+      "two setAttribute calls expected, got: {js}"
+    );
+    assert_eq!(
+      js.matches("textContent").count(),
+      0,
+      "no textContent calls expected, got: {js}"
+    );
   }
 }
