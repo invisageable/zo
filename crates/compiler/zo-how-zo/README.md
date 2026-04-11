@@ -1,4 +1,4 @@
-# zo-how-to.
+# zo — how-to.
 
 > *The `zo` tutorial for hackers.*
 
@@ -9,12 +9,12 @@ EVERY FILES ACT LiKE AS A TUTORiAL. THEY ARE THERE TO HELP YOU TO UNDERSTAND THE
 READ THESE FiLES iN ORDER — EACH PROGRAM CAN BE `build` WiTH THE FOLLOWiNG COMMAND:
 
   ```sh
-  zo build <FILENAME>
+  zo run <FILENAME>
   ```
 
 > *We assume that you already installed zo on your machine. if not it's achievable by following the [install](../zo-notes/public/guidelines/02-install.md) guidelines.*
 > 
-> *The first command must be: `zo build 000-prologue`.*
+> *The first command must be: `zo run 000-prologue`.*
 
 ## categories.
 

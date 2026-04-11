@@ -301,3 +301,90 @@ fn escape_js_string(s: &str) -> String {
   out.push('"');
   out
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn request(path: &str) -> wry::http::Request<Vec<u8>> {
+    wry::http::Request::builder()
+      .uri(format!("zo://localhost{path}"))
+      .body(Vec::new())
+      .unwrap()
+  }
+
+  #[test]
+  fn mime_from_path_known_extensions() {
+    assert_eq!(mime_from_path("/a.html"), "text/html");
+    assert_eq!(mime_from_path("/a.htm"), "text/html");
+    assert_eq!(mime_from_path("/a.js"), "text/javascript");
+    assert_eq!(mime_from_path("/a.css"), "text/css");
+    assert_eq!(mime_from_path("/a.jpg"), "image/jpeg");
+    assert_eq!(mime_from_path("/a.jpeg"), "image/jpeg");
+    assert_eq!(mime_from_path("/a.png"), "image/png");
+    assert_eq!(mime_from_path("/a.gif"), "image/gif");
+    assert_eq!(mime_from_path("/a.webp"), "image/webp");
+    assert_eq!(mime_from_path("/a.svg"), "image/svg+xml");
+  }
+
+  #[test]
+  fn mime_from_path_case_insensitive() {
+    assert_eq!(mime_from_path("/a.PNG"), "image/png");
+    assert_eq!(mime_from_path("/a.JPG"), "image/jpeg");
+  }
+
+  #[test]
+  fn mime_from_path_unknown_is_octet_stream() {
+    assert_eq!(mime_from_path("/a.xyz"), "application/octet-stream");
+    assert_eq!(mime_from_path("/noext"), "application/octet-stream");
+  }
+
+  #[test]
+  fn serve_asset_root_returns_html_document() {
+    let html = "<!DOCTYPE html><html><body>hi</body></html>";
+    let response = serve_asset(html, request("/"));
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+      response
+        .headers()
+        .get(wry::http::header::CONTENT_TYPE)
+        .unwrap(),
+      "text/html",
+    );
+    assert_eq!(response.body().as_ref(), html.as_bytes());
+  }
+
+  #[test]
+  fn serve_asset_missing_file_returns_404() {
+    let response =
+      serve_asset("doc", request("/definitely/does/not/exist.png"));
+
+    assert_eq!(response.status(), 404);
+  }
+
+  #[test]
+  fn serve_asset_existing_file_returns_bytes_and_mime() {
+    // Write a real file so `std::fs::read` succeeds and we
+    // can verify the content-type dispatch.
+    let tmp = std::env::temp_dir().join("zo_serve_asset_test.png");
+    let payload: &[u8] = b"\x89PNG\r\n\x1a\nfake";
+
+    std::fs::write(&tmp, payload).unwrap();
+
+    let path = format!("{}", tmp.to_string_lossy());
+    let response = serve_asset("doc", request(&path));
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+      response
+        .headers()
+        .get(wry::http::header::CONTENT_TYPE)
+        .unwrap(),
+      "image/png",
+    );
+    assert_eq!(response.body().as_ref(), payload);
+
+    let _ = std::fs::remove_file(&tmp);
+  }
+}

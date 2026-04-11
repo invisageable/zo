@@ -105,7 +105,7 @@ THANKS TO:
 
 [@ledruidd](https://github.com/ledruidd) [@SiegfriedEhret](https://github.com/SiegfriedEhret) [@akimd](https://github.com/akimd) [@graydon](https://github.com/graydon) [@rvirding](https://github.com/rvirding) [@worrydream](https://x.com/worrydream) [@j_blow](https://www.twitch.tv/j_blow) [@tsoding](https://x.com/tsoding) [@geohot](https://github.com/geohot) [@mike_acton](https://x.com/mike_acton)
 
-> « DE PRèS COMME DE LOIN VOUS M'AVEZ INSPIRé à MENER CE PROJET. TRiLU ! » — *i10e*.    
+> « DE PRÈS COMME DE LOiN VOUS M'AVEZ iNSPiRÉ À MENER CE PROJET. TRiLU ! » — *i10e*.    
 
 ## license.
 

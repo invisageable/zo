@@ -10,7 +10,7 @@ use zo_runtime_render::render::{EventRegistry, Graphics, RuntimeConfig};
 use zo_runtime_render::render::{StateCell, StateValue};
 use zo_sir::Insn;
 use zo_span::Span;
-use zo_ui_protocol::UiCommand;
+use zo_ui_protocol::{Ui, UiCommand};
 use zo_value::FunctionKind;
 
 /// Parameters for building reactive event handlers.
@@ -74,13 +74,18 @@ impl Run {
       }
     }
 
-    // Resolve relative image paths to absolute paths
-    // using the source file's parent directory as the base.
-    // Both native and web runtimes need absolute paths —
-    // native for filesystem reads, web for file:// URLs.
+    // Resolve relative image paths to absolute paths using
+    // the source file's parent directory as the base. Both
+    // native and web runtimes need absolute paths — native
+    // for filesystem reads, web for the `zo://localhost`
+    // custom protocol. Remote URLs pass through untouched.
+    let mut ui = Ui::new(ui_commands);
+
     if let Some(base_dir) = input_path.parent() {
-      Self::resolve_image_paths(&mut ui_commands, base_dir);
+      ui.resolve_image_paths(base_dir);
     }
+
+    let ui_commands = ui.into_commands();
 
     // Template path: launch runtime.
     if has_dom_directive && !ui_commands.is_empty() {
@@ -189,40 +194,6 @@ impl Run {
     }
 
     Ok(())
-  }
-
-  /// Resolve relative image paths to absolute paths using
-  /// `base_dir` as the root. Absolute paths and remote URLs
-  /// are left alone. Canonicalize when possible so the result
-  /// is a truly absolute filesystem path (not relative to CWD).
-  fn resolve_image_paths(
-    commands: &mut [UiCommand],
-    base_dir: &std::path::Path,
-  ) {
-    for cmd in commands {
-      if let UiCommand::Image { src, .. } = cmd {
-        // Remote URLs pass through untouched — the native
-        // loader fetches them via HTTP, the webview loads
-        // them directly.
-        if src.starts_with("http://") || src.starts_with("https://") {
-          continue;
-        }
-
-        let path = std::path::Path::new(src.as_str());
-        let joined = if path.is_absolute() {
-          path.to_path_buf()
-        } else {
-          base_dir.join(path)
-        };
-
-        // Canonicalize if the file exists; fall back to the
-        // joined path otherwise so missing files still surface
-        // a meaningful error at load time.
-        let resolved = std::fs::canonicalize(&joined).unwrap_or(joined);
-
-        *src = resolved.to_string_lossy().into_owned();
-      }
-    }
   }
 
   /// Register static event handlers (non-reactive path).
