@@ -1,5 +1,6 @@
 ---
 source: crates/compiler/zo-tokenizer/tests/snapshots.rs
+assertion_line: 11
 expression: tokenization
 ---
 tokens:

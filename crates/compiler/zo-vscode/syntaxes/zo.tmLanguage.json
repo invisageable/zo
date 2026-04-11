@@ -4,6 +4,9 @@
   "scopeName": "source.zo",
   "patterns": [
     {
+      "include": "#html_comment"
+    },
+    {
       "include": "#line_comment"
     },
     {
@@ -377,6 +380,17 @@
       "name": "comment.block.zo",
       "begin": "-\\*",
       "end": "\\*-"
+    },
+    "html_comment": {
+      "comment": "zsx html comment, stripped at compile time",
+      "name": "comment.block.html.zo",
+      "begin": "<!--",
+      "end": "-->",
+      "captures": {
+        "0": {
+          "name": "punctuation.definition.comment.html.zo"
+        }
+      }
     },
     "escaped_character": {
       "name": "constant.character.escape.zo",

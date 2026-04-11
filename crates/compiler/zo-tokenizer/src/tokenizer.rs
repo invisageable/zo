@@ -457,6 +457,34 @@ impl<'a> Tokenizer<'a> {
       b'<' => {
         self.state.set_template_text(false);
 
+        // HTML-style comment: `<!-- ... -->`. Consume through
+        // the closing `-->` and emit nothing — comments are
+        // stripped at compile time, matching React/Svelte/Vue
+        // behavior. Template text mode resumes after the
+        // comment so the next raw text run picks up correctly.
+        if self.current() == b'!'
+          && self.peek(1) == b'-'
+          && self.peek(2) == b'-'
+        {
+          self.cursor += 3; // past `!--`
+
+          while self.cursor + 2 < self.source.len() {
+            if self.source[self.cursor] == b'-'
+              && self.source[self.cursor + 1] == b'-'
+              && self.source[self.cursor + 2] == b'>'
+            {
+              self.cursor += 3;
+              break;
+            }
+
+            self.cursor += 1;
+          }
+
+          self.state.set_template_text(true);
+
+          return;
+        }
+
         if self.current() == b'>' {
           self.advance();
           self

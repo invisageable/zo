@@ -361,10 +361,8 @@ fn peek_text_children(commands: &[UiCommand], start: usize) -> String {
 
   while idx < commands.len() {
     match &commands[idx] {
-      UiCommand::Element { self_closing, .. } => {
-        if !self_closing {
-          depth += 1;
-        }
+      UiCommand::Element { self_closing, .. } if !self_closing => {
+        depth += 1;
       }
       UiCommand::EndElement => {
         if depth == 0 {
@@ -394,10 +392,8 @@ fn skip_to_end_element(commands: &[UiCommand], start: usize) -> usize {
 
   while idx < commands.len() {
     match &commands[idx] {
-      UiCommand::Element { self_closing, .. } => {
-        if !self_closing {
-          depth += 1;
-        }
+      UiCommand::Element { self_closing, .. } if !self_closing => {
+        depth += 1;
       }
       UiCommand::EndElement => {
         if depth == 0 {
