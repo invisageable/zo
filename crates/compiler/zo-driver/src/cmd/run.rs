@@ -18,7 +18,14 @@ struct ReactiveContext<'a> {
   instructions: &'a [Insn],
   interner: &'a zo_interner::Interner,
   handler_names: &'a [String],
-  bindings: &'a [(usize, Symbol)],
+  /// Reactive bindings that target `UiCommand::Text(_)`
+  /// content at the given command index.
+  text_bindings: &'a [(usize, Symbol)],
+  /// Reactive bindings that target a named attribute on a
+  /// `UiCommand::Element` at the given command index. The
+  /// `Attr` entries are always `Attr::Dynamic` — the runtime
+  /// calls `UiCommand::set_attr` to apply each patch.
+  attr_bindings: &'a [(usize, zo_ui_protocol::Attr)],
   commands: &'a [UiCommand],
   shared_cmds: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
 }
@@ -47,7 +54,8 @@ impl Run {
 
     // Extract UI commands and bindings from templates.
     let mut ui_commands = Vec::new();
-    let mut template_bindings: Vec<(usize, Symbol)> = Vec::new();
+    let mut text_bindings: Vec<(usize, Symbol)> = Vec::new();
+    let mut attr_bindings: Vec<(usize, zo_ui_protocol::Attr)> = Vec::new();
     let mut has_dom_directive = false;
 
     for insn in &semantic.sir.instructions {
@@ -59,8 +67,12 @@ impl Run {
 
           ui_commands.extend_from_slice(commands);
 
-          for (cmd_idx, sym) in bindings {
-            template_bindings.push((base + cmd_idx, *sym));
+          for (cmd_idx, sym) in &bindings.text {
+            text_bindings.push((base + cmd_idx, *sym));
+          }
+
+          for (cmd_idx, attr) in &bindings.attrs {
+            attr_bindings.push((base + cmd_idx, attr.clone()));
           }
         }
         Insn::Directive { name, .. } => {
@@ -114,7 +126,8 @@ impl Run {
       }
 
       // Detect reactive template.
-      let is_reactive = !template_bindings.is_empty()
+      let has_bindings = !text_bindings.is_empty() || !attr_bindings.is_empty();
+      let is_reactive = has_bindings
         && handler_names.iter().any(|h| h.starts_with("__closure_"));
 
       let config = RuntimeConfig {
@@ -141,7 +154,8 @@ impl Run {
           instructions: &semantic.sir.instructions,
           interner: &tokenization.interner,
           handler_names: &handler_names,
-          bindings: &template_bindings,
+          text_bindings: &text_bindings,
+          attr_bindings: &attr_bindings,
           commands: &ui_commands,
           shared_cmds,
         };
@@ -231,26 +245,44 @@ impl Run {
     let instructions = ctx.instructions;
     let interner = ctx.interner;
     let handler_names = ctx.handler_names;
-    let bindings = ctx.bindings;
+    let text_bindings = ctx.text_bindings;
+    let attr_bindings = ctx.attr_bindings;
     let commands = ctx.commands;
     let shared_cmds = &ctx.shared_cmds;
-    // Create state cells for each bound variable.
     // Shared SIR instructions for all handler closures
     // (avoids cloning per handler).
     let sir_arc: std::sync::Arc<Vec<Insn>> =
       std::sync::Arc::new(instructions.to_vec());
 
+    // Create state cells for each bound variable. Both text
+    // and attribute bindings can reference the same variable,
+    // so we dedupe by symbol.
     let mut state_slots: Vec<(Symbol, String, StateCell)> = Vec::new();
 
-    for (_cmd_idx, sym) in bindings {
-      if state_slots.iter().any(|(s, _, _)| s == sym) {
-        continue;
+    let register_slot =
+      |sym: Symbol, slots: &mut Vec<(Symbol, String, StateCell)>| {
+        if slots.iter().any(|(s, _, _)| *s == sym) {
+          return;
+        }
+
+        let var_name = interner.get(sym).to_string();
+        let initial = Self::find_initial_value(instructions, sym, interner);
+
+        slots.push((sym, var_name, StateCell::new(initial)));
+      };
+
+    for (_cmd_idx, sym) in text_bindings {
+      register_slot(*sym, &mut state_slots);
+    }
+
+    for (_cmd_idx, attr) in attr_bindings {
+      if let zo_ui_protocol::Attr::Dynamic { var, .. } = attr {
+        // `Attr::Dynamic.var` carries the raw interner id
+        // (u32) so ui-protocol doesn't depend on zo-interner.
+        let sym = Symbol(*var);
+
+        register_slot(sym, &mut state_slots);
       }
-
-      let var_name = interner.get(*sym).to_string();
-      let initial = Self::find_initial_value(instructions, *sym, interner);
-
-      state_slots.push((*sym, var_name, StateCell::new(initial)));
     }
 
     // Register closure handlers.
@@ -288,7 +320,9 @@ impl Run {
         .iter()
         .map(|(_, _, cell)| cell.clone())
         .collect();
-      let bindings_copy: Vec<(usize, usize)> = bindings
+
+      // Text bindings — (cmd_idx, slot_idx) pairs.
+      let text_binds: Vec<(usize, usize)> = text_bindings
         .iter()
         .filter_map(|(cmd_idx, sym)| {
           state_slots
@@ -297,6 +331,27 @@ impl Run {
             .map(|slot_idx| (*cmd_idx, slot_idx))
         })
         .collect();
+
+      // Attribute bindings — (cmd_idx, attr_name, slot_idx)
+      // triples. `attr_name` is pre-extracted from the Dynamic
+      // attr so the patch closure doesn't need to re-match the
+      // enum on every invocation.
+      let attr_binds: Vec<(usize, String, usize)> = attr_bindings
+        .iter()
+        .filter_map(|(cmd_idx, attr)| {
+          if let zo_ui_protocol::Attr::Dynamic { name, var, .. } = attr {
+            let sym = Symbol(*var);
+
+            state_slots
+              .iter()
+              .position(|(s, _, _)| *s == sym)
+              .map(|slot_idx| (*cmd_idx, name.clone(), slot_idx))
+          } else {
+            None
+          }
+        })
+        .collect();
+
       let commands_copy = commands.to_vec();
       let shared = shared_cmds.clone();
       let sir = sir_arc.clone();
@@ -313,11 +368,23 @@ impl Run {
           // 2. Build updated commands from current state.
           let mut new_cmds = commands_copy.clone();
 
-          for &(cmd_idx, slot_idx) in &bindings_copy {
+          // Text content patches.
+          for &(cmd_idx, slot_idx) in &text_binds {
             let value = cells[slot_idx].get().display();
 
             if let Some(UiCommand::Text(s)) = new_cmds.get_mut(cmd_idx) {
               *s = value;
+            }
+          }
+
+          // Element attribute patches — dispatches through
+          // `UiCommand::set_attr` which handles the per-variant
+          // field updates uniformly.
+          for (cmd_idx, attr_name, slot_idx) in &attr_binds {
+            let value = cells[*slot_idx].get().display();
+
+            if let Some(cmd) = new_cmds.get_mut(*cmd_idx) {
+              cmd.set_attr(attr_name, &value);
             }
           }
 

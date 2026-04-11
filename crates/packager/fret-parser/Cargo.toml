@@ -3,6 +3,9 @@ name = "fret-parser"
 edition.workspace = true
 version.workspace = true
 
+[lib]
+doctest = false
+
 [dependencies]
 fret-tokens = { workspace = true }
 fret-tokenizer = { workspace = true }

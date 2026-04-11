@@ -41,7 +41,7 @@ fn test_complete_template_binary() {
     name: Some(interner.intern("hello_template")),
     ty_id,
     commands,
-    bindings: vec![],
+    bindings: zo_sir::TemplateBindings::default(),
   });
 
   let dom_name = interner.intern("dom");
@@ -141,7 +141,7 @@ fn test_template_memory_layout() {
     name: None,
     ty_id: TyId(0),
     commands: commands.clone(),
-    bindings: vec![],
+    bindings: zo_sir::TemplateBindings::default(),
   });
 
   let mut codegen = ARM64Gen::new(&interner);
@@ -182,7 +182,7 @@ fn test_multiple_templates() {
       UiCommand::Text("Template 1".into()),
       UiCommand::EndElement,
     ],
-    bindings: vec![],
+    bindings: zo_sir::TemplateBindings::default(),
   });
 
   sir.emit(Insn::Template {
@@ -198,7 +198,7 @@ fn test_multiple_templates() {
       UiCommand::Text("Template 2".into()),
       UiCommand::EndElement,
     ],
-    bindings: vec![],
+    bindings: zo_sir::TemplateBindings::default(),
   });
 
   let mut codegen = ARM64Gen::new(&interner);

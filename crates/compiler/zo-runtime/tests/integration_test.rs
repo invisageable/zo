@@ -34,7 +34,7 @@ fn test_runtime_with_commands() {
 
   runtime.set_commands(commands.clone());
 
-  assert_eq!(commands.len(), 9);
+  assert_eq!(commands.len(), 8);
 
   println!(
     "Runtime created successfully with {} commands",

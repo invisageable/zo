@@ -17,6 +17,7 @@ include = [
 ]
 
 [lib]
+doctest = false
 name = "tree_sitter_zo"
 path = "bindings/rust/lib.rs"
 

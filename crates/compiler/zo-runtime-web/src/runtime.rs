@@ -182,18 +182,50 @@ impl Runtime {
                   continue;
                 }
 
-                // PCDATA node changed — replace element's text
-                // content via the uniform `[data-zo-cmd]`
-                // selector. R3 will extend this to emit
-                // `setAttribute` for changed Dynamic attributes
-                // on `Element` commands; R1 only patches text.
-                if let UiCommand::Text(content) = new {
-                  js.push_str(&format!(
-                    "var e=document.querySelector(\
-                     '[data-zo-cmd=\"{idx}\"]');\
-                     if(e)e.textContent={};",
-                    escape_js_string(content),
-                  ));
+                match (old, new) {
+                  // PCDATA node changed — replace element's
+                  // text content via the uniform
+                  // `[data-zo-cmd]` selector.
+                  (_, UiCommand::Text(content)) => {
+                    js.push_str(&format!(
+                      "var e=document.querySelector(\
+                       '[data-zo-cmd=\"{idx}\"]');\
+                       if(e)e.textContent={};",
+                      escape_js_string(content),
+                    ));
+                  }
+                  // Element attrs changed — diff pairwise and
+                  // emit `setAttribute` for each updated attr.
+                  // Works uniformly for reactive `Attr::Dynamic`
+                  // updates (the initial value is re-stringified
+                  // by the driver's patch loop) and any other
+                  // attribute source.
+                  (
+                    UiCommand::Element {
+                      attrs: old_attrs, ..
+                    },
+                    UiCommand::Element {
+                      attrs: new_attrs, ..
+                    },
+                  ) => {
+                    for (a, b) in old_attrs.iter().zip(new_attrs.iter()) {
+                      if a == b {
+                        continue;
+                      }
+
+                      let name = b.name();
+                      let value = attr_display_value(b);
+
+                      js.push_str(&format!(
+                        "var e=document.querySelector(\
+                         '[data-zo-cmd=\"{idx}\"]');\
+                         if(e)e.setAttribute({},{});",
+                        escape_js_string(name),
+                        escape_js_string(&value),
+                      ));
+                    }
+                  }
+                  _ => {}
                 }
               }
 
@@ -315,6 +347,20 @@ fn mime_from_path(path: &str) -> &'static str {
     Some("webp") => "image/webp",
     Some("svg") => "image/svg+xml",
     _ => "application/octet-stream",
+  }
+}
+
+/// Extract the display-string value of an `Attr`, collapsing
+/// Prop / Dynamic / Style into a single `String`. Event attrs
+/// flow through `UiCommand::Event` and return empty here.
+fn attr_display_value(attr: &zo_ui_protocol::Attr) -> String {
+  use zo_ui_protocol::Attr;
+
+  match attr {
+    Attr::Prop { value, .. } => value.to_display(),
+    Attr::Dynamic { initial, .. } => initial.to_display(),
+    Attr::Style { value, .. } => value.clone(),
+    Attr::Event { .. } => String::new(),
   }
 }
 

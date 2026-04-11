@@ -2,8 +2,26 @@ use zo_interner::Symbol;
 use zo_token::Token;
 use zo_ty::Mutability;
 use zo_ty::TyId;
-use zo_ui_protocol::{StyleScope, UiCommand};
+use zo_ui_protocol::{Attr, StyleScope, UiCommand};
 use zo_value::{FunctionKind, Pubness, ValueId};
+
+/// Reactive bindings carried by `Insn::Template`. Split by
+/// target kind so the runtime can dispatch patches without
+/// introspecting variant shapes at every step.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TemplateBindings {
+  /// Text-content bindings: each entry is `(cmd_idx, var)`
+  /// where `cmd_idx` points at a `UiCommand::Text(_)` whose
+  /// string is regenerated from the state cell for `var` on
+  /// each reactive update.
+  pub text: Vec<(usize, Symbol)>,
+  /// Element-attribute bindings: each entry is `(cmd_idx,
+  /// Attr::Dynamic { name, var, initial })` pointing at a
+  /// `UiCommand::Element` whose attribute `name` is reactive
+  /// on variable `var`. The runtime calls
+  /// `UiCommand::set_attr` to apply the patch.
+  pub attrs: Vec<(usize, Attr)>,
+}
 
 /// Source of a Load instruction — either a function parameter
 /// or a local variable on the stack.
@@ -383,10 +401,13 @@ pub enum Insn {
     name: Option<Symbol>,
     ty_id: TyId,
     commands: Vec<UiCommand>,
-    /// Dynamic bindings: (command_index, variable_name).
-    /// When the variable changes, the command at that index
-    /// must be regenerated with the new value.
-    bindings: Vec<(usize, Symbol)>,
+    /// Reactive bindings. When any bound variable changes,
+    /// the listed command(s) must be re-patched with the new
+    /// value. Text bindings target `UiCommand::Text(_)`
+    /// content; attribute bindings target a named attribute
+    /// on a `UiCommand::Element` — the runtime uses
+    /// `UiCommand::set_attr` to apply the update.
+    bindings: TemplateBindings,
   },
   /// Stylesheet declaration: `$: { ... }` or `pub $: { ... }`.
   StyleSheet {

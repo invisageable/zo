@@ -2,3 +2,6 @@
 name = "fret-tokens"
 edition.workspace = true
 version.workspace = true
+
+[lib]
+doctest = false

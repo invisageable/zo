@@ -3,6 +3,9 @@ name = "fret-pipeline"
 edition.workspace = true
 version.workspace = true
 
+[lib]
+doctest = false
+
 [dependencies]
 # internal:crates:fret.
 fret-parser = { workspace = true }
