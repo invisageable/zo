@@ -358,12 +358,38 @@ impl<'a> ARM64Gen<'a> {
       .find_producing_insn(vid, all_insns)
       .and_then(|insn| match insn {
         Insn::EnumConstruct { ty_id, .. } => Some(*ty_id),
-        Insn::Load { ty_id, .. } | Insn::ArrayIndex { ty_id, .. } => {
-          if self.enum_metas.contains_key(&ty_id.0) {
-            Some(*ty_id)
-          } else {
-            None
-          }
+        Insn::Load {
+          src: LoadSource::Local(sym),
+          ..
+        } => {
+          // Trace through the variable's Store to find if
+          // it was initialized by an EnumConstruct. Use
+          // the EnumConstruct's ty_id (which is always
+          // correct) instead of the Load's ty_id (which
+          // can be a generic type variable that collides
+          // numerically with an enum ty_id).
+          let fn_start = self.current_fn_start.unwrap_or(0);
+
+          all_insns[fn_start..].iter().rev().find_map(|i| {
+            if let Insn::Store { name, value, .. } = i
+              && *name == *sym
+            {
+              // Found the Store — check if its value
+              // came from an EnumConstruct.
+              all_insns[fn_start..].iter().find_map(|j| {
+                if let Insn::EnumConstruct { dst, ty_id, .. } = j
+                  && *dst == *value
+                  && self.enum_metas.contains_key(&ty_id.0)
+                {
+                  Some(*ty_id)
+                } else {
+                  None
+                }
+              })
+            } else {
+              None
+            }
+          })
         }
         _ => None,
       })
@@ -1023,9 +1049,8 @@ impl<'a> ARM64Gen<'a> {
           }
         }
         LoadSource::Param(idx) => {
-          // Load from parameter spill slot (saved in
-          // prologue). This is safe even after registers
-          // have been reused for other values.
+          // Load from parameter spill slot (saved in prologue). This is safe
+          // even after registers have been reused for other values.
           if let Some(&off) = self.param_slots.get(idx) {
             if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
               // Float param: load from FP spill slot.
@@ -1035,8 +1060,7 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_ldr(dst_reg, SP, off as i16);
             }
           } else if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
-            // Fallback: no spill slot — read from
-            // original register.
+            // Fallback: no spill slot — read from original register.
             let fp_src = FpRegister::new(*idx as u8);
 
             if fp_dst != fp_src {
@@ -1082,14 +1106,12 @@ impl<'a> ARM64Gen<'a> {
         } else if self.enum_metas.contains_key(&ty_id.0)
           && matches!(op, BinOp::Eq | BinOp::Neq)
         {
-          // Enum equality: both operands are pointers to
-          // `[tag, ...]` thanks to the uniform representation.
-          // Pointer-level cmp would return false for two
-          // distinct allocations holding the same variant, so
-          // load both tags first and then compare. Other
-          // comparison operators (`<`, `<=`, …) are undefined
-          // on enum types and fall through to the integer path
-          // below as a noop.
+          // Enum equality: both operands are pointers to `[tag, ...]` thanks
+          // to the uniform representation. Pointer-level cmp would return
+          // false for two distinct allocations holding the same variant, so
+          // load both tags first and then compare. Other comparison operators
+          // (`<`, `<=`, …) are undefined on enum types and fall through to the
+          // integer path below as a noop.
           let d = self.alloc_reg(*dst).unwrap_or(X0);
           let l = self.alloc_reg(*lhs).unwrap_or(X0);
           let r = self.alloc_reg(*rhs).unwrap_or(X1);
@@ -1190,10 +1212,9 @@ impl<'a> ARM64Gen<'a> {
           }
           "flush" => {}
 
-          // Math intrinsics — ARM64 hardware instructions.
-          // The arg is a float in a FP register. Move it
-          // to D0, execute the instruction, leave result
-          // in D0 for showln/binding to consume.
+          // Math intrinsics — ARM64 hardware instructions. The arg is a float
+          // in a FP register. Move it to D0, execute the instruction, leave
+          // result in D0 for showln/binding to consume.
           "sqrt" | "floor" | "ceil" | "trunc" | "round" => {
             let fn_name = self.interner.get(*name);
 

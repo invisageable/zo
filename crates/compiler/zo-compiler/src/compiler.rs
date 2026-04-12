@@ -188,12 +188,13 @@ impl Compiler {
     let module_paths = Self::scan_loads(&parsing.tree);
     let mut imported_funs = Vec::new();
     let mut imported_vars = Vec::new();
+    let mut imported_enums: Vec<zo_module_resolver::ExportedEnum> = Vec::new();
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
 
     // --- Prelude: auto-import std/io so showln etc.
     // are available without explicit `load io::showln;`.
-    let prelude = ["io", "assert", "math"];
+    let prelude = ["preload", "io", "assert", "math"];
 
     for module_name in prelude {
       let sym = tokenization.interner.intern(module_name);
@@ -239,6 +240,8 @@ impl Compiler {
             local_kind: LocalKind::Variable,
           });
         }
+
+        imported_enums.extend(exports.enums);
 
         module_sir_instructions.extend(exports.sir_instructions);
 
@@ -344,10 +347,15 @@ impl Compiler {
       &tokenization.literals,
     );
 
-    let analyzer = if !imported_funs.is_empty() || !imported_vars.is_empty() {
+    let has_imports = !imported_funs.is_empty()
+      || !imported_vars.is_empty()
+      || !imported_enums.is_empty();
+
+    let analyzer = if has_imports {
       analyzer.with_imports(ImportedSymbols {
         funs: imported_funs,
         vars: imported_vars,
+        enums: imported_enums,
       })
     } else {
       analyzer

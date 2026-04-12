@@ -1,5 +1,6 @@
 use zo_executor::Executor;
 use zo_interner::Interner;
+use zo_module_resolver::ExportedEnum;
 use zo_sir::Sir;
 use zo_token::LiteralStore;
 use zo_tree::Tree;
@@ -23,6 +24,9 @@ pub struct ImportedSymbols {
   pub funs: Vec<FunDef>,
   /// Constants from loaded modules.
   pub vars: Vec<Local>,
+  /// Enum definitions from loaded modules (raw variant data
+  /// for re-interning in the executor's own TyChecker).
+  pub enums: Vec<ExportedEnum>,
 }
 
 /// Represents the [`Analyzer`] phase.
@@ -63,7 +67,8 @@ impl<'a> Analyzer<'a> {
     let mut executor = Executor::new(self.tree, self.interner, self.literals);
 
     if let Some(imports) = self.imports {
-      executor = executor.with_imports(imports.funs, imports.vars);
+      executor =
+        executor.with_imports(imports.funs, imports.vars, imports.enums);
     }
 
     let (sir, annotations, ty_checker) = executor.execute();

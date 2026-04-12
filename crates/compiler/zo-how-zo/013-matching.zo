@@ -1,14 +1,19 @@
--! # how to match: 030-match.zo
+-! # how to match: 013-matching.zo
 -!
--! @cmd: `zo run 030-match.zo`
+-! @cmd: `zo run 013-matching.zo`
 -!
 -! `match` dispatches on a value by comparing it to a series
--! of patterns. v1 supports literal patterns (int, str, bool),
--! the wildcard `_`, and enum variant patterns. Arms can have
--! side-effecting bodies (no value), or eventually produce a
--! value (match as expression, follow-up).
+-! of patterns. Supports literal patterns (int), the wildcard
+-! `_`, and enum variant patterns with payload binding.
+
+enum Loot {
+  Gold(int),
+  Potion(int),
+  Nothing,
+}
 
 fun main() {
+  -- literal int patterns + wildcard.
   imu a: int = 0;
   imu b: int = 3;
   imu c: int = 99;
@@ -30,9 +35,19 @@ fun main() {
     3 => showln("wednesday"),
     _ => showln("weekend"),
   }
+
+  -- enum variant patterns with payload binding.
+  imu reward: Loot = Loot::Gold(50);
+
+  match reward {
+    Loot::Gold(n) => showln(n),
+    Loot::Potion(n) => showln(n),
+    Loot::Nothing => showln(0),
+  }
 }
 
 -- EXPECTED OUTPUT:
 -- sunday
 -- wednesday
 -- weekend
+-- 50

@@ -12,11 +12,26 @@ pub ext eshow<$T>(msg: $T);
 -! Writes a value to stderr with a trailing newline.
 pub ext eshowln<$T>(msg: $T);
 
--! Reads a single line from stdin.
-pub ext readln() -> str;
+-! Reads a single line from stdin. Returns `Err` on failure.
+pub ext readln() -> Result<str, int>;
 
--! Reads all remaining input from stdin.
-pub ext read_all() -> str;
+-! Reads all remaining input from stdin. Returns `Err` on failure.
+pub ext read_all() -> Result<str, int>;
 
 -! Flushes stdout and stderr output buffers.
 pub ext flush();
+
+-! Reads the entire file at `path` as UTF-8 text.
+-! Returns `Err(errno)` on failure.
+pub ext read_file(path: str) -> Result<str, int>;
+
+-! Creates-or-truncates `path` and writes `content`.
+-! Returns `Err(errno)` on failure.
+pub ext write_file(path: str, content: str) -> Result<int, int>;
+
+-! Creates-if-missing and appends `content` to `path`.
+-! Returns `Err(errno)` on failure.
+pub ext append_file(path: str, content: str) -> Result<int, int>;
+
+-! True iff `path` names an existing, accessible file.
+pub ext exists(path: str) -> bool;

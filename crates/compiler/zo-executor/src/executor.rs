@@ -98,6 +98,10 @@ pub struct Executor<'a> {
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
   enum_defs: Vec<(Symbol, zo_ty::EnumTyId, TyId)>,
+  /// Imported enum defs awaiting lazy interning. Populated
+  /// by `with_imports`, consumed by `execute_enum_access`
+  /// on first reference.
+  pending_imported_enums: Vec<zo_module_resolver::ExportedEnum>,
   /// Pending enum construction: (enum_name, variant_disc,
   /// variant_field_count, ty_id).
   pending_enum_construct: Option<(Symbol, u32, u32, TyId)>,
@@ -181,6 +185,7 @@ impl<'a> Executor<'a> {
       deferred_binops: Vec::new(),
       closure_counter: 0,
       enum_defs: Vec::new(),
+      pending_imported_enums: Vec::new(),
       pending_enum_construct: None,
       apply_context: None,
       global_constants: Vec::new(),
@@ -274,10 +279,20 @@ impl<'a> Executor<'a> {
   /// Pre-populates the executor with imported function
   /// definitions and constants so they're available during
   /// execution.
-  pub fn with_imports(mut self, funs: Vec<FunDef>, vars: Vec<Local>) -> Self {
+  pub fn with_imports(
+    mut self,
+    funs: Vec<FunDef>,
+    vars: Vec<Local>,
+    enums: Vec<zo_module_resolver::ExportedEnum>,
+  ) -> Self {
     self.funs = funs;
-
     self.locals.extend(vars);
+
+    // Defer enum interning to first use to avoid TyId counter
+    // shifts that would pollute HM unification. Raw export
+    // data is stored here and resolved lazily in
+    // `execute_enum_access` / the Ident handler.
+    self.pending_imported_enums = enums;
 
     self
   }
@@ -1513,7 +1528,12 @@ impl<'a> Executor<'a> {
             // Functions come from prelude imports or
             // explicit `load` — no hardcoded builtins.
             let is_fun = self.funs.iter().any(|f| f.name == sym);
-            let is_enum = self.enum_defs.iter().any(|e| e.0 == sym);
+            let sym_str = self.interner.get(sym);
+            let is_enum = self.enum_defs.iter().any(|e| e.0 == sym)
+              || self
+                .pending_imported_enums
+                .iter()
+                .any(|e| self.interner.get(e.name) == sym_str);
             let is_struct =
               self.ty_checker.ty_table.struct_intern_lookup(sym).is_some();
 
@@ -4073,12 +4093,23 @@ impl<'a> Executor<'a> {
     {
       let sir_init = self.sir_values.pop();
 
-      // Unify annotated type with init type.
+      // Unify annotated type with init type. For enum values,
+      // the annotation `Option<int>` can't be fully parsed yet
+      // (generic type annotations are a follow-up), so skip
+      // unification when the init type is an enum and the
+      // annotation refers to a non-enum type. The init type is
+      // the ground truth in that case.
       let ty_id = if let Some(ann_ty) = decl.annotated_ty {
-        self
-          .ty_checker
-          .unify(ann_ty, init_ty, decl.span)
-          .unwrap_or(init_ty)
+        let init_is_enum = self.enum_defs.iter().any(|e| e.2 == init_ty);
+
+        if init_is_enum {
+          init_ty
+        } else {
+          self
+            .ty_checker
+            .unify(ann_ty, init_ty, decl.span)
+            .unwrap_or(init_ty)
+        }
       } else {
         init_ty
       };
@@ -5227,8 +5258,51 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
-    // Try enum variant first.
-    let entry = self.enum_defs.iter().find(|e| e.0 == enum_name).copied();
+    // Try enum variant first. If not found in enum_defs,
+    // check pending imports and lazy-intern on first use.
+    let mut entry = self.enum_defs.iter().find(|e| e.0 == enum_name).copied();
+
+    if entry.is_none() {
+      let enum_name_str = self.interner.get(enum_name).to_owned();
+
+      if let Some(pos) = self
+        .pending_imported_enums
+        .iter()
+        .position(|e| self.interner.get(e.name) == enum_name_str)
+      {
+        let en = self.pending_imported_enums.remove(pos);
+
+        // Use fresh inference variables for generic field
+        // types so monomorphization can substitute concrete
+        // types (e.g. `$T` → `int`). Bump the level to
+        // isolate these from function-body generalization —
+        // without this, they pollute the HM state and break
+        // ternary/if-else type unification.
+        self.ty_checker.push_scope();
+
+        let fresh_variants: Vec<(Symbol, u32, Vec<TyId>)> = en
+          .variants
+          .iter()
+          .map(|(name, disc, fields)| {
+            let pf: Vec<TyId> =
+              fields.iter().map(|_| self.ty_checker.fresh_var()).collect();
+
+            (*name, *disc, pf)
+          })
+          .collect();
+
+        self.ty_checker.pop_scope();
+
+        let ety_id = self
+          .ty_checker
+          .ty_table
+          .intern_enum(en.name, &fresh_variants);
+        let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
+
+        self.enum_defs.push((en.name, ety_id, ty_id));
+        entry = Some((en.name, ety_id, ty_id));
+      }
+    }
 
     if entry.is_none() {
       // Not an enum — try method call (apply).
@@ -5764,7 +5838,15 @@ impl<'a> Executor<'a> {
         };
 
         // Look up the enum definition and variant.
-        let entry = self.enum_defs.iter().find(|e| e.0 == enum_sym).copied();
+        let enum_name_str = self.interner.get(enum_sym).to_owned();
+        let entry = self
+          .enum_defs
+          .iter()
+          .find(|e| {
+            let n = self.interner.get(e.0);
+            n == enum_name_str || n.starts_with(&format!("{enum_name_str}__"))
+          })
+          .copied();
         let (_, ety_id, _) = match entry {
           Some(e) => e,
           None => {

@@ -1,0 +1,20 @@
+-! # how to generic enum match: 032-match-generic-enum.zo
+-!
+-! @cmd: `zo run 032-match-generic-enum.zo`
+
+enum Option<$T> {
+  Some($T),
+  None,
+}
+
+fun main() {
+  imu x: Option<int> = Option::Some(42);
+
+  match x {
+    Option::Some(v) => showln(v),
+    Option::None => showln(0),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 42

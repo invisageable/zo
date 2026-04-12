@@ -17,12 +17,22 @@ pub struct ExportedVar {
   pub init: Option<ValueId>,
 }
 
+/// Exported enum definition for cross-module import. Carries
+/// raw variant data instead of TyChecker-internal IDs so the
+/// importing executor can re-intern into its own TyChecker.
+pub struct ExportedEnum {
+  pub name: Symbol,
+  pub variants: Vec<(Symbol, u32, Vec<TyId>)>,
+}
+
 /// Exported symbols from a compiled module.
 pub struct ModuleExports {
   /// The function definitions (re-interned symbols).
   pub funs: Vec<FunDef>,
   /// The constant definitions (re-interned symbols).
   pub vars: Vec<ExportedVar>,
+  /// The enum definitions (re-interned symbols + types).
+  pub enums: Vec<ExportedEnum>,
   /// The SIR instruction stream for codegen merging.
   pub sir_instructions: Vec<Insn>,
   /// The next value id (for ValueId offset).
@@ -60,6 +70,7 @@ pub fn extract_exports(
 ) -> ModuleExports {
   let mut funs = Vec::new();
   let mut vars = Vec::new();
+  let mut enums = Vec::new();
 
   for insn in &sir.instructions {
     match insn {
@@ -137,21 +148,69 @@ pub fn extract_exports(
         });
       }
 
+      Insn::EnumDef {
+        name,
+        variants,
+        pubness,
+        ..
+      } => {
+        if *pubness != Pubness::Yes {
+          continue;
+        }
+
+        let src_name = src_interner.get(*name);
+
+        if let Some(filter) = selective
+          && src_name != filter
+        {
+          continue;
+        }
+
+        let dst_name = dst_interner.intern(src_name);
+
+        // Translate variant names and field types into the
+        // caller's interner/type-checker. The importing
+        // executor will re-intern the full enum from this
+        // raw data so the EnumTyId lives in its own table.
+        let dst_variants: Vec<(Symbol, u32, Vec<TyId>)> = variants
+          .iter()
+          .map(|(vname, disc, fields)| {
+            let dst_vname =
+              translate_symbol(*vname, src_interner, dst_interner);
+            let dst_fields: Vec<TyId> = fields
+              .iter()
+              .map(|f| translate_ty_id(*f, src_ty_checker, dst_ty_checker))
+              .collect();
+
+            (dst_vname, *disc, dst_fields)
+          })
+          .collect();
+
+        enums.push(ExportedEnum {
+          name: dst_name,
+          variants: dst_variants,
+        });
+      }
       _ => {}
     }
   }
 
-  // Filter out PackDecl — only code-generating
-  // instructions should be merged into the user's SIR.
+  // Filter out PackDecl and EnumDef — PackDecl is a namespace
+  // directive with no codegen. EnumDef is handled by the
+  // executor via `with_imports` and its ty_ids reference the
+  // module's throwaway type checker; leaving them in the merged
+  // SIR causes ty_id collisions in the codegen's enum_metas
+  // HashMap.
   let sir_instructions = sir
     .instructions
     .into_iter()
-    .filter(|i| !matches!(i, Insn::PackDecl { .. }))
+    .filter(|i| !matches!(i, Insn::PackDecl { .. } | Insn::EnumDef { .. }))
     .collect();
 
   ModuleExports {
     funs,
     vars,
+    enums,
     sir_instructions,
     next_value_id: sir.next_value_id,
   }

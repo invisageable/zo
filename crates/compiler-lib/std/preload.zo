@@ -1,0 +1,13 @@
+pack preload;
+
+-! A value that may or may not be present.
+pub enum Option<$T> {
+  Some($T),
+  None,
+}
+
+-! A value or an error.
+pub enum Result<$T, $E> {
+  Ok($T),
+  Err($E),
+}
