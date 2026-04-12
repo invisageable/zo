@@ -12,12 +12,11 @@ enum Monster {
   Dragon,
 }
 
--- TODO: tuple variants are a work in progress.
--- enum Loot {
---   Gold(int),
---   Potion(int),
---   Nothing,
--- }
+enum Loot {
+  Gold(int),
+  Potion(int),
+  Nothing,
+}
 
 fun main() {
   -- create enum values with `EnumName::Variant`.
@@ -29,17 +28,26 @@ fun main() {
   -- so Goblin = 0, Skeleton = 1, Dragon = 2.
   showln(enemy);
   showln(boss);
+
+  -- tuple variants carry payload data.
+  showln(Loot::Gold(50));
+  showln(Loot::Potion(25));
+  showln(Loot::Nothing);
 }
 
 -! ## enum layout.
 -!
--! unit variants are just integers under the hood — the
--! discriminant. no heap, no pointers. just a number that
--! tells you which variant it is.
+-! every enum value is a pointer to `[tag, f0, f1, ...]` on
+-! the stack. unit variants allocate a single slot holding
+-! just the discriminant; tuple variants add one slot per
+-! payload field. uniform representation keeps equality,
+-! printing, and (soon) pattern matching straightforward —
+-! every load of an enum-typed local gives you a pointer to
+-! dereference, regardless of the variant's shape.
 -!
--!   `Goblin  = 0`
--!   `Skeleton = 1`
--!   `Dragon  = 2`
+-!   `Goblin`   — tag = 0
+-!   `Skeleton` — tag = 1
+-!   `Dragon`   — tag = 2
 -!
 -! ## try this.
 -!
@@ -48,5 +56,8 @@ fun main() {
 -!   - Compare two enum values: `if enemy == boss { ... }`
 
 -- EXPECTED OUTPUT:
--- 0
--- 2
+-- Monster::Goblin
+-- Monster::Dragon
+-- Loot::Gold(...)
+-- Loot::Potion(...)
+-- Loot::Nothing

@@ -457,10 +457,8 @@ fn children_are_inline_flow(commands: &[UiCommand], start: usize) -> bool {
 
         depth -= 1;
       }
-      UiCommand::Text(s) if depth == 0 => {
-        if !s.trim().is_empty() {
-          saw_any = true;
-        }
+      UiCommand::Text(s) if depth == 0 && !s.trim().is_empty() => {
+        saw_any = true;
       }
       _ => {}
     }

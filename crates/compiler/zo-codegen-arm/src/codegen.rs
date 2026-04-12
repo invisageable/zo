@@ -10,6 +10,7 @@ use zo_emitter_arm::{
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
 use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
+use zo_ty::TyId;
 use zo_value::ValueId;
 use zo_writer_macho::{DATA_VM_ADDR, DebugFrameEntry, MachO};
 
@@ -40,10 +41,10 @@ const FP_LR_LOAD_OFFSET: i16 = 16;
 // reserve should be computed from the actual number of Store
 // instructions in the function body, not hardcoded.
 const MUTABLE_VAR_RESERVE: u32 = 64;
-// 7 caller-saved temp regs (X9-X15) * 8 bytes each.
+// 7 caller-saved temp regs (X9-X17) * 8 bytes each.
 const CALLER_SAVE_RESERVE: u32 = 56;
 const CALLER_SAVE_COUNT: usize = 7;
-const CALLER_SAVE_START: u8 = 9; // X9..X15
+const CALLER_SAVE_START: u8 = 9; // X9..X17
 const FRAME_ALIGN_MASK: u32 = 15;
 const MAX_REG_ARGS: usize = 8;
 
@@ -169,7 +170,47 @@ pub struct ARM64Gen<'a> {
   /// that appears later in the SIR stream. Patched after
   /// all instructions are translated.
   call_fixups: Vec<(u32, Symbol)>,
+  /// Enum metadata keyed by `TyId.0`, populated on each
+  /// `Insn::EnumDef`. Drives the pretty-printer in
+  /// `emit_enum_write` so `show(Loot::Gold(50))` can produce
+  /// `Loot::Gold(...)` instead of leaking a raw pointer.
+  enum_metas: HashMap<u32, EnumMeta>,
+  /// Counter for synthetic string symbols used by the enum
+  /// pretty-printer. Starts at `ENUM_SYNTHETIC_SYM_BASE` to
+  /// stay out of the interner's dynamic symbol range. Same
+  /// pattern `emit_bool_and_write` already uses.
+  next_enum_sym: u32,
 }
+
+/// Base for synthetic string symbols owned by the enum
+/// pretty-printer. Far above `Symbol::FIRST_DYNAMIC` and the
+/// interner's observed symbol ids, so it cannot collide with
+/// anything the executor emits.
+const ENUM_SYNTHETIC_SYM_BASE: u32 = 0xE000_0000;
+
+/// Per-enum pretty-printer metadata. One entry per `EnumDef`
+/// seen by the codegen.
+struct EnumMeta {
+  variants: Vec<VariantMeta>,
+}
+
+/// Per-variant pretty-printer metadata. `display_sym` owns the
+/// pre-baked `"EnumName::Variant"` string in `string_data`;
+/// when `field_count > 0`, `emit_enum_write` appends a shared
+/// `"(...)"` marker so users can distinguish unit variants from
+/// tuple variants without having to inspect the payload. Real
+/// payload printing lands in a follow-up.
+struct VariantMeta {
+  discriminant: u32,
+  field_count: u32,
+  display_sym: Symbol,
+}
+
+/// Synthetic symbol reserved for the shared `"(...)"` suffix
+/// appended to tuple-variant enum prints. Lives at the top of
+/// the synthetic-symbol range so it never collides with
+/// per-variant display strings.
+const ENUM_TUPLE_ELLIPSIS_SYM: Symbol = Symbol(0xE000_FFFF);
 
 impl<'a> ARM64Gen<'a> {
   /// Creates a new [`ARM64Gen`] instance.
@@ -199,6 +240,8 @@ impl<'a> ARM64Gen<'a> {
       libm_stub_offsets: HashMap::default(),
       libm_fixups: Vec::new(),
       call_fixups: Vec::new(),
+      enum_metas: HashMap::default(),
+      next_enum_sym: ENUM_SYNTHETIC_SYM_BASE,
     }
   }
 
@@ -297,6 +340,32 @@ impl<'a> ARM64Gen<'a> {
         | Insn::Load { ty_id, .. }
         | Insn::ArrayIndex { ty_id, .. } => ty_id.0 == BOOL_TYPE_ID,
         _ => false,
+      })
+  }
+
+  /// Return the enum `TyId` when the given `ValueId` was
+  /// produced by an enum constructor, or loaded / indexed out
+  /// of an enum-typed slot. Thanks to the uniform pointer
+  /// representation every enum value in a register is a
+  /// pointer to `[tag, f0, ...]`, so `Load` / `ArrayIndex` of
+  /// an enum-typed value is safe to dispatch through
+  /// `emit_enum_write`. The codegen-owned `enum_metas` table
+  /// is the "is this ty_id an enum?" oracle — only enums the
+  /// codegen has actually seen via `Insn::EnumDef` are
+  /// eligible; any stale `ty_id` falls through to `None`.
+  fn is_enum_value(&self, vid: ValueId, all_insns: &[Insn]) -> Option<TyId> {
+    self
+      .find_producing_insn(vid, all_insns)
+      .and_then(|insn| match insn {
+        Insn::EnumConstruct { ty_id, .. } => Some(*ty_id),
+        Insn::Load { ty_id, .. } | Insn::ArrayIndex { ty_id, .. } => {
+          if self.enum_metas.contains_key(&ty_id.0) {
+            Some(*ty_id)
+          } else {
+            None
+          }
+        }
+        _ => None,
       })
   }
 
@@ -1010,6 +1079,32 @@ impl<'a> ARM64Gen<'a> {
             | BinOp::Neq => self.emitter.emit_fcmp(fl, fr),
             _ => {}
           }
+        } else if self.enum_metas.contains_key(&ty_id.0)
+          && matches!(op, BinOp::Eq | BinOp::Neq)
+        {
+          // Enum equality: both operands are pointers to
+          // `[tag, ...]` thanks to the uniform representation.
+          // Pointer-level cmp would return false for two
+          // distinct allocations holding the same variant, so
+          // load both tags first and then compare. Other
+          // comparison operators (`<`, `<=`, …) are undefined
+          // on enum types and fall through to the integer path
+          // below as a noop.
+          let d = self.alloc_reg(*dst).unwrap_or(X0);
+          let l = self.alloc_reg(*lhs).unwrap_or(X0);
+          let r = self.alloc_reg(*rhs).unwrap_or(X1);
+          let cond = if matches!(op, BinOp::Eq) {
+            COND_EQ
+          } else {
+            COND_NE
+          };
+
+          // LDR X16, [l, #0]  ; tag from lhs.
+          self.emitter.emit_ldr(X16, l, 0);
+          // LDR X17, [r, #0]  ; tag from rhs.
+          self.emitter.emit_ldr(X17, r, 0);
+          // cmp X16, X17 ; CSET d, cond.
+          self.emit_cmp_csel(d, X16, X17, cond);
         } else {
           // Integer: use allocated registers.
           let d = self.alloc_reg(*dst).unwrap_or(X0);
@@ -1311,9 +1406,9 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_mov_reg(*dst, actual_src);
             }
 
-            // Save caller-saved temp regs (X9-X15) before BL.
+            // Save caller-saved temp regs (X9-X17) before BL.
             // These may hold live values that the callee
-            // will clobber (ARM64: X0-X15 are caller-saved).
+            // will clobber (ARM64: X0-X17 are caller-saved).
             let base = self.caller_save_base;
 
             for i in 0..CALLER_SAVE_COUNT {
@@ -1611,49 +1706,57 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      // Type definitions — compile-time only.
-      Insn::EnumDef { .. } | Insn::StructDef { .. } | Insn::ConstDef { .. } => {
+      // Type definitions — compile-time only for struct/const,
+      // but enum declarations also register pretty-printer
+      // metadata so `show(Loot::Gold(...))` can emit
+      // `Loot::Gold(...)` instead of leaking a raw pointer.
+      Insn::EnumDef {
+        name,
+        ty_id,
+        variants,
+        ..
+      } => {
+        self.register_enum_meta(*name, *ty_id, variants);
       }
+      Insn::StructDef { .. } | Insn::ConstDef { .. } => {}
 
       // Enum construction: for unit variants (no fields),
       // the value is just the discriminant. For tuple
       // variants, allocate [tag, f0, f1, ...] on stack.
+      // Enum construction: every variant (unit or tuple) now
+      // lowers to a pointer into the stack struct area holding
+      // `[tag, f0, f1, ...]`. Unit variants allocate a single
+      // `[tag]` slot; tuple variants allocate `[tag, f0, ...]`.
+      // Uniform representation means every enum value in a
+      // register is a pointer, so `is_enum_value` can safely
+      // include `Load` / `ArrayIndex` and `BinOp::Eq`/`Neq` on
+      // enum operands can deref both sides to compare tags.
+      // Cost: one extra stack slot + one store per unit variant
+      // instance — dwarfed by the syscall cost of `show`.
       Insn::EnumConstruct {
         variant, fields, ..
       } => {
-        if fields.is_empty() {
-          // Unit variant — discriminant is the value.
-          if let Some(dst) = self.reg_for_insn(idx) {
-            self.emitter.emit_mov_imm(dst, *variant as u16);
+        let slot_count = 1 + fields.len() as u32;
+        let base = self.struct_base + self.next_struct_slot;
+
+        // Store discriminant at base.
+        self.emitter.emit_mov_imm(X16, *variant as u16);
+        self.emitter.emit_str(X16, SP, base as i16);
+
+        // Store fields (if any) at base + (i+1)*8.
+        for (i, field) in fields.iter().enumerate() {
+          let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
+
+          if let Some(reg) = self.alloc_reg(*field) {
+            self.emitter.emit_str(reg, SP, off as i16);
           }
-        } else {
-          // Tuple variant — allocate in struct area.
-          let slot_count = 1 + fields.len() as u32;
-          let base = self.struct_base + self.next_struct_slot;
-
-          // Store discriminant at base.
-          self.emitter.emit_mov_imm(X16, *variant as u16);
-          self.emitter.emit_str(X16, SP, base as i16);
-
-          // Store fields at base + (i+1)*8.
-          for (i, field) in fields.iter().enumerate() {
-            let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
-
-            if let Some(reg) = self.alloc_reg(*field) {
-              self.emitter.emit_str(reg, SP, off as i16);
-            }
-          }
-
-          if let Some(dst) = self.reg_for_insn(idx) {
-            if base > 0 {
-              self.emitter.emit_add_imm(dst, SP, base as u16);
-            } else {
-              self.emitter.emit_add_imm(dst, SP, 0);
-            }
-          }
-
-          self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
         }
+
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emitter.emit_add_imm(dst, SP, base as u16);
+        }
+
+        self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
       }
 
       // Struct construction: store fields into
@@ -1746,6 +1849,7 @@ impl<'a> ARM64Gen<'a> {
     let is_str = arg_vid.is_some_and(|v| self.is_string_value(v, all_insns));
     let is_flt = arg_vid.is_some_and(|v| self.is_float_value(v, all_insns));
     let is_bool = arg_vid.is_some_and(|v| self.is_bool_value(v, all_insns));
+    let enum_ty = arg_vid.and_then(|v| self.is_enum_value(v, all_insns));
 
     // Check if the most recent emitted instruction was a
     // math intrinsic (FSQRT, FRINTM, etc.). The result
@@ -1770,6 +1874,16 @@ impl<'a> ARM64Gen<'a> {
       }
 
       self.emit_bool_and_write(fd);
+    } else if let Some(ty_id) = enum_ty
+      && let Some(vid) = arg_vid
+    {
+      // Enum scrutinee — dispatch into the pretty-printer
+      // rather than leaking the pointer to `itoa`. Every
+      // enum value in a register is now a pointer to
+      // `[tag, f0, f1, ...]` on the stack (uniform repr);
+      // `emit_enum_write` loads the tag and cmp-chains on
+      // it.
+      self.emit_enum_write(vid, ty_id, fd);
     } else if !is_str && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -1802,6 +1916,191 @@ impl<'a> ARM64Gen<'a> {
       self.emitter.emit_mov_imm(X0, fd);
       self.emitter.emit_svc(0);
     }
+  }
+
+  /// Record `Insn::EnumDef` metadata and pre-bake each
+  /// variant's display string (`"EnumName::VariantName"`) into
+  /// `string_data` under a synthetic symbol. Same technique as
+  /// `emit_bool_and_write`'s "true" / "false" interning, scaled
+  /// to one synthetic symbol per enum variant. Called once per
+  /// enum at codegen time.
+  fn register_enum_meta(
+    &mut self,
+    name: Symbol,
+    ty_id: TyId,
+    variants: &[(Symbol, u32, Vec<TyId>)],
+  ) {
+    if self.enum_metas.contains_key(&ty_id.0) {
+      return;
+    }
+
+    let enum_str = self.interner.get(name).to_owned();
+    let mut variant_metas = Vec::with_capacity(variants.len());
+
+    for (vname, disc, fields) in variants {
+      let var_str = self.interner.get(*vname);
+      let display = format!("{enum_str}::{var_str}");
+
+      let display_sym = Symbol(self.next_enum_sym);
+
+      self.next_enum_sym += 1;
+
+      let mut buf = Buffer::new();
+      let bytes = display.as_bytes();
+
+      buf.bytes(&(bytes.len() as u64).to_le_bytes());
+      buf.bytes(bytes);
+      buf.bytes(b"\0");
+
+      self.string_data.push((display_sym, buf.finish()));
+
+      variant_metas.push(VariantMeta {
+        discriminant: *disc,
+        field_count: fields.len() as u32,
+        display_sym,
+      });
+    }
+
+    self.enum_metas.insert(
+      ty_id.0,
+      EnumMeta {
+        variants: variant_metas,
+      },
+    );
+  }
+
+  /// Pretty-print an enum value. Unit variants leave the
+  /// discriminant directly in the allocated register; tuple
+  /// variants leave a pointer to `[tag, f0, f1, ...]` in the
+  /// register. We can't statically tell the two shapes apart
+  /// per call site, so we lower both through a shared cmp-chain
+  /// on the discriminant. For tuple variants, the discriminant
+  /// is fetched via `LDR [ptr, #0]`; for unit variants, the
+  /// register already holds the discriminant. Since we
+  /// dispatch by tag value and every enum's discriminants are
+  /// densely packed, the cmp-chain is correct for both shapes
+  /// as long as unit variants never share their discriminant
+  /// with a tuple variant — which is guaranteed because unit
+  /// and tuple variants inside one enum share one discriminant
+  /// namespace.
+  ///
+  /// Payload printing is deferred to a follow-up: v1 just
+  /// emits the variant name (`"Loot::Gold"`), not the fields.
+  /// Users who need the fields access them individually until
+  /// the recursive field print lands.
+  fn emit_enum_write(&mut self, vid: ValueId, ty_id: TyId, fd: u16) {
+    let Some(meta) = self.enum_metas.get(&ty_id.0) else {
+      // Fallback — shouldn't happen, but keep the compiler
+      // from panicking. Drop to itoa on the source register.
+      if let Some(src) = self.alloc_reg(vid)
+        && src != X0
+      {
+        self.emitter.emit_mov_reg(X0, src);
+      }
+      self.emit_itoa_and_write(fd);
+      return;
+    };
+
+    // Snapshot the variant list so we can drop the borrow on
+    // `self` before emitting code (emit_* takes `&mut self`).
+    let variants: Vec<(u32, Symbol, bool)> = meta
+      .variants
+      .iter()
+      .map(|v| (v.discriminant, v.display_sym, v.field_count > 0))
+      .collect();
+
+    // Only register the shared "(...)" suffix when this enum
+    // actually has at least one tuple variant. Pure-unit enums
+    // (e.g. `enum Color { Red, Green, Blue }`) must not leak
+    // the ellipsis string into the artifact — that would be
+    // user-visible dead data and makes output regressions
+    // harder to catch. Mirrors `emit_bool_and_write`'s
+    // guard-on-Symbol pattern, restricted by the per-call
+    // need.
+    let ellipsis_sym = ENUM_TUPLE_ELLIPSIS_SYM;
+    let any_tuple = variants.iter().any(|(_, _, has_fields)| *has_fields);
+
+    if any_tuple && !self.string_data.iter().any(|(s, _)| *s == ellipsis_sym) {
+      let mut buf = Buffer::new();
+      let bytes: &[u8] = b"(...)";
+
+      buf.bytes(&(bytes.len() as u64).to_le_bytes());
+      buf.bytes(bytes);
+      buf.bytes(b"\0");
+
+      self.string_data.push((ellipsis_sym, buf.finish()));
+    }
+
+    // Load the discriminant into X17. Every enum value is now
+    // a pointer to `[tag, f0, f1, ...]` — even unit variants —
+    // so we always read slot 0. The earlier unit-vs-tuple
+    // branch is gone with the uniform representation.
+    let src = self.alloc_reg(vid).unwrap_or(X0);
+
+    self.emitter.emit_ldr(X17, src, 0);
+
+    // Emit one arm per variant: cmp + b.ne + write-name + b.
+    // Track fixups to patch once we know the final positions.
+    let mut bne_fixups: Vec<usize> = Vec::with_capacity(variants.len());
+    let mut done_fixups: Vec<usize> = Vec::with_capacity(variants.len());
+
+    for (disc, display_sym, has_fields) in &variants {
+      // cmp x15, #disc.
+      self.emitter.emit_cmp_imm(X17, *disc as u16);
+
+      // b.ne past_this_variant (patched later).
+      let bne_pos = self.emitter.current_offset();
+      self.emitter.emit_bne(0);
+      bne_fixups.push(bne_pos as usize);
+
+      // Load the display-string pointer via ADR + fixup.
+      let adr_pos = self.emitter.current_offset();
+      self.string_fixups.push((adr_pos, *display_sym));
+      self.emitter.emit_adr(X16, 0);
+
+      // Unpack the zo-string struct and syscall write.
+      self.emitter.emit_ldr(X2, X16, 0);
+      self.emitter.emit_add_imm(X1, X16, 8);
+      self.emitter.emit_mov_imm(X16, SYS_WRITE);
+      self.emitter.emit_mov_imm(X0, fd);
+      self.emitter.emit_svc(0);
+
+      // Tuple variants get a `(...)` suffix so the user sees
+      // they carry a payload without blowing up the output.
+      if *has_fields {
+        let ellipsis_pos = self.emitter.current_offset();
+        self.string_fixups.push((ellipsis_pos, ellipsis_sym));
+        self.emitter.emit_adr(X16, 0);
+
+        self.emitter.emit_ldr(X2, X16, 0);
+        self.emitter.emit_add_imm(X1, X16, 8);
+        self.emitter.emit_mov_imm(X16, SYS_WRITE);
+        self.emitter.emit_mov_imm(X0, fd);
+        self.emitter.emit_svc(0);
+      }
+
+      // b done (patched later).
+      let done_pos = self.emitter.current_offset();
+      self.emitter.emit_b(0);
+      done_fixups.push(done_pos as usize);
+
+      // Patch the b.ne to land right here — past the body.
+      let after_body = self.emitter.current_offset() as i32;
+      let bne_rel = after_body - bne_pos as i32;
+      self.emitter.patch_bcond_at(bne_pos as usize, bne_rel);
+    }
+
+    // Patch every done-jump to point at the current offset.
+    let done_label = self.emitter.current_offset() as i32;
+
+    for pos in done_fixups {
+      let rel = done_label - pos as i32;
+      self.emitter.patch_b_at(pos, rel);
+    }
+
+    // `bne_fixups` is no longer needed — each was patched
+    // immediately after its body to skip to the next arm.
+    let _ = bne_fixups;
   }
 
   /// Emit a newline write to the given fd.
