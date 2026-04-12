@@ -1,0 +1,38 @@
+-! # how to match: 030-match.zo
+-!
+-! @cmd: `zo run 030-match.zo`
+-!
+-! `match` dispatches on a value by comparing it to a series
+-! of patterns. v1 supports literal patterns (int, str, bool),
+-! the wildcard `_`, and enum variant patterns. Arms can have
+-! side-effecting bodies (no value), or eventually produce a
+-! value (match as expression, follow-up).
+
+fun main() {
+  imu a: int = 0;
+  imu b: int = 3;
+  imu c: int = 99;
+
+  match a {
+    0 => showln("sunday"),
+    3 => showln("wednesday"),
+    _ => showln("weekend"),
+  }
+
+  match b {
+    0 => showln("sunday"),
+    3 => showln("wednesday"),
+    _ => showln("weekend"),
+  }
+
+  match c {
+    0 => showln("sunday"),
+    3 => showln("wednesday"),
+    _ => showln("weekend"),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- sunday
+-- wednesday
+-- weekend
