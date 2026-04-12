@@ -55,7 +55,7 @@ fn test_template_var_registered() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -86,7 +86,7 @@ fn test_template_interp_str_variable() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -115,7 +115,7 @@ fn test_template_interp_int_variable() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -145,7 +145,7 @@ fn test_template_interp_multiple_vars() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -174,7 +174,7 @@ fn test_template_interp_named_tag() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -229,7 +229,7 @@ fn test_template_attr_interpolation() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -710,7 +710,7 @@ fn test_html_directive_smoke() {
     &tokenization.literals,
   );
 
-  let (sir, _, _) = executor.execute();
+  let (sir, _, _, _) = executor.execute();
 
   // Print the rendered template commands. Visible with
   // `--nocapture`.

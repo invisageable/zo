@@ -55,14 +55,14 @@ fun main() {
     pipeline.execute_with_target(project_dir.clone(), Some(Target::current()));
 
   // Compilation should succeed
-  assert!(result.is_ok(), "Native compilation failed: {:?}", result);
+  assert!(result.is_ok(), "Native compilation failed: {result:?}");
 
   // Check that the returned binary path exists
   let binary_path = result.unwrap();
+
   assert!(
     binary_path.exists(),
-    "Binary should exist at {:?}",
-    binary_path
+    "Binary should exist at {binary_path:?}"
   );
 }
 
@@ -89,6 +89,7 @@ fn test_target_selection() {
 
     // Check triple - all native targets have triples
     let triple = target.triple();
+
     assert!(!triple.is_empty());
     assert!(triple.contains('-'));
   }

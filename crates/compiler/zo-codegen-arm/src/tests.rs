@@ -29,7 +29,7 @@ fn test_complete_pipeline_hello_world() {
     &tokenization.literals,
   );
 
-  let (sir, _annotations, _ty_checker) = executor.execute();
+  let (sir, _annotations, _ty_checker, _) = executor.execute();
 
   assert_eq!(sir.instructions.len(), 4);
 
@@ -106,7 +106,7 @@ fn compile_to_code(source: &str) -> Vec<u8> {
     &tokenization.literals,
   );
 
-  let (sir, _, _) = executor.execute();
+  let (sir, _, _, _) = executor.execute();
 
   let mut codegen = ARM64Gen::new(&tokenization.interner);
   let artifact = codegen.generate(&sir);
@@ -370,10 +370,9 @@ fun main() {
 }
 
 #[test]
-fn test_enum_tuple_variant_show_bakes_ellipsis_suffix() {
-  // Tuple variants also append `"(...)"` so the user can tell
-  // them apart from unit variants at a glance. Unit variants
-  // within the same enum must *not* cause an ellipsis load.
+fn test_enum_tuple_variant_show_bakes_parens() {
+  // Tuple variants print actual payload values wrapped
+  // in parentheses: `Loot::Gold(50)`.
   let code = compile_to_code(
     r#"
 enum Loot {
@@ -387,16 +386,15 @@ fun main() {
   );
 
   assert!(
-    code_contains(&code, b"(...)"),
-    "expected '(...)' suffix for the tuple variant",
+    code_contains(&code, b"(") && code_contains(&code, b")"),
+    "expected '(' and ')' punctuation for the tuple variant",
   );
 }
 
 #[test]
-fn test_enum_unit_variant_show_has_no_ellipsis() {
-  // An enum that only has unit variants must not leak the
-  // tuple-suffix marker into the artifact — otherwise the
-  // pretty-printer is appending `(...)` to unit variants too.
+fn test_enum_unit_variant_show_has_no_parens() {
+  // An enum with only unit variants must not have
+  // parenthesis punctuation in the artifact.
   let code = compile_to_code(
     r#"
 enum Color {

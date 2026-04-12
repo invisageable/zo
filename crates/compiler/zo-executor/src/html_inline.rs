@@ -77,7 +77,7 @@ pub(crate) fn parse_raw_html(input: &str) -> Vec<UiCommand> {
     &tokenization.literals,
   );
 
-  let (sir, _, _) = executor.execute();
+  let (sir, _, _, _) = executor.execute();
 
   // Pull commands from the first `Insn::Template` the sub-
   // pipeline produced.

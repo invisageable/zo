@@ -58,6 +58,6 @@ fun main() {
 -- EXPECTED OUTPUT:
 -- Monster::Goblin
 -- Monster::Dragon
--- Loot::Gold(...)
--- Loot::Potion(...)
+-- Loot::Gold(50)
+-- Loot::Potion(25)
 -- Loot::Nothing

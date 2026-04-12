@@ -18,6 +18,7 @@ use zo_value::{
 };
 
 use std::cell::Cell;
+use std::collections::HashMap;
 
 /// Scope frame for variable tracking
 pub struct ScopeFrame {
@@ -102,6 +103,13 @@ pub struct Executor<'a> {
   /// by `with_imports`, consumed by `execute_enum_access`
   /// on first reference.
   pending_imported_enums: Vec<zo_module_resolver::ExportedEnum>,
+  /// Concrete type args from the last ext function call
+  /// with a parameterized return type. Consumed by the
+  /// match handler to type bindings correctly.
+  /// Per-variable return type args from ext function calls.
+  /// Keyed by the variable name (Symbol) that stores the
+  /// call result. Used by the match handler to type bindings.
+  var_return_type_args: HashMap<u32, Vec<zo_ty::Ty>>,
   /// Pending enum construction: (enum_name, variant_disc,
   /// variant_field_count, ty_id).
   pending_enum_construct: Option<(Symbol, u32, u32, TyId)>,
@@ -186,6 +194,7 @@ impl<'a> Executor<'a> {
       closure_counter: 0,
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
+      var_return_type_args: HashMap::default(),
       pending_enum_construct: None,
       apply_context: None,
       global_constants: Vec::new(),
@@ -298,7 +307,7 @@ impl<'a> Executor<'a> {
   }
 
   /// Executes a parse tree in one pass to build semantic IR.
-  pub fn execute(mut self) -> (Sir, Vec<Annotation>, TyChecker) {
+  pub fn execute(mut self) -> (Sir, Vec<Annotation>, TyChecker, Vec<FunDef>) {
     for idx in 0..self.tree.nodes.len() {
       if idx < self.skip_until {
         continue;
@@ -335,7 +344,7 @@ impl<'a> Executor<'a> {
     // for each instantiation.
     self.monomorphize();
 
-    (self.sir, self.annotations, self.ty_checker)
+    (self.sir, self.annotations, self.ty_checker, self.funs)
   }
 
   /// Returns true if the token introduces a statement —
@@ -2123,8 +2132,39 @@ impl<'a> Executor<'a> {
       Token::LShiftEq => self.execute_compound_assignment(BinOp::Shl, idx),
       Token::RShiftEq => self.execute_compound_assignment(BinOp::Shr, idx),
 
-      // Skip other tokens for now
-      _ => {}
+      // Type keywords used as variable names in pattern
+      // bindings (e.g., `Result::Ok(bytes)` where `bytes`
+      // is tokenized as `BytesType`). Check for a local
+      // whose name matches the keyword text and, if found,
+      // treat it as a variable reference.
+      _ => {
+        if let Some(kw) = header.token.ty_keyword_str() {
+          let sym = self.interner.intern(kw);
+          let local_info = self
+            .lookup_local(sym)
+            .map(|l| (l.ty_id, l.sir_value, l.mutability));
+
+          if let Some((ty_id, sir_value, _mutability)) = local_info
+            && self.current_function.is_some()
+            && sir_value.is_some()
+          {
+            let dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
+            let sv = self.sir.emit(Insn::Load {
+              dst,
+              src: LoadSource::Local(sym),
+              ty_id,
+            });
+
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(ty_id);
+            self.sir_values.push(sv);
+          }
+        }
+      }
     }
   }
 
@@ -3281,6 +3321,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
       type_params: Vec::new(),
+      return_type_args: Vec::new(),
     });
 
     // Update pre-registered letrec local (if any) so
@@ -3782,10 +3823,11 @@ impl<'a> Executor<'a> {
       name,
       params: sir_params,
       return_ty,
-      body_start: 0, // Will be set when we emit FunDef
+      body_start: 0,
       kind: FunctionKind::UserDefined,
       pubness,
       type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+      return_type_args: Vec::new(),
     });
 
     // Push a scope for the function parameters
@@ -4498,13 +4540,33 @@ impl<'a> Executor<'a> {
       }
     }
 
-    // Parse return type.
+    // Parse return type, including generic type arguments
+    // like `Result<str, int>`.
+    let mut type_args: Vec<TyId> = Vec::new();
+
     while idx < end_idx {
       match self.tree.nodes[idx].token {
         Token::Arrow => {
           if idx + 1 < end_idx {
             idx += 1;
             return_ty = self.resolve_type_token(idx);
+            idx += 1;
+
+            // Collect type arguments after the base type.
+            // The parser emits `<` as Token::Lt in normal
+            // code mode (not LAngle, which is template-only).
+            while idx < end_idx {
+              let tok = self.tree.nodes[idx].token;
+
+              if tok.is_ty() || tok == Token::Ident {
+                type_args.push(self.resolve_type_token(idx));
+                idx += 1;
+              } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
+                idx += 1;
+              } else {
+                break;
+              }
+            }
           }
 
           break;
@@ -4512,6 +4574,15 @@ impl<'a> Executor<'a> {
         Token::Semicolon => break,
         _ => idx += 1,
       }
+    }
+
+    // Each ext function returning a parameterized type
+    // (e.g. Result<str,int> vs Result<int,int>) must get
+    // its own independent return type. Using a fresh
+    // inference variable prevents multiple ext signatures
+    // from fighting over shared type-parameter bindings.
+    if !type_args.is_empty() {
+      return_ty = self.ty_checker.fresh_var();
     }
 
     let pubness = if self.is_pub(start_idx) {
@@ -4538,6 +4609,10 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Intrinsic,
       pubness,
       type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+      return_type_args: type_args
+        .iter()
+        .map(|t| self.ty_checker.resolve_ty(*t))
+        .collect(),
     });
 
     // Skip all children — no body to process.
@@ -5300,6 +5375,16 @@ impl<'a> Executor<'a> {
         let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
 
         self.enum_defs.push((en.name, ety_id, ty_id));
+
+        // Emit EnumDef so the codegen registers
+        // enum_metas for match discriminant handling.
+        self.sir.emit(Insn::EnumDef {
+          name: en.name,
+          ty_id,
+          variants: fresh_variants,
+          pubness: zo_value::Pubness::No,
+        });
+
         entry = Some((en.name, ety_id, ty_id));
       }
     }
@@ -5838,8 +5923,10 @@ impl<'a> Executor<'a> {
         };
 
         // Look up the enum definition and variant.
+        // Trigger lazy import if this is the first
+        // reference to an imported enum (e.g. Result).
         let enum_name_str = self.interner.get(enum_sym).to_owned();
-        let entry = self
+        let mut entry = self
           .enum_defs
           .iter()
           .find(|e| {
@@ -5847,6 +5934,48 @@ impl<'a> Executor<'a> {
             n == enum_name_str || n.starts_with(&format!("{enum_name_str}__"))
           })
           .copied();
+
+        if entry.is_none()
+          && let Some(pos) = self
+            .pending_imported_enums
+            .iter()
+            .position(|e| self.interner.get(e.name) == enum_name_str)
+        {
+          let en = self.pending_imported_enums.remove(pos);
+
+          self.ty_checker.push_scope();
+
+          let fresh_variants: Vec<(Symbol, u32, Vec<TyId>)> = en
+            .variants
+            .iter()
+            .map(|(name, disc, fields)| {
+              let pf: Vec<TyId> =
+                fields.iter().map(|_| self.ty_checker.fresh_var()).collect();
+              (*name, *disc, pf)
+            })
+            .collect();
+
+          self.ty_checker.pop_scope();
+
+          let ety_id = self
+            .ty_checker
+            .ty_table
+            .intern_enum(en.name, &fresh_variants);
+          let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
+
+          self.enum_defs.push((en.name, ety_id, ty_id));
+
+          self.sir.emit(Insn::EnumDef {
+            name: en.name,
+            ty_id,
+            variants: fresh_variants,
+            pubness: zo_value::Pubness::No,
+          });
+
+          entry = Some((en.name, ety_id, ty_id));
+        }
+
+        let entry = entry;
         let (_, ety_id, _) = match entry {
           Some(e) => e,
           None => {
@@ -5935,8 +6064,40 @@ impl<'a> Executor<'a> {
           && pat_idx + 3 < arrow_idx
           && self.tree.nodes[pat_idx + 3].token == Token::LParen
         {
-          let field_tys =
-            self.ty_checker.ty_table.variant_fields(&variant).to_vec();
+          // Use return_type_args from the ext function
+          // if available (e.g. Result<str, int> → [str, int]),
+          // otherwise fall back to the enum's generic field
+          // types.
+          let rta_key = scrutinee_sym
+            .and_then(|s| self.var_return_type_args.get(&s.as_u32()));
+
+          let field_tys = if let Some(rta) = rta_key {
+            // Compute type arg offset for this variant:
+            // sum of all preceding variants' field counts.
+            let all_variants =
+              self.ty_checker.ty_table.enum_variants(&enum_ty).to_vec();
+            let var_offset: usize = all_variants
+              .iter()
+              .take_while(|v| v.discriminant != variant.discriminant)
+              .map(|v| v.field_count as usize)
+              .sum();
+
+            (0..variant.field_count as usize)
+              .map(|i| {
+                let ty = rta.get(var_offset + i);
+
+                match ty {
+                  Some(Ty::Str) => self.ty_checker.str_type(),
+                  Some(Ty::Bool) => self.ty_checker.bool_type(),
+                  Some(Ty::Int { .. }) => self.ty_checker.int_type(),
+                  Some(ty) => self.ty_checker.intern_ty(*ty),
+                  None => self.ty_checker.int_type(),
+                }
+              })
+              .collect::<Vec<_>>()
+          } else {
+            self.ty_checker.ty_table.variant_fields(&variant).to_vec()
+          };
           let mut bind_idx = pat_idx + 4;
           let mut field_i: u32 = 0;
 
@@ -5951,10 +6112,33 @@ impl<'a> Executor<'a> {
               continue;
             }
 
-            if tok == Token::Ident
-              && let Some(NodeValue::Symbol(bind_sym)) =
-                self.node_value(bind_idx)
-            {
+            // Reject type keywords (str, int, bytes, etc.)
+            // as binding names — the tokenizer turns them
+            // into type tokens, making them unusable as
+            // variable references in the arm body.
+            if tok.is_ty() {
+              let span = self.tree.spans[bind_idx];
+
+              report_error(Error::new(
+                ErrorKind::ExpectedIdentifier, span,
+              ));
+
+              bind_idx += 1;
+              field_i += 1;
+
+              continue;
+            }
+
+            let bind_sym = if tok == Token::Ident {
+              match self.node_value(bind_idx) {
+                Some(NodeValue::Symbol(s)) => Some(s),
+                _ => None,
+              }
+            } else {
+              None
+            };
+
+            if let Some(bind_sym) = bind_sym {
               let field_ty =
                 field_tys.get(field_i as usize).copied().unwrap_or(int_ty);
 
@@ -7247,6 +7431,18 @@ impl<'a> Executor<'a> {
         self.value_stack.push(result_val);
         self.ty_stack.push(resolved_ret);
         self.sir_values.push(result_sir);
+      }
+
+      // For ext functions with parameterized return types,
+      // stash the type args so the match handler can use
+      // them for binding types instead of the enum's
+      // unresolved generic field vars.
+      if !func.return_type_args.is_empty()
+        && let Some(ref decl) = self.pending_decl
+      {
+        self
+          .var_return_type_args
+          .insert(decl.name.as_u32(), func.return_type_args.clone());
       }
     } else {
       // Function not found in definitions - might be external/builtin

@@ -67,6 +67,7 @@ pub fn extract_exports(
   dst_interner: &mut Interner,
   src_ty_checker: &TyChecker,
   dst_ty_checker: &mut TyChecker,
+  src_funs: &[zo_value::FunDef],
 ) -> ModuleExports {
   let mut funs = Vec::new();
   let mut vars = Vec::new();
@@ -108,6 +109,14 @@ pub fn extract_exports(
         let dst_return_ty =
           translate_ty_id(*return_ty, src_ty_checker, dst_ty_checker);
 
+        // Carry return_type_args as-is — they're Ty values
+        // (not TyIds) so they don't need translation.
+        let rta = src_funs
+          .iter()
+          .find(|f| f.name == *name)
+          .map(|f| f.return_type_args.clone())
+          .unwrap_or_default();
+
         funs.push(FunDef {
           name: dst_name,
           params: dst_params,
@@ -116,6 +125,7 @@ pub fn extract_exports(
           kind: *kind,
           pubness: *pubness,
           type_params: Vec::new(),
+          return_type_args: rta,
         });
       }
 

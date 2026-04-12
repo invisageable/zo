@@ -1,0 +1,20 @@
+-! # how to io: 048-io.zo
+-!
+-! @cmd: `zo run 048-io.zo`
+-!
+-! File I/O functions are auto-imported from preload.
+-! All file operations return `Result` — match to
+-! handle errors.
+
+fun main() {
+  imu content := read_file("crates/compiler/zo-how-zo/samples/join-the-devolution.txt");
+
+  match content {
+    Result::Ok(text) => showln(text),
+    Result::Err(error) => eshowln(error),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- JOiN THE DEVOLUTiON
+

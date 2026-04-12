@@ -1,0 +1,49 @@
+-! # how to io: 048-io.zo
+-!
+-! @cmd: `zo run 048-io.zo`
+-!
+-! File I/O functions are auto-imported from preload.
+-! All file operations return `Result` — match to
+-! handle errors.
+
+fun main() {
+  imu path := "/tmp/zo-048-io-test.txt";
+
+  imu written := write_file(path, "hello zo");
+
+  match written {
+    Result::Ok(count) => showln(count),
+    Result::Err(error) => eshowln(error),
+  }
+
+  imu found := exists(path);
+  showln(found);
+
+  imu content := read_file(path);
+
+  match content {
+    Result::Ok(text) => showln(text),
+    Result::Err(error) => eshowln(error),
+  }
+
+  imu appended := append_file(path, " rocks");
+
+  match appended {
+    Result::Ok(count) => showln(count),
+    Result::Err(error) => eshowln(error),
+  }
+
+  imu full := read_file(path);
+
+  match full {
+    Result::Ok(text) => showln(text),
+    Result::Err(error) => eshowln(error),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 8
+-- true
+-- hello zo
+-- 6
+-- hello zo rocks

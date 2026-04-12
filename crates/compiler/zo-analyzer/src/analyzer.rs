@@ -16,6 +16,9 @@ pub struct SemanticResult {
   pub annotations: Vec<Annotation>,
   /// The type checker state for cross-module translation.
   pub ty_checker: TyChecker,
+  /// Function definitions from the executor (carries
+  /// return_type_args for ext functions).
+  pub funs: Vec<FunDef>,
 }
 
 /// Imported module symbols to pre-load into the executor.
@@ -71,12 +74,13 @@ impl<'a> Analyzer<'a> {
         executor.with_imports(imports.funs, imports.vars, imports.enums);
     }
 
-    let (sir, annotations, ty_checker) = executor.execute();
+    let (sir, annotations, ty_checker, funs) = executor.execute();
 
     SemanticResult {
       sir,
       annotations,
       ty_checker,
+      funs,
     }
   }
 }

@@ -7571,6 +7571,7 @@ name = "zo-register-allocation"
 version = "0.3.1"
 dependencies = [
  "rustc-hash 2.1.1",
+ "zo-interner",
  "zo-liveness",
  "zo-sir",
  "zo-value",

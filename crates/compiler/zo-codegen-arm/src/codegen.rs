@@ -22,10 +22,19 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 // --- macOS ARM64 System Calls ---
-const SYS_WRITE: u16 = 4;
 const SYS_EXIT: u16 = 1;
+const SYS_READ: u16 = 3;
+const SYS_WRITE: u16 = 4;
+const SYS_OPEN: u16 = 5;
+const SYS_CLOSE: u16 = 6;
+const SYS_ACCESS: u16 = 33;
 const FD_STDOUT: u16 = 1;
 const FD_STDERR: u16 = 2;
+const O_RDONLY: u16 = 0;
+const O_WRONLY_CREAT_TRUNC: u16 = 0x601;
+const O_WRONLY_CREAT_APPEND: u16 = 0x209;
+const FILE_MODE_644: u16 = 0o644;
+const READ_FILE_BUF_SIZE: u16 = 4096;
 
 // --- ASCII Constants ---
 const ASCII_NEWLINE: u16 = 10;
@@ -35,13 +44,7 @@ const ASCII_ZERO: u16 = 48;
 const STACK_SLOT_SIZE: u32 = 8;
 const FP_LR_SAVE_OFFSET: i16 = -16;
 const FP_LR_LOAD_OFFSET: i16 = 16;
-// TODO(codegen): MUTABLE_VAR_RESERVE is a fixed 64-byte budget
-// (8 mutable slots). Functions with many locals + showln calls
-// (~13+ interpolated showlns) overflow this and segfault. The
-// reserve should be computed from the actual number of Store
-// instructions in the function body, not hardcoded.
-const MUTABLE_VAR_RESERVE: u32 = 64;
-// 7 caller-saved temp regs (X9-X17) * 8 bytes each.
+// 7 caller-saved temp regs (X9-X15) * 8 bytes each.
 const CALLER_SAVE_RESERVE: u32 = 56;
 const CALLER_SAVE_COUNT: usize = 7;
 const CALLER_SAVE_START: u8 = 9; // X9..X17
@@ -58,9 +61,12 @@ const ARRAY_ELEMENT_SHIFT: u8 = 3;
 const ARRAY_HEADER_SIZE: u16 = 8;
 
 // --- Type Detection ---
-const BOOL_TYPE_ID: u32 = 2;
-const FLOAT_TYPE_ID_MIN: u32 = 15;
-const FLOAT_TYPE_ID_MAX: u32 = 17;
+// These TyIds must match TyChecker::new() registration
+// order. If that order ever changes, these break silently.
+// str=4 is hardcoded inline in is_string_value/emit_field_write.
+const BOOL_TYPE_ID: u32 = 2;   // TyChecker: Bool @ index 2
+const FLOAT_TYPE_ID_MIN: u32 = 15; // TyChecker: F32 @ index 15
+const FLOAT_TYPE_ID_MAX: u32 = 17; // TyChecker: F64 @ index 17
 
 // --- Mach-O Layout ---
 const TEXT_SECTION_BASE: u64 = 0x100000400;
@@ -195,22 +201,18 @@ struct EnumMeta {
 }
 
 /// Per-variant pretty-printer metadata. `display_sym` owns the
-/// pre-baked `"EnumName::Variant"` string in `string_data`;
-/// when `field_count > 0`, `emit_enum_write` appends a shared
-/// `"(...)"` marker so users can distinguish unit variants from
-/// tuple variants without having to inspect the payload. Real
-/// payload printing lands in a follow-up.
+/// pre-baked `"EnumName::Variant"` string in `string_data`.
+/// `field_tys` carries the type of each payload field so
+/// `emit_enum_write` can print actual values.
 struct VariantMeta {
   discriminant: u32,
-  field_count: u32,
+  field_tys: Vec<TyId>,
   display_sym: Symbol,
 }
 
-/// Synthetic symbol reserved for the shared `"(...)"` suffix
-/// appended to tuple-variant enum prints. Lives at the top of
-/// the synthetic-symbol range so it never collides with
-/// per-variant display strings.
-const ENUM_TUPLE_ELLIPSIS_SYM: Symbol = Symbol(0xE000_FFFF);
+const ENUM_OPEN_PAREN_SYM: Symbol = Symbol(0xE000_FFFC);
+const ENUM_COMMA_SPACE_SYM: Symbol = Symbol(0xE000_FFFD);
+const ENUM_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFFE);
 
 impl<'a> ARM64Gen<'a> {
   /// Creates a new [`ARM64Gen`] instance.
@@ -358,38 +360,12 @@ impl<'a> ARM64Gen<'a> {
       .find_producing_insn(vid, all_insns)
       .and_then(|insn| match insn {
         Insn::EnumConstruct { ty_id, .. } => Some(*ty_id),
-        Insn::Load {
-          src: LoadSource::Local(sym),
-          ..
-        } => {
-          // Trace through the variable's Store to find if
-          // it was initialized by an EnumConstruct. Use
-          // the EnumConstruct's ty_id (which is always
-          // correct) instead of the Load's ty_id (which
-          // can be a generic type variable that collides
-          // numerically with an enum ty_id).
-          let fn_start = self.current_fn_start.unwrap_or(0);
-
-          all_insns[fn_start..].iter().rev().find_map(|i| {
-            if let Insn::Store { name, value, .. } = i
-              && *name == *sym
-            {
-              // Found the Store — check if its value
-              // came from an EnumConstruct.
-              all_insns[fn_start..].iter().find_map(|j| {
-                if let Insn::EnumConstruct { dst, ty_id, .. } = j
-                  && *dst == *value
-                  && self.enum_metas.contains_key(&ty_id.0)
-                {
-                  Some(*ty_id)
-                } else {
-                  None
-                }
-              })
-            } else {
-              None
-            }
-          })
+        Insn::Load { ty_id, .. } | Insn::ArrayIndex { ty_id, .. } => {
+          if self.enum_metas.contains_key(&ty_id.0) {
+            Some(*ty_id)
+          } else {
+            None
+          }
         }
         _ => None,
       })
@@ -507,13 +483,50 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
+  /// Emit `ADD dst, SP, #offset`. Uses X16 as scratch
+  /// when the offset doesn't fit in 12 bits.
+  fn emit_add_sp_offset(&mut self, dst: Register, offset: u32) {
+    if offset <= 4095 {
+      self.emitter.emit_add_imm(dst, SP, offset as u16);
+    } else {
+      self.emit_mov_imm_64(X16, offset as u64);
+      self.emitter.emit_add_ext(dst, SP, X16);
+    }
+  }
+
+  /// Emit `STR src, [SP, #offset]`. Uses X16 as scratch
+  /// when the offset doesn't fit in a signed 9-bit imm.
+  fn emit_str_sp(&mut self, src: Register, offset: u32) {
+    if offset <= 255 {
+      self.emitter.emit_str(src, SP, offset as i16);
+    } else {
+      self.emit_add_sp_offset(X16, offset);
+      self.emitter.emit_str(src, X16, 0);
+    }
+  }
+
+  /// Emit `LDR dst, [SP, #offset]`. Uses X16 as scratch
+  /// when the offset doesn't fit in a signed 9-bit imm.
+  fn emit_ldr_sp(&mut self, dst: Register, offset: u32) {
+    if offset <= 255 {
+      self.emitter.emit_ldr(dst, SP, offset as i16);
+    } else {
+      self.emit_add_sp_offset(X16, offset);
+      self.emitter.emit_ldr(dst, X16, 0);
+    }
+  }
+
   // --- Code generation ---
 
   /// Generates `ARM64` code from SIR.
   pub fn generate(&mut self, sir: &Sir) -> Artifact {
     // Run register allocation before codegen.
     self.reg_alloc =
-      Some(RegAlloc::allocate(&sir.instructions, sir.next_value_id));
+      Some(RegAlloc::allocate(
+        &sir.instructions,
+        sir.next_value_id,
+        self.interner,
+      ));
 
     let insns = &sir.instructions;
 
@@ -924,47 +937,57 @@ impl<'a> ARM64Gen<'a> {
         self.param_slots.clear();
 
         // Function prologue: save FP/LR if non-leaf.
-        if let Some(info) = self
+        let fn_info = self
           .reg_alloc
           .as_ref()
           .and_then(|a| a.function_info.get(&idx))
+          .map(|info| {
+            (
+              info.has_calls,
+              info.spill_size,
+              info.struct_size,
+              info.mutable_size,
+            )
+          });
+
+        if let Some((has_calls, spill_size, struct_size, mut_size)) =
+          fn_info
         {
-          if info.has_calls {
+          if has_calls {
             self.emitter.emit_stp(X29, X30, SP, FP_LR_SAVE_OFFSET);
           }
 
-          // Reserve space for spills + mutable slots +
-          // parameter spill slots + struct allocations.
           let param_reserve = params.len() as u32 * STACK_SLOT_SIZE;
-          let caller_save = if info.has_calls {
+          let caller_save = if has_calls {
             CALLER_SAVE_RESERVE
           } else {
             0
           };
-          let frame = (info.spill_size
-            + MUTABLE_VAR_RESERVE
+          let frame = (spill_size
+            + mut_size
             + param_reserve
             + caller_save
-            + info.struct_size
+            + struct_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
           if frame > 0 {
-            self.emitter.emit_sub_imm(SP, SP, frame as u16);
+            if frame <= 4095 {
+              self.emitter.emit_sub_imm(SP, SP, frame as u16);
+            } else {
+              self.emit_mov_imm_64(X16, frame as u64);
+              self.emitter.emit_sub_ext(SP, SP, X16);
+            }
           }
 
-          // Set caller-save spill base for BL save/restore.
           self.caller_save_base =
-            info.spill_size + MUTABLE_VAR_RESERVE + param_reserve;
+            spill_size + mut_size + param_reserve;
 
           // Struct base: after caller-save area.
           self.struct_base =
-            info.spill_size + MUTABLE_VAR_RESERVE + param_reserve + caller_save;
+            spill_size + mut_size + param_reserve + caller_save;
 
-          // Spill parameters to stack so they survive
-          // register reuse. Params arrive in X0-X7 (GP)
-          // or D0-D7 (FP) depending on type.
-          let param_base = info.spill_size + MUTABLE_VAR_RESERVE;
+          let param_base = spill_size + mut_size;
 
           for (i, (_, ty_id)) in params.iter().enumerate() {
             let off = param_base + i as u32 * STACK_SLOT_SIZE;
@@ -1049,8 +1072,9 @@ impl<'a> ARM64Gen<'a> {
           }
         }
         LoadSource::Param(idx) => {
-          // Load from parameter spill slot (saved in prologue). This is safe
-          // even after registers have been reused for other values.
+          // Load from parameter spill slot (saved in
+          // prologue). This is safe even after registers
+          // have been reused for other values.
           if let Some(&off) = self.param_slots.get(idx) {
             if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
               // Float param: load from FP spill slot.
@@ -1060,7 +1084,8 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_ldr(dst_reg, SP, off as i16);
             }
           } else if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
-            // Fallback: no spill slot — read from original register.
+            // Fallback: no spill slot — read from
+            // original register.
             let fp_src = FpRegister::new(*idx as u8);
 
             if fp_dst != fp_src {
@@ -1106,12 +1131,14 @@ impl<'a> ARM64Gen<'a> {
         } else if self.enum_metas.contains_key(&ty_id.0)
           && matches!(op, BinOp::Eq | BinOp::Neq)
         {
-          // Enum equality: both operands are pointers to `[tag, ...]` thanks
-          // to the uniform representation. Pointer-level cmp would return
-          // false for two distinct allocations holding the same variant, so
-          // load both tags first and then compare. Other comparison operators
-          // (`<`, `<=`, …) are undefined on enum types and fall through to the
-          // integer path below as a noop.
+          // Enum equality: both operands are pointers to
+          // `[tag, ...]` thanks to the uniform representation.
+          // Pointer-level cmp would return false for two
+          // distinct allocations holding the same variant, so
+          // load both tags first and then compare. Other
+          // comparison operators (`<`, `<=`, …) are undefined
+          // on enum types and fall through to the integer path
+          // below as a noop.
           let d = self.alloc_reg(*dst).unwrap_or(X0);
           let l = self.alloc_reg(*lhs).unwrap_or(X0);
           let r = self.alloc_reg(*rhs).unwrap_or(X1);
@@ -1212,9 +1239,15 @@ impl<'a> ARM64Gen<'a> {
           }
           "flush" => {}
 
-          // Math intrinsics — ARM64 hardware instructions. The arg is a float
-          // in a FP register. Move it to D0, execute the instruction, leave
-          // result in D0 for showln/binding to consume.
+          "exists" => self.emit_io_exists(args, idx),
+          "read_file" => self.emit_io_read_file(args, idx),
+          "write_file" => self.emit_io_write_file(args, idx),
+          "append_file" => self.emit_io_append_file(args, idx),
+
+          // Math intrinsics — ARM64 hardware instructions.
+          // The arg is a float in a FP register. Move it
+          // to D0, execute the instruction, leave result
+          // in D0 for showln/binding to consume.
           "sqrt" | "floor" | "ceil" | "trunc" | "round" => {
             let fn_name = self.interner.get(*name);
 
@@ -1522,31 +1555,48 @@ impl<'a> ARM64Gen<'a> {
         }
 
         // Function epilogue — frame size must match prologue.
-        if let Some(start) = self.current_fn_start
-          && let Some(info) = self
+        let epi_info = self.current_fn_start.and_then(|start| {
+          self
             .reg_alloc
             .as_ref()
             .and_then(|a| a.function_info.get(&start))
+            .map(|info| {
+              (
+                info.has_calls,
+                info.spill_size,
+                info.struct_size,
+                info.mutable_size,
+              )
+            })
+        });
+
+        if let Some((has_calls, spill_size, struct_size, mut_size)) =
+          epi_info
         {
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
-          let caller_save = if info.has_calls {
+          let caller_save = if has_calls {
             CALLER_SAVE_RESERVE
           } else {
             0
           };
-          let frame = (info.spill_size
-            + MUTABLE_VAR_RESERVE
+          let frame = (spill_size
+            + mut_size
             + param_reserve
             + caller_save
-            + info.struct_size
+            + struct_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
           if frame > 0 {
-            self.emitter.emit_add_imm(SP, SP, frame as u16);
+            if frame <= 4095 {
+              self.emitter.emit_add_imm(SP, SP, frame as u16);
+            } else {
+              self.emit_mov_imm_64(X16, frame as u64);
+              self.emitter.emit_add_ext(SP, SP, X16);
+            }
           }
 
-          if info.has_calls {
+          if has_calls {
             self.emitter.emit_ldp(X29, X30, SP, FP_LR_LOAD_OFFSET);
           }
         }
@@ -1977,9 +2027,17 @@ impl<'a> ARM64Gen<'a> {
 
       variant_metas.push(VariantMeta {
         discriminant: *disc,
-        field_count: fields.len() as u32,
+        field_tys: fields.clone(),
         display_sym,
       });
+    }
+
+    let any_tuple = variant_metas.iter().any(|v| !v.field_tys.is_empty());
+
+    if any_tuple {
+      self.register_punctuation_sym(ENUM_OPEN_PAREN_SYM, b"(");
+      self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
+      self.register_punctuation_sym(ENUM_CLOSE_PAREN_SYM, b")");
     }
 
     self.enum_metas.insert(
@@ -1988,6 +2046,20 @@ impl<'a> ARM64Gen<'a> {
         variants: variant_metas,
       },
     );
+  }
+
+  fn register_punctuation_sym(&mut self, sym: Symbol, text: &[u8]) {
+    if self.string_data.iter().any(|(s, _)| *s == sym) {
+      return;
+    }
+
+    let mut buf = Buffer::new();
+
+    buf.bytes(&(text.len() as u64).to_le_bytes());
+    buf.bytes(text);
+    buf.bytes(b"\0");
+
+    self.string_data.push((sym, buf.finish()));
   }
 
   /// Pretty-print an enum value. Unit variants leave the
@@ -2011,8 +2083,6 @@ impl<'a> ARM64Gen<'a> {
   /// the recursive field print lands.
   fn emit_enum_write(&mut self, vid: ValueId, ty_id: TyId, fd: u16) {
     let Some(meta) = self.enum_metas.get(&ty_id.0) else {
-      // Fallback — shouldn't happen, but keep the compiler
-      // from panicking. Drop to itoa on the source register.
       if let Some(src) = self.alloc_reg(vid)
         && src != X0
       {
@@ -2022,106 +2092,101 @@ impl<'a> ARM64Gen<'a> {
       return;
     };
 
-    // Snapshot the variant list so we can drop the borrow on
-    // `self` before emitting code (emit_* takes `&mut self`).
-    let variants: Vec<(u32, Symbol, bool)> = meta
+    let variants: Vec<(u32, Symbol, Vec<TyId>)> = meta
       .variants
       .iter()
-      .map(|v| (v.discriminant, v.display_sym, v.field_count > 0))
+      .map(|v| (v.discriminant, v.display_sym, v.field_tys.clone()))
       .collect();
 
-    // Only register the shared "(...)" suffix when this enum
-    // actually has at least one tuple variant. Pure-unit enums
-    // (e.g. `enum Color { Red, Green, Blue }`) must not leak
-    // the ellipsis string into the artifact — that would be
-    // user-visible dead data and makes output regressions
-    // harder to catch. Mirrors `emit_bool_and_write`'s
-    // guard-on-Symbol pattern, restricted by the per-call
-    // need.
-    let ellipsis_sym = ENUM_TUPLE_ELLIPSIS_SYM;
-    let any_tuple = variants.iter().any(|(_, _, has_fields)| *has_fields);
-
-    if any_tuple && !self.string_data.iter().any(|(s, _)| *s == ellipsis_sym) {
-      let mut buf = Buffer::new();
-      let bytes: &[u8] = b"(...)";
-
-      buf.bytes(&(bytes.len() as u64).to_le_bytes());
-      buf.bytes(bytes);
-      buf.bytes(b"\0");
-
-      self.string_data.push((ellipsis_sym, buf.finish()));
-    }
-
-    // Load the discriminant into X17. Every enum value is now
-    // a pointer to `[tag, f0, f1, ...]` — even unit variants —
-    // so we always read slot 0. The earlier unit-vs-tuple
-    // branch is gone with the uniform representation.
     let src = self.alloc_reg(vid).unwrap_or(X0);
 
+    // Save enum pointer in X19 (callee-saved, outside
+    // allocator pool) so it survives write syscalls.
+    self.emitter.emit_mov_reg(Register::new(19), src);
     self.emitter.emit_ldr(X17, src, 0);
 
-    // Emit one arm per variant: cmp + b.ne + write-name + b.
-    // Track fixups to patch once we know the final positions.
-    let mut bne_fixups: Vec<usize> = Vec::with_capacity(variants.len());
     let mut done_fixups: Vec<usize> = Vec::with_capacity(variants.len());
 
-    for (disc, display_sym, has_fields) in &variants {
-      // cmp x15, #disc.
+    for (disc, display_sym, field_tys) in &variants {
       self.emitter.emit_cmp_imm(X17, *disc as u16);
 
-      // b.ne past_this_variant (patched later).
       let bne_pos = self.emitter.current_offset();
       self.emitter.emit_bne(0);
-      bne_fixups.push(bne_pos as usize);
 
-      // Load the display-string pointer via ADR + fixup.
-      let adr_pos = self.emitter.current_offset();
-      self.string_fixups.push((adr_pos, *display_sym));
-      self.emitter.emit_adr(X16, 0);
+      self.emit_synthetic_str_write(*display_sym, fd);
 
-      // Unpack the zo-string struct and syscall write.
-      self.emitter.emit_ldr(X2, X16, 0);
-      self.emitter.emit_add_imm(X1, X16, 8);
-      self.emitter.emit_mov_imm(X16, SYS_WRITE);
-      self.emitter.emit_mov_imm(X0, fd);
-      self.emitter.emit_svc(0);
+      if !field_tys.is_empty() {
+        self.emit_synthetic_str_write(ENUM_OPEN_PAREN_SYM, fd);
 
-      // Tuple variants get a `(...)` suffix so the user sees
-      // they carry a payload without blowing up the output.
-      if *has_fields {
-        let ellipsis_pos = self.emitter.current_offset();
-        self.string_fixups.push((ellipsis_pos, ellipsis_sym));
-        self.emitter.emit_adr(X16, 0);
+        for (i, field_ty) in field_tys.iter().enumerate() {
+          let offset = ((i as i16) + 1) * STACK_SLOT_SIZE as i16;
 
-        self.emitter.emit_ldr(X2, X16, 0);
-        self.emitter.emit_add_imm(X1, X16, 8);
-        self.emitter.emit_mov_imm(X16, SYS_WRITE);
-        self.emitter.emit_mov_imm(X0, fd);
-        self.emitter.emit_svc(0);
+          self
+            .emitter
+            .emit_ldr(X0, Register::new(19), offset);
+
+          self.emit_field_write(*field_ty, fd);
+
+          if i + 1 < field_tys.len() {
+            self.emit_synthetic_str_write(
+              ENUM_COMMA_SPACE_SYM, fd,
+            );
+          }
+        }
+
+        self.emit_synthetic_str_write(ENUM_CLOSE_PAREN_SYM, fd);
       }
 
-      // b done (patched later).
       let done_pos = self.emitter.current_offset();
       self.emitter.emit_b(0);
       done_fixups.push(done_pos as usize);
 
-      // Patch the b.ne to land right here — past the body.
       let after_body = self.emitter.current_offset() as i32;
-      let bne_rel = after_body - bne_pos as i32;
-      self.emitter.patch_bcond_at(bne_pos as usize, bne_rel);
+      self.emitter.patch_bcond_at(
+        bne_pos as usize,
+        after_body - bne_pos as i32,
+      );
     }
 
-    // Patch every done-jump to point at the current offset.
     let done_label = self.emitter.current_offset() as i32;
 
     for pos in done_fixups {
-      let rel = done_label - pos as i32;
-      self.emitter.patch_b_at(pos, rel);
+      self.emitter.patch_b_at(pos, done_label - pos as i32);
     }
+  }
 
-    // `bne_fixups` is no longer needed — each was patched
-    // immediately after its body to skip to the next arm.
-    let _ = bne_fixups;
+  fn emit_synthetic_str_write(&mut self, sym: Symbol, fd: u16) {
+    let adr_pos = self.emitter.current_offset();
+
+    self.string_fixups.push((adr_pos, sym));
+    self.emitter.emit_adr(X16, 0);
+    self.emitter.emit_ldr(X2, X16, 0);
+    self.emitter.emit_add_imm(X1, X16, 8);
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
+    self.emitter.emit_mov_imm(X0, fd);
+    self.emitter.emit_svc(0);
+  }
+
+  fn emit_field_write(&mut self, ty_id: TyId, fd: u16) {
+    let is_str = ty_id.0 == 4;
+    let is_float =
+      ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+    let is_bool = ty_id.0 == BOOL_TYPE_ID;
+
+    if is_str {
+      self.emitter.emit_ldr(X2, X0, 0);
+      self.emitter.emit_add_imm(X1, X0, 8);
+      self.emitter.emit_mov_imm(X16, SYS_WRITE);
+      self.emitter.emit_mov_imm(X0, fd);
+      self.emitter.emit_svc(0);
+    } else if is_float {
+      self.emitter.emit_fmov_gp_to_fp(D0, X0);
+      self.emit_ftoa_and_write(fd);
+    } else if is_bool {
+      self.emit_bool_and_write(fd);
+    } else {
+      self.emit_itoa_and_write(fd);
+    }
   }
 
   /// Emit a newline write to the given fd.
@@ -2351,7 +2416,7 @@ impl<'a> ARM64Gen<'a> {
     // X4 = (total + 9 + 15) & ~15 — 16-byte aligned.
     self.emitter.emit_add_imm(x4, x3, 24);
     self.emitter.emit_and_align16(x4, x4);
-    self.emitter.emit_sub(SP, SP, x4);
+    self.emitter.emit_sub_ext(SP, SP, x4);
 
     // Store combined length at [SP + 0].
     self.emitter.emit_str(x3, SP, 0);
@@ -2413,6 +2478,186 @@ impl<'a> ARM64Gen<'a> {
 
     // Result pointer.
     self.emitter.emit_add_imm(dst, SP, 0);
+  }
+
+  // ================================================================
+  // IO builtins — ARM64 syscall implementations.
+  // macOS convention: carry flag set = error, X0 = errno.
+  // ================================================================
+
+  /// `exists(path: str) -> bool` — access(path, F_OK).
+  fn emit_io_exists(&mut self, args: &[ValueId], idx: usize) {
+    let path = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    self.emitter.emit_add_imm(X0, path, 8);
+    self.emitter.emit_mov_imm(X1, 0);
+    self.emitter.emit_mov_imm(X16, SYS_ACCESS);
+    self.emitter.emit_svc(0);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emitter.emit_cmp_imm(X0, 0);
+      self.emitter.emit_cset(dst, COND_EQ);
+    }
+  }
+
+  /// `read_file(path: str) -> Result<str, int>`
+  /// open → read → close → construct Result on stack.
+  fn emit_io_read_file(&mut self, args: &[ValueId], idx: usize) {
+    let path = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let result_base = self.struct_base + self.next_struct_slot;
+
+    // Stack layout (relative to result_base):
+    //   [0]  Result tag
+    //   [1]  Result field (str ptr or errno)
+    //   [2]  scratch: saved bytes_read
+    //   [3]  string length prefix
+    //   [4+] string bytes + null
+    let scratch_off = result_base + 2 * STACK_SLOT_SIZE;
+    let str_base = result_base + 3 * STACK_SLOT_SIZE;
+    let buf_off = str_base + STACK_SLOT_SIZE;
+
+    // --- open ---
+    self.emitter.emit_add_imm(X0, path, 8);
+    self.emitter.emit_mov_imm(X1, O_RDONLY);
+    self.emitter.emit_mov_imm(X2, 0);
+    self.emitter.emit_mov_imm(X16, SYS_OPEN);
+    self.emitter.emit_svc(0);
+
+    let open_err_pos = self.emitter.current_offset();
+    self.emitter.emit_bcs(0);
+
+    // --- read ---
+    self.emitter.emit_mov_reg(X17, X0);
+    self.emitter.emit_mov_reg(X0, X17);
+    self.emit_add_sp_offset(X1, buf_off);
+    self.emitter.emit_mov_imm(X2, READ_FILE_BUF_SIZE);
+    self.emitter.emit_mov_imm(X16, SYS_READ);
+    self.emitter.emit_svc(0);
+    self.emit_str_sp(X0, scratch_off);
+
+    // --- close ---
+    self.emitter.emit_mov_reg(X0, X17);
+    self.emitter.emit_mov_imm(X16, SYS_CLOSE);
+    self.emitter.emit_svc(0);
+
+    self.emit_ldr_sp(X2, scratch_off);
+
+    // --- construct Result::Ok(str) ---
+    self.emit_str_sp(X2, str_base);
+    self.emit_add_sp_offset(X0, buf_off);
+    self.emitter.emit_add(X0, X0, X2);
+    self.emitter.emit_strb(XZR, X0, 0);
+    self.emit_str_sp(XZR, result_base);
+    self.emit_add_sp_offset(X0, str_base);
+    self.emit_str_sp(X0, result_base + STACK_SLOT_SIZE);
+
+    let ok_done_pos = self.emitter.current_offset();
+    self.emitter.emit_b(0);
+
+    // --- error path ---
+    let err_label = self.emitter.current_offset();
+    self.emitter.patch_bcond_at(
+      open_err_pos as usize,
+      err_label as i32 - open_err_pos as i32,
+    );
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emit_str_sp(X16, result_base);
+    self.emit_str_sp(X0, result_base + STACK_SLOT_SIZE);
+
+    // --- merge ---
+    let done_label = self.emitter.current_offset();
+    self.emitter.patch_b_at(
+      ok_done_pos as usize,
+      done_label as i32 - ok_done_pos as i32,
+    );
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, result_base);
+    }
+
+    let total_slots =
+      2 + 1 + 1 + (READ_FILE_BUF_SIZE as u32 + 8) / STACK_SLOT_SIZE;
+    self.next_struct_slot += total_slots * STACK_SLOT_SIZE;
+  }
+
+  /// `write_file(path, content) -> Result<int, int>`
+  fn emit_io_write_file(&mut self, args: &[ValueId], idx: usize) {
+    self.emit_io_write_impl(args, idx, O_WRONLY_CREAT_TRUNC);
+  }
+
+  /// `append_file(path, content) -> Result<int, int>`
+  fn emit_io_append_file(&mut self, args: &[ValueId], idx: usize) {
+    self.emit_io_write_impl(args, idx, O_WRONLY_CREAT_APPEND);
+  }
+
+  /// Shared write implementation.
+  fn emit_io_write_impl(
+    &mut self,
+    args: &[ValueId],
+    idx: usize,
+    open_flags: u16,
+  ) {
+    let path = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let content = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let result_base = self.struct_base + self.next_struct_slot;
+
+    // Save content pointer before open clobbers regs.
+    self.emit_str_sp(content, result_base + 4 * STACK_SLOT_SIZE);
+
+    // --- open ---
+    self.emitter.emit_add_imm(X0, path, 8);
+    self.emitter.emit_mov_imm(X1, open_flags);
+    self.emitter.emit_mov_imm(X2, FILE_MODE_644);
+    self.emitter.emit_mov_imm(X16, SYS_OPEN);
+    self.emitter.emit_svc(0);
+
+    let open_err_pos = self.emitter.current_offset();
+    self.emitter.emit_bcs(0);
+
+    // --- write ---
+    self.emitter.emit_mov_reg(X17, X0);
+    // Reload saved content pointer.
+    self.emit_ldr_sp(X1, result_base + 4 * STACK_SLOT_SIZE);
+    self.emitter.emit_ldr(X2, X1, 0);
+    self.emitter.emit_add_imm(X1, X1, 8);
+    self.emitter.emit_mov_reg(X0, X17);
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
+    self.emitter.emit_svc(0);
+    self.emitter.emit_mov_reg(X2, X0);
+
+    // --- close ---
+    self.emitter.emit_mov_reg(X0, X17);
+    self.emitter.emit_mov_imm(X16, SYS_CLOSE);
+    self.emitter.emit_svc(0);
+
+    // --- Ok path ---
+    self.emit_str_sp(XZR, result_base);
+    self.emit_str_sp(X2, result_base + STACK_SLOT_SIZE);
+    let ok_done_pos = self.emitter.current_offset();
+    self.emitter.emit_b(0);
+
+    // --- Err path ---
+    let err_label = self.emitter.current_offset();
+    self.emitter.patch_bcond_at(
+      open_err_pos as usize,
+      err_label as i32 - open_err_pos as i32,
+    );
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emit_str_sp(X16, result_base);
+    self.emit_str_sp(X0, result_base + STACK_SLOT_SIZE);
+
+    // --- merge ---
+    let done_label = self.emitter.current_offset();
+    self.emitter.patch_b_at(
+      ok_done_pos as usize,
+      done_label as i32 - ok_done_pos as i32,
+    );
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, result_base);
+    }
+
+    self.next_struct_slot += 5 * STACK_SLOT_SIZE;
   }
 
   fn emit_check_fail(&mut self) {
