@@ -1,0 +1,33 @@
+-! # how to result and option: 047-result-option.zo
+-!
+-! @cmd: `zo run 047-result-option.zo`
+-!
+-! `Option` and `Result` are auto-imported from the preload
+-! module. No `load` statement needed.
+
+fun main() {
+  imu a: Option<int> = Option::Some(42);
+  imu b: Option<int> = Option::None;
+
+  match a {
+    Option::Some(v) => showln(v),
+    Option::None => showln(0),
+  }
+
+  match b {
+    Option::Some(v) => showln(v),
+    Option::None => showln(0),
+  }
+
+  imu ok: Result<int, int> = Result::Ok(99);
+
+  match ok {
+    Result::Ok(v) => showln(v),
+    Result::Err(e) => showln(e),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 0
+-- 99

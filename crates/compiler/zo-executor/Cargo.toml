@@ -15,6 +15,7 @@ zo-constant-propagation = { workspace = true }
 zo-dce = { workspace = true }
 zo-error = { workspace = true }
 zo-interner = { workspace = true }
+zo-module-resolver = { workspace = true }
 zo-parser = { workspace = true }
 zo-reporter = { workspace = true }
 zo-sir = { workspace = true }

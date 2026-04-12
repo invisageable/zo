@@ -98,6 +98,10 @@ pub struct Executor<'a> {
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
   enum_defs: Vec<(Symbol, zo_ty::EnumTyId, TyId)>,
+  /// Imported enum defs awaiting lazy interning. Populated
+  /// by `with_imports`, consumed by `execute_enum_access`
+  /// on first reference.
+  pending_imported_enums: Vec<zo_module_resolver::ExportedEnum>,
   /// Pending enum construction: (enum_name, variant_disc,
   /// variant_field_count, ty_id).
   pending_enum_construct: Option<(Symbol, u32, u32, TyId)>,
@@ -181,6 +185,7 @@ impl<'a> Executor<'a> {
       deferred_binops: Vec::new(),
       closure_counter: 0,
       enum_defs: Vec::new(),
+      pending_imported_enums: Vec::new(),
       pending_enum_construct: None,
       apply_context: None,
       global_constants: Vec::new(),
@@ -274,10 +279,20 @@ impl<'a> Executor<'a> {
   /// Pre-populates the executor with imported function
   /// definitions and constants so they're available during
   /// execution.
-  pub fn with_imports(mut self, funs: Vec<FunDef>, vars: Vec<Local>) -> Self {
+  pub fn with_imports(
+    mut self,
+    funs: Vec<FunDef>,
+    vars: Vec<Local>,
+    enums: Vec<zo_module_resolver::ExportedEnum>,
+  ) -> Self {
     self.funs = funs;
-
     self.locals.extend(vars);
+
+    // Defer enum interning to first use to avoid TyId counter
+    // shifts that would pollute HM unification. Raw export
+    // data is stored here and resolved lazily in
+    // `execute_enum_access` / the Ident handler.
+    self.pending_imported_enums = enums;
 
     self
   }
@@ -502,6 +517,12 @@ impl<'a> Executor<'a> {
         let children_end = (header.child_start + header.child_count) as usize;
 
         self.execute_for(idx, children_end);
+      }
+
+      Token::Match => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_match(idx, children_end);
       }
 
       // === CONTROL FLOW ELSE ===
@@ -1507,7 +1528,12 @@ impl<'a> Executor<'a> {
             // Functions come from prelude imports or
             // explicit `load` — no hardcoded builtins.
             let is_fun = self.funs.iter().any(|f| f.name == sym);
-            let is_enum = self.enum_defs.iter().any(|e| e.0 == sym);
+            let sym_str = self.interner.get(sym);
+            let is_enum = self.enum_defs.iter().any(|e| e.0 == sym)
+              || self
+                .pending_imported_enums
+                .iter()
+                .any(|e| self.interner.get(e.name) == sym_str);
             let is_struct =
               self.ty_checker.ty_table.struct_intern_lookup(sym).is_some();
 
@@ -4067,12 +4093,23 @@ impl<'a> Executor<'a> {
     {
       let sir_init = self.sir_values.pop();
 
-      // Unify annotated type with init type.
+      // Unify annotated type with init type. For enum values,
+      // the annotation `Option<int>` can't be fully parsed yet
+      // (generic type annotations are a follow-up), so skip
+      // unification when the init type is an enum and the
+      // annotation refers to a non-enum type. The init type is
+      // the ground truth in that case.
       let ty_id = if let Some(ann_ty) = decl.annotated_ty {
-        self
-          .ty_checker
-          .unify(ann_ty, init_ty, decl.span)
-          .unwrap_or(init_ty)
+        let init_is_enum = self.enum_defs.iter().any(|e| e.2 == init_ty);
+
+        if init_is_enum {
+          init_ty
+        } else {
+          self
+            .ty_checker
+            .unify(ann_ty, init_ty, decl.span)
+            .unwrap_or(init_ty)
+        }
       } else {
         init_ty
       };
@@ -5221,8 +5258,51 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
-    // Try enum variant first.
-    let entry = self.enum_defs.iter().find(|e| e.0 == enum_name).copied();
+    // Try enum variant first. If not found in enum_defs,
+    // check pending imports and lazy-intern on first use.
+    let mut entry = self.enum_defs.iter().find(|e| e.0 == enum_name).copied();
+
+    if entry.is_none() {
+      let enum_name_str = self.interner.get(enum_name).to_owned();
+
+      if let Some(pos) = self
+        .pending_imported_enums
+        .iter()
+        .position(|e| self.interner.get(e.name) == enum_name_str)
+      {
+        let en = self.pending_imported_enums.remove(pos);
+
+        // Use fresh inference variables for generic field
+        // types so monomorphization can substitute concrete
+        // types (e.g. `$T` → `int`). Bump the level to
+        // isolate these from function-body generalization —
+        // without this, they pollute the HM state and break
+        // ternary/if-else type unification.
+        self.ty_checker.push_scope();
+
+        let fresh_variants: Vec<(Symbol, u32, Vec<TyId>)> = en
+          .variants
+          .iter()
+          .map(|(name, disc, fields)| {
+            let pf: Vec<TyId> =
+              fields.iter().map(|_| self.ty_checker.fresh_var()).collect();
+
+            (*name, *disc, pf)
+          })
+          .collect();
+
+        self.ty_checker.pop_scope();
+
+        let ety_id = self
+          .ty_checker
+          .ty_table
+          .intern_enum(en.name, &fresh_variants);
+        let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
+
+        self.enum_defs.push((en.name, ety_id, ty_id));
+        entry = Some((en.name, ety_id, ty_id));
+      }
+    }
 
     if entry.is_none() {
       // Not an enum — try method call (apply).
@@ -5518,6 +5598,467 @@ impl<'a> Executor<'a> {
       branch_emitted: false,
       for_var: None,
     });
+  }
+
+  /// Lower `match scrutinee { pat => body, ... }` to a
+  /// cmp-chain of if-else-if-else lines in SIR. Slice 1 of
+  /// `PLAN_MATCH` — literal int patterns + wildcard only, arm
+  /// bodies run for side effects (no result-value
+  /// unification). Enum patterns, string/bool literals, and
+  /// match-as-expression are follow-up slices.
+  ///
+  /// Tree layout after `handle_match_keyword`:
+  /// ```text
+  ///   Match (idx)
+  ///     <scrutinee expression nodes>
+  ///     LBrace
+  ///       <pat, FatArrow, body..., Comma>*
+  ///     RBrace
+  /// ```
+  fn execute_match(&mut self, start_idx: usize, end_idx: usize) {
+    // Everything between `start_idx` and `end_idx` is ours;
+    // the main loop must not re-visit these nodes after we
+    // return.
+    self.skip_until = end_idx;
+
+    // -- 1. Locate the LBrace that opens the arm block ------
+    let lbrace_idx = match (start_idx + 1..end_idx)
+      .find(|&j| self.tree.nodes[j].token == Token::LBrace)
+    {
+      Some(i) => i,
+      None => return,
+    };
+
+    // -- 2. Locate the matching RBrace at depth 0 -----------
+    let mut depth = 1_i32;
+    let mut rbrace_idx = end_idx;
+
+    for j in (lbrace_idx + 1)..end_idx {
+      match self.tree.nodes[j].token {
+        Token::LBrace => depth += 1,
+        Token::RBrace => {
+          depth -= 1;
+          if depth == 0 {
+            rbrace_idx = j;
+            break;
+          }
+        }
+        _ => {}
+      }
+    }
+
+    // -- 3. Execute the scrutinee expression ----------------
+    // Stream each scrutinee node through `execute_node` so
+    // its sir_values top is the scrutinee's SIR value at the
+    // end. Same pattern `execute_closure` already uses for
+    // its body range.
+    let saved_skip = self.skip_until;
+
+    self.skip_until = 0;
+
+    let stack_before = self.sir_values.len();
+
+    for i in (start_idx + 1)..lbrace_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+    }
+
+    self.skip_until = saved_skip;
+
+    // Pop the scrutinee's value off the three stacks. We
+    // capture its **symbol** (for re-loading per arm) and type,
+    // NOT the single ValueId. Reusing one ValueId across all
+    // arms breaks the register allocator's liveness tracking —
+    // it frees the scrutinee's register after the first CMP,
+    // and the second arm's pattern constant overwrites it.
+    // Emitting a fresh `Insn::Load` per arm gives each a
+    // dedicated ValueId with correct local liveness.
+    let scrutinee_ty = self
+      .ty_stack
+      .last()
+      .copied()
+      .unwrap_or(self.ty_checker.int_type());
+
+    // Extract the scrutinee's local symbol for per-arm reloads.
+    // For Slice 1 the scrutinee is always a single Ident node.
+    let scrutinee_sym = (start_idx + 1..lbrace_idx)
+      .find(|&i| self.tree.nodes[i].token == Token::Ident)
+      .and_then(|i| match self.node_value(i) {
+        Some(NodeValue::Symbol(s)) => Some(s),
+        _ => None,
+      });
+
+    while self.sir_values.len() > stack_before {
+      self.sir_values.pop();
+      self.value_stack.pop();
+      self.ty_stack.pop();
+    }
+
+    // -- 4. Walk the arms ------------------------------------
+    let end_label = self.sir.next_label();
+    let mut arm_idx = lbrace_idx + 1;
+
+    while arm_idx < rbrace_idx {
+      // Skip any stray comma from the previous arm.
+      while arm_idx < rbrace_idx
+        && self.tree.nodes[arm_idx].token == Token::Comma
+      {
+        arm_idx += 1;
+      }
+
+      if arm_idx >= rbrace_idx {
+        break;
+      }
+
+      // Pattern is the first node; find the FatArrow that
+      // separates it from the body.
+      let pat_idx = arm_idx;
+      let mut arrow_idx = None;
+
+      for j in pat_idx..rbrace_idx {
+        if self.tree.nodes[j].token == Token::FatArrow {
+          arrow_idx = Some(j);
+          break;
+        }
+      }
+
+      let arrow_idx = match arrow_idx {
+        Some(i) => i,
+        None => break,
+      };
+
+      // Body range: arrow_idx + 1 .. next top-level Comma or
+      // rbrace_idx. Top-level = depth 0 inside the arm block.
+      let mut body_depth = 0_i32;
+      let mut body_end = rbrace_idx;
+
+      for j in (arrow_idx + 1)..rbrace_idx {
+        let tok = self.tree.nodes[j].token;
+
+        match tok {
+          Token::LParen | Token::LBrace | Token::LBracket => body_depth += 1,
+          Token::RParen | Token::RBrace | Token::RBracket => body_depth -= 1,
+          Token::Comma if body_depth == 0 => {
+            body_end = j;
+            break;
+          }
+          _ => {}
+        }
+      }
+
+      // -- Emit the arm ------------------------------------
+      let pat_tok = self.tree.nodes[pat_idx].token;
+      let is_wildcard = pat_tok == Token::Ident
+        && matches!(
+          self.node_value(pat_idx),
+          Some(NodeValue::Symbol(s)) if s == Symbol::UNDERSCORE
+        );
+
+      let next_arm_label = self.sir.next_label();
+
+      // Number of locals introduced by this arm's pattern.
+      // Popped after the body executes.
+      let mut arm_bindings: u32 = 0;
+
+      // Detect enum variant pattern: Ident :: Ident [( bindings )]
+      let is_enum_pat = !is_wildcard
+        && pat_tok == Token::Ident
+        && pat_idx + 2 < arrow_idx
+        && self.tree.nodes[pat_idx + 1].token == Token::ColonColon
+        && self.tree.nodes[pat_idx + 2].token == Token::Ident;
+
+      if !is_wildcard && pat_tok == Token::Int {
+        let value = match self.node_value(pat_idx) {
+          Some(NodeValue::Literal(lit)) => {
+            self.literals.int_literals[lit as usize]
+          }
+          _ => 0,
+        };
+
+        // Fresh Load per arm so the register allocator
+        // sees an independent liveness range for the
+        // scrutinee in each test.
+        let scrut_dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let scrut_reload = if let Some(sym) = scrutinee_sym {
+          self.sir.emit(Insn::Load {
+            dst: scrut_dst,
+            src: LoadSource::Local(sym),
+            ty_id: scrutinee_ty,
+          })
+        } else {
+          scrut_dst
+        };
+
+        let pat_dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let pat_sir = self.sir.emit(Insn::ConstInt {
+          dst: pat_dst,
+          value,
+          ty_id: scrutinee_ty,
+        });
+
+        let cmp_dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let cmp_sir = self.sir.emit(Insn::BinOp {
+          dst: cmp_dst,
+          op: zo_sir::BinOp::Eq,
+          lhs: scrut_reload,
+          rhs: pat_sir,
+          ty_id: scrutinee_ty,
+        });
+
+        self.sir.emit(Insn::BranchIfNot {
+          cond: cmp_sir,
+          target: next_arm_label,
+        });
+      } else if is_enum_pat {
+        // Resolve enum name + variant name.
+        let enum_sym = match self.node_value(pat_idx) {
+          Some(NodeValue::Symbol(s)) => s,
+          _ => {
+            arm_idx = body_end;
+            continue;
+          }
+        };
+        let var_sym = match self.node_value(pat_idx + 2) {
+          Some(NodeValue::Symbol(s)) => s,
+          _ => {
+            arm_idx = body_end;
+            continue;
+          }
+        };
+
+        // Look up the enum definition and variant.
+        let enum_name_str = self.interner.get(enum_sym).to_owned();
+        let entry = self
+          .enum_defs
+          .iter()
+          .find(|e| {
+            let n = self.interner.get(e.0);
+            n == enum_name_str || n.starts_with(&format!("{enum_name_str}__"))
+          })
+          .copied();
+        let (_, ety_id, _) = match entry {
+          Some(e) => e,
+          None => {
+            arm_idx = body_end;
+            continue;
+          }
+        };
+
+        let enum_ty = match self.ty_checker.ty_table.enum_ty(ety_id) {
+          Some(et) => *et,
+          None => {
+            arm_idx = body_end;
+            continue;
+          }
+        };
+
+        let var_str = self.interner.get(var_sym).to_owned();
+        let variants = self.ty_checker.ty_table.enum_variants(&enum_ty);
+        let variant = match variants
+          .iter()
+          .find(|v| self.interner.get(v.name) == var_str)
+        {
+          Some(v) => *v,
+          None => {
+            arm_idx = body_end;
+            continue;
+          }
+        };
+
+        // Fresh Load of the scrutinee pointer.
+        let scrut_dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let scrut_reload = if let Some(sym) = scrutinee_sym {
+          self.sir.emit(Insn::Load {
+            dst: scrut_dst,
+            src: LoadSource::Local(sym),
+            ty_id: scrutinee_ty,
+          })
+        } else {
+          scrut_dst
+        };
+
+        // Read discriminant from [scrutinee, 0].
+        let int_ty = self.ty_checker.int_type();
+        let disc_dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let disc_sir = self.sir.emit(Insn::TupleIndex {
+          dst: disc_dst,
+          tuple: scrut_reload,
+          index: 0,
+          ty_id: int_ty,
+        });
+
+        // Compare against expected discriminant.
+        let exp_dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let exp_sir = self.sir.emit(Insn::ConstInt {
+          dst: exp_dst,
+          value: variant.discriminant as u64,
+          ty_id: int_ty,
+        });
+
+        let cmp_dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let cmp_sir = self.sir.emit(Insn::BinOp {
+          dst: cmp_dst,
+          op: zo_sir::BinOp::Eq,
+          lhs: disc_sir,
+          rhs: exp_sir,
+          ty_id: int_ty,
+        });
+
+        self.sir.emit(Insn::BranchIfNot {
+          cond: cmp_sir,
+          target: next_arm_label,
+        });
+
+        // Tuple variant bindings: extract payload fields and
+        // introduce them as locals so the arm body can use
+        // them (e.g. `Loot::Gold(n) => showln(n)`).
+        if variant.field_count > 0
+          && pat_idx + 3 < arrow_idx
+          && self.tree.nodes[pat_idx + 3].token == Token::LParen
+        {
+          let field_tys =
+            self.ty_checker.ty_table.variant_fields(&variant).to_vec();
+          let mut bind_idx = pat_idx + 4;
+          let mut field_i: u32 = 0;
+
+          while bind_idx < arrow_idx && field_i < variant.field_count {
+            let tok = self.tree.nodes[bind_idx].token;
+
+            if tok == Token::RParen {
+              break;
+            }
+            if tok == Token::Comma {
+              bind_idx += 1;
+              continue;
+            }
+
+            if tok == Token::Ident
+              && let Some(NodeValue::Symbol(bind_sym)) =
+                self.node_value(bind_idx)
+            {
+              let field_ty =
+                field_tys.get(field_i as usize).copied().unwrap_or(int_ty);
+
+              // TupleIndex to read the field (index = field_i + 1
+              // because slot 0 is the discriminant).
+              let field_dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+
+              let field_sir = self.sir.emit(Insn::TupleIndex {
+                dst: field_dst,
+                tuple: scrut_reload,
+                index: field_i + 1,
+                ty_id: field_ty,
+              });
+
+              // Introduce as a local + emit VarDef + Store so
+              // the codegen's Load handler can find it in
+              // mutable_slots.
+              self.sir.emit(Insn::VarDef {
+                name: bind_sym,
+                ty_id: field_ty,
+                init: Some(field_sir),
+                mutability: Mutability::No,
+                pubness: Pubness::No,
+              });
+
+              self.sir.emit(Insn::Store {
+                name: bind_sym,
+                value: field_sir,
+                ty_id: field_ty,
+              });
+
+              let rid = self.values.store_runtime(0);
+
+              self.locals.push(Local {
+                name: bind_sym,
+                ty_id: field_ty,
+                value_id: rid,
+                pubness: Pubness::No,
+                mutability: Mutability::No,
+                sir_value: Some(field_sir),
+                local_kind: LocalKind::Variable,
+              });
+
+              arm_bindings += 1;
+              field_i += 1;
+            }
+
+            bind_idx += 1;
+          }
+        }
+      }
+
+      // Execute arm body nodes. Each call to `execute_node`
+      // emits SIR for one tree node; expression values pile
+      // up on the sir_values stack but since Slice 1 bodies
+      // are statement expressions (e.g. `showln(...)`), the
+      // stack returns to its baseline once the call
+      // completes.
+      let saved_skip = self.skip_until;
+
+      self.skip_until = 0;
+
+      let body_stack_before = self.sir_values.len();
+
+      for i in (arrow_idx + 1)..body_end {
+        if i < self.skip_until {
+          continue;
+        }
+
+        let node = self.tree.nodes[i];
+
+        self.execute_node(&node, i);
+      }
+
+      self.skip_until = saved_skip;
+
+      // Drop any residual expression values left on the
+      // stack by the arm body. Unit-returning calls leave
+      // nothing, but we defensively normalize.
+      while self.sir_values.len() > body_stack_before {
+        self.sir_values.pop();
+        self.value_stack.pop();
+        self.ty_stack.pop();
+      }
+
+      // Pop arm-local bindings (tuple variant payload fields)
+      // so they don't leak into subsequent arms.
+      for _ in 0..arm_bindings {
+        self.locals.pop();
+      }
+
+      // Jump to the shared end label, then emit the
+      // next-arm label for the failing branch above.
+      self.sir.emit(Insn::Jump { target: end_label });
+      self.sir.emit(Insn::Label { id: next_arm_label });
+
+      // Advance past the arm's body and optional trailing
+      // comma; the outer `while` handles the comma skip.
+      arm_idx = body_end;
+    }
+
+    // -- 5. End label ----------------------------------------
+    self.sir.emit(Insn::Label { id: end_label });
   }
 
   /// Sets up a while loop context.

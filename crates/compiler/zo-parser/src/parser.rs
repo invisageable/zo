@@ -333,6 +333,7 @@ impl<'a> Parser<'a> {
       Token::When => self.handle_when_keyword(),
       Token::While => self.handle_while_keyword(),
       Token::For => self.handle_for_keyword(),
+      Token::Match => self.handle_match_keyword(),
       Token::Return => self.handle_return_keyword(),
 
       // Directives
@@ -734,6 +735,11 @@ impl<'a> Parser<'a> {
             self.close_introducer();
           } else if parent.token == Token::When {
             // Ternary ends at block boundary
+            self.close_introducer();
+          } else if parent.token == Token::Match {
+            // `match` is complete once its arm block `}` is
+            // closed. Arm content is already flattened inside
+            // the LBrace child.
             self.close_introducer();
           } else if matches!(parent.token, Token::Fun | Token::Fn | Token::Ext)
           {
@@ -1250,6 +1256,28 @@ impl<'a> Parser<'a> {
     self.introducer_stack.push(Introducer {
       state: self.state,
       token: Token::When,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::Expression;
+  }
+
+  /// `match expr { pat => body, pat => body, ... }`. Mirrors
+  /// the `if` / `while` / `when` shape: emit `Token::Match`
+  /// as an introducer, parse the scrutinee expression next,
+  /// then let `handle_lbrace_introducer` create the block for
+  /// the arm list. Arms are flat children inside the LBrace
+  /// separated by `FatArrow` + `Comma` markers — the executor
+  /// groups them at lowering time.
+  fn handle_match_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Match);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Match,
       node_index,
       children_start: self.tree.nodes.len() as u32,
     });
