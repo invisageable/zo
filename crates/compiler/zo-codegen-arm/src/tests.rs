@@ -331,3 +331,182 @@ fn test_string_fixup() {
   assert!(code_contains_hello, "should contain 'hello'");
   assert!(code_contains_world, "should contain 'world'");
 }
+
+// ================================================================
+// Enum pretty-printer (ZO-CL08) — tests the `register_enum_meta`
+// + `is_enum_value` + `emit_enum_write` path that turns
+// `show(Loot::Gold(50))` into a human-readable
+// `Loot::Gold(...)` instead of leaking a stack pointer.
+// ================================================================
+
+/// True iff `needle` appears as a contiguous byte sequence in
+/// `haystack`. Used to assert that the enum pretty-printer
+/// baked a display string into the final artifact.
+fn code_contains(haystack: &[u8], needle: &[u8]) -> bool {
+  haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+#[test]
+fn test_enum_tuple_variant_show_bakes_display_string() {
+  // `show(Loot::Gold(50))` must emit a UTF-8 `"Loot::Gold"`
+  // somewhere in the artifact — that's the pre-baked display
+  // string the cmp-chain loads via ADR + fixup.
+  let code = compile_to_code(
+    r#"
+enum Loot {
+  Gold(int),
+  Nothing,
+}
+
+fun main() {
+  show(Loot::Gold(50));
+}"#,
+  );
+
+  assert!(
+    code_contains(&code, b"Loot::Gold"),
+    "expected 'Loot::Gold' display string in the artifact",
+  );
+}
+
+#[test]
+fn test_enum_tuple_variant_show_bakes_ellipsis_suffix() {
+  // Tuple variants also append `"(...)"` so the user can tell
+  // them apart from unit variants at a glance. Unit variants
+  // within the same enum must *not* cause an ellipsis load.
+  let code = compile_to_code(
+    r#"
+enum Loot {
+  Gold(int),
+  Nothing,
+}
+
+fun main() {
+  show(Loot::Gold(50));
+}"#,
+  );
+
+  assert!(
+    code_contains(&code, b"(...)"),
+    "expected '(...)' suffix for the tuple variant",
+  );
+}
+
+#[test]
+fn test_enum_unit_variant_show_has_no_ellipsis() {
+  // An enum that only has unit variants must not leak the
+  // tuple-suffix marker into the artifact — otherwise the
+  // pretty-printer is appending `(...)` to unit variants too.
+  let code = compile_to_code(
+    r#"
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+fun main() {
+  show(Color::Red);
+}"#,
+  );
+
+  assert!(
+    code_contains(&code, b"Color::Red"),
+    "expected 'Color::Red' display string in the artifact",
+  );
+  assert!(
+    !code_contains(&code, b"(...)"),
+    "unit-only enums must not bake the '(...)' suffix",
+  );
+}
+
+#[test]
+fn test_enum_mixed_variants_bake_all_display_strings() {
+  // An enum with both tuple and unit variants must bake one
+  // display string per variant — the cmp-chain in
+  // `emit_enum_write` references them by discriminant.
+  let code = compile_to_code(
+    r#"
+enum Loot {
+  Gold(int),
+  Potion(int),
+  Nothing,
+}
+
+fun main() {
+  show(Loot::Gold(42));
+}"#,
+  );
+
+  for variant in [b"Loot::Gold".as_slice(), b"Loot::Potion", b"Loot::Nothing"] {
+    assert!(
+      code_contains(&code, variant),
+      "expected '{}' display string in the artifact",
+      std::str::from_utf8(variant).unwrap(),
+    );
+  }
+}
+
+#[test]
+fn test_enum_tuple_variant_emits_cmp_chain() {
+  // One `CMP (immediate)` per variant — the cmp-chain is the
+  // whole point of `emit_enum_write`. With three variants we
+  // expect at least three `CMP immediate` instructions in the
+  // artifact.
+  //
+  // CMP (immediate) 64-bit encoding: 0xF100_0000 top bits.
+  let code = compile_to_code(
+    r#"
+enum Loot {
+  Gold(int),
+  Potion(int),
+  Nothing,
+}
+
+fun main() {
+  show(Loot::Gold(1));
+}"#,
+  );
+
+  let cmp_imm_count = code
+    .chunks_exact(4)
+    .filter(|chunk| {
+      let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+      // 64-bit CMP (immediate): SUBS XZR, Xn, #imm12
+      // sf=1, S=1, op=101, 0xF1xx_xxxx with Rd=31.
+      (insn & 0xFF00_0000) == 0xF100_0000 && (insn & 0x1F) == 0x1F
+    })
+    .count();
+
+  assert!(
+    cmp_imm_count >= 3,
+    "expected at least 3 CMP instructions for a 3-variant enum, got {cmp_imm_count}",
+  );
+}
+
+#[test]
+fn test_enum_independent_from_string_ellipsis() {
+  // Regression: the shared `"(...)"` symbol must not collide
+  // with a user-interned string. Compile a program that prints
+  // a literal `"(...)"` via `show`, alongside a tuple-variant
+  // enum — both should survive.
+  let code = compile_to_code(
+    r#"
+enum Loot {
+  Gold(int),
+  Nothing,
+}
+
+fun main() {
+  show(Loot::Gold(1));
+  show("(...)");
+}"#,
+  );
+
+  // The ellipsis byte pattern must still appear; even if the
+  // user-string path dedupes against the enum-owned symbol,
+  // the displayed output is identical either way.
+  assert!(code_contains(&code, b"(...)"));
+  assert!(code_contains(&code, b"Loot::Gold"));
+}

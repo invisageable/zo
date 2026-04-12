@@ -452,6 +452,33 @@ impl ARM64Emitter {
     self.code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
   }
 
+  /// Patch a previously emitted conditional branch (B.cond)
+  /// at `pos` (byte offset) with a new PC-relative `offset` in
+  /// bytes. Preserves the original condition code. Used by the
+  /// enum pretty-printer to fix up forward jumps once the
+  /// matching arm body's length is known.
+  pub fn patch_bcond_at(&mut self, pos: usize, offset: i32) {
+    let existing =
+      u32::from_le_bytes(self.code[pos..pos + 4].try_into().unwrap());
+    let cond = existing & 0xF;
+    let imm19 = ((offset >> 2) as u32) & IMM19_MASK;
+    let insn = BCOND | (imm19 << 5) | cond;
+
+    self.code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
+  }
+
+  /// Patch a previously emitted unconditional branch (B) at
+  /// `pos` (byte offset) with a new PC-relative `offset` in
+  /// bytes. Mirror of `patch_bl` but for plain B, used by the
+  /// enum pretty-printer to jump out of a matched variant's
+  /// body to the shared `done` label.
+  pub fn patch_b_at(&mut self, pos: usize, offset: i32) {
+    let imm26 = ((offset >> 2) as u32) & IMM26_MASK;
+    let insn = B | imm26;
+
+    self.code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
+  }
+
   /// AND Xd, Xn, #~15 — clear bottom 4 bits (align down
   /// to 16). Used for stack alignment.
   pub fn emit_and_align16(&mut self, dst: Register, src: Register) {

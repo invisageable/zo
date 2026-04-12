@@ -440,8 +440,16 @@ pub fn allocate_function(
       Insn::StructConstruct { fields, .. } => {
         struct_slots += fields.len() as u32;
       }
-      Insn::EnumConstruct { fields, .. } if !fields.is_empty() => {
-        // tag + fields.
+      Insn::EnumConstruct { fields, .. } => {
+        // Every enum construction reserves `1 + fields.len()`
+        // slots: `[tag, f0, f1, ...]`. Unit variants still get
+        // a single slot for the tag so the codegen can return
+        // a stable pointer (uniform pointer representation,
+        // ZO-CL08). Missing this previously silently corrupted
+        // the frame when a function had >0 unit enum
+        // constructions — the prologue reserved too little
+        // stack, and the unit-variant store walked past the
+        // end into the caller's frame.
         struct_slots += 1 + fields.len() as u32;
       }
       Insn::ArrayLiteral { elements, .. } => {
