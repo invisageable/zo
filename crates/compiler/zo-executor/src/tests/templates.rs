@@ -2,6 +2,7 @@ use crate::Executor;
 use crate::tests::common::{assert_execution_error, assert_sir_structure};
 
 use zo_error::ErrorKind;
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
@@ -44,16 +45,14 @@ fn test_template_var_registered() {
   #dom view;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -75,16 +74,14 @@ fn test_template_interp_str_variable() {
   #dom view;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -104,16 +101,14 @@ fn test_template_interp_int_variable() {
   #dom view;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -134,16 +129,14 @@ fn test_template_interp_multiple_vars() {
   #dom view;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -163,16 +156,14 @@ fn test_template_interp_named_tag() {
   #dom view;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -218,16 +209,14 @@ fn test_template_attr_interpolation() {
   #dom view;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -699,16 +688,14 @@ fn test_html_directive_smoke() {
   #dom paragraph;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (sir, _, _, _) = executor.execute();
 
@@ -797,16 +784,14 @@ fn test_html_directive_rejects_mut_source() {
   #dom paragraph;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let _ = executor.execute();
   let errors = collect_errors();

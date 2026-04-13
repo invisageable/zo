@@ -3,6 +3,7 @@
 //! ```
 
 use zo_executor::Executor;
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_tokenizer::Tokenizer;
 
@@ -21,17 +22,15 @@ fn bench_executor_body<'a>(
 ) -> impl FnMut(&mut criterion::Bencher) + 'a {
   move |b: &mut criterion::Bencher| {
     b.iter(|| {
-      let tokenizer = Tokenizer::new(black_box(source));
-      let mut tokenization = tokenizer.tokenize();
+      let mut interner = Interner::new();
+      let tokenizer = Tokenizer::new(black_box(source), &mut interner);
+      let tokenization = tokenizer.tokenize();
 
       let parser = Parser::new(&tokenization, source);
       let parsing = parser.parse();
 
-      let executor = Executor::new(
-        &parsing.tree,
-        &mut tokenization.interner,
-        &tokenization.literals,
-      );
+      let executor =
+        Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
       black_box(executor.execute());
     })

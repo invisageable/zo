@@ -1,11 +1,13 @@
 use crate::Tokenizer;
 
 use zo_error::ErrorKind;
+use zo_interner::Interner;
 use zo_reporter::collect_errors;
 use zo_token::Token;
 
 pub(crate) fn assert_tokens_stream(source: &str, expected: &[(Token, &str)]) {
-  let tokenizer = Tokenizer::new(source);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
   let tokenization = tokenizer.tokenize();
 
   let actual = tokenization
@@ -30,7 +32,8 @@ pub(crate) fn assert_tokens_stream(source: &str, expected: &[(Token, &str)]) {
 }
 
 pub(crate) fn assert_error(source: &str, expected_error: ErrorKind) {
-  let tokenizer = Tokenizer::new(source);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
 
   tokenizer.tokenize();
 
@@ -45,7 +48,8 @@ pub(crate) fn assert_error(source: &str, expected_error: ErrorKind) {
 }
 
 pub(crate) fn assert_errors(source: &str, expected_errors: &[ErrorKind]) {
-  let tokenizer = Tokenizer::new(source);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
 
   tokenizer.tokenize();
 

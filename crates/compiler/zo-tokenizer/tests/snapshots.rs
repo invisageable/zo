@@ -2,11 +2,13 @@
 //! INSTA_UPDATE=1 cargo test -p zo-tokenizer --test snapshots
 //! ```
 
+use zo_interner::Interner;
 use zo_reporter::collect_errors;
 use zo_tokenizer::Tokenizer;
 
 fn assert_yaml_snapshot(name: &str, code: &str) {
-  let tokenizer = Tokenizer::new(code);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(code, &mut interner);
   let tokenization = tokenizer.tokenize();
 
   insta::assert_yaml_snapshot!(name, tokenization);
@@ -85,7 +87,8 @@ fn snapshot_nested_templates() {
 use zo_token::Token;
 
 fn count_tokens(code: &str) -> std::collections::HashMap<Token, usize> {
-  let tokenizer = Tokenizer::new(code);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(code, &mut interner);
   let tokenization = tokenizer.tokenize();
   let mut counts: std::collections::HashMap<Token, usize> =
     std::collections::HashMap::new();
@@ -98,7 +101,8 @@ fn count_tokens(code: &str) -> std::collections::HashMap<Token, usize> {
 }
 
 fn template_text_values(code: &str) -> Vec<String> {
-  let tokenizer = Tokenizer::new(code);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(code, &mut interner);
   let tokenization = tokenizer.tokenize();
   let mut out = Vec::new();
 
@@ -106,7 +110,7 @@ fn template_text_values(code: &str) -> Vec<String> {
     if *kind == Token::TemplateText {
       let lit_idx = tokenization.tokens.literal_indices[i] as usize;
       let sym = tokenization.literals.identifiers[lit_idx];
-      out.push(tokenization.interner.get(sym).to_string());
+      out.push(interner.get(sym).to_string());
     }
   }
 
@@ -219,7 +223,8 @@ fn unterminated_html_comment_does_not_panic() {
     }
   "#;
 
-  let _ = Tokenizer::new(code).tokenize();
+  let mut interner = Interner::new();
+  let _ = Tokenizer::new(code, &mut interner).tokenize();
 }
 
 // ── Context-sensitive comment forms (svelte-style) ─────────
@@ -294,7 +299,8 @@ fn zo_line_comment_inside_style_block() {
     }
   "#;
 
-  let tokenizer = Tokenizer::new(code);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(code, &mut interner);
   let tokenization = tokenizer.tokenize();
 
   // None of the comment words should appear as identifier or
@@ -305,7 +311,7 @@ fn zo_line_comment_inside_style_block() {
     if matches!(*kind, Token::Ident | Token::StyleValue) {
       let lit_idx = tokenization.tokens.literal_indices[i] as usize;
       let sym = tokenization.literals.identifiers[lit_idx];
-      let text = tokenization.interner.get(sym);
+      let text = interner.get(sym);
 
       for word in &banned {
         assert!(

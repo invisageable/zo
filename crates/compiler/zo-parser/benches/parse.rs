@@ -2,6 +2,7 @@
 //! cargo bench -p zo-parser --bench parse
 //! ```
 
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_tokenizer::Tokenizer;
 
@@ -91,7 +92,8 @@ fn bench_parser_body<'a>(
 ) -> impl FnMut(&mut criterion::Bencher) + 'a {
   move |b: &mut criterion::Bencher| {
     b.iter(|| {
-      let tokenizer = Tokenizer::new(black_box(source));
+      let mut interner = Interner::new();
+      let tokenizer = Tokenizer::new(black_box(source), &mut interner);
       let tokenization = tokenizer.tokenize();
       let parser = Parser::new(&tokenization, source);
 

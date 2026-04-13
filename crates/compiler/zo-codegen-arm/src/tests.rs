@@ -17,17 +17,15 @@ use zo_value::ValueId;
 fn test_complete_pipeline_hello_world() {
   let source = r#"fun main() { show("hello world") }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing_result = parser.parse();
 
-  let executor = Executor::new(
-    &parsing_result.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing_result.tree, &mut interner, &tokenization.literals);
 
   let (sir, _annotations, _ty_checker, _) = executor.execute();
 
@@ -40,7 +38,7 @@ fn test_complete_pipeline_hello_world() {
     ..
   } = &sir.instructions[0]
   {
-    assert_eq!(tokenization.interner.get(*name), "main");
+    assert_eq!(interner.get(*name), "main");
     assert_eq!(params.len(), 0);
     assert_eq!(*body_start, 1);
   } else {
@@ -48,13 +46,13 @@ fn test_complete_pipeline_hello_world() {
   }
 
   if let Insn::ConstString { symbol, .. } = &sir.instructions[1] {
-    assert_eq!(tokenization.interner.get(*symbol), "hello world");
+    assert_eq!(interner.get(*symbol), "hello world");
   } else {
     panic!("Expected ConstString instruction");
   }
 
   if let Insn::Call { name, args, .. } = &sir.instructions[2] {
-    assert_eq!(tokenization.interner.get(*name), "show");
+    assert_eq!(interner.get(*name), "show");
     assert_eq!(args.len(), 1);
   } else {
     panic!("Expected Call instruction");
@@ -65,7 +63,7 @@ fn test_complete_pipeline_hello_world() {
     Insn::Return { value: None, .. }
   ));
 
-  let mut codegen = ARM64Gen::new(&tokenization.interner);
+  let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
 
   assert!(!artifact.code.is_empty());
@@ -94,21 +92,19 @@ fn test_complete_pipeline_hello_world() {
 /// Helper: run full pipeline (tokenize → parse → execute → codegen)
 /// and return the generated artifact's code bytes.
 fn compile_to_code(source: &str) -> Vec<u8> {
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (sir, _, _, _) = executor.execute();
 
-  let mut codegen = ARM64Gen::new(&tokenization.interner);
+  let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
 
   artifact.code
@@ -244,18 +240,16 @@ fn test_string_index_emits_ldrb() {
   showln(s[0]);
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
   let (sir, _, _, _) = executor.execute();
 
-  let mut codegen = ARM64Gen::new(&tokenization.interner);
+  let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
 
   // LDRB unsigned-offset: bits [31:22] = 00_11_1001_01.
@@ -276,15 +270,13 @@ fn test_string_index_check_eq_char() {
   check@eq(s[0], 'h');
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
   let (sir, _, _, _) = executor.execute();
 
   // Verify ArrayIndex has char type.
@@ -312,7 +304,7 @@ fn test_string_index_check_eq_char() {
   assert!(has_eq, "expected BinOp::Eq for check@eq");
 
   // Generate code — should not panic.
-  let mut codegen = ARM64Gen::new(&tokenization.interner);
+  let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
 
   assert!(!artifact.code.is_empty());

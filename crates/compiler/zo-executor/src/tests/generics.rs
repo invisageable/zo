@@ -2,6 +2,7 @@ use crate::Executor;
 use crate::tests::common::{assert_execution_error, assert_sir_structure};
 
 use zo_error::ErrorKind;
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
@@ -29,16 +30,14 @@ fun main() {
   imu a: int = identity(42);
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -60,16 +59,14 @@ fun main() {
   imu b: int = identity(99);
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -90,16 +87,14 @@ fun main() {
   imu x: int = pick_second(10, 42);
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -120,16 +115,14 @@ fun main() {
   imu a: int = first(42, "hello");
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -171,16 +164,14 @@ fun main() {
   imu b: int = second("world", 99);
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -230,16 +221,14 @@ fun main() {
   imu b: str = identity("hello");
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -285,16 +274,14 @@ fun main() {
   imu x: int = pick(42, 99);
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -316,16 +303,14 @@ fn test_generic_struct_no_errors() {
 }
 fun main() {}"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -345,16 +330,14 @@ fn test_generic_struct_multi_param_no_errors() {
 }
 fun main() {}"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -376,16 +359,14 @@ fn test_generic_enum_no_errors() {
 }
 fun main() {}"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -412,16 +393,14 @@ apply Pair<$T> {
 }
 fun main() {}"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -440,16 +419,14 @@ fn test_generic_type_alias_no_errors() {
   let source = r#"type Wrapper<$T> = $T;
 fun main() {}"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();

@@ -1,6 +1,7 @@
 use crate::Executor;
 
 use zo_error::ErrorKind;
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
@@ -12,17 +13,15 @@ pub(crate) fn assert_annotations_stream(
   source: &str,
   expected: &[(usize, Ty, Insn)],
 ) {
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (sir, annotations, ty_checker, _) = executor.execute();
   let mut actual = Vec::new();
@@ -51,17 +50,15 @@ pub(crate) fn assert_annotations_stream(
 
 /// Assert that execution produces the expected SIR instructions
 pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (sir, _, _, _) = executor.execute();
 
@@ -74,17 +71,15 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
 
 /// Assert SIR structure via a predicate.
 pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (sir, _, _, _) = executor.execute();
 
@@ -93,17 +88,15 @@ pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
 
 /// Assert that execution produces NO errors.
 pub(crate) fn assert_no_errors(source: &str) {
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let _ = executor.execute();
 
@@ -118,17 +111,15 @@ pub(crate) fn assert_no_errors(source: &str) {
 
 /// Assert that execution produces the expected error.
 pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let _ = executor.execute();
 
@@ -144,17 +135,15 @@ pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
 
 /// Execute source and return raw (SIR instructions, annotations).
 pub(crate) fn execute_raw(source: &str) -> (Vec<Insn>, Vec<Annotation>) {
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (sir, annotations, _, _) = executor.execute();
 

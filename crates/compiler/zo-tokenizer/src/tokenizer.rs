@@ -11,7 +11,6 @@ use serde::Serialize;
 pub struct TokenizationResult {
   pub tokens: TokenBuffer,
   pub literals: LiteralStore,
-  pub interner: Interner,
   /// Store source length for validation.
   pub source_len: usize,
 }
@@ -118,7 +117,7 @@ pub struct Tokenizer<'a> {
   cursor: usize,
   tokens: TokenBuffer,
   literals: LiteralStore,
-  interner: Interner,
+  interner: &'a mut Interner,
   state: ModeState,
   delimiter_stack: Vec<DelimiterInfo>,
 }
@@ -127,7 +126,7 @@ impl<'a> Tokenizer<'a> {
   const BYTES_PER_TOKEN: usize = 5;
   const TOKENS_PER_LITERAL: usize = 3;
 
-  pub fn new(source: &'a str) -> Self {
+  pub fn new(source: &'a str, interner: &'a mut Interner) -> Self {
     let bytes = source.as_bytes();
     let estimated_tokens = bytes.len() / Self::BYTES_PER_TOKEN;
     let estimated_literals = estimated_tokens / Self::TOKENS_PER_LITERAL;
@@ -137,7 +136,7 @@ impl<'a> Tokenizer<'a> {
       cursor: 0,
       tokens: TokenBuffer::with_capacity(estimated_tokens),
       literals: LiteralStore::with_capacity(estimated_literals),
-      interner: Interner::new(),
+      interner,
       state: ModeState::new(),
       delimiter_stack: Vec::new(),
     }
@@ -1644,7 +1643,6 @@ impl<'a> Tokenizer<'a> {
     TokenizationResult {
       tokens: self.tokens,
       literals: self.literals,
-      interner: self.interner,
       source_len: self.source.len(),
     }
   }

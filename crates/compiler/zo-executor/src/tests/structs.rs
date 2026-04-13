@@ -2,6 +2,7 @@ use crate::Executor;
 use crate::tests::common::{assert_execution_error, assert_sir_structure};
 
 use zo_error::ErrorKind;
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
@@ -176,16 +177,14 @@ fun main() {
   check@eq(n, 10);
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
@@ -348,16 +347,14 @@ fun main() {
   imu a := r.area();
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut tokenization.interner,
-    &tokenization.literals,
-  );
+  let executor =
+    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
 
   let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
