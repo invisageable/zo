@@ -58,7 +58,7 @@ const NEWLINE_BUFFER_OFFSET: u16 = 16;
 
 // --- Array Layout ---
 const ARRAY_ELEMENT_SHIFT: u8 = 3;
-const ARRAY_HEADER_SIZE: u16 = 8;
+const ARRAY_HEADER_SIZE: u16 = 16; // [len:8][cap:8]
 
 // --- Type Detection ---
 // These TyIds must match TyChecker::new() registration
@@ -1686,7 +1686,7 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ArrayLiteral { elements, .. } => {
-        // Layout in pre-allocated frame: [len, e0, e1, ..., eN]
+        // Layout: [len:8][cap:8][e0:8][e1:8]...[eN:8]
         // Uses struct_base + next_struct_slot (frame-relative).
         let base = self.struct_base + self.next_struct_slot;
         let n = elements.len() as u16;
@@ -1695,10 +1695,15 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_mov_imm(X16, n);
         self.emitter.emit_str(X16, SP, base as i16);
 
-        // Store each element at [SP + base + (i+1)*8].
+        // Store capacity at [SP + base + 8].
+        // Literal arrays: cap = len (tight, no growth).
+        self.emitter.emit_str(X16, SP, (base + STACK_SLOT_SIZE) as i16);
+
+        // Store each element at [SP + base + 16 + i*8].
         // Floats use FP registers → emit_str_fp.
         for (i, elem) in elements.iter().enumerate() {
-          let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
+          let off =
+            base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
 
           if let Some(fp) = self.alloc_fp_reg(*elem) {
             self.emitter.emit_str_fp(fp, SP, off as u16);
@@ -1712,8 +1717,9 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_add_imm(dst, SP, base as u16);
         }
 
-        // Advance slot for next allocation.
-        self.next_struct_slot += (1 + elements.len() as u32) * STACK_SLOT_SIZE;
+        // Advance slot: 2 (header) + N elements.
+        self.next_struct_slot +=
+          (2 + elements.len() as u32) * STACK_SLOT_SIZE;
       }
 
       Insn::ArrayIndex {
@@ -1752,8 +1758,8 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_ldrb(dst_reg, X16, 0);
           }
         } else {
-          // Array layout: [len: u64][e0: u64][e1: u64]...
-          // Element at index i is at base + 8 + i * 8.
+          // Array layout: [len:8][cap:8][e0:8][e1:8]...
+          // Element at index i is at base + 16 + i * 8.
           self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
           self.emitter.emit_add(X16, arr_reg, X16);
           self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
@@ -1776,7 +1782,7 @@ impl<'a> ARM64Gen<'a> {
         value,
         ty_id,
       } => {
-        // Store value at base + 8 + index * 8.
+        // Store value at base + 16 + index * 8.
         let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
         let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
 
