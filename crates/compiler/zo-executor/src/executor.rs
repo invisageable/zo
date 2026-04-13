@@ -1691,12 +1691,13 @@ impl<'a> Executor<'a> {
             let count = self.sir_values.len().saturating_sub(depth);
             let mut elements = Vec::with_capacity(count);
 
-            // Infer element type from the first element
-            // before popping the stacks.
+            // Infer element type from the first element.
+            // Empty arrays get a fresh inference variable so
+            // unification with the type annotation resolves it.
             let elem_ty = if depth < self.ty_stack.len() {
               self.ty_stack[depth]
             } else {
-              int_ty
+              self.ty_checker.fresh_var()
             };
 
             // Pop elements in reverse, then reverse.
