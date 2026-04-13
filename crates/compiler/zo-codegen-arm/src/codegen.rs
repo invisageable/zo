@@ -58,7 +58,8 @@ const NEWLINE_BUFFER_OFFSET: u16 = 16;
 
 // --- Array Layout ---
 const ARRAY_ELEMENT_SHIFT: u8 = 3;
-const ARRAY_HEADER_SIZE: u16 = 8;
+const ARRAY_HEADER_SIZE: u16 = 16; // [len:8][cap:8]
+const DEFAULT_ARRAY_CAP: u32 = 64; // Empty array default capacity
 
 // --- Type Detection ---
 // These TyIds must match TyChecker::new() registration
@@ -1686,19 +1687,30 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ArrayLiteral { elements, .. } => {
-        // Layout in pre-allocated frame: [len, e0, e1, ..., eN]
+        // Layout: [len:8][cap:8][e0:8][e1:8]...[eN:8]
         // Uses struct_base + next_struct_slot (frame-relative).
         let base = self.struct_base + self.next_struct_slot;
-        let n = elements.len() as u16;
+        let n = elements.len() as u32;
+
+        // Empty arrays get DEFAULT_ARRAY_CAP for .push().
+        // Non-empty arrays: cap = len (tight).
+        let cap = if n == 0 { DEFAULT_ARRAY_CAP } else { n };
 
         // Store length at [SP + base].
-        self.emitter.emit_mov_imm(X16, n);
+        self.emitter.emit_mov_imm(X16, n as u16);
         self.emitter.emit_str(X16, SP, base as i16);
 
-        // Store each element at [SP + base + (i+1)*8].
+        // Store capacity at [SP + base + 8].
+        self.emit_mov_imm_64(X16, cap as u64);
+        self
+          .emitter
+          .emit_str(X16, SP, (base + STACK_SLOT_SIZE) as i16);
+
+        // Store each element at [SP + base + 16 + i*8].
         // Floats use FP registers → emit_str_fp.
         for (i, elem) in elements.iter().enumerate() {
-          let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
+          let off =
+            base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
 
           if let Some(fp) = self.alloc_fp_reg(*elem) {
             self.emitter.emit_str_fp(fp, SP, off as u16);
@@ -1712,8 +1724,8 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_add_imm(dst, SP, base as u16);
         }
 
-        // Advance slot for next allocation.
-        self.next_struct_slot += (1 + elements.len() as u32) * STACK_SLOT_SIZE;
+        // Advance slot: 2 (header) + cap elements.
+        self.next_struct_slot += (2 + cap) * STACK_SLOT_SIZE;
       }
 
       Insn::ArrayIndex {
@@ -1752,8 +1764,8 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_ldrb(dst_reg, X16, 0);
           }
         } else {
-          // Array layout: [len: u64][e0: u64][e1: u64]...
-          // Element at index i is at base + 8 + i * 8.
+          // Array layout: [len:8][cap:8][e0:8][e1:8]...
+          // Element at index i is at base + 16 + i * 8.
           self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
           self.emitter.emit_add(X16, arr_reg, X16);
           self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
@@ -1776,7 +1788,7 @@ impl<'a> ARM64Gen<'a> {
         value,
         ty_id,
       } => {
-        // Store value at base + 8 + index * 8.
+        // Store value at base + 16 + index * 8.
         let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
         let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
 
@@ -1803,6 +1815,106 @@ impl<'a> ARM64Gen<'a> {
           let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
 
           self.emitter.emit_ldr(dst_reg, arr_reg, 0);
+        }
+      }
+
+      Insn::ArrayPush {
+        array,
+        value,
+        ty_id,
+      } => {
+        // Layout: [len:8][cap:8][data...]
+        // 1. Load len and cap.
+        // 2. Bounds check: len < cap, else exit(1).
+        // 3. Store value at data[len] = base + 16 + len*8.
+        // 4. Increment len.
+        let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
+
+        // X16 = len, X17 = cap.
+        self.emitter.emit_ldr(X16, arr_reg, 0);
+        self.emitter.emit_ldr(X17, arr_reg, 8);
+
+        // Bounds check: len < cap.
+        self.emitter.emit_cmp(X16, X17);
+        let bcc_pos = self.emitter.current_offset();
+        self.emitter.emit_bcc(0); // B.CC (unsigned <)
+        // Panic: capacity exceeded — exit(1).
+        self.emitter.emit_mov_imm(X0, 1);
+        self.emitter.emit_mov_imm(X16, SYS_EXIT);
+        self.emitter.emit_svc(0);
+        // Patch B.CC past panic.
+        let here = self.emitter.current_offset() as i32;
+        self
+          .emitter
+          .patch_bcond_at(bcc_pos as usize, here - bcc_pos as i32);
+
+        // Reload len (X16 was clobbered by panic path).
+        self.emitter.emit_ldr(X16, arr_reg, 0);
+
+        // Store value at data[len]: base + 16 + len * 8.
+        self.emitter.emit_lsl(X17, X16, ARRAY_ELEMENT_SHIFT);
+        self.emitter.emit_add(X17, arr_reg, X17);
+        self.emitter.emit_add_imm(X17, X17, ARRAY_HEADER_SIZE);
+
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
+        if is_flt {
+          let fp = self.alloc_fp_reg(*value).unwrap_or(D0);
+          self.emitter.emit_str_fp(fp, X17, 0);
+        } else {
+          let val_reg = self.alloc_reg(*value).unwrap_or(X1);
+          self.emitter.emit_str(val_reg, X17, 0);
+        }
+
+        // Increment len: len + 1 → store back.
+        self.emitter.emit_add_imm(X16, X16, 1);
+        self.emitter.emit_str(X16, arr_reg, 0);
+      }
+
+      Insn::ArrayPop { dst, array, ty_id } => {
+        // Layout: [len:8][cap:8][data...]
+        // 1. Load len, check > 0.
+        // 2. Decrement len, store back.
+        // 3. Load data[new_len] into dst.
+        let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
+
+        // X16 = len.
+        self.emitter.emit_ldr(X16, arr_reg, 0);
+        // Check len > 0: CMP len, #0 → B.NE (skip panic).
+        self.emitter.emit_cmp_imm(X16, 0);
+        let bne_pos = self.emitter.current_offset();
+        self.emitter.emit_bne(0); // placeholder
+        // Panic: pop on empty array — exit(1).
+        self.emitter.emit_mov_imm(X0, 1);
+        self.emitter.emit_mov_imm(X16, SYS_EXIT);
+        self.emitter.emit_svc(0);
+        // Patch B.NE past panic.
+        let here = self.emitter.current_offset() as i32;
+        self
+          .emitter
+          .patch_bcond_at(bne_pos as usize, here - bne_pos as i32);
+
+        // Reload len (X16 was clobbered).
+        self.emitter.emit_ldr(X16, arr_reg, 0);
+        // Decrement: new_len = len - 1.
+        self.emitter.emit_sub_imm(X16, X16, 1);
+        // Store new len.
+        self.emitter.emit_str(X16, arr_reg, 0);
+
+        // Load data[new_len]: base + 16 + new_len * 8.
+        self.emitter.emit_lsl(X17, X16, ARRAY_ELEMENT_SHIFT);
+        self.emitter.emit_add(X17, arr_reg, X17);
+        self.emitter.emit_add_imm(X17, X17, ARRAY_HEADER_SIZE);
+
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
+        if is_flt {
+          let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
+          self.emitter.emit_ldr_fp(fp_dst, X17, 0);
+        } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+          self.emitter.emit_ldr(dst_reg, X17, 0);
         }
       }
 

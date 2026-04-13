@@ -81,6 +81,7 @@ impl Sir {
       | Insn::ArrayLiteral { dst, .. }
       | Insn::ArrayIndex { dst, .. }
       | Insn::ArrayLen { dst, .. }
+      | Insn::ArrayPop { dst, .. }
       | Insn::TupleLiteral { dst, .. }
       | Insn::TupleIndex { dst, .. }
       | Insn::EnumConstruct { dst, .. }
@@ -175,6 +176,14 @@ impl Insn {
         f(value);
       }
       Insn::ArrayLen { dst, array, .. } => {
+        f(dst);
+        f(array);
+      }
+      Insn::ArrayPush { array, value, .. } => {
+        f(array);
+        f(value);
+      }
+      Insn::ArrayPop { dst, array, .. } => {
         f(dst);
         f(array);
       }
@@ -333,6 +342,18 @@ pub enum Insn {
   },
   /// Array length: arr.len.
   ArrayLen {
+    dst: ValueId,
+    array: ValueId,
+    ty_id: TyId,
+  },
+  /// Array push: arr.push(value). Side effect — mutates len.
+  ArrayPush {
+    array: ValueId,
+    value: ValueId,
+    ty_id: TyId,
+  },
+  /// Array pop: val = arr.pop(). Decrements len, returns last.
+  ArrayPop {
     dst: ValueId,
     array: ValueId,
     ty_id: TyId,

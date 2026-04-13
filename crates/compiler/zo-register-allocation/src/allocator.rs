@@ -455,8 +455,15 @@ pub fn allocate_function(
         struct_slots += 1 + fields.len() as u32;
       }
       Insn::ArrayLiteral { elements, .. } => {
-        // length header + elements.
-        struct_slots += 1 + elements.len() as u32;
+        // Header (length + capacity) + data slots.
+        // Empty arrays reserve DEFAULT_ARRAY_CAP (64) for push.
+        let cap = if elements.is_empty() {
+          64
+        } else {
+          elements.len() as u32
+        };
+
+        struct_slots += 2 + cap;
       }
       Insn::TupleLiteral { elements, .. } => {
         struct_slots += elements.len() as u32;

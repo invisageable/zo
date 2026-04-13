@@ -23,6 +23,7 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       | Insn::ArrayLiteral { dst, .. }
       | Insn::ArrayIndex { dst, .. }
       | Insn::ArrayLen { dst, .. }
+      | Insn::ArrayPop { dst, .. }
       | Insn::TupleLiteral { dst, .. }
       | Insn::TupleIndex { dst, .. }
       | Insn::EnumConstruct { dst, .. }
@@ -61,6 +62,8 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
       vec![*array, *index, *value]
     }
     Insn::ArrayLen { array, .. } => vec![*array],
+    Insn::ArrayPush { array, value, .. } => vec![*array, *value],
+    Insn::ArrayPop { array, .. } => vec![*array],
     Insn::StructConstruct { fields, .. } => fields.clone(),
     Insn::EnumConstruct { fields, .. } => fields.clone(),
     Insn::TupleLiteral { elements, .. } => elements.clone(),

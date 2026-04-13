@@ -180,6 +180,46 @@ fn test_array_store_read_modify_write() {
 }
 
 #[test]
+fn test_array_push_produces_sir() {
+  let (insns, _) = execute_raw(
+    r#"fun main() {
+  mut arr: []int = [];
+  arr.push(10);
+}"#,
+  );
+
+  let has_push = insns.iter().any(|i| matches!(i, Insn::ArrayPush { .. }));
+
+  assert!(has_push, "expected ArrayPush in SIR");
+}
+
+#[test]
+fn test_array_len_produces_sir() {
+  let (insns, _) = execute_raw(
+    r#"fun main() {
+  imu arr: []int = [10, 20, 30];
+  imu n: int = arr.len;
+  showln(n);
+}"#,
+  );
+
+  let has_len = insns.iter().any(|i| matches!(i, Insn::ArrayLen { .. }));
+
+  assert!(has_len, "expected ArrayLen in SIR");
+
+  // ArrayLen result type should be int (TyId 8 = s32).
+  if let Some(Insn::ArrayLen { ty_id, .. }) =
+    insns.iter().find(|i| matches!(i, Insn::ArrayLen { .. }))
+  {
+    assert_eq!(
+      ty_id.0, 8,
+      "expected ArrayLen ty_id=8 (int), got {}",
+      ty_id.0
+    );
+  }
+}
+
+#[test]
 fn test_string_index_produces_char_type() {
   let (insns, _) = execute_raw(
     r#"fun main() {

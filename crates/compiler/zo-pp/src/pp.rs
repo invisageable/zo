@@ -326,6 +326,16 @@ impl PrettyPrinter {
 
           self.sir_instruction(&al);
         }
+        Insn::ArrayPush { array, value, .. } => {
+          let ap = format!("push %{array}, %{value}");
+
+          self.sir_instruction(&ap);
+        }
+        Insn::ArrayPop { dst, array, .. } => {
+          let ap = format!("%{dst} = pop %{array}");
+
+          self.sir_instruction(&ap);
+        }
         Insn::TupleLiteral { dst, elements, .. } => {
           let elems =
             elements.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();

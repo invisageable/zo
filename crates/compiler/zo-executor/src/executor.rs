@@ -1852,6 +1852,42 @@ impl<'a> Executor<'a> {
           } else {
             self.ty_checker.unit_type()
           }
+        } else if matches!(self.ty_checker.kind_of(tup_ty), Ty::Array(_)) {
+          // Array property access: only `.len` supported.
+          let member_name = self.node_value(idx - 1).and_then(|v| match v {
+            NodeValue::Symbol(s) => Some(s),
+            _ => None,
+          });
+
+          let is_len =
+            member_name.is_some_and(|s| self.interner.get(s) == "len");
+
+          if is_len {
+            let int_ty = self.ty_checker.int_type();
+            let dst = ValueId(self.sir.next_value_id);
+
+            self.sir.next_value_id += 1;
+
+            let sv = self.sir.emit(Insn::ArrayLen {
+              dst,
+              array: tup_sir,
+              ty_id: int_ty,
+            });
+
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(int_ty);
+            self.sir_values.push(sv);
+
+            return;
+          }
+
+          let span = self.tree.spans[idx];
+
+          report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
+
+          self.ty_checker.unit_type()
         } else {
           self.ty_checker.unit_type()
         };
@@ -5547,8 +5583,16 @@ impl<'a> Executor<'a> {
       _ => return false,
     };
 
-    // Resolve receiver type name.
+    // Array builtin methods: push, pop.
     let resolved = self.ty_checker.kind_of(receiver_ty);
+
+    if matches!(resolved, Ty::Array(_)) {
+      let ms = self.interner.get(member_name);
+
+      return ms == "push" || ms == "pop";
+    }
+
+    // Resolve receiver type name for struct/enum methods.
     let type_name = match resolved {
       Ty::Struct(sid) => {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
@@ -5708,6 +5752,86 @@ impl<'a> Executor<'a> {
       self.ty_stack.push(func.return_ty);
       self.sir_values.push(result_sir);
     }
+  }
+
+  /// Executes `arr.push(value)` — emits `ArrayPush` SIR.
+  /// Stack: [..., receiver, value]. Pops both.
+  fn execute_array_push(&mut self, lparen_idx: usize, rparen_idx: usize) {
+    // Count explicit args (must be exactly 1).
+    let has_content = lparen_idx + 1 < rparen_idx;
+
+    if !has_content {
+      let span = self.tree.spans[rparen_idx];
+
+      report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
+
+      return;
+    }
+
+    // Pop the value argument.
+    let (_val, _val_ty, val_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    // Pop the receiver (array).
+    let (_arr, arr_ty, arr_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    self.sir.emit(Insn::ArrayPush {
+      array: arr_sir,
+      value: val_sir,
+      ty_id: arr_ty,
+    });
+  }
+
+  /// Executes `val = arr.pop()` — emits `ArrayPop` SIR.
+  /// Stack: [..., receiver]. No explicit args.
+  fn execute_array_pop(&mut self, _lparen_idx: usize, _rparen_idx: usize) {
+    // Pop the receiver (array).
+    let (_arr, arr_ty, arr_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    // Resolve element type from array type.
+    let elem_ty = if let Ty::Array(aid) = self.ty_checker.kind_of(arr_ty)
+      && let Some(at) = self.ty_checker.ty_table.array(aid)
+    {
+      at.elem_ty
+    } else {
+      self.ty_checker.int_type()
+    };
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sv = self.sir.emit(Insn::ArrayPop {
+      dst,
+      array: arr_sir,
+      ty_id: elem_ty,
+    });
+
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(elem_ty);
+    self.sir_values.push(sv);
   }
 
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
@@ -6947,6 +7071,28 @@ impl<'a> Executor<'a> {
             && let Some(NodeValue::Symbol(method_sym)) =
               self.node_value(method_name_idx)
           {
+            // Array builtin methods.
+            let ms = self.interner.get(method_sym).to_owned();
+
+            if let Some(recv_ty) = self
+              .ty_stack
+              .get(self.ty_stack.len().saturating_sub(2))
+              .copied()
+              && matches!(self.ty_checker.kind_of(recv_ty), Ty::Array(_))
+            {
+              if ms == "push" {
+                self.execute_array_push(lparen_idx, rparen_idx);
+
+                return;
+              }
+
+              if ms == "pop" {
+                self.execute_array_pop(lparen_idx, rparen_idx);
+
+                return;
+              }
+            }
+
             let mangled = self.resolve_dot_call(method_idx, method_sym);
 
             if mangled != method_sym {

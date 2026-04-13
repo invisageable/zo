@@ -1,0 +1,24 @@
+-- tests-build-pass: array .len property.
+-- @cmd — zo build array-len.zo
+
+fun main() {
+  imu arr: []int = [10, 20, 30, 40, 50];
+
+  check@eq(arr.len, 5);
+
+  imu small: []int = [1];
+
+  check@eq(small.len, 1);
+
+  -- use .len in a loop.
+  mut total: int = 0;
+  mut i: int = 0;
+
+  while i < arr.len {
+    total = total + arr[i];
+    i = i + 1;
+  }
+
+  check@eq(total, 150);
+  showln(total);
+}
