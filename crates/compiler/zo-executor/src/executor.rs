@@ -1607,29 +1607,46 @@ impl<'a> Executor<'a> {
 
           if is_indexing {
             // Pop index and array from stacks.
-            if let (Some(_idx_val), Some(_idx_ty)) =
+            if let (Some(_idx_val), Some(idx_ty)) =
               (self.value_stack.pop(), self.ty_stack.pop())
             {
               let idx_sir = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
 
-              // Pop array value.
+              // Pop array/string value.
               if let (Some(_arr_val), Some(arr_ty)) =
                 (self.value_stack.pop(), self.ty_stack.pop())
               {
                 let arr_sir =
                   self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
 
+                let span = self.tree.spans[idx];
+
+                // Validate index type is integer.
+                let idx_is_int =
+                  matches!(self.ty_checker.resolve_ty(idx_ty), Ty::Int { .. });
+
+                if !idx_is_int {
+                  report_error(Error::new(ErrorKind::InvalidIndex, span));
+                }
+
                 let dst = ValueId(self.sir.next_value_id);
 
                 self.sir.next_value_id += 1;
 
-                // Resolve element type from the array's type.
-                let elem_ty = match self.ty_checker.resolve_ty(arr_ty) {
+                // Resolve element type from the base type.
+                let base_ty = self.ty_checker.resolve_ty(arr_ty);
+
+                let elem_ty = match base_ty {
                   Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
                     Some(at) => at.elem_ty,
                     None => int_ty,
                   },
-                  _ => int_ty,
+                  Ty::Str => self.ty_checker.char_type(),
+                  _ => {
+                    report_error(Error::new(ErrorKind::InvalidIndex, span));
+
+                    int_ty
+                  }
                 };
 
                 let sv = self.sir.emit(Insn::ArrayIndex {

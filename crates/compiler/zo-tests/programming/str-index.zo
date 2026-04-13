@@ -1,0 +1,24 @@
+-- tests-build-pass: string indexing returns char.
+-- @cmd — zo build str-index.zo
+
+fun main() {
+  imu s: str = "hello";
+
+  check@eq(s[0], 'h');
+  check@eq(s[1], 'e');
+  check@eq(s[2], 'l');
+  check@eq(s[3], 'l');
+  check@eq(s[4], 'o');
+
+  showln(s[0]);
+  showln(s[4]);
+
+  -- variable index.
+  mut i: int = 0;
+
+  check@eq(s[i], 'h');
+
+  i = i + 2;
+
+  check@eq(s[i], 'l');
+}
