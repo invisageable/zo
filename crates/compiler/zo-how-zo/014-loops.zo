@@ -32,7 +32,9 @@ fun main() {
 
     while col2 <= 3 {
       imu product: int = row2 * col2;
+
       showln("{row2} x {col2} = {product}");
+
       col2 += 1;
     }
 
@@ -70,6 +72,7 @@ fun main() {
   for r := 0..2 {
     for c := 0..3 {
       imu v: int = grid[r][c];
+
       grid_sum = grid_sum + v;
     }
   }

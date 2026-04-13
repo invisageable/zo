@@ -313,6 +313,7 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::Store { .. }
       | Insn::FieldStore { .. }
       | Insn::ArrayStore { .. }
+      | Insn::ArrayPush { .. }
       | Insn::Directive { .. }
       | Insn::Return { .. }
   )

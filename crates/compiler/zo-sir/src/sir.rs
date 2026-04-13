@@ -178,6 +178,10 @@ impl Insn {
         f(dst);
         f(array);
       }
+      Insn::ArrayPush { array, value, .. } => {
+        f(array);
+        f(value);
+      }
       Insn::TupleLiteral { dst, elements, .. } => {
         f(dst);
         elements.iter_mut().for_each(&mut *f);
@@ -335,6 +339,12 @@ pub enum Insn {
   ArrayLen {
     dst: ValueId,
     array: ValueId,
+    ty_id: TyId,
+  },
+  /// Array push: arr.push(value). Side effect — mutates len.
+  ArrayPush {
+    array: ValueId,
+    value: ValueId,
     ty_id: TyId,
   },
   /// Tuple literal: (e0, e1, ..., eN).

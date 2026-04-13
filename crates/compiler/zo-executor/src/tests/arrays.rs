@@ -180,6 +180,20 @@ fn test_array_store_read_modify_write() {
 }
 
 #[test]
+fn test_array_push_produces_sir() {
+  let (insns, _) = execute_raw(
+    r#"fun main() {
+  mut arr: []int = [];
+  arr.push(10);
+}"#,
+  );
+
+  let has_push = insns.iter().any(|i| matches!(i, Insn::ArrayPush { .. }));
+
+  assert!(has_push, "expected ArrayPush in SIR");
+}
+
+#[test]
 fn test_array_len_produces_sir() {
   let (insns, _) = execute_raw(
     r#"fun main() {
