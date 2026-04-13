@@ -216,4 +216,7 @@ pub enum ErrorKind {
   // DCE warnings (appended to preserve existing error codes).
   UnusedVariable,
   UnusedFunction,
+
+  // Indexing errors (appended to preserve existing error codes).
+  InvalidIndex,
 }

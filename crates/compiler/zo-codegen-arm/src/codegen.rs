@@ -65,6 +65,8 @@ const ARRAY_HEADER_SIZE: u16 = 8;
 // order. If that order ever changes, these break silently.
 // str=4 is hardcoded inline in is_string_value/emit_field_write.
 const BOOL_TYPE_ID: u32 = 2; // TyChecker: Bool @ index 2
+const CHAR_TYPE_ID: u32 = 3; // TyChecker: Char @ index 3
+const STR_TYPE_ID: u32 = 4; // TyChecker: Str @ index 4
 const FLOAT_TYPE_ID_MIN: u32 = 15; // TyChecker: F32 @ index 15
 const FLOAT_TYPE_ID_MAX: u32 = 17; // TyChecker: F64 @ index 17
 
@@ -310,7 +312,7 @@ impl<'a> ARM64Gen<'a> {
       .is_some_and(|insn| match insn {
         Insn::ConstString { .. } => true,
         Insn::Load { ty_id, .. } | Insn::ArrayIndex { ty_id, .. } => {
-          ty_id.0 == 4
+          ty_id.0 == STR_TYPE_ID
         }
         _ => false,
       })
@@ -341,6 +343,18 @@ impl<'a> ARM64Gen<'a> {
         Insn::BinOp { ty_id, .. }
         | Insn::Load { ty_id, .. }
         | Insn::ArrayIndex { ty_id, .. } => ty_id.0 == BOOL_TYPE_ID,
+        _ => false,
+      })
+  }
+
+  /// Check if a ValueId was produced by a char instruction.
+  fn is_char_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
+    self
+      .find_producing_insn(vid, all_insns)
+      .is_some_and(|insn| match insn {
+        Insn::ConstInt { ty_id, .. }
+        | Insn::Load { ty_id, .. }
+        | Insn::ArrayIndex { ty_id, .. } => ty_id.0 == CHAR_TYPE_ID,
         _ => false,
       })
   }
@@ -1710,20 +1724,49 @@ impl<'a> ARM64Gen<'a> {
       } => {
         let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
         let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
+        let is_str_index = ty_id.0 == CHAR_TYPE_ID;
 
-        // Compute element address: base + header + index * 8.
-        self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
-        self.emitter.emit_add(X16, arr_reg, X16);
-        self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
+        if is_str_index {
+          // String layout: [len: u64][bytes][null].
+          // Byte at index i is at base + 8 + i.
+          // Bounds check: index < len, else exit(1).
+          self.emitter.emit_ldr(X16, arr_reg, 0);
+          self.emitter.emit_cmp(idx_reg, X16);
+          // B.CC (unsigned <) — in-bounds, skip panic.
+          let bcc_pos = self.emitter.current_offset();
+          self.emitter.emit_bcc(0); // placeholder
+          // Out-of-bounds: exit(1).
+          self.emitter.emit_mov_imm(X0, 1);
+          self.emitter.emit_mov_imm(X16, SYS_EXIT);
+          self.emitter.emit_svc(0);
+          // Patch B.CC to jump here (past panic).
+          let here = self.emitter.current_offset() as i32;
+          self
+            .emitter
+            .patch_bcond_at(bcc_pos as usize, here - bcc_pos as i32);
+          // LDRB: load byte at base + 8 + index.
+          self.emitter.emit_add_imm(X16, arr_reg, 8);
+          self.emitter.emit_add(X16, X16, idx_reg);
 
-        let is_flt =
-          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+          if let Some(dst_reg) = self.alloc_reg(*dst) {
+            self.emitter.emit_ldrb(dst_reg, X16, 0);
+          }
+        } else {
+          // Array layout: [len: u64][e0: u64][e1: u64]...
+          // Element at index i is at base + 8 + i * 8.
+          self.emitter.emit_lsl(X16, idx_reg, ARRAY_ELEMENT_SHIFT);
+          self.emitter.emit_add(X16, arr_reg, X16);
+          self.emitter.emit_add_imm(X16, X16, ARRAY_HEADER_SIZE);
 
-        if is_flt {
-          let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
-          self.emitter.emit_ldr_fp(fp_dst, X16, 0);
-        } else if let Some(dst_reg) = self.alloc_reg(*dst) {
-          self.emitter.emit_ldr(dst_reg, X16, 0);
+          let is_flt =
+            ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
+          if is_flt {
+            let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
+            self.emitter.emit_ldr_fp(fp_dst, X16, 0);
+          } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+            self.emitter.emit_ldr(dst_reg, X16, 0);
+          }
         }
       }
 
@@ -1906,6 +1949,7 @@ impl<'a> ARM64Gen<'a> {
     let is_str = arg_vid.is_some_and(|v| self.is_string_value(v, all_insns));
     let is_flt = arg_vid.is_some_and(|v| self.is_float_value(v, all_insns));
     let is_bool = arg_vid.is_some_and(|v| self.is_bool_value(v, all_insns));
+    let is_char = arg_vid.is_some_and(|v| self.is_char_value(v, all_insns));
     let enum_ty = arg_vid.and_then(|v| self.is_enum_value(v, all_insns));
 
     // Check if the most recent emitted instruction was a
@@ -1931,6 +1975,14 @@ impl<'a> ARM64Gen<'a> {
       }
 
       self.emit_bool_and_write(fd);
+    } else if is_char && arg_vid.is_some() {
+      if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
+        && src != X0
+      {
+        self.emitter.emit_mov_reg(X0, src);
+      }
+
+      self.emit_char_and_write(fd);
     } else if let Some(ty_id) = enum_ty
       && let Some(vid) = arg_vid
     {
@@ -2149,9 +2201,10 @@ impl<'a> ARM64Gen<'a> {
   }
 
   fn emit_field_write(&mut self, ty_id: TyId, fd: u16) {
-    let is_str = ty_id.0 == 4;
+    let is_str = ty_id.0 == STR_TYPE_ID;
     let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
     let is_bool = ty_id.0 == BOOL_TYPE_ID;
+    let is_char = ty_id.0 == CHAR_TYPE_ID;
 
     if is_str {
       self.emitter.emit_ldr(X2, X0, 0);
@@ -2164,6 +2217,8 @@ impl<'a> ARM64Gen<'a> {
       self.emit_ftoa_and_write(fd);
     } else if is_bool {
       self.emit_bool_and_write(fd);
+    } else if is_char {
+      self.emit_char_and_write(fd);
     } else {
       self.emit_itoa_and_write(fd);
     }
@@ -2174,6 +2229,21 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_mov_imm(X1, ASCII_NEWLINE);
     self.emitter.emit_sub_imm(X2, SP, NEWLINE_BUFFER_OFFSET);
     self.emitter.emit_strb(X1, X2, 0);
+    self.emitter.emit_mov_reg(X1, X2);
+    self.emitter.emit_mov_imm(X2, 1);
+    self.emitter.emit_mov_imm(X16, SYS_WRITE);
+    self.emitter.emit_mov_imm(X0, fd);
+    self.emitter.emit_svc(0);
+  }
+
+  /// Write a single char (in X0) to fd.
+  /// Stores the byte to a stack scratch slot, then writes 1
+  /// byte via SYS_WRITE. Same technique as emit_newline.
+  fn emit_char_and_write(&mut self, fd: u16) {
+    // Store low byte of X0 to scratch slot on stack.
+    self.emitter.emit_sub_imm(X2, SP, NEWLINE_BUFFER_OFFSET);
+    self.emitter.emit_strb(X0, X2, 0);
+    // X1 = pointer to the byte, X2 = length 1.
     self.emitter.emit_mov_reg(X1, X2);
     self.emitter.emit_mov_imm(X2, 1);
     self.emitter.emit_mov_imm(X16, SYS_WRITE);

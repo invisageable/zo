@@ -76,7 +76,8 @@ pub const COND_GE: u8 = 0xA;
 pub const COND_LT: u8 = 0xB;
 pub const COND_GT: u8 = 0xC;
 pub const COND_LE: u8 = 0xD;
-pub const COND_CS: u8 = 0x2; // carry set (macOS syscall error)
+pub const COND_CS: u8 = 0x2; // carry set / unsigned >= (B.HS)
+pub const COND_CC: u8 = 0x3; // carry clear / unsigned < (B.LO)
 pub const COND_VS: u8 = 0x6; // overflow set (NaN)
 pub const COND_VC: u8 = 0x7; // overflow clear (not NaN)
 
@@ -471,9 +472,14 @@ impl ARM64Emitter {
     self.emit_bcond(COND_GE, offset);
   }
 
-  // Branch if carry set (macOS syscall error convention).
+  // Branch if carry set (unsigned >=, macOS syscall error).
   pub fn emit_bcs(&mut self, offset: i32) {
     self.emit_bcond(COND_CS, offset);
+  }
+
+  /// Branch if carry clear (unsigned <, B.LO).
+  pub fn emit_bcc(&mut self, offset: i32) {
+    self.emit_bcond(COND_CC, offset);
   }
 
   /// Compare and branch if zero.

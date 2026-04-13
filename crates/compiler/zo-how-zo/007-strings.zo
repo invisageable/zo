@@ -25,6 +25,18 @@ fun main() {
   imu title: str = "the " ++ "devolution";
   showln(title);
 
+  -- indexing: `s[i]` returns the char at byte position i.
+  -- this is O(1) — a single byte load, zero allocation.
+  imu first: char = greeting[0];
+  imu last: char = greeting[4];
+
+  showln(first);
+  showln(last);
+
+  -- chars compare naturally.
+  check@eq(greeting[0], 'h');
+  check@eq(greeting[4], 'o');
+
   -- recall from lesson 004: interpolation embeds values
   -- into strings. `{variable}` is resolved at compile-time.
   imu hp: int = 100;
@@ -35,6 +47,7 @@ fun main() {
 -!
 -!   `++`        — concatenation (runtime or compile-time).
 -!   `{var}`     — interpolation inside `showln` (compile-time).
+-!   `s[i]`      — char at byte index i (O(1), bounds-checked).
 -!
 -! Strings in zo are length-prefixed: `[len:u64][bytes][null]`.
 -! no scanning for terminators — the length is always known.
@@ -48,10 +61,13 @@ fun main() {
 -!   - Concat three variables into a sentence.
 -!   - Try `"hello" ++ 42` — zo stops you (type mismatch).
 -!   - Build a multi-line message with `++` and `"\n"`.
+-!   - Index into a string and compare with a char literal.
 
 -- EXPECTED OUTPUT:
 -- hello, johndoe!
 -- hello
 -- johndoe
 -- the devolution
+-- h
+-- o
 -- hp: 100

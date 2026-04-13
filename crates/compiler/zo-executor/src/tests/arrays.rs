@@ -1,4 +1,4 @@
-use crate::tests::common::assert_sir_structure;
+use crate::tests::common::{assert_sir_structure, execute_raw};
 
 use zo_sir::Insn;
 
@@ -177,6 +177,30 @@ fn test_array_store_read_modify_write() {
       assert!(has_store, "expected ArrayStore for write");
     },
   );
+}
+
+#[test]
+fn test_string_index_produces_char_type() {
+  let (insns, _) = execute_raw(
+    r#"fun main() {
+  imu s: str = "hello";
+  showln(s[0]);
+}"#,
+  );
+
+  // Find the ArrayIndex instruction.
+  let arr_idx = insns.iter().find(|i| matches!(i, Insn::ArrayIndex { .. }));
+
+  assert!(arr_idx.is_some(), "expected ArrayIndex in SIR");
+
+  if let Some(Insn::ArrayIndex { ty_id, .. }) = arr_idx {
+    // Char type ID is 3 (TyChecker::new() registration).
+    assert_eq!(
+      ty_id.0, 3,
+      "expected ArrayIndex ty_id=3 (char), got {}",
+      ty_id.0
+    );
+  }
 }
 
 #[test]

@@ -237,6 +237,87 @@ fn test_closure_capture_generates_code() {
   );
 }
 
+#[test]
+fn test_string_index_emits_ldrb() {
+  let source = r#"fun main() {
+  imu s: str = "hello";
+  showln(s[0]);
+}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+  let (sir, _, _, _) = executor.execute();
+
+  let mut codegen = ARM64Gen::new(&tokenization.interner);
+  let artifact = codegen.generate(&sir);
+
+  // LDRB unsigned-offset: bits [31:22] = 00_11_1001_01.
+  let has_ldrb = artifact.code.chunks_exact(4).any(|c| {
+    let insn = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+
+    (insn >> 22) == 0b0011100101
+  });
+
+  assert!(has_ldrb, "expected LDRB instruction for string indexing");
+}
+
+#[test]
+fn test_string_index_check_eq_char() {
+  // Matches minimal str-index.zo: check@eq(s[0], 'h')
+  let source = r#"fun main() {
+  imu s: str = "hello";
+  check@eq(s[0], 'h');
+}"#;
+
+  let tokenizer = Tokenizer::new(source);
+  let mut tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut tokenization.interner,
+    &tokenization.literals,
+  );
+  let (sir, _, _, _) = executor.execute();
+
+  // Verify ArrayIndex has char type.
+  let arr_idx = sir.instructions.iter().find_map(|i| {
+    if let Insn::ArrayIndex { ty_id, .. } = i {
+      Some(ty_id.0)
+    } else {
+      None
+    }
+  });
+
+  assert_eq!(arr_idx, Some(3), "ArrayIndex should have char ty_id");
+
+  // Verify BinOp Eq exists.
+  let has_eq = sir.instructions.iter().any(|i| {
+    matches!(
+      i,
+      Insn::BinOp {
+        op: zo_sir::BinOp::Eq,
+        ..
+      }
+    )
+  });
+
+  assert!(has_eq, "expected BinOp::Eq for check@eq");
+
+  // Generate code — should not panic.
+  let mut codegen = ARM64Gen::new(&tokenization.interner);
+  let artifact = codegen.generate(&sir);
+
+  assert!(!artifact.code.is_empty());
+}
+
 // ================================================================
 // Original codegen tests.
 // ================================================================
