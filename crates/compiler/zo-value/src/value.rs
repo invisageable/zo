@@ -239,6 +239,11 @@ pub struct FunDef {
   /// Empty for non-generic functions. At each call site,
   /// these are substituted with fresh vars.
   pub type_params: Vec<TyId>,
+  /// Concrete return type args as resolved Ty values
+  /// (e.g. `Result<str, int>` → [Ty::Str, Ty::Int]).
+  /// Stored as Ty (not TyId) so they survive cross-module
+  /// translation without TyId invalidation.
+  pub return_type_args: Vec<zo_ty::Ty>,
 }
 
 /// Represents a [`Local`] variable entry instance.

@@ -20,6 +20,9 @@ const SVC: u32 = 0xD4000001;
 const NOP_INSN: u32 = 0xD503201F;
 const ADD_REG: u32 = 0x8B000000;
 const SUB_REG: u32 = 0xCB000000;
+// Extended register forms — treats register 31 as SP.
+const ADD_EXT: u32 = 0x8B206000; // UXTX, shift=0
+const SUB_EXT: u32 = 0xCB206000; // UXTX, shift=0
 const MUL: u32 = 0x9B007C00;
 const SDIV: u32 = 0x9AC00C00;
 const UDIV: u32 = 0x9AC00800;
@@ -73,6 +76,7 @@ pub const COND_GE: u8 = 0xA;
 pub const COND_LT: u8 = 0xB;
 pub const COND_GT: u8 = 0xC;
 pub const COND_LE: u8 = 0xD;
+pub const COND_CS: u8 = 0x2; // carry set (macOS syscall error)
 pub const COND_VS: u8 = 0x6; // overflow set (NaN)
 pub const COND_VC: u8 = 0x7; // overflow clear (not NaN)
 
@@ -278,7 +282,8 @@ impl ARM64Emitter {
     self.emit_u32(NOP_INSN);
   }
 
-  /// Emits `ADD` register to register.
+  /// Emits `ADD` register to register (shifted form).
+  /// Register 31 = XZR in this encoding.
   pub fn emit_add(&mut self, dst: Register, src1: Register, src2: Register) {
     let insn = ADD_REG
       | ((src2.index() as u32) << 16)
@@ -288,9 +293,42 @@ impl ARM64Emitter {
     self.emit_u32(insn);
   }
 
-  /// Emits `SUB` (subtract) register from register.
+  /// Emits `SUB` register from register (shifted form).
+  /// Register 31 = XZR in this encoding.
   pub fn emit_sub(&mut self, dst: Register, src1: Register, src2: Register) {
     let insn = SUB_REG
+      | ((src2.index() as u32) << 16)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// Emits `ADD` with extended register form where
+  /// register 31 = SP (not XZR). Use for SP arithmetic.
+  pub fn emit_add_ext(
+    &mut self,
+    dst: Register,
+    src1: Register,
+    src2: Register,
+  ) {
+    let insn = ADD_EXT
+      | ((src2.index() as u32) << 16)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// Emits `SUB` with extended register form where
+  /// register 31 = SP (not XZR). Use for SP arithmetic.
+  pub fn emit_sub_ext(
+    &mut self,
+    dst: Register,
+    src1: Register,
+    src2: Register,
+  ) {
+    let insn = SUB_EXT
       | ((src2.index() as u32) << 16)
       | ((src1.index() as u32) << 5)
       | (dst.index() as u32);
@@ -431,6 +469,11 @@ impl ARM64Emitter {
   // Branch if greater than or equal (signed).
   pub fn emit_bge(&mut self, offset: i32) {
     self.emit_bcond(COND_GE, offset);
+  }
+
+  // Branch if carry set (macOS syscall error convention).
+  pub fn emit_bcs(&mut self, offset: i32) {
+    self.emit_bcond(COND_CS, offset);
   }
 
   /// Compare and branch if zero.

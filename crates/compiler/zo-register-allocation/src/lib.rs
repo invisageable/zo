@@ -48,6 +48,9 @@ pub struct FunctionInfo {
   /// function (sum of all StructConstruct field counts
   /// * 8, aligned to 16).
   pub struct_size: u32,
+  /// Stack space for mutable variable slots: unique
+  /// Store targets × 8, aligned to 16.
+  pub mutable_size: u32,
 }
 
 /// A spill operation to emit during codegen.
@@ -93,7 +96,11 @@ pub struct RegAlloc {
 
 impl RegAlloc {
   /// Run register allocation on the SIR instruction stream.
-  pub fn allocate(insns: &[Insn], next_value_id: u32) -> Self {
+  pub fn allocate(
+    insns: &[Insn],
+    next_value_id: u32,
+    interner: &zo_interner::Interner,
+  ) -> Self {
     let value_ids = compute_value_ids(insns);
     let mut result = Self {
       assignments: HashMap::default(),
@@ -116,6 +123,7 @@ impl RegAlloc {
         &vids,
         next_value_id,
         &mut result,
+        interner,
       );
     }
 

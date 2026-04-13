@@ -8,6 +8,7 @@ doctest = false
 
 [dependencies]
 # internal:crates.
+zo-interner = { workspace = true }
 zo-liveness = { workspace = true }
 zo-sir = { workspace = true }
 zo-value = { workspace = true }

@@ -2,6 +2,7 @@ use crate::{
   ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FunctionInfo, RegAlloc,
   RegisterClass, SpillKind, SpillOp,
 };
+use zo_interner::Symbol;
 use zo_liveness::{LivenessInfo, liveness};
 use zo_sir::{Insn, LoadSource};
 use zo_value::FunctionKind;
@@ -193,6 +194,7 @@ pub fn allocate_function(
   value_ids: &[Option<ValueId>],
   num_values: u32,
   result: &mut RegAlloc,
+  interner: &zo_interner::Interner,
 ) {
   let n = end - start;
 
@@ -459,11 +461,39 @@ pub fn allocate_function(
       Insn::TupleLiteral { elements, .. } => {
         struct_slots += elements.len() as u32;
       }
+      // IO ext functions need extra stack slots for
+      // syscall buffers and Result construction.
+      // read_file: 4096-byte read buffer (520 slots).
+      // write_file / append_file: 5 slots for Result.
+      Insn::Call { name, .. } => {
+        let fn_name = interner.get(*name);
+
+        match fn_name {
+          "read_file" => struct_slots += 520,
+          "write_file" | "append_file" => {
+            struct_slots += 5;
+          }
+          _ => {}
+        }
+      }
       _ => {}
     }
   }
 
   let struct_size = (struct_slots * 8 + 15) & !15;
+
+  // Count unique Store targets for mutable variable slots.
+  let mut store_names: Vec<Symbol> = Vec::new();
+
+  for i in 0..n {
+    if let Insn::Store { name, .. } = &insns[start + i]
+      && !store_names.contains(name)
+    {
+      store_names.push(*name);
+    }
+  }
+
+  let mutable_size = (store_names.len() as u32 * 8 + 15) & !15;
 
   result.function_info.insert(
     start,
@@ -472,6 +502,7 @@ pub fn allocate_function(
       spill_count,
       spill_size,
       struct_size,
+      mutable_size,
     },
   );
 }

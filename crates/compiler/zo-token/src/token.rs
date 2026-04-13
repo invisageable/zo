@@ -221,6 +221,36 @@ impl Token {
         | Self::For
     )
   }
+
+  /// Returns the source text for type keyword tokens.
+  ///
+  /// In pattern binding positions a type keyword is used as
+  /// a variable name (e.g., `Result::Ok(bytes)` where
+  /// `bytes` is tokenized as `BytesType`). This method
+  /// provides the text so the executor can intern it as a
+  /// binding symbol.
+  pub fn ty_keyword_str(&self) -> Option<&'static str> {
+    match self {
+      Self::IntType => Some("int"),
+      Self::S8Type => Some("s8"),
+      Self::S16Type => Some("s16"),
+      Self::S32Type => Some("s32"),
+      Self::S64Type => Some("s64"),
+      Self::UintType => Some("uint"),
+      Self::U8Type => Some("u8"),
+      Self::U16Type => Some("u16"),
+      Self::U32Type => Some("u32"),
+      Self::U64Type => Some("u64"),
+      Self::FloatType => Some("float"),
+      Self::F32Type => Some("f32"),
+      Self::F64Type => Some("f64"),
+      Self::BoolType => Some("bool"),
+      Self::BytesType => Some("bytes"),
+      Self::CharType => Some("char"),
+      Self::StrType => Some("str"),
+      _ => None,
+    }
+  }
 }
 
 /// Compact, cache-friendly token buffer using Structure of Arrays layout

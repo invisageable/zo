@@ -40,7 +40,7 @@ fun main() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -71,7 +71,7 @@ fun main() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -101,7 +101,7 @@ fun main() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -131,7 +131,7 @@ fun main() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -182,7 +182,7 @@ fun main() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -241,7 +241,7 @@ fun main() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -296,7 +296,7 @@ fun main() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -327,7 +327,7 @@ fun main() {}"#;
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -356,7 +356,7 @@ fun main() {}"#;
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -387,7 +387,7 @@ fun main() {}"#;
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -423,7 +423,7 @@ fun main() {}"#;
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -451,7 +451,7 @@ fun main() {}"#;
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(

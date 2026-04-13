@@ -118,7 +118,7 @@ fn test_val_in_function_no_errors() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -146,7 +146,7 @@ fun main() {}"#;
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -196,7 +196,7 @@ fn test_val_bool_no_errors() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -223,7 +223,7 @@ fn test_val_str_no_errors() {
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -251,7 +251,7 @@ fun main() {}"#;
     &tokenization.literals,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(

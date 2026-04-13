@@ -225,6 +225,7 @@ impl Compiler {
           &mut tokenization.interner,
           &mod_sem.ty_checker,
           &mut dst_tc,
+          &mod_sem.funs,
         );
 
         imported_funs.extend(exports.funs);
@@ -316,6 +317,7 @@ impl Compiler {
         &mut tokenization.interner,
         &mod_semantic.ty_checker,
         &mut dst_ty_checker,
+        &mod_semantic.funs,
       );
 
       imported_funs.extend(exports.funs);
