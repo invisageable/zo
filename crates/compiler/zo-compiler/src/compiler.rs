@@ -206,15 +206,11 @@ impl Compiler {
 
       if let Some(m) = resolved {
         let src = m.source.clone();
-        let mut interner_preload = Interner::new();
-        let mod_tok = Tokenizer::new(&src, &mut interner_preload).tokenize();
+        let mod_tok = Tokenizer::new(&src, &mut interner).tokenize();
         let mod_par = Parser::new(&mod_tok, &src).parse();
 
-        let mod_ana = Analyzer::new(
-          &mod_par.tree,
-          &mut interner_preload,
-          &mod_tok.literals,
-        );
+        let mod_ana =
+          Analyzer::new(&mod_par.tree, &mut interner, &mod_tok.literals);
 
         let mod_sem = mod_ana.analyze();
         let mut dst_tc = TyChecker::new();
@@ -222,8 +218,7 @@ impl Compiler {
         let exports = extract_exports(
           mod_sem.sir,
           None,
-          &interner_preload,
-          &mut interner,
+          &interner,
           &mod_sem.ty_checker,
           &mut dst_tc,
           &mod_sem.funs,
@@ -296,14 +291,13 @@ impl Compiler {
 
       self.compiling.insert(resolved_path.clone());
 
-      let mut interner_user = Interner::new();
       let mod_tokenization =
-        Tokenizer::new(&mod_source, &mut interner_user).tokenize();
+        Tokenizer::new(&mod_source, &mut interner).tokenize();
       let mod_parsing = Parser::new(&mod_tokenization, &mod_source).parse();
 
       let mod_analyzer = Analyzer::new(
         &mod_parsing.tree,
-        &mut interner_user,
+        &mut interner,
         &mod_tokenization.literals,
       );
 
@@ -314,8 +308,7 @@ impl Compiler {
       let exports = extract_exports(
         mod_semantic.sir,
         selective.as_deref(),
-        &interner_user,
-        &mut interner,
+        &interner,
         &mod_semantic.ty_checker,
         &mut dst_ty_checker,
         &mod_semantic.funs,

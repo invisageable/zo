@@ -1,5 +1,3 @@
-use crate::resolver::translate_symbol;
-
 use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
@@ -63,8 +61,7 @@ pub fn translate_ty_id(
 pub fn extract_exports(
   sir: Sir,
   selective: Option<&str>,
-  src_interner: &Interner,
-  dst_interner: &mut Interner,
+  interner: &Interner,
   src_ty_checker: &TyChecker,
   dst_ty_checker: &mut TyChecker,
   src_funs: &[zo_value::FunDef],
@@ -87,22 +84,21 @@ pub fn extract_exports(
           continue;
         }
 
-        let src_name = src_interner.get(*name);
+        let fn_name = interner.get(*name);
 
         if let Some(filter) = selective
-          && src_name != filter
+          && fn_name != filter
         {
           continue;
         }
 
-        let dst_name = dst_interner.intern(src_name);
+        // Shared interner: symbols are already in the same
+        // namespace — no translation needed. TyIds still need
+        // translation until TyChecker is shared.
         let dst_params = params
           .iter()
           .map(|(p, ty)| {
-            (
-              translate_symbol(*p, src_interner, dst_interner),
-              translate_ty_id(*ty, src_ty_checker, dst_ty_checker),
-            )
+            (*p, translate_ty_id(*ty, src_ty_checker, dst_ty_checker))
           })
           .collect::<Vec<_>>();
 
@@ -118,7 +114,7 @@ pub fn extract_exports(
           .unwrap_or_default();
 
         funs.push(FunDef {
-          name: dst_name,
+          name: *name,
           params: dst_params,
           return_ty: dst_return_ty,
           body_start: *body_start,
@@ -140,19 +136,18 @@ pub fn extract_exports(
           continue;
         }
 
-        let src_name = src_interner.get(*name);
+        let var_name = interner.get(*name);
 
         if let Some(filter) = selective
-          && src_name != filter
+          && var_name != filter
         {
           continue;
         }
 
-        let dst_name = dst_interner.intern(src_name);
         let dst_ty_id = translate_ty_id(*ty_id, src_ty_checker, dst_ty_checker);
 
         vars.push(ExportedVar {
-          name: dst_name,
+          name: *name,
           ty_id: dst_ty_id,
           init: *init,
         });
@@ -168,36 +163,33 @@ pub fn extract_exports(
           continue;
         }
 
-        let src_name = src_interner.get(*name);
+        let enum_name = interner.get(*name);
 
         if let Some(filter) = selective
-          && src_name != filter
+          && enum_name != filter
         {
           continue;
         }
 
-        let dst_name = dst_interner.intern(src_name);
-
-        // Translate variant names and field types into the
-        // caller's interner/type-checker. The importing
-        // executor will re-intern the full enum from this
-        // raw data so the EnumTyId lives in its own table.
+        // Translate field types into the caller's type-checker.
+        // The importing executor will re-intern the full enum
+        // from this raw data so the EnumTyId lives in its
+        // own table. Variant names are already shared via
+        // the common interner.
         let dst_variants: Vec<(Symbol, u32, Vec<TyId>)> = variants
           .iter()
           .map(|(vname, disc, fields)| {
-            let dst_vname =
-              translate_symbol(*vname, src_interner, dst_interner);
             let dst_fields: Vec<TyId> = fields
               .iter()
               .map(|f| translate_ty_id(*f, src_ty_checker, dst_ty_checker))
               .collect();
 
-            (dst_vname, *disc, dst_fields)
+            (*vname, *disc, dst_fields)
           })
           .collect();
 
         enums.push(ExportedEnum {
-          name: dst_name,
+          name: *name,
           variants: dst_variants,
         });
       }

@@ -82,6 +82,7 @@ zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.3
 zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.3.1" }
 zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.3.1" }
 zo-sir = { path = "crates/compiler/zo-sir", version = "0.3.1" }
+zo-session = { path = "crates/compiler/zo-session", version = "0.3.1" }
 zo-span = { path = "crates/compiler/zo-span", version = "0.3.1" }
 zo-token = { path = "crates/compiler/zo-token", version = "0.3.1" }
 zo-tokenizer = { path = "crates/compiler/zo-tokenizer", version = "0.3.1" }

@@ -7363,6 +7363,7 @@ dependencies = [
  "zo-profiler",
  "zo-reporter",
  "zo-runtime",
+ "zo-session",
  "zo-sir",
  "zo-span",
  "zo-token",
@@ -7639,6 +7640,14 @@ dependencies = [
  "wry",
  "zo-runtime-render",
  "zo-ui-protocol",
+]
+
+[[package]]
+name = "zo-session"
+version = "0.3.1"
+dependencies = [
+ "zo-interner",
+ "zo-ty-checker",
 ]
 
 [[package]]
