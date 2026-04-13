@@ -1872,6 +1872,52 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_str(X16, arr_reg, 0);
       }
 
+      Insn::ArrayPop { dst, array, ty_id } => {
+        // Layout: [len:8][cap:8][data...]
+        // 1. Load len, check > 0.
+        // 2. Decrement len, store back.
+        // 3. Load data[new_len] into dst.
+        let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
+
+        // X16 = len.
+        self.emitter.emit_ldr(X16, arr_reg, 0);
+        // Check len > 0: CMP len, #0 → B.NE (skip panic).
+        self.emitter.emit_cmp_imm(X16, 0);
+        let bne_pos = self.emitter.current_offset();
+        self.emitter.emit_bne(0); // placeholder
+        // Panic: pop on empty array — exit(1).
+        self.emitter.emit_mov_imm(X0, 1);
+        self.emitter.emit_mov_imm(X16, SYS_EXIT);
+        self.emitter.emit_svc(0);
+        // Patch B.NE past panic.
+        let here = self.emitter.current_offset() as i32;
+        self
+          .emitter
+          .patch_bcond_at(bne_pos as usize, here - bne_pos as i32);
+
+        // Reload len (X16 was clobbered).
+        self.emitter.emit_ldr(X16, arr_reg, 0);
+        // Decrement: new_len = len - 1.
+        self.emitter.emit_sub_imm(X16, X16, 1);
+        // Store new len.
+        self.emitter.emit_str(X16, arr_reg, 0);
+
+        // Load data[new_len]: base + 16 + new_len * 8.
+        self.emitter.emit_lsl(X17, X16, ARRAY_ELEMENT_SHIFT);
+        self.emitter.emit_add(X17, arr_reg, X17);
+        self.emitter.emit_add_imm(X17, X17, ARRAY_HEADER_SIZE);
+
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
+        if is_flt {
+          let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
+          self.emitter.emit_ldr_fp(fp_dst, X17, 0);
+        } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+          self.emitter.emit_ldr(dst_reg, X17, 0);
+        }
+      }
+
       // Type definitions — compile-time only for struct/const,
       // but enum declarations also register pretty-printer
       // metadata so `show(Loot::Gold(...))` can emit

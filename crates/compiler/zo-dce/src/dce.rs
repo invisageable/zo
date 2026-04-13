@@ -314,6 +314,7 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::FieldStore { .. }
       | Insn::ArrayStore { .. }
       | Insn::ArrayPush { .. }
+      | Insn::ArrayPop { .. }
       | Insn::Directive { .. }
       | Insn::Return { .. }
   )

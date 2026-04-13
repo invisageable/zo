@@ -5583,13 +5583,13 @@ impl<'a> Executor<'a> {
       _ => return false,
     };
 
-    // Array builtin methods: push.
+    // Array builtin methods: push, pop.
     let resolved = self.ty_checker.kind_of(receiver_ty);
 
     if matches!(resolved, Ty::Array(_)) {
       let ms = self.interner.get(member_name);
 
-      return ms == "push";
+      return ms == "push" || ms == "pop";
     }
 
     // Resolve receiver type name for struct/enum methods.
@@ -5793,6 +5793,45 @@ impl<'a> Executor<'a> {
       value: val_sir,
       ty_id: arr_ty,
     });
+  }
+
+  /// Executes `val = arr.pop()` — emits `ArrayPop` SIR.
+  /// Stack: [..., receiver]. No explicit args.
+  fn execute_array_pop(&mut self, _lparen_idx: usize, _rparen_idx: usize) {
+    // Pop the receiver (array).
+    let (_arr, arr_ty, arr_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    // Resolve element type from array type.
+    let elem_ty = if let Ty::Array(aid) = self.ty_checker.kind_of(arr_ty)
+      && let Some(at) = self.ty_checker.ty_table.array(aid)
+    {
+      at.elem_ty
+    } else {
+      self.ty_checker.int_type()
+    };
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sv = self.sir.emit(Insn::ArrayPop {
+      dst,
+      array: arr_sir,
+      ty_id: elem_ty,
+    });
+
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(elem_ty);
+    self.sir_values.push(sv);
   }
 
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
@@ -7035,16 +7074,23 @@ impl<'a> Executor<'a> {
             // Array builtin methods.
             let ms = self.interner.get(method_sym).to_owned();
 
-            if ms == "push"
-              && let Some(recv_ty) = self
-                .ty_stack
-                .get(self.ty_stack.len().saturating_sub(2))
-                .copied()
+            if let Some(recv_ty) = self
+              .ty_stack
+              .get(self.ty_stack.len().saturating_sub(2))
+              .copied()
               && matches!(self.ty_checker.kind_of(recv_ty), Ty::Array(_))
             {
-              self.execute_array_push(lparen_idx, rparen_idx);
+              if ms == "push" {
+                self.execute_array_push(lparen_idx, rparen_idx);
 
-              return;
+                return;
+              }
+
+              if ms == "pop" {
+                self.execute_array_pop(lparen_idx, rparen_idx);
+
+                return;
+              }
             }
 
             let mangled = self.resolve_dot_call(method_idx, method_sym);

@@ -81,6 +81,7 @@ impl Sir {
       | Insn::ArrayLiteral { dst, .. }
       | Insn::ArrayIndex { dst, .. }
       | Insn::ArrayLen { dst, .. }
+      | Insn::ArrayPop { dst, .. }
       | Insn::TupleLiteral { dst, .. }
       | Insn::TupleIndex { dst, .. }
       | Insn::EnumConstruct { dst, .. }
@@ -181,6 +182,10 @@ impl Insn {
       Insn::ArrayPush { array, value, .. } => {
         f(array);
         f(value);
+      }
+      Insn::ArrayPop { dst, array, .. } => {
+        f(dst);
+        f(array);
       }
       Insn::TupleLiteral { dst, elements, .. } => {
         f(dst);
@@ -345,6 +350,12 @@ pub enum Insn {
   ArrayPush {
     array: ValueId,
     value: ValueId,
+    ty_id: TyId,
+  },
+  /// Array pop: val = arr.pop(). Decrements len, returns last.
+  ArrayPop {
+    dst: ValueId,
+    array: ValueId,
     ty_id: TyId,
   },
   /// Tuple literal: (e0, e1, ..., eN).
