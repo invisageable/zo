@@ -1599,7 +1599,9 @@ impl<'a> Tokenizer<'a> {
       self.tokens.push(Token::Unknown, start as u32, len);
     } else {
       let len = (self.cursor - start) as u16;
-      let id = self.literals.push_bytes_span((start + 1) as u32, len - 2);
+      // Extract the first byte between backticks.
+      let byte_val = self.source[start + 1];
+      let id = self.literals.push_bytes(byte_val);
 
       self
         .tokens

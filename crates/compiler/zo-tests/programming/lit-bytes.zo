@@ -1,0 +1,13 @@
+-- tests-build-pass: bytes literals and printing.
+-- @cmd — zo build lit-bytes.zo
+
+fun main() {
+  imu b: bytes = `z`;
+
+  showln(b);
+  showln(`A`);
+  showln(`0`);
+
+  check@eq(b, `z`);
+  check@eq(`A`, `A`);
+}

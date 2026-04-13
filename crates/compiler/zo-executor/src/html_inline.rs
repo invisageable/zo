@@ -115,7 +115,7 @@ mod tests {
 
     let joined: String = commands
       .iter()
-      .filter_map(|c| match c {
+      .filter_map(|command| match command {
         UiCommand::Text(s) => Some(s.as_str()),
         _ => None,
       })
@@ -131,21 +131,23 @@ mod tests {
 
     let elements = commands
       .iter()
-      .filter(|c| matches!(c, UiCommand::Element { .. }))
+      .filter(|command| matches!(command, UiCommand::Element { .. }))
       .count();
 
     assert_eq!(elements, 1, "should emit one Element command");
 
     let ends = commands
       .iter()
-      .filter(|c| matches!(c, UiCommand::EndElement))
+      .filter(|command| matches!(command, UiCommand::EndElement))
       .count();
 
     assert_eq!(ends, 1, "should emit one EndElement command");
 
-    let has_bold = commands
-      .iter()
-      .any(|c| text_of(c).map(|s| s.contains("bold")).unwrap_or(false));
+    let has_bold = commands.iter().any(|command| {
+      text_of(command)
+        .map(|s| s.contains("bold"))
+        .unwrap_or(false)
+    });
 
     assert!(has_bold, "should emit a TextNode containing `bold`");
   }
@@ -154,7 +156,7 @@ mod tests {
   fn parse_article_is_enumerated_tag() {
     let commands = parse_raw_html("<article>x</article>");
 
-    let tag = commands.iter().find_map(|c| match c {
+    let tag = commands.iter().find_map(|command| match command {
       UiCommand::Element { tag, .. } => Some(tag),
       _ => None,
     });
@@ -168,7 +170,7 @@ mod tests {
   fn parse_truly_custom_tag_becomes_custom() {
     let commands = parse_raw_html("<my-widget>hi</my-widget>");
 
-    let tag = commands.iter().find_map(|c| match c {
+    let tag = commands.iter().find_map(|command| match command {
       UiCommand::Element { tag, .. } => Some(tag),
       _ => None,
     });
@@ -184,7 +186,7 @@ mod tests {
   fn parse_strips_html_comments() {
     let commands = parse_raw_html("<!-- skip --><p>hi</p>");
 
-    let has_comment_text = commands.iter().any(|c| match c {
+    let has_comment_text = commands.iter().any(|command| match command {
       UiCommand::Text(s) => s.contains("skip"),
       _ => false,
     });
@@ -193,7 +195,7 @@ mod tests {
 
     let elements = commands
       .iter()
-      .filter(|c| matches!(c, UiCommand::Element { .. }))
+      .filter(|command| matches!(command, UiCommand::Element { .. }))
       .count();
 
     assert_eq!(elements, 1, "only the <p> should emit an element");
@@ -205,11 +207,11 @@ mod tests {
 
     let elements = commands
       .iter()
-      .filter(|c| matches!(c, UiCommand::Element { .. }))
+      .filter(|command| matches!(command, UiCommand::Element { .. }))
       .count();
     let ends = commands
       .iter()
-      .filter(|c| matches!(c, UiCommand::EndElement))
+      .filter(|command| matches!(command, UiCommand::EndElement))
       .count();
 
     assert_eq!(elements, 2, "two open tags expected");
@@ -220,9 +222,9 @@ mod tests {
   fn parse_self_closing_tag() {
     let commands = parse_raw_html("<br/>");
 
-    let self_closing = commands.iter().any(|c| {
+    let self_closing = commands.iter().any(|command| {
       matches!(
-        c,
+        command,
         UiCommand::Element {
           self_closing: true,
           ..

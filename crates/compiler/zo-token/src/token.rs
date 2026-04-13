@@ -371,7 +371,7 @@ pub struct LiteralStore {
   pub int_literals: Vec<u64>,
   pub float_literals: Vec<f64>,
   pub identifiers: Vec<Symbol>,
-  pub bytes_literals: Vec<(u32, u16)>,
+  pub bytes_literals: Vec<u8>,
   pub char_literals: Vec<u32>,
   pub string_literals: Vec<Symbol>,
   /// Interpolation segments (flat array, indexed by ranges).
@@ -451,10 +451,10 @@ impl LiteralStore {
   }
 
   #[inline(always)]
-  pub fn push_bytes_span(&mut self, start: u32, len: u16) -> u32 {
+  pub fn push_bytes(&mut self, value: u8) -> u32 {
     let idx = self.bytes_literals.len() as u32;
 
-    self.bytes_literals.push((start, len));
+    self.bytes_literals.push(value);
 
     idx
   }

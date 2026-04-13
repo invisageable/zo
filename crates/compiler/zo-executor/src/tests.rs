@@ -20,7 +20,9 @@ pub(crate) mod tuples;
 pub(crate) mod type_aliases;
 pub(crate) mod unary;
 
-use crate::tests::common::{assert_annotations_stream, assert_sir_stream};
+use crate::tests::common::{
+  assert_annotations_stream, assert_sir_stream, execute_raw,
+};
 
 use zo_interner::Symbol;
 use zo_sir::{BinOp, Insn, LoadSource};
@@ -43,6 +45,22 @@ fn test_integer_literal() {
         ty_id: TyId(8),
       },
     )],
+  );
+}
+
+#[test]
+fn test_bytes_literal() {
+  let (insns, _) = execute_raw("fun main() { showln(`z`); }");
+
+  // ConstInt with bytes_type (TyId 5) and value 122 ('z').
+  let bytes_const = insns.iter().find(|i| {
+    matches!(i, Insn::ConstInt { ty_id, value, .. }
+      if ty_id.0 == 5 && *value == 122)
+  });
+
+  assert!(
+    bytes_const.is_some(),
+    "expected ConstInt with ty_id=5 (bytes) and value=122"
   );
 }
 
