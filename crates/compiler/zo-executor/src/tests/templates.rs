@@ -7,6 +7,7 @@ use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
+use zo_ty_checker::TyChecker;
 
 // === TEMPLATE DECLARATION ===
 
@@ -51,10 +52,16 @@ fn test_template_var_registered() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -80,10 +87,16 @@ fn test_template_interp_str_variable() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -107,10 +120,16 @@ fn test_template_interp_int_variable() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -135,10 +154,16 @@ fn test_template_interp_multiple_vars() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -162,10 +187,16 @@ fn test_template_interp_named_tag() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -215,10 +246,16 @@ fn test_template_attr_interpolation() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -694,10 +731,16 @@ fn test_html_directive_smoke() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (sir, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _) = executor.execute();
 
   // Print the rendered template commands. Visible with
   // `--nocapture`.
@@ -790,8 +833,14 @@ fn test_html_directive_rejects_mut_source() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
 
   let _ = executor.execute();
   let errors = collect_errors();

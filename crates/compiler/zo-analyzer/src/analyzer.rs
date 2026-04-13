@@ -14,8 +14,6 @@ pub struct SemanticResult {
   pub sir: Sir,
   /// The collections of types [`Annotation`].
   pub annotations: Vec<Annotation>,
-  /// The type checker state for cross-module translation.
-  pub ty_checker: TyChecker,
   /// Function definitions from the executor (carries
   /// return_type_args for ext functions).
   pub funs: Vec<FunDef>,
@@ -40,6 +38,8 @@ pub struct Analyzer<'a> {
   interner: &'a mut Interner,
   /// The reference of a [`LiteralStore`].
   literals: &'a LiteralStore,
+  /// The type checker instance (borrowed from caller).
+  ty_checker: &'a mut TyChecker,
   /// Imported symbols from loaded modules.
   imports: Option<ImportedSymbols>,
 }
@@ -50,11 +50,13 @@ impl<'a> Analyzer<'a> {
     tree: &'a Tree,
     interner: &'a mut Interner,
     literals: &'a LiteralStore,
+    ty_checker: &'a mut TyChecker,
   ) -> Self {
     Self {
       tree,
       interner,
       literals,
+      ty_checker,
       imports: None,
     }
   }
@@ -67,19 +69,19 @@ impl<'a> Analyzer<'a> {
 
   /// Analyzes a parse [`Tree`] to build semantic IR.
   pub fn analyze(self) -> SemanticResult {
-    let mut executor = Executor::new(self.tree, self.interner, self.literals);
+    let mut executor =
+      Executor::new(self.tree, self.interner, self.literals, self.ty_checker);
 
     if let Some(imports) = self.imports {
       executor =
         executor.with_imports(imports.funs, imports.vars, imports.enums);
     }
 
-    let (sir, annotations, ty_checker, funs) = executor.execute();
+    let (sir, annotations, funs) = executor.execute();
 
     SemanticResult {
       sir,
       annotations,
-      ty_checker,
       funs,
     }
   }

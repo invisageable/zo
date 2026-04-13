@@ -7,6 +7,7 @@ use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
+use zo_ty_checker::TyChecker;
 
 // === GENERIC FUNCTION PARSING ===
 
@@ -36,10 +37,16 @@ fun main() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -65,10 +72,16 @@ fun main() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -93,10 +106,16 @@ fun main() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -121,10 +140,16 @@ fun main() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -170,10 +195,16 @@ fun main() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -227,10 +258,16 @@ fun main() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -280,10 +317,16 @@ fun main() {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -309,10 +352,16 @@ fun main() {}"#;
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -336,10 +385,16 @@ fun main() {}"#;
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -365,10 +420,16 @@ fun main() {}"#;
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -399,10 +460,16 @@ fun main() {}"#;
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -425,10 +492,16 @@ fun main() {}"#;
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (_, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(

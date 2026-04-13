@@ -1,7 +1,6 @@
 use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
-use zo_ty_checker::TyChecker;
 use zo_value::{FunDef, Pubness, ValueId};
 
 /// An exported compile-time constant from a module.
@@ -37,20 +36,6 @@ pub struct ModuleExports {
   pub next_value_id: u32,
 }
 
-/// Translates a TyId from one TyChecker to another.
-///
-/// Resolves the `Ty` value in the source checker, then interns
-/// it in the destination checker. For pre-registered primitives
-/// this is a no-op (same ID). For complex types this remaps.
-pub fn translate_ty_id(
-  src_id: TyId,
-  src_checker: &TyChecker,
-  dst_checker: &mut TyChecker,
-) -> TyId {
-  let ty = src_checker.resolve_ty(src_id);
-  dst_checker.intern_ty(ty)
-}
-
 /// Extracts pub exports from a compiled module's SIR.
 ///
 /// Translates symbol names and TyIds from the module's
@@ -62,8 +47,6 @@ pub fn extract_exports(
   sir: Sir,
   selective: Option<&str>,
   interner: &Interner,
-  src_ty_checker: &TyChecker,
-  dst_ty_checker: &mut TyChecker,
   src_funs: &[zo_value::FunDef],
 ) -> ModuleExports {
   let mut funs = Vec::new();
@@ -95,15 +78,10 @@ pub fn extract_exports(
         // Shared interner: symbols are already in the same
         // namespace — no translation needed. TyIds still need
         // translation until TyChecker is shared.
-        let dst_params = params
-          .iter()
-          .map(|(p, ty)| {
-            (*p, translate_ty_id(*ty, src_ty_checker, dst_ty_checker))
-          })
-          .collect::<Vec<_>>();
+        let dst_params =
+          params.iter().map(|(p, ty)| (*p, *ty)).collect::<Vec<_>>();
 
-        let dst_return_ty =
-          translate_ty_id(*return_ty, src_ty_checker, dst_ty_checker);
+        let dst_return_ty = *return_ty;
 
         // Carry return_type_args as-is — they're Ty values
         // (not TyIds) so they don't need translation.
@@ -144,7 +122,7 @@ pub fn extract_exports(
           continue;
         }
 
-        let dst_ty_id = translate_ty_id(*ty_id, src_ty_checker, dst_ty_checker);
+        let dst_ty_id = *ty_id;
 
         vars.push(ExportedVar {
           name: *name,
@@ -179,10 +157,7 @@ pub fn extract_exports(
         let dst_variants: Vec<(Symbol, u32, Vec<TyId>)> = variants
           .iter()
           .map(|(vname, disc, fields)| {
-            let dst_fields: Vec<TyId> = fields
-              .iter()
-              .map(|f| translate_ty_id(*f, src_ty_checker, dst_ty_checker))
-              .collect();
+            let dst_fields: Vec<TyId> = fields.to_vec();
 
             (*vname, *disc, dst_fields)
           })

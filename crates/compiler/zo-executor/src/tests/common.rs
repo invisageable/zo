@@ -7,6 +7,7 @@ use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
 use zo_ty::{Annotation, Ty};
+use zo_ty_checker::TyChecker;
 
 /// Assert that execution produces the expected type annotations and SIR
 pub(crate) fn assert_annotations_stream(
@@ -20,10 +21,16 @@ pub(crate) fn assert_annotations_stream(
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (sir, annotations, ty_checker, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, annotations, _) = executor.execute();
   let mut actual = Vec::new();
 
   // Zip annotations with non-Nop SIR instructions.
@@ -57,10 +64,16 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (sir, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _) = executor.execute();
 
   assert_eq!(
     sir.instructions, expected,
@@ -78,10 +91,16 @@ pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (sir, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _) = executor.execute();
 
   check(&sir.instructions);
 }
@@ -95,8 +114,14 @@ pub(crate) fn assert_no_errors(source: &str) {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
 
   let _ = executor.execute();
 
@@ -118,8 +143,14 @@ pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
 
   let _ = executor.execute();
 
@@ -142,10 +173,16 @@ pub(crate) fn execute_raw(source: &str) -> (Vec<Insn>, Vec<Annotation>) {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (sir, annotations, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, annotations, _) = executor.execute();
 
   (sir.instructions, annotations)
 }

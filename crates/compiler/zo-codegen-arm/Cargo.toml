@@ -34,6 +34,7 @@ zo-executor = { workspace = true }
 zo-parser = { workspace = true }
 zo-token = { workspace = true }
 zo-tokenizer = { workspace = true }
+zo-ty-checker = { workspace = true }
 
 # external:crates.
 criterion = { workspace = true }

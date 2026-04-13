@@ -11,6 +11,7 @@ use zo_parser::Parser;
 use zo_sir::{Insn, Sir};
 use zo_tokenizer::Tokenizer;
 use zo_ty::TyId;
+use zo_ty_checker::TyChecker;
 use zo_value::ValueId;
 
 #[test]
@@ -24,10 +25,16 @@ fn test_complete_pipeline_hello_world() {
   let parser = Parser::new(&tokenization, source);
   let parsing_result = parser.parse();
 
-  let executor =
-    Executor::new(&parsing_result.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (sir, _annotations, _ty_checker, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing_result.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _annotations, _) = executor.execute();
 
   assert_eq!(sir.instructions.len(), 4);
 
@@ -99,10 +106,16 @@ fn compile_to_code(source: &str) -> Vec<u8> {
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+  let mut ty_checker = TyChecker::new();
 
-  let (sir, _, _, _) = executor.execute();
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _) = executor.execute();
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
@@ -245,9 +258,15 @@ fn test_string_index_emits_ldrb() {
   let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
-  let (sir, _, _, _) = executor.execute();
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+  let (sir, _, _) = executor.execute();
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
@@ -275,9 +294,15 @@ fn test_string_index_check_eq_char() {
   let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
-  let executor =
-    Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
-  let (sir, _, _, _) = executor.execute();
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+  let (sir, _, _) = executor.execute();
 
   // Verify ArrayIndex has char type.
   let arr_idx = sir.instructions.iter().find_map(|i| {

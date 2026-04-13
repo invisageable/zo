@@ -49,7 +49,7 @@ impl Run {
 
     let mut compiler = Compiler::with_search_paths(search_paths);
 
-    let (semantic, _tokenization, _parsing, interner) =
+    let (semantic, _tokenization, _parsing, session) =
       compiler.analyze_source(&source, input_path);
 
     // Extract UI commands and bindings from templates.
@@ -76,7 +76,7 @@ impl Run {
           }
         }
         Insn::Directive { name, .. } => {
-          let directive_name = interner.get(*name);
+          let directive_name = session.interner.get(*name);
 
           if directive_name == "dom" {
             has_dom_directive = true;
@@ -152,7 +152,7 @@ impl Run {
       if is_reactive {
         let ctx = ReactiveContext {
           instructions: &semantic.sir.instructions,
-          interner: &interner,
+          interner: &session.interner,
           handler_names: &handler_names,
           text_bindings: &text_bindings,
           attr_bindings: &attr_bindings,
@@ -164,7 +164,7 @@ impl Run {
       } else {
         self.build_static_handlers(
           &semantic.sir.instructions,
-          &interner,
+          &session.interner,
           &handler_names,
           &mut event_registry,
         );

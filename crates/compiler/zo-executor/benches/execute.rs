@@ -6,6 +6,7 @@ use zo_executor::Executor;
 use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_tokenizer::Tokenizer;
+use zo_ty_checker::TyChecker;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
@@ -29,8 +30,14 @@ fn bench_executor_body<'a>(
       let parser = Parser::new(&tokenization, source);
       let parsing = parser.parse();
 
-      let executor =
-        Executor::new(&parsing.tree, &mut interner, &tokenization.literals);
+      let mut ty_checker = TyChecker::new();
+
+      let executor = Executor::new(
+        &parsing.tree,
+        &mut interner,
+        &tokenization.literals,
+        &mut ty_checker,
+      );
 
       black_box(executor.execute());
     })

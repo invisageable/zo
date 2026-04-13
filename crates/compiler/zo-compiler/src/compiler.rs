@@ -13,19 +13,19 @@ use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_dce::Dce;
 use zo_error::{Error, ErrorKind};
-use zo_interner::{Interner, Symbol};
+use zo_interner::Symbol;
 use zo_module_resolver::{ModuleResolver, extract_exports};
 use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{ErrorAggregator, Reporter, render_errors_to_stderr};
+use zo_session::Session;
 use zo_sir::Sir;
 use zo_span::Span;
 use zo_token::Token;
 use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree};
 use zo_ty::Mutability;
-use zo_ty_checker::TyChecker;
 use zo_value::ValueId;
 use zo_value::{Local, LocalKind, Pubness};
 
@@ -145,10 +145,10 @@ impl Compiler {
     &mut self,
     source: &str,
     file_path: &Path,
-  ) -> (SemanticResult, TokenizationResult, ParsingResult, Interner) {
+  ) -> (SemanticResult, TokenizationResult, ParsingResult, Session) {
     self.profiler.start_phase(TOKENIZER_NAME);
-    let mut interner = Interner::new();
-    let tokenizer = Tokenizer::new(source, &mut interner);
+    let mut session = Session::new();
+    let tokenizer = Tokenizer::new(source, &mut session.interner);
     let tokenization = tokenizer.tokenize();
     self.profiler.end_phase(TOKENIZER_NAME);
 
@@ -161,11 +161,10 @@ impl Compiler {
     let declared_packs: Vec<(String, bool)> =
       if let Some(lib_path) = Self::discover_lib(file_path) {
         let lib_source = fs::read_to_string(&lib_path).unwrap_or_default();
-        let mut lib_interner = Interner::new();
         let lib_tokenization =
-          Tokenizer::new(&lib_source, &mut lib_interner).tokenize();
+          Tokenizer::new(&lib_source, &mut session.interner).tokenize();
         let lib_parsing = Parser::new(&lib_tokenization, &lib_source).parse();
-        let packs = Self::scan_packs(&lib_parsing.tree, &lib_interner);
+        let packs = Self::scan_packs(&lib_parsing.tree, &session.interner);
 
         let dir = lib_path.parent().unwrap_or(Path::new("."));
 
@@ -199,30 +198,29 @@ impl Compiler {
     let preload = ["preload", "io", "assert", "math"];
 
     for module_name in preload {
-      let sym = interner.intern(module_name);
+      let sym = session.interner.intern(module_name);
       let preload_path = vec![sym];
 
-      let resolved = self.module_resolver.resolve(&preload_path, &interner);
+      let resolved = self
+        .module_resolver
+        .resolve(&preload_path, &session.interner);
 
       if let Some(m) = resolved {
         let src = m.source.clone();
-        let mod_tok = Tokenizer::new(&src, &mut interner).tokenize();
+        let mod_tok = Tokenizer::new(&src, &mut session.interner).tokenize();
         let mod_par = Parser::new(&mod_tok, &src).parse();
 
-        let mod_ana =
-          Analyzer::new(&mod_par.tree, &mut interner, &mod_tok.literals);
+        let mod_ana = Analyzer::new(
+          &mod_par.tree,
+          &mut session.interner,
+          &mod_tok.literals,
+          &mut session.ty_checker,
+        );
 
         let mod_sem = mod_ana.analyze();
-        let mut dst_tc = TyChecker::new();
 
-        let exports = extract_exports(
-          mod_sem.sir,
-          None,
-          &interner,
-          &mod_sem.ty_checker,
-          &mut dst_tc,
-          &mod_sem.funs,
-        );
+        let exports =
+          extract_exports(mod_sem.sir, None, &session.interner, &mod_sem.funs);
 
         imported_funs.extend(exports.funs);
 
@@ -249,7 +247,7 @@ impl Compiler {
     if !declared_packs.is_empty() {
       for module_path in &module_paths {
         if let Some(first_seg) = module_path.first() {
-          let first_name = interner.get(*first_seg);
+          let first_name = session.interner.get(*first_seg);
           let is_declared =
             declared_packs.iter().any(|(name, _)| name == first_name);
 
@@ -265,7 +263,8 @@ impl Compiler {
 
     for module_path in &module_paths {
       let (mod_source, selective, resolved_path) = {
-        let resolved = self.module_resolver.resolve(module_path, &interner);
+        let resolved =
+          self.module_resolver.resolve(module_path, &session.interner);
 
         match resolved {
           Some(m) => {
@@ -274,7 +273,7 @@ impl Compiler {
           None => {
             let path_str = module_path
               .iter()
-              .map(|s| interner.get(*s))
+              .map(|s| session.interner.get(*s))
               .collect::<Vec<_>>();
 
             eprintln!("Error: unresolved module `{}`", path_str.join("::"));
@@ -292,25 +291,22 @@ impl Compiler {
       self.compiling.insert(resolved_path.clone());
 
       let mod_tokenization =
-        Tokenizer::new(&mod_source, &mut interner).tokenize();
+        Tokenizer::new(&mod_source, &mut session.interner).tokenize();
       let mod_parsing = Parser::new(&mod_tokenization, &mod_source).parse();
 
       let mod_analyzer = Analyzer::new(
         &mod_parsing.tree,
-        &mut interner,
+        &mut session.interner,
         &mod_tokenization.literals,
+        &mut session.ty_checker,
       );
 
       let mod_semantic = mod_analyzer.analyze();
 
-      let mut dst_ty_checker = TyChecker::new();
-
       let exports = extract_exports(
         mod_semantic.sir,
         selective.as_deref(),
-        &interner,
-        &mod_semantic.ty_checker,
-        &mut dst_ty_checker,
+        &session.interner,
         &mod_semantic.funs,
       );
 
@@ -337,8 +333,12 @@ impl Compiler {
     // Analyze with imported symbols pre-loaded.
     self.profiler.start_phase(ANALYZER_NAME);
 
-    let analyzer =
-      Analyzer::new(&parsing.tree, &mut interner, &tokenization.literals);
+    let analyzer = Analyzer::new(
+      &parsing.tree,
+      &mut session.interner,
+      &tokenization.literals,
+      &mut session.ty_checker,
+    );
 
     let has_imports = !imported_funs.is_empty()
       || !imported_vars.is_empty()
@@ -383,11 +383,11 @@ impl Compiler {
     }
 
     // Dead code elimination — find main by name.
-    let main_sym = interner.intern("main");
+    let main_sym = session.interner.intern("main");
 
-    Dce::new(&mut semantic.sir, main_sym, &interner).eliminate();
+    Dce::new(&mut semantic.sir, main_sym, &session.interner).eliminate();
 
-    (semantic, tokenization, parsing, interner)
+    (semantic, tokenization, parsing, session)
   }
 
   /// Compiles a collections of files based on the [`Target`].
@@ -416,7 +416,7 @@ impl Compiler {
     self.profiler.set_total_lines(self.stats.numlines);
 
     for (path, code) in files.iter() {
-      let (semantic, tokenization, parsing, interner) =
+      let (semantic, tokenization, parsing, session) =
         self.analyze_source(code, path);
 
       self.stats.numtokens += tokenization.tokens.len();
@@ -448,7 +448,7 @@ impl Compiler {
       if should_emit_sir {
         let sir_path = path.with_extension("sir");
         let mut pp = PrettyPrinter::new();
-        pp.format_sir(&semantic.sir, &interner);
+        pp.format_sir(&semantic.sir, &session.interner);
         let sir_output = pp.finish();
 
         if let Err(error) = fs::write(&sir_path, sir_output) {
@@ -460,7 +460,8 @@ impl Compiler {
       let codegen = Codegen::new(target);
 
       if should_emit_asm {
-        let artifact = codegen.generate_artifact(&interner, &semantic.sir);
+        let artifact =
+          codegen.generate_artifact(&session.interner, &semantic.sir);
         let asm_path = path.with_extension("asm");
 
         let mut pp = PrettyPrinter::new();
@@ -477,7 +478,7 @@ impl Compiler {
         None => path.with_extension(""),
       };
 
-      codegen.generate(&interner, &semantic.sir, &output_path);
+      codegen.generate(&session.interner, &semantic.sir, &output_path);
 
       self.stats.numartifacts += 1;
 

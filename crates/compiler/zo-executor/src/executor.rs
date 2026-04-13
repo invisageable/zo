@@ -53,8 +53,8 @@ pub struct Executor<'a> {
   locals: Vec<Local>,
   /// Builds SIR as we execute (placeholder for now)
   sir: Sir,
-  /// The type checker instance.
-  ty_checker: TyChecker,
+  /// The type checker instance (borrowed from caller).
+  ty_checker: &'a mut TyChecker,
   /// Type annotations for HIR nodes
   annotations: Vec<Annotation>,
   /// Maps value_stack indices to SIR ValueIds for operands
@@ -159,6 +159,7 @@ impl<'a> Executor<'a> {
     tree: &'a Tree,
     interner: &'a mut Interner,
     literals: &'a LiteralStore,
+    ty_checker: &'a mut TyChecker,
   ) -> Self {
     let capacity = tree.nodes.len();
 
@@ -166,13 +167,13 @@ impl<'a> Executor<'a> {
       tree,
       interner,
       literals,
-      value_stack: Vec::with_capacity(capacity / 4), // Estimate stack depth
+      value_stack: Vec::with_capacity(capacity / 4),
       ty_stack: Vec::with_capacity(capacity / 4),
       values: ValueStorage::new(capacity),
-      scope_stack: Vec::with_capacity(32), // Typical nesting depth
-      locals: Vec::with_capacity(capacity / 10), // Estimate variables
+      scope_stack: Vec::with_capacity(32),
+      locals: Vec::with_capacity(capacity / 10),
       sir: Sir::new(),
-      ty_checker: TyChecker::new(),
+      ty_checker,
       annotations: Vec::with_capacity(capacity),
       sir_values: Vec::with_capacity(capacity / 4),
       funs: Vec::with_capacity(capacity / 100), // Estimate function count
@@ -307,7 +308,7 @@ impl<'a> Executor<'a> {
   }
 
   /// Executes a parse tree in one pass to build semantic IR.
-  pub fn execute(mut self) -> (Sir, Vec<Annotation>, TyChecker, Vec<FunDef>) {
+  pub fn execute(mut self) -> (Sir, Vec<Annotation>, Vec<FunDef>) {
     for idx in 0..self.tree.nodes.len() {
       if idx < self.skip_until {
         continue;
@@ -344,7 +345,7 @@ impl<'a> Executor<'a> {
     // for each instantiation.
     self.monomorphize();
 
-    (self.sir, self.annotations, self.ty_checker, self.funs)
+    (self.sir, self.annotations, self.funs)
   }
 
   /// Returns true if the token introduces a statement —
