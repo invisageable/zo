@@ -29,7 +29,7 @@ authors = ["the compilords team"]
 edition = "2024"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/invisageable/zo"
-version = "0.3.1"
+version = "0.3.2"
 
 [workspace.dependencies]
 # internal:sources:swisskit.
@@ -51,60 +51,60 @@ eazy-wasm = { path = "sources/tweener/eazy-wasm", version = "0.0.0" }
 tree-sitter-zo = { path = "sources/sitter/tree-sitter-zo", version = "0.0.0" }
 
 # internal:crates:zo.
-zo = { path = "crates/compiler/zo", version = "0.3.1" }
-zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.3.1" }
-zo-benches = { path = "crates/compiler/zo-benches", version = "0.3.1" }
-zo-buffer = { path = "crates/compiler/zo-buffer", version = "0.3.1" }
-zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.3.1" }
-zo-codegen-arm = { path = "crates/compiler/zo-codegen-arm", version = "0.3.1" }
-zo-codegen-backend = { path = "crates/compiler/zo-codegen-backend", version = "0.3.1" }
-zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.3.1" }
-zo-constant-folding = { path = "crates/compiler/zo-constant-folding", version = "0.3.1" }
-zo-constant-propagation = { path = "crates/compiler/zo-constant-propagation", version = "0.3.1" }
-zo-dce = { path = "crates/compiler/zo-dce", version = "0.3.1" }
-zo-driver = { path = "crates/compiler/zo-driver", version = "0.3.1" }
-zo-emitter = { path = "crates/compiler/zo-emitter", version = "0.3.1" }
-zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.3.1" }
-zo-error = { path = "crates/compiler/zo-error", version = "0.3.1" }
-zo-executor = { path = "crates/compiler/zo-executor", version = "0.3.1" }
-zo-interner = { path = "crates/compiler/zo-interner", version = "0.3.1" }
-zo-liveness = { path = "crates/compiler/zo-liveness", version = "0.3.1" }
+zo = { path = "crates/compiler/zo", version = "0.3.2" }
+zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.3.2" }
+zo-benches = { path = "crates/compiler/zo-benches", version = "0.3.2" }
+zo-buffer = { path = "crates/compiler/zo-buffer", version = "0.3.2" }
+zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.3.2" }
+zo-codegen-arm = { path = "crates/compiler/zo-codegen-arm", version = "0.3.2" }
+zo-codegen-backend = { path = "crates/compiler/zo-codegen-backend", version = "0.3.2" }
+zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.3.2" }
+zo-constant-folding = { path = "crates/compiler/zo-constant-folding", version = "0.3.2" }
+zo-constant-propagation = { path = "crates/compiler/zo-constant-propagation", version = "0.3.2" }
+zo-dce = { path = "crates/compiler/zo-dce", version = "0.3.2" }
+zo-driver = { path = "crates/compiler/zo-driver", version = "0.3.2" }
+zo-emitter = { path = "crates/compiler/zo-emitter", version = "0.3.2" }
+zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.3.2" }
+zo-error = { path = "crates/compiler/zo-error", version = "0.3.2" }
+zo-executor = { path = "crates/compiler/zo-executor", version = "0.3.2" }
+zo-interner = { path = "crates/compiler/zo-interner", version = "0.3.2" }
+zo-liveness = { path = "crates/compiler/zo-liveness", version = "0.3.2" }
 zo-metrics = { path = "crates/compiler/zo-metrics", version = "0.1.0" }
-zo-module-resolver = { path = "crates/compiler/zo-module-resolver", version = "0.3.1" }
+zo-module-resolver = { path = "crates/compiler/zo-module-resolver", version = "0.3.2" }
 zo-name-resolver = { path = "crates/compiler/zo-name-resolver", version = "0.1.0" }
-zo-parser = { path = "crates/compiler/zo-parser", version = "0.3.1" }
-zo-pp = { path = "crates/compiler/zo-pp", version = "0.3.1" }
-zo-profiler = { path = "crates/compiler/zo-profiler", version = "0.3.1" }
-zo-register-allocation = { path = "crates/compiler/zo-register-allocation", version = "0.3.1" }
-zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.3.1" }
-zo-runtime = { path = "crates/compiler/zo-runtime", version = "0.3.1" }
-zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.3.1" }
-zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.3.1" }
-zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.3.1" }
-zo-sir = { path = "crates/compiler/zo-sir", version = "0.3.1" }
-zo-span = { path = "crates/compiler/zo-span", version = "0.3.1" }
-zo-token = { path = "crates/compiler/zo-token", version = "0.3.1" }
-zo-tokenizer = { path = "crates/compiler/zo-tokenizer", version = "0.3.1" }
-zo-tree = { path = "crates/compiler/zo-tree", version = "0.3.1" }
-zo-ty = { path = "crates/compiler/zo-ty", version = "0.3.1" }
-zo-ty-checker = { path = "crates/compiler/zo-ty-checker", version = "0.3.1" }
-zo-ty-state = { path = "crates/compiler/zo-ty-state", version = "0.3.1" }
-zo-styler = { path = "crates/compiler/zo-styler", version = "0.3.1" }
-zo-template-optimizer = { path = "crates/compiler/zo-template-optimizer", version = "0.3.1" }
-zo-test-runner = { path = "crates/compiler/zo-test-runner", version = "0.3.1" }
-zo-ui-protocol = { path = "crates/compiler/zo-ui-protocol", version = "0.3.1" }
-zo-value = { path = "crates/compiler/zo-value", version = "0.3.1" }
-zo-writer = { path = "crates/compiler/zo-writer", version = "0.3.1" }
-zo-writer-macho = { path = "crates/compiler/zo-writer-macho", version = "0.3.1" }
+zo-parser = { path = "crates/compiler/zo-parser", version = "0.3.2" }
+zo-pp = { path = "crates/compiler/zo-pp", version = "0.3.2" }
+zo-profiler = { path = "crates/compiler/zo-profiler", version = "0.3.2" }
+zo-register-allocation = { path = "crates/compiler/zo-register-allocation", version = "0.3.2" }
+zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.3.2" }
+zo-runtime = { path = "crates/compiler/zo-runtime", version = "0.3.2" }
+zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.3.2" }
+zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.3.2" }
+zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.3.2" }
+zo-sir = { path = "crates/compiler/zo-sir", version = "0.3.2" }
+zo-span = { path = "crates/compiler/zo-span", version = "0.3.2" }
+zo-token = { path = "crates/compiler/zo-token", version = "0.3.2" }
+zo-tokenizer = { path = "crates/compiler/zo-tokenizer", version = "0.3.2" }
+zo-tree = { path = "crates/compiler/zo-tree", version = "0.3.2" }
+zo-ty = { path = "crates/compiler/zo-ty", version = "0.3.2" }
+zo-ty-checker = { path = "crates/compiler/zo-ty-checker", version = "0.3.2" }
+zo-ty-state = { path = "crates/compiler/zo-ty-state", version = "0.3.2" }
+zo-styler = { path = "crates/compiler/zo-styler", version = "0.3.2" }
+zo-template-optimizer = { path = "crates/compiler/zo-template-optimizer", version = "0.3.2" }
+zo-test-runner = { path = "crates/compiler/zo-test-runner", version = "0.3.2" }
+zo-ui-protocol = { path = "crates/compiler/zo-ui-protocol", version = "0.3.2" }
+zo-value = { path = "crates/compiler/zo-value", version = "0.3.2" }
+zo-writer = { path = "crates/compiler/zo-writer", version = "0.3.2" }
+zo-writer-macho = { path = "crates/compiler/zo-writer-macho", version = "0.3.2" }
 
 # internal:crates:fret.
-fret = { path = "crates/packager/fret", version = "0.3.1" }
-fret-driver = { path = "crates/packager/fret-driver", version = "0.3.1" }
-fret-parser = { path = "crates/packager/fret-parser", version = "0.3.1" }
-fret-pipeline = { path = "crates/packager/fret-pipeline", version = "0.3.1" }
-fret-tokenizer = { path = "crates/packager/fret-tokenizer", version = "0.3.1" }
-fret-tokens = { path = "crates/packager/fret-tokens", version = "0.3.1" }
-fret-types = { path = "crates/packager/fret-types", version = "0.3.1" }
+fret = { path = "crates/packager/fret", version = "0.3.2" }
+fret-driver = { path = "crates/packager/fret-driver", version = "0.3.2" }
+fret-parser = { path = "crates/packager/fret-parser", version = "0.3.2" }
+fret-pipeline = { path = "crates/packager/fret-pipeline", version = "0.3.2" }
+fret-tokenizer = { path = "crates/packager/fret-tokenizer", version = "0.3.2" }
+fret-tokens = { path = "crates/packager/fret-tokens", version = "0.3.2" }
+fret-types = { path = "crates/packager/fret-types", version = "0.3.2" }
 
 # external:crates.
 ammonia = "4.1.2"
