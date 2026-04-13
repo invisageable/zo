@@ -207,6 +207,11 @@ impl TyChecker {
     self.intern_ty(Ty::Char)
   }
 
+  /// Get or create the bytes type
+  pub fn bytes_type(&mut self) -> TyId {
+    self.intern_ty(Ty::Bytes)
+  }
+
   /// Get or create the str type
   pub fn str_type(&mut self) -> TyId {
     self.intern_ty(Ty::Str)
@@ -437,6 +442,7 @@ impl TyChecker {
 
       (Ty::Float(w1), Ty::Float(w2)) if w1 == w2 => Some(repr1),
       (Ty::Bool, Ty::Bool) => Some(repr1),
+      (Ty::Bytes, Ty::Bytes) => Some(repr1),
       (Ty::Char, Ty::Char) => Some(repr1),
       (Ty::Str, Ty::Str) => Some(repr1),
       (Ty::Unit, Ty::Unit) => Some(repr1),
@@ -1014,6 +1020,7 @@ impl TyChecker {
       "f32" | "float" => Some(self.f32_type()),
       "f64" => Some(self.f64_type()),
       "bool" => Some(self.bool_type()),
+      "bytes" => Some(self.bytes_type()),
       "char" => Some(self.char_type()),
       "str" => Some(self.str_type()),
       "unit" | "()" => Some(self.unit_type()),

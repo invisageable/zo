@@ -1165,6 +1165,28 @@ impl<'a> Executor<'a> {
         }
       }
 
+      Token::Bytes => {
+        if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
+          let value = self.literals.bytes_literals[lit_idx as usize] as u64;
+          let ty_id = self.ty_checker.bytes_type();
+
+          let dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let sir_value = self.sir.emit(Insn::ConstInt { dst, value, ty_id });
+          let value_id = self.values.store_int(value);
+
+          self.value_stack.push(value_id);
+          self.ty_stack.push(ty_id);
+          self.sir_values.push(sir_value);
+
+          self.annotations.push(Annotation {
+            node_idx: idx,
+            ty_id,
+          });
+        }
+      }
+
       Token::InterpString => {
         // InterpString stores packed value:
         // low 16 = string_literals idx,
@@ -2886,7 +2908,7 @@ impl<'a> Executor<'a> {
       Token::BoolType => self.ty_checker.bool_type(),
       Token::CharType => self.ty_checker.char_type(),
       Token::StrType => self.ty_checker.str_type(),
-      Token::BytesType => self.ty_checker.intern_ty(Ty::Bytes),
+      Token::BytesType => self.ty_checker.bytes_type(),
       Token::TemplateType => self.ty_checker.template_ty(),
       Token::Ident => {
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {

@@ -1670,12 +1670,6 @@ impl<'a> Parser<'a> {
 
         Some(NodeValue::Symbol(symbol))
       }
-      Token::Bytes => {
-        let start = self.tokens.starts[self.pos];
-        let len = self.tokens.lengths[self.pos];
-
-        Some(NodeValue::TextRange(start, len))
-      }
       Token::TemplateText => {
         // Template text is now interned like identifiers
         let lit_idx = self.tokens.literal_indices[self.pos];
@@ -1696,7 +1690,7 @@ impl<'a> Parser<'a> {
 
         Some(NodeValue::Symbol(symbol))
       }
-      Token::Int | Token::Float | Token::Char => {
+      Token::Int | Token::Float | Token::Char | Token::Bytes => {
         Some(NodeValue::Literal(self.tokens.literal_indices[self.pos]))
       }
       _ => None,

@@ -43,9 +43,7 @@ fun main() {
   showln('z');
 
   -- `bytes` are written with backticks. Gives the raw byte value (no Unicode).
-  -- 
-  -- Note: This is a work in progress!
-  -- showln(`z`);
+  showln(`z`);
 
   -- booleans are basic, only 'true' and 'false'. No "truthy" or "falsy" logic
   -- here!.
@@ -93,5 +91,6 @@ fun main() {
 -- 0.2500
 -- JOiN THE DEVOLUTiON.
 -- z
+-- 122
 -- true
 -- false
