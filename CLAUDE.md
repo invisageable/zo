@@ -115,3 +115,4 @@ more commands in @justfile.
 
 - ALWAYS verify to clean all stuff that you add in `/tmp` for debugging. Pollution is bad.
 - USE THE `check` COMMAND WHEREVER POSSiBLE WHEN YOU NEED TO CHECK THAT THE PROJECT COMPiLES.
+- THE MANiFESTO DEFiNE OUR ViSiON @crates/compiler/zo-notes/personal/manifesto.md
