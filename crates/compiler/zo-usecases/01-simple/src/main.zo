@@ -1,5 +1,8 @@
 load foo::bar;
 
 fun main() {
-  bar();
+  showln(bar());
 }
+
+-- EXPECTED OUTPUT:
+-- hello from foo package

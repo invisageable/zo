@@ -89,8 +89,7 @@ impl Compiler {
       for child_idx in node.children_range() {
         if let Some(child) = tree.nodes.get(child_idx)
           && child.token == Token::Ident
-          && let Some(NodeValue::Symbol(sym)) =
-            tree.value(child_idx as u32)
+          && let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32)
         {
           path.push(sym);
         }
@@ -319,10 +318,7 @@ impl Compiler {
 
       // lib.zo exists but module not declared — error.
       if has_lib_zo {
-        report_error(Error::new(
-          ErrorKind::ModuleNotDeclared,
-          *load_span,
-        ));
+        report_error(Error::new(ErrorKind::ModuleNotDeclared, *load_span));
 
         continue;
       }
@@ -338,10 +334,7 @@ impl Compiler {
             (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
           }
           None => {
-            report_error(Error::new(
-              ErrorKind::UnresolvedModule,
-              *load_span,
-            ));
+            report_error(Error::new(ErrorKind::UnresolvedModule, *load_span));
 
             continue;
           }
@@ -349,10 +342,7 @@ impl Compiler {
       };
 
       if self.compiling.contains(&resolved_path) {
-        report_error(Error::new(
-          ErrorKind::CircularImport,
-          *load_span,
-        ));
+        report_error(Error::new(ErrorKind::CircularImport, *load_span));
         continue;
       }
 

@@ -312,9 +312,9 @@ impl<'a> ARM64Gen<'a> {
       .find_producing_insn(vid, all_insns)
       .is_some_and(|insn| match insn {
         Insn::ConstString { .. } => true,
-        Insn::Load { ty_id, .. } | Insn::ArrayIndex { ty_id, .. } => {
-          ty_id.0 == STR_TYPE_ID
-        }
+        Insn::Load { ty_id, .. }
+        | Insn::ArrayIndex { ty_id, .. }
+        | Insn::Call { ty_id, .. } => ty_id.0 == STR_TYPE_ID,
         _ => false,
       })
   }
@@ -343,6 +343,7 @@ impl<'a> ARM64Gen<'a> {
         Insn::ConstBool { .. } => true,
         Insn::BinOp { ty_id, .. }
         | Insn::Load { ty_id, .. }
+        | Insn::Call { ty_id, .. }
         | Insn::ArrayIndex { ty_id, .. } => ty_id.0 == BOOL_TYPE_ID,
         _ => false,
       })
@@ -355,6 +356,7 @@ impl<'a> ARM64Gen<'a> {
       .is_some_and(|insn| match insn {
         Insn::ConstInt { ty_id, .. }
         | Insn::Load { ty_id, .. }
+        | Insn::Call { ty_id, .. }
         | Insn::ArrayIndex { ty_id, .. } => ty_id.0 == CHAR_TYPE_ID,
         _ => false,
       })

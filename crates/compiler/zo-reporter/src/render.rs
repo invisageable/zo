@@ -315,9 +315,7 @@ fn error_message(kind: ErrorKind) -> &'static str {
 
     // Module system errors.
     ErrorKind::PackFileNotFound => "Pack file not found",
-    ErrorKind::ModuleNotDeclared => {
-      "Module not declared in lib.zo"
-    }
+    ErrorKind::ModuleNotDeclared => "Module not declared in lib.zo",
     ErrorKind::UnresolvedModule => "Unresolved module",
     ErrorKind::CircularImport => "Circular import detected",
 

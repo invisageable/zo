@@ -1,1 +1,3 @@
-pub fun bar() {}
+pub fun bar() -> str {
+  "hello from foo package"
+}

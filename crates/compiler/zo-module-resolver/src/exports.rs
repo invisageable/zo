@@ -22,14 +22,32 @@ pub struct ExportedEnum {
   pub variants: Vec<(Symbol, u32, Vec<TyId>)>,
 }
 
+/// Exported struct definition for cross-module import.
+pub struct ExportedStruct {
+  pub name: Symbol,
+  pub ty_id: TyId,
+  pub fields: Vec<(Symbol, TyId, bool)>,
+}
+
+/// Exported compile-time constant (`val`).
+pub struct ExportedConst {
+  pub name: Symbol,
+  pub ty_id: TyId,
+  pub value: ValueId,
+}
+
 /// Exported symbols from a compiled module.
 pub struct ModuleExports {
-  /// The function definitions (re-interned symbols).
+  /// The function definitions.
   pub funs: Vec<FunDef>,
-  /// The constant definitions (re-interned symbols).
+  /// The variable definitions (imu/mut).
   pub vars: Vec<ExportedVar>,
-  /// The enum definitions (re-interned symbols + types).
+  /// The enum definitions.
   pub enums: Vec<ExportedEnum>,
+  /// The struct definitions.
+  pub structs: Vec<ExportedStruct>,
+  /// The compile-time constants (val).
+  pub consts: Vec<ExportedConst>,
   /// The SIR instruction stream for codegen merging.
   pub sir_instructions: Vec<Insn>,
   /// The next value id (for ValueId offset).
@@ -52,6 +70,8 @@ pub fn extract_exports(
   let mut funs = Vec::new();
   let mut vars = Vec::new();
   let mut enums = Vec::new();
+  let mut structs = Vec::new();
+  let mut consts = Vec::new();
 
   for insn in &sir.instructions {
     match insn {
@@ -168,6 +188,56 @@ pub fn extract_exports(
           variants: dst_variants,
         });
       }
+      Insn::StructDef {
+        name,
+        ty_id,
+        fields,
+        pubness,
+      } => {
+        if *pubness != Pubness::Yes {
+          continue;
+        }
+
+        let struct_name = interner.get(*name);
+
+        if let Some(filter) = selective
+          && struct_name != filter
+        {
+          continue;
+        }
+
+        structs.push(ExportedStruct {
+          name: *name,
+          ty_id: *ty_id,
+          fields: fields.clone(),
+        });
+      }
+
+      Insn::ConstDef {
+        name,
+        ty_id,
+        value,
+        pubness,
+      } => {
+        if *pubness != Pubness::Yes {
+          continue;
+        }
+
+        let const_name = interner.get(*name);
+
+        if let Some(filter) = selective
+          && const_name != filter
+        {
+          continue;
+        }
+
+        consts.push(ExportedConst {
+          name: *name,
+          ty_id: *ty_id,
+          value: *value,
+        });
+      }
+
       _ => {}
     }
   }
@@ -188,6 +258,8 @@ pub fn extract_exports(
     funs,
     vars,
     enums,
+    structs,
+    consts,
     sir_instructions,
     next_value_id: sir.next_value_id,
   }
