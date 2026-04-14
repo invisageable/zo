@@ -495,7 +495,7 @@ impl<'a> Executor<'a> {
       }
 
       Token::Question => {
-        // Condition is now on the stack — emit branch.
+        // Ternary: condition is on the stack — emit branch.
         if let Some(ctx) = self.branch_stack.last_mut()
           && ctx.kind == BranchKind::Ternary
           && !ctx.branch_emitted
@@ -514,6 +514,10 @@ impl<'a> Executor<'a> {
           self.sir_values.pop();
 
           ctx.branch_emitted = true;
+        } else {
+          // Error propagation: expr? desugars to
+          // match expr { Ok(v) => v, Err(e) => return Err(e) }
+          self.execute_try_operator(idx);
         }
       }
 
@@ -3679,6 +3683,7 @@ impl<'a> Executor<'a> {
     // Parse parameters: (name, type, mutability).
     let mut params: Vec<(Symbol, TyId, Mutability)> = Vec::new();
     let mut return_ty = self.ty_checker.unit_type();
+    let mut return_type_args: Vec<TyId> = Vec::new();
     let mut idx = start_idx + 2; // Skip Fun and name
 
     // Parse optional type parameters: <$T, $A>.
@@ -3838,6 +3843,22 @@ impl<'a> Executor<'a> {
               }
             } else {
               return_ty = self.resolve_type_token(idx);
+              idx += 1;
+
+              // Collect generic type arguments after the
+              // return type name (e.g. `-> Result<str, int>`).
+              while idx < _end_idx {
+                let tok = self.tree.nodes[idx].token;
+
+                if tok.is_ty() || tok == Token::Ident {
+                  return_type_args.push(self.resolve_type_token(idx));
+                  idx += 1;
+                } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
+                  idx += 1;
+                } else {
+                  break;
+                }
+              }
             }
           }
 
@@ -3904,7 +3925,10 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::UserDefined,
       pubness,
       type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
-      return_type_args: Vec::new(),
+      return_type_args: return_type_args
+        .iter()
+        .map(|t| self.ty_checker.resolve_ty(*t))
+        .collect(),
     });
 
     // Push a scope for the function parameters
@@ -5836,6 +5860,119 @@ impl<'a> Executor<'a> {
     self.sir_values.push(sv);
   }
 
+  /// Desugars `expr?` into:
+  ///   load discriminant → compare against Ok (0)
+  ///   → if Ok: extract field[1], push value
+  ///   → if Err: wrap in Err, return
+  fn execute_try_operator(&mut self, _idx: usize) {
+    // Pop the Result/Option value from stacks.
+    let (_val, val_ty, val_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    let int_ty = self.ty_checker.int_type();
+    let ok_label = self.sir.next_label();
+    let done_label = self.sir.next_label();
+
+    // Read discriminant: TupleIndex(scrutinee, 0).
+    let disc_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let disc_sir = self.sir.emit(Insn::TupleIndex {
+      dst: disc_dst,
+      tuple: val_sir,
+      index: 0,
+      ty_id: int_ty,
+    });
+
+    // Compare against Ok/Some discriminant (0).
+    let zero_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let zero_sir = self.sir.emit(Insn::ConstInt {
+      dst: zero_dst,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    let cmp_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let cmp_sir = self.sir.emit(Insn::BinOp {
+      dst: cmp_dst,
+      op: zo_sir::BinOp::Eq,
+      lhs: disc_sir,
+      rhs: zero_sir,
+      ty_id: int_ty,
+    });
+
+    // Branch: if NOT Ok → error path.
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cmp_sir,
+      target: ok_label, // reuse as "err" label
+    });
+
+    // Ok path: extract field[1] (the payload).
+    // Resolve the Ok payload type from the enum.
+    let payload_ty = if let Ty::Enum(eid) = self.ty_checker.kind_of(val_ty)
+      && let Some(et) = self.ty_checker.ty_table.enum_ty(eid)
+    {
+      let et = *et;
+      let variants = self.ty_checker.ty_table.enum_variants(&et).to_vec();
+
+      // Ok/Some is variant 0, field 0 of that variant.
+      if !variants.is_empty() && variants[0].field_count > 0 {
+        let field_tys = self.ty_checker.ty_table.variant_fields(&variants[0]);
+
+        if !field_tys.is_empty() {
+          field_tys[0]
+        } else {
+          int_ty
+        }
+      } else {
+        int_ty
+      }
+    } else {
+      int_ty
+    };
+
+    let ok_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let ok_sir = self.sir.emit(Insn::TupleIndex {
+      dst: ok_dst,
+      tuple: val_sir,
+      index: 1,
+      ty_id: payload_ty,
+    });
+
+    // Jump past the error path.
+    self.sir.emit(Insn::Jump { target: done_label });
+
+    // Error path: return the original value as-is.
+    // (It's already Err(...) or None — just return it.)
+    self.sir.emit(Insn::Label { id: ok_label });
+    self.sir.emit(Insn::Return {
+      value: Some(val_sir),
+      ty_id: val_ty,
+    });
+
+    // Done label: Ok path continues here.
+    self.sir.emit(Insn::Label { id: done_label });
+
+    // Push the unwrapped Ok payload onto stacks.
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(payload_ty);
+    self.sir_values.push(ok_sir);
+  }
+
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
     let end_label = self.sir.next_label();
     let else_label = self.sir.next_label();
@@ -6233,8 +6370,12 @@ impl<'a> Executor<'a> {
           // if available (e.g. Result<str, int> → [str, int]),
           // otherwise fall back to the enum's generic field
           // types.
+          // Look up return_type_args by variable symbol first,
+          // then fall back to the enum's type name. User functions
+          // store rta under the type name (e.g. "Result").
           let rta_key = scrutinee_sym
-            .and_then(|s| self.var_return_type_args.get(&s.as_u32()));
+            .and_then(|s| self.var_return_type_args.get(&s.as_u32()))
+            .or_else(|| self.var_return_type_args.get(&enum_ty.name.as_u32()));
 
           let field_tys = if let Some(rta) = rta_key {
             // Compute type arg offset for this variant:
@@ -6261,7 +6402,30 @@ impl<'a> Executor<'a> {
               })
               .collect::<Vec<_>>()
           } else {
-            self.ty_checker.ty_table.variant_fields(&variant).to_vec()
+            // Resolve through substitutions — generic enums
+            // have inference variables that may have been
+            // unified with concrete types during the call.
+            let raw_fields =
+              self.ty_checker.ty_table.variant_fields(&variant).to_vec();
+
+            raw_fields
+              .iter()
+              .map(|ty_id| {
+                let resolved = self.ty_checker.resolve_id(*ty_id);
+
+                let ty = self.ty_checker.resolve_ty(resolved);
+
+                match ty {
+                  Ty::Str => self.ty_checker.str_type(),
+                  Ty::Bool => self.ty_checker.bool_type(),
+                  Ty::Char => self.ty_checker.char_type(),
+                  Ty::Bytes => self.ty_checker.bytes_type(),
+                  Ty::Int { .. } => self.ty_checker.int_type(),
+                  Ty::Float(_) => self.ty_checker.intern_ty(ty),
+                  _ => resolved,
+                }
+              })
+              .collect::<Vec<_>>()
           };
           let mut bind_idx = pat_idx + 4;
           let mut field_i: u32 = 0;
@@ -7622,12 +7786,24 @@ impl<'a> Executor<'a> {
       // stash the type args so the match handler can use
       // them for binding types instead of the enum's
       // unresolved generic field vars.
-      if !func.return_type_args.is_empty()
-        && let Some(ref decl) = self.pending_decl
-      {
-        self
-          .var_return_type_args
-          .insert(decl.name.as_u32(), func.return_type_args.clone());
+      if !func.return_type_args.is_empty() {
+        // Store under the variable name (if pending decl)
+        // AND under the enum type name for match lookup.
+        if let Some(ref decl) = self.pending_decl {
+          self
+            .var_return_type_args
+            .insert(decl.name.as_u32(), func.return_type_args.clone());
+        }
+
+        // Also store under the return type's enum name
+        // so `match` can find it when scrutinee_sym is None.
+        if let Ty::Enum(eid) = self.ty_checker.kind_of(func.return_ty)
+          && let Some(et) = self.ty_checker.ty_table.enum_ty(eid)
+        {
+          self
+            .var_return_type_args
+            .insert(et.name.as_u32(), func.return_type_args.clone());
+        }
       }
     } else {
       // Function not found in definitions - might be external/builtin

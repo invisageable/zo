@@ -189,6 +189,11 @@ pub struct ARM64Gen<'a> {
   /// stay out of the interner's dynamic symbol range. Same
   /// pattern `emit_bool_and_write` already uses.
   next_enum_sym: u32,
+  /// ValueId → TyId for O(1) type detection in showln.
+  /// Populated during translate_insn for every value-producing
+  /// instruction. Replaces the fragile find_producing_insn
+  /// backward search.
+  value_types: HashMap<u32, TyId>,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -247,6 +252,7 @@ impl<'a> ARM64Gen<'a> {
       call_fixups: Vec::new(),
       enum_metas: HashMap::default(),
       next_enum_sym: ENUM_SYNTHETIC_SYM_BASE,
+      value_types: HashMap::default(),
     }
   }
 
@@ -305,105 +311,37 @@ impl<'a> ARM64Gen<'a> {
     None
   }
 
-  /// Check if a ValueId was produced by a ConstString or
-  /// is a Load of a str-typed variable.
-  fn is_string_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
-    self
-      .find_producing_insn(vid, all_insns)
-      .is_some_and(|insn| match insn {
-        Insn::ConstString { .. } => true,
-        Insn::Load { ty_id, .. }
-        | Insn::ArrayIndex { ty_id, .. }
-        | Insn::Call { ty_id, .. } => ty_id.0 == STR_TYPE_ID,
-        _ => false,
-      })
+  /// O(1) type lookup for a ValueId.
+  fn type_of(&self, vid: ValueId) -> Option<TyId> {
+    self.value_types.get(&vid.0).copied()
   }
 
-  /// Check if a ValueId was produced by a float instruction.
-  fn is_float_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
-    self
-      .find_producing_insn(vid, all_insns)
-      .is_some_and(|insn| match insn {
-        Insn::ConstFloat { .. } => true,
-        Insn::BinOp { ty_id, .. }
-        | Insn::Load { ty_id, .. }
-        | Insn::Call { ty_id, .. }
-        | Insn::ArrayIndex { ty_id, .. } => {
-          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX
-        }
-        _ => false,
-      })
+  fn is_string_value(&self, vid: ValueId) -> bool {
+    self.type_of(vid).is_some_and(|ty| ty.0 == STR_TYPE_ID)
   }
 
-  /// Check if a ValueId was produced by a bool instruction.
-  fn is_bool_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
+  fn is_float_value(&self, vid: ValueId) -> bool {
     self
-      .find_producing_insn(vid, all_insns)
-      .is_some_and(|insn| match insn {
-        Insn::ConstBool { .. } => true,
-        Insn::BinOp { ty_id, .. }
-        | Insn::Load { ty_id, .. }
-        | Insn::Call { ty_id, .. }
-        | Insn::ArrayIndex { ty_id, .. } => ty_id.0 == BOOL_TYPE_ID,
-        _ => false,
-      })
+      .type_of(vid)
+      .is_some_and(|ty| ty.0 >= FLOAT_TYPE_ID_MIN && ty.0 <= FLOAT_TYPE_ID_MAX)
   }
 
-  /// Check if a ValueId was produced by a char instruction.
-  fn is_char_value(&self, vid: ValueId, all_insns: &[Insn]) -> bool {
-    self
-      .find_producing_insn(vid, all_insns)
-      .is_some_and(|insn| match insn {
-        Insn::ConstInt { ty_id, .. }
-        | Insn::Load { ty_id, .. }
-        | Insn::Call { ty_id, .. }
-        | Insn::ArrayIndex { ty_id, .. } => ty_id.0 == CHAR_TYPE_ID,
-        _ => false,
-      })
+  fn is_bool_value(&self, vid: ValueId) -> bool {
+    self.type_of(vid).is_some_and(|ty| ty.0 == BOOL_TYPE_ID)
   }
 
-  /// Return the enum `TyId` when the given `ValueId` was
-  /// produced by an enum constructor, or loaded / indexed out
-  /// of an enum-typed slot. Thanks to the uniform pointer
-  /// representation every enum value in a register is a
-  /// pointer to `[tag, f0, ...]`, so `Load` / `ArrayIndex` of
-  /// an enum-typed value is safe to dispatch through
-  /// `emit_enum_write`. The codegen-owned `enum_metas` table
-  /// is the "is this ty_id an enum?" oracle — only enums the
-  /// codegen has actually seen via `Insn::EnumDef` are
-  /// eligible; any stale `ty_id` falls through to `None`.
-  fn is_enum_value(&self, vid: ValueId, all_insns: &[Insn]) -> Option<TyId> {
-    self
-      .find_producing_insn(vid, all_insns)
-      .and_then(|insn| match insn {
-        Insn::EnumConstruct { ty_id, .. } => Some(*ty_id),
-        Insn::Load { ty_id, .. } | Insn::ArrayIndex { ty_id, .. } => {
-          if self.enum_metas.contains_key(&ty_id.0) {
-            Some(*ty_id)
-          } else {
-            None
-          }
-        }
-        _ => None,
-      })
+  fn is_char_value(&self, vid: ValueId) -> bool {
+    self.type_of(vid).is_some_and(|ty| ty.0 == CHAR_TYPE_ID)
   }
 
-  /// Find the SIR instruction that produced a ValueId.
-  fn find_producing_insn<'b>(
-    &self,
-    vid: ValueId,
-    all_insns: &'b [Insn],
-  ) -> Option<&'b Insn> {
-    let fn_start = self.current_fn_start.unwrap_or(0);
+  fn is_enum_value(&self, vid: ValueId) -> Option<TyId> {
+    let ty = self.type_of(vid)?;
 
-    self.reg_alloc.as_ref().and_then(|a| {
-      a.value_ids
-        .iter()
-        .enumerate()
-        .skip(fn_start)
-        .find(|(_, v)| **v == Some(vid))
-        .and_then(|(i, _)| all_insns.get(i))
-    })
+    if self.enum_metas.contains_key(&ty.0) {
+      Some(ty)
+    } else {
+      None
+    }
   }
 
   /// Emit a single spill operation (GP or FP).
@@ -940,6 +878,30 @@ impl<'a> ARM64Gen<'a> {
 
   /// Translate a single SIR instruction to ARM64.
   fn translate_insn(&mut self, insn: &Insn, idx: usize, all_insns: &[Insn]) {
+    // Register value types for O(1) type detection.
+    match insn {
+      Insn::ConstInt { dst, ty_id, .. }
+      | Insn::ConstFloat { dst, ty_id, .. }
+      | Insn::ConstBool { dst, ty_id, .. }
+      | Insn::Load { dst, ty_id, .. }
+      | Insn::Call { dst, ty_id, .. }
+      | Insn::BinOp { dst, ty_id, .. }
+      | Insn::UnOp { dst, ty_id, .. }
+      | Insn::ArrayLiteral { dst, ty_id, .. }
+      | Insn::ArrayIndex { dst, ty_id, .. }
+      | Insn::ArrayLen { dst, ty_id, .. }
+      | Insn::ArrayPop { dst, ty_id, .. }
+      | Insn::TupleIndex { dst, ty_id, .. }
+      | Insn::EnumConstruct { dst, ty_id, .. }
+      | Insn::StructConstruct { dst, ty_id, .. } => {
+        self.value_types.insert(dst.0, *ty_id);
+      }
+      Insn::ConstString { dst, .. } => {
+        self.value_types.insert(dst.0, TyId(STR_TYPE_ID));
+      }
+      _ => {}
+    }
+
     match insn {
       Insn::FunDef { name, params, .. } => {
         let offset = self.emitter.current_offset();
@@ -1227,7 +1189,7 @@ impl<'a> ARM64Gen<'a> {
 
             let arg_vid = if args.is_empty() { None } else { Some(args[0]) };
 
-            self.emit_typed_write(arg_vid, all_insns, fd);
+            self.emit_typed_write(arg_vid, fd);
 
             if fn_name.ends_with("ln") {
               self.emit_newline(fd);
@@ -1961,7 +1923,9 @@ impl<'a> ARM64Gen<'a> {
         for (i, field) in fields.iter().enumerate() {
           let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
 
-          if let Some(reg) = self.alloc_reg(*field) {
+          if let Some(fp) = self.alloc_fp_reg(*field) {
+            self.emitter.emit_str_fp(fp, SP, off as u16);
+          } else if let Some(reg) = self.alloc_reg(*field) {
             self.emitter.emit_str(reg, SP, off as i16);
           }
         }
@@ -2021,12 +1985,21 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::TupleIndex {
-        dst, tuple, index, ..
+        dst,
+        tuple,
+        index,
+        ty_id,
       } => {
-        if let Some(dst_reg) = self.alloc_reg(*dst) {
-          let base_reg = self.alloc_reg(*tuple).unwrap_or(X0);
-          let offset = (*index as i16) * (STACK_SLOT_SIZE as i16);
+        let base_reg = self.alloc_reg(*tuple).unwrap_or(X0);
+        let offset = (*index as i16) * (STACK_SLOT_SIZE as i16);
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
+        if is_flt {
+          let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
+
+          self.emitter.emit_ldr_fp(fp_dst, base_reg, offset as u16);
+        } else if let Some(dst_reg) = self.alloc_reg(*dst) {
           self.emitter.emit_ldr(dst_reg, base_reg, offset);
         }
       }
@@ -2054,17 +2027,12 @@ impl<'a> ARM64Gen<'a> {
   /// Compile-time type dispatch for a single argument
   /// (Graydon style). Emits the appropriate write for
   /// str, int, or float to the given fd.
-  fn emit_typed_write(
-    &mut self,
-    arg_vid: Option<ValueId>,
-    all_insns: &[Insn],
-    fd: u16,
-  ) {
-    let is_str = arg_vid.is_some_and(|v| self.is_string_value(v, all_insns));
-    let is_flt = arg_vid.is_some_and(|v| self.is_float_value(v, all_insns));
-    let is_bool = arg_vid.is_some_and(|v| self.is_bool_value(v, all_insns));
-    let is_char = arg_vid.is_some_and(|v| self.is_char_value(v, all_insns));
-    let enum_ty = arg_vid.and_then(|v| self.is_enum_value(v, all_insns));
+  fn emit_typed_write(&mut self, arg_vid: Option<ValueId>, fd: u16) {
+    let is_str = arg_vid.is_some_and(|v| self.is_string_value(v));
+    let is_flt = arg_vid.is_some_and(|v| self.is_float_value(v));
+    let is_bool = arg_vid.is_some_and(|v| self.is_bool_value(v));
+    let is_char = arg_vid.is_some_and(|v| self.is_char_value(v));
+    let enum_ty = arg_vid.and_then(|v| self.is_enum_value(v));
 
     // Check if the most recent emitted instruction was a
     // math intrinsic (FSQRT, FRINTM, etc.). The result

@@ -14,23 +14,13 @@ TO **JOiN THE DEVOLUTiON** ON LiNUX, MACOS AND WiNDOWS SYSTEMS:
 
 iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SET THE ENViRONMENT WiTH THE PATH TO RETRiEVE THE zo BiNARY.
 
-  2. THEN RUN `zo --help` — iT MUST RETURNS:
+  2. THEN RUN `zo --version` — iT MUST RETURNS:
 
   ```
-  The zo Programming Language
-
-  Usage: zo <COMMAND>
-
-  Commands:
-    build  builds a program
-    repl   read eval print and loop a program (not implemented yet)
-    run    runs a program
-    help   Print this message or the help of the given subcommand(s)
-
-  Options:
-    -h, --help  Print help
-    -V, --version  Print version
+  zo 0.3.2
   ```
+
+> *The version will depends of the latest release artifact.*
 
   3. DONE! TO KNOW HOW YOU CAN COMPiLE A zo PROGRAM:
 
@@ -67,7 +57,8 @@ UNFORTUNALY SOME TOOLS NEEDS TO BE iNSTALL MANUALLY DEPENDiNG OF YOUR OS:
 
 **-optional-tools**
 
-  - `zo-vscode` — [`plugin`](..)
+  - @SEE — [`zo-vscode plugin`](../../../zo-vscode)
+  - @SEE — [`fret`](../../../../packager/fret)
 
 ---
 

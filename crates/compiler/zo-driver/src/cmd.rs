@@ -60,10 +60,10 @@ pub(crate) fn read_source(path: &Path) -> String {
 /// Represents a [`Cmd`] enumeration.
 #[derive(Debug, Subcommand)]
 pub(crate) enum Cmd {
-  /// builds a program.
+  /// build a program.
   Build(build::Build),
   /// read eval print and loop a program (not implemented yet).
   Repl(repl::Repl),
-  /// runs a program.
+  /// run a program.
   Run(run::Run),
 }

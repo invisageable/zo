@@ -1,0 +1,108 @@
+-- tests-build-pass: enum match binding for all field types.
+-- @cmd — zo build enum-match-binding.zo
+
+enum IntBox {
+  Val(int),
+  None,
+}
+
+enum StrBox {
+  Val(str),
+  None,
+}
+
+enum BoolBox {
+  Val(bool),
+  None,
+}
+
+enum CharBox {
+  Val(char),
+  None,
+}
+
+enum FloatBox {
+  Val(float),
+  None,
+}
+
+enum Multi {
+  A(int),
+  B(str),
+  C(bool),
+}
+
+fun main() {
+  -- int field.
+  imu i := IntBox::Val(42);
+
+  match i {
+    IntBox::Val(n) => showln(n),
+    IntBox::None => showln(0),
+  }
+
+  -- str field.
+  imu s := StrBox::Val("hello");
+
+  match s {
+    StrBox::Val(v) => showln(v),
+    StrBox::None => showln("none"),
+  }
+
+  -- bool field.
+  imu b := BoolBox::Val(true);
+
+  match b {
+    BoolBox::Val(v) => showln(v),
+    BoolBox::None => showln(false),
+  }
+
+  -- char field.
+  imu c := CharBox::Val('z');
+
+  match c {
+    CharBox::Val(v) => showln(v),
+    CharBox::None => showln('?'),
+  }
+
+  -- float field.
+  imu f := FloatBox::Val(3.14);
+
+  match f {
+    FloatBox::Val(v) => showln(v),
+    FloatBox::None => showln(0.0),
+  }
+
+  -- multi-variant enum.
+  imu a := Multi::A(99);
+  imu bs := Multi::B("world");
+  imu ct := Multi::C(false);
+
+  match a {
+    Multi::A(n) => showln(n),
+    Multi::B(v) => showln(v),
+    Multi::C(v) => showln(v),
+  }
+
+  match bs {
+    Multi::A(n) => showln(n),
+    Multi::B(v) => showln(v),
+    Multi::C(v) => showln(v),
+  }
+
+  match ct {
+    Multi::A(n) => showln(n),
+    Multi::B(v) => showln(v),
+    Multi::C(v) => showln(v),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- hello
+-- true
+-- z
+-- 3.140000
+-- 99
+-- world
+-- false
