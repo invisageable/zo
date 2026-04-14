@@ -264,6 +264,13 @@ pub fn allocate_function(
       continue;
     }
 
+    // Empty arrays call _malloc, push may call _realloc.
+    if matches!(insn, Insn::ArrayLiteral { elements, .. } if elements.is_empty())
+      || matches!(insn, Insn::ArrayPush { .. })
+    {
+      has_calls = true;
+    }
+
     // --- Handle Call (clobbers all caller-saved) ---
     if let Insn::Call { args, .. } = insn {
       has_calls = true;
@@ -455,15 +462,14 @@ pub fn allocate_function(
         struct_slots += 1 + fields.len() as u32;
       }
       Insn::ArrayLiteral { elements, .. } => {
-        // Header (length + capacity) + data slots.
-        // Empty arrays reserve DEFAULT_ARRAY_CAP (64) for push.
-        let cap = if elements.is_empty() {
-          64
+        if elements.is_empty() {
+          // Empty arrays are heap-allocated via malloc.
+          // Only 1 stack slot for the pointer.
+          struct_slots += 1;
         } else {
-          elements.len() as u32
-        };
-
-        struct_slots += 2 + cap;
+          // Non-empty literals: header + elements on stack.
+          struct_slots += 2 + elements.len() as u32;
+        }
       }
       Insn::TupleLiteral { elements, .. } => {
         struct_slots += elements.len() as u32;

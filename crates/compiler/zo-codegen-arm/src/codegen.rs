@@ -59,8 +59,6 @@ const NEWLINE_BUFFER_OFFSET: u16 = 16;
 // --- Array Layout ---
 const ARRAY_ELEMENT_SHIFT: u8 = 3;
 const ARRAY_HEADER_SIZE: u16 = 16; // [len:8][cap:8]
-const DEFAULT_ARRAY_CAP: u32 = 64; // Empty array default capacity
-
 // --- Type Detection ---
 // These TyIds must match TyChecker::new() registration
 // order. If that order ever changes, these break silently.
@@ -165,15 +163,15 @@ pub struct ARM64Gen<'a> {
   /// Set when the last emitted instruction was a math
   /// intrinsic (FSQRT, FRINT*). Result is in D0.
   last_was_math_intrinsic: bool,
-  /// Libm functions used (ordered, no duplicates).
-  /// Each entry is the C symbol name (e.g. "_pow").
-  libm_used: Vec<String>,
-  /// Code offsets of stubs for each libm function.
+  /// External C functions used (ordered, no duplicates).
+  /// Each entry is the C symbol name (e.g. "_pow", "_malloc").
+  extern_used: Vec<String>,
+  /// Code offsets of stubs for each external function.
   /// Populated after all user code is emitted.
-  libm_stub_offsets: HashMap<String, u32>,
+  extern_stub_offsets: HashMap<String, u32>,
   /// BL fixups: (code_offset, c_symbol_name).
   /// Patched in assemble() to point at stubs.
-  libm_fixups: Vec<(u32, String)>,
+  extern_fixups: Vec<(u32, String)>,
   /// Forward-reference call fixups: (code_offset, func_name).
   /// Used when a Call references a function (e.g., closure)
   /// that appears later in the SIR stream. Patched after
@@ -246,9 +244,9 @@ impl<'a> ARM64Gen<'a> {
       next_struct_slot: 0,
       struct_return_fns: HashMap::default(),
       last_was_math_intrinsic: false,
-      libm_used: Vec::new(),
-      libm_stub_offsets: HashMap::default(),
-      libm_fixups: Vec::new(),
+      extern_used: Vec::new(),
+      extern_stub_offsets: HashMap::default(),
+      extern_fixups: Vec::new(),
       call_fixups: Vec::new(),
       enum_metas: HashMap::default(),
       next_enum_sym: ENUM_SYNTHETIC_SYM_BASE,
@@ -345,6 +343,40 @@ impl<'a> ARM64Gen<'a> {
   }
 
   /// Emit a single spill operation (GP or FP).
+  /// Emit a BL to an external C function (e.g. _malloc,
+  /// _realloc). Saves/restores caller-save registers
+  /// (X9-X17) around the call. Registers the symbol for
+  /// GOT binding.
+  fn emit_extern_call(&mut self, c_sym: &str) {
+    let base = self.caller_save_base;
+
+    // Save caller-save registers (X9-X17).
+    for i in 0..CALLER_SAVE_COUNT {
+      let reg = Register::new(CALLER_SAVE_START + i as u8);
+      let off = base + i as u32 * STACK_SLOT_SIZE;
+
+      self.emitter.emit_str(reg, SP, off as i16);
+    }
+
+    let fixup_pos = self.emitter.current_offset();
+    let sym = c_sym.to_owned();
+
+    self.emitter.emit_bl(0);
+    self.extern_fixups.push((fixup_pos, sym.clone()));
+
+    if !self.extern_used.contains(&sym) {
+      self.extern_used.push(sym);
+    }
+
+    // Restore caller-save registers (X9-X17).
+    for i in 0..CALLER_SAVE_COUNT {
+      let reg = Register::new(CALLER_SAVE_START + i as u8);
+      let off = base + i as u32 * STACK_SLOT_SIZE;
+
+      self.emitter.emit_ldr(reg, SP, off as i16);
+    }
+  }
+
   fn emit_spill_op(&mut self, kind: &SpillKind) {
     match kind {
       SpillKind::Store {
@@ -538,11 +570,11 @@ impl<'a> ARM64Gen<'a> {
     // [X16, off]; BR X16. The actual page/offset values are
     // placeholders — they get patched in generate_macho()
     // once we know the final GOT layout.
-    for i in 0..self.libm_used.len() {
-      let sym = self.libm_used[i].clone();
+    for i in 0..self.extern_used.len() {
+      let sym = self.extern_used[i].clone();
       let offset = self.emitter.current_offset();
 
-      self.libm_stub_offsets.insert(sym, offset);
+      self.extern_stub_offsets.insert(sym, offset);
 
       // ADRP X16, 0 — placeholder, patched later.
       self.emitter.emit_adrp(X16, 0);
@@ -555,12 +587,12 @@ impl<'a> ARM64Gen<'a> {
     // Fix up libm BL instructions to target stubs.
     // Both BL and stub are in the same code section,
     // so this is a simple PC-relative patch.
-    let libm_fixups = std::mem::take(&mut self.libm_fixups);
+    let extern_fixups = std::mem::take(&mut self.extern_fixups);
 
     let mut code = self.emitter.code();
 
-    for (fixup_pos, c_sym) in &libm_fixups {
-      if let Some(&stub_off) = self.libm_stub_offsets.get(c_sym) {
+    for (fixup_pos, c_sym) in &extern_fixups {
+      if let Some(&stub_off) = self.extern_stub_offsets.get(c_sym) {
         let relative = (stub_off as i32 - *fixup_pos as i32) >> 2;
         let pos = *fixup_pos as usize;
         let insn = BL_OPCODE | ((relative as u32) & FIXUP_IMM26_MASK);
@@ -569,7 +601,7 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    self.libm_fixups = libm_fixups;
+    self.extern_fixups = extern_fixups;
     let mut string_offsets = HashMap::default();
     let mut template_offsets = HashMap::default();
     let mut current_offset = code.len();
@@ -653,11 +685,11 @@ impl<'a> ARM64Gen<'a> {
     //   LDR  X16, [X16, #got_page_off]
     //   BR   X16
     // dyld fills the GOT slot at load time via bind opcodes.
-    let n_got = self.libm_used.len();
+    let n_got = self.extern_used.len();
     let mut got_data = Vec::with_capacity(n_got * 8);
     let mut bind_entries: Vec<(&str, u8, u64)> = Vec::new();
 
-    for (i, c_sym) in self.libm_used.iter().enumerate() {
+    for (i, c_sym) in self.extern_used.iter().enumerate() {
       let got_offset_in_data = (i * 8) as u64;
       let got_vm_addr = DATA_VM_ADDR + got_offset_in_data;
 
@@ -666,7 +698,7 @@ impl<'a> ARM64Gen<'a> {
 
       // Patch the stub: ADRP X16, page_diff; LDR X16,
       // [X16, #page_off]; BR X16.
-      if let Some(&stub_off) = self.libm_stub_offsets.get(c_sym) {
+      if let Some(&stub_off) = self.extern_stub_offsets.get(c_sym) {
         let stub_vm = TEXT_SECTION_BASE + stub_off as u64;
         let stub_page = stub_vm & !PAGE_MASK;
         let got_page = got_vm_addr & !PAGE_MASK;
@@ -740,7 +772,7 @@ impl<'a> ARM64Gen<'a> {
 
     // Add undefined symbols for each libm function.
     // dylib ordinal 1 = libSystem.
-    for c_sym in &self.libm_used {
+    for c_sym in &self.extern_used {
       macho.add_undefined_symbol(c_sym, LIBSYSTEM_DYLIB_ORDINAL as u16);
     }
 
@@ -1351,11 +1383,11 @@ impl<'a> ARM64Gen<'a> {
             let fixup_pos = self.emitter.current_offset();
 
             self.emitter.emit_bl(0);
-            self.libm_fixups.push((fixup_pos, c_sym.clone()));
+            self.extern_fixups.push((fixup_pos, c_sym.clone()));
 
             // Track used libm functions (no duplicates).
-            if !self.libm_used.contains(&c_sym) {
-              self.libm_used.push(c_sym);
+            if !self.extern_used.contains(&c_sym) {
+              self.extern_used.push(c_sym);
             }
 
             // Restore caller-saved regs after BL.
@@ -1651,45 +1683,68 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ArrayLiteral { elements, .. } => {
-        // Layout: [len:8][cap:8][e0:8][e1:8]...[eN:8]
-        // Uses struct_base + next_struct_slot (frame-relative).
-        let base = self.struct_base + self.next_struct_slot;
-        let n = elements.len() as u32;
+        if elements.is_empty() {
+          // Empty array: heap-allocate via malloc.
+          // Layout: [len:8][cap:8][data...]
+          let initial_cap: u32 = 1024;
+          let alloc_size =
+            (ARRAY_HEADER_SIZE as u32 + initial_cap * STACK_SLOT_SIZE) as u64;
 
-        // Empty arrays get DEFAULT_ARRAY_CAP for .push().
-        // Non-empty arrays: cap = len (tight).
-        let cap = if n == 0 { DEFAULT_ARRAY_CAP } else { n };
+          self.emit_mov_imm_64(X0, alloc_size);
+          self.emit_extern_call("_malloc");
+          // X0 = heap pointer. Store len=0, cap=initial_cap.
+          self.emitter.emit_mov_imm(X16, 0);
+          self.emitter.emit_str(X16, X0, 0);
+          self.emit_mov_imm_64(X16, initial_cap as u64);
+          self.emitter.emit_str(X16, X0, 8);
 
-        // Store length at [SP + base].
-        self.emitter.emit_mov_imm(X16, n as u16);
-        self.emitter.emit_str(X16, SP, base as i16);
+          // Store heap pointer to stack slot so Store/Load
+          // can find it.
+          let base = self.struct_base + self.next_struct_slot;
 
-        // Store capacity at [SP + base + 8].
-        self.emit_mov_imm_64(X16, cap as u64);
-        self
-          .emitter
-          .emit_str(X16, SP, (base + STACK_SLOT_SIZE) as i16);
+          self.emitter.emit_str(X0, SP, base as i16);
 
-        // Store each element at [SP + base + 16 + i*8].
-        // Floats use FP registers → emit_str_fp.
-        for (i, elem) in elements.iter().enumerate() {
-          let off =
-            base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
-
-          if let Some(fp) = self.alloc_fp_reg(*elem) {
-            self.emitter.emit_str_fp(fp, SP, off as u16);
-          } else if let Some(reg) = self.alloc_reg(*elem) {
-            self.emitter.emit_str(reg, SP, off as i16);
+          if let Some(dst) = self.reg_for_insn(idx) {
+            self.emitter.emit_mov_reg(dst, X0);
           }
-        }
 
-        // Result: pointer to array base.
-        if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_add_imm(dst, SP, base as u16);
-        }
+          // Only 1 stack slot for the pointer.
+          self.next_struct_slot += STACK_SLOT_SIZE;
+        } else {
+          // Non-empty literal: stack-allocate (unchanged).
+          // Layout: [len:8][cap:8][e0:8][e1:8]...[eN:8]
+          let base = self.struct_base + self.next_struct_slot;
+          let n = elements.len() as u32;
 
-        // Advance slot: 2 (header) + cap elements.
-        self.next_struct_slot += (2 + cap) * STACK_SLOT_SIZE;
+          // Store length at [SP + base].
+          self.emitter.emit_mov_imm(X16, n as u16);
+          self.emitter.emit_str(X16, SP, base as i16);
+
+          // Store capacity = len (tight, no growth).
+          self
+            .emitter
+            .emit_str(X16, SP, (base + STACK_SLOT_SIZE) as i16);
+
+          // Store each element.
+          for (i, elem) in elements.iter().enumerate() {
+            let off =
+              base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
+
+            if let Some(fp) = self.alloc_fp_reg(*elem) {
+              self.emitter.emit_str_fp(fp, SP, off as u16);
+            } else if let Some(reg) = self.alloc_reg(*elem) {
+              self.emitter.emit_str(reg, SP, off as i16);
+            }
+          }
+
+          // Result: pointer to array base.
+          if let Some(dst) = self.reg_for_insn(idx) {
+            self.emitter.emit_add_imm(dst, SP, base as u16);
+          }
+
+          // Advance slot: 2 (header) + N elements.
+          self.next_struct_slot += (2 + n) * STACK_SLOT_SIZE;
+        }
       }
 
       Insn::ArrayIndex {
@@ -1789,8 +1844,8 @@ impl<'a> ARM64Gen<'a> {
       } => {
         // Layout: [len:8][cap:8][data...]
         // 1. Load len and cap.
-        // 2. Bounds check: len < cap, else exit(1).
-        // 3. Store value at data[len] = base + 16 + len*8.
+        // 2. If len >= cap: realloc (double cap).
+        // 3. Store value at data[len].
         // 4. Increment len.
         let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
 
@@ -1798,21 +1853,62 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_ldr(X16, arr_reg, 0);
         self.emitter.emit_ldr(X17, arr_reg, 8);
 
-        // Bounds check: len < cap.
+        // If len < cap, skip realloc.
         self.emitter.emit_cmp(X16, X17);
         let bcc_pos = self.emitter.current_offset();
         self.emitter.emit_bcc(0); // B.CC (unsigned <)
-        // Panic: capacity exceeded — exit(1).
-        self.emitter.emit_mov_imm(X0, 1);
-        self.emitter.emit_mov_imm(X16, SYS_EXIT);
-        self.emitter.emit_svc(0);
-        // Patch B.CC past panic.
+
+        // Realloc path: double capacity.
+        // Save value reg before BL clobbers it.
+        let val_reg = self.alloc_reg(*value).unwrap_or(X1);
+
+        // new_cap = cap * 2.
+        self.emitter.emit_lsl(X17, X17, 1);
+        // alloc_size = (2 + new_cap) * 8.
+        self.emitter.emit_add_imm(X1, X17, 2);
+        self.emitter.emit_lsl(X1, X1, ARRAY_ELEMENT_SHIFT);
+        // X0 = old pointer.
+        self.emitter.emit_mov_reg(X0, arr_reg);
+        // Save new_cap and value in caller-save area.
+        let save_base = self.caller_save_base;
+
+        self.emitter.emit_str(X17, SP, save_base as i16);
+        self.emitter.emit_str(val_reg, SP, (save_base + 8) as i16);
+        self.emit_extern_call("_realloc");
+        // X0 = new pointer. Restore new_cap + value.
+        self.emitter.emit_ldr(X17, SP, save_base as i16);
+        self.emitter.emit_ldr(val_reg, SP, (save_base + 8) as i16);
+        // Store new cap.
+        self.emitter.emit_str(X17, X0, 8);
+        // Update arr_reg to new pointer.
+        self.emitter.emit_mov_reg(arr_reg, X0);
+        // Write the new pointer back to the array's local
+        // slot. Scan SIR from the current function only.
+        let fn_start = self.current_fn_start.unwrap_or(0);
+
+        for insn in all_insns[fn_start..].iter() {
+          if let Insn::Load {
+            dst,
+            src: LoadSource::Local(sym),
+            ..
+          } = insn
+            && *dst == *array
+          {
+            if let Some(&off) = self.mutable_slots.get(&sym.as_u32()) {
+              self.emitter.emit_str(arr_reg, SP, off as i16);
+            }
+
+            break;
+          }
+        }
+
+        // Patch B.CC to skip realloc.
         let here = self.emitter.current_offset() as i32;
         self
           .emitter
           .patch_bcond_at(bcc_pos as usize, here - bcc_pos as i32);
 
-        // Reload len (X16 was clobbered by panic path).
+        // Reload len (registers were clobbered by realloc).
         self.emitter.emit_ldr(X16, arr_reg, 0);
 
         // Store value at data[len]: base + 16 + len * 8.
@@ -1827,7 +1923,6 @@ impl<'a> ARM64Gen<'a> {
           let fp = self.alloc_fp_reg(*value).unwrap_or(D0);
           self.emitter.emit_str_fp(fp, X17, 0);
         } else {
-          let val_reg = self.alloc_reg(*value).unwrap_or(X1);
           self.emitter.emit_str(val_reg, X17, 0);
         }
 
