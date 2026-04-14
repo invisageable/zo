@@ -1894,6 +1894,43 @@ impl<'a> Executor<'a> {
           report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
 
           self.ty_checker.unit_type()
+        } else if matches!(self.ty_checker.kind_of(tup_ty), Ty::Str) {
+          // String property access: only `.len` supported.
+          let member_name = self.node_value(idx - 1).and_then(|v| match v {
+            NodeValue::Symbol(s) => Some(s),
+            _ => None,
+          });
+
+          let is_len =
+            member_name.is_some_and(|s| self.interner.get(s) == "len");
+
+          if is_len {
+            // String layout: [len:8][data...]. Same as ArrayLen.
+            let int_ty = self.ty_checker.int_type();
+            let dst = ValueId(self.sir.next_value_id);
+
+            self.sir.next_value_id += 1;
+
+            let sv = self.sir.emit(Insn::ArrayLen {
+              dst,
+              array: tup_sir,
+              ty_id: int_ty,
+            });
+
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(int_ty);
+            self.sir_values.push(sv);
+
+            return;
+          }
+
+          let span = self.tree.spans[idx];
+
+          report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
+
+          self.ty_checker.unit_type()
         } else {
           self.ty_checker.unit_type()
         };

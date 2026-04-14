@@ -1,0 +1,31 @@
+-- tests-build-pass: string .len property.
+-- @cmd — zo build str-len.zo
+
+fun main() {
+  imu s: str = "hello";
+
+  check@eq(s.len, 5);
+
+  imu empty: str = "";
+
+  check@eq(empty.len, 0);
+
+  imu long: str = "hello world!";
+
+  check@eq(long.len, 12);
+
+  -- use .len in a loop.
+  mut i: int = 0;
+
+  while i < s.len {
+    showln(s[i]);
+    i = i + 1;
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- h
+-- e
+-- l
+-- l
+-- o
