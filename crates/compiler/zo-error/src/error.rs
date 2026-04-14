@@ -219,4 +219,10 @@ pub enum ErrorKind {
 
   // Indexing errors (appended to preserve existing error codes).
   InvalidIndex,
+
+  // Module system errors.
+  PackFileNotFound,
+  ModuleNotDeclared,
+  UnresolvedModule,
+  CircularImport,
 }
