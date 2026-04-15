@@ -1342,10 +1342,12 @@ impl<'a> Tokenizer<'a> {
       self.tokens.push(Token::Unknown, start as u32, len);
     } else {
       let len = (self.cursor - start) as u16;
-      // Extract string content (without quotes)
-      let string_content =
+      // Extract string content (without quotes) and unescape.
+      let raw_content =
         std::str::from_utf8(&self.source[start + 1..self.cursor - 1])
           .unwrap_or("");
+      let unescaped = unescape_string(raw_content);
+      let string_content = unescaped.as_str();
 
       if has_interpolation {
         // Parse segments and store in side table.
@@ -1646,4 +1648,40 @@ impl<'a> Tokenizer<'a> {
       source_len: self.source.len(),
     }
   }
+}
+
+/// Process escape sequences in a string literal.
+/// Converts `\"` → `"`, `\\` → `\`, `\n` → newline, etc.
+/// Returns the original string unchanged if no escapes found.
+fn unescape_string(s: &str) -> String {
+  if !s.contains('\\') {
+    return s.to_string();
+  }
+
+  let mut out = String::with_capacity(s.len());
+  let mut chars = s.chars();
+
+  while let Some(ch) = chars.next() {
+    if ch == '\\' {
+      match chars.next() {
+        Some('n') => out.push('\n'),
+        Some('r') => out.push('\r'),
+        Some('t') => out.push('\t'),
+        Some('\\') => out.push('\\'),
+        Some('"') => out.push('"'),
+        Some('0') => out.push('\0'),
+        Some('{') => out.push('{'),
+        Some('}') => out.push('}'),
+        Some(other) => {
+          out.push('\\');
+          out.push(other);
+        }
+        None => out.push('\\'),
+      }
+    } else {
+      out.push(ch);
+    }
+  }
+
+  out
 }

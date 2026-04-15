@@ -146,6 +146,8 @@ impl Renderer {
     match tag {
       ElementTag::Img => {
         let src = attr_str(attrs, "src").unwrap_or("");
+        // Default to natural image size (0 = auto-detect
+        // in render_image).
         let width = attr_num(attrs, "width").unwrap_or(0);
         let height = attr_num(attrs, "height").unwrap_or(0);
 
@@ -251,7 +253,11 @@ impl Renderer {
     width: u32,
     height: u32,
   ) {
-    let size = egui::Vec2::new(width as f32, height as f32);
+    // Use specified dimensions, or default to 256×256 when
+    // width/height attributes are omitted.
+    let w = if width > 0 { width as f32 } else { 256.0 };
+    let h = if height > 0 { height as f32 } else { 256.0 };
+    let size = egui::Vec2::new(w, h);
     let ctx = ui.ctx().clone();
     let state = self.image_loader.state(src);
 
@@ -409,7 +415,7 @@ fn peek_text_children(commands: &[UiCommand], start: usize) -> String {
 
         depth -= 1;
       }
-      UiCommand::Text(s) if depth == 0 => {
+      UiCommand::Text(s) => {
         out.push_str(s);
       }
       _ => {}

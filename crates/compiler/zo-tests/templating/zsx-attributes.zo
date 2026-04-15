@@ -2,7 +2,7 @@
 
 fun main() {
   imu form: </> ::= <>
-    <img src="logo.png" width="128" height="128" />
+    <img src="../../zo-notes/public/assets/roll-safe-meme-1.jpg" width="128" height="128" />
     <input type="text" placeholder="Enter name" />
     <button class="primary">Submit</button>
   </>;
