@@ -1,5 +1,0 @@
-fun main() {
-  return 42;
-
-  showln("john doe is dead");
-}

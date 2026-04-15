@@ -1,0 +1,13 @@
+-- tests-build-pass: dead code after return.
+-- @cmd — zo build dead-code-return.zo
+
+fun main() {
+  showln("alive");
+
+  return;
+
+  showln("john doe is dead");
+}
+
+-- EXPECTED OUTPUT:
+-- alive
