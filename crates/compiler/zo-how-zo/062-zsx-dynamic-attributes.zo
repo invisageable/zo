@@ -2,11 +2,13 @@
 
 fun main() {
   imu src: str = "../zo-notes/public/assets/roll-safe-meme-1.jpg";
-	imu name: str = "Kayode Ewumi";
+  imu name: str = "Kayode Ewumi";
   -- interpolation can be use as attribute or inside a string.
   --
   -- Note: `{src}` this is the shorthand of: `src={src}`.
   imu image: </> ::= <img {src} alt="a picture of '{name}'" />;
+
+  check@eq(image, "<img src=\"../zo-notes/public/assets/roll-safe-meme-1.jpg\" alt=\"a picture of 'Kayode Ewumi'\" />");
 
   #dom image;
 }

@@ -16,7 +16,7 @@ fun main() {
   -- shorthand) tells the compiler to track the binding and
   -- re-patch the element on every state change.
   mut width: int = 128;
-  imu src: str = "../../zo-notes/public/assets/roll-safe-meme-1.jpg";
+  imu src: str = "../zo-notes/public/assets/roll-safe-meme-1.jpg";
 
   imu view: </> ::= <>
     <!-- clicking `grow` bumps `width` by 32 — reactive. -->

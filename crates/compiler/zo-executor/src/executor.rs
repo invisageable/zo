@@ -8990,14 +8990,33 @@ impl<'a> Executor<'a> {
     for cmd in commands {
       match cmd {
         UiCommand::Element {
-          tag, self_closing, ..
+          tag,
+          attrs,
+          self_closing,
         } => {
           let name = tag.as_str();
 
+          out.push('<');
+          out.push_str(name);
+
+          for attr in attrs {
+            match attr {
+              Attr::Prop { name, value } if !name.starts_with("data-") => {
+                out.push_str(&format!(" {name}=\"{}\"", value.to_display()));
+              }
+              Attr::Dynamic { name, initial, .. }
+                if !name.starts_with("data-") =>
+              {
+                out.push_str(&format!(" {name}=\"{}\"", initial.to_display()));
+              }
+              _ => {}
+            }
+          }
+
           if *self_closing {
-            out.push_str(&format!("<{name} />"));
+            out.push_str(" />");
           } else {
-            out.push_str(&format!("<{name}>"));
+            out.push('>');
             stack.push(name);
           }
         }

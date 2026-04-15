@@ -7,7 +7,7 @@ fun main() {
 
   showln(x);
   showln(y);
-  check@eq(y, 'a');
+  check@eq(y, 'd');
 }
 
 -- EXPECTED OUTPUT:
