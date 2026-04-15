@@ -374,6 +374,24 @@ impl<'a> Parser<'a> {
         self.emit_node(kind);
       }
 
+      // Type cast: expr as Type.
+      // Flush the expression (LHS), emit As, then emit the
+      // target type directly so it appears right after As in
+      // the tree (the executor reads tree[idx+1] for the type).
+      Token::As => {
+        self.flush_expr();
+        self.emit_node(Token::As);
+
+        // Peek at the next token — if it's a type, consume
+        // and emit it now so it's adjacent to As in the tree.
+        if self.pos + 1 < self.tokens.kinds.len()
+          && self.tokens.kinds[self.pos + 1].is_ty()
+        {
+          self.pos += 1;
+          self.emit_node(self.tokens.kinds[self.pos]);
+        }
+      }
+
       // Enum variant access: Foo::Ok
       Token::ColonColon => {
         self.flush_expr();

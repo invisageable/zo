@@ -928,6 +928,9 @@ impl<'a> ARM64Gen<'a> {
       | Insn::StructConstruct { dst, ty_id, .. } => {
         self.value_types.insert(dst.0, *ty_id);
       }
+      Insn::Cast { dst, to_ty, .. } => {
+        self.value_types.insert(dst.0, *to_ty);
+      }
       Insn::ConstString { dst, .. } => {
         self.value_types.insert(dst.0, TyId(STR_TYPE_ID));
       }
@@ -2108,6 +2111,43 @@ impl<'a> ARM64Gen<'a> {
         let offset = (*index as i16) * (STACK_SLOT_SIZE as i16);
 
         self.emitter.emit_str(val_reg, base_reg, offset);
+      }
+
+      Insn::Cast {
+        dst,
+        src,
+        from_ty,
+        to_ty,
+      } => {
+        let from = from_ty.0;
+        let to = to_ty.0;
+
+        let is_from_float =
+          from >= FLOAT_TYPE_ID_MIN && from <= FLOAT_TYPE_ID_MAX;
+        let is_to_float = to >= FLOAT_TYPE_ID_MIN && to <= FLOAT_TYPE_ID_MAX;
+
+        if is_from_float && !is_to_float {
+          // float -> int: FCVTZS Xd, Ds.
+          let fp_src = self.alloc_fp_reg(*src).unwrap_or(D0);
+          let gp_dst = self.alloc_reg(*dst).unwrap_or(X0);
+
+          self.emitter.emit_fcvtzs(gp_dst, fp_src);
+        } else if !is_from_float && is_to_float {
+          // int -> float: SCVTF Dd, Xs.
+          let gp_src = self.alloc_reg(*src).unwrap_or(X0);
+          let fp_dst = self.alloc_fp_reg(*dst).unwrap_or(D0);
+
+          self.emitter.emit_scvtf(fp_dst, gp_src);
+        } else {
+          // GP -> GP: int/char/bytes/bool are all in GP regs.
+          // MOV if different registers, no-op if same.
+          let src_reg = self.alloc_reg(*src).unwrap_or(X0);
+          let dst_reg = self.alloc_reg(*dst).unwrap_or(X0);
+
+          if src_reg != dst_reg {
+            self.emitter.emit_mov_reg(dst_reg, src_reg);
+          }
+        }
       }
 
       _ => {}

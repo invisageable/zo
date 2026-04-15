@@ -459,6 +459,17 @@ impl PrettyPrinter {
 
           self.sir_instruction(&format!("stylesheet ({s})"));
         }
+        Insn::Cast {
+          dst,
+          src,
+          from_ty,
+          to_ty,
+        } => {
+          let c =
+            format!("%{dst} = cast %{src} ({:?} -> {:?})", from_ty, to_ty,);
+
+          self.sir_instruction(&c);
+        }
         Insn::Nop => {}
       }
     }

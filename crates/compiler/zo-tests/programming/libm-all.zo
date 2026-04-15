@@ -1,13 +1,5 @@
 -- tests-run-pass: all libm functions.
-
-ext pow(x: float, y: float) -> float;
-ext sin(x: float) -> float;
-ext cos(x: float) -> float;
-ext tan(x: float) -> float;
-ext log(x: float) -> float;
-ext log2(x: float) -> float;
-ext log10(x: float) -> float;
-ext exp(x: float) -> float;
+-- all ext functions are preloaded from std/math.zo.
 
 fun main() {
   showln(pow(2.0, 10.0));

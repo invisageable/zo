@@ -1,0 +1,35 @@
+-- tests-build-pass: as cast for type conversions.
+-- @cmd — zo build as-cast.zo
+
+fun main() {
+  -- int to char.
+  imu c: char = 72 as char;
+  showln(c);
+
+  -- char to int.
+  imu n: int = 'Z' as int;
+  showln(n);
+
+  -- int to float.
+  imu f: float = 42 as float;
+  showln(f);
+
+  -- float to int (truncates).
+  imu i: int = 3.14 as int;
+  showln(i);
+
+  -- bytes to int.
+  imu b: bytes = `A`;
+  imu bi: int = b as int;
+  showln(bi);
+
+  showln("done");
+}
+
+-- EXPECTED OUTPUT:
+-- H
+-- 90
+-- 42.0
+-- 3
+-- 65
+-- done

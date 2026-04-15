@@ -2006,6 +2006,41 @@ impl<'a> Executor<'a> {
       // === UNARY OPERATORS ===
       Token::Bang => self.execute_unop(UnOp::Not, idx),
 
+      // === TYPE CAST: expr as Type ===
+      Token::As => {
+        // The next token should be a type keyword. Read it
+        // and emit Cast. The value to cast is on the stack.
+        if idx + 1 < self.tree.nodes.len()
+          && self.tree.nodes[idx + 1].token.is_ty()
+        {
+          let to_ty = self.resolve_type_token(idx + 1);
+
+          self.skip_until = idx + 2;
+
+          if let (Some(_val), Some(from_ty)) =
+            (self.value_stack.pop(), self.ty_stack.pop())
+          {
+            let src_sir = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
+
+            let dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
+            let sv = self.sir.emit(Insn::Cast {
+              dst,
+              src: src_sir,
+              from_ty,
+              to_ty,
+            });
+
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(to_ty);
+            self.sir_values.push(sv);
+          }
+        }
+      }
+
       // === ENUM VARIANT ACCESS: Foo::Ok ===
       Token::ColonColon => {
         self.execute_enum_access(idx);

@@ -550,6 +550,7 @@ fn insn_is_fp(insn: &Insn) -> bool {
     | Insn::Call { ty_id, .. }
     | Insn::ArrayIndex { ty_id, .. }
     | Insn::TupleIndex { ty_id, .. } => ty_id.0 >= 15 && ty_id.0 <= 17,
+    Insn::Cast { to_ty, .. } => to_ty.0 >= 15 && to_ty.0 <= 17,
     _ => false,
   }
 }
