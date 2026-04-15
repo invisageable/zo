@@ -2,10 +2,12 @@ use crate::Executor;
 use crate::tests::common::{assert_execution_error, assert_sir_structure};
 
 use zo_error::ErrorKind;
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
+use zo_ty_checker::TyChecker;
 
 #[test]
 fn test_struct_empty() {
@@ -176,18 +178,22 @@ fun main() {
   check@eq(n, 10);
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
+  let mut ty_checker = TyChecker::new();
+
   let executor = Executor::new(
     &parsing.tree,
-    &mut tokenization.interner,
+    &mut interner,
     &tokenization.literals,
+    &mut ty_checker,
   );
 
-  let (_, _, _, _) = executor.execute();
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -348,18 +354,22 @@ fun main() {
   imu a := r.area();
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
+  let mut ty_checker = TyChecker::new();
+
   let executor = Executor::new(
     &parsing.tree,
-    &mut tokenization.interner,
+    &mut interner,
     &tokenization.literals,
+    &mut ty_checker,
   );
 
-  let (_, _, _, _) = executor.execute();
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(

@@ -4,6 +4,24 @@
 
 ## commands.
 
+GET THE FULL LiST OF COMMANDS ViA `zo --help`
+
+  ```
+  The zo Programming Language
+
+  Usage: zo <COMMAND>
+
+  Commands:
+    build  builds a program
+    repl   read eval print and loop a program (not implemented yet)
+    run    runs a program
+    help   Print this message or the help of the given subcommand(s)
+
+  Options:
+    -h, --help  Print help
+    -V, --version  Print version
+  ```
+
 **-programming-mode**
 
 `build` YOUR PROGRAM AS AN EXECUTABLE. GO TO `crates/compiler/zo-tests/programming` AND RUN:
@@ -39,13 +57,13 @@ THAT'S iT, YOU SHOULD SEE A NATiVE APP ON YOUR SCREEN.
 > *This command is only for `native` app, if you want to build for `web` you should add the `--web` flag.*
 
 <p align="center">
-  <img width="340" src="./zo-notes/public/preview/preview-zo-hello-template-native.png" />
-  <img width="340" src="./zo-notes/public/preview/preview-zo-hello-template-web.png" />
+  <img width="340" src="../assets/preview/preview-zo-hello-template-native.png" />
+  <img width="340" src="../assets/preview/preview-zo-hello-template-web.png" />
 </p>
 
 **-repl-(wip)**
 
-RUN AN EXECUTABLE ENViRONMENT:
+RUN AN SANBOXED ENViRONMENT:
 
   ```sh
   zo repl

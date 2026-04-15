@@ -244,6 +244,32 @@ fn test_string_index_produces_char_type() {
 }
 
 #[test]
+fn test_string_len_produces_array_len() {
+  let (insns, _) = execute_raw(
+    r#"fun main() {
+  imu s: str = "hello";
+  imu n: int = s.len;
+  showln(n);
+}"#,
+  );
+
+  let has_len = insns.iter().any(|i| matches!(i, Insn::ArrayLen { .. }));
+
+  assert!(has_len, "expected ArrayLen for str.len");
+
+  // ArrayLen result type should be int (TyId 8).
+  if let Some(Insn::ArrayLen { ty_id, .. }) =
+    insns.iter().find(|i| matches!(i, Insn::ArrayLen { .. }))
+  {
+    assert_eq!(
+      ty_id.0, 8,
+      "expected str.len ty_id=8 (int), got {}",
+      ty_id.0
+    );
+  }
+}
+
+#[test]
 fn test_interp_with_prefix_no_array() {
   // Interpolation with prefix text: showln("value: {x}")
   // desugars to show("value: ") + showln(x).

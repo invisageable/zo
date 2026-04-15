@@ -1,6 +1,6 @@
 # crates — compiler.
 
-> *the zo ecosystem crates.*
+> *The zo ecosystem crates.*
 
 ## about.
 
@@ -8,15 +8,15 @@
 
 ## dev.
 
-FOR AN iNTRODUCTiON, [HERE](./zo-notes/public/guidelines/02-install.md) iS WHERE iT STARTS.
+FOR AN iNTRODUCTiON, [HERE](./zo-notes/public/guidelines/00-prologue.md) iS WHERE iT STARTS.
 
-## architecture.
+### compiler pipeline.
 
-...
+WE HAVE ELiMiNATED ALL UNNECESSARY iNTERMEDiATE STAGES. THE FRONTEND iS A LEAN, BRUTALLY FAST DATAFLOW PiPELiNE.   
 
-## release.
+### release.
 
-THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLOWiNG.
+THE zo ECOSYSTEM iNCLUDES zo AND fret (not plugged yet), TO RELEASE A NEW VERSiON, WE DO THE FOLLOWiNG.
 
   1. BUMP ALL VERSiONS:
 
@@ -29,6 +29,8 @@ THE zo ECOSYSTEM iNCLUDES zo AND fret, TO RELEASE A NEW VERSiON, WE DO THE FOLLO
   ```sh
   just list_versions
   ```
+
+> *Ensure that only zo and fret has been bumped.*
 
   3. THEN COMMiT:
 

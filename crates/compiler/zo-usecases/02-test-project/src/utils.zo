@@ -1,5 +1,5 @@
 pub fun format_result(value: int) -> str {
-  return "result is: {value}";
+  "result is: {value}"
 }
 
 pub fun is_positive(value: int) -> bool {

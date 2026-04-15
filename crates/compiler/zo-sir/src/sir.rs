@@ -85,7 +85,8 @@ impl Sir {
       | Insn::TupleLiteral { dst, .. }
       | Insn::TupleIndex { dst, .. }
       | Insn::EnumConstruct { dst, .. }
-      | Insn::StructConstruct { dst, .. } => *dst,
+      | Insn::StructConstruct { dst, .. }
+      | Insn::Cast { dst, .. } => *dst,
       // Template uses `id` as its value.
       Insn::Template { id, .. } => *id,
       // Non-value instructions.
@@ -206,6 +207,10 @@ impl Insn {
       Insn::FieldStore { base, value, .. } => {
         f(base);
         f(value);
+      }
+      Insn::Cast { dst, src, .. } => {
+        f(dst);
+        f(src);
       }
     }
   }
@@ -435,6 +440,13 @@ pub enum Insn {
     css: String,
     scope: StyleScope,
     scope_hash: Option<String>,
+  },
+  /// Type cast: `expr as Type`.
+  Cast {
+    dst: ValueId,
+    src: ValueId,
+    from_ty: TyId,
+    to_ty: TyId,
   },
   /// Dead instruction — replaces folded operands in-place
   /// so instruction indices stay stable.

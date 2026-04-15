@@ -2,8 +2,10 @@
 // Target: >20M LoC/s throughput for the full compilation pipeline
 
 use zo_analyzer::Analyzer;
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_tokenizer::Tokenizer;
+use zo_ty_checker::TyChecker;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
@@ -181,16 +183,20 @@ fn bench_analyzer<'a>(
 ) -> impl FnMut(&mut criterion::Bencher) + 'a {
   move |b: &mut criterion::Bencher| {
     b.iter(|| {
-      let tokenizer = Tokenizer::new(black_box(source));
-      let mut tokenization = tokenizer.tokenize();
+      let mut interner = Interner::new();
+      let tokenizer = Tokenizer::new(black_box(source), &mut interner);
+      let tokenization = tokenizer.tokenize();
 
       let parser = Parser::new(&tokenization, source);
       let parsing = parser.parse();
 
+      let mut ty_checker = TyChecker::new();
+
       let analyzer = Analyzer::new(
         &parsing.tree,
-        &mut tokenization.interner,
+        &mut interner,
         &tokenization.literals,
+        &mut ty_checker,
       );
 
       black_box(analyzer.analyze());

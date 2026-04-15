@@ -76,6 +76,38 @@ fn array_store_produces_no_value() {
   assert!(ids[0].is_none());
 }
 
+// ===== Cast =====
+
+#[test]
+fn cast_uses_src_value() {
+  let insn = Insn::Cast {
+    dst: ValueId(1),
+    src: ValueId(0),
+    from_ty: TyId(8),
+    to_ty: TyId(3),
+  };
+
+  let uses = insn_uses(&insn);
+
+  assert_eq!(uses.len(), 1);
+  assert_eq!(uses[0], ValueId(0));
+}
+
+#[test]
+fn cast_produces_value() {
+  let insns = vec![Insn::Cast {
+    dst: ValueId(1),
+    src: ValueId(0),
+    from_ty: TyId(8),
+    to_ty: TyId(3),
+  }];
+
+  let ids = compute_value_ids(&insns);
+
+  assert_eq!(ids.len(), 1);
+  assert_eq!(ids[0], Some(ValueId(1)));
+}
+
 #[test]
 fn array_index_produces_value() {
   let insns = vec![Insn::ArrayIndex {

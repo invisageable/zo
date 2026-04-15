@@ -1,9 +1,12 @@
 load calculator::compute;
 
-fun main() -> int {
+fun main() {
   imu a: int = 15;
   imu b: int = 25;
   imu result: int = compute(a, b);
 
-  return result;
+  showln(result);
 }
+
+-- EXPECTED OUTPUT:
+-- 415

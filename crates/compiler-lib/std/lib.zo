@@ -1,3 +1,8 @@
+-! The zo standard library.
+-!
+-! It provides useful collection of packages and functions to helps you writing
+-! programs.
+
 pack assert;
 pack io;
 pack math;

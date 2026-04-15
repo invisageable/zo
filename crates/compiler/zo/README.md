@@ -49,20 +49,8 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
 
 > *Be ahead, JOiN THE DEVOLUTiON.*
 
-## compiler pipeline.
-
-WE HAVE ELiMiNATED ALL UNNECESSARY iNTERMEDiATE STAGES. THE FRONTEND iS A LEAN, BRUTALLY FAST DATAFLOW PiPELiNE.    
-    
-```
-source -> tokenizer -> tokens -> parser -> hir -> analyzer/executor -> sir -> codegen -> executable
-```
-
 <!-- ## examples.
 
-**[-hello](./zo-samples/examples/hello.zo)**
-
-THE SUPERSTAR [`hello, world!`](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) — *PRiNTS `hello, world!`.*
-
-![hello](../zo-notes/public/preview/preview-zo-hello.png) -->
+... -->
 
 > *« The universe needs to preserve guys like Graydon Hoare! » — because they challenge us to reject "accepted" solutions and build something better.*

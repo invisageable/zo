@@ -1,0 +1,88 @@
+-- tests-build-pass: brainfuck interpreter.
+-- @cmd — zo build brainfuck.zo
+
+fun run(code: str) -> int {
+  mut tape: []int = [];
+  mut i: int = 0;
+
+  while i < 256 {
+    tape.push(0);
+    i = i + 1;
+  }
+
+  mut ptr: int = 0;
+  mut pc: int = 0;
+
+  while pc < code.len {
+    imu cmd: char = code[pc];
+
+    match cmd {
+      '>' => ptr = ptr + 1,
+      '<' => ptr = ptr - 1,
+      '+' => tape[ptr] = tape[ptr] + 1,
+      '-' => tape[ptr] = tape[ptr] - 1,
+      '.' => show(tape[ptr] as char),
+      '[' => {
+        if tape[ptr] == 0 {
+          mut depth: int = 1;
+
+          while depth > 0 {
+            pc = pc + 1;
+
+            if code[pc] == '[' {
+              depth = depth + 1;
+            }
+
+            if code[pc] == ']' {
+              depth = depth - 1;
+            }
+          }
+        }
+      },
+      ']' => {
+        if tape[ptr] != 0 {
+          mut depth: int = 1;
+
+          while depth > 0 {
+            pc = pc - 1;
+
+            if code[pc] == ']' {
+              depth = depth + 1;
+            }
+
+            if code[pc] == '[' {
+              depth = depth - 1;
+            }
+          }
+        }
+      },
+      _ => {},
+    }
+
+    pc = pc + 1;
+  }
+
+  return tape[ptr];
+}
+
+fun main() {
+  -- +++++ → tape[0] = 5.
+  showln(run("+++++"));
+
+  -- +++[>++<-]> → 3 loops, each +2 to cell 1 → 6.
+  showln(run("+++[>++<-]>"));
+
+  -- hello world preamble → cell at ptr = 72 ('H').
+  showln(run("++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>"));
+
+  -- Hello World! (uses . to print ASCII).
+  run("++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.");
+
+  showln("done");
+}
+
+-- EXPECTED OUTPUT:
+-- 5
+-- 6
+-- 72
+-- Hello World!done

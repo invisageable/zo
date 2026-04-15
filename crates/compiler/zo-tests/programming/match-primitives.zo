@@ -1,0 +1,50 @@
+-- tests-build-pass: match on primitive types (statement).
+-- @cmd — zo build match-primitives.zo
+
+fun test_int(x: int) {
+  match x {
+    1 => showln(10),
+    2 => showln(20),
+    3 => showln(30),
+    _ => showln(0),
+  }
+}
+
+fun test_char(c: char) {
+  match c {
+    'a' => showln(1),
+    'b' => showln(2),
+    'z' => showln(26),
+    _ => showln(0),
+  }
+}
+
+fun test_bool(b: bool) {
+  match b {
+    true => showln(1),
+    false => showln(0),
+  }
+}
+
+fun main() {
+  test_int(2);
+  test_int(3);
+  test_int(99);
+
+  test_char('a');
+  test_char('z');
+  test_char('x');
+
+  test_bool(true);
+  test_bool(false);
+}
+
+-- EXPECTED OUTPUT:
+-- 20
+-- 30
+-- 0
+-- 1
+-- 26
+-- 0
+-- 1
+-- 0

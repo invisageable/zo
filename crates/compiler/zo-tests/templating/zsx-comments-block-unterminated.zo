@@ -2,6 +2,6 @@
 
 fun main() {
   imu view: </> ::= <>
-    -- <h1>I've been commented</h1>
+    <!-- <h1>I've been commented</h1> -->
   </>;
 }

@@ -12,10 +12,10 @@ pub(crate) mod unary;
 use crate::tests::common::assert_nodes_stream;
 
 use zo_token::Token::{
-  Arrow, BoolType, Colon, ColonEq, Comma, Dot, DotDot, DotDotEq, Else, Eq,
-  False, For, Fun, Gt, Ident, If, Imu, Int, IntType, LBrace, LBracket, LParen,
-  Lt, Minus, Mut, Plus, RBrace, RBracket, RParen, Return, S32Type, Semicolon,
-  Star, True, While,
+  Arrow, As, BoolType, CharType, Colon, ColonEq, Comma, Dot, DotDot, DotDotEq,
+  Else, Eq, False, FloatType, For, Fun, Gt, Ident, If, Imu, Int, IntType,
+  LBrace, LBracket, LParen, Lt, Minus, Mut, Plus, RBrace, RBracket, RParen,
+  Return, S32Type, Semicolon, Star, True, While,
 };
 use zo_tree::NodeValue;
 
@@ -944,6 +944,61 @@ fn test_array_indexing() {
       (RBracket, None),
       (Semicolon, None),
       (RBrace, None),
+    ],
+  );
+}
+
+// === AS CAST ===
+
+#[test]
+fn test_as_cast_int_to_char() {
+  // `72 as char` → tree: 72, As, CharType (adjacent).
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        72 as char;
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))),
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      (Int, Some(NodeValue::Literal(0))),
+      (As, None),
+      (CharType, None),
+      (Semicolon, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
+fn test_as_cast_in_variable_decl() {
+  // `imu f: float = 42 as float;`
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        imu f: float = 42 as float;
+      }
+    "#,
+    &[
+      (Fun, None),                                // 0
+      (Ident, Some(NodeValue::TextRange(11, 4))), // 1
+      (LParen, None),                             // 2
+      (RParen, None),                             // 3
+      (LBrace, None),                             // 4
+      (Imu, None),                                // 5
+      (Ident, Some(NodeValue::TextRange(34, 1))), // 6
+      (FloatType, None),                          // 7
+      (Colon, None),                              // 8
+      (Eq, None),                                 // 9
+      (Int, Some(NodeValue::Literal(0))),         // 10
+      (As, None),                                 // 11
+      (FloatType, None),                          // 12
+      (Semicolon, None),                          // 13
+      (RBrace, None),                             // 14
     ],
   );
 }

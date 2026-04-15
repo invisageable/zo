@@ -1,3 +1,4 @@
+use zo_interner::Interner;
 use zo_reporter::collect_errors;
 use zo_token::Token;
 use zo_tokenizer::Tokenizer;
@@ -69,13 +70,15 @@ proptest! {
 
   #[test]
   fn tokenizer_never_panics(input in "\\PC{0,1000}") {
-    let tokenizer = Tokenizer::new(&input);
+    let mut interner = Interner::new();
+    let tokenizer = Tokenizer::new(&input, &mut interner);
     let _ = tokenizer.tokenize();
   }
 
   #[test]
   fn always_returns_result(input in source_fragment()) {
-    let tokenizer = Tokenizer::new(&input);
+    let mut interner = Interner::new();
+    let tokenizer = Tokenizer::new(&input, &mut interner);
     let tokenization = tokenizer.tokenize();
 
     assert!(!tokenization.tokens.kinds.is_empty());
@@ -84,7 +87,8 @@ proptest! {
 
   #[test]
   fn valid_identifiers_tokenize(ident in valid_identifier()) {
-    let tokenizer = Tokenizer::new(&ident);
+    let mut interner = Interner::new();
+    let tokenizer = Tokenizer::new(&ident, &mut interner);
     let tokenization = tokenizer.tokenize();
 
     if !tokenization.tokens.kinds.is_empty() {
@@ -100,7 +104,8 @@ proptest! {
 
   #[test]
   fn token_spans_within_bounds(input in source_fragment()) {
-    let tokenizer = Tokenizer::new(&input);
+    let mut interner = Interner::new();
+    let tokenizer = Tokenizer::new(&input, &mut interner);
     let source_len = input.len() as u32;
     let tokenization = tokenizer.tokenize();
 
@@ -117,8 +122,10 @@ proptest! {
 
   #[test]
   fn tokenization_is_deterministic(input in source_fragment()) {
-    let r1 = Tokenizer::new(&input).tokenize();
-    let r2 = Tokenizer::new(&input).tokenize();
+    let mut interner1 = Interner::new();
+    let r1 = Tokenizer::new(&input, &mut interner1).tokenize();
+    let mut interner2 = Interner::new();
+    let r2 = Tokenizer::new(&input, &mut interner2).tokenize();
 
     assert_eq!(r1.tokens.kinds, r2.tokens.kinds);
     assert_eq!(r1.tokens.starts, r2.tokens.starts);
@@ -128,7 +135,8 @@ proptest! {
 
   #[test]
   fn number_literals_tokenize_correctly(num in number_literal()) {
-    let tokenizer = Tokenizer::new(&num);
+    let mut interner = Interner::new();
+    let tokenizer = Tokenizer::new(&num, &mut interner);
     let tokenization = tokenizer.tokenize();
 
     if !tokenization.tokens.kinds.is_empty() {
@@ -158,8 +166,10 @@ proptest! {
     let input1 = tokens.join(sep1);
     let input2 = tokens.join(sep2);
 
-    let result1 = Tokenizer::new(&input1).tokenize();
-    let result2 = Tokenizer::new(&input2).tokenize();
+    let mut interner1 = Interner::new();
+    let result1 = Tokenizer::new(&input1, &mut interner1).tokenize();
+    let mut interner2 = Interner::new();
+    let result2 = Tokenizer::new(&input2, &mut interner2).tokenize();
 
     let tokens1 = result1.tokens.kinds.iter()
       .filter(|k| **k != Token::Eof)
@@ -185,8 +195,12 @@ proptest! {
     let with_comment = format!("{code} {comment} {code}");
     let without_comment = format!("{code} {code}");
 
-    let result1 = Tokenizer::new(&with_comment).tokenize();
-    let result2 = Tokenizer::new(&without_comment).tokenize();
+    let mut interner1 = Interner::new();
+    let result1 =
+      Tokenizer::new(&with_comment, &mut interner1).tokenize();
+    let mut interner2 = Interner::new();
+    let result2 =
+      Tokenizer::new(&without_comment, &mut interner2).tokenize();
 
     assert_eq!(result1.tokens.kinds, result2.tokens.kinds);
   }
@@ -194,7 +208,8 @@ proptest! {
   #[test]
   fn handles_deeply_nested_structures(depth in 1usize..100) {
     let nested = "{".repeat(depth) + "x" + &"}".repeat(depth);
-    let tokenizer = Tokenizer::new(&nested);
+    let mut interner = Interner::new();
+    let tokenizer = Tokenizer::new(&nested, &mut interner);
     let _ = tokenizer.tokenize();
   }
 
@@ -208,7 +223,8 @@ proptest! {
     ];
 
     for pattern in patterns {
-      let tokenizer = Tokenizer::new(&pattern);
+      let mut interner = Interner::new();
+      let tokenizer = Tokenizer::new(&pattern, &mut interner);
       let _ = tokenizer.tokenize();
     }
   }

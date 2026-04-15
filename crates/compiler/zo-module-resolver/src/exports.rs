@@ -1,9 +1,6 @@
-use crate::resolver::translate_symbol;
-
 use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
-use zo_ty_checker::TyChecker;
 use zo_value::{FunDef, Pubness, ValueId};
 
 /// An exported compile-time constant from a module.
@@ -25,32 +22,36 @@ pub struct ExportedEnum {
   pub variants: Vec<(Symbol, u32, Vec<TyId>)>,
 }
 
+/// Exported struct definition for cross-module import.
+pub struct ExportedStruct {
+  pub name: Symbol,
+  pub ty_id: TyId,
+  pub fields: Vec<(Symbol, TyId, bool)>,
+}
+
+/// Exported compile-time constant (`val`).
+pub struct ExportedConst {
+  pub name: Symbol,
+  pub ty_id: TyId,
+  pub value: ValueId,
+}
+
 /// Exported symbols from a compiled module.
 pub struct ModuleExports {
-  /// The function definitions (re-interned symbols).
+  /// The function definitions.
   pub funs: Vec<FunDef>,
-  /// The constant definitions (re-interned symbols).
+  /// The variable definitions (imu/mut).
   pub vars: Vec<ExportedVar>,
-  /// The enum definitions (re-interned symbols + types).
+  /// The enum definitions.
   pub enums: Vec<ExportedEnum>,
+  /// The struct definitions.
+  pub structs: Vec<ExportedStruct>,
+  /// The compile-time constants (val).
+  pub consts: Vec<ExportedConst>,
   /// The SIR instruction stream for codegen merging.
   pub sir_instructions: Vec<Insn>,
   /// The next value id (for ValueId offset).
   pub next_value_id: u32,
-}
-
-/// Translates a TyId from one TyChecker to another.
-///
-/// Resolves the `Ty` value in the source checker, then interns
-/// it in the destination checker. For pre-registered primitives
-/// this is a no-op (same ID). For complex types this remaps.
-pub fn translate_ty_id(
-  src_id: TyId,
-  src_checker: &TyChecker,
-  dst_checker: &mut TyChecker,
-) -> TyId {
-  let ty = src_checker.resolve_ty(src_id);
-  dst_checker.intern_ty(ty)
 }
 
 /// Extracts pub exports from a compiled module's SIR.
@@ -63,15 +64,14 @@ pub fn translate_ty_id(
 pub fn extract_exports(
   sir: Sir,
   selective: Option<&str>,
-  src_interner: &Interner,
-  dst_interner: &mut Interner,
-  src_ty_checker: &TyChecker,
-  dst_ty_checker: &mut TyChecker,
+  interner: &Interner,
   src_funs: &[zo_value::FunDef],
 ) -> ModuleExports {
   let mut funs = Vec::new();
   let mut vars = Vec::new();
   let mut enums = Vec::new();
+  let mut structs = Vec::new();
+  let mut consts = Vec::new();
 
   for insn in &sir.instructions {
     match insn {
@@ -87,27 +87,21 @@ pub fn extract_exports(
           continue;
         }
 
-        let src_name = src_interner.get(*name);
+        let fn_name = interner.get(*name);
 
         if let Some(filter) = selective
-          && src_name != filter
+          && fn_name != filter
         {
           continue;
         }
 
-        let dst_name = dst_interner.intern(src_name);
-        let dst_params = params
-          .iter()
-          .map(|(p, ty)| {
-            (
-              translate_symbol(*p, src_interner, dst_interner),
-              translate_ty_id(*ty, src_ty_checker, dst_ty_checker),
-            )
-          })
-          .collect::<Vec<_>>();
+        // Shared interner: symbols are already in the same
+        // namespace — no translation needed. TyIds still need
+        // translation until TyChecker is shared.
+        let dst_params =
+          params.iter().map(|(p, ty)| (*p, *ty)).collect::<Vec<_>>();
 
-        let dst_return_ty =
-          translate_ty_id(*return_ty, src_ty_checker, dst_ty_checker);
+        let dst_return_ty = *return_ty;
 
         // Carry return_type_args as-is — they're Ty values
         // (not TyIds) so they don't need translation.
@@ -118,7 +112,7 @@ pub fn extract_exports(
           .unwrap_or_default();
 
         funs.push(FunDef {
-          name: dst_name,
+          name: *name,
           params: dst_params,
           return_ty: dst_return_ty,
           body_start: *body_start,
@@ -140,19 +134,18 @@ pub fn extract_exports(
           continue;
         }
 
-        let src_name = src_interner.get(*name);
+        let var_name = interner.get(*name);
 
         if let Some(filter) = selective
-          && src_name != filter
+          && var_name != filter
         {
           continue;
         }
 
-        let dst_name = dst_interner.intern(src_name);
-        let dst_ty_id = translate_ty_id(*ty_id, src_ty_checker, dst_ty_checker);
+        let dst_ty_id = *ty_id;
 
         vars.push(ExportedVar {
-          name: dst_name,
+          name: *name,
           ty_id: dst_ty_id,
           init: *init,
         });
@@ -168,39 +161,83 @@ pub fn extract_exports(
           continue;
         }
 
-        let src_name = src_interner.get(*name);
+        let enum_name = interner.get(*name);
 
         if let Some(filter) = selective
-          && src_name != filter
+          && enum_name != filter
         {
           continue;
         }
 
-        let dst_name = dst_interner.intern(src_name);
-
-        // Translate variant names and field types into the
-        // caller's interner/type-checker. The importing
-        // executor will re-intern the full enum from this
-        // raw data so the EnumTyId lives in its own table.
+        // Translate field types into the caller's type-checker.
+        // The importing executor will re-intern the full enum
+        // from this raw data so the EnumTyId lives in its
+        // own table. Variant names are already shared via
+        // the common interner.
         let dst_variants: Vec<(Symbol, u32, Vec<TyId>)> = variants
           .iter()
           .map(|(vname, disc, fields)| {
-            let dst_vname =
-              translate_symbol(*vname, src_interner, dst_interner);
-            let dst_fields: Vec<TyId> = fields
-              .iter()
-              .map(|f| translate_ty_id(*f, src_ty_checker, dst_ty_checker))
-              .collect();
+            let dst_fields: Vec<TyId> = fields.to_vec();
 
-            (dst_vname, *disc, dst_fields)
+            (*vname, *disc, dst_fields)
           })
           .collect();
 
         enums.push(ExportedEnum {
-          name: dst_name,
+          name: *name,
           variants: dst_variants,
         });
       }
+      Insn::StructDef {
+        name,
+        ty_id,
+        fields,
+        pubness,
+      } => {
+        if *pubness != Pubness::Yes {
+          continue;
+        }
+
+        let struct_name = interner.get(*name);
+
+        if let Some(filter) = selective
+          && struct_name != filter
+        {
+          continue;
+        }
+
+        structs.push(ExportedStruct {
+          name: *name,
+          ty_id: *ty_id,
+          fields: fields.clone(),
+        });
+      }
+
+      Insn::ConstDef {
+        name,
+        ty_id,
+        value,
+        pubness,
+      } => {
+        if *pubness != Pubness::Yes {
+          continue;
+        }
+
+        let const_name = interner.get(*name);
+
+        if let Some(filter) = selective
+          && const_name != filter
+        {
+          continue;
+        }
+
+        consts.push(ExportedConst {
+          name: *name,
+          ty_id: *ty_id,
+          value: *value,
+        });
+      }
+
       _ => {}
     }
   }
@@ -221,6 +258,8 @@ pub fn extract_exports(
     funs,
     vars,
     enums,
+    structs,
+    consts,
     sir_instructions,
     next_value_id: sir.next_value_id,
   }

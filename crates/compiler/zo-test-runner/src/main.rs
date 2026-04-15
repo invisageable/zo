@@ -137,6 +137,13 @@ fn main() {
     run_dir(&howto_dir, Category::Pass, &zo, &tmp, filter, &mut results);
   }
 
+  // zo-usecases — multi-file projects (lib.zo + modules).
+  let usecases_dir = root.join("crates/compiler/zo-usecases");
+
+  if usecases_dir.exists() {
+    run_projects(&usecases_dir, &zo, &tmp, filter, &mut results);
+  }
+
   // Cleanup.
   let _ = fs::remove_dir_all(&tmp);
 
@@ -234,6 +241,125 @@ fn run_dir(
     }
 
     let result = run_test(file, name, category, zo, tmp);
+
+    let icon = if result.passed {
+      "\x1b[32mPASS\x1b[0m"
+    } else {
+      "\x1b[31mFAIL\x1b[0m"
+    };
+
+    if result.passed {
+      println!("  {icon} {name}");
+    } else {
+      println!("  {icon} {name} — {}", result.reason);
+    }
+
+    results.push(result);
+  }
+}
+
+/// Runs multi-file project tests. Each subdirectory with a
+/// `src/main.zo` is treated as a project. The compiler auto-
+/// discovers `src/lib.zo` for module resolution.
+fn run_projects(
+  dir: &Path,
+  zo: &Path,
+  tmp: &Path,
+  filter: Option<&str>,
+  results: &mut Vec<TestResult>,
+) {
+  if !dir.exists() {
+    return;
+  }
+
+  let mut projects = fs::read_dir(dir)
+    .expect("failed to read dir")
+    .filter_map(|e| e.ok())
+    .map(|e| e.path())
+    .filter(|p| p.is_dir() && p.join("src/main.zo").exists())
+    .collect::<Vec<_>>();
+
+  projects.sort();
+
+  if projects.is_empty() {
+    return;
+  }
+
+  let dir_name = dir
+    .strip_prefix(dir.ancestors().nth(3).unwrap_or(dir))
+    .unwrap_or(dir)
+    .display();
+
+  println!();
+  println!("[{dir_name}] {} projects", projects.len());
+
+  for project in &projects {
+    let name = project.file_name().and_then(|s| s.to_str()).unwrap_or("?");
+
+    if let Some(f) = filter
+      && !name.contains(f)
+    {
+      continue;
+    }
+
+    let main_zo = project.join("src/main.zo");
+    let out = tmp.join(name);
+
+    // Build.
+    let build = Command::new(zo)
+      .args(["build", &main_zo.to_string_lossy(), "-o"])
+      .arg(&out)
+      .stdout(Stdio::null())
+      .stderr(Stdio::null())
+      .status();
+
+    let result = match build {
+      Ok(s) if !s.success() => fail(name, "compilation failed"),
+      Err(e) => fail(name, &format!("build error: {e}")),
+      _ => {
+        // Run.
+        let run = Command::new(&out)
+          .stdout(Stdio::piped())
+          .stderr(Stdio::null())
+          .output();
+
+        match run {
+          Ok(output) if !output.status.success() => fail(
+            name,
+            &format!(
+              "runtime crash (exit {})",
+              output.status.code().unwrap_or(-1)
+            ),
+          ),
+          Ok(output) => {
+            // Check expected output from main.zo.
+            let expected = extract_expected(&main_zo);
+
+            if expected.is_empty() {
+              ok(name)
+            } else {
+              let actual = String::from_utf8_lossy(&output.stdout);
+              let actual_trimmed = actual.trim_end();
+              let expected_trimmed = expected.trim_end();
+
+              if actual_trimmed == expected_trimmed {
+                ok(name)
+              } else {
+                fail(
+                  name,
+                  &format!(
+                    "output mismatch\n  \
+                     expected: {expected_trimmed}\n  \
+                     actual:   {actual_trimmed}"
+                  ),
+                )
+              }
+            }
+          }
+          Err(e) => fail(name, &format!("run error: {e}")),
+        }
+      }
+    };
 
     let icon = if result.passed {
       "\x1b[32mPASS\x1b[0m"

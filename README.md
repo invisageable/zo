@@ -75,13 +75,8 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
 iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
 
-  <!-- - COMPiLER + CODE EDiTOR + METRiCS + iNTELLiGENCE — *in the same world*. -->
-  <!-- - DATA-FiRST ARCHiTECTURE <sup>zo-ecs</sup> — *inspired by game engine*. -->
   - GPU RENDERiNG <sup>egui</sup> (NATiVE APP ONLY) — *low memory footprint, zero runtime fluff*.
   - NO MORE `electron` APPS (WEB APP ONLY) — *no bloat*.
-
-<!-- > *« Why accept slow compilers? just make them faster. »*   
-> &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— Jonathan Blow -->
 
 JOiN THE DEVOLUTiON.
 

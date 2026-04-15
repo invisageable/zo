@@ -53,8 +53,8 @@ pub struct Executor<'a> {
   locals: Vec<Local>,
   /// Builds SIR as we execute (placeholder for now)
   sir: Sir,
-  /// The type checker instance.
-  ty_checker: TyChecker,
+  /// The type checker instance (borrowed from caller).
+  ty_checker: &'a mut TyChecker,
   /// Type annotations for HIR nodes
   annotations: Vec<Annotation>,
   /// Maps value_stack indices to SIR ValueIds for operands
@@ -65,6 +65,8 @@ pub struct Executor<'a> {
   current_function: Option<FunCtx>,
   /// Pending function definition (waiting for LBrace)
   pending_function: Option<FunDef>,
+  /// True when the pending function has `-> Type` annotation.
+  pending_fn_has_return_annotation: bool,
   /// Counter for generating unique template IDs
   template_counter: u32,
   /// Pending variable name from imu/mut for template assignment
@@ -159,6 +161,7 @@ impl<'a> Executor<'a> {
     tree: &'a Tree,
     interner: &'a mut Interner,
     literals: &'a LiteralStore,
+    ty_checker: &'a mut TyChecker,
   ) -> Self {
     let capacity = tree.nodes.len();
 
@@ -166,18 +169,19 @@ impl<'a> Executor<'a> {
       tree,
       interner,
       literals,
-      value_stack: Vec::with_capacity(capacity / 4), // Estimate stack depth
+      value_stack: Vec::with_capacity(capacity / 4),
       ty_stack: Vec::with_capacity(capacity / 4),
       values: ValueStorage::new(capacity),
-      scope_stack: Vec::with_capacity(32), // Typical nesting depth
-      locals: Vec::with_capacity(capacity / 10), // Estimate variables
+      scope_stack: Vec::with_capacity(32),
+      locals: Vec::with_capacity(capacity / 10),
       sir: Sir::new(),
-      ty_checker: TyChecker::new(),
+      ty_checker,
       annotations: Vec::with_capacity(capacity),
       sir_values: Vec::with_capacity(capacity / 4),
       funs: Vec::with_capacity(capacity / 100), // Estimate function count
       current_function: None,
       pending_function: None,
+      pending_fn_has_return_annotation: false,
       template_counter: 0,
       pending_var_name: None,
       widget_counter: Cell::new(0),
@@ -307,7 +311,7 @@ impl<'a> Executor<'a> {
   }
 
   /// Executes a parse tree in one pass to build semantic IR.
-  pub fn execute(mut self) -> (Sir, Vec<Annotation>, TyChecker, Vec<FunDef>) {
+  pub fn execute(mut self) -> (Sir, Vec<Annotation>, Vec<FunDef>) {
     for idx in 0..self.tree.nodes.len() {
       if idx < self.skip_until {
         continue;
@@ -344,7 +348,7 @@ impl<'a> Executor<'a> {
     // for each instantiation.
     self.monomorphize();
 
-    (self.sir, self.annotations, self.ty_checker, self.funs)
+    (self.sir, self.annotations, self.funs)
   }
 
   /// Returns true if the token introduces a statement —
@@ -490,11 +494,12 @@ impl<'a> Executor<'a> {
           loop_label: Some(self.sir_values.len() as u32),
           branch_emitted: false,
           for_var: None,
+          scope_depth: self.scope_stack.len(),
         });
       }
 
       Token::Question => {
-        // Condition is now on the stack — emit branch.
+        // Ternary: condition is on the stack — emit branch.
         if let Some(ctx) = self.branch_stack.last_mut()
           && ctx.kind == BranchKind::Ternary
           && !ctx.branch_emitted
@@ -513,6 +518,10 @@ impl<'a> Executor<'a> {
           self.sir_values.pop();
 
           ctx.branch_emitted = true;
+        } else {
+          // Error propagation: expr? desugars to
+          // match expr { Ok(v) => v, Err(e) => return Err(e) }
+          self.execute_try_operator(idx);
         }
       }
 
@@ -751,6 +760,7 @@ impl<'a> Executor<'a> {
             body_start,
             fundef_idx,
             has_explicit_return: false,
+            has_return_type_annotation: self.pending_fn_has_return_annotation,
             pending_return: false,
             scope_depth: self.scope_stack.len(),
           });
@@ -797,6 +807,15 @@ impl<'a> Executor<'a> {
               cond: cond_sir,
               target,
             });
+
+            // Pop the condition from stacks — it was consumed
+            // by BranchIfNot and must not leak into the block
+            // body (e.g. `if x <= 1 { return 1; } return x *
+            // fact(x-1);` — the stale condition boolean would
+            // become an operand for `*`).
+            self.value_stack.pop();
+            self.ty_stack.pop();
+            self.sir_values.pop();
           }
 
           ctx.branch_emitted = true;
@@ -824,7 +843,43 @@ impl<'a> Executor<'a> {
           .as_ref()
           .is_some_and(|c| self.scope_stack.len() == c.scope_depth + 1);
 
+        // Flush deferred binops before implicit return —
+        // the function body may end with `x * fact(x - 1)`
+        // inside a ternary without a semicolon.
+        if at_fn_depth {
+          self.apply_deferred_binop();
+        }
+
         if at_fn_depth && let Some(fun_ctx) = &self.current_function {
+          // Ternary false arm: the true arm set
+          // has_explicit_return, but the false arm still
+          // needs its own Return. Emit it here before the
+          // function closes.
+          let is_ternary_false_arm = fun_ctx.has_explicit_return
+            && self
+              .branch_stack
+              .last()
+              .is_some_and(|c| c.kind == BranchKind::Ternary);
+
+          if is_ternary_false_arm {
+            let unit_ty = self.ty_checker.unit_type();
+
+            if fun_ctx.return_ty != unit_ty && !self.sir_values.is_empty() {
+              let sir_val = self.sir_values.last().copied();
+              let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+
+              self.sir.emit(Insn::Return {
+                value: sir_val,
+                ty_id: ty,
+              });
+            }
+
+            // Pop the ternary and emit its end label.
+            if let Some(ctx) = self.branch_stack.pop() {
+              self.sir.emit(Insn::Label { id: ctx.end_label });
+            }
+          }
+
           // Only emit implicit return if there wasn't an explicit one
           if !fun_ctx.has_explicit_return {
             // Emit implicit return if needed
@@ -841,7 +896,16 @@ impl<'a> Executor<'a> {
             let fn_span = self.tree.spans[fun_ctx.fundef_idx];
 
             let (return_value, return_ty) = if func_return_ty == unit_ty {
-              if has_value && body_ty != unit_ty {
+              // Unit functions return void. Only report
+              // mismatch when the body has a non-unit value
+              // AND the function was explicitly declared with
+              // a return type (forced to unit by error recovery
+              // in main). Stale values from control flow
+              // (while/if) are NOT return values.
+              if has_value
+                && body_ty != unit_ty
+                && fun_ctx.has_return_type_annotation
+              {
                 report_error(Error::new(ErrorKind::TypeMismatch, fn_span));
               }
 
@@ -928,8 +992,28 @@ impl<'a> Executor<'a> {
           self.pop_scope(); // param scope
         }
 
-        // Close control flow block.
-        if let Some(ctx) = self.branch_stack.last() {
+        // Close control flow block — but only if this
+        // RBrace belongs to the scope that opened the
+        // branch. Inner blocks (e.g. `_ => {}` in match
+        // arms) must not consume the outer while/if.
+        let at_branch_depth = self
+          .branch_stack
+          .last()
+          .is_some_and(|c| self.scope_stack.len() == c.scope_depth + 1);
+
+        // Flush deferred binops before closing a Ternary.
+        // `when x <= 1 ? 1 : x * fact(x-1)` defers `*`
+        // and the false arm Return needs the Mul result.
+        if at_branch_depth
+          && self
+            .branch_stack
+            .last()
+            .is_some_and(|c| c.kind == BranchKind::Ternary)
+        {
+          self.apply_deferred_binop();
+        }
+
+        if at_branch_depth && let Some(ctx) = self.branch_stack.last() {
           match ctx.kind {
             BranchKind::While => {
               if let Some(loop_label) = ctx.loop_label {
@@ -1889,6 +1973,43 @@ impl<'a> Executor<'a> {
           report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
 
           self.ty_checker.unit_type()
+        } else if matches!(self.ty_checker.kind_of(tup_ty), Ty::Str) {
+          // String property access: only `.len` supported.
+          let member_name = self.node_value(idx - 1).and_then(|v| match v {
+            NodeValue::Symbol(s) => Some(s),
+            _ => None,
+          });
+
+          let is_len =
+            member_name.is_some_and(|s| self.interner.get(s) == "len");
+
+          if is_len {
+            // String layout: [len:8][data...]. Same as ArrayLen.
+            let int_ty = self.ty_checker.int_type();
+            let dst = ValueId(self.sir.next_value_id);
+
+            self.sir.next_value_id += 1;
+
+            let sv = self.sir.emit(Insn::ArrayLen {
+              dst,
+              array: tup_sir,
+              ty_id: int_ty,
+            });
+
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(int_ty);
+            self.sir_values.push(sv);
+
+            return;
+          }
+
+          let span = self.tree.spans[idx];
+
+          report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
+
+          self.ty_checker.unit_type()
         } else {
           self.ty_checker.unit_type()
         };
@@ -1942,6 +2063,41 @@ impl<'a> Executor<'a> {
       // === UNARY OPERATORS ===
       Token::Bang => self.execute_unop(UnOp::Not, idx),
 
+      // === TYPE CAST: expr as Type ===
+      Token::As => {
+        // The next token should be a type keyword. Read it
+        // and emit Cast. The value to cast is on the stack.
+        if idx + 1 < self.tree.nodes.len()
+          && self.tree.nodes[idx + 1].token.is_ty()
+        {
+          let to_ty = self.resolve_type_token(idx + 1);
+
+          self.skip_until = idx + 2;
+
+          if let (Some(_val), Some(from_ty)) =
+            (self.value_stack.pop(), self.ty_stack.pop())
+          {
+            let src_sir = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
+
+            let dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
+            let sv = self.sir.emit(Insn::Cast {
+              dst,
+              src: src_sir,
+              from_ty,
+              to_ty,
+            });
+
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(to_ty);
+            self.sir_values.push(sv);
+          }
+        }
+      }
+
       // === ENUM VARIANT ACCESS: Foo::Ok ===
       Token::ColonColon => {
         self.execute_enum_access(idx);
@@ -1976,6 +2132,15 @@ impl<'a> Executor<'a> {
                 value: sir_val,
                 ty_id: ty,
               });
+
+              // Pop the true arm value so it doesn't leak
+              // into the false arm (same fix as
+              // check_pending_return).
+              if sir_val.is_some() {
+                self.value_stack.pop();
+                self.ty_stack.pop();
+                self.sir_values.pop();
+              }
 
               fun_ctx.has_explicit_return = true;
             }
@@ -2109,6 +2274,12 @@ impl<'a> Executor<'a> {
         // Finalize any pending variable declaration.
         let had_decl = self.pending_decl.is_some();
         self.finalize_pending_decl();
+
+        // Flush deferred binops before return — without
+        // this, `return x * fact(x - 1)` loses the `*`
+        // because the Call result is taken as the return
+        // value before the deferred Mul resolves.
+        self.apply_deferred_binop();
 
         // Check if we have a pending return to complete.
         let had_return = self
@@ -3428,6 +3599,7 @@ impl<'a> Executor<'a> {
       body_start,
       fundef_idx,
       has_explicit_return: false,
+      has_return_type_annotation: return_ty != self.ty_checker.unit_type(),
       pending_return: false,
       scope_depth: self.scope_stack.len(),
     });
@@ -3678,6 +3850,7 @@ impl<'a> Executor<'a> {
     // Parse parameters: (name, type, mutability).
     let mut params: Vec<(Symbol, TyId, Mutability)> = Vec::new();
     let mut return_ty = self.ty_checker.unit_type();
+    let mut return_type_args: Vec<TyId> = Vec::new();
     let mut idx = start_idx + 2; // Skip Fun and name
 
     // Parse optional type parameters: <$T, $A>.
@@ -3837,6 +4010,22 @@ impl<'a> Executor<'a> {
               }
             } else {
               return_ty = self.resolve_type_token(idx);
+              idx += 1;
+
+              // Collect generic type arguments after the
+              // return type name (e.g. `-> Result<str, int>`).
+              while idx < _end_idx {
+                let tok = self.tree.nodes[idx].token;
+
+                if tok.is_ty() || tok == Token::Ident {
+                  return_type_args.push(self.resolve_type_token(idx));
+                  idx += 1;
+                } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
+                  idx += 1;
+                } else {
+                  break;
+                }
+              }
             }
           }
 
@@ -3877,9 +4066,11 @@ impl<'a> Executor<'a> {
       Pubness::No
     };
 
-    // main() must return unit — no other return type.
+    // Track if user explicitly wrote `-> Type`.
     let unit_ty = self.ty_checker.unit_type();
+    self.pending_fn_has_return_annotation = return_ty != unit_ty;
 
+    // main() must return unit — no other return type.
     if self.interner.get(name) == "main" && return_ty != unit_ty {
       // Point the span at the return type token (after ->).
       let span = self
@@ -3903,7 +4094,10 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::UserDefined,
       pubness,
       type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
-      return_type_args: Vec::new(),
+      return_type_args: return_type_args
+        .iter()
+        .map(|t| self.ty_checker.resolve_ty(*t))
+        .collect(),
     });
 
     // Push a scope for the function parameters
@@ -5212,6 +5406,8 @@ impl<'a> Executor<'a> {
 
     // Parse fields: name: Type, name: Type = default, ...
     let mut fields: Vec<(Symbol, TyId, bool)> = Vec::new();
+    // Default value tree indices: (token, node_index, field_ty).
+    let mut default_nodes: Vec<Option<(Token, usize, TyId)>> = Vec::new();
 
     while idx < end_idx {
       match self.tree.nodes[idx].token {
@@ -5256,10 +5452,18 @@ impl<'a> Executor<'a> {
 
             if has_default {
               idx += 1; // skip =
-              // Skip the default value expression.
+
+              // Capture the default value node.
               if idx < end_idx {
+                let def_tok = self.tree.nodes[idx].token;
+
+                default_nodes.push(Some((def_tok, idx, fty)));
                 idx += 1;
+              } else {
+                default_nodes.push(None);
               }
+            } else {
+              default_nodes.push(None);
             }
 
             fields.push((fname, fty, has_default));
@@ -5278,9 +5482,133 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::StructDef {
       name,
       ty_id,
-      fields,
+      fields: fields.clone(),
       pubness,
     });
+
+    // Auto-generate `Type::default()` if all fields have
+    // default values. Emits a synthetic FunDef that constructs
+    // the struct with the default literals.
+    let all_have_defaults =
+      !fields.is_empty() && default_nodes.iter().all(|d| d.is_some());
+
+    if all_have_defaults {
+      let type_str = self.interner.get(name).to_owned();
+      let fn_name = self.interner.intern(&format!("{type_str}::default"));
+
+      let body_start = (self.sir.instructions.len() + 1) as u32;
+
+      self.sir.emit(Insn::FunDef {
+        name: fn_name,
+        params: vec![],
+        return_ty: ty_id,
+        body_start,
+        kind: FunctionKind::UserDefined,
+        pubness,
+      });
+
+      // Emit default value constants.
+      let mut field_sirs = Vec::with_capacity(fields.len());
+
+      for (tok, node_idx, fty) in default_nodes.iter().flatten() {
+        let dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let sv = match tok {
+          Token::Int => {
+            let value = match self.node_value(*node_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.int_literals[lit as usize]
+              }
+              _ => 0,
+            };
+
+            self.sir.emit(Insn::ConstInt {
+              dst,
+              value,
+              ty_id: *fty,
+            })
+          }
+          Token::Float => {
+            let value = match self.node_value(*node_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.float_literals[lit as usize]
+              }
+              _ => 0.0,
+            };
+
+            self.sir.emit(Insn::ConstFloat {
+              dst,
+              value,
+              ty_id: *fty,
+            })
+          }
+          Token::True => self.sir.emit(Insn::ConstBool {
+            dst,
+            value: true,
+            ty_id: *fty,
+          }),
+          Token::False => self.sir.emit(Insn::ConstBool {
+            dst,
+            value: false,
+            ty_id: *fty,
+          }),
+          Token::String => {
+            let symbol = match self.node_value(*node_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.identifiers[lit as usize]
+              }
+              Some(NodeValue::Symbol(sym)) => sym,
+              _ => self.interner.intern(""),
+            };
+
+            self.sir.emit(Insn::ConstString {
+              dst,
+              symbol,
+              ty_id: *fty,
+            })
+          }
+          _ => {
+            // Unsupported default expression type.
+            self.sir.emit(Insn::ConstInt {
+              dst,
+              value: 0,
+              ty_id: *fty,
+            })
+          }
+        };
+
+        field_sirs.push(sv);
+      }
+
+      // Emit StructConstruct + Return.
+      let construct_dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      let construct_sv = self.sir.emit(Insn::StructConstruct {
+        dst: construct_dst,
+        struct_name: name,
+        fields: field_sirs,
+        ty_id,
+      });
+
+      self.sir.emit(Insn::Return {
+        value: Some(construct_sv),
+        ty_id,
+      });
+
+      // Register the synthetic function.
+      self.funs.push(FunDef {
+        name: fn_name,
+        params: vec![],
+        return_ty: ty_id,
+        body_start,
+        kind: FunctionKind::UserDefined,
+        pubness,
+        type_params: vec![],
+        return_type_args: vec![],
+      });
+    }
 
     self.skip_until = end_idx;
   }
@@ -5835,6 +6163,119 @@ impl<'a> Executor<'a> {
     self.sir_values.push(sv);
   }
 
+  /// Desugars `expr?` into:
+  ///   load discriminant → compare against Ok (0)
+  ///   → if Ok: extract field[1], push value
+  ///   → if Err: wrap in Err, return
+  fn execute_try_operator(&mut self, _idx: usize) {
+    // Pop the Result/Option value from stacks.
+    let (_val, val_ty, val_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    let int_ty = self.ty_checker.int_type();
+    let ok_label = self.sir.next_label();
+    let done_label = self.sir.next_label();
+
+    // Read discriminant: TupleIndex(scrutinee, 0).
+    let disc_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let disc_sir = self.sir.emit(Insn::TupleIndex {
+      dst: disc_dst,
+      tuple: val_sir,
+      index: 0,
+      ty_id: int_ty,
+    });
+
+    // Compare against Ok/Some discriminant (0).
+    let zero_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let zero_sir = self.sir.emit(Insn::ConstInt {
+      dst: zero_dst,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    let cmp_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let cmp_sir = self.sir.emit(Insn::BinOp {
+      dst: cmp_dst,
+      op: zo_sir::BinOp::Eq,
+      lhs: disc_sir,
+      rhs: zero_sir,
+      ty_id: int_ty,
+    });
+
+    // Branch: if NOT Ok → error path.
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cmp_sir,
+      target: ok_label, // reuse as "err" label
+    });
+
+    // Ok path: extract field[1] (the payload).
+    // Resolve the Ok payload type from the enum.
+    let payload_ty = if let Ty::Enum(eid) = self.ty_checker.kind_of(val_ty)
+      && let Some(et) = self.ty_checker.ty_table.enum_ty(eid)
+    {
+      let et = *et;
+      let variants = self.ty_checker.ty_table.enum_variants(&et).to_vec();
+
+      // Ok/Some is variant 0, field 0 of that variant.
+      if !variants.is_empty() && variants[0].field_count > 0 {
+        let field_tys = self.ty_checker.ty_table.variant_fields(&variants[0]);
+
+        if !field_tys.is_empty() {
+          field_tys[0]
+        } else {
+          int_ty
+        }
+      } else {
+        int_ty
+      }
+    } else {
+      int_ty
+    };
+
+    let ok_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let ok_sir = self.sir.emit(Insn::TupleIndex {
+      dst: ok_dst,
+      tuple: val_sir,
+      index: 1,
+      ty_id: payload_ty,
+    });
+
+    // Jump past the error path.
+    self.sir.emit(Insn::Jump { target: done_label });
+
+    // Error path: return the original value as-is.
+    // (It's already Err(...) or None — just return it.)
+    self.sir.emit(Insn::Label { id: ok_label });
+    self.sir.emit(Insn::Return {
+      value: Some(val_sir),
+      ty_id: val_ty,
+    });
+
+    // Done label: Ok path continues here.
+    self.sir.emit(Insn::Label { id: done_label });
+
+    // Push the unwrapped Ok payload onto stacks.
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(payload_ty);
+    self.sir_values.push(ok_sir);
+  }
+
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
     let end_label = self.sir.next_label();
     let else_label = self.sir.next_label();
@@ -5846,6 +6287,7 @@ impl<'a> Executor<'a> {
       loop_label: None,
       branch_emitted: false,
       for_var: None,
+      scope_depth: self.scope_stack.len(),
     });
   }
 
@@ -5942,6 +6384,40 @@ impl<'a> Executor<'a> {
         _ => None,
       });
 
+    // For non-local scrutinees (e.g. function parameters),
+    // store to a synthetic local so per-arm reloads work.
+    // Local variables already have mutable_slots entries.
+    let scrutinee_sym = if let Some(sym) = scrutinee_sym {
+      // Check if this symbol is a local with a Store
+      // (not just a parameter). If it's a local that was
+      // stored, the mutable_slot exists and we use it.
+      let is_stored = self
+        .sir
+        .instructions
+        .iter()
+        .any(|i| matches!(i, Insn::Store { name, .. } if *name == sym));
+
+      if is_stored {
+        Some(sym)
+      } else {
+        // Parameter without a Store — create synthetic.
+        let scrut_sir = self.sir_values.last().copied();
+        let scrut_sym = self.interner.intern("__match_scrut__");
+
+        if let Some(sir_val) = scrut_sir {
+          self.sir.emit(Insn::Store {
+            name: scrut_sym,
+            value: sir_val,
+            ty_id: scrutinee_ty,
+          });
+        }
+
+        Some(scrut_sym)
+      }
+    } else {
+      scrutinee_sym
+    };
+
     while self.sir_values.len() > stack_before {
       self.sir_values.pop();
       self.value_stack.pop();
@@ -5949,8 +6425,19 @@ impl<'a> Executor<'a> {
     }
 
     // -- 4. Walk the arms ------------------------------------
+    // Detect if the match is in expression position (result
+    // will be consumed by a pending declaration or as a
+    // function's implicit return).
+    let is_expr_match = self.pending_decl.is_some()
+      || self
+        .current_function
+        .as_ref()
+        .is_some_and(|f| f.return_ty != self.ty_checker.unit_type());
+
     let end_label = self.sir.next_label();
     let mut arm_idx = lbrace_idx + 1;
+    let mut match_result_ty: Option<TyId> = None;
+    let mut match_result_sym: Option<Symbol> = None;
 
     while arm_idx < rbrace_idx {
       // Skip any stray comma from the previous arm.
@@ -6021,17 +6508,20 @@ impl<'a> Executor<'a> {
         && self.tree.nodes[pat_idx + 1].token == Token::ColonColon
         && self.tree.nodes[pat_idx + 2].token == Token::Ident;
 
-      if !is_wildcard && pat_tok == Token::Int {
-        let value = match self.node_value(pat_idx) {
-          Some(NodeValue::Literal(lit)) => {
-            self.literals.int_literals[lit as usize]
-          }
-          _ => 0,
-        };
-
-        // Fresh Load per arm so the register allocator
-        // sees an independent liveness range for the
-        // scrutinee in each test.
+      if !is_wildcard
+        && matches!(
+          pat_tok,
+          Token::Int
+            | Token::Char
+            | Token::Bytes
+            | Token::Float
+            | Token::True
+            | Token::False
+            | Token::String
+        )
+      {
+        // Primitive/string literal pattern: emit reload,
+        // const, compare, branch.
         let scrut_dst = ValueId(self.sir.next_value_id);
         self.sir.next_value_id += 1;
 
@@ -6048,11 +6538,90 @@ impl<'a> Executor<'a> {
         let pat_dst = ValueId(self.sir.next_value_id);
         self.sir.next_value_id += 1;
 
-        let pat_sir = self.sir.emit(Insn::ConstInt {
-          dst: pat_dst,
-          value,
-          ty_id: scrutinee_ty,
-        });
+        let pat_sir = match pat_tok {
+          Token::Int => {
+            let value = match self.node_value(pat_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.int_literals[lit as usize]
+              }
+              _ => 0,
+            };
+
+            self.sir.emit(Insn::ConstInt {
+              dst: pat_dst,
+              value,
+              ty_id: scrutinee_ty,
+            })
+          }
+          Token::Char => {
+            let value = match self.node_value(pat_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.char_literals[lit as usize] as u64
+              }
+              _ => 0,
+            };
+
+            self.sir.emit(Insn::ConstInt {
+              dst: pat_dst,
+              value,
+              ty_id: self.ty_checker.char_type(),
+            })
+          }
+          Token::Bytes => {
+            let value = match self.node_value(pat_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.bytes_literals[lit as usize] as u64
+              }
+              _ => 0,
+            };
+
+            self.sir.emit(Insn::ConstInt {
+              dst: pat_dst,
+              value,
+              ty_id: self.ty_checker.bytes_type(),
+            })
+          }
+          Token::Float => {
+            let value = match self.node_value(pat_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.float_literals[lit as usize]
+              }
+              _ => 0.0,
+            };
+
+            self.sir.emit(Insn::ConstFloat {
+              dst: pat_dst,
+              value,
+              ty_id: scrutinee_ty,
+            })
+          }
+          Token::True => self.sir.emit(Insn::ConstBool {
+            dst: pat_dst,
+            value: true,
+            ty_id: self.ty_checker.bool_type(),
+          }),
+          Token::False => self.sir.emit(Insn::ConstBool {
+            dst: pat_dst,
+            value: false,
+            ty_id: self.ty_checker.bool_type(),
+          }),
+          Token::String => {
+            let symbol = match self.node_value(pat_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.identifiers[lit as usize]
+              }
+              Some(NodeValue::Symbol(sym)) => sym,
+              _ => self.interner.intern(""),
+            };
+
+            self.sir.emit(Insn::ConstString {
+              dst: pat_dst,
+              symbol,
+              ty_id: self.ty_checker.str_type(),
+            })
+          }
+          _ => pat_dst,
+        };
 
         let cmp_dst = ValueId(self.sir.next_value_id);
         self.sir.next_value_id += 1;
@@ -6232,8 +6801,12 @@ impl<'a> Executor<'a> {
           // if available (e.g. Result<str, int> → [str, int]),
           // otherwise fall back to the enum's generic field
           // types.
+          // Look up return_type_args by variable symbol first,
+          // then fall back to the enum's type name. User functions
+          // store rta under the type name (e.g. "Result").
           let rta_key = scrutinee_sym
-            .and_then(|s| self.var_return_type_args.get(&s.as_u32()));
+            .and_then(|s| self.var_return_type_args.get(&s.as_u32()))
+            .or_else(|| self.var_return_type_args.get(&enum_ty.name.as_u32()));
 
           let field_tys = if let Some(rta) = rta_key {
             // Compute type arg offset for this variant:
@@ -6260,7 +6833,30 @@ impl<'a> Executor<'a> {
               })
               .collect::<Vec<_>>()
           } else {
-            self.ty_checker.ty_table.variant_fields(&variant).to_vec()
+            // Resolve through substitutions — generic enums
+            // have inference variables that may have been
+            // unified with concrete types during the call.
+            let raw_fields =
+              self.ty_checker.ty_table.variant_fields(&variant).to_vec();
+
+            raw_fields
+              .iter()
+              .map(|ty_id| {
+                let resolved = self.ty_checker.resolve_id(*ty_id);
+
+                let ty = self.ty_checker.resolve_ty(resolved);
+
+                match ty {
+                  Ty::Str => self.ty_checker.str_type(),
+                  Ty::Bool => self.ty_checker.bool_type(),
+                  Ty::Char => self.ty_checker.char_type(),
+                  Ty::Bytes => self.ty_checker.bytes_type(),
+                  Ty::Int { .. } => self.ty_checker.int_type(),
+                  Ty::Float(_) => self.ty_checker.intern_ty(ty),
+                  _ => resolved,
+                }
+              })
+              .collect::<Vec<_>>()
           };
           let mut bind_idx = pat_idx + 4;
           let mut field_i: u32 = 0;
@@ -6354,12 +6950,7 @@ impl<'a> Executor<'a> {
         }
       }
 
-      // Execute arm body nodes. Each call to `execute_node`
-      // emits SIR for one tree node; expression values pile
-      // up on the sir_values stack but since Slice 1 bodies
-      // are statement expressions (e.g. `showln(...)`), the
-      // stack returns to its baseline once the call
-      // completes.
+      // Execute arm body nodes.
       let saved_skip = self.skip_until;
 
       self.skip_until = 0;
@@ -6378,9 +6969,53 @@ impl<'a> Executor<'a> {
 
       self.skip_until = saved_skip;
 
-      // Drop any residual expression values left on the
-      // stack by the arm body. Unit-returning calls leave
-      // nothing, but we defensively normalize.
+      // Match arms use commas, not semicolons. Manually
+      // finalize pending operations that Semicolon handles.
+      // Flush deferred binops first — without this, an arm
+      // like `tape[0] = tape[0] + 1` defers the `+` (only 1
+      // operand when it fires) and finalize_pending_array_assign
+      // pops the raw constant instead of the BinOp result.
+      self.apply_deferred_binop();
+
+      if self.pending_assign.is_some() {
+        self.finalize_pending_assign();
+      }
+
+      if self.pending_array_assign.is_some() {
+        self.finalize_pending_array_assign();
+      }
+
+      self.finalize_pending_decl();
+
+      // If the arm body produced a non-unit value, store it
+      // to the match result slot. Once ANY arm produces unit,
+      // the match is a statement and we stop capturing.
+      let unit_ty = self.ty_checker.unit_type();
+      let body_produced_value = self.sir_values.len() > body_stack_before;
+      let body_ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+
+      if is_expr_match
+        && body_produced_value
+        && body_ty != unit_ty
+        && match_result_ty != Some(unit_ty)
+      {
+        let body_sir = self.sir_values.last().copied().unwrap();
+        let result_sym = self.interner.intern("__match_result__");
+
+        self.sir.emit(Insn::Store {
+          name: result_sym,
+          value: body_sir,
+          ty_id: body_ty,
+        });
+
+        match_result_ty = Some(body_ty);
+        match_result_sym = Some(result_sym);
+      } else if body_ty == unit_ty || !body_produced_value {
+        // Statement arm — abandon expression capture.
+        match_result_ty = Some(unit_ty);
+      }
+
+      // Clean up arm body values from stacks.
       while self.sir_values.len() > body_stack_before {
         self.sir_values.pop();
         self.value_stack.pop();
@@ -6405,6 +7040,30 @@ impl<'a> Executor<'a> {
 
     // -- 5. End label ----------------------------------------
     self.sir.emit(Insn::Label { id: end_label });
+
+    // If the match was used as an expression, load the result
+    // from the shared slot and push it to the stacks.
+    let unit_ty = self.ty_checker.unit_type();
+
+    if let (Some(ty), Some(sym)) = (match_result_ty, match_result_sym)
+      && ty != unit_ty
+    {
+      let dst = ValueId(self.sir.next_value_id);
+
+      self.sir.next_value_id += 1;
+
+      let sv = self.sir.emit(Insn::Load {
+        dst,
+        src: LoadSource::Local(sym),
+        ty_id: ty,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.value_stack.push(rid);
+      self.ty_stack.push(ty);
+      self.sir_values.push(sv);
+    }
   }
 
   /// Sets up a while loop context.
@@ -6421,6 +7080,7 @@ impl<'a> Executor<'a> {
       loop_label: Some(loop_label),
       branch_emitted: false,
       for_var: None,
+      scope_depth: self.scope_stack.len(),
     });
   }
 
@@ -6563,6 +7223,7 @@ impl<'a> Executor<'a> {
       loop_label: Some(loop_label),
       branch_emitted: true,
       for_var: Some(var_name),
+      scope_depth: self.scope_stack.len(),
     });
 
     // Skip header tokens (Ident, ColonEq, start, DotDot,
@@ -6898,6 +7559,17 @@ impl<'a> Executor<'a> {
         value: return_value,
         ty_id: return_ty,
       });
+
+      // Pop the return value from stacks so it doesn't
+      // leak into subsequent code (e.g. `if x <= 1 {
+      // return 1; } return x * fact(x-1);` — the stale
+      // `1` from the if body must not become an operand
+      // for the `*` in the recursive case).
+      if return_value.is_some() {
+        self.value_stack.pop();
+        self.ty_stack.pop();
+        self.sir_values.pop();
+      }
 
       // Clear the pending flag
       ctx.pending_return = false;
@@ -7621,12 +8293,24 @@ impl<'a> Executor<'a> {
       // stash the type args so the match handler can use
       // them for binding types instead of the enum's
       // unresolved generic field vars.
-      if !func.return_type_args.is_empty()
-        && let Some(ref decl) = self.pending_decl
-      {
-        self
-          .var_return_type_args
-          .insert(decl.name.as_u32(), func.return_type_args.clone());
+      if !func.return_type_args.is_empty() {
+        // Store under the variable name (if pending decl)
+        // AND under the enum type name for match lookup.
+        if let Some(ref decl) = self.pending_decl {
+          self
+            .var_return_type_args
+            .insert(decl.name.as_u32(), func.return_type_args.clone());
+        }
+
+        // Also store under the return type's enum name
+        // so `match` can find it when scrutinee_sym is None.
+        if let Ty::Enum(eid) = self.ty_checker.kind_of(func.return_ty)
+          && let Some(et) = self.ty_checker.ty_table.enum_ty(eid)
+        {
+          self
+            .var_return_type_args
+            .insert(et.name.as_u32(), func.return_type_args.clone());
+        }
       }
     } else {
       // Function not found in definitions - might be external/builtin
@@ -9259,6 +9943,11 @@ struct BranchCtx {
   branch_emitted: bool,
   /// For-loop variable name (For only).
   for_var: Option<Symbol>,
+  /// Scope depth when this context was pushed. RBrace
+  /// only closes control flow at the matching depth to
+  /// prevent inner blocks (e.g. `_ => {}` in match arms)
+  /// from accidentally consuming outer while/if contexts.
+  scope_depth: usize,
 }
 
 /// Tracks context when compiling inside a function
@@ -9269,6 +9958,8 @@ struct FunCtx {
   pub(crate) body_start: u32,
   pub(crate) fundef_idx: usize,
   pub(crate) has_explicit_return: bool,
+  /// True when the function declaration has `-> Type`.
+  pub(crate) has_return_type_annotation: bool,
   /// Set when we see 'return' keyword, cleared when we emit Return insn.
   pub(crate) pending_return: bool,
   /// Scope depth when the function body was entered.

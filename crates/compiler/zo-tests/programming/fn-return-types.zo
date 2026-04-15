@@ -1,0 +1,23 @@
+-- tests-build-pass: function return values for all types + showln.
+-- @cmd — zo build fn-return-types.zo
+
+fun ret_int() -> int { return 42; }
+fun ret_str() -> str { return "hello"; }
+fun ret_bool() -> bool { return true; }
+fun ret_char() -> char { return 'z'; }
+fun ret_float() -> float { return 3.14; }
+
+fun main() {
+  showln(ret_int());
+  showln(ret_str());
+  showln(ret_bool());
+  showln(ret_char());
+  showln(ret_float());
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- hello
+-- true
+-- z
+-- 3.140000

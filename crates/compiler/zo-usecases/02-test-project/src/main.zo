@@ -1,9 +1,11 @@
-load math::add;
-load utils::format_result;
+load math;
 
-fun main(): int {
+fun main() {
   imu result: int = add(10, 20);
-  imu message: str = format_result(result);
 
-  return result;
+  check@eq(result, 30);
+  showln(result);
 }
+
+-- EXPECTED OUTPUT:
+-- 30

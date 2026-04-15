@@ -2,6 +2,7 @@
 //! cargo bench --package zo-tokenizer --bench tokenize
 //! ```
 
+use zo_interner::Interner;
 use zo_tokenizer::Tokenizer;
 
 use criterion::{
@@ -97,7 +98,8 @@ fn generate_mixed_code(size: usize) -> String {
 fn bench_body_tokenizer() -> impl FnMut(&mut criterion::Bencher, &String) {
   move |b: &mut criterion::Bencher, source: &String| {
     b.iter(|| {
-      let tokenizer = Tokenizer::new(black_box(source));
+      let mut interner = Interner::new();
+      let tokenizer = Tokenizer::new(black_box(source), &mut interner);
       let tokenization = tokenizer.tokenize();
 
       black_box(tokenization.tokens.len());

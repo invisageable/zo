@@ -109,7 +109,7 @@ All build commands go through `just` (the justfile is the single source of truth
 
 Pre-commit hooks via `lefthook` run the same pipeline automatically. Always use `just` recipes — never raw cargo commands.    
 
-more commands in @justfile.
+More commands in @justfile.
 
 ## IMPORTANT
 

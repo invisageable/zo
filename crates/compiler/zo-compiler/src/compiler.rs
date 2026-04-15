@@ -14,22 +14,24 @@ use zo_codegen_backend::Target;
 use zo_dce::Dce;
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
-use zo_module_resolver::{ModuleResolver, extract_exports};
+use zo_module_resolver::{ModuleExports, ModuleResolver, extract_exports};
 use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
-use zo_reporter::{ErrorAggregator, Reporter, render_errors_to_stderr};
+use zo_reporter::{
+  ErrorAggregator, Reporter, render_errors_to_stderr, report_error,
+};
+use zo_session::Session;
 use zo_sir::Sir;
 use zo_span::Span;
 use zo_token::Token;
 use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree};
 use zo_ty::Mutability;
-use zo_ty_checker::TyChecker;
 use zo_value::ValueId;
 use zo_value::{Local, LocalKind, Pubness};
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -41,6 +43,9 @@ pub struct Compiler {
   module_resolver: ModuleResolver,
   /// The Guard against circular imports.
   compiling: HashSet<PathBuf>,
+  /// Modules declared via `pub pack` in lib.zo.
+  /// Populated during pack compilation, queried by `load`.
+  module_table: HashMap<Symbol, ModuleExports>,
 }
 impl Compiler {
   /// Creates a new [`Compiler`] instance.
@@ -51,6 +56,7 @@ impl Compiler {
       reporter: Reporter::new(),
       module_resolver: ModuleResolver::new(Vec::new()),
       compiling: HashSet::new(),
+      module_table: HashMap::new(),
     }
   }
 
@@ -63,19 +69,21 @@ impl Compiler {
       reporter: Reporter::new(),
       module_resolver: ModuleResolver::new(search_paths),
       compiling: HashSet::new(),
+      module_table: HashMap::new(),
     }
   }
 
   /// Scans a parse tree for `Token::Load` introducer nodes
   /// and extracts module paths from their Ident children.
-  fn scan_loads(tree: &Tree) -> Vec<Vec<Symbol>> {
+  fn scan_loads(tree: &Tree) -> Vec<(Vec<Symbol>, Span)> {
     let mut loads = Vec::new();
 
-    for node in tree.nodes.iter() {
+    for (i, node) in tree.nodes.iter().enumerate() {
       if node.token != Token::Load || node.child_count == 0 {
         continue;
       }
 
+      let span = tree.spans[i];
       let mut path = Vec::new();
 
       for child_idx in node.children_range() {
@@ -88,7 +96,7 @@ impl Compiler {
       }
 
       if !path.is_empty() {
-        loads.push(path);
+        loads.push((path, span));
       }
     }
 
@@ -145,10 +153,11 @@ impl Compiler {
     &mut self,
     source: &str,
     file_path: &Path,
-  ) -> (SemanticResult, TokenizationResult, ParsingResult) {
+  ) -> (SemanticResult, TokenizationResult, ParsingResult, Session) {
     self.profiler.start_phase(TOKENIZER_NAME);
-    let tokenizer = Tokenizer::new(source);
-    let mut tokenization = tokenizer.tokenize();
+    let mut session = Session::new();
+    let tokenizer = Tokenizer::new(source, &mut session.interner);
+    let tokenization = tokenizer.tokenize();
     self.profiler.end_phase(TOKENIZER_NAME);
 
     self.profiler.start_phase(PARSER_NAME);
@@ -156,33 +165,70 @@ impl Compiler {
     let parsing = parser.parse();
     self.profiler.end_phase(PARSER_NAME);
 
-    // Auto-discover and compile lib.zo for pack validation.
-    let declared_packs: Vec<(String, bool)> =
-      if let Some(lib_path) = Self::discover_lib(file_path) {
-        let lib_source = fs::read_to_string(&lib_path).unwrap_or_default();
-        let lib_tokenization = Tokenizer::new(&lib_source).tokenize();
-        let lib_parsing = Parser::new(&lib_tokenization, &lib_source).parse();
-        let packs =
-          Self::scan_packs(&lib_parsing.tree, &lib_tokenization.interner);
+    // Auto-discover lib.zo and compile declared packs.
+    // Each `pub pack foo;` in lib.zo compiles foo.zo and
+    // stores its exports in the module_table. User `load`
+    // statements will query this table.
+    let has_lib_zo = if let Some(lib_path) = Self::discover_lib(file_path) {
+      let lib_source = fs::read_to_string(&lib_path).unwrap_or_default();
+      let lib_tokenization =
+        Tokenizer::new(&lib_source, &mut session.interner).tokenize();
+      let lib_parsing = Parser::new(&lib_tokenization, &lib_source).parse();
+      let packs = Self::scan_packs(&lib_parsing.tree, &session.interner);
 
-        let dir = lib_path.parent().unwrap_or(Path::new("."));
+      let dir = lib_path.parent().unwrap_or(Path::new("."));
 
-        for (pack_name, _) in &packs {
-          let pack_file = dir.join(format!("{pack_name}.zo"));
-          let pack_dir = dir.join(pack_name).join("lib.zo");
+      for (pack_name, is_pub) in &packs {
+        let pack_file = dir.join(format!("{pack_name}.zo"));
+        let pack_dir = dir.join(pack_name).join("lib.zo");
 
-          if !pack_file.is_file() && !pack_dir.is_file() {
-            eprintln!(
-              "Error: pack `{pack_name}` declared in lib.zo \
-               but `{pack_name}.zo` not found"
-            );
-          }
+        let pack_path = if pack_file.is_file() {
+          Some(pack_file)
+        } else if pack_dir.is_file() {
+          Some(pack_dir)
+        } else {
+          report_error(Error::new(
+            ErrorKind::PackFileNotFound,
+            Span { start: 0, len: 0 },
+          ));
+
+          None
+        };
+
+        if let Some(path) = pack_path
+          && *is_pub
+        {
+          let pack_source = fs::read_to_string(&path).unwrap_or_default();
+          let pack_tok =
+            Tokenizer::new(&pack_source, &mut session.interner).tokenize();
+          let pack_par = Parser::new(&pack_tok, &pack_source).parse();
+
+          let pack_ana = Analyzer::new(
+            &pack_par.tree,
+            &mut session.interner,
+            &pack_tok.literals,
+            &mut session.ty_checker,
+          );
+
+          let pack_sem = pack_ana.analyze();
+
+          let exports = extract_exports(
+            pack_sem.sir,
+            None,
+            &session.interner,
+            &pack_sem.funs,
+          );
+
+          let sym = session.interner.intern(pack_name);
+
+          self.module_table.insert(sym, exports);
         }
+      }
 
-        packs
-      } else {
-        Vec::new()
-      };
+      true
+    } else {
+      false
+    };
 
     // Resolve and compile loaded modules BEFORE analysis.
     let module_paths = Self::scan_loads(&parsing.tree);
@@ -192,41 +238,34 @@ impl Compiler {
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
 
-    // --- Prelude: auto-import std/io so showln etc.
+    // --- Preload: auto-import std/io so showln etc.
     // are available without explicit `load io::showln;`.
-    let prelude = ["preload", "io", "assert", "math"];
+    let preload = ["preload", "io", "assert", "math"];
 
-    for module_name in prelude {
-      let sym = tokenization.interner.intern(module_name);
-      let prelude_path = vec![sym];
+    for module_name in preload {
+      let sym = session.interner.intern(module_name);
+      let preload_path = vec![sym];
 
       let resolved = self
         .module_resolver
-        .resolve(&prelude_path, &tokenization.interner);
+        .resolve(&preload_path, &session.interner);
 
       if let Some(m) = resolved {
         let src = m.source.clone();
-        let mut mod_tok = Tokenizer::new(&src).tokenize();
+        let mod_tok = Tokenizer::new(&src, &mut session.interner).tokenize();
         let mod_par = Parser::new(&mod_tok, &src).parse();
 
         let mod_ana = Analyzer::new(
           &mod_par.tree,
-          &mut mod_tok.interner,
+          &mut session.interner,
           &mod_tok.literals,
+          &mut session.ty_checker,
         );
 
         let mod_sem = mod_ana.analyze();
-        let mut dst_tc = TyChecker::new();
 
-        let exports = extract_exports(
-          mod_sem.sir,
-          None,
-          &mod_tok.interner,
-          &mut tokenization.interner,
-          &mod_sem.ty_checker,
-          &mut dst_tc,
-          &mod_sem.funs,
-        );
+        let exports =
+          extract_exports(mod_sem.sir, None, &session.interner, &mod_sem.funs);
 
         imported_funs.extend(exports.funs);
 
@@ -250,40 +289,52 @@ impl Compiler {
       }
     }
 
-    if !declared_packs.is_empty() {
-      for module_path in &module_paths {
-        if let Some(first_seg) = module_path.first() {
-          let first_name = tokenization.interner.get(*first_seg);
-          let is_declared =
-            declared_packs.iter().any(|(name, _)| name == first_name);
+    for (module_path, load_span) in &module_paths {
+      let first_seg = module_path[0];
+      let _mod_name = session.interner.get(first_seg).to_owned();
 
-          if !is_declared {
-            eprintln!(
-              "Warning: module `{first_name}` \
-               not declared in lib.zo"
-            );
-          }
+      // Check module_table first (populated from lib.zo packs).
+      if let Some(exports) = self.module_table.remove(&first_seg) {
+        imported_funs.extend(exports.funs);
+
+        for var in exports.vars {
+          imported_vars.push(Local {
+            name: var.name,
+            ty_id: var.ty_id,
+            value_id: var.init.unwrap_or(ValueId(0)),
+            pubness: Pubness::Yes,
+            mutability: Mutability::No,
+            sir_value: var.init,
+            local_kind: LocalKind::Variable,
+          });
         }
-      }
-    }
 
-    for module_path in &module_paths {
+        imported_enums.extend(exports.enums);
+        module_sir_instructions.extend(exports.sir_instructions);
+        module_next_value_id += exports.next_value_id;
+
+        continue;
+      }
+
+      // lib.zo exists but module not declared — error.
+      if has_lib_zo {
+        report_error(Error::new(ErrorKind::ModuleNotDeclared, *load_span));
+
+        continue;
+      }
+
+      // No lib.zo — fall back to filesystem resolve
+      // (single-file projects, backward compat).
       let (mod_source, selective, resolved_path) = {
-        let resolved = self
-          .module_resolver
-          .resolve(module_path, &tokenization.interner);
+        let resolved =
+          self.module_resolver.resolve(module_path, &session.interner);
 
         match resolved {
           Some(m) => {
             (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
           }
           None => {
-            let path_str = module_path
-              .iter()
-              .map(|s| tokenization.interner.get(*s))
-              .collect::<Vec<_>>();
-
-            eprintln!("Error: unresolved module `{}`", path_str.join("::"));
+            report_error(Error::new(ErrorKind::UnresolvedModule, *load_span));
 
             continue;
           }
@@ -291,32 +342,29 @@ impl Compiler {
       };
 
       if self.compiling.contains(&resolved_path) {
-        eprintln!("Error: circular import detected");
+        report_error(Error::new(ErrorKind::CircularImport, *load_span));
         continue;
       }
 
       self.compiling.insert(resolved_path.clone());
 
-      let mut mod_tokenization = Tokenizer::new(&mod_source).tokenize();
+      let mod_tokenization =
+        Tokenizer::new(&mod_source, &mut session.interner).tokenize();
       let mod_parsing = Parser::new(&mod_tokenization, &mod_source).parse();
 
       let mod_analyzer = Analyzer::new(
         &mod_parsing.tree,
-        &mut mod_tokenization.interner,
+        &mut session.interner,
         &mod_tokenization.literals,
+        &mut session.ty_checker,
       );
 
       let mod_semantic = mod_analyzer.analyze();
 
-      let mut dst_ty_checker = TyChecker::new();
-
       let exports = extract_exports(
         mod_semantic.sir,
         selective.as_deref(),
-        &mod_tokenization.interner,
-        &mut tokenization.interner,
-        &mod_semantic.ty_checker,
-        &mut dst_ty_checker,
+        &session.interner,
         &mod_semantic.funs,
       );
 
@@ -345,8 +393,9 @@ impl Compiler {
 
     let analyzer = Analyzer::new(
       &parsing.tree,
-      &mut tokenization.interner,
+      &mut session.interner,
       &tokenization.literals,
+      &mut session.ty_checker,
     );
 
     let has_imports = !imported_funs.is_empty()
@@ -392,11 +441,11 @@ impl Compiler {
     }
 
     // Dead code elimination — find main by name.
-    let main_sym = tokenization.interner.intern("main");
+    let main_sym = session.interner.intern("main");
 
-    Dce::new(&mut semantic.sir, main_sym, &tokenization.interner).eliminate();
+    Dce::new(&mut semantic.sir, main_sym, &session.interner).eliminate();
 
-    (semantic, tokenization, parsing)
+    (semantic, tokenization, parsing, session)
   }
 
   /// Compiles a collections of files based on the [`Target`].
@@ -425,7 +474,8 @@ impl Compiler {
     self.profiler.set_total_lines(self.stats.numlines);
 
     for (path, code) in files.iter() {
-      let (semantic, tokenization, parsing) = self.analyze_source(code, path);
+      let (semantic, tokenization, parsing, session) =
+        self.analyze_source(code, path);
 
       self.stats.numtokens += tokenization.tokens.len();
       self.stats.numnodes += parsing.tree.nodes.len();
@@ -456,7 +506,7 @@ impl Compiler {
       if should_emit_sir {
         let sir_path = path.with_extension("sir");
         let mut pp = PrettyPrinter::new();
-        pp.format_sir(&semantic.sir, &tokenization.interner);
+        pp.format_sir(&semantic.sir, &session.interner);
         let sir_output = pp.finish();
 
         if let Err(error) = fs::write(&sir_path, sir_output) {
@@ -469,7 +519,7 @@ impl Compiler {
 
       if should_emit_asm {
         let artifact =
-          codegen.generate_artifact(&tokenization.interner, &semantic.sir);
+          codegen.generate_artifact(&session.interner, &semantic.sir);
         let asm_path = path.with_extension("asm");
 
         let mut pp = PrettyPrinter::new();
@@ -486,7 +536,7 @@ impl Compiler {
         None => path.with_extension(""),
       };
 
-      codegen.generate(&tokenization.interner, &semantic.sir, &output_path);
+      codegen.generate(&session.interner, &semantic.sir, &output_path);
 
       self.stats.numartifacts += 1;
 

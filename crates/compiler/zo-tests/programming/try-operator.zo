@@ -1,0 +1,35 @@
+-- tests-build-pass: ? operator for error propagation.
+-- @cmd — zo build try-operator.zo
+
+fun might_fail(x: int) -> Result<int, int> {
+  if x < 0 {
+    return Result::Err(99);
+  }
+
+  return Result::Ok(x * 2);
+}
+
+fun compute(x: int) -> Result<int, int> {
+  imu doubled: int = might_fail(x)?;
+
+  return Result::Ok(doubled + 1);
+}
+
+fun main() {
+  imu ok: Result<int, int> = compute(5);
+  imu err: Result<int, int> = compute(-1);
+
+  match ok {
+    Result::Ok(v) => showln(v),
+    Result::Err(e) => showln(e),
+  }
+
+  match err {
+    Result::Ok(v) => showln(v),
+    Result::Err(e) => showln(e),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 11
+-- 99

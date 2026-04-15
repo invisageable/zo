@@ -1,0 +1,36 @@
+-- tests-build-pass: match on string literals.
+-- @cmd — zo build match-string.zo
+
+fun main() {
+  imu s: str = "hello";
+
+  match s {
+    "hello" => showln(1),
+    "world" => showln(2),
+    _ => showln(0),
+  }
+
+  imu t: str = "world";
+
+  match t {
+    "hello" => showln(1),
+    "world" => showln(2),
+    _ => showln(0),
+  }
+
+  imu u: str = "other";
+
+  match u {
+    "hello" => showln(1),
+    "world" => showln(2),
+    _ => showln(0),
+  }
+
+  showln("done");
+}
+
+-- EXPECTED OUTPUT:
+-- 1
+-- 2
+-- 0
+-- done

@@ -1,0 +1,58 @@
+-- tests-build-pass: generic Result match with all field types.
+-- @cmd — zo build result-match.zo
+
+fun ok_str() -> Result<str, int> {
+  return Result::Ok("success");
+}
+
+fun err_str() -> Result<int, str> {
+  return Result::Err("failure");
+}
+
+fun ok_int() -> Result<int, int> {
+  return Result::Ok(42);
+}
+
+fun err_int() -> Result<int, int> {
+  return Result::Err(99);
+}
+
+fun main() {
+  -- Result<str, int>: Ok path.
+  mut a := ok_str();
+
+  match a {
+    Result::Ok(s) => showln(s),
+    Result::Err(e) => showln(e),
+  }
+
+  -- Result<int, str>: Err path.
+  mut b := err_str();
+
+  match b {
+    Result::Ok(n) => showln(n),
+    Result::Err(e) => showln(e),
+  }
+
+  -- Result<int, int>: Ok path.
+  mut c := ok_int();
+
+  match c {
+    Result::Ok(n) => showln(n),
+    Result::Err(e) => showln(e),
+  }
+
+  -- Result<int, int>: Err path.
+  mut d := err_int();
+
+  match d {
+    Result::Ok(n) => showln(n),
+    Result::Err(e) => showln(e),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- success
+-- failure
+-- 42
+-- 99

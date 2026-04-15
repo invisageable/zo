@@ -264,6 +264,13 @@ pub fn allocate_function(
       continue;
     }
 
+    // Empty arrays call _malloc, push may call _realloc.
+    if matches!(insn, Insn::ArrayLiteral { elements, .. } if elements.is_empty())
+      || matches!(insn, Insn::ArrayPush { .. })
+    {
+      has_calls = true;
+    }
+
     // --- Handle Call (clobbers all caller-saved) ---
     if let Insn::Call { args, .. } = insn {
       has_calls = true;
@@ -331,41 +338,61 @@ pub fn allocate_function(
         insert_assignment(result, vid, reg, result_fp);
       }
 
-      // Reload saved values.
+      // Reload saved values into the SAME register they
+      // occupied before the call. The assignments HashMap
+      // is keyed by ValueId and stores only one register.
+      // If the reload uses a different register, the codegen
+      // sees the new register for ALL instructions (including
+      // the original Load that defined the value), causing a
+      // mismatch: Load emits to the new register but the
+      // spill-store targets the original. Reloading into the
+      // same register avoids this.
       if gi + 1 < end {
-        for &(vid, _) in &gp_save {
+        for &(vid, orig_reg) in &gp_save {
           let slot = state.spill_slots[&vid];
-          let reg = state.gp.alloc_free().expect("out of GP regs for reload");
+
+          // Reload into the original register to keep the
+          // assignments HashMap consistent — UNLESS the
+          // original is X0 (reg 0), which is the Call
+          // result register. Reloading into X0 would
+          // overwrite the Call result.
+          let reload_reg = if orig_reg == 0 {
+            state.gp.alloc_free().expect("out of GP regs for reload")
+          } else {
+            state.gp.free.retain(|&r| r != orig_reg);
+            orig_reg
+          };
 
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
             timing: EmitTiming::Before,
             kind: SpillKind::Load {
-              reg,
+              reg: reload_reg,
               slot,
               class: RegisterClass::GP,
             },
           });
 
-          state.assign(ValueId(vid), reg, false);
-          result.assignments.insert(vid, reg);
+          state.assign(ValueId(vid), reload_reg, false);
+          result.assignments.insert(vid, reload_reg);
         }
-        for &(vid, _) in &fp_save {
+        for &(vid, orig_reg) in &fp_save {
           let slot = state.spill_slots[&vid];
-          let reg = state.fp.alloc_free().expect("out of FP regs for reload");
+
+          state.fp.free.retain(|&r| r != orig_reg);
 
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
             timing: EmitTiming::Before,
             kind: SpillKind::Load {
-              reg,
+              reg: orig_reg,
               slot,
               class: RegisterClass::FP,
             },
           });
 
-          state.assign(ValueId(vid), reg, true);
-          result.fp_assignments.insert(vid, reg);
+          state.assign(ValueId(vid), orig_reg, true);
+          result.fp_assignments.insert(vid, orig_reg);
         }
       }
 
@@ -455,15 +482,14 @@ pub fn allocate_function(
         struct_slots += 1 + fields.len() as u32;
       }
       Insn::ArrayLiteral { elements, .. } => {
-        // Header (length + capacity) + data slots.
-        // Empty arrays reserve DEFAULT_ARRAY_CAP (64) for push.
-        let cap = if elements.is_empty() {
-          64
+        if elements.is_empty() {
+          // Empty arrays are heap-allocated via malloc.
+          // Only 1 stack slot for the pointer.
+          struct_slots += 1;
         } else {
-          elements.len() as u32
-        };
-
-        struct_slots += 2 + cap;
+          // Non-empty literals: header + elements on stack.
+          struct_slots += 2 + elements.len() as u32;
+        }
       }
       Insn::TupleLiteral { elements, .. } => {
         struct_slots += elements.len() as u32;
@@ -472,6 +498,8 @@ pub fn allocate_function(
       // syscall buffers and Result construction.
       // read_file: 4096-byte read buffer (520 slots).
       // write_file / append_file: 5 slots for Result.
+      // Calls to struct-returning functions need space
+      // for the struct copy in the caller's frame.
       Insn::Call { name, .. } => {
         let fn_name = interner.get(*name);
 
@@ -480,7 +508,32 @@ pub fn allocate_function(
           "write_file" | "append_file" => {
             struct_slots += 5;
           }
-          _ => {}
+          _ => {
+            // Check if callee returns a struct by
+            // scanning for FunDef(name) ... StructConstruct
+            // ... Return in the full SIR.
+            let mut in_fn = false;
+            let mut last_fields: Option<u32> = None;
+
+            for other in insns.iter() {
+              match other {
+                Insn::FunDef { name: fn_name2, .. } => {
+                  in_fn = *fn_name2 == *name;
+                  last_fields = None;
+                }
+                Insn::StructConstruct { fields, .. } if in_fn => {
+                  last_fields = Some(fields.len() as u32);
+                }
+                Insn::Return { value: Some(_), .. } if in_fn => {
+                  if let Some(n) = last_fields {
+                    struct_slots += n;
+                  }
+                  break;
+                }
+                _ => {}
+              }
+            }
+          }
         }
       }
       _ => {}
@@ -542,7 +595,9 @@ fn insn_is_fp(insn: &Insn) -> bool {
     | Insn::UnOp { ty_id, .. }
     | Insn::Load { ty_id, .. }
     | Insn::Call { ty_id, .. }
-    | Insn::ArrayIndex { ty_id, .. } => ty_id.0 >= 15 && ty_id.0 <= 17,
+    | Insn::ArrayIndex { ty_id, .. }
+    | Insn::TupleIndex { ty_id, .. } => ty_id.0 >= 15 && ty_id.0 <= 17,
+    Insn::Cast { to_ty, .. } => to_ty.0 >= 15 && to_ty.0 <= 17,
     _ => false,
   }
 }

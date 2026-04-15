@@ -1,8 +1,11 @@
+-- tests-build-pass: struct with default values and ::default().
+-- @cmd — zo build struct-rect.zo
+
 struct Rect {
   x: int = 10,
   y: int = 20,
   w: int = 100,
-  h: int =. 200,
+  h: int = 200,
 }
 
 fun f(rect: Rect, x: int, y: int, w: int, h: int) {
@@ -20,7 +23,7 @@ fun main() {
   check@eq(r1.w, 100);
   check@eq(r1.h, 200);
 
-  imu r2: Rect = rect;
+  imu r2: Rect = r1;
   imu x: int = r2.x;
 
   check@eq(x, 10);
@@ -28,3 +31,5 @@ fun main() {
   f(r1, 10, 20, 100, 200);
   f(r2, 10, 20, 100, 200);
 }
+
+-- EXPECTED OUTPUT:

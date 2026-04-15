@@ -2,10 +2,12 @@ use crate::Executor;
 use crate::tests::common::{assert_execution_error, assert_sir_structure};
 
 use zo_error::ErrorKind;
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
+use zo_ty_checker::TyChecker;
 
 // === VAL BASIC ===
 
@@ -107,18 +109,22 @@ fn test_val_in_function_no_errors() {
   val Y: int = 10;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
+  let mut ty_checker = TyChecker::new();
+
   let executor = Executor::new(
     &parsing.tree,
-    &mut tokenization.interner,
+    &mut interner,
     &tokenization.literals,
+    &mut ty_checker,
   );
 
-  let (_, _, _, _) = executor.execute();
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -135,18 +141,22 @@ fn test_val_global_no_errors() {
   let source = r#"val X: int = 42;
 fun main() {}"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
+  let mut ty_checker = TyChecker::new();
+
   let executor = Executor::new(
     &parsing.tree,
-    &mut tokenization.interner,
+    &mut interner,
     &tokenization.literals,
+    &mut ty_checker,
   );
 
-  let (_, _, _, _) = executor.execute();
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -185,18 +195,22 @@ fn test_val_bool_no_errors() {
   val FLAG: bool = true;
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
+  let mut ty_checker = TyChecker::new();
+
   let executor = Executor::new(
     &parsing.tree,
-    &mut tokenization.interner,
+    &mut interner,
     &tokenization.literals,
+    &mut ty_checker,
   );
 
-  let (_, _, _, _) = executor.execute();
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -212,18 +226,22 @@ fn test_val_str_no_errors() {
   val GREETING: str = "hello";
 }"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
+  let mut ty_checker = TyChecker::new();
+
   let executor = Executor::new(
     &parsing.tree,
-    &mut tokenization.interner,
+    &mut interner,
     &tokenization.literals,
+    &mut ty_checker,
   );
 
-  let (_, _, _, _) = executor.execute();
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -240,18 +258,22 @@ fn test_val_pub_no_errors() {
   let source = r#"pub val PI: int = 3;
 fun main() {}"#;
 
-  let tokenizer = Tokenizer::new(source);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, source);
   let parsing = parser.parse();
 
+  let mut ty_checker = TyChecker::new();
+
   let executor = Executor::new(
     &parsing.tree,
-    &mut tokenization.interner,
+    &mut interner,
     &tokenization.literals,
+    &mut ty_checker,
   );
 
-  let (_, _, _, _) = executor.execute();
+  let (_, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(

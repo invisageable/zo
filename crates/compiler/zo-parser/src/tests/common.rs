@@ -1,6 +1,7 @@
 use crate::Parser;
 
 use zo_error::ErrorKind;
+use zo_interner::Interner;
 use zo_reporter::collect_errors;
 // use zo_span::Span;
 use zo_token::Token;
@@ -30,7 +31,8 @@ pub(crate) fn assert_nodes_stream(
   source: &str,
   expected: &[(Token, Option<NodeValue>)],
 ) {
-  let tokenizer = Tokenizer::new(source);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
   let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);
@@ -79,7 +81,8 @@ pub(crate) fn assert_nodes_stream(
 }
 
 pub(crate) fn assert_error(source: &str, expected_error: ErrorKind) {
-  let tokenizer = Tokenizer::new(source);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
   let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, source);

@@ -1,0 +1,38 @@
+-- tests-build-pass: ? operator with string error types.
+-- @cmd — zo build try-operator-str.zo
+
+fun might_fail(x: int) -> Result<int, str> {
+  if x < 0 {
+    return Result::Err("negative input");
+  }
+
+  return Result::Ok(x * 2);
+}
+
+fun compute(x: int) -> Result<int, str> {
+  imu doubled: int = might_fail(x)?;
+
+  return Result::Ok(doubled + 1);
+}
+
+fun main() {
+  -- Ok path: 5 * 2 + 1 = 11.
+  mut ok := compute(5);
+
+  match ok {
+    Result::Ok(v) => showln(v),
+    Result::Err(e) => showln(e),
+  }
+
+  -- Err path: propagated through ?.
+  mut err := compute(-1);
+
+  match err {
+    Result::Ok(v) => showln(v),
+    Result::Err(e) => showln(e),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 11
+-- negative input

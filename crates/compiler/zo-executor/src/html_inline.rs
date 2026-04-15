@@ -39,9 +39,11 @@
 //!   scope, so interpolation expressions either fail lookup or
 //!   produce empty text. `#html` is for STATIC content.
 
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
+use zo_ty_checker::TyChecker;
 use zo_ui_protocol::UiCommand;
 
 /// Parse a raw HTML blob into a sequence of `UiCommand`s by
@@ -66,18 +68,21 @@ pub(crate) fn parse_raw_html(input: &str) -> Vec<UiCommand> {
   let wrapped =
     format!("fun __zo_html_inline__() {{ imu __v__: </> ::= <>{input}</>; }}");
 
-  let tokenizer = Tokenizer::new(&wrapped);
-  let mut tokenization = tokenizer.tokenize();
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(&wrapped, &mut interner);
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, &wrapped);
   let parsing = parser.parse();
+  let mut ty_checker = TyChecker::new();
 
   let executor = crate::Executor::new(
     &parsing.tree,
-    &mut tokenization.interner,
+    &mut interner,
     &tokenization.literals,
+    &mut ty_checker,
   );
 
-  let (sir, _, _, _) = executor.execute();
+  let (sir, _, _) = executor.execute();
 
   // Pull commands from the first `Insn::Template` the sub-
   // pipeline produced.

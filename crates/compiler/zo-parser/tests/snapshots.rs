@@ -2,11 +2,13 @@
 //! INSTA_UPDATE=1 cargo test -p zo-parser --test snapshots
 //! ``
 
+use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_tokenizer::Tokenizer;
 
 pub fn assert_yaml_snapshot(name: &str, code: &str) {
-  let tokenizer = Tokenizer::new(code);
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(code, &mut interner);
   let tokenization = tokenizer.tokenize();
 
   let parser = Parser::new(&tokenization, code);
