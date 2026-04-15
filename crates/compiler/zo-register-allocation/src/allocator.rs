@@ -338,41 +338,61 @@ pub fn allocate_function(
         insert_assignment(result, vid, reg, result_fp);
       }
 
-      // Reload saved values.
+      // Reload saved values into the SAME register they
+      // occupied before the call. The assignments HashMap
+      // is keyed by ValueId and stores only one register.
+      // If the reload uses a different register, the codegen
+      // sees the new register for ALL instructions (including
+      // the original Load that defined the value), causing a
+      // mismatch: Load emits to the new register but the
+      // spill-store targets the original. Reloading into the
+      // same register avoids this.
       if gi + 1 < end {
-        for &(vid, _) in &gp_save {
+        for &(vid, orig_reg) in &gp_save {
           let slot = state.spill_slots[&vid];
-          let reg = state.gp.alloc_free().expect("out of GP regs for reload");
+
+          // Reload into the original register to keep the
+          // assignments HashMap consistent — UNLESS the
+          // original is X0 (reg 0), which is the Call
+          // result register. Reloading into X0 would
+          // overwrite the Call result.
+          let reload_reg = if orig_reg == 0 {
+            state.gp.alloc_free().expect("out of GP regs for reload")
+          } else {
+            state.gp.free.retain(|&r| r != orig_reg);
+            orig_reg
+          };
 
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
             timing: EmitTiming::Before,
             kind: SpillKind::Load {
-              reg,
+              reg: reload_reg,
               slot,
               class: RegisterClass::GP,
             },
           });
 
-          state.assign(ValueId(vid), reg, false);
-          result.assignments.insert(vid, reg);
+          state.assign(ValueId(vid), reload_reg, false);
+          result.assignments.insert(vid, reload_reg);
         }
-        for &(vid, _) in &fp_save {
+        for &(vid, orig_reg) in &fp_save {
           let slot = state.spill_slots[&vid];
-          let reg = state.fp.alloc_free().expect("out of FP regs for reload");
+
+          state.fp.free.retain(|&r| r != orig_reg);
 
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
             timing: EmitTiming::Before,
             kind: SpillKind::Load {
-              reg,
+              reg: orig_reg,
               slot,
               class: RegisterClass::FP,
             },
           });
 
-          state.assign(ValueId(vid), reg, true);
-          result.fp_assignments.insert(vid, reg);
+          state.assign(ValueId(vid), orig_reg, true);
+          result.fp_assignments.insert(vid, orig_reg);
         }
       }
 

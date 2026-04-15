@@ -1134,8 +1134,7 @@ impl<'a> ARM64Gen<'a> {
             | BinOp::Neq => self.emitter.emit_fcmp(fl, fr),
             _ => {}
           }
-        } else if ty_id.0 == STR_TYPE_ID
-          && matches!(op, BinOp::Eq | BinOp::Neq)
+        } else if ty_id.0 == STR_TYPE_ID && matches!(op, BinOp::Eq | BinOp::Neq)
         {
           // String equality: compare lengths first, then
           // _memcmp on data pointers. String struct: [len:8, ptr:8].
@@ -1163,8 +1162,8 @@ impl<'a> ARM64Gen<'a> {
           // Lengths match — call _memcmp(ptr1, ptr2, len).
           // String layout is inline: [len:8][data...][null].
           // Data starts at base + 8, not *(base + 8).
-          self.emitter.emit_add_imm(X0, l, 8);  // ptr1
-          self.emitter.emit_add_imm(X1, r, 8);  // ptr2
+          self.emitter.emit_add_imm(X0, l, 8); // ptr1
+          self.emitter.emit_add_imm(X1, r, 8); // ptr2
           self.emitter.emit_mov_reg(X2, X16); // len
           self.emit_extern_call("_memcmp");
 
@@ -1178,9 +1177,7 @@ impl<'a> ARM64Gen<'a> {
           // Patch len_skip B.NE to land here.
           let here = self.emitter.current_offset();
           let len_off = here as i32 - len_skip as i32;
-          self.emitter.patch_bcond_at(
-            len_skip as usize, len_off,
-          );
+          self.emitter.patch_bcond_at(len_skip as usize, len_off);
 
           // Lengths differ → set result.
           if matches!(op, BinOp::Eq) {
@@ -1192,9 +1189,7 @@ impl<'a> ARM64Gen<'a> {
           // Patch done_skip B to land here.
           let end = self.emitter.current_offset();
           let done_off = end as i32 - done_skip as i32;
-          self.emitter.patch_b_at(
-            done_skip as usize, done_off,
-          );
+          self.emitter.patch_b_at(done_skip as usize, done_off);
         } else if self.enum_metas.contains_key(&ty_id.0)
           && matches!(op, BinOp::Eq | BinOp::Neq)
         {
@@ -1935,19 +1930,15 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_mov_reg(X0, arr_reg);
         // Save new_cap and value PAST the caller-save area
         // so emit_extern_call's X9-X17 save doesn't clobber.
-        let extra_base = self.caller_save_base
-          + (CALLER_SAVE_COUNT as u32) * STACK_SLOT_SIZE;
+        let extra_base =
+          self.caller_save_base + (CALLER_SAVE_COUNT as u32) * STACK_SLOT_SIZE;
 
         self.emitter.emit_str(X17, SP, extra_base as i16);
-        self
-          .emitter
-          .emit_str(val_reg, SP, (extra_base + 8) as i16);
+        self.emitter.emit_str(val_reg, SP, (extra_base + 8) as i16);
         self.emit_extern_call("_realloc");
         // X0 = new pointer. Restore new_cap + value.
         self.emitter.emit_ldr(X17, SP, extra_base as i16);
-        self
-          .emitter
-          .emit_ldr(val_reg, SP, (extra_base + 8) as i16);
+        self.emitter.emit_ldr(val_reg, SP, (extra_base + 8) as i16);
         // Store new cap.
         self.emitter.emit_str(X17, X0, 8);
         // Update arr_reg to new pointer.

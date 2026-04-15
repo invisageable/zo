@@ -807,6 +807,15 @@ impl<'a> Executor<'a> {
               cond: cond_sir,
               target,
             });
+
+            // Pop the condition from stacks — it was consumed
+            // by BranchIfNot and must not leak into the block
+            // body (e.g. `if x <= 1 { return 1; } return x *
+            // fact(x-1);` — the stale condition boolean would
+            // become an operand for `*`).
+            self.value_stack.pop();
+            self.ty_stack.pop();
+            self.sir_values.pop();
           }
 
           ctx.branch_emitted = true;
@@ -834,7 +843,43 @@ impl<'a> Executor<'a> {
           .as_ref()
           .is_some_and(|c| self.scope_stack.len() == c.scope_depth + 1);
 
+        // Flush deferred binops before implicit return —
+        // the function body may end with `x * fact(x - 1)`
+        // inside a ternary without a semicolon.
+        if at_fn_depth {
+          self.apply_deferred_binop();
+        }
+
         if at_fn_depth && let Some(fun_ctx) = &self.current_function {
+          // Ternary false arm: the true arm set
+          // has_explicit_return, but the false arm still
+          // needs its own Return. Emit it here before the
+          // function closes.
+          let is_ternary_false_arm = fun_ctx.has_explicit_return
+            && self
+              .branch_stack
+              .last()
+              .is_some_and(|c| c.kind == BranchKind::Ternary);
+
+          if is_ternary_false_arm {
+            let unit_ty = self.ty_checker.unit_type();
+
+            if fun_ctx.return_ty != unit_ty && !self.sir_values.is_empty() {
+              let sir_val = self.sir_values.last().copied();
+              let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+
+              self.sir.emit(Insn::Return {
+                value: sir_val,
+                ty_id: ty,
+              });
+            }
+
+            // Pop the ternary and emit its end label.
+            if let Some(ctx) = self.branch_stack.pop() {
+              self.sir.emit(Insn::Label { id: ctx.end_label });
+            }
+          }
+
           // Only emit implicit return if there wasn't an explicit one
           if !fun_ctx.has_explicit_return {
             // Emit implicit return if needed
@@ -955,6 +1000,18 @@ impl<'a> Executor<'a> {
           .branch_stack
           .last()
           .is_some_and(|c| self.scope_stack.len() == c.scope_depth + 1);
+
+        // Flush deferred binops before closing a Ternary.
+        // `when x <= 1 ? 1 : x * fact(x-1)` defers `*`
+        // and the false arm Return needs the Mul result.
+        if at_branch_depth
+          && self
+            .branch_stack
+            .last()
+            .is_some_and(|c| c.kind == BranchKind::Ternary)
+        {
+          self.apply_deferred_binop();
+        }
 
         if at_branch_depth && let Some(ctx) = self.branch_stack.last() {
           match ctx.kind {
@@ -2076,6 +2133,15 @@ impl<'a> Executor<'a> {
                 ty_id: ty,
               });
 
+              // Pop the true arm value so it doesn't leak
+              // into the false arm (same fix as
+              // check_pending_return).
+              if sir_val.is_some() {
+                self.value_stack.pop();
+                self.ty_stack.pop();
+                self.sir_values.pop();
+              }
+
               fun_ctx.has_explicit_return = true;
             }
           }
@@ -2208,6 +2274,12 @@ impl<'a> Executor<'a> {
         // Finalize any pending variable declaration.
         let had_decl = self.pending_decl.is_some();
         self.finalize_pending_decl();
+
+        // Flush deferred binops before return — without
+        // this, `return x * fact(x - 1)` loses the `*`
+        // because the Call result is taken as the return
+        // value before the deferred Mul resolves.
+        self.apply_deferred_binop();
 
         // Check if we have a pending return to complete.
         let had_return = self
@@ -7353,6 +7425,17 @@ impl<'a> Executor<'a> {
         value: return_value,
         ty_id: return_ty,
       });
+
+      // Pop the return value from stacks so it doesn't
+      // leak into subsequent code (e.g. `if x <= 1 {
+      // return 1; } return x * fact(x-1);` — the stale
+      // `1` from the if body must not become an operand
+      // for the `*` in the recursive case).
+      if return_value.is_some() {
+        self.value_stack.pop();
+        self.ty_stack.pop();
+        self.sir_values.pop();
+      }
 
       // Clear the pending flag
       ctx.pending_return = false;

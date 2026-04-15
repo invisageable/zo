@@ -377,7 +377,7 @@ fun main() -> Result<Foo, Foo> {
   imu succ: Foo = Foo::Ok(0);
   imu fail: Foo = Foo::Err(1);
 
-  if x is Foo::Ok(0) {
+  if succ is Foo::Ok(0) {
     return Ok(succ as int);
   }
 
@@ -394,8 +394,14 @@ fun matches(n: int) -> str {
   }
 }
 
+-- expr:printing:interpolation.
 fun main() {
   showln("{}", matches(1));
+}
+
+-- expr:macros:call.
+fun main() {
+  showln("{}", matches(1))!;
 }
 
 -- stmt:directive.
