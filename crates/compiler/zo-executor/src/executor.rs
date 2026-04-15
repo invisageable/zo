@@ -6311,10 +6311,11 @@ impl<'a> Executor<'a> {
             | Token::Float
             | Token::True
             | Token::False
+            | Token::String
         )
       {
-        // Primitive literal pattern: emit reload, const,
-        // compare, branch. Works for int, char, float, bool.
+        // Primitive/string literal pattern: emit reload,
+        // const, compare, branch.
         let scrut_dst = ValueId(self.sir.next_value_id);
         self.sir.next_value_id += 1;
 
@@ -6398,6 +6399,21 @@ impl<'a> Executor<'a> {
             value: false,
             ty_id: self.ty_checker.bool_type(),
           }),
+          Token::String => {
+            let symbol = match self.node_value(pat_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.identifiers[lit as usize]
+              }
+              Some(NodeValue::Symbol(sym)) => sym,
+              _ => self.interner.intern(""),
+            };
+
+            self.sir.emit(Insn::ConstString {
+              dst: pat_dst,
+              symbol,
+              ty_id: self.ty_checker.str_type(),
+            })
+          }
           _ => pat_dst,
         };
 

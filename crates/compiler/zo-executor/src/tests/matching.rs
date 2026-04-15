@@ -671,3 +671,46 @@ fn match_if_inside_block_arm_in_while() {
     },
   );
 }
+
+// -- Match on string literals -----------------------------------------
+
+#[test]
+fn match_string_literal_emits_const_string_and_cmp() {
+  assert_sir_structure(
+    r#"fun main() {
+  imu s: str = "hello";
+  match s {
+    "hello" => showln(1),
+    "world" => showln(2),
+    _ => showln(0),
+  }
+}"#,
+    |sir| {
+      // Two string arms → two BranchIfNot.
+      let branches = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::BranchIfNot { .. }))
+        .count();
+
+      assert!(
+        branches >= 2,
+        "expected >= 2 BranchIfNot for string match, \
+         got {branches}"
+      );
+
+      // Should have ConstString for each pattern.
+      let str_consts = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::ConstString { .. }))
+        .count();
+
+      // At least 3: the scrutinee "hello" + patterns "hello"
+      // and "world".
+      assert!(
+        str_consts >= 3,
+        "expected >= 3 ConstString (scrutinee + 2 patterns), \
+         got {str_consts}"
+      );
+    },
+  );
+}

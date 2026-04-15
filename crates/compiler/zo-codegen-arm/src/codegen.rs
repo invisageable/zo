@@ -1134,6 +1134,67 @@ impl<'a> ARM64Gen<'a> {
             | BinOp::Neq => self.emitter.emit_fcmp(fl, fr),
             _ => {}
           }
+        } else if ty_id.0 == STR_TYPE_ID
+          && matches!(op, BinOp::Eq | BinOp::Neq)
+        {
+          // String equality: compare lengths first, then
+          // _memcmp on data pointers. String struct: [len:8, ptr:8].
+          // zo strings are NOT null-terminated.
+          let d = self.alloc_reg(*dst).unwrap_or(X0);
+          let l = self.alloc_reg(*lhs).unwrap_or(X0);
+          let r = self.alloc_reg(*rhs).unwrap_or(X1);
+          let cond = if matches!(op, BinOp::Eq) {
+            COND_EQ
+          } else {
+            COND_NE
+          };
+
+          // Load lengths: [lhs+0] and [rhs+0].
+          self.emitter.emit_ldr(X16, l, 0);
+          self.emitter.emit_ldr(X17, r, 0);
+
+          // Compare lengths — if different, strings differ.
+          self.emitter.emit_cmp(X16, X17);
+
+          // If lengths differ, skip memcmp — result is "not equal".
+          let len_skip = self.emitter.current_offset();
+          self.emitter.emit_bne(0); // patched below
+
+          // Lengths match — call _memcmp(ptr1, ptr2, len).
+          // String layout is inline: [len:8][data...][null].
+          // Data starts at base + 8, not *(base + 8).
+          self.emitter.emit_add_imm(X0, l, 8);  // ptr1
+          self.emitter.emit_add_imm(X1, r, 8);  // ptr2
+          self.emitter.emit_mov_reg(X2, X16); // len
+          self.emit_extern_call("_memcmp");
+
+          // memcmp returns 0 if equal.
+          self.emit_cmp_csel(d, X0, XZR, cond);
+
+          // Jump past the "not equal" fallback.
+          let done_skip = self.emitter.current_offset();
+          self.emitter.emit_b(0); // patched below
+
+          // Patch len_skip B.NE to land here.
+          let here = self.emitter.current_offset();
+          let len_off = here as i32 - len_skip as i32;
+          self.emitter.patch_bcond_at(
+            len_skip as usize, len_off,
+          );
+
+          // Lengths differ → set result.
+          if matches!(op, BinOp::Eq) {
+            self.emitter.emit_mov_imm(d, 0);
+          } else {
+            self.emitter.emit_mov_imm(d, 1);
+          }
+
+          // Patch done_skip B to land here.
+          let end = self.emitter.current_offset();
+          let done_off = end as i32 - done_skip as i32;
+          self.emitter.patch_b_at(
+            done_skip as usize, done_off,
+          );
         } else if self.enum_metas.contains_key(&ty_id.0)
           && matches!(op, BinOp::Eq | BinOp::Neq)
         {
@@ -2122,9 +2183,9 @@ impl<'a> ARM64Gen<'a> {
         let from = from_ty.0;
         let to = to_ty.0;
 
-        let is_from_float =
-          from >= FLOAT_TYPE_ID_MIN && from <= FLOAT_TYPE_ID_MAX;
-        let is_to_float = to >= FLOAT_TYPE_ID_MIN && to <= FLOAT_TYPE_ID_MAX;
+        let float_range = FLOAT_TYPE_ID_MIN..=FLOAT_TYPE_ID_MAX;
+        let is_from_float = float_range.contains(&from);
+        let is_to_float = float_range.contains(&to);
 
         if is_from_float && !is_to_float {
           // float -> int: FCVTZS Xd, Ds.
