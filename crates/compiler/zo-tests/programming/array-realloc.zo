@@ -1,0 +1,23 @@
+-- tests-build-pass: dynamic array push beyond initial capacity.
+-- @cmd — zo build array-realloc.zo
+
+fun main() {
+  mut arr: []int = [];
+  mut i: int = 0;
+
+  while i < 2000 {
+    arr.push(i);
+    i = i + 1;
+  }
+
+  showln(arr.len);
+  showln(arr[0]);
+  showln(arr[999]);
+  showln(arr[1999]);
+}
+
+-- EXPECTED OUTPUT:
+-- 2000
+-- 0
+-- 999
+-- 1999

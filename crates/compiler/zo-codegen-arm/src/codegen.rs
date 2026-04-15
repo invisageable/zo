@@ -1933,15 +1933,21 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_lsl(X1, X1, ARRAY_ELEMENT_SHIFT);
         // X0 = old pointer.
         self.emitter.emit_mov_reg(X0, arr_reg);
-        // Save new_cap and value in caller-save area.
-        let save_base = self.caller_save_base;
+        // Save new_cap and value PAST the caller-save area
+        // so emit_extern_call's X9-X17 save doesn't clobber.
+        let extra_base = self.caller_save_base
+          + (CALLER_SAVE_COUNT as u32) * STACK_SLOT_SIZE;
 
-        self.emitter.emit_str(X17, SP, save_base as i16);
-        self.emitter.emit_str(val_reg, SP, (save_base + 8) as i16);
+        self.emitter.emit_str(X17, SP, extra_base as i16);
+        self
+          .emitter
+          .emit_str(val_reg, SP, (extra_base + 8) as i16);
         self.emit_extern_call("_realloc");
         // X0 = new pointer. Restore new_cap + value.
-        self.emitter.emit_ldr(X17, SP, save_base as i16);
-        self.emitter.emit_ldr(val_reg, SP, (save_base + 8) as i16);
+        self.emitter.emit_ldr(X17, SP, extra_base as i16);
+        self
+          .emitter
+          .emit_ldr(val_reg, SP, (extra_base + 8) as i16);
         // Store new cap.
         self.emitter.emit_str(X17, X0, 8);
         // Update arr_reg to new pointer.
