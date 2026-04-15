@@ -498,6 +498,8 @@ pub fn allocate_function(
       // syscall buffers and Result construction.
       // read_file: 4096-byte read buffer (520 slots).
       // write_file / append_file: 5 slots for Result.
+      // Calls to struct-returning functions need space
+      // for the struct copy in the caller's frame.
       Insn::Call { name, .. } => {
         let fn_name = interner.get(*name);
 
@@ -506,7 +508,32 @@ pub fn allocate_function(
           "write_file" | "append_file" => {
             struct_slots += 5;
           }
-          _ => {}
+          _ => {
+            // Check if callee returns a struct by
+            // scanning for FunDef(name) ... StructConstruct
+            // ... Return in the full SIR.
+            let mut in_fn = false;
+            let mut last_fields: Option<u32> = None;
+
+            for other in insns.iter() {
+              match other {
+                Insn::FunDef { name: fn_name2, .. } => {
+                  in_fn = *fn_name2 == *name;
+                  last_fields = None;
+                }
+                Insn::StructConstruct { fields, .. } if in_fn => {
+                  last_fields = Some(fields.len() as u32);
+                }
+                Insn::Return { value: Some(_), .. } if in_fn => {
+                  if let Some(n) = last_fields {
+                    struct_slots += n;
+                  }
+                  break;
+                }
+                _ => {}
+              }
+            }
+          }
         }
       }
       _ => {}

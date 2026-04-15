@@ -1,4 +1,4 @@
--- tests-build-pass: struct with default values and field access.
+-- tests-build-pass: struct with default values and ::default().
 -- @cmd — zo build struct-rect.zo
 
 struct Rect {
@@ -16,7 +16,7 @@ fun f(rect: Rect, x: int, y: int, w: int, h: int) {
 }
 
 fun main() {
-  imu r1: Rect = Rect { x: 10, y: 20, w: 100, h: 200 };
+  imu r1: Rect = Rect::default();
 
   check@eq(r1.x, 10);
   check@eq(r1.y, 20);

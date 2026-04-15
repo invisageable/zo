@@ -2,32 +2,20 @@
 -- @cmd — zo build sqrt.zo
 
 fun isqrt(n: int) -> int {
-  if n < 2 {
-    return n;
-  }
+  mut l: int = 0;
+  mut h: int = n;
 
-  mut low: int = 1;
-  mut high: int = n / 2;
-  mut result: int = 1;
-
-  while low <= high {
-    imu diff: int = high - low;
-    imu mid: int = low + diff / 2;
-    imu square: int = mid * mid;
-
-    if square == n {
-      return mid;
-    }
-
-    if square < n {
-      result = mid;
-      low = mid + 1;
+  while l <= h {
+    imu m: int = (l + h) / 2;
+    
+    if m * m <= n {
+      l = m + 1;
     } else {
-      high = mid - 1;
+      h = m - 1;
     }
   }
 
-  return result;
+  return h;
 }
 
 fun main() {
@@ -38,4 +26,6 @@ fun main() {
   check@eq(isqrt(16), 4);
   check@eq(isqrt(100), 10);
   check@eq(isqrt(144), 12);
+
+  showln(isqrt(144)); -- prints `12`
 }

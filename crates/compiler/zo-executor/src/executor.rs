@@ -5406,6 +5406,8 @@ impl<'a> Executor<'a> {
 
     // Parse fields: name: Type, name: Type = default, ...
     let mut fields: Vec<(Symbol, TyId, bool)> = Vec::new();
+    // Default value tree indices: (token, node_index, field_ty).
+    let mut default_nodes: Vec<Option<(Token, usize, TyId)>> = Vec::new();
 
     while idx < end_idx {
       match self.tree.nodes[idx].token {
@@ -5450,10 +5452,18 @@ impl<'a> Executor<'a> {
 
             if has_default {
               idx += 1; // skip =
-              // Skip the default value expression.
+
+              // Capture the default value node.
               if idx < end_idx {
+                let def_tok = self.tree.nodes[idx].token;
+
+                default_nodes.push(Some((def_tok, idx, fty)));
                 idx += 1;
+              } else {
+                default_nodes.push(None);
               }
+            } else {
+              default_nodes.push(None);
             }
 
             fields.push((fname, fty, has_default));
@@ -5472,9 +5482,133 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::StructDef {
       name,
       ty_id,
-      fields,
+      fields: fields.clone(),
       pubness,
     });
+
+    // Auto-generate `Type::default()` if all fields have
+    // default values. Emits a synthetic FunDef that constructs
+    // the struct with the default literals.
+    let all_have_defaults =
+      !fields.is_empty() && default_nodes.iter().all(|d| d.is_some());
+
+    if all_have_defaults {
+      let type_str = self.interner.get(name).to_owned();
+      let fn_name = self.interner.intern(&format!("{type_str}::default"));
+
+      let body_start = (self.sir.instructions.len() + 1) as u32;
+
+      self.sir.emit(Insn::FunDef {
+        name: fn_name,
+        params: vec![],
+        return_ty: ty_id,
+        body_start,
+        kind: FunctionKind::UserDefined,
+        pubness,
+      });
+
+      // Emit default value constants.
+      let mut field_sirs = Vec::with_capacity(fields.len());
+
+      for (tok, node_idx, fty) in default_nodes.iter().flatten() {
+        let dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        let sv = match tok {
+          Token::Int => {
+            let value = match self.node_value(*node_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.int_literals[lit as usize]
+              }
+              _ => 0,
+            };
+
+            self.sir.emit(Insn::ConstInt {
+              dst,
+              value,
+              ty_id: *fty,
+            })
+          }
+          Token::Float => {
+            let value = match self.node_value(*node_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.float_literals[lit as usize]
+              }
+              _ => 0.0,
+            };
+
+            self.sir.emit(Insn::ConstFloat {
+              dst,
+              value,
+              ty_id: *fty,
+            })
+          }
+          Token::True => self.sir.emit(Insn::ConstBool {
+            dst,
+            value: true,
+            ty_id: *fty,
+          }),
+          Token::False => self.sir.emit(Insn::ConstBool {
+            dst,
+            value: false,
+            ty_id: *fty,
+          }),
+          Token::String => {
+            let symbol = match self.node_value(*node_idx) {
+              Some(NodeValue::Literal(lit)) => {
+                self.literals.identifiers[lit as usize]
+              }
+              Some(NodeValue::Symbol(sym)) => sym,
+              _ => self.interner.intern(""),
+            };
+
+            self.sir.emit(Insn::ConstString {
+              dst,
+              symbol,
+              ty_id: *fty,
+            })
+          }
+          _ => {
+            // Unsupported default expression type.
+            self.sir.emit(Insn::ConstInt {
+              dst,
+              value: 0,
+              ty_id: *fty,
+            })
+          }
+        };
+
+        field_sirs.push(sv);
+      }
+
+      // Emit StructConstruct + Return.
+      let construct_dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      let construct_sv = self.sir.emit(Insn::StructConstruct {
+        dst: construct_dst,
+        struct_name: name,
+        fields: field_sirs,
+        ty_id,
+      });
+
+      self.sir.emit(Insn::Return {
+        value: Some(construct_sv),
+        ty_id,
+      });
+
+      // Register the synthetic function.
+      self.funs.push(FunDef {
+        name: fn_name,
+        params: vec![],
+        return_ty: ty_id,
+        body_start,
+        kind: FunctionKind::UserDefined,
+        pubness,
+        type_params: vec![],
+        return_type_args: vec![],
+      });
+    }
 
     self.skip_until = end_idx;
   }
