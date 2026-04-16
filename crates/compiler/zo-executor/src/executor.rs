@@ -2667,6 +2667,68 @@ impl<'a> Executor<'a> {
           }
         }
 
+        // Abstract operator dispatch: if operands are
+        // structs with an Eq impl, call Type::eq instead
+        // of emitting a primitive BinOp.
+        if matches!(op, BinOp::Eq | BinOp::Neq) {
+          let resolved = self.ty_checker.kind_of(ty_id);
+
+          let type_name = match resolved {
+            Ty::Struct(sid) => {
+              self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+            }
+            _ => None,
+          };
+
+          if let Some(tname) = type_name {
+            let eq_sym = self.interner.intern("Eq");
+
+            if self.abstract_impls.contains_key(&(eq_sym, tname)) {
+              let ts = self.interner.get(tname).to_owned();
+              let mangled = format!("{ts}::eq");
+              let eq_fn = self.interner.intern(&mangled);
+
+              if self.funs.iter().any(|f| f.name == eq_fn) {
+                let call_dst = ValueId(self.sir.next_value_id);
+                self.sir.next_value_id += 1;
+
+                let bool_ty = self.ty_checker.bool_type();
+                let mut call_sir = self.sir.emit(Insn::Call {
+                  dst: call_dst,
+                  name: eq_fn,
+                  args: vec![lhs_sir, rhs_sir],
+                  ty_id: bool_ty,
+                });
+
+                // Neq: negate the result.
+                if op == BinOp::Neq {
+                  let neg_dst = ValueId(self.sir.next_value_id);
+                  self.sir.next_value_id += 1;
+
+                  call_sir = self.sir.emit(Insn::UnOp {
+                    dst: neg_dst,
+                    op: UnOp::Not,
+                    rhs: call_sir,
+                    ty_id: bool_ty,
+                  });
+                }
+
+                let runtime_id = self.values.store_runtime(0);
+
+                self.value_stack.push(runtime_id);
+                self.ty_stack.push(bool_ty);
+                self.sir_values.push(call_sir);
+                self.annotations.push(Annotation {
+                  node_idx,
+                  ty_id: bool_ty,
+                });
+
+                return;
+              }
+            }
+          }
+        }
+
         // Comparison ops produce bool for the type
         // stack; the SIR keeps the operand type so
         // codegen can distinguish int vs float.

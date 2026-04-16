@@ -1,0 +1,30 @@
+-- tests-build-pass: Eq abstract operator overloading.
+-- @cmd — zo build abstract-eq.zo
+
+struct Point {
+  x: int,
+  y: int,
+}
+
+apply Eq for Point {
+  fun eq(self, other: Point) -> bool {
+    return self.x == other.x;
+  }
+}
+
+fun main() {
+  imu a: Point = Point { x: 10, y: 20 };
+  imu b: Point = Point { x: 10, y: 99 };
+  imu c: Point = Point { x: 5, y: 20 };
+
+  -- == dispatches to Point::eq.
+  check(a == b);
+
+  -- != dispatches to !Point::eq.
+  check(a != c);
+
+  showln("done");
+}
+
+-- EXPECTED OUTPUT:
+-- done
