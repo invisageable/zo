@@ -12,10 +12,11 @@ pub(crate) mod unary;
 use crate::tests::common::assert_nodes_stream;
 
 use zo_token::Token::{
-  Arrow, As, BoolType, CharType, Colon, ColonEq, Comma, Dot, DotDot, DotDotEq,
-  Else, Eq, False, FloatType, For, Fun, Gt, Ident, If, Imu, Int, IntType,
-  LBrace, LBracket, LParen, Lt, Minus, Mut, Plus, RBrace, RBracket, RParen,
-  Return, S32Type, Semicolon, Star, True, While,
+  Abstract, Apply, Arrow, As, BoolType, CharType, Colon, ColonEq, Comma, Dot,
+  DotDot, DotDotEq, Else, Eq, Ext, False, FloatType, For, Fun, Gt, Ident, If,
+  Imu, Int, IntType, LBrace, LBracket, LParen, Lt, Minus, Mut, Plus, RBrace,
+  RBracket, RParen, Return, S32Type, SelfLower, Semicolon, Star, StrType, True,
+  While,
 };
 use zo_tree::NodeValue;
 
@@ -999,6 +1000,63 @@ fn test_as_cast_in_variable_decl() {
       (FloatType, None),                          // 12
       (Semicolon, None),                          // 13
       (RBrace, None),                             // 14
+    ],
+  );
+}
+
+// === ABSTRACT ===
+
+#[test]
+fn test_abstract_empty() {
+  assert_nodes_stream(
+    "abstract Show {}",
+    &[
+      (Abstract, None),
+      (Ident, Some(NodeValue::TextRange(9, 4))),
+      (LBrace, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
+fn test_abstract_with_method() {
+  // abstract method = fun signature ending with ;
+  // Parser treats fun inside abstract as Ext (no body).
+  assert_nodes_stream(
+    r#"abstract Show {
+  fun display(self) -> str;
+}"#,
+    &[
+      (Abstract, None),
+      (Ident, Some(NodeValue::TextRange(9, 4))),
+      (LBrace, None),
+      (Ext, None),
+      (Ident, Some(NodeValue::TextRange(20, 7))),
+      (LParen, None),
+      (SelfLower, None),
+      (RParen, None),
+      (Arrow, None),
+      (StrType, None),
+      (Semicolon, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
+fn test_apply_for_tree_order() {
+  // `apply Show for Point {}` — For and Point Ident
+  // appear after Show Ident (flush_expr before For).
+  assert_nodes_stream(
+    "apply Show for Point {}",
+    &[
+      (Apply, None),
+      (Ident, Some(NodeValue::TextRange(6, 4))),
+      (For, None),
+      (Ident, Some(NodeValue::TextRange(15, 5))),
+      (LBrace, None),
+      (RBrace, None),
     ],
   );
 }

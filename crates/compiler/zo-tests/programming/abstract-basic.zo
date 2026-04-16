@@ -1,0 +1,26 @@
+-- tests-build-pass: abstract definition + apply for type.
+-- @cmd — zo build abstract-basic.zo
+
+abstract Display {
+  fun display(self) -> str;
+}
+
+struct Point {
+  x: int,
+  y: int,
+}
+
+apply Display for Point {
+  fun display(self) -> str {
+    return "point";
+  }
+}
+
+fun main() {
+  imu p: Point = Point { x: 10, y: 20 };
+  showln(p.display());
+  check@eq(p.display(), "point");
+}
+
+-- EXPECTED OUTPUT:
+-- point
