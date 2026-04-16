@@ -1,0 +1,31 @@
+-- tests-build-pass: generic constraints with abstract dispatch.
+-- @cmd — zo build abstract-generic-constraint.zo
+
+struct Point {
+  x: int,
+  y: int,
+}
+
+apply Eq for Point {
+  fun eq(self, other: Point) -> bool {
+    return self.x == other.x;
+  }
+}
+
+fun are_equal<$T: Eq>(a: $T, b: $T) -> bool {
+  return a.eq(b);
+}
+
+fun main() {
+  imu a: Point = Point { x: 10, y: 20 };
+  imu b: Point = Point { x: 10, y: 99 };
+  imu c: Point = Point { x: 5, y: 20 };
+
+  check(are_equal(a, b));
+  check(are_equal(a, c) == false);
+
+  showln("done");
+}
+
+-- EXPECTED OUTPUT:
+-- done

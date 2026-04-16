@@ -34,7 +34,7 @@ fn test_complete_pipeline_hello_world() {
     &mut ty_checker,
   );
 
-  let (sir, _annotations, _) = executor.execute();
+  let (sir, _annotations, _, _) = executor.execute();
 
   assert_eq!(sir.instructions.len(), 4);
 
@@ -115,7 +115,7 @@ fn compile_to_code(source: &str) -> Vec<u8> {
     &mut ty_checker,
   );
 
-  let (sir, _, _) = executor.execute();
+  let (sir, _, _, _) = executor.execute();
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
@@ -266,7 +266,7 @@ fn test_string_index_emits_ldrb() {
     &tokenization.literals,
     &mut ty_checker,
   );
-  let (sir, _, _) = executor.execute();
+  let (sir, _, _, _) = executor.execute();
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
@@ -302,7 +302,7 @@ fn test_string_index_check_eq_char() {
     &tokenization.literals,
     &mut ty_checker,
   );
-  let (sir, _, _) = executor.execute();
+  let (sir, _, _, _) = executor.execute();
 
   // Verify ArrayIndex has char type.
   let arr_idx = sir.instructions.iter().find_map(|i| {

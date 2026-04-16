@@ -124,6 +124,9 @@ pub struct Executor<'a> {
   /// Active type parameters: `$T → TyId`. Set during
   /// generic function definition, cleared after.
   type_params: Vec<(Symbol, TyId)>,
+  /// Generic constraints: `$T: Eq` maps the type param
+  /// name to the abstract name. Verified at call site.
+  type_constraints: HashMap<Symbol, Symbol>,
   /// Buffered closure SIR instructions. Closures emit
   /// their FunDef + body here during execution. Flushed
   /// to `self.sir` after the enclosing function's Return
@@ -151,15 +154,15 @@ pub struct Executor<'a> {
 }
 
 /// An `abstract` definition (method signatures, no bodies).
-struct AbstractDef {
-  methods: Vec<AbstractMethod>,
+pub struct AbstractDef {
+  pub methods: Vec<AbstractMethod>,
 }
 
 /// A single method signature in an abstract definition.
-struct AbstractMethod {
-  name: Symbol,
-  params: Vec<(Symbol, TyId)>,
-  return_ty: TyId,
+pub struct AbstractMethod {
+  pub name: Symbol,
+  pub params: Vec<(Symbol, TyId)>,
+  pub return_ty: TyId,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -221,6 +224,7 @@ impl<'a> Executor<'a> {
       apply_context: None,
       global_constants: Vec::new(),
       type_params: Vec::new(),
+      type_constraints: HashMap::new(),
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       pending_styles: Vec::new(),
@@ -317,9 +321,11 @@ impl<'a> Executor<'a> {
     funs: Vec<FunDef>,
     vars: Vec<Local>,
     enums: Vec<zo_module_resolver::ExportedEnum>,
+    abstract_defs: HashMap<Symbol, AbstractDef>,
   ) -> Self {
     self.funs = funs;
     self.locals.extend(vars);
+    self.abstract_defs.extend(abstract_defs);
 
     // Defer enum interning to first use to avoid TyId counter
     // shifts that would pollute HM unification. Raw export
@@ -331,7 +337,14 @@ impl<'a> Executor<'a> {
   }
 
   /// Executes a parse tree in one pass to build semantic IR.
-  pub fn execute(mut self) -> (Sir, Vec<Annotation>, Vec<FunDef>) {
+  pub fn execute(
+    mut self,
+  ) -> (
+    Sir,
+    Vec<Annotation>,
+    Vec<FunDef>,
+    HashMap<Symbol, AbstractDef>,
+  ) {
     for idx in 0..self.tree.nodes.len() {
       if idx < self.skip_until {
         continue;
@@ -368,7 +381,7 @@ impl<'a> Executor<'a> {
     // for each instantiation.
     self.monomorphize();
 
-    (self.sir, self.annotations, self.funs)
+    (self.sir, self.annotations, self.funs, self.abstract_defs)
   }
 
   /// Returns true if the token introduces a statement —
@@ -3966,6 +3979,18 @@ impl<'a> Executor<'a> {
             let var = self.ty_checker.fresh_var();
 
             self.type_params.push((sym, var));
+
+            // Check for constraint: $T: Abstract.
+            if idx + 2 < _end_idx
+              && self.tree.nodes[idx + 1].token == Token::Colon
+              && self.tree.nodes[idx + 2].token == Token::Ident
+            {
+              if let Some(NodeValue::Symbol(abs)) = self.node_value(idx + 2) {
+                self.type_constraints.insert(sym, abs);
+              }
+
+              idx += 2; // skip : and Ident
+            }
           }
         }
 
@@ -5927,11 +5952,12 @@ impl<'a> Executor<'a> {
         abstract_name = Some(first_name);
 
         // Next Ident after For is the target type.
-        if scan + 1 < end_idx && self.tree.nodes[scan + 1].token == Token::Ident
+        if scan + 1 < end_idx
+          && self.tree.nodes[scan + 1].token == Token::Ident
+          && let Some(NodeValue::Symbol(s)) =
+            self.node_value(scan + 1)
         {
-          if let Some(NodeValue::Symbol(s)) = self.node_value(scan + 1) {
-            type_name = s;
-          }
+          type_name = s;
         }
 
         break;
@@ -6250,6 +6276,21 @@ impl<'a> Executor<'a> {
       return ms == "push" || ms == "pop";
     }
 
+    // Generic type param: if the method is an abstract method,
+    // this is a valid method call (resolved at mono time).
+    if matches!(resolved, Ty::Infer(_)) {
+      let ms = self.interner.get(member_name).to_owned();
+
+      let is_abstract_method = self
+        .abstract_defs
+        .values()
+        .any(|d| d.methods.iter().any(|m| self.interner.get(m.name) == ms));
+
+      if is_abstract_method {
+        return true;
+      }
+    }
+
     // Resolve receiver type name for struct/enum methods.
     let type_name = match resolved {
       Ty::Struct(sid) => {
@@ -6307,6 +6348,14 @@ impl<'a> Executor<'a> {
     // Resolve the type to get the type name.
     let resolved = self.ty_checker.kind_of(ty_id);
 
+    // Generic type param: emit placeholder for mono rewrite.
+    if matches!(resolved, Ty::Infer(_)) {
+      let ms = self.interner.get(method_name).to_owned();
+      let placeholder = format!("__abstract::{ms}");
+
+      return self.interner.intern(&placeholder);
+    }
+
     let type_name = match resolved {
       Ty::Struct(sid) => {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
@@ -6356,6 +6405,13 @@ impl<'a> Executor<'a> {
 
     let resolved = self.ty_checker.kind_of(ty_id);
 
+    if matches!(resolved, Ty::Infer(_)) {
+      let ms = self.interner.get(method_name).to_owned();
+      let placeholder = format!("__abstract::{ms}");
+
+      return self.interner.intern(&placeholder);
+    }
+
     let type_name = match resolved {
       Ty::Struct(sid) => {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
@@ -6390,6 +6446,67 @@ impl<'a> Executor<'a> {
     lparen_idx: usize,
     rparen_idx: usize,
   ) {
+    // Placeholder calls (__abstract::method) don't have a
+    // matching FunDef. Emit the Call directly — the mono
+    // pass will rewrite the name to the concrete method.
+    let name_str = self.interner.get(mangled_name);
+
+    if name_str.starts_with("__abstract::") {
+      // Pop explicit args first, then receiver — same
+      // order as the non-abstract dot-call path.
+      let has_content = lparen_idx + 1 < rparen_idx;
+      let mut comma_count = 0;
+
+      for i in (lparen_idx + 1)..rparen_idx {
+        if self.tree.nodes[i].token == Token::Comma {
+          comma_count += 1;
+        }
+      }
+
+      let explicit_args = if has_content { comma_count + 1 } else { 0 };
+
+      let mut arg_sirs = Vec::with_capacity(explicit_args + 1);
+
+      // Pop explicit args (reverse order from stack).
+      for _ in 0..explicit_args {
+        if let Some(sir) = self.sir_values.pop() {
+          arg_sirs.push(sir);
+        }
+        self.value_stack.pop();
+        self.ty_stack.pop();
+      }
+
+      arg_sirs.reverse();
+
+      // Pop receiver (self).
+      if let Some(recv) = self.sir_values.pop() {
+        arg_sirs.insert(0, recv);
+      }
+      self.value_stack.pop();
+      self.ty_stack.pop();
+
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      // Use a generic return type — resolved at mono time.
+      let ret_ty = self.ty_checker.fresh_var();
+
+      let result_sir = self.sir.emit(Insn::Call {
+        dst,
+        name: mangled_name,
+        args: arg_sirs,
+        ty_id: ret_ty,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.value_stack.push(rid);
+      self.ty_stack.push(ret_ty);
+      self.sir_values.push(result_sir);
+
+      return;
+    }
+
     let func = self.funs.iter().find(|f| f.name == mangled_name).cloned();
 
     let func = match func {
@@ -8468,9 +8585,11 @@ impl<'a> Executor<'a> {
       let mut param_types: Vec<TyId> =
         func.params.iter().map(|(_, ty)| *ty).collect();
 
+      let mut subs: Vec<(TyId, TyId)> = Vec::new();
+
       if !func.type_params.is_empty() {
         // Build substitution: old var → fresh var.
-        let subs: Vec<(TyId, TyId)> = func
+        subs = func
           .type_params
           .iter()
           .map(|old| (*old, self.ty_checker.fresh_var()))
@@ -8519,15 +8638,38 @@ impl<'a> Executor<'a> {
         let base = self.interner.get(func.name).to_owned();
         let mut mangled = base;
 
-        for tp in &func.type_params {
-          let resolved = self.ty_checker.resolve_id(*tp);
+        for (i, tp) in func.type_params.iter().enumerate() {
+          // Use the substituted fresh var (unified with
+          // the concrete type), not the original var.
+          let actual = subs.get(i).map(|(_, new)| *new).unwrap_or(*tp);
+          let resolved = self.ty_checker.resolve_id(actual);
           let ty = self.ty_checker.resolve_ty(resolved);
+          let ty_name_owned: String;
+
           let ty_name = match ty {
             Ty::Int { .. } => "int",
             Ty::Float(_) => "float",
             Ty::Bool => "bool",
             Ty::Str => "str",
             Ty::Char => "char",
+            Ty::Struct(sid) => {
+              ty_name_owned = self
+                .ty_checker
+                .ty_table
+                .struct_ty(sid)
+                .map(|s| self.interner.get(s.name).to_owned())
+                .unwrap_or_else(|| "unknown".into());
+              &ty_name_owned
+            }
+            Ty::Enum(eid) => {
+              ty_name_owned = self
+                .ty_checker
+                .ty_table
+                .enum_ty(eid)
+                .map(|e| self.interner.get(e.name).to_owned())
+                .unwrap_or_else(|| "unknown".into());
+              &ty_name_owned
+            }
             _ => "unknown",
           };
 
@@ -8694,7 +8836,6 @@ impl<'a> Executor<'a> {
               });
 
               arg_sirs = vec![show_result];
-              arg_types = vec![self.ty_checker.str_type()];
             }
           }
         }
@@ -9230,12 +9371,43 @@ impl<'a> Executor<'a> {
         continue;
       };
 
-      // Clone the SIR range.
+      // Clone the SIR range and offset ValueIds to avoid
+      // collisions with existing instructions.
       let mut cloned: Vec<Insn> = self.sir.instructions[*start..=*end].to_vec();
+      let offset = self.sir.next_value_id;
+
+      Sir::offset_value_ids(&mut cloned, offset);
+      self.sir.next_value_id += offset;
 
       // Replace the FunDef name with the mangled name.
       if let Some(Insn::FunDef { name, .. }) = cloned.first_mut() {
         *name = *mono_name;
+      }
+
+      // Rewrite __abstract:: placeholder Calls with the
+      // concrete type name from the mangled function name.
+      // e.g., are_equal__Point → type_name = "Point"
+      // __abstract::eq → Point::eq
+      let mono_str = self.interner.get(*mono_name).to_owned();
+      let gen_str = self.interner.get(*gen_name).to_owned();
+
+      if mono_str.len() > gen_str.len() + 2 {
+        let type_suffix = &mono_str[gen_str.len() + 2..]; // skip "__"
+
+        for insn in cloned.iter_mut() {
+          if let Insn::Call { name, .. } = insn {
+            let call_str = self.interner.get(*name).to_owned();
+
+            if let Some(method) =
+              call_str.strip_prefix("__abstract::")
+            {
+              let concrete =
+                format!("{type_suffix}::{method}");
+
+              *name = self.interner.intern(&concrete);
+            }
+          }
+        }
       }
 
       // Insert BEFORE the last function (main) so DCE

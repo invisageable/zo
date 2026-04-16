@@ -39,7 +39,7 @@ fun main() {
 
       // Preloaded + main. Abstract methods don't emit FunDefs.
       assert!(
-        !has_display || user_funs.len() >= 1,
+        !has_display || !user_funs.is_empty(),
         "abstract should not emit FunDef for method signatures"
       );
     },

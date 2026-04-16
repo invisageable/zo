@@ -4,4 +4,4 @@ mod html_inline;
 #[cfg(test)]
 mod tests;
 
-pub use executor::Executor;
+pub use executor::{AbstractDef, AbstractMethod, Executor};

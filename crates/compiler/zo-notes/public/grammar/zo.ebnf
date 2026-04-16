@@ -62,8 +62,10 @@ ext_decl = "ext", identifier, "(", [ param_list ], ")", "->", type, ";" ;
 
 (* ===== Abstract Declaration ===== *)
 
-abstract_decl = "abstract", identifier, "{", { abstract_method }, "}" ;
-abstract_method = "fun", identifier, "(", [ param_list ], ")", [ "->", type ], ";" ;
+abstract_decl = "abstract", identifier, "{", { abstract_member }, "}" ;
+abstract_member = abstract_signature | abstract_default ;
+abstract_signature = "fun", identifier, "(", [ param_list ], ")", [ "->", type ], ";" ;
+abstract_default = fun_decl ;
 
 (* ===== Apply Declaration ===== *)
 

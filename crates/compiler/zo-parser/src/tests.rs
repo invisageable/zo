@@ -13,7 +13,7 @@ use crate::tests::common::assert_nodes_stream;
 
 use zo_token::Token::{
   Abstract, Apply, Arrow, As, BoolType, CharType, Colon, ColonEq, Comma, Dot,
-  DotDot, DotDotEq, Else, Eq, Ext, False, FloatType, For, Fun, Gt, Ident, If,
+  DotDot, DotDotEq, Else, Eq, False, FloatType, For, Fun, Gt, Ident, If,
   Imu, Int, IntType, LBrace, LBracket, LParen, Lt, Minus, Mut, Plus, RBrace,
   RBracket, RParen, Return, S32Type, SelfLower, Semicolon, Star, StrType, True,
   While,
@@ -1022,7 +1022,7 @@ fn test_abstract_empty() {
 #[test]
 fn test_abstract_with_method() {
   // abstract method = fun signature ending with ;
-  // Parser treats fun inside abstract as Ext (no body).
+  // Fun inside Abstract closes on Semicolon (ancestor check).
   assert_nodes_stream(
     r#"abstract Show {
   fun display(self) -> str;
@@ -1031,7 +1031,7 @@ fn test_abstract_with_method() {
       (Abstract, None),
       (Ident, Some(NodeValue::TextRange(9, 4))),
       (LBrace, None),
-      (Ext, None),
+      (Fun, None),
       (Ident, Some(NodeValue::TextRange(20, 7))),
       (LParen, None),
       (SelfLower, None),

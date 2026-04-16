@@ -10,10 +10,12 @@ fun shuffle(nums: []int, n: int) -> []int {
 
   while count < n * 2 {
     if count % 2 == 0 {
-      -- TODO: ans.push(nums[i]); — array push not implemented.
+      ans.push(nums[i]);
+
       i = i + 1;
     } else {
-      -- TODO: ans.push(nums[n + j]);
+      ans.push(nums[n + j]);
+
       j = j + 1;
     }
 
@@ -27,7 +29,8 @@ fun main() {
   imu nums: []int = [2, 5, 1, 3, 4, 7];
   imu result: []int = shuffle(nums, 3);
 
-  check(nums.len == 6);
-  check(result.len == 6);
+  check@eq(nums.len, 6);
+  check@eq(result.len, 6);
+
   showln(result);
 }

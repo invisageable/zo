@@ -61,7 +61,7 @@ fn test_template_var_registered() {
     &mut ty_checker,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -96,7 +96,7 @@ fn test_template_interp_str_variable() {
     &mut ty_checker,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -129,7 +129,7 @@ fn test_template_interp_int_variable() {
     &mut ty_checker,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -163,7 +163,7 @@ fn test_template_interp_multiple_vars() {
     &mut ty_checker,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -196,7 +196,7 @@ fn test_template_interp_named_tag() {
     &mut ty_checker,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -255,7 +255,7 @@ fn test_template_attr_interpolation() {
     &mut ty_checker,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -740,7 +740,7 @@ fn test_html_directive_smoke() {
     &mut ty_checker,
   );
 
-  let (sir, _, _) = executor.execute();
+  let (sir, _, _, _) = executor.execute();
 
   // Print the rendered template commands. Visible with
   // `--nocapture`.

@@ -209,18 +209,7 @@ impl<'a> Parser<'a> {
 
       // Introducers - these start new contexts
       Token::Fun | Token::Ext | Token::Fn => {
-        // Inside `abstract { ... }`, `fun` starts a method
-        // signature (no body, ends with `;`). Treat like Ext.
-        if self
-          .introducer_stack
-          .iter()
-          .any(|i| i.token == Token::Abstract)
-          && kind == Token::Fun
-        {
-          self.handle_fun_introducer(Token::Ext);
-        } else {
-          self.handle_fun_introducer(kind);
-        }
+        self.handle_fun_introducer(kind);
       }
       Token::Enum => self.handle_enum_keyword(),
       Token::Struct => self.handle_struct_keyword(),
@@ -503,6 +492,22 @@ impl<'a> Parser<'a> {
             let value = self.extract_value(Token::Ident);
 
             self.emit_node_internal(Token::Ident, span, value);
+
+            // Optional constraint: $T: Abstract.
+            if self.peek() == Some(Token::Colon) {
+              self.pos += 1;
+              let span = self.current_span();
+
+              self.emit_node_internal(Token::Colon, span, None);
+
+              if self.peek() == Some(Token::Ident) {
+                self.pos += 1;
+                let span = self.current_span();
+                let value = self.extract_value(Token::Ident);
+
+                self.emit_node_internal(Token::Ident, span, value);
+              }
+            }
           }
         }
         Token::Comma => {
@@ -980,6 +985,17 @@ impl<'a> Parser<'a> {
           self.close_introducer();
         }
         Token::Fn | Token::When => {
+          self.close_introducer();
+        }
+        // Abstract method: `fun show(self) -> str;`
+        // The Fun introducer closes on `;` when inside
+        // an Abstract block (no body expected).
+        Token::Fun
+          if self
+            .introducer_stack
+            .iter()
+            .any(|i| i.token == Token::Abstract) =>
+        {
           self.close_introducer();
         }
         Token::Return
