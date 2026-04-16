@@ -4505,6 +4505,56 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Narrow a default-typed integer literal's SIR `ConstInt`
+  /// type to `target_ty`.
+  ///
+  /// Integer literals are parsed with the default integer type
+  /// (`int` = s32). When used in a context that expects a
+  /// different concrete integer type — a type annotation like
+  /// `imu x: uint = 10` or a comparison like `check@eq(x, 10)`
+  /// where `x: u64` — the literal's `ConstInt.ty_id` is
+  /// rewritten to `target_ty` so unification succeeds. This
+  /// matches Rust's polymorphic integer literal behavior while
+  /// keeping all type flow explicit and local.
+  ///
+  /// Returns `true` when the rewrite happened.
+  ///
+  /// Scope: direct literals only. Expressions like `10 + 5`
+  /// produce a `BinOp` whose result is s32; retyping those is
+  /// a broader change (polymorphic literal propagation) and is
+  /// not attempted here.
+  fn narrow_int_literal(
+    &mut self,
+    sir_val: ValueId,
+    src_ty: TyId,
+    target_ty: TyId,
+  ) -> bool {
+    let default_int_ty = self.ty_checker.int_type();
+
+    if src_ty != default_int_ty || target_ty == default_int_ty {
+      return false;
+    }
+
+    if !matches!(self.ty_checker.kind_of(target_ty), Ty::Int { .. }) {
+      return false;
+    }
+
+    if let Some(insn) = self
+      .sir
+      .instructions
+      .iter_mut()
+      .rev()
+      .find(|i| matches!(i, Insn::ConstInt { dst, .. } if *dst == sir_val))
+      && let Insn::ConstInt { ty_id: cty, .. } = insn
+    {
+      *cty = target_ty;
+
+      return true;
+    }
+
+    false
+  }
+
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
   fn finalize_pending_decl(&mut self) {
@@ -4513,10 +4563,17 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    if let (Some(init_value), Some(init_ty)) =
+    if let (Some(init_value), Some(mut init_ty)) =
       (self.value_stack.pop(), self.ty_stack.pop())
     {
       let sir_init = self.sir_values.pop();
+
+      // Narrow a default-typed int literal to the annotation.
+      if let (Some(ann_ty), Some(sv)) = (decl.annotated_ty, sir_init)
+        && self.narrow_int_literal(sv, init_ty, ann_ty)
+      {
+        init_ty = ann_ty;
+      }
 
       // Unify annotated type with init type. For enum values,
       // the annotation `Option<int>` can't be fully parsed yet
@@ -9056,6 +9113,22 @@ impl<'a> Executor<'a> {
       (str_ty, str_sir)
     } else {
       (lhs_ty, lhs_sir)
+    };
+
+    // Narrow default-typed int literals to the other operand's
+    // integer type. Handles `check@eq(x, 10)` where `x: uint`
+    // but the literal `10` was parsed as the default `int`.
+    let (lhs_ty, rhs_ty) = {
+      let mut lt = lhs_ty;
+      let mut rt = rhs_ty;
+
+      if self.narrow_int_literal(rhs_sir, rt, lt) {
+        rt = lt;
+      } else if self.narrow_int_literal(lhs_sir, lt, rt) {
+        lt = rt;
+      }
+
+      (lt, rt)
     };
 
     // Unify operand types.
