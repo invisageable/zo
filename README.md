@@ -50,6 +50,26 @@ OUR GOAL iS TO CREATE HiGH-PERFORMANCE, NEXT-GENERATiON SOFTWARE BY REDEFiNiNG U
 
 JOiN THE DEVOLUTiON.
 
+## features.
+
+  __-developer-experience__
+  - zsx (zo syntax extension) — *first-class ui syntax inspired by `E4X` but fully `type-safe`.*
+    - build native apps — *`gpu` (egui) and `js` (wry) with a single codebase.*
+  - user-friendly `error` messages — *like elm, for faster debugging.*
+  - expressive and concise — *syntax designed for maximum readability and minimal boilerplate.*
+  - full-battery `tools` — *native REPL, code editor, and built-in package manager, etc.*
+
+  __-type-safety__
+  - statically, strongly typed — *total control over your program from A to Z.*
+  - meticulous `type system` — *type inference, monomorphization, `typestate`.*
+  - safe concurrency — *robust erlang-like actor model.*
+  - meta-language — *`run code at compile-time via #asm`, `#dom`, `#run` (directives).*
+
+  __-performance-and-compilation__
+  - high-speed `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
+  - algebraic `optimization` — *folding, propagation.*
+  - target support — *native support for `arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
+
 ## ecosystem.
 
 THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
@@ -76,7 +96,7 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
 
   - GPU RENDERiNG <sup>egui</sup> (NATiVE APP ONLY) — *low memory footprint, zero runtime fluff*.
-  - NO MORE `electron` APPS (WEB APP ONLY) — *no bloat*.
+  - BYE-BYE `electron` (WEB APP ONLY) — *building lightweight web apps without the bloat.*.
 
 JOiN THE DEVOLUTiON.
 

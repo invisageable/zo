@@ -27,20 +27,39 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
 
 ## features.
 
-  - zsx (zo syntax extension) — *first-class ui syntax inspired by `E4X` but `type-safe`.*
+  __-developer-experience__
+  - zsx (zo syntax extension) — *first-class ui syntax inspired by `E4X` but fully `type-safe`.*
     - build native apps — *`gpu` (egui) and `js` (wry) with a single codebase.*
-  - meticulous `type system` — *type inference, monomorphization, `typestate`.*
-  - meta-language — *`run code at compile-time via #asm`, `#dom`, `#run` (directives).*
-  - safe concurrency — *robust erlang-like actor model.*
-  - algebraic `optimization` — *folding, propagation.*
-  - user-friendly `error` messages — *like elm, for better debugging.*
-  - statically, strongly typed — *total control over your program from A to Z.*
-  - high-speed `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
-  - target support — *native support for `arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
-  - full-battery `tools` — *native REPL, code editor, and built-in package manager, etc.*
+  - user-friendly `error` messages — *like elm, for faster debugging.*
   - expressive and concise — *syntax designed for maximum readability and minimal boilerplate.*
+  - full-battery `tools` — *native REPL, code editor, and built-in package manager, etc.*
+
+  __-type-safety__
+  - statically, strongly typed — *total control over your program from A to Z.*
+  - meticulous `type system` — *type inference, monomorphization, `typestate`.*
+  - safe concurrency — *robust erlang-like actor model.*
+  - meta-language — *`run code at compile-time via #asm`, `#dom`, `#run` (directives).*
+
+  __-performance-and-compilation__
+  - high-speed `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
+  - algebraic `optimization` — *folding, propagation.*
+  - target support — *native support for `arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
 
 > *Be ahead, JOiN THE DEVOLUTiON.*
+
+  ```ts
+  fun main() {
+    mut count: int = 0;
+
+    imu counter: </> ::= <>
+      <button @click={fn() => count -= 1}>-</button>
+      {count}
+      <button @click={fn() => count += 1}>+</button>
+    </>;
+
+    #dom counter;
+  }
+  ```
 
 ## get started.
 
