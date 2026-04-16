@@ -193,7 +193,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -369,7 +369,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _) = executor.execute();
+  let (_, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(

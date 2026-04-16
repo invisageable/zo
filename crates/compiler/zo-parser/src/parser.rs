@@ -208,10 +208,13 @@ impl<'a> Parser<'a> {
       Token::Pack => self.handle_pack_statement(),
 
       // Introducers - these start new contexts
-      Token::Fun | Token::Ext | Token::Fn => self.handle_fun_introducer(kind),
+      Token::Fun | Token::Ext | Token::Fn => {
+        self.handle_fun_introducer(kind);
+      }
       Token::Enum => self.handle_enum_keyword(),
       Token::Struct => self.handle_struct_keyword(),
       Token::Apply => self.handle_apply_keyword(),
+      Token::Abstract => self.handle_abstract_keyword(),
       Token::Type => self.handle_type_alias_keyword(),
       Token::Group => self.handle_group_keyword(),
       Token::And => self.handle_and_keyword(),
@@ -332,7 +335,20 @@ impl<'a> Parser<'a> {
       Token::Else => self.handle_else_keyword(),
       Token::When => self.handle_when_keyword(),
       Token::While => self.handle_while_keyword(),
-      Token::For => self.handle_for_keyword(),
+      Token::For => {
+        // Inside `apply X for Y { ... }`, `for` is part of
+        // the apply syntax, not a for-loop.
+        if self
+          .introducer_stack
+          .last()
+          .is_some_and(|i| i.token == Token::Apply)
+        {
+          self.flush_expr();
+          self.emit_node(Token::For);
+        } else {
+          self.handle_for_keyword();
+        }
+      }
       Token::Match => self.handle_match_keyword(),
       Token::Return => self.handle_return_keyword(),
 
@@ -476,6 +492,22 @@ impl<'a> Parser<'a> {
             let value = self.extract_value(Token::Ident);
 
             self.emit_node_internal(Token::Ident, span, value);
+
+            // Optional constraint: $T: Abstract.
+            if self.peek() == Some(Token::Colon) {
+              self.pos += 1;
+              let span = self.current_span();
+
+              self.emit_node_internal(Token::Colon, span, None);
+
+              if self.peek() == Some(Token::Ident) {
+                self.pos += 1;
+                let span = self.current_span();
+                let value = self.extract_value(Token::Ident);
+
+                self.emit_node_internal(Token::Ident, span, value);
+              }
+            }
           }
         }
         Token::Comma => {
@@ -765,7 +797,7 @@ impl<'a> Parser<'a> {
             self.close_introducer();
           } else if matches!(
             parent.token,
-            Token::Enum | Token::Struct | Token::Apply
+            Token::Enum | Token::Struct | Token::Apply | Token::Abstract
           ) {
             self.close_introducer();
           } else if parent.token == Token::Dollar {
@@ -953,6 +985,17 @@ impl<'a> Parser<'a> {
           self.close_introducer();
         }
         Token::Fn | Token::When => {
+          self.close_introducer();
+        }
+        // Abstract method: `fun show(self) -> str;`
+        // The Fun introducer closes on `;` when inside
+        // an Abstract block (no body expected).
+        Token::Fun
+          if self
+            .introducer_stack
+            .iter()
+            .any(|i| i.token == Token::Abstract) =>
+        {
           self.close_introducer();
         }
         Token::Return
@@ -1187,6 +1230,21 @@ impl<'a> Parser<'a> {
     self.introducer_stack.push(Introducer {
       state: self.state,
       token: Token::Struct,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    self.state = ParserState::Expression;
+  }
+
+  fn handle_abstract_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Abstract);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Abstract,
       node_index,
       children_start: self.tree.nodes.len() as u32,
     });

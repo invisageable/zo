@@ -235,6 +235,7 @@ impl Compiler {
     let mut imported_funs = Vec::new();
     let mut imported_vars = Vec::new();
     let mut imported_enums: Vec<zo_module_resolver::ExportedEnum> = Vec::new();
+    let mut imported_abstract_defs = std::collections::HashMap::new();
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
 
@@ -282,6 +283,7 @@ impl Compiler {
         }
 
         imported_enums.extend(exports.enums);
+        imported_abstract_defs.extend(mod_sem.abstract_defs);
 
         module_sir_instructions.extend(exports.sir_instructions);
 
@@ -407,6 +409,7 @@ impl Compiler {
         funs: imported_funs,
         vars: imported_vars,
         enums: imported_enums,
+        abstract_defs: imported_abstract_defs,
       })
     } else {
       analyzer

@@ -11,3 +11,15 @@ pub enum Result<$T, $E> {
   Ok($T),
   Err($E),
 }
+
+-- built-in abstracts.
+
+-! Convert a value to its string representation.
+pub abstract Show {
+  fun show(self) -> str;
+}
+
+-! Equality comparison.
+pub abstract Eq {
+  fun eq(self, other: Self) -> bool;
+}

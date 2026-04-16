@@ -12,6 +12,7 @@ use zo_sir::Insn;
 use zo_span::Span;
 use zo_ui_protocol::{Ui, UiCommand};
 use zo_value::FunctionKind;
+use zo_value::ValueId;
 
 /// Parameters for building reactive event handlers.
 struct ReactiveContext<'a> {
@@ -52,37 +53,49 @@ impl Run {
     let (semantic, _tokenization, _parsing, session) =
       compiler.analyze_source(&source, input_path);
 
-    // Extract UI commands and bindings from templates.
-    let mut ui_commands = Vec::new();
-    let mut text_bindings: Vec<(usize, Symbol)> = Vec::new();
-    let mut attr_bindings: Vec<(usize, zo_ui_protocol::Attr)> = Vec::new();
+    // Collect the set of template ValueIds targeted by `#dom`
+    // directives. Templates are component definitions —
+    // rendering every `Insn::Template` indiscriminately would
+    // also render intermediate components that are only meant
+    // to be inlined into a parent via `<nested />`.
+    let mut dom_targets: Vec<ValueId> = Vec::new();
     let mut has_dom_directive = false;
 
     for insn in &semantic.sir.instructions {
-      match insn {
-        Insn::Template {
-          commands, bindings, ..
-        } => {
-          let base = ui_commands.len();
+      if let Insn::Directive { name, value, .. } = insn
+        && session.interner.get(*name) == "dom"
+      {
+        has_dom_directive = true;
+        dom_targets.push(*value);
+      }
+    }
 
-          ui_commands.extend_from_slice(commands);
+    // Extract UI commands and bindings only from templates
+    // that are actually targeted by a `#dom` directive.
+    let mut ui_commands = Vec::new();
+    let mut text_bindings: Vec<(usize, Symbol)> = Vec::new();
+    let mut attr_bindings: Vec<(usize, zo_ui_protocol::Attr)> = Vec::new();
 
-          for (cmd_idx, sym) in &bindings.text {
-            text_bindings.push((base + cmd_idx, *sym));
-          }
+    for insn in &semantic.sir.instructions {
+      if let Insn::Template {
+        id,
+        commands,
+        bindings,
+        ..
+      } = insn
+        && dom_targets.contains(id)
+      {
+        let base = ui_commands.len();
 
-          for (cmd_idx, attr) in &bindings.attrs {
-            attr_bindings.push((base + cmd_idx, attr.clone()));
-          }
+        ui_commands.extend_from_slice(commands);
+
+        for (cmd_idx, sym) in &bindings.text {
+          text_bindings.push((base + cmd_idx, *sym));
         }
-        Insn::Directive { name, .. } => {
-          let directive_name = session.interner.get(*name);
 
-          if directive_name == "dom" {
-            has_dom_directive = true;
-          }
+        for (cmd_idx, attr) in &bindings.attrs {
+          attr_bindings.push((base + cmd_idx, attr.clone()));
         }
-        _ => {}
       }
     }
 

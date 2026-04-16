@@ -124,6 +124,9 @@ pub struct Executor<'a> {
   /// Active type parameters: `$T → TyId`. Set during
   /// generic function definition, cleared after.
   type_params: Vec<(Symbol, TyId)>,
+  /// Generic constraints: `$T: Eq` maps the type param
+  /// name to the abstract name. Verified at call site.
+  type_constraints: HashMap<Symbol, Symbol>,
   /// Buffered closure SIR instructions. Closures emit
   /// their FunDef + body here during execution. Flushed
   /// to `self.sir` after the enclosing function's Return
@@ -142,6 +145,24 @@ pub struct Executor<'a> {
   /// and attribute bindings so the runtime can dispatch each
   /// kind to the right patch path.
   template_bindings: zo_sir::TemplateBindings,
+  /// Abstract definitions: `abstract Show { fun show(self); }`
+  abstract_defs: HashMap<Symbol, AbstractDef>,
+  /// Abstract implementations: `apply Show for Rect { ... }`
+  /// Maps (abstract_name, target_type_name) → mangled method
+  /// names.
+  abstract_impls: HashMap<(Symbol, Symbol), Vec<Symbol>>,
+}
+
+/// An `abstract` definition (method signatures, no bodies).
+pub struct AbstractDef {
+  pub methods: Vec<AbstractMethod>,
+}
+
+/// A single method signature in an abstract definition.
+pub struct AbstractMethod {
+  pub name: Symbol,
+  pub params: Vec<(Symbol, TyId)>,
+  pub return_ty: TyId,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -203,10 +224,13 @@ impl<'a> Executor<'a> {
       apply_context: None,
       global_constants: Vec::new(),
       type_params: Vec::new(),
+      type_constraints: HashMap::new(),
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       pending_styles: Vec::new(),
       template_bindings: TemplateBindings::default(),
+      abstract_defs: HashMap::new(),
+      abstract_impls: HashMap::new(),
     }
   }
 
@@ -297,9 +321,11 @@ impl<'a> Executor<'a> {
     funs: Vec<FunDef>,
     vars: Vec<Local>,
     enums: Vec<zo_module_resolver::ExportedEnum>,
+    abstract_defs: HashMap<Symbol, AbstractDef>,
   ) -> Self {
     self.funs = funs;
     self.locals.extend(vars);
+    self.abstract_defs.extend(abstract_defs);
 
     // Defer enum interning to first use to avoid TyId counter
     // shifts that would pollute HM unification. Raw export
@@ -311,7 +337,14 @@ impl<'a> Executor<'a> {
   }
 
   /// Executes a parse tree in one pass to build semantic IR.
-  pub fn execute(mut self) -> (Sir, Vec<Annotation>, Vec<FunDef>) {
+  pub fn execute(
+    mut self,
+  ) -> (
+    Sir,
+    Vec<Annotation>,
+    Vec<FunDef>,
+    HashMap<Symbol, AbstractDef>,
+  ) {
     for idx in 0..self.tree.nodes.len() {
       if idx < self.skip_until {
         continue;
@@ -348,7 +381,7 @@ impl<'a> Executor<'a> {
     // for each instantiation.
     self.monomorphize();
 
-    (self.sir, self.annotations, self.funs)
+    (self.sir, self.annotations, self.funs, self.abstract_defs)
   }
 
   /// Returns true if the token introduces a statement —
@@ -422,6 +455,12 @@ impl<'a> Executor<'a> {
         let children_end = (header.child_start + header.child_count) as usize;
 
         self.execute_apply(idx, children_end);
+      }
+
+      Token::Abstract => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_abstract(idx, children_end);
       }
 
       // === TYPE ALIAS ===
@@ -2641,6 +2680,68 @@ impl<'a> Executor<'a> {
           }
         }
 
+        // Abstract operator dispatch: if operands are
+        // structs with an Eq impl, call Type::eq instead
+        // of emitting a primitive BinOp.
+        if matches!(op, BinOp::Eq | BinOp::Neq) {
+          let resolved = self.ty_checker.kind_of(ty_id);
+
+          let type_name = match resolved {
+            Ty::Struct(sid) => {
+              self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+            }
+            _ => None,
+          };
+
+          if let Some(tname) = type_name {
+            let eq_sym = self.interner.intern("Eq");
+
+            if self.abstract_impls.contains_key(&(eq_sym, tname)) {
+              let ts = self.interner.get(tname).to_owned();
+              let mangled = format!("{ts}::eq");
+              let eq_fn = self.interner.intern(&mangled);
+
+              if self.funs.iter().any(|f| f.name == eq_fn) {
+                let call_dst = ValueId(self.sir.next_value_id);
+                self.sir.next_value_id += 1;
+
+                let bool_ty = self.ty_checker.bool_type();
+                let mut call_sir = self.sir.emit(Insn::Call {
+                  dst: call_dst,
+                  name: eq_fn,
+                  args: vec![lhs_sir, rhs_sir],
+                  ty_id: bool_ty,
+                });
+
+                // Neq: negate the result.
+                if op == BinOp::Neq {
+                  let neg_dst = ValueId(self.sir.next_value_id);
+                  self.sir.next_value_id += 1;
+
+                  call_sir = self.sir.emit(Insn::UnOp {
+                    dst: neg_dst,
+                    op: UnOp::Not,
+                    rhs: call_sir,
+                    ty_id: bool_ty,
+                  });
+                }
+
+                let runtime_id = self.values.store_runtime(0);
+
+                self.value_stack.push(runtime_id);
+                self.ty_stack.push(bool_ty);
+                self.sir_values.push(call_sir);
+                self.annotations.push(Annotation {
+                  node_idx,
+                  ty_id: bool_ty,
+                });
+
+                return;
+              }
+            }
+          }
+        }
+
         // Comparison ops produce bool for the type
         // stack; the SIR keeps the operand type so
         // codegen can distinguish int vs float.
@@ -3878,6 +3979,18 @@ impl<'a> Executor<'a> {
             let var = self.ty_checker.fresh_var();
 
             self.type_params.push((sym, var));
+
+            // Check for constraint: $T: Abstract.
+            if idx + 2 < _end_idx
+              && self.tree.nodes[idx + 1].token == Token::Colon
+              && self.tree.nodes[idx + 2].token == Token::Ident
+            {
+              if let Some(NodeValue::Symbol(abs)) = self.node_value(idx + 2) {
+                self.type_constraints.insert(sym, abs);
+              }
+
+              idx += 2; // skip : and Ident
+            }
           }
         }
 
@@ -5613,25 +5726,211 @@ impl<'a> Executor<'a> {
     self.skip_until = end_idx;
   }
 
+  /// Executes `abstract Name { fun method(self) -> Type; }`
+  ///
+  /// Parses method signatures (no bodies) and registers
+  /// the abstract definition. Methods end with `;`.
+  fn execute_abstract(&mut self, start_idx: usize, end_idx: usize) {
+    // Parse abstract name.
+    let name = match self
+      .tree
+      .nodes
+      .get(start_idx + 1)
+      .filter(|n| n.token == Token::Ident)
+      .and_then(|_| self.node_value(start_idx + 1))
+    {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => {
+        self.skip_until = end_idx;
+        return;
+      }
+    };
+
+    // Find LBrace.
+    let mut idx = start_idx + 2;
+
+    while idx < end_idx && self.tree.nodes[idx].token != Token::LBrace {
+      idx += 1;
+    }
+
+    if idx < end_idx {
+      idx += 1; // skip LBrace
+    }
+
+    // Parse method signatures.
+    let mut methods = Vec::new();
+
+    while idx < end_idx {
+      let tok = self.tree.nodes[idx].token;
+
+      if tok == Token::RBrace {
+        break;
+      }
+
+      // Each method: Fun Ident LParen params RParen
+      //              [ Arrow Type ] Semicolon
+      if tok == Token::Fun {
+        idx += 1; // skip Fun
+
+        // Method name.
+        let method_name =
+          if idx < end_idx && self.tree.nodes[idx].token == Token::Ident {
+            let sym = self.node_value(idx).and_then(|v| match v {
+              NodeValue::Symbol(s) => Some(s),
+              _ => None,
+            });
+            idx += 1;
+            sym
+          } else {
+            None
+          };
+
+        // Skip LParen.
+        if idx < end_idx && self.tree.nodes[idx].token == Token::LParen {
+          idx += 1;
+        }
+
+        // Parse params until RParen.
+        let mut params = Vec::new();
+
+        while idx < end_idx && self.tree.nodes[idx].token != Token::RParen {
+          let ptok = self.tree.nodes[idx].token;
+
+          if ptok == Token::Comma {
+            idx += 1;
+            continue;
+          }
+
+          // `self` param.
+          if ptok == Token::SelfLower {
+            let self_sym = self.interner.intern("self");
+            // Placeholder type — resolved at apply time.
+            let self_ty = self.ty_checker.fresh_var();
+
+            params.push((self_sym, self_ty));
+            idx += 1;
+
+            // Skip optional `: Type` after self.
+            if idx < end_idx && self.tree.nodes[idx].token == Token::Colon {
+              idx += 1; // skip :
+
+              if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
+                idx += 1; // skip type
+              }
+            }
+
+            continue;
+          }
+
+          // Named param: name : Type
+          if ptok == Token::Ident {
+            let pname = self
+              .node_value(idx)
+              .and_then(|v| match v {
+                NodeValue::Symbol(s) => Some(s),
+                _ => None,
+              })
+              .unwrap_or(Symbol::UNDERSCORE);
+
+            idx += 1;
+
+            // Skip colon.
+            if idx < end_idx && self.tree.nodes[idx].token == Token::Colon {
+              idx += 1;
+            }
+
+            // Parse type.
+            let pty = if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
+              let ty = self.resolve_type_token(idx);
+              idx += 1;
+              ty
+            } else if idx < end_idx
+              && self.tree.nodes[idx].token == Token::SelfUpper
+            {
+              // Self type — placeholder.
+              idx += 1;
+              self.ty_checker.fresh_var()
+            } else {
+              self.ty_checker.fresh_var()
+            };
+
+            params.push((pname, pty));
+            continue;
+          }
+
+          idx += 1;
+        }
+
+        // Skip RParen.
+        if idx < end_idx && self.tree.nodes[idx].token == Token::RParen {
+          idx += 1;
+        }
+
+        // Optional return type: -> Type
+        let return_ty =
+          if idx < end_idx && self.tree.nodes[idx].token == Token::Arrow {
+            idx += 1; // skip ->
+
+            if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
+              let ty = self.resolve_type_token(idx);
+              idx += 1;
+              ty
+            } else if idx < end_idx
+              && self.tree.nodes[idx].token == Token::SelfUpper
+            {
+              idx += 1;
+              self.ty_checker.fresh_var()
+            } else {
+              self.ty_checker.unit_type()
+            }
+          } else {
+            self.ty_checker.unit_type()
+          };
+
+        // Skip semicolon (abstract methods have no body).
+        if idx < end_idx && self.tree.nodes[idx].token == Token::Semicolon {
+          idx += 1;
+        }
+
+        if let Some(mname) = method_name {
+          methods.push(AbstractMethod {
+            name: mname,
+            params,
+            return_ty,
+          });
+        }
+
+        continue;
+      }
+
+      idx += 1;
+    }
+
+    self.abstract_defs.insert(name, AbstractDef { methods });
+    self.skip_until = end_idx;
+  }
+
   /// Executes `apply Type { fun_defs... }`.
   ///
   /// Sets the apply context so child function definitions
   /// get mangled names (`Type::method`). `Self` resolves
   /// to the applied type.
   fn execute_apply(&mut self, start_idx: usize, end_idx: usize) {
-    // Parse type name.
-    let type_name = self
-      .tree
-      .nodes
-      .get(start_idx + 1)
-      .filter(|n| n.token == Token::Ident)
-      .and_then(|_| self.node_value(start_idx + 1))
-      .and_then(|v| match v {
-        NodeValue::Symbol(s) => Some(s),
-        _ => None,
-      });
+    // Parse first identifier. The parser may place tokens
+    // like `For` before the first Ident in the tree, so
+    // scan children for the first Ident.
+    let first_ident_idx = (start_idx + 1..end_idx)
+      .find(|&i| self.tree.nodes[i].token == Token::Ident);
 
-    let type_name = match type_name {
+    let first_name =
+      first_ident_idx
+        .and_then(|i| self.node_value(i))
+        .and_then(|v| match v {
+          NodeValue::Symbol(s) => Some(s),
+          _ => None,
+        });
+
+    let first_name = match first_name {
       Some(n) => n,
       None => {
         self.skip_until = end_idx;
@@ -5639,7 +5938,37 @@ impl<'a> Executor<'a> {
       }
     };
 
-    // Set apply context.
+    // Detect `apply Abstract for Type { ... }`.
+    // The parser may place `For Ident(Type)` either before
+    // or inside the LBrace. Scan from start_idx+2 through
+    // the first few children for Token::For.
+    let mut abstract_name: Option<Symbol> = None;
+    let mut type_name = first_name;
+
+    let scan_start = first_ident_idx.map(|i| i + 1).unwrap_or(start_idx + 2);
+
+    for scan in scan_start..end_idx.min(scan_start + 8) {
+      if self.tree.nodes[scan].token == Token::For {
+        abstract_name = Some(first_name);
+
+        // Next Ident after For is the target type.
+        if scan + 1 < end_idx
+          && self.tree.nodes[scan + 1].token == Token::Ident
+          && let Some(NodeValue::Symbol(s)) = self.node_value(scan + 1)
+        {
+          type_name = s;
+        }
+
+        break;
+      }
+
+      // Stop at Fun (start of method body).
+      if self.tree.nodes[scan].token == Token::Fun {
+        break;
+      }
+    }
+
+    // Set apply context to the TARGET type (not the abstract).
     let outer_apply = self.apply_context.take();
 
     self.apply_context = Some(type_name);
@@ -5698,6 +6027,31 @@ impl<'a> Executor<'a> {
       self.execute_node(&node, idx);
 
       idx += 1;
+    }
+
+    // Register abstract implementation if this was
+    // `apply Abstract for Type { ... }`.
+    if let Some(abs_name) = abstract_name {
+      // Collect method names that were mangled as
+      // Type::method during apply processing.
+      let type_str = self.interner.get(type_name).to_owned();
+      let method_names: Vec<Symbol> = self
+        .funs
+        .iter()
+        .filter_map(|f| {
+          let fname = self.interner.get(f.name);
+
+          if fname.starts_with(&type_str) && fname.contains("::") {
+            Some(f.name)
+          } else {
+            None
+          }
+        })
+        .collect();
+
+      self
+        .abstract_impls
+        .insert((abs_name, type_name), method_names);
     }
 
     // Restore outer context.
@@ -5921,6 +6275,21 @@ impl<'a> Executor<'a> {
       return ms == "push" || ms == "pop";
     }
 
+    // Generic type param: if the method is an abstract method,
+    // this is a valid method call (resolved at mono time).
+    if matches!(resolved, Ty::Infer(_)) {
+      let ms = self.interner.get(member_name).to_owned();
+
+      let is_abstract_method = self
+        .abstract_defs
+        .values()
+        .any(|d| d.methods.iter().any(|m| self.interner.get(m.name) == ms));
+
+      if is_abstract_method {
+        return true;
+      }
+    }
+
     // Resolve receiver type name for struct/enum methods.
     let type_name = match resolved {
       Ty::Struct(sid) => {
@@ -5978,6 +6347,14 @@ impl<'a> Executor<'a> {
     // Resolve the type to get the type name.
     let resolved = self.ty_checker.kind_of(ty_id);
 
+    // Generic type param: emit placeholder for mono rewrite.
+    if matches!(resolved, Ty::Infer(_)) {
+      let ms = self.interner.get(method_name).to_owned();
+      let placeholder = format!("__abstract::{ms}");
+
+      return self.interner.intern(&placeholder);
+    }
+
     let type_name = match resolved {
       Ty::Struct(sid) => {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
@@ -6005,6 +6382,60 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Like `resolve_dot_call` but with an explicit receiver
+  /// index. Used when tree order is `[recv, method, .]`
+  /// instead of `[recv, ., method]`.
+  fn resolve_dot_call_with_receiver(
+    &mut self,
+    receiver_idx: usize,
+    method_name: Symbol,
+  ) -> Symbol {
+    let receiver_sym = match self.node_value(receiver_idx) {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => return method_name,
+    };
+
+    let local_ty = self.lookup_local(receiver_sym).map(|l| l.ty_id);
+
+    let ty_id = match local_ty {
+      Some(t) => t,
+      None => return method_name,
+    };
+
+    let resolved = self.ty_checker.kind_of(ty_id);
+
+    if matches!(resolved, Ty::Infer(_)) {
+      let ms = self.interner.get(method_name).to_owned();
+      let placeholder = format!("__abstract::{ms}");
+
+      return self.interner.intern(&placeholder);
+    }
+
+    let type_name = match resolved {
+      Ty::Struct(sid) => {
+        self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+      }
+      Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
+      _ => None,
+    };
+
+    let type_name = match type_name {
+      Some(n) => n,
+      None => return method_name,
+    };
+
+    let ts = self.interner.get(type_name).to_owned();
+    let ms = self.interner.get(method_name).to_owned();
+    let mangled = format!("{ts}::{ms}");
+    let mangled_sym = self.interner.intern(&mangled);
+
+    if self.funs.iter().any(|f| f.name == mangled_sym) {
+      mangled_sym
+    } else {
+      method_name
+    }
+  }
+
   /// Executes a dot-call `receiver.method(args)`.
   /// The receiver is already on the stack (left by the
   /// Dot handler). Injects it as the first argument.
@@ -6014,6 +6445,67 @@ impl<'a> Executor<'a> {
     lparen_idx: usize,
     rparen_idx: usize,
   ) {
+    // Placeholder calls (__abstract::method) don't have a
+    // matching FunDef. Emit the Call directly — the mono
+    // pass will rewrite the name to the concrete method.
+    let name_str = self.interner.get(mangled_name);
+
+    if name_str.starts_with("__abstract::") {
+      // Pop explicit args first, then receiver — same
+      // order as the non-abstract dot-call path.
+      let has_content = lparen_idx + 1 < rparen_idx;
+      let mut comma_count = 0;
+
+      for i in (lparen_idx + 1)..rparen_idx {
+        if self.tree.nodes[i].token == Token::Comma {
+          comma_count += 1;
+        }
+      }
+
+      let explicit_args = if has_content { comma_count + 1 } else { 0 };
+
+      let mut arg_sirs = Vec::with_capacity(explicit_args + 1);
+
+      // Pop explicit args (reverse order from stack).
+      for _ in 0..explicit_args {
+        if let Some(sir) = self.sir_values.pop() {
+          arg_sirs.push(sir);
+        }
+        self.value_stack.pop();
+        self.ty_stack.pop();
+      }
+
+      arg_sirs.reverse();
+
+      // Pop receiver (self).
+      if let Some(recv) = self.sir_values.pop() {
+        arg_sirs.insert(0, recv);
+      }
+      self.value_stack.pop();
+      self.ty_stack.pop();
+
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      // Use a generic return type — resolved at mono time.
+      let ret_ty = self.ty_checker.fresh_var();
+
+      let result_sir = self.sir.emit(Insn::Call {
+        dst,
+        name: mangled_name,
+        args: arg_sirs,
+        ty_id: ret_ty,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.value_stack.push(rid);
+      self.ty_stack.push(ret_ty);
+      self.sir_values.push(result_sir);
+
+      return;
+    }
+
     let func = self.funs.iter().find(|f| f.name == mangled_name).cloned();
 
     let func = match func {
@@ -7710,16 +8202,25 @@ impl<'a> Executor<'a> {
               } else if fun_idx >= 2
                 && self.tree.nodes[fun_idx - 1].token == Token::Dot
               {
-                // Dot-call: receiver.method(args).
+                // Dot-call: tree [recv, ., method, (, )].
                 let mangled = self.resolve_dot_call(fun_idx, fun_name);
 
                 if mangled != fun_name {
-                  // Inject receiver as first arg.
-                  // The receiver is on the stack
-                  // (left by the Dot handler).
-                  // execute_call will count explicit
-                  // args between parens. We need to
-                  // include the receiver in arg_sirs.
+                  self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
+
+                  return;
+                }
+
+                fun_name
+              } else if lparen_idx >= 2
+                && self.tree.nodes[lparen_idx - 1].token == Token::Dot
+              {
+                // Dot-call: tree [recv, method, ., (, )].
+                // receiver is at fun_idx - 1 (not fun_idx - 2).
+                let mangled =
+                  self.resolve_dot_call_with_receiver(fun_idx - 1, fun_name);
+
+                if mangled != fun_name {
                   self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
 
                   return;
@@ -8083,9 +8584,11 @@ impl<'a> Executor<'a> {
       let mut param_types: Vec<TyId> =
         func.params.iter().map(|(_, ty)| *ty).collect();
 
+      let mut subs: Vec<(TyId, TyId)> = Vec::new();
+
       if !func.type_params.is_empty() {
         // Build substitution: old var → fresh var.
-        let subs: Vec<(TyId, TyId)> = func
+        subs = func
           .type_params
           .iter()
           .map(|old| (*old, self.ty_checker.fresh_var()))
@@ -8134,15 +8637,38 @@ impl<'a> Executor<'a> {
         let base = self.interner.get(func.name).to_owned();
         let mut mangled = base;
 
-        for tp in &func.type_params {
-          let resolved = self.ty_checker.resolve_id(*tp);
+        for (i, tp) in func.type_params.iter().enumerate() {
+          // Use the substituted fresh var (unified with
+          // the concrete type), not the original var.
+          let actual = subs.get(i).map(|(_, new)| *new).unwrap_or(*tp);
+          let resolved = self.ty_checker.resolve_id(actual);
           let ty = self.ty_checker.resolve_ty(resolved);
+          let ty_name_owned: String;
+
           let ty_name = match ty {
             Ty::Int { .. } => "int",
             Ty::Float(_) => "float",
             Ty::Bool => "bool",
             Ty::Str => "str",
             Ty::Char => "char",
+            Ty::Struct(sid) => {
+              ty_name_owned = self
+                .ty_checker
+                .ty_table
+                .struct_ty(sid)
+                .map(|s| self.interner.get(s.name).to_owned())
+                .unwrap_or_else(|| "unknown".into());
+              &ty_name_owned
+            }
+            Ty::Enum(eid) => {
+              ty_name_owned = self
+                .ty_checker
+                .ty_table
+                .enum_ty(eid)
+                .map(|e| self.interner.get(e.name).to_owned())
+                .unwrap_or_else(|| "unknown".into());
+              &ty_name_owned
+            }
             _ => "unknown",
           };
 
@@ -8267,6 +8793,50 @@ impl<'a> Executor<'a> {
           });
 
           arg_sirs = vec![str_sir];
+        }
+      }
+
+      // Show abstract dispatch: when showln/show is called
+      // with a struct arg that implements Show, insert a
+      // Call to Type::show(arg) and use the returned string
+      // as the showln argument.
+      let call_name_str2 = self.interner.get(call_name);
+
+      if matches!(call_name_str2, "showln" | "show" | "eshowln" | "eshow")
+        && arg_types.len() == 1
+      {
+        let arg_ty = arg_types[0];
+        let resolved = self.ty_checker.kind_of(arg_ty);
+
+        let type_name = match resolved {
+          Ty::Struct(sid) => {
+            self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+          }
+          _ => None,
+        };
+
+        if let Some(tname) = type_name {
+          let show_sym = self.interner.intern("Show");
+
+          if self.abstract_impls.contains_key(&(show_sym, tname)) {
+            let ts = self.interner.get(tname).to_owned();
+            let mangled = format!("{ts}::show");
+            let show_fn = self.interner.intern(&mangled);
+
+            if self.funs.iter().any(|f| f.name == show_fn) {
+              let show_dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+
+              let show_result = self.sir.emit(Insn::Call {
+                dst: show_dst,
+                name: show_fn,
+                args: arg_sirs.clone(),
+                ty_id: self.ty_checker.str_type(),
+              });
+
+              arg_sirs = vec![show_result];
+            }
+          }
         }
       }
 
@@ -8707,6 +9277,36 @@ impl<'a> Executor<'a> {
 
     let dir_name = self.interner.get(sym).to_owned();
 
+    // `#dom <ident>`: resolve the identifier directly to
+    // its local's `value_id`. For a template local, that
+    // value IS the `Insn::Template { id, .. }` id, which
+    // both codegen (`emit_render_call`) and the driver
+    // (component-aware template selection) rely on.
+    //
+    // Executing the Ident through `execute_node` would
+    // emit an `Insn::Load` whose fresh dst is unrelated
+    // to the template id — the driver would then fail to
+    // match the directive to a template, and would render
+    // nothing (or, before this fix, silently fell back to
+    // rendering every template in the SIR).
+    if dir_name == "dom" {
+      let target_idx = ((dir_idx + 1)..end_idx)
+        .find(|&i| self.tree.nodes[i].token == Token::Ident);
+
+      if let Some(ti) = target_idx
+        && let Some(NodeValue::Symbol(target_sym)) = self.node_value(ti)
+        && let Some(local) = self.lookup_local(target_sym)
+      {
+        self.sir.emit(Insn::Directive {
+          name: sym,
+          value: local.value_id,
+          ty_id: local.ty_id,
+        });
+      }
+
+      return;
+    }
+
     // Execute argument children (after the name).
     // Skip Semicolon — it's syntactic, not a statement
     // terminator inside a directive.
@@ -8722,16 +9322,6 @@ impl<'a> Executor<'a> {
 
     match dir_name.as_str() {
       "run" => {}
-      "dom" if !self.value_stack.is_empty() => {
-        let template_value = self.value_stack.pop().unwrap();
-        let template_ty = self.ty_stack.pop().unwrap();
-
-        self.sir.emit(Insn::Directive {
-          name: sym,
-          value: template_value,
-          ty_id: template_ty,
-        });
-      }
       "inline" => {}
       _ => {}
     }
@@ -8800,12 +9390,40 @@ impl<'a> Executor<'a> {
         continue;
       };
 
-      // Clone the SIR range.
+      // Clone the SIR range and offset ValueIds to avoid
+      // collisions with existing instructions.
       let mut cloned: Vec<Insn> = self.sir.instructions[*start..=*end].to_vec();
+      let offset = self.sir.next_value_id;
+
+      Sir::offset_value_ids(&mut cloned, offset);
+      self.sir.next_value_id += offset;
 
       // Replace the FunDef name with the mangled name.
       if let Some(Insn::FunDef { name, .. }) = cloned.first_mut() {
         *name = *mono_name;
+      }
+
+      // Rewrite __abstract:: placeholder Calls with the
+      // concrete type name from the mangled function name.
+      // e.g., are_equal__Point → type_name = "Point"
+      // __abstract::eq → Point::eq
+      let mono_str = self.interner.get(*mono_name).to_owned();
+      let gen_str = self.interner.get(*gen_name).to_owned();
+
+      if mono_str.len() > gen_str.len() + 2 {
+        let type_suffix = &mono_str[gen_str.len() + 2..]; // skip "__"
+
+        for insn in cloned.iter_mut() {
+          if let Insn::Call { name, .. } = insn {
+            let call_str = self.interner.get(*name).to_owned();
+
+            if let Some(method) = call_str.strip_prefix("__abstract::") {
+              let concrete = format!("{type_suffix}::{method}");
+
+              *name = self.interner.intern(&concrete);
+            }
+          }
+        }
       }
 
       // Insert BEFORE the last function (main) so DCE
