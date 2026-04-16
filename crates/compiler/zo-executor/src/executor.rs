@@ -5954,8 +5954,7 @@ impl<'a> Executor<'a> {
         // Next Ident after For is the target type.
         if scan + 1 < end_idx
           && self.tree.nodes[scan + 1].token == Token::Ident
-          && let Some(NodeValue::Symbol(s)) =
-            self.node_value(scan + 1)
+          && let Some(NodeValue::Symbol(s)) = self.node_value(scan + 1)
         {
           type_name = s;
         }
@@ -9278,6 +9277,36 @@ impl<'a> Executor<'a> {
 
     let dir_name = self.interner.get(sym).to_owned();
 
+    // `#dom <ident>`: resolve the identifier directly to
+    // its local's `value_id`. For a template local, that
+    // value IS the `Insn::Template { id, .. }` id, which
+    // both codegen (`emit_render_call`) and the driver
+    // (component-aware template selection) rely on.
+    //
+    // Executing the Ident through `execute_node` would
+    // emit an `Insn::Load` whose fresh dst is unrelated
+    // to the template id — the driver would then fail to
+    // match the directive to a template, and would render
+    // nothing (or, before this fix, silently fell back to
+    // rendering every template in the SIR).
+    if dir_name == "dom" {
+      let target_idx = ((dir_idx + 1)..end_idx)
+        .find(|&i| self.tree.nodes[i].token == Token::Ident);
+
+      if let Some(ti) = target_idx
+        && let Some(NodeValue::Symbol(target_sym)) = self.node_value(ti)
+        && let Some(local) = self.lookup_local(target_sym)
+      {
+        self.sir.emit(Insn::Directive {
+          name: sym,
+          value: local.value_id,
+          ty_id: local.ty_id,
+        });
+      }
+
+      return;
+    }
+
     // Execute argument children (after the name).
     // Skip Semicolon — it's syntactic, not a statement
     // terminator inside a directive.
@@ -9293,16 +9322,6 @@ impl<'a> Executor<'a> {
 
     match dir_name.as_str() {
       "run" => {}
-      "dom" if !self.value_stack.is_empty() => {
-        let template_value = self.value_stack.pop().unwrap();
-        let template_ty = self.ty_stack.pop().unwrap();
-
-        self.sir.emit(Insn::Directive {
-          name: sym,
-          value: template_value,
-          ty_id: template_ty,
-        });
-      }
       "inline" => {}
       _ => {}
     }
@@ -9398,11 +9417,8 @@ impl<'a> Executor<'a> {
           if let Insn::Call { name, .. } = insn {
             let call_str = self.interner.get(*name).to_owned();
 
-            if let Some(method) =
-              call_str.strip_prefix("__abstract::")
-            {
-              let concrete =
-                format!("{type_suffix}::{method}");
+            if let Some(method) = call_str.strip_prefix("__abstract::") {
+              let concrete = format!("{type_suffix}::{method}");
 
               *name = self.interner.intern(&concrete);
             }

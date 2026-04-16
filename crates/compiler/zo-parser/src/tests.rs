@@ -13,8 +13,8 @@ use crate::tests::common::assert_nodes_stream;
 
 use zo_token::Token::{
   Abstract, Apply, Arrow, As, BoolType, CharType, Colon, ColonEq, Comma, Dot,
-  DotDot, DotDotEq, Else, Eq, False, FloatType, For, Fun, Gt, Ident, If,
-  Imu, Int, IntType, LBrace, LBracket, LParen, Lt, Minus, Mut, Plus, RBrace,
+  DotDot, DotDotEq, Else, Eq, False, FloatType, For, Fun, Gt, Ident, If, Imu,
+  Int, IntType, LBrace, LBracket, LParen, Lt, Minus, Mut, Plus, RBrace,
   RBracket, RParen, Return, S32Type, SelfLower, Semicolon, Star, StrType, True,
   While,
 };
