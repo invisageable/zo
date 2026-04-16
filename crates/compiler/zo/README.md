@@ -25,30 +25,30 @@ zo GiVES YOU BACK CONTROL, GUARANTEES STRONG STATiC TYPiNG WiTH EXCEPTiONAL EXEC
 
 iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.         
 
+## features.
+
+  - zsx (zo syntax extension) — *first-class ui syntax inspired by `E4X` but `type-safe`.*
+    - build native apps — *`gpu` (egui) and `js` (wry) with a single codebase.*
+  - meticulous `type system` — *type inference, monomorphization, `typestate`.*
+  - meta-language — *`run code at compile-time via #asm`, `#dom`, `#run` (directives).*
+  - safe concurrency — *robust erlang-like actor model.*
+  - algebraic `optimization` — *folding, propagation.*
+  - user-friendly `error` messages — *like elm, for better debugging.*
+  - statically, strongly typed — *total control over your program from A to Z.*
+  - high-speed `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
+  - target support — *native support for `arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
+  - full-battery `tools` — *native REPL, code editor, and built-in package manager, etc.*
+  - expressive and concise — *syntax designed for maximum readability and minimal boilerplate.*
+
+> *Be ahead, JOiN THE DEVOLUTiON.*
+
 ## get started.
 
   - [install](../zo-notes/public/guidelines/02-install.md) — *setup the zo ecosystem.*
   - [how-to](../zo-how-zo) — *learn rust by practice.*
   - [tests](../zo-tests) — *workable zo's programs and error messages catalog.*
   - [benches](../zo-benches) — *zo compiler benchmark vs modern programming languages.*
-
-## goals.
-
-  - [x] statically, strongly typed.
-  - [x] meticulous `type system` — *type checking, inference, monomorphization, type state.*
-  - [x] algebraic `optimization` — *folding, propagation.*
-  - [x] user-friendly `error` messages — *like elm, for better debugging.*
-  - [ ] target support — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
-  - [x] meta-language — *`#asm`, `#dom`, `#run` (directives).*
-  - [x] templating syntax — *like the abandoned `E4X`.*
-  - [x] build native apps — *`gpu` (egui) and `js` (wry).*
-  - [ ] safe concurrency model — *actor model erlang-like.*
-  - [x] high-speed `compilation-time` — *insanely faster, usain is jealous.*
-  - [x] powerful `tools` — *native REPL, code editor, packager, etc.*
-  - [x] expressiveness — *optimized and concise syntax.*
-
-> *Be ahead, JOiN THE DEVOLUTiON.*
-
+  
 <!-- ## examples.
 
 ... -->

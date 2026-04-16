@@ -28,15 +28,26 @@ pub struct ScopeFrame {
   count: u32,
 }
 
-/// A single generic instantiation request recorded at call
-/// site and consumed by the monomorphize pass:
-/// `(mangled_name, generic_name, subs)` where `subs` is the
-/// per-type-parameter pair `(old_generic_var_ty,
-/// fresh_var_ty)`. The fresh var is unified with the
-/// concrete argument type at call time, so
-/// `resolve_id(old_generic_var_ty)` chains to the concrete
-/// type after the substitution is installed.
-type Instantiation = (Symbol, Symbol, Vec<(TyId, TyId)>);
+/// A single instantiation request recorded at call site
+/// and consumed by the re-execution pass.
+///
+/// `(mangled, base_name, concrete_tys, closure_subs)`:
+///
+/// - `concrete_tys` — resolved `TyId` per `$T` in the
+///   generic's declaration order (empty for non-generic
+///   bases). Indexed by position.
+/// - `closure_subs` — `(param_sym, closure_fn_sym)` pairs
+///   for Fn-typed params specialized to concrete closures
+///   (empty when no closure was passed). The re-execution
+///   pass rewrites the param's local from a runtime value
+///   into a `Value::Closure` binding so `param(x)` in the
+///   body dispatches directly to the concrete closure.
+///
+/// Generic-type and closure-param instantiations share the
+/// same pipeline — `concrete_tys` drives type substitution,
+/// `closure_subs` drives parameter-to-closure binding, and
+/// either (or both) can be empty.
+type Instantiation = (Symbol, Symbol, Vec<TyId>, Vec<(Symbol, Symbol)>);
 
 /// Executor implements compile-time execution of HIR to produce SIR
 ///
@@ -160,6 +171,10 @@ pub struct Executor<'a> {
   /// which re-executes the generic's tree range with
   /// those substitutions bound in the ty_checker.
   pending_instantiations: Vec<Instantiation>,
+  /// Mangled names whose body SIR has already been emitted
+  /// via re-execution — dedup guard against repeated call
+  /// sites and recursive generics.
+  reexecuted_instantiations: std::collections::HashSet<Symbol>,
   /// Buffered closure SIR instructions. Closures emit
   /// their FunDef + body here during execution. Flushed
   /// to `self.sir` after the enclosing function's Return
@@ -256,6 +271,7 @@ impl<'a> Executor<'a> {
       generic_tree_ranges: HashMap::default(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
+      reexecuted_instantiations: std::collections::HashSet::new(),
       pending_enum_construct: None,
       apply_context: None,
       global_constants: Vec::new(),
@@ -413,9 +429,15 @@ impl<'a> Executor<'a> {
       self.sir.instructions.extend(closures);
     }
 
-    // Monomorphization: duplicate generic function bodies
-    // for each instantiation.
-    self.monomorphize();
+    // Re-execute the Tree subtree of each queued
+    // instantiation — generic-type, closure-param, or both.
+    // Produces fresh SIR directly under the mangled name,
+    // no cloning, no post-hoc rewrites. Carbon-aligned:
+    // semantic analysis IS execution (manifesto §execution-
+    // based compilation), so specialization is "run the
+    // body again with a different environment", not "copy
+    // SIR and substitute".
+    self.reexecute_generic_instantiations();
 
     (self.sir, self.annotations, self.funs, self.abstract_defs)
   }
@@ -4054,6 +4076,15 @@ impl<'a> Executor<'a> {
       }
     }
 
+    // Remember whether THIS function declared its own
+    // `$T` — distinct from apply-level / outer-scope leaks
+    // (e.g. a generic struct earlier in the source pushes
+    // its `$T` onto `self.type_params` and `main`'s outer
+    // scope still sees them). Only a function that owns
+    // type parameters counts as "generic" for the
+    // body-skip check below.
+    let fn_had_type_params = !self.type_params.is_empty();
+
     // If no function-level type params, restore
     // apply-level params (e.g., $T from apply Pair<$T>).
     if self.type_params.is_empty() {
@@ -4255,15 +4286,56 @@ impl<'a> Executor<'a> {
     let sir_params =
       params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
 
-    // Record the tree range of a generic function
-    // declaration so the instantiation pass can re-execute
-    // the body per concrete substitution. Uses the generic's
-    // own name (not any mono override) so subsequent
-    // instantiations can look it up by the original symbol.
-    if !self.type_params.is_empty() && self.mono_name_override.is_none() {
+    // Record the tree range of every user function so the
+    // instantiation pass can re-execute the body per
+    // substitution — generic-type mono needs this for `$T`
+    // resolution, closure-param mono needs it for binding
+    // Fn-typed params to concrete closures. Keyed by the
+    // resolved (apply-mangled) name; skipped when the
+    // re-execution pass itself is running (mono override
+    // points at the mangled symbol for the instantiation
+    // we're emitting).
+    let is_generic_outer_pass =
+      fn_had_type_params && self.mono_name_override.is_none();
+
+    if self.mono_name_override.is_none() {
       self
         .generic_tree_ranges
         .insert(name, (start_idx as u32, _end_idx as u32));
+    }
+
+    // Skip body execution for a generic's outer pass. The
+    // generic has no callers by its original name — every
+    // call site routes through a mangled instantiation — so
+    // emitting the generic body's SIR is redundant. Register
+    // the FunDef in `self.funs` so call resolution can
+    // enumerate `type_params` to build substitutions, then
+    // skip past the closing `}` so the outer loop never
+    // enters the body. The re-execution pass replays the
+    // tree range per instantiation to produce the real
+    // concrete bodies.
+    if is_generic_outer_pass {
+      self.funs.push(FunDef {
+        name,
+        params: sir_params,
+        return_ty,
+        body_start: 0,
+        kind: FunctionKind::UserDefined,
+        pubness,
+        type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+        return_type_args: return_type_args
+          .iter()
+          .map(|t| self.ty_checker.resolve_ty(*t))
+          .collect(),
+      });
+
+      // Restore outer type_params scope (signature parse
+      // mutated it; the generic's type_params are scoped
+      // to each re-execution, not to the outer pass).
+      self.type_params.clear();
+      self.skip_until = _end_idx;
+
+      return;
     }
 
     // When the instantiation pass re-executes a generic, it
@@ -9009,7 +9081,7 @@ impl<'a> Executor<'a> {
 
         let sym = self.interner.intern(&mangled);
 
-        // Record instantiation for the mono pass.
+        // Record instantiation for the instantiation pass.
         if !self.funs.iter().any(|f| f.name == sym) {
           let mut mono_def = func.clone();
 
@@ -9018,16 +9090,24 @@ impl<'a> Executor<'a> {
 
           self.funs.push(mono_def);
 
-          // Record the per-instantiation substitutions. The
-          // monomorphize pass uses these to rewrite inner
-          // `ty_id` fields in the cloned body so BinOp /
-          // ArrayIndex / TupleIndex / FieldStore all land
-          // on concrete types rather than the generic's
-          // original inference variables. Entry: (mangled,
-          // generic_name, subs_as_(old_ty, fresh_ty)).
-          self
-            .pending_instantiations
-            .push((sym, func.name, subs.clone()));
+          // Resolve each fresh var (now unified with the
+          // concrete argument type) to its concrete TyId.
+          // Stored by `$T` position so the re-execution
+          // pass can bind the freshly-parsed type params
+          // directly. Snapshotting here — instead of at
+          // mono time — insulates us from later mutations
+          // of the ty_checker's substitution map.
+          let concretes: Vec<TyId> = subs
+            .iter()
+            .map(|(_, fresh)| self.ty_checker.resolve_id(*fresh))
+            .collect();
+
+          self.pending_instantiations.push((
+            sym,
+            func.name,
+            concretes,
+            Vec::new(),
+          ));
         }
 
         sym
@@ -9092,13 +9172,23 @@ impl<'a> Executor<'a> {
             }
 
             self.funs.push(mono_def);
-          }
 
-          // Record SIR substitutions for the monomorphize
-          // pass: replace Call { name: param } with
-          // Call { name: closure_fn } in the duplicated body.
-          // Store in a field for monomorphize() to use.
-          // For now, do inline SIR patching after body dup.
+            // Queue a re-execution request with closure
+            // substitutions — the instantiation pass binds
+            // each `param_sym` to a `Value::Closure`
+            // pointing at the concrete `closure_fn_sym`
+            // before the body runs, so emitted Calls name
+            // the concrete closure directly (no post-hoc
+            // Call-name rewrite). No type substitutions
+            // here — closure-param mono is orthogonal to
+            // generic-type mono.
+            self.pending_instantiations.push((
+              mono_sym,
+              call_name,
+              Vec::new(),
+              closure_subs.clone(),
+            ));
+          }
 
           mono_sym
         } else {
@@ -9686,256 +9776,203 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Duplicates generic function SIR bodies for each
-  /// monomorphized instantiation.
+  /// Re-execute the Tree subtree of each generic function
+  /// once per concrete-type instantiation.
   ///
-  /// Scans `self.funs` for entries whose `body_start`
-  /// matches an existing generic function but whose name
-  /// is a mangled variant. For each, copies the SIR
-  /// instructions from `FunDef..Return` and appends them
-  /// with the mangled name.
-  fn monomorphize(&mut self) {
-    // Find generic function SIR ranges: (name, start_idx, end_idx).
-    let mut generic_ranges: Vec<(Symbol, usize, usize)> = Vec::new();
+  /// Instead of cloning the generic's already-emitted SIR
+  /// and rewriting `ty_id` fields through substitutions,
+  /// this pass replays the Tree range recorded in
+  /// `generic_tree_ranges` with the freshly-parsed `$T`
+  /// inference vars bound to concrete `TyId`s. The body
+  /// then emits fresh SIR as if a hand-written `sum__int`
+  /// had been declared — every `ty_id`, every `ValueId`,
+  /// every abstract method resolution falls out naturally.
+  ///
+  /// Carbon-aligned: semantic analysis IS execution
+  /// (manifesto line 176). Generics aren't a rewrite
+  /// problem — they're a "run the body again with a
+  /// different type environment" problem.
+  fn reexecute_generic_instantiations(&mut self) {
+    let pending = std::mem::take(&mut self.pending_instantiations);
 
-    for (i, insn) in self.sir.instructions.iter().enumerate() {
-      if let Insn::FunDef { name, .. } = insn {
-        // Check if this function is generic by looking
-        // up its FunDef in self.funs.
-        let is_generic = self
-          .funs
-          .iter()
-          .any(|f| f.name == *name && !f.type_params.is_empty());
-
-        if is_generic {
-          // Find the matching Return to get the range.
-          let end = (i + 1..self.sir.instructions.len())
-            .find(|&j| matches!(self.sir.instructions[j], Insn::Return { .. }))
-            .unwrap_or(self.sir.instructions.len() - 1);
-
-          generic_ranges.push((*name, i, end));
-        }
+    for (mangled, generic_name, concretes, closure_subs) in pending {
+      // Skip duplicates (can arise from repeated call sites
+      // with the same concrete types, or recursive generics).
+      if self.reexecuted_instantiations.contains(&mangled) {
+        continue;
       }
-    }
 
-    // For each mangled instantiation, duplicate the body.
-    let mono_funs: Vec<(Symbol, Symbol)> = self
-      .funs
-      .iter()
-      .filter(|f| f.type_params.is_empty())
-      .filter_map(|f| {
-        // Find which generic this is an instance of.
-        let name_str = self.interner.get(f.name);
-
-        for (gen_name, _, _) in &generic_ranges {
-          let gen_str = self.interner.get(*gen_name);
-
-          if name_str.starts_with(gen_str)
-            && name_str.len() > gen_str.len()
-            && name_str.as_bytes()[gen_str.len()..].starts_with(b"__")
-          {
-            return Some((*gen_name, f.name));
-          }
-        }
-
-        None
-      })
-      .collect();
-
-    // Drain pending instantiations into a lookup so we can
-    // apply per-instantiation substitutions during the clone
-    // + ty_id rewrite pass. Each entry carries the call
-    // site's `(old_generic_var → fresh_var_unified_with_concrete)`
-    // substitution pairs — enough to chain old_var → fresh_var
-    // → concrete through `resolve_id`.
-    let instantiation_subs: HashMap<Symbol, Vec<(TyId, TyId)>> = self
-      .pending_instantiations
-      .drain(..)
-      .map(|(mangled, _, subs)| (mangled, subs))
-      .collect();
-
-    for (gen_name, mono_name) in &mono_funs {
-      let range = generic_ranges.iter().find(|(n, _, _)| n == gen_name);
-
-      let Some((_, start, end)) = range else {
+      let Some(&(range_start, range_end)) =
+        self.generic_tree_ranges.get(&generic_name)
+      else {
+        // No recorded tree range — the generic was defined
+        // in a context we don't track yet (e.g. imported
+        // from another module's preload). Fall back to the
+        // legacy clone path for this one by leaving
+        // `reexecuted_instantiations` unmodified.
         continue;
       };
 
-      // Clone the SIR range and offset ValueIds to avoid
-      // collisions with existing instructions.
-      let mut cloned: Vec<Insn> = self.sir.instructions[*start..=*end].to_vec();
-      let offset = self.sir.next_value_id;
+      let fun_idx = range_start as usize;
+      let end_idx = range_end as usize;
 
-      Sir::offset_value_ids(&mut cloned, offset);
-      self.sir.next_value_id += offset;
+      // --- Save executor state --------------------------------
+      //
+      // The re-execution runs `execute_fun` and the body
+      // handlers against the SAME tree range that was already
+      // executed in the outer pass. Every piece of mutable
+      // state those handlers touch must be snapshotted so
+      // the outer execution sees no side effects when we're
+      // done.
+      let saved_skip = self.skip_until;
+      let saved_pending_decl = self.pending_decl.take();
+      let saved_pending_function = self.pending_function.take();
+      let saved_pending_fn_has_return = self.pending_fn_has_return_annotation;
+      let saved_current_function = self.current_function.take();
+      let saved_value_stack = std::mem::take(&mut self.value_stack);
+      let saved_ty_stack = std::mem::take(&mut self.ty_stack);
+      let saved_sir_values = std::mem::take(&mut self.sir_values);
+      let saved_type_params = std::mem::take(&mut self.type_params);
+      let saved_type_constraints = std::mem::take(&mut self.type_constraints);
+      let saved_array_ctx = std::mem::take(&mut self.array_ctx);
+      let saved_tuple_ctx = std::mem::take(&mut self.tuple_ctx);
+      let saved_branch_stack = std::mem::take(&mut self.branch_stack);
+      let saved_locals_len = self.locals.len();
+      let saved_scope_len = self.scope_stack.len();
+      let saved_apply_ctx = self.apply_context;
 
-      // Replace the FunDef name with the mangled name.
-      if let Some(Insn::FunDef { name, .. }) = cloned.first_mut() {
-        *name = *mono_name;
-      }
+      // Mark this instantiation as emitted BEFORE the body
+      // runs — if the body contains a recursive call that
+      // lands back in this pass, the duplicate-skip above
+      // bails out instead of looping forever.
+      self.reexecuted_instantiations.insert(mangled);
 
-      // Per-instantiation ty_id rewrite. Temporarily install
-      // `old_generic_var → fresh_var` substitutions so
-      // `ty_checker.resolve_id(old_generic_var_ty)` chains
-      // `old → fresh → concrete` (the fresh var was already
-      // unified with the concrete argument type at call
-      // time). Walk every `ty_id` field in the cloned body
-      // and replace it with its resolved canonical TyId —
-      // this fixes the latent correctness hole where
-      // BinOp / TupleIndex / FieldStore inside a generic
-      // body kept the generic's original `Ty::Infer(..)`
-      // references in the monomorphized output.
-      if let Some(subs) = instantiation_subs.get(mono_name) {
-        let saved: Vec<(TyId, Option<TyId>)> = subs
-          .iter()
-          .map(|(old, new)| {
-            (*old, self.ty_checker.install_substitution(*old, *new))
-          })
-          .collect();
+      // Remove the call-site's mono FunDef entry from
+      // `self.funs` — re-execution will push a fresh one.
+      self.funs.retain(|f| f.name != mangled);
 
-        for insn in cloned.iter_mut() {
-          insn.visit_ty_ids_mut(&mut |id| {
-            *id = self.ty_checker.resolve_id(*id);
-          });
-        }
+      // Tell the next `execute_fun` to emit the mangled
+      // name instead of the tree's literal generic name.
+      self.mono_name_override = Some(mangled);
 
-        for (old, prev) in saved.iter().rev() {
-          self.ty_checker.clear_substitution(*old, *prev);
-        }
-      }
+      // Snapshot the SIR boundary so we know which range to
+      // rewrite-for-concretization after the body runs.
+      let sir_boundary = self.sir.instructions.len();
 
-      // Rewrite __abstract:: placeholder Calls with the
-      // concrete type name from the mangled function name.
-      // e.g., are_equal__Point → type_name = "Point"
-      // __abstract::eq → Point::eq
-      let mono_str = self.interner.get(*mono_name).to_owned();
-      let gen_str = self.interner.get(*gen_name).to_owned();
+      // --- Drive the sub-loop -------------------------------
+      //
+      // First node is `Fun`: execute it to parse the
+      // signature. That populates `self.type_params` with
+      // freshly-minted inference vars for each `$T`.
+      self.skip_until = 0;
 
-      if mono_str.len() > gen_str.len() + 2 {
-        let type_suffix = &mono_str[gen_str.len() + 2..]; // skip "__"
+      let fun_header = self.tree.nodes[fun_idx];
 
-        for insn in cloned.iter_mut() {
-          if let Insn::Call { name, .. } = insn {
-            let call_str = self.interner.get(*name).to_owned();
+      self.execute_node(&fun_header, fun_idx);
 
-            if let Some(method) = call_str.strip_prefix("__abstract::") {
-              let concrete = format!("{type_suffix}::{method}");
-
-              *name = self.interner.intern(&concrete);
-            }
-          }
-        }
-      }
-
-      // Insert BEFORE the last function (main) so DCE
-      // treats main as the entry point, not the mono'd fn.
-      let main_idx = self
-        .sir
-        .instructions
+      // Bind each freshly-parsed `$T` fresh var to its
+      // concrete type for this instantiation. `kind_of`
+      // (and `resolve_id`) now return the concrete type for
+      // any `ty_id` that flows through the body — no
+      // placeholder `__abstract::` tricks needed.
+      let installed: Vec<TyId> = self
+        .type_params
         .iter()
-        .rposition(|i| matches!(i, Insn::FunDef { .. }))
-        .unwrap_or(self.sir.instructions.len());
+        .map(|(_, ty)| *ty)
+        .zip(concretes.iter())
+        .map(|(fresh, concrete)| {
+          self.ty_checker.install_substitution(fresh, *concrete);
 
-      // Splice the cloned instructions before main.
-      let pos = main_idx;
-
-      for (j, insn) in cloned.into_iter().enumerate() {
-        self.sir.instructions.insert(pos + j, insn);
-      }
-    }
-
-    // Closure-param monomorphization: duplicate function
-    // bodies for `__cl` mangled names, replacing internal
-    // `Call { name: param }` with the concrete closure name.
-    // Collect closure-param monomorphization candidates.
-    let cl_indices: Vec<usize> = self
-      .funs
-      .iter()
-      .enumerate()
-      .filter(|(_, f)| self.interner.get(f.name).contains("__cl"))
-      .map(|(i, _)| i)
-      .collect();
-
-    #[allow(clippy::type_complexity)]
-    let mut cl_funs: Vec<(Symbol, Symbol, Vec<(Symbol, Symbol)>)> = Vec::new();
-
-    for idx in cl_indices {
-      let name_str = self.interner.get(self.funs[idx].name).to_owned();
-      let base_end = name_str.find("__cl").unwrap_or(name_str.len());
-      let base_str = &name_str[..base_end];
-      let base_sym = self.interner.intern(base_str);
-      let mono_name = self.funs[idx].name;
-      let mono_params = self.funs[idx].params.clone();
-
-      let mut subs: Vec<(Symbol, Symbol)> = Vec::new();
-
-      if let Some(orig) = self.funs.iter().find(|g| g.name == base_sym) {
-        for (op, mp) in orig.params.iter().zip(mono_params.iter()) {
-          if op.0 != mp.0 {
-            subs.push((op.0, mp.0));
-          }
-        }
-      }
-
-      cl_funs.push((base_sym, mono_name, subs));
-    }
-
-    for (base_sym, mono_name, subs) in &cl_funs {
-      // Find base function's SIR range.
-      let range = self
-        .sir
-        .instructions
-        .iter()
-        .enumerate()
-        .find(|(_, insn)| {
-          matches!(insn, Insn::FunDef { name, .. } if *name == *base_sym)
+          fresh
         })
-        .map(|(i, _)| {
-          let end = (i + 1..self.sir.instructions.len())
-            .find(|&j| {
-              matches!(
-                self.sir.instructions[j],
-                Insn::Return { .. }
-              )
-            })
-            .unwrap_or(self.sir.instructions.len() - 1);
+        .collect();
 
-          (i, end)
-        });
+      // Closure-param substitution: rewrite each
+      // `Fn`-typed parameter local from its runtime
+      // placeholder to a `Value::Closure` that references
+      // the concrete closure function. When the body
+      // later says `f(x)`, the Ident lookup picks up the
+      // closure binding and the call emits
+      // `Call { name: closure_fn }` directly — no
+      // `Call { name: param_sym }` + post-hoc rewrite.
+      for (param_sym, closure_fn_sym) in &closure_subs {
+        if let Some(local) =
+          self.locals.iter_mut().rev().find(|l| l.name == *param_sym)
+        {
+          let cv = ClosureValue {
+            fun_name: *closure_fn_sym,
+            captures: Vec::new(),
+          };
 
-      let Some((start, end)) = range else {
-        continue;
-      };
-
-      let mut cloned: Vec<Insn> = self.sir.instructions[start..=end].to_vec();
-
-      // Replace FunDef name.
-      if let Some(Insn::FunDef { name, .. }) = cloned.first_mut() {
-        *name = *mono_name;
-      }
-
-      // Replace Call names: param → closure.
-      for insn in cloned.iter_mut() {
-        if let Insn::Call { name, .. } = insn {
-          for (from, to) in subs {
-            if *name == *from {
-              *name = *to;
-            }
-          }
+          local.value_id = self.values.store_closure(cv);
         }
       }
 
-      // Insert before main.
-      let main_idx = self
-        .sir
-        .instructions
-        .iter()
-        .rposition(|i| matches!(i, Insn::FunDef { .. }))
-        .unwrap_or(self.sir.instructions.len());
+      // Walk the rest of the tree range exactly as the
+      // main execute loop does — `execute_fun` has already
+      // set `skip_until` past the signature, so the next
+      // idx that actually executes is the `LBrace`.
+      let mut idx = fun_idx + 1;
 
-      for (j, insn) in cloned.into_iter().enumerate() {
-        self.sir.instructions.insert(main_idx + j, insn);
+      while idx < end_idx {
+        if idx < self.skip_until {
+          idx += 1;
+          continue;
+        }
+
+        let header = self.tree.nodes[idx];
+
+        self.execute_node(&header, idx);
+
+        if self.pending_call_rparen == Some(idx) {
+          self.pending_call_rparen = None;
+        }
+
+        if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
+          self.apply_deferred_binop();
+        }
+
+        idx += 1;
       }
+
+      // Concretize `ty_id` fields in the emitted body
+      // BEFORE the substitutions are cleared. The SIR
+      // instructions carry fresh-var `TyId`s; after the
+      // substitutions are gone, `resolve_id` on those
+      // TyIds would again yield `Ty::Infer(..)`. Resolving
+      // them in place now bakes concrete types into the
+      // emitted SIR permanently — satisfying invariant 3
+      // ("ty_ids are concrete at instantiation
+      // boundaries") end-to-end.
+      let end_sir = self.sir.instructions.len();
+
+      for insn in &mut self.sir.instructions[sir_boundary..end_sir] {
+        insn.visit_ty_ids_mut(&mut |id| {
+          *id = self.ty_checker.resolve_id(*id);
+        });
+      }
+
+      // --- Tear down substitutions + restore state -----------
+      for fresh in installed.iter().rev() {
+        self.ty_checker.clear_substitution(*fresh, None);
+      }
+
+      self.skip_until = saved_skip;
+      self.pending_decl = saved_pending_decl;
+      self.pending_function = saved_pending_function;
+      self.pending_fn_has_return_annotation = saved_pending_fn_has_return;
+      self.current_function = saved_current_function;
+      self.value_stack = saved_value_stack;
+      self.ty_stack = saved_ty_stack;
+      self.sir_values = saved_sir_values;
+      self.type_params = saved_type_params;
+      self.type_constraints = saved_type_constraints;
+      self.array_ctx = saved_array_ctx;
+      self.tuple_ctx = saved_tuple_ctx;
+      self.branch_stack = saved_branch_stack;
+      self.locals.truncate(saved_locals_len);
+      self.scope_stack.truncate(saved_scope_len);
+      self.apply_context = saved_apply_ctx;
     }
   }
 

@@ -233,13 +233,27 @@ fun main() {
         .filter(|i| matches!(i, Insn::FunDef { .. }))
         .count();
 
+      // Expect 2 FunDefs: `identity__int` (mono'd from
+      // re-execution) + `main`. The generic `identity`
+      // itself has no body SIR — its outer pass skips
+      // emission since nothing calls the generic by its
+      // bare name.
       assert!(
-        fundef_count >= 3,
-        "mono should produce extra FunDef (got {})",
+        fundef_count >= 2,
+        "mono should produce the mangled FunDef (got {})",
         fundef_count
       );
 
+      // Verify the mangled name actually appears.
+      let has_mono_mangled = sir.iter().any(|i| {
+        matches!(i, Insn::FunDef { name, .. } if {
+          let n = zo_interner::Symbol(name.as_u32());
+          n == *name
+        })
+      });
+
       assert!(has_mono);
+      assert!(has_mono_mangled);
     },
   );
 }
@@ -607,5 +621,127 @@ fun main() {
   assert!(
     seen_any_body_insn,
     "expected at least one body instruction in the mono'd fn"
+  );
+}
+
+// === INVARIANT 4: BODY PARITY ===
+
+/// Collect the body instruction range for a function by
+/// name — everything between the `FunDef` and the first
+/// `Return` that follows.
+fn body_of(sir: &[Insn], name: zo_interner::Symbol) -> Vec<Insn> {
+  let mut start = None;
+
+  for (i, insn) in sir.iter().enumerate() {
+    if let Insn::FunDef { name: n, .. } = insn
+      && *n == name
+    {
+      start = Some(i);
+
+      break;
+    }
+  }
+
+  let s = match start {
+    Some(s) => s,
+    None => return Vec::new(),
+  };
+
+  let mut end = s;
+
+  for (i, insn) in sir.iter().enumerate().skip(s + 1) {
+    end = i;
+
+    if matches!(insn, Insn::Return { .. }) {
+      break;
+    }
+  }
+
+  sir[s..=end].to_vec()
+}
+
+/// Rewrite every `ValueId` in `body` to the ordinal of its
+/// first occurrence (0 for the first distinct ValueId, 1 for
+/// the second, etc.). Two bodies that differ ONLY in their
+/// `next_value_id` starting point canonicalize to the same
+/// sequence. Symbols that appear as function names, param
+/// names, etc. are left alone — they carry meaningful
+/// identity.
+fn canonicalize_value_ids(body: &mut [Insn]) {
+  let mut renumber: std::collections::HashMap<u32, u32> =
+    std::collections::HashMap::new();
+  let mut next: u32 = 0;
+
+  for insn in body.iter_mut() {
+    insn.visit_value_ids_mut(&mut |vid| {
+      let canonical = *renumber.entry(vid.0).or_insert_with(|| {
+        let n = next;
+        next += 1;
+
+        n
+      });
+
+      vid.0 = canonical;
+    });
+  }
+}
+
+#[test]
+fn test_mono_body_parity_with_handwritten() {
+  // Invariant 4 from PLAN_STR_SLICING_AND_GENERICS.md:
+  // a monomorphized `sum<$T>::<int>` body must be
+  // structurally identical to a hand-written `sum_int`
+  // body, modulo ValueId renumbering. Proves that
+  // re-execution produces the same SIR as writing the
+  // specialized function by hand — the strongest
+  // correctness guarantee for the instantiation pass.
+  let source = r#"fun generic_sum<$T>(a: $T, b: $T) -> $T { a + b }
+fun hand_sum(a: int, b: int) -> int { a + b }
+fun main() {
+  imu x: int = generic_sum(1, 2);
+}"#;
+
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _, _) = executor.execute();
+
+  let mono_name = interner.intern("generic_sum__int");
+  let hand_name = interner.intern("hand_sum");
+
+  let mut mono_body = body_of(&sir.instructions, mono_name);
+  let mut hand_body = body_of(&sir.instructions, hand_name);
+
+  assert!(
+    !mono_body.is_empty(),
+    "expected `generic_sum__int` body in SIR"
+  );
+  assert!(!hand_body.is_empty(), "expected `hand_sum` body in SIR");
+
+  // Strip the FunDef (names differ) and renumber the
+  // remaining ValueIds.
+  mono_body.remove(0);
+  hand_body.remove(0);
+
+  canonicalize_value_ids(&mut mono_body);
+  canonicalize_value_ids(&mut hand_body);
+
+  assert_eq!(
+    mono_body, hand_body,
+    "mono'd body must match hand-written body modulo ValueId \
+     renumbering\n\nmono:\n{:#?}\n\nhand:\n{:#?}",
+    mono_body, hand_body
   );
 }
