@@ -225,4 +225,10 @@ pub enum ErrorKind {
   ModuleNotDeclared,
   UnresolvedModule,
   CircularImport,
+
+  // String slicing errors (compile-time only in v1).
+  StrSliceRequiresConstBounds,
+  StrSliceRequiresStr,
+  StrSliceOutOfBounds,
+  StrSliceInvalidRange,
 }

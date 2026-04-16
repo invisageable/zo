@@ -319,6 +319,16 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::UnresolvedModule => "Unresolved module",
     ErrorKind::CircularImport => "Circular import detected",
 
+    // String slice errors (compile-time only in v1).
+    ErrorKind::StrSliceRequiresConstBounds => {
+      "String slice bounds must be compile-time constants"
+    }
+    ErrorKind::StrSliceRequiresStr => {
+      "String slice requires a compile-time string receiver"
+    }
+    ErrorKind::StrSliceOutOfBounds => "String slice range is out of bounds",
+    ErrorKind::StrSliceInvalidRange => "String slice `lo` must be <= `hi`",
+
     _ => "Unknown error",
   }
 }

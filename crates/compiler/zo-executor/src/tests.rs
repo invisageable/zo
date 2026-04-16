@@ -15,6 +15,7 @@ pub(crate) mod generics;
 pub(crate) mod interpolation;
 pub(crate) mod matching;
 pub(crate) mod modules;
+pub(crate) mod str_slicing;
 pub(crate) mod structs;
 pub(crate) mod styles;
 pub(crate) mod templates;

@@ -1751,6 +1751,26 @@ impl<'a> Executor<'a> {
           let int_ty = self.ty_checker.int_type();
 
           if is_indexing {
+            // Slice (`s[lo..hi]` / `s[lo..=hi]`). Detect by
+            // looking at the node immediately before the
+            // closing bracket — the parser emits postorder,
+            // so `DotDot` / `DotDotEq` sits at `idx - 1`.
+            // Compile-time only in v1: both bounds and the
+            // receiver must be compile-time constants. A
+            // runtime slice would need a view layout or
+            // heap allocation, neither of which exist yet.
+            let is_slice = idx > 0
+              && matches!(
+                self.tree.nodes[idx - 1].token,
+                Token::DotDot | Token::DotDotEq
+              );
+
+            if is_slice {
+              self.execute_str_slice_const(idx, depth);
+
+              return;
+            }
+
             // Pop index and array from stacks.
             if let (Some(_idx_val), Some(idx_ty)) =
               (self.value_stack.pop(), self.ty_stack.pop())
@@ -4502,6 +4522,207 @@ impl<'a> Executor<'a> {
           }
         }
       }
+    }
+  }
+
+  /// Constant-fold a string slice expression `s[lo..hi]`
+  /// (or `s[lo..=hi]`). Runtime slicing is not supported in
+  /// v1 — `str` has no view layout and no heap allocator, so
+  /// a runtime slice cannot be materialized. Both bounds and
+  /// the receiver must be compile-time constants.
+  ///
+  /// Called from the `Token::RBracket` handler when the node
+  /// immediately preceding the bracket is `DotDot` /
+  /// `DotDotEq`. Expects three entries on the stacks:
+  /// `[receiver_str, lo_int, hi_int]` (in push order). Pops
+  /// all three, validates, and pushes a fresh
+  /// `Insn::ConstString` with the sliced bytes.
+  fn execute_str_slice_const(&mut self, r_bracket_idx: usize, _depth: usize) {
+    let span = self.tree.spans[r_bracket_idx];
+    let inclusive = r_bracket_idx > 0
+      && self.tree.nodes[r_bracket_idx - 1].token == Token::DotDotEq;
+
+    let (hi_vid, _hi_ty, _hi_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => {
+        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+
+        return;
+      }
+    };
+
+    let (lo_vid, _lo_ty, _lo_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => {
+        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+
+        return;
+      }
+    };
+
+    let (_recv_vid, _recv_ty, recv_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => {
+        report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
+
+        return;
+      }
+    };
+
+    // Receiver must resolve to a compile-time string. Ident
+    // references are lowered to `Insn::Load { dst, src:
+    // Local(name), .. }` by the expression path, so the
+    // receiver's ValueId on the value stack is a fresh
+    // runtime id — not the original string value. Trace back
+    // through the Load to find the local, then check its
+    // underlying `Value::String`.
+    let recv_sym = match self.resolve_const_str_sym(recv_sir) {
+      Some(sym) => sym,
+      None => {
+        report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
+
+        return;
+      }
+    };
+
+    // Both bounds must resolve to compile-time ints.
+    let lo = match self.value_as_const_int(lo_vid) {
+      Some(v) => v,
+      None => {
+        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+
+        return;
+      }
+    };
+
+    let hi_raw = match self.value_as_const_int(hi_vid) {
+      Some(v) => v,
+      None => {
+        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+
+        return;
+      }
+    };
+
+    let hi = if inclusive {
+      hi_raw.saturating_add(1)
+    } else {
+      hi_raw
+    };
+
+    if lo > hi {
+      report_error(Error::new(ErrorKind::StrSliceInvalidRange, span));
+
+      return;
+    }
+
+    let src = self.interner.get(recv_sym).to_owned();
+    let src_bytes = src.as_bytes();
+
+    if (hi as usize) > src_bytes.len() {
+      report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
+
+      return;
+    }
+
+    let slice_bytes = &src_bytes[lo as usize..hi as usize];
+    let slice_str = match std::str::from_utf8(slice_bytes) {
+      Ok(s) => s.to_owned(),
+      Err(_) => {
+        // Slice doesn't land on UTF-8 boundary — invalid.
+        report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
+
+        return;
+      }
+    };
+
+    let slice_sym = self.interner.intern(&slice_str);
+    let str_ty = self.ty_checker.str_type();
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sir_value = self.sir.emit(Insn::ConstString {
+      dst,
+      symbol: slice_sym,
+      ty_id: str_ty,
+    });
+
+    let value_id = self.values.store_string(slice_sym);
+
+    self.value_stack.push(value_id);
+    self.ty_stack.push(str_ty);
+    self.sir_values.push(sir_value);
+  }
+
+  /// Trace a SIR `ValueId` back to its compile-time string
+  /// symbol, if it was lowered from a `Value::String` local
+  /// via `Insn::Load { src: Local(..), .. }` or emitted
+  /// directly as `Insn::ConstString`.
+  ///
+  /// Used by `execute_str_slice_const` — an Ident reference
+  /// to a `str` local pushes a fresh runtime `ValueId` onto
+  /// the value stack, but the SIR `Load` preserves the link
+  /// to the source local. A chained slice
+  /// (`s[0..10][2..5]`) hits the `ConstString` path directly.
+  fn resolve_const_str_sym(&self, sir_vid: ValueId) -> Option<Symbol> {
+    for insn in &self.sir.instructions {
+      match insn {
+        Insn::ConstString { dst, symbol, .. } if *dst == sir_vid => {
+          return Some(*symbol);
+        }
+        Insn::Load {
+          dst,
+          src: LoadSource::Local(sym),
+          ..
+        } if *dst == sir_vid => {
+          let local = self.locals.iter().rev().find(|l| l.name == *sym)?;
+          let lvi = local.value_id.0 as usize;
+
+          if lvi < self.values.kinds.len()
+            && matches!(self.values.kinds[lvi], Value::String)
+          {
+            let si = self.values.indices[lvi] as usize;
+
+            return Some(self.values.strings[si]);
+          }
+
+          return None;
+        }
+        _ => {}
+      }
+    }
+
+    None
+  }
+
+  /// Resolves a `ValueId` to its compile-time integer value
+  /// when the associated `Value` is a `Value::Int`. Used by
+  /// compile-time-only paths that need constant bounds
+  /// (e.g. `execute_str_slice_const`).
+  fn value_as_const_int(&self, vid: ValueId) -> Option<u64> {
+    let vi = vid.0 as usize;
+
+    if vi < self.values.kinds.len()
+      && matches!(self.values.kinds[vi], Value::Int)
+    {
+      let ii = self.values.indices[vi] as usize;
+
+      Some(self.values.ints[ii])
+    } else {
+      None
     }
   }
 
