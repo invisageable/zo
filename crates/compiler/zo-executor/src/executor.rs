@@ -28,6 +28,16 @@ pub struct ScopeFrame {
   count: u32,
 }
 
+/// A single generic instantiation request recorded at call
+/// site and consumed by the monomorphize pass:
+/// `(mangled_name, generic_name, subs)` where `subs` is the
+/// per-type-parameter pair `(old_generic_var_ty,
+/// fresh_var_ty)`. The fresh var is unified with the
+/// concrete argument type at call time, so
+/// `resolve_id(old_generic_var_ty)` chains to the concrete
+/// type after the substitution is installed.
+type Instantiation = (Symbol, Symbol, Vec<(TyId, TyId)>);
+
 /// Executor implements compile-time execution of HIR to produce SIR
 ///
 /// Following the manifesto (line 176): "type checking is evaluation"
@@ -127,6 +137,29 @@ pub struct Executor<'a> {
   /// Generic constraints: `$T: Eq` maps the type param
   /// name to the abstract name. Verified at call site.
   type_constraints: HashMap<Symbol, Symbol>,
+  /// Tree range `(start, end_exclusive)` of each generic
+  /// function's whole declaration (from `Fun` through the
+  /// closing `}`). Populated at `execute_fun` time for any
+  /// function that has `<$T>` parameters. Consumed by the
+  /// instantiation pass to re-execute the body per
+  /// concrete-type substitution — producing fresh SIR
+  /// directly instead of cloning-and-rewriting the generic
+  /// form's SIR.
+  generic_tree_ranges: HashMap<Symbol, (u32, u32)>,
+  /// Name override applied to the next `execute_fun` call.
+  /// Used by the instantiation pass: re-executing a generic
+  /// parses the same `Fun` node, which would emit the
+  /// generic name again; setting this overrides that to the
+  /// mangled name (e.g. `are_equal__Point`).
+  mono_name_override: Option<Symbol>,
+  /// Generic instantiation requests captured during call
+  /// resolution. Each entry is `(mangled, generic_name,
+  /// subs)` where `subs` are the type substitutions
+  /// (old inference var → concrete TyId) for the
+  /// instantiation. Drained by the instantiation pass,
+  /// which re-executes the generic's tree range with
+  /// those substitutions bound in the ty_checker.
+  pending_instantiations: Vec<Instantiation>,
   /// Buffered closure SIR instructions. Closures emit
   /// their FunDef + body here during execution. Flushed
   /// to `self.sir` after the enclosing function's Return
@@ -220,6 +253,9 @@ impl<'a> Executor<'a> {
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
       var_return_type_args: HashMap::default(),
+      generic_tree_ranges: HashMap::default(),
+      mono_name_override: None,
+      pending_instantiations: Vec::new(),
       pending_enum_construct: None,
       apply_context: None,
       global_constants: Vec::new(),
@@ -4218,6 +4254,24 @@ impl<'a> Executor<'a> {
     // FunDef stores (name, ty) — strip mutability.
     let sir_params =
       params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
+
+    // Record the tree range of a generic function
+    // declaration so the instantiation pass can re-execute
+    // the body per concrete substitution. Uses the generic's
+    // own name (not any mono override) so subsequent
+    // instantiations can look it up by the original symbol.
+    if !self.type_params.is_empty() && self.mono_name_override.is_none() {
+      self
+        .generic_tree_ranges
+        .insert(name, (start_idx as u32, _end_idx as u32));
+    }
+
+    // When the instantiation pass re-executes a generic, it
+    // sets `mono_name_override` before replaying the Fun
+    // node; use that instead of the tree's literal name so
+    // the emitted FunDef carries the mangled symbol
+    // (e.g. `are_equal__Point`).
+    let name = self.mono_name_override.take().unwrap_or(name);
 
     self.pending_function = Some(FunDef {
       name,
@@ -8963,6 +9017,17 @@ impl<'a> Executor<'a> {
           mono_def.type_params = Vec::new();
 
           self.funs.push(mono_def);
+
+          // Record the per-instantiation substitutions. The
+          // monomorphize pass uses these to rewrite inner
+          // `ty_id` fields in the cloned body so BinOp /
+          // ArrayIndex / TupleIndex / FieldStore all land
+          // on concrete types rather than the generic's
+          // original inference variables. Entry: (mangled,
+          // generic_name, subs_as_(old_ty, fresh_ty)).
+          self
+            .pending_instantiations
+            .push((sym, func.name, subs.clone()));
         }
 
         sym
@@ -9677,6 +9742,18 @@ impl<'a> Executor<'a> {
       })
       .collect();
 
+    // Drain pending instantiations into a lookup so we can
+    // apply per-instantiation substitutions during the clone
+    // + ty_id rewrite pass. Each entry carries the call
+    // site's `(old_generic_var → fresh_var_unified_with_concrete)`
+    // substitution pairs — enough to chain old_var → fresh_var
+    // → concrete through `resolve_id`.
+    let instantiation_subs: HashMap<Symbol, Vec<(TyId, TyId)>> = self
+      .pending_instantiations
+      .drain(..)
+      .map(|(mangled, _, subs)| (mangled, subs))
+      .collect();
+
     for (gen_name, mono_name) in &mono_funs {
       let range = generic_ranges.iter().find(|(n, _, _)| n == gen_name);
 
@@ -9695,6 +9772,36 @@ impl<'a> Executor<'a> {
       // Replace the FunDef name with the mangled name.
       if let Some(Insn::FunDef { name, .. }) = cloned.first_mut() {
         *name = *mono_name;
+      }
+
+      // Per-instantiation ty_id rewrite. Temporarily install
+      // `old_generic_var → fresh_var` substitutions so
+      // `ty_checker.resolve_id(old_generic_var_ty)` chains
+      // `old → fresh → concrete` (the fresh var was already
+      // unified with the concrete argument type at call
+      // time). Walk every `ty_id` field in the cloned body
+      // and replace it with its resolved canonical TyId —
+      // this fixes the latent correctness hole where
+      // BinOp / TupleIndex / FieldStore inside a generic
+      // body kept the generic's original `Ty::Infer(..)`
+      // references in the monomorphized output.
+      if let Some(subs) = instantiation_subs.get(mono_name) {
+        let saved: Vec<(TyId, Option<TyId>)> = subs
+          .iter()
+          .map(|(old, new)| {
+            (*old, self.ty_checker.install_substitution(*old, *new))
+          })
+          .collect();
+
+        for insn in cloned.iter_mut() {
+          insn.visit_ty_ids_mut(&mut |id| {
+            *id = self.ty_checker.resolve_id(*id);
+          });
+        }
+
+        for (old, prev) in saved.iter().rev() {
+          self.ty_checker.clear_substitution(*old, *prev);
+        }
       }
 
       // Rewrite __abstract:: placeholder Calls with the

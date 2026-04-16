@@ -532,3 +532,80 @@ fun main() {
     ErrorKind::TypeMismatch,
   );
 }
+
+// === INVARIANT: MONO BODY HAS CONCRETE TY_IDS ===
+
+#[test]
+fn test_mono_body_has_no_infer_ty_ids() {
+  // Correctness invariant after the instantiation pass:
+  // every `ty_id` inside a monomorphized body must resolve
+  // to a concrete type — the generic's original
+  // `Ty::Infer(..)` references must have been substituted
+  // through `resolve_id` during the mono rewrite. This
+  // closes the latent hole where inner BinOp/TupleIndex/
+  // FieldStore could keep generic inference vars in the
+  // final SIR.
+  let source = r#"fun pair_first<$T>(a: $T, b: $T) -> $T { a }
+fun main() {
+  imu x: int = pair_first(1, 2);
+}"#;
+
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _, _) = executor.execute();
+
+  // Find the monomorphized function (name suffix starts
+  // with `__int`).
+  let mono_name = interner.intern("pair_first__int");
+  let mut in_mono_body = false;
+  let mut seen_any_body_insn = false;
+
+  for insn in &sir.instructions {
+    match insn {
+      Insn::FunDef { name, .. } => {
+        in_mono_body = *name == mono_name;
+      }
+      Insn::Return { .. } if in_mono_body => {
+        in_mono_body = false;
+      }
+      other if in_mono_body => {
+        seen_any_body_insn = true;
+
+        // Collect every ty_id in the instruction and
+        // verify none resolves to `Ty::Infer(..)`.
+        let mut insn_copy = other.clone();
+
+        insn_copy.visit_ty_ids_mut(&mut |id| {
+          let kind = ty_checker.kind_of(*id);
+
+          assert!(
+            !matches!(kind, zo_ty::Ty::Infer(_)),
+            "monomorphized body instruction kept an Infer ty_id: \
+             {:?} (resolved kind: {:?})",
+            other,
+            kind
+          );
+        });
+      }
+      _ => {}
+    }
+  }
+
+  assert!(
+    seen_any_body_insn,
+    "expected at least one body instruction in the mono'd fn"
+  );
+}

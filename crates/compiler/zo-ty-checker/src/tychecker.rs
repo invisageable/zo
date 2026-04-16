@@ -458,6 +458,45 @@ impl TyChecker {
     }
   }
 
+  /// Install a substitution `var(var_ty) → target` and return
+  /// the previous value, if any. The instantiation pass uses
+  /// this to make a generic function's original inference
+  /// variables temporarily resolve to the concrete types of
+  /// a specific monomorphization, so `resolve_id` / `kind_of`
+  /// applied to cloned SIR's `ty_id` fields returns concrete
+  /// types instead of `Ty::Infer(..)`.
+  ///
+  /// `var_ty` must point to a `Ty::Infer(..)` entry — any
+  /// other shape is a no-op and returns `None`.
+  pub fn install_substitution(
+    &mut self,
+    var_ty: TyId,
+    target: TyId,
+  ) -> Option<TyId> {
+    let var_id = match self.tys.get(var_ty.0 as usize) {
+      Some(Ty::Infer(id)) => *id,
+      _ => return None,
+    };
+
+    self.substitutions.insert(var_id, target)
+  }
+
+  /// Revert a substitution installed via
+  /// [`install_substitution`]. Pass the return value from
+  /// that call as `prev` — `None` clears the mapping entirely.
+  pub fn clear_substitution(&mut self, var_ty: TyId, prev: Option<TyId>) {
+    let var_id = match self.tys.get(var_ty.0 as usize).copied() {
+      Some(Ty::Infer(id)) => id,
+      _ => return,
+    };
+
+    if let Some(p) = prev {
+      self.substitutions.insert(var_id, p);
+    } else {
+      self.substitutions.remove(&var_id);
+    }
+  }
+
   /// Resolve a type variable through substitutions to its canonical
   /// representative. Implements path compression for efficiency.
   ///
