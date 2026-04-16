@@ -4,8 +4,8 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
   ARM64Emitter, COND_EQ, COND_GE, COND_GT, COND_LE, COND_LT, COND_NE, COND_VC,
-  COND_VS, D0, D1, FpRegister, Register, SP, X0, X1, X2, X16, X17, X29, X30,
-  XZR,
+  COND_VS, D0, D1, FpRegister, Register, SP, X0, X1, X2, X9, X16, X17, X29,
+  X30, XZR,
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
@@ -1162,8 +1162,25 @@ impl<'a> ARM64Gen<'a> {
           // Lengths match — call _memcmp(ptr1, ptr2, len).
           // String layout is inline: [len:8][data...][null].
           // Data starts at base + 8, not *(base + 8).
-          self.emitter.emit_add_imm(X0, l, 8); // ptr1
-          self.emitter.emit_add_imm(X1, r, 8); // ptr2
+          //
+          // Register aliasing: `r` may be allocated to X0 (the
+          // destination of the upcoming `add X0, l, 8`). In
+          // that case emitting the lhs add first clobbers the
+          // rhs pointer before the rhs add reads it. Similarly,
+          // `l` may alias X1. Pick a safe ordering — and if
+          // both alias simultaneously, stash rhs in a scratch
+          // register first.
+          if r == X0 && l == X1 {
+            self.emitter.emit_mov_reg(X9, r);
+            self.emitter.emit_add_imm(X0, l, 8); // ptr1
+            self.emitter.emit_add_imm(X1, X9, 8); // ptr2
+          } else if r == X0 {
+            self.emitter.emit_add_imm(X1, r, 8); // ptr2 first
+            self.emitter.emit_add_imm(X0, l, 8); // ptr1
+          } else {
+            self.emitter.emit_add_imm(X0, l, 8); // ptr1
+            self.emitter.emit_add_imm(X1, r, 8); // ptr2
+          }
           self.emitter.emit_mov_reg(X2, X16); // len
           self.emit_extern_call("_memcmp");
 
