@@ -214,6 +214,53 @@ impl Insn {
       }
     }
   }
+
+  /// Walks every `TyId` in this instruction, applying `f`.
+  /// Used by the instantiation pass to substitute generic
+  /// inference vars with concrete types in a monomorphized
+  /// body. Covers every `ty_id` field; aggregate kinds
+  /// (ArrayLiteral / TupleLiteral / struct / enum) expose
+  /// their element/field types where applicable.
+  pub fn visit_ty_ids_mut(&mut self, f: &mut impl FnMut(&mut TyId)) {
+    match self {
+      Insn::ConstInt { ty_id, .. }
+      | Insn::ConstFloat { ty_id, .. }
+      | Insn::ConstBool { ty_id, .. }
+      | Insn::ConstString { ty_id, .. }
+      | Insn::Load { ty_id, .. }
+      | Insn::Store { ty_id, .. }
+      | Insn::Return { ty_id, .. }
+      | Insn::Call { ty_id, .. }
+      | Insn::BinOp { ty_id, .. }
+      | Insn::UnOp { ty_id, .. }
+      | Insn::ConstDef { ty_id, .. }
+      | Insn::VarDef { ty_id, .. }
+      | Insn::Directive { ty_id, .. }
+      | Insn::Template { ty_id, .. }
+      | Insn::ArrayLiteral { ty_id, .. }
+      | Insn::ArrayIndex { ty_id, .. }
+      | Insn::ArrayStore { ty_id, .. }
+      | Insn::ArrayLen { ty_id, .. }
+      | Insn::ArrayPush { ty_id, .. }
+      | Insn::ArrayPop { ty_id, .. }
+      | Insn::TupleLiteral { ty_id, .. }
+      | Insn::TupleIndex { ty_id, .. }
+      | Insn::EnumConstruct { ty_id, .. }
+      | Insn::StructConstruct { ty_id, .. }
+      | Insn::FieldStore { ty_id, .. } => f(ty_id),
+      Insn::Cast { to_ty, .. } => f(to_ty),
+      Insn::ModuleLoad { .. }
+      | Insn::PackDecl { .. }
+      | Insn::EnumDef { .. }
+      | Insn::StructDef { .. }
+      | Insn::FunDef { .. }
+      | Insn::Label { .. }
+      | Insn::Jump { .. }
+      | Insn::BranchIfNot { .. }
+      | Insn::StyleSheet { .. }
+      | Insn::Nop => {}
+    }
+  }
 }
 
 impl Default for Sir {

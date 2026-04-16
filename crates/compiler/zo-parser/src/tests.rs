@@ -11,12 +11,13 @@ pub(crate) mod unary;
 
 use crate::tests::common::assert_nodes_stream;
 
+use zo_interner::Symbol;
 use zo_token::Token::{
   Abstract, Apply, Arrow, As, BoolType, CharType, Colon, ColonEq, Comma, Dot,
   DotDot, DotDotEq, Else, Eq, False, FloatType, For, Fun, Gt, Ident, If, Imu,
   Int, IntType, LBrace, LBracket, LParen, Lt, Minus, Mut, Plus, RBrace,
-  RBracket, RParen, Return, S32Type, SelfLower, Semicolon, Star, StrType, True,
-  While,
+  RBracket, RParen, Return, S32Type, SelfLower, Semicolon, Star, StrType,
+  String, True, While,
 };
 use zo_tree::NodeValue;
 
@@ -1056,6 +1057,48 @@ fn test_apply_for_tree_order() {
       (For, None),
       (Ident, Some(NodeValue::TextRange(15, 5))),
       (LBrace, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+// === STR SLICING ===
+
+#[test]
+fn test_str_slice_tree_shape() {
+  // `s[0..5]` — postorder: receiver, LBracket, lo, hi,
+  // DotDot, RBracket. The executor relies on `DotDot`
+  // being the node immediately preceding `RBracket` to
+  // distinguish a slice from a single-index lookup.
+  assert_nodes_stream(
+    r#"fun main() { imu s: str = "hello"; imu t: str = s[0..5]; }"#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(4, 4))), // "main"
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      // imu s: str = "hello";
+      (Imu, None),
+      (Ident, Some(NodeValue::TextRange(17, 1))), // "s"
+      (StrType, None),
+      (Colon, None),
+      (Eq, None),
+      (String, Some(NodeValue::Symbol(Symbol(27)))),
+      (Semicolon, None),
+      // imu t: str = s[0..5];
+      (Imu, None),
+      (Ident, Some(NodeValue::TextRange(39, 1))), // "t"
+      (StrType, None),
+      (Colon, None),
+      (Eq, None),
+      (Ident, Some(NodeValue::TextRange(50, 1))), // "s"
+      (LBracket, None),
+      (Int, Some(NodeValue::Literal(0))), // 0
+      (Int, Some(NodeValue::Literal(1))), // 5
+      (DotDot, None),
+      (RBracket, None),
+      (Semicolon, None),
       (RBrace, None),
     ],
   );

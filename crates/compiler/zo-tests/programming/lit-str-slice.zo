@@ -1,0 +1,10 @@
+-- tests-run-pass: compile-time string slicing.
+
+fun main() {
+  imu s: str = "hello, world!";
+  imu hello: str = s[0..5];
+  imu world: str = s[7..12];
+
+  check@eq(hello, "hello");
+  check@eq(world, "world");
+}
