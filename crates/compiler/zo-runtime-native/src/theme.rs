@@ -56,13 +56,11 @@ pub fn style_default(ctx: &egui::Context) {
 
   visuals.widgets.hovered.bg_fill = button_hovered;
   visuals.widgets.hovered.weak_bg_fill = button_hovered;
-  visuals.widgets.hovered.bg_stroke =
-    egui::Stroke::new(1.0_f32, button_border);
+  visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, button_border);
 
   visuals.widgets.active.bg_fill = button_pressed;
   visuals.widgets.active.weak_bg_fill = button_pressed;
-  visuals.widgets.active.bg_stroke =
-    egui::Stroke::new(1.0_f32, button_border);
+  visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, button_border);
 
   ctx.set_visuals(visuals);
 
