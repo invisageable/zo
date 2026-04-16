@@ -8593,6 +8593,51 @@ impl<'a> Executor<'a> {
         }
       }
 
+      // Show abstract dispatch: when showln/show is called
+      // with a struct arg that implements Show, insert a
+      // Call to Type::show(arg) and use the returned string
+      // as the showln argument.
+      let call_name_str2 = self.interner.get(call_name);
+
+      if matches!(call_name_str2, "showln" | "show" | "eshowln" | "eshow")
+        && arg_types.len() == 1
+      {
+        let arg_ty = arg_types[0];
+        let resolved = self.ty_checker.kind_of(arg_ty);
+
+        let type_name = match resolved {
+          Ty::Struct(sid) => {
+            self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+          }
+          _ => None,
+        };
+
+        if let Some(tname) = type_name {
+          let show_sym = self.interner.intern("Show");
+
+          if self.abstract_impls.contains_key(&(show_sym, tname)) {
+            let ts = self.interner.get(tname).to_owned();
+            let mangled = format!("{ts}::show");
+            let show_fn = self.interner.intern(&mangled);
+
+            if self.funs.iter().any(|f| f.name == show_fn) {
+              let show_dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+
+              let show_result = self.sir.emit(Insn::Call {
+                dst: show_dst,
+                name: show_fn,
+                args: arg_sirs.clone(),
+                ty_id: self.ty_checker.str_type(),
+              });
+
+              arg_sirs = vec![show_result];
+              arg_types = vec![self.ty_checker.str_type()];
+            }
+          }
+        }
+      }
+
       let dst = ValueId(self.sir.next_value_id);
       self.sir.next_value_id += 1;
 

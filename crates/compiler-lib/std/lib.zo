@@ -4,6 +4,8 @@
 -! programs.
 
 pack assert;
+pack cmp;
+pack fmt;
 pack io;
 pack math;
 pack preload;                                        
