@@ -992,6 +992,13 @@ impl<'a> Executor<'a> {
           self.ty_stack.push(ty_id);
           self.sir_values.push(sv);
         }
+        // Closes a call? `(a, b)` as the outer tuple pushed
+        // tuple_ctx; a call like `f(x)` inside it did NOT.
+        // Without this check, the call's RParen would pop
+        // the outer tuple's depth and drop its result.
+        else if self.rparen_closes_call(idx) {
+          self.execute_potential_call(idx);
+        }
         // Check if this closes a tuple/grouping context.
         else if let Some(depth) = self.tuple_ctx.pop() {
           let count = self.sir_values.len().saturating_sub(depth);
@@ -3761,7 +3768,14 @@ impl<'a> Executor<'a> {
         continue;
       }
 
-      if tok.is_ty() {
+      // Accept both keyword types (`int`, `bool`, …) and
+      // user-defined idents (struct/enum/alias names).
+      // Without the Ident arm, `(Point, Point)` produced an
+      // empty-element tuple — `resolve_type_token` already
+      // knows how to resolve idents, but `is_ty()` is
+      // deliberately keyword-only, so the tuple loop needs
+      // its own arm.
+      if tok.is_ty() || tok == Token::Ident {
         elem_tys.push(self.resolve_type_token(j));
       }
 
@@ -4455,6 +4469,18 @@ impl<'a> Executor<'a> {
                   }
                 } else if self.tree.nodes[idx].token == Token::FnType {
                   let (ty, skip) = self.resolve_fn_type(idx);
+
+                  idx = skip - 1;
+
+                  ty
+                } else if self.tree.nodes[idx].token == Token::LParen {
+                  // Tuple param type: `fun f(t: (int, int))`.
+                  // Without this branch, `resolve_type_token`
+                  // saw the `(` as non-type and returned unit —
+                  // tuple-index access on the param then landed
+                  // in the `_ => unit` fallthrough of the field-
+                  // access dispatcher and emitted TypeMismatch.
+                  let (ty, skip) = self.resolve_tuple_type(idx);
 
                   idx = skip - 1;
 
@@ -9067,6 +9093,33 @@ impl<'a> Executor<'a> {
     }
 
     None
+  }
+
+  /// Returns true if `rparen_idx` closes an `(...)` whose
+  /// LParen is a call site (i.e. `f(` / `Type::m(`). Used at
+  /// the RParen dispatcher to pick the call path before the
+  /// tuple/grouping path — otherwise a call's closing `)`
+  /// inside a tuple literal (`(f(x), g(y))`) would pop the
+  /// surrounding tuple_ctx and silently drop the call.
+  fn rparen_closes_call(&self, rparen_idx: usize) -> bool {
+    let mut depth = 1i32;
+    let mut idx = rparen_idx;
+
+    while idx > 0 && depth > 0 {
+      idx -= 1;
+
+      match self.tree.nodes[idx].token {
+        Token::RParen => depth += 1,
+        Token::LParen => depth -= 1,
+        _ => {}
+      }
+    }
+
+    if depth != 0 {
+      return false;
+    }
+
+    self.resolve_call_target(idx).is_some()
   }
 
   /// Checks if RParen closes a function call and executes it.

@@ -1,0 +1,28 @@
+-- tests-run-pass: two back-to-back struct-returning calls must
+-- leave distinct copies on the caller's frame. Regressed once
+-- because immutable param reads were lowered as
+-- `LoadSource::Local(sym)` but the arm64 codegen only wired
+-- that case for mutable locals — leaving the destination
+-- register to inherit whatever the caller left behind, so both
+-- structs ended up aliased in `Point::new`'s register state.
+
+struct Point {
+  x: int,
+  y: int,
+}
+
+apply Point {
+  fun new(x: int, y: int) -> Self {
+    Self { x, y }
+  }
+}
+
+fun main() {
+  imu a: Point = Point::new(100, 200);
+  imu b: Point = Point::new(11, 22);
+
+  check@eq(a.x, 100);
+  check@eq(a.y, 200);
+  check@eq(b.x, 11);
+  check@eq(b.y, 22);
+}

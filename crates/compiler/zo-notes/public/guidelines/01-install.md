@@ -17,7 +17,7 @@ iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SET THE ENViRONM
   2. THEN RUN `zo --version` — iT MUST RETURNS:
 
   ```
-  zo 0.3.2
+  zo x.x.x
   ```
 
 > *The version will depends of the latest release artifact.*

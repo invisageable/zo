@@ -150,6 +150,16 @@ pub struct ARM64Gen<'a> {
   mutable_slots: HashMap<u32, u32>,
   /// Parameter spill slots: param_index → offset from SP.
   param_slots: HashMap<u32, u32>,
+  /// Parameter spill slots keyed by the parameter's symbol.
+  /// Mirrors `param_slots` but indexed by the name the SIR
+  /// uses in `Insn::Load { src: LoadSource::Local(sym) }`.
+  /// Required because the executor sometimes lowers an
+  /// immutable parameter read as `LoadSource::Local(sym)`
+  /// (rather than `LoadSource::Param(idx)`) — without this
+  /// map the codegen would emit no LDR at all, leaving the
+  /// destination register holding whatever the caller left
+  /// behind (e.g. a stale arg from a previous call).
+  param_sym_slots: HashMap<u32, (u32, bool)>,
   /// Base offset for caller-save spill area.
   caller_save_base: u32,
   /// Next mutable variable slot.
@@ -248,6 +258,7 @@ impl<'a> ARM64Gen<'a> {
       current_fn_start: None,
       mutable_slots: HashMap::default(),
       param_slots: HashMap::default(),
+      param_sym_slots: HashMap::default(),
       caller_save_base: 0,
       next_mut_slot: 0,
       struct_base: 0,
@@ -978,6 +989,7 @@ impl<'a> ARM64Gen<'a> {
         self.next_mut_slot = 0;
         self.next_struct_slot = 0;
         self.param_slots.clear();
+        self.param_sym_slots.clear();
 
         // Function prologue: save FP/LR if non-leaf.
         let fn_info = self
@@ -1025,7 +1037,7 @@ impl<'a> ARM64Gen<'a> {
 
           let param_base = spill_size + mut_size;
 
-          for (i, (_, ty_id)) in params.iter().enumerate() {
+          for (i, (sym, ty_id)) in params.iter().enumerate() {
             let off = param_base + i as u32 * STACK_SLOT_SIZE;
             let is_fp =
               ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
@@ -1041,6 +1053,10 @@ impl<'a> ARM64Gen<'a> {
             }
 
             self.param_slots.insert(i as u32, off);
+            // Also index by the parameter's symbol so
+            // `LoadSource::Local(sym)` (emitted for immutable
+            // param reads) can resolve the spill slot.
+            self.param_sym_slots.insert(sym.as_u32(), (off, is_fp));
           }
         }
       }
@@ -1104,6 +1120,24 @@ impl<'a> ARM64Gen<'a> {
             {
               // Float local: LDR Dt, [SP, #offset].
               self.emitter.emit_ldr_fp(fp_dst, SP, offset as u16);
+            }
+          } else if let Some(&(offset, is_fp)) = self.param_sym_slots.get(&slot)
+          {
+            // Parameter read lowered as `LoadSource::Local`.
+            // Fall back to the param spill slot so the value
+            // is reloaded from the stack — without this the
+            // destination register keeps whatever the caller
+            // left behind, which aliases across back-to-back
+            // calls (e.g. two struct-returning calls).
+            if is_fp {
+              if let Some(fp_dst) = self
+                .alloc_fp_reg(*dst)
+                .or_else(|| self.fp_reg_for_insn(idx))
+              {
+                self.emitter.emit_ldr_fp(fp_dst, SP, offset as u16);
+              }
+            } else if let Some(dst_reg) = self.alloc_reg(*dst) {
+              self.emitter.emit_ldr(dst_reg, SP, offset as i16);
             }
           }
         }
@@ -1625,6 +1659,23 @@ impl<'a> ARM64Gen<'a> {
               if let Some(result_reg) = self.reg_for_insn(idx) {
                 self.emitter.emit_add_imm(result_reg, SP, dst_base as u16);
               }
+
+              // Also materialize the pointer in X0. The
+              // register allocator's spill-around-next-call
+              // logic captures the call result's original
+              // register (X0) at allocation time, then emits
+              // a pre-next-call Store from X0. For scalar
+              // calls, X0 already holds the call result. For
+              // struct-returning calls, X0 holds the callee's
+              // stale frame pointer (used only for the copy
+              // loop above), so the Store would spill stale
+              // data. Fix: overwrite X0 with the caller's
+              // own struct pointer after the copy completes,
+              // mirroring the scalar case and keeping the
+              // spill-from-X0 invariant valid across
+              // chained struct-returning calls (e.g.
+              // `(Point::new(..), Point::new(..))`).
+              self.emitter.emit_add_imm(X0, SP, dst_base as u16);
 
               self.next_struct_slot += field_count * STACK_SLOT_SIZE;
             } else if let Some(fp_result) = self.fp_reg_for_insn(idx) {
