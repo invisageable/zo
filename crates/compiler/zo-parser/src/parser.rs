@@ -1118,6 +1118,11 @@ impl<'a> Parser<'a> {
           | Token::BangEq
           | Token::AmpAmp
           | Token::PipePipe
+          | Token::Amp
+          | Token::Pipe
+          | Token::Caret
+          | Token::LShift
+          | Token::RShift
           | Token::LParen
           | Token::LBracket
           | Token::Comma
