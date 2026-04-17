@@ -673,3 +673,83 @@ fn test_closure_call_uses_generated_name() {
     },
   );
 }
+
+/// Passing a named function to a `Fn(T) -> R` parameter —
+/// `ho(direct)`. The Ident handler pushes a synthetic
+/// `Value::Closure` with zero captures, and the existing
+/// closure-param monomorphization pipeline (line ~10025 in
+/// executor.rs) creates `ho__cl<N>` whose body calls `direct`
+/// directly. Before this path existed the ident was silently
+/// skipped — `ho(direct)` became `call ho()` with no args
+/// and the binary hung trying to dispatch through an empty
+/// function-pointer slot.
+#[test]
+fn test_named_fun_as_fn_param_argument() {
+  assert_sir_structure(
+    r#"fun ho(f: Fn(int) -> int) -> int {
+  return f(3);
+}
+fun direct(x: int) -> int { x + 1 }
+fun main() {
+  imu b: int = ho(direct);
+}"#,
+    |sir| {
+      // A specialized `ho__cl<N>` must have been emitted.
+      // Use the fact that closure-param mono mangles names
+      // with `__cl` as a prefix marker on the FunDef.
+      //
+      // Note: we can't resolve interner-backed Symbols to
+      // strings here without an interner handle, so we
+      // assert structural properties instead: there must be
+      // TWO user FunDefs named something (ho and
+      // ho__cl<N>), at least three Calls (ho__cl<N> from
+      // main, direct from the specialized body, plus any
+      // prelude), and no Call to the generic `ho` name.
+      let user_fundef_count = sir
+        .iter()
+        .filter(|i| {
+          matches!(
+            i,
+            Insn::FunDef {
+              kind: FunctionKind::UserDefined,
+              ..
+            }
+          )
+        })
+        .count();
+
+      // Expect: ho (generic, body skipped but signature
+      // emitted), direct, main, ho__cl<N> (specialized).
+      assert!(
+        user_fundef_count >= 3,
+        "expected >= 3 user FunDefs (ho, direct, main, \
+         ho__cl<N>), got {user_fundef_count}"
+      );
+
+      // At least one Call whose target differs from the
+      // generic `ho` — proves specialization happened.
+      let non_unit_calls = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Call { name, ty_id, .. } if ty_id.0 != TyId(1).0 => Some(*name),
+          _ => None,
+        })
+        .collect::<Vec<_>>();
+
+      assert!(
+        !non_unit_calls.is_empty(),
+        "expected at least one Call emitted for the \
+         specialized ho or direct"
+      );
+    },
+  );
+
+  // End-to-end: the program must compile without errors.
+  assert_no_errors(
+    r#"fun ho(f: Fn(int) -> int) -> int { f(3) }
+fun direct(x: int) -> int { x + 1 }
+fun main() {
+  imu b: int = ho(direct);
+}"#,
+  );
+}

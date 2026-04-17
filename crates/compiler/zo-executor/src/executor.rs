@@ -96,6 +96,10 @@ pub struct Executor<'a> {
   widget_counter: Cell<u32>,
   /// The pending branch contexts for control flow.
   branch_stack: Vec<BranchCtx>,
+  /// Monotonically increasing counter used to mint unique
+  /// names for synthetic per-branch result locals
+  /// (`__branch_result_N__`). see `PLAN_BRANCH_EXPR_PHI.md`.
+  branch_result_counter: u32,
   /// Skip main-loop processing until this index.
   skip_until: usize,
   /// Pending variable declaration (deferred to Semicolon).
@@ -118,6 +122,14 @@ pub struct Executor<'a> {
   /// Deferred binary operators waiting for RHS group to close.
   /// (op, lhs_value, lhs_ty, lhs_sir, node_idx)
   deferred_binops: Vec<(BinOp, ValueId, TyId, ValueId, usize)>,
+  /// Deferred short-circuit logical ops waiting for RHS to
+  /// be pushed onto the stacks. Each entry records the
+  /// synthetic sink local and the end label emitted at the
+  /// `&&`/`||` site — the RHS-finalization path stores into
+  /// the sink, emits the end label, and loads the merged
+  /// result. Parallel to `deferred_binops` but finalized via
+  /// the φ-sink machinery instead of a plain `BinOp`.
+  deferred_short_circuits: Vec<DeferredShortCircuit>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
@@ -185,6 +197,17 @@ pub struct Executor<'a> {
   /// suppresses deferred binops until this RParen is reached,
   /// preventing call args from being consumed by the operator.
   pending_call_rparen: Option<usize>,
+  /// Open direct-call depth. Incremented at every `is_call`
+  /// LParen (when LParen is preceded by a function ident),
+  /// decremented at the matching RParen. Used by
+  /// `apply_deferred_short_circuit` to distinguish
+  ///   `a || f(x)` — SC deferred *outside* the call; finalize
+  ///   must wait until the call result is on the stack; and
+  ///   `f(a || b)` — SC deferred *inside* the call; finalize
+  ///   must happen before the call collects its args.
+  /// Without this, both cases look identical by stack depth
+  /// alone and the SC captures the wrong value.
+  direct_call_depth: u32,
   /// Pending stylesheet commands collected from `$:` blocks.
   /// Injected into the next `Insn::Template`'s commands.
   pending_styles: Vec<UiCommand>,
@@ -199,6 +222,14 @@ pub struct Executor<'a> {
   /// Maps (abstract_name, target_type_name) → mangled method
   /// names.
   abstract_impls: HashMap<(Symbol, Symbol), Vec<Symbol>>,
+  /// Signature-only pre-scan flag. When true, `execute_fun`
+  /// registers the `FunDef` in `self.funs` and returns before
+  /// any body-level state is touched (no `pending_function`,
+  /// no scope push, no param-locals). Enables forward
+  /// references between mutually recursive functions — call
+  /// resolution in the main pass can look up callee
+  /// signatures regardless of source order.
+  prescan_only: bool,
 }
 
 /// An `abstract` definition (method signatures, no bodies).
@@ -211,6 +242,45 @@ pub struct AbstractMethod {
   pub name: Symbol,
   pub params: Vec<(Symbol, TyId)>,
   pub return_ty: TyId,
+}
+
+/// Deferred short-circuit operator, finalized when the RHS
+/// expression has fully materialized on the stacks. See
+/// `execute_logical_binop` and `apply_deferred_short_circuit`
+/// for the control-flow shape.
+///
+/// Finalization requires *three* depth markers to avoid
+/// capturing transient stack values that land mid-RHS
+/// (e.g. a function-call arg being pushed before the call
+/// itself emits) — the RHS is "done" only when we're back
+/// at the pre-op stack/tuple/call depth and one new value
+/// sits on top of the stacks.
+struct DeferredShortCircuit {
+  /// Synthetic `__branch_result_N__` local receiving both
+  /// the LHS (already stored at the op site) and the RHS
+  /// (stored on finalization) — mirrors the ternary φ sink.
+  sink: Symbol,
+  /// Label emitted after the RHS store, reached directly
+  /// from the LHS short-circuit path.
+  end_label: u32,
+  /// `bool` type id, cached to avoid re-looking it up.
+  bool_ty: TyId,
+  /// `sir_values.len()` right after the LHS was popped, at
+  /// the op site. The RHS is "on top" only when the stack
+  /// reaches `pre_rhs_depth + 1`.
+  pre_rhs_depth: usize,
+  /// `tuple_ctx.len()` at defer time. Only finalize when the
+  /// tuple context has returned to at most this depth —
+  /// otherwise an inner tuple/group element push would be
+  /// stolen as the RHS.
+  pre_tuple_ctx_len: usize,
+  /// `direct_call_depth` at defer time. Mirrors
+  /// `pre_tuple_ctx_len` but for function-call scopes,
+  /// which don't push `tuple_ctx`. Prevents premature
+  /// finalization when the RHS *is* a call: args get pushed
+  /// while inside the call, and firing on the first arg
+  /// would capture it instead of the call result.
+  pre_direct_call_depth: u32,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -255,6 +325,7 @@ impl<'a> Executor<'a> {
       pending_var_name: None,
       widget_counter: Cell::new(0),
       branch_stack: Vec::with_capacity(8),
+      branch_result_counter: 0,
       skip_until: 0,
       pending_decl: None,
       pending_assign: None,
@@ -264,6 +335,7 @@ impl<'a> Executor<'a> {
       pending_array_assign: None,
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
+      deferred_short_circuits: Vec::new(),
       closure_counter: 0,
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
@@ -279,10 +351,25 @@ impl<'a> Executor<'a> {
       type_constraints: HashMap::new(),
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
+      direct_call_depth: 0,
       pending_styles: Vec::new(),
       template_bindings: TemplateBindings::default(),
       abstract_defs: HashMap::new(),
       abstract_impls: HashMap::new(),
+      prescan_only: false,
+    }
+  }
+
+  /// Upsert a function definition into `self.funs`. Replaces
+  /// any existing entry with the same name in place so pre-
+  /// scan-registered signatures get updated with real
+  /// `body_start` values during the main pass (and re-
+  /// executed generic instantiations overwrite their stub).
+  fn push_or_replace_fun(&mut self, def: FunDef) {
+    if let Some(slot) = self.funs.iter_mut().find(|f| f.name == def.name) {
+      *slot = def;
+    } else {
+      self.funs.push(def);
     }
   }
 
@@ -388,6 +475,97 @@ impl<'a> Executor<'a> {
     self
   }
 
+  /// Walks the Tree in signature-only mode and registers
+  /// every top-level `fun` in `self.funs`. Enables forward
+  /// references: when the main pass later encounters a call
+  /// to a function defined lexically below, the callee's
+  /// signature is already in `funs` and resolution succeeds
+  /// without reordering source.
+  ///
+  /// Scope: top-level free functions only. Methods inside
+  /// `apply Type { ... }` and closure bodies are not
+  /// pre-scanned — mutual recursion across apply blocks or
+  /// between closures needs a follow-up (declaration-
+  /// collection pass that honors apply context).
+  fn prescan_fun_signatures(&mut self) {
+    self.prescan_only = true;
+
+    let n = self.tree.nodes.len();
+    let mut idx = 0;
+    // Track brace depth so we only register funs at the
+    // top level — not funs inside `apply`, `struct`,
+    // `abstract`, or a closure body.
+    let mut block_depth = 0i32;
+
+    while idx < n {
+      let tok = self.tree.nodes[idx].token;
+
+      if block_depth == 0 && tok == Token::Fun {
+        let header = self.tree.nodes[idx];
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_fun(idx, children_end);
+
+        // Advance past the function's matching `}` so the
+        // walker resumes at the next top-level item.
+        idx = self.fun_body_end(idx, n);
+
+        continue;
+      }
+
+      match tok {
+        Token::LBrace => block_depth += 1,
+        Token::RBrace => block_depth -= 1,
+        _ => {}
+      }
+
+      idx += 1;
+    }
+
+    // Reset state that prescan mutated so the main pass
+    // starts from a clean slate.
+    self.prescan_only = false;
+    self.skip_until = 0;
+    self.pending_fn_has_return_annotation = false;
+    self.type_params.clear();
+    self.type_constraints.clear();
+    self.apply_context = None;
+  }
+
+  /// Finds the tree index one past the matching `}` of the
+  /// function whose header lives at `start_idx`. Used by the
+  /// prescan walker to skip over bodies it doesn't execute.
+  fn fun_body_end(&self, start_idx: usize, n: usize) -> usize {
+    let mut i = start_idx + 1;
+
+    while i < n && self.tree.nodes[i].token != Token::LBrace {
+      i += 1;
+    }
+
+    if i >= n {
+      return n;
+    }
+
+    let mut depth = 1i32;
+    let mut j = i + 1;
+
+    while j < n && depth > 0 {
+      match self.tree.nodes[j].token {
+        Token::LBrace => depth += 1,
+        Token::RBrace => depth -= 1,
+        _ => {}
+      }
+
+      if depth == 0 {
+        break;
+      }
+
+      j += 1;
+    }
+
+    j + 1
+  }
+
   /// Executes a parse tree in one pass to build semantic IR.
   pub fn execute(
     mut self,
@@ -397,6 +575,11 @@ impl<'a> Executor<'a> {
     Vec<FunDef>,
     HashMap<Symbol, AbstractDef>,
   ) {
+    // Pre-scan top-level function signatures so mutual
+    // recursion and out-of-order calls resolve during the
+    // main pass.
+    self.prescan_fun_signatures();
+
     for idx in 0..self.tree.nodes.len() {
       if idx < self.skip_until {
         continue;
@@ -439,7 +622,93 @@ impl<'a> Executor<'a> {
     // SIR and substitute".
     self.reexecute_generic_instantiations();
 
+    // Surface every array type reached by this SIR stream as
+    // an `ArrayTyDef` so codegen can populate `array_metas`
+    // and print arrays elementwise in `showln`. Codegen does
+    // its own pre-scan for these, so they can live at the
+    // tail of the instruction list without re-shuffling.
+    self.emit_array_ty_defs();
+
     (self.sir, self.annotations, self.funs, self.abstract_defs)
+  }
+
+  /// Walk every `ty_id` in the emitted SIR, find each unique
+  /// array type (`Ty::Array(..)`), and append one
+  /// `Insn::ArrayTyDef { array_ty, elem_ty }` per unique
+  /// array type. Idempotent via a HashSet dedup on the
+  /// array's `TyId.0`.
+  fn emit_array_ty_defs(&mut self) {
+    let mut seen: std::collections::HashSet<u32> =
+      std::collections::HashSet::new();
+    let mut to_emit: Vec<(TyId, TyId)> = Vec::new();
+
+    for insn in &self.sir.instructions {
+      let mut ty_ids: Vec<TyId> = Vec::new();
+
+      match insn {
+        Insn::ConstInt { ty_id, .. }
+        | Insn::ConstFloat { ty_id, .. }
+        | Insn::ConstBool { ty_id, .. }
+        | Insn::ConstString { ty_id, .. }
+        | Insn::Load { ty_id, .. }
+        | Insn::Store { ty_id, .. }
+        | Insn::Return { ty_id, .. }
+        | Insn::Call { ty_id, .. }
+        | Insn::BinOp { ty_id, .. }
+        | Insn::UnOp { ty_id, .. }
+        | Insn::ConstDef { ty_id, .. }
+        | Insn::VarDef { ty_id, .. }
+        | Insn::Directive { ty_id, .. }
+        | Insn::Template { ty_id, .. }
+        | Insn::ArrayLiteral { ty_id, .. }
+        | Insn::ArrayIndex { ty_id, .. }
+        | Insn::ArrayStore { ty_id, .. }
+        | Insn::ArrayLen { ty_id, .. }
+        | Insn::ArrayPush { ty_id, .. }
+        | Insn::ArrayPop { ty_id, .. }
+        | Insn::TupleLiteral { ty_id, .. }
+        | Insn::TupleIndex { ty_id, .. }
+        | Insn::EnumConstruct { ty_id, .. }
+        | Insn::StructConstruct { ty_id, .. }
+        | Insn::FieldStore { ty_id, .. } => ty_ids.push(*ty_id),
+        Insn::Cast { to_ty, .. } => ty_ids.push(*to_ty),
+        Insn::FunDef {
+          return_ty, params, ..
+        } => {
+          ty_ids.push(*return_ty);
+
+          for (_, ty) in params {
+            ty_ids.push(*ty);
+          }
+        }
+        _ => {}
+      }
+
+      for ty_id in ty_ids {
+        if seen.contains(&ty_id.0) {
+          continue;
+        }
+
+        // Follow inference chain — ArrayLiteral etc. may
+        // carry an Infer TyId that resolves to Array only
+        // after unification.
+        let canonical = self.ty_checker.resolve_id(ty_id);
+
+        if let Ty::Array(aid) = self.ty_checker.resolve_ty(canonical)
+          && let Some(arr_ty) = self.ty_checker.ty_table.array(aid)
+        {
+          // Record under the ORIGINAL `ty_id` — codegen's
+          // `value_types` will carry that same TyId as its
+          // key, so matching must happen there.
+          seen.insert(ty_id.0);
+          to_emit.push((ty_id, arr_ty.elem_ty));
+        }
+      }
+    }
+
+    for (array_ty, elem_ty) in to_emit {
+      self.sir.emit(Insn::ArrayTyDef { array_ty, elem_ty });
+    }
   }
 
   /// Returns true if the token introduces a statement —
@@ -582,6 +851,14 @@ impl<'a> Executor<'a> {
         let end_label = self.sir.next_label();
         let else_label = self.sir.next_label();
 
+        // Branch-expr φ sink: allocated when the ternary
+        // sits in expression position (e.g. `imu y =
+        // when ... ? a : b`). each arm stores its result
+        // into the sink; the merge-point Load reads it
+        // back as the expression's value.
+        let (value_sink, _existing_outer) =
+          self.mint_branch_sink_if_expr_position();
+
         self.branch_stack.push(BranchCtx {
           kind: BranchKind::Ternary,
           end_label,
@@ -592,6 +869,8 @@ impl<'a> Executor<'a> {
           branch_emitted: false,
           for_var: None,
           scope_depth: self.scope_stack.len(),
+          value_sink,
+          value_sink_ty: None,
         });
       }
 
@@ -689,6 +968,13 @@ impl<'a> Executor<'a> {
         let is_call = self.resolve_call_target(idx).is_some();
 
         if is_call {
+          // Track direct-call depth — consumed by
+          // `apply_deferred_short_circuit` to know whether
+          // a pending SC's RHS is `f(...)` (finalize *after*
+          // the call returns) vs a value inside `f(...)`
+          // (finalize when the call's args stabilize).
+          self.direct_call_depth += 1;
+
           // Skip — RParen handles call.
           // For operator-separated calls (Ident Op LParen),
           // find the matching RParen and suppress deferred
@@ -739,10 +1025,19 @@ impl<'a> Executor<'a> {
 
       // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
+        // If this RParen closes something LParen counted as
+        // a direct call, decrement here so the counter stays
+        // balanced across *every* RParen exit path (enum
+        // constructor, direct call, method, etc.).
+        let closed_a_direct_call = self.rparen_closes_call(idx);
+
         // Check if this closes an enum variant constructor.
         if let Some((enum_name, disc, field_count, ty_id)) =
           self.pending_enum_construct.take()
         {
+          if closed_a_direct_call {
+            self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
+          }
           let mut fields = Vec::with_capacity(field_count as usize);
 
           for _ in 0..field_count {
@@ -772,6 +1067,27 @@ impl<'a> Executor<'a> {
           self.value_stack.push(rid);
           self.ty_stack.push(ty_id);
           self.sir_values.push(sv);
+        }
+        // Closes a call? `(a, b)` as the outer tuple pushed
+        // tuple_ctx; a call like `f(x)` inside it did NOT.
+        // Without this check, the call's RParen would pop
+        // the outer tuple's depth and drop its result.
+        else if closed_a_direct_call {
+          // Ordering matters for short-circuit finalization:
+          //   1. Finalize SCs deferred *inside* this call
+          //      (pre_direct_call_depth == current) — their
+          //      RHS is the final arg sitting on the stack.
+          //      Runs before decrement so the guard passes.
+          //   2. Decrement direct_call_depth.
+          //   3. Emit the call.
+          //   4. Finalize SCs deferred *outside* this call
+          //      (pre_direct_call_depth < post-decrement) —
+          //      their RHS is the call's return value now on
+          //      the stack.
+          self.apply_deferred_short_circuit();
+          self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
+          self.execute_potential_call(idx);
+          self.apply_deferred_short_circuit();
         }
         // Check if this closes a tuple/grouping context.
         else if let Some(depth) = self.tuple_ctx.pop() {
@@ -816,10 +1132,18 @@ impl<'a> Executor<'a> {
             self.sir_values.push(sv);
           }
           // count <= 1: grouping — leave value on stack as-is.
+          // Drain SCs whose tuple/grouping RHS just closed.
+          self.apply_deferred_short_circuit();
           self.apply_deferred_binop();
         } else {
-          // No tuple context → function call.
+          // No tuple context → function call (via method or
+          // other non-direct path). `direct_call_depth` is
+          // not decremented here because LParen's `is_call`
+          // branch owns that counter — if we reach this arm
+          // the LParen didn't increment.
+          self.apply_deferred_short_circuit();
           self.execute_potential_call(idx);
+          self.apply_deferred_short_circuit();
         }
       }
 
@@ -865,8 +1189,12 @@ impl<'a> Executor<'a> {
           // Update body_start in the pending function
           pending_func.body_start = body_start;
 
-          // Store function definition for later calls
-          self.funs.push(pending_func);
+          // Store function definition for later calls. Upsert:
+          // the pre-scan pass may have already registered this
+          // function's signature so forward references resolve.
+          // The main pass overwrites the stub with the real
+          // body_start here.
+          self.push_or_replace_fun(pending_func);
 
           // Clear stacks when entering function body to avoid leftover values
           self.value_stack.clear();
@@ -976,7 +1304,31 @@ impl<'a> Executor<'a> {
               self.sir.emit(Insn::Label { id: ctx.end_label });
             }
           }
+        }
 
+        // Ternary with φ sink that's the tail expression
+        // of the function body: close it now so the merge
+        // Load pushes onto the stacks and the
+        // implicit-return path below picks it up as the
+        // function's return value. mirrors the Semicolon-
+        // closing path, just triggered by the closing `}`
+        // instead of `;`.
+        if at_fn_depth {
+          while self.branch_stack.last().is_some_and(|c| {
+            c.kind == BranchKind::Ternary && c.value_sink.is_some()
+          }) {
+            let ctx_idx = self.branch_stack.len() - 1;
+
+            self.emit_branch_sink_store(ctx_idx);
+
+            let ctx = self.branch_stack.pop().unwrap();
+
+            self.sir.emit(Insn::Label { id: ctx.end_label });
+            self.emit_branch_sink_load(&ctx);
+          }
+        }
+
+        if at_fn_depth && let Some(fun_ctx) = &self.current_function {
           // Only emit implicit return if there wasn't an explicit one
           if !fun_ctx.has_explicit_return {
             // Emit implicit return if needed
@@ -1763,6 +2115,45 @@ impl<'a> Executor<'a> {
               self.value_stack.push(placeholder);
               self.ty_stack.push(self.ty_checker.unit_type());
               self.sir_values.push(ValueId(u32::MAX));
+            } else if is_fun && !self.ident_is_call_target(idx) {
+              // Fun name used as a first-class value (e.g.
+              // `ho(direct)` passing `direct` to a `Fn(...)`
+              // parameter). Push a synthetic `Value::Closure`
+              // with zero captures pointing at the fun —
+              // downstream the closure-param mono path
+              // (line ~10025) sees `Value::Closure` at the
+              // arg slot, builds a `__cl<fun>` specialization
+              // of the callee, and binds the param to this
+              // fun's name so `f(x)` inside the body lowers
+              // to `call <fun>(x)` directly.
+              //
+              // `ident_is_call_target` mirrors
+              // `resolve_call_target`'s logic: direct (`f(`)
+              // OR operator-separated (`a + f(` / `a && f(`)
+              // both keep the ident as a callee and must NOT
+              // push a closure value — that would land on the
+              // operator's operand stack and break the binop.
+              let fun_def = self.funs.iter().find(|f| f.name == sym);
+
+              let fun_ty = if let Some(fd) = fun_def {
+                let param_tys: Vec<TyId> =
+                  fd.params.iter().map(|(_, t)| *t).collect();
+                let fun_ty_id =
+                  self.ty_checker.ty_table.intern_fun(param_tys, fd.return_ty);
+
+                self.ty_checker.intern_ty(Ty::Fun(fun_ty_id))
+              } else {
+                self.ty_checker.unit_type()
+              };
+
+              let closure_val = self.values.store_closure(ClosureValue {
+                fun_name: sym,
+                captures: Vec::new(),
+              });
+
+              self.value_stack.push(closure_val);
+              self.ty_stack.push(fun_ty);
+              self.sir_values.push(ValueId(u32::MAX));
             } else if !is_fun && !is_enum && !is_struct {
               let span = self.tree.spans[idx];
 
@@ -2167,8 +2558,8 @@ impl<'a> Executor<'a> {
       Token::GtEq => self.execute_binop(BinOp::Gte, idx),
 
       // === LOGICAL OPERATORS ===
-      Token::AmpAmp => self.execute_binop(BinOp::And, idx),
-      Token::PipePipe => self.execute_binop(BinOp::Or, idx),
+      Token::AmpAmp => self.execute_logical_binop(BinOp::And, idx),
+      Token::PipePipe => self.execute_logical_binop(BinOp::Or, idx),
 
       // === BITWISE OPERATORS ===
       Token::Amp => self.execute_binop(BinOp::BitAnd, idx),
@@ -2228,14 +2619,23 @@ impl<'a> Executor<'a> {
           .last()
           .is_some_and(|c| c.kind == BranchKind::Ternary && c.branch_emitted)
         {
+          let ctx_idx = self.branch_stack.len() - 1;
           let ctx = self.branch_stack.last().unwrap();
           let end_label = ctx.end_label;
           let else_label = ctx.else_label.unwrap();
+          let has_sink = ctx.value_sink.is_some();
 
           // Emit Return for the true arm — handles both
           // explicit `return when ...` and implicit return
           // (when as last expression in non-void function).
-          if let Some(ref mut fun_ctx) = self.current_function {
+          //
+          // Skipped when the ternary has a value_sink:
+          // the sink captures the arm's value for the
+          // merge Load, and that merged Load is what the
+          // function ultimately returns. Emitting Return
+          // here would consume the value before the Store
+          // and break the φ.
+          if !has_sink && let Some(ref mut fun_ctx) = self.current_function {
             let unit_ty = self.ty_checker.unit_type();
 
             let needs_return =
@@ -2261,6 +2661,15 @@ impl<'a> Executor<'a> {
 
               fun_ctx.has_explicit_return = true;
             }
+          }
+
+          // φ merge: capture the true-arm's value into the
+          // ternary's sink. pops stack top if the sink is
+          // live; no-op otherwise. must happen BEFORE the
+          // Jump so the Store lands on the true-arm's
+          // control-flow path.
+          if has_sink {
+            self.emit_branch_sink_store(ctx_idx);
           }
 
           self.sir.emit(Insn::Jump { target: end_label });
@@ -2374,8 +2783,24 @@ impl<'a> Executor<'a> {
           .last()
           .is_some_and(|c| c.kind == BranchKind::Ternary)
         {
+          // φ: capture the false-arm's value into the
+          // ternary's sink (mirrors the true-arm Store
+          // emitted at the ternary's `:`). must happen
+          // BEFORE the merge Label so both arms' paths
+          // reach a Store before reconverging.
+          let ctx_idx = self.branch_stack.len() - 1;
+
+          self.emit_branch_sink_store(ctx_idx);
+
           let ctx = self.branch_stack.pop().unwrap();
+
           self.sir.emit(Insn::Label { id: ctx.end_label });
+
+          // Merge: load the sink as the ternary's
+          // result and push it onto the stacks. pure
+          // no-op when the ternary is in statement
+          // position (no sink).
+          self.emit_branch_sink_load(&ctx);
         }
 
         // Finalize pending compound assignment (x += expr;).
@@ -2397,6 +2822,32 @@ impl<'a> Executor<'a> {
         // because the Call result is taken as the return
         // value before the deferred Mul resolves.
         self.apply_deferred_binop();
+
+        // Clear any deferred binops that couldn't be
+        // applied because the operand stack was empty —
+        // they can't belong to the next statement, and
+        // leaving them would let the next statement's
+        // first pushed value be consumed as a stale rhs.
+        //
+        // Repro: `check((1) == 1); check(a | b == c);` —
+        // the Eq from the first statement defers (parser
+        // emits it before the second operand), Semicolon
+        // fires before the defer resolves, and the second
+        // statement's first push gets eaten as Eq's rhs.
+        // Fix: discard any remaining deferred binops here;
+        // statement boundaries are hard barriers for the
+        // defer queue.
+        self.deferred_binops.clear();
+        // Same barrier applies to deferred short-circuits
+        // that never finalized (e.g. malformed expressions).
+        // Emit the dangling `end_label` for each — otherwise
+        // the emitted `BranchIfNot` targets an undefined
+        // label and codegen produces an invalid jump.
+        while let Some(pending) = self.deferred_short_circuits.pop() {
+          self.sir.emit(Insn::Label {
+            id: pending.end_label,
+          });
+        }
 
         // Check if we have a pending return to complete.
         let had_return = self
@@ -2534,6 +2985,13 @@ impl<'a> Executor<'a> {
 
   /// Applies a deferred binary operator if its RHS is ready.
   fn apply_deferred_binop(&mut self) {
+    // Finalize any deferred short-circuit whose RHS has
+    // just landed on the stacks. Must run BEFORE the
+    // regular binop drain — the short-circuit's RHS must
+    // be captured into the φ sink before any enclosing
+    // deferred binop tries to consume the stack top.
+    self.apply_deferred_short_circuit();
+
     while !self.deferred_binops.is_empty()
       && !self.value_stack.is_empty()
       && !self.ty_stack.is_empty()
@@ -2555,7 +3013,197 @@ impl<'a> Executor<'a> {
       self.sir_values.push(rhs_sir);
 
       self.execute_binop(op, op_idx);
+
+      // After this binop resolves, an enclosing short-
+      // circuit's RHS may now be on the stacks. Drain
+      // again so nested `a && b && c()` chains finalize
+      // in the right order.
+      self.apply_deferred_short_circuit();
     }
+  }
+
+  /// Finalize any deferred short-circuit whose RHS has
+  /// arrived on the stacks. Emits the φ-sink tail
+  /// (`Store sink, rhs; Label end; Load dst <- sink`).
+  ///
+  /// Guards (must ALL hold for the top pending SC to fire):
+  ///   - stacks hold ≥ `pre_rhs_depth + 1` entries (the
+  ///     RHS produced one new top-of-stack value);
+  ///   - `tuple_ctx.len() <= pre_tuple_ctx_len` (we're back
+  ///     out of any tuple/group entered after the op);
+  ///   - `direct_call_depth <= pre_direct_call_depth` (we're
+  ///     out of any direct call entered after the op — this
+  ///     is what prevents `a || f(y)` from capturing the
+  ///     call's `y` arg as the RHS before the call emits).
+  ///
+  /// When the guard fails (RHS not yet complete) we stop
+  /// draining: the inner SC on the LIFO stack is not ready,
+  /// and nothing outer could be either.
+  fn apply_deferred_short_circuit(&mut self) {
+    while let Some(pending) = self.deferred_short_circuits.last() {
+      let depth_ok = self.sir_values.len() > pending.pre_rhs_depth
+        && self.ty_stack.len() > pending.pre_rhs_depth
+        && self.value_stack.len() > pending.pre_rhs_depth;
+      let tuple_ok = self.tuple_ctx.len() <= pending.pre_tuple_ctx_len;
+      let call_ok = self.direct_call_depth <= pending.pre_direct_call_depth;
+
+      if !(depth_ok && tuple_ok && call_ok) {
+        break;
+      }
+
+      let pending = self.deferred_short_circuits.pop().unwrap();
+
+      let rhs_sir = self.sir_values.pop().unwrap();
+      let _rhs_val = self.value_stack.pop().unwrap();
+      let _rhs_ty = self.ty_stack.pop().unwrap();
+
+      // Store the RHS into the sink. Both arms of the
+      // short-circuit now Store into the same slot; the
+      // Load that follows picks whichever ran.
+      self.sir.emit(Insn::Store {
+        name: pending.sink,
+        value: rhs_sir,
+        ty_id: pending.bool_ty,
+      });
+
+      // Merge label reached from both the LHS short-
+      // circuit path and the full RHS path.
+      self.sir.emit(Insn::Label {
+        id: pending.end_label,
+      });
+
+      // Load the merged result as the expression's value.
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      let sv = self.sir.emit(Insn::Load {
+        dst,
+        src: LoadSource::Local(pending.sink),
+        ty_id: pending.bool_ty,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.value_stack.push(rid);
+      self.ty_stack.push(pending.bool_ty);
+      self.sir_values.push(sv);
+    }
+  }
+
+  /// Execute a short-circuit logical operator (`&&`/`||`).
+  ///
+  /// Mirrors the ternary φ-sink: allocate a synthetic
+  /// `__branch_result_N__` slot, store the LHS into it,
+  /// and emit a `BranchIfNot` that skips RHS evaluation
+  /// whenever the LHS already determines the result.
+  ///
+  /// - `&&`: skip RHS when LHS is false. `BranchIfNot lhs`.
+  /// - `||`: skip RHS when LHS is true. We don't have
+  ///   `BranchIf`, so synthesize `UnOp::Not` into a temp
+  ///   and `BranchIfNot` on that (path of least resistance,
+  ///   matches the ternary's "no new Insn kinds" policy).
+  ///
+  /// If the RHS is already on the stacks at this point —
+  /// pure constant `true && false` etc. — no side effects
+  /// are possible, so delegate to `execute_binop` which
+  /// handles constant folding. Only non-trivial RHS (call,
+  /// grouping, nested op) takes the control-flow path.
+  fn execute_logical_binop(&mut self, op: BinOp, node_idx: usize) {
+    debug_assert!(matches!(op, BinOp::And | BinOp::Or));
+
+    // Both operands already on stacks → no RHS work
+    // remaining, no side effects to guard. Delegate to
+    // the eager binop which handles const folding; codegen
+    // of `BinOp::And/Or` on two evaluated bools is fine.
+    if self.value_stack.len() >= 2
+      && self.ty_stack.len() >= 2
+      && self.sir_values.len() >= 2
+    {
+      self.execute_binop(op, node_idx);
+      return;
+    }
+
+    // RHS pending — emit the short-circuit skeleton.
+    if self.value_stack.is_empty()
+      || self.ty_stack.is_empty()
+      || self.sir_values.is_empty()
+    {
+      // Nothing to anchor on — degrade to the eager path
+      // which already has its own "not enough operands"
+      // defer branch.
+      self.execute_binop(op, node_idx);
+      return;
+    }
+
+    let _lhs_val = self.value_stack.pop().unwrap();
+    let _lhs_ty = self.ty_stack.pop().unwrap();
+    let lhs_sir = self.sir_values.pop().unwrap();
+
+    // Snapshot stack/context depths *after* the LHS pop —
+    // this is the state the RHS expression starts from, and
+    // what finalization compares against to know the RHS
+    // has fully materialized.
+    let pre_rhs_depth = self.sir_values.len();
+    let pre_tuple_ctx_len = self.tuple_ctx.len();
+    let pre_direct_call_depth = self.direct_call_depth;
+
+    let bool_ty = self.ty_checker.bool_type();
+
+    // Allocate the φ sink.
+    let n = self.branch_result_counter;
+    self.branch_result_counter += 1;
+
+    let sink = self.interner.intern(&format!("__branch_result_{n}__"));
+
+    // Store(sink, lhs): default result is LHS, so the
+    // skipped-RHS path reads LHS back through the sink.
+    self.sir.emit(Insn::Store {
+      name: sink,
+      value: lhs_sir,
+      ty_id: bool_ty,
+    });
+
+    let end_label = self.sir.next_label();
+
+    // Emit the branch condition.
+    //
+    // `&&`: skip RHS when LHS is false → `BranchIfNot lhs`.
+    // `||`: skip RHS when LHS is true → synthesize `!lhs`
+    //       and `BranchIfNot !lhs`.
+    let cond_sir = match op {
+      BinOp::And => lhs_sir,
+      BinOp::Or => {
+        let dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::UnOp {
+          dst,
+          op: UnOp::Not,
+          rhs: lhs_sir,
+          ty_id: bool_ty,
+        })
+      }
+      _ => unreachable!("execute_logical_binop called with non-logical op"),
+    };
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_sir,
+      target: end_label,
+    });
+
+    self.deferred_short_circuits.push(DeferredShortCircuit {
+      sink,
+      end_label,
+      bool_ty,
+      pre_rhs_depth,
+      pre_tuple_ctx_len,
+      pre_direct_call_depth,
+    });
+
+    // `node_idx` kept in the signature for symmetry with
+    // `execute_binop` — used for future error reporting at
+    // the op's span. Silence the unused warning.
+    let _ = node_idx;
   }
 
   /// Executes a binary operator.
@@ -3464,7 +4112,14 @@ impl<'a> Executor<'a> {
         continue;
       }
 
-      if tok.is_ty() {
+      // Accept both keyword types (`int`, `bool`, …) and
+      // user-defined idents (struct/enum/alias names).
+      // Without the Ident arm, `(Point, Point)` produced an
+      // empty-element tuple — `resolve_type_token` already
+      // knows how to resolve idents, but `is_ty()` is
+      // deliberately keyword-only, so the tuple loop needs
+      // its own arm.
+      if tok.is_ty() || tok == Token::Ident {
         elem_tys.push(self.resolve_type_token(j));
       }
 
@@ -4162,6 +4817,18 @@ impl<'a> Executor<'a> {
                   idx = skip - 1;
 
                   ty
+                } else if self.tree.nodes[idx].token == Token::LParen {
+                  // Tuple param type: `fun f(t: (int, int))`.
+                  // Without this branch, `resolve_type_token`
+                  // saw the `(` as non-type and returned unit —
+                  // tuple-index access on the param then landed
+                  // in the `_ => unit` fallthrough of the field-
+                  // access dispatcher and emitted TypeMismatch.
+                  let (ty, skip) = self.resolve_tuple_type(idx);
+
+                  idx = skip - 1;
+
+                  ty
                 } else {
                   self.resolve_type_token(idx)
                 };
@@ -4270,6 +4937,45 @@ impl<'a> Executor<'a> {
     let unit_ty = self.ty_checker.unit_type();
     self.pending_fn_has_return_annotation = return_ty != unit_ty;
 
+    // FunDef stores (name, ty) — strip mutability.
+    let sir_params =
+      params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
+
+    // Signature-only pre-scan path. Registers the FunDef so
+    // forward references (mutual recursion, out-of-order
+    // calls) resolve correctly during the main pass, then
+    // returns before any body-level state is touched. The
+    // main pass replays `execute_fun` for the same node and
+    // `push_or_replace_fun` upserts the entry with real
+    // `body_start`. Diagnostics (e.g. `main() must return
+    // unit`) are left to the main pass so they fire exactly
+    // once.
+    if self.prescan_only {
+      self.push_or_replace_fun(FunDef {
+        name,
+        params: sir_params,
+        return_ty,
+        body_start: 0,
+        kind: FunctionKind::UserDefined,
+        pubness,
+        type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+        return_type_args: return_type_args
+          .iter()
+          .map(|t| self.ty_checker.resolve_ty(*t))
+          .collect(),
+      });
+
+      // Drop any type_params minted during this signature
+      // parse — the real main-pass `execute_fun` will re-mint
+      // them. Leaving them in would leak `$T` into unrelated
+      // top-level items processed by the prescan walker.
+      if fn_had_type_params {
+        self.type_params.clear();
+      }
+
+      return;
+    }
+
     // main() must return unit — no other return type.
     if self.interner.get(name) == "main" && return_ty != unit_ty {
       // Point the span at the return type token (after ->).
@@ -4282,9 +4988,50 @@ impl<'a> Executor<'a> {
       return_ty = unit_ty;
     }
 
-    // FunDef stores (name, ty) — strip mutability.
-    let sir_params =
-      params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
+    let is_generic_outer_pass =
+      fn_had_type_params && self.mono_name_override.is_none();
+
+    // Compute the tree-index boundary that sits one past
+    // this function's matching `}` — i.e. the first index
+    // the main loop should resume at after skipping the
+    // whole function. The caller's `children_end` is the
+    // end of the Fun node's child span and on some parser
+    // paths that span reaches far beyond the function's
+    // own block (e.g. top-level siblings share a child
+    // range), so we explicitly walk from the body's
+    // `LBrace` with a depth counter to find the matching
+    // `RBrace`. This boundary is used both for the
+    // generic-outer-pass skip AND as the tree range
+    // recorded for the re-execution pass.
+    let end_of_block = {
+      let lbrace_idx = (start_idx + 1.._end_idx)
+        .find(|&i| self.tree.nodes[i].token == Token::LBrace);
+
+      if let Some(lb) = lbrace_idx {
+        let mut depth = 1i32;
+        let mut j = lb + 1;
+
+        while j < self.tree.nodes.len() && depth > 0 {
+          match self.tree.nodes[j].token {
+            Token::LBrace => depth += 1,
+            Token::RBrace => depth -= 1,
+            _ => {}
+          }
+
+          if depth == 0 {
+            break;
+          }
+
+          j += 1;
+        }
+
+        // `j` is the matching RBrace; advance past it so
+        // the main loop resumes at the next sibling.
+        j + 1
+      } else {
+        _end_idx
+      }
+    };
 
     // Record the tree range of every user function so the
     // instantiation pass can re-execute the body per
@@ -4295,13 +5042,10 @@ impl<'a> Executor<'a> {
     // re-execution pass itself is running (mono override
     // points at the mangled symbol for the instantiation
     // we're emitting).
-    let is_generic_outer_pass =
-      fn_had_type_params && self.mono_name_override.is_none();
-
     if self.mono_name_override.is_none() {
       self
         .generic_tree_ranges
-        .insert(name, (start_idx as u32, _end_idx as u32));
+        .insert(name, (start_idx as u32, end_of_block as u32));
     }
 
     // Skip body execution for a generic's outer pass. The
@@ -4315,7 +5059,7 @@ impl<'a> Executor<'a> {
     // tree range per instantiation to produce the real
     // concrete bodies.
     if is_generic_outer_pass {
-      self.funs.push(FunDef {
+      self.push_or_replace_fun(FunDef {
         name,
         params: sir_params,
         return_ty,
@@ -4333,7 +5077,7 @@ impl<'a> Executor<'a> {
       // mutated it; the generic's type_params are scoped
       // to each re-execution, not to the outer pass).
       self.type_params.clear();
-      self.skip_until = _end_idx;
+      self.skip_until = end_of_block;
 
       return;
     }
@@ -7172,9 +7916,151 @@ impl<'a> Executor<'a> {
     self.sir_values.push(ok_sir);
   }
 
+  /// Returns `(sink_name, outer_sink)` where:
+  ///
+  /// - `sink_name = Some(sym)` when the next branching
+  ///   construct is about to be pushed in expression
+  ///   position — i.e. its result will be consumed by
+  ///   an enclosing `imu` init, function return, outer
+  ///   branch sink, or similar. `None` for
+  ///   statement-position branches.
+  /// - `outer_sink = Some(sym)` echoes the enclosing
+  ///   branch's sink when the new branch is a nested
+  ///   expression producing into it. currently only
+  ///   used for documentation; the arm-exit helper
+  ///   reads from `branch_stack` directly.
+  ///
+  /// expression-position triggers:
+  /// - a pending variable declaration (`imu y =
+  ///   <branch>;`, `mut y = ...`, `val y = ...`).
+  /// - the enclosing function expects a non-unit
+  ///   return AND the branch is the tail expression.
+  ///   we approximate this by the function's
+  ///   declared return type being non-unit; false
+  ///   positives are harmless (an unused sink emits
+  ///   one extra Store + Load).
+  /// - an enclosing `BranchCtx` that already has a
+  ///   `value_sink` — nested branches produce into
+  ///   the outer result position.
+  fn mint_branch_sink_if_expr_position(
+    &mut self,
+  ) -> (Option<Symbol>, Option<Symbol>) {
+    let outer_sink = self.branch_stack.iter().rev().find_map(|c| c.value_sink);
+
+    let unit_ty = self.ty_checker.unit_type();
+
+    let in_expr_pos = self.pending_decl.is_some()
+      || outer_sink.is_some()
+      || self
+        .current_function
+        .as_ref()
+        .is_some_and(|f| f.return_ty != unit_ty);
+
+    if !in_expr_pos {
+      return (None, outer_sink);
+    }
+
+    let n = self.branch_result_counter;
+
+    self.branch_result_counter += 1;
+
+    let sym = self.interner.intern(&format!("__branch_result_{n}__"));
+
+    (Some(sym), outer_sink)
+  }
+
+  /// Emit a `Store` from the current top-of-stack into
+  /// a branch's value sink, consuming that top. no-op
+  /// when the sink is absent or the stacks are empty
+  /// (the arm exited via return / break / continue and
+  /// already consumed its value).
+  fn emit_branch_sink_store(&mut self, ctx_idx: usize) {
+    let ctx = match self.branch_stack.get(ctx_idx) {
+      Some(c) => c.clone(),
+      None => return,
+    };
+
+    let sink = match ctx.value_sink {
+      Some(s) => s,
+      None => return,
+    };
+
+    let top_sir = match self.sir_values.last().copied() {
+      Some(s) => s,
+      None => return,
+    };
+
+    let top_ty = match self.ty_stack.last().copied() {
+      Some(t) => t,
+      None => return,
+    };
+
+    // First arm to Store sets the sink type; later arms
+    // unify against it. type mismatch reports through
+    // the existing error path.
+    let sink_ty = if let Some(prev) = ctx.value_sink_ty {
+      let span = zo_span::Span::ZERO;
+      self.ty_checker.unify(prev, top_ty, span).unwrap_or(prev)
+    } else {
+      if let Some(c) = self.branch_stack.get_mut(ctx_idx) {
+        c.value_sink_ty = Some(top_ty);
+      }
+
+      top_ty
+    };
+
+    self.sir.emit(Insn::Store {
+      name: sink,
+      value: top_sir,
+      ty_id: sink_ty,
+    });
+
+    self.value_stack.pop();
+    self.ty_stack.pop();
+    self.sir_values.pop();
+  }
+
+  /// Emit a `Load` from a branch's value sink at the
+  /// merge point, pushing the loaded value onto the
+  /// stacks as the branch expression's result. no-op
+  /// when the sink is absent.
+  fn emit_branch_sink_load(&mut self, ctx: &BranchCtx) {
+    let sink = match ctx.value_sink {
+      Some(s) => s,
+      None => return,
+    };
+
+    let ty = ctx.value_sink_ty.unwrap_or_else(|| {
+      // No arm ever stored — the branch expression's
+      // type is unknown. Fall back to unit so downstream
+      // unification produces a readable error rather
+      // than a panic.
+      self.ty_checker.unit_type()
+    });
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sv = self.sir.emit(Insn::Load {
+      dst,
+      src: LoadSource::Local(sink),
+      ty_id: ty,
+    });
+
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(ty);
+    self.sir_values.push(sv);
+  }
+
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
     let end_label = self.sir.next_label();
     let else_label = self.sir.next_label();
+
+    let (value_sink, _existing_outer) =
+      self.mint_branch_sink_if_expr_position();
 
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::If,
@@ -7184,6 +8070,8 @@ impl<'a> Executor<'a> {
       branch_emitted: false,
       for_var: None,
       scope_depth: self.scope_stack.len(),
+      value_sink,
+      value_sink_ty: None,
     });
   }
 
@@ -7280,9 +8168,21 @@ impl<'a> Executor<'a> {
         _ => None,
       });
 
-    // For non-local scrutinees (e.g. function parameters),
-    // store to a synthetic local so per-arm reloads work.
-    // Local variables already have mutable_slots entries.
+    // For non-local scrutinees, store to a synthetic local
+    // so per-arm reloads work. Three cases:
+    //   1. Ident scrutinee backed by a Store in SIR (a
+    //      `mut`/`imu` local, or something that already
+    //      has a spill slot) — use its symbol directly.
+    //   2. Ident scrutinee WITHOUT a Store (function
+    //      parameter) — synthesize a Store under
+    //      `__match_scrut__`.
+    //   3. NO Ident at all (literal / expression
+    //      scrutinee, e.g. `match "zo" { ... }` or
+    //      `match a ++ b { ... }`) — also synthesize a
+    //      Store. Without this, per-arm reload emits a
+    //      fresh uninitialized `ValueId` and the runtime
+    //      dereferences garbage as a string pointer →
+    //      SIGSEGV.
     let scrutinee_sym = if let Some(sym) = scrutinee_sym {
       // Check if this symbol is a local with a Store
       // (not just a parameter). If it's a local that was
@@ -7310,8 +8210,21 @@ impl<'a> Executor<'a> {
 
         Some(scrut_sym)
       }
+    } else if let Some(sir_val) = self.sir_values.last().copied() {
+      // Literal / expression scrutinee — persist the
+      // already-emitted SIR value under a synthetic
+      // symbol so arm reloads can `Load` from it.
+      let scrut_sym = self.interner.intern("__match_scrut__");
+
+      self.sir.emit(Insn::Store {
+        name: scrut_sym,
+        value: sir_val,
+        ty_id: scrutinee_ty,
+      });
+
+      Some(scrut_sym)
     } else {
-      scrutinee_sym
+      None
     };
 
     while self.sir_values.len() > stack_before {
@@ -7977,6 +8890,10 @@ impl<'a> Executor<'a> {
       branch_emitted: false,
       for_var: None,
       scope_depth: self.scope_stack.len(),
+      // Loops are always statement-position today — no
+      // `loop { break value }` expression form yet.
+      value_sink: None,
+      value_sink_ty: None,
     });
   }
 
@@ -8120,6 +9037,8 @@ impl<'a> Executor<'a> {
       branch_emitted: true,
       for_var: Some(var_name),
       scope_depth: self.scope_stack.len(),
+      value_sink: None,
+      value_sink_ty: None,
     });
 
     // Skip header tokens (Ident, ColonEq, start, DotDot,
@@ -8518,6 +9437,74 @@ impl<'a> Executor<'a> {
     }
 
     None
+  }
+
+  /// Returns true if the Ident at `ident_idx` is the callee
+  /// of an imminent call — direct (`f(`), operator-separated
+  /// (`a + f(`), or modifier (`check@eq(`). Mirrors
+  /// `resolve_call_target`'s logic from the LParen side, but
+  /// looking forward from the Ident. Used by the Ident
+  /// handler to decide whether to push a `Value::Closure`
+  /// (first-class fun reference) vs skip pushing (callee
+  /// about to be consumed by RParen).
+  fn ident_is_call_target(&self, ident_idx: usize) -> bool {
+    let n = self.tree.nodes.len();
+
+    if ident_idx + 1 >= n {
+      return false;
+    }
+
+    // Direct: `Ident (`.
+    if self.tree.nodes[ident_idx + 1].token == Token::LParen {
+      return true;
+    }
+
+    // Operator-separated: `Ident Op (` — mirror the LParen
+    // prev2 branch of `resolve_call_target`.
+    if ident_idx + 2 < n
+      && self.tree.nodes[ident_idx + 2].token == Token::LParen
+    {
+      return true;
+    }
+
+    // Modifier call: `Ident @ Ident (`. The base ident is
+    // still the callee; the middle ident is the modifier.
+    if ident_idx + 3 < n
+      && self.tree.nodes[ident_idx + 1].token == Token::At
+      && self.tree.nodes[ident_idx + 2].token == Token::Ident
+      && self.tree.nodes[ident_idx + 3].token == Token::LParen
+    {
+      return true;
+    }
+
+    false
+  }
+
+  /// Returns true if `rparen_idx` closes an `(...)` whose
+  /// LParen is a call site (i.e. `f(` / `Type::m(`). Used at
+  /// the RParen dispatcher to pick the call path before the
+  /// tuple/grouping path — otherwise a call's closing `)`
+  /// inside a tuple literal (`(f(x), g(y))`) would pop the
+  /// surrounding tuple_ctx and silently drop the call.
+  fn rparen_closes_call(&self, rparen_idx: usize) -> bool {
+    let mut depth = 1i32;
+    let mut idx = rparen_idx;
+
+    while idx > 0 && depth > 0 {
+      idx -= 1;
+
+      match self.tree.nodes[idx].token {
+        Token::RParen => depth += 1,
+        Token::LParen => depth -= 1,
+        _ => {}
+      }
+    }
+
+    if depth != 0 {
+      return false;
+    }
+
+    self.resolve_call_target(idx).is_some()
   }
 
   /// Checks if RParen closes a function call and executes it.
@@ -9836,6 +10823,8 @@ impl<'a> Executor<'a> {
       let saved_type_constraints = std::mem::take(&mut self.type_constraints);
       let saved_array_ctx = std::mem::take(&mut self.array_ctx);
       let saved_tuple_ctx = std::mem::take(&mut self.tuple_ctx);
+      let saved_direct_call_depth = self.direct_call_depth;
+      self.direct_call_depth = 0;
       let saved_branch_stack = std::mem::take(&mut self.branch_stack);
       let saved_locals_len = self.locals.len();
       let saved_scope_len = self.scope_stack.len();
@@ -9969,6 +10958,7 @@ impl<'a> Executor<'a> {
       self.type_constraints = saved_type_constraints;
       self.array_ctx = saved_array_ctx;
       self.tuple_ctx = saved_tuple_ctx;
+      self.direct_call_depth = saved_direct_call_depth;
       self.branch_stack = saved_branch_stack;
       self.locals.truncate(saved_locals_len);
       self.scope_stack.truncate(saved_scope_len);
@@ -11001,6 +11991,10 @@ enum BranchKind {
   For,
   /// A `when ? :` ternary expression.
   Ternary,
+  // Short-circuit logical `&&` / `||` intentionally does
+  // NOT live on `branch_stack` — its state is on
+  // `deferred_short_circuits`. Keeping this enum minimal
+  // avoids dead match arms.
 }
 
 /// Tracks context for a pending control flow branch.
@@ -11023,6 +12017,18 @@ struct BranchCtx {
   /// prevent inner blocks (e.g. `_ => {}` in match arms)
   /// from accidentally consuming outer while/if contexts.
   scope_depth: usize,
+  /// Synthetic local receiving each arm's result when
+  /// the branch is in expression position. `None` for
+  /// statement-position branches. emulates an SSA φ:
+  /// each reachable arm `Store`s into this local; the
+  /// merge point `Load`s the result and pushes it as
+  /// the branch expression's value. see
+  /// `PLAN_BRANCH_EXPR_PHI.md`.
+  value_sink: Option<Symbol>,
+  /// Unified type of all arm producers. set by the
+  /// first arm to `Store` into the sink; subsequent
+  /// arms unify against it.
+  value_sink_ty: Option<TyId>,
 }
 
 /// Tracks context when compiling inside a function

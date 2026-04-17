@@ -678,6 +678,415 @@ fun main() -> int { find(15) }"#,
   );
 }
 
+// === SHORT-CIRCUIT `&&` / `||` ===
+//
+// See `execute_logical_binop` in `executor.rs`. The executor
+// lowers `lhs && rhs_call()` / `lhs || rhs_call()` to a φ-
+// sink pattern whenever the RHS has not yet materialized on
+// the stacks — emitting `Store sink, lhs; BranchIfNot cond,
+// end; Store sink, rhs; Label end; Load dst, sink`. This
+// matches the ternary pattern (`PLAN_BRANCH_EXPR_PHI.md`),
+// reusing the same `__branch_result_N__` sink naming so
+// codegen's mutable-slot handling picks it up.
+
+#[test]
+fn test_short_circuit_and_with_call_rhs() {
+  // `false && side()` must emit:
+  //   Store sink, false_const
+  //   BranchIfNot false_const, end_label
+  //   Call side
+  //   Store sink, call_result
+  //   Label end_label
+  //   Load dst, Local(sink)
+  //
+  // — i.e. the RHS call is guarded by a skip branch so it
+  // doesn't run when the LHS already determines the result.
+  assert_sir_structure(
+    r#"fun side() -> bool { true }
+fun main() -> bool {
+  false && side()
+}"#,
+    |sir| {
+      // Must have a Store into a __branch_result_N__ sink
+      // — that's the LHS capture emitted at `&&`.
+      let has_sink_store = sir.iter().any(|i| matches!(i, Insn::Store { .. }));
+
+      assert!(has_sink_store, "expected Store into short-circuit sink");
+
+      // Must have exactly one BranchIfNot guarding the RHS.
+      let branch_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::BranchIfNot { .. }))
+        .count();
+
+      assert!(
+        branch_count >= 1,
+        "expected >= 1 BranchIfNot for short-circuit, got {branch_count}"
+      );
+
+      // Must have a Label (the merge point after the RHS).
+      let has_label = sir.iter().any(|i| matches!(i, Insn::Label { .. }));
+
+      assert!(has_label, "expected Label for short-circuit merge");
+
+      // Must have a Load from a Local sink (the merged result).
+      let has_load_local = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::Load {
+            src: LoadSource::Local(_),
+            ..
+          }
+        )
+      });
+
+      assert!(
+        has_load_local,
+        "expected Load from local sink at short-circuit merge"
+      );
+
+      // Must NOT emit BinOp::And for this case — the short-
+      // circuit path replaces the plain bitwise op.
+      let has_binop_and = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::And,
+            ..
+          }
+        )
+      });
+
+      assert!(
+        !has_binop_and,
+        "short-circuit && must NOT emit BinOp::And — it emits \
+         Store/BranchIfNot/Store/Label/Load instead"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_short_circuit_or_with_call_rhs() {
+  // `false || side()` must short-circuit when LHS is true.
+  // Because we only have `BranchIfNot` (no `BranchIf`), the
+  // `||` handler synthesizes a `UnOp::Not` on the LHS and
+  // branches on that. Shape:
+  //   Store sink, lhs
+  //   UnOp::Not tmp, lhs
+  //   BranchIfNot tmp, end_label
+  //   Call side
+  //   Store sink, call_result
+  //   Label end_label
+  //   Load dst, Local(sink)
+  assert_sir_structure(
+    r#"fun side() -> bool { false }
+fun main() -> bool {
+  false || side()
+}"#,
+    |sir| {
+      // Must have UnOp::Not synthesized for the `||` path.
+      let has_not = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::UnOp {
+            op: zo_sir::UnOp::Not,
+            ..
+          }
+        )
+      });
+
+      assert!(
+        has_not,
+        "expected synthesized UnOp::Not for `||` short-circuit"
+      );
+
+      // BranchIfNot must guard the RHS.
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+
+      assert!(has_branch, "expected BranchIfNot for `||` short-circuit");
+
+      // Label + Load from local sink for the merge.
+      let has_label = sir.iter().any(|i| matches!(i, Insn::Label { .. }));
+
+      assert!(has_label, "expected Label for `||` merge");
+
+      let has_load_local = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::Load {
+            src: LoadSource::Local(_),
+            ..
+          }
+        )
+      });
+
+      assert!(
+        has_load_local,
+        "expected Load from local sink at `||` merge"
+      );
+
+      // Must NOT emit BinOp::Or — control flow replaces it.
+      let has_binop_or = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Or,
+            ..
+          }
+        )
+      });
+
+      assert!(!has_binop_or, "short-circuit || must NOT emit BinOp::Or");
+    },
+  );
+}
+
+#[test]
+fn test_short_circuit_nested_and() {
+  // `a && b && c()` — two levels of logical ops. The
+  // first `&&` folds eagerly (both operands on stack),
+  // the second `&&` short-circuits around the call.
+  // Expect exactly one BranchIfNot (the outer SC guard),
+  // one BinOp::And (the inner eager path), and one Store
+  // into a __branch_result_N__ sink.
+  assert_sir_structure(
+    r#"fun side() -> bool { true }
+fun main() -> bool {
+  true && true && side()
+}"#,
+    |sir| {
+      // Outer `&&` short-circuits → at least one
+      // BranchIfNot for the SC guard.
+      let branch_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::BranchIfNot { .. }))
+        .count();
+
+      assert!(
+        branch_count >= 1,
+        "expected >= 1 BranchIfNot (outer &&), got {branch_count}"
+      );
+
+      // Call to `side` must still be present in SIR (it
+      // emits regardless — the short-circuit only skips
+      // it at runtime, not at compile time).
+      let has_call = sir.iter().any(|i| matches!(i, Insn::Call { .. }));
+
+      assert!(has_call, "expected Call for side()");
+    },
+  );
+}
+
+#[test]
+fn test_short_circuit_const_fold_preserved() {
+  // Pure truth-table `true && false` still collapses via
+  // the normal binop path — both operands are on the stack
+  // when `&&` fires, so the handler delegates to
+  // `execute_binop`, which folds the constant. No short-
+  // circuit skeleton should be emitted (no Store into a
+  // __branch_result_N__ sink, no control flow).
+  assert_sir_structure(
+    r#"fun main() -> bool {
+  true && false
+}"#,
+    |sir| {
+      // No BranchIfNot for pure constant folding.
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+
+      assert!(
+        !has_branch,
+        "constant `true && false` must fold without BranchIfNot"
+      );
+
+      // Result should be a ConstBool(false) somewhere.
+      let has_false_const = sir
+        .iter()
+        .any(|i| matches!(i, Insn::ConstBool { value: false, .. }));
+
+      assert!(
+        has_false_const,
+        "expected ConstBool(false) from folding `true && false`"
+      );
+    },
+  );
+}
+
+// Regression: `true || incr(y)` — the short-circuit RHS is
+// a call WITH an argument. Before the fix,
+// `apply_deferred_short_circuit` fired as soon as the arg
+// `y` landed on the stacks (the first new value past the
+// sink-depth mark), stealing it as the "RHS" and leaving
+// the enclosing `showln(...)` with no argument. The guards
+// on `DeferredShortCircuit.pre_direct_call_depth` now keep
+// the SC pending until the call itself emits and its result
+// is on the stack.
+#[test]
+fn test_short_circuit_or_with_call_arg() {
+  assert_sir_structure(
+    r#"fun incr(mut x: int) -> bool { false }
+fun main() {
+  imu y: int = 10;
+  showln(true || incr(y));
+}"#,
+    |sir| {
+      // `incr` MUST be called — not elided. Look for
+      // Call whose callee ident is `incr` by finding a
+      // Call that appears *before* the final showln Call.
+      let call_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Call { .. }))
+        .count();
+
+      assert!(
+        call_count >= 2,
+        "expected >= 2 Calls (incr + showln), got {call_count}"
+      );
+
+      // `showln(...)` MUST have exactly one argument (the
+      // merged SC result). Before the fix the last Call had
+      // no args because the SC stole the only arg on stack.
+      let last_call = sir.iter().rev().find(|i| matches!(i, Insn::Call { .. }));
+
+      if let Some(Insn::Call { args, .. }) = last_call {
+        assert_eq!(
+          args.len(),
+          1,
+          "showln(true || incr(y)) must have 1 arg, got {}",
+          args.len()
+        );
+      } else {
+        panic!("expected a Call for showln");
+      }
+
+      // SC shape intact: Store into sink, BranchIfNot guard,
+      // Label merge, Load from sink.
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+      assert!(has_branch, "expected BranchIfNot for `||` guard");
+
+      let has_sink_load = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::Load {
+            src: LoadSource::Local(_),
+            ..
+          }
+        )
+      });
+      assert!(has_sink_load, "expected Load from SC sink");
+    },
+  );
+}
+
+// Mirror of the `||` regression for `&&`. `false && incr(y)`
+// must emit the SC skeleton AND actually call `incr` — the
+// arg `y` must not be stolen as the RHS.
+#[test]
+fn test_short_circuit_and_with_call_arg() {
+  assert_sir_structure(
+    r#"fun incr(mut x: int) -> bool { true }
+fun main() {
+  imu y: int = 10;
+  showln(false && incr(y));
+}"#,
+    |sir| {
+      let call_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Call { .. }))
+        .count();
+
+      assert!(
+        call_count >= 2,
+        "expected >= 2 Calls (incr + showln), got {call_count}"
+      );
+
+      let last_call = sir.iter().rev().find(|i| matches!(i, Insn::Call { .. }));
+
+      if let Some(Insn::Call { args, .. }) = last_call {
+        assert_eq!(
+          args.len(),
+          1,
+          "showln(false && incr(y)) must have 1 arg, got {}",
+          args.len()
+        );
+      }
+
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+      assert!(has_branch, "expected BranchIfNot for `&&` guard");
+    },
+  );
+}
+
+// Short-circuit nested inside a function arg, RHS is a
+// call: `f(a || g())` — the SC's RHS is the call `g()`,
+// and it must finalize at g's RParen (inner scope) so `f`
+// gets the merged SC result as its single arg. Exercises
+// the `pre_direct_call_depth` guard: SC pre-depth = 1 (we
+// are already inside f's call), so the finalize must fire
+// when direct_call_depth returns to 1, not before.
+#[test]
+fn test_short_circuit_inside_call_arg_with_nested_call() {
+  assert_sir_structure(
+    r#"fun g() -> bool { true }
+fun f(x: bool) -> bool { x }
+fun main() {
+  imu a: bool = false;
+  showln(f(a || g()));
+}"#,
+    |sir| {
+      // Three calls expected: g, f, showln — the SC must
+      // emit the call to g (as the guarded RHS), not elide
+      // it, and `f` and `showln` each get exactly one arg.
+      let calls: Vec<&Insn> = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Call { .. }))
+        .collect();
+
+      assert!(
+        calls.len() >= 3,
+        "expected >= 3 Calls (g + f + showln), got {}",
+        calls.len()
+      );
+
+      // Arg-count profile: `g()` has 0 args, `f(x)` and
+      // `showln(...)` each have 1. If the SC finalized too
+      // eagerly and stole `f`'s arg, we'd see a showln with
+      // 0 args instead of 1 — which is the bug this test
+      // guards against.
+      let zero_arg_calls = calls
+        .iter()
+        .filter(|c| match c {
+          Insn::Call { args, .. } => args.is_empty(),
+          _ => false,
+        })
+        .count();
+
+      let one_arg_calls = calls
+        .iter()
+        .filter(|c| match c {
+          Insn::Call { args, .. } => args.len() == 1,
+          _ => false,
+        })
+        .count();
+
+      assert_eq!(zero_arg_calls, 1, "expected exactly 1 zero-arg call (g)");
+      assert!(
+        one_arg_calls >= 2,
+        "expected >= 2 one-arg calls (f + showln), got {one_arg_calls}"
+      );
+
+      // SC guard emitted: BranchIfNot on `!a` (for `||`).
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+      assert!(has_branch, "expected BranchIfNot for `||` short-circuit");
+    },
+  );
+}
+
 #[test]
 fn test_for_loop_sum_with_showln_interp() {
   // For loop sum with showln interpolation — verifies

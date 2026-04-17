@@ -93,18 +93,19 @@ We do **NOT** use traditional AST -> TypeCheck -> IR phases.
 All build commands go through `just` (the justfile is the single source of truth):
 
    ```sh
-   just typos         # Check for typos.
-   just fmt           # Format code.
-   just fmt           # Format code.
-   just clippy        # Clippy with -D warnings.
-   just test          # Run all tests (nextest).
-   just test_crate X  # Test a single crate.
-   just test_filter X # Test by name filter.
-   just check         # Check all workspace crates.
-   just build         # Build all targets.
-   just bench         # Run all benchmarks.
-   just zo_test       # Run `zo-test-runner` to ensure all zo programs still works.
-   just pre-commit    # Full pipeline: typos -> fmt_check -> clippy -> test.
+   just typos           # Check for typos.
+   just fmt             # Format code.
+   just clippy          # Clippy with -D warnings.
+   just test            # Run all tests across the full workspace (nextest).
+   just test_crate X    # Test a single crate.
+   just test_filter X   # Test by name filter.
+   just check           # Check all workspace crates.
+   just build           # Build all targets.
+   just bench           # Run all benchmarks.
+   just zo_test         # Run unit tests across every `zo*` crate (nextest, package filter).
+   just zo_test_runner  # Run `zo-test-runner` — integration on compiled zo programs.
+   just zo_test_quick   # Same as zo_test_runner but skips build-pass.
+   just pre-commit      # Full pipeline: typos -> fmt_check -> clippy -> test.
    ```
 
 Pre-commit hooks via `lefthook` run the same pipeline automatically. Always use `just` recipes — never raw cargo commands.    

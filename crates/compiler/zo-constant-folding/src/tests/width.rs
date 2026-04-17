@@ -289,11 +289,15 @@ fn s16_arithmetic_shr() {
   let a = h.int((-16i64) as u64);
   let b = h.int(2);
 
-  // arithmetic right shift: -16 >> 2 = -4.
+  // Arithmetic right shift: -16 >> 2 = -4. Stored as the
+  // full-width `i64` bit pattern — the signed `Shr` path
+  // keeps the sign extension so the runtime's `cmp x0, #0
+  // / b.ge` test correctly detects the negative. Masking
+  // to width would zero-extend the high bits and the
+  // itoa path would print `65532` instead of `-4`.
   assert_eq!(
     h.fold().fold_binop(BinOp::Shr, a, b, SPAN, S16),
-    // -4 masked to 16 bits = 0xFFFC.
-    Some(FoldResult::Int((-4i64 as u64) & 0xFFFF)),
+    Some(FoldResult::Int(-4i64 as u64)),
   );
 }
 

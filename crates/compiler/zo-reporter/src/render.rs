@@ -161,13 +161,43 @@ impl ErrorRenderer {
 /// Converts a byte-offset Span to a char-offset range
 /// for ariadne. Multi-byte characters (like `—`) shift
 /// byte positions relative to char positions.
+///
+/// Upstream spans occasionally land inside a multi-byte
+/// char (e.g. a `len` that was measured in code points
+/// instead of UTF-8 bytes). Slicing `source[..N]` at such
+/// a position would panic — so we count by walking
+/// `char_indices`, which tolerates any byte offset and
+/// clamps to the next char boundary.
 fn span_to_range(span: Span, source: &str) -> std::ops::Range<usize> {
-  let byte_start = span.start as usize;
-  let byte_end = (span.start + span.len as u32) as usize;
-  let start = source[..byte_start.min(source.len())].chars().count();
-  let end = source[..byte_end.min(source.len())].chars().count();
+  let byte_start = (span.start as usize).min(source.len());
+  let byte_end = ((span.start + span.len as u32) as usize).min(source.len());
+  let start = char_offset_for_byte(source, byte_start);
+  let end = char_offset_for_byte(source, byte_end).max(start);
 
   start..end
+}
+
+/// Returns the count of complete chars that end at or
+/// before `byte_pos`. Partial chars (byte_pos strictly
+/// inside a multi-byte sequence) don't count — matches the
+/// intuition "how many chars did we step through to get
+/// here" without panicking on non-boundary offsets.
+///
+/// Matches `source[..byte_pos].chars().count()` for
+/// byte positions that ARE valid char boundaries, but
+/// tolerates positions that aren't.
+fn char_offset_for_byte(source: &str, byte_pos: usize) -> usize {
+  let mut n = 0usize;
+
+  for (i, ch) in source.char_indices() {
+    if i + ch.len_utf8() > byte_pos {
+      break;
+    }
+
+    n += 1;
+  }
+
+  n
 }
 
 /// Generates an error code based on phase and kind.
@@ -534,4 +564,104 @@ pub fn render_errors_to_stderr(
   let renderer = ErrorRenderer::new();
 
   renderer.render(aggregator, source, filename)
+}
+
+#[cfg(test)]
+mod span_to_range_tests {
+  use super::{char_offset_for_byte, span_to_range};
+
+  use zo_span::Span;
+
+  /// Well-formed span over a multi-byte char — `¥` starts at
+  /// byte 0, spans 2 bytes. Expected char range is 0..1.
+  #[test]
+  fn well_formed_multibyte_span() {
+    let src = "¥";
+    let range = span_to_range(Span { start: 0, len: 2 }, src);
+
+    assert_eq!(range, 0..1);
+  }
+
+  /// Pathological span — `len` ends in the middle of a
+  /// multi-byte char. Must NOT panic; must clamp. Before the
+  /// fix, this produced the exact failure mode reported by
+  /// `lit-char-utf8.zo`: "byte index 1 is not a char boundary".
+  #[test]
+  fn mid_codepoint_end_does_not_panic() {
+    let src = "¥";
+    let range = span_to_range(Span { start: 0, len: 1 }, src);
+
+    // End clamps to a valid char boundary (>= start). Either 0
+    // or 1 is acceptable — the invariant is: no panic, range
+    // is well-ordered.
+    assert!(range.start <= range.end);
+  }
+
+  /// Start ALSO in the middle of a codepoint (rarer but
+  /// still possible if an upstream span is wrong on both
+  /// sides).
+  #[test]
+  fn mid_codepoint_start_does_not_panic() {
+    let src = "¥z";
+    let range = span_to_range(Span { start: 1, len: 1 }, src);
+
+    assert!(range.start <= range.end);
+  }
+
+  /// Span that overruns `source.len()` must clamp, not panic.
+  #[test]
+  fn out_of_bounds_span_does_not_panic() {
+    let src = "abc";
+    let range = span_to_range(
+      Span {
+        start: 10,
+        len: 100,
+      },
+      src,
+    );
+
+    assert_eq!(range, 3..3);
+  }
+
+  /// Empty source — any span must degrade gracefully to
+  /// `0..0`.
+  #[test]
+  fn empty_source() {
+    let src = "";
+    let range = span_to_range(Span { start: 5, len: 3 }, src);
+
+    assert_eq!(range, 0..0);
+  }
+
+  /// `char_offset_for_byte` counts complete chars ending at
+  /// or before `byte_pos`. Partial chars (`byte_pos` inside
+  /// a multi-byte sequence) don't count — matches the
+  /// "how many whole chars have we stepped past" semantic
+  /// without panicking on non-boundary offsets.
+  /// Anchored to `¥€` (bytes: 0xC2 0xA5 0xE2 0x82 0xAC,
+  /// 2 chars).
+  #[test]
+  fn char_offset_counts_preceding_chars() {
+    let src = "¥€";
+
+    assert_eq!(char_offset_for_byte(src, 0), 0);
+    assert_eq!(char_offset_for_byte(src, 2), 1);
+    assert_eq!(char_offset_for_byte(src, 5), 2);
+    // Mid-codepoint — partial char doesn't count.
+    assert_eq!(char_offset_for_byte(src, 1), 0);
+    assert_eq!(char_offset_for_byte(src, 3), 1);
+    assert_eq!(char_offset_for_byte(src, 4), 1);
+  }
+
+  /// Behavior on ASCII matches `chars().count()` exactly for
+  /// valid byte boundaries — the new walker can't regress
+  /// the single-byte path.
+  #[test]
+  fn ascii_matches_chars_count() {
+    let src = "hello";
+
+    for i in 0..=src.len() {
+      assert_eq!(char_offset_for_byte(src, i), i);
+    }
+  }
 }

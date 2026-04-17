@@ -86,6 +86,41 @@ impl<'a> ConstFold<'a> {
     }
   }
 
+  /// Mask to `width` bits AND sign-extend the result to 64
+  /// bits if `signed` is true and the sign bit is set.
+  ///
+  /// Why: the codegen's `itoa` path reads the full 64-bit
+  /// register and uses `cmp x0, #0 / b.ge` — a 64-bit
+  /// signed test — to decide whether to print a leading
+  /// `-`. Masking a signed 32-bit result (e.g. `-4` =
+  /// `0xFFFFFFFFFFFFFFFC`) to `0x00000000FFFFFFFC` hides
+  /// the sign bit in the low 32 and the runtime reads it
+  /// as a positive `4294967292`. Keep the masked bit
+  /// pattern semantically equal to the signed value by
+  /// re-extending the sign.
+  const fn mask_and_signext(value: u64, signed: bool, width: IntWidth) -> u64 {
+    let bits = Self::bit_width(width);
+
+    if bits >= 64 {
+      return value;
+    }
+
+    let masked = value & ((1u64 << bits) - 1);
+
+    if !signed {
+      return masked;
+    }
+
+    let sign_bit = 1u64 << (bits - 1);
+
+    if masked & sign_bit != 0 {
+      // Fill bits [bits..64) with 1s.
+      masked | (!((1u64 << bits) - 1))
+    } else {
+      masked
+    }
+  }
+
   /// Narrow a float result to the target width.
   ///
   /// For f32: compute as f64 then cast to f32 precision. Reports
@@ -316,17 +351,25 @@ impl<'a> ConstFold<'a> {
           lhs_val >= rhs_val
         })),
 
-        // bitwise: mask result to actual width.
-        BinOp::BitAnd => Some(FoldResult::Int(Self::mask_to_width(
+        // Bitwise & shifts: mask to the declared width,
+        // then sign-extend for signed types. See
+        // `mask_and_signext` for why — the runtime reads
+        // the full 64-bit register via `cmp x0, #0` and
+        // needs the sign in the high bits to format
+        // signed negatives correctly.
+        BinOp::BitAnd => Some(FoldResult::Int(Self::mask_and_signext(
           lhs_val & rhs_val,
+          signed,
           width,
         ))),
-        BinOp::BitOr => Some(FoldResult::Int(Self::mask_to_width(
+        BinOp::BitOr => Some(FoldResult::Int(Self::mask_and_signext(
           lhs_val | rhs_val,
+          signed,
           width,
         ))),
-        BinOp::BitXor => Some(FoldResult::Int(Self::mask_to_width(
+        BinOp::BitXor => Some(FoldResult::Int(Self::mask_and_signext(
           lhs_val ^ rhs_val,
+          signed,
           width,
         ))),
         BinOp::Shl => {
@@ -336,8 +379,9 @@ impl<'a> ConstFold<'a> {
               span,
             )))
           } else {
-            Some(FoldResult::Int(Self::mask_to_width(
+            Some(FoldResult::Int(Self::mask_and_signext(
               lhs_val << rhs_val,
+              signed,
               width,
             )))
           }
@@ -349,10 +393,14 @@ impl<'a> ConstFold<'a> {
               span,
             )))
           } else if signed {
-            // arithmetic shift right for signed types.
+            // Arithmetic shift right for signed types —
+            // `i64 >> rhs` already sign-extends
+            // correctly, no masking needed (the result
+            // can never exceed the declared width's
+            // range).
             let result = (lhs_val as i64) >> rhs_val;
 
-            Some(FoldResult::Int(Self::mask_to_width(result as u64, width)))
+            Some(FoldResult::Int(result as u64))
           } else {
             Some(FoldResult::Int(Self::mask_to_width(
               lhs_val >> rhs_val,

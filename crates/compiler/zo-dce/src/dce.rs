@@ -125,7 +125,8 @@ impl<'a> Dce<'a> {
           | Insn::FunDef { .. }
           | Insn::StructDef { .. }
           | Insn::EnumDef { .. }
-          | Insn::ConstDef { .. } => {
+          | Insn::ConstDef { .. }
+          | Insn::ArrayTyDef { .. } => {
             in_dead_zone = false;
             i += 1;
           }
@@ -306,6 +307,13 @@ impl<'a> Dce<'a> {
 // ================================================================
 
 /// Returns true if an instruction has side effects.
+///
+/// `Template` and `StyleSheet` carry observable side effects —
+/// they describe a UI command stream that the runtime renders
+/// to the screen. DCE must not drop them even when their `id`
+/// is transitively unused through liveness (e.g. a `VarDef`
+/// init referencing a `Template`'s id can get pruned in its
+/// own pass, leaving the Template looking dead; it is not).
 fn is_impure(insn: &Insn) -> bool {
   matches!(
     insn,
@@ -317,6 +325,9 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::ArrayPop { .. }
       | Insn::Directive { .. }
       | Insn::Return { .. }
+      | Insn::Template { .. }
+      | Insn::StyleSheet { .. }
+      | Insn::ArrayTyDef { .. }
   )
 }
 

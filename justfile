@@ -12,8 +12,8 @@ setup_uv:
   curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install the dev environment.
-[group('setup')]
 [parallel]
+[group('setup')]
 setup: setup_typos setup_uv
 
 # Install git hooks via lefthook.
@@ -23,6 +23,9 @@ install_hooks:
 lefthook:
   lefthook run pre-commit
 
+# Run all pre-commit checks
+pre-commit: lefthook
+
 # Run typos check
 typos:
   typos --format=brief
@@ -30,13 +33,6 @@ typos:
 # Fix typos in-place
 typos_fix:
   typos --write-changes
-
-# Run all pre-commit checks
-pre-commit: lefthook
-
-# Run all pre-commit checks (old)
-# pre-commit: typos fmt clippy test zo_test
-# @echo "All pre-commit checks passed!"
 
 # Format all code
 fmt:
@@ -46,14 +42,18 @@ fmt:
 clippy:
   cargo clippy --all --all-targets -- -D warnings
 
+[group('lint')] 
+[parallel]                                                                          
+lint: typos fmt clippy
+
 # Run all cargo benchmarks
 bench:
   cargo bench --all
 
 # Run both test suites in parallel
-# [parallel]
+[parallel]
 [group('test')]
-test_all: test zo_test
+test_all: test zo_test zo_test_runner
 
 # Run all tests
 [group('test')]
@@ -102,9 +102,16 @@ zo_build program:
 zo_run program:
   cargo run --bin zo -- run {{program}}
 
+# Run all zo crates tests
+[group('zo')]
+[group('test')]
+zo_test:
+  cargo nextest run --workspace -E 'package(/^zo/)' --all-features
+
 # Run zo program integration tests
 [group("zo")]
-zo_test:
+[group('test')]
+zo_test_runner:
   cargo run --bin zo-test-runner
 
 # Run zo program tests (quick — skip build-pass)
@@ -142,6 +149,7 @@ eazy_build_bench_reports:
   uv run sources/tweener/eazy-tasks/build_bench_reports.py
 
 # Run benchmarks and sync to docs (for GitHub Pages deployment)
+[parallel]
 eazy_publish_bench_reports: eazy_run_bench eazy_build_bench_reports
   @echo "Benchmarks published to docs/"
 
@@ -177,6 +185,7 @@ build_windows:
            cargo build --all --target x86_64-pc-windows-gnu"
 
 # Run full CI simulation locally
+[parallel]
 ci: fmt clippy test test_linux
   @echo "Full CI simulation passed!"
 

@@ -1,4 +1,4 @@
--- tests-build-pass: mutual recursion even/odd (from rust-prehistory).
+-- tests-build-pass: mutual recursion even/odd.
 -- @cmd — zo build fun-mutual-recursion.zo
 
 fun even(n: int) -> bool {

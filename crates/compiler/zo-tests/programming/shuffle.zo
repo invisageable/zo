@@ -1,6 +1,5 @@
 -- tests-build-pass: shuffle array by interleaving halves.
 -- @cmd — zo run shuffle.zo
--- BUG: function returning []int — binding fails ("variable not found").
 
 fun shuffle(nums: []int, n: int) -> []int {
   mut ans: []int = [];

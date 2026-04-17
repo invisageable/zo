@@ -14,8 +14,8 @@ type Rect = (Point, Point);
 fun f(rect: Rect, x: int, y: int, w: int, h: int) {
   check@eq(rect.0.x, x);
   check@eq(rect.0.y, y);
-  check@eq(rect.1.x, x);
-  check@eq(rect.1.y, y);
+  check@eq(rect.1.x, w);
+  check@eq(rect.1.y, h);
 }
 
 fun main() {
@@ -23,8 +23,8 @@ fun main() {
 
   check@eq(r1.0.x, 10);
   check@eq(r1.0.y, 20);
-  check@eq(r1.0.x, 11);
-  check@eq(r1.0.y, 22);
+  check@eq(r1.1.x, 11);
+  check@eq(r1.1.y, 22);
 
   imu r2: Rect = r1;
   imu x: int = r2.0.x;

@@ -37,7 +37,7 @@ iNSiDE BOTH FOLDERS:
 ALL PROGRAMS CAN BE TESTED MANUALLY WiTH BY OUR `zo-test-runner`. 
 
  ```sh
- just zo_test
+ just zo_test_runner
  ```
 
 iT BUiLDS ALL PROGRAMS, EACH OF THEM FOLLOW A SPECiFiC STRUCTURE:

@@ -470,6 +470,11 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
+        Insn::ArrayTyDef { array_ty, elem_ty } => {
+          let c = format!("arr_ty_def : {:?} -> elem {:?}", array_ty, elem_ty);
+
+          self.sir_instruction(&c);
+        }
         Insn::Nop => {}
       }
     }
