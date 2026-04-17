@@ -17,3 +17,6 @@ fun main() {
     },
   }
 }
+
+-- EXPECTED OUTPUT:
+-- 0
