@@ -1478,7 +1478,15 @@ impl<'a> Tokenizer<'a> {
         found_closing = true;
       }
     } else if self.cursor < self.source.len() {
-      self.advance(); // Skip the character
+      // Advance past one full UTF-8 scalar — char literals
+      // are per-codepoint, not per-byte. A lead byte of a
+      // multi-byte sequence needs its trailing bytes skipped
+      // too, otherwise the closing `'` is missed and the
+      // tokenizer reports a spurious "Unterminated character
+      // literal" on every non-ASCII char.
+      let cp_len = utf8_cp_len(self.current());
+
+      self.cursor += cp_len.min(self.source.len() - self.cursor);
 
       if self.cursor < self.source.len() && self.current() == b'\'' {
         self.advance(); // Skip closing quote
@@ -1647,6 +1655,25 @@ impl<'a> Tokenizer<'a> {
       literals: self.literals,
       source_len: self.source.len(),
     }
+  }
+}
+
+/// Returns the UTF-8 byte length of the codepoint whose
+/// lead byte is `b`. ASCII (< 0x80) and stray continuation
+/// bytes (0x80..0xC0) both fall back to 1 so the tokenizer
+/// still advances instead of looping — malformed UTF-8 is
+/// reported upstream as `UnexpectedCharacter` at its own
+/// site.
+#[inline(always)]
+fn utf8_cp_len(b: u8) -> usize {
+  if b < 0xC0 {
+    1
+  } else if b < 0xE0 {
+    2
+  } else if b < 0xF0 {
+    3
+  } else {
+    4
   }
 }
 
