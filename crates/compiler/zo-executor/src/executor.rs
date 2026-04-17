@@ -96,6 +96,10 @@ pub struct Executor<'a> {
   widget_counter: Cell<u32>,
   /// The pending branch contexts for control flow.
   branch_stack: Vec<BranchCtx>,
+  /// Monotonically increasing counter used to mint unique
+  /// names for synthetic per-branch result locals
+  /// (`__branch_result_N__`). see `PLAN_BRANCH_EXPR_PHI.md`.
+  branch_result_counter: u32,
   /// Skip main-loop processing until this index.
   skip_until: usize,
   /// Pending variable declaration (deferred to Semicolon).
@@ -255,6 +259,7 @@ impl<'a> Executor<'a> {
       pending_var_name: None,
       widget_counter: Cell::new(0),
       branch_stack: Vec::with_capacity(8),
+      branch_result_counter: 0,
       skip_until: 0,
       pending_decl: None,
       pending_assign: None,
@@ -582,6 +587,14 @@ impl<'a> Executor<'a> {
         let end_label = self.sir.next_label();
         let else_label = self.sir.next_label();
 
+        // Branch-expr φ sink: allocated when the ternary
+        // sits in expression position (e.g. `imu y =
+        // when ... ? a : b`). each arm stores its result
+        // into the sink; the merge-point Load reads it
+        // back as the expression's value.
+        let (value_sink, _existing_outer) =
+          self.mint_branch_sink_if_expr_position();
+
         self.branch_stack.push(BranchCtx {
           kind: BranchKind::Ternary,
           end_label,
@@ -592,6 +605,8 @@ impl<'a> Executor<'a> {
           branch_emitted: false,
           for_var: None,
           scope_depth: self.scope_stack.len(),
+          value_sink,
+          value_sink_ty: None,
         });
       }
 
@@ -976,7 +991,31 @@ impl<'a> Executor<'a> {
               self.sir.emit(Insn::Label { id: ctx.end_label });
             }
           }
+        }
 
+        // Ternary with φ sink that's the tail expression
+        // of the function body: close it now so the merge
+        // Load pushes onto the stacks and the
+        // implicit-return path below picks it up as the
+        // function's return value. mirrors the Semicolon-
+        // closing path, just triggered by the closing `}`
+        // instead of `;`.
+        if at_fn_depth {
+          while self.branch_stack.last().is_some_and(|c| {
+            c.kind == BranchKind::Ternary && c.value_sink.is_some()
+          }) {
+            let ctx_idx = self.branch_stack.len() - 1;
+
+            self.emit_branch_sink_store(ctx_idx);
+
+            let ctx = self.branch_stack.pop().unwrap();
+
+            self.sir.emit(Insn::Label { id: ctx.end_label });
+            self.emit_branch_sink_load(&ctx);
+          }
+        }
+
+        if at_fn_depth && let Some(fun_ctx) = &self.current_function {
           // Only emit implicit return if there wasn't an explicit one
           if !fun_ctx.has_explicit_return {
             // Emit implicit return if needed
@@ -2228,14 +2267,23 @@ impl<'a> Executor<'a> {
           .last()
           .is_some_and(|c| c.kind == BranchKind::Ternary && c.branch_emitted)
         {
+          let ctx_idx = self.branch_stack.len() - 1;
           let ctx = self.branch_stack.last().unwrap();
           let end_label = ctx.end_label;
           let else_label = ctx.else_label.unwrap();
+          let has_sink = ctx.value_sink.is_some();
 
           // Emit Return for the true arm — handles both
           // explicit `return when ...` and implicit return
           // (when as last expression in non-void function).
-          if let Some(ref mut fun_ctx) = self.current_function {
+          //
+          // Skipped when the ternary has a value_sink:
+          // the sink captures the arm's value for the
+          // merge Load, and that merged Load is what the
+          // function ultimately returns. Emitting Return
+          // here would consume the value before the Store
+          // and break the φ.
+          if !has_sink && let Some(ref mut fun_ctx) = self.current_function {
             let unit_ty = self.ty_checker.unit_type();
 
             let needs_return =
@@ -2261,6 +2309,15 @@ impl<'a> Executor<'a> {
 
               fun_ctx.has_explicit_return = true;
             }
+          }
+
+          // φ merge: capture the true-arm's value into the
+          // ternary's sink. pops stack top if the sink is
+          // live; no-op otherwise. must happen BEFORE the
+          // Jump so the Store lands on the true-arm's
+          // control-flow path.
+          if has_sink {
+            self.emit_branch_sink_store(ctx_idx);
           }
 
           self.sir.emit(Insn::Jump { target: end_label });
@@ -2374,8 +2431,24 @@ impl<'a> Executor<'a> {
           .last()
           .is_some_and(|c| c.kind == BranchKind::Ternary)
         {
+          // φ: capture the false-arm's value into the
+          // ternary's sink (mirrors the true-arm Store
+          // emitted at the ternary's `:`). must happen
+          // BEFORE the merge Label so both arms' paths
+          // reach a Store before reconverging.
+          let ctx_idx = self.branch_stack.len() - 1;
+
+          self.emit_branch_sink_store(ctx_idx);
+
           let ctx = self.branch_stack.pop().unwrap();
+
           self.sir.emit(Insn::Label { id: ctx.end_label });
+
+          // Merge: load the sink as the ternary's
+          // result and push it onto the stacks. pure
+          // no-op when the ternary is in statement
+          // position (no sink).
+          self.emit_branch_sink_load(&ctx);
         }
 
         // Finalize pending compound assignment (x += expr;).
@@ -7230,9 +7303,151 @@ impl<'a> Executor<'a> {
     self.sir_values.push(ok_sir);
   }
 
+  /// Returns `(sink_name, outer_sink)` where:
+  ///
+  /// - `sink_name = Some(sym)` when the next branching
+  ///   construct is about to be pushed in expression
+  ///   position — i.e. its result will be consumed by
+  ///   an enclosing `imu` init, function return, outer
+  ///   branch sink, or similar. `None` for
+  ///   statement-position branches.
+  /// - `outer_sink = Some(sym)` echoes the enclosing
+  ///   branch's sink when the new branch is a nested
+  ///   expression producing into it. currently only
+  ///   used for documentation; the arm-exit helper
+  ///   reads from `branch_stack` directly.
+  ///
+  /// expression-position triggers:
+  /// - a pending variable declaration (`imu y =
+  ///   <branch>;`, `mut y = ...`, `val y = ...`).
+  /// - the enclosing function expects a non-unit
+  ///   return AND the branch is the tail expression.
+  ///   we approximate this by the function's
+  ///   declared return type being non-unit; false
+  ///   positives are harmless (an unused sink emits
+  ///   one extra Store + Load).
+  /// - an enclosing `BranchCtx` that already has a
+  ///   `value_sink` — nested branches produce into
+  ///   the outer result position.
+  fn mint_branch_sink_if_expr_position(
+    &mut self,
+  ) -> (Option<Symbol>, Option<Symbol>) {
+    let outer_sink = self.branch_stack.iter().rev().find_map(|c| c.value_sink);
+
+    let unit_ty = self.ty_checker.unit_type();
+
+    let in_expr_pos = self.pending_decl.is_some()
+      || outer_sink.is_some()
+      || self
+        .current_function
+        .as_ref()
+        .is_some_and(|f| f.return_ty != unit_ty);
+
+    if !in_expr_pos {
+      return (None, outer_sink);
+    }
+
+    let n = self.branch_result_counter;
+
+    self.branch_result_counter += 1;
+
+    let sym = self.interner.intern(&format!("__branch_result_{n}__"));
+
+    (Some(sym), outer_sink)
+  }
+
+  /// Emit a `Store` from the current top-of-stack into
+  /// a branch's value sink, consuming that top. no-op
+  /// when the sink is absent or the stacks are empty
+  /// (the arm exited via return / break / continue and
+  /// already consumed its value).
+  fn emit_branch_sink_store(&mut self, ctx_idx: usize) {
+    let ctx = match self.branch_stack.get(ctx_idx) {
+      Some(c) => c.clone(),
+      None => return,
+    };
+
+    let sink = match ctx.value_sink {
+      Some(s) => s,
+      None => return,
+    };
+
+    let top_sir = match self.sir_values.last().copied() {
+      Some(s) => s,
+      None => return,
+    };
+
+    let top_ty = match self.ty_stack.last().copied() {
+      Some(t) => t,
+      None => return,
+    };
+
+    // First arm to Store sets the sink type; later arms
+    // unify against it. type mismatch reports through
+    // the existing error path.
+    let sink_ty = if let Some(prev) = ctx.value_sink_ty {
+      let span = zo_span::Span::ZERO;
+      self.ty_checker.unify(prev, top_ty, span).unwrap_or(prev)
+    } else {
+      if let Some(c) = self.branch_stack.get_mut(ctx_idx) {
+        c.value_sink_ty = Some(top_ty);
+      }
+
+      top_ty
+    };
+
+    self.sir.emit(Insn::Store {
+      name: sink,
+      value: top_sir,
+      ty_id: sink_ty,
+    });
+
+    self.value_stack.pop();
+    self.ty_stack.pop();
+    self.sir_values.pop();
+  }
+
+  /// Emit a `Load` from a branch's value sink at the
+  /// merge point, pushing the loaded value onto the
+  /// stacks as the branch expression's result. no-op
+  /// when the sink is absent.
+  fn emit_branch_sink_load(&mut self, ctx: &BranchCtx) {
+    let sink = match ctx.value_sink {
+      Some(s) => s,
+      None => return,
+    };
+
+    let ty = ctx.value_sink_ty.unwrap_or_else(|| {
+      // No arm ever stored — the branch expression's
+      // type is unknown. Fall back to unit so downstream
+      // unification produces a readable error rather
+      // than a panic.
+      self.ty_checker.unit_type()
+    });
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sv = self.sir.emit(Insn::Load {
+      dst,
+      src: LoadSource::Local(sink),
+      ty_id: ty,
+    });
+
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(ty);
+    self.sir_values.push(sv);
+  }
+
   fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
     let end_label = self.sir.next_label();
     let else_label = self.sir.next_label();
+
+    let (value_sink, _existing_outer) =
+      self.mint_branch_sink_if_expr_position();
 
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::If,
@@ -7242,6 +7457,8 @@ impl<'a> Executor<'a> {
       branch_emitted: false,
       for_var: None,
       scope_depth: self.scope_stack.len(),
+      value_sink,
+      value_sink_ty: None,
     });
   }
 
@@ -8060,6 +8277,10 @@ impl<'a> Executor<'a> {
       branch_emitted: false,
       for_var: None,
       scope_depth: self.scope_stack.len(),
+      // Loops are always statement-position today — no
+      // `loop { break value }` expression form yet.
+      value_sink: None,
+      value_sink_ty: None,
     });
   }
 
@@ -8203,6 +8424,8 @@ impl<'a> Executor<'a> {
       branch_emitted: true,
       for_var: Some(var_name),
       scope_depth: self.scope_stack.len(),
+      value_sink: None,
+      value_sink_ty: None,
     });
 
     // Skip header tokens (Ident, ColonEq, start, DotDot,
@@ -11106,6 +11329,18 @@ struct BranchCtx {
   /// prevent inner blocks (e.g. `_ => {}` in match arms)
   /// from accidentally consuming outer while/if contexts.
   scope_depth: usize,
+  /// Synthetic local receiving each arm's result when
+  /// the branch is in expression position. `None` for
+  /// statement-position branches. emulates an SSA φ:
+  /// each reachable arm `Store`s into this local; the
+  /// merge point `Load`s the result and pushes it as
+  /// the branch expression's value. see
+  /// `PLAN_BRANCH_EXPR_PHI.md`.
+  value_sink: Option<Symbol>,
+  /// Unified type of all arm producers. set by the
+  /// first arm to `Store` into the sink; subsequent
+  /// arms unify against it.
+  value_sink_ty: Option<TyId>,
 }
 
 /// Tracks context when compiling inside a function
