@@ -125,7 +125,8 @@ impl<'a> Dce<'a> {
           | Insn::FunDef { .. }
           | Insn::StructDef { .. }
           | Insn::EnumDef { .. }
-          | Insn::ConstDef { .. } => {
+          | Insn::ConstDef { .. }
+          | Insn::ArrayTyDef { .. } => {
             in_dead_zone = false;
             i += 1;
           }
@@ -326,6 +327,7 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::Return { .. }
       | Insn::Template { .. }
       | Insn::StyleSheet { .. }
+      | Insn::ArrayTyDef { .. }
   )
 }
 

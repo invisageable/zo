@@ -192,6 +192,13 @@ pub struct ARM64Gen<'a> {
   /// instruction. Replaces the fragile find_producing_insn
   /// backward search.
   value_types: HashMap<u32, TyId>,
+  /// Array type → element `TyId`, keyed by the array's
+  /// `TyId.0`. Populated by the pre-pass in `generate` from
+  /// `Insn::ArrayTyDef`. Drives `emit_array_write` so
+  /// `showln(arr)` can dispatch each element through the
+  /// element-type's writer (itoa/ftoa/bool/char/str) and
+  /// produce `[e0, e1, ...]` instead of leaking a pointer.
+  array_metas: HashMap<u32, TyId>,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -219,6 +226,9 @@ struct VariantMeta {
 const ENUM_OPEN_PAREN_SYM: Symbol = Symbol(0xE000_FFFC);
 const ENUM_COMMA_SPACE_SYM: Symbol = Symbol(0xE000_FFFD);
 const ENUM_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFFE);
+
+const ARRAY_OPEN_BRACKET_SYM: Symbol = Symbol(0xE000_FFF8);
+const ARRAY_CLOSE_BRACKET_SYM: Symbol = Symbol(0xE000_FFF9);
 
 impl<'a> ARM64Gen<'a> {
   /// Creates a new [`ARM64Gen`] instance.
@@ -251,6 +261,7 @@ impl<'a> ARM64Gen<'a> {
       enum_metas: HashMap::default(),
       next_enum_sym: ENUM_SYNTHETIC_SYM_BASE,
       value_types: HashMap::default(),
+      array_metas: HashMap::default(),
     }
   }
 
@@ -340,6 +351,16 @@ impl<'a> ARM64Gen<'a> {
     } else {
       None
     }
+  }
+
+  /// If `vid`'s type is a registered array type, return the
+  /// element `TyId`. `None` for non-arrays and for arrays
+  /// whose `ArrayTyDef` wasn't surfaced (defensive — every
+  /// array type reached by SIR should have one).
+  fn is_array_value(&self, vid: ValueId) -> Option<TyId> {
+    let ty = self.type_of(vid)?;
+
+    self.array_metas.get(&ty.0).copied()
   }
 
   /// Emit a single spill operation (GP or FP).
@@ -541,6 +562,15 @@ impl<'a> ARM64Gen<'a> {
           }
           _ => {}
         }
+      }
+    }
+
+    // Pre-pass: collect `ArrayTyDef` metadata so
+    // `emit_array_write` can dispatch on the element type
+    // regardless of where the definition lands in the stream.
+    for insn in insns.iter() {
+      if let Insn::ArrayTyDef { array_ty, elem_ty } = insn {
+        self.array_metas.insert(array_ty.0, *elem_ty);
       }
     }
 
@@ -2067,7 +2097,9 @@ impl<'a> ARM64Gen<'a> {
       } => {
         self.register_enum_meta(*name, *ty_id, variants);
       }
-      Insn::StructDef { .. } | Insn::ConstDef { .. } => {}
+      Insn::StructDef { .. }
+      | Insn::ConstDef { .. }
+      | Insn::ArrayTyDef { .. } => {}
 
       // Enum construction: for unit variants (no fields),
       // the value is just the discriminant. For tuple
@@ -2285,6 +2317,14 @@ impl<'a> ARM64Gen<'a> {
       // `emit_enum_write` loads the tag and cmp-chains on
       // it.
       self.emit_enum_write(vid, ty_id, fd);
+    } else if let Some(elem_ty) = arg_vid.and_then(|v| self.is_array_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // Dynamic array — walk `[len, cap, e0, e1, ...]` and
+      // format each element via `emit_field_write`. Without
+      // this branch the pointer falls through to `itoa` and
+      // prints as a raw address.
+      self.emit_array_write(vid, elem_ty, fd);
     } else if !is_str && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -2514,6 +2554,95 @@ impl<'a> ARM64Gen<'a> {
     } else {
       self.emit_itoa_and_write(fd);
     }
+  }
+
+  /// Pretty-print a dynamic array value as `[e0, e1, ...]`.
+  ///
+  /// Layout (from `Insn::ArrayLiteral` codegen):
+  /// `[len:u64][cap:u64][e0:u64][e1:u64]...`. Elements are
+  /// uniform 8-byte slots regardless of element type — ints
+  /// as-is, floats reinterpreted, strings/arrays as pointers.
+  ///
+  /// The loop keeps state in callee-saved regs so write
+  /// syscalls (which trash X0-X17) don't lose it:
+  /// - X19 = array base pointer
+  /// - X20 = length
+  /// - X21 = index `i`
+  ///
+  /// Element dispatch reuses `emit_field_write` — same
+  /// per-type branching as the enum pretty-printer uses for
+  /// payload fields.
+  fn emit_array_write(&mut self, vid: ValueId, elem_ty: TyId, fd: u16) {
+    let src = self.alloc_reg(vid).unwrap_or(X0);
+
+    let r_base = Register::new(19);
+    let r_len = Register::new(20);
+    let r_idx = Register::new(21);
+    let r_tmp = Register::new(22);
+
+    self.register_punctuation_sym(ARRAY_OPEN_BRACKET_SYM, b"[");
+    self.register_punctuation_sym(ARRAY_CLOSE_BRACKET_SYM, b"]");
+    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
+
+    // Save array base in X19, load length into X20, zero i.
+    self.emitter.emit_mov_reg(r_base, src);
+    self.emitter.emit_ldr(r_len, r_base, 0);
+    self.emitter.emit_mov_imm(r_idx, 0);
+
+    // Opening bracket.
+    self.emit_synthetic_str_write(ARRAY_OPEN_BRACKET_SYM, fd);
+
+    // loop_start:
+    let loop_start = self.emitter.current_offset();
+
+    // CMP X21, X20; B.GE loop_end (patch later).
+    self.emitter.emit_cmp(r_idx, r_len);
+
+    let bge_pos = self.emitter.current_offset();
+
+    self.emitter.emit_bge(0);
+
+    // CBZ X21, skip_sep (patch later) — if i == 0, don't
+    // emit a leading ", ".
+    let cbz_pos = self.emitter.current_offset();
+
+    self.emitter.emit_cbz(r_idx, 0);
+
+    self.emit_synthetic_str_write(ENUM_COMMA_SPACE_SYM, fd);
+
+    // skip_sep:
+    let skip_sep = self.emitter.current_offset() as i32;
+
+    self
+      .emitter
+      .patch_cbz_at(cbz_pos as usize, (skip_sep - cbz_pos as i32) >> 2);
+
+    // X22 = i * 8; X22 += 16; X22 += base.
+    self.emitter.emit_lsl(r_tmp, r_idx, 3);
+    self.emitter.emit_add_imm(r_tmp, r_tmp, ARRAY_HEADER_SIZE);
+    self.emitter.emit_add(r_tmp, r_base, r_tmp);
+    // LDR X0, [X22].
+    self.emitter.emit_ldr(X0, r_tmp, 0);
+
+    // Dispatch on element type.
+    self.emit_field_write(elem_ty, fd);
+
+    // i++, B loop_start.
+    self.emitter.emit_add_imm(r_idx, r_idx, 1);
+
+    let back_pos = self.emitter.current_offset() as i32;
+
+    self.emitter.emit_b(loop_start as i32 - back_pos);
+
+    // loop_end:
+    let loop_end = self.emitter.current_offset() as i32;
+
+    self
+      .emitter
+      .patch_bcond_at(bge_pos as usize, loop_end - bge_pos as i32);
+
+    // Closing bracket.
+    self.emit_synthetic_str_write(ARRAY_CLOSE_BRACKET_SYM, fd);
   }
 
   /// Emit a newline write to the given fd.

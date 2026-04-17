@@ -122,6 +122,7 @@ impl Insn {
       | Insn::PackDecl { .. }
       | Insn::EnumDef { .. }
       | Insn::StructDef { .. }
+      | Insn::ArrayTyDef { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::FunDef { .. }
@@ -249,6 +250,10 @@ impl Insn {
       | Insn::StructConstruct { ty_id, .. }
       | Insn::FieldStore { ty_id, .. } => f(ty_id),
       Insn::Cast { to_ty, .. } => f(to_ty),
+      Insn::ArrayTyDef { array_ty, elem_ty } => {
+        f(array_ty);
+        f(elem_ty);
+      }
       Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
       | Insn::EnumDef { .. }
@@ -461,6 +466,13 @@ pub enum Insn {
     fields: Vec<(Symbol, TyId, bool)>,
     pubness: Pubness,
   },
+  /// Array type description — emitted once per unique
+  /// `[]T` type the executor encounters. Codegen consumes
+  /// this to populate its `array_metas` so `showln(arr)` can
+  /// walk elements and format each one using the element
+  /// type's writer. Mirrors `EnumDef`'s role for enum pretty-
+  /// printing.
+  ArrayTyDef { array_ty: TyId, elem_ty: TyId },
   /// Struct construction: `Span { lo: 0, hi: 10 }`.
   StructConstruct {
     dst: ValueId,

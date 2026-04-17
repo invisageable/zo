@@ -562,7 +562,93 @@ impl<'a> Executor<'a> {
     // SIR and substitute".
     self.reexecute_generic_instantiations();
 
+    // Surface every array type reached by this SIR stream as
+    // an `ArrayTyDef` so codegen can populate `array_metas`
+    // and print arrays elementwise in `showln`. Codegen does
+    // its own pre-scan for these, so they can live at the
+    // tail of the instruction list without re-shuffling.
+    self.emit_array_ty_defs();
+
     (self.sir, self.annotations, self.funs, self.abstract_defs)
+  }
+
+  /// Walk every `ty_id` in the emitted SIR, find each unique
+  /// array type (`Ty::Array(..)`), and append one
+  /// `Insn::ArrayTyDef { array_ty, elem_ty }` per unique
+  /// array type. Idempotent via a HashSet dedup on the
+  /// array's `TyId.0`.
+  fn emit_array_ty_defs(&mut self) {
+    let mut seen: std::collections::HashSet<u32> =
+      std::collections::HashSet::new();
+    let mut to_emit: Vec<(TyId, TyId)> = Vec::new();
+
+    for insn in &self.sir.instructions {
+      let mut ty_ids: Vec<TyId> = Vec::new();
+
+      match insn {
+        Insn::ConstInt { ty_id, .. }
+        | Insn::ConstFloat { ty_id, .. }
+        | Insn::ConstBool { ty_id, .. }
+        | Insn::ConstString { ty_id, .. }
+        | Insn::Load { ty_id, .. }
+        | Insn::Store { ty_id, .. }
+        | Insn::Return { ty_id, .. }
+        | Insn::Call { ty_id, .. }
+        | Insn::BinOp { ty_id, .. }
+        | Insn::UnOp { ty_id, .. }
+        | Insn::ConstDef { ty_id, .. }
+        | Insn::VarDef { ty_id, .. }
+        | Insn::Directive { ty_id, .. }
+        | Insn::Template { ty_id, .. }
+        | Insn::ArrayLiteral { ty_id, .. }
+        | Insn::ArrayIndex { ty_id, .. }
+        | Insn::ArrayStore { ty_id, .. }
+        | Insn::ArrayLen { ty_id, .. }
+        | Insn::ArrayPush { ty_id, .. }
+        | Insn::ArrayPop { ty_id, .. }
+        | Insn::TupleLiteral { ty_id, .. }
+        | Insn::TupleIndex { ty_id, .. }
+        | Insn::EnumConstruct { ty_id, .. }
+        | Insn::StructConstruct { ty_id, .. }
+        | Insn::FieldStore { ty_id, .. } => ty_ids.push(*ty_id),
+        Insn::Cast { to_ty, .. } => ty_ids.push(*to_ty),
+        Insn::FunDef {
+          return_ty, params, ..
+        } => {
+          ty_ids.push(*return_ty);
+
+          for (_, ty) in params {
+            ty_ids.push(*ty);
+          }
+        }
+        _ => {}
+      }
+
+      for ty_id in ty_ids {
+        if seen.contains(&ty_id.0) {
+          continue;
+        }
+
+        // Follow inference chain — ArrayLiteral etc. may
+        // carry an Infer TyId that resolves to Array only
+        // after unification.
+        let canonical = self.ty_checker.resolve_id(ty_id);
+
+        if let Ty::Array(aid) = self.ty_checker.resolve_ty(canonical)
+          && let Some(arr_ty) = self.ty_checker.ty_table.array(aid)
+        {
+          // Record under the ORIGINAL `ty_id` — codegen's
+          // `value_types` will carry that same TyId as its
+          // key, so matching must happen there.
+          seen.insert(ty_id.0);
+          to_emit.push((ty_id, arr_ty.elem_ty));
+        }
+      }
+    }
+
+    for (array_ty, elem_ty) in to_emit {
+      self.sir.emit(Insn::ArrayTyDef { array_ty, elem_ty });
+    }
   }
 
   /// Returns true if the token introduces a statement —
