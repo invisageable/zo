@@ -567,6 +567,54 @@ fun main() {
   );
 }
 
+#[test]
+fn test_for_line_form_emits_loop_header_and_body() {
+  // `for x := a..b => expr;` — single-expression line form.
+  // Parser generates `FatArrow` instead of `LBrace` as the
+  // body marker, and a single synthetic `RBrace` terminates
+  // the whole `fun main` block (NOT the loop — the executor
+  // has to close the loop inline). Regression guards:
+  //   - header still emits (Label + BranchIfNot + Jump + end-
+  //     Label shape identical to the brace form),
+  //   - body's `showln` Call lives INSIDE the loop (between
+  //     the loop's Label and its Jump back),
+  //   - `main` reaches its `Return` instead of falling off
+  //     the function (earlier attempt had no Return — exit
+  //     code 132 / SIGILL at runtime).
+  assert_sir_structure(
+    r#"fun main() {
+  for x := 0..3 => showln("{x}");
+}"#,
+    |sir| {
+      let has_label = sir.iter().any(|i| matches!(i, Insn::Label { .. }));
+
+      assert!(has_label, "expected a Label for the loop start");
+
+      let has_jump = sir.iter().any(|i| matches!(i, Insn::Jump { .. }));
+
+      assert!(has_jump, "expected a Jump back to the loop label");
+
+      let has_branch =
+        sir.iter().any(|i| matches!(i, Insn::BranchIfNot { .. }));
+
+      assert!(has_branch, "expected a BranchIfNot for the loop condition");
+
+      // Call is emitted (the body ran through).
+      let has_call = sir.iter().any(|i| matches!(i, Insn::Call { .. }));
+
+      assert!(has_call, "expected a Call (showln) inside the loop body");
+
+      // `main` must return — silent missing Return = SIGILL.
+      let has_return = sir.iter().any(|i| matches!(i, Insn::Return { .. }));
+
+      assert!(
+        has_return,
+        "expected a Return in `main` (missing = SIGILL at runtime)"
+      );
+    },
+  );
+}
+
 // === MATCH ON TUPLE ===
 
 #[test]

@@ -10,15 +10,15 @@
 
 [home](https://github.com/invisageable/zo) — [install](./crates/compiler/zo-notes/public/guidelines/02-install.md) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
 
-  ```ts
-  pub $: {
+  <!-- pub $: {
     .count-value {
       c: navy;
       fs: 1rem;
       fw: bold;
     }
-  }
+  } -->
 
+  ```ts
   fun main() {
     mut count: int = 0;
 

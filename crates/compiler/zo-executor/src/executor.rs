@@ -9154,7 +9154,8 @@ impl<'a> Executor<'a> {
     let mut colon_eq_idx: Option<usize> = None;
     let mut range_idx: Option<usize> = None;
     let mut range_inclusive = false;
-    let mut lbrace_idx: Option<usize> = None;
+    let mut body_start_idx: Option<usize> = None;
+    let mut body_is_fat_arrow = false;
     let mut paren_depth: i32 = 0;
 
     for j in (start_idx + 1)..end_idx {
@@ -9183,8 +9184,9 @@ impl<'a> Executor<'a> {
           range_idx = Some(j);
           range_inclusive = tok == Token::DotDotEq;
         }
-        Token::LBrace => {
-          lbrace_idx = Some(j);
+        Token::LBrace | Token::FatArrow => {
+          body_start_idx = Some(j);
+          body_is_fat_arrow = tok == Token::FatArrow;
           break;
         }
         _ => {}
@@ -9206,10 +9208,16 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    let lbrace_idx = match lbrace_idx {
+    let body_start_idx = match body_start_idx {
       Some(i) => i,
       None => return,
     };
+
+    // For the sub-walk range below we need the last header
+    // index (exclusive upper bound). Whether the body marker
+    // is `LBrace` or `FatArrow`, header sub-walk goes up to
+    // but not including it.
+    let lbrace_idx = body_start_idx;
 
     let int_ty = self.ty_checker.int_type();
 
@@ -9423,10 +9431,117 @@ impl<'a> Executor<'a> {
       value_sink_ty: None,
     });
 
-    // Skip header tokens — the sub-walks above already
-    // processed every node up to (but not including)
-    // `lbrace_idx`. The main loop resumes at `LBrace`.
-    self.skip_until = lbrace_idx;
+    // `LBrace` form: hand off to the main loop. The LBrace
+    // handler will push a scope and the body walks through
+    // normally; its closing `RBrace` fires the For-loop
+    // close path (increment + jump + end_label) and pops
+    // the scope.
+    if !body_is_fat_arrow {
+      self.skip_until = body_start_idx;
+
+      return;
+    }
+
+    // `=>` line form: `for x := start..end => expr;`.
+    // The parser generates ONE synthetic `RBrace` that
+    // tries to serve as both the loop terminator AND the
+    // enclosing block's terminator — we can't let the
+    // main loop re-use it, so finalize everything inline
+    // here. Find the Semicolon that closes the single
+    // body expression, sub-walk the body, emit loop close
+    // (increment + jump + end_label), pop the branch ctx
+    // + scope, and skip past the Semicolon. The outer
+    // RBrace then cleanly closes the enclosing function /
+    // block with no loop ambiguity.
+    let semicolon_idx = ((body_start_idx + 1)..end_idx)
+      .find(|&j| self.tree.nodes[j].token == Token::Semicolon)
+      .unwrap_or(end_idx);
+
+    // Scope for the body (mirrors LBrace form's push).
+    self.push_scope();
+
+    // Sub-walk body statements. The range `(FatArrow,
+    // Semicolon)` contains the single expression plus any
+    // sub-tokens the parser emitted for it.
+    let saved_skip = self.skip_until;
+
+    self.skip_until = 0;
+
+    for i in (body_start_idx + 1)..semicolon_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+
+      if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
+        self.apply_deferred_binop();
+      }
+    }
+
+    self.skip_until = saved_skip;
+
+    // Discard any leftover stack values — the body
+    // expression's result isn't used.
+    while self.sir_values.len() > stack_before {
+      self.sir_values.pop();
+      self.value_stack.pop();
+      self.ty_stack.pop();
+    }
+
+    // Loop close: increment + jump + end label. Mirrors the
+    // `BranchKind::For` arm of the RBrace handler (~line
+    // 1475) — kept in sync by design.
+    let ld = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let ld_sir = self.sir.emit(Insn::Load {
+      dst: ld,
+      src: LoadSource::Local(var_name),
+      ty_id: int_ty,
+    });
+
+    let one_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let one_sir = self.sir.emit(Insn::ConstInt {
+      dst: one_dst,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let add_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let add_sir = self.sir.emit(Insn::BinOp {
+      dst: add_dst,
+      op: zo_sir::BinOp::Add,
+      lhs: ld_sir,
+      rhs: one_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: var_name,
+      value: add_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    self.branch_stack.pop();
+    self.pop_scope();
+
+    // Skip past the `;` that terminated the body. The
+    // synthetic `RBrace` that follows is the enclosing
+    // block's — main loop handles it normally.
+    self.skip_until = semicolon_idx + 1;
   }
 
   /// Begins compound assignment (+=, -=, etc).
