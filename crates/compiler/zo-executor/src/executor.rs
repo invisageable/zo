@@ -7338,9 +7338,21 @@ impl<'a> Executor<'a> {
         _ => None,
       });
 
-    // For non-local scrutinees (e.g. function parameters),
-    // store to a synthetic local so per-arm reloads work.
-    // Local variables already have mutable_slots entries.
+    // For non-local scrutinees, store to a synthetic local
+    // so per-arm reloads work. Three cases:
+    //   1. Ident scrutinee backed by a Store in SIR (a
+    //      `mut`/`imu` local, or something that already
+    //      has a spill slot) — use its symbol directly.
+    //   2. Ident scrutinee WITHOUT a Store (function
+    //      parameter) — synthesize a Store under
+    //      `__match_scrut__`.
+    //   3. NO Ident at all (literal / expression
+    //      scrutinee, e.g. `match "zo" { ... }` or
+    //      `match a ++ b { ... }`) — also synthesize a
+    //      Store. Without this, per-arm reload emits a
+    //      fresh uninitialized `ValueId` and the runtime
+    //      dereferences garbage as a string pointer →
+    //      SIGSEGV.
     let scrutinee_sym = if let Some(sym) = scrutinee_sym {
       // Check if this symbol is a local with a Store
       // (not just a parameter). If it's a local that was
@@ -7368,8 +7380,21 @@ impl<'a> Executor<'a> {
 
         Some(scrut_sym)
       }
+    } else if let Some(sir_val) = self.sir_values.last().copied() {
+      // Literal / expression scrutinee — persist the
+      // already-emitted SIR value under a synthetic
+      // symbol so arm reloads can `Load` from it.
+      let scrut_sym = self.interner.intern("__match_scrut__");
+
+      self.sir.emit(Insn::Store {
+        name: scrut_sym,
+        value: sir_val,
+        ty_id: scrutinee_ty,
+      });
+
+      Some(scrut_sym)
     } else {
-      scrutinee_sym
+      None
     };
 
     while self.sir_values.len() > stack_before {
