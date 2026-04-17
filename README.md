@@ -80,6 +80,24 @@ JOiN THE DEVOLUTiON.
   - ALGEBRAiC `optimization` — *folding, propagation.*
   - TARGET SUPPORT — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
 
+## install.
+
+  1. YOU HAVE TO RUN:
+
+  ```sh
+  curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/zo-install.sh | sh
+  ```
+
+  2. THEN:
+
+  ```
+  zo x.x.x
+  ```
+
+  3. ET VOiLÀ! YOU ARE GOOD TO GO. FOR MORE DETAiLS:
+
+  - @SEE — [`zo — 01-install`](./crates/compiler/zo-notes/public/guidelines/01-install.md)
+
 ## ecosystem.
 
 THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:

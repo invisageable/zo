@@ -122,6 +122,14 @@ pub struct Executor<'a> {
   /// Deferred binary operators waiting for RHS group to close.
   /// (op, lhs_value, lhs_ty, lhs_sir, node_idx)
   deferred_binops: Vec<(BinOp, ValueId, TyId, ValueId, usize)>,
+  /// Deferred short-circuit logical ops waiting for RHS to
+  /// be pushed onto the stacks. Each entry records the
+  /// synthetic sink local and the end label emitted at the
+  /// `&&`/`||` site — the RHS-finalization path stores into
+  /// the sink, emits the end label, and loads the merged
+  /// result. Parallel to `deferred_binops` but finalized via
+  /// the φ-sink machinery instead of a plain `BinOp`.
+  deferred_short_circuits: Vec<DeferredShortCircuit>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
@@ -189,6 +197,17 @@ pub struct Executor<'a> {
   /// suppresses deferred binops until this RParen is reached,
   /// preventing call args from being consumed by the operator.
   pending_call_rparen: Option<usize>,
+  /// Open direct-call depth. Incremented at every `is_call`
+  /// LParen (when LParen is preceded by a function ident),
+  /// decremented at the matching RParen. Used by
+  /// `apply_deferred_short_circuit` to distinguish
+  ///   `a || f(x)` — SC deferred *outside* the call; finalize
+  ///   must wait until the call result is on the stack; and
+  ///   `f(a || b)` — SC deferred *inside* the call; finalize
+  ///   must happen before the call collects its args.
+  /// Without this, both cases look identical by stack depth
+  /// alone and the SC captures the wrong value.
+  direct_call_depth: u32,
   /// Pending stylesheet commands collected from `$:` blocks.
   /// Injected into the next `Insn::Template`'s commands.
   pending_styles: Vec<UiCommand>,
@@ -223,6 +242,45 @@ pub struct AbstractMethod {
   pub name: Symbol,
   pub params: Vec<(Symbol, TyId)>,
   pub return_ty: TyId,
+}
+
+/// Deferred short-circuit operator, finalized when the RHS
+/// expression has fully materialized on the stacks. See
+/// `execute_logical_binop` and `apply_deferred_short_circuit`
+/// for the control-flow shape.
+///
+/// Finalization requires *three* depth markers to avoid
+/// capturing transient stack values that land mid-RHS
+/// (e.g. a function-call arg being pushed before the call
+/// itself emits) — the RHS is "done" only when we're back
+/// at the pre-op stack/tuple/call depth and one new value
+/// sits on top of the stacks.
+struct DeferredShortCircuit {
+  /// Synthetic `__branch_result_N__` local receiving both
+  /// the LHS (already stored at the op site) and the RHS
+  /// (stored on finalization) — mirrors the ternary φ sink.
+  sink: Symbol,
+  /// Label emitted after the RHS store, reached directly
+  /// from the LHS short-circuit path.
+  end_label: u32,
+  /// `bool` type id, cached to avoid re-looking it up.
+  bool_ty: TyId,
+  /// `sir_values.len()` right after the LHS was popped, at
+  /// the op site. The RHS is "on top" only when the stack
+  /// reaches `pre_rhs_depth + 1`.
+  pre_rhs_depth: usize,
+  /// `tuple_ctx.len()` at defer time. Only finalize when the
+  /// tuple context has returned to at most this depth —
+  /// otherwise an inner tuple/group element push would be
+  /// stolen as the RHS.
+  pre_tuple_ctx_len: usize,
+  /// `direct_call_depth` at defer time. Mirrors
+  /// `pre_tuple_ctx_len` but for function-call scopes,
+  /// which don't push `tuple_ctx`. Prevents premature
+  /// finalization when the RHS *is* a call: args get pushed
+  /// while inside the call, and firing on the first arg
+  /// would capture it instead of the call result.
+  pre_direct_call_depth: u32,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -277,6 +335,7 @@ impl<'a> Executor<'a> {
       pending_array_assign: None,
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
+      deferred_short_circuits: Vec::new(),
       closure_counter: 0,
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
@@ -292,6 +351,7 @@ impl<'a> Executor<'a> {
       type_constraints: HashMap::new(),
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
+      direct_call_depth: 0,
       pending_styles: Vec::new(),
       template_bindings: TemplateBindings::default(),
       abstract_defs: HashMap::new(),
@@ -908,6 +968,13 @@ impl<'a> Executor<'a> {
         let is_call = self.resolve_call_target(idx).is_some();
 
         if is_call {
+          // Track direct-call depth — consumed by
+          // `apply_deferred_short_circuit` to know whether
+          // a pending SC's RHS is `f(...)` (finalize *after*
+          // the call returns) vs a value inside `f(...)`
+          // (finalize when the call's args stabilize).
+          self.direct_call_depth += 1;
+
           // Skip — RParen handles call.
           // For operator-separated calls (Ident Op LParen),
           // find the matching RParen and suppress deferred
@@ -958,10 +1025,19 @@ impl<'a> Executor<'a> {
 
       // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
+        // If this RParen closes something LParen counted as
+        // a direct call, decrement here so the counter stays
+        // balanced across *every* RParen exit path (enum
+        // constructor, direct call, method, etc.).
+        let closed_a_direct_call = self.rparen_closes_call(idx);
+
         // Check if this closes an enum variant constructor.
         if let Some((enum_name, disc, field_count, ty_id)) =
           self.pending_enum_construct.take()
         {
+          if closed_a_direct_call {
+            self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
+          }
           let mut fields = Vec::with_capacity(field_count as usize);
 
           for _ in 0..field_count {
@@ -996,8 +1072,22 @@ impl<'a> Executor<'a> {
         // tuple_ctx; a call like `f(x)` inside it did NOT.
         // Without this check, the call's RParen would pop
         // the outer tuple's depth and drop its result.
-        else if self.rparen_closes_call(idx) {
+        else if closed_a_direct_call {
+          // Ordering matters for short-circuit finalization:
+          //   1. Finalize SCs deferred *inside* this call
+          //      (pre_direct_call_depth == current) — their
+          //      RHS is the final arg sitting on the stack.
+          //      Runs before decrement so the guard passes.
+          //   2. Decrement direct_call_depth.
+          //   3. Emit the call.
+          //   4. Finalize SCs deferred *outside* this call
+          //      (pre_direct_call_depth < post-decrement) —
+          //      their RHS is the call's return value now on
+          //      the stack.
+          self.apply_deferred_short_circuit();
+          self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
           self.execute_potential_call(idx);
+          self.apply_deferred_short_circuit();
         }
         // Check if this closes a tuple/grouping context.
         else if let Some(depth) = self.tuple_ctx.pop() {
@@ -1042,10 +1132,18 @@ impl<'a> Executor<'a> {
             self.sir_values.push(sv);
           }
           // count <= 1: grouping — leave value on stack as-is.
+          // Drain SCs whose tuple/grouping RHS just closed.
+          self.apply_deferred_short_circuit();
           self.apply_deferred_binop();
         } else {
-          // No tuple context → function call.
+          // No tuple context → function call (via method or
+          // other non-direct path). `direct_call_depth` is
+          // not decremented here because LParen's `is_call`
+          // branch owns that counter — if we reach this arm
+          // the LParen didn't increment.
+          self.apply_deferred_short_circuit();
           self.execute_potential_call(idx);
+          self.apply_deferred_short_circuit();
         }
       }
 
@@ -2421,8 +2519,8 @@ impl<'a> Executor<'a> {
       Token::GtEq => self.execute_binop(BinOp::Gte, idx),
 
       // === LOGICAL OPERATORS ===
-      Token::AmpAmp => self.execute_binop(BinOp::And, idx),
-      Token::PipePipe => self.execute_binop(BinOp::Or, idx),
+      Token::AmpAmp => self.execute_logical_binop(BinOp::And, idx),
+      Token::PipePipe => self.execute_logical_binop(BinOp::Or, idx),
 
       // === BITWISE OPERATORS ===
       Token::Amp => self.execute_binop(BinOp::BitAnd, idx),
@@ -2701,6 +2799,16 @@ impl<'a> Executor<'a> {
         // statement boundaries are hard barriers for the
         // defer queue.
         self.deferred_binops.clear();
+        // Same barrier applies to deferred short-circuits
+        // that never finalized (e.g. malformed expressions).
+        // Emit the dangling `end_label` for each — otherwise
+        // the emitted `BranchIfNot` targets an undefined
+        // label and codegen produces an invalid jump.
+        while let Some(pending) = self.deferred_short_circuits.pop() {
+          self.sir.emit(Insn::Label {
+            id: pending.end_label,
+          });
+        }
 
         // Check if we have a pending return to complete.
         let had_return = self
@@ -2838,6 +2946,13 @@ impl<'a> Executor<'a> {
 
   /// Applies a deferred binary operator if its RHS is ready.
   fn apply_deferred_binop(&mut self) {
+    // Finalize any deferred short-circuit whose RHS has
+    // just landed on the stacks. Must run BEFORE the
+    // regular binop drain — the short-circuit's RHS must
+    // be captured into the φ sink before any enclosing
+    // deferred binop tries to consume the stack top.
+    self.apply_deferred_short_circuit();
+
     while !self.deferred_binops.is_empty()
       && !self.value_stack.is_empty()
       && !self.ty_stack.is_empty()
@@ -2859,7 +2974,197 @@ impl<'a> Executor<'a> {
       self.sir_values.push(rhs_sir);
 
       self.execute_binop(op, op_idx);
+
+      // After this binop resolves, an enclosing short-
+      // circuit's RHS may now be on the stacks. Drain
+      // again so nested `a && b && c()` chains finalize
+      // in the right order.
+      self.apply_deferred_short_circuit();
     }
+  }
+
+  /// Finalize any deferred short-circuit whose RHS has
+  /// arrived on the stacks. Emits the φ-sink tail
+  /// (`Store sink, rhs; Label end; Load dst <- sink`).
+  ///
+  /// Guards (must ALL hold for the top pending SC to fire):
+  ///   - stacks hold ≥ `pre_rhs_depth + 1` entries (the
+  ///     RHS produced one new top-of-stack value);
+  ///   - `tuple_ctx.len() <= pre_tuple_ctx_len` (we're back
+  ///     out of any tuple/group entered after the op);
+  ///   - `direct_call_depth <= pre_direct_call_depth` (we're
+  ///     out of any direct call entered after the op — this
+  ///     is what prevents `a || f(y)` from capturing the
+  ///     call's `y` arg as the RHS before the call emits).
+  ///
+  /// When the guard fails (RHS not yet complete) we stop
+  /// draining: the inner SC on the LIFO stack is not ready,
+  /// and nothing outer could be either.
+  fn apply_deferred_short_circuit(&mut self) {
+    while let Some(pending) = self.deferred_short_circuits.last() {
+      let depth_ok = self.sir_values.len() > pending.pre_rhs_depth
+        && self.ty_stack.len() > pending.pre_rhs_depth
+        && self.value_stack.len() > pending.pre_rhs_depth;
+      let tuple_ok = self.tuple_ctx.len() <= pending.pre_tuple_ctx_len;
+      let call_ok = self.direct_call_depth <= pending.pre_direct_call_depth;
+
+      if !(depth_ok && tuple_ok && call_ok) {
+        break;
+      }
+
+      let pending = self.deferred_short_circuits.pop().unwrap();
+
+      let rhs_sir = self.sir_values.pop().unwrap();
+      let _rhs_val = self.value_stack.pop().unwrap();
+      let _rhs_ty = self.ty_stack.pop().unwrap();
+
+      // Store the RHS into the sink. Both arms of the
+      // short-circuit now Store into the same slot; the
+      // Load that follows picks whichever ran.
+      self.sir.emit(Insn::Store {
+        name: pending.sink,
+        value: rhs_sir,
+        ty_id: pending.bool_ty,
+      });
+
+      // Merge label reached from both the LHS short-
+      // circuit path and the full RHS path.
+      self.sir.emit(Insn::Label {
+        id: pending.end_label,
+      });
+
+      // Load the merged result as the expression's value.
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      let sv = self.sir.emit(Insn::Load {
+        dst,
+        src: LoadSource::Local(pending.sink),
+        ty_id: pending.bool_ty,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.value_stack.push(rid);
+      self.ty_stack.push(pending.bool_ty);
+      self.sir_values.push(sv);
+    }
+  }
+
+  /// Execute a short-circuit logical operator (`&&`/`||`).
+  ///
+  /// Mirrors the ternary φ-sink: allocate a synthetic
+  /// `__branch_result_N__` slot, store the LHS into it,
+  /// and emit a `BranchIfNot` that skips RHS evaluation
+  /// whenever the LHS already determines the result.
+  ///
+  /// - `&&`: skip RHS when LHS is false. `BranchIfNot lhs`.
+  /// - `||`: skip RHS when LHS is true. We don't have
+  ///   `BranchIf`, so synthesize `UnOp::Not` into a temp
+  ///   and `BranchIfNot` on that (path of least resistance,
+  ///   matches the ternary's "no new Insn kinds" policy).
+  ///
+  /// If the RHS is already on the stacks at this point —
+  /// pure constant `true && false` etc. — no side effects
+  /// are possible, so delegate to `execute_binop` which
+  /// handles constant folding. Only non-trivial RHS (call,
+  /// grouping, nested op) takes the control-flow path.
+  fn execute_logical_binop(&mut self, op: BinOp, node_idx: usize) {
+    debug_assert!(matches!(op, BinOp::And | BinOp::Or));
+
+    // Both operands already on stacks → no RHS work
+    // remaining, no side effects to guard. Delegate to
+    // the eager binop which handles const folding; codegen
+    // of `BinOp::And/Or` on two evaluated bools is fine.
+    if self.value_stack.len() >= 2
+      && self.ty_stack.len() >= 2
+      && self.sir_values.len() >= 2
+    {
+      self.execute_binop(op, node_idx);
+      return;
+    }
+
+    // RHS pending — emit the short-circuit skeleton.
+    if self.value_stack.is_empty()
+      || self.ty_stack.is_empty()
+      || self.sir_values.is_empty()
+    {
+      // Nothing to anchor on — degrade to the eager path
+      // which already has its own "not enough operands"
+      // defer branch.
+      self.execute_binop(op, node_idx);
+      return;
+    }
+
+    let _lhs_val = self.value_stack.pop().unwrap();
+    let _lhs_ty = self.ty_stack.pop().unwrap();
+    let lhs_sir = self.sir_values.pop().unwrap();
+
+    // Snapshot stack/context depths *after* the LHS pop —
+    // this is the state the RHS expression starts from, and
+    // what finalization compares against to know the RHS
+    // has fully materialized.
+    let pre_rhs_depth = self.sir_values.len();
+    let pre_tuple_ctx_len = self.tuple_ctx.len();
+    let pre_direct_call_depth = self.direct_call_depth;
+
+    let bool_ty = self.ty_checker.bool_type();
+
+    // Allocate the φ sink.
+    let n = self.branch_result_counter;
+    self.branch_result_counter += 1;
+
+    let sink = self.interner.intern(&format!("__branch_result_{n}__"));
+
+    // Store(sink, lhs): default result is LHS, so the
+    // skipped-RHS path reads LHS back through the sink.
+    self.sir.emit(Insn::Store {
+      name: sink,
+      value: lhs_sir,
+      ty_id: bool_ty,
+    });
+
+    let end_label = self.sir.next_label();
+
+    // Emit the branch condition.
+    //
+    // `&&`: skip RHS when LHS is false → `BranchIfNot lhs`.
+    // `||`: skip RHS when LHS is true → synthesize `!lhs`
+    //       and `BranchIfNot !lhs`.
+    let cond_sir = match op {
+      BinOp::And => lhs_sir,
+      BinOp::Or => {
+        let dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::UnOp {
+          dst,
+          op: UnOp::Not,
+          rhs: lhs_sir,
+          ty_id: bool_ty,
+        })
+      }
+      _ => unreachable!("execute_logical_binop called with non-logical op"),
+    };
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_sir,
+      target: end_label,
+    });
+
+    self.deferred_short_circuits.push(DeferredShortCircuit {
+      sink,
+      end_label,
+      bool_ty,
+      pre_rhs_depth,
+      pre_tuple_ctx_len,
+      pre_direct_call_depth,
+    });
+
+    // `node_idx` kept in the signature for symmetry with
+    // `execute_binop` — used for future error reporting at
+    // the op's span. Silence the unused warning.
+    let _ = node_idx;
   }
 
   /// Executes a binary operator.
@@ -10438,6 +10743,8 @@ impl<'a> Executor<'a> {
       let saved_type_constraints = std::mem::take(&mut self.type_constraints);
       let saved_array_ctx = std::mem::take(&mut self.array_ctx);
       let saved_tuple_ctx = std::mem::take(&mut self.tuple_ctx);
+      let saved_direct_call_depth = self.direct_call_depth;
+      self.direct_call_depth = 0;
       let saved_branch_stack = std::mem::take(&mut self.branch_stack);
       let saved_locals_len = self.locals.len();
       let saved_scope_len = self.scope_stack.len();
@@ -10571,6 +10878,7 @@ impl<'a> Executor<'a> {
       self.type_constraints = saved_type_constraints;
       self.array_ctx = saved_array_ctx;
       self.tuple_ctx = saved_tuple_ctx;
+      self.direct_call_depth = saved_direct_call_depth;
       self.branch_stack = saved_branch_stack;
       self.locals.truncate(saved_locals_len);
       self.scope_stack.truncate(saved_scope_len);
@@ -11603,6 +11911,10 @@ enum BranchKind {
   For,
   /// A `when ? :` ternary expression.
   Ternary,
+  // Short-circuit logical `&&` / `||` intentionally does
+  // NOT live on `branch_stack` — its state is on
+  // `deferred_short_circuits`. Keeping this enum minimal
+  // avoids dead match arms.
 }
 
 /// Tracks context for a pending control flow branch.

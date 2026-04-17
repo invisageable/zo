@@ -1,4 +1,4 @@
--- tests-run-pass: fizzbuzz.
+-- tests-run-pass: fizzbuzz-while-if-else-if.
 -- @see https://en.wikipedia.org/wiki/Fizz_buzz.
 
 fun fb(n: int) {
