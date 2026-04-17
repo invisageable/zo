@@ -2398,6 +2398,22 @@ impl<'a> Executor<'a> {
         // value before the deferred Mul resolves.
         self.apply_deferred_binop();
 
+        // Clear any deferred binops that couldn't be
+        // applied because the operand stack was empty —
+        // they can't belong to the next statement, and
+        // leaving them would let the next statement's
+        // first pushed value be consumed as a stale rhs.
+        //
+        // Repro: `check((1) == 1); check(a | b == c);` —
+        // the Eq from the first statement defers (parser
+        // emits it before the second operand), Semicolon
+        // fires before the defer resolves, and the second
+        // statement's first push gets eaten as Eq's rhs.
+        // Fix: discard any remaining deferred binops here;
+        // statement boundaries are hard barriers for the
+        // defer queue.
+        self.deferred_binops.clear();
+
         // Check if we have a pending return to complete.
         let had_return = self
           .current_function

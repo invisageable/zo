@@ -52,23 +52,23 @@ JOiN THE DEVOLUTiON.
 
 ## features.
 
-  __-developer-experience__
-  - zsx (zo syntax extension) — *first-class ui syntax inspired by `E4X` but fully `type-safe`.*
+**-developer-experience**
+  - zsx (zo syntax extension) — *ui syntax inspired by `E4X` but fully `type-safe`.*
     - build native apps — *`gpu` (egui) and `js` (wry) with a single codebase.*
   - user-friendly `error` messages — *like elm, for faster debugging.*
-  - expressive and concise — *syntax designed for maximum readability and minimal boilerplate.*
-  - full-battery `tools` — *native REPL, code editor, and built-in package manager, etc.*
+  - expressive and concise — *syntax designed for readability.*
+  - full-battery `tools` — *native REPL, code editor, package manager, etc.*
 
-  __-type-safety__
+**-type-safety**
   - statically, strongly typed — *total control over your program from A to Z.*
   - meticulous `type system` — *type inference, monomorphization, `typestate`.*
   - safe concurrency — *robust erlang-like actor model.*
-  - meta-language — *`run code at compile-time via #asm`, `#dom`, `#run` (directives).*
+  - meta-language — *run code at compile-time via `#asm`, `#dom`, `#run` (directives).*
 
-  __-performance-and-compilation__
+**-performance-and-compilation**
   - high-speed `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
   - algebraic `optimization` — *folding, propagation.*
-  - target support — *native support for `arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
+  - target support — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
 
 ## ecosystem.
 
