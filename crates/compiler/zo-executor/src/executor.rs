@@ -2115,6 +2115,45 @@ impl<'a> Executor<'a> {
               self.value_stack.push(placeholder);
               self.ty_stack.push(self.ty_checker.unit_type());
               self.sir_values.push(ValueId(u32::MAX));
+            } else if is_fun && !self.ident_is_call_target(idx) {
+              // Fun name used as a first-class value (e.g.
+              // `ho(direct)` passing `direct` to a `Fn(...)`
+              // parameter). Push a synthetic `Value::Closure`
+              // with zero captures pointing at the fun —
+              // downstream the closure-param mono path
+              // (line ~10025) sees `Value::Closure` at the
+              // arg slot, builds a `__cl<fun>` specialization
+              // of the callee, and binds the param to this
+              // fun's name so `f(x)` inside the body lowers
+              // to `call <fun>(x)` directly.
+              //
+              // `ident_is_call_target` mirrors
+              // `resolve_call_target`'s logic: direct (`f(`)
+              // OR operator-separated (`a + f(` / `a && f(`)
+              // both keep the ident as a callee and must NOT
+              // push a closure value — that would land on the
+              // operator's operand stack and break the binop.
+              let fun_def = self.funs.iter().find(|f| f.name == sym);
+
+              let fun_ty = if let Some(fd) = fun_def {
+                let param_tys: Vec<TyId> =
+                  fd.params.iter().map(|(_, t)| *t).collect();
+                let fun_ty_id =
+                  self.ty_checker.ty_table.intern_fun(param_tys, fd.return_ty);
+
+                self.ty_checker.intern_ty(Ty::Fun(fun_ty_id))
+              } else {
+                self.ty_checker.unit_type()
+              };
+
+              let closure_val = self.values.store_closure(ClosureValue {
+                fun_name: sym,
+                captures: Vec::new(),
+              });
+
+              self.value_stack.push(closure_val);
+              self.ty_stack.push(fun_ty);
+              self.sir_values.push(ValueId(u32::MAX));
             } else if !is_fun && !is_enum && !is_struct {
               let span = self.tree.spans[idx];
 
@@ -9398,6 +9437,47 @@ impl<'a> Executor<'a> {
     }
 
     None
+  }
+
+  /// Returns true if the Ident at `ident_idx` is the callee
+  /// of an imminent call — direct (`f(`), operator-separated
+  /// (`a + f(`), or modifier (`check@eq(`). Mirrors
+  /// `resolve_call_target`'s logic from the LParen side, but
+  /// looking forward from the Ident. Used by the Ident
+  /// handler to decide whether to push a `Value::Closure`
+  /// (first-class fun reference) vs skip pushing (callee
+  /// about to be consumed by RParen).
+  fn ident_is_call_target(&self, ident_idx: usize) -> bool {
+    let n = self.tree.nodes.len();
+
+    if ident_idx + 1 >= n {
+      return false;
+    }
+
+    // Direct: `Ident (`.
+    if self.tree.nodes[ident_idx + 1].token == Token::LParen {
+      return true;
+    }
+
+    // Operator-separated: `Ident Op (` — mirror the LParen
+    // prev2 branch of `resolve_call_target`.
+    if ident_idx + 2 < n
+      && self.tree.nodes[ident_idx + 2].token == Token::LParen
+    {
+      return true;
+    }
+
+    // Modifier call: `Ident @ Ident (`. The base ident is
+    // still the callee; the middle ident is the modifier.
+    if ident_idx + 3 < n
+      && self.tree.nodes[ident_idx + 1].token == Token::At
+      && self.tree.nodes[ident_idx + 2].token == Token::Ident
+      && self.tree.nodes[ident_idx + 3].token == Token::LParen
+    {
+      return true;
+    }
+
+    false
   }
 
   /// Returns true if `rparen_idx` closes an `(...)` whose
