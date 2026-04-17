@@ -568,6 +568,45 @@ fun main() {
 }
 
 #[test]
+fn test_for_line_form_body_compound_assign_stores_back() {
+  // `for mut n := 0..3 => n += 1;` — the body is a compound
+  // assignment that ONLY finalizes at its Semicolon. Before
+  // the fix the sub-walk's upper bound was exclusive of the
+  // `;`, so `finalize_pending_assign` / `finalize_pending_
+  // compound` never ran — the BinOp got emitted but no
+  // Store landed back to `n`. Regression guard: a Store to
+  // `n` (other than the loop's initial `n := 0` and the
+  // increment-by-one at the loop's jump-back) must exist in
+  // the body.
+  assert_sir_structure(
+    r#"fun main() {
+  mut count: int = 0;
+  for mut n := 0..3 => count = count + 1;
+}"#,
+    |sir| {
+      // The body must emit a Store named `count`. The loop
+      // header / close only touches `n` and `__for_end_N__`,
+      // so any Store to `count` proves the body actually
+      // materialized.
+      let store_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Store { .. }))
+        .count();
+
+      // Expected Stores: init count, init n, init __for_end__,
+      // body Store (count = count+1), increment Store (n += 1).
+      // At least 4 — anything less means the body didn't
+      // finalize.
+      assert!(
+        store_count >= 4,
+        "expected >= 4 Stores (count init + loop var init + \
+         end-slot + body + increment), got {store_count}"
+      );
+    },
+  );
+}
+
+#[test]
 fn test_for_line_form_emits_loop_header_and_body() {
   // `for x := a..b => expr;` — single-expression line form.
   // Parser generates `FatArrow` instead of `LBrace` as the

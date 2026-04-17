@@ -1,13 +1,19 @@
--*
-
-while (count > 0) {
-  var bottle = count == 1 ? "bottle" : "bottles";
-  console.log(count + " " + word + " of beer on the wall");
-  console.log(count + " " + word + " of beer,");
-  console.log("Take one down, pass it around,");
-  --count;
-  var bottle = count == 1 ? "bottle" : "bottles";
-  console.log(count + " " + word + " of beer on the wall.");
+fun pluralize(count) -> str {
+  when count == 1 ? "bottle" : "bottles"
 }
 
-*-
+fun main() {
+  mut count := 0;
+
+  while count > 0 {
+    imu bottle = pluralize(count);
+
+    showln("{count} {bottle} of beer on the wall");
+    showln("{count} {bottle} of beer,");
+    showln("Take one down, pass it around,");
+
+    count = count - 1;
+
+    showln("{count} {bottle} of beer on the wall.");
+  }
+}

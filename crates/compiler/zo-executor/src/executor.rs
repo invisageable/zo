@@ -9460,14 +9460,16 @@ impl<'a> Executor<'a> {
     // Scope for the body (mirrors LBrace form's push).
     self.push_scope();
 
-    // Sub-walk body statements. The range `(FatArrow,
-    // Semicolon)` contains the single expression plus any
-    // sub-tokens the parser emitted for it.
+    // Sub-walk body statements. The range includes the
+    // terminating `Semicolon` — it's what triggers the
+    // `finalize_pending_assign` / `finalize_pending_compound`
+    // hooks, so dropping it silently swallows assignment-
+    // style bodies like `n += 1` or `count = count + 1`.
     let saved_skip = self.skip_until;
 
     self.skip_until = 0;
 
-    for i in (body_start_idx + 1)..semicolon_idx {
+    for i in (body_start_idx + 1)..=semicolon_idx {
       if i < self.skip_until {
         continue;
       }
