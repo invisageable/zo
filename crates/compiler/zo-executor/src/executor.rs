@@ -8091,9 +8091,15 @@ impl<'a> Executor<'a> {
   ///     RBrace
   /// ```
   fn execute_match(&mut self, start_idx: usize, end_idx: usize) {
-    // Everything between `start_idx` and `end_idx` is ours;
-    // the main loop must not re-visit these nodes after we
-    // return.
+    // Provisional skip — the main loop must not re-visit the
+    // match's nodes after we return. Tightened below to
+    // `rbrace_idx + 1` once we locate the match's own `}`.
+    // Without the tightening, parser trees where `Match`'s
+    // child span reaches past the match's `}` (e.g. when a
+    // guard arm's `If` sub-node inflates the sibling count)
+    // would cause execute_match to swallow the enclosing
+    // block's `}` — main would never emit its epilogue
+    // `Return` and the binary SIGILL'd.
     self.skip_until = end_idx;
 
     // -- 1. Locate the LBrace that opens the arm block ------
@@ -8120,6 +8126,14 @@ impl<'a> Executor<'a> {
         }
         _ => {}
       }
+    }
+
+    // Tighten skip range: resume the outer loop AT the first
+    // node past the match's own `}` — anything beyond that is
+    // an outer sibling (the enclosing block's `}`, the next
+    // statement, …) that we must NOT swallow.
+    if rbrace_idx < end_idx {
+      self.skip_until = rbrace_idx + 1;
     }
 
     // -- 3. Execute the scrutinee expression ----------------
@@ -8159,61 +8173,42 @@ impl<'a> Executor<'a> {
       .copied()
       .unwrap_or(self.ty_checker.int_type());
 
-    // Extract the scrutinee's local symbol for per-arm reloads.
-    // For Slice 1 the scrutinee is always a single Ident node.
-    let scrutinee_sym = (start_idx + 1..lbrace_idx)
-      .find(|&i| self.tree.nodes[i].token == Token::Ident)
-      .and_then(|i| match self.node_value(i) {
-        Some(NodeValue::Symbol(s)) => Some(s),
-        _ => None,
-      });
+    // Determine the scrutinee's backing symbol for per-arm
+    // reloads by inspecting what SIR the scrutinee walk left
+    // behind. Two cases:
+    //   1. The scrutinee is a BARE stored local — the walk's
+    //      tail Insn is `Load { src: Local(sym) }` and a prior
+    //      `Store { name: sym }` exists. Reuse `sym` directly
+    //      so we don't redundantly spill.
+    //   2. Everything else (literal, parameter, tuple literal,
+    //      BinOp, call, index expr, ...) — materialize the
+    //      top-of-stack SIR value into a synthetic local
+    //      `__match_scrut__` so per-arm `Load`s have a
+    //      well-defined source with the correct (possibly
+    //      compound) scrutinee type.
+    //
+    // The earlier heuristic — "first Ident in the scrutinee
+    // token range" — misfired on compound scrutinees like
+    // `match (a, b)` where it picked `a` (a scalar int) as the
+    // scrutinee symbol, then per-arm `TupleIndex` read the
+    // wrong memory and every arm silently failed.
+    let tail_load_sym = match self.sir.instructions.last() {
+      Some(Insn::Load {
+        src: LoadSource::Local(sym),
+        ..
+      }) => Some(*sym),
+      _ => None,
+    };
 
-    // For non-local scrutinees, store to a synthetic local
-    // so per-arm reloads work. Three cases:
-    //   1. Ident scrutinee backed by a Store in SIR (a
-    //      `mut`/`imu` local, or something that already
-    //      has a spill slot) — use its symbol directly.
-    //   2. Ident scrutinee WITHOUT a Store (function
-    //      parameter) — synthesize a Store under
-    //      `__match_scrut__`.
-    //   3. NO Ident at all (literal / expression
-    //      scrutinee, e.g. `match "zo" { ... }` or
-    //      `match a ++ b { ... }`) — also synthesize a
-    //      Store. Without this, per-arm reload emits a
-    //      fresh uninitialized `ValueId` and the runtime
-    //      dereferences garbage as a string pointer →
-    //      SIGSEGV.
-    let scrutinee_sym = if let Some(sym) = scrutinee_sym {
-      // Check if this symbol is a local with a Store
-      // (not just a parameter). If it's a local that was
-      // stored, the mutable_slot exists and we use it.
-      let is_stored = self
+    let scrutinee_sym = if let Some(sym) = tail_load_sym
+      && self
         .sir
         .instructions
         .iter()
-        .any(|i| matches!(i, Insn::Store { name, .. } if *name == sym));
-
-      if is_stored {
-        Some(sym)
-      } else {
-        // Parameter without a Store — create synthetic.
-        let scrut_sir = self.sir_values.last().copied();
-        let scrut_sym = self.interner.intern("__match_scrut__");
-
-        if let Some(sir_val) = scrut_sir {
-          self.sir.emit(Insn::Store {
-            name: scrut_sym,
-            value: sir_val,
-            ty_id: scrutinee_ty,
-          });
-        }
-
-        Some(scrut_sym)
-      }
+        .any(|i| matches!(i, Insn::Store { name, .. } if *name == sym))
+    {
+      Some(sym)
     } else if let Some(sir_val) = self.sir_values.last().copied() {
-      // Literal / expression scrutinee — persist the
-      // already-emitted SIR value under a synthetic
-      // symbol so arm reloads can `Load` from it.
       let scrut_sym = self.interner.intern("__match_scrut__");
 
       self.sir.emit(Insn::Store {
@@ -8316,6 +8311,11 @@ impl<'a> Executor<'a> {
         && pat_idx + 2 < arrow_idx
         && self.tree.nodes[pat_idx + 1].token == Token::ColonColon
         && self.tree.nodes[pat_idx + 2].token == Token::Ident;
+
+      // Detect tuple pattern: `(a, b, ..)`. LParen opens a
+      // tuple pattern only at pattern position — parameter
+      // lists, calls, and unary grouping never appear here.
+      let is_tuple_pat = !is_wildcard && pat_tok == Token::LParen;
 
       if !is_wildcard
         && matches!(
@@ -8757,6 +8757,365 @@ impl<'a> Executor<'a> {
             bind_idx += 1;
           }
         }
+      } else if is_tuple_pat {
+        // Tuple pattern `(p0, p1, ..)`. Emit per-field
+        // compare + branch: any field mismatch skips to the
+        // next arm. `_` fields don't contribute a compare
+        // (they match anything). Non-literal / non-wildcard
+        // fields are not yet supported — treat them as
+        // wildcards so at worst the arm over-matches instead
+        // of misbehaving.
+        //
+        // Find the matching RParen at depth 0 inside the
+        // pattern so we can walk the top-level fields.
+        let mut tp_depth = 1_i32;
+        let mut tp_end = arrow_idx;
+
+        for j in (pat_idx + 1)..arrow_idx {
+          match self.tree.nodes[j].token {
+            Token::LParen | Token::LBracket => tp_depth += 1,
+            Token::RParen | Token::RBracket => {
+              tp_depth -= 1;
+
+              if tp_depth == 0 {
+                tp_end = j;
+
+                break;
+              }
+            }
+            _ => {}
+          }
+        }
+
+        // Collect field node indices at depth 0 between
+        // pat_idx + 1 and tp_end. Each field is a single
+        // token (literal or `_`) — patterns like `(1 + 2, 3)`
+        // are not supported and will land on the fallback
+        // wildcard below.
+        let mut field_idxs: Vec<usize> = Vec::new();
+        let mut f_depth = 0_i32;
+
+        for j in (pat_idx + 1)..tp_end {
+          let tok = self.tree.nodes[j].token;
+
+          match tok {
+            Token::LParen | Token::LBracket => {
+              f_depth += 1;
+
+              continue;
+            }
+            Token::RParen | Token::RBracket => {
+              f_depth -= 1;
+
+              continue;
+            }
+            Token::Comma if f_depth == 0 => continue,
+            _ => {}
+          }
+
+          if f_depth == 0 {
+            field_idxs.push(j);
+          }
+        }
+
+        let int_ty = self.ty_checker.int_type();
+
+        // Resolve the per-field scrutinee type from the
+        // tuple's element list. Fall back to `int` if we
+        // can't resolve (keeps old behaviour for untyped
+        // paths).
+        let elem_tys: Vec<TyId> = {
+          let ty = self.ty_checker.resolve_ty(scrutinee_ty);
+
+          if let zo_ty::Ty::Tuple(tt_id) = ty
+            && let Some(tt) = self.ty_checker.ty_table.tuple(tt_id)
+          {
+            self.ty_checker.ty_table.tuple_elems(tt).to_vec()
+          } else {
+            Vec::new()
+          }
+        };
+
+        for (slot, &f_idx) in field_idxs.iter().enumerate() {
+          let f_tok = self.tree.nodes[f_idx].token;
+
+          // Wildcard `_` or a plain Ident binding: no
+          // comparison. Ident bindings other than `_` are
+          // not yet wired through — treat them as wildcards
+          // so arms don't misbehave. This mirrors how the
+          // scalar pattern path handles `_`.
+          let is_field_wildcard = f_tok == Token::Ident
+            && matches!(
+              self.node_value(f_idx),
+              Some(NodeValue::Symbol(s)) if s == Symbol::UNDERSCORE
+            );
+
+          let is_field_ident = f_tok == Token::Ident && !is_field_wildcard;
+
+          if is_field_wildcard || is_field_ident {
+            continue;
+          }
+
+          // Only literal field kinds produce a compare.
+          if !matches!(
+            f_tok,
+            Token::Int
+              | Token::Char
+              | Token::Bytes
+              | Token::Float
+              | Token::True
+              | Token::False
+              | Token::String
+          ) {
+            continue;
+          }
+
+          let field_ty = elem_tys.get(slot).copied().unwrap_or(int_ty);
+
+          // Reload the scrutinee pointer fresh per field so
+          // the register allocator sees a clean liveness.
+          let scrut_dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let scrut_reload = if let Some(sym) = scrutinee_sym {
+            self.sir.emit(Insn::Load {
+              dst: scrut_dst,
+              src: LoadSource::Local(sym),
+              ty_id: scrutinee_ty,
+            })
+          } else {
+            scrut_dst
+          };
+
+          // Read the tuple field at `slot` — plain tuples
+          // have no discriminant so slot maps 1:1.
+          let field_dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let field_sir = self.sir.emit(Insn::TupleIndex {
+            dst: field_dst,
+            tuple: scrut_reload,
+            index: slot as u32,
+            ty_id: field_ty,
+          });
+
+          // Build the pattern constant.
+          let pat_dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let pat_sir = match f_tok {
+            Token::Int => {
+              let value = match self.node_value(f_idx) {
+                Some(NodeValue::Literal(lit)) => {
+                  self.literals.int_literals[lit as usize]
+                }
+                _ => 0,
+              };
+
+              self.sir.emit(Insn::ConstInt {
+                dst: pat_dst,
+                value,
+                ty_id: field_ty,
+              })
+            }
+            Token::Char => {
+              let value = match self.node_value(f_idx) {
+                Some(NodeValue::Literal(lit)) => {
+                  self.literals.char_literals[lit as usize] as u64
+                }
+                _ => 0,
+              };
+
+              self.sir.emit(Insn::ConstInt {
+                dst: pat_dst,
+                value,
+                ty_id: self.ty_checker.char_type(),
+              })
+            }
+            Token::Bytes => {
+              let value = match self.node_value(f_idx) {
+                Some(NodeValue::Literal(lit)) => {
+                  self.literals.bytes_literals[lit as usize] as u64
+                }
+                _ => 0,
+              };
+
+              self.sir.emit(Insn::ConstInt {
+                dst: pat_dst,
+                value,
+                ty_id: self.ty_checker.bytes_type(),
+              })
+            }
+            Token::Float => {
+              let value = match self.node_value(f_idx) {
+                Some(NodeValue::Literal(lit)) => {
+                  self.literals.float_literals[lit as usize]
+                }
+                _ => 0.0,
+              };
+
+              self.sir.emit(Insn::ConstFloat {
+                dst: pat_dst,
+                value,
+                ty_id: field_ty,
+              })
+            }
+            Token::True => self.sir.emit(Insn::ConstBool {
+              dst: pat_dst,
+              value: true,
+              ty_id: self.ty_checker.bool_type(),
+            }),
+            Token::False => self.sir.emit(Insn::ConstBool {
+              dst: pat_dst,
+              value: false,
+              ty_id: self.ty_checker.bool_type(),
+            }),
+            Token::String => {
+              let symbol = match self.node_value(f_idx) {
+                Some(NodeValue::Literal(lit)) => {
+                  self.literals.identifiers[lit as usize]
+                }
+                Some(NodeValue::Symbol(sym)) => sym,
+                _ => self.interner.intern(""),
+              };
+
+              self.sir.emit(Insn::ConstString {
+                dst: pat_dst,
+                symbol,
+                ty_id: self.ty_checker.str_type(),
+              })
+            }
+            _ => pat_dst,
+          };
+
+          // Compare and branch to next_arm on mismatch.
+          let cmp_dst = ValueId(self.sir.next_value_id);
+          self.sir.next_value_id += 1;
+
+          let cmp_sir = self.sir.emit(Insn::BinOp {
+            dst: cmp_dst,
+            op: zo_sir::BinOp::Eq,
+            lhs: field_sir,
+            rhs: pat_sir,
+            ty_id: field_ty,
+          });
+
+          self.sir.emit(Insn::BranchIfNot {
+            cond: cmp_sir,
+            target: next_arm_label,
+          });
+        }
+      } else if !is_wildcard && !is_enum_pat && pat_tok == Token::Ident {
+        // Ident-pattern `num => body` / `num if guard => body`.
+        // Binds the scrutinee's value to `num` inside the arm's
+        // scope, then (optionally) evaluates a guard expression
+        // and skips the arm when false. Without this path, bare
+        // idents fell through with no compare AND no binding —
+        // the arm matched unconditionally but `num` was
+        // undefined in the body / guard, which for guards meant
+        // the `if` evaluated garbage → SIGILL at runtime.
+        //
+        // Guard detection: the parser emits `If` as the node
+        // AFTER the pattern ident when the arm has `if expr`.
+        // Its children carry the guard's postorder expression
+        // tokens up to FatArrow.
+        let has_guard = pat_idx + 1 < arrow_idx
+          && self.tree.nodes[pat_idx + 1].token == Token::If;
+
+        // Bind `num` to the scrutinee value. Load scrutinee, then
+        // Store it under the pattern's ident name. Register as
+        // a local so arm body references (and the guard, if any)
+        // resolve to this value. Popped via `arm_bindings` at
+        // arm end, so it doesn't leak to subsequent arms.
+        if let Some(NodeValue::Symbol(bind_sym)) = self.node_value(pat_idx) {
+          let scrut_dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+
+          let scrut_reload = if let Some(sym) = scrutinee_sym {
+            self.sir.emit(Insn::Load {
+              dst: scrut_dst,
+              src: LoadSource::Local(sym),
+              ty_id: scrutinee_ty,
+            })
+          } else {
+            scrut_dst
+          };
+
+          self.sir.emit(Insn::Store {
+            name: bind_sym,
+            value: scrut_reload,
+            ty_id: scrutinee_ty,
+          });
+
+          let rid = self.values.store_runtime(0);
+
+          self.locals.push(Local {
+            name: bind_sym,
+            ty_id: scrutinee_ty,
+            value_id: rid,
+            pubness: Pubness::No,
+            mutability: Mutability::No,
+            sir_value: Some(scrut_reload),
+            local_kind: LocalKind::Variable,
+          });
+
+          arm_bindings += 1;
+        }
+
+        // Guard expression: sub-walk the tokens of the `If`
+        // node's children range (everything between the `If`
+        // token and the `FatArrow`). The existing binop /
+        // ident machinery evaluates them; the top-of-stack
+        // after the walk is the guard's boolean SIR value.
+        // `BranchIfNot` to `next_arm_label` skips the body
+        // when the guard is false.
+        if has_guard {
+          let if_idx = pat_idx + 1;
+          let guard_start = if_idx + 1;
+          let guard_end = arrow_idx;
+
+          let saved_skip = self.skip_until;
+
+          self.skip_until = 0;
+
+          let stack_before = self.sir_values.len();
+
+          for i in guard_start..guard_end {
+            if i < self.skip_until {
+              continue;
+            }
+
+            let node = self.tree.nodes[i];
+
+            self.execute_node(&node, i);
+          }
+
+          self.apply_deferred_binop();
+
+          self.skip_until = saved_skip;
+
+          if self.sir_values.len() > stack_before {
+            let guard_sir = self.sir_values.pop().unwrap();
+
+            self.value_stack.pop();
+            self.ty_stack.pop();
+
+            // Drain extras — the guard must leave exactly one
+            // value; anything more means the sub-walk pushed
+            // stray state we shouldn't carry into the body.
+            while self.sir_values.len() > stack_before {
+              self.sir_values.pop();
+              self.value_stack.pop();
+              self.ty_stack.pop();
+            }
+
+            self.sir.emit(Insn::BranchIfNot {
+              cond: guard_sir,
+              target: next_arm_label,
+            });
+          }
+        }
       }
 
       // Execute arm body nodes.
@@ -8897,41 +9256,66 @@ impl<'a> Executor<'a> {
     });
   }
 
-  /// Desugars `for i := start..end { body }` into
+  /// Desugars `for i := start..end { body }` (or `..=`) into
   /// while-loop SIR:
   ///   mut i = start;
-  ///   while i < end { body; i = i + 1; }
+  ///   val __for_end__ = end;   -- evaluated once
+  ///   while i {<|<=} __for_end__ { body; i = i + 1; }
+  ///
+  /// `start` and `end` are arbitrary expressions (literals,
+  /// idents, calls, ...). We sub-walk each expression through
+  /// `execute_node` to emit its SIR and collect the top of the
+  /// stack as the range bound. `DotDotEq` selects `Lte`,
+  /// `DotDot` selects `Lt`.
   fn execute_for(&mut self, start_idx: usize, end_idx: usize) {
-    // Tree: For → [Ident(i), ColonEq, start, DotDot, end,
-    //              LBrace, ...body..., RBrace]
-    // Scan children for the variable name, start, and end.
-    let mut var_name = None;
-    let mut range_start = None;
-    let mut range_end = None;
-    let mut i = start_idx + 1;
+    // Tree: For → [Ident(i), ColonEq, <start expr>,
+    //              DotDot|DotDotEq, <end expr>, LBrace, ...]
+    //
+    // Step 1: locate the structural anchors at header depth 0.
+    // We track paren/bracket depth so a range op inside e.g.
+    // `f(1..=2)` (hypothetical) never gets mistaken for the
+    // for-range op.
+    let mut var_name: Option<Symbol> = None;
+    let mut colon_eq_idx: Option<usize> = None;
+    let mut range_idx: Option<usize> = None;
+    let mut range_inclusive = false;
+    let mut body_start_idx: Option<usize> = None;
+    let mut body_is_fat_arrow = false;
+    let mut paren_depth: i32 = 0;
 
-    while i < end_idx {
-      match self.tree.nodes[i].token {
-        Token::Ident if var_name.is_none() => {
-          if let Some(NodeValue::Symbol(sym)) = self.node_value(i) {
-            var_name = Some(sym);
-          }
-        }
-        Token::Int => {
-          if let Some(NodeValue::Literal(lit)) = self.node_value(i) {
-            let val = self.literals.int_literals[lit as usize];
-            if range_start.is_none() {
-              range_start = Some(val);
-            } else {
-              range_end = Some(val);
-            }
-          }
-        }
-        Token::LBrace => break,
+    for j in (start_idx + 1)..end_idx {
+      let tok = self.tree.nodes[j].token;
+
+      match tok {
+        Token::LParen | Token::LBracket => paren_depth += 1,
+        Token::RParen | Token::RBracket => paren_depth -= 1,
         _ => {}
       }
 
-      i += 1;
+      if paren_depth != 0 {
+        continue;
+      }
+
+      match tok {
+        Token::Ident if var_name.is_none() => {
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(j) {
+            var_name = Some(sym);
+          }
+        }
+        Token::ColonEq if colon_eq_idx.is_none() => {
+          colon_eq_idx = Some(j);
+        }
+        Token::DotDot | Token::DotDotEq if range_idx.is_none() => {
+          range_idx = Some(j);
+          range_inclusive = tok == Token::DotDotEq;
+        }
+        Token::LBrace | Token::FatArrow => {
+          body_start_idx = Some(j);
+          body_is_fat_arrow = tok == Token::FatArrow;
+          break;
+        }
+        _ => {}
+      }
     }
 
     let var_name = match var_name {
@@ -8939,26 +9323,111 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    let start_val = range_start.unwrap_or(0);
-    let end_val = range_end.unwrap_or(0);
+    let colon_eq_idx = match colon_eq_idx {
+      Some(i) => i,
+      None => return,
+    };
+
+    let range_idx = match range_idx {
+      Some(i) => i,
+      None => return,
+    };
+
+    let body_start_idx = match body_start_idx {
+      Some(i) => i,
+      None => return,
+    };
+
+    // For the sub-walk range below we need the last header
+    // index (exclusive upper bound). Whether the body marker
+    // is `LBrace` or `FatArrow`, header sub-walk goes up to
+    // but not including it.
+    let lbrace_idx = body_start_idx;
+
     let int_ty = self.ty_checker.int_type();
 
-    // --- Emit: mut i = start ---
-    let init_dst = ValueId(self.sir.next_value_id);
-    self.sir.next_value_id += 1;
+    // Step 2: evaluate both range operands. The tree is
+    // POSTORDER — `1..3` lowers as `Int(1), Int(3), DotDot`,
+    // i.e. operator AFTER operands. Sub-walk every node in
+    // `(ColonEq, LBrace)` EXCEPT the range op itself (which
+    // has no executor handler and would be a no-op anyway,
+    // but skipping it is explicit and cheap). After the walk
+    // stacks carry [start, end] with `end` on top.
+    //
+    // This runs BEFORE the loop var is introduced so
+    // expressions like `for i := 1..i` see the OUTER `i`.
+    let saved_skip = self.skip_until;
 
-    let init_sir = self.sir.emit(Insn::ConstInt {
-      dst: init_dst,
-      value: start_val,
-      ty_id: int_ty,
-    });
+    self.skip_until = 0;
 
-    let init_vid = self.values.store_int(start_val);
+    let stack_before = self.sir_values.len();
+
+    for i in (colon_eq_idx + 1)..lbrace_idx {
+      if i == range_idx {
+        continue;
+      }
+
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+    }
+
+    self.apply_deferred_binop();
+
+    self.skip_until = saved_skip;
+
+    // Pop in postorder: end first (top of stack), then start.
+    let zero_const = |ex: &mut Self| -> ValueId {
+      let dst = ValueId(ex.sir.next_value_id);
+
+      ex.sir.next_value_id += 1;
+
+      ex.sir.emit(Insn::ConstInt {
+        dst,
+        value: 0,
+        ty_id: int_ty,
+      })
+    };
+
+    let end_sir = if self.sir_values.len() > stack_before {
+      let s = self.sir_values.pop().unwrap();
+
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      s
+    } else {
+      zero_const(self)
+    };
+
+    let start_sir = if self.sir_values.len() > stack_before {
+      let s = self.sir_values.pop().unwrap();
+
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      s
+    } else {
+      zero_const(self)
+    };
+
+    // Drain any extras (shouldn't happen for well-formed
+    // input — safety net).
+    while self.sir_values.len() > stack_before {
+      self.sir_values.pop();
+      self.value_stack.pop();
+      self.ty_stack.pop();
+    }
+
+    // Step 4: declare the iterator var and store `start`.
+    let init_vid = self.values.store_runtime(0);
 
     self.sir.emit(Insn::VarDef {
       name: var_name,
       ty_id: int_ty,
-      init: Some(init_sir),
+      init: Some(start_sir),
       mutability: Mutability::Yes,
       pubness: Pubness::No,
     });
@@ -8969,7 +9438,7 @@ impl<'a> Executor<'a> {
       value_id: init_vid,
       pubness: Pubness::No,
       mutability: Mutability::Yes,
-      sir_value: Some(init_sir),
+      sir_value: Some(start_sir),
       local_kind: LocalKind::Variable,
     });
 
@@ -8977,20 +9446,60 @@ impl<'a> Executor<'a> {
       frame.count += 1;
     }
 
-    // Emit initial Store (mutable lives on stack).
     self.sir.emit(Insn::Store {
       name: var_name,
-      value: init_sir,
+      value: start_sir,
       ty_id: int_ty,
     });
 
-    // --- Emit: loop header ---
+    // Step 5: spill the end bound to a synthetic local so the
+    // loop reloads it each iteration. This handles non-const
+    // bounds (params, calls, arbitrary exprs) uniformly — no
+    // special case for "const fold into the compare".
+    let end_sym = {
+      let name = format!("__for_end_{}__", self.sir.instructions.len());
+
+      self.interner.intern(&name)
+    };
+
+    self.sir.emit(Insn::VarDef {
+      name: end_sym,
+      ty_id: int_ty,
+      init: Some(end_sir),
+      mutability: Mutability::No,
+      pubness: Pubness::No,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: end_sym,
+      value: end_sir,
+      ty_id: int_ty,
+    });
+
+    // Register the synthetic end slot as a local so the
+    // codegen-side Load targets its stack slot.
+    let end_local_vid = self.values.store_runtime(0);
+
+    self.locals.push(Local {
+      name: end_sym,
+      ty_id: int_ty,
+      value_id: end_local_vid,
+      pubness: Pubness::No,
+      mutability: Mutability::No,
+      sir_value: Some(end_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // Step 6: loop header.
     let loop_label = self.sir.next_label();
     let end_label = self.sir.next_label();
 
     self.sir.emit(Insn::Label { id: loop_label });
 
-    // Condition: Load i < end
     let cond_dst = ValueId(self.sir.next_value_id);
 
     self.sir.next_value_id += 1;
@@ -9001,12 +9510,13 @@ impl<'a> Executor<'a> {
       ty_id: int_ty,
     });
 
-    let end_dst = ValueId(self.sir.next_value_id);
+    let end_reload_dst = ValueId(self.sir.next_value_id);
+
     self.sir.next_value_id += 1;
 
-    let end_sir = self.sir.emit(Insn::ConstInt {
-      dst: end_dst,
-      value: end_val,
+    let end_reload_sir = self.sir.emit(Insn::Load {
+      dst: end_reload_dst,
+      src: LoadSource::Local(end_sym),
       ty_id: int_ty,
     });
 
@@ -9014,11 +9524,17 @@ impl<'a> Executor<'a> {
 
     self.sir.next_value_id += 1;
 
+    let cmp_op = if range_inclusive {
+      zo_sir::BinOp::Lte
+    } else {
+      zo_sir::BinOp::Lt
+    };
+
     let cmp_sir = self.sir.emit(Insn::BinOp {
       dst: cmp_dst,
-      op: zo_sir::BinOp::Lt,
+      op: cmp_op,
       lhs: load_sir,
-      rhs: end_sir,
+      rhs: end_reload_sir,
       ty_id: int_ty,
     });
 
@@ -9027,8 +9543,7 @@ impl<'a> Executor<'a> {
       target: end_label,
     });
 
-    // Push branch context — RBrace will emit increment
-    // + jump.
+    // Push branch context — RBrace will emit increment + jump.
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::For,
       end_label,
@@ -9041,13 +9556,119 @@ impl<'a> Executor<'a> {
       value_sink_ty: None,
     });
 
-    // Skip header tokens (Ident, ColonEq, start, DotDot,
-    // end) — let the main loop process from LBrace onward.
-    let lbrace_idx = (start_idx + 1..end_idx)
-      .find(|&j| self.tree.nodes[j].token == Token::LBrace)
+    // `LBrace` form: hand off to the main loop. The LBrace
+    // handler will push a scope and the body walks through
+    // normally; its closing `RBrace` fires the For-loop
+    // close path (increment + jump + end_label) and pops
+    // the scope.
+    if !body_is_fat_arrow {
+      self.skip_until = body_start_idx;
+
+      return;
+    }
+
+    // `=>` line form: `for x := start..end => expr;`.
+    // The parser generates ONE synthetic `RBrace` that
+    // tries to serve as both the loop terminator AND the
+    // enclosing block's terminator — we can't let the
+    // main loop re-use it, so finalize everything inline
+    // here. Find the Semicolon that closes the single
+    // body expression, sub-walk the body, emit loop close
+    // (increment + jump + end_label), pop the branch ctx
+    // + scope, and skip past the Semicolon. The outer
+    // RBrace then cleanly closes the enclosing function /
+    // block with no loop ambiguity.
+    let semicolon_idx = ((body_start_idx + 1)..end_idx)
+      .find(|&j| self.tree.nodes[j].token == Token::Semicolon)
       .unwrap_or(end_idx);
 
-    self.skip_until = lbrace_idx;
+    // Scope for the body (mirrors LBrace form's push).
+    self.push_scope();
+
+    // Sub-walk body statements. The range includes the
+    // terminating `Semicolon` — it's what triggers the
+    // `finalize_pending_assign` / `finalize_pending_compound`
+    // hooks, so dropping it silently swallows assignment-
+    // style bodies like `n += 1` or `count = count + 1`.
+    let saved_skip = self.skip_until;
+
+    self.skip_until = 0;
+
+    for i in (body_start_idx + 1)..=semicolon_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+
+      if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
+        self.apply_deferred_binop();
+      }
+    }
+
+    self.skip_until = saved_skip;
+
+    // Discard any leftover stack values — the body
+    // expression's result isn't used.
+    while self.sir_values.len() > stack_before {
+      self.sir_values.pop();
+      self.value_stack.pop();
+      self.ty_stack.pop();
+    }
+
+    // Loop close: increment + jump + end label. Mirrors the
+    // `BranchKind::For` arm of the RBrace handler (~line
+    // 1475) — kept in sync by design.
+    let ld = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let ld_sir = self.sir.emit(Insn::Load {
+      dst: ld,
+      src: LoadSource::Local(var_name),
+      ty_id: int_ty,
+    });
+
+    let one_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let one_sir = self.sir.emit(Insn::ConstInt {
+      dst: one_dst,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let add_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let add_sir = self.sir.emit(Insn::BinOp {
+      dst: add_dst,
+      op: zo_sir::BinOp::Add,
+      lhs: ld_sir,
+      rhs: one_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: var_name,
+      value: add_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    self.branch_stack.pop();
+    self.pop_scope();
+
+    // Skip past the `;` that terminated the body. The
+    // synthetic `RBrace` that follows is the enclosing
+    // block's — main loop handles it normally.
+    self.skip_until = semicolon_idx + 1;
   }
 
   /// Begins compound assignment (+=, -=, etc).

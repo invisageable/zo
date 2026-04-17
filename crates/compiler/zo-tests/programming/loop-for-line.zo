@@ -1,0 +1,17 @@
+-- tests-run-pass: `for x := a..b => expr;` — single-
+-- expression for-loop body via `=>` shortcut.
+
+fun main() {
+  -- for:line.
+  for x := 0..3 => showln("{x}");
+
+  -- for:line:mut — mutable iterator, body reassigns it.
+  -- Runs 3 times with no observable output (body only
+  -- touches `n` which is loop-local).
+  for mut n := 0..3 => n += 1;
+}
+
+-- EXPECTED OUTPUT:
+-- 0
+-- 1
+-- 2

@@ -753,3 +753,22 @@ fun main() {
 }"#,
   );
 }
+
+/// Related shape — binding a named fun to a local of
+/// `Fn(...) -> R` type and calling THROUGH the local:
+/// `imu g: Fn() -> int = f; g()`. The Ident handler pushes
+/// a synthetic `Value::Closure` for `f` (no call-target
+/// context), the `imu` binding stores that closure value in
+/// `g`, and the call through `g` resolves via the existing
+/// closure-call path. Regression guard: both the declaration
+/// AND the call-through must compile without errors.
+#[test]
+fn test_named_fun_bound_to_local_then_called() {
+  assert_no_errors(
+    r#"fun f() -> int { 42 }
+fun main() {
+  imu g: Fn() -> int = f;
+  imu i: int = g();
+}"#,
+  );
+}
