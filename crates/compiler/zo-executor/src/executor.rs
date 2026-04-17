@@ -4286,6 +4286,51 @@ impl<'a> Executor<'a> {
     let sir_params =
       params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
 
+    let is_generic_outer_pass =
+      fn_had_type_params && self.mono_name_override.is_none();
+
+    // Compute the tree-index boundary that sits one past
+    // this function's matching `}` — i.e. the first index
+    // the main loop should resume at after skipping the
+    // whole function. The caller's `children_end` is the
+    // end of the Fun node's child span and on some parser
+    // paths that span reaches far beyond the function's
+    // own block (e.g. top-level siblings share a child
+    // range), so we explicitly walk from the body's
+    // `LBrace` with a depth counter to find the matching
+    // `RBrace`. This boundary is used both for the
+    // generic-outer-pass skip AND as the tree range
+    // recorded for the re-execution pass.
+    let end_of_block = {
+      let lbrace_idx = (start_idx + 1.._end_idx)
+        .find(|&i| self.tree.nodes[i].token == Token::LBrace);
+
+      if let Some(lb) = lbrace_idx {
+        let mut depth = 1i32;
+        let mut j = lb + 1;
+
+        while j < self.tree.nodes.len() && depth > 0 {
+          match self.tree.nodes[j].token {
+            Token::LBrace => depth += 1,
+            Token::RBrace => depth -= 1,
+            _ => {}
+          }
+
+          if depth == 0 {
+            break;
+          }
+
+          j += 1;
+        }
+
+        // `j` is the matching RBrace; advance past it so
+        // the main loop resumes at the next sibling.
+        j + 1
+      } else {
+        _end_idx
+      }
+    };
+
     // Record the tree range of every user function so the
     // instantiation pass can re-execute the body per
     // substitution — generic-type mono needs this for `$T`
@@ -4295,13 +4340,10 @@ impl<'a> Executor<'a> {
     // re-execution pass itself is running (mono override
     // points at the mangled symbol for the instantiation
     // we're emitting).
-    let is_generic_outer_pass =
-      fn_had_type_params && self.mono_name_override.is_none();
-
     if self.mono_name_override.is_none() {
       self
         .generic_tree_ranges
-        .insert(name, (start_idx as u32, _end_idx as u32));
+        .insert(name, (start_idx as u32, end_of_block as u32));
     }
 
     // Skip body execution for a generic's outer pass. The
@@ -4333,7 +4375,7 @@ impl<'a> Executor<'a> {
       // mutated it; the generic's type_params are scoped
       // to each re-execution, not to the outer pass).
       self.type_params.clear();
-      self.skip_until = _end_idx;
+      self.skip_until = end_of_block;
 
       return;
     }
