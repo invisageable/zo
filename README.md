@@ -61,21 +61,24 @@ JOiN THE DEVOLUTiON.
 ## features.
 
 **-developer-experience**
-  - zsx (zo SYNTAX EXTENSiON) — *universal ui syntax inspired by `E4X`, fully `type-safe`.*
+
+  - zsx (zo SYNTAX EXTENSiON) — *ui syntax inspired by `E4X`, fully `type-safe`.*
     - NATiVE TARGET — *zero-cost `gpu` rendering via `egui`.*
     - WEB TARGET — *optimized `js/dom` nodes (no canvas bloat) for seo & a11y.*
     - UNiFiED LAYOUT — *`flexbox` parity across `gpu` and `dom` via `taffy`.*
-  - USER-FRiENDLY `error` MESSAGES — *like elm, for faster debugging.*
+  - USER-FRiENDLY ERROR MESSAGES — *like elm, for faster debugging.*
   - EXPRESSiVE & CONCiSE — *syntax designed for readability.*
-  - FULL-BATTERY `tools` — *native REPL, code editor, package manager, etc.*
+  - FULL-BATTERY TOOLS — *native REPL, code editor, package manager, etc.*
 
 **-type-safety**
+
   - STATiCALLY, STRONGLY TYPED — *total control over your program from A to Z.*
   - METiCULOUS `type system` — *type inference, monomorphization, `typestate`.*
   - SAFE CONCURRENCY — *robust erlang-like actor model.*
-  - META-LANGUAGE — *run code at `compile-time` via `#asm`, `#dom`, `#run` (directives).*
+  - META-LANGUAGE — *run code at `compile-time` via `#asm`, `#dom`, `#run` directives.*
 
 **-performance-and-compilation**
+
   - HiGH-SPEED `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
   - ALGEBRAiC `optimization` — *folding, propagation.*
   - TARGET SUPPORT — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
@@ -96,7 +99,7 @@ JOiN THE DEVOLUTiON.
 
   3. ET VOiLÀ! YOU ARE GOOD TO GO. FOR MORE DETAiLS:
 
-  - @SEE — [`zo — 01-install`](./crates/compiler/zo-notes/public/guidelines/01-install.md)
+  - @SEE — [`01-install`](./crates/compiler/zo-notes/public/guidelines/01-install.md)
 
 ## ecosystem.
 

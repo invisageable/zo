@@ -654,6 +654,79 @@ fn test_for_line_form_emits_loop_header_and_body() {
   );
 }
 
+// === MATCH IDENT PATTERN + GUARD ===
+
+#[test]
+fn test_match_ident_pattern_binds_scrutinee() {
+  // `num =>` binds the scrutinee value to a local `num`
+  // visible in the arm body. Before the fix the ident
+  // was treated as an unconditional match arm with no
+  // binding — `num` referenced in the body reported
+  // `Undefined variable`.
+  assert_sir_structure(
+    r#"fun main() {
+  imu x: int = 10;
+  match x {
+    num => check@eq(num, 10),
+    _ => check(false),
+  }
+}"#,
+    |sir| {
+      // The arm emits a Store to `num` (the ident
+      // binding).
+      let has_bind_store = sir.iter().any(|i| matches!(i, Insn::Store { .. }));
+
+      assert!(has_bind_store, "expected Store binding for `num` pattern");
+
+      // `main` must return — earlier bug left no Return.
+      let has_return = sir.iter().any(|i| matches!(i, Insn::Return { .. }));
+
+      assert!(has_return, "expected Return in `main` post-match");
+    },
+  );
+}
+
+#[test]
+fn test_match_guard_arm_emits_branch_if_not() {
+  // `num if num == 10 =>` emits the ident binding plus
+  // a BranchIfNot for the guard that targets the next
+  // arm's label. Before the fix the guard arm compiled
+  // but the binary SIGILL'd because the match's
+  // `skip_until` over-reached past the enclosing
+  // function's `}`, preventing the epilogue `Return`.
+  assert_sir_structure(
+    r#"fun main() {
+  imu x: int = 10;
+  match x {
+    5 => check(false),
+    num if num == 10 => check(true),
+    _ => check(false),
+  }
+}"#,
+    |sir| {
+      // BranchIfNot count must be >= 3: literal arm's
+      // cmp, guard arm's cmp, and wildcard pre-body.
+      let branch_count = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::BranchIfNot { .. }))
+        .count();
+
+      assert!(
+        branch_count >= 2,
+        "expected >= 2 BranchIfNot (literal arm + guard), got {branch_count}"
+      );
+
+      // The function must end with a Return.
+      let has_return = sir.iter().any(|i| matches!(i, Insn::Return { .. }));
+
+      assert!(
+        has_return,
+        "expected Return in `main` — missing means SIGILL at runtime"
+      );
+    },
+  );
+}
+
 // === MATCH ON TUPLE ===
 
 #[test]

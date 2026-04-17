@@ -8091,9 +8091,15 @@ impl<'a> Executor<'a> {
   ///     RBrace
   /// ```
   fn execute_match(&mut self, start_idx: usize, end_idx: usize) {
-    // Everything between `start_idx` and `end_idx` is ours;
-    // the main loop must not re-visit these nodes after we
-    // return.
+    // Provisional skip — the main loop must not re-visit the
+    // match's nodes after we return. Tightened below to
+    // `rbrace_idx + 1` once we locate the match's own `}`.
+    // Without the tightening, parser trees where `Match`'s
+    // child span reaches past the match's `}` (e.g. when a
+    // guard arm's `If` sub-node inflates the sibling count)
+    // would cause execute_match to swallow the enclosing
+    // block's `}` — main would never emit its epilogue
+    // `Return` and the binary SIGILL'd.
     self.skip_until = end_idx;
 
     // -- 1. Locate the LBrace that opens the arm block ------
@@ -8120,6 +8126,14 @@ impl<'a> Executor<'a> {
         }
         _ => {}
       }
+    }
+
+    // Tighten skip range: resume the outer loop AT the first
+    // node past the match's own `}` — anything beyond that is
+    // an outer sibling (the enclosing block's `}`, the next
+    // statement, …) that we must NOT swallow.
+    if rbrace_idx < end_idx {
+      self.skip_until = rbrace_idx + 1;
     }
 
     // -- 3. Execute the scrutinee expression ----------------
@@ -8990,6 +9004,117 @@ impl<'a> Executor<'a> {
             cond: cmp_sir,
             target: next_arm_label,
           });
+        }
+      } else if !is_wildcard && !is_enum_pat && pat_tok == Token::Ident {
+        // Ident-pattern `num => body` / `num if guard => body`.
+        // Binds the scrutinee's value to `num` inside the arm's
+        // scope, then (optionally) evaluates a guard expression
+        // and skips the arm when false. Without this path, bare
+        // idents fell through with no compare AND no binding —
+        // the arm matched unconditionally but `num` was
+        // undefined in the body / guard, which for guards meant
+        // the `if` evaluated garbage → SIGILL at runtime.
+        //
+        // Guard detection: the parser emits `If` as the node
+        // AFTER the pattern ident when the arm has `if expr`.
+        // Its children carry the guard's postorder expression
+        // tokens up to FatArrow.
+        let has_guard = pat_idx + 1 < arrow_idx
+          && self.tree.nodes[pat_idx + 1].token == Token::If;
+
+        // Bind `num` to the scrutinee value. Load scrutinee, then
+        // Store it under the pattern's ident name. Register as
+        // a local so arm body references (and the guard, if any)
+        // resolve to this value. Popped via `arm_bindings` at
+        // arm end, so it doesn't leak to subsequent arms.
+        if let Some(NodeValue::Symbol(bind_sym)) = self.node_value(pat_idx) {
+          let scrut_dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+
+          let scrut_reload = if let Some(sym) = scrutinee_sym {
+            self.sir.emit(Insn::Load {
+              dst: scrut_dst,
+              src: LoadSource::Local(sym),
+              ty_id: scrutinee_ty,
+            })
+          } else {
+            scrut_dst
+          };
+
+          self.sir.emit(Insn::Store {
+            name: bind_sym,
+            value: scrut_reload,
+            ty_id: scrutinee_ty,
+          });
+
+          let rid = self.values.store_runtime(0);
+
+          self.locals.push(Local {
+            name: bind_sym,
+            ty_id: scrutinee_ty,
+            value_id: rid,
+            pubness: Pubness::No,
+            mutability: Mutability::No,
+            sir_value: Some(scrut_reload),
+            local_kind: LocalKind::Variable,
+          });
+
+          arm_bindings += 1;
+        }
+
+        // Guard expression: sub-walk the tokens of the `If`
+        // node's children range (everything between the `If`
+        // token and the `FatArrow`). The existing binop /
+        // ident machinery evaluates them; the top-of-stack
+        // after the walk is the guard's boolean SIR value.
+        // `BranchIfNot` to `next_arm_label` skips the body
+        // when the guard is false.
+        if has_guard {
+          let if_idx = pat_idx + 1;
+          let guard_start = if_idx + 1;
+          let guard_end = arrow_idx;
+
+          let saved_skip = self.skip_until;
+
+          self.skip_until = 0;
+
+          let stack_before = self.sir_values.len();
+
+          for i in guard_start..guard_end {
+            if i < self.skip_until {
+              continue;
+            }
+
+            let node = self.tree.nodes[i];
+
+            self.execute_node(&node, i);
+          }
+
+          self.apply_deferred_binop();
+
+          self.skip_until = saved_skip;
+
+          if self.sir_values.len() > stack_before {
+            let guard_sir = self.sir_values.pop().unwrap();
+
+            self.value_stack.pop();
+            self.ty_stack.pop();
+
+            // Drain extras — the guard must leave exactly one
+            // value; anything more means the sub-walk pushed
+            // stray state we shouldn't carry into the body.
+            while self.sir_values.len() > stack_before {
+              self.sir_values.pop();
+              self.value_stack.pop();
+              self.ty_stack.pop();
+            }
+
+            self.sir.emit(Insn::BranchIfNot {
+              cond: guard_sir,
+              target: next_arm_label,
+            });
+          }
         }
       }
 

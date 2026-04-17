@@ -7,3 +7,5 @@ fun main() {
     _ => check(false),
   }
 }
+
+-- EXPECTED OUTPUT:
