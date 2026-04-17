@@ -415,6 +415,264 @@ fn test_continue_in_for() {
   );
 }
 
+// === FOR LOOP RANGE (inclusive vs exclusive, dynamic bounds) ===
+
+#[test]
+fn test_for_loop_inclusive_range_emits_lte() {
+  // `..=` must lower to `BinOp::Lte` (not `Lt`). Without this
+  // fix the end bound is off-by-one and `for i := 1..=3` only
+  // runs for i=1,2.
+  assert_sir_structure(
+    r#"fun main() {
+  for i := 1..=3 {
+    showln(i);
+  }
+}"#,
+    |sir| {
+      let has_lte = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Lte,
+            ..
+          }
+        )
+      });
+
+      assert!(has_lte, "expected BinOp::Lte for `..=` range");
+
+      let has_lt = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Lt,
+            ..
+          }
+        )
+      });
+
+      assert!(!has_lt, "did not expect BinOp::Lt for `..=` range");
+    },
+  );
+}
+
+#[test]
+fn test_for_loop_exclusive_range_still_emits_lt() {
+  // Regression guard: `..` must keep lowering to `BinOp::Lt`.
+  assert_sir_structure(
+    r#"fun main() {
+  for i := 0..3 {
+    showln(i);
+  }
+}"#,
+    |sir| {
+      let has_lt = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Lt,
+            ..
+          }
+        )
+      });
+
+      assert!(has_lt, "expected BinOp::Lt for `..` range");
+    },
+  );
+}
+
+#[test]
+fn test_for_loop_variable_end_bound_emits_load() {
+  // Non-literal end bounds (like a parameter `n`) must be
+  // evaluated as an expression, stored to a synthetic slot,
+  // and reloaded per iteration. Before the fix the scanner
+  // only recognised Int literals and silently fell back to
+  // `end = 0`, so the loop body was never entered.
+  assert_sir_structure(
+    r#"fun f(n: int) {
+  for i := 1..n {
+    showln(i);
+  }
+}
+fun main() {
+  f(3);
+}"#,
+    |sir| {
+      // Param `n` is loaded via Insn::Load { src: Param(..) }
+      // as part of the end-bound evaluation.
+      let has_param_load = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::Load {
+            src: LoadSource::Param(_),
+            ..
+          }
+        )
+      });
+
+      assert!(has_param_load, "expected Load of Param for the end bound");
+
+      let has_lt = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Lt,
+            ..
+          }
+        )
+      });
+
+      assert!(has_lt, "expected BinOp::Lt for `..` range");
+    },
+  );
+}
+
+#[test]
+fn test_for_loop_variable_inclusive_bound_emits_lte() {
+  // Same as above but for `..=n`.
+  assert_sir_structure(
+    r#"fun g(n: int) {
+  for i := 1..=n {
+    showln(i);
+  }
+}
+fun main() {
+  g(3);
+}"#,
+    |sir| {
+      let has_param_load = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::Load {
+            src: LoadSource::Param(_),
+            ..
+          }
+        )
+      });
+
+      assert!(has_param_load, "expected Load of Param for the end bound");
+
+      let has_lte = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::BinOp {
+            op: zo_sir::BinOp::Lte,
+            ..
+          }
+        )
+      });
+
+      assert!(has_lte, "expected BinOp::Lte for `..=` range");
+    },
+  );
+}
+
+// === MATCH ON TUPLE ===
+
+#[test]
+fn test_match_tuple_pattern_emits_per_field_compare() {
+  // Tuple-pattern arms must emit a TupleIndex + Eq compare +
+  // BranchIfNot for each literal field. `_` fields contribute
+  // no compare. Before the fix no compares were emitted at
+  // all and every tuple-pattern arm matched unconditionally,
+  // so the first arm always won.
+  assert_sir_structure(
+    r#"fun main() {
+  match (3, 5) {
+    (0, 0) => showln("zero"),
+    (3, _) => showln("three"),
+    _ => showln("other"),
+  }
+}"#,
+    |sir| {
+      // (0, 0) contributes 2 compares, (3, _) contributes 1.
+      let tuple_indexes = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::TupleIndex { .. }))
+        .count();
+
+      assert!(
+        tuple_indexes >= 3,
+        "expected >= 3 TupleIndex reads for tuple pattern \
+         fields, got {tuple_indexes}"
+      );
+
+      let eq_ops = sir
+        .iter()
+        .filter(|i| {
+          matches!(
+            i,
+            Insn::BinOp {
+              op: zo_sir::BinOp::Eq,
+              ..
+            }
+          )
+        })
+        .count();
+
+      assert!(
+        eq_ops >= 3,
+        "expected >= 3 Eq compares across tuple-pattern arms, \
+         got {eq_ops}"
+      );
+
+      let branches = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::BranchIfNot { .. }))
+        .count();
+
+      assert!(
+        branches >= 3,
+        "expected >= 3 BranchIfNot (one per field compare), \
+         got {branches}"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_match_tuple_of_locals_materializes_synthetic_scrutinee() {
+  // `match (a, b)` where `a` and `b` are stored locals must
+  // spill the TupleLiteral result into `__match_scrut__` and
+  // per-arm `TupleIndex` must read from that synthetic local
+  // — NOT from `a` (the first Ident in the scrutinee range).
+  // Before the fix the code picked `a` as the scrutinee symbol
+  // and every arm compared garbage, producing zero output.
+  assert_sir_structure(
+    r#"fun main() {
+  imu a: int = 0;
+  imu b: int = 0;
+  match (a, b) {
+    (0, 0) => showln("zz"),
+    _ => showln("other"),
+  }
+}"#,
+    |sir| {
+      // Must materialize the inline tuple scrutinee into a
+      // synthetic spill — a plain `TupleLiteral` value cannot
+      // be addressed by subsequent `TupleIndex` loads.
+      let has_spill =
+        sir.iter().any(|i| matches!(i, Insn::TupleLiteral { .. }));
+
+      assert!(
+        has_spill,
+        "expected a TupleLiteral for the scrutinee (a, b)"
+      );
+
+      let tuple_indexes = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::TupleIndex { .. }))
+        .count();
+
+      assert!(
+        tuple_indexes >= 2,
+        "expected >= 2 TupleIndex reads for the (0, 0) arm, \
+         got {tuple_indexes}"
+      );
+    },
+  );
+}
+
 #[test]
 fn test_array_literal_and_index() {
   assert_sir_structure(
