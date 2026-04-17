@@ -203,6 +203,14 @@ pub struct Executor<'a> {
   /// Maps (abstract_name, target_type_name) → mangled method
   /// names.
   abstract_impls: HashMap<(Symbol, Symbol), Vec<Symbol>>,
+  /// Signature-only pre-scan flag. When true, `execute_fun`
+  /// registers the `FunDef` in `self.funs` and returns before
+  /// any body-level state is touched (no `pending_function`,
+  /// no scope push, no param-locals). Enables forward
+  /// references between mutually recursive functions — call
+  /// resolution in the main pass can look up callee
+  /// signatures regardless of source order.
+  prescan_only: bool,
 }
 
 /// An `abstract` definition (method signatures, no bodies).
@@ -288,6 +296,20 @@ impl<'a> Executor<'a> {
       template_bindings: TemplateBindings::default(),
       abstract_defs: HashMap::new(),
       abstract_impls: HashMap::new(),
+      prescan_only: false,
+    }
+  }
+
+  /// Upsert a function definition into `self.funs`. Replaces
+  /// any existing entry with the same name in place so pre-
+  /// scan-registered signatures get updated with real
+  /// `body_start` values during the main pass (and re-
+  /// executed generic instantiations overwrite their stub).
+  fn push_or_replace_fun(&mut self, def: FunDef) {
+    if let Some(slot) = self.funs.iter_mut().find(|f| f.name == def.name) {
+      *slot = def;
+    } else {
+      self.funs.push(def);
     }
   }
 
@@ -393,6 +415,97 @@ impl<'a> Executor<'a> {
     self
   }
 
+  /// Walks the Tree in signature-only mode and registers
+  /// every top-level `fun` in `self.funs`. Enables forward
+  /// references: when the main pass later encounters a call
+  /// to a function defined lexically below, the callee's
+  /// signature is already in `funs` and resolution succeeds
+  /// without reordering source.
+  ///
+  /// Scope: top-level free functions only. Methods inside
+  /// `apply Type { ... }` and closure bodies are not
+  /// pre-scanned — mutual recursion across apply blocks or
+  /// between closures needs a follow-up (declaration-
+  /// collection pass that honors apply context).
+  fn prescan_fun_signatures(&mut self) {
+    self.prescan_only = true;
+
+    let n = self.tree.nodes.len();
+    let mut idx = 0;
+    // Track brace depth so we only register funs at the
+    // top level — not funs inside `apply`, `struct`,
+    // `abstract`, or a closure body.
+    let mut block_depth = 0i32;
+
+    while idx < n {
+      let tok = self.tree.nodes[idx].token;
+
+      if block_depth == 0 && tok == Token::Fun {
+        let header = self.tree.nodes[idx];
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_fun(idx, children_end);
+
+        // Advance past the function's matching `}` so the
+        // walker resumes at the next top-level item.
+        idx = self.fun_body_end(idx, n);
+
+        continue;
+      }
+
+      match tok {
+        Token::LBrace => block_depth += 1,
+        Token::RBrace => block_depth -= 1,
+        _ => {}
+      }
+
+      idx += 1;
+    }
+
+    // Reset state that prescan mutated so the main pass
+    // starts from a clean slate.
+    self.prescan_only = false;
+    self.skip_until = 0;
+    self.pending_fn_has_return_annotation = false;
+    self.type_params.clear();
+    self.type_constraints.clear();
+    self.apply_context = None;
+  }
+
+  /// Finds the tree index one past the matching `}` of the
+  /// function whose header lives at `start_idx`. Used by the
+  /// prescan walker to skip over bodies it doesn't execute.
+  fn fun_body_end(&self, start_idx: usize, n: usize) -> usize {
+    let mut i = start_idx + 1;
+
+    while i < n && self.tree.nodes[i].token != Token::LBrace {
+      i += 1;
+    }
+
+    if i >= n {
+      return n;
+    }
+
+    let mut depth = 1i32;
+    let mut j = i + 1;
+
+    while j < n && depth > 0 {
+      match self.tree.nodes[j].token {
+        Token::LBrace => depth += 1,
+        Token::RBrace => depth -= 1,
+        _ => {}
+      }
+
+      if depth == 0 {
+        break;
+      }
+
+      j += 1;
+    }
+
+    j + 1
+  }
+
   /// Executes a parse tree in one pass to build semantic IR.
   pub fn execute(
     mut self,
@@ -402,6 +515,11 @@ impl<'a> Executor<'a> {
     Vec<FunDef>,
     HashMap<Symbol, AbstractDef>,
   ) {
+    // Pre-scan top-level function signatures so mutual
+    // recursion and out-of-order calls resolve during the
+    // main pass.
+    self.prescan_fun_signatures();
+
     for idx in 0..self.tree.nodes.len() {
       if idx < self.skip_until {
         continue;
@@ -880,8 +998,12 @@ impl<'a> Executor<'a> {
           // Update body_start in the pending function
           pending_func.body_start = body_start;
 
-          // Store function definition for later calls
-          self.funs.push(pending_func);
+          // Store function definition for later calls. Upsert:
+          // the pre-scan pass may have already registered this
+          // function's signature so forward references resolve.
+          // The main pass overwrites the stub with the real
+          // body_start here.
+          self.push_or_replace_fun(pending_func);
 
           // Clear stacks when entering function body to avoid leftover values
           self.value_stack.clear();
@@ -4359,6 +4481,45 @@ impl<'a> Executor<'a> {
     let unit_ty = self.ty_checker.unit_type();
     self.pending_fn_has_return_annotation = return_ty != unit_ty;
 
+    // FunDef stores (name, ty) — strip mutability.
+    let sir_params =
+      params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
+
+    // Signature-only pre-scan path. Registers the FunDef so
+    // forward references (mutual recursion, out-of-order
+    // calls) resolve correctly during the main pass, then
+    // returns before any body-level state is touched. The
+    // main pass replays `execute_fun` for the same node and
+    // `push_or_replace_fun` upserts the entry with real
+    // `body_start`. Diagnostics (e.g. `main() must return
+    // unit`) are left to the main pass so they fire exactly
+    // once.
+    if self.prescan_only {
+      self.push_or_replace_fun(FunDef {
+        name,
+        params: sir_params,
+        return_ty,
+        body_start: 0,
+        kind: FunctionKind::UserDefined,
+        pubness,
+        type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+        return_type_args: return_type_args
+          .iter()
+          .map(|t| self.ty_checker.resolve_ty(*t))
+          .collect(),
+      });
+
+      // Drop any type_params minted during this signature
+      // parse — the real main-pass `execute_fun` will re-mint
+      // them. Leaving them in would leak `$T` into unrelated
+      // top-level items processed by the prescan walker.
+      if fn_had_type_params {
+        self.type_params.clear();
+      }
+
+      return;
+    }
+
     // main() must return unit — no other return type.
     if self.interner.get(name) == "main" && return_ty != unit_ty {
       // Point the span at the return type token (after ->).
@@ -4370,10 +4531,6 @@ impl<'a> Executor<'a> {
 
       return_ty = unit_ty;
     }
-
-    // FunDef stores (name, ty) — strip mutability.
-    let sir_params =
-      params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
 
     let is_generic_outer_pass =
       fn_had_type_params && self.mono_name_override.is_none();
@@ -4446,7 +4603,7 @@ impl<'a> Executor<'a> {
     // tree range per instantiation to produce the real
     // concrete bodies.
     if is_generic_outer_pass {
-      self.funs.push(FunDef {
+      self.push_or_replace_fun(FunDef {
         name,
         params: sir_params,
         return_ty,

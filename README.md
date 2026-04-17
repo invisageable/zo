@@ -11,12 +11,20 @@
 [home](https://github.com/invisageable/zo) — [install](./crates/compiler/zo-notes/public/guidelines/02-install.md) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
 
   ```ts
+  pub $: {
+    .count-value {
+      c: navy;
+      fs: 1rem;
+      fw: bold;
+    }
+  }
+
   fun main() {
     mut count: int = 0;
 
     imu counter: </> ::= <>
       <button @click={fn() => count -= 1}>-</button>
-      {count}
+      <span class="count-value">{count}</span>
       <button @click={fn() => count += 1}>+</button>
     </>;
 
@@ -46,29 +54,31 @@ THE AiM OF THE PROJECT iS TO ENHANCE THE DEVELOPER EXPERiENCE, MAKiNG iT SEAMLES
 
 zo iS A COMPLETE ECOSYSTEM THAT ONLY GiVES YOU THE KEYS. YOU FiNALLY HAVE CONTROL OVER YOUR WORKSTATiON. YOU'LL NEVER HAVE TO WORK BLiND AGAiN. OUR TOOLS ARE DESiGNED TO PROViDE YOU WiTH ALL THE iNFORMATiON YOU NEED FOR YOUR PROGRAM, FROM DESiGN TO DELiVERY.   
 
-OUR GOAL iS TO CREATE HiGH-PERFORMANCE, NEXT-GENERATiON SOFTWARE BY REDEFiNiNG USER iNTERFACES. OUR AiM iS NOT TO CREATE MERE TOOLS, BUT TO BE THE MAiN PLAYER iN THE DEVELOPER TOOLS OF TOMORROW ON A GLOBAL SCALE. WE ARE AGAiNST ABUNDANT SOFTWARE UNiFORMiTY, WHiCH iS WHY WE WiLL DO EVERYTHiNG WE CAN TO PUSH THE BOUNDARiES OF iNNOVATiON TO THE LiMiT.
+OUR GOAL iS TO CREATE HiGH-PERFORMANCE, NEXT-GENERATiON SOFTWARE BY REDEFiNiNG USER iNTERFACES. OUR AiM iS NOT TO CREATE MERE TOOLS, BUT TO BE THE MAiN PLAYER iN THE DEVELOPER TOOLS OF TOMORROW ON A GLOBAL SCALE. WE ARE AGAiNST ABUNDANT SOFTWARE UNiFORMiTY. zo UNiFiES THE WEB AND THE GPU NOT BY FORCiNG THE WEB iNTO A CANVAS, BUT BY HARMONiZiNG FLEXBOX LAYOUTS WiTH RAW GPU POWER, WHiCH iS WHY WE WiLL DO EVERYTHiNG WE CAN TO PUSH THE BOUNDARiES OF iNNOVATiON TO THE LiMiT.
 
 JOiN THE DEVOLUTiON.
 
 ## features.
 
 **-developer-experience**
-  - zsx (zo syntax extension) — *ui syntax inspired by `E4X` but fully `type-safe`.*
-    - build native apps — *`gpu` (egui) and `js` (wry) with a single codebase.*
-  - user-friendly `error` messages — *like elm, for faster debugging.*
-  - expressive and concise — *syntax designed for readability.*
-  - full-battery `tools` — *native REPL, code editor, package manager, etc.*
+  - zsx (zo SYNTAX EXTENSiON) — *universal ui syntax inspired by `E4X`, fully `type-safe`.*
+    - NATiVE TARGET — *zero-cost `gpu` rendering via `egui`.*
+    - WEB TARGET — *optimized `js/dom` nodes (no canvas bloat) for seo & a11y.*
+    - UNiFiED LAYOUT — *`flexbox` parity across `gpu` and `dom` via `taffy`.*
+  - USER-FRiENDLY `error` MESSAGES — *like elm, for faster debugging.*
+  - EXPRESSiVE & CONCiSE — *syntax designed for readability.*
+  - FULL-BATTERY `tools` — *native REPL, code editor, package manager, etc.*
 
 **-type-safety**
-  - statically, strongly typed — *total control over your program from A to Z.*
-  - meticulous `type system` — *type inference, monomorphization, `typestate`.*
-  - safe concurrency — *robust erlang-like actor model.*
-  - meta-language — *run code at compile-time via `#asm`, `#dom`, `#run` (directives).*
+  - STATiCALLY, STRONGLY TYPED — *total control over your program from A to Z.*
+  - METiCULOUS `type system` — *type inference, monomorphization, `typestate`.*
+  - SAFE CONCURRENCY — *robust erlang-like actor model.*
+  - META-LANGUAGE — *run code at `compile-time` via `#asm`, `#dom`, `#run` (directives).*
 
 **-performance-and-compilation**
-  - high-speed `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
-  - algebraic `optimization` — *folding, propagation.*
-  - target support — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
+  - HiGH-SPEED `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
+  - ALGEBRAiC `optimization` — *folding, propagation.*
+  - TARGET SUPPORT — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
 
 ## ecosystem.
 
@@ -90,15 +100,6 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 | [zo](./crates/compiler/zo)     | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGUAGE. |
 
 > *More crates are coming. the architecture is modular and composable. be gentle.*
-
-## goals.
-
-iF YOU ARE THiNKiNG WHY?! HERE iS OUR ANSWERS...
-
-  - GPU RENDERiNG <sup>egui</sup> (NATiVE APP ONLY) — *low memory footprint, zero runtime fluff*.
-  - BYE-BYE `electron` (WEB APP ONLY) — *building lightweight web apps without the bloat.*.
-
-JOiN THE DEVOLUTiON.
 
 ## contributing.
 
