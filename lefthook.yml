@@ -14,11 +14,18 @@ pre-commit:
       run: just clippy
       stage_fixed: true
 
-    # test_all:
-    #   glob: "**/*.zo"
-    #   run: just test_all
-    #   stage_fixed: true
+    test_all:
+      glob: "**/*.zo"
+      run: just test_all
+      stage_fixed: true
 
     # bench:
     #   glob: "**/*.rs"
     #   run: just zo_bench_quick
+
+# pre-push:
+#   parallel: true      # heavy checks, parallel-safe
+#   commands:
+#     clippy:            { run: just clippy, tags: [lint] }
+#     zo-unit:           { run: just zo_test, tags: [test] }
+#     zo-integration:    { run: just zo_test_runner, tags: [test] }
