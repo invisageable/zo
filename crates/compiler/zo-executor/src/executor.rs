@@ -949,17 +949,31 @@ impl<'a> Executor<'a> {
 
       // === CONTROL FLOW ELSE ===
       Token::Else => {
-        if let Some(ctx) = self.branch_stack.last_mut()
-          && ctx.kind == BranchKind::If
-        {
-          // Jump over else block (from if-body).
-          self.sir.emit(Insn::Jump {
-            target: ctx.end_label,
-          });
+        let is_if = self
+          .branch_stack
+          .last()
+          .is_some_and(|c| c.kind == BranchKind::If);
 
-          // Emit else label.
-          if let Some(else_label) = ctx.else_label.take() {
-            self.sir.emit(Insn::Label { id: else_label });
+        if is_if {
+          // φ sink (if-as-expression): capture the then-arm
+          // value into the branch's sink local BEFORE the
+          // `Jump`. Mirrors the Ternary path at
+          // `Token::Colon` — both arms must `Store` to the
+          // sink before reconverging so the merge `Load`
+          // after `end_label` reads a defined slot.
+          let ctx_idx = self.branch_stack.len() - 1;
+
+          self.emit_branch_sink_store(ctx_idx);
+
+          // Re-borrow `ctx` for the Jump + else-label emit.
+          if let Some(ctx) = self.branch_stack.last_mut() {
+            self.sir.emit(Insn::Jump {
+              target: ctx.end_label,
+            });
+
+            if let Some(else_label) = ctx.else_label.take() {
+              self.sir.emit(Insn::Label { id: else_label });
+            }
           }
         }
       }
@@ -1567,15 +1581,42 @@ impl<'a> Executor<'a> {
                 // Else follows — don't close yet.
                 // Token::Else will emit Jump + Label.
               } else {
-                // No else — emit the label that
-                // BranchIfNot targets (else_label),
-                // plus end_label, then pop.
-                if let Some(el) = ctx.else_label {
+                // No else: this RBrace closes either the
+                // then-arm of an if-without-else OR the
+                // else-arm of an if-else (after `Token::Else`
+                // already emitted the else-label + the
+                // then-arm's sink store).
+                //
+                // If `else_label` is still set, we're on the
+                // no-else path and need to emit it before
+                // the merge label. Either way, when the if
+                // is an expression (`ctx.value_sink.is_some()`),
+                // store the current arm's top-of-stack into
+                // the sink BEFORE `end_label`, then `Load`
+                // it back AFTER so the merge pushes the
+                // expression's value onto the stacks.
+                let had_else_label = ctx.else_label.is_some();
+
+                // Capture the arm's value into the sink.
+                let ctx_idx = self.branch_stack.len() - 1;
+
+                self.emit_branch_sink_store(ctx_idx);
+
+                // Re-borrow `ctx` after the emit.
+                let ctx = self.branch_stack.last_mut().unwrap();
+
+                if had_else_label && let Some(el) = ctx.else_label {
                   self.sir.emit(Insn::Label { id: el });
                 }
 
                 self.sir.emit(Insn::Label { id: ctx.end_label });
-                self.branch_stack.pop();
+
+                let popped = self.branch_stack.pop().unwrap();
+
+                // Merge: reload the sink so the if-as-
+                // expression's value lands on the stacks.
+                // No-op for statement-position ifs (no sink).
+                self.emit_branch_sink_load(&popped);
               }
             }
             BranchKind::Ternary => {

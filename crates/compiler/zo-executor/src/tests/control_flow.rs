@@ -52,6 +52,14 @@ fn test_if_simple() {
 
 #[test]
 fn test_if_else() {
+  // If-as-expression: each arm stores its value into the
+  // synthetic `__branch_result_0__` sink local, and the
+  // merge-point `Load` pushes the sink onto the stacks
+  // so the `Return` carries the expression's value.
+  // Without the sink, the then-arm's value would dangle
+  // above `Jump` and `Return` would grab a stale stack
+  // top (or emit `ret void` — the fizzbuzz / if-abs bug
+  // class). Mirrors the Ternary φ-sink pattern.
   assert_sir_stream(
     r#"fun choose() -> int {
   if true {
@@ -84,6 +92,12 @@ fun main() {}"#,
         value: 1,
         ty_id: TyId(8),
       },
+      // then-arm: store into the branch sink before Jump.
+      Insn::Store {
+        name: Symbol(27),
+        value: ValueId(1),
+        ty_id: TyId(8),
+      },
       Insn::Jump { target: 0 },
       Insn::Label { id: 1 },
       Insn::ConstInt {
@@ -91,16 +105,28 @@ fun main() {}"#,
         value: 2,
         ty_id: TyId(8),
       },
+      // else-arm: store into the same sink before end_label.
+      Insn::Store {
+        name: Symbol(27),
+        value: ValueId(2),
+        ty_id: TyId(8),
+      },
       Insn::Label { id: 0 },
+      // Merge: load the sink as the if-expression's value.
+      Insn::Load {
+        dst: ValueId(3),
+        src: LoadSource::Local(Symbol(27)),
+        ty_id: TyId(8),
+      },
       Insn::Return {
-        value: Some(ValueId(2)),
+        value: Some(ValueId(3)),
         ty_id: TyId(8),
       },
       Insn::FunDef {
         name: Symbol(26),
         params: vec![],
         return_ty: TyId(1),
-        body_start: 10,
+        body_start: 13,
         kind: FunctionKind::Intrinsic,
         pubness: Pubness::No,
       },
@@ -109,6 +135,49 @@ fun main() {}"#,
         ty_id: TyId(1),
       },
     ],
+  );
+}
+
+#[test]
+fn test_if_expression_emits_branch_sink_stores() {
+  // Regression guard for the if-as-expression φ-sink.
+  // `plain_abs(-7)` used to return 1 (the then-arm ConstInt
+  // leaking through the register allocator) because neither
+  // arm stored its value to the branch sink — fix wires
+  // emit_branch_sink_store into the Else handler AND the
+  // no-else/closed-else RBrace, matching the Ternary shape.
+  assert_sir_structure(
+    r#"fun abs_expr(n: int) -> int {
+  if n < 0 {
+    0 - n
+  } else {
+    n
+  }
+}"#,
+    |insns| {
+      let store_count = insns
+        .iter()
+        .filter(|i| matches!(i, Insn::Store { .. }))
+        .count();
+
+      let load_count = insns
+        .iter()
+        .filter(|i| matches!(i, Insn::Load { .. }))
+        .count();
+
+      // Expect exactly two Stores (one per arm, both into
+      // the same sink) and at least one Load (the merge
+      // Load that becomes the expression's value).
+      assert!(
+        store_count >= 2,
+        "expected at least 2 Store insns (one per arm), got {store_count}: {insns:#?}"
+      );
+
+      assert!(
+        load_count >= 1,
+        "expected a sink Load after the merge label, got {load_count}: {insns:#?}"
+      );
+    },
   );
 }
 
