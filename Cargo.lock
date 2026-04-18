@@ -7690,6 +7690,7 @@ dependencies = [
 name = "zo-test-runner"
 version = "0.3.5"
 dependencies = [
+ "rayon",
  "swisskit-core",
 ]
 

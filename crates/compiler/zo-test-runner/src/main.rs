@@ -11,6 +11,8 @@
 
 use swisskit_core::fmt::ansi::strip_ansi;
 
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -231,31 +233,34 @@ fn run_dir(
   println!();
   println!("[{dir_name}] {} files", files.len());
 
-  for file in &files {
-    let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
+  // Parallelise the per-file `run_test` calls within this
+  // group — each test is a cold child-process spawn
+  // (`zo build` + program run) so work scales linearly
+  // with CPU count. We stream each PASS/FAIL as it
+  // completes (a single `println!` is atomic, so lines
+  // don't interleave) instead of buffering + draining —
+  // the latter makes the group look "locked" until every
+  // parallel worker finishes.
+  let group_results = files
+    .par_iter()
+    .filter_map(|file| {
+      let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
 
-    if let Some(f) = filter
-      && !name.contains(f)
-    {
-      continue;
-    }
+      if let Some(f) = filter
+        && !name.contains(f)
+      {
+        return None;
+      }
 
-    let result = run_test(file, name, category, zo, tmp);
+      let result = run_test(file, name, category, zo, tmp);
 
-    let icon = if result.passed {
-      "\x1b[32mPASS\x1b[0m"
-    } else {
-      "\x1b[31mFAIL\x1b[0m"
-    };
+      print_result(&result);
 
-    if result.passed {
-      println!("  {icon} {name}");
-    } else {
-      println!("  {icon} {name} — {}", result.reason);
-    }
+      Some(result)
+    })
+    .collect::<Vec<_>>();
 
-    results.push(result);
-  }
+  results.extend(group_results);
 }
 
 /// Runs multi-file project tests. Each subdirectory with a
@@ -293,87 +298,109 @@ fn run_projects(
   println!();
   println!("[{dir_name}] {} projects", projects.len());
 
-  for project in &projects {
-    let name = project.file_name().and_then(|s| s.to_str()).unwrap_or("?");
+  // Parallelise per-project build+run and stream PASS /
+  // FAIL lines as each project finishes (same rationale
+  // as `run_dir`).
+  let group_results = projects
+    .par_iter()
+    .filter_map(|project| {
+      let name = project.file_name().and_then(|s| s.to_str()).unwrap_or("?");
 
-    if let Some(f) = filter
-      && !name.contains(f)
-    {
-      continue;
-    }
+      if let Some(f) = filter
+        && !name.contains(f)
+      {
+        return None;
+      }
 
-    let main_zo = project.join("src/main.zo");
-    let out = tmp.join(name);
+      let result = run_project(project, name, zo, tmp);
 
-    // Build.
-    let build = Command::new(zo)
-      .args(["build", &main_zo.to_string_lossy(), "-o"])
-      .arg(&out)
-      .stdout(Stdio::null())
-      .stderr(Stdio::null())
-      .status();
+      print_result(&result);
 
-    let result = match build {
-      Ok(s) if !s.success() => fail(name, "compilation failed"),
-      Err(e) => fail(name, &format!("build error: {e}")),
-      _ => {
-        // Run.
-        let run = Command::new(&out)
-          .stdout(Stdio::piped())
-          .stderr(Stdio::null())
-          .output();
+      Some(result)
+    })
+    .collect::<Vec<_>>();
 
-        match run {
-          Ok(output) if !output.status.success() => fail(
-            name,
-            &format!(
-              "runtime crash (exit {})",
-              output.status.code().unwrap_or(-1)
-            ),
+  results.extend(group_results);
+}
+
+fn print_result(result: &TestResult) {
+  let icon = if result.passed {
+    "\x1b[32mPASS\x1b[0m"
+  } else {
+    "\x1b[31mFAIL\x1b[0m"
+  };
+
+  if result.passed {
+    println!("  {icon} {}", result.name);
+  } else {
+    println!("  {icon} {} — {}", result.name, result.reason);
+  }
+}
+
+/// Build + run a single multi-file project rooted at
+/// `project`. Extracted out of `run_projects` so the body
+/// can run inside rayon's `par_iter` (closures there must
+/// be `Send` and the borrow of `tmp`/`zo` as `&Path` is).
+fn run_project(
+  project: &Path,
+  name: &str,
+  zo: &Path,
+  tmp: &Path,
+) -> TestResult {
+  let main_zo = project.join("src/main.zo");
+  let out = tmp.join(name);
+
+  let build = Command::new(zo)
+    .args(["build", &main_zo.to_string_lossy(), "-o"])
+    .arg(&out)
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status();
+
+  match build {
+    Ok(s) if !s.success() => fail(name, "compilation failed"),
+    Err(e) => fail(name, &format!("build error: {e}")),
+    _ => {
+      let run = Command::new(&out)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+      match run {
+        Ok(output) if !output.status.success() => fail(
+          name,
+          &format!(
+            "runtime crash (exit {})",
+            output.status.code().unwrap_or(-1)
           ),
-          Ok(output) => {
-            // Check expected output from main.zo.
-            let expected = extract_expected(&main_zo);
+        ),
+        Ok(output) => {
+          let expected = extract_expected(&main_zo);
 
-            if expected.is_empty() {
+          if expected.is_empty() {
+            ok(name)
+          } else {
+            let actual = String::from_utf8_lossy(&output.stdout);
+            let actual_trimmed = actual.trim_end();
+            let expected_trimmed = expected.trim_end();
+
+            if actual_trimmed == expected_trimmed {
               ok(name)
             } else {
-              let actual = String::from_utf8_lossy(&output.stdout);
-              let actual_trimmed = actual.trim_end();
-              let expected_trimmed = expected.trim_end();
-
-              if actual_trimmed == expected_trimmed {
-                ok(name)
-              } else {
-                fail(
-                  name,
-                  &format!(
-                    "output mismatch\n  \
-                     expected: {expected_trimmed}\n  \
-                     actual:   {actual_trimmed}"
-                  ),
-                )
-              }
+              fail(
+                name,
+                &format!(
+                  "output mismatch\n  \
+                   expected: {expected_trimmed}\n  \
+                   actual:   {actual_trimmed}"
+                ),
+              )
             }
           }
-          Err(e) => fail(name, &format!("run error: {e}")),
         }
+        Err(e) => fail(name, &format!("run error: {e}")),
       }
-    };
-
-    let icon = if result.passed {
-      "\x1b[32mPASS\x1b[0m"
-    } else {
-      "\x1b[31mFAIL\x1b[0m"
-    };
-
-    if result.passed {
-      println!("  {icon} {name}");
-    } else {
-      println!("  {icon} {name} — {}", result.reason);
     }
-
-    results.push(result);
   }
 }
 

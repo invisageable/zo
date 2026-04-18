@@ -4,4 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+# sources:swisskit.
 swisskit-core = { workspace = true }
+
+# crates:external.
+rayon = { workspace = true }
