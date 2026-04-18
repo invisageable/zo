@@ -239,9 +239,11 @@ impl Compiler {
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
 
-    // --- Preload: auto-import std/io so showln etc.
-    // are available without explicit `load io::showln;`.
-    let preload = ["preload", "io", "assert", "math"];
+    // --- Preload: auto-import every std pack so its
+    // public items (`showln`, `check`, `exit`, `Show`,
+    // `Eq`, `Ord`, …) are available without explicit
+    // `load` statements. Keep in sync with `std/lib.zo`.
+    let preload = ["preload", "io", "assert", "math", "cmp", "fmt", "process"];
 
     for module_name in preload {
       let sym = session.interner.intern(module_name);
