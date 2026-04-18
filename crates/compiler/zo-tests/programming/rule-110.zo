@@ -1,0 +1,87 @@
+-- rule 110 — Wolfram's Turing-complete 1D cellular automaton.
+-- each cell's next state = rule_table[left*4 + center*2 + right]
+-- rule table 01101110 (= 110) indexed 0..7.
+
+fun main() {
+  imu width: int = 31;
+  imu gens: int = 15;
+  imu rule: []int = [0, 1, 1, 1, 0, 1, 1, 0];
+
+  mut row: []int = [];
+  mut i: int = 0;
+
+  while i < width {
+    row.push(0);
+    i = i + 1;
+  }
+
+  row[width - 1] = 1;
+
+  mut g: int = 0;
+
+  while g < gens {
+    mut p: int = 0;
+
+    while p < width {
+      if row[p] == 1 {
+        show('#');
+      } else {
+        show('.');
+      }
+
+      p = p + 1;
+    }
+
+    showln("");
+
+    mut next: []int = [];
+    mut j: int = 0;
+
+    while j < width {
+      next.push(0);
+      j = j + 1;
+    }
+
+    mut k: int = 0;
+
+    while k < width {
+      mut left: int = 0;
+
+      if k > 0 {
+        left = row[k - 1];
+      }
+
+      imu center: int = row[k];
+      mut right: int = 0;
+
+      if k < width - 1 {
+        right = row[k + 1];
+      }
+
+      imu pattern: int = left * 4 + center * 2 + right;
+
+      next[k] = rule[pattern];
+      k = k + 1;
+    }
+
+    row = next;
+    g = g + 1;
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- ..............................#
+-- .............................##
+-- ............................###
+-- ...........................##.#
+-- ..........................#####
+-- .........................##...#
+-- ........................###..##
+-- .......................##.#.###
+-- ......................#######.#
+-- .....................##.....###
+-- ....................###....##.#
+-- ...................##.#...#####
+-- ..................#####..##...#
+-- .................##...#.###..##
+-- ................###..####.#.###
