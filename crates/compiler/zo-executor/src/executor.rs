@@ -4941,12 +4941,17 @@ impl<'a> Executor<'a> {
           }
           Token::SelfLower => {
             // `self` param in apply context — type is
-            // the applied type.
+            // the applied type. `resolve_ty_symbol`
+            // (not `resolve_ty_name`) so primitive applies
+            // (`apply char { fun … (self) … }`) resolve
+            // `self: char` via the interner-string table;
+            // structs/enums fall through to `resolve_ty_name`
+            // internally.
             if let Some(type_name) = self.apply_context {
               let self_sym = zo_interner::Symbol::SELF_LOWER;
               let self_ty = self
                 .ty_checker
-                .resolve_ty_name(type_name)
+                .resolve_ty_symbol(type_name, self.interner)
                 .unwrap_or_else(|| self.ty_checker.unit_type());
 
               let mutability = if is_mut {
@@ -7235,20 +7240,57 @@ impl<'a> Executor<'a> {
   /// Sets the apply context so child function definitions
   /// get mangled names (`Type::method`). `Self` resolves
   /// to the applied type.
-  fn execute_apply(&mut self, start_idx: usize, end_idx: usize) {
-    // Parse first identifier. The parser may place tokens
-    // like `For` before the first Ident in the tree, so
-    // scan children for the first Ident.
-    let first_ident_idx = (start_idx + 1..end_idx)
-      .find(|&i| self.tree.nodes[i].token == Token::Ident);
+  /// Primitive-type tokens accepted as the target of
+  /// `apply <T> { ... }` (inherent methods on primitives).
+  /// PR 1 supports `char` only — PR 2 will extend to `str`,
+  /// `int`, `float`, `bool`, `uint`. Kept as a single
+  /// predicate so the scan, the `For <Target>` rescan, and
+  /// future call-site mangling stay in sync.
+  fn is_primitive_type_token(tok: Token) -> bool {
+    matches!(tok, Token::CharType)
+  }
 
-    let first_name =
-      first_ident_idx
-        .and_then(|i| self.node_value(i))
-        .and_then(|v| match v {
+  /// Canonical keyword string for a primitive `Ty` — must
+  /// match `Token::ty_keyword_str` so the mangling symbol
+  /// used at the call site (`"char" + "::" + method`) lines
+  /// up with the one `execute_apply` interned at definition
+  /// time. Returns `None` for non-primitive Ty kinds.
+  fn primitive_ty_name_str(ty: &Ty) -> Option<&'static str> {
+    match ty {
+      Ty::Char => Some("char"),
+      _ => None,
+    }
+  }
+
+  fn execute_apply(&mut self, start_idx: usize, end_idx: usize) {
+    // Parse the applied type. Either an `Ident` (user type:
+    // struct/enum/alias) or a primitive-type keyword token
+    // (`CharType` et al. — PR 1 supports `char` only). The
+    // scan goes forward because the parser may place minor
+    // tokens between `apply` and the type name.
+    let first_ty_idx = (start_idx + 1..end_idx).find(|&i| {
+      let tok = self.tree.nodes[i].token;
+
+      tok == Token::Ident || Self::is_primitive_type_token(tok)
+    });
+
+    let first_name = first_ty_idx.and_then(|i| {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Ident {
+        self.node_value(i).and_then(|v| match v {
           NodeValue::Symbol(s) => Some(s),
           _ => None,
-        });
+        })
+      } else {
+        // Primitive keyword — synthesize its symbol via the
+        // token's canonical name string ("char" / "str" /
+        // "int" / "float" / "bool") so mangling (and the
+        // `self`-type lookup) keys off the same string as
+        // `resolve_ty_symbol` uses.
+        tok.ty_keyword_str().map(|s| self.interner.intern(s))
+      }
+    });
 
     let first_name = match first_name {
       Some(n) => n,
@@ -7265,18 +7307,26 @@ impl<'a> Executor<'a> {
     let mut abstract_name: Option<Symbol> = None;
     let mut type_name = first_name;
 
-    let scan_start = first_ident_idx.map(|i| i + 1).unwrap_or(start_idx + 2);
+    let scan_start = first_ty_idx.map(|i| i + 1).unwrap_or(start_idx + 2);
 
     for scan in scan_start..end_idx.min(scan_start + 8) {
       if self.tree.nodes[scan].token == Token::For {
         abstract_name = Some(first_name);
 
-        // Next Ident after For is the target type.
-        if scan + 1 < end_idx
-          && self.tree.nodes[scan + 1].token == Token::Ident
-          && let Some(NodeValue::Symbol(s)) = self.node_value(scan + 1)
-        {
-          type_name = s;
+        // Next token after For is the target type. Accept
+        // Ident OR primitive keyword (same widening).
+        if scan + 1 < end_idx {
+          let tok = self.tree.nodes[scan + 1].token;
+
+          if tok == Token::Ident
+            && let Some(NodeValue::Symbol(s)) = self.node_value(scan + 1)
+          {
+            type_name = s;
+          } else if Self::is_primitive_type_token(tok)
+            && let Some(s) = tok.ty_keyword_str()
+          {
+            type_name = self.interner.intern(s);
+          }
         }
 
         break;
@@ -7610,13 +7660,17 @@ impl<'a> Executor<'a> {
       }
     }
 
-    // Resolve receiver type name for struct/enum methods.
+    // Resolve receiver type name for struct/enum methods,
+    // or map a primitive `Ty` onto its canonical keyword
+    // string for `apply <Primitive> { ... }` methods.
     let type_name = match resolved {
       Ty::Struct(sid) => {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => None,
+      _ => {
+        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
+      }
     };
 
     let type_name = match type_name {

@@ -1260,8 +1260,14 @@ impl<'a> Parser<'a> {
   fn handle_apply_keyword(&mut self) {
     self.flush_expr();
 
-    // `apply` must be followed by an identifier (type name).
-    if self.peek().is_some_and(|n| n != Token::Ident) {
+    // `apply` must be followed by an identifier (user type)
+    // OR a primitive-type keyword (`apply char { ... }` for
+    // inherent methods on primitives — the executor widens
+    // its own scan symmetrically via `ty_keyword_str`).
+    if self
+      .peek()
+      .is_some_and(|n| n != Token::Ident && n.ty_keyword_str().is_none())
+    {
       self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
     }
 

@@ -1,0 +1,27 @@
+-- `apply <Primitive>` — inherent methods on `char`.
+--
+-- unblocks std::char methods (is_digit, to_digit, …) being
+-- lowered to normal function calls mangled as `char::…`.
+
+apply char {
+  fun is_zero(self) -> bool {
+    return self == '0';
+  }
+
+  fun is_space(self) -> bool {
+    return self == ' ';
+  }
+}
+
+fun main() {
+  imu zero: char = '0';
+  imu space: char = ' ';
+
+  check(zero.is_zero());
+  check(space.is_space());
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok
