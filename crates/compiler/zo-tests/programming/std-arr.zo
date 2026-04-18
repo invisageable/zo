@@ -1,0 +1,25 @@
+-- std::arr inherent methods on `[]int`.
+
+fun main() {
+  imu xs: []int = [1, 2, 3, 4, 5];
+  imu empty: []int = [];
+  imu mixed: []int = [3, 1, 4, 1, 5, 9, 2, 6];
+
+  check@eq(xs.sum(), 15);
+  check@eq(empty.sum(), 0);
+
+  check(xs.contains(3));
+  check(xs.contains(5));
+
+  check@eq(xs.find(3), 2);
+  check@eq(xs.find(99), -1);
+
+  check@eq(mixed.min_of(), 1);
+  check@eq(mixed.max_of(), 9);
+  check@eq(empty.min_of(), 0);
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

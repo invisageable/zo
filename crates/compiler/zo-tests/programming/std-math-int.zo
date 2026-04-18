@@ -13,7 +13,7 @@ fun main() {
   check@eq(pow_i(2, 10), 1024);
   check@eq(pow_i(3, 4), 81);
   check@eq(pow_i(5, 0), 1);
-  check@eq(pow_i(7, 0 - 1), 0);
+  check@eq(pow_i(7, -1), 0);
 
   showln("ok");
 }

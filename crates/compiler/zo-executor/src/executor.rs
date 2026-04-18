@@ -2256,12 +2256,15 @@ impl<'a> Executor<'a> {
         // Determine context: indexing (preceded by an
         // array value on the stack) or literal.
         // For indexing: the array value was pushed by
-        // the preceding Ident. For literals: stacks
-        // have whatever was there before.
+        // the preceding Ident / RBracket (chained
+        // indexing `m[0][0]`) / SelfLower (indexing
+        // into `self` inside `apply []T { fun … (self)
+        // … self[i] … }`). For literals: stacks have
+        // whatever was there before.
         let is_indexing = idx > 0
           && matches!(
             self.tree.nodes[idx - 1].token,
-            Token::Ident | Token::RBracket
+            Token::Ident | Token::RBracket | Token::SelfLower
           );
 
         let array_name = if is_indexing && idx > 0 {
@@ -4991,8 +4994,7 @@ impl<'a> Executor<'a> {
             if let Some(type_name) = self.apply_context {
               let self_sym = zo_interner::Symbol::SELF_LOWER;
               let self_ty = self
-                .ty_checker
-                .resolve_ty_symbol(type_name, self.interner)
+                .resolve_apply_self_ty(type_name)
                 .unwrap_or_else(|| self.ty_checker.unit_type());
 
               let mutability = if is_mut {
@@ -7319,16 +7321,65 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Canonical mangling prefix for an array `Ty` — returns
+  /// `arr_<elem>` when the element is a primitive. Mirrors
+  /// `execute_apply`'s `apply []<primitive>` name synthesis
+  /// so call-site dispatch on `Ty::Array(...)` receivers
+  /// resolves to the same mangled fun registered at
+  /// definition time. Nested arrays (`[][]int`) and array
+  /// of struct/enum are out of scope for now.
+  fn array_ty_name_str(&mut self, resolved: &Ty) -> Option<String> {
+    let Ty::Array(aid) = resolved else {
+      return None;
+    };
+
+    let arr = self.ty_checker.ty_table.array(*aid).copied()?;
+    let elem = self.ty_checker.kind_of(arr.elem_ty);
+
+    Self::primitive_ty_name_str(&elem).map(|s| format!("arr_{s}"))
+  }
+
+  /// Resolve the `apply` target's `type_name` symbol to a
+  /// concrete `TyId` for the `self` parameter. Handles the
+  /// three shapes `execute_apply` mints:
+  ///   - primitive keyword names (`"char"`, `"int"`, …) —
+  ///     delegate to `resolve_ty_symbol`.
+  ///   - `"arr_<primitive>"` — decode the suffix and intern
+  ///     the matching `Ty::Array`.
+  ///   - Ident names (user types) — fall through to
+  ///     `resolve_ty_symbol` which hits the struct/enum
+  ///     tables.
+  fn resolve_apply_self_ty(&mut self, type_name: Symbol) -> Option<TyId> {
+    let name_owned = self.interner.get(type_name).to_owned();
+
+    if let Some(elem_name) = name_owned.strip_prefix("arr_") {
+      let elem_sym = self.interner.intern(elem_name);
+      let elem_ty =
+        self.ty_checker.resolve_ty_symbol(elem_sym, self.interner)?;
+
+      let aid = self.ty_checker.ty_table.intern_array(elem_ty, None);
+
+      return Some(self.ty_checker.intern_ty(Ty::Array(aid)));
+    }
+
+    self.ty_checker.resolve_ty_symbol(type_name, self.interner)
+  }
+
   fn execute_apply(&mut self, start_idx: usize, end_idx: usize) {
-    // Parse the applied type. Either an `Ident` (user type:
-    // struct/enum/alias) or a primitive-type keyword token
-    // (`CharType` et al. — PR 1 supports `char` only). The
-    // scan goes forward because the parser may place minor
-    // tokens between `apply` and the type name.
+    // Parse the applied type. Three shapes:
+    //   1. `Ident` — user type (struct/enum/alias).
+    //   2. primitive keyword (`CharType` et al.) — inherent
+    //      methods on that primitive.
+    //   3. `LBracket RBracket <primitive>` — inherent
+    //      methods on `[]T` arrays. Mangled as
+    //      `arr_<primitive>` so `apply []int { fun sum }`
+    //      registers `arr_int::sum`.
     let first_ty_idx = (start_idx + 1..end_idx).find(|&i| {
       let tok = self.tree.nodes[i].token;
 
-      tok == Token::Ident || Self::is_primitive_type_token(tok)
+      tok == Token::Ident
+        || tok == Token::LBracket
+        || Self::is_primitive_type_token(tok)
     });
 
     let first_name = first_ty_idx.and_then(|i| {
@@ -7339,6 +7390,28 @@ impl<'a> Executor<'a> {
           NodeValue::Symbol(s) => Some(s),
           _ => None,
         })
+      } else if tok == Token::LBracket {
+        // Array target: expect `[ ] <primitive>` and build
+        // the canonical mangling prefix `arr_<primitive>`.
+        // The call-site helper `array_ty_name_str` must
+        // produce the same string for `Ty::Array(elem)`.
+        let elem_idx = (i + 1..end_idx).find(|&j| {
+          let t = self.tree.nodes[j].token;
+
+          t != Token::LBracket && t != Token::RBracket
+        })?;
+
+        let elem_tok = self.tree.nodes[elem_idx].token;
+
+        if Self::is_primitive_type_token(elem_tok)
+          && let Some(elem_name) = elem_tok.ty_keyword_str()
+        {
+          let mangled = format!("arr_{elem_name}");
+
+          Some(self.interner.intern(&mangled))
+        } else {
+          None
+        }
       } else {
         // Primitive keyword — synthesize its symbol via the
         // token's canonical name string ("char" / "str" /
@@ -7693,13 +7766,20 @@ impl<'a> Executor<'a> {
       _ => return false,
     };
 
-    // Array builtin methods: push, pop.
+    // Array builtin methods + user-defined `apply []T`.
     let resolved = self.ty_checker.kind_of(receiver_ty);
 
     if matches!(resolved, Ty::Array(_)) {
-      let ms = self.interner.get(member_name);
+      let ms = self.interner.get(member_name).to_owned();
 
-      return ms == "push" || ms == "pop";
+      if ms == "push" || ms == "pop" {
+        return true;
+      }
+
+      // Fall through to the generic dispatch below so
+      // `apply []int { fun sum(self) }` style methods
+      // resolve via `array_ty_name_str` →
+      // `arr_int::sum`.
     }
 
     // Generic type param: if the method is an abstract method,
@@ -7725,9 +7805,16 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => {
-        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
-      }
+      _ => Self::primitive_ty_name_str(&resolved)
+        .map(|s| self.interner.intern(s))
+        .or_else(|| {
+          // Array receiver: `[]int.method()` dispatches to
+          // the `apply []int { fun method }` body — mangled
+          // as `arr_int::method`.
+          self
+            .array_ty_name_str(&resolved)
+            .map(|s| self.interner.intern(&s))
+        }),
     };
 
     let type_name = match type_name {
@@ -7791,9 +7878,16 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => {
-        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
-      }
+      _ => Self::primitive_ty_name_str(&resolved)
+        .map(|s| self.interner.intern(s))
+        .or_else(|| {
+          // Array receiver: `[]int.method()` dispatches to
+          // the `apply []int { fun method }` body — mangled
+          // as `arr_int::method`.
+          self
+            .array_ty_name_str(&resolved)
+            .map(|s| self.interner.intern(&s))
+        }),
     };
 
     let type_name = match type_name {
@@ -7849,9 +7943,16 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => {
-        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
-      }
+      _ => Self::primitive_ty_name_str(&resolved)
+        .map(|s| self.interner.intern(s))
+        .or_else(|| {
+          // Array receiver: `[]int.method()` dispatches to
+          // the `apply []int { fun method }` body — mangled
+          // as `arr_int::method`.
+          self
+            .array_ty_name_str(&resolved)
+            .map(|s| self.interner.intern(&s))
+        }),
     };
 
     let type_name = match type_name {

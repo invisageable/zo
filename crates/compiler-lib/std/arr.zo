@@ -1,0 +1,96 @@
+pack arr;
+
+-! Inherent methods on `[]int` arrays.
+-!
+-! int-element only (same tradeoff as `std::math` gcd/
+-! lcm/pow_i). A width-generic `apply []$T` is blocked
+-! on the same Integer-ish abstract + per-width
+-! dispatch. Sized-int / float / char arrays must cast
+-! to `[]int` at the call site until that lands.
+
+apply []int {
+  -! Sum of every element. Empty array returns `0`.
+  pub fun sum(self) -> int {
+    mut total: int = 0;
+    mut i: int = 0;
+
+    while i < self.len {
+      total = total + self[i];
+      i = i + 1;
+    }
+
+    return total;
+  }
+
+  -! True iff the array contains an element equal to `needle`.
+  pub fun contains(self, needle: int) -> bool {
+    mut i: int = 0;
+
+    while i < self.len {
+      if self[i] == needle {
+        return true;
+      }
+
+      i = i + 1;
+    }
+
+    return false;
+  }
+
+  -! Index of the first `needle`, or `-1` if absent.
+  pub fun find(self, needle: int) -> int {
+    mut i: int = 0;
+
+    while i < self.len {
+      if self[i] == needle {
+        return i;
+      }
+
+      i = i + 1;
+    }
+
+    return -1;
+  }
+
+  -! Minimum element. Empty array returns `0` — callers
+  -! must guard via `self.len > 0` when `0` is a valid
+  -! datum.
+  pub fun min_of(self) -> int {
+    if self.len == 0 {
+      return 0;
+    }
+
+    mut m: int = self[0];
+    mut i: int = 1;
+
+    while i < self.len {
+      if self[i] < m {
+        m = self[i];
+      }
+
+      i = i + 1;
+    }
+
+    return m;
+  }
+
+  -! Maximum element. Same empty-array caveat as `min_of`.
+  pub fun max_of(self) -> int {
+    if self.len == 0 {
+      return 0;
+    }
+
+    mut m: int = self[0];
+    mut i: int = 1;
+
+    while i < self.len {
+      if self[i] > m {
+        m = self[i];
+      }
+
+      i = i + 1;
+    }
+
+    return m;
+  }
+}

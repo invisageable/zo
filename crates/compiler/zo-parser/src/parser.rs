@@ -1261,13 +1261,13 @@ impl<'a> Parser<'a> {
     self.flush_expr();
 
     // `apply` must be followed by an identifier (user type)
-    // OR a primitive-type keyword (`apply char { ... }` for
-    // inherent methods on primitives — the executor widens
-    // its own scan symmetrically via `ty_keyword_str`).
-    if self
-      .peek()
-      .is_some_and(|n| n != Token::Ident && n.ty_keyword_str().is_none())
-    {
+    // OR a primitive-type keyword (`apply char { ... }`)
+    // OR `[` starting an array-type target (`apply []int
+    // { ... }` — inherent methods on `[]int` etc.). The
+    // executor widens its own scan symmetrically.
+    if self.peek().is_some_and(|n| {
+      n != Token::Ident && n != Token::LBracket && n.ty_keyword_str().is_none()
+    }) {
       self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
     }
 

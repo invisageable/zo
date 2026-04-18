@@ -3,6 +3,7 @@
 -! It provides useful collection of packages and functions to helps you writing
 -! programs.
 
+pack arr;
 pack assert;
 pack bool;
 pack char;
