@@ -34,6 +34,10 @@ pub type FooBar = int;
 pub ext foo(bar: s32) -> int;
 ext foo(bar: s32) -> int;
 
+-- item:ffi.
+pub ffi foo(bar: s32) -> int;
+ffi foo(bar: s32) -> int;
+
 -- item:abstract:declaration.
 abstract Foo {}
 

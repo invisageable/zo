@@ -94,6 +94,40 @@ fn test_unary_in_expression() {
 }
 
 #[test]
+fn test_unary_not_binds_looser_than_dot_call() {
+  // `!x.foo()` must parse as `!(x.foo())`, not `(!x).foo()`.
+  // Postfix order: `x foo . ( ) !` — the `Bang` lands at
+  // the end of the expression, AFTER the method chain.
+  // Regression guard for the parser precedence fix where
+  // `Bang` used to drain before a trailing `Dot`.
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        a = !x.foo();
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))),
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      // a = !x.foo()  → postfix: `x foo . ( ) !`
+      (Ident, Some(NodeValue::TextRange(28, 1))),
+      (Eq, None),
+      (Ident, Some(NodeValue::TextRange(33, 1))),
+      (Ident, Some(NodeValue::TextRange(35, 3))),
+      (Dot, None),
+      (LParen, None),
+      (RParen, None),
+      (Bang, None),
+      (Semicolon, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
 fn test_unary_reference() {
   assert_nodes_stream(
     r#"

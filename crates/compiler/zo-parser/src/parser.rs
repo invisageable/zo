@@ -1667,11 +1667,17 @@ impl<'a> Parser<'a> {
 
       // Emit pending unary operators right after the operand
       // (postfix order). But NOT if the next token starts a
-      // call `(` or index `[` — the unary applies to the
-      // complete result, not the bare name.
+      // call `(`, index `[`, or dot-access `.` — the unary
+      // applies to the COMPLETE result of the chain, not the
+      // bare operand (e.g. `!x.foo()` → `!(x.foo())`, not
+      // `(!x).foo()`; same reasoning as `f(1 + 2)` needing
+      // `!` to fire after the call returns).
       let next = self.peek();
 
-      if next != Some(Token::LParen) && next != Some(Token::LBracket) {
+      if next != Some(Token::LParen)
+        && next != Some(Token::LBracket)
+        && next != Some(Token::Dot)
+      {
         while let Some((tok, sp)) = self.unary_spans.pop() {
           self.expr_buffer.push((tok, sp, None));
         }
