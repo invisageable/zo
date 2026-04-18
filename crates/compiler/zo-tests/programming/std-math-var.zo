@@ -1,12 +1,12 @@
 -- tests-run-pass: libm with variable args.
 
-ext pow(x: float, y: float) -> float;
-ext sin(x: float) -> float;
-
 fun main() {
   imu base := 3.0;
   imu exponent := 4.0;
+
   showln(pow(base, exponent));
+
   imu angle := 0.0;
+
   showln(sin(angle));
 }
