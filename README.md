@@ -32,7 +32,7 @@
   }
   ```
 
-## warning.
+<!-- ## warning.
 
 **wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
 
@@ -44,7 +44,7 @@ JOiN THE DEVOLUTiON.
 
 **wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
 
-> *If you’re curious, do take the time to explore the project in its entirety.*
+> *If you’re curious, do take the time to explore the project in its entirety.* -->
 
 ## about.
 
@@ -73,19 +73,19 @@ JOiN THE DEVOLUTiON.
 **-type-safety**
 
   - STATiCALLY, STRONGLY TYPED — *total control over your program from A to Z.*
-  - METiCULOUS `type system` — *type inference, monomorphization, `typestate`.*
+  - METiCULOUS TYPE SYSTEM — *type inference, monomorphization, `typestate`.*
   - SAFE CONCURRENCY — *robust erlang-like actor model.*
   - META-LANGUAGE — *run code at `compile-time` via `#asm`, `#dom`, `#run` directives.*
 
 **-performance-and-compilation**
 
-  - HiGH-SPEED `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
-  - ALGEBRAiC `optimization` — *folding, propagation.*
+  - HiGH-SPEED COMPiLATiON-TiME — *insanely faster, Usain Bolt would be jealous.*
+  - ALGEBRAiC OPTiMiZATiON — *folding, propagation.*
   - TARGET SUPPORT — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
 
 ## install.
 
-  1. YOU HAVE TO RUN:
+  1. YOU JUST HAVE TO RUN:
 
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/zo-install.sh | sh
@@ -120,7 +120,7 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 | [fret](./crates/packager/fret) | THE PACKAGE MANAGER FOR THE `zo` PROGRAMMiNG LANGUAGE.   |
 | [zo](./crates/compiler/zo)     | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGUAGE. |
 
-> *More crates are coming. the architecture is modular and composable. be gentle.*
+> *More crates are coming. the architecture is modular and composable. Be gentle.*
 
 ## contributing.
 
@@ -142,7 +142,7 @@ THANKS TO:
 
 [@ledruidd](https://github.com/ledruidd) [@SiegfriedEhret](https://github.com/SiegfriedEhret) [@akimd](https://github.com/akimd) [@graydon](https://github.com/graydon) [@rvirding](https://github.com/rvirding) [@worrydream](https://x.com/worrydream) [@j_blow](https://www.twitch.tv/j_blow) [@tsoding](https://x.com/tsoding) [@geohot](https://github.com/geohot) [@mike_acton](https://x.com/mike_acton)
 
-> « DE PRÈS COMME DE LOiN VOUS M'AVEZ iNSPiRÉ À MENER CE PROJET. TRiLU ! » — *i10e*.    
+> *« DE PRÈS COMME DE LOiN VOUS M'AVEZ iNSPiRÉ À MENER CE PROJET. TRiLU ! »* — *i10e*.    
 
 ## license.
 
