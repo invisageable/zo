@@ -18,7 +18,7 @@ use zo_value::{
 };
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Scope frame for variable tracking
 pub struct ScopeFrame {
@@ -151,6 +151,22 @@ pub struct Executor<'a> {
   /// Current `apply Type` context — the type name being
   /// applied. Methods get mangled as `Type::method`.
   apply_context: Option<Symbol>,
+  /// Nested `pack` context — each entry is
+  /// `(pack_name, rbrace_idx)` where `rbrace_idx` is the
+  /// tree index of the pack's closing `}`. Functions
+  /// declared inside get their name prefixed with the
+  /// joined pack chain (`inner::inner2::hello`). The
+  /// closing RBrace at a matching `rbrace_idx` pops the
+  /// entry. Mirrors `apply_context` at nested-stack arity.
+  pack_context: Vec<(Symbol, usize)>,
+  /// Every simple pack name that has been declared
+  /// anywhere in the program (e.g. `inner`, `inner2`).
+  /// Needed so bare idents like `inner` and `inner2`
+  /// inside `inner.inner2.hello()` are not rejected as
+  /// undefined variables — they are namespace prefixes.
+  /// Resolution into the mangled callee happens in
+  /// `execute_potential_call`.
+  pack_names: HashSet<Symbol>,
   /// Global compile-time constants (`val` at module level).
   /// Visible from all functions.
   global_constants: Vec<Local>,
@@ -346,6 +362,8 @@ impl<'a> Executor<'a> {
       reexecuted_instantiations: std::collections::HashSet::new(),
       pending_enum_construct: None,
       apply_context: None,
+      pack_context: Vec::new(),
+      pack_names: HashSet::new(),
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::new(),
@@ -738,6 +756,7 @@ impl<'a> Executor<'a> {
     if self.current_function.is_none()
       && self.apply_context.is_none()
       && self.pending_function.is_none()
+      && self.pack_context.is_empty()
       && Self::is_stmt_introducer(header.token)
     {
       let span = self.tree.spans[idx];
@@ -819,9 +838,18 @@ impl<'a> Executor<'a> {
       Token::Pack => {
         let children_end = (header.child_start + header.child_count) as usize;
 
+        // `execute_pack` owns its body traversal (mirrors
+        // `execute_apply`): emits `PackDecl`, pushes the
+        // pack name onto `pack_context`, iterates the body
+        // through `execute_node` so nested `fun`s get name-
+        // mangled as `pack::fun` (and nested packs as
+        // `outer::inner::fun`), then pops and sets
+        // `skip_until = end_idx` so the main loop does not
+        // re-walk the pack's own `Ident`, `LBrace`, body,
+        // or `RBrace` — any of which would otherwise be
+        // misread (e.g. bare pack name → Undefined
+        // variable).
         self.execute_pack(idx, children_end);
-
-        self.skip_until = children_end;
       }
 
       // === DECLARATIONS ===
@@ -965,7 +993,11 @@ impl<'a> Executor<'a> {
         // Function call: Ident before LParen (direct or
         // with an operator in between). Uses semantic
         // validation to distinguish `f(x)` from `a*(b)`.
-        let is_call = self.resolve_call_target(idx).is_some();
+        // Also catches pack-dotted calls (`pack.fn()`,
+        // `outer.inner.fn()`) which have `Dot` before the
+        // LParen rather than an Ident.
+        let is_call = self.resolve_call_target(idx).is_some()
+          || self.resolve_pack_dotted_call(idx).is_some();
 
         if is_call {
           // Track direct-call depth — consumed by
@@ -1208,6 +1240,7 @@ impl<'a> Executor<'a> {
           && self.apply_context.is_none()
           && self.pending_function.is_none()
           && self.branch_stack.is_empty()
+          && self.pack_context.is_empty()
         {
           let span = self.tree.spans[idx];
 
@@ -2109,7 +2142,16 @@ impl<'a> Executor<'a> {
             let is_dot_member = idx + 1 < self.tree.nodes.len()
               && self.tree.nodes[idx + 1].token == Token::Dot;
 
-            if is_dot_member {
+            let is_pack = self.pack_names.contains(&sym);
+
+            if is_dot_member || is_pack {
+              // Pack-prefix idents (`inner`, `inner2` in
+              // `inner.inner2.hello()`) are namespace
+              // segments — not variables. Push a
+              // placeholder so the Dot / call sites see
+              // balanced stacks; `execute_potential_call`
+              // walks the tree to build the mangled name
+              // (`inner::inner2::hello`).
               let placeholder = self.values.store_runtime(0);
 
               self.value_stack.push(placeholder);
@@ -2154,7 +2196,7 @@ impl<'a> Executor<'a> {
               self.value_stack.push(closure_val);
               self.ty_stack.push(fun_ty);
               self.sir_values.push(ValueId(u32::MAX));
-            } else if !is_fun && !is_enum && !is_struct {
+            } else if !is_fun && !is_enum && !is_struct && !is_pack {
               let span = self.tree.spans[idx];
 
               report_error(Error::new(ErrorKind::UndefinedVariable, span));
@@ -2353,6 +2395,40 @@ impl<'a> Executor<'a> {
       Token::Dot if self.value_stack.len() >= 2 => {
         // Shunting Yard reorders `obj . member` to postfix:
         // `obj member .`. Stack: [..., obj_val, member_val].
+
+        // Pack-dotted chain (`pack.fn()`,
+        // `outer.inner.fn()`): the Idents on the stack are
+        // pure namespace placeholders, not runtime values,
+        // and resolution to the mangled callee happens at
+        // RParen. Collapse the two placeholders into a
+        // single placeholder for intermediate chain dots
+        // (`outer . inner` in `outer.inner.fn()`), or drop
+        // both for the leaf dot that precedes `(` — there
+        // is no receiver-as-`self` to preserve.
+        if self.is_pack_chain_dot(idx) {
+          self.value_stack.pop();
+          self.ty_stack.pop();
+          self.sir_values.pop();
+          self.value_stack.pop();
+          self.ty_stack.pop();
+          self.sir_values.pop();
+
+          let next_is_call = idx + 1 < self.tree.nodes.len()
+            && self.tree.nodes[idx + 1].token == Token::LParen;
+
+          if !next_is_call {
+            // Intermediate dot: keep a placeholder on the
+            // stack for the next Ident in the chain to pair
+            // with.
+            let placeholder = self.values.store_runtime(0);
+
+            self.value_stack.push(placeholder);
+            self.ty_stack.push(self.ty_checker.unit_type());
+            self.sir_values.push(ValueId(u32::MAX));
+          }
+
+          return;
+        }
 
         // Peek at receiver type to detect method calls.
         // If the member is a method (not a field), skip
@@ -2860,6 +2936,7 @@ impl<'a> Executor<'a> {
         // only valid inside function bodies.
         if self.current_function.is_none()
           && self.apply_context.is_none()
+          && self.pack_context.is_empty()
           && (had_assign || (!had_decl && !had_return))
         {
           let span = self.tree.spans[idx];
@@ -3827,29 +3904,110 @@ impl<'a> Executor<'a> {
   ///
   /// Extracts the pack name from children and emits
   /// `Insn::PackDecl`.
-  fn execute_pack(&mut self, _start_idx: usize, end_idx: usize) {
-    let mut name = None;
+  fn execute_pack(&mut self, start_idx: usize, end_idx: usize) {
+    // First Ident after `pack` is the pack name. Scanning
+    // matches the `execute_apply` shape (parser may place
+    // minor tokens between `pack` and the name).
+    let name_idx = ((start_idx + 1)..end_idx)
+      .find(|&i| self.tree.nodes[i].token == Token::Ident);
 
-    for child_idx in (_start_idx + 1)..end_idx {
-      if let Some(node) = self.tree.nodes.get(child_idx)
-        && node.token == Token::Ident
-        && let Some(NodeValue::Symbol(sym)) = self.node_value(child_idx)
-      {
-        name = Some(sym);
-        break;
+    let name = name_idx.and_then(|i| match self.node_value(i) {
+      Some(NodeValue::Symbol(s)) => Some(s),
+      _ => None,
+    });
+
+    // Locate the pack's own `{` and its matching `}` by
+    // bracket-depth counting. `end_idx` from the parser's
+    // child-span is UNRELIABLE here — when sibling items
+    // (`fun main` after `pack inner { ... }`) are listed
+    // under the Pack node, `end_idx` inflates past the
+    // pack's own `}`. Same child-span-inflation class as
+    // CL13's match / for fixes: always bound iteration by
+    // the construct's own terminator.
+    let lbrace_idx = name_idx.map(|i| i + 1).unwrap_or(start_idx + 2);
+    let lbrace_idx = (lbrace_idx..end_idx)
+      .find(|&i| self.tree.nodes[i].token == Token::LBrace);
+
+    let rbrace_idx = lbrace_idx.and_then(|lb| {
+      let mut depth = 1_i32;
+      let mut j = lb + 1;
+
+      while j < self.tree.nodes.len() && depth > 0 {
+        match self.tree.nodes[j].token {
+          Token::LBrace => depth += 1,
+          Token::RBrace => {
+            depth -= 1;
+
+            if depth == 0 {
+              return Some(j);
+            }
+          }
+          _ => {}
+        }
+
+        j += 1;
       }
-    }
+
+      None
+    });
+
+    // Real end for this pack's body is rbrace_idx + 1 (so
+    // the `}` itself is processed by the body loop for
+    // scope pop symmetry).
+    let pack_end = rbrace_idx.map(|i| i + 1).unwrap_or(end_idx);
 
     if let Some(name) = name {
       self.sir.emit(Insn::PackDecl {
         name,
-        pubness: if self.is_pub(_start_idx) {
+        pubness: if self.is_pub(start_idx) {
           Pubness::Yes
         } else {
           Pubness::No
         },
       });
+
+      // Register the simple pack name so `inner.hello()`
+      // style calls can recognise `inner` / `inner2` as
+      // namespace prefixes (the Ident handler would
+      // otherwise flag them as undefined variables).
+      self.pack_names.insert(name);
     }
+
+    // Enter pack context: nested `fun`s will be mangled
+    // through `execute_fun` as `outer::inner::name`.
+    if let Some(sym) = name {
+      self.pack_context.push((sym, pack_end));
+    }
+
+    // Advance past the pack's name + `{` to the first body
+    // child.
+    let mut idx = match lbrace_idx {
+      Some(lb) => lb + 1,
+      None => pack_end,
+    };
+
+    while idx < pack_end {
+      if idx < self.skip_until {
+        idx += 1;
+        continue;
+      }
+
+      let node = self.tree.nodes[idx];
+
+      self.execute_node(&node, idx);
+      idx += 1;
+    }
+
+    if name.is_some() {
+      self.pack_context.pop();
+    }
+
+    // Prevent the outer main loop from re-walking the
+    // pack's own Ident / LBrace / body / RBrace; anything
+    // AFTER the pack's own `}` (e.g. `fun main` that the
+    // parser folded under our child-span) must fall back
+    // to the outer loop.
+    self.skip_until = pack_end;
   }
 
   /// Resolves an N-dimensional array type starting at `start`.
@@ -4670,15 +4828,29 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Mangle name in apply context: Type::method.
-    let name = if let Some(type_name) = self.apply_context {
-      let type_str = self.interner.get(type_name).to_owned();
-      let method_str = self.interner.get(name.unwrap()).to_owned();
-      let mangled = format!("{type_str}::{method_str}");
+    // Mangle name in apply / pack context:
+    //   `apply Type { fun m }`         → `Type::m`
+    //   `pack p { fun h }`             → `p::h`
+    //   `pack p { pack q { fun h } }`  → `p::q::h`
+    //   `apply T { fun m }` inside a pack → `p::T::m`
+    let raw_name = name.unwrap();
+    let name = if self.apply_context.is_some() || !self.pack_context.is_empty()
+    {
+      let mut parts: Vec<String> = self
+        .pack_context
+        .iter()
+        .map(|(s, _)| self.interner.get(*s).to_owned())
+        .collect();
 
-      self.interner.intern(&mangled)
+      if let Some(type_name) = self.apply_context {
+        parts.push(self.interner.get(type_name).to_owned());
+      }
+
+      parts.push(self.interner.get(raw_name).to_owned());
+
+      self.interner.intern(&parts.join("::"))
     } else {
-      name.unwrap()
+      raw_name
     };
 
     // Parse parameters: (name, type, mutability).
@@ -10012,6 +10184,176 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Returns true if `dot_idx` is part of a pack-dotted
+  /// chain (`pack.fn()`, `outer.inner.fn()`). Walks back
+  /// through alternating `Ident`/`Dot` in postfix order
+  /// until it reaches the root ident — if that root is a
+  /// declared pack name (`self.pack_names`), this Dot is
+  /// a namespace-qualification dot, not a field access.
+  fn is_pack_chain_dot(&self, dot_idx: usize) -> bool {
+    self.pack_chain_root(dot_idx).is_some()
+  }
+
+  /// Walk back the pack-dot chain ending at `dot_idx` and
+  /// return the tree index of the root Ident (the pack
+  /// name) if the chain roots in a declared pack. Used by
+  /// `is_pack_chain_dot` and the dot-call resolver.
+  fn pack_chain_root(&self, dot_idx: usize) -> Option<usize> {
+    let mut i = dot_idx;
+
+    loop {
+      if i < 2 || self.tree.nodes[i].token != Token::Dot {
+        return None;
+      }
+
+      if self.tree.nodes[i - 1].token != Token::Ident {
+        return None;
+      }
+
+      // Nested chain: another Dot before the Ident.
+      if i >= 3 && self.tree.nodes[i - 2].token == Token::Dot {
+        i -= 2;
+        continue;
+      }
+
+      // Reached the root.
+      if i < 2 || self.tree.nodes[i - 2].token != Token::Ident {
+        return None;
+      }
+
+      let root_sym = match self.node_value(i - 2) {
+        Some(NodeValue::Symbol(s)) => s,
+        _ => return None,
+      };
+
+      if self.pack_names.contains(&root_sym) {
+        return Some(i - 2);
+      }
+
+      return None;
+    }
+  }
+
+  /// Walks a postfix dot chain whose last token is at
+  /// `end_idx` (which may be an `Ident` leaf or a `Dot`
+  /// interior node) and appends every Ident symbol it
+  /// passes into `parts`, in root-to-leaf order. Returns
+  /// `false` if the shape is malformed.
+  ///
+  /// Postfix encoding:
+  /// - `a.b`     → `a b .`     → [a, b]
+  /// - `a.b.c`   → `a b . c .` → [a, b, c]
+  /// - `a.b.c.d` → `a b . c . d .`
+  fn collect_dot_chain(&self, end_idx: usize, parts: &mut Vec<Symbol>) -> bool {
+    match self.tree.nodes[end_idx].token {
+      Token::Ident => match self.node_value(end_idx) {
+        Some(NodeValue::Symbol(s)) => {
+          parts.push(s);
+
+          true
+        }
+        _ => false,
+      },
+      Token::Dot => {
+        if end_idx < 2 {
+          return false;
+        }
+
+        let method_idx = end_idx - 1;
+        let recv_end = end_idx - 2;
+
+        if self.tree.nodes[method_idx].token != Token::Ident {
+          return false;
+        }
+
+        // Recurse into receiver first so parts stay in
+        // root-to-leaf order.
+        if !self.collect_dot_chain(recv_end, parts) {
+          return false;
+        }
+
+        match self.node_value(method_idx) {
+          Some(NodeValue::Symbol(s)) => {
+            parts.push(s);
+
+            true
+          }
+          _ => false,
+        }
+      }
+      _ => false,
+    }
+  }
+
+  /// Resolves a pack-dotted call `pack.fn(...)` or
+  /// `outer.inner.fn(...)` to its fully-qualified mangled
+  /// callee symbol (`pack::fn`, `outer::inner::fn`) if
+  /// the tree at `lparen_idx` has that shape AND the
+  /// mangled name resolves to a declared function.
+  fn resolve_pack_dotted_call(&self, lparen_idx: usize) -> Option<Symbol> {
+    if lparen_idx < 3 {
+      return None;
+    }
+
+    // Must be `... . ( ...`.
+    if self.tree.nodes[lparen_idx - 1].token != Token::Dot {
+      return None;
+    }
+
+    let leaf_dot = lparen_idx - 1;
+
+    // Verify this dot's chain roots in a declared pack.
+    self.pack_chain_root(leaf_dot)?;
+
+    let mut parts: Vec<Symbol> = Vec::new();
+
+    if !self.collect_dot_chain(leaf_dot, &mut parts) {
+      return None;
+    }
+
+    if parts.len() < 2 {
+      return None;
+    }
+
+    let raw_parts: Vec<String> = parts
+      .iter()
+      .map(|s| self.interner.get(*s).to_owned())
+      .collect();
+
+    // Resolution order mirrors name lookup in other
+    // languages: first try the path as written (absolute
+    // from any pack we've seen), then try prefixing with
+    // the enclosing pack context (so `inner2.hello()`
+    // inside `pack inner { fun h() { ... } }` binds to
+    // `inner::inner2::hello`).
+    let as_written = raw_parts.join("::");
+
+    if let Some(sym) = self.interner.symbol(&as_written)
+      && self.funs.iter().any(|f| f.name == sym)
+    {
+      return Some(sym);
+    }
+
+    for prefix_len in (1..=self.pack_context.len()).rev() {
+      let mut prefixed: Vec<String> = self.pack_context[..prefix_len]
+        .iter()
+        .map(|(s, _)| self.interner.get(*s).to_owned())
+        .collect();
+
+      prefixed.extend(raw_parts.iter().cloned());
+
+      let mangled = prefixed.join("::");
+
+      if let Some(sym) = self.interner.symbol(&mangled)
+        && self.funs.iter().any(|f| f.name == sym)
+      {
+        return Some(sym);
+      }
+    }
+
+    None
+  }
+
   /// Given a `LParen` tree index, returns the tree index of
   /// the function/closure Ident if this paren starts a call.
   ///
@@ -10126,6 +10468,7 @@ impl<'a> Executor<'a> {
     }
 
     self.resolve_call_target(idx).is_some()
+      || self.resolve_pack_dotted_call(idx).is_some()
   }
 
   /// Checks if RParen closes a function call and executes it.
@@ -10152,6 +10495,17 @@ impl<'a> Executor<'a> {
     }
 
     if let Some(lparen_idx) = lparen_idx {
+      // Pack-dotted call (`pack.fn(...)`,
+      // `outer.inner.fn(...)`). Walk back through the
+      // chain, mangle to `outer::inner::fn`, emit the
+      // call directly — none of the receiver-as-`self`
+      // paths apply, there is no implicit argument.
+      if let Some(mangled) = self.resolve_pack_dotted_call(lparen_idx) {
+        self.execute_call(mangled, lparen_idx, rparen_idx);
+
+        return;
+      }
+
       // Check if there's an identifier before LParen.
       // Also check idx-2 via resolve_call_target for the
       // `1 + f(x)` pattern where an operator intervenes.

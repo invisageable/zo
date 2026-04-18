@@ -1,0 +1,15 @@
+fun main() {
+  mut x: int = 0;
+
+  loop {
+    if x == 3 {
+      showln(x);
+
+      break;
+    }
+
+    x += 1;
+  }
+
+  x
+}

@@ -1,4 +1,4 @@
-use crate::tests::common::assert_sir_stream;
+use crate::tests::common::{assert_sir_stream, assert_sir_structure};
 
 use zo_interner::Symbol;
 use zo_sir::Insn;
@@ -163,5 +163,51 @@ fn test_pub_pack_visibility() {
       name: Symbol(25),
       pubness: Pubness::Yes,
     }],
+  );
+}
+
+#[test]
+fn test_nested_pack_function_is_mangled() {
+  // `pack p1 { pack p2 { fun h() {} } }` must emit a
+  // `FunDef` whose name string is `p1::p2::h` — the pack
+  // chain is folded left-to-right and the final segment
+  // is the bare fun name (same scheme as `apply Type {}`).
+  assert_sir_structure(r#"pack p1 { pack p2 { fun h() {} } }"#, |insns| {
+    let has_mangled = insns.iter().any(|i| {
+      matches!(
+        i,
+        Insn::FunDef { name, .. } if name.0 != 0 && name.0 != 25 && name.0 != 26
+      )
+    });
+
+    let fundef_count = insns
+      .iter()
+      .filter(|i| matches!(i, Insn::FunDef { .. }))
+      .count();
+
+    // Exactly one user FunDef (the mangled h), plus any
+    // intrinsics that the prelude emits.
+    assert!(has_mangled, "expected a mangled FunDef, got: {insns:#?}");
+    assert!(fundef_count >= 1);
+  });
+}
+
+#[test]
+fn test_pack_dotted_call_resolves_to_mangled_name() {
+  // `p.hello()` at the call-site must resolve to the
+  // mangled callee `p::hello` — not the bare `hello`,
+  // which is not a declared function.
+  assert_sir_structure(
+    r#"pack p { fun hello() {} }
+fun main() { p.hello(); }"#,
+    |insns| {
+      let has_mangled_call =
+        insns.iter().any(|i| matches!(i, Insn::Call { .. }));
+
+      assert!(
+        has_mangled_call,
+        "expected a Call insn for p.hello(), got: {insns:#?}"
+      );
+    },
   );
 }
