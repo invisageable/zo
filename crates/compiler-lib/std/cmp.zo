@@ -1,1 +1,19 @@
--- Ord and Eq must lives here.
+pack cmp;
+
+-! Equality comparison.
+-!
+-! `==` and `!=` auto-dispatch to `eq` when both operands
+-! share a type that implements `Eq`.
+pub abstract Eq {
+  fun eq(self, other: Self) -> bool;
+}
+
+-! Total ordering comparison.
+-!
+-! Returns a negative value when `self < other`, zero when
+-! `self == other`, a positive value when `self > other`.
+-! `sort_by`, `min_of`, `max_of` dispatch through this
+-! abstract.
+pub abstract Ord {
+  fun cmp(self, other: Self) -> int;
+}
