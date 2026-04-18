@@ -105,6 +105,25 @@ impl Sir {
       insn.visit_value_ids_mut(&mut |v| v.0 += offset);
     }
   }
+
+  /// Offsets every label id (`Insn::Label.id`, `Insn::Jump
+  /// .target`, `Insn::BranchIfNot.target`) by `offset`.
+  /// Each module's SIR starts its own label counter at 0,
+  /// so after naive concatenation multiple `Label { id: 0 }`
+  /// exist and any `Jump { target: 0 }` resolves to the
+  /// earliest one — wrong branch destination, silent wrong
+  /// code. Parallel to `offset_value_ids` but for the
+  /// label namespace.
+  pub fn offset_labels(instructions: &mut [Insn], offset: u32) {
+    for insn in instructions.iter_mut() {
+      match insn {
+        Insn::Label { id } => *id += offset,
+        Insn::Jump { target } => *target += offset,
+        Insn::BranchIfNot { target, .. } => *target += offset,
+        _ => {}
+      }
+    }
+  }
 }
 
 impl Insn {

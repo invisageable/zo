@@ -238,6 +238,7 @@ impl Compiler {
     let mut imported_abstract_defs = std::collections::HashMap::new();
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
+    let mut module_next_label_id: u32 = 0;
 
     // --- Preload: auto-import every std pack so its
     // public items (`showln`, `check`, `exit`, `Show`,
@@ -245,6 +246,7 @@ impl Compiler {
     // `load` statements. Keep in sync with `std/lib.zo`.
     let preload = [
       "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
+      "int", "bool",
     ];
 
     for module_name in preload {
@@ -269,8 +271,26 @@ impl Compiler {
 
         let mod_sem = mod_ana.analyze();
 
-        let exports =
+        let mut exports =
           extract_exports(mod_sem.sir, None, &session.interner, &mod_sem.funs);
+
+        // Each pack's SIR starts its own value-id counter
+        // AND label counter at 0. On naive concatenation
+        // (many preloaded packs merged before main), pack
+        // B's `%0` collides with pack A's `%0`, and the
+        // same applies to `Label { id: 0 }` → any
+        // `Jump { target: 0 }` / `BranchIfNot { target: 0 }`
+        // inside pack B lands on pack A's label. Both
+        // produce silent wrong-code. Shift each pack by
+        // the running base so the merged module block has
+        // unique ids across both namespaces before the
+        // final lift above main.
+        Sir::offset_value_ids(
+          &mut exports.sir_instructions,
+          module_next_value_id,
+        );
+
+        Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
 
         imported_funs.extend(exports.funs);
 
@@ -291,6 +311,7 @@ impl Compiler {
         module_sir_instructions.extend(exports.sir_instructions);
 
         module_next_value_id += exports.next_value_id;
+        module_next_label_id += exports.next_label_id;
       }
     }
 
@@ -299,7 +320,9 @@ impl Compiler {
       let _mod_name = session.interner.get(first_seg).to_owned();
 
       // Check module_table first (populated from lib.zo packs).
-      if let Some(exports) = self.module_table.remove(&first_seg) {
+      if let Some(mut exports) = self.module_table.remove(&first_seg) {
+        Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
+
         imported_funs.extend(exports.funs);
 
         for var in exports.vars {
@@ -318,6 +341,7 @@ impl Compiler {
         module_sir_instructions.extend(exports.sir_instructions);
 
         module_next_value_id += exports.next_value_id;
+        module_next_label_id += exports.next_label_id;
 
         continue;
       }
@@ -367,12 +391,14 @@ impl Compiler {
 
       let mod_semantic = mod_analyzer.analyze();
 
-      let exports = extract_exports(
+      let mut exports = extract_exports(
         mod_semantic.sir,
         selective.as_deref(),
         &session.interner,
         &mod_semantic.funs,
       );
+
+      Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
 
       imported_funs.extend(exports.funs);
 
@@ -390,6 +416,7 @@ impl Compiler {
 
       module_sir_instructions.extend(exports.sir_instructions);
       module_next_value_id += exports.next_value_id;
+      module_next_label_id += exports.next_label_id;
 
       self.compiling.remove(&resolved_path);
     }
@@ -434,8 +461,15 @@ impl Compiler {
     // offsettable — no implicit/explicit mismatch.
     if !module_sir_instructions.is_empty() {
       let main_next_vid = semantic.sir.next_value_id;
+      let main_next_lid = semantic.sir.next_label_id;
 
       Sir::offset_value_ids(&mut module_sir_instructions, main_next_vid);
+      // Shift module labels above main's own label range
+      // (main uses `[0, main_next_lid)`). Per-pack offset
+      // above already ensures module labels don't collide
+      // with one another; this just lifts the whole module
+      // block above main's labels for the merged stream.
+      Sir::offset_labels(&mut module_sir_instructions, main_next_lid);
 
       // Prepend: modules first, then main.
       let main_insns = std::mem::replace(
@@ -445,6 +479,7 @@ impl Compiler {
 
       semantic.sir.instructions.extend(main_insns);
       semantic.sir.next_value_id += module_next_value_id;
+      semantic.sir.next_label_id += module_next_label_id;
     }
 
     // Dead code elimination — find main by name.

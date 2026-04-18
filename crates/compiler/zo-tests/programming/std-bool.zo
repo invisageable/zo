@@ -1,0 +1,14 @@
+-- std::bool inherent methods.
+
+fun main() {
+  imu t: bool = true;
+  imu f: bool = false;
+
+  check@eq(t.as_int(), 1);
+  check@eq(f.as_int(), 0);
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

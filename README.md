@@ -72,7 +72,7 @@ JOiN THE DEVOLUTiON.
 
 **-type-safety**
 
-  - STATiCALLY, STRONGLY TYPED — *total control over your program from A to Z.*
+  - STATiCALLY & STRONGLY TYPED — *total control over your program from A to Z.*
   - METiCULOUS TYPE SYSTEM — *type inference, monomorphization, `typestate`.*
   - SAFE CONCURRENCY — *robust erlang-like actor model.*
   - META-LANGUAGE — *run code at `compile-time` via `#asm`, `#dom`, `#run` directives.*

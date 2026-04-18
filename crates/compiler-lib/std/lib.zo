@@ -4,10 +4,13 @@
 -! programs.
 
 pack assert;
+pack bool;
 pack char;
 pack cmp;
 pack fmt;
+pack int;
 pack io;
 pack math;
 pack preload;
 pack process;
+

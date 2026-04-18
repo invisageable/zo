@@ -1689,11 +1689,21 @@ impl<'a> Parser<'a> {
   }
 
   fn flush_expr(&mut self) {
+    // Always reset `last_was_value` on flush — it marks
+    // whether the next `+`/`-`/`*` should parse as
+    // binary (true) or unary (false). An empty-buffer
+    // flush happens between statements (e.g. the `;`
+    // after `return (1);` flushes nothing because the
+    // `)` already flushed the expression), but the
+    // statement boundary still ends the "value" context
+    // — otherwise the next statement's `-1` would see
+    // `last_was_value: true` from the previous `)` and
+    // parse `-` as the BINARY operator.
+    self.last_was_value = false;
+
     if self.expr_buffer.is_empty() {
       return;
     }
-
-    self.last_was_value = false;
 
     // Pop remaining binary operators from stack.
     while let Some((op_token, _, _)) = self.operator_stack.pop() {

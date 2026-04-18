@@ -1,0 +1,11 @@
+pack bool;
+
+apply bool {
+  pub fun as_int(self) -> int {
+    if self {
+      return 1;
+    }
+
+    return 0;
+  }
+}
