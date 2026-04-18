@@ -33,5 +33,5 @@ pub ext write_file(path: str, content: str) -> Result<int, int>;
 -! Returns `Err(errno)` on failure.
 pub ext append_file(path: str, content: str) -> Result<int, int>;
 
--! True iff `path` names an existing, accessible file.
+-! True if `path` names an existing, accessible file.
 pub ext exists(path: str) -> bool;

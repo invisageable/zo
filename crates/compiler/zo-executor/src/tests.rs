@@ -1,4 +1,5 @@
 pub(crate) mod abstract_defs;
+pub(crate) mod apply_primitive;
 pub(crate) mod arrays;
 pub(crate) mod arrays_generic;
 pub(crate) mod bitwise;

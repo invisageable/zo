@@ -1,0 +1,26 @@
+-- std::char inherent methods as a user would use them.
+
+fun main() {
+  imu digit: char = '7';
+  imu upper: char = 'Z';
+  imu lower: char = 'a';
+  imu space: char = ' ';
+
+  check(digit.is_digit());
+  check(digit.is_alphanumeric());
+  check@eq(digit.to_digit(), 7);
+
+  check(upper.is_alpha());
+  check(upper.is_uppercase());
+  check(upper.is_alphanumeric());
+
+  check(lower.is_alpha());
+  check(lower.is_lowercase());
+
+  check(space.is_whitespace());
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

@@ -7242,22 +7242,38 @@ impl<'a> Executor<'a> {
   /// to the applied type.
   /// Primitive-type tokens accepted as the target of
   /// `apply <T> { ... }` (inherent methods on primitives).
-  /// PR 1 supports `char` only — PR 2 will extend to `str`,
-  /// `int`, `float`, `bool`, `uint`. Kept as a single
-  /// predicate so the scan, the `For <Target>` rescan, and
-  /// future call-site mangling stay in sync.
+  /// Kept as a single predicate so the parser check,
+  /// `execute_apply`'s scan, the `For <Target>` rescan, and
+  /// the call-site mangling helpers stay in sync.
   fn is_primitive_type_token(tok: Token) -> bool {
-    matches!(tok, Token::CharType)
+    matches!(
+      tok,
+      Token::CharType
+        | Token::StrType
+        | Token::IntType
+        | Token::UintType
+        | Token::FloatType
+        | Token::BoolType
+    )
   }
 
   /// Canonical keyword string for a primitive `Ty` — must
   /// match `Token::ty_keyword_str` so the mangling symbol
   /// used at the call site (`"char" + "::" + method`) lines
   /// up with the one `execute_apply` interned at definition
-  /// time. Returns `None` for non-primitive Ty kinds.
+  /// time. Widths collapse to their canonical spelling
+  /// (`int = s32`, `uint = u32`, `float = f64`) so that
+  /// `apply int` dispatches regardless of which sized-int
+  /// literal the user wrote. Returns `None` for
+  /// non-primitive Ty kinds.
   fn primitive_ty_name_str(ty: &Ty) -> Option<&'static str> {
     match ty {
       Ty::Char => Some("char"),
+      Ty::Str => Some("str"),
+      Ty::Bool => Some("bool"),
+      Ty::Int { signed: true, .. } => Some("int"),
+      Ty::Int { signed: false, .. } => Some("uint"),
+      Ty::Float(_) => Some("float"),
       _ => None,
     }
   }
@@ -7734,7 +7750,9 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => None,
+      _ => {
+        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
+      }
     };
 
     let type_name = match type_name {
@@ -7790,7 +7808,9 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => None,
+      _ => {
+        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
+      }
     };
 
     let type_name = match type_name {

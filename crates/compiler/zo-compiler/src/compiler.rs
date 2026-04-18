@@ -243,7 +243,9 @@ impl Compiler {
     // public items (`showln`, `check`, `exit`, `Show`,
     // `Eq`, `Ord`, …) are available without explicit
     // `load` statements. Keep in sync with `std/lib.zo`.
-    let preload = ["preload", "io", "assert", "math", "cmp", "fmt", "process"];
+    let preload = [
+      "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
+    ];
 
     for module_name in preload {
       let sym = session.interner.intern(module_name);
@@ -286,7 +288,6 @@ impl Compiler {
 
         imported_enums.extend(exports.enums);
         imported_abstract_defs.extend(mod_sem.abstract_defs);
-
         module_sir_instructions.extend(exports.sir_instructions);
 
         module_next_value_id += exports.next_value_id;
@@ -315,6 +316,7 @@ impl Compiler {
 
         imported_enums.extend(exports.enums);
         module_sir_instructions.extend(exports.sir_instructions);
+
         module_next_value_id += exports.next_value_id;
 
         continue;
@@ -489,7 +491,9 @@ impl Compiler {
       if should_emit_tokens {
         let tokens_path = path.with_extension("tokens");
         let mut pp = PrettyPrinter::new();
+
         pp.format_tokens(&tokenization.tokens, code);
+
         let tokens_output = pp.finish();
 
         if let Err(error) = fs::write(&tokens_path, tokens_output) {
