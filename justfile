@@ -140,20 +140,39 @@ zo_bench_quick:
 zo_bench_update:
   cargo build --release --bin zo && cargo run --release -p zo-benches -- all --update-baseline
 
+# Run all eazy crates tests
+[group('eazy')]
+[group('test')]
+eazy_test:
+  cargo nextest run --workspace -E 'package(/^eazy/)' --all-features
+
 # Run `eazy` bench
+[group('eazy')]
 eazy_run_bench:
   cargo bench -p eazy 
 
 # Sync eazy benchmark reports to docs/ for GitHub Pages
+[group('eazy')]
 eazy_build_bench_reports:
   uv run sources/tweener/eazy-tasks/build_bench_reports.py
 
 # Run benchmarks and sync to docs (for GitHub Pages deployment)
 [parallel]
+[group('eazy')]
 eazy_publish_bench_reports: eazy_run_bench eazy_build_bench_reports
   @echo "Benchmarks published to docs/"
 
-# Dry-run publish all eazy-* crates                                          
+# Bump all eazy-* crates together
+[group('eazy')]
+bump_eazy bump:
+  #!/usr/bin/env sh
+  for crate in $(cargo ws list | grep '^eazy-'); do
+    cargo set-version -p "$crate" --bump {{bump}}
+  done
+  cargo set-version -p eazy --bump {{bump}}
+
+# Dry-run publish all eazy-* crates
+[group('eazy')]
 eazy_publish_dry:                                                            
   cargo publish -p eazy-core --dry-run                                       
   cargo publish -p eazy-derive --dry-run                                     
@@ -210,14 +229,6 @@ set_version crate version:
 # Bump a specific crate: just bump_crate eazy patch
 bump_crate crate bump:
   cargo set-version -p {{crate}} --bump {{bump}}
-
-# Bump all eazy-* crates together
-bump_eazy bump:
-  #!/usr/bin/env sh
-  for crate in $(cargo ws list | grep '^eazy-'); do
-    cargo set-version -p "$crate" --bump {{bump}}
-  done
-  cargo set-version -p eazy --bump {{bump}}
 
 # Bump all swisskit-* crates together
 bump_swisskit bump:

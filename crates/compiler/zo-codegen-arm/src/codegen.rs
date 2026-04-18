@@ -927,6 +927,11 @@ impl<'a> ARM64Gen<'a> {
           "flush" => {
             asm.push_str("  ; flush (no-op)\n");
           }
+          "exit" => {
+            asm.push_str("  ; exit(code) — code already in x0\n");
+            asm.push_str("  mov x16, #1   ; SYS_exit\n");
+            asm.push_str("  svc #0\n");
+          }
           _ => {
             asm.push_str(&format!("  bl _{}\n", func_name));
           }
@@ -1381,6 +1386,23 @@ impl<'a> ARM64Gen<'a> {
             self.emit_check_fail();
           }
           "flush" => {}
+
+          "exit" => {
+            // exit(code) — move the code into X0 (the
+            // first-arg ABI slot), set X16 to SYS_exit,
+            // svc 0. The kernel reaps the process; we
+            // never return, so no teardown follows.
+            let arg_vid = args.first().copied();
+
+            if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
+              && src != X0
+            {
+              self.emitter.emit_mov_reg(X0, src);
+            }
+
+            self.emitter.emit_mov_imm(X16, SYS_EXIT);
+            self.emitter.emit_svc(0);
+          }
 
           "exists" => self.emit_io_exists(args, idx),
           "read_file" => self.emit_io_read_file(args, idx),

@@ -1,0 +1,31 @@
+pack int;
+
+apply int {
+  pub fun is_positive(self) -> bool { self > 0 }
+  pub fun is_negative(self) -> bool { self < 0 }
+  pub fun is_zero(self) -> bool { self == 0 }
+
+  pub fun abs(self) -> int {
+    if self < 0 {
+      return -self;
+    }
+
+    return self;
+  }
+
+  pub fun min(self, other: int) -> int {
+    if self < other {
+      return self;
+    }
+
+    return other;
+  }
+
+  pub fun max(self, other: int) -> int {
+    if self > other {
+      return self;
+    }
+
+    return other;
+  }
+}

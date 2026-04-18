@@ -1,0 +1,25 @@
+-- std::int inherent methods.
+
+fun main() {
+  imu a: int = 42;
+  imu b: int = 0 - 7;
+  imu z: int = 0;
+
+  check(a.is_positive());
+  check(b.is_negative());
+  check(z.is_zero());
+
+  check@eq(a.abs(), 42);
+  check@eq(b.abs(), 7);
+  check@eq(z.abs(), 0);
+
+  check@eq(a.min(100), 42);
+  check@eq(a.max(100), 100);
+  check@eq(b.min(100), 0 - 7);
+  check@eq(b.max(100), 100);
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

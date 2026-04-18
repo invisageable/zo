@@ -1,1 +1,10 @@
--- Show must lives here.
+pack fmt;
+
+-! Convert a value to its string representation.
+-!
+-! `showln(x)` auto-dispatches to this abstract when `x`'s
+-! type implements `Show`. Manual calls via `x.show()` also
+-! route here.
+pub abstract Show {
+  fun show(self) -> str;
+}

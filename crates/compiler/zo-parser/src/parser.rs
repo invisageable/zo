@@ -1260,8 +1260,14 @@ impl<'a> Parser<'a> {
   fn handle_apply_keyword(&mut self) {
     self.flush_expr();
 
-    // `apply` must be followed by an identifier (type name).
-    if self.peek().is_some_and(|n| n != Token::Ident) {
+    // `apply` must be followed by an identifier (user type)
+    // OR a primitive-type keyword (`apply char { ... }` for
+    // inherent methods on primitives — the executor widens
+    // its own scan symmetrically via `ty_keyword_str`).
+    if self
+      .peek()
+      .is_some_and(|n| n != Token::Ident && n.ty_keyword_str().is_none())
+    {
       self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
     }
 
@@ -1661,11 +1667,17 @@ impl<'a> Parser<'a> {
 
       // Emit pending unary operators right after the operand
       // (postfix order). But NOT if the next token starts a
-      // call `(` or index `[` — the unary applies to the
-      // complete result, not the bare name.
+      // call `(`, index `[`, or dot-access `.` — the unary
+      // applies to the COMPLETE result of the chain, not the
+      // bare operand (e.g. `!x.foo()` → `!(x.foo())`, not
+      // `(!x).foo()`; same reasoning as `f(1 + 2)` needing
+      // `!` to fire after the call returns).
       let next = self.peek();
 
-      if next != Some(Token::LParen) && next != Some(Token::LBracket) {
+      if next != Some(Token::LParen)
+        && next != Some(Token::LBracket)
+        && next != Some(Token::Dot)
+      {
         while let Some((tok, sp)) = self.unary_spans.pop() {
           self.expr_buffer.push((tok, sp, None));
         }
@@ -1677,11 +1689,21 @@ impl<'a> Parser<'a> {
   }
 
   fn flush_expr(&mut self) {
+    // Always reset `last_was_value` on flush — it marks
+    // whether the next `+`/`-`/`*` should parse as
+    // binary (true) or unary (false). An empty-buffer
+    // flush happens between statements (e.g. the `;`
+    // after `return (1);` flushes nothing because the
+    // `)` already flushed the expression), but the
+    // statement boundary still ends the "value" context
+    // — otherwise the next statement's `-1` would see
+    // `last_was_value: true` from the previous `)` and
+    // parse `-` as the BINARY operator.
+    self.last_was_value = false;
+
     if self.expr_buffer.is_empty() {
       return;
     }
-
-    self.last_was_value = false;
 
     // Pop remaining binary operators from stack.
     while let Some((op_token, _, _)) = self.operator_stack.pop() {

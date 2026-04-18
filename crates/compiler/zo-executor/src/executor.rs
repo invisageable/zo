@@ -949,17 +949,31 @@ impl<'a> Executor<'a> {
 
       // === CONTROL FLOW ELSE ===
       Token::Else => {
-        if let Some(ctx) = self.branch_stack.last_mut()
-          && ctx.kind == BranchKind::If
-        {
-          // Jump over else block (from if-body).
-          self.sir.emit(Insn::Jump {
-            target: ctx.end_label,
-          });
+        let is_if = self
+          .branch_stack
+          .last()
+          .is_some_and(|c| c.kind == BranchKind::If);
 
-          // Emit else label.
-          if let Some(else_label) = ctx.else_label.take() {
-            self.sir.emit(Insn::Label { id: else_label });
+        if is_if {
+          // φ sink (if-as-expression): capture the then-arm
+          // value into the branch's sink local BEFORE the
+          // `Jump`. Mirrors the Ternary path at
+          // `Token::Colon` — both arms must `Store` to the
+          // sink before reconverging so the merge `Load`
+          // after `end_label` reads a defined slot.
+          let ctx_idx = self.branch_stack.len() - 1;
+
+          self.emit_branch_sink_store(ctx_idx);
+
+          // Re-borrow `ctx` for the Jump + else-label emit.
+          if let Some(ctx) = self.branch_stack.last_mut() {
+            self.sir.emit(Insn::Jump {
+              target: ctx.end_label,
+            });
+
+            if let Some(else_label) = ctx.else_label.take() {
+              self.sir.emit(Insn::Label { id: else_label });
+            }
           }
         }
       }
@@ -1567,15 +1581,42 @@ impl<'a> Executor<'a> {
                 // Else follows — don't close yet.
                 // Token::Else will emit Jump + Label.
               } else {
-                // No else — emit the label that
-                // BranchIfNot targets (else_label),
-                // plus end_label, then pop.
-                if let Some(el) = ctx.else_label {
+                // No else: this RBrace closes either the
+                // then-arm of an if-without-else OR the
+                // else-arm of an if-else (after `Token::Else`
+                // already emitted the else-label + the
+                // then-arm's sink store).
+                //
+                // If `else_label` is still set, we're on the
+                // no-else path and need to emit it before
+                // the merge label. Either way, when the if
+                // is an expression (`ctx.value_sink.is_some()`),
+                // store the current arm's top-of-stack into
+                // the sink BEFORE `end_label`, then `Load`
+                // it back AFTER so the merge pushes the
+                // expression's value onto the stacks.
+                let had_else_label = ctx.else_label.is_some();
+
+                // Capture the arm's value into the sink.
+                let ctx_idx = self.branch_stack.len() - 1;
+
+                self.emit_branch_sink_store(ctx_idx);
+
+                // Re-borrow `ctx` after the emit.
+                let ctx = self.branch_stack.last_mut().unwrap();
+
+                if had_else_label && let Some(el) = ctx.else_label {
                   self.sir.emit(Insn::Label { id: el });
                 }
 
                 self.sir.emit(Insn::Label { id: ctx.end_label });
-                self.branch_stack.pop();
+
+                let popped = self.branch_stack.pop().unwrap();
+
+                // Merge: reload the sink so the if-as-
+                // expression's value lands on the stacks.
+                // No-op for statement-position ifs (no sink).
+                self.emit_branch_sink_load(&popped);
               }
             }
             BranchKind::Ternary => {
@@ -4941,12 +4982,17 @@ impl<'a> Executor<'a> {
           }
           Token::SelfLower => {
             // `self` param in apply context — type is
-            // the applied type.
+            // the applied type. `resolve_ty_symbol`
+            // (not `resolve_ty_name`) so primitive applies
+            // (`apply char { fun … (self) … }`) resolve
+            // `self: char` via the interner-string table;
+            // structs/enums fall through to `resolve_ty_name`
+            // internally.
             if let Some(type_name) = self.apply_context {
               let self_sym = zo_interner::Symbol::SELF_LOWER;
               let self_ty = self
                 .ty_checker
-                .resolve_ty_name(type_name)
+                .resolve_ty_symbol(type_name, self.interner)
                 .unwrap_or_else(|| self.ty_checker.unit_type());
 
               let mutability = if is_mut {
@@ -7235,20 +7281,73 @@ impl<'a> Executor<'a> {
   /// Sets the apply context so child function definitions
   /// get mangled names (`Type::method`). `Self` resolves
   /// to the applied type.
-  fn execute_apply(&mut self, start_idx: usize, end_idx: usize) {
-    // Parse first identifier. The parser may place tokens
-    // like `For` before the first Ident in the tree, so
-    // scan children for the first Ident.
-    let first_ident_idx = (start_idx + 1..end_idx)
-      .find(|&i| self.tree.nodes[i].token == Token::Ident);
+  /// Primitive-type tokens accepted as the target of
+  /// `apply <T> { ... }` (inherent methods on primitives).
+  /// Kept as a single predicate so the parser check,
+  /// `execute_apply`'s scan, the `For <Target>` rescan, and
+  /// the call-site mangling helpers stay in sync.
+  fn is_primitive_type_token(tok: Token) -> bool {
+    matches!(
+      tok,
+      Token::CharType
+        | Token::StrType
+        | Token::IntType
+        | Token::UintType
+        | Token::FloatType
+        | Token::BoolType
+    )
+  }
 
-    let first_name =
-      first_ident_idx
-        .and_then(|i| self.node_value(i))
-        .and_then(|v| match v {
+  /// Canonical keyword string for a primitive `Ty` — must
+  /// match `Token::ty_keyword_str` so the mangling symbol
+  /// used at the call site (`"char" + "::" + method`) lines
+  /// up with the one `execute_apply` interned at definition
+  /// time. Widths collapse to their canonical spelling
+  /// (`int = s32`, `uint = u32`, `float = f64`) so that
+  /// `apply int` dispatches regardless of which sized-int
+  /// literal the user wrote. Returns `None` for
+  /// non-primitive Ty kinds.
+  fn primitive_ty_name_str(ty: &Ty) -> Option<&'static str> {
+    match ty {
+      Ty::Char => Some("char"),
+      Ty::Str => Some("str"),
+      Ty::Bool => Some("bool"),
+      Ty::Int { signed: true, .. } => Some("int"),
+      Ty::Int { signed: false, .. } => Some("uint"),
+      Ty::Float(_) => Some("float"),
+      _ => None,
+    }
+  }
+
+  fn execute_apply(&mut self, start_idx: usize, end_idx: usize) {
+    // Parse the applied type. Either an `Ident` (user type:
+    // struct/enum/alias) or a primitive-type keyword token
+    // (`CharType` et al. — PR 1 supports `char` only). The
+    // scan goes forward because the parser may place minor
+    // tokens between `apply` and the type name.
+    let first_ty_idx = (start_idx + 1..end_idx).find(|&i| {
+      let tok = self.tree.nodes[i].token;
+
+      tok == Token::Ident || Self::is_primitive_type_token(tok)
+    });
+
+    let first_name = first_ty_idx.and_then(|i| {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Ident {
+        self.node_value(i).and_then(|v| match v {
           NodeValue::Symbol(s) => Some(s),
           _ => None,
-        });
+        })
+      } else {
+        // Primitive keyword — synthesize its symbol via the
+        // token's canonical name string ("char" / "str" /
+        // "int" / "float" / "bool") so mangling (and the
+        // `self`-type lookup) keys off the same string as
+        // `resolve_ty_symbol` uses.
+        tok.ty_keyword_str().map(|s| self.interner.intern(s))
+      }
+    });
 
     let first_name = match first_name {
       Some(n) => n,
@@ -7265,18 +7364,26 @@ impl<'a> Executor<'a> {
     let mut abstract_name: Option<Symbol> = None;
     let mut type_name = first_name;
 
-    let scan_start = first_ident_idx.map(|i| i + 1).unwrap_or(start_idx + 2);
+    let scan_start = first_ty_idx.map(|i| i + 1).unwrap_or(start_idx + 2);
 
     for scan in scan_start..end_idx.min(scan_start + 8) {
       if self.tree.nodes[scan].token == Token::For {
         abstract_name = Some(first_name);
 
-        // Next Ident after For is the target type.
-        if scan + 1 < end_idx
-          && self.tree.nodes[scan + 1].token == Token::Ident
-          && let Some(NodeValue::Symbol(s)) = self.node_value(scan + 1)
-        {
-          type_name = s;
+        // Next token after For is the target type. Accept
+        // Ident OR primitive keyword (same widening).
+        if scan + 1 < end_idx {
+          let tok = self.tree.nodes[scan + 1].token;
+
+          if tok == Token::Ident
+            && let Some(NodeValue::Symbol(s)) = self.node_value(scan + 1)
+          {
+            type_name = s;
+          } else if Self::is_primitive_type_token(tok)
+            && let Some(s) = tok.ty_keyword_str()
+          {
+            type_name = self.interner.intern(s);
+          }
         }
 
         break;
@@ -7610,13 +7717,17 @@ impl<'a> Executor<'a> {
       }
     }
 
-    // Resolve receiver type name for struct/enum methods.
+    // Resolve receiver type name for struct/enum methods,
+    // or map a primitive `Ty` onto its canonical keyword
+    // string for `apply <Primitive> { ... }` methods.
     let type_name = match resolved {
       Ty::Struct(sid) => {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => None,
+      _ => {
+        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
+      }
     };
 
     let type_name = match type_name {
@@ -7680,7 +7791,9 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => None,
+      _ => {
+        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
+      }
     };
 
     let type_name = match type_name {
@@ -7736,7 +7849,9 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => None,
+      _ => {
+        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
+      }
     };
 
     let type_name = match type_name {

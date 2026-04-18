@@ -211,3 +211,22 @@ fun main() { p.hello(); }"#,
     },
   );
 }
+
+#[test]
+fn test_process_exit_call_is_emitted() {
+  // `exit(code)` is an `ext` intrinsic declared in
+  // `std/process.zo` and preloaded by the compiler. The
+  // SIR should contain a `Call` naming `exit`; codegen
+  // lowers it to `mov x16, #SYS_exit; svc #0`. We only
+  // check SIR-level emission here — the syscall shape
+  // itself is codegen's responsibility.
+  assert_sir_structure(r#"fun main() { exit(0); }"#, |insns| {
+    let has_exit_call = insns.iter().any(|i| matches!(i, Insn::Call { .. }));
+
+    // At least one Call must have been emitted (for `exit`).
+    assert!(
+      has_exit_call,
+      "expected a Call insn for exit(0), got: {insns:#?}"
+    );
+  });
+}

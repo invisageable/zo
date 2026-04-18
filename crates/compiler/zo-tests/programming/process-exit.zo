@@ -1,0 +1,12 @@
+-- process::exit terminates the process with a given code.
+-- when invoked with 0, the runner accepts as success and
+-- the lines before exit must have printed.
+
+fun main() {
+  showln("before exit");
+  exit(0);
+  showln("after exit — must not print");
+}
+
+-- EXPECTED OUTPUT:
+-- before exit

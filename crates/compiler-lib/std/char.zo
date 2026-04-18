@@ -1,0 +1,55 @@
+pack char;
+
+-! Inherent methods on the `char` primitive.
+-!
+-! All ASCII-oriented. Non-ASCII behaviour is undefined for
+-! the `is_*` predicates.
+
+apply char {
+  -! True iff `self` is an ASCII digit `'0'..'9'`.
+  pub fun is_digit(self) -> bool {
+    return self >= '0' && self <= '9';
+  }
+
+  -! True iff `self` is an ASCII alphabetic letter.
+  pub fun is_alpha(self) -> bool {
+    return (self >= 'a' && self <= 'z')
+        || (self >= 'A' && self <= 'Z');
+  }
+
+  -! True iff `self` is an ASCII alphanumeric character.
+  pub fun is_alphanumeric(self) -> bool {
+    return (self >= '0' && self <= '9')
+        || (self >= 'a' && self <= 'z')
+        || (self >= 'A' && self <= 'Z');
+  }
+
+  -! True iff `self` is an ASCII uppercase letter.
+  pub fun is_uppercase(self) -> bool {
+    return self >= 'A' && self <= 'Z';
+  }
+
+  -! True iff `self` is an ASCII lowercase letter.
+  pub fun is_lowercase(self) -> bool {
+    return self >= 'a' && self <= 'z';
+  }
+
+  -! True iff `self` is ASCII whitespace (space, tab, CR, LF).
+  pub fun is_whitespace(self) -> bool {
+    return self == ' '
+        || self == '\t'
+        || self == '\n'
+        || self == '\r';
+  }
+
+  -! Returns the digit value `0..9` for `'0'..'9'`, else `-1`.
+  -! Use `is_digit` first if you need to distinguish "not a
+  -! digit" from "the digit zero".
+  pub fun to_digit(self) -> int {
+    if self >= '0' && self <= '9' {
+      return (self as int) - ('0' as int);
+    }
+
+    return -1;
+  }
+}

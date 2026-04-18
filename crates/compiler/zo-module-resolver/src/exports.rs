@@ -52,6 +52,9 @@ pub struct ModuleExports {
   pub sir_instructions: Vec<Insn>,
   /// The next value id (for ValueId offset).
   pub next_value_id: u32,
+  /// The next label id (for Label / Jump / BranchIfNot
+  /// offset when merging into the main SIR).
+  pub next_label_id: u32,
 }
 
 /// Extracts pub exports from a compiled module's SIR.
@@ -262,5 +265,6 @@ pub fn extract_exports(
     consts,
     sir_instructions,
     next_value_id: sir.next_value_id,
+    next_label_id: sir.next_label_id,
   }
 }

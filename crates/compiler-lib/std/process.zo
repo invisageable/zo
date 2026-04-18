@@ -1,0 +1,9 @@
+pack process;
+
+-! Terminates the process with the given exit code.
+-!
+-! The call does not return — outstanding stack frames are
+-! not unwound, destructors are not invoked, and stdio
+-! buffers are not flushed. Use `flush()` beforehand if
+-! pending output matters.
+pub ext exit(code: int);
