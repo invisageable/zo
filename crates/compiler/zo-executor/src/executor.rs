@@ -899,6 +899,7 @@ impl<'a> Executor<'a> {
           scope_depth: self.scope_stack.len(),
           value_sink,
           value_sink_ty: None,
+          stack_depth_at_entry: self.sir_values.len() as u32,
         });
       }
 
@@ -8373,6 +8374,18 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
+    // Only store if the arm actually produced a fresh
+    // value on top of the stack. If `sir_values.len()`
+    // is the SAME (or less) than when the branch was
+    // entered, the arm ran purely for side effects
+    // (`high = mid - 1;`, etc.) and the current top
+    // belongs to an enclosing construct (e.g. the
+    // parent while's condition). Popping it here would
+    // silently corrupt the parent.
+    if (self.sir_values.len() as u32) <= ctx.stack_depth_at_entry {
+      return;
+    }
+
     let top_sir = match self.sir_values.last().copied() {
       Some(s) => s,
       None => return,
@@ -8418,13 +8431,16 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    let ty = ctx.value_sink_ty.unwrap_or_else(|| {
-      // No arm ever stored — the branch expression's
-      // type is unknown. Fall back to unit so downstream
-      // unification produces a readable error rather
-      // than a panic.
-      self.ty_checker.unit_type()
-    });
+    // No arm ever stored — the branch was allocated a
+    // sink eagerly (non-unit function, etc.) but the
+    // arms never produced a value (pure statements).
+    // Skip the Load entirely; emitting a Load against
+    // an uninitialised slot pushes garbage onto the
+    // stacks and corrupts downstream.
+    let ty = match ctx.value_sink_ty {
+      Some(t) => t,
+      None => return,
+    };
 
     let dst = ValueId(self.sir.next_value_id);
 
@@ -8460,6 +8476,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink,
       value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
     });
   }
 
@@ -9641,6 +9658,7 @@ impl<'a> Executor<'a> {
       // `loop { break value }` expression form yet.
       value_sink: None,
       value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
     });
   }
 
@@ -9942,6 +9960,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
     });
 
     // `LBrace` form: hand off to the main loop. The LBrace
@@ -10587,6 +10606,41 @@ impl<'a> Executor<'a> {
     let prev = self.tree.nodes[lparen_idx - 1].token;
 
     if prev == Token::Ident {
+      // A `::`-path (method/variant), `Dot`-path
+      // (`pack.fn()`), or `@`-modifier (`check@eq(`)
+      // before the Ident is always a call site — skip
+      // the fun/closure validation.
+      let has_path_prefix = lparen_idx >= 2
+        && matches!(
+          self.tree.nodes[lparen_idx - 2].token,
+          Token::ColonColon | Token::Dot | Token::At
+        );
+
+      if has_path_prefix {
+        return Some(lparen_idx - 1);
+      }
+
+      // Otherwise rule out variables: if the Ident
+      // resolves to a known NON-closure local, the
+      // adjacent `(` is a group, not a call (e.g. `low +
+      // (high - low)` where the parser now emits `low`
+      // adjacent to `(`). Everything else — named funs,
+      // closures, and unknown idents (external/builtin
+      // callees resolved at a later phase) — is treated
+      // as a call site.
+      if let Some(NodeValue::Symbol(sym)) = self.node_value(lparen_idx - 1) {
+        let is_plain_local = self.lookup_local(sym).is_some_and(|l| {
+          let vi = l.value_id.0 as usize;
+
+          vi < self.values.kinds.len()
+            && !matches!(self.values.kinds[vi], Value::Closure)
+        });
+
+        if is_plain_local {
+          return None;
+        }
+      }
+
       return Some(lparen_idx - 1);
     }
 
@@ -10633,8 +10687,38 @@ impl<'a> Executor<'a> {
       return false;
     }
 
-    // Direct: `Ident (`.
+    // Direct: `Ident (`. Validate the Ident is a function
+    // or closure — otherwise the adjacent `(` is a group
+    // (`x + (1)` emits `x, LParen` but `x` is a variable,
+    // not a callee). Mirrors `resolve_call_target`.
     if self.tree.nodes[ident_idx + 1].token == Token::LParen {
+      // `::`/`.`/`@` before the ident is always a call
+      // site (`Point::new(`, `pack.fn(`, `check@eq(`).
+      let has_path_prefix = ident_idx >= 1
+        && matches!(
+          self.tree.nodes[ident_idx - 1].token,
+          Token::ColonColon | Token::Dot | Token::At
+        );
+
+      if has_path_prefix {
+        return true;
+      }
+
+      // Mirror `resolve_call_target`: only REJECT the
+      // call interpretation if the ident is a known
+      // non-closure local. Otherwise (fun, closure, or
+      // external) treat as a call site.
+      if let Some(NodeValue::Symbol(sym)) = self.node_value(ident_idx) {
+        let is_plain_local = self.lookup_local(sym).is_some_and(|l| {
+          let vi = l.value_id.0 as usize;
+
+          vi < self.values.kinds.len()
+            && !matches!(self.values.kinds[vi], Value::Closure)
+        });
+
+        return !is_plain_local;
+      }
+
       return true;
     }
 
@@ -13220,6 +13304,19 @@ struct BranchCtx {
   /// first arm to `Store` into the sink; subsequent
   /// arms unify against it.
   value_sink_ty: Option<TyId>,
+  /// `sir_values.len()` captured when the branch was
+  /// pushed. `emit_branch_sink_store` uses this to tell
+  /// "this arm produced a new value on top of the stack"
+  /// (depth grew) from "this arm was purely statements
+  /// and the stack top is stale outer state from BEFORE
+  /// the branch" (depth unchanged). Without this guard,
+  /// a statement-position if inside a non-unit function
+  /// (which `mint_branch_sink_if_expr_position`
+  /// eagerly allocates a sink for) pops whatever sat on
+  /// the stack — typically the enclosing while's
+  /// condition bool — and silently corrupts the parent
+  /// construct.
+  stack_depth_at_entry: u32,
 }
 
 /// Tracks context when compiling inside a function

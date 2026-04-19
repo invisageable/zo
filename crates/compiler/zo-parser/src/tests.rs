@@ -5,6 +5,7 @@ pub(crate) mod directives;
 pub(crate) mod errors;
 pub(crate) mod generics;
 pub(crate) mod modules;
+pub(crate) mod precedence;
 pub(crate) mod styles;
 pub(crate) mod templates;
 pub(crate) mod unary;

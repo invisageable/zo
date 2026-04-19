@@ -3,6 +3,7 @@ pub(crate) mod apply_primitive;
 pub(crate) mod arrays;
 pub(crate) mod arrays_generic;
 pub(crate) mod bitwise;
+pub(crate) mod call_detection;
 pub(crate) mod cast;
 pub(crate) mod closures;
 pub(crate) mod common;
