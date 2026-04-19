@@ -602,11 +602,32 @@ fn free_dead(
 }
 
 /// Determine if a SIR instruction produces a float value.
+///
+/// `ty_id` on `Insn::BinOp` is the OPERAND type — for
+/// comparison operators (`<`, `<=`, `>`, `>=`, `==`, `!=`)
+/// the operands may be float but the RESULT is always
+/// bool (GP). Misclassifying `%r = lt %fa, %fb` as FP
+/// puts the boolean result into an FP register, while
+/// the codegen's CSEL writes it to a GP — consumers then
+/// read a stale FP value. Explicitly carve comparisons
+/// out so they allocate into the GP pool.
 fn insn_is_fp(insn: &Insn) -> bool {
   match insn {
     Insn::ConstFloat { .. } => true,
-    Insn::BinOp { ty_id, .. }
-    | Insn::UnOp { ty_id, .. }
+    Insn::BinOp { ty_id, op, .. } => {
+      let is_cmp = matches!(
+        op,
+        zo_sir::BinOp::Lt
+          | zo_sir::BinOp::Lte
+          | zo_sir::BinOp::Gt
+          | zo_sir::BinOp::Gte
+          | zo_sir::BinOp::Eq
+          | zo_sir::BinOp::Neq
+      );
+
+      !is_cmp && ty_id.0 >= 15 && ty_id.0 <= 17
+    }
+    Insn::UnOp { ty_id, .. }
     | Insn::Load { ty_id, .. }
     | Insn::Call { ty_id, .. }
     | Insn::ArrayIndex { ty_id, .. }

@@ -1189,18 +1189,51 @@ impl<'a> ARM64Gen<'a> {
         if is_float {
           let fl = self.alloc_fp_reg(*lhs).unwrap_or(D0);
           let fr = self.alloc_fp_reg(*rhs).unwrap_or(D1);
-          let fd = self.alloc_fp_reg(*dst).unwrap_or(D0);
           match op {
-            BinOp::Add => self.emitter.emit_fadd(fd, fl, fr),
-            BinOp::Sub => self.emitter.emit_fsub(fd, fl, fr),
-            BinOp::Mul => self.emitter.emit_fmul(fd, fl, fr),
-            BinOp::Div => self.emitter.emit_fdiv(fd, fl, fr),
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+              let fd = self.alloc_fp_reg(*dst).unwrap_or(D0);
+
+              match op {
+                BinOp::Add => self.emitter.emit_fadd(fd, fl, fr),
+                BinOp::Sub => self.emitter.emit_fsub(fd, fl, fr),
+                BinOp::Mul => self.emitter.emit_fmul(fd, fl, fr),
+                BinOp::Div => self.emitter.emit_fdiv(fd, fl, fr),
+                _ => unreachable!(),
+              }
+            }
             BinOp::Lt
             | BinOp::Lte
             | BinOp::Gt
             | BinOp::Gte
             | BinOp::Eq
-            | BinOp::Neq => self.emitter.emit_fcmp(fl, fr),
+            | BinOp::Neq => {
+              // Float comparison: result is a BOOL (GP),
+              // NOT an FP value. The previous code emitted
+              // only FCMP (which sets flags) and allocated
+              // `fd` as an FP register — leaving the GP
+              // destination reg uninitialized. `while x0 <
+              // 3.0` then read garbage as its condition and
+              // looped forever. Mirror the int path: FCMP
+              // sets NZCV, then materialize 0/1 into the
+              // GP `dst` via CSEL. For non-NaN operands the
+              // signed condition codes (LT/LE/GT/GE/EQ/NE)
+              // map correctly onto FCMP's flag layout.
+              let d = self.alloc_reg(*dst).unwrap_or(X0);
+              let cond = match op {
+                BinOp::Lt => COND_LT,
+                BinOp::Lte => COND_LE,
+                BinOp::Gt => COND_GT,
+                BinOp::Gte => COND_GE,
+                BinOp::Eq => COND_EQ,
+                BinOp::Neq => COND_NE,
+                _ => unreachable!(),
+              };
+
+              self.emitter.emit_fcmp(fl, fr);
+              self.emitter.emit_mov_imm(d, 1);
+              self.emitter.emit_mov_imm(X16, 0);
+              self.emitter.emit_csel(d, d, X16, cond);
+            }
             _ => {}
           }
         } else if ty_id.0 == STR_TYPE_ID && matches!(op, BinOp::Eq | BinOp::Neq)

@@ -1,0 +1,50 @@
+-- tests-run-pass: float comparisons in while-loop conditions —
+-- regression for issue K (CL15). Two compounding bugs:
+--   1. Float `BinOp::Lt/Lte/Gt/Gte/Eq/Neq` emitted only
+--      FCMP (sets flags) and allocated the dst as an FP
+--      register. No CSEL to materialize a 0/1 result. The
+--      while-loop's `br_ifnot` then read an uninitialized
+--      register and either looped forever or exited
+--      immediately depending on leftover bits.
+--   2. The register allocator's `insn_is_fp` used the
+--      BinOp's operand type, so float-operand
+--      comparisons were allocated into the FP pool —
+--      their bool result went to an FP reg while the
+--      codegen's CSEL wrote to GP. Consumers read a
+--      stale FP value.
+
+fun main() {
+  -- simple float while — must terminate after 3 iters.
+  mut x0: float = 0.0;
+  mut iters: int = 0;
+
+  while x0 < 3.0 {
+    x0 = x0 + 1.0;
+    iters = iters + 1;
+  }
+
+  check@eq(iters, 3);
+
+  -- mixed int + float in `&&` — both must evaluate
+  -- correctly inside the loop condition.
+  mut mag: float = 0.25;
+  mut iter: int = 0;
+
+  while iter < 5 && mag <= 4.0 {
+    iter = iter + 1;
+  }
+
+  check@eq(iter, 5);
+
+  -- early-exit through the float side.
+  mut big: float = 100.0;
+  mut loops: int = 0;
+
+  while loops < 10 && big <= 4.0 {
+    loops = loops + 1;
+  }
+
+  check@eq(loops, 0);
+
+  showln("all float-while checks passed!");
+}
