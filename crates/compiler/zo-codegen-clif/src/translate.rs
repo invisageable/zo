@@ -44,6 +44,29 @@ const AGG_SLOT_SIZE: u32 = 8;
 /// expressed as a shift, so `align = 1 << ALIGN_SHIFT`.
 const AGG_ALIGN_SHIFT: u8 = 3;
 
+/// Literal value of a module-scope `val X = ...;` (`ConstDef`).
+/// Resolved once during `translate_module`'s declaration scan
+/// and inlined at every `Load { Local(X) }` site — matches
+/// plan row 6 ("Compile-time constant (inlined at uses)"). The
+/// raw literal is stored so re-materialization at the use site
+/// uses the same codepaths as a fresh literal (`ConstInt` →
+/// `iconst`, `ConstString` → data section).
+#[derive(Clone, Copy)]
+pub(crate) enum ConstLiteral {
+  /// Integer constant. `ty_id` determines the CLIF integer
+  /// type at the use site.
+  Int { value: u64, ty_id: TyId },
+  /// Float constant. `ty_id` distinguishes `f32` (TyId 15)
+  /// from `f64` / arch-float (TyId 16 / 17).
+  Float { value: f64, ty_id: TyId },
+  /// Boolean constant — always `I8` with value 0 or 1.
+  Bool { value: bool },
+  /// String literal — re-runs the `ConstString` data-section
+  /// path with this `Symbol`; the per-symbol dedup map in
+  /// `TCtx` ensures one data object per distinct literal.
+  Str { symbol: Symbol },
+}
+
 /// Module-wide translation state threaded through
 /// [`translate_body`]. Bundled so the signature stays manageable
 /// as more per-module state accrues (string dedup, later:
@@ -67,6 +90,11 @@ pub(crate) struct TCtx<'a> {
   /// repeated `ConstString` for the same symbol within one
   /// module — a single data object per distinct string.
   pub(crate) const_strings: &'a mut HashMap<Symbol, DataId>,
+  /// Module-scope `val NAME = lit;` bindings (`ConstDef`).
+  /// Populated in `translate_module`'s first pass, consulted
+  /// at every `Load { Local(NAME) }` before the `FunCtx.vars`
+  /// lookup.
+  pub(crate) const_defs: &'a HashMap<Symbol, ConstLiteral>,
   /// Pointer-width CLIF type for the target. Cached so each
   /// `ConstString` doesn't re-query the module config.
   pub(crate) ptr_ty: ir::Type,
@@ -147,6 +175,9 @@ pub(crate) fn translate_module(
   // Persistent across the whole module so repeat `ConstString`s
   // for the same `Symbol` share one data object.
   let mut const_strings: HashMap<Symbol, DataId> = HashMap::default();
+  // Module-scope `val NAME = lit;` bindings resolved to their
+  // raw literal so every `Load { Local(NAME) }` can inline.
+  let const_defs = collect_const_defs(insns);
 
   for insn in insns {
     if let Insn::FunDef {
@@ -260,6 +291,7 @@ pub(crate) fn translate_module(
         interner,
         func_ids: &func_ids,
         const_strings: &mut const_strings,
+        const_defs: &const_defs,
         ptr_ty,
       };
 
@@ -309,6 +341,126 @@ fn preallocate_label_blocks(
       let block = builder.create_block();
 
       ctx.blocks.insert(*id, block);
+    }
+  }
+}
+
+/// First-pass scan: walk the SIR stream, locate every
+/// `Insn::ConstDef { name, value, .. }`, and resolve its
+/// `value: ValueId` back to the `Const*` insn that produced it.
+/// Returns a map so `Load { Local(NAME) }` can inline the
+/// literal at every use.
+///
+/// Conservative: if a ConstDef's producer isn't a direct
+/// literal (e.g. computed expression SIR wasn't pre-folded),
+/// the name is simply absent from the map — Load falls through
+/// to the normal `vars` path and either resolves there or
+/// traps. Matches plan row 6's "inlined at uses" intent
+/// without depending on a pre-fold guarantee.
+fn collect_const_defs(insns: &[Insn]) -> HashMap<Symbol, ConstLiteral> {
+  let mut out: HashMap<Symbol, ConstLiteral> = HashMap::default();
+
+  for insn in insns {
+    let Insn::ConstDef { name, value, .. } = insn else {
+      continue;
+    };
+
+    let Some(lit) = insns.iter().find_map(|producer| match producer {
+      Insn::ConstInt {
+        dst,
+        value: v,
+        ty_id,
+      } if dst == value => Some(ConstLiteral::Int {
+        value: *v,
+        ty_id: *ty_id,
+      }),
+      Insn::ConstFloat {
+        dst,
+        value: v,
+        ty_id,
+      } if dst == value => Some(ConstLiteral::Float {
+        value: *v,
+        ty_id: *ty_id,
+      }),
+      Insn::ConstBool { dst, value: v, .. } if dst == value => {
+        Some(ConstLiteral::Bool { value: *v })
+      }
+      Insn::ConstString { dst, symbol, .. } if dst == value => {
+        Some(ConstLiteral::Str { symbol: *symbol })
+      }
+      _ => None,
+    }) else {
+      continue;
+    };
+
+    out.insert(*name, lit);
+  }
+
+  out
+}
+
+/// Materializes a [`ConstLiteral`] at a use site. Mirrors the
+/// same CLIF emission used for fresh literal insns so the
+/// inlined form is indistinguishable from a direct literal.
+fn materialize_const_literal(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  lit: ConstLiteral,
+) -> ir::Value {
+  match lit {
+    ConstLiteral::Int { value, ty_id } => {
+      let ty = ty_id_to_clif(ty_id, ir::types::I64);
+
+      builder.ins().iconst(ty, value as i64)
+    }
+    ConstLiteral::Float { value, ty_id } => {
+      if ty_id.0 == 15 {
+        builder.ins().f32const(value as f32)
+      } else {
+        builder.ins().f64const(value)
+      }
+    }
+    ConstLiteral::Bool { value } => {
+      builder.ins().iconst(ir::types::I8, i64::from(value))
+    }
+    ConstLiteral::Str { symbol } => {
+      // Mirrors the `Insn::ConstString` arm — re-uses the
+      // per-symbol dedup map so multiple Loads of the same
+      // ConstDef point at a single data object.
+      let data_id = if let Some(id) = tctx.const_strings.get(&symbol).copied() {
+        id
+      } else {
+        let s = tctx.interner.get(symbol);
+        let bytes = s.as_bytes();
+        let len = bytes.len() as u64;
+
+        let mut buf: Vec<u8> = Vec::with_capacity(8 + bytes.len());
+
+        buf.extend_from_slice(&len.to_le_bytes());
+        buf.extend_from_slice(bytes);
+
+        let mut desc = DataDescription::new();
+
+        desc.define(buf.into_boxed_slice());
+
+        let id = tctx
+          .module
+          .declare_anonymous_data(false, false)
+          .expect("declare_anonymous_data failed");
+
+        tctx
+          .module
+          .define_data(id, &desc)
+          .expect("define_data failed");
+
+        tctx.const_strings.insert(symbol, id);
+
+        id
+      };
+
+      let gv = tctx.module.declare_data_in_func(data_id, builder.func);
+
+      builder.ins().global_value(tctx.ptr_ty, gv)
     }
   }
 }
@@ -810,10 +962,26 @@ fn translate_body(
         builder.def_var(var, v);
       }
       Insn::Load { dst, src, .. } => {
-        // `Param(idx)` hits `params[idx]`; `Local(sym)` hits
-        // `vars[sym]`. Both routes resolve to a `Variable`
-        // which `use_var` materializes into an SSA value,
-        // auto-inserting phis at merges.
+        // Resolution order for `Local(sym)`:
+        //   1. `const_defs` — module-scope `val NAME = lit;`.
+        //      Inline the raw literal so every use site emits
+        //      a fresh iconst / data-section reference. Plan
+        //      row 6.
+        //   2. `vars[sym]` — locals declared by `VarDef` and
+        //      parameters mirrored under their name.
+        // `Param(idx)` skips the const-def check (params are
+        // never module-scope constants) and goes straight to
+        // the index-keyed `params` vec.
+        if let LoadSource::Local(sym) = src
+          && let Some(lit) = tctx.const_defs.get(sym).copied()
+        {
+          let v = materialize_const_literal(tctx, builder, lit);
+
+          ctx.values.insert(*dst, v);
+
+          continue;
+        }
+
         let var = match src {
           LoadSource::Param(idx) => ctx.params.get(*idx as usize).copied(),
           LoadSource::Local(sym) => ctx.vars.get(sym).copied(),
@@ -834,12 +1002,15 @@ fn translate_body(
       // Module-level markers that the executor interleaves
       // with real work. No-ops in this backend: registration
       // already happened in the top-level first pass.
+      // `Directive` (`#run`, `#dom`) is a semantic marker —
+      // no CLIF to emit.
       Insn::PackDecl { .. }
       | Insn::ModuleLoad { .. }
       | Insn::EnumDef { .. }
       | Insn::StructDef { .. }
       | Insn::ArrayTyDef { .. }
-      | Insn::ConstDef { .. } => {}
+      | Insn::ConstDef { .. }
+      | Insn::Directive { .. } => {}
       // Phase 2a stub: any insn not yet supported emits a
       // single `trap` terminator and bails out of this body.
       // The module still builds; calling the stubbed fn at
@@ -1011,7 +1182,6 @@ fn translate_unop(
     // Ref / Deref — phase 2d (locals / aggregates). Trap for now.
     UnOp::Ref | UnOp::Deref => {
       builder.ins().trap(ir::TrapCode::user(1).unwrap());
-
       builder.ins().iconst(ir::types::I64, 0)
     }
   }
