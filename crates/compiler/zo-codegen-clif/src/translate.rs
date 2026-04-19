@@ -15,7 +15,7 @@
 use crate::types::{is_float, is_unsigned_int, pointer_ty, ty_id_to_clif};
 
 use zo_interner::{Interner, Symbol};
-use zo_sir::{BinOp, Insn, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, UnOp};
 use zo_ty::TyId;
 use zo_value::{FunctionKind, ValueId};
 
@@ -23,7 +23,7 @@ use cranelift::codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift::codegen::ir::{AbiParam, Function, InstBuilder, UserFuncName};
 use cranelift::codegen::isa::CallConv;
 use cranelift::codegen::{Context, ir};
-use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};
 use cranelift_object::ObjectModule;
 use rustc_hash::FxHashMap as HashMap;
@@ -36,6 +36,18 @@ pub(crate) struct FunCtx {
   /// SIR label id → CLIF `Block` (populated by the label
   /// pre-pass so forward jumps can resolve).
   pub(crate) blocks: HashMap<u32, ir::Block>,
+  /// Symbol-keyed slots — locals declared by `Insn::VarDef`
+  /// plus parameters mirrored under their declaration name so
+  /// `Store { name }` resolves regardless of whether it hits
+  /// a param or a local. Cranelift's `Variable` API bridges
+  /// SIR's mutable named slots and CLIF's SSA: `def_var` for
+  /// writes, `use_var` for reads, phi nodes auto-inserted.
+  pub(crate) vars: HashMap<Symbol, Variable>,
+  /// Parameters in declaration order. `Load { Param(idx) }`
+  /// indexes this vec directly (SIR's `Param` carries a u32
+  /// slot index, not a symbol, so name-keyed lookup can't
+  /// serve it).
+  pub(crate) params: Vec<Variable>,
   /// True iff the current CLIF block has a terminator already
   /// emitted (`return_`, `jump`, `brif`, `trap`). CLIF's
   /// `FunctionBuilder::is_filled` is private, so we mirror the
@@ -50,8 +62,28 @@ impl FunCtx {
     Self {
       values: HashMap::default(),
       blocks: HashMap::default(),
+      vars: HashMap::default(),
+      params: Vec::new(),
       terminated: false,
     }
+  }
+
+  /// Declares a fresh [`Variable`] for `name` with CLIF type
+  /// `ty` on the builder and records the mapping. Cranelift
+  /// mints the `Variable` internally (`declare_var` returns
+  /// it); we just thread it into `vars`. Called for every
+  /// parameter at entry and every `VarDef`.
+  fn declare_local(
+    &mut self,
+    builder: &mut FunctionBuilder,
+    name: Symbol,
+    ty: ir::Type,
+  ) -> Variable {
+    let var = builder.declare_var(ty);
+
+    self.vars.insert(name, var);
+
+    var
   }
 }
 
@@ -146,6 +178,20 @@ pub(crate) fn translate_module(
     builder.seal_block(entry);
 
     let mut fun_ctx = FunCtx::new();
+
+    // Seed `Variable`s from the entry block's parameters.
+    // Every param is pushed into `params` (for index-keyed
+    // `Load { Param(idx) }`) and mirrored into `vars` under
+    // its declaration name (for name-keyed `Store { name }`
+    // if a mutable param is later reassigned).
+    for (idx, (sym, pty)) in params.iter().enumerate() {
+      let ty = ty_id_to_clif(*pty, ptr_ty);
+      let v = builder.block_params(entry)[idx];
+      let var = fun_ctx.declare_local(&mut builder, *sym, ty);
+
+      builder.def_var(var, v);
+      fun_ctx.params.push(var);
+    }
 
     // Phase 2c label pre-pass: allocate a CLIF block per SIR
     // `Label { id }` in the body so forward jumps / brifs can
@@ -387,6 +433,68 @@ fn translate_body(
 
         builder.switch_to_block(fallthrough);
       }
+      Insn::VarDef {
+        name, ty_id, init, ..
+      } => {
+        let ty = ty_id_to_clif(*ty_id, ir::types::I64);
+        let var = ctx.declare_local(builder, *name, ty);
+
+        // `init: Some(vid)` maps to an immediate `def_var` so
+        // the following `Load`s see the initializer. `None`
+        // leaves the Variable declared-but-undefined — a later
+        // `Store` must hit it before any `Load`, which the
+        // semantic analyzer already enforces.
+        if let Some(init_v) = init {
+          let Some(v) = ctx.values.get(init_v).copied() else {
+            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+            ctx.terminated = true;
+
+            return;
+          };
+
+          builder.def_var(var, v);
+        }
+      }
+      Insn::Store { name, value, .. } => {
+        let Some(var) = ctx.vars.get(name).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+        let Some(v) = ctx.values.get(value).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        builder.def_var(var, v);
+      }
+      Insn::Load { dst, src, .. } => {
+        // `Param(idx)` hits `params[idx]`; `Local(sym)` hits
+        // `vars[sym]`. Both routes resolve to a `Variable`
+        // which `use_var` materializes into an SSA value,
+        // auto-inserting phis at merges.
+        let var = match src {
+          LoadSource::Param(idx) => ctx.params.get(*idx as usize).copied(),
+          LoadSource::Local(sym) => ctx.vars.get(sym).copied(),
+        };
+        let Some(var) = var else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let v = builder.use_var(var);
+
+        ctx.values.insert(*dst, v);
+      }
       Insn::Nop => {}
       // Module-level markers that the executor interleaves
       // with real work. No-ops in this backend: registration
@@ -396,8 +504,7 @@ fn translate_body(
       | Insn::EnumDef { .. }
       | Insn::StructDef { .. }
       | Insn::ArrayTyDef { .. }
-      | Insn::ConstDef { .. }
-      | Insn::VarDef { .. } => {}
+      | Insn::ConstDef { .. } => {}
       // Phase 2a stub: any insn not yet supported emits a
       // single `trap` terminator and bails out of this body.
       // The module still builds; calling the stubbed fn at
