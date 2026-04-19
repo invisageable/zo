@@ -100,6 +100,15 @@ pub(crate) struct TCtx<'a> {
   /// at every `Load { Local(NAME) }` before the `FunCtx.vars`
   /// lookup.
   pub(crate) const_defs: &'a HashMap<Symbol, ConstLiteral>,
+  /// `FuncId` for libc `write(fd, buf, count)`, lazily
+  /// declared by the first `show` / `showln` / `eshow` /
+  /// `eshowln` call site. `cc` resolves it against
+  /// libc / libSystem at link time.
+  pub(crate) write_func_id: &'a mut Option<FuncId>,
+  /// `DataId` for the 1-byte `"\n"` data object, lazily
+  /// allocated on first `showln` / `eshowln`. Shared across
+  /// every newline-emitting call.
+  pub(crate) newline_data_id: &'a mut Option<DataId>,
   /// Pointer-width CLIF type for the target. Cached so each
   /// `ConstString` doesn't re-query the module config.
   pub(crate) ptr_ty: ir::Type,
@@ -196,6 +205,11 @@ pub(crate) fn translate_module(
   // Module-scope `val NAME = lit;` bindings resolved to their
   // raw literal so every `Load { Local(NAME) }` can inline.
   let const_defs = collect_const_defs(insns);
+  // Lazily populated by show/showln intercept. Kept at
+  // module scope so every function body shares a single
+  // `write` FuncId and a single "\n" data object.
+  let mut write_func_id: Option<FuncId> = None;
+  let mut newline_data_id: Option<DataId> = None;
 
   for (idx, insn) in insns.iter().enumerate() {
     if let Insn::FunDef {
@@ -328,6 +342,8 @@ pub(crate) fn translate_module(
         func_ids: &func_ids,
         const_strings: &mut const_strings,
         const_defs: &const_defs,
+        write_func_id: &mut write_func_id,
+        newline_data_id: &mut newline_data_id,
         ptr_ty,
       };
 
@@ -609,6 +625,156 @@ fn translate_cast(
       }
     }
   }
+}
+
+/// Declares libc `write(int fd, const void *buf, size_t count)
+/// -> ssize_t` as an `Import` exactly once per module. Later
+/// calls reuse the cached `FuncId`. `cc` resolves the symbol
+/// against libc / libSystem at link time — no extra `-l` flag
+/// needed, it's pulled in by the default C startup.
+fn ensure_write_func(tctx: &mut TCtx<'_>) -> FuncId {
+  if let Some(id) = *tctx.write_func_id {
+    return id;
+  }
+
+  let mut sig =
+    ir::Signature::new(tctx.module.target_config().default_call_conv);
+
+  sig.params.push(AbiParam::new(ir::types::I32)); // fd
+  sig.params.push(AbiParam::new(tctx.ptr_ty)); // buf
+  sig.params.push(AbiParam::new(tctx.ptr_ty)); // count (size_t)
+  sig.returns.push(AbiParam::new(tctx.ptr_ty)); // ssize_t
+
+  let id = tctx
+    .module
+    .declare_function("write", Linkage::Import, &sig)
+    .expect("declare write failed");
+
+  *tctx.write_func_id = Some(id);
+
+  id
+}
+
+/// Allocates the shared 1-byte `"\n"` data object used by
+/// `showln` / `eshowln` at most once per module. Subsequent
+/// calls return the cached `DataId`.
+fn ensure_newline_data(tctx: &mut TCtx<'_>) -> DataId {
+  if let Some(id) = *tctx.newline_data_id {
+    return id;
+  }
+
+  let mut desc = DataDescription::new();
+
+  desc.define(Box::new([b'\n']));
+
+  let id = tctx
+    .module
+    .declare_anonymous_data(false, false)
+    .expect("declare newline data failed");
+
+  tctx
+    .module
+    .define_data(id, &desc)
+    .expect("define newline data failed");
+
+  *tctx.newline_data_id = Some(id);
+
+  id
+}
+
+/// Emits a `write(fd, buf, count)` CLIF call.
+fn emit_write_call(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  fd: i64,
+  buf: ir::Value,
+  count: ir::Value,
+) {
+  let func_id = ensure_write_func(tctx);
+  let fref = tctx.module.declare_func_in_func(func_id, builder.func);
+  let fd_v = builder.ins().iconst(ir::types::I32, fd);
+
+  builder.ins().call(fref, &[fd_v, buf, count]);
+}
+
+/// Translates `show` / `showln` / `eshow` / `eshowln` into
+/// direct libc `write` calls, matching the ARM backend's
+/// open-coded syscall behavior without needing a separate
+/// runtime crate. The single SIR argument must be a string
+/// pointer returned by `ConstString` (layout:
+/// `[u64 LE len, UTF-8 bytes]`).
+///
+/// Phase 5.3 scope: strings only. Non-string arguments emit
+/// a trap — a type-dispatched runtime (int/bool/etc.) is a
+/// later phase.
+///
+/// `fd = 1` for `show`/`showln` (stdout), `fd = 2` for
+/// `eshow`/`eshowln` (stderr). `showln` / `eshowln` emit a
+/// trailing `"\n"` write.
+fn emit_io_intrinsic(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  ctx: &mut FunCtx,
+  dst: ValueId,
+  name: &str,
+  args: &[ValueId],
+) {
+  let fd: i64 = if name.starts_with('e') { 2 } else { 1 };
+  let with_newline = name.ends_with("ln");
+
+  let Some(&arg_id) = args.first() else {
+    // No arg — treat as a no-op with unit sentinel.
+    let sentinel = builder.ins().iconst(ir::types::I8, 0);
+
+    ctx.values.insert(dst, sentinel);
+
+    return;
+  };
+
+  let Some(arg_val) = ctx.values.get(&arg_id).copied() else {
+    builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+    ctx.terminated = true;
+
+    return;
+  };
+
+  // Heuristic: only string-shaped args (ptr-width) route
+  // through write. Int / bool / etc. need type-dispatched
+  // formatting — trap until Phase 5.4.
+  let arg_ty = builder.func.dfg.value_type(arg_val);
+
+  if arg_ty != tctx.ptr_ty {
+    // TODO(phase-5.4): dispatch per type (itoa / ftoa / etc.)
+    // via a typed runtime shim.
+    builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+    ctx.terminated = true;
+
+    return;
+  }
+
+  // Decompose the `[u64 LE len, bytes]` header into
+  // `(data_ptr, len)`.
+  let len = builder.ins().load(tctx.ptr_ty, MemFlags::new(), arg_val, 0);
+  let data_ptr = builder.ins().iadd_imm(arg_val, 8);
+
+  emit_write_call(tctx, builder, fd, data_ptr, len);
+
+  if with_newline {
+    let nl_id = ensure_newline_data(tctx);
+    let nl_gv = tctx.module.declare_data_in_func(nl_id, builder.func);
+    let nl_ptr = builder.ins().global_value(tctx.ptr_ty, nl_gv);
+    let one = builder.ins().iconst(tctx.ptr_ty, 1);
+
+    emit_write_call(tctx, builder, fd, nl_ptr, one);
+  }
+
+  // `show` family returns unit. Materialize an `I8` sentinel
+  // so any downstream refs to `dst` don't miss `ctx.values`.
+  let sentinel = builder.ins().iconst(ir::types::I8, 0);
+
+  ctx.values.insert(dst, sentinel);
 }
 
 /// Widens `idx` to pointer width via `uextend` if it's
@@ -962,6 +1128,18 @@ fn translate_body(
       Insn::Call {
         dst, name, args, ..
       } => {
+        // Phase 5.3: intercept zo's I/O intrinsics before the
+        // normal `declare_func_in_func` path — they have no
+        // symbol in libc, so we inline them as `write` syscalls
+        // matching the ARM backend's open-coded behavior.
+        let name_str = tctx.interner.get(*name);
+
+        if matches!(name_str, "show" | "showln" | "eshow" | "eshowln") {
+          emit_io_intrinsic(tctx, builder, ctx, *dst, name_str, args);
+
+          continue;
+        }
+
         let Some(func_id) = tctx.func_ids.get(name).copied() else {
           // Callee not in the first-pass declaration table —
           // semantic analyzer shouldn't let this through, but
