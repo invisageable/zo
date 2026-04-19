@@ -12,6 +12,7 @@ doctest = false
 # internal:crates.
 zo-codegen-arm = { workspace = true }
 zo-codegen-backend = { workspace = true }
+zo-codegen-clif = { workspace = true }
 zo-error = { workspace = true }
 zo-interner = { workspace = true }
 zo-sir = { workspace = true }

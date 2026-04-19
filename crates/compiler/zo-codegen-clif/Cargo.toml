@@ -1,0 +1,22 @@
+[package]
+name = "zo-codegen-clif"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:crates.
+zo-codegen-backend = { workspace = true }
+zo-interner = { workspace = true }
+zo-sir = { workspace = true }
+zo-ty = { workspace = true }
+
+# external:crates.
+cranelift = { workspace = true }
+cranelift-codegen = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-native = { workspace = true }
+cranelift-object = { workspace = true }
+target-lexicon = { workspace = true }
