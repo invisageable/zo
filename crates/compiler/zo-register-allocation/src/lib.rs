@@ -10,15 +10,31 @@ use rustc_hash::FxHashMap as HashMap;
 pub use zo_liveness::{compute_value_ids, insn_uses};
 
 /// Caller-saved GP register indices, preferred order.
-/// Temps (X9-X15) first, then args (X0-X7).
-pub const ALLOCATABLE_GP: [u8; 15] =
-  [9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7];
+/// Temps (X9-X15) first, then args (X1-X7). X0 is
+/// RESERVED for call-result values — the Call handler
+/// at line 334 hard-codes the callee's return as `reg=0`,
+/// and the reload-after-call path reallocates any live
+/// value that happened to be in X0 into a fresh register
+/// (x0 now holds the call result). That reallocation
+/// rewrites `assignments[vid]`, so the original def (e.g.
+/// `ConstInt` emitted BEFORE the call) ends up targeting
+/// the new register — while the already-emitted spill
+/// store still references x0. Result: the spill reads
+/// the callee's stale result instead of the real value.
+/// Removing x0 from the pool keeps regular values out of
+/// x0 entirely, so the reload path never needs to
+/// reallocate. Bug surfaced by `3 + five() / 2` appearing
+/// twice in a row (CL15).
+pub const ALLOCATABLE_GP: [u8; 14] =
+  [9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7];
 
 /// Caller-saved FP register indices, preferred order.
-/// Temps (D16-D31) first, then args (D0-D7).
-pub const ALLOCATABLE_FP: [u8; 24] = [
-  16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 0, 1, 2, 3,
-  4, 5, 6, 7,
+/// Temps (D16-D31) first, then args (D1-D7). D0 is
+/// RESERVED for call-result values for the same reason
+/// as X0 above.
+pub const ALLOCATABLE_FP: [u8; 23] = [
+  16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 1, 2, 3, 4,
+  5, 6, 7,
 ];
 
 /// GP vs FP register classification.

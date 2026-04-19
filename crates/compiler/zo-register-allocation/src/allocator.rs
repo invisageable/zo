@@ -15,14 +15,21 @@ struct RegPool {
   free: Vec<u8>,
   val_to_reg: FxHashMap<u32, u8>,
   reg_to_val: FxHashMap<u8, u32>,
+  /// The set of regs that participate in allocation. Call
+  /// result regs (x0/d0) live OUTSIDE this set — freeing
+  /// them must not re-seed the pool or the next alloc
+  /// would return x0 and desync with the post-call reload
+  /// path (which rewrites `assignments[vid]`).
+  allocatable: &'static [u8],
 }
 
 impl RegPool {
-  fn new(regs: &[u8]) -> Self {
+  fn new(regs: &'static [u8]) -> Self {
     Self {
       free: regs.iter().rev().copied().collect(),
       val_to_reg: FxHashMap::default(),
       reg_to_val: FxHashMap::default(),
+      allocatable: regs,
     }
   }
 
@@ -39,7 +46,14 @@ impl RegPool {
   fn free_value(&mut self, vid: ValueId) {
     if let Some(reg) = self.val_to_reg.remove(&vid.0) {
       self.reg_to_val.remove(&reg);
-      self.free.push(reg);
+      // Only re-seed the free pool if this register is in
+      // the allocatable set. x0/d0 (call-result reg) are
+      // assigned explicitly by the Call handler but never
+      // enter the pool — pushing them back here would
+      // leak them into regular allocation.
+      if self.allocatable.contains(&reg) {
+        self.free.push(reg);
+      }
     }
   }
 
