@@ -44,6 +44,7 @@ const SBFM: u32 = 0x93400000;
 /// `001000` = LSLV, `001001` = LSRV, `001010` = ASRV.
 const LSLV: u32 = 0x9AC02000;
 const LSRV: u32 = 0x9AC02400;
+const ASRV: u32 = 0x9AC02800;
 const STP_PRE: u32 = 0xA9800000;
 const LDP_POST: u32 = 0xA8C00000;
 const FMOV_GP_FP: u32 = 0x9E670000;
@@ -86,6 +87,8 @@ pub const COND_CS: u8 = 0x2; // carry set / unsigned >= (B.HS)
 pub const COND_CC: u8 = 0x3; // carry clear / unsigned < (B.LO)
 pub const COND_VS: u8 = 0x6; // overflow set (NaN)
 pub const COND_VC: u8 = 0x7; // overflow clear (not NaN)
+pub const COND_HI: u8 = 0x8; // unsigned > (C=1 AND Z=0)
+pub const COND_LS: u8 = 0x9; // unsigned <= (C=0 OR Z=1)
 
 /// Represents an [`ARM64Emitter`] instance.
 pub struct ARM64Emitter {
@@ -635,6 +638,19 @@ impl ARM64Emitter {
   /// Variable-shift counterpart of `emit_lsr`.
   pub fn emit_lsrv(&mut self, dst: Register, src: Register, amount: Register) {
     let insn = LSRV
+      | ((amount.index() as u32) << 16)
+      | ((src.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// Arithmetic shift right by a variable amount (ASRV).
+  /// Sign-extending counterpart of `emit_lsrv` — required
+  /// for signed `>>` on `s*` types. LSR fills with zeros,
+  /// corrupting the value when the source is negative.
+  pub fn emit_asrv(&mut self, dst: Register, src: Register, amount: Register) {
+    let insn = ASRV
       | ((amount.index() as u32) << 16)
       | ((src.index() as u32) << 5)
       | (dst.index() as u32);
