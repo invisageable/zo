@@ -2,9 +2,9 @@ use zo_codegen_arm::ARM64Gen;
 use zo_codegen_backend::{Artifact, Backend, Target};
 use zo_codegen_clif::CliftGen;
 use zo_interner::Interner;
+use zo_linker::link_to_executable;
 use zo_sir::Sir;
 
-use std::fs;
 use std::path::Path;
 
 /// Concrete backend selected per [`Target`]. The common
@@ -41,9 +41,7 @@ impl Codegen {
       | Target::Arm64PcWindowsMsvc => {
         Concrete::Clift(CliftGen::new(interner, self.target))
       }
-      Target::Wasm32UnknownUnknown => {
-        todo!("wasm backend not yet wired");
-      }
+      Target::Wasm32UnknownUnknown => todo!("wasm backend not yet wired"),
     }
   }
 
@@ -51,9 +49,14 @@ impl Codegen {
   ///
   /// The ARM path wraps the raw machine code into a Mach-O
   /// executable and sets the executable bit. The Cranelift path
-  /// writes the raw object file — phase 4 will shell out to
-  /// the system linker to produce a final executable.
+  /// shells out to `cc` (via `zo-linker`) to turn the emitted
+  /// relocatable object into an executable — the system linker
+  /// supplies `crt0` / `crt1` and resolves FFI imports against
+  /// libc / libSystem. Errors from `cc` are surfaced to stderr;
+  /// the user's output file is left untouched on failure.
   pub fn generate(self, interner: &Interner, sir: &Sir, output_path: &Path) {
+    let target = self.target;
+
     match self.make_backend(interner) {
       Concrete::Arm64(mut codegen) => {
         let artifact = codegen.generate(sir);
@@ -63,10 +66,12 @@ impl Codegen {
       }
       Concrete::Clift(mut codegen) => {
         let artifact = codegen.generate(sir);
-        // Phase 1: write the raw object bytes. Phase 4 will
-        // add the system-linker shell-out to produce a
-        // final executable.
-        fs::write(output_path, &artifact.code).ok();
+
+        if let Err(err) =
+          link_to_executable(&artifact.code, output_path, target)
+        {
+          eprintln!("zo: link failed: {err}");
+        }
       }
     }
   }

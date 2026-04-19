@@ -69,6 +69,7 @@ zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.3.6" }
 zo-error = { path = "crates/compiler/zo-error", version = "0.3.6" }
 zo-executor = { path = "crates/compiler/zo-executor", version = "0.3.6" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.3.6" }
+zo-linker = { path = "crates/compiler/zo-linker", version = "0.3.6" }
 zo-liveness = { path = "crates/compiler/zo-liveness", version = "0.3.6" }
 zo-metrics = { path = "crates/compiler/zo-metrics", version = "0.1.0" }
 zo-module-resolver = { path = "crates/compiler/zo-module-resolver", version = "0.3.6" }
@@ -199,7 +200,7 @@ smallvec = { version = "1.13.2", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.2", features = ["serde"] }
 sysinfo = "0.37.2"
 target-lexicon = "0.13.5"
-tempfile = "3.23.0"
+tempfile = "3.27.0"
 thin-vec = "0.2.14"
 tokio = { version = "1.47.1", default-features = true , features = [
   "fs",
