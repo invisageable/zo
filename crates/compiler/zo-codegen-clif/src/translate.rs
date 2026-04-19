@@ -1460,7 +1460,7 @@ fn translate_body(
           return;
         };
 
-        let v = translate_binop(builder, *op, l, r, *ty_id);
+        let v = translate_binop(tctx, builder, *op, l, r, *ty_id);
 
         ctx.values.insert(*dst, v);
       }
@@ -1759,6 +1759,7 @@ fn translate_body(
 /// through `is_unsigned_int(ty_id)` (TyIds 11..=14), float
 /// through `is_float(ty_id)` (15..=17).
 fn translate_binop(
+  tctx: &mut TCtx<'_>,
   builder: &mut FunctionBuilder,
   op: BinOp,
   l: ir::Value,
@@ -1873,12 +1874,22 @@ fn translate_binop(
     // Concat is a string op — lowered as an FFI helper call
     // in phase 2f. Trap until then.
     BinOp::Concat => {
-      builder.ins().trap(ir::TrapCode::user(1).unwrap());
+      // Phase 5.7: route through the `zo_str_concat` runtime
+      // helper. The result is a fresh `[u64 LE len, bytes]`
+      // buffer that composes with every other zo string path.
+      let fid = ensure_libc_func(tctx, "zo_str_concat", |ptr_ty, cc| {
+        let mut sig = ir::Signature::new(cc);
 
-      // Unreachable: trap is a terminator. Return a dummy
-      // value to satisfy the type checker — the caller will
-      // discard it because the block is now dead.
-      builder.ins().iconst(ir::types::I64, 0)
+        sig.params.push(AbiParam::new(ptr_ty));
+        sig.params.push(AbiParam::new(ptr_ty));
+        sig.returns.push(AbiParam::new(ptr_ty));
+
+        sig
+      });
+      let fref = tctx.module.declare_func_in_func(fid, builder.func);
+      let call = builder.ins().call(fref, &[l, r]);
+
+      builder.inst_results(call)[0]
     }
   }
 }
