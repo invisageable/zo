@@ -183,7 +183,7 @@ fn test_identifiers() {
 fn test_declarations_keywords() {
   assert_tokens_stream(
     r#"
-      abstract and apply enum ext fn fun group
+      abstract and apply enum ffi fn fun group
       imu load mut pack state struct type val
     "#,
     &[
@@ -191,7 +191,7 @@ fn test_declarations_keywords() {
       (Token::And, "and"),
       (Token::Apply, "apply"),
       (Token::Enum, "enum"),
-      (Token::Ext, "ext"),
+      (Token::Ffi, "ffi"),
       (Token::Fn, "fn"),
       (Token::Fun, "fun"),
       (Token::Group, "group"),

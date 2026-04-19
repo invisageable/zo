@@ -943,12 +943,12 @@ fn test_showln_int_emits_call() {
 }
 
 #[test]
-fn test_ext_declaration() {
+fn test_ffi_declaration() {
   assert_sir_structure(
-    r#"ext readln() -> str;
+    r#"ffi readln() -> str;
 fun main() -> int { 42 }"#,
     |sir| {
-      let ext_fn = sir.iter().find(|i| {
+      let ffi_fn = sir.iter().find(|i| {
         matches!(
           i,
           Insn::FunDef {
@@ -958,7 +958,7 @@ fun main() -> int { 42 }"#,
         )
       });
 
-      assert!(ext_fn.is_some(), "expected FunDef with kind: Intrinsic");
+      assert!(ffi_fn.is_some(), "expected FunDef with kind: Intrinsic");
     },
   );
 }
@@ -1030,7 +1030,7 @@ fn test_ternary_in_binding() {
 #[test]
 fn test_ternary_with_check() {
   assert_sir_structure(
-    r#"ext check(b: bool);
+    r#"ffi check(b: bool);
 fun main() {
   imu x: int = when true ? 42 : 0;
   check@eq(x, 42);

@@ -1,37 +1,37 @@
 pack io;
 
 -! Writes a value to stdout without a trailing newline.
-pub ext show<$T>(msg: $T);
+pub ffi show<$T>(msg: $T);
 
 -! Writes a value to stdout with a trailing newline.
-pub ext showln<$T>(msg: $T);
+pub ffi showln<$T>(msg: $T);
 
 -! Writes a value to stderr without a trailing newline.
-pub ext eshow<$T>(msg: $T);
+pub ffi eshow<$T>(msg: $T);
 
 -! Writes a value to stderr with a trailing newline.
-pub ext eshowln<$T>(msg: $T);
+pub ffi eshowln<$T>(msg: $T);
 
 -! Reads a single line from stdin. Returns `Err` on failure.
-pub ext readln() -> Result<str, int>;
+pub ffi readln() -> Result<str, int>;
 
 -! Reads all remaining input from stdin. Returns `Err` on failure.
-pub ext read_all() -> Result<str, int>;
+pub ffi read_all() -> Result<str, int>;
 
 -! Flushes stdout and stderr output buffers.
-pub ext flush();
+pub ffi flush();
 
 -! Reads the entire file at `path` as UTF-8 text.
 -! Returns `Err(errno)` on failure.
-pub ext read_file(path: str) -> Result<str, int>;
+pub ffi read_file(path: str) -> Result<str, int>;
 
 -! Creates-or-truncates `path` and writes `content`.
 -! Returns `Err(errno)` on failure.
-pub ext write_file(path: str, content: str) -> Result<int, int>;
+pub ffi write_file(path: str, content: str) -> Result<int, int>;
 
 -! Creates-if-missing and appends `content` to `path`.
 -! Returns `Err(errno)` on failure.
-pub ext append_file(path: str, content: str) -> Result<int, int>;
+pub ffi append_file(path: str, content: str) -> Result<int, int>;
 
 -! True if `path` names an existing, accessible file.
-pub ext exists(path: str) -> bool;
+pub ffi exists(path: str) -> bool;

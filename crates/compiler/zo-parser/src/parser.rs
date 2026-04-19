@@ -208,7 +208,7 @@ impl<'a> Parser<'a> {
       Token::Pack => self.handle_pack_statement(),
 
       // Introducers - these start new contexts
-      Token::Fun | Token::Ext | Token::Fn => {
+      Token::Fun | Token::Ffi | Token::Fn => {
         self.handle_fun_introducer(kind);
       }
       Token::Enum => self.handle_enum_keyword(),
@@ -931,7 +931,7 @@ impl<'a> Parser<'a> {
             // closed. Arm content is already flattened inside
             // the LBrace child.
             self.close_introducer();
-          } else if matches!(parent.token, Token::Fun | Token::Fn | Token::Ext)
+          } else if matches!(parent.token, Token::Fun | Token::Fn | Token::Ffi)
           {
             // Function/closure is complete after body.
             self.close_introducer();
@@ -1145,7 +1145,7 @@ impl<'a> Parser<'a> {
         | Token::Hash
         | Token::Load
         | Token::Pack
-        | Token::Ext
+        | Token::Ffi
         | Token::Type
         | Token::Group => {
           self.close_introducer();

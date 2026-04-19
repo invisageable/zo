@@ -1,5 +1,0 @@
-pub ext foo();
-ext bar();
-ext foobar(x: int);
-
-fun main() {}

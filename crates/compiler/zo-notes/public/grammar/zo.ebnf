@@ -13,7 +13,7 @@ item_content = pack_decl
              | load_decl
              | directive
              | type_decl
-             | ext_decl
+             | ffi_decl
              | abstract_decl
              | apply_decl
              | fun_decl
@@ -56,9 +56,9 @@ type_decl = "type", identifier, "=", type ;
 group_type_decl = "group", "type", type_binding, { "and", type_binding }, ";" ;
 type_binding = identifier, "=", type ;
 
-(* ===== External Declaration ===== *)
+(* ===== FFI Declaration ===== *)
 
-ext_decl = "ext", identifier, "(", [ param_list ], ")", "->", type, ";" ;
+ffi_decl = "ffi", identifier, "(", [ param_list ], ")", "->", type, ";" ;
 
 (* ===== Abstract Declaration ===== *)
 

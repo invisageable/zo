@@ -192,7 +192,7 @@ fn test_closure_call_emits_call_insn() {
 fn test_closure_inline_call_in_check_eq() {
   // Inline closure result as check@eq argument.
   assert_sir_structure(
-    r#"ext check(b: bool);
+    r#"ffi check(b: bool);
 fun main() {
   imu f := fn(x: int) -> int => x * x;
   check@eq(f(7), 49);
@@ -218,7 +218,7 @@ fun main() {
 fn test_closure_block_call_in_check_eq() {
   // Block closure result as check@eq argument.
   assert_sir_structure(
-    r#"ext check(b: bool);
+    r#"ffi check(b: bool);
 fun main() {
   imu f: Fn(int) -> int = fn(x: int) -> int { x + x };
   check@eq(f(21), 42);
@@ -244,7 +244,7 @@ fun main() {
 fn test_recursive_closure() {
   // Recursive closure: fib calls itself by name.
   assert_sir_structure(
-    r#"ext check(b: bool);
+    r#"ffi check(b: bool);
 fun main() {
   imu fib := fn(n: int) -> int {
     if n <= 1 {

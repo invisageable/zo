@@ -162,7 +162,7 @@ fun main() {
 
 #[test]
 fn test_apply_instance_method() {
-  let source = r#"ext check(b: bool);
+  let source = r#"ffi check(b: bool);
 struct Span { lo: int, hi: int }
 apply Span {
   fun new(lo: int, hi: int) -> Self {
