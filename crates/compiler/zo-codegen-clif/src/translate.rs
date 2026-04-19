@@ -100,15 +100,16 @@ pub(crate) struct TCtx<'a> {
   /// at every `Load { Local(NAME) }` before the `FunCtx.vars`
   /// lookup.
   pub(crate) const_defs: &'a HashMap<Symbol, ConstLiteral>,
-  /// `FuncId` for libc `write(fd, buf, count)`, lazily
-  /// declared by the first `show` / `showln` / `eshow` /
-  /// `eshowln` call site. `cc` resolves it against
-  /// libc / libSystem at link time.
-  pub(crate) write_func_id: &'a mut Option<FuncId>,
-  /// `DataId` for the 1-byte `"\n"` data object, lazily
-  /// allocated on first `showln` / `eshowln`. Shared across
-  /// every newline-emitting call.
-  pub(crate) newline_data_id: &'a mut Option<DataId>,
+  /// Libc imports keyed by name (`"write"`, `"snprintf"`, …).
+  /// Lazy: each entry is declared on first use via
+  /// `ensure_libc_func`. The system linker resolves every
+  /// symbol against libc / libSystem at link time.
+  pub(crate) libc_funcs: &'a mut HashMap<&'static str, FuncId>,
+  /// Module-scope anonymous `.rodata` objects keyed by a
+  /// stable label (`"newline"`, `"fmt_int"`, `"true"`, …).
+  /// Dedupes the small helper buffers used by
+  /// `emit_io_intrinsic`.
+  pub(crate) anon_data: &'a mut HashMap<&'static str, DataId>,
   /// Pointer-width CLIF type for the target. Cached so each
   /// `ConstString` doesn't re-query the module config.
   pub(crate) ptr_ty: ir::Type,
@@ -146,6 +147,12 @@ pub(crate) struct FunCtx {
   /// (I32, 0)` so the process exits with a deterministic `0`
   /// instead of a junk return-register value.
   pub(crate) is_main: bool,
+  /// SIR `ValueId` → zo `TyId`. Populated incrementally as
+  /// each value-producing insn is translated. Consulted by
+  /// `emit_io_intrinsic` to dispatch `show` / `showln` per
+  /// argument type (int vs bool vs str vs …). Mirrors
+  /// `zo-codegen-arm`'s `value_types` pattern.
+  pub(crate) value_types: HashMap<ValueId, TyId>,
 }
 
 impl FunCtx {
@@ -157,6 +164,7 @@ impl FunCtx {
       params: Vec::new(),
       terminated: false,
       is_main,
+      value_types: HashMap::default(),
     }
   }
 
@@ -205,11 +213,11 @@ pub(crate) fn translate_module(
   // Module-scope `val NAME = lit;` bindings resolved to their
   // raw literal so every `Load { Local(NAME) }` can inline.
   let const_defs = collect_const_defs(insns);
-  // Lazily populated by show/showln intercept. Kept at
-  // module scope so every function body shares a single
-  // `write` FuncId and a single "\n" data object.
-  let mut write_func_id: Option<FuncId> = None;
-  let mut newline_data_id: Option<DataId> = None;
+  // Lazily populated by the I/O intercept. Kept at module
+  // scope so every function body shares one `FuncId` per
+  // libc symbol and one `DataId` per reusable blob.
+  let mut libc_funcs: HashMap<&'static str, FuncId> = HashMap::default();
+  let mut anon_data: HashMap<&'static str, DataId> = HashMap::default();
 
   for (idx, insn) in insns.iter().enumerate() {
     if let Insn::FunDef {
@@ -342,8 +350,8 @@ pub(crate) fn translate_module(
         func_ids: &func_ids,
         const_strings: &mut const_strings,
         const_defs: &const_defs,
-        write_func_id: &mut write_func_id,
-        newline_data_id: &mut newline_data_id,
+        libc_funcs: &mut libc_funcs,
+        anon_data: &mut anon_data,
         ptr_ty,
       };
 
@@ -627,62 +635,99 @@ fn translate_cast(
   }
 }
 
-/// Declares libc `write(int fd, const void *buf, size_t count)
-/// -> ssize_t` as an `Import` exactly once per module. Later
-/// calls reuse the cached `FuncId`. `cc` resolves the symbol
-/// against libc / libSystem at link time — no extra `-l` flag
-/// needed, it's pulled in by the default C startup.
-fn ensure_write_func(tctx: &mut TCtx<'_>) -> FuncId {
-  if let Some(id) = *tctx.write_func_id {
+/// Records `(dst ValueId → ty_id)` for every value-producing
+/// insn so `emit_io_intrinsic` can dispatch `show` / `showln`
+/// by argument type. Called as a pre-pass inside
+/// `translate_body`'s main loop, BEFORE the insn is handled —
+/// that way the mapping is visible if the same body later
+/// calls `show` against this value.
+fn record_value_type(ctx: &mut FunCtx, insn: &Insn) {
+  match insn {
+    Insn::ConstInt { dst, ty_id, .. }
+    | Insn::ConstFloat { dst, ty_id, .. }
+    | Insn::ConstBool { dst, ty_id, .. }
+    | Insn::ConstString { dst, ty_id, .. }
+    | Insn::Load { dst, ty_id, .. }
+    | Insn::Call { dst, ty_id, .. }
+    | Insn::BinOp { dst, ty_id, .. }
+    | Insn::UnOp { dst, ty_id, .. }
+    | Insn::ArrayLiteral { dst, ty_id, .. }
+    | Insn::ArrayIndex { dst, ty_id, .. }
+    | Insn::ArrayLen { dst, ty_id, .. }
+    | Insn::ArrayPop { dst, ty_id, .. }
+    | Insn::TupleLiteral { dst, ty_id, .. }
+    | Insn::TupleIndex { dst, ty_id, .. } => {
+      ctx.value_types.insert(*dst, *ty_id);
+    }
+    Insn::Cast { dst, to_ty, .. } => {
+      ctx.value_types.insert(*dst, *to_ty);
+    }
+    _ => {}
+  }
+}
+
+/// Declares a libc function as an `Import` exactly once per
+/// module, keyed by `name`. The signature builder runs only
+/// on the cache-miss path so repeated calls are a pure
+/// `HashMap::get`. `cc` resolves the symbol against libc /
+/// libSystem at link time — no extra `-l` flag needed, both
+/// are pulled in by the default C startup.
+fn ensure_libc_func(
+  tctx: &mut TCtx<'_>,
+  name: &'static str,
+  build_sig: impl FnOnce(ir::Type, CallConv) -> ir::Signature,
+) -> FuncId {
+  if let Some(&id) = tctx.libc_funcs.get(name) {
     return id;
   }
 
-  let mut sig =
-    ir::Signature::new(tctx.module.target_config().default_call_conv);
-
-  sig.params.push(AbiParam::new(ir::types::I32)); // fd
-  sig.params.push(AbiParam::new(tctx.ptr_ty)); // buf
-  sig.params.push(AbiParam::new(tctx.ptr_ty)); // count (size_t)
-  sig.returns.push(AbiParam::new(tctx.ptr_ty)); // ssize_t
-
+  let call_conv = tctx.module.target_config().default_call_conv;
+  let sig = build_sig(tctx.ptr_ty, call_conv);
   let id = tctx
     .module
-    .declare_function("write", Linkage::Import, &sig)
-    .expect("declare write failed");
+    .declare_function(name, Linkage::Import, &sig)
+    .expect("declare libc function failed");
 
-  *tctx.write_func_id = Some(id);
+  tctx.libc_funcs.insert(name, id);
 
   id
 }
 
-/// Allocates the shared 1-byte `"\n"` data object used by
-/// `showln` / `eshowln` at most once per module. Subsequent
-/// calls return the cached `DataId`.
-fn ensure_newline_data(tctx: &mut TCtx<'_>) -> DataId {
-  if let Some(id) = *tctx.newline_data_id {
+/// Interns an anonymous read-only data blob exactly once per
+/// module, keyed by a stable label. Cache hits return the
+/// stashed `DataId`; misses allocate + define and store the
+/// new id. Used by `emit_io_intrinsic` for the `"\n"`,
+/// `"%lld"`, `"true"`, `"false"` buffers.
+fn ensure_anon_data(
+  tctx: &mut TCtx<'_>,
+  key: &'static str,
+  bytes: &[u8],
+) -> DataId {
+  if let Some(&id) = tctx.anon_data.get(key) {
     return id;
   }
 
   let mut desc = DataDescription::new();
 
-  desc.define(Box::new([b'\n']));
+  desc.define(bytes.to_vec().into_boxed_slice());
 
   let id = tctx
     .module
     .declare_anonymous_data(false, false)
-    .expect("declare newline data failed");
+    .expect("declare anonymous data failed");
 
   tctx
     .module
     .define_data(id, &desc)
-    .expect("define newline data failed");
+    .expect("define anonymous data failed");
 
-  *tctx.newline_data_id = Some(id);
+  tctx.anon_data.insert(key, id);
 
   id
 }
 
-/// Emits a `write(fd, buf, count)` CLIF call.
+/// Emits a libc `write(fd, buf, count)` CLIF call. Declares
+/// `write` on first use via `ensure_libc_func`.
 fn emit_write_call(
   tctx: &mut TCtx<'_>,
   builder: &mut FunctionBuilder,
@@ -690,27 +735,128 @@ fn emit_write_call(
   buf: ir::Value,
   count: ir::Value,
 ) {
-  let func_id = ensure_write_func(tctx);
+  let func_id = ensure_libc_func(tctx, "write", |ptr_ty, cc| {
+    let mut sig = ir::Signature::new(cc);
+
+    sig.params.push(AbiParam::new(ir::types::I32)); // fd
+    sig.params.push(AbiParam::new(ptr_ty)); // buf
+    sig.params.push(AbiParam::new(ptr_ty)); // count (size_t)
+    sig.returns.push(AbiParam::new(ptr_ty)); // ssize_t
+
+    sig
+  });
+
   let fref = tctx.module.declare_func_in_func(func_id, builder.func);
   let fd_v = builder.ins().iconst(ir::types::I32, fd);
 
   builder.ins().call(fref, &[fd_v, buf, count]);
 }
 
+/// Formats an integer into a 32-byte stack buffer via libc
+/// `snprintf("%lld", ...)` and pipes the result to `write(fd,
+/// buf, len)`. Widens narrower SIR int types to I64 first —
+/// unsigned via `uextend`, signed via `sextend` — so a single
+/// `%lld` format handles every integer `TyId` in 6..=14.
+fn emit_int_show(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  fd: i64,
+  val: ir::Value,
+  ty_id: TyId,
+) {
+  let val_ty = builder.func.dfg.value_type(val);
+  let val_i64 = if val_ty == ir::types::I64 {
+    val
+  } else if is_unsigned_int(ty_id) {
+    builder.ins().uextend(ir::types::I64, val)
+  } else {
+    builder.ins().sextend(ir::types::I64, val)
+  };
+
+  let slot = builder.create_sized_stack_slot(StackSlotData::new(
+    StackSlotKind::ExplicitSlot,
+    32,
+    0,
+  ));
+  let buf_ptr = builder.ins().stack_addr(tctx.ptr_ty, slot, 0);
+  let buf_size = builder.ins().iconst(tctx.ptr_ty, 32);
+
+  let fmt_id = ensure_anon_data(tctx, "fmt_int", b"%lld\0");
+  let fmt_gv = tctx.module.declare_data_in_func(fmt_id, builder.func);
+  let fmt_ptr = builder.ins().global_value(tctx.ptr_ty, fmt_gv);
+
+  let snprintf_fid = ensure_libc_func(tctx, "snprintf", |ptr_ty, cc| {
+    let mut sig = ir::Signature::new(cc);
+
+    sig.params.push(AbiParam::new(ptr_ty)); // buf
+    sig.params.push(AbiParam::new(ptr_ty)); // size (size_t)
+    sig.params.push(AbiParam::new(ptr_ty)); // fmt
+    sig.params.push(AbiParam::new(ir::types::I64)); // val
+    sig.returns.push(AbiParam::new(ir::types::I32));
+
+    sig
+  });
+  let snprintf_fref =
+    tctx.module.declare_func_in_func(snprintf_fid, builder.func);
+  let call = builder
+    .ins()
+    .call(snprintf_fref, &[buf_ptr, buf_size, fmt_ptr, val_i64]);
+  let len_i32 = builder.inst_results(call)[0];
+  let len = builder.ins().uextend(tctx.ptr_ty, len_i32);
+
+  emit_write_call(tctx, builder, fd, buf_ptr, len);
+}
+
+/// Emits a branchless bool show via two `select`s — no CFG
+/// fork needed:
+///
+/// ```text
+/// ptr = select(cond, "true",  "false")
+/// len = select(cond,    4,       5   )
+/// write(fd, ptr, len)
+/// ```
+fn emit_bool_show(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  fd: i64,
+  val: ir::Value,
+) {
+  let t_id = ensure_anon_data(tctx, "true", b"true");
+  let f_id = ensure_anon_data(tctx, "false", b"false");
+
+  let t_gv = tctx.module.declare_data_in_func(t_id, builder.func);
+  let f_gv = tctx.module.declare_data_in_func(f_id, builder.func);
+  let t_ptr = builder.ins().global_value(tctx.ptr_ty, t_gv);
+  let f_ptr = builder.ins().global_value(tctx.ptr_ty, f_gv);
+
+  let ptr = builder.ins().select(val, t_ptr, f_ptr);
+  let four = builder.ins().iconst(tctx.ptr_ty, 4);
+  let five = builder.ins().iconst(tctx.ptr_ty, 5);
+  let len = builder.ins().select(val, four, five);
+
+  emit_write_call(tctx, builder, fd, ptr, len);
+}
+
 /// Translates `show` / `showln` / `eshow` / `eshowln` into
-/// direct libc `write` calls, matching the ARM backend's
-/// open-coded syscall behavior without needing a separate
-/// runtime crate. The single SIR argument must be a string
-/// pointer returned by `ConstString` (layout:
-/// `[u64 LE len, UTF-8 bytes]`).
+/// direct libc calls, matching the ARM backend's open-coded
+/// behavior without needing a separate runtime crate.
+/// Dispatches on the argument's zo `TyId` (tracked per-
+/// function in `ctx.value_types`):
 ///
-/// Phase 5.3 scope: strings only. Non-string arguments emit
-/// a trap — a type-dispatched runtime (int/bool/etc.) is a
-/// later phase.
+/// - **`str` / `bytes`** (TyId 4 / 5): decompose the
+///   `[u64 LE len, bytes]` header and `write(fd, data, len)`.
+/// - **integers** (TyId 6..=14): widen to I64 and route
+///   through `snprintf` + `write`.
+/// - **bool** (TyId 2): branchless `select` on pre-allocated
+///   `"true"` / `"false"` data objects + single `write`.
+/// - **anything else** (floats, char, aggregates): trap with
+///   a `TODO(phase-5.5)` marker — floats need XMM-register
+///   handling; chars need UTF-8 encoding; aggregates need
+///   recursive formatting.
 ///
-/// `fd = 1` for `show`/`showln` (stdout), `fd = 2` for
-/// `eshow`/`eshowln` (stderr). `showln` / `eshowln` emit a
-/// trailing `"\n"` write.
+/// `fd = 1` for `show` / `showln` (stdout), `fd = 2` for
+/// `eshow` / `eshowln` (stderr). `showln` / `eshowln` emit
+/// a trailing `"\n"` write regardless of the dispatched arm.
 fn emit_io_intrinsic(
   tctx: &mut TCtx<'_>,
   builder: &mut FunctionBuilder,
@@ -723,7 +869,7 @@ fn emit_io_intrinsic(
   let with_newline = name.ends_with("ln");
 
   let Some(&arg_id) = args.first() else {
-    // No arg — treat as a no-op with unit sentinel.
+    // No arg — unit sentinel, no I/O.
     let sentinel = builder.ins().iconst(ir::types::I8, 0);
 
     ctx.values.insert(dst, sentinel);
@@ -739,30 +885,36 @@ fn emit_io_intrinsic(
     return;
   };
 
-  // Heuristic: only string-shaped args (ptr-width) route
-  // through write. Int / bool / etc. need type-dispatched
-  // formatting — trap until Phase 5.4.
-  let arg_ty = builder.func.dfg.value_type(arg_val);
+  let arg_ty_id = ctx.value_types.get(&arg_id).copied().unwrap_or(TyId(0));
 
-  if arg_ty != tctx.ptr_ty {
-    // TODO(phase-5.4): dispatch per type (itoa / ftoa / etc.)
-    // via a typed runtime shim.
-    builder.ins().trap(ir::TrapCode::user(1).unwrap());
+  match arg_ty_id.0 {
+    // Str / Bytes — header + payload.
+    4 | 5 => {
+      let len = builder.ins().load(tctx.ptr_ty, MemFlags::new(), arg_val, 0);
+      let data_ptr = builder.ins().iadd_imm(arg_val, 8);
 
-    ctx.terminated = true;
+      emit_write_call(tctx, builder, fd, data_ptr, len);
+    }
+    // Integers (signed + unsigned).
+    6..=14 => {
+      emit_int_show(tctx, builder, fd, arg_val, arg_ty_id);
+    }
+    // Bool.
+    2 => {
+      emit_bool_show(tctx, builder, fd, arg_val);
+    }
+    // TODO(phase-5.5): floats (15..=17), char (3), aggregates.
+    _ => {
+      builder.ins().trap(ir::TrapCode::user(1).unwrap());
 
-    return;
+      ctx.terminated = true;
+
+      return;
+    }
   }
 
-  // Decompose the `[u64 LE len, bytes]` header into
-  // `(data_ptr, len)`.
-  let len = builder.ins().load(tctx.ptr_ty, MemFlags::new(), arg_val, 0);
-  let data_ptr = builder.ins().iadd_imm(arg_val, 8);
-
-  emit_write_call(tctx, builder, fd, data_ptr, len);
-
   if with_newline {
-    let nl_id = ensure_newline_data(tctx);
+    let nl_id = ensure_anon_data(tctx, "newline", b"\n");
     let nl_gv = tctx.module.declare_data_in_func(nl_id, builder.func);
     let nl_ptr = builder.ins().global_value(tctx.ptr_ty, nl_gv);
     let one = builder.ins().iconst(tctx.ptr_ty, 1);
@@ -859,6 +1011,13 @@ fn translate_body(
   body: &[Insn],
 ) {
   for insn in body {
+    // Track the (dst, ty_id) mapping for every
+    // value-producing insn so `emit_io_intrinsic` can
+    // dispatch `show` / `showln` by argument type. Mirrors
+    // `zo-codegen-arm`'s `value_types` pre-pass
+    // (`codegen.rs:960`).
+    record_value_type(ctx, insn);
+
     match insn {
       Insn::ConstInt { dst, value, ty_id } => {
         let ty = ty_id_to_clif(*ty_id, ir::types::I64);
