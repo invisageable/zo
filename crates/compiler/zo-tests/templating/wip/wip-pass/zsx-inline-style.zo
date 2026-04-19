@@ -1,0 +1,7 @@
+fun main() {
+  imu app: </> ::= <>
+    <div[ta:center; pt:20]><h1>Hey!</h1></div>
+  </>;
+
+  #dom app;
+}

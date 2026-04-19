@@ -4,6 +4,7 @@ fun main() {
   imu f := fn(x: int) -> int {
     imu y: int = x * 2;
     imu z: int = y + 1;
+
     return z;
   };
 

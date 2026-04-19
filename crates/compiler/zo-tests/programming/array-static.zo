@@ -10,8 +10,6 @@ fun main() {
 
   imu b: [2]str = ["foo", "bar"];
 
-  -- expected: foo
-  showln(b[0]);
-  -- expected: bar
-  showln(b[1]);
+  showln(b[0]); -- expected: `foo`
+  showln(b[1]); -- expected: `bar`
 }

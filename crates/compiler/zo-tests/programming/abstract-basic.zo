@@ -18,7 +18,9 @@ apply Display for Point {
 
 fun main() {
   imu p: Point = Point { x: 10, y: 20 };
+
   showln(p.display());
+
   check@eq(p.display(), "point");
 }
 

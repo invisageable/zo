@@ -84,6 +84,16 @@ pub struct Executor<'a> {
   funs: Vec<FunDef>,
   /// Current function context (if we're inside a function)
   current_function: Option<FunCtx>,
+  /// Save-stack for nested `fun` inside a function body.
+  /// Mirrors the `execute_closure` pattern: when the LBrace
+  /// of a nested fun takes over `current_function`, we push
+  /// the outer state here; the matching RBrace pops and
+  /// restores it so the outer fun can resume. Per the zo
+  /// grammar, any `item` (fun, struct, enum, type, val, …)
+  /// is allowed at statement level — this is the first
+  /// piece that lifts the "items only at top level"
+  /// limitation for `fun_decl`.
+  saved_outer_funs: Vec<SavedOuterFun>,
   /// Pending function definition (waiting for LBrace)
   pending_function: Option<FunDef>,
   /// True when the pending function has `-> Type` annotation.
@@ -335,6 +345,7 @@ impl<'a> Executor<'a> {
       sir_values: Vec::with_capacity(capacity / 4),
       funs: Vec::with_capacity(capacity / 100), // Estimate function count
       current_function: None,
+      saved_outer_funs: Vec::new(),
       pending_function: None,
       pending_fn_has_return_annotation: false,
       template_counter: 0,
@@ -1204,6 +1215,37 @@ impl<'a> Executor<'a> {
         // Check if we're entering a function body
         // This happens when we have a pending function definition
         if let Some(mut pending_func) = self.pending_function.take() {
+          // Nested fun (item at statement level per the
+          // grammar): save the outer context + SIR stream so
+          // the inner body emits into its own buffer. Outer
+          // state is restored at the matching `}`, and the
+          // inner FunDef + body are spliced before the outer
+          // FunDef via `deferred_closures` (reusing the same
+          // lane the closure path already flushes through).
+          if self.current_function.is_some() {
+            let outer_function = self.current_function.take();
+            let outer_value_stack = std::mem::take(&mut self.value_stack);
+            let outer_ty_stack = std::mem::take(&mut self.ty_stack);
+            let outer_sir_values = std::mem::take(&mut self.sir_values);
+            let outer_pending_decl = self.pending_decl.take();
+
+            let mut nested_sir = Sir::new();
+
+            nested_sir.next_value_id = self.sir.next_value_id;
+            nested_sir.next_label_id = self.sir.next_label_id;
+
+            let outer_sir = std::mem::replace(&mut self.sir, nested_sir);
+
+            self.saved_outer_funs.push(SavedOuterFun {
+              function: outer_function,
+              value_stack: outer_value_stack,
+              ty_stack: outer_ty_stack,
+              sir_values: outer_sir_values,
+              sir: outer_sir,
+              pending_decl: outer_pending_decl,
+            });
+          }
+
           // Emit the FunDef instruction first
           // Body will start at the NEXT instruction after FunDef
           let body_start = (self.sir.instructions.len() + 1) as u32;
@@ -1487,6 +1529,25 @@ impl<'a> Executor<'a> {
           // cleaned up so parameter locals don't leak.
           self.pop_scope(); // body scope
           self.pop_scope(); // param scope
+
+          // Nested fun restore: if we saved an outer
+          // function context on the way in, move this
+          // nested fun's SIR to `deferred_closures` (so
+          // it splices out of the outer body at the outer
+          // fun's close) and restore the outer state.
+          if let Some(saved) = self.saved_outer_funs.pop() {
+            let nested_sir = std::mem::replace(&mut self.sir, saved.sir);
+
+            self.sir.next_value_id = nested_sir.next_value_id;
+            self.sir.next_label_id = nested_sir.next_label_id;
+            self.deferred_closures.extend(nested_sir.instructions);
+
+            self.current_function = saved.function;
+            self.value_stack = saved.value_stack;
+            self.ty_stack = saved.ty_stack;
+            self.sir_values = saved.sir_values;
+            self.pending_decl = saved.pending_decl;
+          }
         }
 
         // Close control flow block — but only if this
@@ -13334,6 +13395,18 @@ struct FunCtx {
   /// Scope depth when the function body was entered.
   /// Only close the function at this depth's RBrace.
   pub(crate) scope_depth: usize,
+}
+
+/// Snapshot of the outer fun's state when a nested `fun`
+/// takes over. Restored at the nested fun's closing `}`
+/// so the outer function body can keep running.
+struct SavedOuterFun {
+  function: Option<FunCtx>,
+  value_stack: Vec<ValueId>,
+  ty_stack: Vec<TyId>,
+  sir_values: Vec<ValueId>,
+  sir: Sir,
+  pending_decl: Option<PendingDecl>,
 }
 
 /// Static tag registry — maps HTML tag names directly to

@@ -26,6 +26,7 @@ fun main() {
   -- variable-amount shift (not just constant RHS).
   mut n: int = 3;
   check@eq(a << n, 40);
+
   n = 5;
   check@eq(a << n, 160);
 

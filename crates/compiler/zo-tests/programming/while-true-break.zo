@@ -10,5 +10,6 @@ fun main() {
   }
 
   check@eq(i, 5);
+
   showln("{i}");
 }

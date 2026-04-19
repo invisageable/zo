@@ -1,0 +1,11 @@
+fun main() {
+  imu value = "open";
+
+  imu app: </> ::= <ul.list.state-{value}>
+    <li.list-item>Item1</li>
+    <li.list-item>Item2</li>
+    <li.list-item>Item3</li>
+  </ul>;
+
+  #dom app;
+}

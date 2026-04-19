@@ -4,10 +4,7 @@
 fun main() {
   imu a: []str = ["hello", "world", "zo"];
 
-  -- expected: hello
-  showln(a[0]);
-  -- expected: world
-  showln(a[1]);
-  -- expected: zo
-  showln(a[2]);
+  showln(a[0]); -- expected: `hello`
+  showln(a[1]); -- expected: `world`
+  showln(a[2]); -- expected: `zo`
 }

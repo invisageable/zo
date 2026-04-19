@@ -4,6 +4,7 @@
 fun main() {
   imu x: int = 42;
   imu y: int = 99;
+
   -- y is unused but program still compiles and runs.
   showln("{x}");
 }

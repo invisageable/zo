@@ -1,5 +1,14 @@
 fun main() {
-  -- check@eq((0x9c9c9c9c & 0x35353535), 0x14141414);
-  -- check@eq((0xffff << 16 | 0xffff), 0xffffffff);
-  -- check@gt(0xffffffff, 0);
+  imu a: u64 = 0x9c9c9c9c;
+  imu b: u64 = 0x35353535;
+  imu and_mask: u64 = 0x14141414;
+  check@eq(a & b, and_mask);
+
+  imu lo: u64 = 0xffff;
+  imu shift: u64 = 16;
+  imu all: u64 = 0xffffffff;
+  check@eq((lo << shift) | lo, all);
+
+  imu zero: u64 = 0;
+  check@gt(all, zero);
 }
