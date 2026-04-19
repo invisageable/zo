@@ -807,6 +807,62 @@ fn emit_int_show(
   emit_write_call(tctx, builder, fd, buf_ptr, len);
 }
 
+/// Formats an `f64` into a 32-byte stack buffer via the
+/// `zo_ftoa_f64` runtime wrapper (compiled from
+/// `zo-linker/src/runtime.c` and linked alongside the user's
+/// object) and pipes the result to `write(fd, buf, len)`.
+///
+/// Why a wrapper instead of a direct `snprintf`: Cranelift's
+/// `Module::declare_function` keys by external name and
+/// rejects re-declarations with different signatures. The int
+/// path already declared `snprintf` with an I64-tail signature
+/// for GPR-based variadic dispatch; a second declaration for
+/// the float path (F64 tail → XMM on SysV) would conflict. The
+/// runtime wrapper exports `zo_ftoa_f64(buf, size, val: double)`
+/// — a distinct name with a fixed non-variadic signature, so
+/// CLIF can declare it independently.
+///
+/// `f32` is promoted to `f64` before the call to keep the
+/// runtime API single-entry.
+fn emit_float_show(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  fd: i64,
+  val: ir::Value,
+) {
+  let val_ty = builder.func.dfg.value_type(val);
+  let val_f64 = if val_ty == ir::types::F64 {
+    val
+  } else {
+    builder.ins().fpromote(ir::types::F64, val)
+  };
+
+  let slot = builder.create_sized_stack_slot(StackSlotData::new(
+    StackSlotKind::ExplicitSlot,
+    32,
+    0,
+  ));
+  let buf_ptr = builder.ins().stack_addr(tctx.ptr_ty, slot, 0);
+  let buf_size = builder.ins().iconst(tctx.ptr_ty, 32);
+
+  let fid = ensure_libc_func(tctx, "zo_ftoa_f64", |ptr_ty, cc| {
+    let mut sig = ir::Signature::new(cc);
+
+    sig.params.push(AbiParam::new(ptr_ty)); // buf
+    sig.params.push(AbiParam::new(ptr_ty)); // size (size_t)
+    sig.params.push(AbiParam::new(ir::types::F64)); // val
+    sig.returns.push(AbiParam::new(ir::types::I32));
+
+    sig
+  });
+  let fref = tctx.module.declare_func_in_func(fid, builder.func);
+  let call = builder.ins().call(fref, &[buf_ptr, buf_size, val_f64]);
+  let len_i32 = builder.inst_results(call)[0];
+  let len = builder.ins().uextend(tctx.ptr_ty, len_i32);
+
+  emit_write_call(tctx, builder, fd, buf_ptr, len);
+}
+
 /// Emits a branchless bool show via two `select`s — no CFG
 /// fork needed:
 ///
@@ -1041,7 +1097,11 @@ fn emit_io_intrinsic(
     3 => {
       emit_char_show(tctx, builder, fd, arg_val);
     }
-    // TODO(phase-5.5): floats (15..=17), char (3), aggregates.
+    // Floats (f32, f64, arch-float).
+    15..=17 => {
+      emit_float_show(tctx, builder, fd, arg_val);
+    }
+    // TODO(phase-5.7): aggregates (tuple / struct / array).
     _ => {
       builder.ins().trap(ir::TrapCode::user(1).unwrap());
 
