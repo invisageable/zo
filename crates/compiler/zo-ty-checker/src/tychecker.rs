@@ -305,15 +305,8 @@ impl TyChecker {
       return Some(repr1);
     }
 
-    let ty1 = match self.tys.get(repr1.0 as usize) {
-      Some(ty) => *ty,
-      None => return None,
-    };
-
-    let ty2 = match self.tys.get(repr2.0 as usize) {
-      Some(ty) => *ty,
-      None => return None,
-    };
+    let ty1 = *self.tys.get(repr1.0 as usize)?;
+    let ty2 = *self.tys.get(repr2.0 as usize)?;
 
     match (ty1, ty2) {
       // One is an inference variable

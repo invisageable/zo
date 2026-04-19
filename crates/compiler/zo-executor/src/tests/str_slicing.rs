@@ -15,9 +15,7 @@ fn test_str_slice_exclusive_emits_conststring() {
     |sir| {
       // Expect exactly one ConstString carrying "hello" — the
       // sliced result, interned as a fresh string constant.
-      let has_hello = sir
-        .iter()
-        .any(|i| matches!(i, Insn::ConstString { symbol: _, .. }));
+      let has_hello = sir.iter().any(|i| matches!(i, Insn::ConstString { .. }));
 
       assert!(has_hello, "slice should emit a ConstString for the result");
     },
