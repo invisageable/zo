@@ -6,7 +6,7 @@
 //! pulls in the C runtime (`crt0` / `crt1`) and resolves any
 //! FFI imports against libc / libSystem.
 //!
-//! Scope (Phase 4): host-matching Unix targets only
+//! Supported targets: host-matching Unix only
 //! (`arm64-apple-darwin`, `x86_64-apple-darwin`,
 //! `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`).
 //! Windows MSVC (`link.exe`) and wasm (`wasm-ld`) need

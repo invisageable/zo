@@ -27,9 +27,10 @@ impl<'a> CliftGen<'a> {
     Self { target, interner }
   }
 
-  /// Maps a [`Target`] to a `target_lexicon::Triple`. Phase 1
-  /// covers the four non-ARM-native targets; wasm and other
-  /// future targets slot in later.
+  /// Maps a [`Target`] to a `target_lexicon::Triple`. Only the
+  /// four non-ARM-native targets route here; the unreachable
+  /// arm catches any accidental dispatch of an ARM-native or
+  /// wasm target to this backend.
   fn triple(target: Target) -> Triple {
     match target {
       Target::X8664AppleDarwin => "x86_64-apple-darwin".parse().unwrap(),
@@ -89,9 +90,9 @@ impl<'a> CliftGen<'a> {
 }
 
 impl<'a> Backend for CliftGen<'a> {
-  /// Phase 2a: translate the SIR instruction stream — one
-  /// CLIF function per `Insn::FunDef` — into the module, then
-  /// emit the resulting object bytes.
+  /// Translates the SIR instruction stream — one CLIF function
+  /// per `Insn::FunDef` — into the module, then emits the
+  /// resulting relocatable object bytes.
   fn generate(&mut self, sir: &Sir) -> Artifact {
     let mut module = Self::new_module(self.target);
 

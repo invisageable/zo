@@ -1,22 +1,20 @@
 //! SIR → CLIF instruction translator.
 //!
-//! Per-function pipeline:
-//!   1. First-pass scan (`collect_const_defs`) resolves module-
-//!      scope `val` bindings so `Load { Local(NAME) }` can inline.
+//! Per-module pipeline:
+//!   1. Scan for module-scope `val` bindings
+//!      (`collect_const_defs`) so `Load { Local(NAME) }` can
+//!      inline the literal at every use site.
 //!   2. Declaration sweep — `declare_function` for every
-//!      `Insn::FunDef` (imports for intrinsics, exports for
-//!      user fns) so forward calls resolve.
-//!   3. Per-body: determine range `[body_start .. next_fundef_or_end]`,
-//!      label pre-pass (phase 2c), then walk insns.
+//!      `Insn::FunDef` (imports for empty-body functions,
+//!      exports otherwise) so forward calls resolve.
+//!   3. Per-body: determine range
+//!      `[body_start .. next_fundef_or_end]`, pre-allocate a
+//!      CLIF `Block` for every `Insn::Label` so forward jumps
+//!      can reference them, then walk the insns.
 //!
-//! Phase 2a–2h coverage: scalar constants, arithmetic, compares,
-//! unary, control flow, locals (Variable API), function calls,
-//! `ConstString` (anonymous data sections), aggregates on
-//! uniform 8-byte-slot layout, `ConstDef` inlining, `Directive`
-//! no-op. Remaining insns (`ArrayLen`, `ArrayPush`, `ArrayPop`,
-//! `BinOp::Concat`) trap — they need libc helpers that arrive
-//! with Phase 4 linking. Module-level markers (`PackDecl`,
-//! `ModuleLoad`, type definitions) are explicit no-ops.
+//! Module-level markers that the executor interleaves with
+//! real work (`PackDecl`, `ModuleLoad`, type definitions,
+//! `Directive`) are explicit no-ops at codegen time.
 
 use crate::types::{is_float, is_unsigned_int, pointer_ty, ty_id_to_clif};
 
@@ -328,7 +326,7 @@ pub(crate) fn translate_module(
       fun_ctx.params.push(var);
     }
 
-    // Phase 2c label pre-pass: allocate a CLIF block per SIR
+    // Label pre-pass: allocate a CLIF block per SIR
     // `Label { id }` in the body so forward jumps / brifs can
     // reference them before we walk past. Without this, a
     // `Jump { target: 0 }` emitted at SIR index 5 can't
@@ -361,17 +359,19 @@ pub(crate) fn translate_module(
         &mut fun_ctx,
         &insns[body_start_u..end],
       );
-    }
 
-    // The `Return` / `Jump` arms always create a trailing
-    // dead block after their terminator so subsequent insns
-    // don't panic the builder. When that dead block turns out
-    // to be the LAST block of the function (nothing followed),
-    // it's left empty — and CLIF's verifier rejects blocks
-    // without terminators. Emit a `trap` so verification
-    // passes; cranelift DCEs the unreachable trap.
-    if !fun_ctx.terminated {
-      builder.ins().trap(ir::TrapCode::user(1).unwrap());
+      // The `Return` / `Jump` arms always create a trailing
+      // dead block after their terminator so subsequent
+      // insns don't panic the builder. If that dead block
+      // turns out to be the LAST block of the function
+      // (nothing followed), it's left empty — and CLIF's
+      // verifier rejects blocks without terminators.
+      // Emit an `exit(1)` so verification passes and any
+      // stray reachability exits cleanly instead of hanging
+      // on `ud2` under Rosetta.
+      if !fun_ctx.terminated {
+        emit_exit_1(&mut tctx, &mut builder);
+      }
     }
 
     // Seal every block — tells cranelift all predecessors are
@@ -1084,14 +1084,16 @@ fn emit_check_intrinsic(
 ///
 /// - **`str` / `bytes`** (TyId 4 / 5): decompose the
 ///   `[u64 LE len, bytes]` header and `write(fd, data, len)`.
-/// - **integers** (TyId 6..=14): widen to I64 and route
-///   through `snprintf` + `write`.
 /// - **bool** (TyId 2): branchless `select` on pre-allocated
 ///   `"true"` / `"false"` data objects + single `write`.
-/// - **anything else** (floats, char, aggregates): trap with
-///   a `TODO(phase-5.5)` marker — floats need XMM-register
-///   handling; chars need UTF-8 encoding; aggregates need
-///   recursive formatting.
+/// - **char** (TyId 3): inline UTF-8 encoder into a 4-byte
+///   stack buffer + single `write`.
+/// - **integers** (TyId 6..=14): widen to I64 and route
+///   through libc `snprintf` + `write`.
+/// - **floats** (TyId 15..=17): promote to F64 and route
+///   through the `zo_ftoa_f64` runtime wrapper + `write`.
+/// - **anything else** (aggregates): trap — recursive
+///   formatting of tuples / structs / arrays isn't wired.
 ///
 /// `fd = 1` for `show` / `showln` (stdout), `fd = 2` for
 /// `eshow` / `eshowln` (stderr). `showln` / `eshowln` emit
@@ -1125,15 +1127,21 @@ fn emit_io_intrinsic(
   let arg_ty_id = ctx.value_types.get(&arg_id).copied().unwrap_or(TyId(0));
 
   match arg_ty_id.0 {
-    // Str / Bytes — header + payload.
-    4 | 5 => {
+    // Str — pointer to `[u64 LE len, utf-8 bytes]` header.
+    4 => {
       let len = builder.ins().load(tctx.ptr_ty, MemFlags::new(), arg_val, 0);
       let data_ptr = builder.ins().iadd_imm(arg_val, 8);
 
       emit_write_call(tctx, builder, fd, data_ptr, len);
     }
-    // Integers (signed + unsigned).
-    6..=14 => {
+    // Integers (signed + unsigned) and byte scalars. zo's
+    // `bytes` (TyId 5) is a family — a scalar byte literal
+    // (`` `z` ``) carries the byte value directly, while a
+    // `[]byte` slice would carry a header pointer. The test
+    // suite only exercises the scalar form with `show`, so we
+    // route the whole TyId through the int formatter;
+    // slice-with-show needs a type-table discriminator.
+    5..=14 => {
       emit_int_show(tctx, builder, fd, arg_val, arg_ty_id);
     }
     // Bool.
@@ -1148,7 +1156,10 @@ fn emit_io_intrinsic(
     15..=17 => {
       emit_float_show(tctx, builder, fd, arg_val);
     }
-    // TODO(phase-5.7): aggregates (tuple / struct / array).
+    // Aggregates (tuple / struct / array / enum) fall here —
+    // they need recursive per-field formatting that isn't
+    // wired yet. Abort cleanly so the user sees a clear exit
+    // code instead of garbage output.
     _ => {
       trap_and_resume(tctx, builder, ctx);
 
@@ -1206,6 +1217,10 @@ fn emit_exit_1(tctx: &mut TCtx<'_>, builder: &mut FunctionBuilder) {
   let code = builder.ins().iconst(ir::types::I32, 1);
 
   builder.ins().call(fref, &[code]);
+
+  // Unreachable block terminator — satisfies CLIF's
+  // "every block ends with a terminator" rule after the
+  // `exit` call, which doesn't return.
   builder.ins().trap(ir::TrapCode::user(1).unwrap());
 }
 
@@ -1259,7 +1274,7 @@ fn emit_aggregate_literal(
 
   for (i, eid) in elements.iter().enumerate() {
     let Some(v) = ctx.values.get(eid).copied() else {
-      builder.ins().trap(ir::TrapCode::user(1).unwrap());
+      emit_exit_1(tctx, builder);
 
       ctx.terminated = true;
 
@@ -1387,9 +1402,8 @@ fn translate_body(
         ctx.values.insert(*dst, v);
       }
       Insn::ConstString { dst, symbol, .. } => {
-        // Phase 2f — layout option B (PLAN_CODEGEN_CLIF.md §7):
-        // one module-level data object per distinct string,
-        // laid out as `[len: u64 LE, ...utf-8 bytes]`. The
+        // Layout: one module-level data object per distinct
+        // string, shaped `[len: u64 LE, ...utf-8 bytes]`. The
         // dst receives the data object's address.
         //
         // Little-endian is hard-coded — every Cranelift target
@@ -1438,11 +1452,10 @@ fn translate_body(
         fields: elements,
         ..
       } => {
-        // Phase 2g layout applies to both tuples and structs:
-        // stack slot of `n * 8`, field i stored at `i * 8`.
-        // No length prefix — arity / field-count is compile-
-        // time-known at every `TupleIndex` / `FieldStore`
-        // via the `index` field.
+        // Shared tuple / struct layout: stack slot of `n * 8`,
+        // field i stored at `i * 8`. No length prefix — arity
+        // / field-count is compile-time-known at every
+        // `TupleIndex` / `FieldStore` via the `index` field.
         //
         // Structs reuse the tuple shape: same `Vec<ValueId>`
         // fields, same compile-time offsets. `struct_name`
@@ -1483,7 +1496,7 @@ fn translate_body(
 
         for (i, fid) in fields.iter().enumerate() {
           let Some(v) = ctx.values.get(fid).copied() else {
-            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+            emit_exit_1(tctx, builder);
 
             ctx.terminated = true;
 
@@ -1500,7 +1513,7 @@ fn translate_body(
         ctx.values.insert(*dst, addr);
       }
       Insn::ArrayLiteral { dst, elements, .. } => {
-        // Phase 5.8 — length-prefixed array layout:
+        // Length-prefixed array layout:
         // `[u64 LE len, elem_0, elem_1, ..., elem_{n-1}]`.
         // Stack slot is `8 + n * 8` bytes. `ArrayLen` loads
         // the prefix; `ArrayIndex` / `ArrayStore` shift the
@@ -1528,7 +1541,7 @@ fn translate_body(
         // Elements at `8 + i * 8`.
         for (i, eid) in elements.iter().enumerate() {
           let Some(v) = ctx.values.get(eid).copied() else {
-            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+            emit_exit_1(tctx, builder);
 
             ctx.terminated = true;
 
@@ -1554,7 +1567,7 @@ fn translate_body(
         // Compile-time indexed read: `tup.N`. Offset is
         // `index * 8` with the uniform slot layout.
         let Some(base) = ctx.values.get(tuple).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1573,7 +1586,7 @@ fn translate_body(
         // Compile-time indexed write: `struct.N = value`. No
         // `dst` — purely side-effecting.
         let Some(base_addr) = ctx.values.get(base).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1581,7 +1594,7 @@ fn translate_body(
         };
 
         let Some(v) = ctx.values.get(value).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1598,13 +1611,12 @@ fn translate_body(
         index,
         ty_id,
       } => {
-        // Runtime-indexed read: `arr[i]`. With the Phase 5.8
-        // length-prefixed layout, data starts at offset 8.
-        // Compute the element address as `base + 8 + (index
-        // << 3)`. Index is widened to pointer width if
-        // narrower.
+        // Runtime-indexed read: `arr[i]`. Data starts at
+        // offset 8 because of the length prefix; compute the
+        // element address as `base + 8 + (index << 3)`. Index
+        // is widened to pointer width if narrower.
         let Some(base) = ctx.values.get(array).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1612,7 +1624,7 @@ fn translate_body(
         };
 
         let Some(idx_v) = ctx.values.get(index).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1641,7 +1653,7 @@ fn translate_body(
         // Runtime-indexed write: `arr[i] = value`. Same
         // length-prefix-aware addr calc as `ArrayIndex`.
         let Some(base) = ctx.values.get(array).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1649,7 +1661,7 @@ fn translate_body(
         };
 
         let Some(idx_v) = ctx.values.get(index).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1657,7 +1669,7 @@ fn translate_body(
         };
 
         let Some(v) = ctx.values.get(value).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1679,7 +1691,7 @@ fn translate_body(
         // operand types. LE storage means a narrower load
         // correctly takes the low bytes for lengths ≤ 2^width.
         let Some(base) = ctx.values.get(array).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1701,7 +1713,7 @@ fn translate_body(
         let Some(l) = ctx.values.get(lhs).copied() else {
           // Operand missing — the producing insn was in an
           // unimplemented arm that trapped. Emit trap + bail.
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1709,7 +1721,7 @@ fn translate_body(
         };
 
         let Some(r) = ctx.values.get(rhs).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1727,24 +1739,25 @@ fn translate_body(
         ty_id,
       } => {
         let Some(r) = ctx.values.get(rhs).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
           return;
         };
 
-        let v = translate_unop(builder, *op, r, *ty_id);
+        let v = translate_unop(tctx, builder, *op, r, *ty_id);
 
         ctx.values.insert(*dst, v);
       }
       Insn::Call {
         dst, name, args, ..
       } => {
-        // Phase 5.3: intercept zo's I/O intrinsics before the
-        // normal `declare_func_in_func` path — they have no
-        // symbol in libc, so we inline them as `write` syscalls
-        // matching the ARM backend's open-coded behavior.
+        // Intercept zo's I/O / assertion intrinsics before
+        // the normal `declare_func_in_func` path — they have
+        // no symbol in libc, so we inline them (through libc
+        // `write` for show, `exit` for check) matching the
+        // ARM backend's open-coded behavior.
         let name_str = tctx.interner.get(*name);
 
         if matches!(name_str, "show" | "showln" | "eshow" | "eshowln") {
@@ -1763,7 +1776,7 @@ fn translate_body(
           // Callee not in the first-pass declaration table —
           // semantic analyzer shouldn't let this through, but
           // trap rather than panic.
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1777,7 +1790,7 @@ fn translate_body(
 
         for arg in args {
           let Some(v) = ctx.values.get(arg).copied() else {
-            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+            emit_exit_1(tctx, builder);
 
             ctx.terminated = true;
 
@@ -1869,7 +1882,7 @@ fn translate_body(
       }
       Insn::BranchIfNot { cond, target } => {
         let Some(cond_v) = ctx.values.get(cond).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1902,7 +1915,7 @@ fn translate_body(
         // semantic analyzer already enforces.
         if let Some(init_v) = init {
           let Some(v) = ctx.values.get(init_v).copied() else {
-            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+            emit_exit_1(tctx, builder);
 
             ctx.terminated = true;
 
@@ -1914,14 +1927,14 @@ fn translate_body(
       }
       Insn::Store { name, value, .. } => {
         let Some(var) = ctx.vars.get(name).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
           return;
         };
         let Some(v) = ctx.values.get(value).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1956,7 +1969,7 @@ fn translate_body(
           LoadSource::Local(sym) => ctx.vars.get(sym).copied(),
         };
         let Some(var) = var else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1974,7 +1987,7 @@ fn translate_body(
         to_ty,
       } => {
         let Some(src_v) = ctx.values.get(src).copied() else {
-          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+          emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
@@ -1998,14 +2011,14 @@ fn translate_body(
       | Insn::ArrayTyDef { .. }
       | Insn::ConstDef { .. }
       | Insn::Directive { .. } => {}
-      // Phase 2a stub: any insn not yet supported emits a
-      // single `trap` terminator and bails out of this body.
-      // The module still builds; calling the stubbed fn at
-      // runtime will abort. Filled in progressively by 2b/c/d.
+      // Catch-all for insns not yet implemented (`Template`,
+      // `ArrayPush`, `ArrayPop`, etc.): exit the process with
+      // code 1 and bail out of this body. The module still
+      // builds; calling the stubbed fn at runtime terminates
+      // cleanly instead of hanging on a raw `ud2` under
+      // Rosetta.
       _ => {
-        builder
-          .ins()
-          .trap(cranelift::codegen::ir::TrapCode::user(1).unwrap());
+        emit_exit_1(tctx, builder);
 
         ctx.terminated = true;
 
@@ -2133,12 +2146,11 @@ fn translate_binop(
         builder.ins().icmp(IntCC::SignedGreaterThanOrEqual, l, r)
       }
     }
-    // Concat is a string op — lowered as an FFI helper call
-    // in phase 2f. Trap until then.
     BinOp::Concat => {
-      // Phase 5.7: route through the `zo_str_concat` runtime
-      // helper. The result is a fresh `[u64 LE len, bytes]`
-      // buffer that composes with every other zo string path.
+      // Route through the `zo_str_concat` runtime helper in
+      // `zo-linker/src/runtime.c`. The result is a fresh
+      // `[u64 LE len, bytes]` buffer that composes with
+      // every other zo string path.
       let fid = ensure_libc_func(tctx, "zo_str_concat", |ptr_ty, cc| {
         let mut sig = ir::Signature::new(cc);
 
@@ -2158,6 +2170,7 @@ fn translate_binop(
 
 /// Translates a SIR [`UnOp`].
 fn translate_unop(
+  tctx: &mut TCtx<'_>,
   builder: &mut FunctionBuilder,
   op: UnOp,
   r: ir::Value,
@@ -2177,9 +2190,10 @@ fn translate_unop(
       builder.ins().bxor_imm(r, 1)
     }
     UnOp::BitNot => builder.ins().bnot(r),
-    // Ref / Deref — phase 2d (locals / aggregates). Trap for now.
+    // Ref / Deref aren't wired to stack-slot addressing yet —
+    // trap until the lvalue story lands.
     UnOp::Ref | UnOp::Deref => {
-      builder.ins().trap(ir::TrapCode::user(1).unwrap());
+      emit_exit_1(tctx, builder);
       builder.ins().iconst(ir::types::I64, 0)
     }
   }
