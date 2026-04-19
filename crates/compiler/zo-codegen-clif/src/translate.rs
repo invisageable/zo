@@ -1127,6 +1127,45 @@ fn emit_io_intrinsic(
   ctx.values.insert(dst, sentinel);
 }
 
+/// Allocates a no-length-prefix aggregate (tuple or struct),
+/// stores each field at offset `i * 8`, and returns the
+/// slot's address. Returns `None` on any missing field value
+/// after emitting a trap + marking `ctx.terminated` — the
+/// caller's match arm must return early in that case.
+///
+/// Shared between `Insn::TupleLiteral` and
+/// `Insn::StructConstruct` — same `Vec<ValueId>` shape, same
+/// uniform 8-byte-slot layout. Arrays use the length-prefix
+/// variant directly in their own arm.
+fn emit_aggregate_literal(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  ctx: &mut FunCtx,
+  elements: &[ValueId],
+) -> Option<ir::Value> {
+  let slot = builder.create_sized_stack_slot(StackSlotData::new(
+    StackSlotKind::ExplicitSlot,
+    (elements.len() as u32) * AGG_SLOT_SIZE,
+    AGG_ALIGN_SHIFT,
+  ));
+
+  for (i, eid) in elements.iter().enumerate() {
+    let Some(v) = ctx.values.get(eid).copied() else {
+      builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+      ctx.terminated = true;
+
+      return None;
+    };
+
+    let offset = ((i as u32) * AGG_SLOT_SIZE) as i32;
+
+    builder.ins().stack_store(v, slot, offset);
+  }
+
+  Some(builder.ins().stack_addr(tctx.ptr_ty, slot, 0))
+}
+
 /// Widens `idx` to pointer width via `uextend` if it's
 /// narrower; returns unchanged if already pointer-wide. Used by
 /// `ArrayIndex` / `ArrayStore` before computing `base + idx*8`
@@ -1285,32 +1324,26 @@ fn translate_body(
 
         ctx.values.insert(*dst, v);
       }
-      Insn::TupleLiteral { dst, elements, .. } => {
-        // Phase 2g — tuple literal. Stack slot of `n * 8`,
-        // element i stored at `i * 8`. No length prefix —
-        // tuple arity is compile-time-known at every
-        // `TupleIndex` / `FieldStore` via the `index` field.
-        let slot = builder.create_sized_stack_slot(StackSlotData::new(
-          StackSlotKind::ExplicitSlot,
-          (elements.len() as u32) * AGG_SLOT_SIZE,
-          AGG_ALIGN_SHIFT,
-        ));
-
-        for (i, eid) in elements.iter().enumerate() {
-          let Some(v) = ctx.values.get(eid).copied() else {
-            builder.ins().trap(ir::TrapCode::user(1).unwrap());
-
-            ctx.terminated = true;
-
-            return;
-          };
-
-          let offset = ((i as u32) * AGG_SLOT_SIZE) as i32;
-
-          builder.ins().stack_store(v, slot, offset);
-        }
-
-        let addr = builder.ins().stack_addr(tctx.ptr_ty, slot, 0);
+      Insn::TupleLiteral { dst, elements, .. }
+      | Insn::StructConstruct {
+        dst,
+        fields: elements,
+        ..
+      } => {
+        // Phase 2g layout applies to both tuples and structs:
+        // stack slot of `n * 8`, field i stored at `i * 8`.
+        // No length prefix — arity / field-count is compile-
+        // time-known at every `TupleIndex` / `FieldStore`
+        // via the `index` field.
+        //
+        // Structs reuse the tuple shape: same `Vec<ValueId>`
+        // fields, same compile-time offsets. `struct_name`
+        // is ignored — layout is purely positional with the
+        // 8-byte-uniform-slot convention.
+        let Some(addr) = emit_aggregate_literal(tctx, builder, ctx, elements)
+        else {
+          return;
+        };
 
         ctx.values.insert(*dst, addr);
       }
