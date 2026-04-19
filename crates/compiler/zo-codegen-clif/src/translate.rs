@@ -20,13 +20,29 @@ use zo_ty::TyId;
 use zo_value::{FunctionKind, ValueId};
 
 use cranelift::codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift::codegen::ir::{AbiParam, Function, InstBuilder, UserFuncName};
+use cranelift::codegen::ir::{
+  AbiParam, Function, InstBuilder, MemFlags, StackSlotData, StackSlotKind,
+  UserFuncName,
+};
 use cranelift::codegen::isa::CallConv;
 use cranelift::codegen::{Context, ir};
 use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 use rustc_hash::FxHashMap as HashMap;
+
+/// Uniform slot size for every aggregate field / array element,
+/// matching `zo-codegen-arm`'s ARM64 `STACK_SLOT_SIZE`. Pragmatic
+/// shortcut: skip per-TyId layout computation by giving every
+/// element 8 bytes, so `field_i` is at `base + i * 8` regardless
+/// of element type. Wastes space for `u8` / `bool` / `f32`, but
+/// keeps the codegen free of type-table lookups and identical
+/// across backends.
+const AGG_SLOT_SIZE: u32 = 8;
+
+/// `log2(AGG_SLOT_SIZE)` — Cranelift's stack-slot alignment is
+/// expressed as a shift, so `align = 1 << ALIGN_SHIFT`.
+const AGG_ALIGN_SHIFT: u8 = 3;
 
 /// Module-wide translation state threaded through
 /// [`translate_body`]. Bundled so the signature stays manageable
@@ -297,6 +313,24 @@ fn preallocate_label_blocks(
   }
 }
 
+/// Widens `idx` to pointer width via `uextend` if it's
+/// narrower; returns unchanged if already pointer-wide. Used by
+/// `ArrayIndex` / `ArrayStore` before computing `base + idx*8`
+/// — the addition needs both operands at ptr width.
+fn widen_to_ptr(
+  builder: &mut FunctionBuilder,
+  idx: ir::Value,
+  ptr_ty: ir::Type,
+) -> ir::Value {
+  let idx_ty = builder.func.dfg.value_type(idx);
+
+  if idx_ty == ptr_ty {
+    idx
+  } else {
+    builder.ins().uextend(ptr_ty, idx)
+  }
+}
+
 /// Ensures the current block has a terminator before switching
 /// away. CLIF forbids a non-terminated block — zo's hand-
 /// written ARM codegen relies on implicit fall-through, so we
@@ -418,6 +452,156 @@ fn translate_body(
 
         ctx.values.insert(*dst, v);
       }
+      Insn::TupleLiteral { dst, elements, .. }
+      | Insn::ArrayLiteral { dst, elements, .. } => {
+        // Phase 2g — aggregate literal. Allocate a stack slot
+        // sized `n * 8`, store each element at `i * 8`, and
+        // materialize the slot address as the aggregate's
+        // SSA value. Matches zo-codegen-arm's layout so both
+        // backends hand downstream SIR ops the same shape.
+        let slot = builder.create_sized_stack_slot(StackSlotData::new(
+          StackSlotKind::ExplicitSlot,
+          (elements.len() as u32) * AGG_SLOT_SIZE,
+          AGG_ALIGN_SHIFT,
+        ));
+
+        for (i, eid) in elements.iter().enumerate() {
+          let Some(v) = ctx.values.get(eid).copied() else {
+            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+            ctx.terminated = true;
+
+            return;
+          };
+
+          let offset = ((i as u32) * AGG_SLOT_SIZE) as i32;
+
+          builder.ins().stack_store(v, slot, offset);
+        }
+
+        let addr = builder.ins().stack_addr(tctx.ptr_ty, slot, 0);
+
+        ctx.values.insert(*dst, addr);
+      }
+      Insn::TupleIndex {
+        dst,
+        tuple,
+        index,
+        ty_id,
+      } => {
+        // Compile-time indexed read: `tup.N`. Offset is
+        // `index * 8` with the uniform slot layout.
+        let Some(base) = ctx.values.get(tuple).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let field_ty = ty_id_to_clif(*ty_id, tctx.ptr_ty);
+        let offset = (*index * AGG_SLOT_SIZE) as i32;
+        let v = builder.ins().load(field_ty, MemFlags::new(), base, offset);
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::FieldStore {
+        base, index, value, ..
+      } => {
+        // Compile-time indexed write: `struct.N = value`. No
+        // `dst` — purely side-effecting.
+        let Some(base_addr) = ctx.values.get(base).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let Some(v) = ctx.values.get(value).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let offset = (*index * AGG_SLOT_SIZE) as i32;
+
+        builder.ins().store(MemFlags::new(), v, base_addr, offset);
+      }
+      Insn::ArrayIndex {
+        dst,
+        array,
+        index,
+        ty_id,
+      } => {
+        // Runtime-indexed read: `arr[i]`. Compute the element
+        // address as `base + (index << 3)` — shift-left-by-3
+        // matches the 8-byte stride. Index is widened to
+        // pointer width if narrower.
+        let Some(base) = ctx.values.get(array).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let Some(idx_v) = ctx.values.get(index).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let idx_ext = widen_to_ptr(builder, idx_v, tctx.ptr_ty);
+        let byte_off = builder.ins().ishl_imm(idx_ext, 3);
+        let addr = builder.ins().iadd(base, byte_off);
+        let elem_ty = ty_id_to_clif(*ty_id, tctx.ptr_ty);
+        let v = builder.ins().load(elem_ty, MemFlags::new(), addr, 0);
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::ArrayStore {
+        array,
+        index,
+        value,
+        ..
+      } => {
+        // Runtime-indexed write: `arr[i] = value`. Same addr
+        // calc as `ArrayIndex`.
+        let Some(base) = ctx.values.get(array).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let Some(idx_v) = ctx.values.get(index).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let Some(v) = ctx.values.get(value).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let idx_ext = widen_to_ptr(builder, idx_v, tctx.ptr_ty);
+        let byte_off = builder.ins().ishl_imm(idx_ext, 3);
+        let addr = builder.ins().iadd(base, byte_off);
+
+        builder.ins().store(MemFlags::new(), v, addr, 0);
+      }
       Insn::BinOp {
         dst,
         op,
@@ -434,6 +618,7 @@ fn translate_body(
 
           return;
         };
+
         let Some(r) = ctx.values.get(rhs).copied() else {
           builder.ins().trap(ir::TrapCode::user(1).unwrap());
 
