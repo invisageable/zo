@@ -4,6 +4,8 @@
 //! and the per-function state (FuncId map, block map, value
 //! map, stack-slot map). One `CliftGen` per build invocation.
 
+use crate::translate;
+
 use zo_codegen_backend::{Artifact, Backend, Target};
 use zo_interner::Interner;
 use zo_sir::Sir;
@@ -71,12 +73,14 @@ impl<'a> CliftGen<'a> {
 }
 
 impl<'a> Backend for CliftGen<'a> {
-  /// Phase-1 stub: builds an empty module and emits the raw
-  /// object bytes. SIR translation lands in phase 2 — for now
-  /// we just prove the `Target` → ISA → `ObjectProduct::emit()`
-  /// round-trip works for every covered triple.
-  fn generate(&mut self, _sir: &Sir) -> Artifact {
-    let module = Self::new_module(self.target);
+  /// Phase 2a: translate the SIR instruction stream — one
+  /// CLIF function per `Insn::FunDef` — into the module, then
+  /// emit the resulting object bytes.
+  fn generate(&mut self, sir: &Sir) -> Artifact {
+    let mut module = Self::new_module(self.target);
+
+    translate::translate_module(&mut module, self.interner, &sir.instructions);
+
     let product = module.finish();
     let code = product.emit().expect("object emit failed");
 

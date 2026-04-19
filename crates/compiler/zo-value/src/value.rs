@@ -3,7 +3,7 @@ use zo_ty::{Mutability, TyId};
 
 /// VALUE AS FLYWEIGHT INDEX (Manifesto: everything is an index).
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ValueId(pub u32);
 
 impl std::ops::Deref for ValueId {

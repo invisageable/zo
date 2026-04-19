@@ -7592,11 +7592,13 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "cranelift-object",
+ "rustc-hash 2.1.1",
  "target-lexicon 0.13.5",
  "zo-codegen-backend",
  "zo-interner",
  "zo-sir",
  "zo-ty",
+ "zo-value",
 ]
 
 [[package]]
