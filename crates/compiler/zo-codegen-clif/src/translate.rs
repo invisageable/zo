@@ -1029,6 +1029,53 @@ fn emit_char_show(
   emit_write_call(tctx, builder, fd, buf_ptr, len);
 }
 
+/// Translates `check(cond: bool)` into a branch: on `cond ==
+/// true` the program continues; on `cond == false` the
+/// program exits with code 1. zo's source `check@eq(a, b)`
+/// desugars to `check(a == b)` at SIR time, so this one arm
+/// covers every `check@op` variant.
+fn emit_check_intrinsic(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  ctx: &mut FunCtx,
+  dst: ValueId,
+  args: &[ValueId],
+) {
+  // Missing arg → abort anyway (defensive; semantic analyzer
+  // shouldn't let this through).
+  let Some(&arg_id) = args.first() else {
+    trap_and_resume(tctx, builder, ctx);
+
+    return;
+  };
+
+  let Some(cond) = ctx.values.get(&arg_id).copied() else {
+    trap_and_resume(tctx, builder, ctx);
+
+    return;
+  };
+
+  let pass_block = builder.create_block();
+  let fail_block = builder.create_block();
+
+  builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+
+  // Fail branch — `exit(1)` terminates the block.
+  builder.switch_to_block(fail_block);
+  emit_exit_1(tctx, builder);
+
+  // Pass branch — continuation.
+  builder.switch_to_block(pass_block);
+
+  ctx.terminated = false;
+
+  // `check` returns unit; sentinel keeps downstream references
+  // to `dst` consistent with every other unit-producing arm.
+  let sentinel = builder.ins().iconst(ir::types::I8, 0);
+
+  ctx.values.insert(dst, sentinel);
+}
+
 /// Translates `show` / `showln` / `eshow` / `eshowln` into
 /// direct libc calls, matching the ARM backend's open-coded
 /// behavior without needing a separate runtime crate.
@@ -1125,18 +1172,10 @@ fn emit_io_intrinsic(
   ctx.values.insert(dst, sentinel);
 }
 
-/// Exits the program with code 1 at runtime and prepares a
-/// fresh block for subsequent instructions.
+/// Emits `exit(1)` as a block terminator: libc call followed
+/// by an unreachable `trap`.
 ///
-/// Used by helpers that hit an unsupported / malformed case
-/// and return control to a `continue`-style caller (e.g.
-/// `emit_io_intrinsic` returning to `translate_body`'s Call
-/// arm). Without the post-exit block switch, the CLIF
-/// verifier panics in `FunctionBuilder::ins()` with "you
-/// cannot add an instruction to a block already filled" on
-/// the next insn.
-///
-/// Why `exit(1)` instead of CLIF's `trap`:
+/// Why `exit(1)` instead of CLIF's bare `trap`:
 /// - `trap` lowers to `ud2` on x86_64. Rosetta (x86_64 →
 ///   arm64 on Apple Silicon) **hangs** on `ud2` rather than
 ///   raising `SIGILL`.
@@ -1147,14 +1186,15 @@ fn emit_io_intrinsic(
 ///   crash report, process terminates with code 1. Works
 ///   identically on x86_64-native, Linux, and Rosetta.
 ///
-/// `exit()` is `noreturn`, so the trailing `trap` is an
-/// unreachable terminator that only exists to satisfy CLIF's
-/// "every block ends with a terminator" rule.
-fn trap_and_resume(
-  tctx: &mut TCtx<'_>,
-  builder: &mut FunctionBuilder,
-  ctx: &mut FunCtx,
-) {
+/// `exit()` is `noreturn`, so the trailing CLIF `trap` is
+/// an unreachable terminator that only exists to satisfy
+/// CLIF's "every block ends with a terminator" rule.
+///
+/// Caller-side contract: the current block is now
+/// terminated. The caller MUST either switch to a fresh
+/// block before emitting more insns (see `trap_and_resume`)
+/// or return control to a site that will do so.
+fn emit_exit_1(tctx: &mut TCtx<'_>, builder: &mut FunctionBuilder) {
   let fid = ensure_libc_func(tctx, "exit", |_, cc| {
     let mut sig = ir::Signature::new(cc);
 
@@ -1167,6 +1207,24 @@ fn trap_and_resume(
 
   builder.ins().call(fref, &[code]);
   builder.ins().trap(ir::TrapCode::user(1).unwrap());
+}
+
+/// Exits the program with code 1 and prepares a fresh block
+/// for subsequent instructions.
+///
+/// Used by helpers that hit an unsupported / malformed case
+/// and return control to a `continue`-style caller (e.g.
+/// `emit_io_intrinsic` returning to `translate_body`'s Call
+/// arm). Without the post-exit block switch, the CLIF
+/// verifier panics in `FunctionBuilder::ins()` with "you
+/// cannot add an instruction to a block already filled" on
+/// the next insn.
+fn trap_and_resume(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  ctx: &mut FunCtx,
+) {
+  emit_exit_1(tctx, builder);
 
   ctx.terminated = true;
 
@@ -1691,6 +1749,12 @@ fn translate_body(
 
         if matches!(name_str, "show" | "showln" | "eshow" | "eshowln") {
           emit_io_intrinsic(tctx, builder, ctx, *dst, name_str, args);
+
+          continue;
+        }
+
+        if name_str == "check" {
+          emit_check_intrinsic(tctx, builder, ctx, *dst, args);
 
           continue;
         }
