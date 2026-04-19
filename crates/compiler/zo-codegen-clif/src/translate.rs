@@ -837,6 +837,140 @@ fn emit_bool_show(
   emit_write_call(tctx, builder, fd, ptr, len);
 }
 
+/// UTF-8 encodes a Unicode scalar (UTF-32 in I32) into a
+/// 4-byte stack buffer and calls `write(fd, buf, len)`.
+///
+/// Branchless: every possible first / second / third / fourth
+/// byte is computed, and `select` chains pick the right value
+/// per position based on the codepoint's range. Length is
+/// likewise picked via select. Bytes past `len` are still
+/// stored into the slot but the `write` call ignores them.
+///
+/// Range breakdown (matches RFC 3629):
+/// - `cp < 0x80`:    `0xxxxxxx`                                      (1 byte)
+/// - `cp < 0x800`:   `110xxxxx 10xxxxxx`                             (2 bytes)
+/// - `cp < 0x10000`: `1110xxxx 10xxxxxx 10xxxxxx`                    (3 bytes)
+/// - else:           `11110xxx 10xxxxxx 10xxxxxx 10xxxxxx`           (4 bytes)
+fn emit_char_show(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  fd: i64,
+  val: ir::Value,
+) {
+  // Widen UTF-32 codepoint to I32 (it already is, but the
+  // helper is robust to type drift) then to I64 for uniform
+  // shift / mask arithmetic.
+  let cp32 = {
+    let ty = builder.func.dfg.value_type(val);
+
+    if ty == ir::types::I32 {
+      val
+    } else {
+      builder.ins().ireduce(ir::types::I32, val)
+    }
+  };
+
+  // Range predicates.
+  let lt_80 = builder.ins().icmp_imm(IntCC::UnsignedLessThan, cp32, 0x80);
+  let lt_800 = builder.ins().icmp_imm(IntCC::UnsignedLessThan, cp32, 0x800);
+  let lt_10000 = builder
+    .ins()
+    .icmp_imm(IntCC::UnsignedLessThan, cp32, 0x10000);
+
+  // Byte 0 — leading byte per range.
+  let b0_ascii = builder.ins().band_imm(cp32, 0x7F);
+  let b0_2 = {
+    let shifted = builder.ins().ushr_imm(cp32, 6);
+    let masked = builder.ins().band_imm(shifted, 0x1F);
+
+    builder.ins().bor_imm(masked, 0xC0)
+  };
+  let b0_3 = {
+    let shifted = builder.ins().ushr_imm(cp32, 12);
+    let masked = builder.ins().band_imm(shifted, 0x0F);
+
+    builder.ins().bor_imm(masked, 0xE0)
+  };
+  let b0_4 = {
+    let shifted = builder.ins().ushr_imm(cp32, 18);
+    let masked = builder.ins().band_imm(shifted, 0x07);
+
+    builder.ins().bor_imm(masked, 0xF0)
+  };
+
+  // Byte 1 — first continuation byte for lengths ≥ 2.
+  let cont_cp_raw = builder.ins().band_imm(cp32, 0x3F);
+  let cont_cp = builder.ins().bor_imm(cont_cp_raw, 0x80);
+  let cont_shift6 = {
+    let s = builder.ins().ushr_imm(cp32, 6);
+    let m = builder.ins().band_imm(s, 0x3F);
+
+    builder.ins().bor_imm(m, 0x80)
+  };
+  let cont_shift12 = {
+    let s = builder.ins().ushr_imm(cp32, 12);
+    let m = builder.ins().band_imm(s, 0x3F);
+
+    builder.ins().bor_imm(m, 0x80)
+  };
+
+  let b1_for_2 = cont_cp;
+  let b1_for_3 = cont_shift6;
+  let b1_for_4 = cont_shift12;
+
+  // Byte 2 — only meaningful for lengths ≥ 3.
+  let b2_for_3 = cont_cp;
+  let b2_for_4 = cont_shift6;
+
+  // Byte 3 — only meaningful for length = 4.
+  let b3_for_4 = cont_cp;
+
+  let zero = builder.ins().iconst(ir::types::I32, 0);
+
+  // select chain per byte position: pick the value for the
+  // matching range, zero otherwise. Built bottom-up so each
+  // intermediate result lives in its own let-binding —
+  // keeps only one mutable borrow of `builder` active at a
+  // time.
+  let b0_mid = builder.ins().select(lt_10000, b0_3, b0_4);
+  let b0_inner = builder.ins().select(lt_800, b0_2, b0_mid);
+  let b0 = builder.ins().select(lt_80, b0_ascii, b0_inner);
+
+  let b1_mid = builder.ins().select(lt_10000, b1_for_3, b1_for_4);
+  let b1_inner = builder.ins().select(lt_800, b1_for_2, b1_mid);
+  let b1 = builder.ins().select(lt_80, zero, b1_inner);
+
+  let b2_inner = builder.ins().select(lt_10000, b2_for_3, b2_for_4);
+  let b2 = builder.ins().select(lt_800, zero, b2_inner);
+
+  let b3 = builder.ins().select(lt_10000, zero, b3_for_4);
+
+  // Length per range.
+  let one = builder.ins().iconst(tctx.ptr_ty, 1);
+  let two = builder.ins().iconst(tctx.ptr_ty, 2);
+  let three = builder.ins().iconst(tctx.ptr_ty, 3);
+  let four = builder.ins().iconst(tctx.ptr_ty, 4);
+  let len_mid = builder.ins().select(lt_10000, three, four);
+  let len_inner = builder.ins().select(lt_800, two, len_mid);
+  let len = builder.ins().select(lt_80, one, len_inner);
+
+  // Truncate each byte to I8 and stash into the stack slot.
+  let slot = builder.create_sized_stack_slot(StackSlotData::new(
+    StackSlotKind::ExplicitSlot,
+    4,
+    0,
+  ));
+  let buf_ptr = builder.ins().stack_addr(tctx.ptr_ty, slot, 0);
+
+  for (i, b) in [b0, b1, b2, b3].iter().enumerate() {
+    let b8 = builder.ins().ireduce(ir::types::I8, *b);
+
+    builder.ins().stack_store(b8, slot, i as i32);
+  }
+
+  emit_write_call(tctx, builder, fd, buf_ptr, len);
+}
+
 /// Translates `show` / `showln` / `eshow` / `eshowln` into
 /// direct libc calls, matching the ARM backend's open-coded
 /// behavior without needing a separate runtime crate.
@@ -902,6 +1036,10 @@ fn emit_io_intrinsic(
     // Bool.
     2 => {
       emit_bool_show(tctx, builder, fd, arg_val);
+    }
+    // Char (UTF-32).
+    3 => {
+      emit_char_show(tctx, builder, fd, arg_val);
     }
     // TODO(phase-5.5): floats (15..=17), char (3), aggregates.
     _ => {
