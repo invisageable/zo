@@ -656,7 +656,9 @@ fn record_value_type(ctx: &mut FunCtx, insn: &Insn) {
     | Insn::ArrayLen { dst, ty_id, .. }
     | Insn::ArrayPop { dst, ty_id, .. }
     | Insn::TupleLiteral { dst, ty_id, .. }
-    | Insn::TupleIndex { dst, ty_id, .. } => {
+    | Insn::TupleIndex { dst, ty_id, .. }
+    | Insn::StructConstruct { dst, ty_id, .. }
+    | Insn::EnumConstruct { dst, ty_id, .. } => {
       ctx.value_types.insert(*dst, *ty_id);
     }
     Insn::Cast { dst, to_ty, .. } => {
@@ -1068,9 +1070,7 @@ fn emit_io_intrinsic(
   };
 
   let Some(arg_val) = ctx.values.get(&arg_id).copied() else {
-    builder.ins().trap(ir::TrapCode::user(1).unwrap());
-
-    ctx.terminated = true;
+    trap_and_resume(tctx, builder, ctx);
 
     return;
   };
@@ -1103,9 +1103,7 @@ fn emit_io_intrinsic(
     }
     // TODO(phase-5.7): aggregates (tuple / struct / array).
     _ => {
-      builder.ins().trap(ir::TrapCode::user(1).unwrap());
-
-      ctx.terminated = true;
+      trap_and_resume(tctx, builder, ctx);
 
       return;
     }
@@ -1125,6 +1123,58 @@ fn emit_io_intrinsic(
   let sentinel = builder.ins().iconst(ir::types::I8, 0);
 
   ctx.values.insert(dst, sentinel);
+}
+
+/// Exits the program with code 1 at runtime and prepares a
+/// fresh block for subsequent instructions.
+///
+/// Used by helpers that hit an unsupported / malformed case
+/// and return control to a `continue`-style caller (e.g.
+/// `emit_io_intrinsic` returning to `translate_body`'s Call
+/// arm). Without the post-exit block switch, the CLIF
+/// verifier panics in `FunctionBuilder::ins()` with "you
+/// cannot add an instruction to a block already filled" on
+/// the next insn.
+///
+/// Why `exit(1)` instead of CLIF's `trap`:
+/// - `trap` lowers to `ud2` on x86_64. Rosetta (x86_64 →
+///   arm64 on Apple Silicon) **hangs** on `ud2` rather than
+///   raising `SIGILL`.
+/// - `abort()` raises `SIGABRT`, which triggers macOS'
+///   crash-reporter and leaves the process in a blocked
+///   state pending diagnostic collection.
+/// - `exit(1)` calls libc `__exit` cleanly: no signal, no
+///   crash report, process terminates with code 1. Works
+///   identically on x86_64-native, Linux, and Rosetta.
+///
+/// `exit()` is `noreturn`, so the trailing `trap` is an
+/// unreachable terminator that only exists to satisfy CLIF's
+/// "every block ends with a terminator" rule.
+fn trap_and_resume(
+  tctx: &mut TCtx<'_>,
+  builder: &mut FunctionBuilder,
+  ctx: &mut FunCtx,
+) {
+  let fid = ensure_libc_func(tctx, "exit", |_, cc| {
+    let mut sig = ir::Signature::new(cc);
+
+    sig.params.push(AbiParam::new(ir::types::I32));
+
+    sig
+  });
+  let fref = tctx.module.declare_func_in_func(fid, builder.func);
+  let code = builder.ins().iconst(ir::types::I32, 1);
+
+  builder.ins().call(fref, &[code]);
+  builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+  ctx.terminated = true;
+
+  let dead = builder.create_block();
+
+  builder.switch_to_block(dead);
+
+  ctx.terminated = false;
 }
 
 /// Allocates a no-length-prefix aggregate (tuple or struct),
@@ -1344,6 +1394,50 @@ fn translate_body(
         else {
           return;
         };
+
+        ctx.values.insert(*dst, addr);
+      }
+      Insn::EnumConstruct {
+        dst,
+        variant,
+        fields,
+        ..
+      } => {
+        // Enum layout (mirrors zo-codegen-arm
+        // codegen.rs:2281): `[u64 LE tag, field_0, ...,
+        // field_{n-1}]`. Tag at offset 0, field `i` at
+        // `(i + 1) * 8`.
+        //
+        // Reads come through `TupleIndex`: index 0 → tag,
+        // index `i + 1` → field `i`. No special read arm
+        // needed — the tuple-access offsets serve enums
+        // since the slot layout is positional.
+        let slot_count = 1 + fields.len() as u32;
+        let slot = builder.create_sized_stack_slot(StackSlotData::new(
+          StackSlotKind::ExplicitSlot,
+          slot_count * AGG_SLOT_SIZE,
+          AGG_ALIGN_SHIFT,
+        ));
+
+        let tag = builder.ins().iconst(tctx.ptr_ty, *variant as i64);
+
+        builder.ins().stack_store(tag, slot, 0);
+
+        for (i, fid) in fields.iter().enumerate() {
+          let Some(v) = ctx.values.get(fid).copied() else {
+            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+            ctx.terminated = true;
+
+            return;
+          };
+
+          let offset = (((i + 1) as u32) * AGG_SLOT_SIZE) as i32;
+
+          builder.ins().stack_store(v, slot, offset);
+        }
+
+        let addr = builder.ins().stack_addr(tctx.ptr_ty, slot, 0);
 
         ctx.values.insert(*dst, addr);
       }
