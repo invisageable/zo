@@ -14,8 +14,8 @@
 //! (ISA selection from `Target`, `ObjectModule` setup, trivial
 //! CLIF function, `ObjectProduct::emit()` round-trip).
 
-mod context;
+mod codegen;
 mod translate;
 mod types;
 
-pub use context::CliftGen;
+pub use codegen::CliftGen;

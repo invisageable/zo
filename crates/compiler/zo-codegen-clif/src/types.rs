@@ -62,3 +62,19 @@ pub(crate) fn ty_id_to_clif(ty_id: TyId, ptr: ir::Type) -> ir::Type {
     _ => ptr,
   }
 }
+
+/// Returns true iff the type is an unsigned integer
+/// (`u8`/`u16`/`u32`/`u64`). Signed integers, floats, and
+/// non-integers all return false. Used by `BinOp` dispatch to
+/// pick `sdiv` vs `udiv`, `sshr` vs `ushr`, signed vs
+/// unsigned `IntCC`s.
+pub(crate) fn is_unsigned_int(ty_id: TyId) -> bool {
+  matches!(ty_id.0, 11..=14)
+}
+
+/// Returns true iff the type is a float (`f32`/`f64`/`Arch`).
+/// Used by `BinOp` dispatch to pick `fadd`/`fmul`/`fcmp` over
+/// their integer counterparts.
+pub(crate) fn is_float(ty_id: TyId) -> bool {
+  matches!(ty_id.0, 15..=17)
+}

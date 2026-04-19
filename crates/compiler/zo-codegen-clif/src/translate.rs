@@ -12,13 +12,14 @@
 //! emitting wrong code. Module-level markers (`PackDecl`,
 //! `ModuleLoad`, type definitions) are explicit no-ops.
 
-use crate::types::{pointer_ty, ty_id_to_clif};
+use crate::types::{is_float, is_unsigned_int, pointer_ty, ty_id_to_clif};
 
 use zo_interner::{Interner, Symbol};
-use zo_sir::Insn;
+use zo_sir::{BinOp, Insn, UnOp};
 use zo_ty::TyId;
 use zo_value::{FunctionKind, ValueId};
 
+use cranelift::codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift::codegen::ir::{AbiParam, Function, InstBuilder, UserFuncName};
 use cranelift::codegen::isa::CallConv;
 use cranelift::codegen::{Context, ir};
@@ -198,6 +199,62 @@ fn translate_body(
 
         ctx.values.insert(*dst, v);
       }
+      Insn::ConstFloat { dst, value, ty_id } => {
+        let v = if ty_id.0 == 15 {
+          // f32.
+          builder.ins().f32const(*value as f32)
+        } else {
+          // f64 / arch.
+          builder.ins().f64const(*value)
+        };
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::ConstBool { dst, value, .. } => {
+        let v = builder.ins().iconst(ir::types::I8, i64::from(*value));
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::BinOp {
+        dst,
+        op,
+        lhs,
+        rhs,
+        ty_id,
+      } => {
+        let Some(l) = ctx.values.get(lhs).copied() else {
+          // Operand missing — the producing insn was in an
+          // unimplemented arm that trapped. Emit trap + bail.
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          return;
+        };
+        let Some(r) = ctx.values.get(rhs).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          return;
+        };
+
+        let v = translate_binop(builder, *op, l, r, *ty_id);
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::UnOp {
+        dst,
+        op,
+        rhs,
+        ty_id,
+      } => {
+        let Some(r) = ctx.values.get(rhs).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          return;
+        };
+
+        let v = translate_unop(builder, *op, r, *ty_id);
+
+        ctx.values.insert(*dst, v);
+      }
       Insn::Return { value, .. } => {
         let rets: Vec<ir::Value> = value
           .and_then(|v| ctx.values.get(&v).copied())
@@ -227,6 +284,166 @@ fn translate_body(
 
         return;
       }
+    }
+  }
+}
+
+/// Translates a SIR [`BinOp`] — dispatches on the operator
+/// and (via `ty_id`) on integer-vs-float and signed-vs-
+/// unsigned. Signed int is the default; unsigned is detected
+/// through `is_unsigned_int(ty_id)` (TyIds 11..=14), float
+/// through `is_float(ty_id)` (15..=17).
+fn translate_binop(
+  builder: &mut FunctionBuilder,
+  op: BinOp,
+  l: ir::Value,
+  r: ir::Value,
+  ty_id: TyId,
+) -> ir::Value {
+  let unsigned = is_unsigned_int(ty_id);
+  let fp = is_float(ty_id);
+
+  match op {
+    BinOp::Add => {
+      if fp {
+        builder.ins().fadd(l, r)
+      } else {
+        builder.ins().iadd(l, r)
+      }
+    }
+    BinOp::Sub => {
+      if fp {
+        builder.ins().fsub(l, r)
+      } else {
+        builder.ins().isub(l, r)
+      }
+    }
+    BinOp::Mul => {
+      if fp {
+        builder.ins().fmul(l, r)
+      } else {
+        builder.ins().imul(l, r)
+      }
+    }
+    BinOp::Div => {
+      if fp {
+        builder.ins().fdiv(l, r)
+      } else if unsigned {
+        builder.ins().udiv(l, r)
+      } else {
+        builder.ins().sdiv(l, r)
+      }
+    }
+    BinOp::Rem => {
+      if unsigned {
+        builder.ins().urem(l, r)
+      } else {
+        builder.ins().srem(l, r)
+      }
+      // Float rem falls through to int path today — zo
+      // doesn't generate `%` on floats in current programs.
+      // If that changes, route through a libm `fmod` FFI.
+    }
+    BinOp::And | BinOp::BitAnd => builder.ins().band(l, r),
+    BinOp::Or | BinOp::BitOr => builder.ins().bor(l, r),
+    BinOp::BitXor => builder.ins().bxor(l, r),
+    BinOp::Shl => builder.ins().ishl(l, r),
+    BinOp::Shr => {
+      if unsigned {
+        builder.ins().ushr(l, r)
+      } else {
+        builder.ins().sshr(l, r)
+      }
+    }
+    BinOp::Eq => {
+      if fp {
+        builder.ins().fcmp(FloatCC::Equal, l, r)
+      } else {
+        builder.ins().icmp(IntCC::Equal, l, r)
+      }
+    }
+    BinOp::Neq => {
+      if fp {
+        builder.ins().fcmp(FloatCC::NotEqual, l, r)
+      } else {
+        builder.ins().icmp(IntCC::NotEqual, l, r)
+      }
+    }
+    BinOp::Lt => {
+      if fp {
+        builder.ins().fcmp(FloatCC::LessThan, l, r)
+      } else if unsigned {
+        builder.ins().icmp(IntCC::UnsignedLessThan, l, r)
+      } else {
+        builder.ins().icmp(IntCC::SignedLessThan, l, r)
+      }
+    }
+    BinOp::Lte => {
+      if fp {
+        builder.ins().fcmp(FloatCC::LessThanOrEqual, l, r)
+      } else if unsigned {
+        builder.ins().icmp(IntCC::UnsignedLessThanOrEqual, l, r)
+      } else {
+        builder.ins().icmp(IntCC::SignedLessThanOrEqual, l, r)
+      }
+    }
+    BinOp::Gt => {
+      if fp {
+        builder.ins().fcmp(FloatCC::GreaterThan, l, r)
+      } else if unsigned {
+        builder.ins().icmp(IntCC::UnsignedGreaterThan, l, r)
+      } else {
+        builder.ins().icmp(IntCC::SignedGreaterThan, l, r)
+      }
+    }
+    BinOp::Gte => {
+      if fp {
+        builder.ins().fcmp(FloatCC::GreaterThanOrEqual, l, r)
+      } else if unsigned {
+        builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, l, r)
+      } else {
+        builder.ins().icmp(IntCC::SignedGreaterThanOrEqual, l, r)
+      }
+    }
+    // Concat is a string op — lowered as an FFI helper call
+    // in phase 2f. Trap until then.
+    BinOp::Concat => {
+      builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+      // Unreachable: trap is a terminator. Return a dummy
+      // value to satisfy the type checker — the caller will
+      // discard it because the block is now dead.
+      builder.ins().iconst(ir::types::I64, 0)
+    }
+  }
+}
+
+/// Translates a SIR [`UnOp`].
+fn translate_unop(
+  builder: &mut FunctionBuilder,
+  op: UnOp,
+  r: ir::Value,
+  ty_id: TyId,
+) -> ir::Value {
+  match op {
+    UnOp::Neg => {
+      if is_float(ty_id) {
+        builder.ins().fneg(r)
+      } else {
+        builder.ins().ineg(r)
+      }
+    }
+    UnOp::Not => {
+      // Boolean not: r xor 1. Assumes bool is canonical 0/1
+      // in I8 (enforced everywhere CLIF produces bools).
+      builder.ins().bxor_imm(r, 1)
+    }
+    UnOp::BitNot => builder.ins().bnot(r),
+    // Ref / Deref — phase 2d (locals / aggregates). Trap for now.
+    UnOp::Ref | UnOp::Deref => {
+      builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+      builder.ins().iconst(ir::types::I64, 0)
     }
   }
 }
