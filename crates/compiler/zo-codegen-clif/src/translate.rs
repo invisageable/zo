@@ -24,9 +24,37 @@ use cranelift::codegen::ir::{AbiParam, Function, InstBuilder, UserFuncName};
 use cranelift::codegen::isa::CallConv;
 use cranelift::codegen::{Context, ir};
 use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 use rustc_hash::FxHashMap as HashMap;
+
+/// Module-wide translation state threaded through
+/// [`translate_body`]. Bundled so the signature stays manageable
+/// as more per-module state accrues (string dedup, later:
+/// array / aggregate data descriptors). Each field is borrowed
+/// from [`translate_module`] for the duration of one body
+/// translation — the struct itself is stack-allocated and
+/// short-lived.
+pub(crate) struct TCtx<'a> {
+  /// The object module we're populating. `&mut` because
+  /// `Insn::ConstString` calls `declare_anonymous_data` /
+  /// `define_data`, and `Insn::Call` calls
+  /// `declare_func_in_func`.
+  pub(crate) module: &'a mut ObjectModule,
+  /// String interner for `Symbol` → `&str` lookups
+  /// (`Insn::ConstString` reads raw bytes here).
+  pub(crate) interner: &'a Interner,
+  /// Function `Symbol` → `FuncId`, populated in
+  /// `translate_module`'s first pass.
+  pub(crate) func_ids: &'a HashMap<Symbol, FuncId>,
+  /// String literal `Symbol` → its allocated `DataId`. Dedupes
+  /// repeated `ConstString` for the same symbol within one
+  /// module — a single data object per distinct string.
+  pub(crate) const_strings: &'a mut HashMap<Symbol, DataId>,
+  /// Pointer-width CLIF type for the target. Cached so each
+  /// `ConstString` doesn't re-query the module config.
+  pub(crate) ptr_ty: ir::Type,
+}
 
 /// Per-function translation state. A fresh [`FunCtx`] is built
 /// for every SIR `FunDef`.
@@ -99,8 +127,10 @@ pub(crate) fn translate_module(
 
   // First pass: declare every function so forward calls
   // inside bodies can resolve their `FuncId`.
-  let mut func_ids: HashMap<Symbol, cranelift_module::FuncId> =
-    HashMap::default();
+  let mut func_ids: HashMap<Symbol, FuncId> = HashMap::default();
+  // Persistent across the whole module so repeat `ConstString`s
+  // for the same `Symbol` share one data object.
+  let mut const_strings: HashMap<Symbol, DataId> = HashMap::default();
 
   for insn in insns {
     if let Insn::FunDef {
@@ -204,13 +234,26 @@ pub(crate) fn translate_module(
       &insns[body_start_u..end],
     );
 
-    translate_body(
-      module,
-      &func_ids,
-      &mut builder,
-      &mut fun_ctx,
-      &insns[body_start_u..end],
-    );
+    // Inner scope so `TCtx`'s borrow of `module` /
+    // `const_strings` ends before `module.define_function`
+    // below — `define_function` needs `&mut module` which
+    // would otherwise conflict.
+    {
+      let mut tctx = TCtx {
+        module,
+        interner,
+        func_ids: &func_ids,
+        const_strings: &mut const_strings,
+        ptr_ty,
+      };
+
+      translate_body(
+        &mut tctx,
+        &mut builder,
+        &mut fun_ctx,
+        &insns[body_start_u..end],
+      );
+    }
 
     // Seal every block — tells cranelift all predecessors are
     // now known, finalizes any pending SSA phi nodes.
@@ -296,13 +339,11 @@ fn build_signature(
 }
 
 /// Walks the body instructions and emits CLIF via the given
-/// [`FunctionBuilder`]. `module` + `func_ids` are threaded in
-/// to let `Insn::Call` resolve its callee's `FuncId` and
-/// import it into the current function via
-/// `declare_func_in_func`.
+/// [`FunctionBuilder`]. [`TCtx`] carries module-wide state
+/// needed by insns that touch globals (`ConstString` allocates
+/// data; `Call` imports the callee's `FuncId`).
 fn translate_body(
-  module: &mut ObjectModule,
-  func_ids: &HashMap<Symbol, cranelift_module::FuncId>,
+  tctx: &mut TCtx<'_>,
   builder: &mut FunctionBuilder,
   ctx: &mut FunCtx,
   body: &[Insn],
@@ -328,6 +369,52 @@ fn translate_body(
       }
       Insn::ConstBool { dst, value, .. } => {
         let v = builder.ins().iconst(ir::types::I8, i64::from(*value));
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::ConstString { dst, symbol, .. } => {
+        // Phase 2f — layout option B (PLAN_CODEGEN_CLIF.md §7):
+        // one module-level data object per distinct string,
+        // laid out as `[len: u64 LE, ...utf-8 bytes]`. The
+        // dst receives the data object's address.
+        //
+        // Little-endian is hard-coded — every Cranelift target
+        // we cover (x86_64, aarch64) is LE. Re-evaluate if a
+        // BE target is ever added.
+        let data_id = if let Some(id) = tctx.const_strings.get(symbol).copied()
+        {
+          id
+        } else {
+          let s = tctx.interner.get(*symbol);
+          let bytes = s.as_bytes();
+          let len = bytes.len() as u64;
+
+          let mut buf: Vec<u8> = Vec::with_capacity(8 + bytes.len());
+
+          buf.extend_from_slice(&len.to_le_bytes());
+          buf.extend_from_slice(bytes);
+
+          let mut desc = DataDescription::new();
+
+          desc.define(buf.into_boxed_slice());
+
+          let id = tctx
+            .module
+            .declare_anonymous_data(false, false)
+            .expect("declare_anonymous_data failed");
+
+          tctx
+            .module
+            .define_data(id, &desc)
+            .expect("define_data failed");
+
+          tctx.const_strings.insert(*symbol, id);
+
+          id
+        };
+
+        let gv = tctx.module.declare_data_in_func(data_id, builder.func);
+        let v = builder.ins().global_value(tctx.ptr_ty, gv);
 
         ctx.values.insert(*dst, v);
       }
@@ -380,7 +467,7 @@ fn translate_body(
       Insn::Call {
         dst, name, args, ..
       } => {
-        let Some(func_id) = func_ids.get(name).copied() else {
+        let Some(func_id) = tctx.func_ids.get(name).copied() else {
           // Callee not in the first-pass declaration table —
           // semantic analyzer shouldn't let this through, but
           // trap rather than panic.
@@ -412,7 +499,7 @@ fn translate_body(
         // function (cranelift dedupes internally across repeat
         // imports). Works for both `Linkage::Export` (user-
         // defined) and `Linkage::Import` (FFI intrinsics).
-        let fref = module.declare_func_in_func(func_id, builder.func);
+        let fref = tctx.module.declare_func_in_func(func_id, builder.func);
         let call = builder.ins().call(fref, &arg_vals);
 
         // Unit-return callees have an empty results vec. SIR
