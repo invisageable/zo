@@ -1323,8 +1323,18 @@ impl<'a> ARM64Gen<'a> {
             BinOp::And | BinOp::BitAnd => self.emitter.emit_and(d, l, r),
             BinOp::Or | BinOp::BitOr => self.emitter.emit_orr(d, l, r),
             BinOp::BitXor => self.emitter.emit_eor(d, l, r),
-            BinOp::Shl => self.emitter.emit_lsl(d, l, 1),
-            BinOp::Shr => self.emitter.emit_lsr(d, l, 1),
+            // `emit_lsl` / `emit_lsr` take an IMMEDIATE
+            // shift (encoded via UBFM). The previous code
+            // passed the literal `1`, so every runtime
+            // shift collapsed to `<< 1` regardless of the
+            // source — a shift-by-constant off an Ident
+            // (`acc << 4`) silently produced `acc << 1`,
+            // while the same expression with a literal LHS
+            // worked via const-folding. Use the variable-
+            // shift forms (LSLV / LSRV) so the RHS register
+            // carries the real count.
+            BinOp::Shl => self.emitter.emit_lslv(d, l, r),
+            BinOp::Shr => self.emitter.emit_lsrv(d, l, r),
             BinOp::Lt => self.emit_cmp_csel(d, l, r, COND_LT),
             BinOp::Lte => self.emit_cmp_csel(d, l, r, COND_LE),
             BinOp::Gt => self.emit_cmp_csel(d, l, r, COND_GT),

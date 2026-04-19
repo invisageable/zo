@@ -38,6 +38,12 @@ const MSUB: u32 = 0x9B008000;
 const BCOND: u32 = 0x54000000;
 const UBFM: u32 = 0xD3400000;
 const SBFM: u32 = 0x93400000;
+/// Data-processing (2 source), variable shifts — LSLV /
+/// LSRV / ASRV. Common base: `sf 0 0 11010110 Rm 0010 xx Rn
+/// Rd`. Low bits `op2[15:10]` select the flavour:
+/// `001000` = LSLV, `001001` = LSRV, `001010` = ASRV.
+const LSLV: u32 = 0x9AC02000;
+const LSRV: u32 = 0x9AC02400;
 const STP_PRE: u32 = 0xA9800000;
 const LDP_POST: u32 = 0xA8C00000;
 const FMOV_GP_FP: u32 = 0x9E670000;
@@ -604,6 +610,32 @@ impl ARM64Emitter {
     let insn = UBFM
       | (immr << 16)
       | (imms << 10)
+      | ((src.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// Logical shift left by a variable amount held in `amount`.
+  /// Distinct from `emit_lsl` (immediate-only, encoded via
+  /// UBFM) — this is ARM64's LSLV instruction, needed when
+  /// the shift count is known only at runtime (e.g.
+  /// `acc << digits` in a parse loop). Low 6 bits of
+  /// `amount` are used; higher bits ignored by the CPU.
+  pub fn emit_lslv(&mut self, dst: Register, src: Register, amount: Register) {
+    let insn = LSLV
+      | ((amount.index() as u32) << 16)
+      | ((src.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// Logical shift right by a variable amount (LSRV).
+  /// Variable-shift counterpart of `emit_lsr`.
+  pub fn emit_lsrv(&mut self, dst: Register, src: Register, amount: Register) {
+    let insn = LSRV
+      | ((amount.index() as u32) << 16)
       | ((src.index() as u32) << 5)
       | (dst.index() as u32);
 

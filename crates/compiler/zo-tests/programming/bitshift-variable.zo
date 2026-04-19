@@ -1,0 +1,44 @@
+-- tests-run-pass: bitwise shift with a variable LHS —
+-- regression for issue J (CL15). Pre-fix, `a << n` and
+-- `a >> n` collapsed to `a << 1` / `a >> 1` for every
+-- runtime LHS because the codegen's BinOp::Shl / Shr arms
+-- passed the literal `1` to the immediate-form UBFM
+-- encoder instead of reading the RHS register. Literal-
+-- LHS cases worked through const-folding and masked the
+-- bug — caught when hand-rolling `parse_hex`:
+--   `acc = (acc << 4) | hex_digit(hex[i])`.
+
+fun main() {
+  imu a: int = 5;
+
+  -- left shift.
+  check@eq(a << 4, 80);
+  check@eq(a << 8, 1280);
+  check@eq(a << 1, 10);
+  check@eq(a << 0, 5);
+
+  -- right shift.
+  imu big: int = 0xFF00;
+  check@eq(big >> 4, 0xFF0);
+  check@eq(big >> 8, 0xFF);
+  check@eq(big >> 1, 0x7F80);
+
+  -- variable-amount shift (not just constant RHS).
+  mut n: int = 3;
+  check@eq(a << n, 40);
+  n = 5;
+  check@eq(a << n, 160);
+
+  -- the parse_hex accumulator pattern that surfaced the
+  -- bug: `(acc << 4) | digit`.
+  mut acc: int = 0;
+  acc = (acc << 4) | 0xC;
+  acc = (acc << 4) | 0x6;
+  acc = (acc << 4) | 0x0;
+  acc = (acc << 4) | 0x0;
+  acc = (acc << 4) | 0x0;
+  acc = (acc << 4) | 0x1;
+  check@eq(acc, 0xC60001);
+
+  showln("all bitshift-variable checks passed!");
+}
