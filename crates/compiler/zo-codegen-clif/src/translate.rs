@@ -132,16 +132,22 @@ pub(crate) struct FunCtx {
   /// `switch_to_block`. Used at each `Label` to decide whether
   /// a fall-through jump needs synthesizing.
   pub(crate) terminated: bool,
+  /// True iff the function being translated is `main`. Flips
+  /// the `Return { value: None }` arm into emitting `iconst
+  /// (I32, 0)` so the process exits with a deterministic `0`
+  /// instead of a junk return-register value.
+  pub(crate) is_main: bool,
 }
 
 impl FunCtx {
-  fn new() -> Self {
+  fn new(is_main: bool) -> Self {
     Self {
       values: HashMap::default(),
       blocks: HashMap::default(),
       vars: HashMap::default(),
       params: Vec::new(),
       terminated: false,
+      is_main,
     }
   }
 
@@ -215,11 +221,12 @@ pub(crate) fn translate_module(
         Linkage::Export
       };
 
-      let sig = build_signature(params, *return_ty, call_conv, ptr_ty);
       // Cranelift's `ObjectModule` handles platform-specific
       // symbol mangling (e.g. leading `_` for Mach-O) — pass
       // the raw name.
       let fname = interner.get(*name);
+      let is_main = fname == "main";
+      let sig = build_signature(params, *return_ty, call_conv, ptr_ty, is_main);
 
       let func_id = module
         .declare_function(fname, linkage, &sig)
@@ -264,7 +271,8 @@ pub(crate) fn translate_module(
     }
 
     let func_id = func_ids[name];
-    let sig = build_signature(params, *return_ty, call_conv, ptr_ty);
+    let is_main = interner.get(*name) == "main";
+    let sig = build_signature(params, *return_ty, call_conv, ptr_ty, is_main);
 
     let mut ctx = Context::new();
 
@@ -282,7 +290,7 @@ pub(crate) fn translate_module(
     builder.switch_to_block(entry);
     builder.seal_block(entry);
 
-    let mut fun_ctx = FunCtx::new();
+    let mut fun_ctx = FunCtx::new(is_main);
 
     // Seed `Variable`s from the entry block's parameters.
     // Every param is pushed into `params` (for index-keyed
@@ -646,6 +654,7 @@ fn build_signature(
   return_ty: TyId,
   call_conv: CallConv,
   ptr_ty: ir::Type,
+  is_main: bool,
 ) -> ir::Signature {
   let mut sig = ir::Signature::new(call_conv);
 
@@ -653,7 +662,18 @@ fn build_signature(
     sig.params.push(AbiParam::new(ty_id_to_clif(*pty, ptr_ty)));
   }
 
-  if return_ty != TyId(1) {
+  if is_main {
+    // C's `crt0` / `crt1` entry stub calls `main` and reads
+    // its return register as the process exit code. zo's
+    // `fun main()` has return type `unit` (TyId(1)), which
+    // would normally produce a zero-return signature — the
+    // exit register would be uninitialized garbage. Force
+    // the CLIF signature to `() -> i32` so the `Return`
+    // handler can inject `iconst(I32, 0)` on implicit
+    // returns (and pass through any explicit int return
+    // from future `fun main(): int { ... }` programs).
+    sig.returns.push(AbiParam::new(ir::types::I32));
+  } else if return_ty != TyId(1) {
     sig
       .returns
       .push(AbiParam::new(ty_id_to_clif(return_ty, ptr_ty)));
@@ -992,9 +1012,23 @@ fn translate_body(
         ctx.values.insert(*dst, v);
       }
       Insn::Return { value, .. } => {
-        let rets: Vec<ir::Value> = value
+        // Resolve the explicit return value (if any) from the
+        // SSA map; fall back to `vec![]`.
+        let explicit: Vec<ir::Value> = value
           .and_then(|v| ctx.values.get(&v).copied())
           .map_or_else(Vec::new, |v| vec![v]);
+
+        // `main` must return an `i32` to match the CLIF
+        // signature we built (`() -> i32`). If the zo source
+        // didn't provide a return value (`fun main()` with
+        // no explicit `return`), inject a 0 sentinel so the
+        // process exits cleanly instead of reading junk from
+        // the return register.
+        let rets: Vec<ir::Value> = if ctx.is_main && explicit.is_empty() {
+          vec![builder.ins().iconst(ir::types::I32, 0)]
+        } else {
+          explicit
+        };
 
         builder.ins().return_(&rets);
 
