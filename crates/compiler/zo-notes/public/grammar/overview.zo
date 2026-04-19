@@ -30,10 +30,6 @@ load core::math;
 -- item:type.
 pub type FooBar = int;
 
--- item:ext.
-pub ext foo(bar: s32) -> int;
-ext foo(bar: s32) -> int;
-
 -- item:ffi.
 pub ffi foo(bar: s32) -> int;
 ffi foo(bar: s32) -> int;

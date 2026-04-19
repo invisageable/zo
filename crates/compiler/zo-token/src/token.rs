@@ -38,7 +38,7 @@ pub enum Token {
   Pack,
   Load,
   Type,
-  Ext,
+  Ffi,
   Abstract,
   Apply,
   State,

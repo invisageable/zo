@@ -1,4 +1,4 @@
 pack assert;
 
 -- assert that condition is true, abort if false.
-pub ext check(condition: bool);
+pub ffi check(condition: bool);

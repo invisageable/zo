@@ -790,10 +790,10 @@ impl<'a> Executor<'a> {
         self.execute_closure(idx, children_end);
       }
 
-      Token::Ext => {
+      Token::Ffi => {
         let children_end = (header.child_start + header.child_count) as usize;
 
-        self.execute_ext(idx, children_end);
+        self.execute_ffi(idx, children_end);
       }
 
       Token::Enum => {
@@ -6257,10 +6257,10 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Executes an `ext` declaration — an intrinsic function
+  /// Executes an `ffi` declaration — an intrinsic function
   /// with no body. Emits `FunDef { is_intrinsic: true }`.
-  fn execute_ext(&mut self, start_idx: usize, end_idx: usize) {
-    // Parse signature: ext name(params) -> return_ty;
+  fn execute_ffi(&mut self, start_idx: usize, end_idx: usize) {
+    // Parse signature: ffi name(params) -> return_ty;
     let name = self
       .tree
       .nodes

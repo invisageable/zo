@@ -140,54 +140,54 @@ pub fun pow_i(base: int, exp: int) -> int {
 -- power and roots.
 
 -! Returns the square root of x.
-pub ext sqrt(x: float) -> float;
+pub ffi sqrt(x: float) -> float;
 
 -! Returns x raised to the power y.
-pub ext pow(x: float, y: float) -> float;
+pub ffi pow(x: float, y: float) -> float;
 
 -- trigonometry.
 
 -! Returns the sine of x (radians).
-pub ext sin(x: float) -> float;
+pub ffi sin(x: float) -> float;
 
 -! Returns the cosine of x (radians).
-pub ext cos(x: float) -> float;
+pub ffi cos(x: float) -> float;
 
 -! Returns the tangent of x (radians).
-pub ext tan(x: float) -> float;
+pub ffi tan(x: float) -> float;
 
 -- logarithms and exponentials.
 
 -! Returns the natural logarithm of x.
-pub ext log(x: float) -> float;
+pub ffi log(x: float) -> float;
 
 -! Returns the base-2 logarithm of x.
-pub ext log2(x: float) -> float;
+pub ffi log2(x: float) -> float;
 
 -! Returns the base-10 logarithm of x.
-pub ext log10(x: float) -> float;
+pub ffi log10(x: float) -> float;
 
 -! Returns e raised to the power x.
-pub ext exp(x: float) -> float;
+pub ffi exp(x: float) -> float;
 
 -- rounding.
 
 -! Returns the largest integer less than or equal to x.
-pub ext floor(x: float) -> float;
+pub ffi floor(x: float) -> float;
 
 -! Returns the smallest integer greater than or equal to x.
-pub ext ceil(x: float) -> float;
+pub ffi ceil(x: float) -> float;
 
 -! Removes the fractional part. Rounds toward zero.
-pub ext trunc(x: float) -> float;
+pub ffi trunc(x: float) -> float;
 
 -! Rounds to the nearest integer.
-pub ext round(x: float) -> float;
+pub ffi round(x: float) -> float;
 
 -- float classification.
 
 -! Returns true if x is finite (not infinity or NaN).
-pub ext is_finite(x: float) -> bool;
+pub ffi is_finite(x: float) -> bool;
 
 -! Returns true if x is NaN.
-pub ext is_nan(x: float) -> bool;
+pub ffi is_nan(x: float) -> bool;

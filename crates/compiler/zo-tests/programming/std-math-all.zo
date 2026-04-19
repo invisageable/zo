@@ -1,5 +1,5 @@
 -- tests-run-pass: all libm functions.
--- all ext functions are preloaded from std/math.zo.
+-- all ffi functions are preloaded from std/math.zo.
 
 fun main() {
   showln(pow(2.0, 10.0));

@@ -240,7 +240,7 @@ fn is_keyword(kind: Token) -> bool {
     | Token::Struct | Token::Enum | Token::Return | Token::Break
     | Token::Continue | Token::Match | Token::When | Token::As
     | Token::Is | Token::True | Token::False | Token::Pub
-    | Token::Val | Token::Ext | Token::Abstract | Token::Apply
+    | Token::Val | Token::Ffi | Token::Abstract | Token::Apply
     | Token::State | Token::Group | Token::And | Token::Raw
     | Token::Wasm | Token::Nursery | Token::Spawn | Token::Await
     | Token::SelfUpper | Token::SelfLower |

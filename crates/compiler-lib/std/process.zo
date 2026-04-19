@@ -6,4 +6,4 @@ pack process;
 -! not unwound, destructors are not invoked, and stdio
 -! buffers are not flushed. Use `flush()` beforehand if
 -! pending output matters.
-pub ext exit(code: int);
+pub ffi exit(code: int);

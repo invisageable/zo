@@ -352,7 +352,7 @@ impl<'a> Tokenizer<'a> {
         3 if bytes == b"mut" => Token::Mut,
         3 if bytes == b"pub" => Token::Pub,
         3 if bytes == b"for" => Token::For,
-        3 if bytes == b"ext" => Token::Ext,
+        3 if bytes == b"ffi" => Token::Ffi,
         3 if bytes == b"val" => Token::Val,
         3 if bytes == b"raw" => Token::Raw,
         3 if bytes == b"and" => Token::And,

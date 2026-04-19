@@ -46,7 +46,7 @@ fn test_val_no_store_emitted() {
 #[test]
 fn test_val_constant_inlined_at_use() {
   assert_sir_structure(
-    r#"ext show(x: int);
+    r#"ffi show(x: int);
 fun main() {
   val X: int = 42;
   show(X);
