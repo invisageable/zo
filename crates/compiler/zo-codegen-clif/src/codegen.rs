@@ -72,6 +72,22 @@ impl<'a> CliftGen<'a> {
   }
 }
 
+impl<'a> CliftGen<'a> {
+  /// Translates the SIR and returns the concatenated CLIF IR
+  /// text (per cranelift's `ir::Function` Display impl). The
+  /// ARM path returns disassembled ARM64; the CLIF path
+  /// returns pre-codegen IR — equivalently debuggable for
+  /// the backend's own decision-making, without pulling a
+  /// disassembler dep. Fresh `ObjectModule` each call because
+  /// `translate_module` mutates; the resulting object bytes
+  /// are discarded.
+  pub fn generate_asm(&mut self, sir: &Sir) -> String {
+    let mut module = Self::new_module(self.target);
+
+    translate::translate_module(&mut module, self.interner, &sir.instructions)
+  }
+}
+
 impl<'a> Backend for CliftGen<'a> {
   /// Phase 2a: translate the SIR instruction stream — one
   /// CLIF function per `Insn::FunDef` — into the module, then
@@ -79,7 +95,13 @@ impl<'a> Backend for CliftGen<'a> {
   fn generate(&mut self, sir: &Sir) -> Artifact {
     let mut module = Self::new_module(self.target);
 
-    translate::translate_module(&mut module, self.interner, &sir.instructions);
+    // `translate_module` returns CLIF IR text for the
+    // `--emit asm` path; the binary path doesn't need it.
+    let _ = translate::translate_module(
+      &mut module,
+      self.interner,
+      &sir.instructions,
+    );
 
     let product = module.finish();
     let code = product.emit().expect("object emit failed");

@@ -79,16 +79,15 @@ impl Codegen {
     }
   }
 
-  /// Generates assembly text for display. Only available on the
-  /// hand-written ARM path; other targets return an explanatory
-  /// string (no `capstone` dep pulled in for a debug-only
-  /// feature).
+  /// Generates assembly text for display. ARM returns
+  /// disassembled ARM64; Cranelift returns CLIF IR text (pre-
+  /// machine-code — equivalently useful for debugging the
+  /// backend's own decisions, and avoids pulling a disassembler
+  /// dep into the CLIF path).
   pub fn generate_asm(&self, interner: &Interner, sir: &Sir) -> String {
     match self.make_backend(interner) {
       Concrete::Arm64(mut codegen) => codegen.generate_asm(sir),
-      Concrete::Clift(_) => {
-        String::from("asm is only supported for the ARM64 backend")
-      }
+      Concrete::Clift(mut codegen) => codegen.generate_asm(sir),
     }
   }
 }

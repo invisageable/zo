@@ -1,15 +1,21 @@
 //! SIR → CLIF instruction translator.
 //!
 //! Per-function pipeline:
-//!   1. Determine body range `[body_start .. next_fundef_or_end]`.
-//!   2. Label pre-pass — allocate CLIF blocks per `Label { id }`
-//!      (phase 2c).
-//!   3. Main pass — walk instructions, emit CLIF.
+//!   1. First-pass scan (`collect_const_defs`) resolves module-
+//!      scope `val` bindings so `Load { Local(NAME) }` can inline.
+//!   2. Declaration sweep — `declare_function` for every
+//!      `Insn::FunDef` (imports for intrinsics, exports for
+//!      user fns) so forward calls resolve.
+//!   3. Per-body: determine range `[body_start .. next_fundef_or_end]`,
+//!      label pre-pass (phase 2c), then walk insns.
 //!
-//! Phase 2a coverage: `FunDef`, `ConstInt`, `Return`. Every
-//! other value-producing variant is a `todo!()` marker so
-//! missing coverage surfaces at test time instead of silently
-//! emitting wrong code. Module-level markers (`PackDecl`,
+//! Phase 2a–2h coverage: scalar constants, arithmetic, compares,
+//! unary, control flow, locals (Variable API), function calls,
+//! `ConstString` (anonymous data sections), aggregates on
+//! uniform 8-byte-slot layout, `ConstDef` inlining, `Directive`
+//! no-op. Remaining insns (`ArrayLen`, `ArrayPush`, `ArrayPop`,
+//! `BinOp::Concat`) trap — they need libc helpers that arrive
+//! with Phase 4 linking. Module-level markers (`PackDecl`,
 //! `ModuleLoad`, type definitions) are explicit no-ops.
 
 use crate::types::{is_float, is_unsigned_int, pointer_ty, ty_id_to_clif};
@@ -161,11 +167,18 @@ impl FunCtx {
 
 /// Translates the whole SIR instruction stream into the given
 /// [`ObjectModule`]. One CLIF function per SIR `FunDef`.
+///
+/// Returns the concatenated CLIF IR text of every defined
+/// function (via cranelift's `ir::Function` `Display` impl).
+/// Callers that only care about object bytes can ignore it;
+/// `CliftGen::generate_asm` consumes it for the `--emit asm`
+/// debug view. Formatting is per-function and runs right
+/// before `define_function` consumes the `Context`.
 pub(crate) fn translate_module(
   module: &mut ObjectModule,
   interner: &Interner,
   insns: &[Insn],
-) {
+) -> String {
   let call_conv = module.target_config().default_call_conv;
   let ptr_ty = pointer_ty(module);
 
@@ -203,6 +216,10 @@ pub(crate) fn translate_module(
       func_ids.insert(*name, func_id);
     }
   }
+
+  // Accumulator for CLIF IR text — consumed by the `--emit
+  // asm` path on CliftGen. Zero cost when discarded.
+  let mut ir_text = String::new();
 
   // Second pass: define each non-intrinsic function's body.
   let mut i = 0;
@@ -308,12 +325,20 @@ pub(crate) fn translate_module(
     builder.seal_all_blocks();
     builder.finalize();
 
+    // Capture the formatted function before `define_function`
+    // consumes the context. Cranelift's `ir::Function` has a
+    // Display impl that writes CLIF text directly.
+    use std::fmt::Write as _;
+    let _ = writeln!(ir_text, "{}", ctx.func);
+
     module
       .define_function(func_id, &mut ctx)
       .expect("define_function failed");
 
     i = end;
   }
+
+  ir_text
 }
 
 /// Returns the index of the next `FunDef` after `start`, or
