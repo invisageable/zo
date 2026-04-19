@@ -151,8 +151,8 @@ tree:
       _reserved: 0
     - token: LParen
       flags: 0
-      child_start: 0
-      child_count: 0
+      child_start: 30
+      child_count: 3
       _reserved: 0
     - token: Int
       flags: 1
@@ -186,8 +186,8 @@ tree:
       _reserved: 0
     - token: LParen
       flags: 0
-      child_start: 0
-      child_count: 0
+      child_start: 37
+      child_count: 1
       _reserved: 0
     - token: Ident
       flags: 1

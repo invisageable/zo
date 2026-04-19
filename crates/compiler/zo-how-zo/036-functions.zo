@@ -25,7 +25,7 @@ fun absolute(x: int) -> int {
     return x;
   }
 
-  return 0 - x;
+  return -x;
 }
 
 -- function calling another function.

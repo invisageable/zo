@@ -15,7 +15,7 @@ pub val E: f64 = 2.718281828459045;
 
 -! Returns the absolute value of x.
 pub fun abs<$T>(x: $T) -> $T {
-  when x >= 0 ? x : 0 - x
+  when x >= 0 ? x : -x
 }
 
 -! Returns the smaller of a and b.
@@ -44,6 +44,97 @@ pub fun clamp<$T>(x: $T, lo: $T, hi: $T) -> $T {
 -! Linear interpolation between a and b by factor t (0..1).
 pub fun lerp<$T>(a: $T, b: $T, t: $T) -> $T {
   a + (b - a) * t
+}
+
+-- integer math.
+--
+-- `gcd`, `lcm`, `pow_i` are deliberately `int`-only (signed
+-- s32). Sized-int variants (s8/s16/s64, u8/u16/u32/u64) must
+-- cast to `int` at the call site. A generic
+-- `gcd<$T: Integer>` shape is blocked on an Integer-ish
+-- abstract + `apply` blocks on every width providing `abs`
+-- — not ready. Float widths are excluded on purpose: `gcd`
+-- and `lcm` are whole-number algebra and don't lift to the
+-- reals. Use `pow(x, y)` (FPU intrinsic) for float powers.
+
+-! Greatest common divisor of `a` and `b` via the
+-! Euclidean algorithm. Returns `|a|` when `b == 0`.
+-!
+-! `abs` is inlined rather than calling `int::abs`. Packs
+-! are analyzed in isolation — `math` can't see `int`'s
+-! inherent methods at its own compile time.
+pub fun gcd(a: int, b: int) -> int {
+  mut x: int = a;
+
+  if x < 0 {
+    x = -x;
+  }
+
+  mut y: int = b;
+
+  if y < 0 {
+    y = -y;
+  }
+
+  while y != 0 {
+    imu r: int = x % y;
+    x = y;
+    y = r;
+  }
+
+  return x;
+}
+
+-! Least common multiple of `a` and `b`. Returns `0` when
+-! either input is `0` (handles the `gcd(0, 0) == 0` edge).
+pub fun lcm(a: int, b: int) -> int {
+  if a == 0 {
+    return 0;
+  }
+
+  if b == 0 {
+    return 0;
+  }
+
+  mut a_abs: int = a;
+
+  if a_abs < 0 {
+    a_abs = -a_abs;
+  }
+
+  mut b_abs: int = b;
+
+  if b_abs < 0 {
+    b_abs = -b_abs;
+  }
+
+  imu g: int = gcd(a, b);
+
+  return (a_abs / g) * b_abs;
+}
+
+-! Integer exponentiation via exponentiation-by-squaring.
+-! Negative exponents return `0` — integer division floors
+-! any `base^neg` to zero anyway.
+pub fun pow_i(base: int, exp: int) -> int {
+  if exp < 0 {
+    return 0;
+  }
+
+  mut result: int = 1;
+  mut b: int = base;
+  mut e: int = exp;
+
+  while e > 0 {
+    if e % 2 == 1 {
+      result = result * b;
+    }
+
+    b = b * b;
+    e = e / 2;
+  }
+
+  return result;
 }
 
 -- power and roots.

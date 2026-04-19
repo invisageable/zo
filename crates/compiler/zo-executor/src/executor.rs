@@ -84,6 +84,16 @@ pub struct Executor<'a> {
   funs: Vec<FunDef>,
   /// Current function context (if we're inside a function)
   current_function: Option<FunCtx>,
+  /// Save-stack for nested `fun` inside a function body.
+  /// Mirrors the `execute_closure` pattern: when the LBrace
+  /// of a nested fun takes over `current_function`, we push
+  /// the outer state here; the matching RBrace pops and
+  /// restores it so the outer fun can resume. Per the zo
+  /// grammar, any `item` (fun, struct, enum, type, val, …)
+  /// is allowed at statement level — this is the first
+  /// piece that lifts the "items only at top level"
+  /// limitation for `fun_decl`.
+  saved_outer_funs: Vec<SavedOuterFun>,
   /// Pending function definition (waiting for LBrace)
   pending_function: Option<FunDef>,
   /// True when the pending function has `-> Type` annotation.
@@ -335,6 +345,7 @@ impl<'a> Executor<'a> {
       sir_values: Vec::with_capacity(capacity / 4),
       funs: Vec::with_capacity(capacity / 100), // Estimate function count
       current_function: None,
+      saved_outer_funs: Vec::new(),
       pending_function: None,
       pending_fn_has_return_annotation: false,
       template_counter: 0,
@@ -899,6 +910,7 @@ impl<'a> Executor<'a> {
           scope_depth: self.scope_stack.len(),
           value_sink,
           value_sink_ty: None,
+          stack_depth_at_entry: self.sir_values.len() as u32,
         });
       }
 
@@ -1203,6 +1215,37 @@ impl<'a> Executor<'a> {
         // Check if we're entering a function body
         // This happens when we have a pending function definition
         if let Some(mut pending_func) = self.pending_function.take() {
+          // Nested fun (item at statement level per the
+          // grammar): save the outer context + SIR stream so
+          // the inner body emits into its own buffer. Outer
+          // state is restored at the matching `}`, and the
+          // inner FunDef + body are spliced before the outer
+          // FunDef via `deferred_closures` (reusing the same
+          // lane the closure path already flushes through).
+          if self.current_function.is_some() {
+            let outer_function = self.current_function.take();
+            let outer_value_stack = std::mem::take(&mut self.value_stack);
+            let outer_ty_stack = std::mem::take(&mut self.ty_stack);
+            let outer_sir_values = std::mem::take(&mut self.sir_values);
+            let outer_pending_decl = self.pending_decl.take();
+
+            let mut nested_sir = Sir::new();
+
+            nested_sir.next_value_id = self.sir.next_value_id;
+            nested_sir.next_label_id = self.sir.next_label_id;
+
+            let outer_sir = std::mem::replace(&mut self.sir, nested_sir);
+
+            self.saved_outer_funs.push(SavedOuterFun {
+              function: outer_function,
+              value_stack: outer_value_stack,
+              ty_stack: outer_ty_stack,
+              sir_values: outer_sir_values,
+              sir: outer_sir,
+              pending_decl: outer_pending_decl,
+            });
+          }
+
           // Emit the FunDef instruction first
           // Body will start at the NEXT instruction after FunDef
           let body_start = (self.sir.instructions.len() + 1) as u32;
@@ -1486,6 +1529,25 @@ impl<'a> Executor<'a> {
           // cleaned up so parameter locals don't leak.
           self.pop_scope(); // body scope
           self.pop_scope(); // param scope
+
+          // Nested fun restore: if we saved an outer
+          // function context on the way in, move this
+          // nested fun's SIR to `deferred_closures` (so
+          // it splices out of the outer body at the outer
+          // fun's close) and restore the outer state.
+          if let Some(saved) = self.saved_outer_funs.pop() {
+            let nested_sir = std::mem::replace(&mut self.sir, saved.sir);
+
+            self.sir.next_value_id = nested_sir.next_value_id;
+            self.sir.next_label_id = nested_sir.next_label_id;
+            self.deferred_closures.extend(nested_sir.instructions);
+
+            self.current_function = saved.function;
+            self.value_stack = saved.value_stack;
+            self.ty_stack = saved.ty_stack;
+            self.sir_values = saved.sir_values;
+            self.pending_decl = saved.pending_decl;
+          }
         }
 
         // Close control flow block — but only if this
@@ -2256,12 +2318,15 @@ impl<'a> Executor<'a> {
         // Determine context: indexing (preceded by an
         // array value on the stack) or literal.
         // For indexing: the array value was pushed by
-        // the preceding Ident. For literals: stacks
-        // have whatever was there before.
+        // the preceding Ident / RBracket (chained
+        // indexing `m[0][0]`) / SelfLower (indexing
+        // into `self` inside `apply []T { fun … (self)
+        // … self[i] … }`). For literals: stacks have
+        // whatever was there before.
         let is_indexing = idx > 0
           && matches!(
             self.tree.nodes[idx - 1].token,
-            Token::Ident | Token::RBracket
+            Token::Ident | Token::RBracket | Token::SelfLower
           );
 
         let array_name = if is_indexing && idx > 0 {
@@ -4991,8 +5056,7 @@ impl<'a> Executor<'a> {
             if let Some(type_name) = self.apply_context {
               let self_sym = zo_interner::Symbol::SELF_LOWER;
               let self_ty = self
-                .ty_checker
-                .resolve_ty_symbol(type_name, self.interner)
+                .resolve_apply_self_ty(type_name)
                 .unwrap_or_else(|| self.ty_checker.unit_type());
 
               let mutability = if is_mut {
@@ -7319,16 +7383,65 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Canonical mangling prefix for an array `Ty` — returns
+  /// `arr_<elem>` when the element is a primitive. Mirrors
+  /// `execute_apply`'s `apply []<primitive>` name synthesis
+  /// so call-site dispatch on `Ty::Array(...)` receivers
+  /// resolves to the same mangled fun registered at
+  /// definition time. Nested arrays (`[][]int`) and array
+  /// of struct/enum are out of scope for now.
+  fn array_ty_name_str(&mut self, resolved: &Ty) -> Option<String> {
+    let Ty::Array(aid) = resolved else {
+      return None;
+    };
+
+    let arr = self.ty_checker.ty_table.array(*aid).copied()?;
+    let elem = self.ty_checker.kind_of(arr.elem_ty);
+
+    Self::primitive_ty_name_str(&elem).map(|s| format!("arr_{s}"))
+  }
+
+  /// Resolve the `apply` target's `type_name` symbol to a
+  /// concrete `TyId` for the `self` parameter. Handles the
+  /// three shapes `execute_apply` mints:
+  ///   - primitive keyword names (`"char"`, `"int"`, …) —
+  ///     delegate to `resolve_ty_symbol`.
+  ///   - `"arr_<primitive>"` — decode the suffix and intern
+  ///     the matching `Ty::Array`.
+  ///   - Ident names (user types) — fall through to
+  ///     `resolve_ty_symbol` which hits the struct/enum
+  ///     tables.
+  fn resolve_apply_self_ty(&mut self, type_name: Symbol) -> Option<TyId> {
+    let name_owned = self.interner.get(type_name).to_owned();
+
+    if let Some(elem_name) = name_owned.strip_prefix("arr_") {
+      let elem_sym = self.interner.intern(elem_name);
+      let elem_ty =
+        self.ty_checker.resolve_ty_symbol(elem_sym, self.interner)?;
+
+      let aid = self.ty_checker.ty_table.intern_array(elem_ty, None);
+
+      return Some(self.ty_checker.intern_ty(Ty::Array(aid)));
+    }
+
+    self.ty_checker.resolve_ty_symbol(type_name, self.interner)
+  }
+
   fn execute_apply(&mut self, start_idx: usize, end_idx: usize) {
-    // Parse the applied type. Either an `Ident` (user type:
-    // struct/enum/alias) or a primitive-type keyword token
-    // (`CharType` et al. — PR 1 supports `char` only). The
-    // scan goes forward because the parser may place minor
-    // tokens between `apply` and the type name.
+    // Parse the applied type. Three shapes:
+    //   1. `Ident` — user type (struct/enum/alias).
+    //   2. primitive keyword (`CharType` et al.) — inherent
+    //      methods on that primitive.
+    //   3. `LBracket RBracket <primitive>` — inherent
+    //      methods on `[]T` arrays. Mangled as
+    //      `arr_<primitive>` so `apply []int { fun sum }`
+    //      registers `arr_int::sum`.
     let first_ty_idx = (start_idx + 1..end_idx).find(|&i| {
       let tok = self.tree.nodes[i].token;
 
-      tok == Token::Ident || Self::is_primitive_type_token(tok)
+      tok == Token::Ident
+        || tok == Token::LBracket
+        || Self::is_primitive_type_token(tok)
     });
 
     let first_name = first_ty_idx.and_then(|i| {
@@ -7339,6 +7452,28 @@ impl<'a> Executor<'a> {
           NodeValue::Symbol(s) => Some(s),
           _ => None,
         })
+      } else if tok == Token::LBracket {
+        // Array target: expect `[ ] <primitive>` and build
+        // the canonical mangling prefix `arr_<primitive>`.
+        // The call-site helper `array_ty_name_str` must
+        // produce the same string for `Ty::Array(elem)`.
+        let elem_idx = (i + 1..end_idx).find(|&j| {
+          let t = self.tree.nodes[j].token;
+
+          t != Token::LBracket && t != Token::RBracket
+        })?;
+
+        let elem_tok = self.tree.nodes[elem_idx].token;
+
+        if Self::is_primitive_type_token(elem_tok)
+          && let Some(elem_name) = elem_tok.ty_keyword_str()
+        {
+          let mangled = format!("arr_{elem_name}");
+
+          Some(self.interner.intern(&mangled))
+        } else {
+          None
+        }
       } else {
         // Primitive keyword — synthesize its symbol via the
         // token's canonical name string ("char" / "str" /
@@ -7693,13 +7828,20 @@ impl<'a> Executor<'a> {
       _ => return false,
     };
 
-    // Array builtin methods: push, pop.
+    // Array builtin methods + user-defined `apply []T`.
     let resolved = self.ty_checker.kind_of(receiver_ty);
 
     if matches!(resolved, Ty::Array(_)) {
-      let ms = self.interner.get(member_name);
+      let ms = self.interner.get(member_name).to_owned();
 
-      return ms == "push" || ms == "pop";
+      if ms == "push" || ms == "pop" {
+        return true;
+      }
+
+      // Fall through to the generic dispatch below so
+      // `apply []int { fun sum(self) }` style methods
+      // resolve via `array_ty_name_str` →
+      // `arr_int::sum`.
     }
 
     // Generic type param: if the method is an abstract method,
@@ -7725,9 +7867,16 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => {
-        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
-      }
+      _ => Self::primitive_ty_name_str(&resolved)
+        .map(|s| self.interner.intern(s))
+        .or_else(|| {
+          // Array receiver: `[]int.method()` dispatches to
+          // the `apply []int { fun method }` body — mangled
+          // as `arr_int::method`.
+          self
+            .array_ty_name_str(&resolved)
+            .map(|s| self.interner.intern(&s))
+        }),
     };
 
     let type_name = match type_name {
@@ -7791,9 +7940,16 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => {
-        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
-      }
+      _ => Self::primitive_ty_name_str(&resolved)
+        .map(|s| self.interner.intern(s))
+        .or_else(|| {
+          // Array receiver: `[]int.method()` dispatches to
+          // the `apply []int { fun method }` body — mangled
+          // as `arr_int::method`.
+          self
+            .array_ty_name_str(&resolved)
+            .map(|s| self.interner.intern(&s))
+        }),
     };
 
     let type_name = match type_name {
@@ -7849,9 +8005,16 @@ impl<'a> Executor<'a> {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
       }
       Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-      _ => {
-        Self::primitive_ty_name_str(&resolved).map(|s| self.interner.intern(s))
-      }
+      _ => Self::primitive_ty_name_str(&resolved)
+        .map(|s| self.interner.intern(s))
+        .or_else(|| {
+          // Array receiver: `[]int.method()` dispatches to
+          // the `apply []int { fun method }` body — mangled
+          // as `arr_int::method`.
+          self
+            .array_ty_name_str(&resolved)
+            .map(|s| self.interner.intern(&s))
+        }),
     };
 
     let type_name = match type_name {
@@ -8272,6 +8435,18 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
+    // Only store if the arm actually produced a fresh
+    // value on top of the stack. If `sir_values.len()`
+    // is the SAME (or less) than when the branch was
+    // entered, the arm ran purely for side effects
+    // (`high = mid - 1;`, etc.) and the current top
+    // belongs to an enclosing construct (e.g. the
+    // parent while's condition). Popping it here would
+    // silently corrupt the parent.
+    if (self.sir_values.len() as u32) <= ctx.stack_depth_at_entry {
+      return;
+    }
+
     let top_sir = match self.sir_values.last().copied() {
       Some(s) => s,
       None => return,
@@ -8317,13 +8492,16 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    let ty = ctx.value_sink_ty.unwrap_or_else(|| {
-      // No arm ever stored — the branch expression's
-      // type is unknown. Fall back to unit so downstream
-      // unification produces a readable error rather
-      // than a panic.
-      self.ty_checker.unit_type()
-    });
+    // No arm ever stored — the branch was allocated a
+    // sink eagerly (non-unit function, etc.) but the
+    // arms never produced a value (pure statements).
+    // Skip the Load entirely; emitting a Load against
+    // an uninitialised slot pushes garbage onto the
+    // stacks and corrupts downstream.
+    let ty = match ctx.value_sink_ty {
+      Some(t) => t,
+      None => return,
+    };
 
     let dst = ValueId(self.sir.next_value_id);
 
@@ -8359,6 +8537,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink,
       value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
     });
   }
 
@@ -9540,6 +9719,7 @@ impl<'a> Executor<'a> {
       // `loop { break value }` expression form yet.
       value_sink: None,
       value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
     });
   }
 
@@ -9841,6 +10021,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
     });
 
     // `LBrace` form: hand off to the main loop. The LBrace
@@ -10486,6 +10667,41 @@ impl<'a> Executor<'a> {
     let prev = self.tree.nodes[lparen_idx - 1].token;
 
     if prev == Token::Ident {
+      // A `::`-path (method/variant), `Dot`-path
+      // (`pack.fn()`), or `@`-modifier (`check@eq(`)
+      // before the Ident is always a call site — skip
+      // the fun/closure validation.
+      let has_path_prefix = lparen_idx >= 2
+        && matches!(
+          self.tree.nodes[lparen_idx - 2].token,
+          Token::ColonColon | Token::Dot | Token::At
+        );
+
+      if has_path_prefix {
+        return Some(lparen_idx - 1);
+      }
+
+      // Otherwise rule out variables: if the Ident
+      // resolves to a known NON-closure local, the
+      // adjacent `(` is a group, not a call (e.g. `low +
+      // (high - low)` where the parser now emits `low`
+      // adjacent to `(`). Everything else — named funs,
+      // closures, and unknown idents (external/builtin
+      // callees resolved at a later phase) — is treated
+      // as a call site.
+      if let Some(NodeValue::Symbol(sym)) = self.node_value(lparen_idx - 1) {
+        let is_plain_local = self.lookup_local(sym).is_some_and(|l| {
+          let vi = l.value_id.0 as usize;
+
+          vi < self.values.kinds.len()
+            && !matches!(self.values.kinds[vi], Value::Closure)
+        });
+
+        if is_plain_local {
+          return None;
+        }
+      }
+
       return Some(lparen_idx - 1);
     }
 
@@ -10532,8 +10748,38 @@ impl<'a> Executor<'a> {
       return false;
     }
 
-    // Direct: `Ident (`.
+    // Direct: `Ident (`. Validate the Ident is a function
+    // or closure — otherwise the adjacent `(` is a group
+    // (`x + (1)` emits `x, LParen` but `x` is a variable,
+    // not a callee). Mirrors `resolve_call_target`.
     if self.tree.nodes[ident_idx + 1].token == Token::LParen {
+      // `::`/`.`/`@` before the ident is always a call
+      // site (`Point::new(`, `pack.fn(`, `check@eq(`).
+      let has_path_prefix = ident_idx >= 1
+        && matches!(
+          self.tree.nodes[ident_idx - 1].token,
+          Token::ColonColon | Token::Dot | Token::At
+        );
+
+      if has_path_prefix {
+        return true;
+      }
+
+      // Mirror `resolve_call_target`: only REJECT the
+      // call interpretation if the ident is a known
+      // non-closure local. Otherwise (fun, closure, or
+      // external) treat as a call site.
+      if let Some(NodeValue::Symbol(sym)) = self.node_value(ident_idx) {
+        let is_plain_local = self.lookup_local(sym).is_some_and(|l| {
+          let vi = l.value_id.0 as usize;
+
+          vi < self.values.kinds.len()
+            && !matches!(self.values.kinds[vi], Value::Closure)
+        });
+
+        return !is_plain_local;
+      }
+
       return true;
     }
 
@@ -13119,6 +13365,19 @@ struct BranchCtx {
   /// first arm to `Store` into the sink; subsequent
   /// arms unify against it.
   value_sink_ty: Option<TyId>,
+  /// `sir_values.len()` captured when the branch was
+  /// pushed. `emit_branch_sink_store` uses this to tell
+  /// "this arm produced a new value on top of the stack"
+  /// (depth grew) from "this arm was purely statements
+  /// and the stack top is stale outer state from BEFORE
+  /// the branch" (depth unchanged). Without this guard,
+  /// a statement-position if inside a non-unit function
+  /// (which `mint_branch_sink_if_expr_position`
+  /// eagerly allocates a sink for) pops whatever sat on
+  /// the stack — typically the enclosing while's
+  /// condition bool — and silently corrupts the parent
+  /// construct.
+  stack_depth_at_entry: u32,
 }
 
 /// Tracks context when compiling inside a function
@@ -13136,6 +13395,18 @@ struct FunCtx {
   /// Scope depth when the function body was entered.
   /// Only close the function at this depth's RBrace.
   pub(crate) scope_depth: usize,
+}
+
+/// Snapshot of the outer fun's state when a nested `fun`
+/// takes over. Restored at the nested fun's closing `}`
+/// so the outer function body can keep running.
+struct SavedOuterFun {
+  function: Option<FunCtx>,
+  value_stack: Vec<ValueId>,
+  ty_stack: Vec<TyId>,
+  sir_values: Vec<ValueId>,
+  sir: Sir,
+  pending_decl: Option<PendingDecl>,
 }
 
 /// Static tag registry — maps HTML tag names directly to

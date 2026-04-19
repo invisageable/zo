@@ -3,8 +3,6 @@
 
 fun main() {
   mut arr: []int = [0, 0, 0, 0];
-
-  -- variable index.
   mut idx: int = 2;
 
   arr[idx] = 42;

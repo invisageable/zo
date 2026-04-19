@@ -1,0 +1,57 @@
+-- tests-run-pass: unsigned integer operations — regression
+-- for issue L (CL15). Three ARM64 ops were using the
+-- signed variant unconditionally:
+--   1. Comparisons: `COND_LT/LE/GT/GE` (signed; use
+--      N vs V). Unsigned needs `COND_CC/LS/HI/CS` based
+--      on the carry flag.
+--   2. `DIV`/`REM`: SDIV sign-extends the dividend;
+--      unsigned wants UDIV (zero-extend).
+--   3. `>>` (Shr): LSR fills zeros (unsigned). Signed
+--      `s*` types need ASR (propagates sign bit).
+-- The `u64` high-bit value below is the canonical repro:
+-- 18_000_000_000_000_000_000 > 2^63, so signed compare
+-- reads it as negative and `x > 1` returns false.
+
+fun main() {
+  -- unsigned > : signed would return false because
+  -- x's high bit is set.
+  imu x: u64 = 18000000000000000000;
+  imu y: u64 = 1;
+  check(x > y);
+  check(x >= y);
+  check(y < x);
+  check(y <= x);
+  check@eq(x == y, false);
+  check@eq(x != y, true);
+
+  -- unsigned u32 at the signed/unsigned boundary.
+  imu a: u32 = 4000000000;
+  imu b: u32 = 1;
+  check(a > b);
+  check(a >= a);
+
+  -- unsigned UDIV: a large u64 / a smaller u64 must
+  -- come out positive and in-range.
+  imu big: u64 = 18000000000000000000;
+  imu div: u64 = 3000000000;
+  imu q: u64 = big / div;
+  imu lo: u64 = 5000000000;
+  imu hi_bound: u64 = 7000000000;
+  check(q > lo);
+  check(q < hi_bound);
+
+  -- signed right-shift SHOULD preserve sign (ASR).
+  -- LSR (unsigned form) would turn -16 into a huge
+  -- positive value.
+  mut neg: int = -16;
+  imu r: int = neg >> 2;
+  check@eq(r, -4);
+
+  -- signed comparisons still work unchanged.
+  mut s: int = -5;
+  mut t: int = 10;
+  check(s < t);
+  check(t > s);
+
+  showln("all unsigned-ops checks passed!");
+}

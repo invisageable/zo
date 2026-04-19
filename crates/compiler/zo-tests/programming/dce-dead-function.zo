@@ -11,5 +11,6 @@ fun helper(x: int) -> int {
 
 fun main() {
   imu a: int = helper(10);
+
   check(a == 20);
 }

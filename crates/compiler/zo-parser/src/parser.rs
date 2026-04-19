@@ -578,14 +578,109 @@ impl<'a> Parser<'a> {
 
       self.state = ParserState::ParameterList;
     } else {
-      // For function/method calls, flush the expression
-      // first then emit LParen. Save pending unary ops so
-      // nested calls don't consume them.
-      self.flush_expr();
+      // Expression-context `(` — handles BOTH calls
+      // `foo(...)` and grouping `(expr)`. Do NOT flush the
+      // outer operator stack (the old bug drained pending
+      // ops like `+` in `3 + foo()`, turning it into
+      // `(3 + foo) call`).
+      //
+      // Strategy:
+      //   1. Drain `.` from op_stack so the callee chain
+      //      `a.b` is in postorder before the call.
+      //   2. Emit all "settled" entries from the buffer:
+      //      values + already-flushed operators. An
+      //      operator is "active" (still in op_stack) if
+      //      its RIGHTMOST occurrence in the buffer is the
+      //      one currently parked — earlier copies of the
+      //      same token have already been moved to their
+      //      final postorder position.
+      //   3. Save the remaining active operators +
+      //      untouched unary spans onto the save-stacks.
+      //   4. Emit `(`, push an LParen introducer so the
+      //      matching `)` can restore outer state.
+      //   5. Reset inner state; the inner expression runs
+      //      in a fresh shunting-yard scope.
+      //
+      // The two cases collapse onto the same code path:
+      // for a group the buffer tail is an operator, so
+      // nothing "callee-shaped" is emitted before `(`; for
+      // a call the buffer tail is a value (the callee),
+      // which gets emitted before `(` along with any
+      // dot-chain that precedes it.
+      //
+      // Exception: if `&&` or `||` is in the op_stack,
+      // fall back to the old full-flush behavior.
+      // Short-circuit finalization relies on the logical
+      // op being EMITTED before the RHS subexpression
+      // (the executor sees `||` and sets up a branch
+      // BEFORE the call's SIR is emitted). Preserving
+      // true postorder here would leave the `||` to run
+      // after the RHS call has already executed, which
+      // defeats lazy evaluation.
+      let has_logical = self
+        .operator_stack
+        .iter()
+        .any(|(t, _, _)| matches!(t, Token::AmpAmp | Token::PipePipe));
+
+      if has_logical {
+        self.flush_expr();
+        self
+          .saved_unary_spans
+          .push(std::mem::take(&mut self.unary_spans));
+        self.emit_node(Token::LParen);
+
+        return;
+      }
+
+      while let Some(&(op_tok, op_prec, _)) = self.operator_stack.last() {
+        if op_prec >= 12 {
+          self.operator_stack.pop();
+          if let Some(pos) =
+            self.expr_buffer.iter().rposition(|(t, _, _)| *t == op_tok)
+          {
+            let op = self.expr_buffer.remove(pos);
+            self.expr_buffer.push(op);
+          }
+        } else {
+          break;
+        }
+      }
+      let active: Vec<(Token, usize)> = self
+        .operator_stack
+        .iter()
+        .filter_map(|(tok, _, _)| {
+          self
+            .expr_buffer
+            .iter()
+            .rposition(|(t, _, _)| *t == *tok)
+            .map(|p| (*tok, p))
+        })
+        .collect();
+      let old_buffer = std::mem::take(&mut self.expr_buffer);
+      let mut remaining = Vec::with_capacity(old_buffer.len());
+      for (i, entry) in old_buffer.into_iter().enumerate() {
+        let is_active = active.iter().any(|(t, p)| *t == entry.0 && *p == i);
+        if is_active {
+          remaining.push(entry);
+        } else {
+          self.emit_node_internal(entry.0, entry.1, entry.2);
+        }
+      }
+      self
+        .saved_op_stacks
+        .push(std::mem::take(&mut self.operator_stack));
+      self.saved_expr_bufs.push(remaining);
       self
         .saved_unary_spans
         .push(std::mem::take(&mut self.unary_spans));
-      self.emit_node(Token::LParen);
+      let node_index = self.emit_node(Token::LParen);
+      self.introducer_stack.push(Introducer {
+        state: self.state,
+        token: Token::LParen,
+        node_index,
+        children_start: self.tree.nodes.len() as u32,
+      });
+      self.state = ParserState::Expression;
     }
   }
 
@@ -642,6 +737,33 @@ impl<'a> Parser<'a> {
       // Array indexing: emit the array name (if in buffer).
       // For chained indexing (a[i][j]), the buffer is empty
       // but last_was_value is true from the prior `]`.
+      //
+      // Before popping the receiver, emit every VALUE that
+      // precedes it in the buffer — those are operands of
+      // the OUTER expression (`key` in `key < data[mid]`)
+      // that must appear in the tree BEFORE the receiver
+      // so the binop's pop order (rhs then lhs) produces
+      // the right operands. Operator placeholders stay in
+      // the buffer: they'll be moved to the end by the
+      // normal `flush_expr` shunting-yard step later. The
+      // bug this fixes: for `key < data[mid]`, `data` was
+      // emitted first and `key` later, inverting the
+      // comparison to `data[mid] < key`.
+      let mut i = 0;
+
+      while i < self.expr_buffer.len().saturating_sub(1) {
+        let tok = self.expr_buffer[i].0;
+
+        if self.op_precedence(tok).is_some() {
+          // Operator placeholder — leave in buffer.
+          i += 1;
+        } else {
+          let (t, s, v) = self.expr_buffer.remove(i);
+
+          self.emit_node_internal(t, s, v);
+        }
+      }
+
       if let Some((tok, span, val)) = self.expr_buffer.pop() {
         self.emit_node_internal(tok, span, val);
       }
@@ -701,16 +823,34 @@ impl<'a> Parser<'a> {
 
     self.flush_expr();
 
-    // Check if we have a matching LParen introducer
-    if let Some(introducer) = self.introducer_stack.last() {
-      if introducer.token == Token::LParen {
-        self.close_introducer();
-        self.emit_node(Token::RParen);
-      } else {
-        self.emit_node(Token::RParen);
-      }
+    // Distinguish expression-context `)` (call or group)
+    // from ParameterList `)` — the former restores the
+    // outer op/buffer stacks saved by LParen; the latter
+    // just closes the param list without stack restore.
+    let is_expr_paren = matches!(
+      self.introducer_stack.last(),
+      Some(intro)
+        if intro.token == Token::LParen
+          && intro.state != ParserState::FunctionSignature
+    );
+
+    if matches!(
+      self.introducer_stack.last(),
+      Some(intro) if intro.token == Token::LParen
+    ) {
+      self.close_introducer();
+      self.emit_node(Token::RParen);
     } else {
       self.emit_node(Token::RParen);
+    }
+
+    if is_expr_paren {
+      if let Some(ops) = self.saved_op_stacks.pop() {
+        self.operator_stack = ops;
+      }
+      if let Some(buf) = self.saved_expr_bufs.pop() {
+        self.expr_buffer = buf;
+      }
     }
 
     // Restore outer unary ops saved by LParen.
@@ -1261,13 +1401,13 @@ impl<'a> Parser<'a> {
     self.flush_expr();
 
     // `apply` must be followed by an identifier (user type)
-    // OR a primitive-type keyword (`apply char { ... }` for
-    // inherent methods on primitives — the executor widens
-    // its own scan symmetrically via `ty_keyword_str`).
-    if self
-      .peek()
-      .is_some_and(|n| n != Token::Ident && n.ty_keyword_str().is_none())
-    {
+    // OR a primitive-type keyword (`apply char { ... }`)
+    // OR `[` starting an array-type target (`apply []int
+    // { ... }` — inherent methods on `[]int` etc.). The
+    // executor widens its own scan symmetrically.
+    if self.peek().is_some_and(|n| {
+      n != Token::Ident && n != Token::LBracket && n.ty_keyword_str().is_none()
+    }) {
       self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
     }
 

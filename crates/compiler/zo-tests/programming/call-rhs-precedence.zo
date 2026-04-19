@@ -1,0 +1,27 @@
+-- tests-run-pass: multiple binop-around-call expressions in
+-- one function — regression for the post-call reload bug
+-- that surfaced after issue H (CL15). Freeing x0 (call-
+-- result reg) used to return it to the allocation pool; the
+-- NEXT constant would allocate x0, the pending spill would
+-- then lose its source across the next call. Pre-fix: first
+-- expression correct, subsequent ones wrong.
+
+fun five() -> int {
+  return 5;
+}
+
+fun main() {
+  imu a: int = 3 + five() / 2;
+  check@eq(a, 5);
+
+  imu b: int = 3 + five() / 2;
+  check@eq(b, 5);
+
+  imu c: int = 2 + five() * 3;
+  check@eq(c, 17);
+
+  imu d: int = 2 + five() * 3;
+  check@eq(d, 17);
+
+  showln("all call-rhs precedence checks passed!");
+}

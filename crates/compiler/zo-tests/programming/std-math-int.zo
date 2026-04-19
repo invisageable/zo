@@ -1,0 +1,22 @@
+-- std::math integer helpers: gcd, lcm, pow_i.
+
+fun main() {
+  check@eq(gcd(12, 8), 4);
+  check@eq(gcd(100, 75), 25);
+  check@eq(gcd(7, 0), 7);
+  check@eq(gcd(0, 9), 9);
+
+  check@eq(lcm(4, 6), 12);
+  check@eq(lcm(0, 5), 0);
+  check@eq(lcm(5, 0), 0);
+
+  check@eq(pow_i(2, 10), 1024);
+  check@eq(pow_i(3, 4), 81);
+  check@eq(pow_i(5, 0), 1);
+  check@eq(pow_i(7, -1), 0);
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

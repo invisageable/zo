@@ -38,7 +38,7 @@ fun main() {
   showln(compute(5));
 
   -- explicit Fn type annotation.
-  imu negate: Fn(int) -> int = fn(x: int) -> int => 0 - x;
+  imu negate: Fn(int) -> int = fn(x: int) -> int => -x;
   showln(negate(7));
 
   -- closure calling another closure.

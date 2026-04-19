@@ -25,5 +25,53 @@ fun main() {
   imu d: int = (v[0] + v[1]) * v[2];
   check@eq(d, 900);
 
+  -- issue H: `EXPR OP (PAREN) HIGH_PREC_OP RHS` — the
+  -- old parser drained the outer op before `(`, then
+  -- `apply_deferred_binop` at `)` ate it against the
+  -- group result instead of the final `/` or `*` result.
+  imu h1: int = 3 + (4 - 3) / 2;
+  check@eq(h1, 3);
+
+  imu h2: int = 3 + (4) / 2;
+  check@eq(h2, 5);
+
+  imu h3: int = 10 + (2) * 3;
+  check@eq(h3, 16);
+
+  imu h4: int = 10 - (2) * 3;
+  check@eq(h4, 4);
+
+  imu h5: int = 10 + (2 + 3) * 4;
+  check@eq(h5, 30);
+
+  -- issue H w/ ident LHS and group — the parser fix
+  -- produces `Ident, LParen` adjacent; the executor's
+  -- call-detection must reject this as a call when the
+  -- ident is a plain local variable.
+  mut x: int = 3;
+  imu h8: int = x + (1);
+  check@eq(h8, 4);
+
+  imu h9: int = x + (x - 1) / 2;
+  check@eq(h9, 4);
+
+  -- binary-search midpoint pattern — the loop-termination
+  -- bug that surfaced issue H. old parser made this an
+  -- infinite loop, the mid never advanced past the wrong
+  -- midpoint because `low + (high - low) / 2` parsed as
+  -- `(low + (high - low)) / 2`.
+  mut low: int = 0;
+  mut high: int = 4;
+  mut iters: int = 0;
+
+  while low <= high {
+    imu mid: int = low + (high - low) / 2;
+
+    iters = iters + 1;
+    low = mid + 1;
+  }
+
+  check@eq(iters, 3);
+
   showln("all paren-binop checks passed!");
 }

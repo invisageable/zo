@@ -6,6 +6,7 @@ fun call_fn(f: Fn(int) -> int, x: int) -> int {
 
 fun main() {
   imu double := fn(n: int) -> int => n * 2;
-  imu r: int = call_fn(double, 21);
-  showln(r);
+  imu result: int = call_fn(double, 21);
+
+  showln(result);
 }

@@ -1,0 +1,32 @@
+-- tests-run-pass: ASCII Mandelbrot. Exercises nested for
+-- loops, float arithmetic, `as float` / `as char` casts,
+-- string indexing, and `while` with a float condition.
+-- Primary regression for issue K (float compare in while).
+
+fun main() {
+  imu palette: str = " .-:;+=xX$& ";
+
+  for y_pixel := 0..24 {
+    for x_pixel := 0..80 {
+      imu y: float = (y_pixel as float) / 12.0 - 1.0;
+      imu x: float = (x_pixel as float) / 30.0 - 2.0;
+
+      mut x0: float = x;
+      mut y0: float = y;
+      mut iter: int = 0;
+
+      while iter < 11 && x0 * x0 + y0 * y0 <= 4.0 {
+        imu x1: float = (x0 * x0) - (y0 * y0) + x;
+        imu y1: float = 2.0 * x0 * y0 + y;
+
+        x0 = x1;
+        y0 = y1;
+        iter += 1;
+      }
+
+      show(palette[iter] as char);
+    }
+
+    showln("");
+  }
+}

@@ -4,17 +4,14 @@
 fun main() {
   imu pi: []float = [3.14, 2.71, 1.41];
 
-  -- expected: 3.14
-  showln(pi[0]);
-  -- expected: 2.71
-  showln(pi[1]);
-  -- expected: 1.41
-  showln(pi[2]);
+  showln(pi[0]); -- prints: `3.14`
+  showln(pi[1]); -- prints: `2.71`
+  showln(pi[2]); -- prints: `1.41`
 
   mut vals: []float = [1.0, 2.0];
 
   vals[0] = 9.99;
 
-  -- expected: 9.99
-  showln(vals[0]);
+  
+  showln(vals[0]); -- prints: `9.99`
 }

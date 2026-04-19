@@ -2,10 +2,11 @@
 -- @cmd — zo build branch-ternary-expr.zo
 
 fun abs(x: int) -> int {
-  when x >= 0 ? x : 0 - x
+  when x >= 0 ? x : -x
 }
 
 fun main() {
   check@eq(abs(5), 5);
   check@eq(abs(0), 0);
+  check@eq(abs(-7), 7);
 }

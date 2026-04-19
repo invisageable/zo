@@ -2,7 +2,7 @@
 
 fun main() {
   imu half := fn(x: float) -> float => x / 2.0;
+  imu result: float = half(10.0);
 
-  imu r: float = half(10.0);
-  showln(r);
+  showln(result);
 }

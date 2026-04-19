@@ -3,9 +3,9 @@ pub(crate) mod template;
 use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
-  ARM64Emitter, COND_EQ, COND_GE, COND_GT, COND_LE, COND_LT, COND_NE, COND_VC,
-  COND_VS, D0, D1, FpRegister, Register, SP, X0, X1, X2, X9, X16, X17, X29,
-  X30, XZR,
+  ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, Register,
+  SP, X0, X1, X2, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
@@ -1189,18 +1189,51 @@ impl<'a> ARM64Gen<'a> {
         if is_float {
           let fl = self.alloc_fp_reg(*lhs).unwrap_or(D0);
           let fr = self.alloc_fp_reg(*rhs).unwrap_or(D1);
-          let fd = self.alloc_fp_reg(*dst).unwrap_or(D0);
           match op {
-            BinOp::Add => self.emitter.emit_fadd(fd, fl, fr),
-            BinOp::Sub => self.emitter.emit_fsub(fd, fl, fr),
-            BinOp::Mul => self.emitter.emit_fmul(fd, fl, fr),
-            BinOp::Div => self.emitter.emit_fdiv(fd, fl, fr),
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+              let fd = self.alloc_fp_reg(*dst).unwrap_or(D0);
+
+              match op {
+                BinOp::Add => self.emitter.emit_fadd(fd, fl, fr),
+                BinOp::Sub => self.emitter.emit_fsub(fd, fl, fr),
+                BinOp::Mul => self.emitter.emit_fmul(fd, fl, fr),
+                BinOp::Div => self.emitter.emit_fdiv(fd, fl, fr),
+                _ => unreachable!(),
+              }
+            }
             BinOp::Lt
             | BinOp::Lte
             | BinOp::Gt
             | BinOp::Gte
             | BinOp::Eq
-            | BinOp::Neq => self.emitter.emit_fcmp(fl, fr),
+            | BinOp::Neq => {
+              // Float comparison: result is a BOOL (GP),
+              // NOT an FP value. The previous code emitted
+              // only FCMP (which sets flags) and allocated
+              // `fd` as an FP register — leaving the GP
+              // destination reg uninitialized. `while x0 <
+              // 3.0` then read garbage as its condition and
+              // looped forever. Mirror the int path: FCMP
+              // sets NZCV, then materialize 0/1 into the
+              // GP `dst` via CSEL. For non-NaN operands the
+              // signed condition codes (LT/LE/GT/GE/EQ/NE)
+              // map correctly onto FCMP's flag layout.
+              let d = self.alloc_reg(*dst).unwrap_or(X0);
+              let cond = match op {
+                BinOp::Lt => COND_LT,
+                BinOp::Lte => COND_LE,
+                BinOp::Gt => COND_GT,
+                BinOp::Gte => COND_GE,
+                BinOp::Eq => COND_EQ,
+                BinOp::Neq => COND_NE,
+                _ => unreachable!(),
+              };
+
+              self.emitter.emit_fcmp(fl, fr);
+              self.emitter.emit_mov_imm(d, 1);
+              self.emitter.emit_mov_imm(X16, 0);
+              self.emitter.emit_csel(d, d, X16, cond);
+            }
             _ => {}
           }
         } else if ty_id.0 == STR_TYPE_ID && matches!(op, BinOp::Eq | BinOp::Neq)
@@ -1308,27 +1341,85 @@ impl<'a> ARM64Gen<'a> {
           let l = self.alloc_reg(*lhs).unwrap_or(X0);
           let r = self.alloc_reg(*rhs).unwrap_or(X1);
 
+          // Unsigned integer types occupy TyId 11..=14
+          // (u8/u16/u32/u64). Signed are 6..=10. Several
+          // ARM64 ops are sign-dependent and used the
+          // signed variant unconditionally:
+          //   - `<`/`<=`/`>`/`>=` (LT/LE/GT/GE check N
+          //     vs V; unsigned wants CC/LS/HI/CS based on
+          //     the carry flag).
+          //   - `/` and `%` (SDIV sign-extends the
+          //     dividend; UDIV zero-extends).
+          //   - `>>` (ASR propagates the sign bit; LSR
+          //     fills zeros).
+          // Misusing the signed forms on `u64` values
+          // whose high bit is set silently returns the
+          // wrong sign (e.g. `18000000000000000000_u64 >
+          // 1` returned 0 because SIGNED compared the
+          // u64 as negative).
+          let is_unsigned = ty_id.0 >= 11 && ty_id.0 <= 14;
+
           match op {
             BinOp::Add => self.emitter.emit_add(d, l, r),
             BinOp::Sub => self.emitter.emit_sub(d, l, r),
             BinOp::Mul => self.emitter.emit_mul(d, l, r),
-            BinOp::Div => self.emitter.emit_sdiv(d, l, r),
+            BinOp::Div => {
+              if is_unsigned {
+                self.emitter.emit_udiv(d, l, r);
+              } else {
+                self.emitter.emit_sdiv(d, l, r);
+              }
+            }
             BinOp::Rem => {
-              // dst = lhs - (lhs / rhs) * rhs
-              // Use X16 as scratch.
-              self.emitter.emit_sdiv(X16, l, r);
+              // dst = lhs - (lhs / rhs) * rhs. Use X16 as
+              // scratch. Route through the correct DIV
+              // flavour to keep unsigned remainders
+              // correct for `u*` types.
+              if is_unsigned {
+                self.emitter.emit_udiv(X16, l, r);
+              } else {
+                self.emitter.emit_sdiv(X16, l, r);
+              }
               self.emitter.emit_mul(X16, X16, r);
               self.emitter.emit_sub(d, l, X16);
             }
             BinOp::And | BinOp::BitAnd => self.emitter.emit_and(d, l, r),
             BinOp::Or | BinOp::BitOr => self.emitter.emit_orr(d, l, r),
             BinOp::BitXor => self.emitter.emit_eor(d, l, r),
-            BinOp::Shl => self.emitter.emit_lsl(d, l, 1),
-            BinOp::Shr => self.emitter.emit_lsr(d, l, 1),
-            BinOp::Lt => self.emit_cmp_csel(d, l, r, COND_LT),
-            BinOp::Lte => self.emit_cmp_csel(d, l, r, COND_LE),
-            BinOp::Gt => self.emit_cmp_csel(d, l, r, COND_GT),
-            BinOp::Gte => self.emit_cmp_csel(d, l, r, COND_GE),
+            // `emit_lsl` / `emit_lsr` take an IMMEDIATE
+            // shift (encoded via UBFM). The previous code
+            // passed the literal `1`, so every runtime
+            // shift collapsed to `<< 1` regardless of the
+            // source — a shift-by-constant off an Ident
+            // (`acc << 4`) silently produced `acc << 1`,
+            // while the same expression with a literal LHS
+            // worked via const-folding. Use the variable-
+            // shift forms (LSLV / LSRV) so the RHS register
+            // carries the real count.
+            BinOp::Shl => self.emitter.emit_lslv(d, l, r),
+            BinOp::Shr => {
+              if is_unsigned {
+                self.emitter.emit_lsrv(d, l, r);
+              } else {
+                self.emitter.emit_asrv(d, l, r);
+              }
+            }
+            BinOp::Lt => {
+              let c = if is_unsigned { COND_CC } else { COND_LT };
+              self.emit_cmp_csel(d, l, r, c);
+            }
+            BinOp::Lte => {
+              let c = if is_unsigned { COND_LS } else { COND_LE };
+              self.emit_cmp_csel(d, l, r, c);
+            }
+            BinOp::Gt => {
+              let c = if is_unsigned { COND_HI } else { COND_GT };
+              self.emit_cmp_csel(d, l, r, c);
+            }
+            BinOp::Gte => {
+              let c = if is_unsigned { COND_CS } else { COND_GE };
+              self.emit_cmp_csel(d, l, r, c);
+            }
             BinOp::Eq => self.emit_cmp_csel(d, l, r, COND_EQ),
             BinOp::Neq => self.emit_cmp_csel(d, l, r, COND_NE),
             BinOp::Concat => {

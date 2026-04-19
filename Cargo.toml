@@ -114,6 +114,11 @@ ariadne = "0.6.0"
 calamine = "0.32.0"
 clap = { version = "4.5.49", features = ["derive"] }
 console_error_panic_hook = { version = "0.1.7" }
+cranelift = "0.130.1"
+cranelift-module = "0.130.1"
+cranelift-jit = "0.130.1"
+cranelift-native = "0.130.1"
+cranelift-object = "0.130.1"
 criterion = { version = "0.7.0", features = ["html_reports"] }
 crossbeam = "0.8.4"
 eframe = { version = "0.34.1", features = [

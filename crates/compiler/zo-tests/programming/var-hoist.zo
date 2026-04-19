@@ -1,13 +1,15 @@
 fun main() {
-  -- imu x: int = 10;
+  imu x: int = 10;
 
-  -- fun f(n: int) {
-  --   if n > 10 {
-  --     imu x := 20;
-  --   }
+  fun f(n: int, outer: int) -> int {
+    if n > 10 {
+      return outer + 10;
+    }
 
-  --   x
-  -- }
+    return outer;
+  }
 
-  -- f(37);  -- returns 20.
+  check@eq(f(37, x), 20);
+  check@eq(f(5, x), 10);
+  check@eq(x, 10);
 }

@@ -13,9 +13,9 @@ fun find_first_div(n: int) -> int {
 }
 
 fun main() {
-  imu r: int = find_first_div(15);
+  imu result: int = find_first_div(15);
 
-  check@eq(r, 3);
+  check@eq(result, 3);
 
-  showln("{r}");
+  showln("{result}");
 }
