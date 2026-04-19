@@ -23,7 +23,7 @@ use crate::types::{is_float, is_unsigned_int, pointer_ty, ty_id_to_clif};
 use zo_interner::{Interner, Symbol};
 use zo_sir::{BinOp, Insn, LoadSource, UnOp};
 use zo_ty::TyId;
-use zo_value::{FunctionKind, ValueId};
+use zo_value::ValueId;
 
 use cranelift::codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift::codegen::ir::{
@@ -36,7 +36,6 @@ use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 use rustc_hash::FxHashMap as HashMap;
-
 /// Uniform slot size for every aggregate field / array element,
 /// matching `zo-codegen-arm`'s ARM64 `STACK_SLOT_SIZE`. Pragmatic
 /// shortcut: skip per-TyId layout computation by giving every
@@ -192,21 +191,34 @@ pub(crate) fn translate_module(
   // raw literal so every `Load { Local(NAME) }` can inline.
   let const_defs = collect_const_defs(insns);
 
-  for insn in insns {
+  for (idx, insn) in insns.iter().enumerate() {
     if let Insn::FunDef {
       name,
       params,
       return_ty,
-      kind,
+      body_start,
       ..
     } = insn
     {
-      let linkage = match kind {
-        FunctionKind::Intrinsic => Linkage::Import,
-        _ => Linkage::Export,
+      // Linkage is driven by body presence, not by
+      // `FunctionKind` — the executor stamps `Intrinsic` on
+      // every function whose SIR body is empty, which catches
+      // both real FFI imports (`show`, `showln`) AND user
+      // stubs (`fun main() {}`). An empty-body function maps
+      // to `Linkage::Import` (stays an unresolved symbol that
+      // the system linker fills in); a body-bearing function
+      // maps to `Linkage::Export` (this module owns the
+      // definition).
+      let linkage = if fundef_body_is_empty(insns, idx, *body_start) {
+        Linkage::Import
+      } else {
+        Linkage::Export
       };
 
       let sig = build_signature(params, *return_ty, call_conv, ptr_ty);
+      // Cranelift's `ObjectModule` handles platform-specific
+      // symbol mangling (e.g. leading `_` for Mach-O) — pass
+      // the raw name.
       let fname = interner.get(*name);
 
       let func_id = module
@@ -230,7 +242,6 @@ pub(crate) fn translate_module(
       params,
       return_ty,
       body_start,
-      kind,
       ..
     } = &insns[i]
     else {
@@ -238,16 +249,16 @@ pub(crate) fn translate_module(
       continue;
     };
 
-    // Body range for this function. Intrinsic FFI functions
-    // have `body_start = 0` (sentinel, no body), so start the
-    // scan at the insn RIGHT AFTER the current FunDef to
-    // avoid re-finding itself.
+    // Body range for this function. `body_start = 0` is the
+    // executor's sentinel for "no body"; clamp to `i + 1` so
+    // the scan starts after the current FunDef instead of
+    // re-finding it.
     let body_start_u = (*body_start as usize).max(i + 1);
     let end = next_fundef_after(insns, i + 1).unwrap_or(insns.len());
 
-    // Intrinsic functions have no body — declared above as
-    // imports; no CLIF function to define.
-    if matches!(kind, FunctionKind::Intrinsic) {
+    // Empty body → declared as `Linkage::Import` in the first
+    // pass. Nothing to define; skip to the next function.
+    if body_start_u >= end {
       i = end;
       continue;
     }
@@ -320,6 +331,17 @@ pub(crate) fn translate_module(
       );
     }
 
+    // The `Return` / `Jump` arms always create a trailing
+    // dead block after their terminator so subsequent insns
+    // don't panic the builder. When that dead block turns out
+    // to be the LAST block of the function (nothing followed),
+    // it's left empty — and CLIF's verifier rejects blocks
+    // without terminators. Emit a `trap` so verification
+    // passes; cranelift DCEs the unreachable trap.
+    if !fun_ctx.terminated {
+      builder.ins().trap(ir::TrapCode::user(1).unwrap());
+    }
+
     // Seal every block — tells cranelift all predecessors are
     // now known, finalizes any pending SSA phi nodes.
     builder.seal_all_blocks();
@@ -339,6 +361,28 @@ pub(crate) fn translate_module(
   }
 
   ir_text
+}
+
+/// Returns `true` iff the FunDef at `fundef_idx` has no body
+/// insns in the SIR stream. A body is "empty" when the slice
+/// `[body_start_u .. next_fundef_or_end]` is empty, where
+/// `body_start_u = max(body_start, fundef_idx + 1)`. Real FFI
+/// intrinsics carry `body_start = 0` (sentinel) and are
+/// immediately followed by the next FunDef, so their slice is
+/// empty. User stubs like `fun main() {}` have a real
+/// `body_start` but only an implicit `Return`, which the
+/// executor flattens into an empty slice when no other
+/// instructions are emitted — those also land here when they
+/// happen to end the stream.
+fn fundef_body_is_empty(
+  insns: &[Insn],
+  fundef_idx: usize,
+  body_start: u32,
+) -> bool {
+  let body_start_u = (body_start as usize).max(fundef_idx + 1);
+  let end = next_fundef_after(insns, fundef_idx + 1).unwrap_or(insns.len());
+
+  body_start_u >= end
 }
 
 /// Returns the index of the next `FunDef` after `start`, or
@@ -486,6 +530,75 @@ fn materialize_const_literal(
       let gv = tctx.module.declare_data_in_func(data_id, builder.func);
 
       builder.ins().global_value(tctx.ptr_ty, gv)
+    }
+  }
+}
+
+/// Translates a SIR `Cast { src, from_ty, to_ty }` — emits the
+/// right CLIF conversion op based on the from/to type
+/// categories. Four cases:
+/// - **int → int**: `uextend` / `sextend` / `ireduce` depending
+///   on direction and signedness.
+/// - **float → float**: `fpromote` / `fdemote`.
+/// - **int → float**: `fcvt_from_uint` / `fcvt_from_sint`.
+/// - **float → int**: `fcvt_to_uint_sat` / `fcvt_to_sint_sat`
+///   — the saturating variants avoid UB on out-of-range inputs.
+///
+/// Same-width same-category casts are a no-op (identity).
+fn translate_cast(
+  builder: &mut FunctionBuilder,
+  src: ir::Value,
+  from_ty: TyId,
+  to_ty: TyId,
+  ptr_ty: ir::Type,
+) -> ir::Value {
+  let from_clif = ty_id_to_clif(from_ty, ptr_ty);
+  let to_clif = ty_id_to_clif(to_ty, ptr_ty);
+
+  if from_clif == to_clif {
+    return src;
+  }
+
+  let from_is_float = is_float(from_ty);
+  let to_is_float = is_float(to_ty);
+
+  match (from_is_float, to_is_float) {
+    (false, false) => {
+      // int → int.
+      if from_clif.bits() < to_clif.bits() {
+        if is_unsigned_int(from_ty) {
+          builder.ins().uextend(to_clif, src)
+        } else {
+          builder.ins().sextend(to_clif, src)
+        }
+      } else {
+        builder.ins().ireduce(to_clif, src)
+      }
+    }
+    (true, true) => {
+      // float → float.
+      if from_clif.bits() < to_clif.bits() {
+        builder.ins().fpromote(to_clif, src)
+      } else {
+        builder.ins().fdemote(to_clif, src)
+      }
+    }
+    (false, true) => {
+      // int → float.
+      if is_unsigned_int(from_ty) {
+        builder.ins().fcvt_from_uint(to_clif, src)
+      } else {
+        builder.ins().fcvt_from_sint(to_clif, src)
+      }
+    }
+    (true, false) => {
+      // float → int (saturating — NaN / out-of-range map to a
+      // defined value instead of UB).
+      if is_unsigned_int(to_ty) {
+        builder.ins().fcvt_to_uint_sat(to_clif, src)
+      } else {
+        builder.ins().fcvt_to_sint_sat(to_clif, src)
+      }
     }
   }
 }
@@ -1020,6 +1133,24 @@ fn translate_body(
         };
 
         let v = builder.use_var(var);
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::Cast {
+        dst,
+        src,
+        from_ty,
+        to_ty,
+      } => {
+        let Some(src_v) = ctx.values.get(src).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let v = translate_cast(builder, src_v, *from_ty, *to_ty, tctx.ptr_ty);
 
         ctx.values.insert(*dst, v);
       }

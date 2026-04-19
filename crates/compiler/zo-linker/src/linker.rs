@@ -25,7 +25,7 @@ pub fn link_to_executable(
   let obj_file = write_temp_object(object_bytes)?;
   let obj_path = obj_file.path();
 
-  invoke_cc(obj_path, output_path)
+  invoke_cc(obj_path, output_path, target)
 
   // `obj_file` drops here — `NamedTempFile`'s Drop removes the
   // temp file automatically, success or failure.
@@ -72,8 +72,30 @@ fn write_temp_object(
 /// — additional libraries would be added via a future
 /// `LinkerOptions` struct if zo programs start linking against
 /// non-libc code.
-fn invoke_cc(obj: &Path, output: &Path) -> Result<(), LinkError> {
+///
+/// On Apple targets an explicit `-arch` is passed so an
+/// arm64-darwin host can link x86_64 Mach-O bytes (and vice
+/// versa); without the flag Apple's `cc` defaults to the host
+/// arch and rejects the object file.
+fn invoke_cc(
+  obj: &Path,
+  output: &Path,
+  target: Target,
+) -> Result<(), LinkError> {
   let mut cmd = Command::new("cc");
+
+  match target {
+    Target::Arm64AppleDarwin => {
+      cmd.arg("-arch").arg("arm64");
+    }
+    Target::X8664AppleDarwin => {
+      cmd.arg("-arch").arg("x86_64");
+    }
+    // Linux targets: `-arch` is Apple-specific. Cross-linking
+    // to Linux from macOS needs a dedicated `x86_64-linux-gnu-gcc`
+    // and stays out of scope for this phase.
+    _ => {}
+  }
 
   cmd.arg(obj).arg("-o").arg(output);
 
