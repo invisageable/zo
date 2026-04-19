@@ -1285,13 +1285,11 @@ fn translate_body(
 
         ctx.values.insert(*dst, v);
       }
-      Insn::TupleLiteral { dst, elements, .. }
-      | Insn::ArrayLiteral { dst, elements, .. } => {
-        // Phase 2g — aggregate literal. Allocate a stack slot
-        // sized `n * 8`, store each element at `i * 8`, and
-        // materialize the slot address as the aggregate's
-        // SSA value. Matches zo-codegen-arm's layout so both
-        // backends hand downstream SIR ops the same shape.
+      Insn::TupleLiteral { dst, elements, .. } => {
+        // Phase 2g — tuple literal. Stack slot of `n * 8`,
+        // element i stored at `i * 8`. No length prefix —
+        // tuple arity is compile-time-known at every
+        // `TupleIndex` / `FieldStore` via the `index` field.
         let slot = builder.create_sized_stack_slot(StackSlotData::new(
           StackSlotKind::ExplicitSlot,
           (elements.len() as u32) * AGG_SLOT_SIZE,
@@ -1308,6 +1306,52 @@ fn translate_body(
           };
 
           let offset = ((i as u32) * AGG_SLOT_SIZE) as i32;
+
+          builder.ins().stack_store(v, slot, offset);
+        }
+
+        let addr = builder.ins().stack_addr(tctx.ptr_ty, slot, 0);
+
+        ctx.values.insert(*dst, addr);
+      }
+      Insn::ArrayLiteral { dst, elements, .. } => {
+        // Phase 5.8 — length-prefixed array layout:
+        // `[u64 LE len, elem_0, elem_1, ..., elem_{n-1}]`.
+        // Stack slot is `8 + n * 8` bytes. `ArrayLen` loads
+        // the prefix; `ArrayIndex` / `ArrayStore` shift the
+        // data offset by +8.
+        //
+        // zo-codegen-arm keeps the length in a TyId-keyed
+        // metadata table; diverging here avoids threading a
+        // TyTable into the CLIF path just for `ArrayLen`, and
+        // no zo program passes arrays between ARM- and CLIF-
+        // compiled code so the layout divergence is self-
+        // contained.
+        let n = elements.len() as u64;
+        let total = (AGG_SLOT_SIZE as u64) + n * (AGG_SLOT_SIZE as u64);
+        let slot = builder.create_sized_stack_slot(StackSlotData::new(
+          StackSlotKind::ExplicitSlot,
+          total as u32,
+          AGG_ALIGN_SHIFT,
+        ));
+
+        // Length prefix at offset 0.
+        let len_v = builder.ins().iconst(tctx.ptr_ty, n as i64);
+
+        builder.ins().stack_store(len_v, slot, 0);
+
+        // Elements at `8 + i * 8`.
+        for (i, eid) in elements.iter().enumerate() {
+          let Some(v) = ctx.values.get(eid).copied() else {
+            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+            ctx.terminated = true;
+
+            return;
+          };
+
+          let offset =
+            (AGG_SLOT_SIZE as i32) + ((i as u32) * AGG_SLOT_SIZE) as i32;
 
           builder.ins().stack_store(v, slot, offset);
         }
@@ -1369,10 +1413,11 @@ fn translate_body(
         index,
         ty_id,
       } => {
-        // Runtime-indexed read: `arr[i]`. Compute the element
-        // address as `base + (index << 3)` — shift-left-by-3
-        // matches the 8-byte stride. Index is widened to
-        // pointer width if narrower.
+        // Runtime-indexed read: `arr[i]`. With the Phase 5.8
+        // length-prefixed layout, data starts at offset 8.
+        // Compute the element address as `base + 8 + (index
+        // << 3)`. Index is widened to pointer width if
+        // narrower.
         let Some(base) = ctx.values.get(array).copied() else {
           builder.ins().trap(ir::TrapCode::user(1).unwrap());
 
@@ -1393,7 +1438,12 @@ fn translate_body(
         let byte_off = builder.ins().ishl_imm(idx_ext, 3);
         let addr = builder.ins().iadd(base, byte_off);
         let elem_ty = ty_id_to_clif(*ty_id, tctx.ptr_ty);
-        let v = builder.ins().load(elem_ty, MemFlags::new(), addr, 0);
+        let v = builder.ins().load(
+          elem_ty,
+          MemFlags::new(),
+          addr,
+          AGG_SLOT_SIZE as i32,
+        );
 
         ctx.values.insert(*dst, v);
       }
@@ -1403,8 +1453,8 @@ fn translate_body(
         value,
         ..
       } => {
-        // Runtime-indexed write: `arr[i] = value`. Same addr
-        // calc as `ArrayIndex`.
+        // Runtime-indexed write: `arr[i] = value`. Same
+        // length-prefix-aware addr calc as `ArrayIndex`.
         let Some(base) = ctx.values.get(array).copied() else {
           builder.ins().trap(ir::TrapCode::user(1).unwrap());
 
@@ -1433,7 +1483,28 @@ fn translate_body(
         let byte_off = builder.ins().ishl_imm(idx_ext, 3);
         let addr = builder.ins().iadd(base, byte_off);
 
-        builder.ins().store(MemFlags::new(), v, addr, 0);
+        builder
+          .ins()
+          .store(MemFlags::new(), v, addr, AGG_SLOT_SIZE as i32);
+      }
+      Insn::ArrayLen { dst, array, ty_id } => {
+        // Length is the u64 LE prefix at offset 0. Load at the
+        // SIR-declared return width (often `s32` / `int`) so
+        // downstream ops that compare `i < len` see matched
+        // operand types. LE storage means a narrower load
+        // correctly takes the low bytes for lengths ≤ 2^width.
+        let Some(base) = ctx.values.get(array).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let len_ty = ty_id_to_clif(*ty_id, tctx.ptr_ty);
+        let v = builder.ins().load(len_ty, MemFlags::new(), base, 0);
+
+        ctx.values.insert(*dst, v);
       }
       Insn::BinOp {
         dst,
