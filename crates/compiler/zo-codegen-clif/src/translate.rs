@@ -33,9 +33,16 @@ use rustc_hash::FxHashMap as HashMap;
 pub(crate) struct FunCtx {
   /// SIR `ValueId` → CLIF `Value`.
   pub(crate) values: HashMap<ValueId, ir::Value>,
-  /// SIR label id → CLIF `Block` (populated by phase 2c).
-  #[allow(dead_code)]
+  /// SIR label id → CLIF `Block` (populated by the label
+  /// pre-pass so forward jumps can resolve).
   pub(crate) blocks: HashMap<u32, ir::Block>,
+  /// True iff the current CLIF block has a terminator already
+  /// emitted (`return_`, `jump`, `brif`, `trap`). CLIF's
+  /// `FunctionBuilder::is_filled` is private, so we mirror the
+  /// state here — set by every terminator emission, reset on
+  /// `switch_to_block`. Used at each `Label` to decide whether
+  /// a fall-through jump needs synthesizing.
+  pub(crate) terminated: bool,
 }
 
 impl FunCtx {
@@ -43,6 +50,7 @@ impl FunCtx {
     Self {
       values: HashMap::default(),
       blocks: HashMap::default(),
+      terminated: false,
     }
   }
 }
@@ -139,8 +147,22 @@ pub(crate) fn translate_module(
 
     let mut fun_ctx = FunCtx::new();
 
+    // Phase 2c label pre-pass: allocate a CLIF block per SIR
+    // `Label { id }` in the body so forward jumps / brifs can
+    // reference them before we walk past. Without this, a
+    // `Jump { target: 0 }` emitted at SIR index 5 can't
+    // reference the block for `Label { id: 0 }` at index 12.
+    preallocate_label_blocks(
+      &mut builder,
+      &mut fun_ctx,
+      &insns[body_start_u..end],
+    );
+
     translate_body(&mut builder, &mut fun_ctx, &insns[body_start_u..end]);
 
+    // Seal every block — tells cranelift all predecessors are
+    // now known, finalizes any pending SSA phi nodes.
+    builder.seal_all_blocks();
     builder.finalize();
 
     module
@@ -158,6 +180,43 @@ fn next_fundef_after(insns: &[Insn], start: usize) -> Option<usize> {
     .iter()
     .position(|i| matches!(i, Insn::FunDef { .. }))
     .map(|off| start + off)
+}
+
+/// Pre-allocates a CLIF `Block` for every `Insn::Label { id }`
+/// in the body. CLIF requires every block referenced by a
+/// `jump` / `brif` to already exist at emit time; SIR's forward
+/// jumps (loop-head labels, if-else merge points) mean we
+/// can't wait until the `Label` insn itself to create its
+/// block. Two-pass: allocate first, fill bodies second.
+fn preallocate_label_blocks(
+  builder: &mut FunctionBuilder,
+  ctx: &mut FunCtx,
+  body: &[Insn],
+) {
+  for insn in body {
+    if let Insn::Label { id } = insn {
+      let block = builder.create_block();
+
+      ctx.blocks.insert(*id, block);
+    }
+  }
+}
+
+/// Ensures the current block has a terminator before switching
+/// away. CLIF forbids a non-terminated block — zo's hand-
+/// written ARM codegen relies on implicit fall-through, so we
+/// synthesize a `jump` whenever the mirrored `terminated` flag
+/// says the builder still needs one.
+fn seal_current_with_jump(
+  builder: &mut FunctionBuilder,
+  ctx: &mut FunCtx,
+  next: ir::Block,
+) {
+  if !ctx.terminated {
+    builder.ins().jump(next, &[]);
+  }
+
+  ctx.terminated = false;
 }
 
 /// Builds a CLIF [`ir::Signature`] from SIR param / return
@@ -227,10 +286,14 @@ fn translate_body(
           // unimplemented arm that trapped. Emit trap + bail.
           builder.ins().trap(ir::TrapCode::user(1).unwrap());
 
+          ctx.terminated = true;
+
           return;
         };
         let Some(r) = ctx.values.get(rhs).copied() else {
           builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
 
           return;
         };
@@ -248,6 +311,8 @@ fn translate_body(
         let Some(r) = ctx.values.get(rhs).copied() else {
           builder.ins().trap(ir::TrapCode::user(1).unwrap());
 
+          ctx.terminated = true;
+
           return;
         };
 
@@ -261,6 +326,66 @@ fn translate_body(
           .map_or_else(Vec::new, |v| vec![v]);
 
         builder.ins().return_(&rets);
+
+        ctx.terminated = true;
+
+        // Any insn after a Return is dead. Create + switch to
+        // a stray block so following emissions don't panic
+        // the builder — Cranelift DCEs unreachable blocks.
+        let dead = builder.create_block();
+
+        builder.switch_to_block(dead);
+
+        ctx.terminated = false;
+      }
+      Insn::Label { id } => {
+        let block = ctx.blocks[id];
+
+        // Fall-through from the previous block: if it has no
+        // terminator yet, synthesize a jump into this label's
+        // block. Matches the ARM path's implicit fall-through
+        // but keeps CLIF's "every block ends with a terminator"
+        // invariant.
+        seal_current_with_jump(builder, ctx, block);
+        builder.switch_to_block(block);
+      }
+      Insn::Jump { target } => {
+        let block = ctx.blocks[target];
+
+        builder.ins().jump(block, &[]);
+
+        ctx.terminated = true;
+
+        // Fresh block for any stray insns before the next
+        // `Label`. CLIF requires a valid current block after
+        // a terminator.
+        let dead = builder.create_block();
+
+        builder.switch_to_block(dead);
+
+        ctx.terminated = false;
+      }
+      Insn::BranchIfNot { cond, target } => {
+        let Some(cond_v) = ctx.values.get(cond).copied() else {
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let target_block = ctx.blocks[target];
+        let fallthrough = builder.create_block();
+
+        // SIR semantics: branch to `target` iff cond == 0.
+        // Cranelift's `brif(cond, then, then_args, else, else_args)`
+        // goes to `then` when cond != 0 — so `then` is the
+        // fallthrough and `else` is the SIR target.
+        builder
+          .ins()
+          .brif(cond_v, fallthrough, &[], target_block, &[]);
+
+        builder.switch_to_block(fallthrough);
       }
       Insn::Nop => {}
       // Module-level markers that the executor interleaves
@@ -281,6 +406,8 @@ fn translate_body(
         builder
           .ins()
           .trap(cranelift::codegen::ir::TrapCode::user(1).unwrap());
+
+        ctx.terminated = true;
 
         return;
       }
