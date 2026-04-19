@@ -204,7 +204,13 @@ pub(crate) fn translate_module(
       &insns[body_start_u..end],
     );
 
-    translate_body(&mut builder, &mut fun_ctx, &insns[body_start_u..end]);
+    translate_body(
+      module,
+      &func_ids,
+      &mut builder,
+      &mut fun_ctx,
+      &insns[body_start_u..end],
+    );
 
     // Seal every block — tells cranelift all predecessors are
     // now known, finalizes any pending SSA phi nodes.
@@ -290,8 +296,13 @@ fn build_signature(
 }
 
 /// Walks the body instructions and emits CLIF via the given
-/// [`FunctionBuilder`].
+/// [`FunctionBuilder`]. `module` + `func_ids` are threaded in
+/// to let `Insn::Call` resolve its callee's `FuncId` and
+/// import it into the current function via
+/// `declare_func_in_func`.
 fn translate_body(
+  module: &mut ObjectModule,
+  func_ids: &HashMap<Symbol, cranelift_module::FuncId>,
   builder: &mut FunctionBuilder,
   ctx: &mut FunCtx,
   body: &[Insn],
@@ -363,6 +374,58 @@ fn translate_body(
         };
 
         let v = translate_unop(builder, *op, r, *ty_id);
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::Call {
+        dst, name, args, ..
+      } => {
+        let Some(func_id) = func_ids.get(name).copied() else {
+          // Callee not in the first-pass declaration table —
+          // semantic analyzer shouldn't let this through, but
+          // trap rather than panic.
+          builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        // Gather CLIF args from the SSA map; bail to trap on
+        // any missing producer (an upstream arm must have
+        // trapped, leaving an operand undefined).
+        let mut arg_vals: Vec<ir::Value> = Vec::with_capacity(args.len());
+
+        for arg in args {
+          let Some(v) = ctx.values.get(arg).copied() else {
+            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+
+            ctx.terminated = true;
+
+            return;
+          };
+
+          arg_vals.push(v);
+        }
+
+        // Import the callee's `FuncId` into the current
+        // function (cranelift dedupes internally across repeat
+        // imports). Works for both `Linkage::Export` (user-
+        // defined) and `Linkage::Import` (FFI intrinsics).
+        let fref = module.declare_func_in_func(func_id, builder.func);
+        let call = builder.ins().call(fref, &arg_vals);
+
+        // Unit-return callees have an empty results vec. SIR
+        // still carries a `dst: ValueId`, so materialize an
+        // I8 0 sentinel — matches Appendix B row 1 of the
+        // plan. Downstream refs for unit values are a
+        // semantic bug and will never be read.
+        let results = builder.inst_results(call);
+        let v = if results.is_empty() {
+          builder.ins().iconst(ir::types::I8, 0)
+        } else {
+          results[0]
+        };
 
         ctx.values.insert(*dst, v);
       }
