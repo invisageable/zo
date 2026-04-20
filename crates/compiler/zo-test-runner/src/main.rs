@@ -15,9 +15,17 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::Instant;
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+/// Upper bound on the time a single test program is allowed
+/// to run before we kill it and flag it as `runtime timeout`.
+/// Set generously enough to cover slow Rosetta-translated
+/// x86_64 binaries on arm64 hosts.
+const RUN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Test category — determines how to run and what to expect.
 #[derive(Clone, Copy)]
@@ -49,12 +57,26 @@ fn main() {
     .and_then(|i| args.get(i + 1))
     .map(|s| s.as_str());
 
+  // --target <triple> threads into every `zo build` invocation
+  // below so the same suite can be measured against the CLIF
+  // backend (x86_64-*, arm64-pc-windows-msvc) in addition to
+  // the default ARM64 Darwin / Linux fast lane.
+  let target = args
+    .iter()
+    .position(|a| a == "--target" || a == "-t")
+    .and_then(|i| args.get(i + 1))
+    .map(|s| s.as_str());
+
   let root = find_workspace_root();
   let zo = find_zo_binary(&root);
   let tests_dir = root.join("crates/compiler/zo-tests");
   let howto_dir = root.join("crates/compiler/zo-how-zo");
 
   println!("zo: {}", zo.display());
+
+  if let Some(t) = target {
+    println!("target: {t}");
+  }
 
   let tmp =
     env::temp_dir().join(format!("zo-test-runner-{}", std::process::id()));
@@ -71,6 +93,7 @@ fn main() {
     &zo,
     &tmp,
     filter,
+    target,
     &mut results,
   );
 
@@ -81,6 +104,7 @@ fn main() {
     &zo,
     &tmp,
     filter,
+    target,
     &mut results,
   );
 
@@ -91,6 +115,7 @@ fn main() {
     &zo,
     &tmp,
     filter,
+    target,
     &mut results,
   );
 
@@ -101,6 +126,7 @@ fn main() {
     &zo,
     &tmp,
     filter,
+    target,
     &mut results,
   );
 
@@ -111,6 +137,7 @@ fn main() {
     &zo,
     &tmp,
     filter,
+    target,
     &mut results,
   );
 
@@ -121,6 +148,7 @@ fn main() {
     &zo,
     &tmp,
     filter,
+    target,
     &mut results,
   );
 
@@ -131,19 +159,28 @@ fn main() {
     &zo,
     &tmp,
     filter,
+    target,
     &mut results,
   );
 
   // zo-how-to tutorials — build + run + output check.
   if howto_dir.exists() {
-    run_dir(&howto_dir, Category::Pass, &zo, &tmp, filter, &mut results);
+    run_dir(
+      &howto_dir,
+      Category::Pass,
+      &zo,
+      &tmp,
+      filter,
+      target,
+      &mut results,
+    );
   }
 
   // zo-usecases — multi-file projects (lib.zo + modules).
   let usecases_dir = root.join("crates/compiler/zo-usecases");
 
   if usecases_dir.exists() {
-    run_projects(&usecases_dir, &zo, &tmp, filter, &mut results);
+    run_projects(&usecases_dir, &zo, &tmp, filter, target, &mut results);
   }
 
   // Cleanup.
@@ -180,12 +217,68 @@ fn main() {
   println!("all zo program tests passed.");
 }
 
+/// Spawns `cmd` with stdout+stderr piped and either returns
+/// its `Output` (if it finishes within `timeout`) or kills it
+/// and returns `ErrorKind::TimedOut`.
+///
+/// Polling is `try_wait` + 25 ms sleep. Good enough for
+/// test-runner granularity — we just don't want cross-arch
+/// hangs (Rosetta-translated programs stuck at 0 CPU) to
+/// block the whole rayon pool indefinitely.
+///
+/// On timeout: `child.kill()` sends SIGKILL and returns
+/// immediately — we do NOT call `child.wait()` afterwards
+/// because some Rosetta-translated processes ignore SIGKILL
+/// and `wait` would then block the rayon worker forever.
+/// Zombie leak is acceptable (OS reaps on parent exit);
+/// unblocked test-runner progress is not.
+fn run_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Output> {
+  let mut child = cmd.spawn()?;
+  let start = Instant::now();
+
+  loop {
+    match child.try_wait()? {
+      Some(_) => return child.wait_with_output(),
+      None => {
+        if start.elapsed() > timeout {
+          let _ = child.kill();
+
+          return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "runtime timeout",
+          ));
+        }
+
+        thread::sleep(Duration::from_millis(25));
+      }
+    }
+  }
+}
+
+/// Starts a `zo build` invocation with the optional `--target`
+/// flag pre-applied, before the test adds `<file> -o <out>`.
+/// Threading the flag this way means `run_test` / `run_project`
+/// don't each have to reimplement the same conditional arg
+/// injection.
+fn build_cmd(zo: &Path, target: Option<&str>) -> Command {
+  let mut cmd = Command::new(zo);
+
+  cmd.arg("build");
+
+  if let Some(t) = target {
+    cmd.args(["-t", t]);
+  }
+
+  cmd
+}
+
 fn run_dir(
   dir: &Path,
   category: Category,
   zo: &Path,
   tmp: &Path,
   filter: Option<&str>,
+  target: Option<&str>,
   results: &mut Vec<TestResult>,
 ) {
   if !dir.exists() {
@@ -252,7 +345,7 @@ fn run_dir(
         return None;
       }
 
-      let result = run_test(file, name, category, zo, tmp);
+      let result = run_test(file, name, category, zo, tmp, target);
 
       print_result(&result);
 
@@ -271,6 +364,7 @@ fn run_projects(
   zo: &Path,
   tmp: &Path,
   filter: Option<&str>,
+  target: Option<&str>,
   results: &mut Vec<TestResult>,
 ) {
   if !dir.exists() {
@@ -312,7 +406,7 @@ fn run_projects(
         return None;
       }
 
-      let result = run_project(project, name, zo, tmp);
+      let result = run_project(project, name, zo, tmp, target);
 
       print_result(&result);
 
@@ -346,12 +440,14 @@ fn run_project(
   name: &str,
   zo: &Path,
   tmp: &Path,
+  target: Option<&str>,
 ) -> TestResult {
   let main_zo = project.join("src/main.zo");
   let out = tmp.join(name);
 
-  let build = Command::new(zo)
-    .args(["build", &main_zo.to_string_lossy(), "-o"])
+  let build = build_cmd(zo, target)
+    .arg(&*main_zo.to_string_lossy())
+    .arg("-o")
     .arg(&out)
     .stdout(Stdio::null())
     .stderr(Stdio::null())
@@ -361,12 +457,16 @@ fn run_project(
     Ok(s) if !s.success() => fail(name, "compilation failed"),
     Err(e) => fail(name, &format!("build error: {e}")),
     _ => {
-      let run = Command::new(&out)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output();
+      let mut run_cmd = Command::new(&out);
+
+      run_cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+
+      let run = run_with_timeout(run_cmd, RUN_TIMEOUT);
 
       match run {
+        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+          fail(name, "runtime timeout (10s)")
+        }
         Ok(output) if !output.status.success() => fail(
           name,
           &format!(
@@ -410,13 +510,15 @@ fn run_test(
   category: Category,
   zo: &Path,
   tmp: &Path,
+  target: Option<&str>,
 ) -> TestResult {
   let out = tmp.join(name);
 
   match category {
     Category::BuildOnly => {
-      let status = Command::new(zo)
-        .args(["build", &file.to_string_lossy(), "-o"])
+      let status = build_cmd(zo, target)
+        .arg(&*file.to_string_lossy())
+        .arg("-o")
         .arg(&out)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -430,8 +532,9 @@ fn run_test(
     }
 
     Category::Fail => {
-      let output = Command::new(zo)
-        .args(["build", &file.to_string_lossy(), "-o"])
+      let output = build_cmd(zo, target)
+        .arg(&*file.to_string_lossy())
+        .arg("-o")
         .arg(&out)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -480,8 +583,9 @@ fn run_test(
     }
 
     Category::Pass => {
-      let build = Command::new(zo)
-        .args(["build", &file.to_string_lossy(), "-o"])
+      let build = build_cmd(zo, target)
+        .arg(&*file.to_string_lossy())
+        .arg("-o")
         .arg(&out)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -497,12 +601,16 @@ fn run_test(
         _ => {}
       }
 
-      let run = Command::new(&out)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output();
+      let mut run_cmd = Command::new(&out);
+
+      run_cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+
+      let run = run_with_timeout(run_cmd, RUN_TIMEOUT);
 
       match run {
+        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+          fail(name, "runtime timeout (10s)")
+        }
         Ok(output) if !output.status.success() => fail(
           name,
           &format!(
@@ -577,8 +685,9 @@ fn run_test(
       }
 
       // Build with --emit flag.
-      let status = Command::new(zo)
-        .args(["build", &file.to_string_lossy(), "--emit", emit_flag, "-o"])
+      let status = build_cmd(zo, target)
+        .arg(&*file.to_string_lossy())
+        .args(["--emit", emit_flag, "-o"])
         .arg(&out)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -613,8 +722,9 @@ fn run_test(
 
     Category::Crash => {
       // Build only — pass if the compiler doesn't crash.
-      let output = Command::new(zo)
-        .args(["build", &file.to_string_lossy(), "-o"])
+      let output = build_cmd(zo, target)
+        .arg(&*file.to_string_lossy())
+        .arg("-o")
         .arg(&out)
         .stdout(Stdio::null())
         .stderr(Stdio::null())

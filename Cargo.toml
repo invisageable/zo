@@ -58,6 +58,7 @@ zo-buffer = { path = "crates/compiler/zo-buffer", version = "0.3.6" }
 zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.3.6" }
 zo-codegen-arm = { path = "crates/compiler/zo-codegen-arm", version = "0.3.6" }
 zo-codegen-backend = { path = "crates/compiler/zo-codegen-backend", version = "0.3.6" }
+zo-codegen-clif = { path = "crates/compiler/zo-codegen-clif", version = "0.3.6" }
 zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.3.6" }
 zo-constant-folding = { path = "crates/compiler/zo-constant-folding", version = "0.3.6" }
 zo-constant-propagation = { path = "crates/compiler/zo-constant-propagation", version = "0.3.6" }
@@ -68,6 +69,7 @@ zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.3.6" }
 zo-error = { path = "crates/compiler/zo-error", version = "0.3.6" }
 zo-executor = { path = "crates/compiler/zo-executor", version = "0.3.6" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.3.6" }
+zo-linker = { path = "crates/compiler/zo-linker", version = "0.3.6" }
 zo-liveness = { path = "crates/compiler/zo-liveness", version = "0.3.6" }
 zo-metrics = { path = "crates/compiler/zo-metrics", version = "0.1.0" }
 zo-module-resolver = { path = "crates/compiler/zo-module-resolver", version = "0.3.6" }
@@ -115,6 +117,7 @@ calamine = "0.32.0"
 clap = { version = "4.5.49", features = ["derive"] }
 console_error_panic_hook = { version = "0.1.7" }
 cranelift = "0.130.1"
+cranelift-codegen = { version = "0.130.1", features = ["x86", "arm64"] }
 cranelift-module = "0.130.1"
 cranelift-jit = "0.130.1"
 cranelift-native = "0.130.1"
@@ -161,8 +164,8 @@ image = { version = "0.25.6", default-features = false, features = [
 ] }
 itoa = "1.0.15"
 Inflector = "0.11.4"
-insta = { version = "1.43.2", features = ["yaml"] }
-lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
+insta = { version = "1.47.2", features = ["yaml"] }
+lightningcss = { version = "1.0.0-alpha.71", features = ["visitor"] }
 libc = "0.2.176"
 libloading = "0.9.0"
 log = "0.4.27"
@@ -172,14 +175,12 @@ num_cpus = "1.17.0"
 objc = "0.2.7"
 parking_lot = { version = "0.12.4", features = ["nightly"] }
 pdfium-render = "0.8.37"
-posthog-rs = "0.3.7"
+posthog-rs = "0.5.1"
 profiling = "1.0.17"
 proptest = "1.7.0"
-puffin = "0.19.1"
-puffin_http = "0.16.1"
 pulldown-cmark = "0.13.0"
 raw-window-handle = "0.6.2"
-rayon = { version = "1.11.0" }
+rayon = { version = "1.12.0" }
 regex = "1.12.2"
 reqwest = { version = "0.12.24", default-features = false, features = [
   "json",
@@ -196,7 +197,8 @@ sha2 = "0.10.9"
 smallvec = { version = "1.13.2", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.2", features = ["serde"] }
 sysinfo = "0.37.2"
-tempfile = "3.23.0"
+target-lexicon = "0.13.5"
+tempfile = "3.27.0"
 thin-vec = "0.2.14"
 tokio = { version = "1.47.1", default-features = true , features = [
   "fs",

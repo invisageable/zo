@@ -3478,3 +3478,9 @@ impl<'a> ARM64Gen<'a> {
     macho.finish_with_signature()
   }
 }
+
+impl<'a> zo_codegen_backend::Backend for ARM64Gen<'a> {
+  fn generate(&mut self, sir: &Sir) -> Artifact {
+    self.generate(sir)
+  }
+}

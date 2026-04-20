@@ -1,0 +1,14 @@
+[package]
+name = "zo-linker"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:crates.
+zo-codegen-backend = { workspace = true }
+
+# external:crates.
+tempfile = { workspace = true }

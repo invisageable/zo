@@ -94,10 +94,18 @@ JOiN THE DEVOLUTiON.
   2. THEN:
 
   ```
+  zo --version
+  ```
+
+  3. iT WiLL PRiNTS:
+
+  ```
   zo x.x.x
   ```
 
-  3. ET VOiLÀ! YOU ARE GOOD TO GO. FOR MORE DETAiLS:
+  4. ET VOiLÀ! YOU ARE GOOD TO GO. START WiTH [@how-to](./crates/compiler/zo-how-zo)
+
+iF YOU ENCOUNTER iSSUES TO iNSTALL zo CHECK OUT THE FOLLOWiNG GUiDE FOR MORE DETAiLS:
 
   - @SEE — [`01-install`](./crates/compiler/zo-notes/public/guidelines/01-install.md)
 

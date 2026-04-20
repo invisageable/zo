@@ -202,6 +202,14 @@ impl TyChecker {
     })
   }
 
+  /// Get or create the s64 type
+  pub fn s64_type(&mut self) -> TyId {
+    self.intern_ty(Ty::Int {
+      signed: true,
+      width: IntWidth::S64,
+    })
+  }
+
   /// Get or create the char type
   pub fn char_type(&mut self) -> TyId {
     self.intern_ty(Ty::Char)
