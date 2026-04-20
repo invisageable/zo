@@ -1,0 +1,595 @@
+SIR INSTRUCTION STREAM:
+───────────────────────
+@show:
+
+@showln:
+
+@eshow:
+
+@eshowln:
+
+@readln:
+
+@read_all:
+
+@flush:
+
+@read_file:
+
+@write_file:
+
+@append_file:
+
+@exists:
+
+@check:
+
+@gcd:
+  %10 = load param[0]
+  mut x = %10
+  store x, %10
+  %11 = load local[27]
+  %17 = const 0 : i32
+  %13 = lt %11, %12
+    br_ifnot %13, L1
+  %15 = load local[27]
+  %21 = neg %15
+  store x, %16
+  L1:
+  L0:
+  %17 = load param[1]
+  mut y = %17
+  store y, %17
+  %18 = load local[70]
+  %29 = const 0 : i32
+  %20 = lt %18, %19
+    br_ifnot %20, L3
+  %22 = load local[70]
+  %33 = neg %22
+  store y, %23
+  L3:
+  L2:
+  L4:
+  %24 = load local[70]
+  %39 = const 0 : i32
+  %26 = neq %24, %25
+    br_ifnot %26, L5
+  %27 = load local[27]
+  %28 = load local[70]
+  %29 = rem %27, %28
+  imu r = %29
+  store r, %29
+  %31 = load local[70]
+  store x, %31
+  %33 = load local[71]
+  store y, %33
+    jmp L4
+  L5:
+  %34 = load local[27]
+  ret %34
+
+@lcm:
+  %35 = load param[0]
+  %57 = const 0 : i32
+  %37 = eq %35, %36
+    br_ifnot %37, L7
+  %60 = const 0 : i32
+  ret %38
+  L7:
+  L6:
+  %39 = load param[1]
+  %65 = const 0 : i32
+  %41 = eq %39, %40
+    br_ifnot %41, L9
+  %68 = const 0 : i32
+  ret %42
+  L9:
+  L8:
+  %43 = load param[0]
+  mut a_abs = %43
+  store a_abs, %43
+  %44 = load local[73]
+  %76 = const 0 : i32
+  %46 = lt %44, %45
+    br_ifnot %46, L11
+  %48 = load local[73]
+  %80 = neg %48
+  store a_abs, %49
+  L11:
+  L10:
+  %50 = load param[1]
+  mut b_abs = %50
+  store b_abs, %50
+  %51 = load local[74]
+  %88 = const 0 : i32
+  %53 = lt %51, %52
+    br_ifnot %53, L13
+  %55 = load local[74]
+  %92 = neg %55
+  store b_abs, %56
+  L13:
+  L12:
+  %57 = load param[0]
+  %58 = load param[1]
+  %98 = call gcd(%57, %58)
+  imu g = %59
+  store g, %59
+  %60 = load local[73]
+  %61 = load local[75]
+  %62 = div %60, %61
+  %63 = load local[74]
+  %64 = mul %62, %63
+  ret %64
+
+@pow_i:
+  %65 = load param[1]
+  %109 = const 0 : i32
+  %67 = lt %65, %66
+    br_ifnot %67, L15
+  %112 = const 0 : i32
+  ret %68
+  L15:
+  L14:
+  %116 = const 1 : i32
+  mut result = %69
+  store result, %69
+  %70 = load param[0]
+  mut b = %70
+  store b, %70
+  %71 = load param[1]
+  mut e = %71
+  store e, %71
+  L16:
+  %72 = load local[80]
+  %127 = const 0 : i32
+  %74 = gt %72, %73
+    br_ifnot %74, L17
+  %75 = load local[80]
+  %131 = const 2 : i32
+  %77 = rem %75, %76
+  %133 = const 1 : i32
+  %79 = eq %77, %78
+    br_ifnot %79, L19
+  %81 = load local[79]
+  %82 = load local[30]
+  %83 = mul %81, %82
+  store result, %83
+  L19:
+  L18:
+  %85 = load local[30]
+  %86 = load local[30]
+  %87 = mul %85, %86
+  store b, %87
+  %89 = load local[80]
+  %147 = const 2 : i32
+  %91 = div %89, %90
+  store e, %91
+    jmp L16
+  L17:
+  %92 = load local[79]
+  ret %92
+
+@sqrt:
+
+@pow:
+
+@sin:
+
+@cos:
+
+@tan:
+
+@log:
+
+@log2:
+
+@log10:
+
+@exp:
+
+@floor:
+
+@ceil:
+
+@trunc:
+
+@round:
+
+@is_finite:
+
+@is_nan:
+
+@exit:
+
+@char::is_digit:
+  %93 = load param[0]
+  %172 = const 48 : i32
+  %95 = gte %93, %94
+  %96 = load param[0]
+  %175 = const 57 : i32
+  %98 = lte %96, %97
+  %99 = and %95, %98
+  ret %99
+
+@char::is_alpha:
+  %100 = load param[0]
+  %181 = const 97 : i32
+  %102 = gte %100, %101
+  %103 = load param[0]
+  %184 = const 122 : i32
+  %105 = lte %103, %104
+  %106 = and %102, %105
+  store __branch_result_0__, %106
+  %188 = not %106
+    br_ifnot %107, L20
+  %108 = load param[0]
+  %191 = const 65 : i32
+  %110 = gte %108, %109
+  %111 = load param[0]
+  %194 = const 90 : i32
+  %113 = lte %111, %112
+  %114 = and %110, %113
+  store __branch_result_0__, %114
+  L20:
+  %115 = load local[95]
+  ret %115
+
+@char::is_alphanumeric:
+  %116 = load param[0]
+  %203 = const 48 : i32
+  %118 = gte %116, %117
+  %119 = load param[0]
+  %206 = const 57 : i32
+  %121 = lte %119, %120
+  %122 = and %118, %121
+  store __branch_result_1__, %122
+  %210 = not %122
+    br_ifnot %123, L21
+  %124 = load param[0]
+  %213 = const 97 : i32
+  %126 = gte %124, %125
+  %127 = load param[0]
+  %216 = const 122 : i32
+  %129 = lte %127, %128
+  %130 = and %126, %129
+  store __branch_result_1__, %130
+  L21:
+  %131 = load local[96]
+  store __branch_result_2__, %131
+  %223 = not %131
+    br_ifnot %132, L22
+  %133 = load param[0]
+  %226 = const 65 : i32
+  %135 = gte %133, %134
+  %136 = load param[0]
+  %229 = const 90 : i32
+  %138 = lte %136, %137
+  %139 = and %135, %138
+  store __branch_result_2__, %139
+  L22:
+  %140 = load local[97]
+  ret %140
+
+@char::is_uppercase:
+  %141 = load param[0]
+  %238 = const 65 : i32
+  %143 = gte %141, %142
+  %144 = load param[0]
+  %241 = const 90 : i32
+  %146 = lte %144, %145
+  %147 = and %143, %146
+  ret %147
+
+@char::is_lowercase:
+  %148 = load param[0]
+  %247 = const 97 : i32
+  %150 = gte %148, %149
+  %151 = load param[0]
+  %250 = const 122 : i32
+  %153 = lte %151, %152
+  %154 = and %150, %153
+  ret %154
+
+@char::is_whitespace:
+  %155 = load param[0]
+  %256 = const 32 : i32
+  %157 = eq %155, %156
+  %158 = load param[0]
+  %259 = const 9 : i32
+  %160 = eq %158, %159
+  %161 = or %157, %160
+  %162 = load param[0]
+  %263 = const 10 : i32
+  %164 = eq %162, %163
+  %165 = or %161, %164
+  %166 = load param[0]
+  %267 = const 13 : i32
+  %168 = eq %166, %167
+  %169 = or %165, %168
+  ret %169
+
+@char::to_digit:
+  %170 = load param[0]
+  %273 = const 48 : i32
+  %172 = gte %170, %171
+  %173 = load param[0]
+  %276 = const 57 : i32
+  %175 = lte %173, %174
+  %176 = and %172, %175
+    br_ifnot %176, L24
+  %177 = load param[0]
+  %178 = cast %177 (TyId(3) -> TyId(8))
+  %282 = const 48 : i32
+  %180 = cast %179 (TyId(3) -> TyId(8))
+  %181 = sub %178, %180
+  ret %181
+  L24:
+  L23:
+  %288 = const 18446744073709551615 : i32
+  ret %183
+
+@int::is_positive:
+  %184 = load param[0]
+  %292 = const 0 : i32
+  %186 = gt %184, %185
+  ret %186
+
+@int::is_negative:
+  %187 = load param[0]
+  %297 = const 0 : i32
+  %189 = lt %187, %188
+  ret %189
+
+@int::is_zero:
+  %190 = load param[0]
+  %302 = const 0 : i32
+  %192 = eq %190, %191
+  ret %192
+
+@int::abs:
+  %193 = load param[0]
+  %307 = const 0 : i32
+  %195 = lt %193, %194
+    br_ifnot %195, L26
+  %196 = load param[0]
+  %311 = neg %196
+  ret %197
+  L26:
+  L25:
+  %198 = load param[0]
+  ret %198
+
+@int::min:
+  %199 = load param[0]
+  %200 = load param[1]
+  %201 = lt %199, %200
+    br_ifnot %201, L28
+  %202 = load param[0]
+  ret %202
+  L28:
+  L27:
+  %203 = load param[1]
+  ret %203
+
+@int::max:
+  %204 = load param[0]
+  %205 = load param[1]
+  %206 = gt %204, %205
+    br_ifnot %206, L30
+  %207 = load param[0]
+  ret %207
+  L30:
+  L29:
+  %208 = load param[1]
+  ret %208
+
+@bool::as_int:
+  %209 = load param[0]
+    br_ifnot %209, L32
+  %342 = const 1 : i32
+  ret %210
+  L32:
+  L31:
+  %346 = const 0 : i32
+  ret %211
+
+@arr_int::sum:
+  %349 = const 0 : i32
+  mut total = %212
+  store total, %212
+  %352 = const 0 : i32
+  mut i = %213
+  store i, %213
+  L33:
+  %214 = load local[144]
+  %215 = load param[0]
+  %216 = len %215
+  %217 = lt %214, %216
+    br_ifnot %217, L34
+  %219 = load local[143]
+  %220 = load param[0]
+  %221 = load local[144]
+  %222 = index %220[%221]
+  %223 = add %219, %222
+  store total, %223
+  %225 = load local[144]
+  %368 = const 1 : i32
+  %227 = add %225, %226
+  store i, %227
+    jmp L33
+  L34:
+  %228 = load local[143]
+  ret %228
+
+@arr_int::contains:
+  %376 = const 0 : i32
+  mut i = %229
+  store i, %229
+  L35:
+  %230 = load local[144]
+  %231 = load param[0]
+  %232 = len %231
+  %233 = lt %230, %232
+    br_ifnot %233, L36
+  %234 = load param[0]
+  %235 = load local[144]
+  %236 = index %234[%235]
+  %237 = load param[1]
+  %238 = eq %236, %237
+    br_ifnot %238, L38
+  %391 = const true : bool
+  ret %239
+  L38:
+  L37:
+  %241 = load local[144]
+  %396 = const 1 : i32
+  %243 = add %241, %242
+  store i, %243
+    jmp L35
+  L36:
+  %401 = const false : bool
+  ret %244
+
+@arr_int::find:
+  %404 = const 0 : i32
+  mut i = %245
+  store i, %245
+  L39:
+  %246 = load local[144]
+  %247 = load param[0]
+  %248 = len %247
+  %249 = lt %246, %248
+    br_ifnot %249, L40
+  %250 = load param[0]
+  %251 = load local[144]
+  %252 = index %250[%251]
+  %253 = load param[1]
+  %254 = eq %252, %253
+    br_ifnot %254, L42
+  %255 = load local[144]
+  ret %255
+  L42:
+  L41:
+  %257 = load local[144]
+  %424 = const 1 : i32
+  %259 = add %257, %258
+  store i, %259
+    jmp L39
+  L40:
+  %429 = const 18446744073709551615 : i32
+  ret %261
+
+@arr_int::min_of:
+  %262 = load param[0]
+  %263 = len %262
+  %434 = const 0 : i32
+  %265 = eq %263, %264
+    br_ifnot %265, L44
+  %437 = const 0 : i32
+  ret %266
+  L44:
+  L43:
+  %267 = load param[0]
+  %442 = const 0 : i32
+  %269 = index %267[%268]
+  mut m = %269
+  store m, %269
+  %446 = const 1 : i32
+  mut i = %270
+  store i, %270
+  L45:
+  %271 = load local[144]
+  %272 = load param[0]
+  %273 = len %272
+  %274 = lt %271, %273
+    br_ifnot %274, L46
+  %275 = load param[0]
+  %276 = load local[144]
+  %277 = index %275[%276]
+  %278 = load local[150]
+  %279 = lt %277, %278
+    br_ifnot %279, L48
+  %281 = load param[0]
+  %282 = load local[144]
+  %283 = index %281[%282]
+  store m, %283
+  L48:
+  L47:
+  %285 = load local[144]
+  %468 = const 1 : i32
+  %287 = add %285, %286
+  store i, %287
+    jmp L45
+  L46:
+  %288 = load local[150]
+  ret %288
+
+@arr_int::max_of:
+  %289 = load param[0]
+  %290 = len %289
+  %478 = const 0 : i32
+  %292 = eq %290, %291
+    br_ifnot %292, L50
+  %481 = const 0 : i32
+  ret %293
+  L50:
+  L49:
+  %294 = load param[0]
+  %486 = const 0 : i32
+  %296 = index %294[%295]
+  mut m = %296
+  store m, %296
+  %490 = const 1 : i32
+  mut i = %297
+  store i, %297
+  L51:
+  %298 = load local[144]
+  %299 = load param[0]
+  %300 = len %299
+  %301 = lt %298, %300
+    br_ifnot %301, L52
+  %302 = load param[0]
+  %303 = load local[144]
+  %304 = index %302[%303]
+  %305 = load local[150]
+  %306 = gt %304, %305
+    br_ifnot %306, L54
+  %308 = load param[0]
+  %309 = load local[144]
+  %310 = index %308[%309]
+  store m, %310
+  L54:
+  L53:
+  %312 = load local[144]
+  %512 = const 1 : i32
+  %314 = add %312, %313
+  store i, %314
+    jmp L51
+  L52:
+  %315 = load local[150]
+  ret %315
+  arr_ty_def : TyId(50) -> elem TyId(8)
+
+@main:
+  %521 = const 42 : i32
+  %522 = call identity__int(%0)
+  imu a = %1
+  store a, %1
+  %525 = const "hello" : str
+  %526 = call identity__str(%2)
+  imu b = %3
+  store b, %3
+  %4 = load local[29]
+  %530 = call showln(%4)
+  %6 = load local[30]
+  %532 = call showln(%6)
+  ret void
+
+@identity__int:
+  %8 = load param[0]
+  ret %8
+
+@identity__str:
+  %9 = load param[0]
+  ret %9
+

@@ -268,16 +268,47 @@ impl Insn {
       | Insn::EnumConstruct { ty_id, .. }
       | Insn::StructConstruct { ty_id, .. }
       | Insn::FieldStore { ty_id, .. } => f(ty_id),
-      Insn::Cast { to_ty, .. } => f(to_ty),
+      Insn::Cast { from_ty, to_ty, .. } => {
+        f(from_ty);
+        f(to_ty);
+      }
       Insn::ArrayTyDef { array_ty, elem_ty } => {
         f(array_ty);
         f(elem_ty);
       }
+      // Type-definition / signature-carrying insns. These
+      // participate in the post-executor resolve walker
+      // (`PLAN_SIR_TYPE_INVARIANTS.md` generic-mono
+      // follow-up) — without visiting them, generic param
+      // / field types leak into SIR unresolved.
+      Insn::FunDef {
+        params, return_ty, ..
+      } => {
+        for (_, ty) in params {
+          f(ty);
+        }
+        f(return_ty);
+      }
+      Insn::StructDef { ty_id, fields, .. } => {
+        f(ty_id);
+
+        for (_, fty, _) in fields {
+          f(fty);
+        }
+      }
+      Insn::EnumDef {
+        ty_id, variants, ..
+      } => {
+        f(ty_id);
+
+        for (_, _, field_tys) in variants {
+          for fty in field_tys {
+            f(fty);
+          }
+        }
+      }
       Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
-      | Insn::EnumDef { .. }
-      | Insn::StructDef { .. }
-      | Insn::FunDef { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::BranchIfNot { .. }

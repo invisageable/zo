@@ -607,37 +607,6 @@ fn emit_aggregate_literal(
   Some(builder.ins().stack_addr(tctx.ptr_ty, slot, 0))
 }
 
-/// Coerces an integer-typed `ir::Value` from `from` to `to`
-/// via the narrowest-fitting CLIF op. Widens via `uextend`
-/// (zero-extend) and narrows via `ireduce`.
-///
-/// **Limited scope.** After `PLAN_SIR_TYPE_INVARIANTS.md`
-/// Phases 1–6, non-generic zo code emits width-consistent
-/// SIR — the callers below are a no-op on that path. The
-/// function remains for **generic monomorphization corner
-/// cases** where the callee's param `TyId` resolves to a
-/// different CLIF width than the caller's arg (e.g.
-/// `identity<$T>(x: $T)` instantiated with `int` (I32)
-/// while the mono'd callee expects I64 on this target).
-/// Fixing those properly lives in a future "generic mono
-/// narrow" pass; until then this stays.
-fn coerce_int_width(
-  builder: &mut FunctionBuilder,
-  v: ir::Value,
-  from: ir::Type,
-  to: ir::Type,
-) -> ir::Value {
-  if from == to || !from.is_int() || !to.is_int() {
-    return v;
-  }
-
-  if from.bits() < to.bits() {
-    builder.ins().uextend(to, v)
-  } else {
-    builder.ins().ireduce(to, v)
-  }
-}
-
 /// Widens `idx` to pointer width via `uextend` if it's
 /// narrower; returns unchanged if already pointer-wide. Used by
 /// `ArrayIndex` / `ArrayStore` before computing `base + idx*8`
@@ -1077,28 +1046,11 @@ fn translate_body(
           return;
         };
 
-        // Non-generic code has matching operand widths after
-        // Phases 1–6. Generics still leak mismatches when
-        // the callee's instantiated param widths differ from
-        // the caller's SIR values (e.g. `Result<int, int>`
-        // on x86_64 where `int` monomorphizes to a different
-        // CLIF width than the surrounding arithmetic).
-        // Cranelift's `iadd` / `icmp` / etc. are type-
-        // homogeneous; upsize the narrower side to match.
-        let l_ty = builder.func.dfg.value_type(l);
-        let r_ty = builder.func.dfg.value_type(r);
-        let (l, r) = if l_ty == r_ty {
-          (l, r)
-        } else if l_ty.is_int() && r_ty.is_int() {
-          if l_ty.bits() < r_ty.bits() {
-            (coerce_int_width(builder, l, l_ty, r_ty), r)
-          } else {
-            (l, coerce_int_width(builder, r, r_ty, l_ty))
-          }
-        } else {
-          (l, r)
-        };
-
+        // After `PLAN_SIR_TYPE_INVARIANTS.md` Phases 1–6
+        // plus the generic-monomorphization narrow in the
+        // executor, SIR guarantees `BinOp` operands share a
+        // `ty_id`. Cranelift's type-homogeneous ops accept
+        // them directly.
         let v = translate_binop(tctx, builder, *op, l, r, *ty_id);
 
         ctx.values.insert(*dst, v);
@@ -1177,29 +1129,12 @@ fn translate_body(
         // defined) and `Linkage::Import` (FFI intrinsics).
         let fref = tctx.module.declare_func_in_func(func_id, builder.func);
 
-        // `begin_call_ctx` already pushed the callee's param
-        // types so bare literal args adopt the right width
-        // at SIR emission (Phases 1–6). The per-arg coerce
-        // below is a safety net for **generic
-        // monomorphization** cases where the caller holds a
-        // pre-mono `int` (I32) literal and the mono'd callee
-        // expects the arch-wide I64. A proper fix lives in a
-        // future generic-mono narrow pass.
-        let sig_ref = builder.func.dfg.ext_funcs[fref].signature;
-        let expected: Vec<ir::Type> = builder.func.dfg.signatures[sig_ref]
-          .params
-          .iter()
-          .map(|p| p.value_type)
-          .collect();
-
-        for (arg_v, want_ty) in arg_vals.iter_mut().zip(expected.iter()) {
-          let have_ty = builder.func.dfg.value_type(*arg_v);
-
-          if have_ty != *want_ty {
-            *arg_v = coerce_int_width(builder, *arg_v, have_ty, *want_ty);
-          }
-        }
-
+        // Every arg's `ty_id` already matches the callee's
+        // corresponding param. `begin_call_ctx` covers
+        // non-generic calls; the executor's generic-mono
+        // narrow pass handles `fn f<$T>(...)` instantiations
+        // (see `PLAN_SIR_TYPE_INVARIANTS.md`, post-plan
+        // generic-mono work).
         let call = builder.ins().call(fref, &arg_vals);
 
         // Unit-return callees have an empty results vec. SIR

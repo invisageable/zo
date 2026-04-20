@@ -862,6 +862,40 @@ impl<'a> Executor<'a> {
     // SIR and substitute".
     self.reexecute_generic_instantiations();
 
+    // Global `TyId` resolution. Walks every insn and
+    // rewrites each `ty_id` through the tychecker's
+    // substitution map so any lingering fresh vars (from
+    // generic-enum fields, generic function signatures,
+    // and friends) land in SIR as their concrete types
+    // before codegen reads them. This is what lets the
+    // CLIF backend drop its `coerce_int_width` shim:
+    // signatures and operand widths are now consistent
+    // at every emission site — not just at the generic
+    // instantiation boundary that `reexecute_generic_instantiations`
+    // already handles for body insns.
+    //
+    // Also resolves ty_ids in `self.funs` so the registered
+    // function signatures that `translate_module` consults
+    // (when looking up callees for Call emit) agree with
+    // the corresponding `Insn::FunDef` in the stream.
+    //
+    // `resolve_id` is O(1) amortized (transitive chase
+    // with memoization) and a no-op for already-concrete
+    // types; the whole pass is a single linear SIR walk.
+    for insn in self.sir.instructions.iter_mut() {
+      insn.visit_ty_ids_mut(&mut |id| {
+        *id = self.ty_checker.resolve_id(*id);
+      });
+    }
+
+    for fun in self.funs.iter_mut() {
+      fun.return_ty = self.ty_checker.resolve_id(fun.return_ty);
+
+      for (_, ty) in fun.params.iter_mut() {
+        *ty = self.ty_checker.resolve_id(*ty);
+      }
+    }
+
     // Surface every array type reached by this SIR stream as
     // an `ArrayTyDef` so codegen can populate `array_metas`
     // and print arrays elementwise in `showln`. Codegen does

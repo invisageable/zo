@@ -125,6 +125,69 @@ fn binop_u16_plus_literal_in_u16_decl_emits_clean_binop() {
   );
 }
 
+/// **Generic-mono narrow pass** (post-plan follow-up) —
+/// `identity<$T>(42)` where `$T` resolves to `int` via
+/// `imu x: int = identity(42);`. Without the global
+/// ty-id resolve walker, the mono'd `identity__int`
+/// FunDef's param `TyId` stays as the raw `$T` value
+/// (in the interned-aggregate range), which codegen
+/// then maps to `ptr` (I64) — producing a signature
+/// mismatch against the caller's `ConstInt(42, s32)`.
+/// The resolve walker rewrites both sides to their
+/// concrete `TyId` so the validator and codegen agree.
+#[test]
+fn generic_identity_call_has_clean_sir() {
+  let source = r"
+    fun identity<$T>(x: $T) -> $T { x }
+
+    fun main() {
+      imu _a: int = identity(42);
+    }
+  ";
+
+  let (semantic, report) = analyze_and_validate(source);
+
+  let mono_fundef = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::FunDef {
+      params, return_ty, ..
+    } = insn
+      && params.len() == 1
+    {
+      Some((params[0].1, *return_ty))
+    } else {
+      None
+    }
+  });
+
+  assert!(
+    mono_fundef.is_some(),
+    "expected the mono'd identity FunDef in SIR",
+  );
+
+  let (param_ty, return_ty) = mono_fundef.unwrap();
+
+  // Both should resolve to s32 (TyId 8) per D1 — the
+  // mono'd `identity__int` with `int = s32`.
+  assert_eq!(
+    param_ty.0, 8,
+    "mono'd FunDef param should be s32 (TyId 8), not \
+     a raw generic $T; got TyId {}",
+    param_ty.0,
+  );
+  assert_eq!(
+    return_ty.0, 8,
+    "mono'd FunDef return_ty should be s32 (TyId 8); \
+     got TyId {}",
+    return_ty.0,
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept the resolved SIR; got: {:#?}",
+    report.violations,
+  );
+}
+
 /// **Phase 7** — broad regression coverage. Compiles a
 /// handful of representative zo programs (literal decls,
 /// calls, binops, returns, float paths, nested contexts)
