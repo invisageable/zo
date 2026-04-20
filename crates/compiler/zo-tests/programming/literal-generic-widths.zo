@@ -1,0 +1,40 @@
+-- tests-run-pass: generic function instantiations land in
+-- SIR with concrete per-instantiation param/return widths.
+-- Before the global ty-id resolve walker, the mono'd
+-- FunDef carried the raw `$T` TyId; codegen mapped that
+-- to `ptr` (I64) via the aggregate fallback and the caller
+-- side saw width mismatches that required the CLIF
+-- `coerce_int_width` shim. The walker now rewrites every
+-- `ty_id` through the tychecker's substitution map so
+-- generic + non-generic code share one codegen path.
+
+fun identity<$T>(x: $T) -> $T {
+  return x;
+}
+
+fun pair_sum<$T>(a: $T, b: $T) -> $T {
+  return a + b;
+}
+
+fun main() {
+  -- Int identity — param + return should be s32.
+  check@eq(identity(42), 42);
+
+  -- String identity — $T = str; no width concern, but the
+  -- mono'd FunDef's param TyId must land as `str`.
+  imu s: str = identity("hi");
+  check@eq(s, "hi");
+
+  -- Bool identity.
+  check@eq(identity(true), true);
+
+  -- Float identity.
+  check@eq(identity(1.5), 1.5);
+
+  -- Generic binop — the binop's defer-path push routes
+  -- `1` and `2` to the mono'd `$T = s32`, then the post-
+  -- executor resolve walker cements the FunDef widths.
+  check@eq(pair_sum(1, 2), 3);
+
+  showln("literal-generic-widths: all checks passed!");
+}

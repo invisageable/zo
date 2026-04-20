@@ -607,34 +607,6 @@ fn emit_aggregate_literal(
   Some(builder.ins().stack_addr(tctx.ptr_ty, slot, 0))
 }
 
-/// Coerces an integer-typed `ir::Value` from `from` to `to`
-/// via the narrowest-fitting CLIF op. Widens via `uextend`
-/// (zero-extend) and narrows via `ireduce`. Sign-extension
-/// isn't picked here because the caller rarely has enough
-/// context to distinguish s vs u at the coerce site —
-/// over-widening with zero-extend is consistent with
-/// subsequent op-level signedness dispatch.
-///
-/// Same-type pairs and non-integer pairs return `v` unchanged
-/// — the caller is responsible for catching type-mismatch
-/// cases that can't be fixed by width adjustment.
-fn coerce_int_width(
-  builder: &mut FunctionBuilder,
-  v: ir::Value,
-  from: ir::Type,
-  to: ir::Type,
-) -> ir::Value {
-  if from == to || !from.is_int() || !to.is_int() {
-    return v;
-  }
-
-  if from.bits() < to.bits() {
-    builder.ins().uextend(to, v)
-  } else {
-    builder.ins().ireduce(to, v)
-  }
-}
-
 /// Widens `idx` to pointer width via `uextend` if it's
 /// narrower; returns unchanged if already pointer-wide. Used by
 /// `ArrayIndex` / `ArrayStore` before computing `base + idx*8`
@@ -1074,27 +1046,10 @@ fn translate_body(
           return;
         };
 
-        // Both operands must share the CLIF type (Cranelift's
-        // `icmp` / `iadd` / etc. are type-homogeneous). zo
-        // programs can legally mix an `int` literal (I32)
-        // with an arch-width value (I64) at the source level
-        // — the analyzer accepts it because zo's widening
-        // rules cover it, but SIR doesn't pre-cast. Align
-        // widths here by upsizing the narrower side.
-        let l_ty = builder.func.dfg.value_type(l);
-        let r_ty = builder.func.dfg.value_type(r);
-        let (l, r) = if l_ty == r_ty {
-          (l, r)
-        } else if l_ty.is_int() && r_ty.is_int() {
-          if l_ty.bits() < r_ty.bits() {
-            (coerce_int_width(builder, l, l_ty, r_ty), r)
-          } else {
-            (l, coerce_int_width(builder, r, r_ty, l_ty))
-          }
-        } else {
-          (l, r)
-        };
-
+        // SIR's expected-type propagation + post-emit
+        // resolve walker guarantee that `BinOp` operands
+        // share a `ty_id` by codegen time. Cranelift's
+        // type-homogeneous ops accept them directly.
         let v = translate_binop(tctx, builder, *op, l, r, *ty_id);
 
         ctx.values.insert(*dst, v);
@@ -1173,26 +1128,11 @@ fn translate_body(
         // defined) and `Linkage::Import` (FFI intrinsics).
         let fref = tctx.module.declare_func_in_func(func_id, builder.func);
 
-        // Coerce each arg to the callee's declared param
-        // width. Generic instantiations land here with the
-        // caller holding an `int` (I32) literal while the
-        // callee's signature uses the arch-wide I64 — without
-        // this coercion the verifier rejects the call.
-        let sig_ref = builder.func.dfg.ext_funcs[fref].signature;
-        let expected: Vec<ir::Type> = builder.func.dfg.signatures[sig_ref]
-          .params
-          .iter()
-          .map(|p| p.value_type)
-          .collect();
-
-        for (arg_v, want_ty) in arg_vals.iter_mut().zip(expected.iter()) {
-          let have_ty = builder.func.dfg.value_type(*arg_v);
-
-          if have_ty != *want_ty {
-            *arg_v = coerce_int_width(builder, *arg_v, have_ty, *want_ty);
-          }
-        }
-
+        // Every arg's `ty_id` already matches the callee's
+        // corresponding param: `begin_call_ctx` covers
+        // non-generic calls, and the post-emit resolve
+        // walker in the executor covers generic
+        // monomorphizations.
         let call = builder.ins().call(fref, &arg_vals);
 
         // Unit-return callees have an empty results vec. SIR

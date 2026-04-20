@@ -1,0 +1,36 @@
+-- tests-run-pass: bare int/float literals inside `return`
+-- adopt the enclosing fn's declared return type via the
+-- executor's return-site push. No wrapper decl / call
+-- supplies context — the `return` statement itself does.
+
+fun ret_s8() -> s8 {
+  return 100;
+}
+
+fun ret_s64() -> s64 {
+  return 9000000000000000000;
+}
+
+fun ret_u64() -> u64 {
+  return 18000000000000000000;
+}
+
+fun ret_f32() -> f32 {
+  return 1.0;
+}
+
+fun ret_sum(a: u16, b: u16) -> u16 {
+  -- expression as return: both literals and variables flow
+  -- through decl / binop / return pushes correctly.
+  return a + b + 1;
+}
+
+fun main() {
+  check@eq(ret_s8(), 100);
+  check@eq(ret_s64(), 9000000000000000000);
+  check@eq(ret_u64(), 18000000000000000000);
+  check@eq(ret_f32(), 1.0);
+  check@eq(ret_sum(40, 1), 42);
+
+  showln("literal-return-widths: all checks passed!");
+}

@@ -1,0 +1,38 @@
+-- tests-run-pass: bare literals in assignment-RHS binops
+-- adopt the other operand's width. Neither the decl
+-- annotation nor the call-arg push helps here — the
+-- context comes from the sibling operand via the binop's
+-- defer-path push or the post-hoc `narrow_literal`.
+
+fun main() {
+  -- RHS-literal, concrete LHS. Defer-path push carries
+  -- u16 into the literal's emission.
+  mut a: u16 = 10;
+  a = a + 32;
+  check@eq(a, 42);
+
+  -- LHS-literal, concrete RHS. Post-hoc narrow rewrites
+  -- the default-typed ConstInt to match the concrete side.
+  mut b: u16 = 5;
+  b = 37 + b;
+  check@eq(b, 42);
+
+  -- s8 for good measure.
+  mut c: s8 = 1;
+  c = c + 2;
+  check@eq(c, 3);
+
+  -- Unsigned beyond s32 range via +=-style idiom.
+  mut big: u64 = 18000000000000000000;
+  big = big + 1;
+  check@eq(big, 18000000000000000001);
+
+  -- Nested binop preserves context through each deferred
+  -- step: (x + 2) * 3 — inner + fires first, outer * sees
+  -- the result typed + the literal 3 narrows to u16.
+  mut d: u16 = 4;
+  d = (d + 2) * 3;
+  check@eq(d, 18);
+
+  showln("literal-binop-assign-rhs: all checks passed!");
+}

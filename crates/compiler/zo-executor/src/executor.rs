@@ -66,6 +66,21 @@ pub struct Executor<'a> {
   value_stack: Vec<ValueId>,
   /// Type stack (4 bytes per type)
   ty_stack: Vec<TyId>,
+  /// Expected-type context for literal emission. Pushed when
+  /// entering a site whose declared / param / return type
+  /// should steer a subsequently-emitted literal's width
+  /// (e.g. `imu x: s64 = ...`), popped when the site
+  /// completes. `ConstInt` / `ConstFloat` emission consults
+  /// the top of this stack — `Some(T)` with `T` an int/float
+  /// type overrides the language default.
+  expected_ty_stack: Vec<Option<TyId>>,
+  /// Active call-arg contexts. Entries are pushed at LParen
+  /// for user-function calls whose callee signature is
+  /// known; each maintains per-arg boundary data so
+  /// `maybe_advance_call_arg` can rotate the top of
+  /// `expected_ty_stack` as the walker moves between args.
+  /// Popped at the matching RParen.
+  call_ctx_stack: Vec<CallCtx>,
   /// All values stored in side arrays
   values: ValueStorage,
   /// Block boundaries
@@ -309,6 +324,36 @@ struct DeferredShortCircuit {
   pre_direct_call_depth: u32,
 }
 
+/// Active user-call context tracked during arg evaluation.
+/// Pushed onto `call_ctx_stack` at an LParen that opens a
+/// user-function call, popped at the matching RParen.
+///
+/// Lets each argument subexpression be evaluated with the
+/// callee's corresponding param type on top of
+/// `expected_ty_stack`, so bare literals inside a call
+/// adopt the right width even when no enclosing
+/// declaration constrains them.
+struct CallCtx {
+  /// Callee param types in declaration order. Empty for
+  /// zero-arg callees (in which case no expected-type
+  /// frames are pushed).
+  param_tys: Vec<TyId>,
+  /// Node indices where each argument subexpression starts.
+  /// `arg_starts[0]` is the first node after the opening
+  /// LParen; subsequent entries are the first node after
+  /// each top-level comma inside the call.
+  arg_starts: Vec<usize>,
+  /// Node index of the matching RParen that closes this
+  /// call. Used by the RParen handler to pop the context
+  /// without having to rescan.
+  rparen_idx: usize,
+  /// Arg whose subexpression is currently on top of
+  /// `expected_ty_stack`. Starts at 0 (pushed at LParen);
+  /// advanced by `maybe_advance_call_arg` when the walker
+  /// crosses the next arg's start index.
+  arg_idx: usize,
+}
+
 /// Deferred variable declaration, finalized at Semicolon.
 struct PendingDecl {
   name: Symbol,
@@ -336,6 +381,8 @@ impl<'a> Executor<'a> {
       literals,
       value_stack: Vec::with_capacity(capacity / 4),
       ty_stack: Vec::with_capacity(capacity / 4),
+      expected_ty_stack: Vec::new(),
+      call_ctx_stack: Vec::new(),
       values: ValueStorage::new(capacity),
       scope_stack: Vec::with_capacity(32),
       locals: Vec::with_capacity(capacity / 10),
@@ -386,6 +433,169 @@ impl<'a> Executor<'a> {
       abstract_defs: HashMap::new(),
       abstract_impls: HashMap::new(),
       prescan_only: false,
+    }
+  }
+
+  /// Top-of-stack expected type, filtered to integer kinds.
+  /// Returns `None` if the stack is empty, the top frame is
+  /// `None`, or the top is a non-integer type (e.g. a struct
+  /// annotation on an aggregate-init). Used by the integer
+  /// literal arm to pick a `TyId` that matches the enclosing
+  /// declaration / argument / return context before falling
+  /// back to the language default (`int_type()`).
+  fn peek_expected_int_ty(&self) -> Option<TyId> {
+    let expected = self.expected_ty_stack.last().copied().flatten()?;
+
+    match self.ty_checker.resolve_ty(expected) {
+      Ty::Int { .. } => Some(expected),
+      _ => None,
+    }
+  }
+
+  /// Float counterpart to [`peek_expected_int_ty`]. Matches
+  /// `Ty::Float` only; any non-float expected type yields
+  /// `None` so the literal falls back to `f64_type()`.
+  fn peek_expected_float_ty(&self) -> Option<TyId> {
+    let expected = self.expected_ty_stack.last().copied().flatten()?;
+
+    match self.ty_checker.resolve_ty(expected) {
+      Ty::Float(_) => Some(expected),
+      _ => None,
+    }
+  }
+
+  /// Opens a call context at an LParen whose callee resolves
+  /// to a user [`FunDef`] in `self.funs`. Walks the tree
+  /// between the LParen and its matching RParen to pin down
+  /// each argument's start index (first node after the
+  /// LParen, then first node after each top-level comma),
+  /// pushes the [`CallCtx`] onto `call_ctx_stack`, and
+  /// primes `expected_ty_stack` with arg 0's param type.
+  ///
+  /// No-op (returns without pushing) when:
+  /// - The callee name can't be resolved to a local FunDef
+  ///   (closures, externals — they go through the old path).
+  /// - The callee has zero params (nothing to constrain).
+  /// - The matching RParen is missing from the stream
+  ///   (malformed tree — earlier stages will report it).
+  fn begin_call_ctx(&mut self, lparen_idx: usize) {
+    let Some(ident_idx) = self.resolve_call_target(lparen_idx) else {
+      return;
+    };
+
+    let Some(NodeValue::Symbol(name)) = self.node_value(ident_idx) else {
+      return;
+    };
+
+    let Some(fun_def) = self.funs.iter().find(|f| f.name == name) else {
+      return;
+    };
+
+    let param_tys: Vec<TyId> =
+      fun_def.params.iter().map(|(_, ty)| *ty).collect();
+
+    if param_tys.is_empty() {
+      return;
+    }
+
+    // Scan forward from `lparen_idx + 1` to the matching
+    // RParen. Track paren depth so only commas at the call's
+    // own level advance the arg pointer.
+    let mut arg_starts: Vec<usize> = Vec::with_capacity(param_tys.len());
+
+    arg_starts.push(lparen_idx + 1);
+
+    let mut depth: i32 = 1;
+    let mut rparen_idx: Option<usize> = None;
+    let mut i = lparen_idx + 1;
+    let total = self.tree.nodes.len();
+
+    while i < total && depth > 0 {
+      match self.tree.nodes[i].token {
+        Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+        Token::RParen | Token::RBracket | Token::RBrace => {
+          depth -= 1;
+
+          if depth == 0 {
+            rparen_idx = Some(i);
+
+            break;
+          }
+        }
+        Token::Comma if depth == 1 => {
+          arg_starts.push(i + 1);
+        }
+        _ => {}
+      }
+
+      i += 1;
+    }
+
+    let Some(rparen_idx) = rparen_idx else {
+      return;
+    };
+
+    // Prime the expected-ty stack with arg 0's param type
+    // (if we have one). `maybe_advance_call_arg` handles
+    // subsequent args.
+    let first_expected = param_tys.first().copied();
+
+    self.call_ctx_stack.push(CallCtx {
+      param_tys,
+      arg_starts,
+      rparen_idx,
+      arg_idx: 0,
+    });
+    self.expected_ty_stack.push(first_expected);
+  }
+
+  /// Rotates the top of `expected_ty_stack` when the tree
+  /// walker steps onto the first node of the next argument
+  /// in an active call. Called from the top of
+  /// [`execute_node`] for every node.
+  ///
+  /// A no-op when no call is active, when we've already
+  /// advanced past the last boundary, or when `idx` doesn't
+  /// match the next arg's start. Pops the previous arg's
+  /// expected type and pushes the new one (or `None` if the
+  /// call was given more args than its signature has — the
+  /// arity check fires later).
+  fn maybe_advance_call_arg(&mut self, idx: usize) {
+    let next_expected = {
+      let Some(ctx) = self.call_ctx_stack.last_mut() else {
+        return;
+      };
+      let next_arg_idx = ctx.arg_idx + 1;
+
+      if next_arg_idx >= ctx.arg_starts.len() {
+        return;
+      }
+
+      if idx != ctx.arg_starts[next_arg_idx] {
+        return;
+      }
+
+      ctx.arg_idx = next_arg_idx;
+      ctx.param_tys.get(next_arg_idx).copied()
+    };
+
+    self.expected_ty_stack.pop();
+    self.expected_ty_stack.push(next_expected);
+  }
+
+  /// Closes the active call context iff `idx` matches its
+  /// recorded RParen. Pops the final arg's expected type
+  /// plus the [`CallCtx`] itself. No-op otherwise (RParen
+  /// of a tuple literal, enum constructor, etc.).
+  fn end_call_ctx(&mut self, idx: usize) {
+    let pop_it = matches!(
+      self.call_ctx_stack.last(),
+      Some(ctx) if ctx.rparen_idx == idx
+    );
+
+    if pop_it {
+      self.call_ctx_stack.pop();
+      self.expected_ty_stack.pop();
     }
   }
 
@@ -651,6 +861,40 @@ impl<'a> Executor<'a> {
     // SIR and substitute".
     self.reexecute_generic_instantiations();
 
+    // Global `TyId` resolution. Walks every insn and
+    // rewrites each `ty_id` through the tychecker's
+    // substitution map so any lingering fresh vars (from
+    // generic-enum fields, generic function signatures,
+    // and friends) land in SIR as their concrete types
+    // before codegen reads them. This is what lets the
+    // CLIF backend drop its `coerce_int_width` shim:
+    // signatures and operand widths are now consistent
+    // at every emission site — not just at the generic
+    // instantiation boundary that `reexecute_generic_instantiations`
+    // already handles for body insns.
+    //
+    // Also resolves ty_ids in `self.funs` so the registered
+    // function signatures that `translate_module` consults
+    // (when looking up callees for Call emit) agree with
+    // the corresponding `Insn::FunDef` in the stream.
+    //
+    // `resolve_id` is O(1) amortized (transitive chase
+    // with memoization) and a no-op for already-concrete
+    // types; the whole pass is a single linear SIR walk.
+    for insn in self.sir.instructions.iter_mut() {
+      insn.visit_ty_ids_mut(&mut |id| {
+        *id = self.ty_checker.resolve_id(*id);
+      });
+    }
+
+    for fun in self.funs.iter_mut() {
+      fun.return_ty = self.ty_checker.resolve_id(fun.return_ty);
+
+      for (_, ty) in fun.params.iter_mut() {
+        *ty = self.ty_checker.resolve_id(*ty);
+      }
+    }
+
     // Surface every array type reached by this SIR stream as
     // an `ArrayTyDef` so codegen can populate `array_metas`
     // and print arrays elementwise in `showln`. Codegen does
@@ -776,6 +1020,12 @@ impl<'a> Executor<'a> {
 
       return;
     }
+
+    // When the walker steps onto the first node of a new
+    // call argument, rotate `expected_ty_stack` so the
+    // literal emission inside that arg sees the callee's
+    // param type.
+    self.maybe_advance_call_arg(idx);
 
     match header.token {
       Token::Fun => {
@@ -1033,6 +1283,13 @@ impl<'a> Executor<'a> {
           // (finalize when the call's args stabilize).
           self.direct_call_depth += 1;
 
+          // Prime the expected-type stack with the callee's
+          // param types so bare literals inside args adopt
+          // the right width. Closures / externals /
+          // malformed callees are a no-op here and fall
+          // through to the unconstrained path.
+          self.begin_call_ctx(idx);
+
           // Skip — RParen handles call.
           // For operator-separated calls (Ident Op LParen),
           // find the matching RParen and suppress deferred
@@ -1083,6 +1340,11 @@ impl<'a> Executor<'a> {
 
       // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
+        // Pop the call context + its final expected type
+        // frame iff this RParen closes an active user call.
+        // A no-op for tuple / grouping / enum-ctor RParens.
+        self.end_call_ctx(idx);
+
         // If this RParen closes something LParen counted as
         // a direct call, decrement here so the counter stays
         // balanced across *every* RParen exit path (enum
@@ -1721,8 +1983,13 @@ impl<'a> Executor<'a> {
           // Get actual value from literal store (already u64, no cast needed)
           let value = self.literals.int_literals[lit_idx as usize];
 
-          // Infer type based on value
-          let ty_id = self.ty_checker.int_type();
+          // Context-directed width when the enclosing site
+          // (decl / call arg / return / cast) pushed an
+          // expected integer type; otherwise fall back to
+          // the language default (`int` → `s32`).
+          let ty_id = self
+            .peek_expected_int_ty()
+            .unwrap_or_else(|| self.ty_checker.int_type());
 
           let dst = ValueId(self.sir.next_value_id);
           self.sir.next_value_id += 1;
@@ -1745,7 +2012,12 @@ impl<'a> Executor<'a> {
       Token::Float => {
         if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
           let value = self.literals.float_literals[lit_idx as usize];
-          let ty_id = self.ty_checker.f64_type();
+          // Context-directed width when the enclosing site
+          // pushed an expected float type; otherwise
+          // default to `f64`.
+          let ty_id = self
+            .peek_expected_float_ty()
+            .unwrap_or_else(|| self.ty_checker.f64_type());
 
           let dst = ValueId(self.sir.next_value_id);
           self.sir.next_value_id += 1;
@@ -3183,6 +3455,11 @@ impl<'a> Executor<'a> {
       let (op, lhs, lhs_ty, lhs_sir, op_idx) =
         self.deferred_binops.pop().unwrap();
 
+      // Matching pop for the `expected_ty_stack` push at
+      // defer time. Runs before the RHS is consumed so
+      // nothing downstream sees a stale frame.
+      self.expected_ty_stack.pop();
+
       let rhs = self.value_stack.pop().unwrap();
       let rhs_ty = self.ty_stack.pop().unwrap();
       let rhs_sir = self.sir_values.pop().unwrap();
@@ -3407,6 +3684,13 @@ impl<'a> Executor<'a> {
         self
           .deferred_binops
           .push((op, lhs, lhs_ty, lhs_sir, node_idx));
+
+        // Steer the RHS subexpression toward the LHS's
+        // type so a bare literal RHS lands with matching
+        // width. Balanced by a matching pop in
+        // `apply_deferred_binop` when this deferred entry
+        // is consumed.
+        self.expected_ty_stack.push(Some(lhs_ty));
       }
 
       return;
@@ -3421,6 +3705,28 @@ impl<'a> Executor<'a> {
     // Pop SIR values for operands
     let rhs_sir = self.sir_values.pop().unwrap();
     let lhs_sir = self.sir_values.pop().unwrap();
+
+    // Post-hoc symmetry for LHS-literal binops like
+    // `42 + x`: the literal was emitted before the `+`
+    // fired, so the defer-path push can't help it.
+    // Rewrite the default-typed literal's `ConstInt` /
+    // `ConstFloat` `ty_id` in place to match the concrete
+    // operand so unification below succeeds and no silent
+    // drop occurs. `narrow_literal` is a no-op unless the
+    // source is a default numeric literal; calling both
+    // directions covers whichever side is the literal.
+    let (lhs_ty, rhs_ty) = {
+      let mut lt = lhs_ty;
+      let mut rt = rhs_ty;
+
+      if self.narrow_literal(rhs_sir, rt, lt) {
+        rt = lt;
+      } else if self.narrow_literal(lhs_sir, lt, rt) {
+        lt = rt;
+      }
+
+      (lt, rt)
+    };
 
     // Get span from the spans array (1:1 with nodes)
     let span = self.tree.spans[node_idx];
@@ -3687,6 +3993,10 @@ impl<'a> Executor<'a> {
         });
       }
       None => {
+        // `TyChecker::unify` has already reported
+        // `TypeMismatch` with the proper span; we just have
+        // to bail out without emitting a `BinOp` and push
+        // sentinel values so the stacks stay balanced.
         let error_id = self.values.store_runtime(u32::MAX);
 
         self.value_stack.push(error_id);
@@ -5562,6 +5872,13 @@ impl<'a> Executor<'a> {
         span: self.tree.spans[idx],
       });
 
+      // Steer literal widths in the init expression to the
+      // declared type. A `None` annotation still pushes so the
+      // paired pop in `finalize_pending_decl` stays balanced;
+      // `peek_expected_int_ty` returns `None` for a `None`
+      // frame and literals fall back to the default.
+      self.expected_ty_stack.push(annotated_ty);
+
       // Pre-register for recursive closures (letrec).
       // If the init expression is a closure, the body
       // may reference the variable by name. Register a
@@ -5928,6 +6245,60 @@ impl<'a> Executor<'a> {
     false
   }
 
+  /// Float counterpart to [`narrow_int_literal`]. Rewrites
+  /// a default-typed `ConstFloat` (f64) in place when the
+  /// caller's context wants a non-default float (`f32` or
+  /// arch-float).
+  ///
+  /// No-op in every other case — source not default float,
+  /// target not float, target also default — so calling it
+  /// alongside `narrow_int_literal` is safe.
+  fn narrow_float_literal(
+    &mut self,
+    sir_val: ValueId,
+    src_ty: TyId,
+    target_ty: TyId,
+  ) -> bool {
+    let default_float_ty = self.ty_checker.f64_type();
+
+    if src_ty != default_float_ty || target_ty == default_float_ty {
+      return false;
+    }
+
+    if !matches!(self.ty_checker.kind_of(target_ty), Ty::Float(_)) {
+      return false;
+    }
+
+    if let Some(insn) = self
+      .sir
+      .instructions
+      .iter_mut()
+      .rev()
+      .find(|i| matches!(i, Insn::ConstFloat { dst, .. } if *dst == sir_val))
+      && let Insn::ConstFloat { ty_id: cty, .. } = insn
+    {
+      *cty = target_ty;
+
+      return true;
+    }
+
+    false
+  }
+
+  /// Wrapper that runs both numeric narrows; whichever one
+  /// applies (or neither) fires. Simplifies every binop /
+  /// decl / check@ site that historically only called the
+  /// int version.
+  fn narrow_literal(
+    &mut self,
+    sir_val: ValueId,
+    src_ty: TyId,
+    target_ty: TyId,
+  ) -> bool {
+    self.narrow_int_literal(sir_val, src_ty, target_ty)
+      || self.narrow_float_literal(sir_val, src_ty, target_ty)
+  }
+
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
   fn finalize_pending_decl(&mut self) {
@@ -5936,14 +6307,20 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
+    // Matching pop for the push in `begin_decl`. Only runs
+    // when we actually consumed a `PendingDecl`, keeping the
+    // stack balanced across error / no-init paths.
+    self.expected_ty_stack.pop();
+
     if let (Some(init_value), Some(mut init_ty)) =
       (self.value_stack.pop(), self.ty_stack.pop())
     {
       let sir_init = self.sir_values.pop();
 
-      // Narrow a default-typed int literal to the annotation.
+      // Narrow a default-typed numeric literal (int or
+      // float) to the declaration's annotation.
       if let (Some(ann_ty), Some(sv)) = (decl.annotated_ty, sir_init)
-        && self.narrow_int_literal(sv, init_ty, ann_ty)
+        && self.narrow_literal(sv, init_ty, ann_ty)
       {
         init_ty = ann_ty;
       }
@@ -10417,25 +10794,42 @@ impl<'a> Executor<'a> {
 
   /// Executes return statement - acts as an introducer.
   fn execute_return(&mut self, _node_idx: usize) {
-    // Only process return if we're in a function body
-    if let Some(ref mut ctx) = self.current_function {
-      // Mark that we're expecting a return value
-      // The actual Return instruction will be emitted when we have the complete
-      // value
-      ctx.pending_return = true;
-      ctx.has_explicit_return = true;
-    }
+    // Only process return if we're in a function body.
+    let ret_ty = match self.current_function.as_mut() {
+      Some(ctx) => {
+        ctx.pending_return = true;
+        ctx.has_explicit_return = true;
+        ctx.return_ty
+      }
+      None => return,
+    };
+
+    // Steer the return expression toward the fn's declared
+    // return type so bare literals (`return 42;` in
+    // `fn() -> s64`) adopt it. Paired pop in
+    // `check_pending_return` at the matching emit site.
+    self.expected_ty_stack.push(Some(ret_ty));
   }
 
   /// Check if we have a pending return and emit it with the current stack value
   fn check_pending_return(&mut self) {
     // Inside a ternary, the Colon and RBrace handlers
-    // emit per-arm Returns instead.
+    // emit per-arm Returns instead. Pop the return-site
+    // expected-type frame here so the stack stays balanced
+    // even on the ternary early return — each arm's
+    // literals were already evaluated with the frame live.
     if self
       .branch_stack
       .last()
       .is_some_and(|c| c.kind == BranchKind::Ternary)
     {
+      if let Some(ref mut ctx) = self.current_function
+        && ctx.pending_return
+      {
+        self.expected_ty_stack.pop();
+        ctx.pending_return = false;
+      }
+
       return;
     }
 
@@ -10477,6 +10871,9 @@ impl<'a> Executor<'a> {
 
       // Clear the pending flag
       ctx.pending_return = false;
+
+      // Matching pop for the push in `execute_return`.
+      self.expected_ty_stack.pop();
     }
   }
 
@@ -11349,6 +11746,8 @@ impl<'a> Executor<'a> {
           let span = self.tree.spans[lparen_idx + 1 + i * 2];
 
           if self.ty_checker.unify(*param_ty, *arg_ty, span).is_none() {
+            // `unify` already reported the mismatch — just
+            // drop the Call without double-diagnosing.
             return;
           }
         }
@@ -11814,16 +12213,17 @@ impl<'a> Executor<'a> {
       (lhs_ty, lhs_sir)
     };
 
-    // Narrow default-typed int literals to the other operand's
-    // integer type. Handles `check@eq(x, 10)` where `x: uint`
-    // but the literal `10` was parsed as the default `int`.
+    // Narrow default-typed numeric literals (int or float)
+    // to the other operand's type. Handles `check@eq(x,
+    // 10)` where `x: u16` as well as `check@eq(y, 1.0)`
+    // where `y: f32`.
     let (lhs_ty, rhs_ty) = {
       let mut lt = lhs_ty;
       let mut rt = rhs_ty;
 
-      if self.narrow_int_literal(rhs_sir, rt, lt) {
+      if self.narrow_literal(rhs_sir, rt, lt) {
         rt = lt;
-      } else if self.narrow_int_literal(lhs_sir, lt, rt) {
+      } else if self.narrow_literal(lhs_sir, lt, rt) {
         lt = rt;
       }
 
@@ -11835,7 +12235,7 @@ impl<'a> Executor<'a> {
 
     let ty_id = match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
       Some(t) => t,
-      None => return,
+      None => return, // `unify` already reported the mismatch.
     };
 
     // Emit comparison BinOp.

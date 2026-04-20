@@ -11,9 +11,9 @@
 
 fun main() {
   -- A bare number like `42` is an `int` — a signed 32-bit integer.
-  -- zo supports big numbers natively — `600851475143` just works.
   showln(42);
 
+  -- zo supports big numbers natively — `600851475143` just works.
   showln(600851475143);
 
   -- You can also write integers in different bases:
