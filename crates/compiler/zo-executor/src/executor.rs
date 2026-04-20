@@ -66,6 +66,15 @@ pub struct Executor<'a> {
   value_stack: Vec<ValueId>,
   /// Type stack (4 bytes per type)
   ty_stack: Vec<TyId>,
+  /// Expected-type context for literal emission. Pushed when
+  /// entering a site whose declared / param / return type
+  /// should steer a subsequently-emitted literal's width
+  /// (e.g. `imu x: s64 = ...`), popped when the site
+  /// completes. `ConstInt` / `ConstFloat` emission consults
+  /// the top of this stack — `Some(T)` with `T` an int/float
+  /// type overrides the language default. See
+  /// `PLAN_SIR_TYPE_INVARIANTS.md` Phase 1.
+  expected_ty_stack: Vec<Option<TyId>>,
   /// All values stored in side arrays
   values: ValueStorage,
   /// Block boundaries
@@ -336,6 +345,7 @@ impl<'a> Executor<'a> {
       literals,
       value_stack: Vec::with_capacity(capacity / 4),
       ty_stack: Vec::with_capacity(capacity / 4),
+      expected_ty_stack: Vec::new(),
       values: ValueStorage::new(capacity),
       scope_stack: Vec::with_capacity(32),
       locals: Vec::with_capacity(capacity / 10),
@@ -386,6 +396,34 @@ impl<'a> Executor<'a> {
       abstract_defs: HashMap::new(),
       abstract_impls: HashMap::new(),
       prescan_only: false,
+    }
+  }
+
+  /// Top-of-stack expected type, filtered to integer kinds.
+  /// Returns `None` if the stack is empty, the top frame is
+  /// `None`, or the top is a non-integer type (e.g. a struct
+  /// annotation on an aggregate-init). Used by the integer
+  /// literal arm to pick a `TyId` that matches the enclosing
+  /// declaration / argument / return context before falling
+  /// back to the language default (`int_type()`).
+  fn peek_expected_int_ty(&self) -> Option<TyId> {
+    let expected = self.expected_ty_stack.last().copied().flatten()?;
+
+    match self.ty_checker.resolve_ty(expected) {
+      Ty::Int { .. } => Some(expected),
+      _ => None,
+    }
+  }
+
+  /// Float counterpart to [`peek_expected_int_ty`]. Matches
+  /// `Ty::Float` only; any non-float expected type yields
+  /// `None` so the literal falls back to `f64_type()`.
+  fn peek_expected_float_ty(&self) -> Option<TyId> {
+    let expected = self.expected_ty_stack.last().copied().flatten()?;
+
+    match self.ty_checker.resolve_ty(expected) {
+      Ty::Float(_) => Some(expected),
+      _ => None,
     }
   }
 
@@ -1721,8 +1759,13 @@ impl<'a> Executor<'a> {
           // Get actual value from literal store (already u64, no cast needed)
           let value = self.literals.int_literals[lit_idx as usize];
 
-          // Infer type based on value
-          let ty_id = self.ty_checker.int_type();
+          // Context-directed width when the enclosing site
+          // (decl / call arg / return / cast) pushed an
+          // expected integer type; otherwise fall back to the
+          // language default (`s32`, per decision D1).
+          let ty_id = self
+            .peek_expected_int_ty()
+            .unwrap_or_else(|| self.ty_checker.int_type());
 
           let dst = ValueId(self.sir.next_value_id);
           self.sir.next_value_id += 1;
@@ -1745,7 +1788,12 @@ impl<'a> Executor<'a> {
       Token::Float => {
         if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
           let value = self.literals.float_literals[lit_idx as usize];
-          let ty_id = self.ty_checker.f64_type();
+          // Context-directed width when the enclosing site
+          // pushed an expected float type; otherwise default
+          // to `f64` per decision D2.
+          let ty_id = self
+            .peek_expected_float_ty()
+            .unwrap_or_else(|| self.ty_checker.f64_type());
 
           let dst = ValueId(self.sir.next_value_id);
           self.sir.next_value_id += 1;
@@ -5562,6 +5610,13 @@ impl<'a> Executor<'a> {
         span: self.tree.spans[idx],
       });
 
+      // Steer literal widths in the init expression to the
+      // declared type. A `None` annotation still pushes so the
+      // paired pop in `finalize_pending_decl` stays balanced;
+      // `peek_expected_int_ty` returns `None` for a `None`
+      // frame and literals fall back to the default.
+      self.expected_ty_stack.push(annotated_ty);
+
       // Pre-register for recursive closures (letrec).
       // If the init expression is a closure, the body
       // may reference the variable by name. Register a
@@ -5935,6 +5990,11 @@ impl<'a> Executor<'a> {
       Some(d) => d,
       None => return,
     };
+
+    // Matching pop for the push in `begin_decl`. Only runs
+    // when we actually consumed a `PendingDecl`, keeping the
+    // stack balanced across error / no-init paths.
+    self.expected_ty_stack.pop();
 
     if let (Some(init_value), Some(mut init_ty)) =
       (self.value_stack.pop(), self.ty_stack.pop())

@@ -76,18 +76,13 @@ fn return_bare_literal_from_s64_fn_trips_return_mismatch() {
   );
 }
 
-/// `x + 5` where `x: u16` — the `x` `Load` is `u16` but the
-/// `5` literal is emitted as `s32`. The executor's binop
-/// unification fails and it **silently aborts** — no `BinOp`
-/// insn reaches SIR, and the enclosing `VarDef` has
-/// `init: None`.
-///
-/// Today this test pins down the silent drop. **Plan Phase 3**
-/// (BinOp operand propagation) + **Phase 5** (diagnostics)
-/// flip this to: the `BinOp` is emitted with both operands
-/// `u16`, `init: Some(_)`.
+/// `x + 5` where `x: u16`, all wrapped in `imu _y: u16 =
+/// ...`. **Plan Phase 1** fixed this: the decl-site push of
+/// `u16` onto `expected_ty_stack` propagates through the
+/// init expression, so the `5` literal lands with `ty_id:
+/// u16`, the BinOp unifies cleanly, and SIR is valid.
 #[test]
-fn binop_u16_plus_bare_literal_silently_drops_binop_today() {
+fn binop_u16_plus_literal_in_u16_decl_emits_clean_binop() {
   let source = r"
     fun main() {
       imu x: u16 = 10;
@@ -95,45 +90,41 @@ fn binop_u16_plus_bare_literal_silently_drops_binop_today() {
     }
   ";
 
-  let (semantic, _) = analyze_and_validate(source);
+  let (semantic, report) = analyze_and_validate(source);
 
-  let has_binop = semantic
-    .sir
-    .instructions
-    .iter()
-    .any(|insn| matches!(insn, Insn::BinOp { .. }));
+  let binop = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::BinOp { ty_id, .. } = insn {
+      Some(*ty_id)
+    } else {
+      None
+    }
+  });
 
-  // Today: no BinOp is emitted. The test MUST fail once the
-  // executor starts emitting the BinOp correctly — at that
-  // point flip the assertion to `assert!(has_binop)`.
   assert!(
-    !has_binop,
-    "unexpected BinOp in SIR — did an earlier phase land? \
-     Flip this assertion and check the operand widths.",
+    binop.is_some(),
+    "expected a BinOp insn in SIR (Phase 1 should have \
+     emitted one); saw: {:#?}",
+    semantic.sir.instructions,
+  );
+  assert_eq!(
+    binop.unwrap().0,
+    12,
+    "expected BinOp.ty_id == u16 (TyId 12); see `PLAN_SIR_TYPE_INVARIANTS.md` Phase 1",
   );
 
-  let init_is_none = semantic
-    .sir
-    .instructions
-    .iter()
-    .any(|insn| matches!(insn, Insn::VarDef { init: None, .. }));
-
   assert!(
-    init_is_none,
-    "expected a `VarDef {{ init: None }}` from the silent drop",
+    report.is_ok(),
+    "validator should accept Phase 1's clean SIR; got: {:#?}",
+    report.violations,
   );
 }
 
-/// `f(42)` where `f(x: s64)` — the `42` literal is emitted
-/// as `s32` and the callee's param is `s64`. The executor's
-/// call unification fails and **silently aborts** — no
-/// `Call` insn reaches SIR.
-///
-/// Today this test pins down the silent drop. **Plan Phase 2**
-/// (Call arg propagation) + **Phase 5** (diagnostics) flip
-/// this to: the `Call` is emitted with the arg as `s64`.
+/// `f(42)` where `f(x: s64)`, all wrapped in `imu _y: s64 =
+/// ...`. **Plan Phase 1** fixed this: the decl's `s64`
+/// context flows down into the call arg evaluation, so `42`
+/// lands with `ty_id: s64` and unification succeeds.
 #[test]
-fn call_with_s64_param_and_bare_literal_silently_drops_call_today() {
+fn call_s64_arg_from_literal_in_s64_decl_emits_clean_call() {
   let source = r"
     fun f(x: s64) -> s64 {
       return x;
@@ -144,17 +135,26 @@ fn call_with_s64_param_and_bare_literal_silently_drops_call_today() {
     }
   ";
 
-  let (semantic, _) = analyze_and_validate(source);
+  let (semantic, report) = analyze_and_validate(source);
 
-  let has_call = semantic
-    .sir
-    .instructions
-    .iter()
-    .any(|insn| matches!(insn, Insn::Call { .. }));
+  let call_ty = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::Call { ty_id, .. } = insn {
+      Some(*ty_id)
+    } else {
+      None
+    }
+  });
 
   assert!(
-    !has_call,
-    "unexpected Call in SIR — did an earlier phase land? \
-     Flip this assertion and check the arg widths.",
+    call_ty.is_some(),
+    "expected a Call insn in SIR (Phase 1 should have \
+     emitted one); saw: {:#?}",
+    semantic.sir.instructions,
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept Phase 1's clean SIR; got: {:#?}",
+    report.violations,
   );
 }
