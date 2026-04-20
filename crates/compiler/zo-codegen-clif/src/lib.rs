@@ -15,6 +15,9 @@
 //! final `cc` invocation.
 
 mod codegen;
+mod context;
+mod intrinsics;
+mod runtime;
 mod translate;
 mod types;
 
