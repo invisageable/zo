@@ -83,7 +83,7 @@ JOiN THE DEVOLUTiON.
 
   - HiGH-SPEED COMPiLATiON-TiME — *insanely faster, Usain Bolt would be jealous.*
   - ALGEBRAiC OPTiMiZATiON — *folding, propagation.*
-  - TARGET SUPPORT — *`arm64-apple-darwin`, `arm64-unknown-linux-gnu`*.
+  - TARGET SUPPORT — *cross-platform `linux`, `macos`, `windows`*.
 
 ## install.
 

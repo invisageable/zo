@@ -3960,6 +3960,10 @@ impl<'a> Executor<'a> {
         });
       }
       None => {
+        // `TyChecker::unify` has already reported
+        // `TypeMismatch` with the proper span; we just have
+        // to bail out without emitting a `BinOp` and push
+        // sentinel values so the stacks stay balanced.
         let error_id = self.values.store_runtime(u32::MAX);
 
         self.value_stack.push(error_id);
@@ -11656,6 +11660,8 @@ impl<'a> Executor<'a> {
           let span = self.tree.spans[lparen_idx + 1 + i * 2];
 
           if self.ty_checker.unify(*param_ty, *arg_ty, span).is_none() {
+            // `unify` already reported the mismatch — just
+            // drop the Call without double-diagnosing.
             return;
           }
         }
@@ -12142,7 +12148,7 @@ impl<'a> Executor<'a> {
 
     let ty_id = match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
       Some(t) => t,
-      None => return,
+      None => return, // `unify` already reported the mismatch.
     };
 
     // Emit comparison BinOp.

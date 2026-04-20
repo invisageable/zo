@@ -14,6 +14,8 @@
 
 use super::common::analyze_and_validate;
 
+use zo_error::ErrorKind;
+use zo_reporter::collect_errors;
 use zo_sir::Insn;
 
 /// Baseline — a program whose literal widths are already
@@ -120,6 +122,61 @@ fn binop_u16_plus_literal_in_u16_decl_emits_clean_binop() {
     report.is_ok(),
     "validator should accept Phase 1's clean SIR; got: {:#?}",
     report.violations,
+  );
+}
+
+/// **Phase 5** — a binop with two *concrete* mismatched
+/// operands (no literal to narrow) must produce a real
+/// `TypeMismatch` diagnostic, not silently drop. Before
+/// Phase 5 this program compiled with no BinOp in SIR and
+/// no error message.
+#[test]
+fn binop_concrete_width_mismatch_reports_type_mismatch() {
+  let source = r"
+    fun main() {
+      imu x: u16 = 1;
+      imu y: u32 = 2;
+      imu _z: u32 = x + y;
+    }
+  ";
+
+  let (_, _) = analyze_and_validate(source);
+
+  let errors = collect_errors();
+  let has_mismatch = errors.iter().any(|e| e.kind() == ErrorKind::TypeMismatch);
+
+  assert!(
+    has_mismatch,
+    "expected a TypeMismatch error for `u16 + u32`; saw: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>(),
+  );
+}
+
+/// **Phase 5** — a Call with a concrete arg whose type
+/// disagrees with the concrete param type must report
+/// `TypeMismatch`.
+#[test]
+fn call_concrete_arg_mismatch_reports_type_mismatch() {
+  let source = r"
+    fun f(x: u16) -> u16 {
+      return x;
+    }
+
+    fun main() {
+      imu y: u32 = 10;
+      imu _z: u16 = f(y);
+    }
+  ";
+
+  let (_, _) = analyze_and_validate(source);
+
+  let errors = collect_errors();
+  let has_mismatch = errors.iter().any(|e| e.kind() == ErrorKind::TypeMismatch);
+
+  assert!(
+    has_mismatch,
+    "expected a TypeMismatch error for `f(y: u32)` with `f(x: u16)`; saw: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>(),
   );
 }
 
