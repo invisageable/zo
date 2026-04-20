@@ -10702,25 +10702,43 @@ impl<'a> Executor<'a> {
 
   /// Executes return statement - acts as an introducer.
   fn execute_return(&mut self, _node_idx: usize) {
-    // Only process return if we're in a function body
-    if let Some(ref mut ctx) = self.current_function {
-      // Mark that we're expecting a return value
-      // The actual Return instruction will be emitted when we have the complete
-      // value
-      ctx.pending_return = true;
-      ctx.has_explicit_return = true;
-    }
+    // Only process return if we're in a function body.
+    let ret_ty = match self.current_function.as_mut() {
+      Some(ctx) => {
+        ctx.pending_return = true;
+        ctx.has_explicit_return = true;
+        ctx.return_ty
+      }
+      None => return,
+    };
+
+    // Phase 4 of `PLAN_SIR_TYPE_INVARIANTS.md`: steer the
+    // return expression toward the fn's declared return
+    // type so bare literals (`return 42;` in `fn() -> s64`)
+    // adopt it. Paired pop in `check_pending_return` at the
+    // matching emit site.
+    self.expected_ty_stack.push(Some(ret_ty));
   }
 
   /// Check if we have a pending return and emit it with the current stack value
   fn check_pending_return(&mut self) {
     // Inside a ternary, the Colon and RBrace handlers
-    // emit per-arm Returns instead.
+    // emit per-arm Returns instead. Pop the Phase 4
+    // expected-type frame here so the stack stays balanced
+    // even on the ternary early return — each arm's
+    // literals were already evaluated with the frame live.
     if self
       .branch_stack
       .last()
       .is_some_and(|c| c.kind == BranchKind::Ternary)
     {
+      if let Some(ref mut ctx) = self.current_function
+        && ctx.pending_return
+      {
+        self.expected_ty_stack.pop();
+        ctx.pending_return = false;
+      }
+
       return;
     }
 
@@ -10762,6 +10780,10 @@ impl<'a> Executor<'a> {
 
       // Clear the pending flag
       ctx.pending_return = false;
+
+      // Phase 4: matching pop for the push in
+      // `execute_return`.
+      self.expected_ty_stack.pop();
     }
   }
 

@@ -1,27 +1,20 @@
-//! Integration tests pinning down the *current* SIR behavior
-//! for int/float literal typing.
+//! Integration tests pinning down the SIR produced by real
+//! zo source for the int/float literal typing scenarios
+//! driven by `PLAN_SIR_TYPE_INVARIANTS.md`.
 //!
-//! Two kinds of failure today:
+//! Each test represents a scenario that once either silently
+//! dropped or emitted mixed-width SIR; after Phases 1–4, the
+//! executor produces clean SIR for all of them. The tests
+//! assert on both the emitted insns (right widths) and the
+//! validator report (no invariant violations).
 //!
-//! 1. **Surviving mismatch** — the executor emits an insn
-//!    whose ty_id disagrees with context. The validator
-//!    catches it (e.g. `Return` below).
-//! 2. **Silent drop** — the executor hits a mismatch and
-//!    aborts emission of the enclosing expression. No insn
-//!    in SIR, no diagnostic, program "compiles" with an
-//!    empty body (e.g. `BinOp` and `Call` below).
-//!
-//! The validator only helps with kind 1. Kind 2 needs the
-//! executor to emit diagnostics (plan Phase 5) — and then
-//! Phases 1–4 make both kinds unreachable because literals
-//! adopt their context type from the start.
-//!
-//! Every test here is an acceptance gate. When a phase lands
-//! that makes the scenario emit clean SIR, flip the assertion.
+//! If a future change regresses expected-type propagation,
+//! these fail with a clear message naming the expected width
+//! and the phase the scenario belongs to.
 
 use super::common::analyze_and_validate;
 
-use zo_sir::{Insn, ViolationKind};
+use zo_sir::Insn;
 
 /// Baseline — a program whose literal widths are already
 /// context-matched produces clean SIR today. Guards against
@@ -43,15 +36,12 @@ fn clean_s32_decl_has_no_violations() {
   );
 }
 
-/// `return 42;` in `-> s64` — the literal keeps ty_id `s32`
-/// and the enclosing fn's return ty is `s64`. The `Return`
-/// insn survives with the mismatch, so the validator catches
-/// it.
-///
-/// **Plan Phase 4** (Return / Cast propagation) flips this to
-/// `is_ok()`.
+/// `return 42;` in `-> s64`. **Plan Phase 4** fixed this:
+/// `execute_return` pushes the fn's `return_ty` onto
+/// `expected_ty_stack`, so the literal `42` adopts `s64`
+/// and the `Return` insn emits with matching widths.
 #[test]
-fn return_bare_literal_from_s64_fn_trips_return_mismatch() {
+fn return_bare_literal_in_s64_fn_adopts_return_ty() {
   let source = r"
     fun get() -> s64 {
       return 42;
@@ -62,16 +52,30 @@ fn return_bare_literal_from_s64_fn_trips_return_mismatch() {
     }
   ";
 
-  let (_, report) = analyze_and_validate(source);
+  let (semantic, report) = analyze_and_validate(source);
 
-  let found = report
-    .violations
-    .iter()
-    .any(|v| matches!(v.kind, ViolationKind::ReturnValueMismatch { .. }));
+  let const_int = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::ConstInt { ty_id, .. } = insn {
+      Some(*ty_id)
+    } else {
+      None
+    }
+  });
 
   assert!(
-    found,
-    "expected at least one ReturnValueMismatch, got: {:#?}",
+    const_int.is_some(),
+    "expected a ConstInt for the literal 42 in the return",
+  );
+  assert_eq!(
+    const_int.unwrap().0,
+    9,
+    "ConstInt.ty_id should be s64 (TyId 9); Phase 4 \
+     `execute_return` should have pushed s64 as expected",
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept Phase 4's clean SIR; got: {:#?}",
     report.violations,
   );
 }
