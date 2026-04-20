@@ -18,7 +18,7 @@
     }
   } -->
 
-  ```ts
+  <!-- ```ts
   fun main() {
     mut count: int = 0;
 
@@ -30,7 +30,9 @@
 
     #dom counter;
   }
-  ```
+  ``` -->
+
+![preview-zo-templating-counter](./crates/compiler/zo-notes/public/assets/preview/preview-zo-templating-counter.png)
 
 <!-- ## warning.
 

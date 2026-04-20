@@ -38,7 +38,7 @@ use cranelift::codegen::{Context, ir};
 use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
-use rustc_hash::FxHashMap as HashMap;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 /// Translates the whole SIR instruction stream into the given
 /// [`ObjectModule`]. One CLIF function per SIR `FunDef`.
@@ -69,8 +69,7 @@ pub(crate) fn translate_module(
   // program and zo's stdlib — `declare_function` merges
   // these into one `FuncId`, but each still shows up as an
   // `Insn::FunDef` in the body-definition loop.
-  let mut defined_funcs: std::collections::HashSet<cranelift_module::FuncId> =
-    std::collections::HashSet::new();
+  let mut defined_funcs: HashSet<FuncId> = HashSet::default();
   // Module-scope `val NAME = lit;` bindings resolved to their
   // raw literal so every `Load { Local(NAME) }` can inline.
   let const_defs = collect_const_defs(insns);
