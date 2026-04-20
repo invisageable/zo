@@ -609,15 +609,18 @@ fn emit_aggregate_literal(
 
 /// Coerces an integer-typed `ir::Value` from `from` to `to`
 /// via the narrowest-fitting CLIF op. Widens via `uextend`
-/// (zero-extend) and narrows via `ireduce`. Sign-extension
-/// isn't picked here because the caller rarely has enough
-/// context to distinguish s vs u at the coerce site —
-/// over-widening with zero-extend is consistent with
-/// subsequent op-level signedness dispatch.
+/// (zero-extend) and narrows via `ireduce`.
 ///
-/// Same-type pairs and non-integer pairs return `v` unchanged
-/// — the caller is responsible for catching type-mismatch
-/// cases that can't be fixed by width adjustment.
+/// **Limited scope.** After `PLAN_SIR_TYPE_INVARIANTS.md`
+/// Phases 1–6, non-generic zo code emits width-consistent
+/// SIR — the callers below are a no-op on that path. The
+/// function remains for **generic monomorphization corner
+/// cases** where the callee's param `TyId` resolves to a
+/// different CLIF width than the caller's arg (e.g.
+/// `identity<$T>(x: $T)` instantiated with `int` (I32)
+/// while the mono'd callee expects I64 on this target).
+/// Fixing those properly lives in a future "generic mono
+/// narrow" pass; until then this stays.
 fn coerce_int_width(
   builder: &mut FunctionBuilder,
   v: ir::Value,
@@ -1074,13 +1077,14 @@ fn translate_body(
           return;
         };
 
-        // Both operands must share the CLIF type (Cranelift's
-        // `icmp` / `iadd` / etc. are type-homogeneous). zo
-        // programs can legally mix an `int` literal (I32)
-        // with an arch-width value (I64) at the source level
-        // — the analyzer accepts it because zo's widening
-        // rules cover it, but SIR doesn't pre-cast. Align
-        // widths here by upsizing the narrower side.
+        // Non-generic code has matching operand widths after
+        // Phases 1–6. Generics still leak mismatches when
+        // the callee's instantiated param widths differ from
+        // the caller's SIR values (e.g. `Result<int, int>`
+        // on x86_64 where `int` monomorphizes to a different
+        // CLIF width than the surrounding arithmetic).
+        // Cranelift's `iadd` / `icmp` / etc. are type-
+        // homogeneous; upsize the narrower side to match.
         let l_ty = builder.func.dfg.value_type(l);
         let r_ty = builder.func.dfg.value_type(r);
         let (l, r) = if l_ty == r_ty {
@@ -1173,11 +1177,14 @@ fn translate_body(
         // defined) and `Linkage::Import` (FFI intrinsics).
         let fref = tctx.module.declare_func_in_func(func_id, builder.func);
 
-        // Coerce each arg to the callee's declared param
-        // width. Generic instantiations land here with the
-        // caller holding an `int` (I32) literal while the
-        // callee's signature uses the arch-wide I64 — without
-        // this coercion the verifier rejects the call.
+        // `begin_call_ctx` already pushed the callee's param
+        // types so bare literal args adopt the right width
+        // at SIR emission (Phases 1–6). The per-arg coerce
+        // below is a safety net for **generic
+        // monomorphization** cases where the caller holds a
+        // pre-mono `int` (I32) literal and the mono'd callee
+        // expects the arch-wide I64. A proper fix lives in a
+        // future generic-mono narrow pass.
         let sig_ref = builder.func.dfg.ext_funcs[fref].signature;
         let expected: Vec<ir::Type> = builder.func.dfg.signatures[sig_ref]
           .params

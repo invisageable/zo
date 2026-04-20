@@ -77,13 +77,13 @@ JOiN THE DEVOLUTiON.
   - STATiCALLY & STRONGLY TYPED — *total control over your program from A to Z.*
   - METiCULOUS TYPE SYSTEM — *type inference, monomorphization, `typestate`.*
   - SAFE CONCURRENCY — *robust erlang-like actor model.*
-  - META-LANGUAGE — *run code at `compile-time` via `#asm`, `#dom`, `#run` directives.*
+  - META-LANGUAGE — *run at `compile-time` via `#asm`, `#dom`, `#run` directives.*
 
 **-performance-and-compilation**
 
   - HiGH-SPEED COMPiLATiON-TiME — *insanely faster, Usain Bolt would be jealous.*
   - ALGEBRAiC OPTiMiZATiON — *folding, propagation.*
-  - TARGET SUPPORT — *cross-platform `linux`, `macos`, `windows`*.
+  - TARGET SUPPORT — *`arm64`, `x86_64` for `linux`, `macos`, `windows`*.
 
 ## install.
 
