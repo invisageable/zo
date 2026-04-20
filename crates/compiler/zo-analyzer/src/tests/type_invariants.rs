@@ -119,6 +119,90 @@ fn binop_u16_plus_literal_in_u16_decl_emits_clean_binop() {
   );
 }
 
+/// Assignment-RHS binop: `x = x + 42;` where `x: u16`. No
+/// enclosing typed decl covers the RHS — Phases 1 and 2
+/// don't help. **Plan Phase 3** pushes the LHS's type
+/// (`u16`) onto `expected_ty_stack` at defer-time, so the
+/// RHS literal `42` adopts `u16`.
+#[test]
+fn assign_rhs_binop_rhs_literal_adopts_lhs_ty() {
+  let source = r"
+    fun main() {
+      mut x: u16 = 10;
+      x = x + 42;
+    }
+  ";
+
+  let (semantic, report) = analyze_and_validate(source);
+
+  let binop_ty = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::BinOp { ty_id, .. } = insn {
+      Some(*ty_id)
+    } else {
+      None
+    }
+  });
+
+  assert!(
+    binop_ty.is_some(),
+    "expected a BinOp for `x + 42` (Phase 3); saw: {:#?}",
+    semantic.sir.instructions,
+  );
+  assert_eq!(
+    binop_ty.unwrap().0,
+    12,
+    "BinOp.ty_id should be u16 (TyId 12)",
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept Phase 3's clean SIR; got: {:#?}",
+    report.violations,
+  );
+}
+
+/// LHS-literal binop: `x = 42 + x;` where `x: u16`. The
+/// literal is emitted BEFORE the `+` fires, so the defer-
+/// path push can't help. **Plan Phase 3**'s post-hoc narrow
+/// rewrites the default-typed `ConstInt.ty_id` in place to
+/// match the concrete RHS before unification runs.
+#[test]
+fn assign_rhs_binop_lhs_literal_narrows_to_rhs_ty() {
+  let source = r"
+    fun main() {
+      mut x: u16 = 10;
+      x = 42 + x;
+    }
+  ";
+
+  let (semantic, report) = analyze_and_validate(source);
+
+  let binop_ty = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::BinOp { ty_id, .. } = insn {
+      Some(*ty_id)
+    } else {
+      None
+    }
+  });
+
+  assert!(
+    binop_ty.is_some(),
+    "expected a BinOp for `42 + x` (Phase 3); saw: {:#?}",
+    semantic.sir.instructions,
+  );
+  assert_eq!(
+    binop_ty.unwrap().0,
+    12,
+    "BinOp.ty_id should be u16 (TyId 12)",
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept Phase 3's clean SIR; got: {:#?}",
+    report.violations,
+  );
+}
+
 /// Bare statement call `f(42);` — no enclosing typed decl
 /// to carry context. **Plan Phase 2** fixed this: the Call
 /// itself primes `expected_ty_stack` with the callee's param

@@ -3423,6 +3423,11 @@ impl<'a> Executor<'a> {
       let (op, lhs, lhs_ty, lhs_sir, op_idx) =
         self.deferred_binops.pop().unwrap();
 
+      // Phase 3: matching pop for the `expected_ty_stack`
+      // push at defer time. Runs before the RHS is consumed
+      // so nothing downstream sees a stale frame.
+      self.expected_ty_stack.pop();
+
       let rhs = self.value_stack.pop().unwrap();
       let rhs_ty = self.ty_stack.pop().unwrap();
       let rhs_sir = self.sir_values.pop().unwrap();
@@ -3647,6 +3652,13 @@ impl<'a> Executor<'a> {
         self
           .deferred_binops
           .push((op, lhs, lhs_ty, lhs_sir, node_idx));
+
+        // Phase 3 of `PLAN_SIR_TYPE_INVARIANTS.md`: steer the
+        // RHS subexpression toward the LHS's type so a bare
+        // literal RHS lands with matching width. Balanced by
+        // a matching pop in `apply_deferred_binop` when this
+        // deferred entry is consumed.
+        self.expected_ty_stack.push(Some(lhs_ty));
       }
 
       return;
@@ -3661,6 +3673,27 @@ impl<'a> Executor<'a> {
     // Pop SIR values for operands
     let rhs_sir = self.sir_values.pop().unwrap();
     let lhs_sir = self.sir_values.pop().unwrap();
+
+    // Phase 3: post-hoc symmetry. `42 + x` (LHS-literal)
+    // doesn't benefit from the defer-path push because the
+    // literal was emitted before the `+` fired. Rewrite the
+    // default-typed literal's `ConstInt.ty_id` in place to
+    // match the concrete operand so unification below
+    // succeeds and no silent drop occurs. `narrow_int_literal`
+    // is a no-op unless the source is a default int; calling
+    // both directions covers whichever side is the literal.
+    let (lhs_ty, rhs_ty) = {
+      let mut lt = lhs_ty;
+      let mut rt = rhs_ty;
+
+      if self.narrow_int_literal(rhs_sir, rt, lt) {
+        rt = lt;
+      } else if self.narrow_int_literal(lhs_sir, lt, rt) {
+        lt = rt;
+      }
+
+      (lt, rt)
+    };
 
     // Get span from the spans array (1:1 with nodes)
     let span = self.tree.spans[node_idx];
