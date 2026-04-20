@@ -125,6 +125,69 @@ fn binop_u16_plus_literal_in_u16_decl_emits_clean_binop() {
   );
 }
 
+/// **Phase 7** — broad regression coverage. Compiles a
+/// handful of representative zo programs (literal decls,
+/// calls, binops, returns, float paths, nested contexts)
+/// and asserts the SIR validator is clean for all of them.
+///
+/// If a future change to the executor / tychecker
+/// accidentally re-introduces mixed-width SIR anywhere in
+/// these shapes, this test fails immediately. Cheaper than
+/// wiring the validator into the release-mode compile
+/// pipeline (see Phase 7 finding — measured cost would
+/// double compile time for a 1000-line program, well over
+/// the plan's 1% threshold).
+#[test]
+fn phase_7_broad_invariant_regression_coverage() {
+  let programs: &[(&str, &str)] = &[
+    ("int decl", r"fun main() { imu _x: s32 = 42; }"),
+    ("float decl", r"fun main() { imu _x: f32 = 3.14; }"),
+    (
+      "bare call + arg",
+      r"fun f(x: u64) -> u64 { return x; }
+        fun main() { f(42); }",
+    ),
+    (
+      "nested call",
+      r"fun g(x: s64) -> s64 { return x; }
+        fun f(x: s64) -> s64 { return x; }
+        fun main() { f(g(42)); }",
+    ),
+    (
+      "bare binop, RHS literal",
+      r"fun main() { mut x: u16 = 10; x = x + 32; }",
+    ),
+    (
+      "bare binop, LHS literal",
+      r"fun main() { mut x: u16 = 10; x = 32 + x; }",
+    ),
+    (
+      "return expression",
+      r"fun f(a: u16, b: u16) -> u16 { return a + b + 1; }
+        fun main() { imu _x: u16 = f(1, 2); }",
+    ),
+    (
+      "float binop chain",
+      r"fun main() {
+          imu a: f32 = 1.0;
+          imu _b: f32 = a + 0.5;
+          imu _c: f32 = 0.25 + a;
+        }",
+    ),
+  ];
+
+  for (label, source) in programs {
+    let (_, report) = analyze_and_validate(source);
+
+    assert!(
+      report.is_ok(),
+      "Phase 7 regression: [{label}] produced SIR violations: \
+       {:#?}",
+      report.violations,
+    );
+  }
+}
+
 /// **Phase 6** — `imu x: f32 = 3.14;` — the float literal
 /// reads `Some(f32)` from `peek_expected_float_ty` at
 /// emission time (via the Phase 1 decl push) and lands with

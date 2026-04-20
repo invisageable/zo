@@ -21,3 +21,10 @@ zo-value = { workspace = true }
 # external:crates.
 serde = { workspace = true }
 rustc-hash = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "validator"
+harness = false
