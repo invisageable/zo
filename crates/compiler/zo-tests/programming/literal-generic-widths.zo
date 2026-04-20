@@ -31,9 +31,9 @@ fun main() {
   -- Float identity.
   check@eq(identity(1.5), 1.5);
 
-  -- Generic binop — Phase 3 defer-path push routes `1` and
-  -- `2` to the mono'd `$T = s32`, post-mono walker cements
-  -- the FunDef widths.
+  -- Generic binop — the binop's defer-path push routes
+  -- `1` and `2` to the mono'd `$T = s32`, then the post-
+  -- executor resolve walker cements the FunDef widths.
   check@eq(pair_sum(1, 2), 3);
 
   showln("literal-generic-widths: all checks passed!");

@@ -1,8 +1,7 @@
 -- tests-run-pass: bare int/float literals inside `return`
 -- adopt the enclosing fn's declared return type via the
--- executor's return-site push (plan Phase 4). No wrapper
--- decl / call supplies context — the `return` statement
--- itself does.
+-- executor's return-site push. No wrapper decl / call
+-- supplies context — the `return` statement itself does.
 
 fun ret_s8() -> s8 {
   return 100;
@@ -22,7 +21,7 @@ fun ret_f32() -> f32 {
 
 fun ret_sum(a: u16, b: u16) -> u16 {
   -- expression as return: both literals and variables flow
-  -- through Phase 1 + 3 + 4 correctly.
+  -- through decl / binop / return pushes correctly.
   return a + b + 1;
 }
 

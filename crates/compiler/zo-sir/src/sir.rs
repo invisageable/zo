@@ -276,11 +276,10 @@ impl Insn {
         f(array_ty);
         f(elem_ty);
       }
-      // Type-definition / signature-carrying insns. These
-      // participate in the post-executor resolve walker
-      // (`PLAN_SIR_TYPE_INVARIANTS.md` generic-mono
-      // follow-up) — without visiting them, generic param
-      // / field types leak into SIR unresolved.
+      // Type-definition / signature-carrying insns. The
+      // executor's post-pass resolve walker depends on
+      // these being visited so generic param / field types
+      // don't leak into SIR as unresolved inference vars.
       Insn::FunDef {
         params, return_ty, ..
       } => {

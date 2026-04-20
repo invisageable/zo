@@ -1,8 +1,8 @@
 -- tests-run-pass: bare literals passed to typed call args
 -- adopt the callee's param widths via the executor's
--- per-arg expected-type push (plan Phase 2). No enclosing
--- typed decl carries context — the Call site itself steers
--- each literal.
+-- per-arg expected-type push. No enclosing typed decl
+-- carries context — the Call site itself steers each
+-- literal.
 
 fun take_s8(x: s8) -> s8 {
   return x;

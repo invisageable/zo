@@ -6,9 +6,9 @@
 //!
 //! Measures the cost of `validate` on synthetic insn streams
 //! of varying sizes so we can decide whether it's cheap
-//! enough for release-mode wiring (plan Phase 7 open
-//! question). The streams mimic realistic shapes: a pair of
-//! `ConstInt` + `BinOp` per "line" of user code.
+//! enough for release-mode wiring. The streams mimic
+//! realistic shapes: a pair of `ConstInt` + `BinOp` per
+//! "line" of user code.
 
 use zo_interner::Symbol;
 use zo_sir::{BinOp, Insn, validate};

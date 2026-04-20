@@ -1,7 +1,8 @@
 -- tests-run-pass: bare literals in assignment-RHS binops
--- adopt the other operand's width. Plan Phase 3. Neither
--- Phase 1 (decl annotation) nor Phase 2 (call arg) helps
--- here — the context comes from the sibling operand.
+-- adopt the other operand's width. Neither the decl
+-- annotation nor the call-arg push helps here — the
+-- context comes from the sibling operand via the binop's
+-- defer-path push or the post-hoc `narrow_literal`.
 
 fun main() {
   -- RHS-literal, concrete LHS. Defer-path push carries

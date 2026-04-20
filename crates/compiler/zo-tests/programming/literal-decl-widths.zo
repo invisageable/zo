@@ -1,8 +1,7 @@
 -- tests-run-pass: bare int/float literals adopt the
 -- declared variable's width via the tychecker's narrowing
--- path (not yet via top-down expected-type propagation —
--- plan Phases 1–4). This program pins that down so Phase 1
--- can't regress it.
+-- path. Guards that non-default int widths at decl sites
+-- survive across compiler changes.
 
 fun main() {
   -- Signed widths — the literal adopts each declared type.

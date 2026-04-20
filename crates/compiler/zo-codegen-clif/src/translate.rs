@@ -1046,11 +1046,10 @@ fn translate_body(
           return;
         };
 
-        // After `PLAN_SIR_TYPE_INVARIANTS.md` Phases 1–6
-        // plus the generic-monomorphization narrow in the
-        // executor, SIR guarantees `BinOp` operands share a
-        // `ty_id`. Cranelift's type-homogeneous ops accept
-        // them directly.
+        // SIR's expected-type propagation + post-emit
+        // resolve walker guarantee that `BinOp` operands
+        // share a `ty_id` by codegen time. Cranelift's
+        // type-homogeneous ops accept them directly.
         let v = translate_binop(tctx, builder, *op, l, r, *ty_id);
 
         ctx.values.insert(*dst, v);
@@ -1130,11 +1129,10 @@ fn translate_body(
         let fref = tctx.module.declare_func_in_func(func_id, builder.func);
 
         // Every arg's `ty_id` already matches the callee's
-        // corresponding param. `begin_call_ctx` covers
-        // non-generic calls; the executor's generic-mono
-        // narrow pass handles `fn f<$T>(...)` instantiations
-        // (see `PLAN_SIR_TYPE_INVARIANTS.md`, post-plan
-        // generic-mono work).
+        // corresponding param: `begin_call_ctx` covers
+        // non-generic calls, and the post-emit resolve
+        // walker in the executor covers generic
+        // monomorphizations.
         let call = builder.ins().call(fref, &arg_vals);
 
         // Unit-return callees have an empty results vec. SIR

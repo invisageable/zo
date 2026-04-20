@@ -72,8 +72,7 @@ pub struct Executor<'a> {
   /// (e.g. `imu x: s64 = ...`), popped when the site
   /// completes. `ConstInt` / `ConstFloat` emission consults
   /// the top of this stack — `Some(T)` with `T` an int/float
-  /// type overrides the language default. See
-  /// `PLAN_SIR_TYPE_INVARIANTS.md` Phase 1.
+  /// type overrides the language default.
   expected_ty_stack: Vec<Option<TyId>>,
   /// Active call-arg contexts. Entries are pushed at LParen
   /// for user-function calls whose callee signature is
@@ -329,11 +328,11 @@ struct DeferredShortCircuit {
 /// Pushed onto `call_ctx_stack` at an LParen that opens a
 /// user-function call, popped at the matching RParen.
 ///
-/// Drives Phase 2 of `PLAN_SIR_TYPE_INVARIANTS.md`: each
-/// argument subexpression is evaluated with the callee's
-/// corresponding param type on top of `expected_ty_stack`,
-/// so bare literals inside a call adopt the right width
-/// even when no enclosing declaration constrains them.
+/// Lets each argument subexpression be evaluated with the
+/// callee's corresponding param type on top of
+/// `expected_ty_stack`, so bare literals inside a call
+/// adopt the right width even when no enclosing
+/// declaration constrains them.
 struct CallCtx {
   /// Callee param types in declaration order. Empty for
   /// zero-arg callees (in which case no expected-type
@@ -1022,10 +1021,10 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Phase 2 of `PLAN_SIR_TYPE_INVARIANTS.md`: when the
-    // walker steps onto the first node of a new call
-    // argument, rotate `expected_ty_stack` so the literal
-    // emission inside that arg sees the callee's param type.
+    // When the walker steps onto the first node of a new
+    // call argument, rotate `expected_ty_stack` so the
+    // literal emission inside that arg sees the callee's
+    // param type.
     self.maybe_advance_call_arg(idx);
 
     match header.token {
@@ -1284,11 +1283,11 @@ impl<'a> Executor<'a> {
           // (finalize when the call's args stabilize).
           self.direct_call_depth += 1;
 
-          // Phase 2: prime the expected-type stack with the
-          // callee's param types so bare literals inside
-          // args adopt the right width. Closures / externals
-          // / malformed callees are a no-op here and fall
-          // through to the old unconstrained path.
+          // Prime the expected-type stack with the callee's
+          // param types so bare literals inside args adopt
+          // the right width. Closures / externals /
+          // malformed callees are a no-op here and fall
+          // through to the unconstrained path.
           self.begin_call_ctx(idx);
 
           // Skip — RParen handles call.
@@ -1341,10 +1340,9 @@ impl<'a> Executor<'a> {
 
       // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
-        // Phase 2: pop the call context + its final expected
-        // type frame iff this RParen closes an active user
-        // call. A no-op for tuple / grouping / enum-ctor
-        // RParens.
+        // Pop the call context + its final expected type
+        // frame iff this RParen closes an active user call.
+        // A no-op for tuple / grouping / enum-ctor RParens.
         self.end_call_ctx(idx);
 
         // If this RParen closes something LParen counted as
@@ -1987,8 +1985,8 @@ impl<'a> Executor<'a> {
 
           // Context-directed width when the enclosing site
           // (decl / call arg / return / cast) pushed an
-          // expected integer type; otherwise fall back to the
-          // language default (`s32`, per decision D1).
+          // expected integer type; otherwise fall back to
+          // the language default (`int` → `s32`).
           let ty_id = self
             .peek_expected_int_ty()
             .unwrap_or_else(|| self.ty_checker.int_type());
@@ -2015,8 +2013,8 @@ impl<'a> Executor<'a> {
         if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
           let value = self.literals.float_literals[lit_idx as usize];
           // Context-directed width when the enclosing site
-          // pushed an expected float type; otherwise default
-          // to `f64` per decision D2.
+          // pushed an expected float type; otherwise
+          // default to `f64`.
           let ty_id = self
             .peek_expected_float_ty()
             .unwrap_or_else(|| self.ty_checker.f64_type());
@@ -3457,9 +3455,9 @@ impl<'a> Executor<'a> {
       let (op, lhs, lhs_ty, lhs_sir, op_idx) =
         self.deferred_binops.pop().unwrap();
 
-      // Phase 3: matching pop for the `expected_ty_stack`
-      // push at defer time. Runs before the RHS is consumed
-      // so nothing downstream sees a stale frame.
+      // Matching pop for the `expected_ty_stack` push at
+      // defer time. Runs before the RHS is consumed so
+      // nothing downstream sees a stale frame.
       self.expected_ty_stack.pop();
 
       let rhs = self.value_stack.pop().unwrap();
@@ -3687,11 +3685,11 @@ impl<'a> Executor<'a> {
           .deferred_binops
           .push((op, lhs, lhs_ty, lhs_sir, node_idx));
 
-        // Phase 3 of `PLAN_SIR_TYPE_INVARIANTS.md`: steer the
-        // RHS subexpression toward the LHS's type so a bare
-        // literal RHS lands with matching width. Balanced by
-        // a matching pop in `apply_deferred_binop` when this
-        // deferred entry is consumed.
+        // Steer the RHS subexpression toward the LHS's
+        // type so a bare literal RHS lands with matching
+        // width. Balanced by a matching pop in
+        // `apply_deferred_binop` when this deferred entry
+        // is consumed.
         self.expected_ty_stack.push(Some(lhs_ty));
       }
 
@@ -3708,15 +3706,15 @@ impl<'a> Executor<'a> {
     let rhs_sir = self.sir_values.pop().unwrap();
     let lhs_sir = self.sir_values.pop().unwrap();
 
-    // Phase 3: post-hoc symmetry. `42 + x` (LHS-literal)
-    // doesn't benefit from the defer-path push because the
-    // literal was emitted before the `+` fired. Rewrite the
-    // default-typed literal's `ConstInt` / `ConstFloat`
-    // `ty_id` in place to match the concrete operand so
-    // unification below succeeds and no silent drop occurs.
-    // `narrow_literal` is a no-op unless the source is a
-    // default numeric literal; calling both directions
-    // covers whichever side is the literal.
+    // Post-hoc symmetry for LHS-literal binops like
+    // `42 + x`: the literal was emitted before the `+`
+    // fired, so the defer-path push can't help it.
+    // Rewrite the default-typed literal's `ConstInt` /
+    // `ConstFloat` `ty_id` in place to match the concrete
+    // operand so unification below succeeds and no silent
+    // drop occurs. `narrow_literal` is a no-op unless the
+    // source is a default numeric literal; calling both
+    // directions covers whichever side is the literal.
     let (lhs_ty, rhs_ty) = {
       let mut lt = lhs_ty;
       let mut rt = rhs_ty;
@@ -6247,10 +6245,10 @@ impl<'a> Executor<'a> {
     false
   }
 
-  /// Float counterpart to [`narrow_int_literal`]. Phase 6 of
-  /// `PLAN_SIR_TYPE_INVARIANTS.md`: rewrites a default-typed
-  /// `ConstFloat` (f64) in place when the caller's context
-  /// wants a non-default float (`f32` or arch-float).
+  /// Float counterpart to [`narrow_int_literal`]. Rewrites
+  /// a default-typed `ConstFloat` (f64) in place when the
+  /// caller's context wants a non-default float (`f32` or
+  /// arch-float).
   ///
   /// No-op in every other case — source not default float,
   /// target not float, target also default — so calling it
@@ -10806,18 +10804,17 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    // Phase 4 of `PLAN_SIR_TYPE_INVARIANTS.md`: steer the
-    // return expression toward the fn's declared return
-    // type so bare literals (`return 42;` in `fn() -> s64`)
-    // adopt it. Paired pop in `check_pending_return` at the
-    // matching emit site.
+    // Steer the return expression toward the fn's declared
+    // return type so bare literals (`return 42;` in
+    // `fn() -> s64`) adopt it. Paired pop in
+    // `check_pending_return` at the matching emit site.
     self.expected_ty_stack.push(Some(ret_ty));
   }
 
   /// Check if we have a pending return and emit it with the current stack value
   fn check_pending_return(&mut self) {
     // Inside a ternary, the Colon and RBrace handlers
-    // emit per-arm Returns instead. Pop the Phase 4
+    // emit per-arm Returns instead. Pop the return-site
     // expected-type frame here so the stack stays balanced
     // even on the ternary early return — each arm's
     // literals were already evaluated with the frame live.
@@ -10875,8 +10872,7 @@ impl<'a> Executor<'a> {
       // Clear the pending flag
       ctx.pending_return = false;
 
-      // Phase 4: matching pop for the push in
-      // `execute_return`.
+      // Matching pop for the push in `execute_return`.
       self.expected_ty_stack.pop();
     }
   }

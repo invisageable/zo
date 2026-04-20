@@ -1,8 +1,7 @@
 //! SIR type-invariant validator.
 //!
 //! Walks a completed SIR insn stream and flags any instruction
-//! that violates the type-consistency contract spelled out in
-//! `PLAN_SIR_TYPE_INVARIANTS.md`:
+//! that violates the SIR type-consistency contract:
 //!
 //! 1. `BinOp` lhs / rhs / result share a `ty_id`.
 //! 2. Every `Call` arg's ty_id matches the callee's declared
