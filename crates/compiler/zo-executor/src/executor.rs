@@ -3677,18 +3677,19 @@ impl<'a> Executor<'a> {
     // Phase 3: post-hoc symmetry. `42 + x` (LHS-literal)
     // doesn't benefit from the defer-path push because the
     // literal was emitted before the `+` fired. Rewrite the
-    // default-typed literal's `ConstInt.ty_id` in place to
-    // match the concrete operand so unification below
-    // succeeds and no silent drop occurs. `narrow_int_literal`
-    // is a no-op unless the source is a default int; calling
-    // both directions covers whichever side is the literal.
+    // default-typed literal's `ConstInt` / `ConstFloat`
+    // `ty_id` in place to match the concrete operand so
+    // unification below succeeds and no silent drop occurs.
+    // `narrow_literal` is a no-op unless the source is a
+    // default numeric literal; calling both directions
+    // covers whichever side is the literal.
     let (lhs_ty, rhs_ty) = {
       let mut lt = lhs_ty;
       let mut rt = rhs_ty;
 
-      if self.narrow_int_literal(rhs_sir, rt, lt) {
+      if self.narrow_literal(rhs_sir, rt, lt) {
         rt = lt;
-      } else if self.narrow_int_literal(lhs_sir, lt, rt) {
+      } else if self.narrow_literal(lhs_sir, lt, rt) {
         lt = rt;
       }
 
@@ -6212,6 +6213,60 @@ impl<'a> Executor<'a> {
     false
   }
 
+  /// Float counterpart to [`narrow_int_literal`]. Phase 6 of
+  /// `PLAN_SIR_TYPE_INVARIANTS.md`: rewrites a default-typed
+  /// `ConstFloat` (f64) in place when the caller's context
+  /// wants a non-default float (`f32` or arch-float).
+  ///
+  /// No-op in every other case — source not default float,
+  /// target not float, target also default — so calling it
+  /// alongside `narrow_int_literal` is safe.
+  fn narrow_float_literal(
+    &mut self,
+    sir_val: ValueId,
+    src_ty: TyId,
+    target_ty: TyId,
+  ) -> bool {
+    let default_float_ty = self.ty_checker.f64_type();
+
+    if src_ty != default_float_ty || target_ty == default_float_ty {
+      return false;
+    }
+
+    if !matches!(self.ty_checker.kind_of(target_ty), Ty::Float(_)) {
+      return false;
+    }
+
+    if let Some(insn) = self
+      .sir
+      .instructions
+      .iter_mut()
+      .rev()
+      .find(|i| matches!(i, Insn::ConstFloat { dst, .. } if *dst == sir_val))
+      && let Insn::ConstFloat { ty_id: cty, .. } = insn
+    {
+      *cty = target_ty;
+
+      return true;
+    }
+
+    false
+  }
+
+  /// Wrapper that runs both numeric narrows; whichever one
+  /// applies (or neither) fires. Simplifies every binop /
+  /// decl / check@ site that historically only called the
+  /// int version.
+  fn narrow_literal(
+    &mut self,
+    sir_val: ValueId,
+    src_ty: TyId,
+    target_ty: TyId,
+  ) -> bool {
+    self.narrow_int_literal(sir_val, src_ty, target_ty)
+      || self.narrow_float_literal(sir_val, src_ty, target_ty)
+  }
+
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
   fn finalize_pending_decl(&mut self) {
@@ -6230,9 +6285,10 @@ impl<'a> Executor<'a> {
     {
       let sir_init = self.sir_values.pop();
 
-      // Narrow a default-typed int literal to the annotation.
+      // Narrow a default-typed numeric literal (int or
+      // float) to the declaration's annotation.
       if let (Some(ann_ty), Some(sv)) = (decl.annotated_ty, sir_init)
-        && self.narrow_int_literal(sv, init_ty, ann_ty)
+        && self.narrow_literal(sv, init_ty, ann_ty)
       {
         init_ty = ann_ty;
       }
@@ -12127,16 +12183,17 @@ impl<'a> Executor<'a> {
       (lhs_ty, lhs_sir)
     };
 
-    // Narrow default-typed int literals to the other operand's
-    // integer type. Handles `check@eq(x, 10)` where `x: uint`
-    // but the literal `10` was parsed as the default `int`.
+    // Narrow default-typed numeric literals (int or float)
+    // to the other operand's type. Handles `check@eq(x,
+    // 10)` where `x: u16` as well as `check@eq(y, 1.0)`
+    // where `y: f32`.
     let (lhs_ty, rhs_ty) = {
       let mut lt = lhs_ty;
       let mut rt = rhs_ty;
 
-      if self.narrow_int_literal(rhs_sir, rt, lt) {
+      if self.narrow_literal(rhs_sir, rt, lt) {
         rt = lt;
-      } else if self.narrow_int_literal(lhs_sir, lt, rt) {
+      } else if self.narrow_literal(lhs_sir, lt, rt) {
         lt = rt;
       }
 

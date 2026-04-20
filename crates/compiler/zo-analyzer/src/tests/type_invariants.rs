@@ -125,6 +125,86 @@ fn binop_u16_plus_literal_in_u16_decl_emits_clean_binop() {
   );
 }
 
+/// **Phase 6** — `imu x: f32 = 3.14;` — the float literal
+/// reads `Some(f32)` from `peek_expected_float_ty` at
+/// emission time (via the Phase 1 decl push) and lands with
+/// `ty_id: f32` directly. `narrow_float_literal` in
+/// `finalize_pending_decl` covers any edge cases where
+/// emission went the default path.
+#[test]
+fn float_decl_f32_adopts_annotation() {
+  let source = r"
+    fun main() {
+      imu _x: f32 = 3.14;
+    }
+  ";
+
+  let (semantic, report) = analyze_and_validate(source);
+
+  let const_float = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::ConstFloat { ty_id, .. } = insn {
+      Some(*ty_id)
+    } else {
+      None
+    }
+  });
+
+  assert!(
+    const_float.is_some(),
+    "expected a ConstFloat in SIR for `3.14`",
+  );
+  assert_eq!(
+    const_float.unwrap().0,
+    15,
+    "ConstFloat.ty_id should be f32 (TyId 15); Phase 6",
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept clean SIR; got: {:#?}",
+    report.violations,
+  );
+}
+
+/// **Phase 6** — `return 3.14;` in `fn -> f32` walks through
+/// Phase 4's `execute_return` push (Some(f32)) so the
+/// literal adopts f32 at emission. No narrow fallback
+/// needed.
+#[test]
+fn float_return_literal_in_f32_fn_adopts_return_ty() {
+  let source = r"
+    fun get() -> f32 {
+      return 3.14;
+    }
+
+    fun main() {
+      imu _x: f32 = get();
+    }
+  ";
+
+  let (semantic, report) = analyze_and_validate(source);
+
+  let const_float = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::ConstFloat { ty_id, .. } = insn {
+      Some(*ty_id)
+    } else {
+      None
+    }
+  });
+
+  assert_eq!(
+    const_float.map(|t| t.0),
+    Some(15),
+    "ConstFloat.ty_id should be f32 (TyId 15); Phase 6 via Phase 4",
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept Phase 6's clean SIR; got: {:#?}",
+    report.violations,
+  );
+}
+
 /// **Phase 5** — a binop with two *concrete* mismatched
 /// operands (no literal to narrow) must produce a real
 /// `TypeMismatch` diagnostic, not silently drop. Before

@@ -1,0 +1,37 @@
+-- tests-run-pass: bare float literals adopt their
+-- enclosing context's width via expected-type propagation
+-- + `narrow_float_literal` (plan Phase 6). Float path
+-- mirrors the integer path from Phases 1–3.
+
+fun take_f32(x: f32) -> f32 {
+  return x;
+}
+
+fun add_f32(a: f32, b: f32) -> f32 {
+  return a + b;
+}
+
+fun main() {
+  -- Decl annotation steers the literal.
+  imu a: f32 = 1.5;
+  check@eq(a, 1.5);
+
+  -- Call arg steers the literal (Phase 2 + Phase 6).
+  check@eq(take_f32(2.25), 2.25);
+
+  -- Binop with concrete LHS + literal RHS (Phase 3 defer
+  -- push).
+  imu b: f32 = 1.0;
+  imu c: f32 = b + 0.25;
+  check@eq(c, 1.25);
+
+  -- Binop with literal LHS + concrete RHS (Phase 3
+  -- post-hoc narrow via `narrow_float_literal`).
+  imu d: f32 = 0.75 + b;
+  check@eq(d, 1.75);
+
+  -- Two-arg float call + return path compose.
+  check@eq(add_f32(1.25, 0.75), 2.0);
+
+  showln("literal-float-widths: all checks passed!");
+}
