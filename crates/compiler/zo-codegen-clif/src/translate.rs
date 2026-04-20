@@ -34,6 +34,7 @@ use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 use rustc_hash::FxHashMap as HashMap;
+
 /// Uniform slot size for every aggregate field / array element,
 /// matching `zo-codegen-arm`'s ARM64 `STACK_SLOT_SIZE`. Pragmatic
 /// shortcut: skip per-TyId layout computation by giving every
@@ -208,6 +209,14 @@ pub(crate) fn translate_module(
   // Persistent across the whole module so repeat `ConstString`s
   // for the same `Symbol` share one data object.
   let mut const_strings: HashMap<Symbol, DataId> = HashMap::default();
+  // Guards against the second pass calling `define_function`
+  // twice for one `FuncId`. Happens when the same symbol
+  // (e.g. `gcd`) is emitted as a FunDef in both the user
+  // program and zo's stdlib — `declare_function` merges
+  // these into one `FuncId`, but each still shows up as an
+  // `Insn::FunDef` in the body-definition loop.
+  let mut defined_funcs: std::collections::HashSet<cranelift_module::FuncId> =
+    std::collections::HashSet::new();
   // Module-scope `val NAME = lit;` bindings resolved to their
   // raw literal so every `Load { Local(NAME) }` can inline.
   let const_defs = collect_const_defs(insns);
@@ -291,6 +300,19 @@ pub(crate) fn translate_module(
     }
 
     let func_id = func_ids[name];
+
+    // Skip duplicate definitions. `declare_function` merges
+    // multiple declarations of the same name into one FuncId,
+    // but the second-pass body loop would still call
+    // `define_function` for each FunDef with that name —
+    // Cranelift errors with `DuplicateDefinition` on the
+    // second call. Common trigger: the user defines a
+    // function whose name already lives in zo's stdlib.
+    if !defined_funcs.insert(func_id) {
+      i = end;
+      continue;
+    }
+
     let is_main = interner.get(*name) == "main";
     let sig = build_signature(params, *return_ty, call_conv, ptr_ty, is_main);
 
@@ -360,16 +382,41 @@ pub(crate) fn translate_module(
         &insns[body_start_u..end],
       );
 
+      // Guarantee every block has a terminator before sealing.
       // The `Return` / `Jump` arms always create a trailing
       // dead block after their terminator so subsequent
-      // insns don't panic the builder. If that dead block
-      // turns out to be the LAST block of the function
-      // (nothing followed), it's left empty — and CLIF's
-      // verifier rejects blocks without terminators.
-      // Emit an `exit(1)` so verification passes and any
-      // stray reachability exits cleanly instead of hanging
-      // on `ud2` under Rosetta.
+      // insns don't panic the builder — if that dead block
+      // turns out to be the LAST block of the function, it's
+      // left empty.
+      //
+      // Also: lazy-created blocks for Jump targets whose
+      // `Label` was never emitted (see the Jump arm) are
+      // reachable but orphan — their entry jumps in, nothing
+      // else exits. Switching to each and emitting
+      // `exit(1)` gives them a valid terminator; Cranelift
+      // DCEs any that turn out to be unreachable.
       if !fun_ctx.terminated {
+        emit_exit_1(&mut tctx, &mut builder);
+      }
+
+      let orphan_blocks: Vec<ir::Block> =
+        fun_ctx.blocks.values().copied().collect();
+
+      for block in orphan_blocks {
+        // Already terminated? Skip. `last_inst` is `None` for
+        // empty blocks (needs a terminator) or the block's
+        // last emitted insn (check its opcode).
+        let has_terminator =
+          builder.func.layout.last_inst(block).is_some_and(|inst| {
+            builder.func.dfg.insts[inst].opcode().is_terminator()
+          });
+
+        if has_terminator {
+          continue;
+        }
+
+        builder.switch_to_block(block);
+
         emit_exit_1(&mut tctx, &mut builder);
       }
     }
@@ -1289,6 +1336,34 @@ fn emit_aggregate_literal(
   Some(builder.ins().stack_addr(tctx.ptr_ty, slot, 0))
 }
 
+/// Coerces an integer-typed `ir::Value` from `from` to `to`
+/// via the narrowest-fitting CLIF op. Widens via `uextend`
+/// (zero-extend) and narrows via `ireduce`. Sign-extension
+/// isn't picked here because the caller rarely has enough
+/// context to distinguish s vs u at the coerce site —
+/// over-widening with zero-extend is consistent with
+/// subsequent op-level signedness dispatch.
+///
+/// Same-type pairs and non-integer pairs return `v` unchanged
+/// — the caller is responsible for catching type-mismatch
+/// cases that can't be fixed by width adjustment.
+fn coerce_int_width(
+  builder: &mut FunctionBuilder,
+  v: ir::Value,
+  from: ir::Type,
+  to: ir::Type,
+) -> ir::Value {
+  if from == to || !from.is_int() || !to.is_int() {
+    return v;
+  }
+
+  if from.bits() < to.bits() {
+    builder.ins().uextend(to, v)
+  } else {
+    builder.ins().ireduce(to, v)
+  }
+}
+
 /// Widens `idx` to pointer width via `uextend` if it's
 /// narrower; returns unchanged if already pointer-wide. Used by
 /// `ArrayIndex` / `ArrayStore` before computing `base + idx*8`
@@ -1728,6 +1803,27 @@ fn translate_body(
           return;
         };
 
+        // Both operands must share the CLIF type (Cranelift's
+        // `icmp` / `iadd` / etc. are type-homogeneous). zo
+        // programs can legally mix an `int` literal (I32)
+        // with an arch-width value (I64) at the source level
+        // — the analyzer accepts it because zo's widening
+        // rules cover it, but SIR doesn't pre-cast. Align
+        // widths here by upsizing the narrower side.
+        let l_ty = builder.func.dfg.value_type(l);
+        let r_ty = builder.func.dfg.value_type(r);
+        let (l, r) = if l_ty == r_ty {
+          (l, r)
+        } else if l_ty.is_int() && r_ty.is_int() {
+          if l_ty.bits() < r_ty.bits() {
+            (coerce_int_width(builder, l, l_ty, r_ty), r)
+          } else {
+            (l, coerce_int_width(builder, r, r_ty, l_ty))
+          }
+        } else {
+          (l, r)
+        };
+
         let v = translate_binop(tctx, builder, *op, l, r, *ty_id);
 
         ctx.values.insert(*dst, v);
@@ -1805,6 +1901,27 @@ fn translate_body(
         // imports). Works for both `Linkage::Export` (user-
         // defined) and `Linkage::Import` (FFI intrinsics).
         let fref = tctx.module.declare_func_in_func(func_id, builder.func);
+
+        // Coerce each arg to the callee's declared param
+        // width. Generic instantiations land here with the
+        // caller holding an `int` (I32) literal while the
+        // callee's signature uses the arch-wide I64 — without
+        // this coercion the verifier rejects the call.
+        let sig_ref = builder.func.dfg.ext_funcs[fref].signature;
+        let expected: Vec<ir::Type> = builder.func.dfg.signatures[sig_ref]
+          .params
+          .iter()
+          .map(|p| p.value_type)
+          .collect();
+
+        for (arg_v, want_ty) in arg_vals.iter_mut().zip(expected.iter()) {
+          let have_ty = builder.func.dfg.value_type(*arg_v);
+
+          if have_ty != *want_ty {
+            *arg_v = coerce_int_width(builder, *arg_v, have_ty, *want_ty);
+          }
+        }
+
         let call = builder.ins().call(fref, &arg_vals);
 
         // Unit-return callees have an empty results vec. SIR
@@ -1854,7 +1971,10 @@ fn translate_body(
         ctx.terminated = false;
       }
       Insn::Label { id } => {
-        let block = ctx.blocks[id];
+        let block = *ctx
+          .blocks
+          .entry(*id)
+          .or_insert_with(|| builder.create_block());
 
         // Fall-through from the previous block: if it has no
         // terminator yet, synthesize a jump into this label's
@@ -1865,7 +1985,14 @@ fn translate_body(
         builder.switch_to_block(block);
       }
       Insn::Jump { target } => {
-        let block = ctx.blocks[target];
+        // Lazy-create the target block if the executor never
+        // emitted a matching `Label` for it. Happens in
+        // optimized else-chains where a merge-point id is
+        // reserved but the label gets dropped.
+        let block = *ctx
+          .blocks
+          .entry(*target)
+          .or_insert_with(|| builder.create_block());
 
         builder.ins().jump(block, &[]);
 
@@ -1889,7 +2016,10 @@ fn translate_body(
           return;
         };
 
-        let target_block = ctx.blocks[target];
+        let target_block = *ctx
+          .blocks
+          .entry(*target)
+          .or_insert_with(|| builder.create_block());
         let fallthrough = builder.create_block();
 
         // SIR semantics: branch to `target` iff cond == 0.
@@ -1905,40 +2035,60 @@ fn translate_body(
       Insn::VarDef {
         name, ty_id, init, ..
       } => {
-        let ty = ty_id_to_clif(*ty_id, ir::types::I64);
-        let var = ctx.declare_local(builder, *name, ty);
-
         // `init: Some(vid)` maps to an immediate `def_var` so
         // the following `Load`s see the initializer. `None`
         // leaves the Variable declared-but-undefined — a later
         // `Store` must hit it before any `Load`, which the
         // semantic analyzer already enforces.
-        if let Some(init_v) = init {
-          let Some(v) = ctx.values.get(init_v).copied() else {
-            emit_exit_1(tctx, builder);
+        //
+        // The declared CLIF type follows the init value's
+        // type when present — SIR's `ty_id` can be an alias
+        // (e.g. a generic param bound, a type-alias) whose
+        // `ty_id_to_clif` fallback width would mismatch the
+        // init value's actual width.
+        let declared_ty = ty_id_to_clif(*ty_id, ir::types::I64);
+        let init_value = init.and_then(|v| ctx.values.get(&v).copied());
+        let ty = init_value
+          .map(|v| builder.func.dfg.value_type(v))
+          .unwrap_or(declared_ty);
+        let var = ctx.declare_local(builder, *name, ty);
 
-            ctx.terminated = true;
-
-            return;
-          };
-
-          builder.def_var(var, v);
-        }
-      }
-      Insn::Store { name, value, .. } => {
-        let Some(var) = ctx.vars.get(name).copied() else {
+        if init.is_some() && init_value.is_none() {
           emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
           return;
-        };
+        }
+
+        if let Some(v) = init_value {
+          builder.def_var(var, v);
+        }
+      }
+      Insn::Store { name, value, .. } => {
         let Some(v) = ctx.values.get(value).copied() else {
           emit_exit_1(tctx, builder);
 
           ctx.terminated = true;
 
           return;
+        };
+
+        // Auto-declare on first sight. The executor emits
+        // synthetic locals like `__branch_result_0__` for
+        // branch / ternary result slots without a preceding
+        // `VarDef` — they're Stored to and Loaded from
+        // directly. Fall back to declaring the Variable the
+        // first time we see one, sized to the actual value
+        // being stored (the Insn's `ty_id` can be an alias
+        // whose width doesn't match the stored value).
+        let var = match ctx.vars.get(name).copied() {
+          Some(var) => var,
+          None => {
+            let ty = builder.func.dfg.value_type(v);
+
+            ctx.declare_local(builder, *name, ty)
+          }
         };
 
         builder.def_var(var, v);
