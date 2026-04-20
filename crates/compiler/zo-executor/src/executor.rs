@@ -75,6 +75,13 @@ pub struct Executor<'a> {
   /// type overrides the language default. See
   /// `PLAN_SIR_TYPE_INVARIANTS.md` Phase 1.
   expected_ty_stack: Vec<Option<TyId>>,
+  /// Active call-arg contexts. Entries are pushed at LParen
+  /// for user-function calls whose callee signature is
+  /// known; each maintains per-arg boundary data so
+  /// `maybe_advance_call_arg` can rotate the top of
+  /// `expected_ty_stack` as the walker moves between args.
+  /// Popped at the matching RParen.
+  call_ctx_stack: Vec<CallCtx>,
   /// All values stored in side arrays
   values: ValueStorage,
   /// Block boundaries
@@ -318,6 +325,36 @@ struct DeferredShortCircuit {
   pre_direct_call_depth: u32,
 }
 
+/// Active user-call context tracked during arg evaluation.
+/// Pushed onto `call_ctx_stack` at an LParen that opens a
+/// user-function call, popped at the matching RParen.
+///
+/// Drives Phase 2 of `PLAN_SIR_TYPE_INVARIANTS.md`: each
+/// argument subexpression is evaluated with the callee's
+/// corresponding param type on top of `expected_ty_stack`,
+/// so bare literals inside a call adopt the right width
+/// even when no enclosing declaration constrains them.
+struct CallCtx {
+  /// Callee param types in declaration order. Empty for
+  /// zero-arg callees (in which case no expected-type
+  /// frames are pushed).
+  param_tys: Vec<TyId>,
+  /// Node indices where each argument subexpression starts.
+  /// `arg_starts[0]` is the first node after the opening
+  /// LParen; subsequent entries are the first node after
+  /// each top-level comma inside the call.
+  arg_starts: Vec<usize>,
+  /// Node index of the matching RParen that closes this
+  /// call. Used by the RParen handler to pop the context
+  /// without having to rescan.
+  rparen_idx: usize,
+  /// Arg whose subexpression is currently on top of
+  /// `expected_ty_stack`. Starts at 0 (pushed at LParen);
+  /// advanced by `maybe_advance_call_arg` when the walker
+  /// crosses the next arg's start index.
+  arg_idx: usize,
+}
+
 /// Deferred variable declaration, finalized at Semicolon.
 struct PendingDecl {
   name: Symbol,
@@ -346,6 +383,7 @@ impl<'a> Executor<'a> {
       value_stack: Vec::with_capacity(capacity / 4),
       ty_stack: Vec::with_capacity(capacity / 4),
       expected_ty_stack: Vec::new(),
+      call_ctx_stack: Vec::new(),
       values: ValueStorage::new(capacity),
       scope_stack: Vec::with_capacity(32),
       locals: Vec::with_capacity(capacity / 10),
@@ -424,6 +462,141 @@ impl<'a> Executor<'a> {
     match self.ty_checker.resolve_ty(expected) {
       Ty::Float(_) => Some(expected),
       _ => None,
+    }
+  }
+
+  /// Opens a call context at an LParen whose callee resolves
+  /// to a user [`FunDef`] in `self.funs`. Walks the tree
+  /// between the LParen and its matching RParen to pin down
+  /// each argument's start index (first node after the
+  /// LParen, then first node after each top-level comma),
+  /// pushes the [`CallCtx`] onto `call_ctx_stack`, and
+  /// primes `expected_ty_stack` with arg 0's param type.
+  ///
+  /// No-op (returns without pushing) when:
+  /// - The callee name can't be resolved to a local FunDef
+  ///   (closures, externals — they go through the old path).
+  /// - The callee has zero params (nothing to constrain).
+  /// - The matching RParen is missing from the stream
+  ///   (malformed tree — earlier stages will report it).
+  fn begin_call_ctx(&mut self, lparen_idx: usize) {
+    let Some(ident_idx) = self.resolve_call_target(lparen_idx) else {
+      return;
+    };
+
+    let Some(NodeValue::Symbol(name)) = self.node_value(ident_idx) else {
+      return;
+    };
+
+    let Some(fun_def) = self.funs.iter().find(|f| f.name == name) else {
+      return;
+    };
+
+    let param_tys: Vec<TyId> =
+      fun_def.params.iter().map(|(_, ty)| *ty).collect();
+
+    if param_tys.is_empty() {
+      return;
+    }
+
+    // Scan forward from `lparen_idx + 1` to the matching
+    // RParen. Track paren depth so only commas at the call's
+    // own level advance the arg pointer.
+    let mut arg_starts: Vec<usize> = Vec::with_capacity(param_tys.len());
+
+    arg_starts.push(lparen_idx + 1);
+
+    let mut depth: i32 = 1;
+    let mut rparen_idx: Option<usize> = None;
+    let mut i = lparen_idx + 1;
+    let total = self.tree.nodes.len();
+
+    while i < total && depth > 0 {
+      match self.tree.nodes[i].token {
+        Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+        Token::RParen | Token::RBracket | Token::RBrace => {
+          depth -= 1;
+
+          if depth == 0 {
+            rparen_idx = Some(i);
+
+            break;
+          }
+        }
+        Token::Comma if depth == 1 => {
+          arg_starts.push(i + 1);
+        }
+        _ => {}
+      }
+
+      i += 1;
+    }
+
+    let Some(rparen_idx) = rparen_idx else {
+      return;
+    };
+
+    // Prime the expected-ty stack with arg 0's param type
+    // (if we have one). `maybe_advance_call_arg` handles
+    // subsequent args.
+    let first_expected = param_tys.first().copied();
+
+    self.call_ctx_stack.push(CallCtx {
+      param_tys,
+      arg_starts,
+      rparen_idx,
+      arg_idx: 0,
+    });
+    self.expected_ty_stack.push(first_expected);
+  }
+
+  /// Rotates the top of `expected_ty_stack` when the tree
+  /// walker steps onto the first node of the next argument
+  /// in an active call. Called from the top of
+  /// [`execute_node`] for every node.
+  ///
+  /// A no-op when no call is active, when we've already
+  /// advanced past the last boundary, or when `idx` doesn't
+  /// match the next arg's start. Pops the previous arg's
+  /// expected type and pushes the new one (or `None` if the
+  /// call was given more args than its signature has — the
+  /// arity check fires later).
+  fn maybe_advance_call_arg(&mut self, idx: usize) {
+    let next_expected = {
+      let Some(ctx) = self.call_ctx_stack.last_mut() else {
+        return;
+      };
+      let next_arg_idx = ctx.arg_idx + 1;
+
+      if next_arg_idx >= ctx.arg_starts.len() {
+        return;
+      }
+
+      if idx != ctx.arg_starts[next_arg_idx] {
+        return;
+      }
+
+      ctx.arg_idx = next_arg_idx;
+      ctx.param_tys.get(next_arg_idx).copied()
+    };
+
+    self.expected_ty_stack.pop();
+    self.expected_ty_stack.push(next_expected);
+  }
+
+  /// Closes the active call context iff `idx` matches its
+  /// recorded RParen. Pops the final arg's expected type
+  /// plus the [`CallCtx`] itself. No-op otherwise (RParen
+  /// of a tuple literal, enum constructor, etc.).
+  fn end_call_ctx(&mut self, idx: usize) {
+    let pop_it = matches!(
+      self.call_ctx_stack.last(),
+      Some(ctx) if ctx.rparen_idx == idx
+    );
+
+    if pop_it {
+      self.call_ctx_stack.pop();
+      self.expected_ty_stack.pop();
     }
   }
 
@@ -815,6 +988,12 @@ impl<'a> Executor<'a> {
       return;
     }
 
+    // Phase 2 of `PLAN_SIR_TYPE_INVARIANTS.md`: when the
+    // walker steps onto the first node of a new call
+    // argument, rotate `expected_ty_stack` so the literal
+    // emission inside that arg sees the callee's param type.
+    self.maybe_advance_call_arg(idx);
+
     match header.token {
       Token::Fun => {
         let children_end = (header.child_start + header.child_count) as usize;
@@ -1071,6 +1250,13 @@ impl<'a> Executor<'a> {
           // (finalize when the call's args stabilize).
           self.direct_call_depth += 1;
 
+          // Phase 2: prime the expected-type stack with the
+          // callee's param types so bare literals inside
+          // args adopt the right width. Closures / externals
+          // / malformed callees are a no-op here and fall
+          // through to the old unconstrained path.
+          self.begin_call_ctx(idx);
+
           // Skip — RParen handles call.
           // For operator-separated calls (Ident Op LParen),
           // find the matching RParen and suppress deferred
@@ -1121,6 +1307,12 @@ impl<'a> Executor<'a> {
 
       // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
+        // Phase 2: pop the call context + its final expected
+        // type frame iff this RParen closes an active user
+        // call. A no-op for tuple / grouping / enum-ctor
+        // RParens.
+        self.end_call_ctx(idx);
+
         // If this RParen closes something LParen counted as
         // a direct call, decrement here so the counter stays
         // balanced across *every* RParen exit path (enum

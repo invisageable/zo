@@ -1,0 +1,36 @@
+-- tests-run-pass: bare literals passed to typed call args
+-- adopt the callee's param widths via the executor's
+-- per-arg expected-type push (plan Phase 2). No enclosing
+-- typed decl carries context — the Call site itself steers
+-- each literal.
+
+fun take_s8(x: s8) -> s8 {
+  return x;
+}
+
+fun take_u64(x: u64) -> u64 {
+  return x;
+}
+
+fun add_s64(a: s64, b: s64) -> s64 {
+  return a + b;
+}
+
+fun main() {
+  -- Bare statement call. Literal 7 must adopt s8 from the
+  -- param signature, not the default s32.
+  check@eq(take_s8(7), 7);
+
+  -- Unsigned-high-bit literal that wouldn't fit in s32.
+  check@eq(take_u64(18000000000000000000), 18000000000000000000);
+
+  -- Two literals in one call — each adopts its own
+  -- corresponding param type.
+  check@eq(add_s64(9000000000000000000, 9000000000000000), 9009000000000000000);
+
+  -- Nested call: inner literal adopts `take_u64`'s param,
+  -- outer arg is the call result (already typed).
+  check@eq(take_u64(take_u64(42)), 42);
+
+  showln("literal-call-arg-widths: all checks passed!");
+}

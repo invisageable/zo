@@ -119,6 +119,92 @@ fn binop_u16_plus_literal_in_u16_decl_emits_clean_binop() {
   );
 }
 
+/// Bare statement call `f(42);` — no enclosing typed decl
+/// to carry context. **Plan Phase 2** fixed this: the Call
+/// itself primes `expected_ty_stack` with the callee's param
+/// types before each arg evaluates, so `42` adopts `s64`
+/// from the param signature directly.
+#[test]
+fn bare_call_s64_arg_from_literal_emits_clean_call() {
+  let source = r"
+    fun f(x: s64) -> s64 {
+      return x;
+    }
+
+    fun main() {
+      f(42);
+    }
+  ";
+
+  let (semantic, report) = analyze_and_validate(source);
+
+  let call_exists = semantic
+    .sir
+    .instructions
+    .iter()
+    .any(|insn| matches!(insn, Insn::Call { .. }));
+
+  assert!(
+    call_exists,
+    "expected a Call insn in SIR for `f(42);` (Phase 2); saw: {:#?}",
+    semantic.sir.instructions,
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept Phase 2's clean SIR; got: {:#?}",
+    report.violations,
+  );
+}
+
+/// Nested call `f(g(42))` — outer arg is a call expression,
+/// inner arg is the literal. **Plan Phase 2** primes the
+/// inner call's context independently, so `42` adopts `g`'s
+/// param type (not `f`'s).
+#[test]
+fn nested_call_literal_adopts_inner_callee_param_ty() {
+  let source = r"
+    fun g(x: s64) -> s64 {
+      return x;
+    }
+
+    fun f(x: s64) -> s64 {
+      return x;
+    }
+
+    fun main() {
+      f(g(42));
+    }
+  ";
+
+  let (semantic, report) = analyze_and_validate(source);
+
+  let const_int = semantic.sir.instructions.iter().find_map(|insn| {
+    if let Insn::ConstInt { ty_id, .. } = insn {
+      Some(*ty_id)
+    } else {
+      None
+    }
+  });
+
+  assert!(
+    const_int.is_some(),
+    "expected a ConstInt in SIR for the literal 42",
+  );
+  assert_eq!(
+    const_int.unwrap().0,
+    9,
+    "expected ConstInt.ty_id == s64 (TyId 9); \
+     the literal should adopt g's param type",
+  );
+
+  assert!(
+    report.is_ok(),
+    "validator should accept Phase 2's clean SIR; got: {:#?}",
+    report.violations,
+  );
+}
+
 /// `f(42)` where `f(x: s64)`, all wrapped in `imu _y: s64 =
 /// ...`. **Plan Phase 1** fixed this: the decl's `s64`
 /// context flows down into the call arg evaluation, so `42`
