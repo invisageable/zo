@@ -1,0 +1,40 @@
+-- tests-run-pass: bare int/float literals adopt the
+-- declared variable's width via the tychecker's narrowing
+-- path (not yet via top-down expected-type propagation —
+-- plan Phases 1–4). This program pins that down so Phase 1
+-- can't regress it.
+
+fun main() {
+  -- Signed widths — the literal adopts each declared type.
+  imu s8_v: s8 = 100;
+  imu s16_v: s16 = 30000;
+  imu s32_v: s32 = 2000000000;
+  imu s64_v: s64 = 9000000000000000000;
+
+  check@eq(s8_v, 100);
+  check@eq(s16_v, 30000);
+  check@eq(s32_v, 2000000000);
+  check@eq(s64_v, 9000000000000000000);
+
+  -- Unsigned widths.
+  imu u8_v: u8 = 255;
+  imu u16_v: u16 = 60000;
+  imu u32_v: u32 = 4000000000;
+  imu u64_v: u64 = 18000000000000000000;
+
+  check@eq(u8_v, 255);
+  check@eq(u16_v, 60000);
+  check@eq(u32_v, 4000000000);
+  check@eq(u64_v, 18000000000000000000);
+
+  -- Homogeneous binop — both operands share one declared
+  -- width, so the tychecker's binop narrowing isn't even
+  -- needed. Must stay clean across every phase.
+  imu a: u32 = 10;
+  imu b: u32 = 32;
+  imu sum: u32 = a + b;
+
+  check@eq(sum, 42);
+
+  showln("literal-decl-widths: all checks passed!");
+}
