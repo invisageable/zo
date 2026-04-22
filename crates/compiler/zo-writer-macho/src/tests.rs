@@ -1181,3 +1181,45 @@ fn test_malformed_debug_info() {
   let binary = macho.finish();
   assert!(!binary.is_empty());
 }
+
+/// Direct coverage for the canonical ULEB128 primitive.
+/// Boundary cases: 0, single-byte max (127), first
+/// continuation (128), a multi-byte value cross-checked
+/// against the DWARF spec example (624485 → E5 8E 26),
+/// and u64::MAX (10-byte worst case).
+#[test]
+fn push_uleb128_encodes_canonical_boundaries() {
+  fn enc(v: u64) -> Vec<u8> {
+    let mut buf = Vec::new();
+
+    super::macho::push_uleb128(&mut buf, v);
+
+    buf
+  }
+
+  assert_eq!(enc(0), vec![0x00]);
+  assert_eq!(enc(1), vec![0x01]);
+  assert_eq!(enc(127), vec![0x7f]);
+  assert_eq!(enc(128), vec![0x80, 0x01]);
+  assert_eq!(enc(255), vec![0xff, 0x01]);
+  assert_eq!(enc(16384), vec![0x80, 0x80, 0x01]);
+  // DWARF 5, Appendix C: 624485 encodes to E5 8E 26.
+  assert_eq!(enc(624485), vec![0xe5, 0x8e, 0x26]);
+  assert_eq!(enc(u32::MAX as u64), vec![0xff, 0xff, 0xff, 0xff, 0x0f]);
+  assert_eq!(
+    enc(u64::MAX),
+    vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01],
+  );
+}
+
+/// Streaming into a pre-populated buffer must append,
+/// not overwrite — this is the invariant every DWARF
+/// call site relies on.
+#[test]
+fn push_uleb128_appends_to_existing_buffer() {
+  let mut buf = vec![0xaa, 0xbb];
+
+  super::macho::push_uleb128(&mut buf, 128);
+
+  assert_eq!(buf, vec![0xaa, 0xbb, 0x80, 0x01]);
+}

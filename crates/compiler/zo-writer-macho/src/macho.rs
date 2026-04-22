@@ -1,8 +1,3 @@
-// TODO(@invisageable): consolidate three duplicate ULEB128
-// encoding functions (add_uleb128, encode_uleb128,
-// push_uleb128) into one canonical implementation.
-// See: lines ~1070, ~4836, ~6179.
-
 //! Mach-O file format writer for ARM64 executables
 //!
 //! This module provides functionality to generate Mach-O executables for macOS
@@ -27,6 +22,24 @@
 
 use rustc_hash::FxHashMap as HashMap;
 use sha2::{Digest, Sha256};
+
+/// Canonical ULEB128 encoder. Streams into `buf` with no
+/// intermediate allocation — used by every DWARF and CFA
+/// emission site in this module.
+#[inline(always)]
+pub(crate) fn push_uleb128(buf: &mut Vec<u8>, mut value: u64) {
+  loop {
+    let mut byte = (value & 0x7f) as u8;
+    value >>= 7;
+    if value != 0 {
+      byte |= 0x80;
+      buf.push(byte);
+    } else {
+      buf.push(byte);
+      break;
+    }
+  }
+}
 
 /// A file offset.
 #[derive(Clone, Copy, Debug)]
@@ -1006,21 +1019,21 @@ impl DebugFrameEntry {
   pub fn add_def_cfa(&mut self, register: u8, offset: u64) {
     self.cfa_instructions.push(0x0c); // DW_CFA_def_cfa
     self.cfa_instructions.push(register);
-    self.add_uleb128(offset);
+    push_uleb128(&mut self.cfa_instructions, offset);
   }
 
   /// Add a DW_CFA_def_cfa_offset instruction (define CFA offset)
   #[inline(always)]
   pub fn add_def_cfa_offset(&mut self, offset: u64) {
     self.cfa_instructions.push(0x0e); // DW_CFA_def_cfa_offset
-    self.add_uleb128(offset);
+    push_uleb128(&mut self.cfa_instructions, offset);
   }
 
   /// Add a DW_CFA_def_cfa_register instruction (define CFA register)
   #[inline(always)]
   pub fn add_def_cfa_register(&mut self, register: u8) {
     self.cfa_instructions.push(0x0d); // DW_CFA_def_cfa_register
-    self.add_uleb128(register as u64);
+    push_uleb128(&mut self.cfa_instructions, register as u64);
   }
 
   /// Add a DW_CFA_offset instruction (register saved at CFA + offset)
@@ -1029,12 +1042,12 @@ impl DebugFrameEntry {
     if register < 64 {
       // Use compact form for registers 0-63
       self.cfa_instructions.push(0x80 | register); // DW_CFA_offset + register
-      self.add_uleb128(offset);
+      push_uleb128(&mut self.cfa_instructions, offset);
     } else {
       // Use extended form
       self.cfa_instructions.push(0x05); // DW_CFA_offset_extended
-      self.add_uleb128(register as u64);
-      self.add_uleb128(offset);
+      push_uleb128(&mut self.cfa_instructions, register as u64);
+      push_uleb128(&mut self.cfa_instructions, offset);
     }
   }
 
@@ -1060,7 +1073,7 @@ impl DebugFrameEntry {
     } else {
       // Use extended form
       self.cfa_instructions.push(0x06); // DW_CFA_restore_extended
-      self.add_uleb128(register as u64);
+      push_uleb128(&mut self.cfa_instructions, register as u64);
     }
   }
 
@@ -1068,21 +1081,6 @@ impl DebugFrameEntry {
   #[inline(always)]
   pub fn add_nop(&mut self) {
     self.cfa_instructions.push(0x00); // DW_CFA_nop
-  }
-
-  /// Add ULEB128 encoded value
-  #[inline(always)]
-  fn add_uleb128(&mut self, mut value: u64) {
-    loop {
-      let byte = (value & 0x7f) as u8;
-      value >>= 7;
-      if value != 0 {
-        self.cfa_instructions.push(byte | 0x80);
-      } else {
-        self.cfa_instructions.push(byte);
-        break;
-      }
-    }
   }
 
   /// Generate frame description entry (FDE) bytes.
@@ -4792,7 +4790,7 @@ impl MachO {
     let mut data = Vec::new();
 
     // Write abbreviation code (ULEB128)
-    data.extend(&self.encode_uleb128(abbrev_code));
+    push_uleb128(&mut data, abbrev_code as u64);
 
     // Write attributes
     for attr in &die.attributes {
@@ -4815,7 +4813,7 @@ impl MachO {
         DwarfValue::SecOffset(off) => data.extend(&off.to_le_bytes()),
         DwarfValue::Flag(b) => data.push(if *b { 1 } else { 0 }),
         DwarfValue::Block(bytes) => {
-          data.extend(&self.encode_uleb128(bytes.len() as u32));
+          push_uleb128(&mut data, bytes.len() as u64);
           data.extend(bytes);
         }
       }
@@ -4834,30 +4832,6 @@ impl MachO {
     }
 
     data
-  }
-
-  /// Encode unsigned value as ULEB128.
-  #[inline(always)]
-  fn encode_uleb128(&self, mut value: u32) -> Vec<u8> {
-    let mut result = Vec::new();
-
-    loop {
-      let mut byte = (value & 0x7f) as u8;
-
-      value >>= 7;
-
-      if value != 0 {
-        byte |= 0x80;
-      }
-
-      result.push(byte);
-
-      if value == 0 {
-        break;
-      }
-    }
-
-    result
   }
 
   /// Encode signed value as SLEB128.
@@ -4888,57 +4862,57 @@ impl MachO {
     let mut data = Vec::new();
 
     // Abbreviation 1: Compile Unit
-    data.extend(&self.encode_uleb128(1)); // abbrev code
-    data.extend(&self.encode_uleb128(DW_TAG_COMPILE_UNIT as u32));
+    push_uleb128(&mut data, 1_u64); // abbrev code
+    push_uleb128(&mut data, DW_TAG_COMPILE_UNIT as u64);
     data.push(DW_CHILDREN_YES); // has children
 
     // Attributes for compile unit
-    data.extend(&self.encode_uleb128(DW_AT_PRODUCER as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_STRP as u32));
-    data.extend(&self.encode_uleb128(DW_AT_LANGUAGE as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_DATA2 as u32));
-    data.extend(&self.encode_uleb128(DW_AT_NAME as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_STRP as u32));
-    data.extend(&self.encode_uleb128(DW_AT_COMP_DIR as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_STRP as u32));
-    data.extend(&self.encode_uleb128(DW_AT_LOW_PC as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_ADDR as u32));
-    data.extend(&self.encode_uleb128(DW_AT_HIGH_PC as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_ADDR as u32));
-    data.extend(&self.encode_uleb128(DW_AT_STMT_LIST as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_SEC_OFFSET as u32));
+    push_uleb128(&mut data, DW_AT_PRODUCER as u64);
+    push_uleb128(&mut data, DW_FORM_STRP as u64);
+    push_uleb128(&mut data, DW_AT_LANGUAGE as u64);
+    push_uleb128(&mut data, DW_FORM_DATA2 as u64);
+    push_uleb128(&mut data, DW_AT_NAME as u64);
+    push_uleb128(&mut data, DW_FORM_STRP as u64);
+    push_uleb128(&mut data, DW_AT_COMP_DIR as u64);
+    push_uleb128(&mut data, DW_FORM_STRP as u64);
+    push_uleb128(&mut data, DW_AT_LOW_PC as u64);
+    push_uleb128(&mut data, DW_FORM_ADDR as u64);
+    push_uleb128(&mut data, DW_AT_HIGH_PC as u64);
+    push_uleb128(&mut data, DW_FORM_ADDR as u64);
+    push_uleb128(&mut data, DW_AT_STMT_LIST as u64);
+    push_uleb128(&mut data, DW_FORM_SEC_OFFSET as u64);
     data.push(0); // end of attributes
     data.push(0);
 
     // Abbreviation 2: Subprogram
-    data.extend(&self.encode_uleb128(2));
-    data.extend(&self.encode_uleb128(DW_TAG_SUBPROGRAM as u32));
+    push_uleb128(&mut data, 2_u64);
+    push_uleb128(&mut data, DW_TAG_SUBPROGRAM as u64);
     data.push(DW_CHILDREN_NO);
 
-    data.extend(&self.encode_uleb128(DW_AT_NAME as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_STRP as u32));
-    data.extend(&self.encode_uleb128(DW_AT_LOW_PC as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_ADDR as u32));
-    data.extend(&self.encode_uleb128(DW_AT_HIGH_PC as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_ADDR as u32));
-    data.extend(&self.encode_uleb128(DW_AT_TYPE as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_REF4 as u32));
-    data.extend(&self.encode_uleb128(DW_AT_EXTERNAL as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_FLAG as u32));
+    push_uleb128(&mut data, DW_AT_NAME as u64);
+    push_uleb128(&mut data, DW_FORM_STRP as u64);
+    push_uleb128(&mut data, DW_AT_LOW_PC as u64);
+    push_uleb128(&mut data, DW_FORM_ADDR as u64);
+    push_uleb128(&mut data, DW_AT_HIGH_PC as u64);
+    push_uleb128(&mut data, DW_FORM_ADDR as u64);
+    push_uleb128(&mut data, DW_AT_TYPE as u64);
+    push_uleb128(&mut data, DW_FORM_REF4 as u64);
+    push_uleb128(&mut data, DW_AT_EXTERNAL as u64);
+    push_uleb128(&mut data, DW_FORM_FLAG as u64);
     data.push(0);
     data.push(0);
 
     // Abbreviation 3: Variable
-    data.extend(&self.encode_uleb128(3));
-    data.extend(&self.encode_uleb128(DW_TAG_VARIABLE as u32));
+    push_uleb128(&mut data, 3_u64);
+    push_uleb128(&mut data, DW_TAG_VARIABLE as u64);
     data.push(DW_CHILDREN_NO);
 
-    data.extend(&self.encode_uleb128(DW_AT_NAME as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_STRP as u32));
-    data.extend(&self.encode_uleb128(DW_AT_TYPE as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_REF4 as u32));
-    data.extend(&self.encode_uleb128(DW_AT_LOCATION as u32));
-    data.extend(&self.encode_uleb128(DW_FORM_ADDR as u32));
+    push_uleb128(&mut data, DW_AT_NAME as u64);
+    push_uleb128(&mut data, DW_FORM_STRP as u64);
+    push_uleb128(&mut data, DW_AT_TYPE as u64);
+    push_uleb128(&mut data, DW_FORM_REF4 as u64);
+    push_uleb128(&mut data, DW_AT_LOCATION as u64);
+    push_uleb128(&mut data, DW_FORM_ADDR as u64);
     data.push(0);
     data.push(0);
 
@@ -4977,9 +4951,9 @@ impl MachO {
     for file in &self.debug_files {
       data.extend(file.as_bytes());
       data.push(0); // null terminator
-      data.extend(&self.encode_uleb128(0)); // directory index
-      data.extend(&self.encode_uleb128(0)); // modification time
-      data.extend(&self.encode_uleb128(0)); // file size
+      push_uleb128(&mut data, 0_u64); // directory index
+      push_uleb128(&mut data, 0_u64); // modification time
+      push_uleb128(&mut data, 0_u64); // file size
     }
 
     data.push(0); // end of file names
@@ -5000,7 +4974,7 @@ impl MachO {
       // Set file if changed
       if entry.file_index != current_file {
         data.push(0x04); // DW_LNS_set_file
-        data.extend(&self.encode_uleb128(entry.file_index + 1)); // 1-based
+        push_uleb128(&mut data, (entry.file_index + 1) as u64); // 1-based
 
         current_file = entry.file_index;
       }
@@ -5008,7 +4982,7 @@ impl MachO {
       // Set address
       if entry.address != current_address {
         data.push(0); // extended opcode
-        data.extend(&self.encode_uleb128(9)); // length
+        push_uleb128(&mut data, 9_u64); // length
         data.push(0x02); // DW_LNE_set_address
         data.extend(&entry.address.to_le_bytes());
 
@@ -5037,7 +5011,7 @@ impl MachO {
       // Set column if needed
       if entry.column > 0 {
         data.push(0x05); // DW_LNS_set_column
-        data.extend(&self.encode_uleb128(entry.column));
+        push_uleb128(&mut data, entry.column as u64);
       }
 
       // Set is_stmt if needed
@@ -5048,7 +5022,7 @@ impl MachO {
 
     // End sequence
     data.push(0); // extended opcode
-    data.extend(&self.encode_uleb128(1));
+    push_uleb128(&mut data, 1_u64);
     data.push(0x01); // DW_LNE_end_sequence
 
     // Update unit_length
@@ -6168,7 +6142,7 @@ impl MachO {
       // SET_SEGMENT_AND_OFFSET_ULEB | segment
       data.push(BIND_OPCODE_SET_SEGMENT_AND_OFFSET | segment);
       // Encode offset as ULEB128.
-      Self::push_uleb128(&mut data, offset);
+      push_uleb128(&mut data, offset);
 
       // DO_BIND
       data.push(BIND_OPCODE_DO_BIND);
@@ -6178,25 +6152,6 @@ impl MachO {
     data.push(BIND_OPCODE_DONE);
 
     data
-  }
-
-  /// Encodes a u64 value as ULEB128 into a byte buffer.
-  fn push_uleb128(buf: &mut Vec<u8>, mut val: u64) {
-    loop {
-      let mut byte = (val & 0x7F) as u8;
-
-      val >>= 7;
-
-      if val != 0 {
-        byte |= 0x80;
-      }
-
-      buf.push(byte);
-
-      if val == 0 {
-        break;
-      }
-    }
   }
 }
 
