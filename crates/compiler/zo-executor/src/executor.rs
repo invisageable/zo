@@ -2594,6 +2594,12 @@ impl<'a> Executor<'a> {
               self.value_stack.push(closure_val);
               self.ty_stack.push(fun_ty);
               self.sir_values.push(ValueId(u32::MAX));
+            } else if sym_str == "channel" && self.ident_is_call_target(idx) {
+              // `channel` is a compiler intrinsic per
+              // PLAN_CHANNELS Phase 4, not a FunDef — skip
+              // the undefined-variable report here and let
+              // `execute_potential_call` route the RParen
+              // through `execute_channel_builtin`.
             } else if !is_fun && !is_enum && !is_struct && !is_pack {
               let span = self.tree.spans[idx];
 

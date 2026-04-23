@@ -1,0 +1,13 @@
+-- @emit sir
+--
+-- Phase 8 of PLAN_CHANNELS. Explicit capacity lands on
+-- `chan.new`'s `cap=` field as a literal integer —
+-- Phase 0 decision 5 enforced by the executor's literal
+-- check.
+
+fun main() {
+  nursery {
+    -- CHECK: chan.new cap=4
+    imu ch := channel(4);
+  }
+}

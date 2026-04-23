@@ -1,0 +1,14 @@
+-- @emit sir
+--
+-- Phase 8 of PLAN_CHANNELS. A bare `nursery { }` scope
+-- emits exactly one `nursery.begin` / `nursery.end` pair
+-- around the (empty) body. The scope carries no executable
+-- code at codegen (the join semantics live in the runtime);
+-- the SIR markers survive so the validator + copilord
+-- downstream passes can see the structure.
+
+fun main() {
+  -- CHECK: nursery.begin
+  nursery {}
+  -- CHECK: nursery.end
+}

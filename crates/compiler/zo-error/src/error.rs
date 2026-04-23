@@ -188,11 +188,6 @@ pub enum ErrorKind {
   UndefinedTypeParam,
   MissingDollarPrefix,
 
-  // Structured-concurrency errors (PLAN_CHANNELS Phase 0).
-  SpawnOutsideNursery, // `spawn` without enclosing `nursery { }`
-  AwaitOnNonTask,      // `await expr` where expr is not `Ty::Task(_)`
-  ChannelCapacityNotLiteral, // `channel(N)` with non-literal N
-
   // Constant folding errors
   DivisionByZero,
   RemainderByZero,
@@ -236,4 +231,10 @@ pub enum ErrorKind {
   StrSliceRequiresStr,
   StrSliceOutOfBounds,
   StrSliceInvalidRange,
+
+  // Structured-concurrency errors, PLAN_CHANNELS Phase 0
+  // (appended to preserve existing error codes).
+  SpawnOutsideNursery, // `spawn` without enclosing `nursery { }`
+  AwaitOnNonTask,      // `await expr` where expr is not `Ty::Task(_)`
+  ChannelCapacityNotLiteral, // `channel(N)` with non-literal N
 }
