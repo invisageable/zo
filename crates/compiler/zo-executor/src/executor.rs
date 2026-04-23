@@ -8701,11 +8701,15 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
-    // Element type flows from the Channel's T; unify with
-    // the sent value so a fresh-var `T` gets pinned to the
+    // Element type flows from the Tx's T; unify with the
+    // sent value so a fresh-var `T` gets pinned to the
     // concrete send-site type (first-use inference).
+    // PLAN_PREHISTORY Phase 1: receiver must be `Tx<T>` —
+    // an `Rx<T>` never reaches this arm because the
+    // dispatch guard in `execute_potential_call` checks
+    // for `Ty::ChannelTx` before routing here.
     let elem_ty = match self.ty_checker.kind_of(recv_ty) {
-      Ty::Channel(t) => t,
+      Ty::ChannelTx(t) => t,
       _ => self.ty_checker.fresh_var(),
     };
 
@@ -8732,8 +8736,10 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
+    // PLAN_PREHISTORY Phase 1: receiver must be `Rx<T>` —
+    // the dispatch guard ensures this before routing here.
     let elem_ty = match self.ty_checker.kind_of(recv_ty) {
-      Ty::Channel(t) => t,
+      Ty::ChannelRx(t) => t,
       _ => self.ty_checker.fresh_var(),
     };
 
@@ -11572,10 +11578,16 @@ impl<'a> Executor<'a> {
               {
                 // Channel built-in methods — intercepted
                 // before `resolve_dot_call` because there's
-                // no user-defined `Channel::send` / `::recv`
-                // FunDef to match against. The receiver for
-                // `send` is two back on the stack (arg is
-                // top); for `recv` it's on top.
+                // no user-defined `Tx::send` / `Rx::recv`
+                // FunDef to match against. PLAN_PREHISTORY
+                // Phase 1 D7: `send` is only valid on
+                // `Ty::ChannelTx(_)`, `recv` only on
+                // `Ty::ChannelRx(_)`. Crossed calls
+                // (`rx.send()` / `tx.recv()`) report a
+                // hard `InvalidMethodCall` — otherwise
+                // the fall-through path would silently
+                // treat the method name as an unresolved
+                // external function.
                 let name_str = self.interner.get(fun_name);
 
                 if name_str == "send"
@@ -11583,20 +11595,48 @@ impl<'a> Executor<'a> {
                     .ty_stack
                     .get(self.ty_stack.len().saturating_sub(2))
                     .copied()
-                  && matches!(self.ty_checker.kind_of(recv_ty), Ty::Channel(_))
                 {
-                  self.execute_channel_send(lparen_idx, rparen_idx);
+                  match self.ty_checker.kind_of(recv_ty) {
+                    Ty::ChannelTx(_) => {
+                      self.execute_channel_send(lparen_idx, rparen_idx);
 
-                  return;
+                      return;
+                    }
+                    Ty::ChannelRx(_) => {
+                      let span = self.tree.spans[fun_idx];
+
+                      report_error(Error::new(
+                        ErrorKind::InvalidMethodCall,
+                        span,
+                      ));
+
+                      return;
+                    }
+                    _ => {}
+                  }
                 }
 
                 if name_str == "recv"
                   && let Some(recv_ty) = self.ty_stack.last().copied()
-                  && matches!(self.ty_checker.kind_of(recv_ty), Ty::Channel(_))
                 {
-                  self.execute_channel_recv(lparen_idx, rparen_idx);
+                  match self.ty_checker.kind_of(recv_ty) {
+                    Ty::ChannelRx(_) => {
+                      self.execute_channel_recv(lparen_idx, rparen_idx);
 
-                  return;
+                      return;
+                    }
+                    Ty::ChannelTx(_) => {
+                      let span = self.tree.spans[fun_idx];
+
+                      report_error(Error::new(
+                        ErrorKind::InvalidMethodCall,
+                        span,
+                      ));
+
+                      return;
+                    }
+                    _ => {}
+                  }
                 }
 
                 // Dot-call: tree [recv, ., method, (, )].
@@ -11665,31 +11705,51 @@ impl<'a> Executor<'a> {
             }
 
             // Channel built-in methods: `tx.send(value)` /
-            // `rx.recv()`. Phase 0 decision 2 — `Tx` and
-            // `Rx` share a single `Ty::Channel(T)` at the
-            // type layer; the send/recv asymmetry is API-
-            // enforced here, not via typestate.
-            // `send` peeks two values back (receiver + arg);
-            // `recv` peeks only the receiver.
+            // `rx.recv()`. PLAN_PREHISTORY Phase 1 D7:
+            // crossed calls (`rx.send()` / `tx.recv()`)
+            // get a hard `InvalidMethodCall` diagnostic
+            // instead of falling through silently.
             if ms == "send"
               && let Some(recv_ty) = self
                 .ty_stack
                 .get(self.ty_stack.len().saturating_sub(2))
                 .copied()
-              && matches!(self.ty_checker.kind_of(recv_ty), Ty::Channel(_))
             {
-              self.execute_channel_send(lparen_idx, rparen_idx);
+              match self.ty_checker.kind_of(recv_ty) {
+                Ty::ChannelTx(_) => {
+                  self.execute_channel_send(lparen_idx, rparen_idx);
 
-              return;
+                  return;
+                }
+                Ty::ChannelRx(_) => {
+                  let span = self.tree.spans[method_idx];
+
+                  report_error(Error::new(ErrorKind::InvalidMethodCall, span));
+
+                  return;
+                }
+                _ => {}
+              }
             }
 
             if ms == "recv"
               && let Some(recv_ty) = self.ty_stack.last().copied()
-              && matches!(self.ty_checker.kind_of(recv_ty), Ty::Channel(_))
             {
-              self.execute_channel_recv(lparen_idx, rparen_idx);
+              match self.ty_checker.kind_of(recv_ty) {
+                Ty::ChannelRx(_) => {
+                  self.execute_channel_recv(lparen_idx, rparen_idx);
 
-              return;
+                  return;
+                }
+                Ty::ChannelTx(_) => {
+                  let span = self.tree.spans[method_idx];
+
+                  report_error(Error::new(ErrorKind::InvalidMethodCall, span));
+
+                  return;
+                }
+                _ => {}
+              }
             }
 
             let mangled = self.resolve_dot_call(method_idx, method_sym);
@@ -11877,7 +11937,13 @@ impl<'a> Executor<'a> {
     // Element type is a fresh inference var; concrete T
     // flows in from the first `send` / `recv` unification.
     let elem_ty = self.ty_checker.fresh_var();
-    let channel_ty = self.ty_checker.channel_type(elem_ty);
+    // PLAN_PREHISTORY Phase 1 D7: the tuple halves are now
+    // typed distinctly — `(Tx<T>, Rx<T>)` — so `.send()`
+    // is statically rejected on the rx handle and vice
+    // versa. Runtime ABI is unchanged; both halves still
+    // point at the same `ZoChan`.
+    let tx_ty = self.ty_checker.channel_tx_type(elem_ty);
+    let rx_ty = self.ty_checker.channel_rx_type(elem_ty);
 
     let tx = ValueId(self.sir.next_value_id);
 
@@ -11894,9 +11960,10 @@ impl<'a> Executor<'a> {
       capacity,
     });
 
-    // Pair `tx` and `rx` into a tuple so the existing
-    // tuple-destructure path can unpack them.
-    let elem_tys = vec![channel_ty, channel_ty];
+    // Pair `tx` and `rx` into a heterogeneous tuple so
+    // the existing tuple-destructure / field-access
+    // paths can unpack them with their distinct types.
+    let elem_tys = vec![tx_ty, rx_ty];
     let tuple_ty_id = self.ty_checker.ty_table.intern_tuple(elem_tys);
     let ty_id = self.ty_checker.intern_ty(Ty::Tuple(tuple_ty_id));
     let dst = ValueId(self.sir.next_value_id);

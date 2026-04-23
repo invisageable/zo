@@ -245,9 +245,14 @@ impl TyChecker {
     self.intern_ty(Ty::Template)
   }
 
-  /// Intern a `Channel<T>` type where `elem_ty` is `T`.
-  pub fn channel_type(&mut self, elem_ty: TyId) -> TyId {
-    self.intern_ty(Ty::Channel(elem_ty))
+  /// Intern a `Tx<T>` sender type where `elem_ty` is `T`.
+  pub fn channel_tx_type(&mut self, elem_ty: TyId) -> TyId {
+    self.intern_ty(Ty::ChannelTx(elem_ty))
+  }
+
+  /// Intern an `Rx<T>` receiver type where `elem_ty` is `T`.
+  pub fn channel_rx_type(&mut self, elem_ty: TyId) -> TyId {
+    self.intern_ty(Ty::ChannelRx(elem_ty))
   }
 
   /// Intern a `Task<T>` type where `return_ty` is `T`.
@@ -435,8 +440,18 @@ impl TyChecker {
         Some(self.resolve_id(repr1))
       }
 
-      // Channel types — unify element types.
-      (Ty::Channel(e1), Ty::Channel(e2)) => {
+      // Channel sender halves — unify element types.
+      // `Tx<T>` unifies only with `Tx<T'>` where `T` and
+      // `T'` unify; Tx/Rx mixtures fall through to the
+      // concrete-mismatch arm and report TypeMismatch.
+      (Ty::ChannelTx(e1), Ty::ChannelTx(e2)) => {
+        self.unify(e1, e2, span)?;
+
+        Some(self.resolve_id(repr1))
+      }
+
+      // Channel receiver halves — unify element types.
+      (Ty::ChannelRx(e1), Ty::ChannelRx(e2)) => {
         self.unify(e1, e2, span)?;
 
         Some(self.resolve_id(repr1))
