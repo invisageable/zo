@@ -9,7 +9,7 @@ use zo_emitter_arm::{
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
-use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::TyId;
 use zo_value::ValueId;
 use zo_writer_macho::{DATA_VM_ADDR, DebugFrameEntry, MachO};
@@ -2515,8 +2515,16 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(dst_reg, X0);
         }
       }
-      Insn::TaskSpawn { dst, .. } => {
-        self.emit_extern_call("_zo_task_spawn");
+      Insn::TaskSpawn { dst, kind, .. } => {
+        // PLAN_PREHISTORY Phase 4 — two-tier spawn.
+        // Green → scheduler-multiplexed; Thread →
+        // fresh OS thread via pthread_create.
+        let runtime_sym = match kind {
+          SpawnKind::Green => "_zo_task_spawn",
+          SpawnKind::Thread => "_zo_task_spawn_thread",
+        };
+
+        self.emit_extern_call(runtime_sym);
 
         if let Some(dst_reg) = self.alloc_reg(*dst)
           && dst_reg != X0

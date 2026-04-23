@@ -631,11 +631,18 @@ pub enum Insn {
   /// handle whose type is `Ty::Task(callee_return_ty)`.
   /// Must appear inside a `NurseryBegin` / `NurseryEnd`
   /// span — enforced by the executor, not the validator.
+  ///
+  /// `kind` distinguishes the two-tier spawn model from
+  /// `PLAN_PREHISTORY.md` Phase 4: `Green` multiplexes on
+  /// the current scheduler (cheap, cooperative), `Thread`
+  /// spawns a dedicated OS thread (expensive, preemptive,
+  /// real multi-core parallelism).
   TaskSpawn {
     dst: ValueId,
     callee: Symbol,
     args: Vec<ValueId>,
     ty_id: TyId,
+    kind: SpawnKind,
   },
   /// Suspend until `task` completes, then bind the task's
   /// result value to `dst`. `ty_id` is the unwrapped result
@@ -658,6 +665,22 @@ pub enum Insn {
 }
 
 /// Represents binary operators.
+/// Discriminator for `Insn::TaskSpawn` — green task on
+/// the current scheduler vs fresh OS thread per
+/// `PLAN_PREHISTORY.md` Phase 4 two-tier spawn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpawnKind {
+  /// Multiplex on the current scheduler. Cheap
+  /// (~KB stack), cooperative, yields at channel /
+  /// await boundaries.
+  Green,
+  /// Fresh OS thread via `pthread_create`. Expensive
+  /// (~MB stack), kernel-preemptive, real multi-core
+  /// parallelism. Used via the `spawn thread fn()`
+  /// surface form.
+  Thread,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BinOp {
   /// `+`

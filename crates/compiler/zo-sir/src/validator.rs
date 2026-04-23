@@ -540,7 +540,7 @@ const _: fn(&LoadSource) = |_| {};
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::BinOp;
+  use crate::{BinOp, SpawnKind};
   use zo_value::FunctionKind;
 
   fn vid(n: u32) -> ValueId {
@@ -774,6 +774,7 @@ mod tests {
         callee: sym(1),
         args: vec![vid(0)],
         ty_id: task_ty,
+        kind: SpawnKind::Green,
       },
       Insn::ChannelRecv {
         dst: vid(3),

@@ -2,7 +2,7 @@ use zo_constant_folding::{ConstFold, FoldResult, Operand};
 use zo_error::{Error, ErrorKind};
 use zo_interner::{Interner, Symbol};
 use zo_reporter::report_error;
-use zo_sir::{BinOp, Insn, LoadSource, Sir, TemplateBindings, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, TemplateBindings, UnOp};
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
@@ -282,11 +282,13 @@ pub struct Executor<'a> {
   /// Set when a `Token::Spawn` introducer is entered and
   /// cleared as soon as the enclosed call finalizes — at
   /// which point the executor emits `TaskSpawn` instead of
-  /// `Call`. The tuple is `(spawn_node_idx, rparen_idx)` so
-  /// the main loop can close the Spawn introducer and the
-  /// call-emission path can recognize the redirect without
-  /// ambiguity.
-  pending_spawn: Option<(usize, usize)>,
+  /// `Call`. The tuple is `(spawn_node_idx, rparen_idx,
+  /// kind)`: the first two let the call-emission path
+  /// recognize the redirect; `kind` distinguishes the
+  /// PLAN_PREHISTORY Phase 4 two-tier spawn — `Green`
+  /// (scheduler-multiplexed) vs `Thread` (fresh OS
+  /// thread via `spawn thread fn()`).
+  pending_spawn: Option<(usize, usize, SpawnKind)>,
 }
 
 /// An `abstract` definition (method signatures, no bodies).
@@ -10958,8 +10960,11 @@ impl<'a> Executor<'a> {
   /// Opens a `spawn callee(args)` site. Phase 0 decision 3:
   /// refuse any spawn not lexically inside a `nursery { }`.
   /// On success, records `pending_spawn = (spawn_idx,
-  /// rparen_idx)` so the call-emit path can redirect the
-  /// upcoming `Call` into a `TaskSpawn`.
+  /// rparen_idx, kind)` so the call-emit path can
+  /// redirect the upcoming `Call` into a `TaskSpawn`
+  /// with the correct kind. PLAN_PREHISTORY Phase 4:
+  /// a leading `Token::Thread` marker in the Spawn's
+  /// children signals the OS-thread variant.
   fn execute_spawn(&mut self, idx: usize, header: &NodeHeader) {
     if self.nursery_stack.is_empty() {
       let span = self.tree.spans[idx];
@@ -10969,14 +10974,28 @@ impl<'a> Executor<'a> {
       return;
     }
 
+    let children_end = (header.child_start + header.child_count) as usize;
+
+    // Kind detection — if the first child is a
+    // synthetic `Token::Thread` marker, this is a
+    // `spawn thread fn()` (OS-thread spawn). The
+    // parser emits that marker only when it
+    // contextually recognized the `thread` modifier
+    // between `spawn` and the callee ident.
+    let kind = if idx + 1 < children_end
+      && self.tree.nodes[idx + 1].token == Token::Thread
+    {
+      SpawnKind::Thread
+    } else {
+      SpawnKind::Green
+    };
+
     // The Spawn's body is a call expression. Its trailing
     // `Semicolon` may or may not be a child (depending on
     // the statement shape), so scan backwards from the end
     // of the child range for the first `RParen` — that's
     // the call's closing paren that the call-emit path
     // will use as its match key.
-    let children_end = (header.child_start + header.child_count) as usize;
-
     let mut rparen_idx = None;
 
     for i in (idx + 1..children_end).rev() {
@@ -10988,7 +11007,7 @@ impl<'a> Executor<'a> {
     }
 
     if let Some(rp) = rparen_idx {
-      self.pending_spawn = Some((idx, rp));
+      self.pending_spawn = Some((idx, rp, kind));
     }
   }
 
@@ -12470,12 +12489,16 @@ impl<'a> Executor<'a> {
       // instead of `Call` and wrap the handle in `Ty::Task`.
       // The call's own arg/type resolution has already run
       // above; we only swap the emission tail.
-      let spawned = matches!(
-        self.pending_spawn,
-        Some((_, rp)) if rp == rparen_idx
-      );
+      // Extract the pending-spawn kind if its rparen
+      // matches this call's rparen. `Some(kind)` means
+      // redirect `Call` → `TaskSpawn` with that kind;
+      // `None` means emit the normal `Call`.
+      let spawned = match self.pending_spawn {
+        Some((_, rp, kind)) if rp == rparen_idx => Some(kind),
+        _ => None,
+      };
 
-      let result_sir = if spawned {
+      let result_sir = if let Some(kind) = spawned {
         self.pending_spawn = None;
 
         let task_ty = self.ty_checker.task_type(resolved_ret);
@@ -12485,6 +12508,7 @@ impl<'a> Executor<'a> {
           callee: call_name,
           args: arg_sirs,
           ty_id: task_ty,
+          kind,
         });
 
         let result_val = self.values.store_runtime(0);

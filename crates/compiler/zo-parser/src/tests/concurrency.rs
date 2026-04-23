@@ -18,7 +18,7 @@ use crate::tests::common::assert_nodes_stream;
 
 use zo_token::Token::{
   Await, ColonEq, Fun, Ident, Imu, LBrace, LParen, Nursery, RBrace, RParen,
-  Semicolon, Spawn,
+  Semicolon, Spawn, Thread,
 };
 use zo_tree::NodeValue;
 
@@ -192,6 +192,76 @@ fn nursery_multiple_spawns_flat() {
       (Semicolon, None),
       (Spawn, None),
       (Ident, Some(NodeValue::TextRange(0, 1))), // "b"
+      (LParen, None),
+      (RParen, None),
+      (Semicolon, None),
+      (RBrace, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
+fn spawn_thread_emits_thread_marker() {
+  // `spawn thread worker()` lowers to `Spawn Thread
+  // Ident(worker) LParen RParen Semicolon`. The
+  // `Thread` marker is synthetic — emitted by the
+  // parser after it recognizes the contextual
+  // modifier; the tokenizer still lexes "thread" as
+  // a regular `Ident`, so user code remains free to
+  // use it as an identifier elsewhere.
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        nursery {
+          spawn thread worker();
+        }
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "main"
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      (Nursery, None),
+      (LBrace, None),
+      (Spawn, None),
+      (Thread, None),
+      (Ident, Some(NodeValue::TextRange(0, 6))), // "worker"
+      (LParen, None),
+      (RParen, None),
+      (Semicolon, None),
+      (RBrace, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
+fn plain_spawn_does_not_emit_thread_marker() {
+  // Sanity: make sure the contextual recognition
+  // doesn't false-positive on `spawn foo()` — no
+  // Thread marker should appear between Spawn and
+  // the callee Ident.
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        nursery {
+          spawn thread();
+        }
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "main"
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      (Nursery, None),
+      (LBrace, None),
+      (Spawn, None),
+      (Ident, Some(NodeValue::TextRange(0, 6))), // "thread" (the callee)
       (LParen, None),
       (RParen, None),
       (Semicolon, None),

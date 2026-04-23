@@ -34,6 +34,18 @@ pub enum Token {
   Loop,
   Nursery,
   Spawn,
+  /// Synthetic marker emitted by the parser when it
+  /// recognizes the contextual `thread` modifier
+  /// after `spawn` (`spawn thread fn()`). The
+  /// tokenizer does NOT produce this variant — it
+  /// still lexes the user-written word `thread` as
+  /// a plain `Ident`, so user code remains free to
+  /// name variables / functions / types `thread`.
+  /// This variant only exists in the parse tree,
+  /// distinguishing `spawn thread fn()` (OS thread)
+  /// from `spawn fn()` (green task) for downstream
+  /// SIR / codegen.
+  Thread,
   Await,
   Pack,
   Load,

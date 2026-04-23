@@ -1644,8 +1644,48 @@ impl<'a> Parser<'a> {
       children_start: self.tree.nodes.len() as u32,
     });
 
+    // Contextual `thread` modifier — `spawn thread
+    // worker()`. The tokenizer treats "thread" as a
+    // plain `Ident`, so it stays a valid identifier in
+    // user code; the parser collapses the pattern
+    // `Spawn Ident("thread") Ident(callee)` by
+    // consuming the marker and emitting a synthetic
+    // `Token::Thread` node. Mirrors the `As` handler's
+    // pos-advance-and-emit precedent.
+    if self.peek_is_contextual_thread() {
+      self.pos += 1;
+
+      self.emit_node(Token::Thread);
+    }
+
     // Body expression (the call) follows.
     self.state = ParserState::Expression;
+  }
+
+  /// True when the upcoming tokens shape `spawn thread
+  /// <callee>` — i.e. the next token is an `Ident`
+  /// whose source text is exactly `"thread"` AND the
+  /// token after it is ALSO an `Ident` (the callee
+  /// name). The double-ident guard avoids a false
+  /// positive on `spawn thread()` (spawning a user
+  /// function named `thread`).
+  fn peek_is_contextual_thread(&self) -> bool {
+    if self.pos + 2 >= self.tokens.kinds.len() {
+      return false;
+    }
+
+    if self.tokens.kinds[self.pos + 1] != Token::Ident {
+      return false;
+    }
+
+    if self.tokens.kinds[self.pos + 2] != Token::Ident {
+      return false;
+    }
+
+    let start = self.tokens.starts[self.pos + 1] as usize;
+    let len = self.tokens.lengths[self.pos + 1] as usize;
+
+    &self.source[start..start + len] == "thread"
   }
 
   fn handle_directive(&mut self) {

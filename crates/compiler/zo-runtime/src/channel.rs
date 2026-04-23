@@ -41,11 +41,11 @@
 //! `_zo_chan_new` / `_zo_chan_send` / `_zo_chan_recv`
 //! and those symbols still resolve.
 
-use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
-
 use crate::scheduler;
 use crate::task::{TaskState, ZoTask};
+
+use std::collections::VecDeque;
+use std::sync::{Arc, Condvar, Mutex};
 
 /// Per-channel runtime state. Heap-allocated; zo code
 /// holds only the opaque `*mut ZoChan` handle.

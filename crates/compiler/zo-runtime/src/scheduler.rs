@@ -24,11 +24,11 @@
 //! deadlock under contention. Tests in this module
 //! only exercise spawn / yield / await.
 
-use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
-
 use crate::ctxsw::{Context, ctx_switch};
 use crate::task::{TaskState, ZoTask};
+
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 
 // ===== Scheduler state (thread-local) =====
 

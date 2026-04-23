@@ -3,7 +3,7 @@ use crate::printee::Printee;
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, Target};
 use zo_interner::Interner;
-use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_token::{Token, TokenBuffer};
 use zo_tree::Tree;
 use zo_ty::Mutability;
@@ -512,14 +512,23 @@ impl PrettyPrinter {
           callee,
           args,
           ty_id,
+          kind,
         } => {
           let name = interner.get(*callee);
+
           let args_str = args
             .iter()
             .map(|a| format!("%{a}"))
             .collect::<Vec<_>>()
             .join(", ");
-          let c = format!("%{dst} = task.spawn {name}({args_str}) : {ty_id:?}");
+
+          let kind_str = match kind {
+            SpawnKind::Green => "spawn",
+            SpawnKind::Thread => "spawn_thread",
+          };
+
+          let c =
+            format!("%{dst} = task.{kind_str} {name}({args_str}) : {ty_id:?}");
 
           self.sir_instruction(&c);
         }
