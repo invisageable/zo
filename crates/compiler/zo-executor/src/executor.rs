@@ -2,7 +2,9 @@ use zo_constant_folding::{ConstFold, FoldResult, Operand};
 use zo_error::{Error, ErrorKind};
 use zo_interner::{Interner, Symbol};
 use zo_reporter::report_error;
-use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, TemplateBindings, UnOp};
+use zo_sir::{
+  BinOp, Insn, LoadSource, NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
+};
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
@@ -3199,6 +3201,12 @@ impl<'a> Executor<'a> {
       }
       Token::Await => {
         self.execute_await(idx);
+      }
+      Token::Select => {
+        self.execute_select(idx, header);
+      }
+      Token::Supervise => {
+        self.execute_supervise(idx, header);
       }
 
       Token::Break => {
@@ -10940,7 +10948,27 @@ impl<'a> Executor<'a> {
     let label = self.sir.next_label();
 
     self.nursery_stack.push((label, rbrace_idx));
-    self.sir.emit(Insn::NurseryBegin { label });
+    self.sir.emit(Insn::NurseryBegin {
+      label,
+      kind: NurseryKind::Scoped,
+    });
+  }
+
+  /// Same shape as [`execute_nursery`] but emits a
+  /// `Supervised`-kind `NurseryBegin`, per
+  /// `PLAN_PREHISTORY.md` Phase 6 D8. The runtime
+  /// uses the kind to decide whether a panic cascades
+  /// past the scope.
+  fn execute_supervise(&mut self, _idx: usize, header: &NodeHeader) {
+    let children_end = (header.child_start + header.child_count) as usize;
+    let rbrace_idx = children_end.saturating_sub(1);
+    let label = self.sir.next_label();
+
+    self.nursery_stack.push((label, rbrace_idx));
+    self.sir.emit(Insn::NurseryBegin {
+      label,
+      kind: NurseryKind::Supervised,
+    });
   }
 
   /// If `rbrace_idx` matches the top of `nursery_stack`, pop
@@ -11059,6 +11087,48 @@ impl<'a> Executor<'a> {
     self.value_stack.push(slot);
     self.ty_stack.push(inner_ty);
     self.sir_values.push(dst_sir);
+  }
+
+  /// Executes a `select { arm, arm, ... }` scope per
+  /// `PLAN_PREHISTORY.md` Phase 5. The MVP emits a
+  /// `SelectWait` marker insn up front; each arm is
+  /// parsed + walked by the main loop as normal
+  /// (rx expressions push ValueIds on the stack,
+  /// closure arms emit their own `FunDef`s). A
+  /// richer Phase 5b pass will:
+  ///
+  /// 1. Scan arm expressions to build the `chans`
+  ///    array on the SelectWait insn.
+  /// 2. Emit per-arm `BranchIfNot` + `Label`
+  ///    dispatch after the wait returns.
+  /// 3. Bind the received value to each arm's
+  ///    closure parameter from `out_value`.
+  ///
+  /// Phase 5 lands the pipeline skeleton: parser ➜
+  /// SIR ➜ codegen ➜ runtime — `_zo_select_wait` is
+  /// linkable and callable, programs using `select`
+  /// type-check, and a follow-up wires the dispatch
+  /// semantics end-to-end.
+  fn execute_select(&mut self, _idx: usize, _header: &NodeHeader) {
+    // Placeholder: emit a bare `SelectWait` with no
+    // channels. Full arm collection + dispatch is
+    // Phase 5b.
+    let out_which = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let out_value = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let elem_ty = self.ty_checker.fresh_var();
+
+    self.sir.emit(Insn::SelectWait {
+      out_which,
+      out_value,
+      chans: Vec::new(),
+      elem_ty,
+    });
   }
 
   /// Executes return statement - acts as an introducer.

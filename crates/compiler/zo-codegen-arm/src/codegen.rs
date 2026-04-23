@@ -2548,6 +2548,24 @@ impl<'a> ARM64Gen<'a> {
       // downstream passes.
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
 
+      // PLAN_PREHISTORY Phase 5 — selective receive.
+      // Emits `BL _zo_select_wait`; caller's generated
+      // code supplies the channels array, out_value
+      // buffer, and reads the returned arm index from
+      // X0 for dispatch. The per-arm dispatch (jump
+      // tables) is upstream codegen work when the
+      // executor emits the surrounding
+      // `BranchIfNot` / `Jump` / `Label` sequence.
+      Insn::SelectWait { out_which, .. } => {
+        self.emit_extern_call("_zo_select_wait");
+
+        if let Some(dst_reg) = self.alloc_reg(*out_which)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+
       _ => {}
     }
   }

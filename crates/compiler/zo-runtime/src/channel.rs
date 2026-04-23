@@ -359,6 +359,59 @@ pub unsafe extern "C" fn _zo_chan_recv(chan: *mut ZoChan, dst: *mut u8) {
   }
 }
 
+/// Non-blocking recv for use by the `select`
+/// primitive (see `select.rs`). Returns `true` iff a
+/// value was available and copied into `dst`.
+/// Unlike `_zo_chan_recv`, this function never parks
+/// the caller — if the channel is empty it returns
+/// `false` immediately.
+///
+/// When a value IS popped, this wakes one parked
+/// sender (same policy as `_zo_chan_recv`) so the
+/// channel keeps flowing.
+///
+/// # Safety
+///
+/// - `chan` must be a live `*mut ZoChan`.
+/// - `dst` must point to at least `elem_sz` writable
+///   bytes matching the channel's element size.
+pub unsafe fn try_recv_nonblocking(
+  chan: *mut ZoChan,
+  dst: *mut u8,
+  elem_sz: usize,
+) -> bool {
+  // SAFETY: caller contract.
+  let ch = unsafe { &*chan };
+
+  debug_assert_eq!(
+    ch.elem_sz, elem_sz,
+    "select arm's elem_sz must match the channel's",
+  );
+
+  let mut guard = ch.inner.lock().expect("zo-chan poisoned");
+
+  let buf = match guard.queue.pop_front() {
+    Some(b) => b,
+    None => return false,
+  };
+
+  // SAFETY: `buf.len() == elem_sz` by construction
+  // in `_zo_chan_send`; dst writable per caller.
+  unsafe {
+    std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, ch.elem_sz);
+  }
+
+  let waker = guard.senders.pop_front();
+
+  drop(guard);
+
+  if let Some(w) = waker {
+    wake(w);
+  }
+
+  true
+}
+
 /// Release a channel.
 ///
 /// # Safety

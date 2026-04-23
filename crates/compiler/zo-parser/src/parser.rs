@@ -362,7 +362,9 @@ impl<'a> Parser<'a> {
       // operand so it works in mid-expression contexts
       // (e.g. `showln(await task)`).
       Token::Nursery => self.handle_nursery_keyword(),
+      Token::Select => self.handle_select_keyword(),
       Token::Spawn => self.handle_spawn_keyword(),
+      Token::Supervise => self.handle_supervise_keyword(),
       Token::Await => self.handle_unary_operator(kind),
 
       // Directives
@@ -938,6 +940,13 @@ impl<'a> Parser<'a> {
             self.close_introducer();
           } else if parent.token == Token::Nursery {
             // Nursery is complete after its body block.
+            self.close_introducer();
+          } else if parent.token == Token::Select {
+            // Select is complete after its arm block.
+            self.close_introducer();
+          } else if parent.token == Token::Supervise {
+            // Supervise is complete after its body
+            // block — same cascade hook as nursery.
             self.close_introducer();
           } else if parent.token == Token::When {
             // Ternary ends at block boundary
@@ -1626,6 +1635,54 @@ impl<'a> Parser<'a> {
 
     // The LBrace is handled by its own introducer; stay in
     // the current state so the block parses as normal.
+  }
+
+  /// `supervise { spawn ...; spawn ...; }` — opt-in
+  /// supervisor cascade per `PLAN_PREHISTORY.md`
+  /// Phase 6 (D8). Mirrors `nursery` in shape; the
+  /// semantic difference — panic propagation through
+  /// the enclosing task's cascade chain — is handled
+  /// at the runtime.
+  fn handle_supervise_keyword(&mut self) {
+    self.flush_expr();
+
+    if self.peek().is_some_and(|n| n != Token::LBrace) {
+      self.error_at(ErrorKind::ExpectedLBrace, self.pos + 1);
+    }
+
+    let node_index = self.emit_node(Token::Supervise);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Supervise,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+  }
+
+  /// `select { rx_expr => closure, rx_expr2 => closure2 }`
+  /// — selective receive per `PLAN_PREHISTORY.md` Phase 5.
+  /// Introducer opens the scope; the following `{`
+  /// starts the arm list. Arms are `expr => closure`
+  /// (closure in any form — `fn(v) => expr` or
+  /// `fn(v) { ... }`) separated by commas. The
+  /// `handle_rbrace_closer` cascade auto-closes Select
+  /// once its body block finishes.
+  fn handle_select_keyword(&mut self) {
+    self.flush_expr();
+
+    if self.peek().is_some_and(|n| n != Token::LBrace) {
+      self.error_at(ErrorKind::ExpectedLBrace, self.pos + 1);
+    }
+
+    let node_index = self.emit_node(Token::Select);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Select,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
   }
 
   /// `spawn callee(args)` — fire-and-forget task spawn.

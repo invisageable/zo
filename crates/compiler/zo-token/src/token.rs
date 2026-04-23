@@ -33,7 +33,9 @@ pub enum Token {
   For,
   Loop,
   Nursery,
+  Select,
   Spawn,
+  Supervise,
   /// Synthetic marker emitted by the parser when it
   /// recognizes the contextual `thread` modifier
   /// after `spawn` (`spawn thread fn()`). The

@@ -3,7 +3,7 @@ use crate::printee::Printee;
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, Target};
 use zo_interner::Interner;
-use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, NurseryKind, Sir, SpawnKind, UnOp};
 use zo_token::{Token, TokenBuffer};
 use zo_tree::Tree;
 use zo_ty::Mutability;
@@ -537,13 +537,34 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
-        Insn::NurseryBegin { label } => {
-          let c = format!("nursery.begin L{label}");
+        Insn::NurseryBegin { label, kind } => {
+          let label_str = match kind {
+            NurseryKind::Scoped => "nursery.begin",
+            NurseryKind::Supervised => "supervise.begin",
+          };
+          let c = format!("{label_str} L{label}");
 
           self.sir_instruction(&c);
         }
         Insn::NurseryEnd { label } => {
           let c = format!("nursery.end L{label}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::SelectWait {
+          out_which,
+          out_value,
+          chans,
+          elem_ty,
+        } => {
+          let chans_str = chans
+            .iter()
+            .map(|c| format!("%{c}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+          let c = format!(
+            "%{out_which}, %{out_value} = select.wait [{chans_str}] : {elem_ty:?}",
+          );
 
           self.sir_instruction(&c);
         }

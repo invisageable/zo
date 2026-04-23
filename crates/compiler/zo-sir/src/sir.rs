@@ -252,6 +252,16 @@ impl Insn {
         f(dst);
         f(task);
       }
+      Insn::SelectWait {
+        out_which,
+        out_value,
+        chans,
+        ..
+      } => {
+        f(out_which);
+        f(out_value);
+        chans.iter_mut().for_each(&mut *f);
+      }
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
     }
   }
@@ -332,6 +342,7 @@ impl Insn {
       | Insn::ChannelRecv { ty_id, .. }
       | Insn::TaskSpawn { ty_id, .. }
       | Insn::TaskAwait { ty_id, .. } => f(ty_id),
+      Insn::SelectWait { elem_ty, .. } => f(elem_ty),
       Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
       | Insn::Label { .. }
@@ -653,11 +664,30 @@ pub enum Insn {
     task: ValueId,
     ty_id: TyId,
   },
+  /// Selective receive — atomic wait on N channels,
+  /// per `PLAN_PREHISTORY.md` Phase 5. `out_which`
+  /// receives the 0-based arm index of the channel
+  /// that fired; `out_value` receives the recv'd
+  /// value (caller reads this to bind the arm's
+  /// closure parameter). Downstream
+  /// `BranchIfNot` / `Jump` / `Label` insns dispatch
+  /// on `out_which` to the correct arm body.
+  SelectWait {
+    out_which: ValueId,
+    out_value: ValueId,
+    chans: Vec<ValueId>,
+    elem_ty: TyId,
+  },
   /// Open a nursery scope. Every `TaskSpawn` between this
   /// insn and its matching `NurseryEnd` is scoped to this
   /// nursery: on scope exit, all such tasks are joined
-  /// (or cancelled if any sibling panicked).
-  NurseryBegin { label: u32 },
+  /// (or cancelled if any sibling panicked). `kind`
+  /// distinguishes a plain `nursery { }` from a
+  /// `supervise { }` scope (PLAN_PREHISTORY Phase 6 D8)
+  /// — the latter additionally propagates panics
+  /// upward through the enclosing task's cascade
+  /// chain.
+  NurseryBegin { label: u32, kind: NurseryKind },
   /// Close the nursery opened by a matching `NurseryBegin`
   /// with the same `label`. Emits the implicit join of
   /// every scoped task.
@@ -665,6 +695,22 @@ pub enum Insn {
 }
 
 /// Represents binary operators.
+/// Discriminator for `Insn::NurseryBegin` — plain
+/// scope vs supervised scope per
+/// `PLAN_PREHISTORY.md` Phase 6 D8.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NurseryKind {
+  /// Plain `nursery { }` — siblings cancel on sibling
+  /// panic; error re-raises at scope exit (matches
+  /// PLAN_CHANNELS Phase 0 decision 1).
+  Scoped,
+  /// `supervise { }` — in addition to `Scoped`
+  /// semantics, the panic propagates through the
+  /// enclosing task's cascade chain rather than
+  /// stopping at this scope.
+  Supervised,
+}
+
 /// Discriminator for `Insn::TaskSpawn` — green task on
 /// the current scheduler vs fresh OS thread per
 /// `PLAN_PREHISTORY.md` Phase 4 two-tier spawn.

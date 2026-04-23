@@ -477,6 +477,9 @@ fn check_insn(
       check_placeholder(report, idx, *ty_id, "TaskAwait.ty_id");
     }
     Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
+    Insn::SelectWait { elem_ty, .. } => {
+      check_placeholder(report, idx, *elem_ty, "SelectWait.elem_ty");
+    }
   }
 }
 
@@ -540,7 +543,7 @@ const _: fn(&LoadSource) = |_| {};
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::{BinOp, SpawnKind};
+  use crate::{BinOp, NurseryKind, SpawnKind};
   use zo_value::FunctionKind;
 
   fn vid(n: u32) -> ValueId {
@@ -762,7 +765,10 @@ mod tests {
     let elem_ty = TyId(8); // s32
     let task_ty = TyId(30); // Ty::Task(unit), arbitrary id
     let insns = vec![
-      Insn::NurseryBegin { label: 1 },
+      Insn::NurseryBegin {
+        label: 1,
+        kind: NurseryKind::Scoped,
+      },
       Insn::ChannelCreate {
         tx: vid(0),
         rx: vid(1),
