@@ -5,6 +5,12 @@ edition.workspace = true
 
 [lib]
 doctest = false
+# `staticlib` produces `libzo_runtime.a` so `zo-writer-macho`
+# (Phase 7) can link the `_zo_chan_*` / `_zo_task_*` symbols
+# that the ARM codegen emits BL placeholders for. `lib` stays
+# so other workspace crates (zo-driver etc.) keep using this
+# as a regular Rust library.
+crate-type = ["lib", "staticlib"]
 
 [dependencies]
 # internal:sources.
