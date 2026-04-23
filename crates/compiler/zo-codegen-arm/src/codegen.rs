@@ -241,6 +241,15 @@ const ARRAY_OPEN_BRACKET_SYM: Symbol = Symbol(0xE000_FFF8);
 const ARRAY_CLOSE_BRACKET_SYM: Symbol = Symbol(0xE000_FFF9);
 
 impl<'a> ARM64Gen<'a> {
+  /// Borrow the list of external symbols referenced by
+  /// emitted `BL` placeholders — used by the Mach-O writer
+  /// to register relocations and by tests to assert that
+  /// concurrency insns (`ChannelCreate` → `_zo_chan_new`,
+  /// etc.) lowered through the runtime-call path.
+  pub fn extern_used(&self) -> &[String] {
+    &self.extern_used
+  }
+
   /// Creates a new [`ARM64Gen`] instance.
   pub fn new(interner: &'a Interner) -> Self {
     Self {
@@ -2420,6 +2429,67 @@ impl<'a> ARM64Gen<'a> {
           }
         }
       }
+
+      // === STRUCTURED CONCURRENCY (PLAN_CHANNELS Phase 5) ===
+      //
+      // Each insn lowers to a `BL` placeholder plus an
+      // extern-fixup record naming the runtime symbol. The
+      // linker (Phase 7) resolves these against
+      // `libzo_runtime.a`. Arg-register marshaling is
+      // minimal here — args already land in X0..X7 via the
+      // executor's value lowering; the precise runtime ABI
+      // (elem_size, capacity, function-pointer passing) is
+      // tightened in Phase 6 when the runtime signatures
+      // are frozen.
+      Insn::ChannelCreate { tx, .. } => {
+        // Result pointer lands in X0; stash it into the
+        // register the allocator reserved for the `tx`
+        // handle (the `rx` SSA value aliases the same
+        // pointer at runtime and shares the spill slot).
+        self.emit_extern_call("_zo_chan_new");
+
+        if let Some(dst_reg) = self.alloc_reg(*tx)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+      Insn::ChannelSend { .. } => {
+        self.emit_extern_call("_zo_chan_send");
+      }
+      Insn::ChannelRecv { dst, .. } => {
+        self.emit_extern_call("_zo_chan_recv");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+      Insn::TaskSpawn { dst, .. } => {
+        self.emit_extern_call("_zo_task_spawn");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+      Insn::TaskAwait { dst, .. } => {
+        self.emit_extern_call("_zo_task_await");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+      // `nursery { body }` is a semantic scope; the join
+      // + cancellation wiring belongs to the runtime (Phase
+      // 6). Codegen emits no code for these markers — they
+      // survive in SIR only for validator + copilord
+      // downstream passes.
+      Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
 
       _ => {}
     }
