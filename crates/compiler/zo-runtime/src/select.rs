@@ -1,25 +1,23 @@
-//! Phase 5 of `PLAN_PREHISTORY.md` — selective
-//! receive runtime primitive.
+//! Selective receive runtime primitive.
 //!
 //! `_zo_select_wait` atomically waits on N channels
 //! and returns the arm index of the first one to
 //! fire, copying the received value into a caller-
 //! owned output buffer.
 //!
-//! **v1 implementation — poll-and-yield.** A correct
-//! multi-channel atomic wait needs per-select
-//! coordination across all participating channels
-//! (each channel's wait list tracks a shared
-//! `SelectCoord` entry, first fire CAS-wins). That's
-//! a bigger primitive; v1 polls each channel non-
-//! blocking in turn, and yields if none are ready.
+//! Implementation is poll-and-yield: each channel is
+//! probed non-blocking in turn, and the caller yields
+//! if none are ready. A CAS-based alternative would
+//! register a shared `SelectCoord` on every
+//! participating channel's wait list and let the
+//! first fire win atomically — more efficient under
+//! cross-scheduler contention but a bigger primitive.
 //!
-//! The cost: under heavy contention, a green task
-//! parked on select busy-yields until a channel
-//! fires. Single-threaded workloads converge fast
-//! (the scheduler runs other tasks in between).
-//! Cross-scheduler contention could starve; Phase 8
-//! revisits with CAS-based select coord.
+//! The poll-and-yield cost: under heavy contention, a
+//! green task parked on select busy-yields until a
+//! channel fires. Single-threaded workloads converge
+//! fast because the scheduler runs other tasks in
+//! between; cross-scheduler contention could starve.
 
 use crate::channel::ZoChan;
 use crate::scheduler;

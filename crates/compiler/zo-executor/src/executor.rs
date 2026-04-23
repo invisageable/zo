@@ -278,8 +278,8 @@ pub struct Executor<'a> {
   /// — the `label` is the unique ID threaded through
   /// `NurseryBegin` / `NurseryEnd`; `rbrace_idx` is the tree
   /// index of the matching `}` that triggers the close.
-  /// `spawn` checks `!self.nursery_stack.is_empty()` per
-  /// Phase 0 decision 3 (no orphan spawns).
+  /// `spawn` checks `!self.nursery_stack.is_empty()`
+  /// so orphan spawns outside a nursery raise an error.
   nursery_stack: Vec<(u32, usize)>,
   /// Set when a `Token::Spawn` introducer is entered and
   /// cleared as soon as the enclosed call finalizes — at
@@ -287,9 +287,9 @@ pub struct Executor<'a> {
   /// `Call`. The tuple is `(spawn_node_idx, rparen_idx,
   /// kind)`: the first two let the call-emission path
   /// recognize the redirect; `kind` distinguishes the
-  /// PLAN_PREHISTORY Phase 4 two-tier spawn — `Green`
-  /// (scheduler-multiplexed) vs `Thread` (fresh OS
-  /// thread via `spawn thread fn()`).
+  /// two-tier spawn — `Green` (scheduler-multiplexed)
+  /// vs `Thread` (fresh OS thread via `spawn thread
+  /// fn()`).
   pending_spawn: Option<(usize, usize, SpawnKind)>,
 }
 
@@ -2599,11 +2599,10 @@ impl<'a> Executor<'a> {
               self.ty_stack.push(fun_ty);
               self.sir_values.push(ValueId(u32::MAX));
             } else if sym_str == "channel" && self.ident_is_call_target(idx) {
-              // `channel` is a compiler intrinsic per
-              // PLAN_CHANNELS Phase 4, not a FunDef — skip
-              // the undefined-variable report here and let
-              // `execute_potential_call` route the RParen
-              // through `execute_channel_builtin`.
+              // `channel` is a compiler intrinsic, not a
+              // FunDef — skip the undefined-variable report
+              // here and let `execute_potential_call` route
+              // the RParen through `execute_channel_builtin`.
             } else if !is_fun && !is_enum && !is_struct && !is_pack {
               let span = self.tree.spans[idx];
 
@@ -8713,11 +8712,10 @@ impl<'a> Executor<'a> {
 
     // Element type flows from the Tx's T; unify with the
     // sent value so a fresh-var `T` gets pinned to the
-    // concrete send-site type (first-use inference).
-    // PLAN_PREHISTORY Phase 1: receiver must be `Tx<T>` —
-    // an `Rx<T>` never reaches this arm because the
-    // dispatch guard in `execute_potential_call` checks
-    // for `Ty::ChannelTx` before routing here.
+    // concrete send-site type (first-use inference). A
+    // receiver of kind `Rx<T>` never reaches this arm —
+    // the dispatch guard in `execute_potential_call`
+    // checks for `Ty::ChannelTx` before routing here.
     let elem_ty = match self.ty_checker.kind_of(recv_ty) {
       Ty::ChannelTx(t) => t,
       _ => self.ty_checker.fresh_var(),
@@ -8746,8 +8744,9 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
-    // PLAN_PREHISTORY Phase 1: receiver must be `Rx<T>` —
-    // the dispatch guard ensures this before routing here.
+    // Receiver must be `Rx<T>` — the dispatch guard in
+    // `execute_potential_call` ensures that before
+    // routing here.
     let elem_ty = match self.ty_checker.kind_of(recv_ty) {
       Ty::ChannelRx(t) => t,
       _ => self.ty_checker.fresh_var(),
@@ -10955,10 +10954,9 @@ impl<'a> Executor<'a> {
   }
 
   /// Same shape as [`execute_nursery`] but emits a
-  /// `Supervised`-kind `NurseryBegin`, per
-  /// `PLAN_PREHISTORY.md` Phase 6 D8. The runtime
+  /// `Supervised`-kind `NurseryBegin`. The runtime
   /// uses the kind to decide whether a panic cascades
-  /// past the scope.
+  /// past the scope into the enclosing task.
   fn execute_supervise(&mut self, _idx: usize, header: &NodeHeader) {
     let children_end = (header.child_start + header.child_count) as usize;
     let rbrace_idx = children_end.saturating_sub(1);
@@ -10985,13 +10983,13 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Opens a `spawn callee(args)` site. Phase 0 decision 3:
-  /// refuse any spawn not lexically inside a `nursery { }`.
-  /// On success, records `pending_spawn = (spawn_idx,
-  /// rparen_idx, kind)` so the call-emit path can
-  /// redirect the upcoming `Call` into a `TaskSpawn`
-  /// with the correct kind. PLAN_PREHISTORY Phase 4:
-  /// a leading `Token::Thread` marker in the Spawn's
+  /// Opens a `spawn callee(args)` site. Refuses any
+  /// spawn not lexically inside a `nursery { }` — no
+  /// orphan tasks. On success, records
+  /// `pending_spawn = (spawn_idx, rparen_idx, kind)`
+  /// so the call-emit path can redirect the upcoming
+  /// `Call` into a `TaskSpawn` with the correct kind.
+  /// A leading `Token::Thread` marker in the Spawn's
   /// children signals the OS-thread variant.
   fn execute_spawn(&mut self, idx: usize, header: &NodeHeader) {
     if self.nursery_stack.is_empty() {
@@ -11089,13 +11087,12 @@ impl<'a> Executor<'a> {
     self.sir_values.push(dst_sir);
   }
 
-  /// Executes a `select { arm, arm, ... }` scope per
-  /// `PLAN_PREHISTORY.md` Phase 5. The MVP emits a
-  /// `SelectWait` marker insn up front; each arm is
-  /// parsed + walked by the main loop as normal
+  /// Executes a `select { arm, arm, ... }` scope.
+  /// Emits a `SelectWait` marker insn up front; each
+  /// arm is parsed + walked by the main loop as normal
   /// (rx expressions push ValueIds on the stack,
   /// closure arms emit their own `FunDef`s). A
-  /// richer Phase 5b pass will:
+  /// fully-wired follow-up would:
   ///
   /// 1. Scan arm expressions to build the `chans`
   ///    array on the SelectWait insn.
@@ -11104,15 +11101,15 @@ impl<'a> Executor<'a> {
   /// 3. Bind the received value to each arm's
   ///    closure parameter from `out_value`.
   ///
-  /// Phase 5 lands the pipeline skeleton: parser ➜
+  /// Current scope is pipeline skeleton only: parser ➜
   /// SIR ➜ codegen ➜ runtime — `_zo_select_wait` is
   /// linkable and callable, programs using `select`
-  /// type-check, and a follow-up wires the dispatch
-  /// semantics end-to-end.
+  /// type-check, but arm dispatch semantics are a
+  /// follow-up.
   fn execute_select(&mut self, _idx: usize, _header: &NodeHeader) {
     // Placeholder: emit a bare `SelectWait` with no
     // channels. Full arm collection + dispatch is
-    // Phase 5b.
+    // the follow-up described above.
     let out_which = ValueId(self.sir.next_value_id);
 
     self.sir.next_value_id += 1;
@@ -11668,10 +11665,9 @@ impl<'a> Executor<'a> {
                 // Channel built-in methods — intercepted
                 // before `resolve_dot_call` because there's
                 // no user-defined `Tx::send` / `Rx::recv`
-                // FunDef to match against. PLAN_PREHISTORY
-                // Phase 1 D7: `send` is only valid on
-                // `Ty::ChannelTx(_)`, `recv` only on
-                // `Ty::ChannelRx(_)`. Crossed calls
+                // FunDef to match against. `send` is only
+                // valid on `Ty::ChannelTx(_)`, `recv` only
+                // on `Ty::ChannelRx(_)`. Crossed calls
                 // (`rx.send()` / `tx.recv()`) report a
                 // hard `InvalidMethodCall` — otherwise
                 // the fall-through path would silently
@@ -11794,10 +11790,10 @@ impl<'a> Executor<'a> {
             }
 
             // Channel built-in methods: `tx.send(value)` /
-            // `rx.recv()`. PLAN_PREHISTORY Phase 1 D7:
-            // crossed calls (`rx.send()` / `tx.recv()`)
-            // get a hard `InvalidMethodCall` diagnostic
-            // instead of falling through silently.
+            // `rx.recv()`. Crossed calls (`rx.send()` /
+            // `tx.recv()`) get a hard `InvalidMethodCall`
+            // diagnostic instead of falling through
+            // silently.
             if ms == "send"
               && let Some(recv_ty) = self
                 .ty_stack
@@ -12014,11 +12010,10 @@ impl<'a> Executor<'a> {
   /// `channel(N)` built-in call, then a `TupleLiteral`
   /// wrapping the two handles so the surface destructure
   /// `imu (tx, rx) := channel()` reads them via the
-  /// existing tuple path. Phase 0 decision 5: `N` must be
-  /// an integer literal.
+  /// existing tuple path. `N` must be an integer literal.
   fn execute_channel_builtin(&mut self, lparen_idx: usize, rparen_idx: usize) {
     // Parse the capacity. Only raw `Token::Int` literals
-    // between the parens are legal in MVP.
+    // between the parens are legal.
     let capacity = self
       .extract_literal_capacity(lparen_idx, rparen_idx)
       .unwrap_or(0);
@@ -12026,11 +12021,10 @@ impl<'a> Executor<'a> {
     // Element type is a fresh inference var; concrete T
     // flows in from the first `send` / `recv` unification.
     let elem_ty = self.ty_checker.fresh_var();
-    // PLAN_PREHISTORY Phase 1 D7: the tuple halves are now
-    // typed distinctly — `(Tx<T>, Rx<T>)` — so `.send()`
-    // is statically rejected on the rx handle and vice
-    // versa. Runtime ABI is unchanged; both halves still
-    // point at the same `ZoChan`.
+    // Tuple halves are typed distinctly — `(Tx<T>, Rx<T>)`
+    // — so `.send()` is statically rejected on the rx
+    // handle and vice versa. Runtime ABI is unchanged;
+    // both halves still point at the same `ZoChan`.
     let tx_ty = self.ty_checker.channel_tx_type(elem_ty);
     let rx_ty = self.ty_checker.channel_rx_type(elem_ty);
 
@@ -12124,11 +12118,11 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Built-in `channel()` / `channel(N)` per PLAN_CHANNELS
-    // Phase 0 decision 5. Recognized here — before normal
-    // function lookup — because `channel` is not a user
-    // function, it's a compiler intrinsic that emits
-    // `Insn::ChannelCreate` directly.
+    // Built-in `channel()` / `channel(N)`. Recognized
+    // here — before normal function lookup — because
+    // `channel` is a compiler intrinsic that emits
+    // `Insn::ChannelCreate` directly rather than being
+    // defined as a user function.
     if name_str == "channel" {
       self.execute_channel_builtin(lparen_idx, rparen_idx);
 

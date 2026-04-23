@@ -1,10 +1,8 @@
-//! Phase 3b of `PLAN_PREHISTORY.md` — channel runtime
-//! with scheduler-integrated parking.
+//! Channel runtime with scheduler-integrated parking.
 //!
 //! A channel is a mutex-protected FIFO queue with two
 //! wait lists (senders blocked on "buffer full",
-//! receivers blocked on "buffer empty"). Unlike the
-//! PLAN_CHANNELS Phase 6 design, parking is
+//! receivers blocked on "buffer empty"). Parking is
 //! polymorphic:
 //!
 //! - **Green task caller** — `scheduler::current()` is
@@ -19,27 +17,22 @@
 //!   `Arc<PthreadPark>` (Condvar + notified flag).
 //!   Waker calls `unpark()`; the OS thread resumes.
 //!
-//! Hybrid parking keeps the PLAN_CHANNELS Phase 6
-//! cross-thread tests working (pthread helpers
-//! exchanging values with main over a rendezvous
-//! channel) while unblocking the new case that
-//! motivated Phase 3b: a green task parked on send /
-//! recv being woken by another green task on the same
-//! scheduler.
+//! Hybrid parking lets pthread helpers exchange values
+//! with main over a rendezvous channel (the simple
+//! blocking case) AND lets a green task park on
+//! send / recv and be woken by another green task on
+//! the same scheduler.
 //!
 //! Cross-OS-thread wake of a parked green task (e.g.
 //! `std::thread::spawn`ed helper sending to a channel
 //! whose receiver is a parked green task on the
-//! scheduler thread) is **not supported in v1**. It
-//! needs a cross-scheduler wake primitive (Phase 4
-//! multi-scheduler); a debug-only assertion would fire
-//! if this ever happened.
+//! scheduler thread) is not supported — it would need
+//! a cross-scheduler wake primitive beyond the single-
+//! scheduler green-task model.
 //!
-//! The `#[no_mangle] extern "C-unwind"` exports keep
-//! the exact ABI they had in PLAN_CHANNELS Phase 6 —
-//! ARM codegen emits BL placeholders against
-//! `_zo_chan_new` / `_zo_chan_send` / `_zo_chan_recv`
-//! and those symbols still resolve.
+//! The `#[no_mangle] extern "C-unwind"` exports carry
+//! the ABI that the ARM codegen's `BL _zo_chan_*`
+//! placeholders resolve against.
 
 use crate::scheduler;
 use crate::task::{TaskState, ZoTask};
@@ -88,10 +81,10 @@ enum Waiter {
 ///
 /// # Safety
 ///
-/// Only one OS thread (the scheduler thread) dereferences
-/// the pointer at a time in v1. Phase 4's multi-
-/// scheduler design revisits this — it'll either
-/// keep the unsafe impl (single-owner model) or swap
+/// Only one OS thread (the scheduler thread)
+/// dereferences the pointer at a time — the single-
+/// owner invariant. A multi-scheduler design would
+/// either keep this invariant (ship-the-box) or swap
 /// to task-ID lookup.
 #[derive(Copy, Clone)]
 struct TaskPtr(*mut ZoTask);
@@ -442,9 +435,9 @@ pub unsafe fn try_recv_nonblocking(
   true
 }
 
-/// Close a channel. Phase 8 / D11 primitive. Wakes
-/// every parked sender and receiver so they observe
-/// the closed state and unwind. After close:
+/// Close a channel. Wakes every parked sender and
+/// receiver so they observe the closed state and
+/// unwind. After close:
 ///
 /// - `_zo_chan_send` on the channel panics.
 /// - `_zo_chan_recv` drains any buffered values; once
@@ -484,15 +477,15 @@ pub unsafe extern "C-unwind" fn _zo_chan_close(chan: *mut ZoChan) {
   }
 }
 
-/// Timed recv. Phase 8 / D11 primitive. Returns `true`
-/// iff a value was received within `timeout_ms`;
-/// `false` on timeout. Zero-fills `dst` on timeout so
-/// the caller doesn't observe uninitialized memory.
+/// Timed recv. Returns `true` iff a value was received
+/// within `timeout_ms`; `false` on timeout. Zero-fills
+/// `dst` on timeout so the caller doesn't observe
+/// uninitialized memory.
 ///
-/// **Non-task callers only in v1** — green tasks fall
-/// back to plain blocking recv (timeout ignored). Green
-/// timed recv needs a scheduler-integrated timer wheel
-/// which is a follow-up beyond Phase 8's scope.
+/// Non-task callers only — green tasks fall back to
+/// plain blocking recv (timeout ignored). Green-task
+/// timed recv would need a scheduler-integrated timer
+/// wheel.
 ///
 /// # Safety
 ///
@@ -620,11 +613,12 @@ mod tests {
 
   use std::sync::atomic::{AtomicU64, Ordering};
 
-  // ----- Pre-Phase-3b tests: pure pthread context -----
+  // ----- pure pthread-context tests -----
   //
-  // These keep the PLAN_CHANNELS Phase 6 semantics
-  // working — no green tasks involved. They exercise
-  // the `Waiter::Pthread` path.
+  // No green tasks involved. These exercise the
+  // `Waiter::Pthread` path — main thread or
+  // `std::thread::spawn`ed helpers exchanging values
+  // without the scheduler in the loop.
 
   #[test]
   fn send_recv_round_trips_a_u64() {
@@ -692,7 +686,7 @@ mod tests {
     }
   }
 
-  // ----- Phase 3b tests: green-task parking -----
+  // ----- green-task parking tests -----
 
   // Channel shared between green tasks + the main
   // thread's setup. `AtomicU64` stores the raw pointer
@@ -746,7 +740,7 @@ mod tests {
     assert_eq!(RECEIVED.load(Ordering::SeqCst), 0x1234);
   }
 
-  // ----- Phase 8 tests: close + timeout -----
+  // ----- close + timeout tests -----
 
   #[test]
   fn close_wakes_parked_receiver_returns_zero() {

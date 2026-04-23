@@ -1,13 +1,11 @@
-//! Phase 8 of `PLAN_PREHISTORY.md` — runtime-level
-//! benchmark integration tests.
+//! Runtime-level benchmark integration tests —
+//! fan-out throughput, ping-pong latency, and mixed
+//! producer/consumer throughput.
 //!
-//! These measure the success metrics called out in the
-//! plan's success-metrics section: fan-out throughput,
-//! ping-pong latency, and mixed producer/consumer
-//! throughput. They assert modest upper bounds so CI
-//! variance doesn't produce flaky failures — the real
-//! value is the wall-time print-out developers can
-//! compare across runs.
+//! Assertions use generous upper bounds so CI variance
+//! doesn't produce flaky failures; the real value is
+//! the wall-time print-out developers can compare
+//! across runs.
 //!
 //! Run with:
 //!
@@ -23,10 +21,17 @@ use zo_runtime::pool::Pool;
 use zo_runtime::scheduler;
 use zo_runtime::task::{_zo_task_await, _zo_task_spawn};
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-// ===== Fan-out: N workers, K tasks =====
+// Serializes benches that share static state (fan-out
+// counter, static channel pointers). Nextest runs
+// integration-test functions in parallel by default.
+static FANOUT_LOCK: Mutex<()> = Mutex::new(());
+static CHAN_LOCK: Mutex<()> = Mutex::new(());
+
+// ===== fan-out: N workers, K tasks =====
 
 static FAN_OUT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -35,20 +40,18 @@ extern "C-unwind" fn fan_out_increment() {
 }
 
 #[test]
-fn bench_fan_out_10k_across_pool() {
+fn bench_fan_out_10k() {
   // 10K tasks across 4 workers. Each increments an
-  // atomic. Validates multi-sched + stealing under
-  // load.
-  //
-  // Target (PLAN_PREHISTORY success metric 1,
-  // 100K): ≤ 2 s on M1. 10K is ~1/10 of that.
+  // atomic. Exercises multi-scheduler dispatch +
+  // work-stealing under moderate load.
+  let _lock = FANOUT_LOCK.lock().unwrap();
+
   const N_WORKERS: usize = 4;
   const N_TASKS: usize = 10_000;
 
   FAN_OUT_COUNTER.store(0, Ordering::SeqCst);
 
   let pool = Pool::new(N_WORKERS);
-
   let start = Instant::now();
 
   for _ in 0..N_TASKS {
@@ -66,13 +69,48 @@ fn bench_fan_out_10k_across_pool() {
   );
 
   println!(
-    "[bench] fan_out {N_TASKS} tasks / {N_WORKERS} workers — {elapsed:?}",
+    "[bench] fan_out {N_TASKS} tasks / {N_WORKERS} workers — {elapsed:?}"
   );
 
   pool.shutdown();
 }
 
-// ===== Ping-pong: two green tasks, many roundtrips =====
+#[test]
+fn bench_fan_out_100k() {
+  // 100K green tasks on one pool, wall time ≤ 2 s on
+  // M1 — the high-fan-out contract for the scheduler.
+  let _lock = FANOUT_LOCK.lock().unwrap();
+
+  const N_WORKERS: usize = 4;
+  const N_TASKS: usize = 100_000;
+
+  FAN_OUT_COUNTER.store(0, Ordering::SeqCst);
+
+  let pool = Pool::new(N_WORKERS);
+  let start = Instant::now();
+
+  for _ in 0..N_TASKS {
+    pool.spawn(fan_out_increment);
+  }
+
+  pool.wait_idle();
+
+  let elapsed = start.elapsed();
+
+  assert_eq!(FAN_OUT_COUNTER.load(Ordering::SeqCst), N_TASKS as u64);
+  assert!(
+    elapsed.as_secs() < 2,
+    "fan-out 100K regression: {N_TASKS} tasks in {elapsed:?} (target ≤ 2 s)",
+  );
+
+  println!(
+    "[bench] fan_out {N_TASKS} tasks / {N_WORKERS} workers — {elapsed:?}"
+  );
+
+  pool.shutdown();
+}
+
+// ===== ping-pong: two green tasks, many roundtrips =====
 
 static PING_CHAN: AtomicU64 = AtomicU64::new(0);
 static PONG_CHAN: AtomicU64 = AtomicU64::new(0);
@@ -110,14 +148,13 @@ extern "C-unwind" fn ponger() {
 }
 
 #[test]
-fn bench_ping_pong_green_tasks() {
+fn bench_ping_pong() {
   // Two green tasks bouncing N integers through a pair
   // of rendezvous channels. Exercises green-task park
-  // + wake on every hop, validating Phase 3b's
-  // scheduler-integrated channel parking.
-  //
-  // Target (PLAN_PREHISTORY success metric 2,
-  // 1M rounds): ≤ 3 s on M1. 1K is scaled for CI.
+  // + wake on every hop — the slowest path in the
+  // channel layer.
+  let _lock = CHAN_LOCK.lock().unwrap();
+
   scheduler::reset_for_test();
 
   unsafe {
@@ -128,7 +165,6 @@ fn bench_ping_pong_green_tasks() {
     PONG_CHAN.store(pong as u64, Ordering::SeqCst);
 
     let start = Instant::now();
-
     let pinger_h = _zo_task_spawn(pinger);
     let ponger_h = _zo_task_spawn(ponger);
 
@@ -137,7 +173,7 @@ fn bench_ping_pong_green_tasks() {
 
     let elapsed = start.elapsed();
 
-    println!("[bench] ping_pong {PING_PONG_ROUNDS} rounds — {elapsed:?}",);
+    println!("[bench] ping_pong {PING_PONG_ROUNDS} rounds — {elapsed:?}");
 
     assert!(
       elapsed.as_secs() < 5,
@@ -149,7 +185,7 @@ fn bench_ping_pong_green_tasks() {
   }
 }
 
-// ===== Producer / consumer with close =====
+// ===== producer / consumer with close =====
 
 static PROD_CHAN: AtomicU64 = AtomicU64::new(0);
 static PROD_SUM: AtomicU64 = AtomicU64::new(0);
@@ -188,13 +224,15 @@ extern "C-unwind" fn consumer() {
 }
 
 #[test]
-fn bench_producer_consumer_with_close() {
+fn bench_producer_consumer_close() {
   // One producer sends N values then closes; one
   // consumer drains the channel until the closed
-  // zero-fill sentinel. Validates Phase 8 close()
-  // primitive end-to-end — including the wake-all
-  // semantics when the consumer is parked on an
-  // empty channel at the moment of close.
+  // zero-fill sentinel. Validates the close() wake-all
+  // semantics end-to-end, including the case where the
+  // consumer is parked on an empty channel at the
+  // moment of close.
+  let _lock = CHAN_LOCK.lock().unwrap();
+
   scheduler::reset_for_test();
 
   PROD_SUM.store(0, Ordering::SeqCst);
@@ -205,7 +243,6 @@ fn bench_producer_consumer_with_close() {
     PROD_CHAN.store(ch as u64, Ordering::SeqCst);
 
     let start = Instant::now();
-
     let prod_h = _zo_task_spawn(producer);
     let cons_h = _zo_task_spawn(consumer);
 
@@ -213,12 +250,11 @@ fn bench_producer_consumer_with_close() {
     _zo_task_await(cons_h);
 
     let elapsed = start.elapsed();
-
     let expected_sum: u64 = (1..=PROD_N).sum();
 
     assert_eq!(PROD_SUM.load(Ordering::SeqCst), expected_sum);
 
-    println!("[bench] producer_consumer {PROD_N} values — {elapsed:?}",);
+    println!("[bench] producer_consumer {PROD_N} values — {elapsed:?}");
 
     _zo_chan_free(ch);
   }

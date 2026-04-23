@@ -1,28 +1,19 @@
-//! Phase 3 of `PLAN_PREHISTORY.md` — green-thread
-//! scheduler state + primitives.
+//! Green-thread scheduler state + primitives.
 //!
-//! This module owns the scheduling policy: the run
-//! queue (FIFO / round-robin per D5), the "scheduler
-//! context" (the resume point every task yields back
-//! to), and the pointer-to-current-task slot. Task
-//! identity + lifecycle live in `task.rs`.
+//! Owns scheduling policy: the FIFO run queue, the
+//! "scheduler context" (the resume point every task
+//! yields back to), and the pointer-to-current-task
+//! slot. Task identity + lifecycle live in `task.rs`.
 //!
-//! One scheduler state per OS thread (v1: single OS
-//! thread runs everything). Stored in `thread_local!`
-//! so the multi-scheduler work-stealing upgrade (D3
-//! v2) is a structural addition, not a rewrite.
+//! One scheduler state per OS thread, stored in
+//! `thread_local!` so a multi-scheduler work-stealing
+//! layer (see `pool.rs`) can slot on top without
+//! changing this module.
 //!
 //! External shape: `task.rs` uses [`with`] /
 //! [`yield_now`] / [`drain_until_dead`] to coordinate
 //! with this module. No public ABI exports live
 //! here — all C-facing symbols are in `task.rs`.
-//!
-//! Scope boundary: channel integration (park a task
-//! on a full buffer, wake it on matching recv) is a
-//! follow-up. Today, `channel.rs` still uses pthread
-//! Condvars — which on a single scheduler thread
-//! deadlock under contention. Tests in this module
-//! only exercise spawn / yield / await.
 
 use crate::ctxsw::{Context, ctx_switch};
 use crate::task::{TaskState, ZoTask};
@@ -35,15 +26,15 @@ use std::collections::VecDeque;
 /// Per-OS-thread scheduler state. All access is from
 /// the single scheduler thread, so interior mutability
 /// via `RefCell` / `Cell` is race-free without a
-/// `Mutex`. Multi-scheduler work-stealing (D3 v2) would
-/// add cross-scheduler primitives on top without
-/// changing this struct.
+/// `Mutex`. A multi-scheduler work-stealing layer
+/// adds cross-scheduler primitives on top without
+/// changing this struct (see `pool.rs`).
 pub struct SchedulerState {
   /// The scheduler's "resume point" — every task yields
   /// back here. Written on each `ctx_switch(scheduler,
   /// task)`, read on each `ctx_switch(task, scheduler)`.
   ctx: RefCell<Context>,
-  /// Runnable tasks in FIFO order (D5 — round-robin).
+  /// Runnable tasks in FIFO round-robin order.
   run_queue: RefCell<VecDeque<*mut ZoTask>>,
   /// Task currently executing on this OS thread, or
   /// `None` when the scheduler loop is between tasks.

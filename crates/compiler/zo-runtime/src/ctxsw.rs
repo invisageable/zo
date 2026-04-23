@@ -1,5 +1,4 @@
-//! Phase 2 of `PLAN_PREHISTORY.md` — context-switch
-//! primitive.
+//! Context-switch primitive for green tasks.
 //!
 //! A `Context` captures the subset of CPU state that
 //! survives a function call boundary on the platform's
@@ -15,10 +14,10 @@
 //! into `*from`, loads from `*to`, and `ret`s to
 //! `to.lr`. This is a voluntary yield only — the callee-
 //! save set is enough because every other register was
-//! already spilled by the compiler for the `bl`. For
-//! preemptive context switches (signal handlers) we'd
-//! need the FULL register file, which is not this
-//! phase's scope.
+//! already spilled by the compiler for the `bl`. A
+//! preemption-capable variant would need the FULL
+//! register file (caller-save included), which is not
+//! this module's scope.
 //!
 //! The companion `zo_task_entry_trampoline` is the
 //! bootstrap entry for a freshly-minted Context: it
@@ -26,9 +25,9 @@
 //! arg into the first-argument register `x0`, and
 //! branches to `entry_fn`.
 //!
-//! Platforms: aarch64 + macOS (Darwin) only for v1.
-//! Linux / x86_64 lands in Phase 8 — same mechanics,
-//! different symbol-prefixing and register files.
+//! Platforms: aarch64 + macOS (Darwin) only. Porting to
+//! Linux / x86_64 is the same mechanics with different
+//! symbol-prefixing and register files.
 //!
 //! ```sh
 //! cargo test -p zo-runtime ctxsw
@@ -164,7 +163,7 @@ unsafe extern "C" {
 //
 // Darwin mangles C symbols with a leading underscore;
 // Rust's extern "C" symbols are `_ctx_switch` etc. at
-// the linker level. Linux + x86_64 land in Phase 8.
+// the linker level.
 
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 global_asm!(
@@ -226,9 +225,9 @@ global_asm!(
 #[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
 compile_error!(
   "zo-runtime::ctxsw currently only supports \
-   aarch64-apple-darwin (Phase 2 MVP). \
-   Linux + x86_64 support lands in \
-   PLAN_PREHISTORY Phase 8."
+   aarch64-apple-darwin. Linux + x86_64 ports are \
+   the same mechanics with different symbol-prefixing \
+   and register files."
 );
 
 // ===== Tests =====

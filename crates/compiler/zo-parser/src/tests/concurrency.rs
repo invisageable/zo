@@ -1,5 +1,5 @@
-//! Phase 2 of `PLAN_CHANNELS.md` — parser support for
-//! `nursery { ... }`, `spawn fn(args)`, and `await expr`.
+//! Parser support for `nursery { ... }`,
+//! `spawn fn(args)`, and `await expr`.
 //!
 //! Tree-shape contracts asserted here:
 //!

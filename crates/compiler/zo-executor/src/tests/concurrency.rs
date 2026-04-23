@@ -1,6 +1,6 @@
-//! Phase 4 of `PLAN_CHANNELS.md` — executor support for
-//! `nursery { }`, `spawn`, `await`, `channel()`, and the
-//! `tx.send` / `rx.recv` method pair.
+//! Executor support for `nursery { }`, `spawn`,
+//! `await`, `channel()`, and the `tx.send` / `rx.recv`
+//! method pair.
 //!
 //! Tests assert SIR shape via structural predicates rather
 //! than exact equality, since surrounding insns
@@ -88,28 +88,27 @@ fn channel_with_explicit_literal_capacity() {
   );
 }
 
-// KNOWN GAP (Phase 4 → 4b, to track):
+// KNOWN GAP — surface tuple destructure vs Channel types:
 //
-// The surface syntax `imu (tx, rx) := channel();` goes through
-// the imu tuple-destructure finalize path, which extracts
-// each binding via `TupleIndex(tuple_sir, i)`. That path
-// currently propagates `TyId::unit` to each binding rather
-// than the tuple's element type (`Ty::Channel(T)`), so
-// subsequent `tx.send(..)` / `rx.recv()` calls see a Unit
-// receiver and don't match the `Ty::Channel(_)` guard in
-// `execute_potential_call`.
+// `imu (tx, rx) := channel();` goes through the imu
+// tuple-destructure finalize path, which extracts each
+// binding via `TupleIndex(tuple_sir, i)`. That path
+// currently propagates `TyId::unit` to each binding
+// rather than the tuple's element type (ChannelTx /
+// ChannelRx), so subsequent `tx.send(..)` / `rx.recv()`
+// calls see a Unit receiver and don't match the
+// channel guard in `execute_potential_call`.
 //
-// The send / recv dispatch arms ARE wired in
-// `execute_potential_call` and emit `ChannelSend` /
-// `ChannelRecv` correctly when the receiver type resolves to
-// `Ty::Channel(_)`. They just aren't exercisable from a
-// pure-source program until the destructure types flow
-// through properly. Phase 4b owns the fix.
+// The send / recv dispatch arms ARE wired correctly
+// and emit `ChannelSend` / `ChannelRecv` when the
+// receiver type resolves to a channel ty. They just
+// aren't exercisable from a pure-source program until
+// the destructure types flow through properly.
 
 #[test]
 fn spawn_outside_nursery_is_error() {
-  // Phase 0 decision 3: no implicit main-nursery. A bare
-  // `spawn f()` at main level is a hard error.
+  // No implicit main-nursery. A bare `spawn f()` at
+  // main level is a hard error.
   assert_execution_error(
     r#"
       fun worker() {}
@@ -155,9 +154,9 @@ fn spawn_inside_nursery_emits_task_spawn_not_call() {
 
 #[test]
 fn channel_capacity_variable_is_error() {
-  // Phase 0 decision 5: capacity must be an integer literal
-  // in MVP. A variable reference is a hard error even if
-  // the value would have been a valid u32.
+  // Capacity must be an integer literal. A variable
+  // reference is a hard error even if the value would
+  // have been a valid u32.
   assert_execution_error(
     r#"
       fun main() {

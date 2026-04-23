@@ -216,8 +216,8 @@ fn collect_value_types(insns: &[Insn]) -> HashMap<ValueId, TyId> {
         tx, rx, elem_ty, ..
       } => {
         // Both halves carry the element type; the Tx/Rx
-        // asymmetry is enforced at method resolution, not
-        // the ty level (see Phase 0 decision 2).
+        // asymmetry is enforced by the ty variant
+        // (`Ty::ChannelTx` / `Ty::ChannelRx`), not here.
         out.insert(*tx, *elem_ty);
         out.insert(*rx, *elem_ty);
       }
@@ -456,11 +456,11 @@ fn check_insn(
 
     // Concurrency carriers — placeholder check only. Full
     // invariants (send/recv ty matches channel's elem_ty,
-    // TaskSpawn/TaskAwait ty matches callee signature) are
-    // deferred until the executor emits these in Phase 4;
-    // the validator can't cross-check without also tracking
-    // channel/task definitions, and Phase 3 is purely the
-    // carrier layer.
+    // TaskSpawn/TaskAwait ty matches callee signature)
+    // would require tracking channel / task definitions
+    // across insns; the validator treats these as opaque
+    // typed carriers and trusts the executor to emit
+    // well-typed operands.
     Insn::ChannelCreate { elem_ty, .. } => {
       check_placeholder(report, idx, *elem_ty, "ChannelCreate.elem_ty");
     }

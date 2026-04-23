@@ -102,10 +102,10 @@ const PAGE_MASK: u64 = 0xFFF;
 
 // --- Dynamic Linking ---
 const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
-/// Phase 7 of PLAN_CHANNELS — libzo_runtime.dylib is
-/// registered as the second `LC_LOAD_DYLIB`, so its
-/// ordinal is 2. `_zo_chan_*` / `_zo_task_*` bindings
-/// route here; everything else stays on libSystem.
+/// libzo_runtime.dylib is registered as the second
+/// `LC_LOAD_DYLIB`, so its ordinal is 2. `_zo_chan_*`
+/// / `_zo_task_*` bindings route here; everything
+/// else stays on libSystem.
 const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
 
 /// Prefix identifying symbols that the runtime dylib
@@ -748,9 +748,9 @@ impl<'a> ARM64Gen<'a> {
     let n_got = self.extern_used.len();
     let mut got_data = Vec::with_capacity(n_got * 8);
     let mut bind_entries: Vec<(&str, u8, u64, u8)> = Vec::new();
-    // Phase 7: track whether any symbol needs the zo
-    // runtime dylib so we only register it when a
-    // program actually uses concurrency.
+    // Track whether any symbol needs the zo runtime
+    // dylib so we only register it when a program
+    // actually uses concurrency.
     let mut needs_runtime_dylib = false;
 
     for (i, c_sym) in self.extern_used.iter().enumerate() {
@@ -867,7 +867,7 @@ impl<'a> ARM64Gen<'a> {
     macho.add_dylinker();
     macho.add_dylib("/usr/lib/libSystem.B.dylib");
 
-    // Phase 7: register libzo_runtime.dylib as the second
+    // Register libzo_runtime.dylib as the second
     // LC_LOAD_DYLIB so `_zo_chan_*` / `_zo_task_*` resolve
     // at load time. Users must colocate the dylib with the
     // executable (or point DYLD_LIBRARY_PATH at it) for
@@ -2479,17 +2479,14 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      // === STRUCTURED CONCURRENCY (PLAN_CHANNELS Phase 5) ===
+      // === STRUCTURED CONCURRENCY ===
       //
       // Each insn lowers to a `BL` placeholder plus an
-      // extern-fixup record naming the runtime symbol. The
-      // linker (Phase 7) resolves these against
-      // `libzo_runtime.a`. Arg-register marshaling is
-      // minimal here — args already land in X0..X7 via the
-      // executor's value lowering; the precise runtime ABI
-      // (elem_size, capacity, function-pointer passing) is
-      // tightened in Phase 6 when the runtime signatures
-      // are frozen.
+      // extern-fixup record naming the runtime symbol.
+      // The linker resolves these against
+      // `libzo_runtime.dylib`. Arg-register marshaling
+      // is minimal here — args already land in X0..X7
+      // via the executor's value lowering.
       Insn::ChannelCreate { tx, .. } => {
         // Result pointer lands in X0; stash it into the
         // register the allocator reserved for the `tx`
@@ -2516,9 +2513,8 @@ impl<'a> ARM64Gen<'a> {
         }
       }
       Insn::TaskSpawn { dst, kind, .. } => {
-        // PLAN_PREHISTORY Phase 4 — two-tier spawn.
-        // Green → scheduler-multiplexed; Thread →
-        // fresh OS thread via pthread_create.
+        // Two-tier spawn: Green → scheduler-multiplexed;
+        // Thread → fresh OS thread via pthread_create.
         let runtime_sym = match kind {
           SpawnKind::Green => "_zo_task_spawn",
           SpawnKind::Thread => "_zo_task_spawn_thread",
@@ -2541,21 +2537,21 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(dst_reg, X0);
         }
       }
-      // `nursery { body }` is a semantic scope; the join
-      // + cancellation wiring belongs to the runtime (Phase
-      // 6). Codegen emits no code for these markers — they
-      // survive in SIR only for validator + copilord
-      // downstream passes.
+      // `nursery { body }` is a semantic scope; the
+      // join + cancellation wiring belongs to the
+      // runtime. Codegen emits no code for these
+      // markers — they survive in SIR only for the
+      // validator + downstream passes.
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
 
-      // PLAN_PREHISTORY Phase 5 — selective receive.
-      // Emits `BL _zo_select_wait`; caller's generated
-      // code supplies the channels array, out_value
-      // buffer, and reads the returned arm index from
-      // X0 for dispatch. The per-arm dispatch (jump
-      // tables) is upstream codegen work when the
-      // executor emits the surrounding
-      // `BranchIfNot` / `Jump` / `Label` sequence.
+      // Selective receive. Emits `BL _zo_select_wait`;
+      // caller's generated code supplies the channels
+      // array, out_value buffer, and reads the
+      // returned arm index from X0 for dispatch. The
+      // per-arm dispatch (jump tables) is upstream
+      // codegen work when the executor emits the
+      // surrounding `BranchIfNot` / `Jump` / `Label`
+      // sequence.
       Insn::SelectWait { out_which, .. } => {
         self.emit_extern_call("_zo_select_wait");
 

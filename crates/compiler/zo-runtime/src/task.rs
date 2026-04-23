@@ -1,5 +1,4 @@
-//! Phase 3 of `PLAN_PREHISTORY.md` — green task
-//! lifecycle.
+//! Green-task lifecycle.
 //!
 //! A `ZoTask` owns the state that makes a green task
 //! schedulable: a saved `Context`, a dedicated stack, a
@@ -18,12 +17,10 @@
 //! - `scheduler.rs` — `yield_now`, `run_one`,
 //!   `drain_until_dead`, thread-local queue state.
 //!
-//! ABI stability — `_zo_task_spawn` and `_zo_task_await`
-//! keep the signatures they had under PLAN_CHANNELS
-//! Phase 6's pthread-based runtime. ARM codegen emits
-//! BL placeholders that resolve to these symbols; the
-//! swap from pthread to green threads is transparent to
-//! the compiler.
+//! `_zo_task_spawn` / `_zo_task_await` are the stable
+//! ABI symbols the ARM codegen's BL placeholders
+//! resolve against — compiled programs don't know
+//! whether they run on green tasks or OS threads.
 
 use crate::ctxsw::{Context, ctx_switch};
 use crate::scheduler;
@@ -33,16 +30,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-/// Per-task stack size. D2 of PLAN_PREHISTORY pins this
-/// at 256 KB. Phase 3 MVP uses a plain `Box<[u8]>` —
-/// no guard page, no VM reservation. Phase 8 swaps to
-/// `mmap` + `mprotect` so stack overflow becomes a
-/// clean segfault instead of heap corruption.
+/// Per-task stack size. Fixed 256 KB; no growth, no
+/// relocation. Current implementation uses a plain
+/// `Box<[u8]>` — a future `mmap` + `mprotect` variant
+/// would turn stack overflow into a clean segfault
+/// instead of heap corruption.
 const DEFAULT_STACK_SIZE: usize = 256 * 1024;
 
 /// Lifecycle states a task moves through. The state
 /// machine is driven entirely by the scheduler thread
-/// (v1: single OS thread per scheduler).
+/// (single OS thread per scheduler).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TaskState {
   /// On the run queue, waiting for a turn.
@@ -61,26 +58,27 @@ pub enum TaskState {
 
 /// Terminal outcome of a task body.
 ///
-/// Per PLAN_CHANNELS Phase 0 decision 1, we store the
-/// outcome instead of unwinding across the FFI
-/// boundary. `await` re-raises if `Panicked`.
+/// We store the outcome rather than unwinding across
+/// the FFI boundary — the caller of `_zo_task_await`
+/// re-raises if `Panicked`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TaskOutcome {
   /// Body hasn't returned yet.
   Running,
-  /// Normal return. Phase 3 MVP doesn't thread the
-  /// value back — a richer `Completed(Vec<u8>)` lands
-  /// when the type-aware return path is wired.
+  /// Normal return. The current shape doesn't thread
+  /// the return value back; a richer
+  /// `Completed(Vec<u8>)` would wire the type-aware
+  /// return path.
   Completed,
-  /// Body panicked. Payload is discarded in v1;
-  /// Phase 7+ can carry it.
+  /// Body panicked. Payload is currently discarded;
+  /// carrying it would require a Box<dyn Any> in the
+  /// task struct.
   Panicked,
 }
 
 /// A task — either a green task multiplexed on the
-/// scheduler or a dedicated OS thread. The two-tier
-/// spawn model from `PLAN_PREHISTORY.md` Phase 4
-/// surfaces both through the same `*mut ZoTask`
+/// scheduler or a dedicated OS thread. Two-tier spawn
+/// surfaces both kinds through the same `*mut ZoTask`
 /// handle; `threaded` is the discriminator.
 ///
 /// Most fields are green-task-only. For a threaded
@@ -113,11 +111,11 @@ pub struct ZoTask {
   /// Tasks that have parked on `await`-ing this one.
   /// Green-only.
   pub waiters: Vec<*mut ZoTask>,
-  /// Cancellation flag. Phase 8 / D11 primitive. Set
-  /// by `_zo_task_cancel`; queried by
-  /// `_zo_task_is_cancelled` and (future) yield-site
-  /// cancellation polls. Arc-shared so a supervisor
-  /// can flip it from a different OS thread.
+  /// Cancellation flag. Set by `_zo_task_cancel`;
+  /// queried by `_zo_task_is_cancelled` and (future)
+  /// yield-site cancellation polls. Arc-shared so a
+  /// supervisor can flip it from a different OS
+  /// thread.
   pub cancelled: Arc<AtomicBool>,
   /// Threaded-kind extension — `Some` when this task
   /// owns a pthread running the user callee; `None`
@@ -140,12 +138,11 @@ struct ThreadedData {
 
 impl ZoTask {
   /// Allocate a new green task without enqueuing it on
-  /// any scheduler. Crate-public so `pool.rs` can build
-  /// pool-owned tasks without touching the thread-local
+  /// any scheduler. Public so `pool.rs` and
+  /// cost-decomposition microbenches in `tests/` can
+  /// build tasks without touching the thread-local
   /// run queue.
-  pub(crate) fn new_green_standalone(
-    user_entry: extern "C-unwind" fn(),
-  ) -> Box<Self> {
+  pub fn new_green_standalone(user_entry: extern "C-unwind" fn()) -> Box<Self> {
     Self::new_green(user_entry)
   }
 
@@ -420,9 +417,8 @@ pub unsafe fn await_task(target: *mut ZoTask) {
 
 // ===== C ABI exports =====
 //
-// Same symbol names and signatures as PLAN_CHANNELS
-// Phase 6's pthread-based runtime — ARM codegen emits
-// BL placeholders resolving to these.
+// ARM codegen emits `BL _zo_task_*` placeholders that
+// resolve against these symbols at link time.
 
 /// Spawn a new green task. Returns an opaque handle
 /// consumed by `_zo_task_await`.
@@ -475,11 +471,10 @@ pub unsafe extern "C-unwind" fn _zo_task_await(task: *mut ZoTask) {
   unsafe { await_task(task) };
 }
 
-/// Mark `task` as cancelled. Phase 8 / D11 primitive.
-/// Sets an atomic flag that the task itself (or a
-/// supervisor) can query via [`_zo_task_is_cancelled`]
-/// and unwind cooperatively. Idempotent — repeated
-/// cancels are no-ops.
+/// Mark `task` as cancelled. Sets an atomic flag that
+/// the task itself (or a supervisor) can query via
+/// [`_zo_task_is_cancelled`] and unwind cooperatively.
+/// Idempotent — repeated cancels are no-ops.
 ///
 /// # Safety
 ///
@@ -500,7 +495,7 @@ pub unsafe extern "C-unwind" fn _zo_task_cancel(task: *mut ZoTask) {
 
 /// Query the cancellation flag for `task`. Returns
 /// `true` iff a prior [`_zo_task_cancel`] has latched
-/// the flag. Phase 8 / D11 primitive.
+/// the flag.
 ///
 /// # Safety
 ///
@@ -606,7 +601,7 @@ mod tests {
     }
   }
 
-  // ===== PLAN_PREHISTORY Phase 4 — threaded spawn =====
+  // ===== threaded-spawn tests =====
 
   #[test]
   fn threaded_spawn_runs_on_dedicated_os_thread() {
@@ -637,7 +632,7 @@ mod tests {
     }
   }
 
-  // ===== PLAN_PREHISTORY Phase 8 — cancellation =====
+  // ===== cancellation tests =====
 
   #[test]
   fn cancel_sets_latched_flag() {

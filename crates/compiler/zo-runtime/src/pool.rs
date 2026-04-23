@@ -1,5 +1,4 @@
-//! Phase 8 of `PLAN_PREHISTORY.md` — multi-scheduler
-//! worker pool with work-stealing (D3 v2).
+//! Multi-scheduler worker pool with work-stealing.
 //!
 //! A [`Pool`] launches `n` worker OS threads. Each owns
 //! a cross-thread `SharedQueue` (Mutex-protected
@@ -193,9 +192,9 @@ impl Pool {
   }
 
   /// Stop workers and join them. Any tasks still
-  /// queued (never picked up) are leaked — callers are
-  /// expected to [`wait_idle`](Self::wait_idle) before
-  /// shutting down.
+  /// queued (never picked up) are reclaimed here so no
+  /// `Box<ZoTask>` leaks even if a caller shuts down
+  /// without [`wait_idle`](Self::wait_idle)-ing first.
   pub fn shutdown(mut self) {
     self.shutdown_flag.store(true, Ordering::SeqCst);
 
@@ -205,6 +204,20 @@ impl Pool {
 
     for h in self.handles.drain(..) {
       h.join().expect("pool worker joined dirty");
+    }
+
+    // Drain any queued-but-never-run tasks and reclaim
+    // their stacks. A task still in a queue was never
+    // entered, so dropping the Box is sufficient.
+    for q in self.queues.iter() {
+      for tp in q.lock().expect("pool queue poisoned").drain(..) {
+        // SAFETY: task was queued but never run — no
+        // waiters, no other references; pool owns the
+        // Box exclusively.
+        unsafe {
+          drop(Box::from_raw(tp.0));
+        }
+      }
     }
   }
 
@@ -281,7 +294,8 @@ fn worker_main(
 /// Drive one task to its next yield/die point.
 /// Decrements `pending` once when the task transitions
 /// to `Dead`, so external observers can poll for
-/// quiescence.
+/// quiescence. Reclaims the task's `Box<ZoTask>` on
+/// Dead — fire-and-forget tasks don't leak.
 fn run_task(tp: TaskPtr, pending: &Arc<AtomicUsize>) {
   // SAFETY: `tp.0` is a live `*mut ZoTask` pulled off a
   // pool queue. Only this worker holds it until it
@@ -295,10 +309,14 @@ fn run_task(tp: TaskPtr, pending: &Arc<AtomicUsize>) {
 
   if is_dead {
     pending.fetch_sub(1, Ordering::SeqCst);
-    // Memory is reclaimed by whatever eventually awaits
-    // it. In this minimal cut, fire-and-forget tasks
-    // leak their `Box<ZoTask>` — tests can track
-    // pointers and drop them explicitly when done.
+
+    // SAFETY: task is Dead — no outstanding references
+    // (waiters were flushed in `exit_current`, the pool
+    // is the last owner of the handle). Reclaim the
+    // Box<ZoTask> + its 256 KB stack.
+    unsafe {
+      drop(Box::from_raw(tp.0));
+    }
   }
 }
 

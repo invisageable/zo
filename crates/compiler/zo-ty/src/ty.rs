@@ -50,10 +50,11 @@ pub enum Ty {
   /// (multi-producer) — `.clone()` lowers to a fresh
   /// handle aliasing the same runtime `ZoChan`.
   ///
-  /// Distinct from `ChannelRx` per `PLAN_PREHISTORY.md`
-  /// Phase 1 (D7): the Tx/Rx asymmetry is enforced at
-  /// the type level, not via method-dispatch on a
-  /// unified `Channel(T)` variant.
+  /// Distinct from `ChannelRx`: the Tx/Rx asymmetry is
+  /// enforced at the type level, not via method
+  /// dispatch on a unified `Channel(T)` variant, so
+  /// `rx.send(..)` / `tx.recv(..)` are compile-time
+  /// errors.
   ChannelTx(TyId),
 
   /// The receiver half of a channel (`Rx<T>`). Inner

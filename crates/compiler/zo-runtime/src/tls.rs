@@ -1,15 +1,13 @@
-//! Phase 7 of `PLAN_PREHISTORY.md` — task-local
-//! storage.
+//! Task-local storage.
 //!
 //! Per-green-task key/value map, addressed by a u64
-//! key and carrying opaque byte-sized payloads (same
-//! ABI as channels). Lookup goes through
-//! `scheduler::current()`: when called from a green
-//! task, the TLS slot lives on the task; when called
-//! from a non-task OS thread, it falls back to a
-//! thread-local HashMap so main-thread code and
-//! `std::thread::spawn`ed helpers can still use
-//! the API.
+//! key and carrying opaque byte-sized payloads.
+//! Lookup goes through `scheduler::current()`: when
+//! called from a green task the TLS slot lives on
+//! the task; when called from a non-task OS thread
+//! it falls back to a thread-local HashMap so
+//! main-thread code and `std::thread::spawn`ed
+//! helpers can still use the API.
 //!
 //! Runtime exports:
 //! - `_zo_tls_set(key, src, elem_sz)` — store bytes.
@@ -19,8 +17,8 @@
 //!
 //! The storage shape (byte-vector values keyed by
 //! u64) keeps the runtime type-agnostic — the
-//! compiler is the source of truth for layout,
-//! mirroring the channel design (Phase 3b).
+//! compiler owns layout, the runtime only moves
+//! bytes.
 
 use std::cell::RefCell;
 use std::collections::HashMap;

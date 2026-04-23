@@ -359,7 +359,7 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::StrSliceOutOfBounds => "String slice range is out of bounds",
     ErrorKind::StrSliceInvalidRange => "String slice `lo` must be <= `hi`",
 
-    // Structured-concurrency errors (PLAN_CHANNELS Phase 0).
+    // Structured-concurrency errors.
     ErrorKind::SpawnOutsideNursery => {
       "`spawn` requires an enclosing `nursery { }` scope"
     }
@@ -449,7 +449,7 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::InvalidReturnType => "invalid return type",
     ErrorKind::UnterminatedBytes => "unterminated byte literal",
 
-    // Structured-concurrency errors (PLAN_CHANNELS Phase 0).
+    // Structured-concurrency errors.
     ErrorKind::SpawnOutsideNursery => "no enclosing `nursery` for this spawn",
     ErrorKind::AwaitOnNonTask => "this is not a `Task<T>`",
     ErrorKind::ChannelCapacityNotLiteral => "expected an integer literal here",
@@ -531,7 +531,7 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
       Some("Remove the return type or use `fun main() {}`")
     }
 
-    // Structured-concurrency errors (PLAN_CHANNELS Phase 0).
+    // Structured-concurrency errors.
     ErrorKind::SpawnOutsideNursery => Some(
       "Wrap the call in `nursery { spawn ... }` so the task's lifetime is bound to a parent scope",
     ),
@@ -573,7 +573,7 @@ fn error_note(kind: ErrorKind) -> Option<&'static str> {
       Some("The types of both operands must be compatible")
     }
 
-    // Structured-concurrency notes (PLAN_CHANNELS Phase 0).
+    // Structured-concurrency notes.
     ErrorKind::SpawnOutsideNursery => Some(
       "Per zo's structured-concurrency model, every spawned task\nmust have a lexical parent nursery. Orphan spawns are rejected\nat compile time.",
     ),

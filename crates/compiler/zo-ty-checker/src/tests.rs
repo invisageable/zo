@@ -638,9 +638,9 @@ fn channel_tx_ty_unifies_through_element() {
 
 #[test]
 fn channel_tx_and_rx_do_not_unify() {
-  // PLAN_PREHISTORY Phase 1 D7: `Tx<T>` and `Rx<T>` are
-  // distinct types at the ty level. Unifying them
-  // must fail even when the element types match.
+  // `Tx<T>` and `Rx<T>` are distinct types at the ty
+  // level. Unifying them must fail even when the
+  // element types match.
   let mut checker = TyChecker::new();
 
   let int_ty = checker.s32_type();

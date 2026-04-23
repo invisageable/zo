@@ -1638,11 +1638,10 @@ impl<'a> Parser<'a> {
   }
 
   /// `supervise { spawn ...; spawn ...; }` — opt-in
-  /// supervisor cascade per `PLAN_PREHISTORY.md`
-  /// Phase 6 (D8). Mirrors `nursery` in shape; the
-  /// semantic difference — panic propagation through
-  /// the enclosing task's cascade chain — is handled
-  /// at the runtime.
+  /// supervisor cascade. Mirrors `nursery` in shape;
+  /// the semantic difference — panic propagation
+  /// through the enclosing task's cascade chain — is
+  /// handled at the runtime.
   fn handle_supervise_keyword(&mut self) {
     self.flush_expr();
 
@@ -1661,12 +1660,12 @@ impl<'a> Parser<'a> {
   }
 
   /// `select { rx_expr => closure, rx_expr2 => closure2 }`
-  /// — selective receive per `PLAN_PREHISTORY.md` Phase 5.
-  /// Introducer opens the scope; the following `{`
-  /// starts the arm list. Arms are `expr => closure`
-  /// (closure in any form — `fn(v) => expr` or
-  /// `fn(v) { ... }`) separated by commas. The
-  /// `handle_rbrace_closer` cascade auto-closes Select
+  /// — selective receive. Introducer opens the scope;
+  /// the following `{` starts the arm list. Arms are
+  /// `expr => closure` (closure in any form —
+  /// `fn(v) => expr` or `fn(v) { ... }`) separated by
+  /// commas. The `handle_rbrace_closer` cascade
+  /// auto-closes Select
   /// once its body block finishes.
   fn handle_select_keyword(&mut self) {
     self.flush_expr();

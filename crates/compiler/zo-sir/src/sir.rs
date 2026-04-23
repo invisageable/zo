@@ -601,19 +601,18 @@ pub enum Insn {
 
   // ===== STRUCTURED CONCURRENCY =====
   //
-  // Phase 3 of `PLAN_CHANNELS.md`. Typed SIR carriers for
-  // the surface-level `nursery { }` / `spawn` / `await` /
-  // `channel()` / `tx.send` / `rx.recv`. Lowered to BL
-  // calls into `zo-runtime` in Phase 5 codegen.
+  // Typed SIR carriers for the surface-level
+  // `nursery { }` / `spawn` / `await` / `channel()` /
+  // `tx.send` / `rx.recv`. ARM codegen lowers these to
+  // BL calls into `zo-runtime`.
   /// Create a channel pair. Emits one runtime call that
   /// returns a single channel handle; `tx` and `rx` bind
   /// that handle under two separate ValueIds to match the
   /// surface tuple-destructure `imu (tx, rx) := channel()`.
   /// `elem_ty` is the element type `T` shared by send and
   /// recv. `capacity == 0` is unbuffered (rendezvous).
-  /// Phase 0 decision 5: `capacity` is an integer literal
-  /// enforced by the executor at the built-in `channel()`
-  /// call site.
+  /// `capacity` must be an integer literal — enforced by
+  /// the executor at the built-in `channel()` call site.
   ChannelCreate {
     tx: ValueId,
     rx: ValueId,
@@ -643,11 +642,11 @@ pub enum Insn {
   /// Must appear inside a `NurseryBegin` / `NurseryEnd`
   /// span — enforced by the executor, not the validator.
   ///
-  /// `kind` distinguishes the two-tier spawn model from
-  /// `PLAN_PREHISTORY.md` Phase 4: `Green` multiplexes on
-  /// the current scheduler (cheap, cooperative), `Thread`
-  /// spawns a dedicated OS thread (expensive, preemptive,
-  /// real multi-core parallelism).
+  /// `kind` distinguishes the two-tier spawn model:
+  /// `Green` multiplexes on the current scheduler
+  /// (cheap, cooperative), `Thread` spawns a dedicated
+  /// OS thread (expensive, preemptive, real multi-core
+  /// parallelism).
   TaskSpawn {
     dst: ValueId,
     callee: Symbol,
@@ -664,12 +663,11 @@ pub enum Insn {
     task: ValueId,
     ty_id: TyId,
   },
-  /// Selective receive — atomic wait on N channels,
-  /// per `PLAN_PREHISTORY.md` Phase 5. `out_which`
-  /// receives the 0-based arm index of the channel
-  /// that fired; `out_value` receives the recv'd
-  /// value (caller reads this to bind the arm's
-  /// closure parameter). Downstream
+  /// Selective receive — atomic wait on N channels.
+  /// `out_which` receives the 0-based arm index of
+  /// the channel that fired; `out_value` receives
+  /// the recv'd value (caller reads this to bind
+  /// the arm's closure parameter). Downstream
   /// `BranchIfNot` / `Jump` / `Label` insns dispatch
   /// on `out_which` to the correct arm body.
   SelectWait {
@@ -683,10 +681,9 @@ pub enum Insn {
   /// nursery: on scope exit, all such tasks are joined
   /// (or cancelled if any sibling panicked). `kind`
   /// distinguishes a plain `nursery { }` from a
-  /// `supervise { }` scope (PLAN_PREHISTORY Phase 6 D8)
-  /// — the latter additionally propagates panics
-  /// upward through the enclosing task's cascade
-  /// chain.
+  /// `supervise { }` scope — the latter additionally
+  /// propagates panics upward through the enclosing
+  /// task's cascade chain.
   NurseryBegin { label: u32, kind: NurseryKind },
   /// Close the nursery opened by a matching `NurseryBegin`
   /// with the same `label`. Emits the implicit join of
@@ -694,15 +691,12 @@ pub enum Insn {
   NurseryEnd { label: u32 },
 }
 
-/// Represents binary operators.
 /// Discriminator for `Insn::NurseryBegin` — plain
-/// scope vs supervised scope per
-/// `PLAN_PREHISTORY.md` Phase 6 D8.
+/// scope vs supervised scope.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NurseryKind {
   /// Plain `nursery { }` — siblings cancel on sibling
-  /// panic; error re-raises at scope exit (matches
-  /// PLAN_CHANNELS Phase 0 decision 1).
+  /// panic; error re-raises at scope exit.
   Scoped,
   /// `supervise { }` — in addition to `Scoped`
   /// semantics, the panic propagates through the
@@ -712,8 +706,7 @@ pub enum NurseryKind {
 }
 
 /// Discriminator for `Insn::TaskSpawn` — green task on
-/// the current scheduler vs fresh OS thread per
-/// `PLAN_PREHISTORY.md` Phase 4 two-tier spawn.
+/// the current scheduler vs fresh OS thread.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpawnKind {
   /// Multiplex on the current scheduler. Cheap

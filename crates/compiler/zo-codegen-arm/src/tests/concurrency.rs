@@ -1,6 +1,5 @@
-//! Phase 5 of `PLAN_CHANNELS.md` — ARM codegen lowers the
-//! concurrency SIR insns to `BL` placeholders against
-//! the runtime symbol set:
+//! ARM codegen lowers the concurrency SIR insns to
+//! `BL` placeholders against the runtime symbol set:
 //!
 //! - `ChannelCreate` → `BL _zo_chan_new`
 //! - `ChannelSend`   → `BL _zo_chan_send`
@@ -8,16 +7,14 @@
 //! - `TaskSpawn`     → `BL _zo_task_spawn`
 //! - `TaskAwait`     → `BL _zo_task_await`
 //! - `NurseryBegin` / `NurseryEnd` — no code emitted
-//!   (semantic markers only; cancellation wiring lives in
-//!   the runtime).
+//!   (semantic markers only; cancellation wiring lives
+//!   in the runtime).
 //!
-//! Phase 7 (not yet landed) wires `libzo_runtime.a` into
-//! the Mach-O writer so these symbols resolve. Until then
-//! these tests only check that the codegen pipeline records
+//! These tests check that the codegen pipeline records
 //! the correct `extern_used` entries — confirming that
-//! every concurrency insn passes through the runtime-call
-//! path instead of being silently dropped by a wildcard
-//! match arm.
+//! every concurrency insn passes through the runtime-
+//! call path instead of being silently dropped by a
+//! wildcard match arm.
 //!
 //! ```sh
 //! cargo test -p zo-codegen-arm concurrency
@@ -57,9 +54,9 @@ fn compile_and_inspect<F: FnOnce(&[String])>(source: &str, check: F) {
 }
 
 /// Compiles `source` to a full Mach-O binary (via
-/// `generate_macho`) and hands the raw bytes to `check`.
-/// Phase 7 tests use this to confirm the binary carries
-/// the right `LC_LOAD_DYLIB` entries for programs that
+/// `generate_macho`) and hands the raw bytes to
+/// `check`. Used to confirm the binary carries the
+/// right `LC_LOAD_DYLIB` entries for programs that
 /// use concurrency.
 fn compile_macho_and_inspect<F: FnOnce(&[u8])>(source: &str, check: F) {
   let mut interner = Interner::new();
