@@ -29,6 +29,7 @@ use crate::ctxsw::{Context, ctx_switch};
 use crate::scheduler;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -112,6 +113,12 @@ pub struct ZoTask {
   /// Tasks that have parked on `await`-ing this one.
   /// Green-only.
   pub waiters: Vec<*mut ZoTask>,
+  /// Cancellation flag. Phase 8 / D11 primitive. Set
+  /// by `_zo_task_cancel`; queried by
+  /// `_zo_task_is_cancelled` and (future) yield-site
+  /// cancellation polls. Arc-shared so a supervisor
+  /// can flip it from a different OS thread.
+  pub cancelled: Arc<AtomicBool>,
   /// Threaded-kind extension — `Some` when this task
   /// owns a pthread running the user callee; `None`
   /// for the common green-task case.
@@ -132,6 +139,16 @@ struct ThreadedData {
 }
 
 impl ZoTask {
+  /// Allocate a new green task without enqueuing it on
+  /// any scheduler. Crate-public so `pool.rs` can build
+  /// pool-owned tasks without touching the thread-local
+  /// run queue.
+  pub(crate) fn new_green_standalone(
+    user_entry: extern "C-unwind" fn(),
+  ) -> Box<Self> {
+    Self::new_green(user_entry)
+  }
+
   /// Allocate a new green task. The task is `Ready`
   /// and its Context bootstraps into [`task_shim`] on
   /// the first `ctx_switch` into it.
@@ -146,6 +163,7 @@ impl ZoTask {
       _stack: stack,
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
+      cancelled: Arc::new(AtomicBool::new(false)),
       threaded: None,
     });
 
@@ -172,6 +190,7 @@ impl ZoTask {
       _stack: Box::<[u8]>::default(),
       user_entry_addr: 0,
       waiters: Vec::new(),
+      cancelled: Arc::new(AtomicBool::new(false)),
       threaded: Some(ThreadedData {
         join: Mutex::new(None),
         outcome: Arc::new(Mutex::new(TaskOutcome::Running)),
@@ -456,6 +475,48 @@ pub unsafe extern "C-unwind" fn _zo_task_await(task: *mut ZoTask) {
   unsafe { await_task(task) };
 }
 
+/// Mark `task` as cancelled. Phase 8 / D11 primitive.
+/// Sets an atomic flag that the task itself (or a
+/// supervisor) can query via [`_zo_task_is_cancelled`]
+/// and unwind cooperatively. Idempotent — repeated
+/// cancels are no-ops.
+///
+/// # Safety
+///
+/// `task` must be a live handle from `_zo_task_spawn` /
+/// `_zo_task_spawn_thread` that hasn't yet been awaited.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn _zo_task_cancel(task: *mut ZoTask) {
+  if task.is_null() {
+    return;
+  }
+
+  // SAFETY: caller contract — pointer still live until
+  // the matching await consumes it.
+  let flag = unsafe { (*task).cancelled.clone() };
+
+  flag.store(true, Ordering::SeqCst);
+}
+
+/// Query the cancellation flag for `task`. Returns
+/// `true` iff a prior [`_zo_task_cancel`] has latched
+/// the flag. Phase 8 / D11 primitive.
+///
+/// # Safety
+///
+/// Same contract as [`_zo_task_cancel`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn _zo_task_is_cancelled(
+  task: *mut ZoTask,
+) -> bool {
+  if task.is_null() {
+    return false;
+  }
+
+  // SAFETY: caller contract.
+  unsafe { (*task).cancelled.load(Ordering::SeqCst) }
+}
+
 // ===== Tests =====
 
 #[cfg(test)]
@@ -573,6 +634,37 @@ mod tests {
       let task = _zo_task_spawn_thread(panicking_task);
 
       _zo_task_await(task);
+    }
+  }
+
+  // ===== PLAN_PREHISTORY Phase 8 — cancellation =====
+
+  #[test]
+  fn cancel_sets_latched_flag() {
+    scheduler::reset_for_test();
+
+    unsafe {
+      let task = _zo_task_spawn(increment_counter);
+
+      assert!(!_zo_task_is_cancelled(task));
+
+      _zo_task_cancel(task);
+
+      assert!(_zo_task_is_cancelled(task));
+
+      // Idempotent — re-cancel stays true.
+      _zo_task_cancel(task);
+      assert!(_zo_task_is_cancelled(task));
+
+      _zo_task_await(task);
+    }
+  }
+
+  #[test]
+  fn cancel_null_is_safe_noop() {
+    unsafe {
+      _zo_task_cancel(std::ptr::null_mut());
+      assert!(!_zo_task_is_cancelled(std::ptr::null_mut()));
     }
   }
 

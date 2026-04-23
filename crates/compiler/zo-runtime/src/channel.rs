@@ -35,7 +35,7 @@
 //! multi-scheduler); a debug-only assertion would fire
 //! if this ever happened.
 //!
-//! The three `#[no_mangle] extern "C"` exports keep
+//! The `#[no_mangle] extern "C-unwind"` exports keep
 //! the exact ABI they had in PLAN_CHANNELS Phase 6 —
 //! ARM codegen emits BL placeholders against
 //! `_zo_chan_new` / `_zo_chan_send` / `_zo_chan_recv`
@@ -134,6 +134,30 @@ impl PthreadPark {
     *guard = true;
 
     self.cv.notify_one();
+  }
+
+  /// Park for at most `timeout`. Returns `true` if
+  /// `unpark` latched, `false` on timeout. Used by
+  /// `_zo_chan_recv_timeout`.
+  fn park_timed(&self, timeout: std::time::Duration) -> bool {
+    let mut guard = self.notified.lock().expect("PthreadPark poisoned");
+
+    if *guard {
+      return true;
+    }
+
+    let (new_guard, wait_result) = self
+      .cv
+      .wait_timeout(guard, timeout)
+      .expect("PthreadPark wait poisoned");
+
+    guard = new_guard;
+
+    if wait_result.timed_out() && !*guard {
+      return false;
+    }
+
+    *guard
   }
 }
 
@@ -235,7 +259,10 @@ impl ZoChan {
 /// [`_zo_chan_free`]. Cross-thread sharing is safe —
 /// `ZoChan` is `Send + Sync`.
 #[unsafe(no_mangle)]
-pub extern "C" fn _zo_chan_new(elem_sz: usize, capacity: usize) -> *mut ZoChan {
+pub extern "C-unwind" fn _zo_chan_new(
+  elem_sz: usize,
+  capacity: usize,
+) -> *mut ZoChan {
   Box::into_raw(Box::new(ZoChan::new(elem_sz, capacity)))
 }
 
@@ -251,7 +278,10 @@ pub extern "C" fn _zo_chan_new(elem_sz: usize, capacity: usize) -> *mut ZoChan {
 ///   readable memory laid out exactly as the compiler
 ///   declared the channel's element type.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn _zo_chan_send(chan: *mut ZoChan, src: *const u8) {
+pub unsafe extern "C-unwind" fn _zo_chan_send(
+  chan: *mut ZoChan,
+  src: *const u8,
+) {
   // SAFETY: caller contract.
   let ch = unsafe { &*chan };
   let bound = ch.capacity.max(1);
@@ -314,7 +344,7 @@ pub unsafe extern "C" fn _zo_chan_send(chan: *mut ZoChan, src: *const u8) {
 /// - `dst` must point to at least `elem_sz` writable
 ///   bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn _zo_chan_recv(chan: *mut ZoChan, dst: *mut u8) {
+pub unsafe extern "C-unwind" fn _zo_chan_recv(chan: *mut ZoChan, dst: *mut u8) {
   // SAFETY: caller contract.
   let ch = unsafe { &*chan };
 
@@ -412,6 +442,158 @@ pub unsafe fn try_recv_nonblocking(
   true
 }
 
+/// Close a channel. Phase 8 / D11 primitive. Wakes
+/// every parked sender and receiver so they observe
+/// the closed state and unwind. After close:
+///
+/// - `_zo_chan_send` on the channel panics.
+/// - `_zo_chan_recv` drains any buffered values; once
+///   the buffer is empty it zero-fills `dst` and
+///   returns immediately.
+///
+/// Idempotent — close-on-closed is a no-op.
+///
+/// # Safety
+///
+/// `chan` must be a live pointer from [`_zo_chan_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn _zo_chan_close(chan: *mut ZoChan) {
+  // SAFETY: caller contract.
+  let ch = unsafe { &*chan };
+
+  let mut guard = ch.inner.lock().expect("zo-chan poisoned");
+
+  if guard.closed {
+    return;
+  }
+
+  guard.closed = true;
+
+  // Move every waiter out under the lock; wake outside.
+  let senders: Vec<Waiter> = guard.senders.drain(..).collect();
+  let receivers: Vec<Waiter> = guard.receivers.drain(..).collect();
+
+  drop(guard);
+
+  for w in senders {
+    wake(w);
+  }
+
+  for w in receivers {
+    wake(w);
+  }
+}
+
+/// Timed recv. Phase 8 / D11 primitive. Returns `true`
+/// iff a value was received within `timeout_ms`;
+/// `false` on timeout. Zero-fills `dst` on timeout so
+/// the caller doesn't observe uninitialized memory.
+///
+/// **Non-task callers only in v1** — green tasks fall
+/// back to plain blocking recv (timeout ignored). Green
+/// timed recv needs a scheduler-integrated timer wheel
+/// which is a follow-up beyond Phase 8's scope.
+///
+/// # Safety
+///
+/// - `chan` must be a live pointer from [`_zo_chan_new`].
+/// - `dst` must point to at least `elem_sz` writable
+///   bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn _zo_chan_recv_timeout(
+  chan: *mut ZoChan,
+  dst: *mut u8,
+  timeout_ms: u64,
+) -> bool {
+  // SAFETY: caller contract.
+  let ch = unsafe { &*chan };
+  let deadline =
+    std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+
+  loop {
+    let mut guard = ch.inner.lock().expect("zo-chan poisoned");
+
+    if let Some(buf) = guard.queue.pop_front() {
+      // SAFETY: matches `_zo_chan_recv` path.
+      unsafe {
+        std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, ch.elem_sz);
+      }
+
+      let waker = guard.senders.pop_front();
+
+      drop(guard);
+
+      if let Some(w) = waker {
+        wake(w);
+      }
+
+      return true;
+    }
+
+    if guard.closed {
+      // SAFETY: `dst` writable per caller.
+      unsafe {
+        std::ptr::write_bytes(dst, 0, ch.elem_sz);
+      }
+
+      return false;
+    }
+
+    let now = std::time::Instant::now();
+
+    if now >= deadline {
+      unsafe {
+        std::ptr::write_bytes(dst, 0, ch.elem_sz);
+      }
+
+      return false;
+    }
+
+    // Green tasks don't participate in timed wait in
+    // v1 — they fall back to plain park. Non-task
+    // callers park on a Condvar with timeout.
+    if scheduler::with(|s| s.current()).is_some() {
+      let handle = park_and_register(&mut guard.receivers);
+
+      drop(guard);
+
+      handle.wait();
+    } else {
+      let park = std::sync::Arc::new(PthreadPark::new());
+
+      guard
+        .receivers
+        .push_back(Waiter::Pthread(std::sync::Arc::clone(&park)));
+
+      drop(guard);
+
+      let remaining = deadline.saturating_duration_since(now);
+      let waited = park.park_timed(remaining);
+
+      if !waited {
+        // Timed out — remove our stale waiter entry so
+        // no future sender tries to wake a dropped
+        // parker. Searching is O(n) in the waiter list;
+        // acceptable for a v1 timeout path.
+        let mut guard = ch.inner.lock().expect("zo-chan poisoned");
+
+        guard.receivers.retain(|w| match w {
+          Waiter::Pthread(p) => !std::sync::Arc::ptr_eq(p, &park),
+          Waiter::Green(_) => true,
+        });
+
+        drop(guard);
+
+        unsafe {
+          std::ptr::write_bytes(dst, 0, ch.elem_sz);
+        }
+
+        return false;
+      }
+    }
+  }
+}
+
 /// Release a channel.
 ///
 /// # Safety
@@ -419,7 +601,7 @@ pub unsafe fn try_recv_nonblocking(
 /// `chan` must have come from [`_zo_chan_new`] and
 /// must not be used after this call returns.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn _zo_chan_free(chan: *mut ZoChan) {
+pub unsafe extern "C-unwind" fn _zo_chan_free(chan: *mut ZoChan) {
   if chan.is_null() {
     return;
   }
@@ -562,6 +744,100 @@ mod tests {
     }
 
     assert_eq!(RECEIVED.load(Ordering::SeqCst), 0x1234);
+  }
+
+  // ----- Phase 8 tests: close + timeout -----
+
+  #[test]
+  fn close_wakes_parked_receiver_returns_zero() {
+    use std::thread;
+
+    unsafe {
+      let ch = _zo_chan_new(std::mem::size_of::<u64>(), 0);
+      let ch_addr = ch as usize;
+
+      // Receiver parks on empty channel.
+      let recver = thread::spawn(move || {
+        let ch = ch_addr as *mut ZoChan;
+        let mut out: u64 = 0xDEAD_BEEF;
+        _zo_chan_recv(ch, (&raw mut out).cast::<u8>());
+
+        out
+      });
+
+      // Give the receiver time to park.
+      thread::sleep(std::time::Duration::from_millis(30));
+
+      _zo_chan_close(ch);
+
+      let out = recver.join().unwrap();
+
+      // Closed empty channel zero-fills.
+      assert_eq!(out, 0);
+
+      _zo_chan_free(ch);
+    }
+  }
+
+  #[test]
+  fn close_idempotent() {
+    unsafe {
+      let ch = _zo_chan_new(std::mem::size_of::<u32>(), 0);
+
+      _zo_chan_close(ch);
+      _zo_chan_close(ch);
+      _zo_chan_close(ch);
+
+      _zo_chan_free(ch);
+    }
+  }
+
+  #[test]
+  fn recv_timeout_fires_on_empty_channel() {
+    unsafe {
+      let ch = _zo_chan_new(std::mem::size_of::<u64>(), 0);
+      let mut out: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+
+      let got = _zo_chan_recv_timeout(ch, (&raw mut out).cast::<u8>(), 20);
+
+      assert!(!got, "recv_timeout should return false on timeout");
+      assert_eq!(out, 0, "dst zero-filled on timeout");
+
+      _zo_chan_free(ch);
+    }
+  }
+
+  #[test]
+  fn recv_timeout_returns_true_when_value_available() {
+    unsafe {
+      let ch = _zo_chan_new(std::mem::size_of::<u64>(), 1);
+      let src: u64 = 0xABCD_EF01;
+
+      _zo_chan_send(ch, (&raw const src).cast::<u8>());
+
+      let mut out: u64 = 0;
+      let got = _zo_chan_recv_timeout(ch, (&raw mut out).cast::<u8>(), 100);
+
+      assert!(got);
+      assert_eq!(out, src);
+
+      _zo_chan_free(ch);
+    }
+  }
+
+  #[test]
+  #[should_panic(expected = "send on closed zo-chan")]
+  fn send_on_closed_channel_panics() {
+    unsafe {
+      let ch = _zo_chan_new(std::mem::size_of::<u32>(), 4);
+
+      _zo_chan_close(ch);
+
+      let src: u32 = 42;
+      _zo_chan_send(ch, (&raw const src).cast::<u8>());
+
+      _zo_chan_free(ch);
+    }
   }
 
   #[test]

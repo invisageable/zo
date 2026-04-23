@@ -85,6 +85,20 @@ impl SchedulerState {
   fn set_current(&self, task: Option<*mut ZoTask>) {
     self.current.set(task);
   }
+
+  /// Pop a locally-queued task, if any. Used by pool
+  /// workers (`pool.rs`) to drain re-queued yielded /
+  /// woken tasks from the thread-local run queue.
+  pub fn pop_local(&self) -> Option<*mut ZoTask> {
+    self.pop_ready()
+  }
+
+  /// Whether the thread-local run queue has any ready
+  /// tasks. Used by pool workers to decide whether to
+  /// steal or park.
+  pub fn local_is_empty(&self) -> bool {
+    self.run_queue.borrow().is_empty()
+  }
 }
 
 thread_local! {
@@ -168,6 +182,19 @@ pub unsafe fn drain_until_dead(until_dead: *mut ZoTask) {
   }
 }
 
+/// Public entry point that lets external runners
+/// (pool workers in `pool.rs`) drive a task to its next
+/// yield/die point on the current OS thread's scheduler.
+///
+/// # Safety
+///
+/// Same contract as [`run_one`] — `task` must be a live
+/// pointer transitioning out of `Ready`, and the caller
+/// must NOT already be inside a task (no re-entrancy).
+pub unsafe fn run_one_external(task: *mut ZoTask) {
+  unsafe { run_one(task) };
+}
+
 /// Switch from scheduler context into `task`, block
 /// until it yields / dies, then re-queue based on the
 /// post-switch state.
@@ -229,9 +256,13 @@ unsafe fn run_one(task: *mut ZoTask) {
 // ===== Test helpers =====
 
 /// Clears thread-local scheduler state between tests
-/// so residue from one test doesn't leak into the
+/// so residue from one test (aborted panic path,
+/// leftover queue entries) doesn't leak into the
 /// next. No-op if the queue is already empty.
-#[cfg(test)]
+///
+/// Exposed unconditionally (not `#[cfg(test)]`) so
+/// integration tests in `tests/` can call it — they
+/// compile against the non-test crate.
 pub fn reset_for_test() {
   with(|s| {
     s.run_queue.borrow_mut().clear();
