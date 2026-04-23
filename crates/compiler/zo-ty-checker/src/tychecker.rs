@@ -245,6 +245,16 @@ impl TyChecker {
     self.intern_ty(Ty::Template)
   }
 
+  /// Intern a `Channel<T>` type where `elem_ty` is `T`.
+  pub fn channel_type(&mut self, elem_ty: TyId) -> TyId {
+    self.intern_ty(Ty::Channel(elem_ty))
+  }
+
+  /// Intern a `Task<T>` type where `return_ty` is `T`.
+  pub fn task_type(&mut self, return_ty: TyId) -> TyId {
+    self.intern_ty(Ty::Task(return_ty))
+  }
+
   /// Intern a type - deduplicates and returns existing if already present
   /// Uses HashMap for O(1) lookup instead of O(n) linear scan
   pub fn intern_ty(&mut self, kind: Ty) -> TyId {
@@ -421,6 +431,20 @@ impl TyChecker {
         for (a, b) in e1.iter().zip(e2.iter()) {
           self.unify(*a, *b, span)?;
         }
+
+        Some(self.resolve_id(repr1))
+      }
+
+      // Channel types — unify element types.
+      (Ty::Channel(e1), Ty::Channel(e2)) => {
+        self.unify(e1, e2, span)?;
+
+        Some(self.resolve_id(repr1))
+      }
+
+      // Task types — unify return types.
+      (Ty::Task(r1), Ty::Task(r2)) => {
+        self.unify(r1, r2, span)?;
 
         Some(self.resolve_id(repr1))
       }

@@ -43,6 +43,21 @@ pub enum Ty {
   /// A reference type - points to interned storage
   Ref(RefTyId),
 
+  /// A channel type. Inner `TyId` is the element type
+  /// carried across `tx.send` / `rx.recv`. Produced by
+  /// the built-in `channel()` (element inferred from
+  /// first send/recv). Surface API exposes `Tx::clone`
+  /// (multi-producer) but no `Rx::clone` — enforced at
+  /// method-resolution, not typestate.
+  Channel(TyId),
+
+  /// A task handle produced by `spawn fn(args)`. Inner
+  /// `TyId` is the callee's return type (may be `unit`).
+  /// Consumed by `await task`, which yields the inner
+  /// type. Nursery-scoped: task lifetime is bounded by
+  /// the enclosing `nursery { }` block.
+  Task(TyId),
+
   /// An array type - points to interned storage
   Array(ArrayTyId),
 
