@@ -476,6 +476,68 @@ impl PrettyPrinter {
           self.sir_instruction(&c);
         }
         Insn::Nop => {}
+
+        // Concurrency insns — single-line dump per insn.
+        Insn::ChannelCreate {
+          tx,
+          rx,
+          elem_ty,
+          capacity,
+        } => {
+          let c =
+            format!("%{tx}, %{rx} = chan.new cap={capacity} : {elem_ty:?}",);
+
+          self.sir_instruction(&c);
+        }
+        Insn::ChannelSend {
+          channel,
+          value,
+          ty_id,
+        } => {
+          let c = format!("chan.send %{channel}, %{value} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::ChannelRecv {
+          dst,
+          channel,
+          ty_id,
+        } => {
+          let c = format!("%{dst} = chan.recv %{channel} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TaskSpawn {
+          dst,
+          callee,
+          args,
+          ty_id,
+        } => {
+          let name = interner.get(*callee);
+          let args_str = args
+            .iter()
+            .map(|a| format!("%{a}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+          let c = format!("%{dst} = task.spawn {name}({args_str}) : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TaskAwait { dst, task, ty_id } => {
+          let c = format!("%{dst} = task.await %{task} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::NurseryBegin { label } => {
+          let c = format!("nursery.begin L{label}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::NurseryEnd { label } => {
+          let c = format!("nursery.end L{label}");
+
+          self.sir_instruction(&c);
+        }
       }
     }
 

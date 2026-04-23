@@ -232,6 +232,27 @@ impl Insn {
         f(dst);
         f(src);
       }
+      Insn::ChannelCreate { tx, rx, .. } => {
+        f(tx);
+        f(rx);
+      }
+      Insn::ChannelSend { channel, value, .. } => {
+        f(channel);
+        f(value);
+      }
+      Insn::ChannelRecv { dst, channel, .. } => {
+        f(dst);
+        f(channel);
+      }
+      Insn::TaskSpawn { dst, args, .. } => {
+        f(dst);
+        args.iter_mut().for_each(&mut *f);
+      }
+      Insn::TaskAwait { dst, task, .. } => {
+        f(dst);
+        f(task);
+      }
+      Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
     }
   }
 
@@ -306,12 +327,19 @@ impl Insn {
           }
         }
       }
+      Insn::ChannelCreate { elem_ty, .. } => f(elem_ty),
+      Insn::ChannelSend { ty_id, .. }
+      | Insn::ChannelRecv { ty_id, .. }
+      | Insn::TaskSpawn { ty_id, .. }
+      | Insn::TaskAwait { ty_id, .. } => f(ty_id),
       Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::BranchIfNot { .. }
       | Insn::StyleSheet { .. }
+      | Insn::NurseryBegin { .. }
+      | Insn::NurseryEnd { .. }
       | Insn::Nop => {}
     }
   }
@@ -559,6 +587,74 @@ pub enum Insn {
   /// Dead instruction — replaces folded operands in-place
   /// so instruction indices stay stable.
   Nop,
+
+  // ===== STRUCTURED CONCURRENCY =====
+  //
+  // Phase 3 of `PLAN_CHANNELS.md`. Typed SIR carriers for
+  // the surface-level `nursery { }` / `spawn` / `await` /
+  // `channel()` / `tx.send` / `rx.recv`. Lowered to BL
+  // calls into `zo-runtime` in Phase 5 codegen.
+  /// Create a channel pair. Emits one runtime call that
+  /// returns a single channel handle; `tx` and `rx` bind
+  /// that handle under two separate ValueIds to match the
+  /// surface tuple-destructure `imu (tx, rx) := channel()`.
+  /// `elem_ty` is the element type `T` shared by send and
+  /// recv. `capacity == 0` is unbuffered (rendezvous).
+  /// Phase 0 decision 5: `capacity` is an integer literal
+  /// enforced by the executor at the built-in `channel()`
+  /// call site.
+  ChannelCreate {
+    tx: ValueId,
+    rx: ValueId,
+    elem_ty: TyId,
+    capacity: u32,
+  },
+  /// Push `value` onto `channel`. Blocks if the channel is
+  /// bounded and its buffer is full. `ty_id` is the element
+  /// type, stored on the insn so the validator can assert
+  /// `value`'s ty matches without consulting the channel's
+  /// definition insn.
+  ChannelSend {
+    channel: ValueId,
+    value: ValueId,
+    ty_id: TyId,
+  },
+  /// Pop a value off `channel` into `dst`. Blocks until a
+  /// value is available. `ty_id` is the element type and
+  /// also the type of `dst`.
+  ChannelRecv {
+    dst: ValueId,
+    channel: ValueId,
+    ty_id: TyId,
+  },
+  /// Spawn a task running `callee(args)`. `dst` is the task
+  /// handle whose type is `Ty::Task(callee_return_ty)`.
+  /// Must appear inside a `NurseryBegin` / `NurseryEnd`
+  /// span — enforced by the executor, not the validator.
+  TaskSpawn {
+    dst: ValueId,
+    callee: Symbol,
+    args: Vec<ValueId>,
+    ty_id: TyId,
+  },
+  /// Suspend until `task` completes, then bind the task's
+  /// result value to `dst`. `ty_id` is the unwrapped result
+  /// type — the `T` inside `Ty::Task(T)`, not the handle
+  /// type itself.
+  TaskAwait {
+    dst: ValueId,
+    task: ValueId,
+    ty_id: TyId,
+  },
+  /// Open a nursery scope. Every `TaskSpawn` between this
+  /// insn and its matching `NurseryEnd` is scoped to this
+  /// nursery: on scope exit, all such tasks are joined
+  /// (or cancelled if any sibling panicked).
+  NurseryBegin { label: u32 },
+  /// Close the nursery opened by a matching `NurseryBegin`
+  /// with the same `label`. Emits the implicit join of
+  /// every scoped task.
+  NurseryEnd { label: u32 },
 }
 
 /// Represents binary operators.
