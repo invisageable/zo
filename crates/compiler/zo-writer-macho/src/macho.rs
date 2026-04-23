@@ -6121,15 +6121,14 @@ impl MachO {
   ///   DO_BIND
   ///   ... repeat for each symbol ...
   ///   DONE
-  pub fn build_bind_opcodes(
-    entries: &[(&str, u8, u64)],
-    dylib_ordinal: u8,
-  ) -> Vec<u8> {
+  pub fn build_bind_opcodes(entries: &[(&str, u8, u64, u8)]) -> Vec<u8> {
     let mut data = Vec::new();
 
-    for &(name, segment, offset) in entries {
-      // SET_DYLIB_ORDINAL_IMM | ordinal
-      data.push(BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | dylib_ordinal);
+    for &(name, segment, offset, ordinal) in entries {
+      // SET_DYLIB_ORDINAL_IMM | ordinal — per-entry so a
+      // single opcode stream can resolve symbols from
+      // multiple dylibs (libSystem + libzo_runtime).
+      data.push(BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | ordinal);
 
       // SET_SYMBOL_TRAILING_FLAGS_IMM | 0
       data.push(BIND_OPCODE_SET_SYMBOL_TRAILING);

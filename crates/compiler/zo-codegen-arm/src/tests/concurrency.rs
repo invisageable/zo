@@ -56,6 +56,41 @@ fn compile_and_inspect<F: FnOnce(&[String])>(source: &str, check: F) {
   check(codegen.extern_used());
 }
 
+/// Compiles `source` to a full Mach-O binary (via
+/// `generate_macho`) and hands the raw bytes to `check`.
+/// Phase 7 tests use this to confirm the binary carries
+/// the right `LC_LOAD_DYLIB` entries for programs that
+/// use concurrency.
+fn compile_macho_and_inspect<F: FnOnce(&[u8])>(source: &str, check: F) {
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _, _) = executor.execute();
+
+  let mut codegen = ARM64Gen::new(&interner);
+  let artifact = codegen.generate(&sir);
+  let binary = codegen.generate_macho(artifact);
+
+  check(&binary);
+}
+
+fn contains_bytes(binary: &[u8], needle: &[u8]) -> bool {
+  binary.windows(needle.len()).any(|w| w == needle)
+}
+
 #[test]
 fn channel_create_registers_chan_new_extern() {
   compile_and_inspect(
@@ -90,6 +125,58 @@ fn task_spawn_registers_task_spawn_extern() {
       assert!(
         externs.iter().any(|s| s == "_zo_task_spawn"),
         "expected `_zo_task_spawn` in extern_used, got {externs:?}"
+      );
+    },
+  );
+}
+
+#[test]
+fn concurrency_binary_loads_runtime_dylib() {
+  // A program using `channel()` must emit an
+  // `LC_LOAD_DYLIB` pointing at libzo_runtime.dylib so
+  // dyld can resolve `_zo_chan_new` at load time.
+  compile_macho_and_inspect(
+    r#"
+      fun main() {
+        nursery {
+          imu (tx, rx) := channel();
+        }
+      }
+    "#,
+    |binary| {
+      assert!(
+        contains_bytes(binary, b"@executable_path/libzo_runtime.dylib"),
+        "expected runtime dylib LC_LOAD_DYLIB string in the binary"
+      );
+      // libSystem still needed for intrinsics + syscalls.
+      assert!(
+        contains_bytes(binary, b"/usr/lib/libSystem.B.dylib"),
+        "libSystem LC_LOAD_DYLIB must still be present"
+      );
+    },
+  );
+}
+
+#[test]
+fn non_concurrency_binary_omits_runtime_dylib() {
+  // A program that never touches a concurrency insn
+  // must NOT pull in libzo_runtime.dylib — registering a
+  // dylib the binary doesn't reference bloats load-time
+  // bookkeeping.
+  compile_macho_and_inspect(
+    r#"
+      fun main() {
+        imu x: int = 42;
+      }
+    "#,
+    |binary| {
+      assert!(
+        !contains_bytes(binary, b"libzo_runtime.dylib"),
+        "expected no runtime dylib entry for a non-concurrency program"
+      );
+      assert!(
+        contains_bytes(binary, b"/usr/lib/libSystem.B.dylib"),
+        "libSystem LC_LOAD_DYLIB must be present"
       );
     },
   );

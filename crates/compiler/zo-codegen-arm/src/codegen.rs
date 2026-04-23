@@ -102,6 +102,16 @@ const PAGE_MASK: u64 = 0xFFF;
 
 // --- Dynamic Linking ---
 const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
+/// Phase 7 of PLAN_CHANNELS — libzo_runtime.dylib is
+/// registered as the second `LC_LOAD_DYLIB`, so its
+/// ordinal is 2. `_zo_chan_*` / `_zo_task_*` bindings
+/// route here; everything else stays on libSystem.
+const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
+
+/// Prefix identifying symbols that the runtime dylib
+/// exports. Classifier for routing extern symbols to the
+/// right `LC_LOAD_DYLIB` ordinal.
+const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
 const DATA_SEGMENT_INDEX: u8 = 2;
 
 // --- Libm Functions ---
@@ -737,7 +747,11 @@ impl<'a> ARM64Gen<'a> {
     // dyld fills the GOT slot at load time via bind opcodes.
     let n_got = self.extern_used.len();
     let mut got_data = Vec::with_capacity(n_got * 8);
-    let mut bind_entries: Vec<(&str, u8, u64)> = Vec::new();
+    let mut bind_entries: Vec<(&str, u8, u64, u8)> = Vec::new();
+    // Phase 7: track whether any symbol needs the zo
+    // runtime dylib so we only register it when a
+    // program actually uses concurrency.
+    let mut needs_runtime_dylib = false;
 
     for (i, c_sym) in self.extern_used.iter().enumerate() {
       let got_offset_in_data = (i * 8) as u64;
@@ -776,15 +790,32 @@ impl<'a> ARM64Gen<'a> {
         // BR X16 is already correct from emit_br().
       }
 
+      // Route each symbol to the right LC_LOAD_DYLIB.
+      // Runtime symbols (`_zo_chan_*` / `_zo_task_*`)
+      // land in libzo_runtime.dylib; everything else
+      // (libm, libSystem) stays on libSystem.
+      let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
+        needs_runtime_dylib = true;
+
+        ZO_RUNTIME_DYLIB_ORDINAL
+      } else {
+        LIBSYSTEM_DYLIB_ORDINAL
+      };
+
       // segment 2 = __DATA (pagezero=0, __TEXT=1, __DATA=2)
-      bind_entries.push((c_sym, DATA_SEGMENT_INDEX, got_offset_in_data));
+      bind_entries.push((
+        c_sym,
+        DATA_SEGMENT_INDEX,
+        got_offset_in_data,
+        ordinal,
+      ));
     }
 
-    // Build bind opcodes for dyld.
-    // dylib ordinal 1 = first LC_LOAD_DYLIB (libSystem).
+    // Build bind opcodes for dyld. Per-entry ordinal lets
+    // libSystem and libzo_runtime symbols share one
+    // opcode stream.
     if !bind_entries.is_empty() {
-      let bind_data =
-        MachO::build_bind_opcodes(&bind_entries, LIBSYSTEM_DYLIB_ORDINAL);
+      let bind_data = MachO::build_bind_opcodes(&bind_entries);
 
       macho.set_bind_data(bind_data);
     }
@@ -820,14 +851,32 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Add undefined symbols for each libm function.
-    // dylib ordinal 1 = libSystem.
+    // Add undefined symbols, routing each to its owning
+    // dylib's ordinal so the Mach-O symtab + LC_LOAD_DYLIB
+    // entries agree with the bind opcodes above.
     for c_sym in &self.extern_used {
-      macho.add_undefined_symbol(c_sym, LIBSYSTEM_DYLIB_ORDINAL as u16);
+      let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
+        ZO_RUNTIME_DYLIB_ORDINAL
+      } else {
+        LIBSYSTEM_DYLIB_ORDINAL
+      };
+
+      macho.add_undefined_symbol(c_sym, ordinal as u16);
     }
 
     macho.add_dylinker();
     macho.add_dylib("/usr/lib/libSystem.B.dylib");
+
+    // Phase 7: register libzo_runtime.dylib as the second
+    // LC_LOAD_DYLIB so `_zo_chan_*` / `_zo_task_*` resolve
+    // at load time. Users must colocate the dylib with the
+    // executable (or point DYLD_LIBRARY_PATH at it) for
+    // programs that use concurrency to launch. Non-
+    // concurrency programs never touch this entry.
+    if needs_runtime_dylib {
+      macho.add_dylib("@executable_path/libzo_runtime.dylib");
+    }
+
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
