@@ -1,38 +1,56 @@
-//! Phase 6 of `PLAN_CHANNELS.md` — channel runtime.
+//! Phase 3b of `PLAN_PREHISTORY.md` — channel runtime
+//! with scheduler-integrated parking.
 //!
 //! A channel is a mutex-protected FIFO queue with two
-//! condition variables (senders blocked on "buffer full",
-//! receivers blocked on "buffer empty"). Zero capacity
-//! means unbuffered rendezvous: a sender unblocks only
-//! when a matching receiver is actually waiting.
+//! wait lists (senders blocked on "buffer full",
+//! receivers blocked on "buffer empty"). Unlike the
+//! PLAN_CHANNELS Phase 6 design, parking is
+//! polymorphic:
 //!
-//! The three `#[no_mangle] extern "C"` exports below are
-//! the symbols the ARM codegen (Phase 5) emits `BL`
-//! placeholders for. Once the Mach-O writer (Phase 7)
-//! links `libzo_runtime.a`, programs will resolve to
-//! these functions at load time.
+//! - **Green task caller** — `scheduler::current()` is
+//!   `Some`. The task enqueues itself on the wait list
+//!   as `Waiter::Green(task)`, marks Blocked, yields
+//!   via [`scheduler::yield_now`]. When the matching op
+//!   pops it, the waker sets `Ready` + pushes to the
+//!   run queue.
+//! - **Non-task caller** — main thread before any
+//!   spawn, or a `std::thread::spawn`ed helper running
+//!   alongside the scheduler. Parks on a per-wait
+//!   `Arc<PthreadPark>` (Condvar + notified flag).
+//!   Waker calls `unpark()`; the OS thread resumes.
 //!
-//! ABI — values are passed through raw byte pointers. The
-//! compiler knows each channel's element size and hands it
-//! to `_zo_chan_new` at construction time; subsequent
-//! `_zo_chan_send` / `_zo_chan_recv` calls `memcpy`
-//! `elem_sz` bytes through the caller-owned buffer. This
-//! sidesteps the need for a runtime type descriptor — the
-//! compiler is the source of truth for layout.
+//! Hybrid parking keeps the PLAN_CHANNELS Phase 6
+//! cross-thread tests working (pthread helpers
+//! exchanging values with main over a rendezvous
+//! channel) while unblocking the new case that
+//! motivated Phase 3b: a green task parked on send /
+//! recv being woken by another green task on the same
+//! scheduler.
+//!
+//! Cross-OS-thread wake of a parked green task (e.g.
+//! `std::thread::spawn`ed helper sending to a channel
+//! whose receiver is a parked green task on the
+//! scheduler thread) is **not supported in v1**. It
+//! needs a cross-scheduler wake primitive (Phase 4
+//! multi-scheduler); a debug-only assertion would fire
+//! if this ever happened.
+//!
+//! The three `#[no_mangle] extern "C"` exports keep
+//! the exact ABI they had in PLAN_CHANNELS Phase 6 —
+//! ARM codegen emits BL placeholders against
+//! `_zo_chan_new` / `_zo_chan_send` / `_zo_chan_recv`
+//! and those symbols still resolve.
 
 use std::collections::VecDeque;
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
-/// Per-channel runtime state. Heap-allocated and owned
-/// by a raw pointer so the ABI is a single `*mut ZoChan`.
-///
-/// The layout is **not** `#[repr(C)]` — zo code only ever
-/// holds the opaque pointer; all field access happens
-/// inside this module.
+use crate::scheduler;
+use crate::task::{TaskState, ZoTask};
+
+/// Per-channel runtime state. Heap-allocated; zo code
+/// holds only the opaque `*mut ZoChan` handle.
 pub struct ZoChan {
   inner: Mutex<ChannelInner>,
-  senders: Condvar,
-  receivers: Condvar,
   elem_sz: usize,
   capacity: usize,
 }
@@ -41,12 +59,155 @@ pub struct ZoChan {
 struct ChannelInner {
   /// FIFO of raw byte buffers, one per in-flight value.
   queue: VecDeque<Vec<u8>>,
-  /// True when a caller has closed the channel. Send on a
-  /// closed channel panics; recv drains any buffered
-  /// values and then returns the zeroed buffer (Phase 6
-  /// keeps it simple — a richer Option<T> return lands
-  /// with the nursery-cancel wiring).
+  /// True when a caller has closed the channel. Send
+  /// on a closed channel panics; recv drains any
+  /// buffered values and then zero-fills.
   closed: bool,
+  /// Senders parked on "buffer full".
+  senders: VecDeque<Waiter>,
+  /// Receivers parked on "buffer empty".
+  receivers: VecDeque<Waiter>,
+}
+
+/// A parked caller on a channel wait list.
+#[derive(Clone)]
+enum Waiter {
+  /// Green task parked on the scheduler. On wake,
+  /// `state` transitions to `Ready` and the task is
+  /// re-enqueued.
+  Green(TaskPtr),
+  /// Non-task OS thread parked on a personal Condvar.
+  /// On wake, the Condvar is signalled and the thread
+  /// resumes.
+  Pthread(Arc<PthreadPark>),
+}
+
+/// `*mut ZoTask` wrapper giving it `Send` — needed so
+/// `Waiter` can live in `Mutex<ChannelInner>` which
+/// requires `Send + Sync` for cross-thread access.
+///
+/// # Safety
+///
+/// Only one OS thread (the scheduler thread) dereferences
+/// the pointer at a time in v1. Phase 4's multi-
+/// scheduler design revisits this — it'll either
+/// keep the unsafe impl (single-owner model) or swap
+/// to task-ID lookup.
+#[derive(Copy, Clone)]
+struct TaskPtr(*mut ZoTask);
+
+unsafe impl Send for TaskPtr {}
+
+/// Per-wait parking primitive for non-task callers.
+/// Pair of `Mutex<bool>` + `Condvar` implements a
+/// one-shot binary semaphore — wake-up is latched, so
+/// `unpark` before `park` still releases the parker.
+struct PthreadPark {
+  /// `true` once `unpark()` has been called.
+  notified: Mutex<bool>,
+  cv: Condvar,
+}
+
+impl PthreadPark {
+  fn new() -> Self {
+    Self {
+      notified: Mutex::new(false),
+      cv: Condvar::new(),
+    }
+  }
+
+  /// Block the OS thread until a matching `unpark()`.
+  /// If `unpark()` already fired, returns immediately.
+  fn park(&self) {
+    let mut guard = self.notified.lock().expect("PthreadPark poisoned");
+
+    while !*guard {
+      guard = self.cv.wait(guard).expect("PthreadPark wait poisoned");
+    }
+  }
+
+  /// Wake the parked thread. Latches the flag so a
+  /// subsequent `park()` returns immediately.
+  fn unpark(&self) {
+    let mut guard = self.notified.lock().expect("PthreadPark poisoned");
+
+    *guard = true;
+
+    self.cv.notify_one();
+  }
+}
+
+/// A parked-caller handle returned by
+/// [`park_and_register`]. The caller invokes `wait()`
+/// AFTER dropping the channel's mutex, so the matching
+/// op can wake them without contending on the lock.
+enum ParkHandle {
+  Green(TaskPtr),
+  Pthread(Arc<PthreadPark>),
+}
+
+impl ParkHandle {
+  /// Block the caller. Must be invoked after the
+  /// caller has dropped the channel's `inner` mutex.
+  fn wait(self) {
+    match self {
+      // SAFETY: task ptr is still live — either we're
+      // still executing on its stack (same-scheduler
+      // park) or the scheduler owns the Box.
+      Self::Green(task) => unsafe {
+        (*task.0).state = TaskState::Blocked;
+
+        scheduler::yield_now();
+      },
+      Self::Pthread(p) => p.park(),
+    }
+  }
+}
+
+/// Register the current caller on `waitlist`. Returns
+/// a [`ParkHandle`] the caller drops the channel's
+/// mutex first, then invokes `wait()` on. Must be
+/// called with the channel's `inner` mutex held so
+/// the waiter registration + wait-for-wake pair is
+/// atomic w.r.t. the matching counterpart.
+fn park_and_register(waitlist: &mut VecDeque<Waiter>) -> ParkHandle {
+  match scheduler::with(|s| s.current()) {
+    Some(task) => {
+      let ptr = TaskPtr(task);
+
+      waitlist.push_back(Waiter::Green(ptr));
+
+      ParkHandle::Green(ptr)
+    }
+    None => {
+      let p = Arc::new(PthreadPark::new());
+
+      waitlist.push_back(Waiter::Pthread(Arc::clone(&p)));
+
+      ParkHandle::Pthread(p)
+    }
+  }
+}
+
+/// Wake a previously-parked waiter. MUST be called
+/// after the channel's `inner` mutex has been
+/// dropped — the green-task wake path re-enters the
+/// scheduler to push to the run queue, and holding
+/// the channel mutex across that would force later
+/// same-thread channel ops to block.
+fn wake(w: Waiter) {
+  match w {
+    // SAFETY: task ptr is valid while the green task
+    // remains in the Ready / Blocked states — the
+    // scheduler owns the Box via its `current` +
+    // `run_queue` references.
+    Waiter::Green(task) => unsafe {
+      (*task.0).state = TaskState::Ready;
+
+      scheduler::with(|s| s.enqueue(task.0));
+    },
+    Waiter::Pthread(p) => p.unpark(),
+  }
 }
 
 impl ZoChan {
@@ -55,33 +216,37 @@ impl ZoChan {
       inner: Mutex::new(ChannelInner {
         queue: VecDeque::with_capacity(capacity.max(1)),
         closed: false,
+        senders: VecDeque::new(),
+        receivers: VecDeque::new(),
       }),
-      senders: Condvar::new(),
-      receivers: Condvar::new(),
       elem_sz,
       capacity,
     }
   }
 }
 
+// ===== C ABI exports =====
+
 /// Allocate a fresh channel.
 ///
 /// # Safety
 ///
 /// The returned pointer must be released via
-/// [`_zo_chan_free`]. Crossing threads is safe —
-/// `ZoChan`'s fields are all `Send + Sync`.
+/// [`_zo_chan_free`]. Cross-thread sharing is safe —
+/// `ZoChan` is `Send + Sync`.
 #[unsafe(no_mangle)]
 pub extern "C" fn _zo_chan_new(elem_sz: usize, capacity: usize) -> *mut ZoChan {
   Box::into_raw(Box::new(ZoChan::new(elem_sz, capacity)))
 }
 
-/// Push a value. Blocks when the bounded buffer is full.
+/// Push a value. Parks the caller via the scheduler
+/// (green task) or a Condvar (non-task) when the
+/// bounded buffer is full.
 ///
 /// # Safety
 ///
-/// - `chan` must come from [`_zo_chan_new`] and still be
-///   live (not yet freed).
+/// - `chan` must come from [`_zo_chan_new`] and still
+///   be live.
 /// - `src` must point to at least `elem_sz` bytes of
 ///   readable memory laid out exactly as the compiler
 ///   declared the channel's element type.
@@ -89,55 +254,95 @@ pub extern "C" fn _zo_chan_new(elem_sz: usize, capacity: usize) -> *mut ZoChan {
 pub unsafe extern "C" fn _zo_chan_send(chan: *mut ZoChan, src: *const u8) {
   // SAFETY: caller contract.
   let ch = unsafe { &*chan };
-  let mut guard = ch.inner.lock().expect("zo-chan poisoned");
-
-  // Wait until there's room (unbounded when capacity == 0
-  // is handled as a rendezvous: one slot, receiver drains
-  // immediately after the send).
   let bound = ch.capacity.max(1);
 
-  while guard.queue.len() >= bound {
+  loop {
+    let mut guard = ch.inner.lock().expect("zo-chan poisoned");
+
     if guard.closed {
       panic!("send on closed zo-chan");
     }
 
-    guard = ch
-      .senders
-      .wait(guard)
-      .expect("zo-chan senders wait poisoned");
+    if guard.queue.len() < bound {
+      // SAFETY: `src..src + elem_sz` is valid to
+      // read per caller contract; `elem_sz` matches
+      // what this channel was constructed with.
+      let mut buf = vec![0u8; ch.elem_sz];
+
+      unsafe {
+        std::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), ch.elem_sz);
+      }
+
+      guard.queue.push_back(buf);
+
+      // Wake a matching receiver if one is parked. We
+      // pop under the lock + wake outside it — see the
+      // comment on `wake` for why.
+      let waker = guard.receivers.pop_front();
+
+      drop(guard);
+
+      if let Some(w) = waker {
+        wake(w);
+      }
+
+      return;
+    }
+
+    // Buffer full — park.
+    let handle = park_and_register(&mut guard.senders);
+
+    drop(guard);
+
+    handle.wait();
+
+    // Woken — loop back and retry. Another sender may
+    // have refilled the buffer between wake and
+    // re-lock, so we re-check rather than assume
+    // room.
   }
-
-  // SAFETY: caller contract — `src..src+elem_sz` is valid
-  // to read and the compiler has made `elem_sz` match
-  // this channel's declared element size.
-  let mut buf = vec![0u8; ch.elem_sz];
-
-  unsafe {
-    std::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), ch.elem_sz);
-  }
-
-  guard.queue.push_back(buf);
-  ch.receivers.notify_one();
 }
 
-/// Pop a value. Blocks when the channel is empty.
+/// Pop a value. Parks the caller via the scheduler
+/// (green task) or a Condvar (non-task) when the
+/// channel is empty.
 ///
 /// # Safety
 ///
-/// - `chan` must come from [`_zo_chan_new`] and still be
-///   live.
+/// - `chan` must come from [`_zo_chan_new`] and still
+///   be live.
 /// - `dst` must point to at least `elem_sz` writable
 ///   bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _zo_chan_recv(chan: *mut ZoChan, dst: *mut u8) {
   // SAFETY: caller contract.
   let ch = unsafe { &*chan };
-  let mut guard = ch.inner.lock().expect("zo-chan poisoned");
 
-  while guard.queue.is_empty() {
+  loop {
+    let mut guard = ch.inner.lock().expect("zo-chan poisoned");
+
+    if let Some(buf) = guard.queue.pop_front() {
+      // SAFETY: `buf.len() == elem_sz` by construction
+      // in `_zo_chan_send`; `dst` writable per caller.
+      unsafe {
+        std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, ch.elem_sz);
+      }
+
+      let waker = guard.senders.pop_front();
+
+      drop(guard);
+
+      if let Some(w) = waker {
+        wake(w);
+      }
+
+      return;
+    }
+
     if guard.closed {
-      // Zero-fill on closed drain — richer Option return
-      // is deferred until the cancel wiring lands.
+      // Zero-fill on closed drain — richer Option
+      // return is deferred until the cancel wiring
+      // lands.
       unsafe {
         std::ptr::write_bytes(dst, 0, ch.elem_sz);
       }
@@ -145,42 +350,46 @@ pub unsafe extern "C" fn _zo_chan_recv(chan: *mut ZoChan, dst: *mut u8) {
       return;
     }
 
-    guard = ch
-      .receivers
-      .wait(guard)
-      .expect("zo-chan receivers wait poisoned");
+    // Empty — park.
+    let handle = park_and_register(&mut guard.receivers);
+
+    drop(guard);
+
+    handle.wait();
   }
-
-  let buf = guard.queue.pop_front().expect("zo-chan queue invariant");
-
-  // SAFETY: buf.len() == ch.elem_sz by construction in
-  // `_zo_chan_send`; dst is caller-guaranteed writable.
-  unsafe {
-    std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, ch.elem_sz);
-  }
-
-  ch.senders.notify_one();
 }
 
 /// Release a channel.
 ///
 /// # Safety
 ///
-/// `chan` must have come from [`_zo_chan_new`] and must
-/// not be used after this call returns.
+/// `chan` must have come from [`_zo_chan_new`] and
+/// must not be used after this call returns.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _zo_chan_free(chan: *mut ZoChan) {
   if chan.is_null() {
     return;
   }
 
-  // SAFETY: caller contract — exclusive ownership.
+  // SAFETY: exclusive ownership transfers on drop.
   drop(unsafe { Box::from_raw(chan) });
 }
+
+// ===== Tests =====
 
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  use crate::task::{_zo_task_await, _zo_task_spawn};
+
+  use std::sync::atomic::{AtomicU64, Ordering};
+
+  // ----- Pre-Phase-3b tests: pure pthread context -----
+  //
+  // These keep the PLAN_CHANNELS Phase 6 semantics
+  // working — no green tasks involved. They exercise
+  // the `Waiter::Pthread` path.
 
   #[test]
   fn send_recv_round_trips_a_u64() {
@@ -226,7 +435,7 @@ mod tests {
     unsafe {
       let ch = _zo_chan_new(std::mem::size_of::<u64>(), 0);
 
-      // `ch` is a raw pointer, not Send; wrap it in usize
+      // `ch` is a raw pointer, not Send; wrap in usize
       // to ferry it across the thread boundary.
       let ch_addr = ch as usize;
 
@@ -246,5 +455,88 @@ mod tests {
 
       _zo_chan_free(ch);
     }
+  }
+
+  // ----- Phase 3b tests: green-task parking -----
+
+  // Channel shared between green tasks + the main
+  // thread's setup. `AtomicU64` stores the raw pointer
+  // so the two `extern "C-unwind"` entries can grab it
+  // without captures (forbidden across that ABI).
+  static SHARED_CH: AtomicU64 = AtomicU64::new(0);
+  static RECEIVED: AtomicU64 = AtomicU64::new(0);
+
+  extern "C-unwind" fn green_sender() {
+    let ch = SHARED_CH.load(Ordering::SeqCst) as *mut ZoChan;
+    let v: u64 = 0x1234;
+
+    unsafe {
+      _zo_chan_send(ch, (&raw const v).cast::<u8>());
+    }
+  }
+
+  extern "C-unwind" fn green_receiver() {
+    let ch = SHARED_CH.load(Ordering::SeqCst) as *mut ZoChan;
+    let mut v: u64 = 0;
+
+    unsafe {
+      _zo_chan_recv(ch, (&raw mut v).cast::<u8>());
+    }
+
+    RECEIVED.store(v, Ordering::SeqCst);
+  }
+
+  #[test]
+  fn two_green_tasks_exchange_via_buffered_channel() {
+    // Capacity 1 — sender + receiver shouldn't block
+    // each other. Proves green-task parking doesn't
+    // regress same-scheduler non-contended cases.
+    scheduler::reset_for_test();
+
+    unsafe {
+      let ch = _zo_chan_new(std::mem::size_of::<u64>(), 1);
+
+      SHARED_CH.store(ch as u64, Ordering::SeqCst);
+      RECEIVED.store(0, Ordering::SeqCst);
+
+      let sender = _zo_task_spawn(green_sender);
+      let receiver = _zo_task_spawn(green_receiver);
+
+      _zo_task_await(sender);
+      _zo_task_await(receiver);
+
+      _zo_chan_free(ch);
+    }
+
+    assert_eq!(RECEIVED.load(Ordering::SeqCst), 0x1234);
+  }
+
+  #[test]
+  fn green_receiver_parks_then_resumes_on_send() {
+    // Capacity 0 — receiver MUST park before any value
+    // is available. Proves the green-task park-on-empty
+    // + wake-on-send path.
+    scheduler::reset_for_test();
+
+    unsafe {
+      let ch = _zo_chan_new(std::mem::size_of::<u64>(), 0);
+
+      SHARED_CH.store(ch as u64, Ordering::SeqCst);
+      RECEIVED.store(0, Ordering::SeqCst);
+
+      // Spawn receiver FIRST so it blocks on empty.
+      let receiver = _zo_task_spawn(green_receiver);
+
+      // Spawn sender SECOND; when it runs, it'll wake
+      // the parked receiver.
+      let sender = _zo_task_spawn(green_sender);
+
+      _zo_task_await(receiver);
+      _zo_task_await(sender);
+
+      _zo_chan_free(ch);
+    }
+
+    assert_eq!(RECEIVED.load(Ordering::SeqCst), 0x1234);
   }
 }
