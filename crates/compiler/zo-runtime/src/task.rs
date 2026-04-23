@@ -429,7 +429,35 @@ pub unsafe fn await_task(target: *mut ZoTask) {
 /// pointer. The returned handle remains valid until
 /// consumed by `_zo_task_await` — dropping it without
 /// awaiting leaks the task's stack and ZoTask struct.
-#[unsafe(no_mangle)]
+/// Drain every ready task in the thread-local
+/// scheduler to completion. Called at the close of a
+/// `nursery { }` (and supervise { }) scope so sibling
+/// tasks finish before control exits the scope.
+///
+/// Idempotent on an empty queue.
+///
+/// # Safety
+///
+/// Must be called from non-task OS-thread code (the
+/// scheduler's own thread). Calling from inside a
+/// green task would recurse into the scheduler and
+/// deadlock.
+#[unsafe(export_name = "zo_nursery_drain")]
+pub unsafe extern "C-unwind" fn _zo_nursery_drain() {
+  scheduler::drain_all();
+}
+
+/// Spawn a green task.
+///
+/// # Safety
+///
+/// `callee` must be a live `extern "C-unwind"`
+/// function pointer. The returned task handle is
+/// consumed by a later [`_zo_task_await`] or
+/// implicitly by the nursery drain at scope exit —
+/// dropping it without either would leak the task's
+/// stack and `ZoTask` struct.
+#[unsafe(export_name = "zo_task_spawn")]
 pub unsafe extern "C-unwind" fn _zo_task_spawn(
   callee: extern "C-unwind" fn(),
 ) -> *mut ZoTask {
@@ -445,7 +473,7 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn(
 /// `callee` must be a live `extern "C-unwind"`
 /// function pointer. The returned handle must be
 /// consumed by `_zo_task_await`.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_task_spawn_thread")]
 pub unsafe extern "C-unwind" fn _zo_task_spawn_thread(
   callee: extern "C-unwind" fn(),
 ) -> *mut ZoTask {
@@ -462,7 +490,7 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn_thread(
 /// `_zo_task_spawn_thread` and not yet been awaited.
 /// After this call returns, `task` is freed and must
 /// not be referenced again.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_task_await")]
 pub unsafe extern "C-unwind" fn _zo_task_await(task: *mut ZoTask) {
   if task.is_null() {
     return;
@@ -480,7 +508,7 @@ pub unsafe extern "C-unwind" fn _zo_task_await(task: *mut ZoTask) {
 ///
 /// `task` must be a live handle from `_zo_task_spawn` /
 /// `_zo_task_spawn_thread` that hasn't yet been awaited.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_task_cancel")]
 pub unsafe extern "C-unwind" fn _zo_task_cancel(task: *mut ZoTask) {
   if task.is_null() {
     return;
@@ -500,7 +528,7 @@ pub unsafe extern "C-unwind" fn _zo_task_cancel(task: *mut ZoTask) {
 /// # Safety
 ///
 /// Same contract as [`_zo_task_cancel`].
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_task_is_cancelled")]
 pub unsafe extern "C-unwind" fn _zo_task_is_cancelled(
   task: *mut ZoTask,
 ) -> bool {

@@ -4527,6 +4527,50 @@ impl<'a> Executor<'a> {
   }
 
   /// Resolves a type token at `idx` to a [`TyId`].
+  /// If `idx` points at a concurrency-builtin base type
+  /// (`Ty::Task` / `Ty::ChannelTx` / `Ty::ChannelRx`
+  /// with a fresh inference variable as its argument)
+  /// and the next token is `<`, consume `< ArgTy >` and
+  /// unify the fresh var with `ArgTy`. Leaves `idx` at
+  /// the closing `>` so the caller's own `idx += 1`
+  /// moves past it.
+  fn bind_concurrency_generic(
+    &mut self,
+    idx: &mut usize,
+    end: usize,
+    ty: TyId,
+  ) {
+    let inner_var = match self.ty_checker.kind(ty) {
+      Some(Ty::Task(v)) | Some(Ty::ChannelTx(v)) | Some(Ty::ChannelRx(v)) => *v,
+      _ => return,
+    };
+
+    let lt_idx = *idx + 1;
+
+    if lt_idx >= end || self.tree.nodes[lt_idx].token != Token::Lt {
+      return;
+    }
+
+    let arg_idx = lt_idx + 1;
+
+    if arg_idx >= end {
+      return;
+    }
+
+    let arg_ty = self.resolve_type_token(arg_idx);
+    let span = self.tree.spans[*idx];
+
+    self.ty_checker.unify(inner_var, arg_ty, span);
+
+    let gt_idx = arg_idx + 1;
+
+    if gt_idx < end && self.tree.nodes[gt_idx].token == Token::Gt {
+      *idx = gt_idx;
+    } else {
+      *idx = arg_idx;
+    }
+  }
+
   fn resolve_type_token(&mut self, idx: usize) -> TyId {
     match self.tree.nodes[idx].token {
       Token::IntType => self.ty_checker.int_type(),
@@ -5471,7 +5515,19 @@ impl<'a> Executor<'a> {
 
                   ty
                 } else {
-                  self.resolve_type_token(idx)
+                  let ty = self.resolve_type_token(idx);
+
+                  // Concurrency built-ins carry a fresh inference
+                  // var that must be pinned by the `<ArgTy>`
+                  // tokens following the base ident — e.g.
+                  // `tx: Tx<int>` leaves idx pointing at `Tx`
+                  // with ty = Ty::ChannelTx(?X); consume the
+                  // `<`, resolve `int`, unify `?X` with `int`,
+                  // and leave idx at the closing `>` so the
+                  // outer `idx += 1` moves past it.
+                  self.bind_concurrency_generic(&mut idx, _end_idx, ty);
+
+                  ty
                 };
 
                 // Skip extra token for $T type params.
@@ -5900,12 +5956,28 @@ impl<'a> Executor<'a> {
           annotated_ty = Some(self.resolve_type_token(i));
         }
 
-        // Struct/enum name as type annotation.
+        // Struct / enum / concurrency-builtin name as
+        // type annotation. `resolve_ty_symbol` covers
+        // built-in aliases (`int`, `str`) AND the
+        // concurrency builtins (`Task<T>`, `Tx<T>`,
+        // `Rx<T>`); the latter carry a fresh inference
+        // variable that `bind_concurrency_generic`
+        // pins to the `<ArgTy>` immediately following.
         if tok == Token::Ident
           && annotated_ty.is_none()
           && let Some(NodeValue::Symbol(sym)) = self.node_value(i)
         {
-          annotated_ty = self.ty_checker.resolve_ty_name(sym);
+          let resolved = self.ty_checker.resolve_ty_symbol(sym, self.interner);
+
+          if let Some(base) = resolved {
+            let mut cursor = i;
+
+            self.bind_concurrency_generic(&mut cursor, children_end, base);
+
+            i = cursor;
+
+            annotated_ty = Some(base);
+          }
         }
 
         skip_to = i + 1;
@@ -8268,6 +8340,20 @@ impl<'a> Executor<'a> {
       // `apply []int { fun sum(self) }` style methods
       // resolve via `array_ty_name_str` →
       // `arr_int::sum`.
+    }
+
+    // Channel built-in methods: `Tx<T>::send` and
+    // `Rx<T>::recv` aren't user FunDefs — they lower
+    // directly to `ChannelSend` / `ChannelRecv` insns
+    // at RParen dispatch. Recognizing them here stops
+    // the Dot handler from treating the receiver as a
+    // struct / tuple field access.
+    if matches!(resolved, Ty::ChannelTx(_) | Ty::ChannelRx(_)) {
+      let ms = self.interner.get(member_name);
+
+      if ms == "send" || ms == "recv" {
+        return true;
+      }
     }
 
     // Generic type param: if the method is an abstract method,

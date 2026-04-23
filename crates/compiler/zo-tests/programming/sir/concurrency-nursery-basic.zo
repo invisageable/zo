@@ -1,0 +1,30 @@
+-- @emit sir
+--
+-- A `nursery { }` scope delimits a set of sibling
+-- tasks that all finish (or all cancel on a sibling
+-- panic) before control exits the scope. The
+-- `nursery.begin` / `nursery.end` pair survives in
+-- SIR so the runtime and downstream passes see the
+-- structure; joining + cancellation live in the
+-- runtime library, not in emitted code.
+
+fun greeter() {
+  showln("hello from greeter");
+}
+
+fun counter() {
+  imu n: int = 42;
+
+  showln("count: {n}");
+}
+
+fun main() {
+  -- CHECK: nursery.begin
+  nursery {
+    -- CHECK: task.spawn greeter
+    spawn greeter();
+    -- CHECK: task.spawn counter
+    spawn counter();
+  }
+  -- CHECK: nursery.end
+}

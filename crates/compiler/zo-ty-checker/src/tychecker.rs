@@ -1103,6 +1103,26 @@ impl TyChecker {
       "char" => Some(self.char_type()),
       "str" => Some(self.str_type()),
       "unit" | "()" => Some(self.unit_type()),
+      // Concurrency built-ins. Return the ty with a fresh
+      // inference variable for the element/return `T`; the
+      // generic-arg parse (`<int>`) emits a `<` sequence that
+      // the surrounding type-resolution path unifies against
+      // this variable, pinning `T` to the concrete type.
+      "Task" => {
+        let ty = self.fresh_var();
+
+        Some(self.task_type(ty))
+      }
+      "Tx" => {
+        let ty = self.fresh_var();
+
+        Some(self.channel_tx_type(ty))
+      }
+      "Rx" => {
+        let ty = self.fresh_var();
+
+        Some(self.channel_rx_type(ty))
+      }
       _ => self.resolve_ty_name(sym),
     }
   }

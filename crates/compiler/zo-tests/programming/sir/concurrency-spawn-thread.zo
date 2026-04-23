@@ -1,0 +1,23 @@
+-- @emit sir
+--
+-- `spawn thread fn()` lowers to a `task.spawn_thread`
+-- insn — distinct from the green-task `task.spawn`.
+-- Codegen routes the two kinds to different runtime
+-- symbols: `_zo_task_spawn` (scheduler-multiplexed)
+-- vs `_zo_task_spawn_thread` (dedicated OS thread
+-- via pthread_create), so long-running or
+-- blocking-syscall work can preempt onto its own
+-- thread without stalling the scheduler.
+
+fun heavy_worker() {
+  imu total: int = 1_000_000;
+
+  showln("crunching {total} items");
+}
+
+fun main() {
+  nursery {
+    -- CHECK: task.spawn_thread heavy_worker
+    spawn thread heavy_worker();
+  }
+}

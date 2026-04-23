@@ -247,12 +247,13 @@ fn bench_spawn_to_entry_latency() {
   );
 }
 
-// ===== single-test runner =====
+// ===== harness =====
 
-#[test]
-fn spawn_cost_breakdown() {
+fn main() {
   // Truncate the results file up front.
   RESULTS_PATH.get_or_init(init_results_path);
+
+  println!("=== zo-runtime spawn cost breakdown ===");
 
   bench_stack_alloc();
   bench_zotask_construct_drop();

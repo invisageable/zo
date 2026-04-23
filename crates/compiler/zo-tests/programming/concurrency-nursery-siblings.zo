@@ -1,0 +1,25 @@
+-- tests-build-pass: multiple siblings in one nursery all run.
+-- @cmd — zo build concurrency-nursery-siblings.zo
+
+fun greeter() {
+  showln("hello from greeter");
+}
+
+fun counter() {
+  imu n: int = 42;
+
+  showln("count is {n}");
+}
+
+fun main() {
+  nursery {
+    spawn greeter();
+    spawn counter();
+  }
+
+  showln("main done");
+}
+
+-- EXPECT: hello from greeter
+-- count is 42
+-- main done

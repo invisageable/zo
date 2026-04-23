@@ -140,6 +140,27 @@ pub unsafe fn yield_now() {
   });
 }
 
+/// Drains the run queue until every ready task has
+/// finished. Called from non-task code (typically
+/// `main` at a nursery scope's `}`) to run all
+/// spawned siblings to completion before control
+/// flows past the scope. Safe to call with an empty
+/// queue — returns immediately.
+pub fn drain_all() {
+  loop {
+    let next = with(|s| s.pop_ready());
+
+    match next {
+      Some(task) => {
+        // SAFETY: task pointer pulled from the run
+        // queue is live (the box is scheduler-owned).
+        unsafe { run_one(task) }
+      }
+      None => return,
+    }
+  }
+}
+
 /// Drains the run queue until `until_dead`'s state
 /// transitions to `Dead`. Called from non-task code
 /// (typically `main` inside a nursery) to block on

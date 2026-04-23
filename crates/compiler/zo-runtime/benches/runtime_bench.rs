@@ -1,17 +1,16 @@
-//! Runtime-level benchmark integration tests —
-//! fan-out throughput, ping-pong latency, and mixed
-//! producer/consumer throughput.
+//! Runtime-level benchmarks — fan-out throughput,
+//! ping-pong latency, producer/consumer throughput.
 //!
-//! Assertions use generous upper bounds so CI variance
-//! doesn't produce flaky failures; the real value is
-//! the wall-time print-out developers can compare
-//! across runs.
-//!
-//! Run with:
+//! Hand-rolled timing harness (no criterion). Run with:
 //!
 //! ```sh
-//! just test_crate zo-runtime
+//! cargo bench -p zo-runtime --bench runtime_bench
 //! ```
+//!
+//! Each bench asserts *correctness* (counts, sums,
+//! echo-order) but never asserts timing — benches
+//! measure, they don't fail on variance. Compare the
+//! printed wall-times across runs to spot regressions.
 
 use zo_runtime::channel::{
   _zo_chan_close, _zo_chan_free, _zo_chan_new, _zo_chan_recv, _zo_chan_send,
@@ -21,15 +20,8 @@ use zo_runtime::pool::Pool;
 use zo_runtime::scheduler;
 use zo_runtime::task::{_zo_task_await, _zo_task_spawn};
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-
-// Serializes benches that share static state (fan-out
-// counter, static channel pointers). Nextest runs
-// integration-test functions in parallel by default.
-static FANOUT_LOCK: Mutex<()> = Mutex::new(());
-static CHAN_LOCK: Mutex<()> = Mutex::new(());
 
 // ===== fan-out: N workers, K tasks =====
 
@@ -39,22 +31,13 @@ extern "C-unwind" fn fan_out_increment() {
   FAN_OUT_COUNTER.fetch_add(1, Ordering::SeqCst);
 }
 
-#[test]
-fn bench_fan_out_10k() {
-  // 10K tasks across 4 workers. Each increments an
-  // atomic. Exercises multi-scheduler dispatch +
-  // work-stealing under moderate load.
-  let _lock = FANOUT_LOCK.lock().unwrap();
-
-  const N_WORKERS: usize = 4;
-  const N_TASKS: usize = 10_000;
-
+fn bench_fan_out(n_tasks: usize, n_workers: usize) {
   FAN_OUT_COUNTER.store(0, Ordering::SeqCst);
 
-  let pool = Pool::new(N_WORKERS);
+  let pool = Pool::new(n_workers);
   let start = Instant::now();
 
-  for _ in 0..N_TASKS {
+  for _ in 0..n_tasks {
     pool.spawn(fan_out_increment);
   }
 
@@ -62,50 +45,9 @@ fn bench_fan_out_10k() {
 
   let elapsed = start.elapsed();
 
-  assert_eq!(FAN_OUT_COUNTER.load(Ordering::SeqCst), N_TASKS as u64);
-  assert!(
-    elapsed.as_secs() < 2,
-    "fan-out regression: {N_TASKS} tasks in {elapsed:?} (target < 2s)",
-  );
+  assert_eq!(FAN_OUT_COUNTER.load(Ordering::SeqCst), n_tasks as u64);
 
-  println!(
-    "[bench] fan_out {N_TASKS} tasks / {N_WORKERS} workers — {elapsed:?}"
-  );
-
-  pool.shutdown();
-}
-
-#[test]
-fn bench_fan_out_100k() {
-  // 100K green tasks on one pool, wall time ≤ 2 s on
-  // M1 — the high-fan-out contract for the scheduler.
-  let _lock = FANOUT_LOCK.lock().unwrap();
-
-  const N_WORKERS: usize = 4;
-  const N_TASKS: usize = 100_000;
-
-  FAN_OUT_COUNTER.store(0, Ordering::SeqCst);
-
-  let pool = Pool::new(N_WORKERS);
-  let start = Instant::now();
-
-  for _ in 0..N_TASKS {
-    pool.spawn(fan_out_increment);
-  }
-
-  pool.wait_idle();
-
-  let elapsed = start.elapsed();
-
-  assert_eq!(FAN_OUT_COUNTER.load(Ordering::SeqCst), N_TASKS as u64);
-  assert!(
-    elapsed.as_secs() < 2,
-    "fan-out 100K regression: {N_TASKS} tasks in {elapsed:?} (target ≤ 2 s)",
-  );
-
-  println!(
-    "[bench] fan_out {N_TASKS} tasks / {N_WORKERS} workers — {elapsed:?}"
-  );
+  println!("fan_out {n_tasks:>7} tasks / {n_workers} workers — {elapsed:?}",);
 
   pool.shutdown();
 }
@@ -147,14 +89,7 @@ extern "C-unwind" fn ponger() {
   }
 }
 
-#[test]
 fn bench_ping_pong() {
-  // Two green tasks bouncing N integers through a pair
-  // of rendezvous channels. Exercises green-task park
-  // + wake on every hop — the slowest path in the
-  // channel layer.
-  let _lock = CHAN_LOCK.lock().unwrap();
-
   scheduler::reset_for_test();
 
   unsafe {
@@ -173,11 +108,8 @@ fn bench_ping_pong() {
 
     let elapsed = start.elapsed();
 
-    println!("[bench] ping_pong {PING_PONG_ROUNDS} rounds — {elapsed:?}");
-
-    assert!(
-      elapsed.as_secs() < 5,
-      "ping-pong regression: {PING_PONG_ROUNDS} rounds in {elapsed:?}",
+    println!(
+      "ping_pong {PING_PONG_ROUNDS:>7} rounds              — {elapsed:?}"
     );
 
     _zo_chan_free(ping);
@@ -223,16 +155,7 @@ extern "C-unwind" fn consumer() {
   }
 }
 
-#[test]
 fn bench_producer_consumer_close() {
-  // One producer sends N values then closes; one
-  // consumer drains the channel until the closed
-  // zero-fill sentinel. Validates the close() wake-all
-  // semantics end-to-end, including the case where the
-  // consumer is parked on an empty channel at the
-  // moment of close.
-  let _lock = CHAN_LOCK.lock().unwrap();
-
   scheduler::reset_for_test();
 
   PROD_SUM.store(0, Ordering::SeqCst);
@@ -254,8 +177,17 @@ fn bench_producer_consumer_close() {
 
     assert_eq!(PROD_SUM.load(Ordering::SeqCst), expected_sum);
 
-    println!("[bench] producer_consumer {PROD_N} values — {elapsed:?}");
+    println!("producer_consumer {PROD_N:>5} values + close — {elapsed:?}");
 
     _zo_chan_free(ch);
   }
+}
+
+fn main() {
+  println!("=== zo-runtime benches ===");
+
+  bench_fan_out(10_000, 4);
+  bench_fan_out(100_000, 4);
+  bench_ping_pong();
+  bench_producer_consumer_close();
 }

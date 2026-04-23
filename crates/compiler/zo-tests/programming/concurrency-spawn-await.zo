@@ -1,0 +1,17 @@
+-- tests-build-pass: spawn a worker, await its int return, print it.
+-- @cmd — zo build concurrency-spawn-await.zo
+
+fun compute() -> int {
+  42
+}
+
+fun main() {
+  nursery {
+    imu task: Task<int> = spawn compute();
+    imu result: int = await task;
+
+    showln("got {result}");
+  }
+}
+
+-- EXPECT: got 42

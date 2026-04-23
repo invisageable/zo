@@ -50,6 +50,11 @@ lint: typos fmt clippy
 bench:
   cargo bench --all
 
+# Run zo-runtime concurrency benchmarks (fan-out,
+# ping-pong, producer/consumer, cost-decomposition).
+bench_runtime:
+  cargo bench -p zo-runtime
+
 # Run both test suites in parallel
 [parallel]
 [group('test')]

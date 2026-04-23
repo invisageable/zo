@@ -6,6 +6,15 @@ use zo_token::{InterpSegment, LiteralStore, Token, TokenBuffer};
 
 use serde::Serialize;
 
+/// Longest keyword in the language, in bytes. Gates the
+/// keyword-match fast path below — any identifier
+/// strictly longer than this can short-circuit straight
+/// to `Token::Ident` without walking the match arms.
+/// Must be bumped when a longer keyword is added;
+/// forgetting the bump silently turns the new keyword
+/// into an identifier.
+const MAX_KEYWORD_LEN: u16 = 9;
+
 /// The complete result of tokenization
 #[derive(Serialize)]
 pub struct TokenizationResult {
@@ -330,7 +339,7 @@ impl<'a> Tokenizer<'a> {
     // Perfect hash for keywords using first 2 bytes
     let kind = if in_tag_markup {
       Token::Ident
-    } else if len <= 8 {
+    } else if len <= MAX_KEYWORD_LEN {
       match len {
         2 => {
           // Use read_unaligned for safe access

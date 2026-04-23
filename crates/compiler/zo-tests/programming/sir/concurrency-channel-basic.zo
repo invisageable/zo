@@ -1,0 +1,20 @@
+-- @emit sir
+--
+-- `channel()` is a compiler intrinsic. It emits a
+-- single `chan.new` insn at runtime producing a pair
+-- of handles: element 0 is the sender (`Tx<T>`),
+-- element 1 is the receiver (`Rx<T>`). The surface
+-- binding holds both handles in a tuple; access is
+-- via `ch.0` (tx) and `ch.1` (rx) until tuple-
+-- destructure patterns (`imu (tx, rx) := channel()`)
+-- are wired end-to-end.
+
+fun main() {
+  nursery {
+    -- CHECK: chan.new cap=0
+    imu channel := channel();
+    -- `ch.0` is the Tx handle (send side).
+    -- `ch.1` is the Rx handle (recv side).
+    showln("channel allocated");
+  }
+}

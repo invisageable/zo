@@ -144,6 +144,13 @@ pub struct ARM64Gen<'a> {
   current_function: Option<Symbol>,
   /// Fixups for string references (position in code -> symbol).
   pub(super) string_fixups: Vec<(u32, Symbol)>,
+  /// ADR fixups that load the address of a user
+  /// function — used by `TaskSpawn` to pass the
+  /// callee's function pointer to the runtime's
+  /// `_zo_task_spawn(callee)` ABI. Resolved in the
+  /// same post-pass as string fixups, indexing
+  /// `self.functions` for the callee's code offset.
+  function_addr_fixups: Vec<(u32, Symbol)>,
   /// Template data sections (symbol -> data).
   pub(super) template_data: Vec<(Symbol, Vec<u8>)>,
   /// Whether we have templates that need the entry point.
@@ -269,6 +276,7 @@ impl<'a> ARM64Gen<'a> {
       string_data: Vec::new(),
       current_function: None,
       string_fixups: Vec::new(),
+      function_addr_fixups: Vec::new(),
       template_data: Vec::new(),
       has_templates: false,
       labels: HashMap::default(),
@@ -676,6 +684,25 @@ impl<'a> ARM64Gen<'a> {
       template_offsets.insert(*symbol, current_offset);
 
       current_offset += bytes.len();
+    }
+
+    // Apply user-function-address fixups. `TaskSpawn`
+    // emits an ADR placeholder to load the callee's
+    // address into X0; here we resolve each ADR to
+    // the callee function's actual code offset.
+    for (fixup_pos, callee) in &self.function_addr_fixups {
+      if let Some(&target_offset) = self.functions.get(callee) {
+        let relative = (target_offset as i32) - (*fixup_pos as i32);
+        let pos = *fixup_pos as usize;
+        let existing =
+          u32::from_le_bytes(code[pos..pos + 4].try_into().unwrap());
+        let rd = existing & INSN_RD_MASK;
+        let immlo = (relative as u32) & FIXUP_ADR_IMMLO;
+        let immhi = ((relative >> 2) as u32) & FIXUP_ADR_IMMHI;
+        let insn = FIXUP_ADR | (immlo << 29) | (immhi << 5) | rd;
+
+        code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
+      }
     }
 
     // Apply string fixups.
@@ -2512,9 +2539,21 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(dst_reg, X0);
         }
       }
-      Insn::TaskSpawn { dst, kind, .. } => {
+      Insn::TaskSpawn {
+        dst, kind, callee, ..
+      } => {
         // Two-tier spawn: Green → scheduler-multiplexed;
         // Thread → fresh OS thread via pthread_create.
+        // ABI: `_zo_task_spawn(callee: fn()) -> *ZoTask`
+        // — load the callee's code address into X0
+        // before the BL. An ADR placeholder is patched
+        // in the post-pass (`function_addr_fixups`)
+        // once the callee's final offset is known.
+        let adr_pos = self.emitter.current_offset();
+
+        self.emitter.emit_adr(X0, 0);
+        self.function_addr_fixups.push((adr_pos, *callee));
+
         let runtime_sym = match kind {
           SpawnKind::Green => "_zo_task_spawn",
           SpawnKind::Thread => "_zo_task_spawn_thread",
@@ -2528,7 +2567,16 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(dst_reg, X0);
         }
       }
-      Insn::TaskAwait { dst, .. } => {
+      Insn::TaskAwait { dst, task, .. } => {
+        // ABI: `_zo_task_await(task: *ZoTask)` — X0
+        // carries the task handle produced by a prior
+        // `TaskSpawn`.
+        if let Some(src) = self.alloc_reg(*task)
+          && src != X0
+        {
+          self.emitter.emit_mov_reg(X0, src);
+        }
+
         self.emit_extern_call("_zo_task_await");
 
         if let Some(dst_reg) = self.alloc_reg(*dst)
@@ -2537,12 +2585,18 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(dst_reg, X0);
         }
       }
-      // `nursery { body }` is a semantic scope; the
-      // join + cancellation wiring belongs to the
-      // runtime. Codegen emits no code for these
-      // markers — they survive in SIR only for the
-      // validator + downstream passes.
-      Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
+      // `nursery { body }` brackets a set of spawned
+      // siblings. `NurseryBegin` is a no-op — the
+      // scheduler queue is already in place. `NurseryEnd`
+      // drains every ready task to completion so the
+      // parent doesn't fall through the `}` leaving
+      // orphaned green tasks in the queue. `supervise`
+      // shares this drain path; the cascade semantics
+      // are a runtime-side policy extension.
+      Insn::NurseryBegin { .. } => {}
+      Insn::NurseryEnd { .. } => {
+        self.emit_extern_call("_zo_nursery_drain");
+      }
 
       // Selective receive. Emits `BL _zo_select_wait`;
       // caller's generated code supplies the channels

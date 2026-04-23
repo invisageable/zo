@@ -56,7 +56,7 @@ thread_local! {
 ///   writing 8 bytes under key K and reading 4
 ///   bytes back is UB from the compiler's
 ///   perspective.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_tls_set")]
 pub unsafe extern "C-unwind" fn _zo_tls_set(
   key: u64,
   src: *const u8,
@@ -91,7 +91,7 @@ pub unsafe extern "C-unwind" fn _zo_tls_set(
 ///
 /// `dst` must point to at least `elem_sz` writable
 /// bytes; layout matches the paired `_zo_tls_set`.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_tls_get")]
 pub unsafe extern "C-unwind" fn _zo_tls_get(
   key: u64,
   dst: *mut u8,

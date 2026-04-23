@@ -251,7 +251,14 @@ impl ZoChan {
 /// The returned pointer must be released via
 /// [`_zo_chan_free`]. Cross-thread sharing is safe —
 /// `ZoChan` is `Send + Sync`.
-#[unsafe(no_mangle)]
+// `export_name` gives the exact C-level symbol name;
+// Darwin then prepends `_` (standard C ABI) so the
+// Mach-O symbol table ends up with `_zo_chan_new`,
+// matching the codegen's `BL _zo_chan_new`. Using a
+// plain `#[no_mangle]` on a Rust name that already
+// starts with `_` leads to double-underscore
+// (`__zo_chan_new`) and breaks the link.
+#[unsafe(export_name = "zo_chan_new")]
 pub extern "C-unwind" fn _zo_chan_new(
   elem_sz: usize,
   capacity: usize,
@@ -270,7 +277,7 @@ pub extern "C-unwind" fn _zo_chan_new(
 /// - `src` must point to at least `elem_sz` bytes of
 ///   readable memory laid out exactly as the compiler
 ///   declared the channel's element type.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_chan_send")]
 pub unsafe extern "C-unwind" fn _zo_chan_send(
   chan: *mut ZoChan,
   src: *const u8,
@@ -336,7 +343,7 @@ pub unsafe extern "C-unwind" fn _zo_chan_send(
 ///   be live.
 /// - `dst` must point to at least `elem_sz` writable
 ///   bytes.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_chan_recv")]
 pub unsafe extern "C-unwind" fn _zo_chan_recv(chan: *mut ZoChan, dst: *mut u8) {
   // SAFETY: caller contract.
   let ch = unsafe { &*chan };
@@ -449,7 +456,7 @@ pub unsafe fn try_recv_nonblocking(
 /// # Safety
 ///
 /// `chan` must be a live pointer from [`_zo_chan_new`].
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_chan_close")]
 pub unsafe extern "C-unwind" fn _zo_chan_close(chan: *mut ZoChan) {
   // SAFETY: caller contract.
   let ch = unsafe { &*chan };
@@ -492,7 +499,7 @@ pub unsafe extern "C-unwind" fn _zo_chan_close(chan: *mut ZoChan) {
 /// - `chan` must be a live pointer from [`_zo_chan_new`].
 /// - `dst` must point to at least `elem_sz` writable
 ///   bytes.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_chan_recv_timeout")]
 pub unsafe extern "C-unwind" fn _zo_chan_recv_timeout(
   chan: *mut ZoChan,
   dst: *mut u8,
@@ -593,7 +600,7 @@ pub unsafe extern "C-unwind" fn _zo_chan_recv_timeout(
 ///
 /// `chan` must have come from [`_zo_chan_new`] and
 /// must not be used after this call returns.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_chan_free")]
 pub unsafe extern "C-unwind" fn _zo_chan_free(chan: *mut ZoChan) {
   if chan.is_null() {
     return;

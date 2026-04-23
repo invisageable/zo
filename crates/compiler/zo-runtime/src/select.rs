@@ -46,7 +46,7 @@ pub const SELECT_NONE: usize = usize::MAX;
 /// reserved for the "no arm ever fires" deadlock
 /// path; the function panics instead of returning
 /// that.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "zo_select_wait")]
 pub unsafe extern "C-unwind" fn _zo_select_wait(
   chans: *const *mut ZoChan,
   n: usize,

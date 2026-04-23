@@ -29,3 +29,18 @@ zo-runtime-render = { workspace = true }
 zo-runtime-web = { workspace = true }
 
 # external:crates.
+
+# Concurrency benchmarks — hand-rolled timing harness,
+# no `criterion` dep. Each file owns its own `main`
+# (`harness = false`) so `cargo bench -p zo-runtime`
+# runs the exact timing code the author wrote, no
+# framework magic in between.
+[[bench]]
+name = "runtime_bench"
+path = "benches/runtime_bench.rs"
+harness = false
+
+[[bench]]
+name = "cost_decomposition"
+path = "benches/cost_decomposition.rs"
+harness = false

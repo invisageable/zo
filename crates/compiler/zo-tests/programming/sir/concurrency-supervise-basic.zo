@@ -1,0 +1,21 @@
+-- @emit sir
+--
+-- `supervise { }` scopes sibling tasks the same way
+-- `nursery { }` does — but emits `supervise.begin`
+-- so the runtime knows to cascade a sibling panic up
+-- through the enclosing task instead of stopping at
+-- the scope exit.
+
+fun worker_a() {}
+fun worker_b() {}
+
+fun main() {
+  -- CHECK: supervise.begin
+  supervise {
+    -- CHECK: task.spawn worker_a
+    spawn worker_a();
+    -- CHECK: task.spawn worker_b
+    spawn worker_b();
+  }
+  -- CHECK: nursery.end
+}

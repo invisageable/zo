@@ -1,0 +1,21 @@
+-- @emit sir
+--
+-- `select { rx => fn(v) => body, ... }` atomically
+-- waits on N channel receivers. The executor emits a
+-- `select.wait` insn carrying the channel handles;
+-- whichever fires first feeds its value into its
+-- arm's closure for the body to run.
+
+fun main() {
+  nursery {
+    imu c1 := channel();
+    imu c2 := channel();
+
+    -- CHECK: chan.new
+    -- CHECK: select.wait
+    select {
+      c1.1 => fn(n) => showln("a: {n}"),
+      c2.1 => fn(s) => showln("b: {s}"),
+    }
+  }
+}

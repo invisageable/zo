@@ -390,8 +390,14 @@ fn collect_calls_in_range(
   let mut calls = Vec::new();
 
   for insn in &instructions[start..=end.min(instructions.len() - 1)] {
-    if let Insn::Call { name, .. } = insn {
-      calls.push(*name);
+    match insn {
+      Insn::Call { name, .. } => calls.push(*name),
+      // `spawn fn()` captures `fn` by address so the
+      // runtime can call it inside a green / OS task.
+      // DCE must treat the callee as reachable or the
+      // emitted binary would be missing its code.
+      Insn::TaskSpawn { callee, .. } => calls.push(*callee),
+      _ => {}
     }
   }
 
