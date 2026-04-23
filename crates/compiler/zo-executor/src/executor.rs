@@ -271,6 +271,22 @@ pub struct Executor<'a> {
   /// resolution in the main pass can look up callee
   /// signatures regardless of source order.
   prescan_only: bool,
+  /// Open nursery scopes, one entry per lexically-active
+  /// `nursery { }` block. Each entry is `(label, rbrace_idx)`
+  /// — the `label` is the unique ID threaded through
+  /// `NurseryBegin` / `NurseryEnd`; `rbrace_idx` is the tree
+  /// index of the matching `}` that triggers the close.
+  /// `spawn` checks `!self.nursery_stack.is_empty()` per
+  /// Phase 0 decision 3 (no orphan spawns).
+  nursery_stack: Vec<(u32, usize)>,
+  /// Set when a `Token::Spawn` introducer is entered and
+  /// cleared as soon as the enclosed call finalizes — at
+  /// which point the executor emits `TaskSpawn` instead of
+  /// `Call`. The tuple is `(spawn_node_idx, rparen_idx)` so
+  /// the main loop can close the Spawn introducer and the
+  /// call-emission path can recognize the redirect without
+  /// ambiguity.
+  pending_spawn: Option<(usize, usize)>,
 }
 
 /// An `abstract` definition (method signatures, no bodies).
@@ -399,6 +415,8 @@ impl<'a> Executor<'a> {
       pending_var_name: None,
       widget_counter: Cell::new(0),
       branch_stack: Vec::with_capacity(8),
+      nursery_stack: Vec::with_capacity(4),
+      pending_spawn: None,
       branch_result_counter: 0,
       skip_until: 0,
       pending_decl: None,
@@ -1601,6 +1619,11 @@ impl<'a> Executor<'a> {
         self.push_scope();
       }
       Token::RBrace => {
+        // Close any `nursery { }` whose body's RBrace is
+        // this one. Runs before the other RBrace housekeeping
+        // so `NurseryEnd` lands inside the block's SIR span.
+        self.close_nursery_at_rbrace(idx);
+
         // Finalize pending assignments/compounds before
         // closing the block. Assignments evaluate to unit
         // regardless of whether a semicolon follows.
@@ -3158,6 +3181,17 @@ impl<'a> Executor<'a> {
 
       // === CONTROL FLOW ===
       Token::Return => self.execute_return(idx),
+
+      // === STRUCTURED CONCURRENCY ===
+      Token::Nursery => {
+        self.execute_nursery(idx, header);
+      }
+      Token::Spawn => {
+        self.execute_spawn(idx, header);
+      }
+      Token::Await => {
+        self.execute_await(idx);
+      }
 
       Token::Break => {
         if let Some(ctx) = self
@@ -8630,6 +8664,90 @@ impl<'a> Executor<'a> {
     self.sir_values.push(sv);
   }
 
+  /// Executes `tx.send(value)` — emits `ChannelSend` SIR.
+  /// Stack: [..., receiver, value]. One explicit arg.
+  fn execute_channel_send(&mut self, lparen_idx: usize, rparen_idx: usize) {
+    let has_content = lparen_idx + 1 < rparen_idx;
+
+    if !has_content {
+      let span = self.tree.spans[rparen_idx];
+
+      report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
+
+      return;
+    }
+
+    let (_val, val_ty, val_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    let (_recv, recv_ty, recv_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    // Element type flows from the Channel's T; unify with
+    // the sent value so a fresh-var `T` gets pinned to the
+    // concrete send-site type (first-use inference).
+    let elem_ty = match self.ty_checker.kind_of(recv_ty) {
+      Ty::Channel(t) => t,
+      _ => self.ty_checker.fresh_var(),
+    };
+
+    let span = self.tree.spans[rparen_idx];
+
+    self.ty_checker.unify(elem_ty, val_ty, span);
+
+    self.sir.emit(Insn::ChannelSend {
+      channel: recv_sir,
+      value: val_sir,
+      ty_id: elem_ty,
+    });
+  }
+
+  /// Executes `val = rx.recv()` — emits `ChannelRecv` SIR.
+  /// Stack: [..., receiver]. No explicit args.
+  fn execute_channel_recv(&mut self, _lparen_idx: usize, _rparen_idx: usize) {
+    let (_recv, recv_ty, recv_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    let elem_ty = match self.ty_checker.kind_of(recv_ty) {
+      Ty::Channel(t) => t,
+      _ => self.ty_checker.fresh_var(),
+    };
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sv = self.sir.emit(Insn::ChannelRecv {
+      dst,
+      channel: recv_sir,
+      ty_id: elem_ty,
+    });
+
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(elem_ty);
+    self.sir_values.push(sv);
+  }
+
   /// Desugars `expr?` into:
   ///   load discriminant → compare against Ok (0)
   ///   → if Ok: extract field[1], push value
@@ -10792,6 +10910,126 @@ impl<'a> Executor<'a> {
     }
   }
 
+  // ===== STRUCTURED CONCURRENCY =====
+
+  /// Opens a `nursery { body }` scope. Mints a unique label,
+  /// pushes it plus the body's closing RBrace index onto
+  /// `nursery_stack`, and emits `Insn::NurseryBegin`. The
+  /// matching `NurseryEnd` is emitted by
+  /// `close_nursery_at_rbrace` when the walker reaches the
+  /// recorded RBrace index.
+  fn execute_nursery(&mut self, _idx: usize, header: &NodeHeader) {
+    let children_end = (header.child_start + header.child_count) as usize;
+    // The body block sits at `idx + 1` and closes at
+    // `children_end - 1` (inclusive of the RBrace).
+    let rbrace_idx = children_end.saturating_sub(1);
+    let label = self.sir.next_label();
+
+    self.nursery_stack.push((label, rbrace_idx));
+    self.sir.emit(Insn::NurseryBegin { label });
+  }
+
+  /// If `rbrace_idx` matches the top of `nursery_stack`, pop
+  /// and emit the matching `Insn::NurseryEnd`. Called from
+  /// the RBrace dispatch path before the normal block-close
+  /// handling runs.
+  fn close_nursery_at_rbrace(&mut self, rbrace_idx: usize) {
+    if let Some(&(_, expected)) = self.nursery_stack.last()
+      && expected == rbrace_idx
+    {
+      let (label, _) = self.nursery_stack.pop().unwrap();
+
+      self.sir.emit(Insn::NurseryEnd { label });
+    }
+  }
+
+  /// Opens a `spawn callee(args)` site. Phase 0 decision 3:
+  /// refuse any spawn not lexically inside a `nursery { }`.
+  /// On success, records `pending_spawn = (spawn_idx,
+  /// rparen_idx)` so the call-emit path can redirect the
+  /// upcoming `Call` into a `TaskSpawn`.
+  fn execute_spawn(&mut self, idx: usize, header: &NodeHeader) {
+    if self.nursery_stack.is_empty() {
+      let span = self.tree.spans[idx];
+
+      report_error(Error::new(ErrorKind::SpawnOutsideNursery, span));
+
+      return;
+    }
+
+    // The Spawn's body is a call expression. Its trailing
+    // `Semicolon` may or may not be a child (depending on
+    // the statement shape), so scan backwards from the end
+    // of the child range for the first `RParen` — that's
+    // the call's closing paren that the call-emit path
+    // will use as its match key.
+    let children_end = (header.child_start + header.child_count) as usize;
+
+    let mut rparen_idx = None;
+
+    for i in (idx + 1..children_end).rev() {
+      if self.tree.nodes[i].token == Token::RParen {
+        rparen_idx = Some(i);
+
+        break;
+      }
+    }
+
+    if let Some(rp) = rparen_idx {
+      self.pending_spawn = Some((idx, rp));
+    }
+  }
+
+  /// Finalizes an `await expr` — the operand has already
+  /// pushed its `Ty::Task(T)` value onto the three stacks,
+  /// so this arm pops the task handle, emits `TaskAwait`
+  /// binding `dst` to `T`, and pushes `dst` back as the
+  /// unwrapped value.
+  fn execute_await(&mut self, idx: usize) {
+    let task_ty = match self.ty_stack.last().copied() {
+      Some(ty) => ty,
+      None => return,
+    };
+
+    // Unwrap `Ty::Task(T)` → `T`. Anything else is a hard
+    // error; the operand wasn't a task handle.
+    let inner_ty = match self.ty_checker.kind_of(task_ty) {
+      Ty::Task(t) => t,
+      _ => {
+        let span = self.tree.spans[idx];
+
+        report_error(Error::new(ErrorKind::AwaitOnNonTask, span));
+
+        return;
+      }
+    };
+
+    let task_sir = match self.sir_values.pop() {
+      Some(v) => v,
+      None => return,
+    };
+
+    self.value_stack.pop();
+    self.ty_stack.pop();
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let dst_sir = self.sir.emit(Insn::TaskAwait {
+      dst,
+      task: task_sir,
+      ty_id: inner_ty,
+    });
+
+    // Push the unwrapped value back onto the stacks.
+    let slot = self.values.store_runtime(0);
+
+    self.value_stack.push(slot);
+    self.ty_stack.push(inner_ty);
+    self.sir_values.push(dst_sir);
+  }
+
   /// Executes return statement - acts as an introducer.
   fn execute_return(&mut self, _node_idx: usize) {
     // Only process return if we're in a function body.
@@ -11326,6 +11564,35 @@ impl<'a> Executor<'a> {
               } else if fun_idx >= 2
                 && self.tree.nodes[fun_idx - 1].token == Token::Dot
               {
+                // Channel built-in methods — intercepted
+                // before `resolve_dot_call` because there's
+                // no user-defined `Channel::send` / `::recv`
+                // FunDef to match against. The receiver for
+                // `send` is two back on the stack (arg is
+                // top); for `recv` it's on top.
+                let name_str = self.interner.get(fun_name);
+
+                if name_str == "send"
+                  && let Some(recv_ty) = self
+                    .ty_stack
+                    .get(self.ty_stack.len().saturating_sub(2))
+                    .copied()
+                  && matches!(self.ty_checker.kind_of(recv_ty), Ty::Channel(_))
+                {
+                  self.execute_channel_send(lparen_idx, rparen_idx);
+
+                  return;
+                }
+
+                if name_str == "recv"
+                  && let Some(recv_ty) = self.ty_stack.last().copied()
+                  && matches!(self.ty_checker.kind_of(recv_ty), Ty::Channel(_))
+                {
+                  self.execute_channel_recv(lparen_idx, rparen_idx);
+
+                  return;
+                }
+
                 // Dot-call: tree [recv, ., method, (, )].
                 let mangled = self.resolve_dot_call(fun_idx, fun_name);
 
@@ -11389,6 +11656,34 @@ impl<'a> Executor<'a> {
 
                 return;
               }
+            }
+
+            // Channel built-in methods: `tx.send(value)` /
+            // `rx.recv()`. Phase 0 decision 2 — `Tx` and
+            // `Rx` share a single `Ty::Channel(T)` at the
+            // type layer; the send/recv asymmetry is API-
+            // enforced here, not via typestate.
+            // `send` peeks two values back (receiver + arg);
+            // `recv` peeks only the receiver.
+            if ms == "send"
+              && let Some(recv_ty) = self
+                .ty_stack
+                .get(self.ty_stack.len().saturating_sub(2))
+                .copied()
+              && matches!(self.ty_checker.kind_of(recv_ty), Ty::Channel(_))
+            {
+              self.execute_channel_send(lparen_idx, rparen_idx);
+
+              return;
+            }
+
+            if ms == "recv"
+              && let Some(recv_ty) = self.ty_stack.last().copied()
+              && matches!(self.ty_checker.kind_of(recv_ty), Ty::Channel(_))
+            {
+              self.execute_channel_recv(lparen_idx, rparen_idx);
+
+              return;
             }
 
             let mangled = self.resolve_dot_call(method_idx, method_sym);
@@ -11560,6 +11855,94 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Emits `Insn::ChannelCreate` for a `channel()` or
+  /// `channel(N)` built-in call, then a `TupleLiteral`
+  /// wrapping the two handles so the surface destructure
+  /// `imu (tx, rx) := channel()` reads them via the
+  /// existing tuple path. Phase 0 decision 5: `N` must be
+  /// an integer literal.
+  fn execute_channel_builtin(&mut self, lparen_idx: usize, rparen_idx: usize) {
+    // Parse the capacity. Only raw `Token::Int` literals
+    // between the parens are legal in MVP.
+    let capacity = self
+      .extract_literal_capacity(lparen_idx, rparen_idx)
+      .unwrap_or(0);
+
+    // Element type is a fresh inference var; concrete T
+    // flows in from the first `send` / `recv` unification.
+    let elem_ty = self.ty_checker.fresh_var();
+    let channel_ty = self.ty_checker.channel_type(elem_ty);
+
+    let tx = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let rx = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    self.sir.emit(Insn::ChannelCreate {
+      tx,
+      rx,
+      elem_ty,
+      capacity,
+    });
+
+    // Pair `tx` and `rx` into a tuple so the existing
+    // tuple-destructure path can unpack them.
+    let elem_tys = vec![channel_ty, channel_ty];
+    let tuple_ty_id = self.ty_checker.ty_table.intern_tuple(elem_tys);
+    let ty_id = self.ty_checker.intern_ty(Ty::Tuple(tuple_ty_id));
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sv = self.sir.emit(Insn::TupleLiteral {
+      dst,
+      elements: vec![tx, rx],
+      ty_id,
+    });
+
+    let slot = self.values.store_runtime(0);
+
+    self.value_stack.push(slot);
+    self.ty_stack.push(ty_id);
+    self.sir_values.push(sv);
+  }
+
+  /// Returns the integer-literal capacity for a `channel(N)`
+  /// call, or `Some(0)` if the arg list is empty. Anything
+  /// else — variable reference, binop, grouped expression —
+  /// reports `ChannelCapacityNotLiteral` and falls back to
+  /// `0` so downstream emission still produces SIR.
+  fn extract_literal_capacity(
+    &mut self,
+    lparen_idx: usize,
+    rparen_idx: usize,
+  ) -> Option<u32> {
+    // Empty arg list `channel()` — unbuffered.
+    if lparen_idx + 1 >= rparen_idx {
+      return Some(0);
+    }
+
+    // Exactly one node between parens, and that node must
+    // be a `Token::Int`. Anything else is illegal in MVP.
+    if lparen_idx + 2 == rparen_idx
+      && self.tree.nodes[lparen_idx + 1].token == Token::Int
+      && let Some(NodeValue::Literal(lit_idx)) = self.node_value(lparen_idx + 1)
+    {
+      let raw = self.literals.int_literals[lit_idx as usize];
+
+      return Some(raw as u32);
+    }
+
+    let span = self.tree.spans[lparen_idx + 1];
+
+    report_error(Error::new(ErrorKind::ChannelCapacityNotLiteral, span));
+
+    Some(0)
+  }
+
   /// Executes a function call.
   fn execute_call(
     &mut self,
@@ -11575,6 +11958,17 @@ impl<'a> Executor<'a> {
       && self.is_single_interp_arg(lparen_idx, rparen_idx)
     {
       self.execute_interp_call(fun_name, lparen_idx, rparen_idx);
+
+      return;
+    }
+
+    // Built-in `channel()` / `channel(N)` per PLAN_CHANNELS
+    // Phase 0 decision 5. Recognized here — before normal
+    // function lookup — because `channel` is not a user
+    // function, it's a compiler intrinsic that emits
+    // `Insn::ChannelCreate` directly.
+    if name_str == "channel" {
+      self.execute_channel_builtin(lparen_idx, rparen_idx);
 
       return;
     }
@@ -11998,21 +12392,60 @@ impl<'a> Executor<'a> {
       let dst = ValueId(self.sir.next_value_id);
       self.sir.next_value_id += 1;
 
-      let result_sir = self.sir.emit(Insn::Call {
-        dst,
-        name: call_name,
-        args: arg_sirs,
-        ty_id: resolved_ret,
-      });
+      // `spawn callee(args)` redirect — if the pending spawn's
+      // RParen matches this call's RParen, emit `TaskSpawn`
+      // instead of `Call` and wrap the handle in `Ty::Task`.
+      // The call's own arg/type resolution has already run
+      // above; we only swap the emission tail.
+      let spawned = matches!(
+        self.pending_spawn,
+        Some((_, rp)) if rp == rparen_idx
+      );
 
-      // Push return value.
-      if resolved_ret != self.ty_checker.unit_type() {
+      let result_sir = if spawned {
+        self.pending_spawn = None;
+
+        let task_ty = self.ty_checker.task_type(resolved_ret);
+
+        let sir = self.sir.emit(Insn::TaskSpawn {
+          dst,
+          callee: call_name,
+          args: arg_sirs,
+          ty_id: task_ty,
+        });
+
         let result_val = self.values.store_runtime(0);
 
         self.value_stack.push(result_val);
-        self.ty_stack.push(resolved_ret);
-        self.sir_values.push(result_sir);
-      }
+        self.ty_stack.push(task_ty);
+        self.sir_values.push(sir);
+
+        sir
+      } else {
+        let sir = self.sir.emit(Insn::Call {
+          dst,
+          name: call_name,
+          args: arg_sirs,
+          ty_id: resolved_ret,
+        });
+
+        // Push return value.
+        if resolved_ret != self.ty_checker.unit_type() {
+          let result_val = self.values.store_runtime(0);
+
+          self.value_stack.push(result_val);
+          self.ty_stack.push(resolved_ret);
+          self.sir_values.push(sir);
+        }
+
+        sir
+      };
+
+      // Suppress the unused-variable warning when the
+      // spawn path returns early; in the normal call path
+      // `result_sir` is inherited by the ext-type args
+      // logic below.
+      let _ = result_sir;
 
       // For ext functions with parameterized return types,
       // stash the type args so the match handler can use
