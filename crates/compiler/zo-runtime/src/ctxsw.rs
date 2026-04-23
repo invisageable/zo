@@ -112,7 +112,7 @@ impl Context {
   pub fn bootstrap(
     &mut self,
     stack_top: *mut u8,
-    entry: extern "C" fn(u64),
+    entry: extern "C-unwind" fn(u64),
     arg: u64,
   ) {
     // x19 <- entry, x20 <- arg. The trampoline pulls
@@ -262,7 +262,7 @@ mod tests {
     let mut stack = vec![0u8; 4096].into_boxed_slice();
     let top = unsafe { stack.as_mut_ptr().add(stack.len()) };
 
-    extern "C" fn never_runs(_arg: u64) {}
+    extern "C-unwind" fn never_runs(_arg: u64) {}
 
     let mut ctx = Context::zeroed();
 
@@ -287,7 +287,7 @@ mod tests {
   static MAIN_CTX_ADDR: AtomicU64 = AtomicU64::new(0);
   static CHILD_CTX_ADDR: AtomicU64 = AtomicU64::new(0);
 
-  extern "C" fn ping_pong_child(_arg: u64) {
+  extern "C-unwind" fn ping_pong_child(_arg: u64) {
     // Each time we're resumed: bump the counter, yield
     // back to main. `ctx_switch` saves our state into
     // child_ctx so the next resume picks up here.
