@@ -30,11 +30,16 @@ zo-runtime-web = { workspace = true }
 
 # external:crates.
 
-# Concurrency benchmarks — hand-rolled timing harness,
-# no `criterion` dep. Each file owns its own `main`
-# (`harness = false`) so `cargo bench -p zo-runtime`
-# runs the exact timing code the author wrote, no
-# framework magic in between.
+[dev-dependencies]
+# external:crates.
+criterion = { workspace = true }
+
+# Concurrency benchmarks — run under `criterion` so the
+# statistical harness (warm-up, sample-size calibration,
+# outlier rejection) matches the rest of the workspace
+# (`zo-parser`, `zo-executor`). Each file exposes a
+# `criterion_main!` entry point; `harness = false` is
+# NOT set so cargo-bench wires criterion's own `main`.
 [[bench]]
 name = "runtime_bench"
 path = "benches/runtime_bench.rs"

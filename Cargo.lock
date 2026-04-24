@@ -7857,6 +7857,7 @@ dependencies = [
 name = "zo-runtime"
 version = "0.3.7"
 dependencies = [
+ "criterion",
  "zo-error",
  "zo-reporter",
  "zo-runtime-native",

@@ -1,16 +1,16 @@
 //! Runtime-level benchmarks — fan-out throughput,
 //! ping-pong latency, producer/consumer throughput.
 //!
-//! Hand-rolled timing harness (no criterion). Run with:
-//!
 //! ```sh
 //! cargo bench -p zo-runtime --bench runtime_bench
 //! ```
 //!
 //! Each bench asserts *correctness* (counts, sums,
 //! echo-order) but never asserts timing — benches
-//! measure, they don't fail on variance. Compare the
-//! printed wall-times across runs to spot regressions.
+//! measure, they don't fail on variance. `criterion`'s
+//! statistical harness (warm-up, sample size, outlier
+//! rejection) handles run-to-run noise so regressions
+//! surface as mean / p99 shifts, not one-shot spikes.
 
 use zo_runtime::channel::{
   _zo_chan_close, _zo_chan_free, _zo_chan_new, _zo_chan_recv, _zo_chan_send,
@@ -20,10 +20,14 @@ use zo_runtime::pool::Pool;
 use zo_runtime::scheduler;
 use zo_runtime::task::{_zo_task_await, _zo_task_spawn};
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use criterion::{
+  BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
+};
 
-// ===== fan-out: N workers, K tasks =====
+use std::hint::black_box;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+// ===== fan-out: N tasks, M pool workers =====
 
 static FAN_OUT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -31,11 +35,10 @@ extern "C-unwind" fn fan_out_increment() {
   FAN_OUT_COUNTER.fetch_add(1, Ordering::SeqCst);
 }
 
-fn bench_fan_out(n_tasks: usize, n_workers: usize) {
+fn run_fan_out(n_tasks: usize, n_workers: usize) {
   FAN_OUT_COUNTER.store(0, Ordering::SeqCst);
 
   let pool = Pool::new(n_workers);
-  let start = Instant::now();
 
   for _ in 0..n_tasks {
     pool.spawn(fan_out_increment);
@@ -43,16 +46,29 @@ fn bench_fan_out(n_tasks: usize, n_workers: usize) {
 
   pool.wait_idle();
 
-  let elapsed = start.elapsed();
-
   assert_eq!(FAN_OUT_COUNTER.load(Ordering::SeqCst), n_tasks as u64);
-
-  println!("fan_out {n_tasks:>7} tasks / {n_workers} workers — {elapsed:?}",);
 
   pool.shutdown();
 }
 
-// ===== ping-pong: two green tasks, many roundtrips =====
+fn bench_fan_out(c: &mut Criterion) {
+  let mut group = c.benchmark_group("runtime_fan_out");
+
+  for &(n_tasks, n_workers) in &[(10_000usize, 4usize), (100_000, 4)] {
+    group.throughput(Throughput::Elements(n_tasks as u64));
+    group.bench_with_input(
+      BenchmarkId::new(format!("{n_workers}w"), n_tasks),
+      &(n_tasks, n_workers),
+      |b, &(n_tasks, n_workers)| {
+        b.iter(|| run_fan_out(black_box(n_tasks), black_box(n_workers)));
+      },
+    );
+  }
+
+  group.finish();
+}
+
+// ===== ping-pong: two green tasks, N roundtrips =====
 
 static PING_CHAN: AtomicU64 = AtomicU64::new(0);
 static PONG_CHAN: AtomicU64 = AtomicU64::new(0);
@@ -89,7 +105,7 @@ extern "C-unwind" fn ponger() {
   }
 }
 
-fn bench_ping_pong() {
+fn run_ping_pong() {
   scheduler::reset_for_test();
 
   unsafe {
@@ -99,22 +115,26 @@ fn bench_ping_pong() {
     PING_CHAN.store(ping as u64, Ordering::SeqCst);
     PONG_CHAN.store(pong as u64, Ordering::SeqCst);
 
-    let start = Instant::now();
     let pinger_h = _zo_task_spawn(pinger);
     let ponger_h = _zo_task_spawn(ponger);
 
     _zo_task_await(pinger_h);
     _zo_task_await(ponger_h);
 
-    let elapsed = start.elapsed();
-
-    println!(
-      "ping_pong {PING_PONG_ROUNDS:>7} rounds              — {elapsed:?}"
-    );
-
     _zo_chan_free(ping);
     _zo_chan_free(pong);
   }
+}
+
+fn bench_ping_pong(c: &mut Criterion) {
+  let mut group = c.benchmark_group("runtime_ping_pong");
+
+  group.throughput(Throughput::Elements(PING_PONG_ROUNDS));
+  group.sample_size(20);
+  group.bench_function(BenchmarkId::new("roundtrips", PING_PONG_ROUNDS), |b| {
+    b.iter(run_ping_pong)
+  });
+  group.finish();
 }
 
 // ===== producer / consumer with close =====
@@ -146,7 +166,6 @@ extern "C-unwind" fn consumer() {
       _zo_chan_recv(ch, (&raw mut v).cast::<u8>());
 
       if v == 0 {
-        // Closed empty — zero-fill signals end.
         return;
       }
 
@@ -155,7 +174,7 @@ extern "C-unwind" fn consumer() {
   }
 }
 
-fn bench_producer_consumer_close() {
+fn run_producer_consumer_close() {
   scheduler::reset_for_test();
 
   PROD_SUM.store(0, Ordering::SeqCst);
@@ -165,29 +184,36 @@ fn bench_producer_consumer_close() {
 
     PROD_CHAN.store(ch as u64, Ordering::SeqCst);
 
-    let start = Instant::now();
     let prod_h = _zo_task_spawn(producer);
     let cons_h = _zo_task_spawn(consumer);
 
     _zo_task_await(prod_h);
     _zo_task_await(cons_h);
 
-    let elapsed = start.elapsed();
     let expected_sum: u64 = (1..=PROD_N).sum();
 
     assert_eq!(PROD_SUM.load(Ordering::SeqCst), expected_sum);
-
-    println!("producer_consumer {PROD_N:>5} values + close — {elapsed:?}");
 
     _zo_chan_free(ch);
   }
 }
 
-fn main() {
-  println!("=== zo-runtime benches ===");
+fn bench_producer_consumer_close(c: &mut Criterion) {
+  let mut group = c.benchmark_group("runtime_producer_consumer_close");
 
-  bench_fan_out(10_000, 4);
-  bench_fan_out(100_000, 4);
-  bench_ping_pong();
-  bench_producer_consumer_close();
+  group.throughput(Throughput::Elements(PROD_N));
+  group.sample_size(30);
+  group.bench_function(BenchmarkId::new("values+close", PROD_N), |b| {
+    b.iter(run_producer_consumer_close)
+  });
+  group.finish();
 }
+
+criterion_group!(
+  benches,
+  bench_fan_out,
+  bench_ping_pong,
+  bench_producer_consumer_close,
+);
+
+criterion_main!(benches);
