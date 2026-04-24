@@ -17,5 +17,6 @@ fun main() {
   showln("main done");
 }
 
--- EXPECT: crunching 1000000 items
+-- EXPECTED OUTPUT:
+-- crunching 1000000 items
 -- main done

@@ -3,7 +3,9 @@
 
 fun main() {
   nursery {}
+
   showln("done");
 }
 
--- EXPECT: done
+-- EXPECTED OUTPUT:
+-- done

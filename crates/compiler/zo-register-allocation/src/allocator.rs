@@ -604,6 +604,30 @@ pub fn allocate_function(
   });
   let chan_scratch_size = if has_channel_op { 16 } else { 0 };
 
+  // `SelectWait` needs an on-stack `*mut ZoChan` array
+  // (`nchans * 8` bytes) plus the runtime's output
+  // buffer (`elem_sz` bytes). Each select in the
+  // function contributes its own worst-case size; we
+  // reserve the max so multiple selects reuse the same
+  // frame region. 16-byte aligned to keep the frame's
+  // alignment invariant. Zero when there are no selects.
+  let mut select_scratch_size = 0u32;
+
+  for i in 0..n {
+    if let Insn::SelectWait { chans, .. } = &insns[start + i] {
+      let nchans = chans.len() as u32;
+      // Bound the element buffer at 8 bytes — the widest
+      // scalar / pointer element this backend emits.
+      // Wider-payload channels are a later scope.
+      let want = nchans * 8 + 8;
+      let aligned = (want + 15) & !15;
+
+      if aligned > select_scratch_size {
+        select_scratch_size = aligned;
+      }
+    }
+  }
+
   result.function_info.insert(
     start,
     FunctionInfo {
@@ -613,6 +637,7 @@ pub fn allocate_function(
       struct_size,
       mutable_size,
       chan_scratch_size,
+      select_scratch_size,
     },
   );
 }

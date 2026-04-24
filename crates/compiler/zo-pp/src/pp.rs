@@ -556,7 +556,6 @@ impl PrettyPrinter {
         }
         Insn::SelectWait {
           out_which,
-          out_value,
           chans,
           elem_ty,
         } => {
@@ -565,9 +564,15 @@ impl PrettyPrinter {
             .map(|c| format!("%{c}"))
             .collect::<Vec<_>>()
             .join(", ");
-          let c = format!(
-            "%{out_which}, %{out_value} = select.wait [{chans_str}] : {elem_ty:?}",
-          );
+          let c =
+            format!("%{out_which} = select.wait [{chans_str}] : {elem_ty:?}",);
+
+          self.sir_instruction(&c);
+        }
+        Insn::SelectRecv {
+          dst, which, ty_id, ..
+        } => {
+          let c = format!("%{dst} = select.recv %{which} : {ty_id:?}");
 
           self.sir_instruction(&c);
         }

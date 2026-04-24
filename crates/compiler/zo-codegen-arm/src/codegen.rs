@@ -5,7 +5,7 @@ use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
   COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, Register,
-  SP, X0, X1, X2, X9, X16, X17, X29, X30, XZR,
+  SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
@@ -189,6 +189,13 @@ pub struct ARM64Gen<'a> {
   /// reserves it for the runtime's output write which
   /// is then loaded into the destination register.
   chan_scratch_base: u32,
+  /// Offset from SP of the select-wait scratch area.
+  /// Layout: `nchans * 8` bytes of `*mut ZoChan`
+  /// pointers immediately followed by an `elem_sz`
+  /// output buffer that `_zo_select_wait` writes the
+  /// received value into. Sized at allocation time
+  /// via `FunctionInfo::select_scratch_size`.
+  select_scratch_base: u32,
   /// Next struct slot offset (relative to struct_base).
   next_struct_slot: u32,
   /// Functions that return structs: name -> field count.
@@ -296,6 +303,7 @@ impl<'a> ARM64Gen<'a> {
       next_mut_slot: 0,
       struct_base: 0,
       chan_scratch_base: 0,
+      select_scratch_base: 0,
       next_struct_slot: 0,
       struct_return_fns: HashMap::default(),
       last_was_math_intrinsic: false,
@@ -1125,6 +1133,7 @@ impl<'a> ARM64Gen<'a> {
               info.struct_size,
               info.mutable_size,
               info.chan_scratch_size,
+              info.select_scratch_size,
             )
           });
 
@@ -1134,6 +1143,7 @@ impl<'a> ARM64Gen<'a> {
           struct_size,
           mut_size,
           chan_scratch_size,
+          select_scratch_size,
         )) = fn_info
         {
           if has_calls {
@@ -1148,6 +1158,7 @@ impl<'a> ARM64Gen<'a> {
             + caller_save
             + struct_size
             + chan_scratch_size
+            + select_scratch_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -1173,6 +1184,16 @@ impl<'a> ARM64Gen<'a> {
           // writes by pointer.
           self.chan_scratch_base =
             spill_size + mut_size + param_reserve + caller_save + struct_size;
+
+          // Select-scratch base: after channel-scratch.
+          // Holds the on-stack chans array + out_value
+          // buffer consumed by `_zo_select_wait`.
+          self.select_scratch_base = spill_size
+            + mut_size
+            + param_reserve
+            + caller_save
+            + struct_size
+            + chan_scratch_size;
 
           let param_base = spill_size + mut_size;
 
@@ -1974,6 +1995,7 @@ impl<'a> ARM64Gen<'a> {
                 info.struct_size,
                 info.mutable_size,
                 info.chan_scratch_size,
+                info.select_scratch_size,
               )
             })
         });
@@ -1984,6 +2006,7 @@ impl<'a> ARM64Gen<'a> {
           struct_size,
           mut_size,
           chan_scratch_size,
+          select_scratch_size,
         )) = epi_info
         {
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
@@ -1994,6 +2017,7 @@ impl<'a> ARM64Gen<'a> {
             + caller_save
             + struct_size
             + chan_scratch_size
+            + select_scratch_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -2737,21 +2761,75 @@ impl<'a> ARM64Gen<'a> {
         self.emit_extern_call("_zo_nursery_drain");
       }
 
-      // Selective receive. Emits `BL _zo_select_wait`;
-      // caller's generated code supplies the channels
-      // array, out_value buffer, and reads the
-      // returned arm index from X0 for dispatch. The
-      // per-arm dispatch (jump tables) is upstream
-      // codegen work when the executor emits the
-      // surrounding `BranchIfNot` / `Jump` / `Label`
-      // sequence.
-      Insn::SelectWait { out_which, .. } => {
+      // Selective receive. Materializes the `chans`
+      // array and output buffer in the function's
+      // select-scratch area, loads the runtime ABI
+      // registers, and calls `_zo_select_wait`. The arm
+      // index (X0) lands in `out_which` for the arm
+      // dispatch; the received value is read from the
+      // scratch buffer by the companion `SelectRecv`
+      // insn the executor emits immediately after.
+      //
+      // ABI: `_zo_select_wait(chans, nchans, out, sz)`.
+      // Runtime loops polling each chan; first non-empty
+      // wins and writes its value into `out`.
+      Insn::SelectWait {
+        out_which,
+        chans,
+        elem_ty,
+      } => {
+        let nchans = chans.len() as u32;
+        let elem_sz = self.size_of_ty(*elem_ty);
+        let chans_base = self.select_scratch_base;
+        let out_base = chans_base + nchans * 8;
+
+        // Spill each chan operand into the on-stack
+        // array slot the runtime will index through.
+        for (i, chan_vid) in chans.iter().enumerate() {
+          if let Some(src) = self.alloc_reg(*chan_vid) {
+            let off = chans_base + i as u32 * 8;
+
+            self.emitter.emit_str(src, SP, off as i16);
+          }
+        }
+
+        // Zero the out buffer so the post-call LDR
+        // reads any bytes the runtime didn't touch as
+        // zero instead of stale stack contents. Wider
+        // elem types (`elem_sz > 8`) are a later scope;
+        // today the ABI tops out at 8-byte scalars and
+        // pointer-backed 8-byte handles.
+        self.emitter.emit_str(XZR, SP, out_base as i16);
+
+        // X0 = chans_array_ptr.
+        self.emitter.emit_add_imm(X0, SP, chans_base as u16);
+        // X1 = nchans.
+        self.emit_mov_imm_64(X1, nchans as u64);
+        // X2 = out_value_ptr.
+        self.emitter.emit_add_imm(X2, SP, out_base as u16);
+        // X3 = elem_sz.
+        self.emit_mov_imm_64(X3, elem_sz as u64);
+
         self.emit_extern_call("_zo_select_wait");
 
+        // X0 (arm index) → out_which reg.
         if let Some(dst_reg) = self.alloc_reg(*out_which)
           && dst_reg != X0
         {
           self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+
+      // Paired with the preceding `SelectWait`: loads
+      // the runtime-written value from the scratch
+      // buffer into the allocator-assigned `dst`
+      // register. Split out so the register allocator
+      // sees a single-dst insn per SIR entry.
+      Insn::SelectRecv { dst, chans_len, .. } => {
+        let off = self.select_scratch_base + chans_len * 8;
+
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          self.emitter.emit_ldr(dst_reg, SP, off as i16);
         }
       }
 

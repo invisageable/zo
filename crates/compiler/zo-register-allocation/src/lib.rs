@@ -74,6 +74,13 @@ pub struct FunctionInfo {
   /// slot for its output buffer. 16 bytes when the
   /// function contains any channel op, 0 otherwise.
   pub chan_scratch_size: u32,
+  /// Scratch stack space for `SelectWait` — holds the
+  /// on-stack `*const *mut ZoChan` array plus the
+  /// `elem_sz`-byte output buffer that the runtime
+  /// writes into. Sized at `max(nchans * 8 + elem_sz)`
+  /// across every `SelectWait` in the function, aligned
+  /// to 16. Zero when the function has no select.
+  pub select_scratch_size: u32,
 }
 
 /// A spill operation to emit during codegen.

@@ -75,15 +75,27 @@ pub unsafe extern "C-unwind" fn _zo_select_wait(
       }
     }
 
-    // No arm ready. Yield if on the scheduler thread
-    // (green task); otherwise short-sleep to avoid
-    // burning a pthread CPU core.
+    // No arm ready.
+    //
+    // - Inside a green task: yield so other tasks on the
+    //   same scheduler (including any producer on the
+    //   arm channels) can progress.
+    // - On the main pthread: nobody else is pulling from
+    //   the local run queue, so drive it ourselves — run
+    //   one ready task per iteration. Without this,
+    //   `main()`'s pre-nursery-drain select deadlocks
+    //   (producers parked in the queue, nobody scheduling
+    //   them, try_recv loops forever).
     let on_scheduler = scheduler::with(|s| s.current().is_some());
 
     if on_scheduler {
       // SAFETY: we're in a task context per the
       // scheduler::current() check.
       unsafe { scheduler::yield_now() };
+    } else if let Some(task) = scheduler::with(|s| s.pop_local()) {
+      // SAFETY: pointer pulled from the run queue is
+      // scheduler-owned + live.
+      unsafe { scheduler::run_one_external(task) };
     } else {
       std::thread::sleep(std::time::Duration::from_micros(100));
     }

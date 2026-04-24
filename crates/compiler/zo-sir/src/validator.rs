@@ -476,6 +476,9 @@ fn check_insn(
     Insn::SelectWait { elem_ty, .. } => {
       check_placeholder(report, idx, *elem_ty, "SelectWait.elem_ty");
     }
+    Insn::SelectRecv { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "SelectRecv.ty_id");
+    }
   }
 }
 

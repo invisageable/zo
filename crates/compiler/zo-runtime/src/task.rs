@@ -124,6 +124,14 @@ pub struct ZoTask {
   user_arg0: u64,
   user_arg1: u64,
   user_arg2: u64,
+  /// Return value captured by the task shim when the
+  /// user callee completes normally. Read back by
+  /// `_zo_task_await` and returned through X0. For
+  /// void-returning user fns, the shim transmutes to
+  /// `fn(..) -> u64` anyway — the extra u64 in X0 at
+  /// return is simply ignored by the caller. Green-
+  /// only (threaded tasks don't surface a value yet).
+  ret_value: u64,
   /// Threaded-kind extension — `Some` when this task
   /// owns a pthread running the user callee; `None`
   /// for the common green-task case.
@@ -171,6 +179,7 @@ impl ZoTask {
       user_arg0: 0,
       user_arg1: 0,
       user_arg2: 0,
+      ret_value: 0,
       threaded: None,
     });
 
@@ -206,6 +215,7 @@ impl ZoTask {
       user_arg0: arg0,
       user_arg1: 0,
       user_arg2: 0,
+      ret_value: 0,
       threaded: None,
     });
 
@@ -236,6 +246,7 @@ impl ZoTask {
       user_arg0: arg0,
       user_arg1: arg1,
       user_arg2: 0,
+      ret_value: 0,
       threaded: None,
     });
 
@@ -267,6 +278,7 @@ impl ZoTask {
       user_arg0: arg0,
       user_arg1: arg1,
       user_arg2: arg2,
+      ret_value: 0,
       threaded: None,
     });
 
@@ -294,6 +306,7 @@ impl ZoTask {
       user_arg0: 0,
       user_arg1: 0,
       user_arg2: 0,
+      ret_value: 0,
       threaded: Some(ThreadedData {
         join: Mutex::new(None),
         outcome: Arc::new(Mutex::new(TaskOutcome::Running)),
@@ -321,25 +334,39 @@ extern "C-unwind" fn task_shim(task_addr: u64) {
   let task = task_addr as *mut ZoTask;
   let user_entry_addr = unsafe { (*task).user_entry_addr };
 
+  // Transmute the user callee as `fn() -> u64`. Zo
+  // callees compile with the arm64 C ABI where a
+  // return value is left in X0 regardless of the
+  // static `unit` / `int` / pointer distinction —
+  // reading X0 as `u64` is safe for every return
+  // width the ABI emits.
+  //
   // SAFETY: `user_entry_addr` was constructed from a
-  // valid `extern "C-unwind" fn()` pointer.
-  let user_entry: extern "C-unwind" fn() = unsafe {
-    std::mem::transmute::<*const (), extern "C-unwind" fn()>(
+  // valid `extern "C-unwind" fn()` pointer; the arm64
+  // ABI allows narrowing the return type between the
+  // declared and the transmuted signatures provided
+  // the caller only reads the returned X0 bits.
+  let user_entry: extern "C-unwind" fn() -> u64 = unsafe {
+    std::mem::transmute::<*const (), extern "C-unwind" fn() -> u64>(
       user_entry_addr as *const (),
     )
   };
 
-  // `catch_unwind` needs `FnOnce()`; wrap the extern
-  // fn in a closure. Zero captures — vanishes after
-  // optimization.
+  // `catch_unwind` needs a `FnOnce()` — wrap so the
+  // `u64` return threads through the `Ok` arm.
   let result = catch_unwind(AssertUnwindSafe(|| user_entry()));
 
   // SAFETY: same task pointer as above, still live.
   unsafe {
-    (*task).outcome = match result {
-      Ok(()) => TaskOutcome::Completed,
-      Err(_) => TaskOutcome::Panicked,
-    };
+    match result {
+      Ok(v) => {
+        (*task).ret_value = v;
+        (*task).outcome = TaskOutcome::Completed;
+      }
+      Err(_) => {
+        (*task).outcome = TaskOutcome::Panicked;
+      }
+    }
   }
 
   exit_current();
@@ -356,9 +383,11 @@ extern "C-unwind" fn task_shim_1(task_addr: u64) {
     unsafe { ((*task).user_entry_addr, (*task).user_arg0) };
 
   // SAFETY: `user_entry_addr` was built from a valid
-  // `extern "C-unwind" fn(u64)` pointer.
-  let user_entry: extern "C-unwind" fn(u64) = unsafe {
-    std::mem::transmute::<*const (), extern "C-unwind" fn(u64)>(
+  // `extern "C-unwind" fn(u64)` pointer; the arm64 ABI
+  // makes reading X0 as `u64` safe for any return
+  // width the callee emits (see `task_shim`).
+  let user_entry: extern "C-unwind" fn(u64) -> u64 = unsafe {
+    std::mem::transmute::<*const (), extern "C-unwind" fn(u64) -> u64>(
       user_entry_addr as *const (),
     )
   };
@@ -366,10 +395,15 @@ extern "C-unwind" fn task_shim_1(task_addr: u64) {
   let result = catch_unwind(AssertUnwindSafe(|| user_entry(arg0)));
 
   unsafe {
-    (*task).outcome = match result {
-      Ok(()) => TaskOutcome::Completed,
-      Err(_) => TaskOutcome::Panicked,
-    };
+    match result {
+      Ok(v) => {
+        (*task).ret_value = v;
+        (*task).outcome = TaskOutcome::Completed;
+      }
+      Err(_) => {
+        (*task).outcome = TaskOutcome::Panicked;
+      }
+    }
   }
 
   exit_current();
@@ -386,8 +420,8 @@ extern "C-unwind" fn task_shim_2(task_addr: u64) {
     )
   };
 
-  let user_entry: extern "C-unwind" fn(u64, u64) = unsafe {
-    std::mem::transmute::<*const (), extern "C-unwind" fn(u64, u64)>(
+  let user_entry: extern "C-unwind" fn(u64, u64) -> u64 = unsafe {
+    std::mem::transmute::<*const (), extern "C-unwind" fn(u64, u64) -> u64>(
       user_entry_addr as *const (),
     )
   };
@@ -395,10 +429,15 @@ extern "C-unwind" fn task_shim_2(task_addr: u64) {
   let result = catch_unwind(AssertUnwindSafe(|| user_entry(arg0, arg1)));
 
   unsafe {
-    (*task).outcome = match result {
-      Ok(()) => TaskOutcome::Completed,
-      Err(_) => TaskOutcome::Panicked,
-    };
+    match result {
+      Ok(v) => {
+        (*task).ret_value = v;
+        (*task).outcome = TaskOutcome::Completed;
+      }
+      Err(_) => {
+        (*task).outcome = TaskOutcome::Panicked;
+      }
+    }
   }
 
   exit_current();
@@ -416,8 +455,8 @@ extern "C-unwind" fn task_shim_3(task_addr: u64) {
     )
   };
 
-  let user_entry: extern "C-unwind" fn(u64, u64, u64) = unsafe {
-    std::mem::transmute::<*const (), extern "C-unwind" fn(u64, u64, u64)>(
+  let user_entry: extern "C-unwind" fn(u64, u64, u64) -> u64 = unsafe {
+    std::mem::transmute::<*const (), extern "C-unwind" fn(u64, u64, u64) -> u64>(
       user_entry_addr as *const (),
     )
   };
@@ -425,10 +464,15 @@ extern "C-unwind" fn task_shim_3(task_addr: u64) {
   let result = catch_unwind(AssertUnwindSafe(|| user_entry(arg0, arg1, arg2)));
 
   unsafe {
-    (*task).outcome = match result {
-      Ok(()) => TaskOutcome::Completed,
-      Err(_) => TaskOutcome::Panicked,
-    };
+    match result {
+      Ok(v) => {
+        (*task).ret_value = v;
+        (*task).outcome = TaskOutcome::Completed;
+      }
+      Err(_) => {
+        (*task).outcome = TaskOutcome::Panicked;
+      }
+    }
   }
 
   exit_current();
@@ -593,7 +637,7 @@ pub unsafe fn spawn_thread(user_entry: extern "C-unwind" fn()) -> *mut ZoTask {
 /// `target` must be a `*mut ZoTask` produced by
 /// [`spawn`] or [`spawn_thread`] (or their C ABI
 /// equivalents) and not yet freed.
-pub unsafe fn await_task(target: *mut ZoTask) {
+pub unsafe fn await_task(target: *mut ZoTask) -> u64 {
   // Threaded path — pthread_join; no scheduler.
   // SAFETY: caller contract.
   if unsafe { (*target).is_threaded() } {
@@ -628,7 +672,10 @@ pub unsafe fn await_task(target: *mut ZoTask) {
       panic!("zo-task panicked — propagating to awaiter");
     }
 
-    return;
+    // Threaded tasks don't capture a return value
+    // yet — the OS thread doesn't go through the
+    // shim's `catch_unwind(|| user_entry())` path.
+    return 0;
   }
 
   // Green path (existing).
@@ -664,6 +711,8 @@ pub unsafe fn await_task(target: *mut ZoTask) {
   if matches!(task.outcome, TaskOutcome::Panicked) {
     panic!("zo-task panicked — propagating to awaiter");
   }
+
+  task.ret_value
 }
 
 // ===== C ABI exports =====
@@ -788,12 +837,15 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn_thread(
 /// After this call returns, `task` is freed and must
 /// not be referenced again.
 #[unsafe(export_name = "zo_task_await")]
-pub unsafe extern "C-unwind" fn _zo_task_await(task: *mut ZoTask) {
+pub unsafe extern "C-unwind" fn _zo_task_await(task: *mut ZoTask) -> u64 {
   if task.is_null() {
-    return;
+    return 0;
   }
 
-  unsafe { await_task(task) };
+  // SAFETY: `await_task` frees the `Box<ZoTask>` after
+  // it's done; we read `ret_value` from the boxed task
+  // before the drop, and return it through X0.
+  unsafe { await_task(task) }
 }
 
 /// Mark `task` as cancelled. Sets an atomic flag that

@@ -33,7 +33,13 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       | Insn::ChannelCreate { dst, .. }
       | Insn::ChannelRecv { dst, .. }
       | Insn::TaskSpawn { dst, .. }
-      | Insn::TaskAwait { dst, .. } => Some(*dst),
+      | Insn::TaskAwait { dst, .. }
+      | Insn::SelectRecv { dst, .. } => Some(*dst),
+      // `SelectWait` has two outputs (`out_which` +
+      // companion `SelectRecv.dst` for the value).
+      // Liveness tracks the arm index here; the value
+      // register is defined by the paired `SelectRecv`.
+      Insn::SelectWait { out_which, .. } => Some(*out_which),
       Insn::Template { id, .. } => Some(*id),
       _ => None,
     })
@@ -83,6 +89,10 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
     Insn::TaskSpawn { args, .. } => args.clone(),
     Insn::TaskAwait { task, .. } => vec![*task],
     Insn::SelectWait { chans, .. } => chans.clone(),
+    // `SelectRecv` anchors liveness to its paired
+    // `SelectWait`'s `out_which` so DCE can't reorder
+    // or drop the wait.
+    Insn::SelectRecv { which, .. } => vec![*which],
     _ => vec![],
   }
 }

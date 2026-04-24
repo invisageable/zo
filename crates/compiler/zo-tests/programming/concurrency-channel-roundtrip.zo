@@ -20,4 +20,5 @@ fun main() {
   }
 }
 
--- EXPECT: got 42
+-- EXPECTED OUTPUT:
+-- got 42

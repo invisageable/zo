@@ -341,6 +341,7 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::NurseryBegin { .. }
       | Insn::NurseryEnd { .. }
       | Insn::SelectWait { .. }
+      | Insn::SelectRecv { .. }
   )
 }
 

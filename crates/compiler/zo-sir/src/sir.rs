@@ -260,14 +260,14 @@ impl Insn {
         f(task);
       }
       Insn::SelectWait {
-        out_which,
-        out_value,
-        chans,
-        ..
+        out_which, chans, ..
       } => {
         f(out_which);
-        f(out_value);
         chans.iter_mut().for_each(&mut *f);
+      }
+      Insn::SelectRecv { dst, which, .. } => {
+        f(dst);
+        f(which);
       }
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
     }
@@ -350,6 +350,7 @@ impl Insn {
       | Insn::TaskSpawn { ty_id, .. }
       | Insn::TaskAwait { ty_id, .. } => f(ty_id),
       Insn::SelectWait { elem_ty, .. } => f(elem_ty),
+      Insn::SelectRecv { ty_id, .. } => f(ty_id),
       Insn::ChannelClose { .. }
       | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
@@ -679,16 +680,29 @@ pub enum Insn {
   },
   /// Selective receive — atomic wait on N channels.
   /// `out_which` receives the 0-based arm index of
-  /// the channel that fired; `out_value` receives
-  /// the recv'd value (caller reads this to bind
-  /// the arm's closure parameter). Downstream
-  /// `BranchIfNot` / `Jump` / `Label` insns dispatch
-  /// on `out_which` to the correct arm body.
+  /// the channel that fired. Paired with a following
+  /// `SelectRecv` that reads the received value out of
+  /// the scratch buffer into a register. The split
+  /// keeps the insn-to-dst mapping single-valued so
+  /// the liveness / register allocator stays simple.
   SelectWait {
     out_which: ValueId,
-    out_value: ValueId,
     chans: Vec<ValueId>,
     elem_ty: TyId,
+  },
+  /// Companion to `SelectWait` — produces `dst` by
+  /// loading the runtime-written value from the select
+  /// scratch buffer. `which` reads the arm index from
+  /// the preceding `SelectWait` purely to anchor
+  /// liveness; codegen doesn't consume it. `chans_len`
+  /// lets the backend compute the scratch buf offset
+  /// (`nchans * 8` bytes of pointers precede the
+  /// output buffer in the frame).
+  SelectRecv {
+    dst: ValueId,
+    which: ValueId,
+    ty_id: TyId,
+    chans_len: u32,
   },
   /// Open a nursery scope. Every `TaskSpawn` between this
   /// insn and its matching `NurseryEnd` is scoped to this

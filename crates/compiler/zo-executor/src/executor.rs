@@ -11192,29 +11192,115 @@ impl<'a> Executor<'a> {
     self.sir_values.push(dst_sir);
   }
 
-  /// Executes a `select { arm, arm, ... }` scope.
-  /// Emits a `SelectWait` marker insn up front; each
-  /// arm is parsed + walked by the main loop as normal
-  /// (rx expressions push ValueIds on the stack,
-  /// closure arms emit their own `FunDef`s). A
-  /// fully-wired follow-up would:
+  /// Executes a `select { chan_expr => fn(p: T) => body, ... }`
+  /// scope end-to-end. Drives arm collection, SIR
+  /// emission, and the dispatch ladder that routes
+  /// control into the arm whose channel fired.
   ///
-  /// 1. Scan arm expressions to build the `chans`
-  ///    array on the SelectWait insn.
-  /// 2. Emit per-arm `BranchIfNot` + `Label`
-  ///    dispatch after the wait returns.
-  /// 3. Bind the received value to each arm's
-  ///    closure parameter from `out_value`.
+  /// Pipeline:
   ///
-  /// Current scope is pipeline skeleton only: parser ➜
-  /// SIR ➜ codegen ➜ runtime — `_zo_select_wait` is
-  /// linkable and callable, programs using `select`
-  /// type-check, but arm dispatch semantics are a
-  /// follow-up.
-  fn execute_select(&mut self, _idx: usize, _header: &NodeHeader) {
-    // Placeholder: emit a bare `SelectWait` with no
-    // channels. Full arm collection + dispatch is
-    // the follow-up described above.
+  /// 1. Walk the body tree splitting arms on top-level
+  ///    `Comma`, each arm on its top-level `FatArrow`
+  ///    (`chan_expr => arm_body`).
+  /// 2. Evaluate every chan expression sub-tree through
+  ///    `execute_node` to harvest its `ValueId` and
+  ///    derive the shared `elem_ty` from the first
+  ///    `Rx<T>` / `Tx<T>`.
+  /// 3. Emit one `SelectWait { chans, out_which,
+  ///    out_value, elem_ty }` carrying every chan.
+  ///    Codegen lowers this to a `BL _zo_select_wait`
+  ///    with the on-stack chans array + output buffer.
+  /// 4. For each arm index `i`, emit
+  ///    `BinOp Eq(out_which, i) -> cmp;
+  ///     BranchIfNot(cmp, next)` before executing the
+  ///    arm body; jump to `end` after the body. A per-
+  ///    arm scope binds the closure parameter's symbol
+  ///    to `out_value` (via a `Store`) so references to
+  ///    it inside the body lower to `Load
+  ///    LoadSource::Local(sym)` reading the runtime-
+  ///    written slot.
+  fn execute_select(&mut self, _idx: usize, header: &NodeHeader) {
+    let children_start = header.child_start as usize;
+    let children_end = (header.child_start + header.child_count) as usize;
+
+    // Prevent the main loop from walking any of the
+    // select body — `execute_select` owns the traversal
+    // so arm bodies land in the right dispatch position.
+    self.skip_until = children_end;
+
+    // Locate the body's `LBrace`. Every other child is
+    // trivia (whitespace/Comment never reach here).
+    let lbrace_idx = match (children_start..children_end)
+      .find(|&i| self.tree.nodes[i].token == Token::LBrace)
+    {
+      Some(i) => i,
+      None => return,
+    };
+
+    let lb = self.tree.nodes[lbrace_idx];
+    let body_first = lb.child_start as usize;
+    let body_last_excl = (lb.child_start + lb.child_count) as usize;
+
+    // The trailing `RBrace` is the last child of
+    // `LBrace`; carve it out so arm scanning stops
+    // before the closer.
+    let body_end = if body_last_excl > body_first
+      && self.tree.nodes[body_last_excl - 1].token == Token::RBrace
+    {
+      body_last_excl - 1
+    } else {
+      body_last_excl
+    };
+
+    // Scan the body splitting arms on top-level `Comma`.
+    // Each arm carries its `FatArrow` position so we
+    // can slice chan expression vs. arm body.
+    //
+    // Depth tracks nested `(...)`, `[...]`, `{...}` so
+    // an inner closure's commas/fat arrows do not leak
+    // into the outer arm boundary.
+    let mut arms: Vec<(usize, usize, usize)> = Vec::new();
+    let mut arm_start = body_first;
+    let mut fat_arrow: Option<usize> = None;
+    let mut depth: i32 = 0;
+
+    let mut j = body_first;
+
+    while j < body_end {
+      let tok = self.tree.nodes[j].token;
+
+      match tok {
+        Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+        Token::RParen | Token::RBracket | Token::RBrace => depth -= 1,
+        Token::FatArrow if depth == 0 && fat_arrow.is_none() => {
+          fat_arrow = Some(j);
+        }
+        Token::Comma if depth == 0 => {
+          if let Some(fa) = fat_arrow.take() {
+            arms.push((arm_start, fa, j));
+          }
+
+          arm_start = j + 1;
+        }
+        _ => {}
+      }
+
+      j += 1;
+    }
+
+    // Trailing arm (no trailing comma).
+    if let Some(fa) = fat_arrow
+      && arm_start < body_end
+    {
+      arms.push((arm_start, fa, body_end));
+    }
+
+    if arms.is_empty() {
+      return;
+    }
+
+    // Allocate the two ValueIds the runtime writes into
+    // before the arms materialize.
     let out_which = ValueId(self.sir.next_value_id);
 
     self.sir.next_value_id += 1;
@@ -11223,14 +11309,262 @@ impl<'a> Executor<'a> {
 
     self.sir.next_value_id += 1;
 
-    let elem_ty = self.ty_checker.fresh_var();
+    // Evaluate every chan expression, collect ValueIds
+    // and the shared element type.
+    let mut chans: Vec<ValueId> = Vec::with_capacity(arms.len());
+    let mut elem_ty = self.ty_checker.fresh_var();
+
+    for &(chan_start, fa, _body_end) in &arms {
+      let saved_skip = self.skip_until;
+
+      self.skip_until = 0;
+
+      let mut k = chan_start;
+
+      while k < fa {
+        if k < self.skip_until {
+          k = self.skip_until;
+          continue;
+        }
+
+        let h = self.tree.nodes[k];
+
+        self.execute_node(&h, k);
+
+        k += 1;
+      }
+
+      self.skip_until = saved_skip;
+
+      let chan_vid = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
+
+      self.value_stack.pop();
+
+      let chan_ty = self.ty_stack.pop().unwrap_or(self.ty_checker.unit_type());
+
+      // Derive `elem_ty` from `Rx<T>` / `Tx<T>`. Either
+      // half is accepted — the runtime reads whichever
+      // chan handle the user passed.
+      match self.ty_checker.kind_of(chan_ty) {
+        Ty::ChannelRx(inner) | Ty::ChannelTx(inner) => elem_ty = inner,
+        _ => {}
+      }
+
+      chans.push(chan_vid);
+    }
+
+    // Emit the wait. Codegen lowers this to the runtime
+    // call and stages `out_which` into an executor-
+    // visible register. The companion `SelectRecv`
+    // below reads the runtime-written value out of the
+    // scratch buffer into `out_value`.
+    let chans_len = chans.len() as u32;
 
     self.sir.emit(Insn::SelectWait {
       out_which,
-      out_value,
-      chans: Vec::new(),
+      chans,
       elem_ty,
     });
+
+    self.sir.emit(Insn::SelectRecv {
+      dst: out_value,
+      which: out_which,
+      ty_id: elem_ty,
+      chans_len,
+    });
+
+    let end_label = self.sir.next_label();
+    let int_ty = self.ty_checker.int_type();
+    let bool_ty = self.ty_checker.bool_type();
+
+    for (i, &(_chan_start, fa, body_end_arm)) in arms.iter().enumerate() {
+      let next_label = self.sir.next_label();
+
+      // `ConstInt(i)` — the arm-index sentinel to match
+      // against `out_which`.
+      let i_const = ValueId(self.sir.next_value_id);
+
+      self.sir.next_value_id += 1;
+
+      self.sir.emit(Insn::ConstInt {
+        dst: i_const,
+        value: i as u64,
+        ty_id: int_ty,
+      });
+
+      // `cmp = out_which == i`.
+      let cmp = ValueId(self.sir.next_value_id);
+
+      self.sir.next_value_id += 1;
+
+      self.sir.emit(Insn::BinOp {
+        dst: cmp,
+        op: zo_sir::BinOp::Eq,
+        lhs: out_which,
+        rhs: i_const,
+        ty_id: bool_ty,
+      });
+
+      // Fall through to next arm if this one didn't fire.
+      self.sir.emit(Insn::BranchIfNot {
+        cond: cmp,
+        target: next_label,
+      });
+
+      // Walk the arm body with the closure parameter
+      // bound to `out_value` for the duration of the
+      // arm's scope.
+      self.execute_select_arm_body(fa + 1, body_end_arm, out_value, elem_ty);
+
+      self.sir.emit(Insn::Jump { target: end_label });
+      self.sir.emit(Insn::Label { id: next_label });
+    }
+
+    self.sir.emit(Insn::Label { id: end_label });
+
+    self.skip_until = children_end;
+  }
+
+  /// Emit the body of a single `select` arm.
+  ///
+  /// Handles two surface forms:
+  ///
+  /// - `chan => fn(p: T) => body` — the closure wraps
+  ///   the body and names the received value as `p`.
+  ///   The closure param is bound to the shared
+  ///   `out_value` via a `Store` so body `Ident(p)`
+  ///   loads lower naturally through `LoadSource::
+  ///   Local(sym)` — no ad-hoc substitution pass.
+  ///
+  /// - `chan => stmt` — direct statement arm (no value
+  ///   binding). Walked linearly through `execute_node`.
+  fn execute_select_arm_body(
+    &mut self,
+    body_start: usize,
+    body_end: usize,
+    out_value: ValueId,
+    param_ty: TyId,
+  ) {
+    self.push_scope();
+
+    let first_tok = self.tree.nodes.get(body_start).map(|n| n.token);
+
+    if first_tok == Some(Token::Fn) {
+      let fn_hdr = self.tree.nodes[body_start];
+      let fn_children_start = fn_hdr.child_start as usize;
+      let fn_children_end = (fn_hdr.child_start + fn_hdr.child_count) as usize;
+
+      // Scan the closure header for its first
+      // parameter name and the position of the body
+      // separator (`=>` or `{`). `paren_depth` gates
+      // identifier capture so only tokens inside
+      // `(...)` count as param names.
+      let mut param_name: Option<Symbol> = None;
+      let mut body_walk_start: Option<usize> = None;
+      let mut paren_depth: i32 = 0;
+
+      let mut k = fn_children_start;
+
+      while k < fn_children_end {
+        match self.tree.nodes[k].token {
+          Token::LParen => paren_depth += 1,
+          Token::RParen => paren_depth -= 1,
+          Token::Ident if paren_depth > 0 && param_name.is_none() => {
+            param_name = self.node_value(k).and_then(|v| match v {
+              NodeValue::Symbol(s) => Some(s),
+              _ => None,
+            });
+          }
+          Token::FatArrow | Token::LBrace
+            if paren_depth == 0 && body_walk_start.is_none() =>
+          {
+            body_walk_start = Some(k);
+            break;
+          }
+          _ => {}
+        }
+
+        k += 1;
+      }
+
+      // Bind the closure param to `out_value` so body
+      // identifier references resolve to a real stack
+      // slot. `Store` allocates the slot; `Load` in the
+      // body reads it. Skipped when the arm has no
+      // parameter (rare — `fn() => ...`).
+      if let Some(sym) = param_name {
+        self.sir.emit(Insn::Store {
+          name: sym,
+          value: out_value,
+          ty_id: param_ty,
+        });
+
+        self.locals.push(Local {
+          name: sym,
+          ty_id: param_ty,
+          value_id: self.values.store_runtime(0),
+          pubness: Pubness::No,
+          mutability: Mutability::No,
+          sir_value: Some(out_value),
+          local_kind: LocalKind::Variable,
+        });
+
+        if let Some(frame) = self.scope_stack.last_mut() {
+          frame.count += 1;
+        }
+      }
+
+      // Walk the closure body. `FatArrow` is a no-op in
+      // the main dispatch and `LBrace` drives its own
+      // scope through `execute_node`, so starting at
+      // the separator keeps scoping balanced.
+      if let Some(start) = body_walk_start {
+        let saved_skip = self.skip_until;
+
+        self.skip_until = 0;
+
+        let mut k = start;
+
+        while k < fn_children_end {
+          if k < self.skip_until {
+            k = self.skip_until;
+            continue;
+          }
+
+          let h = self.tree.nodes[k];
+
+          self.execute_node(&h, k);
+
+          k += 1;
+        }
+
+        self.skip_until = saved_skip;
+      }
+    } else {
+      // Direct statement arm — walk linearly.
+      let saved_skip = self.skip_until;
+
+      self.skip_until = 0;
+
+      let mut k = body_start;
+
+      while k < body_end {
+        if k < self.skip_until {
+          k = self.skip_until;
+          continue;
+        }
+
+        let h = self.tree.nodes[k];
+
+        self.execute_node(&h, k);
+
+        k += 1;
+      }
+
+      self.skip_until = saved_skip;
+    }
+
+    self.pop_scope();
   }
 
   /// Executes return statement - acts as an introducer.
