@@ -2,7 +2,9 @@ use zo_constant_folding::{ConstFold, FoldResult, Operand};
 use zo_error::{Error, ErrorKind};
 use zo_interner::{Interner, Symbol};
 use zo_reporter::report_error;
-use zo_sir::{BinOp, Insn, LoadSource, Sir, TemplateBindings, UnOp};
+use zo_sir::{
+  BinOp, Insn, LoadSource, NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
+};
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
@@ -271,6 +273,24 @@ pub struct Executor<'a> {
   /// resolution in the main pass can look up callee
   /// signatures regardless of source order.
   prescan_only: bool,
+  /// Open nursery scopes, one entry per lexically-active
+  /// `nursery { }` block. Each entry is `(label, rbrace_idx)`
+  /// — the `label` is the unique ID threaded through
+  /// `NurseryBegin` / `NurseryEnd`; `rbrace_idx` is the tree
+  /// index of the matching `}` that triggers the close.
+  /// `spawn` checks `!self.nursery_stack.is_empty()`
+  /// so orphan spawns outside a nursery raise an error.
+  nursery_stack: Vec<(u32, usize)>,
+  /// Set when a `Token::Spawn` introducer is entered and
+  /// cleared as soon as the enclosed call finalizes — at
+  /// which point the executor emits `TaskSpawn` instead of
+  /// `Call`. The tuple is `(spawn_node_idx, rparen_idx,
+  /// kind)`: the first two let the call-emission path
+  /// recognize the redirect; `kind` distinguishes the
+  /// two-tier spawn — `Green` (scheduler-multiplexed)
+  /// vs `Thread` (fresh OS thread via `spawn thread
+  /// fn()`).
+  pending_spawn: Option<(usize, usize, SpawnKind)>,
 }
 
 /// An `abstract` definition (method signatures, no bodies).
@@ -399,6 +419,8 @@ impl<'a> Executor<'a> {
       pending_var_name: None,
       widget_counter: Cell::new(0),
       branch_stack: Vec::with_capacity(8),
+      nursery_stack: Vec::with_capacity(4),
+      pending_spawn: None,
       branch_result_counter: 0,
       skip_until: 0,
       pending_decl: None,
@@ -627,11 +649,26 @@ impl<'a> Executor<'a> {
     self.tree.value(node_idx as u32)
   }
 
+  /// Pop one slot from each of the three stacks that travel together through
+  /// expression execution runtime value id, type id, SIR value id. Returns
+  /// `None` if any stack is empty, leaving the others untouched — callers
+  /// treat that as "nothing to do" and early-return.
+  fn pop_stack_triple(&mut self) -> Option<(ValueId, TyId, ValueId)> {
+    match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => Some((v, t, s)),
+      _ => None,
+    }
+  }
+
   /// Extracts a symbol's string value from a node, owned.
   fn symbol_str(&self, idx: usize) -> String {
     self
       .node_value(idx)
-      .and_then(|v| match v {
+      .and_then(|value| match value {
         NodeValue::Symbol(s) => Some(self.interner.get(s).to_owned()),
         _ => None,
       })
@@ -1601,6 +1638,11 @@ impl<'a> Executor<'a> {
         self.push_scope();
       }
       Token::RBrace => {
+        // Close any `nursery { }` whose body's RBrace is
+        // this one. Runs before the other RBrace housekeeping
+        // so `NurseryEnd` lands inside the block's SIR span.
+        self.close_nursery_at_rbrace(idx);
+
         // Finalize pending assignments/compounds before
         // closing the block. Assignments evaluate to unit
         // regardless of whether a semicolon follows.
@@ -2571,6 +2613,11 @@ impl<'a> Executor<'a> {
               self.value_stack.push(closure_val);
               self.ty_stack.push(fun_ty);
               self.sir_values.push(ValueId(u32::MAX));
+            } else if sym_str == "channel" && self.ident_is_call_target(idx) {
+              // `channel` is a compiler intrinsic, not a
+              // FunDef — skip the undefined-variable report
+              // here and let `execute_potential_call` route
+              // the RParen through `execute_channel_builtin`.
             } else if !is_fun && !is_enum && !is_struct && !is_pack {
               let span = self.tree.spans[idx];
 
@@ -3158,6 +3205,23 @@ impl<'a> Executor<'a> {
 
       // === CONTROL FLOW ===
       Token::Return => self.execute_return(idx),
+
+      // === STRUCTURED CONCURRENCY ===
+      Token::Nursery => {
+        self.execute_nursery(idx, header);
+      }
+      Token::Spawn => {
+        self.execute_spawn(idx, header);
+      }
+      Token::Await => {
+        self.execute_await(idx);
+      }
+      Token::Select => {
+        self.execute_select(idx, header);
+      }
+      Token::Supervise => {
+        self.execute_supervise(idx, header);
+      }
 
       Token::Break => {
         if let Some(ctx) = self
@@ -4478,6 +4542,50 @@ impl<'a> Executor<'a> {
   }
 
   /// Resolves a type token at `idx` to a [`TyId`].
+  /// If `idx` points at a concurrency-builtin base type
+  /// (`Ty::Task` / `Ty::ChannelTx` / `Ty::ChannelRx`
+  /// with a fresh inference variable as its argument)
+  /// and the next token is `<`, consume `< ArgTy >` and
+  /// unify the fresh var with `ArgTy`. Leaves `idx` at
+  /// the closing `>` so the caller's own `idx += 1`
+  /// moves past it.
+  fn bind_concurrency_generic(
+    &mut self,
+    idx: &mut usize,
+    end: usize,
+    ty: TyId,
+  ) {
+    let inner_var = match self.ty_checker.kind(ty) {
+      Some(Ty::Task(v)) | Some(Ty::ChannelTx(v)) | Some(Ty::ChannelRx(v)) => *v,
+      _ => return,
+    };
+
+    let lt_idx = *idx + 1;
+
+    if lt_idx >= end || self.tree.nodes[lt_idx].token != Token::Lt {
+      return;
+    }
+
+    let arg_idx = lt_idx + 1;
+
+    if arg_idx >= end {
+      return;
+    }
+
+    let arg_ty = self.resolve_type_token(arg_idx);
+    let span = self.tree.spans[*idx];
+
+    self.ty_checker.unify(inner_var, arg_ty, span);
+
+    let gt_idx = arg_idx + 1;
+
+    if gt_idx < end && self.tree.nodes[gt_idx].token == Token::Gt {
+      *idx = gt_idx;
+    } else {
+      *idx = arg_idx;
+    }
+  }
+
   fn resolve_type_token(&mut self, idx: usize) -> TyId {
     match self.tree.nodes[idx].token {
       Token::IntType => self.ty_checker.int_type(),
@@ -5422,7 +5530,19 @@ impl<'a> Executor<'a> {
 
                   ty
                 } else {
-                  self.resolve_type_token(idx)
+                  let ty = self.resolve_type_token(idx);
+
+                  // Concurrency built-ins carry a fresh inference
+                  // var that must be pinned by the `<ArgTy>`
+                  // tokens following the base ident — e.g.
+                  // `tx: Tx<int>` leaves idx pointing at `Tx`
+                  // with ty = Ty::ChannelTx(?X); consume the
+                  // `<`, resolve `int`, unify `?X` with `int`,
+                  // and leave idx at the closing `>` so the
+                  // outer `idx += 1` moves past it.
+                  self.bind_concurrency_generic(&mut idx, _end_idx, ty);
+
+                  ty
                 };
 
                 // Skip extra token for $T type params.
@@ -5851,12 +5971,28 @@ impl<'a> Executor<'a> {
           annotated_ty = Some(self.resolve_type_token(i));
         }
 
-        // Struct/enum name as type annotation.
+        // Struct / enum / concurrency-builtin name as
+        // type annotation. `resolve_ty_symbol` covers
+        // built-in aliases (`int`, `str`) AND the
+        // concurrency builtins (`Task<T>`, `Tx<T>`,
+        // `Rx<T>`); the latter carry a fresh inference
+        // variable that `bind_concurrency_generic`
+        // pins to the `<ArgTy>` immediately following.
         if tok == Token::Ident
           && annotated_ty.is_none()
           && let Some(NodeValue::Symbol(sym)) = self.node_value(i)
         {
-          annotated_ty = self.ty_checker.resolve_ty_name(sym);
+          let resolved = self.ty_checker.resolve_ty_symbol(sym, self.interner);
+
+          if let Some(base) = resolved {
+            let mut cursor = i;
+
+            self.bind_concurrency_generic(&mut cursor, children_end, base);
+
+            i = cursor;
+
+            annotated_ty = Some(base);
+          }
         }
 
         skip_to = i + 1;
@@ -8221,6 +8357,31 @@ impl<'a> Executor<'a> {
       // `arr_int::sum`.
     }
 
+    // Channel built-in methods: `Tx<T>::send` and
+    // `Rx<T>::recv` aren't user FunDefs — they lower
+    // directly to `ChannelSend` / `ChannelRecv` insns
+    // at RParen dispatch. Recognizing them here stops
+    // the Dot handler from treating the receiver as a
+    // struct / tuple field access.
+    if matches!(resolved, Ty::ChannelTx(_) | Ty::ChannelRx(_)) {
+      let ms = self.interner.get(member_name);
+
+      if ms == "send" || ms == "recv" || ms == "close" {
+        return true;
+      }
+    }
+
+    // `Task<T>::cancel` and `Task<T>::cancelled` mirror
+    // the `Tx/Rx` lowering path — receiver in X0, direct
+    // runtime call, no user FunDef involved.
+    if matches!(resolved, Ty::Task(_)) {
+      let ms = self.interner.get(member_name);
+
+      if ms == "cancel" || ms == "cancelled" {
+        return true;
+      }
+    }
+
     // Generic type param: if the method is an abstract method,
     // this is a valid method call (resolved at mono time).
     if matches!(resolved, Ty::Infer(_)) {
@@ -8620,6 +8781,135 @@ impl<'a> Executor<'a> {
     let sv = self.sir.emit(Insn::ArrayPop {
       dst,
       array: arr_sir,
+      ty_id: elem_ty,
+    });
+
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(elem_ty);
+    self.sir_values.push(sv);
+  }
+
+  /// Executes `tx.send(value)` — emits `ChannelSend` SIR.
+  /// Stack: [..., receiver, value]. One explicit arg.
+  fn execute_channel_send(&mut self, lparen_idx: usize, rparen_idx: usize) {
+    let has_content = lparen_idx + 1 < rparen_idx;
+
+    if !has_content {
+      let span = self.tree.spans[rparen_idx];
+
+      report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
+
+      return;
+    }
+
+    let Some((_val, val_ty, val_sir)) = self.pop_stack_triple() else {
+      return;
+    };
+
+    let Some((_recv, recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
+    };
+
+    // Element type flows from the Tx's T; unify with the
+    // sent value so a fresh-var `T` gets pinned to the
+    // concrete send-site type (first-use inference). A
+    // receiver of kind `Rx<T>` never reaches this arm —
+    // the dispatch guard in `execute_potential_call`
+    // checks for `Ty::ChannelTx` before routing here.
+    let elem_ty = match self.ty_checker.kind_of(recv_ty) {
+      Ty::ChannelTx(t) => t,
+      _ => self.ty_checker.fresh_var(),
+    };
+
+    let span = self.tree.spans[rparen_idx];
+
+    self.ty_checker.unify(elem_ty, val_ty, span);
+
+    self.sir.emit(Insn::ChannelSend {
+      channel: recv_sir,
+      value: val_sir,
+      ty_id: elem_ty,
+    });
+  }
+
+  /// Executes `t.cancelled()` on a `Task<T>` handle.
+  /// Pops the receiver from the three stacks, emits
+  /// `Insn::TaskCancelled { dst, task, ty_id }`, and
+  /// pushes the resulting `bool` back. Downstream users
+  /// read the flag through the returned value.
+  fn execute_task_cancelled(&mut self) {
+    let Some((_recv, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
+    };
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let bool_ty = self.ty_checker.bool_type();
+    let dst_sir = self.sir.emit(Insn::TaskCancelled {
+      dst,
+      task: recv_sir,
+      ty_id: bool_ty,
+    });
+
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(bool_ty);
+    self.sir_values.push(dst_sir);
+  }
+
+  /// Executes `t.cancel()` on a `Task<T>` handle. Pops
+  /// the receiver, emits `Insn::TaskCancel { task }` —
+  /// no value produced; the method is a pure side-
+  /// effecting command (latches the shared flag).
+  fn execute_task_cancel(&mut self) {
+    let Some((_recv, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
+    };
+
+    self.sir.emit(Insn::TaskCancel { task: recv_sir });
+  }
+
+  /// Executes `tx.close()` / `rx.close()` — emits
+  /// `ChannelClose` SIR. Either half of the channel
+  /// pair can close it; runtime wakes every parked
+  /// waiter so they observe the closed state.
+  /// Stack: [..., receiver]. No explicit args — any
+  /// tokens between the parens are ignored.
+  fn execute_channel_close(&mut self, _lparen_idx: usize, _rparen_idx: usize) {
+    let Some((_recv, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
+    };
+
+    self.sir.emit(Insn::ChannelClose { channel: recv_sir });
+  }
+
+  /// Executes `val = rx.recv()` — emits `ChannelRecv` SIR.
+  /// Stack: [..., receiver]. No explicit args.
+  fn execute_channel_recv(&mut self, _lparen_idx: usize, _rparen_idx: usize) {
+    let Some((_recv, recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
+    };
+
+    // Receiver must be `Rx<T>` — the dispatch guard in
+    // `execute_potential_call` ensures that before
+    // routing here.
+    let elem_ty = match self.ty_checker.kind_of(recv_ty) {
+      Ty::ChannelRx(t) => t,
+      _ => self.ty_checker.fresh_var(),
+    };
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sv = self.sir.emit(Insn::ChannelRecv {
+      dst,
+      channel: recv_sir,
       ty_id: elem_ty,
     });
 
@@ -10792,6 +11082,537 @@ impl<'a> Executor<'a> {
     }
   }
 
+  // ===== STRUCTURED CONCURRENCY =====
+
+  /// Opens a `nursery { body }` scope. Mints a unique label,
+  /// pushes it plus the body's closing RBrace index onto
+  /// `nursery_stack`, and emits `Insn::NurseryBegin`. The
+  /// matching `NurseryEnd` is emitted by
+  /// `close_nursery_at_rbrace` when the walker reaches the
+  /// recorded RBrace index.
+  fn execute_nursery(&mut self, _idx: usize, header: &NodeHeader) {
+    let children_end = (header.child_start + header.child_count) as usize;
+    // The body block sits at `idx + 1` and closes at
+    // `children_end - 1` (inclusive of the RBrace).
+    let rbrace_idx = children_end.saturating_sub(1);
+    let label = self.sir.next_label();
+
+    self.nursery_stack.push((label, rbrace_idx));
+    self.sir.emit(Insn::NurseryBegin {
+      label,
+      kind: NurseryKind::Scoped,
+    });
+  }
+
+  /// Same shape as [`execute_nursery`] but emits a
+  /// `Supervised`-kind `NurseryBegin`. The runtime
+  /// uses the kind to decide whether a panic cascades
+  /// past the scope into the enclosing task.
+  fn execute_supervise(&mut self, _idx: usize, header: &NodeHeader) {
+    let children_end = (header.child_start + header.child_count) as usize;
+    let rbrace_idx = children_end.saturating_sub(1);
+    let label = self.sir.next_label();
+
+    self.nursery_stack.push((label, rbrace_idx));
+    self.sir.emit(Insn::NurseryBegin {
+      label,
+      kind: NurseryKind::Supervised,
+    });
+  }
+
+  /// If `rbrace_idx` matches the top of `nursery_stack`, pop
+  /// and emit the matching `Insn::NurseryEnd`. Called from
+  /// the RBrace dispatch path before the normal block-close
+  /// handling runs.
+  fn close_nursery_at_rbrace(&mut self, rbrace_idx: usize) {
+    if let Some(&(_, expected)) = self.nursery_stack.last()
+      && expected == rbrace_idx
+    {
+      let (label, _) = self.nursery_stack.pop().unwrap();
+
+      self.sir.emit(Insn::NurseryEnd { label });
+    }
+  }
+
+  /// Opens a `spawn callee(args)` site. Refuses any
+  /// spawn not lexically inside a `nursery { }` — no
+  /// orphan tasks. On success, records
+  /// `pending_spawn = (spawn_idx, rparen_idx, kind)`
+  /// so the call-emit path can redirect the upcoming
+  /// `Call` into a `TaskSpawn` with the correct kind.
+  /// A leading `Token::Thread` marker in the Spawn's
+  /// children signals the OS-thread variant.
+  fn execute_spawn(&mut self, idx: usize, header: &NodeHeader) {
+    if self.nursery_stack.is_empty() {
+      let span = self.tree.spans[idx];
+
+      report_error(Error::new(ErrorKind::SpawnOutsideNursery, span));
+
+      return;
+    }
+
+    let children_end = (header.child_start + header.child_count) as usize;
+
+    // Kind detection — if the first child is a
+    // synthetic `Token::Thread` marker, this is a
+    // `spawn thread fn()` (OS-thread spawn). The
+    // parser emits that marker only when it
+    // contextually recognized the `thread` modifier
+    // between `spawn` and the callee ident.
+    let kind = if idx + 1 < children_end
+      && self.tree.nodes[idx + 1].token == Token::Thread
+    {
+      SpawnKind::Thread
+    } else {
+      SpawnKind::Green
+    };
+
+    // The Spawn's body is a call expression. Its trailing
+    // `Semicolon` may or may not be a child (depending on
+    // the statement shape), so scan backwards from the end
+    // of the child range for the first `RParen` — that's
+    // the call's closing paren that the call-emit path
+    // will use as its match key.
+    let mut rparen_idx = None;
+
+    for i in (idx + 1..children_end).rev() {
+      if self.tree.nodes[i].token == Token::RParen {
+        rparen_idx = Some(i);
+
+        break;
+      }
+    }
+
+    if let Some(rp) = rparen_idx {
+      self.pending_spawn = Some((idx, rp, kind));
+    }
+  }
+
+  /// Finalizes an `await expr` — the operand has already
+  /// pushed its `Ty::Task(T)` value onto the three stacks,
+  /// so this arm pops the task handle, emits `TaskAwait`
+  /// binding `dst` to `T`, and pushes `dst` back as the
+  /// unwrapped value.
+  fn execute_await(&mut self, idx: usize) {
+    let task_ty = match self.ty_stack.last().copied() {
+      Some(ty) => ty,
+      None => return,
+    };
+
+    // Unwrap `Ty::Task(T)` → `T`. Anything else is a hard
+    // error; the operand wasn't a task handle.
+    let inner_ty = match self.ty_checker.kind_of(task_ty) {
+      Ty::Task(t) => t,
+      _ => {
+        let span = self.tree.spans[idx];
+
+        report_error(Error::new(ErrorKind::AwaitOnNonTask, span));
+
+        return;
+      }
+    };
+
+    let task_sir = match self.sir_values.pop() {
+      Some(v) => v,
+      None => return,
+    };
+
+    self.value_stack.pop();
+    self.ty_stack.pop();
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let dst_sir = self.sir.emit(Insn::TaskAwait {
+      dst,
+      task: task_sir,
+      ty_id: inner_ty,
+    });
+
+    // Push the unwrapped value back onto the stacks.
+    let slot = self.values.store_runtime(0);
+
+    self.value_stack.push(slot);
+    self.ty_stack.push(inner_ty);
+    self.sir_values.push(dst_sir);
+  }
+
+  /// Executes a `select { chan_expr => fn(p: T) => body, ... }`
+  /// scope end-to-end. Drives arm collection, SIR
+  /// emission, and the dispatch ladder that routes
+  /// control into the arm whose channel fired.
+  ///
+  /// Pipeline:
+  ///
+  /// 1. Walk the body tree splitting arms on top-level
+  ///    `Comma`, each arm on its top-level `FatArrow`
+  ///    (`chan_expr => arm_body`).
+  /// 2. Evaluate every chan expression sub-tree through
+  ///    `execute_node` to harvest its `ValueId` and
+  ///    derive the shared `elem_ty` from the first
+  ///    `Rx<T>` / `Tx<T>`.
+  /// 3. Emit one `SelectWait { chans, out_which,
+  ///    out_value, elem_ty }` carrying every chan.
+  ///    Codegen lowers this to a `BL _zo_select_wait`
+  ///    with the on-stack chans array + output buffer.
+  /// 4. For each arm index `i`, emit
+  ///    `BinOp Eq(out_which, i) -> cmp;
+  ///     BranchIfNot(cmp, next)` before executing the
+  ///    arm body; jump to `end` after the body. A per-
+  ///    arm scope binds the closure parameter's symbol
+  ///    to `out_value` (via a `Store`) so references to
+  ///    it inside the body lower to `Load
+  ///    LoadSource::Local(sym)` reading the runtime-
+  ///    written slot.
+  fn execute_select(&mut self, _idx: usize, header: &NodeHeader) {
+    let children_start = header.child_start as usize;
+    let children_end = (header.child_start + header.child_count) as usize;
+
+    // Prevent the main loop from walking any of the
+    // select body — `execute_select` owns the traversal
+    // so arm bodies land in the right dispatch position.
+    self.skip_until = children_end;
+
+    // Locate the body's `LBrace`. Every other child is
+    // trivia (whitespace/Comment never reach here).
+    let lbrace_idx = match (children_start..children_end)
+      .find(|&i| self.tree.nodes[i].token == Token::LBrace)
+    {
+      Some(i) => i,
+      None => return,
+    };
+
+    let lb = self.tree.nodes[lbrace_idx];
+    let body_first = lb.child_start as usize;
+    let body_last_excl = (lb.child_start + lb.child_count) as usize;
+
+    // The trailing `RBrace` is the last child of
+    // `LBrace`; carve it out so arm scanning stops
+    // before the closer.
+    let body_end = if body_last_excl > body_first
+      && self.tree.nodes[body_last_excl - 1].token == Token::RBrace
+    {
+      body_last_excl - 1
+    } else {
+      body_last_excl
+    };
+
+    // Scan the body splitting arms on top-level `Comma`.
+    // Each arm carries its `FatArrow` position so we
+    // can slice chan expression vs. arm body.
+    //
+    // Depth tracks nested `(...)`, `[...]`, `{...}` so
+    // an inner closure's commas/fat arrows do not leak
+    // into the outer arm boundary.
+    let mut arms: Vec<(usize, usize, usize)> = Vec::new();
+    let mut arm_start = body_first;
+    let mut fat_arrow: Option<usize> = None;
+    let mut depth: i32 = 0;
+
+    let mut j = body_first;
+
+    while j < body_end {
+      let tok = self.tree.nodes[j].token;
+
+      match tok {
+        Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+        Token::RParen | Token::RBracket | Token::RBrace => depth -= 1,
+        Token::FatArrow if depth == 0 && fat_arrow.is_none() => {
+          fat_arrow = Some(j);
+        }
+        Token::Comma if depth == 0 => {
+          if let Some(fa) = fat_arrow.take() {
+            arms.push((arm_start, fa, j));
+          }
+
+          arm_start = j + 1;
+        }
+        _ => {}
+      }
+
+      j += 1;
+    }
+
+    // Trailing arm (no trailing comma).
+    if let Some(fa) = fat_arrow
+      && arm_start < body_end
+    {
+      arms.push((arm_start, fa, body_end));
+    }
+
+    if arms.is_empty() {
+      return;
+    }
+
+    // Allocate the two ValueIds the runtime writes into
+    // before the arms materialize.
+    let out_which = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let out_value = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    // Evaluate every chan expression, collect ValueIds
+    // and the shared element type.
+    let mut chans: Vec<ValueId> = Vec::with_capacity(arms.len());
+    let mut elem_ty = self.ty_checker.fresh_var();
+
+    for &(chan_start, fa, _body_end) in &arms {
+      let saved_skip = self.skip_until;
+
+      self.skip_until = 0;
+
+      let mut k = chan_start;
+
+      while k < fa {
+        if k < self.skip_until {
+          k = self.skip_until;
+          continue;
+        }
+
+        let h = self.tree.nodes[k];
+
+        self.execute_node(&h, k);
+
+        k += 1;
+      }
+
+      self.skip_until = saved_skip;
+
+      let chan_vid = self.sir_values.pop().unwrap_or(ValueId(u32::MAX));
+
+      self.value_stack.pop();
+
+      let chan_ty = self.ty_stack.pop().unwrap_or(self.ty_checker.unit_type());
+
+      // Derive `elem_ty` from `Rx<T>` / `Tx<T>`. Either
+      // half is accepted — the runtime reads whichever
+      // chan handle the user passed.
+      match self.ty_checker.kind_of(chan_ty) {
+        Ty::ChannelRx(inner) | Ty::ChannelTx(inner) => elem_ty = inner,
+        _ => {}
+      }
+
+      chans.push(chan_vid);
+    }
+
+    // Emit the wait. Codegen lowers this to the runtime
+    // call and stages `out_which` into an executor-
+    // visible register. The companion `SelectRecv`
+    // below reads the runtime-written value out of the
+    // scratch buffer into `out_value`.
+    let chans_len = chans.len() as u32;
+
+    self.sir.emit(Insn::SelectWait {
+      out_which,
+      chans,
+      elem_ty,
+    });
+
+    self.sir.emit(Insn::SelectRecv {
+      dst: out_value,
+      which: out_which,
+      ty_id: elem_ty,
+      chans_len,
+    });
+
+    let end_label = self.sir.next_label();
+    let int_ty = self.ty_checker.int_type();
+    let bool_ty = self.ty_checker.bool_type();
+
+    for (i, &(_chan_start, fa, body_end_arm)) in arms.iter().enumerate() {
+      let next_label = self.sir.next_label();
+
+      // `ConstInt(i)` — the arm-index sentinel to match
+      // against `out_which`.
+      let i_const = ValueId(self.sir.next_value_id);
+
+      self.sir.next_value_id += 1;
+
+      self.sir.emit(Insn::ConstInt {
+        dst: i_const,
+        value: i as u64,
+        ty_id: int_ty,
+      });
+
+      // `cmp = out_which == i`.
+      let cmp = ValueId(self.sir.next_value_id);
+
+      self.sir.next_value_id += 1;
+
+      self.sir.emit(Insn::BinOp {
+        dst: cmp,
+        op: zo_sir::BinOp::Eq,
+        lhs: out_which,
+        rhs: i_const,
+        ty_id: bool_ty,
+      });
+
+      // Fall through to next arm if this one didn't fire.
+      self.sir.emit(Insn::BranchIfNot {
+        cond: cmp,
+        target: next_label,
+      });
+
+      // Walk the arm body with the closure parameter
+      // bound to `out_value` for the duration of the
+      // arm's scope.
+      self.execute_select_arm_body(fa + 1, body_end_arm, out_value, elem_ty);
+
+      self.sir.emit(Insn::Jump { target: end_label });
+      self.sir.emit(Insn::Label { id: next_label });
+    }
+
+    self.sir.emit(Insn::Label { id: end_label });
+
+    self.skip_until = children_end;
+  }
+
+  /// Emit the body of a single `select` arm.
+  ///
+  /// Handles two surface forms:
+  ///
+  /// - `chan => fn(p: T) => body` — the closure wraps
+  ///   the body and names the received value as `p`.
+  ///   The closure param is bound to the shared
+  ///   `out_value` via a `Store` so body `Ident(p)`
+  ///   loads lower naturally through `LoadSource::
+  ///   Local(sym)` — no ad-hoc substitution pass.
+  ///
+  /// - `chan => stmt` — direct statement arm (no value
+  ///   binding). Walked linearly through `execute_node`.
+  fn execute_select_arm_body(
+    &mut self,
+    body_start: usize,
+    body_end: usize,
+    out_value: ValueId,
+    param_ty: TyId,
+  ) {
+    self.push_scope();
+
+    let first_tok = self.tree.nodes.get(body_start).map(|n| n.token);
+
+    if first_tok == Some(Token::Fn) {
+      let fn_hdr = self.tree.nodes[body_start];
+      let fn_children_start = fn_hdr.child_start as usize;
+      let fn_children_end = (fn_hdr.child_start + fn_hdr.child_count) as usize;
+
+      // Scan the closure header for its first
+      // parameter name and the position of the body
+      // separator (`=>` or `{`). `paren_depth` gates
+      // identifier capture so only tokens inside
+      // `(...)` count as param names.
+      let mut param_name: Option<Symbol> = None;
+      let mut body_walk_start: Option<usize> = None;
+      let mut paren_depth: i32 = 0;
+
+      let mut k = fn_children_start;
+
+      while k < fn_children_end {
+        match self.tree.nodes[k].token {
+          Token::LParen => paren_depth += 1,
+          Token::RParen => paren_depth -= 1,
+          Token::Ident if paren_depth > 0 && param_name.is_none() => {
+            param_name = self.node_value(k).and_then(|v| match v {
+              NodeValue::Symbol(s) => Some(s),
+              _ => None,
+            });
+          }
+          Token::FatArrow | Token::LBrace
+            if paren_depth == 0 && body_walk_start.is_none() =>
+          {
+            body_walk_start = Some(k);
+            break;
+          }
+          _ => {}
+        }
+
+        k += 1;
+      }
+
+      // Bind the closure param to `out_value` so body
+      // identifier references resolve to a real stack
+      // slot. `Store` allocates the slot; `Load` in the
+      // body reads it. Skipped when the arm has no
+      // parameter (rare — `fn() => ...`).
+      if let Some(sym) = param_name {
+        self.sir.emit(Insn::Store {
+          name: sym,
+          value: out_value,
+          ty_id: param_ty,
+        });
+
+        self.locals.push(Local {
+          name: sym,
+          ty_id: param_ty,
+          value_id: self.values.store_runtime(0),
+          pubness: Pubness::No,
+          mutability: Mutability::No,
+          sir_value: Some(out_value),
+          local_kind: LocalKind::Variable,
+        });
+
+        if let Some(frame) = self.scope_stack.last_mut() {
+          frame.count += 1;
+        }
+      }
+
+      // Walk the closure body. `FatArrow` is a no-op in
+      // the main dispatch and `LBrace` drives its own
+      // scope through `execute_node`, so starting at
+      // the separator keeps scoping balanced.
+      if let Some(start) = body_walk_start {
+        let saved_skip = self.skip_until;
+
+        self.skip_until = 0;
+
+        let mut k = start;
+
+        while k < fn_children_end {
+          if k < self.skip_until {
+            k = self.skip_until;
+            continue;
+          }
+
+          let h = self.tree.nodes[k];
+
+          self.execute_node(&h, k);
+
+          k += 1;
+        }
+
+        self.skip_until = saved_skip;
+      }
+    } else {
+      // Direct statement arm — walk linearly.
+      let saved_skip = self.skip_until;
+
+      self.skip_until = 0;
+
+      let mut k = body_start;
+
+      while k < body_end {
+        if k < self.skip_until {
+          k = self.skip_until;
+          continue;
+        }
+
+        let h = self.tree.nodes[k];
+
+        self.execute_node(&h, k);
+
+        k += 1;
+      }
+
+      self.skip_until = saved_skip;
+    }
+
+    self.pop_scope();
+  }
+
   /// Executes return statement - acts as an introducer.
   fn execute_return(&mut self, _node_idx: usize) {
     // Only process return if we're in a function body.
@@ -11326,6 +12147,104 @@ impl<'a> Executor<'a> {
               } else if fun_idx >= 2
                 && self.tree.nodes[fun_idx - 1].token == Token::Dot
               {
+                // Channel built-in methods — intercepted
+                // before `resolve_dot_call` because there's
+                // no user-defined `Tx::send` / `Rx::recv`
+                // FunDef to match against. `send` is only
+                // valid on `Ty::ChannelTx(_)`, `recv` only
+                // on `Ty::ChannelRx(_)`. Crossed calls
+                // (`rx.send()` / `tx.recv()`) report a
+                // hard `InvalidMethodCall` — otherwise
+                // the fall-through path would silently
+                // treat the method name as an unresolved
+                // external function.
+                let name_str = self.interner.get(fun_name);
+
+                if name_str == "send"
+                  && let Some(recv_ty) = self
+                    .ty_stack
+                    .get(self.ty_stack.len().saturating_sub(2))
+                    .copied()
+                {
+                  match self.ty_checker.kind_of(recv_ty) {
+                    Ty::ChannelTx(_) => {
+                      self.execute_channel_send(lparen_idx, rparen_idx);
+
+                      return;
+                    }
+                    Ty::ChannelRx(_) => {
+                      let span = self.tree.spans[fun_idx];
+
+                      report_error(Error::new(
+                        ErrorKind::InvalidMethodCall,
+                        span,
+                      ));
+
+                      return;
+                    }
+                    _ => {}
+                  }
+                }
+
+                if name_str == "recv"
+                  && let Some(recv_ty) = self.ty_stack.last().copied()
+                {
+                  match self.ty_checker.kind_of(recv_ty) {
+                    Ty::ChannelRx(_) => {
+                      self.execute_channel_recv(lparen_idx, rparen_idx);
+
+                      return;
+                    }
+                    Ty::ChannelTx(_) => {
+                      let span = self.tree.spans[fun_idx];
+
+                      report_error(Error::new(
+                        ErrorKind::InvalidMethodCall,
+                        span,
+                      ));
+
+                      return;
+                    }
+                    _ => {}
+                  }
+                }
+
+                // `tx.close()` / `rx.close()` — closing
+                // a channel wakes every parked sender
+                // and receiver so they observe the
+                // closed state. Either half can close;
+                // the convention is usually the writer.
+                if name_str == "close"
+                  && let Some(recv_ty) = self.ty_stack.last().copied()
+                  && matches!(
+                    self.ty_checker.kind_of(recv_ty),
+                    Ty::ChannelTx(_) | Ty::ChannelRx(_)
+                  )
+                {
+                  self.execute_channel_close(lparen_idx, rparen_idx);
+
+                  return;
+                }
+
+                // `t.cancelled()` / `t.cancel()` on a
+                // `Task<T>` handle — the reader / writer
+                // of the shared cancel flag. Mirrors the
+                // channel-method shape above: pop the
+                // receiver, emit the corresponding insn,
+                // no runtime args beyond the handle.
+                if (name_str == "cancelled" || name_str == "cancel")
+                  && let Some(recv_ty) = self.ty_stack.last().copied()
+                  && matches!(self.ty_checker.kind_of(recv_ty), Ty::Task(_))
+                {
+                  if name_str == "cancelled" {
+                    self.execute_task_cancelled();
+                  } else {
+                    self.execute_task_cancel();
+                  }
+
+                  return;
+                }
+
                 // Dot-call: tree [recv, ., method, (, )].
                 let mangled = self.resolve_dot_call(fun_idx, fun_name);
 
@@ -11389,6 +12308,73 @@ impl<'a> Executor<'a> {
 
                 return;
               }
+            }
+
+            // Channel built-in methods: `tx.send(value)` /
+            // `rx.recv()`. Crossed calls (`rx.send()` /
+            // `tx.recv()`) get a hard `InvalidMethodCall`
+            // diagnostic instead of falling through
+            // silently.
+            if ms == "send"
+              && let Some(recv_ty) = self
+                .ty_stack
+                .get(self.ty_stack.len().saturating_sub(2))
+                .copied()
+            {
+              match self.ty_checker.kind_of(recv_ty) {
+                Ty::ChannelTx(_) => {
+                  self.execute_channel_send(lparen_idx, rparen_idx);
+
+                  return;
+                }
+                Ty::ChannelRx(_) => {
+                  let span = self.tree.spans[method_idx];
+
+                  report_error(Error::new(ErrorKind::InvalidMethodCall, span));
+
+                  return;
+                }
+                _ => {}
+              }
+            }
+
+            if ms == "recv"
+              && let Some(recv_ty) = self.ty_stack.last().copied()
+            {
+              match self.ty_checker.kind_of(recv_ty) {
+                Ty::ChannelRx(_) => {
+                  self.execute_channel_recv(lparen_idx, rparen_idx);
+
+                  return;
+                }
+                Ty::ChannelTx(_) => {
+                  let span = self.tree.spans[method_idx];
+
+                  report_error(Error::new(ErrorKind::InvalidMethodCall, span));
+
+                  return;
+                }
+                _ => {}
+              }
+            }
+
+            // `t.cancelled()` / `t.cancel()` on a
+            // `Task<T>` handle — the reader / writer of
+            // the shared cancel flag. Postfix dot-call
+            // shape `[recv, method, ., (, )]` hits this
+            // branch (the receiver is still on the
+            // stack; `execute_task_cancel*` pops it).
+            if (ms == "cancelled" || ms == "cancel")
+              && let Some(recv_ty) = self.ty_stack.last().copied()
+              && matches!(self.ty_checker.kind_of(recv_ty), Ty::Task(_))
+            {
+              if ms == "cancelled" {
+                self.execute_task_cancelled();
+              } else {
+                self.execute_task_cancel();
+              }
+
+              return;
             }
 
             let mangled = self.resolve_dot_call(method_idx, method_sym);
@@ -11560,6 +12546,100 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Emits `Insn::ChannelCreate` for a `channel()` or
+  /// `channel(N)` built-in call, then a `TupleLiteral`
+  /// wrapping the two handles so the surface destructure
+  /// `imu (tx, rx) := channel()` reads them via the
+  /// existing tuple path. `N` must be an integer literal.
+  fn execute_channel_builtin(&mut self, lparen_idx: usize, rparen_idx: usize) {
+    // Parse the capacity. Only raw `Token::Int` literals
+    // between the parens are legal.
+    let capacity = self
+      .extract_literal_capacity(lparen_idx, rparen_idx)
+      .unwrap_or(0);
+
+    // Element type is a fresh inference var; concrete T
+    // flows in from the first `send` / `recv` unification.
+    let elem_ty = self.ty_checker.fresh_var();
+    // Tuple halves are typed distinctly — `(Tx<T>, Rx<T>)`
+    // — so `.send()` is statically rejected on the rx
+    // handle and vice versa. Runtime ABI is unchanged;
+    // both halves still point at the same `ZoChan`.
+    let tx_ty = self.ty_checker.channel_tx_type(elem_ty);
+    let rx_ty = self.ty_checker.channel_rx_type(elem_ty);
+
+    // Single chan handle — the runtime returns one
+    // pointer; the `Tx`/`Rx` distinction is ty-level
+    // only. Both tuple slots alias the same `dst`
+    // ValueId, so register allocation tracks it once
+    // and both halves share the storage.
+    let chan = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let chan_sir = self.sir.emit(Insn::ChannelCreate {
+      dst: chan,
+      elem_ty,
+      capacity,
+    });
+
+    // Pair the chan handle with itself into a
+    // heterogeneous tuple — tx_ty / rx_ty give the
+    // send / recv halves distinct statically-typed
+    // field views over the same runtime pointer.
+    let elem_tys = vec![tx_ty, rx_ty];
+    let tuple_ty_id = self.ty_checker.ty_table.intern_tuple(elem_tys);
+    let ty_id = self.ty_checker.intern_ty(Ty::Tuple(tuple_ty_id));
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let sv = self.sir.emit(Insn::TupleLiteral {
+      dst,
+      elements: vec![chan_sir, chan_sir],
+      ty_id,
+    });
+
+    let slot = self.values.store_runtime(0);
+
+    self.value_stack.push(slot);
+    self.ty_stack.push(ty_id);
+    self.sir_values.push(sv);
+  }
+
+  /// Returns the integer-literal capacity for a `channel(N)`
+  /// call, or `Some(0)` if the arg list is empty. Anything
+  /// else — variable reference, binop, grouped expression —
+  /// reports `ChannelCapacityNotLiteral` and falls back to
+  /// `0` so downstream emission still produces SIR.
+  fn extract_literal_capacity(
+    &mut self,
+    lparen_idx: usize,
+    rparen_idx: usize,
+  ) -> Option<u32> {
+    // Empty arg list `channel()` — unbuffered.
+    if lparen_idx + 1 >= rparen_idx {
+      return Some(0);
+    }
+
+    // Exactly one node between parens, and that node must
+    // be a `Token::Int`. Anything else is illegal in MVP.
+    if lparen_idx + 2 == rparen_idx
+      && self.tree.nodes[lparen_idx + 1].token == Token::Int
+      && let Some(NodeValue::Literal(lit_idx)) = self.node_value(lparen_idx + 1)
+    {
+      let raw = self.literals.int_literals[lit_idx as usize];
+
+      return Some(raw as u32);
+    }
+
+    let span = self.tree.spans[lparen_idx + 1];
+
+    report_error(Error::new(ErrorKind::ChannelCapacityNotLiteral, span));
+
+    Some(0)
+  }
+
   /// Executes a function call.
   fn execute_call(
     &mut self,
@@ -11575,6 +12655,17 @@ impl<'a> Executor<'a> {
       && self.is_single_interp_arg(lparen_idx, rparen_idx)
     {
       self.execute_interp_call(fun_name, lparen_idx, rparen_idx);
+
+      return;
+    }
+
+    // Built-in `channel()` / `channel(N)`. Recognized
+    // here — before normal function lookup — because
+    // `channel` is a compiler intrinsic that emits
+    // `Insn::ChannelCreate` directly rather than being
+    // defined as a user function.
+    if name_str == "channel" {
+      self.execute_channel_builtin(lparen_idx, rparen_idx);
 
       return;
     }
@@ -11998,21 +13089,65 @@ impl<'a> Executor<'a> {
       let dst = ValueId(self.sir.next_value_id);
       self.sir.next_value_id += 1;
 
-      let result_sir = self.sir.emit(Insn::Call {
-        dst,
-        name: call_name,
-        args: arg_sirs,
-        ty_id: resolved_ret,
-      });
+      // `spawn callee(args)` redirect — if the pending spawn's
+      // RParen matches this call's RParen, emit `TaskSpawn`
+      // instead of `Call` and wrap the handle in `Ty::Task`.
+      // The call's own arg/type resolution has already run
+      // above; we only swap the emission tail.
+      // Extract the pending-spawn kind if its rparen
+      // matches this call's rparen. `Some(kind)` means
+      // redirect `Call` → `TaskSpawn` with that kind;
+      // `None` means emit the normal `Call`.
+      let spawned = match self.pending_spawn {
+        Some((_, rp, kind)) if rp == rparen_idx => Some(kind),
+        _ => None,
+      };
 
-      // Push return value.
-      if resolved_ret != self.ty_checker.unit_type() {
+      let result_sir = if let Some(kind) = spawned {
+        self.pending_spawn = None;
+
+        let task_ty = self.ty_checker.task_type(resolved_ret);
+
+        let sir = self.sir.emit(Insn::TaskSpawn {
+          dst,
+          callee: call_name,
+          args: arg_sirs,
+          ty_id: task_ty,
+          kind,
+        });
+
         let result_val = self.values.store_runtime(0);
 
         self.value_stack.push(result_val);
-        self.ty_stack.push(resolved_ret);
-        self.sir_values.push(result_sir);
-      }
+        self.ty_stack.push(task_ty);
+        self.sir_values.push(sir);
+
+        sir
+      } else {
+        let sir = self.sir.emit(Insn::Call {
+          dst,
+          name: call_name,
+          args: arg_sirs,
+          ty_id: resolved_ret,
+        });
+
+        // Push return value.
+        if resolved_ret != self.ty_checker.unit_type() {
+          let result_val = self.values.store_runtime(0);
+
+          self.value_stack.push(result_val);
+          self.ty_stack.push(resolved_ret);
+          self.sir_values.push(sir);
+        }
+
+        sir
+      };
+
+      // Suppress the unused-variable warning when the
+      // spawn path returns early; in the normal call path
+      // `result_sir` is inherited by the ext-type args
+      // logic below.
+      let _ = result_sir;
 
       // For ext functions with parameterized return types,
       // stash the type args so the match handler can use

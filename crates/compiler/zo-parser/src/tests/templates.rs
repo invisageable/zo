@@ -151,7 +151,7 @@ fn test_template_self_closing() {
       (TemplateFragmentStart, None),
       (LAngle, None),
       (Ident, Some(NodeValue::TextRange(43, 5))), // "input"
-      // "type" is now Ident in template tag markup (Phase 0 fix).
+      // "type" is now Ident in template tag markup.
       (Ident, Some(NodeValue::TextRange(49, 4))), // "type"
       (Eq, None),
       (String, Some(NodeValue::TextRange(54, 6))), // "text"

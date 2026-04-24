@@ -5,11 +5,11 @@ use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
   COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, Register,
-  SP, X0, X1, X2, X9, X16, X17, X29, X30, XZR,
+  SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{Interner, Symbol};
 use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
-use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::TyId;
 use zo_value::ValueId;
 use zo_writer_macho::{DATA_VM_ADDR, DebugFrameEntry, MachO};
@@ -102,6 +102,16 @@ const PAGE_MASK: u64 = 0xFFF;
 
 // --- Dynamic Linking ---
 const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
+/// libzo_runtime.dylib is registered as the second
+/// `LC_LOAD_DYLIB`, so its ordinal is 2. `_zo_chan_*`
+/// / `_zo_task_*` bindings route here; everything
+/// else stays on libSystem.
+const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
+
+/// Prefix identifying symbols that the runtime dylib
+/// exports. Classifier for routing extern symbols to the
+/// right `LC_LOAD_DYLIB` ordinal.
+const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
 const DATA_SEGMENT_INDEX: u8 = 2;
 
 // --- Libm Functions ---
@@ -134,6 +144,13 @@ pub struct ARM64Gen<'a> {
   current_function: Option<Symbol>,
   /// Fixups for string references (position in code -> symbol).
   pub(super) string_fixups: Vec<(u32, Symbol)>,
+  /// ADR fixups that load the address of a user
+  /// function — used by `TaskSpawn` to pass the
+  /// callee's function pointer to the runtime's
+  /// `_zo_task_spawn(callee)` ABI. Resolved in the
+  /// same post-pass as string fixups, indexing
+  /// `self.functions` for the callee's code offset.
+  function_addr_fixups: Vec<(u32, Symbol)>,
   /// Template data sections (symbol -> data).
   pub(super) template_data: Vec<(Symbol, Vec<u8>)>,
   /// Whether we have templates that need the entry point.
@@ -166,6 +183,19 @@ pub struct ARM64Gen<'a> {
   next_mut_slot: u32,
   /// Base offset for struct allocations in the frame.
   struct_base: u32,
+  /// Offset from SP of the 16-byte channel-op scratch
+  /// slot. `ChannelSend` stores the value here before
+  /// the call reads it by pointer; `ChannelRecv`
+  /// reserves it for the runtime's output write which
+  /// is then loaded into the destination register.
+  chan_scratch_base: u32,
+  /// Offset from SP of the select-wait scratch area.
+  /// Layout: `nchans * 8` bytes of `*mut ZoChan`
+  /// pointers immediately followed by an `elem_sz`
+  /// output buffer that `_zo_select_wait` writes the
+  /// received value into. Sized at allocation time
+  /// via `FunctionInfo::select_scratch_size`.
+  select_scratch_base: u32,
   /// Next struct slot offset (relative to struct_base).
   next_struct_slot: u32,
   /// Functions that return structs: name -> field count.
@@ -241,6 +271,15 @@ const ARRAY_OPEN_BRACKET_SYM: Symbol = Symbol(0xE000_FFF8);
 const ARRAY_CLOSE_BRACKET_SYM: Symbol = Symbol(0xE000_FFF9);
 
 impl<'a> ARM64Gen<'a> {
+  /// Borrow the list of external symbols referenced by
+  /// emitted `BL` placeholders — used by the Mach-O writer
+  /// to register relocations and by tests to assert that
+  /// concurrency insns (`ChannelCreate` → `_zo_chan_new`,
+  /// etc.) lowered through the runtime-call path.
+  pub fn extern_used(&self) -> &[String] {
+    &self.extern_used
+  }
+
   /// Creates a new [`ARM64Gen`] instance.
   pub fn new(interner: &'a Interner) -> Self {
     Self {
@@ -250,6 +289,7 @@ impl<'a> ARM64Gen<'a> {
       string_data: Vec::new(),
       current_function: None,
       string_fixups: Vec::new(),
+      function_addr_fixups: Vec::new(),
       template_data: Vec::new(),
       has_templates: false,
       labels: HashMap::default(),
@@ -262,6 +302,8 @@ impl<'a> ARM64Gen<'a> {
       caller_save_base: 0,
       next_mut_slot: 0,
       struct_base: 0,
+      chan_scratch_base: 0,
+      select_scratch_base: 0,
       next_struct_slot: 0,
       struct_return_fns: HashMap::default(),
       last_was_math_intrinsic: false,
@@ -476,6 +518,31 @@ impl<'a> ARM64Gen<'a> {
 
   /// Load a 64-bit immediate into a register using
   /// MOV + MOVK sequence.
+  /// Byte-size of a value of the given ty, as the
+  /// runtime / ABI sees it. Resolves against the
+  /// tychecker's canonical TyId registration order
+  /// (see `TyChecker::new`). Pointer-backed types
+  /// (strings, tuples, structs, arrays) count as one
+  /// 8-byte word — the value in a register is the
+  /// pointer itself.
+  fn size_of_ty(&self, ty_id: TyId) -> u32 {
+    match ty_id.0 {
+      1 => 0,     // Unit — no bytes.
+      2 => 1,     // Bool.
+      3 => 4,     // Char (Unicode scalar, u32).
+      4 | 5 => 8, // Str / Bytes — fat pointer collapsed to one word
+      // at the channel ABI (producer writes the pointer,
+      // consumer reads it; len lives with the heap data).
+      6 | 11 => 1,      // S8 / U8.
+      7 | 12 => 2,      // S16 / U16.
+      8 | 13 | 10 => 4, // S32 / U32 / IntArch (aligned 4-byte default).
+      9 | 14 => 8,      // S64 / U64.
+      15 => 4,          // F32.
+      16 | 17 => 8,     // F64 / FloatArch.
+      _ => 8,           // Pointers, enums, struct handles — one word.
+    }
+  }
+
   fn emit_mov_imm_64(&mut self, reg: Register, value: u64) {
     if value <= 65535 {
       self.emitter.emit_mov_imm(reg, value as u16);
@@ -659,6 +726,25 @@ impl<'a> ARM64Gen<'a> {
       current_offset += bytes.len();
     }
 
+    // Apply user-function-address fixups. `TaskSpawn`
+    // emits an ADR placeholder to load the callee's
+    // address into X0; here we resolve each ADR to
+    // the callee function's actual code offset.
+    for (fixup_pos, callee) in &self.function_addr_fixups {
+      if let Some(&target_offset) = self.functions.get(callee) {
+        let relative = (target_offset as i32) - (*fixup_pos as i32);
+        let pos = *fixup_pos as usize;
+        let existing =
+          u32::from_le_bytes(code[pos..pos + 4].try_into().unwrap());
+        let rd = existing & INSN_RD_MASK;
+        let immlo = (relative as u32) & FIXUP_ADR_IMMLO;
+        let immhi = ((relative >> 2) as u32) & FIXUP_ADR_IMMHI;
+        let insn = FIXUP_ADR | (immlo << 29) | (immhi << 5) | rd;
+
+        code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
+      }
+    }
+
     // Apply string fixups.
     for (fixup_pos, symbol) in &self.string_fixups {
       let target_offset = string_offsets
@@ -728,7 +814,11 @@ impl<'a> ARM64Gen<'a> {
     // dyld fills the GOT slot at load time via bind opcodes.
     let n_got = self.extern_used.len();
     let mut got_data = Vec::with_capacity(n_got * 8);
-    let mut bind_entries: Vec<(&str, u8, u64)> = Vec::new();
+    let mut bind_entries: Vec<(&str, u8, u64, u8)> = Vec::new();
+    // Track whether any symbol needs the zo runtime
+    // dylib so we only register it when a program
+    // actually uses concurrency.
+    let mut needs_runtime_dylib = false;
 
     for (i, c_sym) in self.extern_used.iter().enumerate() {
       let got_offset_in_data = (i * 8) as u64;
@@ -767,15 +857,32 @@ impl<'a> ARM64Gen<'a> {
         // BR X16 is already correct from emit_br().
       }
 
+      // Route each symbol to the right LC_LOAD_DYLIB.
+      // Runtime symbols (`_zo_chan_*` / `_zo_task_*`)
+      // land in libzo_runtime.dylib; everything else
+      // (libm, libSystem) stays on libSystem.
+      let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
+        needs_runtime_dylib = true;
+
+        ZO_RUNTIME_DYLIB_ORDINAL
+      } else {
+        LIBSYSTEM_DYLIB_ORDINAL
+      };
+
       // segment 2 = __DATA (pagezero=0, __TEXT=1, __DATA=2)
-      bind_entries.push((c_sym, DATA_SEGMENT_INDEX, got_offset_in_data));
+      bind_entries.push((
+        c_sym,
+        DATA_SEGMENT_INDEX,
+        got_offset_in_data,
+        ordinal,
+      ));
     }
 
-    // Build bind opcodes for dyld.
-    // dylib ordinal 1 = first LC_LOAD_DYLIB (libSystem).
+    // Build bind opcodes for dyld. Per-entry ordinal lets
+    // libSystem and libzo_runtime symbols share one
+    // opcode stream.
     if !bind_entries.is_empty() {
-      let bind_data =
-        MachO::build_bind_opcodes(&bind_entries, LIBSYSTEM_DYLIB_ORDINAL);
+      let bind_data = MachO::build_bind_opcodes(&bind_entries);
 
       macho.set_bind_data(bind_data);
     }
@@ -811,14 +918,32 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Add undefined symbols for each libm function.
-    // dylib ordinal 1 = libSystem.
+    // Add undefined symbols, routing each to its owning
+    // dylib's ordinal so the Mach-O symtab + LC_LOAD_DYLIB
+    // entries agree with the bind opcodes above.
     for c_sym in &self.extern_used {
-      macho.add_undefined_symbol(c_sym, LIBSYSTEM_DYLIB_ORDINAL as u16);
+      let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
+        ZO_RUNTIME_DYLIB_ORDINAL
+      } else {
+        LIBSYSTEM_DYLIB_ORDINAL
+      };
+
+      macho.add_undefined_symbol(c_sym, ordinal as u16);
     }
 
     macho.add_dylinker();
     macho.add_dylib("/usr/lib/libSystem.B.dylib");
+
+    // Register libzo_runtime.dylib as the second
+    // LC_LOAD_DYLIB so `_zo_chan_*` / `_zo_task_*` resolve
+    // at load time. Users must colocate the dylib with the
+    // executable (or point DYLD_LIBRARY_PATH at it) for
+    // programs that use concurrency to launch. Non-
+    // concurrency programs never touch this entry.
+    if needs_runtime_dylib {
+      macho.add_dylib("@executable_path/libzo_runtime.dylib");
+    }
+
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
@@ -1007,10 +1132,20 @@ impl<'a> ARM64Gen<'a> {
               info.spill_size,
               info.struct_size,
               info.mutable_size,
+              info.chan_scratch_size,
+              info.select_scratch_size,
             )
           });
 
-        if let Some((has_calls, spill_size, struct_size, mut_size)) = fn_info {
+        if let Some((
+          has_calls,
+          spill_size,
+          struct_size,
+          mut_size,
+          chan_scratch_size,
+          select_scratch_size,
+        )) = fn_info
+        {
           if has_calls {
             self.emitter.emit_stp(X29, X30, SP, FP_LR_SAVE_OFFSET);
           }
@@ -1022,6 +1157,8 @@ impl<'a> ARM64Gen<'a> {
             + param_reserve
             + caller_save
             + struct_size
+            + chan_scratch_size
+            + select_scratch_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -1039,6 +1176,24 @@ impl<'a> ARM64Gen<'a> {
           // Struct base: after caller-save area.
           self.struct_base =
             spill_size + mut_size + param_reserve + caller_save;
+
+          // Channel-scratch base: after struct area.
+          // Used by `ChannelSend` / `ChannelRecv` to
+          // pass values through an on-stack buffer that
+          // `_zo_chan_send` / `_zo_chan_recv` reads /
+          // writes by pointer.
+          self.chan_scratch_base =
+            spill_size + mut_size + param_reserve + caller_save + struct_size;
+
+          // Select-scratch base: after channel-scratch.
+          // Holds the on-stack chans array + out_value
+          // buffer consumed by `_zo_select_wait`.
+          self.select_scratch_base = spill_size
+            + mut_size
+            + param_reserve
+            + caller_save
+            + struct_size
+            + chan_scratch_size;
 
           let param_base = spill_size + mut_size;
 
@@ -1839,11 +1994,21 @@ impl<'a> ARM64Gen<'a> {
                 info.spill_size,
                 info.struct_size,
                 info.mutable_size,
+                info.chan_scratch_size,
+                info.select_scratch_size,
               )
             })
         });
 
-        if let Some((has_calls, spill_size, struct_size, mut_size)) = epi_info {
+        if let Some((
+          has_calls,
+          spill_size,
+          struct_size,
+          mut_size,
+          chan_scratch_size,
+          select_scratch_size,
+        )) = epi_info
+        {
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = if has_calls { CALLER_SAVE_RESERVE } else { 0 };
           let frame = (spill_size
@@ -1851,6 +2016,8 @@ impl<'a> ARM64Gen<'a> {
             + param_reserve
             + caller_save
             + struct_size
+            + chan_scratch_size
+            + select_scratch_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -2419,6 +2586,284 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_mov_reg(dst_reg, src_reg);
           }
         }
+      }
+
+      // === STRUCTURED CONCURRENCY ===
+      //
+      // Each insn lowers to a `BL` placeholder plus an
+      // extern-fixup record naming the runtime symbol.
+      // The linker resolves these against
+      // `libzo_runtime.dylib`. Arg-register marshaling
+      // is minimal here — args already land in X0..X7
+      // via the executor's value lowering.
+      Insn::ChannelCreate {
+        dst,
+        elem_ty,
+        capacity,
+      } => {
+        // ABI: `_zo_chan_new(elem_sz, capacity) -> *ZoChan`.
+        // X0 = element size in bytes (known at compile
+        // time from `elem_ty`), X1 = capacity (literal
+        // from the SIR insn). Result pointer lands in
+        // X0; `dst` captures the single chan handle.
+        // The Tx/Rx distinction is ty-level only — the
+        // subsequent TupleLiteral aliases the pointer
+        // into two slots so `ch.0` and `ch.1` both
+        // read the same runtime handle.
+        let elem_sz = self.size_of_ty(*elem_ty);
+
+        self.emit_mov_imm_64(X0, elem_sz as u64);
+        self.emit_mov_imm_64(X1, *capacity as u64);
+
+        self.emit_extern_call("_zo_chan_new");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+      Insn::ChannelSend { channel, value, .. } => {
+        // ABI: `_zo_chan_send(chan, src: *const u8)`.
+        // Values live in registers but the runtime
+        // wants a pointer — spill to the scratch slot
+        // reserved by the function prologue, pass its
+        // address in X1.
+        let slot = self.chan_scratch_base as i16;
+
+        if let Some(src_reg) = self.alloc_reg(*value) {
+          self.emitter.emit_str(src_reg, SP, slot);
+        }
+
+        if let Some(ch_reg) = self.alloc_reg(*channel)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emitter.emit_add_imm(X1, SP, slot as u16);
+        self.emit_extern_call("_zo_chan_send");
+      }
+      Insn::ChannelRecv { dst, channel, .. } => {
+        // ABI: `_zo_chan_recv(chan, dst: *mut u8)`.
+        // The runtime writes into the scratch slot;
+        // we then load the written value into the
+        // destination register the allocator reserved
+        // for `dst`.
+        let slot = self.chan_scratch_base as i16;
+
+        if let Some(ch_reg) = self.alloc_reg(*channel)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emitter.emit_add_imm(X1, SP, slot as u16);
+        self.emit_extern_call("_zo_chan_recv");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          self.emitter.emit_ldr(dst_reg, SP, slot);
+        }
+      }
+      Insn::ChannelClose { channel } => {
+        // ABI: `_zo_chan_close(chan)`. X0 carries the
+        // channel handle. Wakes every parked waiter
+        // runtime-side so they observe the closed
+        // state on their next loop.
+        if let Some(ch_reg) = self.alloc_reg(*channel)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emit_extern_call("_zo_chan_close");
+      }
+      Insn::TaskSpawn {
+        dst,
+        kind,
+        callee,
+        args,
+        ..
+      } => {
+        // Runtime exposes `_zo_task_spawn_N(callee,
+        // arg0, ..., arg(N-1))` for N in 0..=3. Order
+        // at the call site is exact C ABI: X0 =
+        // callee address, X1 = arg0, X2 = arg1,
+        // X3 = arg2. `function_addr_fixups` patches
+        // the ADR emitted for the callee once that
+        // function's final code offset is known.
+        let n_args = args.len().min(3);
+
+        // Args land in X1..X(n). Emit in reverse so a
+        // later arg doesn't clobber an earlier arg's
+        // source register before it's moved.
+        for (i, arg) in args.iter().enumerate().take(3).rev() {
+          let dst_reg = Register::new((i + 1) as u8);
+
+          if let Some(src_reg) = self.alloc_reg(*arg)
+            && src_reg != dst_reg
+          {
+            self.emitter.emit_mov_reg(dst_reg, src_reg);
+          }
+        }
+
+        // Callee address in X0 — the runtime ABI's
+        // first parameter.
+        let adr_pos = self.emitter.current_offset();
+
+        self.emitter.emit_adr(X0, 0);
+        self.function_addr_fixups.push((adr_pos, *callee));
+
+        let runtime_sym = match (kind, n_args) {
+          (SpawnKind::Thread, _) => "_zo_task_spawn_thread",
+          (SpawnKind::Green, 0) => "_zo_task_spawn",
+          (SpawnKind::Green, 1) => "_zo_task_spawn_1",
+          (SpawnKind::Green, 2) => "_zo_task_spawn_2",
+          _ => "_zo_task_spawn_3",
+        };
+
+        self.emit_extern_call(runtime_sym);
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+      Insn::TaskAwait { dst, task, .. } => {
+        // ABI: `_zo_task_await(task: *ZoTask)` — X0
+        // carries the task handle produced by a prior
+        // `TaskSpawn`.
+        if let Some(src) = self.alloc_reg(*task)
+          && src != X0
+        {
+          self.emitter.emit_mov_reg(X0, src);
+        }
+
+        self.emit_extern_call("_zo_task_await");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+      // `nursery { body }` brackets a set of spawned
+      // siblings. `NurseryBegin` is a no-op — the
+      // scheduler queue is already in place. `NurseryEnd`
+      // drains every ready task to completion so the
+      // parent doesn't fall through the `}` leaving
+      // orphaned green tasks in the queue. `supervise`
+      // shares this drain path; the cascade semantics
+      // are a runtime-side policy extension.
+      Insn::NurseryBegin { .. } => {}
+      Insn::NurseryEnd { .. } => {
+        self.emit_extern_call("_zo_nursery_drain");
+      }
+
+      // Selective receive. Materializes the `chans`
+      // array and output buffer in the function's
+      // select-scratch area, loads the runtime ABI
+      // registers, and calls `_zo_select_wait`. The arm
+      // index (X0) lands in `out_which` for the arm
+      // dispatch; the received value is read from the
+      // scratch buffer by the companion `SelectRecv`
+      // insn the executor emits immediately after.
+      //
+      // ABI: `_zo_select_wait(chans, nchans, out, sz)`.
+      // Runtime loops polling each chan; first non-empty
+      // wins and writes its value into `out`.
+      Insn::SelectWait {
+        out_which,
+        chans,
+        elem_ty,
+      } => {
+        let nchans = chans.len() as u32;
+        let elem_sz = self.size_of_ty(*elem_ty);
+        let chans_base = self.select_scratch_base;
+        let out_base = chans_base + nchans * 8;
+
+        // Spill each chan operand into the on-stack
+        // array slot the runtime will index through.
+        for (i, chan_vid) in chans.iter().enumerate() {
+          if let Some(src) = self.alloc_reg(*chan_vid) {
+            let off = chans_base + i as u32 * 8;
+
+            self.emitter.emit_str(src, SP, off as i16);
+          }
+        }
+
+        // Zero the out buffer so the post-call LDR
+        // reads any bytes the runtime didn't touch as
+        // zero instead of stale stack contents. Wider
+        // elem types (`elem_sz > 8`) are a later scope;
+        // today the ABI tops out at 8-byte scalars and
+        // pointer-backed 8-byte handles.
+        self.emitter.emit_str(XZR, SP, out_base as i16);
+
+        // X0 = chans_array_ptr.
+        self.emitter.emit_add_imm(X0, SP, chans_base as u16);
+        // X1 = nchans.
+        self.emit_mov_imm_64(X1, nchans as u64);
+        // X2 = out_value_ptr.
+        self.emitter.emit_add_imm(X2, SP, out_base as u16);
+        // X3 = elem_sz.
+        self.emit_mov_imm_64(X3, elem_sz as u64);
+
+        self.emit_extern_call("_zo_select_wait");
+
+        // X0 (arm index) → out_which reg.
+        if let Some(dst_reg) = self.alloc_reg(*out_which)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+
+      // Paired with the preceding `SelectWait`: loads
+      // the runtime-written value from the scratch
+      // buffer into the allocator-assigned `dst`
+      // register. Split out so the register allocator
+      // sees a single-dst insn per SIR entry.
+      Insn::SelectRecv { dst, chans_len, .. } => {
+        let off = self.select_scratch_base + chans_len * 8;
+
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          self.emitter.emit_ldr(dst_reg, SP, off as i16);
+        }
+      }
+
+      // `t.cancelled()` method on `Task<T>` — reads the
+      // shared cancel flag. ABI:
+      // `_zo_task_is_cancelled(task) -> bool`, X0 = task
+      // handle, X0 out = result.
+      Insn::TaskCancelled { dst, task, .. } => {
+        if let Some(ch_reg) = self.alloc_reg(*task)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emit_extern_call("_zo_task_is_cancelled");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+
+      // `t.cancel()` method on `Task<T>` — latches the
+      // shared cancel flag. ABI: `_zo_task_cancel(task)`,
+      // X0 = task handle. No result.
+      Insn::TaskCancel { task } => {
+        if let Some(ch_reg) = self.alloc_reg(*task)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emit_extern_call("_zo_task_cancel");
       }
 
       _ => {}

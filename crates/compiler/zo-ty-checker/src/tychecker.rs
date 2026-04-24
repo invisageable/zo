@@ -245,6 +245,21 @@ impl TyChecker {
     self.intern_ty(Ty::Template)
   }
 
+  /// Intern a `Tx<T>` sender type where `elem_ty` is `T`.
+  pub fn channel_tx_type(&mut self, elem_ty: TyId) -> TyId {
+    self.intern_ty(Ty::ChannelTx(elem_ty))
+  }
+
+  /// Intern an `Rx<T>` receiver type where `elem_ty` is `T`.
+  pub fn channel_rx_type(&mut self, elem_ty: TyId) -> TyId {
+    self.intern_ty(Ty::ChannelRx(elem_ty))
+  }
+
+  /// Intern a `Task<T>` type where `return_ty` is `T`.
+  pub fn task_type(&mut self, return_ty: TyId) -> TyId {
+    self.intern_ty(Ty::Task(return_ty))
+  }
+
   /// Intern a type - deduplicates and returns existing if already present
   /// Uses HashMap for O(1) lookup instead of O(n) linear scan
   pub fn intern_ty(&mut self, kind: Ty) -> TyId {
@@ -421,6 +436,30 @@ impl TyChecker {
         for (a, b) in e1.iter().zip(e2.iter()) {
           self.unify(*a, *b, span)?;
         }
+
+        Some(self.resolve_id(repr1))
+      }
+
+      // Channel sender halves — unify element types.
+      // `Tx<T>` unifies only with `Tx<T'>` where `T` and
+      // `T'` unify; Tx/Rx mixtures fall through to the
+      // concrete-mismatch arm and report TypeMismatch.
+      (Ty::ChannelTx(e1), Ty::ChannelTx(e2)) => {
+        self.unify(e1, e2, span)?;
+
+        Some(self.resolve_id(repr1))
+      }
+
+      // Channel receiver halves — unify element types.
+      (Ty::ChannelRx(e1), Ty::ChannelRx(e2)) => {
+        self.unify(e1, e2, span)?;
+
+        Some(self.resolve_id(repr1))
+      }
+
+      // Task types — unify return types.
+      (Ty::Task(r1), Ty::Task(r2)) => {
+        self.unify(r1, r2, span)?;
 
         Some(self.resolve_id(repr1))
       }
@@ -1064,6 +1103,26 @@ impl TyChecker {
       "char" => Some(self.char_type()),
       "str" => Some(self.str_type()),
       "unit" | "()" => Some(self.unit_type()),
+      // Concurrency built-ins. Return the ty with a fresh
+      // inference variable for the element/return `T`; the
+      // generic-arg parse (`<int>`) emits a `<` sequence that
+      // the surrounding type-resolution path unifies against
+      // this variable, pinning `T` to the concrete type.
+      "Task" => {
+        let ty = self.fresh_var();
+
+        Some(self.task_type(ty))
+      }
+      "Tx" => {
+        let ty = self.fresh_var();
+
+        Some(self.channel_tx_type(ty))
+      }
+      "Rx" => {
+        let ty = self.fresh_var();
+
+        Some(self.channel_rx_type(ty))
+      }
       _ => self.resolve_ty_name(sym),
     }
   }

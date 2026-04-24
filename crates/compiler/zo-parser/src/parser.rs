@@ -352,6 +352,21 @@ impl<'a> Parser<'a> {
       Token::Match => self.handle_match_keyword(),
       Token::Return => self.handle_return_keyword(),
 
+      // Structured-concurrency keywords.
+      // `nursery { body }` — introducer for a task scope;
+      // auto-closes when its `{}` block closes.
+      // `spawn fn(args)` — introducer; the call subtree
+      // becomes its body, closes on `;`.
+      // `await expr` — prefix-unary; stashed via the same
+      // mechanism as `!` and drained postfix after the
+      // operand so it works in mid-expression contexts
+      // (e.g. `showln(await task)`).
+      Token::Nursery => self.handle_nursery_keyword(),
+      Token::Select => self.handle_select_keyword(),
+      Token::Spawn => self.handle_spawn_keyword(),
+      Token::Supervise => self.handle_supervise_keyword(),
+      Token::Await => self.handle_unary_operator(kind),
+
       // Directives
       Token::Hash => self.handle_directive(),
 
@@ -923,6 +938,16 @@ impl<'a> Parser<'a> {
           } else if parent.token == Token::While || parent.token == Token::For {
             // While/For is complete after its block
             self.close_introducer();
+          } else if parent.token == Token::Nursery {
+            // Nursery is complete after its body block.
+            self.close_introducer();
+          } else if parent.token == Token::Select {
+            // Select is complete after its arm block.
+            self.close_introducer();
+          } else if parent.token == Token::Supervise {
+            // Supervise is complete after its body
+            // block — same cascade hook as nursery.
+            self.close_introducer();
           } else if parent.token == Token::When {
             // Ternary ends at block boundary
             self.close_introducer();
@@ -1147,7 +1172,8 @@ impl<'a> Parser<'a> {
         | Token::Pack
         | Token::Ffi
         | Token::Type
-        | Token::Group => {
+        | Token::Group
+        | Token::Spawn => {
           self.close_introducer();
           break;
         }
@@ -1581,6 +1607,141 @@ impl<'a> Parser<'a> {
 
     // Next might be expression or semicolon
     self.state = ParserState::Expression;
+  }
+
+  /// `nursery { body }` — structured-concurrency scope.
+  /// No condition, no header — the following `{` opens the
+  /// body block via the normal LBrace introducer; the
+  /// cascade in `handle_rbrace_closer` auto-closes Nursery
+  /// once its block finishes.
+  fn handle_nursery_keyword(&mut self) {
+    self.flush_expr();
+
+    // `nursery` must be followed by `{`. Any other token
+    // is a hard error — we don't want `nursery expr;` to
+    // silently parse as something else.
+    if self.peek().is_some_and(|n| n != Token::LBrace) {
+      self.error_at(ErrorKind::ExpectedLBrace, self.pos + 1);
+    }
+
+    let node_index = self.emit_node(Token::Nursery);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Nursery,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    // The LBrace is handled by its own introducer; stay in
+    // the current state so the block parses as normal.
+  }
+
+  /// `supervise { spawn ...; spawn ...; }` — opt-in
+  /// supervisor cascade. Mirrors `nursery` in shape;
+  /// the semantic difference — panic propagation
+  /// through the enclosing task's cascade chain — is
+  /// handled at the runtime.
+  fn handle_supervise_keyword(&mut self) {
+    self.flush_expr();
+
+    if self.peek().is_some_and(|n| n != Token::LBrace) {
+      self.error_at(ErrorKind::ExpectedLBrace, self.pos + 1);
+    }
+
+    let node_index = self.emit_node(Token::Supervise);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Supervise,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+  }
+
+  /// `select { rx_expr => closure, rx_expr2 => closure2 }`
+  /// — selective receive. Introducer opens the scope;
+  /// the following `{` starts the arm list. Arms are
+  /// `expr => closure` (closure in any form —
+  /// `fn(v) => expr` or `fn(v) { ... }`) separated by
+  /// commas. The `handle_rbrace_closer` cascade
+  /// auto-closes Select
+  /// once its body block finishes.
+  fn handle_select_keyword(&mut self) {
+    self.flush_expr();
+
+    if self.peek().is_some_and(|n| n != Token::LBrace) {
+      self.error_at(ErrorKind::ExpectedLBrace, self.pos + 1);
+    }
+
+    let node_index = self.emit_node(Token::Select);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Select,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+  }
+
+  /// `spawn callee(args)` — fire-and-forget task spawn.
+  /// Body is a single call expression; Spawn is closed on
+  /// `;` by the cascade in `handle_semicolon`, matching
+  /// `Return`'s lifetime semantics.
+  fn handle_spawn_keyword(&mut self) {
+    self.flush_expr();
+
+    let node_index = self.emit_node(Token::Spawn);
+
+    self.introducer_stack.push(Introducer {
+      state: self.state,
+      token: Token::Spawn,
+      node_index,
+      children_start: self.tree.nodes.len() as u32,
+    });
+
+    // Contextual `thread` modifier — `spawn thread
+    // worker()`. The tokenizer treats "thread" as a
+    // plain `Ident`, so it stays a valid identifier in
+    // user code; the parser collapses the pattern
+    // `Spawn Ident("thread") Ident(callee)` by
+    // consuming the marker and emitting a synthetic
+    // `Token::Thread` node. Mirrors the `As` handler's
+    // pos-advance-and-emit precedent.
+    if self.peek_is_contextual_thread() {
+      self.pos += 1;
+
+      self.emit_node(Token::Thread);
+    }
+
+    // Body expression (the call) follows.
+    self.state = ParserState::Expression;
+  }
+
+  /// True when the upcoming tokens shape `spawn thread
+  /// <callee>` — i.e. the next token is an `Ident`
+  /// whose source text is exactly `"thread"` AND the
+  /// token after it is ALSO an `Ident` (the callee
+  /// name). The double-ident guard avoids a false
+  /// positive on `spawn thread()` (spawning a user
+  /// function named `thread`).
+  fn peek_is_contextual_thread(&self) -> bool {
+    if self.pos + 2 >= self.tokens.kinds.len() {
+      return false;
+    }
+
+    if self.tokens.kinds[self.pos + 1] != Token::Ident {
+      return false;
+    }
+
+    if self.tokens.kinds[self.pos + 2] != Token::Ident {
+      return false;
+    }
+
+    let start = self.tokens.starts[self.pos + 1] as usize;
+    let len = self.tokens.lengths[self.pos + 1] as usize;
+
+    &self.source[start..start + len] == "thread"
   }
 
   fn handle_directive(&mut self) {

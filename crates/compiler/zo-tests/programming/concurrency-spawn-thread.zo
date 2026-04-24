@@ -1,0 +1,22 @@
+-- tests-build-pass: spawn thread runs on a dedicated OS thread.
+-- @cmd — zo build concurrency-spawn-thread.zo
+
+fun heavy_worker() {
+  imu total: int = 1_000_000;
+
+  showln("crunching {total} items");
+}
+
+fun main() {
+  nursery {
+    imu task: Task<unit> = spawn thread heavy_worker();
+
+    await task;
+  }
+
+  showln("main done");
+}
+
+-- EXPECTED OUTPUT:
+-- crunching 1000000 items
+-- main done

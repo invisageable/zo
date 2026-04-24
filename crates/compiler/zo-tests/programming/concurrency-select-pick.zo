@@ -1,0 +1,28 @@
+-- tests-build-pass: select picks the arm whose channel fired.
+-- @cmd — zo build concurrency-select-pick.zo
+
+fun producer_a(tx: Tx<int>) {
+  tx.send(10);
+}
+
+fun producer_b(tx: Tx<int>) {
+  tx.send(20);
+}
+
+fun main() {
+  nursery {
+    imu chan1 := channel(1);
+    imu chan2 := channel(1);
+
+    spawn producer_a(chan1.0);
+    spawn producer_b(chan2.0);
+
+    select {
+      chan1.1 => fn(value: int) => showln("chan1: {value}"),
+      chan2.1 => fn(value: int) => showln("chan2: {value}"),
+    }
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- chan1: 10

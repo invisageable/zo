@@ -1,0 +1,17 @@
+-- @emit sir
+--
+-- `channel(N)` allocates a bounded channel with room
+-- for `N` buffered values before senders block. The
+-- literal capacity lands on `chan.new`'s `cap=`
+-- field. Capacity must be an integer literal — the
+-- executor rejects variable or expression capacities
+-- so the buffer size is pinned at compile time.
+
+fun main() {
+  nursery {
+    -- CHECK: chan.new cap=4
+    imu channel := channel(4);
+
+    showln("buffered channel: 4 slots");
+  }
+}

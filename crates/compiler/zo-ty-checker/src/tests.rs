@@ -595,6 +595,115 @@ fn test_inference_vars_not_interned() {
   assert_ne!(var3, var4);
 }
 
+// ===== CHANNEL / TASK TYPES =====
+
+#[test]
+fn channel_tx_ty_interning_dedups_equal_elem() {
+  let mut checker = TyChecker::new();
+
+  let int_ty = checker.s32_type();
+  let ch1 = checker.channel_tx_type(int_ty);
+  let ch2 = checker.channel_tx_type(int_ty);
+
+  assert_eq!(ch1, ch2);
+}
+
+#[test]
+fn channel_tx_ty_distinct_on_different_elem() {
+  let mut checker = TyChecker::new();
+
+  let int_ty = checker.s32_type();
+  let bool_ty = checker.bool_type();
+  let ch_int = checker.channel_tx_type(int_ty);
+  let ch_bool = checker.channel_tx_type(bool_ty);
+
+  assert_ne!(ch_int, ch_bool);
+}
+
+#[test]
+fn channel_tx_ty_unifies_through_element() {
+  let mut checker = TyChecker::new();
+
+  let alpha = checker.fresh_var();
+  let int_ty = checker.s32_type();
+  let ch_int = checker.channel_tx_type(int_ty);
+  let ch_alpha = checker.channel_tx_type(alpha);
+
+  let result = checker.unify(ch_int, ch_alpha, Span::ZERO);
+
+  assert!(result.is_some());
+  // Alpha resolves to s32 after unification.
+  assert_eq!(checker.resolve_id(alpha), int_ty);
+}
+
+#[test]
+fn channel_tx_and_rx_do_not_unify() {
+  // `Tx<T>` and `Rx<T>` are distinct types at the ty
+  // level. Unifying them must fail even when the
+  // element types match.
+  let mut checker = TyChecker::new();
+
+  let int_ty = checker.s32_type();
+  let tx = checker.channel_tx_type(int_ty);
+  let rx = checker.channel_rx_type(int_ty);
+
+  let result = checker.unify(tx, rx, Span::ZERO);
+
+  assert!(result.is_none());
+}
+
+#[test]
+fn task_ty_interning_dedups_equal_return() {
+  let mut checker = TyChecker::new();
+
+  let unit_ty = checker.unit_type();
+  let t1 = checker.task_type(unit_ty);
+  let t2 = checker.task_type(unit_ty);
+
+  assert_eq!(t1, t2);
+}
+
+#[test]
+fn task_ty_distinct_on_different_return() {
+  let mut checker = TyChecker::new();
+
+  let int_ty = checker.s32_type();
+  let unit_ty = checker.unit_type();
+  let t_int = checker.task_type(int_ty);
+  let t_unit = checker.task_type(unit_ty);
+
+  assert_ne!(t_int, t_unit);
+}
+
+#[test]
+fn task_ty_unifies_through_return() {
+  let mut checker = TyChecker::new();
+
+  let alpha = checker.fresh_var();
+  let bool_ty = checker.bool_type();
+  let t_bool = checker.task_type(bool_ty);
+  let t_alpha = checker.task_type(alpha);
+
+  let result = checker.unify(t_bool, t_alpha, Span::ZERO);
+
+  assert!(result.is_some());
+  assert_eq!(checker.resolve_id(alpha), bool_ty);
+}
+
+#[test]
+fn channel_and_task_are_distinct_variants() {
+  let mut checker = TyChecker::new();
+
+  let int_ty = checker.s32_type();
+  let tx = checker.channel_tx_type(int_ty);
+  let rx = checker.channel_rx_type(int_ty);
+  let t = checker.task_type(int_ty);
+
+  assert_ne!(tx, t);
+  assert_ne!(rx, t);
+  assert_ne!(tx, rx);
+}
+
 // ===== EDGE CASES AND ERROR HANDLING =====
 
 #[test]

@@ -1,0 +1,19 @@
+-- @emit sir
+--
+-- `spawn worker()` inside a nursery lowers to a
+-- `task.spawn` insn — NOT a regular `call`. The
+-- executor redirects the would-be call emission at
+-- the matching RParen when `pending_spawn` is set.
+-- The scheduler then runs `worker` concurrently with
+-- the parent task until it returns.
+
+fun worker() {
+  showln("worker ran");
+}
+
+fun main() {
+  nursery {
+    -- CHECK: task.spawn worker
+    spawn worker();
+  }
+}

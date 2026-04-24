@@ -1,0 +1,22 @@
+-- @emit sir
+--
+-- `await task` parks the awaiter until the target
+-- task finishes, then yields the target's return
+-- value. Here `compute` returns `int`, so the
+-- `task.await` insn's destination carries the same
+-- TyId as `compute`'s return type and the bound
+-- `result` holds the produced value.
+
+fun compute() -> int {
+  42
+}
+
+fun main() {
+  nursery {
+    -- CHECK: task.spawn compute
+    imu task := spawn compute();
+    -- CHECK: task.await
+    imu result := await task;
+    showln("got {result}");
+  }
+}

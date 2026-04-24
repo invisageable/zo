@@ -1,4 +1,5 @@
 pub(crate) mod common;
+pub(crate) mod concurrency;
 pub(crate) mod errors;
 pub(crate) mod templates;
 

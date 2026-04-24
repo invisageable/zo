@@ -584,6 +584,22 @@ impl Compiler {
 
       self.stats.numartifacts += 1;
 
+      // Colocate runtime dylibs that the compiled
+      // binary references at `@executable_path/`. zo's
+      // runtimes are context-dependent — concurrency,
+      // native UI, and web are three independent
+      // artifacts. A program that only prints strings
+      // needs none; a program that `spawn`s tasks
+      // needs the concurrency dylib; a templating
+      // program needs the UI dylib. Detection is on
+      // the SIR emitted by the executor — each
+      // concurrency / UI insn maps to a set of
+      // runtime-symbol imports, and the codegen
+      // already gates the `LC_LOAD_DYLIB` entry on
+      // those same imports. We just mirror that gate
+      // here to stage the matching dylib file.
+      stage_runtime_artifacts(&semantic.sir, &output_path);
+
       self.profiler.end_phase(CODEGEN_NAME);
       self.profiler.set_output(path.display().to_string());
     }
@@ -648,5 +664,116 @@ impl Stats {
       numinferences: 0,
       numartifacts: 0,
     }
+  }
+}
+
+/// Runtime context a compiled binary depends on.
+/// Orthogonal flags — a program may pull in zero, one,
+/// or several runtimes (e.g. a UI program that also
+/// spawns background tasks).
+#[derive(Default, Clone, Copy)]
+struct RuntimeNeeds {
+  concurrency: bool,
+  native_ui: bool,
+  web_ui: bool,
+}
+
+impl RuntimeNeeds {
+  fn from_sir(sir: &Sir) -> Self {
+    let mut needs = Self::default();
+
+    for insn in &sir.instructions {
+      match insn {
+        zo_sir::Insn::ChannelCreate { .. }
+        | zo_sir::Insn::ChannelSend { .. }
+        | zo_sir::Insn::ChannelRecv { .. }
+        | zo_sir::Insn::ChannelClose { .. }
+        | zo_sir::Insn::TaskSpawn { .. }
+        | zo_sir::Insn::TaskAwait { .. }
+        | zo_sir::Insn::TaskCancelled { .. }
+        | zo_sir::Insn::TaskCancel { .. }
+        | zo_sir::Insn::SelectWait { .. }
+        | zo_sir::Insn::NurseryBegin { .. }
+        | zo_sir::Insn::NurseryEnd { .. } => {
+          needs.concurrency = true;
+        }
+        zo_sir::Insn::Template { .. } => {
+          // Template programs run in-process through
+          // `zo run` today; a future `zo build`
+          // web-target would flip `web_ui` here and
+          // emit `bridge.js` alongside the binary.
+          needs.native_ui = true;
+        }
+        _ => {}
+      }
+    }
+
+    needs
+  }
+}
+
+/// Concurrency runtime file name for this host.
+#[cfg(target_os = "macos")]
+const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
+#[cfg(target_os = "linux")]
+const CONCURRENCY_DYLIB: &str = "libzo_runtime.so";
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
+
+/// Copy each runtime artifact the compiled binary
+/// needs into the binary's directory. The codegen
+/// embeds `@executable_path/<dylib>` as a
+/// `LC_LOAD_DYLIB` entry, so `dyld` resolves it
+/// relative to whatever directory the binary lives in
+/// at run time — this staging step is what makes that
+/// path actually resolve.
+///
+/// Sourced from the sibling directory of the running
+/// `zo` compiler binary (e.g. `target/debug/` when the
+/// compiler runs out of cargo's build output). No-op
+/// when the program needs no runtime, or when the
+/// source dylib isn't present.
+fn stage_runtime_artifacts(sir: &Sir, output_path: &std::path::Path) {
+  let needs = RuntimeNeeds::from_sir(sir);
+
+  if !needs.concurrency && !needs.native_ui && !needs.web_ui {
+    return;
+  }
+
+  let Some(output_dir) = output_path.parent() else {
+    return;
+  };
+
+  let Ok(zo_binary) = std::env::current_exe() else {
+    return;
+  };
+
+  let Some(runtime_dir) = zo_binary.parent() else {
+    return;
+  };
+
+  if needs.concurrency {
+    let src = runtime_dir.join(CONCURRENCY_DYLIB);
+    let dst = output_dir.join(CONCURRENCY_DYLIB);
+
+    // Don't re-copy if already staged and identical —
+    // avoids a write storm when test runners compile
+    // many programs into the same tmp directory.
+    if src.exists() && !files_equal(&src, &dst) {
+      let _ = std::fs::copy(&src, &dst);
+    }
+  }
+
+  // Native / web UI staging will land here when those
+  // runtimes become separate dylibs referenced by the
+  // binary (today they run in-process via `zo run`).
+}
+
+fn files_equal(a: &std::path::Path, b: &std::path::Path) -> bool {
+  match (a.metadata(), b.metadata()) {
+    (Ok(am), Ok(bm)) => {
+      am.len() == bm.len() && am.modified().ok() == bm.modified().ok()
+    }
+    _ => false,
   }
 }

@@ -211,6 +211,15 @@ fn collect_value_types(insns: &[Insn]) -> HashMap<ValueId, TyId> {
       Insn::Template { id, ty_id, .. } => {
         out.insert(*id, *ty_id);
       }
+      // Concurrency insns that produce typed values.
+      Insn::ChannelCreate { dst, elem_ty, .. } => {
+        out.insert(*dst, *elem_ty);
+      }
+      Insn::ChannelRecv { dst, ty_id, .. }
+      | Insn::TaskSpawn { dst, ty_id, .. }
+      | Insn::TaskAwait { dst, ty_id, .. } => {
+        out.insert(*dst, *ty_id);
+      }
       _ => {}
     }
   }
@@ -438,6 +447,42 @@ fn check_insn(
     | Insn::PackDecl { .. }
     | Insn::StyleSheet { .. }
     | Insn::Nop => {}
+
+    // Concurrency carriers — placeholder check only. Full
+    // invariants (send/recv ty matches channel's elem_ty,
+    // TaskSpawn/TaskAwait ty matches callee signature)
+    // would require tracking channel / task definitions
+    // across insns; the validator treats these as opaque
+    // typed carriers and trusts the executor to emit
+    // well-typed operands.
+    Insn::ChannelCreate { elem_ty, .. } => {
+      check_placeholder(report, idx, *elem_ty, "ChannelCreate.elem_ty");
+    }
+    Insn::ChannelSend { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "ChannelSend.ty_id");
+    }
+    Insn::ChannelRecv { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "ChannelRecv.ty_id");
+    }
+    Insn::TaskSpawn { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "TaskSpawn.ty_id");
+    }
+    Insn::TaskAwait { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "TaskAwait.ty_id");
+    }
+    Insn::NurseryBegin { .. }
+    | Insn::NurseryEnd { .. }
+    | Insn::ChannelClose { .. } => {}
+    Insn::SelectWait { elem_ty, .. } => {
+      check_placeholder(report, idx, *elem_ty, "SelectWait.elem_ty");
+    }
+    Insn::SelectRecv { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "SelectRecv.ty_id");
+    }
+    Insn::TaskCancelled { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "TaskCancelled.ty_id");
+    }
+    Insn::TaskCancel { .. } => {}
   }
 }
 
@@ -501,7 +546,7 @@ const _: fn(&LoadSource) = |_| {};
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::BinOp;
+  use crate::{BinOp, NurseryKind, SpawnKind};
   use zo_value::FunctionKind;
 
   fn vid(n: u32) -> ValueId {
@@ -712,5 +757,99 @@ mod tests {
       report.violations[0].kind,
       ViolationKind::StoreDeclMismatch { .. }
     ));
+  }
+
+  // ===== PHASE 3: CONCURRENCY INSNS =====
+
+  #[test]
+  fn nursery_scoped_channel_spawn_await_is_clean() {
+    // nursery { (tx, rx) := channel(); spawn prod(tx);
+    //           imu v := rx.recv(); await task; }
+    let elem_ty = TyId(8); // s32
+    let task_ty = TyId(30); // Ty::Task(unit), arbitrary id
+    let insns = vec![
+      Insn::NurseryBegin {
+        label: 1,
+        kind: NurseryKind::Scoped,
+      },
+      Insn::ChannelCreate {
+        dst: vid(0),
+        elem_ty,
+        capacity: 0,
+      },
+      Insn::TaskSpawn {
+        dst: vid(2),
+        callee: sym(1),
+        args: vec![vid(0)],
+        ty_id: task_ty,
+        kind: SpawnKind::Green,
+      },
+      Insn::ChannelRecv {
+        dst: vid(3),
+        channel: vid(0),
+        ty_id: elem_ty,
+      },
+      Insn::TaskAwait {
+        dst: vid(4),
+        task: vid(2),
+        ty_id: TyId(1), // unit
+      },
+      Insn::NurseryEnd { label: 1 },
+    ];
+
+    let report = validate(&insns);
+
+    assert!(report.is_ok(), "{report:?}");
+  }
+
+  #[test]
+  fn channel_send_with_placeholder_ty_is_flagged() {
+    // ChannelSend.ty_id == TyId::Error (0) should trip the
+    // placeholder check exactly like any other carrier.
+    let insns = vec![Insn::ChannelSend {
+      channel: vid(0),
+      value: vid(1),
+      ty_id: TyId(0), // forbidden sentinel
+    }];
+
+    let report = validate(&insns);
+
+    assert!(!report.is_ok());
+    assert!(
+      report
+        .violations
+        .iter()
+        .any(|v| matches!(v.kind, ViolationKind::Placeholder { .. })),
+      "expected Placeholder violation, got {report:?}"
+    );
+  }
+
+  #[test]
+  fn channel_create_registers_both_halves_in_value_types() {
+    // Regression for `collect_value_types` on the
+    // single-dst `ChannelCreate` — a downstream BinOp
+    // using the chan handle needs to see its elem_ty
+    // for width-parity checks.
+    let elem_ty = TyId(8);
+    let insns = vec![
+      Insn::ChannelCreate {
+        dst: vid(0),
+        elem_ty,
+        capacity: 4,
+      },
+      Insn::BinOp {
+        dst: vid(2),
+        op: BinOp::Eq,
+        lhs: vid(0),
+        rhs: vid(0),
+        ty_id: TyId(2), // bool — the validator's comparison escape hatch
+      },
+    ];
+
+    let report = validate(&insns);
+
+    // Both lhs (tx) and rhs (rx) resolve to elem_ty via the
+    // collector, so the BinOp width check passes.
+    assert!(report.is_ok(), "{report:?}");
   }
 }

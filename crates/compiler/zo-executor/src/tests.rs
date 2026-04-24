@@ -8,6 +8,7 @@ pub(crate) mod cast;
 pub(crate) mod closures;
 pub(crate) mod common;
 pub(crate) mod concat;
+pub(crate) mod concurrency;
 pub(crate) mod constants;
 pub(crate) mod control_flow;
 pub(crate) mod enums;

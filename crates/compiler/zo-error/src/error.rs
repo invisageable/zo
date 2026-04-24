@@ -231,4 +231,11 @@ pub enum ErrorKind {
   StrSliceRequiresStr,
   StrSliceOutOfBounds,
   StrSliceInvalidRange,
+
+  // Structured-concurrency errors — appended at the end
+  // of the enum to preserve the numeric error codes of
+  // variants above.
+  SpawnOutsideNursery, // `spawn` without enclosing `nursery { }`
+  AwaitOnNonTask,      // `await expr` where expr is not `Ty::Task(_)`
+  ChannelCapacityNotLiteral, // `channel(N)` with non-literal N
 }

@@ -328,6 +328,22 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::Template { .. }
       | Insn::StyleSheet { .. }
       | Insn::ArrayTyDef { .. }
+      // Concurrency insns have observable side effects:
+      // channel enqueue/dequeue, task enqueue, scheduler
+      // drain, selective wait on N channels. DCE must
+      // keep them so their operands stay live.
+      | Insn::ChannelCreate { .. }
+      | Insn::ChannelSend { .. }
+      | Insn::ChannelRecv { .. }
+      | Insn::ChannelClose { .. }
+      | Insn::TaskSpawn { .. }
+      | Insn::TaskAwait { .. }
+      | Insn::NurseryBegin { .. }
+      | Insn::NurseryEnd { .. }
+      | Insn::SelectWait { .. }
+      | Insn::SelectRecv { .. }
+      | Insn::TaskCancelled { .. }
+      | Insn::TaskCancel { .. }
   )
 }
 
@@ -390,8 +406,14 @@ fn collect_calls_in_range(
   let mut calls = Vec::new();
 
   for insn in &instructions[start..=end.min(instructions.len() - 1)] {
-    if let Insn::Call { name, .. } = insn {
-      calls.push(*name);
+    match insn {
+      Insn::Call { name, .. } => calls.push(*name),
+      // `spawn fn()` captures `fn` by address so the
+      // runtime can call it inside a green / OS task.
+      // DCE must treat the callee as reachable or the
+      // emitted binary would be missing its code.
+      Insn::TaskSpawn { callee, .. } => calls.push(*callee),
+      _ => {}
     }
   }
 

@@ -43,6 +43,35 @@ pub enum Ty {
   /// A reference type - points to interned storage
   Ref(RefTyId),
 
+  /// The sender half of a channel (`Tx<T>`). Inner
+  /// `TyId` is the element type `T` carried across
+  /// `tx.send(v)`. Produced as element 0 of the tuple
+  /// returned by the `channel()` built-in. Cloneable
+  /// (multi-producer) — `.clone()` lowers to a fresh
+  /// handle aliasing the same runtime `ZoChan`.
+  ///
+  /// Distinct from `ChannelRx`: the Tx/Rx asymmetry is
+  /// enforced at the type level, not via method
+  /// dispatch on a unified `Channel(T)` variant, so
+  /// `rx.send(..)` / `tx.recv(..)` are compile-time
+  /// errors.
+  ChannelTx(TyId),
+
+  /// The receiver half of a channel (`Rx<T>`). Inner
+  /// `TyId` is the element type `T` produced by
+  /// `rx.recv()`. Produced as element 1 of the tuple
+  /// returned by the `channel()` built-in. Move-only —
+  /// no `.clone()` on the surface API; exactly one
+  /// consumer per channel.
+  ChannelRx(TyId),
+
+  /// A task handle produced by `spawn fn(args)`. Inner
+  /// `TyId` is the callee's return type (may be `unit`).
+  /// Consumed by `await task`, which yields the inner
+  /// type. Nursery-scoped: task lifetime is bounded by
+  /// the enclosing `nursery { }` block.
+  Task(TyId),
+
   /// An array type - points to interned storage
   Array(ArrayTyId),
 

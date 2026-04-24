@@ -142,9 +142,30 @@ for_stmt =
   | "for", identifier, ":=", expr, "=>", expr
   ;
 
-nursery_stmt = "nursery", "{", { nursery_item }, "}" ;
-nursery_item = "imu", identifier, ":=", ( "spawn", expr | "await", expr ), ";" ;
+nursery_stmt = nursery_kind, block ;
+nursery_kind = "nursery" | "supervise" ;
+supervise_stmt = "supervise", block ;
 if_stmt = "if", expr, block, [ "else", ( if_stmt | block ) ] ;
+
+(* Concurrency primitives inside a nursery / supervise scope:
+   - spawn fn(args)          — green task on the current scheduler
+   - spawn thread fn(args)   — dedicated OS thread
+   - await expr              — joins a Task<T>, yields the inner T
+   - channel()               — unbuffered  (Tx<T>, Rx<T>)
+   - channel(N)              — buffered N slots
+   - select { arm, arm }     — selective receive
+
+   Reserved tokens above: `spawn`, `thread`, `await`, `select`,
+   `nursery`, `supervise`. `channel` is NOT reserved — it is a
+   built-in function name recognized by the executor at call
+   sites; the identifier is free for user bindings elsewhere
+   (`imu channel: int = 42` is valid).
+*)
+spawn_expr = "spawn", [ "thread" ], expr ;
+await_expr = "await", expr ;
+channel_expr = "channel", "(", [ int_literal ], ")" ;
+select_expr = "select", "{", [ select_arm, { ",", select_arm }, [ "," ] ], "}" ;
+select_arm = expr, "=>", closure_expr ;
 
 (* ===== Block Statement ===== *)
 block_stmt = block ;
@@ -197,6 +218,10 @@ primary_expr = literal
              | return_expr
              | break_expr
              | continue_expr
+             | spawn_expr
+             | await_expr
+             | channel_expr
+             | select_expr
              | "..."
              ;
 
@@ -270,6 +295,7 @@ template_char = ? any character except '<', '>', '{', '}' ? ;
 (* ===== Types ===== *)
 
 type = primitive_type
+     | concurrency_type
      | path_type
      | array_type
      | tuple_type
@@ -285,6 +311,11 @@ primitive_type = "int" | "s8" | "s16" | "s32" | "s64"
                | "float" | "f32" | "f64"
                | "bool" | "bytes" | "char" | "str"
                ;
+
+(* Compiler-intrinsic parametric types for structured
+   concurrency. Instantiated by `spawn` / `channel()`,
+   not by user code. *)
+concurrency_type = ( "Task" | "Tx" | "Rx" ), "<", type, ">" ;
 
 path_type = path_expr ;
 array_type = "[", [ int_literal ], "]", type ;

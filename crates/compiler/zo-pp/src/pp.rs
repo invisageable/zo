@@ -3,7 +3,7 @@ use crate::printee::Printee;
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, Target};
 use zo_interner::Interner;
-use zo_sir::{BinOp, Insn, LoadSource, Sir, UnOp};
+use zo_sir::{BinOp, Insn, LoadSource, NurseryKind, Sir, SpawnKind, UnOp};
 use zo_token::{Token, TokenBuffer};
 use zo_tree::Tree;
 use zo_ty::Mutability;
@@ -476,6 +476,116 @@ impl PrettyPrinter {
           self.sir_instruction(&c);
         }
         Insn::Nop => {}
+
+        // Concurrency insns — single-line dump per insn.
+        Insn::ChannelCreate {
+          dst,
+          elem_ty,
+          capacity,
+        } => {
+          let c = format!("%{dst} = chan.new cap={capacity} : {elem_ty:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::ChannelSend {
+          channel,
+          value,
+          ty_id,
+        } => {
+          let c = format!("chan.send %{channel}, %{value} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::ChannelRecv {
+          dst,
+          channel,
+          ty_id,
+        } => {
+          let c = format!("%{dst} = chan.recv %{channel} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::ChannelClose { channel } => {
+          let c = format!("chan.close %{channel}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TaskSpawn {
+          dst,
+          callee,
+          args,
+          ty_id,
+          kind,
+        } => {
+          let name = interner.get(*callee);
+
+          let args_str = args
+            .iter()
+            .map(|a| format!("%{a}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+          let kind_str = match kind {
+            SpawnKind::Green => "spawn",
+            SpawnKind::Thread => "spawn_thread",
+          };
+
+          let c =
+            format!("%{dst} = task.{kind_str} {name}({args_str}) : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TaskAwait { dst, task, ty_id } => {
+          let c = format!("%{dst} = task.await %{task} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::NurseryBegin { label, kind } => {
+          let label_str = match kind {
+            NurseryKind::Scoped => "nursery.begin",
+            NurseryKind::Supervised => "supervise.begin",
+          };
+          let c = format!("{label_str} L{label}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::NurseryEnd { label } => {
+          let c = format!("nursery.end L{label}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::SelectWait {
+          out_which,
+          chans,
+          elem_ty,
+        } => {
+          let chans_str = chans
+            .iter()
+            .map(|c| format!("%{c}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+          let c =
+            format!("%{out_which} = select.wait [{chans_str}] : {elem_ty:?}",);
+
+          self.sir_instruction(&c);
+        }
+        Insn::SelectRecv {
+          dst, which, ty_id, ..
+        } => {
+          let c = format!("%{dst} = select.recv %{which} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TaskCancelled { dst, task, ty_id } => {
+          let c = format!("%{dst} = task.cancelled %{task} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TaskCancel { task } => {
+          let c = format!("task.cancel %{task}");
+
+          self.sir_instruction(&c);
+        }
       }
     }
 

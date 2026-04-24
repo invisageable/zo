@@ -1,0 +1,24 @@
+-- tests-build-pass: channel send / recv end-to-end.
+-- @cmd — zo build concurrency-channel-roundtrip.zo
+
+fun producer(tx: Tx<int>) {
+  tx.send(42);
+}
+
+fun consumer(rx: Rx<int>) {
+  imu value: int = rx.recv();
+
+  showln("got {value}");
+}
+
+fun main() {
+  nursery {
+    imu chan := channel();
+
+    spawn producer(chan.0);
+    spawn consumer(chan.1);
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- got 42

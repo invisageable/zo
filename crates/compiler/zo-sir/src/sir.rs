@@ -86,7 +86,13 @@ impl Sir {
       | Insn::TupleIndex { dst, .. }
       | Insn::EnumConstruct { dst, .. }
       | Insn::StructConstruct { dst, .. }
-      | Insn::Cast { dst, .. } => *dst,
+      | Insn::Cast { dst, .. }
+      // Concurrency value-producing insns.
+      | Insn::ChannelCreate { dst, .. }
+      | Insn::ChannelRecv { dst, .. }
+      | Insn::TaskSpawn { dst, .. }
+      | Insn::TaskAwait { dst, .. }
+      | Insn::TaskCancelled { dst, .. } => *dst,
       // Template uses `id` as its value.
       Insn::Template { id, .. } => *id,
       // Non-value instructions.
@@ -232,6 +238,46 @@ impl Insn {
         f(dst);
         f(src);
       }
+      Insn::ChannelCreate { dst, .. } => {
+        f(dst);
+      }
+      Insn::ChannelSend { channel, value, .. } => {
+        f(channel);
+        f(value);
+      }
+      Insn::ChannelRecv { dst, channel, .. } => {
+        f(dst);
+        f(channel);
+      }
+      Insn::ChannelClose { channel } => {
+        f(channel);
+      }
+      Insn::TaskSpawn { dst, args, .. } => {
+        f(dst);
+        args.iter_mut().for_each(&mut *f);
+      }
+      Insn::TaskAwait { dst, task, .. } => {
+        f(dst);
+        f(task);
+      }
+      Insn::SelectWait {
+        out_which, chans, ..
+      } => {
+        f(out_which);
+        chans.iter_mut().for_each(&mut *f);
+      }
+      Insn::SelectRecv { dst, which, .. } => {
+        f(dst);
+        f(which);
+      }
+      Insn::TaskCancelled { dst, task, .. } => {
+        f(dst);
+        f(task);
+      }
+      Insn::TaskCancel { task } => {
+        f(task);
+      }
+      Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
     }
   }
 
@@ -306,12 +352,24 @@ impl Insn {
           }
         }
       }
-      Insn::ModuleLoad { .. }
+      Insn::ChannelCreate { elem_ty, .. } => f(elem_ty),
+      Insn::ChannelSend { ty_id, .. }
+      | Insn::ChannelRecv { ty_id, .. }
+      | Insn::TaskSpawn { ty_id, .. }
+      | Insn::TaskAwait { ty_id, .. } => f(ty_id),
+      Insn::SelectWait { elem_ty, .. } => f(elem_ty),
+      Insn::SelectRecv { ty_id, .. } => f(ty_id),
+      Insn::TaskCancelled { ty_id, .. } => f(ty_id),
+      Insn::TaskCancel { .. } => {}
+      Insn::ChannelClose { .. }
+      | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::BranchIfNot { .. }
       | Insn::StyleSheet { .. }
+      | Insn::NurseryBegin { .. }
+      | Insn::NurseryEnd { .. }
       | Insn::Nop => {}
     }
   }
@@ -559,9 +617,165 @@ pub enum Insn {
   /// Dead instruction — replaces folded operands in-place
   /// so instruction indices stay stable.
   Nop,
+
+  // ===== STRUCTURED CONCURRENCY =====
+  //
+  // Typed SIR carriers for the surface-level
+  // `nursery { }` / `spawn` / `await` / `channel()` /
+  // `tx.send` / `rx.recv`. ARM codegen lowers these to
+  // BL calls into `zo-runtime`.
+  /// Create a channel pair. Emits one runtime call that
+  /// returns a single channel handle; `tx` and `rx` bind
+  /// that handle under two separate ValueIds to match the
+  /// surface tuple-destructure `imu (tx, rx) := channel()`.
+  /// `elem_ty` is the element type `T` shared by send and
+  /// recv. `capacity == 0` is unbuffered (rendezvous).
+  /// `capacity` must be an integer literal — enforced by
+  /// the executor at the built-in `channel()` call site.
+  ChannelCreate {
+    dst: ValueId,
+    elem_ty: TyId,
+    capacity: u32,
+  },
+  /// Push `value` onto `channel`. Blocks if the channel is
+  /// bounded and its buffer is full. `ty_id` is the element
+  /// type, stored on the insn so the validator can assert
+  /// `value`'s ty matches without consulting the channel's
+  /// definition insn.
+  ChannelSend {
+    channel: ValueId,
+    value: ValueId,
+    ty_id: TyId,
+  },
+  /// Pop a value off `channel` into `dst`. Blocks until a
+  /// value is available. `ty_id` is the element type and
+  /// also the type of `dst`.
+  ChannelRecv {
+    dst: ValueId,
+    channel: ValueId,
+    ty_id: TyId,
+  },
+  /// Close the channel — wakes every parked sender and
+  /// receiver so they observe the closed state. After
+  /// close, further `ChannelSend` panics and
+  /// `ChannelRecv` drains remaining buffered values
+  /// then returns zero-filled. Idempotent — repeated
+  /// close is a no-op.
+  ChannelClose { channel: ValueId },
+  /// Spawn a task running `callee(args)`. `dst` is the task
+  /// handle whose type is `Ty::Task(callee_return_ty)`.
+  /// Must appear inside a `NurseryBegin` / `NurseryEnd`
+  /// span — enforced by the executor, not the validator.
+  ///
+  /// `kind` distinguishes the two-tier spawn model:
+  /// `Green` multiplexes on the current scheduler
+  /// (cheap, cooperative), `Thread` spawns a dedicated
+  /// OS thread (expensive, preemptive, real multi-core
+  /// parallelism).
+  TaskSpawn {
+    dst: ValueId,
+    callee: Symbol,
+    args: Vec<ValueId>,
+    ty_id: TyId,
+    kind: SpawnKind,
+  },
+  /// Suspend until `task` completes, then bind the task's
+  /// result value to `dst`. `ty_id` is the unwrapped result
+  /// type — the `T` inside `Ty::Task(T)`, not the handle
+  /// type itself.
+  TaskAwait {
+    dst: ValueId,
+    task: ValueId,
+    ty_id: TyId,
+  },
+  /// Selective receive — atomic wait on N channels.
+  /// `out_which` receives the 0-based arm index of
+  /// the channel that fired. Paired with a following
+  /// `SelectRecv` that reads the received value out of
+  /// the scratch buffer into a register. The split
+  /// keeps the insn-to-dst mapping single-valued so
+  /// the liveness / register allocator stays simple.
+  SelectWait {
+    out_which: ValueId,
+    chans: Vec<ValueId>,
+    elem_ty: TyId,
+  },
+  /// Companion to `SelectWait` — produces `dst` by
+  /// loading the runtime-written value from the select
+  /// scratch buffer. `which` reads the arm index from
+  /// the preceding `SelectWait` purely to anchor
+  /// liveness; codegen doesn't consume it. `chans_len`
+  /// lets the backend compute the scratch buf offset
+  /// (`nchans * 8` bytes of pointers precede the
+  /// output buffer in the frame).
+  SelectRecv {
+    dst: ValueId,
+    which: ValueId,
+    ty_id: TyId,
+    chans_len: u32,
+  },
+  /// Read a task handle's cancellation flag. Surface
+  /// form is `t.cancelled()` where `t: Task<T>`. Lowers
+  /// to `BL _zo_task_is_cancelled(task)` — runtime does
+  /// a relaxed atomic load of the shared flag. `dst`
+  /// receives the resulting `bool`.
+  TaskCancelled {
+    dst: ValueId,
+    task: ValueId,
+    ty_id: TyId,
+  },
+  /// Signal a task to cancel. Surface form is
+  /// `t.cancel()` where `t: Task<T>`. Lowers to
+  /// `BL _zo_task_cancel(task)` — runtime latches the
+  /// shared cancel flag. Cooperative: the task itself
+  /// must poll `.cancelled()` (or the runtime must
+  /// cascade the flag at a yield point) for the
+  /// cancellation to have any observable effect.
+  TaskCancel { task: ValueId },
+  /// Open a nursery scope. Every `TaskSpawn` between this
+  /// insn and its matching `NurseryEnd` is scoped to this
+  /// nursery: on scope exit, all such tasks are joined
+  /// (or cancelled if any sibling panicked). `kind`
+  /// distinguishes a plain `nursery { }` from a
+  /// `supervise { }` scope — the latter additionally
+  /// propagates panics upward through the enclosing
+  /// task's cascade chain.
+  NurseryBegin { label: u32, kind: NurseryKind },
+  /// Close the nursery opened by a matching `NurseryBegin`
+  /// with the same `label`. Emits the implicit join of
+  /// every scoped task.
+  NurseryEnd { label: u32 },
 }
 
-/// Represents binary operators.
+/// Discriminator for `Insn::NurseryBegin` — plain
+/// scope vs supervised scope.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NurseryKind {
+  /// Plain `nursery { }` — siblings cancel on sibling
+  /// panic; error re-raises at scope exit.
+  Scoped,
+  /// `supervise { }` — in addition to `Scoped`
+  /// semantics, the panic propagates through the
+  /// enclosing task's cascade chain rather than
+  /// stopping at this scope.
+  Supervised,
+}
+
+/// Discriminator for `Insn::TaskSpawn` — green task on
+/// the current scheduler vs fresh OS thread.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpawnKind {
+  /// Multiplex on the current scheduler. Cheap
+  /// (~KB stack), cooperative, yields at channel /
+  /// await boundaries.
+  Green,
+  /// Fresh OS thread via `pthread_create`. Expensive
+  /// (~MB stack), kernel-preemptive, real multi-core
+  /// parallelism. Used via the `spawn thread fn()`
+  /// surface form.
+  Thread,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BinOp {
   /// `+`
