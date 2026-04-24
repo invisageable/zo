@@ -34,7 +34,8 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       | Insn::ChannelRecv { dst, .. }
       | Insn::TaskSpawn { dst, .. }
       | Insn::TaskAwait { dst, .. }
-      | Insn::SelectRecv { dst, .. } => Some(*dst),
+      | Insn::SelectRecv { dst, .. }
+      | Insn::TaskCancelled { dst, .. } => Some(*dst),
       // `SelectWait` has two outputs (`out_which` +
       // companion `SelectRecv.dst` for the value).
       // Liveness tracks the arm index here; the value
@@ -93,6 +94,8 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
     // `SelectWait`'s `out_which` so DCE can't reorder
     // or drop the wait.
     Insn::SelectRecv { which, .. } => vec![*which],
+    Insn::TaskCancelled { task, .. } => vec![*task],
+    Insn::TaskCancel { task } => vec![*task],
     _ => vec![],
   }
 }

@@ -299,6 +299,8 @@ pub fn allocate_function(
         | Insn::ChannelClose { .. }
         | Insn::TaskSpawn { .. }
         | Insn::TaskAwait { .. }
+        | Insn::TaskCancelled { .. }
+        | Insn::TaskCancel { .. }
         | Insn::NurseryEnd { .. }
         | Insn::SelectWait { .. }
     ) {

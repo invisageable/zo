@@ -342,6 +342,8 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::NurseryEnd { .. }
       | Insn::SelectWait { .. }
       | Insn::SelectRecv { .. }
+      | Insn::TaskCancelled { .. }
+      | Insn::TaskCancel { .. }
   )
 }
 

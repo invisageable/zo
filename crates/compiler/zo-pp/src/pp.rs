@@ -576,6 +576,16 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
+        Insn::TaskCancelled { dst, task, ty_id } => {
+          let c = format!("%{dst} = task.cancelled %{task} : {ty_id:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TaskCancel { task } => {
+          let c = format!("task.cancel %{task}");
+
+          self.sir_instruction(&c);
+        }
       }
     }
 

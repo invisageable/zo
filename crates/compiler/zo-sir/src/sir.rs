@@ -91,7 +91,8 @@ impl Sir {
       | Insn::ChannelCreate { dst, .. }
       | Insn::ChannelRecv { dst, .. }
       | Insn::TaskSpawn { dst, .. }
-      | Insn::TaskAwait { dst, .. } => *dst,
+      | Insn::TaskAwait { dst, .. }
+      | Insn::TaskCancelled { dst, .. } => *dst,
       // Template uses `id` as its value.
       Insn::Template { id, .. } => *id,
       // Non-value instructions.
@@ -269,6 +270,13 @@ impl Insn {
         f(dst);
         f(which);
       }
+      Insn::TaskCancelled { dst, task, .. } => {
+        f(dst);
+        f(task);
+      }
+      Insn::TaskCancel { task } => {
+        f(task);
+      }
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
     }
   }
@@ -351,6 +359,8 @@ impl Insn {
       | Insn::TaskAwait { ty_id, .. } => f(ty_id),
       Insn::SelectWait { elem_ty, .. } => f(elem_ty),
       Insn::SelectRecv { ty_id, .. } => f(ty_id),
+      Insn::TaskCancelled { ty_id, .. } => f(ty_id),
+      Insn::TaskCancel { .. } => {}
       Insn::ChannelClose { .. }
       | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
@@ -704,6 +714,24 @@ pub enum Insn {
     ty_id: TyId,
     chans_len: u32,
   },
+  /// Read a task handle's cancellation flag. Surface
+  /// form is `t.cancelled()` where `t: Task<T>`. Lowers
+  /// to `BL _zo_task_is_cancelled(task)` — runtime does
+  /// a relaxed atomic load of the shared flag. `dst`
+  /// receives the resulting `bool`.
+  TaskCancelled {
+    dst: ValueId,
+    task: ValueId,
+    ty_id: TyId,
+  },
+  /// Signal a task to cancel. Surface form is
+  /// `t.cancel()` where `t: Task<T>`. Lowers to
+  /// `BL _zo_task_cancel(task)` — runtime latches the
+  /// shared cancel flag. Cooperative: the task itself
+  /// must poll `.cancelled()` (or the runtime must
+  /// cascade the flag at a yield point) for the
+  /// cancellation to have any observable effect.
+  TaskCancel { task: ValueId },
   /// Open a nursery scope. Every `TaskSpawn` between this
   /// insn and its matching `NurseryEnd` is scoped to this
   /// nursery: on scope exit, all such tasks are joined

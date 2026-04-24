@@ -690,6 +690,8 @@ impl RuntimeNeeds {
         | zo_sir::Insn::ChannelClose { .. }
         | zo_sir::Insn::TaskSpawn { .. }
         | zo_sir::Insn::TaskAwait { .. }
+        | zo_sir::Insn::TaskCancelled { .. }
+        | zo_sir::Insn::TaskCancel { .. }
         | zo_sir::Insn::SelectWait { .. }
         | zo_sir::Insn::NurseryBegin { .. }
         | zo_sir::Insn::NurseryEnd { .. } => {

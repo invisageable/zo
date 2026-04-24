@@ -8356,6 +8356,17 @@ impl<'a> Executor<'a> {
       }
     }
 
+    // `Task<T>::cancel` and `Task<T>::cancelled` mirror
+    // the `Tx/Rx` lowering path — receiver in X0, direct
+    // runtime call, no user FunDef involved.
+    if matches!(resolved, Ty::Task(_)) {
+      let ms = self.interner.get(member_name);
+
+      if ms == "cancel" || ms == "cancelled" {
+        return true;
+      }
+    }
+
     // Generic type param: if the method is an abstract method,
     // this is a valid method call (resolved at mono time).
     if matches!(resolved, Ty::Infer(_)) {
@@ -8816,6 +8827,56 @@ impl<'a> Executor<'a> {
       value: val_sir,
       ty_id: elem_ty,
     });
+  }
+
+  /// Executes `t.cancelled()` on a `Task<T>` handle.
+  /// Pops the receiver from the three stacks, emits
+  /// `Insn::TaskCancelled { dst, task, ty_id }`, and
+  /// pushes the resulting `bool` back. Downstream users
+  /// read the flag through the returned value.
+  fn execute_task_cancelled(&mut self) {
+    let (_recv, _recv_ty, recv_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    let dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let bool_ty = self.ty_checker.bool_type();
+    let dst_sir = self.sir.emit(Insn::TaskCancelled {
+      dst,
+      task: recv_sir,
+      ty_id: bool_ty,
+    });
+
+    let rid = self.values.store_runtime(0);
+
+    self.value_stack.push(rid);
+    self.ty_stack.push(bool_ty);
+    self.sir_values.push(dst_sir);
+  }
+
+  /// Executes `t.cancel()` on a `Task<T>` handle. Pops
+  /// the receiver, emits `Insn::TaskCancel { task }` —
+  /// no value produced; the method is a pure side-
+  /// effecting command (latches the shared flag).
+  fn execute_task_cancel(&mut self) {
+    let (_recv, _recv_ty, recv_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    self.sir.emit(Insn::TaskCancel { task: recv_sir });
   }
 
   /// Executes `tx.close()` / `rx.close()` — emits
@@ -12180,6 +12241,25 @@ impl<'a> Executor<'a> {
                   return;
                 }
 
+                // `t.cancelled()` / `t.cancel()` on a
+                // `Task<T>` handle — the reader / writer
+                // of the shared cancel flag. Mirrors the
+                // channel-method shape above: pop the
+                // receiver, emit the corresponding insn,
+                // no runtime args beyond the handle.
+                if (name_str == "cancelled" || name_str == "cancel")
+                  && let Some(recv_ty) = self.ty_stack.last().copied()
+                  && matches!(self.ty_checker.kind_of(recv_ty), Ty::Task(_))
+                {
+                  if name_str == "cancelled" {
+                    self.execute_task_cancelled();
+                  } else {
+                    self.execute_task_cancel();
+                  }
+
+                  return;
+                }
+
                 // Dot-call: tree [recv, ., method, (, )].
                 let mangled = self.resolve_dot_call(fun_idx, fun_name);
 
@@ -12291,6 +12371,25 @@ impl<'a> Executor<'a> {
                 }
                 _ => {}
               }
+            }
+
+            // `t.cancelled()` / `t.cancel()` on a
+            // `Task<T>` handle — the reader / writer of
+            // the shared cancel flag. Postfix dot-call
+            // shape `[recv, method, ., (, )]` hits this
+            // branch (the receiver is still on the
+            // stack; `execute_task_cancel*` pops it).
+            if (ms == "cancelled" || ms == "cancel")
+              && let Some(recv_ty) = self.ty_stack.last().copied()
+              && matches!(self.ty_checker.kind_of(recv_ty), Ty::Task(_))
+            {
+              if ms == "cancelled" {
+                self.execute_task_cancelled();
+              } else {
+                self.execute_task_cancel();
+              }
+
+              return;
             }
 
             let mangled = self.resolve_dot_call(method_idx, method_sym);

@@ -1,0 +1,21 @@
+-- tests-build-pass: parent cancels a spawned task, reads back the flag.
+-- @cmd — zo build concurrency-task-cancel.zo
+
+fun worker() -> int {
+  42
+}
+
+fun main() {
+  supervise {
+    imu task: Task<int> = spawn worker();
+
+    task.cancel();
+
+    imu flag: bool = task.cancelled();
+
+    showln("cancelled: {flag}");
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- cancelled: true

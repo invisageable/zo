@@ -2833,6 +2833,39 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
+      // `t.cancelled()` method on `Task<T>` — reads the
+      // shared cancel flag. ABI:
+      // `_zo_task_is_cancelled(task) -> bool`, X0 = task
+      // handle, X0 out = result.
+      Insn::TaskCancelled { dst, task, .. } => {
+        if let Some(ch_reg) = self.alloc_reg(*task)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emit_extern_call("_zo_task_is_cancelled");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+
+      // `t.cancel()` method on `Task<T>` — latches the
+      // shared cancel flag. ABI: `_zo_task_cancel(task)`,
+      // X0 = task handle. No result.
+      Insn::TaskCancel { task } => {
+        if let Some(ch_reg) = self.alloc_reg(*task)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emit_extern_call("_zo_task_cancel");
+      }
+
       _ => {}
     }
   }

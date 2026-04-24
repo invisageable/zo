@@ -479,6 +479,10 @@ fn check_insn(
     Insn::SelectRecv { ty_id, .. } => {
       check_placeholder(report, idx, *ty_id, "SelectRecv.ty_id");
     }
+    Insn::TaskCancelled { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "TaskCancelled.ty_id");
+    }
+    Insn::TaskCancel { .. } => {}
   }
 }
 
