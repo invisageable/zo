@@ -12114,24 +12114,25 @@ impl<'a> Executor<'a> {
     let tx_ty = self.ty_checker.channel_tx_type(elem_ty);
     let rx_ty = self.ty_checker.channel_rx_type(elem_ty);
 
-    let tx = ValueId(self.sir.next_value_id);
+    // Single chan handle — the runtime returns one
+    // pointer; the `Tx`/`Rx` distinction is ty-level
+    // only. Both tuple slots alias the same `dst`
+    // ValueId, so register allocation tracks it once
+    // and both halves share the storage.
+    let chan = ValueId(self.sir.next_value_id);
 
     self.sir.next_value_id += 1;
 
-    let rx = ValueId(self.sir.next_value_id);
-
-    self.sir.next_value_id += 1;
-
-    self.sir.emit(Insn::ChannelCreate {
-      tx,
-      rx,
+    let chan_sir = self.sir.emit(Insn::ChannelCreate {
+      dst: chan,
       elem_ty,
       capacity,
     });
 
-    // Pair `tx` and `rx` into a heterogeneous tuple so
-    // the existing tuple-destructure / field-access
-    // paths can unpack them with their distinct types.
+    // Pair the chan handle with itself into a
+    // heterogeneous tuple — tx_ty / rx_ty give the
+    // send / recv halves distinct statically-typed
+    // field views over the same runtime pointer.
     let elem_tys = vec![tx_ty, rx_ty];
     let tuple_ty_id = self.ty_checker.ty_table.intern_tuple(elem_tys);
     let ty_id = self.ty_checker.intern_ty(Ty::Tuple(tuple_ty_id));
@@ -12141,7 +12142,7 @@ impl<'a> Executor<'a> {
 
     let sv = self.sir.emit(Insn::TupleLiteral {
       dst,
-      elements: vec![tx, rx],
+      elements: vec![chan_sir, chan_sir],
       ty_id,
     });
 

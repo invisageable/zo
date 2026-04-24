@@ -328,6 +328,18 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::Template { .. }
       | Insn::StyleSheet { .. }
       | Insn::ArrayTyDef { .. }
+      // Concurrency insns have observable side effects:
+      // channel enqueue/dequeue, task enqueue, scheduler
+      // drain, selective wait on N channels. DCE must
+      // keep them so their operands stay live.
+      | Insn::ChannelCreate { .. }
+      | Insn::ChannelSend { .. }
+      | Insn::ChannelRecv { .. }
+      | Insn::TaskSpawn { .. }
+      | Insn::TaskAwait { .. }
+      | Insn::NurseryBegin { .. }
+      | Insn::NurseryEnd { .. }
+      | Insn::SelectWait { .. }
   )
 }
 

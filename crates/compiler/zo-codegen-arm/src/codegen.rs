@@ -183,6 +183,12 @@ pub struct ARM64Gen<'a> {
   next_mut_slot: u32,
   /// Base offset for struct allocations in the frame.
   struct_base: u32,
+  /// Offset from SP of the 16-byte channel-op scratch
+  /// slot. `ChannelSend` stores the value here before
+  /// the call reads it by pointer; `ChannelRecv`
+  /// reserves it for the runtime's output write which
+  /// is then loaded into the destination register.
+  chan_scratch_base: u32,
   /// Next struct slot offset (relative to struct_base).
   next_struct_slot: u32,
   /// Functions that return structs: name -> field count.
@@ -289,6 +295,7 @@ impl<'a> ARM64Gen<'a> {
       caller_save_base: 0,
       next_mut_slot: 0,
       struct_base: 0,
+      chan_scratch_base: 0,
       next_struct_slot: 0,
       struct_return_fns: HashMap::default(),
       last_was_math_intrinsic: false,
@@ -503,6 +510,31 @@ impl<'a> ARM64Gen<'a> {
 
   /// Load a 64-bit immediate into a register using
   /// MOV + MOVK sequence.
+  /// Byte-size of a value of the given ty, as the
+  /// runtime / ABI sees it. Resolves against the
+  /// tychecker's canonical TyId registration order
+  /// (see `TyChecker::new`). Pointer-backed types
+  /// (strings, tuples, structs, arrays) count as one
+  /// 8-byte word — the value in a register is the
+  /// pointer itself.
+  fn size_of_ty(&self, ty_id: TyId) -> u32 {
+    match ty_id.0 {
+      1 => 0,     // Unit — no bytes.
+      2 => 1,     // Bool.
+      3 => 4,     // Char (Unicode scalar, u32).
+      4 | 5 => 8, // Str / Bytes — fat pointer collapsed to one word
+      // at the channel ABI (producer writes the pointer,
+      // consumer reads it; len lives with the heap data).
+      6 | 11 => 1,      // S8 / U8.
+      7 | 12 => 2,      // S16 / U16.
+      8 | 13 | 10 => 4, // S32 / U32 / IntArch (aligned 4-byte default).
+      9 | 14 => 8,      // S64 / U64.
+      15 => 4,          // F32.
+      16 | 17 => 8,     // F64 / FloatArch.
+      _ => 8,           // Pointers, enums, struct handles — one word.
+    }
+  }
+
   fn emit_mov_imm_64(&mut self, reg: Register, value: u64) {
     if value <= 65535 {
       self.emitter.emit_mov_imm(reg, value as u16);
@@ -1092,10 +1124,18 @@ impl<'a> ARM64Gen<'a> {
               info.spill_size,
               info.struct_size,
               info.mutable_size,
+              info.chan_scratch_size,
             )
           });
 
-        if let Some((has_calls, spill_size, struct_size, mut_size)) = fn_info {
+        if let Some((
+          has_calls,
+          spill_size,
+          struct_size,
+          mut_size,
+          chan_scratch_size,
+        )) = fn_info
+        {
           if has_calls {
             self.emitter.emit_stp(X29, X30, SP, FP_LR_SAVE_OFFSET);
           }
@@ -1107,6 +1147,7 @@ impl<'a> ARM64Gen<'a> {
             + param_reserve
             + caller_save
             + struct_size
+            + chan_scratch_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -1124,6 +1165,14 @@ impl<'a> ARM64Gen<'a> {
           // Struct base: after caller-save area.
           self.struct_base =
             spill_size + mut_size + param_reserve + caller_save;
+
+          // Channel-scratch base: after struct area.
+          // Used by `ChannelSend` / `ChannelRecv` to
+          // pass values through an on-stack buffer that
+          // `_zo_chan_send` / `_zo_chan_recv` reads /
+          // writes by pointer.
+          self.chan_scratch_base =
+            spill_size + mut_size + param_reserve + caller_save + struct_size;
 
           let param_base = spill_size + mut_size;
 
@@ -1924,11 +1973,19 @@ impl<'a> ARM64Gen<'a> {
                 info.spill_size,
                 info.struct_size,
                 info.mutable_size,
+                info.chan_scratch_size,
               )
             })
         });
 
-        if let Some((has_calls, spill_size, struct_size, mut_size)) = epi_info {
+        if let Some((
+          has_calls,
+          spill_size,
+          struct_size,
+          mut_size,
+          chan_scratch_size,
+        )) = epi_info
+        {
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = if has_calls { CALLER_SAVE_RESERVE } else { 0 };
           let frame = (spill_size
@@ -1936,6 +1993,7 @@ impl<'a> ARM64Gen<'a> {
             + param_reserve
             + caller_save
             + struct_size
+            + chan_scratch_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -2514,24 +2572,26 @@ impl<'a> ARM64Gen<'a> {
       // `libzo_runtime.dylib`. Arg-register marshaling
       // is minimal here — args already land in X0..X7
       // via the executor's value lowering.
-      Insn::ChannelCreate { tx, .. } => {
-        // Result pointer lands in X0; stash it into the
-        // register the allocator reserved for the `tx`
-        // handle (the `rx` SSA value aliases the same
-        // pointer at runtime and shares the spill slot).
-        self.emit_extern_call("_zo_chan_new");
+      Insn::ChannelCreate {
+        dst,
+        elem_ty,
+        capacity,
+      } => {
+        // ABI: `_zo_chan_new(elem_sz, capacity) -> *ZoChan`.
+        // X0 = element size in bytes (known at compile
+        // time from `elem_ty`), X1 = capacity (literal
+        // from the SIR insn). Result pointer lands in
+        // X0; `dst` captures the single chan handle.
+        // The Tx/Rx distinction is ty-level only — the
+        // subsequent TupleLiteral aliases the pointer
+        // into two slots so `ch.0` and `ch.1` both
+        // read the same runtime handle.
+        let elem_sz = self.size_of_ty(*elem_ty);
 
-        if let Some(dst_reg) = self.alloc_reg(*tx)
-          && dst_reg != X0
-        {
-          self.emitter.emit_mov_reg(dst_reg, X0);
-        }
-      }
-      Insn::ChannelSend { .. } => {
-        self.emit_extern_call("_zo_chan_send");
-      }
-      Insn::ChannelRecv { dst, .. } => {
-        self.emit_extern_call("_zo_chan_recv");
+        self.emit_mov_imm_64(X0, elem_sz as u64);
+        self.emit_mov_imm_64(X1, *capacity as u64);
+
+        self.emit_extern_call("_zo_chan_new");
 
         if let Some(dst_reg) = self.alloc_reg(*dst)
           && dst_reg != X0
@@ -2539,24 +2599,90 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(dst_reg, X0);
         }
       }
+      Insn::ChannelSend { channel, value, .. } => {
+        // ABI: `_zo_chan_send(chan, src: *const u8)`.
+        // Values live in registers but the runtime
+        // wants a pointer — spill to the scratch slot
+        // reserved by the function prologue, pass its
+        // address in X1.
+        let slot = self.chan_scratch_base as i16;
+
+        if let Some(src_reg) = self.alloc_reg(*value) {
+          self.emitter.emit_str(src_reg, SP, slot);
+        }
+
+        if let Some(ch_reg) = self.alloc_reg(*channel)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emitter.emit_add_imm(X1, SP, slot as u16);
+        self.emit_extern_call("_zo_chan_send");
+      }
+      Insn::ChannelRecv { dst, channel, .. } => {
+        // ABI: `_zo_chan_recv(chan, dst: *mut u8)`.
+        // The runtime writes into the scratch slot;
+        // we then load the written value into the
+        // destination register the allocator reserved
+        // for `dst`.
+        let slot = self.chan_scratch_base as i16;
+
+        if let Some(ch_reg) = self.alloc_reg(*channel)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emitter.emit_add_imm(X1, SP, slot as u16);
+        self.emit_extern_call("_zo_chan_recv");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          self.emitter.emit_ldr(dst_reg, SP, slot);
+        }
+      }
       Insn::TaskSpawn {
-        dst, kind, callee, ..
+        dst,
+        kind,
+        callee,
+        args,
+        ..
       } => {
-        // Two-tier spawn: Green → scheduler-multiplexed;
-        // Thread → fresh OS thread via pthread_create.
-        // ABI: `_zo_task_spawn(callee: fn()) -> *ZoTask`
-        // — load the callee's code address into X0
-        // before the BL. An ADR placeholder is patched
-        // in the post-pass (`function_addr_fixups`)
-        // once the callee's final offset is known.
+        // Runtime exposes `_zo_task_spawn_N(callee,
+        // arg0, ..., arg(N-1))` for N in 0..=3. Order
+        // at the call site is exact C ABI: X0 =
+        // callee address, X1 = arg0, X2 = arg1,
+        // X3 = arg2. `function_addr_fixups` patches
+        // the ADR emitted for the callee once that
+        // function's final code offset is known.
+        let n_args = args.len().min(3);
+
+        // Args land in X1..X(n). Emit in reverse so a
+        // later arg doesn't clobber an earlier arg's
+        // source register before it's moved.
+        for (i, arg) in args.iter().enumerate().take(3).rev() {
+          let dst_reg = Register::new((i + 1) as u8);
+
+          if let Some(src_reg) = self.alloc_reg(*arg)
+            && src_reg != dst_reg
+          {
+            self.emitter.emit_mov_reg(dst_reg, src_reg);
+          }
+        }
+
+        // Callee address in X0 — the runtime ABI's
+        // first parameter.
         let adr_pos = self.emitter.current_offset();
 
         self.emitter.emit_adr(X0, 0);
         self.function_addr_fixups.push((adr_pos, *callee));
 
-        let runtime_sym = match kind {
-          SpawnKind::Green => "_zo_task_spawn",
-          SpawnKind::Thread => "_zo_task_spawn_thread",
+        let runtime_sym = match (kind, n_args) {
+          (SpawnKind::Thread, _) => "_zo_task_spawn_thread",
+          (SpawnKind::Green, 0) => "_zo_task_spawn",
+          (SpawnKind::Green, 1) => "_zo_task_spawn_1",
+          (SpawnKind::Green, 2) => "_zo_task_spawn_2",
+          _ => "_zo_task_spawn_3",
         };
 
         self.emit_extern_call(runtime_sym);

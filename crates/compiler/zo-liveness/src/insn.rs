@@ -28,7 +28,12 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       | Insn::TupleIndex { dst, .. }
       | Insn::EnumConstruct { dst, .. }
       | Insn::StructConstruct { dst, .. }
-      | Insn::Cast { dst, .. } => Some(*dst),
+      | Insn::Cast { dst, .. }
+      // Concurrency value-producing insns.
+      | Insn::ChannelCreate { dst, .. }
+      | Insn::ChannelRecv { dst, .. }
+      | Insn::TaskSpawn { dst, .. }
+      | Insn::TaskAwait { dst, .. } => Some(*dst),
       Insn::Template { id, .. } => Some(*id),
       _ => None,
     })
@@ -69,6 +74,14 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
     Insn::EnumConstruct { fields, .. } => fields.clone(),
     Insn::TupleLiteral { elements, .. } => elements.clone(),
     Insn::Cast { src, .. } => vec![*src],
+    // Concurrency insns — enumerate their ValueId
+    // operands so liveness keeps the defining insns
+    // (TupleIndex / Load / etc.) alive through DCE.
+    Insn::ChannelSend { channel, value, .. } => vec![*channel, *value],
+    Insn::ChannelRecv { channel, .. } => vec![*channel],
+    Insn::TaskSpawn { args, .. } => args.clone(),
+    Insn::TaskAwait { task, .. } => vec![*task],
+    Insn::SelectWait { chans, .. } => chans.clone(),
     _ => vec![],
   }
 }

@@ -479,13 +479,11 @@ impl PrettyPrinter {
 
         // Concurrency insns — single-line dump per insn.
         Insn::ChannelCreate {
-          tx,
-          rx,
+          dst,
           elem_ty,
           capacity,
         } => {
-          let c =
-            format!("%{tx}, %{rx} = chan.new cap={capacity} : {elem_ty:?}",);
+          let c = format!("%{dst} = chan.new cap={capacity} : {elem_ty:?}");
 
           self.sir_instruction(&c);
         }

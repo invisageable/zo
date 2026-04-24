@@ -86,7 +86,12 @@ impl Sir {
       | Insn::TupleIndex { dst, .. }
       | Insn::EnumConstruct { dst, .. }
       | Insn::StructConstruct { dst, .. }
-      | Insn::Cast { dst, .. } => *dst,
+      | Insn::Cast { dst, .. }
+      // Concurrency value-producing insns.
+      | Insn::ChannelCreate { dst, .. }
+      | Insn::ChannelRecv { dst, .. }
+      | Insn::TaskSpawn { dst, .. }
+      | Insn::TaskAwait { dst, .. } => *dst,
       // Template uses `id` as its value.
       Insn::Template { id, .. } => *id,
       // Non-value instructions.
@@ -232,9 +237,8 @@ impl Insn {
         f(dst);
         f(src);
       }
-      Insn::ChannelCreate { tx, rx, .. } => {
-        f(tx);
-        f(rx);
+      Insn::ChannelCreate { dst, .. } => {
+        f(dst);
       }
       Insn::ChannelSend { channel, value, .. } => {
         f(channel);
@@ -614,8 +618,7 @@ pub enum Insn {
   /// `capacity` must be an integer literal — enforced by
   /// the executor at the built-in `channel()` call site.
   ChannelCreate {
-    tx: ValueId,
-    rx: ValueId,
+    dst: ValueId,
     elem_ty: TyId,
     capacity: u32,
   },

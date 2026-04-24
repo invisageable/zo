@@ -117,6 +117,13 @@ pub struct ZoTask {
   /// supervisor can flip it from a different OS
   /// thread.
   pub cancelled: Arc<AtomicBool>,
+  /// Arguments stashed by `_zo_task_spawn_N` and
+  /// replayed into `X0..X(N-1)` by the matching
+  /// `task_shim_N` before jumping to the user
+  /// callee. `0` for the zero-arg spawn. Green-only.
+  user_arg0: u64,
+  user_arg1: u64,
+  user_arg2: u64,
   /// Threaded-kind extension — `Some` when this task
   /// owns a pthread running the user callee; `None`
   /// for the common green-task case.
@@ -161,6 +168,9 @@ impl ZoTask {
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
       cancelled: Arc::new(AtomicBool::new(false)),
+      user_arg0: 0,
+      user_arg1: 0,
+      user_arg2: 0,
       threaded: None,
     });
 
@@ -170,6 +180,99 @@ impl ZoTask {
     let task_addr = &mut *task as *mut ZoTask as u64;
 
     task.ctx.bootstrap(stack_top, task_shim, task_addr);
+
+    task
+  }
+
+  /// Variant for spawning a 1-arg callee — the
+  /// bootstrapped context enters `task_shim_1`, which
+  /// pulls `user_arg0` from the task before jumping to
+  /// `user_entry(arg0)`.
+  fn new_green_1(
+    user_entry: extern "C-unwind" fn(u64),
+    arg0: u64,
+  ) -> Box<Self> {
+    let mut stack = vec![0u8; DEFAULT_STACK_SIZE].into_boxed_slice();
+    let stack_top = unsafe { stack.as_mut_ptr().add(stack.len()) };
+
+    let mut task = Box::new(Self {
+      ctx: Context::zeroed(),
+      state: TaskState::Ready,
+      outcome: TaskOutcome::Running,
+      _stack: stack,
+      user_entry_addr: user_entry as *const () as u64,
+      waiters: Vec::new(),
+      cancelled: Arc::new(AtomicBool::new(false)),
+      user_arg0: arg0,
+      user_arg1: 0,
+      user_arg2: 0,
+      threaded: None,
+    });
+
+    let task_addr = &mut *task as *mut ZoTask as u64;
+
+    task.ctx.bootstrap(stack_top, task_shim_1, task_addr);
+
+    task
+  }
+
+  /// Variant for spawning a 2-arg callee.
+  fn new_green_2(
+    user_entry: extern "C-unwind" fn(u64, u64),
+    arg0: u64,
+    arg1: u64,
+  ) -> Box<Self> {
+    let mut stack = vec![0u8; DEFAULT_STACK_SIZE].into_boxed_slice();
+    let stack_top = unsafe { stack.as_mut_ptr().add(stack.len()) };
+
+    let mut task = Box::new(Self {
+      ctx: Context::zeroed(),
+      state: TaskState::Ready,
+      outcome: TaskOutcome::Running,
+      _stack: stack,
+      user_entry_addr: user_entry as *const () as u64,
+      waiters: Vec::new(),
+      cancelled: Arc::new(AtomicBool::new(false)),
+      user_arg0: arg0,
+      user_arg1: arg1,
+      user_arg2: 0,
+      threaded: None,
+    });
+
+    let task_addr = &mut *task as *mut ZoTask as u64;
+
+    task.ctx.bootstrap(stack_top, task_shim_2, task_addr);
+
+    task
+  }
+
+  /// Variant for spawning a 3-arg callee.
+  fn new_green_3(
+    user_entry: extern "C-unwind" fn(u64, u64, u64),
+    arg0: u64,
+    arg1: u64,
+    arg2: u64,
+  ) -> Box<Self> {
+    let mut stack = vec![0u8; DEFAULT_STACK_SIZE].into_boxed_slice();
+    let stack_top = unsafe { stack.as_mut_ptr().add(stack.len()) };
+
+    let mut task = Box::new(Self {
+      ctx: Context::zeroed(),
+      state: TaskState::Ready,
+      outcome: TaskOutcome::Running,
+      _stack: stack,
+      user_entry_addr: user_entry as *const () as u64,
+      waiters: Vec::new(),
+      cancelled: Arc::new(AtomicBool::new(false)),
+      user_arg0: arg0,
+      user_arg1: arg1,
+      user_arg2: arg2,
+      threaded: None,
+    });
+
+    let task_addr = &mut *task as *mut ZoTask as u64;
+
+    task.ctx.bootstrap(stack_top, task_shim_3, task_addr);
 
     task
   }
@@ -188,6 +291,9 @@ impl ZoTask {
       user_entry_addr: 0,
       waiters: Vec::new(),
       cancelled: Arc::new(AtomicBool::new(false)),
+      user_arg0: 0,
+      user_arg1: 0,
+      user_arg2: 0,
       threaded: Some(ThreadedData {
         join: Mutex::new(None),
         outcome: Arc::new(Mutex::new(TaskOutcome::Running)),
@@ -229,6 +335,95 @@ extern "C-unwind" fn task_shim(task_addr: u64) {
   let result = catch_unwind(AssertUnwindSafe(|| user_entry()));
 
   // SAFETY: same task pointer as above, still live.
+  unsafe {
+    (*task).outcome = match result {
+      Ok(()) => TaskOutcome::Completed,
+      Err(_) => TaskOutcome::Panicked,
+    };
+  }
+
+  exit_current();
+}
+
+/// 1-arg shim — reads `user_entry_addr` + `user_arg0`
+/// from the task, transmutes the address to a 1-arg
+/// function pointer, and calls it under `catch_unwind`.
+extern "C-unwind" fn task_shim_1(task_addr: u64) {
+  let task = task_addr as *mut ZoTask;
+  // SAFETY: `task_addr` carries a live `*mut ZoTask` —
+  // the box outlives this shim's call frame.
+  let (user_entry_addr, arg0) =
+    unsafe { ((*task).user_entry_addr, (*task).user_arg0) };
+
+  // SAFETY: `user_entry_addr` was built from a valid
+  // `extern "C-unwind" fn(u64)` pointer.
+  let user_entry: extern "C-unwind" fn(u64) = unsafe {
+    std::mem::transmute::<*const (), extern "C-unwind" fn(u64)>(
+      user_entry_addr as *const (),
+    )
+  };
+
+  let result = catch_unwind(AssertUnwindSafe(|| user_entry(arg0)));
+
+  unsafe {
+    (*task).outcome = match result {
+      Ok(()) => TaskOutcome::Completed,
+      Err(_) => TaskOutcome::Panicked,
+    };
+  }
+
+  exit_current();
+}
+
+/// 2-arg shim — same pattern as `task_shim_1`.
+extern "C-unwind" fn task_shim_2(task_addr: u64) {
+  let task = task_addr as *mut ZoTask;
+  let (user_entry_addr, arg0, arg1) = unsafe {
+    (
+      (*task).user_entry_addr,
+      (*task).user_arg0,
+      (*task).user_arg1,
+    )
+  };
+
+  let user_entry: extern "C-unwind" fn(u64, u64) = unsafe {
+    std::mem::transmute::<*const (), extern "C-unwind" fn(u64, u64)>(
+      user_entry_addr as *const (),
+    )
+  };
+
+  let result = catch_unwind(AssertUnwindSafe(|| user_entry(arg0, arg1)));
+
+  unsafe {
+    (*task).outcome = match result {
+      Ok(()) => TaskOutcome::Completed,
+      Err(_) => TaskOutcome::Panicked,
+    };
+  }
+
+  exit_current();
+}
+
+/// 3-arg shim — same pattern as `task_shim_1`.
+extern "C-unwind" fn task_shim_3(task_addr: u64) {
+  let task = task_addr as *mut ZoTask;
+  let (user_entry_addr, arg0, arg1, arg2) = unsafe {
+    (
+      (*task).user_entry_addr,
+      (*task).user_arg0,
+      (*task).user_arg1,
+      (*task).user_arg2,
+    )
+  };
+
+  let user_entry: extern "C-unwind" fn(u64, u64, u64) = unsafe {
+    std::mem::transmute::<*const (), extern "C-unwind" fn(u64, u64, u64)>(
+      user_entry_addr as *const (),
+    )
+  };
+
+  let result = catch_unwind(AssertUnwindSafe(|| user_entry(arg0, arg1, arg2)));
+
   unsafe {
     (*task).outcome = match result {
       Ok(()) => TaskOutcome::Completed,
@@ -282,6 +477,62 @@ fn exit_current() -> ! {
 /// equivalent.
 pub unsafe fn spawn(user_entry: extern "C-unwind" fn()) -> *mut ZoTask {
   let task = Box::into_raw(ZoTask::new_green(user_entry));
+
+  scheduler::with(|s| s.enqueue(task));
+
+  task
+}
+
+/// Spawn a 1-arg green task. `arg0` is the single
+/// callee argument, passed through to `user_entry` by
+/// `task_shim_1` on first scheduler dispatch.
+///
+/// # Safety
+///
+/// Same contract as [`spawn`] plus: `user_entry` must
+/// be a live `extern "C-unwind" fn(u64)`.
+pub unsafe fn spawn_1(
+  user_entry: extern "C-unwind" fn(u64),
+  arg0: u64,
+) -> *mut ZoTask {
+  let task = Box::into_raw(ZoTask::new_green_1(user_entry, arg0));
+
+  scheduler::with(|s| s.enqueue(task));
+
+  task
+}
+
+/// Spawn a 2-arg green task. See [`spawn_1`].
+///
+/// # Safety
+///
+/// `user_entry` must be a live
+/// `extern "C-unwind" fn(u64, u64)`.
+pub unsafe fn spawn_2(
+  user_entry: extern "C-unwind" fn(u64, u64),
+  arg0: u64,
+  arg1: u64,
+) -> *mut ZoTask {
+  let task = Box::into_raw(ZoTask::new_green_2(user_entry, arg0, arg1));
+
+  scheduler::with(|s| s.enqueue(task));
+
+  task
+}
+
+/// Spawn a 3-arg green task. See [`spawn_1`].
+///
+/// # Safety
+///
+/// `user_entry` must be a live
+/// `extern "C-unwind" fn(u64, u64, u64)`.
+pub unsafe fn spawn_3(
+  user_entry: extern "C-unwind" fn(u64, u64, u64),
+  arg0: u64,
+  arg1: u64,
+  arg2: u64,
+) -> *mut ZoTask {
+  let task = Box::into_raw(ZoTask::new_green_3(user_entry, arg0, arg1, arg2));
 
   scheduler::with(|s| s.enqueue(task));
 
@@ -462,6 +713,52 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn(
   callee: extern "C-unwind" fn(),
 ) -> *mut ZoTask {
   unsafe { spawn(callee) }
+}
+
+/// Spawn a 1-arg green task.
+///
+/// # Safety
+///
+/// `callee` must be a live
+/// `extern "C-unwind" fn(u64)`. Same handle-lifetime
+/// contract as [`_zo_task_spawn`].
+#[unsafe(export_name = "zo_task_spawn_1")]
+pub unsafe extern "C-unwind" fn _zo_task_spawn_1(
+  callee: extern "C-unwind" fn(u64),
+  arg0: u64,
+) -> *mut ZoTask {
+  unsafe { spawn_1(callee, arg0) }
+}
+
+/// Spawn a 2-arg green task.
+///
+/// # Safety
+///
+/// `callee` must be a live
+/// `extern "C-unwind" fn(u64, u64)`.
+#[unsafe(export_name = "zo_task_spawn_2")]
+pub unsafe extern "C-unwind" fn _zo_task_spawn_2(
+  callee: extern "C-unwind" fn(u64, u64),
+  arg0: u64,
+  arg1: u64,
+) -> *mut ZoTask {
+  unsafe { spawn_2(callee, arg0, arg1) }
+}
+
+/// Spawn a 3-arg green task.
+///
+/// # Safety
+///
+/// `callee` must be a live
+/// `extern "C-unwind" fn(u64, u64, u64)`.
+#[unsafe(export_name = "zo_task_spawn_3")]
+pub unsafe extern "C-unwind" fn _zo_task_spawn_3(
+  callee: extern "C-unwind" fn(u64, u64, u64),
+  arg0: u64,
+  arg1: u64,
+  arg2: u64,
+) -> *mut ZoTask {
+  unsafe { spawn_3(callee, arg0, arg1, arg2) }
 }
 
 /// Spawn a new OS-thread-backed task (`spawn thread

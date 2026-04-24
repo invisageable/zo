@@ -212,14 +212,8 @@ fn collect_value_types(insns: &[Insn]) -> HashMap<ValueId, TyId> {
         out.insert(*id, *ty_id);
       }
       // Concurrency insns that produce typed values.
-      Insn::ChannelCreate {
-        tx, rx, elem_ty, ..
-      } => {
-        // Both halves carry the element type; the Tx/Rx
-        // asymmetry is enforced by the ty variant
-        // (`Ty::ChannelTx` / `Ty::ChannelRx`), not here.
-        out.insert(*tx, *elem_ty);
-        out.insert(*rx, *elem_ty);
+      Insn::ChannelCreate { dst, elem_ty, .. } => {
+        out.insert(*dst, *elem_ty);
       }
       Insn::ChannelRecv { dst, ty_id, .. }
       | Insn::TaskSpawn { dst, ty_id, .. }
@@ -770,8 +764,7 @@ mod tests {
         kind: NurseryKind::Scoped,
       },
       Insn::ChannelCreate {
-        tx: vid(0),
-        rx: vid(1),
+        dst: vid(0),
         elem_ty,
         capacity: 0,
       },
@@ -784,7 +777,7 @@ mod tests {
       },
       Insn::ChannelRecv {
         dst: vid(3),
-        channel: vid(1),
+        channel: vid(0),
         ty_id: elem_ty,
       },
       Insn::TaskAwait {
@@ -824,15 +817,14 @@ mod tests {
 
   #[test]
   fn channel_create_registers_both_halves_in_value_types() {
-    // Regression for the collect_value_types arm that must
-    // insert BOTH tx and rx under the channel's elem_ty — a
-    // downstream BinOp using either handle needs to see its
-    // ty for width-parity checks.
+    // Regression for `collect_value_types` on the
+    // single-dst `ChannelCreate` — a downstream BinOp
+    // using the chan handle needs to see its elem_ty
+    // for width-parity checks.
     let elem_ty = TyId(8);
     let insns = vec![
       Insn::ChannelCreate {
-        tx: vid(0),
-        rx: vid(1),
+        dst: vid(0),
         elem_ty,
         capacity: 4,
       },
@@ -840,7 +832,7 @@ mod tests {
         dst: vid(2),
         op: BinOp::Eq,
         lhs: vid(0),
-        rhs: vid(1),
+        rhs: vid(0),
         ty_id: TyId(2), // bool — the validator's comparison escape hatch
       },
     ];

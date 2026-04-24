@@ -285,6 +285,25 @@ pub fn allocate_function(
       has_calls = true;
     }
 
+    // Concurrency insns all lower to `BL` into the
+    // runtime. The function needs a full non-leaf
+    // prologue (FP/LR save + caller-save reserve)
+    // or the emitted caller-save `STR`s land in
+    // garbage memory and the return address gets
+    // clobbered.
+    if matches!(
+      insn,
+      Insn::ChannelCreate { .. }
+        | Insn::ChannelSend { .. }
+        | Insn::ChannelRecv { .. }
+        | Insn::TaskSpawn { .. }
+        | Insn::TaskAwait { .. }
+        | Insn::NurseryEnd { .. }
+        | Insn::SelectWait { .. }
+    ) {
+      has_calls = true;
+    }
+
     // --- Handle Call (clobbers all caller-saved) ---
     if let Insn::Call { args, .. } = insn {
       has_calls = true;
@@ -569,6 +588,21 @@ pub fn allocate_function(
 
   let mutable_size = (store_names.len() as u32 * 8 + 15) & !15;
 
+  // `ChannelSend` stores the value on stack before the
+  // FFI call reads it by pointer; `ChannelRecv` reads
+  // the result the same way. A single 16-byte slot per
+  // function covers both (one channel op is in flight
+  // at a time per function), and 16 keeps the frame's
+  // 16-byte alignment invariant. Zero when the function
+  // contains no channel ops.
+  let has_channel_op = (0..n).any(|i| {
+    matches!(
+      &insns[start + i],
+      Insn::ChannelSend { .. } | Insn::ChannelRecv { .. }
+    )
+  });
+  let chan_scratch_size = if has_channel_op { 16 } else { 0 };
+
   result.function_info.insert(
     start,
     FunctionInfo {
@@ -577,6 +611,7 @@ pub fn allocate_function(
       spill_size,
       struct_size,
       mutable_size,
+      chan_scratch_size,
     },
   );
 }
