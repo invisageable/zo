@@ -694,52 +694,57 @@ mod tests {
   }
 
   // ----- green-task parking tests -----
-
-  // Channel shared between green tasks + the main
-  // thread's setup. `AtomicU64` stores the raw pointer
-  // so the two `extern "C-unwind"` entries can grab it
-  // without captures (forbidden across that ABI).
-  static SHARED_CH: AtomicU64 = AtomicU64::new(0);
-  static RECEIVED: AtomicU64 = AtomicU64::new(0);
-
-  extern "C-unwind" fn green_sender() {
-    let ch = SHARED_CH.load(Ordering::SeqCst) as *mut ZoChan;
-    let v: u64 = 0x1234;
-
-    unsafe {
-      _zo_chan_send(ch, (&raw const v).cast::<u8>());
-    }
-  }
-
-  extern "C-unwind" fn green_receiver() {
-    let ch = SHARED_CH.load(Ordering::SeqCst) as *mut ZoChan;
-    let mut v: u64 = 0;
-
-    unsafe {
-      _zo_chan_recv(ch, (&raw mut v).cast::<u8>());
-    }
-
-    RECEIVED.store(v, Ordering::SeqCst);
-  }
+  //
+  // Each test defines its own pair of static
+  // `CHAN` / `RECEIVED` slots (plus its own extern
+  // fns) so tests never contend on shared state under
+  // parallel execution. The `extern "C-unwind" fn()`
+  // ABI forbids captures, so a fixed-address static
+  // is the only way to give the task entry point
+  // access to the channel handle and result — one
+  // set per test keeps the paths independent.
 
   #[test]
   fn two_green_tasks_exchange_via_buffered_channel() {
     // Capacity 1 — sender + receiver shouldn't block
     // each other. Proves green-task parking doesn't
     // regress same-scheduler non-contended cases.
+    static CHAN: AtomicU64 = AtomicU64::new(0);
+    static RECEIVED: AtomicU64 = AtomicU64::new(0);
+
+    extern "C-unwind" fn sender() {
+      let ch = CHAN.load(Ordering::SeqCst) as *mut ZoChan;
+      let v: u64 = 0x1234;
+
+      unsafe {
+        _zo_chan_send(ch, (&raw const v).cast::<u8>());
+      }
+    }
+
+    extern "C-unwind" fn receiver() {
+      let ch = CHAN.load(Ordering::SeqCst) as *mut ZoChan;
+      let mut v: u64 = 0;
+
+      unsafe {
+        _zo_chan_recv(ch, (&raw mut v).cast::<u8>());
+      }
+
+      RECEIVED.store(v, Ordering::SeqCst);
+    }
+
     scheduler::reset_for_test();
 
     unsafe {
       let ch = _zo_chan_new(std::mem::size_of::<u64>(), 1);
 
-      SHARED_CH.store(ch as u64, Ordering::SeqCst);
+      CHAN.store(ch as u64, Ordering::SeqCst);
       RECEIVED.store(0, Ordering::SeqCst);
 
-      let sender = _zo_task_spawn(green_sender);
-      let receiver = _zo_task_spawn(green_receiver);
+      let s = _zo_task_spawn(sender);
+      let r = _zo_task_spawn(receiver);
 
-      _zo_task_await(sender);
-      _zo_task_await(receiver);
+      _zo_task_await(s);
+      _zo_task_await(r);
 
       _zo_chan_free(ch);
     }
@@ -846,23 +851,46 @@ mod tests {
     // Capacity 0 — receiver MUST park before any value
     // is available. Proves the green-task park-on-empty
     // + wake-on-send path.
+    static CHAN: AtomicU64 = AtomicU64::new(0);
+    static RECEIVED: AtomicU64 = AtomicU64::new(0);
+
+    extern "C-unwind" fn sender() {
+      let ch = CHAN.load(Ordering::SeqCst) as *mut ZoChan;
+      let v: u64 = 0x1234;
+
+      unsafe {
+        _zo_chan_send(ch, (&raw const v).cast::<u8>());
+      }
+    }
+
+    extern "C-unwind" fn receiver() {
+      let ch = CHAN.load(Ordering::SeqCst) as *mut ZoChan;
+      let mut v: u64 = 0;
+
+      unsafe {
+        _zo_chan_recv(ch, (&raw mut v).cast::<u8>());
+      }
+
+      RECEIVED.store(v, Ordering::SeqCst);
+    }
+
     scheduler::reset_for_test();
 
     unsafe {
       let ch = _zo_chan_new(std::mem::size_of::<u64>(), 0);
 
-      SHARED_CH.store(ch as u64, Ordering::SeqCst);
+      CHAN.store(ch as u64, Ordering::SeqCst);
       RECEIVED.store(0, Ordering::SeqCst);
 
       // Spawn receiver FIRST so it blocks on empty.
-      let receiver = _zo_task_spawn(green_receiver);
+      let r = _zo_task_spawn(receiver);
 
       // Spawn sender SECOND; when it runs, it'll wake
       // the parked receiver.
-      let sender = _zo_task_spawn(green_sender);
+      let s = _zo_task_spawn(sender);
 
-      _zo_task_await(receiver);
-      _zo_task_await(sender);
+      _zo_task_await(r);
+      _zo_task_await(s);
 
       _zo_chan_free(ch);
     }

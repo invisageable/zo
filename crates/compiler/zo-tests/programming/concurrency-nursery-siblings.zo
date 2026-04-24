@@ -6,9 +6,9 @@ fun greeter() {
 }
 
 fun counter() {
-  imu n: int = 42;
+  imu value: int = 42;
 
-  showln("count is {n}");
+  showln("count is {value}");
 }
 
 fun main() {

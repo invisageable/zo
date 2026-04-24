@@ -649,11 +649,26 @@ impl<'a> Executor<'a> {
     self.tree.value(node_idx as u32)
   }
 
+  /// Pop one slot from each of the three stacks that travel together through
+  /// expression execution runtime value id, type id, SIR value id. Returns
+  /// `None` if any stack is empty, leaving the others untouched — callers
+  /// treat that as "nothing to do" and early-return.
+  fn pop_stack_triple(&mut self) -> Option<(ValueId, TyId, ValueId)> {
+    match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => Some((v, t, s)),
+      _ => None,
+    }
+  }
+
   /// Extracts a symbol's string value from a node, owned.
   fn symbol_str(&self, idx: usize) -> String {
     self
       .node_value(idx)
-      .and_then(|v| match v {
+      .and_then(|value| match value {
         NodeValue::Symbol(s) => Some(self.interner.get(s).to_owned()),
         _ => None,
       })
@@ -8789,22 +8804,12 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    let (_val, val_ty, val_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => return,
+    let Some((_val, val_ty, val_sir)) = self.pop_stack_triple() else {
+      return;
     };
 
-    let (_recv, recv_ty, recv_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => return,
+    let Some((_recv, recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
     };
 
     // Element type flows from the Tx's T; unify with the
@@ -8835,13 +8840,8 @@ impl<'a> Executor<'a> {
   /// pushes the resulting `bool` back. Downstream users
   /// read the flag through the returned value.
   fn execute_task_cancelled(&mut self) {
-    let (_recv, _recv_ty, recv_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => return,
+    let Some((_recv, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
     };
 
     let dst = ValueId(self.sir.next_value_id);
@@ -8867,13 +8867,8 @@ impl<'a> Executor<'a> {
   /// no value produced; the method is a pure side-
   /// effecting command (latches the shared flag).
   fn execute_task_cancel(&mut self) {
-    let (_recv, _recv_ty, recv_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => return,
+    let Some((_recv, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
     };
 
     self.sir.emit(Insn::TaskCancel { task: recv_sir });
@@ -8886,13 +8881,8 @@ impl<'a> Executor<'a> {
   /// Stack: [..., receiver]. No explicit args — any
   /// tokens between the parens are ignored.
   fn execute_channel_close(&mut self, _lparen_idx: usize, _rparen_idx: usize) {
-    let (_recv, _recv_ty, recv_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => return,
+    let Some((_recv, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
     };
 
     self.sir.emit(Insn::ChannelClose { channel: recv_sir });
@@ -8901,13 +8891,8 @@ impl<'a> Executor<'a> {
   /// Executes `val = rx.recv()` — emits `ChannelRecv` SIR.
   /// Stack: [..., receiver]. No explicit args.
   fn execute_channel_recv(&mut self, _lparen_idx: usize, _rparen_idx: usize) {
-    let (_recv, recv_ty, recv_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => return,
+    let Some((_recv, recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      return;
     };
 
     // Receiver must be `Rx<T>` — the dispatch guard in

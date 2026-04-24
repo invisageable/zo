@@ -26,3 +26,4 @@ THiS TUTORiAL iS SPLiT BY CONCEPTS:
   - THE TYPE SYSTEM (036-050) — *functions, closures, and inference.*
   - SYSTEMS (051-060) — *modules and ffi (calling `c`/`js`).*
   - BUiLT-iN UI (061-080) — *`zsx` templates and cross-platform apps.*
+  - CONCURRENCY (081-90) — *...*

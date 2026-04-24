@@ -154,6 +154,12 @@ if_stmt = "if", expr, block, [ "else", ( if_stmt | block ) ] ;
    - channel()               — unbuffered  (Tx<T>, Rx<T>)
    - channel(N)              — buffered N slots
    - select { arm, arm }     — selective receive
+
+   Reserved tokens above: `spawn`, `thread`, `await`, `select`,
+   `nursery`, `supervise`. `channel` is NOT reserved — it is a
+   built-in function name recognized by the executor at call
+   sites; the identifier is free for user bindings elsewhere
+   (`imu channel: int = 42` is valid).
 *)
 spawn_expr = "spawn", [ "thread" ], expr ;
 await_expr = "await", expr ;

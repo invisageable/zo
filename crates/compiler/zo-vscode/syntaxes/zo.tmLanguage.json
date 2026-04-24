@@ -72,7 +72,7 @@
     {
       "comment": "keyword",
       "name": "keyword.other.zo",
-      "match": "\\b(apply|as|async|and|channel|css|ffi|global|group|imu|load|macro|mock|mut|nursery|pack|pub|raw|state|supervise|test|unit|unsafe|val|wasm)\\b"
+      "match": "\\b(apply|as|async|and|css|ffi|global|group|imu|load|macro|mock|mut|nursery|pack|pub|raw|state|supervise|test|unit|unsafe|val|wasm)\\b"
     },
     {
       "include": "#me"

@@ -24,18 +24,12 @@
 
 use crate::ctxsw::{Context, ctx_switch};
 use crate::scheduler;
+use crate::stack::TaskStack;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-/// Per-task stack size. Fixed 256 KB; no growth, no
-/// relocation. Current implementation uses a plain
-/// `Box<[u8]>` — a future `mmap` + `mprotect` variant
-/// would turn stack overflow into a clean segfault
-/// instead of heap corruption.
-const DEFAULT_STACK_SIZE: usize = 256 * 1024;
 
 /// Lifecycle states a task moves through. The state
 /// machine is driven entirely by the scheduler thread
@@ -100,10 +94,14 @@ pub struct ZoTask {
   /// inside `threaded.outcome` because it transitions
   /// from a different OS thread.
   pub outcome: TaskOutcome,
-  /// Task-owned stack. Green-only; threaded tasks use
-  /// their pthread's stack and leave this field as an
-  /// empty `Box<[u8]>` (zero heap bytes).
-  _stack: Box<[u8]>,
+  /// Task-owned stack. Virtual reservation with a
+  /// growable committed prefix. Lives inline inside
+  /// the `Box<ZoTask>` heap allocation — its address
+  /// is stable for the task's lifetime, which is what
+  /// the fault-handler registry requires. `None` for
+  /// threaded tasks, which run on the pthread's own
+  /// kernel-managed stack.
+  _stack: Option<TaskStack>,
   /// User callee address, passed via `x20` to the task
   /// shim on first enter. Stored to survive the Box's
   /// move during construction. Green-only.
@@ -165,14 +163,14 @@ impl ZoTask {
   /// and its Context bootstraps into [`task_shim`] on
   /// the first `ctx_switch` into it.
   fn new_green(user_entry: extern "C-unwind" fn()) -> Box<Self> {
-    let mut stack = vec![0u8; DEFAULT_STACK_SIZE].into_boxed_slice();
-    let stack_top = unsafe { stack.as_mut_ptr().add(stack.len()) };
+    let stack = TaskStack::reserve();
+    let stack_top = stack.top();
 
     let mut task = Box::new(Self {
       ctx: Context::zeroed(),
       state: TaskState::Ready,
       outcome: TaskOutcome::Running,
-      _stack: stack,
+      _stack: Some(stack),
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
       cancelled: Arc::new(AtomicBool::new(false)),
@@ -182,6 +180,8 @@ impl ZoTask {
       ret_value: 0,
       threaded: None,
     });
+
+    register_task_stack(&task);
 
     // Carry the task's own address through to the
     // shim, so the shim can read `user_entry_addr` and
@@ -201,14 +201,14 @@ impl ZoTask {
     user_entry: extern "C-unwind" fn(u64),
     arg0: u64,
   ) -> Box<Self> {
-    let mut stack = vec![0u8; DEFAULT_STACK_SIZE].into_boxed_slice();
-    let stack_top = unsafe { stack.as_mut_ptr().add(stack.len()) };
+    let stack = TaskStack::reserve();
+    let stack_top = stack.top();
 
     let mut task = Box::new(Self {
       ctx: Context::zeroed(),
       state: TaskState::Ready,
       outcome: TaskOutcome::Running,
-      _stack: stack,
+      _stack: Some(stack),
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
       cancelled: Arc::new(AtomicBool::new(false)),
@@ -218,6 +218,8 @@ impl ZoTask {
       ret_value: 0,
       threaded: None,
     });
+
+    register_task_stack(&task);
 
     let task_addr = &mut *task as *mut ZoTask as u64;
 
@@ -232,14 +234,14 @@ impl ZoTask {
     arg0: u64,
     arg1: u64,
   ) -> Box<Self> {
-    let mut stack = vec![0u8; DEFAULT_STACK_SIZE].into_boxed_slice();
-    let stack_top = unsafe { stack.as_mut_ptr().add(stack.len()) };
+    let stack = TaskStack::reserve();
+    let stack_top = stack.top();
 
     let mut task = Box::new(Self {
       ctx: Context::zeroed(),
       state: TaskState::Ready,
       outcome: TaskOutcome::Running,
-      _stack: stack,
+      _stack: Some(stack),
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
       cancelled: Arc::new(AtomicBool::new(false)),
@@ -249,6 +251,8 @@ impl ZoTask {
       ret_value: 0,
       threaded: None,
     });
+
+    register_task_stack(&task);
 
     let task_addr = &mut *task as *mut ZoTask as u64;
 
@@ -264,14 +268,14 @@ impl ZoTask {
     arg1: u64,
     arg2: u64,
   ) -> Box<Self> {
-    let mut stack = vec![0u8; DEFAULT_STACK_SIZE].into_boxed_slice();
-    let stack_top = unsafe { stack.as_mut_ptr().add(stack.len()) };
+    let stack = TaskStack::reserve();
+    let stack_top = stack.top();
 
     let mut task = Box::new(Self {
       ctx: Context::zeroed(),
       state: TaskState::Ready,
       outcome: TaskOutcome::Running,
-      _stack: stack,
+      _stack: Some(stack),
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
       cancelled: Arc::new(AtomicBool::new(false)),
@@ -281,6 +285,8 @@ impl ZoTask {
       ret_value: 0,
       threaded: None,
     });
+
+    register_task_stack(&task);
 
     let task_addr = &mut *task as *mut ZoTask as u64;
 
@@ -299,7 +305,7 @@ impl ZoTask {
       ctx: Context::zeroed(),
       state: TaskState::Ready,
       outcome: TaskOutcome::Running,
-      _stack: Box::<[u8]>::default(),
+      _stack: None,
       user_entry_addr: 0,
       waiters: Vec::new(),
       cancelled: Arc::new(AtomicBool::new(false)),
@@ -319,6 +325,34 @@ impl ZoTask {
   /// green-task case.
   pub fn is_threaded(&self) -> bool {
     self.threaded.is_some()
+  }
+}
+
+impl Drop for ZoTask {
+  fn drop(&mut self) {
+    // Pull the registration before the stack's address
+    // can change, then move the stack into the pool.
+    // Threaded tasks never register (no `_stack`), so
+    // this is a no-op for them.
+    if let Some(stack) = self._stack.as_ref() {
+      stack.unregister();
+    }
+
+    if let Some(stack) = self._stack.take() {
+      stack.recycle();
+    }
+  }
+}
+
+/// Publish a freshly-spawned green task's stack to the
+/// fault-handler registry. Called once after the
+/// `Box<ZoTask>` is built, so the registered pointer
+/// points at a heap slot that won't move for the task's
+/// lifetime. No-op on a task whose `_stack` is `None`
+/// (i.e. the threaded shell, which never sets it).
+fn register_task_stack(task: &ZoTask) {
+  if let Some(stack) = task._stack.as_ref() {
+    stack.register();
   }
 }
 
@@ -487,6 +521,12 @@ fn exit_current() -> ! {
     let task = s
       .current()
       .expect("exit_current called outside a task context");
+
+    // Release any TLS entries this task stored before
+    // the `Box<ZoTask>` gets reclaimed — otherwise the
+    // process-wide `TASK_TLS` side table leaks every
+    // dead task's slots forever.
+    crate::tls::clear_for_task(task);
 
     // SAFETY: task pointer is live (the Box is owned
     // by the awaiter or by the scheduler); we hold
@@ -897,34 +937,47 @@ mod tests {
 
   use std::sync::atomic::{AtomicU32, Ordering};
 
-  static COUNTER: AtomicU32 = AtomicU32::new(0);
+  /// Increments the `AtomicU32` whose address is
+  /// passed in as `counter_addr`. Using a pointer-as-
+  /// argument pattern (via `_zo_task_spawn_1`) lets
+  /// each test own its own counter on the stack —
+  /// no shared globals, so tests stay independent
+  /// under parallel execution.
+  extern "C-unwind" fn increment_at(counter_addr: u64) {
+    let counter = counter_addr as *const AtomicU32;
 
-  extern "C-unwind" fn increment_counter() {
-    COUNTER.fetch_add(1, Ordering::SeqCst);
+    unsafe { (*counter).fetch_add(1, Ordering::SeqCst) };
   }
 
-  extern "C-unwind" fn yield_then_increment() {
+  extern "C-unwind" fn yield_then_increment_at(counter_addr: u64) {
     unsafe { scheduler::yield_now() };
-    COUNTER.fetch_add(1, Ordering::SeqCst);
+
+    let counter = counter_addr as *const AtomicU32;
+
+    unsafe { (*counter).fetch_add(1, Ordering::SeqCst) };
   }
 
   extern "C-unwind" fn panicking_task() {
     panic!("intentional green-task panic");
   }
 
+  fn counter_addr(c: &AtomicU32) -> u64 {
+    c as *const AtomicU32 as u64
+  }
+
   #[test]
   fn spawn_await_runs_entry_once() {
     scheduler::reset_for_test();
 
-    COUNTER.store(0, Ordering::SeqCst);
+    let counter = AtomicU32::new(0);
 
     unsafe {
-      let task = _zo_task_spawn(increment_counter);
+      let task = _zo_task_spawn_1(increment_at, counter_addr(&counter));
 
       _zo_task_await(task);
     }
 
-    assert_eq!(COUNTER.load(Ordering::SeqCst), 1);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
   }
 
   #[test]
@@ -933,17 +986,18 @@ mod tests {
     // drains more than one task per await.
     scheduler::reset_for_test();
 
-    COUNTER.store(0, Ordering::SeqCst);
+    let counter = AtomicU32::new(0);
+    let addr = counter_addr(&counter);
 
     let handles: Vec<*mut ZoTask> = (0..50)
-      .map(|_| unsafe { _zo_task_spawn(increment_counter) })
+      .map(|_| unsafe { _zo_task_spawn_1(increment_at, addr) })
       .collect();
 
     for h in handles {
       unsafe { _zo_task_await(h) };
     }
 
-    assert_eq!(COUNTER.load(Ordering::SeqCst), 50);
+    assert_eq!(counter.load(Ordering::SeqCst), 50);
   }
 
   #[test]
@@ -953,17 +1007,18 @@ mod tests {
     // tasks so they eventually make progress.
     scheduler::reset_for_test();
 
-    COUNTER.store(0, Ordering::SeqCst);
+    let counter = AtomicU32::new(0);
+    let addr = counter_addr(&counter);
 
     let handles: Vec<*mut ZoTask> = (0..10)
-      .map(|_| unsafe { _zo_task_spawn(yield_then_increment) })
+      .map(|_| unsafe { _zo_task_spawn_1(yield_then_increment_at, addr) })
       .collect();
 
     for h in handles {
       unsafe { _zo_task_await(h) };
     }
 
-    assert_eq!(COUNTER.load(Ordering::SeqCst), 10);
+    assert_eq!(counter.load(Ordering::SeqCst), 10);
   }
 
   #[test]
@@ -978,25 +1033,83 @@ mod tests {
     }
   }
 
+  // ===== stack-growth tests =====
+  //
+  // Force a green task's stack past the initial
+  // committed page so the guard-page handler must
+  // fire. Success: the task returns its result and
+  // the runtime reports the expected extension count.
+
+  static DEPTH_REACHED: AtomicU32 = AtomicU32::new(0);
+
+  extern "C-unwind" fn recurse_deep(depth_as_u64: u64) {
+    fn inner(n: u32) -> u32 {
+      // Each frame reserves a fixed local so the
+      // compiler cannot tail-call-optimize this into a
+      // loop — we need real stack growth, not a single
+      // frame that mutates a counter.
+      let scratch: [u8; 256] = [0; 256];
+
+      if n == 0 {
+        DEPTH_REACHED.store(
+          std::hint::black_box(&scratch).len() as u32,
+          Ordering::SeqCst,
+        );
+
+        return 0;
+      }
+
+      std::hint::black_box(&scratch);
+
+      inner(n - 1) + 1
+    }
+
+    let d = inner(depth_as_u64 as u32);
+
+    DEPTH_REACHED.store(d, Ordering::SeqCst);
+  }
+
+  #[test]
+  fn green_task_stack_grows_on_deep_recursion() {
+    scheduler::reset_for_test();
+
+    DEPTH_REACHED.store(0, Ordering::SeqCst);
+
+    // 1000 frames × 256 bytes each ≈ 256 KB of stack —
+    // well past the initial one-page commit but well
+    // inside the 8 MB reservation cap. Reaching depth
+    // 1000 is only possible if the fault handler
+    // successfully grew the committed prefix multiple
+    // times; a broken handler would either crash on
+    // the first guard-page write or loop forever.
+    unsafe {
+      let task = _zo_task_spawn_1(recurse_deep, 1000);
+
+      _zo_task_await(task);
+    }
+
+    assert_eq!(DEPTH_REACHED.load(Ordering::SeqCst), 1000);
+  }
+
   // ===== threaded-spawn tests =====
+
+  extern "C-unwind" fn noop_thread_entry() {}
 
   #[test]
   fn threaded_spawn_runs_on_dedicated_os_thread() {
     // A threaded task runs on its own OS thread — no
     // scheduler involvement. This proves the `spawn
     // thread fn()` surface path works end-to-end:
-    // pthread_create → callee → pthread_join.
-    COUNTER.store(0, Ordering::SeqCst);
-
+    // pthread_create → callee → pthread_join. Success
+    // is `await` returning after the pthread exits;
+    // the join acts as the synchronization proof.
     unsafe {
-      let task = _zo_task_spawn_thread(increment_counter);
+      let task = _zo_task_spawn_thread(noop_thread_entry);
 
       assert!((*task).is_threaded());
 
       _zo_task_await(task);
     }
-
-    assert_eq!(COUNTER.load(Ordering::SeqCst), 1);
   }
 
   #[test]
@@ -1015,8 +1128,10 @@ mod tests {
   fn cancel_sets_latched_flag() {
     scheduler::reset_for_test();
 
+    let counter = AtomicU32::new(0);
+
     unsafe {
-      let task = _zo_task_spawn(increment_counter);
+      let task = _zo_task_spawn_1(increment_at, counter_addr(&counter));
 
       assert!(!_zo_task_is_cancelled(task));
 
@@ -1042,21 +1157,23 @@ mod tests {
 
   #[test]
   fn green_and_threaded_tasks_coexist() {
-    // Spawn both kinds; each awaits independently. No
-    // shared state between them here — just that the
-    // two paths don't interfere.
+    // Spawn both kinds; each awaits independently.
+    // The green side runs through the scheduler; the
+    // threaded side takes the pthread path. Success
+    // is: both `await` calls return, and the green
+    // task observably incremented its counter.
     scheduler::reset_for_test();
 
-    COUNTER.store(0, Ordering::SeqCst);
+    let counter = AtomicU32::new(0);
 
     unsafe {
-      let green = _zo_task_spawn(increment_counter);
-      let threaded = _zo_task_spawn_thread(increment_counter);
+      let green = _zo_task_spawn_1(increment_at, counter_addr(&counter));
+      let threaded = _zo_task_spawn_thread(noop_thread_entry);
 
       _zo_task_await(green);
       _zo_task_await(threaded);
     }
 
-    assert_eq!(COUNTER.load(Ordering::SeqCst), 2);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
   }
 }

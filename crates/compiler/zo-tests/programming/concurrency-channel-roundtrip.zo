@@ -6,17 +6,17 @@ fun producer(tx: Tx<int>) {
 }
 
 fun consumer(rx: Rx<int>) {
-  imu v: int = rx.recv();
+  imu value: int = rx.recv();
 
-  showln("got {v}");
+  showln("got {value}");
 }
 
 fun main() {
   nursery {
-    imu ch := channel();
+    imu chan := channel();
 
-    spawn producer(ch.0);
-    spawn consumer(ch.1);
+    spawn producer(chan.0);
+    spawn consumer(chan.1);
   }
 }
 

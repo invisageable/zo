@@ -29,6 +29,7 @@ zo-runtime-render = { workspace = true }
 zo-runtime-web = { workspace = true }
 
 # external:crates.
+libc = { workspace = true }
 
 [dev-dependencies]
 # external:crates.

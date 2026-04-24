@@ -357,20 +357,29 @@ mod tests {
 
   use std::sync::atomic::AtomicU32;
 
-  static COUNTER: AtomicU32 = AtomicU32::new(0);
-
-  extern "C-unwind" fn increment_counter() {
-    COUNTER.fetch_add(1, Ordering::SeqCst);
-  }
+  // Each test owns its own `static` counter + its
+  // own `extern "C-unwind" fn` — the calling
+  // convention forbids captures, so the only way to
+  // observe a task's side effect is through a fixed-
+  // address location. One counter per test keeps the
+  // tests independent so they can run concurrently
+  // under `cargo test` without racing on shared
+  // state.
 
   #[test]
   fn pool_runs_submitted_tasks_across_workers() {
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    extern "C-unwind" fn inc() {
+      COUNTER.fetch_add(1, Ordering::SeqCst);
+    }
+
     COUNTER.store(0, Ordering::SeqCst);
 
     let pool = Pool::new(4);
 
     for _ in 0..1_000 {
-      pool.spawn(increment_counter);
+      pool.spawn(inc);
     }
 
     pool.wait_idle();
@@ -386,12 +395,18 @@ mod tests {
     // Edge case: a pool with exactly one worker
     // degrades to a single-threaded scheduler. No
     // stealing possible. Validates the steal-skip path.
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    extern "C-unwind" fn inc() {
+      COUNTER.fetch_add(1, Ordering::SeqCst);
+    }
+
     COUNTER.store(0, Ordering::SeqCst);
 
     let pool = Pool::new(1);
 
     for _ in 0..100 {
-      pool.spawn(increment_counter);
+      pool.spawn(inc);
     }
 
     pool.wait_idle();
@@ -404,16 +419,22 @@ mod tests {
   #[test]
   fn pool_work_stealing_balances_load() {
     // Submit all work before workers get a chance to
-    // pick up — stealing should rebalance. With 100
-    // tasks and 8 workers, the initial "emptiest queue"
-    // heuristic still produces skew; stealing must
-    // smooth it out.
+    // pick up — stealing should rebalance. With 10k
+    // tasks and 8 workers, the initial "emptiest
+    // queue" heuristic still produces skew; stealing
+    // must smooth it out.
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    extern "C-unwind" fn inc() {
+      COUNTER.fetch_add(1, Ordering::SeqCst);
+    }
+
     COUNTER.store(0, Ordering::SeqCst);
 
     let pool = Pool::new(8);
 
     for _ in 0..10_000 {
-      pool.spawn(increment_counter);
+      pool.spawn(inc);
     }
 
     pool.wait_idle();

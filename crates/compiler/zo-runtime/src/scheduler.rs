@@ -217,6 +217,13 @@ pub unsafe fn run_one_external(task: *mut ZoTask) {
 /// transitioning out of `Ready`. Only called from
 /// scheduler-loop context (not from inside a task).
 unsafe fn run_one(task: *mut ZoTask) {
+  // Every pthread that enters a green task must have
+  // a signal-handler alternate stack installed — a
+  // stack-overflow fault inside the task delivers the
+  // signal onto the faulting (green) stack otherwise,
+  // causing a double-fault. Idempotent per thread.
+  crate::stack::ensure_sigaltstack();
+
   // SAFETY: caller contract.
   unsafe {
     (*task).state = TaskState::Running;

@@ -4,9 +4,11 @@
 //!
 //! Four microbenchmarks:
 //!
-//! 1. `stack_alloc_256kb_vec0` — one `vec![0u8; 256 *
-//!    1024]`. Every spawn pays this unconditionally
-//!    through the task stack allocation.
+//! 1. `task_stack_reserve_commit` — one full
+//!    `TaskStack::reserve()` pair (pop from pool or
+//!    `mmap` + `mprotect` on miss) plus the matching
+//!    recycle on drop. Every spawn pays this
+//!    unconditionally.
 //! 2. `zotask_construct_drop` — construct via
 //!    `ZoTask::new_green_standalone` then drop, no
 //!    execution. Isolates stack-alloc cost from the
@@ -24,6 +26,7 @@
 //! ```
 
 use zo_runtime::scheduler;
+use zo_runtime::stack::TaskStack;
 use zo_runtime::task::{_zo_task_await, _zo_task_spawn, ZoTask};
 
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -33,14 +36,17 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-// ===== 1. stack alloc isolated =====
+// ===== 1. task stack reserve + recycle =====
 
-fn bench_stack_alloc(c: &mut Criterion) {
-  c.bench_function("stack_alloc_256kb_vec0", |b| {
+fn bench_task_stack_reserve_commit(c: &mut Criterion) {
+  c.bench_function("task_stack_reserve_commit", |b| {
     b.iter(|| {
-      let stack = vec![0u8; 256 * 1024];
+      let stack = TaskStack::reserve();
 
-      black_box(stack)
+      // `recycle` consumes the Box and hands it back
+      // to the pool — matches the real spawn / drop
+      // cycle this microbench is trying to isolate.
+      TaskStack::recycle(black_box(stack));
     });
   });
 }
@@ -160,7 +166,7 @@ fn bench_spawn_to_entry_latency(c: &mut Criterion) {
 
 criterion_group!(
   benches,
-  bench_stack_alloc,
+  bench_task_stack_reserve_commit,
   bench_zotask_construct_drop,
   bench_ctxsw_roundtrip,
   bench_spawn_to_entry_latency,

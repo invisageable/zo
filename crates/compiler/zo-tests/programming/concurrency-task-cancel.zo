@@ -11,9 +11,9 @@ fun main() {
 
     task.cancel();
 
-    imu flag: bool = task.cancelled();
+    imu is_cancelled: bool = task.cancelled();
 
-    showln("cancelled: {flag}");
+    showln("cancelled: {is_cancelled}");
   }
 }
 

@@ -22,8 +22,6 @@
 use crate::channel::ZoChan;
 use crate::scheduler;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 /// Sentinel for "no arm has fired yet". Any real arm
 /// index returned is `< MAX`.
 pub const SELECT_NONE: usize = usize::MAX;
@@ -55,8 +53,6 @@ pub unsafe extern "C-unwind" fn _zo_select_wait(
 ) -> usize {
   // Try-recv each channel in turn. First non-empty
   // wins; if none, yield and retry.
-  let attempts = AtomicUsize::new(0);
-
   loop {
     for i in 0..n {
       // SAFETY: caller contract.
@@ -99,8 +95,6 @@ pub unsafe extern "C-unwind" fn _zo_select_wait(
     } else {
       std::thread::sleep(std::time::Duration::from_micros(100));
     }
-
-    attempts.fetch_add(1, Ordering::Relaxed);
   }
 }
 
