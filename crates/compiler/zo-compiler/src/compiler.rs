@@ -687,6 +687,7 @@ impl RuntimeNeeds {
         zo_sir::Insn::ChannelCreate { .. }
         | zo_sir::Insn::ChannelSend { .. }
         | zo_sir::Insn::ChannelRecv { .. }
+        | zo_sir::Insn::ChannelClose { .. }
         | zo_sir::Insn::TaskSpawn { .. }
         | zo_sir::Insn::TaskAwait { .. }
         | zo_sir::Insn::SelectWait { .. }

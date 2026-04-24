@@ -2641,6 +2641,19 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_ldr(dst_reg, SP, slot);
         }
       }
+      Insn::ChannelClose { channel } => {
+        // ABI: `_zo_chan_close(chan)`. X0 carries the
+        // channel handle. Wakes every parked waiter
+        // runtime-side so they observe the closed
+        // state on their next loop.
+        if let Some(ch_reg) = self.alloc_reg(*channel)
+          && ch_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, ch_reg);
+        }
+
+        self.emit_extern_call("_zo_chan_close");
+      }
       Insn::TaskSpawn {
         dst,
         kind,

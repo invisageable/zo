@@ -505,6 +505,11 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
+        Insn::ChannelClose { channel } => {
+          let c = format!("chan.close %{channel}");
+
+          self.sir_instruction(&c);
+        }
         Insn::TaskSpawn {
           dst,
           callee,

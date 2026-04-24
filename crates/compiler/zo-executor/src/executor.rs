@@ -8351,7 +8351,7 @@ impl<'a> Executor<'a> {
     if matches!(resolved, Ty::ChannelTx(_) | Ty::ChannelRx(_)) {
       let ms = self.interner.get(member_name);
 
-      if ms == "send" || ms == "recv" {
+      if ms == "send" || ms == "recv" || ms == "close" {
         return true;
       }
     }
@@ -8816,6 +8816,25 @@ impl<'a> Executor<'a> {
       value: val_sir,
       ty_id: elem_ty,
     });
+  }
+
+  /// Executes `tx.close()` / `rx.close()` — emits
+  /// `ChannelClose` SIR. Either half of the channel
+  /// pair can close it; runtime wakes every parked
+  /// waiter so they observe the closed state.
+  /// Stack: [..., receiver]. No explicit args — any
+  /// tokens between the parens are ignored.
+  fn execute_channel_close(&mut self, _lparen_idx: usize, _rparen_idx: usize) {
+    let (_recv, _recv_ty, recv_sir) = match (
+      self.value_stack.pop(),
+      self.ty_stack.pop(),
+      self.sir_values.pop(),
+    ) {
+      (Some(v), Some(t), Some(s)) => (v, t, s),
+      _ => return,
+    };
+
+    self.sir.emit(Insn::ChannelClose { channel: recv_sir });
   }
 
   /// Executes `val = rx.recv()` — emits `ChannelRecv` SIR.
@@ -11808,6 +11827,23 @@ impl<'a> Executor<'a> {
                     }
                     _ => {}
                   }
+                }
+
+                // `tx.close()` / `rx.close()` — closing
+                // a channel wakes every parked sender
+                // and receiver so they observe the
+                // closed state. Either half can close;
+                // the convention is usually the writer.
+                if name_str == "close"
+                  && let Some(recv_ty) = self.ty_stack.last().copied()
+                  && matches!(
+                    self.ty_checker.kind_of(recv_ty),
+                    Ty::ChannelTx(_) | Ty::ChannelRx(_)
+                  )
+                {
+                  self.execute_channel_close(lparen_idx, rparen_idx);
+
+                  return;
                 }
 
                 // Dot-call: tree [recv, ., method, (, )].

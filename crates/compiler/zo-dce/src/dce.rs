@@ -335,6 +335,7 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::ChannelCreate { .. }
       | Insn::ChannelSend { .. }
       | Insn::ChannelRecv { .. }
+      | Insn::ChannelClose { .. }
       | Insn::TaskSpawn { .. }
       | Insn::TaskAwait { .. }
       | Insn::NurseryBegin { .. }

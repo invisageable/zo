@@ -79,6 +79,7 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
     // (TupleIndex / Load / etc.) alive through DCE.
     Insn::ChannelSend { channel, value, .. } => vec![*channel, *value],
     Insn::ChannelRecv { channel, .. } => vec![*channel],
+    Insn::ChannelClose { channel } => vec![*channel],
     Insn::TaskSpawn { args, .. } => args.clone(),
     Insn::TaskAwait { task, .. } => vec![*task],
     Insn::SelectWait { chans, .. } => chans.clone(),

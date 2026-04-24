@@ -248,6 +248,9 @@ impl Insn {
         f(dst);
         f(channel);
       }
+      Insn::ChannelClose { channel } => {
+        f(channel);
+      }
       Insn::TaskSpawn { dst, args, .. } => {
         f(dst);
         args.iter_mut().for_each(&mut *f);
@@ -347,7 +350,8 @@ impl Insn {
       | Insn::TaskSpawn { ty_id, .. }
       | Insn::TaskAwait { ty_id, .. } => f(ty_id),
       Insn::SelectWait { elem_ty, .. } => f(elem_ty),
-      Insn::ModuleLoad { .. }
+      Insn::ChannelClose { .. }
+      | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
@@ -640,6 +644,13 @@ pub enum Insn {
     channel: ValueId,
     ty_id: TyId,
   },
+  /// Close the channel — wakes every parked sender and
+  /// receiver so they observe the closed state. After
+  /// close, further `ChannelSend` panics and
+  /// `ChannelRecv` drains remaining buffered values
+  /// then returns zero-filled. Idempotent — repeated
+  /// close is a no-op.
+  ChannelClose { channel: ValueId },
   /// Spawn a task running `callee(args)`. `dst` is the task
   /// handle whose type is `Ty::Task(callee_return_ty)`.
   /// Must appear inside a `NurseryBegin` / `NurseryEnd`

@@ -470,7 +470,9 @@ fn check_insn(
     Insn::TaskAwait { ty_id, .. } => {
       check_placeholder(report, idx, *ty_id, "TaskAwait.ty_id");
     }
-    Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
+    Insn::NurseryBegin { .. }
+    | Insn::NurseryEnd { .. }
+    | Insn::ChannelClose { .. } => {}
     Insn::SelectWait { elem_ty, .. } => {
       check_placeholder(report, idx, *elem_ty, "SelectWait.elem_ty");
     }
