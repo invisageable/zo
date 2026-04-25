@@ -189,6 +189,12 @@ pub struct Executor<'a> {
   /// different `Box2<...>` instantiations in the same
   /// function).
   struct_generic_params: HashMap<u32, Vec<TyId>>,
+  /// Same shape as `struct_generic_params` but for enums.
+  /// `Result<$T, $E>` registers `[$T, $E]` here keyed by
+  /// `EnumTyId.0`. Read at variant-construction time to
+  /// unify with fresh per-instance vars and stash the
+  /// resolved args for the match-arm binding lookup.
+  enum_generic_params: HashMap<u32, Vec<TyId>>,
   /// Concrete field types per struct construction, keyed by
   /// the bound local's `Symbol.as_u32()`. Populated when a
   /// generic struct is constructed into a `pending_decl`;
@@ -464,6 +470,7 @@ impl<'a> Executor<'a> {
       pending_imported_enums: Vec::new(),
       var_return_type_args: HashMap::default(),
       struct_generic_params: HashMap::default(),
+      enum_generic_params: HashMap::default(),
       local_struct_field_tys: HashMap::default(),
       generic_tree_ranges: HashMap::default(),
       mono_name_override: None,
@@ -1425,16 +1432,128 @@ impl<'a> Executor<'a> {
             self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
           }
           let mut fields = Vec::with_capacity(field_count as usize);
+          let mut field_value_tys = Vec::with_capacity(field_count as usize);
 
           for _ in 0..field_count {
             if let Some(sv) = self.sir_values.pop() {
               fields.push(sv);
             }
             self.value_stack.pop();
-            self.ty_stack.pop();
+            if let Some(t) = self.ty_stack.pop() {
+              field_value_tys.push(t);
+            }
           }
 
           fields.reverse();
+          field_value_tys.reverse();
+
+          // Per-instance monomorphization for generic enums.
+          // Mirror of the struct B0.5 fix at try_struct_
+          // construct: substitute the variant's payload
+          // types through fresh inference vars per-instance,
+          // unify against the popped value types, then stash
+          // the resolved generic args under `pending_decl.
+          // name` so the match handler's existing
+          // `var_return_type_args` lookup picks them up.
+          //
+          // Without this, a `Result<int, int>` followed by
+          // a `Result<str, int>` either crashes unify on
+          // the global `$T` or silently feeds the wrong
+          // payload type to showln.
+          //
+          // Generics are derived directly from the enum's
+          // variant fields (collecting unique `Ty::Infer`
+          // vars) rather than read from
+          // `enum_generic_params` — that map is per-Executor
+          // and won't be populated for preload-defined
+          // enums (Option/Result). Walking the variant
+          // fields works for both local and imported enums
+          // since `ty_table` is shared across the session.
+          if let Ty::Enum(eid) = self.ty_checker.kind_of(ty_id)
+            && let Some(et) = self.ty_checker.ty_table.enum_ty(eid).copied()
+          {
+            let all_variants =
+              self.ty_checker.ty_table.enum_variants(&et).to_vec();
+
+            // Collect unique generic vars in declaration
+            // order across all variants.
+            let mut generics: Vec<TyId> = Vec::new();
+
+            for v in &all_variants {
+              let fields = self.ty_checker.ty_table.variant_fields(v).to_vec();
+
+              for vf_ty in fields {
+                let resolved = self.ty_checker.kind_of(vf_ty);
+
+                if matches!(resolved, Ty::Infer(_))
+                  && !generics
+                    .iter()
+                    .any(|g| self.ty_checker.kind_of(*g) == resolved)
+                {
+                  generics.push(vf_ty);
+                }
+              }
+            }
+
+            if !generics.is_empty() {
+              let mut subs: rustc_hash::FxHashMap<zo_ty::InferVarId, TyId> =
+                rustc_hash::FxHashMap::default();
+
+              let mut fresh_args: Vec<TyId> =
+                Vec::with_capacity(generics.len());
+
+              for orig in &generics {
+                if let Ty::Infer(v) = self.ty_checker.kind_of(*orig) {
+                  let fresh = self.ty_checker.fresh_var();
+
+                  subs.insert(v, fresh);
+                  fresh_args.push(fresh);
+                } else {
+                  fresh_args.push(*orig);
+                }
+              }
+
+              // Find the matching variant + unify per-
+              // instance field types against the popped
+              // value types.
+              if let Some(variant) = all_variants
+                .iter()
+                .find(|v| v.discriminant == disc)
+                .copied()
+              {
+                let variant_field_tys =
+                  self.ty_checker.ty_table.variant_fields(&variant).to_vec();
+
+                for (i, vf_ty) in variant_field_tys.iter().enumerate() {
+                  let per_instance =
+                    self.ty_checker.substitute_ty(vf_ty, &subs);
+
+                  if let Some(&val_ty) = field_value_tys.get(i) {
+                    let span = self.tree.spans[idx];
+
+                    self.ty_checker.unify(per_instance, val_ty, span);
+                  }
+                }
+              }
+
+              // Stash resolved per-instance generic args
+              // under the decl name. The match handler's
+              // existing `var_return_type_args` lookup
+              // (CL20) picks them up.
+              if let Some(ref decl) = self.pending_decl {
+                let resolved: Vec<zo_ty::Ty> = fresh_args
+                  .iter()
+                  .map(|t| self.ty_checker.kind_of(*t))
+                  .collect();
+
+                if resolved.iter().any(|t| !matches!(t, Ty::Infer(_))) {
+                  self
+                    .var_return_type_args
+                    .insert(decl.name.as_u32(), resolved);
+                }
+              }
+            }
+          }
 
           let dst = ValueId(self.sir.next_value_id);
 
@@ -7126,6 +7245,16 @@ impl<'a> Executor<'a> {
     // Register for variant construction lookup.
     self.enum_defs.push((name, enum_ty_id, ty_id));
 
+    // Persist the enum's generic parameters so each later
+    // construction can substitute fresh per-instance vars
+    // (the same fix shape used for structs in B0.5).
+    if !self.type_params.is_empty() {
+      let params: Vec<TyId> =
+        self.type_params.iter().map(|(_, ty)| *ty).collect();
+
+      self.enum_generic_params.insert(enum_ty_id.0, params);
+    }
+
     self.skip_until = end_idx;
   }
 
@@ -7186,6 +7315,7 @@ impl<'a> Executor<'a> {
     // the next Box2 { a: 1, b: "hi" } unifies `int` with
     // `str` and reports E0575. With this, every construction
     // operates on its own copy of the field types.
+    //
     let field_defs: Vec<zo_ty::StructField> = if let Some(generics) =
       self.struct_generic_params.get(&sty_id.0).cloned()
       && !generics.is_empty()
@@ -12399,7 +12529,8 @@ impl<'a> Executor<'a> {
 
                 // Dot-call: tree [recv, ., method, (, )].
                 // Dot is at fun_idx - 1.
-                let mangled = self.resolve_dot_call(fun_idx - 1, fun_name);
+                let dot_idx = fun_idx - 1;
+                let mangled = self.resolve_dot_call(dot_idx, fun_name);
 
                 if mangled != fun_name {
                   self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
@@ -12413,8 +12544,9 @@ impl<'a> Executor<'a> {
               {
                 // Dot-call: tree [recv, method, ., (, )].
                 // Dot is at lparen_idx - 1.
+                let dot_idx = lparen_idx - 1;
                 let mangled =
-                  self.resolve_dot_call_with_receiver(lparen_idx - 1, fun_name);
+                  self.resolve_dot_call_with_receiver(dot_idx, fun_name);
 
                 if mangled != fun_name {
                   self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
