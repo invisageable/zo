@@ -246,7 +246,7 @@ impl Compiler {
     // `load` statements. Keep in sync with `std/lib.zo`.
     let preload = [
       "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
-      "int", "bool", "arr", "str",
+      "int", "bool", "arr", "str", "map",
     ];
 
     for module_name in preload {

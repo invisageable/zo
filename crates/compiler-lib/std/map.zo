@@ -1,0 +1,74 @@
+pack map;
+
+-! `HashMap<$K, $V>` — open-addressing hash table.
+-!
+-! The `ptr` field carries an opaque pointer (encoded
+-! as `int` for ABI symmetry with the runtime's
+-! `*mut ZoMap`). Codegen recognizes calls to the
+-! seven `__zo_map_*` ffi declarations below and emits
+-! the byte-marshaling sequence per call site — every
+-! method body here is a syntactic anchor; the actual
+-! work happens in the FFI handlers.
+-!
+-! Supported key kinds: `int` (any width), `char`,
+-! `bool`, `str`. Tuple keys are reserved (rejected at
+-! compile time today).
+pub struct HashMap<$K, $V> {
+  ptr: int,
+}
+
+-- Runtime exports. Concrete pointer-based ABI; codegen
+-- handlers in `zo-codegen-arm` derive `key_kind`,
+-- `key_sz`, `val_sz` from the call-site's resolved
+-- `$K` / `$V` types and marshal byte buffers around
+-- each call.
+pub ffi __zo_map_new(
+  key_kind: int,
+  key_sz: int,
+  val_sz: int,
+  cap: int,
+) -> int;
+
+pub ffi __zo_map_insert(map: int, k_ptr: int, v_ptr: int);
+pub ffi __zo_map_get(map: int, k_ptr: int, v_out: int) -> bool;
+pub ffi __zo_map_contains(map: int, k_ptr: int) -> bool;
+pub ffi __zo_map_remove(map: int, k_ptr: int, v_out: int) -> bool;
+pub ffi __zo_map_len(map: int) -> int;
+pub ffi __zo_map_free(map: int);
+
+apply HashMap<$K, $V> {
+  -! Construct an empty map. Initial capacity is set
+  -! by the runtime (16 slots, doubled on grow at
+  -! load factor 0.75).
+  pub fun new() -> Self {
+    Self { ptr: 0 }
+  }
+
+  -! Insert `(k, v)`, overwriting any existing value
+  -! at the same key.
+  pub fun insert(self, k: $K, v: $V) {}
+
+  -! Look up `k`. Returns `Option::Some(v)` on hit,
+  -! `Option::None` on miss.
+  pub fun get(self, k: $K) -> Option<$V> {
+    return Option::None;
+  }
+
+  -! `true` iff `k` is in the map.
+  pub fun contains_key(self, k: $K) -> bool {
+    return false;
+  }
+
+  -! Remove `k`. Returns `Option::Some(removed_value)`
+  -! on hit, `Option::None` on miss. The slot becomes a
+  -! tombstone — chained probes for other keys still
+  -! resolve until the next grow.
+  pub fun remove(self, k: $K) -> Option<$V> {
+    return Option::None;
+  }
+
+  -! Number of live entries.
+  pub fun len(self) -> int {
+    return 0;
+  }
+}
