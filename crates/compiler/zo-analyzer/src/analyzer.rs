@@ -8,6 +8,8 @@ use zo_ty::Annotation;
 use zo_ty_checker::TyChecker;
 use zo_value::{FunDef, Local};
 
+use rustc_hash::FxHashMap as HashMap;
+
 /// Represents the result of semantic analysis.
 pub struct SemanticResult {
   /// The semantic intermediate representation [`Sir`].
@@ -18,7 +20,7 @@ pub struct SemanticResult {
   /// return_type_args for ext functions).
   pub funs: Vec<FunDef>,
   /// Abstract definitions from the executor.
-  pub abstract_defs: std::collections::HashMap<Symbol, AbstractDef>,
+  pub abstract_defs: HashMap<Symbol, AbstractDef>,
 }
 
 /// Imported module symbols to pre-load into the executor.
@@ -31,7 +33,7 @@ pub struct ImportedSymbols {
   /// for re-interning in the executor's own TyChecker).
   pub enums: Vec<ExportedEnum>,
   /// Abstract definitions from loaded modules.
-  pub abstract_defs: std::collections::HashMap<Symbol, AbstractDef>,
+  pub abstract_defs: HashMap<Symbol, AbstractDef>,
 }
 
 /// Represents the [`Analyzer`] phase.

@@ -7,6 +7,8 @@ use zo_span::Span;
 use zo_ty::{FloatWidth, IntWidth, Ty};
 use zo_ty_checker::TyChecker;
 
+use rustc_hash::FxHashSet as HashSet;
+
 use proptest::prelude::*;
 // use proptest::test_runner::{Config, FileFailurePersistence};
 
@@ -98,7 +100,7 @@ proptest! {
     }
 
     // All fresh variables should be unique
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::default();
 
     for var in vars {
       prop_assert!(seen.insert(var.0));

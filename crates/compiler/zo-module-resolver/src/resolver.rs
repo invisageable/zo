@@ -1,6 +1,7 @@
 use zo_interner::{Interner, Symbol};
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap as HashMap;
+
 use std::path::{Path, PathBuf};
 
 /// Re-interns a symbol from one interner into another.
@@ -40,7 +41,7 @@ impl ModuleResolver {
   pub fn new(search_paths: Vec<PathBuf>) -> Self {
     Self {
       search_paths,
-      cache: HashMap::new(),
+      cache: HashMap::default(),
     }
   }
 

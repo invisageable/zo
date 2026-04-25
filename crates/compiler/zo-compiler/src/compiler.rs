@@ -31,7 +31,8 @@ use zo_ty::Mutability;
 use zo_value::ValueId;
 use zo_value::{Local, LocalKind, Pubness};
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -55,8 +56,8 @@ impl Compiler {
       profiler: Profiler::new(),
       reporter: Reporter::new(),
       module_resolver: ModuleResolver::new(Vec::new()),
-      compiling: HashSet::new(),
-      module_table: HashMap::new(),
+      compiling: HashSet::default(),
+      module_table: HashMap::default(),
     }
   }
 
@@ -68,8 +69,8 @@ impl Compiler {
       profiler: Profiler::new(),
       reporter: Reporter::new(),
       module_resolver: ModuleResolver::new(search_paths),
-      compiling: HashSet::new(),
-      module_table: HashMap::new(),
+      compiling: HashSet::default(),
+      module_table: HashMap::default(),
     }
   }
 
@@ -235,7 +236,7 @@ impl Compiler {
     let mut imported_funs = Vec::new();
     let mut imported_vars = Vec::new();
     let mut imported_enums: Vec<zo_module_resolver::ExportedEnum> = Vec::new();
-    let mut imported_abstract_defs = std::collections::HashMap::new();
+    let mut imported_abstract_defs = HashMap::default();
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
     let mut module_next_label_id: u32 = 0;

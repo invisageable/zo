@@ -2,6 +2,8 @@ use crate::tests::common::{assert_sir_structure, execute_raw};
 
 use zo_sir::Insn;
 
+use rustc_hash::FxHashMap as HashMap;
+
 #[test]
 fn match_int_literal_emits_cmp_chain() {
   assert_sir_structure(
@@ -584,7 +586,7 @@ fn match_block_arm_inside_while_array_accumulates() {
 
       // Must have while back-edge: a Jump whose target is
       // a Label that precedes it in the SIR stream.
-      let mut label_positions = std::collections::HashMap::new();
+      let mut label_positions = HashMap::default();
 
       for (pos, insn) in sir.iter().enumerate() {
         if let Insn::Label { id } = insn {
@@ -647,7 +649,7 @@ fn match_if_inside_block_arm_in_while() {
       );
 
       // Must still have while back-edge.
-      let mut label_positions = std::collections::HashMap::new();
+      let mut label_positions = HashMap::default();
 
       for (pos, insn) in sir.iter().enumerate() {
         if let Insn::Label { id } = insn {

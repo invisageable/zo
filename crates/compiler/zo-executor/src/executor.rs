@@ -19,8 +19,9 @@ use zo_value::{
   Value, ValueId, ValueStorage,
 };
 
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
 
 /// Scope frame for variable tracking
 pub struct ScopeFrame {
@@ -259,7 +260,7 @@ pub struct Executor<'a> {
   /// Mangled names whose body SIR has already been emitted
   /// via re-execution — dedup guard against repeated call
   /// sites and recursive generics.
-  reexecuted_instantiations: std::collections::HashSet<Symbol>,
+  reexecuted_instantiations: HashSet<Symbol>,
   /// Buffered closure SIR instructions. Closures emit
   /// their FunDef + body here during execution. Flushed
   /// to `self.sir` after the enclosing function's Return
@@ -464,7 +465,7 @@ impl<'a> Executor<'a> {
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
       deferred_short_circuits: Vec::new(),
-      dot_method_recv_ty: HashMap::new(),
+      dot_method_recv_ty: HashMap::default(),
       closure_counter: 0,
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
@@ -475,21 +476,21 @@ impl<'a> Executor<'a> {
       generic_tree_ranges: HashMap::default(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
-      reexecuted_instantiations: std::collections::HashSet::new(),
+      reexecuted_instantiations: HashSet::default(),
       pending_enum_construct: None,
       apply_context: None,
       pack_context: Vec::new(),
-      pack_names: HashSet::new(),
+      pack_names: HashSet::default(),
       global_constants: Vec::new(),
       type_params: Vec::new(),
-      type_constraints: HashMap::new(),
+      type_constraints: HashMap::default(),
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       direct_call_depth: 0,
       pending_styles: Vec::new(),
       template_bindings: TemplateBindings::default(),
-      abstract_defs: HashMap::new(),
-      abstract_impls: HashMap::new(),
+      abstract_defs: HashMap::default(),
+      abstract_impls: HashMap::default(),
       prescan_only: false,
     }
   }
@@ -984,8 +985,7 @@ impl<'a> Executor<'a> {
   /// array type. Idempotent via a HashSet dedup on the
   /// array's `TyId.0`.
   fn emit_array_ty_defs(&mut self) {
-    let mut seen: std::collections::HashSet<u32> =
-      std::collections::HashSet::new();
+    let mut seen: HashSet<u32> = HashSet::default();
     let mut to_emit: Vec<(TyId, TyId)> = Vec::new();
 
     for insn in &self.sir.instructions {

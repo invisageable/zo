@@ -30,6 +30,7 @@ zo-runtime-web = { workspace = true }
 
 # external:crates.
 libc = { workspace = true }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 # external:crates.

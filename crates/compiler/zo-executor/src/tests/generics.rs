@@ -9,7 +9,7 @@ use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
 use zo_ty_checker::TyChecker;
 
-// === GENERIC FUNCTION PARSING ===
+use rustc_hash::FxHashMap as HashMap;
 
 #[test]
 fn test_generic_fun_emits_fundef() {
@@ -668,8 +668,7 @@ fn body_of(sir: &[Insn], name: zo_interner::Symbol) -> Vec<Insn> {
 /// names, etc. are left alone — they carry meaningful
 /// identity.
 fn canonicalize_value_ids(body: &mut [Insn]) {
-  let mut renumber: std::collections::HashMap<u32, u32> =
-    std::collections::HashMap::new();
+  let mut renumber: HashMap<u32, u32> = HashMap::default();
   let mut next: u32 = 0;
 
   for insn in body.iter_mut() {
