@@ -294,11 +294,13 @@ pub struct Executor<'a> {
 }
 
 /// An `abstract` definition (method signatures, no bodies).
+#[derive(Clone)]
 pub struct AbstractDef {
   pub methods: Vec<AbstractMethod>,
 }
 
 /// A single method signature in an abstract definition.
+#[derive(Clone)]
 pub struct AbstractMethod {
   pub name: Symbol,
   pub params: Vec<(Symbol, TyId)>,
@@ -3959,6 +3961,54 @@ impl<'a> Executor<'a> {
           }
         }
 
+        // `str` equality / inequality at runtime — the
+        // codegen has no ABI for comparing two opaque
+        // `str` pointers byte-wise, so the executor
+        // emits a dedicated `StrEq` insn that lowers
+        // to `BL _zo_str_eq`. The compile-time constant
+        // folder already handled the both-literal case
+        // earlier in the binop path; what lands here
+        // is the any-runtime-operand case.
+        if matches!(op, BinOp::Eq | BinOp::Neq)
+          && matches!(self.ty_checker.kind_of(ty_id), Ty::Str)
+        {
+          let eq_dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+
+          let bool_ty = self.ty_checker.bool_type();
+          let mut result_sir = self.sir.emit(Insn::StrEq {
+            dst: eq_dst,
+            lhs: lhs_sir,
+            rhs: rhs_sir,
+          });
+
+          if op == BinOp::Neq {
+            let neg_dst = ValueId(self.sir.next_value_id);
+
+            self.sir.next_value_id += 1;
+
+            result_sir = self.sir.emit(Insn::UnOp {
+              dst: neg_dst,
+              op: UnOp::Not,
+              rhs: result_sir,
+              ty_id: bool_ty,
+            });
+          }
+
+          let runtime_id = self.values.store_runtime(0);
+
+          self.value_stack.push(runtime_id);
+          self.ty_stack.push(bool_ty);
+          self.sir_values.push(result_sir);
+          self.annotations.push(Annotation {
+            node_idx,
+            ty_id: bool_ty,
+          });
+
+          return;
+        }
+
         // Abstract operator dispatch: if operands are
         // structs with an Eq impl, call Type::eq instead
         // of emitting a primitive BinOp.
@@ -6147,125 +6197,118 @@ impl<'a> Executor<'a> {
     let inclusive = r_bracket_idx > 0
       && self.tree.nodes[r_bracket_idx - 1].token == Token::DotDotEq;
 
-    let (hi_vid, _hi_ty, _hi_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
-
-        return;
-      }
-    };
-
-    let (lo_vid, _lo_ty, _lo_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
-
-        return;
-      }
-    };
-
-    let (_recv_vid, _recv_ty, recv_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
-
-        return;
-      }
-    };
-
-    // Receiver must resolve to a compile-time string. Ident
-    // references are lowered to `Insn::Load { dst, src:
-    // Local(name), .. }` by the expression path, so the
-    // receiver's ValueId on the value stack is a fresh
-    // runtime id — not the original string value. Trace back
-    // through the Load to find the local, then check its
-    // underlying `Value::String`.
-    let recv_sym = match self.resolve_const_str_sym(recv_sir) {
-      Some(sym) => sym,
-      None => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
-
-        return;
-      }
-    };
-
-    // Both bounds must resolve to compile-time ints.
-    let lo = match self.value_as_const_int(lo_vid) {
-      Some(v) => v,
-      None => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
-
-        return;
-      }
-    };
-
-    let hi_raw = match self.value_as_const_int(hi_vid) {
-      Some(v) => v,
-      None => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
-
-        return;
-      }
-    };
-
-    let hi = if inclusive {
-      hi_raw.saturating_add(1)
-    } else {
-      hi_raw
-    };
-
-    if lo > hi {
-      report_error(Error::new(ErrorKind::StrSliceInvalidRange, span));
+    let Some((hi_vid, _hi_ty, hi_sir)) = self.pop_stack_triple() else {
+      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
 
       return;
-    }
+    };
 
-    let src = self.interner.get(recv_sym).to_owned();
-    let src_bytes = src.as_bytes();
-
-    if (hi as usize) > src_bytes.len() {
-      report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
+    let Some((lo_vid, _lo_ty, lo_sir)) = self.pop_stack_triple() else {
+      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
 
       return;
-    }
+    };
 
-    let slice_bytes = &src_bytes[lo as usize..hi as usize];
-    let slice_str = match std::str::from_utf8(slice_bytes) {
-      Ok(s) => s.to_owned(),
-      Err(_) => {
-        // Slice doesn't land on UTF-8 boundary — invalid.
+    let Some((_recv_vid, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
+
+      return;
+    };
+
+    // Compile-time fold path: receiver is a known
+    // literal AND both bounds are constant ints. Folds
+    // to a `ConstString` with the sliced bytes; no
+    // runtime allocation needed.
+    //
+    // Everything else (variable bounds, variable
+    // receiver, ident referring to a non-literal
+    // local) emits a runtime `Insn::StrSlice` that
+    // calls `_zo_str_slice` at execution time.
+    let recv_sym = self.resolve_const_str_sym(recv_sir);
+    let lo_const = self.value_as_const_int(lo_vid);
+    let hi_raw_const = self.value_as_const_int(hi_vid);
+
+    let str_ty = self.ty_checker.str_type();
+
+    if let (Some(recv_sym), Some(lo), Some(hi_raw)) =
+      (recv_sym, lo_const, hi_raw_const)
+    {
+      let hi = if inclusive {
+        hi_raw.saturating_add(1)
+      } else {
+        hi_raw
+      };
+
+      if lo > hi {
+        report_error(Error::new(ErrorKind::StrSliceInvalidRange, span));
+
+        return;
+      }
+
+      let src = self.interner.get(recv_sym).to_owned();
+      let src_bytes = src.as_bytes();
+
+      if (hi as usize) > src_bytes.len() {
         report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
 
         return;
       }
-    };
 
-    let slice_sym = self.interner.intern(&slice_str);
-    let str_ty = self.ty_checker.str_type();
+      let slice_bytes = &src_bytes[lo as usize..hi as usize];
+      let slice_str = match std::str::from_utf8(slice_bytes) {
+        Ok(s) => s.to_owned(),
+        Err(_) => {
+          report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
+
+          return;
+        }
+      };
+
+      let slice_sym = self.interner.intern(&slice_str);
+      let dst = ValueId(self.sir.next_value_id);
+
+      self.sir.next_value_id += 1;
+
+      let sir_value = self.sir.emit(Insn::ConstString {
+        dst,
+        symbol: slice_sym,
+        ty_id: str_ty,
+      });
+
+      let value_id = self.values.store_string(slice_sym);
+
+      self.value_stack.push(value_id);
+      self.ty_stack.push(str_ty);
+      self.sir_values.push(sir_value);
+
+      return;
+    }
+
+    // Runtime path. If `..=` inclusive semantics are
+    // wanted, the executor needs an extra `+1` on the
+    // hi operand before the call — for now, fall back
+    // to half-open `..` only. A future pass can emit a
+    // `BinOp Add(hi, 1)` before the StrSlice when
+    // `inclusive` is true.
+    if inclusive {
+      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+
+      return;
+    }
+
     let dst = ValueId(self.sir.next_value_id);
 
     self.sir.next_value_id += 1;
 
-    let sir_value = self.sir.emit(Insn::ConstString {
+    let sir_value = self.sir.emit(Insn::StrSlice {
       dst,
-      symbol: slice_sym,
+      src: recv_sir,
+      lo: lo_sir,
+      hi: hi_sir,
       ty_id: str_ty,
     });
 
-    let value_id = self.values.store_string(slice_sym);
+    let value_id = self.values.store_runtime(0);
 
     self.value_stack.push(value_id);
     self.ty_stack.push(str_ty);

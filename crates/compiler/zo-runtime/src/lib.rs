@@ -6,6 +6,7 @@ pub mod pool;
 pub mod scheduler;
 pub mod select;
 pub mod stack;
+pub mod str;
 pub mod task;
 pub mod tls;
 

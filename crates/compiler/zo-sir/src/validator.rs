@@ -483,6 +483,10 @@ fn check_insn(
       check_placeholder(report, idx, *ty_id, "TaskCancelled.ty_id");
     }
     Insn::TaskCancel { .. } => {}
+    Insn::StrSlice { ty_id, .. } => {
+      check_placeholder(report, idx, *ty_id, "StrSlice.ty_id");
+    }
+    Insn::StrEq { .. } => {}
   }
 }
 

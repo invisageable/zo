@@ -1,0 +1,33 @@
+-- tests-build-pass: str.trim() — strip ASCII whitespace from both ends.
+-- @cmd — zo build str-trim.zo
+
+fun main() {
+  imu spaced: str = "  hello  ";
+  check@eq(spaced.trim(), "hello");
+
+  imu tabbed: str = "\thello\n";
+  check@eq(tabbed.trim(), "hello");
+
+  imu crlf_wrapped: str = "\r\nabc\r\n";
+  check@eq(crlf_wrapped.trim(), "abc");
+
+  -- Internal whitespace preserved.
+  imu internal: str = "  hello world  ";
+  check@eq(internal.trim(), "hello world");
+
+  -- Idempotent on already-trimmed input.
+  imu bare: str = "hello";
+  check@eq(bare.trim(), "hello");
+
+  -- All-whitespace input becomes empty.
+  imu blanks: str = "   \t\n  ";
+  check@eq(blanks.trim(), "");
+
+  imu empty: str = "";
+  check@eq(empty.trim(), "");
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

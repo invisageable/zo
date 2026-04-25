@@ -1,0 +1,58 @@
+-- tests-build-pass: str.parse_int() — decimal int parse, Option-returning.
+-- @cmd — zo build str-parse-int.zo
+
+fun unwrap_or(maybe: Option<int>, fallback: int) -> int {
+  match maybe {
+    Option::Some(v) => return v,
+    Option::None => return fallback,
+  }
+}
+
+fun is_none(maybe: Option<int>) -> bool {
+  match maybe {
+    Option::Some(_) => return false,
+    Option::None => return true,
+  }
+}
+
+fun main() {
+  imu a: str = "42";
+  check@eq(unwrap_or(a.parse_int(), 0), 42);
+
+  imu b: str = "0";
+  check@eq(unwrap_or(b.parse_int(), -1), 0);
+
+  imu d: str = "1000000";
+  check@eq(unwrap_or(d.parse_int(), 0), 1000000);
+
+  -- Negative integer parse works when matched directly
+  -- on `parse_int()`'s return. Passing the Option
+  -- through a function parameter loses the payload
+  -- (pre-existing codegen bug for `Option::Some(-x)`
+  -- crossing a call boundary — unrelated to `str`).
+  imu neg: str = "-7";
+  match neg.parse_int() {
+    Option::Some(v) => check@eq(v, -7),
+    Option::None => check(false),
+  }
+
+  imu empty: str = "";
+  check(is_none(empty.parse_int()));
+
+  imu dash: str = "-";
+  check(is_none(dash.parse_int()));
+
+  imu mixed: str = "1a";
+  check(is_none(mixed.parse_int()));
+
+  imu letters: str = "abc";
+  check(is_none(letters.parse_int()));
+
+  imu decimal: str = "12.34";
+  check(is_none(decimal.parse_int()));
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

@@ -603,7 +603,7 @@ fun main() {
 
 --- (?) — how to pass argument to silent `...<message>`
 fun foobar() -> int {
-  ... -- equivalent as todo or unimplemented.
+  ... -- equivalent as todo or unimplemented. we raise a default message error like `not implemented yet`.
 }
 
 fun foobar() -> int {

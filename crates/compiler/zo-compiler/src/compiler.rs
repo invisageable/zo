@@ -246,7 +246,7 @@ impl Compiler {
     // `load` statements. Keep in sync with `std/lib.zo`.
     let preload = [
       "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
-      "int", "bool", "arr",
+      "int", "bool", "arr", "str",
     ];
 
     for module_name in preload {
@@ -262,12 +262,26 @@ impl Compiler {
         let mod_tok = Tokenizer::new(&src, &mut session.interner).tokenize();
         let mod_par = Parser::new(&mod_tok, &src).parse();
 
+        // Seed each preload pack's analyzer with symbols
+        // from earlier preload packs so later packs can
+        // use them (e.g. `str.zo` referencing `Option`
+        // from `preload.zo` or calling char methods
+        // defined in `char.zo`). Clones are small and
+        // one-time at startup; without them, each preload
+        // runs in isolation and cross-pack references
+        // silently emit broken SIR.
         let mod_ana = Analyzer::new(
           &mod_par.tree,
           &mut session.interner,
           &mod_tok.literals,
           &mut session.ty_checker,
-        );
+        )
+        .with_imports(ImportedSymbols {
+          funs: imported_funs.clone(),
+          vars: imported_vars.clone(),
+          enums: imported_enums.clone(),
+          abstract_defs: imported_abstract_defs.clone(),
+        });
 
         let mod_sem = mod_ana.analyze();
 
@@ -694,7 +708,9 @@ impl RuntimeNeeds {
         | zo_sir::Insn::TaskCancel { .. }
         | zo_sir::Insn::SelectWait { .. }
         | zo_sir::Insn::NurseryBegin { .. }
-        | zo_sir::Insn::NurseryEnd { .. } => {
+        | zo_sir::Insn::NurseryEnd { .. }
+        | zo_sir::Insn::StrSlice { .. }
+        | zo_sir::Insn::StrEq { .. } => {
           needs.concurrency = true;
         }
         zo_sir::Insn::Template { .. } => {

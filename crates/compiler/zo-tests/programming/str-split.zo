@@ -1,0 +1,39 @@
+-- tests-build-pass: str.split(delim) — split on exact delim matches.
+-- @cmd — zo build str-split.zo
+
+fun main() {
+  imu csv: str = "1,2,3";
+  imu parts: []str = csv.split(",");
+  check@eq(parts.len, 3);
+  check@eq(parts[0], "1");
+  check@eq(parts[1], "2");
+  check@eq(parts[2], "3");
+
+  imu dd: str = "a::b::c";
+  imu double: []str = dd.split("::");
+  check@eq(double.len, 3);
+  check@eq(double[0], "a");
+  check@eq(double[1], "b");
+  check@eq(double[2], "c");
+
+  imu plain: str = "hello";
+  imu no_match: []str = plain.split(",");
+  check@eq(no_match.len, 1);
+  check@eq(no_match[0], "hello");
+
+  imu blank: str = "";
+  imu empty: []str = blank.split(",");
+  check@eq(empty.len, 1);
+  check@eq(empty[0], "");
+
+  imu trail: str = "a,";
+  imu trailing: []str = trail.split(",");
+  check@eq(trailing.len, 2);
+  check@eq(trailing[0], "a");
+  check@eq(trailing[1], "");
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

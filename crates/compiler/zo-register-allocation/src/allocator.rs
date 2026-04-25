@@ -303,6 +303,8 @@ pub fn allocate_function(
         | Insn::TaskCancel { .. }
         | Insn::NurseryEnd { .. }
         | Insn::SelectWait { .. }
+        | Insn::StrSlice { .. }
+        | Insn::StrEq { .. }
     ) {
       has_calls = true;
     }
