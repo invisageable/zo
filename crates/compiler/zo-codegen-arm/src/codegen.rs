@@ -1660,12 +1660,23 @@ impl<'a> ARM64Gen<'a> {
           // (same convention `apply char` / `apply int`
           // already use). Each handler emits the byte-
           // marshaling sequence around `BL _zo_map_*`.
+          //
+          // `HashMap::len`, `HashMap::is_empty`, and
+          // `HashMap::free` are deliberately absent: they
+          // are pure-zo bodies (see `std/map.zo`) that
+          // call the non-marshaling raw FFIs below.
           "HashMap::new" => self.emit_map_new(args, idx),
           "HashMap::insert" => self.emit_map_insert(args, idx),
           "HashMap::get" => self.emit_map_get(args, idx),
           "HashMap::contains_key" => self.emit_map_contains(args, idx),
           "HashMap::remove" => self.emit_map_remove(args, idx),
-          "HashMap::len" => self.emit_map_len(args, idx),
+
+          // Non-marshaling raw FFIs. The argument is the
+          // already-loaded `*mut ZoMap` (from `self.ptr`);
+          // pass through to the runtime export with no
+          // byte marshaling.
+          "__zo_map_len_raw" => self.emit_map_len_raw(args, idx),
+          "__zo_map_free_raw" => self.emit_map_free_raw(args, idx),
 
           // Math intrinsics — ARM64 hardware instructions.
           // The arg is a float in a FP register. Move it
@@ -3994,12 +4005,17 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `m.len()` — load `m.ptr` and call `_zo_map_len`.
-  /// Result is `int` in dst.
-  fn emit_map_len(&mut self, args: &[ValueId], idx: usize) {
-    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+  /// `__zo_map_len_raw(ptr)` — pass-through to
+  /// `_zo_map_len`. Caller already loaded the
+  /// `*mut ZoMap` into the arg register; we just
+  /// route it to X0 and emit the BL.
+  fn emit_map_len_raw(&mut self, args: &[ValueId], idx: usize) {
+    if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
+      && src != X0
+    {
+      self.emitter.emit_mov_reg(X0, src);
+    }
 
-    self.emitter.emit_ldr(X0, recv, 0);
     self.emit_extern_call("_zo_map_len");
 
     if let Some(dst) = self.reg_for_insn(idx)
@@ -4007,6 +4023,18 @@ impl<'a> ARM64Gen<'a> {
     {
       self.emitter.emit_mov_reg(dst, X0);
     }
+  }
+
+  /// `__zo_map_free_raw(ptr)` — pass-through to
+  /// `_zo_map_free`. No return value.
+  fn emit_map_free_raw(&mut self, args: &[ValueId], _idx: usize) {
+    if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
+      && src != X0
+    {
+      self.emitter.emit_mov_reg(X0, src);
+    }
+
+    self.emit_extern_call("_zo_map_free");
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for

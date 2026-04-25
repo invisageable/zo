@@ -422,6 +422,7 @@ fn test_string_fixup() {
     .code
     .windows(hello_bytes.len())
     .any(|window| window == hello_bytes);
+
   let code_contains_world = artifact
     .code
     .windows(world_bytes.len())

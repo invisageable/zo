@@ -47,10 +47,24 @@ pub struct ScopeFrame {
 ///   body dispatches directly to the concrete closure.
 ///
 /// Generic-type and closure-param instantiations share the
-/// same pipeline — `concrete_tys` drives type substitution,
+/// same pipeline — `concretes` drives type substitution,
 /// `closure_subs` drives parameter-to-closure binding, and
 /// either (or both) can be empty.
-type Instantiation = (Symbol, Symbol, Vec<TyId>, Vec<(Symbol, Symbol)>);
+///
+/// `apply_ctx` carries the receiver's struct name when
+/// the instantiation is for a generic apply-method
+/// (`apply Box<$T> { fun get(self) -> $T }` called as
+/// `b.get()`). Re-execution sets `self.apply_context` to
+/// this so the body's `Self`-type lookups + apply-level
+/// `$T` resolve correctly. `None` for plain generic
+/// functions.
+pub(crate) struct Instantiation {
+  pub mangled: Symbol,
+  pub generic: Symbol,
+  pub concretes: Vec<TyId>,
+  pub closure_subs: Vec<(Symbol, Symbol)>,
+  pub apply_ctx: Option<Symbol>,
+}
 
 /// Executor implements compile-time execution of HIR to produce SIR
 ///
@@ -158,16 +172,19 @@ pub struct Executor<'a> {
   /// result. Parallel to `deferred_binops` but finalized via
   /// the φ-sink machinery instead of a plain `BinOp`.
   deferred_short_circuits: Vec<DeferredShortCircuit>,
-  /// Receiver type captured at every Dot that turned out
-  /// to be a method call, keyed by the Dot's tree index.
-  /// `is_dot_method_call` peeks `ty_stack[len-2]` while the
-  /// member ident is still on top — by the time
-  /// `execute_potential_call` runs the receiver has been
-  /// shifted under N call args, so the type can no longer
-  /// be read off the stack uniformly. Stashing it here
-  /// makes mangling work for every receiver shape (literal,
-  /// indexed, call result, bound ident).
-  dot_method_recv_ty: HashMap<usize, TyId>,
+  /// Receiver type + (when receiver is a bare ident) the
+  /// receiver's symbol, captured at every Dot that turned
+  /// out to be a method call, keyed by the Dot's tree
+  /// index. `is_dot_method_call` peeks `ty_stack[len-2]`
+  /// while the member ident is still on top — by the
+  /// time `execute_potential_call` runs the receiver has
+  /// been shifted under N call args, so the type can no
+  /// longer be read off the stack uniformly. The optional
+  /// symbol drives apply-method monomorphization in
+  /// `execute_dot_method_call` — it's the key into
+  /// `local_struct_type_args` that supplies the
+  /// receiver's concrete generic args.
+  dot_method_recv_ty: HashMap<usize, (TyId, Option<Symbol>)>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
@@ -203,12 +220,28 @@ pub struct Executor<'a> {
   /// codegen see the right `Ty::Str` (etc.) instead of the
   /// declaration's shared `Ty::Infer(_)`.
   local_struct_field_tys: HashMap<u32, Vec<TyId>>,
+  /// Concrete generic type args per struct construction,
+  /// keyed by the bound local's `Symbol.as_u32()`.
+  /// `Box<int>` stores `[Ty::Int]`. Consumed by
+  /// `execute_dot_method_call` to drive apply-method
+  /// monomorphization — the receiver's args become the
+  /// substitutions for the method's `$T`.
+  local_struct_type_args: HashMap<u32, Vec<TyId>>,
   /// Pending enum construction: (enum_name, variant_disc,
   /// variant_field_count, ty_id).
   pending_enum_construct: Option<(Symbol, u32, u32, TyId)>,
   /// Current `apply Type` context — the type name being
   /// applied. Methods get mangled as `Type::method`.
   apply_context: Option<Symbol>,
+  /// Apply-block-level type parameter NAMES, indexed by
+  /// receiver type symbol. For `apply Box<$T> { ... }`,
+  /// `apply_type_params[Box] = [$T]`. Used by the
+  /// instantiation pass to re-install apply-level type
+  /// params before the method body re-executes — without
+  /// this, `$T` references in the body's signature or
+  /// expressions fail to resolve because the apply block
+  /// itself is not re-entered during re-execution.
+  apply_type_params: HashMap<Symbol, Vec<Symbol>>,
   /// Nested `pack` context — each entry is
   /// `(pack_name, rbrace_idx)` where `rbrace_idx` is the
   /// tree index of the pack's closing `}`. Functions
@@ -473,12 +506,14 @@ impl<'a> Executor<'a> {
       struct_generic_params: HashMap::default(),
       enum_generic_params: HashMap::default(),
       local_struct_field_tys: HashMap::default(),
+      local_struct_type_args: HashMap::default(),
       generic_tree_ranges: HashMap::default(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
       reexecuted_instantiations: HashSet::default(),
       pending_enum_construct: None,
       apply_context: None,
+      apply_type_params: HashMap::default(),
       pack_context: Vec::new(),
       pack_names: HashSet::default(),
       global_constants: Vec::new(),
@@ -642,7 +677,7 @@ impl<'a> Executor<'a> {
     self.expected_ty_stack.push(next_expected);
   }
 
-  /// Closes the active call context iff `idx` matches its
+  /// Closes the active call context if `idx` matches its
   /// recorded RParen. Pops the final arg's expected type
   /// plus the [`CallCtx`] itself. No-op otherwise (RParen
   /// of a tuple literal, enum constructor, etc.).
@@ -1414,7 +1449,7 @@ impl<'a> Executor<'a> {
       // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
         // Pop the call context + its final expected type
-        // frame iff this RParen closes an active user call.
+        // frame if this RParen closes an active user call.
         // A no-op for tuple / grouping / enum-ctor RParens.
         self.end_call_ctx(idx);
 
@@ -3015,7 +3050,25 @@ impl<'a> Executor<'a> {
           // between. Keyed by the Dot's tree index.
           if self.ty_stack.len() >= 2 {
             let recv_ty = self.ty_stack[self.ty_stack.len() - 2];
-            self.dot_method_recv_ty.insert(idx, recv_ty);
+
+            // For bare-ident receivers, capture the
+            // symbol too — apply-method dispatch
+            // (`execute_dot_method_call`) consults
+            // `local_struct_type_args[recv_sym]` for
+            // monomorphization. Non-ident receivers
+            // (`s[0].m()`, `f().m()`) yield None and
+            // skip the mono path.
+            let recv_sym =
+              if idx >= 2 && self.tree.nodes[idx - 2].token == Token::Ident {
+                match self.node_value(idx - 2) {
+                  Some(NodeValue::Symbol(s)) => Some(s),
+                  _ => None,
+                }
+              } else {
+                None
+              };
+
+            self.dot_method_recv_ty.insert(idx, (recv_ty, recv_sym));
           }
 
           // Don't consume stack — method call needs
@@ -6970,8 +7023,17 @@ impl<'a> Executor<'a> {
     let mut return_ty = self.ty_checker.unit_type();
     let mut idx = start_idx + 2;
 
-    // Parse optional type parameters: <$T>.
+    // Parse optional type parameters: <$T>. FFI signatures
+    // do NOT inherit outer apply-level params — an FFI is
+    // a module-level extern, even if textually adjacent to
+    // (or interleaved with) an apply block. The outer
+    // params get saved and restored unconditionally so the
+    // FFI's own type-param scan starts clean. Without this
+    // isolation, calls to bare-name FFIs from inside apply-
+    // method bodies get mangled with the apply's `<$K,$V>`
+    // and dispatch to nonexistent functions.
     let outer_type_params = std::mem::take(&mut self.type_params);
+    let mut ffi_type_params: Vec<(Symbol, TyId)> = Vec::new();
 
     if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
       idx += 1;
@@ -6990,7 +7052,7 @@ impl<'a> Executor<'a> {
           if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
             let var = self.ty_checker.fresh_var();
 
-            self.type_params.push((sym, var));
+            ffi_type_params.push((sym, var));
           }
         }
 
@@ -6998,9 +7060,7 @@ impl<'a> Executor<'a> {
       }
     }
 
-    if self.type_params.is_empty() {
-      self.type_params = outer_type_params;
-    }
+    self.type_params = ffi_type_params;
 
     // Parse parameters.
     if idx < end_idx && self.tree.nodes[idx].token == Token::LParen {
@@ -7114,6 +7174,11 @@ impl<'a> Executor<'a> {
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
     });
+
+    // Restore the outer scope's type params (apply block
+    // or other) so subsequent declarations see what they
+    // expect. FFI scoping is local to its own signature.
+    self.type_params = outer_type_params;
 
     // Skip all children — no body to process.
     self.skip_until = end_idx;
@@ -7316,6 +7381,13 @@ impl<'a> Executor<'a> {
     // `str` and reports E0575. With this, every construction
     // operates on its own copy of the field types.
     //
+    // `generics_with_fresh` carries the (orig var, fresh
+    // TyId) pairing past the field-defs build so the
+    // post-unification stash step can resolve fresh vars
+    // back to concrete types and store them under
+    // `pending_decl.name` for apply-method dispatch.
+    let mut generics_with_fresh: Vec<(TyId, TyId)> = Vec::new();
+
     let field_defs: Vec<zo_ty::StructField> = if let Some(generics) =
       self.struct_generic_params.get(&sty_id.0).cloned()
       && !generics.is_empty()
@@ -7325,7 +7397,10 @@ impl<'a> Executor<'a> {
 
       for orig in &generics {
         if let Ty::Infer(v) = self.ty_checker.kind_of(*orig) {
-          subs.insert(v, self.ty_checker.fresh_var());
+          let fresh = self.ty_checker.fresh_var();
+
+          subs.insert(v, fresh);
+          generics_with_fresh.push((*orig, fresh));
         }
       }
 
@@ -7494,6 +7569,29 @@ impl<'a> Executor<'a> {
         self
           .local_struct_field_tys
           .insert(decl.name.as_u32(), resolved);
+      }
+
+      // Resolve each fresh per-instance generic var to
+      // its concrete type and stash under the bound
+      // local's name. Apply-method dispatch
+      // (`execute_dot_method_call`) reads this to drive
+      // monomorphization — `b1.get()` reads
+      // `local_struct_type_args[b1]` to substitute the
+      // method's `$T` against the receiver's args.
+      if !generics_with_fresh.is_empty() {
+        let type_args: Vec<TyId> = generics_with_fresh
+          .iter()
+          .map(|(_, fresh)| self.ty_checker.resolve_id(*fresh))
+          .collect();
+
+        if type_args
+          .iter()
+          .any(|t| !matches!(self.ty_checker.kind_of(*t), Ty::Infer(_)))
+        {
+          self
+            .local_struct_type_args
+            .insert(decl.name.as_u32(), type_args);
+        }
       }
     }
 
@@ -8318,6 +8416,7 @@ impl<'a> Executor<'a> {
     self.type_params.clear();
 
     let mut idx = start_idx + 2;
+    let mut apply_param_names: Vec<Symbol> = Vec::new();
 
     if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
       idx += 1;
@@ -8337,11 +8436,19 @@ impl<'a> Executor<'a> {
             let var = self.ty_checker.fresh_var();
 
             self.type_params.push((sym, var));
+            apply_param_names.push(sym);
           }
         }
 
         idx += 1;
       }
+    }
+
+    // Stash apply-block-level type-param names so the
+    // instantiation pass can re-install them when a method
+    // body re-executes per concrete substitution.
+    if !apply_param_names.is_empty() {
+      self.apply_type_params.insert(type_name, apply_param_names);
     }
 
     // Skip to LBrace, then process children normally.
@@ -8714,7 +8821,7 @@ impl<'a> Executor<'a> {
     // the old fallback and only covered bare-ident
     // receivers; the stash covers every receiver shape.
     let ty_id = match self.dot_method_recv_ty.get(&dot_idx) {
-      Some(&t) => t,
+      Some(&(t, _)) => t,
       None => return method_name,
     };
 
@@ -8780,7 +8887,7 @@ impl<'a> Executor<'a> {
     // `dot_method_recv_ty` keyed by the Dot's tree
     // index, so dispatch works for every receiver shape.
     let ty_id = match self.dot_method_recv_ty.get(&dot_idx) {
-      Some(&t) => t,
+      Some(&(t, _)) => t,
       None => return method_name,
     };
 
@@ -8830,9 +8937,14 @@ impl<'a> Executor<'a> {
   /// Executes a dot-call `receiver.method(args)`.
   /// The receiver is already on the stack (left by the
   /// Dot handler). Injects it as the first argument.
+  /// `dot_idx` indexes `dot_method_recv_ty` to recover
+  /// the receiver's symbol (when bare-ident) for
+  /// per-instance generic-arg lookup at apply-method
+  /// monomorphization.
   fn execute_dot_method_call(
     &mut self,
     mangled_name: Symbol,
+    dot_idx: usize,
     lparen_idx: usize,
     rparen_idx: usize,
   ) {
@@ -8946,22 +9058,110 @@ impl<'a> Executor<'a> {
 
     full_args.extend(arg_sirs);
 
+    // Per-call monomorphization for generic apply
+    // methods. Same pipeline as `execute_call`'s mono
+    // block, but substitutions come from the receiver's
+    // concrete generic args (recorded at struct
+    // construction in `local_struct_type_args`) rather
+    // than the call's arg types. Two `Box<int>` and
+    // `Box<str>` instantiations need distinct bodies —
+    // without this, the first call binds `$T` globally
+    // and the second's payload type-resolves wrong.
+    //
+    // Hot-path discipline: bail before any HashMap
+    // lookups when `func` has no type params (the
+    // overwhelming majority of method calls). Chained
+    // receivers (`s[0].m()`, `f().m()`) carry no bound
+    // local symbol and skip the mono branch — their
+    // concrete args aren't recoverable.
+    let (call_name, call_return_ty) = 'mono: {
+      if func.type_params.is_empty() {
+        break 'mono (mangled_name, func.return_ty);
+      }
+
+      let Some(&(recv_ty, recv_sym_opt)) =
+        self.dot_method_recv_ty.get(&dot_idx)
+      else {
+        break 'mono (mangled_name, func.return_ty);
+      };
+
+      let Some(recv_sym) = recv_sym_opt else {
+        break 'mono (mangled_name, func.return_ty);
+      };
+
+      let Some(args) = self.local_struct_type_args.get(&recv_sym.as_u32())
+      else {
+        break 'mono (mangled_name, func.return_ty);
+      };
+
+      let recv_struct_name = match self.ty_checker.kind_of(recv_ty) {
+        Ty::Struct(sid) => {
+          self.ty_checker.ty_table.struct_ty(sid).map(|st| st.name)
+        }
+        _ => None,
+      };
+
+      // Build per-call substitutions: each method-
+      // level type param gets a fresh inference var,
+      // unified against the receiver's resolved arg
+      // at the same index.
+      let mut subs: Vec<(TyId, TyId)> =
+        Vec::with_capacity(func.type_params.len());
+      let span = self.tree.spans[dot_idx];
+      let arg_count = args.len();
+      let arg_concretes: Vec<TyId> =
+        args.iter().take(func.type_params.len()).copied().collect();
+
+      for (i, tp) in func.type_params.iter().enumerate() {
+        let fresh = self.ty_checker.fresh_var();
+
+        subs.push((*tp, fresh));
+
+        if i < arg_count {
+          self.ty_checker.unify(fresh, arg_concretes[i], span);
+        }
+      }
+
+      // Substitute through return type.
+      let mut subs_map: rustc_hash::FxHashMap<zo_ty::InferVarId, TyId> =
+        rustc_hash::FxHashMap::default();
+
+      for (orig, fresh) in &subs {
+        if let Ty::Infer(v) = self.ty_checker.kind_of(*orig) {
+          subs_map.insert(v, *fresh);
+        }
+      }
+
+      let new_return =
+        self.ty_checker.substitute_ty(&func.return_ty, &subs_map);
+
+      let sym = self.register_mono_instantiation(
+        mangled_name,
+        &func,
+        &subs,
+        Some(new_return),
+        recv_struct_name,
+      );
+
+      (sym, new_return)
+    };
+
     // Emit call.
     let dst = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
 
     let result_sir = self.sir.emit(Insn::Call {
       dst,
-      name: mangled_name,
+      name: call_name,
       args: full_args,
-      ty_id: func.return_ty,
+      ty_id: call_return_ty,
     });
 
-    if func.return_ty != self.ty_checker.unit_type() {
+    if call_return_ty != self.ty_checker.unit_type() {
       let result_val = self.values.store_runtime(0);
 
       self.value_stack.push(result_val);
-      self.ty_stack.push(func.return_ty);
+      self.ty_stack.push(call_return_ty);
       self.sir_values.push(result_sir);
     }
   }
@@ -12533,7 +12733,9 @@ impl<'a> Executor<'a> {
                 let mangled = self.resolve_dot_call(dot_idx, fun_name);
 
                 if mangled != fun_name {
-                  self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
+                  self.execute_dot_method_call(
+                    mangled, dot_idx, lparen_idx, rparen_idx,
+                  );
 
                   return;
                 }
@@ -12549,7 +12751,9 @@ impl<'a> Executor<'a> {
                   self.resolve_dot_call_with_receiver(dot_idx, fun_name);
 
                 if mangled != fun_name {
-                  self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
+                  self.execute_dot_method_call(
+                    mangled, dot_idx, lparen_idx, rparen_idx,
+                  );
 
                   return;
                 }
@@ -12665,7 +12869,9 @@ impl<'a> Executor<'a> {
             let mangled = self.resolve_dot_call(method_idx, method_sym);
 
             if mangled != method_sym {
-              self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
+              self.execute_dot_method_call(
+                mangled, method_idx, lparen_idx, rparen_idx,
+              );
             }
           }
         }
@@ -13135,82 +13341,10 @@ impl<'a> Executor<'a> {
       // For generic functions, mangle the call name with
       // resolved types so each instantiation gets its own
       // function copy (monomorphization).
-      let call_name = if !func.type_params.is_empty() {
-        let base = self.interner.get(func.name).to_owned();
-        let mut mangled = base;
-
-        for (i, tp) in func.type_params.iter().enumerate() {
-          // Use the substituted fresh var (unified with
-          // the concrete type), not the original var.
-          let actual = subs.get(i).map(|(_, new)| *new).unwrap_or(*tp);
-          let resolved = self.ty_checker.resolve_id(actual);
-          let ty = self.ty_checker.resolve_ty(resolved);
-          let ty_name_owned: String;
-
-          let ty_name = match ty {
-            Ty::Int { .. } => "int",
-            Ty::Float(_) => "float",
-            Ty::Bool => "bool",
-            Ty::Str => "str",
-            Ty::Char => "char",
-            Ty::Struct(sid) => {
-              ty_name_owned = self
-                .ty_checker
-                .ty_table
-                .struct_ty(sid)
-                .map(|s| self.interner.get(s.name).to_owned())
-                .unwrap_or_else(|| "unknown".into());
-              &ty_name_owned
-            }
-            Ty::Enum(eid) => {
-              ty_name_owned = self
-                .ty_checker
-                .ty_table
-                .enum_ty(eid)
-                .map(|e| self.interner.get(e.name).to_owned())
-                .unwrap_or_else(|| "unknown".into());
-              &ty_name_owned
-            }
-            _ => "unknown",
-          };
-
-          mangled = format!("{mangled}__{ty_name}");
-        }
-
-        let sym = self.interner.intern(&mangled);
-
-        // Record instantiation for the instantiation pass.
-        if !self.funs.iter().any(|f| f.name == sym) {
-          let mut mono_def = func.clone();
-
-          mono_def.name = sym;
-          mono_def.type_params = Vec::new();
-
-          self.funs.push(mono_def);
-
-          // Resolve each fresh var (now unified with the
-          // concrete argument type) to its concrete TyId.
-          // Stored by `$T` position so the re-execution
-          // pass can bind the freshly-parsed type params
-          // directly. Snapshotting here — instead of at
-          // mono time — insulates us from later mutations
-          // of the ty_checker's substitution map.
-          let concretes: Vec<TyId> = subs
-            .iter()
-            .map(|(_, fresh)| self.ty_checker.resolve_id(*fresh))
-            .collect();
-
-          self.pending_instantiations.push((
-            sym,
-            func.name,
-            concretes,
-            Vec::new(),
-          ));
-        }
-
-        sym
-      } else {
+      let call_name = if func.type_params.is_empty() {
         func.name
+      } else {
+        self.register_mono_instantiation(func.name, &func, &subs, None, None)
       };
 
       // Closure param monomorphization: when a closure is
@@ -13280,12 +13414,13 @@ impl<'a> Executor<'a> {
             // Call-name rewrite). No type substitutions
             // here — closure-param mono is orthogonal to
             // generic-type mono.
-            self.pending_instantiations.push((
-              mono_sym,
-              call_name,
-              Vec::new(),
-              closure_subs.clone(),
-            ));
+            self.pending_instantiations.push(Instantiation {
+              mangled: mono_sym,
+              generic: call_name,
+              concretes: Vec::new(),
+              closure_subs: closure_subs.clone(),
+              apply_ctx: None,
+            });
           }
 
           mono_sym
@@ -13919,6 +14054,101 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Mangles `base_name` by appending `__<ty_name>` per
+  /// substitution entry, registers the monomorphized
+  /// `FunDef` (cloning `func` with the mangled name and
+  /// optional `override_return`), and queues the
+  /// instantiation for re-execution. Idempotent: when a
+  /// function with the mangled symbol is already known,
+  /// no new FunDef is pushed and no instantiation queued.
+  ///
+  /// Both `execute_call` (generic functions) and
+  /// `execute_dot_method_call` (apply methods) share this
+  /// pipeline — the only data-flow difference is the base
+  /// name (`func.name` vs the resolved method name) and
+  /// `apply_ctx` (None vs the receiver's struct symbol).
+  fn register_mono_instantiation(
+    &mut self,
+    base_name: Symbol,
+    func: &FunDef,
+    subs: &[(TyId, TyId)],
+    override_return: Option<TyId>,
+    apply_ctx: Option<Symbol>,
+  ) -> Symbol {
+    let mut mangled = self.interner.get(base_name).to_owned();
+
+    for (_, fresh) in subs {
+      let resolved = self.ty_checker.resolve_id(*fresh);
+      let ty = self.ty_checker.resolve_ty(resolved);
+      let ty_name_owned: String;
+
+      let ty_name = match ty {
+        Ty::Int { .. } => "int",
+        Ty::Float(_) => "float",
+        Ty::Bool => "bool",
+        Ty::Str => "str",
+        Ty::Char => "char",
+        Ty::Struct(sid) => {
+          ty_name_owned = self
+            .ty_checker
+            .ty_table
+            .struct_ty(sid)
+            .map(|s| self.interner.get(s.name).to_owned())
+            .unwrap_or_else(|| "unknown".into());
+          &ty_name_owned
+        }
+        Ty::Enum(eid) => {
+          ty_name_owned = self
+            .ty_checker
+            .ty_table
+            .enum_ty(eid)
+            .map(|e| self.interner.get(e.name).to_owned())
+            .unwrap_or_else(|| "unknown".into());
+          &ty_name_owned
+        }
+        _ => "unknown",
+      };
+
+      mangled.push_str("__");
+      mangled.push_str(ty_name);
+    }
+
+    let sym = self.interner.intern(&mangled);
+
+    if !self.funs.iter().any(|f| f.name == sym) {
+      let mut mono_def = func.clone();
+
+      mono_def.name = sym;
+      mono_def.type_params = Vec::new();
+
+      if let Some(rt) = override_return {
+        mono_def.return_ty = rt;
+      }
+
+      self.funs.push(mono_def);
+
+      // Snapshot concretes here — substitutions can shift
+      // later as new constraints flow through the
+      // ty_checker; freezing per-position concrete TyIds
+      // means the re-execution pass binds parameters from a
+      // stable view of the call site.
+      let concretes: Vec<TyId> = subs
+        .iter()
+        .map(|(_, fresh)| self.ty_checker.resolve_id(*fresh))
+        .collect();
+
+      self.pending_instantiations.push(Instantiation {
+        mangled: sym,
+        generic: func.name,
+        concretes,
+        closure_subs: Vec::new(),
+        apply_ctx,
+      });
+    }
+
+    sym
+  }
+
   /// Re-execute the Tree subtree of each generic function
   /// once per concrete-type instantiation.
   ///
@@ -13938,7 +14168,14 @@ impl<'a> Executor<'a> {
   fn reexecute_generic_instantiations(&mut self) {
     let pending = std::mem::take(&mut self.pending_instantiations);
 
-    for (mangled, generic_name, concretes, closure_subs) in pending {
+    for inst in pending {
+      let Instantiation {
+        mangled,
+        generic: generic_name,
+        concretes,
+        closure_subs,
+        apply_ctx,
+      } = inst;
       // Skip duplicates (can arise from repeated call sites
       // with the same concrete types, or recursive generics).
       if self.reexecuted_instantiations.contains(&mangled) {
@@ -13985,6 +14222,35 @@ impl<'a> Executor<'a> {
       let saved_locals_len = self.locals.len();
       let saved_scope_len = self.scope_stack.len();
       let saved_apply_ctx = self.apply_context;
+
+      // Restore the apply context so that `$T` (and any
+      // other generics scoped to the surrounding `apply
+      // Type<$T>` block) resolve while the body re-executes.
+      // Without this, identifier lookups for the receiver's
+      // type parameters fail with "Add `$T` to the type
+      // parameter list" during re-execution.
+      self.apply_context = apply_ctx;
+
+      // Pre-install the apply block's type-param fresh
+      // vars as the outer scope — `execute_fun` does
+      // `take()` then restores outer when the function
+      // declared no params of its own, so the body's `$T`
+      // references resolve through these vars before the
+      // substitution-install step binds them to the call-
+      // site concretes.
+      if let Some(ctx) = apply_ctx {
+        let count = self
+          .apply_type_params
+          .get(&ctx)
+          .map_or(0, |names| names.len());
+
+        for i in 0..count {
+          let sym = self.apply_type_params[&ctx][i];
+          let var = self.ty_checker.fresh_var();
+
+          self.type_params.push((sym, var));
+        }
+      }
 
       // Mark this instantiation as emitted BEFORE the body
       // runs — if the body contains a recursive call that
