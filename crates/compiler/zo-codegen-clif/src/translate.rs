@@ -295,7 +295,7 @@ pub(crate) fn translate_module(
   ir_text
 }
 
-/// Returns `true` iff the FunDef at `fundef_idx` has no body
+/// Returns `true` if the FunDef at `fundef_idx` has no body
 /// insns in the SIR stream. A body is "empty" when the slice
 /// `[body_start_u .. next_fundef_or_end]` is empty, where
 /// `body_start_u = max(body_start, fundef_idx + 1)`. Real FFI
@@ -1233,7 +1233,7 @@ fn translate_body(
           .or_insert_with(|| builder.create_block());
         let fallthrough = builder.create_block();
 
-        // SIR semantics: branch to `target` iff cond == 0.
+        // SIR semantics: branch to `target` if cond == 0.
         // Cranelift's `brif(cond, then, then_args, else, else_args)`
         // goes to `then` when cond != 0 — so `then` is the
         // fallthrough and `else` is the SIR target.

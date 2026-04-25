@@ -2,7 +2,7 @@
 -- @cmd — zo run power-of-two.zo
 --
 -- a power of two has exactly one bit set. clearing the lowest
--- set bit with n & (n - 1) yields zero iff n was a power of
+-- set bit with n & (n - 1) yields zero if n was a power of
 -- two. non-positive numbers are rejected.
 
 fun is_power_of_two(n: int) -> bool {

@@ -6,35 +6,35 @@ pack char;
 -! the `is_*` predicates.
 
 apply char {
-  -! True iff `self` is an ASCII digit `'0'..'9'`.
+  -! True if `self` is an ASCII digit `'0'..'9'`.
   pub fun is_digit(self) -> bool {
     return self >= '0' && self <= '9';
   }
 
-  -! True iff `self` is an ASCII alphabetic letter.
+  -! True if `self` is an ASCII alphabetic letter.
   pub fun is_alpha(self) -> bool {
     return (self >= 'a' && self <= 'z')
       || (self >= 'A' && self <= 'Z');
   }
 
-  -! True iff `self` is an ASCII alphanumeric character.
+  -! True if `self` is an ASCII alphanumeric character.
   pub fun is_alphanumeric(self) -> bool {
     return (self >= '0' && self <= '9')
       || (self >= 'a' && self <= 'z')
       || (self >= 'A' && self <= 'Z');
   }
 
-  -! True iff `self` is an ASCII uppercase letter.
+  -! True if `self` is an ASCII uppercase letter.
   pub fun is_uppercase(self) -> bool {
     return self >= 'A' && self <= 'Z';
   }
 
-  -! True iff `self` is an ASCII lowercase letter.
+  -! True if `self` is an ASCII lowercase letter.
   pub fun is_lowercase(self) -> bool {
     return self >= 'a' && self <= 'z';
   }
 
-  -! True iff `self` is ASCII whitespace (space, tab, CR, LF).
+  -! True if `self` is ASCII whitespace (space, tab, CR, LF).
   pub fun is_whitespace(self) -> bool {
     return self == ' '
       || self == '\t'

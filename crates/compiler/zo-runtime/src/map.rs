@@ -360,7 +360,7 @@ pub unsafe extern "C-unwind" fn _zo_map_get(
   }
 }
 
-/// `true` iff `key` is in the map.
+/// `true` if `key` is in the map.
 ///
 /// # Safety
 ///

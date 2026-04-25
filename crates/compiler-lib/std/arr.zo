@@ -22,7 +22,7 @@ apply []int {
     return total;
   }
 
-  -! True iff the array contains an element equal to `needle`.
+  -! True if the array contains an element equal to `needle`.
   pub fun contains(self, needle: int) -> bool {
     mut i: int = 0;
 

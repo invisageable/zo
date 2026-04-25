@@ -117,7 +117,7 @@ pub struct ValidationReport {
 }
 
 impl ValidationReport {
-  /// True iff `violations` is empty. `calls_skipped` is
+  /// True if `violations` is empty. `calls_skipped` is
   /// informational and does not count as a failure.
   pub fn is_ok(&self) -> bool {
     self.violations.is_empty()
@@ -489,7 +489,7 @@ fn check_insn(
   }
 }
 
-/// Emits a `Placeholder` violation iff `ty` is one of the
+/// Emits a `Placeholder` violation if `ty` is one of the
 /// forbidden sentinel ids (`Error`, `Type`, `Unknown`). An
 /// off-`Insn::Template` `Template` id is also flagged since
 /// the caller only routes real Template ids through the

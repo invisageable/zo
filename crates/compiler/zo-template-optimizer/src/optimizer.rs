@@ -52,7 +52,7 @@ impl TemplateOptimizer {
       .collect()
   }
 
-  /// Classify a single command. An element is dynamic iff it
+  /// Classify a single command. An element is dynamic if it
   /// carries a reactive `Attr::Dynamic` binding; otherwise the
   /// eager compile-time values make it fully static.
   fn classify_command(&self, cmd: &UiCommand) -> CommandClassification {

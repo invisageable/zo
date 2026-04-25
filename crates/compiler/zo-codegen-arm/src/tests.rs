@@ -438,7 +438,7 @@ fn test_string_fixup() {
 // `Loot::Gold(...)` instead of leaking a stack pointer.
 // ================================================================
 
-/// True iff `needle` appears as a contiguous byte sequence in
+/// True if `needle` appears as a contiguous byte sequence in
 /// `haystack`. Used to assert that the enum pretty-printer
 /// baked a display string into the final artifact.
 fn code_contains(haystack: &[u8], needle: &[u8]) -> bool {

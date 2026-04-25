@@ -54,7 +54,7 @@ apply HashMap<$K, $V> {
     return Option::None;
   }
 
-  -! `true` iff `k` is in the map.
+  -! `true` if `k` is in the map.
   pub fun contains_key(self, k: $K) -> bool {
     return false;
   }

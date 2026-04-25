@@ -226,7 +226,7 @@ impl TaskStack {
     unsafe { self.top.as_ptr().offset_from(low) as usize }
   }
 
-  /// Returns `true` iff `addr` falls inside the
+  /// Returns `true` if `addr` falls inside the
   /// reserved region. Used by the fault handler to
   /// decide whether we own the faulting page.
   fn contains(&self, addr: *const u8) -> bool {
