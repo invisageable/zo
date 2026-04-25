@@ -612,7 +612,7 @@ impl Compiler {
       // already gates the `LC_LOAD_DYLIB` entry on
       // those same imports. We just mirror that gate
       // here to stage the matching dylib file.
-      stage_runtime_artifacts(&semantic.sir, &output_path);
+      stage_runtime_artifacts(&semantic.sir, &session.interner, &output_path);
 
       self.profiler.end_phase(CODEGEN_NAME);
       self.profiler.set_output(path.display().to_string());
@@ -693,7 +693,7 @@ struct RuntimeNeeds {
 }
 
 impl RuntimeNeeds {
-  fn from_sir(sir: &Sir) -> Self {
+  fn from_sir(sir: &Sir, interner: &zo_interner::Interner) -> Self {
     let mut needs = Self::default();
 
     for insn in &sir.instructions {
@@ -711,6 +711,20 @@ impl RuntimeNeeds {
         | zo_sir::Insn::NurseryEnd { .. }
         | zo_sir::Insn::StrSlice { .. } => {
           needs.concurrency = true;
+        }
+        zo_sir::Insn::Call { name, .. } => {
+          // HashMap apply-method calls lower to BLs
+          // against `_zo_map_*` symbols that live in
+          // `libzo_runtime.dylib`. Same dylib that
+          // concurrency uses, so we just flag
+          // `concurrency` to trigger the dylib copy
+          // — a future split would give the runtime
+          // its own staging flag.
+          let n = interner.get(*name);
+
+          if n.starts_with("HashMap::") {
+            needs.concurrency = true;
+          }
         }
         zo_sir::Insn::Template { .. } => {
           // Template programs run in-process through
@@ -748,8 +762,12 @@ const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
 /// compiler runs out of cargo's build output). No-op
 /// when the program needs no runtime, or when the
 /// source dylib isn't present.
-fn stage_runtime_artifacts(sir: &Sir, output_path: &std::path::Path) {
-  let needs = RuntimeNeeds::from_sir(sir);
+fn stage_runtime_artifacts(
+  sir: &Sir,
+  interner: &zo_interner::Interner,
+  output_path: &std::path::Path,
+) {
+  let needs = RuntimeNeeds::from_sir(sir, interner);
 
   if !needs.concurrency && !needs.native_ui && !needs.web_ui {
     return;

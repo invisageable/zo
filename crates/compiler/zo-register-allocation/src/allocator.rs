@@ -545,6 +545,21 @@ pub fn allocate_function(
           "write_file" | "append_file" => {
             struct_slots += 5;
           }
+
+          // HashMap apply-method codegen handlers in
+          // `zo-codegen-arm` allocate scratch slots for
+          // key / value byte buffers and the
+          // Option<V> aggregate. Budget must match
+          // `next_struct_slot` bumps in `emit_map_*` —
+          // mismatched slots overlap with the
+          // caller-save area and corrupt restored
+          // registers, hanging the program.
+          "HashMap::new" => struct_slots += 1,
+          "HashMap::insert" => struct_slots += 2,
+          "HashMap::get" => struct_slots += 4,
+          "HashMap::contains_key" => struct_slots += 1,
+          "HashMap::remove" => struct_slots += 4,
+
           _ => {
             // Check if callee returns a struct by
             // scanning for FunDef(name) ... StructConstruct

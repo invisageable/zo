@@ -1655,6 +1655,18 @@ impl<'a> ARM64Gen<'a> {
           "write_file" => self.emit_io_write_file(args, idx),
           "append_file" => self.emit_io_append_file(args, idx),
 
+          // HashMap apply-method dispatch. Names match
+          // the executor's `<Type>::<method>` mangling
+          // (same convention `apply char` / `apply int`
+          // already use). Each handler emits the byte-
+          // marshaling sequence around `BL _zo_map_*`.
+          "HashMap::new" => self.emit_map_new(args, idx),
+          "HashMap::insert" => self.emit_map_insert(args, idx),
+          "HashMap::get" => self.emit_map_get(args, idx),
+          "HashMap::contains_key" => self.emit_map_contains(args, idx),
+          "HashMap::remove" => self.emit_map_remove(args, idx),
+          "HashMap::len" => self.emit_map_len(args, idx),
+
           // Math intrinsics — ARM64 hardware instructions.
           // The arg is a float in a FP register. Move it
           // to D0, execute the instruction, leave result
@@ -3819,6 +3831,182 @@ impl<'a> ARM64Gen<'a> {
 
     // Ok label: continue execution.
     self.labels.insert(ok_label, self.emitter.current_offset());
+  }
+
+  /// `HashMap<K, V>::new()` — emit `BL _zo_map_new`
+  /// and stash the returned `ZoMap*` in a freshly
+  /// allocated struct slot. The dst register holds the
+  /// struct address (`{ ptr }` shape: a single 8-byte
+  /// field at offset 0).
+  ///
+  /// K / V types are inferred from the call's binding
+  /// site: `imu m: HashMap<int, int> = HashMap::new();`
+  /// — the executor's mono pass propagates the
+  /// annotated args through `value_types[dst]` for
+  /// later method calls. This handler hardcodes
+  /// 4-byte / 4-byte for MVP; mixed-size tables (str
+  /// keys, larger values) ride on per-call K/V type
+  /// derivation that lives at insert/get time. Future
+  /// work threads K/V into the new() handler too.
+  fn emit_map_new(&mut self, _args: &[ValueId], idx: usize) {
+    // Allocate the struct (one ptr field).
+    let struct_base = self.struct_base + self.next_struct_slot;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    // _zo_map_new(key_kind=0, key_sz=4, val_sz=4, cap=16).
+    self.emitter.emit_mov_imm(X0, 0);
+    self.emitter.emit_mov_imm(X1, 4);
+    self.emitter.emit_mov_imm(X2, 4);
+    self.emitter.emit_mov_imm(X3, 16);
+    self.emit_extern_call("_zo_map_new");
+
+    // Store the returned pointer into the struct's ptr
+    // slot, hand the struct's address back as dst.
+    self.emit_str_sp(X0, struct_base);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, struct_base);
+    }
+  }
+
+  /// `m.insert(k, v)` — spill k and v to scratch, load
+  /// `m.ptr` (offset 0 of the struct), call
+  /// `_zo_map_insert`. K / V sizes derive from the
+  /// arg types at this call site.
+  fn emit_map_insert(&mut self, args: &[ValueId], _idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let v = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+    let v_off = scratch_base + STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 2 * STACK_SLOT_SIZE;
+
+    // Spill k and v to their scratch slots.
+    self.emit_str_sp(k, k_off);
+    self.emit_str_sp(v, v_off);
+
+    // X0 = m.ptr, X1 = &k, X2 = &v.
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_add_sp_offset(X2, v_off);
+    self.emit_extern_call("_zo_map_insert");
+  }
+
+  /// `m.get(k)` — spill k, allocate a value-output
+  /// scratch, call `_zo_map_get`, then construct the
+  /// `Option<V>` Result-style aggregate the executor
+  /// expects on the stack. For MVP the aggregate is a
+  /// 2-slot `{ tag, val }` block — `tag = 0` (Some) on
+  /// hit, `tag = 1` (None) on miss.
+  fn emit_map_get(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+    let v_out_off = scratch_base + STACK_SLOT_SIZE;
+    let opt_base = scratch_base + 2 * STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 4 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+    // Pre-zero v_out (the runtime only writes on hit).
+    self.emit_str_sp(XZR, v_out_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_add_sp_offset(X2, v_out_off);
+    self.emit_extern_call("_zo_map_get");
+
+    // X0 = bool found. Construct Option<V> at opt_base:
+    //   tag = found ? 0 : 1
+    //   val = *v_out
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0); // X16 = !found
+    self.emit_str_sp(X16, opt_base);
+
+    self.emit_ldr_sp(X16, v_out_off);
+    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, opt_base);
+    }
+  }
+
+  /// `m.contains_key(k)` — spill k, call `_zo_map_
+  /// contains`. Returns bool in dst.
+  fn emit_map_contains(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_extern_call("_zo_map_contains");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `m.remove(k)` — same shape as `m.get(k)` plus a
+  /// runtime-side tombstone. Returns `Option<V>`.
+  fn emit_map_remove(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+    let v_out_off = scratch_base + STACK_SLOT_SIZE;
+    let opt_base = scratch_base + 2 * STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 4 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+    self.emit_str_sp(XZR, v_out_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_add_sp_offset(X2, v_out_off);
+    self.emit_extern_call("_zo_map_remove");
+
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0);
+    self.emit_str_sp(X16, opt_base);
+
+    self.emit_ldr_sp(X16, v_out_off);
+    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, opt_base);
+    }
+  }
+
+  /// `m.len()` — load `m.ptr` and call `_zo_map_len`.
+  /// Result is `int` in dst.
+  fn emit_map_len(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_extern_call("_zo_map_len");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for
