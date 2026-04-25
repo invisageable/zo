@@ -560,6 +560,22 @@ pub fn allocate_function(
           "HashMap::contains_key" => struct_slots += 1,
           "HashMap::remove" => struct_slots += 4,
 
+          // Vec apply-method scratch budgets. Mirror the
+          // bumps in `emit_vec_*` exactly — mismatched
+          // slots overlap with caller-save area and corrupt
+          // restored registers.
+          "Vec::new" => struct_slots += 1,
+          "Vec::push" => struct_slots += 1,
+          "Vec::pop" => struct_slots += 3,
+          "Vec::get" => struct_slots += 3,
+          "Vec::set" => struct_slots += 1,
+
+          // HashSet apply-method scratch budgets.
+          "HashSet::new" => struct_slots += 1,
+          "HashSet::insert" => struct_slots += 2,
+          "HashSet::contains" => struct_slots += 1,
+          "HashSet::remove" => struct_slots += 1,
+
           _ => {
             // Check if callee returns a struct by
             // scanning for FunDef(name) ... StructConstruct

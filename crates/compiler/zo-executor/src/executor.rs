@@ -2166,6 +2166,43 @@ impl<'a> Executor<'a> {
                 // expression's value lands on the stacks.
                 // No-op for statement-position ifs (no sink).
                 self.emit_branch_sink_load(&popped);
+
+                // Cascade: `else if A { … } else if B { … }
+                // else { … }` is parsed as nested ifs — the
+                // outer if's else-arm IS the inner if. When
+                // the inner if closes here, the outer if's
+                // branch_ctx is still on the stack with its
+                // `else_label` already consumed (by the
+                // `Token::Else` that introduced this chain).
+                // No subsequent token will trigger its close,
+                // so the outer's `end_label` and the merge
+                // sink-load never emit — the while loop's
+                // back-edge ends up after the outer's missing
+                // end-label, the binary runs one iteration
+                // and falls into the function epilogue.
+                //
+                // Walk up the branch stack while every outer
+                // entry is an If with no `else_label` left
+                // and whose scope_depth matches the current
+                // depth (i.e. its else-arm body lives at the
+                // same scope level we just exited).
+                while self.branch_stack.last().is_some_and(|c| {
+                  c.kind == BranchKind::If
+                    && c.else_label.is_none()
+                    && self.scope_stack.len() == c.scope_depth + 1
+                }) {
+                  let outer = self.branch_stack.last().unwrap();
+                  let end = outer.end_label;
+
+                  let outer_idx = self.branch_stack.len() - 1;
+
+                  self.emit_branch_sink_store(outer_idx);
+                  self.sir.emit(Insn::Label { id: end });
+
+                  let popped = self.branch_stack.pop().unwrap();
+
+                  self.emit_branch_sink_load(&popped);
+                }
               }
             }
             BranchKind::Ternary => {

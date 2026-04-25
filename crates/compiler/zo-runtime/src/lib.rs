@@ -10,5 +10,6 @@ pub mod stack;
 pub mod str;
 pub mod task;
 pub mod tls;
+pub mod vec;
 
 pub use runtime::Runtime;

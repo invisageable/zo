@@ -247,7 +247,7 @@ impl Compiler {
     // `load` statements. Keep in sync with `std/lib.zo`.
     let preload = [
       "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
-      "int", "bool", "arr", "str", "map",
+      "int", "bool", "arr", "str", "map", "vec",
     ];
 
     for module_name in preload {
@@ -714,16 +714,22 @@ impl RuntimeNeeds {
           needs.concurrency = true;
         }
         zo_sir::Insn::Call { name, .. } => {
-          // HashMap apply-method calls lower to BLs
-          // against `_zo_map_*` symbols that live in
-          // `libzo_runtime.dylib`. Same dylib that
-          // concurrency uses, so we just flag
-          // `concurrency` to trigger the dylib copy
-          // — a future split would give the runtime
-          // its own staging flag.
+          // HashMap / Vec apply-method calls lower to
+          // BLs against `_zo_map_*` / `_zo_vec_*` symbols
+          // that live in `libzo_runtime.dylib`. Same
+          // dylib that concurrency uses, so we just flag
+          // `concurrency` to trigger the dylib copy —
+          // a future split would give the runtime its
+          // own staging flag.
           let n = interner.get(*name);
 
-          if n.starts_with("HashMap::") {
+          if n.starts_with("HashMap::")
+            || n.starts_with("HashSet::")
+            || n.starts_with("Vec::")
+            || n.starts_with("__zo_map_")
+            || n.starts_with("__zo_vec_")
+            || n.starts_with("__zo_set_")
+          {
             needs.concurrency = true;
           }
         }
@@ -790,10 +796,18 @@ fn stage_runtime_artifacts(
     let src = runtime_dir.join(CONCURRENCY_DYLIB);
     let dst = output_dir.join(CONCURRENCY_DYLIB);
 
-    // Don't re-copy if already staged and identical —
-    // avoids a write storm when test runners compile
-    // many programs into the same tmp directory.
-    if src.exists() && !files_equal(&src, &dst) {
+    // Always re-copy when the source exists. The earlier
+    // (size, mtime) skip-shortcut left stale dylibs on
+    // disk after a git checkout swapped source versions —
+    // two builds can land at the same minute with the
+    // same byte count but different contents, and dyld
+    // would silently hang the user binary in
+    // `dyld3::MachOFile::compatibleSlice` when the
+    // staged dylib's load commands don't line up.
+    // `std::fs::copy` of ~1 MB is microseconds — the
+    // staging cost is far cheaper than the diagnostic
+    // hours the optimization cost.
+    if src.exists() {
       let _ = std::fs::copy(&src, &dst);
     }
   }
@@ -801,13 +815,4 @@ fn stage_runtime_artifacts(
   // Native / web UI staging will land here when those
   // runtimes become separate dylibs referenced by the
   // binary (today they run in-process via `zo run`).
-}
-
-fn files_equal(a: &std::path::Path, b: &std::path::Path) -> bool {
-  match (a.metadata(), b.metadata()) {
-    (Ok(am), Ok(bm)) => {
-      am.len() == bm.len() && am.modified().ok() == bm.modified().ok()
-    }
-    _ => false,
-  }
 }

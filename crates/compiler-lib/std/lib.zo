@@ -15,3 +15,4 @@ pack map;
 pack math;
 pack preload;
 pack process;
+pack vec;

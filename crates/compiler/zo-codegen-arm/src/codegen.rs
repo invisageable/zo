@@ -1671,12 +1671,32 @@ impl<'a> ARM64Gen<'a> {
           "HashMap::contains_key" => self.emit_map_contains(args, idx),
           "HashMap::remove" => self.emit_map_remove(args, idx),
 
+          // Vec apply-method dispatch. Same convention as
+          // HashMap: `len`, `is_empty`, `free` are pure-zo
+          // bodies that call the raw FFIs below.
+          "Vec::new" => self.emit_vec_new(args, idx),
+          "Vec::push" => self.emit_vec_push(args, idx),
+          "Vec::pop" => self.emit_vec_pop(args, idx),
+          "Vec::get" => self.emit_vec_get(args, idx),
+          "Vec::set" => self.emit_vec_set(args, idx),
+
+          // HashSet apply-method dispatch. Reuses the
+          // `_zo_map_*` runtime allocator with `val_sz=0`.
+          "HashSet::new" => self.emit_set_new(args, idx),
+          "HashSet::insert" => self.emit_set_insert(args, idx),
+          "HashSet::contains" => self.emit_set_contains(args, idx),
+          "HashSet::remove" => self.emit_set_remove(args, idx),
+
           // Non-marshaling raw FFIs. The argument is the
-          // already-loaded `*mut ZoMap` (from `self.ptr`);
-          // pass through to the runtime export with no
-          // byte marshaling.
+          // already-loaded `*mut ZoMap` / `*mut ZoVec`
+          // (from `self.ptr`); pass through to the runtime
+          // export with no byte marshaling.
           "__zo_map_len_raw" => self.emit_map_len_raw(args, idx),
           "__zo_map_free_raw" => self.emit_map_free_raw(args, idx),
+          "__zo_vec_len_raw" => self.emit_vec_len_raw(args, idx),
+          "__zo_vec_free_raw" => self.emit_vec_free_raw(args, idx),
+          "__zo_set_len_raw" => self.emit_set_len_raw(args, idx),
+          "__zo_set_free_raw" => self.emit_set_free_raw(args, idx),
 
           // Math intrinsics — ARM64 hardware instructions.
           // The arg is a float in a FP register. Move it
@@ -4035,6 +4055,303 @@ impl<'a> ARM64Gen<'a> {
     }
 
     self.emit_extern_call("_zo_map_free");
+  }
+
+  /// `Vec::new()` — allocate the runtime ZoVec, store its
+  /// pointer into the surface struct's only field.
+  ///
+  /// Element kind is reserved for future use (the
+  /// runtime treats slots as opaque bytes today); element
+  /// size hardcoded to 8 covers `int`, `str` (pointer),
+  /// `char` (zero-extended), `bool` (zero-extended). A
+  /// follow-up phase derives both per-call from `$T`.
+  fn emit_vec_new(&mut self, _args: &[ValueId], idx: usize) {
+    let struct_base = self.struct_base + self.next_struct_slot;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emitter.emit_mov_imm(X0, 0);
+    self.emitter.emit_mov_imm(X1, 8);
+    self.emitter.emit_mov_imm(X2, 8);
+    self.emit_extern_call("_zo_vec_new");
+
+    self.emit_str_sp(X0, struct_base);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, struct_base);
+    }
+  }
+
+  /// `v.push(value)` — spill the value to a scratch slot,
+  /// load `v.ptr`, call `_zo_vec_push`. The runtime
+  /// copies `elem_sz` bytes from the scratch slot.
+  fn emit_vec_push(&mut self, args: &[ValueId], _idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let v = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let v_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(v, v_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, v_off);
+    self.emit_extern_call("_zo_vec_push");
+  }
+
+  /// `v.pop()` — allocate a value-out scratch slot, call
+  /// `_zo_vec_pop`, then build the `Option<T>` aggregate
+  /// the executor expects on the stack.
+  fn emit_vec_pop(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let v_out_off = scratch_base;
+    let opt_base = scratch_base + STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 3 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(XZR, v_out_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, v_out_off);
+    self.emit_extern_call("_zo_vec_pop");
+
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0);
+    self.emit_str_sp(X16, opt_base);
+
+    self.emit_ldr_sp(X16, v_out_off);
+    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, opt_base);
+    }
+  }
+
+  /// `v.get(idx)` — call `_zo_vec_get` with `(ptr, idx,
+  /// &v_out)`, build the `Option<T>` aggregate.
+  fn emit_vec_get(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let i = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let v_out_off = scratch_base;
+    let opt_base = scratch_base + STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 3 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(XZR, v_out_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+
+    if i != X1 {
+      self.emitter.emit_mov_reg(X1, i);
+    }
+
+    self.emit_add_sp_offset(X2, v_out_off);
+    self.emit_extern_call("_zo_vec_get");
+
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0);
+    self.emit_str_sp(X16, opt_base);
+
+    self.emit_ldr_sp(X16, v_out_off);
+    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, opt_base);
+    }
+  }
+
+  /// `v.set(idx, value)` — spill `value`, call
+  /// `_zo_vec_set` with `(ptr, idx, &v_in)`. Returns the
+  /// runtime's `bool` (true on hit, false on OOB).
+  fn emit_vec_set(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let i = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let v = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let v_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(v, v_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+
+    if i != X1 {
+      self.emitter.emit_mov_reg(X1, i);
+    }
+
+    self.emit_add_sp_offset(X2, v_off);
+    self.emit_extern_call("_zo_vec_set");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_vec_len_raw(ptr)` — pass-through to
+  /// `_zo_vec_len`.
+  fn emit_vec_len_raw(&mut self, args: &[ValueId], idx: usize) {
+    if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
+      && src != X0
+    {
+      self.emitter.emit_mov_reg(X0, src);
+    }
+
+    self.emit_extern_call("_zo_vec_len");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_vec_free_raw(ptr)` — pass-through to
+  /// `_zo_vec_free`.
+  fn emit_vec_free_raw(&mut self, args: &[ValueId], _idx: usize) {
+    if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
+      && src != X0
+    {
+      self.emitter.emit_mov_reg(X0, src);
+    }
+
+    self.emit_extern_call("_zo_vec_free");
+  }
+
+  /// `HashSet::new()` — allocate a `ZoMap` with
+  /// `val_sz = 0`. The runtime stores a zero-length
+  /// `Vec<u8>` per slot value; presence is fully encoded
+  /// by the slot's occupancy state.
+  fn emit_set_new(&mut self, _args: &[ValueId], idx: usize) {
+    let struct_base = self.struct_base + self.next_struct_slot;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emitter.emit_mov_imm(X0, 0);
+    self.emitter.emit_mov_imm(X1, 4);
+    self.emitter.emit_mov_imm(X2, 0);
+    self.emitter.emit_mov_imm(X3, 16);
+    self.emit_extern_call("_zo_map_new");
+
+    self.emit_str_sp(X0, struct_base);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, struct_base);
+    }
+  }
+
+  /// `s.insert(k)` — spill `k`, call `_zo_map_insert`
+  /// with a null val pointer (val_sz is 0, so the
+  /// runtime never dereferences). Returns
+  /// `true` if the key was new — derived by checking
+  /// whether `_zo_map_contains` was false BEFORE the
+  /// insert. The simplest path is to call contains
+  /// first, then unconditional insert.
+  fn emit_set_insert(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+    let was_new_off = scratch_base + STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 2 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+
+    // Probe first: was the key absent?
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_extern_call("_zo_map_contains");
+
+    // !contains == was_new.
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0);
+    self.emit_str_sp(X16, was_new_off);
+
+    // Insert (val_ptr = SP, runtime never reads since
+    // val_sz=0).
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emitter.emit_mov_reg(X2, SP);
+    self.emit_extern_call("_zo_map_insert");
+
+    self.emit_ldr_sp(X16, was_new_off);
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X16
+    {
+      self.emitter.emit_mov_reg(dst, X16);
+    }
+  }
+
+  /// `s.contains(k)` — spill k, call `_zo_map_contains`.
+  fn emit_set_contains(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_extern_call("_zo_map_contains");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `s.remove(k)` — spill k, call `_zo_map_remove`
+  /// with `val_out` pointing at scratch (runtime
+  /// writes 0 bytes when `val_sz=0`).
+  fn emit_set_remove(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emitter.emit_mov_reg(X2, SP);
+    self.emit_extern_call("_zo_map_remove");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_set_len_raw` and `__zo_set_free_raw` route
+  /// directly to the shared map exports — sets reuse
+  /// the map allocator wholesale.
+  fn emit_set_len_raw(&mut self, args: &[ValueId], idx: usize) {
+    self.emit_map_len_raw(args, idx);
+  }
+
+  fn emit_set_free_raw(&mut self, args: &[ValueId], idx: usize) {
+    self.emit_map_free_raw(args, idx);
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for
