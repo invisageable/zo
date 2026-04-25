@@ -2,6 +2,7 @@ mod runtime;
 
 pub mod channel;
 pub mod ctxsw;
+pub mod map;
 pub mod pool;
 pub mod scheduler;
 pub mod select;
