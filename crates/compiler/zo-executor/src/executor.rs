@@ -157,6 +157,16 @@ pub struct Executor<'a> {
   /// result. Parallel to `deferred_binops` but finalized via
   /// the φ-sink machinery instead of a plain `BinOp`.
   deferred_short_circuits: Vec<DeferredShortCircuit>,
+  /// Receiver type captured at every Dot that turned out
+  /// to be a method call, keyed by the Dot's tree index.
+  /// `is_dot_method_call` peeks `ty_stack[len-2]` while the
+  /// member ident is still on top — by the time
+  /// `execute_potential_call` runs the receiver has been
+  /// shifted under N call args, so the type can no longer
+  /// be read off the stack uniformly. Stashing it here
+  /// makes mangling work for every receiver shape (literal,
+  /// indexed, call result, bound ident).
+  dot_method_recv_ty: HashMap<usize, TyId>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
@@ -434,6 +444,7 @@ impl<'a> Executor<'a> {
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
       deferred_short_circuits: Vec::new(),
+      dot_method_recv_ty: HashMap::new(),
       closure_counter: 0,
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
@@ -2862,6 +2873,16 @@ impl<'a> Executor<'a> {
         // the Dot — execute_potential_call will handle
         // it at RParen.
         if self.is_dot_method_call(idx) {
+          // Stash the receiver's type before we pop the
+          // member ident — the dispatch site (RParen)
+          // can no longer recover it from the stack
+          // because args will have been pushed in
+          // between. Keyed by the Dot's tree index.
+          if self.ty_stack.len() >= 2 {
+            let recv_ty = self.ty_stack[self.ty_stack.len() - 2];
+            self.dot_method_recv_ty.insert(idx, recv_ty);
+          }
+
           // Don't consume stack — method call needs
           // the receiver as an argument.
           // Pop only the method name ident from stacks
@@ -8437,27 +8458,18 @@ impl<'a> Executor<'a> {
   /// symbol if found, or the original method name.
   fn resolve_dot_call(
     &mut self,
-    method_idx: usize,
+    dot_idx: usize,
     method_name: Symbol,
   ) -> Symbol {
-    // The receiver ident is at method_idx - 2
-    // (method_idx - 1 is Dot).
-    if method_idx < 2 {
-      return method_name;
-    }
-
-    let receiver_idx = method_idx - 2;
-
-    // Get receiver's type from the local.
-    let receiver_sym = match self.node_value(receiver_idx) {
-      Some(NodeValue::Symbol(s)) => s,
-      _ => return method_name,
-    };
-
-    let local_ty = self.lookup_local(receiver_sym).map(|l| l.ty_id);
-
-    let ty_id = match local_ty {
-      Some(t) => t,
+    // Receiver type was stashed by the Dot handler when
+    // it identified the method call — keyed by the dot's
+    // tree index. By the time we get here (RParen)
+    // there's no stack-relative way to find it: args have
+    // been pushed in between. Tree-symbol → local was
+    // the old fallback and only covered bare-ident
+    // receivers; the stash covers every receiver shape.
+    let ty_id = match self.dot_method_recv_ty.get(&dot_idx) {
+      Some(&t) => t,
       None => return method_name,
     };
 
@@ -8513,18 +8525,17 @@ impl<'a> Executor<'a> {
   /// instead of `[recv, ., method]`.
   fn resolve_dot_call_with_receiver(
     &mut self,
-    receiver_idx: usize,
+    dot_idx: usize,
     method_name: Symbol,
   ) -> Symbol {
-    let receiver_sym = match self.node_value(receiver_idx) {
-      Some(NodeValue::Symbol(s)) => s,
-      _ => return method_name,
-    };
-
-    let local_ty = self.lookup_local(receiver_sym).map(|l| l.ty_id);
-
-    let ty_id = match local_ty {
-      Some(t) => t,
+    // Same path as `resolve_dot_call`; only the tree
+    // shape of the call site differs (`[recv, method,
+    // ., (, )]` vs `[recv, ., method, (, )]`). Both
+    // record the receiver type into
+    // `dot_method_recv_ty` keyed by the Dot's tree
+    // index, so dispatch works for every receiver shape.
+    let ty_id = match self.dot_method_recv_ty.get(&dot_idx) {
+      Some(&t) => t,
       None => return method_name,
     };
 
@@ -12272,7 +12283,8 @@ impl<'a> Executor<'a> {
                 }
 
                 // Dot-call: tree [recv, ., method, (, )].
-                let mangled = self.resolve_dot_call(fun_idx, fun_name);
+                // Dot is at fun_idx - 1.
+                let mangled = self.resolve_dot_call(fun_idx - 1, fun_name);
 
                 if mangled != fun_name {
                   self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
@@ -12285,9 +12297,9 @@ impl<'a> Executor<'a> {
                 && self.tree.nodes[lparen_idx - 1].token == Token::Dot
               {
                 // Dot-call: tree [recv, method, ., (, )].
-                // receiver is at fun_idx - 1 (not fun_idx - 2).
+                // Dot is at lparen_idx - 1.
                 let mangled =
-                  self.resolve_dot_call_with_receiver(fun_idx - 1, fun_name);
+                  self.resolve_dot_call_with_receiver(lparen_idx - 1, fun_name);
 
                 if mangled != fun_name {
                   self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
