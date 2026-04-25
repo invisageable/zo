@@ -138,7 +138,7 @@ impl PrettyPrinter {
     // let mut current_function: Option<String> = None;
     let mut in_function_body = false;
 
-    for (idx, insn) in sir.instructions.iter().enumerate() {
+    for insn in sir.instructions.iter() {
       match insn {
         Insn::FunDef { name, .. } => {
           if in_function_body {
@@ -163,21 +163,21 @@ impl PrettyPrinter {
             self.sir_instruction("ret void");
           }
         }
-        Insn::ConstInt { value, .. } => {
-          let int = format!("%{idx} = const {value} : i32");
+        Insn::ConstInt { dst, value, .. } => {
+          let int = format!("%{dst} = const {value} : i32");
           self.sir_instruction(&int);
         }
-        Insn::ConstFloat { value, .. } => {
-          let int = format!("%{idx} = const {value} : f32");
+        Insn::ConstFloat { dst, value, .. } => {
+          let int = format!("%{dst} = const {value} : f32");
           self.sir_instruction(&int);
         }
-        Insn::ConstBool { value, .. } => {
-          let boolean = format!("%{idx} = const {value} : bool");
+        Insn::ConstBool { dst, value, .. } => {
+          let boolean = format!("%{dst} = const {value} : bool");
           self.sir_instruction(&boolean);
         }
-        Insn::ConstString { symbol, .. } => {
+        Insn::ConstString { dst, symbol, .. } => {
           let content = interner.get(*symbol);
-          let string = format!("%{idx} = const \"{content}\" : str");
+          let string = format!("%{dst} = const \"{content}\" : str");
           self.sir_instruction(&string);
         }
         Insn::BinOp {
@@ -209,7 +209,7 @@ impl PrettyPrinter {
 
           self.sir_instruction(&binop);
         }
-        Insn::UnOp { op, rhs, .. } => {
+        Insn::UnOp { dst, op, rhs, .. } => {
           let op = match op {
             UnOp::Neg => "neg",
             UnOp::Not => "not",
@@ -218,7 +218,7 @@ impl PrettyPrinter {
             UnOp::Deref => "deref",
           };
 
-          let unop = format!("%{idx} = {op} %{rhs}");
+          let unop = format!("%{dst} = {op} %{rhs}");
 
           self.sir_instruction(&unop);
         }
@@ -261,10 +261,10 @@ impl PrettyPrinter {
 
           self.sir_instruction(&load);
         }
-        Insn::Call { name, args, .. } => {
+        Insn::Call { dst, name, args, .. } => {
           let name = interner.get(*name);
           let args = args.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
-          let call = format!("%{idx} = call {name}({})", args.join(", "));
+          let call = format!("%{dst} = call {name}({})", args.join(", "));
 
           self.sir_instruction(&call);
         }
