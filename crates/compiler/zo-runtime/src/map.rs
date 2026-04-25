@@ -308,7 +308,16 @@ pub unsafe extern "C-unwind" fn _zo_map_insert(
   let (idx, exists) = unsafe { m.find_slot(key_ptr, hash) };
 
   let key = unsafe { m.key_to_vec(key_ptr) };
-  let val = unsafe { std::slice::from_raw_parts(val_ptr, m.val_sz) }.to_vec();
+  // `HashSet<K>` reuses `ZoMap` with `val_sz = 0`. Building
+  // a zero-length slice from `from_raw_parts` triggers a
+  // Rust UB precondition (the pointer requirements apply
+  // even to zero-length slices), so handle the empty case
+  // explicitly.
+  let val = if m.val_sz == 0 {
+    Vec::new()
+  } else {
+    unsafe { std::slice::from_raw_parts(val_ptr, m.val_sz) }.to_vec()
+  };
 
   let was_tombstone = matches!(m.slots[idx], Slot::Tombstone);
 
@@ -350,8 +359,10 @@ pub unsafe extern "C-unwind" fn _zo_map_get(
   }
 
   if let Slot::Occupied { val, .. } = &m.slots[idx] {
-    unsafe {
-      std::ptr::copy_nonoverlapping(val.as_ptr(), val_out, m.val_sz);
+    if m.val_sz != 0 {
+      unsafe {
+        std::ptr::copy_nonoverlapping(val.as_ptr(), val_out, m.val_sz);
+      }
     }
 
     true
@@ -404,8 +415,10 @@ pub unsafe extern "C-unwind" fn _zo_map_remove(
   if let Slot::Occupied { val, .. } =
     std::mem::replace(&mut m.slots[idx], Slot::Tombstone)
   {
-    unsafe {
-      std::ptr::copy_nonoverlapping(val.as_ptr(), val_out, m.val_sz);
+    if m.val_sz != 0 {
+      unsafe {
+        std::ptr::copy_nonoverlapping(val.as_ptr(), val_out, m.val_sz);
+      }
     }
 
     m.len -= 1;

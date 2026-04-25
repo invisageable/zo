@@ -261,7 +261,9 @@ impl PrettyPrinter {
 
           self.sir_instruction(&load);
         }
-        Insn::Call { dst, name, args, .. } => {
+        Insn::Call {
+          dst, name, args, ..
+        } => {
           let name = interner.get(*name);
           let args = args.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
           let call = format!("%{dst} = call {name}({})", args.join(", "));
