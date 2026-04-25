@@ -12,12 +12,12 @@ struct Pair<$T> {
 
 fun main() {
   -- zo infers `$T = int` from the field values.
-  imu p := Pair { first: 10, second: 20 };
-  showln(p.first);
-  showln(p.second);
+  imu pair := Pair { first: 10, second: 20 };
+  showln(pair.first);
+  showln(pair.second);
 
   -- use the result in expressions.
-  imu sum: int = p.first + p.second;
+  imu sum: int = pair.first + pair.second;
   showln(sum);
 }
 

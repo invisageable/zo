@@ -182,6 +182,20 @@ pub struct Executor<'a> {
   /// Keyed by the variable name (Symbol) that stores the
   /// call result. Used by the match handler to type bindings.
   var_return_type_args: HashMap<u32, Vec<zo_ty::Ty>>,
+  /// Generic-parameter inference vars per struct, keyed by
+  /// `StructTyId.0`. Populated at struct definition; consumed
+  /// at construction to instantiate fresh per-call vars
+  /// (avoids the global-substitution leak that breaks two
+  /// different `Box2<...>` instantiations in the same
+  /// function).
+  struct_generic_params: HashMap<u32, Vec<TyId>>,
+  /// Concrete field types per struct construction, keyed by
+  /// the bound local's `Symbol.as_u32()`. Populated when a
+  /// generic struct is constructed into a `pending_decl`;
+  /// consumed by the Dot field-access path so showln /
+  /// codegen see the right `Ty::Str` (etc.) instead of the
+  /// declaration's shared `Ty::Infer(_)`.
+  local_struct_field_tys: HashMap<u32, Vec<TyId>>,
   /// Pending enum construction: (enum_name, variant_disc,
   /// variant_field_count, ty_id).
   pending_enum_construct: Option<(Symbol, u32, u32, TyId)>,
@@ -449,6 +463,8 @@ impl<'a> Executor<'a> {
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
       var_return_type_args: HashMap::default(),
+      struct_generic_params: HashMap::default(),
+      local_struct_field_tys: HashMap::default(),
       generic_tree_ranges: HashMap::default(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
@@ -2954,7 +2970,7 @@ impl<'a> Executor<'a> {
             if let Some(fname) = field_name {
               let fname_str = self.interner.get(fname).to_owned();
 
-              fields
+              let resolved = fields
                 .iter()
                 .enumerate()
                 .find(|(_, f)| self.interner.get(f.name) == fname_str)
@@ -2962,7 +2978,26 @@ impl<'a> Executor<'a> {
                   field_idx = i as u32;
                   f.ty_id
                 })
-                .unwrap_or(self.ty_checker.unit_type())
+                .unwrap_or(self.ty_checker.unit_type());
+
+              // For generic structs, the shared field type
+              // is still an `Ty::Infer(_)` placeholder. The
+              // construction-time stash carries the
+              // resolved per-instance type — look up the
+              // receiver local and override.
+              if matches!(self.ty_checker.kind_of(resolved), Ty::Infer(_))
+                && idx >= 2
+                && self.tree.nodes[idx - 2].token == Token::Ident
+                && let Some(NodeValue::Symbol(recv_sym)) =
+                  self.node_value(idx - 2)
+                && let Some(per_instance) =
+                  self.local_struct_field_tys.get(&recv_sym.as_u32())
+                && let Some(&concrete) = per_instance.get(field_idx as usize)
+              {
+                concrete
+              } else {
+                resolved
+              }
             } else {
               self.ty_checker.unit_type()
             }
@@ -7141,8 +7176,44 @@ impl<'a> Executor<'a> {
     };
 
     let ty_id = self.ty_checker.intern_ty(Ty::Struct(sty_id));
-    let field_defs =
+    let field_defs_shared =
       self.ty_checker.ty_table.struct_fields(&struct_ty).to_vec();
+
+    // Per-instance monomorphization: clone each field's type
+    // through fresh inference vars in place of the struct's
+    // generic parameters. Without this, the first Box2 { a:
+    // 1, b: 2 } binds the shared `$B` var to `int` globally;
+    // the next Box2 { a: 1, b: "hi" } unifies `int` with
+    // `str` and reports E0575. With this, every construction
+    // operates on its own copy of the field types.
+    let field_defs: Vec<zo_ty::StructField> = if let Some(generics) =
+      self.struct_generic_params.get(&sty_id.0).cloned()
+      && !generics.is_empty()
+    {
+      let mut subs: rustc_hash::FxHashMap<zo_ty::InferVarId, TyId> =
+        rustc_hash::FxHashMap::default();
+
+      for orig in &generics {
+        if let Ty::Infer(v) = self.ty_checker.kind_of(*orig) {
+          subs.insert(v, self.ty_checker.fresh_var());
+        }
+      }
+
+      field_defs_shared
+        .iter()
+        .map(|f| {
+          let new_ty = self.ty_checker.substitute_ty(&f.ty_id, &subs);
+
+          zo_ty::StructField {
+            name: f.name,
+            ty_id: new_ty,
+            has_default: f.has_default,
+          }
+        })
+        .collect()
+    } else {
+      field_defs_shared
+    };
 
     // Find matching RBrace.
     let header = self.tree.nodes[brace_idx];
@@ -7264,6 +7335,37 @@ impl<'a> Executor<'a> {
       fields,
       ty_id,
     });
+
+    // If this construction is being bound to a `pending_decl`
+    // (the common `imu p := Box2 { ... }` shape), stash the
+    // per-instance concrete field types so the Dot field-
+    // access path can look them up later. Without this,
+    // field access falls back to the struct's shared
+    // declaration types — which still hold the original
+    // generic `Ty::Infer(_)` vars.
+    if let Some(ref decl) = self.pending_decl {
+      let resolved: Vec<TyId> = field_defs
+        .iter()
+        .map(|f| {
+          let r = self.ty_checker.resolve_id(f.ty_id);
+
+          if matches!(self.ty_checker.kind_of(r), Ty::Infer(_)) {
+            f.ty_id
+          } else {
+            r
+          }
+        })
+        .collect();
+
+      if resolved
+        .iter()
+        .any(|t| !matches!(self.ty_checker.kind_of(*t), Ty::Infer(_)))
+      {
+        self
+          .local_struct_field_tys
+          .insert(decl.name.as_u32(), resolved);
+      }
+    }
 
     let rid = self.values.store_runtime(0);
 
@@ -7554,6 +7656,19 @@ impl<'a> Executor<'a> {
     // Intern struct type.
     let struct_ty_id = self.ty_checker.ty_table.intern_struct(name, &fields);
     let ty_id = self.ty_checker.intern_ty(Ty::Struct(struct_ty_id));
+
+    // Stash the struct's generic parameters so each later
+    // `Type { ... }` construction can rename them to fresh
+    // inference vars (per-instance) instead of binding the
+    // shared declaration vars globally — that global bind
+    // is what makes `Box2 { a: 1, b: "hi" }` after `Box2 {
+    // a: 1, b: 2 }` mismatch on `$B`.
+    if !self.type_params.is_empty() {
+      let params: Vec<TyId> =
+        self.type_params.iter().map(|(_, ty)| *ty).collect();
+
+      self.struct_generic_params.insert(struct_ty_id.0, params);
+    }
 
     self.sir.emit(Insn::StructDef {
       name,
