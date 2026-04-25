@@ -3961,57 +3961,12 @@ impl<'a> Executor<'a> {
           }
         }
 
-        // `str` equality / inequality at runtime — the
-        // codegen has no ABI for comparing two opaque
-        // `str` pointers byte-wise, so the executor
-        // emits a dedicated `StrEq` insn that lowers
-        // to `BL _zo_str_eq`. The compile-time constant
-        // folder already handled the both-literal case
-        // earlier in the binop path; what lands here
-        // is the any-runtime-operand case.
-        if matches!(op, BinOp::Eq | BinOp::Neq)
-          && matches!(self.ty_checker.kind_of(ty_id), Ty::Str)
-        {
-          let eq_dst = ValueId(self.sir.next_value_id);
-
-          self.sir.next_value_id += 1;
-
-          let bool_ty = self.ty_checker.bool_type();
-          let mut result_sir = self.sir.emit(Insn::StrEq {
-            dst: eq_dst,
-            lhs: lhs_sir,
-            rhs: rhs_sir,
-          });
-
-          if op == BinOp::Neq {
-            let neg_dst = ValueId(self.sir.next_value_id);
-
-            self.sir.next_value_id += 1;
-
-            result_sir = self.sir.emit(Insn::UnOp {
-              dst: neg_dst,
-              op: UnOp::Not,
-              rhs: result_sir,
-              ty_id: bool_ty,
-            });
-          }
-
-          let runtime_id = self.values.store_runtime(0);
-
-          self.value_stack.push(runtime_id);
-          self.ty_stack.push(bool_ty);
-          self.sir_values.push(result_sir);
-          self.annotations.push(Annotation {
-            node_idx,
-            ty_id: bool_ty,
-          });
-
-          return;
-        }
-
-        // Abstract operator dispatch: if operands are
-        // structs with an Eq impl, call Type::eq instead
-        // of emitting a primitive BinOp.
+        // Abstract operator dispatch: if operands have an
+        // `Eq` impl, call Type::eq instead of emitting a
+        // primitive BinOp. Covers structs AND primitives —
+        // `apply Eq for str` in stdlib routes `==` on str
+        // through the same trait path as user types, so
+        // the SIR carries no string-specific opcode.
         if matches!(op, BinOp::Eq | BinOp::Neq) {
           let resolved = self.ty_checker.kind_of(ty_id);
 
@@ -4019,7 +3974,8 @@ impl<'a> Executor<'a> {
             Ty::Struct(sid) => {
               self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
             }
-            _ => None,
+            _ => Self::primitive_ty_name_str(&resolved)
+              .map(|s| self.interner.intern(s)),
           };
 
           if let Some(tname) = type_name {

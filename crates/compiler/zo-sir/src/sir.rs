@@ -93,8 +93,7 @@ impl Sir {
       | Insn::TaskSpawn { dst, .. }
       | Insn::TaskAwait { dst, .. }
       | Insn::TaskCancelled { dst, .. }
-      | Insn::StrSlice { dst, .. }
-      | Insn::StrEq { dst, .. } => *dst,
+      | Insn::StrSlice { dst, .. } => *dst,
       // Template uses `id` as its value.
       Insn::Template { id, .. } => *id,
       // Non-value instructions.
@@ -287,11 +286,6 @@ impl Insn {
         f(lo);
         f(hi);
       }
-      Insn::StrEq { dst, lhs, rhs } => {
-        f(dst);
-        f(lhs);
-        f(rhs);
-      }
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
     }
   }
@@ -377,7 +371,6 @@ impl Insn {
       Insn::TaskCancelled { ty_id, .. } => f(ty_id),
       Insn::TaskCancel { .. } => {}
       Insn::StrSlice { ty_id, .. } => f(ty_id),
-      Insn::StrEq { .. } => {}
       Insn::ChannelClose { .. }
       | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
@@ -762,15 +755,6 @@ pub enum Insn {
     ty_id: TyId,
   },
   /// Runtime byte-wise `str` equality. Lowered to
-  /// `BL _zo_str_eq(a, b)` returning `bool`. Emitted
-  /// by the `BinOp::Eq` / `BinOp::Neq` path when both
-  /// operands are `str` and neither folded to a
-  /// compile-time literal.
-  StrEq {
-    dst: ValueId,
-    lhs: ValueId,
-    rhs: ValueId,
-  },
   /// Open a nursery scope. Every `TaskSpawn` between this
   /// insn and its matching `NurseryEnd` is scoped to this
   /// nursery: on scope exit, all such tasks are joined

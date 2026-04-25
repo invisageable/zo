@@ -36,8 +36,7 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       | Insn::TaskAwait { dst, .. }
       | Insn::SelectRecv { dst, .. }
       | Insn::TaskCancelled { dst, .. }
-      | Insn::StrSlice { dst, .. }
-      | Insn::StrEq { dst, .. } => Some(*dst),
+      | Insn::StrSlice { dst, .. } => Some(*dst),
       // `SelectWait` has two outputs (`out_which` +
       // companion `SelectRecv.dst` for the value).
       // Liveness tracks the arm index here; the value
@@ -99,7 +98,6 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
     Insn::TaskCancelled { task, .. } => vec![*task],
     Insn::TaskCancel { task } => vec![*task],
     Insn::StrSlice { src, lo, hi, .. } => vec![*src, *lo, *hi],
-    Insn::StrEq { lhs, rhs, .. } => vec![*lhs, *rhs],
     _ => vec![],
   }
 }

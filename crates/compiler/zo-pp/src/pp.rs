@@ -593,11 +593,6 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
-        Insn::StrEq { dst, lhs, rhs } => {
-          let c = format!("%{dst} = str.eq %{lhs}, %{rhs}");
-
-          self.sir_instruction(&c);
-        }
       }
     }
 

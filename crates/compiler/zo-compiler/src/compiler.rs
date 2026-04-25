@@ -709,8 +709,7 @@ impl RuntimeNeeds {
         | zo_sir::Insn::SelectWait { .. }
         | zo_sir::Insn::NurseryBegin { .. }
         | zo_sir::Insn::NurseryEnd { .. }
-        | zo_sir::Insn::StrSlice { .. }
-        | zo_sir::Insn::StrEq { .. } => {
+        | zo_sir::Insn::StrSlice { .. } => {
           needs.concurrency = true;
         }
         zo_sir::Insn::Template { .. } => {

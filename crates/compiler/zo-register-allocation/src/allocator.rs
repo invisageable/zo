@@ -304,7 +304,6 @@ pub fn allocate_function(
         | Insn::NurseryEnd { .. }
         | Insn::SelectWait { .. }
         | Insn::StrSlice { .. }
-        | Insn::StrEq { .. }
     ) {
       has_calls = true;
     }

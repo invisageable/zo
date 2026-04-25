@@ -345,7 +345,6 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::TaskCancelled { .. }
       | Insn::TaskCancel { .. }
       | Insn::StrSlice { .. }
-      | Insn::StrEq { .. }
   )
 }
 

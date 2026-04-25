@@ -150,3 +150,31 @@ apply str {
     return Option::Some(acc);
   }
 }
+
+-! `==` and `!=` on `str` route through this `Eq` impl —
+-! same trait path as user-defined types. Length check
+-! short-circuits the byte loop on size mismatch.
+apply Eq for str {
+  fun eq(self, other: str) -> bool {
+    imu n: int = self.len;
+
+    if n != other.len {
+      return false;
+    }
+
+    mut i: int = 0;
+
+    while i < n {
+      imu a: char = self[i];
+      imu b: char = other[i];
+
+      if a != b {
+        return false;
+      }
+
+      i = i + 1;
+    }
+
+    return true;
+  }
+}

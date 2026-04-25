@@ -1,4 +1,4 @@
-//! Runtime string operations — slicing, equality.
+//! Runtime string operations — slicing.
 //!
 //! Zo's `str` at runtime is a pointer to a length-
 //! prefixed blob: `[len: u64][bytes...][null]`. The
@@ -103,25 +103,6 @@ pub unsafe extern "C-unwind" fn _zo_str_slice(
   alloc_str(&src_bytes[lo..hi])
 }
 
-/// Compare two zo `str` values byte-wise. Returns
-/// `true` iff they have the same length and same
-/// bytes.
-///
-/// # Safety
-///
-/// Both `a` and `b` must be live zo str headers.
-#[unsafe(export_name = "zo_str_eq")]
-pub unsafe extern "C-unwind" fn _zo_str_eq(a: *const u8, b: *const u8) -> bool {
-  if a == b {
-    return true;
-  }
-
-  let ab = unsafe { str_bytes(a) };
-  let bb = unsafe { str_bytes(b) };
-
-  ab == bb
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -165,29 +146,5 @@ mod tests {
     unsafe {
       _zo_str_slice(src.as_ptr(), 0, 100);
     }
-  }
-
-  #[test]
-  fn eq_same_contents_different_pointers() {
-    let a = make_str(b"hello");
-    let b = make_str(b"hello");
-
-    assert!(unsafe { _zo_str_eq(a.as_ptr(), b.as_ptr()) });
-  }
-
-  #[test]
-  fn eq_different_contents() {
-    let a = make_str(b"hello");
-    let b = make_str(b"world");
-
-    assert!(!unsafe { _zo_str_eq(a.as_ptr(), b.as_ptr()) });
-  }
-
-  #[test]
-  fn eq_different_lengths() {
-    let a = make_str(b"hello");
-    let b = make_str(b"hell");
-
-    assert!(!unsafe { _zo_str_eq(a.as_ptr(), b.as_ptr()) });
   }
 }

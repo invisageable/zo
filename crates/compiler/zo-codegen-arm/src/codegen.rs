@@ -2900,30 +2900,6 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      // Runtime `s1 == s2` byte-wise compare. ABI:
-      // `_zo_str_eq(a, b) -> bool` returned in X0.
-      Insn::StrEq { dst, lhs, rhs } => {
-        if let Some(lhs_reg) = self.alloc_reg(*lhs)
-          && lhs_reg != X0
-        {
-          self.emitter.emit_mov_reg(X0, lhs_reg);
-        }
-
-        if let Some(rhs_reg) = self.alloc_reg(*rhs)
-          && rhs_reg != X1
-        {
-          self.emitter.emit_mov_reg(X1, rhs_reg);
-        }
-
-        self.emit_extern_call("_zo_str_eq");
-
-        if let Some(dst_reg) = self.alloc_reg(*dst)
-          && dst_reg != X0
-        {
-          self.emitter.emit_mov_reg(dst_reg, X0);
-        }
-      }
-
       _ => {}
     }
   }
