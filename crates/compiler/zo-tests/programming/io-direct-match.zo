@@ -1,0 +1,23 @@
+-- tests-run-pass: regression — directly matching on an
+-- FFI call returning a parameterized enum used to lose
+-- the variant payload's concrete type, so a `Result<str,
+-- int>::Ok(text)` arm read `text` as int and printed a
+-- stack address. Now the synthetic match scrutinee
+-- inherits the producing call's `return_type_args`.
+
+fun main() {
+  imu path: str = "/tmp/zo-io-direct-match.txt";
+
+  match write_file(path, "hi") {
+    Result::Ok(_) => {},
+    Result::Err(_) => showln("write-err"),
+  }
+
+  match read_file(path) {
+    Result::Ok(text) => showln(text),
+    Result::Err(_) => showln("read-err"),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- hi

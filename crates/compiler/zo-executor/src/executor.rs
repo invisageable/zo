@@ -9349,6 +9349,33 @@ impl<'a> Executor<'a> {
         ty_id: scrutinee_ty,
       });
 
+      // Propagate the producing Call's `return_type_args` to
+      // the synthetic scrutinee — without this, a directly-
+      // matched FFI call returning a parameterized enum
+      // (`match read_file(path) { Result::Ok(text) => ... }`)
+      // resolves variant payload types from the enum's fresh
+      // generic vars instead of the call's concrete `[Str,
+      // Int]`. The bound path (`imu r := call()`) already
+      // does this via `pending_decl`; the direct path didn't.
+      let call_name = self.sir.instructions.iter().rev().find_map(|insn| {
+        if let Insn::Call { dst, name, .. } = insn
+          && *dst == sir_val
+        {
+          Some(*name)
+        } else {
+          None
+        }
+      });
+
+      if let Some(cname) = call_name
+        && let Some(fd) = self.funs.iter().find(|f| f.name == cname)
+        && !fd.return_type_args.is_empty()
+      {
+        self
+          .var_return_type_args
+          .insert(scrut_sym.as_u32(), fd.return_type_args.clone());
+      }
+
       Some(scrut_sym)
     } else {
       None
