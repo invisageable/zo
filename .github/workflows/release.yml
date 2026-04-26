@@ -51,6 +51,15 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
+      # Cargo only stages a cdylib to
+      # `target/<profile>/<name>.<ext>` when the crate is
+      # the explicit `-p` target. The default-members build
+      # above only places `libzo_runtime` under `deps/` with
+      # a hash suffix; this second step gives the package
+      # step a stable filename to copy.
+      - name: Build runtime cdylib
+        run: cargo build --release --target ${{ matrix.target }} -p zo-runtime
+
       - name: List release directory
         run: ls -la target/${{ matrix.target }}/release/
         shell: bash
