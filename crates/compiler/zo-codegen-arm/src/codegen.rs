@@ -265,6 +265,18 @@ pub struct ARM64Gen<'a> {
   /// consumed by `Insn::Load { src: LoadSource::Local(_) }`
   /// to copy the override onto the loaded SSA destination.
   local_enum_field_tys: HashMap<u32, (u32, Vec<TyId>)>,
+  /// Per-construction tuple element types keyed by the
+  /// `Insn::TupleLiteral.dst` SSA value-id. Tuples carry
+  /// their element types only on `Ty::Tuple(TupleTyId)` in
+  /// `zo-ty`, which the codegen has no handle to — so the
+  /// pretty-printer pulls them out of the construction site
+  /// instead. Propagated through `Store`/`Load` via
+  /// `local_tuple_elem_tys`.
+  value_tuple_elem_tys: HashMap<u32, Vec<TyId>>,
+  /// Mirror of `value_tuple_elem_tys` keyed by local-variable
+  /// `Symbol.as_u32()`. Same Store-then-Load forwarding shape
+  /// as `local_enum_field_tys`.
+  local_tuple_elem_tys: HashMap<u32, Vec<TyId>>,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -297,6 +309,9 @@ const ARRAY_OPEN_BRACKET_SYM: Symbol = Symbol(0xE000_FFF8);
 const ARRAY_CLOSE_BRACKET_SYM: Symbol = Symbol(0xE000_FFF9);
 
 const STR_DQUOTE_SYM: Symbol = Symbol(0xE000_FFF7);
+
+const TUPLE_OPEN_PAREN_SYM: Symbol = Symbol(0xE000_FFF6);
+const TUPLE_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFF5);
 
 impl<'a> ARM64Gen<'a> {
   /// Borrow the list of external symbols referenced by
@@ -346,6 +361,8 @@ impl<'a> ARM64Gen<'a> {
       map_metas: HashMap::default(),
       value_enum_field_tys: HashMap::default(),
       local_enum_field_tys: HashMap::default(),
+      value_tuple_elem_tys: HashMap::default(),
+      local_tuple_elem_tys: HashMap::default(),
     }
   }
 
@@ -456,6 +473,16 @@ impl<'a> ARM64Gen<'a> {
     let ty = self.type_of(vid)?;
 
     self.map_metas.get(&ty.0).copied()
+  }
+
+  /// Returns the tuple's element `TyId`s when `vid` came
+  /// from a known `Insn::TupleLiteral` site (or was loaded
+  /// from a local that did). The tuple type encoding lives
+  /// in `zo-ty`, which the codegen has no handle to — so
+  /// the per-site override populated at construction time
+  /// is the only source.
+  fn is_tuple_value(&self, vid: ValueId) -> Option<Vec<TyId>> {
+    self.value_tuple_elem_tys.get(&vid.0).cloned()
   }
 
   /// Emit a single spill operation (GP or FP).
@@ -1203,6 +1230,7 @@ impl<'a> ARM64Gen<'a> {
         self.param_slots.clear();
         self.param_sym_slots.clear();
         self.local_enum_field_tys.clear();
+        self.local_tuple_elem_tys.clear();
 
         // Function prologue: save FP/LR if non-leaf.
         let fn_info = self
@@ -1361,6 +1389,10 @@ impl<'a> ARM64Gen<'a> {
           // SSA dst would have the override.
           if let Some(meta) = self.local_enum_field_tys.get(&slot).cloned() {
             self.value_enum_field_tys.insert(dst.0, meta);
+          }
+
+          if let Some(elems) = self.local_tuple_elem_tys.get(&slot).cloned() {
+            self.value_tuple_elem_tys.insert(dst.0, elems);
           }
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
@@ -2192,6 +2224,10 @@ impl<'a> ARM64Gen<'a> {
           self.local_enum_field_tys.insert(name.as_u32(), meta);
         }
 
+        if let Some(elems) = self.value_tuple_elem_tys.get(&value.0).cloned() {
+          self.local_tuple_elem_tys.insert(name.as_u32(), elems);
+        }
+
         // Variable write: STR value to stack slot.
         // Allocate slot on first Store, reuse after.
         let slot_key = name.as_u32();
@@ -2668,7 +2704,7 @@ impl<'a> ARM64Gen<'a> {
       // base + index * 8.
       // Tuple construction: same layout as structs.
       // Store each element at pre-allocated frame slots.
-      Insn::TupleLiteral { elements, .. } => {
+      Insn::TupleLiteral { dst, elements, .. } => {
         let base = self.struct_base + self.next_struct_slot;
 
         for (i, elem) in elements.iter().enumerate() {
@@ -2679,11 +2715,18 @@ impl<'a> ARM64Gen<'a> {
           }
         }
 
-        if let Some(dst) = self.reg_for_insn(idx) {
-          self.emit_add_sp_offset(dst, base);
+        if let Some(dst_reg) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst_reg, base);
         }
 
         self.next_struct_slot += elements.len() as u32 * STACK_SLOT_SIZE;
+
+        let elem_tys: Vec<TyId> = elements
+          .iter()
+          .map(|e| self.value_types.get(&e.0).copied().unwrap_or(TyId(0)))
+          .collect();
+
+        self.value_tuple_elem_tys.insert(dst.0, elem_tys);
       }
 
       Insn::TupleIndex {
@@ -3143,6 +3186,14 @@ impl<'a> ARM64Gen<'a> {
       // the `MapFmt` discriminants we passed; codegen never
       // sees the slot bytes itself.
       self.emit_map_write(vid, kf, vf, fd);
+    } else if let Some(elem_tys) =
+      arg_vid.and_then(|v| self.is_tuple_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // Tuple — `(e0, e1, ...)`. Same memory layout as a
+      // struct (8-byte slots in declaration order); we walk
+      // and dispatch each slot through `emit_field_write`.
+      self.emit_tuple_write(vid, &elem_tys, fd);
     } else if !is_str && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -3493,6 +3544,43 @@ impl<'a> ARM64Gen<'a> {
 
     // Closing bracket.
     self.emit_synthetic_str_write(ARRAY_CLOSE_BRACKET_SYM, fd);
+  }
+
+  /// Pretty-print a tuple value as `(e0, e1, ...)`.
+  ///
+  /// Layout matches `Insn::TupleLiteral` codegen: 8-byte
+  /// slots in declaration order, base pointer in the
+  /// receiver register. Element count is statically known
+  /// from the construction-site override, so this is a
+  /// straight-line unrolled walk — no loop, no length
+  /// header to read.
+  fn emit_tuple_write(&mut self, vid: ValueId, elem_tys: &[TyId], fd: u16) {
+    self.register_punctuation_sym(TUPLE_OPEN_PAREN_SYM, b"(");
+    self.register_punctuation_sym(TUPLE_CLOSE_PAREN_SYM, b")");
+    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
+
+    let src = self.alloc_reg(vid).unwrap_or(X0);
+
+    // Save the tuple base in X19 (callee-saved, outside
+    // the allocator pool) — every write syscall trashes
+    // X0..X17, so the base must live somewhere stable for
+    // the per-element load loop.
+    self.emitter.emit_mov_reg(Register::new(19), src);
+
+    self.emit_synthetic_str_write(TUPLE_OPEN_PAREN_SYM, fd);
+
+    for (i, ty) in elem_tys.iter().enumerate() {
+      let off = (i as i16) * STACK_SLOT_SIZE as i16;
+
+      self.emitter.emit_ldr(X0, Register::new(19), off);
+      self.emit_field_write(*ty, fd, true);
+
+      if i + 1 < elem_tys.len() {
+        self.emit_synthetic_str_write(ENUM_COMMA_SPACE_SYM, fd);
+      }
+    }
+
+    self.emit_synthetic_str_write(TUPLE_CLOSE_PAREN_SYM, fd);
   }
 
   /// Pretty-print a `HashMap<K, V>` as `{k0: v0, ...}`.
