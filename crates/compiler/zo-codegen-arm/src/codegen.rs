@@ -277,6 +277,12 @@ pub struct ARM64Gen<'a> {
   /// `Symbol.as_u32()`. Same Store-then-Load forwarding shape
   /// as `local_enum_field_tys`.
   local_tuple_elem_tys: HashMap<u32, Vec<TyId>>,
+  /// Struct metadata keyed by `TyId.0`, populated on each
+  /// `Insn::StructDef`. Drives the pretty-printer in
+  /// `emit_struct_write` so `showln(p)` emits
+  /// `Point { x: 10, y: 20 }` instead of leaking the pointer
+  /// through `itoa`.
+  struct_metas: HashMap<u32, StructMeta>,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -312,6 +318,27 @@ const STR_DQUOTE_SYM: Symbol = Symbol(0xE000_FFF7);
 
 const TUPLE_OPEN_PAREN_SYM: Symbol = Symbol(0xE000_FFF6);
 const TUPLE_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFF5);
+
+/// `" }"` — close marker for the struct pretty-printer. Shared
+/// across every struct because the trailing space + brace is
+/// identical regardless of struct name.
+const STRUCT_CLOSE_BRACE_SYM: Symbol = Symbol(0xE000_FFF4);
+
+/// Per-struct pretty-printer metadata. One entry per `StructDef`
+/// seen by the codegen. `header_sym` owns the pre-baked
+/// `"StructName { "` string in `string_data`; each entry in
+/// `fields` owns a `"field_name: "` label and the field's type
+/// so `emit_struct_write` can dispatch through the field-type's
+/// writer.
+struct StructMeta {
+  header_sym: Symbol,
+  fields: Vec<StructFieldMeta>,
+}
+
+struct StructFieldMeta {
+  label_sym: Symbol,
+  ty_id: TyId,
+}
 
 impl<'a> ARM64Gen<'a> {
   /// Borrow the list of external symbols referenced by
@@ -363,6 +390,7 @@ impl<'a> ARM64Gen<'a> {
       local_enum_field_tys: HashMap::default(),
       value_tuple_elem_tys: HashMap::default(),
       local_tuple_elem_tys: HashMap::default(),
+      struct_metas: HashMap::default(),
     }
   }
 
@@ -483,6 +511,20 @@ impl<'a> ARM64Gen<'a> {
   /// is the only source.
   fn is_tuple_value(&self, vid: ValueId) -> Option<Vec<TyId>> {
     self.value_tuple_elem_tys.get(&vid.0).cloned()
+  }
+
+  /// If `vid`'s type is a registered struct type, return its
+  /// `TyId`. `None` for non-structs and for struct types whose
+  /// `StructDef` wasn't surfaced (defensive — every struct type
+  /// reached by SIR should have one).
+  fn is_struct_value(&self, vid: ValueId) -> Option<TyId> {
+    let ty = self.type_of(vid)?;
+
+    if self.struct_metas.contains_key(&ty.0) {
+      Some(ty)
+    } else {
+      None
+    }
   }
 
   /// Emit a single spill operation (GP or FP).
@@ -2611,8 +2653,15 @@ impl<'a> ARM64Gen<'a> {
       } => {
         self.register_enum_meta(*name, *ty_id, variants);
       }
-      Insn::StructDef { .. }
-      | Insn::ConstDef { .. }
+      Insn::StructDef {
+        name,
+        ty_id,
+        fields,
+        ..
+      } => {
+        self.register_struct_meta(*name, *ty_id, fields);
+      }
+      Insn::ConstDef { .. }
       | Insn::ArrayTyDef { .. }
       | Insn::MapTyDef { .. } => {}
 
@@ -3193,6 +3242,14 @@ impl<'a> ARM64Gen<'a> {
       // struct (8-byte slots in declaration order); we walk
       // and dispatch each slot through `emit_field_write`.
       self.emit_tuple_write(vid, &elem_tys, fd);
+    } else if let Some(ty_id) = arg_vid.and_then(|v| self.is_struct_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // Struct — `Name { f0: v0, f1: v1, ... }`. Receiver
+      // register holds the struct base pointer; field
+      // labels and types come from the per-StructDef
+      // `struct_metas` entry.
+      self.emit_struct_write(vid, ty_id, fd);
     } else if !is_str && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -3580,6 +3637,124 @@ impl<'a> ARM64Gen<'a> {
     }
 
     self.emit_synthetic_str_write(TUPLE_CLOSE_PAREN_SYM, fd);
+  }
+
+  /// Record `Insn::StructDef` metadata and pre-bake the
+  /// struct header (`"Name { "`) plus each field label
+  /// (`"field: "`) into `string_data` under synthetic symbols.
+  /// `emit_struct_write` consumes these to produce
+  /// `Name { f0: v0, f1: v1, ... }` without any runtime
+  /// formatting.
+  fn register_struct_meta(
+    &mut self,
+    name: Symbol,
+    ty_id: TyId,
+    fields: &[(Symbol, TyId, bool)],
+  ) {
+    if self.struct_metas.contains_key(&ty_id.0) {
+      return;
+    }
+
+    let struct_str = self.interner.get(name).to_owned();
+    let header = format!("{struct_str} {{ ");
+    let header_sym = Symbol(self.next_enum_sym);
+
+    self.next_enum_sym += 1;
+
+    self.intern_synthetic_str(header_sym, header.as_bytes());
+
+    let mut field_metas = Vec::with_capacity(fields.len());
+
+    for (fname, fty, _has_default) in fields {
+      let fname_str = self.interner.get(*fname);
+      let label = format!("{fname_str}: ");
+      let label_sym = Symbol(self.next_enum_sym);
+
+      self.next_enum_sym += 1;
+
+      self.intern_synthetic_str(label_sym, label.as_bytes());
+
+      field_metas.push(StructFieldMeta {
+        label_sym,
+        ty_id: *fty,
+      });
+    }
+
+    self.register_punctuation_sym(STRUCT_CLOSE_BRACE_SYM, b" }");
+    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
+
+    self.struct_metas.insert(
+      ty_id.0,
+      StructMeta {
+        header_sym,
+        fields: field_metas,
+      },
+    );
+  }
+
+  /// Helper used by `register_struct_meta` to push a length-
+  /// prefixed string into `string_data` under a synthetic
+  /// symbol, matching the format `emit_synthetic_str_write`
+  /// expects.
+  fn intern_synthetic_str(&mut self, sym: Symbol, bytes: &[u8]) {
+    let mut buf = Buffer::new();
+
+    buf.bytes(&(bytes.len() as u64).to_le_bytes());
+    buf.bytes(bytes);
+    buf.bytes(b"\0");
+
+    self.string_data.push((sym, buf.finish()));
+  }
+
+  /// Pretty-print a struct value as `Name { f0: v0, ... }`.
+  ///
+  /// Layout matches `Insn::StructConstruct` codegen: fields
+  /// in declaration order, 8-byte slots, base pointer in the
+  /// receiver register. Field count and types are statically
+  /// known from `struct_metas`, so this is an unrolled walk
+  /// — no length header, no loop. Each field dispatches
+  /// through `emit_field_write` (same per-type branching the
+  /// enum / tuple / array printers already use).
+  fn emit_struct_write(&mut self, vid: ValueId, ty_id: TyId, fd: u16) {
+    let Some(meta) = self.struct_metas.get(&ty_id.0) else {
+      if let Some(src) = self.alloc_reg(vid)
+        && src != X0
+      {
+        self.emitter.emit_mov_reg(X0, src);
+      }
+
+      self.emit_itoa_and_write(fd);
+
+      return;
+    };
+
+    let header_sym = meta.header_sym;
+    let fields: Vec<(Symbol, TyId)> =
+      meta.fields.iter().map(|f| (f.label_sym, f.ty_id)).collect();
+
+    let src = self.alloc_reg(vid).unwrap_or(X0);
+
+    // Save the struct base in X19 (callee-saved, outside the
+    // allocator pool) — every write syscall trashes X0..X17,
+    // so the base must live somewhere stable for the per-
+    // field load loop.
+    self.emitter.emit_mov_reg(Register::new(19), src);
+    self.emit_synthetic_str_write(header_sym, fd);
+
+    for (i, (label_sym, fty)) in fields.iter().enumerate() {
+      self.emit_synthetic_str_write(*label_sym, fd);
+
+      let off = (i as i16) * STACK_SLOT_SIZE as i16;
+
+      self.emitter.emit_ldr(X0, Register::new(19), off);
+      self.emit_field_write(*fty, fd, true);
+
+      if i + 1 < fields.len() {
+        self.emit_synthetic_str_write(ENUM_COMMA_SPACE_SYM, fd);
+      }
+    }
+
+    self.emit_synthetic_str_write(STRUCT_CLOSE_BRACE_SYM, fd);
   }
 
   /// Pretty-print a `HashMap<K, V>` as `{k0: v0, ...}`.
