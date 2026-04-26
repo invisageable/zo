@@ -61,8 +61,19 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zo dist/
           cp target/${{ matrix.target }}/release/fret dist/
+          # Bundle the runtime dylib next to the compiler.
+          # `stage_runtime_artifacts` looks alongside the
+          # `zo` binary at run time; without this an
+          # installed `zo` can't run any program that uses
+          # concurrency / HashMap / Vec / strings (which
+          # link `libzo_runtime` via @executable_path).
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            cp target/${{ matrix.target }}/release/libzo_runtime.so dist/
+          else
+            cp target/${{ matrix.target }}/release/libzo_runtime.dylib dist/
+          fi
           cd dist
-          tar czvf ${{ github.ref_name }}-${{ matrix.target }}.tar.gz zo fret
+          tar czvf ${{ github.ref_name }}-${{ matrix.target }}.tar.gz *
           mv ${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../
         shell: bash
 
@@ -72,8 +83,9 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zo.exe dist/
           cp target/${{ matrix.target }}/release/fret.exe dist/
+          cp target/${{ matrix.target }}/release/zo_runtime.dll dist/
           cd dist
-          7z a ${{ github.ref_name }}-${{ matrix.target }}.zip zo.exe fret.exe
+          7z a ${{ github.ref_name }}-${{ matrix.target }}.zip *
           mv ${{ github.ref_name }}-${{ matrix.target }}.zip ../
         shell: bash
 
