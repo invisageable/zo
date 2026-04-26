@@ -189,9 +189,23 @@ impl Run {
         Error::new(ErrorKind::InternalCompilerError, Span::ZERO)
       })?;
     } else {
-      // Programming path: compile to temp binary, execute.
-      let temp_path =
+      // Programming path: compile to a per-run isolated
+      // dir, execute. The isolation matters: the codegen
+      // emits `LC_LOAD_DYLIB @executable_path/libzo_runtime
+      // .dylib` and the compiler stages the dylib next to
+      // the binary. A flat shared `temp_dir()` setup means
+      // every run overwrites the same dylib path while
+      // earlier runs (or zombie dyld-stuck processes) may
+      // still hold the file open — which on macOS leaves
+      // the new run wedged in `dyld3::MachOFile::compatible
+      // Slice` indefinitely. A fresh subdirectory per run
+      // sidesteps the whole class.
+      let run_dir =
         std::env::temp_dir().join(format!("zo_run_{}", std::process::id()));
+
+      let _ = std::fs::create_dir_all(&run_dir);
+
+      let temp_path = run_dir.join("a.out");
 
       compiler.compile(
         &[(input_path, source.clone())],
@@ -221,7 +235,7 @@ impl Run {
 
       let status = cmd.status();
 
-      let _ = std::fs::remove_file(&temp_path);
+      let _ = std::fs::remove_dir_all(&run_dir);
 
       match status {
         Ok(s) if !s.success() => {

@@ -1370,6 +1370,7 @@ fn translate_body(
       | Insn::EnumDef { .. }
       | Insn::StructDef { .. }
       | Insn::ArrayTyDef { .. }
+      | Insn::MapTyDef { .. }
       | Insn::ConstDef { .. }
       | Insn::Directive { .. } => {}
       // Catch-all for insns not yet implemented (`Template`,

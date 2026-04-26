@@ -149,6 +149,7 @@ impl Insn {
       | Insn::EnumDef { .. }
       | Insn::StructDef { .. }
       | Insn::ArrayTyDef { .. }
+      | Insn::MapTyDef { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::FunDef { .. }
@@ -330,6 +331,9 @@ impl Insn {
       Insn::ArrayTyDef { array_ty, elem_ty } => {
         f(array_ty);
         f(elem_ty);
+      }
+      Insn::MapTyDef { map_ty, .. } => {
+        f(map_ty);
       }
       // Type-definition / signature-carrying insns. The
       // executor's post-pass resolve walker depends on
@@ -590,6 +594,21 @@ pub enum Insn {
   /// type's writer. Mirrors `EnumDef`'s role for enum pretty-
   /// printing.
   ArrayTyDef { array_ty: TyId, elem_ty: TyId },
+  /// HashMap type description — emitted once per
+  /// `HashMap<K, V>::new()` lowering so codegen can
+  /// look up the per-element format kinds when
+  /// `showln(m)` runs. `key_fmt` / `val_fmt` are the
+  /// `MapFmt` discriminants the runtime expects (see
+  /// `zo-runtime/src/map.rs`): `0=Int`, `1=Bool`,
+  /// `2=Char`, `3=Str`, `4=Float`. Codegen routes the
+  /// pretty-print call to `_zo_map_show` with these
+  /// kinds so each entry formats as `key: value` for
+  /// every supported scalar key/value type.
+  MapTyDef {
+    map_ty: TyId,
+    key_fmt: u32,
+    val_fmt: u32,
+  },
   /// Struct construction: `Span { lo: 0, hi: 10 }`.
   StructConstruct {
     dst: ValueId,

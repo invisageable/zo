@@ -57,6 +57,134 @@ impl KeyKind {
   }
 }
 
+/// Per-side scalar format identifier the codegen passes
+/// to `_zo_map_show`. The discriminants are part of the
+/// runtime/codegen ABI: the executor derives this enum
+/// from the `K` / `V` of `HashMap<K, V>` and emits the
+/// raw `u32` into `Insn::MapTyDef`. Keep these stable —
+/// the codegen reads them back as a `u8` arg.
+///
+/// Coverage matches what `emit_field_write` knows how
+/// to format inline for arrays: integer (any width up
+/// to 8 bytes), bool, char (UTF-8 codepoint), zo `str`
+/// (header pointer), and `f64`. Unknown / unsupported
+/// kinds fall through to the integer path so the output
+/// stays bounded rather than panicking on the user.
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MapFmt {
+  Int = 0,
+  Bool = 1,
+  Char = 2,
+  Str = 3,
+  Float = 4,
+}
+
+impl MapFmt {
+  fn from_u8(v: u8) -> Self {
+    match v {
+      0 => MapFmt::Int,
+      1 => MapFmt::Bool,
+      2 => MapFmt::Char,
+      3 => MapFmt::Str,
+      4 => MapFmt::Float,
+      _ => MapFmt::Int,
+    }
+  }
+
+  /// Append the human-readable form of `bytes` to `out`
+  /// using this format. `bytes` is the raw slot payload
+  /// for `Int`/`Bool`/`Char`/`Float`, or the runtime
+  /// `str` header pointer encoded as 8 little-endian
+  /// bytes for `Str` (the slot stores the payload, so
+  /// `Str` reads from the slot directly here).
+  ///
+  /// The map stores str keys as their *payload bytes*
+  /// (see `key_to_vec`), so the `Str` branch treats the
+  /// input as raw UTF-8 already. For str values the
+  /// codegen spills the str header pointer's 8 bytes
+  /// into the value slot; we follow the pointer to its
+  /// payload at format time.
+  fn format_bytes(self, bytes: &[u8], is_value: bool, out: &mut Vec<u8>) {
+    match self {
+      MapFmt::Int => {
+        let mut buf = [0u8; 8];
+        let n = bytes.len().min(8);
+
+        buf[..n].copy_from_slice(&bytes[..n]);
+
+        // 4-byte slots (e.g. `int = i32` ABI) zero-extend
+        // for unsigned-style printing; 8-byte slots ride
+        // the full `i64` path. Both cover the executor's
+        // current `int` lowering.
+        let n = if n <= 4 {
+          i32::from_le_bytes(<[u8; 4]>::try_from(&buf[..4]).unwrap()) as i64
+        } else {
+          i64::from_le_bytes(buf)
+        };
+
+        out.extend_from_slice(n.to_string().as_bytes());
+      }
+      MapFmt::Bool => {
+        let truthy = bytes.first().copied().unwrap_or(0) != 0;
+
+        out.extend_from_slice(if truthy { b"true" } else { b"false" });
+      }
+      MapFmt::Char => {
+        let mut buf = [0u8; 4];
+        let n = bytes.len().min(4);
+
+        buf[..n].copy_from_slice(&bytes[..n]);
+
+        let cp = u32::from_le_bytes(buf);
+        let mut tmp = [0u8; 4];
+
+        if let Some(c) = char::from_u32(cp) {
+          let s = c.encode_utf8(&mut tmp);
+
+          out.extend_from_slice(s.as_bytes());
+        } else {
+          out.extend_from_slice(b"?");
+        }
+      }
+      MapFmt::Str => {
+        // Keys: stored as payload bytes directly.
+        // Values: stored as the 8-byte str header pointer
+        // (the codegen spills the X-register holding the
+        // pointer into the value scratch slot). Follow it.
+        if is_value {
+          let mut ptr_buf = [0u8; 8];
+          let n = bytes.len().min(8);
+
+          ptr_buf[..n].copy_from_slice(&bytes[..n]);
+
+          let ptr = u64::from_le_bytes(ptr_buf) as *const u8;
+
+          if ptr.is_null() {
+            return;
+          }
+
+          let payload = unsafe { str_bytes(ptr) };
+
+          out.extend_from_slice(payload);
+        } else {
+          out.extend_from_slice(bytes);
+        }
+      }
+      MapFmt::Float => {
+        let mut buf = [0u8; 8];
+        let n = bytes.len().min(8);
+
+        buf[..n].copy_from_slice(&bytes[..n]);
+
+        let f = f64::from_le_bytes(buf);
+
+        out.extend_from_slice(format!("{f}").as_bytes());
+      }
+    }
+  }
+}
+
 #[derive(Clone)]
 enum Slot {
   Empty,
@@ -116,11 +244,19 @@ impl ZoMap {
   /// bytes — different heap copies of the same string
   /// produce the same hash.
   ///
+  /// `key_ptr` is uniformly the address of the slot
+  /// where the codegen spilled the key value. For
+  /// `Prim` / `Tuple` the slot bytes ARE the key. For
+  /// `Str` the slot holds the 8-byte zo str header
+  /// pointer; we dereference once before walking the
+  /// payload.
+  ///
   /// # Safety
   ///
-  /// `key_ptr` must point at a valid key for this map's
-  /// kind: `Prim` requires `key_sz` readable bytes;
-  /// `Str` requires a live zo str header.
+  /// `key_ptr` must point at a valid key slot for this
+  /// map's kind: `Prim` requires `key_sz` readable
+  /// bytes; `Str` requires a slot holding a live zo
+  /// `str` header pointer.
   unsafe fn hash_key(&self, key_ptr: *const u8) -> u64 {
     match self.key_kind {
       KeyKind::Prim => {
@@ -129,7 +265,8 @@ impl ZoMap {
         Self::hash_bytes(bytes)
       }
       KeyKind::Str => {
-        let bytes = unsafe { str_bytes(key_ptr) };
+        let header = unsafe { *(key_ptr as *const *const u8) };
+        let bytes = unsafe { str_bytes(header) };
 
         Self::hash_bytes(bytes)
       }
@@ -158,7 +295,8 @@ impl ZoMap {
         bytes.to_vec()
       }
       KeyKind::Str => {
-        let bytes = unsafe { str_bytes(key_ptr) };
+        let header = unsafe { *(key_ptr as *const *const u8) };
+        let bytes = unsafe { str_bytes(header) };
 
         bytes.to_vec()
       }
@@ -181,7 +319,8 @@ impl ZoMap {
         slot_key == bytes
       }
       KeyKind::Str => {
-        let bytes = unsafe { str_bytes(key_ptr) };
+        let header = unsafe { *(key_ptr as *const *const u8) };
+        let bytes = unsafe { str_bytes(header) };
 
         slot_key == bytes
       }
@@ -458,6 +597,62 @@ pub unsafe extern "C-unwind" fn _zo_map_free(map: *mut ZoMap) {
   }
 }
 
+/// Pretty-print the map to `fd` as `{k0: v0, k1: v1}`.
+/// Order is implementation-defined — slots are scanned
+/// in physical bucket order, which depends on the hash
+/// of each key and the current capacity. Used by
+/// `showln(m)` to surface entries instead of the raw
+/// `*mut ZoMap` pointer.
+///
+/// `key_fmt` and `val_fmt` are `MapFmt` discriminants
+/// the codegen derived from `K` / `V` at the
+/// `HashMap<K, V>::new()` site.
+///
+/// All output is buffered in a single `Vec<u8>` and
+/// flushed with one `libc::write` so partial syscalls
+/// can't tear an entry across reads.
+///
+/// # Safety
+///
+/// `map` must be a live pointer from `__zo_map_new`.
+#[unsafe(export_name = "zo_map_show")]
+pub unsafe extern "C-unwind" fn _zo_map_show(
+  map: *mut ZoMap,
+  fd: usize,
+  key_fmt: u8,
+  val_fmt: u8,
+) {
+  let m = unsafe { &*map };
+  let kf = MapFmt::from_u8(key_fmt);
+  let vf = MapFmt::from_u8(val_fmt);
+
+  let mut out: Vec<u8> = Vec::with_capacity(64);
+
+  out.push(b'{');
+
+  let mut first = true;
+
+  for slot in &m.slots {
+    if let Slot::Occupied { key, val, .. } = slot {
+      if !first {
+        out.extend_from_slice(b", ");
+      }
+
+      first = false;
+
+      kf.format_bytes(key, false, &mut out);
+      out.extend_from_slice(b": ");
+      vf.format_bytes(val, true, &mut out);
+    }
+  }
+
+  out.push(b'}');
+
+  unsafe {
+    libc::write(fd as i32, out.as_ptr() as *const _, out.len());
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -652,13 +847,16 @@ mod tests {
     // hashing would put them in different slots.
     assert_ne!(p1, p2);
 
+    let p1_slot = (&p1) as *const *const u8 as *const u8;
+    let p2_slot = (&p2) as *const *const u8 as *const u8;
+
     unsafe {
-      _zo_map_insert(map, p1, 1i32.to_le_bytes().as_ptr());
+      _zo_map_insert(map, p1_slot, 1i32.to_le_bytes().as_ptr());
     }
 
     let mut out = [0u8; 4];
 
-    let hit = unsafe { _zo_map_get(map, p2, out.as_mut_ptr()) };
+    let hit = unsafe { _zo_map_get(map, p2_slot, out.as_mut_ptr()) };
 
     assert!(hit, "content-equal str keys must hash to the same bucket");
     assert_eq!(i32::from_le_bytes(out), 1);
@@ -696,23 +894,139 @@ mod tests {
     ];
 
     let blobs: Vec<Box<[u8]>> = bytes.iter().map(|b| make_str(b)).collect();
+    let header_ptrs: Vec<*const u8> =
+      blobs.iter().map(|b| b.as_ptr()).collect();
 
-    for (i, blob) in blobs.iter().enumerate() {
+    for (i, hp) in header_ptrs.iter().enumerate() {
       let v = (i as i32).to_le_bytes();
+      let slot = (hp as *const *const u8) as *const u8;
 
       unsafe {
-        _zo_map_insert(map, blob.as_ptr(), v.as_ptr());
+        _zo_map_insert(map, slot, v.as_ptr());
       }
     }
 
-    assert_eq!(unsafe { _zo_map_len(map) }, blobs.len());
+    assert_eq!(unsafe { _zo_map_len(map) }, header_ptrs.len());
 
-    for (i, blob) in blobs.iter().enumerate() {
+    for (i, hp) in header_ptrs.iter().enumerate() {
       let mut out = [0u8; 4];
+      let slot = (hp as *const *const u8) as *const u8;
 
-      assert!(unsafe { _zo_map_get(map, blob.as_ptr(), out.as_mut_ptr()) });
+      assert!(unsafe { _zo_map_get(map, slot, out.as_mut_ptr()) });
       assert_eq!(i32::from_le_bytes(out), i as i32);
     }
+
+    unsafe {
+      _zo_map_free(map);
+    }
+  }
+
+  /// Capture writes to `fd_writer` by routing them through
+  /// a pipe and reading the consumer end. Returns the
+  /// bytes the body wrote.
+  fn capture_fd<F: FnOnce(usize)>(body: F) -> Vec<u8> {
+    let mut fds = [0i32; 2];
+
+    let rc = unsafe { libc::pipe(fds.as_mut_ptr()) };
+
+    assert_eq!(rc, 0, "pipe() failed");
+
+    let read_fd = fds[0];
+    let write_fd = fds[1];
+
+    body(write_fd as usize);
+
+    unsafe {
+      libc::close(write_fd);
+    }
+
+    let mut out: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 256];
+
+    loop {
+      let n =
+        unsafe { libc::read(read_fd, buf.as_mut_ptr() as *mut _, buf.len()) };
+
+      if n <= 0 {
+        break;
+      }
+
+      out.extend_from_slice(&buf[..n as usize]);
+    }
+
+    unsafe {
+      libc::close(read_fd);
+    }
+
+    out
+  }
+
+  #[test]
+  fn show_int_int_emits_braces_and_entry_count() {
+    let map =
+      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+
+    for (k, v) in [(1i32, 100i32), (2, 200), (3, 300)] {
+      unsafe {
+        _zo_map_insert(map, k.to_le_bytes().as_ptr(), v.to_le_bytes().as_ptr());
+      }
+    }
+
+    let bytes = capture_fd(|fd| unsafe {
+      _zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Int as u8);
+    });
+
+    let s = std::str::from_utf8(&bytes).expect("utf8 output");
+
+    assert!(s.starts_with('{'), "expected leading brace, got {s:?}");
+    assert!(s.ends_with('}'), "expected trailing brace, got {s:?}");
+    assert_eq!(s.matches(": ").count(), 3, "expected 3 entries: {s:?}");
+    assert_eq!(s.matches(", ").count(), 2, "expected 2 separators: {s:?}");
+
+    for pair in ["1: 100", "2: 200", "3: 300"] {
+      assert!(s.contains(pair), "missing entry {pair} in {s:?}");
+    }
+
+    unsafe {
+      _zo_map_free(map);
+    }
+  }
+
+  #[test]
+  fn show_empty_emits_just_braces() {
+    let map =
+      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+
+    let bytes = capture_fd(|fd| unsafe {
+      _zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Int as u8);
+    });
+
+    assert_eq!(bytes, b"{}");
+
+    unsafe {
+      _zo_map_free(map);
+    }
+  }
+
+  #[test]
+  fn show_bool_value_uses_true_false() {
+    let map =
+      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 1, INITIAL_CAPACITY) };
+
+    let k = 7i32.to_le_bytes();
+    let v_true = [1u8];
+
+    unsafe {
+      _zo_map_insert(map, k.as_ptr(), v_true.as_ptr());
+    }
+
+    let bytes = capture_fd(|fd| unsafe {
+      _zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Bool as u8);
+    });
+
+    let s = std::str::from_utf8(&bytes).expect("utf8 output");
+
+    assert!(s.contains("7: true"), "got {s:?}");
 
     unsafe {
       _zo_map_free(map);

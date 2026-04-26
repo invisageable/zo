@@ -239,6 +239,32 @@ pub struct ARM64Gen<'a> {
   /// element-type's writer (itoa/ftoa/bool/char/str) and
   /// produce `[e0, e1, ...]` instead of leaking a pointer.
   array_metas: HashMap<u32, TyId>,
+  /// HashMap type → `(key_fmt, val_fmt)` `MapFmt`
+  /// discriminants, keyed by the map's `TyId.0`.
+  /// Populated by the same pre-pass that fills
+  /// `array_metas`, but reading `Insn::MapTyDef`. Drives
+  /// `emit_map_write` so `showln(m)` calls
+  /// `_zo_map_show` with the right per-side scalar
+  /// kinds — without it the receiver pointer falls
+  /// through to `itoa` and prints as a raw address.
+  map_metas: HashMap<u32, (u32, u32)>,
+  /// Per-construction concrete payload types, keyed by the
+  /// `EnumConstruct.dst` ValueId. Each entry pins down the
+  /// variant index and the concrete `TyId` of every payload
+  /// slot at that construction site. The generic `enum_metas`
+  /// only sees the enum template's `Ty::Infer($T)` field
+  /// types, so without this override `showln(Maybe<str>::Some)`
+  /// would dispatch through `emit_itoa_and_write` and leak the
+  /// str header pointer. Propagated through `Store`/`Load` via
+  /// `local_enum_field_tys` so a `showln(m2)` later in the
+  /// function still sees the construction-site types.
+  value_enum_field_tys: HashMap<u32, (u32, Vec<TyId>)>,
+  /// Mirror of `value_enum_field_tys` keyed by local-variable
+  /// `Symbol.as_u32()`. Populated whenever an `Insn::Store`
+  /// writes a value that has a `value_enum_field_tys` entry,
+  /// consumed by `Insn::Load { src: LoadSource::Local(_) }`
+  /// to copy the override onto the loaded SSA destination.
+  local_enum_field_tys: HashMap<u32, (u32, Vec<TyId>)>,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -315,6 +341,9 @@ impl<'a> ARM64Gen<'a> {
       next_enum_sym: ENUM_SYNTHETIC_SYM_BASE,
       value_types: HashMap::default(),
       array_metas: HashMap::default(),
+      map_metas: HashMap::default(),
+      value_enum_field_tys: HashMap::default(),
+      local_enum_field_tys: HashMap::default(),
     }
   }
 
@@ -414,6 +443,17 @@ impl<'a> ARM64Gen<'a> {
     let ty = self.type_of(vid)?;
 
     self.array_metas.get(&ty.0).copied()
+  }
+
+  /// If `vid`'s type is a registered HashMap, return the
+  /// `(key_fmt, val_fmt)` pair as `MapFmt` discriminants.
+  /// `None` for non-maps. Same fall-through semantics as
+  /// `is_array_value`: a missing entry simply means the
+  /// type isn't a map this codegen knows how to walk.
+  fn is_map_value(&self, vid: ValueId) -> Option<(u32, u32)> {
+    let ty = self.type_of(vid)?;
+
+    self.map_metas.get(&ty.0).copied()
   }
 
   /// Emit a single spill operation (GP or FP).
@@ -672,12 +712,23 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Pre-pass: collect `ArrayTyDef` metadata so
-    // `emit_array_write` can dispatch on the element type
-    // regardless of where the definition lands in the stream.
+    // Pre-pass: collect `ArrayTyDef` and `MapTyDef`
+    // metadata so the typed-write dispatchers can look
+    // up element / scalar info regardless of where the
+    // definitions land in the stream.
     for insn in insns.iter() {
-      if let Insn::ArrayTyDef { array_ty, elem_ty } = insn {
-        self.array_metas.insert(array_ty.0, *elem_ty);
+      match insn {
+        Insn::ArrayTyDef { array_ty, elem_ty } => {
+          self.array_metas.insert(array_ty.0, *elem_ty);
+        }
+        Insn::MapTyDef {
+          map_ty,
+          key_fmt,
+          val_fmt,
+        } => {
+          self.map_metas.insert(map_ty.0, (*key_fmt, *val_fmt));
+        }
+        _ => {}
       }
     }
 
@@ -1149,6 +1200,7 @@ impl<'a> ARM64Gen<'a> {
         self.next_struct_slot = 0;
         self.param_slots.clear();
         self.param_sym_slots.clear();
+        self.local_enum_field_tys.clear();
 
         // Function prologue: save FP/LR if non-leaf.
         let fn_info = self
@@ -1299,6 +1351,15 @@ impl<'a> ARM64Gen<'a> {
       Insn::Load { dst, src, .. } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
+
+          // Recover the construction-site enum payload types
+          // (if any) so a later `showln(local)` can dispatch
+          // on the concrete payload type. Without this, only
+          // values that came directly from an `EnumConstruct`
+          // SSA dst would have the override.
+          if let Some(meta) = self.local_enum_field_tys.get(&slot).cloned() {
+            self.value_enum_field_tys.insert(dst.0, meta);
+          }
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
             if let Some(dst_reg) = self.alloc_reg(*dst) {
@@ -2121,6 +2182,14 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::Store { name, value, .. } => {
+        // Forward concrete enum payload types from the rhs
+        // SSA value to this local so a later `Load` of `name`
+        // can recover them. Mirrors how `value_types` flows
+        // through stores for enum pretty-printing.
+        if let Some(meta) = self.value_enum_field_tys.get(&value.0).cloned() {
+          self.local_enum_field_tys.insert(name.as_u32(), meta);
+        }
+
         // Variable write: STR value to stack slot.
         // Allocate slot on first Store, reuse after.
         let slot_key = name.as_u32();
@@ -2506,7 +2575,8 @@ impl<'a> ARM64Gen<'a> {
       }
       Insn::StructDef { .. }
       | Insn::ConstDef { .. }
-      | Insn::ArrayTyDef { .. } => {}
+      | Insn::ArrayTyDef { .. }
+      | Insn::MapTyDef { .. } => {}
 
       // Enum construction: for unit variants (no fields),
       // the value is just the discriminant. For tuple
@@ -2522,10 +2592,28 @@ impl<'a> ARM64Gen<'a> {
       // Cost: one extra stack slot + one store per unit variant
       // instance — dwarfed by the syscall cost of `show`.
       Insn::EnumConstruct {
-        variant, fields, ..
+        dst,
+        variant,
+        fields,
+        ..
       } => {
         let slot_count = 1 + fields.len() as u32;
         let base = self.struct_base + self.next_struct_slot;
+
+        // Pin down the per-construction payload types so the
+        // pretty-printer can dispatch on the concrete payload
+        // type rather than the enum template's generic `$T`.
+        // Without this, `Maybe<str>::Some("hi")` falls through
+        // to `emit_itoa_and_write` and prints the str header
+        // pointer.
+        let concrete_field_tys: Vec<TyId> = fields
+          .iter()
+          .map(|f| self.type_of(*f).unwrap_or(TyId(0)))
+          .collect();
+
+        self
+          .value_enum_field_tys
+          .insert(dst.0, (*variant, concrete_field_tys));
 
         // Store discriminant at base.
         self.emitter.emit_mov_imm(X16, *variant as u16);
@@ -2542,8 +2630,8 @@ impl<'a> ARM64Gen<'a> {
           }
         }
 
-        if let Some(dst) = self.reg_for_insn(idx) {
-          self.emit_add_sp_offset(dst, base);
+        if let Some(dst_reg) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst_reg, base);
         }
 
         self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
@@ -3044,6 +3132,15 @@ impl<'a> ARM64Gen<'a> {
       // this branch the pointer falls through to `itoa` and
       // prints as a raw address.
       self.emit_array_write(vid, elem_ty, fd);
+    } else if let Some((kf, vf)) = arg_vid.and_then(|v| self.is_map_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // HashMap — load `m.ptr` and hand the iteration off
+      // to `_zo_map_show` in the runtime. The runtime walks
+      // occupied slots and formats each `key: value` using
+      // the `MapFmt` discriminants we passed; codegen never
+      // sees the slot bytes itself.
+      self.emit_map_write(vid, kf, vf, fd);
     } else if !is_str && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -3100,7 +3197,6 @@ impl<'a> ARM64Gen<'a> {
     for (vname, disc, fields) in variants {
       let var_str = self.interner.get(*vname);
       let display = format!("{enum_str}::{var_str}");
-
       let display_sym = Symbol(self.next_enum_sym);
 
       self.next_enum_sym += 1;
@@ -3177,15 +3273,30 @@ impl<'a> ARM64Gen<'a> {
       {
         self.emitter.emit_mov_reg(X0, src);
       }
+
       self.emit_itoa_and_write(fd);
+
       return;
     };
 
-    let variants: Vec<(u32, Symbol, Vec<TyId>)> = meta
+    let mut variants: Vec<(u32, Symbol, Vec<TyId>)> = meta
       .variants
       .iter()
       .map(|v| (v.discriminant, v.display_sym, v.field_tys.clone()))
       .collect();
+
+    // Substitute the construction-site payload types for the
+    // matching variant. Generic enums register the template's
+    // `Ty::Infer($T)` field types in `enum_metas`; without
+    // this override the str payload of `Maybe<str>::Some("hi")`
+    // would dispatch through the integer writer.
+    if let Some((variant, concrete)) = self.value_enum_field_tys.get(&vid.0)
+      && let Some(slot) =
+        variants.iter_mut().find(|(disc, _, _)| disc == variant)
+      && slot.2.len() == concrete.len()
+    {
+      slot.2 = concrete.clone();
+    }
 
     let src = self.alloc_reg(vid).unwrap_or(X0);
 
@@ -3362,6 +3473,38 @@ impl<'a> ARM64Gen<'a> {
 
     // Closing bracket.
     self.emit_synthetic_str_write(ARRAY_CLOSE_BRACKET_SYM, fd);
+  }
+
+  /// Pretty-print a `HashMap<K, V>` as `{k0: v0, ...}`.
+  ///
+  /// The receiver register holds the map's struct
+  /// address (`{ ptr }` shape, see `emit_map_new`); we
+  /// load `m.ptr` from offset 0, set the runtime ABI
+  /// args (X0=map, X1=fd, X2=key_fmt, X3=val_fmt), and
+  /// hand the formatting to `_zo_map_show`. Iteration
+  /// order is the map's bucket order — implementation-
+  /// defined, identical to Rust's `HashMap` Debug.
+  ///
+  /// Doing the iteration in Rust rather than ASM keeps
+  /// the codegen footprint flat: bucket walk, per-slot
+  /// occupied check, and per-side scalar formatting all
+  /// live in one place where they can share buffer
+  /// state and emit a single `write` syscall.
+  fn emit_map_write(
+    &mut self,
+    vid: ValueId,
+    key_fmt: u32,
+    val_fmt: u32,
+    fd: u16,
+  ) {
+    let recv = self.alloc_reg(vid).unwrap_or(X0);
+
+    // X0 = m.ptr; X1 = fd; X2 = key_fmt; X3 = val_fmt.
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emitter.emit_mov_imm(X1, fd);
+    self.emitter.emit_mov_imm(X2, key_fmt as u16);
+    self.emitter.emit_mov_imm(X3, val_fmt as u16);
+    self.emit_extern_call("_zo_map_show");
   }
 
   /// Emit a newline write to the given fd.

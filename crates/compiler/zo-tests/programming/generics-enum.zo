@@ -1,11 +1,19 @@
--- tests-build-pass: generic enum construction + multi-instantiation. 
+-- tests-build-pass: generic enum construction + multi-instantiation.
 -- @cmd — zo build generics-enum.zo
--- 
+--
 -- Regression for the shared `Ty::Infer(_)` global-substitution leak: a
 -- `Maybe<int>` followed by a `Maybe<str>` in the same function used to print a
 -- stack address for the str payload — the second construction inherited the
--- first's globally-bound `$T = int`, and the match-arm binding for `text` was 
+-- first's globally-bound `$T = int`, and the match-arm binding for `text` was
 -- typed `int`.
+--
+-- Also covers the codegen-side enum pretty-printer specialization: the
+-- `enum_metas` table is built from `Insn::EnumDef`, which carries the
+-- template's `Ty::Infer($T)` field types. `showln(Maybe<str>::Some("hi"))`
+-- used to dispatch the str payload through `emit_itoa_and_write` and leak
+-- the str header pointer (e.g. `Maybe::Some(4341608703)`). The fix tracks
+-- per-construction concrete payload types via `value_enum_field_tys` and
+-- propagates them through `Store`/`Load`.
 
 enum Maybe<$T> {
   Some($T),
@@ -37,7 +45,7 @@ fun main() {
     Maybe::None => check(false),
   }
 
-  -- showln(m2);
+  showln(m2);
 
   -- 2-param: int / int.
   imu e1: Either<int, int> = Either::Left(7);
@@ -74,6 +82,7 @@ fun main() {
 
 -- EXPECTED OUTPUT:
 -- Maybe::Some(42)
+-- Maybe::Some(hi)
 -- Either::Left(7)
 -- Either::Right(404)
 -- DONE

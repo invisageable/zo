@@ -4875,63 +4875,27 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Parse a generic argument list `<T1, T2, ...>` starting
-  /// at the token AFTER the type name. Returns the resolved
-  /// `TyId`s in order. The cursor is advanced past the
-  /// closing `>` on success; left untouched otherwise.
+  /// Map a key/value type to a `MapFmt` discriminant.
+  /// The discriminants are the runtime/codegen ABI for
+  /// `_zo_map_show`; keep these in sync with the
+  /// `MapFmt` enum in `zo-runtime/src/map.rs`:
   ///
-  /// Supports comma-separated primitive / struct / enum
-  /// types — exactly what `HashMap<K, V>`,
-  /// `HashSet<K>`, `Vec<T>` annotations need at the
-  /// `imu m: ...` site.
-  fn parse_generic_args(
-    &mut self,
-    cursor: &mut usize,
-    end: usize,
-  ) -> Vec<TyId> {
-    let lt_idx = *cursor;
-
-    if lt_idx >= end || self.tree.nodes[lt_idx].token != Token::Lt {
-      return Vec::new();
+  /// `0=Int, 1=Bool, 2=Char, 3=Str, 4=Float`.
+  ///
+  /// Anything outside the supported scalars (struct,
+  /// enum, tuple, array, …) falls back to `Int` so the
+  /// pretty-printer prints the slot's raw byte payload
+  /// as an integer rather than panicking. Richer
+  /// formats can be added on demand.
+  fn map_fmt_for_ty(&mut self, ty: TyId) -> u32 {
+    match self.ty_checker.kind_of(ty) {
+      Ty::Int { .. } => 0,
+      Ty::Bool => 1,
+      Ty::Char => 2,
+      Ty::Str => 3,
+      Ty::Float(_) => 4,
+      _ => 0,
     }
-
-    let mut args: Vec<TyId> = Vec::new();
-    let mut i = lt_idx + 1;
-
-    while i < end {
-      let tok = self.tree.nodes[i].token;
-
-      if tok == Token::Gt {
-        *cursor = i + 1;
-
-        return args;
-      }
-
-      if tok == Token::Comma {
-        i += 1;
-
-        continue;
-      }
-
-      let is_ident_type = tok == Token::Ident && {
-        if let Some(NodeValue::Symbol(sym)) = self.node_value(i) {
-          self
-            .ty_checker
-            .resolve_ty_symbol(sym, self.interner)
-            .is_some()
-        } else {
-          false
-        }
-      };
-
-      if tok.is_ty() || is_ident_type {
-        args.push(self.resolve_type_token(i));
-      }
-
-      i += 1;
-    }
-
-    Vec::new()
   }
 
   fn bind_concurrency_generic(
@@ -6375,33 +6339,74 @@ impl<'a> Executor<'a> {
             self.bind_concurrency_generic(&mut cursor, children_end, base);
 
             // For multi-generic-arg structs (`HashMap<K, V>`,
-            // `Vec<T>`, `HashSet<K>`), parse the `<...>` list
-            // after the type name and stash the resolved
-            // arg `TyId`s under the binding's name. Codegen
-            // for `HashMap::new()` / `Vec::new()` /
-            // `HashSet::new()` reads this stash to derive
-            // `key_kind` / element-size / value-size at call
-            // emit time — the type system itself uses one
-            // `TyId` per struct definition (no per-instance
-            // ids), so this side-channel carries the args.
-            let after_concur = cursor + 1;
+            // `Vec<T>`, `HashSet<K>`), the parse tree
+            // linearizes the type-name's children in
+            // postorder — so the args (`IntType`, etc.)
+            // can appear *before* the `Lt` marker, not
+            // strictly between `Lt` and `Gt`. Walk the
+            // window between cursor and `children_end`
+            // looking for any `Lt`/`Gt` pair and collect
+            // every type-resolvable token in that range.
+            // Codegen for `HashMap::new` / `Vec::new` /
+            // `HashSet::new` reads this stash to derive
+            // `key_kind` / element-size / value-size at
+            // call emit time — the type system itself
+            // uses one `TyId` per struct definition (no
+            // per-instance ids), so this side-channel
+            // carries the args.
+            let mut lt_pos: Option<usize> = None;
+            let mut gt_pos: Option<usize> = None;
 
-            if after_concur < children_end
-              && self.tree.nodes[after_concur].token == Token::Lt
-            {
-              let mut gargs_cursor = after_concur;
+            for j in (cursor + 1)..children_end {
+              let t = self.tree.nodes[j].token;
 
-              let gargs =
-                self.parse_generic_args(&mut gargs_cursor, children_end);
+              if t == Token::Lt && lt_pos.is_none() {
+                lt_pos = Some(j);
+              } else if t == Token::Gt && lt_pos.is_some() {
+                gt_pos = Some(j);
+                break;
+              } else if t == Token::Colon
+                || t == Token::Eq
+                || t == Token::Semicolon
+              {
+                break;
+              }
+            }
+
+            if let (Some(lt), Some(gt)) = (lt_pos, gt_pos) {
+              let scan_lo = cursor + 1;
+              let scan_hi = gt;
+              let mut gargs: Vec<TyId> = Vec::new();
+
+              for j in scan_lo..scan_hi {
+                let t = self.tree.nodes[j].token;
+
+                if t == Token::Lt || t == Token::Gt || t == Token::Comma {
+                  continue;
+                }
+
+                let is_ident_ty = t == Token::Ident && {
+                  if let Some(NodeValue::Symbol(sym)) = self.node_value(j) {
+                    self
+                      .ty_checker
+                      .resolve_ty_symbol(sym, self.interner)
+                      .is_some()
+                  } else {
+                    false
+                  }
+                };
+
+                if t.is_ty() || is_ident_ty {
+                  gargs.push(self.resolve_type_token(j));
+                }
+              }
 
               if !gargs.is_empty() {
                 self.decl_annotation_args.insert(name.as_u32(), gargs);
-
-                // Advance past the consumed `<...>` so the
-                // outer scan doesn't re-process it as
-                // expression tokens.
-                cursor = gargs_cursor.saturating_sub(1);
               }
+
+              cursor = gt;
+              let _ = lt;
             }
 
             i = cursor;
@@ -13771,6 +13776,25 @@ impl<'a> Executor<'a> {
 
           prepended.extend(arg_sirs);
           arg_sirs = prepended;
+        }
+
+        // Surface `HashMap<K, V>` as a `MapTyDef` so codegen
+        // can route `showln(m)` through `_zo_map_show` with
+        // the right per-side `MapFmt`. Without this, codegen
+        // falls through to the integer pretty-printer and
+        // leaks the `*mut ZoMap` pointer.
+        if kind == "HashMap::new"
+          && let Some(args) = decl_args.as_deref()
+          && let [k, v] = args
+        {
+          let key_fmt = self.map_fmt_for_ty(*k);
+          let val_fmt = self.map_fmt_for_ty(*v);
+
+          self.sir.emit(Insn::MapTyDef {
+            map_ty: resolved_ret,
+            key_fmt,
+            val_fmt,
+          });
         }
       }
 

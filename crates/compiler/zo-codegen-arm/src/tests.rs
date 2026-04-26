@@ -610,6 +610,87 @@ fun main() {
 }
 
 // ================================================================
+// Generic enum payload pretty-printing — `enum_metas` is keyed by
+// the generic enum's `TyId` and stores the template's `Ty::Infer
+// ($T)` field types. `showln(Maybe<str>::Some("hi"))` used to
+// dispatch the str payload through `emit_itoa_and_write` and leak
+// the str header pointer (e.g. `Maybe::Some(4341608703)`). The fix
+// captures the per-construction concrete payload types in
+// `value_enum_field_tys` at `EnumConstruct` time and propagates
+// them through `Store`/`Load`, so the writer dispatch sees `str`
+// and emits an `SYS_WRITE` against the string payload instead of
+// integer formatting.
+// ================================================================
+
+#[test]
+fn test_generic_enum_str_payload_does_not_leak_pointer() {
+  // The Some-arm payload print must take the str path (LDR
+  // length + ADD #8 + SYS_WRITE), not the itoa path. The str
+  // path always emits `0xD0000010` (`MOV X16, #SYS_WRITE`)
+  // immediately after the payload-load LDR, while the itoa
+  // path BLs into the runtime helper. Asserting on the runtime
+  // string `"hi"` baked into the artifact is the most direct
+  // observation that the str payload survived through codegen.
+  let code = compile_to_code(
+    r#"
+enum Maybe<$T> {
+  Some($T),
+  None,
+}
+
+fun main() {
+  imu m: Maybe<str> = Maybe::Some("hi");
+  showln(m);
+}"#,
+  );
+
+  assert!(
+    code_contains(&code, b"Maybe::Some"),
+    "expected 'Maybe::Some' display string in the artifact",
+  );
+  assert!(
+    code_contains(&code, b"hi\0"),
+    "expected the str payload `\"hi\"` to be baked into the \
+     artifact — without the per-construction override the str's \
+     header pointer would print as a number and `hi` would never \
+     be referenced through SYS_WRITE",
+  );
+}
+
+#[test]
+fn test_generic_enum_int_then_str_dispatches_independently() {
+  // Two `Maybe` instantiations in the same function — `<int>`
+  // followed by `<str>`. The second construction's payload type
+  // must override the first's; the artifact must contain the
+  // str literal `"hi"` baked alongside the int payload format.
+  let code = compile_to_code(
+    r#"
+enum Maybe<$T> {
+  Some($T),
+  None,
+}
+
+fun main() {
+  imu m1: Maybe<int> = Maybe::Some(42);
+  imu m2: Maybe<str> = Maybe::Some("hi");
+
+  showln(m1);
+  showln(m2);
+}"#,
+  );
+
+  assert!(
+    code_contains(&code, b"Maybe::Some"),
+    "expected 'Maybe::Some' display string in the artifact",
+  );
+  assert!(
+    code_contains(&code, b"hi\0"),
+    "expected the str payload `\"hi\"` from the second \
+     construction to be baked into the artifact",
+  );
+}
+
+// ================================================================
 // `emit_str_sp` slow-path scratch register — the SP-relative store
 // helper falls back to a computed address when the offset overflows
 // the inline-encodable range. Some call sites pass X16 as the value
