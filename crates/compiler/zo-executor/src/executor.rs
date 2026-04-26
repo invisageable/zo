@@ -1323,6 +1323,12 @@ impl<'a> Executor<'a> {
         self.execute_for(idx, children_end);
       }
 
+      Token::Loop => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_loop(idx, children_end);
+      }
+
       Token::Match => {
         let children_end = (header.child_start + header.child_count) as usize;
 
@@ -11149,6 +11155,36 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       // Loops are always statement-position today — no
       // `loop { break value }` expression form yet.
+      value_sink: None,
+      value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
+    });
+  }
+
+  /// `loop { ... }` — unconditional repeat until `break`.
+  /// Desugars to `while true`: same SIR shape minus the
+  /// condition load and `BranchIfNot`. Reuses
+  /// `BranchKind::While` so the `RBrace` close path
+  /// (`Jump loop_label; Label end_label`) and the
+  /// `Token::Break` / `Token::Continue` filters work as-is.
+  /// `branch_emitted = true` from the start so the LBrace
+  /// handler knows there's nothing to emit and never
+  /// touches the value stack expecting a condition.
+  fn execute_loop(&mut self, _start_idx: usize, _end_idx: usize) {
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    self.branch_stack.push(BranchCtx {
+      kind: BranchKind::While,
+      end_label,
+      else_label: None,
+      loop_label: Some(loop_label),
+      branch_emitted: true,
+      for_var: None,
+      for_idx_var: None,
+      scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
