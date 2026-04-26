@@ -8,9 +8,9 @@ enum Option<$T> {
 }
 
 fun main() {
-  imu x: Option<int> = Option::Some(42);
+  imu some: Option<int> = Option::Some(42);
 
-  match x {
+  match some {
     Option::Some(v) => showln(v),
     Option::None => showln(0),
   }

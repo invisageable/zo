@@ -200,11 +200,26 @@ impl Run {
         &Some(temp_path.clone()),
       )?;
 
-      let status = std::process::Command::new(&temp_path)
+      // Run with cwd set to the source file's parent so
+      // relative paths in `read_file(...)` etc. resolve
+      // against the program's own directory regardless of
+      // where `zo run` was invoked from. Mirrors zo-test-
+      // runner's behaviour and keeps `zo run path/to.zo`
+      // identical from any shell cwd.
+      let mut cmd = std::process::Command::new(&temp_path);
+
+      cmd
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .status();
+        .stderr(std::process::Stdio::inherit());
+
+      if let Some(parent) = input_path.parent()
+        && !parent.as_os_str().is_empty()
+      {
+        cmd.current_dir(parent);
+      }
+
+      let status = cmd.status();
 
       let _ = std::fs::remove_file(&temp_path);
 

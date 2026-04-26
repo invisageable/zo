@@ -1,0 +1,27 @@
+-- tests-run-pass: io + str.lines() + for-loop —
+-- write a 3-line file, read it back, split, print
+-- each line. Exercises `write_file` / `read_file`
+-- alongside `str.lines()` and the `=>` for-shortcut.
+
+fun main() {
+  imu path: str = "/tmp/zo-io-str-lines-loop.txt";
+
+  match write_file(path, "alpha\nbeta\ngamma") {
+    Result::Ok(_) => {},
+    Result::Err(error) => eshowln(error),
+  }
+
+  match read_file(path) {
+    Result::Ok(text) => {
+      imu xs: []str = text.lines();
+
+      for i := 0..xs.len => showln(xs[i]);
+    },
+    Result::Err(error) => eshowln(error),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- alpha
+-- beta
+-- gamma

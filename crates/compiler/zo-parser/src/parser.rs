@@ -764,14 +764,37 @@ impl<'a> Parser<'a> {
       // bug this fixes: for `key < data[mid]`, `data` was
       // emitted first and `key` later, inverting the
       // comparison to `data[mid] < key`.
+      // Emit everything except the receiver. Operators
+      // still pending in `operator_stack` (their RIGHTMOST
+      // buffer occurrence hasn't been committed) must stay
+      // in the buffer so `flush_expr` can place them in
+      // their final postfix position after the subscript
+      // returns. Operators whose last buffer position is
+      // NOT the current op_stack entry are already at their
+      // final postfix slot — emit them inline, otherwise
+      // the subscript result becomes a stray operand for
+      // the outer binop (e.g. `lo < 3 && a[lo]` used to emit
+      // `lo, 3, a, [, lo, ], <` — `<` landed after the
+      // subscript and popped `a[lo]`/`3` instead of `lo`/`3`).
       let mut i = 0;
 
       while i < self.expr_buffer.len().saturating_sub(1) {
         let tok = self.expr_buffer[i].0;
 
         if self.op_precedence(tok).is_some() {
-          // Operator placeholder — leave in buffer.
-          i += 1;
+          let is_last_occurrence =
+            !self.expr_buffer[i + 1..].iter().any(|(t, _, _)| *t == tok);
+          let in_op_stack =
+            self.operator_stack.iter().any(|(t, _, _)| *t == tok);
+
+          if is_last_occurrence && in_op_stack {
+            // Pending operator — leave in buffer.
+            i += 1;
+          } else {
+            let (t, s, v) = self.expr_buffer.remove(i);
+
+            self.emit_node_internal(t, s, v);
+          }
         } else {
           let (t, s, v) = self.expr_buffer.remove(i);
 

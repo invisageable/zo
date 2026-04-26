@@ -19,8 +19,9 @@ use zo_value::{
   Value, ValueId, ValueStorage,
 };
 
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
 
 /// Scope frame for variable tracking
 pub struct ScopeFrame {
@@ -46,10 +47,24 @@ pub struct ScopeFrame {
 ///   body dispatches directly to the concrete closure.
 ///
 /// Generic-type and closure-param instantiations share the
-/// same pipeline — `concrete_tys` drives type substitution,
+/// same pipeline — `concretes` drives type substitution,
 /// `closure_subs` drives parameter-to-closure binding, and
 /// either (or both) can be empty.
-type Instantiation = (Symbol, Symbol, Vec<TyId>, Vec<(Symbol, Symbol)>);
+///
+/// `apply_ctx` carries the receiver's struct name when
+/// the instantiation is for a generic apply-method
+/// (`apply Box<$T> { fun get(self) -> $T }` called as
+/// `b.get()`). Re-execution sets `self.apply_context` to
+/// this so the body's `Self`-type lookups + apply-level
+/// `$T` resolve correctly. `None` for plain generic
+/// functions.
+pub(crate) struct Instantiation {
+  pub mangled: Symbol,
+  pub generic: Symbol,
+  pub concretes: Vec<TyId>,
+  pub closure_subs: Vec<(Symbol, Symbol)>,
+  pub apply_ctx: Option<Symbol>,
+}
 
 /// Executor implements compile-time execution of HIR to produce SIR
 ///
@@ -157,6 +172,19 @@ pub struct Executor<'a> {
   /// result. Parallel to `deferred_binops` but finalized via
   /// the φ-sink machinery instead of a plain `BinOp`.
   deferred_short_circuits: Vec<DeferredShortCircuit>,
+  /// Receiver type + (when receiver is a bare ident) the
+  /// receiver's symbol, captured at every Dot that turned
+  /// out to be a method call, keyed by the Dot's tree
+  /// index. `is_dot_method_call` peeks `ty_stack[len-2]`
+  /// while the member ident is still on top — by the
+  /// time `execute_potential_call` runs the receiver has
+  /// been shifted under N call args, so the type can no
+  /// longer be read off the stack uniformly. The optional
+  /// symbol drives apply-method monomorphization in
+  /// `execute_dot_method_call` — it's the key into
+  /// `local_struct_type_args` that supplies the
+  /// receiver's concrete generic args.
+  dot_method_recv_ty: HashMap<usize, (TyId, Option<Symbol>)>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
@@ -172,12 +200,58 @@ pub struct Executor<'a> {
   /// Keyed by the variable name (Symbol) that stores the
   /// call result. Used by the match handler to type bindings.
   var_return_type_args: HashMap<u32, Vec<zo_ty::Ty>>,
+  /// Generic-arg list parsed from a `imu m: HashMap<K, V>`
+  /// style annotation, keyed by the bound symbol's id.
+  /// Drives codegen for HashMap/HashSet/Vec ::new() — the
+  /// runtime needs `key_kind`/`key_sz`/`val_sz` derived
+  /// from `K` and `V` at call emit time, but the type
+  /// system doesn't carry per-instance generic args
+  /// through to a struct's TyId. This stash bridges the
+  /// gap until proper monomorphization-style instances
+  /// are tracked.
+  decl_annotation_args: HashMap<u32, Vec<TyId>>,
+  /// Generic-parameter inference vars per struct, keyed by
+  /// `StructTyId.0`. Populated at struct definition; consumed
+  /// at construction to instantiate fresh per-call vars
+  /// (avoids the global-substitution leak that breaks two
+  /// different `Box2<...>` instantiations in the same
+  /// function).
+  struct_generic_params: HashMap<u32, Vec<TyId>>,
+  /// Same shape as `struct_generic_params` but for enums.
+  /// `Result<$T, $E>` registers `[$T, $E]` here keyed by
+  /// `EnumTyId.0`. Read at variant-construction time to
+  /// unify with fresh per-instance vars and stash the
+  /// resolved args for the match-arm binding lookup.
+  enum_generic_params: HashMap<u32, Vec<TyId>>,
+  /// Concrete field types per struct construction, keyed by
+  /// the bound local's `Symbol.as_u32()`. Populated when a
+  /// generic struct is constructed into a `pending_decl`;
+  /// consumed by the Dot field-access path so showln /
+  /// codegen see the right `Ty::Str` (etc.) instead of the
+  /// declaration's shared `Ty::Infer(_)`.
+  local_struct_field_tys: HashMap<u32, Vec<TyId>>,
+  /// Concrete generic type args per struct construction,
+  /// keyed by the bound local's `Symbol.as_u32()`.
+  /// `Box<int>` stores `[Ty::Int]`. Consumed by
+  /// `execute_dot_method_call` to drive apply-method
+  /// monomorphization — the receiver's args become the
+  /// substitutions for the method's `$T`.
+  local_struct_type_args: HashMap<u32, Vec<TyId>>,
   /// Pending enum construction: (enum_name, variant_disc,
   /// variant_field_count, ty_id).
   pending_enum_construct: Option<(Symbol, u32, u32, TyId)>,
   /// Current `apply Type` context — the type name being
   /// applied. Methods get mangled as `Type::method`.
   apply_context: Option<Symbol>,
+  /// Apply-block-level type parameter NAMES, indexed by
+  /// receiver type symbol. For `apply Box<$T> { ... }`,
+  /// `apply_type_params[Box] = [$T]`. Used by the
+  /// instantiation pass to re-install apply-level type
+  /// params before the method body re-executes — without
+  /// this, `$T` references in the body's signature or
+  /// expressions fail to resolve because the apply block
+  /// itself is not re-entered during re-execution.
+  apply_type_params: HashMap<Symbol, Vec<Symbol>>,
   /// Nested `pack` context — each entry is
   /// `(pack_name, rbrace_idx)` where `rbrace_idx` is the
   /// tree index of the pack's closing `}`. Functions
@@ -229,7 +303,7 @@ pub struct Executor<'a> {
   /// Mangled names whose body SIR has already been emitted
   /// via re-execution — dedup guard against repeated call
   /// sites and recursive generics.
-  reexecuted_instantiations: std::collections::HashSet<Symbol>,
+  reexecuted_instantiations: HashSet<Symbol>,
   /// Buffered closure SIR instructions. Closures emit
   /// their FunDef + body here during execution. Flushed
   /// to `self.sir` after the enclosing function's Return
@@ -294,11 +368,13 @@ pub struct Executor<'a> {
 }
 
 /// An `abstract` definition (method signatures, no bodies).
+#[derive(Clone)]
 pub struct AbstractDef {
   pub methods: Vec<AbstractMethod>,
 }
 
 /// A single method signature in an abstract definition.
+#[derive(Clone)]
 pub struct AbstractMethod {
   pub name: Symbol,
   pub params: Vec<(Symbol, TyId)>,
@@ -432,28 +508,35 @@ impl<'a> Executor<'a> {
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
       deferred_short_circuits: Vec::new(),
+      dot_method_recv_ty: HashMap::default(),
       closure_counter: 0,
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
       var_return_type_args: HashMap::default(),
+      decl_annotation_args: HashMap::default(),
+      struct_generic_params: HashMap::default(),
+      enum_generic_params: HashMap::default(),
+      local_struct_field_tys: HashMap::default(),
+      local_struct_type_args: HashMap::default(),
       generic_tree_ranges: HashMap::default(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
-      reexecuted_instantiations: std::collections::HashSet::new(),
+      reexecuted_instantiations: HashSet::default(),
       pending_enum_construct: None,
       apply_context: None,
+      apply_type_params: HashMap::default(),
       pack_context: Vec::new(),
-      pack_names: HashSet::new(),
+      pack_names: HashSet::default(),
       global_constants: Vec::new(),
       type_params: Vec::new(),
-      type_constraints: HashMap::new(),
+      type_constraints: HashMap::default(),
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       direct_call_depth: 0,
       pending_styles: Vec::new(),
       template_bindings: TemplateBindings::default(),
-      abstract_defs: HashMap::new(),
-      abstract_impls: HashMap::new(),
+      abstract_defs: HashMap::default(),
+      abstract_impls: HashMap::default(),
       prescan_only: false,
     }
   }
@@ -605,7 +688,7 @@ impl<'a> Executor<'a> {
     self.expected_ty_stack.push(next_expected);
   }
 
-  /// Closes the active call context iff `idx` matches its
+  /// Closes the active call context if `idx` matches its
   /// recorded RParen. Pops the final arg's expected type
   /// plus the [`CallCtx`] itself. No-op otherwise (RParen
   /// of a tuple literal, enum constructor, etc.).
@@ -948,8 +1031,7 @@ impl<'a> Executor<'a> {
   /// array type. Idempotent via a HashSet dedup on the
   /// array's `TyId.0`.
   fn emit_array_ty_defs(&mut self) {
-    let mut seen: std::collections::HashSet<u32> =
-      std::collections::HashSet::new();
+    let mut seen: HashSet<u32> = HashSet::default();
     let mut to_emit: Vec<(TyId, TyId)> = Vec::new();
 
     for insn in &self.sir.instructions {
@@ -1378,7 +1460,7 @@ impl<'a> Executor<'a> {
       // === FUNCTION CALLS / TUPLE CLOSE ===
       Token::RParen => {
         // Pop the call context + its final expected type
-        // frame iff this RParen closes an active user call.
+        // frame if this RParen closes an active user call.
         // A no-op for tuple / grouping / enum-ctor RParens.
         self.end_call_ctx(idx);
 
@@ -1396,16 +1478,128 @@ impl<'a> Executor<'a> {
             self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
           }
           let mut fields = Vec::with_capacity(field_count as usize);
+          let mut field_value_tys = Vec::with_capacity(field_count as usize);
 
           for _ in 0..field_count {
             if let Some(sv) = self.sir_values.pop() {
               fields.push(sv);
             }
             self.value_stack.pop();
-            self.ty_stack.pop();
+            if let Some(t) = self.ty_stack.pop() {
+              field_value_tys.push(t);
+            }
           }
 
           fields.reverse();
+          field_value_tys.reverse();
+
+          // Per-instance monomorphization for generic enums.
+          // Mirror of the struct B0.5 fix at try_struct_
+          // construct: substitute the variant's payload
+          // types through fresh inference vars per-instance,
+          // unify against the popped value types, then stash
+          // the resolved generic args under `pending_decl.
+          // name` so the match handler's existing
+          // `var_return_type_args` lookup picks them up.
+          //
+          // Without this, a `Result<int, int>` followed by
+          // a `Result<str, int>` either crashes unify on
+          // the global `$T` or silently feeds the wrong
+          // payload type to showln.
+          //
+          // Generics are derived directly from the enum's
+          // variant fields (collecting unique `Ty::Infer`
+          // vars) rather than read from
+          // `enum_generic_params` — that map is per-Executor
+          // and won't be populated for preload-defined
+          // enums (Option/Result). Walking the variant
+          // fields works for both local and imported enums
+          // since `ty_table` is shared across the session.
+          if let Ty::Enum(eid) = self.ty_checker.kind_of(ty_id)
+            && let Some(et) = self.ty_checker.ty_table.enum_ty(eid).copied()
+          {
+            let all_variants =
+              self.ty_checker.ty_table.enum_variants(&et).to_vec();
+
+            // Collect unique generic vars in declaration
+            // order across all variants.
+            let mut generics: Vec<TyId> = Vec::new();
+
+            for v in &all_variants {
+              let fields = self.ty_checker.ty_table.variant_fields(v).to_vec();
+
+              for vf_ty in fields {
+                let resolved = self.ty_checker.kind_of(vf_ty);
+
+                if matches!(resolved, Ty::Infer(_))
+                  && !generics
+                    .iter()
+                    .any(|g| self.ty_checker.kind_of(*g) == resolved)
+                {
+                  generics.push(vf_ty);
+                }
+              }
+            }
+
+            if !generics.is_empty() {
+              let mut subs: rustc_hash::FxHashMap<zo_ty::InferVarId, TyId> =
+                rustc_hash::FxHashMap::default();
+
+              let mut fresh_args: Vec<TyId> =
+                Vec::with_capacity(generics.len());
+
+              for orig in &generics {
+                if let Ty::Infer(v) = self.ty_checker.kind_of(*orig) {
+                  let fresh = self.ty_checker.fresh_var();
+
+                  subs.insert(v, fresh);
+                  fresh_args.push(fresh);
+                } else {
+                  fresh_args.push(*orig);
+                }
+              }
+
+              // Find the matching variant + unify per-
+              // instance field types against the popped
+              // value types.
+              if let Some(variant) = all_variants
+                .iter()
+                .find(|v| v.discriminant == disc)
+                .copied()
+              {
+                let variant_field_tys =
+                  self.ty_checker.ty_table.variant_fields(&variant).to_vec();
+
+                for (i, vf_ty) in variant_field_tys.iter().enumerate() {
+                  let per_instance =
+                    self.ty_checker.substitute_ty(vf_ty, &subs);
+
+                  if let Some(&val_ty) = field_value_tys.get(i) {
+                    let span = self.tree.spans[idx];
+
+                    self.ty_checker.unify(per_instance, val_ty, span);
+                  }
+                }
+              }
+
+              // Stash resolved per-instance generic args
+              // under the decl name. The match handler's
+              // existing `var_return_type_args` lookup
+              // (CL20) picks them up.
+              if let Some(ref decl) = self.pending_decl {
+                let resolved: Vec<zo_ty::Ty> = fresh_args
+                  .iter()
+                  .map(|t| self.ty_checker.kind_of(*t))
+                  .collect();
+
+                if resolved.iter().any(|t| !matches!(t, Ty::Infer(_))) {
+                  self
+                    .var_return_type_args
+                    .insert(decl.name.as_u32(), resolved);
+                }
+              }
+            }
+          }
 
           let dst = ValueId(self.sir.next_value_id);
 
@@ -1983,6 +2177,43 @@ impl<'a> Executor<'a> {
                 // expression's value lands on the stacks.
                 // No-op for statement-position ifs (no sink).
                 self.emit_branch_sink_load(&popped);
+
+                // Cascade: `else if A { … } else if B { … }
+                // else { … }` is parsed as nested ifs — the
+                // outer if's else-arm IS the inner if. When
+                // the inner if closes here, the outer if's
+                // branch_ctx is still on the stack with its
+                // `else_label` already consumed (by the
+                // `Token::Else` that introduced this chain).
+                // No subsequent token will trigger its close,
+                // so the outer's `end_label` and the merge
+                // sink-load never emit — the while loop's
+                // back-edge ends up after the outer's missing
+                // end-label, the binary runs one iteration
+                // and falls into the function epilogue.
+                //
+                // Walk up the branch stack while every outer
+                // entry is an If with no `else_label` left
+                // and whose scope_depth matches the current
+                // depth (i.e. its else-arm body lives at the
+                // same scope level we just exited).
+                while self.branch_stack.last().is_some_and(|c| {
+                  c.kind == BranchKind::If
+                    && c.else_label.is_none()
+                    && self.scope_stack.len() == c.scope_depth + 1
+                }) {
+                  let outer = self.branch_stack.last().unwrap();
+                  let end = outer.end_label;
+
+                  let outer_idx = self.branch_stack.len() - 1;
+
+                  self.emit_branch_sink_store(outer_idx);
+                  self.sir.emit(Insn::Label { id: end });
+
+                  let popped = self.branch_stack.pop().unwrap();
+
+                  self.emit_branch_sink_load(&popped);
+                }
               }
             }
             BranchKind::Ternary => {
@@ -2860,6 +3091,34 @@ impl<'a> Executor<'a> {
         // the Dot — execute_potential_call will handle
         // it at RParen.
         if self.is_dot_method_call(idx) {
+          // Stash the receiver's type before we pop the
+          // member ident — the dispatch site (RParen)
+          // can no longer recover it from the stack
+          // because args will have been pushed in
+          // between. Keyed by the Dot's tree index.
+          if self.ty_stack.len() >= 2 {
+            let recv_ty = self.ty_stack[self.ty_stack.len() - 2];
+
+            // For bare-ident receivers, capture the
+            // symbol too — apply-method dispatch
+            // (`execute_dot_method_call`) consults
+            // `local_struct_type_args[recv_sym]` for
+            // monomorphization. Non-ident receivers
+            // (`s[0].m()`, `f().m()`) yield None and
+            // skip the mono path.
+            let recv_sym =
+              if idx >= 2 && self.tree.nodes[idx - 2].token == Token::Ident {
+                match self.node_value(idx - 2) {
+                  Some(NodeValue::Symbol(s)) => Some(s),
+                  _ => None,
+                }
+              } else {
+                None
+              };
+
+            self.dot_method_recv_ty.insert(idx, (recv_ty, recv_sym));
+          }
+
           // Don't consume stack — method call needs
           // the receiver as an argument.
           // Pop only the method name ident from stacks
@@ -2931,7 +3190,7 @@ impl<'a> Executor<'a> {
             if let Some(fname) = field_name {
               let fname_str = self.interner.get(fname).to_owned();
 
-              fields
+              let resolved = fields
                 .iter()
                 .enumerate()
                 .find(|(_, f)| self.interner.get(f.name) == fname_str)
@@ -2939,7 +3198,26 @@ impl<'a> Executor<'a> {
                   field_idx = i as u32;
                   f.ty_id
                 })
-                .unwrap_or(self.ty_checker.unit_type())
+                .unwrap_or(self.ty_checker.unit_type());
+
+              // For generic structs, the shared field type
+              // is still an `Ty::Infer(_)` placeholder. The
+              // construction-time stash carries the
+              // resolved per-instance type — look up the
+              // receiver local and override.
+              if matches!(self.ty_checker.kind_of(resolved), Ty::Infer(_))
+                && idx >= 2
+                && self.tree.nodes[idx - 2].token == Token::Ident
+                && let Some(NodeValue::Symbol(recv_sym)) =
+                  self.node_value(idx - 2)
+                && let Some(per_instance) =
+                  self.local_struct_field_tys.get(&recv_sym.as_u32())
+                && let Some(&concrete) = per_instance.get(field_idx as usize)
+              {
+                concrete
+              } else {
+                resolved
+              }
             } else {
               self.ty_checker.unit_type()
             }
@@ -3959,9 +4237,12 @@ impl<'a> Executor<'a> {
           }
         }
 
-        // Abstract operator dispatch: if operands are
-        // structs with an Eq impl, call Type::eq instead
-        // of emitting a primitive BinOp.
+        // Abstract operator dispatch: if operands have an
+        // `Eq` impl, call Type::eq instead of emitting a
+        // primitive BinOp. Covers structs AND primitives —
+        // `apply Eq for str` in stdlib routes `==` on str
+        // through the same trait path as user types, so
+        // the SIR carries no string-specific opcode.
         if matches!(op, BinOp::Eq | BinOp::Neq) {
           let resolved = self.ty_checker.kind_of(ty_id);
 
@@ -3969,7 +4250,8 @@ impl<'a> Executor<'a> {
             Ty::Struct(sid) => {
               self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
             }
-            _ => None,
+            _ => Self::primitive_ty_name_str(&resolved)
+              .map(|s| self.interner.intern(s)),
           };
 
           if let Some(tname) = type_name {
@@ -4549,6 +4831,109 @@ impl<'a> Executor<'a> {
   /// unify the fresh var with `ArgTy`. Leaves `idx` at
   /// the closing `>` so the caller's own `idx += 1`
   /// moves past it.
+  /// Compute the per-call constants prepended to a
+  /// collection constructor's args list. Returns the
+  /// `(key_kind, key_sz, val_sz)` triple for HashMap and
+  /// HashSet calls (HashSet uses `val_sz = 0`), and the
+  /// `(elem_kind, elem_sz, 0)` triple for Vec.
+  ///
+  /// `args` is the binding's parsed generic args (e.g.
+  /// `[Ty::Str, Ty::Int]` for `HashMap<str, int>`). When
+  /// `None`, the helper returns the legacy MVP defaults
+  /// — `(0, 8, 8)` — so older programs without an
+  /// explicit `HashMap<int, int>` annotation keep the
+  /// behaviour they had pre-Phase-C.
+  fn collection_new_type_args(
+    &mut self,
+    call_name: &str,
+    args: Option<&[TyId]>,
+  ) -> Vec<u64> {
+    let key_kind_for = |this: &mut Self, ty: TyId| -> u64 {
+      match this.ty_checker.kind_of(ty) {
+        Ty::Str => 1,
+        _ => 0,
+      }
+    };
+
+    match call_name {
+      "HashMap::new" => match args {
+        Some([k, _v]) => {
+          let kk = key_kind_for(self, *k);
+          vec![kk, 8, 8]
+        }
+        _ => vec![0, 8, 8],
+      },
+      "HashSet::new" => match args {
+        Some([k]) => {
+          let kk = key_kind_for(self, *k);
+          vec![kk, 8, 0]
+        }
+        _ => vec![0, 8, 0],
+      },
+      "Vec::new" => vec![0, 8, 0],
+      _ => Vec::new(),
+    }
+  }
+
+  /// Parse a generic argument list `<T1, T2, ...>` starting
+  /// at the token AFTER the type name. Returns the resolved
+  /// `TyId`s in order. The cursor is advanced past the
+  /// closing `>` on success; left untouched otherwise.
+  ///
+  /// Supports comma-separated primitive / struct / enum
+  /// types — exactly what `HashMap<K, V>`,
+  /// `HashSet<K>`, `Vec<T>` annotations need at the
+  /// `imu m: ...` site.
+  fn parse_generic_args(
+    &mut self,
+    cursor: &mut usize,
+    end: usize,
+  ) -> Vec<TyId> {
+    let lt_idx = *cursor;
+
+    if lt_idx >= end || self.tree.nodes[lt_idx].token != Token::Lt {
+      return Vec::new();
+    }
+
+    let mut args: Vec<TyId> = Vec::new();
+    let mut i = lt_idx + 1;
+
+    while i < end {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Gt {
+        *cursor = i + 1;
+
+        return args;
+      }
+
+      if tok == Token::Comma {
+        i += 1;
+
+        continue;
+      }
+
+      let is_ident_type = tok == Token::Ident && {
+        if let Some(NodeValue::Symbol(sym)) = self.node_value(i) {
+          self
+            .ty_checker
+            .resolve_ty_symbol(sym, self.interner)
+            .is_some()
+        } else {
+          false
+        }
+      };
+
+      if tok.is_ty() || is_ident_type {
+        args.push(self.resolve_type_token(i));
+      }
+
+      i += 1;
+    }
+
+    Vec::new()
+  }
+
   fn bind_concurrency_generic(
     &mut self,
     idx: &mut usize,
@@ -5989,6 +6374,36 @@ impl<'a> Executor<'a> {
 
             self.bind_concurrency_generic(&mut cursor, children_end, base);
 
+            // For multi-generic-arg structs (`HashMap<K, V>`,
+            // `Vec<T>`, `HashSet<K>`), parse the `<...>` list
+            // after the type name and stash the resolved
+            // arg `TyId`s under the binding's name. Codegen
+            // for `HashMap::new()` / `Vec::new()` /
+            // `HashSet::new()` reads this stash to derive
+            // `key_kind` / element-size / value-size at call
+            // emit time — the type system itself uses one
+            // `TyId` per struct definition (no per-instance
+            // ids), so this side-channel carries the args.
+            let after_concur = cursor + 1;
+
+            if after_concur < children_end
+              && self.tree.nodes[after_concur].token == Token::Lt
+            {
+              let mut gargs_cursor = after_concur;
+
+              let gargs =
+                self.parse_generic_args(&mut gargs_cursor, children_end);
+
+              if !gargs.is_empty() {
+                self.decl_annotation_args.insert(name.as_u32(), gargs);
+
+                // Advance past the consumed `<...>` so the
+                // outer scan doesn't re-process it as
+                // expression tokens.
+                cursor = gargs_cursor.saturating_sub(1);
+              }
+            }
+
             i = cursor;
 
             annotated_ty = Some(base);
@@ -6147,125 +6562,118 @@ impl<'a> Executor<'a> {
     let inclusive = r_bracket_idx > 0
       && self.tree.nodes[r_bracket_idx - 1].token == Token::DotDotEq;
 
-    let (hi_vid, _hi_ty, _hi_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
-
-        return;
-      }
-    };
-
-    let (lo_vid, _lo_ty, _lo_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
-
-        return;
-      }
-    };
-
-    let (_recv_vid, _recv_ty, recv_sir) = match (
-      self.value_stack.pop(),
-      self.ty_stack.pop(),
-      self.sir_values.pop(),
-    ) {
-      (Some(v), Some(t), Some(s)) => (v, t, s),
-      _ => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
-
-        return;
-      }
-    };
-
-    // Receiver must resolve to a compile-time string. Ident
-    // references are lowered to `Insn::Load { dst, src:
-    // Local(name), .. }` by the expression path, so the
-    // receiver's ValueId on the value stack is a fresh
-    // runtime id — not the original string value. Trace back
-    // through the Load to find the local, then check its
-    // underlying `Value::String`.
-    let recv_sym = match self.resolve_const_str_sym(recv_sir) {
-      Some(sym) => sym,
-      None => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
-
-        return;
-      }
-    };
-
-    // Both bounds must resolve to compile-time ints.
-    let lo = match self.value_as_const_int(lo_vid) {
-      Some(v) => v,
-      None => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
-
-        return;
-      }
-    };
-
-    let hi_raw = match self.value_as_const_int(hi_vid) {
-      Some(v) => v,
-      None => {
-        report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
-
-        return;
-      }
-    };
-
-    let hi = if inclusive {
-      hi_raw.saturating_add(1)
-    } else {
-      hi_raw
-    };
-
-    if lo > hi {
-      report_error(Error::new(ErrorKind::StrSliceInvalidRange, span));
+    let Some((hi_vid, _hi_ty, hi_sir)) = self.pop_stack_triple() else {
+      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
 
       return;
-    }
+    };
 
-    let src = self.interner.get(recv_sym).to_owned();
-    let src_bytes = src.as_bytes();
-
-    if (hi as usize) > src_bytes.len() {
-      report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
+    let Some((lo_vid, _lo_ty, lo_sir)) = self.pop_stack_triple() else {
+      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
 
       return;
-    }
+    };
 
-    let slice_bytes = &src_bytes[lo as usize..hi as usize];
-    let slice_str = match std::str::from_utf8(slice_bytes) {
-      Ok(s) => s.to_owned(),
-      Err(_) => {
-        // Slice doesn't land on UTF-8 boundary — invalid.
+    let Some((_recv_vid, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
+      report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
+
+      return;
+    };
+
+    // Compile-time fold path: receiver is a known
+    // literal AND both bounds are constant ints. Folds
+    // to a `ConstString` with the sliced bytes; no
+    // runtime allocation needed.
+    //
+    // Everything else (variable bounds, variable
+    // receiver, ident referring to a non-literal
+    // local) emits a runtime `Insn::StrSlice` that
+    // calls `_zo_str_slice` at execution time.
+    let recv_sym = self.resolve_const_str_sym(recv_sir);
+    let lo_const = self.value_as_const_int(lo_vid);
+    let hi_raw_const = self.value_as_const_int(hi_vid);
+
+    let str_ty = self.ty_checker.str_type();
+
+    if let (Some(recv_sym), Some(lo), Some(hi_raw)) =
+      (recv_sym, lo_const, hi_raw_const)
+    {
+      let hi = if inclusive {
+        hi_raw.saturating_add(1)
+      } else {
+        hi_raw
+      };
+
+      if lo > hi {
+        report_error(Error::new(ErrorKind::StrSliceInvalidRange, span));
+
+        return;
+      }
+
+      let src = self.interner.get(recv_sym).to_owned();
+      let src_bytes = src.as_bytes();
+
+      if (hi as usize) > src_bytes.len() {
         report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
 
         return;
       }
-    };
 
-    let slice_sym = self.interner.intern(&slice_str);
-    let str_ty = self.ty_checker.str_type();
+      let slice_bytes = &src_bytes[lo as usize..hi as usize];
+      let slice_str = match std::str::from_utf8(slice_bytes) {
+        Ok(s) => s.to_owned(),
+        Err(_) => {
+          report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
+
+          return;
+        }
+      };
+
+      let slice_sym = self.interner.intern(&slice_str);
+      let dst = ValueId(self.sir.next_value_id);
+
+      self.sir.next_value_id += 1;
+
+      let sir_value = self.sir.emit(Insn::ConstString {
+        dst,
+        symbol: slice_sym,
+        ty_id: str_ty,
+      });
+
+      let value_id = self.values.store_string(slice_sym);
+
+      self.value_stack.push(value_id);
+      self.ty_stack.push(str_ty);
+      self.sir_values.push(sir_value);
+
+      return;
+    }
+
+    // Runtime path. If `..=` inclusive semantics are
+    // wanted, the executor needs an extra `+1` on the
+    // hi operand before the call — for now, fall back
+    // to half-open `..` only. A future pass can emit a
+    // `BinOp Add(hi, 1)` before the StrSlice when
+    // `inclusive` is true.
+    if inclusive {
+      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+
+      return;
+    }
+
     let dst = ValueId(self.sir.next_value_id);
 
     self.sir.next_value_id += 1;
 
-    let sir_value = self.sir.emit(Insn::ConstString {
+    let sir_value = self.sir.emit(Insn::StrSlice {
       dst,
-      symbol: slice_sym,
+      src: recv_sir,
+      lo: lo_sir,
+      hi: hi_sir,
       ty_id: str_ty,
     });
 
-    let value_id = self.values.store_string(slice_sym);
+    let value_id = self.values.store_runtime(0);
 
     self.value_stack.push(value_id);
     self.ty_stack.push(str_ty);
@@ -6796,8 +7204,17 @@ impl<'a> Executor<'a> {
     let mut return_ty = self.ty_checker.unit_type();
     let mut idx = start_idx + 2;
 
-    // Parse optional type parameters: <$T>.
+    // Parse optional type parameters: <$T>. FFI signatures
+    // do NOT inherit outer apply-level params — an FFI is
+    // a module-level extern, even if textually adjacent to
+    // (or interleaved with) an apply block. The outer
+    // params get saved and restored unconditionally so the
+    // FFI's own type-param scan starts clean. Without this
+    // isolation, calls to bare-name FFIs from inside apply-
+    // method bodies get mangled with the apply's `<$K,$V>`
+    // and dispatch to nonexistent functions.
     let outer_type_params = std::mem::take(&mut self.type_params);
+    let mut ffi_type_params: Vec<(Symbol, TyId)> = Vec::new();
 
     if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
       idx += 1;
@@ -6816,7 +7233,7 @@ impl<'a> Executor<'a> {
           if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
             let var = self.ty_checker.fresh_var();
 
-            self.type_params.push((sym, var));
+            ffi_type_params.push((sym, var));
           }
         }
 
@@ -6824,9 +7241,7 @@ impl<'a> Executor<'a> {
       }
     }
 
-    if self.type_params.is_empty() {
-      self.type_params = outer_type_params;
-    }
+    self.type_params = ffi_type_params;
 
     // Parse parameters.
     if idx < end_idx && self.tree.nodes[idx].token == Token::LParen {
@@ -6940,6 +7355,11 @@ impl<'a> Executor<'a> {
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
     });
+
+    // Restore the outer scope's type params (apply block
+    // or other) so subsequent declarations see what they
+    // expect. FFI scoping is local to its own signature.
+    self.type_params = outer_type_params;
 
     // Skip all children — no body to process.
     self.skip_until = end_idx;
@@ -7071,6 +7491,16 @@ impl<'a> Executor<'a> {
     // Register for variant construction lookup.
     self.enum_defs.push((name, enum_ty_id, ty_id));
 
+    // Persist the enum's generic parameters so each later
+    // construction can substitute fresh per-instance vars
+    // (the same fix shape used for structs in B0.5).
+    if !self.type_params.is_empty() {
+      let params: Vec<TyId> =
+        self.type_params.iter().map(|(_, ty)| *ty).collect();
+
+      self.enum_generic_params.insert(enum_ty_id.0, params);
+    }
+
     self.skip_until = end_idx;
   }
 
@@ -7121,8 +7551,55 @@ impl<'a> Executor<'a> {
     };
 
     let ty_id = self.ty_checker.intern_ty(Ty::Struct(sty_id));
-    let field_defs =
+    let field_defs_shared =
       self.ty_checker.ty_table.struct_fields(&struct_ty).to_vec();
+
+    // Per-instance monomorphization: clone each field's type
+    // through fresh inference vars in place of the struct's
+    // generic parameters. Without this, the first Box2 { a:
+    // 1, b: 2 } binds the shared `$B` var to `int` globally;
+    // the next Box2 { a: 1, b: "hi" } unifies `int` with
+    // `str` and reports E0575. With this, every construction
+    // operates on its own copy of the field types.
+    //
+    // `generics_with_fresh` carries the (orig var, fresh
+    // TyId) pairing past the field-defs build so the
+    // post-unification stash step can resolve fresh vars
+    // back to concrete types and store them under
+    // `pending_decl.name` for apply-method dispatch.
+    let mut generics_with_fresh: Vec<(TyId, TyId)> = Vec::new();
+
+    let field_defs: Vec<zo_ty::StructField> = if let Some(generics) =
+      self.struct_generic_params.get(&sty_id.0).cloned()
+      && !generics.is_empty()
+    {
+      let mut subs: rustc_hash::FxHashMap<zo_ty::InferVarId, TyId> =
+        rustc_hash::FxHashMap::default();
+
+      for orig in &generics {
+        if let Ty::Infer(v) = self.ty_checker.kind_of(*orig) {
+          let fresh = self.ty_checker.fresh_var();
+
+          subs.insert(v, fresh);
+          generics_with_fresh.push((*orig, fresh));
+        }
+      }
+
+      field_defs_shared
+        .iter()
+        .map(|f| {
+          let new_ty = self.ty_checker.substitute_ty(&f.ty_id, &subs);
+
+          zo_ty::StructField {
+            name: f.name,
+            ty_id: new_ty,
+            has_default: f.has_default,
+          }
+        })
+        .collect()
+    } else {
+      field_defs_shared
+    };
 
     // Find matching RBrace.
     let header = self.tree.nodes[brace_idx];
@@ -7244,6 +7721,60 @@ impl<'a> Executor<'a> {
       fields,
       ty_id,
     });
+
+    // If this construction is being bound to a `pending_decl`
+    // (the common `imu p := Box2 { ... }` shape), stash the
+    // per-instance concrete field types so the Dot field-
+    // access path can look them up later. Without this,
+    // field access falls back to the struct's shared
+    // declaration types — which still hold the original
+    // generic `Ty::Infer(_)` vars.
+    if let Some(ref decl) = self.pending_decl {
+      let resolved: Vec<TyId> = field_defs
+        .iter()
+        .map(|f| {
+          let r = self.ty_checker.resolve_id(f.ty_id);
+
+          if matches!(self.ty_checker.kind_of(r), Ty::Infer(_)) {
+            f.ty_id
+          } else {
+            r
+          }
+        })
+        .collect();
+
+      if resolved
+        .iter()
+        .any(|t| !matches!(self.ty_checker.kind_of(*t), Ty::Infer(_)))
+      {
+        self
+          .local_struct_field_tys
+          .insert(decl.name.as_u32(), resolved);
+      }
+
+      // Resolve each fresh per-instance generic var to
+      // its concrete type and stash under the bound
+      // local's name. Apply-method dispatch
+      // (`execute_dot_method_call`) reads this to drive
+      // monomorphization — `b1.get()` reads
+      // `local_struct_type_args[b1]` to substitute the
+      // method's `$T` against the receiver's args.
+      if !generics_with_fresh.is_empty() {
+        let type_args: Vec<TyId> = generics_with_fresh
+          .iter()
+          .map(|(_, fresh)| self.ty_checker.resolve_id(*fresh))
+          .collect();
+
+        if type_args
+          .iter()
+          .any(|t| !matches!(self.ty_checker.kind_of(*t), Ty::Infer(_)))
+        {
+          self
+            .local_struct_type_args
+            .insert(decl.name.as_u32(), type_args);
+        }
+      }
+    }
 
     let rid = self.values.store_runtime(0);
 
@@ -7534,6 +8065,19 @@ impl<'a> Executor<'a> {
     // Intern struct type.
     let struct_ty_id = self.ty_checker.ty_table.intern_struct(name, &fields);
     let ty_id = self.ty_checker.intern_ty(Ty::Struct(struct_ty_id));
+
+    // Stash the struct's generic parameters so each later
+    // `Type { ... }` construction can rename them to fresh
+    // inference vars (per-instance) instead of binding the
+    // shared declaration vars globally — that global bind
+    // is what makes `Box2 { a: 1, b: "hi" }` after `Box2 {
+    // a: 1, b: 2 }` mismatch on `$B`.
+    if !self.type_params.is_empty() {
+      let params: Vec<TyId> =
+        self.type_params.iter().map(|(_, ty)| *ty).collect();
+
+      self.struct_generic_params.insert(struct_ty_id.0, params);
+    }
 
     self.sir.emit(Insn::StructDef {
       name,
@@ -8053,6 +8597,7 @@ impl<'a> Executor<'a> {
     self.type_params.clear();
 
     let mut idx = start_idx + 2;
+    let mut apply_param_names: Vec<Symbol> = Vec::new();
 
     if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
       idx += 1;
@@ -8072,11 +8617,19 @@ impl<'a> Executor<'a> {
             let var = self.ty_checker.fresh_var();
 
             self.type_params.push((sym, var));
+            apply_param_names.push(sym);
           }
         }
 
         idx += 1;
       }
+    }
+
+    // Stash apply-block-level type-param names so the
+    // instantiation pass can re-install them when a method
+    // body re-executes per concrete substitution.
+    if !apply_param_names.is_empty() {
+      self.apply_type_params.insert(type_name, apply_param_names);
     }
 
     // Skip to LBrace, then process children normally.
@@ -8438,27 +8991,18 @@ impl<'a> Executor<'a> {
   /// symbol if found, or the original method name.
   fn resolve_dot_call(
     &mut self,
-    method_idx: usize,
+    dot_idx: usize,
     method_name: Symbol,
   ) -> Symbol {
-    // The receiver ident is at method_idx - 2
-    // (method_idx - 1 is Dot).
-    if method_idx < 2 {
-      return method_name;
-    }
-
-    let receiver_idx = method_idx - 2;
-
-    // Get receiver's type from the local.
-    let receiver_sym = match self.node_value(receiver_idx) {
-      Some(NodeValue::Symbol(s)) => s,
-      _ => return method_name,
-    };
-
-    let local_ty = self.lookup_local(receiver_sym).map(|l| l.ty_id);
-
-    let ty_id = match local_ty {
-      Some(t) => t,
+    // Receiver type was stashed by the Dot handler when
+    // it identified the method call — keyed by the dot's
+    // tree index. By the time we get here (RParen)
+    // there's no stack-relative way to find it: args have
+    // been pushed in between. Tree-symbol → local was
+    // the old fallback and only covered bare-ident
+    // receivers; the stash covers every receiver shape.
+    let ty_id = match self.dot_method_recv_ty.get(&dot_idx) {
+      Some(&(t, _)) => t,
       None => return method_name,
     };
 
@@ -8514,18 +9058,17 @@ impl<'a> Executor<'a> {
   /// instead of `[recv, ., method]`.
   fn resolve_dot_call_with_receiver(
     &mut self,
-    receiver_idx: usize,
+    dot_idx: usize,
     method_name: Symbol,
   ) -> Symbol {
-    let receiver_sym = match self.node_value(receiver_idx) {
-      Some(NodeValue::Symbol(s)) => s,
-      _ => return method_name,
-    };
-
-    let local_ty = self.lookup_local(receiver_sym).map(|l| l.ty_id);
-
-    let ty_id = match local_ty {
-      Some(t) => t,
+    // Same path as `resolve_dot_call`; only the tree
+    // shape of the call site differs (`[recv, method,
+    // ., (, )]` vs `[recv, ., method, (, )]`). Both
+    // record the receiver type into
+    // `dot_method_recv_ty` keyed by the Dot's tree
+    // index, so dispatch works for every receiver shape.
+    let ty_id = match self.dot_method_recv_ty.get(&dot_idx) {
+      Some(&(t, _)) => t,
       None => return method_name,
     };
 
@@ -8575,9 +9118,14 @@ impl<'a> Executor<'a> {
   /// Executes a dot-call `receiver.method(args)`.
   /// The receiver is already on the stack (left by the
   /// Dot handler). Injects it as the first argument.
+  /// `dot_idx` indexes `dot_method_recv_ty` to recover
+  /// the receiver's symbol (when bare-ident) for
+  /// per-instance generic-arg lookup at apply-method
+  /// monomorphization.
   fn execute_dot_method_call(
     &mut self,
     mangled_name: Symbol,
+    dot_idx: usize,
     lparen_idx: usize,
     rparen_idx: usize,
   ) {
@@ -8691,22 +9239,110 @@ impl<'a> Executor<'a> {
 
     full_args.extend(arg_sirs);
 
+    // Per-call monomorphization for generic apply
+    // methods. Same pipeline as `execute_call`'s mono
+    // block, but substitutions come from the receiver's
+    // concrete generic args (recorded at struct
+    // construction in `local_struct_type_args`) rather
+    // than the call's arg types. Two `Box<int>` and
+    // `Box<str>` instantiations need distinct bodies —
+    // without this, the first call binds `$T` globally
+    // and the second's payload type-resolves wrong.
+    //
+    // Hot-path discipline: bail before any HashMap
+    // lookups when `func` has no type params (the
+    // overwhelming majority of method calls). Chained
+    // receivers (`s[0].m()`, `f().m()`) carry no bound
+    // local symbol and skip the mono branch — their
+    // concrete args aren't recoverable.
+    let (call_name, call_return_ty) = 'mono: {
+      if func.type_params.is_empty() {
+        break 'mono (mangled_name, func.return_ty);
+      }
+
+      let Some(&(recv_ty, recv_sym_opt)) =
+        self.dot_method_recv_ty.get(&dot_idx)
+      else {
+        break 'mono (mangled_name, func.return_ty);
+      };
+
+      let Some(recv_sym) = recv_sym_opt else {
+        break 'mono (mangled_name, func.return_ty);
+      };
+
+      let Some(args) = self.local_struct_type_args.get(&recv_sym.as_u32())
+      else {
+        break 'mono (mangled_name, func.return_ty);
+      };
+
+      let recv_struct_name = match self.ty_checker.kind_of(recv_ty) {
+        Ty::Struct(sid) => {
+          self.ty_checker.ty_table.struct_ty(sid).map(|st| st.name)
+        }
+        _ => None,
+      };
+
+      // Build per-call substitutions: each method-
+      // level type param gets a fresh inference var,
+      // unified against the receiver's resolved arg
+      // at the same index.
+      let mut subs: Vec<(TyId, TyId)> =
+        Vec::with_capacity(func.type_params.len());
+      let span = self.tree.spans[dot_idx];
+      let arg_count = args.len();
+      let arg_concretes: Vec<TyId> =
+        args.iter().take(func.type_params.len()).copied().collect();
+
+      for (i, tp) in func.type_params.iter().enumerate() {
+        let fresh = self.ty_checker.fresh_var();
+
+        subs.push((*tp, fresh));
+
+        if i < arg_count {
+          self.ty_checker.unify(fresh, arg_concretes[i], span);
+        }
+      }
+
+      // Substitute through return type.
+      let mut subs_map: rustc_hash::FxHashMap<zo_ty::InferVarId, TyId> =
+        rustc_hash::FxHashMap::default();
+
+      for (orig, fresh) in &subs {
+        if let Ty::Infer(v) = self.ty_checker.kind_of(*orig) {
+          subs_map.insert(v, *fresh);
+        }
+      }
+
+      let new_return =
+        self.ty_checker.substitute_ty(&func.return_ty, &subs_map);
+
+      let sym = self.register_mono_instantiation(
+        mangled_name,
+        &func,
+        &subs,
+        Some(new_return),
+        recv_struct_name,
+      );
+
+      (sym, new_return)
+    };
+
     // Emit call.
     let dst = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
 
     let result_sir = self.sir.emit(Insn::Call {
       dst,
-      name: mangled_name,
+      name: call_name,
       args: full_args,
-      ty_id: func.return_ty,
+      ty_id: call_return_ty,
     });
 
-    if func.return_ty != self.ty_checker.unit_type() {
+    if call_return_ty != self.ty_checker.unit_type() {
       let result_val = self.values.store_runtime(0);
 
       self.value_stack.push(result_val);
-      self.ty_stack.push(func.return_ty);
+      self.ty_stack.push(call_return_ty);
       self.sir_values.push(result_sir);
     }
   }
@@ -9342,13 +9978,48 @@ impl<'a> Executor<'a> {
     {
       Some(sym)
     } else if let Some(sir_val) = self.sir_values.last().copied() {
-      let scrut_sym = self.interner.intern("__match_scrut__");
+      // Suffix the synthetic scrutinee local with the next
+      // label id so nested matches don't clobber each other —
+      // the inner match's `Store __match_scrut__` would
+      // overwrite the outer's storage, and the outer's bindings
+      // (which read field offsets from the same slot's pointer)
+      // would silently pull payload bytes from the inner enum.
+      let scrut_sym = self
+        .interner
+        .intern(&format!("__match_scrut_{}__", self.sir.next_label_id));
 
       self.sir.emit(Insn::Store {
         name: scrut_sym,
         value: sir_val,
         ty_id: scrutinee_ty,
       });
+
+      // Propagate the producing Call's `return_type_args` to
+      // the synthetic scrutinee — without this, a directly-
+      // matched FFI call returning a parameterized enum
+      // (`match read_file(path) { Result::Ok(text) => ... }`)
+      // resolves variant payload types from the enum's fresh
+      // generic vars instead of the call's concrete `[Str,
+      // Int]`. The bound path (`imu r := call()`) already
+      // does this via `pending_decl`; the direct path didn't.
+      let call_name = self.sir.instructions.iter().rev().find_map(|insn| {
+        if let Insn::Call { dst, name, .. } = insn
+          && *dst == sir_val
+        {
+          Some(*name)
+        } else {
+          None
+        }
+      });
+
+      if let Some(cname) = call_name
+        && let Some(fd) = self.funs.iter().find(|f| f.name == cname)
+        && !fd.return_type_args.is_empty()
+      {
+        self
+          .var_return_type_args
+          .insert(scrut_sym.as_u32(), fd.return_type_args.clone());
+      }
 
       Some(scrut_sym)
     } else {
@@ -9405,22 +10076,49 @@ impl<'a> Executor<'a> {
         None => break,
       };
 
-      // Body range: arrow_idx + 1 .. next top-level Comma or
-      // rbrace_idx. Top-level = depth 0 inside the arm block.
+      // Body range: arrow_idx + 1 .. body_end (exclusive).
+      //
+      // Block-bodied arms (`Pat => { ... }`) don't require a
+      // trailing comma — the closing `}` separates them from
+      // the next arm. The generic comma-search overruns into
+      // the next arm in that case, fusing two arms into one.
+      // Detect block bodies up-front and stop right after the
+      // matching `}`; everything else still scans for the
+      // next top-level comma.
+      let body_starts_with_brace = arrow_idx + 1 < rbrace_idx
+        && self.tree.nodes[arrow_idx + 1].token == Token::LBrace;
       let mut body_depth = 0_i32;
       let mut body_end = rbrace_idx;
 
-      for j in (arrow_idx + 1)..rbrace_idx {
-        let tok = self.tree.nodes[j].token;
+      if body_starts_with_brace {
+        for j in (arrow_idx + 1)..rbrace_idx {
+          match self.tree.nodes[j].token {
+            Token::LBrace => body_depth += 1,
+            Token::RBrace => {
+              body_depth -= 1;
 
-        match tok {
-          Token::LParen | Token::LBrace | Token::LBracket => body_depth += 1,
-          Token::RParen | Token::RBrace | Token::RBracket => body_depth -= 1,
-          Token::Comma if body_depth == 0 => {
-            body_end = j;
-            break;
+              if body_depth == 0 {
+                body_end = j + 1;
+
+                break;
+              }
+            }
+            _ => {}
           }
-          _ => {}
+        }
+      } else {
+        for j in (arrow_idx + 1)..rbrace_idx {
+          let tok = self.tree.nodes[j].token;
+
+          match tok {
+            Token::LParen | Token::LBrace | Token::LBracket => body_depth += 1,
+            Token::RParen | Token::RBrace | Token::RBracket => body_depth -= 1,
+            Token::Comma if body_depth == 0 => {
+              body_end = j;
+              break;
+            }
+            _ => {}
+          }
         }
       }
 
@@ -10301,7 +10999,11 @@ impl<'a> Executor<'a> {
         && match_result_ty != Some(unit_ty)
       {
         let body_sir = self.sir_values.last().copied().unwrap();
-        let result_sym = self.interner.intern("__match_result__");
+        // Suffix with this match's `end_label` so nested
+        // expr-position matches don't share a result slot.
+        let result_sym = self
+          .interner
+          .intern(&format!("__match_result_{}__", end_label));
 
         self.sir.emit(Insn::Store {
           name: result_sym,
@@ -12246,10 +12948,14 @@ impl<'a> Executor<'a> {
                 }
 
                 // Dot-call: tree [recv, ., method, (, )].
-                let mangled = self.resolve_dot_call(fun_idx, fun_name);
+                // Dot is at fun_idx - 1.
+                let dot_idx = fun_idx - 1;
+                let mangled = self.resolve_dot_call(dot_idx, fun_name);
 
                 if mangled != fun_name {
-                  self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
+                  self.execute_dot_method_call(
+                    mangled, dot_idx, lparen_idx, rparen_idx,
+                  );
 
                   return;
                 }
@@ -12259,12 +12965,15 @@ impl<'a> Executor<'a> {
                 && self.tree.nodes[lparen_idx - 1].token == Token::Dot
               {
                 // Dot-call: tree [recv, method, ., (, )].
-                // receiver is at fun_idx - 1 (not fun_idx - 2).
+                // Dot is at lparen_idx - 1.
+                let dot_idx = lparen_idx - 1;
                 let mangled =
-                  self.resolve_dot_call_with_receiver(fun_idx - 1, fun_name);
+                  self.resolve_dot_call_with_receiver(dot_idx, fun_name);
 
                 if mangled != fun_name {
-                  self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
+                  self.execute_dot_method_call(
+                    mangled, dot_idx, lparen_idx, rparen_idx,
+                  );
 
                   return;
                 }
@@ -12380,7 +13089,9 @@ impl<'a> Executor<'a> {
             let mangled = self.resolve_dot_call(method_idx, method_sym);
 
             if mangled != method_sym {
-              self.execute_dot_method_call(mangled, lparen_idx, rparen_idx);
+              self.execute_dot_method_call(
+                mangled, method_idx, lparen_idx, rparen_idx,
+              );
             }
           }
         }
@@ -12850,82 +13561,10 @@ impl<'a> Executor<'a> {
       // For generic functions, mangle the call name with
       // resolved types so each instantiation gets its own
       // function copy (monomorphization).
-      let call_name = if !func.type_params.is_empty() {
-        let base = self.interner.get(func.name).to_owned();
-        let mut mangled = base;
-
-        for (i, tp) in func.type_params.iter().enumerate() {
-          // Use the substituted fresh var (unified with
-          // the concrete type), not the original var.
-          let actual = subs.get(i).map(|(_, new)| *new).unwrap_or(*tp);
-          let resolved = self.ty_checker.resolve_id(actual);
-          let ty = self.ty_checker.resolve_ty(resolved);
-          let ty_name_owned: String;
-
-          let ty_name = match ty {
-            Ty::Int { .. } => "int",
-            Ty::Float(_) => "float",
-            Ty::Bool => "bool",
-            Ty::Str => "str",
-            Ty::Char => "char",
-            Ty::Struct(sid) => {
-              ty_name_owned = self
-                .ty_checker
-                .ty_table
-                .struct_ty(sid)
-                .map(|s| self.interner.get(s.name).to_owned())
-                .unwrap_or_else(|| "unknown".into());
-              &ty_name_owned
-            }
-            Ty::Enum(eid) => {
-              ty_name_owned = self
-                .ty_checker
-                .ty_table
-                .enum_ty(eid)
-                .map(|e| self.interner.get(e.name).to_owned())
-                .unwrap_or_else(|| "unknown".into());
-              &ty_name_owned
-            }
-            _ => "unknown",
-          };
-
-          mangled = format!("{mangled}__{ty_name}");
-        }
-
-        let sym = self.interner.intern(&mangled);
-
-        // Record instantiation for the instantiation pass.
-        if !self.funs.iter().any(|f| f.name == sym) {
-          let mut mono_def = func.clone();
-
-          mono_def.name = sym;
-          mono_def.type_params = Vec::new();
-
-          self.funs.push(mono_def);
-
-          // Resolve each fresh var (now unified with the
-          // concrete argument type) to its concrete TyId.
-          // Stored by `$T` position so the re-execution
-          // pass can bind the freshly-parsed type params
-          // directly. Snapshotting here — instead of at
-          // mono time — insulates us from later mutations
-          // of the ty_checker's substitution map.
-          let concretes: Vec<TyId> = subs
-            .iter()
-            .map(|(_, fresh)| self.ty_checker.resolve_id(*fresh))
-            .collect();
-
-          self.pending_instantiations.push((
-            sym,
-            func.name,
-            concretes,
-            Vec::new(),
-          ));
-        }
-
-        sym
-      } else {
+      let call_name = if func.type_params.is_empty() {
         func.name
+      } else {
+        self.register_mono_instantiation(func.name, &func, &subs, None, None)
       };
 
       // Closure param monomorphization: when a closure is
@@ -12995,12 +13634,13 @@ impl<'a> Executor<'a> {
             // Call-name rewrite). No type substitutions
             // here — closure-param mono is orthogonal to
             // generic-type mono.
-            self.pending_instantiations.push((
-              mono_sym,
-              call_name,
-              Vec::new(),
-              closure_subs.clone(),
-            ));
+            self.pending_instantiations.push(Instantiation {
+              mangled: mono_sym,
+              generic: call_name,
+              concretes: Vec::new(),
+              closure_subs: closure_subs.clone(),
+              apply_ctx: None,
+            });
           }
 
           mono_sym
@@ -13083,6 +13723,54 @@ impl<'a> Executor<'a> {
               arg_sirs = vec![show_result];
             }
           }
+        }
+      }
+
+      // Per-call generic args for collection constructors —
+      // prepend type-derived `ConstInt`s to `arg_sirs` so
+      // codegen handlers (`emit_map_new`, `emit_set_new`,
+      // `emit_vec_new`) read `key_kind` / `key_sz` / `val_sz`
+      // (or `elem_kind` / `elem_sz`) at call-site emit time
+      // instead of hardcoding. The args come from the
+      // binding annotation parsed at `begin_decl` —
+      // `decl_annotation_args[m] = [Ty::Str, Ty::Int]` for
+      // `imu m: HashMap<str, int> = HashMap::new()`.
+      let collection_kind: Option<&'static str> =
+        match self.interner.get(call_name) {
+          "HashMap::new" => Some("HashMap::new"),
+          "HashSet::new" => Some("HashSet::new"),
+          "Vec::new" => Some("Vec::new"),
+          _ => None,
+        };
+
+      if let Some(kind) = collection_kind {
+        let decl_args = self.pending_decl.as_ref().and_then(|d| {
+          self.decl_annotation_args.get(&d.name.as_u32()).cloned()
+        });
+
+        let prepend_args =
+          self.collection_new_type_args(kind, decl_args.as_deref());
+
+        if !prepend_args.is_empty() {
+          let mut prepended: Vec<ValueId> =
+            Vec::with_capacity(prepend_args.len());
+          let int_ty = self.ty_checker.int_type();
+
+          for value in prepend_args {
+            let dst_id = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
+            let sir_id = self.sir.emit(Insn::ConstInt {
+              dst: dst_id,
+              value,
+              ty_id: int_ty,
+            });
+
+            prepended.push(sir_id);
+          }
+
+          prepended.extend(arg_sirs);
+          arg_sirs = prepended;
         }
       }
 
@@ -13634,6 +14322,101 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Mangles `base_name` by appending `__<ty_name>` per
+  /// substitution entry, registers the monomorphized
+  /// `FunDef` (cloning `func` with the mangled name and
+  /// optional `override_return`), and queues the
+  /// instantiation for re-execution. Idempotent: when a
+  /// function with the mangled symbol is already known,
+  /// no new FunDef is pushed and no instantiation queued.
+  ///
+  /// Both `execute_call` (generic functions) and
+  /// `execute_dot_method_call` (apply methods) share this
+  /// pipeline — the only data-flow difference is the base
+  /// name (`func.name` vs the resolved method name) and
+  /// `apply_ctx` (None vs the receiver's struct symbol).
+  fn register_mono_instantiation(
+    &mut self,
+    base_name: Symbol,
+    func: &FunDef,
+    subs: &[(TyId, TyId)],
+    override_return: Option<TyId>,
+    apply_ctx: Option<Symbol>,
+  ) -> Symbol {
+    let mut mangled = self.interner.get(base_name).to_owned();
+
+    for (_, fresh) in subs {
+      let resolved = self.ty_checker.resolve_id(*fresh);
+      let ty = self.ty_checker.resolve_ty(resolved);
+      let ty_name_owned: String;
+
+      let ty_name = match ty {
+        Ty::Int { .. } => "int",
+        Ty::Float(_) => "float",
+        Ty::Bool => "bool",
+        Ty::Str => "str",
+        Ty::Char => "char",
+        Ty::Struct(sid) => {
+          ty_name_owned = self
+            .ty_checker
+            .ty_table
+            .struct_ty(sid)
+            .map(|s| self.interner.get(s.name).to_owned())
+            .unwrap_or_else(|| "unknown".into());
+          &ty_name_owned
+        }
+        Ty::Enum(eid) => {
+          ty_name_owned = self
+            .ty_checker
+            .ty_table
+            .enum_ty(eid)
+            .map(|e| self.interner.get(e.name).to_owned())
+            .unwrap_or_else(|| "unknown".into());
+          &ty_name_owned
+        }
+        _ => "unknown",
+      };
+
+      mangled.push_str("__");
+      mangled.push_str(ty_name);
+    }
+
+    let sym = self.interner.intern(&mangled);
+
+    if !self.funs.iter().any(|f| f.name == sym) {
+      let mut mono_def = func.clone();
+
+      mono_def.name = sym;
+      mono_def.type_params = Vec::new();
+
+      if let Some(rt) = override_return {
+        mono_def.return_ty = rt;
+      }
+
+      self.funs.push(mono_def);
+
+      // Snapshot concretes here — substitutions can shift
+      // later as new constraints flow through the
+      // ty_checker; freezing per-position concrete TyIds
+      // means the re-execution pass binds parameters from a
+      // stable view of the call site.
+      let concretes: Vec<TyId> = subs
+        .iter()
+        .map(|(_, fresh)| self.ty_checker.resolve_id(*fresh))
+        .collect();
+
+      self.pending_instantiations.push(Instantiation {
+        mangled: sym,
+        generic: func.name,
+        concretes,
+        closure_subs: Vec::new(),
+        apply_ctx,
+      });
+    }
+
+    sym
+  }
+
   /// Re-execute the Tree subtree of each generic function
   /// once per concrete-type instantiation.
   ///
@@ -13653,7 +14436,14 @@ impl<'a> Executor<'a> {
   fn reexecute_generic_instantiations(&mut self) {
     let pending = std::mem::take(&mut self.pending_instantiations);
 
-    for (mangled, generic_name, concretes, closure_subs) in pending {
+    for inst in pending {
+      let Instantiation {
+        mangled,
+        generic: generic_name,
+        concretes,
+        closure_subs,
+        apply_ctx,
+      } = inst;
       // Skip duplicates (can arise from repeated call sites
       // with the same concrete types, or recursive generics).
       if self.reexecuted_instantiations.contains(&mangled) {
@@ -13700,6 +14490,35 @@ impl<'a> Executor<'a> {
       let saved_locals_len = self.locals.len();
       let saved_scope_len = self.scope_stack.len();
       let saved_apply_ctx = self.apply_context;
+
+      // Restore the apply context so that `$T` (and any
+      // other generics scoped to the surrounding `apply
+      // Type<$T>` block) resolve while the body re-executes.
+      // Without this, identifier lookups for the receiver's
+      // type parameters fail with "Add `$T` to the type
+      // parameter list" during re-execution.
+      self.apply_context = apply_ctx;
+
+      // Pre-install the apply block's type-param fresh
+      // vars as the outer scope — `execute_fun` does
+      // `take()` then restores outer when the function
+      // declared no params of its own, so the body's `$T`
+      // references resolve through these vars before the
+      // substitution-install step binds them to the call-
+      // site concretes.
+      if let Some(ctx) = apply_ctx {
+        let count = self
+          .apply_type_params
+          .get(&ctx)
+          .map_or(0, |names| names.len());
+
+        for i in 0..count {
+          let sym = self.apply_type_params[&ctx][i];
+          let var = self.ty_checker.fresh_var();
+
+          self.type_params.push((sym, var));
+        }
+      }
 
       // Mark this instantiation as emitted BEFORE the body
       // runs — if the body contains a recursive call that

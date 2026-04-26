@@ -23,6 +23,7 @@ serde = { workspace = true }
 criterion = { workspace = true }
 insta = { workspace = true }
 proptest = { workspace = true }
+rustc-hash = { workspace = true }
 
 [[bench]]
 name = "tokenize"

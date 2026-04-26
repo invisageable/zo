@@ -20,5 +20,22 @@ fun fb(n: int) {
 }
 
 fun main() {
-  fb(100)
+  fb(15)
 }
+
+-- EXPECTED OUTPUT:
+-- 1
+-- 2
+-- fizz
+-- 4
+-- buzz
+-- fizz
+-- 7
+-- 8
+-- fizz
+-- buzz
+-- 11
+-- fizz
+-- 13
+-- 14
+-- fizzbuzz

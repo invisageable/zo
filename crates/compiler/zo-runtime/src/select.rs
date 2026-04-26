@@ -98,7 +98,7 @@ pub unsafe extern "C-unwind" fn _zo_select_wait(
   }
 }
 
-/// Non-blocking recv. Returns `true` iff a value was
+/// Non-blocking recv. Returns `true` if a value was
 /// available and copied into `out_value`. The channel
 /// module's locked state is inspected via the same
 /// `inner.lock()` path as the normal recv.

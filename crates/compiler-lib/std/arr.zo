@@ -9,6 +9,17 @@ pack arr;
 -! to `[]int` at the call site until that lands.
 
 apply []int {
+  -! In-place ascending sort. Stable, O(n log n).
+  -!
+  -- codegen-replaced: routes to `_zo_arr_sort_i32` at
+  -- the call site. Apply-method body mutation through
+  -- `self[i] = ...` doesn't lower correctly today, so
+  -- the loop lives in the runtime — same pattern
+  -- HashMap / Vec follow for ops that need primitives
+  -- the surface language doesn't expose yet.
+  pub fun sort(self) {}
+
+
   -! Sum of every element. Empty array returns `0`.
   pub fun sum(self) -> int {
     mut total: int = 0;
@@ -22,7 +33,7 @@ apply []int {
     return total;
   }
 
-  -! True iff the array contains an element equal to `needle`.
+  -! True if the array contains an element equal to `needle`.
   pub fun contains(self, needle: int) -> bool {
     mut i: int = 0;
 

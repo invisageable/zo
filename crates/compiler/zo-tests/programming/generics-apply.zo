@@ -1,5 +1,19 @@
--- tests-build-pass: generic apply block.
--- @cmd — zo build generic-apply.zo
+-- tests-build-pass: generic apply block — multi-instantiation.
+-- @cmd — zo build generics-apply.zo
+--
+-- Two key shapes covered:
+--   1. Single-T `apply Pair<$T>` constructor — the body
+--      builds a `Self` from the apply-level `$T`.
+--   2. Single-T `apply Box<$T>` instance method — the
+--      body returns `self.v` whose field type flows from
+--      the apply's `$T` to the call-site's concrete arg.
+--
+-- The instance method gets called twice with DIFFERENT
+-- concrete `$T`s in `main`. The instantiation pass must
+-- restore both `apply_context` and the apply block's
+-- type-param fresh vars during re-execution, otherwise
+-- `$T` fails to resolve and the second call's payload
+-- type-checks against the first's binding.
 
 struct Pair<$T> {
   first: $T,
@@ -12,4 +26,24 @@ apply Pair<$T> {
   }
 }
 
-fun main() {}
+struct Box<$T> {
+  v: $T,
+}
+
+apply Box<$T> {
+  fun get(self) -> $T {
+    self.v
+  }
+}
+
+fun main() {
+  imu b_int := Box { v: 42 };
+  showln(b_int.get());
+
+  imu b_str := Box { v: "hi" };
+  showln(b_str.get());
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- hi

@@ -102,8 +102,19 @@ pub(crate) const FAT_MAGIC_64: u32 = 0xcafebabf; // 64-bit fat binary magic numb
 // Memory layout constants
 pub(crate) const PAGE_SIZE: u32 = 0x1000; // 4KB page size
 pub(crate) const CODE_OFFSET: u32 = 0x400; // Code starts at 1KB after header
-pub(crate) const TEXT_SEGMENT_SIZE: u32 = PAGE_SIZE * 4; // 16KB for TEXT segment (4 pages)
-pub(crate) const DATA_SEGMENT_SIZE: u32 = PAGE_SIZE * 4; // 16KB for DATA segment (4 pages)
+// Static segment sizes. The TEXT cap was 4 pages (16 KB) —
+// programs preloading the full stdlib (`map`, `set`, `vec`,
+// `str`, `arr`, `int`, ...) plus a real `main` already
+// exceeded that, and the writer produced a malformed binary
+// with overlapping section contents (TEXT bleeds into the
+// DATA file region). Bumping both caps to 64 pages (256 KB
+// each) absorbs every realistic AoC-scale program. A proper
+// fix routes the actual code/data sizes through these
+// constants and rounds up to a page boundary; that's a
+// separate refactor (the constants thread through ~30
+// LoadCommand fields). Tracked for follow-up.
+pub(crate) const TEXT_SEGMENT_SIZE: u32 = PAGE_SIZE * 64; // 256KB (64 pages)
+pub(crate) const DATA_SEGMENT_SIZE: u32 = PAGE_SIZE * 64; // 256KB (64 pages)
 
 // Virtual memory addresses
 pub(crate) const VM_BASE: u64 = 0x100000000; // Base VM address for 64-bit executables

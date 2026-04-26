@@ -1,0 +1,40 @@
+-- tests-build-pass: str.parse_int() — decimal int parse, Option-returning.
+-- @cmd — zo build str-parse-int.zo
+
+fun unwrap_or(maybe: Option<int>, fallback: int) -> int {
+  match maybe {
+    Option::Some(v) => return v,
+    Option::None => return fallback,
+  }
+}
+
+fun is_none(maybe: Option<int>) -> bool {
+  match maybe {
+    Option::Some(_) => return false,
+    Option::None => return true,
+  }
+}
+
+fun main() {
+  check@eq(unwrap_or("42".parse_int(), 0), 42);
+  check@eq(unwrap_or("0".parse_int(), -1), 0);
+  check@eq(unwrap_or("1000000".parse_int(), 0), 1000000);
+
+  -- Negative integer parse: matched directly to avoid the
+  -- separate `Option::Some(-x)` cross-call payload bug.
+  match "-7".parse_int() {
+    Option::Some(v) => check@eq(v, -7),
+    Option::None => check(false),
+  }
+
+  check(is_none("".parse_int()));
+  check(is_none("-".parse_int()));
+  check(is_none("1a".parse_int()));
+  check(is_none("abc".parse_int()));
+  check(is_none("12.34".parse_int()));
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

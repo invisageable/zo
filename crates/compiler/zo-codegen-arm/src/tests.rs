@@ -422,6 +422,7 @@ fn test_string_fixup() {
     .code
     .windows(hello_bytes.len())
     .any(|window| window == hello_bytes);
+
   let code_contains_world = artifact
     .code
     .windows(world_bytes.len())
@@ -438,7 +439,7 @@ fn test_string_fixup() {
 // `Loot::Gold(...)` instead of leaking a stack pointer.
 // ================================================================
 
-/// True iff `needle` appears as a contiguous byte sequence in
+/// True if `needle` appears as a contiguous byte sequence in
 /// `haystack`. Used to assert that the enum pretty-printer
 /// baked a display string into the final artifact.
 fn code_contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -606,4 +607,316 @@ fun main() {
   // the displayed output is identical either way.
   assert!(code_contains(&code, b"(...)"));
   assert!(code_contains(&code, b"Loot::Gold"));
+}
+
+// ================================================================
+// `emit_str_sp` slow-path scratch register — the SP-relative store
+// helper falls back to a computed address when the offset overflows
+// the inline-encodable range. Some call sites pass X16 as the value
+// they want to store (it carries a freshly-built tag or payload
+// word), so the slow path must pick a different register to hold
+// the computed address — otherwise the address overwrites the
+// value before STR consumes it and the slot ends up holding a
+// pointer-shaped sentinel instead of the intended bits. This shows
+// up at runtime as match arms whose discriminants are neither 0
+// nor 1, so every arm's `BranchIfNot` skips and every match
+// silently does nothing.
+// ================================================================
+
+#[test]
+fn test_str_sp_slow_path_does_not_self_clobber() {
+  // Drive a `Vec::get` SIR call at a struct-cursor that
+  // overflows the inline STR-imm range. `emit_vec_get`
+  // builds the Option aggregate by storing X16 (the value)
+  // at SP-relative offsets — when the offset exceeds the
+  // inline range, the slow path computes the address into a
+  // scratch register before STR. Re-using X16 as both value
+  // and scratch caused the address to overwrite the value;
+  // the binary contained `str X16, [X16]` and the slot ended
+  // up holding a pointer-shaped sentinel instead of the
+  // intended discriminant. Manifested at runtime as match
+  // arms whose discriminant compares were never satisfied —
+  // every arm's `BranchIfNot` skipped, every match silently
+  // did nothing.
+  //
+  // Padding: a `Vec::new` followed by 35 `HashMap::insert`s
+  // — each call's scratch budget is hardcoded in
+  // `zo-register-allocation` (1 + 2 * N slots for the Vec's
+  // ptr field + the inserts' k/v scratch pairs), pushing the
+  // ensuing `Vec::get`'s opt-base past 255 bytes from
+  // `struct_base`.
+  let mut interner = Interner::new();
+  let main_sym = interner.intern("main");
+  let vec_new_sym = interner.intern("Vec::new");
+  let map_new_sym = interner.intern("HashMap::new");
+  let map_insert_sym = interner.intern("HashMap::insert");
+  let vec_get_sym = interner.intern("Vec::get");
+
+  let mut sir = Sir::new();
+
+  sir.emit(Insn::FunDef {
+    name: main_sym,
+    params: vec![],
+    return_ty: TyId(1),
+    body_start: 1,
+    kind: FunctionKind::UserDefined,
+    pubness: Pubness::No,
+  });
+
+  let mut next: u32 = 0;
+  let const_int = |sir: &mut Sir, next: &mut u32| -> ValueId {
+    let v = ValueId(*next);
+    *next += 1;
+    sir.emit(Insn::ConstInt {
+      dst: v,
+      value: 0,
+      ty_id: TyId(1),
+    });
+    v
+  };
+  let fresh = |next: &mut u32| -> ValueId {
+    let v = ValueId(*next);
+    *next += 1;
+    v
+  };
+
+  // `Vec::new` / `HashMap::new` take three executor-injected
+  // `(elem/key kind, sz, val_sz)` constants — seed each call
+  // with three ConstInts so the codegen handler sees a full
+  // arg list.
+  let v_args = vec![
+    const_int(&mut sir, &mut next),
+    const_int(&mut sir, &mut next),
+    const_int(&mut sir, &mut next),
+  ];
+  let v_handle = fresh(&mut next);
+
+  sir.emit(Insn::Call {
+    dst: v_handle,
+    name: vec_new_sym,
+    args: v_args,
+    ty_id: TyId(1),
+  });
+
+  let m_args = vec![
+    const_int(&mut sir, &mut next),
+    const_int(&mut sir, &mut next),
+    const_int(&mut sir, &mut next),
+  ];
+  let m_handle = fresh(&mut next);
+
+  sir.emit(Insn::Call {
+    dst: m_handle,
+    name: map_new_sym,
+    args: m_args,
+    ty_id: TyId(1),
+  });
+
+  for _ in 0..35 {
+    let k = const_int(&mut sir, &mut next);
+    let val = const_int(&mut sir, &mut next);
+    let dst = fresh(&mut next);
+
+    sir.emit(Insn::Call {
+      dst,
+      name: map_insert_sym,
+      args: vec![m_handle, k, val],
+      ty_id: TyId(1),
+    });
+  }
+
+  let idx = const_int(&mut sir, &mut next);
+  let get_dst = fresh(&mut next);
+
+  sir.emit(Insn::Call {
+    dst: get_dst,
+    name: vec_get_sym,
+    args: vec![v_handle, idx],
+    ty_id: TyId(1),
+  });
+  sir.emit(Insn::Return {
+    value: None,
+    ty_id: TyId(1),
+  });
+
+  sir.next_value_id = next;
+
+  let mut codegen = ARM64Gen::new(&interner);
+  let artifact = codegen.generate(&sir);
+
+  // STR (immediate, unsigned offset, 64-bit): bits [31:22] =
+  // 1111_1001_00. When the base register equals the source
+  // register and imm12 is zero, the STR self-clobbers — the
+  // address SP-add was emitted into the same register the
+  // STR is consuming.
+  for chunk in artifact.code.chunks_exact(4) {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    if (insn >> 22) != 0b1111100100 {
+      continue;
+    }
+
+    let rt = insn & 0x1F;
+    let rn = (insn >> 5) & 0x1F;
+    let imm12 = (insn >> 10) & 0xFFF;
+
+    assert!(
+      rt != rn || imm12 != 0,
+      "STR self-clobber: `str X{rt}, [X{rn}]` at offset 0",
+    );
+  }
+}
+
+// ================================================================
+// `emit_add_sp_offset` must materialize the offset constant into
+// `dst`, never into a hidden X16 temp. The earlier slow-path
+// implementation always used X16 to load the offset before adding
+// SP, which silently corrupted any caller-held value in X16 — for
+// instance, a freshly-built tag word about to be spilled by
+// `emit_str_sp`'s slow path. With `emit_str_sp(X16, big_off)`
+// switching to X17 as the address scratch, the bug was a level
+// deeper: `emit_add_sp_offset(X17, big_off)` still clobbered X16
+// internally. Manifested at runtime as match-arm tags reading the
+// numeric offset (e.g. 4280) instead of 0/1, so every match arm
+// fell through and downstream operations like `HashMap::insert`
+// silently no-oped.
+// ================================================================
+
+#[test]
+fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
+  // Force the slow path by piling enough `read_file` calls
+  // (520 stack slots each, including the 4096-byte read
+  // buffer) to push the next scratch base above 4095 — the
+  // imm12 ceiling for the fast path. Each subsequent
+  // `HashMap::insert` triggers `emit_add_sp_offset(X1, k_off)`
+  // and `emit_add_sp_offset(X2, v_off)` at slow-path
+  // offsets, which must materialize the constant into X1 / X2
+  // (the dst) — never into X16 — so any caller-held X16 value
+  // survives the address calculation.
+  let mut interner = Interner::new();
+  let main_sym = interner.intern("main");
+  let read_sym = interner.intern("read_file");
+  let map_new_sym = interner.intern("HashMap::new");
+  let map_insert_sym = interner.intern("HashMap::insert");
+
+  let mut sir = Sir::new();
+
+  sir.emit(Insn::FunDef {
+    name: main_sym,
+    params: vec![],
+    return_ty: TyId(1),
+    body_start: 1,
+    kind: FunctionKind::UserDefined,
+    pubness: Pubness::No,
+  });
+
+  let mut next: u32 = 0;
+  let const_int = |sir: &mut Sir, next: &mut u32| -> ValueId {
+    let v = ValueId(*next);
+    *next += 1;
+    sir.emit(Insn::ConstInt {
+      dst: v,
+      value: 0,
+      ty_id: TyId(1),
+    });
+    v
+  };
+  let fresh = |next: &mut u32| -> ValueId {
+    let v = ValueId(*next);
+    *next += 1;
+    v
+  };
+
+  let path_arg = const_int(&mut sir, &mut next);
+  let read_dst = fresh(&mut next);
+
+  sir.emit(Insn::Call {
+    dst: read_dst,
+    name: read_sym,
+    args: vec![path_arg],
+    ty_id: TyId(1),
+  });
+
+  let m_args = vec![
+    const_int(&mut sir, &mut next),
+    const_int(&mut sir, &mut next),
+    const_int(&mut sir, &mut next),
+  ];
+  let m_handle = fresh(&mut next);
+
+  sir.emit(Insn::Call {
+    dst: m_handle,
+    name: map_new_sym,
+    args: m_args,
+    ty_id: TyId(1),
+  });
+
+  // One insert at slow-path offsets exercises both
+  // `emit_add_sp_offset(X1, k_off)` and `emit_add_sp_offset
+  // (X2, v_off)` — both well past the imm12 fast path.
+  let k = const_int(&mut sir, &mut next);
+  let val = const_int(&mut sir, &mut next);
+  let dst = fresh(&mut next);
+
+  sir.emit(Insn::Call {
+    dst,
+    name: map_insert_sym,
+    args: vec![m_handle, k, val],
+    ty_id: TyId(1),
+  });
+  sir.emit(Insn::Return {
+    value: None,
+    ty_id: TyId(1),
+  });
+
+  sir.next_value_id = next;
+
+  let mut codegen = ARM64Gen::new(&interner);
+  let artifact = codegen.generate(&sir);
+
+  // ADD (extended register, UXTX, shift=0): bits[31:21] =
+  // 1000_1011_001 (`0x8B20_0000`), bits[15:13] = 011 (UXTX),
+  // bits[12:10] = 000 (shift=0). With Rn = SP (31), this is
+  // the slow-path `add Rd, SP, Rm` pattern. The fixed helper
+  // emits `Rm == Rd` (materializer reuses the dst register);
+  // the buggy helper emits `Rm == X16` regardless of `Rd`.
+  let mut found_slow_path_add = false;
+
+  for chunk in artifact.code.chunks_exact(4) {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    let is_add_ext = (insn & 0xFFE0_FC00) == 0x8B20_6000;
+
+    if !is_add_ext {
+      continue;
+    }
+
+    let rd = insn & 0x1F;
+    let rn = (insn >> 5) & 0x1F;
+    let rm = (insn >> 16) & 0x1F;
+
+    // Skip prologue / epilogue frame adjustments
+    // (`sub/add SP, SP, X16`) and the str-concat
+    // dynamic-frame helper. Those legitimately use X16
+    // because they predate any caller-held value in X16.
+    if rn != 31 || rd == 31 {
+      continue;
+    }
+
+    found_slow_path_add = true;
+
+    assert!(
+      rm == rd,
+      "ADD X{rd}, SP, X{rm} — `emit_add_sp_offset` slow path \
+       must materialize the offset into the dst register, not \
+       into X16 (which may carry a caller-held value)",
+    );
+  }
+
+  assert!(
+    found_slow_path_add,
+    "test setup did not exercise the slow path — no \
+     `add Rd, SP, Rm` (ext-reg) in the emitted code; \
+     bump the read_file count or struct-area pressure",
+  );
 }

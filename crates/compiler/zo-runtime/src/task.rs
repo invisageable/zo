@@ -911,7 +911,7 @@ pub unsafe extern "C-unwind" fn _zo_task_cancel(task: *mut ZoTask) {
 }
 
 /// Query the cancellation flag for `task`. Returns
-/// `true` iff a prior [`_zo_task_cancel`] has latched
+/// `true` if a prior [`_zo_task_cancel`] has latched
 /// the flag.
 ///
 /// # Safety

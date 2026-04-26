@@ -2,32 +2,34 @@
 //!
 //! A `Context` captures the subset of CPU state that
 //! survives a function call boundary on the platform's
-//! calling convention (AAPCS64 on aarch64): the 10
-//! callee-save GPRs `x19..x28`, the frame/link registers
-//! `x29`/`x30`, the stack pointer, and the 8 callee-save
-//! FP regs `d8..d15`. Everything else is caller-save —
-//! the compiler already spills it at the `bl` site, so a
-//! voluntary yield (which `ctx_switch` is) doesn't need
-//! to touch those regs.
+//! calling convention: on AAPCS64 (aarch64) that's the
+//! 10 callee-save GPRs `x19..x28`, frame / link regs
+//! `x29` / `x30`, stack pointer, and 8 callee-save FP
+//! regs `d8..d15`. On SysV AMD64 (x86_64) it's the 6
+//! callee-save GPRs `rbx`, `rbp`, `r12..r15`, plus the
+//! stack pointer; the return address lives on the stack
+//! itself. Everything else is caller-save — the
+//! compiler already spills it at the call site, so a
+//! voluntary yield doesn't need to touch those regs.
 //!
 //! `ctx_switch(from, to)` saves the current CPU state
-//! into `*from`, loads from `*to`, and `ret`s to
-//! `to.lr`. This is a voluntary yield only — the callee-
-//! save set is enough because every other register was
-//! already spilled by the compiler for the `bl`. A
-//! preemption-capable variant would need the FULL
-//! register file (caller-save included), which is not
-//! this module's scope.
+//! into `*from`, loads from `*to`, and returns via the
+//! target's stored return path. Voluntary yield only —
+//! a preemption-capable variant would need the full
+//! register file.
 //!
 //! The companion `zo_task_entry_trampoline` is the
 //! bootstrap entry for a freshly-minted Context: it
-//! expects `x19 = entry_fn`, `x20 = arg`, moves the
-//! arg into the first-argument register `x0`, and
-//! branches to `entry_fn`.
+//! pulls `entry_fn` + `arg` out of callee-save slots,
+//! moves `arg` into the first-argument register, and
+//! calls `entry_fn`. If `entry_fn` returns, the
+//! trampoline aborts — a task body is expected to
+//! ctx_switch out, not return.
 //!
-//! Platforms: aarch64 + macOS (Darwin) only. Porting to
-//! Linux / x86_64 is the same mechanics with different
-//! symbol-prefixing and register files.
+//! Platforms: aarch64-apple-darwin and x86_64-*-linux.
+//! Other triples compile the module as-is (see the
+//! compile_error at the bottom) — the code is gated by
+//! per-target cfg so unrelated crates can still build.
 //!
 //! ```sh
 //! cargo test -p zo-runtime ctxsw
@@ -35,12 +37,12 @@
 
 use std::arch::global_asm;
 
-// ===== Context layout (aarch64) =====
+// ===== Context layout =====
 
-/// Saved CPU state snapshot. Exactly the callee-save set
-/// for AAPCS64 — enough for voluntary yields. Layout is
-/// `#[repr(C)]` so the hand-written asm below can index
-/// fields by absolute byte offset without drift.
+/// Saved CPU state snapshot for aarch64 / AAPCS64 —
+/// exactly the callee-save set. Layout is `#[repr(C)]`
+/// so the hand-written asm below can index fields by
+/// absolute byte offset without drift.
 #[cfg(target_arch = "aarch64")]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -57,21 +59,42 @@ pub struct Context {
   pub fp_regs: [u64; 8],
 }
 
+/// Saved CPU state snapshot for SysV AMD64 (x86_64).
+/// The 6 callee-save GPRs plus the stack pointer;
+/// return address survives on the stack itself, so it
+/// doesn't need its own slot. `#[repr(C)]` locks the
+/// offsets for the asm block.
+#[cfg(target_arch = "x86_64")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Context {
+  /// `rbx`, `rbp`, `r12`, `r13`, `r14`, `r15`.
+  pub gp_regs: [u64; 6],
+  /// Stack pointer.
+  pub rsp: u64,
+}
+
 // Hard-coded offsets the asm relies on. If the struct
 // layout shifts, the compile fails here before anything
-// runs the wrong bytes. Each pair is (offset, expected).
+// runs the wrong bytes.
 #[cfg(target_arch = "aarch64")]
 const _: () = {
   assert!(core::mem::size_of::<Context>() == 168);
   assert!(core::mem::align_of::<Context>() == 8);
 };
 
+#[cfg(target_arch = "x86_64")]
+const _: () = {
+  assert!(core::mem::size_of::<Context>() == 56);
+  assert!(core::mem::align_of::<Context>() == 8);
+};
+
 impl Context {
-  /// All-zero context — safe to CONSTRUCT but not safe to
-  /// switch INTO directly. Caller must populate at least
-  /// `lr` and `sp` (via [`Context::bootstrap`]) before
-  /// passing this as the `to` argument of
-  /// [`ctx_switch`].
+  /// All-zero context — safe to CONSTRUCT but not safe
+  /// to switch INTO directly. Caller must populate via
+  /// [`Context::bootstrap`] before passing this as the
+  /// `to` argument of [`ctx_switch`].
+  #[cfg(target_arch = "aarch64")]
   pub const fn zeroed() -> Self {
     Self {
       gp_regs: [0; 10],
@@ -82,31 +105,29 @@ impl Context {
     }
   }
 
+  #[cfg(target_arch = "x86_64")]
+  pub const fn zeroed() -> Self {
+    Self {
+      gp_regs: [0; 6],
+      rsp: 0,
+    }
+  }
+
   /// Prepare `self` so the next `ctx_switch(from, self)`
   /// lands in `entry(arg)`.
   ///
   /// - `stack_top` is the HIGHEST address of the task's
-  ///   stack region. Stacks grow downward on aarch64 and
-  ///   x86_64, so this is the byte AFTER the last usable
-  ///   byte. 16-byte aligned per AAPCS64.
-  /// - `entry` is the task's real body — `extern "C"` so
-  ///   the trampoline's arg-register setup matches the
-  ///   C calling convention.
+  ///   stack region. Stacks grow downward, so this is
+  ///   the byte AFTER the last usable byte.
+  /// - `entry` is the task's real body — `extern "C"`
+  ///   so the trampoline's arg-register setup matches
+  ///   the C calling convention.
   /// - `arg` is an opaque u64 the trampoline moves into
-  ///   `x0` before branching. Typically a heap pointer
-  ///   cast via `as u64`.
-  ///
-  /// First-switch control flow:
-  /// 1. `ctx_switch` loads our `gp_regs` + `lr` + `sp`.
-  /// 2. `ret` branches to our `lr` = trampoline.
-  /// 3. Trampoline reads `x19` (entry) and `x20` (arg),
-  ///    does `mov x0, x20; blr x19`.
-  /// 4. `entry(arg)` runs in a fresh stack frame on the
-  ///    provided stack.
+  ///   the first-argument register before branching.
   ///
   /// Subsequent switches resume `entry` at whatever
-  /// instruction it last yielded from — the trampoline is
-  /// one-shot.
+  /// instruction it last yielded from — the trampoline
+  /// is one-shot.
   #[cfg(target_arch = "aarch64")]
   pub fn bootstrap(
     &mut self,
@@ -131,13 +152,56 @@ impl Context {
     // grow toward lower addresses.
     self.sp = (stack_top as u64) & !15;
   }
+
+  /// Prepare `self` so the next `ctx_switch(from, self)`
+  /// lands in `entry(arg)` on x86_64.
+  ///
+  /// SysV AMD64 has no `lr` register — the return
+  /// address lives on the stack. Bootstrap simulates
+  /// "someone called the trampoline" by writing the
+  /// trampoline's address at `stack_top - 8` and setting
+  /// `rsp` to that slot. When `ctx_switch`'s `ret`
+  /// fires, it pops that address off the stack and
+  /// jumps to the trampoline. After the pop, `rsp`
+  /// equals the original `stack_top`, which must be
+  /// 16-byte aligned per the SysV ABI's entry
+  /// contract.
+  #[cfg(target_arch = "x86_64")]
+  pub fn bootstrap(
+    &mut self,
+    stack_top: *mut u8,
+    entry: extern "C-unwind" fn(u64),
+    arg: u64,
+  ) {
+    // rbx <- entry, r12 <- arg. The trampoline pulls
+    // them out of callee-save slots after ctx_switch
+    // restores them.
+    self.gp_regs[0] = entry as *const () as u64;
+    self.gp_regs[2] = arg;
+
+    // 16-byte align `stack_top` downward, then reserve
+    // one 8-byte slot at the top for the trampoline's
+    // return address. After the trampoline's `ret` /
+    // `pop` sequence, rsp becomes the 16-byte-aligned
+    // boundary, matching the SysV AMD64 "entry at a
+    // call site" contract.
+    let aligned_top = (stack_top as u64) & !15;
+    let ret_slot = aligned_top - 8;
+
+    unsafe {
+      (ret_slot as *mut u64)
+        .write(zo_task_entry_trampoline as *const () as u64);
+    }
+
+    self.rsp = ret_slot;
+  }
 }
 
 // ===== External symbols defined in the asm block =====
 
 unsafe extern "C" {
   /// Save current CPU state into `*from`, load from
-  /// `*to`, return to `to.lr`.
+  /// `*to`, return to the target's saved return path.
   ///
   /// # Safety
   ///
@@ -148,9 +212,9 @@ unsafe extern "C" {
   ///   `ctx_switch(other, to)` OR by
   ///   [`Context::bootstrap`]. A zeroed context is not
   ///   a valid `to`.
-  /// - The stack `to.sp` points at must be alive and
-  ///   unreclaimed for the entire time `to` remains a
-  ///   switchable target.
+  /// - The stack `to`'s saved stack pointer points at
+  ///   must be alive and unreclaimed for the entire
+  ///   time `to` remains a switchable target.
   pub fn ctx_switch(from: *mut Context, to: *mut Context);
 
   /// Bootstrap trampoline — not callable directly;
@@ -159,35 +223,30 @@ unsafe extern "C" {
   fn zo_task_entry_trampoline();
 }
 
-// ===== aarch64-apple-darwin assembly =====
+// ===== aarch64 assembly =====
 //
+// One asm block, label prefix chosen by target_os.
 // Darwin mangles C symbols with a leading underscore;
-// Rust's extern "C" symbols are `_ctx_switch` etc. at
-// the linker level.
+// Linux does not. The Rust-side `extern "C"` binding
+// resolves the right form at link time.
 
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 global_asm!(
-  // ---- ctx_switch ----
   ".global _ctx_switch",
   ".p2align 2",
   "_ctx_switch:",
-  // Save callee-save GPRs x19..x28 into *from (x0).
   "    stp x19, x20, [x0, #0]",
   "    stp x21, x22, [x0, #16]",
   "    stp x23, x24, [x0, #32]",
   "    stp x25, x26, [x0, #48]",
   "    stp x27, x28, [x0, #64]",
-  // Save fp (x29) + lr (x30).
   "    stp x29, x30, [x0, #80]",
-  // Save sp — can't STR sp directly; bounce via x9.
   "    mov x9, sp",
   "    str x9, [x0, #96]",
-  // Save callee-save FP regs d8..d15.
   "    stp d8, d9,   [x0, #104]",
   "    stp d10, d11, [x0, #120]",
   "    stp d12, d13, [x0, #136]",
   "    stp d14, d15, [x0, #152]",
-  // Load new state from *to (x1).
   "    ldp x19, x20, [x1, #0]",
   "    ldp x21, x22, [x1, #16]",
   "    ldp x23, x24, [x1, #32]",
@@ -200,20 +259,7 @@ global_asm!(
   "    ldp d10, d11, [x1, #120]",
   "    ldp d12, d13, [x1, #136]",
   "    ldp d14, d15, [x1, #152]",
-  // Return to to.lr (now in x30).
   "    ret",
-  // ---- zo_task_entry_trampoline ----
-  //
-  // Called on the first ctx_switch into a bootstrap-
-  // initialized context. Reads entry_fn from x19 and
-  // arg from x20 (placed there by `Context::bootstrap`),
-  // moves the arg into x0 (first-arg reg), and branches
-  // to the entry function.
-  //
-  // If `entry` ever returns, the trampoline falls
-  // through to `abort()` — a task that returns without
-  // ctx_switching out has no parent frame to return to,
-  // so aborting is the honest failure mode.
   ".global _zo_task_entry_trampoline",
   ".p2align 2",
   "_zo_task_entry_trampoline:",
@@ -222,12 +268,122 @@ global_asm!(
   "    bl _abort",
 );
 
-#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+global_asm!(
+  ".global ctx_switch",
+  ".p2align 2",
+  "ctx_switch:",
+  "    stp x19, x20, [x0, #0]",
+  "    stp x21, x22, [x0, #16]",
+  "    stp x23, x24, [x0, #32]",
+  "    stp x25, x26, [x0, #48]",
+  "    stp x27, x28, [x0, #64]",
+  "    stp x29, x30, [x0, #80]",
+  "    mov x9, sp",
+  "    str x9, [x0, #96]",
+  "    stp d8, d9,   [x0, #104]",
+  "    stp d10, d11, [x0, #120]",
+  "    stp d12, d13, [x0, #136]",
+  "    stp d14, d15, [x0, #152]",
+  "    ldp x19, x20, [x1, #0]",
+  "    ldp x21, x22, [x1, #16]",
+  "    ldp x23, x24, [x1, #32]",
+  "    ldp x25, x26, [x1, #48]",
+  "    ldp x27, x28, [x1, #64]",
+  "    ldp x29, x30, [x1, #80]",
+  "    ldr x9, [x1, #96]",
+  "    mov sp, x9",
+  "    ldp d8, d9,   [x1, #104]",
+  "    ldp d10, d11, [x1, #120]",
+  "    ldp d12, d13, [x1, #136]",
+  "    ldp d14, d15, [x1, #152]",
+  "    ret",
+  ".global zo_task_entry_trampoline",
+  ".p2align 2",
+  "zo_task_entry_trampoline:",
+  "    mov x0, x20",
+  "    blr x19",
+  "    bl abort",
+);
+
+// ===== x86_64 assembly =====
+//
+// SysV AMD64 calling convention. Args `from` / `to`
+// come in rdi / rsi. Callee-save GPRs are rbx, rbp,
+// r12..r15. Return address survives on the stack
+// (popped by `ret`). No callee-save FP regs in SysV.
+//
+// Context slot layout (6 × u64 + rsp):
+//   [0]=rbx [8]=rbp [16]=r12 [24]=r13 [32]=r14 [40]=r15
+//   [48]=rsp
+
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+global_asm!(
+  ".global ctx_switch",
+  ".p2align 4",
+  "ctx_switch:",
+  "    mov [rdi + 0],  rbx",
+  "    mov [rdi + 8],  rbp",
+  "    mov [rdi + 16], r12",
+  "    mov [rdi + 24], r13",
+  "    mov [rdi + 32], r14",
+  "    mov [rdi + 40], r15",
+  "    mov [rdi + 48], rsp",
+  "    mov rbx, [rsi + 0]",
+  "    mov rbp, [rsi + 8]",
+  "    mov r12, [rsi + 16]",
+  "    mov r13, [rsi + 24]",
+  "    mov r14, [rsi + 32]",
+  "    mov r15, [rsi + 40]",
+  "    mov rsp, [rsi + 48]",
+  "    ret",
+  ".global zo_task_entry_trampoline",
+  ".p2align 4",
+  "zo_task_entry_trampoline:",
+  "    mov rdi, r12",
+  "    call rbx",
+  "    call abort",
+);
+
+#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+global_asm!(
+  ".global _ctx_switch",
+  ".p2align 4",
+  "_ctx_switch:",
+  "    mov [rdi + 0],  rbx",
+  "    mov [rdi + 8],  rbp",
+  "    mov [rdi + 16], r12",
+  "    mov [rdi + 24], r13",
+  "    mov [rdi + 32], r14",
+  "    mov [rdi + 40], r15",
+  "    mov [rdi + 48], rsp",
+  "    mov rbx, [rsi + 0]",
+  "    mov rbp, [rsi + 8]",
+  "    mov r12, [rsi + 16]",
+  "    mov r13, [rsi + 24]",
+  "    mov r14, [rsi + 32]",
+  "    mov r15, [rsi + 40]",
+  "    mov rsp, [rsi + 48]",
+  "    ret",
+  ".global _zo_task_entry_trampoline",
+  ".p2align 4",
+  "_zo_task_entry_trampoline:",
+  "    mov rdi, r12",
+  "    call rbx",
+  "    call _abort",
+);
+
+#[cfg(not(any(
+  all(target_arch = "aarch64", target_os = "macos"),
+  all(target_arch = "aarch64", target_os = "linux"),
+  all(target_arch = "x86_64", target_os = "linux"),
+  all(target_arch = "x86_64", target_os = "macos"),
+)))]
 compile_error!(
-  "zo-runtime::ctxsw currently only supports \
-   aarch64-apple-darwin. Linux + x86_64 ports are \
-   the same mechanics with different symbol-prefixing \
-   and register files."
+  "zo-runtime::ctxsw supports aarch64-apple-darwin, \
+   aarch64-unknown-linux-*, x86_64-unknown-linux-*, \
+   and x86_64-apple-darwin. Windows / other targets \
+   need their own asm block."
 );
 
 // ===== Tests =====
@@ -240,8 +396,16 @@ mod tests {
 
   #[test]
   fn context_has_expected_layout() {
-    // Matches the hardcoded offsets in the asm block.
-    assert_eq!(core::mem::size_of::<Context>(), 168);
+    #[cfg(target_arch = "aarch64")]
+    {
+      assert_eq!(core::mem::size_of::<Context>(), 168);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+      assert_eq!(core::mem::size_of::<Context>(), 56);
+    }
+
     assert_eq!(core::mem::align_of::<Context>(), 8);
   }
 
@@ -250,14 +414,23 @@ mod tests {
     let ctx = Context::zeroed();
 
     assert!(ctx.gp_regs.iter().all(|&v| v == 0));
-    assert_eq!(ctx.fp, 0);
-    assert_eq!(ctx.lr, 0);
-    assert_eq!(ctx.sp, 0);
-    assert!(ctx.fp_regs.iter().all(|&v| v == 0));
+
+    #[cfg(target_arch = "aarch64")]
+    {
+      assert_eq!(ctx.fp, 0);
+      assert_eq!(ctx.lr, 0);
+      assert_eq!(ctx.sp, 0);
+      assert!(ctx.fp_regs.iter().all(|&v| v == 0));
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+      assert_eq!(ctx.rsp, 0);
+    }
   }
 
   #[test]
-  fn bootstrap_populates_entry_arg_lr_sp() {
+  fn bootstrap_populates_entry_arg_and_stack_pointer() {
     let mut stack = vec![0u8; 4096].into_boxed_slice();
     let top = unsafe { stack.as_mut_ptr().add(stack.len()) };
 
@@ -267,16 +440,26 @@ mod tests {
 
     ctx.bootstrap(top, never_runs, 0xCAFEBABE);
 
-    // gp_regs[0] carries entry, gp_regs[1] carries arg, per the
-    // trampoline convention documented on `bootstrap`.
-    assert_eq!(ctx.gp_regs[0], never_runs as *const () as u64);
-    assert_eq!(ctx.gp_regs[1], 0xCAFEBABE);
-    assert_eq!(ctx.lr, zo_task_entry_trampoline as *const () as u64);
+    #[cfg(target_arch = "aarch64")]
+    {
+      assert_eq!(ctx.gp_regs[0], never_runs as *const () as u64);
+      assert_eq!(ctx.gp_regs[1], 0xCAFEBABE);
+      assert_eq!(ctx.lr, zo_task_entry_trampoline as *const () as u64);
+      assert!(ctx.sp.is_multiple_of(16));
+      assert!(ctx.sp <= top as u64);
+      assert!(ctx.sp > stack.as_ptr() as u64);
+    }
 
-    // SP 16-byte aligned and within the allocated range.
-    assert!(ctx.sp.is_multiple_of(16));
-    assert!(ctx.sp <= top as u64);
-    assert!(ctx.sp > stack.as_ptr() as u64);
+    #[cfg(target_arch = "x86_64")]
+    {
+      assert_eq!(ctx.gp_regs[0], never_runs as *const () as u64);
+      assert_eq!(ctx.gp_regs[2], 0xCAFEBABE);
+      assert!(ctx.rsp < top as u64);
+      assert!(ctx.rsp > stack.as_ptr() as u64);
+      // The stored retaddr should be the trampoline.
+      let retaddr = unsafe { (ctx.rsp as *const u64).read() };
+      assert_eq!(retaddr, zo_task_entry_trampoline as *const () as u64);
+    }
   }
 
   // Global state ferrying pointers into the `extern "C"`
@@ -287,9 +470,6 @@ mod tests {
   static CHILD_CTX_ADDR: AtomicU64 = AtomicU64::new(0);
 
   extern "C-unwind" fn ping_pong_child(_arg: u64) {
-    // Each time we're resumed: bump the counter, yield
-    // back to main. `ctx_switch` saves our state into
-    // child_ctx so the next resume picks up here.
     loop {
       COUNTER.fetch_add(1, Ordering::SeqCst);
 
@@ -304,8 +484,6 @@ mod tests {
 
   #[test]
   fn ctx_switch_ping_pong_100_round_trips() {
-    // A 64 KB stack is ample for this child (it only
-    // touches its own frame + the ctx_switch call).
     const STACK_SIZE: usize = 64 * 1024;
 
     let mut stack = vec![0u8; STACK_SIZE].into_boxed_slice();

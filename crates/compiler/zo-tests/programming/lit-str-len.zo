@@ -19,6 +19,7 @@ fun main() {
 
   while idx < s.len {
     showln(s[idx]);
+
     idx = idx + 1;
   }
 }

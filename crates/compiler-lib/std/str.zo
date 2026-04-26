@@ -1,0 +1,216 @@
+pack str;
+
+apply str {
+  pub fun split(self, delim: str) -> []str {
+    imu n: int = self.len;
+    imu k: int = delim.len;
+
+    mut out: []str = [];
+
+    if k == 0 {
+      return out;
+    }
+
+    mut start: int = 0;
+    mut i: int = 0;
+
+    while i <= n - k {
+      imu slice: str = self[i..i + k];
+
+      if slice == delim {
+        out.push(self[start..i]);
+
+        i = i + k;
+        start = i;
+      } else {
+        i = i + 1;
+      }
+    }
+
+    out.push(self[start..n]);
+
+    return out;
+  }
+
+  pub fun lines(self) -> []str {
+    imu n: int = self.len;
+
+    mut out: []str = [];
+    mut start: int = 0;
+    mut i: int = 0;
+
+    while i < n {
+      if self[i] == '\n' {
+        mut end: int = i;
+
+        if end > start {
+          if self[end - 1] == '\r' {
+            end = end - 1;
+          }
+        }
+
+        out.push(self[start..end]);
+
+        start = i + 1;
+      }
+
+      i = i + 1;
+    }
+
+    if start < n {
+      mut end: int = n;
+
+      if end > start {
+        if self[end - 1] == '\r' {
+          end = end - 1;
+        }
+      }
+
+      out.push(self[start..end]);
+    }
+
+    return out;
+  }
+
+  pub fun trim(self) -> str {
+    imu n: int = self.len;
+
+    mut lo: int = 0;
+    mut hi: int = n;
+
+    -- Bind `self[lo]` to a local before calling the
+    -- method: `<expr>[i].method()` chains don't dispatch
+    -- the method correctly today — they silently drop
+    -- the call and yield the indexed value.
+    while lo < hi {
+      imu c: char = self[lo];
+
+      if c.is_whitespace() {
+        lo = lo + 1;
+      } else {
+        break;
+      }
+    }
+
+    while hi > lo {
+      imu c: char = self[hi - 1];
+
+      if c.is_whitespace() {
+        hi = hi - 1;
+      } else {
+        break;
+      }
+    }
+
+    return self[lo..hi];
+  }
+
+  -! Index of the first occurrence of `needle` in `self`,
+  -! or `-1` when `needle` is absent. Empty `needle`
+  -! returns `0` (matches the start of any string —
+  -! mirrors Rust / Python semantics).
+  pub fun index_of(self, needle: str) -> int {
+    imu n: int = self.len;
+    imu k: int = needle.len;
+
+    if k == 0 {
+      return 0;
+    }
+
+    if k > n {
+      return -1;
+    }
+
+    mut i: int = 0;
+
+    while i <= n - k {
+      imu slice: str = self[i..i + k];
+
+      if slice == needle {
+        return i;
+      }
+
+      i = i + 1;
+    }
+
+    return -1;
+  }
+
+  -! `true` when `needle` appears anywhere in `self`.
+  pub fun contains(self, needle: str) -> bool {
+    return self.index_of(needle) != -1;
+  }
+
+  -! Parse a decimal integer. Optional leading `'-'`.
+  -! Returns `Option::None` on empty input or any
+  -! non-digit byte. Overflow on the underlying `int`
+  -! type is not detected (accumulator wraps).
+  pub fun parse_int(self) -> Option<int> {
+    imu n: int = self.len;
+
+    if n == 0 {
+      return Option::None;
+    }
+
+    mut negative: bool = false;
+    mut i: int = 0;
+
+    if self[0] == '-' {
+      negative = true;
+      i = 1;
+    }
+
+    if i >= n {
+      -- A lone `'-'` is not a number.
+      return Option::None;
+    }
+
+    mut acc: int = 0;
+
+    while i < n {
+      imu c: char = self[i];
+
+      if !c.is_digit() {
+        return Option::None;
+      }
+
+      acc = acc * 10 + c.to_digit();
+
+      i = i + 1;
+    }
+
+    if negative {
+      return Option::Some(-acc);
+    }
+
+    return Option::Some(acc);
+  }
+}
+
+-! `==` and `!=` on `str` route through this `Eq` impl —
+-! same trait path as user-defined types. Length check
+-! short-circuits the byte loop on size mismatch.
+apply Eq for str {
+  fun eq(self, other: str) -> bool {
+    imu n: int = self.len;
+
+    if n != other.len {
+      return false;
+    }
+
+    mut i: int = 0;
+
+    while i < n {
+      imu a: char = self[i];
+      imu b: char = other[i];
+
+      if a != b {
+        return false;
+      }
+
+      i = i + 1;
+    }
+
+    return true;
+  }
+}

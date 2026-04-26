@@ -31,7 +31,8 @@ use zo_ty::Mutability;
 use zo_value::ValueId;
 use zo_value::{Local, LocalKind, Pubness};
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -55,8 +56,8 @@ impl Compiler {
       profiler: Profiler::new(),
       reporter: Reporter::new(),
       module_resolver: ModuleResolver::new(Vec::new()),
-      compiling: HashSet::new(),
-      module_table: HashMap::new(),
+      compiling: HashSet::default(),
+      module_table: HashMap::default(),
     }
   }
 
@@ -68,8 +69,8 @@ impl Compiler {
       profiler: Profiler::new(),
       reporter: Reporter::new(),
       module_resolver: ModuleResolver::new(search_paths),
-      compiling: HashSet::new(),
-      module_table: HashMap::new(),
+      compiling: HashSet::default(),
+      module_table: HashMap::default(),
     }
   }
 
@@ -235,7 +236,7 @@ impl Compiler {
     let mut imported_funs = Vec::new();
     let mut imported_vars = Vec::new();
     let mut imported_enums: Vec<zo_module_resolver::ExportedEnum> = Vec::new();
-    let mut imported_abstract_defs = std::collections::HashMap::new();
+    let mut imported_abstract_defs = HashMap::default();
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
     let mut module_next_label_id: u32 = 0;
@@ -246,7 +247,7 @@ impl Compiler {
     // `load` statements. Keep in sync with `std/lib.zo`.
     let preload = [
       "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
-      "int", "bool", "arr",
+      "int", "bool", "arr", "str", "map", "set", "vec",
     ];
 
     for module_name in preload {
@@ -262,12 +263,26 @@ impl Compiler {
         let mod_tok = Tokenizer::new(&src, &mut session.interner).tokenize();
         let mod_par = Parser::new(&mod_tok, &src).parse();
 
+        // Seed each preload pack's analyzer with symbols
+        // from earlier preload packs so later packs can
+        // use them (e.g. `str.zo` referencing `Option`
+        // from `preload.zo` or calling char methods
+        // defined in `char.zo`). Clones are small and
+        // one-time at startup; without them, each preload
+        // runs in isolation and cross-pack references
+        // silently emit broken SIR.
         let mod_ana = Analyzer::new(
           &mod_par.tree,
           &mut session.interner,
           &mod_tok.literals,
           &mut session.ty_checker,
-        );
+        )
+        .with_imports(ImportedSymbols {
+          funs: imported_funs.clone(),
+          vars: imported_vars.clone(),
+          enums: imported_enums.clone(),
+          abstract_defs: imported_abstract_defs.clone(),
+        });
 
         let mod_sem = mod_ana.analyze();
 
@@ -598,7 +613,7 @@ impl Compiler {
       // already gates the `LC_LOAD_DYLIB` entry on
       // those same imports. We just mirror that gate
       // here to stage the matching dylib file.
-      stage_runtime_artifacts(&semantic.sir, &output_path);
+      stage_runtime_artifacts(&semantic.sir, &session.interner, &output_path);
 
       self.profiler.end_phase(CODEGEN_NAME);
       self.profiler.set_output(path.display().to_string());
@@ -679,7 +694,7 @@ struct RuntimeNeeds {
 }
 
 impl RuntimeNeeds {
-  fn from_sir(sir: &Sir) -> Self {
+  fn from_sir(sir: &Sir, interner: &zo_interner::Interner) -> Self {
     let mut needs = Self::default();
 
     for insn in &sir.instructions {
@@ -694,8 +709,30 @@ impl RuntimeNeeds {
         | zo_sir::Insn::TaskCancel { .. }
         | zo_sir::Insn::SelectWait { .. }
         | zo_sir::Insn::NurseryBegin { .. }
-        | zo_sir::Insn::NurseryEnd { .. } => {
+        | zo_sir::Insn::NurseryEnd { .. }
+        | zo_sir::Insn::StrSlice { .. } => {
           needs.concurrency = true;
+        }
+        zo_sir::Insn::Call { name, .. } => {
+          // HashMap / Vec apply-method calls lower to
+          // BLs against `_zo_map_*` / `_zo_vec_*` symbols
+          // that live in `libzo_runtime.dylib`. Same
+          // dylib that concurrency uses, so we just flag
+          // `concurrency` to trigger the dylib copy —
+          // a future split would give the runtime its
+          // own staging flag.
+          let n = interner.get(*name);
+
+          if n.starts_with("HashMap::")
+            || n.starts_with("HashSet::")
+            || n.starts_with("Vec::")
+            || n.starts_with("__zo_map_")
+            || n.starts_with("__zo_vec_")
+            || n.starts_with("__zo_set_")
+            || n == "arr_int::sort"
+          {
+            needs.concurrency = true;
+          }
         }
         zo_sir::Insn::Template { .. } => {
           // Template programs run in-process through
@@ -733,8 +770,12 @@ const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
 /// compiler runs out of cargo's build output). No-op
 /// when the program needs no runtime, or when the
 /// source dylib isn't present.
-fn stage_runtime_artifacts(sir: &Sir, output_path: &std::path::Path) {
-  let needs = RuntimeNeeds::from_sir(sir);
+fn stage_runtime_artifacts(
+  sir: &Sir,
+  interner: &zo_interner::Interner,
+  output_path: &std::path::Path,
+) {
+  let needs = RuntimeNeeds::from_sir(sir, interner);
 
   if !needs.concurrency && !needs.native_ui && !needs.web_ui {
     return;
@@ -756,10 +797,18 @@ fn stage_runtime_artifacts(sir: &Sir, output_path: &std::path::Path) {
     let src = runtime_dir.join(CONCURRENCY_DYLIB);
     let dst = output_dir.join(CONCURRENCY_DYLIB);
 
-    // Don't re-copy if already staged and identical —
-    // avoids a write storm when test runners compile
-    // many programs into the same tmp directory.
-    if src.exists() && !files_equal(&src, &dst) {
+    // Always re-copy when the source exists. The earlier
+    // (size, mtime) skip-shortcut left stale dylibs on
+    // disk after a git checkout swapped source versions —
+    // two builds can land at the same minute with the
+    // same byte count but different contents, and dyld
+    // would silently hang the user binary in
+    // `dyld3::MachOFile::compatibleSlice` when the
+    // staged dylib's load commands don't line up.
+    // `std::fs::copy` of ~1 MB is microseconds — the
+    // staging cost is far cheaper than the diagnostic
+    // hours the optimization cost.
+    if src.exists() {
       let _ = std::fs::copy(&src, &dst);
     }
   }
@@ -767,13 +816,4 @@ fn stage_runtime_artifacts(sir: &Sir, output_path: &std::path::Path) {
   // Native / web UI staging will land here when those
   // runtimes become separate dylibs referenced by the
   // binary (today they run in-process via `zo run`).
-}
-
-fn files_equal(a: &std::path::Path, b: &std::path::Path) -> bool {
-  match (a.metadata(), b.metadata()) {
-    (Ok(am), Ok(bm)) => {
-      am.len() == bm.len() && am.modified().ok() == bm.modified().ok()
-    }
-    _ => false,
-  }
 }

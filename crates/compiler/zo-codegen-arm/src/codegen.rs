@@ -429,7 +429,7 @@ impl<'a> ARM64Gen<'a> {
       let reg = Register::new(CALLER_SAVE_START + i as u8);
       let off = base + i as u32 * STACK_SLOT_SIZE;
 
-      self.emitter.emit_str(reg, SP, off as i16);
+      self.emit_str_sp(reg, off);
     }
 
     let fixup_pos = self.emitter.current_offset();
@@ -447,7 +447,7 @@ impl<'a> ARM64Gen<'a> {
       let reg = Register::new(CALLER_SAVE_START + i as u8);
       let off = base + i as u32 * STACK_SLOT_SIZE;
 
-      self.emitter.emit_ldr(reg, SP, off as i16);
+      self.emit_ldr_sp(reg, off);
     }
   }
 
@@ -457,38 +457,22 @@ impl<'a> ARM64Gen<'a> {
         reg,
         slot,
         class: RegisterClass::GP,
-      } => self.emitter.emit_str(
-        Register::new(*reg),
-        SP,
-        (*slot * STACK_SLOT_SIZE) as i16,
-      ),
+      } => self.emit_str_sp(Register::new(*reg), *slot * STACK_SLOT_SIZE),
       SpillKind::Load {
         reg,
         slot,
         class: RegisterClass::GP,
-      } => self.emitter.emit_ldr(
-        Register::new(*reg),
-        SP,
-        (*slot * STACK_SLOT_SIZE) as i16,
-      ),
+      } => self.emit_ldr_sp(Register::new(*reg), *slot * STACK_SLOT_SIZE),
       SpillKind::Store {
         reg,
         slot,
         class: RegisterClass::FP,
-      } => self.emitter.emit_str_fp(
-        FpRegister::new(*reg),
-        SP,
-        (*slot * STACK_SLOT_SIZE) as u16,
-      ),
+      } => self.emit_str_fp_sp(FpRegister::new(*reg), *slot * STACK_SLOT_SIZE),
       SpillKind::Load {
         reg,
         slot,
         class: RegisterClass::FP,
-      } => self.emitter.emit_ldr_fp(
-        FpRegister::new(*reg),
-        SP,
-        (*slot * STACK_SLOT_SIZE) as u16,
-      ),
+      } => self.emit_ldr_fp_sp(FpRegister::new(*reg), *slot * STACK_SLOT_SIZE),
     }
   }
 
@@ -569,36 +553,81 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// Emit `ADD dst, SP, #offset`. Uses X16 as scratch
-  /// when the offset doesn't fit in 12 bits.
+  /// Emit `ADD dst, SP, #offset`.
+  ///
+  /// Slow path materializes the offset into `dst` itself —
+  /// never X16. Earlier revisions used X16 as a hidden
+  /// temp, which silently corrupted any caller-held value
+  /// in X16 (e.g. a freshly-built tag word about to be
+  /// stored). `dst` is always a caller-supplied scratch in
+  /// every call site, so reusing it is safe.
   fn emit_add_sp_offset(&mut self, dst: Register, offset: u32) {
     if offset <= 4095 {
       self.emitter.emit_add_imm(dst, SP, offset as u16);
     } else {
-      self.emit_mov_imm_64(X16, offset as u64);
-      self.emitter.emit_add_ext(dst, SP, X16);
+      self.emit_mov_imm_64(dst, offset as u64);
+      self.emitter.emit_add_ext(dst, SP, dst);
     }
   }
 
-  /// Emit `STR src, [SP, #offset]`. Uses X16 as scratch
-  /// when the offset doesn't fit in a signed 9-bit imm.
+  /// Emit `STR src, [SP, #offset]`. Falls back to a
+  /// computed address through a scratch register when the
+  /// offset overflows the inline-encodable range.
+  ///
+  /// `emit_str` accepts an `i16` scaled by 8, so any
+  /// 8-byte-aligned offset up to 32760 fits the fast
+  /// path. Above that — or for unaligned offsets — fall
+  /// through to a materialized address in a scratch
+  /// register that must not alias `src` (the value being
+  /// stored). The scratch is X17 when `src` is X16 and
+  /// X16 otherwise.
   fn emit_str_sp(&mut self, src: Register, offset: u32) {
-    if offset <= 255 {
+    if offset <= 32760 && offset.is_multiple_of(8) {
       self.emitter.emit_str(src, SP, offset as i16);
     } else {
-      self.emit_add_sp_offset(X16, offset);
-      self.emitter.emit_str(src, X16, 0);
+      let scratch = if src == X16 { X17 } else { X16 };
+
+      self.emit_add_sp_offset(scratch, offset);
+      self.emitter.emit_str(src, scratch, 0);
     }
   }
 
-  /// Emit `LDR dst, [SP, #offset]`. Uses X16 as scratch
-  /// when the offset doesn't fit in a signed 9-bit imm.
+  /// Emit `LDR dst, [SP, #offset]`. Mirror of
+  /// `emit_str_sp`: scaled imm12 reaches 32760, anything
+  /// past that or unaligned routes through a scratch
+  /// address. Uses `dst` as the scratch since LDR reads
+  /// the base before writing the destination.
   fn emit_ldr_sp(&mut self, dst: Register, offset: u32) {
-    if offset <= 255 {
+    if offset <= 32760 && offset.is_multiple_of(8) {
       self.emitter.emit_ldr(dst, SP, offset as i16);
     } else {
+      self.emit_add_sp_offset(dst, offset);
+      self.emitter.emit_ldr(dst, dst, 0);
+    }
+  }
+
+  /// Emit `STR src, [SP, #offset]` for an FP register.
+  /// Same address-range and aliasing rules as
+  /// `emit_str_sp` — large or unaligned offsets route
+  /// through an X16/X17 GP scratch (FP stores can't take
+  /// a GP source, so the scratch only holds the address
+  /// and never aliases `src`).
+  fn emit_str_fp_sp(&mut self, src: FpRegister, offset: u32) {
+    if offset <= 32760 && offset.is_multiple_of(8) {
+      self.emitter.emit_str_fp(src, SP, offset as u16);
+    } else {
       self.emit_add_sp_offset(X16, offset);
-      self.emitter.emit_ldr(dst, X16, 0);
+      self.emitter.emit_str_fp(src, X16, 0);
+    }
+  }
+
+  /// Emit `LDR dst, [SP, #offset]` for an FP register.
+  fn emit_ldr_fp_sp(&mut self, dst: FpRegister, offset: u32) {
+    if offset <= 32760 && offset.is_multiple_of(8) {
+      self.emitter.emit_ldr_fp(dst, SP, offset as u16);
+    } else {
+      self.emit_add_sp_offset(X16, offset);
+      self.emitter.emit_ldr_fp(dst, X16, 0);
     }
   }
 
@@ -1205,11 +1234,11 @@ impl<'a> ARM64Gen<'a> {
             if is_fp {
               let src = FpRegister::new(i as u8);
 
-              self.emitter.emit_str_fp(src, SP, off as u16);
+              self.emit_str_fp_sp(src, off);
             } else {
               let src = Register::new(i as u8);
 
-              self.emitter.emit_str(src, SP, off as i16);
+              self.emit_str_sp(src, off);
             }
 
             self.param_slots.insert(i as u32, off);
@@ -1273,13 +1302,13 @@ impl<'a> ARM64Gen<'a> {
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
             if let Some(dst_reg) = self.alloc_reg(*dst) {
-              self.emitter.emit_ldr(dst_reg, SP, offset as i16);
+              self.emit_ldr_sp(dst_reg, offset);
             } else if let Some(fp_dst) = self
               .alloc_fp_reg(*dst)
               .or_else(|| self.fp_reg_for_insn(idx))
             {
               // Float local: LDR Dt, [SP, #offset].
-              self.emitter.emit_ldr_fp(fp_dst, SP, offset as u16);
+              self.emit_ldr_fp_sp(fp_dst, offset);
             }
           } else if let Some(&(offset, is_fp)) = self.param_sym_slots.get(&slot)
           {
@@ -1294,10 +1323,10 @@ impl<'a> ARM64Gen<'a> {
                 .alloc_fp_reg(*dst)
                 .or_else(|| self.fp_reg_for_insn(idx))
               {
-                self.emitter.emit_ldr_fp(fp_dst, SP, offset as u16);
+                self.emit_ldr_fp_sp(fp_dst, offset);
               }
             } else if let Some(dst_reg) = self.alloc_reg(*dst) {
-              self.emitter.emit_ldr(dst_reg, SP, offset as i16);
+              self.emit_ldr_sp(dst_reg, offset);
             }
           }
         }
@@ -1308,10 +1337,10 @@ impl<'a> ARM64Gen<'a> {
           if let Some(&off) = self.param_slots.get(idx) {
             if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
               // Float param: load from FP spill slot.
-              self.emitter.emit_ldr_fp(fp_dst, SP, off as u16);
+              self.emit_ldr_fp_sp(fp_dst, off);
             } else if let Some(dst_reg) = self.alloc_reg(*dst) {
               // GP param: load from GP spill slot.
-              self.emitter.emit_ldr(dst_reg, SP, off as i16);
+              self.emit_ldr_sp(dst_reg, off);
             }
           } else if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
             // Fallback: no spill slot — read from
@@ -1655,6 +1684,55 @@ impl<'a> ARM64Gen<'a> {
           "write_file" => self.emit_io_write_file(args, idx),
           "append_file" => self.emit_io_append_file(args, idx),
 
+          // HashMap apply-method dispatch. Names match
+          // the executor's `<Type>::<method>` mangling
+          // (same convention `apply char` / `apply int`
+          // already use). Each handler emits the byte-
+          // marshaling sequence around `BL _zo_map_*`.
+          //
+          // `HashMap::len`, `HashMap::is_empty`, and
+          // `HashMap::free` are deliberately absent: they
+          // are pure-zo bodies (see `std/map.zo`) that
+          // call the non-marshaling raw FFIs below.
+          "HashMap::new" => self.emit_map_new(args, idx),
+          "HashMap::insert" => self.emit_map_insert(args, idx),
+          "HashMap::get" => self.emit_map_get(args, idx),
+          "HashMap::contains_key" => self.emit_map_contains(args, idx),
+          "HashMap::remove" => self.emit_map_remove(args, idx),
+
+          // Vec apply-method dispatch. Same convention as
+          // HashMap: `len`, `is_empty`, `free` are pure-zo
+          // bodies that call the raw FFIs below.
+          "Vec::new" => self.emit_vec_new(args, idx),
+          "Vec::push" => self.emit_vec_push(args, idx),
+          "Vec::pop" => self.emit_vec_pop(args, idx),
+          "Vec::get" => self.emit_vec_get(args, idx),
+          "Vec::set" => self.emit_vec_set(args, idx),
+
+          // HashSet apply-method dispatch. Reuses the
+          // `_zo_map_*` runtime allocator with `val_sz=0`.
+          "HashSet::new" => self.emit_set_new(args, idx),
+          "HashSet::insert" => self.emit_set_insert(args, idx),
+          "HashSet::contains" => self.emit_set_contains(args, idx),
+          "HashSet::remove" => self.emit_set_remove(args, idx),
+
+          // `[]int::sort` — in-place ascending sort via the
+          // runtime. The compiler can't lower
+          // `self[i] = ...` inside an apply method body
+          // today, so the loop runs in Rust.
+          "arr_int::sort" => self.emit_arr_sort_int(args, idx),
+
+          // Non-marshaling raw FFIs. The argument is the
+          // already-loaded `*mut ZoMap` / `*mut ZoVec`
+          // (from `self.ptr`); pass through to the runtime
+          // export with no byte marshaling.
+          "__zo_map_len_raw" => self.emit_map_len_raw(args, idx),
+          "__zo_map_free_raw" => self.emit_map_free_raw(args, idx),
+          "__zo_vec_len_raw" => self.emit_vec_len_raw(args, idx),
+          "__zo_vec_free_raw" => self.emit_vec_free_raw(args, idx),
+          "__zo_set_len_raw" => self.emit_set_len_raw(args, idx),
+          "__zo_set_free_raw" => self.emit_set_free_raw(args, idx),
+
           // Math intrinsics — ARM64 hardware instructions.
           // The arg is a float in a FP register. Move it
           // to D0, execute the instruction, leave result
@@ -1783,7 +1861,7 @@ impl<'a> ARM64Gen<'a> {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
-              self.emitter.emit_str(reg, SP, off as i16);
+              self.emit_str_sp(reg, off);
             }
 
             // Emit BL placeholder (offset 0). Will be
@@ -1803,7 +1881,7 @@ impl<'a> ARM64Gen<'a> {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
-              self.emitter.emit_ldr(reg, SP, off as i16);
+              self.emit_ldr_sp(reg, off);
             }
 
             // Result is in D0. Move to allocated FP reg.
@@ -1880,7 +1958,7 @@ impl<'a> ARM64Gen<'a> {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
-              self.emitter.emit_str(reg, SP, off as i16);
+              self.emit_str_sp(reg, off);
             }
 
             // BL to user-defined function.
@@ -1905,7 +1983,7 @@ impl<'a> ARM64Gen<'a> {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
-              self.emitter.emit_ldr(reg, SP, off as i16);
+              self.emit_ldr_sp(reg, off);
             }
 
             // If callee returns a struct, x0 holds a
@@ -1920,12 +1998,12 @@ impl<'a> ARM64Gen<'a> {
                 let dst_off = dst_base + i * STACK_SLOT_SIZE;
 
                 self.emitter.emit_ldr(X16, X0, src_off);
-                self.emitter.emit_str(X16, SP, dst_off as i16);
+                self.emit_str_sp(X16, dst_off);
               }
 
               // Point result at the caller's copy.
               if let Some(result_reg) = self.reg_for_insn(idx) {
-                self.emitter.emit_add_imm(result_reg, SP, dst_base as u16);
+                self.emit_add_sp_offset(result_reg, dst_base);
               }
 
               // Also materialize the pointer in X0. The
@@ -1943,7 +2021,7 @@ impl<'a> ARM64Gen<'a> {
               // spill-from-X0 invariant valid across
               // chained struct-returning calls (e.g.
               // `(Point::new(..), Point::new(..))`).
-              self.emitter.emit_add_imm(X0, SP, dst_base as u16);
+              self.emit_add_sp_offset(X0, dst_base);
 
               self.next_struct_slot += field_count * STACK_SLOT_SIZE;
             } else if let Some(fp_result) = self.fp_reg_for_insn(idx) {
@@ -2070,13 +2148,13 @@ impl<'a> ARM64Gen<'a> {
         };
 
         if let Some(src_reg) = self.alloc_reg(*value) {
-          self.emitter.emit_str(src_reg, SP, offset as i16);
+          self.emit_str_sp(src_reg, offset);
         } else if let Some(fp_src) = self
           .alloc_fp_reg(*value)
           .or_else(|| self.scan_fp_reg_back(idx))
         {
           // Float variable: STR Dt, [SP, #offset].
-          self.emitter.emit_str_fp(fp_src, SP, offset as u16);
+          self.emit_str_fp_sp(fp_src, offset);
         }
       }
 
@@ -2139,7 +2217,7 @@ impl<'a> ARM64Gen<'a> {
           // can find it.
           let base = self.struct_base + self.next_struct_slot;
 
-          self.emitter.emit_str(X0, SP, base as i16);
+          self.emit_str_sp(X0, base);
 
           if let Some(dst) = self.reg_for_insn(idx) {
             self.emitter.emit_mov_reg(dst, X0);
@@ -2155,12 +2233,10 @@ impl<'a> ARM64Gen<'a> {
 
           // Store length at [SP + base].
           self.emitter.emit_mov_imm(X16, n as u16);
-          self.emitter.emit_str(X16, SP, base as i16);
+          self.emit_str_sp(X16, base);
 
           // Store capacity = len (tight, no growth).
-          self
-            .emitter
-            .emit_str(X16, SP, (base + STACK_SLOT_SIZE) as i16);
+          self.emit_str_sp(X16, base + STACK_SLOT_SIZE);
 
           // Store each element.
           for (i, elem) in elements.iter().enumerate() {
@@ -2168,15 +2244,15 @@ impl<'a> ARM64Gen<'a> {
               base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
 
             if let Some(fp) = self.alloc_fp_reg(*elem) {
-              self.emitter.emit_str_fp(fp, SP, off as u16);
+              self.emit_str_fp_sp(fp, off);
             } else if let Some(reg) = self.alloc_reg(*elem) {
-              self.emitter.emit_str(reg, SP, off as i16);
+              self.emit_str_sp(reg, off);
             }
           }
 
           // Result: pointer to array base.
           if let Some(dst) = self.reg_for_insn(idx) {
-            self.emitter.emit_add_imm(dst, SP, base as u16);
+            self.emit_add_sp_offset(dst, base);
           }
 
           // Advance slot: 2 (header) + N elements.
@@ -2311,12 +2387,12 @@ impl<'a> ARM64Gen<'a> {
         let extra_base =
           self.caller_save_base + (CALLER_SAVE_COUNT as u32) * STACK_SLOT_SIZE;
 
-        self.emitter.emit_str(X17, SP, extra_base as i16);
-        self.emitter.emit_str(val_reg, SP, (extra_base + 8) as i16);
+        self.emit_str_sp(X17, extra_base);
+        self.emit_str_sp(val_reg, extra_base + 8);
         self.emit_extern_call("_realloc");
         // X0 = new pointer. Restore new_cap + value.
-        self.emitter.emit_ldr(X17, SP, extra_base as i16);
-        self.emitter.emit_ldr(val_reg, SP, (extra_base + 8) as i16);
+        self.emit_ldr_sp(X17, extra_base);
+        self.emit_ldr_sp(val_reg, extra_base + 8);
         // Store new cap.
         self.emitter.emit_str(X17, X0, 8);
         // Update arr_reg to new pointer.
@@ -2334,7 +2410,7 @@ impl<'a> ARM64Gen<'a> {
             && *dst == *array
           {
             if let Some(&off) = self.mutable_slots.get(&sym.as_u32()) {
-              self.emitter.emit_str(arr_reg, SP, off as i16);
+              self.emit_str_sp(arr_reg, off);
             }
 
             break;
@@ -2453,21 +2529,21 @@ impl<'a> ARM64Gen<'a> {
 
         // Store discriminant at base.
         self.emitter.emit_mov_imm(X16, *variant as u16);
-        self.emitter.emit_str(X16, SP, base as i16);
+        self.emit_str_sp(X16, base);
 
         // Store fields (if any) at base + (i+1)*8.
         for (i, field) in fields.iter().enumerate() {
           let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
 
           if let Some(fp) = self.alloc_fp_reg(*field) {
-            self.emitter.emit_str_fp(fp, SP, off as u16);
+            self.emit_str_fp_sp(fp, off);
           } else if let Some(reg) = self.alloc_reg(*field) {
-            self.emitter.emit_str(reg, SP, off as i16);
+            self.emit_str_sp(reg, off);
           }
         }
 
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_add_imm(dst, SP, base as u16);
+          self.emit_add_sp_offset(dst, base);
         }
 
         self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
@@ -2484,7 +2560,7 @@ impl<'a> ARM64Gen<'a> {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
           if let Some(reg) = self.alloc_reg(*field) {
-            self.emitter.emit_str(reg, SP, off as i16);
+            self.emit_str_sp(reg, off);
           }
         }
 
@@ -2492,7 +2568,7 @@ impl<'a> ARM64Gen<'a> {
         // base. Use ADD (not MOV) because ARM64 MOV
         // via ORR encodes register 31 as XZR, not SP.
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_add_imm(dst, SP, base as u16);
+          self.emit_add_sp_offset(dst, base);
         }
 
         self.next_struct_slot += fields.len() as u32 * STACK_SLOT_SIZE;
@@ -2509,12 +2585,12 @@ impl<'a> ARM64Gen<'a> {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
           if let Some(reg) = self.alloc_reg(*elem) {
-            self.emitter.emit_str(reg, SP, off as i16);
+            self.emit_str_sp(reg, off);
           }
         }
 
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_add_imm(dst, SP, base as u16);
+          self.emit_add_sp_offset(dst, base);
         }
 
         self.next_struct_slot += elements.len() as u32 * STACK_SLOT_SIZE;
@@ -2629,10 +2705,10 @@ impl<'a> ARM64Gen<'a> {
         // wants a pointer — spill to the scratch slot
         // reserved by the function prologue, pass its
         // address in X1.
-        let slot = self.chan_scratch_base as i16;
+        let slot = self.chan_scratch_base;
 
         if let Some(src_reg) = self.alloc_reg(*value) {
-          self.emitter.emit_str(src_reg, SP, slot);
+          self.emit_str_sp(src_reg, slot);
         }
 
         if let Some(ch_reg) = self.alloc_reg(*channel)
@@ -2641,7 +2717,7 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(X0, ch_reg);
         }
 
-        self.emitter.emit_add_imm(X1, SP, slot as u16);
+        self.emit_add_sp_offset(X1, slot);
         self.emit_extern_call("_zo_chan_send");
       }
       Insn::ChannelRecv { dst, channel, .. } => {
@@ -2650,7 +2726,7 @@ impl<'a> ARM64Gen<'a> {
         // we then load the written value into the
         // destination register the allocator reserved
         // for `dst`.
-        let slot = self.chan_scratch_base as i16;
+        let slot = self.chan_scratch_base;
 
         if let Some(ch_reg) = self.alloc_reg(*channel)
           && ch_reg != X0
@@ -2658,11 +2734,11 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(X0, ch_reg);
         }
 
-        self.emitter.emit_add_imm(X1, SP, slot as u16);
+        self.emit_add_sp_offset(X1, slot);
         self.emit_extern_call("_zo_chan_recv");
 
         if let Some(dst_reg) = self.alloc_reg(*dst) {
-          self.emitter.emit_ldr(dst_reg, SP, slot);
+          self.emit_ldr_sp(dst_reg, slot);
         }
       }
       Insn::ChannelClose { channel } => {
@@ -2789,7 +2865,7 @@ impl<'a> ARM64Gen<'a> {
           if let Some(src) = self.alloc_reg(*chan_vid) {
             let off = chans_base + i as u32 * 8;
 
-            self.emitter.emit_str(src, SP, off as i16);
+            self.emit_str_sp(src, off);
           }
         }
 
@@ -2799,14 +2875,14 @@ impl<'a> ARM64Gen<'a> {
         // elem types (`elem_sz > 8`) are a later scope;
         // today the ABI tops out at 8-byte scalars and
         // pointer-backed 8-byte handles.
-        self.emitter.emit_str(XZR, SP, out_base as i16);
+        self.emit_str_sp(XZR, out_base);
 
         // X0 = chans_array_ptr.
-        self.emitter.emit_add_imm(X0, SP, chans_base as u16);
+        self.emit_add_sp_offset(X0, chans_base);
         // X1 = nchans.
         self.emit_mov_imm_64(X1, nchans as u64);
         // X2 = out_value_ptr.
-        self.emitter.emit_add_imm(X2, SP, out_base as u16);
+        self.emit_add_sp_offset(X2, out_base);
         // X3 = elem_sz.
         self.emit_mov_imm_64(X3, elem_sz as u64);
 
@@ -2829,7 +2905,7 @@ impl<'a> ARM64Gen<'a> {
         let off = self.select_scratch_base + chans_len * 8;
 
         if let Some(dst_reg) = self.alloc_reg(*dst) {
-          self.emitter.emit_ldr(dst_reg, SP, off as i16);
+          self.emit_ldr_sp(dst_reg, off);
         }
       }
 
@@ -2864,6 +2940,40 @@ impl<'a> ARM64Gen<'a> {
         }
 
         self.emit_extern_call("_zo_task_cancel");
+      }
+
+      // Runtime `s[lo..hi]` when the bounds aren't
+      // compile-time constants. ABI:
+      // `_zo_str_slice(src, lo, hi) -> *str`; X0..X2
+      // carry the args, result in X0.
+      Insn::StrSlice {
+        dst, src, lo, hi, ..
+      } => {
+        if let Some(src_reg) = self.alloc_reg(*src)
+          && src_reg != X0
+        {
+          self.emitter.emit_mov_reg(X0, src_reg);
+        }
+
+        if let Some(lo_reg) = self.alloc_reg(*lo)
+          && lo_reg != X1
+        {
+          self.emitter.emit_mov_reg(X1, lo_reg);
+        }
+
+        if let Some(hi_reg) = self.alloc_reg(*hi)
+          && hi_reg != X2
+        {
+          self.emitter.emit_mov_reg(X2, hi_reg);
+        }
+
+        self.emit_extern_call("_zo_str_slice");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
       }
 
       _ => {}
@@ -3785,6 +3895,592 @@ impl<'a> ARM64Gen<'a> {
 
     // Ok label: continue execution.
     self.labels.insert(ok_label, self.emitter.current_offset());
+  }
+
+  /// `HashMap<K, V>::new()` — emit `BL _zo_map_new`
+  /// and stash the returned `ZoMap*` in a freshly
+  /// allocated struct slot. The dst register holds the
+  /// struct address (`{ ptr }` shape: a single 8-byte
+  /// field at offset 0).
+  ///
+  /// K / V types are inferred from the call's binding
+  /// site: `imu m: HashMap<int, int> = HashMap::new();`
+  /// — the executor's mono pass propagates the
+  /// annotated args through `value_types[dst]` for
+  /// later method calls. This handler hardcodes
+  /// 4-byte / 4-byte for MVP; mixed-size tables (str
+  /// keys, larger values) ride on per-call K/V type
+  /// derivation that lives at insert/get time. Future
+  /// work threads K/V into the new() handler too.
+  fn emit_map_new(&mut self, args: &[ValueId], idx: usize) {
+    // Allocate the struct (one ptr field).
+    let struct_base = self.struct_base + self.next_struct_slot;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    // The executor prepends three `ConstInt`s carrying
+    // `(key_kind, key_sz, val_sz)` derived from the
+    // binding's `HashMap<K, V>` annotation. Move them into
+    // X0/X1/X2; default to the legacy MVP triple
+    // `(0, 4, 4)` for any program that compiles without
+    // those args.
+    let kk = args.first().and_then(|v| self.alloc_reg(*v));
+    let ks = args.get(1).and_then(|v| self.alloc_reg(*v));
+    let vs = args.get(2).and_then(|v| self.alloc_reg(*v));
+
+    if let Some(r) = kk {
+      if r != X0 {
+        self.emitter.emit_mov_reg(X0, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X0, 0);
+    }
+
+    if let Some(r) = ks {
+      if r != X1 {
+        self.emitter.emit_mov_reg(X1, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X1, 4);
+    }
+
+    if let Some(r) = vs {
+      if r != X2 {
+        self.emitter.emit_mov_reg(X2, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X2, 4);
+    }
+
+    self.emitter.emit_mov_imm(X3, 16);
+    self.emit_extern_call("_zo_map_new");
+
+    // Store the returned pointer into the struct's ptr
+    // slot, hand the struct's address back as dst.
+    self.emit_str_sp(X0, struct_base);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, struct_base);
+    }
+  }
+
+  /// `m.insert(k, v)` — spill k and v to scratch, load
+  /// `m.ptr` (offset 0 of the struct), call
+  /// `_zo_map_insert`. K / V sizes derive from the
+  /// arg types at this call site.
+  fn emit_map_insert(&mut self, args: &[ValueId], _idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let v = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+    let v_off = scratch_base + STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 2 * STACK_SLOT_SIZE;
+
+    // Spill k and v to their scratch slots.
+    self.emit_str_sp(k, k_off);
+    self.emit_str_sp(v, v_off);
+
+    // X0 = m.ptr, X1 = &k, X2 = &v.
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_add_sp_offset(X2, v_off);
+    self.emit_extern_call("_zo_map_insert");
+  }
+
+  /// `m.get(k)` — spill k, allocate a value-output
+  /// scratch, call `_zo_map_get`, then construct the
+  /// `Option<V>` Result-style aggregate the executor
+  /// expects on the stack. For MVP the aggregate is a
+  /// 2-slot `{ tag, val }` block — `tag = 0` (Some) on
+  /// hit, `tag = 1` (None) on miss.
+  fn emit_map_get(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+    let v_out_off = scratch_base + STACK_SLOT_SIZE;
+    let opt_base = scratch_base + 2 * STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 4 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+    // Pre-zero v_out (the runtime only writes on hit).
+    self.emit_str_sp(XZR, v_out_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_add_sp_offset(X2, v_out_off);
+    self.emit_extern_call("_zo_map_get");
+
+    // X0 = bool found. Construct Option<V> at opt_base:
+    //   tag = found ? 0 : 1
+    //   val = *v_out
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0); // X16 = !found
+    self.emit_str_sp(X16, opt_base);
+
+    self.emit_ldr_sp(X16, v_out_off);
+    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, opt_base);
+    }
+  }
+
+  /// `m.contains_key(k)` — spill k, call `_zo_map_
+  /// contains`. Returns bool in dst.
+  fn emit_map_contains(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_extern_call("_zo_map_contains");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `m.remove(k)` — same shape as `m.get(k)` plus a
+  /// runtime-side tombstone. Returns `Option<V>`.
+  fn emit_map_remove(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+    let v_out_off = scratch_base + STACK_SLOT_SIZE;
+    let opt_base = scratch_base + 2 * STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 4 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+    self.emit_str_sp(XZR, v_out_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_add_sp_offset(X2, v_out_off);
+    self.emit_extern_call("_zo_map_remove");
+
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0);
+    self.emit_str_sp(X16, opt_base);
+
+    self.emit_ldr_sp(X16, v_out_off);
+    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, opt_base);
+    }
+  }
+
+  /// `__zo_map_len_raw(ptr)` — pass-through to
+  /// `_zo_map_len`. Caller already loaded the
+  /// `*mut ZoMap` into the arg register; we just
+  /// route it to X0 and emit the BL.
+  fn emit_map_len_raw(&mut self, args: &[ValueId], idx: usize) {
+    if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
+      && src != X0
+    {
+      self.emitter.emit_mov_reg(X0, src);
+    }
+
+    self.emit_extern_call("_zo_map_len");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_map_free_raw(ptr)` — pass-through to
+  /// `_zo_map_free`. No return value.
+  fn emit_map_free_raw(&mut self, args: &[ValueId], _idx: usize) {
+    if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
+      && src != X0
+    {
+      self.emitter.emit_mov_reg(X0, src);
+    }
+
+    self.emit_extern_call("_zo_map_free");
+  }
+
+  /// `Vec::new()` — allocate the runtime ZoVec, store its
+  /// pointer into the surface struct's only field.
+  ///
+  /// Element kind is reserved for future use (the
+  /// runtime treats slots as opaque bytes today); element
+  /// size hardcoded to 8 covers `int`, `str` (pointer),
+  /// `char` (zero-extended), `bool` (zero-extended). A
+  /// follow-up phase derives both per-call from `$T`.
+  fn emit_vec_new(&mut self, args: &[ValueId], idx: usize) {
+    let struct_base = self.struct_base + self.next_struct_slot;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    // Executor-injected `(elem_kind, elem_sz, _val_sz)`
+    // triple. Vec ignores `val_sz` (it's always passed as
+    // `0`) but accepts the third arg for ABI symmetry with
+    // HashMap/HashSet's prepend.
+    let ek = args.first().and_then(|v| self.alloc_reg(*v));
+    let es = args.get(1).and_then(|v| self.alloc_reg(*v));
+
+    if let Some(r) = ek {
+      if r != X0 {
+        self.emitter.emit_mov_reg(X0, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X0, 0);
+    }
+
+    if let Some(r) = es {
+      if r != X1 {
+        self.emitter.emit_mov_reg(X1, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X1, 8);
+    }
+
+    self.emitter.emit_mov_imm(X2, 8);
+    self.emit_extern_call("_zo_vec_new");
+
+    self.emit_str_sp(X0, struct_base);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, struct_base);
+    }
+  }
+
+  /// `v.push(value)` — spill the value to a scratch slot,
+  /// load `v.ptr`, call `_zo_vec_push`. The runtime
+  /// copies `elem_sz` bytes from the scratch slot.
+  fn emit_vec_push(&mut self, args: &[ValueId], _idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let v = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let v_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(v, v_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, v_off);
+    self.emit_extern_call("_zo_vec_push");
+  }
+
+  /// `v.pop()` — allocate a value-out scratch slot, call
+  /// `_zo_vec_pop`, then build the `Option<T>` aggregate
+  /// the executor expects on the stack.
+  fn emit_vec_pop(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let v_out_off = scratch_base;
+    let opt_base = scratch_base + STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 3 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(XZR, v_out_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, v_out_off);
+    self.emit_extern_call("_zo_vec_pop");
+
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0);
+    self.emit_str_sp(X16, opt_base);
+
+    self.emit_ldr_sp(X16, v_out_off);
+    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, opt_base);
+    }
+  }
+
+  /// `v.get(idx)` — call `_zo_vec_get` with `(ptr, idx,
+  /// &v_out)`, build the `Option<T>` aggregate.
+  fn emit_vec_get(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let i = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let v_out_off = scratch_base;
+    let opt_base = scratch_base + STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 3 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(XZR, v_out_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+
+    if i != X1 {
+      self.emitter.emit_mov_reg(X1, i);
+    }
+
+    self.emit_add_sp_offset(X2, v_out_off);
+    self.emit_extern_call("_zo_vec_get");
+
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0);
+    self.emit_str_sp(X16, opt_base);
+
+    self.emit_ldr_sp(X16, v_out_off);
+    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, opt_base);
+    }
+  }
+
+  /// `v.set(idx, value)` — spill `value`, call
+  /// `_zo_vec_set` with `(ptr, idx, &v_in)`. Returns the
+  /// runtime's `bool` (true on hit, false on OOB).
+  fn emit_vec_set(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let i = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let v = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let v_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(v, v_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+
+    if i != X1 {
+      self.emitter.emit_mov_reg(X1, i);
+    }
+
+    self.emit_add_sp_offset(X2, v_off);
+    self.emit_extern_call("_zo_vec_set");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_vec_len_raw(ptr)` — pass-through to
+  /// `_zo_vec_len`.
+  fn emit_vec_len_raw(&mut self, args: &[ValueId], idx: usize) {
+    if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
+      && src != X0
+    {
+      self.emitter.emit_mov_reg(X0, src);
+    }
+
+    self.emit_extern_call("_zo_vec_len");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_vec_free_raw(ptr)` — pass-through to
+  /// `_zo_vec_free`.
+  fn emit_vec_free_raw(&mut self, args: &[ValueId], _idx: usize) {
+    if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
+      && src != X0
+    {
+      self.emitter.emit_mov_reg(X0, src);
+    }
+
+    self.emit_extern_call("_zo_vec_free");
+  }
+
+  /// `HashSet::new()` — allocate a `ZoMap` with
+  /// `val_sz = 0`. The runtime stores a zero-length
+  /// `Vec<u8>` per slot value; presence is fully encoded
+  /// by the slot's occupancy state.
+  fn emit_set_new(&mut self, args: &[ValueId], idx: usize) {
+    let struct_base = self.struct_base + self.next_struct_slot;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    // Executor-injected `(key_kind, key_sz, val_sz)` —
+    // HashSet always passes `val_sz = 0` so the runtime's
+    // value-byte path is a no-op. The first two come from
+    // the binding's `HashSet<K>` annotation.
+    let kk = args.first().and_then(|v| self.alloc_reg(*v));
+    let ks = args.get(1).and_then(|v| self.alloc_reg(*v));
+    let vs = args.get(2).and_then(|v| self.alloc_reg(*v));
+
+    if let Some(r) = kk {
+      if r != X0 {
+        self.emitter.emit_mov_reg(X0, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X0, 0);
+    }
+
+    if let Some(r) = ks {
+      if r != X1 {
+        self.emitter.emit_mov_reg(X1, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X1, 4);
+    }
+
+    if let Some(r) = vs {
+      if r != X2 {
+        self.emitter.emit_mov_reg(X2, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X2, 0);
+    }
+
+    self.emitter.emit_mov_imm(X3, 16);
+    self.emit_extern_call("_zo_map_new");
+
+    self.emit_str_sp(X0, struct_base);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, struct_base);
+    }
+  }
+
+  /// `s.insert(k)` — spill `k`, call `_zo_map_insert`
+  /// with a null val pointer (val_sz is 0, so the
+  /// runtime never dereferences). Returns
+  /// `true` if the key was new — derived by checking
+  /// whether `_zo_map_contains` was false BEFORE the
+  /// insert. The simplest path is to call contains
+  /// first, then unconditional insert.
+  fn emit_set_insert(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+    let was_new_off = scratch_base + STACK_SLOT_SIZE;
+
+    self.next_struct_slot += 2 * STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+
+    // Probe first: was the key absent?
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_extern_call("_zo_map_contains");
+
+    // !contains == was_new.
+    self.emitter.emit_mov_imm(X16, 1);
+    self.emitter.emit_eor(X16, X16, X0);
+    self.emit_str_sp(X16, was_new_off);
+
+    // Insert (val_ptr = SP, runtime never reads since
+    // val_sz=0).
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emitter.emit_mov_reg(X2, SP);
+    self.emit_extern_call("_zo_map_insert");
+
+    self.emit_ldr_sp(X16, was_new_off);
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X16
+    {
+      self.emitter.emit_mov_reg(dst, X16);
+    }
+  }
+
+  /// `s.contains(k)` — spill k, call `_zo_map_contains`.
+  fn emit_set_contains(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emit_extern_call("_zo_map_contains");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `s.remove(k)` — spill k, call `_zo_map_remove`
+  /// with `val_out` pointing at scratch (runtime
+  /// writes 0 bytes when `val_sz=0`).
+  fn emit_set_remove(&mut self, args: &[ValueId], idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let k = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let scratch_base = self.struct_base + self.next_struct_slot;
+    let k_off = scratch_base;
+
+    self.next_struct_slot += STACK_SLOT_SIZE;
+
+    self.emit_str_sp(k, k_off);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, k_off);
+    self.emitter.emit_mov_reg(X2, SP);
+    self.emit_extern_call("_zo_map_remove");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_set_len_raw` and `__zo_set_free_raw` route
+  /// directly to the shared map exports — sets reuse
+  /// the map allocator wholesale.
+  fn emit_set_len_raw(&mut self, args: &[ValueId], idx: usize) {
+    self.emit_map_len_raw(args, idx);
+  }
+
+  fn emit_set_free_raw(&mut self, args: &[ValueId], idx: usize) {
+    self.emit_map_free_raw(args, idx);
+  }
+
+  /// `arr.sort()` for `[]int` — in-place ascending sort
+  /// via `_zo_arr_sort_i32`. Array layout is
+  /// `[len:8][cap:8][i32 data...]`; pass the data pointer
+  /// (`arr + 16`) as `X0` and the length (`*(arr + 0)`)
+  /// as `X1`.
+  fn emit_arr_sort_int(&mut self, args: &[ValueId], _idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    // X1 = len.
+    self.emitter.emit_ldr(X1, recv, 0);
+    // X0 = data ptr = recv + 16.
+    self.emitter.emit_add_imm(X0, recv, 16u16);
+
+    self.emit_extern_call("_zo_arr_sort_i32");
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for

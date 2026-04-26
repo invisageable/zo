@@ -1,12 +1,12 @@
-fun pluralize(count) -> str {
-  when count == 1 ? "bottle" : "bottles"
+fun pluralize(count: int) -> str {
+  if count == 1 { "bottle" } else { "bottles" }
 }
 
 fun main() {
   mut count := 0;
 
   while count > 0 {
-    imu bottle = pluralize(count);
+    imu bottle: str = pluralize(count);
 
     showln("{count} {bottle} of beer on the wall");
     showln("{count} {bottle} of beer,");

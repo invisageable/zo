@@ -4,7 +4,10 @@
 
 use zo_interner::Interner;
 use zo_reporter::collect_errors;
+use zo_token::Token;
 use zo_tokenizer::Tokenizer;
+
+use rustc_hash::FxHashMap as HashMap;
 
 fn assert_yaml_snapshot(name: &str, code: &str) {
   let mut interner = Interner::new();
@@ -84,14 +87,11 @@ fn snapshot_nested_templates() {
 
 // ── HTML comment stripping ──────────────────────────────────
 
-use zo_token::Token;
-
-fn count_tokens(code: &str) -> std::collections::HashMap<Token, usize> {
+fn count_tokens(code: &str) -> HashMap<Token, usize> {
   let mut interner = Interner::new();
   let tokenizer = Tokenizer::new(code, &mut interner);
   let tokenization = tokenizer.tokenize();
-  let mut counts: std::collections::HashMap<Token, usize> =
-    std::collections::HashMap::new();
+  let mut counts: HashMap<Token, usize> = HashMap::default();
 
   for kind in tokenization.tokens.kinds.iter() {
     *counts.entry(*kind).or_insert(0) += 1;

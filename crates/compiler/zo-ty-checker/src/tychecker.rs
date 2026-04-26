@@ -758,7 +758,7 @@ impl TyChecker {
   }
 
   /// Substitute type variables in a type
-  fn substitute_ty(
+  pub fn substitute_ty(
     &mut self,
     ty: &TyId,
     subst: &HashMap<InferVarId, TyId>,

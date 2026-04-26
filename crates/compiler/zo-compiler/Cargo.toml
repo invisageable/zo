@@ -35,6 +35,7 @@ zo-writer = { workspace = true }
 
 # external:crates.
 hashbrown = { workspace = true }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

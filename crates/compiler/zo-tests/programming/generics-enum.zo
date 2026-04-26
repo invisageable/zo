@@ -1,12 +1,68 @@
--- tests-build-pass: generic enum construction.
--- @cmd — zo build generic-enum.zo
+-- tests-build-pass: generic enum construction +
+-- multi-instantiation. Regression for the shared
+-- `Ty::Infer(_)` global-substitution leak: a
+-- `Maybe<int>` followed by a `Maybe<str>` in the same
+-- function used to print a stack address for the str
+-- payload — the second construction inherited the
+-- first's globally-bound `$T = int`, and the match-arm
+-- binding for `text` was typed `int`.
+-- @cmd — zo build generics-enum.zo
 
-enum Option<$T> {
+enum Maybe<$T> {
   Some($T),
   None,
 }
 
-fun main() {
-  imu x: Option = Option::Some(42);
-  imu y: Option = Option::None;
+enum Either<$L, $R> {
+  Left($L),
+  Right($R),
 }
+
+fun main() {
+  -- 1-param: int payload.
+  imu m1: Maybe<int> = Maybe::Some(42);
+
+  match m1 {
+    Maybe::Some(v) => check@eq(v, 42),
+    Maybe::None => check(false),
+  }
+
+  -- 1-param: str payload — distinct instantiation, must
+  -- not inherit `$T = int` from m1.
+  imu m2: Maybe<str> = Maybe::Some("hi");
+
+  match m2 {
+    Maybe::Some(v) => check@eq(v, "hi"),
+    Maybe::None => check(false),
+  }
+
+  -- 2-param: int / int.
+  imu e1: Either<int, int> = Either::Left(7);
+
+  match e1 {
+    Either::Left(v) => check@eq(v, 7),
+    Either::Right(_) => check(false),
+  }
+
+  -- 2-param: str / int — Left payload changes type
+  -- between instantiations.
+  imu e2: Either<str, int> = Either::Left("world");
+
+  match e2 {
+    Either::Left(v) => check@eq(v, "world"),
+    Either::Right(_) => check(false),
+  }
+
+  -- 2-param: Right side selected, distinct $R.
+  imu e3: Either<str, int> = Either::Right(404);
+
+  match e3 {
+    Either::Left(_) => check(false),
+    Either::Right(code) => check@eq(code, 404),
+  }
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

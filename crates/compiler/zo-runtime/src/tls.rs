@@ -20,18 +20,19 @@
 //! compiler owns layout, the runtime only moves
 //! bytes.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-
 use crate::scheduler;
 use crate::task::ZoTask;
+
+use rustc_hash::FxHashMap as HashMap;
+
+use std::cell::RefCell;
 
 // Fallback TLS for non-task callers (main thread
 // before `spawn`, or `std::thread::spawn`ed helpers).
 // Keyed the same way as task-owned TLS.
 thread_local! {
   static PTHREAD_TLS: RefCell<HashMap<u64, Vec<u8>>> =
-    RefCell::new(HashMap::new());
+    RefCell::new(HashMap::default());
 }
 
 // Per-task TLS map — attached to `ZoTask` via a
@@ -41,7 +42,7 @@ thread_local! {
 // dies via `clear_for_task`.
 thread_local! {
   static TASK_TLS: RefCell<HashMap<u64, HashMap<u64, Vec<u8>>>> =
-    RefCell::new(HashMap::new());
+    RefCell::new(HashMap::default());
 }
 
 /// Store `elem_sz` bytes under `key` for the current

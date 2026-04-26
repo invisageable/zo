@@ -92,7 +92,8 @@ impl Sir {
       | Insn::ChannelRecv { dst, .. }
       | Insn::TaskSpawn { dst, .. }
       | Insn::TaskAwait { dst, .. }
-      | Insn::TaskCancelled { dst, .. } => *dst,
+      | Insn::TaskCancelled { dst, .. }
+      | Insn::StrSlice { dst, .. } => *dst,
       // Template uses `id` as its value.
       Insn::Template { id, .. } => *id,
       // Non-value instructions.
@@ -277,6 +278,14 @@ impl Insn {
       Insn::TaskCancel { task } => {
         f(task);
       }
+      Insn::StrSlice {
+        dst, src, lo, hi, ..
+      } => {
+        f(dst);
+        f(src);
+        f(lo);
+        f(hi);
+      }
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
     }
   }
@@ -361,6 +370,7 @@ impl Insn {
       Insn::SelectRecv { ty_id, .. } => f(ty_id),
       Insn::TaskCancelled { ty_id, .. } => f(ty_id),
       Insn::TaskCancel { .. } => {}
+      Insn::StrSlice { ty_id, .. } => f(ty_id),
       Insn::ChannelClose { .. }
       | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
@@ -732,6 +742,19 @@ pub enum Insn {
   /// cascade the flag at a yield point) for the
   /// cancellation to have any observable effect.
   TaskCancel { task: ValueId },
+  /// Runtime string slice `src[lo..hi]`. Lowered to
+  /// `BL _zo_str_slice(src, lo, hi)`; returns a fresh
+  /// heap-backed `str`. Emitted by the executor when
+  /// the bounds are not compile-time constants
+  /// (compile-time bounds still fold to `ConstString`).
+  StrSlice {
+    dst: ValueId,
+    src: ValueId,
+    lo: ValueId,
+    hi: ValueId,
+    ty_id: TyId,
+  },
+  /// Runtime byte-wise `str` equality. Lowered to
   /// Open a nursery scope. Every `TaskSpawn` between this
   /// insn and its matching `NurseryEnd` is scoped to this
   /// nursery: on scope exit, all such tasks are joined

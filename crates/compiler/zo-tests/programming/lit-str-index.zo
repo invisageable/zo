@@ -1,15 +1,42 @@
--- tests-wip-pass: string indexing access.
--- @cmd — zo run str-index.zo
+-- tests-build-pass: string indexing returns char.
+-- @cmd — zo build lit-str-index.zo
 
 fun main() {
+  -- Bound receiver, literal index.
+  imu s: str = "hello";
+
+  check@eq(s[0], 'h');
+  check@eq(s[1], 'e');
+  check@eq(s[2], 'l');
+  check@eq(s[3], 'l');
+  check@eq(s[4], 'o');
+
+  showln(s[0]);
+  showln(s[4]);
+
+  -- Bound receiver, variable index.
+  mut i: int = 0;
+
+  check@eq(s[i], 'h');
+
+  i = i + 2;
+
+  check@eq(s[i], 'l');
+
+  -- Indexing on a concatenation result.
   imu x: str = "abc" ++ "def";
   imu y: char = x[3];
 
   showln(x);
   showln(y);
   check@eq(y, 'd');
+
+  showln("done");
 }
 
 -- EXPECTED OUTPUT:
+-- h
+-- o
 -- abcdef
 -- d
+-- done

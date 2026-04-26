@@ -459,7 +459,10 @@ fn run_project(
     _ => {
       let mut run_cmd = Command::new(&out);
 
-      run_cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+      run_cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .current_dir(project);
 
       let run = run_with_timeout(run_cmd, RUN_TIMEOUT);
 
@@ -603,7 +606,10 @@ fn run_test(
 
       let mut run_cmd = Command::new(&out);
 
-      run_cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+      run_cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .current_dir(file.parent().unwrap_or(file));
 
       let run = run_with_timeout(run_cmd, RUN_TIMEOUT);
 

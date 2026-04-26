@@ -1,0 +1,52 @@
+-- tests-run-pass: `[]int.sort()` — in-place ascending
+-- sort via the runtime. Phase D regression.
+-- @cmd — zo build array-sort.zo
+
+fun main() {
+  -- shuffled, 7 elements (the largest size that
+  -- currently produces a well-formed Mach-O binary; an
+  -- unrelated layout bug makes the writer emit a
+  -- dyld-rejected file when the array crosses 8+
+  -- elements at this specific code shape — tracked
+  -- separately).
+  mut a: []int = [3, 1, 4, 1, 5, 9, 2];
+  a.sort();
+  check@eq(a[0], 1);
+  check@eq(a[1], 1);
+  check@eq(a[2], 2);
+  check@eq(a[3], 3);
+  check@eq(a[4], 4);
+  check@eq(a[5], 5);
+  check@eq(a[6], 9);
+
+  -- already sorted (idempotent).
+  mut b: []int = [1, 2, 3, 4, 5];
+  b.sort();
+  check@eq(b[0], 1);
+  check@eq(b[4], 5);
+
+  -- reverse-sorted.
+  mut c: []int = [5, 4, 3, 2, 1];
+  c.sort();
+  check@eq(c[0], 1);
+  check@eq(c[4], 5);
+
+  -- with negatives.
+  mut d: []int = [3, -1, 0, -10, 5];
+  d.sort();
+  check@eq(d[0], -10);
+  check@eq(d[1], -1);
+  check@eq(d[2], 0);
+  check@eq(d[3], 3);
+  check@eq(d[4], 5);
+
+  -- single element.
+  mut e: []int = [42];
+  e.sort();
+  check@eq(e[0], 42);
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

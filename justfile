@@ -56,7 +56,6 @@ bench_runtime:
   cargo bench -p zo-runtime
 
 # Run both test suites in parallel
-[parallel]
 [group('test')]
 test_all: test zo_test zo_test_runner
 

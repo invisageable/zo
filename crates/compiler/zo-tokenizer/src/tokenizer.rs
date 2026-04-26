@@ -6,13 +6,11 @@ use zo_token::{InterpSegment, LiteralStore, Token, TokenBuffer};
 
 use serde::Serialize;
 
-/// Longest keyword in the language, in bytes. Gates the
-/// keyword-match fast path below — any identifier
-/// strictly longer than this can short-circuit straight
-/// to `Token::Ident` without walking the match arms.
-/// Must be bumped when a longer keyword is added;
-/// forgetting the bump silently turns the new keyword
-/// into an identifier.
+/// Longest keyword in the language, in bytes. Gates the keyword-match fast
+/// path below — any identifier strictly longer than this can short-circuit
+/// straight to `Token::Ident` without walking the match arms. Must be bumped
+/// when a longer keyword is added; forgetting the bump silently turns the new
+/// keyword into an identifier.
 const MAX_KEYWORD_LEN: u16 = 9;
 
 /// The complete result of tokenization
@@ -938,7 +936,9 @@ impl<'a> Tokenizer<'a> {
           kind: DelimiterKind::Brace,
           position: start as u32,
         });
+
         self.tokens.push(Token::LBrace, start as u32, 1);
+
         if self.state.mode() == ModeState::TEMPLATE {
           self.state.inc_brace_depth();
         }
@@ -946,6 +946,7 @@ impl<'a> Tokenizer<'a> {
       b'}' => {
         self.check_closing_delimiter(DelimiterKind::Brace, start as u32);
         self.tokens.push(Token::RBrace, start as u32, 1);
+
         if self.state.mode() == ModeState::TEMPLATE {
           self.state.dec_brace_depth();
           // Don't automatically go into template text mode when closing

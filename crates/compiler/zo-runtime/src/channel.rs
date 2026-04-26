@@ -390,7 +390,7 @@ pub unsafe extern "C-unwind" fn _zo_chan_recv(chan: *mut ZoChan, dst: *mut u8) {
 }
 
 /// Non-blocking recv for use by the `select`
-/// primitive (see `select.rs`). Returns `true` iff a
+/// primitive (see `select.rs`). Returns `true` if a
 /// value was available and copied into `dst`.
 /// Unlike `_zo_chan_recv`, this function never parks
 /// the caller — if the channel is empty it returns
@@ -484,7 +484,7 @@ pub unsafe extern "C-unwind" fn _zo_chan_close(chan: *mut ZoChan) {
   }
 }
 
-/// Timed recv. Returns `true` iff a value was received
+/// Timed recv. Returns `true` if a value was received
 /// within `timeout_ms`; `false` on timeout. Zero-fills
 /// `dst` on timeout so the caller doesn't observe
 /// uninitialized memory.

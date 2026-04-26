@@ -17,6 +17,7 @@ pub struct ExportedVar {
 /// Exported enum definition for cross-module import. Carries
 /// raw variant data instead of TyChecker-internal IDs so the
 /// importing executor can re-intern into its own TyChecker.
+#[derive(Clone)]
 pub struct ExportedEnum {
   pub name: Symbol,
   pub variants: Vec<(Symbol, u32, Vec<TyId>)>,

@@ -7607,6 +7607,7 @@ version = "0.3.7"
 dependencies = [
  "criterion",
  "hashbrown 0.16.1",
+ "rustc-hash 2.1.1",
  "zo-analyzer",
  "zo-codegen",
  "zo-codegen-backend",
@@ -7781,6 +7782,7 @@ dependencies = [
 name = "zo-module-resolver"
 version = "0.3.7"
 dependencies = [
+ "rustc-hash 2.1.1",
  "zo-interner",
  "zo-sir",
  "zo-ty",
@@ -7859,6 +7861,7 @@ version = "0.3.7"
 dependencies = [
  "criterion",
  "libc",
+ "rustc-hash 2.1.1",
  "zo-error",
  "zo-reporter",
  "zo-runtime-native",
@@ -7975,6 +7978,7 @@ dependencies = [
  "criterion",
  "insta",
  "proptest",
+ "rustc-hash 2.1.1",
  "serde",
  "zo-error",
  "zo-interner",

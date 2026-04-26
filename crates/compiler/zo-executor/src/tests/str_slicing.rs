@@ -71,15 +71,25 @@ fn test_str_slice_invalid_range_reports_error() {
 }
 
 #[test]
-fn test_str_slice_non_const_bound_reports_error() {
-  // `lo` reads from a mutable local — not a compile-time
-  // constant, so the slice must be rejected.
-  assert_execution_error(
+fn test_str_slice_non_const_bound_emits_runtime_slice() {
+  // Non-const bounds used to hard-error. After wiring
+  // `_zo_str_slice` at runtime, the executor now emits
+  // `Insn::StrSlice` so bounded slicing works without
+  // compile-time operands.
+  assert_sir_structure(
     r#"fun main() {
   imu s: str = "hello";
   mut i: int = 0;
   imu x: str = s[i..3];
 }"#,
-    ErrorKind::StrSliceRequiresConstBounds,
+    |sir| {
+      let has_runtime_slice =
+        sir.iter().any(|i| matches!(i, Insn::StrSlice { .. }));
+
+      assert!(
+        has_runtime_slice,
+        "runtime-bounded slice should emit Insn::StrSlice"
+      );
+    },
   );
 }

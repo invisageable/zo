@@ -117,14 +117,14 @@ pub(crate) struct FunCtx {
   /// slot index, not a symbol, so name-keyed lookup can't
   /// serve it).
   pub(crate) params: Vec<Variable>,
-  /// True iff the current CLIF block has a terminator already
+  /// True if the current CLIF block has a terminator already
   /// emitted (`return_`, `jump`, `brif`, `trap`). CLIF's
   /// `FunctionBuilder::is_filled` is private, so we mirror the
   /// state here — set by every terminator emission, reset on
   /// `switch_to_block`. Used at each `Label` to decide whether
   /// a fall-through jump needs synthesizing.
   pub(crate) terminated: bool,
-  /// True iff the function being translated is `main`. Flips
+  /// True if the function being translated is `main`. Flips
   /// the `Return { value: None }` arm into emitting `iconst
   /// (I32, 0)` so the process exits with a deterministic `0`
   /// instead of a junk return-register value.

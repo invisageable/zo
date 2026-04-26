@@ -2,6 +2,8 @@ use crate::tests::common::{assert_sir_structure, execute_raw};
 
 use zo_sir::Insn;
 
+use rustc_hash::FxHashMap as HashMap;
+
 #[test]
 fn match_int_literal_emits_cmp_chain() {
   assert_sir_structure(
@@ -584,7 +586,7 @@ fn match_block_arm_inside_while_array_accumulates() {
 
       // Must have while back-edge: a Jump whose target is
       // a Label that precedes it in the SIR stream.
-      let mut label_positions = std::collections::HashMap::new();
+      let mut label_positions = HashMap::default();
 
       for (pos, insn) in sir.iter().enumerate() {
         if let Insn::Label { id } = insn {
@@ -647,7 +649,7 @@ fn match_if_inside_block_arm_in_while() {
       );
 
       // Must still have while back-edge.
-      let mut label_positions = std::collections::HashMap::new();
+      let mut label_positions = HashMap::default();
 
       for (pos, insn) in sir.iter().enumerate() {
         if let Insn::Label { id } = insn {
@@ -667,6 +669,64 @@ fn match_if_inside_block_arm_in_while() {
         has_back_edge,
         "while back-edge missing — if inside match block \
          arm consumed the while context"
+      );
+    },
+  );
+}
+
+#[test]
+fn match_block_arm_no_comma_does_not_fuse_with_next_arm() {
+  // Regression: block-bodied arms (`Pat => { ... }`) don't
+  // require a trailing comma between arms — the closing `}`
+  // is the separator. The old `body_end` scan only looked for
+  // the next top-level Comma, which overran past the next
+  // arm's pattern and fused both arms' bodies into one. The
+  // result was that BOTH arms emitted SIR back-to-back with
+  // only a single trailing Jump — every match silently fell
+  // through into the next arm regardless of the pattern.
+  assert_sir_structure(
+    r#"
+enum Option<$T> {
+  Some($T),
+  None,
+}
+
+fun main() {
+  imu p: Option<int> = Option::Some(4);
+  match p {
+    Option::Some(r) => {
+      showln(r);
+    }
+    Option::None => showln(-77),
+  }
+}"#,
+    |sir| {
+      // Two arms must each emit their own pattern check
+      // (BranchIfNot from the discriminant compare). The
+      // pre-fix codegen emitted only ONE BranchIfNot because
+      // the second arm's pattern got swallowed into the
+      // first arm's body range.
+      let branches = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::BranchIfNot { .. }))
+        .count();
+
+      assert!(
+        branches >= 2,
+        "expected >= 2 BranchIfNot (one per arm), got {branches}"
+      );
+
+      // Each arm body must end with its own Jump to the
+      // shared end label. Pre-fix emitted only one Jump for
+      // the fused body.
+      let jumps = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::Jump { .. }))
+        .count();
+
+      assert!(
+        jumps >= 2,
+        "expected >= 2 Jump (one per arm body), got {jumps}"
       );
     },
   );

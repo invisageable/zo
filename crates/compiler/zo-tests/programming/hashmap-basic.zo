@@ -1,0 +1,72 @@
+-- tests-run-pass: HashMap<int, int> — insert / get /
+-- contains_key / remove / len round-trip + grow.
+-- @cmd — zo build map-basic.zo
+
+fun main() {
+  imu m: HashMap<int, int> = HashMap::new();
+
+  -- empty.
+  check@eq(m.len(), 0);
+
+  -- insert + get.
+  m.insert(1, 100);
+  m.insert(2, 200);
+  m.insert(3, 300);
+
+  check@eq(m.len(), 3);
+
+  match m.get(1) {
+    Option::Some(v) => check@eq(v, 100),
+    Option::None => check(false),
+  }
+
+  match m.get(2) {
+    Option::Some(v) => check@eq(v, 200),
+    Option::None => check(false),
+  }
+
+  match m.get(3) {
+    Option::Some(v) => check@eq(v, 300),
+    Option::None => check(false),
+  }
+
+  -- miss returns None.
+  match m.get(99) {
+    Option::Some(_) => check(false),
+    Option::None => check(true),
+  }
+
+  -- contains_key.
+  check(m.contains_key(2));
+  check(!m.contains_key(42));
+
+  -- remove returns the old value, decrements len.
+  match m.remove(2) {
+    Option::Some(v) => check@eq(v, 200),
+    Option::None => check(false),
+  }
+  check@eq(m.len(), 2);
+  check(!m.contains_key(2));
+
+  -- removing twice returns None the second time.
+  match m.remove(2) {
+    Option::Some(_) => check(false),
+    Option::None => check(true),
+  }
+
+  -- grow past initial capacity (16). 32 inserts forces
+  -- at least one rehash.
+  for i := 0..32 => m.insert(i + 100, i + 1000);
+
+  check@eq(m.len(), 34);
+
+  match m.get(120) {
+    Option::Some(v) => check@eq(v, 1020),
+    Option::None => check(false),
+  }
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok
