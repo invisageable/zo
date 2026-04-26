@@ -12,7 +12,7 @@ fun main() {
   check@eq(grid[1][1], 5);
   check@eq(grid[1][2], 6);
 
-  -- showln(grid); -- [[1, 2, 3], [4, 5, 6]]
+  showln(grid); -- must be [[1, 2, 3], [4, 5, 6]]
 
   -- separate rows.
   imu row0: []int = [10, 20, 30];
@@ -25,4 +25,5 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
+-- [[1, 2, 3], [4, 5, 6]]
 -- DONE

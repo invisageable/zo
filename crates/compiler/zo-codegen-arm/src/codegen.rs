@@ -3476,6 +3476,36 @@ impl<'a> ARM64Gen<'a> {
     let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
     let is_bool = ty_id.0 == BOOL_TYPE_ID;
     let is_char = ty_id.0 == CHAR_TYPE_ID;
+    let nested_elem_ty = self.array_metas.get(&ty_id.0).copied();
+    let nested_struct = self.struct_metas.contains_key(&ty_id.0);
+
+    if let Some(elem_ty) = nested_elem_ty {
+      // Nested array (`[][]T`, `[]Point`, …). The outer
+      // walk's X19..X22 hold the parent's base / len /
+      // index / tmp; the inner walk reuses them, so push
+      // them onto the stack across the recursive call and
+      // pop after. Pre-indexed STP / post-indexed LDP do
+      // the SP-relative push/pop in one instruction each.
+      self.emit_pp_state_push();
+      self.emitter.emit_mov_reg(Register::new(19), X0);
+      self.emit_array_walk_from_x19(elem_ty, fd);
+      self.emit_pp_state_pop();
+
+      return;
+    }
+
+    if nested_struct {
+      // Nested struct (`Outer { p: Point }`, `[]Point`).
+      // Same shape as the array case: save outer state,
+      // load this struct's base into X19, walk fields,
+      // restore.
+      self.emit_pp_state_push();
+      self.emitter.emit_mov_reg(Register::new(19), X0);
+      self.emit_struct_walk_from_x19(ty_id, fd);
+      self.emit_pp_state_pop();
+
+      return;
+    }
 
     if is_str {
       // Mirror Rust Debug — strings nested inside an enum
@@ -3513,6 +3543,24 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
+  /// Push the four pretty-printer state registers
+  /// (X19 / X20 / X21 / X22) onto the stack ahead of a
+  /// recursive `emit_*_walk_from_x19` call. Uses pre-indexed
+  /// STP so each pair drops 16 bytes in one instruction. The
+  /// peer `emit_pp_state_pop` undoes both pushes in reverse
+  /// order with post-indexed LDP.
+  fn emit_pp_state_push(&mut self) {
+    self.emitter.emit_stp(Register::new(19), Register::new(20), SP, -16);
+    self.emitter.emit_stp(Register::new(21), Register::new(22), SP, -16);
+  }
+
+  /// Pop the four pretty-printer state registers in the
+  /// reverse order of `emit_pp_state_push`.
+  fn emit_pp_state_pop(&mut self) {
+    self.emitter.emit_ldp(Register::new(21), Register::new(22), SP, 16);
+    self.emitter.emit_ldp(Register::new(19), Register::new(20), SP, 16);
+  }
+
   /// Pretty-print a dynamic array value as `[e0, e1, ...]`.
   ///
   /// Layout (from `Insn::ArrayLiteral` codegen):
@@ -3532,17 +3580,33 @@ impl<'a> ARM64Gen<'a> {
   fn emit_array_write(&mut self, vid: ValueId, elem_ty: TyId, fd: u16) {
     let src = self.alloc_reg(vid).unwrap_or(X0);
 
+    self.register_punctuation_sym(ARRAY_OPEN_BRACKET_SYM, b"[");
+    self.register_punctuation_sym(ARRAY_CLOSE_BRACKET_SYM, b"]");
+    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
+
+    // Top-level entry: move the receiver into X19 so the
+    // walk can use it as the base register. Recursive
+    // entries (`emit_field_write` → array element that is
+    // itself an array) call `emit_array_walk_from_x19`
+    // directly after pushing the outer caller's X19..X22.
+    self.emitter.emit_mov_reg(Register::new(19), src);
+    self.emit_array_walk_from_x19(elem_ty, fd);
+  }
+
+  /// Body of the array pretty-printer factored to assume the
+  /// array's base pointer already lives in X19. This shape is
+  /// the recursion entry point: when an element is itself an
+  /// array, `emit_field_write` pushes X19..X22 onto the stack,
+  /// loads the inner base into X19, and re-enters here. The
+  /// outer state survives because every level pushes and pops
+  /// its own X19..X22 pair.
+  fn emit_array_walk_from_x19(&mut self, elem_ty: TyId, fd: u16) {
     let r_base = Register::new(19);
     let r_len = Register::new(20);
     let r_idx = Register::new(21);
     let r_tmp = Register::new(22);
 
-    self.register_punctuation_sym(ARRAY_OPEN_BRACKET_SYM, b"[");
-    self.register_punctuation_sym(ARRAY_CLOSE_BRACKET_SYM, b"]");
-    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
-
-    // Save array base in X19, load length into X20, zero i.
-    self.emitter.emit_mov_reg(r_base, src);
+    // Load length from base[0], zero the index.
     self.emitter.emit_ldr(r_len, r_base, 0);
     self.emitter.emit_mov_imm(r_idx, 0);
 
@@ -3583,6 +3647,12 @@ impl<'a> ARM64Gen<'a> {
 
     // Dispatch on element type.
     self.emit_field_write(elem_ty, fd, true);
+
+    // Reload index into X21 — `emit_field_write` may have
+    // recursed into another array / struct printer that
+    // popped its own pushed X21 back, but the re-pop
+    // restores the OUTER caller's X21 (this loop's index)
+    // before this point in the sequence. No reload needed.
 
     // i++, B loop_start.
     self.emitter.emit_add_imm(r_idx, r_idx, 1);
@@ -3716,7 +3786,7 @@ impl<'a> ARM64Gen<'a> {
   /// through `emit_field_write` (same per-type branching the
   /// enum / tuple / array printers already use).
   fn emit_struct_write(&mut self, vid: ValueId, ty_id: TyId, fd: u16) {
-    let Some(meta) = self.struct_metas.get(&ty_id.0) else {
+    if !self.struct_metas.contains_key(&ty_id.0) {
       if let Some(src) = self.alloc_reg(vid)
         && src != X0
       {
@@ -3726,19 +3796,32 @@ impl<'a> ARM64Gen<'a> {
       self.emit_itoa_and_write(fd);
 
       return;
+    }
+
+    let src = self.alloc_reg(vid).unwrap_or(X0);
+
+    // Top-level entry: move the receiver into X19 so the
+    // walk can use it as the base register. Recursive
+    // entries (`emit_field_write` → struct field that is
+    // itself a struct) call `emit_struct_walk_from_x19`
+    // directly after pushing the outer caller's X19..X22.
+    self.emitter.emit_mov_reg(Register::new(19), src);
+    self.emit_struct_walk_from_x19(ty_id, fd);
+  }
+
+  /// Body of the struct pretty-printer factored to assume the
+  /// struct's base pointer already lives in X19. Same role as
+  /// `emit_array_walk_from_x19`: recursion entry point for
+  /// `emit_field_write` after the outer X19..X22 are saved.
+  fn emit_struct_walk_from_x19(&mut self, ty_id: TyId, fd: u16) {
+    let Some(meta) = self.struct_metas.get(&ty_id.0) else {
+      return;
     };
 
     let header_sym = meta.header_sym;
     let fields: Vec<(Symbol, TyId)> =
       meta.fields.iter().map(|f| (f.label_sym, f.ty_id)).collect();
 
-    let src = self.alloc_reg(vid).unwrap_or(X0);
-
-    // Save the struct base in X19 (callee-saved, outside the
-    // allocator pool) — every write syscall trashes X0..X17,
-    // so the base must live somewhere stable for the per-
-    // field load loop.
-    self.emitter.emit_mov_reg(Register::new(19), src);
     self.emit_synthetic_str_write(header_sym, fd);
 
     for (i, (label_sym, fty)) in fields.iter().enumerate() {
