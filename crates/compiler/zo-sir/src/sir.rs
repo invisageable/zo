@@ -452,6 +452,12 @@ pub enum Insn {
     body_start: u32,
     kind: FunctionKind,
     pubness: Pubness,
+    /// `true` when the first parameter was declared as
+    /// `mut self`. Set only on apply-context methods —
+    /// non-method functions and `self`-only methods are
+    /// `false`. Consumed at every dot-call site to enforce
+    /// that the receiver's binding is `mut`.
+    mut_self: bool,
   },
   /// Return from function
   Return {

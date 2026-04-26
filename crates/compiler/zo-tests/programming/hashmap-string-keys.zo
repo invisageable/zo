@@ -8,7 +8,7 @@
 -- pointer bytes.
 
 fun main() {
-  imu hashmap: HashMap<str, int> = HashMap::new();
+  mut hashmap: HashMap<str, int> = HashMap::new();
 
   check@eq(hashmap.len(), 0);
   check(hashmap.is_empty());

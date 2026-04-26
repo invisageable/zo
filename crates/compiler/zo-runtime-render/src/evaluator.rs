@@ -285,6 +285,7 @@ mod tests {
       body_start: 1,
       kind: FunctionKind::Closure { capture_count: 1 },
       pubness: Pubness::No,
+      mut_self: false,
     });
 
     // Load captured count: Load Param(0).

@@ -2,7 +2,7 @@
 -- @cmd — zo build vec-basic.zo
 
 fun main() {
-  imu v: Vec<int> = Vec::new();
+  mut v: Vec<int> = Vec::new();
 
   -- empty.
   check@eq(v.len(), 0);

@@ -1752,6 +1752,7 @@ impl<'a> Executor<'a> {
             body_start,
             kind: FunctionKind::UserDefined,
             pubness: pending_func.pubness,
+            mut_self: pending_func.mut_self,
           });
 
           // Now set the context with the correct body start.
@@ -5422,6 +5423,7 @@ impl<'a> Executor<'a> {
       body_start,
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
+      mut_self: false,
     });
 
     // Register for call resolution.
@@ -5434,6 +5436,7 @@ impl<'a> Executor<'a> {
       pubness: Pubness::No,
       type_params: Vec::new(),
       return_type_args: Vec::new(),
+      mut_self: false,
     });
 
     // Update pre-registered letrec local (if any) so
@@ -6002,6 +6005,16 @@ impl<'a> Executor<'a> {
     let sir_params =
       params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
 
+    // Receiver mutability bit: `true` only when the first
+    // parameter is `mut self`. Read by every dot-call site to
+    // reject `imu m; m.mutating_method(...)`.
+    let mut_self = matches!(
+      params.first(),
+      Some((s, _, m))
+        if *s == zo_interner::Symbol::SELF_LOWER
+          && *m == Mutability::Yes
+    );
+
     // Signature-only pre-scan path. Registers the FunDef so
     // forward references (mutual recursion, out-of-order
     // calls) resolve correctly during the main pass, then
@@ -6024,6 +6037,7 @@ impl<'a> Executor<'a> {
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
+        mut_self,
       });
 
       // Drop any type_params minted during this signature
@@ -6132,6 +6146,7 @@ impl<'a> Executor<'a> {
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
+        mut_self,
       });
 
       // Restore outer type_params scope (signature parse
@@ -6162,6 +6177,7 @@ impl<'a> Executor<'a> {
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
+      mut_self,
     });
 
     // Push a scope for the function parameters
@@ -7344,6 +7360,7 @@ impl<'a> Executor<'a> {
       body_start: 0,
       kind: FunctionKind::Intrinsic,
       pubness,
+      mut_self: false,
     });
 
     // Register as known function.
@@ -7359,6 +7376,7 @@ impl<'a> Executor<'a> {
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
+      mut_self: false,
     });
 
     // Restore the outer scope's type params (apply block
@@ -8110,6 +8128,7 @@ impl<'a> Executor<'a> {
         body_start,
         kind: FunctionKind::UserDefined,
         pubness,
+        mut_self: false,
       });
 
       // Emit default value constants.
@@ -8212,6 +8231,7 @@ impl<'a> Executor<'a> {
         pubness,
         type_params: vec![],
         return_type_args: vec![],
+        mut_self: false,
       });
     }
 
@@ -9201,6 +9221,34 @@ impl<'a> Executor<'a> {
       Some(f) => f,
       None => return,
     };
+
+    // Receiver-mutability check. When the callee was declared
+    // `mut self`, the receiver expression must resolve to a
+    // `mut` binding — otherwise calling
+    // `imu m: HashMap<...>; m.insert(...)` would silently
+    // mutate the map's heap buffer through a const-looking
+    // binding. Only fires for direct-binding receivers
+    // (`recv_sym_opt = Some(_)`); chained receivers
+    // (`f().m()`, `s[0].m()`) carry no recoverable binding
+    // and are intentionally exempt — the language can't see
+    // a binding to check.
+    if func.mut_self
+      && let Some(&(_recv_ty, Some(recv_sym))) =
+        self.dot_method_recv_ty.get(&dot_idx)
+    {
+      let recv_mut = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == recv_sym)
+        .map(|l| l.mutability);
+
+      if matches!(recv_mut, Some(Mutability::No)) {
+        let span = self.tree.spans[dot_idx];
+
+        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+      }
+    }
 
     // Count explicit args between parens.
     let has_content = lparen_idx + 1 < rparen_idx;

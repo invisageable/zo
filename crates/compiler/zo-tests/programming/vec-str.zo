@@ -12,7 +12,7 @@
 -- This test only proves the storage round-trip.
 
 fun main() {
-  imu names: Vec<str> = Vec::new();
+  mut names: Vec<str> = Vec::new();
 
   names.push("alice");
   names.push("bob");

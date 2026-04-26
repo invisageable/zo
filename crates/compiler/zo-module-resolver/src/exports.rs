@@ -86,6 +86,7 @@ pub fn extract_exports(
         body_start,
         kind,
         pubness,
+        mut_self,
       } => {
         if *pubness != Pubness::Yes {
           continue;
@@ -124,6 +125,7 @@ pub fn extract_exports(
           pubness: *pubness,
           type_params: Vec::new(),
           return_type_args: rta,
+          mut_self: *mut_self,
         });
       }
 

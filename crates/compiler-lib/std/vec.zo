@@ -57,13 +57,13 @@ apply Vec<$T> {
   -- `size_of<$T>()` primitives to be a pure-zo body.
   -- The FFI marshals the element bytes at the call
   -- site; see `emit_vec_push` in zo-codegen-arm.
-  pub fun push(self, v: $T) {}
+  pub fun push(mut self, v: $T) {}
 
   -! Remove the last element. Returns `Option::Some(v)`
   -! on a non-empty vec, `Option::None` on empty.
   -!
   -- codegen-replaced: see `emit_vec_pop`.
-  pub fun pop(self) -> Option<$T> {
+  pub fun pop(mut self) -> Option<$T> {
     return Option::None;
   }
 
@@ -79,7 +79,7 @@ apply Vec<$T> {
   -! success, `false` on out-of-bounds.
   -!
   -- codegen-replaced: see `emit_vec_set`.
-  pub fun set(self, idx: int, v: $T) -> bool {
+  pub fun set(mut self, idx: int, v: $T) -> bool {
     return false;
   }
 
@@ -95,7 +95,7 @@ apply Vec<$T> {
 
   -! Release the backing allocation. The receiver must
   -! not be used after this call.
-  pub fun free(self) {
+  pub fun free(mut self) {
     __zo_vec_free_raw(self.ptr);
   }
 }

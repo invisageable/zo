@@ -661,6 +661,7 @@ mod tests {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: zo_value::Pubness::No,
+        mut_self: false,
       },
       Insn::Return {
         value: None,

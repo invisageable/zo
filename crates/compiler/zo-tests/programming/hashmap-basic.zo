@@ -3,7 +3,7 @@
 -- @cmd — zo build map-basic.zo
 
 fun main() {
-  imu hashmap: HashMap<int, int> = HashMap::new();
+  mut hashmap: HashMap<int, int> = HashMap::new();
 
   -- empty.
   check@eq(hashmap.len(), 0);
