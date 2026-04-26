@@ -794,7 +794,23 @@ fn stage_runtime_artifacts(
   };
 
   if needs.concurrency {
-    let src = runtime_dir.join(CONCURRENCY_DYLIB);
+    // Prefer `deps/` over the sibling copy. Cargo only
+    // restages the sibling `target/<profile>/<dylib>`
+    // when the cdylib's owning package is built directly
+    // (`cargo build -p zo-runtime`); transitive builds
+    // through `--bin zo` refresh `deps/` but leave the
+    // sibling stale, so a runtime change shipped via
+    // `cargo run --bin zo` would dyld-hang users with a
+    // missing-symbol error against the previous version.
+    // Fall back to the sibling for installed binaries
+    // where `deps/` doesn't exist.
+    let deps_src = runtime_dir.join("deps").join(CONCURRENCY_DYLIB);
+    let sibling_src = runtime_dir.join(CONCURRENCY_DYLIB);
+    let src = if deps_src.exists() {
+      deps_src
+    } else {
+      sibling_src
+    };
     let dst = output_dir.join(CONCURRENCY_DYLIB);
 
     // Always re-copy when the source exists. The earlier

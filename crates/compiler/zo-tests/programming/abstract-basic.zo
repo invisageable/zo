@@ -22,7 +22,10 @@ fun main() {
   showln(p.display());
 
   check@eq(p.display(), "point");
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- point
+-- DONE

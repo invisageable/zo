@@ -1,5 +1,4 @@
--- tests-run-pass: Vec<int> — push / pop / get / set /
--- len / is_empty round-trip + grow.
+-- tests-run-pass: Vec manipulation.
 -- @cmd — zo build vec-basic.zo
 
 fun main() {
@@ -16,6 +15,8 @@ fun main() {
 
   check@eq(v.len(), 3);
   check(!v.is_empty());
+
+  -- showln(v);
 
   -- get hits.
   match v.get(0) {
@@ -78,6 +79,8 @@ fun main() {
 
   check@eq(v.len(), 20);
 
+  -- showln(v);
+
   match v.get(15) {
     Option::Some(x) => check@eq(x, 1500),
     Option::None => check(false),
@@ -85,8 +88,8 @@ fun main() {
 
   v.free();
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- DONE

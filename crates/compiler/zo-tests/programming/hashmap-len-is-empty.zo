@@ -7,37 +7,52 @@
 -- @cmd — zo build hashmap-len-isempty.zo
 
 fun main() {
-  imu m: HashMap<int, int> = HashMap::new();
+  imu hashmap: HashMap<int, int> = HashMap::new();
 
   -- Fresh map: len 0, is_empty true.
-  check@eq(m.len(), 0);
-  check(m.is_empty());
+  check@eq(hashmap.len(), 0);
+  check(hashmap.is_empty());
 
-  m.insert(1, 100);
-  m.insert(2, 200);
+  showln(hashmap);
 
-  check@eq(m.len(), 2);
-  check(!m.is_empty());
+  hashmap.insert(1, 100);
+  hashmap.insert(2, 200);
+
+  check@eq(hashmap.len(), 2);
+  check(!hashmap.is_empty());
+
+  showln(hashmap);
 
   -- Remove drains is_empty back to true.
-  match m.remove(1) {
+  match hashmap.remove(1) {
     Option::Some(v) => check@eq(v, 100),
     Option::None => check(false),
   }
-  check@eq(m.len(), 1);
-  check(!m.is_empty());
+  
+  check@eq(hashmap.len(), 1);
+  check(!hashmap.is_empty());
 
-  match m.remove(2) {
+  showln(hashmap);
+
+  match hashmap.remove(2) {
     Option::Some(v) => check@eq(v, 200),
     Option::None => check(false),
   }
-  check@eq(m.len(), 0);
-  check(m.is_empty());
+  
+  check@eq(hashmap.len(), 0);
+  check(hashmap.is_empty());
 
-  m.free();
+  showln(hashmap);
+  hashmap.free();
+  showln(hashmap);
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- {}
+-- {1: 100, 2: 200}
+-- {2: 200}
+-- {}
+-- {}
+-- DONE

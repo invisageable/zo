@@ -1,61 +1,69 @@
--- tests-run-pass: HashMap<str, int> — string-keyed
--- lookups + insert / contains / remove. Phase C
--- regression: validates per-call-site `key_kind = 1`
--- (Str) derivation from the binding annotation, so the
--- runtime hashes the str payload instead of the
--- pointer bytes.
+-- tests-run-pass: HashMap<str, int>
 -- @cmd — zo build hashmap-string-keys.zo
 
+-- string-keyed lookups + insert / contains / remove.
+--
+-- regression: validates per-call-site `key_kind = 1` (Str) derivation from the
+-- binding annotation, so the runtime hashes the str payload instead of the
+-- pointer bytes.
+
 fun main() {
-  imu m: HashMap<str, int> = HashMap::new();
+  imu hashmap: HashMap<str, int> = HashMap::new();
 
-  check@eq(m.len(), 0);
-  check(m.is_empty());
+  check@eq(hashmap.len(), 0);
+  check(hashmap.is_empty());
 
-  m.insert("alice", 100);
-  m.insert("bob", 200);
-  m.insert("carol", 300);
+  hashmap.insert("alice", 100);
+  hashmap.insert("bob", 200);
+  hashmap.insert("carol", 300);
 
-  check@eq(m.len(), 3);
+  check@eq(hashmap.len(), 3);
+
+  showln(hashmap);
 
   -- str-keyed hash means two separate "alice" pointers
   -- hash + compare equal — the runtime walks the str
   -- payload bytes, not the pointer.
-  match m.get("alice") {
+  match hashmap.get("alice") {
     Option::Some(v) => check@eq(v, 100),
     Option::None => check(false),
   }
 
-  match m.get("bob") {
+  match hashmap.get("bob") {
     Option::Some(v) => check@eq(v, 200),
     Option::None => check(false),
   }
 
-  match m.get("carol") {
+  match hashmap.get("carol") {
     Option::Some(v) => check@eq(v, 300),
     Option::None => check(false),
   }
 
-  match m.get("missing") {
+  match hashmap.get("missing") {
     Option::Some(_) => check(false),
     Option::None => check(true),
   }
 
-  check(m.contains_key("bob"));
-  check(!m.contains_key("zzz"));
+  check(hashmap.contains_key("bob"));
+  check(!hashmap.contains_key("zzz"));
 
-  match m.remove("bob") {
+  match hashmap.remove("bob") {
     Option::Some(v) => check@eq(v, 200),
     Option::None => check(false),
   }
 
-  check(!m.contains_key("bob"));
-  check@eq(m.len(), 2);
+  check(!hashmap.contains_key("bob"));
+  check@eq(hashmap.len(), 2);
 
-  m.free();
+  showln(hashmap);
+  hashmap.free();
+  showln(hashmap);
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- {"carol": 300, "bob": 200, "alice": 100}
+-- {"carol": 300, "alice": 100}
+-- {}
+-- DONE

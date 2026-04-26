@@ -17,8 +17,8 @@ fun main() {
 
   check@eq("".trim(), "");
 
-  showln("done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- done
+-- DONE

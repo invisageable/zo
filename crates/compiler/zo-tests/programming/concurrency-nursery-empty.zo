@@ -4,8 +4,8 @@
 fun main() {
   nursery {}
 
-  showln("done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- done
+-- DONE

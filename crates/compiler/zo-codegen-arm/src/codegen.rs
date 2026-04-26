@@ -239,6 +239,44 @@ pub struct ARM64Gen<'a> {
   /// element-type's writer (itoa/ftoa/bool/char/str) and
   /// produce `[e0, e1, ...]` instead of leaking a pointer.
   array_metas: HashMap<u32, TyId>,
+  /// HashMap type → `(key_fmt, val_fmt)` `MapFmt`
+  /// discriminants, keyed by the map's `TyId.0`.
+  /// Populated by the same pre-pass that fills
+  /// `array_metas`, but reading `Insn::MapTyDef`. Drives
+  /// `emit_map_write` so `showln(m)` calls
+  /// `_zo_map_show` with the right per-side scalar
+  /// kinds — without it the receiver pointer falls
+  /// through to `itoa` and prints as a raw address.
+  map_metas: HashMap<u32, (u32, u32)>,
+  /// Per-construction concrete payload types, keyed by the
+  /// `EnumConstruct.dst` ValueId. Each entry pins down the
+  /// variant index and the concrete `TyId` of every payload
+  /// slot at that construction site. The generic `enum_metas`
+  /// only sees the enum template's `Ty::Infer($T)` field
+  /// types, so without this override `showln(Maybe<str>::Some)`
+  /// would dispatch through `emit_itoa_and_write` and leak the
+  /// str header pointer. Propagated through `Store`/`Load` via
+  /// `local_enum_field_tys` so a `showln(m2)` later in the
+  /// function still sees the construction-site types.
+  value_enum_field_tys: HashMap<u32, (u32, Vec<TyId>)>,
+  /// Mirror of `value_enum_field_tys` keyed by local-variable
+  /// `Symbol.as_u32()`. Populated whenever an `Insn::Store`
+  /// writes a value that has a `value_enum_field_tys` entry,
+  /// consumed by `Insn::Load { src: LoadSource::Local(_) }`
+  /// to copy the override onto the loaded SSA destination.
+  local_enum_field_tys: HashMap<u32, (u32, Vec<TyId>)>,
+  /// Per-construction tuple element types keyed by the
+  /// `Insn::TupleLiteral.dst` SSA value-id. Tuples carry
+  /// their element types only on `Ty::Tuple(TupleTyId)` in
+  /// `zo-ty`, which the codegen has no handle to — so the
+  /// pretty-printer pulls them out of the construction site
+  /// instead. Propagated through `Store`/`Load` via
+  /// `local_tuple_elem_tys`.
+  value_tuple_elem_tys: HashMap<u32, Vec<TyId>>,
+  /// Mirror of `value_tuple_elem_tys` keyed by local-variable
+  /// `Symbol.as_u32()`. Same Store-then-Load forwarding shape
+  /// as `local_enum_field_tys`.
+  local_tuple_elem_tys: HashMap<u32, Vec<TyId>>,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -269,6 +307,11 @@ const ENUM_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFFE);
 
 const ARRAY_OPEN_BRACKET_SYM: Symbol = Symbol(0xE000_FFF8);
 const ARRAY_CLOSE_BRACKET_SYM: Symbol = Symbol(0xE000_FFF9);
+
+const STR_DQUOTE_SYM: Symbol = Symbol(0xE000_FFF7);
+
+const TUPLE_OPEN_PAREN_SYM: Symbol = Symbol(0xE000_FFF6);
+const TUPLE_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFF5);
 
 impl<'a> ARM64Gen<'a> {
   /// Borrow the list of external symbols referenced by
@@ -315,6 +358,11 @@ impl<'a> ARM64Gen<'a> {
       next_enum_sym: ENUM_SYNTHETIC_SYM_BASE,
       value_types: HashMap::default(),
       array_metas: HashMap::default(),
+      map_metas: HashMap::default(),
+      value_enum_field_tys: HashMap::default(),
+      local_enum_field_tys: HashMap::default(),
+      value_tuple_elem_tys: HashMap::default(),
+      local_tuple_elem_tys: HashMap::default(),
     }
   }
 
@@ -414,6 +462,27 @@ impl<'a> ARM64Gen<'a> {
     let ty = self.type_of(vid)?;
 
     self.array_metas.get(&ty.0).copied()
+  }
+
+  /// If `vid`'s type is a registered HashMap, return the
+  /// `(key_fmt, val_fmt)` pair as `MapFmt` discriminants.
+  /// `None` for non-maps. Same fall-through semantics as
+  /// `is_array_value`: a missing entry simply means the
+  /// type isn't a map this codegen knows how to walk.
+  fn is_map_value(&self, vid: ValueId) -> Option<(u32, u32)> {
+    let ty = self.type_of(vid)?;
+
+    self.map_metas.get(&ty.0).copied()
+  }
+
+  /// Returns the tuple's element `TyId`s when `vid` came
+  /// from a known `Insn::TupleLiteral` site (or was loaded
+  /// from a local that did). The tuple type encoding lives
+  /// in `zo-ty`, which the codegen has no handle to — so
+  /// the per-site override populated at construction time
+  /// is the only source.
+  fn is_tuple_value(&self, vid: ValueId) -> Option<Vec<TyId>> {
+    self.value_tuple_elem_tys.get(&vid.0).cloned()
   }
 
   /// Emit a single spill operation (GP or FP).
@@ -672,12 +741,23 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Pre-pass: collect `ArrayTyDef` metadata so
-    // `emit_array_write` can dispatch on the element type
-    // regardless of where the definition lands in the stream.
+    // Pre-pass: collect `ArrayTyDef` and `MapTyDef`
+    // metadata so the typed-write dispatchers can look
+    // up element / scalar info regardless of where the
+    // definitions land in the stream.
     for insn in insns.iter() {
-      if let Insn::ArrayTyDef { array_ty, elem_ty } = insn {
-        self.array_metas.insert(array_ty.0, *elem_ty);
+      match insn {
+        Insn::ArrayTyDef { array_ty, elem_ty } => {
+          self.array_metas.insert(array_ty.0, *elem_ty);
+        }
+        Insn::MapTyDef {
+          map_ty,
+          key_fmt,
+          val_fmt,
+        } => {
+          self.map_metas.insert(map_ty.0, (*key_fmt, *val_fmt));
+        }
+        _ => {}
       }
     }
 
@@ -1149,6 +1229,8 @@ impl<'a> ARM64Gen<'a> {
         self.next_struct_slot = 0;
         self.param_slots.clear();
         self.param_sym_slots.clear();
+        self.local_enum_field_tys.clear();
+        self.local_tuple_elem_tys.clear();
 
         // Function prologue: save FP/LR if non-leaf.
         let fn_info = self
@@ -1299,6 +1381,19 @@ impl<'a> ARM64Gen<'a> {
       Insn::Load { dst, src, .. } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
+
+          // Recover the construction-site enum payload types
+          // (if any) so a later `showln(local)` can dispatch
+          // on the concrete payload type. Without this, only
+          // values that came directly from an `EnumConstruct`
+          // SSA dst would have the override.
+          if let Some(meta) = self.local_enum_field_tys.get(&slot).cloned() {
+            self.value_enum_field_tys.insert(dst.0, meta);
+          }
+
+          if let Some(elems) = self.local_tuple_elem_tys.get(&slot).cloned() {
+            self.value_tuple_elem_tys.insert(dst.0, elems);
+          }
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
             if let Some(dst_reg) = self.alloc_reg(*dst) {
@@ -2121,6 +2216,18 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::Store { name, value, .. } => {
+        // Forward concrete enum payload types from the rhs
+        // SSA value to this local so a later `Load` of `name`
+        // can recover them. Mirrors how `value_types` flows
+        // through stores for enum pretty-printing.
+        if let Some(meta) = self.value_enum_field_tys.get(&value.0).cloned() {
+          self.local_enum_field_tys.insert(name.as_u32(), meta);
+        }
+
+        if let Some(elems) = self.value_tuple_elem_tys.get(&value.0).cloned() {
+          self.local_tuple_elem_tys.insert(name.as_u32(), elems);
+        }
+
         // Variable write: STR value to stack slot.
         // Allocate slot on first Store, reuse after.
         let slot_key = name.as_u32();
@@ -2506,7 +2613,8 @@ impl<'a> ARM64Gen<'a> {
       }
       Insn::StructDef { .. }
       | Insn::ConstDef { .. }
-      | Insn::ArrayTyDef { .. } => {}
+      | Insn::ArrayTyDef { .. }
+      | Insn::MapTyDef { .. } => {}
 
       // Enum construction: for unit variants (no fields),
       // the value is just the discriminant. For tuple
@@ -2522,10 +2630,28 @@ impl<'a> ARM64Gen<'a> {
       // Cost: one extra stack slot + one store per unit variant
       // instance — dwarfed by the syscall cost of `show`.
       Insn::EnumConstruct {
-        variant, fields, ..
+        dst,
+        variant,
+        fields,
+        ..
       } => {
         let slot_count = 1 + fields.len() as u32;
         let base = self.struct_base + self.next_struct_slot;
+
+        // Pin down the per-construction payload types so the
+        // pretty-printer can dispatch on the concrete payload
+        // type rather than the enum template's generic `$T`.
+        // Without this, `Maybe<str>::Some("hi")` falls through
+        // to `emit_itoa_and_write` and prints the str header
+        // pointer.
+        let concrete_field_tys: Vec<TyId> = fields
+          .iter()
+          .map(|f| self.type_of(*f).unwrap_or(TyId(0)))
+          .collect();
+
+        self
+          .value_enum_field_tys
+          .insert(dst.0, (*variant, concrete_field_tys));
 
         // Store discriminant at base.
         self.emitter.emit_mov_imm(X16, *variant as u16);
@@ -2542,8 +2668,8 @@ impl<'a> ARM64Gen<'a> {
           }
         }
 
-        if let Some(dst) = self.reg_for_insn(idx) {
-          self.emit_add_sp_offset(dst, base);
+        if let Some(dst_reg) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst_reg, base);
         }
 
         self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
@@ -2578,7 +2704,7 @@ impl<'a> ARM64Gen<'a> {
       // base + index * 8.
       // Tuple construction: same layout as structs.
       // Store each element at pre-allocated frame slots.
-      Insn::TupleLiteral { elements, .. } => {
+      Insn::TupleLiteral { dst, elements, .. } => {
         let base = self.struct_base + self.next_struct_slot;
 
         for (i, elem) in elements.iter().enumerate() {
@@ -2589,11 +2715,18 @@ impl<'a> ARM64Gen<'a> {
           }
         }
 
-        if let Some(dst) = self.reg_for_insn(idx) {
-          self.emit_add_sp_offset(dst, base);
+        if let Some(dst_reg) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst_reg, base);
         }
 
         self.next_struct_slot += elements.len() as u32 * STACK_SLOT_SIZE;
+
+        let elem_tys: Vec<TyId> = elements
+          .iter()
+          .map(|e| self.value_types.get(&e.0).copied().unwrap_or(TyId(0)))
+          .collect();
+
+        self.value_tuple_elem_tys.insert(dst.0, elem_tys);
       }
 
       Insn::TupleIndex {
@@ -3044,6 +3177,22 @@ impl<'a> ARM64Gen<'a> {
       // this branch the pointer falls through to `itoa` and
       // prints as a raw address.
       self.emit_array_write(vid, elem_ty, fd);
+    } else if let Some((kf, vf)) = arg_vid.and_then(|v| self.is_map_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // HashMap — load `m.ptr` and hand the iteration off
+      // to `_zo_map_show` in the runtime. The runtime walks
+      // occupied slots and formats each `key: value` using
+      // the `MapFmt` discriminants we passed; codegen never
+      // sees the slot bytes itself.
+      self.emit_map_write(vid, kf, vf, fd);
+    } else if let Some(elem_tys) = arg_vid.and_then(|v| self.is_tuple_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // Tuple — `(e0, e1, ...)`. Same memory layout as a
+      // struct (8-byte slots in declaration order); we walk
+      // and dispatch each slot through `emit_field_write`.
+      self.emit_tuple_write(vid, &elem_tys, fd);
     } else if !is_str && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -3100,7 +3249,6 @@ impl<'a> ARM64Gen<'a> {
     for (vname, disc, fields) in variants {
       let var_str = self.interner.get(*vname);
       let display = format!("{enum_str}::{var_str}");
-
       let display_sym = Symbol(self.next_enum_sym);
 
       self.next_enum_sym += 1;
@@ -3177,15 +3325,30 @@ impl<'a> ARM64Gen<'a> {
       {
         self.emitter.emit_mov_reg(X0, src);
       }
+
       self.emit_itoa_and_write(fd);
+
       return;
     };
 
-    let variants: Vec<(u32, Symbol, Vec<TyId>)> = meta
+    let mut variants: Vec<(u32, Symbol, Vec<TyId>)> = meta
       .variants
       .iter()
       .map(|v| (v.discriminant, v.display_sym, v.field_tys.clone()))
       .collect();
+
+    // Substitute the construction-site payload types for the
+    // matching variant. Generic enums register the template's
+    // `Ty::Infer($T)` field types in `enum_metas`; without
+    // this override the str payload of `Maybe<str>::Some("hi")`
+    // would dispatch through the integer writer.
+    if let Some((variant, concrete)) = self.value_enum_field_tys.get(&vid.0)
+      && let Some(slot) =
+        variants.iter_mut().find(|(disc, _, _)| disc == variant)
+      && slot.2.len() == concrete.len()
+    {
+      slot.2 = concrete.clone();
+    }
 
     let src = self.alloc_reg(vid).unwrap_or(X0);
 
@@ -3212,7 +3375,7 @@ impl<'a> ARM64Gen<'a> {
 
           self.emitter.emit_ldr(X0, Register::new(19), offset);
 
-          self.emit_field_write(*field_ty, fd);
+          self.emit_field_write(*field_ty, fd, true);
 
           if i + 1 < field_tys.len() {
             self.emit_synthetic_str_write(ENUM_COMMA_SPACE_SYM, fd);
@@ -3251,18 +3414,36 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_svc(0);
   }
 
-  fn emit_field_write(&mut self, ty_id: TyId, fd: u16) {
+  fn emit_field_write(&mut self, ty_id: TyId, fd: u16, quoted: bool) {
     let is_str = ty_id.0 == STR_TYPE_ID;
     let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
     let is_bool = ty_id.0 == BOOL_TYPE_ID;
     let is_char = ty_id.0 == CHAR_TYPE_ID;
 
     if is_str {
+      // Mirror Rust Debug — strings nested inside an enum
+      // / array / map carry surrounding `"`s; the top-level
+      // `showln(s)` path passes `quoted = false`. The
+      // payload pointer arrives in X0 from the caller's
+      // load, so save it in a scratch outside the array /
+      // enum writer's working set (X19..X22) across the
+      // punctuation syscall, which trashes X0-X17.
+      if quoted {
+        self.register_punctuation_sym(STR_DQUOTE_SYM, b"\"");
+        self.emitter.emit_mov_reg(Register::new(23), X0);
+        self.emit_synthetic_str_write(STR_DQUOTE_SYM, fd);
+        self.emitter.emit_mov_reg(X0, Register::new(23));
+      }
+
       self.emitter.emit_ldr(X2, X0, 0);
       self.emitter.emit_add_imm(X1, X0, 8);
       self.emitter.emit_mov_imm(X16, SYS_WRITE);
       self.emitter.emit_mov_imm(X0, fd);
       self.emitter.emit_svc(0);
+
+      if quoted {
+        self.emit_synthetic_str_write(STR_DQUOTE_SYM, fd);
+      }
     } else if is_float {
       self.emitter.emit_fmov_gp_to_fp(D0, X0);
       self.emit_ftoa_and_write(fd);
@@ -3344,7 +3525,7 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_ldr(X0, r_tmp, 0);
 
     // Dispatch on element type.
-    self.emit_field_write(elem_ty, fd);
+    self.emit_field_write(elem_ty, fd, true);
 
     // i++, B loop_start.
     self.emitter.emit_add_imm(r_idx, r_idx, 1);
@@ -3362,6 +3543,75 @@ impl<'a> ARM64Gen<'a> {
 
     // Closing bracket.
     self.emit_synthetic_str_write(ARRAY_CLOSE_BRACKET_SYM, fd);
+  }
+
+  /// Pretty-print a tuple value as `(e0, e1, ...)`.
+  ///
+  /// Layout matches `Insn::TupleLiteral` codegen: 8-byte
+  /// slots in declaration order, base pointer in the
+  /// receiver register. Element count is statically known
+  /// from the construction-site override, so this is a
+  /// straight-line unrolled walk — no loop, no length
+  /// header to read.
+  fn emit_tuple_write(&mut self, vid: ValueId, elem_tys: &[TyId], fd: u16) {
+    self.register_punctuation_sym(TUPLE_OPEN_PAREN_SYM, b"(");
+    self.register_punctuation_sym(TUPLE_CLOSE_PAREN_SYM, b")");
+    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
+
+    let src = self.alloc_reg(vid).unwrap_or(X0);
+
+    // Save the tuple base in X19 (callee-saved, outside
+    // the allocator pool) — every write syscall trashes
+    // X0..X17, so the base must live somewhere stable for
+    // the per-element load loop.
+    self.emitter.emit_mov_reg(Register::new(19), src);
+
+    self.emit_synthetic_str_write(TUPLE_OPEN_PAREN_SYM, fd);
+
+    for (i, ty) in elem_tys.iter().enumerate() {
+      let off = (i as i16) * STACK_SLOT_SIZE as i16;
+
+      self.emitter.emit_ldr(X0, Register::new(19), off);
+      self.emit_field_write(*ty, fd, true);
+
+      if i + 1 < elem_tys.len() {
+        self.emit_synthetic_str_write(ENUM_COMMA_SPACE_SYM, fd);
+      }
+    }
+
+    self.emit_synthetic_str_write(TUPLE_CLOSE_PAREN_SYM, fd);
+  }
+
+  /// Pretty-print a `HashMap<K, V>` as `{k0: v0, ...}`.
+  ///
+  /// The receiver register holds the map's struct
+  /// address (`{ ptr }` shape, see `emit_map_new`); we
+  /// load `m.ptr` from offset 0, set the runtime ABI
+  /// args (X0=map, X1=fd, X2=key_fmt, X3=val_fmt), and
+  /// hand the formatting to `_zo_map_show`. Iteration
+  /// order is the map's bucket order — implementation-
+  /// defined, identical to Rust's `HashMap` Debug.
+  ///
+  /// Doing the iteration in Rust rather than ASM keeps
+  /// the codegen footprint flat: bucket walk, per-slot
+  /// occupied check, and per-side scalar formatting all
+  /// live in one place where they can share buffer
+  /// state and emit a single `write` syscall.
+  fn emit_map_write(
+    &mut self,
+    vid: ValueId,
+    key_fmt: u32,
+    val_fmt: u32,
+    fd: u16,
+  ) {
+    let recv = self.alloc_reg(vid).unwrap_or(X0);
+
+    // X0 = m.ptr; X1 = fd; X2 = key_fmt; X3 = val_fmt.
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emitter.emit_mov_imm(X1, fd);
+    self.emitter.emit_mov_imm(X2, key_fmt as u16);
+    self.emitter.emit_mov_imm(X3, val_fmt as u16);
+    self.emit_extern_call("_zo_map_show");
   }
 
   /// Emit a newline write to the given fd.

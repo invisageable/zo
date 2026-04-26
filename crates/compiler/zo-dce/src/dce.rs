@@ -126,7 +126,8 @@ impl<'a> Dce<'a> {
           | Insn::StructDef { .. }
           | Insn::EnumDef { .. }
           | Insn::ConstDef { .. }
-          | Insn::ArrayTyDef { .. } => {
+          | Insn::ArrayTyDef { .. }
+          | Insn::MapTyDef { .. } => {
             in_dead_zone = false;
             i += 1;
           }
@@ -328,6 +329,7 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::Template { .. }
       | Insn::StyleSheet { .. }
       | Insn::ArrayTyDef { .. }
+      | Insn::MapTyDef { .. }
       // Concurrency insns have observable side effects:
       // channel enqueue/dequeue, task enqueue, scheduler
       // drain, selective wait on N channels. DCE must

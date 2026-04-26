@@ -277,7 +277,7 @@ fn test_interp_with_prefix_no_array() {
     r#"fun main() {
   imu x: int = 42;
   showln("value: {x}");
-  showln("done");
+  showln("DONE");
 }"#,
     |sir| {
       let calls = sir
@@ -285,7 +285,7 @@ fn test_interp_with_prefix_no_array() {
         .filter(|i| matches!(i, Insn::Call { .. }))
         .count();
 
-      // show("value: ") + showln(x) + showln("done")
+      // show("value: ") + showln(x) + showln("DONE")
       assert!(calls >= 3, "expected >= 3 Call instructions, got {}", calls);
     },
   );

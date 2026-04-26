@@ -20,11 +20,17 @@ fun main() {
   -- == dispatches to Point::eq.
   check(a == b);
 
+  -- showln(a);
+  -- showln(b);
+
   -- != dispatches to !Point::eq.
   check(a != c);
 
-  showln("done");
+  -- showln(a);
+  -- showln(c);
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- done
+-- DONE

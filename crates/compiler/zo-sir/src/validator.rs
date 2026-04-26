@@ -433,11 +433,13 @@ fn check_insn(
     // (TyId 18), so skip the placeholder check.
     Insn::Template { .. } => {}
 
-    // EnumDef / StructDef / ArrayTyDef carry definitional ty
-    // metadata; placeholder checks would false-positive on
-    // the self-referential ty_id field.
-    Insn::EnumDef { .. } | Insn::StructDef { .. } | Insn::ArrayTyDef { .. } => {
-    }
+    // EnumDef / StructDef / ArrayTyDef / MapTyDef carry
+    // definitional ty metadata; placeholder checks would
+    // false-positive on the self-referential ty_id field.
+    Insn::EnumDef { .. }
+    | Insn::StructDef { .. }
+    | Insn::ArrayTyDef { .. }
+    | Insn::MapTyDef { .. } => {}
 
     Insn::FunDef { .. }
     | Insn::Label { .. }

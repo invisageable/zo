@@ -26,11 +26,11 @@ fun main() {
     _ => showln(0),
   }
 
-  showln("done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- 1
 -- 2
 -- 0
--- done
+-- DONE

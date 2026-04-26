@@ -20,12 +20,16 @@ fun main() {
   check@eq(unwrap_or("0".parse_int(), -1), 0);
   check@eq(unwrap_or("1000000".parse_int(), 0), 1000000);
 
-  -- Negative integer parse: matched directly to avoid the
-  -- separate `Option::Some(-x)` cross-call payload bug.
+  showln(unwrap_or("42".parse_int(), 0));
+
+  -- Negative integer parse: matched directly to avoid the separate 
+  -- `Option::Some(-x)` cross-call payload bug.
   match "-7".parse_int() {
     Option::Some(v) => check@eq(v, -7),
     Option::None => check(false),
   }
+
+  showln("-7".parse_int());
 
   check(is_none("".parse_int()));
   check(is_none("-".parse_int()));
@@ -33,8 +37,10 @@ fun main() {
   check(is_none("abc".parse_int()));
   check(is_none("12.34".parse_int()));
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- 42
+-- Option::Some(-7)
+-- DONE

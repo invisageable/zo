@@ -475,6 +475,18 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
+        Insn::MapTyDef {
+          map_ty,
+          key_fmt,
+          val_fmt,
+        } => {
+          let c = format!(
+            "map_ty_def : {:?} -> key_fmt={key_fmt} val_fmt={val_fmt}",
+            map_ty,
+          );
+
+          self.sir_instruction(&c);
+        }
         Insn::Nop => {}
 
         // Concurrency insns — single-line dump per insn.
