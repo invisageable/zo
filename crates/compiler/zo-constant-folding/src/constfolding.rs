@@ -23,6 +23,7 @@ pub struct ConstFold<'a> {
   /// The string interner (for concat folding).
   interner: &'a mut Interner,
 }
+
 impl<'a> ConstFold<'a> {
   /// Creates a new [`ConstFold`] instance.
   pub fn new(values: &'a ValueStorage, interner: &'a mut Interner) -> Self {

@@ -1,0 +1,30 @@
+-- tests-run-pass: `char.to_uppercase` /
+-- `char.to_lowercase` — ASCII case mapping. Phase E
+-- regression.
+-- @cmd — zo build char-case.zo
+
+fun main() {
+  imu a: char = 'a';
+  imu z: char = 'z';
+  imu m: char = 'M';
+  imu zero: char = '0';
+
+  check@eq(a.to_uppercase(), 'A');
+  check@eq(z.to_uppercase(), 'Z');
+  check@eq(m.to_uppercase(), 'M');
+  check@eq(zero.to_uppercase(), '0');
+
+  imu big_a: char = 'A';
+  imu small_m: char = 'm';
+  imu space: char = ' ';
+
+  check@eq(big_a.to_lowercase(), 'a');
+  check@eq(small_m.to_lowercase(), 'm');
+  check@eq(zero.to_lowercase(), '0');
+  check@eq(space.to_lowercase(), ' ');
+
+  showln("ok");
+}
+
+-- EXPECTED OUTPUT:
+-- ok

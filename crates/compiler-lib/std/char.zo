@@ -52,4 +52,26 @@ apply char {
 
     return -1;
   }
+
+  -! ASCII upper-case. Letters in `'a'..'z'` map to
+  -! `'A'..'Z'`; everything else (digits, punctuation,
+  -! already-uppercase letters, non-ASCII) returns
+  -! unchanged.
+  pub fun to_uppercase(self) -> char {
+    if self >= 'a' && self <= 'z' {
+      return ((self as int) - 32) as char;
+    }
+
+    return self;
+  }
+
+  -! ASCII lower-case. Letters in `'A'..'Z'` map to
+  -! `'a'..'z'`; everything else returns unchanged.
+  pub fun to_lowercase(self) -> char {
+    if self >= 'A' && self <= 'Z' {
+      return ((self as int) + 32) as char;
+    }
+
+    return self;
+  }
 }

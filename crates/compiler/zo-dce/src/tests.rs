@@ -21,11 +21,8 @@ fn removes_private_uncalled_function() {
 
   let mut insns = vec![];
 
-  // show — private, never called → removed.
   insns.extend(fun(show, Pubness::No, vec![]));
-  // showln — called by main → kept.
   insns.extend(fun(showln, Pubness::No, vec![]));
-  // main — entry point → kept.
   insns.extend(fun(main, Pubness::No, vec![call(showln)]));
 
   let mut sir = make_sir(insns);
