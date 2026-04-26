@@ -27,11 +27,12 @@ fun main() {
   imu x: str = "abc" ++ "def";
   imu y: char = x[3];
 
-  showln(x);
-  showln(y);
   check@eq(y, 'd');
 
-  showln("done");
+  showln(x);
+  showln(y);
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
@@ -39,4 +40,4 @@ fun main() {
 -- o
 -- abcdef
 -- d
--- done
+-- DONE

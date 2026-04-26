@@ -3,58 +3,58 @@
 -- @cmd — zo build hashset-basic.zo
 
 fun main() {
-  imu s: HashSet<int> = HashSet::new();
+  imu hashset: HashSet<int> = HashSet::new();
 
   -- empty.
-  check@eq(s.len(), 0);
-  check(s.is_empty());
+  check@eq(hashset.len(), 0);
+  check(hashset.is_empty());
 
   -- first insert returns true (was new).
-  check(s.insert(10));
-  check(s.insert(20));
-  check(s.insert(30));
+  check(hashset.insert(10));
+  check(hashset.insert(20));
+  check(hashset.insert(30));
 
-  check@eq(s.len(), 3);
-  check(!s.is_empty());
+  check@eq(hashset.len(), 3);
+  check(!hashset.is_empty());
 
   -- duplicate insert returns false (was present).
-  check(!s.insert(10));
-  check(!s.insert(20));
-  check@eq(s.len(), 3);
+  check(!hashset.insert(10));
+  check(!hashset.insert(20));
+  check@eq(hashset.len(), 3);
 
   -- contains.
-  check(s.contains(10));
-  check(s.contains(20));
-  check(s.contains(30));
-  check(!s.contains(99));
+  check(hashset.contains(10));
+  check(hashset.contains(20));
+  check(hashset.contains(30));
+  check(!hashset.contains(99));
 
   -- remove returns true on hit, false on miss.
-  check(s.remove(20));
-  check(!s.contains(20));
-  check@eq(s.len(), 2);
+  check(hashset.remove(20));
+  check(!hashset.contains(20));
+  check@eq(hashset.len(), 2);
 
-  check(!s.remove(99));
-  check@eq(s.len(), 2);
+  check(!hashset.remove(99));
+  check@eq(hashset.len(), 2);
 
   -- removed key can be re-inserted as new.
-  check(s.insert(20));
-  check(s.contains(20));
-  check@eq(s.len(), 3);
+  check(hashset.insert(20));
+  check(hashset.contains(20));
+  check@eq(hashset.len(), 3);
 
   -- grow past initial capacity (16). 32 inserts forces
   -- at least one rehash.
   for i := 0..32 => {
-    check(s.insert(i + 100));
+    check(hashset.insert(i + 100));
   }
 
-  check@eq(s.len(), 35);
-  check(s.contains(120));
-  check(!s.contains(200));
+  check@eq(hashset.len(), 35);
+  check(hashset.contains(120));
+  check(!hashset.contains(200));
 
-  s.free();
+  hashset.free();
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- DONE

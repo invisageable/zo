@@ -8,18 +8,27 @@ fun main() {
   check@eq(xs.sum(), 15);
   check@eq(empty.sum(), 0);
 
+  showln(xs.sum());
+
   check(xs.contains(3));
   check(xs.contains(5));
 
+  showln(xs.contains(5));
+
   check@eq(xs.find(3), 2);
   check@eq(xs.find(99), -1);
+
+  showln(xs.find(3));
 
   check@eq(mixed.min_of(), 1);
   check@eq(mixed.max_of(), 9);
   check@eq(empty.min_of(), 0);
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- 15
+-- true
+-- 2
+-- DONE

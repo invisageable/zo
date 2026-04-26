@@ -14,6 +14,8 @@ fun main() {
   check@eq(m.to_uppercase(), 'M');
   check@eq(zero.to_uppercase(), '0');
 
+  showln(a.to_uppercase());
+
   imu big_a: char = 'A';
   imu small_m: char = 'm';
   imu space: char = ' ';
@@ -23,8 +25,12 @@ fun main() {
   check@eq(zero.to_lowercase(), '0');
   check@eq(space.to_lowercase(), ' ');
 
-  showln("ok");
+  showln(big_a.to_lowercase());
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- A
+-- a
+-- DONE

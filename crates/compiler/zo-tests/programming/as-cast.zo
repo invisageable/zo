@@ -23,7 +23,7 @@ fun main() {
   imu bi: int = b as int;
   showln(bi);
 
-  showln("done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
@@ -32,4 +32,4 @@ fun main() {
 -- 42.0
 -- 3
 -- 65
--- done
+-- DONE

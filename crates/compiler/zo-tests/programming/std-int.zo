@@ -9,6 +9,10 @@ fun main() {
   check(b.is_negative());
   check(z.is_zero());
 
+  showln(a.is_positive());
+  showln(b.is_negative());
+  showln(z.is_zero());
+
   check@eq(a.abs(), 42);
   check@eq(b.abs(), 7);
   check@eq(z.abs(), 0);
@@ -18,8 +22,11 @@ fun main() {
   check@eq(b.min(100), -7);
   check@eq(b.max(100), 100);
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- true
+-- true
+-- true
+-- DONE

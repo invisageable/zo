@@ -15,8 +15,8 @@ fun main() {
   check@eq(pow_i(5, 0), 1);
   check@eq(pow_i(7, -1), 0);
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- DONE

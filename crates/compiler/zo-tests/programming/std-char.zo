@@ -19,8 +19,8 @@ fun main() {
 
   check(space.is_whitespace());
 
-  showln("ok");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- ok
+-- DONE

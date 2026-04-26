@@ -17,10 +17,10 @@ fun main() {
     spawn counter();
   }
 
-  showln("done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- hello from greeter
 -- count is 42
--- done
+-- DONE

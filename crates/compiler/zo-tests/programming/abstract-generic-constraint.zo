@@ -24,8 +24,8 @@ fun main() {
   check(are_equal(a, b));
   check(are_equal(a, c) == false);
 
-  showln("done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- done
+-- DONE

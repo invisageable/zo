@@ -11,7 +11,7 @@
 
 -- Mistake: `main` cannot return a string.
 fun main() -> str {
-  "done"
+  "DONE"
 }
 
 -! ## try this.

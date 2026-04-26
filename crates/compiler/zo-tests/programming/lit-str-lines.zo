@@ -24,8 +24,8 @@ fun main() {
   imu empty: []str = "".lines();
   check@eq(empty.len, 0);
 
-  showln("done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- done
+-- DONE
