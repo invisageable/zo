@@ -265,6 +265,7 @@ fn dead_insn_unused_const() {
       body_start: 1,
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     // %0 = const 42 — used by store.
     Insn::ConstInt {
@@ -321,6 +322,7 @@ fn dead_insn_chain() {
       body_start: 1,
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     // %0 = const 1 — used only by %2.
     Insn::ConstInt {
@@ -370,6 +372,7 @@ fn dead_insn_preserves_calls() {
       body_start: 1,
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     // Call is impure — must not be removed even if dst unused.
     Insn::Call {
@@ -405,6 +408,7 @@ fn dead_insn_preserves_array_store() {
       body_start: 1,
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     // ArrayStore is impure — must not be removed.
     Insn::ArrayStore {
@@ -445,6 +449,7 @@ fn dead_var_unused_store() {
       body_start: 1,
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     // Store x — never loaded → dead.
     Insn::ConstInt {
@@ -512,6 +517,7 @@ fn dead_var_overwritten_store() {
       body_start: 1,
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     // First store to x — overwritten before any load → dead.
     Insn::ConstInt {
@@ -580,6 +586,7 @@ fn unreachable_after_return() {
       body_start: 1,
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     Insn::Return {
       value: None,
@@ -619,6 +626,7 @@ fn unreachable_stops_at_label() {
       body_start: 1,
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     Insn::Return {
       value: None,

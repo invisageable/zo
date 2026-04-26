@@ -35,5 +35,5 @@ fun main() {
 
   check@eq(sum, 42);
 
-  showln("literal-decl-widths: all checks passed!");
+  showln("DONE");
 }

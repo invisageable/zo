@@ -439,7 +439,9 @@ fn check_insn(
     Insn::EnumDef { .. }
     | Insn::StructDef { .. }
     | Insn::ArrayTyDef { .. }
-    | Insn::MapTyDef { .. } => {}
+    | Insn::MapTyDef { .. }
+    | Insn::VecTyDef { .. }
+    | Insn::SetTyDef { .. } => {}
 
     Insn::FunDef { .. }
     | Insn::Label { .. }
@@ -661,6 +663,7 @@ mod tests {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: zo_value::Pubness::No,
+        mut_self: false,
       },
       Insn::Return {
         value: None,

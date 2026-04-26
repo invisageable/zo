@@ -24,4 +24,11 @@ fun main() {
   check@eq(cube[1][0][1], 6);
   check@eq(cube[1][1][0], 7);
   check@eq(cube[1][1][1], 8);
+
+  showln(cube);
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+-- DONE

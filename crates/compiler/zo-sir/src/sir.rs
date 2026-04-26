@@ -150,6 +150,8 @@ impl Insn {
       | Insn::StructDef { .. }
       | Insn::ArrayTyDef { .. }
       | Insn::MapTyDef { .. }
+      | Insn::VecTyDef { .. }
+      | Insn::SetTyDef { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::FunDef { .. }
@@ -335,6 +337,12 @@ impl Insn {
       Insn::MapTyDef { map_ty, .. } => {
         f(map_ty);
       }
+      Insn::VecTyDef { vec_ty, .. } => {
+        f(vec_ty);
+      }
+      Insn::SetTyDef { set_ty, .. } => {
+        f(set_ty);
+      }
       // Type-definition / signature-carrying insns. The
       // executor's post-pass resolve walker depends on
       // these being visited so generic param / field types
@@ -452,6 +460,12 @@ pub enum Insn {
     body_start: u32,
     kind: FunctionKind,
     pubness: Pubness,
+    /// `true` when the first parameter was declared as
+    /// `mut self`. Set only on apply-context methods —
+    /// non-method functions and `self`-only methods are
+    /// `false`. Consumed at every dot-call site to enforce
+    /// that the receiver's binding is `mut`.
+    mut_self: bool,
   },
   /// Return from function
   Return {
@@ -609,6 +623,17 @@ pub enum Insn {
     key_fmt: u32,
     val_fmt: u32,
   },
+  /// `Vec<$T>` type description — emitted once per
+  /// instantiation. Same role as `MapTyDef` for the Vec
+  /// pretty-printer: `elem_fmt` is the `MapFmt`
+  /// discriminant for the element kind, consumed by
+  /// codegen to route `showln(v)` to `_zo_vec_show`.
+  VecTyDef { vec_ty: TyId, elem_fmt: u32 },
+  /// `HashSet<$K>` type description — emitted once per
+  /// instantiation. `key_fmt` carries the element's
+  /// `MapFmt` discriminant; codegen routes
+  /// `showln(s)` to `_zo_set_show`.
+  SetTyDef { set_ty: TyId, key_fmt: u32 },
   /// Struct construction: `Span { lo: 0, hi: 10 }`.
   StructConstruct {
     dst: ValueId,

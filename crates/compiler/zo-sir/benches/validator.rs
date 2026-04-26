@@ -32,6 +32,7 @@ fn make_binop_stream(n: u32) -> Vec<Insn> {
     body_start: 1,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
+    mut_self: false,
   });
 
   for i in 0..n {

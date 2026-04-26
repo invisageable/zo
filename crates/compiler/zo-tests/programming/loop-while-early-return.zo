@@ -17,5 +17,11 @@ fun main() {
 
   check@eq(result, 3);
 
-  showln("{result}");
+  showln("find_first_div: {result}");
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- find_first_div: 3
+-- DONE

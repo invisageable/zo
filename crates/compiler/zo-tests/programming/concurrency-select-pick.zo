@@ -22,7 +22,10 @@ fun main() {
       chan2.1 => fn(value: int) => showln("chan2: {value}"),
     }
   }
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- chan1: 10
+-- DONE

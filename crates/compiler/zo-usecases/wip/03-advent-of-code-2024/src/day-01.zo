@@ -1,4 +1,5 @@
 -- tests-run-pass: AoC 2024 day 1 — similarity score.
+-- @cmd — zo build aoc-2024-d01.zo
 --
 -- For each value `v` in the left column, multiply by the
 -- count of `v` in the right column. Sum across the left
@@ -8,13 +9,11 @@
 -- input (1000 pairs) and zo's sort runtime currently
 -- rejects 8+ element arrays — see PLAN_AOC's Phase D
 -- limitation note. Part 2 only needs a HashMap counter.
---
--- @cmd — zo build aoc-2024-d01.zo
 
 fun main() {
   mut text: str = "";
 
-  match read_file("aoc-2024-d01.input") {
+  match read_file("day-01.txt") {
     Result::Ok(t) => text = t,
     Result::Err(code) => showln(code),
   }
@@ -80,7 +79,10 @@ fun main() {
 
   lhs.free();
   rhs_counts.free();
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- 31
+-- DONE

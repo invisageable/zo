@@ -3,7 +3,7 @@
 -- @cmd — zo build hashset-basic.zo
 
 fun main() {
-  imu hashset: HashSet<int> = HashSet::new();
+  mut hashset: HashSet<int> = HashSet::new();
 
   -- empty.
   check@eq(hashset.len(), 0);
@@ -13,6 +13,8 @@ fun main() {
   check(hashset.insert(10));
   check(hashset.insert(20));
   check(hashset.insert(30));
+
+  showln(hashset);
 
   check@eq(hashset.len(), 3);
   check(!hashset.is_empty());
@@ -57,4 +59,5 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
+-- {20, 30, 10}
 -- DONE

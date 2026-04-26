@@ -53,5 +53,5 @@ fun main() {
   check(s < t);
   check(t > s);
 
-  showln("all unsigned-ops checks passed!");
+  showln("DONE");
 }

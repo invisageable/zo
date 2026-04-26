@@ -25,10 +25,6 @@ fun main() {
   imu d: int = (v[0] + v[1]) * v[2];
   check@eq(d, 900);
 
-  -- issue H: `EXPR OP (PAREN) HIGH_PREC_OP RHS` — the
-  -- old parser drained the outer op before `(`, then
-  -- `apply_deferred_binop` at `)` ate it against the
-  -- group result instead of the final `/` or `*` result.
   imu h1: int = 3 + (4 - 3) / 2;
   check@eq(h1, 3);
 
@@ -44,10 +40,6 @@ fun main() {
   imu h5: int = 10 + (2 + 3) * 4;
   check@eq(h5, 30);
 
-  -- issue H w/ ident LHS and group — the parser fix
-  -- produces `Ident, LParen` adjacent; the executor's
-  -- call-detection must reject this as a call when the
-  -- ident is a plain local variable.
   mut x: int = 3;
   imu h8: int = x + (1);
   check@eq(h8, 4);
@@ -73,5 +65,5 @@ fun main() {
 
   check@eq(iters, 3);
 
-  showln("all paren-binop checks passed!");
+  showln("DONE");
 }

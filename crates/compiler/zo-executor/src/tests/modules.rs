@@ -55,6 +55,7 @@ fun main() { 42; }"#,
         body_start: 2,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
+        mut_self: false,
       },
       Insn::ConstInt {
         dst: zo_value::ValueId(0),
@@ -99,6 +100,7 @@ fn test_empty_body_is_intrinsic() {
         body_start: 1,
         kind: FunctionKind::Intrinsic,
         pubness: Pubness::No,
+        mut_self: false,
       },
       Insn::Return {
         value: None,
@@ -120,6 +122,7 @@ fn test_non_empty_body_not_intrinsic() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
+        mut_self: false,
       },
       Insn::ConstInt {
         dst: zo_value::ValueId(0),
@@ -146,6 +149,7 @@ fn test_pub_fun_visibility() {
         body_start: 1,
         kind: FunctionKind::Intrinsic,
         pubness: Pubness::Yes,
+        mut_self: false,
       },
       Insn::Return {
         value: None,

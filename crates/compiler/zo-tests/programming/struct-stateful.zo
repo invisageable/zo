@@ -21,7 +21,7 @@ apply Counter {
 }
 
 fun main() {
-  imu counter: Counter = Counter::new();
+  mut counter: Counter = Counter::new();
 
   check@eq(counter.hello(), 12345);
   check@eq(counter.x(), 0);

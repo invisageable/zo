@@ -69,7 +69,7 @@ apply HashMap<$K, $V> {
   -- `size_of<T>()` primitives to be a pure-zo body.
   -- The FFI marshals K/V byte buffers at the call
   -- site; see `emit_map_insert` in zo-codegen-arm.
-  pub fun insert(self, k: $K, v: $V) {}
+  pub fun insert(mut self, k: $K, v: $V) {}
 
   -! Look up `k`. Returns `Option::Some(v)` on hit,
   -! `Option::None` on miss.
@@ -92,7 +92,7 @@ apply HashMap<$K, $V> {
   -! resolve until the next grow.
   -!
   -- codegen-replaced: see `emit_map_remove`.
-  pub fun remove(self, k: $K) -> Option<$V> {
+  pub fun remove(mut self, k: $K) -> Option<$V> {
     return Option::None;
   }
 
@@ -108,7 +108,7 @@ apply HashMap<$K, $V> {
 
   -! Release the backing allocation. The receiver
   -! must not be used after this call.
-  pub fun free(self) {
+  pub fun free(mut self) {
     __zo_map_free_raw(self.ptr);
   }
 }

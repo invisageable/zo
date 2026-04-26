@@ -44,10 +44,21 @@ const ASCII_ZERO: u16 = 48;
 const STACK_SLOT_SIZE: u32 = 8;
 const FP_LR_SAVE_OFFSET: i16 = -16;
 const FP_LR_LOAD_OFFSET: i16 = 16;
-// 7 caller-saved temp regs (X9-X15) * 8 bytes each.
-const CALLER_SAVE_RESERVE: u32 = 56;
-const CALLER_SAVE_COUNT: usize = 7;
-const CALLER_SAVE_START: u8 = 9; // X9..X17
+// 15 caller-saved temp regs (X1-X15) * 8 bytes each.
+// Includes X1..X8 because the register allocator may
+// place live values there — element ConstInt slots in
+// `ArrayLiteral` with > 7 elements, multi-arg call
+// receivers, etc. Pre-bump from X9..X15 didn't cover
+// this and `bl _malloc` silently clobbered the
+// extras. X0 is excluded because it's the BL's first
+// argument slot, set by the caller right before
+// `emit_extern_call`. X16/X17 are intra-procedure
+// scratch (the AAPCS allows any callee to use them
+// without saving), so the caller never expects them
+// preserved — saving is unnecessary.
+const CALLER_SAVE_RESERVE: u32 = 120;
+const CALLER_SAVE_COUNT: usize = 15;
+const CALLER_SAVE_START: u8 = 1;
 const FRAME_ALIGN_MASK: u32 = 15;
 const MAX_REG_ARGS: usize = 8;
 
@@ -248,6 +259,19 @@ pub struct ARM64Gen<'a> {
   /// kinds — without it the receiver pointer falls
   /// through to `itoa` and prints as a raw address.
   map_metas: HashMap<u32, (u32, u32)>,
+  /// `Vec<$T>` type → element `MapFmt` discriminant,
+  /// keyed by the vec's `TyId.0`. Populated by the same
+  /// pre-pass that fills `array_metas`, reading
+  /// `Insn::VecTyDef`. Drives `emit_vec_write` so
+  /// `showln(v)` calls `_zo_vec_show` with the right
+  /// element kind — without it the receiver struct
+  /// pointer routes through the generic struct printer
+  /// and prints `Vec { ptr: <int> }`.
+  vec_metas: HashMap<u32, u32>,
+  /// `HashSet<$K>` type → key `MapFmt` discriminant,
+  /// keyed by the set's `TyId.0`. Same role as
+  /// `vec_metas`, reading `Insn::SetTyDef`.
+  set_metas: HashMap<u32, u32>,
   /// Per-construction concrete payload types, keyed by the
   /// `EnumConstruct.dst` ValueId. Each entry pins down the
   /// variant index and the concrete `TyId` of every payload
@@ -277,6 +301,12 @@ pub struct ARM64Gen<'a> {
   /// `Symbol.as_u32()`. Same Store-then-Load forwarding shape
   /// as `local_enum_field_tys`.
   local_tuple_elem_tys: HashMap<u32, Vec<TyId>>,
+  /// Struct metadata keyed by `TyId.0`, populated on each
+  /// `Insn::StructDef`. Drives the pretty-printer in
+  /// `emit_struct_write` so `showln(p)` emits
+  /// `Point { x: 10, y: 20 }` instead of leaking the pointer
+  /// through `itoa`.
+  struct_metas: HashMap<u32, StructMeta>,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -312,6 +342,27 @@ const STR_DQUOTE_SYM: Symbol = Symbol(0xE000_FFF7);
 
 const TUPLE_OPEN_PAREN_SYM: Symbol = Symbol(0xE000_FFF6);
 const TUPLE_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFF5);
+
+/// `" }"` — close marker for the struct pretty-printer. Shared
+/// across every struct because the trailing space + brace is
+/// identical regardless of struct name.
+const STRUCT_CLOSE_BRACE_SYM: Symbol = Symbol(0xE000_FFF4);
+
+/// Per-struct pretty-printer metadata. One entry per `StructDef`
+/// seen by the codegen. `header_sym` owns the pre-baked
+/// `"StructName { "` string in `string_data`; each entry in
+/// `fields` owns a `"field_name: "` label and the field's type
+/// so `emit_struct_write` can dispatch through the field-type's
+/// writer.
+struct StructMeta {
+  header_sym: Symbol,
+  fields: Vec<StructFieldMeta>,
+}
+
+struct StructFieldMeta {
+  label_sym: Symbol,
+  ty_id: TyId,
+}
 
 impl<'a> ARM64Gen<'a> {
   /// Borrow the list of external symbols referenced by
@@ -359,10 +410,13 @@ impl<'a> ARM64Gen<'a> {
       value_types: HashMap::default(),
       array_metas: HashMap::default(),
       map_metas: HashMap::default(),
+      vec_metas: HashMap::default(),
+      set_metas: HashMap::default(),
       value_enum_field_tys: HashMap::default(),
       local_enum_field_tys: HashMap::default(),
       value_tuple_elem_tys: HashMap::default(),
       local_tuple_elem_tys: HashMap::default(),
+      struct_metas: HashMap::default(),
     }
   }
 
@@ -475,6 +529,23 @@ impl<'a> ARM64Gen<'a> {
     self.map_metas.get(&ty.0).copied()
   }
 
+  /// If `vid`'s type is a registered `Vec<$T>`, return the
+  /// element `MapFmt` discriminant. Same fall-through
+  /// semantics as `is_map_value`.
+  fn is_vec_value(&self, vid: ValueId) -> Option<u32> {
+    let ty = self.type_of(vid)?;
+
+    self.vec_metas.get(&ty.0).copied()
+  }
+
+  /// If `vid`'s type is a registered `HashSet<$K>`, return
+  /// the key `MapFmt` discriminant.
+  fn is_set_value(&self, vid: ValueId) -> Option<u32> {
+    let ty = self.type_of(vid)?;
+
+    self.set_metas.get(&ty.0).copied()
+  }
+
   /// Returns the tuple's element `TyId`s when `vid` came
   /// from a known `Insn::TupleLiteral` site (or was loaded
   /// from a local that did). The tuple type encoding lives
@@ -483,6 +554,20 @@ impl<'a> ARM64Gen<'a> {
   /// is the only source.
   fn is_tuple_value(&self, vid: ValueId) -> Option<Vec<TyId>> {
     self.value_tuple_elem_tys.get(&vid.0).cloned()
+  }
+
+  /// If `vid`'s type is a registered struct type, return its
+  /// `TyId`. `None` for non-structs and for struct types whose
+  /// `StructDef` wasn't surfaced (defensive — every struct type
+  /// reached by SIR should have one).
+  fn is_struct_value(&self, vid: ValueId) -> Option<TyId> {
+    let ty = self.type_of(vid)?;
+
+    if self.struct_metas.contains_key(&ty.0) {
+      Some(ty)
+    } else {
+      None
+    }
   }
 
   /// Emit a single spill operation (GP or FP).
@@ -756,6 +841,12 @@ impl<'a> ARM64Gen<'a> {
           val_fmt,
         } => {
           self.map_metas.insert(map_ty.0, (*key_fmt, *val_fmt));
+        }
+        Insn::VecTyDef { vec_ty, elem_fmt } => {
+          self.vec_metas.insert(vec_ty.0, *elem_fmt);
+        }
+        Insn::SetTyDef { set_ty, key_fmt } => {
+          self.set_metas.insert(set_ty.0, *key_fmt);
         }
         _ => {}
       }
@@ -2305,66 +2396,75 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ArrayLiteral { elements, .. } => {
-        if elements.is_empty() {
-          // Empty array: heap-allocate via malloc.
-          // Layout: [len:8][cap:8][data...]
-          let initial_cap: u32 = 1024;
-          let alloc_size =
-            (ARRAY_HEADER_SIZE as u32 + initial_cap * STACK_SLOT_SIZE) as u64;
+        // Both paths heap-allocate. Stack allocation for the
+        // non-empty case used to look like a free win — the
+        // bytes are right there, no syscall — but every `[]T`
+        // is a dynamic-growable array by type, and any later
+        // `arr.push(...)` calls `_realloc` on the receiver
+        // pointer. `realloc` on a stack address is UB; on
+        // macOS it spins. Heap-allocating both shapes keeps
+        // the invariant uniform: every `[]T` value is a real
+        // heap pointer, growable by realloc, freeable by
+        // free. The `[N]T` static-array optimization (true
+        // stack allocation, no growth) is a separate path
+        // that needs the array's `size: Option<u32>` to flow
+        // through `Insn::ArrayTyDef` — see the follow-up
+        // when static arrays get their own SIR shape.
+        let n = elements.len() as u32;
 
-          self.emit_mov_imm_64(X0, alloc_size);
-          self.emit_extern_call("_malloc");
-          // X0 = heap pointer. Store len=0, cap=initial_cap.
-          self.emitter.emit_mov_imm(X16, 0);
-          self.emitter.emit_str(X16, X0, 0);
-          self.emit_mov_imm_64(X16, initial_cap as u64);
-          self.emitter.emit_str(X16, X0, 8);
+        // Empty arrays over-provision (cap = 1024) so the
+        // first 1024 pushes don't pay realloc. Non-empty
+        // literals pay one realloc on the first push past
+        // their initial size — accepted; tightening the
+        // initial allocation reduces idle bytes per
+        // function.
+        let initial_cap: u32 = if n == 0 { 1024 } else { n };
+        let alloc_size =
+          (ARRAY_HEADER_SIZE as u32 + initial_cap * STACK_SLOT_SIZE) as u64;
 
-          // Store heap pointer to stack slot so Store/Load
-          // can find it.
-          let base = self.struct_base + self.next_struct_slot;
+        self.emit_mov_imm_64(X0, alloc_size);
+        self.emit_extern_call("_malloc");
 
-          self.emit_str_sp(X0, base);
+        // X0 holds the heap pointer; pin it in a callee-saved
+        // register (X19) across the per-element stores so the
+        // X16/X17 scratches we use for length/cap don't lose
+        // it. AAPCS guarantees `_malloc` preserved X19, so no
+        // explicit save needed. Element values landed back in
+        // their allocator-assigned regs because
+        // `emit_extern_call` saves X1..X15 across the BL.
+        let r_buf = Register::new(19);
 
-          if let Some(dst) = self.reg_for_insn(idx) {
-            self.emitter.emit_mov_reg(dst, X0);
+        self.emitter.emit_mov_reg(r_buf, X0);
+
+        // Header: len = n, cap = initial_cap.
+        self.emit_mov_imm_64(X16, n as u64);
+        self.emitter.emit_str(X16, r_buf, 0);
+        self.emit_mov_imm_64(X16, initial_cap as u64);
+        self.emitter.emit_str(X16, r_buf, 8);
+
+        for (i, elem) in elements.iter().enumerate() {
+          let off_u16 =
+            ARRAY_HEADER_SIZE + (i as u16) * (STACK_SLOT_SIZE as u16);
+
+          if let Some(fp) = self.alloc_fp_reg(*elem) {
+            self.emitter.emit_str_fp(fp, r_buf, off_u16);
+          } else if let Some(reg) = self.alloc_reg(*elem) {
+            self.emitter.emit_str(reg, r_buf, off_u16 as i16);
           }
-
-          // Only 1 stack slot for the pointer.
-          self.next_struct_slot += STACK_SLOT_SIZE;
-        } else {
-          // Non-empty literal: stack-allocate (unchanged).
-          // Layout: [len:8][cap:8][e0:8][e1:8]...[eN:8]
-          let base = self.struct_base + self.next_struct_slot;
-          let n = elements.len() as u32;
-
-          // Store length at [SP + base].
-          self.emitter.emit_mov_imm(X16, n as u16);
-          self.emit_str_sp(X16, base);
-
-          // Store capacity = len (tight, no growth).
-          self.emit_str_sp(X16, base + STACK_SLOT_SIZE);
-
-          // Store each element.
-          for (i, elem) in elements.iter().enumerate() {
-            let off =
-              base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
-
-            if let Some(fp) = self.alloc_fp_reg(*elem) {
-              self.emit_str_fp_sp(fp, off);
-            } else if let Some(reg) = self.alloc_reg(*elem) {
-              self.emit_str_sp(reg, off);
-            }
-          }
-
-          // Result: pointer to array base.
-          if let Some(dst) = self.reg_for_insn(idx) {
-            self.emit_add_sp_offset(dst, base);
-          }
-
-          // Advance slot: 2 (header) + N elements.
-          self.next_struct_slot += (2 + n) * STACK_SLOT_SIZE;
         }
+
+        // Spill the heap pointer to a stack slot so later
+        // Store/Load can find it. Same shape as the original
+        // empty path — only one slot per literal.
+        let base = self.struct_base + self.next_struct_slot;
+
+        self.emit_str_sp(r_buf, base);
+
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emitter.emit_mov_reg(dst, r_buf);
+        }
+
+        self.next_struct_slot += STACK_SLOT_SIZE;
       }
 
       Insn::ArrayIndex {
@@ -2611,8 +2711,15 @@ impl<'a> ARM64Gen<'a> {
       } => {
         self.register_enum_meta(*name, *ty_id, variants);
       }
-      Insn::StructDef { .. }
-      | Insn::ConstDef { .. }
+      Insn::StructDef {
+        name,
+        ty_id,
+        fields,
+        ..
+      } => {
+        self.register_struct_meta(*name, *ty_id, fields);
+      }
+      Insn::ConstDef { .. }
       | Insn::ArrayTyDef { .. }
       | Insn::MapTyDef { .. } => {}
 
@@ -3186,6 +3293,23 @@ impl<'a> ARM64Gen<'a> {
       // the `MapFmt` discriminants we passed; codegen never
       // sees the slot bytes itself.
       self.emit_map_write(vid, kf, vf, fd);
+    } else if let Some(elem_fmt) = arg_vid.and_then(|v| self.is_vec_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // `Vec<$T>` — same shape as map: load `v.ptr`, hand
+      // off to `_zo_vec_show` with the element kind.
+      // Dispatched BEFORE `is_struct_value` because Vec is
+      // structurally `struct Vec { ptr: int }` — the struct
+      // walker would print `Vec { ptr: <int> }` instead of
+      // the elements.
+      self.emit_vec_write(vid, elem_fmt, fd);
+    } else if let Some(key_fmt) = arg_vid.and_then(|v| self.is_set_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // `HashSet<$K>` — same shape as Vec, routed to
+      // `_zo_set_show`. Same struct-walker shadowing
+      // concern as Vec.
+      self.emit_set_write(vid, key_fmt, fd);
     } else if let Some(elem_tys) = arg_vid.and_then(|v| self.is_tuple_value(v))
       && let Some(vid) = arg_vid
     {
@@ -3193,6 +3317,14 @@ impl<'a> ARM64Gen<'a> {
       // struct (8-byte slots in declaration order); we walk
       // and dispatch each slot through `emit_field_write`.
       self.emit_tuple_write(vid, &elem_tys, fd);
+    } else if let Some(ty_id) = arg_vid.and_then(|v| self.is_struct_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // Struct — `Name { f0: v0, f1: v1, ... }`. Receiver
+      // register holds the struct base pointer; field
+      // labels and types come from the per-StructDef
+      // `struct_metas` entry.
+      self.emit_struct_write(vid, ty_id, fd);
     } else if !is_str && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -3419,6 +3551,36 @@ impl<'a> ARM64Gen<'a> {
     let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
     let is_bool = ty_id.0 == BOOL_TYPE_ID;
     let is_char = ty_id.0 == CHAR_TYPE_ID;
+    let nested_elem_ty = self.array_metas.get(&ty_id.0).copied();
+    let nested_struct = self.struct_metas.contains_key(&ty_id.0);
+
+    if let Some(elem_ty) = nested_elem_ty {
+      // Nested array (`[][]T`, `[]Point`, …). The outer
+      // walk's X19..X22 hold the parent's base / len /
+      // index / tmp; the inner walk reuses them, so push
+      // them onto the stack across the recursive call and
+      // pop after. Pre-indexed STP / post-indexed LDP do
+      // the SP-relative push/pop in one instruction each.
+      self.emit_pp_state_push();
+      self.emitter.emit_mov_reg(Register::new(19), X0);
+      self.emit_array_walk_from_x19(elem_ty, fd);
+      self.emit_pp_state_pop();
+
+      return;
+    }
+
+    if nested_struct {
+      // Nested struct (`Outer { p: Point }`, `[]Point`).
+      // Same shape as the array case: save outer state,
+      // load this struct's base into X19, walk fields,
+      // restore.
+      self.emit_pp_state_push();
+      self.emitter.emit_mov_reg(Register::new(19), X0);
+      self.emit_struct_walk_from_x19(ty_id, fd);
+      self.emit_pp_state_pop();
+
+      return;
+    }
 
     if is_str {
       // Mirror Rust Debug — strings nested inside an enum
@@ -3456,6 +3618,32 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
+  /// Push the four pretty-printer state registers
+  /// (X19 / X20 / X21 / X22) onto the stack ahead of a
+  /// recursive `emit_*_walk_from_x19` call. Uses pre-indexed
+  /// STP so each pair drops 16 bytes in one instruction. The
+  /// peer `emit_pp_state_pop` undoes both pushes in reverse
+  /// order with post-indexed LDP.
+  fn emit_pp_state_push(&mut self) {
+    self
+      .emitter
+      .emit_stp(Register::new(19), Register::new(20), SP, -16);
+    self
+      .emitter
+      .emit_stp(Register::new(21), Register::new(22), SP, -16);
+  }
+
+  /// Pop the four pretty-printer state registers in the
+  /// reverse order of `emit_pp_state_push`.
+  fn emit_pp_state_pop(&mut self) {
+    self
+      .emitter
+      .emit_ldp(Register::new(21), Register::new(22), SP, 16);
+    self
+      .emitter
+      .emit_ldp(Register::new(19), Register::new(20), SP, 16);
+  }
+
   /// Pretty-print a dynamic array value as `[e0, e1, ...]`.
   ///
   /// Layout (from `Insn::ArrayLiteral` codegen):
@@ -3475,17 +3663,33 @@ impl<'a> ARM64Gen<'a> {
   fn emit_array_write(&mut self, vid: ValueId, elem_ty: TyId, fd: u16) {
     let src = self.alloc_reg(vid).unwrap_or(X0);
 
+    self.register_punctuation_sym(ARRAY_OPEN_BRACKET_SYM, b"[");
+    self.register_punctuation_sym(ARRAY_CLOSE_BRACKET_SYM, b"]");
+    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
+
+    // Top-level entry: move the receiver into X19 so the
+    // walk can use it as the base register. Recursive
+    // entries (`emit_field_write` → array element that is
+    // itself an array) call `emit_array_walk_from_x19`
+    // directly after pushing the outer caller's X19..X22.
+    self.emitter.emit_mov_reg(Register::new(19), src);
+    self.emit_array_walk_from_x19(elem_ty, fd);
+  }
+
+  /// Body of the array pretty-printer factored to assume the
+  /// array's base pointer already lives in X19. This shape is
+  /// the recursion entry point: when an element is itself an
+  /// array, `emit_field_write` pushes X19..X22 onto the stack,
+  /// loads the inner base into X19, and re-enters here. The
+  /// outer state survives because every level pushes and pops
+  /// its own X19..X22 pair.
+  fn emit_array_walk_from_x19(&mut self, elem_ty: TyId, fd: u16) {
     let r_base = Register::new(19);
     let r_len = Register::new(20);
     let r_idx = Register::new(21);
     let r_tmp = Register::new(22);
 
-    self.register_punctuation_sym(ARRAY_OPEN_BRACKET_SYM, b"[");
-    self.register_punctuation_sym(ARRAY_CLOSE_BRACKET_SYM, b"]");
-    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
-
-    // Save array base in X19, load length into X20, zero i.
-    self.emitter.emit_mov_reg(r_base, src);
+    // Load length from base[0], zero the index.
     self.emitter.emit_ldr(r_len, r_base, 0);
     self.emitter.emit_mov_imm(r_idx, 0);
 
@@ -3526,6 +3730,12 @@ impl<'a> ARM64Gen<'a> {
 
     // Dispatch on element type.
     self.emit_field_write(elem_ty, fd, true);
+
+    // Reload index into X21 — `emit_field_write` may have
+    // recursed into another array / struct printer that
+    // popped its own pushed X21 back, but the re-pop
+    // restores the OUTER caller's X21 (this loop's index)
+    // before this point in the sequence. No reload needed.
 
     // i++, B loop_start.
     self.emitter.emit_add_imm(r_idx, r_idx, 1);
@@ -3582,6 +3792,137 @@ impl<'a> ARM64Gen<'a> {
     self.emit_synthetic_str_write(TUPLE_CLOSE_PAREN_SYM, fd);
   }
 
+  /// Record `Insn::StructDef` metadata and pre-bake the
+  /// struct header (`"Name { "`) plus each field label
+  /// (`"field: "`) into `string_data` under synthetic symbols.
+  /// `emit_struct_write` consumes these to produce
+  /// `Name { f0: v0, f1: v1, ... }` without any runtime
+  /// formatting.
+  fn register_struct_meta(
+    &mut self,
+    name: Symbol,
+    ty_id: TyId,
+    fields: &[(Symbol, TyId, bool)],
+  ) {
+    if self.struct_metas.contains_key(&ty_id.0) {
+      return;
+    }
+
+    let struct_str = self.interner.get(name).to_owned();
+    let header = format!("{struct_str} {{ ");
+    let header_sym = Symbol(self.next_enum_sym);
+
+    self.next_enum_sym += 1;
+
+    self.intern_synthetic_str(header_sym, header.as_bytes());
+
+    let mut field_metas = Vec::with_capacity(fields.len());
+
+    for (fname, fty, _has_default) in fields {
+      let fname_str = self.interner.get(*fname);
+      let label = format!("{fname_str}: ");
+      let label_sym = Symbol(self.next_enum_sym);
+
+      self.next_enum_sym += 1;
+
+      self.intern_synthetic_str(label_sym, label.as_bytes());
+
+      field_metas.push(StructFieldMeta {
+        label_sym,
+        ty_id: *fty,
+      });
+    }
+
+    self.register_punctuation_sym(STRUCT_CLOSE_BRACE_SYM, b" }");
+    self.register_punctuation_sym(ENUM_COMMA_SPACE_SYM, b", ");
+
+    self.struct_metas.insert(
+      ty_id.0,
+      StructMeta {
+        header_sym,
+        fields: field_metas,
+      },
+    );
+  }
+
+  /// Helper used by `register_struct_meta` to push a length-
+  /// prefixed string into `string_data` under a synthetic
+  /// symbol, matching the format `emit_synthetic_str_write`
+  /// expects.
+  fn intern_synthetic_str(&mut self, sym: Symbol, bytes: &[u8]) {
+    let mut buf = Buffer::new();
+
+    buf.bytes(&(bytes.len() as u64).to_le_bytes());
+    buf.bytes(bytes);
+    buf.bytes(b"\0");
+
+    self.string_data.push((sym, buf.finish()));
+  }
+
+  /// Pretty-print a struct value as `Name { f0: v0, ... }`.
+  ///
+  /// Layout matches `Insn::StructConstruct` codegen: fields
+  /// in declaration order, 8-byte slots, base pointer in the
+  /// receiver register. Field count and types are statically
+  /// known from `struct_metas`, so this is an unrolled walk
+  /// — no length header, no loop. Each field dispatches
+  /// through `emit_field_write` (same per-type branching the
+  /// enum / tuple / array printers already use).
+  fn emit_struct_write(&mut self, vid: ValueId, ty_id: TyId, fd: u16) {
+    if !self.struct_metas.contains_key(&ty_id.0) {
+      if let Some(src) = self.alloc_reg(vid)
+        && src != X0
+      {
+        self.emitter.emit_mov_reg(X0, src);
+      }
+
+      self.emit_itoa_and_write(fd);
+
+      return;
+    }
+
+    let src = self.alloc_reg(vid).unwrap_or(X0);
+
+    // Top-level entry: move the receiver into X19 so the
+    // walk can use it as the base register. Recursive
+    // entries (`emit_field_write` → struct field that is
+    // itself a struct) call `emit_struct_walk_from_x19`
+    // directly after pushing the outer caller's X19..X22.
+    self.emitter.emit_mov_reg(Register::new(19), src);
+    self.emit_struct_walk_from_x19(ty_id, fd);
+  }
+
+  /// Body of the struct pretty-printer factored to assume the
+  /// struct's base pointer already lives in X19. Same role as
+  /// `emit_array_walk_from_x19`: recursion entry point for
+  /// `emit_field_write` after the outer X19..X22 are saved.
+  fn emit_struct_walk_from_x19(&mut self, ty_id: TyId, fd: u16) {
+    let Some(meta) = self.struct_metas.get(&ty_id.0) else {
+      return;
+    };
+
+    let header_sym = meta.header_sym;
+    let fields: Vec<(Symbol, TyId)> =
+      meta.fields.iter().map(|f| (f.label_sym, f.ty_id)).collect();
+
+    self.emit_synthetic_str_write(header_sym, fd);
+
+    for (i, (label_sym, fty)) in fields.iter().enumerate() {
+      self.emit_synthetic_str_write(*label_sym, fd);
+
+      let off = (i as i16) * STACK_SLOT_SIZE as i16;
+
+      self.emitter.emit_ldr(X0, Register::new(19), off);
+      self.emit_field_write(*fty, fd, true);
+
+      if i + 1 < fields.len() {
+        self.emit_synthetic_str_write(ENUM_COMMA_SPACE_SYM, fd);
+      }
+    }
+
+    self.emit_synthetic_str_write(STRUCT_CLOSE_BRACE_SYM, fd);
+  }
+
   /// Pretty-print a `HashMap<K, V>` as `{k0: v0, ...}`.
   ///
   /// The receiver register holds the map's struct
@@ -3612,6 +3953,36 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_mov_imm(X2, key_fmt as u16);
     self.emitter.emit_mov_imm(X3, val_fmt as u16);
     self.emit_extern_call("_zo_map_show");
+  }
+
+  /// Pretty-print a `Vec<$T>` as `[e0, e1, ...]`. Same shape
+  /// as `emit_map_write` — receiver register holds the
+  /// `Vec { ptr }` struct address; we load `v.ptr` and hand
+  /// off to `_zo_vec_show` with the element kind. The
+  /// runtime walks the live elements, formats each with
+  /// `MapFmt::format_bytes`, and emits a single `write`
+  /// syscall.
+  fn emit_vec_write(&mut self, vid: ValueId, elem_fmt: u32, fd: u16) {
+    let recv = self.alloc_reg(vid).unwrap_or(X0);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emitter.emit_mov_imm(X1, fd);
+    self.emitter.emit_mov_imm(X2, elem_fmt as u16);
+    self.emit_extern_call("_zo_vec_show");
+  }
+
+  /// Pretty-print a `HashSet<$K>` as `{k0, k1, ...}`. Same
+  /// shape as `emit_vec_write` but routed through
+  /// `_zo_set_show`, which walks the underlying `ZoMap`
+  /// (sets reuse the map allocator) and prints just the
+  /// keys — no `: value` per entry.
+  fn emit_set_write(&mut self, vid: ValueId, key_fmt: u32, fd: u16) {
+    let recv = self.alloc_reg(vid).unwrap_or(X0);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emitter.emit_mov_imm(X1, fd);
+    self.emitter.emit_mov_imm(X2, key_fmt as u16);
+    self.emit_extern_call("_zo_set_show");
   }
 
   /// Emit a newline write to the given fd.

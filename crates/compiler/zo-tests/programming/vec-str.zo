@@ -1,18 +1,17 @@
--- tests-run-pass: Vec<str> — exercise the str element
--- storage path. The runtime stores the str pointer
--- (8 bytes) as opaque bytes; this test validates that
--- the same pointer round-trips through push / pop / get
--- without corruption.
+-- tests-run-pass: Vec<str>
 -- @cmd — zo build vec-str.zo
 --
--- Note: printing the popped str payload via `showln` is
--- intentionally NOT tested here — the showln-typed
--- dispatch needs per-call-site `$T` derivation to know
--- the payload is `str` (PLAN_AOC phase C tracks this).
--- This test only proves the storage round-trip.
+-- exercise the str element storage path. The runtime stores the str pointer
+-- (8 bytes) as opaque bytes; this test validates that the same pointer 
+-- round-trips through push / pop / get without corruption.
+--
+-- Note: printing the popped str payload via `showln` is intentionally NOT 
+-- tested here — the showln-typed dispatch needs per-call-site `$T` derivation
+-- to know the payload is `str` (PLAN_AOC phase C tracks this). This test only 
+-- proves the storage round-trip.
 
 fun main() {
-  imu names: Vec<str> = Vec::new();
+  mut names: Vec<str> = Vec::new();
 
   names.push("alice");
   names.push("bob");
@@ -20,10 +19,10 @@ fun main() {
 
   check@eq(names.len(), 3);
 
-  -- showln(names);
+  showln(names);
 
-  -- contains_key not on Vec, but the storage round-trip
-  -- is implicit in `len` + grow + free working.
+  -- contains_key not on Vec, but the storage round-trip is implicit in
+  -- `len` + grow + free working.
   for i := 0..20 => names.push("john");
 
   check@eq(names.len(), 23);
@@ -47,4 +46,5 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
+-- ["alice", "bob", "carol"]
 -- DONE

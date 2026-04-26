@@ -11,4 +11,16 @@ fun main() {
   check(arr[0] == 10);
   check(arr[1] == 20);
   check(arr[2] == 30);
+
+  showln(arr[0]);
+  showln(arr[1]);
+  showln(arr[2]);
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 20
+-- 30
+-- DONE

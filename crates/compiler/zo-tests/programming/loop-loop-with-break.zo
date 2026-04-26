@@ -2,7 +2,7 @@ fun main() {
   mut x: int = 0;
 
   loop {
-    if x == 3 {
+    if x == 1_000_000 {
       showln(x);
 
       break;
@@ -11,5 +11,9 @@ fun main() {
     x += 1;
   }
 
-  x
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- 1000000
+-- DONE

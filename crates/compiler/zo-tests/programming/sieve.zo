@@ -64,6 +64,7 @@ fun main() {
 
   while i < primes.len {
     showln(primes[i]);
+
     i = i + 1;
   }
 }

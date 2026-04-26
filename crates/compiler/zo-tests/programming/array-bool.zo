@@ -8,4 +8,11 @@ fun main() {
   check(!flags[1]);
   check(flags[2]);
   check(!flags[3]);
+
+  showln(flags);
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- [true, false, true, false]
+-- DONE

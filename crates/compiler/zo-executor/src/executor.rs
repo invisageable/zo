@@ -1276,6 +1276,7 @@ impl<'a> Executor<'a> {
           loop_label: Some(self.sir_values.len() as u32),
           branch_emitted: false,
           for_var: None,
+          for_idx_var: None,
           scope_depth: self.scope_stack.len(),
           value_sink,
           value_sink_ty: None,
@@ -1320,6 +1321,12 @@ impl<'a> Executor<'a> {
         let children_end = (header.child_start + header.child_count) as usize;
 
         self.execute_for(idx, children_end);
+      }
+
+      Token::Loop => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_loop(idx, children_end);
       }
 
       Token::Match => {
@@ -1752,6 +1759,7 @@ impl<'a> Executor<'a> {
             body_start,
             kind: FunctionKind::UserDefined,
             pubness: pending_func.pubness,
+            mut_self: pending_func.mut_self,
           });
 
           // Now set the context with the correct body start.
@@ -2080,10 +2088,17 @@ impl<'a> Executor<'a> {
               self.branch_stack.pop();
             }
             BranchKind::For => {
-              // Emit: i = i + 1; jump loop_start; label end
+              // Emit: i = i + 1; jump loop_start; label end.
+              // For the array form, `for_idx_var` is the
+              // synthetic counter we increment; `for_var`
+              // is the user's element binding (re-stored
+              // each iter from `arr[idx]`) and stays out
+              // of the increment.
               let int_ty = self.ty_checker.int_type();
 
-              if let Some(var_name) = ctx.for_var {
+              let counter = ctx.for_idx_var.or(ctx.for_var);
+
+              if let Some(var_name) = counter {
                 let ld = ValueId(self.sir.next_value_id);
 
                 self.sir.next_value_id += 1;
@@ -5422,6 +5437,7 @@ impl<'a> Executor<'a> {
       body_start,
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
+      mut_self: false,
     });
 
     // Register for call resolution.
@@ -5434,6 +5450,7 @@ impl<'a> Executor<'a> {
       pubness: Pubness::No,
       type_params: Vec::new(),
       return_type_args: Vec::new(),
+      mut_self: false,
     });
 
     // Update pre-registered letrec local (if any) so
@@ -6002,6 +6019,16 @@ impl<'a> Executor<'a> {
     let sir_params =
       params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
 
+    // Receiver mutability bit: `true` only when the first
+    // parameter is `mut self`. Read by every dot-call site to
+    // reject `imu m; m.mutating_method(...)`.
+    let mut_self = matches!(
+      params.first(),
+      Some((s, _, m))
+        if *s == zo_interner::Symbol::SELF_LOWER
+          && *m == Mutability::Yes
+    );
+
     // Signature-only pre-scan path. Registers the FunDef so
     // forward references (mutual recursion, out-of-order
     // calls) resolve correctly during the main pass, then
@@ -6024,6 +6051,7 @@ impl<'a> Executor<'a> {
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
+        mut_self,
       });
 
       // Drop any type_params minted during this signature
@@ -6132,6 +6160,7 @@ impl<'a> Executor<'a> {
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
+        mut_self,
       });
 
       // Restore outer type_params scope (signature parse
@@ -6162,6 +6191,7 @@ impl<'a> Executor<'a> {
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
+      mut_self,
     });
 
     // Push a scope for the function parameters
@@ -7344,6 +7374,7 @@ impl<'a> Executor<'a> {
       body_start: 0,
       kind: FunctionKind::Intrinsic,
       pubness,
+      mut_self: false,
     });
 
     // Register as known function.
@@ -7359,6 +7390,7 @@ impl<'a> Executor<'a> {
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
+      mut_self: false,
     });
 
     // Restore the outer scope's type params (apply block
@@ -8110,6 +8142,7 @@ impl<'a> Executor<'a> {
         body_start,
         kind: FunctionKind::UserDefined,
         pubness,
+        mut_self: false,
       });
 
       // Emit default value constants.
@@ -8212,6 +8245,7 @@ impl<'a> Executor<'a> {
         pubness,
         type_params: vec![],
         return_type_args: vec![],
+        mut_self: false,
       });
     }
 
@@ -9202,6 +9236,34 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
+    // Receiver-mutability check. When the callee was declared
+    // `mut self`, the receiver expression must resolve to a
+    // `mut` binding — otherwise calling
+    // `imu m: HashMap<...>; m.insert(...)` would silently
+    // mutate the map's heap buffer through a const-looking
+    // binding. Only fires for direct-binding receivers
+    // (`recv_sym_opt = Some(_)`); chained receivers
+    // (`f().m()`, `s[0].m()`) carry no recoverable binding
+    // and are intentionally exempt — the language can't see
+    // a binding to check.
+    if func.mut_self
+      && let Some(&(_recv_ty, Some(recv_sym))) =
+        self.dot_method_recv_ty.get(&dot_idx)
+    {
+      let recv_mut = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == recv_sym)
+        .map(|l| l.mutability);
+
+      if matches!(recv_mut, Some(Mutability::No)) {
+        let span = self.tree.spans[dot_idx];
+
+        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+      }
+    }
+
     // Count explicit args between parens.
     let has_content = lparen_idx + 1 < rparen_idx;
     let mut comma_count = 0;
@@ -9842,6 +9904,7 @@ impl<'a> Executor<'a> {
       loop_label: None,
       branch_emitted: false,
       for_var: None,
+      for_idx_var: None,
       scope_depth: self.scope_stack.len(),
       value_sink,
       value_sink_ty: None,
@@ -11075,7 +11138,19 @@ impl<'a> Executor<'a> {
   }
 
   /// Sets up a while loop context.
-  fn execute_while(&mut self, _start_idx: usize, _end_idx: usize) {
+  ///
+  /// Two body shapes:
+  ///   - block: `while cond { ... }` — main walk drives
+  ///     the cond + LBrace emits `BranchIfNot`; RBrace
+  ///     closes via `BranchKind::While`. Just push the
+  ///     ctx and return.
+  ///   - line:  `while cond => expr;` — main walk has no
+  ///     hook for `=>`, so we inline-finalize here:
+  ///     sub-walk cond, emit `BranchIfNot`, sub-walk body,
+  ///     emit `Jump loop_label; Label end_label`, pop ctx.
+  fn execute_while(&mut self, start_idx: usize, end_idx: usize) {
+    let body_marker = self.scan_while_body_marker(start_idx, end_idx);
+
     let loop_label = self.sir.next_label();
     let end_label = self.sir.next_label();
 
@@ -11088,9 +11163,166 @@ impl<'a> Executor<'a> {
       loop_label: Some(loop_label),
       branch_emitted: false,
       for_var: None,
+      for_idx_var: None,
       scope_depth: self.scope_stack.len(),
       // Loops are always statement-position today — no
       // `loop { break value }` expression form yet.
+      value_sink: None,
+      value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
+    });
+
+    // Block form: hand off to the main walk; the LBrace
+    // handler will emit the `BranchIfNot` and the matching
+    // RBrace will close the loop. Same path the executor
+    // has used since the while construct shipped.
+    let Some((fat_arrow_idx, semicolon_idx)) = body_marker else {
+      return;
+    };
+
+    // Line form: drive cond + body inline.
+    let saved_skip = self.skip_until;
+    self.skip_until = 0;
+
+    let stack_before = self.sir_values.len();
+
+    // Walk cond from after `while` (start_idx + 1) up to
+    // (but not including) the FatArrow.
+    for i in (start_idx + 1)..fat_arrow_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+    }
+
+    self.apply_deferred_binop();
+
+    // Pop cond from value stack and emit the branch.
+    if let Some(cond_sir) = self.sir_values.pop() {
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      self.sir.emit(Insn::BranchIfNot {
+        cond: cond_sir,
+        target: end_label,
+      });
+
+      if let Some(ctx) = self.branch_stack.last_mut() {
+        ctx.branch_emitted = true;
+      }
+    }
+
+    // Body scope (matches the LBrace's `push_scope` for
+    // the block form).
+    self.push_scope();
+
+    // Walk body from after `=>` to the terminating
+    // `Semicolon` (inclusive — its handler triggers the
+    // pending-assign / pending-compound finalize hooks).
+    for i in (fat_arrow_idx + 1)..=semicolon_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+
+      if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
+        self.apply_deferred_binop();
+      }
+    }
+
+    self.skip_until = saved_skip;
+
+    // Discard any leftover stack entries from the body
+    // expression — its result isn't used.
+    while self.sir_values.len() > stack_before {
+      self.sir_values.pop();
+      self.value_stack.pop();
+      self.ty_stack.pop();
+    }
+
+    // Loop close: `Jump loop_label; Label end_label`.
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    self.branch_stack.pop();
+    self.pop_scope();
+
+    // Skip past the body's terminating `;`.
+    self.skip_until = semicolon_idx + 1;
+  }
+
+  /// Find the body marker for `while cond <body_marker>...`.
+  /// Returns `Some((fat_arrow_idx, semicolon_idx))` for the
+  /// line form; `None` for the block form (where the body
+  /// starts at an LBrace and gets driven by the main walk).
+  fn scan_while_body_marker(
+    &self,
+    start_idx: usize,
+    end_idx: usize,
+  ) -> Option<(usize, usize)> {
+    let mut paren_depth: i32 = 0;
+    let mut fat_arrow_idx: Option<usize> = None;
+
+    for j in (start_idx + 1)..end_idx {
+      match self.tree.nodes[j].token {
+        Token::LParen | Token::LBracket => paren_depth += 1,
+        Token::RParen | Token::RBracket => paren_depth -= 1,
+        _ => {}
+      }
+
+      if paren_depth != 0 {
+        continue;
+      }
+
+      match self.tree.nodes[j].token {
+        Token::LBrace => return None,
+        Token::FatArrow => {
+          fat_arrow_idx = Some(j);
+
+          break;
+        }
+        _ => {}
+      }
+    }
+
+    let fat_arrow_idx = fat_arrow_idx?;
+
+    let semicolon_idx = ((fat_arrow_idx + 1)..end_idx)
+      .find(|&j| self.tree.nodes[j].token == Token::Semicolon)
+      .unwrap_or(end_idx);
+
+    Some((fat_arrow_idx, semicolon_idx))
+  }
+
+  /// `loop { ... }` — unconditional repeat until `break`.
+  /// Desugars to `while true`: same SIR shape minus the
+  /// condition load and `BranchIfNot`. Reuses
+  /// `BranchKind::While` so the `RBrace` close path
+  /// (`Jump loop_label; Label end_label`) and the
+  /// `Token::Break` / `Token::Continue` filters work as-is.
+  /// `branch_emitted = true` from the start so the LBrace
+  /// handler knows there's nothing to emit and never
+  /// touches the value stack expecting a condition.
+  fn execute_loop(&mut self, _start_idx: usize, _end_idx: usize) {
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    self.branch_stack.push(BranchCtx {
+      kind: BranchKind::While,
+      end_label,
+      else_label: None,
+      loop_label: Some(loop_label),
+      branch_emitted: true,
+      for_var: None,
+      for_idx_var: None,
+      scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
@@ -11169,14 +11401,34 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    let range_idx = match range_idx {
+    let body_start_idx = match body_start_idx {
       Some(i) => i,
       None => return,
     };
 
-    let body_start_idx = match body_start_idx {
+    // Two header shapes:
+    //   range:  `for i := a..b`        (range_idx is Some)
+    //   array:  `for x := <expr>`      (range_idx is None, rhs is `[]T` / `[N]T`)
+    //
+    // Array form is delegated to a sibling routine — same
+    // header parse, different lowering (ArrayLen + ArrayIndex
+    // per iter instead of integer cmp). Both forms support
+    // the line (`=>`) and block (`{ ... }`) bodies; the
+    // sibling routine forks on `body_is_fat_arrow` the same
+    // way the range path below does.
+    let range_idx = match range_idx {
       Some(i) => i,
-      None => return,
+      None => {
+        self.execute_for_array(
+          end_idx,
+          var_name,
+          colon_eq_idx,
+          body_start_idx,
+          body_is_fat_arrow,
+        );
+
+        return;
+      }
     };
 
     // For the sub-walk range below we need the last header
@@ -11392,6 +11644,7 @@ impl<'a> Executor<'a> {
       loop_label: Some(loop_label),
       branch_emitted: true,
       for_var: Some(var_name),
+      for_idx_var: None,
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
@@ -11510,6 +11763,387 @@ impl<'a> Executor<'a> {
     // Skip past the `;` that terminated the body. The
     // synthetic `RBrace` that follows is the enclosing
     // block's — main loop handles it normally.
+    self.skip_until = semicolon_idx + 1;
+  }
+
+  /// Lower the array iteration form `for x := <arr> { ... }`
+  /// (or the `=> expr;` line variant). Header is already
+  /// parsed by `execute_for`; this routine evaluates the rhs,
+  /// pulls the element type out of its `Ty::Array`, and emits
+  /// a synthetic-index loop that re-binds `x` from
+  /// `arr[idx]` on each iteration.
+  ///
+  /// Lowering shape:
+  /// ```text
+  ///   __for_arr_<n>__ = <rhs>           // VarDef + Store
+  ///   __for_idx_<n>__ = 0
+  /// loop_label:
+  ///   tmp_len = ArrayLen(__for_arr)
+  ///   tmp_idx = Load(__for_idx)
+  ///   cond    = tmp_idx < tmp_len
+  ///   BranchIfNot cond -> end_label
+  ///   tmp_arr = Load(__for_arr)
+  ///   elem    = ArrayIndex(tmp_arr, tmp_idx)
+  ///   <user_var> = elem
+  ///   <body>
+  ///   // close path increments __for_idx, jumps loop_label
+  /// end_label:
+  /// ```
+  fn execute_for_array(
+    &mut self,
+    end_idx: usize,
+    var_name: Symbol,
+    colon_eq_idx: usize,
+    body_start_idx: usize,
+    body_is_fat_arrow: bool,
+  ) {
+    let int_ty = self.ty_checker.int_type();
+
+    // Evaluate the rhs expression. After this, `sir_values`
+    // has the array `ValueId` on top and `ty_stack` has its
+    // `TyId`.
+    let saved_skip = self.skip_until;
+    self.skip_until = 0;
+
+    let stack_before = self.sir_values.len();
+
+    for i in (colon_eq_idx + 1)..body_start_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+    }
+
+    self.apply_deferred_binop();
+    self.skip_until = saved_skip;
+
+    let arr_sir = match self.sir_values.pop() {
+      Some(s) => s,
+      None => return,
+    };
+
+    let arr_ty = self.ty_stack.pop().unwrap_or(int_ty);
+
+    self.value_stack.pop();
+
+    // Drain extras (defensive — well-formed input has
+    // exactly one stack entry per evaluated expression).
+    while self.sir_values.len() > stack_before {
+      self.sir_values.pop();
+      self.value_stack.pop();
+      self.ty_stack.pop();
+    }
+
+    // Element type — peeled from `Ty::Array(arr_id).elem_ty`.
+    // Falls back to `int` for ill-typed input so codegen
+    // doesn't panic; the type checker will have already
+    // surfaced the underlying error to the user.
+    let elem_ty = match self.ty_checker.kind_of(arr_ty) {
+      zo_ty::Ty::Array(arr_id) => self
+        .ty_checker
+        .ty_table
+        .array(arr_id)
+        .map(|a| a.elem_ty)
+        .unwrap_or(int_ty),
+      _ => int_ty,
+    };
+
+    // Synthetic locals: one for the array (so we can
+    // `Load` it each iteration without re-evaluating the
+    // rhs) and one for the index counter.
+    let n = self.sir.instructions.len();
+    let arr_sym = self.interner.intern(&format!("__for_arr_{n}__"));
+    let idx_sym = self.interner.intern(&format!("__for_idx_{n}__"));
+
+    self.sir.emit(Insn::VarDef {
+      name: arr_sym,
+      ty_id: arr_ty,
+      init: Some(arr_sir),
+      mutability: Mutability::No,
+      pubness: Pubness::No,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: arr_sym,
+      value: arr_sir,
+      ty_id: arr_ty,
+    });
+
+    let arr_local_vid = self.values.store_runtime(0);
+
+    self.locals.push(Local {
+      name: arr_sym,
+      ty_id: arr_ty,
+      value_id: arr_local_vid,
+      pubness: Pubness::No,
+      mutability: Mutability::No,
+      sir_value: Some(arr_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    let zero_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let zero_sir = self.sir.emit(Insn::ConstInt {
+      dst: zero_dst,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: idx_sym,
+      ty_id: int_ty,
+      init: Some(zero_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: idx_sym,
+      value: zero_sir,
+      ty_id: int_ty,
+    });
+
+    let idx_local_vid = self.values.store_runtime(0);
+
+    self.locals.push(Local {
+      name: idx_sym,
+      ty_id: int_ty,
+      value_id: idx_local_vid,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(zero_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // User's element binding. Declared with `init=None` —
+    // the per-iteration `Store` inside the loop populates
+    // it before the body runs. Marked `Mutability::Yes`
+    // because the binding is rewritten every iteration;
+    // the Ident handler's immutable-load path requires a
+    // pre-computed `sir_value`, but the mutable path uses
+    // `LoadSource::Local(sym)` directly which is what we
+    // want — re-read the stack slot the per-iter Store
+    // writes to.
+    self.sir.emit(Insn::VarDef {
+      name: var_name,
+      ty_id: elem_ty,
+      init: None,
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+
+    let user_local_vid = self.values.store_runtime(0);
+
+    self.locals.push(Local {
+      name: var_name,
+      ty_id: elem_ty,
+      value_id: user_local_vid,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: None,
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // Loop header: cmp idx, len; branch if not less.
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    let arr_load_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let arr_load_sir = self.sir.emit(Insn::Load {
+      dst: arr_load_dst,
+      src: LoadSource::Local(arr_sym),
+      ty_id: arr_ty,
+    });
+
+    let len_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let len_sir = self.sir.emit(Insn::ArrayLen {
+      dst: len_dst,
+      array: arr_load_sir,
+      ty_id: int_ty,
+    });
+
+    let idx_load_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let idx_load_sir = self.sir.emit(Insn::Load {
+      dst: idx_load_dst,
+      src: LoadSource::Local(idx_sym),
+      ty_id: int_ty,
+    });
+
+    let cmp_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let cmp_sir = self.sir.emit(Insn::BinOp {
+      dst: cmp_dst,
+      op: zo_sir::BinOp::Lt,
+      lhs: idx_load_sir,
+      rhs: len_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cmp_sir,
+      target: end_label,
+    });
+
+    // Per-iteration element bind: arr[idx] -> user_var.
+    let arr_load2_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let arr_load2_sir = self.sir.emit(Insn::Load {
+      dst: arr_load2_dst,
+      src: LoadSource::Local(arr_sym),
+      ty_id: arr_ty,
+    });
+
+    let idx_load2_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let idx_load2_sir = self.sir.emit(Insn::Load {
+      dst: idx_load2_dst,
+      src: LoadSource::Local(idx_sym),
+      ty_id: int_ty,
+    });
+
+    let elem_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let elem_sir = self.sir.emit(Insn::ArrayIndex {
+      dst: elem_dst,
+      array: arr_load2_sir,
+      index: idx_load2_sir,
+      ty_id: elem_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: var_name,
+      value: elem_sir,
+      ty_id: elem_ty,
+    });
+
+    // Branch context: close path increments `idx_sym`.
+    self.branch_stack.push(BranchCtx {
+      kind: BranchKind::For,
+      end_label,
+      else_label: None,
+      loop_label: Some(loop_label),
+      branch_emitted: true,
+      for_var: Some(var_name),
+      for_idx_var: Some(idx_sym),
+      scope_depth: self.scope_stack.len(),
+      value_sink: None,
+      value_sink_ty: None,
+      stack_depth_at_entry: self.sir_values.len() as u32,
+    });
+
+    // Block form: hand off to main loop. The body's RBrace
+    // closes via the `BranchKind::For` arm of the RBrace
+    // handler, which now reads `for_idx_var` first and
+    // increments the synthetic counter.
+    if !body_is_fat_arrow {
+      self.skip_until = body_start_idx;
+
+      return;
+    }
+
+    // Line form (`=> expr;`): inline finalize. Same shape
+    // as the range path's line finalize a few lines above.
+    let semicolon_idx = ((body_start_idx + 1)..end_idx)
+      .find(|&j| self.tree.nodes[j].token == Token::Semicolon)
+      .unwrap_or(end_idx);
+
+    self.push_scope();
+
+    let saved_skip = self.skip_until;
+    self.skip_until = 0;
+
+    for i in (body_start_idx + 1)..=semicolon_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+
+      if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
+        self.apply_deferred_binop();
+      }
+    }
+
+    self.skip_until = saved_skip;
+
+    while self.sir_values.len() > stack_before {
+      self.sir_values.pop();
+      self.value_stack.pop();
+      self.ty_stack.pop();
+    }
+
+    // Loop close: idx += 1; jump loop_label; end_label.
+    let ld = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let ld_sir = self.sir.emit(Insn::Load {
+      dst: ld,
+      src: LoadSource::Local(idx_sym),
+      ty_id: int_ty,
+    });
+
+    let one_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let one_sir = self.sir.emit(Insn::ConstInt {
+      dst: one_dst,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let add_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let add_sir = self.sir.emit(Insn::BinOp {
+      dst: add_dst,
+      op: zo_sir::BinOp::Add,
+      lhs: ld_sir,
+      rhs: one_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: idx_sym,
+      value: add_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    self.branch_stack.pop();
+    self.pop_scope();
+
     self.skip_until = semicolon_idx + 1;
   }
 
@@ -13796,6 +14430,35 @@ impl<'a> Executor<'a> {
             val_fmt,
           });
         }
+
+        // Same shape for `Vec<$T>` and `HashSet<$K>` — the
+        // pretty-printer needs the per-call-site element /
+        // key kind to dispatch through the matching runtime
+        // helper instead of falling through to the struct
+        // walker (which would print `Vec { ptr: <int> }`).
+        if kind == "Vec::new"
+          && let Some(args) = decl_args.as_deref()
+          && let [t] = args
+        {
+          let elem_fmt = self.map_fmt_for_ty(*t);
+
+          self.sir.emit(Insn::VecTyDef {
+            vec_ty: resolved_ret,
+            elem_fmt,
+          });
+        }
+
+        if kind == "HashSet::new"
+          && let Some(args) = decl_args.as_deref()
+          && let [k] = args
+        {
+          let key_fmt = self.map_fmt_for_ty(*k);
+
+          self.sir.emit(Insn::SetTyDef {
+            set_ty: resolved_ret,
+            key_fmt,
+          });
+        }
       }
 
       let dst = ValueId(self.sir.next_value_id);
@@ -15726,6 +16389,13 @@ struct BranchCtx {
   branch_emitted: bool,
   /// For-loop variable name (For only).
   for_var: Option<Symbol>,
+  /// For-array iteration: the synthetic index symbol the
+  /// close path increments instead of `for_var`. `None`
+  /// for the range form, where `for_var` IS the counter.
+  /// When set, `for_var` is the user's element binding
+  /// (re-stored each iter from `arr[idx]`) and must not
+  /// be incremented.
+  for_idx_var: Option<Symbol>,
   /// Scope depth when this context was pushed. RBrace
   /// only closes control flow at the matching depth to
   /// prevent inner blocks (e.g. `_ => {}` in match arms)

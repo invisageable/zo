@@ -244,6 +244,12 @@ pub struct FunDef {
   /// Stored as Ty (not TyId) so they survive cross-module
   /// translation without TyId invalidation.
   pub return_type_args: Vec<zo_ty::Ty>,
+  /// `true` when the first parameter was declared as
+  /// `mut self`. Set only on apply-context methods —
+  /// non-method functions and `self`-only methods are
+  /// `false`. Read at every dot-call site to verify the
+  /// receiver's binding is `mut`.
+  pub mut_self: bool,
 }
 
 /// Represents a [`Local`] variable entry instance.

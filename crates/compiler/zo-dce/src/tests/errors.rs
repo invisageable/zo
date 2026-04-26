@@ -30,6 +30,7 @@ fn warns_on_unused_function() {
       body_start: 1,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     Insn::Return {
       value: None,
@@ -42,6 +43,7 @@ fn warns_on_unused_function() {
       body_start: 3,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     Insn::Return {
       value: None,
@@ -77,6 +79,7 @@ fn warns_on_unused_variable() {
       body_start: 1,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     Insn::ConstInt {
       dst: ValueId(0),
@@ -121,6 +124,7 @@ fn no_warning_when_all_used() {
       body_start: 1,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
+      mut_self: false,
     },
     Insn::ConstInt {
       dst: ValueId(0),

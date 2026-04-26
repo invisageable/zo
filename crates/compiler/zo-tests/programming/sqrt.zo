@@ -7,7 +7,7 @@ fun isqrt(n: int) -> int {
 
   while l <= h {
     imu m: int = (l + h) / 2;
-    
+
     if m * m <= n {
       l = m + 1;
     } else {
@@ -27,5 +27,13 @@ fun main() {
   check@eq(isqrt(100), 10);
   check@eq(isqrt(144), 12);
 
-  showln(isqrt(144)); -- prints `12`
+  imu result: int = isqrt(144);
+
+  showln(result);
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- 12
+-- DONE

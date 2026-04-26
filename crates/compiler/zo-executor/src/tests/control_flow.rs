@@ -25,6 +25,7 @@ fn test_if_simple() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
+        mut_self: false,
       },
       Insn::ConstBool {
         dst: ValueId(0),
@@ -77,6 +78,7 @@ fun main() {}"#,
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
+        mut_self: false,
       },
       Insn::ConstBool {
         dst: ValueId(0),
@@ -129,6 +131,7 @@ fun main() {}"#,
         body_start: 13,
         kind: FunctionKind::Intrinsic,
         pubness: Pubness::No,
+        mut_self: false,
       },
       Insn::Return {
         value: None,
@@ -197,6 +200,7 @@ fn test_while_loop() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
+        mut_self: false,
       },
       Insn::Label { id: 0 },
       Insn::ConstBool {
@@ -235,6 +239,7 @@ fn test_implicit_return_literal() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
+        mut_self: false,
       },
       Insn::ConstInt {
         dst: ValueId(0),

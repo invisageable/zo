@@ -7,7 +7,7 @@
 -- @cmd — zo build hashmap-len-isempty.zo
 
 fun main() {
-  imu hashmap: HashMap<int, int> = HashMap::new();
+  mut hashmap: HashMap<int, int> = HashMap::new();
 
   -- Fresh map: len 0, is_empty true.
   check@eq(hashmap.len(), 0);

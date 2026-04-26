@@ -2,9 +2,16 @@
 -- @cmd — zo build concurrency-spawn-thread.zo
 
 fun heavy_worker() {
-  imu total: int = 1_000_000;
+  showln("started task");
 
-  showln("crunching {total} items");
+  imu total: int = 1_000_000;
+  mut sum: int = 0;
+
+  for x := 0..total => sum += x;
+
+  showln("crunching {sum} items");
+
+  showln("finished task");
 }
 
 fun main() {
@@ -14,9 +21,11 @@ fun main() {
     await task;
   }
 
-  showln("main done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
--- crunching 1000000 items
--- main done
+-- started task
+-- crunching 499999500000 items
+-- finished task
+-- DONE

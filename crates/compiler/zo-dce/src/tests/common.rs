@@ -28,6 +28,7 @@ pub fn fun(
     body_start: 0,
     kind: FunctionKind::UserDefined,
     pubness,
+    mut_self: false,
   });
 
   insns.extend(body);

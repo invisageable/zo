@@ -22,8 +22,11 @@ fun main() {
     spawn producer(chan.0);
     spawn consumer(chan.1);
   }
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- got 1
 -- got 2
+-- DONE

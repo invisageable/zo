@@ -13,5 +13,12 @@ apply Span {
 }
 
 fun main() {
-  imu s := Span::zero();
+  imu span := Span::zero();
+
+  showln(span);
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- Span { lo: 0, hi: 0 }
+-- DONE

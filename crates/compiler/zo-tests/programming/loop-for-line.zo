@@ -5,9 +5,8 @@ fun main() {
   -- for:line.
   for x := 0..3 => showln("{x}");
 
-  -- for:line:mut — mutable iterator, body reassigns it.
-  -- Runs 3 times with no observable output (body only
-  -- touches `n` which is loop-local).
+  -- for:line:mut
+  -- mutable iterator, body reassigns it.
   for mut n := 0..3 => n += 1;
 }
 

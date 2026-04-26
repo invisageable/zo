@@ -226,6 +226,56 @@ pub unsafe extern "C-unwind" fn _zo_vec_free(vec: *mut ZoVec) {
   }
 }
 
+/// Pretty-print every live element of `vec` as
+/// `[e0, e1, ...]` to `fd`. Same shape as
+/// `_zo_map_show`: walk the live entries, format each
+/// with `MapFmt::format_bytes` against the per-element
+/// kind (set by codegen at `Vec::new` resolution time),
+/// and emit a single buffered `libc::write` so partial
+/// syscalls can't tear an entry across reads.
+///
+/// `elem_fmt` is the `MapFmt` discriminant; it tells the
+/// formatter how to interpret the `elem_sz`-byte slot
+/// payload.
+///
+/// # Safety
+///
+/// `vec` must be a live pointer from `__zo_vec_new`.
+#[unsafe(export_name = "zo_vec_show")]
+pub unsafe extern "C-unwind" fn _zo_vec_show(
+  vec: *mut ZoVec,
+  fd: usize,
+  elem_fmt: u8,
+) {
+  let v = unsafe { &*vec };
+  let fmt = crate::map::MapFmt::from_u8(elem_fmt);
+
+  let mut out: Vec<u8> = Vec::with_capacity(64);
+
+  out.push(b'[');
+
+  for i in 0..v.len {
+    if i > 0 {
+      out.extend_from_slice(b", ");
+    }
+
+    let off = i * v.elem_sz;
+    let slot = &v.bytes[off..off + v.elem_sz];
+
+    // `is_value = true` so str payloads dereference the
+    // slot's stored header pointer rather than reading
+    // the slot bytes as raw UTF-8 (mirrors `MapFmt::Str`'s
+    // value-side treatment in `_zo_map_show`).
+    fmt.format_bytes(slot, true, &mut out);
+  }
+
+  out.push(b']');
+
+  unsafe {
+    libc::write(fd as i32, out.as_ptr() as *const _, out.len());
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

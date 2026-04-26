@@ -23,6 +23,7 @@ fn make_fun(
     body_start: 0,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
+    mut_self: false,
   }];
 
   for callee in calls {

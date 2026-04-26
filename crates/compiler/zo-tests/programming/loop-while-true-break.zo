@@ -1,0 +1,21 @@
+fun main() {
+  mut idx: int = 0;
+
+  while true {
+    idx += 1;
+
+    if idx == 5 {
+      break;
+    }
+  }
+
+  check@eq(idx, 5);
+
+  showln("{idx}");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 5
+-- DONE
