@@ -3,7 +3,7 @@ fun pluralize(count: int) -> str {
 }
 
 fun main() {
-  mut count := 0;
+  mut count := 99;
 
   while count > 0 {
     imu bottle: str = pluralize(count);
@@ -16,4 +16,9 @@ fun main() {
 
     showln("{count} {bottle} of beer on the wall.");
   }
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- DONE

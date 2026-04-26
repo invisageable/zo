@@ -13,8 +13,11 @@ pack inner {
 fun main() {
   inner.hello();
   inner.inner2.hello();
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- hello, modular world
 -- hello, modular world
+-- DONE
