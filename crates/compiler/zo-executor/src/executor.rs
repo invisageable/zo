@@ -9978,7 +9978,15 @@ impl<'a> Executor<'a> {
     {
       Some(sym)
     } else if let Some(sir_val) = self.sir_values.last().copied() {
-      let scrut_sym = self.interner.intern("__match_scrut__");
+      // Suffix the synthetic scrutinee local with the next
+      // label id so nested matches don't clobber each other —
+      // the inner match's `Store __match_scrut__` would
+      // overwrite the outer's storage, and the outer's bindings
+      // (which read field offsets from the same slot's pointer)
+      // would silently pull payload bytes from the inner enum.
+      let scrut_sym = self
+        .interner
+        .intern(&format!("__match_scrut_{}__", self.sir.next_label_id));
 
       self.sir.emit(Insn::Store {
         name: scrut_sym,
@@ -10068,22 +10076,49 @@ impl<'a> Executor<'a> {
         None => break,
       };
 
-      // Body range: arrow_idx + 1 .. next top-level Comma or
-      // rbrace_idx. Top-level = depth 0 inside the arm block.
+      // Body range: arrow_idx + 1 .. body_end (exclusive).
+      //
+      // Block-bodied arms (`Pat => { ... }`) don't require a
+      // trailing comma — the closing `}` separates them from
+      // the next arm. The generic comma-search overruns into
+      // the next arm in that case, fusing two arms into one.
+      // Detect block bodies up-front and stop right after the
+      // matching `}`; everything else still scans for the
+      // next top-level comma.
+      let body_starts_with_brace = arrow_idx + 1 < rbrace_idx
+        && self.tree.nodes[arrow_idx + 1].token == Token::LBrace;
       let mut body_depth = 0_i32;
       let mut body_end = rbrace_idx;
 
-      for j in (arrow_idx + 1)..rbrace_idx {
-        let tok = self.tree.nodes[j].token;
+      if body_starts_with_brace {
+        for j in (arrow_idx + 1)..rbrace_idx {
+          match self.tree.nodes[j].token {
+            Token::LBrace => body_depth += 1,
+            Token::RBrace => {
+              body_depth -= 1;
 
-        match tok {
-          Token::LParen | Token::LBrace | Token::LBracket => body_depth += 1,
-          Token::RParen | Token::RBrace | Token::RBracket => body_depth -= 1,
-          Token::Comma if body_depth == 0 => {
-            body_end = j;
-            break;
+              if body_depth == 0 {
+                body_end = j + 1;
+
+                break;
+              }
+            }
+            _ => {}
           }
-          _ => {}
+        }
+      } else {
+        for j in (arrow_idx + 1)..rbrace_idx {
+          let tok = self.tree.nodes[j].token;
+
+          match tok {
+            Token::LParen | Token::LBrace | Token::LBracket => body_depth += 1,
+            Token::RParen | Token::RBrace | Token::RBracket => body_depth -= 1,
+            Token::Comma if body_depth == 0 => {
+              body_end = j;
+              break;
+            }
+            _ => {}
+          }
         }
       }
 
@@ -10964,7 +10999,11 @@ impl<'a> Executor<'a> {
         && match_result_ty != Some(unit_ty)
       {
         let body_sir = self.sir_values.last().copied().unwrap();
-        let result_sym = self.interner.intern("__match_result__");
+        // Suffix with this match's `end_label` so nested
+        // expr-position matches don't share a result slot.
+        let result_sym = self
+          .interner
+          .intern(&format!("__match_result_{}__", end_label));
 
         self.sir.emit(Insn::Store {
           name: result_sym,

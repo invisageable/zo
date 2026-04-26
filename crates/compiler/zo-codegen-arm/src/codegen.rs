@@ -429,7 +429,7 @@ impl<'a> ARM64Gen<'a> {
       let reg = Register::new(CALLER_SAVE_START + i as u8);
       let off = base + i as u32 * STACK_SLOT_SIZE;
 
-      self.emitter.emit_str(reg, SP, off as i16);
+      self.emit_str_sp(reg, off);
     }
 
     let fixup_pos = self.emitter.current_offset();
@@ -447,7 +447,7 @@ impl<'a> ARM64Gen<'a> {
       let reg = Register::new(CALLER_SAVE_START + i as u8);
       let off = base + i as u32 * STACK_SLOT_SIZE;
 
-      self.emitter.emit_ldr(reg, SP, off as i16);
+      self.emit_ldr_sp(reg, off);
     }
   }
 
@@ -457,38 +457,22 @@ impl<'a> ARM64Gen<'a> {
         reg,
         slot,
         class: RegisterClass::GP,
-      } => self.emitter.emit_str(
-        Register::new(*reg),
-        SP,
-        (*slot * STACK_SLOT_SIZE) as i16,
-      ),
+      } => self.emit_str_sp(Register::new(*reg), *slot * STACK_SLOT_SIZE),
       SpillKind::Load {
         reg,
         slot,
         class: RegisterClass::GP,
-      } => self.emitter.emit_ldr(
-        Register::new(*reg),
-        SP,
-        (*slot * STACK_SLOT_SIZE) as i16,
-      ),
+      } => self.emit_ldr_sp(Register::new(*reg), *slot * STACK_SLOT_SIZE),
       SpillKind::Store {
         reg,
         slot,
         class: RegisterClass::FP,
-      } => self.emitter.emit_str_fp(
-        FpRegister::new(*reg),
-        SP,
-        (*slot * STACK_SLOT_SIZE) as u16,
-      ),
+      } => self.emit_str_fp_sp(FpRegister::new(*reg), *slot * STACK_SLOT_SIZE),
       SpillKind::Load {
         reg,
         slot,
         class: RegisterClass::FP,
-      } => self.emitter.emit_ldr_fp(
-        FpRegister::new(*reg),
-        SP,
-        (*slot * STACK_SLOT_SIZE) as u16,
-      ),
+      } => self.emit_ldr_fp_sp(FpRegister::new(*reg), *slot * STACK_SLOT_SIZE),
     }
   }
 
@@ -569,36 +553,81 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// Emit `ADD dst, SP, #offset`. Uses X16 as scratch
-  /// when the offset doesn't fit in 12 bits.
+  /// Emit `ADD dst, SP, #offset`.
+  ///
+  /// Slow path materializes the offset into `dst` itself —
+  /// never X16. Earlier revisions used X16 as a hidden
+  /// temp, which silently corrupted any caller-held value
+  /// in X16 (e.g. a freshly-built tag word about to be
+  /// stored). `dst` is always a caller-supplied scratch in
+  /// every call site, so reusing it is safe.
   fn emit_add_sp_offset(&mut self, dst: Register, offset: u32) {
     if offset <= 4095 {
       self.emitter.emit_add_imm(dst, SP, offset as u16);
     } else {
-      self.emit_mov_imm_64(X16, offset as u64);
-      self.emitter.emit_add_ext(dst, SP, X16);
+      self.emit_mov_imm_64(dst, offset as u64);
+      self.emitter.emit_add_ext(dst, SP, dst);
     }
   }
 
-  /// Emit `STR src, [SP, #offset]`. Uses X16 as scratch
-  /// when the offset doesn't fit in a signed 9-bit imm.
+  /// Emit `STR src, [SP, #offset]`. Falls back to a
+  /// computed address through a scratch register when the
+  /// offset overflows the inline-encodable range.
+  ///
+  /// `emit_str` accepts an `i16` scaled by 8, so any
+  /// 8-byte-aligned offset up to 32760 fits the fast
+  /// path. Above that — or for unaligned offsets — fall
+  /// through to a materialized address in a scratch
+  /// register that must not alias `src` (the value being
+  /// stored). The scratch is X17 when `src` is X16 and
+  /// X16 otherwise.
   fn emit_str_sp(&mut self, src: Register, offset: u32) {
-    if offset <= 255 {
+    if offset <= 32760 && offset.is_multiple_of(8) {
       self.emitter.emit_str(src, SP, offset as i16);
     } else {
-      self.emit_add_sp_offset(X16, offset);
-      self.emitter.emit_str(src, X16, 0);
+      let scratch = if src == X16 { X17 } else { X16 };
+
+      self.emit_add_sp_offset(scratch, offset);
+      self.emitter.emit_str(src, scratch, 0);
     }
   }
 
-  /// Emit `LDR dst, [SP, #offset]`. Uses X16 as scratch
-  /// when the offset doesn't fit in a signed 9-bit imm.
+  /// Emit `LDR dst, [SP, #offset]`. Mirror of
+  /// `emit_str_sp`: scaled imm12 reaches 32760, anything
+  /// past that or unaligned routes through a scratch
+  /// address. Uses `dst` as the scratch since LDR reads
+  /// the base before writing the destination.
   fn emit_ldr_sp(&mut self, dst: Register, offset: u32) {
-    if offset <= 255 {
+    if offset <= 32760 && offset.is_multiple_of(8) {
       self.emitter.emit_ldr(dst, SP, offset as i16);
     } else {
+      self.emit_add_sp_offset(dst, offset);
+      self.emitter.emit_ldr(dst, dst, 0);
+    }
+  }
+
+  /// Emit `STR src, [SP, #offset]` for an FP register.
+  /// Same address-range and aliasing rules as
+  /// `emit_str_sp` — large or unaligned offsets route
+  /// through an X16/X17 GP scratch (FP stores can't take
+  /// a GP source, so the scratch only holds the address
+  /// and never aliases `src`).
+  fn emit_str_fp_sp(&mut self, src: FpRegister, offset: u32) {
+    if offset <= 32760 && offset.is_multiple_of(8) {
+      self.emitter.emit_str_fp(src, SP, offset as u16);
+    } else {
       self.emit_add_sp_offset(X16, offset);
-      self.emitter.emit_ldr(dst, X16, 0);
+      self.emitter.emit_str_fp(src, X16, 0);
+    }
+  }
+
+  /// Emit `LDR dst, [SP, #offset]` for an FP register.
+  fn emit_ldr_fp_sp(&mut self, dst: FpRegister, offset: u32) {
+    if offset <= 32760 && offset.is_multiple_of(8) {
+      self.emitter.emit_ldr_fp(dst, SP, offset as u16);
+    } else {
+      self.emit_add_sp_offset(X16, offset);
+      self.emitter.emit_ldr_fp(dst, X16, 0);
     }
   }
 
@@ -1205,11 +1234,11 @@ impl<'a> ARM64Gen<'a> {
             if is_fp {
               let src = FpRegister::new(i as u8);
 
-              self.emitter.emit_str_fp(src, SP, off as u16);
+              self.emit_str_fp_sp(src, off);
             } else {
               let src = Register::new(i as u8);
 
-              self.emitter.emit_str(src, SP, off as i16);
+              self.emit_str_sp(src, off);
             }
 
             self.param_slots.insert(i as u32, off);
@@ -1273,13 +1302,13 @@ impl<'a> ARM64Gen<'a> {
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
             if let Some(dst_reg) = self.alloc_reg(*dst) {
-              self.emitter.emit_ldr(dst_reg, SP, offset as i16);
+              self.emit_ldr_sp(dst_reg, offset);
             } else if let Some(fp_dst) = self
               .alloc_fp_reg(*dst)
               .or_else(|| self.fp_reg_for_insn(idx))
             {
               // Float local: LDR Dt, [SP, #offset].
-              self.emitter.emit_ldr_fp(fp_dst, SP, offset as u16);
+              self.emit_ldr_fp_sp(fp_dst, offset);
             }
           } else if let Some(&(offset, is_fp)) = self.param_sym_slots.get(&slot)
           {
@@ -1294,10 +1323,10 @@ impl<'a> ARM64Gen<'a> {
                 .alloc_fp_reg(*dst)
                 .or_else(|| self.fp_reg_for_insn(idx))
               {
-                self.emitter.emit_ldr_fp(fp_dst, SP, offset as u16);
+                self.emit_ldr_fp_sp(fp_dst, offset);
               }
             } else if let Some(dst_reg) = self.alloc_reg(*dst) {
-              self.emitter.emit_ldr(dst_reg, SP, offset as i16);
+              self.emit_ldr_sp(dst_reg, offset);
             }
           }
         }
@@ -1308,10 +1337,10 @@ impl<'a> ARM64Gen<'a> {
           if let Some(&off) = self.param_slots.get(idx) {
             if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
               // Float param: load from FP spill slot.
-              self.emitter.emit_ldr_fp(fp_dst, SP, off as u16);
+              self.emit_ldr_fp_sp(fp_dst, off);
             } else if let Some(dst_reg) = self.alloc_reg(*dst) {
               // GP param: load from GP spill slot.
-              self.emitter.emit_ldr(dst_reg, SP, off as i16);
+              self.emit_ldr_sp(dst_reg, off);
             }
           } else if let Some(fp_dst) = self.alloc_fp_reg(*dst) {
             // Fallback: no spill slot — read from
@@ -1832,7 +1861,7 @@ impl<'a> ARM64Gen<'a> {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
-              self.emitter.emit_str(reg, SP, off as i16);
+              self.emit_str_sp(reg, off);
             }
 
             // Emit BL placeholder (offset 0). Will be
@@ -1852,7 +1881,7 @@ impl<'a> ARM64Gen<'a> {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
-              self.emitter.emit_ldr(reg, SP, off as i16);
+              self.emit_ldr_sp(reg, off);
             }
 
             // Result is in D0. Move to allocated FP reg.
@@ -1929,7 +1958,7 @@ impl<'a> ARM64Gen<'a> {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
-              self.emitter.emit_str(reg, SP, off as i16);
+              self.emit_str_sp(reg, off);
             }
 
             // BL to user-defined function.
@@ -1954,7 +1983,7 @@ impl<'a> ARM64Gen<'a> {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
-              self.emitter.emit_ldr(reg, SP, off as i16);
+              self.emit_ldr_sp(reg, off);
             }
 
             // If callee returns a struct, x0 holds a
@@ -1969,12 +1998,12 @@ impl<'a> ARM64Gen<'a> {
                 let dst_off = dst_base + i * STACK_SLOT_SIZE;
 
                 self.emitter.emit_ldr(X16, X0, src_off);
-                self.emitter.emit_str(X16, SP, dst_off as i16);
+                self.emit_str_sp(X16, dst_off);
               }
 
               // Point result at the caller's copy.
               if let Some(result_reg) = self.reg_for_insn(idx) {
-                self.emitter.emit_add_imm(result_reg, SP, dst_base as u16);
+                self.emit_add_sp_offset(result_reg, dst_base);
               }
 
               // Also materialize the pointer in X0. The
@@ -1992,7 +2021,7 @@ impl<'a> ARM64Gen<'a> {
               // spill-from-X0 invariant valid across
               // chained struct-returning calls (e.g.
               // `(Point::new(..), Point::new(..))`).
-              self.emitter.emit_add_imm(X0, SP, dst_base as u16);
+              self.emit_add_sp_offset(X0, dst_base);
 
               self.next_struct_slot += field_count * STACK_SLOT_SIZE;
             } else if let Some(fp_result) = self.fp_reg_for_insn(idx) {
@@ -2119,13 +2148,13 @@ impl<'a> ARM64Gen<'a> {
         };
 
         if let Some(src_reg) = self.alloc_reg(*value) {
-          self.emitter.emit_str(src_reg, SP, offset as i16);
+          self.emit_str_sp(src_reg, offset);
         } else if let Some(fp_src) = self
           .alloc_fp_reg(*value)
           .or_else(|| self.scan_fp_reg_back(idx))
         {
           // Float variable: STR Dt, [SP, #offset].
-          self.emitter.emit_str_fp(fp_src, SP, offset as u16);
+          self.emit_str_fp_sp(fp_src, offset);
         }
       }
 
@@ -2188,7 +2217,7 @@ impl<'a> ARM64Gen<'a> {
           // can find it.
           let base = self.struct_base + self.next_struct_slot;
 
-          self.emitter.emit_str(X0, SP, base as i16);
+          self.emit_str_sp(X0, base);
 
           if let Some(dst) = self.reg_for_insn(idx) {
             self.emitter.emit_mov_reg(dst, X0);
@@ -2204,12 +2233,10 @@ impl<'a> ARM64Gen<'a> {
 
           // Store length at [SP + base].
           self.emitter.emit_mov_imm(X16, n as u16);
-          self.emitter.emit_str(X16, SP, base as i16);
+          self.emit_str_sp(X16, base);
 
           // Store capacity = len (tight, no growth).
-          self
-            .emitter
-            .emit_str(X16, SP, (base + STACK_SLOT_SIZE) as i16);
+          self.emit_str_sp(X16, base + STACK_SLOT_SIZE);
 
           // Store each element.
           for (i, elem) in elements.iter().enumerate() {
@@ -2217,15 +2244,15 @@ impl<'a> ARM64Gen<'a> {
               base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
 
             if let Some(fp) = self.alloc_fp_reg(*elem) {
-              self.emitter.emit_str_fp(fp, SP, off as u16);
+              self.emit_str_fp_sp(fp, off);
             } else if let Some(reg) = self.alloc_reg(*elem) {
-              self.emitter.emit_str(reg, SP, off as i16);
+              self.emit_str_sp(reg, off);
             }
           }
 
           // Result: pointer to array base.
           if let Some(dst) = self.reg_for_insn(idx) {
-            self.emitter.emit_add_imm(dst, SP, base as u16);
+            self.emit_add_sp_offset(dst, base);
           }
 
           // Advance slot: 2 (header) + N elements.
@@ -2360,12 +2387,12 @@ impl<'a> ARM64Gen<'a> {
         let extra_base =
           self.caller_save_base + (CALLER_SAVE_COUNT as u32) * STACK_SLOT_SIZE;
 
-        self.emitter.emit_str(X17, SP, extra_base as i16);
-        self.emitter.emit_str(val_reg, SP, (extra_base + 8) as i16);
+        self.emit_str_sp(X17, extra_base);
+        self.emit_str_sp(val_reg, extra_base + 8);
         self.emit_extern_call("_realloc");
         // X0 = new pointer. Restore new_cap + value.
-        self.emitter.emit_ldr(X17, SP, extra_base as i16);
-        self.emitter.emit_ldr(val_reg, SP, (extra_base + 8) as i16);
+        self.emit_ldr_sp(X17, extra_base);
+        self.emit_ldr_sp(val_reg, extra_base + 8);
         // Store new cap.
         self.emitter.emit_str(X17, X0, 8);
         // Update arr_reg to new pointer.
@@ -2383,7 +2410,7 @@ impl<'a> ARM64Gen<'a> {
             && *dst == *array
           {
             if let Some(&off) = self.mutable_slots.get(&sym.as_u32()) {
-              self.emitter.emit_str(arr_reg, SP, off as i16);
+              self.emit_str_sp(arr_reg, off);
             }
 
             break;
@@ -2502,21 +2529,21 @@ impl<'a> ARM64Gen<'a> {
 
         // Store discriminant at base.
         self.emitter.emit_mov_imm(X16, *variant as u16);
-        self.emitter.emit_str(X16, SP, base as i16);
+        self.emit_str_sp(X16, base);
 
         // Store fields (if any) at base + (i+1)*8.
         for (i, field) in fields.iter().enumerate() {
           let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
 
           if let Some(fp) = self.alloc_fp_reg(*field) {
-            self.emitter.emit_str_fp(fp, SP, off as u16);
+            self.emit_str_fp_sp(fp, off);
           } else if let Some(reg) = self.alloc_reg(*field) {
-            self.emitter.emit_str(reg, SP, off as i16);
+            self.emit_str_sp(reg, off);
           }
         }
 
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_add_imm(dst, SP, base as u16);
+          self.emit_add_sp_offset(dst, base);
         }
 
         self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
@@ -2533,7 +2560,7 @@ impl<'a> ARM64Gen<'a> {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
           if let Some(reg) = self.alloc_reg(*field) {
-            self.emitter.emit_str(reg, SP, off as i16);
+            self.emit_str_sp(reg, off);
           }
         }
 
@@ -2541,7 +2568,7 @@ impl<'a> ARM64Gen<'a> {
         // base. Use ADD (not MOV) because ARM64 MOV
         // via ORR encodes register 31 as XZR, not SP.
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_add_imm(dst, SP, base as u16);
+          self.emit_add_sp_offset(dst, base);
         }
 
         self.next_struct_slot += fields.len() as u32 * STACK_SLOT_SIZE;
@@ -2558,12 +2585,12 @@ impl<'a> ARM64Gen<'a> {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
           if let Some(reg) = self.alloc_reg(*elem) {
-            self.emitter.emit_str(reg, SP, off as i16);
+            self.emit_str_sp(reg, off);
           }
         }
 
         if let Some(dst) = self.reg_for_insn(idx) {
-          self.emitter.emit_add_imm(dst, SP, base as u16);
+          self.emit_add_sp_offset(dst, base);
         }
 
         self.next_struct_slot += elements.len() as u32 * STACK_SLOT_SIZE;
@@ -2678,10 +2705,10 @@ impl<'a> ARM64Gen<'a> {
         // wants a pointer — spill to the scratch slot
         // reserved by the function prologue, pass its
         // address in X1.
-        let slot = self.chan_scratch_base as i16;
+        let slot = self.chan_scratch_base;
 
         if let Some(src_reg) = self.alloc_reg(*value) {
-          self.emitter.emit_str(src_reg, SP, slot);
+          self.emit_str_sp(src_reg, slot);
         }
 
         if let Some(ch_reg) = self.alloc_reg(*channel)
@@ -2690,7 +2717,7 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(X0, ch_reg);
         }
 
-        self.emitter.emit_add_imm(X1, SP, slot as u16);
+        self.emit_add_sp_offset(X1, slot);
         self.emit_extern_call("_zo_chan_send");
       }
       Insn::ChannelRecv { dst, channel, .. } => {
@@ -2699,7 +2726,7 @@ impl<'a> ARM64Gen<'a> {
         // we then load the written value into the
         // destination register the allocator reserved
         // for `dst`.
-        let slot = self.chan_scratch_base as i16;
+        let slot = self.chan_scratch_base;
 
         if let Some(ch_reg) = self.alloc_reg(*channel)
           && ch_reg != X0
@@ -2707,11 +2734,11 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(X0, ch_reg);
         }
 
-        self.emitter.emit_add_imm(X1, SP, slot as u16);
+        self.emit_add_sp_offset(X1, slot);
         self.emit_extern_call("_zo_chan_recv");
 
         if let Some(dst_reg) = self.alloc_reg(*dst) {
-          self.emitter.emit_ldr(dst_reg, SP, slot);
+          self.emit_ldr_sp(dst_reg, slot);
         }
       }
       Insn::ChannelClose { channel } => {
@@ -2838,7 +2865,7 @@ impl<'a> ARM64Gen<'a> {
           if let Some(src) = self.alloc_reg(*chan_vid) {
             let off = chans_base + i as u32 * 8;
 
-            self.emitter.emit_str(src, SP, off as i16);
+            self.emit_str_sp(src, off);
           }
         }
 
@@ -2848,14 +2875,14 @@ impl<'a> ARM64Gen<'a> {
         // elem types (`elem_sz > 8`) are a later scope;
         // today the ABI tops out at 8-byte scalars and
         // pointer-backed 8-byte handles.
-        self.emitter.emit_str(XZR, SP, out_base as i16);
+        self.emit_str_sp(XZR, out_base);
 
         // X0 = chans_array_ptr.
-        self.emitter.emit_add_imm(X0, SP, chans_base as u16);
+        self.emit_add_sp_offset(X0, chans_base);
         // X1 = nchans.
         self.emit_mov_imm_64(X1, nchans as u64);
         // X2 = out_value_ptr.
-        self.emitter.emit_add_imm(X2, SP, out_base as u16);
+        self.emit_add_sp_offset(X2, out_base);
         // X3 = elem_sz.
         self.emit_mov_imm_64(X3, elem_sz as u64);
 
@@ -2878,7 +2905,7 @@ impl<'a> ARM64Gen<'a> {
         let off = self.select_scratch_base + chans_len * 8;
 
         if let Some(dst_reg) = self.alloc_reg(*dst) {
-          self.emitter.emit_ldr(dst_reg, SP, off as i16);
+          self.emit_ldr_sp(dst_reg, off);
         }
       }
 

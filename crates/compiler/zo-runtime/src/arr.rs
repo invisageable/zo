@@ -23,10 +23,7 @@
 /// The zo codegen guarantees both when it passes
 /// `(arr_ptr + 16, *(arr_ptr + 0))`.
 #[unsafe(export_name = "zo_arr_sort_i32")]
-pub unsafe extern "C-unwind" fn _zo_arr_sort_i32(
-  data: *mut i64,
-  len: usize,
-) {
+pub unsafe extern "C-unwind" fn _zo_arr_sort_i32(data: *mut i64, len: usize) {
   if len == 0 {
     return;
   }

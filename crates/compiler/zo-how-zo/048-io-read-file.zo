@@ -7,7 +7,7 @@
 -! handle errors.
 
 fun main() {
-  imu content := read_file("crates/compiler/zo-how-zo/samples/join-the-devolution.txt");
+  imu content := read_file("samples/join-the-devolution.txt");
 
   match content {
     Result::Ok(text) => showln(text),
