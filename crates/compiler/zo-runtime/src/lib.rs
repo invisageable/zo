@@ -1,5 +1,6 @@
 mod runtime;
 
+pub mod arr;
 pub mod channel;
 pub mod ctxsw;
 pub mod map;

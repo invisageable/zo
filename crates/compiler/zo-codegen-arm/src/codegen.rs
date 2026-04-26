@@ -1687,6 +1687,12 @@ impl<'a> ARM64Gen<'a> {
           "HashSet::contains" => self.emit_set_contains(args, idx),
           "HashSet::remove" => self.emit_set_remove(args, idx),
 
+          // `[]int::sort` — in-place ascending sort via the
+          // runtime. The compiler can't lower
+          // `self[i] = ...` inside an apply method body
+          // today, so the loop runs in Rust.
+          "arr_int::sort" => self.emit_arr_sort_int(args, idx),
+
           // Non-marshaling raw FFIs. The argument is the
           // already-loaded `*mut ZoMap` / `*mut ZoVec`
           // (from `self.ptr`); pass through to the runtime
@@ -4432,6 +4438,22 @@ impl<'a> ARM64Gen<'a> {
 
   fn emit_set_free_raw(&mut self, args: &[ValueId], idx: usize) {
     self.emit_map_free_raw(args, idx);
+  }
+
+  /// `arr.sort()` for `[]int` — in-place ascending sort
+  /// via `_zo_arr_sort_i32`. Array layout is
+  /// `[len:8][cap:8][i32 data...]`; pass the data pointer
+  /// (`arr + 16`) as `X0` and the length (`*(arr + 0)`)
+  /// as `X1`.
+  fn emit_arr_sort_int(&mut self, args: &[ValueId], _idx: usize) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    // X1 = len.
+    self.emitter.emit_ldr(X1, recv, 0);
+    // X0 = data ptr = recv + 16.
+    self.emitter.emit_add_imm(X0, recv, 16u16);
+
+    self.emit_extern_call("_zo_arr_sort_i32");
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for

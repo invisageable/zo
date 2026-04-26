@@ -729,6 +729,7 @@ impl RuntimeNeeds {
             || n.starts_with("__zo_map_")
             || n.starts_with("__zo_vec_")
             || n.starts_with("__zo_set_")
+            || n == "arr_int::sort"
           {
             needs.concurrency = true;
           }
