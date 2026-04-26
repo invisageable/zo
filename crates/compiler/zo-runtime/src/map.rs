@@ -152,6 +152,11 @@ impl MapFmt {
         // Values: stored as the 8-byte str header pointer
         // (the codegen spills the X-register holding the
         // pointer into the value scratch slot). Follow it.
+        // Wrap with `"` on both sides — `_zo_map_show` only
+        // ever runs in nested-context, mirroring Rust's
+        // `Debug` for `HashMap` entries.
+        out.push(b'"');
+
         if is_value {
           let mut ptr_buf = [0u8; 8];
           let n = bytes.len().min(8);
@@ -160,16 +165,16 @@ impl MapFmt {
 
           let ptr = u64::from_le_bytes(ptr_buf) as *const u8;
 
-          if ptr.is_null() {
-            return;
+          if !ptr.is_null() {
+            let payload = unsafe { str_bytes(ptr) };
+
+            out.extend_from_slice(payload);
           }
-
-          let payload = unsafe { str_bytes(ptr) };
-
-          out.extend_from_slice(payload);
         } else {
           out.extend_from_slice(bytes);
         }
+
+        out.push(b'"');
       }
       MapFmt::Float => {
         let mut buf = [0u8; 8];

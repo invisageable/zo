@@ -82,7 +82,7 @@ fun main() {
 
 -- EXPECTED OUTPUT:
 -- Maybe::Some(42)
--- Maybe::Some(hi)
+-- Maybe::Some("hi")
 -- Either::Left(7)
 -- Either::Right(404)
 -- DONE

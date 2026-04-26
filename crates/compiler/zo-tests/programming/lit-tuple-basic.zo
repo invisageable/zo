@@ -2,5 +2,8 @@
 -- @cmd — zo build lit-tuple-basic.zo
 
 fun main() {
-  imu t := (1, 2, 3);
+  imu tuple := (1, 2, 3);
+
+  showln(tuple);
 }
+

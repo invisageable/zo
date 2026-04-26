@@ -296,6 +296,8 @@ const ENUM_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFFE);
 const ARRAY_OPEN_BRACKET_SYM: Symbol = Symbol(0xE000_FFF8);
 const ARRAY_CLOSE_BRACKET_SYM: Symbol = Symbol(0xE000_FFF9);
 
+const STR_DQUOTE_SYM: Symbol = Symbol(0xE000_FFF7);
+
 impl<'a> ARM64Gen<'a> {
   /// Borrow the list of external symbols referenced by
   /// emitted `BL` placeholders — used by the Mach-O writer
@@ -3323,7 +3325,7 @@ impl<'a> ARM64Gen<'a> {
 
           self.emitter.emit_ldr(X0, Register::new(19), offset);
 
-          self.emit_field_write(*field_ty, fd);
+          self.emit_field_write(*field_ty, fd, true);
 
           if i + 1 < field_tys.len() {
             self.emit_synthetic_str_write(ENUM_COMMA_SPACE_SYM, fd);
@@ -3362,18 +3364,36 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_svc(0);
   }
 
-  fn emit_field_write(&mut self, ty_id: TyId, fd: u16) {
+  fn emit_field_write(&mut self, ty_id: TyId, fd: u16, quoted: bool) {
     let is_str = ty_id.0 == STR_TYPE_ID;
     let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
     let is_bool = ty_id.0 == BOOL_TYPE_ID;
     let is_char = ty_id.0 == CHAR_TYPE_ID;
 
     if is_str {
+      // Mirror Rust Debug — strings nested inside an enum
+      // / array / map carry surrounding `"`s; the top-level
+      // `showln(s)` path passes `quoted = false`. The
+      // payload pointer arrives in X0 from the caller's
+      // load, so save it in a scratch outside the array /
+      // enum writer's working set (X19..X22) across the
+      // punctuation syscall, which trashes X0-X17.
+      if quoted {
+        self.register_punctuation_sym(STR_DQUOTE_SYM, b"\"");
+        self.emitter.emit_mov_reg(Register::new(23), X0);
+        self.emit_synthetic_str_write(STR_DQUOTE_SYM, fd);
+        self.emitter.emit_mov_reg(X0, Register::new(23));
+      }
+
       self.emitter.emit_ldr(X2, X0, 0);
       self.emitter.emit_add_imm(X1, X0, 8);
       self.emitter.emit_mov_imm(X16, SYS_WRITE);
       self.emitter.emit_mov_imm(X0, fd);
       self.emitter.emit_svc(0);
+
+      if quoted {
+        self.emit_synthetic_str_write(STR_DQUOTE_SYM, fd);
+      }
     } else if is_float {
       self.emitter.emit_fmov_gp_to_fp(D0, X0);
       self.emit_ftoa_and_write(fd);
@@ -3455,7 +3475,7 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_ldr(X0, r_tmp, 0);
 
     // Dispatch on element type.
-    self.emit_field_write(elem_ty, fd);
+    self.emit_field_write(elem_ty, fd, true);
 
     // i++, B loop_start.
     self.emitter.emit_add_imm(r_idx, r_idx, 1);
