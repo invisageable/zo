@@ -3625,15 +3625,23 @@ impl<'a> ARM64Gen<'a> {
   /// peer `emit_pp_state_pop` undoes both pushes in reverse
   /// order with post-indexed LDP.
   fn emit_pp_state_push(&mut self) {
-    self.emitter.emit_stp(Register::new(19), Register::new(20), SP, -16);
-    self.emitter.emit_stp(Register::new(21), Register::new(22), SP, -16);
+    self
+      .emitter
+      .emit_stp(Register::new(19), Register::new(20), SP, -16);
+    self
+      .emitter
+      .emit_stp(Register::new(21), Register::new(22), SP, -16);
   }
 
   /// Pop the four pretty-printer state registers in the
   /// reverse order of `emit_pp_state_push`.
   fn emit_pp_state_pop(&mut self) {
-    self.emitter.emit_ldp(Register::new(21), Register::new(22), SP, 16);
-    self.emitter.emit_ldp(Register::new(19), Register::new(20), SP, 16);
+    self
+      .emitter
+      .emit_ldp(Register::new(21), Register::new(22), SP, 16);
+    self
+      .emitter
+      .emit_ldp(Register::new(19), Register::new(20), SP, 16);
   }
 
   /// Pretty-print a dynamic array value as `[e0, e1, ...]`.

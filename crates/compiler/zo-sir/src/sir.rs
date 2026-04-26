@@ -628,18 +628,12 @@ pub enum Insn {
   /// pretty-printer: `elem_fmt` is the `MapFmt`
   /// discriminant for the element kind, consumed by
   /// codegen to route `showln(v)` to `_zo_vec_show`.
-  VecTyDef {
-    vec_ty: TyId,
-    elem_fmt: u32,
-  },
+  VecTyDef { vec_ty: TyId, elem_fmt: u32 },
   /// `HashSet<$K>` type description — emitted once per
   /// instantiation. `key_fmt` carries the element's
   /// `MapFmt` discriminant; codegen routes
   /// `showln(s)` to `_zo_set_show`.
-  SetTyDef {
-    set_ty: TyId,
-    key_fmt: u32,
-  },
+  SetTyDef { set_ty: TyId, key_fmt: u32 },
   /// Struct construction: `Span { lo: 0, hi: 10 }`.
   StructConstruct {
     dst: ValueId,

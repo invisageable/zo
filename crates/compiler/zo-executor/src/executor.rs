@@ -11138,7 +11138,19 @@ impl<'a> Executor<'a> {
   }
 
   /// Sets up a while loop context.
-  fn execute_while(&mut self, _start_idx: usize, _end_idx: usize) {
+  ///
+  /// Two body shapes:
+  ///   - block: `while cond { ... }` — main walk drives
+  ///     the cond + LBrace emits `BranchIfNot`; RBrace
+  ///     closes via `BranchKind::While`. Just push the
+  ///     ctx and return.
+  ///   - line:  `while cond => expr;` — main walk has no
+  ///     hook for `=>`, so we inline-finalize here:
+  ///     sub-walk cond, emit `BranchIfNot`, sub-walk body,
+  ///     emit `Jump loop_label; Label end_label`, pop ctx.
+  fn execute_while(&mut self, start_idx: usize, end_idx: usize) {
+    let body_marker = self.scan_while_body_marker(start_idx, end_idx);
+
     let loop_label = self.sir.next_label();
     let end_label = self.sir.next_label();
 
@@ -11159,6 +11171,132 @@ impl<'a> Executor<'a> {
       value_sink_ty: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
+
+    // Block form: hand off to the main walk; the LBrace
+    // handler will emit the `BranchIfNot` and the matching
+    // RBrace will close the loop. Same path the executor
+    // has used since the while construct shipped.
+    let Some((fat_arrow_idx, semicolon_idx)) = body_marker else {
+      return;
+    };
+
+    // Line form: drive cond + body inline.
+    let saved_skip = self.skip_until;
+    self.skip_until = 0;
+
+    let stack_before = self.sir_values.len();
+
+    // Walk cond from after `while` (start_idx + 1) up to
+    // (but not including) the FatArrow.
+    for i in (start_idx + 1)..fat_arrow_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+    }
+
+    self.apply_deferred_binop();
+
+    // Pop cond from value stack and emit the branch.
+    if let Some(cond_sir) = self.sir_values.pop() {
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      self.sir.emit(Insn::BranchIfNot {
+        cond: cond_sir,
+        target: end_label,
+      });
+
+      if let Some(ctx) = self.branch_stack.last_mut() {
+        ctx.branch_emitted = true;
+      }
+    }
+
+    // Body scope (matches the LBrace's `push_scope` for
+    // the block form).
+    self.push_scope();
+
+    // Walk body from after `=>` to the terminating
+    // `Semicolon` (inclusive — its handler triggers the
+    // pending-assign / pending-compound finalize hooks).
+    for i in (fat_arrow_idx + 1)..=semicolon_idx {
+      if i < self.skip_until {
+        continue;
+      }
+
+      let node = self.tree.nodes[i];
+
+      self.execute_node(&node, i);
+
+      if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
+        self.apply_deferred_binop();
+      }
+    }
+
+    self.skip_until = saved_skip;
+
+    // Discard any leftover stack entries from the body
+    // expression — its result isn't used.
+    while self.sir_values.len() > stack_before {
+      self.sir_values.pop();
+      self.value_stack.pop();
+      self.ty_stack.pop();
+    }
+
+    // Loop close: `Jump loop_label; Label end_label`.
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    self.branch_stack.pop();
+    self.pop_scope();
+
+    // Skip past the body's terminating `;`.
+    self.skip_until = semicolon_idx + 1;
+  }
+
+  /// Find the body marker for `while cond <body_marker>...`.
+  /// Returns `Some((fat_arrow_idx, semicolon_idx))` for the
+  /// line form; `None` for the block form (where the body
+  /// starts at an LBrace and gets driven by the main walk).
+  fn scan_while_body_marker(
+    &self,
+    start_idx: usize,
+    end_idx: usize,
+  ) -> Option<(usize, usize)> {
+    let mut paren_depth: i32 = 0;
+    let mut fat_arrow_idx: Option<usize> = None;
+
+    for j in (start_idx + 1)..end_idx {
+      match self.tree.nodes[j].token {
+        Token::LParen | Token::LBracket => paren_depth += 1,
+        Token::RParen | Token::RBracket => paren_depth -= 1,
+        _ => {}
+      }
+
+      if paren_depth != 0 {
+        continue;
+      }
+
+      match self.tree.nodes[j].token {
+        Token::LBrace => return None,
+        Token::FatArrow => {
+          fat_arrow_idx = Some(j);
+
+          break;
+        }
+        _ => {}
+      }
+    }
+
+    let fat_arrow_idx = fat_arrow_idx?;
+
+    let semicolon_idx = ((fat_arrow_idx + 1)..end_idx)
+      .find(|&j| self.tree.nodes[j].token == Token::Semicolon)
+      .unwrap_or(end_idx);
+
+    Some((fat_arrow_idx, semicolon_idx))
   }
 
   /// `loop { ... }` — unconditional repeat until `break`.

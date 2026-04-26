@@ -488,18 +488,12 @@ impl PrettyPrinter {
           self.sir_instruction(&c);
         }
         Insn::VecTyDef { vec_ty, elem_fmt } => {
-          let c = format!(
-            "vec_ty_def : {:?} -> elem_fmt={elem_fmt}",
-            vec_ty,
-          );
+          let c = format!("vec_ty_def : {:?} -> elem_fmt={elem_fmt}", vec_ty,);
 
           self.sir_instruction(&c);
         }
         Insn::SetTyDef { set_ty, key_fmt } => {
-          let c = format!(
-            "set_ty_def : {:?} -> key_fmt={key_fmt}",
-            set_ty,
-          );
+          let c = format!("set_ty_def : {:?} -> key_fmt={key_fmt}", set_ty,);
 
           self.sir_instruction(&c);
         }
