@@ -3879,16 +3879,46 @@ impl<'a> ARM64Gen<'a> {
   /// keys, larger values) ride on per-call K/V type
   /// derivation that lives at insert/get time. Future
   /// work threads K/V into the new() handler too.
-  fn emit_map_new(&mut self, _args: &[ValueId], idx: usize) {
+  fn emit_map_new(&mut self, args: &[ValueId], idx: usize) {
     // Allocate the struct (one ptr field).
     let struct_base = self.struct_base + self.next_struct_slot;
 
     self.next_struct_slot += STACK_SLOT_SIZE;
 
-    // _zo_map_new(key_kind=0, key_sz=4, val_sz=4, cap=16).
-    self.emitter.emit_mov_imm(X0, 0);
-    self.emitter.emit_mov_imm(X1, 4);
-    self.emitter.emit_mov_imm(X2, 4);
+    // The executor prepends three `ConstInt`s carrying
+    // `(key_kind, key_sz, val_sz)` derived from the
+    // binding's `HashMap<K, V>` annotation. Move them into
+    // X0/X1/X2; default to the legacy MVP triple
+    // `(0, 4, 4)` for any program that compiles without
+    // those args.
+    let kk = args.first().and_then(|v| self.alloc_reg(*v));
+    let ks = args.get(1).and_then(|v| self.alloc_reg(*v));
+    let vs = args.get(2).and_then(|v| self.alloc_reg(*v));
+
+    if let Some(r) = kk {
+      if r != X0 {
+        self.emitter.emit_mov_reg(X0, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X0, 0);
+    }
+
+    if let Some(r) = ks {
+      if r != X1 {
+        self.emitter.emit_mov_reg(X1, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X1, 4);
+    }
+
+    if let Some(r) = vs {
+      if r != X2 {
+        self.emitter.emit_mov_reg(X2, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X2, 4);
+    }
+
     self.emitter.emit_mov_imm(X3, 16);
     self.emit_extern_call("_zo_map_new");
 
@@ -4065,13 +4095,34 @@ impl<'a> ARM64Gen<'a> {
   /// size hardcoded to 8 covers `int`, `str` (pointer),
   /// `char` (zero-extended), `bool` (zero-extended). A
   /// follow-up phase derives both per-call from `$T`.
-  fn emit_vec_new(&mut self, _args: &[ValueId], idx: usize) {
+  fn emit_vec_new(&mut self, args: &[ValueId], idx: usize) {
     let struct_base = self.struct_base + self.next_struct_slot;
 
     self.next_struct_slot += STACK_SLOT_SIZE;
 
-    self.emitter.emit_mov_imm(X0, 0);
-    self.emitter.emit_mov_imm(X1, 8);
+    // Executor-injected `(elem_kind, elem_sz, _val_sz)`
+    // triple. Vec ignores `val_sz` (it's always passed as
+    // `0`) but accepts the third arg for ABI symmetry with
+    // HashMap/HashSet's prepend.
+    let ek = args.first().and_then(|v| self.alloc_reg(*v));
+    let es = args.get(1).and_then(|v| self.alloc_reg(*v));
+
+    if let Some(r) = ek {
+      if r != X0 {
+        self.emitter.emit_mov_reg(X0, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X0, 0);
+    }
+
+    if let Some(r) = es {
+      if r != X1 {
+        self.emitter.emit_mov_reg(X1, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X1, 8);
+    }
+
     self.emitter.emit_mov_imm(X2, 8);
     self.emit_extern_call("_zo_vec_new");
 
@@ -4231,14 +4282,43 @@ impl<'a> ARM64Gen<'a> {
   /// `val_sz = 0`. The runtime stores a zero-length
   /// `Vec<u8>` per slot value; presence is fully encoded
   /// by the slot's occupancy state.
-  fn emit_set_new(&mut self, _args: &[ValueId], idx: usize) {
+  fn emit_set_new(&mut self, args: &[ValueId], idx: usize) {
     let struct_base = self.struct_base + self.next_struct_slot;
 
     self.next_struct_slot += STACK_SLOT_SIZE;
 
-    self.emitter.emit_mov_imm(X0, 0);
-    self.emitter.emit_mov_imm(X1, 4);
-    self.emitter.emit_mov_imm(X2, 0);
+    // Executor-injected `(key_kind, key_sz, val_sz)` —
+    // HashSet always passes `val_sz = 0` so the runtime's
+    // value-byte path is a no-op. The first two come from
+    // the binding's `HashSet<K>` annotation.
+    let kk = args.first().and_then(|v| self.alloc_reg(*v));
+    let ks = args.get(1).and_then(|v| self.alloc_reg(*v));
+    let vs = args.get(2).and_then(|v| self.alloc_reg(*v));
+
+    if let Some(r) = kk {
+      if r != X0 {
+        self.emitter.emit_mov_reg(X0, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X0, 0);
+    }
+
+    if let Some(r) = ks {
+      if r != X1 {
+        self.emitter.emit_mov_reg(X1, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X1, 4);
+    }
+
+    if let Some(r) = vs {
+      if r != X2 {
+        self.emitter.emit_mov_reg(X2, r);
+      }
+    } else {
+      self.emitter.emit_mov_imm(X2, 0);
+    }
+
     self.emitter.emit_mov_imm(X3, 16);
     self.emit_extern_call("_zo_map_new");
 

@@ -200,6 +200,16 @@ pub struct Executor<'a> {
   /// Keyed by the variable name (Symbol) that stores the
   /// call result. Used by the match handler to type bindings.
   var_return_type_args: HashMap<u32, Vec<zo_ty::Ty>>,
+  /// Generic-arg list parsed from a `imu m: HashMap<K, V>`
+  /// style annotation, keyed by the bound symbol's id.
+  /// Drives codegen for HashMap/HashSet/Vec ::new() — the
+  /// runtime needs `key_kind`/`key_sz`/`val_sz` derived
+  /// from `K` and `V` at call emit time, but the type
+  /// system doesn't carry per-instance generic args
+  /// through to a struct's TyId. This stash bridges the
+  /// gap until proper monomorphization-style instances
+  /// are tracked.
+  decl_annotation_args: HashMap<u32, Vec<TyId>>,
   /// Generic-parameter inference vars per struct, keyed by
   /// `StructTyId.0`. Populated at struct definition; consumed
   /// at construction to instantiate fresh per-call vars
@@ -503,6 +513,7 @@ impl<'a> Executor<'a> {
       enum_defs: Vec::new(),
       pending_imported_enums: Vec::new(),
       var_return_type_args: HashMap::default(),
+      decl_annotation_args: HashMap::default(),
       struct_generic_params: HashMap::default(),
       enum_generic_params: HashMap::default(),
       local_struct_field_tys: HashMap::default(),
@@ -4820,6 +4831,109 @@ impl<'a> Executor<'a> {
   /// unify the fresh var with `ArgTy`. Leaves `idx` at
   /// the closing `>` so the caller's own `idx += 1`
   /// moves past it.
+  /// Compute the per-call constants prepended to a
+  /// collection constructor's args list. Returns the
+  /// `(key_kind, key_sz, val_sz)` triple for HashMap and
+  /// HashSet calls (HashSet uses `val_sz = 0`), and the
+  /// `(elem_kind, elem_sz, 0)` triple for Vec.
+  ///
+  /// `args` is the binding's parsed generic args (e.g.
+  /// `[Ty::Str, Ty::Int]` for `HashMap<str, int>`). When
+  /// `None`, the helper returns the legacy MVP defaults
+  /// — `(0, 8, 8)` — so older programs without an
+  /// explicit `HashMap<int, int>` annotation keep the
+  /// behaviour they had pre-Phase-C.
+  fn collection_new_type_args(
+    &mut self,
+    call_name: &str,
+    args: Option<&[TyId]>,
+  ) -> Vec<u64> {
+    let key_kind_for = |this: &mut Self, ty: TyId| -> u64 {
+      match this.ty_checker.kind_of(ty) {
+        Ty::Str => 1,
+        _ => 0,
+      }
+    };
+
+    match call_name {
+      "HashMap::new" => match args {
+        Some([k, _v]) => {
+          let kk = key_kind_for(self, *k);
+          vec![kk, 8, 8]
+        }
+        _ => vec![0, 8, 8],
+      },
+      "HashSet::new" => match args {
+        Some([k]) => {
+          let kk = key_kind_for(self, *k);
+          vec![kk, 8, 0]
+        }
+        _ => vec![0, 8, 0],
+      },
+      "Vec::new" => vec![0, 8, 0],
+      _ => Vec::new(),
+    }
+  }
+
+  /// Parse a generic argument list `<T1, T2, ...>` starting
+  /// at the token AFTER the type name. Returns the resolved
+  /// `TyId`s in order. The cursor is advanced past the
+  /// closing `>` on success; left untouched otherwise.
+  ///
+  /// Supports comma-separated primitive / struct / enum
+  /// types — exactly what `HashMap<K, V>`,
+  /// `HashSet<K>`, `Vec<T>` annotations need at the
+  /// `imu m: ...` site.
+  fn parse_generic_args(
+    &mut self,
+    cursor: &mut usize,
+    end: usize,
+  ) -> Vec<TyId> {
+    let lt_idx = *cursor;
+
+    if lt_idx >= end || self.tree.nodes[lt_idx].token != Token::Lt {
+      return Vec::new();
+    }
+
+    let mut args: Vec<TyId> = Vec::new();
+    let mut i = lt_idx + 1;
+
+    while i < end {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Gt {
+        *cursor = i + 1;
+
+        return args;
+      }
+
+      if tok == Token::Comma {
+        i += 1;
+
+        continue;
+      }
+
+      let is_ident_type = tok == Token::Ident && {
+        if let Some(NodeValue::Symbol(sym)) = self.node_value(i) {
+          self
+            .ty_checker
+            .resolve_ty_symbol(sym, self.interner)
+            .is_some()
+        } else {
+          false
+        }
+      };
+
+      if tok.is_ty() || is_ident_type {
+        args.push(self.resolve_type_token(i));
+      }
+
+      i += 1;
+    }
+
+    Vec::new()
+  }
+
   fn bind_concurrency_generic(
     &mut self,
     idx: &mut usize,
@@ -6259,6 +6373,36 @@ impl<'a> Executor<'a> {
             let mut cursor = i;
 
             self.bind_concurrency_generic(&mut cursor, children_end, base);
+
+            // For multi-generic-arg structs (`HashMap<K, V>`,
+            // `Vec<T>`, `HashSet<K>`), parse the `<...>` list
+            // after the type name and stash the resolved
+            // arg `TyId`s under the binding's name. Codegen
+            // for `HashMap::new()` / `Vec::new()` /
+            // `HashSet::new()` reads this stash to derive
+            // `key_kind` / element-size / value-size at call
+            // emit time — the type system itself uses one
+            // `TyId` per struct definition (no per-instance
+            // ids), so this side-channel carries the args.
+            let after_concur = cursor + 1;
+
+            if after_concur < children_end
+              && self.tree.nodes[after_concur].token == Token::Lt
+            {
+              let mut gargs_cursor = after_concur;
+
+              let gargs =
+                self.parse_generic_args(&mut gargs_cursor, children_end);
+
+              if !gargs.is_empty() {
+                self.decl_annotation_args.insert(name.as_u32(), gargs);
+
+                // Advance past the consumed `<...>` so the
+                // outer scan doesn't re-process it as
+                // expression tokens.
+                cursor = gargs_cursor.saturating_sub(1);
+              }
+            }
 
             i = cursor;
 
@@ -13540,6 +13684,54 @@ impl<'a> Executor<'a> {
               arg_sirs = vec![show_result];
             }
           }
+        }
+      }
+
+      // Per-call generic args for collection constructors —
+      // prepend type-derived `ConstInt`s to `arg_sirs` so
+      // codegen handlers (`emit_map_new`, `emit_set_new`,
+      // `emit_vec_new`) read `key_kind` / `key_sz` / `val_sz`
+      // (or `elem_kind` / `elem_sz`) at call-site emit time
+      // instead of hardcoding. The args come from the
+      // binding annotation parsed at `begin_decl` —
+      // `decl_annotation_args[m] = [Ty::Str, Ty::Int]` for
+      // `imu m: HashMap<str, int> = HashMap::new()`.
+      let collection_kind: Option<&'static str> =
+        match self.interner.get(call_name) {
+          "HashMap::new" => Some("HashMap::new"),
+          "HashSet::new" => Some("HashSet::new"),
+          "Vec::new" => Some("Vec::new"),
+          _ => None,
+        };
+
+      if let Some(kind) = collection_kind {
+        let decl_args = self.pending_decl.as_ref().and_then(|d| {
+          self.decl_annotation_args.get(&d.name.as_u32()).cloned()
+        });
+
+        let prepend_args =
+          self.collection_new_type_args(kind, decl_args.as_deref());
+
+        if !prepend_args.is_empty() {
+          let mut prepended: Vec<ValueId> =
+            Vec::with_capacity(prepend_args.len());
+          let int_ty = self.ty_checker.int_type();
+
+          for value in prepend_args {
+            let dst_id = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
+            let sir_id = self.sir.emit(Insn::ConstInt {
+              dst: dst_id,
+              value,
+              ty_id: int_ty,
+            });
+
+            prepended.push(sir_id);
+          }
+
+          prepended.extend(arg_sirs);
+          arg_sirs = prepended;
         }
       }
 

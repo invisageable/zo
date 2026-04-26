@@ -143,12 +143,9 @@ impl PrettyPrinter {
         Insn::FunDef { name, .. } => {
           if in_function_body {
             self.buffer.newline();
-
-            // in_function_body = false;
           }
 
           let name = interner.get(*name);
-          // current_function = Some(name.to_string());
 
           self.sir_function(name);
 
@@ -157,7 +154,6 @@ impl PrettyPrinter {
         Insn::Return { value, .. } => {
           if let Some(v) = value {
             let return_value = format!("ret %{v}");
-
             self.sir_instruction(&return_value);
           } else {
             self.sir_instruction("ret void");
@@ -165,19 +161,23 @@ impl PrettyPrinter {
         }
         Insn::ConstInt { dst, value, .. } => {
           let int = format!("%{dst} = const {value} : i32");
+
           self.sir_instruction(&int);
         }
         Insn::ConstFloat { dst, value, .. } => {
           let int = format!("%{dst} = const {value} : f32");
+
           self.sir_instruction(&int);
         }
         Insn::ConstBool { dst, value, .. } => {
           let boolean = format!("%{dst} = const {value} : bool");
+
           self.sir_instruction(&boolean);
         }
         Insn::ConstString { dst, symbol, .. } => {
           let content = interner.get(*symbol);
           let string = format!("%{dst} = const \"{content}\" : str");
+
           self.sir_instruction(&string);
         }
         Insn::BinOp {
@@ -280,9 +280,7 @@ impl PrettyPrinter {
         }
         Insn::PackDecl { name, pubness } => {
           let name = interner.get(*name);
-
           let vis = if *pubness == Pubness::Yes { "pub " } else { "" };
-
           let decl = format!("{vis}pack {name}");
 
           self.sir_instruction(&decl);
@@ -566,6 +564,7 @@ impl PrettyPrinter {
             .map(|c| format!("%{c}"))
             .collect::<Vec<_>>()
             .join(", ");
+
           let c =
             format!("%{out_which} = select.wait [{chans_str}] : {elem_ty:?}",);
 
@@ -852,7 +851,6 @@ impl PrettyPrinter {
       let start = tokens.starts[i] as usize;
       let length = tokens.lengths[i] as usize;
       let end = start + length;
-
       let kind = format!("{token:?}");
       let lexeme = &source[start..end];
       let is_last = i == token_count - 1;
