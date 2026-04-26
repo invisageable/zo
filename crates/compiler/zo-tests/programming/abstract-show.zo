@@ -14,10 +14,10 @@ apply Show for Color {
 }
 
 fun main() {
-  imu c: Color = Color { r: 255, g: 128, b: 0 };
+  imu color: Color = Color { r: 255, g: 128, b: 0 };
   
-  showln(c); -- showln(struct) auto-dispatches to Show::show.
-  showln(c.show()); -- explicit method call still works.
+  showln(color);        -- showln(struct) auto-dispatches to `Show::show`.
+  showln(color.show()); -- explicit method call still works.
 }
 
 -- EXPECTED OUTPUT:

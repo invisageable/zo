@@ -15,4 +15,9 @@ fun ack(m: int, n: int) -> int {
 
 fun main() {
   showln(ack(2, 2));
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- 7
+-- DONE

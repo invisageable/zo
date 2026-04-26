@@ -14,7 +14,7 @@ apply Color {
 }
 
 fun main() {
-  imu c: Color = Color::red();
+  imu color: Color = Color::red();
 
-  check@eq(c, Color::Red);
+  check@eq(color, Color::Red);
 }

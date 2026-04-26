@@ -24,4 +24,10 @@ fun main() {
   check@eq(cube[1][0][1], 6);
   check@eq(cube[1][1][0], 7);
   check@eq(cube[1][1][1], 8);
+
+  -- showln(cube);
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- DONE

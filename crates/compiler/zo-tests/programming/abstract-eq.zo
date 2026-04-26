@@ -17,21 +17,21 @@ fun main() {
   imu b: Point = Point { x: 10, y: 99 };
   imu c: Point = Point { x: 5, y: 20 };
 
+  showln(a);
+  showln(b);
+  showln(c);
+
   -- == dispatches to Point::eq.
   check(a == b);
 
-  showln(a);
-  -- showln(b);
-
   -- != dispatches to !Point::eq.
   check(a != c);
-
-  -- showln(a);
-  -- showln(c);
 
   showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- Point { x: 10, y: 20 }
+-- Point { x: 10, y: 99 }
+-- Point { x: 5, y: 20 }
 -- DONE
