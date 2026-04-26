@@ -34,5 +34,5 @@ fun main() {
   d = (d + 2) * 3;
   check@eq(d, 18);
 
-  showln("literal-binop-assign-rhs: all checks passed!");
+  showln("DONE");
 }

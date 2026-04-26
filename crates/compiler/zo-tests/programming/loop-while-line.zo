@@ -1,0 +1,18 @@
+val Y: int = 1_000_000_000;
+
+fun main() {
+  mut z: int = 0;
+
+  -- while:line.
+  while z < Y => z += 1;
+
+  check@eq(z, 1_000_000_000);
+
+  showln("z: {z}");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- z: 1000000000
+-- DONE
