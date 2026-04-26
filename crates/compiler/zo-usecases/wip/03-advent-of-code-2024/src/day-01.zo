@@ -13,7 +13,7 @@
 fun main() {
   mut text: str = "";
 
-  match read_file("aoc-2024-d01.input") {
+  match read_file("day-01.txt") {
     Result::Ok(t) => text = t,
     Result::Err(code) => showln(code),
   }

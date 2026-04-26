@@ -2,9 +2,16 @@
 -- @cmd — zo run array-str.zo
 
 fun main() {
-  imu a: []str = ["hello", "world", "zo"];
+  imu words: []str = ["hello", "world", "from", "zo"];
 
-  showln(a[0]); -- expected: `hello`
-  showln(a[1]); -- expected: `world`
-  showln(a[2]); -- expected: `zo`
+  for word := words => showln(word);
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- hello
+-- world
+-- from
+-- zo
+-- DONE

@@ -3,11 +3,11 @@
 
 fun main() {
   mut squares: []int = [0, 0, 0, 0, 0];
-  mut i: int = 0;
+  mut idx: int = 0;
 
-  while i < 5 {
-    squares[i] = i * i;
-    i = i + 1;
+  while idx < 5 {
+    squares[idx] = idx * idx;
+    idx = idx + 1;
   }
 
   check(squares[0] == 0);
@@ -15,4 +15,12 @@ fun main() {
   check(squares[2] == 4);
   check(squares[3] == 9);
   check(squares[4] == 16);
+
+  showln(squares);
+  
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- [0, 1, 4, 9, 16]
+-- DONE

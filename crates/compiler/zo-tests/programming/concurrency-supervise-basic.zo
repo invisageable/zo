@@ -20,10 +20,10 @@ fun main() {
     spawn worker_b();
   }
 
-  showln("supervise done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- worker a
 -- worker b
--- supervise done
+-- DONE

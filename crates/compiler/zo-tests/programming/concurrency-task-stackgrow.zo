@@ -25,7 +25,10 @@ fun main() {
 
     showln("depth: {depth}");
   }
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- depth: 2000
+-- DONE

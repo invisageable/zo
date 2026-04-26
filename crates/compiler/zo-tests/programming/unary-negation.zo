@@ -32,5 +32,6 @@ fun main() {
 
   -- sign display.
   showln(-1);
-  showln("all unary negation checks passed!");
+  
+  showln("DONE");
 }

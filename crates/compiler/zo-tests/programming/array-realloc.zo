@@ -7,6 +7,7 @@ fun main() {
 
   while i < 2000 {
     arr.push(i);
+
     i = i + 1;
   }
 
@@ -14,6 +15,8 @@ fun main() {
   showln(arr[0]);
   showln(arr[999]);
   showln(arr[1999]);
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
@@ -21,3 +24,4 @@ fun main() {
 -- 0
 -- 999
 -- 1999
+-- DONE

@@ -26,4 +26,11 @@ fun main() {
   check@eq(y, 25);
   check@eq(z, 50);
   check@eq(result, 10);
+
+  showln("result: {result}");
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- result: 10
+-- DONE

@@ -6,9 +6,18 @@ fun main() {
   mut idx: int = 2;
 
   arr[idx] = 42;
-  check(arr[2] == 42);
+  check(arr[idx] == 42);
+  showln(arr);
 
   -- overwrite.
   arr[idx] = 99;
-  check(arr[2] == 99);
+  check(arr[idx] == 99);
+  showln(arr);
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- [0, 0, 42, 0]
+-- [0, 0, 99, 0]
+-- DONE

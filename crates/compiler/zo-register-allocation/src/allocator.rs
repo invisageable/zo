@@ -278,8 +278,14 @@ pub fn allocate_function(
       continue;
     }
 
-    // Empty arrays call _malloc, push may call _realloc.
-    if matches!(insn, Insn::ArrayLiteral { elements, .. } if elements.is_empty())
+    // Every `ArrayLiteral` heap-allocates via `_malloc`
+    // (both empty and non-empty paths — `[]T` is dynamic
+    // by type, so stack-allocating non-empty literals
+    // breaks `arr.push`'s `_realloc` on a stack pointer);
+    // `ArrayPush` itself may also call `_realloc` when
+    // capacity is exhausted. Either makes the function
+    // non-leaf and forces FP/LR save in the prologue.
+    if matches!(insn, Insn::ArrayLiteral { .. })
       || matches!(insn, Insn::ArrayPush { .. })
     {
       has_calls = true;

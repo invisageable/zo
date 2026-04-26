@@ -8,7 +8,7 @@ fun producer(tx: Tx<int>) {
 fun consumer(rx: Rx<int>) {
   imu value: int = rx.recv();
 
-  showln("got {value}");
+  showln("got {value}");  
 }
 
 fun main() {
@@ -18,7 +18,10 @@ fun main() {
     spawn producer(chan.0);
     spawn consumer(chan.1);
   }
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- got 42
+-- DONE

@@ -15,7 +15,10 @@ fun main() {
 
     showln("cancelled: {is_cancelled}");
   }
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- cancelled: true
+-- DONE

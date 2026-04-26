@@ -11,6 +11,8 @@ fun main() {
   -- empty concat.
   imu c: str = "" ++ "test";
   showln(c);
+
+
 }
 
 -- CHECK: hello world

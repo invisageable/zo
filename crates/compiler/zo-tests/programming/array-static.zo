@@ -2,14 +2,22 @@
 -- @cmd — zo run array-static.zo
 
 fun main() {
-  imu a: [3]int = [10, 20, 30];
+  imu nums: [3]int = [10, 20, 30];
 
-  check@eq(a[0], 10);
-  check@eq(a[1], 20);
-  check@eq(a[2], 30);
+  check@eq(nums[0], 10);
+  check@eq(nums[1], 20);
+  check@eq(nums[2], 30);
 
-  imu b: [2]str = ["foo", "bar"];
+  imu words: [2]str = ["foo", "bar"];
 
-  showln(b[0]); -- expected: `foo`
-  showln(b[1]); -- expected: `bar`
+  for word := words {
+    showln(word);
+  }
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- foo
+-- bar
+-- DONE

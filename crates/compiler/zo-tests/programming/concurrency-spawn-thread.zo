@@ -14,9 +14,9 @@ fun main() {
     await task;
   }
 
-  showln("main done");
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- crunching 1000000 items
--- main done
+-- DONE

@@ -3,5 +3,11 @@ fun main() {
   imu x: int = 2;
   imu x: int = x + 3;
 
-  showln(x); -- returns `5`
+  showln(x);
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- 5
+-- DONE

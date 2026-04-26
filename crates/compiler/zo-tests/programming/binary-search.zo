@@ -27,3 +27,6 @@ fun main() {
     Option::None => showln(-1),
   }
 }
+
+-- EXPECTED OUTPUT:
+-- 6

@@ -5,5 +5,11 @@ fun main() {
 
   foobar = foo + bar;
 
-  showln("[debug] = {foobar}");
+  showln("foobar = {foobar}");
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- foobar = 13
+-- DONE

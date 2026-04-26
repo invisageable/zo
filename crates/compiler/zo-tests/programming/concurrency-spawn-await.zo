@@ -12,7 +12,10 @@ fun main() {
 
     showln("got {result}");
   }
+
+  showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
 -- got 42
+-- DONE

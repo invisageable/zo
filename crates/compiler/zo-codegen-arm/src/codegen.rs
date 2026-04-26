@@ -44,10 +44,21 @@ const ASCII_ZERO: u16 = 48;
 const STACK_SLOT_SIZE: u32 = 8;
 const FP_LR_SAVE_OFFSET: i16 = -16;
 const FP_LR_LOAD_OFFSET: i16 = 16;
-// 7 caller-saved temp regs (X9-X15) * 8 bytes each.
-const CALLER_SAVE_RESERVE: u32 = 56;
-const CALLER_SAVE_COUNT: usize = 7;
-const CALLER_SAVE_START: u8 = 9; // X9..X17
+// 15 caller-saved temp regs (X1-X15) * 8 bytes each.
+// Includes X1..X8 because the register allocator may
+// place live values there — element ConstInt slots in
+// `ArrayLiteral` with > 7 elements, multi-arg call
+// receivers, etc. Pre-bump from X9..X15 didn't cover
+// this and `bl _malloc` silently clobbered the
+// extras. X0 is excluded because it's the BL's first
+// argument slot, set by the caller right before
+// `emit_extern_call`. X16/X17 are intra-procedure
+// scratch (the AAPCS allows any callee to use them
+// without saving), so the caller never expects them
+// preserved — saving is unnecessary.
+const CALLER_SAVE_RESERVE: u32 = 120;
+const CALLER_SAVE_COUNT: usize = 15;
+const CALLER_SAVE_START: u8 = 1;
 const FRAME_ALIGN_MASK: u32 = 15;
 const MAX_REG_ARGS: usize = 8;
 
@@ -2347,66 +2358,75 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ArrayLiteral { elements, .. } => {
-        if elements.is_empty() {
-          // Empty array: heap-allocate via malloc.
-          // Layout: [len:8][cap:8][data...]
-          let initial_cap: u32 = 1024;
-          let alloc_size =
-            (ARRAY_HEADER_SIZE as u32 + initial_cap * STACK_SLOT_SIZE) as u64;
+        // Both paths heap-allocate. Stack allocation for the
+        // non-empty case used to look like a free win — the
+        // bytes are right there, no syscall — but every `[]T`
+        // is a dynamic-growable array by type, and any later
+        // `arr.push(...)` calls `_realloc` on the receiver
+        // pointer. `realloc` on a stack address is UB; on
+        // macOS it spins. Heap-allocating both shapes keeps
+        // the invariant uniform: every `[]T` value is a real
+        // heap pointer, growable by realloc, freeable by
+        // free. The `[N]T` static-array optimization (true
+        // stack allocation, no growth) is a separate path
+        // that needs the array's `size: Option<u32>` to flow
+        // through `Insn::ArrayTyDef` — see the follow-up
+        // when static arrays get their own SIR shape.
+        let n = elements.len() as u32;
 
-          self.emit_mov_imm_64(X0, alloc_size);
-          self.emit_extern_call("_malloc");
-          // X0 = heap pointer. Store len=0, cap=initial_cap.
-          self.emitter.emit_mov_imm(X16, 0);
-          self.emitter.emit_str(X16, X0, 0);
-          self.emit_mov_imm_64(X16, initial_cap as u64);
-          self.emitter.emit_str(X16, X0, 8);
+        // Empty arrays over-provision (cap = 1024) so the
+        // first 1024 pushes don't pay realloc. Non-empty
+        // literals pay one realloc on the first push past
+        // their initial size — accepted; tightening the
+        // initial allocation reduces idle bytes per
+        // function.
+        let initial_cap: u32 = if n == 0 { 1024 } else { n };
+        let alloc_size =
+          (ARRAY_HEADER_SIZE as u32 + initial_cap * STACK_SLOT_SIZE) as u64;
 
-          // Store heap pointer to stack slot so Store/Load
-          // can find it.
-          let base = self.struct_base + self.next_struct_slot;
+        self.emit_mov_imm_64(X0, alloc_size);
+        self.emit_extern_call("_malloc");
 
-          self.emit_str_sp(X0, base);
+        // X0 holds the heap pointer; pin it in a callee-saved
+        // register (X19) across the per-element stores so the
+        // X16/X17 scratches we use for length/cap don't lose
+        // it. AAPCS guarantees `_malloc` preserved X19, so no
+        // explicit save needed. Element values landed back in
+        // their allocator-assigned regs because
+        // `emit_extern_call` saves X1..X15 across the BL.
+        let r_buf = Register::new(19);
 
-          if let Some(dst) = self.reg_for_insn(idx) {
-            self.emitter.emit_mov_reg(dst, X0);
+        self.emitter.emit_mov_reg(r_buf, X0);
+
+        // Header: len = n, cap = initial_cap.
+        self.emit_mov_imm_64(X16, n as u64);
+        self.emitter.emit_str(X16, r_buf, 0);
+        self.emit_mov_imm_64(X16, initial_cap as u64);
+        self.emitter.emit_str(X16, r_buf, 8);
+
+        for (i, elem) in elements.iter().enumerate() {
+          let off_u16 =
+            ARRAY_HEADER_SIZE + (i as u16) * (STACK_SLOT_SIZE as u16);
+
+          if let Some(fp) = self.alloc_fp_reg(*elem) {
+            self.emitter.emit_str_fp(fp, r_buf, off_u16);
+          } else if let Some(reg) = self.alloc_reg(*elem) {
+            self.emitter.emit_str(reg, r_buf, off_u16 as i16);
           }
-
-          // Only 1 stack slot for the pointer.
-          self.next_struct_slot += STACK_SLOT_SIZE;
-        } else {
-          // Non-empty literal: stack-allocate (unchanged).
-          // Layout: [len:8][cap:8][e0:8][e1:8]...[eN:8]
-          let base = self.struct_base + self.next_struct_slot;
-          let n = elements.len() as u32;
-
-          // Store length at [SP + base].
-          self.emitter.emit_mov_imm(X16, n as u16);
-          self.emit_str_sp(X16, base);
-
-          // Store capacity = len (tight, no growth).
-          self.emit_str_sp(X16, base + STACK_SLOT_SIZE);
-
-          // Store each element.
-          for (i, elem) in elements.iter().enumerate() {
-            let off =
-              base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
-
-            if let Some(fp) = self.alloc_fp_reg(*elem) {
-              self.emit_str_fp_sp(fp, off);
-            } else if let Some(reg) = self.alloc_reg(*elem) {
-              self.emit_str_sp(reg, off);
-            }
-          }
-
-          // Result: pointer to array base.
-          if let Some(dst) = self.reg_for_insn(idx) {
-            self.emit_add_sp_offset(dst, base);
-          }
-
-          // Advance slot: 2 (header) + N elements.
-          self.next_struct_slot += (2 + n) * STACK_SLOT_SIZE;
         }
+
+        // Spill the heap pointer to a stack slot so later
+        // Store/Load can find it. Same shape as the original
+        // empty path — only one slot per literal.
+        let base = self.struct_base + self.next_struct_slot;
+
+        self.emit_str_sp(r_buf, base);
+
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emitter.emit_mov_reg(dst, r_buf);
+        }
+
+        self.next_struct_slot += STACK_SLOT_SIZE;
       }
 
       Insn::ArrayIndex {
