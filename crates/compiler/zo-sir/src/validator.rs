@@ -439,7 +439,9 @@ fn check_insn(
     Insn::EnumDef { .. }
     | Insn::StructDef { .. }
     | Insn::ArrayTyDef { .. }
-    | Insn::MapTyDef { .. } => {}
+    | Insn::MapTyDef { .. }
+    | Insn::VecTyDef { .. }
+    | Insn::SetTyDef { .. } => {}
 
     Insn::FunDef { .. }
     | Insn::Label { .. }

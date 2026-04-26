@@ -19,7 +19,7 @@ fun main() {
 
   check@eq(names.len(), 3);
 
-  -- showln(names);
+  showln(names);
 
   -- contains_key not on Vec, but the storage round-trip is implicit in
   -- `len` + grow + free working.
@@ -46,4 +46,5 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
+-- ["alice", "bob", "carol"]
 -- DONE

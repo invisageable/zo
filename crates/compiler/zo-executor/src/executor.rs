@@ -14256,6 +14256,35 @@ impl<'a> Executor<'a> {
             val_fmt,
           });
         }
+
+        // Same shape for `Vec<$T>` and `HashSet<$K>` — the
+        // pretty-printer needs the per-call-site element /
+        // key kind to dispatch through the matching runtime
+        // helper instead of falling through to the struct
+        // walker (which would print `Vec { ptr: <int> }`).
+        if kind == "Vec::new"
+          && let Some(args) = decl_args.as_deref()
+          && let [t] = args
+        {
+          let elem_fmt = self.map_fmt_for_ty(*t);
+
+          self.sir.emit(Insn::VecTyDef {
+            vec_ty: resolved_ret,
+            elem_fmt,
+          });
+        }
+
+        if kind == "HashSet::new"
+          && let Some(args) = decl_args.as_deref()
+          && let [k] = args
+        {
+          let key_fmt = self.map_fmt_for_ty(*k);
+
+          self.sir.emit(Insn::SetTyDef {
+            set_ty: resolved_ret,
+            key_fmt,
+          });
+        }
       }
 
       let dst = ValueId(self.sir.next_value_id);

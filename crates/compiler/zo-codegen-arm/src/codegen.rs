@@ -259,6 +259,19 @@ pub struct ARM64Gen<'a> {
   /// kinds — without it the receiver pointer falls
   /// through to `itoa` and prints as a raw address.
   map_metas: HashMap<u32, (u32, u32)>,
+  /// `Vec<$T>` type → element `MapFmt` discriminant,
+  /// keyed by the vec's `TyId.0`. Populated by the same
+  /// pre-pass that fills `array_metas`, reading
+  /// `Insn::VecTyDef`. Drives `emit_vec_write` so
+  /// `showln(v)` calls `_zo_vec_show` with the right
+  /// element kind — without it the receiver struct
+  /// pointer routes through the generic struct printer
+  /// and prints `Vec { ptr: <int> }`.
+  vec_metas: HashMap<u32, u32>,
+  /// `HashSet<$K>` type → key `MapFmt` discriminant,
+  /// keyed by the set's `TyId.0`. Same role as
+  /// `vec_metas`, reading `Insn::SetTyDef`.
+  set_metas: HashMap<u32, u32>,
   /// Per-construction concrete payload types, keyed by the
   /// `EnumConstruct.dst` ValueId. Each entry pins down the
   /// variant index and the concrete `TyId` of every payload
@@ -397,6 +410,8 @@ impl<'a> ARM64Gen<'a> {
       value_types: HashMap::default(),
       array_metas: HashMap::default(),
       map_metas: HashMap::default(),
+      vec_metas: HashMap::default(),
+      set_metas: HashMap::default(),
       value_enum_field_tys: HashMap::default(),
       local_enum_field_tys: HashMap::default(),
       value_tuple_elem_tys: HashMap::default(),
@@ -512,6 +527,23 @@ impl<'a> ARM64Gen<'a> {
     let ty = self.type_of(vid)?;
 
     self.map_metas.get(&ty.0).copied()
+  }
+
+  /// If `vid`'s type is a registered `Vec<$T>`, return the
+  /// element `MapFmt` discriminant. Same fall-through
+  /// semantics as `is_map_value`.
+  fn is_vec_value(&self, vid: ValueId) -> Option<u32> {
+    let ty = self.type_of(vid)?;
+
+    self.vec_metas.get(&ty.0).copied()
+  }
+
+  /// If `vid`'s type is a registered `HashSet<$K>`, return
+  /// the key `MapFmt` discriminant.
+  fn is_set_value(&self, vid: ValueId) -> Option<u32> {
+    let ty = self.type_of(vid)?;
+
+    self.set_metas.get(&ty.0).copied()
   }
 
   /// Returns the tuple's element `TyId`s when `vid` came
@@ -809,6 +841,12 @@ impl<'a> ARM64Gen<'a> {
           val_fmt,
         } => {
           self.map_metas.insert(map_ty.0, (*key_fmt, *val_fmt));
+        }
+        Insn::VecTyDef { vec_ty, elem_fmt } => {
+          self.vec_metas.insert(vec_ty.0, *elem_fmt);
+        }
+        Insn::SetTyDef { set_ty, key_fmt } => {
+          self.set_metas.insert(set_ty.0, *key_fmt);
         }
         _ => {}
       }
@@ -3255,6 +3293,23 @@ impl<'a> ARM64Gen<'a> {
       // the `MapFmt` discriminants we passed; codegen never
       // sees the slot bytes itself.
       self.emit_map_write(vid, kf, vf, fd);
+    } else if let Some(elem_fmt) = arg_vid.and_then(|v| self.is_vec_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // `Vec<$T>` — same shape as map: load `v.ptr`, hand
+      // off to `_zo_vec_show` with the element kind.
+      // Dispatched BEFORE `is_struct_value` because Vec is
+      // structurally `struct Vec { ptr: int }` — the struct
+      // walker would print `Vec { ptr: <int> }` instead of
+      // the elements.
+      self.emit_vec_write(vid, elem_fmt, fd);
+    } else if let Some(key_fmt) = arg_vid.and_then(|v| self.is_set_value(v))
+      && let Some(vid) = arg_vid
+    {
+      // `HashSet<$K>` — same shape as Vec, routed to
+      // `_zo_set_show`. Same struct-walker shadowing
+      // concern as Vec.
+      self.emit_set_write(vid, key_fmt, fd);
     } else if let Some(elem_tys) = arg_vid.and_then(|v| self.is_tuple_value(v))
       && let Some(vid) = arg_vid
     {
@@ -3890,6 +3945,36 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_mov_imm(X2, key_fmt as u16);
     self.emitter.emit_mov_imm(X3, val_fmt as u16);
     self.emit_extern_call("_zo_map_show");
+  }
+
+  /// Pretty-print a `Vec<$T>` as `[e0, e1, ...]`. Same shape
+  /// as `emit_map_write` — receiver register holds the
+  /// `Vec { ptr }` struct address; we load `v.ptr` and hand
+  /// off to `_zo_vec_show` with the element kind. The
+  /// runtime walks the live elements, formats each with
+  /// `MapFmt::format_bytes`, and emits a single `write`
+  /// syscall.
+  fn emit_vec_write(&mut self, vid: ValueId, elem_fmt: u32, fd: u16) {
+    let recv = self.alloc_reg(vid).unwrap_or(X0);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emitter.emit_mov_imm(X1, fd);
+    self.emitter.emit_mov_imm(X2, elem_fmt as u16);
+    self.emit_extern_call("_zo_vec_show");
+  }
+
+  /// Pretty-print a `HashSet<$K>` as `{k0, k1, ...}`. Same
+  /// shape as `emit_vec_write` but routed through
+  /// `_zo_set_show`, which walks the underlying `ZoMap`
+  /// (sets reuse the map allocator) and prints just the
+  /// keys — no `: value` per entry.
+  fn emit_set_write(&mut self, vid: ValueId, key_fmt: u32, fd: u16) {
+    let recv = self.alloc_reg(vid).unwrap_or(X0);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emitter.emit_mov_imm(X1, fd);
+    self.emitter.emit_mov_imm(X2, key_fmt as u16);
+    self.emit_extern_call("_zo_set_show");
   }
 
   /// Emit a newline write to the given fd.

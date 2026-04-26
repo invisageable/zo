@@ -81,7 +81,7 @@ pub enum MapFmt {
 }
 
 impl MapFmt {
-  fn from_u8(v: u8) -> Self {
+  pub(crate) fn from_u8(v: u8) -> Self {
     match v {
       0 => MapFmt::Int,
       1 => MapFmt::Bool,
@@ -105,7 +105,12 @@ impl MapFmt {
   /// codegen spills the str header pointer's 8 bytes
   /// into the value slot; we follow the pointer to its
   /// payload at format time.
-  fn format_bytes(self, bytes: &[u8], is_value: bool, out: &mut Vec<u8>) {
+  pub(crate) fn format_bytes(
+    self,
+    bytes: &[u8],
+    is_value: bool,
+    out: &mut Vec<u8>,
+  ) {
     match self {
       MapFmt::Int => {
         let mut buf = [0u8; 8];
@@ -648,6 +653,49 @@ pub unsafe extern "C-unwind" fn _zo_map_show(
       kf.format_bytes(key, false, &mut out);
       out.extend_from_slice(b": ");
       vf.format_bytes(val, true, &mut out);
+    }
+  }
+
+  out.push(b'}');
+
+  unsafe {
+    libc::write(fd as i32, out.as_ptr() as *const _, out.len());
+  }
+}
+
+/// Pretty-print a `HashSet` as `{k0, k1, ...}`. Same
+/// machinery as `_zo_map_show` — sets are backed by
+/// `ZoMap` with `val_sz = 0`, so we walk occupied slots
+/// and format only the key half.
+///
+/// # Safety
+///
+/// `set` must be a live pointer from `__zo_map_new`
+/// (which is what `HashSet::new` calls under the hood).
+#[unsafe(export_name = "zo_set_show")]
+pub unsafe extern "C-unwind" fn _zo_set_show(
+  set: *mut ZoMap,
+  fd: usize,
+  key_fmt: u8,
+) {
+  let m = unsafe { &*set };
+  let kf = MapFmt::from_u8(key_fmt);
+
+  let mut out: Vec<u8> = Vec::with_capacity(64);
+
+  out.push(b'{');
+
+  let mut first = true;
+
+  for slot in &m.slots {
+    if let Slot::Occupied { key, .. } = slot {
+      if !first {
+        out.extend_from_slice(b", ");
+      }
+
+      first = false;
+
+      kf.format_bytes(key, false, &mut out);
     }
   }
 
