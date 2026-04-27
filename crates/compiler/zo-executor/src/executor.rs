@@ -4874,25 +4874,41 @@ impl<'a> Executor<'a> {
     call_name: &str,
     args: Option<&[TyId]>,
   ) -> Vec<u64> {
-    let key_kind_for = |this: &mut Self, ty: TyId| -> u64 {
+    // `(KeyKind, key_sz)`. Tuple keys spill a pointer to
+    // the tuple's stack-allocated payload to the scratch
+    // slot; the runtime's `KeyKind::Tuple` arm
+    // dereferences it and reads `key_sz` payload bytes.
+    // `key_sz = elem_count * 8` because every tuple slot
+    // is a register-width word in zo's runtime layout.
+    let key_kind_sz_for = |this: &mut Self, ty: TyId| -> (u64, u64) {
       match this.ty_checker.kind_of(ty) {
-        Ty::Str => 1,
-        _ => 0,
+        Ty::Str => (1, 8),
+        Ty::Tuple(tid) => {
+          let n = this
+            .ty_checker
+            .ty_table
+            .tuple(tid)
+            .map(|t| this.ty_checker.ty_table.tuple_elems(t).len())
+            .unwrap_or(0) as u64;
+
+          (2, n * 8)
+        }
+        _ => (0, 8),
       }
     };
 
     match call_name {
       "HashMap::new" => match args {
         Some([k, _v]) => {
-          let kk = key_kind_for(self, *k);
-          vec![kk, 8, 8]
+          let (kk, sz) = key_kind_sz_for(self, *k);
+          vec![kk, sz, 8]
         }
         _ => vec![0, 8, 8],
       },
       "HashSet::new" => match args {
         Some([k]) => {
-          let kk = key_kind_for(self, *k);
-          vec![kk, 8, 0]
+          let (kk, sz) = key_kind_sz_for(self, *k);
+          vec![kk, sz, 0]
         }
         _ => vec![0, 8, 0],
       },
@@ -6418,11 +6434,28 @@ impl<'a> Executor<'a> {
               let scan_lo = cursor + 1;
               let scan_hi = gt;
               let mut gargs: Vec<TyId> = Vec::new();
+              let mut j = scan_lo;
 
-              for j in scan_lo..scan_hi {
+              while j < scan_hi {
                 let t = self.tree.nodes[j].token;
 
                 if t == Token::Lt || t == Token::Gt || t == Token::Comma {
+                  j += 1;
+
+                  continue;
+                }
+
+                // Tuple type-arg: `HashMap<(int, int), V>`.
+                // The single-token parser below would
+                // unwrap the tuple into its element types
+                // and surface a wrong arg count to
+                // `collection_new_type_args`.
+                if t == Token::LParen {
+                  let (ty, next) = self.resolve_tuple_type(j);
+
+                  gargs.push(ty);
+                  j = next;
+
                   continue;
                 }
 
@@ -6440,6 +6473,8 @@ impl<'a> Executor<'a> {
                 if t.is_ty() || is_ident_ty {
                   gargs.push(self.resolve_type_token(j));
                 }
+
+                j += 1;
               }
 
               if !gargs.is_empty() {
