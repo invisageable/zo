@@ -15,8 +15,10 @@ pub ffi eshowln<$T>(msg: $T);
 -! Reads a single line from stdin. Returns `Err` on failure.
 pub ffi readln() -> Result<str, int>;
 
--! Reads all remaining input from stdin. Returns `Err` on failure.
-pub ffi read_all() -> Result<str, int>;
+-! Reads available input from stdin via a single syscall.
+-! Input larger than the runtime's read buffer (4096 bytes
+-! today) is silently truncated. Returns `Err` on read error.
+pub ffi read() -> Result<str, int>;
 
 -! Flushes stdout and stderr output buffers.
 pub ffi flush();

@@ -36,6 +36,16 @@ const O_WRITE_ONLY_CREATE_APPEND: u16 = 0x209;
 const FILE_MODE_644: u16 = 0o644;
 const READ_FILE_BUF_SIZE: u16 = 4096;
 
+/// Stack frame for IO calls returning `Result<str, int>`.
+///
+///   [+0]  Result tag         \  2 slots
+///   [+8]  Result field       /
+///   [+16] scratch (saved n)     1 slot
+///   [+24] str length prefix     1 slot
+///   [+32] buffer + null         (BUF + 8) / SLOT slots
+const IO_RESULT_FRAME_SLOTS: u32 =
+  4 + (READ_FILE_BUF_SIZE as u32 + 8) / STACK_SLOT_SIZE;
+
 // --- ASCII Constants ---
 const ASCII_NEWLINE: u16 = 10;
 const ASCII_ZERO: u16 = 48;
@@ -1869,6 +1879,8 @@ impl<'a> ARM64Gen<'a> {
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
           "append_file" => self.emit_io_append_file(args, idx),
+          "readln" => self.emit_io_read_stdin(idx, "_zo_io_readln"),
+          "read" => self.emit_io_read_stdin(idx, "_zo_io_read"),
 
           // HashMap apply-method dispatch. Names match
           // the executor's `<Type>::<method>` mangling
@@ -4353,7 +4365,66 @@ impl<'a> ARM64Gen<'a> {
 
     self.emit_ldr_sp(X2, scratch_off);
 
-    // --- construct Result::Ok(str) ---
+    self.finalize_io_result_str(
+      idx,
+      result_base,
+      str_base,
+      buf_off,
+      open_err_pos,
+      false,
+    );
+  }
+
+  /// `readln() -> Result<str, int>` and `read() -> Result<str,
+  /// int>` lower through one runtime helper each
+  /// (`_zo_io_readln` / `_zo_io_read`), which returns the byte
+  /// count (`>= 0`) or `-errno` (`< 0`) in `X0`.
+  fn emit_io_read_stdin(&mut self, idx: usize, helper_sym: &str) {
+    let result_base = self.struct_base + self.next_struct_slot;
+    let scratch_off = result_base + 2 * STACK_SLOT_SIZE;
+    let str_base = result_base + 3 * STACK_SLOT_SIZE;
+    let buf_off = str_base + STACK_SLOT_SIZE;
+
+    self.emit_add_sp_offset(X0, buf_off);
+    self.emit_mov_imm_64(X1, READ_FILE_BUF_SIZE as u64);
+    self.emit_extern_call(helper_sym);
+    self.emit_str_sp(X0, scratch_off);
+
+    self.emitter.emit_cmp_imm(X0, 0);
+
+    let err_branch_pos = self.emitter.current_offset();
+    self.emitter.emit_blt(0);
+
+    self.emit_ldr_sp(X2, scratch_off);
+
+    self.finalize_io_result_str(
+      idx,
+      result_base,
+      str_base,
+      buf_off,
+      err_branch_pos,
+      true,
+    );
+  }
+
+  /// Build `Result<str, int>` on the stack from a length in
+  /// `X2` (already loaded) and an errno path branched to from
+  /// `err_branch_pos`. Shared by `emit_io_read_file` and
+  /// `emit_io_read_stdin` — same layout, same Ok/Err merge,
+  /// same `next_struct_slot` accounting.
+  ///
+  /// `negate_errno = true` rebuilds errno as `-X0` from the
+  /// scratch slot (stdin helpers return `-errno` as a signed
+  /// int); `false` uses `X0` directly (the syscall path).
+  fn finalize_io_result_str(
+    &mut self,
+    idx: usize,
+    result_base: u32,
+    str_base: u32,
+    buf_off: u32,
+    err_branch_pos: u32,
+    negate_errno: bool,
+  ) {
     self.emit_str_sp(X2, str_base);
     self.emit_add_sp_offset(X0, buf_off);
     self.emitter.emit_add(X0, X0, X2);
@@ -4365,17 +4436,24 @@ impl<'a> ARM64Gen<'a> {
     let ok_done_pos = self.emitter.current_offset();
     self.emitter.emit_b(0);
 
-    // --- error path ---
     let err_label = self.emitter.current_offset();
     self.emitter.patch_bcond_at(
-      open_err_pos as usize,
-      err_label as i32 - open_err_pos as i32,
+      err_branch_pos as usize,
+      err_label as i32 - err_branch_pos as i32,
     );
+
     self.emitter.emit_mov_imm(X16, 1);
     self.emit_str_sp(X16, result_base);
+
+    if negate_errno {
+      let scratch_off = result_base + 2 * STACK_SLOT_SIZE;
+
+      self.emit_ldr_sp(X0, scratch_off);
+      self.emitter.emit_sub(X0, XZR, X0);
+    }
+
     self.emit_str_sp(X0, result_base + STACK_SLOT_SIZE);
 
-    // --- merge ---
     let done_label = self.emitter.current_offset();
     self
       .emitter
@@ -4385,9 +4463,7 @@ impl<'a> ARM64Gen<'a> {
       self.emit_add_sp_offset(dst, result_base);
     }
 
-    let total_slots =
-      2 + 1 + 1 + (READ_FILE_BUF_SIZE as u32 + 8) / STACK_SLOT_SIZE;
-    self.next_struct_slot += total_slots * STACK_SLOT_SIZE;
+    self.next_struct_slot += IO_RESULT_FRAME_SLOTS * STACK_SLOT_SIZE;
   }
 
   /// `write_file(path, content) -> Result<int, int>`
