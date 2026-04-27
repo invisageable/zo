@@ -5065,6 +5065,78 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Resolve a single type appearing in a parameter or
+  /// return position of `fun` / `ffi` declarations.
+  ///
+  /// Dispatches on the leading token:
+  ///   - `LBracket`        → array (`[]T`, `[N]T`, multi-dim)
+  ///   - `LParen`          → tuple (`(T1, T2, …)`)
+  ///   - `FnType`          → function (`Fn(T1, T2) -> R`)
+  ///   - `Dollar` + Ident  → generic (`$T`, 2 nodes)
+  ///   - `is_ty()` / Ident → single-token builtin /
+  ///     user-defined name
+  ///
+  /// Returns `(TyId, next_idx)` where `next_idx` points
+  /// past the last consumed node. `None` for tokens that
+  /// don't introduce a type — caller decides whether to
+  /// fall through or report an error.
+  fn resolve_param_or_return_ty(
+    &mut self,
+    idx: usize,
+    end_idx: usize,
+  ) -> Option<(TyId, usize)> {
+    if idx >= end_idx {
+      return None;
+    }
+
+    let tok = self.tree.nodes[idx].token;
+
+    match tok {
+      Token::LBracket => self.resolve_array_type(idx, end_idx),
+      Token::LParen => Some(self.resolve_tuple_type(idx)),
+      Token::FnType => Some(self.resolve_fn_type(idx)),
+      Token::Dollar if idx + 1 < end_idx => {
+        let ty = self.resolve_type_token(idx);
+
+        Some((ty, idx + 2))
+      }
+      t if t.is_ty() || t == Token::Ident || t == Token::SelfUpper => {
+        let ty = self.resolve_type_token(idx);
+
+        Some((ty, idx + 1))
+      }
+      _ => None,
+    }
+  }
+
+  /// Collect a trailing `<T1, T2, …>` generic-args list
+  /// after a single-token return type — used by both
+  /// `execute_fun` and `execute_ffi` to build the type-
+  /// args vector before unifying the return-shape.
+  /// Compound return types (`[]T`, tuples, `Fn(…)`) own
+  /// their type-args; only single-token names need this
+  /// loop.
+  fn collect_trailing_generic_args(
+    &mut self,
+    idx: &mut usize,
+    end_idx: usize,
+    out: &mut Vec<TyId>,
+  ) {
+    while *idx < end_idx {
+      let tok = self.tree.nodes[*idx].token;
+
+      if tok.is_ty() || tok == Token::Ident {
+        out.push(self.resolve_type_token(*idx));
+
+        *idx += 1;
+      } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
+        *idx += 1;
+      } else {
+        break;
+      }
+    }
+  }
+
   /// Resolves a `Fn(T1, T2) -> R` type annotation.
   ///
   /// Scans forward from the FnType token to consume the full
@@ -5887,54 +5959,30 @@ impl<'a> Executor<'a> {
               // Next should be the type (no colon token).
               // For `$T`, skip Dollar + Ident (2 tokens).
               // For `[]type`, skip LBracket + RBracket + type.
-              if idx < _end_idx {
-                let param_ty = if self.tree.nodes[idx].token == Token::LBracket
-                {
-                  if let Some((ty, next)) =
-                    self.resolve_array_type(idx, _end_idx)
-                  {
-                    idx = next - 1;
-                    ty
-                  } else {
-                    self.ty_checker.int_type()
+              if idx < _end_idx
+                && let Some((param_ty, mut next)) =
+                  self.resolve_param_or_return_ty(idx, _end_idx)
+              {
+                // Concurrency built-ins (`Tx<T>`, `Rx<T>`,
+                // `Task<T>`) — for these single-token types,
+                // pin the inference var to the `<ArgTy>`
+                // tokens that follow. `bind_concurrency_generic`
+                // walks past `<` / arg / `>` when matched and
+                // is a no-op for non-concurrency types. Only
+                // single-token types can carry this trailing
+                // generic — compound shapes (`[]T`, tuples,
+                // `Fn(…)`) own their type-args.
+                let single_token = next == idx + 1;
+
+                if single_token {
+                  let mut probe = idx;
+
+                  self.bind_concurrency_generic(&mut probe, _end_idx, param_ty);
+
+                  if probe > idx {
+                    // `<ArgTy>` consumed; probe sits on `>`.
+                    next = probe + 1;
                   }
-                } else if self.tree.nodes[idx].token == Token::FnType {
-                  let (ty, skip) = self.resolve_fn_type(idx);
-
-                  idx = skip - 1;
-
-                  ty
-                } else if self.tree.nodes[idx].token == Token::LParen {
-                  // Tuple param type: `fun f(t: (int, int))`.
-                  // Without this branch, `resolve_type_token`
-                  // saw the `(` as non-type and returned unit —
-                  // tuple-index access on the param then landed
-                  // in the `_ => unit` fallthrough of the field-
-                  // access dispatcher and emitted TypeMismatch.
-                  let (ty, skip) = self.resolve_tuple_type(idx);
-
-                  idx = skip - 1;
-
-                  ty
-                } else {
-                  let ty = self.resolve_type_token(idx);
-
-                  // Concurrency built-ins carry a fresh inference
-                  // var that must be pinned by the `<ArgTy>`
-                  // tokens following the base ident — e.g.
-                  // `tx: Tx<int>` leaves idx pointing at `Tx`
-                  // with ty = Ty::ChannelTx(?X); consume the
-                  // `<`, resolve `int`, unify `?X` with `int`,
-                  // and leave idx at the closing `>` so the
-                  // outer `idx += 1` moves past it.
-                  self.bind_concurrency_generic(&mut idx, _end_idx, ty);
-
-                  ty
-                };
-
-                // Skip extra token for $T type params.
-                if self.tree.nodes[idx].token == Token::Dollar {
-                  idx += 1; // skip Dollar
                 }
 
                 let mutability = if is_mut {
@@ -5945,7 +5993,7 @@ impl<'a> Executor<'a> {
 
                 params.push((param_name, param_ty, mutability));
 
-                idx += 1;
+                idx = next;
 
                 // Skip comma if present
                 if idx < _end_idx && self.tree.nodes[idx].token == Token::Comma
@@ -5969,28 +6017,24 @@ impl<'a> Executor<'a> {
           if idx + 1 < _end_idx {
             idx += 1;
 
-            if self.tree.nodes[idx].token == Token::LBracket {
-              if let Some((ty, _next)) = self.resolve_array_type(idx, _end_idx)
-              {
-                return_ty = ty;
-              }
-            } else {
-              return_ty = self.resolve_type_token(idx);
-              idx += 1;
+            if let Some((ty, next)) =
+              self.resolve_param_or_return_ty(idx, _end_idx)
+            {
+              return_ty = ty;
+              // Compound types (`[]T`, `(T1, T2)`, `Fn(…)`)
+              // own their type-args; only single-token names
+              // can carry a trailing `<…>` generic-args list.
+              let single_token = next == idx + 1;
 
-              // Collect generic type arguments after the
-              // return type name (e.g. `-> Result<str, int>`).
-              while idx < _end_idx {
-                let tok = self.tree.nodes[idx].token;
+              idx = next;
 
-                if tok.is_ty() || tok == Token::Ident {
-                  return_type_args.push(self.resolve_type_token(idx));
-                  idx += 1;
-                } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
-                  idx += 1;
-                } else {
-                  break;
-                }
+              if single_token {
+                // `-> Result<str, int>` etc.
+                self.collect_trailing_generic_args(
+                  &mut idx,
+                  _end_idx,
+                  &mut return_type_args,
+                );
               }
             }
           }
@@ -7374,31 +7418,12 @@ impl<'a> Executor<'a> {
             if let Some(NodeValue::Symbol(param_name)) = self.node_value(idx) {
               idx += 1;
 
-              if idx < end_idx {
-                // Mirror the Arrow-arm guard: `[]T` / `[N]T`
-                // params need `resolve_array_type`, otherwise
-                // the type silently resolves as `unit` and
-                // codegen handles the param wrong.
-                if self.tree.nodes[idx].token == Token::LBracket {
-                  if let Some((ty, next)) =
-                    self.resolve_array_type(idx, end_idx)
-                  {
-                    params.push((param_name, ty));
-                    idx = next;
-                  } else {
-                    idx += 1;
-                  }
-                } else {
-                  let param_ty = self.resolve_type_token(idx);
-
-                  // Skip extra token for $T.
-                  if self.tree.nodes[idx].token == Token::Dollar {
-                    idx += 1;
-                  }
-
-                  params.push((param_name, param_ty));
-                  idx += 1;
-                }
+              if idx < end_idx
+                && let Some((param_ty, next)) =
+                  self.resolve_param_or_return_ty(idx, end_idx)
+              {
+                params.push((param_name, param_ty));
+                idx = next;
 
                 if idx < end_idx && self.tree.nodes[idx].token == Token::Comma {
                   idx += 1;
@@ -7423,39 +7448,24 @@ impl<'a> Executor<'a> {
           if idx + 1 < end_idx {
             idx += 1;
 
-            // Array return types (`[]T`, `[N]T`, multi-dim
-            // `[2][3]int`) need the dedicated parser — a
-            // bare `resolve_type_token` only consumes a
-            // single token and fails on the leading
-            // `LBracket`. Without this branch
-            // `pub ffi args() -> []str` resolves the
-            // return type as `unit` and the analyzer can't
-            // bind the call's result.
-            if self.tree.nodes[idx].token == Token::LBracket {
-              if let Some((ty, next)) = self.resolve_array_type(idx, end_idx) {
-                return_ty = ty;
-                idx = next;
-              } else {
-                idx += 1;
-              }
-            } else {
-              return_ty = self.resolve_type_token(idx);
-              idx += 1;
-            }
+            if let Some((ty, next)) =
+              self.resolve_param_or_return_ty(idx, end_idx)
+            {
+              return_ty = ty;
+              // Only single-token names can carry a
+              // trailing `<…>` generic-args list — compound
+              // shapes (`[]T`, tuples, `Fn(…)`) own their
+              // arguments.
+              let single_token = next == idx + 1;
 
-            // Collect type arguments after the base type.
-            // The parser emits `<` as Token::Lt in normal
-            // code mode (not LAngle, which is template-only).
-            while idx < end_idx {
-              let tok = self.tree.nodes[idx].token;
+              idx = next;
 
-              if tok.is_ty() || tok == Token::Ident {
-                type_args.push(self.resolve_type_token(idx));
-                idx += 1;
-              } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
-                idx += 1;
-              } else {
-                break;
+              if single_token {
+                self.collect_trailing_generic_args(
+                  &mut idx,
+                  end_idx,
+                  &mut type_args,
+                );
               }
             }
           }

@@ -67,22 +67,11 @@ static ARGS_ARRAY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 #[unsafe(export_name = "zo_args")]
 pub unsafe extern "C-unwind" fn _zo_args() -> *const u8 {
   *ARGS_ARRAY.get_or_init(|| {
-    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
-    let n = args.len();
-    let mut arr = vec![0u8; 16 + n * 8].into_boxed_slice();
-    let len_le = (n as u64).to_le_bytes();
+    let str_ptrs: Vec<*const u8> = std::env::args_os()
+      .skip(1)
+      .map(|arg| crate::str::alloc_str(arg.as_encoded_bytes()))
+      .collect();
 
-    arr[0..8].copy_from_slice(&len_le);
-    arr[8..16].copy_from_slice(&len_le);
-
-    for (i, arg) in args.iter().enumerate() {
-      let str_ptr = crate::str::alloc_str(arg.as_encoded_bytes());
-      let off = 16 + i * 8;
-
-      arr[off..off + 8]
-        .copy_from_slice(&(str_ptr as usize as u64).to_le_bytes());
-    }
-
-    Box::leak(arr).as_ptr() as usize
+    crate::arr::alloc_ptr_array(&str_ptrs) as usize
   }) as *const u8
 }

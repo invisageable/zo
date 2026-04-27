@@ -4,11 +4,14 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
-  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, Register,
-  SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, PatchSite,
+  Register, SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{Interner, Symbol};
-use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
+use zo_register_allocation::{
+  EmitTiming, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS, RegAlloc,
+  RegisterClass, SpillKind,
+};
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::TyId;
 use zo_value::ValueId;
@@ -36,15 +39,14 @@ const O_WRITE_ONLY_CREATE_APPEND: u16 = 0x209;
 const FILE_MODE_644: u16 = 0o644;
 const READ_FILE_BUF_SIZE: u16 = 4096;
 
-/// Stack frame for IO calls returning `Result<str, int>`.
-///
-///   [+0]  Result tag         \  2 slots
-///   [+8]  Result field       /
-///   [+16] scratch (saved n)     1 slot
-///   [+24] str length prefix     1 slot
-///   [+32] buffer + null         (BUF + 8) / SLOT slots
-const IO_RESULT_FRAME_SLOTS: u32 =
-  4 + (READ_FILE_BUF_SIZE as u32 + 8) / STACK_SLOT_SIZE;
+// `IO_RESULT_FRAME_SLOTS` (3) and `IO_SHARED_BUF_SLOTS`
+// (513) are imported from `zo-register-allocation` so the
+// regalloc's `struct_slots` budget and the codegen's
+// `next_struct_slot` bumps stay aligned. Per-IO-call
+// frame layout: tag (8), heap str ptr or errno (8),
+// saved bytes_read scratch (8). The shared buffer is
+// `READ_FILE_BUF_SIZE` data bytes + one slot for null
+// padding / alignment.
 
 // --- ASCII Constants ---
 const ASCII_NEWLINE: u16 = 10;
@@ -219,6 +221,12 @@ pub struct ARM64Gen<'a> {
   select_scratch_base: u32,
   /// Next struct slot offset (relative to struct_base).
   next_struct_slot: u32,
+  /// Offset (relative to SP) of the shared IO read
+  /// buffer for the current function. `None` until the
+  /// first `read_file` / `readln` / `read` allocates it;
+  /// reused by every subsequent IO read in the function.
+  /// Reset at each `FunDef`.
+  io_shared_buf_offset: Option<u32>,
   /// Functions that return structs: name -> field count.
   struct_return_fns: HashMap<Symbol, u32>,
   /// Set when the last emitted instruction was a math
@@ -443,6 +451,7 @@ impl<'a> ARM64Gen<'a> {
       chan_scratch_base: 0,
       select_scratch_base: 0,
       next_struct_slot: 0,
+      io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
       last_was_math_intrinsic: false,
       extern_used: Vec::new(),
@@ -1372,6 +1381,7 @@ impl<'a> ARM64Gen<'a> {
         self.mutable_slots.clear();
         self.next_mut_slot = 0;
         self.next_struct_slot = 0;
+        self.io_shared_buf_offset = None;
         self.param_slots.clear();
         self.param_sym_slots.clear();
         self.local_enum_field_tys.clear();
@@ -4414,17 +4424,20 @@ impl<'a> ARM64Gen<'a> {
   /// open → read → close → construct Result on stack.
   fn emit_io_read_file(&mut self, args: &[ValueId], idx: usize) {
     let path = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    // The shared buffer must be reserved before the
+    // Result frame so they never alias when this is the
+    // first IO read in the function.
+    let buf_off = self.allocate_io_shared_buf();
     let result_base = self.struct_base + self.next_struct_slot;
 
-    // Stack layout (relative to result_base):
-    //   [0]  Result tag
-    //   [1]  Result field (str ptr or errno)
-    //   [2]  scratch: saved bytes_read
-    //   [3]  string length prefix
-    //   [4+] string bytes + null
+    // Per-call frame (relative to result_base):
+    //   [+0]  Result tag
+    //   [+8]  Result field (heap str ptr or errno)
+    //   [+16] scratch (saved bytes_read)
+    //
+    // Read buffer at `buf_off` is shared across every
+    // IO read in this function.
     let scratch_off = result_base + 2 * STACK_SLOT_SIZE;
-    let str_base = result_base + 3 * STACK_SLOT_SIZE;
-    let buf_off = str_base + STACK_SLOT_SIZE;
 
     // --- open ---
     self.emitter.emit_add_imm(X0, path, 8);
@@ -4433,8 +4446,7 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_mov_imm(X16, SYS_OPEN);
     self.emitter.emit_svc(0);
 
-    let open_err_pos = self.emitter.current_offset();
-    self.emitter.emit_bcs(0);
+    let open_err = self.emitter.forward_bcs();
 
     // --- read ---
     self.emitter.emit_mov_reg(X17, X0);
@@ -4452,14 +4464,7 @@ impl<'a> ARM64Gen<'a> {
 
     self.emit_ldr_sp(X2, scratch_off);
 
-    self.finalize_io_result_str(
-      idx,
-      result_base,
-      str_base,
-      buf_off,
-      open_err_pos,
-      false,
-    );
+    self.finalize_io_result_str(idx, result_base, buf_off, open_err, false);
   }
 
   /// `args() -> []str` — call `_zo_args` which builds the
@@ -4479,10 +4484,9 @@ impl<'a> ARM64Gen<'a> {
   /// (`_zo_io_readln` / `_zo_io_read`), which returns the byte
   /// count (`>= 0`) or `-errno` (`< 0`) in `X0`.
   fn emit_io_read_stdin(&mut self, idx: usize, helper_sym: &str) {
+    let buf_off = self.allocate_io_shared_buf();
     let result_base = self.struct_base + self.next_struct_slot;
     let scratch_off = result_base + 2 * STACK_SLOT_SIZE;
-    let str_base = result_base + 3 * STACK_SLOT_SIZE;
-    let buf_off = str_base + STACK_SLOT_SIZE;
 
     self.emit_add_sp_offset(X0, buf_off);
     self.emit_mov_imm_64(X1, READ_FILE_BUF_SIZE as u64);
@@ -4491,19 +4495,33 @@ impl<'a> ARM64Gen<'a> {
 
     self.emitter.emit_cmp_imm(X0, 0);
 
-    let err_branch_pos = self.emitter.current_offset();
-    self.emitter.emit_blt(0);
+    let err_branch = self.emitter.forward_blt();
 
     self.emit_ldr_sp(X2, scratch_off);
 
-    self.finalize_io_result_str(
-      idx,
-      result_base,
-      str_base,
-      buf_off,
-      err_branch_pos,
-      true,
-    );
+    self.finalize_io_result_str(idx, result_base, buf_off, err_branch, true);
+  }
+
+  /// Reserve the shared 4096-byte IO read buffer if this
+  /// function hasn't allocated one yet, returning its
+  /// SP-relative offset. Subsequent calls return the
+  /// memoized offset.
+  ///
+  /// The buffer is sized to cover the longest single
+  /// `read()` syscall response; the str payload is
+  /// heap-copied via `_zo_str_alloc` so the buffer can
+  /// be safely reused by the next IO call.
+  fn allocate_io_shared_buf(&mut self) -> u32 {
+    if let Some(off) = self.io_shared_buf_offset {
+      return off;
+    }
+
+    let off = self.struct_base + self.next_struct_slot;
+
+    self.next_struct_slot += IO_SHARED_BUF_SLOTS * STACK_SLOT_SIZE;
+    self.io_shared_buf_offset = Some(off);
+
+    off
   }
 
   /// Build `Result<str, int>` on the stack from a length in
@@ -4519,27 +4537,24 @@ impl<'a> ARM64Gen<'a> {
     &mut self,
     idx: usize,
     result_base: u32,
-    str_base: u32,
     buf_off: u32,
-    err_branch_pos: u32,
+    err_branch: PatchSite,
     negate_errno: bool,
   ) {
-    self.emit_str_sp(X2, str_base);
+    // Ok path: heap-copy the buffer payload via
+    // `_zo_str_alloc(buf, n)` so the next IO call can
+    // overwrite the shared buffer without aliasing this
+    // result's str.
     self.emit_add_sp_offset(X0, buf_off);
-    self.emitter.emit_add(X0, X0, X2);
-    self.emitter.emit_strb(XZR, X0, 0);
+    self.emitter.emit_mov_reg(X1, X2);
+    self.emit_extern_call("_zo_str_alloc");
+
     self.emit_str_sp(XZR, result_base);
-    self.emit_add_sp_offset(X0, str_base);
     self.emit_str_sp(X0, result_base + STACK_SLOT_SIZE);
 
-    let ok_done_pos = self.emitter.current_offset();
-    self.emitter.emit_b(0);
+    let ok_done = self.emitter.forward_b();
 
-    let err_label = self.emitter.current_offset();
-    self.emitter.patch_bcond_at(
-      err_branch_pos as usize,
-      err_label as i32 - err_branch_pos as i32,
-    );
+    self.emitter.bind_here(err_branch);
 
     self.emitter.emit_mov_imm(X16, 1);
     self.emit_str_sp(X16, result_base);
@@ -4553,10 +4568,7 @@ impl<'a> ARM64Gen<'a> {
 
     self.emit_str_sp(X0, result_base + STACK_SLOT_SIZE);
 
-    let done_label = self.emitter.current_offset();
-    self
-      .emitter
-      .patch_b_at(ok_done_pos as usize, done_label as i32 - ok_done_pos as i32);
+    self.emitter.bind_here(ok_done);
 
     if let Some(dst) = self.reg_for_insn(idx) {
       self.emit_add_sp_offset(dst, result_base);

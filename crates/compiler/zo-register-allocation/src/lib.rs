@@ -9,6 +9,17 @@ use rustc_hash::FxHashMap as HashMap;
 // don't need to add zo-liveness directly.
 pub use zo_liveness::{compute_value_ids, insn_uses};
 
+/// Slots reserved per IO Result frame
+/// (`Result tag + heap ptr + scratch`).
+pub const IO_RESULT_FRAME_SLOTS: u32 = 3;
+
+/// Slots reserved for the shared IO read buffer in any
+/// function that calls `read_file` / `readln` / `read`.
+/// Sized for the codegen's 4096-byte buffer plus an
+/// 8-byte null/alignment slack — must match
+/// `zo_codegen_arm::IO_SHARED_BUF_SLOTS`.
+pub const IO_SHARED_BUF_SLOTS: u32 = 513;
+
 /// Caller-saved GP register indices, preferred order.
 /// Temps (X9-X15) first, then args (X1-X7). X0 is
 /// RESERVED for call-result values — the Call handler

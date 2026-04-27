@@ -693,6 +693,30 @@ struct RuntimeNeeds {
   web_ui: bool,
 }
 
+/// Call-name prefixes that trigger runtime-dylib staging.
+/// Any `Insn::Call` whose mangled name starts with one of
+/// these resolves to a `_zo_*` symbol in
+/// `libzo_runtime.dylib`.
+const RUNTIME_DYLIB_PREFIXES: &[&str] = &[
+  "HashMap::",
+  "HashSet::",
+  "Vec::",
+  "__zo_map_",
+  "__zo_vec_",
+  "__zo_set_",
+];
+
+/// Exact call names that trigger runtime-dylib staging.
+/// Use the prefix table above when a call family shares
+/// a stem; this list is for one-off intrinsics.
+const RUNTIME_DYLIB_NAMES: &[&str] = &[
+  "arr_int::sort",
+  "read",
+  "readln",
+  "args",
+  "__zo_str_replace",
+];
+
 impl RuntimeNeeds {
   fn from_sir(sir: &Sir, interner: &zo_interner::Interner) -> Self {
     let mut needs = Self::default();
@@ -714,26 +738,14 @@ impl RuntimeNeeds {
           needs.concurrency = true;
         }
         zo_sir::Insn::Call { name, .. } => {
-          // HashMap / Vec apply-method calls lower to
-          // BLs against `_zo_map_*` / `_zo_vec_*` symbols
-          // that live in `libzo_runtime.dylib`. Same
-          // dylib that concurrency uses, so we just flag
-          // `concurrency` to trigger the dylib copy —
-          // a future split would give the runtime its
-          // own staging flag.
+          // HashMap / Vec / Set apply-method calls and
+          // a handful of FFI helpers lower to BLs against
+          // symbols in `libzo_runtime.dylib`. Hitting any
+          // of them triggers the dylib copy.
           let n = interner.get(*name);
 
-          if n.starts_with("HashMap::")
-            || n.starts_with("HashSet::")
-            || n.starts_with("Vec::")
-            || n.starts_with("__zo_map_")
-            || n.starts_with("__zo_vec_")
-            || n.starts_with("__zo_set_")
-            || n == "arr_int::sort"
-            || n == "read"
-            || n == "readln"
-            || n == "args"
-            || n == "__zo_str_replace"
+          if RUNTIME_DYLIB_PREFIXES.iter().any(|p| n.starts_with(p))
+            || RUNTIME_DYLIB_NAMES.contains(&n)
           {
             needs.concurrency = true;
           }

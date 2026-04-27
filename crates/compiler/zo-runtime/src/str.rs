@@ -68,16 +68,28 @@ pub(crate) fn alloc_str_with(
   fill: impl FnOnce(&mut [u8]),
 ) -> *const u8 {
   let total = 8 + len + 1;
+  let mut buf = Box::<[u8]>::new_uninit_slice(total);
 
-  let mut buf = vec![0u8; total].into_boxed_slice();
+  // SAFETY: every byte of `buf` is initialized below —
+  // 8 bytes of length header, `len` bytes via `fill`,
+  // 1 trailing null — covering all `total` slots. The
+  // `assume_init` therefore upholds the invariant.
+  unsafe {
+    let ptr = buf.as_mut_ptr() as *mut u8;
+    let len_le = (len as u64).to_le_bytes();
 
-  buf[0..8].copy_from_slice(&(len as u64).to_le_bytes());
-  fill(&mut buf[8..8 + len]);
-  // trailing null already zero.
+    std::ptr::copy_nonoverlapping(len_le.as_ptr(), ptr, 8);
 
-  let raw = Box::leak(buf);
+    let payload = std::slice::from_raw_parts_mut(ptr.add(8), len);
 
-  raw.as_ptr()
+    fill(payload);
+
+    *ptr.add(8 + len) = 0;
+  }
+
+  let init = unsafe { buf.assume_init() };
+
+  Box::leak(init).as_ptr()
 }
 
 /// Allocate a heap-backed zo `str` containing `payload`.
@@ -85,6 +97,25 @@ pub(crate) fn alloc_str_with(
 /// already have a contiguous slice.
 pub(crate) fn alloc_str(payload: &[u8]) -> *const u8 {
   alloc_str_with(payload.len(), |dst| dst.copy_from_slice(payload))
+}
+
+/// Allocate a fresh heap-backed zo `str` from a raw byte
+/// buffer. Codegen calls this from IO finalize paths to
+/// move read syscall data off a shared per-function
+/// scratch buffer onto the heap, so a single scratch
+/// buffer can serve every IO call in a function.
+///
+/// # Safety
+///
+/// `buf` must point at `len` readable bytes.
+#[unsafe(export_name = "zo_str_alloc")]
+pub unsafe extern "C-unwind" fn _zo_str_alloc(
+  buf: *const u8,
+  len: usize,
+) -> *const u8 {
+  let bytes = unsafe { std::slice::from_raw_parts(buf, len) };
+
+  alloc_str(bytes)
 }
 
 /// Slice `src[lo..hi]` — produce a fresh heap str

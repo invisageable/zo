@@ -8,6 +8,47 @@
 //! at the array's data and `X1` carrying the element
 //! count.
 
+/// Header bytes prefixing every runtime `[]T`:
+/// `[len: u64][cap: u64]`. Element data starts at this
+/// offset.
+pub(crate) const RUNTIME_ARRAY_HEADER_SIZE: usize = 16;
+
+/// Width of one slot in a runtime `[]T`. Every element
+/// occupies 8 bytes regardless of declared type — pointers
+/// and 64-bit primitives store inline; narrower primitives
+/// zero-extend.
+pub(crate) const RUNTIME_SLOT_SIZE: usize = 8;
+
+/// Allocate a runtime `[]ptr` containing the given
+/// pointer-shaped elements. Layout matches the codegen's
+/// `[len:u64][cap:u64][slot0:u64]...[slotN:u64]`. Used by
+/// FFI helpers that return `[]str` / `[]ptr` to user code.
+///
+/// `cap == len` because these arrays are immutable from
+/// the user's view; `push` would hit the codegen's heap
+/// allocator, not these helpers.
+///
+/// Leaks the `Box` — program-long lifetime, matching the
+/// rest of the runtime's allocation strategy.
+pub(crate) fn alloc_ptr_array(elements: &[*const u8]) -> *const u8 {
+  let n = elements.len();
+  let total = RUNTIME_ARRAY_HEADER_SIZE + n * RUNTIME_SLOT_SIZE;
+  let mut arr = vec![0u8; total].into_boxed_slice();
+  let len_le = (n as u64).to_le_bytes();
+
+  arr[0..8].copy_from_slice(&len_le);
+  arr[8..16].copy_from_slice(&len_le);
+
+  for (i, ptr) in elements.iter().enumerate() {
+    let off = RUNTIME_ARRAY_HEADER_SIZE + i * RUNTIME_SLOT_SIZE;
+
+    arr[off..off + RUNTIME_SLOT_SIZE]
+      .copy_from_slice(&(*ptr as usize as u64).to_le_bytes());
+  }
+
+  Box::leak(arr).as_ptr()
+}
+
 /// Sort `[len]` ints starting at `data` in place.
 ///
 /// zo's `[]int` codegen lays out each element as a 64-bit
