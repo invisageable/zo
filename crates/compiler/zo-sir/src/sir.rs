@@ -930,15 +930,14 @@ impl BinOp {
 /// Represents unary operators.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnOp {
-  // Arithmetic negation — `-x`.
+  /// Arithmetic negation — `-x`.
   Neg,
-  // Logical not — `!x`.
+  /// Logical not — `!x`.
   Not,
-  // Reference — `&x`.
-  Ref,
-  // Deref — `*x`.
-  Deref,
-  // Bitwise not — ``.
+  /// Bitwise not — currently no surface token; reachable
+  /// only through type-checker tests and codegen-clif.
+  /// Keep until either the grammar grows `~` or the rule
+  /// is dropped along with its tests.
   BitNot,
 }
 
@@ -949,9 +948,6 @@ impl UnOp {
       let mut table = [None; 256];
       table[Token::Bang as usize] = Some(UnOp::Not);
       table[Token::Minus as usize] = Some(UnOp::Neg);
-      table[Token::Amp as usize] = Some(UnOp::Ref);
-      table[Token::Star as usize] = Some(UnOp::Deref);
-      table[Token::Star as usize] = Some(UnOp::BitNot);
       table
     };
 

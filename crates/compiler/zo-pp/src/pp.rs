@@ -214,8 +214,6 @@ impl PrettyPrinter {
             UnOp::Neg => "neg",
             UnOp::Not => "not",
             UnOp::BitNot => "bitnot",
-            UnOp::Ref => "ref",
-            UnOp::Deref => "deref",
           };
 
           let unop = format!("%{dst} = {op} %{rhs}");

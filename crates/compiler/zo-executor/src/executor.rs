@@ -4531,25 +4531,19 @@ impl<'a> Executor<'a> {
     // Get span from the spans array (1:1 with nodes)
     let span = self.tree.spans[node_idx];
 
-    // Type check based on operator
-    let ty_id = match op {
-      UnOp::Neg => rhs_ty,
-      UnOp::Not => {
-        // Logical not requires bool
-        let bool_ty = self.ty_checker.bool_type();
+    // Type check via the ty_checker's per-op rules so
+    // `Neg` rejects bools, `BitNot` rejects floats, and
+    // `Not` keeps its bool unification — single source of
+    // truth instead of an executor-side ladder that
+    // diverged.
+    let ty_id = match self.ty_checker.infer_unop(op, rhs_ty, span) {
+      Some(t) => t,
+      None => {
+        self.value_stack.push(self.values.store_runtime(u32::MAX));
+        self.ty_stack.push(self.ty_checker.error_type());
 
-        match self.ty_checker.unify(rhs_ty, bool_ty, span) {
-          Some(ty_id) => ty_id,
-          None => {
-            self.value_stack.push(self.values.store_runtime(u32::MAX));
-            self.ty_stack.push(self.ty_checker.error_type());
-
-            return;
-          }
-        }
+        return;
       }
-      // TODO: Handle these properly
-      UnOp::Ref | UnOp::Deref | UnOp::BitNot => rhs_ty,
     };
 
     // Try constant folding using the ConstFold module

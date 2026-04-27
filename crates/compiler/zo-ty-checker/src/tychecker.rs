@@ -982,7 +982,6 @@ impl TyChecker {
           }
         }
       }
-      _ => None,
     }
   }
 

@@ -1532,7 +1532,7 @@ fn translate_binop(
 
 /// Translates a SIR [`UnOp`].
 fn translate_unop(
-  tctx: &mut TCtx<'_>,
+  _tctx: &mut TCtx<'_>,
   builder: &mut FunctionBuilder,
   op: UnOp,
   r: ir::Value,
@@ -1552,11 +1552,5 @@ fn translate_unop(
       builder.ins().bxor_imm(r, 1)
     }
     UnOp::BitNot => builder.ins().bnot(r),
-    // Ref / Deref aren't wired to stack-slot addressing yet —
-    // trap until the lvalue story lands.
-    UnOp::Ref | UnOp::Deref => {
-      emit_exit_1(tctx, builder);
-      builder.ins().iconst(ir::types::I64, 0)
-    }
   }
 }
