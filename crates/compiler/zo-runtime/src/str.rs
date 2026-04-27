@@ -52,23 +52,70 @@ pub unsafe fn str_bytes<'a>(ptr: *const u8) -> &'a [u8] {
   unsafe { std::slice::from_raw_parts(ptr.add(8), len) }
 }
 
-/// Allocate a new heap-backed zo `str` with the given
-/// byte payload. Leaks the `Box` — a program-long
-/// lifetime, matching the current absence of a free
-/// path.
-fn alloc_str(payload: &[u8]) -> *const u8 {
-  let len = payload.len();
+/// Allocate a fresh heap-backed zo `str` of `len` bytes,
+/// invoking `fill` to write the byte payload. Single
+/// allocation: the closure writes directly into the output
+/// buffer, with no intermediate `Vec<u8>` + copy.
+///
+/// Used by builders that know the final length up front
+/// but assemble the bytes in pieces (replace, future
+/// concat, future `format`).
+///
+/// Leaks the `Box` — a program-long lifetime, matching
+/// the current absence of a free path.
+pub(crate) fn alloc_str_with(
+  len: usize,
+  fill: impl FnOnce(&mut [u8]),
+) -> *const u8 {
   let total = 8 + len + 1;
+  let mut buf = Box::<[u8]>::new_uninit_slice(total);
 
-  let mut buf = vec![0u8; total].into_boxed_slice();
+  // SAFETY: every byte of `buf` is initialized below —
+  // 8 bytes of length header, `len` bytes via `fill`,
+  // 1 trailing null — covering all `total` slots. The
+  // `assume_init` therefore upholds the invariant.
+  unsafe {
+    let ptr = buf.as_mut_ptr() as *mut u8;
+    let len_le = (len as u64).to_le_bytes();
 
-  buf[0..8].copy_from_slice(&(len as u64).to_le_bytes());
-  buf[8..8 + len].copy_from_slice(payload);
-  // trailing null already zero.
+    std::ptr::copy_nonoverlapping(len_le.as_ptr(), ptr, 8);
 
-  let raw = Box::leak(buf);
+    let payload = std::slice::from_raw_parts_mut(ptr.add(8), len);
 
-  raw.as_ptr()
+    fill(payload);
+
+    *ptr.add(8 + len) = 0;
+  }
+
+  let init = unsafe { buf.assume_init() };
+
+  Box::leak(init).as_ptr()
+}
+
+/// Allocate a heap-backed zo `str` containing `payload`.
+/// Thin wrapper over `alloc_str_with` for callers that
+/// already have a contiguous slice.
+pub(crate) fn alloc_str(payload: &[u8]) -> *const u8 {
+  alloc_str_with(payload.len(), |dst| dst.copy_from_slice(payload))
+}
+
+/// Allocate a fresh heap-backed zo `str` from a raw byte
+/// buffer. Codegen calls this from IO finalize paths to
+/// move read syscall data off a shared per-function
+/// scratch buffer onto the heap, so a single scratch
+/// buffer can serve every IO call in a function.
+///
+/// # Safety
+///
+/// `buf` must point at `len` readable bytes.
+#[unsafe(export_name = "zo_str_alloc")]
+pub unsafe extern "C-unwind" fn _zo_str_alloc(
+  buf: *const u8,
+  len: usize,
+) -> *const u8 {
+  let bytes = unsafe { std::slice::from_raw_parts(buf, len) };
+
+  alloc_str(bytes)
 }
 
 /// Slice `src[lo..hi]` — produce a fresh heap str
@@ -101,6 +148,99 @@ pub unsafe extern "C-unwind" fn _zo_str_slice(
   }
 
   alloc_str(&src_bytes[lo..hi])
+}
+
+/// Replace every non-overlapping occurrence of `needle` in
+/// `src` with `with`, returning a freshly allocated zo str.
+///
+/// Two-pass:
+///   1. Count occurrences and compute `out_len`.
+///   2. Allocate once, copy chunks + `with` per occurrence.
+///
+/// Avoids the O(n²) cost of repeated `str + str` concat
+/// (each `+` allocates a new buffer holding the running
+/// total). Empty `needle` returns `src` unchanged — matches
+/// Rust / Python semantics; replacing "between every byte"
+/// is rarely what callers want and is easy to express
+/// explicitly when it is.
+///
+/// # Safety
+///
+/// `src`, `needle`, `with` must all be live zo str
+/// headers.
+#[unsafe(export_name = "zo_str_replace")]
+pub unsafe extern "C-unwind" fn _zo_str_replace(
+  src: *const u8,
+  needle: *const u8,
+  with: *const u8,
+) -> *const u8 {
+  let s = unsafe { str_bytes(src) };
+  let n = unsafe { str_bytes(needle) };
+  let w = unsafe { str_bytes(with) };
+
+  if n.is_empty() || n.len() > s.len() {
+    return src;
+  }
+
+  let count = count_occurrences(s, n);
+
+  if count == 0 {
+    return src;
+  }
+
+  let out_len = if w.len() >= n.len() {
+    s.len() + count * (w.len() - n.len())
+  } else {
+    s.len() - count * (n.len() - w.len())
+  };
+
+  alloc_str_with(out_len, |dst| {
+    let mut written = 0;
+    let mut i = 0;
+    let mut start = 0;
+
+    while i + n.len() <= s.len() {
+      if s[i..i + n.len()] == *n {
+        let chunk = i - start;
+
+        dst[written..written + chunk].copy_from_slice(&s[start..i]);
+        written += chunk;
+
+        dst[written..written + w.len()].copy_from_slice(w);
+        written += w.len();
+
+        i += n.len();
+        start = i;
+      } else {
+        i += 1;
+      }
+    }
+
+    let tail = s.len() - start;
+
+    dst[written..written + tail].copy_from_slice(&s[start..]);
+    debug_assert_eq!(written + tail, dst.len());
+  })
+}
+
+/// First pass of `_zo_str_replace`: count non-overlapping
+/// occurrences of `n` in `s`. Factored so the second pass
+/// can reuse the exact same scan loop and the count is
+/// testable without a runtime alloc.
+fn count_occurrences(s: &[u8], n: &[u8]) -> usize {
+  let mut count = 0;
+  let mut i = 0;
+
+  while i + n.len() <= s.len() {
+    if s[i..i + n.len()] == *n {
+      count += 1;
+      i += n.len();
+    } else {
+      i += 1;
+    }
+  }
+
+  count
 }
 
 #[cfg(test)]
@@ -146,5 +286,79 @@ mod tests {
     unsafe {
       _zo_str_slice(src.as_ptr(), 0, 100);
     }
+  }
+
+  #[test]
+  fn count_occurrences_disjoint() {
+    assert_eq!(count_occurrences(b"abababab", b"ab"), 4);
+  }
+
+  #[test]
+  fn count_occurrences_skips_overlap() {
+    // `aaaa` with needle `aa` — non-overlapping is 2,
+    // overlapping would be 3. We pick non-overlapping
+    // because it matches Rust's `str::replace` semantics
+    // and keeps the second-pass length math closed-form.
+    assert_eq!(count_occurrences(b"aaaa", b"aa"), 2);
+  }
+
+  #[test]
+  fn count_occurrences_no_match() {
+    assert_eq!(count_occurrences(b"hello", b"xyz"), 0);
+  }
+
+  #[test]
+  fn replace_grows_when_with_longer() {
+    let src = make_str(b"a-b-c");
+    let needle = make_str(b"-");
+    let with = make_str(b"--");
+    let out =
+      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+
+    assert_eq!(unsafe { str_bytes(out) }, b"a--b--c");
+  }
+
+  #[test]
+  fn replace_shrinks_when_with_shorter() {
+    let src = make_str(b"foo, bar, baz");
+    let needle = make_str(b", ");
+    let with = make_str(b",");
+    let out =
+      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+
+    assert_eq!(unsafe { str_bytes(out) }, b"foo,bar,baz");
+  }
+
+  #[test]
+  fn replace_empty_with_deletes() {
+    let src = make_str(b"hello world");
+    let needle = make_str(b"l");
+    let with = make_str(b"");
+    let out =
+      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+
+    assert_eq!(unsafe { str_bytes(out) }, b"heo word");
+  }
+
+  #[test]
+  fn replace_empty_needle_returns_src() {
+    let src = make_str(b"hello");
+    let needle = make_str(b"");
+    let with = make_str(b"x");
+    let out =
+      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+
+    assert_eq!(out, src.as_ptr());
+  }
+
+  #[test]
+  fn replace_no_match_returns_src() {
+    let src = make_str(b"hello");
+    let needle = make_str(b"xyz");
+    let with = make_str(b"!");
+    let out =
+      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+
+    assert_eq!(out, src.as_ptr());
   }
 }

@@ -460,6 +460,13 @@ struct PendingDecl {
   annotated_ty: Option<TyId>,
   /// Source span of the declaration (for error reporting).
   span: Span,
+  /// Snapshot of `sir.instructions.len()` taken in
+  /// `begin_decl` — bounds any post-finalize scan over
+  /// the init expression's emitted insns. Replaces a
+  /// magic-window scan that could silently miss the
+  /// init's `Insn::ArrayLiteral` and re-introduce the
+  /// macOS realloc-on-stack UB.
+  init_start_idx: usize,
 }
 impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
@@ -1032,7 +1039,7 @@ impl<'a> Executor<'a> {
   /// array's `TyId.0`.
   fn emit_array_ty_defs(&mut self) {
     let mut seen: HashSet<u32> = HashSet::default();
-    let mut to_emit: Vec<(TyId, TyId)> = Vec::new();
+    let mut to_emit: Vec<(TyId, TyId, Option<u32>)> = Vec::new();
 
     for insn in &self.sir.instructions {
       let mut ty_ids: Vec<TyId> = Vec::new();
@@ -1093,13 +1100,17 @@ impl<'a> Executor<'a> {
           // `value_types` will carry that same TyId as its
           // key, so matching must happen there.
           seen.insert(ty_id.0);
-          to_emit.push((ty_id, arr_ty.elem_ty));
+          to_emit.push((ty_id, arr_ty.elem_ty, arr_ty.size));
         }
       }
     }
 
-    for (array_ty, elem_ty) in to_emit {
-      self.sir.emit(Insn::ArrayTyDef { array_ty, elem_ty });
+    for (array_ty, elem_ty, size) in to_emit {
+      self.sir.emit(Insn::ArrayTyDef {
+        array_ty,
+        elem_ty,
+        size,
+      });
     }
   }
 
@@ -4520,25 +4531,19 @@ impl<'a> Executor<'a> {
     // Get span from the spans array (1:1 with nodes)
     let span = self.tree.spans[node_idx];
 
-    // Type check based on operator
-    let ty_id = match op {
-      UnOp::Neg => rhs_ty,
-      UnOp::Not => {
-        // Logical not requires bool
-        let bool_ty = self.ty_checker.bool_type();
+    // Type check via the ty_checker's per-op rules so
+    // `Neg` rejects bools, `BitNot` rejects floats, and
+    // `Not` keeps its bool unification — single source of
+    // truth instead of an executor-side ladder that
+    // diverged.
+    let ty_id = match self.ty_checker.infer_unop(op, rhs_ty, span) {
+      Some(t) => t,
+      None => {
+        self.value_stack.push(self.values.store_runtime(u32::MAX));
+        self.ty_stack.push(self.ty_checker.error_type());
 
-        match self.ty_checker.unify(rhs_ty, bool_ty, span) {
-          Some(ty_id) => ty_id,
-          None => {
-            self.value_stack.push(self.values.store_runtime(u32::MAX));
-            self.ty_stack.push(self.ty_checker.error_type());
-
-            return;
-          }
-        }
+        return;
       }
-      // TODO: Handle these properly
-      UnOp::Ref | UnOp::Deref | UnOp::BitNot => rhs_ty,
     };
 
     // Try constant folding using the ConstFold module
@@ -4863,25 +4868,41 @@ impl<'a> Executor<'a> {
     call_name: &str,
     args: Option<&[TyId]>,
   ) -> Vec<u64> {
-    let key_kind_for = |this: &mut Self, ty: TyId| -> u64 {
+    // `(KeyKind, key_sz)`. Tuple keys spill a pointer to
+    // the tuple's stack-allocated payload to the scratch
+    // slot; the runtime's `KeyKind::Tuple` arm
+    // dereferences it and reads `key_sz` payload bytes.
+    // `key_sz = elem_count * 8` because every tuple slot
+    // is a register-width word in zo's runtime layout.
+    let key_kind_sz_for = |this: &mut Self, ty: TyId| -> (u64, u64) {
       match this.ty_checker.kind_of(ty) {
-        Ty::Str => 1,
-        _ => 0,
+        Ty::Str => (1, 8),
+        Ty::Tuple(tid) => {
+          let n = this
+            .ty_checker
+            .ty_table
+            .tuple(tid)
+            .map(|t| this.ty_checker.ty_table.tuple_elems(t).len())
+            .unwrap_or(0) as u64;
+
+          (2, n * 8)
+        }
+        _ => (0, 8),
       }
     };
 
     match call_name {
       "HashMap::new" => match args {
         Some([k, _v]) => {
-          let kk = key_kind_for(self, *k);
-          vec![kk, 8, 8]
+          let (kk, sz) = key_kind_sz_for(self, *k);
+          vec![kk, sz, 8]
         }
         _ => vec![0, 8, 8],
       },
       "HashSet::new" => match args {
         Some([k]) => {
-          let kk = key_kind_for(self, *k);
-          vec![kk, 8, 0]
+          let (kk, sz) = key_kind_sz_for(self, *k);
+          vec![kk, sz, 0]
         }
         _ => vec![0, 8, 0],
       },
@@ -5041,6 +5062,78 @@ impl<'a> Executor<'a> {
         }
       }
       _ => self.ty_checker.unit_type(),
+    }
+  }
+
+  /// Resolve a single type appearing in a parameter or
+  /// return position of `fun` / `ffi` declarations.
+  ///
+  /// Dispatches on the leading token:
+  ///   - `LBracket`        → array (`[]T`, `[N]T`, multi-dim)
+  ///   - `LParen`          → tuple (`(T1, T2, …)`)
+  ///   - `FnType`          → function (`Fn(T1, T2) -> R`)
+  ///   - `Dollar` + Ident  → generic (`$T`, 2 nodes)
+  ///   - `is_ty()` / Ident → single-token builtin /
+  ///     user-defined name
+  ///
+  /// Returns `(TyId, next_idx)` where `next_idx` points
+  /// past the last consumed node. `None` for tokens that
+  /// don't introduce a type — caller decides whether to
+  /// fall through or report an error.
+  fn resolve_param_or_return_ty(
+    &mut self,
+    idx: usize,
+    end_idx: usize,
+  ) -> Option<(TyId, usize)> {
+    if idx >= end_idx {
+      return None;
+    }
+
+    let tok = self.tree.nodes[idx].token;
+
+    match tok {
+      Token::LBracket => self.resolve_array_type(idx, end_idx),
+      Token::LParen => Some(self.resolve_tuple_type(idx)),
+      Token::FnType => Some(self.resolve_fn_type(idx)),
+      Token::Dollar if idx + 1 < end_idx => {
+        let ty = self.resolve_type_token(idx);
+
+        Some((ty, idx + 2))
+      }
+      t if t.is_ty() || t == Token::Ident || t == Token::SelfUpper => {
+        let ty = self.resolve_type_token(idx);
+
+        Some((ty, idx + 1))
+      }
+      _ => None,
+    }
+  }
+
+  /// Collect a trailing `<T1, T2, …>` generic-args list
+  /// after a single-token return type — used by both
+  /// `execute_fun` and `execute_ffi` to build the type-
+  /// args vector before unifying the return-shape.
+  /// Compound return types (`[]T`, tuples, `Fn(…)`) own
+  /// their type-args; only single-token names need this
+  /// loop.
+  fn collect_trailing_generic_args(
+    &mut self,
+    idx: &mut usize,
+    end_idx: usize,
+    out: &mut Vec<TyId>,
+  ) {
+    while *idx < end_idx {
+      let tok = self.tree.nodes[*idx].token;
+
+      if tok.is_ty() || tok == Token::Ident {
+        out.push(self.resolve_type_token(*idx));
+
+        *idx += 1;
+      } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
+        *idx += 1;
+      } else {
+        break;
+      }
     }
   }
 
@@ -5866,54 +5959,30 @@ impl<'a> Executor<'a> {
               // Next should be the type (no colon token).
               // For `$T`, skip Dollar + Ident (2 tokens).
               // For `[]type`, skip LBracket + RBracket + type.
-              if idx < _end_idx {
-                let param_ty = if self.tree.nodes[idx].token == Token::LBracket
-                {
-                  if let Some((ty, next)) =
-                    self.resolve_array_type(idx, _end_idx)
-                  {
-                    idx = next - 1;
-                    ty
-                  } else {
-                    self.ty_checker.int_type()
+              if idx < _end_idx
+                && let Some((param_ty, mut next)) =
+                  self.resolve_param_or_return_ty(idx, _end_idx)
+              {
+                // Concurrency built-ins (`Tx<T>`, `Rx<T>`,
+                // `Task<T>`) — for these single-token types,
+                // pin the inference var to the `<ArgTy>`
+                // tokens that follow. `bind_concurrency_generic`
+                // walks past `<` / arg / `>` when matched and
+                // is a no-op for non-concurrency types. Only
+                // single-token types can carry this trailing
+                // generic — compound shapes (`[]T`, tuples,
+                // `Fn(…)`) own their type-args.
+                let single_token = next == idx + 1;
+
+                if single_token {
+                  let mut probe = idx;
+
+                  self.bind_concurrency_generic(&mut probe, _end_idx, param_ty);
+
+                  if probe > idx {
+                    // `<ArgTy>` consumed; probe sits on `>`.
+                    next = probe + 1;
                   }
-                } else if self.tree.nodes[idx].token == Token::FnType {
-                  let (ty, skip) = self.resolve_fn_type(idx);
-
-                  idx = skip - 1;
-
-                  ty
-                } else if self.tree.nodes[idx].token == Token::LParen {
-                  // Tuple param type: `fun f(t: (int, int))`.
-                  // Without this branch, `resolve_type_token`
-                  // saw the `(` as non-type and returned unit —
-                  // tuple-index access on the param then landed
-                  // in the `_ => unit` fallthrough of the field-
-                  // access dispatcher and emitted TypeMismatch.
-                  let (ty, skip) = self.resolve_tuple_type(idx);
-
-                  idx = skip - 1;
-
-                  ty
-                } else {
-                  let ty = self.resolve_type_token(idx);
-
-                  // Concurrency built-ins carry a fresh inference
-                  // var that must be pinned by the `<ArgTy>`
-                  // tokens following the base ident — e.g.
-                  // `tx: Tx<int>` leaves idx pointing at `Tx`
-                  // with ty = Ty::ChannelTx(?X); consume the
-                  // `<`, resolve `int`, unify `?X` with `int`,
-                  // and leave idx at the closing `>` so the
-                  // outer `idx += 1` moves past it.
-                  self.bind_concurrency_generic(&mut idx, _end_idx, ty);
-
-                  ty
-                };
-
-                // Skip extra token for $T type params.
-                if self.tree.nodes[idx].token == Token::Dollar {
-                  idx += 1; // skip Dollar
                 }
 
                 let mutability = if is_mut {
@@ -5924,7 +5993,7 @@ impl<'a> Executor<'a> {
 
                 params.push((param_name, param_ty, mutability));
 
-                idx += 1;
+                idx = next;
 
                 // Skip comma if present
                 if idx < _end_idx && self.tree.nodes[idx].token == Token::Comma
@@ -5948,28 +6017,24 @@ impl<'a> Executor<'a> {
           if idx + 1 < _end_idx {
             idx += 1;
 
-            if self.tree.nodes[idx].token == Token::LBracket {
-              if let Some((ty, _next)) = self.resolve_array_type(idx, _end_idx)
-              {
-                return_ty = ty;
-              }
-            } else {
-              return_ty = self.resolve_type_token(idx);
-              idx += 1;
+            if let Some((ty, next)) =
+              self.resolve_param_or_return_ty(idx, _end_idx)
+            {
+              return_ty = ty;
+              // Compound types (`[]T`, `(T1, T2)`, `Fn(…)`)
+              // own their type-args; only single-token names
+              // can carry a trailing `<…>` generic-args list.
+              let single_token = next == idx + 1;
 
-              // Collect generic type arguments after the
-              // return type name (e.g. `-> Result<str, int>`).
-              while idx < _end_idx {
-                let tok = self.tree.nodes[idx].token;
+              idx = next;
 
-                if tok.is_ty() || tok == Token::Ident {
-                  return_type_args.push(self.resolve_type_token(idx));
-                  idx += 1;
-                } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
-                  idx += 1;
-                } else {
-                  break;
-                }
+              if single_token {
+                // `-> Result<str, int>` etc.
+                self.collect_trailing_generic_args(
+                  &mut idx,
+                  _end_idx,
+                  &mut return_type_args,
+                );
               }
             }
           }
@@ -6407,11 +6472,28 @@ impl<'a> Executor<'a> {
               let scan_lo = cursor + 1;
               let scan_hi = gt;
               let mut gargs: Vec<TyId> = Vec::new();
+              let mut j = scan_lo;
 
-              for j in scan_lo..scan_hi {
+              while j < scan_hi {
                 let t = self.tree.nodes[j].token;
 
                 if t == Token::Lt || t == Token::Gt || t == Token::Comma {
+                  j += 1;
+
+                  continue;
+                }
+
+                // Tuple type-arg: `HashMap<(int, int), V>`.
+                // The single-token parser below would
+                // unwrap the tuple into its element types
+                // and surface a wrong arg count to
+                // `collection_new_type_args`.
+                if t == Token::LParen {
+                  let (ty, next) = self.resolve_tuple_type(j);
+
+                  gargs.push(ty);
+                  j = next;
+
                   continue;
                 }
 
@@ -6429,6 +6511,8 @@ impl<'a> Executor<'a> {
                 if t.is_ty() || is_ident_ty {
                   gargs.push(self.resolve_type_token(j));
                 }
+
+                j += 1;
               }
 
               if !gargs.is_empty() {
@@ -6456,6 +6540,7 @@ impl<'a> Executor<'a> {
         pubness,
         annotated_ty,
         span: self.tree.spans[idx],
+        init_start_idx: self.sir.instructions.len(),
       });
 
       // Steer literal widths in the init expression to the
@@ -6878,6 +6963,30 @@ impl<'a> Executor<'a> {
       || self.narrow_float_literal(sir_val, src_ty, target_ty)
   }
 
+  /// Walk the init expression's emitted SIR insns and
+  /// rewrite the `Insn::ArrayLiteral` whose `dst` matches
+  /// `sir_val` to use `new_ty`. Bounded by the
+  /// `init_start_idx` snapshot taken in `begin_decl` —
+  /// always covers the whole init expression, so a deeply
+  /// nested literal can't slip past the scan and silently
+  /// re-introduce the realloc-on-stack UB.
+  fn rewrite_array_literal_ty(
+    &mut self,
+    init_start_idx: usize,
+    sir_val: ValueId,
+    new_ty: TyId,
+  ) {
+    for insn in self.sir.instructions[init_start_idx..].iter_mut().rev() {
+      if let Insn::ArrayLiteral { dst, ty_id, .. } = insn
+        && *dst == sir_val
+      {
+        *ty_id = new_ty;
+
+        return;
+      }
+    }
+  }
+
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
   fn finalize_pending_decl(&mut self) {
@@ -6924,6 +7033,23 @@ impl<'a> Executor<'a> {
       } else {
         init_ty
       };
+
+      // Array-literal coercion: when a `[N]T` literal is
+      // bound to a `[]T` annotation, the literal's SIR
+      // `ty_id` is the inferred static type but the binding
+      // is dynamic. Codegen must see the unified type on
+      // the literal so it picks the heap-allocate path
+      // (otherwise a later `push` realloc's a stack
+      // pointer — UB on macOS). Element compat is already
+      // enforced by the surrounding `unify`; here we only
+      // care that BOTH sides are arrays.
+      if let (Some(ann_ty), Some(sv)) = (decl.annotated_ty, sir_init)
+        && ann_ty != init_ty
+        && matches!(self.ty_checker.kind_of(ann_ty), Ty::Array(_))
+        && matches!(self.ty_checker.kind_of(init_ty), Ty::Array(_))
+      {
+        self.rewrite_array_literal_ty(decl.init_start_idx, sv, ann_ty);
+      }
 
       if decl.is_constant {
         // --- val path: compile-time constant ---
@@ -7292,16 +7418,12 @@ impl<'a> Executor<'a> {
             if let Some(NodeValue::Symbol(param_name)) = self.node_value(idx) {
               idx += 1;
 
-              if idx < end_idx {
-                let param_ty = self.resolve_type_token(idx);
-
-                // Skip extra token for $T.
-                if self.tree.nodes[idx].token == Token::Dollar {
-                  idx += 1;
-                }
-
+              if idx < end_idx
+                && let Some((param_ty, next)) =
+                  self.resolve_param_or_return_ty(idx, end_idx)
+              {
                 params.push((param_name, param_ty));
-                idx += 1;
+                idx = next;
 
                 if idx < end_idx && self.tree.nodes[idx].token == Token::Comma {
                   idx += 1;
@@ -7325,22 +7447,25 @@ impl<'a> Executor<'a> {
         Token::Arrow => {
           if idx + 1 < end_idx {
             idx += 1;
-            return_ty = self.resolve_type_token(idx);
-            idx += 1;
 
-            // Collect type arguments after the base type.
-            // The parser emits `<` as Token::Lt in normal
-            // code mode (not LAngle, which is template-only).
-            while idx < end_idx {
-              let tok = self.tree.nodes[idx].token;
+            if let Some((ty, next)) =
+              self.resolve_param_or_return_ty(idx, end_idx)
+            {
+              return_ty = ty;
+              // Only single-token names can carry a
+              // trailing `<…>` generic-args list — compound
+              // shapes (`[]T`, tuples, `Fn(…)`) own their
+              // arguments.
+              let single_token = next == idx + 1;
 
-              if tok.is_ty() || tok == Token::Ident {
-                type_args.push(self.resolve_type_token(idx));
-                idx += 1;
-              } else if matches!(tok, Token::Lt | Token::Gt | Token::Comma) {
-                idx += 1;
-              } else {
-                break;
+              idx = next;
+
+              if single_token {
+                self.collect_trailing_generic_args(
+                  &mut idx,
+                  end_idx,
+                  &mut type_args,
+                );
               }
             }
           }
@@ -7684,6 +7809,17 @@ impl<'a> Executor<'a> {
                   Token::Comma | Token::RBrace
                 )
               {
+                // Handlers may consume more than one node and
+                // advance `skip_until` past tokens already
+                // resolved semantically (e.g. the variant ident
+                // after `Color::` in `execute_enum_access`).
+                // Honor it before re-executing those nodes.
+                if idx < self.skip_until {
+                  idx += 1;
+
+                  continue;
+                }
+
                 let node = self.tree.nodes[idx];
                 self.execute_node(&node, idx);
                 idx += 1;
@@ -8053,15 +8189,24 @@ impl<'a> Executor<'a> {
               idx += 1;
             }
 
-            // Expect type token after field name.
-            // Handle $T (Dollar + Ident) for generic fields.
+            // Field type after field name. Three shapes:
+            //   `$T`        — generic field   (Dollar + Ident, 2 nodes)
+            //   `int`/`str` — builtin keyword (1 node, `is_ty()`)
+            //   `Color`     — user-defined ident resolving via
+            //                 the type table (1 node, `Token::Ident`)
+            // The consumer must advance past every node it
+            // resolved or the next loop iteration will parse
+            // the type token as the next field name.
             let fty =
               if idx < end_idx && self.tree.nodes[idx].token == Token::Dollar {
                 let ty = self.resolve_type_token(idx);
 
                 idx += 2; // skip Dollar + Ident
                 ty
-              } else if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
+              } else if idx < end_idx
+                && (self.tree.nodes[idx].token.is_ty()
+                  || self.tree.nodes[idx].token == Token::Ident)
+              {
                 let ty = self.resolve_type_token(idx);
 
                 idx += 1;

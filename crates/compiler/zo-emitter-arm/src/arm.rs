@@ -90,6 +90,20 @@ pub const COND_VC: u8 = 0x7; // overflow clear (not NaN)
 pub const COND_HI: u8 = 0x8; // unsigned > (C=1 AND Z=0)
 pub const COND_LS: u8 = 0x9; // unsigned <= (C=0 OR Z=1)
 
+/// A captured forward branch awaiting its target. Returned
+/// by `forward_bne` / `forward_b` / etc. and consumed by
+/// `bind_here`. Packages the branch position and kind so
+/// the caller can't accidentally patch the wrong shape.
+pub struct PatchSite {
+  patch_pos: u32,
+  kind: PatchKind,
+}
+
+enum PatchKind {
+  Bcond,
+  B,
+}
+
 /// Represents an [`ARM64Emitter`] instance.
 pub struct ARM64Emitter {
   code: Vec<u8>,
@@ -535,6 +549,77 @@ impl ARM64Emitter {
     let insn = B | imm26;
 
     self.code[pos..pos + 4].copy_from_slice(&insn.to_le_bytes());
+  }
+
+  /// Emit `B.NE 0` and return a `PatchSite` that
+  /// resolves to the branch's target address when
+  /// `bind_here` is called. Eliminates the off-by-one
+  /// footgun of the manual `current_offset() / emit / patch`
+  /// triplet — the site captures the branch position and
+  /// kind together; `bind_here` computes the displacement.
+  pub fn forward_bne(&mut self) -> PatchSite {
+    let patch_pos = self.current_offset();
+
+    self.emit_bne(0);
+
+    PatchSite {
+      patch_pos,
+      kind: PatchKind::Bcond,
+    }
+  }
+
+  /// Emit `B.LT 0` returning a `PatchSite`. See
+  /// `forward_bne`.
+  pub fn forward_blt(&mut self) -> PatchSite {
+    let patch_pos = self.current_offset();
+
+    self.emit_blt(0);
+
+    PatchSite {
+      patch_pos,
+      kind: PatchKind::Bcond,
+    }
+  }
+
+  /// Emit `B.CS 0` returning a `PatchSite`. See
+  /// `forward_bne`.
+  pub fn forward_bcs(&mut self) -> PatchSite {
+    let patch_pos = self.current_offset();
+
+    self.emit_bcs(0);
+
+    PatchSite {
+      patch_pos,
+      kind: PatchKind::Bcond,
+    }
+  }
+
+  /// Emit unconditional `B 0` returning a `PatchSite`.
+  /// See `forward_bne`.
+  pub fn forward_b(&mut self) -> PatchSite {
+    let patch_pos = self.current_offset();
+
+    self.emit_b(0);
+
+    PatchSite {
+      patch_pos,
+      kind: PatchKind::B,
+    }
+  }
+
+  /// Patch the branch at `site` to land here.
+  pub fn bind_here(&mut self, site: PatchSite) {
+    let here = self.current_offset();
+    let offset = here as i32 - site.patch_pos as i32;
+
+    match site.kind {
+      PatchKind::Bcond => {
+        self.patch_bcond_at(site.patch_pos as usize, offset);
+      }
+      PatchKind::B => {
+        self.patch_b_at(site.patch_pos as usize, offset);
+      }
+    }
   }
 
   /// AND Xd, Xn, #~15 — clear bottom 4 bits (align down

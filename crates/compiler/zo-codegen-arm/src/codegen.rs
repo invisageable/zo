@@ -4,11 +4,14 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::Artifact;
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
-  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, Register,
-  SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, PatchSite,
+  Register, SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{Interner, Symbol};
-use zo_register_allocation::{EmitTiming, RegAlloc, RegisterClass, SpillKind};
+use zo_register_allocation::{
+  EmitTiming, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS, RegAlloc,
+  RegisterClass, SpillKind,
+};
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::TyId;
 use zo_value::ValueId;
@@ -35,6 +38,15 @@ const O_WRITE_ONLY_CREATE_TRUNCATE: u16 = 0x601;
 const O_WRITE_ONLY_CREATE_APPEND: u16 = 0x209;
 const FILE_MODE_644: u16 = 0o644;
 const READ_FILE_BUF_SIZE: u16 = 4096;
+
+// `IO_RESULT_FRAME_SLOTS` (3) and `IO_SHARED_BUF_SLOTS`
+// (513) are imported from `zo-register-allocation` so the
+// regalloc's `struct_slots` budget and the codegen's
+// `next_struct_slot` bumps stay aligned. Per-IO-call
+// frame layout: tag (8), heap str ptr or errno (8),
+// saved bytes_read scratch (8). The shared buffer is
+// `READ_FILE_BUF_SIZE` data bytes + one slot for null
+// padding / alignment.
 
 // --- ASCII Constants ---
 const ASCII_NEWLINE: u16 = 10;
@@ -209,6 +221,12 @@ pub struct ARM64Gen<'a> {
   select_scratch_base: u32,
   /// Next struct slot offset (relative to struct_base).
   next_struct_slot: u32,
+  /// Offset (relative to SP) of the shared IO read
+  /// buffer for the current function. `None` until the
+  /// first `read_file` / `readln` / `read` allocates it;
+  /// reused by every subsequent IO read in the function.
+  /// Reset at each `FunDef`.
+  io_shared_buf_offset: Option<u32>,
   /// Functions that return structs: name -> field count.
   struct_return_fns: HashMap<Symbol, u32>,
   /// Set when the last emitted instruction was a math
@@ -243,13 +261,16 @@ pub struct ARM64Gen<'a> {
   /// instruction. Replaces the fragile find_producing_insn
   /// backward search.
   value_types: HashMap<u32, TyId>,
-  /// Array type → element `TyId`, keyed by the array's
-  /// `TyId.0`. Populated by the pre-pass in `generate` from
-  /// `Insn::ArrayTyDef`. Drives `emit_array_write` so
-  /// `showln(arr)` can dispatch each element through the
-  /// element-type's writer (itoa/ftoa/bool/char/str) and
-  /// produce `[e0, e1, ...]` instead of leaking a pointer.
-  array_metas: HashMap<u32, TyId>,
+  /// Per-array metadata keyed by the array's `TyId.0`.
+  /// Populated by the pre-pass in `generate` from
+  /// `Insn::ArrayTyDef`. Drives `emit_array_write` (uses
+  /// `elem_ty`) and `Insn::ArrayLiteral`'s stack-vs-heap
+  /// branch (uses `size`). Type-checker rewrites a
+  /// literal's `ty_id` from `[N]T` to `[]T` when the
+  /// binding annotation is dynamic, so a `size = Some(_)`
+  /// hit here really does mean the literal won't be
+  /// `push`ed.
+  array_metas: HashMap<u32, ArrayMeta>,
   /// HashMap type → `(key_fmt, val_fmt)` `MapFmt`
   /// discriminants, keyed by the map's `TyId.0`.
   /// Populated by the same pre-pass that fills
@@ -331,6 +352,28 @@ struct VariantMeta {
   display_sym: Symbol,
 }
 
+impl EnumMeta {
+  /// Snapshot variants into the owned shape consumed by the
+  /// pretty-printer walker. Owned because the walker mutates
+  /// `self` while iterating, which would conflict with a live
+  /// `&self.enum_metas` borrow. Callers that need to override
+  /// per-construction-site payload types (generic enums) mutate
+  /// the returned `Vec` before passing it to the walker.
+  fn variants_view(&self) -> Vec<(u32, Symbol, Vec<TyId>)> {
+    self
+      .variants
+      .iter()
+      .map(|v| (v.discriminant, v.display_sym, v.field_tys.clone()))
+      .collect()
+  }
+}
+
+/// Enum payload layout: `[disc:u64][f0:u64][f1:u64]...`. Field
+/// `i` lives at slot `i + ENUM_PAYLOAD_BASE_SLOT` from the
+/// pointer in X19, so byte offset is
+/// `(i + 1) * STACK_SLOT_SIZE`.
+const ENUM_PAYLOAD_BASE_SLOT: i16 = 1;
+
 const ENUM_OPEN_PAREN_SYM: Symbol = Symbol(0xE000_FFFC);
 const ENUM_COMMA_SPACE_SYM: Symbol = Symbol(0xE000_FFFD);
 const ENUM_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFFE);
@@ -362,6 +405,15 @@ struct StructMeta {
 struct StructFieldMeta {
   label_sym: Symbol,
   ty_id: TyId,
+}
+
+/// Per-array metadata stored in `ARM64Gen::array_metas`.
+#[derive(Clone, Copy)]
+struct ArrayMeta {
+  elem_ty: TyId,
+  /// `Some(N)` for `[N]T` (stack-allocatable in
+  /// `Insn::ArrayLiteral`), `None` for `[]T` (heap).
+  size: Option<u32>,
 }
 
 impl<'a> ARM64Gen<'a> {
@@ -399,6 +451,7 @@ impl<'a> ARM64Gen<'a> {
       chan_scratch_base: 0,
       select_scratch_base: 0,
       next_struct_slot: 0,
+      io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
       last_was_math_intrinsic: false,
       extern_used: Vec::new(),
@@ -515,7 +568,7 @@ impl<'a> ARM64Gen<'a> {
   fn is_array_value(&self, vid: ValueId) -> Option<TyId> {
     let ty = self.type_of(vid)?;
 
-    self.array_metas.get(&ty.0).copied()
+    self.array_metas.get(&ty.0).map(|m| m.elem_ty)
   }
 
   /// If `vid`'s type is a registered HashMap, return the
@@ -832,8 +885,18 @@ impl<'a> ARM64Gen<'a> {
     // definitions land in the stream.
     for insn in insns.iter() {
       match insn {
-        Insn::ArrayTyDef { array_ty, elem_ty } => {
-          self.array_metas.insert(array_ty.0, *elem_ty);
+        Insn::ArrayTyDef {
+          array_ty,
+          elem_ty,
+          size,
+        } => {
+          self.array_metas.insert(
+            array_ty.0,
+            ArrayMeta {
+              elem_ty: *elem_ty,
+              size: *size,
+            },
+          );
         }
         Insn::MapTyDef {
           map_ty,
@@ -1318,6 +1381,7 @@ impl<'a> ARM64Gen<'a> {
         self.mutable_slots.clear();
         self.next_mut_slot = 0;
         self.next_struct_slot = 0;
+        self.io_shared_buf_offset = None;
         self.param_slots.clear();
         self.param_sym_slots.clear();
         self.local_enum_field_tys.clear();
@@ -1869,6 +1933,9 @@ impl<'a> ARM64Gen<'a> {
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
           "append_file" => self.emit_io_append_file(args, idx),
+          "readln" => self.emit_io_read_stdin(idx, "_zo_io_readln"),
+          "read" => self.emit_io_read_stdin(idx, "_zo_io_read"),
+          "args" => self.emit_io_args(idx),
 
           // HashMap apply-method dispatch. Names match
           // the executor's `<Type>::<method>` mangling
@@ -1918,6 +1985,11 @@ impl<'a> ARM64Gen<'a> {
           "__zo_vec_free_raw" => self.emit_vec_free_raw(args, idx),
           "__zo_set_len_raw" => self.emit_set_len_raw(args, idx),
           "__zo_set_free_raw" => self.emit_set_free_raw(args, idx),
+
+          // `str.replace(needle, with)` — `apply str` body
+          // forwards `(self, needle, with)` to this raw FFI;
+          // codegen forwards X0..X2 to `_zo_str_replace`.
+          "__zo_str_replace" => self.emit_str_replace_raw(args, idx),
 
           // Math intrinsics — ARM64 hardware instructions.
           // The arg is a float in a FP register. Move it
@@ -2395,22 +2467,51 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_cbz(reg, 0);
       }
 
-      Insn::ArrayLiteral { elements, .. } => {
-        // Both paths heap-allocate. Stack allocation for the
-        // non-empty case used to look like a free win — the
-        // bytes are right there, no syscall — but every `[]T`
-        // is a dynamic-growable array by type, and any later
-        // `arr.push(...)` calls `_realloc` on the receiver
-        // pointer. `realloc` on a stack address is UB; on
-        // macOS it spins. Heap-allocating both shapes keeps
-        // the invariant uniform: every `[]T` value is a real
-        // heap pointer, growable by realloc, freeable by
-        // free. The `[N]T` static-array optimization (true
-        // stack allocation, no growth) is a separate path
-        // that needs the array's `size: Option<u32>` to flow
-        // through `Insn::ArrayTyDef` — see the follow-up
-        // when static arrays get their own SIR shape.
+      Insn::ArrayLiteral {
+        elements, ty_id, ..
+      } => {
+        // Two paths, picked from `Insn::ArrayTyDef.size`:
+        //
+        // - `[N]T` static (size = Some): stack-allocate the
+        //   `[len:8][cap:8][e0:8]...[eN:8]` block in the
+        //   function frame. Type checker has already
+        //   coerced any literal flowing into a dynamic
+        //   binding to `[]T` (see
+        //   `finalize_pending_decl::rewrite_array_literal_ty`),
+        //   so a static hit here genuinely means the value
+        //   won't be `push`ed.
+        //
+        // - `[]T` dynamic (size = None): heap-allocate via
+        //   `_malloc`. Pushable, growable via `_realloc`,
+        //   freeable.
         let n = elements.len() as u32;
+
+        if self
+          .array_metas
+          .get(&ty_id.0)
+          .is_some_and(|m| m.size.is_some())
+        {
+          let base = self.struct_base + self.next_struct_slot;
+
+          self.emitter.emit_mov_imm(X16, n as u16);
+          self.emit_str_sp(X16, base);
+          self.emit_str_sp(X16, base + STACK_SLOT_SIZE);
+
+          for (i, elem) in elements.iter().enumerate() {
+            let off =
+              base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
+
+            self.emit_array_element_store_sp(*elem, idx, all_insns, off);
+          }
+
+          if let Some(dst) = self.reg_for_insn(idx) {
+            self.emit_add_sp_offset(dst, base);
+          }
+
+          self.next_struct_slot += (2 + n) * STACK_SLOT_SIZE;
+
+          return;
+        }
 
         // Empty arrays over-provision (cap = 1024) so the
         // first 1024 pushes don't pay realloc. Non-empty
@@ -2446,11 +2547,7 @@ impl<'a> ARM64Gen<'a> {
           let off_u16 =
             ARRAY_HEADER_SIZE + (i as u16) * (STACK_SLOT_SIZE as u16);
 
-          if let Some(fp) = self.alloc_fp_reg(*elem) {
-            self.emitter.emit_str_fp(fp, r_buf, off_u16);
-          } else if let Some(reg) = self.alloc_reg(*elem) {
-            self.emitter.emit_str(reg, r_buf, off_u16 as i16);
-          }
+          self.emit_array_element_store(*elem, idx, all_insns, r_buf, off_u16);
         }
 
         // Spill the heap pointer to a stack slot so later
@@ -2768,11 +2865,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, field) in fields.iter().enumerate() {
           let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
 
-          if let Some(fp) = self.alloc_fp_reg(*field) {
-            self.emit_str_fp_sp(fp, off);
-          } else if let Some(reg) = self.alloc_reg(*field) {
-            self.emit_str_sp(reg, off);
-          }
+          self.emit_array_element_store_sp(*field, idx, all_insns, off);
         }
 
         if let Some(dst_reg) = self.reg_for_insn(idx) {
@@ -2792,9 +2885,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, field) in fields.iter().enumerate() {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
-          if let Some(reg) = self.alloc_reg(*field) {
-            self.emit_str_sp(reg, off);
-          }
+          self.emit_array_element_store_sp(*field, idx, all_insns, off);
         }
 
         // Set dst register to point at this struct's
@@ -2817,9 +2908,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, elem) in elements.iter().enumerate() {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
-          if let Some(reg) = self.alloc_reg(*elem) {
-            self.emit_str_sp(reg, off);
-          }
+          self.emit_array_element_store_sp(*elem, idx, all_insns, off);
         }
 
         if let Some(dst_reg) = self.reg_for_insn(idx) {
@@ -3463,11 +3552,7 @@ impl<'a> ARM64Gen<'a> {
       return;
     };
 
-    let mut variants: Vec<(u32, Symbol, Vec<TyId>)> = meta
-      .variants
-      .iter()
-      .map(|v| (v.discriminant, v.display_sym, v.field_tys.clone()))
-      .collect();
+    let mut variants = meta.variants_view();
 
     // Substitute the construction-site payload types for the
     // matching variant. Generic enums register the template's
@@ -3487,11 +3572,28 @@ impl<'a> ARM64Gen<'a> {
     // Save enum pointer in X19 (callee-saved, outside
     // allocator pool) so it survives write syscalls.
     self.emitter.emit_mov_reg(Register::new(19), src);
-    self.emitter.emit_ldr(X17, src, 0);
+    self.emit_enum_walk_from_x19(&variants, fd);
+  }
+
+  /// Body of the enum pretty-printer factored to assume the
+  /// enum's pointer already lives in X19. This is the
+  /// recursion entry point: when a struct or array element is
+  /// itself an enum, `emit_field_write` pushes the outer
+  /// X19..X22, moves X0 → X19, calls this, then pops.
+  ///
+  /// All enum values — unit and tuple — are heap/stack
+  /// allocations laid out as `[disc:u64][f0:u64]...`, so X19
+  /// is always a valid pointer to the discriminant slot.
+  fn emit_enum_walk_from_x19(
+    &mut self,
+    variants: &[(u32, Symbol, Vec<TyId>)],
+    fd: u16,
+  ) {
+    self.emitter.emit_ldr(X17, Register::new(19), 0);
 
     let mut done_fixups: Vec<usize> = Vec::with_capacity(variants.len());
 
-    for (disc, display_sym, field_tys) in &variants {
+    for (disc, display_sym, field_tys) in variants {
       self.emitter.emit_cmp_imm(X17, *disc as u16);
 
       let bne_pos = self.emitter.current_offset();
@@ -3503,7 +3605,8 @@ impl<'a> ARM64Gen<'a> {
         self.emit_synthetic_str_write(ENUM_OPEN_PAREN_SYM, fd);
 
         for (i, field_ty) in field_tys.iter().enumerate() {
-          let offset = ((i as i16) + 1) * STACK_SLOT_SIZE as i16;
+          let offset =
+            ((i as i16) + ENUM_PAYLOAD_BASE_SLOT) * STACK_SLOT_SIZE as i16;
 
           self.emitter.emit_ldr(X0, Register::new(19), offset);
 
@@ -3547,20 +3650,14 @@ impl<'a> ARM64Gen<'a> {
   }
 
   fn emit_field_write(&mut self, ty_id: TyId, fd: u16, quoted: bool) {
-    let is_str = ty_id.0 == STR_TYPE_ID;
-    let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
-    let is_bool = ty_id.0 == BOOL_TYPE_ID;
-    let is_char = ty_id.0 == CHAR_TYPE_ID;
-    let nested_elem_ty = self.array_metas.get(&ty_id.0).copied();
-    let nested_struct = self.struct_metas.contains_key(&ty_id.0);
-
-    if let Some(elem_ty) = nested_elem_ty {
-      // Nested array (`[][]T`, `[]Point`, …). The outer
-      // walk's X19..X22 hold the parent's base / len /
-      // index / tmp; the inner walk reuses them, so push
-      // them onto the stack across the recursive call and
-      // pop after. Pre-indexed STP / post-indexed LDP do
-      // the SP-relative push/pop in one instruction each.
+    // Nested aggregates (array / struct / enum) all use the
+    // same recursion shape: save outer X19..X22, move the
+    // payload pointer X0 → X19, run the walker, restore. The
+    // metadata lookups are lazy and mutually exclusive —
+    // probing in order short-circuits before the next one
+    // runs, and the enum branch only allocates its variants
+    // snapshot when it actually fires.
+    if let Some(elem_ty) = self.array_metas.get(&ty_id.0).map(|m| m.elem_ty) {
       self.emit_pp_state_push();
       self.emitter.emit_mov_reg(Register::new(19), X0);
       self.emit_array_walk_from_x19(elem_ty, fd);
@@ -3569,11 +3666,7 @@ impl<'a> ARM64Gen<'a> {
       return;
     }
 
-    if nested_struct {
-      // Nested struct (`Outer { p: Point }`, `[]Point`).
-      // Same shape as the array case: save outer state,
-      // load this struct's base into X19, walk fields,
-      // restore.
+    if self.struct_metas.contains_key(&ty_id.0) {
       self.emit_pp_state_push();
       self.emitter.emit_mov_reg(Register::new(19), X0);
       self.emit_struct_walk_from_x19(ty_id, fd);
@@ -3581,6 +3674,22 @@ impl<'a> ARM64Gen<'a> {
 
       return;
     }
+
+    if let Some(meta) = self.enum_metas.get(&ty_id.0) {
+      let variants = meta.variants_view();
+
+      self.emit_pp_state_push();
+      self.emitter.emit_mov_reg(Register::new(19), X0);
+      self.emit_enum_walk_from_x19(&variants, fd);
+      self.emit_pp_state_pop();
+
+      return;
+    }
+
+    let is_str = ty_id.0 == STR_TYPE_ID;
+    let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+    let is_bool = ty_id.0 == BOOL_TYPE_ID;
+    let is_char = ty_id.0 == CHAR_TYPE_ID;
 
     if is_str {
       // Mirror Rust Debug — strings nested inside an enum
@@ -4315,17 +4424,20 @@ impl<'a> ARM64Gen<'a> {
   /// open → read → close → construct Result on stack.
   fn emit_io_read_file(&mut self, args: &[ValueId], idx: usize) {
     let path = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    // The shared buffer must be reserved before the
+    // Result frame so they never alias when this is the
+    // first IO read in the function.
+    let buf_off = self.allocate_io_shared_buf();
     let result_base = self.struct_base + self.next_struct_slot;
 
-    // Stack layout (relative to result_base):
-    //   [0]  Result tag
-    //   [1]  Result field (str ptr or errno)
-    //   [2]  scratch: saved bytes_read
-    //   [3]  string length prefix
-    //   [4+] string bytes + null
+    // Per-call frame (relative to result_base):
+    //   [+0]  Result tag
+    //   [+8]  Result field (heap str ptr or errno)
+    //   [+16] scratch (saved bytes_read)
+    //
+    // Read buffer at `buf_off` is shared across every
+    // IO read in this function.
     let scratch_off = result_base + 2 * STACK_SLOT_SIZE;
-    let str_base = result_base + 3 * STACK_SLOT_SIZE;
-    let buf_off = str_base + STACK_SLOT_SIZE;
 
     // --- open ---
     self.emitter.emit_add_imm(X0, path, 8);
@@ -4334,8 +4446,7 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_mov_imm(X16, SYS_OPEN);
     self.emitter.emit_svc(0);
 
-    let open_err_pos = self.emitter.current_offset();
-    self.emitter.emit_bcs(0);
+    let open_err = self.emitter.forward_bcs();
 
     // --- read ---
     self.emitter.emit_mov_reg(X17, X0);
@@ -4353,41 +4464,117 @@ impl<'a> ARM64Gen<'a> {
 
     self.emit_ldr_sp(X2, scratch_off);
 
-    // --- construct Result::Ok(str) ---
-    self.emit_str_sp(X2, str_base);
+    self.finalize_io_result_str(idx, result_base, buf_off, open_err, false);
+  }
+
+  /// `args() -> []str` — call `_zo_args` which builds the
+  /// array on the heap and returns its base pointer in X0.
+  /// Codegen treats the return value like any other heap
+  /// `[]str`; no on-stack scratch frame.
+  fn emit_io_args(&mut self, idx: usize) {
+    self.emit_extern_call("_zo_args");
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `readln() -> Result<str, int>` and `read() -> Result<str,
+  /// int>` lower through one runtime helper each
+  /// (`_zo_io_readln` / `_zo_io_read`), which returns the byte
+  /// count (`>= 0`) or `-errno` (`< 0`) in `X0`.
+  fn emit_io_read_stdin(&mut self, idx: usize, helper_sym: &str) {
+    let buf_off = self.allocate_io_shared_buf();
+    let result_base = self.struct_base + self.next_struct_slot;
+    let scratch_off = result_base + 2 * STACK_SLOT_SIZE;
+
     self.emit_add_sp_offset(X0, buf_off);
-    self.emitter.emit_add(X0, X0, X2);
-    self.emitter.emit_strb(XZR, X0, 0);
+    self.emit_mov_imm_64(X1, READ_FILE_BUF_SIZE as u64);
+    self.emit_extern_call(helper_sym);
+    self.emit_str_sp(X0, scratch_off);
+
+    self.emitter.emit_cmp_imm(X0, 0);
+
+    let err_branch = self.emitter.forward_blt();
+
+    self.emit_ldr_sp(X2, scratch_off);
+
+    self.finalize_io_result_str(idx, result_base, buf_off, err_branch, true);
+  }
+
+  /// Reserve the shared 4096-byte IO read buffer if this
+  /// function hasn't allocated one yet, returning its
+  /// SP-relative offset. Subsequent calls return the
+  /// memoized offset.
+  ///
+  /// The buffer is sized to cover the longest single
+  /// `read()` syscall response; the str payload is
+  /// heap-copied via `_zo_str_alloc` so the buffer can
+  /// be safely reused by the next IO call.
+  fn allocate_io_shared_buf(&mut self) -> u32 {
+    if let Some(off) = self.io_shared_buf_offset {
+      return off;
+    }
+
+    let off = self.struct_base + self.next_struct_slot;
+
+    self.next_struct_slot += IO_SHARED_BUF_SLOTS * STACK_SLOT_SIZE;
+    self.io_shared_buf_offset = Some(off);
+
+    off
+  }
+
+  /// Build `Result<str, int>` on the stack from a length in
+  /// `X2` (already loaded) and an errno path branched to from
+  /// `err_branch_pos`. Shared by `emit_io_read_file` and
+  /// `emit_io_read_stdin` — same layout, same Ok/Err merge,
+  /// same `next_struct_slot` accounting.
+  ///
+  /// `negate_errno = true` rebuilds errno as `-X0` from the
+  /// scratch slot (stdin helpers return `-errno` as a signed
+  /// int); `false` uses `X0` directly (the syscall path).
+  fn finalize_io_result_str(
+    &mut self,
+    idx: usize,
+    result_base: u32,
+    buf_off: u32,
+    err_branch: PatchSite,
+    negate_errno: bool,
+  ) {
+    // Ok path: heap-copy the buffer payload via
+    // `_zo_str_alloc(buf, n)` so the next IO call can
+    // overwrite the shared buffer without aliasing this
+    // result's str.
+    self.emit_add_sp_offset(X0, buf_off);
+    self.emitter.emit_mov_reg(X1, X2);
+    self.emit_extern_call("_zo_str_alloc");
+
     self.emit_str_sp(XZR, result_base);
-    self.emit_add_sp_offset(X0, str_base);
     self.emit_str_sp(X0, result_base + STACK_SLOT_SIZE);
 
-    let ok_done_pos = self.emitter.current_offset();
-    self.emitter.emit_b(0);
+    let ok_done = self.emitter.forward_b();
 
-    // --- error path ---
-    let err_label = self.emitter.current_offset();
-    self.emitter.patch_bcond_at(
-      open_err_pos as usize,
-      err_label as i32 - open_err_pos as i32,
-    );
+    self.emitter.bind_here(err_branch);
+
     self.emitter.emit_mov_imm(X16, 1);
     self.emit_str_sp(X16, result_base);
+
+    if negate_errno {
+      let scratch_off = result_base + 2 * STACK_SLOT_SIZE;
+
+      self.emit_ldr_sp(X0, scratch_off);
+      self.emitter.emit_sub(X0, XZR, X0);
+    }
+
     self.emit_str_sp(X0, result_base + STACK_SLOT_SIZE);
 
-    // --- merge ---
-    let done_label = self.emitter.current_offset();
-    self
-      .emitter
-      .patch_b_at(ok_done_pos as usize, done_label as i32 - ok_done_pos as i32);
+    self.emitter.bind_here(ok_done);
 
     if let Some(dst) = self.reg_for_insn(idx) {
       self.emit_add_sp_offset(dst, result_base);
     }
 
-    let total_slots =
-      2 + 1 + 1 + (READ_FILE_BUF_SIZE as u32 + 8) / STACK_SLOT_SIZE;
-    self.next_struct_slot += total_slots * STACK_SLOT_SIZE;
+    self.next_struct_slot += IO_RESULT_FRAME_SLOTS * STACK_SLOT_SIZE;
   }
 
   /// `write_file(path, content) -> Result<int, int>`
@@ -4721,6 +4908,29 @@ impl<'a> ARM64Gen<'a> {
     }
 
     self.emit_extern_call("_zo_map_len");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_str_replace(src, needle, with) -> str` — direct
+  /// pass-through to the runtime helper. Three pointer args
+  /// in X0..X2; result pointer in X0.
+  fn emit_str_replace_raw(&mut self, args: &[ValueId], idx: usize) {
+    let arg_regs = [X0, X1, X2];
+
+    for (i, dst) in arg_regs.iter().enumerate() {
+      if let Some(src) = args.get(i).and_then(|v| self.alloc_reg(*v))
+        && src != *dst
+      {
+        self.emitter.emit_mov_reg(*dst, src);
+      }
+    }
+
+    self.emit_extern_call("_zo_str_replace");
 
     if let Some(dst) = self.reg_for_insn(idx)
       && dst != X0
@@ -5096,12 +5306,168 @@ impl<'a> ARM64Gen<'a> {
   fn emit_arr_sort_int(&mut self, args: &[ValueId], _idx: usize) {
     let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
 
-    // X1 = len.
-    self.emitter.emit_ldr(X1, recv, 0);
-    // X0 = data ptr = recv + 16.
-    self.emitter.emit_add_imm(X0, recv, 16u16);
+    // Stash `recv` in X16 first. If the register allocator
+    // placed it in X1, the `LDR X1, [recv, #0]` step below
+    // would overwrite it before the `ADD X0, recv, #16`
+    // could run — sort then gets `X0 = len + 16` (a bogus
+    // low address) instead of the data pointer. X16 is the
+    // intra-procedure scratch (AAPCS), unreachable by
+    // allocator placement.
+    self.emitter.emit_mov_reg(X16, recv);
+    self.emitter.emit_ldr(X1, X16, 0);
+    self.emitter.emit_add_imm(X0, X16, 16u16);
 
     self.emit_extern_call("_zo_arr_sort_i32");
+  }
+
+  /// Materialize a value into X16 by re-emitting the
+  /// producing instruction's load / constant.
+  ///
+  /// Returns `true` when X16 holds the value and the caller
+  /// can `STR X16, [...]`. Returns `false` for computed
+  /// values (BinOp, Call, etc.) — caller falls back to the
+  /// register allocator's reg.
+  ///
+  /// Why: above 14 simultaneously-live element values the
+  /// allocator's forward-pass spill semantics break down.
+  /// The eviction picks a victim that's still consumed at
+  /// the aggregate instruction, the victim's register gets
+  /// reassigned, and the spill captures a register that the
+  /// codegen has already overwritten with someone else's
+  /// def. Symptoms: pointer-shaped garbage in the aggregate
+  /// slots, sometimes hangs (sort follows on garbage data).
+  ///
+  /// Bypass: re-emit the def at the consumption point —
+  /// constants reload into X16 directly, locals/params
+  /// reload from their stable stack slot. Both sources are
+  /// stable across register clobbers because they live in
+  /// memory or are immediately materializable. Computed
+  /// values still need the allocator (rare in aggregate
+  /// literals; users typically pre-bind to locals first).
+  ///
+  /// X16 is the AAPCS intra-procedure scratch — outside the
+  /// allocator pool, so the bypass never conflicts with a
+  /// live value.
+  ///
+  /// Used by `ArrayLiteral`, `StructConstruct`,
+  /// `TupleLiteral`, and `EnumConstruct` — all four hit the
+  /// same regalloc bug at high arity.
+  fn materialize_value_into_x16(
+    &mut self,
+    elem: ValueId,
+    idx: usize,
+    all_insns: &[Insn],
+  ) -> bool {
+    for i in (0..idx).rev() {
+      let insn = &all_insns[i];
+      let dst = match insn {
+        Insn::ConstInt { dst, .. }
+        | Insn::ConstFloat { dst, .. }
+        | Insn::ConstBool { dst, .. }
+        | Insn::Load { dst, .. } => *dst,
+        _ => continue,
+      };
+
+      if dst != elem {
+        continue;
+      }
+
+      match insn {
+        Insn::ConstInt { value, .. } => {
+          self.emit_mov_imm_64(X16, *value);
+
+          return true;
+        }
+        Insn::ConstFloat { value, .. } => {
+          self.emit_mov_imm_64(X16, value.to_bits());
+
+          return true;
+        }
+        Insn::ConstBool { value, .. } => {
+          self.emit_mov_imm_64(X16, u64::from(*value));
+
+          return true;
+        }
+        Insn::Load { src, .. } => match src {
+          LoadSource::Local(sym) => {
+            let slot = sym.as_u32();
+
+            if let Some(&offset) = self.mutable_slots.get(&slot) {
+              self.emit_ldr_sp(X16, offset);
+
+              return true;
+            }
+
+            if let Some(&(offset, _)) = self.param_sym_slots.get(&slot) {
+              self.emit_ldr_sp(X16, offset);
+
+              return true;
+            }
+
+            return false;
+          }
+          LoadSource::Param(pidx) => {
+            if let Some(&offset) = self.param_slots.get(pidx) {
+              self.emit_ldr_sp(X16, offset);
+
+              return true;
+            }
+
+            return false;
+          }
+        },
+        _ => return false,
+      }
+    }
+
+    false
+  }
+
+  /// Emit `STR <elem>, [r_buf, off]` for one array literal
+  /// element on the heap path. See
+  /// `materialize_array_elem_into_x16` for the bypass
+  /// rationale.
+  fn emit_array_element_store(
+    &mut self,
+    elem: ValueId,
+    idx: usize,
+    all_insns: &[Insn],
+    r_buf: Register,
+    off: u16,
+  ) {
+    if self.materialize_value_into_x16(elem, idx, all_insns) {
+      self.emitter.emit_str(X16, r_buf, off as i16);
+
+      return;
+    }
+
+    if let Some(fp) = self.alloc_fp_reg(elem) {
+      self.emitter.emit_str_fp(fp, r_buf, off);
+    } else if let Some(reg) = self.alloc_reg(elem) {
+      self.emitter.emit_str(reg, r_buf, off as i16);
+    }
+  }
+
+  /// SP-relative variant of `emit_array_element_store` for
+  /// the static `[N]T` path (stack frame).
+  fn emit_array_element_store_sp(
+    &mut self,
+    elem: ValueId,
+    idx: usize,
+    all_insns: &[Insn],
+    off: u32,
+  ) {
+    if self.materialize_value_into_x16(elem, idx, all_insns) {
+      self.emit_str_sp(X16, off);
+
+      return;
+    }
+
+    if let Some(fp) = self.alloc_fp_reg(elem) {
+      self.emit_str_fp_sp(fp, off);
+    } else if let Some(reg) = self.alloc_reg(elem) {
+      self.emit_str_sp(reg, off);
+    }
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for

@@ -539,15 +539,28 @@ pub fn allocate_function(
       }
       // IO ext functions need extra stack slots for
       // syscall buffers and Result construction.
-      // read_file: 4096-byte read buffer (520 slots).
-      // write_file / append_file: 5 slots for Result.
-      // Calls to struct-returning functions need space
-      // for the struct copy in the caller's frame.
+      //
+      // `read_file` / `readln` / `read` produce a
+      // `Result<str, int>` and read into a 4096-byte
+      // buffer. Per-call allocation of buffer + Result
+      // would be `~520 slots * call_count` — 5 calls
+      // burn 20 KB. Codegen heap-copies the str payload
+      // via `_zo_str_alloc` and reuses one shared
+      // 4104-byte buffer per function, so each call
+      // only needs the small 3-slot Result frame
+      // (`tag + ptr + scratch`). The shared buffer is
+      // counted once below the per-insn loop.
+      //
+      // `write_file` / `append_file`: 5 slots for
+      // Result. Other Call variants check for
+      // struct-returning callees in the catch-all.
       Insn::Call { name, .. } => {
         let fn_name = interner.get(*name);
 
         match fn_name {
-          "read_file" => struct_slots += 520,
+          "read_file" | "readln" | "read" => {
+            struct_slots += crate::IO_RESULT_FRAME_SLOTS;
+          }
           "write_file" | "append_file" => {
             struct_slots += 5;
           }
@@ -612,6 +625,25 @@ pub fn allocate_function(
       }
       _ => {}
     }
+  }
+
+  // Shared read buffer reserved once per function if any
+  // `read_file` / `readln` / `read` call is present.
+  // Codegen reuses the same offset across all such calls;
+  // the str payload is heap-copied to make the buffer
+  // safe to overwrite.
+  let has_io_read = insns[start..end].iter().any(|insn| {
+    if let Insn::Call { name, .. } = insn {
+      let n = interner.get(*name);
+
+      matches!(n, "read_file" | "readln" | "read")
+    } else {
+      false
+    }
+  });
+
+  if has_io_read {
+    struct_slots += crate::IO_SHARED_BUF_SLOTS;
   }
 
   let struct_size = (struct_slots * 8 + 15) & !15;

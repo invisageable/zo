@@ -1,6 +1,17 @@
 pack str;
 
+-- Raw FFI. Pure pass-through to the runtime — codegen
+-- forwards `(src, needle, with)` to `_zo_str_replace`.
+pub ffi __zo_str_replace(src: str, needle: str, with: str) -> str;
+
 apply str {
+  -! Replace every non-overlapping occurrence of `needle`
+  -! in `self` with `with`. Empty `needle` returns `self`
+  -! unchanged (matches Rust / Python semantics).
+  pub fun replace(self, needle: str, with: str) -> str {
+    return __zo_str_replace(self, needle, with);
+  }
+
   pub fun split(self, delim: str) -> []str {
     imu n: int = self.len;
     imu k: int = delim.len;

@@ -663,7 +663,6 @@ impl<'a> ConstFold<'a> {
       UnOp::BitNot => self
         .int_value(rhs)
         .map(|val| FoldResult::Int(Self::mask_to_width(!val, width))),
-      _ => None,
     }
   }
 }

@@ -268,24 +268,37 @@ impl ZoMap {
   /// bytes; `Str` requires a slot holding a live zo
   /// `str` header pointer.
   unsafe fn hash_key(&self, key_ptr: *const u8) -> u64 {
-    match self.key_kind {
-      KeyKind::Prim => {
-        let bytes = unsafe { std::slice::from_raw_parts(key_ptr, self.key_sz) };
+    let bytes = unsafe { self.key_payload(key_ptr) };
 
-        Self::hash_bytes(bytes)
-      }
+    Self::hash_bytes(bytes)
+  }
+
+  /// Resolve `key_ptr` to the actual payload byte slice the
+  /// hash / eq / vec paths all consume. `Prim` slots ARE
+  /// the payload; `Str` and `Tuple` slots HOLD a pointer
+  /// to the payload — the codegen spills a register-width
+  /// pointer to the scratch slot, the runtime dereferences
+  /// it. `Tuple` reads `key_sz` payload bytes (one slot
+  /// per element); `Str` reads the str header's length
+  /// prefix.
+  ///
+  /// # Safety
+  ///
+  /// `key_ptr` must satisfy `hash_key`'s contract.
+  unsafe fn key_payload<'a>(&self, key_ptr: *const u8) -> &'a [u8] {
+    match self.key_kind {
+      KeyKind::Prim => unsafe {
+        std::slice::from_raw_parts(key_ptr, self.key_sz)
+      },
       KeyKind::Str => {
         let header = unsafe { *(key_ptr as *const *const u8) };
-        let bytes = unsafe { str_bytes(header) };
 
-        Self::hash_bytes(bytes)
+        unsafe { str_bytes(header) }
       }
       KeyKind::Tuple => {
-        // Reserved. Not reachable from the compiler in
-        // MVP — tuple keys are rejected at compile time.
-        let bytes = unsafe { std::slice::from_raw_parts(key_ptr, self.key_sz) };
+        let payload = unsafe { *(key_ptr as *const *const u8) };
 
-        Self::hash_bytes(bytes)
+        unsafe { std::slice::from_raw_parts(payload, self.key_sz) }
       }
     }
   }
@@ -298,19 +311,7 @@ impl ZoMap {
   ///
   /// Same contract as `hash_key`.
   unsafe fn key_to_vec(&self, key_ptr: *const u8) -> Vec<u8> {
-    match self.key_kind {
-      KeyKind::Prim | KeyKind::Tuple => {
-        let bytes = unsafe { std::slice::from_raw_parts(key_ptr, self.key_sz) };
-
-        bytes.to_vec()
-      }
-      KeyKind::Str => {
-        let header = unsafe { *(key_ptr as *const *const u8) };
-        let bytes = unsafe { str_bytes(header) };
-
-        bytes.to_vec()
-      }
-    }
+    unsafe { self.key_payload(key_ptr) }.to_vec()
   }
 
   /// Compare the key stored in a slot against an
@@ -322,19 +323,7 @@ impl ZoMap {
   ///
   /// Same contract as `hash_key`.
   unsafe fn key_eq(&self, slot_key: &[u8], key_ptr: *const u8) -> bool {
-    match self.key_kind {
-      KeyKind::Prim | KeyKind::Tuple => {
-        let bytes = unsafe { std::slice::from_raw_parts(key_ptr, self.key_sz) };
-
-        slot_key == bytes
-      }
-      KeyKind::Str => {
-        let header = unsafe { *(key_ptr as *const *const u8) };
-        let bytes = unsafe { str_bytes(header) };
-
-        slot_key == bytes
-      }
-    }
+    slot_key == unsafe { self.key_payload(key_ptr) }
   }
 
   /// Locate either the slot holding `key` or the first
