@@ -7799,6 +7799,17 @@ impl<'a> Executor<'a> {
                   Token::Comma | Token::RBrace
                 )
               {
+                // Handlers may consume more than one node and
+                // advance `skip_until` past tokens already
+                // resolved semantically (e.g. the variant ident
+                // after `Color::` in `execute_enum_access`).
+                // Honor it before re-executing those nodes.
+                if idx < self.skip_until {
+                  idx += 1;
+
+                  continue;
+                }
+
                 let node = self.tree.nodes[idx];
                 self.execute_node(&node, idx);
                 idx += 1;
@@ -8168,15 +8179,24 @@ impl<'a> Executor<'a> {
               idx += 1;
             }
 
-            // Expect type token after field name.
-            // Handle $T (Dollar + Ident) for generic fields.
+            // Field type after field name. Three shapes:
+            //   `$T`        — generic field   (Dollar + Ident, 2 nodes)
+            //   `int`/`str` — builtin keyword (1 node, `is_ty()`)
+            //   `Color`     — user-defined ident resolving via
+            //                 the type table (1 node, `Token::Ident`)
+            // The consumer must advance past every node it
+            // resolved or the next loop iteration will parse
+            // the type token as the next field name.
             let fty =
               if idx < end_idx && self.tree.nodes[idx].token == Token::Dollar {
                 let ty = self.resolve_type_token(idx);
 
                 idx += 2; // skip Dollar + Ident
                 ty
-              } else if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
+              } else if idx < end_idx
+                && (self.tree.nodes[idx].token.is_ty()
+                  || self.tree.nodes[idx].token == Token::Ident)
+              {
                 let ty = self.resolve_type_token(idx);
 
                 idx += 1;

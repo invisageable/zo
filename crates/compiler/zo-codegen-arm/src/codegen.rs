@@ -344,6 +344,28 @@ struct VariantMeta {
   display_sym: Symbol,
 }
 
+impl EnumMeta {
+  /// Snapshot variants into the owned shape consumed by the
+  /// pretty-printer walker. Owned because the walker mutates
+  /// `self` while iterating, which would conflict with a live
+  /// `&self.enum_metas` borrow. Callers that need to override
+  /// per-construction-site payload types (generic enums) mutate
+  /// the returned `Vec` before passing it to the walker.
+  fn variants_view(&self) -> Vec<(u32, Symbol, Vec<TyId>)> {
+    self
+      .variants
+      .iter()
+      .map(|v| (v.discriminant, v.display_sym, v.field_tys.clone()))
+      .collect()
+  }
+}
+
+/// Enum payload layout: `[disc:u64][f0:u64][f1:u64]...`. Field
+/// `i` lives at slot `i + ENUM_PAYLOAD_BASE_SLOT` from the
+/// pointer in X19, so byte offset is
+/// `(i + 1) * STACK_SLOT_SIZE`.
+const ENUM_PAYLOAD_BASE_SLOT: i16 = 1;
+
 const ENUM_OPEN_PAREN_SYM: Symbol = Symbol(0xE000_FFFC);
 const ENUM_COMMA_SPACE_SYM: Symbol = Symbol(0xE000_FFFD);
 const ENUM_CLOSE_PAREN_SYM: Symbol = Symbol(0xE000_FFFE);
@@ -3531,11 +3553,7 @@ impl<'a> ARM64Gen<'a> {
       return;
     };
 
-    let mut variants: Vec<(u32, Symbol, Vec<TyId>)> = meta
-      .variants
-      .iter()
-      .map(|v| (v.discriminant, v.display_sym, v.field_tys.clone()))
-      .collect();
+    let mut variants = meta.variants_view();
 
     // Substitute the construction-site payload types for the
     // matching variant. Generic enums register the template's
@@ -3555,11 +3573,28 @@ impl<'a> ARM64Gen<'a> {
     // Save enum pointer in X19 (callee-saved, outside
     // allocator pool) so it survives write syscalls.
     self.emitter.emit_mov_reg(Register::new(19), src);
-    self.emitter.emit_ldr(X17, src, 0);
+    self.emit_enum_walk_from_x19(&variants, fd);
+  }
+
+  /// Body of the enum pretty-printer factored to assume the
+  /// enum's pointer already lives in X19. This is the
+  /// recursion entry point: when a struct or array element is
+  /// itself an enum, `emit_field_write` pushes the outer
+  /// X19..X22, moves X0 → X19, calls this, then pops.
+  ///
+  /// All enum values — unit and tuple — are heap/stack
+  /// allocations laid out as `[disc:u64][f0:u64]...`, so X19
+  /// is always a valid pointer to the discriminant slot.
+  fn emit_enum_walk_from_x19(
+    &mut self,
+    variants: &[(u32, Symbol, Vec<TyId>)],
+    fd: u16,
+  ) {
+    self.emitter.emit_ldr(X17, Register::new(19), 0);
 
     let mut done_fixups: Vec<usize> = Vec::with_capacity(variants.len());
 
-    for (disc, display_sym, field_tys) in &variants {
+    for (disc, display_sym, field_tys) in variants {
       self.emitter.emit_cmp_imm(X17, *disc as u16);
 
       let bne_pos = self.emitter.current_offset();
@@ -3571,7 +3606,8 @@ impl<'a> ARM64Gen<'a> {
         self.emit_synthetic_str_write(ENUM_OPEN_PAREN_SYM, fd);
 
         for (i, field_ty) in field_tys.iter().enumerate() {
-          let offset = ((i as i16) + 1) * STACK_SLOT_SIZE as i16;
+          let offset =
+            ((i as i16) + ENUM_PAYLOAD_BASE_SLOT) * STACK_SLOT_SIZE as i16;
 
           self.emitter.emit_ldr(X0, Register::new(19), offset);
 
@@ -3615,20 +3651,14 @@ impl<'a> ARM64Gen<'a> {
   }
 
   fn emit_field_write(&mut self, ty_id: TyId, fd: u16, quoted: bool) {
-    let is_str = ty_id.0 == STR_TYPE_ID;
-    let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
-    let is_bool = ty_id.0 == BOOL_TYPE_ID;
-    let is_char = ty_id.0 == CHAR_TYPE_ID;
-    let nested_elem_ty = self.array_metas.get(&ty_id.0).map(|m| m.elem_ty);
-    let nested_struct = self.struct_metas.contains_key(&ty_id.0);
-
-    if let Some(elem_ty) = nested_elem_ty {
-      // Nested array (`[][]T`, `[]Point`, …). The outer
-      // walk's X19..X22 hold the parent's base / len /
-      // index / tmp; the inner walk reuses them, so push
-      // them onto the stack across the recursive call and
-      // pop after. Pre-indexed STP / post-indexed LDP do
-      // the SP-relative push/pop in one instruction each.
+    // Nested aggregates (array / struct / enum) all use the
+    // same recursion shape: save outer X19..X22, move the
+    // payload pointer X0 → X19, run the walker, restore. The
+    // metadata lookups are lazy and mutually exclusive —
+    // probing in order short-circuits before the next one
+    // runs, and the enum branch only allocates its variants
+    // snapshot when it actually fires.
+    if let Some(elem_ty) = self.array_metas.get(&ty_id.0).map(|m| m.elem_ty) {
       self.emit_pp_state_push();
       self.emitter.emit_mov_reg(Register::new(19), X0);
       self.emit_array_walk_from_x19(elem_ty, fd);
@@ -3637,11 +3667,7 @@ impl<'a> ARM64Gen<'a> {
       return;
     }
 
-    if nested_struct {
-      // Nested struct (`Outer { p: Point }`, `[]Point`).
-      // Same shape as the array case: save outer state,
-      // load this struct's base into X19, walk fields,
-      // restore.
+    if self.struct_metas.contains_key(&ty_id.0) {
       self.emit_pp_state_push();
       self.emitter.emit_mov_reg(Register::new(19), X0);
       self.emit_struct_walk_from_x19(ty_id, fd);
@@ -3649,6 +3675,22 @@ impl<'a> ARM64Gen<'a> {
 
       return;
     }
+
+    if let Some(meta) = self.enum_metas.get(&ty_id.0) {
+      let variants = meta.variants_view();
+
+      self.emit_pp_state_push();
+      self.emitter.emit_mov_reg(Register::new(19), X0);
+      self.emit_enum_walk_from_x19(&variants, fd);
+      self.emit_pp_state_pop();
+
+      return;
+    }
+
+    let is_str = ty_id.0 == STR_TYPE_ID;
+    let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+    let is_bool = ty_id.0 == BOOL_TYPE_ID;
+    let is_char = ty_id.0 == CHAR_TYPE_ID;
 
     if is_str {
       // Mirror Rust Debug — strings nested inside an enum
