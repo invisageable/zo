@@ -733,6 +733,7 @@ impl RuntimeNeeds {
             || n == "read"
             || n == "readln"
             || n == "args"
+            || n == "__zo_str_replace"
           {
             needs.concurrency = true;
           }

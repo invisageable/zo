@@ -1976,6 +1976,11 @@ impl<'a> ARM64Gen<'a> {
           "__zo_set_len_raw" => self.emit_set_len_raw(args, idx),
           "__zo_set_free_raw" => self.emit_set_free_raw(args, idx),
 
+          // `str.replace(needle, with)` — `apply str` body
+          // forwards `(self, needle, with)` to this raw FFI;
+          // codegen forwards X0..X2 to `_zo_str_replace`.
+          "__zo_str_replace" => self.emit_str_replace_raw(args, idx),
+
           // Math intrinsics — ARM64 hardware instructions.
           // The arg is a float in a FP register. Move it
           // to D0, execute the instruction, leave result
@@ -4907,6 +4912,29 @@ impl<'a> ARM64Gen<'a> {
     }
 
     self.emit_extern_call("_zo_map_len");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_str_replace(src, needle, with) -> str` — direct
+  /// pass-through to the runtime helper. Three pointer args
+  /// in X0..X2; result pointer in X0.
+  fn emit_str_replace_raw(&mut self, args: &[ValueId], idx: usize) {
+    let arg_regs = [X0, X1, X2];
+
+    for (i, dst) in arg_regs.iter().enumerate() {
+      if let Some(src) = args.get(i).and_then(|v| self.alloc_reg(*v))
+        && src != *dst
+      {
+        self.emitter.emit_mov_reg(*dst, src);
+      }
+    }
+
+    self.emit_extern_call("_zo_str_replace");
 
     if let Some(dst) = self.reg_for_insn(idx)
       && dst != X0
