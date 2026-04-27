@@ -730,8 +730,9 @@ impl RuntimeNeeds {
             || n.starts_with("__zo_vec_")
             || n.starts_with("__zo_set_")
             || n == "arr_int::sort"
-            || n == "readln"
             || n == "read"
+            || n == "readln"
+            || n == "args"
           {
             needs.concurrency = true;
           }

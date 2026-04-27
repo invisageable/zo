@@ -7293,15 +7293,30 @@ impl<'a> Executor<'a> {
               idx += 1;
 
               if idx < end_idx {
-                let param_ty = self.resolve_type_token(idx);
+                // Mirror the Arrow-arm guard: `[]T` / `[N]T`
+                // params need `resolve_array_type`, otherwise
+                // the type silently resolves as `unit` and
+                // codegen handles the param wrong.
+                if self.tree.nodes[idx].token == Token::LBracket {
+                  if let Some((ty, next)) =
+                    self.resolve_array_type(idx, end_idx)
+                  {
+                    params.push((param_name, ty));
+                    idx = next;
+                  } else {
+                    idx += 1;
+                  }
+                } else {
+                  let param_ty = self.resolve_type_token(idx);
 
-                // Skip extra token for $T.
-                if self.tree.nodes[idx].token == Token::Dollar {
+                  // Skip extra token for $T.
+                  if self.tree.nodes[idx].token == Token::Dollar {
+                    idx += 1;
+                  }
+
+                  params.push((param_name, param_ty));
                   idx += 1;
                 }
-
-                params.push((param_name, param_ty));
-                idx += 1;
 
                 if idx < end_idx && self.tree.nodes[idx].token == Token::Comma {
                   idx += 1;
@@ -7325,8 +7340,26 @@ impl<'a> Executor<'a> {
         Token::Arrow => {
           if idx + 1 < end_idx {
             idx += 1;
-            return_ty = self.resolve_type_token(idx);
-            idx += 1;
+
+            // Array return types (`[]T`, `[N]T`, multi-dim
+            // `[2][3]int`) need the dedicated parser — a
+            // bare `resolve_type_token` only consumes a
+            // single token and fails on the leading
+            // `LBracket`. Without this branch
+            // `pub ffi args() -> []str` resolves the
+            // return type as `unit` and the analyzer can't
+            // bind the call's result.
+            if self.tree.nodes[idx].token == Token::LBracket {
+              if let Some((ty, next)) = self.resolve_array_type(idx, end_idx) {
+                return_ty = ty;
+                idx = next;
+              } else {
+                idx += 1;
+              }
+            } else {
+              return_ty = self.resolve_type_token(idx);
+              idx += 1;
+            }
 
             // Collect type arguments after the base type.
             // The parser emits `<` as Token::Lt in normal

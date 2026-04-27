@@ -20,6 +20,11 @@ pub ffi readln() -> Result<str, int>;
 -! today) is silently truncated. Returns `Err` on read error.
 pub ffi read() -> Result<str, int>;
 
+-! Process arguments — the bytes after the binary name.
+-! `args()[0]` is the first user argument, never the
+-! program path.
+pub ffi args() -> []str;
+
 -! Flushes stdout and stderr output buffers.
 pub ffi flush();
 

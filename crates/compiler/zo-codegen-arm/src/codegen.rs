@@ -1881,6 +1881,7 @@ impl<'a> ARM64Gen<'a> {
           "append_file" => self.emit_io_append_file(args, idx),
           "readln" => self.emit_io_read_stdin(idx, "_zo_io_readln"),
           "read" => self.emit_io_read_stdin(idx, "_zo_io_read"),
+          "args" => self.emit_io_args(idx),
 
           // HashMap apply-method dispatch. Names match
           // the executor's `<Type>::<method>` mangling
@@ -4373,6 +4374,18 @@ impl<'a> ARM64Gen<'a> {
       open_err_pos,
       false,
     );
+  }
+
+  /// `args() -> []str` — call `_zo_args` which builds the
+  /// array on the heap and returns its base pointer in X0.
+  /// Codegen treats the return value like any other heap
+  /// `[]str`; no on-stack scratch frame.
+  fn emit_io_args(&mut self, idx: usize) {
+    self.emit_extern_call("_zo_args");
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
   }
 
   /// `readln() -> Result<str, int>` and `read() -> Result<str,

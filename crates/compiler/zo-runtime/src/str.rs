@@ -56,7 +56,7 @@ pub unsafe fn str_bytes<'a>(ptr: *const u8) -> &'a [u8] {
 /// byte payload. Leaks the `Box` — a program-long
 /// lifetime, matching the current absence of a free
 /// path.
-fn alloc_str(payload: &[u8]) -> *const u8 {
+pub(crate) fn alloc_str(payload: &[u8]) -> *const u8 {
   let len = payload.len();
   let total = 8 + len + 1;
 
