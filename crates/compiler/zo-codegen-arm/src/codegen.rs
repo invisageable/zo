@@ -2491,11 +2491,7 @@ impl<'a> ARM64Gen<'a> {
             let off =
               base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
 
-            if let Some(fp) = self.alloc_fp_reg(*elem) {
-              self.emit_str_fp_sp(fp, off);
-            } else if let Some(reg) = self.alloc_reg(*elem) {
-              self.emit_str_sp(reg, off);
-            }
+            self.emit_array_element_store_sp(*elem, idx, all_insns, off);
           }
 
           if let Some(dst) = self.reg_for_insn(idx) {
@@ -2541,11 +2537,7 @@ impl<'a> ARM64Gen<'a> {
           let off_u16 =
             ARRAY_HEADER_SIZE + (i as u16) * (STACK_SLOT_SIZE as u16);
 
-          if let Some(fp) = self.alloc_fp_reg(*elem) {
-            self.emitter.emit_str_fp(fp, r_buf, off_u16);
-          } else if let Some(reg) = self.alloc_reg(*elem) {
-            self.emitter.emit_str(reg, r_buf, off_u16 as i16);
-          }
+          self.emit_array_element_store(*elem, idx, all_insns, r_buf, off_u16);
         }
 
         // Spill the heap pointer to a stack slot so later
@@ -2863,11 +2855,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, field) in fields.iter().enumerate() {
           let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
 
-          if let Some(fp) = self.alloc_fp_reg(*field) {
-            self.emit_str_fp_sp(fp, off);
-          } else if let Some(reg) = self.alloc_reg(*field) {
-            self.emit_str_sp(reg, off);
-          }
+          self.emit_array_element_store_sp(*field, idx, all_insns, off);
         }
 
         if let Some(dst_reg) = self.reg_for_insn(idx) {
@@ -2887,9 +2875,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, field) in fields.iter().enumerate() {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
-          if let Some(reg) = self.alloc_reg(*field) {
-            self.emit_str_sp(reg, off);
-          }
+          self.emit_array_element_store_sp(*field, idx, all_insns, off);
         }
 
         // Set dst register to point at this struct's
@@ -2912,9 +2898,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, elem) in elements.iter().enumerate() {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
-          if let Some(reg) = self.alloc_reg(*elem) {
-            self.emit_str_sp(reg, off);
-          }
+          self.emit_array_element_store_sp(*elem, idx, all_insns, off);
         }
 
         if let Some(dst_reg) = self.reg_for_insn(idx) {
@@ -5310,12 +5294,168 @@ impl<'a> ARM64Gen<'a> {
   fn emit_arr_sort_int(&mut self, args: &[ValueId], _idx: usize) {
     let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
 
-    // X1 = len.
-    self.emitter.emit_ldr(X1, recv, 0);
-    // X0 = data ptr = recv + 16.
-    self.emitter.emit_add_imm(X0, recv, 16u16);
+    // Stash `recv` in X16 first. If the register allocator
+    // placed it in X1, the `LDR X1, [recv, #0]` step below
+    // would overwrite it before the `ADD X0, recv, #16`
+    // could run — sort then gets `X0 = len + 16` (a bogus
+    // low address) instead of the data pointer. X16 is the
+    // intra-procedure scratch (AAPCS), unreachable by
+    // allocator placement.
+    self.emitter.emit_mov_reg(X16, recv);
+    self.emitter.emit_ldr(X1, X16, 0);
+    self.emitter.emit_add_imm(X0, X16, 16u16);
 
     self.emit_extern_call("_zo_arr_sort_i32");
+  }
+
+  /// Materialize a value into X16 by re-emitting the
+  /// producing instruction's load / constant.
+  ///
+  /// Returns `true` when X16 holds the value and the caller
+  /// can `STR X16, [...]`. Returns `false` for computed
+  /// values (BinOp, Call, etc.) — caller falls back to the
+  /// register allocator's reg.
+  ///
+  /// Why: above 14 simultaneously-live element values the
+  /// allocator's forward-pass spill semantics break down.
+  /// The eviction picks a victim that's still consumed at
+  /// the aggregate instruction, the victim's register gets
+  /// reassigned, and the spill captures a register that the
+  /// codegen has already overwritten with someone else's
+  /// def. Symptoms: pointer-shaped garbage in the aggregate
+  /// slots, sometimes hangs (sort follows on garbage data).
+  ///
+  /// Bypass: re-emit the def at the consumption point —
+  /// constants reload into X16 directly, locals/params
+  /// reload from their stable stack slot. Both sources are
+  /// stable across register clobbers because they live in
+  /// memory or are immediately materializable. Computed
+  /// values still need the allocator (rare in aggregate
+  /// literals; users typically pre-bind to locals first).
+  ///
+  /// X16 is the AAPCS intra-procedure scratch — outside the
+  /// allocator pool, so the bypass never conflicts with a
+  /// live value.
+  ///
+  /// Used by `ArrayLiteral`, `StructConstruct`,
+  /// `TupleLiteral`, and `EnumConstruct` — all four hit the
+  /// same regalloc bug at high arity.
+  fn materialize_value_into_x16(
+    &mut self,
+    elem: ValueId,
+    idx: usize,
+    all_insns: &[Insn],
+  ) -> bool {
+    for i in (0..idx).rev() {
+      let insn = &all_insns[i];
+      let dst = match insn {
+        Insn::ConstInt { dst, .. }
+        | Insn::ConstFloat { dst, .. }
+        | Insn::ConstBool { dst, .. }
+        | Insn::Load { dst, .. } => *dst,
+        _ => continue,
+      };
+
+      if dst != elem {
+        continue;
+      }
+
+      match insn {
+        Insn::ConstInt { value, .. } => {
+          self.emit_mov_imm_64(X16, *value);
+
+          return true;
+        }
+        Insn::ConstFloat { value, .. } => {
+          self.emit_mov_imm_64(X16, value.to_bits());
+
+          return true;
+        }
+        Insn::ConstBool { value, .. } => {
+          self.emit_mov_imm_64(X16, u64::from(*value));
+
+          return true;
+        }
+        Insn::Load { src, .. } => match src {
+          LoadSource::Local(sym) => {
+            let slot = sym.as_u32();
+
+            if let Some(&offset) = self.mutable_slots.get(&slot) {
+              self.emit_ldr_sp(X16, offset);
+
+              return true;
+            }
+
+            if let Some(&(offset, _)) = self.param_sym_slots.get(&slot) {
+              self.emit_ldr_sp(X16, offset);
+
+              return true;
+            }
+
+            return false;
+          }
+          LoadSource::Param(pidx) => {
+            if let Some(&offset) = self.param_slots.get(pidx) {
+              self.emit_ldr_sp(X16, offset);
+
+              return true;
+            }
+
+            return false;
+          }
+        },
+        _ => return false,
+      }
+    }
+
+    false
+  }
+
+  /// Emit `STR <elem>, [r_buf, off]` for one array literal
+  /// element on the heap path. See
+  /// `materialize_array_elem_into_x16` for the bypass
+  /// rationale.
+  fn emit_array_element_store(
+    &mut self,
+    elem: ValueId,
+    idx: usize,
+    all_insns: &[Insn],
+    r_buf: Register,
+    off: u16,
+  ) {
+    if self.materialize_value_into_x16(elem, idx, all_insns) {
+      self.emitter.emit_str(X16, r_buf, off as i16);
+
+      return;
+    }
+
+    if let Some(fp) = self.alloc_fp_reg(elem) {
+      self.emitter.emit_str_fp(fp, r_buf, off);
+    } else if let Some(reg) = self.alloc_reg(elem) {
+      self.emitter.emit_str(reg, r_buf, off as i16);
+    }
+  }
+
+  /// SP-relative variant of `emit_array_element_store` for
+  /// the static `[N]T` path (stack frame).
+  fn emit_array_element_store_sp(
+    &mut self,
+    elem: ValueId,
+    idx: usize,
+    all_insns: &[Insn],
+    off: u32,
+  ) {
+    if self.materialize_value_into_x16(elem, idx, all_insns) {
+      self.emit_str_sp(X16, off);
+
+      return;
+    }
+
+    if let Some(fp) = self.alloc_fp_reg(elem) {
+      self.emit_str_fp_sp(fp, off);
+    } else if let Some(reg) = self.alloc_reg(elem) {
+      self.emit_str_sp(reg, off);
+    }
   }
 
   /// Emit CMP + MOV 1 + MOV 0 + CSEL pattern for
