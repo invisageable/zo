@@ -460,6 +460,13 @@ struct PendingDecl {
   annotated_ty: Option<TyId>,
   /// Source span of the declaration (for error reporting).
   span: Span,
+  /// Snapshot of `sir.instructions.len()` taken in
+  /// `begin_decl` — bounds any post-finalize scan over
+  /// the init expression's emitted insns. Replaces a
+  /// magic-window scan that could silently miss the
+  /// init's `Insn::ArrayLiteral` and re-introduce the
+  /// macOS realloc-on-stack UB.
+  init_start_idx: usize,
 }
 impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
@@ -1032,7 +1039,7 @@ impl<'a> Executor<'a> {
   /// array's `TyId.0`.
   fn emit_array_ty_defs(&mut self) {
     let mut seen: HashSet<u32> = HashSet::default();
-    let mut to_emit: Vec<(TyId, TyId)> = Vec::new();
+    let mut to_emit: Vec<(TyId, TyId, Option<u32>)> = Vec::new();
 
     for insn in &self.sir.instructions {
       let mut ty_ids: Vec<TyId> = Vec::new();
@@ -1093,13 +1100,17 @@ impl<'a> Executor<'a> {
           // `value_types` will carry that same TyId as its
           // key, so matching must happen there.
           seen.insert(ty_id.0);
-          to_emit.push((ty_id, arr_ty.elem_ty));
+          to_emit.push((ty_id, arr_ty.elem_ty, arr_ty.size));
         }
       }
     }
 
-    for (array_ty, elem_ty) in to_emit {
-      self.sir.emit(Insn::ArrayTyDef { array_ty, elem_ty });
+    for (array_ty, elem_ty, size) in to_emit {
+      self.sir.emit(Insn::ArrayTyDef {
+        array_ty,
+        elem_ty,
+        size,
+      });
     }
   }
 
@@ -6456,6 +6467,7 @@ impl<'a> Executor<'a> {
         pubness,
         annotated_ty,
         span: self.tree.spans[idx],
+        init_start_idx: self.sir.instructions.len(),
       });
 
       // Steer literal widths in the init expression to the
@@ -6878,6 +6890,30 @@ impl<'a> Executor<'a> {
       || self.narrow_float_literal(sir_val, src_ty, target_ty)
   }
 
+  /// Walk the init expression's emitted SIR insns and
+  /// rewrite the `Insn::ArrayLiteral` whose `dst` matches
+  /// `sir_val` to use `new_ty`. Bounded by the
+  /// `init_start_idx` snapshot taken in `begin_decl` —
+  /// always covers the whole init expression, so a deeply
+  /// nested literal can't slip past the scan and silently
+  /// re-introduce the realloc-on-stack UB.
+  fn rewrite_array_literal_ty(
+    &mut self,
+    init_start_idx: usize,
+    sir_val: ValueId,
+    new_ty: TyId,
+  ) {
+    for insn in self.sir.instructions[init_start_idx..].iter_mut().rev() {
+      if let Insn::ArrayLiteral { dst, ty_id, .. } = insn
+        && *dst == sir_val
+      {
+        *ty_id = new_ty;
+
+        return;
+      }
+    }
+  }
+
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
   fn finalize_pending_decl(&mut self) {
@@ -6924,6 +6960,23 @@ impl<'a> Executor<'a> {
       } else {
         init_ty
       };
+
+      // Array-literal coercion: when a `[N]T` literal is
+      // bound to a `[]T` annotation, the literal's SIR
+      // `ty_id` is the inferred static type but the binding
+      // is dynamic. Codegen must see the unified type on
+      // the literal so it picks the heap-allocate path
+      // (otherwise a later `push` realloc's a stack
+      // pointer — UB on macOS). Element compat is already
+      // enforced by the surrounding `unify`; here we only
+      // care that BOTH sides are arrays.
+      if let (Some(ann_ty), Some(sv)) = (decl.annotated_ty, sir_init)
+        && ann_ty != init_ty
+        && matches!(self.ty_checker.kind_of(ann_ty), Ty::Array(_))
+        && matches!(self.ty_checker.kind_of(init_ty), Ty::Array(_))
+      {
+        self.rewrite_array_literal_ty(decl.init_start_idx, sv, ann_ty);
+      }
 
       if decl.is_constant {
         // --- val path: compile-time constant ---

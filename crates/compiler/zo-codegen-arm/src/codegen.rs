@@ -253,13 +253,16 @@ pub struct ARM64Gen<'a> {
   /// instruction. Replaces the fragile find_producing_insn
   /// backward search.
   value_types: HashMap<u32, TyId>,
-  /// Array type → element `TyId`, keyed by the array's
-  /// `TyId.0`. Populated by the pre-pass in `generate` from
-  /// `Insn::ArrayTyDef`. Drives `emit_array_write` so
-  /// `showln(arr)` can dispatch each element through the
-  /// element-type's writer (itoa/ftoa/bool/char/str) and
-  /// produce `[e0, e1, ...]` instead of leaking a pointer.
-  array_metas: HashMap<u32, TyId>,
+  /// Per-array metadata keyed by the array's `TyId.0`.
+  /// Populated by the pre-pass in `generate` from
+  /// `Insn::ArrayTyDef`. Drives `emit_array_write` (uses
+  /// `elem_ty`) and `Insn::ArrayLiteral`'s stack-vs-heap
+  /// branch (uses `size`). Type-checker rewrites a
+  /// literal's `ty_id` from `[N]T` to `[]T` when the
+  /// binding annotation is dynamic, so a `size = Some(_)`
+  /// hit here really does mean the literal won't be
+  /// `push`ed.
+  array_metas: HashMap<u32, ArrayMeta>,
   /// HashMap type → `(key_fmt, val_fmt)` `MapFmt`
   /// discriminants, keyed by the map's `TyId.0`.
   /// Populated by the same pre-pass that fills
@@ -372,6 +375,15 @@ struct StructMeta {
 struct StructFieldMeta {
   label_sym: Symbol,
   ty_id: TyId,
+}
+
+/// Per-array metadata stored in `ARM64Gen::array_metas`.
+#[derive(Clone, Copy)]
+struct ArrayMeta {
+  elem_ty: TyId,
+  /// `Some(N)` for `[N]T` (stack-allocatable in
+  /// `Insn::ArrayLiteral`), `None` for `[]T` (heap).
+  size: Option<u32>,
 }
 
 impl<'a> ARM64Gen<'a> {
@@ -525,7 +537,7 @@ impl<'a> ARM64Gen<'a> {
   fn is_array_value(&self, vid: ValueId) -> Option<TyId> {
     let ty = self.type_of(vid)?;
 
-    self.array_metas.get(&ty.0).copied()
+    self.array_metas.get(&ty.0).map(|m| m.elem_ty)
   }
 
   /// If `vid`'s type is a registered HashMap, return the
@@ -842,8 +854,18 @@ impl<'a> ARM64Gen<'a> {
     // definitions land in the stream.
     for insn in insns.iter() {
       match insn {
-        Insn::ArrayTyDef { array_ty, elem_ty } => {
-          self.array_metas.insert(array_ty.0, *elem_ty);
+        Insn::ArrayTyDef {
+          array_ty,
+          elem_ty,
+          size,
+        } => {
+          self.array_metas.insert(
+            array_ty.0,
+            ArrayMeta {
+              elem_ty: *elem_ty,
+              size: *size,
+            },
+          );
         }
         Insn::MapTyDef {
           map_ty,
@@ -2408,22 +2430,55 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_cbz(reg, 0);
       }
 
-      Insn::ArrayLiteral { elements, .. } => {
-        // Both paths heap-allocate. Stack allocation for the
-        // non-empty case used to look like a free win — the
-        // bytes are right there, no syscall — but every `[]T`
-        // is a dynamic-growable array by type, and any later
-        // `arr.push(...)` calls `_realloc` on the receiver
-        // pointer. `realloc` on a stack address is UB; on
-        // macOS it spins. Heap-allocating both shapes keeps
-        // the invariant uniform: every `[]T` value is a real
-        // heap pointer, growable by realloc, freeable by
-        // free. The `[N]T` static-array optimization (true
-        // stack allocation, no growth) is a separate path
-        // that needs the array's `size: Option<u32>` to flow
-        // through `Insn::ArrayTyDef` — see the follow-up
-        // when static arrays get their own SIR shape.
+      Insn::ArrayLiteral {
+        elements, ty_id, ..
+      } => {
+        // Two paths, picked from `Insn::ArrayTyDef.size`:
+        //
+        // - `[N]T` static (size = Some): stack-allocate the
+        //   `[len:8][cap:8][e0:8]...[eN:8]` block in the
+        //   function frame. Type checker has already
+        //   coerced any literal flowing into a dynamic
+        //   binding to `[]T` (see
+        //   `finalize_pending_decl::rewrite_array_literal_ty`),
+        //   so a static hit here genuinely means the value
+        //   won't be `push`ed.
+        //
+        // - `[]T` dynamic (size = None): heap-allocate via
+        //   `_malloc`. Pushable, growable via `_realloc`,
+        //   freeable.
         let n = elements.len() as u32;
+
+        if self
+          .array_metas
+          .get(&ty_id.0)
+          .is_some_and(|m| m.size.is_some())
+        {
+          let base = self.struct_base + self.next_struct_slot;
+
+          self.emitter.emit_mov_imm(X16, n as u16);
+          self.emit_str_sp(X16, base);
+          self.emit_str_sp(X16, base + STACK_SLOT_SIZE);
+
+          for (i, elem) in elements.iter().enumerate() {
+            let off =
+              base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
+
+            if let Some(fp) = self.alloc_fp_reg(*elem) {
+              self.emit_str_fp_sp(fp, off);
+            } else if let Some(reg) = self.alloc_reg(*elem) {
+              self.emit_str_sp(reg, off);
+            }
+          }
+
+          if let Some(dst) = self.reg_for_insn(idx) {
+            self.emit_add_sp_offset(dst, base);
+          }
+
+          self.next_struct_slot += (2 + n) * STACK_SLOT_SIZE;
+
+          return;
+        }
 
         // Empty arrays over-provision (cap = 1024) so the
         // first 1024 pushes don't pay realloc. Non-empty
@@ -3564,7 +3619,7 @@ impl<'a> ARM64Gen<'a> {
     let is_float = ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
     let is_bool = ty_id.0 == BOOL_TYPE_ID;
     let is_char = ty_id.0 == CHAR_TYPE_ID;
-    let nested_elem_ty = self.array_metas.get(&ty_id.0).copied();
+    let nested_elem_ty = self.array_metas.get(&ty_id.0).map(|m| m.elem_ty);
     let nested_struct = self.struct_metas.contains_key(&ty_id.0);
 
     if let Some(elem_ty) = nested_elem_ty {

@@ -330,7 +330,9 @@ impl Insn {
         f(from_ty);
         f(to_ty);
       }
-      Insn::ArrayTyDef { array_ty, elem_ty } => {
+      Insn::ArrayTyDef {
+        array_ty, elem_ty, ..
+      } => {
         f(array_ty);
         f(elem_ty);
       }
@@ -607,7 +609,16 @@ pub enum Insn {
   /// walk elements and format each one using the element
   /// type's writer. Mirrors `EnumDef`'s role for enum pretty-
   /// printing.
-  ArrayTyDef { array_ty: TyId, elem_ty: TyId },
+  /// `size = Some(n)` for statically-sized `[N]T` arrays
+  /// (stack-allocatable, no growth); `None` for the dynamic
+  /// `[]T` shape (heap-allocated, growable via `_realloc`).
+  /// Codegen reads `size` to pick the `ArrayLiteral` lowering
+  /// path.
+  ArrayTyDef {
+    array_ty: TyId,
+    elem_ty: TyId,
+    size: Option<u32>,
+  },
   /// HashMap type description — emitted once per
   /// `HashMap<K, V>::new()` lowering so codegen can
   /// look up the per-element format kinds when
