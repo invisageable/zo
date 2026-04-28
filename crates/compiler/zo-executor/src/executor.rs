@@ -467,6 +467,12 @@ struct PendingDecl {
   /// init's `Insn::ArrayLiteral` and re-introduce the
   /// macOS realloc-on-stack UB.
   init_start_idx: usize,
+  /// `Some(names)` for tuple-pattern destructuring
+  /// (`imu (a, b, c) = expr;`); each name binds the
+  /// corresponding tuple element. `None` for the
+  /// regular single-name path. The lead `name` field
+  /// is unused when this is `Some`.
+  tuple_pattern: Option<Vec<Symbol>>,
 }
 impl<'a> Executor<'a> {
   /// Creates a new [`Executor`] instance.
@@ -6312,6 +6318,65 @@ impl<'a> Executor<'a> {
       return;
     }
 
+    // Tuple-pattern destructuring: `imu (a, b, c) = expr;`.
+    // The pattern's idents are bound to the tuple's
+    // elements at finalize time; until then they live on
+    // `pending_decl.tuple_pattern`. Walk skips past the
+    // `RParen` (and any `=` / `:=`) so the main loop only
+    // sees the rhs init expression.
+    if !is_constant
+      && idx + 1 < children_end
+      && self.tree.nodes[idx + 1].token == Token::LParen
+    {
+      let mut names: Vec<Symbol> = Vec::new();
+      let mut i = idx + 2;
+
+      while i < children_end {
+        let tok = self.tree.nodes[i].token;
+
+        if tok == Token::RParen {
+          i += 1;
+          break;
+        }
+
+        if tok == Token::Ident
+          && let Some(NodeValue::Symbol(sym)) = self.node_value(i)
+        {
+          names.push(sym);
+        }
+
+        i += 1;
+      }
+
+      if i < children_end
+        && matches!(self.tree.nodes[i].token, Token::Eq | Token::ColonEq)
+      {
+        i += 1;
+      }
+
+      let pubness = if self.is_pub(idx) {
+        Pubness::Yes
+      } else {
+        Pubness::No
+      };
+
+      self.pending_decl = Some(PendingDecl {
+        name: Symbol(0),
+        is_mutable,
+        is_constant: false,
+        pubness,
+        annotated_ty: None,
+        span: self.tree.spans[idx],
+        init_start_idx: self.sir.instructions.len(),
+        tuple_pattern: Some(names),
+      });
+
+      self.expected_ty_stack.push(None);
+      self.skip_until = i;
+
+      return;
+    }
+
     // Extract variable name from tree (first Ident child).
     let name = self
       .tree
@@ -6541,6 +6606,7 @@ impl<'a> Executor<'a> {
         annotated_ty,
         span: self.tree.spans[idx],
         init_start_idx: self.sir.instructions.len(),
+        tuple_pattern: None,
       });
 
       // Steer literal widths in the init expression to the
@@ -6989,6 +7055,102 @@ impl<'a> Executor<'a> {
 
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
+  /// Finalize an `imu (a, b, …) = expr` tuple-destructuring
+  /// declaration. The init expression's tuple value is on
+  /// the stacks; for each pattern name, emit a TupleIndex
+  /// to extract the matching element and bind a new local.
+  fn finalize_tuple_pattern_decl(
+    &mut self,
+    decl: &PendingDecl,
+    names: &[Symbol],
+  ) {
+    let (init_value, init_ty) =
+      match (self.value_stack.pop(), self.ty_stack.pop()) {
+        (Some(v), Some(t)) => (v, t),
+        _ => return,
+      };
+
+    let sir_init = self.sir_values.pop();
+
+    let elem_tys: Vec<TyId> =
+      if let Ty::Tuple(tid) = self.ty_checker.kind_of(init_ty) {
+        if let Some(tup) = self.ty_checker.ty_table.tuple(tid) {
+          self.ty_checker.ty_table.tuple_elems(tup).to_vec()
+        } else {
+          Vec::new()
+        }
+      } else {
+        report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+
+        return;
+      };
+
+    if names.len() != elem_tys.len() {
+      report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+
+      return;
+    }
+
+    for (i, &name) in names.iter().enumerate() {
+      let elem_ty = elem_tys[i];
+      let elem_value = self.values.store_runtime(u32::MAX);
+      let elem_sir = sir_init.map(|tup_sir| {
+        let dst = ValueId(self.sir.next_value_id);
+
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::TupleIndex {
+          dst,
+          tuple: tup_sir,
+          index: i as u32,
+          ty_id: elem_ty,
+        });
+
+        dst
+      });
+
+      self.sir.emit(Insn::VarDef {
+        name,
+        ty_id: elem_ty,
+        init: elem_sir,
+        mutability: if decl.is_mutable {
+          Mutability::Yes
+        } else {
+          Mutability::No
+        },
+        pubness: decl.pubness,
+      });
+
+      if let Some(value_sir) = elem_sir {
+        self.sir.emit(Insn::Store {
+          name,
+          value: value_sir,
+          ty_id: elem_ty,
+        });
+      }
+
+      self.locals.push(Local {
+        name,
+        ty_id: elem_ty,
+        value_id: elem_value,
+        pubness: decl.pubness,
+        mutability: if decl.is_mutable {
+          Mutability::Yes
+        } else {
+          Mutability::No
+        },
+        sir_value: elem_sir,
+        local_kind: LocalKind::Variable,
+      });
+
+      if let Some(frame) = self.scope_stack.last_mut() {
+        frame.count += 1;
+      }
+    }
+
+    let _ = init_value;
+  }
+
   fn finalize_pending_decl(&mut self) {
     let decl = match self.pending_decl.take() {
       Some(d) => d,
@@ -6999,6 +7161,12 @@ impl<'a> Executor<'a> {
     // when we actually consumed a `PendingDecl`, keeping the
     // stack balanced across error / no-init paths.
     self.expected_ty_stack.pop();
+
+    if let Some(names) = decl.tuple_pattern.as_ref() {
+      self.finalize_tuple_pattern_decl(&decl, names);
+
+      return;
+    }
 
     if let (Some(init_value), Some(mut init_ty)) =
       (self.value_stack.pop(), self.ty_stack.pop())

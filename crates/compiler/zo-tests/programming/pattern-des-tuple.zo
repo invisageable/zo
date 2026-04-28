@@ -1,0 +1,31 @@
+-- tests-run-pass: tuple destructuring `imu (a, b, c) = tup`.
+-- @cmd — zo run pattern-des-tuple.zo
+
+fun main() {
+  imu (x, y, z) = (1, 2, 3);
+
+  check@eq(x, 1);
+  check@eq(y, 2);
+  check@eq(z, 3);
+
+  showln(x);
+  showln(y);
+  showln(z);
+
+  -- Mixed types.
+  imu (name, age) = ("alice", 30);
+
+  check@eq(age, 30);
+  showln(name);
+  showln(age);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 1
+-- 2
+-- 3
+-- alice
+-- 30
+-- DONE
