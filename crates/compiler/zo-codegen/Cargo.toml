@@ -15,7 +15,6 @@ zo-codegen-backend = { workspace = true }
 zo-codegen-clif = { workspace = true }
 zo-error = { workspace = true }
 zo-interner = { workspace = true }
-zo-linker = { workspace = true }
 zo-sir = { workspace = true }
 
 # external:crates.

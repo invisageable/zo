@@ -20,7 +20,8 @@ fn test_hello_world_generation() {
   // Write to file in tests directory
   let path = "tests/bin/hello_zo";
 
-  ARM64Gen::write_executable(binary, path).expect("Failed to write executable");
+  zo_linker::write_executable(&binary, std::path::Path::new(path))
+    .expect("Failed to write executable");
 
   // Sign the binary (required on macOS Apple Silicon)
   let sign_output = Command::new("codesign")

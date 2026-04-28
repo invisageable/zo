@@ -48,24 +48,46 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
     .collect()
 }
 
-/// Extract the `ValueId`s read by an instruction (uses).
-pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
+/// Visit every `ValueId` read by `insn` (its uses),
+/// calling `f` once per use in source order.
+///
+/// Push-based on purpose — replaces an allocating
+/// `-> Vec<ValueId>` returning form that allocated a fresh
+/// heap vector for every instruction in the liveness and
+/// regalloc forward passes. Variable-length arms
+/// (`Call.args`, `ArrayLiteral.elements`, ...) iterate
+/// the existing `Vec` in the SIR; fixed-arity arms emit
+/// directly.
+pub fn visit_uses(insn: &Insn, mut f: impl FnMut(ValueId)) {
   match insn {
-    Insn::BinOp { lhs, rhs, .. } => vec![*lhs, *rhs],
-    Insn::Return { value: Some(v), .. } => vec![*v],
-    Insn::Store { value, .. } => vec![*value],
-    Insn::Call { args, .. } => args.clone(),
-    Insn::UnOp { rhs, .. } => vec![*rhs],
-    Insn::BranchIfNot { cond, .. } => vec![*cond],
-    Insn::Directive { value, .. } => vec![*value],
-    Insn::VarDef { init: Some(v), .. } => vec![*v],
-    Insn::ArrayLiteral { elements, .. } => elements.clone(),
-    Insn::ArrayIndex { array, index, .. } => {
-      vec![*array, *index]
+    Insn::BinOp { lhs, rhs, .. } => {
+      f(*lhs);
+      f(*rhs);
     }
-    Insn::TupleIndex { tuple, .. } => vec![*tuple],
+    Insn::Return { value: Some(v), .. } => f(*v),
+    Insn::Store { value, .. } => f(*value),
+    Insn::Call { args, .. } => {
+      for &v in args {
+        f(v);
+      }
+    }
+    Insn::UnOp { rhs, .. } => f(*rhs),
+    Insn::BranchIfNot { cond, .. } => f(*cond),
+    Insn::Directive { value, .. } => f(*value),
+    Insn::VarDef { init: Some(v), .. } => f(*v),
+    Insn::ArrayLiteral { elements, .. } => {
+      for &v in elements {
+        f(v);
+      }
+    }
+    Insn::ArrayIndex { array, index, .. } => {
+      f(*array);
+      f(*index);
+    }
+    Insn::TupleIndex { tuple, .. } => f(*tuple),
     Insn::FieldStore { base, value, .. } => {
-      vec![*base, *value]
+      f(*base);
+      f(*value);
     }
     Insn::ArrayStore {
       array,
@@ -73,32 +95,64 @@ pub fn insn_uses(insn: &Insn) -> Vec<ValueId> {
       value,
       ..
     } => {
-      vec![*array, *index, *value]
+      f(*array);
+      f(*index);
+      f(*value);
     }
-    Insn::ArrayLen { array, .. } => vec![*array],
-    Insn::ArrayPush { array, value, .. } => vec![*array, *value],
-    Insn::ArrayPop { array, .. } => vec![*array],
-    Insn::StructConstruct { fields, .. } => fields.clone(),
-    Insn::EnumConstruct { fields, .. } => fields.clone(),
-    Insn::TupleLiteral { elements, .. } => elements.clone(),
-    Insn::Cast { src, .. } => vec![*src],
+    Insn::ArrayLen { array, .. } => f(*array),
+    Insn::ArrayPush { array, value, .. } => {
+      f(*array);
+      f(*value);
+    }
+    Insn::ArrayPop { array, .. } => f(*array),
+    Insn::StructConstruct { fields, .. } => {
+      for &v in fields {
+        f(v);
+      }
+    }
+    Insn::EnumConstruct { fields, .. } => {
+      for &v in fields {
+        f(v);
+      }
+    }
+    Insn::TupleLiteral { elements, .. } => {
+      for &v in elements {
+        f(v);
+      }
+    }
+    Insn::Cast { src, .. } => f(*src),
     // Concurrency insns — enumerate their ValueId
     // operands so liveness keeps the defining insns
     // (TupleIndex / Load / etc.) alive through DCE.
-    Insn::ChannelSend { channel, value, .. } => vec![*channel, *value],
-    Insn::ChannelRecv { channel, .. } => vec![*channel],
-    Insn::ChannelClose { channel } => vec![*channel],
-    Insn::TaskSpawn { args, .. } => args.clone(),
-    Insn::TaskAwait { task, .. } => vec![*task],
-    Insn::SelectWait { chans, .. } => chans.clone(),
+    Insn::ChannelSend { channel, value, .. } => {
+      f(*channel);
+      f(*value);
+    }
+    Insn::ChannelRecv { channel, .. } => f(*channel),
+    Insn::ChannelClose { channel } => f(*channel),
+    Insn::TaskSpawn { args, .. } => {
+      for &v in args {
+        f(v);
+      }
+    }
+    Insn::TaskAwait { task, .. } => f(*task),
+    Insn::SelectWait { chans, .. } => {
+      for &v in chans {
+        f(v);
+      }
+    }
     // `SelectRecv` anchors liveness to its paired
     // `SelectWait`'s `out_which` so DCE can't reorder
     // or drop the wait.
-    Insn::SelectRecv { which, .. } => vec![*which],
-    Insn::TaskCancelled { task, .. } => vec![*task],
-    Insn::TaskCancel { task } => vec![*task],
-    Insn::StrSlice { src, lo, hi, .. } => vec![*src, *lo, *hi],
-    _ => vec![],
+    Insn::SelectRecv { which, .. } => f(*which),
+    Insn::TaskCancelled { task, .. } => f(*task),
+    Insn::TaskCancel { task } => f(*task),
+    Insn::StrSlice { src, lo, hi, .. } => {
+      f(*src);
+      f(*lo);
+      f(*hi);
+    }
+    _ => {}
   }
 }
 

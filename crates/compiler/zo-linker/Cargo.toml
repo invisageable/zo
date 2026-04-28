@@ -9,6 +9,9 @@ doctest = false
 [dependencies]
 # internal:crates.
 zo-codegen-backend = { workspace = true }
+zo-emitter-arm = { workspace = true }
+zo-interner = { workspace = true }
+zo-writer-macho = { workspace = true }
 
 # external:crates.
 tempfile = { workspace = true }

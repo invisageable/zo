@@ -1341,9 +1341,12 @@ impl<'a> Parser<'a> {
     // Variable declaration: imu/mut/val are introducers
     self.flush_expr();
 
-    // imu/mut/val must be followed by an identifier.
+    // imu/mut/val must be followed by an identifier,
+    // `(` for tuple-destructuring (`imu (a, b) = …;`),
+    // or `{` for struct-destructuring
+    // (`imu { x, y, z } = …;`).
     match self.peek() {
-      Some(Token::Ident) => {}
+      Some(Token::Ident | Token::LParen | Token::LBrace) => {}
       Some(_) => {
         self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
       }

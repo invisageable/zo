@@ -1,11 +1,8 @@
 use zo_codegen_arm::ARM64Gen;
-use zo_codegen_backend::{Artifact, Backend, Target};
+use zo_codegen_backend::{Artifact, Backend, LinkObject, Target};
 use zo_codegen_clif::CliftGen;
 use zo_interner::Interner;
-use zo_linker::link_to_executable;
 use zo_sir::Sir;
-
-use std::path::Path;
 
 /// Concrete backend selected per [`Target`]. The common
 /// `generate` path routes through the [`Backend`] trait;
@@ -45,33 +42,31 @@ impl Codegen {
     }
   }
 
-  /// Generates binary code and writes to file.
+  /// Run the codegen phase — turn `sir` into a
+  /// [`LinkObject`] ready for the linker.
   ///
-  /// The ARM path wraps the raw machine code into a Mach-O
-  /// executable and sets the executable bit. The Cranelift path
-  /// shells out to `cc` (via `zo-linker`) to turn the emitted
-  /// relocatable object into an executable — the system linker
-  /// supplies `crt0` / `crt1` and resolves FFI imports against
-  /// libc / libSystem. Errors from `cc` are surfaced to stderr;
-  /// the user's output file is left untouched on failure.
-  pub fn generate(self, interner: &Interner, sir: &Sir, output_path: &Path) {
-    let target = self.target;
-
+  /// No I/O happens here; writing the executable is the
+  /// linker's job (`zo-linker::link`). The returned
+  /// `LinkObject` is the only data that crosses the
+  /// codegen → linker phase boundary — every fixup,
+  /// symbol table, and entry-point offset the linker
+  /// needs is materialized into it.
+  ///
+  /// ARM produces `LinkObject::Macho` (raw machine code +
+  /// symbol/fixup tables for in-process mach-o assembly).
+  /// CLIF produces `LinkObject::Object` (a relocatable
+  /// object file ready for `cc`).
+  pub fn generate(self, interner: &Interner, sir: &Sir) -> LinkObject {
     match self.make_backend(interner) {
       Concrete::Arm64(mut codegen) => {
         let artifact = codegen.generate(sir);
-        let executable = codegen.generate_macho(artifact);
 
-        ARM64Gen::write_executable(executable, output_path).ok();
+        LinkObject::Macho(Box::new(codegen.into_link_object(artifact)))
       }
       Concrete::Clift(mut codegen) => {
         let artifact = codegen.generate(sir);
 
-        if let Err(err) =
-          link_to_executable(&artifact.code, output_path, target)
-        {
-          eprintln!("zo: link failed: {err}");
-        }
+        LinkObject::Object(artifact.code)
       }
     }
   }

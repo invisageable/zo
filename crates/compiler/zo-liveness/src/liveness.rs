@@ -1,7 +1,7 @@
 //! Backward bitvector liveness analysis.
 
 use crate::bitvec::BitVec;
-use crate::insn::{insn_uses, insn_var_def, insn_var_use};
+use crate::insn::{insn_var_def, insn_var_use, visit_uses};
 
 use zo_interner::Symbol;
 use zo_sir::Insn;
@@ -95,11 +95,11 @@ pub fn analyze(
       defs[i].set(vid.0 as usize);
     }
 
-    for u in insn_uses(&insns[gi]) {
+    visit_uses(&insns[gi], |u| {
       if u.0 != u32::MAX {
         uses[i].set(u.0 as usize);
       }
-    }
+    });
 
     // Variable (Symbol) defs/uses.
     if let Some(sym) = insn_var_def(&insns[gi])
@@ -166,6 +166,17 @@ pub fn analyze(
   let mut var_live_in = vec![BitVec::new(nvars); n];
   let mut var_live_out = vec![BitVec::new(nvars); n];
 
+  // Hoisted scratch buffers — recycled per insn per
+  // round via `copy_from` / `clear`. Replaces the prior
+  // `BitVec::new(...) + clone()` pattern that allocated
+  // 6 fresh BitVecs per insn per fixed-point round.
+  let mut new_out = BitVec::new(nbits);
+  let mut new_in = BitVec::new(nbits);
+  let mut tmp = BitVec::new(nbits);
+  let mut var_new_out = BitVec::new(nvars);
+  let mut var_new_in = BitVec::new(nvars);
+  let mut var_tmp = BitVec::new(nvars);
+
   let mut changed = true;
 
   while changed {
@@ -174,49 +185,47 @@ pub fn analyze(
     for i in (0..n).rev() {
       // --- ValueId layer ---
 
-      let mut new_out = BitVec::new(nbits);
+      new_out.clear();
 
       for &succ in &succs[i] {
         new_out.union_with(&live_in[succ]);
       }
 
       if new_out != live_out[i] {
-        live_out[i] = new_out;
+        live_out[i].copy_from(&new_out);
         changed = true;
       }
 
-      let mut new_in = uses[i].clone();
-      let mut out_minus_def = live_out[i].clone();
-
-      out_minus_def.difference_with(&defs[i]);
-      new_in.union_with(&out_minus_def);
+      new_in.copy_from(&uses[i]);
+      tmp.copy_from(&live_out[i]);
+      tmp.difference_with(&defs[i]);
+      new_in.union_with(&tmp);
 
       if new_in != live_in[i] {
-        live_in[i] = new_in;
+        live_in[i].copy_from(&new_in);
         changed = true;
       }
 
       // --- Variable (Symbol) layer ---
 
-      let mut var_new_out = BitVec::new(nvars);
+      var_new_out.clear();
 
       for &succ in &succs[i] {
         var_new_out.union_with(&var_live_in[succ]);
       }
 
       if var_new_out != var_live_out[i] {
-        var_live_out[i] = var_new_out;
+        var_live_out[i].copy_from(&var_new_out);
         changed = true;
       }
 
-      let mut var_new_in = var_uses[i].clone();
-      let mut var_out_minus_def = var_live_out[i].clone();
-
-      var_out_minus_def.difference_with(&var_defs[i]);
-      var_new_in.union_with(&var_out_minus_def);
+      var_new_in.copy_from(&var_uses[i]);
+      var_tmp.copy_from(&var_live_out[i]);
+      var_tmp.difference_with(&var_defs[i]);
+      var_new_in.union_with(&var_tmp);
 
       if var_new_in != var_live_in[i] {
-        var_live_in[i] = var_new_in;
+        var_live_in[i].copy_from(&var_new_in);
         changed = true;
       }
     }

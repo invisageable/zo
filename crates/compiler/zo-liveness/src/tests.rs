@@ -2,7 +2,7 @@
 //! cargo test -p zo-liveness --lib
 //! ```
 
-use crate::insn::{compute_value_ids, insn_uses};
+use crate::insn::{compute_value_ids, visit_uses};
 
 use zo_sir::Insn;
 use zo_ty::TyId;
@@ -19,7 +19,8 @@ fn array_store_uses_three_values() {
     ty_id: TyId(8),
   };
 
-  let uses = insn_uses(&insn);
+  let mut uses = Vec::new();
+  visit_uses(&insn, |v| uses.push(v));
 
   assert_eq!(uses.len(), 3);
   assert_eq!(uses[0], ValueId(0)); // array
@@ -36,7 +37,8 @@ fn array_index_uses_two_values() {
     ty_id: TyId(8),
   };
 
-  let uses = insn_uses(&insn);
+  let mut uses = Vec::new();
+  visit_uses(&insn, |v| uses.push(v));
 
   assert_eq!(uses.len(), 2);
   assert_eq!(uses[0], ValueId(0));
@@ -52,7 +54,8 @@ fn field_store_uses_two_values() {
     ty_id: TyId(8),
   };
 
-  let uses = insn_uses(&insn);
+  let mut uses = Vec::new();
+  visit_uses(&insn, |v| uses.push(v));
 
   assert_eq!(uses.len(), 2);
   assert_eq!(uses[0], ValueId(0));
@@ -87,7 +90,8 @@ fn cast_uses_src_value() {
     to_ty: TyId(3),
   };
 
-  let uses = insn_uses(&insn);
+  let mut uses = Vec::new();
+  visit_uses(&insn, |v| uses.push(v));
 
   assert_eq!(uses.len(), 1);
   assert_eq!(uses[0], ValueId(0));

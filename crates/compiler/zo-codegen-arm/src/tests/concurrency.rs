@@ -79,7 +79,8 @@ fn compile_macho_and_inspect<F: FnOnce(&[u8])>(source: &str, check: F) {
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
-  let binary = codegen.generate_macho(artifact);
+  let link_obj = codegen.into_link_object(artifact);
+  let binary = zo_linker::link_macho(link_obj);
 
   check(&binary);
 }

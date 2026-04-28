@@ -1,4 +1,4 @@
-use zo_interner::Symbol;
+use zo_interner::{DenseId, Symbol};
 use zo_ty::{Mutability, TyId};
 
 /// VALUE AS FLYWEIGHT INDEX (Manifesto: everything is an index).
@@ -17,6 +17,18 @@ impl std::ops::Deref for ValueId {
 impl std::fmt::Display for ValueId {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.0)
+  }
+}
+
+impl DenseId for ValueId {
+  #[inline]
+  fn from_u32(id: u32) -> Self {
+    ValueId(id)
+  }
+
+  #[inline]
+  fn to_u32(self) -> u32 {
+    self.0
   }
 }
 

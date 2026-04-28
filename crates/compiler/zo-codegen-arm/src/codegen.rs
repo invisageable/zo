@@ -1,13 +1,13 @@
 pub(crate) mod template;
 
 use zo_buffer::Buffer;
-use zo_codegen_backend::Artifact;
+use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
   COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, PatchSite,
   Register, SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
 };
-use zo_interner::{Interner, Symbol};
+use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_register_allocation::{
   EmitTiming, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS, RegAlloc,
   RegisterClass, SpillKind,
@@ -15,14 +15,9 @@ use zo_register_allocation::{
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::TyId;
 use zo_value::ValueId;
-use zo_writer_macho::{DATA_VM_ADDR, DebugFrameEntry, MachO};
+use zo_writer_macho::{DebugFrameEntry, MachO};
 
-use rustc_hash::FxHashMap as HashMap;
-
-use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 // --- macOS ARM64 System Calls ---
 const SYS_EXIT: u16 = 1;
@@ -120,22 +115,11 @@ const HELLO_STR_OFFSET: i32 = 0x18;
 const HELLO_STR_LEN: u16 = 14;
 const CFA_FP_REG: u8 = 31;
 
-// --- Page Layout ---
-const PAGE_MASK: u64 = 0xFFF;
-
-// --- Dynamic Linking ---
-const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
-/// libzo_runtime.dylib is registered as the second
-/// `LC_LOAD_DYLIB`, so its ordinal is 2. `_zo_chan_*`
-/// / `_zo_task_*` bindings route here; everything
-/// else stays on libSystem.
-const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
-
-/// Prefix identifying symbols that the runtime dylib
-/// exports. Classifier for routing extern symbols to the
-/// right `LC_LOAD_DYLIB` ordinal.
-const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
-const DATA_SEGMENT_INDEX: u8 = 2;
+// Mach-O constants (`PAGE_MASK`, dylib ordinals,
+// `ZO_RUNTIME_SYMBOL_PREFIX`, `DATA_SEGMENT_INDEX`,
+// `TEXT_SECTION_BASE`, `CODE_OFFSET`) live in
+// `zo-writer-macho` — both this crate and `zo-linker`
+// share them.
 
 // --- Libm Functions ---
 
@@ -153,6 +137,17 @@ fn libm_arg_count(name: &str) -> usize {
   }
 }
 
+/// Index newtype: position in the SIR instruction stream.
+/// Reserves `u32::MAX` as the absent sentinel so a
+/// `DenseMap<ValueId, InsnIdx>` can store it directly with
+/// no `Option` overhead.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct InsnIdx(u32);
+
+impl Sentinel for InsnIdx {
+  const ABSENT: InsnIdx = InsnIdx(u32::MAX);
+}
+
 /// Represents the [`ARM64Gen`] code generation instance.
 pub struct ARM64Gen<'a> {
   /// The [`ARM64Emitter`].
@@ -161,8 +156,22 @@ pub struct ARM64Gen<'a> {
   interner: &'a Interner,
   /// Function labels (name -> code offset).
   pub(super) functions: HashMap<Symbol, u32>,
-  /// String data to emit at end.
+  /// String data to emit at end. Iteration is in
+  /// registration order — the linker depends on this for
+  /// stable string-table layout.
   string_data: Vec<(Symbol, Vec<u8>)>,
+  /// Membership shadow of `string_data` for O(1) "is this
+  /// symbol already registered?" checks. Replaces the
+  /// `string_data.iter().any(|(s, _)| *s == sym)` linear
+  /// scan that recurred at every enum/bool/runtime-msg
+  /// registration site.
+  ///
+  /// `HashSet`, NOT `DenseSet` — the codegen mints
+  /// synthetic symbols from `ENUM_SYNTHETIC_SYM_BASE`
+  /// (`0xE000_0000`) so the symbol space is sparse, not
+  /// dense. A `DenseSet` would grow its bitset to ~58M
+  /// words (~462 MB) on the first synthetic insert.
+  string_data_seen: HashSet<Symbol>,
   /// Current function context.
   current_function: Option<Symbol>,
   /// Fixups for string references (position in code -> symbol).
@@ -184,6 +193,16 @@ pub struct ARM64Gen<'a> {
   branch_fixups: Vec<(u32, u32)>,
   /// Register allocation result.
   reg_alloc: Option<RegAlloc>,
+  /// Per-insn offset into `reg_alloc.spill_ops` (sorted
+  /// by `insn_idx`). `spill_offsets[i]` is the index of
+  /// the first spill_op whose `insn_idx == i`;
+  /// `spill_offsets[i+1] - spill_offsets[i]` is the
+  /// per-insn bucket size. Length = `num_insns + 1`.
+  /// Built once in `generate()` after the regalloc
+  /// runs. Replaces a per-insn linear filter over the
+  /// whole spill-ops Vec — O(insns × spills) became
+  /// O(insns + spills).
+  spill_offsets: Vec<u32>,
   /// Current function's start index into SIR instructions.
   current_fn_start: Option<usize>,
   /// Mutable variable stack slots: name → offset from SP.
@@ -234,7 +253,16 @@ pub struct ARM64Gen<'a> {
   last_was_math_intrinsic: bool,
   /// External C functions used (ordered, no duplicates).
   /// Each entry is the C symbol name (e.g. "_pow", "_malloc").
+  /// Iteration order is preserved — the GOT layout depends
+  /// on it.
   extern_used: Vec<String>,
+  /// Membership shadow of `extern_used` for O(1) "did we
+  /// already register this stub?" checks. C symbol names
+  /// are interned `&'static str` (or owned heap strings),
+  /// not dense u32 ids — so we use a hash set, not a
+  /// `DenseSet`. This is the one place where the small
+  /// HashSet really is the right call.
+  extern_used_set: HashSet<String>,
   /// Code offsets of stubs for each external function.
   /// Populated after all user code is emitted.
   extern_stub_offsets: HashMap<String, u32>,
@@ -328,6 +356,21 @@ pub struct ARM64Gen<'a> {
   /// `Point { x: 10, y: 20 }` instead of leaking the pointer
   /// through `itoa`.
   struct_metas: HashMap<u32, StructMeta>,
+  /// Scratch buffer reused by `emit_enum_walk_from_x19`
+  /// for per-variant `B` (jump-to-end) fixups. Owned by
+  /// the codegen so capacity is retained across enum
+  /// walks instead of reallocating a fresh `Vec` per
+  /// `showln(enum)` site.
+  enum_walk_done_fixups: Vec<usize>,
+  /// `ValueId` → defining `InsnIdx` lookup, populated once
+  /// per generate() call before instruction emission.
+  /// Replaces the `for i in (0..idx).rev()` linear scan
+  /// in `materialize_value_into_x16` (called per element
+  /// of every aggregate literal — `[N]T`, `(t1, t2, ...)`,
+  /// `Point { x, y, ... }`, `Loot::Gold(50)`). Without
+  /// this, large literals were O(N²) on the SIR stream.
+  /// Direct `Vec<InsnIdx>` load — no hashing.
+  value_def_idx: DenseMap<ValueId, InsnIdx>,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -433,6 +476,7 @@ impl<'a> ARM64Gen<'a> {
       interner,
       functions: HashMap::default(),
       string_data: Vec::new(),
+      string_data_seen: HashSet::default(),
       current_function: None,
       string_fixups: Vec::new(),
       function_addr_fixups: Vec::new(),
@@ -441,6 +485,7 @@ impl<'a> ARM64Gen<'a> {
       labels: HashMap::default(),
       branch_fixups: Vec::new(),
       reg_alloc: None,
+      spill_offsets: Vec::new(),
       current_fn_start: None,
       mutable_slots: HashMap::default(),
       param_slots: HashMap::default(),
@@ -455,6 +500,7 @@ impl<'a> ARM64Gen<'a> {
       struct_return_fns: HashMap::default(),
       last_was_math_intrinsic: false,
       extern_used: Vec::new(),
+      extern_used_set: HashSet::default(),
       extern_stub_offsets: HashMap::default(),
       extern_fixups: Vec::new(),
       call_fixups: Vec::new(),
@@ -470,6 +516,8 @@ impl<'a> ARM64Gen<'a> {
       value_tuple_elem_tys: HashMap::default(),
       local_tuple_elem_tys: HashMap::default(),
       struct_metas: HashMap::default(),
+      enum_walk_done_fixups: Vec::new(),
+      value_def_idx: DenseMap::new(),
     }
   }
 
@@ -606,6 +654,12 @@ impl<'a> ARM64Gen<'a> {
   /// the per-site override populated at construction time
   /// is the only source.
   fn is_tuple_value(&self, vid: ValueId) -> Option<Vec<TyId>> {
+    // Returns by value rather than `&[TyId]` because the
+    // caller passes the result into `&mut self`-taking
+    // emit fns; a slice borrow off `&self` would conflict
+    // with that mutable borrow. The cloned `Vec` is small
+    // and only built per `showln(tuple)` arg — not on a
+    // hot loop.
     self.value_tuple_elem_tys.get(&vid.0).cloned()
   }
 
@@ -645,7 +699,7 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_bl(0);
     self.extern_fixups.push((fixup_pos, sym.clone()));
 
-    if !self.extern_used.contains(&sym) {
+    if self.extern_used_set.insert(sym.clone()) {
       self.extern_used.push(sym);
     }
 
@@ -686,22 +740,24 @@ impl<'a> ARM64Gen<'a> {
   /// Emit spill ops for instruction `idx` with given
   /// timing (before or after).
   fn emit_spills(&mut self, idx: usize, timing: EmitTiming) {
-    let Some(alloc) = self.reg_alloc.as_ref() else {
+    if self.reg_alloc.is_none() || idx + 1 >= self.spill_offsets.len() {
       return;
-    };
+    }
 
-    // Collect indices first to avoid borrow conflict
-    // with self.emit_spill_op.
-    let indices = alloc
-      .spill_ops
-      .iter()
-      .enumerate()
-      .filter(|(_, op)| op.insn_idx == idx && op.timing == timing)
-      .map(|(i, _)| i)
-      .collect::<Vec<_>>();
+    let start = self.spill_offsets[idx] as usize;
+    let end = self.spill_offsets[idx + 1] as usize;
 
-    for i in indices {
-      let kind = self.reg_alloc.as_ref().unwrap().spill_ops[i].kind.clone();
+    // Per-insn bucket is tiny (typically 0–5 entries),
+    // so the inline timing filter is cheap and avoids a
+    // second offset table.
+    for k in start..end {
+      let op = &self.reg_alloc.as_ref().unwrap().spill_ops[k];
+
+      if op.timing != timing {
+        continue;
+      }
+
+      let kind = op.kind.clone();
 
       self.emit_spill_op(&kind);
     }
@@ -851,6 +907,36 @@ impl<'a> ARM64Gen<'a> {
 
     let insns = &sir.instructions;
 
+    // Build per-insn offset table into the (sorted)
+    // spill_ops. `spill_offsets[i]` = first spill_op
+    // index whose `insn_idx == i`; `spill_offsets[n]` =
+    // total spill count. One linear pass.
+    {
+      let n = insns.len();
+      let spill_ops = self
+        .reg_alloc
+        .as_ref()
+        .map(|a| a.spill_ops.as_slice())
+        .unwrap_or(&[]);
+
+      self.spill_offsets.clear();
+      self.spill_offsets.reserve(n + 1);
+
+      let mut spill_cursor = 0_usize;
+
+      for insn_idx in 0..n {
+        while spill_cursor < spill_ops.len()
+          && spill_ops[spill_cursor].insn_idx < insn_idx
+        {
+          spill_cursor += 1;
+        }
+
+        self.spill_offsets.push(spill_cursor as u32);
+      }
+
+      self.spill_offsets.push(spill_ops.len() as u32);
+    }
+
     // Pre-pass: identify functions that return structs.
     // Scan for patterns: FunDef ... StructConstruct ... Return.
     {
@@ -910,6 +996,30 @@ impl<'a> ARM64Gen<'a> {
         }
         Insn::SetTyDef { set_ty, key_fmt } => {
           self.set_metas.insert(set_ty.0, *key_fmt);
+        }
+        _ => {}
+      }
+    }
+
+    // Pre-pass: build `ValueId → InsnIdx` so the
+    // aggregate-literal X16 bypass
+    // (`materialize_value_into_x16`) can reach the
+    // defining instruction in O(1) instead of scanning
+    // backwards `(0..idx).rev()` per element. Replaces
+    // the regression that was O(N²) on
+    // `[N]T` / tuple / struct / enum literals at high
+    // arity.
+    self.value_def_idx.clear();
+
+    for (i, insn) in insns.iter().enumerate() {
+      let idx = InsnIdx(i as u32);
+
+      match insn {
+        Insn::ConstInt { dst, .. }
+        | Insn::ConstFloat { dst, .. }
+        | Insn::ConstBool { dst, .. }
+        | Insn::Load { dst, .. } => {
+          self.value_def_idx.insert(*dst, idx);
         }
         _ => {}
       }
@@ -1063,175 +1173,42 @@ impl<'a> ARM64Gen<'a> {
     Artifact { code }
   }
 
-  /// Generates Mach-O executable from [`Artifact`].
-  pub fn generate_macho(&mut self, artifact: Artifact) -> Vec<u8> {
-    let mut macho = MachO::new();
-    let mut code = artifact.code;
-
-    // --- Libm GOT + stub patching ---
-    // Each libm function gets one 8-byte GOT slot in __DATA
-    // and one 12-byte stub in __TEXT. The stub does:
-    //   ADRP X16, got_page
-    //   LDR  X16, [X16, #got_page_off]
-    //   BR   X16
-    // dyld fills the GOT slot at load time via bind opcodes.
-    let n_got = self.extern_used.len();
-    let mut got_data = Vec::with_capacity(n_got * 8);
-    let mut bind_entries: Vec<(&str, u8, u64, u8)> = Vec::new();
-    // Track whether any symbol needs the zo runtime
-    // dylib so we only register it when a program
-    // actually uses concurrency.
-    let mut needs_runtime_dylib = false;
-
-    for (i, c_sym) in self.extern_used.iter().enumerate() {
-      let got_offset_in_data = (i * 8) as u64;
-      let got_vm_addr = DATA_VM_ADDR + got_offset_in_data;
-
-      // Populate GOT slot with zero (dyld overwrites).
-      got_data.extend_from_slice(&[0u8; 8]);
-
-      // Patch the stub: ADRP X16, page_diff; LDR X16,
-      // [X16, #page_off]; BR X16.
-      if let Some(&stub_off) = self.extern_stub_offsets.get(c_sym) {
-        let stub_vm = TEXT_SECTION_BASE + stub_off as u64;
-        let stub_page = stub_vm & !PAGE_MASK;
-        let got_page = got_vm_addr & !PAGE_MASK;
-        let page_diff = ((got_page as i64 - stub_page as i64) >> 12) as i32;
-        let page_off = (got_vm_addr & PAGE_MASK) as u32;
-
-        // ADRP X16, page_diff
-        let immlo = (page_diff as u32) & 0x3;
-        let immhi = ((page_diff >> 2) as u32) & 0x7FFFF;
-        let adrp =
-          0x90000000u32 | (immlo << 29) | (immhi << 5) | (X16.index() as u32);
-
-        // LDR X16, [X16, #page_off]
-        // Unsigned offset: imm12 = page_off / 8
-        let imm12 = (page_off >> 3) & 0xFFF;
-        let ldr = 0xF9400000u32
-          | (imm12 << 10)
-          | ((X16.index() as u32) << 5)
-          | (X16.index() as u32);
-
-        let pos = stub_off as usize;
-
-        code[pos..pos + 4].copy_from_slice(&adrp.to_le_bytes());
-        code[pos + 4..pos + 8].copy_from_slice(&ldr.to_le_bytes());
-        // BR X16 is already correct from emit_br().
-      }
-
-      // Route each symbol to the right LC_LOAD_DYLIB.
-      // Runtime symbols (`_zo_chan_*` / `_zo_task_*`)
-      // land in libzo_runtime.dylib; everything else
-      // (libm, libSystem) stays on libSystem.
-      let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
-        needs_runtime_dylib = true;
-
-        ZO_RUNTIME_DYLIB_ORDINAL
-      } else {
-        LIBSYSTEM_DYLIB_ORDINAL
-      };
-
-      // segment 2 = __DATA (pagezero=0, __TEXT=1, __DATA=2)
-      bind_entries.push((
-        c_sym,
-        DATA_SEGMENT_INDEX,
-        got_offset_in_data,
-        ordinal,
-      ));
-    }
-
-    // Build bind opcodes for dyld. Per-entry ordinal lets
-    // libSystem and libzo_runtime symbols share one
-    // opcode stream.
-    if !bind_entries.is_empty() {
-      let bind_data = MachO::build_bind_opcodes(&bind_entries);
-
-      macho.set_bind_data(bind_data);
-    }
-
-    macho.add_code(code);
-    macho.add_data(got_data);
-
-    macho.add_pagezero_segment();
-    macho.add_text_segment();
-    macho.add_data_segment();
-
-    if let Some(main_sym) = self.interner.symbol("main") {
-      let offset = self.functions.get(&main_sym).copied().unwrap_or(0);
-
-      macho.add_function_symbol(
-        "_main",
-        1,
-        TEXT_SECTION_BASE + offset as u64,
-        false,
-      );
-    }
-
-    if self.has_templates {
-      let entry_symbol = Symbol(UI_ENTRY_SYMBOL);
-
-      if let Some(&offset) = self.functions.get(&entry_symbol) {
-        macho.add_function_symbol(
-          "_zo_ui_entry_point",
-          1,
-          TEXT_SECTION_BASE + offset as u64,
-          true,
-        );
-      }
-    }
-
-    // Add undefined symbols, routing each to its owning
-    // dylib's ordinal so the Mach-O symtab + LC_LOAD_DYLIB
-    // entries agree with the bind opcodes above.
-    for c_sym in &self.extern_used {
-      let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
-        ZO_RUNTIME_DYLIB_ORDINAL
-      } else {
-        LIBSYSTEM_DYLIB_ORDINAL
-      };
-
-      macho.add_undefined_symbol(c_sym, ordinal as u16);
-    }
-
-    macho.add_dylinker();
-    macho.add_dylib("/usr/lib/libSystem.B.dylib");
-
-    // Register libzo_runtime.dylib as the second
-    // LC_LOAD_DYLIB so `_zo_chan_*` / `_zo_task_*` resolve
-    // at load time. Users must colocate the dylib with the
-    // executable (or point DYLD_LIBRARY_PATH at it) for
-    // programs that use concurrency to launch. Non-
-    // concurrency programs never touch this entry.
-    if needs_runtime_dylib {
-      macho.add_dylib("@executable_path/libzo_runtime.dylib");
-    }
-
-    macho.add_uuid();
-    macho.add_build_version();
-    macho.add_source_version();
-
-    // Entry point must point to the actual main function,
-    // not always 0x400 (which is only correct when main
-    // is the first function in the code section).
-    let main_entry = self
+  /// Hand off codegen state to the linker phase.
+  ///
+  /// Consumes `self` and the freshly produced `artifact`,
+  /// resolves the `main` and `_zo_ui_entry_point` offsets
+  /// (so the linker doesn't need an interner handle), and
+  /// bundles every fixup / symbol table the mach-o
+  /// assembler needs into a `MachoLinkObject`. The
+  /// resulting object is the only data that crosses the
+  /// codegen → linker phase boundary.
+  pub fn into_link_object(self, artifact: Artifact) -> MachoLinkObject {
+    let main_offset = self
       .interner
       .symbol("main")
-      .and_then(|s| self.functions.get(&s).copied())
-      .map(|off| CODE_OFFSET + off as u64)
-      .unwrap_or(CODE_OFFSET);
+      .and_then(|s| self.functions.get(&s).copied());
 
-    macho.add_main(main_entry);
+    let ui_entry_offset = if self.has_templates {
+      self.functions.get(&Symbol(UI_ENTRY_SYMBOL)).copied()
+    } else {
+      None
+    };
 
-    macho.add_dyld_info();
-    macho.finish_with_signature()
-  }
-
-  /// Generate a complete executable from SIR.
-  pub fn generate_executable(&mut self, sir: &Sir) -> Vec<u8> {
-    let artifact = self.generate(sir);
-
-    self.generate_macho(artifact)
+    MachoLinkObject {
+      code: artifact.code,
+      functions: self.functions,
+      string_data: self.string_data,
+      string_fixups: self.string_fixups,
+      function_addr_fixups: self.function_addr_fixups,
+      template_data: self.template_data,
+      has_templates: self.has_templates,
+      extern_used: self.extern_used,
+      extern_stub_offsets: self.extern_stub_offsets,
+      extern_fixups: self.extern_fixups,
+      call_fixups: self.call_fixups,
+      main_offset,
+      ui_entry_offset,
+    }
   }
 
   /// Generates ARM64 assembly text from SIR for display.
@@ -1524,6 +1501,7 @@ impl<'a> ARM64Gen<'a> {
         buffer.bytes(b"\0");
 
         self.string_data.push((*symbol, buffer.finish()));
+        self.string_data_seen.insert(*symbol);
 
         // String is a single pointer to the struct.
         let ptr_reg = self.reg_for_insn(idx).unwrap_or(X1);
@@ -2083,9 +2061,9 @@ impl<'a> ARM64Gen<'a> {
           // consumed at the same point), causing clobbering.
           // Loading fresh from the constant avoids this.
           "pow" | "sin" | "cos" | "tan" | "log" | "log2" | "log10" | "exp" => {
-            let fn_name = self.interner.get(*name).to_string();
-            let c_sym = libm_c_symbol(&fn_name);
-            let nargs = libm_arg_count(&fn_name);
+            let fn_name = self.interner.get(*name);
+            let c_sym = libm_c_symbol(fn_name);
+            let nargs = libm_arg_count(fn_name);
 
             // Load each float arg directly into D0..Dn.
             // Scan backwards from the Call to find the
@@ -2130,7 +2108,7 @@ impl<'a> ARM64Gen<'a> {
             self.extern_fixups.push((fixup_pos, c_sym.clone()));
 
             // Track used libm functions (no duplicates).
-            if !self.extern_used.contains(&c_sym) {
+            if self.extern_used_set.insert(c_sym.clone()) {
               self.extern_used.push(c_sym);
             }
 
@@ -2158,7 +2136,13 @@ impl<'a> ARM64Gen<'a> {
             // if src of move B == dst of move A, moving A
             // first overwrites B's source. Save conflicting
             // sources to X16 before any moves happen.
-            let mut gp_moves: Vec<(Register, Register)> = Vec::new();
+            //
+            // Stack-bounded — at most `MAX_REG_ARGS` GP
+            // arg slots — so a fixed array + len cursor
+            // replaces a per-call `Vec` allocation.
+            let mut gp_moves: [(Register, Register); MAX_REG_ARGS] =
+              [(X0, X0); MAX_REG_ARGS];
+            let mut gp_moves_len: usize = 0;
 
             for (i, arg) in args.iter().enumerate() {
               if i >= MAX_REG_ARGS {
@@ -2175,10 +2159,13 @@ impl<'a> ARM64Gen<'a> {
                 let dst_reg = Register::new(i as u8);
 
                 if src_reg != dst_reg {
-                  gp_moves.push((dst_reg, src_reg));
+                  gp_moves[gp_moves_len] = (dst_reg, src_reg);
+                  gp_moves_len += 1;
                 }
               }
             }
+
+            let gp_moves = &gp_moves[..gp_moves_len];
 
             // Pre-save: if any move's src is also another
             // move's dst, save the src to X16 first. This
@@ -2201,7 +2188,7 @@ impl<'a> ARM64Gen<'a> {
             }
 
             // Emit moves, replacing saved src with X16.
-            for (dst, src) in &gp_moves {
+            for (dst, src) in gp_moves {
               let actual_src = if Some(*src) == saved_reg { X16 } else { *src };
 
               self.emitter.emit_mov_reg(*dst, actual_src);
@@ -2501,7 +2488,7 @@ impl<'a> ARM64Gen<'a> {
             let off =
               base + ARRAY_HEADER_SIZE as u32 + i as u32 * STACK_SLOT_SIZE;
 
-            self.emit_array_element_store_sp(*elem, idx, all_insns, off);
+            self.emit_array_element_store_sp(*elem, all_insns, off);
           }
 
           if let Some(dst) = self.reg_for_insn(idx) {
@@ -2547,7 +2534,7 @@ impl<'a> ARM64Gen<'a> {
           let off_u16 =
             ARRAY_HEADER_SIZE + (i as u16) * (STACK_SLOT_SIZE as u16);
 
-          self.emit_array_element_store(*elem, idx, all_insns, r_buf, off_u16);
+          self.emit_array_element_store(*elem, all_insns, r_buf, off_u16);
         }
 
         // Spill the heap pointer to a stack slot so later
@@ -2658,6 +2645,7 @@ impl<'a> ARM64Gen<'a> {
         array,
         value,
         ty_id,
+        owner,
       } => {
         // Layout: [len:8][cap:8][data...]
         // 1. Load len and cap.
@@ -2702,23 +2690,14 @@ impl<'a> ARM64Gen<'a> {
         // Update arr_reg to new pointer.
         self.emitter.emit_mov_reg(arr_reg, X0);
         // Write the new pointer back to the array's local
-        // slot. Scan SIR from the current function only.
-        let fn_start = self.current_fn_start.unwrap_or(0);
-
-        for insn in all_insns[fn_start..].iter() {
-          if let Insn::Load {
-            dst,
-            src: LoadSource::Local(sym),
-            ..
-          } = insn
-            && *dst == *array
-          {
-            if let Some(&off) = self.mutable_slots.get(&sym.as_u32()) {
-              self.emit_str_sp(arr_reg, off);
-            }
-
-            break;
-          }
+        // slot. The executor stamped the receiver's
+        // `Symbol` onto `Insn::ArrayPush.owner` when the
+        // receiver was a bare ident, so the codegen reads
+        // it directly — no SIR scan.
+        if let Some(sym) = owner
+          && let Some(&off) = self.mutable_slots.get(&sym.as_u32())
+        {
+          self.emit_str_sp(arr_reg, off);
         }
 
         // Patch B.CC to skip realloc.
@@ -2865,7 +2844,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, field) in fields.iter().enumerate() {
           let off = base + (i as u32 + 1) * STACK_SLOT_SIZE;
 
-          self.emit_array_element_store_sp(*field, idx, all_insns, off);
+          self.emit_array_element_store_sp(*field, all_insns, off);
         }
 
         if let Some(dst_reg) = self.reg_for_insn(idx) {
@@ -2885,7 +2864,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, field) in fields.iter().enumerate() {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
-          self.emit_array_element_store_sp(*field, idx, all_insns, off);
+          self.emit_array_element_store_sp(*field, all_insns, off);
         }
 
         // Set dst register to point at this struct's
@@ -2908,7 +2887,7 @@ impl<'a> ARM64Gen<'a> {
         for (i, elem) in elements.iter().enumerate() {
           let off = base + i as u32 * STACK_SLOT_SIZE;
 
-          self.emit_array_element_store_sp(*elem, idx, all_insns, off);
+          self.emit_array_element_store_sp(*elem, all_insns, off);
         }
 
         if let Some(dst_reg) = self.reg_for_insn(idx) {
@@ -3482,6 +3461,7 @@ impl<'a> ARM64Gen<'a> {
       buf.bytes(b"\0");
 
       self.string_data.push((display_sym, buf.finish()));
+      self.string_data_seen.insert(display_sym);
 
       variant_metas.push(VariantMeta {
         discriminant: *disc,
@@ -3507,7 +3487,7 @@ impl<'a> ARM64Gen<'a> {
   }
 
   fn register_punctuation_sym(&mut self, sym: Symbol, text: &[u8]) {
-    if self.string_data.iter().any(|(s, _)| *s == sym) {
+    if self.string_data_seen.contains(&sym) {
       return;
     }
 
@@ -3518,6 +3498,7 @@ impl<'a> ARM64Gen<'a> {
     buf.bytes(b"\0");
 
     self.string_data.push((sym, buf.finish()));
+    self.string_data_seen.insert(sym);
   }
 
   /// Pretty-print an enum value. Unit variants leave the
@@ -3591,7 +3572,14 @@ impl<'a> ARM64Gen<'a> {
   ) {
     self.emitter.emit_ldr(X17, Register::new(19), 0);
 
-    let mut done_fixups: Vec<usize> = Vec::with_capacity(variants.len());
+    // Take the scratch vec out so we can mutate it while
+    // also calling other `&mut self` methods (the
+    // emitter, synth-str helpers) inside the loop. The
+    // capacity is preserved across enum walks via the
+    // restore at the end.
+    let mut done_fixups = std::mem::take(&mut self.enum_walk_done_fixups);
+
+    done_fixups.clear();
 
     for (disc, display_sym, field_tys) in variants {
       self.emitter.emit_cmp_imm(X17, *disc as u16);
@@ -3632,9 +3620,13 @@ impl<'a> ARM64Gen<'a> {
 
     let done_label = self.emitter.current_offset() as i32;
 
-    for pos in done_fixups {
+    for &pos in &done_fixups {
       self.emitter.patch_b_at(pos, done_label - pos as i32);
     }
+
+    // Restore the scratch vec so its capacity carries
+    // over to the next enum walk.
+    self.enum_walk_done_fixups = done_fixups;
   }
 
   fn emit_synthetic_str_write(&mut self, sym: Symbol, fd: u16) {
@@ -3966,6 +3958,7 @@ impl<'a> ARM64Gen<'a> {
     buf.bytes(b"\0");
 
     self.string_data.push((sym, buf.finish()));
+    self.string_data_seen.insert(sym);
   }
 
   /// Pretty-print a struct value as `Name { f0: v0, ... }`.
@@ -4186,7 +4179,7 @@ impl<'a> ARM64Gen<'a> {
     let sym_false = Symbol(0xFFFC);
 
     // Register "true" and "false" string data once.
-    if !self.string_data.iter().any(|(s, _)| *s == sym_true) {
+    if !self.string_data_seen.contains(&sym_true) {
       let mut buf = Buffer::new();
       let len = 4u64; // "true".len()
 
@@ -4195,9 +4188,10 @@ impl<'a> ARM64Gen<'a> {
       buf.bytes(b"\0");
 
       self.string_data.push((sym_true, buf.finish()));
+      self.string_data_seen.insert(sym_true);
     }
 
-    if !self.string_data.iter().any(|(s, _)| *s == sym_false) {
+    if !self.string_data_seen.contains(&sym_false) {
       let mut buf = Buffer::new();
       let len = 5u64; // "false".len()
 
@@ -4206,6 +4200,7 @@ impl<'a> ARM64Gen<'a> {
       buf.bytes(b"\0");
 
       self.string_data.push((sym_false, buf.finish()));
+      self.string_data_seen.insert(sym_false);
     }
 
     // CBZ X0, false_path — if 0, print "false".
@@ -4674,7 +4669,7 @@ impl<'a> ARM64Gen<'a> {
     let msg_sym = Symbol(0xFFFE);
 
     // Only push string data once.
-    if !self.string_data.iter().any(|(s, _)| *s == msg_sym) {
+    if !self.string_data_seen.contains(&msg_sym) {
       let mut buf = Buffer::new();
       let len = msg.len() as u64;
 
@@ -4683,6 +4678,7 @@ impl<'a> ARM64Gen<'a> {
       buf.bytes(b"\0");
 
       self.string_data.push((msg_sym, buf.finish()));
+      self.string_data_seen.insert(msg_sym);
     }
 
     let fixup_pos = self.emitter.current_offset();
@@ -5355,72 +5351,58 @@ impl<'a> ARM64Gen<'a> {
   fn materialize_value_into_x16(
     &mut self,
     elem: ValueId,
-    idx: usize,
     all_insns: &[Insn],
   ) -> bool {
-    for i in (0..idx).rev() {
-      let insn = &all_insns[i];
-      let dst = match insn {
-        Insn::ConstInt { dst, .. }
-        | Insn::ConstFloat { dst, .. }
-        | Insn::ConstBool { dst, .. }
-        | Insn::Load { dst, .. } => *dst,
-        _ => continue,
-      };
+    let Some(InsnIdx(def_pos)) = self.value_def_idx.get(elem) else {
+      return false;
+    };
 
-      if dst != elem {
-        continue;
+    match &all_insns[def_pos as usize] {
+      Insn::ConstInt { value, .. } => {
+        self.emit_mov_imm_64(X16, *value);
+
+        true
       }
+      Insn::ConstFloat { value, .. } => {
+        self.emit_mov_imm_64(X16, value.to_bits());
 
-      match insn {
-        Insn::ConstInt { value, .. } => {
-          self.emit_mov_imm_64(X16, *value);
-
-          return true;
-        }
-        Insn::ConstFloat { value, .. } => {
-          self.emit_mov_imm_64(X16, value.to_bits());
-
-          return true;
-        }
-        Insn::ConstBool { value, .. } => {
-          self.emit_mov_imm_64(X16, u64::from(*value));
-
-          return true;
-        }
-        Insn::Load { src, .. } => match src {
-          LoadSource::Local(sym) => {
-            let slot = sym.as_u32();
-
-            if let Some(&offset) = self.mutable_slots.get(&slot) {
-              self.emit_ldr_sp(X16, offset);
-
-              return true;
-            }
-
-            if let Some(&(offset, _)) = self.param_sym_slots.get(&slot) {
-              self.emit_ldr_sp(X16, offset);
-
-              return true;
-            }
-
-            return false;
-          }
-          LoadSource::Param(pidx) => {
-            if let Some(&offset) = self.param_slots.get(pidx) {
-              self.emit_ldr_sp(X16, offset);
-
-              return true;
-            }
-
-            return false;
-          }
-        },
-        _ => return false,
+        true
       }
+      Insn::ConstBool { value, .. } => {
+        self.emit_mov_imm_64(X16, u64::from(*value));
+
+        true
+      }
+      Insn::Load { src, .. } => match src {
+        LoadSource::Local(sym) => {
+          let slot = sym.as_u32();
+
+          if let Some(&offset) = self.mutable_slots.get(&slot) {
+            self.emit_ldr_sp(X16, offset);
+
+            return true;
+          }
+
+          if let Some(&(offset, _)) = self.param_sym_slots.get(&slot) {
+            self.emit_ldr_sp(X16, offset);
+
+            return true;
+          }
+
+          false
+        }
+        LoadSource::Param(pidx) => {
+          if let Some(&offset) = self.param_slots.get(pidx) {
+            self.emit_ldr_sp(X16, offset);
+
+            return true;
+          }
+
+          false
+        }
+      },
+      _ => false,
     }
-
-    false
   }
 
   /// Emit `STR <elem>, [r_buf, off]` for one array literal
@@ -5430,12 +5412,11 @@ impl<'a> ARM64Gen<'a> {
   fn emit_array_element_store(
     &mut self,
     elem: ValueId,
-    idx: usize,
     all_insns: &[Insn],
     r_buf: Register,
     off: u16,
   ) {
-    if self.materialize_value_into_x16(elem, idx, all_insns) {
+    if self.materialize_value_into_x16(elem, all_insns) {
       self.emitter.emit_str(X16, r_buf, off as i16);
 
       return;
@@ -5453,11 +5434,10 @@ impl<'a> ARM64Gen<'a> {
   fn emit_array_element_store_sp(
     &mut self,
     elem: ValueId,
-    idx: usize,
     all_insns: &[Insn],
     off: u32,
   ) {
-    if self.materialize_value_into_x16(elem, idx, all_insns) {
+    if self.materialize_value_into_x16(elem, all_insns) {
       self.emit_str_sp(X16, off);
 
       return;
@@ -5497,25 +5477,6 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_mov_imm(X16, SYS_WRITE);
     self.emitter.emit_mov_imm(X0, FD_STDOUT);
     self.emitter.emit_svc(0);
-  }
-
-  /// Write binary to file and make it executable.
-  pub fn write_executable(
-    binary: Vec<u8>,
-    path: impl AsRef<Path>,
-  ) -> std::io::Result<()> {
-    fs::write(&path, binary)?;
-
-    #[cfg(unix)]
-    {
-      let metadata = fs::metadata(&path)?;
-      let mut permissions = metadata.permissions();
-
-      permissions.set_mode(0o755);
-      fs::set_permissions(&path, permissions)?;
-    }
-
-    Ok(())
   }
 
   /// Generate a complete "Hello, World" executable.

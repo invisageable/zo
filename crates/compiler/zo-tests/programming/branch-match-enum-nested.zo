@@ -1,0 +1,47 @@
+-- tests-run-pass: nested-enum match arms — `A(B(c))`.
+-- @cmd — zo run branch-match-enum-nested.zo
+
+enum Exit {
+  Yes(int),
+  No(int),
+}
+
+enum Process {
+  Status(Exit),
+}
+
+fun main() {
+  imu process: Process = Process::Status(Exit::Yes(0));
+
+  match process {
+    Process::Status(Exit::Yes(code)) => {
+      check@eq(code, 0);
+      showln(code);
+    },
+    Process::Status(Exit::No(code)) => {
+      showln(code);
+      check(false);
+    },
+  }
+
+  -- Other arm path.
+  imu err: Process = Process::Status(Exit::No(42));
+
+  match err {
+    Process::Status(Exit::Yes(code)) => {
+      showln(code);
+      check(false);
+    },
+    Process::Status(Exit::No(code)) => {
+      check@eq(code, 42);
+      showln(code);
+    },
+  }
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 0
+-- 42
+-- DONE

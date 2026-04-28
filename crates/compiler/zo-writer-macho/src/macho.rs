@@ -100,36 +100,62 @@ pub(crate) const FAT_MAGIC_64: u32 = 0xcafebabf; // 64-bit fat binary magic numb
 // implement
 
 // Memory layout constants
-pub(crate) const PAGE_SIZE: u32 = 0x1000; // 4KB page size
-pub(crate) const CODE_OFFSET: u32 = 0x400; // Code starts at 1KB after header
-// Static segment sizes. The TEXT cap was 4 pages (16 KB) —
-// programs preloading the full stdlib (`map`, `set`, `vec`,
-// `str`, `arr`, `int`, ...) plus a real `main` already
-// exceeded that, and the writer produced a malformed binary
-// with overlapping section contents (TEXT bleeds into the
-// DATA file region). Bumping both caps to 64 pages (256 KB
-// each) absorbs every realistic AoC-scale program. A proper
-// fix routes the actual code/data sizes through these
-// constants and rounds up to a page boundary; that's a
-// separate refactor (the constants thread through ~30
-// LoadCommand fields). Tracked for follow-up.
-pub(crate) const TEXT_SEGMENT_SIZE: u32 = PAGE_SIZE * 64; // 256KB (64 pages)
-pub(crate) const DATA_SEGMENT_SIZE: u32 = PAGE_SIZE * 64; // 256KB (64 pages)
+pub(crate) const PAGE_SIZE: u32 = 0x1000; // 4KB page size (legacy; segment alignment uses SEGMENT_ALIGN below)
+pub const CODE_OFFSET: u32 = 0x400; // Code starts at 1KB after header
+
+/// Page alignment required for mach-o segments on Apple
+/// Silicon (arm64) — 16 KB. dyld rejects segments that are
+/// not 16 KB-aligned at load time. The previous static
+/// 256 KB caps were multiples of this; the new dynamic
+/// sizes computed in `add_text_segment` /
+/// `add_data_segment` round up here.
+pub const SEGMENT_ALIGN: u32 = 0x4000;
 
 // Virtual memory addresses
-pub(crate) const VM_BASE: u64 = 0x100000000; // Base VM address for 64-bit executables
+pub const VM_BASE: u64 = 0x100000000; // Base VM address for 64-bit executables
 pub(crate) const TEXT_VM_ADDR: u64 = VM_BASE;
-pub const DATA_VM_ADDR: u64 = VM_BASE + TEXT_SEGMENT_SIZE as u64;
 
-pub(crate) const LINKEDIT_VM_ADDR: u64 =
-  VM_BASE + (TEXT_SEGMENT_SIZE + DATA_SEGMENT_SIZE) as u64;
+/// Virtual memory address of the start of the code section.
+/// Function offsets within the emitted code add to this to
+/// produce a runnable address.
+pub const TEXT_SECTION_BASE: u64 = VM_BASE + CODE_OFFSET as u64;
+
+/// Round `size` up to the next `SEGMENT_ALIGN` boundary.
+#[inline]
+pub const fn round_up_segment(size: u32) -> u32 {
+  (size + SEGMENT_ALIGN - 1) & !(SEGMENT_ALIGN - 1)
+}
+
+/// AArch64 page mask (4 KiB pages).
+pub const PAGE_MASK: u64 = 0xFFF;
+
+/// Dyld load-command ordinal for `libSystem.B.dylib`.
+/// Registered as the first `LC_LOAD_DYLIB`.
+pub const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
+
+/// Dyld load-command ordinal for `libzo_runtime.dylib`.
+/// Registered as the second `LC_LOAD_DYLIB` so
+/// `_zo_chan_*` / `_zo_task_*` bind opcodes route here;
+/// libm and libSystem symbols stay on libSystem.
+pub const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
+
+/// Prefix that classifies an extern C symbol as belonging
+/// to `libzo_runtime.dylib` rather than libSystem. Used at
+/// link time to route bindings to the correct dylib
+/// ordinal.
+pub const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
+
+/// Mach-O segment index for `__DATA` (pagezero=0,
+/// __TEXT=1, __DATA=2). Used in bind opcodes that point
+/// at GOT slots inside `__DATA`.
+pub const DATA_SEGMENT_INDEX: u8 = 2;
 
 // File offsets
 pub(crate) const TEXT_FILE_OFFSET: u64 = 0; // TEXT includes the header
-pub(crate) const DATA_FILE_OFFSET: u64 = TEXT_SEGMENT_SIZE as u64; // DATA at next page boundary
-
-pub(crate) const LINKEDIT_FILE_OFFSET: u64 =
-  (TEXT_SEGMENT_SIZE + DATA_SEGMENT_SIZE) as u64; // LINKEDIT after DATA
+// `DATA_FILE_OFFSET`, `LINKEDIT_FILE_OFFSET`,
+// `LINKEDIT_VM_ADDR`, `DATA_VM_ADDR` are now computed at
+// finish time via `MachO::data_file_offset()` etc. — the
+// previous static 256 KB caps are gone, see Tier A1.
 
 // Alignment constants
 pub(crate) const ALIGNMENT_8BYTE_MASK: usize = !7; // Mask for 8-byte alignment
@@ -1256,6 +1282,16 @@ pub struct MachO {
   /// Offset of the DyldInfoCommand in load_commands_buf,
   /// so finish_internal can patch bind_off/bind_size.
   dyld_info_cmd_offset: Option<usize>,
+  /// Page-rounded file/vm size of the `__TEXT` segment.
+  /// Set by `add_text_segment`; replaces the prior fixed
+  /// `TEXT_SEGMENT_SIZE = 256 KB` constant. Drives
+  /// `data_vm_addr` and `data_file_offset` (both segments
+  /// start at the end of the prior one).
+  text_segment_size: u32,
+  /// Page-rounded file/vm size of the `__DATA` segment.
+  /// Set by `add_data_segment`. Drives `linkedit_vm_addr`
+  /// and `linkedit_file_offset`.
+  data_segment_size: u32,
 }
 
 impl MachO {
@@ -1332,7 +1368,35 @@ impl MachO {
       entitlements: None,
       bind_data: Vec::new(),
       dyld_info_cmd_offset: None,
+      text_segment_size: 0,
+      data_segment_size: 0,
     }
+  }
+
+  /// Address where the `__DATA` segment is mapped at
+  /// runtime — sits immediately after `__TEXT`.
+  #[inline]
+  pub fn data_vm_addr(&self) -> u64 {
+    VM_BASE + self.text_segment_size as u64
+  }
+
+  /// File offset where the `__DATA` segment starts.
+  #[inline]
+  pub fn data_file_offset(&self) -> u64 {
+    self.text_segment_size as u64
+  }
+
+  /// Address where the `__LINKEDIT` segment is mapped at
+  /// runtime — sits immediately after `__DATA`.
+  #[inline]
+  pub fn linkedit_vm_addr(&self) -> u64 {
+    self.data_vm_addr() + self.data_segment_size as u64
+  }
+
+  /// File offset where the `__LINKEDIT` segment starts.
+  #[inline]
+  pub fn linkedit_file_offset(&self) -> u64 {
+    self.data_file_offset() + self.data_segment_size as u64
   }
 
   /// Set code signing requirements
@@ -1578,13 +1642,24 @@ impl MachO {
     }
   }
 
-  /// Adds the __TEXT segment containing executable code
+  /// Adds the __TEXT segment containing executable code.
   ///
-  /// Creates both the segment and the __text section within it.
+  /// The segment file/vm size is `round_up_segment(header
+  /// + load_commands + code)` rounded to `SEGMENT_ALIGN`
+  /// (16 KB). Replaces the prior static 256 KB cap. The
+  /// concrete size is stashed on `self.text_segment_size`
+  /// so subsequent helpers (`data_vm_addr`,
+  /// `linkedit_file_offset`, ...) read the same value.
+  ///
+  /// Caller contract: `self.code` must already be
+  /// populated via `add_code` so `self.code.len()` reflects
+  /// the final code size.
   #[inline(always)]
   pub fn add_text_segment(&mut self) {
-    // Calculate where code starts after header and load commands
     let code_offset = CODE_OFFSET;
+    let segment_size = round_up_segment(code_offset + self.code.len() as u32);
+
+    self.text_segment_size = segment_size;
 
     let text_section = Section64 {
       sectname: Self::make_cstring("__text"),
@@ -1607,9 +1682,9 @@ impl MachO {
         + std::mem::size_of::<Section64>()) as u32,
       segname: Self::make_cstring("__TEXT"),
       vmaddr: TEXT_VM_ADDR,
-      vmsize: TEXT_SEGMENT_SIZE as u64,
+      vmsize: segment_size as u64,
       fileoff: TEXT_FILE_OFFSET, // TEXT segment includes header!
-      filesize: TEXT_SEGMENT_SIZE as u64,
+      filesize: segment_size as u64,
       maxprot: VM_PROT_READ | VM_PROT_EXECUTE,
       initprot: VM_PROT_READ | VM_PROT_EXECUTE,
       nsects: 1,
@@ -1620,15 +1695,20 @@ impl MachO {
     self.sections.push(text_section);
   }
 
-  /// Adds the __DATA segment containing program data
+  /// Adds the __DATA segment containing program data.
   ///
-  /// Creates the segment with multiple sections: __data, __bss, __const,
-  /// __nl_symbol_ptr
+  /// File/vm size is `round_up_segment(data + bss +
+  /// indirect_ptrs)`, with a one-page minimum so dyld
+  /// always sees a real `__DATA`. Replaces the prior
+  /// static 256 KB cap. Reads `self.text_segment_size`,
+  /// which `add_text_segment` must have set first.
   #[inline(always)]
   pub fn add_data_segment(&mut self) {
     let mut sections = Vec::new();
-    let mut current_offset = DATA_FILE_OFFSET as u32;
-    let mut current_addr = DATA_VM_ADDR;
+    let data_file_offset = self.data_file_offset();
+    let data_vm_addr = self.data_vm_addr();
+    let mut current_offset = data_file_offset as u32;
+    let mut current_addr = data_vm_addr;
 
     // __data section
     if !self.data.is_empty() {
@@ -1692,16 +1772,24 @@ impl MachO {
       });
     }
 
+    let indirect_size = (self.indirect_symbols.len() as u32) * 8;
+    let raw_data_size = self.data.len() as u32 + self.bss_size + indirect_size;
+    // dyld requires a non-empty `__DATA`; round up to one
+    // page even when the program has no externs.
+    let segment_size = round_up_segment(raw_data_size).max(SEGMENT_ALIGN);
+
+    self.data_segment_size = segment_size;
+
     let cmd = SegmentCommand64 {
       cmd: LC_SEGMENT_64,
       cmdsize: (std::mem::size_of::<SegmentCommand64>()
         + std::mem::size_of::<Section64>() * sections.len())
         as u32,
       segname: Self::make_cstring("__DATA"),
-      vmaddr: DATA_VM_ADDR,
-      vmsize: DATA_SEGMENT_SIZE as u64,
-      fileoff: DATA_FILE_OFFSET,
-      filesize: DATA_SEGMENT_SIZE as u64,
+      vmaddr: data_vm_addr,
+      vmsize: segment_size as u64,
+      fileoff: data_file_offset,
+      filesize: segment_size as u64,
       maxprot: VM_PROT_READ | VM_PROT_WRITE,
       initprot: VM_PROT_READ | VM_PROT_WRITE,
       nsects: sections.len() as u32,
@@ -1719,9 +1807,9 @@ impl MachO {
       cmd: LC_SEGMENT_64,
       cmdsize: std::mem::size_of::<SegmentCommand64>() as u32,
       segname: Self::make_cstring("__DATA_CONST"),
-      vmaddr: DATA_VM_ADDR + 0x4000, // After __DATA
+      vmaddr: self.data_vm_addr() + 0x4000, // After __DATA
       vmsize: PAGE_SIZE as u64,
-      fileoff: DATA_FILE_OFFSET + 0x4000,
+      fileoff: self.data_file_offset() + 0x4000,
       filesize: 0, // Will be updated with actual size
       maxprot: VM_PROT_READ | VM_PROT_WRITE,
       initprot: VM_PROT_READ,
@@ -1739,9 +1827,9 @@ impl MachO {
       cmd: LC_SEGMENT_64,
       cmdsize: std::mem::size_of::<SegmentCommand64>() as u32,
       segname: Self::make_cstring("__OBJC"),
-      vmaddr: DATA_VM_ADDR + 0x8000,
+      vmaddr: self.data_vm_addr() + 0x8000,
       vmsize: PAGE_SIZE as u64,
-      fileoff: DATA_FILE_OFFSET + 0x8000,
+      fileoff: self.data_file_offset() + 0x8000,
       filesize: 0,
       maxprot: VM_PROT_READ | VM_PROT_WRITE,
       initprot: VM_PROT_READ | VM_PROT_WRITE,
@@ -1759,9 +1847,9 @@ impl MachO {
       cmd: LC_SEGMENT_64,
       cmdsize: std::mem::size_of::<SegmentCommand64>() as u32,
       segname: Self::make_cstring("__IMPORT"),
-      vmaddr: DATA_VM_ADDR + 0xC000,
+      vmaddr: self.data_vm_addr() + 0xC000,
       vmsize: PAGE_SIZE as u64,
-      fileoff: DATA_FILE_OFFSET + 0xC000,
+      fileoff: self.data_file_offset() + 0xC000,
       filesize: 0,
       maxprot: VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE,
       initprot: VM_PROT_READ | VM_PROT_WRITE,
@@ -1783,7 +1871,7 @@ impl MachO {
       cmd: LC_SEGMENT_64,
       cmdsize: std::mem::size_of::<SegmentCommand64>() as u32,
       segname: Self::make_cstring("__LINKEDIT"),
-      vmaddr: LINKEDIT_VM_ADDR,
+      vmaddr: self.linkedit_vm_addr(),
       vmsize: size.as_u64(),
       fileoff: offset.as_u64(),
       filesize: size.as_u64(),
@@ -2084,9 +2172,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__thread_vars"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3, // 8-byte alignment
       reloff: 0,
       nreloc: 0,
@@ -2106,9 +2194,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__thread_data"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3,
       reloff: 0,
       nreloc: 0,
@@ -2262,9 +2350,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__mod_init_func"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3, // 2^3 = 8 byte alignment
       reloff: 0,
       nreloc: 0,
@@ -2289,9 +2377,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__mod_term_func"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3, // 2^3 = 8 byte alignment
       reloff: 0,
       nreloc: 0,
@@ -2311,7 +2399,7 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__thread_bss"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size,
       offset: 0, // Zerofill has no file offset
       align: 3,
@@ -2337,9 +2425,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__thread_ptrs"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3,
       reloff: 0,
       nreloc: 0,
@@ -4133,8 +4221,6 @@ impl MachO {
     requirements: Option<&[u8]>,
     entitlements: Option<&str>,
   ) -> Vec<u8> {
-    let mut signature = Vec::new();
-
     // Page size for code signing (16KB on Apple Silicon)
     const PAGE_SIZE: usize = 16384;
     const PAGE_SHIFT: u8 = 14; // log2(16384)
@@ -4169,6 +4255,13 @@ impl MachO {
       + code_dir_size
       + requirements_size
       + entitlements_size;
+
+    // Pre-size to the final 16-byte-aligned signature
+    // size — every byte is computable before any data is
+    // written, so one allocation replaces the prior 7+
+    // `extend_from_slice` reallocs.
+    let signed_len = (superblob_size + 15) & !15;
+    let mut signature = Vec::with_capacity(signed_len);
 
     // Write SuperBlob header
     let superblob = SuperBlob {
@@ -4321,10 +4414,11 @@ impl MachO {
       signature.extend_from_slice(&hash);
     }
 
-    // Pad to 16-byte boundary
-    while signature.len() % 16 != 0 {
-      signature.push(0);
-    }
+    // Pad to 16-byte boundary. `resize` is one memset
+    // — replaces a per-byte branch+push loop. The target
+    // size is the same `signed_len` we capacity-reserved
+    // above, so the underlying buffer never reallocs.
+    signature.resize(signed_len, 0);
 
     signature
   }
@@ -5285,9 +5379,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__thread_init"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3,
       reloff: 0,
       nreloc: 0,
@@ -5329,7 +5423,7 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__huge_bss"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size,
       offset: 0, // Zerofill
       align: 12, // 2^12 = 4KB alignment for huge sections
@@ -5350,9 +5444,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__interpose"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3,
       reloff: 0,
       nreloc: 0,
@@ -5609,9 +5703,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring(name),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3,
       reloff: 0,
       nreloc: 0,
@@ -5652,9 +5746,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring(name),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3,
       reloff: 0,
       nreloc: 0,
@@ -5678,9 +5772,9 @@ impl MachO {
     let section = Section64 {
       sectname: Self::make_cstring("__la_dylib_ptr"),
       segname: Self::make_cstring("__DATA"),
-      addr: DATA_VM_ADDR + self.data.len() as u64,
+      addr: self.data_vm_addr() + self.data.len() as u64,
       size: data.len() as u64,
-      offset: (DATA_FILE_OFFSET + self.data.len() as u64) as u32,
+      offset: (self.data_file_offset() + self.data.len() as u64) as u32,
       align: 3,
       reloff: 0,
       nreloc: 0,
@@ -5706,13 +5800,47 @@ impl MachO {
 
   /// Internal finish implementation that handles code signing
   fn finish_internal(mut self, with_signature: bool) -> Vec<u8> {
+    // Pre-size to the final binary size (header + code +
+    // padding + data + linkedit + optional signature) so
+    // the assembler doesn't pay 20+ realloc/memcpy cycles
+    // growing from cap=0 to ~16 KB. The exact size is
+    // computed below; we capacity-reserve once we know it
+    // (right after the LINKEDIT sizes are settled).
     let mut output = Vec::new();
+
+    // Backfill default segment sizes if the caller skipped
+    // `add_text_segment` / `add_data_segment`. Legacy
+    // tests do this — they only call `add_code` then
+    // `finish`. Without this, `data_file_offset()` /
+    // `linkedit_file_offset()` are 0, and the
+    // `output.resize(N, 0)` pad calls below would
+    // truncate the buffer instead of zero-padding.
+    if self.text_segment_size == 0 {
+      self.text_segment_size =
+        round_up_segment(CODE_OFFSET + self.code.len() as u32);
+    }
+
+    if self.data_segment_size == 0 {
+      let raw_data_size = self.data.len() as u32 + self.bss_size;
+
+      self.data_segment_size = round_up_segment(raw_data_size);
+    }
 
     // Update sections with relocation information
     self.update_section_relocations();
 
-    // Build symbol index if not already done
-    if self.symbol_index_map.is_empty()
+    // Build the symbol-name → index map only when someone
+    // is going to read it. The map's only readers are
+    // `find_symbol` / `add_symbol_ref`, which are not
+    // called on the executable hot path — every linker
+    // call was paying for ~12-25 `String::clone`s and a
+    // HashMap of those clones for nothing. The
+    // section-relocation paths still trigger build via
+    // their own ensure-built check; the gate here is
+    // `symbol_refs`, which records every relocation that
+    // needs name resolution.
+    if !self.symbol_refs.is_empty()
+      && self.symbol_index_map.is_empty()
       && (!self.local_symbols.is_empty()
         || !self.external_symbols.is_empty()
         || !self.undefined_symbols.is_empty())
@@ -5761,8 +5889,11 @@ impl MachO {
 
     // Calculate LINKEDIT content offsets and sizes.
     // Bind data (if any) goes first, then symtab, strtab,
-    // indirect symtab.
-    let linkedit_start = LINKEDIT_FILE_OFFSET as u32;
+    // indirect symtab. `linkedit_file_offset` is now
+    // dynamic — it sits immediately after the page-rounded
+    // __DATA segment, replacing the prior fixed
+    // 512 KB-into-the-file layout.
+    let linkedit_start = self.linkedit_file_offset() as u32;
     let bind_size = self.bind_data.len() as u32;
     let bind_offset = if bind_size > 0 { linkedit_start } else { 0 };
 
@@ -5806,7 +5937,7 @@ impl MachO {
       signature_offset = linkedit_start + base_linkedit_size;
 
       // Calculate the size of the binary WITHOUT signature (for code_limit)
-      let code_limit = LINKEDIT_FILE_OFFSET + base_linkedit_size as u64;
+      let code_limit = self.linkedit_file_offset() + base_linkedit_size as u64;
 
       // Calculate signature size
       const PAGE_SIZE: usize = 16384;
@@ -5826,6 +5957,17 @@ impl MachO {
 
     // Total LINKEDIT size includes signature
     let total_linkedit_size = base_linkedit_size + signature_size;
+
+    // Pre-size `output` to the final binary length so the
+    // writer doesn't pay for ~4 doublings as it grows
+    // through 16 KB → 32 KB → 64 KB. With Tier-A1's
+    // page-rounded segments the binary is ~33 KB; one
+    // allocation here replaces 4-5 reallocs that were
+    // each `memcpy`ing the prior contents.
+    let final_size =
+      self.linkedit_file_offset() as usize + total_linkedit_size as usize;
+
+    output.reserve(final_size);
 
     // Add required load commands if not already added
     if n_symbols > 0 {
@@ -5937,18 +6079,20 @@ impl MachO {
       output.extend_from_slice(&signature_cmd_data);
     }
 
-    // Pad to code offset
-    while output.len() < CODE_OFFSET as usize {
-      output.push(0);
-    }
+    // Pad to code offset.
+    // `Vec::resize` writes `0` via a single memset rather
+    // than a per-byte branch+push loop — replaces ~510 K
+    // `output.push(0)` iterations on the prior 512 KB
+    // file layout. The page-rounding refactor brings the
+    // total padding down to ~one page or less per
+    // boundary, but the pattern is still the right shape.
+    output.resize(CODE_OFFSET as usize, 0);
 
     // Write code section in TEXT segment
     output.extend_from_slice(&self.code);
 
     // Pad to next page for DATA segment
-    while output.len() < DATA_FILE_OFFSET as usize {
-      output.push(0);
-    }
+    output.resize(self.data_file_offset() as usize, 0);
 
     // Write data section
     if !self.data.is_empty() {
@@ -5964,9 +6108,7 @@ impl MachO {
     }
 
     // Pad to LINKEDIT offset
-    while output.len() < LINKEDIT_FILE_OFFSET as usize {
-      output.push(0);
-    }
+    output.resize(self.linkedit_file_offset() as usize, 0);
 
     // Write bind data (dyld non-lazy binding opcodes).
     if !self.bind_data.is_empty() {
@@ -6088,11 +6230,9 @@ impl MachO {
 
     // Pad to complete LINKEDIT segment size (without signature)
     let base_final_size =
-      (LINKEDIT_FILE_OFFSET + base_linkedit_size as u64) as usize;
+      (self.linkedit_file_offset() + base_linkedit_size as u64) as usize;
 
-    while output.len() < base_final_size {
-      output.push(0);
-    }
+    output.resize(base_final_size, 0);
 
     // Add code signature if requested
     if with_signature {

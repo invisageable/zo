@@ -130,9 +130,10 @@ fn test_template_entry_point_export() {
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
+  let link_obj = codegen.into_link_object(artifact);
 
   // Generate Mach-O and verify it has the entry point
-  let macho = codegen.generate_macho(artifact);
+  let macho = zo_linker::link_macho(link_obj);
 
   assert!(!macho.is_empty(), "Should generate Mach-O binary");
 
