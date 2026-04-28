@@ -4221,8 +4221,6 @@ impl MachO {
     requirements: Option<&[u8]>,
     entitlements: Option<&str>,
   ) -> Vec<u8> {
-    let mut signature = Vec::new();
-
     // Page size for code signing (16KB on Apple Silicon)
     const PAGE_SIZE: usize = 16384;
     const PAGE_SHIFT: u8 = 14; // log2(16384)
@@ -4257,6 +4255,13 @@ impl MachO {
       + code_dir_size
       + requirements_size
       + entitlements_size;
+
+    // Pre-size to the final 16-byte-aligned signature
+    // size — every byte is computable before any data is
+    // written, so one allocation replaces the prior 7+
+    // `extend_from_slice` reallocs.
+    let signed_len = (superblob_size + 15) & !15;
+    let mut signature = Vec::with_capacity(signed_len);
 
     // Write SuperBlob header
     let superblob = SuperBlob {
@@ -4409,10 +4414,11 @@ impl MachO {
       signature.extend_from_slice(&hash);
     }
 
-    // Pad to 16-byte boundary
-    while signature.len() % 16 != 0 {
-      signature.push(0);
-    }
+    // Pad to 16-byte boundary. `resize` is one memset
+    // — replaces a per-byte branch+push loop. The target
+    // size is the same `signed_len` we capacity-reserved
+    // above, so the underlying buffer never reallocs.
+    signature.resize(signed_len, 0);
 
     signature
   }
@@ -5823,8 +5829,18 @@ impl MachO {
     // Update sections with relocation information
     self.update_section_relocations();
 
-    // Build symbol index if not already done
-    if self.symbol_index_map.is_empty()
+    // Build the symbol-name → index map only when someone
+    // is going to read it. The map's only readers are
+    // `find_symbol` / `add_symbol_ref`, which are not
+    // called on the executable hot path — every linker
+    // call was paying for ~12-25 `String::clone`s and a
+    // HashMap of those clones for nothing. The
+    // section-relocation paths still trigger build via
+    // their own ensure-built check; the gate here is
+    // `symbol_refs`, which records every relocation that
+    // needs name resolution.
+    if !self.symbol_refs.is_empty()
+      && self.symbol_index_map.is_empty()
       && (!self.local_symbols.is_empty()
         || !self.external_symbols.is_empty()
         || !self.undefined_symbols.is_empty())
@@ -5941,6 +5957,17 @@ impl MachO {
 
     // Total LINKEDIT size includes signature
     let total_linkedit_size = base_linkedit_size + signature_size;
+
+    // Pre-size `output` to the final binary length so the
+    // writer doesn't pay for ~4 doublings as it grows
+    // through 16 KB → 32 KB → 64 KB. With Tier-A1's
+    // page-rounded segments the binary is ~33 KB; one
+    // allocation here replaces 4-5 reallocs that were
+    // each `memcpy`ing the prior contents.
+    let final_size =
+      self.linkedit_file_offset() as usize + total_linkedit_size as usize;
+
+    output.reserve(final_size);
 
     // Add required load commands if not already added
     if n_symbols > 0 {
