@@ -6,3 +6,5 @@ pub(crate) const PARSER_NAME: &str = "parser";
 pub(crate) const ANALYZER_NAME: &str = "analyzer";
 /// The name of the code generation phase.
 pub(crate) const CODEGEN_NAME: &str = "codegen";
+/// The name of the linking phase.
+pub(crate) const LINKER_NAME: &str = "linker";

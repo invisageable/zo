@@ -33,7 +33,7 @@ fn test_universal_binary_creation() {
 
   // Write to file
   let path = "tests/hello_universal";
-  ARM64Gen::write_executable(universal, path)
+  zo_linker::write_executable(&universal, std::path::Path::new(path))
     .expect("Failed to write universal binary");
 
   // Use 'file' command to verify it's recognized as a universal binary

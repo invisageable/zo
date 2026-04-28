@@ -17,7 +17,7 @@ fn test_production_code_signature() {
   // Write to file
   let path = "tests/hello_production_signed";
 
-  ARM64Gen::write_executable(binary.clone(), path)
+  zo_linker::write_executable(&binary, std::path::Path::new(path))
     .expect("Failed to write executable");
 
   // Verify with codesign tool

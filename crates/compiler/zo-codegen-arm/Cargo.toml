@@ -31,6 +31,7 @@ rustc-hash = { workspace = true }
 # internal:crates.
 zo-analyzer = { workspace = true }
 zo-executor = { workspace = true }
+zo-linker = { workspace = true }
 zo-parser = { workspace = true }
 zo-token = { workspace = true }
 zo-tokenizer = { workspace = true }

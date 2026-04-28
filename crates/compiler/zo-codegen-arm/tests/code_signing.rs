@@ -12,7 +12,8 @@ fn test_signed_binary() {
 
   let path = "tests/bin/hello_signed";
 
-  ARM64Gen::write_executable(binary, path).expect("Failed to write executable");
+  zo_linker::write_executable(&binary, std::path::Path::new(path))
+    .expect("Failed to write executable");
 
   let output = Command::new(path)
     .output()

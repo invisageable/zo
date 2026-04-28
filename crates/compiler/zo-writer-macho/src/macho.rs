@@ -101,7 +101,7 @@ pub(crate) const FAT_MAGIC_64: u32 = 0xcafebabf; // 64-bit fat binary magic numb
 
 // Memory layout constants
 pub(crate) const PAGE_SIZE: u32 = 0x1000; // 4KB page size
-pub(crate) const CODE_OFFSET: u32 = 0x400; // Code starts at 1KB after header
+pub const CODE_OFFSET: u32 = 0x400; // Code starts at 1KB after header
 // Static segment sizes. The TEXT cap was 4 pages (16 KB) —
 // programs preloading the full stdlib (`map`, `set`, `vec`,
 // `str`, `arr`, `int`, ...) plus a real `main` already
@@ -120,6 +120,35 @@ pub(crate) const DATA_SEGMENT_SIZE: u32 = PAGE_SIZE * 64; // 256KB (64 pages)
 pub(crate) const VM_BASE: u64 = 0x100000000; // Base VM address for 64-bit executables
 pub(crate) const TEXT_VM_ADDR: u64 = VM_BASE;
 pub const DATA_VM_ADDR: u64 = VM_BASE + TEXT_SEGMENT_SIZE as u64;
+
+/// Virtual memory address of the start of the code section.
+/// Function offsets within the emitted code add to this to
+/// produce a runnable address.
+pub const TEXT_SECTION_BASE: u64 = VM_BASE + CODE_OFFSET as u64;
+
+/// AArch64 page mask (4 KiB pages).
+pub const PAGE_MASK: u64 = 0xFFF;
+
+/// Dyld load-command ordinal for `libSystem.B.dylib`.
+/// Registered as the first `LC_LOAD_DYLIB`.
+pub const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
+
+/// Dyld load-command ordinal for `libzo_runtime.dylib`.
+/// Registered as the second `LC_LOAD_DYLIB` so
+/// `_zo_chan_*` / `_zo_task_*` bind opcodes route here;
+/// libm and libSystem symbols stay on libSystem.
+pub const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
+
+/// Prefix that classifies an extern C symbol as belonging
+/// to `libzo_runtime.dylib` rather than libSystem. Used at
+/// link time to route bindings to the correct dylib
+/// ordinal.
+pub const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
+
+/// Mach-O segment index for `__DATA` (pagezero=0,
+/// __TEXT=1, __DATA=2). Used in bind opcodes that point
+/// at GOT slots inside `__DATA`.
+pub const DATA_SEGMENT_INDEX: u8 = 2;
 
 pub(crate) const LINKEDIT_VM_ADDR: u64 =
   VM_BASE + (TEXT_SEGMENT_SIZE + DATA_SEGMENT_SIZE) as u64;

@@ -1,7 +1,7 @@
 pub(crate) mod template;
 
 use zo_buffer::Buffer;
-use zo_codegen_backend::Artifact;
+use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
   COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, PatchSite,
@@ -15,14 +15,9 @@ use zo_register_allocation::{
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::TyId;
 use zo_value::ValueId;
-use zo_writer_macho::{DATA_VM_ADDR, DebugFrameEntry, MachO};
+use zo_writer_macho::{DebugFrameEntry, MachO};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
-
-use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 
 // --- macOS ARM64 System Calls ---
 const SYS_EXIT: u16 = 1;
@@ -120,22 +115,11 @@ const HELLO_STR_OFFSET: i32 = 0x18;
 const HELLO_STR_LEN: u16 = 14;
 const CFA_FP_REG: u8 = 31;
 
-// --- Page Layout ---
-const PAGE_MASK: u64 = 0xFFF;
-
-// --- Dynamic Linking ---
-const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
-/// libzo_runtime.dylib is registered as the second
-/// `LC_LOAD_DYLIB`, so its ordinal is 2. `_zo_chan_*`
-/// / `_zo_task_*` bindings route here; everything
-/// else stays on libSystem.
-const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
-
-/// Prefix identifying symbols that the runtime dylib
-/// exports. Classifier for routing extern symbols to the
-/// right `LC_LOAD_DYLIB` ordinal.
-const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
-const DATA_SEGMENT_INDEX: u8 = 2;
+// Mach-O constants (`PAGE_MASK`, dylib ordinals,
+// `ZO_RUNTIME_SYMBOL_PREFIX`, `DATA_SEGMENT_INDEX`,
+// `TEXT_SECTION_BASE`, `CODE_OFFSET`) live in
+// `zo-writer-macho` — both this crate and `zo-linker`
+// share them.
 
 // --- Libm Functions ---
 
@@ -1189,175 +1173,42 @@ impl<'a> ARM64Gen<'a> {
     Artifact { code }
   }
 
-  /// Generates Mach-O executable from [`Artifact`].
-  pub fn generate_macho(&mut self, artifact: Artifact) -> Vec<u8> {
-    let mut macho = MachO::new();
-    let mut code = artifact.code;
-
-    // --- Libm GOT + stub patching ---
-    // Each libm function gets one 8-byte GOT slot in __DATA
-    // and one 12-byte stub in __TEXT. The stub does:
-    //   ADRP X16, got_page
-    //   LDR  X16, [X16, #got_page_off]
-    //   BR   X16
-    // dyld fills the GOT slot at load time via bind opcodes.
-    let n_got = self.extern_used.len();
-    let mut got_data = Vec::with_capacity(n_got * 8);
-    let mut bind_entries: Vec<(&str, u8, u64, u8)> = Vec::new();
-    // Track whether any symbol needs the zo runtime
-    // dylib so we only register it when a program
-    // actually uses concurrency.
-    let mut needs_runtime_dylib = false;
-
-    for (i, c_sym) in self.extern_used.iter().enumerate() {
-      let got_offset_in_data = (i * 8) as u64;
-      let got_vm_addr = DATA_VM_ADDR + got_offset_in_data;
-
-      // Populate GOT slot with zero (dyld overwrites).
-      got_data.extend_from_slice(&[0u8; 8]);
-
-      // Patch the stub: ADRP X16, page_diff; LDR X16,
-      // [X16, #page_off]; BR X16.
-      if let Some(&stub_off) = self.extern_stub_offsets.get(c_sym) {
-        let stub_vm = TEXT_SECTION_BASE + stub_off as u64;
-        let stub_page = stub_vm & !PAGE_MASK;
-        let got_page = got_vm_addr & !PAGE_MASK;
-        let page_diff = ((got_page as i64 - stub_page as i64) >> 12) as i32;
-        let page_off = (got_vm_addr & PAGE_MASK) as u32;
-
-        // ADRP X16, page_diff
-        let immlo = (page_diff as u32) & 0x3;
-        let immhi = ((page_diff >> 2) as u32) & 0x7FFFF;
-        let adrp =
-          0x90000000u32 | (immlo << 29) | (immhi << 5) | (X16.index() as u32);
-
-        // LDR X16, [X16, #page_off]
-        // Unsigned offset: imm12 = page_off / 8
-        let imm12 = (page_off >> 3) & 0xFFF;
-        let ldr = 0xF9400000u32
-          | (imm12 << 10)
-          | ((X16.index() as u32) << 5)
-          | (X16.index() as u32);
-
-        let pos = stub_off as usize;
-
-        code[pos..pos + 4].copy_from_slice(&adrp.to_le_bytes());
-        code[pos + 4..pos + 8].copy_from_slice(&ldr.to_le_bytes());
-        // BR X16 is already correct from emit_br().
-      }
-
-      // Route each symbol to the right LC_LOAD_DYLIB.
-      // Runtime symbols (`_zo_chan_*` / `_zo_task_*`)
-      // land in libzo_runtime.dylib; everything else
-      // (libm, libSystem) stays on libSystem.
-      let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
-        needs_runtime_dylib = true;
-
-        ZO_RUNTIME_DYLIB_ORDINAL
-      } else {
-        LIBSYSTEM_DYLIB_ORDINAL
-      };
-
-      // segment 2 = __DATA (pagezero=0, __TEXT=1, __DATA=2)
-      bind_entries.push((
-        c_sym,
-        DATA_SEGMENT_INDEX,
-        got_offset_in_data,
-        ordinal,
-      ));
-    }
-
-    // Build bind opcodes for dyld. Per-entry ordinal lets
-    // libSystem and libzo_runtime symbols share one
-    // opcode stream.
-    if !bind_entries.is_empty() {
-      let bind_data = MachO::build_bind_opcodes(&bind_entries);
-
-      macho.set_bind_data(bind_data);
-    }
-
-    macho.add_code(code);
-    macho.add_data(got_data);
-
-    macho.add_pagezero_segment();
-    macho.add_text_segment();
-    macho.add_data_segment();
-
-    if let Some(main_sym) = self.interner.symbol("main") {
-      let offset = self.functions.get(&main_sym).copied().unwrap_or(0);
-
-      macho.add_function_symbol(
-        "_main",
-        1,
-        TEXT_SECTION_BASE + offset as u64,
-        false,
-      );
-    }
-
-    if self.has_templates {
-      let entry_symbol = Symbol(UI_ENTRY_SYMBOL);
-
-      if let Some(&offset) = self.functions.get(&entry_symbol) {
-        macho.add_function_symbol(
-          "_zo_ui_entry_point",
-          1,
-          TEXT_SECTION_BASE + offset as u64,
-          true,
-        );
-      }
-    }
-
-    // Add undefined symbols, routing each to its owning
-    // dylib's ordinal so the Mach-O symtab + LC_LOAD_DYLIB
-    // entries agree with the bind opcodes above.
-    for c_sym in &self.extern_used {
-      let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
-        ZO_RUNTIME_DYLIB_ORDINAL
-      } else {
-        LIBSYSTEM_DYLIB_ORDINAL
-      };
-
-      macho.add_undefined_symbol(c_sym, ordinal as u16);
-    }
-
-    macho.add_dylinker();
-    macho.add_dylib("/usr/lib/libSystem.B.dylib");
-
-    // Register libzo_runtime.dylib as the second
-    // LC_LOAD_DYLIB so `_zo_chan_*` / `_zo_task_*` resolve
-    // at load time. Users must colocate the dylib with the
-    // executable (or point DYLD_LIBRARY_PATH at it) for
-    // programs that use concurrency to launch. Non-
-    // concurrency programs never touch this entry.
-    if needs_runtime_dylib {
-      macho.add_dylib("@executable_path/libzo_runtime.dylib");
-    }
-
-    macho.add_uuid();
-    macho.add_build_version();
-    macho.add_source_version();
-
-    // Entry point must point to the actual main function,
-    // not always 0x400 (which is only correct when main
-    // is the first function in the code section).
-    let main_entry = self
+  /// Hand off codegen state to the linker phase.
+  ///
+  /// Consumes `self` and the freshly produced `artifact`,
+  /// resolves the `main` and `_zo_ui_entry_point` offsets
+  /// (so the linker doesn't need an interner handle), and
+  /// bundles every fixup / symbol table the mach-o
+  /// assembler needs into a `MachoLinkObject`. The
+  /// resulting object is the only data that crosses the
+  /// codegen → linker phase boundary.
+  pub fn into_link_object(self, artifact: Artifact) -> MachoLinkObject {
+    let main_offset = self
       .interner
       .symbol("main")
-      .and_then(|s| self.functions.get(&s).copied())
-      .map(|off| CODE_OFFSET + off as u64)
-      .unwrap_or(CODE_OFFSET);
+      .and_then(|s| self.functions.get(&s).copied());
 
-    macho.add_main(main_entry);
+    let ui_entry_offset = if self.has_templates {
+      self.functions.get(&Symbol(UI_ENTRY_SYMBOL)).copied()
+    } else {
+      None
+    };
 
-    macho.add_dyld_info();
-    macho.finish_with_signature()
-  }
-
-  /// Generate a complete executable from SIR.
-  pub fn generate_executable(&mut self, sir: &Sir) -> Vec<u8> {
-    let artifact = self.generate(sir);
-
-    self.generate_macho(artifact)
+    MachoLinkObject {
+      code: artifact.code,
+      functions: self.functions,
+      string_data: self.string_data,
+      string_fixups: self.string_fixups,
+      function_addr_fixups: self.function_addr_fixups,
+      template_data: self.template_data,
+      has_templates: self.has_templates,
+      extern_used: self.extern_used,
+      extern_stub_offsets: self.extern_stub_offsets,
+      extern_fixups: self.extern_fixups,
+      call_fixups: self.call_fixups,
+      main_offset,
+      ui_entry_offset,
+    }
   }
 
   /// Generates ARM64 assembly text from SIR for display.
@@ -5626,25 +5477,6 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_mov_imm(X16, SYS_WRITE);
     self.emitter.emit_mov_imm(X0, FD_STDOUT);
     self.emitter.emit_svc(0);
-  }
-
-  /// Write binary to file and make it executable.
-  pub fn write_executable(
-    binary: Vec<u8>,
-    path: impl AsRef<Path>,
-  ) -> std::io::Result<()> {
-    fs::write(&path, binary)?;
-
-    #[cfg(unix)]
-    {
-      let metadata = fs::metadata(&path)?;
-      let mut permissions = metadata.permissions();
-
-      permissions.set_mode(0o755);
-      fs::set_permissions(&path, permissions)?;
-    }
-
-    Ok(())
   }
 
   /// Generate a complete "Hello, World" executable.

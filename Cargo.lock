@@ -7541,7 +7541,6 @@ dependencies = [
  "zo-error",
  "zo-executor",
  "zo-interner",
- "zo-linker",
  "zo-parser",
  "zo-sir",
  "zo-tokenizer",
@@ -7562,6 +7561,7 @@ dependencies = [
  "zo-error",
  "zo-executor",
  "zo-interner",
+ "zo-linker",
  "zo-parser",
  "zo-register-allocation",
  "zo-reporter",
@@ -7580,6 +7580,8 @@ dependencies = [
 name = "zo-codegen-backend"
 version = "0.3.10"
 dependencies = [
+ "rustc-hash 2.1.1",
+ "zo-interner",
  "zo-sir",
 ]
 
@@ -7614,6 +7616,7 @@ dependencies = [
  "zo-dce",
  "zo-error",
  "zo-interner",
+ "zo-linker",
  "zo-module-resolver",
  "zo-parser",
  "zo-pp",
@@ -7765,6 +7768,9 @@ version = "0.3.10"
 dependencies = [
  "tempfile",
  "zo-codegen-backend",
+ "zo-emitter-arm",
+ "zo-interner",
+ "zo-writer-macho",
 ]
 
 [[package]]

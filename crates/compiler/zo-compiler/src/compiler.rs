@@ -3,7 +3,7 @@
 //! ```
 
 use crate::constants::{
-  ANALYZER_NAME, CODEGEN_NAME, PARSER_NAME, TOKENIZER_NAME,
+  ANALYZER_NAME, CODEGEN_NAME, LINKER_NAME, PARSER_NAME, TOKENIZER_NAME,
 };
 
 use crate::stage::Stage;
@@ -595,9 +595,25 @@ impl Compiler {
         None => path.with_extension(""),
       };
 
-      codegen.generate(&session.interner, &semantic.sir, &output_path);
+      let link_obj = codegen.generate(&session.interner, &semantic.sir);
 
       self.stats.numartifacts += 1;
+      self.profiler.end_phase(CODEGEN_NAME);
+
+      // --- Linker phase ---
+      // Pure data transformation: `LinkObject` → executable
+      // file. ARM runs the in-process mach-o assembler;
+      // CLIF shells out to `cc`. Either way, no codegen
+      // state crosses this boundary — every fixup, symbol
+      // table, and entry-point offset already lives on
+      // `link_obj`.
+      self.profiler.start_phase(LINKER_NAME);
+
+      if let Err(err) = zo_linker::link(link_obj, &output_path, target) {
+        eprintln!("zo: link failed: {err}");
+      } else {
+        self.stats.numlinked += 1;
+      }
 
       // Colocate runtime dylibs that the compiled
       // binary references at `@executable_path/`. zo's
@@ -615,7 +631,7 @@ impl Compiler {
       // here to stage the matching dylib file.
       stage_runtime_artifacts(&semantic.sir, &session.interner, &output_path);
 
-      self.profiler.end_phase(CODEGEN_NAME);
+      self.profiler.end_phase(LINKER_NAME);
       self.profiler.set_output(path.display().to_string());
     }
 
@@ -644,7 +660,7 @@ impl Compiler {
     self.profiler.set_nodes_count(self.stats.numnodes);
     self.profiler.set_inferences_count(self.stats.numinferences);
     self.profiler.set_artifacts_count(self.stats.numartifacts);
-    self.profiler.set_artifacts_linked(self.stats.numartifacts);
+    self.profiler.set_artifacts_linked(self.stats.numlinked);
     self.profiler.summary(target.name());
 
     Ok(())
@@ -666,8 +682,13 @@ pub struct Stats {
   numnodes: usize,
   /// The number of annotations.
   numinferences: usize,
-  /// The number of artifacts.
+  /// The number of artifacts emitted by the codegen phase.
   numartifacts: usize,
+  /// The number of artifacts the linker turned into
+  /// runnable executables. Tracked separately from
+  /// `numartifacts` so a link failure leaves an
+  /// observable gap in the profiler summary.
+  numlinked: usize,
 }
 impl Stats {
   /// Creates a new [`Stats`] instance.
@@ -678,6 +699,7 @@ impl Stats {
       numnodes: 0,
       numinferences: 0,
       numartifacts: 0,
+      numlinked: 0,
     }
   }
 }
