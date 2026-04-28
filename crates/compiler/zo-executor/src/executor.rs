@@ -237,9 +237,14 @@ pub struct Executor<'a> {
   /// monomorphization — the receiver's args become the
   /// substitutions for the method's `$T`.
   local_struct_type_args: HashMap<u32, Vec<TyId>>,
-  /// Pending enum construction: (enum_name, variant_disc,
-  /// variant_field_count, ty_id).
-  pending_enum_construct: Option<(Symbol, u32, u32, TyId)>,
+  /// Stack of pending enum constructions: (enum_name,
+  /// variant_disc, variant_field_count, ty_id). One entry
+  /// per opened `Type::Variant(` not yet closed by its
+  /// matching `)`. Stack (not Option) so nested
+  /// constructions like `Outer::Wrap(Inner::A(42))` don't
+  /// overwrite each other — the inner finalizes first,
+  /// the outer pops at its own RParen.
+  pending_enum_construct: Vec<(Symbol, u32, u32, TyId)>,
   /// Current `apply Type` context — the type name being
   /// applied. Methods get mangled as `Type::method`.
   apply_context: Option<Symbol>,
@@ -450,6 +455,19 @@ struct CallCtx {
   arg_idx: usize,
 }
 
+/// Parameters for `emit_nested_enum_pattern`. Bundled to
+/// dodge clippy's `too_many_arguments` lint and to make
+/// caller call-sites read like a destructuring pattern.
+struct NestedEnumPatCtx<'a> {
+  field_index: u32,
+  field_ty: TyId,
+  pat_start: usize,
+  pat_end: usize,
+  next_arm_label: u32,
+  arm_bindings: &'a mut u32,
+  int_ty: TyId,
+}
+
 /// Deferred variable declaration, finalized at Semicolon.
 struct PendingDecl {
   name: Symbol,
@@ -535,7 +553,7 @@ impl<'a> Executor<'a> {
       mono_name_override: None,
       pending_instantiations: Vec::new(),
       reexecuted_instantiations: HashSet::default(),
-      pending_enum_construct: None,
+      pending_enum_construct: Vec::new(),
       apply_context: None,
       apply_type_params: HashMap::default(),
       pack_context: Vec::new(),
@@ -1496,7 +1514,7 @@ impl<'a> Executor<'a> {
 
         // Check if this closes an enum variant constructor.
         if let Some((enum_name, disc, field_count, ty_id)) =
-          self.pending_enum_construct.take()
+          self.pending_enum_construct.pop()
         {
           if closed_a_direct_call {
             self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
@@ -7144,10 +7162,10 @@ impl<'a> Executor<'a> {
 
         for &name in names {
           let name_str = self.interner.get(name).to_owned();
-          let resolved =
-            fields.iter().enumerate().find(|(_, f)| {
-              self.interner.get(f.name) == name_str
-            });
+          let resolved = fields
+            .iter()
+            .enumerate()
+            .find(|(_, f)| self.interner.get(f.name) == name_str);
 
           match resolved {
             Some((i, f)) => out.push((i as u32, f.ty_id)),
@@ -9282,8 +9300,12 @@ impl<'a> Executor<'a> {
       self.sir_values.push(sv);
     } else {
       // Tuple variant — defer to RParen.
-      self.pending_enum_construct =
-        Some((enum_name, variant.discriminant, variant.field_count, ty_id));
+      self.pending_enum_construct.push((
+        enum_name,
+        variant.discriminant,
+        variant.field_count,
+        ty_id,
+      ));
     }
   }
 
@@ -10317,6 +10339,238 @@ impl<'a> Executor<'a> {
   ///       <pat, FatArrow, body..., Comma>*
   ///     RBrace
   /// ```
+  /// Emit the discriminant check + bindings for a nested
+  /// enum pattern `Ident::Ident[(bindings)]` appearing
+  /// inside another enum variant's payload.
+  ///
+  /// `parent_scrut` is the SIR value of the surrounding
+  /// variant's payload struct. `ctx.field_index` is the
+  /// slot to read inside that struct (already offset by
+  /// `+1` past the discriminant). `ctx.field_ty` is the
+  /// static type of the field — must resolve to an enum.
+  /// Returns the index AFTER the consumed pattern (past
+  /// the closing `)` if a payload list is present, else
+  /// past the variant Ident).
+  fn emit_nested_enum_pattern(
+    &mut self,
+    parent_scrut: ValueId,
+    ctx: NestedEnumPatCtx<'_>,
+  ) -> Option<usize> {
+    let NestedEnumPatCtx {
+      field_index,
+      field_ty,
+      pat_start,
+      pat_end,
+      next_arm_label,
+      arm_bindings,
+      int_ty,
+    } = ctx;
+    let enum_sym = match self.node_value(pat_start) {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => return None,
+    };
+    let var_sym = match self.node_value(pat_start + 2) {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => return None,
+    };
+
+    let enum_name_str = self.interner.get(enum_sym).to_owned();
+    let entry = self
+      .enum_defs
+      .iter()
+      .find(|e| {
+        let n = self.interner.get(e.0);
+
+        n == enum_name_str || n.starts_with(&format!("{enum_name_str}__"))
+      })
+      .copied()?;
+    let (_, ety_id, _) = entry;
+    let enum_ty = *self.ty_checker.ty_table.enum_ty(ety_id)?;
+
+    let var_str = self.interner.get(var_sym).to_owned();
+    let variants = self.ty_checker.ty_table.enum_variants(&enum_ty);
+    let variant = *variants
+      .iter()
+      .find(|v| self.interner.get(v.name) == var_str)?;
+
+    // Read the parent's field as the nested scrutinee.
+    let nested_scrut_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let nested_scrut = self.sir.emit(Insn::TupleIndex {
+      dst: nested_scrut_dst,
+      tuple: parent_scrut,
+      index: field_index,
+      ty_id: field_ty,
+    });
+
+    // Read the nested discriminant from slot 0.
+    let disc_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let disc_sir = self.sir.emit(Insn::TupleIndex {
+      dst: disc_dst,
+      tuple: nested_scrut,
+      index: 0,
+      ty_id: int_ty,
+    });
+
+    // Compare against the nested variant's discriminant.
+    let exp_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let exp_sir = self.sir.emit(Insn::ConstInt {
+      dst: exp_dst,
+      value: variant.discriminant as u64,
+      ty_id: int_ty,
+    });
+
+    let cmp_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let cmp_sir = self.sir.emit(Insn::BinOp {
+      dst: cmp_dst,
+      op: zo_sir::BinOp::Eq,
+      lhs: disc_sir,
+      rhs: exp_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cmp_sir,
+      target: next_arm_label,
+    });
+
+    // Walk the payload bindings (if any). Each binding
+    // position can itself be a nested enum pattern —
+    // recurse via the same helper so arbitrary depth
+    // works (`A(B(C(n)))`).
+    if pat_start + 3 >= pat_end
+      || self.tree.nodes[pat_start + 3].token != Token::LParen
+    {
+      return Some(pat_start + 3);
+    }
+
+    let raw_fields = self.ty_checker.ty_table.variant_fields(&variant).to_vec();
+    let nested_field_tys: Vec<TyId> = raw_fields
+      .iter()
+      .map(|ty_id| self.ty_checker.resolve_id(*ty_id))
+      .collect();
+
+    let mut bind_idx = pat_start + 4;
+    let mut field_i: u32 = 0;
+    let mut depth = 1_i32;
+
+    while bind_idx < pat_end && field_i < variant.field_count {
+      let tok = self.tree.nodes[bind_idx].token;
+
+      match tok {
+        Token::LParen => depth += 1,
+        Token::RParen => {
+          depth -= 1;
+
+          if depth == 0 {
+            return Some(bind_idx + 1);
+          }
+        }
+        _ => {}
+      }
+
+      if tok == Token::Comma {
+        bind_idx += 1;
+
+        continue;
+      }
+
+      let nested_inner = tok == Token::Ident
+        && bind_idx + 2 < pat_end
+        && self.tree.nodes[bind_idx + 1].token == Token::ColonColon
+        && self.tree.nodes[bind_idx + 2].token == Token::Ident;
+
+      if nested_inner {
+        let inner_ty = nested_field_tys
+          .get(field_i as usize)
+          .copied()
+          .unwrap_or(int_ty);
+        let after = self
+          .emit_nested_enum_pattern(
+            nested_scrut,
+            NestedEnumPatCtx {
+              field_index: field_i + 1,
+              field_ty: inner_ty,
+              pat_start: bind_idx,
+              pat_end,
+              next_arm_label,
+              arm_bindings,
+              int_ty,
+            },
+          )
+          .unwrap_or(bind_idx + 3);
+
+        bind_idx = after;
+        field_i += 1;
+
+        continue;
+      }
+
+      if tok == Token::Ident
+        && let Some(NodeValue::Symbol(bind_sym)) = self.node_value(bind_idx)
+      {
+        let inner_ty = nested_field_tys
+          .get(field_i as usize)
+          .copied()
+          .unwrap_or(int_ty);
+        let field_dst = ValueId(self.sir.next_value_id);
+
+        self.sir.next_value_id += 1;
+
+        let field_sir = self.sir.emit(Insn::TupleIndex {
+          dst: field_dst,
+          tuple: nested_scrut,
+          index: field_i + 1,
+          ty_id: inner_ty,
+        });
+
+        self.sir.emit(Insn::VarDef {
+          name: bind_sym,
+          ty_id: inner_ty,
+          init: Some(field_sir),
+          mutability: Mutability::No,
+          pubness: Pubness::No,
+        });
+
+        self.sir.emit(Insn::Store {
+          name: bind_sym,
+          value: field_sir,
+          ty_id: inner_ty,
+        });
+
+        let rid = self.values.store_runtime(0);
+
+        self.locals.push(Local {
+          name: bind_sym,
+          ty_id: inner_ty,
+          value_id: rid,
+          pubness: Pubness::No,
+          mutability: Mutability::No,
+          sir_value: Some(field_sir),
+          local_kind: LocalKind::Variable,
+        });
+
+        *arm_bindings += 1;
+        field_i += 1;
+      }
+
+      bind_idx += 1;
+    }
+
+    Some(bind_idx)
+  }
+
   fn execute_match(&mut self, start_idx: usize, end_idx: usize) {
     // Provisional skip — the main loop must not re-visit the
     // match's nodes after we return. Tightened below to
@@ -10980,6 +11234,42 @@ impl<'a> Executor<'a> {
               report_error(Error::new(ErrorKind::ExpectedIdentifier, span));
 
               bind_idx += 1;
+              field_i += 1;
+
+              continue;
+            }
+
+            // Nested enum pattern: `Ident::Ident[(payload)]`
+            // where `Ident::Ident` is itself a variant of the
+            // outer payload's field type. Read the field as
+            // a sub-scrutinee, emit a discriminant check
+            // against the nested variant, and bind the
+            // nested payload's idents against the nested
+            // scrutinee.
+            let is_nested_enum = tok == Token::Ident
+              && bind_idx + 2 < arrow_idx
+              && self.tree.nodes[bind_idx + 1].token == Token::ColonColon
+              && self.tree.nodes[bind_idx + 2].token == Token::Ident;
+
+            if is_nested_enum {
+              let field_ty =
+                field_tys.get(field_i as usize).copied().unwrap_or(int_ty);
+              let nested_end = self
+                .emit_nested_enum_pattern(
+                  scrut_reload,
+                  NestedEnumPatCtx {
+                    field_index: field_i + 1,
+                    field_ty,
+                    pat_start: bind_idx,
+                    pat_end: arrow_idx,
+                    next_arm_label,
+                    arm_bindings: &mut arm_bindings,
+                    int_ty,
+                  },
+                )
+                .unwrap_or(bind_idx + 3);
+
+              bind_idx = nested_end;
               field_i += 1;
 
               continue;
