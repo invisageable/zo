@@ -25,9 +25,9 @@
 use zo_codegen_backend::MachoLinkObject;
 use zo_emitter_arm::X16;
 use zo_writer_macho::{
-  CODE_OFFSET, DATA_SEGMENT_INDEX, DATA_VM_ADDR, LIBSYSTEM_DYLIB_ORDINAL,
-  MachO, PAGE_MASK, TEXT_SECTION_BASE, ZO_RUNTIME_DYLIB_ORDINAL,
-  ZO_RUNTIME_SYMBOL_PREFIX,
+  CODE_OFFSET, DATA_SEGMENT_INDEX, LIBSYSTEM_DYLIB_ORDINAL, MachO, PAGE_MASK,
+  TEXT_SECTION_BASE, VM_BASE, ZO_RUNTIME_DYLIB_ORDINAL,
+  ZO_RUNTIME_SYMBOL_PREFIX, round_up_segment,
 };
 
 /// Assemble a mach-o executable from the codegen's
@@ -36,6 +36,16 @@ use zo_writer_macho::{
 pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   let mut macho = MachO::new();
   let mut code = link_obj.code;
+
+  // The mach-o `__DATA` segment starts immediately after
+  // the page-rounded `__TEXT` segment. We compute the
+  // text segment size up front from the final code length
+  // so the stub-patching loop below can compute correct
+  // VM addresses for the GOT slots — without this, the
+  // patcher would need a back-reference into `MachO`'s
+  // internal layout state.
+  let text_segment_size = round_up_segment(CODE_OFFSET + code.len() as u32);
+  let data_vm_addr = VM_BASE + text_segment_size as u64;
 
   // --- Libm GOT + stub patching ---
   // Each libm function gets one 8-byte GOT slot in __DATA
@@ -54,7 +64,7 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
 
   for (i, c_sym) in link_obj.extern_used.iter().enumerate() {
     let got_offset_in_data = (i * 8) as u64;
-    let got_vm_addr = DATA_VM_ADDR + got_offset_in_data;
+    let got_vm_addr = data_vm_addr + got_offset_in_data;
 
     // Populate GOT slot with zero (dyld overwrites).
     got_data.extend_from_slice(&[0u8; 8]);

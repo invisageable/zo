@@ -816,10 +816,16 @@ fn test_requirements_blob() {
 fn test_code_directory_hashes() {
   let mut macho = MachO::new();
 
-  // Add enough code to span multiple pages
-  for _ in 0..4096 {
-    macho.add_code(vec![0x00, 0x00, 0x00, 0x00]); // nop
-  }
+  // Add enough code to span multiple 16 KB code-signature
+  // pages. The previous form looped `add_code(4 bytes)`
+  // 4096 times, but `add_code` replaces rather than
+  // appends — so the actual code was 4 bytes. The big
+  // post-Tier-A1 binary was a side-effect of the static
+  // 256 KB padding; now we set the code size honestly.
+  let big_code: Vec<u8> =
+    (0..16384).flat_map(|_| [0x00, 0x00, 0x00, 0x00]).collect();
+
+  macho.add_code(big_code);
 
   let binary = macho.finish_with_signature();
 

@@ -239,7 +239,10 @@ impl<K: DenseId> DenseSet<K> {
     let word_idx = i / BITS_PER_WORD;
     let bit = i % BITS_PER_WORD;
 
-    self.words.get(word_idx).is_some_and(|w| (w >> bit) & 1 == 1)
+    self
+      .words
+      .get(word_idx)
+      .is_some_and(|w| (w >> bit) & 1 == 1)
   }
 
   /// Reset every bit. Capacity is retained.

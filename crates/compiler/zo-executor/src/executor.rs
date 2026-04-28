@@ -895,7 +895,9 @@ impl<'a> Executor<'a> {
   /// Look up a local variable (if any). Returns the
   /// innermost (most-recent) binding for `name`.
   fn lookup_local(&self, name: Symbol) -> Option<&Local> {
-    self.lookup_local_idx(name).map(|i| &self.locals[i as usize])
+    self
+      .lookup_local_idx(name)
+      .map(|i| &self.locals[i as usize])
   }
 
   /// Index into `self.locals` for the innermost binding of
@@ -968,10 +970,7 @@ impl<'a> Executor<'a> {
   /// Append an enum definition AND record its name in
   /// `enum_def_by_name`. Every push site must go through
   /// here.
-  fn push_enum_def(
-    &mut self,
-    entry: (Symbol, zo_ty::EnumTyId, TyId),
-  ) {
+  fn push_enum_def(&mut self, entry: (Symbol, zo_ty::EnumTyId, TyId)) {
     let idx = EnumIdx(self.enum_defs.len() as u32);
     let name = entry.0;
 
@@ -982,10 +981,7 @@ impl<'a> Executor<'a> {
   /// O(1) lookup: returns the `(name, EnumTyId, TyId)`
   /// entry for `name`, or `None` if no enum by that name
   /// has been registered. Direct array load — no hashing.
-  fn find_enum(
-    &self,
-    name: Symbol,
-  ) -> Option<(Symbol, zo_ty::EnumTyId, TyId)> {
+  fn find_enum(&self, name: Symbol) -> Option<(Symbol, zo_ty::EnumTyId, TyId)> {
     self
       .enum_def_by_name
       .get(name)
@@ -2855,9 +2851,9 @@ impl<'a> Executor<'a> {
                     .current_function
                     .as_ref()
                     .and_then(|ctx| {
-                      self.find_fun(ctx.name).and_then(
-                        |f| f.params.iter().position(|(n, _)| *n == sym),
-                      )
+                      self.find_fun(ctx.name).and_then(|f| {
+                        f.params.iter().position(|(n, _)| *n == sym)
+                      })
                     })
                     .unwrap_or(0) as u32;
 
@@ -7326,10 +7322,8 @@ impl<'a> Executor<'a> {
         let mut out = Vec::with_capacity(names.len());
 
         for &name in names {
-          let resolved = fields
-            .iter()
-            .enumerate()
-            .find(|(_, f)| f.name == name);
+          let resolved =
+            fields.iter().enumerate().find(|(_, f)| f.name == name);
 
           match resolved {
             Some((i, f)) => out.push((i as u32, f.ty_id)),
@@ -8214,8 +8208,7 @@ impl<'a> Executor<'a> {
 
           if let Some(fname) = fname {
             // Find field index.
-            let field_idx =
-              field_defs.iter().position(|f| f.name == fname);
+            let field_idx = field_defs.iter().position(|f| f.name == fname);
 
             idx += 1;
 
@@ -9339,47 +9332,47 @@ impl<'a> Executor<'a> {
         .iter()
         .position(|e| e.name == enum_name)
     {
-        let en = self.pending_imported_enums.remove(pos);
+      let en = self.pending_imported_enums.remove(pos);
 
-        // Use fresh inference variables for generic field
-        // types so monomorphization can substitute concrete
-        // types (e.g. `$T` → `int`). Bump the level to
-        // isolate these from function-body generalization —
-        // without this, they pollute the HM state and break
-        // ternary/if-else type unification.
-        self.ty_checker.push_scope();
+      // Use fresh inference variables for generic field
+      // types so monomorphization can substitute concrete
+      // types (e.g. `$T` → `int`). Bump the level to
+      // isolate these from function-body generalization —
+      // without this, they pollute the HM state and break
+      // ternary/if-else type unification.
+      self.ty_checker.push_scope();
 
-        let fresh_variants: Vec<(Symbol, u32, Vec<TyId>)> = en
-          .variants
-          .iter()
-          .map(|(name, disc, fields)| {
-            let pf: Vec<TyId> =
-              fields.iter().map(|_| self.ty_checker.fresh_var()).collect();
+      let fresh_variants: Vec<(Symbol, u32, Vec<TyId>)> = en
+        .variants
+        .iter()
+        .map(|(name, disc, fields)| {
+          let pf: Vec<TyId> =
+            fields.iter().map(|_| self.ty_checker.fresh_var()).collect();
 
-            (*name, *disc, pf)
-          })
-          .collect();
+          (*name, *disc, pf)
+        })
+        .collect();
 
-        self.ty_checker.pop_scope();
+      self.ty_checker.pop_scope();
 
-        let ety_id = self
-          .ty_checker
-          .ty_table
-          .intern_enum(en.name, &fresh_variants);
-        let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
+      let ety_id = self
+        .ty_checker
+        .ty_table
+        .intern_enum(en.name, &fresh_variants);
+      let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
 
-        self.push_enum_def((en.name, ety_id, ty_id));
+      self.push_enum_def((en.name, ety_id, ty_id));
 
-        // Emit EnumDef so the codegen registers
-        // enum_metas for match discriminant handling.
-        self.sir.emit(Insn::EnumDef {
-          name: en.name,
-          ty_id,
-          variants: fresh_variants,
-          pubness: zo_value::Pubness::No,
-        });
+      // Emit EnumDef so the codegen registers
+      // enum_metas for match discriminant handling.
+      self.sir.emit(Insn::EnumDef {
+        name: en.name,
+        ty_id,
+        variants: fresh_variants,
+        pubness: zo_value::Pubness::No,
+      });
 
-        entry = Some((en.name, ety_id, ty_id));
+      entry = Some((en.name, ety_id, ty_id));
     }
 
     if entry.is_none() {
@@ -10860,8 +10853,10 @@ impl<'a> Executor<'a> {
         }
       };
 
-      let resolved =
-        fields.iter().enumerate().find(|(_, f)| f.name == field_name);
+      let resolved = fields
+        .iter()
+        .enumerate()
+        .find(|(_, f)| f.name == field_name);
 
       let (field_idx, field_ty) = match resolved {
         Some((idx, f)) => (idx as u32, f.ty_id),
@@ -13427,8 +13422,8 @@ impl<'a> Executor<'a> {
     // (`self.x += 1`), `name` is the field — look up
     // the receiver (`self`) and check its mutability.
     let local = self
-        .lookup_local_idx(name)
-        .and_then(|i| self.locals.get_mut(i as usize));
+      .lookup_local_idx(name)
+      .and_then(|i| self.locals.get_mut(i as usize));
 
     let Some(local) = local else {
       // Not a direct local — field compound assign
@@ -13484,16 +13479,15 @@ impl<'a> Executor<'a> {
         // parameters (e.g., self) so the codegen reads
         // from the param spill slot, not mutable_slots.
         let recv_src = if recv_kind == LocalKind::Parameter {
-          let param_idx =
-            self
-              .current_function
-              .as_ref()
-              .and_then(|ctx| {
-                self.find_fun(ctx.name).and_then(|f| {
-                  f.params.iter().position(|(n, _)| *n == recv_sym)
-                })
-              })
-              .unwrap_or(0) as u32;
+          let param_idx = self
+            .current_function
+            .as_ref()
+            .and_then(|ctx| {
+              self
+                .find_fun(ctx.name)
+                .and_then(|f| f.params.iter().position(|(n, _)| *n == recv_sym))
+            })
+            .unwrap_or(0) as u32;
 
           LoadSource::Param(param_idx)
         } else {
@@ -17083,8 +17077,7 @@ impl<'a> Executor<'a> {
               if n.token == Token::Ident
                 && interp_text.is_none()
                 && let Some(NodeValue::Symbol(sym)) = self.node_value(idx)
-                && let Some(local) =
-                  self.lookup_local(sym)
+                && let Some(local) = self.lookup_local(sym)
               {
                 let text = self.value_to_string(local.value_id);
 
