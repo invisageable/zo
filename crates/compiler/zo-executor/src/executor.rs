@@ -468,6 +468,17 @@ struct NestedEnumPatCtx<'a> {
   int_ty: TyId,
 }
 
+/// Parameters for `emit_struct_pattern_arm` —
+/// match-arm dispatch for `Type { field, field: lit, .. }`.
+struct StructPatArmCtx<'a> {
+  scrutinee_sym: Option<Symbol>,
+  scrutinee_ty: TyId,
+  pat_idx: usize,
+  arrow_idx: usize,
+  next_arm_label: u32,
+  arm_bindings: &'a mut u32,
+}
+
 /// Deferred variable declaration, finalized at Semicolon.
 struct PendingDecl {
   name: Symbol,
@@ -10571,6 +10582,290 @@ impl<'a> Executor<'a> {
     Some(bind_idx)
   }
 
+  /// Emit a match arm whose pattern is a struct
+  /// destructuring `Type { f1, f2: lit, .. }`.
+  ///
+  /// For each field in the pattern:
+  ///   - bare `Ident` binds the field's value to a local
+  ///     of the same name;
+  ///   - `Ident: literal` emits `field == literal`, branching
+  ///     to `next_arm_label` on mismatch (no binding);
+  ///   - `..` matches any remaining fields without binding.
+  ///
+  /// The struct's name is at `pat_idx`; the field list runs
+  /// between `LBrace` (pat_idx + 1) and the matching
+  /// `RBrace` at top-level depth. Field names are resolved
+  /// against the struct's static field table for index +
+  /// type. The scrutinee is reloaded fresh per arm —
+  /// matches the per-arm reload pattern used by
+  /// `is_enum_pat` so register-allocator liveness stays
+  /// correct across arms.
+  fn emit_struct_pattern_arm(&mut self, ctx: StructPatArmCtx<'_>) {
+    let StructPatArmCtx {
+      scrutinee_sym,
+      scrutinee_ty,
+      pat_idx,
+      arrow_idx,
+      next_arm_label,
+      arm_bindings,
+    } = ctx;
+
+    // Find the matching `}` of the struct pattern.
+    let mut depth = 1_i32;
+    let mut close_idx = arrow_idx;
+
+    for j in (pat_idx + 2)..arrow_idx {
+      match self.tree.nodes[j].token {
+        Token::LBrace => depth += 1,
+        Token::RBrace => {
+          depth -= 1;
+
+          if depth == 0 {
+            close_idx = j;
+
+            break;
+          }
+        }
+        _ => {}
+      }
+    }
+
+    // Resolve the struct's field table. Without a struct
+    // type we can't bind fields — quietly skip; codegen
+    // will treat the arm as wildcard at worst.
+    let fields = match self.ty_checker.kind_of(scrutinee_ty) {
+      Ty::Struct(sid) => self
+        .ty_checker
+        .ty_table
+        .struct_ty(sid)
+        .map(|st| self.ty_checker.ty_table.struct_fields(st).to_vec()),
+      _ => None,
+    };
+
+    let fields = match fields {
+      Some(f) => f,
+      None => return,
+    };
+
+    // Reload the scrutinee for this arm.
+    let scrut_dst = ValueId(self.sir.next_value_id);
+
+    self.sir.next_value_id += 1;
+
+    let scrut_reload = if let Some(sym) = scrutinee_sym {
+      self.sir.emit(Insn::Load {
+        dst: scrut_dst,
+        src: LoadSource::Local(sym),
+        ty_id: scrutinee_ty,
+      })
+    } else {
+      scrut_dst
+    };
+
+    // Walk pattern fields between `{` and `}`.
+    let mut i = pat_idx + 2;
+
+    while i < close_idx {
+      let tok = self.tree.nodes[i].token;
+
+      // Skip commas + the rest pattern `..`.
+      if tok == Token::Comma {
+        i += 1;
+
+        continue;
+      }
+
+      if tok == Token::DotDot {
+        i += 1;
+
+        continue;
+      }
+
+      // Each pattern field must start with an Ident — the
+      // name resolves against the struct's field table.
+      if tok != Token::Ident {
+        i += 1;
+
+        continue;
+      }
+
+      let field_name = match self.node_value(i) {
+        Some(NodeValue::Symbol(s)) => s,
+        _ => {
+          i += 1;
+
+          continue;
+        }
+      };
+
+      let field_name_str = self.interner.get(field_name).to_owned();
+      let resolved = fields
+        .iter()
+        .enumerate()
+        .find(|(_, f)| self.interner.get(f.name) == field_name_str);
+
+      let (field_idx, field_ty) = match resolved {
+        Some((idx, f)) => (idx as u32, f.ty_id),
+        None => {
+          i += 1;
+
+          continue;
+        }
+      };
+
+      // Read the field once for either the binding or
+      // the literal compare.
+      let field_dst = ValueId(self.sir.next_value_id);
+
+      self.sir.next_value_id += 1;
+
+      let field_sir = self.sir.emit(Insn::TupleIndex {
+        dst: field_dst,
+        tuple: scrut_reload,
+        index: field_idx,
+        ty_id: field_ty,
+      });
+
+      let next = i + 1;
+
+      // Field with literal-match: `name: literal`.
+      if next + 1 < close_idx
+        && self.tree.nodes[next].token == Token::Colon
+        && matches!(
+          self.tree.nodes[next + 1].token,
+          Token::Int
+            | Token::Float
+            | Token::Char
+            | Token::Bytes
+            | Token::True
+            | Token::False
+            | Token::String
+        )
+      {
+        let lit_idx = next + 1;
+        let lit_tok = self.tree.nodes[lit_idx].token;
+        let pat_dst = ValueId(self.sir.next_value_id);
+
+        self.sir.next_value_id += 1;
+
+        let pat_sir = match lit_tok {
+          Token::Int => {
+            let value = match self.node_value(lit_idx) {
+              Some(NodeValue::Literal(l)) => {
+                self.literals.int_literals[l as usize]
+              }
+              _ => 0,
+            };
+
+            self.sir.emit(Insn::ConstInt {
+              dst: pat_dst,
+              value,
+              ty_id: field_ty,
+            })
+          }
+          Token::Float => {
+            let value = match self.node_value(lit_idx) {
+              Some(NodeValue::Literal(l)) => {
+                self.literals.float_literals[l as usize]
+              }
+              _ => 0.0,
+            };
+
+            self.sir.emit(Insn::ConstFloat {
+              dst: pat_dst,
+              value,
+              ty_id: field_ty,
+            })
+          }
+          Token::True | Token::False => self.sir.emit(Insn::ConstBool {
+            dst: pat_dst,
+            value: lit_tok == Token::True,
+            ty_id: field_ty,
+          }),
+          Token::Char => {
+            let value = match self.node_value(lit_idx) {
+              Some(NodeValue::Literal(l)) => {
+                self.literals.char_literals[l as usize] as u64
+              }
+              _ => 0,
+            };
+
+            self.sir.emit(Insn::ConstInt {
+              dst: pat_dst,
+              value,
+              ty_id: field_ty,
+            })
+          }
+          Token::String => {
+            let sym = match self.node_value(lit_idx) {
+              Some(NodeValue::Symbol(s)) => s,
+              _ => self.interner.intern(""),
+            };
+
+            self.sir.emit(Insn::ConstString {
+              dst: pat_dst,
+              symbol: sym,
+              ty_id: field_ty,
+            })
+          }
+          _ => pat_dst,
+        };
+
+        let cmp_dst = ValueId(self.sir.next_value_id);
+
+        self.sir.next_value_id += 1;
+
+        let cmp_sir = self.sir.emit(Insn::BinOp {
+          dst: cmp_dst,
+          op: zo_sir::BinOp::Eq,
+          lhs: field_sir,
+          rhs: pat_sir,
+          ty_id: field_ty,
+        });
+
+        self.sir.emit(Insn::BranchIfNot {
+          cond: cmp_sir,
+          target: next_arm_label,
+        });
+
+        i = lit_idx + 1;
+
+        continue;
+      }
+
+      // Bare `Ident` — bind the field to a local of the
+      // same name.
+      self.sir.emit(Insn::VarDef {
+        name: field_name,
+        ty_id: field_ty,
+        init: Some(field_sir),
+        mutability: Mutability::No,
+        pubness: Pubness::No,
+      });
+
+      self.sir.emit(Insn::Store {
+        name: field_name,
+        value: field_sir,
+        ty_id: field_ty,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.locals.push(Local {
+        name: field_name,
+        ty_id: field_ty,
+        value_id: rid,
+        pubness: Pubness::No,
+        mutability: Mutability::No,
+        sir_value: Some(field_sir),
+        local_kind: LocalKind::Variable,
+      });
+
+      *arm_bindings += 1;
+      i = next;
+    }
+  }
+
   fn execute_match(&mut self, start_idx: usize, end_idx: usize) {
     // Provisional skip — the main loop must not re-visit the
     // match's nodes after we return. Tightened below to
@@ -10859,6 +11154,16 @@ impl<'a> Executor<'a> {
       // tuple pattern only at pattern position — parameter
       // lists, calls, and unary grouping never appear here.
       let is_tuple_pat = !is_wildcard && pat_tok == Token::LParen;
+
+      // Detect struct pattern: `Rect { x, y: lit, .. }`.
+      // The leading Ident is the struct's name and the
+      // immediately-following `{` distinguishes this from
+      // a plain Ident binding (which has FatArrow next)
+      // and from an enum pattern (which has `::` next).
+      let is_struct_pat = !is_wildcard
+        && pat_tok == Token::Ident
+        && pat_idx + 1 < arrow_idx
+        && self.tree.nodes[pat_idx + 1].token == Token::LBrace;
 
       if !is_wildcard
         && matches!(
@@ -11584,7 +11889,20 @@ impl<'a> Executor<'a> {
             target: next_arm_label,
           });
         }
-      } else if !is_wildcard && !is_enum_pat && pat_tok == Token::Ident {
+      } else if is_struct_pat {
+        self.emit_struct_pattern_arm(StructPatArmCtx {
+          scrutinee_sym,
+          scrutinee_ty,
+          pat_idx,
+          arrow_idx,
+          next_arm_label,
+          arm_bindings: &mut arm_bindings,
+        });
+      } else if !is_wildcard
+        && !is_enum_pat
+        && !is_struct_pat
+        && pat_tok == Token::Ident
+      {
         // Ident-pattern `num => body` / `num if guard => body`.
         // Binds the scrutinee's value to `num` inside the arm's
         // scope, then (optionally) evaluates a guard expression
