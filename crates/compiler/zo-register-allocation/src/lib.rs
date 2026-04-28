@@ -1,5 +1,6 @@
 pub mod allocator;
 
+use zo_interner::Interner;
 use zo_sir::Insn;
 use zo_value::{FunctionKind, ValueId};
 
@@ -7,7 +8,7 @@ use rustc_hash::FxHashMap as HashMap;
 
 // Re-export liveness utilities so existing consumers
 // don't need to add zo-liveness directly.
-pub use zo_liveness::{compute_value_ids, insn_uses};
+pub use zo_liveness::{compute_value_ids, visit_uses};
 
 /// Slots reserved per IO Result frame
 /// (`Result tag + heap ptr + scratch`).
@@ -140,7 +141,7 @@ impl RegAlloc {
   pub fn allocate(
     insns: &[Insn],
     next_value_id: u32,
-    interner: &zo_interner::Interner,
+    interner: &Interner,
   ) -> Self {
     let value_ids = compute_value_ids(insns);
     let mut result = Self {
@@ -156,17 +157,42 @@ impl RegAlloc {
     // Clone value_ids to avoid borrow conflict.
     let vids = result.value_ids.clone();
 
+    // Pre-compute the struct-return field count per
+    // user function name in a single linear pass over
+    // the whole SIR. Without this, `allocate_function`'s
+    // catch-all per-Call branch re-scans the entire
+    // instruction stream for every unmatched call —
+    // O(calls × insns) overall, which dominated codegen
+    // time on programs with many small calls.
+    let struct_return_fns = build_struct_return_map(insns);
+
     for (start, end) in functions {
-      allocator::allocate_function(
+      let ctx = allocator::AllocCtx {
         insns,
         start,
         end,
-        &vids,
-        next_value_id,
-        &mut result,
+        value_ids: &vids,
+        num_values: next_value_id,
         interner,
-      );
+        struct_return_fns: &struct_return_fns,
+      };
+
+      allocator::allocate_function(&ctx, &mut result);
     }
+
+    // Sort `spill_ops` by `insn_idx` so the codegen can
+    // index into them in O(1) per insn via a parallel
+    // offsets array. `Before` precedes `After` within
+    // one insn — the codegen relies on emitting Before
+    // first.
+    result.spill_ops.sort_by_key(|op| {
+      let timing_bit = match op.timing {
+        EmitTiming::Before => 0u32,
+        EmitTiming::After => 1u32,
+      };
+
+      (op.insn_idx as u64) << 1 | timing_bit as u64
+    });
 
     result
   }
@@ -188,6 +214,41 @@ impl RegAlloc {
   pub fn value_id_at(&self, idx: usize) -> Option<ValueId> {
     self.value_ids.get(idx).copied().flatten()
   }
+}
+
+/// Build a map from function name to its struct-return
+/// field count, in a single linear pass over the SIR.
+/// Only functions whose body emits `StructConstruct` and
+/// then `Return Some` are recorded.
+///
+/// Used by `allocate_function`'s `Insn::Call` budgeting:
+/// callers of struct-returning functions reserve space
+/// for the struct copy in their own frame. The previous
+/// per-call full-SIR scan was O(calls × insns).
+fn build_struct_return_map(insns: &[Insn]) -> HashMap<u32, u32> {
+  let mut map = HashMap::default();
+  let mut cur_fn: Option<u32> = None;
+  let mut last_fields: Option<u32> = None;
+
+  for insn in insns {
+    match insn {
+      Insn::FunDef { name, .. } => {
+        cur_fn = Some(name.as_u32());
+        last_fields = None;
+      }
+      Insn::StructConstruct { fields, .. } => {
+        last_fields = Some(fields.len() as u32);
+      }
+      Insn::Return { value: Some(_), .. } => {
+        if let (Some(fname), Some(n)) = (cur_fn, last_fields) {
+          map.insert(fname, n);
+        }
+      }
+      _ => {}
+    }
+  }
+
+  map
 }
 
 /// Identify non-intrinsic function bodies as (start, end)

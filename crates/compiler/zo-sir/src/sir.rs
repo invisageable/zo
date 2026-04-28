@@ -541,10 +541,16 @@ pub enum Insn {
     ty_id: TyId,
   },
   /// Array push: arr.push(value). Side effect — mutates len.
+  /// `owner` is the receiver's local symbol (when the
+  /// receiver is a bare ident). Codegen needs it to write
+  /// the realloc'd pointer back to the local's stack slot
+  /// — without it, the backend would have to scan SIR for
+  /// the `Insn::Load` that produced `array`.
   ArrayPush {
     array: ValueId,
     value: ValueId,
     ty_id: TyId,
+    owner: Option<Symbol>,
   },
   /// Array pop: val = arr.pop(). Decrements len, returns last.
   ArrayPop {
@@ -912,13 +918,13 @@ impl BinOp {
       table[Token::LtEq as usize] = Some(BinOp::Lte);
       table[Token::Gt as usize] = Some(BinOp::Gt);
       table[Token::GtEq as usize] = Some(BinOp::Gte);
-      table[Token::Amp as usize] = Some(BinOp::And);
+      table[Token::AmpAmp as usize] = Some(BinOp::And);
       table[Token::PipePipe as usize] = Some(BinOp::Or);
-      table[Token::PipePipe as usize] = Some(BinOp::BitAnd);
-      table[Token::PipePipe as usize] = Some(BinOp::BitOr);
-      table[Token::PipePipe as usize] = Some(BinOp::BitXor);
-      table[Token::PipePipe as usize] = Some(BinOp::Shl);
-      table[Token::PipePipe as usize] = Some(BinOp::Shr);
+      table[Token::Amp as usize] = Some(BinOp::BitAnd);
+      table[Token::Pipe as usize] = Some(BinOp::BitOr);
+      table[Token::Caret as usize] = Some(BinOp::BitXor);
+      table[Token::LShift as usize] = Some(BinOp::Shl);
+      table[Token::RShift as usize] = Some(BinOp::Shr);
       table[Token::PlusPlus as usize] = Some(BinOp::Concat);
       table
     };

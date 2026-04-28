@@ -1,6 +1,8 @@
 use zo_constant_folding::{ConstFold, FoldResult, Operand};
 use zo_error::{Error, ErrorKind};
-use zo_interner::{Interner, Symbol};
+use zo_interner::{
+  DenseMap, Interner, ScopeMark, ScopedDenseMap, Sentinel, Symbol,
+};
 use zo_reporter::report_error;
 use zo_sir::{
   BinOp, Insn, LoadSource, NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
@@ -23,11 +25,44 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use std::cell::Cell;
 
-/// Scope frame for variable tracking
+/// Index newtype: position in `Executor::funs`.
+/// Reserves `u32::MAX` as the absent sentinel so a
+/// `DenseMap<Symbol, FunIdx>` can store it directly with
+/// no `Option` overhead.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct FunIdx(u32);
+
+impl Sentinel for FunIdx {
+  const ABSENT: FunIdx = FunIdx(u32::MAX);
+}
+
+/// Index newtype: position in `Executor::enum_defs`.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct EnumIdx(u32);
+
+impl Sentinel for EnumIdx {
+  const ABSENT: EnumIdx = EnumIdx(u32::MAX);
+}
+
+/// Index newtype: position in `Executor::locals`.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct LocalIdx(u32);
+
+impl Sentinel for LocalIdx {
+  const ABSENT: LocalIdx = LocalIdx(u32::MAX);
+}
+
+/// Scope frame for variable tracking.
 pub struct ScopeFrame {
-  // Start index in locals array
+  /// First index in the `locals` array that belongs to
+  /// this scope. `pop_scope` truncates `locals` here.
   start: u32,
-  // Number of locals in this scope
+  /// `ScopedDenseMap` checkpoint snapshot taken at scope
+  /// entry. `pop_scope` rolls the shadow stack back to
+  /// this point, restoring every outer-scope binding the
+  /// inner scope shadowed.
+  mark: ScopeMark,
+  // Unused — kept to avoid touching every push site.
   count: u32,
 }
 
@@ -102,8 +137,16 @@ pub struct Executor<'a> {
   values: ValueStorage,
   /// Block boundaries
   scope_stack: Vec<ScopeFrame>,
-  /// All local variables (dense array)
+  /// All local variables (dense array).
   locals: Vec<Local>,
+  /// `Symbol → LocalIdx` lookup for the CURRENT (innermost)
+  /// binding of that name. `ScopedDenseMap` couples a
+  /// `DenseMap<Symbol, LocalIdx>` for O(1) reads with a
+  /// flat shadow stack (`(sym, prev_idx)` saves) so a
+  /// scope pop restores every outer binding the scope
+  /// shadowed. Direct array load — no hashing, no per-
+  /// symbol stack of bindings.
+  local_scope: ScopedDenseMap<Symbol, LocalIdx>,
   /// Builds SIR as we execute (placeholder for now)
   sir: Sir,
   /// The type checker instance (borrowed from caller).
@@ -112,8 +155,14 @@ pub struct Executor<'a> {
   annotations: Vec<Annotation>,
   /// Maps value_stack indices to SIR ValueIds for operands
   sir_values: Vec<ValueId>,
-  /// Function definitions
+  /// Function definitions.
   funs: Vec<FunDef>,
+  /// `Symbol → FunIdx` lookup. Direct array load — no
+  /// hashing. Maintained in lockstep with `push_fun`.
+  /// Replaces the `funs.iter().find(|f| f.name == sym)`
+  /// pattern that recurred at 20+ sites and made every
+  /// name resolution O(|funs|).
+  fun_by_name: DenseMap<Symbol, FunIdx>,
   /// Current function context (if we're inside a function)
   current_function: Option<FunCtx>,
   /// Save-stack for nested `fun` inside a function body.
@@ -189,6 +238,13 @@ pub struct Executor<'a> {
   closure_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
   enum_defs: Vec<(Symbol, zo_ty::EnumTyId, TyId)>,
+  /// `Symbol → EnumIdx` lookup. Direct array load — no
+  /// hashing. Maintained in lockstep with
+  /// `push_enum_def`. Replaces the
+  /// `enum_defs.iter().find(|e| e.0 == sym)` /
+  /// `interner.get(...).to_owned()` + `==` pattern that
+  /// recurred at every enum reference and match arm.
+  enum_def_by_name: DenseMap<Symbol, EnumIdx>,
   /// Imported enum defs awaiting lazy interning. Populated
   /// by `with_imports`, consumed by `execute_enum_access`
   /// on first reference.
@@ -529,6 +585,8 @@ impl<'a> Executor<'a> {
       annotations: Vec::with_capacity(capacity),
       sir_values: Vec::with_capacity(capacity / 4),
       funs: Vec::with_capacity(capacity / 100), // Estimate function count
+      fun_by_name: DenseMap::new(),
+      local_scope: ScopedDenseMap::new(),
       current_function: None,
       saved_outer_funs: Vec::new(),
       pending_function: None,
@@ -553,6 +611,7 @@ impl<'a> Executor<'a> {
       dot_method_recv_ty: HashMap::default(),
       closure_counter: 0,
       enum_defs: Vec::new(),
+      enum_def_by_name: DenseMap::new(),
       pending_imported_enums: Vec::new(),
       var_return_type_args: HashMap::default(),
       decl_annotation_args: HashMap::default(),
@@ -634,7 +693,7 @@ impl<'a> Executor<'a> {
       return;
     };
 
-    let Some(fun_def) = self.funs.iter().find(|f| f.name == name) else {
+    let Some(fun_def) = self.find_fun(name) else {
       return;
     };
 
@@ -752,10 +811,10 @@ impl<'a> Executor<'a> {
   /// `body_start` values during the main pass (and re-
   /// executed generic instantiations overwrite their stub).
   fn push_or_replace_fun(&mut self, def: FunDef) {
-    if let Some(slot) = self.funs.iter_mut().find(|f| f.name == def.name) {
-      *slot = def;
+    if let Some(FunIdx(i)) = self.fun_by_name.get(def.name) {
+      self.funs[i as usize] = def;
     } else {
-      self.funs.push(def);
+      self.push_fun(def);
     }
   }
 
@@ -833,24 +892,110 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Look up a local variable (if any).
+  /// Look up a local variable (if any). Returns the
+  /// innermost (most-recent) binding for `name`.
   fn lookup_local(&self, name: Symbol) -> Option<&Local> {
-    self.locals.iter().rev().find(|local| local.name == name)
+    self.lookup_local_idx(name).map(|i| &self.locals[i as usize])
   }
 
-  /// Push a new scope.
+  /// Index into `self.locals` for the innermost binding of
+  /// `name`, if any. Single direct array load — no
+  /// hashing.
+  fn lookup_local_idx(&self, name: Symbol) -> Option<u32> {
+    self.local_scope.get(name).map(|LocalIdx(i)| i)
+  }
+
+  /// Push a new local AND record the displaced binding on
+  /// the shadow stack. Every `self.locals.push` site must
+  /// go through here — direct pushes bypass the index and
+  /// re-introduce the linear-find regression.
+  fn push_local(&mut self, local: Local) {
+    let idx = LocalIdx(self.locals.len() as u32);
+    let name = local.name;
+
+    self.locals.push(local);
+    self.local_scope.push(name, idx);
+  }
+
+  /// Push a new scope. Snapshots the shadow stack so
+  /// `pop_scope` can roll every binding pushed in this
+  /// scope back to its outer-scope value.
   fn push_scope(&mut self) {
     self.scope_stack.push(ScopeFrame {
       start: self.locals.len() as u32,
+      mark: self.local_scope.checkpoint(),
       count: 0,
     });
   }
 
-  /// Pops a scope and remove its locals.
+  /// Pops a scope, truncates `locals`, and rolls the
+  /// shadow stack back so each outer binding is restored.
   fn pop_scope(&mut self) {
     if let Some(frame) = self.scope_stack.pop() {
+      self.local_scope.rollback_to(frame.mark);
       self.locals.truncate(frame.start as usize);
     }
+  }
+
+  /// Append a function definition AND record its name in
+  /// `fun_by_name`. Every `self.funs.push` site must go
+  /// through here — direct pushes bypass the index and
+  /// re-introduce the linear-find regression.
+  fn push_fun(&mut self, def: FunDef) {
+    let idx = FunIdx(self.funs.len() as u32);
+    let name = def.name;
+
+    self.funs.push(def);
+    self.fun_by_name.insert(name, idx);
+  }
+
+  /// O(1) lookup: returns the `FunDef` for `name`, or
+  /// `None` if no function by that name has been pushed.
+  /// Direct array load — no hashing.
+  fn find_fun(&self, name: Symbol) -> Option<&FunDef> {
+    self
+      .fun_by_name
+      .get(name)
+      .and_then(|FunIdx(i)| self.funs.get(i as usize))
+  }
+
+  /// O(1) membership test — replaces
+  /// `self.funs.iter().any(|f| f.name == name)`.
+  fn has_fun(&self, name: Symbol) -> bool {
+    self.fun_by_name.contains(name)
+  }
+
+  /// Append an enum definition AND record its name in
+  /// `enum_def_by_name`. Every push site must go through
+  /// here.
+  fn push_enum_def(
+    &mut self,
+    entry: (Symbol, zo_ty::EnumTyId, TyId),
+  ) {
+    let idx = EnumIdx(self.enum_defs.len() as u32);
+    let name = entry.0;
+
+    self.enum_defs.push(entry);
+    self.enum_def_by_name.insert(name, idx);
+  }
+
+  /// O(1) lookup: returns the `(name, EnumTyId, TyId)`
+  /// entry for `name`, or `None` if no enum by that name
+  /// has been registered. Direct array load — no hashing.
+  fn find_enum(
+    &self,
+    name: Symbol,
+  ) -> Option<(Symbol, zo_ty::EnumTyId, TyId)> {
+    self
+      .enum_def_by_name
+      .get(name)
+      .and_then(|EnumIdx(i)| self.enum_defs.get(i as usize).copied())
+  }
+
+  /// O(1) membership test for an enum name — replaces
+  /// `enum_defs.iter().any(|e| e.0 == sym)`.
+  fn has_enum(&self, name: Symbol) -> bool {
+    self.enum_def_by_name.contains(name)
   }
 
   /// Pre-populates the executor with imported function
@@ -863,8 +1008,17 @@ impl<'a> Executor<'a> {
     enums: Vec<zo_module_resolver::ExportedEnum>,
     abstract_defs: HashMap<Symbol, AbstractDef>,
   ) -> Self {
+    self.fun_by_name.clear();
+
+    for (i, def) in funs.iter().enumerate() {
+      self.fun_by_name.insert(def.name, FunIdx(i as u32));
+    }
+
     self.funs = funs;
-    self.locals.extend(vars);
+
+    for v in vars {
+      self.push_local(v);
+    }
     self.abstract_defs.extend(abstract_defs);
 
     // Defer enum interning to first use to avoid TyId counter
@@ -2701,7 +2855,7 @@ impl<'a> Executor<'a> {
                     .current_function
                     .as_ref()
                     .and_then(|ctx| {
-                      self.funs.iter().find(|f| f.name == ctx.name).and_then(
+                      self.find_fun(ctx.name).and_then(
                         |f| f.params.iter().position(|(n, _)| *n == sym),
                       )
                     })
@@ -2833,9 +2987,9 @@ impl<'a> Executor<'a> {
             // — call handling happens at RParen, not here.
             // Functions come from prelude imports or
             // explicit `load` — no hardcoded builtins.
-            let is_fun = self.funs.iter().any(|f| f.name == sym);
+            let is_fun = self.has_fun(sym);
             let sym_str = self.interner.get(sym);
-            let is_enum = self.enum_defs.iter().any(|e| e.0 == sym)
+            let is_enum = self.has_enum(sym)
               || self
                 .pending_imported_enums
                 .iter()
@@ -2884,7 +3038,7 @@ impl<'a> Executor<'a> {
               // both keep the ident as a callee and must NOT
               // push a closure value — that would land on the
               // operator's operand stack and break the binop.
-              let fun_def = self.funs.iter().find(|f| f.name == sym);
+              let fun_def = self.find_fun(sym);
 
               let fun_ty = if let Some(fd) = fun_def {
                 let param_tys: Vec<TyId> =
@@ -3249,12 +3403,10 @@ impl<'a> Executor<'a> {
             });
 
             if let Some(fname) = field_name {
-              let fname_str = self.interner.get(fname).to_owned();
-
               let resolved = fields
                 .iter()
                 .enumerate()
-                .find(|(_, f)| self.interner.get(f.name) == fname_str)
+                .find(|(_, f)| f.name == fname)
                 .map(|(i, f)| {
                   field_idx = i as u32;
                   f.ty_id
@@ -4323,7 +4475,7 @@ impl<'a> Executor<'a> {
               let mangled = format!("{ts}::eq");
               let eq_fn = self.interner.intern(&mangled);
 
-              if self.funs.iter().any(|f| f.name == eq_fn) {
+              if self.has_fun(eq_fn) {
                 let call_dst = ValueId(self.sir.next_value_id);
                 self.sir.next_value_id += 1;
 
@@ -5569,7 +5721,7 @@ impl<'a> Executor<'a> {
     });
 
     // Register for call resolution.
-    self.funs.push(FunDef {
+    self.push_fun(FunDef {
       name: closure_name,
       params: combined_params.clone(),
       return_ty,
@@ -5587,7 +5739,7 @@ impl<'a> Executor<'a> {
     if let Some(decl) = &self.pending_decl {
       let decl_name = decl.name;
 
-      if let Some(pos) = self.locals.iter().rposition(|l| l.name == decl_name) {
+      if let Some(pos) = self.lookup_local_idx(decl_name).map(|i| i as usize) {
         let cv = self.values.store_closure(ClosureValue {
           fun_name: closure_name,
           captures: Vec::new(),
@@ -5651,7 +5803,7 @@ impl<'a> Executor<'a> {
         Mutability::No
       };
 
-      self.locals.push(Local {
+      self.push_local(Local {
         name: *pname,
         ty_id: *pty,
         value_id,
@@ -6301,7 +6453,7 @@ impl<'a> Executor<'a> {
     for (i, (param_name, param_ty, mutability)) in params.iter().enumerate() {
       let value_id = self.values.store_runtime(i as u32);
 
-      self.locals.push(Local {
+      self.push_local(Local {
         name: *param_name,
         ty_id: *param_ty,
         value_id,
@@ -6688,7 +6840,7 @@ impl<'a> Executor<'a> {
 
         let ty = self.ty_checker.fresh_var();
 
-        self.locals.push(Local {
+        self.push_local(Local {
           name,
           ty_id: ty,
           value_id: placeholder,
@@ -6764,7 +6916,9 @@ impl<'a> Executor<'a> {
     {
       let value_sir = self.sir_values.pop();
 
-      if let Some(local) = self.locals.iter_mut().rev().find(|l| l.name == name)
+      if let Some(local) = self
+        .lookup_local_idx(name)
+        .and_then(|i| self.locals.get_mut(i as usize))
       {
         if local.mutability != Mutability::Yes {
           report_error(Error::new(ErrorKind::ImmutableVariable, span));
@@ -6946,7 +7100,7 @@ impl<'a> Executor<'a> {
           src: LoadSource::Local(sym),
           ..
         } if *dst == sir_vid => {
-          let local = self.locals.iter().rev().find(|l| l.name == *sym)?;
+          let local = self.lookup_local(*sym)?;
           let lvi = local.value_id.0 as usize;
 
           if lvi < self.values.kinds.len()
@@ -7172,11 +7326,10 @@ impl<'a> Executor<'a> {
         let mut out = Vec::with_capacity(names.len());
 
         for &name in names {
-          let name_str = self.interner.get(name).to_owned();
           let resolved = fields
             .iter()
             .enumerate()
-            .find(|(_, f)| self.interner.get(f.name) == name_str);
+            .find(|(_, f)| f.name == name);
 
           match resolved {
             Some((i, f)) => out.push((i as u32, f.ty_id)),
@@ -7235,7 +7388,7 @@ impl<'a> Executor<'a> {
         });
       }
 
-      self.locals.push(Local {
+      self.push_local(Local {
         name,
         ty_id: elem_ty,
         value_id: elem_value,
@@ -7392,7 +7545,7 @@ impl<'a> Executor<'a> {
             pubness: decl.pubness,
           });
 
-          self.locals.push(constant_local);
+          self.push_local(constant_local);
 
           if let Some(frame) = self.scope_stack.last_mut() {
             frame.count += 1;
@@ -7418,14 +7571,15 @@ impl<'a> Executor<'a> {
       });
 
       // Update pre-registered local (letrec) or push new.
-      if let Some(local) =
-        self.locals.iter_mut().rev().find(|l| l.name == decl.name)
+      if let Some(local) = self
+        .lookup_local_idx(decl.name)
+        .and_then(|i| self.locals.get_mut(i as usize))
       {
         local.ty_id = ty_id;
         local.value_id = init_value;
         local.sir_value = sir_init;
       } else {
-        self.locals.push(Local {
+        self.push_local(Local {
           name: decl.name,
           ty_id,
           value_id: init_value,
@@ -7533,7 +7687,7 @@ impl<'a> Executor<'a> {
           pubness,
         });
 
-        self.locals.push(Local {
+        self.push_local(Local {
           name,
           ty_id: init_ty,
           value_id: init_value,
@@ -7593,7 +7747,7 @@ impl<'a> Executor<'a> {
           pubness,
         });
 
-        self.locals.push(Local {
+        self.push_local(Local {
           name,
           ty_id: init_ty,
           value_id: init_value,
@@ -7777,7 +7931,7 @@ impl<'a> Executor<'a> {
     });
 
     // Register as known function.
-    self.funs.push(FunDef {
+    self.push_fun(FunDef {
       name,
       params,
       return_ty,
@@ -7925,7 +8079,7 @@ impl<'a> Executor<'a> {
     });
 
     // Register for variant construction lookup.
-    self.enum_defs.push((name, enum_ty_id, ty_id));
+    self.push_enum_def((name, enum_ty_id, ty_id));
 
     // Persist the enum's generic parameters so each later
     // construction can substitute fresh per-instance vars
@@ -8060,10 +8214,8 @@ impl<'a> Executor<'a> {
 
           if let Some(fname) = fname {
             // Find field index.
-            let fname_str = self.interner.get(fname).to_owned();
-            let field_idx = field_defs
-              .iter()
-              .position(|f| self.interner.get(f.name) == fname_str);
+            let field_idx =
+              field_defs.iter().position(|f| f.name == fname);
 
             idx += 1;
 
@@ -8655,7 +8807,7 @@ impl<'a> Executor<'a> {
       });
 
       // Register the synthetic function.
-      self.funs.push(FunDef {
+      self.push_fun(FunDef {
         name: fn_name,
         params: vec![],
         return_ty: ty_id,
@@ -9179,16 +9331,14 @@ impl<'a> Executor<'a> {
 
     // Try enum variant first. If not found in enum_defs,
     // check pending imports and lazy-intern on first use.
-    let mut entry = self.enum_defs.iter().find(|e| e.0 == enum_name).copied();
+    let mut entry = self.find_enum(enum_name);
 
-    if entry.is_none() {
-      let enum_name_str = self.interner.get(enum_name).to_owned();
-
-      if let Some(pos) = self
+    if entry.is_none()
+      && let Some(pos) = self
         .pending_imported_enums
         .iter()
-        .position(|e| self.interner.get(e.name) == enum_name_str)
-      {
+        .position(|e| e.name == enum_name)
+    {
         let en = self.pending_imported_enums.remove(pos);
 
         // Use fresh inference variables for generic field
@@ -9218,7 +9368,7 @@ impl<'a> Executor<'a> {
           .intern_enum(en.name, &fresh_variants);
         let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
 
-        self.enum_defs.push((en.name, ety_id, ty_id));
+        self.push_enum_def((en.name, ety_id, ty_id));
 
         // Emit EnumDef so the codegen registers
         // enum_metas for match discriminant handling.
@@ -9230,7 +9380,6 @@ impl<'a> Executor<'a> {
         });
 
         entry = Some((en.name, ety_id, ty_id));
-      }
     }
 
     if entry.is_none() {
@@ -9242,7 +9391,7 @@ impl<'a> Executor<'a> {
       let mangled_sym = self.interner.intern(&mangled);
 
       // Check if mangled name is a known function.
-      if self.funs.iter().any(|f| f.name == mangled_sym) {
+      if self.has_fun(mangled_sym) {
         // Rewrite the function name for execute_call.
         // The next RParen will trigger execute_call
         // with this name.
@@ -9280,7 +9429,7 @@ impl<'a> Executor<'a> {
         let mangled = format!("{type_str}::{method_str}");
         let mangled_sym = self.interner.intern(&mangled);
 
-        if self.funs.iter().any(|f| f.name == mangled_sym) {
+        if self.has_fun(mangled_sym) {
           self.skip_until = idx + 2;
         }
 
@@ -9445,7 +9594,7 @@ impl<'a> Executor<'a> {
     self
       .interner
       .symbol(&mangled)
-      .is_some_and(|sym| self.funs.iter().any(|f| f.name == sym))
+      .is_some_and(|sym| self.has_fun(sym))
   }
 
   /// Resolves a dot-call `receiver.method(args)` to the
@@ -9508,7 +9657,7 @@ impl<'a> Executor<'a> {
     let mangled_sym = self.interner.intern(&mangled);
 
     // Check if it exists as a function.
-    if self.funs.iter().any(|f| f.name == mangled_sym) {
+    if self.has_fun(mangled_sym) {
       mangled_sym
     } else {
       method_name
@@ -9570,7 +9719,7 @@ impl<'a> Executor<'a> {
     let mangled = format!("{ts}::{ms}");
     let mangled_sym = self.interner.intern(&mangled);
 
-    if self.funs.iter().any(|f| f.name == mangled_sym) {
+    if self.has_fun(mangled_sym) {
       mangled_sym
     } else {
       method_name
@@ -9652,7 +9801,7 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    let func = self.funs.iter().find(|f| f.name == mangled_name).cloned();
+    let func = self.find_fun(mangled_name).cloned();
 
     let func = match func {
       Some(f) => f,
@@ -9838,8 +9987,16 @@ impl<'a> Executor<'a> {
   }
 
   /// Executes `arr.push(value)` — emits `ArrayPush` SIR.
-  /// Stack: [..., receiver, value]. Pops both.
-  fn execute_array_push(&mut self, lparen_idx: usize, rparen_idx: usize) {
+  /// Stack: [..., receiver, value]. Pops both. `owner` is
+  /// the receiver's bound symbol when the receiver is a
+  /// bare ident (the common case); the backend writes the
+  /// realloc'd pointer back to that local's stack slot.
+  fn execute_array_push(
+    &mut self,
+    lparen_idx: usize,
+    rparen_idx: usize,
+    owner: Option<Symbol>,
+  ) {
     // Count explicit args (must be exactly 1).
     let has_content = lparen_idx + 1 < rparen_idx;
 
@@ -9875,6 +10032,7 @@ impl<'a> Executor<'a> {
       array: arr_sir,
       value: val_sir,
       ty_id: arr_ty,
+      owner,
     });
   }
 
@@ -10385,16 +10543,20 @@ impl<'a> Executor<'a> {
       _ => return None,
     };
 
-    let enum_name_str = self.interner.get(enum_sym).to_owned();
-    let entry = self
-      .enum_defs
-      .iter()
-      .find(|e| {
+    // Fast path: direct hit by name. Falls back to the
+    // prefix scan for monomorphized enums where the user
+    // wrote the unmangled `Result` and the table holds
+    // `Result__StrInt`.
+    let entry = self.find_enum(enum_sym).or_else(|| {
+      let enum_name_str = self.interner.get(enum_sym).to_owned();
+      let prefix = format!("{enum_name_str}__");
+
+      self.enum_defs.iter().copied().find(|e| {
         let n = self.interner.get(e.0);
 
-        n == enum_name_str || n.starts_with(&format!("{enum_name_str}__"))
+        n == enum_name_str || n.starts_with(&prefix)
       })
-      .copied()?;
+    })?;
     let (_, ety_id, _) = entry;
     let enum_ty = *self.ty_checker.ty_table.enum_ty(ety_id)?;
 
@@ -10562,7 +10724,7 @@ impl<'a> Executor<'a> {
 
         let rid = self.values.store_runtime(0);
 
-        self.locals.push(Local {
+        self.push_local(Local {
           name: bind_sym,
           ty_id: inner_ty,
           value_id: rid,
@@ -10698,11 +10860,8 @@ impl<'a> Executor<'a> {
         }
       };
 
-      let field_name_str = self.interner.get(field_name).to_owned();
-      let resolved = fields
-        .iter()
-        .enumerate()
-        .find(|(_, f)| self.interner.get(f.name) == field_name_str);
+      let resolved =
+        fields.iter().enumerate().find(|(_, f)| f.name == field_name);
 
       let (field_idx, field_ty) = match resolved {
         Some((idx, f)) => (idx as u32, f.ty_id),
@@ -10851,7 +11010,7 @@ impl<'a> Executor<'a> {
 
       let rid = self.values.store_runtime(0);
 
-      self.locals.push(Local {
+      self.push_local(Local {
         name: field_name,
         ty_id: field_ty,
         value_id: rid,
@@ -11020,7 +11179,7 @@ impl<'a> Executor<'a> {
       });
 
       if let Some(cname) = call_name
-        && let Some(fd) = self.funs.iter().find(|f| f.name == cname)
+        && let Some(fd) = self.find_fun(cname)
         && !fd.return_type_args.is_empty()
       {
         self
@@ -11315,21 +11474,25 @@ impl<'a> Executor<'a> {
         // Look up the enum definition and variant.
         // Trigger lazy import if this is the first
         // reference to an imported enum (e.g. Result).
-        let enum_name_str = self.interner.get(enum_sym).to_owned();
-        let mut entry = self
-          .enum_defs
-          .iter()
-          .find(|e| {
+        // Fast path: direct hit by name. Falls back to
+        // the prefix scan only for the rare mono case
+        // (`Result` matches `Result__StrInt`).
+        let mut entry = self.find_enum(enum_sym).or_else(|| {
+          let enum_name_str = self.interner.get(enum_sym).to_owned();
+          let prefix = format!("{enum_name_str}__");
+
+          self.enum_defs.iter().copied().find(|e| {
             let n = self.interner.get(e.0);
-            n == enum_name_str || n.starts_with(&format!("{enum_name_str}__"))
+
+            n == enum_name_str || n.starts_with(&prefix)
           })
-          .copied();
+        });
 
         if entry.is_none()
           && let Some(pos) = self
             .pending_imported_enums
             .iter()
-            .position(|e| self.interner.get(e.name) == enum_name_str)
+            .position(|e| e.name == enum_sym)
         {
           let en = self.pending_imported_enums.remove(pos);
 
@@ -11353,7 +11516,7 @@ impl<'a> Executor<'a> {
             .intern_enum(en.name, &fresh_variants);
           let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
 
-          self.enum_defs.push((en.name, ety_id, ty_id));
+          self.push_enum_def((en.name, ety_id, ty_id));
 
           self.sir.emit(Insn::EnumDef {
             name: en.name,
@@ -11624,7 +11787,7 @@ impl<'a> Executor<'a> {
 
               let rid = self.values.store_runtime(0);
 
-              self.locals.push(Local {
+              self.push_local(Local {
                 name: bind_sym,
                 ty_id: field_ty,
                 value_id: rid,
@@ -11947,7 +12110,7 @@ impl<'a> Executor<'a> {
 
           let rid = self.values.store_runtime(0);
 
-          self.locals.push(Local {
+          self.push_local(Local {
             name: bind_sym,
             ty_id: scrutinee_ty,
             value_id: rid,
@@ -12523,7 +12686,7 @@ impl<'a> Executor<'a> {
       pubness: Pubness::No,
     });
 
-    self.locals.push(Local {
+    self.push_local(Local {
       name: var_name,
       ty_id: int_ty,
       value_id: init_vid,
@@ -12571,7 +12734,7 @@ impl<'a> Executor<'a> {
     // codegen-side Load targets its stack slot.
     let end_local_vid = self.values.store_runtime(0);
 
-    self.locals.push(Local {
+    self.push_local(Local {
       name: end_sym,
       ty_id: int_ty,
       value_id: end_local_vid,
@@ -12872,7 +13035,7 @@ impl<'a> Executor<'a> {
 
     let arr_local_vid = self.values.store_runtime(0);
 
-    self.locals.push(Local {
+    self.push_local(Local {
       name: arr_sym,
       ty_id: arr_ty,
       value_id: arr_local_vid,
@@ -12911,7 +13074,7 @@ impl<'a> Executor<'a> {
 
     let idx_local_vid = self.values.store_runtime(0);
 
-    self.locals.push(Local {
+    self.push_local(Local {
       name: idx_sym,
       ty_id: int_ty,
       value_id: idx_local_vid,
@@ -12944,7 +13107,7 @@ impl<'a> Executor<'a> {
 
     let user_local_vid = self.values.store_runtime(0);
 
-    self.locals.push(Local {
+    self.push_local(Local {
       name: var_name,
       ty_id: elem_ty,
       value_id: user_local_vid,
@@ -13263,7 +13426,9 @@ impl<'a> Executor<'a> {
     // Find the mutable variable. For field access
     // (`self.x += 1`), `name` is the field — look up
     // the receiver (`self`) and check its mutability.
-    let local = self.locals.iter_mut().rev().find(|l| l.name == name);
+    let local = self
+        .lookup_local_idx(name)
+        .and_then(|i| self.locals.get_mut(i as usize));
 
     let Some(local) = local else {
       // Not a direct local — field compound assign
@@ -13297,12 +13462,11 @@ impl<'a> Executor<'a> {
         if let Some(st) = self.ty_checker.ty_table.struct_ty(sid) {
           let st = *st;
           let fields = self.ty_checker.ty_table.struct_fields(&st).to_vec();
-          let fname_str = self.interner.get(name).to_owned();
 
           fields
             .iter()
             .enumerate()
-            .find(|(_, f)| self.interner.get(f.name) == fname_str)
+            .find(|(_, f)| f.name == name)
             .map(|(i, f)| (i as u32, f.ty_id))
         } else {
           None
@@ -13325,7 +13489,7 @@ impl<'a> Executor<'a> {
               .current_function
               .as_ref()
               .and_then(|ctx| {
-                self.funs.iter().find(|f| f.name == ctx.name).and_then(|f| {
+                self.find_fun(ctx.name).and_then(|f| {
                   f.params.iter().position(|(n, _)| *n == recv_sym)
                 })
               })
@@ -13884,10 +14048,12 @@ impl<'a> Executor<'a> {
           ty_id: param_ty,
         });
 
-        self.locals.push(Local {
+        let value_id = self.values.store_runtime(0);
+
+        self.push_local(Local {
           name: sym,
           ty_id: param_ty,
-          value_id: self.values.store_runtime(0),
+          value_id,
           pubness: Pubness::No,
           mutability: Mutability::No,
           sir_value: Some(out_value),
@@ -14182,7 +14348,7 @@ impl<'a> Executor<'a> {
     let as_written = raw_parts.join("::");
 
     if let Some(sym) = self.interner.symbol(&as_written)
-      && self.funs.iter().any(|f| f.name == sym)
+      && self.has_fun(sym)
     {
       return Some(sym);
     }
@@ -14198,7 +14364,7 @@ impl<'a> Executor<'a> {
       let mangled = prefixed.join("::");
 
       if let Some(sym) = self.interner.symbol(&mangled)
-        && self.funs.iter().any(|f| f.name == sym)
+        && self.has_fun(sym)
       {
         return Some(sym);
       }
@@ -14271,7 +14437,7 @@ impl<'a> Executor<'a> {
         // closure. Otherwise it's a variable and the paren
         // is grouping (e.g. `a * (b + c)`).
         if let Some(NodeValue::Symbol(sym)) = self.node_value(lparen_idx - 2) {
-          let is_fun = self.funs.iter().any(|f| f.name == sym);
+          let is_fun = self.has_fun(sym);
 
           let is_closure = self.lookup_local(sym).is_some_and(|l| {
             let vi = l.value_id.0 as usize;
@@ -14644,7 +14810,12 @@ impl<'a> Executor<'a> {
               && matches!(self.ty_checker.kind_of(recv_ty), Ty::Array(_))
             {
               if ms == "push" {
-                self.execute_array_push(lparen_idx, rparen_idx);
+                let owner = self
+                  .dot_method_recv_ty
+                  .get(&method_idx)
+                  .and_then(|(_, sym)| *sym);
+
+                self.execute_array_push(lparen_idx, rparen_idx, owner);
 
                 return;
               }
@@ -14756,7 +14927,7 @@ impl<'a> Executor<'a> {
 
     let ci = self.values.indices[idx] as usize;
     let cv = &self.values.closures[ci];
-    let maybe_fun = self.funs.iter().find(|f| f.name == cv.fun_name).cloned();
+    let maybe_fun = self.find_fun(cv.fun_name).cloned();
 
     match maybe_fun {
       Some(f) => {
@@ -15019,7 +15190,7 @@ impl<'a> Executor<'a> {
     }
 
     // Find the function definition — direct or via closure variable.
-    let fun_def = self.funs.iter().find(|f| f.name == fun_name).cloned();
+    let fun_def = self.find_fun(fun_name).cloned();
     let (func, capture_count) = if let Some(func) = fun_def {
       let cc = match func.kind {
         FunctionKind::Closure { capture_count } => capture_count,
@@ -15242,7 +15413,7 @@ impl<'a> Executor<'a> {
           let mono_sym = self.interner.intern(&mangled);
 
           // Register monomorphized FunDef if not already.
-          if !self.funs.iter().any(|f| f.name == mono_sym) {
+          if !self.has_fun(mono_sym) {
             let mut mono_def = func.clone();
 
             mono_def.name = mono_sym;
@@ -15260,7 +15431,7 @@ impl<'a> Executor<'a> {
               }
             }
 
-            self.funs.push(mono_def);
+            self.push_fun(mono_def);
 
             // Queue a re-execution request with closure
             // substitutions — the instantiation pass binds
@@ -15346,7 +15517,7 @@ impl<'a> Executor<'a> {
             let mangled = format!("{ts}::show");
             let show_fn = self.interner.intern(&mangled);
 
-            if self.funs.iter().any(|f| f.name == show_fn) {
+            if self.has_fun(show_fn) {
               let show_dst = ValueId(self.sir.next_value_id);
               self.sir.next_value_id += 1;
 
@@ -15760,7 +15931,7 @@ impl<'a> Executor<'a> {
     });
 
     // Emit Call("check", [cmp_result]).
-    let check_func = self.funs.iter().find(|f| f.name == fun_name).cloned();
+    let check_func = self.find_fun(fun_name).cloned();
 
     let return_ty = check_func
       .map(|f| f.return_ty)
@@ -16068,7 +16239,7 @@ impl<'a> Executor<'a> {
 
     let sym = self.interner.intern(&mangled);
 
-    if !self.funs.iter().any(|f| f.name == sym) {
+    if !self.has_fun(sym) {
       let mut mono_def = func.clone();
 
       mono_def.name = sym;
@@ -16078,7 +16249,7 @@ impl<'a> Executor<'a> {
         mono_def.return_ty = rt;
       }
 
-      self.funs.push(mono_def);
+      self.push_fun(mono_def);
 
       // Snapshot concretes here — substitutions can shift
       // later as new constraints flow through the
@@ -16213,7 +16384,14 @@ impl<'a> Executor<'a> {
 
       // Remove the call-site's mono FunDef entry from
       // `self.funs` — re-execution will push a fresh one.
+      // Rebuild `fun_by_name` since `retain` shifts every
+      // index past the removed entry.
       self.funs.retain(|f| f.name != mangled);
+      self.fun_by_name.clear();
+
+      for (i, def) in self.funs.iter().enumerate() {
+        self.fun_by_name.insert(def.name, FunIdx(i as u32));
+      }
 
       // Tell the next `execute_fun` to emit the mangled
       // name instead of the tree's literal generic name.
@@ -16260,8 +16438,9 @@ impl<'a> Executor<'a> {
       // `Call { name: closure_fn }` directly — no
       // `Call { name: param_sym }` + post-hoc rewrite.
       for (param_sym, closure_fn_sym) in &closure_subs {
-        if let Some(local) =
-          self.locals.iter_mut().rev().find(|l| l.name == *param_sym)
+        if let Some(local) = self
+          .lookup_local_idx(*param_sym)
+          .and_then(|i| self.locals.get_mut(i as usize))
         {
           let cv = ClosureValue {
             fun_name: *closure_fn_sym,
@@ -16479,7 +16658,7 @@ impl<'a> Executor<'a> {
     })?;
 
     // Check if the local's value is a template.
-    let local = self.locals.iter().rev().find(|l| l.name == sym)?;
+    let local = self.lookup_local(sym)?;
     let lvi = local.value_id.0 as usize;
 
     if lvi >= self.values.kinds.len()
@@ -16905,7 +17084,7 @@ impl<'a> Executor<'a> {
                 && interp_text.is_none()
                 && let Some(NodeValue::Symbol(sym)) = self.node_value(idx)
                 && let Some(local) =
-                  self.locals.iter().rev().find(|l| l.name == sym)
+                  self.lookup_local(sym)
               {
                 let text = self.value_to_string(local.value_id);
 
@@ -16998,9 +17177,11 @@ impl<'a> Executor<'a> {
 
       // Register in locals so later references
       // (e.g., `#dom view`) can find the variable.
-      self.locals.push(Local {
+      let template_ty = self.ty_checker.template_ty();
+
+      self.push_local(Local {
         name: var_name,
-        ty_id: self.ty_checker.template_ty(),
+        ty_id: template_ty,
         value_id: template_id,
         pubness: Pubness::No,
         mutability: Mutability::No,
@@ -17130,7 +17311,7 @@ impl<'a> Executor<'a> {
     tag: &str,
   ) -> Option<Vec<UiCommand>> {
     let sym = self.interner.symbol(tag)?;
-    let local = self.locals.iter().rev().find(|l| l.name == sym)?;
+    let local = self.lookup_local(sym)?;
     let vi = local.value_id.0 as usize;
 
     if vi >= self.values.kinds.len()
@@ -17173,7 +17354,7 @@ impl<'a> Executor<'a> {
   /// matches the silently-empty semantics of the existing text
   /// interpolation path.
   fn resolve_local_for_template(&self, sym: Symbol) -> String {
-    if let Some(local) = self.locals.iter().rev().find(|l| l.name == sym) {
+    if let Some(local) = self.lookup_local(sym) {
       self.value_to_string(local.value_id)
     } else {
       String::new()
@@ -17258,7 +17439,7 @@ impl<'a> Executor<'a> {
 
     // Resolve the source — must be an immutable local bound to
     // a string.
-    let Some(local) = self.locals.iter().rev().find(|l| l.name == sym) else {
+    let Some(local) = self.lookup_local(sym) else {
       report_error(Error::new(ErrorKind::UndefinedVariable, brace_span));
 
       return true;

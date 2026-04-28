@@ -198,20 +198,24 @@ impl<'a> Tokenizer<'a> {
 
   #[inline(never)]
   fn skip_whitespace(&mut self) {
-    // Unrolled loop for better performance
+    // Word-at-a-time fast path. Builds a 4-bit mask where
+    // bit `i` is set iff byte `i` of the chunk is ASCII
+    // whitespace; advances by 4 only when the whole word
+    // is whitespace (`mask == 0xF`). The earlier OR-based
+    // form folded all four flags into bit 0, so the mask
+    // was 0 or 1 — never 0xF — and the SIMD path never
+    // fired (the scalar fallback ran every time).
     while self.cursor + 4 <= self.source.len() {
-      // Use read_unaligned for safe access regardless of alignment
       let chunk = unsafe {
         (self.source.as_ptr().add(self.cursor) as *const u32).read_unaligned()
       };
 
-      // Check if any byte in the chunk is NOT whitespace
-      let is_ws = ((chunk & 0xFF) as u8).is_ascii_whitespace() as u32
-        | (((chunk >> 8) & 0xFF) as u8).is_ascii_whitespace() as u32
-        | (((chunk >> 16) & 0xFF) as u8).is_ascii_whitespace() as u32
-        | (((chunk >> 24) & 0xFF) as u8).is_ascii_whitespace() as u32;
+      let mask = ((chunk & 0xFF) as u8).is_ascii_whitespace() as u32
+        | ((((chunk >> 8) & 0xFF) as u8).is_ascii_whitespace() as u32) << 1
+        | ((((chunk >> 16) & 0xFF) as u8).is_ascii_whitespace() as u32) << 2
+        | ((((chunk >> 24) & 0xFF) as u8).is_ascii_whitespace() as u32) << 3;
 
-      if is_ws != 0xF {
+      if mask != 0xF {
         break;
       }
 

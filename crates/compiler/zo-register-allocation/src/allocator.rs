@@ -8,13 +8,13 @@ use zo_sir::{Insn, LoadSource};
 use zo_value::FunctionKind;
 use zo_value::ValueId;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 /// A single register pool (GP or FP).
 struct RegPool {
   free: Vec<u8>,
-  val_to_reg: FxHashMap<u32, u8>,
-  reg_to_val: FxHashMap<u8, u32>,
+  val_to_reg: HashMap<u32, u8>,
+  reg_to_val: HashMap<u8, u32>,
   /// The set of regs that participate in allocation. Call
   /// result regs (x0/d0) live OUTSIDE this set — freeing
   /// them must not re-seed the pool or the next alloc
@@ -27,8 +27,8 @@ impl RegPool {
   fn new(regs: &'static [u8]) -> Self {
     Self {
       free: regs.iter().rev().copied().collect(),
-      val_to_reg: FxHashMap::default(),
-      reg_to_val: FxHashMap::default(),
+      val_to_reg: HashMap::default(),
+      reg_to_val: HashMap::default(),
       allocatable: regs,
     }
   }
@@ -73,9 +73,9 @@ struct AllocState {
   gp: RegPool,
   fp: RegPool,
   /// Tracks which values are FP (for correct spill emission).
-  is_fp_value: FxHashMap<u32, bool>,
+  is_fp_value: HashMap<u32, bool>,
   /// Spill slots: ValueId.0 → slot index.
-  spill_slots: FxHashMap<u32, u32>,
+  spill_slots: HashMap<u32, u32>,
   /// Next spill slot index.
   next_spill: u32,
 }
@@ -85,8 +85,8 @@ impl AllocState {
     Self {
       gp: RegPool::new(&ALLOCATABLE_GP),
       fp: RegPool::new(&ALLOCATABLE_FP),
-      is_fp_value: FxHashMap::default(),
-      spill_slots: FxHashMap::default(),
+      is_fp_value: HashMap::default(),
+      spill_slots: HashMap::default(),
       next_spill: 0,
     }
   }
@@ -180,11 +180,19 @@ impl AllocState {
       return reg;
     }
 
-    // Spill from the correct pool.
-    let victim = *pool
-      .val_to_reg
-      .keys()
-      .next()
+    // Spill from the correct pool. Walk `allocatable` in
+    // its declared order and pick the first reg that is
+    // currently bound — picking from `val_to_reg.keys()`
+    // was non-deterministic (HashMap iteration order is
+    // not stable across runs), which made the emitted
+    // codegen output flaky between builds. The heuristic
+    // here ("oldest allocatable reg in the static list")
+    // is not optimal; correctness — i.e. reproducible
+    // binaries — is the goal of this fix.
+    let victim = pool
+      .allocatable
+      .iter()
+      .find_map(|r| pool.reg_to_val.get(r).copied())
       .expect("register pool exhausted");
 
     self.evict(victim, insn_idx, liveness, local_idx, result)
@@ -197,19 +205,49 @@ impl AllocState {
   }
 }
 
+/// Read-only inputs threaded through `allocate_function`.
+/// Bundled into a context struct so the allocator entry
+/// point stays at two arguments — input + output — rather
+/// than tripping clippy's `too_many_arguments` lint with
+/// six separate immutable borrows.
+pub struct AllocCtx<'a> {
+  /// Whole-program SIR.
+  pub insns: &'a [Insn],
+  /// First insn index of the function body (a `FunDef`).
+  pub start: usize,
+  /// One past the last insn index of the function body.
+  pub end: usize,
+  /// `ValueId.0` produced at each insn position, sparse
+  /// for insns that don't define a value.
+  pub value_ids: &'a [Option<ValueId>],
+  /// Total `ValueId` count across the whole program —
+  /// liveness uses it to size its bitsets.
+  pub num_values: u32,
+  /// Interner for resolving function and runtime symbol
+  /// names referenced by `Call` / extern bookkeeping.
+  pub interner: &'a zo_interner::Interner,
+  /// `Symbol.0 → struct-return field count` map, built
+  /// once per program by `build_struct_return_map`. Used
+  /// by the `Call` arm to budget caller frame slots
+  /// without re-scanning the whole SIR per call.
+  pub struct_return_fns: &'a HashMap<u32, u32>,
+}
+
 /// Run the forward allocation pass for a single function.
 ///
-/// `insns[start..end]` is the function body (FunDef to next
-/// FunDef / end). Results are merged into `result`.
-pub fn allocate_function(
-  insns: &[Insn],
-  start: usize,
-  end: usize,
-  value_ids: &[Option<ValueId>],
-  num_values: u32,
-  result: &mut RegAlloc,
-  interner: &zo_interner::Interner,
-) {
+/// `ctx.insns[ctx.start..ctx.end]` is the function body
+/// (FunDef to next FunDef / end). Results are merged into
+/// `result`.
+pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
+  let AllocCtx {
+    insns,
+    start,
+    end,
+    value_ids,
+    num_values,
+    interner,
+    struct_return_fns,
+  } = *ctx;
   let n = end - start;
 
   if n == 0 {
@@ -446,15 +484,17 @@ pub fn allocate_function(
 
     // --- General case ---
 
-    let uses = zo_liveness::insn_uses(insn);
-
-    for &use_vid in &uses {
+    // Pass 1: reload spilled uses into registers. The
+    // two-pass split is load-of-bearing — the second
+    // pass below must not free any value the first pass
+    // is still about to reload.
+    zo_liveness::visit_uses(insn, |use_vid| {
       if use_vid.0 == u32::MAX {
-        continue;
+        return;
       }
 
       if state.get(use_vid).is_some() {
-        continue;
+        return;
       }
 
       if let Some(&slot) = state.spill_slots.get(&use_vid.0) {
@@ -478,17 +518,18 @@ pub fn allocate_function(
         state.assign(use_vid, reg, ufp);
         insert_assignment(result, use_vid, reg, ufp);
       }
-    }
+    });
 
-    for &use_vid in &uses {
+    // Pass 2: free uses that are not live past this insn.
+    zo_liveness::visit_uses(insn, |use_vid| {
       if use_vid.0 == u32::MAX {
-        continue;
+        return;
       }
 
       if !liveness.live_out[i].test(use_vid.0 as usize) {
         state.free_value(use_vid);
       }
-    }
+    });
 
     if let Some(vid) = value_ids[gi] {
       let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
@@ -596,29 +637,15 @@ pub fn allocate_function(
           "HashSet::remove" => struct_slots += 1,
 
           _ => {
-            // Check if callee returns a struct by
-            // scanning for FunDef(name) ... StructConstruct
-            // ... Return in the full SIR.
-            let mut in_fn = false;
-            let mut last_fields: Option<u32> = None;
-
-            for other in insns.iter() {
-              match other {
-                Insn::FunDef { name: fn_name2, .. } => {
-                  in_fn = *fn_name2 == *name;
-                  last_fields = None;
-                }
-                Insn::StructConstruct { fields, .. } if in_fn => {
-                  last_fields = Some(fields.len() as u32);
-                }
-                Insn::Return { value: Some(_), .. } if in_fn => {
-                  if let Some(n) = last_fields {
-                    struct_slots += n;
-                  }
-                  break;
-                }
-                _ => {}
-              }
+            // Look up the callee in the pre-computed
+            // struct-return map (one linear scan over
+            // the SIR happens once in `RegAlloc::allocate`,
+            // before any function is processed). The
+            // previous per-call full-SIR scan was
+            // O(calls × insns) and dominated codegen
+            // time on programs with many small calls.
+            if let Some(fields) = struct_return_fns.get(&name.as_u32()) {
+              struct_slots += *fields;
             }
           }
         }
