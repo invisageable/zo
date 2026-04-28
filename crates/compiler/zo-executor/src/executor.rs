@@ -6318,23 +6318,36 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Tuple-pattern destructuring: `imu (a, b, c) = expr;`.
-    // The pattern's idents are bound to the tuple's
-    // elements at finalize time; until then they live on
-    // `pending_decl.tuple_pattern`. Walk skips past the
-    // `RParen` (and any `=` / `:=`) so the main loop only
-    // sees the rhs init expression.
-    if !is_constant
+    // Destructuring patterns: tuple `imu (a, b, c) = …`
+    // or struct `imu { x, y, z } = …`. The pattern names
+    // are bound to the rhs's matching elements at
+    // finalize time — tuple by index, struct by field
+    // name (resolved from the rhs's struct type). The
+    // walk skips past the closing delimiter and any
+    // `=` / `:=` so the main loop only sees the rhs
+    // init expression.
+    let is_pattern = !is_constant
       && idx + 1 < children_end
-      && self.tree.nodes[idx + 1].token == Token::LParen
-    {
+      && matches!(
+        self.tree.nodes[idx + 1].token,
+        Token::LParen | Token::LBrace
+      );
+
+    if is_pattern {
+      let opener = self.tree.nodes[idx + 1].token;
+      let closer = if opener == Token::LParen {
+        Token::RParen
+      } else {
+        Token::RBrace
+      };
+
       let mut names: Vec<Symbol> = Vec::new();
       let mut i = idx + 2;
 
       while i < children_end {
         let tok = self.tree.nodes[i].token;
 
-        if tok == Token::RParen {
+        if tok == closer {
           i += 1;
           break;
         }
@@ -6346,6 +6359,23 @@ impl<'a> Executor<'a> {
         }
 
         i += 1;
+      }
+
+      // Optional type annotation: `imu (a, b): (T1, T2) = …`
+      // or `imu { x, y }: Point = …`. Resolved for
+      // checking but not currently unified with the rhs;
+      // pattern destructuring infers types from the rhs.
+      let mut annotated_ty: Option<TyId> = None;
+
+      if i < children_end && self.tree.nodes[i].token == Token::Colon {
+        i += 1;
+
+        if let Some((ty, next)) =
+          self.resolve_param_or_return_ty(i, children_end)
+        {
+          annotated_ty = Some(ty);
+          i = next;
+        }
       }
 
       if i < children_end
@@ -6365,7 +6395,7 @@ impl<'a> Executor<'a> {
         is_mutable,
         is_constant: false,
         pubness,
-        annotated_ty: None,
+        annotated_ty,
         span: self.tree.spans[idx],
         init_start_idx: self.sir.instructions.len(),
         tuple_pattern: Some(names),
@@ -7072,27 +7102,74 @@ impl<'a> Executor<'a> {
 
     let sir_init = self.sir_values.pop();
 
-    let elem_tys: Vec<TyId> =
-      if let Ty::Tuple(tid) = self.ty_checker.kind_of(init_ty) {
-        if let Some(tup) = self.ty_checker.ty_table.tuple(tid) {
-          self.ty_checker.ty_table.tuple_elems(tup).to_vec()
-        } else {
-          Vec::new()
+    // Resolve the (index, type) for each pattern name.
+    // Tuple patterns map name[i] → (i, tup.elems[i]);
+    // struct patterns map name → (field.position, field.ty)
+    // by looking up the field by name on the struct type.
+    let kind = self.ty_checker.kind_of(init_ty);
+
+    let bindings: Vec<(u32, TyId)> = match kind {
+      Ty::Tuple(tid) => {
+        let elems = self
+          .ty_checker
+          .ty_table
+          .tuple(tid)
+          .map(|tup| self.ty_checker.ty_table.tuple_elems(tup).to_vec())
+          .unwrap_or_default();
+
+        if names.len() != elems.len() {
+          report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+
+          return;
         }
-      } else {
+
+        elems
+          .into_iter()
+          .enumerate()
+          .map(|(i, t)| (i as u32, t))
+          .collect()
+      }
+      Ty::Struct(sid) => {
+        let st = match self.ty_checker.ty_table.struct_ty(sid) {
+          Some(s) => *s,
+          None => {
+            report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+
+            return;
+          }
+        };
+
+        let fields = self.ty_checker.ty_table.struct_fields(&st).to_vec();
+        let mut out = Vec::with_capacity(names.len());
+
+        for &name in names {
+          let name_str = self.interner.get(name).to_owned();
+          let resolved =
+            fields.iter().enumerate().find(|(_, f)| {
+              self.interner.get(f.name) == name_str
+            });
+
+          match resolved {
+            Some((i, f)) => out.push((i as u32, f.ty_id)),
+            None => {
+              report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+
+              return;
+            }
+          }
+        }
+
+        out
+      }
+      _ => {
         report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
 
         return;
-      };
+      }
+    };
 
-    if names.len() != elem_tys.len() {
-      report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
-
-      return;
-    }
-
-    for (i, &name) in names.iter().enumerate() {
-      let elem_ty = elem_tys[i];
+    for (n, &name) in names.iter().enumerate() {
+      let (field_idx, elem_ty) = bindings[n];
       let elem_value = self.values.store_runtime(u32::MAX);
       let elem_sir = sir_init.map(|tup_sir| {
         let dst = ValueId(self.sir.next_value_id);
@@ -7102,7 +7179,7 @@ impl<'a> Executor<'a> {
         self.sir.emit(Insn::TupleIndex {
           dst,
           tuple: tup_sir,
-          index: i as u32,
+          index: field_idx,
           ty_id: elem_ty,
         });
 
