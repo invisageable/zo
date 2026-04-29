@@ -2019,13 +2019,29 @@ impl<'a> Parser<'a> {
       // call `(`, index `[`, or dot-access `.` — the unary
       // applies to the COMPLETE result of the chain, not the
       // bare operand (e.g. `!x.foo()` → `!(x.foo())`, not
-      // `(!x).foo()`; same reasoning as `f(1 + 2)` needing
-      // `!` to fire after the call returns).
+      // `(!x).foo()`).
+      //
+      // Same logic for the *previous* operator: `!f.on`
+      // tokenizes as `!`, `f`, `.`, `on`, so by the time we
+      // see `on` the `Dot` has already been pushed onto
+      // the operator stack. Draining the unary here would
+      // emit `f on Bang Dot` and the executor's
+      // `is_dot_member` check (which looks for `Dot`
+      // immediately after the field ident) would fail —
+      // reporting `on` as an undefined variable. Hold the
+      // unary back so `flush_expr` emits it after the
+      // pending high-precedence operator commits.
       let next = self.peek();
+
+      let pending_member_op = self
+        .operator_stack
+        .last()
+        .is_some_and(|(t, _, _)| *t == Token::Dot);
 
       if next != Some(Token::LParen)
         && next != Some(Token::LBracket)
         && next != Some(Token::Dot)
+        && !pending_member_op
       {
         while let Some((tok, sp)) = self.unary_spans.pop() {
           self.expr_buffer.push((tok, sp, None));
@@ -2064,6 +2080,15 @@ impl<'a> Parser<'a> {
         let op = self.expr_buffer.remove(pos);
         self.expr_buffer.push(op);
       }
+    }
+
+    // Drain any unary prefixes that were held back because a
+    // higher-precedence operator (e.g. `Dot` in `!f.on`) was
+    // pending. They land at the very end of the buffer so they
+    // fire after the binary op commits — postorder
+    // `f on Dot Bang`, the shape the executor expects.
+    while let Some((tok, sp)) = self.unary_spans.pop() {
+      self.expr_buffer.push((tok, sp, None));
     }
 
     // Emit all buffered nodes

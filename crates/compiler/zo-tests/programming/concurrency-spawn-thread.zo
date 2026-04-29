@@ -10,7 +10,6 @@ fun heavy_worker() {
   for x := 0..total => sum += x;
 
   showln("crunching {sum} items");
-
   showln("finished task");
 }
 

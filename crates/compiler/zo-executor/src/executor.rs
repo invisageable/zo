@@ -4144,23 +4144,25 @@ impl<'a> Executor<'a> {
             let field_idx = *index;
             let field_ty = *ty_id;
 
-            // Resolve receiver name for the mutability check
-            // by walking back to the closest Load that
-            // produced `recv_sir`.
-            let recv_name =
-              self.sir.instructions.iter().rev().find_map(|insn| {
-                if let Insn::Load {
-                  dst,
-                  src: LoadSource::Local(sym),
-                  ..
-                } = insn
-                  && *dst == recv_sir
-                {
-                  Some(*sym)
-                } else {
-                  None
-                }
-              });
+            // Pull the receiver symbol straight from the
+            // parse tree so both `self.x = …` (Param) and
+            // `f.x = …` (Local) reach finalize. Walking the
+            // SIR back to a `LoadSource::Local` would miss
+            // the `self` case — `self` lowers to
+            // `LoadSource::Param(0)`, not `Local(SELF)`.
+            // recv_idx is `target_idx - 2`: postorder for
+            // `recv.field` is `recv, field, Dot`, so two
+            // back from `Dot` is the receiver token.
+            let recv_idx = target_idx.saturating_sub(2);
+
+            let recv_name = match self.tree.nodes[recv_idx].token {
+              Token::SelfLower => Some(Symbol::SELF_LOWER),
+              Token::Ident => self.node_value(recv_idx).and_then(|v| match v {
+                NodeValue::Symbol(s) => Some(s),
+                _ => None,
+              }),
+              _ => None,
+            };
 
             if let Some(name) = recv_name {
               self.value_stack.pop();
@@ -5244,8 +5246,18 @@ impl<'a> Executor<'a> {
       j = k;
     }
 
-    // Resolve the base element type.
-    if j < end && self.tree.nodes[j].token.is_ty() {
+    // Resolve the base element type. Accept built-in type
+    // tokens (`int`, `bool`, …) AND `Token::Ident` so user-
+    // defined types resolve correctly (`[]Todo`, `[3]Point`).
+    // Without `Token::Ident` here, `mut xs: []Todo = ...`
+    // fell through with no element type, the annotation
+    // resolved to unit, and unify failed at the decl site
+    // with a confusing "Type mismatch".
+    if j < end
+      && (self.tree.nodes[j].token.is_ty()
+        || self.tree.nodes[j].token == Token::Ident
+        || self.tree.nodes[j].token == Token::SelfUpper)
+    {
       let base_ty = self.resolve_type_token(j);
       j += 1;
 

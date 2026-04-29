@@ -257,3 +257,37 @@ fn test_unary_not_on_function_call() {
     ],
   );
 }
+
+#[test]
+fn test_unary_not_on_field_access() {
+  // `!f.on` must parse postorder as `f, on, Dot, Bang` —
+  // the `Bang` lands AFTER the `Dot` so the executor's
+  // `is_dot_member` check at the field ident sees the Dot
+  // and skips its undefined-variable lookup. Earlier the
+  // operand drain ran when the next token wasn't `Dot`,
+  // not noticing the `Dot` already pending in the operator
+  // stack — emitting `f, on, Bang, Dot` and breaking
+  // `!self.field` / `!recv.field` everywhere.
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        b = !f.on;
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "main"
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      (Ident, Some(NodeValue::TextRange(28, 1))), // "b"
+      (Eq, None),
+      (Ident, Some(NodeValue::TextRange(33, 1))), // "f"
+      (Ident, Some(NodeValue::TextRange(35, 2))), // "on"
+      (Dot, None),
+      (Bang, None),
+      (Semicolon, None),
+      (RBrace, None),
+    ],
+  );
+}
