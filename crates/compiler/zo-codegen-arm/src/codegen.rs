@@ -106,10 +106,6 @@ const FIXUP_ADR: u32 = 0x10000000;
 const FIXUP_ADR_IMMLO: u32 = 0x3;
 const FIXUP_ADR_IMMHI: u32 = 0x7FFFF;
 
-// --- Template Layout ---
-pub(super) const TEMPLATE_HEADER_SIZE: usize = 8;
-pub(super) const TEMPLATE_CMD_SIZE: usize = 16;
-
 // --- Hello World ---
 const HELLO_STR_OFFSET: i32 = 0x18;
 const HELLO_STR_LEN: u16 = 14;
