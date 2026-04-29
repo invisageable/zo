@@ -91,6 +91,11 @@ We do **NOT** use traditional AST -> TypeCheck -> IR phases.
 
 > *Before plan or implementation, use `karpathy-guidelines` skill.*
 
+## Guidelines
+
+- https://corrode.dev/blog/defensive-programming
+- https://corrode.dev/blog/bugs-rust-wont-catch
+
 ## Build System
 
 All build commands go through `just` (the justfile is the single source of truth):
