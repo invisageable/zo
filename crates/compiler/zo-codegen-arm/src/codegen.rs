@@ -203,6 +203,16 @@ pub struct ARM64Gen<'a> {
   current_fn_start: Option<usize>,
   /// Mutable variable stack slots: name → offset from SP.
   mutable_slots: HashMap<u32, u32>,
+  /// Inline-storage `[N]T` variables: name → SP-relative
+  /// offset of the array block's first byte. The block
+  /// holds `[len:8][cap:8][e0:8]...[eN:8]`. `Insn::Store`
+  /// memcopies into the block; `Insn::Load` returns the
+  /// block's address. Without this, fixed-array
+  /// reassignment (`row = next` for `[N]T`) was a pointer
+  /// alias — both names ended up referring to the same
+  /// underlying literal block, so writes through one
+  /// were visible through the other.
+  array_var_blocks: HashMap<u32, u32>,
   /// Parameter spill slots: param_index → offset from SP.
   param_slots: HashMap<u32, u32>,
   /// Parameter spill slots keyed by the parameter's symbol.
@@ -484,6 +494,7 @@ impl<'a> ARM64Gen<'a> {
       spill_offsets: Vec::new(),
       current_fn_start: None,
       mutable_slots: HashMap::default(),
+      array_var_blocks: HashMap::default(),
       param_slots: HashMap::default(),
       param_sym_slots: HashMap::default(),
       caller_save_base: 0,
@@ -1352,6 +1363,7 @@ impl<'a> ARM64Gen<'a> {
         self.current_function = Some(*name);
         self.current_fn_start = Some(idx);
         self.mutable_slots.clear();
+        self.array_var_blocks.clear();
         self.next_mut_slot = 0;
         self.next_struct_slot = 0;
         self.io_shared_buf_offset = None;
@@ -1522,6 +1534,17 @@ impl<'a> ARM64Gen<'a> {
 
           if let Some(elems) = self.local_tuple_elem_tys.get(&slot).cloned() {
             self.value_tuple_elem_tys.insert(dst.0, elems);
+          }
+
+          // `[N]T` inline-storage variables: the value IS
+          // the block's address (computed from SP), not an
+          // 8-byte pointer loaded from a slot.
+          if let Some(&offset) = self.array_var_blocks.get(&slot) {
+            if let Some(dst_reg) = self.alloc_reg(*dst) {
+              self.emit_add_sp_offset(dst_reg, offset);
+            }
+
+            return;
           }
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
@@ -2361,7 +2384,7 @@ impl<'a> ARM64Gen<'a> {
         // Handled in execution phase.
       }
 
-      Insn::Store { name, value, .. } => {
+      Insn::Store { name, value, ty_id } => {
         // Forward concrete enum payload types from the rhs
         // SSA value to this local so a later `Load` of `name`
         // can recover them. Mirrors how `value_types` flows
@@ -2374,10 +2397,62 @@ impl<'a> ARM64Gen<'a> {
           self.local_tuple_elem_tys.insert(name.as_u32(), elems);
         }
 
-        // Variable write: STR value to stack slot.
-        // Allocate slot on first Store, reuse after.
         let slot_key = name.as_u32();
 
+        // `[N]T` value-semantics path: the variable owns its
+        // own `[len:8][cap:8][e0:8]...[eN:8]` block in the
+        // frame; assignment memcopies from the source's
+        // block. Without this, a `mut row: [N]T = lit;
+        // mut next: [N]T = lit2; row = next;` made `row`
+        // alias `next`'s literal block — writes through one
+        // were observed through the other.
+        if let Some(n) = self.array_metas.get(&ty_id.0).and_then(|m| m.size) {
+          let block_off =
+            if let Some(&off) = self.array_var_blocks.get(&slot_key) {
+              off
+            } else {
+              let base = self
+                .current_fn_start
+                .and_then(|s| {
+                  self
+                    .reg_alloc
+                    .as_ref()
+                    .and_then(|a| a.function_info.get(&s))
+                })
+                .map(|info| info.spill_size)
+                .unwrap_or(0);
+
+              let off = base + self.next_mut_slot * STACK_SLOT_SIZE;
+
+              self.array_var_blocks.insert(slot_key, off);
+              // Reserve the block's full footprint so a later
+              // scalar Store doesn't land inside it.
+              self.next_mut_slot += 2 + n;
+
+              off
+            };
+
+          let src_reg = match self.alloc_reg(*value) {
+            Some(r) => r,
+            None => return,
+          };
+
+          // Word-by-word memcpy. N is bounded by what the
+          // type literal carried, so the unrolled loop stays
+          // tight for typical sizes.
+          for i in 0..(2 + n) {
+            let src_word_off = (i * STACK_SLOT_SIZE) as i16;
+
+            self.emitter.emit_ldr(X16, src_reg, src_word_off);
+            self.emit_str_sp(X16, block_off + i * STACK_SLOT_SIZE);
+          }
+
+          return;
+        }
+
+        // Scalar (or `[]T` heap-pointer) path: STR the value
+        // to a single 8-byte slot. Allocate on first Store,
+        // reuse after.
         let offset = if let Some(&off) = self.mutable_slots.get(&slot_key) {
           off
         } else {

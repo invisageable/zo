@@ -238,4 +238,13 @@ pub enum ErrorKind {
   SpawnOutsideNursery, // `spawn` without enclosing `nursery { }`
   AwaitOnNonTask,      // `await expr` where expr is not `Ty::Task(_)`
   ChannelCapacityNotLiteral, // `channel(N)` with non-literal N
+
+  // Repeat-array literal `[v...]` / `[v...n]` errors.
+  // `[v...]` needs `[N]T` annotation to provide N; `[]T`
+  // can't drive the count.
+  RepeatRequiresKnownLength,
+  // `[v...n]` where n disagrees with `[N]T`'s N.
+  RepeatLengthMismatch,
+  // `[v...n]` where n isn't an integer literal in v1.
+  RepeatCountNotConst,
 }

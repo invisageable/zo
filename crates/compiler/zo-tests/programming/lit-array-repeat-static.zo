@@ -1,0 +1,19 @@
+-- tests-run-pass: `[v...]` — repeat literal driven by `[N]T`.
+-- @cmd — zo run lit-array-repeat-static.zo
+
+fun main() {
+  imu xs: [5]int = [0...];
+
+  check@eq(xs[0], 0);
+  check@eq(xs[1], 0);
+  check@eq(xs[2], 0);
+  check@eq(xs[3], 0);
+  check@eq(xs[4], 0);
+
+  showln(xs);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- [0, 0, 0, 0, 0]
+-- DONE

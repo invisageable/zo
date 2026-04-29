@@ -1,0 +1,18 @@
+-- tests-run-pass: `[v...n]` — repeat literal with explicit count.
+-- @cmd — zo run lit-array-repeat-dynamic.zo
+
+fun main() {
+  imu xs: []int = [7...4];
+
+  check@eq(xs[0], 7);
+  check@eq(xs[1], 7);
+  check@eq(xs[2], 7);
+  check@eq(xs[3], 7);
+
+  showln(xs);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- [7, 7, 7, 7]
+-- DONE

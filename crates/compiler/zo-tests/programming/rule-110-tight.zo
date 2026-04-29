@@ -1,7 +1,8 @@
--- tests-run-pass: rule 110 written with verified zo features
--- (fixed-size `[N]T`, for-range with variable bound, if-expr,
--- `=>` single-line form). The verbose `rule-110.zo` lives next
--- to this one for comparison.
+-- tests-run-pass: rule 110 — tight form using `[N]T` fixed
+-- arrays, `[v...]` repeat-array literals, `for i := 0..n`
+-- with a variable bound, and `when ? :` ternary. The
+-- verbose `rule-110.zo` lives next to this one for the
+-- compile-time comparison.
 -- @cmd — zo run rule-110-tight.zo
 
 fun main() {
@@ -9,8 +10,8 @@ fun main() {
   imu gens: int = 15;
   imu rule: [8]int = [0, 1, 1, 1, 0, 1, 1, 0];
 
-  mut row: []int = [];
-  for i := 0..width => row.push(0);
+  mut row:  [31]int = [0...];
+  mut next: [31]int = [0...];
   row[width - 1] = 1;
 
   for g := 0..gens {
@@ -23,9 +24,6 @@ fun main() {
     }
 
     showln("");
-
-    mut next: []int = [];
-    for j := 0..width => next.push(0);
 
     for k := 0..width {
       imu left: int = when k > 0 ? row[k - 1] : 0;

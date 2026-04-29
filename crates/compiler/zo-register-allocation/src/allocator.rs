@@ -675,18 +675,44 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
 
   let struct_size = (struct_slots * 8 + 15) & !15;
 
-  // Count unique Store targets for mutable variable slots.
-  let mut store_names: Vec<Symbol> = Vec::new();
+  // Count Store-target slots. Scalar variables take one
+  // 8-byte slot; `[N]T` variables get an inline block of
+  // `(2 + N) * 8` so codegen can memcpy on assignment
+  // (otherwise `row = next` aliased the source's literal
+  // block — both names walked the same memory).
+  //
+  // `array_sizes` is built from earlier `Insn::ArrayTyDef`
+  // emissions; codegen does the same scan in its own
+  // pre-pass.
+  let mut array_sizes: HashMap<u32, u32> = HashMap::default();
 
   for i in 0..n {
-    if let Insn::Store { name, .. } = &insns[start + i]
-      && !store_names.contains(name)
+    if let Insn::ArrayTyDef {
+      array_ty,
+      size: Some(sz),
+      ..
+    } = &insns[start + i]
     {
-      store_names.push(*name);
+      array_sizes.insert(array_ty.0, *sz);
     }
   }
 
-  let mutable_size = (store_names.len() as u32 * 8 + 15) & !15;
+  let mut store_names: Vec<Symbol> = Vec::new();
+  let mut mutable_slots: u32 = 0;
+
+  for i in 0..n {
+    if let Insn::Store { name, ty_id, .. } = &insns[start + i]
+      && !store_names.contains(name)
+    {
+      store_names.push(*name);
+
+      let slots = array_sizes.get(&ty_id.0).map(|sz| 2 + sz).unwrap_or(1);
+
+      mutable_slots += slots;
+    }
+  }
+
+  let mutable_size = (mutable_slots * 8 + 15) & !15;
 
   // `ChannelSend` stores the value on stack before the
   // FFI call reads it by pointer; `ChannelRecv` reads
