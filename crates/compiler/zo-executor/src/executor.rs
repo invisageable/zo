@@ -208,6 +208,13 @@ pub struct Executor<'a> {
   /// Pending array element assignment (deferred to Semicolon).
   /// (array_sir, index_sir, array_name, span)
   pending_array_assign: Option<(ValueId, ValueId, Symbol, Span)>,
+  /// Pending struct field assignment `p.field = expr`,
+  /// deferred to Semicolon. Without this, the assignment was
+  /// a silent no-op outside `apply` methods — the LHS was
+  /// pushed onto the stacks (as a `TupleIndex` read), the
+  /// RHS was evaluated, and Semicolon dropped both.
+  /// `(recv_sir, field_idx, field_ty, recv_name, span)`.
+  pending_field_assign: Option<(ValueId, u32, TyId, Symbol, Span)>,
   /// Tuple context stack: stack_depth_at_open.
   tuple_ctx: Vec<usize>,
   /// Deferred binary operators waiting for RHS group to close.
@@ -618,6 +625,7 @@ impl<'a> Executor<'a> {
       pending_compound_receiver: None,
       array_ctx: Vec::new(),
       pending_array_assign: None,
+      pending_field_assign: None,
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
       deferred_short_circuits: Vec::new(),
@@ -2027,6 +2035,25 @@ impl<'a> Executor<'a> {
               }
               BranchKind::While | BranchKind::For => ctx.end_label,
             };
+
+            // Reject non-bool conditions (`if n { ... }` where
+            // `n: int`). zo doesn't auto-coerce ints to bool;
+            // a stray int condition was previously accepted and
+            // silently emitted a branch comparing the int to 0.
+            // For/while are exempt — `BranchKind::For` reuses
+            // this site for its synthetic loop predicate, which
+            // is built bool by codegen.
+            if matches!(ctx.kind, BranchKind::If | BranchKind::Ternary)
+              && let Some(&cond_ty) = self.ty_stack.last()
+            {
+              let resolved = self.ty_checker.resolve_ty(cond_ty);
+
+              if !matches!(resolved, Ty::Bool | Ty::Infer(_)) {
+                let span = self.tree.spans[idx];
+
+                report_error(Error::new(ErrorKind::TypeMismatch, span));
+              }
+            }
 
             self.sir.emit(Insn::BranchIfNot {
               cond: cond_sir,
@@ -3548,15 +3575,24 @@ impl<'a> Executor<'a> {
             });
 
             if let Some(fname) = field_name {
-              let resolved = fields
+              let resolved = match fields
                 .iter()
                 .enumerate()
                 .find(|(_, f)| f.name == fname)
-                .map(|(i, f)| {
+              {
+                Some((i, f)) => {
                   field_idx = i as u32;
                   f.ty_id
-                })
-                .unwrap_or(self.ty_checker.unit_type());
+                }
+                None => {
+                  // Unknown field.
+                  let span = self.tree.spans[idx];
+
+                  report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
+
+                  self.ty_checker.unit_type()
+                }
+              };
 
               // For generic structs, the shared field type
               // is still an `Ty::Infer(_)` placeholder. The
@@ -3963,6 +3999,7 @@ impl<'a> Executor<'a> {
 
         // Finalize pending assignment (x = expr;).
         self.finalize_pending_array_assign();
+        self.finalize_pending_field_assign();
 
         let had_assign = self.pending_assign.is_some();
         self.finalize_pending_assign();
@@ -4085,6 +4122,55 @@ impl<'a> Executor<'a> {
 
               self.pending_array_assign =
                 Some((array_sir, index_sir, name, span));
+            }
+          }
+        } else if self.tree.nodes[target_idx].token == Token::Dot {
+          // Struct field assignment: `p.field = value`. The
+          // Dot handler emitted `Insn::TupleIndex` (struct
+          // field read), pushing the field's value onto the
+          // stacks. Recover the receiver SIR + field index
+          // from the most recent TupleIndex insn, pop the
+          // read result (we don't need the old value), and
+          // defer the FieldStore emission to Semicolon
+          // alongside the RHS.
+          if let Some(Insn::TupleIndex {
+            tuple,
+            index,
+            ty_id,
+            ..
+          }) = self.sir.instructions.last()
+          {
+            let recv_sir = *tuple;
+            let field_idx = *index;
+            let field_ty = *ty_id;
+
+            // Resolve receiver name for the mutability check
+            // by walking back to the closest Load that
+            // produced `recv_sir`.
+            let recv_name =
+              self.sir.instructions.iter().rev().find_map(|insn| {
+                if let Insn::Load {
+                  dst,
+                  src: LoadSource::Local(sym),
+                  ..
+                } = insn
+                  && *dst == recv_sir
+                {
+                  Some(*sym)
+                } else {
+                  None
+                }
+              });
+
+            if let Some(name) = recv_name {
+              self.value_stack.pop();
+              self.ty_stack.pop();
+              self.sir_values.pop();
+
+              let span = self.tree.spans[target_idx];
+
+              self.pending_field_assign =
+                Some((recv_sir, field_idx, field_ty, name, span));
             }
           }
         }
@@ -5071,6 +5157,15 @@ impl<'a> Executor<'a> {
     let pack_end = rbrace_idx.map(|i| i + 1).unwrap_or(end_idx);
 
     if let Some(name) = name {
+      // Reject `pack math::(...); pack math::(...);` —
+      // re-declaring or re-importing the same pack name
+      // shadowed the first decl silently.
+      if !self.pack_names.insert(name) {
+        let span = self.tree.spans[name_idx.unwrap_or(start_idx)];
+
+        report_error(Error::new(ErrorKind::DuplicateDefinition, span));
+      }
+
       self.sir.emit(Insn::PackDecl {
         name,
         pubness: if self.is_pub(start_idx) {
@@ -5079,12 +5174,6 @@ impl<'a> Executor<'a> {
           Pubness::No
         },
       });
-
-      // Register the simple pack name so `inner.hello()`
-      // style calls can recognise `inner` / `inner2` as
-      // namespace prefixes (the Ident handler would
-      // otherwise flag them as undefined variables).
-      self.pack_names.insert(name);
     }
 
     // Enter pack context: nested `fun`s will be mangled
@@ -7047,6 +7136,45 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Finalize a pending struct field assignment
+  /// (`p.field = value;`). Mirrors `finalize_pending_array_
+  /// assign` but emits `Insn::FieldStore` instead.
+  fn finalize_pending_field_assign(&mut self) {
+    let (recv_sir, field_idx, field_ty, recv_name, span) =
+      match self.pending_field_assign.take() {
+        Some(f) => f,
+        None => return,
+      };
+
+    if let (Some(_value), Some(_value_ty)) =
+      (self.value_stack.pop(), self.ty_stack.pop())
+    {
+      let value_sir = self.sir_values.pop();
+
+      let is_mutable = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == recv_name)
+        .is_some_and(|l| l.mutability == Mutability::Yes);
+
+      if !is_mutable {
+        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+
+        return;
+      }
+
+      if let Some(sv) = value_sir {
+        self.sir.emit(Insn::FieldStore {
+          base: recv_sir,
+          index: field_idx,
+          value: sv,
+          ty_id: field_ty,
+        });
+      }
+    }
+  }
+
   /// Finalize a pending variable declaration.
   ///
   /// Finalize a pending assignment (x = expr;).
@@ -8177,7 +8305,20 @@ impl<'a> Executor<'a> {
                     idx += 1;
                   }
                   Token::Ident => {
-                    // Named type (e.g. error).
+                    // Named type (e.g. error). Reject direct
+                    // recursion `enum Foo { Bar(Foo) }` — the
+                    // payload would need infinite size without
+                    // a heap indirection (Box / `&`), neither of
+                    // which is available in v1 enums.
+                    if let Some(NodeValue::Symbol(payload_sym)) =
+                      self.node_value(idx)
+                      && payload_sym == name
+                    {
+                      let span = self.tree.spans[idx];
+
+                      report_error(Error::new(ErrorKind::InfiniteType, span));
+                    }
+
                     let ty = self.ty_checker.fresh_var();
                     fields.push(ty);
                     idx += 1;
@@ -12355,6 +12496,10 @@ impl<'a> Executor<'a> {
 
       if self.pending_array_assign.is_some() {
         self.finalize_pending_array_assign();
+      }
+
+      if self.pending_field_assign.is_some() {
+        self.finalize_pending_field_assign();
       }
 
       self.finalize_pending_decl();

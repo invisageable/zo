@@ -7554,6 +7554,7 @@ dependencies = [
  "zo-parser",
  "zo-sir",
  "zo-tokenizer",
+ "zo-ty-checker",
 ]
 
 [[package]]

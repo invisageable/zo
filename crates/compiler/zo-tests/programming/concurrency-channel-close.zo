@@ -17,10 +17,10 @@ fun consumer(rx: Rx<int>) {
 
 fun main() {
   nursery {
-    imu chan := channel(2);
+    imu (tx, rx) := channel(2);
 
-    spawn producer(chan.0);
-    spawn consumer(chan.1);
+    spawn producer(tx);
+    spawn consumer(rx);
   }
 
   showln("DONE");

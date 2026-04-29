@@ -25,12 +25,13 @@ zo-analyzer = { workspace = true }
 zo-executor = { workspace = true }
 zo-parser = { workspace = true }
 zo-tokenizer = { workspace = true }
+zo-ty-checker = { workspace = true }
 
 # external:crates.
 criterion = { workspace = true }
 insta = { workspace = true }
 proptest = { workspace = true }
 
-# [[bench]]
-# name = "generate"
-# harness = false
+[[bench]]
+name = "generate"
+harness = false
