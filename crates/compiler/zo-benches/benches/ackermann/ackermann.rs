@@ -1,4 +1,4 @@
-fun ack(m: int, n: int) -> int {
+fn ack(m: i64, n: i64) -> i64 {
   if m == 0 {
     return n + 1;
   } else {
@@ -10,8 +10,8 @@ fun ack(m: int, n: int) -> int {
   }
 }
 
-fun main() {
-  check(ack(0, 0) == 1);
-  check(ack(3, 2) == 29);
-  check(ack(3, 4) == 125);
+fn main() {
+  assert_eq!(ack(0, 0), 1);
+  assert_eq!(ack(3, 2), 29);
+  assert_eq!(ack(3, 4), 125);
 }
