@@ -139,7 +139,7 @@ impl AllocState {
     let fp = self.is_fp(ValueId(vid));
     let reg = self.pool_mut(fp).val_to_reg[&vid];
 
-    if liveness.live_out[local_idx].test(vid as usize) {
+    if liveness.is_live_out_raw(local_idx, vid) {
       let slot = self.spill_slot(vid);
 
       result.spill_ops.push(SpillOp {
@@ -364,7 +364,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         .val_to_reg
         .iter()
         .filter(|(vid, _)| {
-          liveness.live_out[i].test(**vid as usize) && !arg_set.contains(vid)
+          liveness.is_live_out_raw(i, **vid) && !arg_set.contains(vid)
         })
         .map(|(vid, reg)| (*vid, *reg))
         .collect::<Vec<_>>();
@@ -374,7 +374,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         .val_to_reg
         .iter()
         .filter(|(vid, _)| {
-          liveness.live_out[i].test(**vid as usize) && !arg_set.contains(vid)
+          liveness.is_live_out_raw(i, **vid) && !arg_set.contains(vid)
         })
         .map(|(vid, reg)| (*vid, *reg))
         .collect::<Vec<_>>();
@@ -526,7 +526,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         return;
       }
 
-      if !liveness.live_out[i].test(use_vid.0 as usize) {
+      if !liveness.is_live_out_raw(i, use_vid.0) {
         state.free_value(use_vid);
       }
     });
@@ -752,7 +752,7 @@ fn free_dead(
     .val_to_reg
     .keys()
     .chain(state.fp.val_to_reg.keys())
-    .filter(|vid| !liveness.live_out[local_idx].test(**vid as usize))
+    .filter(|vid| !liveness.is_live_out_raw(local_idx, **vid))
     .copied()
     .collect::<Vec<_>>();
 

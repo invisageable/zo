@@ -282,7 +282,7 @@ impl<'a> Dce<'a> {
           }
 
           if let Some(vid) = value_ids[gi]
-            && !liveness.live_out[i].test(vid.0 as usize)
+            && !liveness.is_live_out_raw(i, vid.0)
           {
             dead.push(gi);
           }
