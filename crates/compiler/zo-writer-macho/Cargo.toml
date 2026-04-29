@@ -13,6 +13,17 @@ doctest = false
 
 # external:crates.
 rustc-hash = { workspace = true }
+
+# `sha2-asm` (pulled in by `sha2/asm`) ships GNU-syntax `.S`
+# files that MSVC's `cl.exe` can't assemble — Windows CI
+# fails to build it. Enable the `asm` feature only on non-
+# MSVC targets where the toolchain has GNU `as`/`gcc`.
+# x86_64 hardware acceleration on Windows MSVC kicks in
+# automatically via `cpufeatures` without needing `asm`.
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+sha2 = { workspace = true, features = ["asm"] }
+
+[target.'cfg(target_env = "msvc")'.dependencies]
 sha2 = { workspace = true }
 
 [dev-dependencies]
