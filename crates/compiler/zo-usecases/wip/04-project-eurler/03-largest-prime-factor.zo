@@ -24,7 +24,7 @@ fun smallest_prime_factor(n: int) -> int {
 }
 
 fun main() {
-  mut n: int = 600851475143;
+  mut n: int = 600_851_475_143;
 
   while true {
     imu p: int = smallest_prime_factor(n);
@@ -36,6 +36,9 @@ fun main() {
     }
   }
 
-  -- check@eq(n, 6857);
+  check@eq(n, 6857);
+
   showln("{n}");
+
+  showln("DONE");
 }

@@ -10,43 +10,7 @@
 
 [home](https://github.com/invisageable/zo) — [install](./crates/compiler/zo-notes/public/guidelines/02-install.md) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
 
-  <!-- pub $: {
-    .count-value {
-      c: navy;
-      fs: 1rem;
-      fw: bold;
-    }
-  } -->
-
-  <!-- ```ts
-  fun main() {
-    mut count: int = 0;
-
-    imu counter: </> ::= <>
-      <button @click={fn() => count -= 1}>-</button>
-      <span class="count-value">{count}</span>
-      <button @click={fn() => count += 1}>+</button>
-    </>;
-
-    #dom counter;
-  }
-  ``` -->
-
 ![preview-zo-templating-counter](./crates/compiler/zo-notes/public/assets/preview/preview-zo-templating-counter.png)
-
-<!-- ## warning.
-
-**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
-
-THiS iS A LiViNG PROJECT, FORGED iN THE OPEN. EXPECT ROUGH EDGES AND RADiCAL iDEAS.   
-
-WE ARE BUiLDiNG THE CATHEDRAL. THE FOUNDATiON iS LAiD, BUT THE SPiRES ARE STiLL REACHiNG FOR THE SKY. iF YOU ARE A PiONEER, A BUiLDER, OR A FELLOW COMPiLER NERD, YOU'VE ARRiVED AT THE PERFECT TiME.   
-
-JOiN THE DEVOLUTiON.  
-
-**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
-
-> *If you’re curious, do take the time to explore the project in its entirety.* -->
 
 ## about.
 

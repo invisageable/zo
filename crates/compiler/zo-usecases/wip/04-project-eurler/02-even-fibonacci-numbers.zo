@@ -9,20 +9,23 @@
 -- exceed four million, find the sum of the even-valued terms.
 
 fun main() {
-  mut ans: int = 0;
+  mut answer: int = 0;
   mut x: int = 1;
   mut y: int = 2;
 
   while x <= 4000000 {
     if x % 2 == 0 {
-      ans += x;
+      answer += x;
     }
 
     imu tmp: int = x;
+
     x = y;
     y = tmp + y;
   }
 
-  check@eq(ans, 4613732);
-  showln("{ans}");
+  check@eq(answer, 4613732);
+  showln("{answer}");
+
+  showln("DONE");
 }

@@ -6745,11 +6745,12 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Destructuring patterns: tuple `imu (a, b, c) = …`
-    // or struct `imu { x, y, z } = …`. The pattern names
-    // are bound to the rhs's matching elements at
-    // finalize time — tuple by index, struct by field
-    // name (resolved from the rhs's struct type). The
+    // Destructuring patterns: tuple `imu (a, b, c) = …`,
+    // struct `imu { x, y, z } = …`, or array
+    // `imu [a, b, c] = …`. The pattern names are bound to
+    // the rhs's matching elements at finalize time — tuple
+    // by index, struct by field name (resolved from the
+    // rhs's struct type), array by ordered index. The
     // walk skips past the closing delimiter and any
     // `=` / `:=` so the main loop only sees the rhs
     // init expression.
@@ -6757,15 +6758,16 @@ impl<'a> Executor<'a> {
       && idx + 1 < children_end
       && matches!(
         self.tree.nodes[idx + 1].token,
-        Token::LParen | Token::LBrace
+        Token::LParen | Token::LBrace | Token::LBracket
       );
 
     if is_pattern {
       let opener = self.tree.nodes[idx + 1].token;
-      let closer = if opener == Token::LParen {
-        Token::RParen
-      } else {
-        Token::RBrace
+      let closer = match opener {
+        Token::LParen => Token::RParen,
+        Token::LBrace => Token::RBrace,
+        Token::LBracket => Token::RBracket,
+        _ => Token::RParen, // unreachable per `is_pattern`
       };
 
       let mut names: Vec<Symbol> = Vec::new();
@@ -7576,6 +7578,8 @@ impl<'a> Executor<'a> {
     // by looking up the field by name on the struct type.
     let kind = self.ty_checker.kind_of(init_ty);
 
+    let mut is_array_pattern = false;
+
     let bindings: Vec<(u32, TyId)> = match kind {
       Ty::Tuple(tid) => {
         let elems = self
@@ -7595,6 +7599,38 @@ impl<'a> Executor<'a> {
           .into_iter()
           .enumerate()
           .map(|(i, t)| (i as u32, t))
+          .collect()
+      }
+      Ty::Array(aid) => {
+        // `imu [a, b, c] = arr;`. For `[N]T` the binding
+        // count must match N; for `[]T` we trust the user
+        // (arity check would need a runtime guard). Each
+        // pattern slot reads the same `elem_ty` via
+        // `Insn::ArrayIndex`.
+        is_array_pattern = true;
+
+        let arr =
+          match self.ty_checker.ty_table.array(aid).copied() {
+            Some(a) => a,
+            None => {
+              report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+
+              return;
+            }
+          };
+
+        if let Some(n) = arr.size
+          && names.len() != n as usize
+        {
+          report_error(Error::new(ErrorKind::ArraySizeMismatch, decl.span));
+
+          return;
+        }
+
+        names
+          .iter()
+          .enumerate()
+          .map(|(i, _)| (i as u32, arr.elem_ty))
           .collect()
       }
       Ty::Struct(sid) => {
@@ -7636,17 +7672,42 @@ impl<'a> Executor<'a> {
     for (n, &name) in names.iter().enumerate() {
       let (field_idx, elem_ty) = bindings[n];
       let elem_value = self.values.store_runtime(u32::MAX);
-      let elem_sir = sir_init.map(|tup_sir| {
+      let elem_sir = sir_init.map(|recv_sir| {
         let dst = ValueId(self.sir.next_value_id);
 
         self.sir.next_value_id += 1;
 
-        self.sir.emit(Insn::TupleIndex {
-          dst,
-          tuple: tup_sir,
-          index: field_idx,
-          ty_id: elem_ty,
-        });
+        if is_array_pattern {
+          // Array patterns need a runtime ValueId index, not
+          // a u32 like tuple/struct, so synthesize a
+          // `ConstInt` for the position and feed it to
+          // `ArrayIndex`. Header offset (`+16`) is added by
+          // codegen.
+          let int_ty = self.ty_checker.int_type();
+          let idx_dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+
+          self.sir.emit(Insn::ConstInt {
+            dst: idx_dst,
+            value: field_idx as u64,
+            ty_id: int_ty,
+          });
+
+          self.sir.emit(Insn::ArrayIndex {
+            dst,
+            array: recv_sir,
+            index: idx_dst,
+            ty_id: elem_ty,
+          });
+        } else {
+          self.sir.emit(Insn::TupleIndex {
+            dst,
+            tuple: recv_sir,
+            index: field_idx,
+            ty_id: elem_ty,
+          });
+        }
 
         dst
       });

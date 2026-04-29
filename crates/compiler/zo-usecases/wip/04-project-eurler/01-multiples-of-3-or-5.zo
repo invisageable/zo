@@ -6,14 +6,16 @@
 -- Find the sum of all the multiples of `3` or `5` below `1000`.
 
 fun main() {
-  mut ans: int = 0;
+  mut answer: int = 0;
 
   for x := 1..1000 {
     if x % 3 == 0 || x % 5 == 0 {
-      ans += x;
+      answer += x;
     }
   }
 
-  check@eq(ans, 233168);
-  showln("{ans}");
+  check@eq(answer, 233168);
+  showln("{answer}");
+
+  showln("DONE");
 }

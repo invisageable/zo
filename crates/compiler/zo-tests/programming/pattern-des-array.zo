@@ -1,0 +1,33 @@
+-- tests-run-pass: array destructuring `imu [a, b, c] = arr`
+-- @cmd — zo run pattern-des-array.zo
+
+fun main() {
+  imu arr: [3]int = [10, 20, 30];
+  imu [a, b, c] = arr;
+
+  check@eq(a, 10);
+  check@eq(b, 20);
+  check@eq(c, 30);
+
+  showln(a);
+  showln(b);
+  showln(c);
+
+  -- works for `[]T` too — no length check at compile
+  -- time, just ordered indexing.
+  imu xs: []str = ["one", "two"];
+  imu [x, y] = xs;
+
+  showln(x);
+  showln(y);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 20
+-- 30
+-- one
+-- two
+-- DONE
