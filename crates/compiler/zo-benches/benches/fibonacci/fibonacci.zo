@@ -1,7 +1,4 @@
 fun fib(n: int) -> int {
-  -- Several of the posted 'benchmark' versions of this compute the
-  -- wrong Fibonacci numbers, of course.
-
   if n == 0 {
     return 0;
   } else {

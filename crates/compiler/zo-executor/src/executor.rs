@@ -203,8 +203,8 @@ pub struct Executor<'a> {
   /// in `self.x += 1`). Set when the target is a field,
   /// consumed by `finalize_pending_compound`.
   pending_compound_receiver: Option<Symbol>,
-  /// Array context stack: (is_indexing, stack_depth, array_name).
-  array_ctx: Vec<(bool, usize, Option<Symbol>)>,
+  /// Array context stack — one entry per open `[ ... ]`.
+  array_ctx: Vec<ArrayCtx>,
   /// Pending array element assignment (deferred to Semicolon).
   /// (array_sir, index_sir, array_name, span)
   pending_array_assign: Option<(ValueId, ValueId, Symbol, Span)>,
@@ -536,6 +536,19 @@ struct StructPatArmCtx<'a> {
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
+/// One entry per open `[ ... ]`. Tracks whether we're
+/// indexing or building a literal, the SIR-value-stack
+/// depth at `[`, the receiver name (for indexing), and the
+/// SIR-value-stack position recorded if `Token::Ellipsis`
+/// was seen — needed to expand `[v...]` / `[v...n]` into a
+/// flat `Insn::ArrayLiteral` at `]`.
+struct ArrayCtx {
+  is_indexing: bool,
+  depth: usize,
+  array_name: Option<Symbol>,
+  ellipsis_at: Option<usize>,
+}
+
 struct PendingDecl {
   name: Symbol,
   is_mutable: bool,
@@ -3101,11 +3114,36 @@ impl<'a> Executor<'a> {
 
         let depth = self.sir_values.len();
 
-        self.array_ctx.push((is_indexing, depth, array_name));
+        self.array_ctx.push(ArrayCtx {
+          is_indexing,
+          depth,
+          array_name,
+          ellipsis_at: None,
+        });
+      }
+
+      Token::Ellipsis => {
+        // Mark the position of `...` inside the active
+        // array literal. Expansion happens at `]` once we
+        // know the prefix and the optional count. Outside
+        // an array literal `...` is not a valid token (the
+        // parser already rejects it), so a missing context
+        // here means a malformed tree — silently ignore.
+        if let Some(ctx) = self.array_ctx.last_mut()
+          && !ctx.is_indexing
+        {
+          ctx.ellipsis_at = Some(self.sir_values.len());
+        }
       }
 
       Token::RBracket => {
-        if let Some((is_indexing, depth, _array_name)) = self.array_ctx.pop() {
+        if let Some(ctx) = self.array_ctx.pop() {
+          let ArrayCtx {
+            is_indexing,
+            depth,
+            array_name: _array_name,
+            ellipsis_at,
+          } = ctx;
           let int_ty = self.ty_checker.int_type();
 
           if is_indexing {
@@ -3189,34 +3227,145 @@ impl<'a> Executor<'a> {
           } else {
             // Array literal: collect elements from
             // stacks (everything since depth).
-            let count = self.sir_values.len().saturating_sub(depth);
-            let mut elements = Vec::with_capacity(count);
+            let total = self.sir_values.len().saturating_sub(depth);
+            let span = self.tree.spans[idx];
 
-            // Infer element type from the first element.
-            // Empty arrays get a fresh inference variable so
-            // unification with the type annotation resolves it.
+            // Resolve `...` repeat literal into a flat element
+            // list before the regular path runs. Three forms:
+            //   [v...]        — N from `[N]T` annotation
+            //   [v...n]       — N from a literal int after `...`
+            //   [v1,v2,v3...] — N from annotation, last value
+            //                   spreads to fill the remainder
+            let (prefix_count, final_count) = if let Some(eat) = ellipsis_at {
+              let prefix = eat.saturating_sub(depth);
+              let post = total.saturating_sub(prefix);
+
+              if prefix == 0 {
+                report_error(Error::new(ErrorKind::ExpectedExpression, span));
+
+                (0, 0)
+              } else if post == 1 {
+                // [v...n] — pop the count from stacks. Must be
+                // an integer literal in v1.
+                let n = self.value_stack.last().and_then(|vid| {
+                  let i = vid.0 as usize;
+
+                  if i < self.values.kinds.len()
+                    && matches!(self.values.kinds[i], Value::Int)
+                  {
+                    let ii = self.values.indices[i] as usize;
+                    Some(self.values.ints[ii] as u32)
+                  } else {
+                    None
+                  }
+                });
+
+                self.value_stack.pop();
+                self.ty_stack.pop();
+                self.sir_values.pop();
+
+                match n {
+                  Some(n) if (n as usize) >= prefix => (prefix, n as usize),
+                  Some(_) => {
+                    report_error(Error::new(
+                      ErrorKind::RepeatLengthMismatch,
+                      span,
+                    ));
+                    (prefix, prefix)
+                  }
+                  None => {
+                    report_error(Error::new(
+                      ErrorKind::RepeatCountNotConst,
+                      span,
+                    ));
+                    (prefix, prefix)
+                  }
+                }
+              } else if post == 0 {
+                // [v...] — pull N from the pending decl's
+                // annotated `[N]T` type.
+                let n = self
+                  .pending_decl
+                  .as_ref()
+                  .and_then(|d| d.annotated_ty)
+                  .and_then(|t| match self.ty_checker.resolve_ty(t) {
+                    Ty::Array(aid) => self
+                      .ty_checker
+                      .ty_table
+                      .array(aid)
+                      .and_then(|at| at.size.map(|s| s as usize)),
+                    _ => None,
+                  });
+
+                match n {
+                  Some(n) if n >= prefix => (prefix, n),
+                  Some(_) => {
+                    report_error(Error::new(
+                      ErrorKind::RepeatLengthMismatch,
+                      span,
+                    ));
+                    (prefix, prefix)
+                  }
+                  None => {
+                    report_error(Error::new(
+                      ErrorKind::RepeatRequiresKnownLength,
+                      span,
+                    ));
+                    (prefix, prefix)
+                  }
+                }
+              } else {
+                // > 1 nodes after `...`: parser should reject
+                // this, but be defensive.
+                report_error(Error::new(ErrorKind::UnexpectedToken, span));
+                (prefix, prefix)
+              }
+            } else {
+              (total, total)
+            };
+
+            // Element type from the first prefix element on
+            // the stacks; empty literals get a fresh var.
             let elem_ty = if depth < self.ty_stack.len() {
               self.ty_stack[depth]
             } else {
               self.ty_checker.fresh_var()
             };
 
-            // Pop elements in reverse, then reverse.
-            for _ in 0..count {
+            // Pop the prefix in reverse to recover original
+            // order.
+            let mut prefix_elems = Vec::with_capacity(prefix_count);
+
+            for _ in 0..prefix_count {
               if let Some(sv) = self.sir_values.pop() {
-                elements.push(sv);
+                prefix_elems.push(sv);
               }
 
               self.value_stack.pop();
               self.ty_stack.pop();
             }
 
-            elements.reverse();
+            prefix_elems.reverse();
+
+            // Spread the last prefix element to reach
+            // final_count. If no `...` was seen, this loop
+            // doesn't run (final_count == prefix_count).
+            let mut elements = Vec::with_capacity(final_count);
+
+            elements.extend_from_slice(&prefix_elems);
+
+            if final_count > prefix_count
+              && let Some(spread) = prefix_elems.last().copied()
+            {
+              for _ in 0..(final_count - prefix_count) {
+                elements.push(spread);
+              }
+            }
 
             let arr_ty_id = self
               .ty_checker
               .ty_table
-              .intern_array(elem_ty, Some(count as u32));
+              .intern_array(elem_ty, Some(final_count as u32));
 
             let arr_ty = self.ty_checker.intern_ty(Ty::Array(arr_ty_id));
 

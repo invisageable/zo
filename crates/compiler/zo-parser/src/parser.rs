@@ -235,6 +235,7 @@ impl<'a> Parser<'a> {
       Token::Arrow => self.handle_arrow(),
       Token::FatArrow => self.handle_fat_arrow(),
       Token::Comma => self.handle_comma(),
+      Token::Ellipsis => self.handle_ellipsis(),
       Token::Semicolon => self.handle_semicolon(),
       Token::Eq => self.handle_assignment(),
 
@@ -1156,6 +1157,27 @@ impl<'a> Parser<'a> {
       // In array literal, continue with next element
       self.state = ParserState::Expression;
     }
+  }
+
+  fn handle_ellipsis(&mut self) {
+    // `...` is the repeat-array marker, valid only inside an
+    // array literal (`[v...]` fills from `[N]T`; `[v...n]`
+    // takes an explicit count). Flush the value that precedes
+    // it so the postorder is `value, ellipsis, [count,] ]`.
+    let in_array_literal = self
+      .introducer_stack
+      .last()
+      .is_some_and(|i| i.token == Token::LBracket)
+      && self.state == ParserState::Expression;
+
+    if !in_array_literal {
+      self.error(ErrorKind::UnexpectedToken);
+
+      return;
+    }
+
+    self.flush_expr();
+    self.emit_node(Token::Ellipsis);
   }
 
   fn handle_semicolon(&mut self) {

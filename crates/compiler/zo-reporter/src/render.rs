@@ -368,6 +368,17 @@ fn error_message(kind: ErrorKind) -> &'static str {
       "`channel(N)` capacity must be an integer literal"
     }
 
+    // Repeat-array literal errors.
+    ErrorKind::RepeatRequiresKnownLength => {
+      "`[v...]` requires a `[N]T` type annotation to provide the length"
+    }
+    ErrorKind::RepeatLengthMismatch => {
+      "repeat count does not match the array's declared length"
+    }
+    ErrorKind::RepeatCountNotConst => {
+      "`[v...n]` count must be an integer literal"
+    }
+
     _ => "Unknown error",
   }
 }

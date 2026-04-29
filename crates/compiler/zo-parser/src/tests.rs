@@ -16,10 +16,10 @@ use crate::tests::common::assert_nodes_stream;
 use zo_interner::Symbol;
 use zo_token::Token::{
   Abstract, Apply, Arrow, As, BoolType, CharType, Colon, ColonEq, Comma, Dot,
-  DotDot, DotDotEq, Else, Eq, False, FloatType, For, Fun, Gt, Ident, If, Imu,
-  Int, IntType, LBrace, LBracket, LParen, Lt, Minus, Mut, Plus, RBrace,
-  RBracket, RParen, Return, S32Type, SelfLower, Semicolon, Star, StrType,
-  String, True, While,
+  DotDot, DotDotEq, Ellipsis, Else, Eq, False, FloatType, For, Fun, Gt, Ident,
+  If, Imu, Int, IntType, LBrace, LBracket, LParen, Lt, Minus, Mut, Plus,
+  RBrace, RBracket, RParen, Return, S32Type, SelfLower, Semicolon, Star,
+  StrType, String, True, While,
 };
 use zo_tree::NodeValue;
 
@@ -542,6 +542,109 @@ fn test_array_repetition() {
       (True, None),
       (Int, Some(NodeValue::Literal(0))), // 10
       (Star, None),
+      (RBracket, None),
+      (Semicolon, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
+fn test_array_repeat_ellipsis_no_count() {
+  // `[v...]` — type drives the repeat count.
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        imu xs: [5]int = [0...];
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "main"
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      (Imu, None),
+      (Ident, Some(NodeValue::TextRange(32, 2))), // "xs"
+      (LBracket, None),
+      (Int, Some(NodeValue::Literal(0))), // 5
+      (RBracket, None),
+      (IntType, None),
+      (Colon, None),
+      (Eq, None),
+      (LBracket, None),
+      (Int, Some(NodeValue::Literal(1))), // 0
+      (Ellipsis, None),
+      (RBracket, None),
+      (Semicolon, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
+fn test_array_repeat_ellipsis_with_count() {
+  // `[v...n]` — explicit count expression after `...`.
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        imu xs: []int = [0...5];
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "main"
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      (Imu, None),
+      (Ident, Some(NodeValue::TextRange(32, 2))), // "xs"
+      (LBracket, None),
+      (RBracket, None),
+      (IntType, None),
+      (Colon, None),
+      (Eq, None),
+      (LBracket, None),
+      (Int, Some(NodeValue::Literal(0))), // 0
+      (Ellipsis, None),
+      (Int, Some(NodeValue::Literal(1))), // 5
+      (RBracket, None),
+      (Semicolon, None),
+      (RBrace, None),
+    ],
+  );
+}
+
+#[test]
+fn test_array_repeat_ellipsis_prefix() {
+  // `[v1, v2, v3...]` — prefix elements, last value spreads.
+  assert_nodes_stream(
+    r#"
+      fun main() {
+        imu xs: [5]int = [1, 2, 3...];
+      }
+    "#,
+    &[
+      (Fun, None),
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "main"
+      (LParen, None),
+      (RParen, None),
+      (LBrace, None),
+      (Imu, None),
+      (Ident, Some(NodeValue::TextRange(32, 2))), // "xs"
+      (LBracket, None),
+      (Int, Some(NodeValue::Literal(0))), // 5
+      (RBracket, None),
+      (IntType, None),
+      (Colon, None),
+      (Eq, None),
+      (LBracket, None),
+      (Int, Some(NodeValue::Literal(1))), // 1
+      (Comma, None),
+      (Int, Some(NodeValue::Literal(2))), // 2
+      (Comma, None),
+      (Int, Some(NodeValue::Literal(3))), // 3
+      (Ellipsis, None),
       (RBracket, None),
       (Semicolon, None),
       (RBrace, None),
