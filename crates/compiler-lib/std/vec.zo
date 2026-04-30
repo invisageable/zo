@@ -31,6 +31,7 @@ pub ffi __zo_vec_push(vec: int, val_ptr: int);
 pub ffi __zo_vec_pop(vec: int, val_out: int) -> bool;
 pub ffi __zo_vec_get(vec: int, idx: int, val_out: int) -> bool;
 pub ffi __zo_vec_set(vec: int, idx: int, val_ptr: int) -> bool;
+pub ffi __zo_vec_remove(vec: int, idx: int, val_out: int) -> bool;
 
 -- Raw FFIs. Pure pass-through to the runtime — no byte
 -- marshaling, no per-call-site type derivation. Codegen
@@ -81,6 +82,15 @@ apply Vec<$T> {
   -- codegen-replaced: see `emit_vec_set`.
   pub fun set(mut self, idx: int, v: $T) -> bool {
     return false;
+  }
+
+  -! Remove and return the element at `idx`. Shifts every
+  -! element after `idx` left by one slot — O(n) in the
+  -! tail length. Returns `Option::None` on out-of-bounds.
+  -!
+  -- codegen-replaced: see `emit_vec_remove`.
+  pub fun remove(mut self, idx: int) -> Option<$T> {
+    return Option::None;
   }
 
   -! Number of live elements.

@@ -629,6 +629,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
           "Vec::pop" => struct_slots += 3,
           "Vec::get" => struct_slots += 3,
           "Vec::set" => struct_slots += 1,
+          "Vec::remove" => struct_slots += 3,
 
           // HashSet apply-method scratch budgets.
           "HashSet::new" => struct_slots += 1,

@@ -198,6 +198,55 @@ pub unsafe extern "C-unwind" fn _zo_vec_set(
   true
 }
 
+/// Remove and return the element at `idx`. Shifts every
+/// element after `idx` left by one slot to keep the vec
+/// contiguous (O(n) for the tail). Returns `true` on
+/// success and copies the removed bytes into `val_out`;
+/// returns `false` on out-of-bounds (and leaves `val_out`
+/// untouched).
+///
+/// # Safety
+///
+/// As `__zo_vec_pop`.
+#[unsafe(export_name = "zo_vec_remove")]
+pub unsafe extern "C-unwind" fn _zo_vec_remove(
+  vec: *mut ZoVec,
+  idx: usize,
+  val_out: *mut u8,
+) -> bool {
+  let v = unsafe { &mut *vec };
+
+  if idx >= v.len {
+    return false;
+  }
+
+  // Read-out and tail shift share a single `as_mut_ptr`
+  // base — both target the same buffer, so a single
+  // mutable handle keeps the provenance simple.
+  let off = idx * v.elem_sz;
+  let elem_sz = v.elem_sz;
+  let tail_start = (idx + 1) * elem_sz;
+  let tail_end = v.len * elem_sz;
+  let count = tail_end - tail_start;
+
+  unsafe {
+    let base = v.bytes.as_mut_ptr();
+
+    // Copy the removed element into the caller's slot.
+    std::ptr::copy_nonoverlapping(base.add(off), val_out, elem_sz);
+
+    // Shift the tail down by one. `copy` (memmove) handles
+    // the overlap when removing anything but the last slot.
+    if count > 0 {
+      std::ptr::copy(base.add(tail_start), base.add(off), count);
+    }
+  }
+
+  v.len -= 1;
+
+  true
+}
+
 /// Number of elements in the vec.
 ///
 /// # Safety
