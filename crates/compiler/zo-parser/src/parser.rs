@@ -863,6 +863,19 @@ impl<'a> Parser<'a> {
 
     self.flush_expr();
 
+    // Cascade-close any inline closures whose body terminates
+    // at this `)`. Without this, `arr.map(fn(x) => x)` leaves
+    // the Fn introducer open — it would only close at the
+    // next `;`, swallowing the outer call's RParen and
+    // Semicolon as Fn children.
+    while let Some(intro) = self.introducer_stack.last() {
+      if intro.token == Token::Fn {
+        self.close_introducer();
+      } else {
+        break;
+      }
+    }
+
     // Distinguish expression-context `)` (call or group)
     // from ParameterList `)` — the former restores the
     // outer op/buffer stacks saved by LParen; the latter
@@ -1412,9 +1425,7 @@ impl<'a> Parser<'a> {
     // (`imu { x, y, z } = …;`), or `[` for array
     // destructuring (`imu [a, b, c] = …;`).
     match self.peek() {
-      Some(
-        Token::Ident | Token::LParen | Token::LBrace | Token::LBracket,
-      ) => {}
+      Some(Token::Ident | Token::LParen | Token::LBrace | Token::LBracket) => {}
       Some(_) => {
         self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
       }

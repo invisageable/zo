@@ -906,27 +906,24 @@ fn test_compound_interp_emits_computed_binding() {
 
   // Captures must list `count` (the only mut local
   // referenced in the brace).
-  let count_sym = interner
-    .symbol("count")
-    .expect("count must be interned");
+  let count_sym = interner.symbol("count").expect("count must be interned");
 
   assert_eq!(cb.captures, vec![count_sym]);
 
   // The closure FunDef must be emitted with the same
   // symbol DCE relies on for liveness.
-  let has_closure = sir.instructions.iter().any(|i| matches!(
-    i,
-    Insn::FunDef {
-      name,
-      kind: FunctionKind::Closure { capture_count: 1 },
-      ..
-    } if *name == cb.closure_name
-  ));
+  let has_closure = sir.instructions.iter().any(|i| {
+    matches!(
+      i,
+      Insn::FunDef {
+        name,
+        kind: FunctionKind::Closure { capture_count: 1 },
+        ..
+      } if *name == cb.closure_name
+    )
+  });
 
-  assert!(
-    has_closure,
-    "compound interp closure must appear in SIR"
-  );
+  assert!(has_closure, "compound interp closure must appear in SIR");
 }
 
 #[test]
@@ -962,9 +959,7 @@ fn test_compound_interp_emits_text_placeholder() {
     .iter()
     .find_map(|i| match i {
       Insn::Template {
-        commands,
-        bindings,
-        ..
+        commands, bindings, ..
       } => Some((commands, &bindings.computed)),
       _ => None,
     })

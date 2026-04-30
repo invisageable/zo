@@ -473,8 +473,7 @@ mod tests {
     // The value field can contain `:` (URLs, time strings,
     // …). `split_once` peels just the first `:` after the
     // id, leaving the rest of the value verbatim.
-    let (id, payload) =
-      parse_ipc_event("input:1:http://example.com").unwrap();
+    let (id, payload) = parse_ipc_event("input:1:http://example.com").unwrap();
 
     assert_eq!(id, "1");
     assert_eq!(payload.value, "http://example.com");

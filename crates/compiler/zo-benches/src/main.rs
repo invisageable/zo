@@ -136,10 +136,7 @@ fn main() {
           baseline = fmt_dur(baseline_ns),
         );
       } else {
-        println!(
-          "  {name}: {} (no baseline)",
-          fmt_dur(*current_ns)
-        );
+        println!("  {name}: {} (no baseline)", fmt_dur(*current_ns));
       }
     }
 

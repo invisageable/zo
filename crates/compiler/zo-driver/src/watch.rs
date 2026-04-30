@@ -117,8 +117,7 @@ pub(crate) fn watch_loop(
 ) -> std::io::Result<()> {
   let root = watch_root(input)?;
   let mode = detect_render_mode();
-  let _alt_screen =
-    (mode == RenderMode::AltScreen).then(AltScreenGuard::enter);
+  let _alt_screen = (mode == RenderMode::AltScreen).then(AltScreenGuard::enter);
 
   let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 

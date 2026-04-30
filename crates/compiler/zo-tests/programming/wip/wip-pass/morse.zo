@@ -34,9 +34,9 @@ val MORSE_TO_ALPHANUM: HashMap<str, str> = HashMap::from([
 
 fun decode(code: str) -> str {
   mut decoded_sentence: []str = [];
-  mut splitted_words: []str = code.split("/");
+  mut split_words: []str = code.split("/");
 
-  for word := splitted_words {
+  for word := split_words {
     imu letters: []str = word.split(" ");
     imu decoded_word: []str = [];
 

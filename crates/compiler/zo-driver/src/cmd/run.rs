@@ -431,10 +431,8 @@ impl Run {
         })
         .collect();
 
-      let computed_binds = Self::resolve_computed_bindings(
-        computed_bindings,
-        &state_slots,
-      );
+      let computed_binds =
+        Self::resolve_computed_bindings(computed_bindings, &state_slots);
 
       let commands_copy = commands.to_vec();
       let shared = shared_cmds.clone();

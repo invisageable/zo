@@ -251,6 +251,11 @@ pub struct Executor<'a> {
   dot_method_recv_ty: HashMap<usize, (TyId, Option<Symbol>)>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
+  /// Counter for generating unique synthetic locals for
+  /// `.map` lowering (`__map_res_<n>`, `__map_i_<n>`).
+  /// Independent of `closure_counter` so naming stays
+  /// stable across recompilation order.
+  map_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
   enum_defs: Vec<(Symbol, zo_ty::EnumTyId, TyId)>,
   /// `Symbol → EnumIdx` lookup. Direct array load — no
@@ -659,6 +664,7 @@ impl<'a> Executor<'a> {
       deferred_short_circuits: Vec::new(),
       dot_method_recv_ty: HashMap::default(),
       closure_counter: 0,
+      map_counter: 0,
       enum_defs: Vec::new(),
       enum_def_by_name: DenseMap::new(),
       pending_imported_enums: Vec::new(),
@@ -5811,6 +5817,44 @@ impl<'a> Executor<'a> {
   /// Closures are anonymous functions with by-copy capture.
   /// Captures become prepended parameters in the generated
   /// FunDef. The closure value is pushed onto the stack.
+  /// Install a synthetic `Fn(param_ty) -> ?fresh` annotation
+  /// through `pending_decl` so `execute_closure`'s
+  /// param-propagation block (line 5897 area) types an
+  /// otherwise-unannotated user param. Returns the previous
+  /// `pending_decl` (typically the outer let-binding's),
+  /// which the caller restores once propagation has run.
+  ///
+  /// Used by `@input`/`@change` event-handler closures
+  /// (param `e: Event`) and by `arr.map(fn(t) => …)`
+  /// (param `t: T` from the receiver array's element type).
+  fn install_synthetic_fn_pending_decl(
+    &mut self,
+    name: &str,
+    param_ty: TyId,
+    span: Span,
+  ) -> Option<PendingDecl> {
+    let fresh_ret = self.ty_checker.fresh_var();
+    let fun_ty_id = self
+      .ty_checker
+      .ty_table
+      .intern_fun(vec![param_ty], fresh_ret);
+    let ann_ty = self.ty_checker.intern_ty(Ty::Fun(fun_ty_id));
+    let saved = self.pending_decl.take();
+
+    self.pending_decl = Some(PendingDecl {
+      name: self.interner.intern(name),
+      is_mutable: false,
+      is_constant: false,
+      pubness: Pubness::No,
+      annotated_ty: Some(ann_ty),
+      span,
+      init_start_idx: self.sir.instructions.len(),
+      tuple_pattern: None,
+    });
+
+    saved
+  }
+
   fn execute_closure(&mut self, start_idx: usize, end_idx: usize) {
     // -- 1. Parse parameters ---------------------------------
 
@@ -5890,10 +5934,36 @@ impl<'a> Executor<'a> {
     }
 
     // -- 1b. Propagate types from declaration annotation ------
-    // If the enclosing declaration has a Fn type annotation,
-    // unify its param/return types with the closure's inferred
-    // types BEFORE executing the body. This allows untyped
-    // params like `fn(x)` to resolve via `Fn(int) -> int`.
+    // If the enclosing decl has a Fn annotation, unify its
+    // param/return types with the closure's inferred ones
+    // before executing the body — lets `fn(x)` resolve via
+    // `Fn(int) -> int`. For `arr.map(fn(t) => ...)` there's
+    // no Fn-typed decl in scope (outer let is `[]U`), so
+    // synthesize one off `dot_method_recv_ty`'s element type
+    // for this propagation step only. Restored just below.
+    //
+    // Hot-path discipline: gate the synthesis behind the
+    // cheap `Token::Dot` check at `start_idx - 2` BEFORE
+    // touching any HashMap or interner — every closure runs
+    // through this code path, not just `.map`'s.
+    let saved_pending_for_map = if start_idx >= 2
+      && self.tree.nodes[start_idx - 2].token == Token::Dot
+      && let Some(&(recv_ty, _)) = self.dot_method_recv_ty.get(&(start_idx - 2))
+      && let Ty::Array(aid) = self.ty_checker.kind_of(recv_ty)
+      && let Some(at) = self.ty_checker.ty_table.array(aid)
+    {
+      let elem_ty = at.elem_ty;
+      let span = self.tree.spans[start_idx];
+
+      Some(self.install_synthetic_fn_pending_decl(
+        "__map_closure_arg",
+        elem_ty,
+        span,
+      ))
+    } else {
+      None
+    };
+
     if let Some(ref decl) = self.pending_decl
       && let Some(ann_ty) = decl.annotated_ty
     {
@@ -5922,6 +5992,14 @@ impl<'a> Executor<'a> {
           return_ty = fun_ty.return_ty;
         }
       }
+    }
+
+    // Restore the outer pending_decl now that the .map
+    // synthetic has done its job (param-type propagation
+    // above). Leaving it in place would make the outer
+    // let's finalize see the wrong shape.
+    if let Some(orig) = saved_pending_for_map {
+      self.pending_decl = orig;
     }
 
     // -- 2. Determine body range -----------------------------
@@ -6200,6 +6278,24 @@ impl<'a> Executor<'a> {
         value: return_value,
         ty_id: return_ty_actual,
       });
+
+      // Inline `=> expr` closures default `return_ty` to
+      // `unit` and never get an annotation update — but the
+      // body's expression is the real return. Promote here
+      // so downstream consumers (notably `.map` lowering,
+      // which reads `func.return_ty` to size `[]U`) see the
+      // concrete type. Backed by `fun_by_name` so the
+      // FunDef record we just pushed at line 6051 is
+      // updated in place.
+      if !had_compound
+        && !had_assign
+        && return_ty_actual != return_ty
+        && let Some(FunIdx(i)) = self.fun_by_name.get(closure_name)
+        && let Some(fd) = self.funs.get_mut(i as usize)
+      {
+        fd.return_ty = return_ty_actual;
+        return_ty = return_ty_actual;
+      }
     }
 
     // -- 11. Tear down ---------------------------------------
@@ -7715,15 +7811,14 @@ impl<'a> Executor<'a> {
         // `Insn::ArrayIndex`.
         is_array_pattern = true;
 
-        let arr =
-          match self.ty_checker.ty_table.array(aid).copied() {
-            Some(a) => a,
-            None => {
-              report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+        let arr = match self.ty_checker.ty_table.array(aid).copied() {
+          Some(a) => a,
+          None => {
+            report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
 
-              return;
-            }
-          };
+            return;
+          }
+        };
 
         if let Some(n) = arr.size
           && names.len() != n as usize
@@ -9964,7 +10059,7 @@ impl<'a> Executor<'a> {
     if matches!(resolved, Ty::Array(_)) {
       let ms = self.interner.get(member_name).to_owned();
 
-      if ms == "push" || ms == "pop" {
+      if ms == "push" || ms == "pop" || ms == "map" {
         return true;
       }
 
@@ -10526,6 +10621,292 @@ impl<'a> Executor<'a> {
     self.value_stack.push(rid);
     self.ty_stack.push(elem_ty);
     self.sir_values.push(sv);
+  }
+
+  /// Executes `arr.map(closure)` — lowers to a synthesized
+  /// `for i := 0..arr.len { __res.push(closure(arr[i])) }`
+  /// loop in SIR. Stack: `[..., receiver, closure]`. Pops
+  /// both, pushes the new `[]U` result.
+  ///
+  /// Closure invocation is by-name through `Insn::Call`; the
+  /// closure's captures are passed in via stored capture
+  /// SIR values (same shape `execute_call`'s closure path
+  /// uses, line 15721 area). Pure, no-capture closures
+  /// (`fn(t) => t * 2`) and capturing closures alike flow
+  /// through the same call site.
+  fn execute_array_map(&mut self) {
+    let closure_val = self.value_stack.pop();
+    self.ty_stack.pop();
+    let _ = self.sir_values.pop();
+
+    self.value_stack.pop();
+    let arr_ty = self.ty_stack.pop();
+    let arr_sir = self.sir_values.pop();
+
+    let (Some(closure_val), Some(arr_ty), Some(arr_sir)) =
+      (closure_val, arr_ty, arr_sir)
+    else {
+      return;
+    };
+
+    let span = self.tree.spans.last().copied().unwrap_or_default();
+
+    let elem_ty = match self.ty_checker.kind_of(arr_ty) {
+      Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
+        Some(at) => at.elem_ty,
+        None => {
+          report_error(Error::new(ErrorKind::TypeMismatch, span));
+          return;
+        }
+      },
+      _ => {
+        report_error(Error::new(ErrorKind::TypeMismatch, span));
+        return;
+      }
+    };
+
+    let ci = closure_val.0 as usize;
+
+    let (closure_name, captures) = if ci < self.values.kinds.len()
+      && matches!(self.values.kinds[ci], Value::Closure)
+    {
+      let idx = self.values.indices[ci] as usize;
+      let cv = &self.values.closures[idx];
+
+      (cv.fun_name, cv.captures.clone())
+    } else {
+      report_error(Error::new(ErrorKind::TypeMismatch, span));
+      return;
+    };
+
+    let Some(func) = self.find_fun(closure_name).cloned() else {
+      return;
+    };
+
+    // Inline closures often leave `return_ty` as a fresh
+    // inference var that's been unified to a concrete type
+    // by the body's last expression. Resolve to the
+    // representative so `[]U` carries the concrete `U` and
+    // the let-decl's annotation unifies cleanly.
+    let result_elem_ty = self.ty_checker.resolve_id(func.return_ty);
+    let result_aid =
+      self.ty_checker.ty_table.intern_array(result_elem_ty, None);
+    let result_ty = self.ty_checker.intern_ty(Ty::Array(result_aid));
+
+    let int_ty = self.ty_checker.int_type();
+    let bool_ty = self.ty_checker.bool_type();
+
+    let n = self.map_counter;
+    self.map_counter += 1;
+
+    let res_sym = self.interner.intern(&format!("__map_res_{n}"));
+    let i_sym = self.interner.intern(&format!("__map_i_{n}"));
+
+    // mut __res: []U = []
+    let empty_dst = self.sir.next_value();
+    let empty_sir = self.sir.emit(Insn::ArrayLiteral {
+      dst: empty_dst,
+      elements: Vec::new(),
+      ty_id: result_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: res_sym,
+      ty_id: result_ty,
+      init: Some(empty_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: res_sym,
+      value: empty_sir,
+      ty_id: result_ty,
+    });
+
+    let res_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: res_sym,
+      ty_id: result_ty,
+      value_id: res_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(empty_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // mut __i: int = 0
+    let zero_dst = self.sir.next_value();
+    let zero_sir = self.sir.emit(Insn::ConstInt {
+      dst: zero_dst,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: i_sym,
+      ty_id: int_ty,
+      init: Some(zero_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: zero_sir,
+      ty_id: int_ty,
+    });
+
+    let i_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: i_sym,
+      ty_id: int_ty,
+      value_id: i_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(zero_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // Loop header.
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    // cond: __i < arr.len
+    let i_load_dst = self.sir.next_value();
+    let i_load = self.sir.emit(Insn::Load {
+      dst: i_load_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let len_dst = self.sir.next_value();
+    let len_sir = self.sir.emit(Insn::ArrayLen {
+      dst: len_dst,
+      array: arr_sir,
+      ty_id: int_ty,
+    });
+
+    let cond_dst = self.sir.next_value();
+    let cond_sir = self.sir.emit(Insn::BinOp {
+      dst: cond_dst,
+      op: BinOp::Lt,
+      lhs: i_load,
+      rhs: len_sir,
+      ty_id: bool_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_sir,
+      target: end_label,
+    });
+
+    // __t = arr[__i]
+    let i_load2_dst = self.sir.next_value();
+    let i_load2 = self.sir.emit(Insn::Load {
+      dst: i_load2_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let elem_dst = self.sir.next_value();
+    let elem_sir = self.sir.emit(Insn::ArrayIndex {
+      dst: elem_dst,
+      array: arr_sir,
+      index: i_load2,
+      ty_id: elem_ty,
+    });
+
+    // r = closure(captures..., __t)
+    let mut call_args: Vec<ValueId> = Vec::with_capacity(captures.len() + 1);
+
+    for cap in &captures {
+      call_args.push(cap.sir_value);
+    }
+
+    call_args.push(elem_sir);
+
+    let call_dst = self.sir.next_value();
+    let call_sir = self.sir.emit(Insn::Call {
+      dst: call_dst,
+      name: closure_name,
+      args: call_args,
+      ty_id: result_elem_ty,
+    });
+
+    // __res.push(r)
+    let res_load_dst = self.sir.next_value();
+    let res_load = self.sir.emit(Insn::Load {
+      dst: res_load_dst,
+      src: LoadSource::Local(res_sym),
+      ty_id: result_ty,
+    });
+
+    self.sir.emit(Insn::ArrayPush {
+      array: res_load,
+      value: call_sir,
+      ty_id: result_ty,
+      owner: Some(res_sym),
+    });
+
+    // __i = __i + 1
+    let one_dst = self.sir.next_value();
+    let one_sir = self.sir.emit(Insn::ConstInt {
+      dst: one_dst,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let i_load3_dst = self.sir.next_value();
+    let i_load3 = self.sir.emit(Insn::Load {
+      dst: i_load3_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let inc_dst = self.sir.next_value();
+    let inc_sir = self.sir.emit(Insn::BinOp {
+      dst: inc_dst,
+      op: BinOp::Add,
+      lhs: i_load3,
+      rhs: one_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: inc_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    // Push the final __res Load as the call's result value.
+    let final_load_dst = self.sir.next_value();
+    let final_load = self.sir.emit(Insn::Load {
+      dst: final_load_dst,
+      src: LoadSource::Local(res_sym),
+      ty_id: result_ty,
+    });
+
+    let result_val = self.values.store_runtime(0);
+
+    self.value_stack.push(result_val);
+    self.ty_stack.push(result_ty);
+    self.sir_values.push(final_load);
   }
 
   /// Executes `tx.send(value)` — emits `ChannelSend` SIR.
@@ -15283,6 +15664,12 @@ impl<'a> Executor<'a> {
 
                 return;
               }
+
+              if ms == "map" {
+                self.execute_array_map();
+
+                return;
+              }
             }
 
             // Channel built-in methods: `tx.send(value)` /
@@ -17406,53 +17793,40 @@ impl<'a> Executor<'a> {
                       // kinds (`@click`, `@focus`, ...) carry no
                       // payload, leave the closure's params
                       // alone.
-                      let needs_event_param = EventKind::from_name(
-                        event_name.as_str(),
-                      )
-                      .is_some_and(EventKind::has_value_payload);
+                      let needs_event_param =
+                        EventKind::from_name(event_name.as_str())
+                          .is_some_and(EventKind::has_value_payload);
 
-                      let saved_pending_decl = if needs_event_param {
-                        let event_sym = self.interner.intern("Event");
-                        let event_ty = self
-                          .ty_checker
-                          .resolve_ty_symbol(event_sym, self.interner);
+                      // Outer `Some` means the synthetic was
+                      // actually installed (so the outer
+                      // pending_decl was taken). Inner is the
+                      // saved value to restore. Outer `None`
+                      // means we left pending_decl alone, so
+                      // there's nothing to restore.
+                      let saved_pending_decl: Option<Option<PendingDecl>> =
+                        if needs_event_param {
+                          let event_sym = self.interner.intern("Event");
 
-                        if let Some(event_ty) = event_ty {
-                          let fresh_ret = self.ty_checker.fresh_var();
-                          let fun_ty_id = self
+                          self
                             .ty_checker
-                            .ty_table
-                            .intern_fun(vec![event_ty], fresh_ret);
-                          let ann_ty = self
-                            .ty_checker
-                            .intern_ty(Ty::Fun(fun_ty_id));
+                            .resolve_ty_symbol(event_sym, self.interner)
+                            .map(|event_ty| {
+                              let span = self.tree.spans[idx];
 
-                          let saved = self.pending_decl.take();
-                          let span = self.tree.spans[idx];
-
-                          self.pending_decl = Some(PendingDecl {
-                            name: self.interner.intern("__event_param"),
-                            is_mutable: false,
-                            is_constant: false,
-                            pubness: Pubness::No,
-                            annotated_ty: Some(ann_ty),
-                            span,
-                            init_start_idx: self.sir.instructions.len(),
-                            tuple_pattern: None,
-                          });
-
-                          saved
+                              self.install_synthetic_fn_pending_decl(
+                                "__event_param",
+                                event_ty,
+                                span,
+                              )
+                            })
                         } else {
                           None
-                        }
-                      } else {
-                        None
-                      };
+                        };
 
                       self.execute_closure(idx, children_end);
 
-                      if needs_event_param {
-                        self.pending_decl = saved_pending_decl;
+                      if let Some(saved) = saved_pending_decl {
+                        self.pending_decl = saved;
                       }
 
                       // Pop the closure value and extract its
@@ -17668,25 +18042,20 @@ impl<'a> Executor<'a> {
 
           self.template_interp_counter += 1;
 
-          let captures =
-            self.identify_captures(idx, close_idx, &[]);
+          let captures = self.identify_captures(idx, close_idx, &[]);
           let capture_count = captures.len() as u32;
           let capture_syms: Vec<Symbol> =
             captures.iter().map(|(s, _, _)| *s).collect();
 
-          let combined_params: Vec<(Symbol, TyId)> = captures
-            .iter()
-            .map(|(s, t, _)| (*s, *t))
-            .collect();
+          let combined_params: Vec<(Symbol, TyId)> =
+            captures.iter().map(|(s, t, _)| (*s, *t)).collect();
 
           let str_ty = self.ty_checker.str_type();
 
           // Save outer state.
-          let outer_value_stack =
-            std::mem::take(&mut self.value_stack);
+          let outer_value_stack = std::mem::take(&mut self.value_stack);
           let outer_ty_stack = std::mem::take(&mut self.ty_stack);
-          let outer_sir_values =
-            std::mem::take(&mut self.sir_values);
+          let outer_sir_values = std::mem::take(&mut self.sir_values);
           let outer_function = self.current_function.take();
           let outer_pending_decl = self.pending_decl.take();
           let saved_skip = self.skip_until;
@@ -17787,8 +18156,7 @@ impl<'a> Executor<'a> {
               self.pending_call_rparen = None;
             }
 
-            if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none()
-            {
+            if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
               self.apply_deferred_binop();
             }
 
@@ -17817,11 +18185,8 @@ impl<'a> Executor<'a> {
           self.deferred_binops.clear();
 
           // Implicit return of the expression's value.
-          let return_value = self
-            .sir_values
-            .last()
-            .copied()
-            .filter(|v| v.0 != u32::MAX);
+          let return_value =
+            self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
 
           self.sir.emit(Insn::Return {
             value: return_value,
@@ -17833,8 +18198,7 @@ impl<'a> Executor<'a> {
 
           // Drain closure SIR into deferred buffer; restore
           // outer SIR.
-          let closure_sir =
-            std::mem::replace(&mut self.sir, outer_sir);
+          let closure_sir = std::mem::replace(&mut self.sir, outer_sir);
 
           self.sir.next_value_id = closure_sir.next_value_id;
           self.deferred_closures.extend(closure_sir.instructions);

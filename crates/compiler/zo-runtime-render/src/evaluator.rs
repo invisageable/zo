@@ -211,10 +211,7 @@ impl HandlerEvaluator {
         }
 
         Insn::ConstString { dst, symbol, .. } => {
-          let s = strings
-            .get(symbol.0 as usize)
-            .cloned()
-            .unwrap_or_default();
+          let s = strings.get(symbol.0 as usize).cloned().unwrap_or_default();
 
           self.regs.insert(dst.0, Val::Str(s));
         }
@@ -309,10 +306,8 @@ impl HandlerEvaluator {
           if let Some((_, slot_idx)) = params.iter().find(|(s, _)| s == name) {
             state[*slot_idx].set(val.to_state_value());
 
-            if let Some((pi, _)) = params
-              .iter()
-              .enumerate()
-              .find(|(_, (s, _))| s == name)
+            if let Some((pi, _)) =
+              params.iter().enumerate().find(|(_, (s, _))| s == name)
             {
               self.regs.insert(pi as u32 | 0x8000_0000, val);
             }
@@ -871,7 +866,8 @@ mod tests {
 
     let strings = interner.snapshot();
     let mut eval = HandlerEvaluator::new();
-    let result = eval.execute(&sir.instructions, name, &[], &[], &strings, None);
+    let result =
+      eval.execute(&sir.instructions, name, &[], &[], &strings, None);
 
     match result {
       Some(Val::Str(s)) => assert_eq!(s, "hello"),
@@ -893,8 +889,14 @@ mod tests {
     let capture_map = vec![(0, 0)];
 
     let mut eval = HandlerEvaluator::new();
-    let result =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &strings, None);
+    let result = eval.execute(
+      &sir.instructions,
+      name,
+      &state,
+      &capture_map,
+      &strings,
+      None,
+    );
 
     match result {
       Some(Val::Str(s)) => assert_eq!(s, "time"),
@@ -916,8 +918,14 @@ mod tests {
     let capture_map = vec![(0, 0)];
 
     let mut eval = HandlerEvaluator::new();
-    let result =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &strings, None);
+    let result = eval.execute(
+      &sir.instructions,
+      name,
+      &state,
+      &capture_map,
+      &strings,
+      None,
+    );
 
     match result {
       Some(Val::Str(s)) => assert_eq!(s, "times"),
@@ -941,13 +949,25 @@ mod tests {
 
     let mut eval = HandlerEvaluator::new();
 
-    let first =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &strings, None);
+    let first = eval.execute(
+      &sir.instructions,
+      name,
+      &state,
+      &capture_map,
+      &strings,
+      None,
+    );
     assert!(matches!(first, Some(Val::Str(ref s)) if s == "time"));
 
     state[0].set(StateValue::Int(0));
-    let second =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &strings, None);
+    let second = eval.execute(
+      &sir.instructions,
+      name,
+      &state,
+      &capture_map,
+      &strings,
+      None,
+    );
     assert!(matches!(second, Some(Val::Str(ref s)) if s == "times"));
   }
 
@@ -1010,7 +1030,8 @@ mod tests {
 
     let strings = interner.snapshot();
     let mut eval = HandlerEvaluator::new();
-    let result = eval.execute(&sir.instructions, name, &[], &[], &strings, None);
+    let result =
+      eval.execute(&sir.instructions, name, &[], &[], &strings, None);
 
     match result {
       Some(Val::Int(7)) => {}
@@ -1073,7 +1094,8 @@ mod tests {
 
     let strings = interner.snapshot();
     let mut eval = HandlerEvaluator::new();
-    let result = eval.execute(&sir.instructions, name_a, &[], &[], &strings, None);
+    let result =
+      eval.execute(&sir.instructions, name_a, &[], &[], &strings, None);
 
     // No Return inside name_a's body → result is None.
     // Critically, we must NOT see Int(999) leaked from

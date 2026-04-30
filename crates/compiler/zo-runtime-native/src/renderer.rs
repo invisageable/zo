@@ -202,7 +202,8 @@ impl Renderer {
         let id = attr_num(attrs, "data-id").unwrap_or(0);
 
         if ui.button(&content).clicked() {
-          self.state
+          self
+            .state
             .pending_events
             .push((id, 0, EventPayload::default()));
         }
@@ -338,9 +339,7 @@ impl Renderer {
   }
 
   /// Get pending events to send back to the application
-  pub fn take_pending_events(
-    &mut self,
-  ) -> ThinVec<(u32, u32, EventPayload)> {
+  pub fn take_pending_events(&mut self) -> ThinVec<(u32, u32, EventPayload)> {
     std::mem::take(&mut self.state.pending_events)
   }
 }

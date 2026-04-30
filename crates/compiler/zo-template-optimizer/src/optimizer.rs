@@ -382,8 +382,7 @@ mod tests {
     ];
 
     // Bound input idx 1 — the dynamic `{count}` slot.
-    let (optimized, index_map) =
-      optimizer.merge_adjacent_text(commands, &[1]);
+    let (optimized, index_map) = optimizer.merge_adjacent_text(commands, &[1]);
 
     assert_eq!(
       optimized.len(),
@@ -420,8 +419,7 @@ mod tests {
       UiCommand::Text(" elapsed".into()),
     ];
 
-    let (optimized, index_map) =
-      optimizer.merge_adjacent_text(commands, &[0]);
+    let (optimized, index_map) = optimizer.merge_adjacent_text(commands, &[0]);
 
     assert_eq!(optimized.len(), 2);
     assert!(matches!(&optimized[0], UiCommand::Text(s) if s == "0"));
@@ -439,10 +437,8 @@ mod tests {
     // their own slot.
     let optimizer = TemplateOptimizer::new();
 
-    let commands = vec![
-      UiCommand::Text("0".into()),
-      UiCommand::Text("times".into()),
-    ];
+    let commands =
+      vec![UiCommand::Text("0".into()), UiCommand::Text("times".into())];
 
     let (optimized, index_map) =
       optimizer.merge_adjacent_text(commands, &[0, 1]);

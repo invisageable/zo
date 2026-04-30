@@ -1,0 +1,7 @@
+fun main() {
+  showln(/abc/g);
+  showln(/a*bc/g);
+  showln(/(?:)/i);
+  showln(/(a*)*?/zo);
+  showln(/[abc]/);
+}

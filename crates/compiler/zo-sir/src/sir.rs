@@ -83,6 +83,18 @@ impl Sir {
     id
   }
 
+  /// Allocates a fresh SSA value ID. Mirrors `next_label`'s
+  /// shape so `dst` minting at every emit site is one line
+  /// instead of the `let dst = ValueId(self.sir.next_value_id);
+  /// self.sir.next_value_id += 1;` pair.
+  pub fn next_value(&mut self) -> ValueId {
+    let id = ValueId(self.next_value_id);
+
+    self.next_value_id += 1;
+
+    id
+  }
+
   /// Emits an instruction and return its result [`ValueId`].
   ///
   /// Every value-producing instruction has an explicit `dst`

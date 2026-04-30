@@ -2,7 +2,7 @@
 
 -! Function to print the Collatz sequence for a given number n.
 fun collatz_conjecture(mut n: int) {
-  showln("intitial value: {n}");
+  showln("initial value: {n}");
 
   -- Continue the loop until n becomes 1
   while n > 1 {
