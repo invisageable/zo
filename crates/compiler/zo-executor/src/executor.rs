@@ -5,7 +5,8 @@ use zo_interner::{
 };
 use zo_reporter::report_error;
 use zo_sir::{
-  BinOp, Insn, LoadSource, NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
+  BinOp, ComputedBinding, Insn, LoadSource, NurseryKind, Sir, SpawnKind,
+  TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -24,6 +25,13 @@ use zo_value::{
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use std::cell::Cell;
+
+/// Name prefix for synthetic closures lowered from
+/// compound `{expr}` template interpolations. DCE pins
+/// these via the `Insn::Template.bindings.computed`
+/// side-channel; the runtime invokes them on every state
+/// change to recompute the bound `UiCommand::Text`.
+const TEMPLATE_INTERP_PREFIX: &str = "__interp_";
 
 /// Index newtype: position in `Executor::funs`.
 /// Reserves `u32::MAX` as the absent sentinel so a
@@ -355,6 +363,16 @@ pub struct Executor<'a> {
   /// what would make a second `Pair<str>` after `Pair<int>`
   /// fail with a spurious type mismatch.
   generic_aliases: HashMap<Symbol, (Vec<TyId>, TyId)>,
+  /// Counter for synthetic closures minted to host
+  /// template `{expr}` interpolations. Each `{…}` lowers
+  /// to a `__interp_<n>` closure that captures referenced
+  /// `mut` locals and returns the expression's value, so
+  /// any zo expression (ternaries, if-as-expr, function
+  /// calls, match-as-expr) composes the way it would in a
+  /// regular let-binding init position. The runtime
+  /// invokes the closure on each state change to recompute
+  /// the text.
+  template_interp_counter: u32,
   /// Tree range `(start, end_exclusive)` of each generic
   /// function's whole declaration (from `Fun` through the
   /// closing `}`). Populated at `execute_fun` time for any
@@ -663,6 +681,7 @@ impl<'a> Executor<'a> {
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
       generic_aliases: HashMap::default(),
+      template_interp_counter: 0,
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       direct_call_depth: 0,
@@ -17464,82 +17483,303 @@ impl<'a> Executor<'a> {
           }
         }
         // Template interpolation: {expr}.
-        // Execute tokens between { and } as a normal zo
-        // expression, convert the result to string, and
-        // append as UiCommand::Text.
+        // Compound expressions lower to a synthetic
+        // `imu __interp_<n> := <expr>;` decl so any zo
+        // expression — ternaries, if-as-expression,
+        // function calls, match-as-expression — composes
+        // the way it would at let-binding init position.
+        // The closing `}` plays the role of `;`, closing
+        // any open ternary contexts and finalizing the
+        // synthetic decl. The single-ident fast path is
+        // preserved: `{count}` keeps reactive `mut`
+        // tracking via `template_bindings.text`.
         Token::LBrace => {
           let brace_span = self.tree.spans[idx];
 
           idx += 1;
 
-          // Detect empty braces {}.
           if idx < end_idx && self.tree.nodes[idx].token == Token::RBrace {
             report_error(Error::new(ErrorKind::ExpectedExpression, brace_span));
             idx += 1;
-          } else if self.try_handle_html_directive(
+            continue;
+          }
+
+          if self.try_handle_html_directive(
             &mut idx,
             end_idx,
             &mut commands,
             brace_span,
           ) {
-            // `{#html expr}` consumed through matching `}`.
+            continue;
+          }
+
+          // Find matching `}` with depth tracking — nested
+          // braces (struct literals, closure bodies inside
+          // a call arg) must not terminate the interp
+          // early.
+          let close_idx = {
+            let mut depth: u32 = 1;
+            let mut k = idx;
+
+            while k < end_idx {
+              match self.tree.nodes[k].token {
+                Token::LBrace => depth += 1,
+                Token::RBrace => {
+                  depth -= 1;
+
+                  if depth == 0 {
+                    break;
+                  }
+                }
+                _ => {}
+              }
+
+              k += 1;
+            }
+
+            k
+          };
+
+          // Fast path: `{count}` (single ident) — resolves
+          // the local's compile-time value directly and
+          // records reactive text binding for `mut` vars.
+          // Without this, `mut count: int = 0; {count}`
+          // would lose its reactivity.
+          let single_ident_sym = if idx + 1 == close_idx
+            && self.tree.nodes[idx].token == Token::Ident
+          {
+            self.node_value(idx).and_then(|v| match v {
+              NodeValue::Symbol(s) => Some(s),
+              _ => None,
+            })
           } else {
-            // Execute expression tokens until matching }.
-            // For simple identifiers, resolve the local's
-            // original value directly (not the runtime Load).
-            let mut interp_text = None;
+            None
+          };
 
-            while idx < end_idx && self.tree.nodes[idx].token != Token::RBrace {
-              let n = self.tree.nodes[idx];
+          if let Some(sym) = single_ident_sym
+            && let Some(local) = self.lookup_local(sym)
+          {
+            let text = self.value_to_string(local.value_id);
+            let mutability = local.mutability;
 
-              // Simple identifier — resolve the local's
-              // compile-time value for template embedding.
-              if n.token == Token::Ident
-                && interp_text.is_none()
-                && let Some(NodeValue::Symbol(sym)) = self.node_value(idx)
-                && let Some(local) = self.lookup_local(sym)
-              {
-                let text = self.value_to_string(local.value_id);
-
-                if !text.is_empty() {
-                  interp_text = Some(text);
-                }
-
-                // Track reactive text binding for mut vars.
-                if local.mutability == Mutability::Yes {
-                  self.template_bindings.text.push((commands.len(), sym));
-                }
-              }
-
-              if interp_text.is_none() {
-                self.execute_node(&n, idx);
-              }
-
-              idx += 1;
+            if mutability == Mutability::Yes {
+              self.template_bindings.text.push((commands.len(), sym));
             }
-
-            // Skip the closing }.
-            if idx < end_idx && self.tree.nodes[idx].token == Token::RBrace {
-              idx += 1;
-            }
-
-            // Use resolved text, or fall back to executed
-            // expression result.
-            let text = if let Some(t) = interp_text {
-              // Clean up stacks if execute_node didn't run.
-              t
-            } else if let Some(value_id) = self.value_stack.pop() {
-              self.ty_stack.pop();
-              self.sir_values.pop();
-              self.value_to_string(value_id)
-            } else {
-              String::new()
-            };
 
             if !text.is_empty() {
               commands.push(UiCommand::Text(text));
             }
+
+            idx = close_idx + 1;
+            continue;
           }
+
+          // General expression: synthesize a closure that
+          // captures referenced `mut` locals and returns the
+          // expression's value. The runtime invokes the
+          // closure on each state change to recompute the
+          // text. Mirrors the SIR-swap / FunDef-emit /
+          // body-execute / Return-emit pattern from
+          // `execute_closure`.
+          let closure_name = self.interner.intern(&format!(
+            "{TEMPLATE_INTERP_PREFIX}{}",
+            self.template_interp_counter
+          ));
+
+          self.template_interp_counter += 1;
+
+          let captures =
+            self.identify_captures(idx, close_idx, &[]);
+          let capture_count = captures.len() as u32;
+          let capture_syms: Vec<Symbol> =
+            captures.iter().map(|(s, _, _)| *s).collect();
+
+          let combined_params: Vec<(Symbol, TyId)> = captures
+            .iter()
+            .map(|(s, t, _)| (*s, *t))
+            .collect();
+
+          let str_ty = self.ty_checker.str_type();
+
+          // Save outer state.
+          let outer_value_stack =
+            std::mem::take(&mut self.value_stack);
+          let outer_ty_stack = std::mem::take(&mut self.ty_stack);
+          let outer_sir_values =
+            std::mem::take(&mut self.sir_values);
+          let outer_function = self.current_function.take();
+          let outer_pending_decl = self.pending_decl.take();
+          let saved_skip = self.skip_until;
+
+          // Swap SIR so the closure body emits into a
+          // dedicated buffer, drained to `deferred_closures`
+          // after the outer fragment finishes.
+          let mut closure_sir = Sir::new();
+          closure_sir.next_value_id = self.sir.next_value_id;
+          let outer_sir = std::mem::replace(&mut self.sir, closure_sir);
+
+          let body_start = 1u32;
+          let fundef_idx = 0;
+
+          self.sir.emit(Insn::FunDef {
+            name: closure_name,
+            params: combined_params.clone(),
+            return_ty: str_ty,
+            body_start,
+            kind: FunctionKind::Closure { capture_count },
+            pubness: Pubness::No,
+            mut_self: false,
+          });
+
+          self.push_fun(FunDef {
+            name: closure_name,
+            params: combined_params.clone(),
+            return_ty: str_ty,
+            body_start,
+            kind: FunctionKind::Closure { capture_count },
+            pubness: Pubness::No,
+            type_params: Vec::new(),
+            return_type_args: Vec::new(),
+            mut_self: false,
+          });
+
+          self.current_function = Some(FunCtx {
+            name: closure_name,
+            return_ty: str_ty,
+            body_start,
+            fundef_idx,
+            has_explicit_return: false,
+            has_return_type_annotation: true,
+            pending_return: false,
+            scope_depth: self.scope_stack.len(),
+          });
+
+          // Param scope: push each capture as a local so
+          // the body's identifier lookups resolve to a
+          // closure-local copy (read via `LoadSource::Local`
+          // at runtime). Mirrors `execute_closure`'s push
+          // pattern at lines 6057-6104.
+          self.push_scope();
+
+          for (i, (pname, pty)) in combined_params.iter().enumerate() {
+            let value_id = self.values.store_runtime(i as u32);
+
+            let param_mutability = captures
+              .get(i)
+              .filter(|(_, _, is_mut)| *is_mut)
+              .map(|_| Mutability::Yes)
+              .unwrap_or(Mutability::No);
+
+            self.push_local(Local {
+              name: *pname,
+              ty_id: *pty,
+              value_id,
+              pubness: Pubness::No,
+              mutability: param_mutability,
+              sir_value: None,
+              local_kind: LocalKind::Parameter,
+            });
+
+            if let Some(frame) = self.scope_stack.last_mut() {
+              frame.count += 1;
+            }
+          }
+
+          // Body scope (maintains scope_depth invariant).
+          self.push_scope();
+
+          // Drive brace contents through main-loop semantics.
+          self.skip_until = 0;
+
+          let mut body_idx = idx;
+
+          while body_idx < close_idx {
+            if body_idx < self.skip_until {
+              body_idx += 1;
+              continue;
+            }
+
+            let header = self.tree.nodes[body_idx];
+
+            self.execute_node(&header, body_idx);
+
+            if self.pending_call_rparen == Some(body_idx) {
+              self.pending_call_rparen = None;
+            }
+
+            if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none()
+            {
+              self.apply_deferred_binop();
+            }
+
+            body_idx += 1;
+          }
+
+          // Close any ternary branch contexts opened inside
+          // the brace before we read the result for Return.
+          // Mirrors the `;` close path in `Token::Semicolon`.
+          while self
+            .branch_stack
+            .last()
+            .is_some_and(|c| c.kind == BranchKind::Ternary)
+          {
+            let ctx_idx = self.branch_stack.len() - 1;
+
+            self.emit_branch_sink_store(ctx_idx);
+
+            let ctx = self.branch_stack.pop().unwrap();
+
+            self.sir.emit(Insn::Label { id: ctx.end_label });
+            self.emit_branch_sink_load(&ctx);
+          }
+
+          self.apply_deferred_binop();
+          self.deferred_binops.clear();
+
+          // Implicit return of the expression's value.
+          let return_value = self
+            .sir_values
+            .last()
+            .copied()
+            .filter(|v| v.0 != u32::MAX);
+
+          self.sir.emit(Insn::Return {
+            value: return_value,
+            ty_id: str_ty,
+          });
+
+          self.pop_scope(); // body
+          self.pop_scope(); // params
+
+          // Drain closure SIR into deferred buffer; restore
+          // outer SIR.
+          let closure_sir =
+            std::mem::replace(&mut self.sir, outer_sir);
+
+          self.sir.next_value_id = closure_sir.next_value_id;
+          self.deferred_closures.extend(closure_sir.instructions);
+
+          // Restore outer state.
+          self.current_function = outer_function;
+          self.pending_decl = outer_pending_decl;
+          self.skip_until = saved_skip;
+          self.value_stack = outer_value_stack;
+          self.ty_stack = outer_ty_stack;
+          self.sir_values = outer_sir_values;
+
+          // Record the binding and a placeholder Text the
+          // runtime patches before the first render.
+          self.template_bindings.computed.push((
+            commands.len(),
+            ComputedBinding {
+              closure_name,
+              captures: capture_syms,
+            },
+          ));
+
+          commands.push(UiCommand::Text(String::new()));
+
+          idx = close_idx + 1;
         }
         _ => {
           idx += 1;
@@ -17547,19 +17787,71 @@ impl<'a> Executor<'a> {
       }
     }
 
-    if !commands.is_empty() {
-      let optimizer = TemplateOptimizer::new();
+    // Run text-merging optimization and remap reactive
+    // bindings through the resulting index map. Bound text
+    // positions are passed through as merge barriers so the
+    // runtime's full-replace patch (`*s = new_value`) only
+    // overwrites the dynamic value — without that, a static
+    // prefix like "clicked " would be merged into the
+    // binding's text and clobbered on every update.
+    let mut bindings = std::mem::take(&mut self.template_bindings);
 
-      commands = optimizer.optimize(commands);
+    if !commands.is_empty() {
+      let bound_indices: Vec<usize> = bindings
+        .text
+        .iter()
+        .map(|(idx, _)| *idx)
+        .chain(bindings.attrs.iter().map(|(idx, _)| *idx))
+        .chain(bindings.computed.iter().map(|(idx, _)| *idx))
+        .collect();
+
+      let optimizer = TemplateOptimizer::new();
+      let (opt_commands, index_map) =
+        optimizer.optimize_with_indices(commands, &bound_indices);
+
+      commands = opt_commands;
+
+      for (cmd_idx, _) in bindings.text.iter_mut() {
+        if let Some(&new_idx) = index_map.get(*cmd_idx) {
+          *cmd_idx = new_idx;
+        }
+      }
+
+      for (cmd_idx, _) in bindings.attrs.iter_mut() {
+        if let Some(&new_idx) = index_map.get(*cmd_idx) {
+          *cmd_idx = new_idx;
+        }
+      }
+
+      for (cmd_idx, _) in bindings.computed.iter_mut() {
+        if let Some(&new_idx) = index_map.get(*cmd_idx) {
+          *cmd_idx = new_idx;
+        }
+      }
     }
 
     // Prepend any pending stylesheets so they reach the
-    // runtime alongside the template's UI commands.
+    // runtime alongside the template's UI commands. Each
+    // prepended stylesheet shifts every existing binding
+    // index by one — capture the count before the move.
     if !self.pending_styles.is_empty() {
+      let shift = self.pending_styles.len();
       let mut styled = std::mem::take(&mut self.pending_styles);
 
       styled.append(&mut commands);
       commands = styled;
+
+      for (cmd_idx, _) in bindings.text.iter_mut() {
+        *cmd_idx += shift;
+      }
+
+      for (cmd_idx, _) in bindings.attrs.iter_mut() {
+        *cmd_idx += shift;
+      }
+
+      for (cmd_idx, _) in bindings.computed.iter_mut() {
+        *cmd_idx += shift;
+      }
     }
 
     let template_id = self.values.store_template(self.template_counter);
@@ -17574,7 +17866,7 @@ impl<'a> Executor<'a> {
       name: None,
       ty_id: self.ty_checker.template_ty(),
       commands,
-      bindings: std::mem::take(&mut self.template_bindings),
+      bindings,
     });
 
     self.sir_values.push(sir_value);

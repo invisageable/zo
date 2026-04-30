@@ -676,3 +676,76 @@ fn unreachable_empty_sir_is_noop() {
 
   assert!(sir.instructions.is_empty());
 }
+
+// ===== TEMPLATE COMPUTED-BINDING ROOTS =====
+
+#[test]
+fn template_computed_binding_pins_closure() {
+  // A closure referenced ONLY through `bindings.computed`
+  // (not via `UiCommand::Event`) must survive DCE — it's
+  // invoked by the runtime on each state change.
+  // Without this pin, every `{when …}` interp loses its
+  // closure and the runtime sees an empty Text forever.
+  use zo_sir::{ComputedBinding, TemplateBindings};
+  use zo_ui_protocol::UiCommand;
+  use zo_value::FunctionKind;
+
+  let mut interner = Interner::new();
+  let main = interner.intern("main");
+  let interp = interner.intern("__interp_0");
+
+  let bindings = TemplateBindings {
+    text: Vec::new(),
+    attrs: Vec::new(),
+    computed: vec![(
+      0,
+      ComputedBinding {
+        closure_name: interp,
+        captures: Vec::new(),
+      },
+    )],
+  };
+
+  let mut insns = vec![Insn::FunDef {
+    name: interp,
+    params: Vec::new(),
+    return_ty: TyId(4),
+    body_start: 0,
+    kind: FunctionKind::Closure { capture_count: 0 },
+    pubness: Pubness::No,
+    mut_self: false,
+  }];
+
+  insns.push(Insn::Return {
+    value: None,
+    ty_id: TyId(4),
+  });
+
+  insns.extend(fun(
+    main,
+    Pubness::No,
+    vec![Insn::Template {
+      id: ValueId(0),
+      name: None,
+      ty_id: TyId(0),
+      commands: vec![UiCommand::Text(String::new())],
+      bindings,
+    }],
+  ));
+
+  let mut sir = make_sir(insns);
+
+  Dce::new(&mut sir, main, &interner).eliminate();
+
+  let names = fun_names(&sir);
+
+  assert!(
+    names.contains(&interp),
+    "computed-binding closure must survive DCE; survivors: {:?}",
+    names
+      .iter()
+      .map(|s| interner.get(*s).to_string())
+      .collect::<Vec<_>>()
+  );
+  assert!(names.contains(&main));
+}

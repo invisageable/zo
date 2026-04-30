@@ -1,0 +1,25 @@
+-! port from — https://algocademy.com/link/?problem=collatz-conjecture&lang=js&solution=1
+
+-! Function to print the Collatz sequence for a given number n.
+fun collatz_conjecture(mut n: int) {
+  showln("intitial value: {n}");
+
+  -- Continue the loop until n becomes 1
+  while n > 1 {
+    if n % 2 == 0 {
+      -- If n is even, divide it by 2
+      n = n / 2;
+    } else {
+    -- If n is odd, multiply by 3 and add 1
+      n = 3 * n + 1;
+    }
+
+    showln("current value: {n}");
+  }
+}
+
+fun main() {
+  collatz_conjecture(3);
+
+  showln("DONE");
+}

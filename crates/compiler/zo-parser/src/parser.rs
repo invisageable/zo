@@ -931,6 +931,21 @@ impl<'a> Parser<'a> {
       self.close_introducer();
     }
 
+    // Ternary inside template interpolation: `{when c ? a : b}`.
+    // `When` is normally closed on `;`, but inside a `{…}`
+    // interp there is no `;` — the ternary ends at the
+    // matching `}`. Without this close, the When introducer
+    // stays open and adopts every following sibling
+    // (TemplateText, TemplateFragmentEnd, even `#dom`) as a
+    // child of the ternary, which then propagates into the
+    // fragment's `children_end` and silently skips
+    // `#dom view;` in the executor.
+    if let Some(top) = self.introducer_stack.last()
+      && top.token == Token::When
+    {
+      self.close_introducer();
+    }
+
     // Check if we have a matching LBrace introducer
     if let Some(introducer) = self.introducer_stack.last() {
       if introducer.token == Token::LBrace {

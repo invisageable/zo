@@ -1,0 +1,17 @@
+fun quick_sort(arr: []int) -> []int {
+  if arr.len <= 1 { return arr; }
+
+  imu p = arr.pop();
+  mut left_arr = [];
+  mut right_arr = [];
+
+  for item := arr {
+    if (item <= p) {
+      left_arr.push(item);
+    } else {
+      right_arr.push(item);
+    }
+  }
+
+  return [...quick_sort(left_arr), p, ...quick_sort(right_arr)];
+}

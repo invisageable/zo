@@ -143,6 +143,15 @@ impl Interner {
   pub fn symbol(&self, s: &str) -> Option<Symbol> {
     self.map.get(s).copied()
   }
+
+  /// Snapshot every interned string into an owned
+  /// `Vec<String>` indexed by `Symbol.0`. Used by the
+  /// runtime to feed `Send`-only handler closures since
+  /// `Interner` itself isn't `Clone` (the dedup map carries
+  /// self-referential `&'static str` keys).
+  pub fn snapshot(&self) -> Vec<String> {
+    self.strings.iter().map(|s| s.to_string()).collect()
+  }
 }
 
 impl Default for Interner {

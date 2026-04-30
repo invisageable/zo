@@ -21,6 +21,26 @@ pub struct TemplateBindings {
   /// on variable `var`. The runtime calls
   /// `UiCommand::set_attr` to apply the patch.
   pub attrs: Vec<(usize, Attr)>,
+  /// Computed text bindings: each entry is `(cmd_idx,
+  /// ComputedBinding)` pointing at a `UiCommand::Text(_)`
+  /// whose value is recomputed by invoking
+  /// `closure_name` over the captured locals on every
+  /// reactive update. Used for compound `{expr}`
+  /// interpolations (ternaries, function calls, ...) that
+  /// can't be expressed as a single `Symbol` lookup.
+  pub computed: Vec<(usize, ComputedBinding)>,
+}
+
+/// Side-channel for a compound `{expr}` template
+/// interpolation. The executor synthesizes a closure named
+/// `closure_name` that captures `captures` (in param-order)
+/// and returns the expression's value. The runtime invokes
+/// the closure on each state change and stamps the result
+/// over the bound `UiCommand::Text` slot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComputedBinding {
+  pub closure_name: Symbol,
+  pub captures: Vec<Symbol>,
 }
 
 /// Source of a Load instruction — either a function parameter

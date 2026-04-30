@@ -73,29 +73,92 @@ impl TemplateOptimizer {
 
   /// Optimize command sequence (Phase 2 preview)
   pub fn optimize(&self, commands: Vec<UiCommand>) -> Vec<UiCommand> {
-    self.merge_adjacent_text(commands)
+    self.merge_adjacent_text(commands, &[]).0
   }
 
-  /// Merge adjacent `TextNode` PCDATA commands into a single
-  /// node. No style discriminator — text is just text in the
-  /// unified Element model; the enclosing element's tag carries
-  /// any visual semantics.
-  fn merge_adjacent_text(&self, commands: Vec<UiCommand>) -> Vec<UiCommand> {
-    let mut optimized = Vec::with_capacity(commands.len());
-    let mut pending: Option<String> = None;
+  /// Merge adjacent `Text` commands into a single node, and
+  /// return an `old_idx → new_idx` mapping so callers can
+  /// remap any side-channel that points at command indices
+  /// (reactive text bindings, attribute bindings).
+  ///
+  /// `bound_indices` lists input positions that MUST stay
+  /// isolated — each is the target of a reactive text
+  /// binding, and merging it with surrounding static text
+  /// would cause the runtime patch (`*s = new_value`) to
+  /// clobber the static prefix/suffix on every update.
+  /// Without this barrier, `Text("clicked ") + Text({count})`
+  /// merge into `Text("clicked 0")`, and the first click
+  /// rewrites the whole string to `Text("1")`.
+  ///
+  /// Without the mapping, a binding that pointed at the
+  /// second of two adjacent texts would dangle on the
+  /// `EndElement` (or whatever followed the merged run)
+  /// after the merge, and the runtime's
+  /// `if let Some(UiCommand::Text(s)) = …` patch path would
+  /// silently no-op on every reactive update.
+  pub fn optimize_with_indices(
+    &self,
+    commands: Vec<UiCommand>,
+    bound_indices: &[usize],
+  ) -> (Vec<UiCommand>, Vec<usize>) {
+    self.merge_adjacent_text(commands, bound_indices)
+  }
 
-    for cmd in commands {
+  fn merge_adjacent_text(
+    &self,
+    commands: Vec<UiCommand>,
+    bound_indices: &[usize],
+  ) -> (Vec<UiCommand>, Vec<usize>) {
+    let mut optimized = Vec::with_capacity(commands.len());
+    let mut index_map = Vec::with_capacity(commands.len());
+    let mut pending: Option<String> = None;
+    let mut pending_out_idx: Option<usize> = None;
+
+    for (in_idx, cmd) in commands.into_iter().enumerate() {
       match cmd {
-        UiCommand::Text(s) => match &mut pending {
-          Some(buffer) => buffer.push_str(&s),
-          None => pending = Some(s),
-        },
+        UiCommand::Text(s) => {
+          let is_bound = bound_indices.contains(&in_idx);
+
+          if is_bound {
+            if let Some(buffer) = pending.take() {
+              optimized.push(UiCommand::Text(buffer));
+              pending_out_idx = None;
+            }
+
+            let out_idx = optimized.len();
+
+            optimized.push(UiCommand::Text(s));
+            index_map.push(out_idx);
+
+            continue;
+          }
+
+          let out_idx = match pending_out_idx {
+            Some(i) => i,
+            None => {
+              let i = optimized.len();
+              pending_out_idx = Some(i);
+              i
+            }
+          };
+
+          match &mut pending {
+            Some(buffer) => buffer.push_str(&s),
+            None => pending = Some(s),
+          }
+
+          index_map.push(out_idx);
+        }
         _ => {
           if let Some(buffer) = pending.take() {
             optimized.push(UiCommand::Text(buffer));
+            pending_out_idx = None;
           }
 
+          let out_idx = optimized.len();
+
           optimized.push(cmd);
+          index_map.push(out_idx);
         }
       }
     }
@@ -104,7 +167,7 @@ impl TemplateOptimizer {
       optimized.push(UiCommand::Text(buffer));
     }
 
-    optimized
+    (optimized, index_map)
   }
 
   /// Generate optimization metadata for all commands
@@ -237,7 +300,7 @@ mod tests {
       UiCommand::Text("world!".into()),
     ];
 
-    let optimized = optimizer.merge_adjacent_text(commands);
+    let (optimized, _) = optimizer.merge_adjacent_text(commands, &[]);
 
     assert_eq!(optimized.len(), 1);
 
@@ -257,7 +320,7 @@ mod tests {
       UiCommand::Text("after".into()),
     ];
 
-    let optimized = optimizer.merge_adjacent_text(commands);
+    let (optimized, _) = optimizer.merge_adjacent_text(commands, &[]);
 
     assert_eq!(optimized.len(), 3);
     assert!(matches!(optimized[0], UiCommand::Text(_)));
@@ -300,5 +363,92 @@ mod tests {
     assert!(!metadata[1].needs_interactivity);
     // EndElement
     assert!(!metadata[2].needs_interactivity);
+  }
+
+  #[test]
+  fn test_bound_text_blocks_merge() {
+    // Regression: a binding-target text MUST stay isolated
+    // so the runtime's `*s = new_value` patch only
+    // overwrites the dynamic value. Without the barrier,
+    // `Text("clicked ") + Text("0")` merges into
+    // `Text("clicked 0")` and the first click rewrites the
+    // whole string to `Text("1")`, clobbering the prefix.
+    let optimizer = TemplateOptimizer::new();
+
+    let commands = vec![
+      UiCommand::Text("clicked ".into()),
+      UiCommand::Text("0".into()),
+      UiCommand::Text(" times".into()),
+    ];
+
+    // Bound input idx 1 — the dynamic `{count}` slot.
+    let (optimized, index_map) =
+      optimizer.merge_adjacent_text(commands, &[1]);
+
+    assert_eq!(
+      optimized.len(),
+      3,
+      "bound text must split the run into 3 segments"
+    );
+
+    match (&optimized[0], &optimized[1], &optimized[2]) {
+      (UiCommand::Text(a), UiCommand::Text(b), UiCommand::Text(c)) => {
+        assert_eq!(a, "clicked ");
+        assert_eq!(b, "0");
+        assert_eq!(c, " times");
+      }
+      _ => panic!("expected three Text commands, got {optimized:?}"),
+    }
+
+    // Index map: bound input 1 must point at the isolated
+    // output 1 so the runtime patches the right slot.
+    assert_eq!(index_map[1], 1);
+    assert_eq!(index_map[0], 0);
+    assert_eq!(index_map[2], 2);
+  }
+
+  #[test]
+  fn test_bound_text_at_run_start() {
+    // Bound text at the start of a text run still gets its
+    // own slot. Prior runs of free texts (none here) flush;
+    // texts after the bound one merge into a fresh run.
+    let optimizer = TemplateOptimizer::new();
+
+    let commands = vec![
+      UiCommand::Text("0".into()),
+      UiCommand::Text(" ms".into()),
+      UiCommand::Text(" elapsed".into()),
+    ];
+
+    let (optimized, index_map) =
+      optimizer.merge_adjacent_text(commands, &[0]);
+
+    assert_eq!(optimized.len(), 2);
+    assert!(matches!(&optimized[0], UiCommand::Text(s) if s == "0"));
+    assert!(matches!(&optimized[1], UiCommand::Text(s) if s == " ms elapsed"));
+
+    assert_eq!(index_map[0], 0);
+    assert_eq!(index_map[1], 1);
+    assert_eq!(index_map[2], 1); // merged into output 1
+  }
+
+  #[test]
+  fn test_two_bound_texts_stay_isolated() {
+    // Adjacent bound texts (e.g. two interps separated by
+    // whitespace that the executor stripped) each get
+    // their own slot.
+    let optimizer = TemplateOptimizer::new();
+
+    let commands = vec![
+      UiCommand::Text("0".into()),
+      UiCommand::Text("times".into()),
+    ];
+
+    let (optimized, index_map) =
+      optimizer.merge_adjacent_text(commands, &[0, 1]);
+
+    assert_eq!(optimized.len(), 2);
+    assert_eq!(index_map[0], 0);
+    assert_eq!(index_map[1], 1);
   }
 }

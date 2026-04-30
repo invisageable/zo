@@ -472,13 +472,24 @@ fn collect_event_handler_syms(
   let mut handlers = HashSet::default();
 
   for insn in instructions {
-    if let Insn::Template { commands, .. } = insn {
+    if let Insn::Template {
+      commands, bindings, ..
+    } = insn
+    {
       for cmd in commands {
         if let zo_ui_protocol::UiCommand::Event { handler, .. } = cmd
           && let Some(sym) = interner.symbol(handler)
         {
           handlers.insert(sym);
         }
+      }
+
+      // Computed text bindings reference their closure
+      // by symbol via a side-channel (not as `UiCommand::
+      // Event`), so DCE wouldn't see them otherwise and
+      // would drop the closure as unreachable.
+      for (_, cb) in &bindings.computed {
+        handlers.insert(cb.closure_name);
       }
     }
   }
