@@ -8,9 +8,17 @@
 //! Names are zero-padded `funcNNN` so they never collide
 //! with zo's type keywords (`f32`, `f64`, etc.).
 //!
+//! Compiled as a standalone rustc binary (sibling
+//! `generate_test.rs` follows the same convention):
 //! ```
-//! cargo run --release -p zo-benches --bin generate_synth
+//! cd crates/compiler/zo-tasks && \
+//!   rustc generate_synth.rs --edition=2021 -O \
+//!         -o generate_synth && \
+//!   ./generate_synth
 //! ```
+//!
+//! Outputs land at
+//! `../zo-benches/benches/synth-10k/synth-10k.{zo,c,rs}`.
 
 use std::fs;
 use std::path::PathBuf;
@@ -86,7 +94,10 @@ fn emit_rust() -> String {
 }
 
 fn main() {
-  let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches/synth-10k");
+  // Run from `crates/compiler/zo-tasks/` (sibling of
+  // `zo-benches`) so this relative path resolves; matches
+  // how `generate_test.rs` is invoked.
+  let dir = PathBuf::from("../zo-benches/benches/synth-10k");
 
   fs::create_dir_all(&dir).unwrap();
 
