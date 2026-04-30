@@ -2,7 +2,7 @@
 
 use crate::loader::image::{ImageLoader, ImageState};
 
-use zo_runtime_render::render::{EventId, Render, WidgetId};
+use zo_runtime_render::render::{EventId, EventPayload, Render, WidgetId};
 use zo_ui_protocol::style::{ComputedStyle, FontFamily, Rgba, cascade};
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
@@ -23,7 +23,12 @@ pub struct UiState {
   /// Text input values indexed by ID
   text_inputs: HashMap<u32, String>,
   /// Button click events to send back
-  pending_events: ThinVec<(u32, u32)>, // (widget_id, event_kind)
+  /// (widget_id, event_kind, payload). `event_kind`
+  /// matches the IPC numeric kinds the web bridge uses
+  /// (0=click, 1=input). The `payload.value` is empty
+  /// for click events and carries the input's current
+  /// text for input/change events.
+  pending_events: ThinVec<(u32, u32, EventPayload)>,
 }
 
 /// Egui-based renderer for zo UI commands
@@ -168,7 +173,13 @@ impl Renderer {
           ui.add(egui::TextEdit::singleline(text).hint_text(placeholder));
 
         if response.changed() {
-          self.state.pending_events.push((id, 1));
+          self.state.pending_events.push((
+            id,
+            1,
+            EventPayload {
+              value: text.clone(),
+            },
+          ));
         }
 
         // Self-closing in our model (input has no children).
@@ -191,7 +202,9 @@ impl Renderer {
         let id = attr_num(attrs, "data-id").unwrap_or(0);
 
         if ui.button(&content).clicked() {
-          self.state.pending_events.push((id, 0));
+          self.state
+            .pending_events
+            .push((id, 0, EventPayload::default()));
         }
 
         skip_to_end_element(commands, children_start)
@@ -325,7 +338,9 @@ impl Renderer {
   }
 
   /// Get pending events to send back to the application
-  pub fn take_pending_events(&mut self) -> ThinVec<(u32, u32)> {
+  pub fn take_pending_events(
+    &mut self,
+  ) -> ThinVec<(u32, u32, EventPayload)> {
     std::mem::take(&mut self.state.pending_events)
   }
 }

@@ -291,8 +291,9 @@ impl Run {
 
           registry.register(
             fun_name,
-            Box::new(move || {
+            Box::new(move |payload| {
               println!("[zo] event handler '{handler_name}' called");
+              println!("[zo] event payload '{payload}' passed");
             }),
           );
         }
@@ -444,10 +445,17 @@ impl Run {
 
       registry.register(
         fun_name,
-        Box::new(move || {
+        Box::new(move |payload| {
           let mut eval = zo_runtime_render::evaluator::HandlerEvaluator::new();
 
-          eval.execute(&sir, closure_sym, &cells, &capture_map, &strings);
+          eval.execute(
+            &sir,
+            closure_sym,
+            &cells,
+            &capture_map,
+            &strings,
+            Some(payload),
+          );
 
           let mut new_cmds = commands_copy.clone();
 
@@ -555,7 +563,7 @@ impl Run {
       let mut eval = zo_runtime_render::evaluator::HandlerEvaluator::new();
 
       let result =
-        eval.execute(sir, *closure_name, cells, cap_map, strings);
+        eval.execute(sir, *closure_name, cells, cap_map, strings, None);
 
       if let Some(val) = result
         && let Some(UiCommand::Text(s)) = new_cmds.get_mut(*cmd_idx)

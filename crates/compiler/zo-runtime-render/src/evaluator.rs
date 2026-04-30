@@ -4,7 +4,7 @@
 //! fire. Maps captured parameters to `StateCell`s so mutations
 //! are visible to the template re-render.
 
-use crate::render::{StateCell, StateValue};
+use crate::render::{EventPayload, StateCell, StateValue};
 
 use zo_interner::Symbol;
 use zo_sir::{BinOp, Insn, LoadSource};
@@ -19,6 +19,13 @@ pub enum Val {
   Float(f64),
   Bool(bool),
   Str(String),
+  /// Sentinel marking a `Load` of the event-payload param.
+  /// The actual payload lives on the `execute` call frame
+  /// (`event: Option<&EventPayload>`); a downstream
+  /// `TupleIndex` reads it directly. Carrying it as a
+  /// unit variant avoids cloning the payload's `String`
+  /// once per `Load` and once per field projection.
+  Event,
   Unit,
 }
 
@@ -29,7 +36,13 @@ impl Val {
       Val::Float(f) => StateValue::Float(*f),
       Val::Bool(b) => StateValue::Bool(*b),
       Val::Str(s) => StateValue::Str(s.clone()),
-      Val::Unit => StateValue::Int(0),
+      // An `Event` sentinel reaching `to_state_value` would
+      // mean a closure body tried to write the whole event
+      // back to a state cell, which is meaningless. Collapse
+      // to `Int(0)` so the slot stays well-formed and the
+      // misuse is observable as a stale value rather than a
+      // panic.
+      Val::Event | Val::Unit => StateValue::Int(0),
     }
   }
 
@@ -50,7 +63,10 @@ impl Val {
       Val::Float(f) => f.to_string(),
       Val::Bool(b) => b.to_string(),
       Val::Str(s) => s.clone(),
-      Val::Unit => String::new(),
+      // The sentinel renders empty — the only meaningful
+      // display happens after a `TupleIndex` projection,
+      // which materializes a `Val::Str` from the payload.
+      Val::Event | Val::Unit => String::new(),
     }
   }
 }
@@ -92,6 +108,15 @@ impl HandlerEvaluator {
   /// Returns the closure's `Insn::Return` value (if any).
   /// Click handlers ignore this; computed text bindings
   /// stamp the result into a `UiCommand::Text`.
+  ///
+  /// `event` carries the runtime-built payload for the firing
+  /// event when the closure has an explicit user param bound
+  /// to `@input`/`@change`. Computed-binding closures and
+  /// `@click` handlers don't read the payload — they pass
+  /// `None` (or `&EventPayload::default()` from the dispatch
+  /// site, which is structurally equivalent for the field
+  /// arms below since they bail to `Val::Unit` on absent
+  /// fields).
   pub fn execute(
     &mut self,
     instructions: &[Insn],
@@ -99,6 +124,7 @@ impl HandlerEvaluator {
     state: &[StateCell],
     capture_map: &[(usize, usize)],
     strings: &[String],
+    event: Option<&EventPayload>,
   ) -> Option<Val> {
     self.regs.clear();
     self.locals.clear();
@@ -112,6 +138,10 @@ impl HandlerEvaluator {
     let mut body_start = None;
     let mut body_end = instructions.len();
     let mut params: Vec<(Symbol, usize)> = Vec::new();
+    // First user-param index — captures occupy `[0, cc)`,
+    // user params start at `cc`. The event payload, when an
+    // event closure has one, is the first user param.
+    let mut event_param_idx: Option<u32> = None;
 
     for (i, insn) in instructions.iter().enumerate() {
       if let Insn::FunDef {
@@ -135,6 +165,10 @@ impl HandlerEvaluator {
             self.regs.insert(pi as u32 | 0x8000_0000, val);
             params.push((*sym, slot_idx));
           }
+        }
+
+        if event.is_some() && fn_params.len() > cc {
+          event_param_idx = Some(cc as u32);
         }
 
         for (j, next) in instructions.iter().enumerate().skip(i + 1) {
@@ -187,11 +221,23 @@ impl HandlerEvaluator {
 
         Insn::Load { dst, src, .. } => {
           let val = match src {
-            LoadSource::Param(idx) => self
-              .regs
-              .get(&(*idx | 0x8000_0000))
-              .cloned()
-              .unwrap_or(Val::Unit),
+            LoadSource::Param(idx) => {
+              // The event-payload param is identified by
+              // index, not by symbol — it's the first user
+              // param of an event-bound closure. The sentinel
+              // `Val::Event` flows into the next `TupleIndex`,
+              // which reads the actual payload directly off
+              // the `event` argument — no per-load cloning.
+              if event_param_idx == Some(*idx) && event.is_some() {
+                Val::Event
+              } else {
+                self
+                  .regs
+                  .get(&(*idx | 0x8000_0000))
+                  .cloned()
+                  .unwrap_or(Val::Unit)
+              }
+            }
             LoadSource::Local(sym) => {
               // Branch sinks and other transient locals
               // live in `self.locals`; captured mut vars
@@ -233,6 +279,28 @@ impl HandlerEvaluator {
           let result = self.eval_unop(op, &r);
 
           self.regs.insert(dst.0, result);
+        }
+
+        Insn::TupleIndex {
+          dst, tuple, index, ..
+        } => {
+          // Struct/tuple field projections lower to
+          // `TupleIndex` in SIR. The only kind we resolve
+          // here is the event payload — everything else is
+          // either a regular tuple constant (not yet
+          // materialized in the evaluator) or an
+          // unsupported aggregate, in which case `Val::Unit`
+          // is the safe fallback. Reading `event` directly
+          // here (instead of via a cloned `Val::Event`) is
+          // the only `String` clone per `e.value` read.
+          let val = match (self.regs.get(&tuple.0), event) {
+            (Some(Val::Event), Some(p)) if *index == 0 => {
+              Val::Str(p.value.clone())
+            }
+            _ => Val::Unit,
+          };
+
+          self.regs.insert(dst.0, val);
         }
 
         Insn::Store { name, value, .. } => {
@@ -458,7 +526,7 @@ mod tests {
 
     let mut eval = HandlerEvaluator::new();
 
-    eval.execute(&sir.instructions, name, &state, &capture_map, &[]);
+    eval.execute(&sir.instructions, name, &state, &capture_map, &[], None);
 
     assert_eq!(state[0].get(), StateValue::Int(6));
   }
@@ -475,7 +543,7 @@ mod tests {
 
     let mut eval = HandlerEvaluator::new();
 
-    eval.execute(&sir.instructions, name, &state, &capture_map, &[]);
+    eval.execute(&sir.instructions, name, &state, &capture_map, &[], None);
 
     assert_eq!(state[0].get(), StateValue::Int(4));
   }
@@ -494,7 +562,7 @@ mod tests {
 
     // Click 3 times.
     for _ in 0..3 {
-      eval.execute(&sir.instructions, name, &state, &capture_map, &[]);
+      eval.execute(&sir.instructions, name, &state, &capture_map, &[], None);
     }
 
     assert_eq!(state[0].get(), StateValue::Int(3));
@@ -512,8 +580,8 @@ mod tests {
 
     let mut eval = HandlerEvaluator::new();
 
-    eval.execute(&sir.instructions, name, &state, &capture_map, &[]);
-    eval.execute(&sir.instructions, name, &state, &capture_map, &[]);
+    eval.execute(&sir.instructions, name, &state, &capture_map, &[], None);
+    eval.execute(&sir.instructions, name, &state, &capture_map, &[], None);
 
     assert_eq!(state[0].get(), StateValue::Int(-2));
   }
@@ -527,9 +595,126 @@ mod tests {
     let mut eval = HandlerEvaluator::new();
 
     // Non-existent closure — should do nothing.
-    eval.execute(&sir.instructions, Symbol::new(9999), &state, &[], &[]);
+    eval.execute(&sir.instructions, Symbol::new(9999), &state, &[], &[], None);
 
     assert_eq!(state[0].get(), StateValue::Int(42));
+  }
+
+  // === EVENT PAYLOAD ===
+
+  /// Builds a closure shaped like `fn(e) => x = e.value` —
+  /// one int capture (`x`), one explicit user param
+  /// (`e: Event`), body reads `e.value` (lowered as
+  /// `Load Param(1)` + `TupleIndex(_, 0)`) and stores the
+  /// resulting `str` back into the captured slot. Mirrors
+  /// what the executor emits for
+  /// `@input={fn(e) => x = e.value}`.
+  fn make_event_input_closure(
+    sir: &mut Sir,
+    interner: &mut zo_interner::Interner,
+  ) -> Symbol {
+    let name = interner.intern("__closure_input");
+    let x_sym = interner.intern("x");
+    let e_sym = interner.intern("e");
+
+    sir.emit(Insn::FunDef {
+      name,
+      params: vec![(x_sym, str_ty()), (e_sym, str_ty())],
+      return_ty: TyId(1),
+      body_start: 1,
+      kind: FunctionKind::Closure { capture_count: 1 },
+      pubness: Pubness::No,
+      mut_self: false,
+    });
+
+    let e_val = ValueId(sir.next_value_id);
+    sir.next_value_id += 1;
+    sir.emit(Insn::Load {
+      dst: e_val,
+      src: LoadSource::Param(1),
+      ty_id: str_ty(),
+    });
+
+    let field = ValueId(sir.next_value_id);
+    sir.next_value_id += 1;
+    sir.emit(Insn::TupleIndex {
+      dst: field,
+      tuple: e_val,
+      index: 0,
+      ty_id: str_ty(),
+    });
+
+    sir.emit(Insn::Store {
+      name: x_sym,
+      value: field,
+      ty_id: str_ty(),
+    });
+
+    sir.emit(Insn::Return {
+      value: None,
+      ty_id: TyId(1),
+    });
+
+    name
+  }
+
+  #[test]
+  fn test_evaluate_event_value_propagates_to_capture() {
+    let mut sir = Sir::new();
+    let mut interner = zo_interner::Interner::new();
+
+    let name = make_event_input_closure(&mut sir, &mut interner);
+    let strings = interner.snapshot();
+
+    let state = vec![StateCell::new(StateValue::Str(String::new()))];
+    let capture_map = vec![(0, 0)];
+
+    let payload = EventPayload {
+      value: "hello world".to_string(),
+    };
+
+    let mut eval = HandlerEvaluator::new();
+    eval.execute(
+      &sir.instructions,
+      name,
+      &state,
+      &capture_map,
+      &strings,
+      Some(&payload),
+    );
+
+    assert_eq!(state[0].get(), StateValue::Str("hello world".to_string()));
+  }
+
+  #[test]
+  fn test_evaluate_event_none_falls_through_to_unit() {
+    // Without a payload, the body's `Load Param(1)` resolves
+    // to whatever's in regs — `Val::Unit` if absent. The
+    // `TupleIndex` arm then yields `Val::Unit`, so the store
+    // collapses to `StateValue::Int(0)`. The state slot
+    // remains observable; nothing panics.
+    let mut sir = Sir::new();
+    let mut interner = zo_interner::Interner::new();
+
+    let name = make_event_input_closure(&mut sir, &mut interner);
+    let strings = interner.snapshot();
+
+    let state = vec![StateCell::new(StateValue::Str("orig".to_string()))];
+    let capture_map = vec![(0, 0)];
+
+    let mut eval = HandlerEvaluator::new();
+    eval.execute(
+      &sir.instructions,
+      name,
+      &state,
+      &capture_map,
+      &strings,
+      None,
+    );
+
+    // No panic; slot collapsed via `to_state_value()` from
+    // `Val::Unit`.
+    assert_eq!(state[0].get(), StateValue::Int(0));
   }
 
   // === COMPUTED BINDING SUPPORT — control flow + return ===
@@ -686,7 +871,7 @@ mod tests {
 
     let strings = interner.snapshot();
     let mut eval = HandlerEvaluator::new();
-    let result = eval.execute(&sir.instructions, name, &[], &[], &strings);
+    let result = eval.execute(&sir.instructions, name, &[], &[], &strings, None);
 
     match result {
       Some(Val::Str(s)) => assert_eq!(s, "hello"),
@@ -709,7 +894,7 @@ mod tests {
 
     let mut eval = HandlerEvaluator::new();
     let result =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &strings);
+      eval.execute(&sir.instructions, name, &state, &capture_map, &strings, None);
 
     match result {
       Some(Val::Str(s)) => assert_eq!(s, "time"),
@@ -732,7 +917,7 @@ mod tests {
 
     let mut eval = HandlerEvaluator::new();
     let result =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &strings);
+      eval.execute(&sir.instructions, name, &state, &capture_map, &strings, None);
 
     match result {
       Some(Val::Str(s)) => assert_eq!(s, "times"),
@@ -757,12 +942,12 @@ mod tests {
     let mut eval = HandlerEvaluator::new();
 
     let first =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &strings);
+      eval.execute(&sir.instructions, name, &state, &capture_map, &strings, None);
     assert!(matches!(first, Some(Val::Str(ref s)) if s == "time"));
 
     state[0].set(StateValue::Int(0));
     let second =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &strings);
+      eval.execute(&sir.instructions, name, &state, &capture_map, &strings, None);
     assert!(matches!(second, Some(Val::Str(ref s)) if s == "times"));
   }
 
@@ -782,7 +967,7 @@ mod tests {
 
     let mut eval = HandlerEvaluator::new();
     let result =
-      eval.execute(&sir.instructions, name, &state, &capture_map, &[]);
+      eval.execute(&sir.instructions, name, &state, &capture_map, &[], None);
 
     assert!(result.is_none());
   }
@@ -825,7 +1010,7 @@ mod tests {
 
     let strings = interner.snapshot();
     let mut eval = HandlerEvaluator::new();
-    let result = eval.execute(&sir.instructions, name, &[], &[], &strings);
+    let result = eval.execute(&sir.instructions, name, &[], &[], &strings, None);
 
     match result {
       Some(Val::Int(7)) => {}
@@ -888,7 +1073,7 @@ mod tests {
 
     let strings = interner.snapshot();
     let mut eval = HandlerEvaluator::new();
-    let result = eval.execute(&sir.instructions, name_a, &[], &[], &strings);
+    let result = eval.execute(&sir.instructions, name_a, &[], &[], &strings, None);
 
     // No Return inside name_a's body → result is None.
     // Critically, we must NOT see Int(999) leaked from

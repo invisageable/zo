@@ -17395,7 +17395,65 @@ impl<'a> Executor<'a> {
                       let children_end =
                         (header.child_start + header.child_count) as usize;
 
+                      // For payload-bearing events (`@input`,
+                      // `@change`), synthesize a `Fn(Event) -> ?`
+                      // annotation through `pending_decl` so
+                      // `execute_closure`'s param-propagation
+                      // step (line 5897 area) types the user
+                      // param `e` as `Event` even when the
+                      // closure was written `fn(e) => ...`
+                      // without a type annotation. Other event
+                      // kinds (`@click`, `@focus`, ...) carry no
+                      // payload, leave the closure's params
+                      // alone.
+                      let needs_event_param = EventKind::from_name(
+                        event_name.as_str(),
+                      )
+                      .is_some_and(EventKind::has_value_payload);
+
+                      let saved_pending_decl = if needs_event_param {
+                        let event_sym = self.interner.intern("Event");
+                        let event_ty = self
+                          .ty_checker
+                          .resolve_ty_symbol(event_sym, self.interner);
+
+                        if let Some(event_ty) = event_ty {
+                          let fresh_ret = self.ty_checker.fresh_var();
+                          let fun_ty_id = self
+                            .ty_checker
+                            .ty_table
+                            .intern_fun(vec![event_ty], fresh_ret);
+                          let ann_ty = self
+                            .ty_checker
+                            .intern_ty(Ty::Fun(fun_ty_id));
+
+                          let saved = self.pending_decl.take();
+                          let span = self.tree.spans[idx];
+
+                          self.pending_decl = Some(PendingDecl {
+                            name: self.interner.intern("__event_param"),
+                            is_mutable: false,
+                            is_constant: false,
+                            pubness: Pubness::No,
+                            annotated_ty: Some(ann_ty),
+                            span,
+                            init_start_idx: self.sir.instructions.len(),
+                            tuple_pattern: None,
+                          });
+
+                          saved
+                        } else {
+                          None
+                        }
+                      } else {
+                        None
+                      };
+
                       self.execute_closure(idx, children_end);
+
+                      if needs_event_param {
+                        self.pending_decl = saved_pending_decl;
+                      }
 
                       // Pop the closure value and extract its
                       // generated function name.
@@ -17434,15 +17492,12 @@ impl<'a> Executor<'a> {
                     {
                       idx += 1;
                     }
-                    let event_kind = match event_name.as_str() {
-                      "click" => EventKind::Click,
-                      "hover" => EventKind::Hover,
-                      "change" => EventKind::Change,
-                      "input" => EventKind::Input,
-                      "focus" => EventKind::Focus,
-                      "blur" => EventKind::Blur,
-                      _ => EventKind::Click,
-                    };
+                    // Unknown event names default to `Click` —
+                    // the parser already accepts arbitrary
+                    // `@<ident>` so we silently bucket the rest
+                    // rather than refusing to compile.
+                    let event_kind = EventKind::from_name(&event_name)
+                      .unwrap_or(EventKind::Click);
 
                     attrs.push(Attr::Event {
                       name: event_name,
@@ -18025,7 +18080,7 @@ impl<'a> Executor<'a> {
       {
         commands.push(UiCommand::Event {
           widget_id: widget_id.clone(),
-          event_kind: event_kind.clone(),
+          event_kind: *event_kind,
           handler: handler.clone(),
         });
       }

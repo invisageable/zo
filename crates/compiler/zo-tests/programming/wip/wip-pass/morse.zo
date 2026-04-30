@@ -1,0 +1,55 @@
+-! port from https://gist.github.com/SpencerCDixon/df1dd172c57d7c32de20
+
+val MORSE_TO_ALPHANUM: HashMap<str, str> = HashMap::from([
+  ("•", "a")
+  ("-•••", "b"),
+  ("-•-•", "c"),
+  ("-••", "d"),
+  ("•", "e"),
+  ("••-•", "f"),
+  ("--•", "g"),
+  ("••••", "h"),
+  ("••", "i"),
+  ("•---", "j"),
+  ("-•-", "k"),
+  ("•-••", "l"),
+  ("--", "m"),
+  ("-•", "n"),
+  ("---", "o"),
+  ("•--•", "p"),
+  ("--•-", "q"),
+  ("•-•", "r"),
+  ("•••", "s"),
+  ("-", "t"),
+  ("••-", "u"),
+  ("•••-", "v"),
+  ("•--", "w"),
+  ("-••-", "x"),
+  ("-•--", "y"),
+  ("--••", "z"),
+  ("-•-•--" , "!"),
+  ("•-•-" , ","),
+  ("•----•" , "'"),
+]);
+
+fun decode(code: str) -> str {
+  mut decoded_sentence: []str = [];
+  mut splitted_words: []str = code.split("/");
+
+  for word := splitted_words {
+    imu letters: []str = word.split(" ");
+    imu decoded_word: []str = [];
+
+    for letter := letters {
+      decoded_word.push(MORSE_TO_ALPHANUM[letter]);
+    }
+
+    decoded_sentence.push(decoded_word.join(""))
+  }
+
+  decoded_sentence.join(" | ")
+}
+
+fun main() {
+  showln(decode("——•• | ———"));
+}

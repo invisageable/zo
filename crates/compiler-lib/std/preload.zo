@@ -11,3 +11,11 @@ pub enum Result<$T, $E> {
   Ok($T),
   Err($E),
 }
+
+-! Runtime payload passed into `@input` / `@change` event
+-! handler closures. `value` carries the input element's
+-! current text. Future fields (`key`, `target`, ...) land
+-! when a concrete program needs them.
+pub struct Event {
+  value: str,
+}

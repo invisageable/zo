@@ -35,8 +35,27 @@ impl Default for RuntimeConfig {
   }
 }
 
-/// Event handler callback.
-pub type EventHandler = Box<dyn Fn() + Send>;
+/// Runtime-built payload carried into a handler closure when
+/// an event fires. Today the only field surfaced to user code
+/// is `value` (the text-input current value for `@input` and
+/// `@change` events). `@click` and other no-payload events
+/// carry an empty string here — the closure's body simply
+/// doesn't read it.
+#[derive(Clone, Debug, Default)]
+pub struct EventPayload {
+  pub value: String,
+}
+
+impl std::fmt::Display for EventPayload {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.value)
+  }
+}
+
+/// Event handler callback. Receives the runtime-built payload
+/// for the event that fired. Click handlers ignore the payload;
+/// input/change handlers read `payload.value`.
+pub type EventHandler = Box<dyn Fn(&EventPayload) + Send>;
 
 /// Registry mapping handler names to callable functions.
 /// Built by the driver from SIR, consumed by runtimes.
@@ -55,9 +74,9 @@ impl EventRegistry {
     self.handlers.insert(name, handler);
   }
 
-  pub fn dispatch(&self, name: &str) -> bool {
+  pub fn dispatch(&self, name: &str, payload: &EventPayload) -> bool {
     if let Some(handler) = self.handlers.get(name) {
-      handler();
+      handler(payload);
       true
     } else {
       false

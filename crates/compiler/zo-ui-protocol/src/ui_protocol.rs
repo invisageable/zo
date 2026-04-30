@@ -259,7 +259,7 @@ impl ElementTag {
 }
 
 /// Event types that can occur in the UI.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum EventKind {
   Click,
   Hover,
@@ -267,6 +267,35 @@ pub enum EventKind {
   Input,
   Focus,
   Blur,
+}
+
+impl EventKind {
+  /// Parse an event name (the bit after `@` in markup, or
+  /// the IPC frame prefix from the web bridge) into an
+  /// `EventKind`. Single source of truth for the
+  /// name → variant mapping; callers that previously open-
+  /// coded the same `match` (the executor at the
+  /// `Token::At` arm, the web runtime's IPC parser) drive
+  /// off this helper instead.
+  pub fn from_name(name: &str) -> Option<Self> {
+    Some(match name {
+      "click" => Self::Click,
+      "hover" => Self::Hover,
+      "change" => Self::Change,
+      "input" => Self::Input,
+      "focus" => Self::Focus,
+      "blur" => Self::Blur,
+      _ => return None,
+    })
+  }
+
+  /// True when the event carries a string `value` payload —
+  /// `@input` and `@change` ship the input element's current
+  /// text. Other kinds (`@click`, `@focus`, …) deliver an
+  /// empty payload.
+  pub fn has_value_payload(self) -> bool {
+    matches!(self, Self::Input | Self::Change)
+  }
 }
 
 /// Typed property value for template attributes.

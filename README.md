@@ -49,6 +49,8 @@ JOiN THE DEVOLUTiON.
   - ALGEBRAiC OPTiMiZATiON — *folding, propagation.*
   - TARGET SUPPORT — *`arm64`, `x86_64` for `linux`, `macos`, `windows`*.
 
+> *« Rust makes you wait. C makes you think. zo just lets you build. »*
+
 ## install.
 
   1. YOU JUST HAVE TO RUN:

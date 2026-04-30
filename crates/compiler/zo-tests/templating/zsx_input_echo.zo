@@ -1,0 +1,14 @@
+-- test-build-pass: input event with payload echoes the
+-- typed value into a reactive text node. Step 2 of
+-- PLAN_ZSX_TODOLIST.
+
+fun main() {
+  mut input_val: str = "";
+
+  imu view: </> ::= <>
+    <input value={input_val} @input={fn(e) => input_val = e.value} />
+    <p>{input_val}</p>
+  </>;
+
+  #dom view;
+}

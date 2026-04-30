@@ -2,8 +2,8 @@
 
 use crate::renderer::HtmlRenderer;
 
-use zo_runtime_render::render::{EventRegistry, RuntimeConfig};
-use zo_ui_protocol::UiCommand;
+use zo_runtime_render::render::{EventPayload, EventRegistry, RuntimeConfig};
+use zo_ui_protocol::{EventKind, UiCommand};
 
 /// Web runtime for zo applications
 pub struct Runtime {
@@ -140,47 +140,54 @@ impl Runtime {
       }
 
       fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: String) {
-        // IPC message from JS: "click:{widget_id}"
-        if let Some(widget_id) = event.strip_prefix("click:") {
-          // Find the handler name for this widget.
-          let handler_name = self.commands.iter().find_map(|cmd| {
-            if let UiCommand::Event {
-              widget_id: wid,
-              handler,
-              ..
-            } = cmd
-            {
-              if wid == widget_id {
-                Some(handler.clone())
-              } else {
-                None
-              }
-            } else {
-              None
+        // IPC messages from JS:
+        //   "click:{widget_id}"           — no payload
+        //   "input:{widget_id}:{value}"   — payload.value
+        //   "focus:{widget_id}"           — no payload
+        //   "change:{widget_id}:{value}"  — payload.value (future)
+        //
+        // Returning `None` here means the IPC frame is not
+        // an event the runtime knows how to dispatch — silently
+        // drop instead of panicking, since the JS bridge may
+        // grow new prefixes ahead of the Rust side.
+        let Some((widget_id, payload)) = parse_ipc_event(&event) else {
+          return;
+        };
+
+        let handler_name = self.commands.iter().find_map(|cmd| {
+          if let UiCommand::Event {
+            widget_id: wid,
+            handler,
+            ..
+          } = cmd
+            && wid == widget_id
+          {
+            Some(handler.clone())
+          } else {
+            None
+          }
+        });
+
+        if let Some(name) = handler_name {
+          self.events.dispatch(&name, &payload);
+
+          // Read updated commands from shared buffer.
+          let updated = self.shared.lock().unwrap().clone();
+
+          // Granular DOM update: walk the command diff and
+          // emit a targeted JS patch for each changed
+          // command. All elements carry a uniform
+          // `data-zo-cmd="{idx}"` id, so the same selector
+          // works for text, attributes, and future element
+          // types.
+          if let Some(wv) = &self.webview {
+            let js = build_patch_js(&self.commands, &updated);
+
+            if !js.is_empty() {
+              wv.evaluate_script(&js).ok();
             }
-          });
 
-          if let Some(name) = handler_name {
-            self.events.dispatch(&name);
-
-            // Read updated commands from shared buffer.
-            let updated = self.shared.lock().unwrap().clone();
-
-            // Granular DOM update: walk the command diff and
-            // emit a targeted JS patch for each changed
-            // command. All elements carry a uniform
-            // `data-zo-cmd="{idx}"` id, so the same selector
-            // works for text, attributes, and future element
-            // types.
-            if let Some(wv) = &self.webview {
-              let js = build_patch_js(&self.commands, &updated);
-
-              if !js.is_empty() {
-                wv.evaluate_script(&js).ok();
-              }
-
-              self.commands = updated;
-            }
+            self.commands = updated;
           }
         }
       }
@@ -293,6 +300,33 @@ fn mime_from_path(path: &str) -> &'static str {
     Some("webp") => "image/webp",
     Some("svg") => "image/svg+xml",
     _ => "application/octet-stream",
+  }
+}
+
+/// Parse an IPC frame coming from `assets/bridge.js` into
+/// `(widget_id, EventPayload)`. The bridge encodes
+/// no-payload events as `"<kind>:<id>"` and value-bearing
+/// events as `"<kind>:<id>:<value>"`. Unrecognized prefixes
+/// return `None` so the runtime can drop them.
+///
+/// Source of truth for which prefixes are valid is
+/// `EventKind::from_name`; whether the value field is
+/// expected is `EventKind::has_value_payload`.
+fn parse_ipc_event(event: &str) -> Option<(&str, EventPayload)> {
+  let (kind, rest) = event.split_once(':')?;
+  let kind = EventKind::from_name(kind)?;
+
+  if kind.has_value_payload() {
+    let (id, value) = rest.split_once(':').unwrap_or((rest, ""));
+
+    Some((
+      id,
+      EventPayload {
+        value: value.to_string(),
+      },
+    ))
+  } else {
+    Some((rest, EventPayload::default()))
   }
 }
 
@@ -416,6 +450,40 @@ mod tests {
       .uri(format!("zo://localhost{with_leading}"))
       .body(Vec::new())
       .unwrap()
+  }
+
+  #[test]
+  fn parse_ipc_event_click_no_payload() {
+    let (id, payload) = parse_ipc_event("click:btn-7").unwrap();
+
+    assert_eq!(id, "btn-7");
+    assert_eq!(payload.value, "");
+  }
+
+  #[test]
+  fn parse_ipc_event_input_extracts_value() {
+    let (id, payload) = parse_ipc_event("input:42:hello world").unwrap();
+
+    assert_eq!(id, "42");
+    assert_eq!(payload.value, "hello world");
+  }
+
+  #[test]
+  fn parse_ipc_event_input_value_with_colons_kept_intact() {
+    // The value field can contain `:` (URLs, time strings,
+    // …). `split_once` peels just the first `:` after the
+    // id, leaving the rest of the value verbatim.
+    let (id, payload) =
+      parse_ipc_event("input:1:http://example.com").unwrap();
+
+    assert_eq!(id, "1");
+    assert_eq!(payload.value, "http://example.com");
+  }
+
+  #[test]
+  fn parse_ipc_event_unknown_prefix_returns_none() {
+    assert!(parse_ipc_event("doubletap:7").is_none());
+    assert!(parse_ipc_event("noprefix").is_none());
   }
 
   #[test]
