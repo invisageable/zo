@@ -760,6 +760,14 @@ impl<'a> Tokenizer<'a> {
         } else if self.current() == b'>' {
           self.advance();
           self.tokens.push(Token::FatArrow, start as u32, 2);
+        } else if self.current() == b':' && self.peek(1) == b'>' {
+          // `=:>` — closure body opener that switches the
+          // lexer into TEMPLATE mode. Mirrors `::=`'s mode
+          // shift; distinct from the assignment binding form.
+          self.advance();
+          self.advance();
+          self.state.set_mode(ModeState::TEMPLATE);
+          self.tokens.push(Token::TemplateFatArrow, start as u32, 3);
         } else {
           self.tokens.push(Token::Eq, start as u32, 1);
         }

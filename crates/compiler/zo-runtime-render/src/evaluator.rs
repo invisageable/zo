@@ -148,9 +148,7 @@ impl HandlerEvaluator {
       }
     }
 
-    let Some(start) = body_start else {
-      return None;
-    };
+    let start = body_start?;
 
     // Pre-index labels for jump resolution.
     let mut label_to_pc: HashMap<u32, usize> = HashMap::default();

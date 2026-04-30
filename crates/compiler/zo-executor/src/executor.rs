@@ -5884,7 +5884,7 @@ impl<'a> Executor<'a> {
 
           break;
         }
-        Token::LBrace | Token::FatArrow => break,
+        Token::LBrace | Token::FatArrow | Token::TemplateFatArrow => break,
         _ => idx += 1,
       }
     }
@@ -5931,6 +5931,31 @@ impl<'a> Executor<'a> {
         // Inline form: fn(x) => expr
         // Exclude trailing Semicolon — it belongs to the
         // enclosing declaration, not the closure body.
+        let end = if end_idx > 0
+          && self
+            .tree
+            .nodes
+            .get(end_idx - 1)
+            .is_some_and(|n| n.token == Token::Semicolon)
+        {
+          end_idx - 1
+        } else {
+          end_idx
+        };
+
+        (idx + 1, end)
+      } else if idx < end_idx
+        && self.tree.nodes[idx].token == Token::TemplateFatArrow
+      {
+        // Template-returning form: fn(t) =:> <li>{t}</li>
+        // The parser auto-wraps the leading named tag in a
+        // synthetic `TemplateFragmentStart`, so the body
+        // shape downstream is identical to a `::=` binding.
+        // Force the closure's return type to `</>` so
+        // capture/store unifications agree with how the
+        // template-fragment executor emits the result.
+        return_ty = self.ty_checker.template_ty();
+
         let end = if end_idx > 0
           && self
             .tree

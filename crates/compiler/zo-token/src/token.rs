@@ -162,6 +162,7 @@ pub enum Token {
   RAngle,                // <, >
   Slash,                 // /
   TemplateAssign,        // ::=
+  TemplateFatArrow,      // =:>  — closure-body opener; body is a template fragment.
   TemplateFragmentStart, // <>
   TemplateFragmentEnd,   // </>
   TemplateText,          // Raw text inside a tag - uses main token span

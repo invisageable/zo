@@ -603,6 +603,35 @@ fn test_nested_code_templates() {
 }
 
 #[test]
+fn test_template_fat_arrow_closure_body() {
+  // `=:>` opens a closure body that is a template fragment.
+  // It must (a) tokenize as a single token, (b) switch the
+  // lexer into TEMPLATE mode so the following `<li>` is a
+  // template element, not a comparison.
+  assert_tokens_stream(
+    "fn(t) =:> <li>{t}</li>",
+    &[
+      (Token::Fn, "fn"),
+      (Token::LParen, "("),
+      (Token::Ident, "t"),
+      (Token::RParen, ")"),
+      (Token::TemplateFatArrow, "=:>"),
+      (Token::LAngle, "<"),
+      (Token::Ident, "li"),
+      (Token::RAngle, ">"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "t"),
+      (Token::RBrace, "}"),
+      (Token::LAngle, "<"),
+      (Token::Slash2, "/"),
+      (Token::Ident, "li"),
+      (Token::RAngle, ">"),
+      (Token::Eof, ""),
+    ],
+  );
+}
+
+#[test]
 fn test_style_block_simple() {
   assert_tokens_stream(
     "$: { p { color: cyan; } }",

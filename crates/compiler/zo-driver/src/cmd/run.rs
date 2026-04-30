@@ -14,6 +14,12 @@ use zo_ui_protocol::{Ui, UiCommand};
 use zo_value::FunctionKind;
 use zo_value::ValueId;
 
+/// `(cmd_idx, closure_name, capture_map)` triples ready to
+/// feed `apply_computed_bindings`. The capture_map mirrors
+/// the click-handler shape — `(param_index, slot_index)`
+/// pairs into the shared state-cell table.
+type ResolvedComputedBindings = Vec<(usize, Symbol, Vec<(usize, usize)>)>;
+
 /// Parameters for building reactive event handlers.
 struct ReactiveContext<'a> {
   instructions: &'a [Insn],
@@ -510,7 +516,7 @@ impl Run {
   fn resolve_computed_bindings(
     computed_bindings: &[(usize, ComputedBinding)],
     state_slots: &[(Symbol, String, StateCell)],
-  ) -> Vec<(usize, Symbol, Vec<(usize, usize)>)> {
+  ) -> ResolvedComputedBindings {
     computed_bindings
       .iter()
       .map(|(cmd_idx, cb)| {
@@ -540,7 +546,7 @@ impl Run {
   /// they'll drift.
   fn apply_computed_bindings(
     new_cmds: &mut [UiCommand],
-    computed_binds: &[(usize, Symbol, Vec<(usize, usize)>)],
+    computed_binds: &ResolvedComputedBindings,
     cells: &[StateCell],
     sir: &[Insn],
     strings: &[String],
