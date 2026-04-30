@@ -27,5 +27,5 @@ zo-value = { workspace = true }
 
 # external:crates.
 clap = { workspace = true }
-# hashbrown = { workspace = true }
+notify-debouncer-mini = { workspace = true }
 num_cpus = { workspace = true }

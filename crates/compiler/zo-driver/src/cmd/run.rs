@@ -1,6 +1,6 @@
 use crate::args;
 use crate::cmd::Handle;
-use crate::constants::{EXIT_CODE_ERROR, EXIT_CODE_SUCCESS};
+use crate::constants::EXIT_CODE_ERROR;
 
 use zo_compiler::Compiler;
 use zo_error::{Error, ErrorKind};
@@ -479,9 +479,6 @@ impl Run {
 
 impl Handle for Run {
   fn handle(&self) {
-    match self.run() {
-      Ok(_) => std::process::exit(EXIT_CODE_SUCCESS),
-      Err(_) => std::process::exit(EXIT_CODE_ERROR),
-    }
+    crate::cmd::handle_with_watch(&self.args, || self.run());
   }
 }

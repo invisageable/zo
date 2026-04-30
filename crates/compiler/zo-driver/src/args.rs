@@ -29,6 +29,9 @@ pub struct Args {
   /// Render templates in a webview.
   #[arg(long)]
   pub(crate) web: bool,
+  /// Watch file changes.
+  #[arg(long)]
+  pub watch: bool,
 }
 
 /// Represents an [`ArgsTarget`] instance.
