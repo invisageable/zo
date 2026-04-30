@@ -345,6 +345,16 @@ pub struct Executor<'a> {
   /// Generic constraints: `$T: Eq` maps the type param
   /// name to the abstract name. Verified at call site.
   type_constraints: HashMap<Symbol, Symbol>,
+  /// Generic type aliases: `type Pair<$T> = ($T, $T);` →
+  /// `(params, body)` where `params` are the original
+  /// inference vars minted at definition and `body` is the
+  /// alias body containing those same vars. At each use
+  /// site (e.g. `Pair<int>`), we substitute params with
+  /// the concrete args (or fresh vars) so the shared body
+  /// vars never get bound globally — that global bind is
+  /// what would make a second `Pair<str>` after `Pair<int>`
+  /// fail with a spurious type mismatch.
+  generic_aliases: HashMap<Symbol, (Vec<TyId>, TyId)>,
   /// Tree range `(start, end_exclusive)` of each generic
   /// function's whole declaration (from `Fun` through the
   /// closing `}`). Populated at `execute_fun` time for any
@@ -652,6 +662,7 @@ impl<'a> Executor<'a> {
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
+      generic_aliases: HashMap::default(),
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       direct_call_depth: 0,
@@ -5247,33 +5258,40 @@ impl<'a> Executor<'a> {
     }
 
     // Resolve the base element type. Accept built-in type
-    // tokens (`int`, `bool`, …) AND `Token::Ident` so user-
-    // defined types resolve correctly (`[]Todo`, `[3]Point`).
-    // Without `Token::Ident` here, `mut xs: []Todo = ...`
-    // fell through with no element type, the annotation
-    // resolved to unit, and unify failed at the decl site
-    // with a confusing "Type mismatch".
-    if j < end
-      && (self.tree.nodes[j].token.is_ty()
-        || self.tree.nodes[j].token == Token::Ident
-        || self.tree.nodes[j].token == Token::SelfUpper)
-    {
-      let base_ty = self.resolve_type_token(j);
-      j += 1;
+    // tokens (`int`, `bool`, …), `Token::Ident` so user-
+    // defined types resolve correctly (`[]Todo`,
+    // `[3]Point`), and `Token::Dollar` for generic-alias
+    // bodies like `type Grid<$T> = []$T;`. Without these,
+    // `mut xs: []Todo` and `Grid<int>` fell through with
+    // no element type and the unify at the decl site
+    // reported a confusing `Type mismatch`.
+    let step = if j < end {
+      let tok = self.tree.nodes[j].token;
 
-      // Build from inside out:
-      // [2][3]int → [3]int → [2][3]int.
-      let mut ty = base_ty;
-
-      for dim in dims.iter().rev() {
-        let aid = self.ty_checker.ty_table.intern_array(ty, *dim);
-        ty = self.ty_checker.intern_ty(Ty::Array(aid));
+      if tok == Token::Dollar && j + 1 < end {
+        2
+      } else if tok.is_ty() || tok == Token::Ident || tok == Token::SelfUpper {
+        1
+      } else {
+        return None;
       }
-
-      Some((ty, j))
     } else {
-      None
+      return None;
+    };
+
+    let base_ty = self.resolve_type_token(j);
+    j += step;
+
+    // Build from inside out:
+    // [2][3]int → [3]int → [2][3]int.
+    let mut ty = base_ty;
+
+    for dim in dims.iter().rev() {
+      let aid = self.ty_checker.ty_table.intern_array(ty, *dim);
+      ty = self.ty_checker.intern_ty(Ty::Array(aid));
     }
+
+    Some((ty, j))
   }
 
   /// Resolves a type token at `idx` to a [`TyId`].
@@ -5693,6 +5711,19 @@ impl<'a> Executor<'a> {
       // its own arm.
       if tok.is_ty() || tok == Token::Ident {
         elem_tys.push(self.resolve_type_token(j));
+      } else if tok == Token::Dollar
+        && j + 1 < len
+        && self.tree.nodes[j + 1].token == Token::Ident
+      {
+        // Generic element: `($T, $T)`. The alias body for
+        // `type Pair<$T> = ($T, $T);` resolves each `$T`
+        // through the active `type_params` map; without
+        // this arm the Dollar token falls through and
+        // both elements collapse to nothing.
+        elem_tys.push(self.resolve_type_token(j));
+        j += 2;
+
+        continue;
       }
 
       j += 1;
@@ -6992,10 +7023,11 @@ impl<'a> Executor<'a> {
               }
             }
 
+            let mut gargs: Vec<TyId> = Vec::new();
+
             if let (Some(lt), Some(gt)) = (lt_pos, gt_pos) {
               let scan_lo = cursor + 1;
               let scan_hi = gt;
-              let mut gargs: Vec<TyId> = Vec::new();
               let mut j = scan_lo;
 
               while j < scan_hi {
@@ -7039,17 +7071,47 @@ impl<'a> Executor<'a> {
                 j += 1;
               }
 
-              if !gargs.is_empty() {
-                self.decl_annotation_args.insert(name.as_u32(), gargs);
-              }
-
               cursor = gt;
               let _ = lt;
             }
 
             i = cursor;
 
-            annotated_ty = Some(base);
+            // Generic type alias: substitute the alias body's
+            // params with the concrete `<...>` args (or fresh
+            // vars when the use site omits them). Returning
+            // the raw `base` would leak the alias's shared
+            // inference vars into the caller and a second
+            // `Pair<str>` after `Pair<int>` would unify
+            // `int` against `str`.
+            let final_ty = if let Some((params, body)) =
+              self.generic_aliases.get(&sym).cloned()
+            {
+              let mut subst: rustc_hash::FxHashMap<zo_ty::InferVarId, TyId> =
+                rustc_hash::FxHashMap::default();
+
+              for (idx_p, p) in params.iter().enumerate() {
+                if let Ty::Infer(v) = self.ty_checker.kind_of(*p) {
+                  let target = if idx_p < gargs.len() {
+                    gargs[idx_p]
+                  } else {
+                    self.ty_checker.fresh_var()
+                  };
+
+                  subst.insert(v, target);
+                }
+              }
+
+              self.ty_checker.substitute_ty(&body, &subst)
+            } else {
+              base
+            };
+
+            if !gargs.is_empty() {
+              self.decl_annotation_args.insert(name.as_u32(), gargs);
+            }
+
+            annotated_ty = Some(final_ty);
           }
         }
 
@@ -8778,72 +8840,63 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    // Scan for target type after `=`.
-    let mut target_ty: Option<TyId> = None;
+    // Save the outer generic-param scope before scanning
+    // for `<$T, ...>`. Each `$T` mints a fresh inference
+    // var so the body resolution sees `$T` as that var
+    // rather than as an undefined name. Restored below.
+    let outer_type_params = std::mem::take(&mut self.type_params);
     let mut idx = start_idx + 2;
 
-    while idx < end_idx {
-      let tok = self.tree.nodes[idx].token;
+    if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
+      idx += 1;
 
-      if tok == Token::Eq {
+      while idx < end_idx {
+        let tok = self.tree.nodes[idx].token;
+
+        if tok == Token::RAngle {
+          idx += 1;
+          break;
+        }
+
+        if tok == Token::Dollar && idx + 1 < end_idx {
+          idx += 1;
+
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+            let var = self.ty_checker.fresh_var();
+
+            self.type_params.push((sym, var));
+          }
+        }
+
         idx += 1;
-
-        continue;
       }
+    }
 
-      // Semicolon ends the declaration.
-      if tok == Token::Semicolon {
-        break;
-      }
-
-      // Tuple type: (int, float).
-      if tok == Token::LParen {
-        let (ty_id, skip) = self.resolve_tuple_type(idx);
-
-        target_ty = Some(ty_id);
-        idx = skip;
-
-        continue;
-      }
-
-      // Function type: Fn(int) -> int.
-      if tok == Token::FnType {
-        let (ty_id, skip) = self.resolve_fn_type(idx);
-
-        target_ty = Some(ty_id);
-        idx = skip;
-
-        continue;
-      }
-
-      // Array type: token followed by [].
-      if tok.is_ty() || tok == Token::Ident {
-        let base_ty = if tok == Token::Ident {
-          self
-            .node_value(idx)
-            .and_then(|v| match v {
-              NodeValue::Symbol(s) => Some(s),
-              _ => None,
-            })
-            .and_then(|sym| {
-              self.ty_checker.resolve_ty_symbol(sym, self.interner)
-            })
-            .unwrap_or_else(|| self.ty_checker.unit_type())
-        } else {
-          self.resolve_type_token(idx)
-        };
-
-        target_ty = Some(base_ty);
-        idx += 1;
-
-        continue;
-      }
-
+    while idx < end_idx && self.tree.nodes[idx].token != Token::Eq {
       idx += 1;
     }
 
-    if let Some(ty) = target_ty {
-      self.ty_checker.define_ty_alias(name, ty);
+    if idx < end_idx && self.tree.nodes[idx].token == Token::Eq {
+      idx += 1;
+    }
+
+    // Resolve the body using the unified type-resolver so
+    // `$T`, `($T, $T)`, `[]$T`, `Fn($T) -> $T`, and plain
+    // names all work the same way.
+    let body_ty = self
+      .resolve_param_or_return_ty(idx, end_idx)
+      .map(|(t, _)| t)
+      .unwrap_or_else(|| self.ty_checker.unit_type());
+
+    let param_tys: Vec<TyId> =
+      self.type_params.iter().map(|(_, t)| *t).collect();
+
+    self.type_params = outer_type_params;
+
+    self.ty_checker.define_ty_alias(name, body_ty);
+
+    if !param_tys.is_empty() {
+      self.generic_aliases.insert(name, (param_tys, body_ty));
     }
   }
 
