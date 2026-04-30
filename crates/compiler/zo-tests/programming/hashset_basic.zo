@@ -1,0 +1,63 @@
+-- tests-run-pass: HashSet<int> — insert / contains /
+-- remove / len / is_empty round-trip + grow.
+-- @cmd — zo build hashset_basic.zo
+
+fun main() {
+  mut hashset: HashSet<int> = HashSet::new();
+
+  -- empty.
+  check@eq(hashset.len(), 0);
+  check(hashset.is_empty());
+
+  -- first insert returns true (was new).
+  check(hashset.insert(10));
+  check(hashset.insert(20));
+  check(hashset.insert(30));
+
+  showln(hashset);
+
+  check@eq(hashset.len(), 3);
+  check(!hashset.is_empty());
+
+  -- duplicate insert returns false (was present).
+  check(!hashset.insert(10));
+  check(!hashset.insert(20));
+  check@eq(hashset.len(), 3);
+
+  -- contains.
+  check(hashset.contains(10));
+  check(hashset.contains(20));
+  check(hashset.contains(30));
+  check(!hashset.contains(99));
+
+  -- remove returns true on hit, false on miss.
+  check(hashset.remove(20));
+  check(!hashset.contains(20));
+  check@eq(hashset.len(), 2);
+
+  check(!hashset.remove(99));
+  check@eq(hashset.len(), 2);
+
+  -- removed key can be re-inserted as new.
+  check(hashset.insert(20));
+  check(hashset.contains(20));
+  check@eq(hashset.len(), 3);
+
+  -- grow past initial capacity (16). 32 inserts forces
+  -- at least one rehash.
+  for i := 0..32 => {
+    check(hashset.insert(i + 100));
+  }
+
+  check@eq(hashset.len(), 35);
+  check(hashset.contains(120));
+  check(!hashset.contains(200));
+
+  hashset.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- {20, 30, 10}
+-- DONE

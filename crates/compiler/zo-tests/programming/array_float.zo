@@ -1,0 +1,26 @@
+-- tests-build-pass: float arrays.
+-- @cmd — zo run array_float.zo
+
+fun main() {
+  imu pi: []float = [3.14, 2.71, 1.41];
+
+  showln(pi);
+  showln(pi[0]); -- prints: `3.14`
+  showln(pi[1]); -- prints: `2.71`
+  showln(pi[2]); -- prints: `1.41`
+
+  mut vals: []float = [1.0, 2.0];
+
+  vals[0] = 9.99;
+
+  showln(vals[0]); -- prints: `9.99`
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- [3.140000, 2.710000, 1.409999]
+-- 3.140000
+-- 2.710000
+-- 1.409999
+-- 9.990000
+-- DONE

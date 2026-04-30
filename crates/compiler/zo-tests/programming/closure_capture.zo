@@ -1,0 +1,9 @@
+-- tests-build-pass: closure captures outer variable.
+-- @cmd — zo build closure_capture.zo
+
+fun main() {
+  imu y: int = 10;
+  imu f := fn(x: int) -> int => x + y;
+
+  check@eq(f(5), 15);
+}

@@ -1,8 +1,0 @@
--- tests-build-pass: ternary selects false arm.
--- @cmd — zo build branch-ternary-false.zo
-
-fun main() {
-  imu x: int = when false ? 1 : 2;
-
-  check@eq(x, 2);
-}

@@ -1,0 +1,20 @@
+-- tests-build-pass: array literals and indexing.
+-- @cmd — zo build lit_array_index.zo
+
+fun main() {
+  imu v: []int = [1, 2, 3, 4, 5];
+
+  check@eq(v[0], 1);
+  check@eq(v[1], 2);
+  check@eq(v[2] * v[3], 12);
+
+  mut x: int = 0;
+
+  check@eq(v[x], 1);
+  check@eq(v[x + 1], 2);
+
+  x = x + 1;
+
+  check(v[x] == 2);
+  check(v[x - 1] == 1);
+}

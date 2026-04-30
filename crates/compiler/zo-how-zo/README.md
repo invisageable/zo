@@ -6,7 +6,7 @@
 
 EVERY FILES ACT LiKE AS A TUTORiAL. THEY ARE THERE TO HELP YOU TO UNDERSTAND THE ADVANTAGE OF USiNG zo. THEY HIGHLIGHTS WHAT WE BRiNG TO THE TABLE TO SHiNE FROM OTHER LANGUAGE AND STAY UNiQUE.    
 
-READ THESE FiLES iN ORDER — EACH PROGRAM CAN BE `build` WiTH THE FOLLOWiNG COMMAND:
+READ THESE FiLES iN ORDER — EACH PROGRAM CAN BE `run` WiTH THE FOLLOWiNG COMMAND:
 
   ```sh
   zo run <FILENAME>
@@ -14,7 +14,7 @@ READ THESE FiLES iN ORDER — EACH PROGRAM CAN BE `build` WiTH THE FOLLOWiNG COM
 
 > *We assume that you already installed zo on your machine. if not it's achievable by following the [install](../zo-notes/public/guidelines/02-install.md) guidelines.*
 > 
-> *The first command must be: `zo run 000-prologue`.*
+> *The first command must be: `zo run 000_prologue.zo`.*
 
 ## categories.
 

@@ -1,0 +1,31 @@
+-- tests-build-pass: str.lines() — LF split with CRLF tolerance.
+-- @cmd — zo build str_lines.zo
+
+fun main() {
+  imu plain: []str = "a\nb\nc".lines();
+  check@eq(plain.len, 3);
+  check@eq(plain[0], "a");
+  check@eq(plain[1], "b");
+  check@eq(plain[2], "c");
+
+  -- Trailing '\n' does NOT produce an empty final line.
+  imu trailing: []str = "a\nb\n".lines();
+  check@eq(trailing.len, 2);
+  check@eq(trailing[0], "a");
+  check@eq(trailing[1], "b");
+
+  -- CRLF: the '\r' is stripped from each line end.
+  imu crlf: []str = "a\r\nb\r\nc".lines();
+  check@eq(crlf.len, 3);
+  check@eq(crlf[0], "a");
+  check@eq(crlf[1], "b");
+  check@eq(crlf[2], "c");
+
+  imu empty: []str = "".lines();
+  check@eq(empty.len, 0);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

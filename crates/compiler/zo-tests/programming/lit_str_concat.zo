@@ -1,0 +1,12 @@
+-- tests-build-pass: string concatenation with ++.
+-- @cmd — zo build lit_str_concat.zo
+
+fun main() {
+  imu a: str = "hello";
+  imu b: str = " world";
+  imu s: str = a ++ b;
+
+  showln(s);
+  showln("zo" ++ "!");
+  showln("a" ++ "b" ++ "c");
+}

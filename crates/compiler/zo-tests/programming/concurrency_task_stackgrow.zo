@@ -1,0 +1,34 @@
+-- tests-build-pass: a spawned task recurses deep enough to
+-- force the runtime to grow its virtual stack past the
+-- initial committed page. A fixed-stack runtime would
+-- either pre-commit a large region (wasting memory) or
+-- fault here; the guard-page-extend path lets the stack
+-- expand on demand until the hard reservation cap.
+-- @cmd — zo build concurrency_task_stackgrow.zo
+
+fun recurse(n: int) -> int {
+  if n <= 0 {
+    return 0;
+  } else {
+    return recurse(n - 1) + 1;
+  }
+}
+
+fun worker() -> int {
+  recurse(2000)
+}
+
+fun main() {
+  nursery {
+    imu task: Task<int> = spawn worker();
+    imu depth: int = await task;
+
+    showln("depth: {depth}");
+  }
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- depth: 2000
+-- DONE

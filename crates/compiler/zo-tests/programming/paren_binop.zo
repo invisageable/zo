@@ -1,0 +1,69 @@
+-- tests-run-pass: binary operators between parenthesized expressions.
+-- @cmd — zo run paren_binop.zo
+
+fun main() {
+  -- parenthesized binop: (2 + 3) * (4 + 1).
+  imu a: int = (2 + 3) * (4 + 1);
+  check@eq(a, 25);
+
+  -- parenthesized binop: (10 - 3) * 2.
+  imu b: int = (10 - 3) * 2;
+  check@eq(b, 14);
+
+  -- nested parenthesized binop.
+  imu c: int = ((1 + 2) * 3) + (4 * (5 - 2));
+  check@eq(c, 21);
+
+  -- array index with binary ops.
+  imu v: []int = [10, 20, 30];
+  check@eq(v[0] + v[1], 30);
+  check@eq(v[0] * v[1], 200);
+  check@eq(v[1] - v[0], 10);
+  check@eq(v[2] + v[0] + v[1], 60);
+
+  -- parenthesized with array index.
+  imu d: int = (v[0] + v[1]) * v[2];
+  check@eq(d, 900);
+
+  imu h1: int = 3 + (4 - 3) / 2;
+  check@eq(h1, 3);
+
+  imu h2: int = 3 + (4) / 2;
+  check@eq(h2, 5);
+
+  imu h3: int = 10 + (2) * 3;
+  check@eq(h3, 16);
+
+  imu h4: int = 10 - (2) * 3;
+  check@eq(h4, 4);
+
+  imu h5: int = 10 + (2 + 3) * 4;
+  check@eq(h5, 30);
+
+  mut x: int = 3;
+  imu h8: int = x + (1);
+  check@eq(h8, 4);
+
+  imu h9: int = x + (x - 1) / 2;
+  check@eq(h9, 4);
+
+  -- binary-search midpoint pattern — the loop-termination
+  -- bug that surfaced issue H. old parser made this an
+  -- infinite loop, the mid never advanced past the wrong
+  -- midpoint because `low + (high - low) / 2` parsed as
+  -- `(low + (high - low)) / 2`.
+  mut low: int = 0;
+  mut high: int = 4;
+  mut iters: int = 0;
+
+  while low <= high {
+    imu mid: int = low + (high - low) / 2;
+
+    iters = iters + 1;
+    low = mid + 1;
+  }
+
+  check@eq(iters, 3);
+
+  showln("DONE");
+}

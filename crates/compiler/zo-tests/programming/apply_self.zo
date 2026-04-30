@@ -1,0 +1,24 @@
+-- tests-build-pass: apply with Self type and struct return.
+-- @cmd — zo build apply_self.zo
+
+struct Span {
+  lo: int,
+  hi: int,
+}
+
+apply Span {
+  fun zero() -> Self {
+    Self { lo: 0, hi: 0 }
+  }
+}
+
+fun main() {
+  imu span := Span::zero();
+
+  showln(span);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- Span { lo: 0, hi: 0 }
+-- DONE

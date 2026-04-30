@@ -1,0 +1,8 @@
+-- tests-build-pass: basic string interpolation.
+-- @cmd — zo build interpolation_basic.zo
+
+fun main() {
+  imu x: int = 42;
+
+  showln("{x}");
+}

@@ -1,6 +1,0 @@
--- tests-build-pass: empty struct declaration.
--- @cmd — zo build struct-basic.zo
-
-struct Foo {}
-
-fun main() {}

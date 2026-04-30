@@ -1,9 +1,0 @@
--- tests-build-pass: struct with default field values.
--- @cmd — zo build struct-default.zo
-
-struct Bar {
-  x: int = 0,
-  y: int = 0,
-}
-
-fun main() {}

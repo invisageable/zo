@@ -1,0 +1,16 @@
+-- tests-build-pass: apply block with associated function.
+-- @cmd — zo build apply_basic.zo
+
+struct Foo {}
+
+apply Foo {
+  fun new() -> Self {
+    Self {}
+  }
+}
+
+fun main() {
+  imu f: Foo = Foo::new();
+
+  check@eq(f, Foo {});
+}

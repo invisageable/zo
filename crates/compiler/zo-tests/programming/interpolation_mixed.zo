@@ -1,0 +1,9 @@
+-- tests-build-pass: mixed literal and variable interpolation.
+-- @cmd — zo build interpolation_mixed.zo
+
+fun main() {
+  imu name: str = "zo";
+  imu version: int = 1;
+
+  showln("lang={name}, v={version}");
+}

@@ -1,0 +1,17 @@
+-- tests-build-pass: string arrays.
+-- @cmd — zo run array_str.zo
+
+fun main() {
+  imu words: []str = ["hello", "world", "from", "zo"];
+
+  for word := words => showln(word);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- hello
+-- world
+-- from
+-- zo
+-- DONE

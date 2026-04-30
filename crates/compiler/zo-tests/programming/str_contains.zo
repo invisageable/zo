@@ -1,0 +1,23 @@
+-- tests-run-pass: `str.contains` / `str.index_of`.
+-- `str.replace` is exercised in `str_replace.zo`; kept
+-- in a separate file because the Mach-O writer's
+-- section-layout edge case rejects binaries above a
+-- specific code-shape threshold (same bug as Phase D's
+-- 8-element sort case).
+-- @cmd — zo build str_contains.zo
+
+fun main() {
+  imu i: int = "hello world".index_of("world");
+  showln(i);
+
+  imu j: int = "hello".index_of("z");
+  showln(j);
+
+  imu c: bool = "abc".contains("b");
+  showln(c);
+}
+
+-- EXPECTED OUTPUT:
+-- 6
+-- -1
+-- true

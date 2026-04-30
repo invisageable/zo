@@ -1,0 +1,32 @@
+-- tests-run-pass: struct destructuring `imu { x, y, z } = expr`.
+-- @cmd — zo run pattern_des_struct.zo
+
+struct Point {
+  x: int,
+  y: int,
+  z: int,
+}
+
+fun main() {
+  imu { x, y, z }: Point = Point { x: 10, y: 20, z: 30 };
+
+  check@eq(x, 10);
+  check@eq(y, 20);
+  check@eq(z, 30);
+
+  showln(x);
+  showln(y);
+  showln(z);
+
+  -- (`name: alias` syntax — `imu { x: xx, y: yy } = p`
+  -- — is a future extension; current syntax requires
+  -- the pattern names to match field names directly.)
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 20
+-- 30
+-- DONE

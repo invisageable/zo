@@ -1,0 +1,25 @@
+-- tests-build-pass: Show abstract auto-dispatch via showln.
+-- @cmd — zo build abstract_show.zo
+
+struct Color {
+  r: int,
+  g: int,
+  b: int,
+}
+
+apply Show for Color {
+  fun show(self) -> str {
+    return "rgb";
+  }
+}
+
+fun main() {
+  imu color: Color = Color { r: 255, g: 128, b: 0 };
+  
+  showln(color);        -- showln(struct) auto-dispatches to `Show::show`.
+  showln(color.show()); -- explicit method call still works.
+}
+
+-- EXPECTED OUTPUT:
+-- rgb
+-- rgb

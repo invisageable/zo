@@ -1,6 +1,6 @@
-//! Emit the three-language synth-10k bench inputs from a
-//! single source-of-truth pattern: `synth-10k.zo`,
-//! `synth-10k.c`, `synth-10k.rs`. Each file is the same
+//! Emit the three-language synth_10k bench inputs from a
+//! single source-of-truth pattern: `synth_10k.zo`,
+//! `synth_10k.c`, `synth_10k.rs`. Each file is the same
 //! 1000-function chain — `func_i` calls `func_(i-1)`, and
 //! main computes `func_999(1)`. Compile time across
 //! compilers is what we measure.
@@ -18,7 +18,7 @@
 //! ```
 //!
 //! Outputs land at
-//! `../zo-benches/benches/synth-10k/synth-10k.{zo,c,rs}`.
+//! `../zo-benches/benches/synth_10k/synth_10k.{zo,c,rs}`.
 
 use std::fs;
 use std::path::PathBuf;
@@ -97,13 +97,13 @@ fn main() {
   // Run from `crates/compiler/zo-tasks/` (sibling of
   // `zo-benches`) so this relative path resolves; matches
   // how `generate_test.rs` is invoked.
-  let dir = PathBuf::from("../zo-benches/benches/synth-10k");
+  let dir = PathBuf::from("../zo-benches/benches/synth_10k");
 
   fs::create_dir_all(&dir).unwrap();
 
-  let zo_path = dir.join("synth-10k.zo");
-  let c_path = dir.join("synth-10k.c");
-  let rs_path = dir.join("synth-10k.rs");
+  let zo_path = dir.join("synth_10k.zo");
+  let c_path = dir.join("synth_10k.c");
+  let rs_path = dir.join("synth_10k.rs");
 
   let zo = emit_zo();
   let c = emit_c();

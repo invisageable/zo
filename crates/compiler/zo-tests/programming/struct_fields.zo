@@ -1,0 +1,9 @@
+-- tests-build-pass: struct with typed fields.
+-- @cmd — zo build struct_fields.zo
+
+struct Span {
+  lo: int,
+  hi: int,
+}
+
+fun main() {}

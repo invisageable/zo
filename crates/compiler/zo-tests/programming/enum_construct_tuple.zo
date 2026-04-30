@@ -1,0 +1,12 @@
+-- tests-build-pass: enum tuple variant construction.
+-- @cmd — zo build enum_construct_tuple.zo
+
+enum Foo {
+  Ok(int),
+  Err(int),
+}
+
+fun main() {
+  imu x := Foo::Ok(42);
+  imu y: Foo = Foo::Err(1);
+}

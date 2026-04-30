@@ -1,0 +1,11 @@
+-- tests-build-pass: empty nursery scope compiles and runs.
+-- @cmd — zo build concurrency_nursery_empty.zo
+
+fun main() {
+  nursery {}
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

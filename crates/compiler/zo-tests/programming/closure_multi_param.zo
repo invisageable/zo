@@ -1,0 +1,8 @@
+-- tests-build-pass: closure with multiple parameters.
+-- @cmd — zo build closure_multi_param.zo
+
+fun main() {
+  imu add := fn(x: int, y: int) -> int => x + y;
+
+  check@eq(add(10, 20), 30);
+}

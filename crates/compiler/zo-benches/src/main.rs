@@ -266,15 +266,6 @@ fn benchmark_rust(source: &PathBuf, output: &PathBuf, runs: usize) {
 
   println!("Compiling {filename} — {lines} lines.");
 
-  // `rustc` rejects `-` in inferred crate names; sanitize the
-  // file stem to keep hyphenated bench dirs (e.g. `rule-110`)
-  // working.
-  let crate_name = source
-    .file_stem()
-    .and_then(|s| s.to_str())
-    .unwrap_or("bench")
-    .replace('-', "_");
-
   let mut times = Vec::new();
 
   for i in 1..=runs {
@@ -284,8 +275,6 @@ fn benchmark_rust(source: &PathBuf, output: &PathBuf, runs: usize) {
 
     let result = Command::new("rustc")
       .arg("--target=aarch64-apple-darwin")
-      .arg("--crate-name")
-      .arg(&crate_name)
       .arg(source)
       .arg("-o")
       .arg(output)

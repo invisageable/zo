@@ -1,0 +1,80 @@
+-- tests-run-pass: struct destructuring in match arms.
+-- Each pattern field is either a literal-match
+-- (`x: 0`) — emits `field == lit` + `BranchIfNot` —
+-- or a bare ident (`y`) that binds the field to a
+-- local of the same name. `..` ignores the rest.
+-- @cmd — zo run branch_match_struct.zo
+
+pub struct Rect {
+  x: int,
+  y: int,
+  w: int,
+  h: int,
+}
+
+fun main() {
+  imu rect: Rect = Rect { x: 0, y: 14, w: 1080, h: 640 };
+
+  -- First arm: x == 0 matches; y bound, w/h ignored.
+  match rect {
+    Rect { x: 0, y, .. } => {
+      check@eq(y, 14);
+      showln(y);
+    },
+    Rect { x, y: 14, .. } => {
+      showln(x);
+      check(false);
+    },
+    Rect { x, y, w, h } => {
+      showln(x);
+      check(false);
+    },
+  }
+
+  -- Second arm: x != 0, y == 14.
+  imu shifted: Rect = Rect { x: 100, y: 14, w: 800, h: 600 };
+
+  match shifted {
+    Rect { x: 0, y, .. } => {
+      showln(y);
+      check(false);
+    },
+    Rect { x, y: 14, .. } => {
+      check@eq(x, 100);
+      showln(x);
+    },
+    Rect { x, y, w, h } => {
+      showln(x);
+      check(false);
+    },
+  }
+
+  -- Third arm: fallback — bind every field.
+  imu other: Rect = Rect { x: 1, y: 2, w: 3, h: 4 };
+
+  match other {
+    Rect { x: 0, y, .. } => {
+      showln(y);
+      check(false);
+    },
+    Rect { x, y: 14, .. } => {
+      showln(x);
+      check(false);
+    },
+    Rect { x, y, w, h } => {
+      check@eq(x, 1);
+      check@eq(y, 2);
+      check@eq(w, 3);
+      check@eq(h, 4);
+      showln("x: {x}, y: {y}, w: {w}, h: {h}");
+    },
+  }
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 14
+-- 100
+-- x: 1, y: 2, w: 3, h: 4
+-- DONE
