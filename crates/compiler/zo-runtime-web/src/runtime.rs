@@ -2,7 +2,9 @@
 
 use crate::renderer::HtmlRenderer;
 
-use zo_runtime_render::render::{EventPayload, EventRegistry, RuntimeConfig};
+use zo_runtime_render::render::{
+  EventPayload, EventRegistry, RuntimeConfig, build_event_map,
+};
 use zo_ui_protocol::{EventKind, UiCommand};
 
 /// Web runtime for zo applications
@@ -149,29 +151,26 @@ impl Runtime {
         //   "click:{widget_id}"           — no payload
         //   "input:{widget_id}:{value}"   — payload.value
         //   "focus:{widget_id}"           — no payload
+        //   "submit:{widget_id}:{value}"  — payload.value (Enter)
         //   "change:{widget_id}:{value}"  — payload.value (future)
         //
         // Returning `None` here means the IPC frame is not
         // an event the runtime knows how to dispatch — silently
         // drop instead of panicking, since the JS bridge may
         // grow new prefixes ahead of the Rust side.
-        let Some((widget_id, payload)) = parse_ipc_event(&event) else {
+        let Some((widget_id, kind, payload)) = parse_ipc_event(&event) else {
           return;
         };
 
-        let handler_name = self.commands.iter().find_map(|cmd| {
-          if let UiCommand::Event {
-            widget_id: wid,
-            handler,
-            ..
-          } = cmd
-            && wid == widget_id
-          {
-            Some(handler.clone())
-          } else {
-            None
-          }
-        });
+        // Rebuild from the current command buffer instead of
+        // walking it linearly per IPC frame. With N elements
+        // and one event per keystroke, the linear scan was
+        // O(N) per character; the map is O(1). The keying on
+        // (widget_id, kind) also lets a single input bind
+        // both `@input` and `@submit` without overwriting.
+        let handler_name = build_event_map(&self.commands)
+          .get(&(widget_id.to_string(), kind))
+          .cloned();
 
         if let Some(name) = handler_name {
           self.events.dispatch(&name, &payload);
@@ -311,29 +310,26 @@ fn mime_from_path(path: &str) -> &'static str {
 }
 
 /// Parse an IPC frame coming from `assets/bridge.js` into
-/// `(widget_id, EventPayload)`. The bridge encodes
+/// `(widget_id, kind, EventPayload)`. The bridge encodes
 /// no-payload events as `"<kind>:<id>"` and value-bearing
 /// events as `"<kind>:<id>:<value>"`. Unrecognized prefixes
 /// return `None` so the runtime can drop them.
 ///
 /// Source of truth for which prefixes are valid is
 /// `EventKind::from_name`; whether the value field is
-/// expected is `EventKind::has_value_payload`.
-fn parse_ipc_event(event: &str) -> Option<(&str, EventPayload)> {
-  let (kind, rest) = event.split_once(':')?;
-  let kind = EventKind::from_name(kind)?;
+/// expected is `EventKind::has_value_payload`. The kind
+/// is returned alongside the id so the dispatcher can
+/// match `(widget_id, kind)` instead of widget-only.
+fn parse_ipc_event(event: &str) -> Option<(&str, EventKind, EventPayload)> {
+  let (kind_name, rest) = event.split_once(':')?;
+  let kind = EventKind::from_name(kind_name)?;
 
   if kind.has_value_payload() {
     let (id, value) = rest.split_once(':').unwrap_or((rest, ""));
 
-    Some((
-      id,
-      EventPayload {
-        value: value.to_string(),
-      },
-    ))
+    Some((id, kind, EventPayload::with_value(value)))
   } else {
-    Some((rest, EventPayload::default()))
+    Some((rest, kind, EventPayload::default()))
   }
 }
 
@@ -520,17 +516,19 @@ mod tests {
 
   #[test]
   fn parse_ipc_event_click_no_payload() {
-    let (id, payload) = parse_ipc_event("click:btn-7").unwrap();
+    let (id, kind, payload) = parse_ipc_event("click:btn-7").unwrap();
 
     assert_eq!(id, "btn-7");
+    assert_eq!(kind, EventKind::Click);
     assert_eq!(payload.value, "");
   }
 
   #[test]
   fn parse_ipc_event_input_extracts_value() {
-    let (id, payload) = parse_ipc_event("input:42:hello world").unwrap();
+    let (id, kind, payload) = parse_ipc_event("input:42:hello world").unwrap();
 
     assert_eq!(id, "42");
+    assert_eq!(kind, EventKind::Input);
     assert_eq!(payload.value, "hello world");
   }
 
@@ -539,10 +537,21 @@ mod tests {
     // The value field can contain `:` (URLs, time strings,
     // …). `split_once` peels just the first `:` after the
     // id, leaving the rest of the value verbatim.
-    let (id, payload) = parse_ipc_event("input:1:http://example.com").unwrap();
+    let (id, kind, payload) =
+      parse_ipc_event("input:1:http://example.com").unwrap();
 
     assert_eq!(id, "1");
+    assert_eq!(kind, EventKind::Input);
     assert_eq!(payload.value, "http://example.com");
+  }
+
+  #[test]
+  fn parse_ipc_event_submit_extracts_value() {
+    let (id, kind, payload) = parse_ipc_event("submit:42:hello world").unwrap();
+
+    assert_eq!(id, "42");
+    assert_eq!(kind, EventKind::Submit);
+    assert_eq!(payload.value, "hello world");
   }
 
   #[test]

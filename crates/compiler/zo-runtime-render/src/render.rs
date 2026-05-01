@@ -1,4 +1,4 @@
-use zo_ui_protocol::UiCommand;
+use zo_ui_protocol::{EventKind, UiCommand};
 
 use rustc_hash::FxHashMap as HashMap;
 use thin_vec::ThinVec;
@@ -37,19 +37,58 @@ impl Default for RuntimeConfig {
 
 /// Runtime-built payload carried into a handler closure when
 /// an event fires. Today the only field surfaced to user code
-/// is `value` (the text-input current value for `@input` and
-/// `@change` events). `@click` and other no-payload events
-/// carry an empty string here — the closure's body simply
-/// doesn't read it.
+/// is `value` (the text-input current value for `@input`,
+/// `@change`, and `@submit`). `@click` and other no-payload
+/// events carry an empty string here — the closure's body
+/// simply doesn't read it.
 #[derive(Clone, Debug, Default)]
 pub struct EventPayload {
   pub value: String,
+}
+
+impl EventPayload {
+  /// Build a payload-bearing event from any string-like
+  /// source. Used by both runtimes when forwarding the
+  /// input element's current text into the handler.
+  pub fn with_value(value: impl Into<String>) -> Self {
+    Self {
+      value: value.into(),
+    }
+  }
 }
 
 impl std::fmt::Display for EventPayload {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.value)
   }
+}
+
+/// Build the `(widget_id, kind) → handler_name` map from a
+/// command buffer. Both runtimes call this each time they
+/// need to dispatch an event so reactive re-renders that
+/// introduce new `Event` commands (e.g. list items emitted
+/// by `apply_list_bindings`) are picked up immediately. The
+/// tuple key is what lets a single element bind multiple
+/// kinds (`<input @input={a} @submit={b}/>`) without one
+/// overwriting the other.
+pub fn build_event_map(
+  commands: &[UiCommand],
+) -> HashMap<(String, EventKind), String> {
+  let mut map = HashMap::default();
+
+  for cmd in commands {
+    if let UiCommand::Event {
+      widget_id,
+      event_kind,
+      handler,
+      ..
+    } = cmd
+    {
+      map.insert((widget_id.clone(), *event_kind), handler.clone());
+    }
+  }
+
+  map
 }
 
 /// Event handler callback. Receives the runtime-built payload

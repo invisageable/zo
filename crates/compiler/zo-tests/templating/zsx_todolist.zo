@@ -3,9 +3,14 @@ fun main() {
   mut input_val: str = "";
 
   imu view: </> ::= <>
-    <input 
-      value={input_val} 
-      @input={fn(e) => input_val = e.value} 
+    <input
+      value={input_val}
+      @input={fn(e) => input_val = e.value}
+      @submit={fn(e) => {
+        todos.push(e.value);
+
+        input_val = "";
+      }}
     />
     <button @click={fn() => {
       todos.push(input_val);
@@ -14,8 +19,6 @@ fun main() {
     }}>Add</button>
     <ul>{todos.map(fn(t) =:> <li>{t}</li>)}</ul>
   </>;
-
-  showln(view);
 
   #dom view;
 }

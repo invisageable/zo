@@ -12,7 +12,9 @@
 
 > *« Rust makes you wait. C makes you think. zo just lets you build. » — i10e*
 
-## see it.
+<!-- [zo.com](https://zo.com) -->
+
+## usage.
 
 **-zsx-counter**
 
@@ -74,33 +76,33 @@ zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE C
 
 iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALLY:
 
-  1. TOKENiZiNG — *Processes raw text into clean tokens at ~13M LoC/s.*
+  1. TOKENiZiNG — *Processes raw text into tokens at ~13M LoC/s.*
   2. PARSiNG — *Builds the parse tree using a custom, cache-friendly parser.*
   3. ANALYZiNG — *Performs Hindley-Milner type inference, monomorphization, and type checking.*
-  4. OPTiMiZiNG — *Executes algebraic optimizations (constant folding, propagation, dead-code elimination).*
+  4. OPTiMiZiNG — *Executes algebraic optimizations (constant folding, propagation, dce).*
   5. CODEGEN & LiNK — *Emits direct machine code and creates the final binary.*
 
 > *« Insanely faster, Usain Bolt would be jealous. » — i2N*
 
 ## features.
 
-- **UNiFiED Ui DEVELOPMENT**
-  - WRiTE USER iNTERFACES ONCE — TARGET NATiVE <sup>EGUi</sup> OR THE WEB <sup>JS/DOM</sup>.
-  - FLEXBOX PARiTY ACROSS GPU AND DOM ViA TAFFY — ONE LAYOUT MODEL, TWO BACKENDS.
+  - **UNiFiED Ui DEVELOPMENT**
+    - WRiTE USER iNTERFACES ONCE — TARGET NATiVE <sup>EGUi</sup> OR THE WEB <sup>JS/DOM</sup>.
+    - FLEXBOX PARiTY ACROSS GPU AND DOM ViA TAFFY — ONE LAYOUT MODEL, TWO BACKENDS.
 
-- **iNSTANT FEEDBACK LOOP**
-  - COMPiLE 10,000 LiNES iN MiLLiSECONDS — CODE WiTHOUT WAiTiNG FOR THE COMPiLER.
-  - USER-FRiENDLY ERROR MESSAGES — LiKE elm, FOR FASTER DEBUGGiNG.
+  - **iNSTANT FEEDBACK LOOP**
+    - COMPiLE 10,000 LiNES iN MiLLiSECONDS — CODE WiTHOUT WAiTiNG FOR THE COMPiLER.
+    - USER-FRiENDLY ERROR MESSAGES — LiKE elm, FOR FASTER DEBUGGiNG.
 
-- **EXPRESSiVE & SAFE SYNTAX**
-  - STATiCALLY & STRONGLY TYPED — TOTAL CONTROL OVER YOUR PROGRAM FROM A TO Z.
-  - METiCULOUS TYPE SYSTEM — TYPE iNFERENCE, MONOMORPHiZATiON, TYPESTATE.
-  - SAFE CONCURRENCY — GREEN AND OS THREADS LiKE Go, WRAPPED iN NURSERY TASK SCOPES. <sup>NO LEAKED THREADS, NO DATA RACES</sup>.
-  - META-LANGUAGE — RUN AT COMPiLE-TiME ViA `#asm`, `#dom`, `#run` DiRECTiVES.
+  - **EXPRESSiVE & SAFE SYNTAX**
+    - STATiCALLY & STRONGLY TYPED — TOTAL CONTROL OVER YOUR PROGRAM FROM A TO Z.
+    - METiCULOUS TYPE SYSTEM — TYPE iNFERENCE, MONOMORPHiZATiON, TYPESTATE.
+    - SAFE CONCURRENCY — GREEN AND OS THREADS LiKE Go, WRAPPED iN NURSERY TASK SCOPES. <sup>NO LEAKED THREADS, NO DATA RACES</sup>.
+    - META-LANGUAGE — RUN AT COMPiLE-TiME ViA `#asm`, `#dom`, `#run` DiRECTiVES.
 
-- **FULL TOOLKiT iNCLUDED**
-  - PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup>, TEXT EDiTOR <sup><a href="https://github.com/invisageable/codelord">codelord</a></sup>, NATiVE BUiLD TOOLS — KEEPS YOUR WORKSTATiON LiGHTWEiGHT.
-  - TARGET SUPPORT — `arm64`, `x86_64` FOR `linux`, `macos`, `windows`.
+  - **FULL TOOLKiT iNCLUDED**
+    - PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup>, TEXT EDiTOR <sup><a href="https://github.com/invisageable/codelord">codelord</a></sup>, NATiVE BUiLD TOOLS — KEEPS YOUR WORKSTATiON LiGHTWEiGHT.
+    - TARGET SUPPORT — `arm64`, `x86_64` FOR `linux`, `macos`, `windows`.
 
 ## get started.
 

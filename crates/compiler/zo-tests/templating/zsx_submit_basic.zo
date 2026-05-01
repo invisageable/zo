@@ -1,0 +1,15 @@
+-- test-build-pass: @submit event binds and receives the input's value payload.
+
+fun main() {
+  mut text: str = "";
+
+  imu view: </> ::= <>
+    <input
+      value={text}
+      @input={fn(e) => text = e.value}
+      @submit={fn(e) => text = e.value}
+    />
+  </>;
+
+  #dom view;
+}

@@ -6,8 +6,8 @@
 -- `arr.map(...)`.
 
 fun main() {
-  imu wrap := fn(t: str) =:> <li>{t}</li>;
-  imu view: </> ::= <>hello world</>;
+  imu wrap := fn(text: str) =:> <div>{text}</div>;
+  imu view: </> ::= <><warp text="hello world" /></>;
 
   #dom view;
 }
