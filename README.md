@@ -6,7 +6,7 @@
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
 ---
 
-> *The fastest, expressive language designed to give you total control over your software and user interfaces.*
+> *Turn your thoughts into type-safe software and Ui instantly.*
 
 [home](https://github.com/invisageable/zo) — [install](#get-started) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)
 
