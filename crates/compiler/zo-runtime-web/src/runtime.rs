@@ -64,6 +64,11 @@ impl Runtime {
       commands: Vec<UiCommand>,
       /// Shared buffer — handlers write here.
       shared: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
+      /// Reused across patch-loop frames so the
+      /// length-mismatch fallback's `render_body_inner`
+      /// doesn't allocate a fresh `String` buffer +
+      /// `event_map` each event.
+      renderer: HtmlRenderer,
       proxy: EventLoopProxy<String>,
       // WebView must drop before Window.
       webview: Option<WebView>,
@@ -181,7 +186,8 @@ impl Runtime {
           // works for text, attributes, and future element
           // types.
           if let Some(wv) = &self.webview {
-            let js = build_patch_js(&self.commands, &updated);
+            let js =
+              build_patch_js(&mut self.renderer, &self.commands, &updated);
 
             if !js.is_empty() {
               wv.evaluate_script(&js).ok();
@@ -204,6 +210,7 @@ impl Runtime {
       events: self.events,
       commands,
       shared: self.commands,
+      renderer: html_renderer,
       proxy,
       webview: None,
       window: None,
@@ -338,7 +345,41 @@ fn parse_ipc_event(event: &str) -> Option<(&str, EventPayload)> {
 /// on a `UiCommand::Element`. Returns an empty string when
 /// nothing changed. Extracted as a pure function so the logic
 /// is unit-testable without a live webview.
-fn build_patch_js(old: &[UiCommand], new: &[UiCommand]) -> String {
+///
+/// Two cases the pairwise diff alone can't handle:
+///
+/// - **Length mismatch** (`new.len() != old.len()`) — list
+///   bindings splice multiple commands into a single
+///   placeholder slot, so the new buffer is longer. Trigger
+///   a full body re-render via `HtmlRenderer::render_to_html`
+///   so the new content reaches the DOM. Same shape the
+///   native renderer uses (every frame reads the full shared
+///   buffer).
+///
+/// - **`<input>` `value` attribute change** — `setAttribute`
+///   only updates the *default* value; the live `.value`
+///   property keeps the user-typed text. Set both so a
+///   program-side clear (`input_val = ""`) actually empties
+///   the field.
+fn build_patch_js(
+  renderer: &mut HtmlRenderer,
+  old: &[UiCommand],
+  new: &[UiCommand],
+) -> String {
+  if old.len() != new.len() {
+    let html = renderer.render_body_inner(new);
+
+    // The bridge.js click/input handlers were registered
+    // on `document` (event delegation), so they survive
+    // the innerHTML replacement — no need to re-attach.
+    //
+    // KNOWN: a full innerHTML replacement loses input
+    // focus, scroll position, and IME composition state.
+    // Acceptable for the wip's empty-list-grows-by-one
+    // shape; revisit when keyed reconciliation lands.
+    return format!("document.body.innerHTML={};", escape_js_string(&html),);
+  }
+
   let mut js = String::new();
 
   for (idx, (a, b)) in old.iter().zip(new.iter()).enumerate() {
@@ -364,7 +405,9 @@ fn build_patch_js(old: &[UiCommand], new: &[UiCommand]) -> String {
       // and any other attribute source.
       (
         UiCommand::Element {
-          attrs: old_attrs, ..
+          tag: new_tag,
+          attrs: old_attrs,
+          ..
         },
         UiCommand::Element {
           attrs: new_attrs, ..
@@ -377,14 +420,37 @@ fn build_patch_js(old: &[UiCommand], new: &[UiCommand]) -> String {
 
           let name = na.name();
           let value = attr_display_value(na);
+          let is_input_value = name == "value"
+            && matches!(
+              new_tag,
+              zo_ui_protocol::ElementTag::Input
+                | zo_ui_protocol::ElementTag::Textarea
+            );
 
-          js.push_str(&format!(
-            "var e=document.querySelector(\
-             '[data-zo-cmd=\"{idx}\"]');\
-             if(e)e.setAttribute({},{});",
-            escape_js_string(name),
-            escape_js_string(&value),
-          ));
+          // For inputs/textareas, mirror the attribute
+          // change onto the live `.value` property so a
+          // program-side `input_val = ""` actually clears
+          // what the user typed (HTML's `value` attribute
+          // is the *default* value; the property holds
+          // current text).
+          if is_input_value {
+            js.push_str(&format!(
+              "var e=document.querySelector(\
+               '[data-zo-cmd=\"{idx}\"]');\
+               if(e){{e.value={};e.setAttribute({},{});}}",
+              escape_js_string(&value),
+              escape_js_string(name),
+              escape_js_string(&value),
+            ));
+          } else {
+            js.push_str(&format!(
+              "var e=document.querySelector(\
+               '[data-zo-cmd=\"{idx}\"]');\
+               if(e)e.setAttribute({},{});",
+              escape_js_string(name),
+              escape_js_string(&value),
+            ));
+          }
         }
       }
       _ => {}
@@ -581,7 +647,7 @@ mod tests {
     let old = vec![text("hello"), text("world")];
     let new = old.clone();
 
-    assert_eq!(build_patch_js(&old, &new), "");
+    assert_eq!(build_patch_js(&mut HtmlRenderer::new(), &old, &new), "");
   }
 
   #[test]
@@ -589,7 +655,7 @@ mod tests {
     let old = vec![text("hello"), text("world")];
     let new = vec![text("hello"), text("zo")];
 
-    let js = build_patch_js(&old, &new);
+    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
 
     // Only the second command changed — expect one patch on
     // idx=1 with the new content.
@@ -616,7 +682,7 @@ mod tests {
       Attr::str_prop("src", "/b.png"),
     ])];
 
-    let js = build_patch_js(&old, &new);
+    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
 
     assert!(js.contains("setAttribute"), "should setAttribute: {js}");
     assert!(js.contains("src"), "should target src attr: {js}");
@@ -643,7 +709,7 @@ mod tests {
       },
     ])];
 
-    let js = build_patch_js(&old, &new);
+    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
 
     assert!(js.contains("setAttribute"), "should setAttribute: {js}");
     assert!(js.contains("width"), "should target width attr: {js}");
@@ -663,7 +729,7 @@ mod tests {
       Attr::str_prop("src", "/b.png"),
     ])];
 
-    let js = build_patch_js(&old, &new);
+    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
 
     assert_eq!(
       js.matches("setAttribute").count(),
@@ -685,7 +751,7 @@ mod tests {
       img(vec![Attr::str_prop("src", "/d.png")]),
     ];
 
-    let js = build_patch_js(&old, &new);
+    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
 
     // Two attr changes (idx 0 and idx 2), no text change.
     assert_eq!(

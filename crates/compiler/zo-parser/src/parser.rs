@@ -863,16 +863,33 @@ impl<'a> Parser<'a> {
 
     self.flush_expr();
 
-    // Cascade-close any inline closures whose body terminates
-    // at this `)`. Without this, `arr.map(fn(x) => x)` leaves
-    // the Fn introducer open — it would only close at the
-    // next `;`, swallowing the outer call's RParen and
-    // Semicolon as Fn children.
-    while let Some(intro) = self.introducer_stack.last() {
-      if intro.token == Token::Fn {
-        self.close_introducer();
-      } else {
+    // Cascade-close any inline closures whose body
+    // terminates at this `)`. Without this, `arr.map(fn(x)
+    // => x)` leaves the Fn introducer open — it would only
+    // close at the next `;`, swallowing the outer call's
+    // RParen and Semicolon as Fn children.
+    //
+    // The cascade also closes a synthetic
+    // `TemplateFragmentStart` opened by
+    // `handle_template_fat_arrow` (for `=:>` bodies) when
+    // that fragment sits directly above an `Fn` — i.e. it's
+    // the closure body's wrapper, not a top-level
+    // `imu view ::= <body>` whose synthetic fragment must
+    // survive until `;`.
+    loop {
+      let len = self.introducer_stack.len();
+      let Some(top) = self.introducer_stack.last() else {
         break;
+      };
+
+      match top.token {
+        Token::Fn => self.close_introducer(),
+        Token::TemplateFragmentStart
+          if len >= 2 && self.introducer_stack[len - 2].token == Token::Fn =>
+        {
+          self.close_introducer();
+        }
+        _ => break,
       }
     }
 

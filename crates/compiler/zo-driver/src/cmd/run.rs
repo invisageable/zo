@@ -8,7 +8,7 @@ use zo_interner::Symbol;
 use zo_runtime::Runtime;
 use zo_runtime_render::render::{EventRegistry, Graphics, RuntimeConfig};
 use zo_runtime_render::render::{StateCell, StateValue};
-use zo_sir::{ComputedBinding, Insn};
+use zo_sir::{ComputedBinding, Insn, ListBinding, ListItemCmd};
 use zo_span::Span;
 use zo_ui_protocol::{Ui, UiCommand};
 use zo_value::FunctionKind;
@@ -38,6 +38,12 @@ struct ReactiveContext<'a> {
   /// recomputed by invoking the binding's closure over the
   /// captured locals on every reactive update.
   computed_bindings: &'a [(usize, ComputedBinding)],
+  /// List bindings: `(cmd_idx, ListBinding)`. Each entry
+  /// targets a placeholder `UiCommand::Text(_)` slot that
+  /// the runtime replaces with the rendered list items
+  /// (one item per element of `items_var`'s state cell)
+  /// on every reactive update.
+  list_bindings: &'a [(usize, ListBinding)],
   commands: &'a [UiCommand],
   shared_cmds: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
 }
@@ -87,6 +93,15 @@ impl Run {
     let mut text_bindings: Vec<(usize, Symbol)> = Vec::new();
     let mut attr_bindings: Vec<(usize, zo_ui_protocol::Attr)> = Vec::new();
     let mut computed_bindings: Vec<(usize, ComputedBinding)> = Vec::new();
+    // List bindings flow through the same offset-rebase as
+    // their siblings so per-template index spaces compose
+    // without collisions. Reactive expansion (re-rendering
+    // when the bound `mut []T` changes) lands behind the
+    // runtime's array-StateCell support — until that arrives,
+    // the placeholder text emitted by the executor renders
+    // as an empty slot, which is correct for the empty-array
+    // initial frame.
+    let mut list_bindings: Vec<(usize, ListBinding)> = Vec::new();
 
     for insn in &semantic.sir.instructions {
       if let Insn::Template {
@@ -111,6 +126,10 @@ impl Run {
 
         for (cmd_idx, cb) in &bindings.computed {
           computed_bindings.push((base + cmd_idx, cb.clone()));
+        }
+
+        for (cmd_idx, lb) in &bindings.list {
+          list_bindings.push((base + cmd_idx, lb.clone()));
         }
       }
     }
@@ -160,7 +179,8 @@ impl Run {
       // computed closures fire on each event.
       let has_bindings = !text_bindings.is_empty()
         || !attr_bindings.is_empty()
-        || !computed_bindings.is_empty();
+        || !computed_bindings.is_empty()
+        || !list_bindings.is_empty();
       let is_reactive = has_bindings
         && handler_names.iter().any(|h| h.starts_with("__closure_"));
 
@@ -191,6 +211,7 @@ impl Run {
           text_bindings: &text_bindings,
           attr_bindings: &attr_bindings,
           computed_bindings: &computed_bindings,
+          list_bindings: &list_bindings,
           commands: &ui_commands,
           shared_cmds,
         };
@@ -364,6 +385,14 @@ impl Run {
       }
     }
 
+    // List-binding `items_var`s back the per-event list
+    // re-render. The cell carries `StateValue::Strs(...)`
+    // initialized from the SIR's `ArrayLiteral` (empty for
+    // `mut todos: []str = []`).
+    for (_cmd_idx, lb) in ctx.list_bindings {
+      register_slot(lb.items_var, &mut state_slots);
+    }
+
     // Register closure handlers.
     for insn in instructions {
       let (name, capture_count, params) = match insn {
@@ -434,12 +463,24 @@ impl Run {
       let computed_binds =
         Self::resolve_computed_bindings(computed_bindings, &state_slots);
 
+      let list_binds: Vec<(usize, usize, Vec<ListItemCmd>)> = ctx
+        .list_bindings
+        .iter()
+        .filter_map(|(cmd_idx, lb)| {
+          state_slots
+            .iter()
+            .position(|(s, _, _)| *s == lb.items_var)
+            .map(|slot_idx| (*cmd_idx, slot_idx, lb.item_template.clone()))
+        })
+        .collect();
+
       let commands_copy = commands.to_vec();
       let shared = shared_cmds.clone();
       let sir = sir_arc.clone();
       let strings = strings_arc.clone();
       let closure_sym = *name;
       let computed_binds_clone = computed_binds.clone();
+      let list_binds_clone = list_binds.clone();
 
       registry.register(
         fun_name,
@@ -484,16 +525,24 @@ impl Run {
             &strings,
           );
 
+          // List re-render runs LAST — `splice` shifts
+          // tail indices, but no other binding sits past
+          // a list anchor in the wip's shape. When more
+          // complex layouts appear, the binding-index
+          // remap belongs in the executor's
+          // `optimize_with_indices`-style pass.
+          Self::apply_list_bindings(&mut new_cmds, &list_binds_clone, &cells);
+
           *shared.lock().unwrap() = new_cmds;
         }),
       );
     }
 
-    // Initial render: invoke each computed binding once
-    // before the runtime starts so the first frame shows
-    // the correct text instead of the empty placeholder
-    // the executor pushed. Shares the per-event helper.
-    if !computed_bindings.is_empty() {
+    // Initial render: invoke each computed/list binding
+    // once before the runtime starts so the first frame
+    // shows the correct content instead of the empty
+    // placeholders the executor pushed.
+    if !computed_bindings.is_empty() || !ctx.list_bindings.is_empty() {
       let mut new_cmds = commands.to_vec();
       let cells: Vec<StateCell> = state_slots
         .iter()
@@ -511,7 +560,78 @@ impl Run {
         &strings_arc,
       );
 
+      let list_binds: Vec<(usize, usize, Vec<ListItemCmd>)> = ctx
+        .list_bindings
+        .iter()
+        .filter_map(|(cmd_idx, lb)| {
+          state_slots
+            .iter()
+            .position(|(s, _, _)| *s == lb.items_var)
+            .map(|slot_idx| (*cmd_idx, slot_idx, lb.item_template.clone()))
+        })
+        .collect();
+
+      Self::apply_list_bindings(&mut new_cmds, &list_binds, &cells);
+
       *shared_cmds.lock().unwrap() = new_cmds;
+    }
+  }
+
+  /// Splat each list binding's per-item recipe into the
+  /// commands buffer. The placeholder `UiCommand::Text(_)`
+  /// at `cmd_idx` is REPLACED with N rendered items —
+  /// `Vec::splice` shifts the tail rightward, so any other
+  /// binding past the anchor would need its `cmd_idx`
+  /// remapped. The wip's layout has no bindings past the
+  /// list anchor, so a single pass front-to-back is safe;
+  /// future layouts that need this should bake the remap
+  /// into the executor's `optimize_with_indices` pass
+  /// (parallel to `binding-aware text merge`).
+  fn apply_list_bindings(
+    new_cmds: &mut Vec<UiCommand>,
+    list_binds: &[(usize, usize, Vec<ListItemCmd>)],
+    cells: &[StateCell],
+  ) {
+    let mut offset: isize = 0;
+
+    for (cmd_idx, slot_idx, recipe) in list_binds {
+      let target = (*cmd_idx as isize + offset) as usize;
+
+      // Borrow the items under the cell's lock — avoids
+      // cloning `Vec<String>` per event just to walk it.
+      // `None` means the cell isn't `Strs(_)`, leave the
+      // placeholder alone.
+      let Some(rendered) = cells[*slot_idx].with_strs(|items| {
+        let mut out: Vec<UiCommand> =
+          Vec::with_capacity(items.len() * recipe.len().max(1));
+
+        for item in items {
+          for step in recipe {
+            match step {
+              ListItemCmd::Element { tag, attrs } => {
+                out.push(UiCommand::Element {
+                  tag: tag.clone(),
+                  attrs: attrs.clone(),
+                  self_closing: false,
+                });
+              }
+              ListItemCmd::EndElement => out.push(UiCommand::EndElement),
+              ListItemCmd::Text(s) => out.push(UiCommand::Text(s.clone())),
+              ListItemCmd::TextFromItem => {
+                out.push(UiCommand::Text(item.clone()));
+              }
+            }
+          }
+        }
+
+        out
+      }) else {
+        continue;
+      };
+
+      let new_len = rendered.len();
+      new_cmds.splice(target..target + 1, rendered);
+      offset += new_len as isize - 1;
     }
   }
 
@@ -597,6 +717,29 @@ impl Run {
                 let s = interner.get(*symbol).to_string();
 
                 return StateValue::Str(s);
+              }
+              Insn::ArrayLiteral { dst, elements, .. } if dst == init_id => {
+                // `mut items: []str = ["a", "b"]` —
+                // resolve each element through its
+                // ConstString to seed the initial array
+                // contents. Non-string element types fall
+                // through to the empty `Strs` default.
+                let mut items: Vec<String> = Vec::with_capacity(elements.len());
+
+                for elem_id in elements {
+                  let resolved = instructions.iter().find_map(|i| match i {
+                    Insn::ConstString { dst, symbol, .. } if dst == elem_id => {
+                      Some(interner.get(*symbol).to_string())
+                    }
+                    _ => None,
+                  });
+
+                  if let Some(s) = resolved {
+                    items.push(s);
+                  }
+                }
+
+                return StateValue::Strs(items);
               }
               _ => {}
             }

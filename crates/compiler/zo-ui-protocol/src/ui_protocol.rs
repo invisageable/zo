@@ -170,6 +170,41 @@ impl ElementTag {
     matches!(self, Self::Img | Self::Input)
   }
 
+  /// Resolve a tag name (the bit between `<` and `>` /
+  /// attributes) into an `ElementTag`. Unknown names fall
+  /// back to `Custom` so user code can compose any HTML
+  /// tag the renderer understands generically.
+  pub fn from_name(name: &str) -> Option<Self> {
+    Some(match name {
+      "div" => Self::Div,
+      "section" => Self::Section,
+      "main" => Self::Main,
+      "article" => Self::Article,
+      "aside" => Self::Aside,
+      "header" => Self::Header,
+      "footer" => Self::Footer,
+      "nav" => Self::Nav,
+      "form" => Self::Form,
+      "ul" => Self::Ul,
+      "ol" => Self::Ol,
+      "li" => Self::Li,
+      "span" => Self::Span,
+      "h1" => Self::H1,
+      "h2" => Self::H2,
+      "h3" => Self::H3,
+      "h4" => Self::H4,
+      "h5" => Self::H5,
+      "h6" => Self::H6,
+      "p" => Self::P,
+      "img" => Self::Img,
+      "button" => Self::Button,
+      "input" => Self::Input,
+      "textarea" => Self::Textarea,
+      "" => return None,
+      other => Self::Custom(other.to_string()),
+    })
+  }
+
   /// Inline vs block layout. Drives egui horizontal/vertical
   /// container selection on the native renderer.
   pub fn is_inline(&self) -> bool {

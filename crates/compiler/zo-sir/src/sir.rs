@@ -29,6 +29,15 @@ pub struct TemplateBindings {
   /// interpolations (ternaries, function calls, ...) that
   /// can't be expressed as a single `Symbol` lookup.
   pub computed: Vec<(usize, ComputedBinding)>,
+  /// List bindings: `(cmd_idx, ListBinding)`. Each entry
+  /// points at a placeholder `UiCommand::Text(_)` slot in
+  /// the parent commands buffer. The runtime, on every
+  /// state-cell update for `items_var`, walks the array
+  /// and splats `item_template` once per element into a
+  /// fresh sub-command list — replacing the placeholder
+  /// with the rendered batch. Used for
+  /// `<X>{arr.map(fn(t) =:> <body>)}</X>`.
+  pub list: Vec<(usize, ListBinding)>,
 }
 
 /// Side-channel for a compound `{expr}` template
@@ -41,6 +50,53 @@ pub struct TemplateBindings {
 pub struct ComputedBinding {
   pub closure_name: Symbol,
   pub captures: Vec<Symbol>,
+}
+
+/// Side-channel for a `<X>{arr.map(fn(t) =:> <body>)}</X>`
+/// list rendering. The executor doesn't expand the closure
+/// at compile time — instead it captures the per-item
+/// "template recipe" (`item_template`) plus the array
+/// variable's symbol. At runtime, on every event affecting
+/// `items_var`, the driver re-runs the recipe once per
+/// element and splices the resulting commands at the
+/// placeholder slot.
+///
+/// `item_template` is a flat sequence of "render this
+/// command, with the item value substituted at this
+/// position" — kept small (open tag, text, close tag for
+/// the wip's `<li>{t}</li>`) since the closure body is
+/// constrained to a single-tag wrapper with one `{t}`
+/// interp.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListBinding {
+  /// The `[]T` variable being mapped. State-cell updates
+  /// for this symbol trigger a list re-render.
+  pub items_var: Symbol,
+  /// Per-item template — applied N times for an N-element
+  /// array.
+  pub item_template: Vec<ListItemCmd>,
+}
+
+/// One step in a list-binding's per-item recipe. The
+/// runtime walks this sequence once per element and emits
+/// `UiCommand`s with the item value substituted in
+/// `TextFromItem` slots.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ListItemCmd {
+  /// Emit a `UiCommand::Element` with this static
+  /// configuration. Used for the wrapping tag (e.g. `<li>`).
+  Element {
+    tag: zo_ui_protocol::ElementTag,
+    attrs: Vec<Attr>,
+  },
+  /// Emit a `UiCommand::EndElement`.
+  EndElement,
+  /// Emit a `UiCommand::Text` with this literal string.
+  Text(String),
+  /// Emit a `UiCommand::Text` whose content is the current
+  /// item's stringified value. The wip's `<li>{t}</li>`
+  /// uses one of these for the `{t}` interp.
+  TextFromItem,
 }
 
 /// Source of a Load instruction — either a function parameter

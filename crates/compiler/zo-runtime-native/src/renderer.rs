@@ -22,6 +22,14 @@ struct StyleProps {
 pub struct UiState {
   /// Text input values indexed by ID
   text_inputs: HashMap<u32, String>,
+  /// Last-seen `value` attribute per input id. Compared
+  /// against the incoming attr each frame; on mismatch,
+  /// the program-side state has overwritten the input
+  /// (`input_val = ""`) and the renderer's
+  /// `text_inputs[id]` must be re-synced. Without this,
+  /// the program-side clear silently keeps the stale
+  /// user-typed text.
+  last_value_attr: HashMap<u32, String>,
   /// Button click events to send back
   /// (widget_id, event_kind, payload). `event_kind`
   /// matches the IPC numeric kinds the web bridge uses
@@ -165,14 +173,38 @@ impl Renderer {
       ElementTag::Input | ElementTag::Textarea => {
         let id = attr_num(attrs, "data-id").unwrap_or(0);
         let placeholder = attr_str(attrs, "placeholder").unwrap_or("");
-        let initial = attr_str(attrs, "value").unwrap_or("").to_string();
+        let value_attr = attr_str(attrs, "value").unwrap_or("").to_string();
 
-        let text = self.state.text_inputs.entry(id).or_insert_with(|| initial);
+        // Sync from the program-side `value` attribute when
+        // it has changed since last frame — handles
+        // `input_val = ""` after Add click. User typing
+        // doesn't race because the typed text fires
+        // `@input` first, and the handler's `input_val =
+        // e.value` keeps the attribute in sync with what
+        // we already display.
+        let resync = self
+          .state
+          .last_value_attr
+          .get(&id)
+          .map(|prev| prev != &value_attr)
+          .unwrap_or(true);
+
+        if resync {
+          self.state.text_inputs.insert(id, value_attr.clone());
+          self.state.last_value_attr.insert(id, value_attr);
+        }
+
+        let text = self.state.text_inputs.entry(id).or_default();
 
         let response =
           ui.add(egui::TextEdit::singleline(text).hint_text(placeholder));
 
         if response.changed() {
+          // Bidirectional binding: the user typed → the
+          // input's text is now ahead of the attribute.
+          // Update last-seen so the next frame doesn't
+          // wipe the typed text on resync.
+          self.state.last_value_attr.insert(id, text.clone());
           self.state.pending_events.push((
             id,
             1,

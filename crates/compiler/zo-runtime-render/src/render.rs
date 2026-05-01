@@ -129,6 +129,12 @@ pub enum StateValue {
   Float(f64),
   Bool(bool),
   Str(String),
+  /// Array of strings — backs `mut []str` state for list
+  /// rendering (`<X>{arr.map(fn(t) =:> ...)}</X>`). The
+  /// `display()` form is the formatter's `[…]` view; for
+  /// list rendering the runtime walks the inner Vec
+  /// directly via `as_strs`.
+  Strs(Vec<String>),
 }
 
 impl StateValue {
@@ -139,6 +145,16 @@ impl StateValue {
       Self::Float(v) => v.to_string(),
       Self::Bool(v) => v.to_string(),
       Self::Str(v) => v.clone(),
+      Self::Strs(v) => format!("{v:?}"),
+    }
+  }
+
+  /// Borrow the inner string array if this is a `Strs`.
+  /// Used by the list-rendering path.
+  pub fn as_strs(&self) -> Option<&[String]> {
+    match self {
+      Self::Strs(v) => Some(v),
+      _ => None,
     }
   }
 }
@@ -150,6 +166,7 @@ impl std::fmt::Display for StateValue {
       Self::Float(v) => write!(f, "{v}"),
       Self::Bool(v) => write!(f, "{v}"),
       Self::Str(v) => write!(f, "{v}"),
+      Self::Strs(v) => write!(f, "{v:?}"),
     }
   }
 }
@@ -173,6 +190,28 @@ impl StateCell {
   /// Set a new value.
   pub fn set(&self, value: StateValue) {
     *self.0.lock().unwrap() = value;
+  }
+
+  /// Borrow the inner string array (read-only) under the
+  /// cell's lock, returning the closure's result. Used by
+  /// the list-rendering path to avoid cloning the whole
+  /// `Vec<String>` per event. Returns `None` when the cell
+  /// is some other variant.
+  pub fn with_strs<R>(&self, f: impl FnOnce(&[String]) -> R) -> Option<R> {
+    let guard = self.0.lock().unwrap();
+
+    match &*guard {
+      StateValue::Strs(v) => Some(f(v)),
+      _ => None,
+    }
+  }
+
+  /// True when the cell holds a `Strs` variant. Cheap
+  /// peek alternative to `get()` for the evaluator's
+  /// param-binding decision (lets us pick `StrArrRef`
+  /// without cloning the `Vec`).
+  pub fn is_strs(&self) -> bool {
+    matches!(*self.0.lock().unwrap(), StateValue::Strs(_))
   }
 
   /// Apply a mutation function to the value.

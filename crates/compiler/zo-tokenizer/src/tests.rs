@@ -793,3 +793,58 @@ fn test_style_grouped_selector() {
     ],
   );
 }
+
+#[test]
+fn test_template_fat_arrow_inside_interp() {
+  // `{arr.map(fn(t) =:> <li>{t}</li>)}` — `=:>` fires from
+  // inside an interp (`brace_depth > 0`). The closure body
+  // tokens (`<li>{t}</li>`) must lex as template markup,
+  // and the trailing `)` of `.map(...)` must re-tokenize
+  // as code (RParen, not template text). Regression test
+  // for the lexer's `template_frame_base` +
+  // `template_element_depth_at_frame_entry` machinery —
+  // without them, `<li>` was tokenized as `Lt` `Ident`
+  // `Gt` and the final `;` of the surrounding statement
+  // got absorbed as Fn children.
+  assert_tokens_stream(
+    r#"imu view: </> ::= <ul>{x.map(fn(t) =:> <li>{t}</li>)}</ul>;"#,
+    &[
+      (Token::Imu, "imu"),
+      (Token::Ident, "view"),
+      (Token::Colon, ":"),
+      (Token::TemplateType, "</>"),
+      (Token::TemplateAssign, "::="),
+      (Token::LAngle, "<"),
+      (Token::Ident, "ul"),
+      (Token::RAngle, ">"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "x"),
+      (Token::Dot, "."),
+      (Token::Ident, "map"),
+      (Token::LParen, "("),
+      (Token::Fn, "fn"),
+      (Token::LParen, "("),
+      (Token::Ident, "t"),
+      (Token::RParen, ")"),
+      (Token::TemplateFatArrow, "=:>"),
+      (Token::LAngle, "<"),
+      (Token::Ident, "li"),
+      (Token::RAngle, ">"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "t"),
+      (Token::RBrace, "}"),
+      (Token::LAngle, "<"),
+      (Token::Slash2, "/"),
+      (Token::Ident, "li"),
+      (Token::RAngle, ">"),
+      (Token::RParen, ")"),
+      (Token::RBrace, "}"),
+      (Token::LAngle, "<"),
+      (Token::Slash2, "/"),
+      (Token::Ident, "ul"),
+      (Token::RAngle, ">"),
+      (Token::Semicolon, ";"),
+      (Token::Eof, ""),
+    ],
+  );
+}

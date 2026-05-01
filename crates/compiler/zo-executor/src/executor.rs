@@ -5,8 +5,8 @@ use zo_interner::{
 };
 use zo_reporter::report_error;
 use zo_sir::{
-  BinOp, ComputedBinding, Insn, LoadSource, NurseryKind, Sir, SpawnKind,
-  TemplateBindings, UnOp,
+  BinOp, ComputedBinding, Insn, ListBinding, ListItemCmd, LoadSource,
+  NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -18028,6 +18028,29 @@ impl<'a> Executor<'a> {
             continue;
           }
 
+          // List-rendering fast path:
+          // `{arr.map(fn(t) =:> <body>)}`. Recognized
+          // syntactically via token-shape match — lets us
+          // keep the per-item template at compile time
+          // (a `Vec<ListItemCmd>`) and the runtime simply
+          // re-walks it once per element on every
+          // state-cell change for `arr`.
+          if let Some((items_var, item_template)) =
+            self.try_extract_list_binding(idx, close_idx)
+          {
+            self.template_bindings.list.push((
+              commands.len(),
+              ListBinding {
+                items_var,
+                item_template,
+              },
+            ));
+
+            commands.push(UiCommand::Text(String::new()));
+            idx = close_idx + 1;
+            continue;
+          }
+
           // General expression: synthesize a closure that
           // captures referenced `mut` locals and returns the
           // expression's value. The runtime invokes the
@@ -18519,6 +18542,208 @@ impl<'a> Executor<'a> {
   /// `idx` unchanged so the caller can try the normal path.
   ///
   /// Shape (MVP): `#` `Ident("html")` `Ident(src)` where `src`
+  /// Detect `arr.map(fn(t) =:> <body>)` in template interp
+  /// position and extract the per-item template recipe.
+  /// Returns `(items_var, item_template)` when the brace
+  /// content matches; `None` otherwise (caller falls
+  /// through to the general-expression closure path).
+  ///
+  /// The recipe walks the closure body's tree nodes and
+  /// emits `ListItemCmd`s — `Element`/`EndElement` for
+  /// tags, `TextFromItem` for `{item_param}` interps,
+  /// `Text(literal)` for static text. Constrained to
+  /// shapes the runtime can render at low cost: a single
+  /// wrapping tag with at most one `{t}` interp plus
+  /// static text.
+  fn try_extract_list_binding(
+    &mut self,
+    idx: usize,
+    close_idx: usize,
+  ) -> Option<(Symbol, Vec<ListItemCmd>)> {
+    // Token shape: Ident Ident Dot LParen Fn ... RParen
+    if close_idx < idx + 6 {
+      return None;
+    }
+
+    let nodes = &self.tree.nodes;
+
+    if nodes[idx].token != Token::Ident
+      || nodes[idx + 1].token != Token::Ident
+      || nodes[idx + 2].token != Token::Dot
+      || nodes[idx + 3].token != Token::LParen
+      || nodes[idx + 4].token != Token::Fn
+      || nodes[close_idx - 1].token != Token::RParen
+    {
+      return None;
+    }
+
+    let items_var = match self.node_value(idx)? {
+      NodeValue::Symbol(s) => s,
+      _ => return None,
+    };
+
+    // Method must be `map`.
+    let method_sym = match self.node_value(idx + 1)? {
+      NodeValue::Symbol(s) => s,
+      _ => return None,
+    };
+
+    if self.interner.get(method_sym) != "map" {
+      return None;
+    }
+
+    // Walk the Fn closure: find the param Ident and the
+    // body opener (`=:>`). The param must be a single
+    // Ident inside `(...)`; the body must use the
+    // template-fat-arrow opener so we know it produces a
+    // fragment.
+    let fn_idx = idx + 4;
+    let mut walk = fn_idx + 1; // past Fn
+
+    if nodes[walk].token != Token::LParen {
+      return None;
+    }
+
+    walk += 1;
+
+    let item_param = match nodes[walk].token {
+      Token::Ident => match self.node_value(walk)? {
+        NodeValue::Symbol(s) => s,
+        _ => return None,
+      },
+      _ => return None,
+    };
+
+    walk += 1;
+
+    // Skip optional `: type` on the param — for `fn(t)`
+    // (no annotation), the next token is `)`. For
+    // `fn(t: str)`, it's `str` (a type token), then `)`.
+    if nodes[walk].token != Token::RParen {
+      walk += 1;
+    }
+
+    if nodes[walk].token != Token::RParen {
+      return None;
+    }
+
+    walk += 1;
+
+    if nodes[walk].token != Token::TemplateFatArrow {
+      return None;
+    }
+
+    walk += 1;
+
+    // Body is from `walk` up to `close_idx - 1` (the
+    // RParen of `.map(...)`). Convert each tree node into
+    // a `ListItemCmd`.
+    let body_end = close_idx - 1;
+
+    Some((
+      items_var,
+      self.build_item_recipe(walk, body_end, item_param)?,
+    ))
+  }
+
+  /// Walk the closure body's tree nodes and emit
+  /// `ListItemCmd`s. Returns `None` if the body uses
+  /// shapes not yet supported (nested `.map`, attribute
+  /// expressions, etc.).
+  fn build_item_recipe(
+    &self,
+    start: usize,
+    end: usize,
+    item_param: Symbol,
+  ) -> Option<Vec<ListItemCmd>> {
+    let mut recipe: Vec<ListItemCmd> = Vec::new();
+    let mut idx = start;
+    let nodes = &self.tree.nodes;
+
+    while idx < end {
+      let tok = nodes[idx].token;
+
+      match tok {
+        Token::TemplateFragmentStart => {
+          // Synthetic open from parser auto-wrap — skip;
+          // the matching close is also synthetic.
+          idx += 1;
+        }
+        Token::TemplateFragmentEnd => {
+          idx += 1;
+        }
+        Token::LAngle => {
+          // Open or close tag.
+          if idx + 1 < end && nodes[idx + 1].token == Token::Slash2 {
+            // </tag>
+            recipe.push(ListItemCmd::EndElement);
+            // skip LAngle, Slash2, Ident, RAngle.
+            idx += 4;
+          } else if idx + 2 < end
+            && nodes[idx + 1].token == Token::Ident
+            && nodes[idx + 2].token == Token::RAngle
+          {
+            // <tag>
+            let tag_sym = match self.node_value(idx + 1)? {
+              NodeValue::Symbol(s) => s,
+              _ => return None,
+            };
+            let tag_name = self.interner.get(tag_sym);
+            let tag = zo_ui_protocol::ElementTag::from_name(tag_name)?;
+
+            recipe.push(ListItemCmd::Element {
+              tag,
+              attrs: Vec::new(),
+            });
+            idx += 3;
+          } else {
+            return None;
+          }
+        }
+        Token::TemplateText => {
+          // Static text inside the template.
+          let text = self.text_at(idx);
+
+          if !text.is_empty() {
+            recipe.push(ListItemCmd::Text(text));
+          }
+
+          idx += 1;
+        }
+        Token::LBrace => {
+          // `{ident}` interp — must be exactly the item
+          // param. Anything else is unsupported in v1.
+          if idx + 2 < end
+            && nodes[idx + 1].token == Token::Ident
+            && nodes[idx + 2].token == Token::RBrace
+            && let Some(NodeValue::Symbol(s)) = self.node_value(idx + 1)
+            && s == item_param
+          {
+            recipe.push(ListItemCmd::TextFromItem);
+            idx += 3;
+          } else {
+            return None;
+          }
+        }
+        _ => {
+          return None;
+        }
+      }
+    }
+
+    Some(recipe)
+  }
+
+  /// Resolve a `TemplateText` node to its interned text.
+  /// Other token shapes return empty.
+  fn text_at(&self, idx: usize) -> String {
+    match self.node_value(idx) {
+      Some(NodeValue::Symbol(s)) => self.interner.get(s).to_string(),
+      _ => String::new(),
+    }
+  }
+
+  /// `<X>{expr}</X>` HTML-directive interpolation: `expr`
   /// is an immutable local bound to a string value. The source
   /// string is resolved at compile time, parsed by
   /// `html_inline::parse_raw_html`, and spliced into `commands`

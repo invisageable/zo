@@ -1022,3 +1022,87 @@ fn test_simple_ident_interp_uses_text_binding_not_computed() {
     "{{count}} must NOT route through computed bindings"
   );
 }
+
+#[test]
+fn test_template_list_binding_extracted_from_map_call() {
+  use zo_sir::ListItemCmd;
+
+  assert_sir_structure(
+    r#"fun main() {
+  imu items: []str = ["a", "b"];
+  imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
+  #dom view;
+}"#,
+    |sir| {
+      let bindings = first_template_bindings(sir);
+
+      assert_eq!(
+        bindings.list.len(),
+        1,
+        "`.map(...)` inside template interp must register one list binding"
+      );
+
+      let (_, lb) = &bindings.list[0];
+      let recipe = &lb.item_template;
+
+      // Recipe shape: Element(li) → TextFromItem → EndElement.
+      assert_eq!(
+        recipe.len(),
+        3,
+        "single-tag wrapper with one {{t}} interp produces 3 recipe steps"
+      );
+
+      assert!(
+        matches!(
+          recipe[0],
+          ListItemCmd::Element {
+            tag: zo_ui_protocol::ElementTag::Li,
+            ..
+          }
+        ),
+        "recipe[0] must open <li>"
+      );
+      assert!(
+        matches!(recipe[1], ListItemCmd::TextFromItem),
+        "recipe[1] must substitute item value"
+      );
+      assert!(
+        matches!(recipe[2], ListItemCmd::EndElement),
+        "recipe[2] must close </li>"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_template_list_binding_emits_template_insn() {
+  // The Template Insn must still get emitted (and its
+  // `commands` populated with the wrapping `<ul>...</ul>`)
+  // even when the interp expands to a list binding. Without
+  // this, the runtime sees zero UI commands and the window
+  // never opens.
+  use zo_sir::Insn;
+
+  assert_sir_structure(
+    r#"fun main() {
+  imu items: []str = ["a", "b"];
+  imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
+  #dom view;
+}"#,
+    |sir| {
+      let template = sir
+        .iter()
+        .find_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .expect("Template Insn missing — list-binding path swallowed it");
+
+      let n = template.len();
+      assert!(
+        n >= 3,
+        "expected at least Element(ul) + Text(placeholder) + EndElement, got {n}",
+      );
+    },
+  );
+}

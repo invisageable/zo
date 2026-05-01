@@ -26,6 +26,12 @@ pub enum Val {
   /// unit variant avoids cloning the payload's `String`
   /// once per `Load` and once per field projection.
   Event,
+  /// Reference to a state-cell-backed `[]str` capture. The
+  /// `usize` is the slot index into the evaluator's
+  /// `state` slice. `Insn::ArrayPush` against this Val
+  /// mutates the underlying `StateCell` so the post-event
+  /// list-binding re-render sees the updated array.
+  StrArrRef(usize),
   Unit,
 }
 
@@ -36,13 +42,13 @@ impl Val {
       Val::Float(f) => StateValue::Float(*f),
       Val::Bool(b) => StateValue::Bool(*b),
       Val::Str(s) => StateValue::Str(s.clone()),
-      // An `Event` sentinel reaching `to_state_value` would
-      // mean a closure body tried to write the whole event
-      // back to a state cell, which is meaningless. Collapse
-      // to `Int(0)` so the slot stays well-formed and the
-      // misuse is observable as a stale value rather than a
-      // panic.
-      Val::Event | Val::Unit => StateValue::Int(0),
+      // `Event` sentinel and the `StrArrRef` borrow can't
+      // round-trip into a state cell — both reference
+      // values that live on the eval frame, not in the
+      // cell. Collapse to `Int(0)` so the slot stays
+      // well-formed; misuse surfaces as a stale value
+      // rather than a panic.
+      Val::Event | Val::StrArrRef(_) | Val::Unit => StateValue::Int(0),
     }
   }
 
@@ -52,6 +58,11 @@ impl Val {
       StateValue::Float(f) => Val::Float(*f),
       StateValue::Bool(b) => Val::Bool(*b),
       StateValue::Str(s) => Val::Str(s.clone()),
+      // `[]str` captures lift via `StrArrRef` not a direct
+      // copy — the param's `Load` site materializes the
+      // ref so a downstream `ArrayPush` can mutate the
+      // underlying cell.
+      StateValue::Strs(_) => Val::Unit,
     }
   }
 
@@ -66,7 +77,7 @@ impl Val {
       // The sentinel renders empty — the only meaningful
       // display happens after a `TupleIndex` projection,
       // which materializes a `Val::Str` from the payload.
-      Val::Event | Val::Unit => String::new(),
+      Val::Event | Val::StrArrRef(_) | Val::Unit => String::new(),
     }
   }
 }
@@ -160,7 +171,17 @@ impl HandlerEvaluator {
           if let Some(&(_, slot_idx)) =
             capture_map.iter().find(|(ci, _)| *ci == pi)
           {
-            let val = Val::from_state_value(&state[slot_idx].get());
+            // `[]str` captures lift as a slot reference so
+            // `Insn::ArrayPush` against the param mutates
+            // the underlying state cell. Other values copy
+            // by snapshotting the cell's current state. The
+            // `is_strs` peek avoids cloning the `Vec<String>`
+            // just to discard it on the non-`Strs` arm.
+            let val = if state[slot_idx].is_strs() {
+              Val::StrArrRef(slot_idx)
+            } else {
+              Val::from_state_value(&state[slot_idx].get())
+            };
 
             self.regs.insert(pi as u32 | 0x8000_0000, val);
             params.push((*sym, slot_idx));
@@ -314,6 +335,26 @@ impl HandlerEvaluator {
           } else {
             // Synthetic local — branch sink, etc.
             self.locals.insert(name.as_u32(), val);
+          }
+        }
+
+        Insn::ArrayPush { array, value, .. } => {
+          // Mutate the underlying state cell when the
+          // array reg is a `StrArrRef` (a captured `mut
+          // []str`). Other shapes (compile-time
+          // construction, locals) aren't reachable from
+          // event-handler bodies today, so silently no-op.
+          if let Val::StrArrRef(slot_idx) = self.get(array) {
+            let pushed = match self.get(value) {
+              Val::Str(s) => s,
+              other => other.display(),
+            };
+
+            state[slot_idx].mutate(|cell| {
+              if let StateValue::Strs(items) = cell {
+                items.push(pushed);
+              }
+            });
           }
         }
 
