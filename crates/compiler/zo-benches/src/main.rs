@@ -19,7 +19,7 @@ const REGRESSION_MIN_DIFF_NS: u64 = 500_000;
 #[derive(Parser)]
 #[command(name = "bench")]
 #[command(
-  about = "Compiler benchmark runner",
+  about = "zo compiler benchmark runner",
   long_about = None
 )]
 struct Cli {

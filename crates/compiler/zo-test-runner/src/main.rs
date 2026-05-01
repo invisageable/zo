@@ -16,8 +16,9 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::env;
 use std::fs;
 use std::io;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -233,7 +234,44 @@ fn main() {
 /// Zombie leak is acceptable (OS reaps on parent exit);
 /// unblocked test-runner progress is not.
 fn run_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Output> {
+  wait_with_timeout(cmd.spawn()?, timeout)
+}
+
+/// Spawn the child with `stdin` piped, deliver `stdin_bytes`,
+/// then close the pipe (sends EOF to `readln()`/`read()`).
+/// A short program that reads less than we sent will close
+/// its end first; the resulting broken-pipe write is normal
+/// and ignored. Anything else propagates as a test failure.
+fn run_with_timeout_stdin(
+  mut cmd: Command,
+  timeout: Duration,
+  stdin_bytes: Vec<u8>,
+) -> io::Result<Output> {
+  cmd.stdin(Stdio::piped());
+
   let mut child = cmd.spawn()?;
+
+  if let Some(mut stdin) = child.stdin.take()
+    && let Err(e) = stdin.write_all(&stdin_bytes)
+    && e.kind() != io::ErrorKind::BrokenPipe
+  {
+    let _ = child.kill();
+
+    return Err(e);
+  }
+
+  wait_with_timeout(child, timeout)
+}
+
+/// Poll the spawned `child` until it exits or `timeout`
+/// elapses; on timeout, kill the child and surface a
+/// `TimedOut` error. Shared post-spawn body for the two
+/// `run_with_timeout*` spawners — one source of truth for
+/// the wait loop.
+fn wait_with_timeout(
+  mut child: Child,
+  timeout: Duration,
+) -> io::Result<Output> {
   let start = Instant::now();
 
   loop {
@@ -464,7 +502,12 @@ fn run_project(
         .stderr(Stdio::null())
         .current_dir(project);
 
-      let run = run_with_timeout(run_cmd, RUN_TIMEOUT);
+      let run = match extract_stdin(&main_zo) {
+        Some(bytes) => {
+          run_with_timeout_stdin(run_cmd, RUN_TIMEOUT, bytes.into_bytes())
+        }
+        None => run_with_timeout(run_cmd, RUN_TIMEOUT),
+      };
 
       match run {
         Err(e) if e.kind() == io::ErrorKind::TimedOut => {
@@ -611,7 +654,12 @@ fn run_test(
         .stderr(Stdio::null())
         .current_dir(file.parent().unwrap_or(file));
 
-      let run = run_with_timeout(run_cmd, RUN_TIMEOUT);
+      let run = match extract_stdin(file) {
+        Some(bytes) => {
+          run_with_timeout_stdin(run_cmd, RUN_TIMEOUT, bytes.into_bytes())
+        }
+        None => run_with_timeout(run_cmd, RUN_TIMEOUT),
+      };
 
       match run {
         Err(e) if e.kind() == io::ErrorKind::TimedOut => {
@@ -790,6 +838,59 @@ fn extract_expected(file: &Path) -> String {
   lines.join("\n")
 }
 
+/// Read the `-- @stdin:` block from a test source. Returns
+/// the bytes to feed the child process's stdin (each line
+/// terminated by `\n` so `readln()` returns one entry per
+/// directive line), or `None` when the directive is absent.
+///
+/// Shape mirrors `extract_expected`: a header line, then
+/// zero or more `-- <line>` continuations, terminated by a
+/// blank line, EOF, or any other directive marker.
+fn extract_stdin(file: &Path) -> Option<String> {
+  let content = fs::read_to_string(file).ok()?;
+  let mut lines = Vec::new();
+  let mut in_block = false;
+
+  for line in content.lines() {
+    if line.trim() == "-- @stdin:" {
+      in_block = true;
+
+      continue;
+    }
+
+    if !in_block {
+      continue;
+    }
+
+    // Blank line ends the block — keeps `@stdin:` and a
+    // following `EXPECTED OUTPUT:` visually separate.
+    if line.trim().is_empty() {
+      break;
+    }
+
+    // Any non-`-- ` line (or another directive header) ends
+    // the block — we never silently swallow source code.
+    let Some(rest) = line.strip_prefix("-- ") else {
+      break;
+    };
+
+    lines.push(rest);
+  }
+
+  if !in_block {
+    return None;
+  }
+
+  let mut joined = lines.join("\n");
+
+  // Trailing newline so the last line is a complete `readln()`
+  // entry. Without it the program would block waiting for
+  // either more input or EOF on the same syscall.
+  joined.push('\n');
+
+  Some(joined)
+}
+
 fn ok(name: &str) -> TestResult {
   TestResult {
     name: name.to_string(),
@@ -866,4 +967,79 @@ fn find_zo_binary(root: &Path) -> PathBuf {
 
   eprintln!("FATAL: zo binary not found");
   std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+  use super::extract_stdin;
+
+  use std::io::Write as _;
+  use std::path::PathBuf;
+
+  fn write_tmp(name: &str, body: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(name);
+    let mut f = std::fs::File::create(&path).unwrap();
+
+    f.write_all(body.as_bytes()).unwrap();
+
+    path
+  }
+
+  #[test]
+  fn extract_stdin_returns_none_when_directive_absent() {
+    let path = write_tmp(
+      "extract_stdin_none.zo",
+      "fun main() {}\n\n-- EXPECTED OUTPUT:\n-- \n",
+    );
+
+    assert!(extract_stdin(&path).is_none());
+  }
+
+  #[test]
+  fn extract_stdin_collects_lines_with_trailing_newline() {
+    let path = write_tmp(
+      "extract_stdin_lines.zo",
+      "fun main() {}\n\n-- @stdin:\n-- buy milk\n-- write zo\n",
+    );
+
+    let bytes = extract_stdin(&path).expect("directive present");
+
+    // Each line is `\n`-terminated so `readln` returns one
+    // entry per directive line.
+    assert_eq!(bytes, "buy milk\nwrite zo\n");
+  }
+
+  #[test]
+  fn extract_stdin_stops_at_blank_line_then_expected_block() {
+    let path = write_tmp(
+      "extract_stdin_stops.zo",
+      "fun main() {}\n\n\
+       -- @stdin:\n\
+       -- alpha\n\
+       -- beta\n\
+       \n\
+       -- EXPECTED OUTPUT:\n\
+       -- > alpha\n\
+       -- > beta\n",
+    );
+
+    let bytes = extract_stdin(&path).expect("directive present");
+
+    // Should NOT swallow `EXPECTED OUTPUT:` lines into stdin.
+    assert_eq!(bytes, "alpha\nbeta\n");
+  }
+
+  #[test]
+  fn extract_stdin_empty_directive_returns_just_newline() {
+    let path = write_tmp(
+      "extract_stdin_empty.zo",
+      "fun main() {}\n\n-- @stdin:\n\n-- EXPECTED OUTPUT:\n",
+    );
+
+    // Empty block still signals "stdin opened then closed",
+    // which is distinct from "no directive at all".
+    let bytes = extract_stdin(&path).expect("directive present");
+
+    assert_eq!(bytes, "\n");
+  }
 }

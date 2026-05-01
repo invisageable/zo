@@ -10,8 +10,6 @@
 
 [home](https://github.com/invisageable/zo) — [install](#get-started) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)
 
-> *« Rust makes you wait. C makes you think. zo just lets you build. » — i10e*
-
 <!-- [zo.com](https://zo.com) -->
 
 ## usage.
@@ -59,6 +57,8 @@ ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SA
 ## why zo?
 
 zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE COMPiLER STAGES AND EMiTTiNG MACHiNE CODE DiRECTLY, zo ELiMiNATES THE OVERHEAD OF HEAVY ABSTRACTiONS AND EXTERNAL LiNKERS.
+
+> *« Rust makes you wait. C makes you think. zo just lets you build. » — i10e*
 
 ### benchmarks.
 
