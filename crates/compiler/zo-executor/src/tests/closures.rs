@@ -5,6 +5,39 @@ use zo_ty::TyId;
 use zo_value::FunctionKind;
 
 #[test]
+fn test_closure_template_fat_arrow_emits_fundef() {
+  // `fn(t: str) =:> <li>{t}</li>` — closure body is a
+  // template fragment. Should produce a single closure
+  // FunDef just like the regular `=>` form. The body's
+  // template emission is shared with the `::=` binding form
+  // and verified separately in template tests.
+  assert_sir_structure(
+    r#"fun main() {
+  imu wrap := fn(t: str) =:> <li>{t}</li>;
+}"#,
+    |sir| {
+      let closure_count = sir
+        .iter()
+        .filter(|i| {
+          matches!(
+            i,
+            Insn::FunDef {
+              kind: FunctionKind::Closure { .. },
+              ..
+            }
+          )
+        })
+        .count();
+
+      assert_eq!(
+        closure_count, 1,
+        "expected 1 closure FunDef, got {closure_count}"
+      );
+    },
+  );
+}
+
+#[test]
 fn test_closure_block_emits_fundef() {
   assert_sir_structure(
     r#"fun main() {

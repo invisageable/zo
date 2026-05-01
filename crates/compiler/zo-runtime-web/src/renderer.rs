@@ -26,9 +26,6 @@ impl HtmlRenderer {
 
   /// Render UI commands to complete HTML document
   pub fn render_to_html(&mut self, commands: &[UiCommand]) -> String {
-    self.html_buffer.clear();
-    self.container_stack.clear();
-
     // Detect if interactivity is needed — any `<button>`,
     // `<input>`, `<textarea>` element or any `UiCommand::Event`
     // triggers the bridge JS injection.
@@ -43,23 +40,47 @@ impl HtmlRenderer {
         )
     });
 
-    // Minimal HTML boilerplate
-    self.html_buffer.push_str("<!DOCTYPE html><html><head>");
-    self.html_buffer.push_str("<meta charset=UTF-8>");
-    self.html_buffer.push_str(
+    let body_inner = self.render_body_inner(commands);
+    let mut out = String::with_capacity(body_inner.len() + 2048);
+
+    out.push_str("<!DOCTYPE html><html><head>");
+    out.push_str("<meta charset=UTF-8>");
+    out.push_str(
       "<meta name=viewport content=\"width=device-width,initial-scale=1\">",
     );
-    self.html_buffer.push_str("<title>zo</title>");
+    out.push_str("<title>zo</title>");
 
-    // Inline minimal CSS
-    self.html_buffer.push_str("<style>");
-    self
-      .html_buffer
-      .push_str(include_str!("../assets/default.css"));
-    self.html_buffer.push_str("</style>");
-    self.html_buffer.push_str("</head><body>");
+    out.push_str("<style>");
+    out.push_str(include_str!("../assets/default.css"));
+    out.push_str("</style>");
+    out.push_str("</head><body>");
+    out.push_str(&body_inner);
 
-    // Build scope class attribute once for all elements.
+    // Bridge JS (event delegation on `document`) only fires
+    // for interactive surfaces. For static documents we skip
+    // the include to keep the page tiny.
+    if needs_interactivity {
+      out.push_str("<script>");
+      out.push_str(include_str!("../assets/bridge.js"));
+      out.push_str("</script>");
+    }
+
+    out.push_str("</body></html>");
+    out
+  }
+
+  /// Render UI commands to body-inner HTML — no `<html>`,
+  /// `<head>`, `<body>` wrappers, no `<script>` injection.
+  /// Shared between the initial-render path (wrapped by
+  /// `render_to_html`) and the per-event patch loop (used
+  /// when the commands buffer length changes — e.g.
+  /// list-binding splice grew the buffer — to replace
+  /// `document.body.innerHTML`). Bridge.js delegates from
+  /// `document`, so handlers survive the innerHTML swap.
+  pub fn render_body_inner(&mut self, commands: &[UiCommand]) -> String {
+    self.html_buffer.clear();
+    self.container_stack.clear();
+
     let mut scope_hashes = Vec::new();
 
     for cmd in commands {
@@ -79,8 +100,8 @@ impl HtmlRenderer {
       format!(" class=\"{}\"", scope_hashes.join(" "))
     };
 
-    // Build widget_id → handler map from Event commands
     self.event_map.clear();
+
     for cmd in commands {
       if let UiCommand::Event {
         widget_id, handler, ..
@@ -90,26 +111,14 @@ impl HtmlRenderer {
       }
     }
 
-    // Render commands with stable IDs for granular updates.
     for (idx, cmd) in commands.iter().enumerate() {
       self.render_command(cmd, idx);
     }
 
-    // Close any remaining containers
     while !self.container_stack.is_empty() {
       self.end_container();
     }
 
-    // Only add bridge if interactive elements present
-    if needs_interactivity {
-      self.html_buffer.push_str("<script>");
-      self
-        .html_buffer
-        .push_str(include_str!("../assets/bridge.js"));
-      self.html_buffer.push_str("</script>");
-    }
-
-    self.html_buffer.push_str("</body></html>");
     self.html_buffer.clone()
   }
 

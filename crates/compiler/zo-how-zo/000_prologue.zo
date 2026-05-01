@@ -1,0 +1,77 @@
+-! # how to zo: 000_prologue.zo
+-!
+-! @cmd: `zo run 000_prologue.zo`
+-!
+-! Welcome. You are here because you believe software should be better.
+-!
+-! For too long, we’ve accepted a "Great Divide." On one side, the Web: 
+-! easy to build, but buried under layers of bloat and "runtime 
+-! surprises." On the other, Native: powerful and fast, but rigid and 
+-! painful to craft. Low-level UI design can be more accessible.
+-!
+-! zo (pronounced /zuː/) is more than a language. It is a compiler of a 
+-! compiler inside another giant compiler that is itself inside a 
+-! gigantic compiler. 
+-!
+-! We are here to enhance the developer experience, making it seamless 
+-! to build software that reflects **your** creativity. We focus on the 
+-! details that matter, opening new dimensions where transforming 
+-! your thoughts into programs is not just easy, but enjoyable.
+-!
+-! This folder is the gateway to your workstation. We are giving you 
+-! the keys. You will never have to work blind again.
+-!
+-! Whether you are building a high-performance GPU tool or a lightweight web
+-! app, you should use the same brain, the same logic, and the same  elegant
+-! syntax (zsx).
+-!
+-! ## the vision.
+-!
+-! - End the Uniformity: "we are against the abundant software uniformity
+-!   of today. zo exists to push the boundaries of innovation to the limit.*
+-! - Total Information: *from design to delivery, zo provides every bit of 
+-!   information you need about your program. no hidden ayers. no black boxes.*
+-! - The Next Generation: *we aren't just creating tools; we are redefining user
+-!   interfaces to create high-performance software on a global scale.*
+-!
+-! ## your roadmap.
+-!
+-!  The Basics (001-010) — *hello world, types, and variables.*
+-!  Logic & Control (011-020) — *branching, matching, and loops.*
+-!  Architecture (021-035) — *structs, Enums, and apply blocks.*
+-!  The Type System (036-050) — *functions, closures, and inference.*
+-!  Systems (051-060) — *modules and FFI (calling C/JS).*
+-!  Built-in UI (061-080) — *zsx templates and Cross-platform apps.*
+-!
+-! Every file in this guide is a valid zo program. Run it, break it, 
+-! and see the instructions for yourself. Run this one now:
+-! 
+-!   ```bash
+-!   zo run 000_prologue.zo
+-!   ```
+-!
+-! JOiN THE DEVOLUTiON.
+
+-- This is a "line comment." The compiler ignores it.
+-- Everything after `--` is just for humans and AI now.
+
+-* 
+  This is a "block comment."
+  It can span multiple lines.
+  It's great for long-winded explanations like this one.
+*-
+
+-- And `-!` is a "doc comment." It documents the code that follows it.
+-- You saw it at the top of this file!
+
+-- `fun` declares a function. 
+-- `main` is the entry point — the first piece of code that runs.
+fun main() {
+  -- This program does nothing... yet.
+  -- See you in `001_hello.zo`!
+}
+
+-! ## the capstone.
+-!
+-!   - `fun` is the keyword for function declaration.
+-!

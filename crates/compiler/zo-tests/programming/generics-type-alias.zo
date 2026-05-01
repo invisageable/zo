@@ -1,6 +1,0 @@
--- tests-build-pass: generic type alias.
--- @cmd — zo build generic-type-alias.zo
-
-type Wrapper<$T> = $T;
-
-fun main() {}

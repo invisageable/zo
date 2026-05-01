@@ -1,0 +1,8 @@
+-- tests-build-pass: basic ternary expression.
+-- @cmd — zo build branch_ternary.zo
+
+fun main() {
+  imu x: int = when true ? 1 : 2;
+
+  check@eq(x, 1);
+}

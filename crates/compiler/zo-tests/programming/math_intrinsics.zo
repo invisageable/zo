@@ -1,0 +1,18 @@
+-- tests-build-pass: math hardware intrinsics from prelude.
+-- @cmd — zo build math_intrinsics.zo
+
+fun main() {
+  -- sqrt
+  showln(sqrt(9.0));
+  showln(sqrt(25.0));
+
+  -- rounding
+  showln(floor(3.7));
+  showln(ceil(3.2));
+  showln(trunc(3.9));
+  showln(round(3.5));
+
+  -- classification
+  showln(is_nan(1.0));
+  showln(is_finite(1.0));
+}

@@ -170,6 +170,41 @@ impl ElementTag {
     matches!(self, Self::Img | Self::Input)
   }
 
+  /// Resolve a tag name (the bit between `<` and `>` /
+  /// attributes) into an `ElementTag`. Unknown names fall
+  /// back to `Custom` so user code can compose any HTML
+  /// tag the renderer understands generically.
+  pub fn from_name(name: &str) -> Option<Self> {
+    Some(match name {
+      "div" => Self::Div,
+      "section" => Self::Section,
+      "main" => Self::Main,
+      "article" => Self::Article,
+      "aside" => Self::Aside,
+      "header" => Self::Header,
+      "footer" => Self::Footer,
+      "nav" => Self::Nav,
+      "form" => Self::Form,
+      "ul" => Self::Ul,
+      "ol" => Self::Ol,
+      "li" => Self::Li,
+      "span" => Self::Span,
+      "h1" => Self::H1,
+      "h2" => Self::H2,
+      "h3" => Self::H3,
+      "h4" => Self::H4,
+      "h5" => Self::H5,
+      "h6" => Self::H6,
+      "p" => Self::P,
+      "img" => Self::Img,
+      "button" => Self::Button,
+      "input" => Self::Input,
+      "textarea" => Self::Textarea,
+      "" => return None,
+      other => Self::Custom(other.to_string()),
+    })
+  }
+
   /// Inline vs block layout. Drives egui horizontal/vertical
   /// container selection on the native renderer.
   pub fn is_inline(&self) -> bool {
@@ -259,7 +294,7 @@ impl ElementTag {
 }
 
 /// Event types that can occur in the UI.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum EventKind {
   Click,
   Hover,
@@ -267,6 +302,35 @@ pub enum EventKind {
   Input,
   Focus,
   Blur,
+}
+
+impl EventKind {
+  /// Parse an event name (the bit after `@` in markup, or
+  /// the IPC frame prefix from the web bridge) into an
+  /// `EventKind`. Single source of truth for the
+  /// name → variant mapping; callers that previously open-
+  /// coded the same `match` (the executor at the
+  /// `Token::At` arm, the web runtime's IPC parser) drive
+  /// off this helper instead.
+  pub fn from_name(name: &str) -> Option<Self> {
+    Some(match name {
+      "click" => Self::Click,
+      "hover" => Self::Hover,
+      "change" => Self::Change,
+      "input" => Self::Input,
+      "focus" => Self::Focus,
+      "blur" => Self::Blur,
+      _ => return None,
+    })
+  }
+
+  /// True when the event carries a string `value` payload —
+  /// `@input` and `@change` ship the input element's current
+  /// text. Other kinds (`@click`, `@focus`, …) deliver an
+  /// empty payload.
+  pub fn has_value_payload(self) -> bool {
+    matches!(self, Self::Input | Self::Change)
+  }
 }
 
 /// Typed property value for template attributes.

@@ -1,0 +1,8 @@
+-- tests-build-pass: integer variable declaration (from rust-prehistory).
+-- @cmd — zo build lit_int.zo
+
+fun main() {
+  imu x: int = 10;
+
+  check(x == 10);
+}

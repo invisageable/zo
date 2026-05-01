@@ -1,0 +1,32 @@
+-- tests-build-pass: arithmetic with user-defined functions.
+-- @cmd — zo run lit_arithmetic.zo
+
+fun add(a: int, b: int) -> int {
+  return a + b;
+}
+
+fun sub(a: int, b: int) -> int {
+  return a - b;
+}
+
+fun mul(a: int, b: int) -> int {
+  return a * b;
+}
+
+fun div(a: int, b: int) -> int {
+  return a / b;
+}
+
+fun main() {
+  imu a: int = add(10, 20);
+  check(a == 30);
+
+  imu s: int = sub(30, 5);
+  check(s == 25);
+
+  imu m: int = mul(5, 6);
+  check(m == 30);
+
+  imu d: int = div(20, 4);
+  check(d == 5);
+}

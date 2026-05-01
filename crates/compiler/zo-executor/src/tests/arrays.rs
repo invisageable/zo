@@ -290,3 +290,29 @@ fn test_interp_with_prefix_no_array() {
     },
   );
 }
+
+#[test]
+fn test_array_pattern_destructure_lowers_to_array_index() {
+  // `imu [a, b, c] = arr;` binds three locals via
+  // `Insn::ArrayIndex` — not `TupleIndex` (arrays carry
+  // a `[len:8][cap:8]` header in memory; the codegen
+  // shifts the data offset by +16 in `ArrayIndex`).
+  assert_sir_structure(
+    r#"fun main() {
+  imu arr: [3]int = [10, 20, 30];
+  imu [a, b, c] = arr;
+}"#,
+    |sir| {
+      let array_indexes = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::ArrayIndex { .. }))
+        .count();
+
+      assert_eq!(
+        array_indexes, 3,
+        "expected 3 ArrayIndex emissions for `[a, b, c]`, got {}",
+        array_indexes
+      );
+    },
+  );
+}

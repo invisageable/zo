@@ -11,9 +11,10 @@ use std::time::Instant;
 /// by this fraction. 10% allows for hardware variance.
 const REGRESSION_THRESHOLD: f64 = 0.10;
 
-/// Minimum absolute difference (ms) to trigger regression.
-/// Ignores noise at sub-millisecond timescales.
-const REGRESSION_MIN_DIFF_MS: u64 = 2;
+/// Minimum absolute difference (ns) to trigger regression.
+/// 500 µs ignores noise at sub-millisecond timescales without
+/// burying real perf wins on the fastest benches.
+const REGRESSION_MIN_DIFF_NS: u64 = 500_000;
 
 #[derive(Parser)]
 #[command(name = "bench")]
@@ -38,11 +39,31 @@ struct Cli {
   quick: bool,
 }
 
-/// Stored baseline entry for a single benchmark.
+/// Stored baseline entry for a single benchmark. Hot
+/// average (first run dropped) in nanoseconds — fine
+/// granularity matters because `hello` finishes in
+/// hundreds of µs; storing in ms used to round it to 0.
 #[derive(Debug, Serialize, Deserialize)]
 struct Baseline {
-  /// Hot average (excluding first run) in ms.
-  zo_hot_avg_ms: u64,
+  zo_hot_avg_ns: u64,
+}
+
+/// Pretty-print a wall-clock duration in nanoseconds at the
+/// largest unit that keeps three significant figures.
+///   < 1 µs   → "Xns"
+///   < 1 ms   → "X.XXµs"
+///   < 1 s    → "X.XXms"
+///   ≥ 1 s    → "X.XXs"
+fn fmt_dur(ns: u64) -> String {
+  if ns < 1_000 {
+    format!("{ns}ns")
+  } else if ns < 1_000_000 {
+    format!("{:.2}µs", ns as f64 / 1_000.0)
+  } else if ns < 1_000_000_000 {
+    format!("{:.2}ms", ns as f64 / 1_000_000.0)
+  } else {
+    format!("{:.2}s", ns as f64 / 1_000_000_000.0)
+  }
 }
 
 fn main() {
@@ -83,24 +104,24 @@ fn main() {
   if !baselines.is_empty() && !cli.update_baseline {
     println!("\n── baseline comparison ──\n");
 
-    for (name, current_ms) in &results {
+    for (name, current_ns) in &results {
       if let Some(baseline) = baselines.get(name.as_str()) {
-        let baseline_ms = baseline.zo_hot_avg_ms;
-        let diff_pct = if baseline_ms > 0 {
-          (*current_ms as f64 - baseline_ms as f64) / baseline_ms as f64
+        let baseline_ns = baseline.zo_hot_avg_ns;
+        let diff_pct = if baseline_ns > 0 {
+          (*current_ns as f64 - baseline_ns as f64) / baseline_ns as f64
         } else {
           0.0
         };
 
-        let abs_diff = (*current_ms as i64 - baseline_ms as i64).unsigned_abs();
+        let abs_diff = (*current_ns as i64 - baseline_ns as i64).unsigned_abs();
 
         let status = if diff_pct > REGRESSION_THRESHOLD
-          && abs_diff >= REGRESSION_MIN_DIFF_MS
+          && abs_diff >= REGRESSION_MIN_DIFF_NS
         {
           regressions.push(name.clone());
           "REGRESSION"
         } else if diff_pct < -REGRESSION_THRESHOLD
-          && abs_diff >= REGRESSION_MIN_DIFF_MS
+          && abs_diff >= REGRESSION_MIN_DIFF_NS
         {
           "faster"
         } else {
@@ -108,12 +129,14 @@ fn main() {
         };
 
         println!(
-          "  {name}: {current_ms}ms \
-           (baseline: {baseline_ms}ms, \
+          "  {name}: {current} \
+           (baseline: {baseline}, \
            {diff_pct:+.0}%) [{status}]",
+          current = fmt_dur(*current_ns),
+          baseline = fmt_dur(baseline_ns),
         );
       } else {
-        println!("  {name}: {current_ms}ms (no baseline)");
+        println!("  {name}: {} (no baseline)", fmt_dur(*current_ns));
       }
     }
 
@@ -140,7 +163,7 @@ fn main() {
   }
 }
 
-/// Run a benchmark. Returns zo hot average (ms) if available.
+/// Run a benchmark. Returns zo hot average (ns) if available.
 fn run_bench(name: &str, num_runs: usize, quick: bool) -> Option<u64> {
   let bench_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     .join("benches")
@@ -212,21 +235,21 @@ fn benchmark_c(source: &PathBuf, output: &PathBuf, runs: usize) {
       .arg(output)
       .output();
 
-    let elapsed = start.elapsed().as_millis();
+    let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
       Ok(_) => {
         times.push(elapsed);
-        println!("Run {i}: {elapsed}ms");
+        println!("Run {i}: {}", fmt_dur(elapsed));
       }
       Err(_) => println!("Run {i}: FAILED"),
     }
   }
 
   if !times.is_empty() {
-    let avg = times.iter().sum::<u128>() / times.len() as u128;
+    let avg = (times.iter().sum::<u64>()) / times.len() as u64;
 
-    println!("Average: {avg}ms");
+    println!("Average: {}", fmt_dur(avg));
   }
 
   println!();
@@ -240,15 +263,6 @@ fn benchmark_rust(source: &PathBuf, output: &PathBuf, runs: usize) {
 
   println!("Compiling {filename} — {lines} lines.");
 
-  // `rustc` rejects `-` in inferred crate names; sanitize the
-  // file stem to keep hyphenated bench dirs (e.g. `rule-110`)
-  // working.
-  let crate_name = source
-    .file_stem()
-    .and_then(|s| s.to_str())
-    .unwrap_or("bench")
-    .replace('-', "_");
-
   let mut times = Vec::new();
 
   for i in 1..=runs {
@@ -258,34 +272,32 @@ fn benchmark_rust(source: &PathBuf, output: &PathBuf, runs: usize) {
 
     let result = Command::new("rustc")
       .arg("--target=aarch64-apple-darwin")
-      .arg("--crate-name")
-      .arg(&crate_name)
       .arg(source)
       .arg("-o")
       .arg(output)
       .output();
 
-    let elapsed = start.elapsed().as_millis();
+    let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
       Ok(_) => {
         times.push(elapsed);
-        println!("Run {i}: {elapsed}ms");
+        println!("Run {i}: {}", fmt_dur(elapsed));
       }
       Err(_) => println!("Run {i}: FAILED"),
     }
   }
 
   if !times.is_empty() {
-    let avg = times.iter().sum::<u128>() / times.len() as u128;
+    let avg = (times.iter().sum::<u64>()) / times.len() as u64;
 
-    println!("Average: {avg}ms");
+    println!("Average: {}", fmt_dur(avg));
   }
 
   println!();
 }
 
-/// Returns the hot average (excluding first run) in ms.
+/// Returns the hot average (excluding first run) in ns.
 fn benchmark_zo(
   source: &PathBuf,
   output: &PathBuf,
@@ -321,37 +333,35 @@ fn benchmark_zo(
       .arg(output)
       .output();
 
-    let elapsed = start.elapsed().as_millis();
+    let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
       Ok(_) => {
         times.push(elapsed);
-        println!("Run {i}: {elapsed}ms");
+        println!("Run {i}: {}", fmt_dur(elapsed));
       }
       Err(_) => println!("Run {i}: FAILED"),
     }
   }
 
   if !times.is_empty() {
-    let avg = times.iter().sum::<u128>() / times.len() as u128;
+    let avg = (times.iter().sum::<u64>()) / times.len() as u64;
 
-    println!("Average: {avg}ms");
+    println!("Average: {}", fmt_dur(avg));
   }
 
   // Hot average: exclude first run (cold cache).
   let hot_avg = if times.len() > 1 {
     let hot: Vec<_> = times[1..].to_vec();
-    let sum: u128 = hot.iter().sum();
+    let sum: u64 = hot.iter().sum();
 
-    Some((sum / hot.len() as u128) as u64)
-  } else if times.len() == 1 {
-    Some(times[0] as u64)
+    Some(sum / hot.len() as u64)
   } else {
-    None
+    times.first().copied()
   };
 
   if let Some(hot) = hot_avg {
-    println!("Hot avg: {hot}ms");
+    println!("Hot avg: {}", fmt_dur(hot));
   }
 
   println!();
@@ -381,7 +391,7 @@ fn load_baseline(path: &PathBuf) -> BTreeMap<String, Baseline> {
 fn save_baseline(path: &PathBuf, results: &BTreeMap<String, u64>) {
   let baselines: BTreeMap<String, Baseline> = results
     .iter()
-    .map(|(name, ms)| (name.clone(), Baseline { zo_hot_avg_ms: *ms }))
+    .map(|(name, ns)| (name.clone(), Baseline { zo_hot_avg_ns: *ns }))
     .collect();
 
   let json = serde_json::to_string_pretty(&baselines).unwrap();

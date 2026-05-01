@@ -1,0 +1,21 @@
+fun main() {
+  mut todos: []str = [];
+  mut input_val: str = "";
+
+  imu view: </> ::= <>
+    <input 
+      value={input_val} 
+      @input={fn(e) => input_val = e.value} 
+    />
+    <button @click={fn() => {
+      todos.push(input_val);
+
+      input_val = "";
+    }}>Add</button>
+    <ul>{todos.map(fn(t) =:> <li>{t}</li>)}</ul>
+  </>;
+
+  showln(view);
+
+  #dom view;
+}

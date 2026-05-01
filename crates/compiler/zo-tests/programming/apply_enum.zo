@@ -1,0 +1,20 @@
+-- tests-build-pass: apply block on enum type.
+-- @cmd — zo build apply_enum.zo
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+apply Color {
+  fun red() -> Self {
+    Self::Red
+  }
+}
+
+fun main() {
+  imu color: Color = Color::red();
+
+  check@eq(color, Color::Red);
+}

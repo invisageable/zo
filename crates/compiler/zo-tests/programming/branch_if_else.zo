@@ -1,0 +1,14 @@
+-- tests-build-pass: if-else chains.
+-- @cmd — zo build branch_if_else.zo
+
+fun main() {
+  mut x: int = 3;
+
+  if x == 1 {
+    x = 1
+  } else {
+    x = 3
+  }
+
+  showln(x);
+}

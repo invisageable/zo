@@ -35,8 +35,27 @@ impl Default for RuntimeConfig {
   }
 }
 
-/// Event handler callback.
-pub type EventHandler = Box<dyn Fn() + Send>;
+/// Runtime-built payload carried into a handler closure when
+/// an event fires. Today the only field surfaced to user code
+/// is `value` (the text-input current value for `@input` and
+/// `@change` events). `@click` and other no-payload events
+/// carry an empty string here — the closure's body simply
+/// doesn't read it.
+#[derive(Clone, Debug, Default)]
+pub struct EventPayload {
+  pub value: String,
+}
+
+impl std::fmt::Display for EventPayload {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.value)
+  }
+}
+
+/// Event handler callback. Receives the runtime-built payload
+/// for the event that fired. Click handlers ignore the payload;
+/// input/change handlers read `payload.value`.
+pub type EventHandler = Box<dyn Fn(&EventPayload) + Send>;
 
 /// Registry mapping handler names to callable functions.
 /// Built by the driver from SIR, consumed by runtimes.
@@ -55,9 +74,9 @@ impl EventRegistry {
     self.handlers.insert(name, handler);
   }
 
-  pub fn dispatch(&self, name: &str) -> bool {
+  pub fn dispatch(&self, name: &str, payload: &EventPayload) -> bool {
     if let Some(handler) = self.handlers.get(name) {
-      handler();
+      handler(payload);
       true
     } else {
       false
@@ -110,6 +129,12 @@ pub enum StateValue {
   Float(f64),
   Bool(bool),
   Str(String),
+  /// Array of strings — backs `mut []str` state for list
+  /// rendering (`<X>{arr.map(fn(t) =:> ...)}</X>`). The
+  /// `display()` form is the formatter's `[…]` view; for
+  /// list rendering the runtime walks the inner Vec
+  /// directly via `as_strs`.
+  Strs(Vec<String>),
 }
 
 impl StateValue {
@@ -120,6 +145,16 @@ impl StateValue {
       Self::Float(v) => v.to_string(),
       Self::Bool(v) => v.to_string(),
       Self::Str(v) => v.clone(),
+      Self::Strs(v) => format!("{v:?}"),
+    }
+  }
+
+  /// Borrow the inner string array if this is a `Strs`.
+  /// Used by the list-rendering path.
+  pub fn as_strs(&self) -> Option<&[String]> {
+    match self {
+      Self::Strs(v) => Some(v),
+      _ => None,
     }
   }
 }
@@ -131,6 +166,7 @@ impl std::fmt::Display for StateValue {
       Self::Float(v) => write!(f, "{v}"),
       Self::Bool(v) => write!(f, "{v}"),
       Self::Str(v) => write!(f, "{v}"),
+      Self::Strs(v) => write!(f, "{v:?}"),
     }
   }
 }
@@ -154,6 +190,28 @@ impl StateCell {
   /// Set a new value.
   pub fn set(&self, value: StateValue) {
     *self.0.lock().unwrap() = value;
+  }
+
+  /// Borrow the inner string array (read-only) under the
+  /// cell's lock, returning the closure's result. Used by
+  /// the list-rendering path to avoid cloning the whole
+  /// `Vec<String>` per event. Returns `None` when the cell
+  /// is some other variant.
+  pub fn with_strs<R>(&self, f: impl FnOnce(&[String]) -> R) -> Option<R> {
+    let guard = self.0.lock().unwrap();
+
+    match &*guard {
+      StateValue::Strs(v) => Some(f(v)),
+      _ => None,
+    }
+  }
+
+  /// True when the cell holds a `Strs` variant. Cheap
+  /// peek alternative to `get()` for the evaluator's
+  /// param-binding decision (lets us pick `StrArrRef`
+  /// without cloning the `Vec`).
+  pub fn is_strs(&self) -> bool {
+    matches!(*self.0.lock().unwrap(), StateValue::Strs(_))
   }
 
   /// Apply a mutation function to the value.

@@ -1958,6 +1958,7 @@ impl<'a> ARM64Gen<'a> {
           "Vec::pop" => self.emit_vec_pop(args, idx),
           "Vec::get" => self.emit_vec_get(args, idx),
           "Vec::set" => self.emit_vec_set(args, idx),
+          "Vec::remove" => self.emit_vec_remove(args, idx),
 
           // HashSet apply-method dispatch. Reuses the
           // `_zo_map_*` runtime allocator with `val_sz=0`.
@@ -5113,9 +5114,19 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `v.get(idx)` — call `_zo_vec_get` with `(ptr, idx,
-  /// &v_out)`, build the `Option<T>` aggregate.
-  fn emit_vec_get(&mut self, args: &[ValueId], idx: usize) {
+  /// Lower a `Vec<T>` apply-method that follows the
+  /// runtime's `(ptr, idx, val_out_ptr) -> bool` ABI and
+  /// reports its result as `Option<T>`. Today: `Vec::get`
+  /// (read-only) and `Vec::remove` (read + shift-down +
+  /// `len--`). From codegen's POV the contract is
+  /// identical — only the runtime entry point and its
+  /// side effects on the vec differ.
+  fn emit_vec_option_idx_call(
+    &mut self,
+    args: &[ValueId],
+    idx: usize,
+    runtime_call: &str,
+  ) {
     let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
     let i = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
 
@@ -5126,7 +5137,6 @@ impl<'a> ARM64Gen<'a> {
     self.next_struct_slot += 3 * STACK_SLOT_SIZE;
 
     self.emit_str_sp(XZR, v_out_off);
-
     self.emitter.emit_ldr(X0, recv, 0);
 
     if i != X1 {
@@ -5134,7 +5144,7 @@ impl<'a> ARM64Gen<'a> {
     }
 
     self.emit_add_sp_offset(X2, v_out_off);
-    self.emit_extern_call("_zo_vec_get");
+    self.emit_extern_call(runtime_call);
 
     self.emitter.emit_mov_imm(X16, 1);
     self.emitter.emit_eor(X16, X16, X0);
@@ -5146,6 +5156,18 @@ impl<'a> ARM64Gen<'a> {
     if let Some(dst) = self.reg_for_insn(idx) {
       self.emit_add_sp_offset(dst, opt_base);
     }
+  }
+
+  /// `v.get(idx)` — read-only lookup, returns `Option<T>`.
+  fn emit_vec_get(&mut self, args: &[ValueId], idx: usize) {
+    self.emit_vec_option_idx_call(args, idx, "_zo_vec_get");
+  }
+
+  /// `v.remove(idx)` — same shape as `get` plus the
+  /// runtime shifts the tail down by one and decrements
+  /// `len`.
+  fn emit_vec_remove(&mut self, args: &[ValueId], idx: usize) {
+    self.emit_vec_option_idx_call(args, idx, "_zo_vec_remove");
   }
 
   /// `v.set(idx, value)` — spill `value`, call

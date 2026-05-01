@@ -1,0 +1,16 @@
+-- tests-build-pass: early return from conditional.
+-- @cmd — zo build early_return.zo
+
+fun f() -> int {
+  if true {
+    return 1;
+  }
+
+  return 0;
+}
+
+fun main() {
+  imu result: int = f();
+
+  check(result == 1);
+}

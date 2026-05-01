@@ -234,6 +234,7 @@ impl<'a> Parser<'a> {
       Token::TemplateAssign => self.handle_template_assign(),
       Token::Arrow => self.handle_arrow(),
       Token::FatArrow => self.handle_fat_arrow(),
+      Token::TemplateFatArrow => self.handle_template_fat_arrow(),
       Token::Comma => self.handle_comma(),
       Token::Ellipsis => self.handle_ellipsis(),
       Token::Semicolon => self.handle_semicolon(),
@@ -862,6 +863,36 @@ impl<'a> Parser<'a> {
 
     self.flush_expr();
 
+    // Cascade-close any inline closures whose body
+    // terminates at this `)`. Without this, `arr.map(fn(x)
+    // => x)` leaves the Fn introducer open — it would only
+    // close at the next `;`, swallowing the outer call's
+    // RParen and Semicolon as Fn children.
+    //
+    // The cascade also closes a synthetic
+    // `TemplateFragmentStart` opened by
+    // `handle_template_fat_arrow` (for `=:>` bodies) when
+    // that fragment sits directly above an `Fn` — i.e. it's
+    // the closure body's wrapper, not a top-level
+    // `imu view ::= <body>` whose synthetic fragment must
+    // survive until `;`.
+    loop {
+      let len = self.introducer_stack.len();
+      let Some(top) = self.introducer_stack.last() else {
+        break;
+      };
+
+      match top.token {
+        Token::Fn => self.close_introducer(),
+        Token::TemplateFragmentStart
+          if len >= 2 && self.introducer_stack[len - 2].token == Token::Fn =>
+        {
+          self.close_introducer();
+        }
+        _ => break,
+      }
+    }
+
     // Distinguish expression-context `)` (call or group)
     // from ParameterList `)` — the former restores the
     // outer op/buffer stacks saved by LParen; the latter
@@ -927,6 +958,21 @@ impl<'a> Parser<'a> {
     // introducer here so the enclosing LBrace is on top.
     if let Some(top) = self.introducer_stack.last()
       && top.token == Token::Hash
+    {
+      self.close_introducer();
+    }
+
+    // Ternary inside template interpolation: `{when c ? a : b}`.
+    // `When` is normally closed on `;`, but inside a `{…}`
+    // interp there is no `;` — the ternary ends at the
+    // matching `}`. Without this close, the When introducer
+    // stays open and adopts every following sibling
+    // (TemplateText, TemplateFragmentEnd, even `#dom`) as a
+    // child of the ternary, which then propagates into the
+    // fragment's `children_end` and silently skips
+    // `#dom view;` in the executor.
+    if let Some(top) = self.introducer_stack.last()
+      && top.token == Token::When
     {
       self.close_introducer();
     }
@@ -1125,6 +1171,33 @@ impl<'a> Parser<'a> {
     self.emit_node(Token::FatArrow);
 
     self.state = ParserState::Expression;
+  }
+
+  fn handle_template_fat_arrow(&mut self) {
+    // `=:>` is a closure body opener whose body is a
+    // template literal: `fn(t) =:> <li>{t}</li>`. Mirror
+    // `handle_template_assign` — emit the marker, switch the
+    // parser state to TemplateMode, and auto-wrap a leading
+    // named tag in a synthetic fragment so
+    // `execute_template_fragment` handles all template
+    // content uniformly. Distinct from `::=` because there's
+    // no binding here, the closure simply *returns* the
+    // fragment.
+    self.flush_expr();
+    self.emit_node(Token::TemplateFatArrow);
+
+    self.state = ParserState::TemplateMode;
+
+    if self.peek() == Some(Token::LAngle) {
+      let node_index = self.emit_node(Token::TemplateFragmentStart);
+
+      self.introducer_stack.push(Introducer {
+        state: self.state,
+        token: Token::TemplateFragmentStart,
+        node_index,
+        children_start: self.tree.nodes.len() as u32,
+      });
+    }
   }
 
   fn handle_comma(&mut self) {
@@ -1365,10 +1438,11 @@ impl<'a> Parser<'a> {
 
     // imu/mut/val must be followed by an identifier,
     // `(` for tuple-destructuring (`imu (a, b) = …;`),
-    // or `{` for struct-destructuring
-    // (`imu { x, y, z } = …;`).
+    // `{` for struct-destructuring
+    // (`imu { x, y, z } = …;`), or `[` for array
+    // destructuring (`imu [a, b, c] = …;`).
     match self.peek() {
-      Some(Token::Ident | Token::LParen | Token::LBrace) => {}
+      Some(Token::Ident | Token::LParen | Token::LBrace | Token::LBracket) => {}
       Some(_) => {
         self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
       }
@@ -2019,13 +2093,29 @@ impl<'a> Parser<'a> {
       // call `(`, index `[`, or dot-access `.` — the unary
       // applies to the COMPLETE result of the chain, not the
       // bare operand (e.g. `!x.foo()` → `!(x.foo())`, not
-      // `(!x).foo()`; same reasoning as `f(1 + 2)` needing
-      // `!` to fire after the call returns).
+      // `(!x).foo()`).
+      //
+      // Same logic for the *previous* operator: `!f.on`
+      // tokenizes as `!`, `f`, `.`, `on`, so by the time we
+      // see `on` the `Dot` has already been pushed onto
+      // the operator stack. Draining the unary here would
+      // emit `f on Bang Dot` and the executor's
+      // `is_dot_member` check (which looks for `Dot`
+      // immediately after the field ident) would fail —
+      // reporting `on` as an undefined variable. Hold the
+      // unary back so `flush_expr` emits it after the
+      // pending high-precedence operator commits.
       let next = self.peek();
+
+      let pending_member_op = self
+        .operator_stack
+        .last()
+        .is_some_and(|(t, _, _)| *t == Token::Dot);
 
       if next != Some(Token::LParen)
         && next != Some(Token::LBracket)
         && next != Some(Token::Dot)
+        && !pending_member_op
       {
         while let Some((tok, sp)) = self.unary_spans.pop() {
           self.expr_buffer.push((tok, sp, None));
@@ -2064,6 +2154,15 @@ impl<'a> Parser<'a> {
         let op = self.expr_buffer.remove(pos);
         self.expr_buffer.push(op);
       }
+    }
+
+    // Drain any unary prefixes that were held back because a
+    // higher-precedence operator (e.g. `Dot` in `!f.on`) was
+    // pending. They land at the very end of the buffer so they
+    // fire after the binary op commits — postorder
+    // `f on Dot Bang`, the shape the executor expects.
+    while let Some((tok, sp)) = self.unary_spans.pop() {
+      self.expr_buffer.push((tok, sp, None));
     }
 
     // Emit all buffered nodes

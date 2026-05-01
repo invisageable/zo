@@ -8,6 +8,7 @@ use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
 use zo_ty_checker::TyChecker;
+use zo_value::FunctionKind;
 
 // === TEMPLATE DECLARATION ===
 
@@ -848,5 +849,260 @@ fn test_html_directive_rejects_mut_source() {
   assert!(
     !errors.is_empty(),
     "#html on a mut source should produce a diagnostic"
+  );
+}
+
+// === COMPUTED BINDINGS (compound `{expr}` interpolation) ===
+
+#[test]
+fn test_compound_interp_emits_computed_binding() {
+  // A compound `{when count == 1 ? "x" : "y"}` interp must
+  // (1) emit an `__interp_<n>` closure FunDef into the SIR
+  // and (2) attach a `(cmd_idx, ComputedBinding { closure_
+  // name, captures })` to the enclosing `Insn::Template`'s
+  // `bindings.computed`. Without both, the runtime can't
+  // recompute the text on each state change.
+  let source = r#"fun main() {
+  mut count: int = 0;
+  imu view: </> ::= <p>{when count == 1 ? "x" : "y"}</p>;
+  #dom view;
+}"#;
+
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _, _) = executor.execute();
+
+  // The Insn::Template must carry exactly one computed
+  // binding for the `{when …}` interp.
+  let computed = sir
+    .instructions
+    .iter()
+    .find_map(|i| match i {
+      Insn::Template { bindings, .. } => Some(&bindings.computed),
+      _ => None,
+    })
+    .expect("Template insn missing");
+
+  assert_eq!(
+    computed.len(),
+    1,
+    "expected one computed binding, got {}",
+    computed.len()
+  );
+
+  let (_cmd_idx, cb) = &computed[0];
+
+  // Captures must list `count` (the only mut local
+  // referenced in the brace).
+  let count_sym = interner.symbol("count").expect("count must be interned");
+
+  assert_eq!(cb.captures, vec![count_sym]);
+
+  // The closure FunDef must be emitted with the same
+  // symbol DCE relies on for liveness.
+  let has_closure = sir.instructions.iter().any(|i| {
+    matches!(
+      i,
+      Insn::FunDef {
+        name,
+        kind: FunctionKind::Closure { capture_count: 1 },
+        ..
+      } if *name == cb.closure_name
+    )
+  });
+
+  assert!(has_closure, "compound interp closure must appear in SIR");
+}
+
+#[test]
+fn test_compound_interp_emits_text_placeholder() {
+  // The executor pushes a placeholder `UiCommand::Text`
+  // for the compound interp so the runtime has a slot to
+  // patch on each render. The cmd_idx in
+  // `bindings.computed` must point at that exact slot.
+  let source = r#"fun main() {
+  mut count: int = 0;
+  imu view: </> ::= <p>before {when count == 1 ? "x" : "y"} after</p>;
+  #dom view;
+}"#;
+
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _, _) = executor.execute();
+
+  let (commands, computed) = sir
+    .instructions
+    .iter()
+    .find_map(|i| match i {
+      Insn::Template {
+        commands, bindings, ..
+      } => Some((commands, &bindings.computed)),
+      _ => None,
+    })
+    .expect("Template insn missing");
+
+  let (cmd_idx, _) = computed[0];
+
+  // The bound slot must exist and must be a Text command.
+  let cmd = commands
+    .get(cmd_idx)
+    .expect("computed binding cmd_idx out of range");
+
+  assert!(
+    matches!(cmd, zo_ui_protocol::UiCommand::Text(_)),
+    "computed binding must point at a UiCommand::Text"
+  );
+}
+
+#[test]
+fn test_simple_ident_interp_uses_text_binding_not_computed() {
+  // Regression: the simple-ident fast path
+  // (`{count}`) MUST stay on `bindings.text`. If a future
+  // refactor accidentally routed it through the compound
+  // path, every `{count}` would lose its existing
+  // reactive `mut` binding.
+  let source = r#"fun main() {
+  mut count: int = 0;
+  imu view: </> ::= <p>{count}</p>;
+  #dom view;
+}"#;
+
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _, _) = executor.execute();
+
+  let bindings = sir
+    .instructions
+    .iter()
+    .find_map(|i| match i {
+      Insn::Template { bindings, .. } => Some(bindings),
+      _ => None,
+    })
+    .expect("Template insn missing");
+
+  assert_eq!(bindings.text.len(), 1, "{{count}} must be a text binding");
+  assert!(
+    bindings.computed.is_empty(),
+    "{{count}} must NOT route through computed bindings"
+  );
+}
+
+#[test]
+fn test_template_list_binding_extracted_from_map_call() {
+  use zo_sir::ListItemCmd;
+
+  assert_sir_structure(
+    r#"fun main() {
+  imu items: []str = ["a", "b"];
+  imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
+  #dom view;
+}"#,
+    |sir| {
+      let bindings = first_template_bindings(sir);
+
+      assert_eq!(
+        bindings.list.len(),
+        1,
+        "`.map(...)` inside template interp must register one list binding"
+      );
+
+      let (_, lb) = &bindings.list[0];
+      let recipe = &lb.item_template;
+
+      // Recipe shape: Element(li) → TextFromItem → EndElement.
+      assert_eq!(
+        recipe.len(),
+        3,
+        "single-tag wrapper with one {{t}} interp produces 3 recipe steps"
+      );
+
+      assert!(
+        matches!(
+          recipe[0],
+          ListItemCmd::Element {
+            tag: zo_ui_protocol::ElementTag::Li,
+            ..
+          }
+        ),
+        "recipe[0] must open <li>"
+      );
+      assert!(
+        matches!(recipe[1], ListItemCmd::TextFromItem),
+        "recipe[1] must substitute item value"
+      );
+      assert!(
+        matches!(recipe[2], ListItemCmd::EndElement),
+        "recipe[2] must close </li>"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_template_list_binding_emits_template_insn() {
+  // The Template Insn must still get emitted (and its
+  // `commands` populated with the wrapping `<ul>...</ul>`)
+  // even when the interp expands to a list binding. Without
+  // this, the runtime sees zero UI commands and the window
+  // never opens.
+  use zo_sir::Insn;
+
+  assert_sir_structure(
+    r#"fun main() {
+  imu items: []str = ["a", "b"];
+  imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
+  #dom view;
+}"#,
+    |sir| {
+      let template = sir
+        .iter()
+        .find_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .expect("Template Insn missing — list-binding path swallowed it");
+
+      let n = template.len();
+      assert!(
+        n >= 3,
+        "expected at least Element(ul) + Text(placeholder) + EndElement, got {n}",
+      );
+    },
   );
 }

@@ -21,6 +21,82 @@ pub struct TemplateBindings {
   /// on variable `var`. The runtime calls
   /// `UiCommand::set_attr` to apply the patch.
   pub attrs: Vec<(usize, Attr)>,
+  /// Computed text bindings: each entry is `(cmd_idx,
+  /// ComputedBinding)` pointing at a `UiCommand::Text(_)`
+  /// whose value is recomputed by invoking
+  /// `closure_name` over the captured locals on every
+  /// reactive update. Used for compound `{expr}`
+  /// interpolations (ternaries, function calls, ...) that
+  /// can't be expressed as a single `Symbol` lookup.
+  pub computed: Vec<(usize, ComputedBinding)>,
+  /// List bindings: `(cmd_idx, ListBinding)`. Each entry
+  /// points at a placeholder `UiCommand::Text(_)` slot in
+  /// the parent commands buffer. The runtime, on every
+  /// state-cell update for `items_var`, walks the array
+  /// and splats `item_template` once per element into a
+  /// fresh sub-command list — replacing the placeholder
+  /// with the rendered batch. Used for
+  /// `<X>{arr.map(fn(t) =:> <body>)}</X>`.
+  pub list: Vec<(usize, ListBinding)>,
+}
+
+/// Side-channel for a compound `{expr}` template
+/// interpolation. The executor synthesizes a closure named
+/// `closure_name` that captures `captures` (in param-order)
+/// and returns the expression's value. The runtime invokes
+/// the closure on each state change and stamps the result
+/// over the bound `UiCommand::Text` slot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComputedBinding {
+  pub closure_name: Symbol,
+  pub captures: Vec<Symbol>,
+}
+
+/// Side-channel for a `<X>{arr.map(fn(t) =:> <body>)}</X>`
+/// list rendering. The executor doesn't expand the closure
+/// at compile time — instead it captures the per-item
+/// "template recipe" (`item_template`) plus the array
+/// variable's symbol. At runtime, on every event affecting
+/// `items_var`, the driver re-runs the recipe once per
+/// element and splices the resulting commands at the
+/// placeholder slot.
+///
+/// `item_template` is a flat sequence of "render this
+/// command, with the item value substituted at this
+/// position" — kept small (open tag, text, close tag for
+/// the wip's `<li>{t}</li>`) since the closure body is
+/// constrained to a single-tag wrapper with one `{t}`
+/// interp.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListBinding {
+  /// The `[]T` variable being mapped. State-cell updates
+  /// for this symbol trigger a list re-render.
+  pub items_var: Symbol,
+  /// Per-item template — applied N times for an N-element
+  /// array.
+  pub item_template: Vec<ListItemCmd>,
+}
+
+/// One step in a list-binding's per-item recipe. The
+/// runtime walks this sequence once per element and emits
+/// `UiCommand`s with the item value substituted in
+/// `TextFromItem` slots.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ListItemCmd {
+  /// Emit a `UiCommand::Element` with this static
+  /// configuration. Used for the wrapping tag (e.g. `<li>`).
+  Element {
+    tag: zo_ui_protocol::ElementTag,
+    attrs: Vec<Attr>,
+  },
+  /// Emit a `UiCommand::EndElement`.
+  EndElement,
+  /// Emit a `UiCommand::Text` with this literal string.
+  Text(String),
+  /// Emit a `UiCommand::Text` whose content is the current
+  /// item's stringified value. The wip's `<li>{t}</li>`
+  /// uses one of these for the `{t}` interp.
+  TextFromItem,
 }
 
 /// Source of a Load instruction — either a function parameter
@@ -59,6 +135,18 @@ impl Sir {
     let id = self.next_label_id;
 
     self.next_label_id += 1;
+
+    id
+  }
+
+  /// Allocates a fresh SSA value ID. Mirrors `next_label`'s
+  /// shape so `dst` minting at every emit site is one line
+  /// instead of the `let dst = ValueId(self.sir.next_value_id);
+  /// self.sir.next_value_id += 1;` pair.
+  pub fn next_value(&mut self) -> ValueId {
+    let id = ValueId(self.next_value_id);
+
+    self.next_value_id += 1;
 
     id
   }

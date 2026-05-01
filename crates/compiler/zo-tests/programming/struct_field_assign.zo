@@ -1,0 +1,27 @@
+-- tests-run-pass: direct struct field assignment from outside
+-- an `apply` block. `p.x = expr;` was a silent no-op until now.
+-- @cmd — zo run struct_field_assign.zo
+
+struct Point { x: int, y: int }
+
+fun main() {
+  mut p: Point = Point { x: 1, y: 2 };
+
+  check@eq(p.x, 1);
+  check@eq(p.y, 2);
+
+  p.x = 99;
+  p.y = 100;
+
+  check@eq(p.x, 99);
+  check@eq(p.y, 100);
+
+  showln(p.x);
+  showln(p.y);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 99
+-- 100
+-- DONE

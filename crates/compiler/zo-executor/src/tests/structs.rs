@@ -410,3 +410,73 @@ fun main() {}"#,
     ErrorKind::ImmutableVariable,
   );
 }
+
+#[test]
+fn test_user_type_in_array_annotation() {
+  // `[]Todo` with a user-defined element type used to fall
+  // through `resolve_array_type`'s `is_ty()` filter and
+  // report a spurious "Type mismatch" at the decl site.
+  assert_sir_structure(
+    r#"struct Todo { text: str, done: bool }
+
+fun main() {
+  mut xs: []Todo = [];
+  xs.push(Todo { text: "a", done: false });
+}"#,
+    |sir| {
+      let has_array =
+        sir.iter().any(|i| matches!(i, Insn::ArrayLiteral { .. }));
+
+      assert!(has_array, "expected ArrayLiteral for []Todo init");
+    },
+  );
+}
+
+#[test]
+fn test_field_assign_outside_apply_lowers_to_field_store() {
+  // `p.x = expr` was a silent no-op. Now it lowers to
+  // `Insn::FieldStore` via `pending_field_assign`.
+  assert_sir_structure(
+    r#"struct Point { x: int, y: int }
+
+fun main() {
+  mut p: Point = Point { x: 1, y: 2 };
+  p.x = 99;
+}"#,
+    |sir| {
+      let has_field_store =
+        sir.iter().any(|i| matches!(i, Insn::FieldStore { .. }));
+
+      assert!(has_field_store, "expected FieldStore for `p.x = 99`");
+    },
+  );
+}
+
+#[test]
+fn test_self_field_assign_lowers_to_field_store() {
+  // `self.field = expr` inside an `apply` method must reach
+  // `Insn::FieldStore` too. `self` lowers to `Param(0)`, not
+  // `Local(SELF)`, so the receiver-name lookup pulls from
+  // the parse tree (`Token::SelfLower`) rather than walking
+  // the SIR for a `LoadSource::Local`.
+  assert_sir_structure(
+    r#"struct Flag { on: bool }
+
+apply Flag {
+  fun toggle(mut self) {
+    self.on = !self.on;
+  }
+}
+
+fun main() {
+  mut f: Flag = Flag { on: false };
+  f.toggle();
+}"#,
+    |sir| {
+      let has_field_store =
+        sir.iter().any(|i| matches!(i, Insn::FieldStore { .. }));
+
+      assert!(has_field_store, "expected FieldStore inside `apply` method");
+    },
+  );
+}

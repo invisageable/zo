@@ -1,0 +1,15 @@
+-- tests-build-pass: char literals and equality.
+-- @cmd — zo build lit_char.zo
+
+fun main() {
+  imu c: char = 'x';
+  imu d: char = 'x';
+
+  check(c == 'x');
+  check('x' == c);
+  check(c == c);
+  check(c == d);
+  check(d == c);
+  check (d == 'x');
+  check('x' == d);
+}

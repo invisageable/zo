@@ -162,6 +162,7 @@ image = { version = "0.25.6", default-features = false, features = [
   "gif",
   "webp",
 ] }
+indoc = "2.0.7"
 itoa = "1.0.15"
 Inflector = "0.11.4"
 insta = { version = "1.47.2", features = ["yaml"] }
@@ -171,6 +172,7 @@ libloading = "0.9.0"
 log = "0.4.27"
 noise = "0.9.0"
 notify = "8.2.0"
+notify-debouncer-mini = "0.7.0"
 num_cpus = "1.17.0"
 objc = "0.2.7"
 parking_lot = { version = "0.12.4", features = ["nightly"] }

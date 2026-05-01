@@ -1,0 +1,32 @@
+-- tests-build-pass: producer closes channel so consumer stops.
+-- @cmd — zo build concurrency_channel_close.zo
+
+fun producer(tx: Tx<int>) {
+  tx.send(1);
+  tx.send(2);
+  tx.close();
+}
+
+fun consumer(rx: Rx<int>) {
+  imu a: int = rx.recv();
+  imu b: int = rx.recv();
+
+  showln("got {a}");
+  showln("got {b}");
+}
+
+fun main() {
+  nursery {
+    imu (tx, rx) := channel(2);
+
+    spawn producer(tx);
+    spawn consumer(rx);
+  }
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- got 1
+-- got 2
+-- DONE

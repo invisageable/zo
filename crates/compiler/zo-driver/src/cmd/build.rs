@@ -1,7 +1,6 @@
+use crate::args;
 use crate::cmd;
 use crate::cmd::Handle;
-use crate::constants::EXIT_CODE_SUCCESS;
-use crate::{args, constants::EXIT_CODE_ERROR};
 
 use zo_compiler::{Compiler, Stage};
 use zo_error::Error;
@@ -49,9 +48,6 @@ impl Build {
 
 impl Handle for Build {
   fn handle(&self) {
-    match self.build() {
-      Ok(_) => std::process::exit(EXIT_CODE_SUCCESS),
-      Err(_) => std::process::exit(EXIT_CODE_ERROR),
-    }
+    cmd::handle_with_watch(&self.args, || self.build());
   }
 }

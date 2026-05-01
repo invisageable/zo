@@ -2,7 +2,7 @@
 
 use crate::loader::image::{ImageLoader, ImageState};
 
-use zo_runtime_render::render::{EventId, Render, WidgetId};
+use zo_runtime_render::render::{EventId, EventPayload, Render, WidgetId};
 use zo_ui_protocol::style::{ComputedStyle, FontFamily, Rgba, cascade};
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
@@ -22,8 +22,21 @@ struct StyleProps {
 pub struct UiState {
   /// Text input values indexed by ID
   text_inputs: HashMap<u32, String>,
+  /// Last-seen `value` attribute per input id. Compared
+  /// against the incoming attr each frame; on mismatch,
+  /// the program-side state has overwritten the input
+  /// (`input_val = ""`) and the renderer's
+  /// `text_inputs[id]` must be re-synced. Without this,
+  /// the program-side clear silently keeps the stale
+  /// user-typed text.
+  last_value_attr: HashMap<u32, String>,
   /// Button click events to send back
-  pending_events: ThinVec<(u32, u32)>, // (widget_id, event_kind)
+  /// (widget_id, event_kind, payload). `event_kind`
+  /// matches the IPC numeric kinds the web bridge uses
+  /// (0=click, 1=input). The `payload.value` is empty
+  /// for click events and carries the input's current
+  /// text for input/change events.
+  pending_events: ThinVec<(u32, u32, EventPayload)>,
 }
 
 /// Egui-based renderer for zo UI commands
@@ -160,15 +173,45 @@ impl Renderer {
       ElementTag::Input | ElementTag::Textarea => {
         let id = attr_num(attrs, "data-id").unwrap_or(0);
         let placeholder = attr_str(attrs, "placeholder").unwrap_or("");
-        let initial = attr_str(attrs, "value").unwrap_or("").to_string();
+        let value_attr = attr_str(attrs, "value").unwrap_or("").to_string();
 
-        let text = self.state.text_inputs.entry(id).or_insert_with(|| initial);
+        // Sync from the program-side `value` attribute when
+        // it has changed since last frame — handles
+        // `input_val = ""` after Add click. User typing
+        // doesn't race because the typed text fires
+        // `@input` first, and the handler's `input_val =
+        // e.value` keeps the attribute in sync with what
+        // we already display.
+        let resync = self
+          .state
+          .last_value_attr
+          .get(&id)
+          .map(|prev| prev != &value_attr)
+          .unwrap_or(true);
+
+        if resync {
+          self.state.text_inputs.insert(id, value_attr.clone());
+          self.state.last_value_attr.insert(id, value_attr);
+        }
+
+        let text = self.state.text_inputs.entry(id).or_default();
 
         let response =
           ui.add(egui::TextEdit::singleline(text).hint_text(placeholder));
 
         if response.changed() {
-          self.state.pending_events.push((id, 1));
+          // Bidirectional binding: the user typed → the
+          // input's text is now ahead of the attribute.
+          // Update last-seen so the next frame doesn't
+          // wipe the typed text on resync.
+          self.state.last_value_attr.insert(id, text.clone());
+          self.state.pending_events.push((
+            id,
+            1,
+            EventPayload {
+              value: text.clone(),
+            },
+          ));
         }
 
         // Self-closing in our model (input has no children).
@@ -191,7 +234,10 @@ impl Renderer {
         let id = attr_num(attrs, "data-id").unwrap_or(0);
 
         if ui.button(&content).clicked() {
-          self.state.pending_events.push((id, 0));
+          self
+            .state
+            .pending_events
+            .push((id, 0, EventPayload::default()));
         }
 
         skip_to_end_element(commands, children_start)
@@ -325,7 +371,7 @@ impl Renderer {
   }
 
   /// Get pending events to send back to the application
-  pub fn take_pending_events(&mut self) -> ThinVec<(u32, u32)> {
+  pub fn take_pending_events(&mut self) -> ThinVec<(u32, u32, EventPayload)> {
     std::mem::take(&mut self.state.pending_events)
   }
 }

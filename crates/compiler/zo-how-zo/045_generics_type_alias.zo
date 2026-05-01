@@ -1,0 +1,43 @@
+-! # how to generic type aliases: 045_generics_type_alias.zo
+-!
+-! @cmd: `zo run 045_generics_type_alias.zo`
+-!
+-! Type aliases (lesson 023) can also be generic. Give a complex
+-! generic type a short name — the compiler expands it for you.
+
+type Id<$T> = $T;
+type Pair<$T> = ($T, $T);
+type Grid<$T> = []$T;
+
+fun main() {
+  imu x: Id<int> = 42;
+  showln(x);
+
+  imu pos: Pair<int> = (3, 7);
+  imu px: int = pos.0;
+  imu py: int = pos.1;
+  showln("position: ({px}, {py})");
+
+  imu row: Grid<int> = [10, 20, 30];
+  imu first: int = row[0];
+  showln("first: {first}");
+}
+
+-! ## the idea.
+-!
+-!   `type Id<$T> = $T;`         — identity alias.
+-!   `type Pair<$T> = ($T, $T);` — pair of same type.
+-!   `type Grid<$T> = []$T;`     — array alias.
+-!
+-! same monomorphization — zo expands the alias at compile time.
+-!
+-! ## try this.
+-!
+-!   - create `type Color = (int, int, int);` and use it.
+-!   - alias a struct: `type PlayerList<$T> = $T[];`
+-!   - nest aliases: `type Matrix<$T> = Grid<$T>[];`
+
+-- EXPECTED OUTPUT:
+-- 42
+-- position: (3, 7)
+-- first: 10

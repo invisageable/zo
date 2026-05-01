@@ -1,0 +1,6 @@
+-- tests-build-pass: array literals.
+-- @cmd — zo build lit_array_basic.zo
+
+fun main() {
+  imu x: []int = [1, 2, 3, 4, 5];
+}

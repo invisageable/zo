@@ -1,0 +1,101 @@
+-- tests-run-pass: `[]int.sort()` — in-place ascending
+-- sort via the runtime. Phase D regression.
+-- @cmd — zo build array_sort.zo
+
+fun main() {
+  -- shuffled, 8 elements. Sizes 8 / 16 / 32 used to
+  -- hang because `emit_arr_sort_int` clobbered its
+  -- receiver register: at those element counts the
+  -- allocator placed the array pointer in X1, which
+  -- the `LDR X1, [recv, #0]` step overwrote before the
+  -- `ADD X0, recv, #16` could derive the data pointer.
+  -- Sort then ran with X0 = len + 16 (a bogus low
+  -- address). Fixed by stashing the receiver in X16
+  -- (intra-procedure scratch) up front.
+  mut shuffled: []int = [3, 1, 4, 1, 5, 9, 2, 6];
+
+  shuffled.sort();
+
+  check@eq(shuffled[0], 1);
+  check@eq(shuffled[1], 1);
+  check@eq(shuffled[2], 2);
+  check@eq(shuffled[3], 3);
+  check@eq(shuffled[4], 4);
+  check@eq(shuffled[5], 5);
+  check@eq(shuffled[6], 6);
+  check@eq(shuffled[7], 9);
+
+  showln("shuffled: {shuffled}")
+
+  -- already sorted (idempotent).
+  mut sorted: []int = [1, 2, 3, 4, 5];
+  
+  sorted.sort();
+  
+  check@eq(sorted[0], 1);
+  check@eq(sorted[4], 5);
+
+  showln("sorted (idempotent): {sorted}");
+
+  -- reverse-sorted.
+  mut reversed_sorted: []int = [5, 4, 3, 2, 1];
+  
+  reversed_sorted.sort();
+  
+  check@eq(reversed_sorted[0], 1);
+  check@eq(reversed_sorted[4], 5);
+
+  showln("reverse-sorted: {reversed_sorted}");
+
+  -- with negatives.
+  mut with_neg: []int = [3, -1, 0, -10, 5];
+  
+  with_neg.sort();
+  
+  check@eq(with_neg[0], -10);
+  check@eq(with_neg[1], -1);
+  check@eq(with_neg[2], 0);
+  check@eq(with_neg[3], 3);
+  check@eq(with_neg[4], 5);
+
+  showln("with-negative: {with_neg}");
+
+  -- single element.
+  mut single_element: []int = [42];
+  
+  single_element.sort();
+  
+  check@eq(single_element[0], 42);
+
+  showln("single-element: {single_element}");
+
+  -- 16 elements — locks down two interacting bugs:
+  -- (1) the sort-call register clobber (X1 conflict at
+  -- this size in the original failure), (2) the
+  -- ArrayLiteral codegen forwarding constant elements
+  -- through the spill-leaky regalloc above the
+  -- 14-simultaneously-live ceiling. Both fixed by
+  -- routing through X16 / rematerializing constants.
+  mut sixteen: []int = [
+    11, 4, 15, 2, 13, 6, 9, 8,
+    1, 14, 3, 12, 5, 10, 7, 16,
+  ];
+
+  sixteen.sort();
+
+  check@eq(sixteen[0], 1);
+  check@eq(sixteen[15], 16);
+
+  showln("sixteen: {sixteen}");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- shuffled: [1, 1, 2, 3, 4, 5, 6, 9]
+-- sorted (idempotent): [1, 2, 3, 4, 5]
+-- reverse-sorted: [1, 2, 3, 4, 5]
+-- with-negative: [-10, -1, 0, 3, 5]
+-- single-element: [42]
+-- sixteen: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+-- DONE

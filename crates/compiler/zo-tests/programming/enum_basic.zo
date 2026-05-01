@@ -1,0 +1,10 @@
+-- tests-build-pass: basic enum declaration.
+-- @cmd — zo build enum_basic.zo
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+fun main() {}

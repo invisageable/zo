@@ -1,8 +1,0 @@
--- tests-build-pass: empty struct construction.
--- @cmd — zo build struct-construct-empty.zo
-
-struct Foo {}
-
-fun main() {
-  imu f := Foo {};
-}

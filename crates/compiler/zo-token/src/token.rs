@@ -162,9 +162,10 @@ pub enum Token {
   RAngle,                // <, >
   Slash,                 // /
   TemplateAssign,        // ::=
+  TemplateFatArrow, // =:>  — closure-body opener; body is a template fragment.
   TemplateFragmentStart, // <>
-  TemplateFragmentEnd,   // </>
-  TemplateText,          // Raw text inside a tag - uses main token span
+  TemplateFragmentEnd, // </>
+  TemplateText,     // Raw text inside a tag - uses main token span
 
   // Style Syntax Tokens
   StyleValue, // Raw CSS value text: "cyan", "#b2f5ea", "100%"

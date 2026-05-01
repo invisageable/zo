@@ -1,0 +1,16 @@
+-- tests-run-pass: array .map with primitive int closure.
+-- @cmd — zo run array_map_int.zo
+
+fun main() {
+  imu nums: []int = [1, 2, 3, 4, 5];
+  imu doubled: []int = nums.map(fn(x) => x * 2);
+
+  showln(doubled);
+  showln(doubled.len);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- [2, 4, 6, 8, 10]
+-- 5
+-- DONE

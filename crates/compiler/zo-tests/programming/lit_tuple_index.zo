@@ -1,0 +1,10 @@
+-- tests-build-pass: tuple field access.
+-- @cmd — zo build lit_tuple_index.zo
+
+fun main() {
+  imu t := (10, 20);
+
+  check@eq(t.0, 10);
+  check@eq(t.1, 20);
+  check@eq(t.0 + t.1, 30);
+}

@@ -1,9 +1,0 @@
--- tests-build-pass: enum with explicit discriminant.
--- @cmd — zo build enum-discriminant.zo
-
-enum Bar {
-  FooBar,
-  RabOof = 0,
-}
-
-fun main() {}

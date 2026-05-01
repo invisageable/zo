@@ -6,108 +6,127 @@
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
 ---
 
-> *The symphonie of compilers.*
+> *The fastest, expressive language designed to give you total control over your software and user interfaces.*
 
-[home](https://github.com/invisageable/zo) — [install](./crates/compiler/zo-notes/public/guidelines/02-install.md) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)  
+[home](https://github.com/invisageable/zo) — [install](#get-started) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [speeches](./notes/speeches) — [license](#license)
 
-  <!-- pub $: {
-    .count-value {
-      c: navy;
-      fs: 1rem;
-      fw: bold;
-    }
-  } -->
+> *« Rust makes you wait. C makes you think. zo just lets you build. » — i10e*
 
-  <!-- ```ts
+## see it.
+
+**-zsx-counter**
+
+  ```zo
   fun main() {
     mut count: int = 0;
 
     imu counter: </> ::= <>
       <button @click={fn() => count -= 1}>-</button>
-      <span class="count-value">{count}</span>
+      {count}
       <button @click={fn() => count += 1}>+</button>
     </>;
 
     #dom counter;
   }
-  ``` -->
+  ```
 
-![preview-zo-templating-counter](./crates/compiler/zo-notes/public/assets/preview/preview-zo-templating-counter.png)
+**-concurrency**
 
-<!-- ## warning.
+  ```zo
+  fun producer_a(tx: Tx<int>) { tx.send(10); }
+  fun producer_b(tx: Tx<int>) { tx.send(20); }                                   
+                                                                                  
+  fun main() {                                                                   
+    nursery {                                                                    
+      imu (tx1, rx1) := channel(1);
+      imu (tx2, rx2) := channel(1);                                              
+    
+      spawn producer_a(tx1);                                                     
+      spawn producer_b(tx2);
+                                                                                  
+      select {    
+        rx1 => fn(value: int) => showln("chan1: {value}"),
+        rx2 => fn(value: int) => showln("chan2: {value}"),                       
+      }
+    }                                                                            
+  }
+  ```
 
-**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**
+ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SAME SOURCE.
 
-THiS iS A LiViNG PROJECT, FORGED iN THE OPEN. EXPECT ROUGH EDGES AND RADiCAL iDEAS.   
+## why zo?
 
-WE ARE BUiLDiNG THE CATHEDRAL. THE FOUNDATiON iS LAiD, BUT THE SPiRES ARE STiLL REACHiNG FOR THE SKY. iF YOU ARE A PiONEER, A BUiLDER, OR A FELLOW COMPiLER NERD, YOU'VE ARRiVED AT THE PERFECT TiME.   
+zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE COMPiLER STAGES AND EMiTTiNG MACHiNE CODE DiRECTLY, zo ELiMiNATES THE OVERHEAD OF HEAVY ABSTRACTiONS AND EXTERNAL LiNKERS.
 
-JOiN THE DEVOLUTiON.  
+### benchmarks.
 
-**wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip wip.**  
+*Workload: 10,000 lines of source code compiled to native ARM64 binary (including link step).*
 
-> *If you’re curious, do take the time to explore the project in its entirety.* -->
+| Compiler  | Hot Average | Throughput      | vs zo             |
+| :-------- | :---------- | :-------------- | :---------------- |
+| **zo**    | **60 ms**   | **~167K LoC/s** | **1× (baseline)** |
+| **clang** | 148 ms      | ~67K LoC/s      | 2.4× slower       |
+| **rustc** | 321 ms      | ~31K LoC/s      | 5.3× slower       |
 
-## about.
+[@methodology-and-full-numbers](./crates/compiler/zo-benches)
 
-zo (PRONOUNCED `/zuː/`) iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A GiGANTiC COMPiLER.    
+### our pipeline.
 
-THE AiM OF THE PROJECT iS TO ENHANCE THE DEVELOPER EXPERiENCE, MAKiNG iT SEAMLESS TO BUiLD SOFTWARE THAT REFLECTS YOUR CREATiViTY. WE FOCUS ON DETAiLS THAT MATTER, OPENiNG NEW DiMENSiONS iN THE SOFTWARE UNiVERSE SPACE WHERE TRANSFORMiNG YOUR THOUGHTS iNTO PROGRAMS iS NOT JUST EASY, BUT ENJOYABLE.    
+iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALLY:
 
-zo iS A COMPLETE ECOSYSTEM THAT ONLY GiVES YOU THE KEYS. YOU FiNALLY HAVE CONTROL OVER YOUR WORKSTATiON. YOU'LL NEVER HAVE TO WORK BLiND AGAiN. OUR TOOLS ARE DESiGNED TO PROViDE YOU WiTH ALL THE iNFORMATiON YOU NEED FOR YOUR PROGRAM, FROM DESiGN TO DELiVERY.   
+  1. TOKENiZiNG — *Processes raw text into clean tokens at ~13M LoC/s.*
+  2. PARSiNG — *Builds the parse tree using a custom, cache-friendly parser.*
+  3. ANALYZiNG — *Performs Hindley-Milner type inference, monomorphization, and type checking.*
+  4. OPTiMiZiNG — *Executes algebraic optimizations (constant folding, propagation, dead-code elimination).*
+  5. CODEGEN & LiNK — *Emits direct machine code and creates the final binary.*
 
-OUR GOAL iS TO CREATE HiGH-PERFORMANCE, NEXT-GENERATiON SOFTWARE BY REDEFiNiNG USER iNTERFACES. OUR AiM iS NOT TO CREATE MERE TOOLS, BUT TO BE THE MAiN PLAYER iN THE DEVELOPER TOOLS OF TOMORROW ON A GLOBAL SCALE. WE ARE AGAiNST ABUNDANT SOFTWARE UNiFORMiTY. zo UNiFiES THE WEB AND THE GPU NOT BY FORCiNG THE WEB iNTO A CANVAS, BUT BY HARMONiZiNG FLEXBOX LAYOUTS WiTH RAW GPU POWER, WHiCH iS WHY WE WiLL DO EVERYTHiNG WE CAN TO PUSH THE BOUNDARiES OF iNNOVATiON TO THE LiMiT.
-
-JOiN THE DEVOLUTiON.
+> *« Insanely faster, Usain Bolt would be jealous. » — i2N*
 
 ## features.
 
-**-developer-experience**
+- **UNiFiED Ui DEVELOPMENT**
+  - WRiTE USER iNTERFACES ONCE — TARGET NATiVE <sup>EGUi</sup> OR THE WEB <sup>JS/DOM</sup>.
+  - FLEXBOX PARiTY ACROSS GPU AND DOM ViA TAFFY — ONE LAYOUT MODEL, TWO BACKENDS.
 
-  - zsx (zo SYNTAX EXTENSiON) — *ui syntax inspired by `E4X`, fully `type-safe`.*
-    - NATiVE TARGET — *zero-cost `gpu` rendering via `egui`.*
-    - WEB TARGET — *optimized `js/dom` nodes (no canvas bloat) for seo & a11y.*
-    - UNiFiED LAYOUT — *`flexbox` parity across `gpu` and `dom` via `taffy`.*
-  - USER-FRiENDLY ERROR MESSAGES — *like elm, for faster debugging.*
-  - EXPRESSiVE & CONCiSE — *syntax designed for readability.*
-  - FULL-BATTERY TOOLS — *native REPL, code editor, package manager, etc.*
+- **iNSTANT FEEDBACK LOOP**
+  - COMPiLE 10,000 LiNES iN MiLLiSECONDS — CODE WiTHOUT WAiTiNG FOR THE COMPiLER.
+  - USER-FRiENDLY ERROR MESSAGES — LiKE elm, FOR FASTER DEBUGGiNG.
 
-**-type-safety**
+- **EXPRESSiVE & SAFE SYNTAX**
+  - STATiCALLY & STRONGLY TYPED — TOTAL CONTROL OVER YOUR PROGRAM FROM A TO Z.
+  - METiCULOUS TYPE SYSTEM — TYPE iNFERENCE, MONOMORPHiZATiON, TYPESTATE.
+  - SAFE CONCURRENCY — GREEN AND OS THREADS LiKE Go, WRAPPED iN NURSERY TASK SCOPES. <sup>NO LEAKED THREADS, NO DATA RACES</sup>.
+  - META-LANGUAGE — RUN AT COMPiLE-TiME ViA `#asm`, `#dom`, `#run` DiRECTiVES.
 
-  - STATiCALLY & STRONGLY TYPED — *total control over your program from A to Z.*
-  - METiCULOUS TYPE SYSTEM — *type inference, monomorphization, `typestate`.*
-  - SAFE CONCURRENCY — *robust erlang-like actor model.*
-  - META-LANGUAGE — *run at `compile-time` via `#asm`, `#dom`, `#run` directives.*
+- **FULL TOOLKiT iNCLUDED**
+  - PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup>, TEXT EDiTOR <sup><a href="https://github.com/invisageable/codelord">codelord</a></sup>, NATiVE BUiLD TOOLS — KEEPS YOUR WORKSTATiON LiGHTWEiGHT.
+  - TARGET SUPPORT — `arm64`, `x86_64` FOR `linux`, `macos`, `windows`.
 
-**-performance-and-compilation**
+## get started.
 
-  - HiGH-SPEED COMPiLATiON-TiME — *insanely faster, Usain Bolt would be jealous.*
-  - ALGEBRAiC OPTiMiZATiON — *folding, propagation.*
-  - TARGET SUPPORT — *`arm64`, `x86_64` for `linux`, `macos`, `windows`*.
-
-## install.
-
-  1. YOU JUST HAVE TO RUN:
+  1. RUN THE iNSTALLATiON SCRiPT:
 
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/zo-install.sh | sh
   ```
 
-  2. THEN:
+  2. VERiFY:
 
   ```
   zo --version
   ```
 
-  3. iT WiLL PRiNTS:
+  3. iT WiLL PRiNT:
 
   ```
   zo x.x.x
   ```
 
-  4. ET VOiLÀ! YOU ARE GOOD TO GO. START WiTH [@how-to](./crates/compiler/zo-how-zo)
+> *Note: zo is entirely self-contained. It requires no heavy external frameworks.*
 
-iF YOU ENCOUNTER iSSUES TO iNSTALL zo CHECK OUT THE FOLLOWiNG GUiDE FOR MORE DETAiLS:
+  1. ET VOiLÀ! HEAD OVER TO [@how-to](./crates/compiler/zo-how-zo) — THE EASiEST WAY TO GET THE BASiCS OF zo.
+
+iF YOU ENCOUNTER iSSUES, CHECK THE GUiDE:
 
   - @SEE — [`01-install`](./crates/compiler/zo-notes/public/guidelines/01-install.md)
 
@@ -120,39 +139,51 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 | NAME                                               | DESCRiPTiON                                                         |
 | :------------------------------------------------- | :------------------------------------------------------------------ |
 | [eazy](./sources/tweener/eazy)                     | THE HiGH-PERFORMANCE TWEENiNG & EASiNG FUNCTiONS KiT FOR ANiMATiON. |
-| [swisskit](./sources/crafter/swisskit)             | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG ROBUST PROGRAM.                |
+| [swisskit](./sources/crafter/swisskit)             | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG ROBUST PROGRAMS.                |
 | [tree-sitter-zo](./sources/crafter/tree-sitter-zo) | THE zo GRAMMAR FOR tree-sitter.                                     |
 
 **-crates**
 
-| NAME                           | DESCRiPTiON                                             |
-| :----------------------------- | :------------------------------------------------------ |
-| [fret](./crates/packager/fret) | THE PACKAGE MANAGER FOR THE `zo` PROGRAMMiNG LANGUAGE.   |
-| [zo](./crates/compiler/zo)     | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGUAGE. |
+| NAME                                         | DESCRiPTiON                                              |
+| :------------------------------------------- | :------------------------------------------------------- |
+| [fret](./crates/packager/fret)               | THE PACKAGE MANAGER FOR THE `zo` PROGRAMMiNG LANGUAGE.   |
+| [fret-vscode](./crates/packager/fret-vscode) | THE VS CODE EXTENSiON FOR `fret` MANiFEST FiLES.         |
+| [zo](./crates/compiler/zo)                   | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGUAGE. |
+| [zo-vscode](./crates/compiler/zo-vscode)     | THE VS CODE EXTENSiON FOR THE `zo` PROGRAMMiNG LANGUAGE. |
 
-> *More crates are coming. the architecture is modular and composable. Be gentle.*
+> *More crates are coming. The architecture is modular and composable. Be gentle.*
+
+## the manifesto.
+
+zo iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A GiGANTiC COMPiLER.
+
+THE AiM OF THE PROJECT iS TO ENHANCE THE DEVELOPER EXPERiENCE, MAKiNG iT SEAMLESS TO BUiLD SOFTWARE THAT REFLECTS YOUR CREATiViTY. WE FOCUS ON DETAiLS THAT MATTER, OPENiNG NEW DiMENSiONS iN THE SOFTWARE UNiVERSE WHERE TRANSFORMiNG YOUR THOUGHTS iNTO PROGRAMS iS NOT JUST EASY, BUT ENJOYABLE.
+
+zo iS A COMPLETE ECOSYSTEM THAT GiVES YOU THE KEYS. YOU FiNALLY HAVE CONTROL OVER YOUR WORKSTATiON. YOU'LL NEVER HAVE TO WORK BLiND AGAiN. OUR TOOLS PROViDE ALL THE iNFORMATiON YOU NEED FOR YOUR PROGRAM, FROM DESiGN TO DELiVERY.
+
+WE ARE AGAiNST ABUNDANT SOFTWARE UNiFORMiTY. zo UNiFiES THE WEB AND THE GPU — NOT BY FORCiNG THE WEB iNTO A CANVAS, BUT BY HARMONiZiNG FLEXBOX LAYOUTS WiTH RAW GPU POWER. WE WiLL DO EVERYTHiNG WE CAN TO PUSH THE BOUNDARiES OF iNNOVATiON TO THE LiMiT.
+
+**JOiN THE DEVOLUTiON.**
 
 ## contributing.
 
-WE LOVE CONTRiBUTORS. THiS iS A PLAYGROUND FOR COMPiLER __NERDS__, FRONTEND __HACKERS__, AND __CREATIVE__.    
+WE LOVE CONTRiBUTORS. THiS iS A PLAYGROUND FOR COMPiLER __NERDS__, FRONTEND __HACKERS__, AND __CREATIVES__.
 
-FEEL FREE TO OPEN AN iSSUE iF YOU WANT TO CONTRiBUTE OR COME TO SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). ALSO YOU CAN CONTACT US AT `echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode`.   
+OPEN AN iSSUE, OR COME SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). YOU CAN ALSO CONTACT US AT `echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode`.
 
-## sponsors.
+## sponsors & supports.
 
-STARS, DONATiON AND SPONSORS ARE WELCOMiNG. SPREAD THE WORD e-ve-ry-where.    
+STARS, DONATiONS AND SPONSORS ARE WELCOME. SPREAD THE WORD e-ve-ry-where.
 
-## supports.
-
-iF THiS PROJECT RESONATES WiTH YOU — PLEASE STAR iT. iT HELPS US GROW, ATTRACTS CONTRiBUTORS, AND VALiDATES THE DiRECTiON.    
+iF THiS PROJECT RESONATES WiTH YOU — PLEASE STAR iT. iT HELPS US GROW, ATTRACTS CONTRiBUTORS, AND VALiDATES THE DiRECTiON.
 
 ## credits.
 
-THANKS TO:    
+THANKS TO:
 
 [@ledruidd](https://github.com/ledruidd) [@SiegfriedEhret](https://github.com/SiegfriedEhret) [@akimd](https://github.com/akimd) [@graydon](https://github.com/graydon) [@rvirding](https://github.com/rvirding) [@worrydream](https://x.com/worrydream) [@j_blow](https://www.twitch.tv/j_blow) [@tsoding](https://x.com/tsoding) [@geohot](https://github.com/geohot) [@mike_acton](https://x.com/mike_acton)
 
-> *« DE PRÈS COMME DE LOiN VOUS M'AVEZ iNSPiRÉ À MENER CE PROJET. TRiLU ! »* — *i10e*.    
+> *« Merci à vous pour l'inspiration. TRiLU ! » — i10e*
 
 ## license.
 

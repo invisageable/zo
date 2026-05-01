@@ -145,11 +145,11 @@ impl eframe::App for App {
 
         let pending = self.renderer.take_pending_events();
 
-        for (widget_id, _event_kind) in pending {
+        for (widget_id, _event_kind, payload) in pending {
           let wid = widget_id.to_string();
 
           if let Some(handler_name) = self.event_map.get(&wid) {
-            self.events.dispatch(handler_name);
+            self.events.dispatch(handler_name, &payload);
           }
         }
       });

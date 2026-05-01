@@ -1,0 +1,41 @@
+-- tests-build-pass: array pop method.
+-- @cmd — zo build array_pop.zo
+
+fun main() {
+  mut arr: []int = [];
+
+  arr.push(10);
+  arr.push(20);
+  arr.push(30);
+
+  check@eq(arr.len, 3);
+
+  showln(arr);
+
+  imu last: int = arr.pop();
+
+  check@eq(last, 30);
+  check@eq(arr.len, 2);
+
+  showln(arr);
+
+  imu mid: int = arr.pop();
+
+  check@eq(mid, 20);
+  check@eq(arr.len, 1);
+
+  showln(arr);
+
+  showln(last);
+  showln(mid);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- [10, 20, 30]
+-- [10, 20]
+-- [10]
+-- 30
+-- 20
+-- DONE

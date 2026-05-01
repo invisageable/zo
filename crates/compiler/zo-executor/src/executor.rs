@@ -5,7 +5,8 @@ use zo_interner::{
 };
 use zo_reporter::report_error;
 use zo_sir::{
-  BinOp, Insn, LoadSource, NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
+  BinOp, ComputedBinding, Insn, ListBinding, ListItemCmd, LoadSource,
+  NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -24,6 +25,13 @@ use zo_value::{
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use std::cell::Cell;
+
+/// Name prefix for synthetic closures lowered from
+/// compound `{expr}` template interpolations. DCE pins
+/// these via the `Insn::Template.bindings.computed`
+/// side-channel; the runtime invokes them on every state
+/// change to recompute the bound `UiCommand::Text`.
+const TEMPLATE_INTERP_PREFIX: &str = "__interp_";
 
 /// Index newtype: position in `Executor::funs`.
 /// Reserves `u32::MAX` as the absent sentinel so a
@@ -208,6 +216,13 @@ pub struct Executor<'a> {
   /// Pending array element assignment (deferred to Semicolon).
   /// (array_sir, index_sir, array_name, span)
   pending_array_assign: Option<(ValueId, ValueId, Symbol, Span)>,
+  /// Pending struct field assignment `p.field = expr`,
+  /// deferred to Semicolon. Without this, the assignment was
+  /// a silent no-op outside `apply` methods — the LHS was
+  /// pushed onto the stacks (as a `TupleIndex` read), the
+  /// RHS was evaluated, and Semicolon dropped both.
+  /// `(recv_sir, field_idx, field_ty, recv_name, span)`.
+  pending_field_assign: Option<(ValueId, u32, TyId, Symbol, Span)>,
   /// Tuple context stack: stack_depth_at_open.
   tuple_ctx: Vec<usize>,
   /// Deferred binary operators waiting for RHS group to close.
@@ -236,6 +251,11 @@ pub struct Executor<'a> {
   dot_method_recv_ty: HashMap<usize, (TyId, Option<Symbol>)>,
   /// Counter for generating unique closure names.
   closure_counter: u32,
+  /// Counter for generating unique synthetic locals for
+  /// `.map` lowering (`__map_res_<n>`, `__map_i_<n>`).
+  /// Independent of `closure_counter` so naming stays
+  /// stable across recompilation order.
+  map_counter: u32,
   /// Known enum types by name → (EnumTyId, TyId).
   enum_defs: Vec<(Symbol, zo_ty::EnumTyId, TyId)>,
   /// `Symbol → EnumIdx` lookup. Direct array load — no
@@ -338,6 +358,26 @@ pub struct Executor<'a> {
   /// Generic constraints: `$T: Eq` maps the type param
   /// name to the abstract name. Verified at call site.
   type_constraints: HashMap<Symbol, Symbol>,
+  /// Generic type aliases: `type Pair<$T> = ($T, $T);` →
+  /// `(params, body)` where `params` are the original
+  /// inference vars minted at definition and `body` is the
+  /// alias body containing those same vars. At each use
+  /// site (e.g. `Pair<int>`), we substitute params with
+  /// the concrete args (or fresh vars) so the shared body
+  /// vars never get bound globally — that global bind is
+  /// what would make a second `Pair<str>` after `Pair<int>`
+  /// fail with a spurious type mismatch.
+  generic_aliases: HashMap<Symbol, (Vec<TyId>, TyId)>,
+  /// Counter for synthetic closures minted to host
+  /// template `{expr}` interpolations. Each `{…}` lowers
+  /// to a `__interp_<n>` closure that captures referenced
+  /// `mut` locals and returns the expression's value, so
+  /// any zo expression (ternaries, if-as-expr, function
+  /// calls, match-as-expr) composes the way it would in a
+  /// regular let-binding init position. The runtime
+  /// invokes the closure on each state change to recompute
+  /// the text.
+  template_interp_counter: u32,
   /// Tree range `(start, end_exclusive)` of each generic
   /// function's whole declaration (from `Fun` through the
   /// closing `}`). Populated at `execute_fun` time for any
@@ -618,11 +658,13 @@ impl<'a> Executor<'a> {
       pending_compound_receiver: None,
       array_ctx: Vec::new(),
       pending_array_assign: None,
+      pending_field_assign: None,
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
       deferred_short_circuits: Vec::new(),
       dot_method_recv_ty: HashMap::default(),
       closure_counter: 0,
+      map_counter: 0,
       enum_defs: Vec::new(),
       enum_def_by_name: DenseMap::new(),
       pending_imported_enums: Vec::new(),
@@ -644,6 +686,8 @@ impl<'a> Executor<'a> {
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
+      generic_aliases: HashMap::default(),
+      template_interp_counter: 0,
       deferred_closures: Vec::new(),
       pending_call_rparen: None,
       direct_call_depth: 0,
@@ -2027,6 +2071,25 @@ impl<'a> Executor<'a> {
               }
               BranchKind::While | BranchKind::For => ctx.end_label,
             };
+
+            // Reject non-bool conditions (`if n { ... }` where
+            // `n: int`). zo doesn't auto-coerce ints to bool;
+            // a stray int condition was previously accepted and
+            // silently emitted a branch comparing the int to 0.
+            // For/while are exempt — `BranchKind::For` reuses
+            // this site for its synthetic loop predicate, which
+            // is built bool by codegen.
+            if matches!(ctx.kind, BranchKind::If | BranchKind::Ternary)
+              && let Some(&cond_ty) = self.ty_stack.last()
+            {
+              let resolved = self.ty_checker.resolve_ty(cond_ty);
+
+              if !matches!(resolved, Ty::Bool | Ty::Infer(_)) {
+                let span = self.tree.spans[idx];
+
+                report_error(Error::new(ErrorKind::TypeMismatch, span));
+              }
+            }
 
             self.sir.emit(Insn::BranchIfNot {
               cond: cond_sir,
@@ -3548,15 +3611,24 @@ impl<'a> Executor<'a> {
             });
 
             if let Some(fname) = field_name {
-              let resolved = fields
+              let resolved = match fields
                 .iter()
                 .enumerate()
                 .find(|(_, f)| f.name == fname)
-                .map(|(i, f)| {
+              {
+                Some((i, f)) => {
                   field_idx = i as u32;
                   f.ty_id
-                })
-                .unwrap_or(self.ty_checker.unit_type());
+                }
+                None => {
+                  // Unknown field.
+                  let span = self.tree.spans[idx];
+
+                  report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
+
+                  self.ty_checker.unit_type()
+                }
+              };
 
               // For generic structs, the shared field type
               // is still an `Ty::Infer(_)` placeholder. The
@@ -3963,6 +4035,7 @@ impl<'a> Executor<'a> {
 
         // Finalize pending assignment (x = expr;).
         self.finalize_pending_array_assign();
+        self.finalize_pending_field_assign();
 
         let had_assign = self.pending_assign.is_some();
         self.finalize_pending_assign();
@@ -4085,6 +4158,57 @@ impl<'a> Executor<'a> {
 
               self.pending_array_assign =
                 Some((array_sir, index_sir, name, span));
+            }
+          }
+        } else if self.tree.nodes[target_idx].token == Token::Dot {
+          // Struct field assignment: `p.field = value`. The
+          // Dot handler emitted `Insn::TupleIndex` (struct
+          // field read), pushing the field's value onto the
+          // stacks. Recover the receiver SIR + field index
+          // from the most recent TupleIndex insn, pop the
+          // read result (we don't need the old value), and
+          // defer the FieldStore emission to Semicolon
+          // alongside the RHS.
+          if let Some(Insn::TupleIndex {
+            tuple,
+            index,
+            ty_id,
+            ..
+          }) = self.sir.instructions.last()
+          {
+            let recv_sir = *tuple;
+            let field_idx = *index;
+            let field_ty = *ty_id;
+
+            // Pull the receiver symbol straight from the
+            // parse tree so both `self.x = …` (Param) and
+            // `f.x = …` (Local) reach finalize. Walking the
+            // SIR back to a `LoadSource::Local` would miss
+            // the `self` case — `self` lowers to
+            // `LoadSource::Param(0)`, not `Local(SELF)`.
+            // recv_idx is `target_idx - 2`: postorder for
+            // `recv.field` is `recv, field, Dot`, so two
+            // back from `Dot` is the receiver token.
+            let recv_idx = target_idx.saturating_sub(2);
+
+            let recv_name = match self.tree.nodes[recv_idx].token {
+              Token::SelfLower => Some(Symbol::SELF_LOWER),
+              Token::Ident => self.node_value(recv_idx).and_then(|v| match v {
+                NodeValue::Symbol(s) => Some(s),
+                _ => None,
+              }),
+              _ => None,
+            };
+
+            if let Some(name) = recv_name {
+              self.value_stack.pop();
+              self.ty_stack.pop();
+              self.sir_values.pop();
+
+              let span = self.tree.spans[target_idx];
+
+              self.pending_field_assign =
+                Some((recv_sir, field_idx, field_ty, name, span));
             }
           }
         }
@@ -5071,6 +5195,15 @@ impl<'a> Executor<'a> {
     let pack_end = rbrace_idx.map(|i| i + 1).unwrap_or(end_idx);
 
     if let Some(name) = name {
+      // Reject `pack math::(...); pack math::(...);` —
+      // re-declaring or re-importing the same pack name
+      // shadowed the first decl silently.
+      if !self.pack_names.insert(name) {
+        let span = self.tree.spans[name_idx.unwrap_or(start_idx)];
+
+        report_error(Error::new(ErrorKind::DuplicateDefinition, span));
+      }
+
       self.sir.emit(Insn::PackDecl {
         name,
         pubness: if self.is_pub(start_idx) {
@@ -5079,12 +5212,6 @@ impl<'a> Executor<'a> {
           Pubness::No
         },
       });
-
-      // Register the simple pack name so `inner.hello()`
-      // style calls can recognise `inner` / `inner2` as
-      // namespace prefixes (the Ident handler would
-      // otherwise flag them as undefined variables).
-      self.pack_names.insert(name);
     }
 
     // Enter pack context: nested `fun`s will be mangled
@@ -5155,24 +5282,41 @@ impl<'a> Executor<'a> {
       j = k;
     }
 
-    // Resolve the base element type.
-    if j < end && self.tree.nodes[j].token.is_ty() {
-      let base_ty = self.resolve_type_token(j);
-      j += 1;
+    // Resolve the base element type. Accept built-in type
+    // tokens (`int`, `bool`, …), `Token::Ident` so user-
+    // defined types resolve correctly (`[]Todo`,
+    // `[3]Point`), and `Token::Dollar` for generic-alias
+    // bodies like `type Grid<$T> = []$T;`. Without these,
+    // `mut xs: []Todo` and `Grid<int>` fell through with
+    // no element type and the unify at the decl site
+    // reported a confusing `Type mismatch`.
+    let step = if j < end {
+      let tok = self.tree.nodes[j].token;
 
-      // Build from inside out:
-      // [2][3]int → [3]int → [2][3]int.
-      let mut ty = base_ty;
-
-      for dim in dims.iter().rev() {
-        let aid = self.ty_checker.ty_table.intern_array(ty, *dim);
-        ty = self.ty_checker.intern_ty(Ty::Array(aid));
+      if tok == Token::Dollar && j + 1 < end {
+        2
+      } else if tok.is_ty() || tok == Token::Ident || tok == Token::SelfUpper {
+        1
+      } else {
+        return None;
       }
-
-      Some((ty, j))
     } else {
-      None
+      return None;
+    };
+
+    let base_ty = self.resolve_type_token(j);
+    j += step;
+
+    // Build from inside out:
+    // [2][3]int → [3]int → [2][3]int.
+    let mut ty = base_ty;
+
+    for dim in dims.iter().rev() {
+      let aid = self.ty_checker.ty_table.intern_array(ty, *dim);
+      ty = self.ty_checker.intern_ty(Ty::Array(aid));
     }
+
+    Some((ty, j))
   }
 
   /// Resolves a type token at `idx` to a [`TyId`].
@@ -5592,6 +5736,19 @@ impl<'a> Executor<'a> {
       // its own arm.
       if tok.is_ty() || tok == Token::Ident {
         elem_tys.push(self.resolve_type_token(j));
+      } else if tok == Token::Dollar
+        && j + 1 < len
+        && self.tree.nodes[j + 1].token == Token::Ident
+      {
+        // Generic element: `($T, $T)`. The alias body for
+        // `type Pair<$T> = ($T, $T);` resolves each `$T`
+        // through the active `type_params` map; without
+        // this arm the Dollar token falls through and
+        // both elements collapse to nothing.
+        elem_tys.push(self.resolve_type_token(j));
+        j += 2;
+
+        continue;
       }
 
       j += 1;
@@ -5660,6 +5817,44 @@ impl<'a> Executor<'a> {
   /// Closures are anonymous functions with by-copy capture.
   /// Captures become prepended parameters in the generated
   /// FunDef. The closure value is pushed onto the stack.
+  /// Install a synthetic `Fn(param_ty) -> ?fresh` annotation
+  /// through `pending_decl` so `execute_closure`'s
+  /// param-propagation block (line 5897 area) types an
+  /// otherwise-unannotated user param. Returns the previous
+  /// `pending_decl` (typically the outer let-binding's),
+  /// which the caller restores once propagation has run.
+  ///
+  /// Used by `@input`/`@change` event-handler closures
+  /// (param `e: Event`) and by `arr.map(fn(t) => …)`
+  /// (param `t: T` from the receiver array's element type).
+  fn install_synthetic_fn_pending_decl(
+    &mut self,
+    name: &str,
+    param_ty: TyId,
+    span: Span,
+  ) -> Option<PendingDecl> {
+    let fresh_ret = self.ty_checker.fresh_var();
+    let fun_ty_id = self
+      .ty_checker
+      .ty_table
+      .intern_fun(vec![param_ty], fresh_ret);
+    let ann_ty = self.ty_checker.intern_ty(Ty::Fun(fun_ty_id));
+    let saved = self.pending_decl.take();
+
+    self.pending_decl = Some(PendingDecl {
+      name: self.interner.intern(name),
+      is_mutable: false,
+      is_constant: false,
+      pubness: Pubness::No,
+      annotated_ty: Some(ann_ty),
+      span,
+      init_start_idx: self.sir.instructions.len(),
+      tuple_pattern: None,
+    });
+
+    saved
+  }
+
   fn execute_closure(&mut self, start_idx: usize, end_idx: usize) {
     // -- 1. Parse parameters ---------------------------------
 
@@ -5733,16 +5928,42 @@ impl<'a> Executor<'a> {
 
           break;
         }
-        Token::LBrace | Token::FatArrow => break,
+        Token::LBrace | Token::FatArrow | Token::TemplateFatArrow => break,
         _ => idx += 1,
       }
     }
 
     // -- 1b. Propagate types from declaration annotation ------
-    // If the enclosing declaration has a Fn type annotation,
-    // unify its param/return types with the closure's inferred
-    // types BEFORE executing the body. This allows untyped
-    // params like `fn(x)` to resolve via `Fn(int) -> int`.
+    // If the enclosing decl has a Fn annotation, unify its
+    // param/return types with the closure's inferred ones
+    // before executing the body — lets `fn(x)` resolve via
+    // `Fn(int) -> int`. For `arr.map(fn(t) => ...)` there's
+    // no Fn-typed decl in scope (outer let is `[]U`), so
+    // synthesize one off `dot_method_recv_ty`'s element type
+    // for this propagation step only. Restored just below.
+    //
+    // Hot-path discipline: gate the synthesis behind the
+    // cheap `Token::Dot` check at `start_idx - 2` BEFORE
+    // touching any HashMap or interner — every closure runs
+    // through this code path, not just `.map`'s.
+    let saved_pending_for_map = if start_idx >= 2
+      && self.tree.nodes[start_idx - 2].token == Token::Dot
+      && let Some(&(recv_ty, _)) = self.dot_method_recv_ty.get(&(start_idx - 2))
+      && let Ty::Array(aid) = self.ty_checker.kind_of(recv_ty)
+      && let Some(at) = self.ty_checker.ty_table.array(aid)
+    {
+      let elem_ty = at.elem_ty;
+      let span = self.tree.spans[start_idx];
+
+      Some(self.install_synthetic_fn_pending_decl(
+        "__map_closure_arg",
+        elem_ty,
+        span,
+      ))
+    } else {
+      None
+    };
+
     if let Some(ref decl) = self.pending_decl
       && let Some(ann_ty) = decl.annotated_ty
     {
@@ -5773,6 +5994,14 @@ impl<'a> Executor<'a> {
       }
     }
 
+    // Restore the outer pending_decl now that the .map
+    // synthetic has done its job (param-type propagation
+    // above). Leaving it in place would make the outer
+    // let's finalize see the wrong shape.
+    if let Some(orig) = saved_pending_for_map {
+      self.pending_decl = orig;
+    }
+
     // -- 2. Determine body range -----------------------------
 
     let (body_start_idx, body_end_idx) =
@@ -5780,6 +6009,31 @@ impl<'a> Executor<'a> {
         // Inline form: fn(x) => expr
         // Exclude trailing Semicolon — it belongs to the
         // enclosing declaration, not the closure body.
+        let end = if end_idx > 0
+          && self
+            .tree
+            .nodes
+            .get(end_idx - 1)
+            .is_some_and(|n| n.token == Token::Semicolon)
+        {
+          end_idx - 1
+        } else {
+          end_idx
+        };
+
+        (idx + 1, end)
+      } else if idx < end_idx
+        && self.tree.nodes[idx].token == Token::TemplateFatArrow
+      {
+        // Template-returning form: fn(t) =:> <li>{t}</li>
+        // The parser auto-wraps the leading named tag in a
+        // synthetic `TemplateFragmentStart`, so the body
+        // shape downstream is identical to a `::=` binding.
+        // Force the closure's return type to `</>` so
+        // capture/store unifications agree with how the
+        // template-fragment executor emits the result.
+        return_ty = self.ty_checker.template_ty();
+
         let end = if end_idx > 0
           && self
             .tree
@@ -6024,6 +6278,24 @@ impl<'a> Executor<'a> {
         value: return_value,
         ty_id: return_ty_actual,
       });
+
+      // Inline `=> expr` closures default `return_ty` to
+      // `unit` and never get an annotation update — but the
+      // body's expression is the real return. Promote here
+      // so downstream consumers (notably `.map` lowering,
+      // which reads `func.return_ty` to size `[]U`) see the
+      // concrete type. Backed by `fun_by_name` so the
+      // FunDef record we just pushed at line 6051 is
+      // updated in place.
+      if !had_compound
+        && !had_assign
+        && return_ty_actual != return_ty
+        && let Some(FunIdx(i)) = self.fun_by_name.get(closure_name)
+        && let Some(fd) = self.funs.get_mut(i as usize)
+      {
+        fd.return_ty = return_ty_actual;
+        return_ty = return_ty_actual;
+      }
     }
 
     // -- 11. Tear down ---------------------------------------
@@ -6644,11 +6916,12 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Destructuring patterns: tuple `imu (a, b, c) = …`
-    // or struct `imu { x, y, z } = …`. The pattern names
-    // are bound to the rhs's matching elements at
-    // finalize time — tuple by index, struct by field
-    // name (resolved from the rhs's struct type). The
+    // Destructuring patterns: tuple `imu (a, b, c) = …`,
+    // struct `imu { x, y, z } = …`, or array
+    // `imu [a, b, c] = …`. The pattern names are bound to
+    // the rhs's matching elements at finalize time — tuple
+    // by index, struct by field name (resolved from the
+    // rhs's struct type), array by ordered index. The
     // walk skips past the closing delimiter and any
     // `=` / `:=` so the main loop only sees the rhs
     // init expression.
@@ -6656,15 +6929,16 @@ impl<'a> Executor<'a> {
       && idx + 1 < children_end
       && matches!(
         self.tree.nodes[idx + 1].token,
-        Token::LParen | Token::LBrace
+        Token::LParen | Token::LBrace | Token::LBracket
       );
 
     if is_pattern {
       let opener = self.tree.nodes[idx + 1].token;
-      let closer = if opener == Token::LParen {
-        Token::RParen
-      } else {
-        Token::RBrace
+      let closer = match opener {
+        Token::LParen => Token::RParen,
+        Token::LBrace => Token::RBrace,
+        Token::LBracket => Token::RBracket,
+        _ => Token::RParen, // unreachable per `is_pattern`
       };
 
       let mut names: Vec<Symbol> = Vec::new();
@@ -6889,10 +7163,11 @@ impl<'a> Executor<'a> {
               }
             }
 
+            let mut gargs: Vec<TyId> = Vec::new();
+
             if let (Some(lt), Some(gt)) = (lt_pos, gt_pos) {
               let scan_lo = cursor + 1;
               let scan_hi = gt;
-              let mut gargs: Vec<TyId> = Vec::new();
               let mut j = scan_lo;
 
               while j < scan_hi {
@@ -6936,17 +7211,47 @@ impl<'a> Executor<'a> {
                 j += 1;
               }
 
-              if !gargs.is_empty() {
-                self.decl_annotation_args.insert(name.as_u32(), gargs);
-              }
-
               cursor = gt;
               let _ = lt;
             }
 
             i = cursor;
 
-            annotated_ty = Some(base);
+            // Generic type alias: substitute the alias body's
+            // params with the concrete `<...>` args (or fresh
+            // vars when the use site omits them). Returning
+            // the raw `base` would leak the alias's shared
+            // inference vars into the caller and a second
+            // `Pair<str>` after `Pair<int>` would unify
+            // `int` against `str`.
+            let final_ty = if let Some((params, body)) =
+              self.generic_aliases.get(&sym).cloned()
+            {
+              let mut subst: rustc_hash::FxHashMap<zo_ty::InferVarId, TyId> =
+                rustc_hash::FxHashMap::default();
+
+              for (idx_p, p) in params.iter().enumerate() {
+                if let Ty::Infer(v) = self.ty_checker.kind_of(*p) {
+                  let target = if idx_p < gargs.len() {
+                    gargs[idx_p]
+                  } else {
+                    self.ty_checker.fresh_var()
+                  };
+
+                  subst.insert(v, target);
+                }
+              }
+
+              self.ty_checker.substitute_ty(&body, &subst)
+            } else {
+              base
+            };
+
+            if !gargs.is_empty() {
+              self.decl_annotation_args.insert(name.as_u32(), gargs);
+            }
+
+            annotated_ty = Some(final_ty);
           }
         }
 
@@ -7042,6 +7347,45 @@ impl<'a> Executor<'a> {
           index: index_sir,
           value: sv,
           ty_id: value_ty,
+        });
+      }
+    }
+  }
+
+  /// Finalize a pending struct field assignment
+  /// (`p.field = value;`). Mirrors `finalize_pending_array_
+  /// assign` but emits `Insn::FieldStore` instead.
+  fn finalize_pending_field_assign(&mut self) {
+    let (recv_sir, field_idx, field_ty, recv_name, span) =
+      match self.pending_field_assign.take() {
+        Some(f) => f,
+        None => return,
+      };
+
+    if let (Some(_value), Some(_value_ty)) =
+      (self.value_stack.pop(), self.ty_stack.pop())
+    {
+      let value_sir = self.sir_values.pop();
+
+      let is_mutable = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == recv_name)
+        .is_some_and(|l| l.mutability == Mutability::Yes);
+
+      if !is_mutable {
+        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+
+        return;
+      }
+
+      if let Some(sv) = value_sir {
+        self.sir.emit(Insn::FieldStore {
+          base: recv_sir,
+          index: field_idx,
+          value: sv,
+          ty_id: field_ty,
         });
       }
     }
@@ -7436,6 +7780,8 @@ impl<'a> Executor<'a> {
     // by looking up the field by name on the struct type.
     let kind = self.ty_checker.kind_of(init_ty);
 
+    let mut is_array_pattern = false;
+
     let bindings: Vec<(u32, TyId)> = match kind {
       Ty::Tuple(tid) => {
         let elems = self
@@ -7455,6 +7801,37 @@ impl<'a> Executor<'a> {
           .into_iter()
           .enumerate()
           .map(|(i, t)| (i as u32, t))
+          .collect()
+      }
+      Ty::Array(aid) => {
+        // `imu [a, b, c] = arr;`. For `[N]T` the binding
+        // count must match N; for `[]T` we trust the user
+        // (arity check would need a runtime guard). Each
+        // pattern slot reads the same `elem_ty` via
+        // `Insn::ArrayIndex`.
+        is_array_pattern = true;
+
+        let arr = match self.ty_checker.ty_table.array(aid).copied() {
+          Some(a) => a,
+          None => {
+            report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+
+            return;
+          }
+        };
+
+        if let Some(n) = arr.size
+          && names.len() != n as usize
+        {
+          report_error(Error::new(ErrorKind::ArraySizeMismatch, decl.span));
+
+          return;
+        }
+
+        names
+          .iter()
+          .enumerate()
+          .map(|(i, _)| (i as u32, arr.elem_ty))
           .collect()
       }
       Ty::Struct(sid) => {
@@ -7496,17 +7873,42 @@ impl<'a> Executor<'a> {
     for (n, &name) in names.iter().enumerate() {
       let (field_idx, elem_ty) = bindings[n];
       let elem_value = self.values.store_runtime(u32::MAX);
-      let elem_sir = sir_init.map(|tup_sir| {
+      let elem_sir = sir_init.map(|recv_sir| {
         let dst = ValueId(self.sir.next_value_id);
 
         self.sir.next_value_id += 1;
 
-        self.sir.emit(Insn::TupleIndex {
-          dst,
-          tuple: tup_sir,
-          index: field_idx,
-          ty_id: elem_ty,
-        });
+        if is_array_pattern {
+          // Array patterns need a runtime ValueId index, not
+          // a u32 like tuple/struct, so synthesize a
+          // `ConstInt` for the position and feed it to
+          // `ArrayIndex`. Header offset (`+16`) is added by
+          // codegen.
+          let int_ty = self.ty_checker.int_type();
+          let idx_dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+
+          self.sir.emit(Insn::ConstInt {
+            dst: idx_dst,
+            value: field_idx as u64,
+            ty_id: int_ty,
+          });
+
+          self.sir.emit(Insn::ArrayIndex {
+            dst,
+            array: recv_sir,
+            index: idx_dst,
+            ty_id: elem_ty,
+          });
+        } else {
+          self.sir.emit(Insn::TupleIndex {
+            dst,
+            tuple: recv_sir,
+            index: field_idx,
+            ty_id: elem_ty,
+          });
+        }
 
         dst
       });
@@ -8177,7 +8579,20 @@ impl<'a> Executor<'a> {
                     idx += 1;
                   }
                   Token::Ident => {
-                    // Named type (e.g. error).
+                    // Named type (e.g. error). Reject direct
+                    // recursion `enum Foo { Bar(Foo) }` — the
+                    // payload would need infinite size without
+                    // a heap indirection (Box / `&`), neither of
+                    // which is available in v1 enums.
+                    if let Some(NodeValue::Symbol(payload_sym)) =
+                      self.node_value(idx)
+                      && payload_sym == name
+                    {
+                      let span = self.tree.spans[idx];
+
+                      report_error(Error::new(ErrorKind::InfiniteType, span));
+                    }
+
                     let ty = self.ty_checker.fresh_var();
                     fields.push(ty);
                     idx += 1;
@@ -8564,72 +8979,63 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
-    // Scan for target type after `=`.
-    let mut target_ty: Option<TyId> = None;
+    // Save the outer generic-param scope before scanning
+    // for `<$T, ...>`. Each `$T` mints a fresh inference
+    // var so the body resolution sees `$T` as that var
+    // rather than as an undefined name. Restored below.
+    let outer_type_params = std::mem::take(&mut self.type_params);
     let mut idx = start_idx + 2;
 
-    while idx < end_idx {
-      let tok = self.tree.nodes[idx].token;
+    if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
+      idx += 1;
 
-      if tok == Token::Eq {
+      while idx < end_idx {
+        let tok = self.tree.nodes[idx].token;
+
+        if tok == Token::RAngle {
+          idx += 1;
+          break;
+        }
+
+        if tok == Token::Dollar && idx + 1 < end_idx {
+          idx += 1;
+
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+            let var = self.ty_checker.fresh_var();
+
+            self.type_params.push((sym, var));
+          }
+        }
+
         idx += 1;
-
-        continue;
       }
+    }
 
-      // Semicolon ends the declaration.
-      if tok == Token::Semicolon {
-        break;
-      }
-
-      // Tuple type: (int, float).
-      if tok == Token::LParen {
-        let (ty_id, skip) = self.resolve_tuple_type(idx);
-
-        target_ty = Some(ty_id);
-        idx = skip;
-
-        continue;
-      }
-
-      // Function type: Fn(int) -> int.
-      if tok == Token::FnType {
-        let (ty_id, skip) = self.resolve_fn_type(idx);
-
-        target_ty = Some(ty_id);
-        idx = skip;
-
-        continue;
-      }
-
-      // Array type: token followed by [].
-      if tok.is_ty() || tok == Token::Ident {
-        let base_ty = if tok == Token::Ident {
-          self
-            .node_value(idx)
-            .and_then(|v| match v {
-              NodeValue::Symbol(s) => Some(s),
-              _ => None,
-            })
-            .and_then(|sym| {
-              self.ty_checker.resolve_ty_symbol(sym, self.interner)
-            })
-            .unwrap_or_else(|| self.ty_checker.unit_type())
-        } else {
-          self.resolve_type_token(idx)
-        };
-
-        target_ty = Some(base_ty);
-        idx += 1;
-
-        continue;
-      }
-
+    while idx < end_idx && self.tree.nodes[idx].token != Token::Eq {
       idx += 1;
     }
 
-    if let Some(ty) = target_ty {
-      self.ty_checker.define_ty_alias(name, ty);
+    if idx < end_idx && self.tree.nodes[idx].token == Token::Eq {
+      idx += 1;
+    }
+
+    // Resolve the body using the unified type-resolver so
+    // `$T`, `($T, $T)`, `[]$T`, `Fn($T) -> $T`, and plain
+    // names all work the same way.
+    let body_ty = self
+      .resolve_param_or_return_ty(idx, end_idx)
+      .map(|(t, _)| t)
+      .unwrap_or_else(|| self.ty_checker.unit_type());
+
+    let param_tys: Vec<TyId> =
+      self.type_params.iter().map(|(_, t)| *t).collect();
+
+    self.type_params = outer_type_params;
+
+    self.ty_checker.define_ty_alias(name, body_ty);
+
+    if !param_tys.is_empty() {
+      self.generic_aliases.insert(name, (param_tys, body_ty));
     }
   }
 
@@ -9653,7 +10059,7 @@ impl<'a> Executor<'a> {
     if matches!(resolved, Ty::Array(_)) {
       let ms = self.interner.get(member_name).to_owned();
 
-      if ms == "push" || ms == "pop" {
+      if ms == "push" || ms == "pop" || ms == "map" {
         return true;
       }
 
@@ -10215,6 +10621,292 @@ impl<'a> Executor<'a> {
     self.value_stack.push(rid);
     self.ty_stack.push(elem_ty);
     self.sir_values.push(sv);
+  }
+
+  /// Executes `arr.map(closure)` — lowers to a synthesized
+  /// `for i := 0..arr.len { __res.push(closure(arr[i])) }`
+  /// loop in SIR. Stack: `[..., receiver, closure]`. Pops
+  /// both, pushes the new `[]U` result.
+  ///
+  /// Closure invocation is by-name through `Insn::Call`; the
+  /// closure's captures are passed in via stored capture
+  /// SIR values (same shape `execute_call`'s closure path
+  /// uses, line 15721 area). Pure, no-capture closures
+  /// (`fn(t) => t * 2`) and capturing closures alike flow
+  /// through the same call site.
+  fn execute_array_map(&mut self) {
+    let closure_val = self.value_stack.pop();
+    self.ty_stack.pop();
+    let _ = self.sir_values.pop();
+
+    self.value_stack.pop();
+    let arr_ty = self.ty_stack.pop();
+    let arr_sir = self.sir_values.pop();
+
+    let (Some(closure_val), Some(arr_ty), Some(arr_sir)) =
+      (closure_val, arr_ty, arr_sir)
+    else {
+      return;
+    };
+
+    let span = self.tree.spans.last().copied().unwrap_or_default();
+
+    let elem_ty = match self.ty_checker.kind_of(arr_ty) {
+      Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
+        Some(at) => at.elem_ty,
+        None => {
+          report_error(Error::new(ErrorKind::TypeMismatch, span));
+          return;
+        }
+      },
+      _ => {
+        report_error(Error::new(ErrorKind::TypeMismatch, span));
+        return;
+      }
+    };
+
+    let ci = closure_val.0 as usize;
+
+    let (closure_name, captures) = if ci < self.values.kinds.len()
+      && matches!(self.values.kinds[ci], Value::Closure)
+    {
+      let idx = self.values.indices[ci] as usize;
+      let cv = &self.values.closures[idx];
+
+      (cv.fun_name, cv.captures.clone())
+    } else {
+      report_error(Error::new(ErrorKind::TypeMismatch, span));
+      return;
+    };
+
+    let Some(func) = self.find_fun(closure_name).cloned() else {
+      return;
+    };
+
+    // Inline closures often leave `return_ty` as a fresh
+    // inference var that's been unified to a concrete type
+    // by the body's last expression. Resolve to the
+    // representative so `[]U` carries the concrete `U` and
+    // the let-decl's annotation unifies cleanly.
+    let result_elem_ty = self.ty_checker.resolve_id(func.return_ty);
+    let result_aid =
+      self.ty_checker.ty_table.intern_array(result_elem_ty, None);
+    let result_ty = self.ty_checker.intern_ty(Ty::Array(result_aid));
+
+    let int_ty = self.ty_checker.int_type();
+    let bool_ty = self.ty_checker.bool_type();
+
+    let n = self.map_counter;
+    self.map_counter += 1;
+
+    let res_sym = self.interner.intern(&format!("__map_res_{n}"));
+    let i_sym = self.interner.intern(&format!("__map_i_{n}"));
+
+    // mut __res: []U = []
+    let empty_dst = self.sir.next_value();
+    let empty_sir = self.sir.emit(Insn::ArrayLiteral {
+      dst: empty_dst,
+      elements: Vec::new(),
+      ty_id: result_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: res_sym,
+      ty_id: result_ty,
+      init: Some(empty_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: res_sym,
+      value: empty_sir,
+      ty_id: result_ty,
+    });
+
+    let res_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: res_sym,
+      ty_id: result_ty,
+      value_id: res_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(empty_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // mut __i: int = 0
+    let zero_dst = self.sir.next_value();
+    let zero_sir = self.sir.emit(Insn::ConstInt {
+      dst: zero_dst,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: i_sym,
+      ty_id: int_ty,
+      init: Some(zero_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: zero_sir,
+      ty_id: int_ty,
+    });
+
+    let i_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: i_sym,
+      ty_id: int_ty,
+      value_id: i_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(zero_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // Loop header.
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    // cond: __i < arr.len
+    let i_load_dst = self.sir.next_value();
+    let i_load = self.sir.emit(Insn::Load {
+      dst: i_load_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let len_dst = self.sir.next_value();
+    let len_sir = self.sir.emit(Insn::ArrayLen {
+      dst: len_dst,
+      array: arr_sir,
+      ty_id: int_ty,
+    });
+
+    let cond_dst = self.sir.next_value();
+    let cond_sir = self.sir.emit(Insn::BinOp {
+      dst: cond_dst,
+      op: BinOp::Lt,
+      lhs: i_load,
+      rhs: len_sir,
+      ty_id: bool_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_sir,
+      target: end_label,
+    });
+
+    // __t = arr[__i]
+    let i_load2_dst = self.sir.next_value();
+    let i_load2 = self.sir.emit(Insn::Load {
+      dst: i_load2_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let elem_dst = self.sir.next_value();
+    let elem_sir = self.sir.emit(Insn::ArrayIndex {
+      dst: elem_dst,
+      array: arr_sir,
+      index: i_load2,
+      ty_id: elem_ty,
+    });
+
+    // r = closure(captures..., __t)
+    let mut call_args: Vec<ValueId> = Vec::with_capacity(captures.len() + 1);
+
+    for cap in &captures {
+      call_args.push(cap.sir_value);
+    }
+
+    call_args.push(elem_sir);
+
+    let call_dst = self.sir.next_value();
+    let call_sir = self.sir.emit(Insn::Call {
+      dst: call_dst,
+      name: closure_name,
+      args: call_args,
+      ty_id: result_elem_ty,
+    });
+
+    // __res.push(r)
+    let res_load_dst = self.sir.next_value();
+    let res_load = self.sir.emit(Insn::Load {
+      dst: res_load_dst,
+      src: LoadSource::Local(res_sym),
+      ty_id: result_ty,
+    });
+
+    self.sir.emit(Insn::ArrayPush {
+      array: res_load,
+      value: call_sir,
+      ty_id: result_ty,
+      owner: Some(res_sym),
+    });
+
+    // __i = __i + 1
+    let one_dst = self.sir.next_value();
+    let one_sir = self.sir.emit(Insn::ConstInt {
+      dst: one_dst,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let i_load3_dst = self.sir.next_value();
+    let i_load3 = self.sir.emit(Insn::Load {
+      dst: i_load3_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let inc_dst = self.sir.next_value();
+    let inc_sir = self.sir.emit(Insn::BinOp {
+      dst: inc_dst,
+      op: BinOp::Add,
+      lhs: i_load3,
+      rhs: one_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: inc_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    // Push the final __res Load as the call's result value.
+    let final_load_dst = self.sir.next_value();
+    let final_load = self.sir.emit(Insn::Load {
+      dst: final_load_dst,
+      src: LoadSource::Local(res_sym),
+      ty_id: result_ty,
+    });
+
+    let result_val = self.values.store_runtime(0);
+
+    self.value_stack.push(result_val);
+    self.ty_stack.push(result_ty);
+    self.sir_values.push(final_load);
   }
 
   /// Executes `tx.send(value)` — emits `ChannelSend` SIR.
@@ -12355,6 +13047,10 @@ impl<'a> Executor<'a> {
 
       if self.pending_array_assign.is_some() {
         self.finalize_pending_array_assign();
+      }
+
+      if self.pending_field_assign.is_some() {
+        self.finalize_pending_field_assign();
       }
 
       self.finalize_pending_decl();
@@ -14968,6 +15664,12 @@ impl<'a> Executor<'a> {
 
                 return;
               }
+
+              if ms == "map" {
+                self.execute_array_map();
+
+                return;
+              }
             }
 
             // Channel built-in methods: `tx.send(value)` /
@@ -17080,7 +17782,52 @@ impl<'a> Executor<'a> {
                       let children_end =
                         (header.child_start + header.child_count) as usize;
 
+                      // For payload-bearing events (`@input`,
+                      // `@change`), synthesize a `Fn(Event) -> ?`
+                      // annotation through `pending_decl` so
+                      // `execute_closure`'s param-propagation
+                      // step (line 5897 area) types the user
+                      // param `e` as `Event` even when the
+                      // closure was written `fn(e) => ...`
+                      // without a type annotation. Other event
+                      // kinds (`@click`, `@focus`, ...) carry no
+                      // payload, leave the closure's params
+                      // alone.
+                      let needs_event_param =
+                        EventKind::from_name(event_name.as_str())
+                          .is_some_and(EventKind::has_value_payload);
+
+                      // Outer `Some` means the synthetic was
+                      // actually installed (so the outer
+                      // pending_decl was taken). Inner is the
+                      // saved value to restore. Outer `None`
+                      // means we left pending_decl alone, so
+                      // there's nothing to restore.
+                      let saved_pending_decl: Option<Option<PendingDecl>> =
+                        if needs_event_param {
+                          let event_sym = self.interner.intern("Event");
+
+                          self
+                            .ty_checker
+                            .resolve_ty_symbol(event_sym, self.interner)
+                            .map(|event_ty| {
+                              let span = self.tree.spans[idx];
+
+                              self.install_synthetic_fn_pending_decl(
+                                "__event_param",
+                                event_ty,
+                                span,
+                              )
+                            })
+                        } else {
+                          None
+                        };
+
                       self.execute_closure(idx, children_end);
+
+                      if let Some(saved) = saved_pending_decl {
+                        self.pending_decl = saved;
+                      }
 
                       // Pop the closure value and extract its
                       // generated function name.
@@ -17119,15 +17866,12 @@ impl<'a> Executor<'a> {
                     {
                       idx += 1;
                     }
-                    let event_kind = match event_name.as_str() {
-                      "click" => EventKind::Click,
-                      "hover" => EventKind::Hover,
-                      "change" => EventKind::Change,
-                      "input" => EventKind::Input,
-                      "focus" => EventKind::Focus,
-                      "blur" => EventKind::Blur,
-                      _ => EventKind::Click,
-                    };
+                    // Unknown event names default to `Click` —
+                    // the parser already accepts arbitrary
+                    // `@<ident>` so we silently bucket the rest
+                    // rather than refusing to compile.
+                    let event_kind = EventKind::from_name(&event_name)
+                      .unwrap_or(EventKind::Click);
 
                     attrs.push(Attr::Event {
                       name: event_name,
@@ -17193,82 +17937,316 @@ impl<'a> Executor<'a> {
           }
         }
         // Template interpolation: {expr}.
-        // Execute tokens between { and } as a normal zo
-        // expression, convert the result to string, and
-        // append as UiCommand::Text.
+        // Compound expressions lower to a synthetic
+        // `imu __interp_<n> := <expr>;` decl so any zo
+        // expression — ternaries, if-as-expression,
+        // function calls, match-as-expression — composes
+        // the way it would at let-binding init position.
+        // The closing `}` plays the role of `;`, closing
+        // any open ternary contexts and finalizing the
+        // synthetic decl. The single-ident fast path is
+        // preserved: `{count}` keeps reactive `mut`
+        // tracking via `template_bindings.text`.
         Token::LBrace => {
           let brace_span = self.tree.spans[idx];
 
           idx += 1;
 
-          // Detect empty braces {}.
           if idx < end_idx && self.tree.nodes[idx].token == Token::RBrace {
             report_error(Error::new(ErrorKind::ExpectedExpression, brace_span));
             idx += 1;
-          } else if self.try_handle_html_directive(
+            continue;
+          }
+
+          if self.try_handle_html_directive(
             &mut idx,
             end_idx,
             &mut commands,
             brace_span,
           ) {
-            // `{#html expr}` consumed through matching `}`.
+            continue;
+          }
+
+          // Find matching `}` with depth tracking — nested
+          // braces (struct literals, closure bodies inside
+          // a call arg) must not terminate the interp
+          // early.
+          let close_idx = {
+            let mut depth: u32 = 1;
+            let mut k = idx;
+
+            while k < end_idx {
+              match self.tree.nodes[k].token {
+                Token::LBrace => depth += 1,
+                Token::RBrace => {
+                  depth -= 1;
+
+                  if depth == 0 {
+                    break;
+                  }
+                }
+                _ => {}
+              }
+
+              k += 1;
+            }
+
+            k
+          };
+
+          // Fast path: `{count}` (single ident) — resolves
+          // the local's compile-time value directly and
+          // records reactive text binding for `mut` vars.
+          // Without this, `mut count: int = 0; {count}`
+          // would lose its reactivity.
+          let single_ident_sym = if idx + 1 == close_idx
+            && self.tree.nodes[idx].token == Token::Ident
+          {
+            self.node_value(idx).and_then(|v| match v {
+              NodeValue::Symbol(s) => Some(s),
+              _ => None,
+            })
           } else {
-            // Execute expression tokens until matching }.
-            // For simple identifiers, resolve the local's
-            // original value directly (not the runtime Load).
-            let mut interp_text = None;
+            None
+          };
 
-            while idx < end_idx && self.tree.nodes[idx].token != Token::RBrace {
-              let n = self.tree.nodes[idx];
+          if let Some(sym) = single_ident_sym
+            && let Some(local) = self.lookup_local(sym)
+          {
+            let text = self.value_to_string(local.value_id);
+            let mutability = local.mutability;
 
-              // Simple identifier — resolve the local's
-              // compile-time value for template embedding.
-              if n.token == Token::Ident
-                && interp_text.is_none()
-                && let Some(NodeValue::Symbol(sym)) = self.node_value(idx)
-                && let Some(local) = self.lookup_local(sym)
-              {
-                let text = self.value_to_string(local.value_id);
-
-                if !text.is_empty() {
-                  interp_text = Some(text);
-                }
-
-                // Track reactive text binding for mut vars.
-                if local.mutability == Mutability::Yes {
-                  self.template_bindings.text.push((commands.len(), sym));
-                }
-              }
-
-              if interp_text.is_none() {
-                self.execute_node(&n, idx);
-              }
-
-              idx += 1;
+            if mutability == Mutability::Yes {
+              self.template_bindings.text.push((commands.len(), sym));
             }
-
-            // Skip the closing }.
-            if idx < end_idx && self.tree.nodes[idx].token == Token::RBrace {
-              idx += 1;
-            }
-
-            // Use resolved text, or fall back to executed
-            // expression result.
-            let text = if let Some(t) = interp_text {
-              // Clean up stacks if execute_node didn't run.
-              t
-            } else if let Some(value_id) = self.value_stack.pop() {
-              self.ty_stack.pop();
-              self.sir_values.pop();
-              self.value_to_string(value_id)
-            } else {
-              String::new()
-            };
 
             if !text.is_empty() {
               commands.push(UiCommand::Text(text));
             }
+
+            idx = close_idx + 1;
+            continue;
           }
+
+          // List-rendering fast path:
+          // `{arr.map(fn(t) =:> <body>)}`. Recognized
+          // syntactically via token-shape match — lets us
+          // keep the per-item template at compile time
+          // (a `Vec<ListItemCmd>`) and the runtime simply
+          // re-walks it once per element on every
+          // state-cell change for `arr`.
+          if let Some((items_var, item_template)) =
+            self.try_extract_list_binding(idx, close_idx)
+          {
+            self.template_bindings.list.push((
+              commands.len(),
+              ListBinding {
+                items_var,
+                item_template,
+              },
+            ));
+
+            commands.push(UiCommand::Text(String::new()));
+            idx = close_idx + 1;
+            continue;
+          }
+
+          // General expression: synthesize a closure that
+          // captures referenced `mut` locals and returns the
+          // expression's value. The runtime invokes the
+          // closure on each state change to recompute the
+          // text. Mirrors the SIR-swap / FunDef-emit /
+          // body-execute / Return-emit pattern from
+          // `execute_closure`.
+          let closure_name = self.interner.intern(&format!(
+            "{TEMPLATE_INTERP_PREFIX}{}",
+            self.template_interp_counter
+          ));
+
+          self.template_interp_counter += 1;
+
+          let captures = self.identify_captures(idx, close_idx, &[]);
+          let capture_count = captures.len() as u32;
+          let capture_syms: Vec<Symbol> =
+            captures.iter().map(|(s, _, _)| *s).collect();
+
+          let combined_params: Vec<(Symbol, TyId)> =
+            captures.iter().map(|(s, t, _)| (*s, *t)).collect();
+
+          let str_ty = self.ty_checker.str_type();
+
+          // Save outer state.
+          let outer_value_stack = std::mem::take(&mut self.value_stack);
+          let outer_ty_stack = std::mem::take(&mut self.ty_stack);
+          let outer_sir_values = std::mem::take(&mut self.sir_values);
+          let outer_function = self.current_function.take();
+          let outer_pending_decl = self.pending_decl.take();
+          let saved_skip = self.skip_until;
+
+          // Swap SIR so the closure body emits into a
+          // dedicated buffer, drained to `deferred_closures`
+          // after the outer fragment finishes.
+          let mut closure_sir = Sir::new();
+          closure_sir.next_value_id = self.sir.next_value_id;
+          let outer_sir = std::mem::replace(&mut self.sir, closure_sir);
+
+          let body_start = 1u32;
+          let fundef_idx = 0;
+
+          self.sir.emit(Insn::FunDef {
+            name: closure_name,
+            params: combined_params.clone(),
+            return_ty: str_ty,
+            body_start,
+            kind: FunctionKind::Closure { capture_count },
+            pubness: Pubness::No,
+            mut_self: false,
+          });
+
+          self.push_fun(FunDef {
+            name: closure_name,
+            params: combined_params.clone(),
+            return_ty: str_ty,
+            body_start,
+            kind: FunctionKind::Closure { capture_count },
+            pubness: Pubness::No,
+            type_params: Vec::new(),
+            return_type_args: Vec::new(),
+            mut_self: false,
+          });
+
+          self.current_function = Some(FunCtx {
+            name: closure_name,
+            return_ty: str_ty,
+            body_start,
+            fundef_idx,
+            has_explicit_return: false,
+            has_return_type_annotation: true,
+            pending_return: false,
+            scope_depth: self.scope_stack.len(),
+          });
+
+          // Param scope: push each capture as a local so
+          // the body's identifier lookups resolve to a
+          // closure-local copy (read via `LoadSource::Local`
+          // at runtime). Mirrors `execute_closure`'s push
+          // pattern at lines 6057-6104.
+          self.push_scope();
+
+          for (i, (pname, pty)) in combined_params.iter().enumerate() {
+            let value_id = self.values.store_runtime(i as u32);
+
+            let param_mutability = captures
+              .get(i)
+              .filter(|(_, _, is_mut)| *is_mut)
+              .map(|_| Mutability::Yes)
+              .unwrap_or(Mutability::No);
+
+            self.push_local(Local {
+              name: *pname,
+              ty_id: *pty,
+              value_id,
+              pubness: Pubness::No,
+              mutability: param_mutability,
+              sir_value: None,
+              local_kind: LocalKind::Parameter,
+            });
+
+            if let Some(frame) = self.scope_stack.last_mut() {
+              frame.count += 1;
+            }
+          }
+
+          // Body scope (maintains scope_depth invariant).
+          self.push_scope();
+
+          // Drive brace contents through main-loop semantics.
+          self.skip_until = 0;
+
+          let mut body_idx = idx;
+
+          while body_idx < close_idx {
+            if body_idx < self.skip_until {
+              body_idx += 1;
+              continue;
+            }
+
+            let header = self.tree.nodes[body_idx];
+
+            self.execute_node(&header, body_idx);
+
+            if self.pending_call_rparen == Some(body_idx) {
+              self.pending_call_rparen = None;
+            }
+
+            if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none() {
+              self.apply_deferred_binop();
+            }
+
+            body_idx += 1;
+          }
+
+          // Close any ternary branch contexts opened inside
+          // the brace before we read the result for Return.
+          // Mirrors the `;` close path in `Token::Semicolon`.
+          while self
+            .branch_stack
+            .last()
+            .is_some_and(|c| c.kind == BranchKind::Ternary)
+          {
+            let ctx_idx = self.branch_stack.len() - 1;
+
+            self.emit_branch_sink_store(ctx_idx);
+
+            let ctx = self.branch_stack.pop().unwrap();
+
+            self.sir.emit(Insn::Label { id: ctx.end_label });
+            self.emit_branch_sink_load(&ctx);
+          }
+
+          self.apply_deferred_binop();
+          self.deferred_binops.clear();
+
+          // Implicit return of the expression's value.
+          let return_value =
+            self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
+
+          self.sir.emit(Insn::Return {
+            value: return_value,
+            ty_id: str_ty,
+          });
+
+          self.pop_scope(); // body
+          self.pop_scope(); // params
+
+          // Drain closure SIR into deferred buffer; restore
+          // outer SIR.
+          let closure_sir = std::mem::replace(&mut self.sir, outer_sir);
+
+          self.sir.next_value_id = closure_sir.next_value_id;
+          self.deferred_closures.extend(closure_sir.instructions);
+
+          // Restore outer state.
+          self.current_function = outer_function;
+          self.pending_decl = outer_pending_decl;
+          self.skip_until = saved_skip;
+          self.value_stack = outer_value_stack;
+          self.ty_stack = outer_ty_stack;
+          self.sir_values = outer_sir_values;
+
+          // Record the binding and a placeholder Text the
+          // runtime patches before the first render.
+          self.template_bindings.computed.push((
+            commands.len(),
+            ComputedBinding {
+              closure_name,
+              captures: capture_syms,
+            },
+          ));
+
+          commands.push(UiCommand::Text(String::new()));
+
+          idx = close_idx + 1;
         }
         _ => {
           idx += 1;
@@ -17276,19 +18254,71 @@ impl<'a> Executor<'a> {
       }
     }
 
-    if !commands.is_empty() {
-      let optimizer = TemplateOptimizer::new();
+    // Run text-merging optimization and remap reactive
+    // bindings through the resulting index map. Bound text
+    // positions are passed through as merge barriers so the
+    // runtime's full-replace patch (`*s = new_value`) only
+    // overwrites the dynamic value — without that, a static
+    // prefix like "clicked " would be merged into the
+    // binding's text and clobbered on every update.
+    let mut bindings = std::mem::take(&mut self.template_bindings);
 
-      commands = optimizer.optimize(commands);
+    if !commands.is_empty() {
+      let bound_indices: Vec<usize> = bindings
+        .text
+        .iter()
+        .map(|(idx, _)| *idx)
+        .chain(bindings.attrs.iter().map(|(idx, _)| *idx))
+        .chain(bindings.computed.iter().map(|(idx, _)| *idx))
+        .collect();
+
+      let optimizer = TemplateOptimizer::new();
+      let (opt_commands, index_map) =
+        optimizer.optimize_with_indices(commands, &bound_indices);
+
+      commands = opt_commands;
+
+      for (cmd_idx, _) in bindings.text.iter_mut() {
+        if let Some(&new_idx) = index_map.get(*cmd_idx) {
+          *cmd_idx = new_idx;
+        }
+      }
+
+      for (cmd_idx, _) in bindings.attrs.iter_mut() {
+        if let Some(&new_idx) = index_map.get(*cmd_idx) {
+          *cmd_idx = new_idx;
+        }
+      }
+
+      for (cmd_idx, _) in bindings.computed.iter_mut() {
+        if let Some(&new_idx) = index_map.get(*cmd_idx) {
+          *cmd_idx = new_idx;
+        }
+      }
     }
 
     // Prepend any pending stylesheets so they reach the
-    // runtime alongside the template's UI commands.
+    // runtime alongside the template's UI commands. Each
+    // prepended stylesheet shifts every existing binding
+    // index by one — capture the count before the move.
     if !self.pending_styles.is_empty() {
+      let shift = self.pending_styles.len();
       let mut styled = std::mem::take(&mut self.pending_styles);
 
       styled.append(&mut commands);
       commands = styled;
+
+      for (cmd_idx, _) in bindings.text.iter_mut() {
+        *cmd_idx += shift;
+      }
+
+      for (cmd_idx, _) in bindings.attrs.iter_mut() {
+        *cmd_idx += shift;
+      }
+
+      for (cmd_idx, _) in bindings.computed.iter_mut() {
+        *cmd_idx += shift;
+      }
     }
 
     let template_id = self.values.store_template(self.template_counter);
@@ -17303,7 +18333,7 @@ impl<'a> Executor<'a> {
       name: None,
       ty_id: self.ty_checker.template_ty(),
       commands,
-      bindings: std::mem::take(&mut self.template_bindings),
+      bindings,
     });
 
     self.sir_values.push(sir_value);
@@ -17437,7 +18467,7 @@ impl<'a> Executor<'a> {
       {
         commands.push(UiCommand::Event {
           widget_id: widget_id.clone(),
-          event_kind: event_kind.clone(),
+          event_kind: *event_kind,
           handler: handler.clone(),
         });
       }
@@ -17512,6 +18542,208 @@ impl<'a> Executor<'a> {
   /// `idx` unchanged so the caller can try the normal path.
   ///
   /// Shape (MVP): `#` `Ident("html")` `Ident(src)` where `src`
+  /// Detect `arr.map(fn(t) =:> <body>)` in template interp
+  /// position and extract the per-item template recipe.
+  /// Returns `(items_var, item_template)` when the brace
+  /// content matches; `None` otherwise (caller falls
+  /// through to the general-expression closure path).
+  ///
+  /// The recipe walks the closure body's tree nodes and
+  /// emits `ListItemCmd`s — `Element`/`EndElement` for
+  /// tags, `TextFromItem` for `{item_param}` interps,
+  /// `Text(literal)` for static text. Constrained to
+  /// shapes the runtime can render at low cost: a single
+  /// wrapping tag with at most one `{t}` interp plus
+  /// static text.
+  fn try_extract_list_binding(
+    &mut self,
+    idx: usize,
+    close_idx: usize,
+  ) -> Option<(Symbol, Vec<ListItemCmd>)> {
+    // Token shape: Ident Ident Dot LParen Fn ... RParen
+    if close_idx < idx + 6 {
+      return None;
+    }
+
+    let nodes = &self.tree.nodes;
+
+    if nodes[idx].token != Token::Ident
+      || nodes[idx + 1].token != Token::Ident
+      || nodes[idx + 2].token != Token::Dot
+      || nodes[idx + 3].token != Token::LParen
+      || nodes[idx + 4].token != Token::Fn
+      || nodes[close_idx - 1].token != Token::RParen
+    {
+      return None;
+    }
+
+    let items_var = match self.node_value(idx)? {
+      NodeValue::Symbol(s) => s,
+      _ => return None,
+    };
+
+    // Method must be `map`.
+    let method_sym = match self.node_value(idx + 1)? {
+      NodeValue::Symbol(s) => s,
+      _ => return None,
+    };
+
+    if self.interner.get(method_sym) != "map" {
+      return None;
+    }
+
+    // Walk the Fn closure: find the param Ident and the
+    // body opener (`=:>`). The param must be a single
+    // Ident inside `(...)`; the body must use the
+    // template-fat-arrow opener so we know it produces a
+    // fragment.
+    let fn_idx = idx + 4;
+    let mut walk = fn_idx + 1; // past Fn
+
+    if nodes[walk].token != Token::LParen {
+      return None;
+    }
+
+    walk += 1;
+
+    let item_param = match nodes[walk].token {
+      Token::Ident => match self.node_value(walk)? {
+        NodeValue::Symbol(s) => s,
+        _ => return None,
+      },
+      _ => return None,
+    };
+
+    walk += 1;
+
+    // Skip optional `: type` on the param — for `fn(t)`
+    // (no annotation), the next token is `)`. For
+    // `fn(t: str)`, it's `str` (a type token), then `)`.
+    if nodes[walk].token != Token::RParen {
+      walk += 1;
+    }
+
+    if nodes[walk].token != Token::RParen {
+      return None;
+    }
+
+    walk += 1;
+
+    if nodes[walk].token != Token::TemplateFatArrow {
+      return None;
+    }
+
+    walk += 1;
+
+    // Body is from `walk` up to `close_idx - 1` (the
+    // RParen of `.map(...)`). Convert each tree node into
+    // a `ListItemCmd`.
+    let body_end = close_idx - 1;
+
+    Some((
+      items_var,
+      self.build_item_recipe(walk, body_end, item_param)?,
+    ))
+  }
+
+  /// Walk the closure body's tree nodes and emit
+  /// `ListItemCmd`s. Returns `None` if the body uses
+  /// shapes not yet supported (nested `.map`, attribute
+  /// expressions, etc.).
+  fn build_item_recipe(
+    &self,
+    start: usize,
+    end: usize,
+    item_param: Symbol,
+  ) -> Option<Vec<ListItemCmd>> {
+    let mut recipe: Vec<ListItemCmd> = Vec::new();
+    let mut idx = start;
+    let nodes = &self.tree.nodes;
+
+    while idx < end {
+      let tok = nodes[idx].token;
+
+      match tok {
+        Token::TemplateFragmentStart => {
+          // Synthetic open from parser auto-wrap — skip;
+          // the matching close is also synthetic.
+          idx += 1;
+        }
+        Token::TemplateFragmentEnd => {
+          idx += 1;
+        }
+        Token::LAngle => {
+          // Open or close tag.
+          if idx + 1 < end && nodes[idx + 1].token == Token::Slash2 {
+            // </tag>
+            recipe.push(ListItemCmd::EndElement);
+            // skip LAngle, Slash2, Ident, RAngle.
+            idx += 4;
+          } else if idx + 2 < end
+            && nodes[idx + 1].token == Token::Ident
+            && nodes[idx + 2].token == Token::RAngle
+          {
+            // <tag>
+            let tag_sym = match self.node_value(idx + 1)? {
+              NodeValue::Symbol(s) => s,
+              _ => return None,
+            };
+            let tag_name = self.interner.get(tag_sym);
+            let tag = zo_ui_protocol::ElementTag::from_name(tag_name)?;
+
+            recipe.push(ListItemCmd::Element {
+              tag,
+              attrs: Vec::new(),
+            });
+            idx += 3;
+          } else {
+            return None;
+          }
+        }
+        Token::TemplateText => {
+          // Static text inside the template.
+          let text = self.text_at(idx);
+
+          if !text.is_empty() {
+            recipe.push(ListItemCmd::Text(text));
+          }
+
+          idx += 1;
+        }
+        Token::LBrace => {
+          // `{ident}` interp — must be exactly the item
+          // param. Anything else is unsupported in v1.
+          if idx + 2 < end
+            && nodes[idx + 1].token == Token::Ident
+            && nodes[idx + 2].token == Token::RBrace
+            && let Some(NodeValue::Symbol(s)) = self.node_value(idx + 1)
+            && s == item_param
+          {
+            recipe.push(ListItemCmd::TextFromItem);
+            idx += 3;
+          } else {
+            return None;
+          }
+        }
+        _ => {
+          return None;
+        }
+      }
+    }
+
+    Some(recipe)
+  }
+
+  /// Resolve a `TemplateText` node to its interned text.
+  /// Other token shapes return empty.
+  fn text_at(&self, idx: usize) -> String {
+    match self.node_value(idx) {
+      Some(NodeValue::Symbol(s)) => self.interner.get(s).to_string(),
+      _ => String::new(),
+    }
+  }
+
+  /// `<X>{expr}</X>` HTML-directive interpolation: `expr`
   /// is an immutable local bound to a string value. The source
   /// string is resolved at compile time, parsed by
   /// `html_inline::parse_raw_html`, and spliced into `commands`

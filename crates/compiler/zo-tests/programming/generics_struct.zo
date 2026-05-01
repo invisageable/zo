@@ -1,0 +1,58 @@
+-- tests-build-pass: generic struct construction +
+-- field access. Exercises 1-param + 2-param generic
+-- structs, multiple instantiations of the same struct
+-- with different concrete type args (regression for
+-- the "shared `Ty::Infer(_)` global-substitution leak"
+-- bug — `Box2<int, int>` followed by `Box2<int, str>`
+-- used to print a stack address for the str field
+-- because the second construction couldn't override
+-- the first's globally-bound `$B`).
+-- @cmd — zo build generics_struct.zo
+
+struct Pair<$T> {
+  first: $T,
+  second: $T,
+}
+
+struct Box2<$A, $B> {
+  a: $A,
+  b: $B,
+}
+
+fun main() {
+  -- 1-param: same shape as today.
+  imu p := Pair { first: 10, second: 20 };
+
+  showln(p.first);
+  showln(p.second);
+
+  -- 2-param: monomorphic int/int.
+  imu p1 := Box2 { a: 1, b: 2 };
+
+  showln(p1.a);
+  showln(p1.b);
+
+  -- 2-param: int/str. Pre-fix this printed a stack
+  -- address for `p2.b` because the construction
+  -- inherited `p1`'s globally-bound `$B = int`.
+  imu p2 := Box2 { a: 42, b: "hi" };
+
+  showln(p2.a);
+  showln(p2.b);
+
+  -- 2-param: str/int — distinct again.
+  imu p3 := Box2 { a: "world", b: 7 };
+
+  showln(p3.a);
+  showln(p3.b);
+}
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 20
+-- 1
+-- 2
+-- 42
+-- hi
+-- world
+-- 7

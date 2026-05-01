@@ -1,0 +1,12 @@
+-- tests-build-pass: generic identity with monomorphization.
+-- @cmd — zo build generic_identity.zo
+
+fun identity<$T>(x: $T) -> $T { x }
+
+fun main() {
+  imu a: int = identity(42);
+  imu b: str = identity("hello");
+
+  showln(a);
+  showln(b);
+}

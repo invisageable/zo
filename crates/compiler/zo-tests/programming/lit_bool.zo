@@ -1,0 +1,10 @@
+-- tests-build-pass: char literals and equality.
+-- @cmd — zo build lit_bool.zo
+
+fun main() {
+  imu x: bool = true;
+  imu y: bool = false;
+
+  check(x);
+  check@eq(x, true);
+}

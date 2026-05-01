@@ -1,9 +1,0 @@
--- tests-build-pass: enum with tuple variants.
--- @cmd — zo build enum-tuple-variant.zo
-
-enum Foo {
-  Ok(int),
-  Err(int),
-}
-
-fun main() {}

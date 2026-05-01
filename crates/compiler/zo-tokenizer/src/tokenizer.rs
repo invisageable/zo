@@ -127,6 +127,39 @@ pub struct Tokenizer<'a> {
   interner: &'a mut Interner,
   state: ModeState,
   delimiter_stack: Vec<DelimiterInfo>,
+  /// Brace-depth value at the entry of the current template
+  /// scope. The TEMPLATE-vs-CODE gate in `scan_template_token`
+  /// fires when `brace_depth > template_frame_base` (interp
+  /// inside the template body). At top-level template
+  /// (`imu view ::= <>...`) this stays at 0. When `=:>`
+  /// fires *inside* an interp (`<ul>{arr.map(fn(t) =:> ...)}`),
+  /// the closure body's template tokens need to be treated
+  /// as markup despite `brace_depth > 0` — bumping the base
+  /// to the current depth lets the gate work uniformly.
+  /// Reset on `;` (end of statement) — same hook that resets
+  /// mode to CODE.
+  template_frame_base: u32,
+  /// Set when the lexer tokenizes the `/` of a close tag
+  /// (`</tag>`) in template mode. Cleared on the matching
+  /// `>`. The `>` arm consults this to decide whether to
+  /// re-enable template-text mode — we don't, after a close
+  /// tag, because what follows is parent-context (more
+  /// markup if nested, or end of frame if outermost).
+  in_close_tag: bool,
+  /// Element nesting depth inside the template. Incremented
+  /// on the `>` that ends an open tag, decremented on the
+  /// `>` that ends a close tag. The frame-end check uses
+  /// `element_depth_at_frame_entry` rather than 0 to handle
+  /// `=:>` opening inside an already-open element (e.g.
+  /// `<ul>{arr.map(fn(t) =:> <li>...)}`).
+  template_element_depth: u32,
+  /// Snapshot of `template_element_depth` taken when an
+  /// interp-opened template frame begins. The frame is
+  /// considered done — `template_frame_base` reset, the
+  /// trailing `)` of `.map(...)` re-tokenizes as code —
+  /// when `template_element_depth` returns to this value
+  /// after a close tag.
+  template_element_depth_at_frame_entry: u32,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -146,6 +179,10 @@ impl<'a> Tokenizer<'a> {
       interner,
       state: ModeState::new(),
       delimiter_stack: Vec::new(),
+      template_frame_base: 0,
+      in_close_tag: false,
+      template_element_depth: 0,
+      template_element_depth_at_frame_entry: 0,
     }
   }
 
@@ -194,6 +231,24 @@ impl<'a> Tokenizer<'a> {
     self.cursor += (self.cursor < self.source.len()) as usize;
 
     ch
+  }
+
+  /// Close one template element. Decrements element depth.
+  /// When the depth returns to the snapshot taken at the
+  /// active frame's entry, the frame is done — reset
+  /// `template_frame_base` so trailing code (the `)` of
+  /// `.map(...)`, etc.) re-tokenizes via `scan_code_token`.
+  /// Used by the `</>` fragment-end shorthand; the regular
+  /// `</tag>` close inlines the same logic in the `>` arm.
+  fn close_template_element(&mut self) {
+    self.template_element_depth = self.template_element_depth.saturating_sub(1);
+
+    if self.template_frame_base > 0
+      && self.template_element_depth
+        == self.template_element_depth_at_frame_entry
+    {
+      self.template_frame_base = 0;
+    }
   }
 
   #[inline(never)]
@@ -458,9 +513,12 @@ impl<'a> Tokenizer<'a> {
   }
 
   fn scan_template_token(&mut self) {
-    // When we're in brace depth > 0, we're inside an interpolation expression
-    // and should tokenize as regular code
-    if self.state.brace_depth() > 0 {
+    // Brace-depth above the current template frame's base
+    // means we're inside a `{...}` interp — tokenize as
+    // code. The base is 0 for top-level templates and
+    // bumped to the entry depth when `=:>` opens a new
+    // template scope from inside an interp.
+    if self.state.brace_depth() > self.template_frame_base {
       self.scan_code_token();
 
       return;
@@ -517,18 +575,57 @@ impl<'a> Tokenizer<'a> {
             .tokens
             .push(Token::TemplateFragmentStart, start as u32, 2);
           self.state.set_template_text(true);
+          self.template_element_depth += 1;
         } else if self.current() == b'/' && self.peek(1) == b'>' {
           self.cursor += 2;
           self
             .tokens
             .push(Token::TemplateFragmentEnd, start as u32, 3);
+          self.close_template_element();
         } else {
           self.tokens.push(Token::LAngle, start as u32, 1);
+
+          // `</tag>` close: mark so the `>` arm knows not to
+          // re-enable template_text mode and to decrement
+          // element depth.
+          if self.current() == b'/' {
+            self.in_close_tag = true;
+          }
         }
       }
       b'>' => {
         self.tokens.push(Token::RAngle, start as u32, 1);
-        self.state.set_template_text(true);
+
+        if self.in_close_tag {
+          self.in_close_tag = false;
+          // Decrement before the text-mode decision so
+          // `close_template_element` can detect a frame
+          // exit (depth back at the entry snapshot).
+          self.template_element_depth =
+            self.template_element_depth.saturating_sub(1);
+
+          let frame_done = self.template_frame_base > 0
+            && self.template_element_depth
+              == self.template_element_depth_at_frame_entry;
+
+          if frame_done {
+            // Closure body's outermost element just closed.
+            // Surrender the frame so the trailing `)` of
+            // `.map(...)` re-enters code-token scanning, and
+            // suppress template-text — we're back to code
+            // context, not parent-element inline content.
+            self.template_frame_base = 0;
+          } else {
+            // Still inside an enclosing element — the
+            // parent's text mode should resume so the
+            // gap until the next `<` is captured as
+            // `TemplateText`.
+            self.state.set_template_text(true);
+          }
+        } else {
+          self.state.set_template_text(true);
+          self.template_element_depth += 1;
+        }
       }
       b'{' => {
         self.delimiter_stack.push(DelimiterInfo {
@@ -547,6 +644,10 @@ impl<'a> Tokenizer<'a> {
         self.tokens.push(Token::Semicolon, start as u32, 1);
         if self.state.brace_depth() == 0 {
           self.state.set_mode(ModeState::CODE);
+          self.template_frame_base = 0;
+          self.template_element_depth = 0;
+          self.template_element_depth_at_frame_entry = 0;
+          self.in_close_tag = false;
         }
       }
       _ => {
@@ -760,6 +861,26 @@ impl<'a> Tokenizer<'a> {
         } else if self.current() == b'>' {
           self.advance();
           self.tokens.push(Token::FatArrow, start as u32, 2);
+        } else if self.current() == b':' && self.peek(1) == b'>' {
+          // `=:>` — closure body opener that switches the
+          // lexer into TEMPLATE mode. Mirrors `::=`'s mode
+          // shift; distinct from the assignment binding form.
+          //
+          // When `=:>` fires from inside an interp (e.g.
+          // `<ul>{arr.map(fn(t) =:> <li>{t}</li>)}`), the
+          // closure body's `<li>...</li>` are template
+          // markup but `brace_depth > 0`. Bump the frame
+          // base so the markup gate fires for them, and
+          // snapshot the current element depth so we can
+          // detect the body's outermost close tag and
+          // restore code mode for the trailing `)`.
+          self.advance();
+          self.advance();
+          self.template_frame_base = self.state.brace_depth();
+          self.template_element_depth_at_frame_entry =
+            self.template_element_depth;
+          self.state.set_mode(ModeState::TEMPLATE);
+          self.tokens.push(Token::TemplateFatArrow, start as u32, 3);
         } else {
           self.tokens.push(Token::Eq, start as u32, 1);
         }

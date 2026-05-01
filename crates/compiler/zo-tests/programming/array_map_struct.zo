@@ -1,0 +1,27 @@
+-- tests-run-pass: array .map projecting a struct field.
+-- @cmd — zo run array_map_struct.zo
+
+struct User {
+  name: str,
+  age: int,
+}
+
+fun main() {
+  imu users: []User = [
+    User { name: "alice", age: 30 },
+    User { name: "bob",   age: 25 },
+    User { name: "carol", age: 42 },
+  ];
+
+  imu names: []str = users.map(fn(u) => u.name);
+
+  showln(names);
+  showln(names.len);
+  
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- ["alice", "bob", "carol"]
+-- 3
+-- DONE

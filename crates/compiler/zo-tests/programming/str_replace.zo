@@ -1,0 +1,38 @@
+-- tests-run-pass: str.replace — runtime helper covers grow / shrink / no-match / delete.
+-- @cmd — zo run str_replace.zo
+
+fun main() {
+  -- Grow: `with` longer than `needle`.
+  showln("a-b-c".replace("-", "--"));
+
+  -- Shrink: `with` shorter than `needle`.
+  showln("foo, bar, baz".replace(", ", ","));
+
+  -- Same length: byte-for-byte swap.
+  showln("hello".replace("l", "L"));
+
+  -- Delete: empty `with`.
+  showln("abracadabra".replace("a", ""));
+
+  -- No match: original returned unchanged.
+  showln("hello".replace("xyz", "!"));
+
+  -- Empty needle: original returned unchanged
+  -- (Rust / Python semantics).
+  showln("hello".replace("", "X"));
+
+  -- Multi-char needle, multi-char replacement.
+  showln("ab ab ab".replace("ab", "cd"));
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- a--b--c
+-- foo,bar,baz
+-- heLLo
+-- brcdbr
+-- hello
+-- hello
+-- cd cd cd
+-- DONE

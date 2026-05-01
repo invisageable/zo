@@ -1,0 +1,10 @@
+-- tests-build-pass: ternary with variable condition.
+-- @cmd — zo build branch_ternary_var.zo
+
+fun main() {
+  imu a: int = 10;
+  imu b: int = 20;
+  imu max: int = when a > b ? a : b;
+
+  check@eq(max, 20);
+}

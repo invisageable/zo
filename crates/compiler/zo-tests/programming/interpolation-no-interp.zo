@@ -1,6 +1,0 @@
--- tests-build-pass: plain string should still work.
--- @cmd — zo build interpolation-no-interp.zo
-
-fun main() {
-  showln("no interpolation here");
-}

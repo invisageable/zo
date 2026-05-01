@@ -1,0 +1,29 @@
+-- tests-run-pass: struct field of enum type — construction + pretty-print.
+-- @cmd — zo run struct_with_enum_field.zo
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+struct Box {
+  c: Color,
+  n: int,
+}
+
+fun main() {
+  imu b: Box = Box { c: Color::Green, n: 42 };
+
+  showln(b);
+  showln(b.c);
+  showln(b.n);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- Box { c: Color::Green, n: 42 }
+-- Color::Green
+-- 42
+-- DONE

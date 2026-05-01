@@ -1,8 +1,0 @@
--- tests-build-pass: closure with no parameters.
--- @cmd — zo build closure-no-param.zo
-
-fun main() {
-  imu f := fn() -> int => 42;
-
-  check@eq(f(), 42);
-}

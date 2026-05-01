@@ -1,0 +1,13 @@
+-- tests-build-pass: tuple literal.
+-- @cmd — zo build lit_tuple_basic.zo
+
+fun main() {
+  imu tuple := (1, 2, 3);
+
+  showln(tuple);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- (1, 2, 3)
+-- DONE
