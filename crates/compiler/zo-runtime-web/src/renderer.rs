@@ -1,13 +1,9 @@
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
-use rustc_hash::FxHashMap as HashMap;
-
 /// HTML renderer that converts UiCommands to HTML
 pub struct HtmlRenderer {
   html_buffer: String,
   container_stack: Vec<String>,
-  /// Maps widget_id → handler name (built from Event commands)
-  event_map: HashMap<String, String>,
   /// Pre-computed class attribute string from scoped
   /// stylesheets. Empty when no scoped styles are active.
   scope_class_attr: String,
@@ -19,7 +15,6 @@ impl HtmlRenderer {
     Self {
       html_buffer: String::with_capacity(4096),
       container_stack: Vec::with_capacity(16),
-      event_map: HashMap::default(),
       scope_class_attr: String::new(),
     }
   }
@@ -99,17 +94,6 @@ impl HtmlRenderer {
     } else {
       format!(" class=\"{}\"", scope_hashes.join(" "))
     };
-
-    self.event_map.clear();
-
-    for cmd in commands {
-      if let UiCommand::Event {
-        widget_id, handler, ..
-      } = cmd
-      {
-        self.event_map.insert(widget_id.clone(), handler.clone());
-      }
-    }
 
     for (idx, cmd) in commands.iter().enumerate() {
       self.render_command(cmd, idx);

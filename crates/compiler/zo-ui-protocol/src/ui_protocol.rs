@@ -294,7 +294,7 @@ impl ElementTag {
 }
 
 /// Event types that can occur in the UI.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum EventKind {
   Click,
   Hover,
@@ -302,6 +302,12 @@ pub enum EventKind {
   Input,
   Focus,
   Blur,
+  /// Fired when the user presses Enter inside a text input.
+  /// Payload carries the input's current value (same shape
+  /// as `Input`/`Change`). Native binding: egui's
+  /// `lost_focus() && Enter`. Web binding: `keydown` with
+  /// `key === "Enter"`.
+  Submit,
 }
 
 impl EventKind {
@@ -320,16 +326,17 @@ impl EventKind {
       "input" => Self::Input,
       "focus" => Self::Focus,
       "blur" => Self::Blur,
+      "submit" => Self::Submit,
       _ => return None,
     })
   }
 
   /// True when the event carries a string `value` payload —
-  /// `@input` and `@change` ship the input element's current
-  /// text. Other kinds (`@click`, `@focus`, …) deliver an
-  /// empty payload.
+  /// `@input`, `@change`, and `@submit` ship the input
+  /// element's current text. Other kinds (`@click`,
+  /// `@focus`, …) deliver an empty payload.
   pub fn has_value_payload(self) -> bool {
-    matches!(self, Self::Input | Self::Change)
+    matches!(self, Self::Input | Self::Change | Self::Submit)
   }
 }
 
@@ -544,5 +551,30 @@ mod set_attr_tests {
       UiCommand::Text("hello".to_string()),
       "non-element commands should be unaffected by set_attr"
     );
+  }
+
+  #[test]
+  fn event_kind_from_name_round_trip() {
+    assert_eq!(EventKind::from_name("click"), Some(EventKind::Click));
+    assert_eq!(EventKind::from_name("hover"), Some(EventKind::Hover));
+    assert_eq!(EventKind::from_name("change"), Some(EventKind::Change));
+    assert_eq!(EventKind::from_name("input"), Some(EventKind::Input));
+    assert_eq!(EventKind::from_name("focus"), Some(EventKind::Focus));
+    assert_eq!(EventKind::from_name("blur"), Some(EventKind::Blur));
+    assert_eq!(EventKind::from_name("submit"), Some(EventKind::Submit));
+    assert_eq!(EventKind::from_name("nope"), None);
+  }
+
+  #[test]
+  fn event_kind_payload_classification() {
+    // Payload-bearing kinds carry the input's text.
+    assert!(EventKind::Input.has_value_payload());
+    assert!(EventKind::Change.has_value_payload());
+    assert!(EventKind::Submit.has_value_payload());
+    // Pointer/focus kinds carry an empty payload.
+    assert!(!EventKind::Click.has_value_payload());
+    assert!(!EventKind::Hover.has_value_payload());
+    assert!(!EventKind::Focus.has_value_payload());
+    assert!(!EventKind::Blur.has_value_payload());
   }
 }

@@ -4,7 +4,7 @@ use crate::loader::image::{ImageLoader, ImageState};
 
 use zo_runtime_render::render::{EventId, EventPayload, Render, WidgetId};
 use zo_ui_protocol::style::{ComputedStyle, FontFamily, Rgba, cascade};
-use zo_ui_protocol::{Attr, ElementTag, UiCommand};
+use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
 use eframe::egui;
 use rustc_hash::FxHashMap as HashMap;
@@ -30,13 +30,12 @@ pub struct UiState {
   /// the program-side clear silently keeps the stale
   /// user-typed text.
   last_value_attr: HashMap<u32, String>,
-  /// Button click events to send back
-  /// (widget_id, event_kind, payload). `event_kind`
-  /// matches the IPC numeric kinds the web bridge uses
-  /// (0=click, 1=input). The `payload.value` is empty
-  /// for click events and carries the input's current
-  /// text for input/change events.
-  pending_events: ThinVec<(u32, u32, EventPayload)>,
+  /// Events fired this frame and waiting to be drained
+  /// by the runtime, as `(widget_id, kind, payload)`. The
+  /// `payload.value` is empty for `Click`-shaped events
+  /// and carries the input's current text for the
+  /// payload-bearing kinds (`Input`, `Change`, `Submit`).
+  pending_events: ThinVec<(u32, EventKind, EventPayload)>,
 }
 
 /// Egui-based renderer for zo UI commands
@@ -207,11 +206,27 @@ impl Renderer {
           self.state.last_value_attr.insert(id, text.clone());
           self.state.pending_events.push((
             id,
-            1,
-            EventPayload {
-              value: text.clone(),
-            },
+            EventKind::Input,
+            EventPayload::with_value(text.clone()),
           ));
+        }
+
+        // `@submit` fires when the user hits Enter while
+        // the field has focus. egui's idiom: the field
+        // loses focus on the Enter keystroke that submits,
+        // so `lost_focus() && enter_pressed` is the gate.
+        // We also re-grab focus right after so the user can
+        // keep typing without re-clicking the field.
+        if response.lost_focus()
+          && ui.input(|i| i.key_pressed(egui::Key::Enter))
+        {
+          self.state.pending_events.push((
+            id,
+            EventKind::Submit,
+            EventPayload::with_value(text.clone()),
+          ));
+
+          response.request_focus();
         }
 
         // Self-closing in our model (input has no children).
@@ -234,10 +249,11 @@ impl Renderer {
         let id = attr_num(attrs, "data-id").unwrap_or(0);
 
         if ui.button(&content).clicked() {
-          self
-            .state
-            .pending_events
-            .push((id, 0, EventPayload::default()));
+          self.state.pending_events.push((
+            id,
+            EventKind::Click,
+            EventPayload::default(),
+          ));
         }
 
         skip_to_end_element(commands, children_start)
@@ -370,8 +386,11 @@ impl Renderer {
     ui.add_space(computed.margin.bottom);
   }
 
-  /// Get pending events to send back to the application
-  pub fn take_pending_events(&mut self) -> ThinVec<(u32, u32, EventPayload)> {
+  /// Drain events fired this frame; the runtime dispatches
+  /// each one against its registered handler.
+  pub fn take_pending_events(
+    &mut self,
+  ) -> ThinVec<(u32, EventKind, EventPayload)> {
     std::mem::take(&mut self.state.pending_events)
   }
 }

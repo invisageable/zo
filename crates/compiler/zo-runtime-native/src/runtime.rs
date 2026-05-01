@@ -2,12 +2,13 @@
 
 use crate::renderer::Renderer;
 
-use zo_runtime_render::render::{EventRegistry, Render, RuntimeConfig};
+use zo_runtime_render::render::{
+  EventRegistry, Render, RuntimeConfig, build_event_map,
+};
 use zo_ui_protocol::UiCommand;
 use zo_ui_protocol::loader::LibraryLoader;
 
 use eframe::egui;
-use rustc_hash::FxHashMap as HashMap;
 
 use std::sync::{Arc, Mutex};
 
@@ -72,22 +73,6 @@ impl Runtime {
       ..Default::default()
     };
 
-    // Build widget_id → handler_name map from Event commands
-    let mut event_map = HashMap::default();
-
-    {
-      let cmds = self.commands.lock().unwrap();
-
-      for cmd in cmds.iter() {
-        if let UiCommand::Event {
-          widget_id, handler, ..
-        } = cmd
-        {
-          event_map.insert(widget_id.clone(), handler.clone());
-        }
-      }
-    }
-
     eframe::run_native(
       &self.config.title,
       options,
@@ -98,7 +83,6 @@ impl Runtime {
           renderer: self.renderer,
           commands: self.commands,
           events: self.events,
-          event_map,
         }))
       }),
     )
@@ -121,8 +105,6 @@ struct App {
   /// mutating state. Each frame reads the current commands.
   commands: Arc<Mutex<Vec<UiCommand>>>,
   events: EventRegistry,
-  /// Maps widget_id → handler_name
-  event_map: HashMap<String, String>,
 }
 
 impl eframe::App for App {
@@ -145,11 +127,21 @@ impl eframe::App for App {
 
         let pending = self.renderer.take_pending_events();
 
-        for (widget_id, _event_kind, payload) in pending {
-          let wid = widget_id.to_string();
+        // Rebuild from the freshly-cloned commands buffer so
+        // reactive re-renders that emit new `Event` commands
+        // (list items via `apply_list_bindings`, conditional
+        // branches, …) get registered the same frame they
+        // appear. A startup-only build would silently drop
+        // clicks on anything spawned after launch.
+        if !pending.is_empty() {
+          let event_map = build_event_map(&commands);
 
-          if let Some(handler_name) = self.event_map.get(&wid) {
-            self.events.dispatch(handler_name, &payload);
+          for (widget_id, event_kind, payload) in pending {
+            let key = (widget_id.to_string(), event_kind);
+
+            if let Some(handler_name) = event_map.get(&key) {
+              self.events.dispatch(handler_name, &payload);
+            }
           }
         }
       });
