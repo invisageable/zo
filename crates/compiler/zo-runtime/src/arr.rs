@@ -19,6 +19,26 @@ pub(crate) const RUNTIME_ARRAY_HEADER_SIZE: usize = 16;
 /// zero-extend.
 pub(crate) const RUNTIME_SLOT_SIZE: usize = 8;
 
+/// Allocate `n` uninitialized bytes on the heap, hand them
+/// to `fill` for a single write pass, then leak the buffer
+/// and return its pointer. Mirrors `str::alloc_str_with` —
+/// `MaybeUninit::new_uninit_slice` skips the redundant zero
+/// pass `vec![0u8; n]` would impose before the overwrite.
+fn alloc_leaked_bytes(n: usize, fill: impl FnOnce(&mut [u8])) -> *const u8 {
+  let mut buf = Box::<[u8]>::new_uninit_slice(n);
+  let ptr = buf.as_mut_ptr() as *mut u8;
+
+  // SAFETY: `ptr` is valid for `n` writes (the box owns
+  // them); `fill` writes every byte before its `&mut`
+  // borrow ends, so `assume_init` sees a fully-initialized
+  // buffer.
+  unsafe {
+    fill(std::slice::from_raw_parts_mut(ptr, n));
+  }
+
+  Box::leak(unsafe { buf.assume_init() }).as_ptr()
+}
+
 /// Allocate a runtime `[]ptr` containing the given
 /// pointer-shaped elements. Layout matches the codegen's
 /// `[len:u64][cap:u64][slot0:u64]...[slotN:u64]`. Used by
@@ -27,26 +47,23 @@ pub(crate) const RUNTIME_SLOT_SIZE: usize = 8;
 /// `cap == len` because these arrays are immutable from
 /// the user's view; `push` would hit the codegen's heap
 /// allocator, not these helpers.
-///
-/// Leaks the `Box` — program-long lifetime, matching the
-/// rest of the runtime's allocation strategy.
 pub(crate) fn alloc_ptr_array(elements: &[*const u8]) -> *const u8 {
   let n = elements.len();
   let total = RUNTIME_ARRAY_HEADER_SIZE + n * RUNTIME_SLOT_SIZE;
-  let mut arr = vec![0u8; total].into_boxed_slice();
-  let len_le = (n as u64).to_le_bytes();
 
-  arr[0..8].copy_from_slice(&len_le);
-  arr[8..16].copy_from_slice(&len_le);
+  alloc_leaked_bytes(total, |arr| {
+    let len_le = (n as u64).to_le_bytes();
 
-  for (i, ptr) in elements.iter().enumerate() {
-    let off = RUNTIME_ARRAY_HEADER_SIZE + i * RUNTIME_SLOT_SIZE;
+    arr[0..8].copy_from_slice(&len_le);
+    arr[8..16].copy_from_slice(&len_le);
 
-    arr[off..off + RUNTIME_SLOT_SIZE]
-      .copy_from_slice(&(*ptr as usize as u64).to_le_bytes());
-  }
+    for (i, ptr) in elements.iter().enumerate() {
+      let off = RUNTIME_ARRAY_HEADER_SIZE + i * RUNTIME_SLOT_SIZE;
 
-  Box::leak(arr).as_ptr()
+      arr[off..off + RUNTIME_SLOT_SIZE]
+        .copy_from_slice(&(*ptr as usize as u64).to_le_bytes());
+    }
+  })
 }
 
 /// Sort `[len]` ints starting at `data` in place.
@@ -72,6 +89,25 @@ pub unsafe extern "C-unwind" fn _zo_arr_sort_i32(data: *mut i64, len: usize) {
   let slice = unsafe { std::slice::from_raw_parts_mut(data, len) };
 
   slice.sort_unstable();
+}
+
+/// Heap-clone `n` bytes starting at `src`, returning a fresh
+/// leaked pointer. `Insn::ArrayPush` codegen calls this to
+/// snapshot a struct value at push time so the struct's
+/// frame slot can be reused for the next iteration without
+/// aliasing previously-pushed array elements.
+///
+/// # Safety
+///
+/// `src` must point at `n` readable bytes.
+#[unsafe(export_name = "zo_box_alloc")]
+pub unsafe extern "C-unwind" fn _zo_box_alloc(
+  src: *const u8,
+  n: usize,
+) -> *const u8 {
+  alloc_leaked_bytes(n, |dst| unsafe {
+    std::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), n);
+  })
 }
 
 #[cfg(test)]

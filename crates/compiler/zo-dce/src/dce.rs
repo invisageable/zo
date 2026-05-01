@@ -361,18 +361,25 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
       let start = i;
       let mut end = i + 1;
 
+      // Function bodies can hold multiple `Return` insns
+      // (one per `match` / `if` arm + the implicit tail
+      // return). They can also hold lazily-emitted type
+      // metadata (`EnumDef`, `StructDef`, `ConstDef`,
+      // `ArrayTyDef`, `MapTyDef`) that the executor flushes
+      // at first-use of the corresponding type — e.g.
+      // `match read_file(...)` materializes the
+      // `Result<str,int>` `EnumDef` mid-body. Only `FunDef`
+      // opens a NEW function; everything else stays in the
+      // current body so its `Call` insns contribute to
+      // reachability. Truncating earlier silently drops
+      // callees and DCE then strips them from the SIR.
       while end < instructions.len() {
-        match &instructions[end] {
-          Insn::Return { .. } => break,
-          Insn::FunDef { .. }
-          | Insn::StructDef { .. }
-          | Insn::EnumDef { .. }
-          | Insn::ConstDef { .. } => {
-            end -= 1;
-            break;
-          }
-          _ => end += 1,
+        if matches!(&instructions[end], Insn::FunDef { .. }) {
+          end -= 1;
+          break;
         }
+
+        end += 1;
       }
 
       if end >= instructions.len() {

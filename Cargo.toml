@@ -184,42 +184,42 @@ pulldown-cmark = "0.13.0"
 raw-window-handle = "0.6.2"
 rayon = { version = "1.12.0" }
 regex = "1.12.2"
-reqwest = { version = "0.12.24", default-features = false, features = [
+reqwest = { version = "0.13.3", default-features = false, features = [
   "json",
   "multipart",
   "native-tls",
   "stream",
 ] }
-resvg = "0.45.1"
+resvg = "0.47.0"
 rfd = "0.13"
-rustc-hash = "2.1.1"
+rustc-hash = "2.1.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.10.9"
-smallvec = { version = "1.13.2", features = ["const_new", "serde"] }
-smol_str = { version = "0.3.2", features = ["serde"] }
-sysinfo = "0.37.2"
+smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
+smol_str = { version = "0.3.6", features = ["serde"] }
+sysinfo = "0.38.4"
 target-lexicon = "0.13.5"
 tempfile = "3.27.0"
-thin-vec = "0.2.14"
-tokio = { version = "1.47.1", default-features = true , features = [
+thin-vec = "0.2.18"
+tokio = { version = "1.52.1", default-features = true , features = [
   "fs",
   "macros",
   "rt-multi-thread",
   "sync",
   "time",
 ] }
-toml = "0.8.15"
-tree-sitter = "0.25.10"
-tree-sitter-language = "0.1.6"
+toml = "1.1.2+spec-1.1.0"
+tree-sitter = "0.26.8"
+tree-sitter-language = "0.1.7"
 ureq = "3.3.0"
 usvg = "0.45.1"
-uuid = { version = "1.17.0", features = ["serde", "v4", "v7"] }
+uuid = { version = "1.23.1", features = ["serde", "v4", "v7"] }
 walkdir = "2.5.0"
-wasm-bindgen = "0.2.100"
-wasm-bindgen-futures = "0.4.50"
-wasmi = "0.51.1"
-web-sys = { version = "0.3.81", features = [
+wasm-bindgen = "0.2.120"
+wasm-bindgen-futures = "0.4.70"
+wasmi = "1.0.9"
+web-sys = { version = "0.3.97", features = [
   "Comment",
   "console",
   "CssStyleDeclaration",
@@ -242,10 +242,10 @@ web-sys = { version = "0.3.81", features = [
   "Text",
   "Window",
 ] }
-wide = { version = "0.8.1", features = ["serde"] }
+wide = { version = "1.3.0", features = ["serde"] }
 winit = "0.30.13"
-wry = "0.53.5"
-zmij = "1.0.7"
+wry = "0.55.0"
+zmij = "1.0.21"
 
 [profile.release]
 codegen-units = 1

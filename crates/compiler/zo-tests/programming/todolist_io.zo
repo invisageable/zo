@@ -1,0 +1,69 @@
+-- tests-run-pass: interactive TODO list driven by stdin.
+-- @cmd — zo run todo_list_io.zo
+
+struct Todo {
+  text: str,
+  done: bool,
+}
+
+apply Todo {
+  fun new(text: str) -> Self {
+    Self { text: text, done: false }
+  }
+
+  fun show(self) {
+    imu text: str = self.text;
+
+    if self.done {
+      showln("[x] {text}");
+    } else {
+      showln("[ ] {text}");
+    }
+  }
+}
+
+fun main() {
+  mut todos: []Todo = [];
+
+  loop {
+    show("> ");
+
+    match readln() {
+      Result::Ok(line) => {
+        if line.len == 0 {
+          break;
+        }
+
+        todos.push(Todo::new(line));
+
+        for i := 0..todos.len {
+          todos[i].show();
+        }
+
+        showln("---");
+      }
+      Result::Err(_) => break,
+    }
+  }
+
+  imu n: int = todos.len;
+
+  showln("total: {n}");
+}
+
+-- @stdin:
+-- buy milk
+-- write zo
+-- ship MVP
+
+-- EXPECTED OUTPUT:
+-- > [ ] buy milk
+-- ---
+-- > [ ] buy milk
+-- [ ] write zo
+-- ---
+-- > [ ] buy milk
+-- [ ] write zo
+-- [ ] ship MVP
+-- ---
+-- > total: 3

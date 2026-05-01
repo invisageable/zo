@@ -64,6 +64,14 @@ const FP_LR_LOAD_OFFSET: i16 = 16;
 // without saving), so the caller never expects them
 // preserved — saving is unnecessary.
 const CALLER_SAVE_RESERVE: u32 = 120;
+/// 2 GP slots reserved per function past `select_scratch` for
+/// `Insn::ArrayPush`'s realloc + struct-element heap-clone
+/// saves. Sized for the larger of the two paths (both save 2
+/// regs across one BL); the paths run sequentially within a
+/// single push and reuse the same slots. Lives ABOVE struct
+/// memory so a saved `val_reg` pointing into a struct can't
+/// stomp the struct it points at.
+const ARRAY_PUSH_SCRATCH_SIZE: u32 = 16;
 const CALLER_SAVE_COUNT: usize = 15;
 const CALLER_SAVE_START: u8 = 1;
 const FRAME_ALIGN_MASK: u32 = 15;
@@ -237,6 +245,11 @@ pub struct ARM64Gen<'a> {
   /// reserves it for the runtime's output write which
   /// is then loaded into the destination register.
   chan_scratch_base: u32,
+  /// Scratch slots `Insn::ArrayPush` saves into around its
+  /// realloc / heap-clone BLs. Lives past every struct slot
+  /// so a saved `val_reg` pointing into a struct can't alias
+  /// the struct's bytes.
+  array_push_scratch_base: u32,
   /// Offset from SP of the select-wait scratch area.
   /// Layout: `nchans * 8` bytes of `*mut ZoChan`
   /// pointers immediately followed by an `elem_sz`
@@ -502,6 +515,7 @@ impl<'a> ARM64Gen<'a> {
       struct_base: 0,
       chan_scratch_base: 0,
       select_scratch_base: 0,
+      array_push_scratch_base: 0,
       next_struct_slot: 0,
       io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
@@ -1410,6 +1424,7 @@ impl<'a> ARM64Gen<'a> {
             + struct_size
             + chan_scratch_size
             + select_scratch_size
+            + ARRAY_PUSH_SCRATCH_SIZE
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -1445,6 +1460,11 @@ impl<'a> ARM64Gen<'a> {
             + caller_save
             + struct_size
             + chan_scratch_size;
+
+          // Past every other area so realloc / heap-clone
+          // saves can't alias struct slots.
+          self.array_push_scratch_base = self.select_scratch_base
+            + select_scratch_size;
 
           let param_base = spill_size + mut_size;
 
@@ -2361,6 +2381,7 @@ impl<'a> ARM64Gen<'a> {
             + struct_size
             + chan_scratch_size
             + select_scratch_size
+            + ARRAY_PUSH_SCRATCH_SIZE
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -2746,17 +2767,17 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_lsl(X1, X1, ARRAY_ELEMENT_SHIFT);
         // X0 = old pointer.
         self.emitter.emit_mov_reg(X0, arr_reg);
-        // Save new_cap and value PAST the caller-save area
-        // so emit_extern_call's X9-X17 save doesn't clobber.
-        let extra_base =
-          self.caller_save_base + (CALLER_SAVE_COUNT as u32) * STACK_SLOT_SIZE;
+        // Save into the array-push scratch (past struct
+        // slots) so a `val_reg` pointing into a struct
+        // can't be stored over the struct itself.
+        let push_scratch = self.array_push_scratch_base;
 
-        self.emit_str_sp(X17, extra_base);
-        self.emit_str_sp(val_reg, extra_base + 8);
+        self.emit_str_sp(X17, push_scratch);
+        self.emit_str_sp(val_reg, push_scratch + 8);
         self.emit_extern_call("_realloc");
         // X0 = new pointer. Restore new_cap + value.
-        self.emit_ldr_sp(X17, extra_base);
-        self.emit_ldr_sp(val_reg, extra_base + 8);
+        self.emit_ldr_sp(X17, push_scratch);
+        self.emit_ldr_sp(val_reg, push_scratch + 8);
         // Store new cap.
         self.emitter.emit_str(X17, X0, 8);
         // Update arr_reg to new pointer.
@@ -2789,9 +2810,48 @@ impl<'a> ARM64Gen<'a> {
         let is_flt =
           ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
+        // For struct elements, snapshot the bytes at push
+        // time — `val_reg` points into the function frame,
+        // and the next iteration would reuse that slot,
+        // aliasing every prior element. Field-access codegen
+        // already dereferences through the array slot, so
+        // storing a heap pointer is transparent to readers.
+        //
+        // Lookup is via the VALUE's type — the array's
+        // `ty_id` can be a narrow / alias form while
+        // `value_types` records the canonical struct ty
+        // stamped by the StructConstruct.
+        let struct_slots = self
+          .value_types
+          .get(&value.0)
+          .and_then(|vt| self.struct_metas.get(&vt.0))
+          .map(|m| m.fields.len() as u32);
+
         if is_flt {
           let fp = self.alloc_fp_reg(*value).unwrap_or(D0);
           self.emitter.emit_str_fp(fp, X17, 0);
+        } else if let Some(slots) = struct_slots {
+          let bytes = slots * STACK_SLOT_SIZE;
+          let push_scratch = self.array_push_scratch_base;
+
+          // Save arr_reg + the dest slot (X17). `len` lives
+          // in the array's len header word and we reload it
+          // from there after the BL, so X16 doesn't need
+          // saving.
+          self.emit_str_sp(arr_reg, push_scratch);
+          self.emit_str_sp(X17, push_scratch + 8);
+
+          self.emitter.emit_mov_reg(X0, val_reg);
+          self.emit_mov_imm_64(X1, bytes as u64);
+          self.emit_extern_call("_zo_box_alloc");
+
+          self.emit_ldr_sp(arr_reg, push_scratch);
+          self.emit_ldr_sp(X17, push_scratch + 8);
+          // Reload len from the array header — the BL
+          // clobbered X16, and the post-store increment
+          // needs the freshly-loaded value anyway.
+          self.emitter.emit_ldr(X16, arr_reg, 0);
+          self.emitter.emit_str(X0, X17, 0);
         } else {
           self.emitter.emit_str(val_reg, X17, 0);
         }
