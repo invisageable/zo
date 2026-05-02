@@ -33,8 +33,6 @@ iT'S REALLY ABOUT CHALLENGiNG. zo DOESN'T CLAiM TO BE A DiRECT COMPETiTOR TO c O
 | clang    | 33 KB  |
 | rustc    | 441 KB |
 
-*Test program: `showln("Hello, World!");` (3 lines)*
-
 ### arithmetic operations compilation speed.
 
 @RUN: `just zo_bench arithmetic`
@@ -53,20 +51,9 @@ iT'S REALLY ABOUT CHALLENGiNG. zo DOESN'T CLAiM TO BE A DiRECT COMPETiTOR TO c O
 | **zo**   | 33 KB  |
 | rustc    | 439 KB |
 
-*Test program: `return 10 + 20 * 3 - 15;` (Result: 55)*
-
 ### benchmark — summary.
 
 | Benchmark    | `zo` vs `c`      | `zo` vs `rust`   |
 | ------------ | ---------------- | ---------------- |
 | `hello`      | __25.5x__ faster | __47.5x__ faster |
 | `arithmetic` | __53x__ faster   | __86x__ faster   |
-
-### benchmark — summary.
-
-| Benchmark    | `zo` vs `c`      | `zo` vs `rust`   |
-| ------------ | ---------------- | ---------------- |
-| `hello`      | __25.5x__ faster | __47.5x__ faster |
-| `arithmetic` | __53x__ faster   | __86x__ faster   |
-
-       

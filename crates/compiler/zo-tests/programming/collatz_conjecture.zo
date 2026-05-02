@@ -23,3 +23,15 @@ fun main() {
 
   showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- initial value: 3
+-- current value: 10
+-- current value: 5
+-- current value: 16
+-- current value: 8
+-- current value: 4
+-- current value: 2
+-- current value: 1
+-- DONE
+

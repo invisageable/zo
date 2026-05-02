@@ -2475,8 +2475,24 @@ impl<'a> ARM64Gen<'a> {
         // Scalar (or `[]T` heap-pointer) path: STR the value
         // to a single 8-byte slot. Allocate on first Store,
         // reuse after.
+        //
+        // For `mut` parameters, alias the mutable slot to
+        // the param's spill slot — Loads still come through
+        // `LoadSource::Param(idx)` from that same offset,
+        // so reads see the latest write. Without this,
+        // `Store` would mint a fresh slot via `next_mut_slot`
+        // and writes would never reach the location reads
+        // come from, so a `while n > 1 { n = n / 2; }` loop
+        // over a `mut n: int` arg would read the original
+        // arg register every iteration and never terminate.
         let offset = if let Some(&off) = self.mutable_slots.get(&slot_key) {
           off
+        } else if let Some(&(param_off, _)) =
+          self.param_sym_slots.get(&slot_key)
+        {
+          self.mutable_slots.insert(slot_key, param_off);
+
+          param_off
         } else {
           let base = self
             .current_fn_start
