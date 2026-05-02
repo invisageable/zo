@@ -1,0 +1,101 @@
+---
+import Title from "../../components/atoms/title.astro";
+import Base from "../../layouts/base.astro";
+import Screen from "../../components/structure/screen.astro";
+import NavBar, { type Item } from "../../components/navigation/navbar.astro";
+import {
+  loadSpeeches,
+  getSpeechNavItems,
+  pad2,
+  formatEpisodeId,
+  formatDate,
+} from "../../core/speech";
+
+const speeches = (await loadSpeeches()).slice().reverse();
+const items: Item[] = await getSpeechNavItems();
+---
+
+<Base title="zo — Speeches.">
+  <NavBar items={items} />
+  <Screen>
+    <Title as="h1">Speeches</Title>
+    <ul class="speeches-list">
+      {
+        speeches.map(({ entry, meta }) => <li class="speeches-item" data-season={pad2(meta.season)}>
+          <a href={`/speeches/${meta.slug}`}>
+            <span class="speeches-id">{formatEpisodeId(meta.season, meta.episode)}</span>
+            <span class="speeches-date">{formatDate(meta.date)}</span>
+            <span class="speeches-title">{meta.subtitle ?? entry.id.split("/").pop()}</span>
+          </a>
+        </li>)
+      }
+    </ul>
+  </Screen>
+</Base>
+
+<script>
+  // JS owns the filter (instead of per-season CSS rules) so adding a new
+  // season auto-works without touching styles or generating CSS dynamically.
+  function applyFilter() {
+    const hash = location.hash.slice(1);
+    const season = /^s\d+$/.test(hash) ? hash.slice(1) : null;
+
+    document
+      .querySelectorAll<HTMLElement>(".speeches-item")
+      .forEach((item) => {
+        const matches = season === null || item.dataset.season === season;
+        item.classList.toggle("speeches-item--hidden", !matches);
+      });
+
+    document
+      .querySelectorAll<HTMLAnchorElement>(".table-of-content-item--child")
+      .forEach((link) => {
+        const target = link.getAttribute("href")?.slice(1) ?? "";
+        const isActive =
+          (season === null && target === "all") ||
+          (season !== null && target === `s${season}`);
+        link.classList.toggle("table-of-content-item--active", isActive);
+      });
+  }
+
+  window.addEventListener("hashchange", applyFilter);
+  applyFilter();
+</script>
+
+<style is:global>
+  .speeches-item--hidden {
+    display: none;
+  }
+</style>
+
+<style>
+  .speeches-list {
+    margin: 24px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .speeches-item a {
+    display: grid;
+    grid-template-columns: 80px 100px 1fr;
+    gap: 16px;
+    padding: 8px 0;
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in oklab, var(--color-white-100) 10%, transparent);
+  }
+
+  .speeches-item a:hover {
+    background: color-mix(in oklab, var(--color-white-100) 5%, transparent);
+  }
+
+  .speeches-id {
+    font-family: var(--font-iosevka);
+    color: var(--color-green-100);
+  }
+
+  .speeches-date {
+    font-family: var(--font-iosevka);
+    opacity: 0.6;
+  }
+</style>

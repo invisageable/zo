@@ -1,0 +1,36 @@
+---
+import Title from "../atoms/title.astro";
+import Header from "./header.astro";
+---
+
+<section data-section="hero" class="hero">
+  <Title as="h1" class="hero-title">zo</Title>
+  <p class="hero-tagline f-aeonik">
+    TURN YOUR <b>THOUGHTS</b> iNTO <b>TYPE-SAFE</b> SOFTWARE AND Ui iNSTANTLY.
+  </p>
+  <Header class="header--inline blur" />
+</section>
+
+<style>
+  @media only screen and (min-width: 768px) {}
+
+  .hero {
+    margin: 0 0 124px 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+
+    .hero-title {
+      font-size: 24rem;
+    }
+
+    .hero-tagline {
+      margin: 0;
+      font-size: 30px;
+      text-align: center;
+    }
+  }
+</style>

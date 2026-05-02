@@ -1,0 +1,19 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "nav_prologue": "序言",
+  "nav_features": "功能",
+  "nav_purpose": "目标",
+  "nav_benchmarks": "基准测试",
+  "nav_manifesto": "宣言",
+  "nav_tools": "工具",
+  "nav_oss": "开源",
+  "nav_foundations": "基金会",
+  "nav_community": "社区",
+  "nav_sponsors": "赞助",
+  "nav_reachout": "联系",
+  "oss_title": "# 开源",
+  "oss_stars": "星标",
+  "oss_merged_prs": "已合并 PR",
+  "oss_contributors": "贡献者",
+  "oss_commits": "提交"
+}

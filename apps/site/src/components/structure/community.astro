@@ -1,0 +1,17 @@
+---
+import { textTransform } from "../../core/effects/text-transform";
+import Paragraph from "../atoms/paragraph.astro";
+import Title from "../atoms/title.astro";
+
+const description = "We love contributors. This is a playground for compiler <b>nerds</b>, frontend <b>hackers</b>, and <b>creatives</b>. Open an issue, or come say hello on Discord.";
+---
+
+<section data-section="community" class="community">
+  <Title class="community-title" as="h2"># community</Title>
+  <Paragraph content={textTransform(description)} />
+  <!-- could be nice to display a visual thing to s/o contributors. -->
+</section>
+
+<style>
+  .community {}
+</style>

@@ -1,0 +1,77 @@
+---
+import Title from "../atoms/title.astro";
+import Card from "./card.astro";
+
+const features = [
+  {
+    title: "UNiFiED",
+    content: "WRiTE Ui ONCE WiTH ZSX — TARGET NATiVE <sup class='superscript'>gpu</sup> OR THE WEB <sup class='superscript'>dom</sup>.",
+  },
+  {
+    title: "FAST",
+    content: "BUiLT FROM SCRATCH USiNG MODERN COMPiLER TECHNiQUES FOR iNSTANT EXECUTiON AND RAPiD DEBUGGiNG WiTH HELPFUL ERROR MESSAGES.",
+  },
+  {
+    title: "SAFE",
+    content: "STATiCALLY & STRONGLY TYPED. USES GREEN AND OS THREADS WRAPPED iN NURSERY TASK SCOPES; NO LEAKED THREADS, NO DATA RACES.",
+  },
+  {
+    title: "iNTEGRATED",
+    content: "A COMPLETE WORKSTATiON WiTH BUiLT-iN TOOLS — PACKAGE MANAGER <sup class='superscript'><a href=''./crates/packager/fret'>fret</a></sup> AND TEXT EDiTOR <sup class='superscript'><a href='https://github.com/invisageable/codelord'>codelord</a></sup>.",
+  },
+];
+---
+
+<section data-section="features" class="features">
+  <Title class="gondola-title" as="h2"># features</Title>
+
+  <div class="features-list" data-features-list>
+    {features.map((feature) => (
+      <Card
+        title={feature.title}
+        content={feature.content}
+        class="features-card"
+      />
+    ))}
+  </div>
+</section>
+
+<style is:global>
+  .features-list {
+    margin: 24px 0 0 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+  }
+
+  .features-card:first-child {
+    border-right: 0;
+    border-bottom: 0;         
+  }
+
+  .features-card:last-child {
+    border-top: 0;
+    border-left: 0;
+  }
+
+  @media (max-width: 768px) {
+    .features-list {
+      grid-template-columns: none;
+      grid-auto-flow: column;
+      grid-auto-columns: 100%;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+      border: none;
+    }
+
+    .features-list::-webkit-scrollbar {
+      display: none;
+    }
+
+    .features-card {
+      scroll-snap-align: center;
+    }
+  }
+</style>

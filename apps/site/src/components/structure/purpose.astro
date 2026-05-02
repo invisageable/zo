@@ -1,0 +1,11 @@
+---
+import { textTransform } from "../../core/effects/text-transform";
+import Title from "../atoms/title.astro";
+
+const description = "Creative developers shouldn't have to choose between writing simple UI code and getting high performance. APIs are disjointed, tools are overly complex, and the development loop is too slow. We built Zo to be the glue — a single, intuitive language that lets you turn your creative thoughts into robust, cross-platform software instantly.";
+---
+
+<section data-section="purpose" class="purpose">
+  <Title as="h2"># purpose</Title>
+  <p>{textTransform(description)}</p>
+</section>

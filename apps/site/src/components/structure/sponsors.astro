@@ -1,0 +1,16 @@
+---
+import { textTransform } from "../../core/effects/text-transform";
+import Title from "../atoms/title.astro";
+import Paragraph from "../atoms/paragraph.astro";
+
+const content = "Stars, donations and sponsors are welcome. Spread the word everywhere. If this project resonates with you — please star it. It helps us grow, attracts contributors, and validates the direction.";
+---
+
+<section data-section="sponsors" class="sponsors">
+  <Title class="sponsors-title" as="h2"># sponsors</Title>
+  <Paragraph content={textTransform(content)} />
+</section>
+
+<style>
+  .sponsors {}
+</style>

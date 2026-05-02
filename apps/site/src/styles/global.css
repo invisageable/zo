@@ -1,0 +1,158 @@
+@font-face {
+  font-family: 'Aeonik';
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src:
+    url('/fonts/aeonik-light.woff2') format('woff2'),
+    url('/fonts/aeonik-light.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Aeonik';
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+  src:
+    url('/fonts/aeonik-light-italic.woff2') format('woff2'),
+    url('/fonts/aeonik-light-italic.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Aeonik';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src:
+    url('/fonts/aeonik-regular.woff2') format('woff2'),
+    url('/fonts/aeonik-regular.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Aeonik';
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+  src:
+    url('/fonts/aeonik-regular-italic.woff2') format('woff2'),
+    url('/fonts/aeonik-regular-italic.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Aeonik';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src:
+    url('/fonts/aeonik-bold.woff2') format('woff2'),
+    url('/fonts/aeonik-bold.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Aeonik';
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+  src:
+    url('/fonts/aeonik-bold-italic.woff2') format('woff2'),
+    url('/fonts/aeonik-bold-italic.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Cirka';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/cirka.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Iosevka';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src:
+    url('/fonts/iosevka.woff2') format('woff2'),
+    url('/fonts/iosevka.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'SuisseIntl';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src:
+    url('/fonts/suisse-intl.woff2') format('woff2'),
+    url('/fonts/suisse-intl.woff') format('woff');
+}
+
+:root {
+  --sidebar-width: 234px;
+  --top-bar-height: 56px;
+
+  --color-black-100: rgb(0, 0, 0);
+  --color-white-100: rgb(255, 255, 255);
+  --color-green-100: rgb(204, 253, 62);
+  --color-grasy-100: rgb(117, 118, 116);
+
+  --font-cirka: 'Cirka', serif;
+  --font-iosevka: 'Iosevka', monospace;
+  --font-suisse-intl: 'SuisseIntl', cursive;
+  --font-aeonik: 'Aeonik', Arial, Helvetica, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  scrollbar-width: thin;
+  -moz-tab-size: 2;
+  tab-size: 2;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  width: 100%;
+  overflow-x: hidden;
+  position: relative;
+  background: var(--color-black-100);
+  color: var(--color-white-100);
+  font-family: var(--font-suisse-intl);
+}
+
+.f-aeonik {
+  font-family: var(--font-aeonik);
+}
+
+.f-cirka {
+  font-family: var(--font-cirka);
+}
+
+.f-iosevka {
+  font-family: var(--font-iosevka);
+}
+
+.blur {
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.superscript {
+  color: var(--color-green-100);
+
+  a {
+    color: var(--color-green-100);
+    text-decoration: none;
+  }
+}
+
+/* max-width: 1080px; */
+
+section::after {
+  content: " ";
+  display: block;
+  width: 100%;
+  height: calc(33vh - (1.7em * 2));
+}

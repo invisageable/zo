@@ -1,0 +1,19 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "nav_prologue": "序章",
+  "nav_features": "機能",
+  "nav_purpose": "目的",
+  "nav_benchmarks": "ベンチマーク",
+  "nav_manifesto": "宣言",
+  "nav_tools": "ツール",
+  "nav_oss": "OSS",
+  "nav_foundations": "財団",
+  "nav_community": "コミュニティ",
+  "nav_sponsors": "スポンサー",
+  "nav_reachout": "連絡",
+  "oss_title": "# oss",
+  "oss_stars": "スター",
+  "oss_merged_prs": "マージ済み PR",
+  "oss_contributors": "貢献者",
+  "oss_commits": "コミット"
+}

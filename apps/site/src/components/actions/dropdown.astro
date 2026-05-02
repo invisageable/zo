@@ -1,0 +1,125 @@
+---
+export interface Item {
+  href: string;
+  label: string;
+}
+
+interface Props {
+  items: Item[];
+  current?: string;
+  class?: string;
+}
+
+const { items, current, class: className } = Astro.props;
+
+const selected =
+  items.find((item) => item.href === current || item.label === current)
+  ?? items[0];
+---
+
+<div class:list={["dropdown", className]}>
+  <button
+    type="button"
+    class="dropdown-trigger"
+    aria-haspopup="listbox"
+    aria-expanded="false"
+  >
+    <span class="dropdown-current">{selected.label}</span>
+    <span class="dropdown-caret" aria-hidden="true">▾</span>
+  </button>
+  <ul class="dropdown-menu" role="listbox" hidden>
+    {
+      items.map((item) => <li role="option">
+        <a href={item.href} class="dropdown-item">{item.label}</a>
+      </li>)
+    }
+  </ul>
+</div>
+
+<script>
+  import { watcher } from "../../core/watcher";
+
+  // Watcher catches dropdowns cloned into fold panels — each instance
+  // gets its own listeners independently.
+  watcher.add({
+    selector: ".dropdown",
+    onMatch: (root) => {
+      const trigger = root.querySelector<HTMLButtonElement>(".dropdown-trigger");
+      const menu = root.querySelector<HTMLElement>(".dropdown-menu");
+      if (!trigger || !menu) return;
+
+      const close = () => {
+        menu.hidden = true;
+        trigger.setAttribute("aria-expanded", "false");
+      };
+      const open = () => {
+        menu.hidden = false;
+        trigger.setAttribute("aria-expanded", "true");
+      };
+
+      trigger.addEventListener("click", (event) => {
+        event.stopPropagation();
+        menu.hidden ? open() : close();
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!root.contains(event.target as Node)) close();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") close();
+      });
+    },
+  });
+</script>
+
+<style>
+  .dropdown {
+    position: relative;
+    display: inline-block;
+  }
+
+  .dropdown-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: transparent;
+    border: 1px solid
+      color-mix(in oklab, var(--color-white-100) 20%, transparent);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .dropdown-caret {
+    font-size: 0.75em;
+    opacity: 0.7;
+  }
+
+  .dropdown-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    margin: 0;
+    padding: 4px;
+    min-width: 100%;
+    list-style: none;
+    background: rgba(0, 0, 0, 0.9);
+    border: 1px solid
+      color-mix(in oklab, var(--color-white-100) 20%, transparent);
+    z-index: 100;
+  }
+
+  .dropdown-item {
+    display: block;
+    padding: 6px 12px;
+    color: inherit;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .dropdown-item:hover {
+    background: color-mix(in oklab, var(--color-white-100) 10%, transparent);
+  }
+</style>

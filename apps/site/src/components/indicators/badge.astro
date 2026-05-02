@@ -1,0 +1,28 @@
+---
+interface Props {
+  value: number | string;
+  label: string;
+  class?: string;
+}
+
+const { value, label, class: className } = Astro.props;
+---
+
+<div class:list={["badge", className]}>
+  <span class="badge-value" data-value={value}>{value}</span>
+  <span class="badge-label">{label}</span>
+</div>
+
+<style>
+  .badge {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .badge-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--color-green-100);
+    font-family: var(--font-cirka);
+  }
+</style>

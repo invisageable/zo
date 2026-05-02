@@ -1,0 +1,16 @@
+---
+interface Props {
+  class?: string;
+  content: string;
+}
+
+const { class: className, content } = Astro.props;
+---
+
+<p class={className} set:html={content}></p>
+
+<style>
+  p {
+    white-space: pre-line;
+  }
+</style>

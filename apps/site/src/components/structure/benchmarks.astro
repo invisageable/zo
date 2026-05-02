@@ -1,0 +1,56 @@
+---
+import { textTransform } from "../../core/effects/text-transform";
+import Title from "../atoms/title.astro";
+import Chart, { type Series } from "../indicators/chart.astro";
+
+const benchmarks = [
+  {
+    compiler: "zo",
+    hot: 60,
+    throughput: "~167K LoC/s",
+  },
+  {
+    compiler: "clang",
+    hot: 148,
+    throughput: "~67K LoC/s",
+  },
+  {
+    compiler: "rustc",
+    hot: 321,
+    throughput: "~31K LoC/s",
+  },
+];
+
+const series: Series[] = benchmarks.map((benchmark) => ({
+  label: benchmark.compiler,
+  value: benchmark.hot,
+  display: `${benchmark.hot}ms`,
+  inBar: benchmark.throughput,
+}));
+
+const disclaimers = [
+  "Workload: 10,000 lines of source code compiled to native ARM64 binary (including link step).",
+  "<a class='link-basic' href='https://github.com/invisageable/zo/blob/main/crates/compiler/zo-benches'>@methodology-and-full-numbers</a>"
+];
+
+const BENCHMARK_DESCRIPTION = "Most of the compilers are 2-5x slower than they could be. zo is the fastest next-gen compiler tool to enhance the programmers productivity.";
+---
+
+<section data-section="benchmarks" class="benchmarks">
+  <Title as="h2"># benchmarks</Title>
+  <Chart
+    series={series}
+    unit="ms"
+    animationScale={0.01}
+    disclaimers={disclaimers}
+  />
+  <p>{textTransform(BENCHMARK_DESCRIPTION)}</p>
+</section>
+
+<style>
+  .benchmarks {
+    p {
+      margin: 2rem 0 0 0;
+    }
+  }
+</style>
