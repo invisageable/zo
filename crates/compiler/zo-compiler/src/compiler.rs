@@ -33,8 +33,49 @@ use zo_value::{Local, LocalKind, Pubness};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Auto-detect the std lib search path so every caller of
+/// `Compiler::new()` (the zo CLI driver, the fret build
+/// pipeline, integration tests, …) gets `preload`/`io`/etc.
+/// resolved without each one having to wire its own search
+/// list. Resolution order:
+///
+/// 1. `ZO_STD_PATH` env var — explicit override.
+/// 2. `<exe-dir>/../lib/std` — installed layout.
+/// 3. `<exe-dir>/../../crates/compiler-lib/std` — dev layout
+///    (works for both `target/debug/zo` and
+///    `target/debug/fret`, which sit at the same depth).
+///
+/// Returns an empty `Vec` if none of these resolve, in which
+/// case preload silently no-ops and `showln` etc. surface
+/// as `Undefined variable` — matches the old behavior so
+/// callers needing a non-default layout can still pass
+/// `with_search_paths`.
+pub fn default_std_search_paths() -> Vec<PathBuf> {
+  if let Ok(std_path) = env::var("ZO_STD_PATH") {
+    return vec![PathBuf::from(std_path)];
+  }
+
+  if let Ok(exe) = env::current_exe()
+    && let Some(parent) = exe.parent()
+  {
+    let installed = parent.join("../lib/std");
+    let dev = parent.join("../../crates/compiler-lib/std");
+
+    if installed.is_dir() {
+      return vec![installed];
+    }
+
+    if dev.is_dir() {
+      return vec![dev];
+    }
+  }
+
+  Vec::new()
+}
 
 /// Represents a [`Compiler`] instance.
 pub struct Compiler {
@@ -49,13 +90,16 @@ pub struct Compiler {
   module_table: HashMap<Symbol, ModuleExports>,
 }
 impl Compiler {
-  /// Creates a new [`Compiler`] instance.
+  /// Creates a new [`Compiler`] instance with the auto-
+  /// detected std lib search path. Every caller (zo CLI,
+  /// fret build pipeline, integration tests) gets
+  /// `preload`/`io`/etc. resolved without per-call wiring.
   pub fn new() -> Self {
     Self {
       stats: Stats::new(),
       profiler: Profiler::new(),
       reporter: Reporter::new(),
-      module_resolver: ModuleResolver::new(Vec::new()),
+      module_resolver: ModuleResolver::new(default_std_search_paths()),
       compiling: HashSet::default(),
       module_table: HashMap::default(),
     }
