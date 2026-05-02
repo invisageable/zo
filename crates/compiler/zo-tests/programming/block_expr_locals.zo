@@ -1,0 +1,26 @@
+-- tests-run-pass: block locals are invisible after `}`.
+
+fun main() {
+  imu sum: int = {
+    imu a: int = 7;
+    imu b: int = 3;
+
+    a + b
+  };
+
+  showln(sum);
+
+  -- `a` and `b` are NOT in scope here. The next two
+  -- bindings reuse the same names with different values
+  -- to prove the block's bindings didn't leak.
+  imu a: int = 100;
+  imu b: int = 200;
+
+  showln(a);
+  showln(b);
+}
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 100
+-- 200

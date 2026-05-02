@@ -72,6 +72,12 @@ pub struct ScopeFrame {
   mark: ScopeMark,
   // Unused — kept to avoid touching every push site.
   count: u32,
+  /// Outer `pending_decl` snapshot taken at scope entry.
+  /// Without this, an inner `imu y = ...` inside a block
+  /// stomps the outer `imu x: T = { … };`'s pending decl,
+  /// so the outer binding's `;` finalize finds nothing
+  /// and `x` ends up undefined. Restored on `pop_scope`.
+  saved_pending_decl: Option<PendingDecl>,
 }
 
 /// A single instantiation request recorded at call site
@@ -978,21 +984,38 @@ impl<'a> Executor<'a> {
 
   /// Push a new scope. Snapshots the shadow stack so
   /// `pop_scope` can roll every binding pushed in this
-  /// scope back to its outer-scope value.
+  /// scope back to its outer-scope value. Also takes the
+  /// current `pending_decl` so an inner `imu`/`mut`/`val`
+  /// can't stomp the outer one (block-as-expression case:
+  /// `imu x = { imu y = 10; y * 2 };` — without this,
+  /// inner `y`'s decl overwrites outer `x`'s pending and
+  /// the outer `;` finalize finds nothing).
   fn push_scope(&mut self) {
     self.scope_stack.push(ScopeFrame {
       start: self.locals.len() as u32,
       mark: self.local_scope.checkpoint(),
       count: 0,
+      saved_pending_decl: self.pending_decl.take(),
     });
   }
 
-  /// Pops a scope, truncates `locals`, and rolls the
-  /// shadow stack back so each outer binding is restored.
+  /// Pops a scope, truncates `locals`, rolls the shadow
+  /// stack back so each outer binding is restored, and
+  /// puts the saved outer `pending_decl` back in place so
+  /// the binding the block was initializing can finalize
+  /// against the block's tail value.
   fn pop_scope(&mut self) {
     if let Some(frame) = self.scope_stack.pop() {
       self.local_scope.rollback_to(frame.mark);
       self.locals.truncate(frame.start as usize);
+      // No-op when the inner scope still has its own
+      // pending decl (broken / incomplete declaration in
+      // an error-recovery path) — preserves the inner's
+      // partial state so the outer error reporter doesn't
+      // resurrect a stale outer decl on top of it.
+      if self.pending_decl.is_none() {
+        self.pending_decl = frame.saved_pending_decl;
+      }
     }
   }
 

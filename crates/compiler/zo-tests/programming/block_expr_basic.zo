@@ -1,0 +1,14 @@
+-- tests-run-pass: block expression with tail value.
+
+fun main() {
+  imu x: int = {
+    imu y: int = 10;
+
+    y * 2
+  };
+
+  showln(x);
+}
+
+-- EXPECTED OUTPUT:
+-- 20
