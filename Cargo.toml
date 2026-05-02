@@ -156,31 +156,31 @@ js-sys = "0.3.81"
 kanal = "0.1.1"
 libm = "0.2.15"
 lyon_geom = "1.0.17"
-image = { version = "0.25.6", default-features = false, features = [
+image = { version = "0.25.10", default-features = false, features = [
   "jpeg",
   "png",
   "gif",
   "webp",
 ] }
 indoc = "2.0.7"
-itoa = "1.0.15"
+itoa = "1.0.18"
 Inflector = "0.11.4"
 insta = { version = "1.47.2", features = ["yaml"] }
 lightningcss = { version = "1.0.0-alpha.71", features = ["visitor"] }
 libc = "0.2.176"
 libloading = "0.9.0"
-log = "0.4.27"
+log = "0.4.29"
 noise = "0.9.0"
 notify = "8.2.0"
 notify-debouncer-mini = "0.7.0"
 num_cpus = "1.17.0"
-objc = "0.2.7"
-parking_lot = { version = "0.12.4", features = ["nightly"] }
-pdfium-render = "0.8.37"
-posthog-rs = "0.5.1"
+# objc = "0.2.7"
+parking_lot = { version = "0.12.5", features = ["nightly"] }
+pdfium-render = "0.9.0"
+posthog-rs = "0.6.0"
 profiling = "1.0.17"
-proptest = "1.7.0"
-pulldown-cmark = "0.13.0"
+proptest = "1.11.0"
+pulldown-cmark = "0.13.3"
 raw-window-handle = "0.6.2"
 rayon = { version = "1.12.0" }
 regex = "1.12.2"
