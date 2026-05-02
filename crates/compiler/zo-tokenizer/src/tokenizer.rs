@@ -1436,12 +1436,17 @@ impl<'a> Tokenizer<'a> {
               | b't'
               | b'\\'
               | b'"'
+              | b'\''
               | b'0'
               | b'{'
               | b'}'
               | b'x'
               | b'u'
-              | b'U'
+              | b'e'
+              | b'v'
+              | b'b'
+              | b'a'
+              | b'f'
           ) {
             report_error(Error::new(
               ErrorKind::InvalidEscapeSequence,
@@ -1605,8 +1610,21 @@ impl<'a> Tokenizer<'a> {
     } else if self.cursor < self.source.len() && self.current() == b'\\' {
       self.advance(); // Skip backslash
 
+      // Skip the first escape char so a literal `\'` inside
+      // the literal (an escaped closing quote) doesn't end
+      // the scan prematurely. Then keep advancing until the
+      // closing `'` — escapes like `\xNN` and `\u{HHHH}` are
+      // longer than two chars, and pinning a fixed length
+      // here would mis-tokenize them as `Token::Unknown`.
+      // `unescape_string` + the 1-char check below validates
+      // the escape's shape; the scanner's job is just to
+      // find the matching quote.
       if self.cursor < self.source.len() {
-        self.advance(); // Skip escaped char
+        self.advance();
+      }
+
+      while self.cursor < self.source.len() && self.current() != b'\'' {
+        self.advance();
       }
 
       if self.cursor < self.source.len() && self.current() == b'\'' {
@@ -1662,24 +1680,29 @@ impl<'a> Tokenizer<'a> {
       let len = (self.cursor - start) as u16;
 
       // Parse char value from source between quotes.
+      // Delegate escape parsing to `parse_one_escape` so the
+      // char-literal escape set stays in lockstep with the
+      // string-literal one. `parse_one_escape` returns the
+      // decoded char + the unconsumed tail; any tail bytes
+      // mean the escape consumed less than the full content,
+      // which we surface as `InvalidEscapeSequence`. No
+      // `String` allocation per char literal.
       let content = &self.source[start + 1..self.cursor - 1];
       let ch = if content.len() >= 2 && content[0] == b'\\' {
-        match content[1] {
-          b'n' => '\n',
-          b'r' => '\r',
-          b't' => '\t',
-          b'\\' => '\\',
-          b'\'' => '\'',
-          b'0' => '\0',
+        let raw = std::str::from_utf8(content).unwrap_or("");
+
+        match parse_one_escape(&raw[1..]) {
+          Some((c, rest)) if rest.is_empty() => c,
           _ => {
             report_error(Error::new(
               ErrorKind::InvalidEscapeSequence,
               Span {
                 start: (start + 1) as u32,
-                len: 2,
+                len: content.len() as u16,
               },
             ));
-            content[1] as char
+
+            '\0'
           }
         }
       } else if let Ok(s) = std::str::from_utf8(content) {
@@ -1814,9 +1837,82 @@ fn utf8_cp_len(b: u8) -> usize {
   }
 }
 
+/// Parse one escape sequence from `after`, the bytes that
+/// follow a leading `\`. Returns `(decoded_char, rest)` on
+/// success or `None` for unknown / malformed input. Used
+/// directly by `scan_char` (one escape per char literal,
+/// no `String` allocation) and indirectly by
+/// `unescape_string` (looped to walk a whole string body).
+fn parse_one_escape(after: &str) -> Option<(char, &str)> {
+  let mut chars = after.chars();
+
+  let c = match chars.next()? {
+    'n' => '\n',
+    'r' => '\r',
+    't' => '\t',
+    '\\' => '\\',
+    '"' => '"',
+    '\'' => '\'',
+    '0' => '\0',
+    '{' => '{',
+    '}' => '}',
+    'e' => '\x1B',
+    'v' => '\x0B',
+    'b' => '\x08',
+    'a' => '\x07',
+    'f' => '\x0C',
+    'x' => {
+      let h = chars.next()?.to_digit(16)?;
+      let l = chars.next()?.to_digit(16)?;
+
+      (h * 16 + l) as u8 as char
+    }
+    'u' => {
+      if chars.next()? != '{' {
+        return None;
+      }
+
+      let mut codepoint: u32 = 0;
+      let mut digits = 0usize;
+      let mut closed = false;
+
+      for c in chars.by_ref() {
+        if c == '}' {
+          closed = true;
+
+          break;
+        }
+
+        let d = c.to_digit(16)?;
+
+        if digits >= 6 {
+          return None;
+        }
+
+        codepoint = (codepoint << 4) | d;
+        digits += 1;
+      }
+
+      if !closed || digits == 0 {
+        return None;
+      }
+
+      char::from_u32(codepoint)?
+    }
+    _ => return None,
+  };
+
+  Some((c, chars.as_str()))
+}
+
 /// Process escape sequences in a string literal.
-/// Converts `\"` → `"`, `\\` → `\`, `\n` → newline, etc.
-/// Returns the original string unchanged if no escapes found.
+/// Converts `\"` → `"`, `\\` → `\`, `\n` → newline, the
+/// C-style control escapes `\e \v \b \a \f`, and `\xNN`
+/// (two hex digits → one raw byte). Returns the original
+/// string unchanged if no backslashes appear. The set
+/// recognized here MUST stay in sync with `scan_string`'s
+/// validator — anything the validator accepts but this
+/// rejects ships as a literal `\<char>` to user code.
 fn unescape_string(s: &str) -> String {
   if !s.contains('\\') {
     return s.to_string();
@@ -1826,26 +1922,224 @@ fn unescape_string(s: &str) -> String {
   let mut chars = s.chars();
 
   while let Some(ch) = chars.next() {
-    if ch == '\\' {
-      match chars.next() {
-        Some('n') => out.push('\n'),
-        Some('r') => out.push('\r'),
-        Some('t') => out.push('\t'),
-        Some('\\') => out.push('\\'),
-        Some('"') => out.push('"'),
-        Some('0') => out.push('\0'),
-        Some('{') => out.push('{'),
-        Some('}') => out.push('}'),
-        Some(other) => {
-          out.push('\\');
-          out.push(other);
-        }
-        None => out.push('\\'),
-      }
-    } else {
+    if ch != '\\' {
       out.push(ch);
+
+      continue;
+    }
+
+    match chars.next() {
+      Some('n') => out.push('\n'),
+      Some('r') => out.push('\r'),
+      Some('t') => out.push('\t'),
+      Some('\\') => out.push('\\'),
+      Some('"') => out.push('"'),
+      Some('\'') => out.push('\''),
+      Some('0') => out.push('\0'),
+      Some('{') => out.push('{'),
+      Some('}') => out.push('}'),
+      Some('e') => out.push('\x1B'),
+      Some('v') => out.push('\x0B'),
+      Some('b') => out.push('\x08'),
+      Some('a') => out.push('\x07'),
+      Some('f') => out.push('\x0C'),
+      Some('x') => {
+        // `\xNN` — two hex digits → one raw byte. Falls
+        // back to the literal `\x` if the digits are
+        // malformed (the validator only checks the `x`,
+        // not the digit pair).
+        let hi = chars.next();
+        let lo = chars.next();
+
+        match (
+          hi.and_then(|c| c.to_digit(16)),
+          lo.and_then(|c| c.to_digit(16)),
+        ) {
+          (Some(h), Some(l)) => out.push((h * 16 + l) as u8 as char),
+          _ => {
+            out.push('\\');
+            out.push('x');
+
+            if let Some(h) = hi {
+              out.push(h);
+            }
+
+            if let Some(l) = lo {
+              out.push(l);
+            }
+          }
+        }
+      }
+      Some('u') => {
+        // `\u{HHHH...}` — 1–6 hex digits → one Unicode
+        // scalar value, encoded as UTF-8. Bracket form
+        // matches Rust. Malformed input (missing `{`,
+        // missing `}`, no digits, > 6 digits, > 0x10FFFF,
+        // or surrogate range) leaks back as the literal
+        // `\u…` so the user sees their own bytes rather
+        // than dropped characters. `tail` snapshots the
+        // unconsumed source so the rollback re-feeds the
+        // exact bytes the inner loop ate.
+        let tail = chars.as_str();
+
+        match chars.next() {
+          Some('{') => {
+            let mut codepoint: u32 = 0;
+            let mut digits = 0usize;
+            let mut closed = false;
+
+            for c in chars.by_ref() {
+              if c == '}' {
+                closed = true;
+
+                break;
+              }
+
+              match c.to_digit(16) {
+                Some(d) if digits < 6 => {
+                  codepoint = (codepoint << 4) | d;
+                  digits += 1;
+                }
+                _ => break,
+              }
+            }
+
+            match (closed, digits, char::from_u32(codepoint)) {
+              (true, 1..=6, Some(c)) => out.push(c),
+              _ => {
+                out.push('\\');
+                out.push('u');
+                chars = tail.chars();
+              }
+            }
+          }
+          _ => {
+            out.push('\\');
+            out.push('u');
+            chars = tail.chars();
+          }
+        }
+      }
+      Some(other) => {
+        out.push('\\');
+        out.push(other);
+      }
+      None => out.push('\\'),
     }
   }
 
   out
+}
+
+#[cfg(test)]
+mod escape_tests {
+  use super::unescape_string;
+
+  #[test]
+  fn no_escapes_returns_input_verbatim() {
+    assert_eq!(unescape_string("hello"), "hello");
+    assert_eq!(unescape_string(""), "");
+  }
+
+  #[test]
+  fn standard_escapes() {
+    assert_eq!(unescape_string("\\n"), "\n");
+    assert_eq!(unescape_string("\\r"), "\r");
+    assert_eq!(unescape_string("\\t"), "\t");
+    assert_eq!(unescape_string("\\\\"), "\\");
+    assert_eq!(unescape_string("\\\""), "\"");
+    assert_eq!(unescape_string("\\0"), "\0");
+    assert_eq!(unescape_string("\\{"), "{");
+    assert_eq!(unescape_string("\\}"), "}");
+  }
+
+  #[test]
+  fn c_style_control_escapes() {
+    assert_eq!(unescape_string("\\e"), "\x1B");
+    assert_eq!(unescape_string("\\v"), "\x0B");
+    assert_eq!(unescape_string("\\b"), "\x08");
+    assert_eq!(unescape_string("\\a"), "\x07");
+    assert_eq!(unescape_string("\\f"), "\x0C");
+  }
+
+  #[test]
+  fn hex_byte_escape() {
+    assert_eq!(unescape_string("\\x41"), "A"); // 0x41 = 'A'
+    assert_eq!(unescape_string("\\x00"), "\0");
+    assert_eq!(unescape_string("\\xff"), "\u{00FF}");
+    // Mixed-case hex digits both accepted.
+    assert_eq!(unescape_string("\\xAb"), "\u{00AB}");
+  }
+
+  #[test]
+  fn malformed_hex_byte_falls_back_to_literal() {
+    // Validator only checks the leading `x`; the digit pair
+    // is the processor's problem. Bad pair → keep the
+    // backslash + chars verbatim, don't drop bytes.
+    assert_eq!(unescape_string("\\xZZ"), "\\xZZ");
+    assert_eq!(unescape_string("\\xA"), "\\xA");
+  }
+
+  #[test]
+  fn ansi_color_sequence_round_trip() {
+    // The motivating case: `\e[32m` is one byte (ESC) then
+    // four ASCII chars. Total 5 chars in the unescaped
+    // string.
+    let out = unescape_string("\\e[32mHello\\e[0m");
+
+    assert_eq!(out, "\x1B[32mHello\x1B[0m");
+    assert_eq!(out.len(), 14);
+  }
+
+  #[test]
+  fn unknown_escape_passes_through_with_backslash() {
+    // The validator rejects unknown escapes, but if one
+    // slips through, the processor preserves the bytes.
+    assert_eq!(unescape_string("\\q"), "\\q");
+  }
+
+  #[test]
+  fn unicode_codepoint_escape_basic_latin() {
+    assert_eq!(unescape_string("\\u{41}"), "A");
+    assert_eq!(unescape_string("\\u{0041}"), "A");
+  }
+
+  #[test]
+  fn unicode_codepoint_escape_emoji() {
+    // U+1F600 = 😀 — exercises the > BMP path (4-byte
+    // UTF-8 encoding, 5 hex digits).
+    assert_eq!(unescape_string("\\u{1F600}"), "😀");
+  }
+
+  #[test]
+  fn unicode_codepoint_escape_six_digits_max() {
+    // U+10FFFF — Unicode's upper bound, fits in 6 hex
+    // digits. `char::from_u32` accepts it.
+    assert_eq!(unescape_string("\\u{10FFFF}"), "\u{10FFFF}");
+  }
+
+  #[test]
+  fn unicode_codepoint_escape_inside_text() {
+    let out = unescape_string("hi \\u{2603} there");
+
+    assert_eq!(out, "hi \u{2603} there");
+  }
+
+  #[test]
+  fn unicode_codepoint_escape_malformed_falls_back() {
+    // Missing brace, missing close, surrogate range,
+    // out-of-range, or no digits → keep the literal `\u`
+    // and the rest of the source (don't drop bytes).
+    assert_eq!(unescape_string("\\uxyz"), "\\uxyz");
+    assert_eq!(unescape_string("\\u{}"), "\\u{}");
+    assert_eq!(unescape_string("\\u{D800}"), "\\u{D800}");
+    assert_eq!(unescape_string("\\u{110000}"), "\\u{110000}");
+  }
+
+  #[test]
+  fn single_quote_escape() {
+    // Char literals delegate to `unescape_string`, so
+    // `'\''` needs the single-quote arm too.
+    assert_eq!(unescape_string("\\'"), "'");
+  }
 }

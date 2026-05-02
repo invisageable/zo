@@ -1463,8 +1463,8 @@ impl<'a> ARM64Gen<'a> {
 
           // Past every other area so realloc / heap-clone
           // saves can't alias struct slots.
-          self.array_push_scratch_base = self.select_scratch_base
-            + select_scratch_size;
+          self.array_push_scratch_base =
+            self.select_scratch_base + select_scratch_size;
 
           let param_base = spill_size + mut_size;
 
@@ -4235,15 +4235,84 @@ impl<'a> ARM64Gen<'a> {
   /// Stores the byte to a stack scratch slot, then writes 1
   /// byte via SYS_WRITE. Same technique as emit_newline.
   fn emit_char_and_write(&mut self, fd: u16) {
-    // Store low byte of X0 to scratch slot on stack.
-    self.emitter.emit_sub_imm(X2, SP, NEWLINE_BUFFER_OFFSET);
-    self.emitter.emit_strb(X0, X2, 0);
-    // X1 = pointer to the byte, X2 = length 1.
-    self.emitter.emit_mov_reg(X1, X2);
+    // Inline UTF-8 encoder for `show(c: char)` — codepoint
+    // in X0, branches on magnitude to emit 1/2/3/4 bytes.
+    // Without this every non-ASCII char would silently
+    // truncate to its low byte.
+    self.emitter.emit_mov_reg(X9, X0); // X9 = codepoint
+    self.emitter.emit_sub_imm(X1, SP, NEWLINE_BUFFER_OFFSET);
+
+    self.emitter.emit_cmp_imm(X9, 0x80);
+    let to_one = self.emitter.forward_blt();
+
+    self.emit_mov_imm_64(X16, 0x800);
+    self.emitter.emit_cmp(X9, X16);
+    let to_two = self.emitter.forward_blt();
+
+    self.emit_mov_imm_64(X16, 0x10000);
+    self.emitter.emit_cmp(X9, X16);
+    let to_three = self.emitter.forward_blt();
+
+    // Fall-through: 4-byte encoding.
+    self.emit_utf8_byte(X9, 18, 0xF0, X1, 0);
+    self.emit_utf8_byte(X9, 12, 0x80, X1, 1);
+    self.emit_utf8_byte(X9, 6, 0x80, X1, 2);
+    self.emit_utf8_byte(X9, 0, 0x80, X1, 3);
+    self.emitter.emit_mov_imm(X2, 4);
+    let to_write_4 = self.emitter.forward_b();
+
+    self.emitter.bind_here(to_three);
+    self.emit_utf8_byte(X9, 12, 0xE0, X1, 0);
+    self.emit_utf8_byte(X9, 6, 0x80, X1, 1);
+    self.emit_utf8_byte(X9, 0, 0x80, X1, 2);
+    self.emitter.emit_mov_imm(X2, 3);
+    let to_write_3 = self.emitter.forward_b();
+
+    self.emitter.bind_here(to_two);
+    self.emit_utf8_byte(X9, 6, 0xC0, X1, 0);
+    self.emit_utf8_byte(X9, 0, 0x80, X1, 1);
+    self.emitter.emit_mov_imm(X2, 2);
+    let to_write_2 = self.emitter.forward_b();
+
+    // 1-byte (ASCII) — store low byte verbatim.
+    self.emitter.bind_here(to_one);
+    self.emitter.emit_strb(X9, X1, 0);
     self.emitter.emit_mov_imm(X2, 1);
+
+    self.emitter.bind_here(to_write_4);
+    self.emitter.bind_here(to_write_3);
+    self.emitter.bind_here(to_write_2);
     self.emitter.emit_mov_imm(X16, SYS_WRITE);
     self.emitter.emit_mov_imm(X0, fd);
     self.emitter.emit_svc(0);
+  }
+
+  /// Emit one UTF-8 byte at `[buf_reg + buf_off]`.
+  /// Continuation bytes (`tag == 0x80`) keep only the low 6
+  /// bits of the shifted codepoint; leading bytes use `tag`
+  /// directly. Clobbers X16/X17.
+  fn emit_utf8_byte(
+    &mut self,
+    cp_reg: Register,
+    shift: u8,
+    tag: u16,
+    buf_reg: Register,
+    buf_off: i16,
+  ) {
+    if shift > 0 {
+      self.emitter.emit_lsr(X16, cp_reg, shift);
+    } else {
+      self.emitter.emit_mov_reg(X16, cp_reg);
+    }
+
+    if tag == 0x80 {
+      self.emitter.emit_mov_imm(X17, 0x3F);
+      self.emitter.emit_and(X16, X16, X17);
+    }
+
+    self.emitter.emit_mov_imm(X17, tag);
+    self.emitter.emit_orr(X16, X16, X17);
+    self.emitter.emit_strb(X16, buf_reg, buf_off);
   }
 
   /// Convert D0 (double) to decimal string and write to fd.

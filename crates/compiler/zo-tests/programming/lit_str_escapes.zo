@@ -1,0 +1,24 @@
+-- tests-run-pass: extended C-style string escape sequences.
+-- Exercises every escape the tokenizer recognizes:
+-- `\e \v \b \a \f` (newly added) plus `\r \n \t` and the
+-- `\xNN` hex byte escape. No EXPECTED block — the output is
+-- mostly terminal control bytes (ESC, BEL, BS, VT, FF) that
+-- don't sit cleanly in a `-- ` comment, so the runner only
+-- verifies build + clean exit. Per-escape byte mapping is
+-- pinned by `zo-tokenizer::escape_tests`.
+--
+-- @cmd — zo run escapes.zo
+-- Original shape lifted from
+-- https://github.com/capy-language/capy/blob/master/examples/pretty.capy
+
+fun main() {
+  showln("\e[32mHello!\v\e[34mWorld\e[0m\n");
+  showln("Joe\b\b\bP");
+  showln("ALERT!\a");
+  showln("\fAnd\r\n\tnow..");
+  showln("\e[1;90mC\e[91mO\e[92mL\e[93m\e[94mO\e[95mR\e[96mS\e[97m!\e[0m");
+  showln("Hex:    \x48\x65\x6c\x6c\x6f");
+  showln("Latin:  \u{e9}\u{e8}\u{ea}");
+  showln("BMP:    \u{2603} \u{2602} \u{2600}");
+  showln("Emoji:  \u{1F600} \u{1F680} \u{1F4A9}");
+}

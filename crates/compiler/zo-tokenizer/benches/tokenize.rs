@@ -208,11 +208,95 @@ fn benchmark_mode_transitions(c: &mut Criterion) {
   }
 }
 
+/// Generate `count` char-literal binding lines, each
+/// using a different escape kind (`'\xNN'`, `'\u{HHHH}'`,
+/// `'\u{1F600}'`, `'\n'`, `'\t'`, …). Targets `scan_char`'s
+/// escape branch — every literal here exercises the
+/// `unescape_string` delegation path that allocates a
+/// `String` per token today.
+fn generate_char_literal_heavy(count: usize) -> String {
+  let escapes = [
+    r"'\n'",
+    r"'\t'",
+    r"'\r'",
+    r"'\\'",
+    r"'\''",
+    r"'\0'",
+    r"'\e'",
+    r"'\v'",
+    r"'\b'",
+    r"'\a'",
+    r"'\f'",
+    r"'\x41'",
+    r"'\x7F'",
+    r"'\u{e9}'",
+    r"'\u{2603}'",
+    r"'\u{1F600}'",
+  ];
+
+  let mut code = String::with_capacity(count * 24);
+
+  for i in 0..count {
+    let lit = escapes[i % escapes.len()];
+
+    code.push_str(&format!("imu c_{i}: char = {lit};\n"));
+  }
+
+  code
+}
+
+/// Generate `count` string-literal binding lines, each
+/// containing a mix of escape sequences (the same set as
+/// the char bench, embedded in normal text). Targets
+/// `unescape_string` directly — every literal goes through
+/// the full match table.
+fn generate_string_literal_heavy(count: usize) -> String {
+  let mut code = String::with_capacity(count * 80);
+
+  for i in 0..count {
+    code.push_str(&format!(
+      r#"imu s_{i}: str = "head\nbody\t{i}\u{{2603}}\xff\e[0m\u{{1F600}}tail";
+"#,
+    ));
+  }
+
+  code
+}
+
+fn benchmark_escapes(c: &mut Criterion) {
+  for size in [100, 1000] {
+    let chars = generate_char_literal_heavy(size);
+    let strings = generate_string_literal_heavy(size);
+
+    {
+      let mut group = c.benchmark_group("escape_chars_bytes");
+      group.throughput(Throughput::Bytes(chars.len() as u64));
+      group.bench_with_input(
+        BenchmarkId::new("original", size),
+        &chars,
+        bench_body_tokenizer(),
+      );
+      group.finish();
+    }
+    {
+      let mut group = c.benchmark_group("escape_strings_bytes");
+      group.throughput(Throughput::Bytes(strings.len() as u64));
+      group.bench_with_input(
+        BenchmarkId::new("original", size),
+        &strings,
+        bench_body_tokenizer(),
+      );
+      group.finish();
+    }
+  }
+}
+
 criterion_group!(
   benches,
   benchmark_templates,
   benchmark_mixed_code,
-  benchmark_mode_transitions
+  benchmark_mode_transitions,
+  benchmark_escapes
 );
 
 criterion_main!(benches);
