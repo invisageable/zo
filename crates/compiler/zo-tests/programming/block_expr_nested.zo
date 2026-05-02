@@ -1,0 +1,19 @@
+-- tests-run-pass: nested expression blocks.
+
+fun main() {
+  imu deep: int = {
+    imu outer: int = 10;
+    imu inner: int = {
+      imu x: int = 5;
+
+      x + 1
+    };
+
+    outer + inner
+  };
+
+  showln(deep);
+}
+
+-- EXPECTED OUTPUT:
+-- 16

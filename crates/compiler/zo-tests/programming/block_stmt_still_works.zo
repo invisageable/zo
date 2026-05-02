@@ -1,0 +1,22 @@
+-- tests-run-pass: regression guard — bare `{ … }` as a
+-- statement keeps working (was the only form supported
+-- before block expressions landed).
+
+fun main() {
+  showln("before");
+
+  {
+    imu temp: int = 42;
+
+    showln("inside");
+    showln(temp);
+  }
+
+  showln("after");
+}
+
+-- EXPECTED OUTPUT:
+-- before
+-- inside
+-- 42
+-- after
