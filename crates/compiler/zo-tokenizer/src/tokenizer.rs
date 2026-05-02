@@ -1692,7 +1692,7 @@ impl<'a> Tokenizer<'a> {
         let raw = std::str::from_utf8(content).unwrap_or("");
 
         match parse_one_escape(&raw[1..]) {
-          Some((c, rest)) if rest.is_empty() => c,
+          Some((c, "")) => c,
           _ => {
             report_error(Error::new(
               ErrorKind::InvalidEscapeSequence,

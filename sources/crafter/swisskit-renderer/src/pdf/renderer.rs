@@ -60,7 +60,7 @@ impl PdfRenderer {
 
     let page = document
       .pages()
-      .get(index as u16)
+      .get(index as i32)
       .map_err(|e| PdfError::Render(format!("Page {index} not found: {e}")))?;
 
     let width = (page.width().value * scale) as u32;
@@ -96,7 +96,7 @@ impl PdfRenderer {
 
     let page = document
       .pages()
-      .get(index as u16)
+      .get(index as i32)
       .map_err(|e| PdfError::Render(format!("Page {index} not found: {e}")))?;
 
     let page_height = page.height().value;
