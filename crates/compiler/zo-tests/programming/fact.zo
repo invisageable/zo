@@ -12,5 +12,14 @@ fun f(x: int) -> int {
 }
 
 fun main() {
-  check(f(5) == 120);
+  imu result: int = f(5);
+
+  check(result == 120);
+
+  showln("f(5) = {result}");
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- f(5) = 120
+-- DONE
