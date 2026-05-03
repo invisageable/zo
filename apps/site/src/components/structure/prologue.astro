@@ -1,0 +1,42 @@
+---
+import Title from "../atoms/title.astro";
+import Editor from "../interactive/editor.astro";
+
+const sample = `
+-! An Ui counter program in zo.
+
+fun main() {
+  mut count: int = 0;
+
+  -- Look! You can use \`zsx\` to declare Ui.
+  imu counter: </> ::= <>
+    <button @click={fn() => count -= 1}>-</button>
+    {count} <!-- HTML comments are supported in \`zsx\` -->
+    <button @click={fn() => count += 1}>+</button>
+  </>;
+
+  #dom counter;
+}`;
+---
+
+<section data-section="prologue" class="prologue">
+  <div>
+    <Title as="h2">THE zo PROGRAMMiNG LANGUAGE.</Title>
+    <p class="prologue-tagline">
+      Turn your thoughts into <b>type-safe</b> software and Ui instantly.
+    </p>
+  </div>
+
+  <Editor
+    code={sample}
+    class="editor"
+  />
+</section>
+
+<style>
+  .prologue {
+    .prologue-tagline {
+      margin: 0;
+    }
+  }
+</style>

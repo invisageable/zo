@@ -1,0 +1,19 @@
+---
+import Title from '../components/atoms/title.astro';
+import Base from '../layouts/base.astro';
+import Screen from '../components/structure/screen.astro';
+import NavBar, { type Item } from '../components/navigation/navbar.astro';
+
+const title = "zo — Documentation.";
+
+const items = [
+	{ href: "documentation", label: "Documentation" }
+] as Item[];
+---
+
+<Base title={title}>
+	<NavBar items={items} />
+	<Screen>
+		<Title as="h1">Documentation</Title>
+	</Screen>
+</Base>

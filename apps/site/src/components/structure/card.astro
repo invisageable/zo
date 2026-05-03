@@ -1,0 +1,39 @@
+---
+import Title from "../atoms/title.astro";
+import Paragraph from "../atoms/paragraph.astro";
+
+interface Props {
+  class?: string;
+  image?: string;
+  title: string;
+  content: string;
+}
+
+const { class: className, image, title, content } = Astro.props;
+---
+
+<article class:list={["card", className]}>
+  {image ? <img class="card-image" src={image} alt="..."> : null}
+  <Title class="card-title" as="h4">{title}</Title>
+  <Paragraph class="card-content" content={content} />
+</article>
+
+<style is:global>
+  .card {
+    padding: 2rem;
+    border: 1px solid color-mix(in oklab, var(--color-white-100) 10%, transparent);
+
+    .card-image {
+      width: 100%;
+    }
+
+    .card-title {
+      color: var(--color-green-100);
+      font-weight: 400;
+    }
+
+    .card-content {
+      font-size: 1.25vw;
+    }
+  }
+</style>

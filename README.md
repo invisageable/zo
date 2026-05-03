@@ -66,9 +66,9 @@ zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE C
 
 | Compiler  | Hot Average | Throughput      | vs zo             |
 | :-------- | :---------- | :-------------- | :---------------- |
-| **zo**    | **60 ms**   | **~167K LoC/s** | **1× (baseline)** |
-| **clang** | 148 ms      | ~67K LoC/s      | 2.4× slower       |
-| **rustc** | 321 ms      | ~31K LoC/s      | 5.3× slower       |
+| **zo**    | **60 ms**   | **~167K LoC/s** | **1x (baseline)** |
+| **clang** | 148 ms      | ~67K LoC/s      | 2.4x slower       |
+| **rustc** | 321 ms      | ~31K LoC/s      | 5.3x slower       |
 
 [@methodology-and-full-numbers](./crates/compiler/zo-benches)
 
@@ -86,23 +86,17 @@ iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALL
 
 ## features.
 
-  - **UNiFiED Ui DEVELOPMENT**
-    - WRiTE Ui ONCE WiTH zsx — TARGET NATiVE <sup>EGUi</sup> OR THE WEB <sup>JS/DOM</sup>.
-    - FLEXBOX PARiTY ACROSS GPU AND DOM ViA TAFFY — ONE LAYOUT MODEL, TWO BACKENDS.
+  - **UNiFiED**
+    - WRiTE Ui ONCE WiTH zsx — TARGET NATiVE <sup>GPU</sup> OR THE WEB <sup>DOM</sup>.
 
-  - **iNSTANT FEEDBACK LOOP**
-    - COMPiLE 10k LiNES iN MiLLiSECONDS — CODE WiTHOUT WAiTiNG FOR THE COMPiLER.
-    - USER-FRiENDLY ERROR MESSAGES — LiKE elm, FOR FASTER DEBUGGiNG.
+  - **FAST**
+    - BUiLT FROM SCRATCH USiNG MODERN COMPiLER TECHNiQUES FOR iNSTANT EXECUTiON AND RAPiD DEBUGGiNG WiTH HELPFUL ERROR MESSAGES.
 
-  - **EXPRESSiVE & SAFE SYNTAX**
-    - STATiCALLY & STRONGLY TYPED — TOTAL CONTROL OVER YOUR PROGRAM FROM A TO Z.
-    - METiCULOUS TYPE SYSTEM — TYPE iNFERENCE, MONOMORPHiZATiON, TYPESTATE.
-    - SAFE CONCURRENCY — GREEN AND OS THREADS LiKE Go, WRAPPED iN NURSERY TASK SCOPES. <sup>NO LEAKED THREADS, NO DATA RACES</sup>.
-    - META-LANGUAGE — RUN AT COMPiLE-TiME ViA `#asm`, `#dom`, `#run` DiRECTiVES.
+  - **SAFE**
+    - STATiCALLY & STRONGLY TYPED — USES GREEN AND OS THREADS WRAPPED iN NURSERY TASK SCOPES. <sup>NO LEAKED THREADS, NO DATA RACES</sup>.
 
-  - **FULL TOOLKiT iNCLUDED**
-    - PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup>, TEXT EDiTOR <sup><a href="https://github.com/invisageable/codelord">codelord</a></sup>, NATiVE BUiLD TOOLS — KEEPS YOUR WORKSTATiON LiGHTWEiGHT.
-    - TARGET SUPPORT — `arm64`, `x86_64` FOR `linux`, `macos`, `windows`.
+  - **iNTEGRATED**
+    - A COMPLETE WORKSTATiON WiTH BUiLT-iN TOOLS — PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup> AND TEXT EDiTOR <sup><a href="https://github.com/invisageable/codelord">codelord</a></sup>.
 
 ## get started.
 

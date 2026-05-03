@@ -1,0 +1,265 @@
+---
+export interface Series {
+  label: string;
+  value: number;
+  display: string;
+  inBar?: string;
+}
+
+interface Props {
+  series: Series[];
+  unit?: string;
+  max?: number;
+  tickStep?: number;
+  // Seconds of animation per unit-of-value. 0.01 → a value of 100 fills
+  // in 1s. The bar's CSS animation-duration is set from this per series.
+  animationScale?: number;
+  disclaimers?: string[];
+}
+
+const {
+  series,
+  unit = "",
+  max: maxOverride,
+  tickStep: tickStepOverride,
+  animationScale = 0.01,
+  disclaimers,
+} = Astro.props;
+
+const rawMax = Math.max(...series.map((s) => s.value));
+
+// Returns the smallest "nice" axis max ≥ raw (with 5% headroom) such that
+// the axis divides into 4-6 evenly-spaced ticks at multiples of {1, 2, 5}
+// × a power of 10 — the tick values humans expect on a chart axis.
+function chooseScale(raw: number): { max: number; step: number } {
+  const headroom = raw * 1.05;
+
+  for (let power = -3; power <= 6; power++) {
+    const magnitude = Math.pow(10, power);
+
+    for (const base of [1, 2, 5]) {
+      const step = base * magnitude;
+      const tickCount = Math.ceil(headroom / step);
+
+      if (tickCount >= 4 && tickCount <= 6) {
+        return { max: step * tickCount, step };
+      }
+    }
+  }
+
+  return { max: raw * 1.2, step: raw / 4 };
+}
+
+const auto = chooseScale(rawMax);
+const max = maxOverride ?? auto.max;
+const step = tickStepOverride ?? auto.step;
+const tickCount = Math.floor(max / step);
+const ticks = Array.from({ length: tickCount + 1 }, (_, idx) => idx * step);
+
+// Don't render ticks past the largest data point — keeps the axis tight
+// to the data instead of trailing into empty space.
+const visibleTicks = ticks.filter((tick) => tick <= rawMax);
+
+const minValue = Math.min(...series.map((s) => s.value));
+
+const ROW_H = 24;
+const AXIS_OFFSET = 4;
+const chartH = series.length * ROW_H + 30;
+---
+
+<figure
+  class="chart"
+  style={`--chart-height: ${chartH}px;`}
+>
+  <div class="chart-area">
+    {
+      visibleTicks.map((tick) => <div
+        class="tick"
+        style={`left: ${(tick / max) * 100}%;`}
+      />)
+    }
+
+    {series.map((serie, idx) => {
+      const widthPct = (serie.value / max) * 100;
+      const animSec = serie.value * animationScale;
+
+      return (
+        <>
+          <div
+            class="bar-track"
+            style={`top: ${idx * ROW_H + 3}px; width: ${widthPct}%;`}
+          ></div>
+          <div
+            class="bar-fill"
+            style={`top: ${idx * ROW_H + 3}px; width: ${widthPct}%; --anim-duration: ${animSec}s;`}
+          >
+            {serie.inBar && <span class="bar-text f-aeonik">{serie.inBar}</span>}
+          </div>
+          <div class="label" style={`top: ${idx * ROW_H}px;`}>{serie.label}</div>
+          <div
+            class:list={["value", serie.value === minValue && "value--fastest"]}
+            style={`top: ${idx * ROW_H}px; left: ${widthPct}%;`}
+          >
+            {serie.display}
+          </div>
+        </>
+      );
+    })}
+
+    {
+      visibleTicks.map((tick) => <div
+        class="tick-label"
+        style={`left: ${(tick / max) * 100}%; top: ${series.length * ROW_H + AXIS_OFFSET}px;`}
+      >
+        {tick}{unit}
+      </div>)
+    }
+  </div>
+
+  {
+    disclaimers && disclaimers.length > 0 && <ul class="chart-disclaimers">
+      {disclaimers.map((d) => <li set:html={d}></li>)}
+    </ul>
+  }
+</figure>
+
+<script>
+  import { watcher } from "../../core/watcher";
+  import { observer } from "../../core/observer";
+  import { PlayingToggle } from "../../core/effects/playing-toggle";
+
+  // .chart elements appear both at first paint AND later when the fold
+  // clones content into its 3 panels — watcher catches both populations.
+  watcher.add({
+    selector: ".chart",
+    onMatch: (chart) => observer.add(new PlayingToggle(chart, "playing")),
+  });
+</script>
+
+<style>
+  .chart {
+    --label-width: 44px;
+  }
+
+  .chart {
+    position: relative;
+    margin: 20px 0 0;
+    font-family: var(--font-iosevka);
+    font-size: 13px;
+    line-height: 20px;
+  }
+
+  .chart-area {
+    position: relative;
+    margin-left: var(--label-width);
+    height: var(--chart-height);
+  }
+
+  .tick {
+    position: absolute;
+    top: 0;
+    bottom: 30px;
+    width: 1px;
+    background: rgba(127, 127, 127, 0.25);
+  }
+
+  .bar-track {
+    position: absolute;
+    height: 14px;
+    background: rgba(191, 191, 191, 0.2);
+  }
+
+  .bar-fill {
+    position: absolute;
+    height: 14px;
+    overflow: hidden;
+  }
+
+  /* The fill is a pseudo-element so the bar's contents (.bar-text) don't
+     scale with the animation — they sit at natural size on top of it. */
+  .bar-fill::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--color-green-100);
+    transform: scaleX(0.0000001);
+    transform-origin: left;
+  }
+
+  /* Gating the animation on a parent class (toggled by PlayingToggle on
+     viewport enter/leave) makes the browser drop and re-create the
+     animation each time, replaying it from frame 0 — repeatable scroll
+     trigger without resetting timelines manually. */
+  .chart.playing .bar-fill::before {
+    animation:
+      scale-bar var(--anim-duration, 1s) linear forwards;
+  }
+
+  .bar-text {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    color: var(--color-black-100);
+    font-weight: 700;
+    font-size: 11px;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  @keyframes scale-bar {
+    from { transform: scaleX(0.0000001); }
+    to   { transform: scaleX(1); }
+  }
+
+  .label {
+    position: absolute;
+    right: 100%;
+    width: var(--label-width);
+    height: 20px;
+    text-align: right;
+    margin-right: 8px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  /* Sibling combinator: only the FIRST .label keeps the bold default.
+     `:first-of-type` would target the first <div>, not the first label,
+     and the chart-area has many non-label divs first. */
+  .label ~ .label {
+    font-weight: 400;
+  }
+
+  .value {
+    position: absolute;
+    height: 20px;
+    margin-left: 8px;
+    white-space: nowrap;
+  }
+
+  .value--fastest {
+    font-weight: 700;
+  }
+
+  .tick-label {
+    position: absolute;
+    width: 50px;
+    margin-left: -25px;
+    text-align: center;
+  }
+
+  .chart-disclaimers {
+    margin: 16px 0 0 var(--label-width);
+    padding: 0;
+    list-style: none;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-gray-200);
+    font-style: italic;
+  }
+
+  .chart-disclaimers li + li {
+    margin-top: 4px;
+  }
+</style>

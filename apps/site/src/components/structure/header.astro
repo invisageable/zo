@@ -1,0 +1,58 @@
+---
+import { textTransform } from "../../core/effects/text-transform";
+// import Dropdown from "../actions/dropdown.astro";
+import Link from "../atoms/link.astro";
+
+interface Props {
+  class?: string;
+  id?: string;
+}
+
+const { class: className, id } = Astro.props;
+
+// const locales = [
+//   { href: "/", label: "🇬🇧" },
+//   { href: "/fr/", label: "🇫🇷" },
+// ];
+
+// const current = Astro.currentLocale === "fr" ? "/fr/" : "/";
+---
+
+<header class:list={["header", className]} id={id}>
+  <Link class="header-btn" href="/initiation" label={textTransform("Initiation")} />
+  <Link class="header-btn" href="/documentation" label={textTransform("Documentation")} />
+  <Link class="header-btn" href="/speeches" label={textTransform("Speeches")} />
+  <!-- <Dropdown items={locales} current={current} /> -->
+</header>
+
+<script>
+  import { renderer } from "../../core/renderer";
+  import { watcher } from "../../core/watcher";
+  import { StickyTopBar } from "../../core/effects/sticky-top-bar";
+
+  // note(ivs): It's an illusion trick: any `.header--fixed` instance gets
+  // paired with the in-flow `.header--inline` (cloned inside `.fold-center`).
+  // We've to do this because CSS sticky rule doesn't work in the fold's blocks,
+  // so the fixed copy fades in via class toggle once the in-flow one scrolls 
+  // past the viewport top.
+  watcher.add({
+    selector: ".header--fixed",
+    onMatch: (fixed) => {
+      const screen = document.querySelector<HTMLElement>(".screen");
+      renderer.add(
+        new StickyTopBar(
+          fixed,
+          ".fold-center .fold-scroller .header--inline",
+          screen,
+        ),
+      );
+    },
+  });
+</script>
+
+<style is:global>
+  .header {
+    display: flex;
+    gap: 16px;
+  }
+</style>

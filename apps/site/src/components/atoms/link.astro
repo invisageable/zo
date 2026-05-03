@@ -1,0 +1,30 @@
+---
+interface Props {
+  class?: string;
+  href: string;
+  label: string;
+}
+
+const { href, label, class: className } = Astro.props;
+---
+
+<a class={className} href={href}>{label}</a>
+
+<style>
+  a {
+    opacity: 0.5;
+    outline: none;
+    color: var(--color-grasy-100);
+    text-decoration: none;
+    text-decoration-thickness: auto;
+    text-underline-offset: 0.3em;
+    text-decoration-thickness: 1px;
+    transition: opacity 0.3s ease;
+    
+  &:hover {
+      opacity: 1;
+      color: var(--color-green-100);
+      text-decoration: underline;
+    }
+  }
+</style>

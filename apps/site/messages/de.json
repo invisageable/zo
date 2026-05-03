@@ -1,0 +1,19 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "nav_prologue": "Prolog",
+  "nav_features": "Funktionen",
+  "nav_purpose": "Zweck",
+  "nav_benchmarks": "Benchmarks",
+  "nav_manifesto": "Manifest",
+  "nav_tools": "Werkzeuge",
+  "nav_oss": "OSS",
+  "nav_foundations": "Stiftungen",
+  "nav_community": "Gemeinschaft",
+  "nav_sponsors": "Sponsoren",
+  "nav_reachout": "Kontakt",
+  "oss_title": "# oss",
+  "oss_stars": "Sterne",
+  "oss_merged_prs": "zusammengeführte PRs",
+  "oss_contributors": "Mitwirkende",
+  "oss_commits": "Commits"
+}

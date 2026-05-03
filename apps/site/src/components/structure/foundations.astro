@@ -1,0 +1,52 @@
+---
+import { Image } from "astro:assets";
+import { textTransform } from "../../core/effects/text-transform";
+import Title from "../atoms/title.astro";
+import logoEgui from "../../assets/logo-egui.png";
+import logoWgpu from "../../assets/logo-wgpu.png";
+
+const description = "Powered by modern and reliable foundations to deliver high-performance graphics and web integration.";
+
+const logos = [
+  { src: logoEgui, alt: "egui", href: "https://github.com/emilk/egui" },
+  { src: logoWgpu, alt: "wgpu", href: "https://github.com/gfx-rs/wgpu" },
+];
+---
+
+<section data-section="foundations" class="foundations">
+  <Title as="h2"># foundations</Title>
+  <p>{textTransform(description)}</p>
+  <ul class="foundations-logos">
+    {logos.map((logo) => <li>
+      <a href={logo.href} target="_blank" rel="noopener">
+        <Image src={logo.src} alt={logo.alt} />
+      </a>
+    </li>)}
+  </ul>
+</section>
+
+<style>
+  .foundations-logos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+    align-items: center;
+    margin: 24px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .foundations-logos img {
+    height: 64px;
+    width: auto;
+    transition: opacity 0.2s ease;
+  }
+
+  .foundations-logos a {
+    opacity: 0.7;
+  }
+
+  .foundations-logos a:hover {
+    opacity: 1;
+  }
+</style>

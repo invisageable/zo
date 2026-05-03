@@ -310,3 +310,12 @@ delete_tag version:
 # List all tags
 list_tags:
   git tag -l --sort=-v:refname
+
+zo_off_site_dev:
+  astro dev
+
+zo_off_site_build:
+  astro build
+
+zo_off_site_preview:
+  astro preview

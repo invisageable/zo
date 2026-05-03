@@ -1,0 +1,132 @@
+---
+import Link from "../atoms/link.astro";
+
+export type Item = {
+  href: string;
+  label: string;
+  children?: Item[];
+};
+
+interface Props {
+  items: Item[],
+}
+
+const { items } = Astro.props;
+---
+
+<nav class="navbar">
+  <ul class="table-of-content">
+    {
+      items.map((item) => <li>
+        <Link
+          class={`table-of-content-item f-cirka ${item.label.toLowerCase()}`}
+          href={item.href}
+          label={item.label}
+        />
+        {item.children && <ul class="table-of-content-children">
+          {item.children.map((child) => <li>
+            <Link
+              class={`table-of-content-item table-of-content-item--child f-cirka ${child.label.toLowerCase()}`}
+              href={child.href}
+              label={child.label}
+            />
+          </li>)}
+        </ul>}
+      </li>
+      )
+    }
+  </ul>
+</nav>
+
+<script>
+  import { renderer } from "../../core/renderer";
+  import { NavbarSpy, type NavLink } from "../../core/effects/navbar-spy";
+
+  const links = document.querySelectorAll<HTMLAnchorElement>(
+    ".table-of-content-item",
+  );
+
+  // Map each link to the data-section it points to so click-to-scroll and
+  // scroll-spy share the same source of truth.
+  const navItems: NavLink[] = Array.from(links).map((link) => ({
+    link: link as HTMLElement,
+    target: link.getAttribute("href")?.slice(1) ?? "",
+  }));
+
+  function findSection(target: string): HTMLElement | null {
+    const centerScroller = document.querySelector<HTMLElement>(
+      ".fold-center .fold-scroller",
+    );
+    return centerScroller?.querySelector<HTMLElement>(
+      `[data-section="${target}"]`,
+    ) ?? null;
+  }
+
+  // Click-to-scroll is user-event-driven, not per-frame — stays as a click
+  // handler. Measure the section's post-transform viewport position and
+  // scroll the body by the delta.
+  for (const { link, target } of navItems) {
+    link.addEventListener("click", (event) => {
+      if (!target) return;
+
+      const section = findSection(target);
+      // No section to scroll to → let default link navigation happen
+      // (e.g. hash-based filters on the /speeches page).
+      if (!section) return;
+
+      event.preventDefault();
+      const rect = section.getBoundingClientRect();
+      const desiredY = window.innerHeight * 0.1;
+      const delta = rect.top - desiredY;
+
+      window.scrollTo({
+        top: window.scrollY + delta,
+        behavior: "smooth",
+      });
+    });
+  }
+
+  renderer.add(new NavbarSpy(navItems));
+</script>
+
+<style>
+  .navbar {
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    padding: calc(1.7em *0.5) 0;
+    z-index: 10;
+    position: fixed;
+    display: flex;
+    justify-content: center;
+
+    .table-of-content {
+      padding: 40px 0 0 0;
+      list-style: none;
+    }
+
+    .table-of-content-item {
+      opacity: 0.5;
+      font-size: 1.4rem;
+      text-decoration: none;
+      transition: opacity 0.30s ease, color 0.30s ease;
+    }
+
+    .table-of-content-item--active {
+      opacity: 1;
+      color: var(--color-green-100);
+      text-decoration: underline;
+    }
+
+    .table-of-content-children {
+      margin: 4px 0 8px;
+      padding: 0 0 0 16px;
+      list-style: none;
+    }
+
+    .table-of-content-item--child {
+      font-size: 1.1rem;
+    }
+  }
+</style>

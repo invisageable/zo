@@ -4,10 +4,10 @@
 
 ## about.
 
-A COLLECTiON OF DOCS, NOTES AND SPEECHES. iT'S ALL ABOUT READiNG HERE.
+A COLLECTiON OF DOCS, NOTES. iT'S ALL ABOUT READiNG HERE.
 
-## members.
+<!-- ## members.
 
 | NAME                   | DESCRiPTiON                                                       |
 | :--------------------- | :---------------------------------------------------------------- |
-| [speeches](./speeches) | SOME ~~`bullshit`~~ iDEAS OF MY DAY-TO-DAY JOURNAL (FRENCH ONLY). |
+| [speeches](./speeches) | SOME ~~`bullshit`~~ iDEAS OF MY DAY-TO-DAY JOURNAL (FRENCH ONLY). | -->

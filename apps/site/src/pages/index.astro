@@ -1,0 +1,97 @@
+---
+import * as m from '../paraglide/messages';
+import Base from '../layouts/base.astro';
+import Screen from '../components/structure/screen.astro';
+import NavBar, { type Item } from '../components/navigation/navbar.astro';
+import Oss from '../components/structure/oss.astro';
+import Hero from '../components/structure/hero.astro';
+import Prologue from '../components/structure/prologue.astro';
+import Features from '../components/structure/features.astro';
+import Purpose from '../components/structure/purpose.astro';
+import Benchmarks from '../components/structure/benchmarks.astro';
+import Manifesto from '../components/structure/manifesto.astro';
+import Tools from '../components/structure/tools.astro';
+import Reachout from '../components/structure/reachout.astro';
+import Header from '../components/structure/header.astro';
+import Sponsors from '../components/structure/sponsors.astro';
+import Community from '../components/structure/community.astro';
+import Foundations from '../components/structure/foundations.astro';
+
+const title = "zo — Turn your thoughts into type-safe software and Ui instantly.";
+
+const items = [
+	{ href: "#prologue", label: m.nav_prologue() },
+	{ href: "#features", label: m.nav_features() },
+	{ href: "#purpose", label: m.nav_purpose() },
+	{ href: "#benchmarks", label: m.nav_benchmarks() },
+	{ href: "#manifesto", label: m.nav_manifesto() },
+	// { href: "#repl", label: "Repl" },
+	{ href: "#tools", label: m.nav_tools() },
+	// { href: "#talks", label: "Talks" },
+	{ href: "#oss", label: m.nav_oss() },
+	{ href: "#foundations", label: m.nav_foundations() },
+	{ href: "#community", label: m.nav_community() },
+	{ href: "#sponsors", label: m.nav_sponsors() },
+	{ href: "#reachout", label: m.nav_reachout() },
+] as Item[];
+---
+
+<Base title={title}>
+	<NavBar items={items} />
+
+	<Header class="header--fixed blur" id="top-bar" />
+
+	<Screen>
+    <Hero />
+		<Prologue />
+		<Features />
+		<Purpose />
+		<Benchmarks />
+		<Manifesto />
+		<Tools />
+		<Oss />
+		<Foundations />
+		<Community />
+		<Sponsors />
+		<Reachout />
+	</Screen>
+</Base>
+
+<style is:global>
+	.header--fixed {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 50;
+		height: var(--top-bar-height);
+		box-sizing: border-box;
+		align-items: center;
+		padding: 0 calc(var(--sidebar-width) + 40px);
+		background: rgba(0, 0, 0, 0.4);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.18s ease;
+	}
+
+	.header--fixed.header--active {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.header--inline {
+		z-index: 100;
+	}
+</style>
+
+<script>
+	async function preload() {
+		// import zo wasm compiler here.
+	}
+
+	async function run() {
+		await preload();
+	}
+
+	window.addEventListener("DOMContentLoaded", async () => await run(), false);
+</script>
