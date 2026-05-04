@@ -1,8 +1,11 @@
 ---
 import Title from "../../components/atoms/title.astro";
 import Base from "../../layouts/base.astro";
+import Paragraph from "../../components/atoms/paragraph.astro";
+import Header from "../../components/structure/header.astro";
 import Screen from "../../components/structure/screen.astro";
 import NavBar, { type Item } from "../../components/navigation/navbar.astro";
+
 import {
   loadSpeeches,
   getSpeechNavItems,
@@ -13,12 +16,19 @@ import {
 
 const speeches = (await loadSpeeches()).slice().reverse();
 const items: Item[] = await getSpeechNavItems();
+
+const description = "My day-to-day journal. For now there are only in french.";
 ---
 
 <Base title="zo — Speeches.">
   <NavBar items={items} />
+  <Header class="header--fixed header--active blur" id="top-bar" />
   <Screen>
-    <Title as="h1">Speeches</Title>
+    <Title class="speeches-title" as="h1">
+      Speeches
+      <span class="speeches-count" data-total=`(${speeches.length})` />
+    </Title>
+    <Paragraph content={description} />
     <ul class="speeches-list">
       {
         speeches.map(({ entry, meta }) => <li class="speeches-item" data-season={pad2(meta.season)}>
@@ -34,8 +44,38 @@ const items: Item[] = await getSpeechNavItems();
 </Base>
 
 <script>
-  // JS owns the filter (instead of per-season CSS rules) so adding a new
-  // season auto-works without touching styles or generating CSS dynamically.
+  import { renderer } from "../../core/renderer";
+  import { observer } from "../../core/observer";
+  import { watcher } from "../../core/watcher";
+  import { Counter } from "../../core/effects/counter";
+
+  // Each fold-cloned `.speeches-count` gets its own Counter — initial intro
+  // animation on viewport enter, then `setTarget` on every filter change so
+  // the number tweens between season totals.
+  const counters: Counter[] = [];
+
+  watcher.add({
+    selector: '.speeches-count',
+    onMatch: (elmt) => {
+      const total = Number(elmt.dataset.total ?? 0);
+      const counter = new Counter(elmt, total, 350);
+      counters.push(counter);
+      renderer.add(counter);
+      observer.add(counter);
+    },
+  });
+
+  function countFor(season: string | null): number {
+    // Count from `.fold-center` — the single visible copy. The other fold
+    // panels and the hidden source would multiply the total otherwise.
+    const root = document.querySelector(".fold-center");
+    if (!root) return 0;
+    const selector = season === null
+      ? ".speeches-item"
+      : `.speeches-item[data-season="${season}"]`;
+    return root.querySelectorAll(selector).length;
+  }
+
   function applyFilter() {
     const hash = location.hash.slice(1);
     const season = /^s\d+$/.test(hash) ? hash.slice(1) : null;
@@ -48,7 +88,7 @@ const items: Item[] = await getSpeechNavItems();
       });
 
     document
-      .querySelectorAll<HTMLAnchorElement>(".table-of-content-item--child")
+      .querySelectorAll<HTMLAnchorElement>(".table-of-content-item")
       .forEach((link) => {
         const target = link.getAttribute("href")?.slice(1) ?? "";
         const isActive =
@@ -56,10 +96,15 @@ const items: Item[] = await getSpeechNavItems();
           (season !== null && target === `s${season}`);
         link.classList.toggle("table-of-content-item--active", isActive);
       });
+
+    const target = countFor(season);
+    counters.forEach((counter) => counter.setTarget(target));
   }
 
   window.addEventListener("hashchange", applyFilter);
   applyFilter();
+
+  renderer.render();
 </script>
 
 <style is:global>
@@ -69,6 +114,12 @@ const items: Item[] = await getSpeechNavItems();
 </style>
 
 <style>
+  .speeches-count {
+    font-size: 4rem;
+    &::before { content: "("; }
+    &::after  { content: ")"; }
+  }
+
   .speeches-list {
     margin: 24px 0 0;
     padding: 0;

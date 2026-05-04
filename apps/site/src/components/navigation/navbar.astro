@@ -14,7 +14,8 @@ interface Props {
 const { items } = Astro.props;
 ---
 
-<nav class="navbar">
+<nav class="navbar ovx">
+  <button type="button" class="navbar-close" aria-label="close menu">✕</button>
   <ul class="table-of-content">
     {
       items.map((item) => <li>
@@ -30,6 +31,15 @@ const { items } = Astro.props;
               href={child.href}
               label={child.label}
             />
+            {child.children && <ul class="table-of-content-grandchildren">
+              {child.children.map((grandchild) => <li>
+                <Link
+                  class={`table-of-content-item table-of-content-item--grandchild f-cirka`}
+                  href={grandchild.href}
+                  label={grandchild.label}
+                />
+              </li>)}
+            </ul>}
           </li>)}
         </ul>}
       </li>
@@ -57,9 +67,13 @@ const { items } = Astro.props;
     const centerScroller = document.querySelector<HTMLElement>(
       ".fold-center .fold-scroller",
     );
-    return centerScroller?.querySelector<HTMLElement>(
-      `[data-section="${target}"]`,
-    ) ?? null;
+    if (!centerScroller) return null;
+    // Match either a `data-section` (custom section anchor) or `id` (markdown
+    // heading slug). Scoped to fold-center so we hit the visible copy, not
+    // the hidden source or sibling fold panels.
+    return centerScroller.querySelector<HTMLElement>(
+      `[data-section="${target}"], #${CSS.escape(target)}`,
+    );
   }
 
   // Click-to-scroll is user-event-driven, not per-frame — stays as a click
@@ -87,6 +101,30 @@ const { items } = Astro.props;
   }
 
   renderer.add(new NavbarSpy(navItems));
+
+  // Close button (mobile-only) closes the navbar overlay.
+  document
+    .querySelectorAll<HTMLButtonElement>(".navbar-close")
+    .forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelector(".navbar")?.classList.remove("navbar--open");
+        document
+          .querySelectorAll<HTMLElement>(".header-burger")
+          .forEach((b) => b.setAttribute("aria-expanded", "false"));
+      });
+    });
+
+  // Close on link tap inside the navbar (typical mobile menu pattern).
+  document
+    .querySelectorAll<HTMLAnchorElement>(".navbar a")
+    .forEach((link) => {
+      link.addEventListener("click", () => {
+        document.querySelector(".navbar")?.classList.remove("navbar--open");
+        document
+          .querySelectorAll<HTMLElement>(".header-burger")
+          .forEach((b) => b.setAttribute("aria-expanded", "false"));
+      });
+    });
 </script>
 
 <style>
@@ -95,11 +133,11 @@ const { items } = Astro.props;
     left: 0;
     width: var(--sidebar-width);
     height: 100vh;
-    padding: calc(1.7em *0.5) 0;
+    padding: calc(1.7em *0.5) 0 calc(1.7em *0.5) 4rem;
     z-index: 10;
     position: fixed;
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
 
     .table-of-content {
       padding: 40px 0 0 0;
@@ -127,6 +165,78 @@ const { items } = Astro.props;
 
     .table-of-content-item--child {
       font-size: 1.1rem;
+      text-transform: capitalize;
+    }
+
+    .table-of-content-grandchildren {
+      margin: 4px 0 8px;
+      padding: 0 0 0 16px;
+      list-style: none;
+    }
+
+    .table-of-content-item--grandchild {
+      font-size: 0.95rem;
+      opacity: 0.4;
+      text-transform: capitalize;
+    }
+  }
+
+  /* Close button: hidden on desktop, visible top-right when the mobile
+     overlay is open. */
+  .navbar-close {
+    display: none;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font-size: 1.15rem;
+    /* line-height: 1; */
+    cursor: pointer;
+    /* padding: 8px; */
+  }
+
+  @media (max-width: 768px) {
+    /* Mobile: navbar is a full-screen overlay on top of everything,
+       hidden until `.navbar--open` is toggled by the burger.
+       Open  sequence: backdrop fade-in (0–0.24s) → list slide-in (0.24–0.48s).
+       Close sequence: list slide-out (0–0.24s) → backdrop fade-out (0.24–0.48s).
+       Each state owns its own transition timing — delays differ per direction. */
+    .navbar {
+      width: 100vw;
+      height: 100vh;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.6);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px);
+      z-index: 100;
+      visibility: hidden;
+      opacity: 0;
+      transition:
+        opacity 0.24s ease-in-out 0.24s,
+        visibility 0s ease-in-out 0.48s;
+    }
+
+    .navbar.navbar--open {
+      visibility: visible;
+      opacity: 1;
+      transition: opacity 0.24s ease-in-out;
+    }
+
+    /* The menu list slides in/out — backdrop stays in place. */
+    .navbar .table-of-content {
+      transform: translateX(-1000%);
+      transition: transform 0.24s ease-in-out;
+    }
+
+    .navbar.navbar--open .table-of-content {
+      transform: translateX(0);
+      transition: transform 0.24s ease 0.24s;
+    }
+
+    .navbar-close {
+      position: absolute;
+      top: 16px;
+      right: 24px;
+      display: inline-block;
     }
   }
 </style>

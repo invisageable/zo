@@ -50,6 +50,12 @@ function isIdentCont(ch: string): boolean {
   return isIdentStart(ch) || isDigit(ch);
 }
 
+function isAlnum(ch: string): boolean {
+  return isDigit(ch)
+    || (ch >= "a" && ch <= "z")
+    || (ch >= "A" && ch <= "Z");
+}
+
 export function tokenize(src: string): Token[] {
   const tokens: Token[] = [];
   let pos = 0;
@@ -88,7 +94,16 @@ export function tokenize(src: string): Token[] {
       continue;
     }
 
-    // Comments: `--` line, `-!` doc.
+    // Comments: `-* … *-` block (multi-line), `--` line, `-!` doc.
+    if (ch === "-" && src[pos + 1] === "*") {
+      const start = pos;
+      pos += 2;
+      while (pos < src.length && !(src[pos] === "*" && src[pos + 1] === "-")) pos++;
+      if (pos < src.length) pos += 2;
+      tokens.push({ kind: Kind.Comment, text: src.slice(start, pos), start, end: pos });
+      continue;
+    }
+
     if (ch === "-" && (src[pos + 1] === "-" || src[pos + 1] === "!")) {
       const start = pos;
       while (pos < src.length && src[pos] !== "\n") pos++;
@@ -110,6 +125,33 @@ export function tokenize(src: string): Token[] {
       continue;
     }
 
+    // Numbers with base prefix: 0x.., 0o.., 0b.. (any base/digit-validity
+    // is the parser's job; tokenizer just consumes the alnum + underscore run).
+    if (
+      ch === "0"
+      && (src[pos + 1] === "x" || src[pos + 1] === "X"
+        || src[pos + 1] === "o" || src[pos + 1] === "O"
+        || src[pos + 1] === "b" || src[pos + 1] === "B")
+    ) {
+      const start = pos;
+      pos += 2;
+      while (pos < src.length && (isAlnum(src[pos]) || src[pos] === "_")) pos++;
+      tokens.push({ kind: Kind.Number, text: src.slice(start, pos), start, end: pos });
+      continue;
+    }
+
+    // Numbers with `b#`, `o#`, `x#` modifier — `b#101`, `o#75`, `x#7f`.
+    if (
+      (ch === "b" || ch === "o" || ch === "x")
+      && src[pos + 1] === "#"
+    ) {
+      const start = pos;
+      pos += 2;
+      while (pos < src.length && (isAlnum(src[pos]) || src[pos] === "_")) pos++;
+      tokens.push({ kind: Kind.Number, text: src.slice(start, pos), start, end: pos });
+      continue;
+    }
+
     // Numbers: integer + decimal + underscores (e.g., 1_000_000.5).
     if (isDigit(ch)) {
       const start = pos;
@@ -123,7 +165,8 @@ export function tokenize(src: string): Token[] {
       const start = pos;
       while (pos < src.length && isIdentCont(src[pos])) pos++;
       const text = src.slice(start, pos);
-      const kind = KEYWORDS.has(text) ? Kind.Keyword
+      const kind = (text === "true" || text === "false") ? Kind.Boolean
+                 : KEYWORDS.has(text) ? Kind.Keyword
                  : TYPES.has(text) ? Kind.Type
                  : Kind.Ident;
       tokens.push({ kind, text, start, end: pos });

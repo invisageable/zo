@@ -50,13 +50,15 @@ let cached: Promise<LoadedSpeech[]> | null = null;
 
 export function loadSpeeches(): Promise<LoadedSpeech[]> {
   if (cached) return cached;
+
   cached = (async () => {
     const entries = await getCollection("speeches");
     return entries
       .map((entry) => ({ entry, meta: parseSpeech(entry) }))
-      .filter((s): s is LoadedSpeech => s.meta !== null)
+      .filter((speech): speech is LoadedSpeech => speech.meta !== null)
       .sort((a, b) => a.meta.date.getTime() - b.meta.date.getTime());
   })();
+
   return cached;
 }
 
@@ -64,17 +66,13 @@ export function loadSpeeches(): Promise<LoadedSpeech[]> {
 // "/speeches" on detail pages so clicks navigate back and filter on landing.
 export async function getSpeechNavItems(hashPrefix: string = ""): Promise<Item[]> {
   const speeches = await loadSpeeches();
-  const seasons = [...new Set(speeches.map((s) => s.meta.season))].sort();
+  const seasons = [...new Set(speeches.map((speech) => speech.meta.season))].sort();
 
-  return [{
-    href: "/speeches",
-    label: "Speeches",
-    children: [
-      { href: `${hashPrefix}#all`, label: "All" },
-      ...seasons.map((season) => ({
-        href: `${hashPrefix}#s${pad2(season)}`,
-        label: `S${pad2(season)}`,
-      })),
-    ],
-  }];
+  return [
+    { href: `${hashPrefix}#all`, label: "All" },
+    ...seasons.map((season) => ({
+      href: `${hashPrefix}#s${pad2(season)}`,
+      label: `S${pad2(season)}`,
+    })),
+  ];
 }

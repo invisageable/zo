@@ -12,10 +12,9 @@ export function remarkZo() {
       if (!node.lang || !/(^|[:|])zo$/.test(node.lang)) return;
 
       const inner = highlight(node.value)
-        .map((span) =>
-          span.kind === null
-            ? escapeHtml(span.text)
-            : `<span class="${span.kind}">${escapeHtml(span.text)}</span>`,
+        .map((span) => span.kind === null
+          ? escapeHtml(span.text)
+          : `<span class="${span.kind}">${escapeHtml(span.text)}</span>`,
         )
         .join("");
 

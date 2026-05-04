@@ -1,0 +1,85 @@
+---
+import { render } from 'astro:content';
+import Base from '../../layouts/base.astro';
+import NavBar, { type Item } from '../../components/navigation/navbar.astro';
+import Header from '../../components/structure/header.astro';
+import Initiation from '../../components/structure/initiation.astro';
+import Screen from '../../components/structure/screen.astro';
+import { loadInitiations, getInitiationNavItems } from '../../core/initiation';
+
+const title = "zo — Initiation.";
+
+const initiations = await loadInitiations();
+const items: Item[] = await getInitiationNavItems();
+
+const sections = await Promise.all(
+  initiations.map(async (initiation) => ({
+    slug: initiation.slug,
+    label: initiation.label,
+    Content: (await render(initiation.entry)).Content,
+  })),
+);
+---
+
+<Base title={title}>
+  <NavBar items={items} />
+  <Header class="header--fixed header--active blur" id="top-bar" />
+  <Screen>
+    <Initiation />
+    {
+      sections.map(({ slug, Content }) => <section
+        id={slug}
+        class="initiation"
+        data-section={slug}>
+        <Content />
+      </section>)
+    }
+  </Screen>
+</Base>
+
+<style is:global>
+  .initiation h1,
+  .initiation h2,
+  .initiation h3,
+  .initiation h4,
+  .initiation h5,
+  .initiation h6 {
+    font-family: var(--font-cirka);
+  }
+
+  .initiation h2::before { content: "## "; }
+  .initiation h3::before { content: "### "; }
+  .initiation h4::before { content: "#### "; }
+  .initiation h5::before { content: "##### "; }
+  .initiation h6::before { content: "###### "; }
+
+  .initiation pre {
+    background: #000 !important;
+    padding: 8px;
+    overflow-x: auto;
+  }
+
+  .initiation .zo-block {
+    --color-yellow-100: #e6db74;
+    --color-orange-100: #fd971f;
+    --color-red-100: #f92672;
+    --color-purple-100: #ae81ff;
+    --color-blue-100: #66d9ef;
+    --color-cyan-100: #a1efe4;
+    --color-magenta-100: #fd5ff0;
+    --color-gray-100: #43443b;
+    --color-gray-200: #75715e;
+  }
+
+  .initiation .zo-block .keyword     { color: var(--color-blue-100); }
+  .initiation .zo-block .ident       { color: var(--color-green-100); }
+  .initiation .zo-block .group       { color: var(--color-gray-200); }
+  .initiation .zo-block .punctuation { color: var(--color-red-100); }
+  .initiation .zo-block .number      { color: var(--color-purple-100); }
+  .initiation .zo-block .comment     { color: var(--color-grasy-100); opacity: 0.5; }
+  .initiation .zo-block .string      { color: var(--color-yellow-100); }
+  .initiation .zo-block .type        { color: var(--color-cyan-100); }
+  .initiation .zo-block .attribute   { color: var(--color-orange-100); }
+  .initiation .zo-block .event       { color: var(--color-magenta-100); }
+  .initiation .zo-block .boolean     { color: var(--color-orange-100); }
+</style>

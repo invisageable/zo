@@ -34,9 +34,12 @@ export class NavbarSpy implements Renderable {
     const centerScroller = document.querySelector<HTMLElement>(
       ".fold-center .fold-scroller",
     );
-    return centerScroller?.querySelector<HTMLElement>(
-      `[data-section="${target}"]`,
-    ) ?? null;
+    if (!centerScroller) return null;
+    // Match either a `data-section` (custom section anchor) or `id`
+    // (markdown heading slug). Mirrors NavBar's click-handler lookup.
+    return centerScroller.querySelector<HTMLElement>(
+      `[data-section="${target}"], #${CSS.escape(target)}`,
+    );
   }
 
   render(_frame: Frame): void {
@@ -58,7 +61,11 @@ export class NavbarSpy implements Renderable {
       }
     }
 
+    // Only toggle items whose target maps to a real section. Items without
+    // one (e.g. hash filters on /speeches) are managed by their own page
+    // script — leaving them alone here lets that script own the active state.
     for (let i = 0; i < this.items.length; i++) {
+      if (!this.findSection(this.items[i].target)) continue;
       this.items[i].link.classList.toggle(this.activeClass, i === currentIdx);
     }
   }

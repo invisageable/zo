@@ -2,8 +2,8 @@
 import { Image } from "astro:assets";
 import { textTransform } from "../../core/effects/text-transform";
 import Title from "../atoms/title.astro";
-import logoEgui from "../../assets/logo-egui.png";
-import logoWgpu from "../../assets/logo-wgpu.png";
+import logoEgui from "../../assets/logos/logo-egui.png";
+import logoWgpu from "../../assets/logos/logo-wgpu.png";
 
 const description = "Powered by modern and reliable foundations to deliver high-performance graphics and web integration.";
 
@@ -14,7 +14,7 @@ const logos = [
 ---
 
 <section data-section="foundations" class="foundations">
-  <Title as="h2"># foundations</Title>
+  <Title as="h2">## foundations</Title>
   <p>{textTransform(description)}</p>
   <ul class="foundations-logos">
     {logos.map((logo) => <li>

@@ -5,6 +5,7 @@ extend-exclude = [
   "**/*.md",
   "docs/",
   "notes/",
+  "apps/site/messages/",
 ]
 
 [default.extend-words]

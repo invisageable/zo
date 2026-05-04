@@ -11,15 +11,27 @@ const CODELORD_NAME = "codelord";
  * @returns the formatted text
  */
 export function textTransform(text: string): string {
+  // Split into tag/non-tag chunks. HTML tags (and their attributes) pass
+  // through untouched — only the text BETWEEN tags gets the transform.
   return text
-    .split(/\b/) // split by word boundaries
-    .map(segment => {
+    .split(/(<[^>]+>)/)
+    .map((chunk) => {
+      if (chunk.startsWith("<") && chunk.endsWith(">")) return chunk;
+      return transformText(chunk);
+    })
+    .join("");
+}
+
+function transformText(text: string): string {
+  return text
+    .split(/\b/)
+    .map((segment) => {
       if (segment.toLowerCase() === ZO_NAME) return ZO_NAME;
       if (segment.toLowerCase() === CODELORD_NAME) return CODELORD_NAME;
 
       return segment
         .split("")
-        .map(char => {
+        .map((char) => {
           if (char.toLowerCase() === "i") return "i";
           return char.toUpperCase();
         })

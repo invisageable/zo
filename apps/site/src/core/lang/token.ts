@@ -13,6 +13,7 @@ export enum Kind {
   Type = "type",
   Attribute = "attribute",
   Event = "event",
+  Boolean = "boolean",
 }
 
 export interface Token {

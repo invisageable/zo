@@ -34,8 +34,4 @@ export class Observer {
   }
 }
 
-// Default singleton — threshold 0.3 means "fires when 30% of the element
-// crosses in or out of viewport". Sensible default for "play animation
-// when this becomes visible" use cases. Create a custom Observer for
-// different thresholds/rootMargin.
 export const observer = new Observer({ threshold: 0.3 });

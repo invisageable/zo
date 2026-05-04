@@ -1,8 +1,12 @@
 ---
 import Title from "../atoms/title.astro";
+import Carousel from "../interactive/carousel.astro";
 import Editor from "../interactive/editor.astro";
 
-const sample = `
+const SAMPLES = [
+  {
+    name: "counter",
+    sample: `
 -! An Ui counter program in zo.
 
 fun main() {
@@ -16,21 +20,85 @@ fun main() {
   </>;
 
   #dom counter;
-}`;
+}`,
+  },
+  {
+    name: "concurrency",
+    sample: `
+-! A Channel send / recv program in zo.
+
+fun producer(tx: Tx<int>) {
+  tx.send(42);
+}
+fun consumer(rx: Rx<int>) {
+  imu value: int = rx.recv();
+  showln("got {value}");  
+}
+fun main() {
+  nursery {
+    imu (tx, rx) := channel();
+    spawn producer(tx);
+    spawn consumer(rx);
+  }
+
+  showln("DONE");
+}`,
+  },
+  {
+    name: "concurrency",
+    sample: `
+-! A fizzbuzz using match program in zo.
+
+fun fizzbuzz(n: int) {
+  mut x := 1;
+
+  for x := 1..=n {
+    match (x % 3, x % 5) {
+      (0, 0) => showln("fizzbuzz"),
+      (0, _) => showln("fizz"),
+      (_, 0) => showln("buzz"),
+      _ => showln("{x}"),
+    }
+  }
+}
+fun main() {
+  fizzbuzz(100)
+}`,
+  },
+  {
+    name: "generics-and-monomorphization",
+    sample: `
+-! A zo program that use generics and monomorphization.
+
+struct Box<$A, $B> {
+  a: $A,
+  b: $B,
+}
+fun main() {
+  -- 2-param: monomorphic int/int.
+  imu b1 := Box { a: 1, b: 2 };
+  showln(b1.a);
+  showln(b1.b);
+
+  -- 2-param: int/str. Pre-fix this printed a stack
+  imu b2 := Box { a: 42, b: "hi" };
+  showln(b2.a);
+  showln(b2.b);
+}`,
+  },
+];
 ---
 
 <section data-section="prologue" class="prologue">
   <div>
     <Title as="h2">THE zo PROGRAMMiNG LANGUAGE.</Title>
     <p class="prologue-tagline">
-      Turn your thoughts into <b>type-safe</b> software and Ui instantly.
+      Turn your thoughts into <b class="green-100">type-safe</b> software and <b class='green-100'>Ui</b> instantly.
     </p>
   </div>
-
-  <Editor
-    code={sample}
-    class="editor"
-  />
+  <Carousel typewriter={true} ariaLabel="zo code samples">
+    {SAMPLES.map((sample) => <Editor code={sample.sample} class="editor" />)}
+  </Carousel>
 </section>
 
 <style>

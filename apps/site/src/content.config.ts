@@ -12,4 +12,15 @@ const speeches = defineCollection({
   }),
 });
 
-export const collections = { speeches };
+const initiation = defineCollection({
+  loader: glob({
+    pattern: "*.md",
+    base: "./src/content/initiation",
+  }),
+  schema: z.object({
+    title: z.string().optional(),
+    order: z.number().optional(),
+  }),
+});
+
+export const collections = { speeches, initiation };

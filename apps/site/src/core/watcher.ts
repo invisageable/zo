@@ -32,16 +32,16 @@ export class Watcher {
     if (this.mo !== null) return;
 
     this.mo = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const node of m.addedNodes) {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
           if (!(node instanceof HTMLElement)) continue;
 
-          for (const w of this.watchables) {
+          for (const watchable of this.watchables) {
             // Node IS a match.
-            if (node.matches(w.selector)) w.onMatch(node);
+            if (node.matches(watchable.selector)) watchable.onMatch(node);
             // Node CONTAINS matches (querySelectorAll skips the root).
-            node.querySelectorAll<HTMLElement>(w.selector).forEach((el) => {
-              w.onMatch(el);
+            node.querySelectorAll<HTMLElement>(watchable.selector).forEach((el) => {
+              watchable.onMatch(el);
             });
           }
         }

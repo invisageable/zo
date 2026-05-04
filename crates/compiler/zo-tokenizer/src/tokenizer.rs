@@ -1615,7 +1615,7 @@ impl<'a> Tokenizer<'a> {
       // the scan prematurely. Then keep advancing until the
       // closing `'` — escapes like `\xNN` and `\u{HHHH}` are
       // longer than two chars, and pinning a fixed length
-      // here would mis-tokenize them as `Token::Unknown`.
+      // here would mistokenize them as `Token::Unknown`.
       // `unescape_string` + the 1-char check below validates
       // the escape's shape; the scanner's job is just to
       // find the matching quote.

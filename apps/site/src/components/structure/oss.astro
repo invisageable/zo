@@ -5,7 +5,7 @@ import Title from "../atoms/title.astro";
 import Paragraph from "../atoms/paragraph.astro";
 import Badge from "../indicators/badge.astro";
 
-const description = "zo is built from the ground up using data-oriented design. Our niche is there to grow to build a new era of tools for the next-gen.";
+const description = "zo is built from the ground up using <b class='green-100'>data-oriented</b> design. Our niche is there to grow to build a new era of tools for the <b class='green-100'>next-gen</b>.";
 
 const REPO = "invisageable/zo";
 const headers: HeadersInit = import.meta.env.GITHUB_TOKEN
@@ -50,7 +50,7 @@ const stats = [
 ---
 
 <section data-section="oss" class="oss">
-  <Title class="oss-title" as="h2"># oss</Title>
+  <Title class="oss-title" as="h2">## oss</Title>
   <Paragraph content={textTransform(description)} />
   <ul class="oss-stats">
     {
