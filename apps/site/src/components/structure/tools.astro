@@ -5,15 +5,15 @@ import Card from "./card.astro";
 
 const TOOLS = [
   {
-    name: "fret",
-    description: "the package manager for the zo programming language.",
-    link: "https://github.com/invisageable/zo/blob/main/crates/packager/fret",
-  },
-  {
     name: "codelord",
     description: "Code your thoughts instantly with an next-gen text editor.",
     image: "https://github.com/invisageable/codelord/raw/main/apps/coder/codelord-notes/public/assets/codelord-motion-preview-welcome.gif",
     link: "https://github.com/invisageable/codelord",
+  },
+  {
+    name: "fret",
+    description: "the package manager for the zo programming language.",
+    link: "https://github.com/invisageable/zo/blob/main/crates/packager/fret",
   },
 ];
 ---
@@ -40,12 +40,29 @@ const TOOLS = [
   .tools {
     .tools-gallery {
       display: grid;
-      grid-template-columns: repeat(2,minmax(0,1fr));
+      grid-template-columns: repeat(1, minmax(0, 1fr));
       gap: 20px;
       align-items: stretch;
 
       :global(.tools-gallery-item) {
         padding: 1rem;
+
+        :global(&.card .card-title) {
+          font-size: 4.25vw;
+        }
+
+        :global(&.card .card-content) {
+          color: var(--color-white-100);
+          font-size: 4.25vw;
+        }
+      }
+    }
+  }
+
+  @media only screen and (min-width: 768px) {
+    .tools {
+      .tools-gallery {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
   }
