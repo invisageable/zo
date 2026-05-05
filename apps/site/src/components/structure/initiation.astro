@@ -1,13 +1,16 @@
 ---
 import Title from "../atoms/title.astro";
 import Paragraph from "../atoms/paragraph.astro";
+import { fetchLatestVersion } from "../../core/version";
+
+const version = await fetchLatestVersion();
 
 const title = "Initiation";
 const subtitle = "An initiation to zo.";
-const dedication = "For Andrea Le Saint\nand those who refuse the uniformity of software.";
+const dedication = "For Andrea Le Saint\nAnd those who refuse the uniformity of software.";
 const translators = "Translated by ...";
 const authors = "invisageable & the compilords";
-const edition = "First edition · 2026 · zo version 0.3.11";
+const edition = `First edition · 2026 · zo version ${version}`;
 const quote = "« Why accept slow compilers? Just make them faster. » — Jonathan Blow";
 const publisher = "compilords©";
 ---

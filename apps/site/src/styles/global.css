@@ -143,12 +143,12 @@ body {
   color: var(--color-green-100);
 }
 
-.superscript {
+/* .superscript {
   a {
     color: var(--color-green-100);
     text-decoration: none;
   }
-}
+} */
 
 .ovx {
   overflow-x: scroll;
