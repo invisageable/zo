@@ -13,4 +13,10 @@ const { class: className, content } = Astro.props;
   p {
     white-space: pre-line;
   }
+
+  @media (min-width: 768px) {
+    p {
+      font-size: 1.25vw;
+    }
+  }
 </style>

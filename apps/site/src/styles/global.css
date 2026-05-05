@@ -156,7 +156,10 @@ body {
   scroll-behavior: smooth;
 }
 
-/* max-width: 1080px; */
+a {
+  color: var(--color-green-100);
+  text-decoration: none;
+}
 
 section::after {
   content: " ";
@@ -164,3 +167,4 @@ section::after {
   width: 100%;
   height: calc(33vh - (1.7em * 2));
 }
+
