@@ -5,16 +5,22 @@ import Paragraph from "../atoms/paragraph.astro";
 interface Props {
   class?: string;
   image?: string;
+  // SVGs imported from `*.svg` resolve to a component in Astro 5+;
+  // accept any to dodge the missing global type in this LSP setup.
+  icon?: any;
   title: string;
   content: string;
 }
 
-const { class: className, image, title, content } = Astro.props;
+const { class: className, image, icon: Icon, title, content } = Astro.props;
 ---
 
 <article class:list={["card", className]}>
   {image ? <img class="card-image" src={image} alt="..."> : null}
-  <Title class="card-title" as="h4">{title}</Title>
+  <Title class="card-title" as="h4">
+    {Icon && <Icon class="card-icon" width={20} height={20} />}
+    {title}
+  </Title>
   <Paragraph class="card-content" content={content} />
 </article>
 
@@ -27,7 +33,14 @@ const { class: className, image, title, content } = Astro.props;
       width: 100%;
     }
 
+    .card-icon {
+      color: var(--color-green-100);
+      margin: 0 8px 0 0;
+    }
+
     .card-title {
+      display: flex;
+      align-items: center;
       color: var(--color-green-100);
       font-weight: 400;
     }

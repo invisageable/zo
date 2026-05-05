@@ -10,6 +10,7 @@ import { type Observable } from "../observer";
 export class Counter implements Renderable, Observable {
   readonly element: HTMLElement;
   private target: number;
+  private startValue: number = 0;
   private duration: number;
   private startTime: number | null = null;
   private playing = false;
@@ -27,12 +28,23 @@ export class Counter implements Renderable, Observable {
 
   onIntersect(isIntersecting: boolean): void {
     if (isIntersecting) {
+      this.startValue = 0;
       this.playing = true;
       this.startTime = null;
     } else {
       this.playing = false;
       this.element.textContent = "0";
     }
+  }
+
+  // Animate from the currently-displayed value to a new target. Used by
+  // pages that drive the counter from a non-scroll signal (e.g. a filter
+  // change) instead of viewport intersection.
+  setTarget(target: number): void {
+    this.startValue = Number(this.element.textContent ?? 0) || 0;
+    this.target = target;
+    this.startTime = null;
+    this.playing = true;
   }
 
   render(frame: Frame): void {
@@ -44,7 +56,8 @@ export class Counter implements Renderable, Observable {
     // easeOutCubic — fast first, settles at the end.
     const eased = 1 - Math.pow(1 - progress, 3);
 
-    this.element.textContent = String(Math.floor(eased * this.target));
+    const value = this.startValue + eased * (this.target - this.startValue);
+    this.element.textContent = String(Math.floor(value));
 
     if (progress >= 1) this.playing = false;
   }

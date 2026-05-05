@@ -52,6 +52,16 @@
     padding-top: var(--top-bar-height);
   }
 
+  /* Mobile: navbar is a full-screen overlay (not a sidebar), so the screen
+     reclaims the full width that was previously reserved for it. */
+  @media (max-width: 768px) {
+    .screen {
+      left: 0;
+      width: 100%;
+      padding: 0 16px;
+    }
+  }
+
   .wrapper-3d {
     width: 100%;
     height: 80vh;

@@ -26,10 +26,16 @@ export function remarkSpeechNav() {
 
 function phrasingText(nodes: PhrasingContent[] | RootContent[]): string {
   let out = "";
+
   for (const node of nodes) {
-    if (node.type === "text") out += node.value;
-    else if (node.type === "link") out += `[${phrasingText(node.children)}](${node.url})`;
-    else if ("children" in node) out += phrasingText(node.children as PhrasingContent[]);
+    if (node.type === "text") {
+      out += node.value;
+    } else if (node.type === "link") {
+      out += `[${phrasingText(node.children)}](${node.url})`;
+    } else if ("children" in node) {
+      out += phrasingText(node.children as PhrasingContent[]);
+    }
   }
+
   return out;
 }

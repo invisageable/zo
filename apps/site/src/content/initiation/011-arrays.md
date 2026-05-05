@@ -1,0 +1,5 @@
+# arrays
+
+```zo
+-- arrays
+```

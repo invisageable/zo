@@ -79,9 +79,9 @@ const chartH = series.length * ROW_H + 30;
       />)
     }
 
-    {series.map((serie, idx) => {
-      const widthPct = (serie.value / max) * 100;
-      const animSec = serie.value * animationScale;
+    {series.map((s, idx) => {
+      const widthPct = (s.value / max) * 100;
+      const animSec = s.value * animationScale;
 
       return (
         <>
@@ -93,14 +93,14 @@ const chartH = series.length * ROW_H + 30;
             class="bar-fill"
             style={`top: ${idx * ROW_H + 3}px; width: ${widthPct}%; --anim-duration: ${animSec}s;`}
           >
-            {serie.inBar && <span class="bar-text f-aeonik">{serie.inBar}</span>}
+            {s.inBar && <span class="bar-text f-aeonik">{s.inBar}</span>}
           </div>
-          <div class="label" style={`top: ${idx * ROW_H}px;`}>{serie.label}</div>
+          <div class="label" style={`top: ${idx * ROW_H}px;`}>{s.label}</div>
           <div
-            class:list={["value", serie.value === minValue && "value--fastest"]}
+            class:list={["value", s.value === minValue && "value--fastest"]}
             style={`top: ${idx * ROW_H}px; left: ${widthPct}%;`}
           >
-            {serie.display}
+            {s.display}
           </div>
         </>
       );

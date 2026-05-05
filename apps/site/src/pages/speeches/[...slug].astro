@@ -1,6 +1,7 @@
 ---
 import { render } from "astro:content";
 import Base from "../../layouts/base.astro";
+import Header from "../../components/structure/header.astro";
 import Screen from "../../components/structure/screen.astro";
 import NavBar, { type Item } from "../../components/navigation/navbar.astro";
 import SpeechNav from "../../components/navigation/speech-nav.astro";
@@ -38,6 +39,7 @@ const episodeId = formatEpisodeId(meta.season, meta.episode);
 
 <Base title={`zo — ${episodeId}.`}>
   <NavBar items={items} />
+  <Header class="header--fixed header--active blur" id="top-bar" />
   <Screen>
     <article class="speech">
       <header class="speech-meta">
@@ -108,4 +110,5 @@ const episodeId = formatEpisodeId(meta.season, meta.episode);
   .speech .zo-block .type        { color: var(--color-cyan-100); }
   .speech .zo-block .attribute   { color: var(--color-orange-100); }
   .speech .zo-block .event       { color: var(--color-magenta-100); }
+  .speech .zo-block .boolean     { color: var(--color-orange-100); }
 </style>

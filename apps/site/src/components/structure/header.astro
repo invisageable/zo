@@ -2,6 +2,7 @@
 import { textTransform } from "../../core/effects/text-transform";
 // import Dropdown from "../actions/dropdown.astro";
 import Link from "../atoms/link.astro";
+import IconMenu from "../../assets/icons/icon-menu.svg";
 
 interface Props {
   class?: string;
@@ -11,18 +12,22 @@ interface Props {
 const { class: className, id } = Astro.props;
 
 // const locales = [
-//   { href: "/", label: "🇬🇧" },
-//   { href: "/fr/", label: "🇫🇷" },
+//   { href: "/", label: "en" },
+//   { href: "/fr/", label: "fr" },
 // ];
 
 // const current = Astro.currentLocale === "fr" ? "/fr/" : "/";
 ---
 
 <header class:list={["header", className]} id={id}>
+  <Link class="header-btn header-btn--home f-cirka" href="/" label="zo" />
   <Link class="header-btn" href="/initiation" label={textTransform("Initiation")} />
-  <Link class="header-btn" href="/documentation" label={textTransform("Documentation")} />
+  <!-- <Link class="header-btn" href="/docs" label={textTransform("Docs")} /> -->
   <Link class="header-btn" href="/speeches" label={textTransform("Speeches")} />
   <!-- <Dropdown items={locales} current={current} /> -->
+  <button type="button" class="header-burger" aria-label="menu" aria-expanded="false">
+    <IconMenu width={14} height={14} />
+  </button>
 </header>
 
 <script>
@@ -48,11 +53,127 @@ const { class: className, id } = Astro.props;
       );
     },
   });
+
+  // Burger toggles `.navbar--open` on the sidebar. Each header (source +
+  // fold clones) gets its own listener; clicking outside the navbar or
+  // pressing Escape closes it.
+  watcher.add({
+    selector: ".header-burger",
+    onMatch: (burger) => {
+      burger.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const navbar = document.querySelector(".navbar");
+        if (!navbar) return;
+        const opened = navbar.classList.toggle("navbar--open");
+        burger.setAttribute("aria-expanded", String(opened));
+      });
+    },
+  });
+
+  document.addEventListener("click", (event) => {
+    const navbar = document.querySelector(".navbar");
+    if (!navbar?.classList.contains("navbar--open")) return;
+    if (navbar.contains(event.target as Node)) return;
+    navbar.classList.remove("navbar--open");
+    document
+      .querySelectorAll<HTMLElement>(".header-burger")
+      .forEach((b) => b.setAttribute("aria-expanded", "false"));
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    document.querySelector(".navbar")?.classList.remove("navbar--open");
+    document
+      .querySelectorAll<HTMLElement>(".header-burger")
+      .forEach((b) => b.setAttribute("aria-expanded", "false"));
+  });
 </script>
 
 <style is:global>
   .header {
     display: flex;
     gap: 16px;
+  }
+
+  .header--fixed {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    height: var(--top-bar-height);
+    box-sizing: border-box;
+    align-items: center;
+    padding: 0 calc(var(--sidebar-width) + 40px);
+    background: rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 0.24s ease, transform 0.24s ease;
+  }
+
+  .header--fixed.header--active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .header--inline {
+    z-index: 100;
+  }
+
+  .header--inline a.header-btn--home {
+    display: none;
+  }
+  
+  .header--fixed a.header-btn {
+    color: var(--color-white-100);
+    opacity: 1;
+    font-size: 14px;
+  }
+
+  .header--fixed a.header-btn--home {
+    margin-right: auto;
+    left: 4rem;
+    top: 50%;
+    line-height: 3rem;
+    height: var(--top-bar-height);
+    transform: translateY(-50%);
+    position: absolute;
+    font-size: 2rem;
+  }
+
+
+  .header--fixed a.header-btn--home,
+  .header--fixed a.header-btn--home:hover {
+    color: var(--color-white-100);
+    text-decoration: none;
+    outline: none;
+  }
+
+  /* Burger: hidden on desktop, visible on narrow viewports. Sits at the
+     far right of the header (after the auto-margin pushes the home logo
+     to the left). */
+  .header-burger {
+    display: none;
+    margin-left: auto;
+    align-items: center;
+    justify-content: center;
+    height: var(--top-bar-height);
+    padding: 0 8px;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  @media (max-width: 768px) {
+    /* Burger only on the fixed/spy variant — the inline header inside
+       Hero stays burger-free since it's already in flow. */
+    .header--fixed .header-burger {
+      display: inline-flex;
+    }
   }
 </style>

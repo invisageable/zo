@@ -139,13 +139,21 @@ body {
   backdrop-filter: saturate(180%) blur(20px);
 }
 
-.superscript {
+.green-100 {
   color: var(--color-green-100);
+}
 
+.superscript {
   a {
     color: var(--color-green-100);
     text-decoration: none;
   }
+}
+
+.ovx {
+  overflow-x: scroll;
+  position: relative;
+  scroll-behavior: smooth;
 }
 
 /* max-width: 1080px; */

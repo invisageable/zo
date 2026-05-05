@@ -10,7 +10,6 @@ pub(crate) const QUOTES: &[&str] = &[
   "\"Compile at the speed of thought.\" — i10e",
   "\"Is it difficult to make a simple system.\" — Robert Virding",
   "\"Semantic is king.\" — Robert Virding",
-  "\"Why accept slow compilers? Just make them faster.\" — Jonathan Blow",
   "\"DoD is about organizing your data for the transformations you want to perform.\" — Mike Acton",
   "\"Simplicity is a prerequisite for reliability.\" — Edsger W. Dijkstra",
   "\"The faster your software runs, the less power his consumed.\" — Chandler Carruth",
