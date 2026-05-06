@@ -1,0 +1,26 @@
+fun is_munchhausen(n: int, pwr: []int) -> bool {
+  mut sum: int = 0;
+  mut temp: int = n;
+  while temp > 0 {
+    sum = sum + pwr[temp % 10];
+    temp = temp / 10;
+  }
+  return sum == n;
+}
+
+fun main() {
+  mut pwr: []int = [];
+  mut i: int = 0;
+  while i <= 9 {
+    pwr.push(pow_i(i, i));
+    i = i + 1;
+  }
+
+  mut n: int = 1;
+  while n <= 10000 {
+    if is_munchhausen(n, pwr) {
+      showln(n);
+    }
+    n = n + 1;
+  }
+}
