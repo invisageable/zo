@@ -8,12 +8,12 @@ const sample = "echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode";
 
 const socials = [
   {
-    name: "DC",
-    link: "https://discord.gg/JaNc4Nk5xw",
-  },
-  {
     name: "GH",
     link: "https://github.com/invisageable/zo",
+  },
+  {
+    name: "DC",
+    link: "https://discord.gg/JaNc4Nk5xw",
   },
 ];
 ---
@@ -21,12 +21,12 @@ const socials = [
 <section data-section="reachout" class="reachout">
   <div class="reachout-header">
     <Title class="reachout-header-title" as="h2">reachout</Title>
-    <Editor
-      code={sample}
-      class="editor contact"
-      highlight={false}
-    />
   </div>
+  <Editor
+    code={sample}
+    class="editor contact"
+    highlight={false}
+  />
   <div class="credits">
     <div class="copyright">
       <span>{textTransform("Compilords© 2024 — present.")}</span>
@@ -60,6 +60,11 @@ const socials = [
       font-size: 6rem;
       text-align: center;
     }
+
+    .editor {
+      font-size: 0.85rem;
+      text-align: center;
+    }
   }
 
   .credits {
@@ -75,6 +80,7 @@ const socials = [
   .copyright {
     display: flex;
     flex-direction: column;
+    justify-content: center;
 
     span {
       font-size: 0.75rem;
@@ -88,6 +94,9 @@ const socials = [
     gap: 8px;
 
     :global(.socials-item) {
+      padding: 10px;
+      border: 1px solid black;
+      opacity: 1;
       color: var(--color-black-100);
     }
   }

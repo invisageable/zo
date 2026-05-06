@@ -30,11 +30,15 @@ Every lesson is a quick snapshot of a zo program. Read the doc-comments (`-!`), 
 In zo, each program has to contain an entry point:
 
   ```zo
-  -- `fun` declares a function. 
-  -- `main` is the entry point — the first piece of code that runs.
+  -- Wassup?! I'm `main` a function.
+  -- Use me as a entry point with `fun` keyword.
   fun main() {
     -- This program does nothing... yet.
   }
+
+  -! ## the capstone.
+  -!
+  -!   - every programs must have a `main` function.
   ```
 
 That's it. Turn the page.

@@ -1,12 +1,15 @@
 ---
 import { textTransform } from "../../core/effects/text-transform";
+import Paragraph from "../atoms/paragraph.astro";
 import Title from "../atoms/title.astro";
 import Card from "./card.astro";
+
+const description = "Below is a list of tools associated to the zo ecosystem. There are still in development so they're supposed to change in the future.";
 
 const TOOLS = [
   {
     name: "codelord",
-    description: "Code your thoughts instantly with an next-gen text editor.",
+    description: "Code your thoughts instantly with the next-gen text editor.",
     image: "https://github.com/invisageable/codelord/raw/main/apps/coder/codelord-notes/public/assets/codelord-motion-preview-welcome.gif",
     link: "https://github.com/invisageable/codelord",
   },
@@ -15,6 +18,11 @@ const TOOLS = [
     description: "the package manager for the zo programming language.",
     link: "https://github.com/invisageable/zo/blob/main/crates/packager/fret",
   },
+  {
+    name: "zo vscode",
+    description: "the vs code extension for the zo programming language.",
+    link: "https://github.com/invisageable/zo/tree/main/crates/compiler/zo-vscode",
+  },
 ];
 ---
 
@@ -22,6 +30,7 @@ const TOOLS = [
 
 <section data-section="tools" class="tools">
   <Title as="h2">## tools</Title>
+  <Paragraph content={textTransform(description)} />
   <div class="tools-gallery">
     {
       TOOLS.map((tool) => <a target="_blank" href={tool.link}>
@@ -48,12 +57,12 @@ const TOOLS = [
         padding: 1rem;
 
         :global(&.card .card-title) {
+          margin: 12px 0 0 0;
           font-size: 4.25vw;
         }
 
         :global(&.card .card-content) {
           color: var(--color-white-100);
-          font-size: 4.25vw;
         }
       }
     }

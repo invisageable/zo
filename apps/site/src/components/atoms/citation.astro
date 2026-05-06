@@ -1,0 +1,40 @@
+---
+import Paragraph from "./paragraph.astro";
+
+interface Props {
+  sentence: string;
+  author: string;
+}
+
+const { sentence, author } = Astro.props;
+---
+
+<blockquote class="quote">
+  <Paragraph class="quote-sentence" content={sentence} />
+  <span class="quote-author">—{author}</span>
+</blockquote>
+
+<style>
+  .quote {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    font-size: 2rem;
+  
+    .quote-sentence {
+      font-size: 2rem;
+      font-style: italic;
+
+      &::before {
+        content: "\00AB\00A0";
+      }
+      &::after {
+        content: "\00A0\00BB";
+      }
+    }
+    .quote-author {
+      align-self: flex-end;
+      font-size: 1rem;
+    }
+  }
+</style>

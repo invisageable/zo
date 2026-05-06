@@ -2,12 +2,14 @@
 import { highlight } from "../../core/lang/highlighter";
 
 interface Props {
+  title?: string;
   code: string;
   class?: string;
   highlight?: boolean;
 }
 
 const {
+  title,
   code,
   class: className,
   highlight: doHighlight = true,
@@ -18,15 +20,15 @@ const {
 const spans = doHighlight ? highlight(code) : null;
 ---
 
-<pre class:list={["editor f-iosevka", className]}>
-  {
+<div class="editor-box" data-title={title ?? null}>
+  <pre class:list={["editor f-iosevka", className]}>{
     spans
-    ? spans.map((span) => span.kind
-    ? <span class={span.kind}>{span.text}</span>
-    : span.text)
-    : code
-  }
-</pre>
+      ? spans.map((span) => span.kind
+        ? <span class={span.kind}>{span.text}</span>
+        : span.text)
+      : code
+  }</pre>
+</div>
 
 <style>
   .editor {
@@ -53,6 +55,7 @@ const spans = doHighlight ? highlight(code) : null;
     & :global(.attribute) { color: var(--color-orange-100); }
     & :global(.event) { color: var(--color-magenta-100); }
     & :global(.boolean) { color: var(--color-orange-100); }
-  }
 
+  }
+  
 </style>

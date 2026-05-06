@@ -312,10 +312,10 @@ list_tags:
   git tag -l --sort=-v:refname
 
 zo_off_site_dev:
-  astro dev
+  cd apps/site && npm run dev
 
 zo_off_site_build:
-  astro build
+  cd apps/site && npm run build
 
 zo_off_site_preview:
-  astro preview
+  cd apps/site && npm run preview

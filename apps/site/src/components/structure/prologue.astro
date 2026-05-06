@@ -1,21 +1,20 @@
 ---
+import { textTransform } from "../../core/effects/text-transform";
+import Paragraph from "../atoms/paragraph.astro";
 import Title from "../atoms/title.astro";
 import Carousel from "../interactive/carousel.astro";
 import Editor from "../interactive/editor.astro";
 
 const SAMPLES = [
   {
-    name: "counter",
-    sample: `
--! An Ui counter program in zo.
-
-fun main() {
+    title: "An Ui counter program in zo.",
+    code: `fun main() {
   mut count: int = 0;
 
   -- Look! You can use \`zsx\` to declare Ui.
   imu counter: </> ::= <>
     <button @click={fn() => count -= 1}>-</button>
-    {count} <!-- HTML comments are supported in \`zsx\` -->
+    {count} <!-- HTML comments in \`zsx\` -->
     <button @click={fn() => count += 1}>+</button>
   </>;
 
@@ -23,11 +22,8 @@ fun main() {
 }`,
   },
   {
-    name: "concurrency",
-    sample: `
--! A Channel send / recv program in zo.
-
-fun producer(tx: Tx<int>) {
+    title: "A Channel send / recv program in zo.",
+    code: `fun producer(tx: Tx<int>) {
   tx.send(42);
 }
 fun consumer(rx: Rx<int>) {
@@ -45,11 +41,8 @@ fun main() {
 }`,
   },
   {
-    name: "concurrency",
-    sample: `
--! A fizzbuzz using match program in zo.
-
-fun fizzbuzz(n: int) {
+    title: "A fizzbuzz using match program in zo.",
+    code: `fun fizzbuzz(n: int) {
   mut x := 1;
 
   for x := 1..=n {
@@ -66,45 +59,44 @@ fun main() {
 }`,
   },
   {
-    name: "generics-and-monomorphization",
-    sample: `
--! A zo program that use generics and monomorphization.
-
-struct Box<$A, $B> {
+    title: "Generics and monomorphization.",
+    code: `struct Box<$A, $B> {
   a: $A,
   b: $B,
 }
 fun main() {
-  -- 2-param: monomorphic int/int.
   imu b1 := Box { a: 1, b: 2 };
   showln(b1.a);
   showln(b1.b);
 
-  -- 2-param: int/str. Pre-fix this printed a stack
   imu b2 := Box { a: 42, b: "hi" };
   showln(b2.a);
   showln(b2.b);
 }`,
   },
 ];
+
+const description = "A language to ship, run and build native and web applications optimized for speed. zo is a feature-rich ecosystem focus on high-performance, simplicity and data-oriented.";
+const punchline = "One language. One compiler. One binary. Native or Web — same source.";
 ---
 
 <section data-section="prologue" class="prologue">
   <div>
     <Title as="h2">THE zo PROGRAMMiNG LANGUAGE.</Title>
-    <p class="prologue-tagline">
-      Turn your thoughts into <b class="green-100">type-safe</b> software and <b class='green-100'>Ui</b> instantly.
-    </p>
+    <Paragraph class="prologue-description" content={textTransform(description)} />
+    <Paragraph class="prologue-punchline" content={textTransform(punchline)} />
   </div>
   <Carousel typewriter={true} ariaLabel="zo code samples">
-    {SAMPLES.map((sample) => <Editor code={sample.sample} class="editor" />)}
+    {
+      SAMPLES.map((sample) => <Editor
+        class="editor"
+        title={sample.title}
+        code={sample.code.trimStart()}
+      />)
+    }
   </Carousel>
 </section>
 
 <style>
-  .prologue {
-    .prologue-tagline {
-      margin: 0;
-    }
-  }
+  .prologue {}
 </style>

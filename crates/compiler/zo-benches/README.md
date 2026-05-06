@@ -51,9 +51,22 @@ iT'S REALLY ABOUT CHALLENGiNG. zo DOESN'T CLAiM TO BE A DiRECT COMPETiTOR TO c O
 | **zo**   | 33 KB  |
 | rustc    | 439 KB |
 
+### munchhausen numbers compilation speed.
+
+@RUN: `just zo_bench munchhausen`
+
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average     | Speed vs zo     |
+| :------- | :------- | :------- | :------- | :------- | :------- | :---------- | :-------------- |
+| **zo**   | 190.21ms | 9.35ms   | 7.92ms   | 9.83ms   | 8.56ms   | **45.2ms**  | **1.0x**        |
+| clang    | 68.83ms  | 62.96ms  | 60.40ms  | 59.30ms  | 59.23ms  | **62.1ms**  | **1.4x slower** |
+| rustc    | 191.53ms | 103.99ms | 105.61ms | 96.02ms  | 104.20ms | **120.3ms** | **2.7x slower** |
+
+> *Hot averages (runs 2–5): zo **8.9ms**, clang **60.5ms** (6.8× slower), rustc **102.5ms** (11.5× slower).*
+
 ### benchmark — summary.
 
-| Benchmark    | `zo` vs `c`      | `zo` vs `rust`   |
-| ------------ | ---------------- | ---------------- |
-| `hello`      | __25.5x__ faster | __47.5x__ faster |
-| `arithmetic` | __53x__ faster   | __86x__ faster   |
+| Benchmark     | `zo` vs `c`      | `zo` vs `rust`   |
+| ------------- | ---------------- | ---------------- |
+| `hello`       | __25.5x__ faster | __47.5x__ faster |
+| `arithmetic`  | __53x__ faster   | __86x__ faster   |
+| `munchhausen` | __1.4x__ faster  | __2.7x__ faster  |

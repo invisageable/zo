@@ -1,6 +1,9 @@
 ---
 import Title from "../atoms/title.astro";
 import Header from "./header.astro";
+import { fetchLatestVersion } from "../../core/version";
+
+const version = await fetchLatestVersion();
 ---
 
 <section data-section="hero" class="hero">
@@ -8,16 +11,11 @@ import Header from "./header.astro";
   <p class="hero-tagline f-aeonik">
     TURN YOUR <b class="green-100">THOUGHTS</b> iNTO <b class="green-100">TYPE-SAFE</b> SOFTWARE AND <b class="green-100">Ui</b> iNSTANTLY.
   </p>
+  <span class="hero-compiler-latest-version">v{version}</span>
   <Header class="header--inline blur" />
 </section>
 
 <style>
-  @media only screen and (min-width: 768px) {
-    .hero-tagline {
-      max-width: 580px;
-    }
-  }
-
   .hero {
     margin: 0 0 124px 0;
     width: 100%;
@@ -35,6 +33,16 @@ import Header from "./header.astro";
       margin: 0;
       font-size: 30px;
       text-align: center;
+    }
+
+    .hero-compiler-latest-version {
+      font-weight: 800;
+    }
+  }
+
+  @media only screen and (min-width: 768px) {
+    .hero-tagline {
+      max-width: 580px;
     }
   }
 </style>

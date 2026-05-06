@@ -1,20 +1,14 @@
 ---
-import Paragraph from "../atoms/paragraph.astro";
 import Title from "../atoms/title.astro";
 import Editor from '../interactive/editor.astro';
 
-const content = `
-
-
-
-`;
+const code = "curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/zo-install.sh | sh";
 ---
 
 <section data-section="installation">
   <Title class="installation-title" as="h2">## installation</Title>
-  <Paragraph content={content} />
   <Editor
-    code={"curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/zo-install.sh | sh"}
+    code={code}
     class="editor contact"
     highlight={false}
   />

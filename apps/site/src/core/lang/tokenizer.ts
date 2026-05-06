@@ -152,10 +152,16 @@ export function tokenize(src: string): Token[] {
       continue;
     }
 
-    // Numbers: integer + decimal + underscores (e.g., 1_000_000.5).
+    // Numbers: integer + decimal + underscores (e.g. 1_000_000.5)
+    // and scientific e-notation (e.g. 1.0e10, 2.5e-3, 6.02E+23).
     if (isDigit(ch)) {
       const start = pos;
       while (pos < src.length && (isDigit(src[pos]) || src[pos] === "_" || src[pos] === ".")) pos++;
+      if (pos < src.length && (src[pos] === "e" || src[pos] === "E")) {
+        pos++;
+        if (pos < src.length && (src[pos] === "+" || src[pos] === "-")) pos++;
+        while (pos < src.length && (isDigit(src[pos]) || src[pos] === "_")) pos++;
+      }
       tokens.push({ kind: Kind.Number, text: src.slice(start, pos), start, end: pos });
       continue;
     }

@@ -2,11 +2,10 @@
 
 ---
 
-<main>
+<!-- <main> -->
   <div id="base-content" class="fold-source">
     <slot />
   </div>
-
   <div id="fold-effect" class="screen">
     <div class="wrapper-3d">
       <div class="fold fold-before"></div>
@@ -14,7 +13,7 @@
       <div class="fold fold-after"></div>
     </div>
   </div>
-</main>
+<!-- </main> -->
 
 <script>
   import { renderer } from "../../core/renderer";
@@ -40,12 +39,11 @@
     padding: 0 40px;
     width: calc(100% - var(--sidebar-width));
     height: 100vh;
-    max-width: 1080px;
-    position: fixed;
-    box-sizing: border-box;
+    max-width: var(--container-max-width);
     display: flex;
     align-items: center;
     justify-content: center;
+    position: fixed;
     transition: padding-top 0.18s ease;
   }
 
@@ -62,6 +60,8 @@
       left: 0;
       width: 100%;
       padding: 0 16px;
+    padding: 0 1.7em;
+
     }
   }
 
