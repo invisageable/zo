@@ -1,8 +1,17 @@
 ---
 import { textTransform } from "../../core/effects/text-transform";
+import type { Quote } from "../../core/quote";
+import Citation from "../atoms/citation.astro";
 import Paragraph from "../atoms/paragraph.astro";
 import Title from "../atoms/title.astro";
 import Chart, { type Series } from "../indicators/chart.astro";
+
+const BENCHMARK_DESCRIPTION = "Most of the compilers are <b class='green-100'>2-5x</b> slower than they could be. zo is the <b class='green-100'>fastest</b> next-gen compiler tool to enhance the programmers <b class='green-100'>productivity</b>.";
+
+const disclaimers = [
+  "Workload: <b class='green-100'>10,000 lines</b> of code compiled to native <b class='green-100'>ARM64</b> binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes).",
+  "<a class='link-basic' href='https://github.com/invisageable/zo/blob/main/crates/compiler/zo-benches'>@methodology-and-full-numbers</a>"
+];
 
 const benchmarks = [
   {
@@ -29,29 +38,38 @@ const series: Series[] = benchmarks.map((benchmark) => ({
   inBar: benchmark.throughput,
 }));
 
-const disclaimers = [
-  "Workload: <b class='green-100'>10,000 lines</b> of source code compiled to native <b class='green-100'>ARM64</b> binary (including link step).",
-  "<a class='link-basic' href='https://github.com/invisageable/zo/blob/main/crates/compiler/zo-benches'>@methodology-and-full-numbers</a>"
-];
-
-const BENCHMARK_DESCRIPTION = "Most of the compilers are <b class='green-100'>2-5x</b> slower than they could be. zo is the <b class='green-100'>fastest</b> next-gen compiler tool to enhance the programmers <b class='green-100'>productivity</b>.";
+const quote: Quote = {
+  sentence: "The faster your software runs, the less power his consumed.",
+  author: "Chandler Carruth",
+};
 ---
 
 <section data-section="benchmarks" class="benchmarks">
   <Title as="h2">## benchmarks</Title>
+  <Paragraph content={textTransform(BENCHMARK_DESCRIPTION)} />
   <Chart
     series={series}
     unit="ms"
     animationScale={0.01}
     disclaimers={disclaimers}
   />
-  <p set:html={textTransform(BENCHMARK_DESCRIPTION)} />
+  <Citation sentence={quote.sentence} author={quote.author} />
 </section>
 
 <style>
   .benchmarks {
     p {
-      margin: 2rem 0 0 0;
+      line-height: 1.4;
+      /* margin: 2rem 0 0 0; */
+    }
+  }
+
+  @media only screen and (min-width: 768px) {
+    .benchmarks {
+      p {
+        font-size: 1rem;
+        line-height: 1.45rem;
+      }
     }
   }
 </style>

@@ -1,4 +1,7 @@
 ---
+import IconArrowLeft from "../../assets/icons/icon-arrow-left.svg";
+import IconArrowRight from "../../assets/icons/icon-arrow-right.svg";
+
 interface Props {
   class?: string;
   ariaLabel?: string;
@@ -18,21 +21,29 @@ const {
   aria-label={ariaLabel}
   data-typewriter={typewriter ? "true" : null}
 >
+  <div class="carousel-nav">
+    <button type="button" class="carousel-prev" aria-label="previous slide">
+      <IconArrowLeft width={14} height={14} />
+    </button>
+    <div class="carousel-dots" role="tablist"></div>
+    <button type="button" class="carousel-next" aria-label="next slide">
+      <IconArrowRight width={14} height={14} />
+    </button>
+  </div>
+  <h4 class="carousel-title f-iosevka" aria-live="polite"></h4>
   <div class="carousel-viewport">
     <div class="carousel-track">
       <slot />
     </div>
-  </div>
-  <div class="carousel-nav">
-    <button type="button" class="carousel-prev" aria-label="previous slide">◀</button>
-    <div class="carousel-dots" role="tablist"></div>
-    <button type="button" class="carousel-next" aria-label="next slide">▶</button>
   </div>
 </div>
 
 <script>
   import { watcher } from "../../core/watcher";
   import { Typewriter } from "../../core/effects/typewriter";
+  import { Hacker } from "../../core/effects/hacker";
+
+  const hacker = new Hacker();
 
   // Scope to `.fold-center` only — the source and the before/after fold
   // copies inherit dots via deep cloneNode and would double up if we ran
@@ -47,6 +58,7 @@ const {
 
       const track = root.querySelector<HTMLElement>(".carousel-track");
       const dotsHost = root.querySelector<HTMLElement>(".carousel-dots");
+      const titleHost = root.querySelector<HTMLElement>(".carousel-title");
       const prev = root.querySelector<HTMLButtonElement>(".carousel-prev");
       const next = root.querySelector<HTMLButtonElement>(".carousel-next");
       if (!track || !dotsHost || !prev || !next) return;
@@ -55,7 +67,8 @@ const {
       const slides = Array.from(track.children) as HTMLElement[];
       if (slides.length === 0) return;
 
-      // Build one dot per slide and wire activation.
+      const titles = slides.map((s) => s.dataset.title ?? "");
+
       const dots: HTMLButtonElement[] = slides.map((_, i) => {
         const dot = document.createElement("button");
         dot.type = "button";
@@ -89,6 +102,15 @@ const {
         dots.forEach((dot, di) => {
           dot.setAttribute("aria-current", di === index ? "true" : "false");
         });
+        // Update the static title (lives outside the track, doesn't slide).
+        // `-! ` prefix mirrors the inline editor-title convention.
+        // Trigger the hacker decode every time the carousel navigates —
+        // no hover binding. 20 × 20ms = 400ms, matches slide duration.
+        if (titleHost) {
+          titleHost.textContent = `-! ${titles[index]}`;
+          hacker.split(titleHost);
+          hacker.play(titleHost, { iterations: 20, charDelayMs: 20 });
+        }
         // Typewrite the just-activated slide on every fold panel so when
         // the user scrolls into before/after they see the same animation.
         // Per-element tokens keep the three plays independent.
@@ -152,21 +174,51 @@ const {
   .carousel-nav {
     display: flex;
     align-items: center;
-    justify-content: center;
+    width: 100%;
     gap: 16px;
+    border: 1px solid
+      color-mix(in oklab, var(--color-white-100) 20%, transparent);
+  }
+
+  /* Mirrors `.editor-title` from editor.astro exactly so the static
+     out-of-slide title is visually indistinguishable from the inline one. */
+  .carousel-title {
+    --color-gray-100: #43443b;
+    color: var(--color-gray-100);
+    font-weight: 400;
+    margin: 0;
+    min-height: 1.4em;
+  }
+
+
+  .carousel-dots {
+    flex: 1 1 auto;
+    justify-content: center;
   }
 
   .carousel-prev,
   .carousel-next {
-    background: transparent;
-    border: 1px solid color-mix(in oklab, var(--color-white-100) 20%, transparent);
-    color: inherit;
+    padding: 0;
     width: 32px;
     height: 32px;
     cursor: pointer;
-    font: inherit;
-    line-height: 1;
+    border: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: inherit;
     transition: opacity 0.2s ease;
+  }
+
+  .carousel-prev {
+    border-right: 1px solid
+      color-mix(in oklab, var(--color-white-100) 20%, transparent);
+  }
+
+  .carousel-next {
+    border-left: 1px solid
+      color-mix(in oklab, var(--color-white-100) 20%, transparent);
   }
 
   .carousel-prev:hover,
@@ -180,11 +232,10 @@ const {
   }
 
   :global(.carousel-dot) {
-    width: 8px;
+    width: 18px;
     height: 8px;
     padding: 0;
     border: 0;
-    border-radius: 50%;
     background: color-mix(in oklab, var(--color-white-100) 25%, transparent);
     cursor: pointer;
     transition: background 0.2s ease, transform 0.2s ease;

@@ -1,10 +1,12 @@
 ---
+import type { Quote } from "../../core/quote";
 import Title from "../atoms/title.astro";
 import Card from "./card.astro";
 import iconUnified from "../../assets/icons/icon-deal.svg";
 import iconFast from "../../assets/icons/icon-fast.svg";
 import iconSafe from "../../assets/icons/icon-safe.svg";
 import iconWorkstation from "../../assets/icons/icon-workstation.svg";
+import Citation from "../atoms/citation.astro";
 
 const features = [
   {
@@ -28,27 +30,33 @@ const features = [
     content: "A COMPLETE WORKSTATiON WiTH BUiLT-iN TOOLS — PACKAGE MANAGER <sup class='superscript green-100'><a href=''./crates/packager/fret'>fret</a></sup> AND TEXT EDiTOR <sup class='superscript green-100'><a href='https://github.com/invisageable/codelord'>codelord</a></sup>.",
   },
 ];
+
+const quote: Quote = {
+  sentence: "Do less work by not wasting effort.",
+  author: "Chandler Carruth",
+};
 ---
 
 <section data-section="features" class="features">
   <Title class="gondola-title" as="h2">## features</Title>
-
   <div class="features-list" data-features-list>
-    {features.map((feature) => (
-      <Card
+    {
+      features.map((feature) => <Card
         icon={feature.icon}
         title={feature.title}
         content={feature.content}
         class="features-card"
-      />
-    ))}
+      />)
+    }
   </div>
+  <Citation sentence={quote.sentence} author={quote.author} />
 </section>
 
 <style is:global>
     .features-list {
       border: none;
       display: grid;
+      gap: 1rem;
       /* grid-template-columns: none;
        */
       grid-template-columns: repeat(1, 1fr);

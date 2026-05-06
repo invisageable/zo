@@ -26,7 +26,7 @@ pub(crate) const QUOTES: &[&str] = &[
   "\"Lies — code is more important than data.\" — Mike Acton",
   "\"Performance equals Efficiency.\" — Eskil Steenberg",
   "\"I don't know why linkers are so slow, but they are slow.\" — Jonathan Blow",
-  "\"People don't get it ! People don't know how fast computers are !\" — Jonathan Blow",
+  "\"People don't get it ! People don't know how fast computers are!\" — Jonathan Blow",
   "\"Simplicity is the ultimate sophistication.\" — Leonardo da Vinci",
   "\"If you can't make a tool your primary workflow then you didn't build a tool.\" — Rik Arends",
 ];

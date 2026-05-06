@@ -69,9 +69,9 @@ const stats = [
 
   watcher.add({
     selector: '[data-section="oss"] .badge-value',
-    onMatch: (el) => {
-      const target = Number(el.dataset.value ?? 0);
-      const counter = new Counter(el, target);
+    onMatch: (elmt) => {
+      const target = Number(elmt.dataset.value ?? 0);
+      const counter = new Counter(elmt, target);
       renderer.add(counter);
       observer.add(counter);
     },

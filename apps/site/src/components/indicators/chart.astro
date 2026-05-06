@@ -214,12 +214,12 @@ const chartH = series.length * ROW_H + 30;
   }
 
   .label {
-    position: absolute;
+    margin-right: 8px;
     right: 100%;
     width: var(--label-width);
     height: 20px;
+    position: absolute;
     text-align: right;
-    margin-right: 8px;
     font-weight: 700;
     white-space: nowrap;
   }
@@ -252,11 +252,11 @@ const chartH = series.length * ROW_H + 30;
   .chart-disclaimers {
     margin: 16px 0 0 var(--label-width);
     padding: 0;
-    list-style: none;
-    font-size: 12px;
-    line-height: 1.5;
     color: var(--color-gray-200);
+    font-size: 14px;
     font-style: italic;
+    line-height: 1.5;
+    list-style: none;
   }
 
   .chart-disclaimers li + li {

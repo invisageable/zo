@@ -2,6 +2,7 @@
 import { Image } from "astro:assets";
 import { textTransform } from "../../core/effects/text-transform";
 import Title from "../atoms/title.astro";
+import Paragraph from "../atoms/paragraph.astro";
 import logoEgui from "../../assets/logos/logo-egui.png";
 import logoWgpu from "../../assets/logos/logo-wgpu.png";
 
@@ -15,13 +16,15 @@ const logos = [
 
 <section data-section="foundations" class="foundations">
   <Title as="h2">## foundations</Title>
-  <p>{textTransform(description)}</p>
+  <Paragraph content={textTransform(description)} />
   <ul class="foundations-logos">
-    {logos.map((logo) => <li>
-      <a href={logo.href} target="_blank" rel="noopener">
-        <Image src={logo.src} alt={logo.alt} />
-      </a>
-    </li>)}
+    {
+      logos.map((logo) => <li>
+        <a href={logo.href} target="_blank" rel="noopener">
+          <Image src={logo.src} alt={logo.alt} />
+        </a>
+      </li>
+    )}
   </ul>
 </section>
 

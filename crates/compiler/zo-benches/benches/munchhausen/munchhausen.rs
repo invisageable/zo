@@ -1,3 +1,5 @@
+const MAX: i32 = 440_000_000;
+
 fn pow_int(b: i32, e: i32) -> i32 {
   let mut result = 1;
   for _ in 0..e {
@@ -21,7 +23,7 @@ fn main() {
   for i in 0..10 {
     pwr[i as usize] = pow_int(i, i);
   }
-  for n in 1..=10000 {
+  for n in 1..=MAX {
     if is_munchhausen(n, &pwr) {
       println!("{n}");
     }

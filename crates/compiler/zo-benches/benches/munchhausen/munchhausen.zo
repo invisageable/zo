@@ -1,3 +1,5 @@
+val MAX: int = 440_000_000;
+
 fun is_munchhausen(n: int, pwr: []int) -> bool {
   mut sum: int = 0;
   mut temp: int = n;
@@ -10,17 +12,11 @@ fun is_munchhausen(n: int, pwr: []int) -> bool {
 
 fun main() {
   mut pwr: []int = [];
-  mut i: int = 0;
-  while i <= 9 {
-    pwr.push(pow_i(i, i));
-    i = i + 1;
-  }
+  for i := 0..=9 => pwr.push(pow_i(i, i));
 
-  mut n: int = 1;
-  while n <= 10000 {
+  for n := 1..=MAX {
     if is_munchhausen(n, pwr) {
       showln(n);
     }
-    n = n + 1;
   }
 }

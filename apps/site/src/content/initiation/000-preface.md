@@ -4,6 +4,8 @@ order: 1
 
 # preface
 
+[tsh-tsh]
+
 Par où commencer ? J'manque les mots... tellement ce sujet me fait tourner en bourrique. Je ne sais pas pour toi, mais ce simulacre informatique est de plus en plus faillible. Prends par exemple, les outils qu'on utilise chaque jour: compilateurs, exécuteur de tests ou les éditeurs de code — la plupart sont morts durant le générique de début de film, même si, leurs créateurs vont te convaincre que: "T'inquiètes, c'est rapide !", puis tu testeras et te rendra compte que ce songe t'a bercé d'illusion. 
 
 Maintenant, par dessus, on nous sert des interfaces utilisateurs aux allures de bachi-bouzouk. Je te rappelle que ce sont ces outils qu'on nous force à utiliser chaque jour. Tu te lèves le matin et BIM tu dois utiliser un arrière guichet qui n'a pas été entretenu depuis des années. Pas de syndic, pas de régie, la façade est jonchée de dégueulis de pigeons.
