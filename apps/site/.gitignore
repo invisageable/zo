@@ -1,5 +1,7 @@
 # build output
 dist/
+# Vercel adapter output (function bundle + static assets)
+.vercel/
 # generated types
 .astro/
 # copied from tasks/ by prebuild — single source of truth lives in tasks/

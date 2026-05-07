@@ -1,6 +1,8 @@
 ---
 import Title from "../atoms/title.astro";
 import Header from "./header.astro";
+import { textTransform } from "../../core/effects/text-transform";
+import * as m from "../../paraglide/messages";
 import { fetchLatestVersion } from "../../core/version";
 
 const version = await fetchLatestVersion();
@@ -8,9 +10,7 @@ const version = await fetchLatestVersion();
 
 <section data-section="hero" class="hero">
   <Title as="h1" class="hero-title">zo</Title>
-  <p class="hero-tagline f-aeonik">
-    TURN YOUR <b class="green-100">THOUGHTS</b> iNTO <b class="green-100">TYPE-SAFE</b> SOFTWARE AND <b class="green-100">Ui</b> iNSTANTLY.
-  </p>
+  <p class="hero-tagline f-aeonik" set:html={textTransform(m.hero_tagline())} />
   <span class="hero-compiler-latest-version">v{version}</span>
   <Header class="header--inline blur" />
 </section>

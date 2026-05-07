@@ -1,5 +1,6 @@
 ---
 import { textTransform } from "../../core/effects/text-transform";
+import * as m from "../../paraglide/messages";
 import Link from "../atoms/link.astro";
 import Title from "../atoms/title.astro"
 import Editor from "../interactive/editor.astro";
@@ -20,7 +21,7 @@ const socials = [
 
 <section data-section="reachout" class="reachout">
   <div class="reachout-header">
-    <Title class="reachout-header-title" as="h2">reachout</Title>
+    <Title class="reachout-header-title" as="h2">{m.reachout_title()}</Title>
   </div>
   <Editor
     code={sample}
@@ -29,8 +30,8 @@ const socials = [
   />
   <div class="credits">
     <div class="copyright">
-      <span>{textTransform("Compilords© 2024 — present.")}</span>
-      <span>{textTransform("All rights reserved.")}</span>
+      <span>{textTransform(m.reachout_copyright())}</span>
+      <span>{textTransform(m.reachout_rights())}</span>
     </div>
     <div class="socials">
       {

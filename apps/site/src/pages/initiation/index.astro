@@ -6,11 +6,13 @@ import Header from '../../components/structure/header.astro';
 import Initiation from '../../components/structure/initiation.astro';
 import Screen from '../../components/structure/screen.astro';
 import { loadInitiations, getInitiationNavItems } from '../../core/initiation';
+import { getLocale } from '../../paraglide/runtime.js';
 
 const title = "zo — Initiation.";
+const locale = getLocale();
 
-const initiations = await loadInitiations();
-const items: Item[] = await getInitiationNavItems();
+const initiations = await loadInitiations(locale);
+const items: Item[] = await getInitiationNavItems(locale);
 
 const sections = await Promise.all(
   initiations.map(async (initiation) => ({

@@ -1,5 +1,6 @@
 ---
 order: 2
+title: Prologue
 ---
 
 # prologue

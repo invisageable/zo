@@ -1,14 +1,13 @@
 ---
 import { textTransform } from "../../core/effects/text-transform";
+import * as m from "../../paraglide/messages";
 import Title from "../atoms/title.astro";
 import Paragraph from "../atoms/paragraph.astro";
-
-const content = "Help fuel the project. <b class='green-100'>Sponsor</b> on GitHub to support full-time work, or <b class='green-100'>star</b> the repo — both signal that this direction matters.";
 ---
 
 <section data-section="sponsors" class="sponsors">
-  <Title class="sponsors-title" as="h2">## sponsors</Title>
-  <Paragraph content={textTransform(content)} />
+  <Title class="sponsors-title" as="h2">{m.sponsors_title()}</Title>
+  <Paragraph content={textTransform(m.sponsors_content())} />
 </section>
 
 <style>

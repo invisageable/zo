@@ -48,9 +48,12 @@ const {
   // Scope to `.fold-center` only — the source and the before/after fold
   // copies inherit dots via deep cloneNode and would double up if we ran
   // here too. Only the visible center clone needs working controls.
-  watcher.add({
-    selector: ".fold-center .carousel",
-    onMatch: (root) => {
+  // Re-binds on every page load: watcher state was cleared in the
+  // global astro:before-swap teardown, so a fresh watchable is needed.
+  document.addEventListener("astro:page-load", () => {
+    watcher.add({
+      selector: ".fold-center .carousel",
+      onMatch: (root) => {
       // Stacked guards — `data-carousel-init` and the dots-already-populated
       // check both prevent re-entry. Marked only AFTER successful init so
       // an early-firing on a partial DOM doesn't lock out a later valid one.
@@ -137,6 +140,7 @@ const {
       goTo(0);
       root.dataset.carouselInit = "1";
     },
+    });
   });
 </script>
 

@@ -130,9 +130,13 @@ const chartH = series.length * ROW_H + 30;
 
   // .chart elements appear both at first paint AND later when the fold
   // clones content into its 3 panels — watcher catches both populations.
-  watcher.add({
-    selector: ".chart",
-    onMatch: (chart) => observer.add(new PlayingToggle(chart, "playing")),
+  // Re-binds on each page load so a fresh watchable lives in the cleared
+  // singleton after astro:before-swap teardown.
+  document.addEventListener("astro:page-load", () => {
+    watcher.add({
+      selector: ".chart",
+      onMatch: (chart) => observer.add(new PlayingToggle(chart, "playing")),
+    });
   });
 </script>
 

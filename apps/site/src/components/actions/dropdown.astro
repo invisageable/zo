@@ -40,8 +40,10 @@ const selected =
   import { watcher } from "../../core/watcher";
 
   // Watcher catches dropdowns cloned into fold panels — each instance
-  // gets its own listeners independently.
-  watcher.add({
+  // gets its own listeners independently. Re-binds on every page load
+  // so a fresh watchable lives in the cleared singleton.
+  document.addEventListener("astro:page-load", () => {
+    watcher.add({
     selector: ".dropdown",
     onMatch: (root) => {
       const trigger = root.querySelector<HTMLButtonElement>(".dropdown-trigger");
@@ -70,6 +72,7 @@ const selected =
         if (event.key === "Escape") close();
       });
     },
+    });
   });
 </script>
 

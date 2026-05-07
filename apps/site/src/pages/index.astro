@@ -66,5 +66,5 @@ const items = [
 		await preload();
 	}
 
-	window.addEventListener("DOMContentLoaded", async () => await run(), false);
+	window.addEventListener("astro:page-load", async () => await run(), false);
 </script>

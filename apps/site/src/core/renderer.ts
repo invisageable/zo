@@ -43,6 +43,16 @@ export class Renderer {
 
     this.rafId = null;
   }
+
+  /**
+   * Drop every renderable and stop the rAF loop. Called by the global
+   * view-transitions lifecycle hook before each page swap so renderables
+   * pointing at soon-to-be-replaced DOM nodes don't keep ticking.
+   */
+  reset(): void {
+    this.stop();
+    this.renderables = [];
+  }
 }
 
 export const renderer = new Renderer();

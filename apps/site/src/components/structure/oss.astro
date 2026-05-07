@@ -5,8 +5,6 @@ import Title from "../atoms/title.astro";
 import Paragraph from "../atoms/paragraph.astro";
 import Badge from "../indicators/badge.astro";
 
-const description = "zo is built <b class='green-100'>in the open</b>. Every commit, every PR, every <b class='green-100'>contributor</b> — the project grows with the people building it.";
-
 const REPO = "invisageable/zo";
 const headers: HeadersInit = import.meta.env.GITHUB_TOKEN
   ? { Authorization: `Bearer ${import.meta.env.GITHUB_TOKEN}` }
@@ -50,8 +48,8 @@ const stats = [
 ---
 
 <section data-section="oss" class="oss">
-  <Title class="oss-title" as="h2">## oss</Title>
-  <Paragraph content={textTransform(description)} />
+  <Title class="oss-title" as="h2">{m.oss_title()}</Title>
+  <Paragraph content={textTransform(m.oss_description())} />
   <ul class="oss-stats">
     {
       stats.map((stat) => <li class="oss-stats-item">
@@ -67,17 +65,19 @@ const stats = [
   import { watcher } from "../../core/watcher";
   import { Counter } from "../../core/effects/counter";
 
-  watcher.add({
-    selector: '[data-section="oss"] .badge-value',
-    onMatch: (elmt) => {
-      const target = Number(elmt.dataset.value ?? 0);
-      const counter = new Counter(elmt, target);
-      renderer.add(counter);
-      observer.add(counter);
-    },
-  });
+  document.addEventListener("astro:page-load", () => {
+    watcher.add({
+      selector: '[data-section="oss"] .badge-value',
+      onMatch: (elmt) => {
+        const target = Number(elmt.dataset.value ?? 0);
+        const counter = new Counter(elmt, target);
+        renderer.add(counter);
+        observer.add(counter);
+      },
+    });
 
-  renderer.render();
+    renderer.render();
+  });
 </script>
 
 <style>
