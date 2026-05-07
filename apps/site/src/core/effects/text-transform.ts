@@ -1,4 +1,5 @@
 const ZO_NAME = "zo";
+const ZSX_NAME = "zsx";
 const CODELORD_NAME = "codelord";
 
 /**
@@ -27,6 +28,7 @@ function transformText(text: string): string {
     .split(/\b/)
     .map((segment) => {
       if (segment.toLowerCase() === ZO_NAME) return ZO_NAME;
+      if (segment.toLowerCase() === ZSX_NAME) return ZSX_NAME;
       if (segment.toLowerCase() === CODELORD_NAME) return CODELORD_NAME;
 
       return segment

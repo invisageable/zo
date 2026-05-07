@@ -103,7 +103,7 @@ iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALL
   1. RUN THE iNSTALLATiON SCRiPT:
 
   ```sh
-  curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/zo-install.sh | sh
+  curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
   ```
 
   2. VERiFY:

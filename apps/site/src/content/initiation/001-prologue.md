@@ -12,7 +12,7 @@ Quand des programmeurs front-end s'intéressent au bas niveau, ils réalisent vi
 
 "A part La Mémoire dans la peau, je ne vois pas de quoi tu parles ?!"
 
-On ne va pas s'étaler sur le sujet. Force est de constaer que la boucle d'itération est différente, surtout pour un sans cervelle comme moi. C'est face à plein de petites contraintes comme celle-ci qu'on s'est dit qu'il fallait simplifier le process pour permettre à quiconque venant du haut niveau de prendre du plaisir à créer des applications performantes.
+On ne va pas s'étaler sur le sujet. Force est de constater que la boucle d'itération est différente, surtout pour un sans cervelle comme moi. C'est face à plein de petites contraintes comme celle-ci qu'on s'est dit qu'il fallait simplifier le process pour permettre à quiconque venant du haut niveau de prendre du plaisir à créer des applications performantes.
 
 L'idée est vraiment d'améliorer l'expérience lorsque l'on code et de faire en sorte que tu puisses en 2-2 transformer tes idées en code sans friction. Pour cela, avec les compilords, on s'est focalisé sur les minuscule détails qui compte mais que tout le monde fait semblant de ne pas voir. Afin d'ouvrir de nouvelles dimensions dans lesquelles nos pensées se transforment en une série de zéro et de un, sans renier au plaisir.
 

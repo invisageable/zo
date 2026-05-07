@@ -9,7 +9,7 @@ TO **JOiN THE DEVOLUTiON** ON LiNUX, MACOS AND WiNDOWS SYSTEMS:
   1. YOU MUST RUN:
 
   ```sh
-  curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/zo-install.sh | sh
+  curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
   ```
 
 iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SET THE ENViRONMENT WiTH THE PATH TO RETRiEVE THE zo BiNARY.

@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "prebuild": "cp ../../tasks/zo-install.sh public/install.sh",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro"

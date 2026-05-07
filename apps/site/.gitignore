@@ -2,6 +2,8 @@
 dist/
 # generated types
 .astro/
+# copied from tasks/ by prebuild — single source of truth lives in tasks/
+public/install.sh
 
 # dependencies
 node_modules/
