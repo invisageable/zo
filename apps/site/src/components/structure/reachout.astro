@@ -45,6 +45,30 @@ const socials = [
   </div>
 </section>
 
+<script>
+  import { watcher } from "../../core/watcher";
+  import { observer } from "../../core/observer";
+  import { Hacker } from "../../core/effects/hacker";
+
+  const hacker = new Hacker();
+
+  document.addEventListener("astro:page-load", () => {
+    watcher.add({
+      selector: ".fold-center .reachout .editor",
+      onMatch: (elmt) => {
+        observer.add({
+          element: elmt,
+          onIntersect: (isIntersecting) => {
+            if (!isIntersecting) return;
+            hacker.split(elmt);
+            hacker.play(elmt, { iterations: 20, charDelayMs: 20 });
+          },
+        });
+      },
+    });
+  });
+</script>
+
 <style>
   .reachout {
     min-height: 400px;
