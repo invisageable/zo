@@ -11,12 +11,12 @@ This guide is your initiation to zo. Each chapter builds on the previous one —
 Every lesson is a quick snapshot of a zo program. Read the doc-comments (`-!`), they provide explanation and describe all the concepts that you need.
 
   ```zo
-  -! Hey, I'm a doc comment, read me to understand
-  -! what's going on in the snapshot program.
+  -! Sup? I'm a doc comment, I support markdown
+  -! format. What's good?
   ```
 
   ```zo
-  -- And me I'm a line comment, mostly introduced within the program.
+  -- I'm a line comment, mostly introduced within the program.
   ```
 
   ```zo

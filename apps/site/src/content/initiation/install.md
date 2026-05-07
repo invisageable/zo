@@ -11,7 +11,7 @@ A short setup before we open the first page. Two commands, two minutes.
 > « Simplicity is a prerequisite for reliability. » — Edsger W. Dijkstra
 
   ```sh
-  curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/zo-install.sh | sh
+  curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
   ```
 
 The script downloads and extracts the zo compiler into `bin/zo` and adds it to your `PATH` so zo is reachable from any shell.
