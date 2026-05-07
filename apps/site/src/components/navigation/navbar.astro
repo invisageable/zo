@@ -146,7 +146,7 @@ const { items } = Astro.props;
 
     .table-of-content-item {
       opacity: 0.5;
-      font-size: 2.8rem;
+      font-size: 1.4rem;
       text-decoration: none;
       transition: opacity 0.30s ease, color 0.30s ease;
     }
@@ -228,6 +228,10 @@ const { items } = Astro.props;
     .navbar.navbar--open .table-of-content {
       transform: translateX(0);
       transition: transform 0.24s ease 0.24s;
+    }
+
+    .table-of-content-item {
+      font-size: 2.8rem;
     }
 
     .navbar-close {
