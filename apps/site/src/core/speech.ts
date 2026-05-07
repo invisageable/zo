@@ -1,4 +1,5 @@
 import { getCollection, type CollectionEntry } from "astro:content";
+import { baseLocale } from "../paraglide/runtime.js";
 import type { Item } from "../components/navigation/navbar.astro";
 
 export interface SpeechMeta {
@@ -43,29 +44,59 @@ function parseSubtitle(body: string): string | null {
   return match ? match[1] : null;
 }
 
-// Loads + parses + sorts the whole speech collection once. Cached at module
-// scope so detail pages (rendered N times during build) don't re-parse 190
-// entries each — a single shared promise services every page.
-let cached: Promise<LoadedSpeech[]> | null = null;
+// Cached per-locale. Entry id is `<locale>/S0X/<filename>` — we group by
+// (season, episode, filename) and pick the requested locale's entry, or
+// fall back to baseLocale when that locale doesn't have it translated yet.
+const cache = new Map<string, Promise<LoadedSpeech[]>>();
 
-export function loadSpeeches(): Promise<LoadedSpeech[]> {
-  if (cached) return cached;
+export function loadSpeeches(locale: string): Promise<LoadedSpeech[]> {
+  const existing = cache.get(locale);
+  if (existing) return existing;
 
-  cached = (async () => {
-    const entries = await getCollection("speeches");
-    return entries
-      .map((entry) => ({ entry, meta: parseSpeech(entry) }))
-      .filter((speech): speech is LoadedSpeech => speech.meta !== null)
-      .sort((a, b) => a.meta.date.getTime() - b.meta.date.getTime());
+  const promise = (async () => {
+    const all = await getCollection("speeches");
+
+    // Key on (season-folder, filename) to dedupe the same speech across
+    // locales; entry.id starts with the locale segment.
+    const byKey = new Map<string, Map<string, CollectionEntry<"speeches">>>();
+    for (const entry of all) {
+      const segments = entry.id.split("/");
+      const entryLocale = segments[0];
+      const key = segments.slice(1).join("/");
+      if (!key) continue;
+      let byLocale = byKey.get(key);
+      if (!byLocale) {
+        byLocale = new Map();
+        byKey.set(key, byLocale);
+      }
+      byLocale.set(entryLocale, entry);
+    }
+
+    const result: LoadedSpeech[] = [];
+    for (const [, byLocale] of byKey) {
+      const entry = byLocale.get(locale) ?? byLocale.get(baseLocale);
+      if (!entry) continue;
+      const meta = parseSpeech(entry);
+      if (!meta) continue;
+      result.push({ entry, meta });
+    }
+
+    return result.sort(
+      (a, b) => a.meta.date.getTime() - b.meta.date.getTime(),
+    );
   })();
 
-  return cached;
+  cache.set(locale, promise);
+  return promise;
 }
 
 // `hashPrefix` is "" on the list page (in-page filter via location.hash) and
 // "/speeches" on detail pages so clicks navigate back and filter on landing.
-export async function getSpeechNavItems(hashPrefix: string = ""): Promise<Item[]> {
-  const speeches = await loadSpeeches();
+export async function getSpeechNavItems(
+  locale: string,
+  hashPrefix: string = "",
+): Promise<Item[]> {
+  const speeches = await loadSpeeches(locale);
   const seasons = [...new Set(speeches.map((speech) => speech.meta.season))].sort();
 
   return [

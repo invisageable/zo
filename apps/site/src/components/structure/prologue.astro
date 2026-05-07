@@ -1,5 +1,6 @@
 ---
 import { textTransform } from "../../core/effects/text-transform";
+import * as m from "../../paraglide/messages";
 import Paragraph from "../atoms/paragraph.astro";
 import Title from "../atoms/title.astro";
 import Carousel from "../interactive/carousel.astro";
@@ -7,14 +8,14 @@ import Editor from "../interactive/editor.astro";
 
 const SAMPLES = [
   {
-    title: "An Ui counter program in zo.",
+    title: m.sample_counter_title(),
     code: `fun main() {
   mut count: int = 0;
 
-  -- Look! You can use \`zsx\` to declare Ui.
+  -- ${m.sample_counter_comment_zsx()}
   imu counter: </> ::= <>
     <button @click={fn() => count -= 1}>-</button>
-    {count} <!-- HTML comments in \`zsx\` -->
+    {count} <!-- ${m.sample_counter_comment_html()} -->
     <button @click={fn() => count += 1}>+</button>
   </>;
 
@@ -22,13 +23,13 @@ const SAMPLES = [
 }`,
   },
   {
-    title: "A Channel send / recv program in zo.",
+    title: m.sample_channel_title(),
     code: `fun producer(tx: Tx<int>) {
   tx.send(42);
 }
 fun consumer(rx: Rx<int>) {
   imu value: int = rx.recv();
-  showln("got {value}");  
+  showln("got {value}");
 }
 fun main() {
   nursery {
@@ -41,7 +42,7 @@ fun main() {
 }`,
   },
   {
-    title: "A fizzbuzz using match program in zo.",
+    title: m.sample_fizzbuzz_title(),
     code: `fun fizzbuzz(n: int) {
   mut x := 1;
 
@@ -59,7 +60,7 @@ fun main() {
 }`,
   },
   {
-    title: "Generics and monomorphization.",
+    title: m.sample_generics_title(),
     code: `struct Box<$A, $B> {
   a: $A,
   b: $B,
@@ -76,15 +77,13 @@ fun main() {
   },
 ];
 
-const description = "A language to ship, run and build <b class='green-100'>native</b> and <b class='green-100'>web</b> applications optimized for speed. zo is a feature-rich ecosystem focus on high-performance, simplicity and <b class='green-100'>data-oriented</b>.";
-const punchline = "One language. One compiler. One binary. <b class='green-100'>Native</b> or <b class='green-100'>Web</b> — <b class='green-100'>same source</b>.";
 ---
 
 <section data-section="prologue" class="prologue">
   <div>
-    <Title as="h2">THE zo PROGRAMMiNG LANGUAGE.</Title>
-    <Paragraph class="prologue-description" content={textTransform(description)} />
-    <Paragraph class="prologue-punchline" content={textTransform(punchline)} />
+    <Title as="h2">{textTransform(m.prologue_title())}</Title>
+    <Paragraph class="prologue-description" content={textTransform(m.prologue_description())} />
+    <Paragraph class="prologue-punchline" content={textTransform(m.prologue_punchline())} />
   </div>
   <Carousel typewriter={true} ariaLabel="zo code samples">
     {

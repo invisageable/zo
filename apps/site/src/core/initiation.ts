@@ -1,4 +1,5 @@
 import { getCollection, render, type CollectionEntry } from "astro:content";
+import { baseLocale } from "../paraglide/runtime.js";
 import type { Item } from "../components/navigation/navbar.astro";
 
 export interface LoadedInitiation {
@@ -7,26 +8,53 @@ export interface LoadedInitiation {
   label: string;
 }
 
-let cached: Promise<LoadedInitiation[]> | null = null;
+// Cached per-locale: each locale picks a different subset of entries
+// (with fallback to baseLocale), so they can't share a single promise.
+const cache = new Map<string, Promise<LoadedInitiation[]>>();
 
-export function loadInitiations(): Promise<LoadedInitiation[]> {
-  if (cached) return cached;
-  cached = (async () => {
-    const entries = await getCollection("initiation");
-    return entries
-      .map((entry) => ({
+export function loadInitiations(locale: string): Promise<LoadedInitiation[]> {
+  const existing = cache.get(locale);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const all = await getCollection("initiation");
+
+    // Group entries by their bare slug (the part after `<locale>/`),
+    // then for each slug pick the requested locale or fall back to en.
+    const bySlug = new Map<string, Map<string, CollectionEntry<"initiation">>>();
+    for (const entry of all) {
+      const [entryLocale, ...rest] = entry.id.split("/");
+      const slug = rest.join("/");
+      if (!slug) continue;
+      let byLocale = bySlug.get(slug);
+      if (!byLocale) {
+        byLocale = new Map();
+        bySlug.set(slug, byLocale);
+      }
+      byLocale.set(entryLocale, entry);
+    }
+
+    const result: LoadedInitiation[] = [];
+    for (const [slug, byLocale] of bySlug) {
+      const entry = byLocale.get(locale) ?? byLocale.get(baseLocale);
+      if (!entry) continue;
+      result.push({
         entry,
-        slug: entry.id,
-        label: entry.data.title ?? humanize(entry.id),
-      }))
-      .sort((a, b) => {
-        const oa = a.entry.data.order ?? Number.MAX_SAFE_INTEGER;
-        const ob = b.entry.data.order ?? Number.MAX_SAFE_INTEGER;
-        if (oa !== ob) return oa - ob;
-        return a.slug.localeCompare(b.slug);
+        slug,
+        label: entry.data.title ?? humanize(slug),
       });
+    }
+
+    return result.sort((a, b) => {
+      const oa = a.entry.data.order ?? Number.MAX_SAFE_INTEGER;
+      const ob = b.entry.data.order ?? Number.MAX_SAFE_INTEGER;
+      if (oa !== ob) return oa - ob;
+      return a.slug.localeCompare(b.slug);
+    });
   })();
-  return cached;
+
+  cache.set(locale, promise);
+  return promise;
 }
 
 // Builds the navbar tree for the single-page Initiation:
@@ -38,8 +66,8 @@ export function loadInitiations(): Promise<LoadedInitiation[]> {
 //   │  └ ...
 // All entries live on /initiation; clicks scroll to anchors via NavBar's
 // findSection (matches `[data-section]`) or default browser anchor jump.
-export async function getInitiationNavItems(): Promise<Item[]> {
-  const initiations = await loadInitiations();
+export async function getInitiationNavItems(locale: string): Promise<Item[]> {
+  const initiations = await loadInitiations(locale);
 
   return Promise.all(
     initiations.map(async (initiation) => {

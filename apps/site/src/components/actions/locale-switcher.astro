@@ -1,0 +1,113 @@
+---
+import { getLocale, locales } from "../../paraglide/runtime.js";
+
+// Flag glyph per locale. Country flags as emoji are 2-letter regional
+// indicator pairs; rendering depends on the OS font (Windows shows the
+// letter pair as fallback). Acceptable trade-off for now; swap to SVG
+// icons later if Windows users complain.
+const FLAGS: Record<string, string> = {
+  en: "🇬🇧",
+  fr: "🇫🇷",
+  de: "🇩🇪",
+  zh: "🇨🇳",
+  ja: "🇯🇵",
+};
+
+const current = getLocale();
+---
+
+<div class="locale-switcher-wrap">
+  <select class="locale-switcher" data-locale-switcher aria-label="language">
+    {
+      locales.map((locale) => (
+        <option value={locale} selected={locale === current}>
+          {locale.toUpperCase()}
+        </option>
+      ))
+    }
+  </select>
+  <span class="locale-switcher-flag" aria-hidden="true">{FLAGS[current] ?? ""}</span>
+</div>
+
+<script>
+  import { setLocale } from "../../paraglide/runtime.js";
+  import { navigate } from "astro:transitions/client";
+
+  // Locale switch flow:
+  //   1. setLocale(reload: false) writes the PARAGLIDE_LOCALE cookie.
+  //   2. navigate(href) re-fetches the same URL through Astro's
+  //      ClientRouter. Server middleware reads the new cookie, server
+  //      re-renders all m.foo() calls in the chosen language, and the
+  //      View Transitions API morphs the DOM in place.
+  //
+  // Re-binds on every astro:page-load: the post-swap DOM has a fresh
+  // <select> with no `data-bound` flag, so we attach a new listener to it.
+  // The flag prevents re-binding the same element twice within one load.
+  function bind() {
+    document
+      .querySelectorAll<HTMLSelectElement>("[data-locale-switcher]")
+      .forEach((select) => {
+        if (select.dataset.bound === "1") return;
+        select.dataset.bound = "1";
+        select.addEventListener("change", async () => {
+          // Preserve scroll across the transition. The body's full
+          // scrollable height is driven by FoldEffect.render() (rAF), so
+          // the fresh page is short until the first frame of the new
+          // FoldEffect runs. Wait for astro:page-load + double rAF
+          // before restoring, so body height is set first.
+          const scrollY = window.scrollY;
+          const restore = () => {
+            document.removeEventListener("astro:page-load", restore);
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                window.scrollTo({ top: scrollY, behavior: "instant" });
+              });
+            });
+          };
+          document.addEventListener("astro:page-load", restore);
+
+          await setLocale(
+            select.value as Parameters<typeof setLocale>[0],
+            { reload: false },
+          );
+          await navigate(window.location.href, { history: "replace" });
+        });
+      });
+  }
+
+  document.addEventListener("astro:page-load", bind);
+</script>
+
+<style is:global>
+  .locale-switcher-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .locale-switcher {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    appearance: none;
+    padding: 0 4px;
+  }
+
+  .locale-switcher option {
+    background: var(--color-black-100, #000);
+    color: var(--color-white-100, #fff);
+  }
+
+  .locale-switcher-flag {
+    position: absolute;
+    top: -4px;
+    right: -6px;
+    font-size: 10px;
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+  }
+</style>

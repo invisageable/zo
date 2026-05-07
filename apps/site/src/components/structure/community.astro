@@ -1,14 +1,13 @@
 ---
 import { textTransform } from "../../core/effects/text-transform";
+import * as m from "../../paraglide/messages";
 import Paragraph from "../atoms/paragraph.astro";
 import Title from "../atoms/title.astro";
-
-const description = "A playground for compiler <b class='green-100'>nerds</b>, frontend <b class='green-100'>hackers</b>, and <b class='green-100'>creatives</b>. Open an issue, or come say hello on <a href='https://discord.gg/JaNc4Nk5xw'>Discord</a>.";
 ---
 
 <section data-section="community" class="community">
-  <Title class="community-title" as="h2">## community</Title>
-  <Paragraph content={textTransform(description)} />
+  <Title class="community-title" as="h2">{m.community_title()}</Title>
+  <Paragraph content={textTransform(m.community_description())} />
   <!-- could be nice to display a visual thing to s/o contributors. -->
 </section>
 

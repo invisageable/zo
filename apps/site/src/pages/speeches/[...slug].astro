@@ -11,29 +11,32 @@ import {
   formatEpisodeId,
   formatDate,
 } from "../../core/speech";
+import { getLocale } from "../../paraglide/runtime.js";
 
-export async function getStaticPaths() {
-  const sorted = await loadSpeeches();
+// SSR slug lookup: locale comes from the request, the speech is found
+// inside the per-locale list (with EN fallback baked into loadSpeeches).
+const locale = getLocale();
+const slug = Astro.params.slug;
+const sorted = await loadSpeeches(locale);
+const index = sorted.findIndex((s) => s.meta.slug === slug);
 
-  return sorted.map(({ entry, meta }, i) => {
-    const prev = sorted[i - 1] ?? null;
-    const next = sorted[i + 1] ?? null;
-    return {
-      params: { slug: meta.slug },
-      props: {
-        entry,
-        meta,
-        prev: prev ? { slug: prev.meta.slug, subtitle: prev.meta.subtitle } : null,
-        next: next ? { slug: next.meta.slug, subtitle: next.meta.subtitle } : null,
-      },
-    };
-  });
+if (index < 0) {
+  return Astro.redirect("/speeches");
 }
 
-const { entry, meta, prev, next } = Astro.props;
+const { entry, meta } = sorted[index];
+const prevEntry = sorted[index - 1] ?? null;
+const nextEntry = sorted[index + 1] ?? null;
+const prev = prevEntry
+  ? { slug: prevEntry.meta.slug, subtitle: prevEntry.meta.subtitle }
+  : null;
+const next = nextEntry
+  ? { slug: nextEntry.meta.slug, subtitle: nextEntry.meta.subtitle }
+  : null;
+
 const { Content } = await render(entry);
 
-const items: Item[] = await getSpeechNavItems("/speeches");
+const items: Item[] = await getSpeechNavItems(locale, "/speeches");
 const episodeId = formatEpisodeId(meta.season, meta.episode);
 ---
 

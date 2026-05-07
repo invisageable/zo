@@ -1,6 +1,7 @@
 ---
 import { textTransform } from "../../core/effects/text-transform";
-// import Dropdown from "../actions/dropdown.astro";
+import * as m from "../../paraglide/messages";
+import LocaleSwitcher from "../actions/locale-switcher.astro";
 import Link from "../atoms/link.astro";
 import IconMenu from "../../assets/icons/icon-menu.svg";
 
@@ -10,21 +11,14 @@ interface Props {
 }
 
 const { class: className, id } = Astro.props;
-
-// const locales = [
-//   { href: "/", label: "en" },
-//   { href: "/fr/", label: "fr" },
-// ];
-
-// const current = Astro.currentLocale === "fr" ? "/fr/" : "/";
 ---
 
 <header class:list={["header", className]} id={id}>
   <Link class="header-btn header-btn--home f-cirka" href="/" label="zo" />
-  <Link class="header-btn header-btn--initiation" href="/initiation" label={textTransform("Initiation")} />
+  <Link class="header-btn header-btn--initiation" href="/initiation" label={textTransform(m.header_initiation())} />
   <!-- <Link class="header-btn" href="/docs" label={textTransform("Docs")} /> -->
-  <Link class="header-btn header-btn--speeches" href="/speeches" label={textTransform("Speeches")} />
-  <!-- <Dropdown items={locales} current={current} /> -->
+  <Link class="header-btn header-btn--speeches" href="/speeches" label={textTransform(m.header_speeches())} />
+  <LocaleSwitcher />
   <button type="button" class="header-burger" aria-label="menu" aria-expanded="false">
     <IconMenu width={14} height={14} />
   </button>
@@ -38,34 +32,40 @@ const { class: className, id } = Astro.props;
   // note(ivs): It's an illusion trick: any `.header--fixed` instance gets
   // paired with the in-flow `.header--inline` (cloned inside `.fold-center`).
   // We've to do this because CSS sticky rule doesn't work in the fold's blocks,
-  // so the fixed copy fades in via class toggle once the in-flow one scrolls 
+  // so the fixed copy fades in via class toggle once the in-flow one scrolls
   // past the viewport top.
-  watcher.add({
-    selector: ".header--fixed",
-    onMatch: (fixed) => {
-      renderer.add(
-        new StickyTopBar(
-          fixed,
-          ".fold-center .fold-scroller .header--inline",
-          document.querySelector<HTMLElement>(".screen"),
-        ),
-      );
-    },
-  });
+  function init() {
+    watcher.add({
+      selector: ".header--fixed",
+      onMatch: (fixed) => {
+        renderer.add(
+          new StickyTopBar(
+            fixed,
+            ".fold-center .fold-scroller .header--inline",
+            document.querySelector<HTMLElement>(".screen"),
+          ),
+        );
+      },
+    });
 
-  watcher.add({
-    selector: ".header-burger",
-    onMatch: (burger) => {
-      burger.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const navbar = document.querySelector(".navbar");
-        if (!navbar) return;
-        const opened = navbar.classList.toggle("navbar--open");
-        burger.setAttribute("aria-expanded", String(opened));
-      });
-    },
-  });
+    watcher.add({
+      selector: ".header-burger",
+      onMatch: (burger) => {
+        burger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const navbar = document.querySelector(".navbar");
+          if (!navbar) return;
+          const opened = navbar.classList.toggle("navbar--open");
+          burger.setAttribute("aria-expanded", String(opened));
+        });
+      },
+    });
+  }
 
+  document.addEventListener("astro:page-load", init);
+
+  // Document-level handlers attach once at module load — they don't need
+  // re-binding on view transitions because document survives swaps.
   document.addEventListener("click", (event) => {
     const navbar = document.querySelector(".navbar");
     if (!navbar?.classList.contains("navbar--open")) return;
@@ -89,6 +89,7 @@ const { class: className, id } = Astro.props;
   .header {
     display: flex;
     gap: 16px;
+    justify-content: flex-end;
   }
 
   .header--fixed {
@@ -119,7 +120,8 @@ const { class: className, id } = Astro.props;
   }
 
   .header--inline .header-btn--home,
-  .header--inline .header-btn--speeches {
+  .header--inline .header-btn--speeches,
+  .header--inline .locale-switcher-wrap {
     display: none;
   }
   
@@ -149,7 +151,6 @@ const { class: className, id } = Astro.props;
 
   .header-burger {
     display: none;
-    margin-left: auto;
     align-items: center;
     justify-content: center;
     height: var(--top-bar-height);
@@ -163,6 +164,14 @@ const { class: className, id } = Astro.props;
   }
 
   @media (max-width: 768px) {
+    /* Drop the desktop sidebar-padding so links + locale + burger
+       have room to breathe on a phone. */
+    .header--fixed {
+      padding: 0 16px;
+    }
+
+    /* Burger only lives in the sticky/fixed header (the "header spy"),
+       never in the inline header. */
     .header--fixed .header-burger {
       display: inline-flex;
     }

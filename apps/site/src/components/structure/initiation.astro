@@ -1,26 +1,19 @@
 ---
+import { fetchLatestVersion } from "../../core/version";
+import { textTransform } from "../../core/effects/text-transform";
+import * as m from "../../paraglide/messages";
 import Title from "../atoms/title.astro";
 import Paragraph from "../atoms/paragraph.astro";
-import { fetchLatestVersion } from "../../core/version";
 
 const version = await fetchLatestVersion();
-
-const title = "Initiation";
-const subtitle = "An initiation to zo.";
-const dedication = "For Andrea Le Saint\nAnd those who refuse the uniformity of software.";
-const translators = "Translated by ...";
-const authors = "invisageable & the compilords";
-const edition = `First edition · 2026 · zo version ${version}`;
-const quote = "« Why accept slow compilers? Just make them faster. » — Jonathan Blow";
-const publisher = "compilords©";
 ---
 
 <section data-section="initiation" id="initiation">
-  <Title class="initiation-title" as="h1">{title}</Title>
-  <Paragraph class="initiation-subtitle" content={subtitle} />
-  <Paragraph class="initiation-dedication" content={dedication} />
-  <Paragraph class="initiation-translators" content={translators} />
-  <Paragraph class="initiation-authors" content=`${authors}\n${edition}` />
-  <Paragraph class="initiation-quote" content={quote} />
-  <Paragraph class="initiation-publisher" content={publisher} />
+  <Title class="initiation-title" as="h1">{m.initiation_title()}</Title>
+  <Paragraph class="initiation-subtitle" content={m.initiation_subtitle()} />
+  <Paragraph class="initiation-dedication" content={m.initiation_dedication()} />
+  <Paragraph class="initiation-translators" content={m.initiation_translators()} />
+  <Paragraph class="initiation-authors" content=`${m.initiation_authors()}\n${m.initiation_edition({ version })}` />
+  <Paragraph class="initiation-quote" content={m.initiation_quote()} />
+  <Paragraph class="initiation-publisher" content={textTransform(m.initiation_publisher())} />
 </section>

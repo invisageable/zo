@@ -19,15 +19,22 @@
   import { renderer } from "../../core/renderer";
   import { FoldEffect } from "../../core/effects/fold";
 
-  const folds = Array.from(
-    document.getElementsByClassName("fold"),
-  ) as HTMLElement[];
-  const baseContent = document.getElementById("base-content") as HTMLElement;
+  // Re-runs on every page load (initial + view-transition swaps).
+  // After astro:before-swap clears the renderer, this re-binds the fold
+  // to the new #base-content and restarts the rAF loop.
+  function init() {
+    const folds = Array.from(
+      document.getElementsByClassName("fold"),
+    ) as HTMLElement[];
+    const baseContent = document.getElementById("base-content");
+    if (!baseContent || folds.length === 0) return;
 
-  const fold = new FoldEffect(folds);
-  fold.setContent(baseContent);
+    const fold = new FoldEffect(folds);
+    fold.setContent(baseContent as HTMLElement);
+    renderer.add(fold).render();
+  }
 
-  renderer.add(fold).render();
+  document.addEventListener("astro:page-load", init);
 </script>
 
 <style is:global>

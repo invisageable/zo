@@ -52,17 +52,6 @@ const { items } = Astro.props;
   import { renderer } from "../../core/renderer";
   import { NavbarSpy, type NavLink } from "../../core/effects/navbar-spy";
 
-  const links = document.querySelectorAll<HTMLAnchorElement>(
-    ".table-of-content-item",
-  );
-
-  // Map each link to the data-section it points to so click-to-scroll and
-  // scroll-spy share the same source of truth.
-  const navItems: NavLink[] = Array.from(links).map((link) => ({
-    link: link as HTMLElement,
-    target: link.getAttribute("href")?.slice(1) ?? "",
-  }));
-
   function findSection(target: string): HTMLElement | null {
     const centerScroller = document.querySelector<HTMLElement>(
       ".fold-center .fold-scroller",
@@ -76,55 +65,74 @@ const { items } = Astro.props;
     );
   }
 
-  // Click-to-scroll is user-event-driven, not per-frame — stays as a click
-  // handler. Measure the section's post-transform viewport position and
-  // scroll the body by the delta.
-  for (const { link, target } of navItems) {
-    link.addEventListener("click", (event) => {
-      if (!target) return;
+  // Re-runs on every page load. The new DOM has fresh nav links and a
+  // fresh fold-center; everything bound here points at those new nodes,
+  // and the global astro:before-swap hook has already cleared the
+  // previous renderer entry.
+  function init() {
+    const links = document.querySelectorAll<HTMLAnchorElement>(
+      ".table-of-content-item",
+    );
 
-      const section = findSection(target);
-      // No section to scroll to → let default link navigation happen
-      // (e.g. hash-based filters on the /speeches page).
-      if (!section) return;
+    // Map each link to the data-section it points to so click-to-scroll and
+    // scroll-spy share the same source of truth.
+    const navItems: NavLink[] = Array.from(links).map((link) => ({
+      link: link as HTMLElement,
+      target: link.getAttribute("href")?.slice(1) ?? "",
+    }));
 
-      event.preventDefault();
-      const rect = section.getBoundingClientRect();
-      const desiredY = window.innerHeight * 0.1;
-      const delta = rect.top - desiredY;
+    // Click-to-scroll is user-event-driven, not per-frame — stays as a click
+    // handler. Measure the section's post-transform viewport position and
+    // scroll the body by the delta.
+    for (const { link, target } of navItems) {
+      link.addEventListener("click", (event) => {
+        if (!target) return;
 
-      window.scrollTo({
-        top: window.scrollY + delta,
-        behavior: "smooth",
+        const section = findSection(target);
+        // No section to scroll to → let default link navigation happen
+        // (e.g. hash-based filters on the /speeches page).
+        if (!section) return;
+
+        event.preventDefault();
+        const rect = section.getBoundingClientRect();
+        const desiredY = window.innerHeight * 0.1;
+        const delta = rect.top - desiredY;
+
+        window.scrollTo({
+          top: window.scrollY + delta,
+          behavior: "smooth",
+        });
       });
-    });
+    }
+
+    renderer.add(new NavbarSpy(navItems));
+
+    // Close button (mobile-only) closes the navbar overlay.
+    document
+      .querySelectorAll<HTMLButtonElement>(".navbar-close")
+      .forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelector(".navbar")?.classList.remove("navbar--open");
+          document
+            .querySelectorAll<HTMLElement>(".header-burger")
+            .forEach((b) => b.setAttribute("aria-expanded", "false"));
+        });
+      });
+
+    // Close on link tap inside the navbar (typical mobile menu pattern).
+    document
+      .querySelectorAll<HTMLAnchorElement>(".navbar a")
+      .forEach((link) => {
+        link.addEventListener("click", () => {
+          document.querySelector(".navbar")?.classList.remove("navbar--open");
+          document
+            .querySelectorAll<HTMLElement>(".header-burger")
+            .forEach((b) => b.setAttribute("aria-expanded", "false"));
+        });
+      });
   }
 
-  renderer.add(new NavbarSpy(navItems));
-
-  // Close button (mobile-only) closes the navbar overlay.
-  document
-    .querySelectorAll<HTMLButtonElement>(".navbar-close")
-    .forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelector(".navbar")?.classList.remove("navbar--open");
-        document
-          .querySelectorAll<HTMLElement>(".header-burger")
-          .forEach((b) => b.setAttribute("aria-expanded", "false"));
-      });
-    });
-
-  // Close on link tap inside the navbar (typical mobile menu pattern).
-  document
-    .querySelectorAll<HTMLAnchorElement>(".navbar a")
-    .forEach((link) => {
-      link.addEventListener("click", () => {
-        document.querySelector(".navbar")?.classList.remove("navbar--open");
-        document
-          .querySelectorAll<HTMLElement>(".header-burger")
-          .forEach((b) => b.setAttribute("aria-expanded", "false"));
-      });
-    });
+  document.addEventListener("astro:page-load", init);
 </script>
 
 <style>
@@ -211,6 +219,10 @@ const { items } = Astro.props;
       transition:
         opacity 0.24s ease-in-out 0.24s,
         visibility 0s ease-in-out 0.48s;
+
+      .table-of-content-item {
+        font-size: 2.8rem;
+      }
     }
 
     .navbar.navbar--open {
@@ -228,10 +240,6 @@ const { items } = Astro.props;
     .navbar.navbar--open .table-of-content {
       transform: translateX(0);
       transition: transform 0.24s ease 0.24s;
-    }
-
-    .table-of-content-item {
-      font-size: 2.8rem;
     }
 
     .navbar-close {

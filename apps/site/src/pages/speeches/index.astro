@@ -13,9 +13,11 @@ import {
   formatEpisodeId,
   formatDate,
 } from "../../core/speech";
+import { getLocale } from "../../paraglide/runtime.js";
 
-const speeches = (await loadSpeeches()).slice().reverse();
-const items: Item[] = await getSpeechNavItems();
+const locale = getLocale();
+const speeches = (await loadSpeeches(locale)).slice().reverse();
+const items: Item[] = await getSpeechNavItems(locale);
 
 const description = "My day-to-day journal. For now there are only in french.";
 ---
@@ -26,7 +28,7 @@ const description = "My day-to-day journal. For now there are only in french.";
   <Screen>
     <Title class="speeches-title" as="h1">
       Speeches
-      <span class="speeches-count" data-total=`(${speeches.length})` />
+      <span class="speeches-count" data-total={speeches.length} />
     </Title>
     <Paragraph content={description} />
     <ul class="speeches-list">
@@ -49,22 +51,6 @@ const description = "My day-to-day journal. For now there are only in french.";
   import { watcher } from "../../core/watcher";
   import { Counter } from "../../core/effects/counter";
 
-  // Each fold-cloned `.speeches-count` gets its own Counter — initial intro
-  // animation on viewport enter, then `setTarget` on every filter change so
-  // the number tweens between season totals.
-  const counters: Counter[] = [];
-
-  watcher.add({
-    selector: '.speeches-count',
-    onMatch: (elmt) => {
-      const total = Number(elmt.dataset.total ?? 0);
-      const counter = new Counter(elmt, total, 350);
-      counters.push(counter);
-      renderer.add(counter);
-      observer.add(counter);
-    },
-  });
-
   function countFor(season: string | null): number {
     // Count from `.fold-center` — the single visible copy. The other fold
     // panels and the hidden source would multiply the total otherwise.
@@ -76,35 +62,54 @@ const description = "My day-to-day journal. For now there are only in french.";
     return root.querySelectorAll(selector).length;
   }
 
-  function applyFilter() {
-    const hash = location.hash.slice(1);
-    const season = /^s\d+$/.test(hash) ? hash.slice(1) : null;
+  // Re-binds on every page load. Fresh `counters` array per page so the
+  // hashchange handler doesn't drive ghost Counters from the prior page.
+  document.addEventListener("astro:page-load", () => {
+    // Each fold-cloned `.speeches-count` gets its own Counter — intro
+    // animation on viewport enter, then `setTarget` on filter change.
+    const counters: Counter[] = [];
 
-    document
-      .querySelectorAll<HTMLElement>(".speeches-item")
-      .forEach((item) => {
-        const matches = season === null || item.dataset.season === season;
-        item.classList.toggle("speeches-item--hidden", !matches);
-      });
+    watcher.add({
+      selector: '.speeches-count',
+      onMatch: (elmt) => {
+        const total = Number(elmt.dataset.total ?? 0);
+        const counter = new Counter(elmt, total, 350);
+        counters.push(counter);
+        renderer.add(counter);
+        observer.add(counter);
+      },
+    });
 
-    document
-      .querySelectorAll<HTMLAnchorElement>(".table-of-content-item")
-      .forEach((link) => {
-        const target = link.getAttribute("href")?.slice(1) ?? "";
-        const isActive =
-          (season === null && target === "all") ||
-          (season !== null && target === `s${season}`);
-        link.classList.toggle("table-of-content-item--active", isActive);
-      });
+    function applyFilter() {
+      const hash = location.hash.slice(1);
+      const season = /^s\d+$/.test(hash) ? hash.slice(1) : null;
 
-    const target = countFor(season);
-    counters.forEach((counter) => counter.setTarget(target));
-  }
+      document
+        .querySelectorAll<HTMLElement>(".speeches-item")
+        .forEach((item) => {
+          const matches = season === null || item.dataset.season === season;
+          item.classList.toggle("speeches-item--hidden", !matches);
+        });
 
-  window.addEventListener("hashchange", applyFilter);
-  applyFilter();
+      document
+        .querySelectorAll<HTMLAnchorElement>(".table-of-content-item")
+        .forEach((link) => {
+          const target = link.getAttribute("href")?.slice(1) ?? "";
+          const isActive =
+            (season === null && target === "all") ||
+            (season !== null && target === `s${season}`);
+          link.classList.toggle("table-of-content-item--active", isActive);
+        });
 
-  renderer.render();
+      const target = countFor(season);
+      counters.forEach((counter) => counter.setTarget(target));
+    }
+
+    window.addEventListener("hashchange", applyFilter);
+    applyFilter();
+
+    renderer.render();
+  });
 </script>
 
 <style is:global>

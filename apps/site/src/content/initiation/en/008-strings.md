@@ -3,11 +3,14 @@
 Sequences of bytes you can store, combine, and index. zo string literals live in the binary's read-only data section — no heap allocation, no copy at startup.
 
   ```zo
-  -- "Hi, I'm `str` — a string. I'm immutable; once created, my bytes
-  -- never change. Reach for me anywhere you need text."
-  imu greeting: str = "hello";
-  imu name: str = "johndoe";
-  showln(greeting);
+  -- What's up, cuh? Remember me? — the string. I'm immutable;
+  -- once created, my bytes never change. Reach for me anywhere 
+  -- you need text. I'm versatile, so my shapes are yours:
+  "\e[32mHello!\v\e[34mWorld\e[0m\n"
+  "\x48\x65\x6c\x6c\x6f"              -- hex
+  "\u{e9}\u{e8}\u{ea}"                -- latin
+  "\u{2603} \u{2602} \u{2600}"        -- bmp
+  "\u{1F600} \u{1F680} \u{1F4A9}"     -- emoji
   ```
 
 ## concatenation
