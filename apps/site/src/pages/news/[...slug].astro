@@ -1,0 +1,111 @@
+---
+import { render } from "astro:content";
+import Base from "../../layouts/base.astro";
+import Header from "../../components/structure/header.astro";
+import Screen from "../../components/structure/screen.astro";
+import NavBar, { type Item } from "../../components/navigation/navbar.astro";
+import NewsNav from "../../components/navigation/news-nav.astro";
+import {
+  loadNews,
+  getNewsNavItems,
+  formatEpisodeId,
+  formatDate,
+} from "../../core/news";
+import { getLocale } from "../../paraglide/runtime.js";
+
+const locale = getLocale();
+const slug = Astro.params.slug;
+const sorted = await loadNews(locale);
+const index = sorted.findIndex((n) => n.meta.slug === slug);
+
+if (index < 0) {
+  return Astro.redirect("/news");
+}
+
+const { entry, meta } = sorted[index];
+const prevEntry = sorted[index - 1] ?? null;
+const nextEntry = sorted[index + 1] ?? null;
+const prev = prevEntry
+  ? { slug: prevEntry.meta.slug, subtitle: prevEntry.meta.subtitle }
+  : null;
+const next = nextEntry
+  ? { slug: nextEntry.meta.slug, subtitle: nextEntry.meta.subtitle }
+  : null;
+
+const { Content } = await render(entry);
+
+const items: Item[] = await getNewsNavItems(locale, "/news");
+const episodeId = formatEpisodeId(meta.season, meta.episode);
+---
+
+<Base title={`zo — ${episodeId}.`}>
+  <NavBar items={items} />
+  <Header class="header--fixed header--active blur" id="top-bar" />
+  <Screen>
+    <article class="news">
+      <header class="news-meta">
+        <span class="news-id">{episodeId}</span>
+        <span class="news-date">{formatDate(meta.date)}</span>
+      </header>
+      <NewsNav prev={prev} next={next} />
+      <Content />
+      <NewsNav prev={prev} next={next} />
+    </article>
+  </Screen>
+</Base>
+
+<style>
+  .news {
+    max-width: 720px;
+    margin: 24px auto 0;
+  }
+
+  .news-meta {
+    display: flex;
+    gap: 16px;
+    font-family: var(--font-iosevka);
+    color: var(--color-green-100);
+    margin-bottom: 16px;
+  }
+
+  .news-date {
+    opacity: 0.6;
+  }
+</style>
+
+<style is:global>
+  .news img {
+    width: 100%;
+    height: auto;
+  }
+
+  .news pre {
+    background: #000 !important;
+    padding: 8px;
+    overflow-x: auto;
+  }
+
+  .news .zo-block {
+    --color-yellow-100: #e6db74;
+    --color-orange-100: #fd971f;
+    --color-red-100: #f92672;
+    --color-purple-100: #ae81ff;
+    --color-blue-100: #66d9ef;
+    --color-cyan-100: #a1efe4;
+    --color-magenta-100: #fd5ff0;
+    --color-gray-100: #43443b;
+    --color-gray-200: #75715e;
+  }
+
+  .news .zo-block .keyword     { color: var(--color-blue-100); }
+  .news .zo-block .ident       { color: var(--color-green-100); }
+  .news .zo-block .group       { color: var(--color-gray-200); }
+  .news .zo-block .punctuation { color: var(--color-red-100); }
+  .news .zo-block .number      { color: var(--color-purple-100); }
+  .news .zo-block .comment     { color: var(--color-gray-100); }
+  .news .zo-block .string      { color: var(--color-yellow-100); }
+  .news .zo-block .type        { color: var(--color-cyan-100); }
+  .news .zo-block .attribute   { color: var(--color-orange-100); }
+  .news .zo-block .event       { color: var(--color-magenta-100); }
+  .news .zo-block .boolean     { color: var(--color-orange-100); }
+</style>

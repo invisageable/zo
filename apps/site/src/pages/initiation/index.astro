@@ -1,12 +1,13 @@
 ---
 import { render } from 'astro:content';
+import { loadInitiations, getInitiationNavItems } from '../../core/initiation';
+import { getLocale } from '../../paraglide/runtime.js';
 import Base from '../../layouts/base.astro';
 import NavBar, { type Item } from '../../components/navigation/navbar.astro';
 import Header from '../../components/structure/header.astro';
 import Initiation from '../../components/structure/initiation.astro';
+import Reachout from '../../components/structure/reachout.astro';
 import Screen from '../../components/structure/screen.astro';
-import { loadInitiations, getInitiationNavItems } from '../../core/initiation';
-import { getLocale } from '../../paraglide/runtime.js';
 
 const title = "zo — Initiation.";
 const locale = getLocale();
@@ -36,6 +37,7 @@ const sections = await Promise.all(
         <Content />
       </section>)
     }
+    <Reachout />
   </Screen>
 </Base>
 
