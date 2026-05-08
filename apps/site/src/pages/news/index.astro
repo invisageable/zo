@@ -8,37 +8,37 @@ import Screen from "../../components/structure/screen.astro";
 import Reachout from "../../components/structure/reachout.astro";
 
 import {
-  loadSpeeches,
-  getSpeechNavItems,
+  loadNews,
+  getNewsNavItems,
   pad2,
   formatEpisodeId,
   formatDate,
-} from "../../core/speech";
+} from "../../core/news";
 import { getLocale } from "../../paraglide/runtime.js";
 import * as m from "../../paraglide/messages";
 
 const locale = getLocale();
-const speeches = (await loadSpeeches(locale)).slice().reverse();
-const items: Item[] = await getSpeechNavItems(locale);
+const news = (await loadNews(locale)).slice().reverse();
+const items: Item[] = await getNewsNavItems(locale);
 ---
 
-<Base title="zo — Speeches.">
+<Base title="zo — News.">
   <NavBar items={items} />
   <Header class="header--fixed header--active blur" id="top-bar" />
   <Screen>
-    <Title class="speeches-title" as="h1">
-      Speeches
-      <span class="speeches-count" data-total={speeches.length} />
+    <Title class="news-title" as="h1">
+      News
+      <span class="news-count" data-total={news.length} />
     </Title>
-    <Paragraph content={m.speeches_description()} />
+    <Paragraph content={m.news_description()} />
     <section>
-      <ul class="speeches-list">
+      <ul class="news-list">
         {
-          speeches.map(({ entry, meta }) => <li class="speeches-item" data-season={pad2(meta.season)}>
-            <a href={`/speeches/${meta.slug}`}>
-              <span class="speeches-id">{formatEpisodeId(meta.season, meta.episode)}</span>
-              <span class="speeches-date">{formatDate(meta.date)}</span>
-              <span class="speeches-title">{meta.subtitle ?? entry.id.split("/").pop()}</span>
+          news.map(({ entry, meta }) => <li class="news-item" data-season={pad2(meta.season)}>
+            <a href={`/news/${meta.slug}`}>
+              <span class="news-id">{formatEpisodeId(meta.season, meta.episode)}</span>
+              <span class="news-date">{formatDate(meta.date)}</span>
+              <span class="news-title">{meta.subtitle ?? entry.id.split("/").pop()}</span>
             </a>
           </li>)
         }
@@ -55,25 +55,19 @@ const items: Item[] = await getSpeechNavItems(locale);
   import { Counter } from "../../core/effects/counter";
 
   function countFor(season: string | null): number {
-    // Count from `.fold-center` — the single visible copy. The other fold
-    // panels and the hidden source would multiply the total otherwise.
     const root = document.querySelector(".fold-center");
     if (!root) return 0;
     const selector = season === null
-      ? ".speeches-item"
-      : `.speeches-item[data-season="${season}"]`;
+      ? ".news-item"
+      : `.news-item[data-season="${season}"]`;
     return root.querySelectorAll(selector).length;
   }
 
-  // Re-binds on every page load. Fresh `counters` array per page so the
-  // hashchange handler doesn't drive ghost Counters from the prior page.
   document.addEventListener("astro:page-load", () => {
-    // Each fold-cloned `.speeches-count` gets its own Counter — intro
-    // animation on viewport enter, then `setTarget` on filter change.
     const counters: Counter[] = [];
 
     watcher.add({
-      selector: '.speeches-count',
+      selector: '.news-count',
       onMatch: (elmt) => {
         const total = Number(elmt.dataset.total ?? 0);
         const counter = new Counter(elmt, total, 350);
@@ -84,16 +78,14 @@ const items: Item[] = await getSpeechNavItems(locale);
     });
 
     function applyFilter(hashOverride?: string) {
-      // Click handler passes the link's `href` directly because
-      // location.hash hasn't settled yet when ClientRouter intercepts.
-      const raw = (hashOverride ?? location.hash).replace(/^#?\/?(speeches#)?/, "");
+      const raw = (hashOverride ?? location.hash).replace(/^#?\/?(news#)?/, "");
       const season = /^s\d+$/.test(raw) ? raw.slice(1) : null;
 
       document
-        .querySelectorAll<HTMLElement>(".speeches-item")
+        .querySelectorAll<HTMLElement>(".news-item")
         .forEach((item) => {
           const matches = season === null || item.dataset.season === season;
-          item.classList.toggle("speeches-item--hidden", !matches);
+          item.classList.toggle("news-item--hidden", !matches);
         });
 
       document
@@ -111,10 +103,6 @@ const items: Item[] = await getSpeechNavItems(locale);
     }
 
     window.addEventListener("hashchange", () => applyFilter());
-    // ClientRouter intercepts <a href="#sXX"> clicks and may update the URL
-    // via history.pushState, which doesn't fire `hashchange` and doesn't
-    // settle location.hash before our handler runs. Read the link's `href`
-    // directly instead of waiting on the URL to update.
     document
       .querySelectorAll<HTMLAnchorElement>(".table-of-content-item")
       .forEach((link) => {
@@ -129,25 +117,25 @@ const items: Item[] = await getSpeechNavItems(locale);
 </script>
 
 <style is:global>
-  .speeches-item--hidden {
+  .news-item--hidden {
     display: none;
   }
 </style>
 
 <style>
-  .speeches-count {
+  .news-count {
     font-size: 4rem;
     &::before { content: "("; }
     &::after  { content: ")"; }
   }
 
-  .speeches-list {
+  .news-list {
     margin: 24px 0 0;
     padding: 0;
     list-style: none;
   }
 
-  .speeches-item a {
+  .news-item a {
     display: grid;
     grid-template-columns: 80px 100px 1fr;
     gap: 16px;
@@ -157,16 +145,16 @@ const items: Item[] = await getSpeechNavItems(locale);
     border-bottom: 1px solid color-mix(in oklab, var(--color-white-100) 10%, transparent);
   }
 
-  .speeches-item a:hover {
+  .news-item a:hover {
     background: color-mix(in oklab, var(--color-white-100) 5%, transparent);
   }
 
-  .speeches-id {
+  .news-id {
     font-family: var(--font-iosevka);
     color: var(--color-green-100);
   }
 
-  .speeches-date {
+  .news-date {
     font-family: var(--font-iosevka);
     opacity: 0.6;
   }

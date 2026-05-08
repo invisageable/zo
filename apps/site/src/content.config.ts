@@ -15,6 +15,17 @@ const speeches = defineCollection({
   }),
 });
 
+const news = defineCollection({
+  loader: glob({
+    pattern: "*/S0*/S0*.md",
+    base: "./src/content/news",
+  }),
+  schema: z.object({
+    title: z.string().optional(),
+    subtitle: z.string().optional(),
+  }),
+});
+
 const initiation = defineCollection({
   loader: glob({
     pattern: "*/*.md",
@@ -26,4 +37,4 @@ const initiation = defineCollection({
   }),
 });
 
-export const collections = { speeches, initiation };
+export const collections = { speeches, news, initiation };

@@ -1,0 +1,47 @@
+---
+interface Neighbor {
+  slug: string;
+  subtitle: string | null;
+}
+
+interface Props {
+  prev: Neighbor | null;
+  next: Neighbor | null;
+}
+
+const { prev, next } = Astro.props;
+---
+
+<nav class="news-nav">
+  {prev
+    ? <a class="news-nav-prev" href={`/news/${prev.slug}`}>← {prev.subtitle ?? "prev"}</a>
+    : <span class="news-nav-prev news-nav--disabled">← prev</span>}
+  {next
+    ? <a class="news-nav-next" href={`/news/${next.slug}`}>{next.subtitle ?? "next"} →</a>
+    : <span class="news-nav-next news-nav--disabled">next →</span>}
+</nav>
+
+<style>
+  .news-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 24px 0;
+    font-family: var(--font-iosevka);
+    font-size: 0.9rem;
+  }
+
+  .news-nav a {
+    color: inherit;
+    opacity: 0.6;
+    text-decoration: none;
+  }
+
+  .news-nav a:hover {
+    text-decoration: underline;
+  }
+
+  .news-nav--disabled {
+    opacity: 0.3;
+  }
+</style>

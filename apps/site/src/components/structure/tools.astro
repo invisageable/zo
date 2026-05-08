@@ -1,6 +1,7 @@
 ---
 import { textTransform } from "../../core/effects/text-transform";
 import * as m from "../../paraglide/messages";
+import previewZoVscode from "../../assets/previews/preview-zo-templating-counter.png";
 import Paragraph from "../atoms/paragraph.astro";
 import Title from "../atoms/title.astro";
 import Card from "./card.astro";
@@ -20,12 +21,11 @@ const TOOLS = [
   {
     name: "zo vscode",
     description: m.tools_vscode_description(),
+    image: previewZoVscode.src,
     link: "https://github.com/invisageable/zo/tree/main/crates/compiler/zo-vscode",
   },
 ];
 ---
-
-<!-- gallery to expose: codelord, fret, zo-vscode -->
 
 <section data-section="tools" class="tools">
   <Title as="h2">{m.tools_title()}</Title>

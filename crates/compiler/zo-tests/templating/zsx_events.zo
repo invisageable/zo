@@ -1,11 +1,11 @@
 -- test-build-pass: event binding with @event syntax.
 
-fun handle_click() {}
-fun handle_focus() {}
+fun handle_click() { -* triggered on click *- }
+fun handle_focus() { -* triggered on focus *- }
 
 fun main() {
   imu app: </> ::= <>
-    <h1>Event Demo</h1>
+    <h1>zsx Events</h1>
     <button @click={handle_click}>Click me</button>
     <input type="text" placeholder="Focus me" @focus={handle_focus} />
   </>;
