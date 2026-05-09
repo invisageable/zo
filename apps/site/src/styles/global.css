@@ -210,6 +210,15 @@ a {
 .number {
   color: var(--color-purple-100);
 }
+.number-prefix {
+  color: var(--color-magenta-100);
+}
+.number-exponent {
+  color: var(--color-magenta-100);
+}
+.number-suffix {
+  color: var(--color-cyan-100);
+}
 .comment {
   color: var(--color-grasy-100);
   opacity: 0.65;

@@ -5,6 +5,11 @@ title: Preface
 
 # preface
 
+
+```zo
+0xFF
+```
+
 [tsh-tsh]
 
 Where do I even start? I'm out of words... this whole topic just drives me up the wall. I don't know about you, but this digital sham is getting more broken by the day. Take the tools we use every day: compilers, test runners, code editors — most of them are dead by the opening credits, even if their creators try to sell you "Don't worry, it's fast!" — and then you actually run the thing and realize the dream was just lulling you to sleep.

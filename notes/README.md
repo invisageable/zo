@@ -5,9 +5,3 @@
 ## about.
 
 A COLLECTiON OF DOCS, NOTES. iT'S ALL ABOUT READiNG HERE.
-
-<!-- ## members.
-
-| NAME                   | DESCRiPTiON                                                       |
-| :--------------------- | :---------------------------------------------------------------- |
-| [speeches](./speeches) | SOME ~~`bullshit`~~ iDEAS OF MY DAY-TO-DAY JOURNAL (FRENCH ONLY). | -->

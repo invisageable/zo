@@ -1,10 +1,10 @@
 import type { Root, Parent, RootContent, PhrasingContent } from "mdast";
 import { visit } from "unist-util-visit";
 
-// Strips inline `[prev](...) — [next](...)` paragraphs from speech markdown.
+// Strips inline `[prev](...) — [next](...)` paragraphs from news markdown.
 // Prev/next nav is rendered by the page template instead so it stays in sync
 // with the sorted collection — no per-file maintenance when episodes shift.
-export function remarkSpeechNav() {
+export function remarkNewsNav() {
   return (tree: Root) => {
     const removals: Array<[Parent, number]> = [];
 

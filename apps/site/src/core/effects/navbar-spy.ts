@@ -62,7 +62,7 @@ export class NavbarSpy implements Renderable {
     }
 
     // Only toggle items whose target maps to a real section. Items without
-    // one (e.g. hash filters on /speeches) are managed by their own page
+    // one (e.g. hash filters on /news) are managed by their own page
     // script — leaving them alone here lets that script own the active state.
     for (let i = 0; i < this.items.length; i++) {
       if (!this.findSection(this.items[i].target)) continue;
