@@ -1,5 +1,0 @@
-# chars
-
-```zo
--- chars
-```

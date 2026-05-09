@@ -20,14 +20,14 @@ const { items } = Astro.props;
     {
       items.map((item) => <li>
         <Link
-          class={`table-of-content-item f-cirka ${item.label.toLowerCase()}`}
+          class="table-of-content-item f-cirka"
           href={item.href}
           label={item.label}
         />
         {item.children && <ul class="table-of-content-children">
           {item.children.map((child) => <li>
             <Link
-              class={`table-of-content-item table-of-content-item--child f-cirka ${child.label.toLowerCase()}`}
+              class="table-of-content-item table-of-content-item--child f-cirka"
               href={child.href}
               label={child.label}
             />

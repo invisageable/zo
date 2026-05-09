@@ -16,12 +16,13 @@ Every lesson is a quick snapshot of a zo program. Read the doc-comments (`-!`), 
   ```
 
   ```zo
-  -- I'm a line comment, mostly introduced within the program.
+  -- I'm a line comment, I don't care about markdown.
   ```
 
   ```zo
   -*
-  From my side I'm a block comment, I'm happy to help for details that matter
+    From my side I'm a block comment, I'm happy to help
+    for details that matter
   *-
   ```
 
