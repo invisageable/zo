@@ -1,9 +1,9 @@
-# primitives
+# literals
 
 ## numbers
 
 Programming is just moving data around. In zo, data comes in a few basic
-flavors called "primitives".
+flavors called "literals".
 
 You don't need to memorize all of these right now. Just know they exist. The
 most important thing: zo is smart. It "infers" types so you don't have to be
@@ -24,10 +24,10 @@ a keyboard typist just to declare a number.
   -- Ya, I'm the `int` chief — a signed 32-bit integer,
   -- the default for any bare number you write.
   -- I scale up to `s64` if you need more room.
-  showln(42);
+  42
   -- I'm the Big Daddy Kane so I support big numbers 
   -- natively — `600851475143` just works.
-  showln(600851475143);
+  600851475143
   ```
 
 ### floats
@@ -42,13 +42,13 @@ a keyboard typist just to declare a number.
 
   -- Heyo, I'm `float` — a 64-bit double. Just add a `.`
   -- and you get me. 
-  showln(14.0);
-  showln(3.14159);
+  14.0
+  3.14159
   -- Yeah! But you don't speak scientific. Bro! Don't
   -- listen to this guy. I'm the smarter `1.0e10`, 
   -- `2.5e-3` — same family, different notation.
-  showln(1.0e10);
-  showln(2.5e-3);
+  1.0e10
+  2.5e-3
   ```
 
 ### bases
@@ -64,9 +64,9 @@ a keyboard typist just to declare a number.
 
   -- Woop-woop, we're integers in disguise. Same value,
   -- different notation.
-  showln(0b11110000); -- 240
-  showln(0o77);       -- 63
-  showln(0xff);       -- 255
+  0b11110000 -- 240
+  0o77       -- 63
+  0xff       -- 255
   ```
 
 ### parse modifiers
@@ -79,36 +79,9 @@ a keyboard typist just to declare a number.
   -!   `x#`: hexadecimal
 
   -- Same as the prefix forms, just inline shorthand.
-  showln(b#30); -- 24
-  showln(o#75); -- 61
-  showln(x#76); -- 118
-  ```
-
-## strings
-
-  ```zo
-  -- Bitch! I'm `str` — a string literal. I live in 
-  -- the binary's read-only data section hood, so I
-  -- cost nothing at runtime. Skuuuuuu!"
-  showln("JOiN THE DEVOLUTiON.");
-  ```
-
-## chars
-
-  ```zo
-  -- And me, I'm `char` — a single Unicode scalar 
-  -- wrapped in single quotes.
-  showln('z');
-  ```
-
-## bytes
-
-  ```zo
-  -! My man, introduce yourself!
-
-  -- Call me `bytes` — raw byte value, written with 
-  -- backticks. No Unicode, just the eight bits."
-  showln(`z`);
+  b#30 -- 24
+  o#75 -- 61
+  x#76 -- 118
   ```
 
 ## booleans
@@ -118,6 +91,33 @@ a keyboard typist just to declare a number.
 
   -- Wordup, we're `bool` — only `true` and `false`.
   -- No "truthy" or "falsy" mind games here."
-  showln(true);
-  showln(false);
+  true
+  false
+  ```
+
+## strings
+
+  ```zo
+  -- Bitch! I'm `str` — a string literal. I live in 
+  -- the binary's read-only data section hood, so I
+  -- cost nothing at runtime. Skuuuuuu!"
+  "JOiN THE DEVOLUTiON."
+  ```
+
+## chars
+
+  ```zo
+  -- And me, I'm `char` — a single Unicode scalar 
+  -- wrapped in single quotes.
+  'z'
+  ```
+
+## bytes
+
+  ```zo
+  -! My man, introduce yourself!
+
+  -- Call me `bytes` — raw byte value, written with 
+  -- backticks. No Unicode, just the 8 bits."
+  `z`
   ```

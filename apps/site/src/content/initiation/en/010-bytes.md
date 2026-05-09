@@ -1,5 +1,0 @@
-# bytes
-
-```zo
--- bytes
-```

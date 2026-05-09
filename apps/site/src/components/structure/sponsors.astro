@@ -8,8 +8,36 @@ import Paragraph from "../atoms/paragraph.astro";
 <section data-section="sponsors" class="sponsors">
   <Title class="sponsors-title" as="h2">{m.sponsors_title()}</Title>
   <Paragraph content={textTransform(m.sponsors_content())} />
+  <a
+    class="sponsors-cta"
+    href="https://github.com/sponsors/invisageable"
+    target="_blank"
+    rel="noopener"
+  >
+    {m.sponsors_cta()}
+  </a>
 </section>
 
 <style>
-  .sponsors {}
+  .sponsors {
+    .sponsors-cta {
+      margin: 40px 0 0;
+      padding: 12px 24px;
+      display: block;
+      width: 280px;
+      background: var(--color-green-100);
+      color: var(--color-black-100);
+      font-family: var(--font-aeonik);
+      font-size: 1.25rem;
+      font-weight: 400;
+      text-align: center;
+      text-transform: uppercase;
+      text-decoration: none;
+      transition: opacity 350ms ease-in-out;
+    }
+  
+    .sponsors-cta:hover {
+      opacity: 0.85;
+    }
+  }
 </style>

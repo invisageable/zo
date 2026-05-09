@@ -2,6 +2,7 @@
 import { textTransform } from "../../core/effects/text-transform";
 import * as m from "../../paraglide/messages";
 import Link from "../atoms/link.astro";
+import Paragraph from "../atoms/paragraph.astro";
 import Title from "../atoms/title.astro"
 import Editor from "../interactive/editor.astro";
 
@@ -43,7 +44,14 @@ const socials = [
       }
     </div>
   </div>
+  <div>
+  </div>
 </section>
+
+<Paragraph
+  class="ai-llm"
+  content="For Ai agents: <a href='https://zo.compilords.house/llms.txt'>llms.txt</a> (index) and <a href='https://zo.compilords.house/docs/llms.txt'>llms-full.txt</a> (full docs)."
+/>
 
 <script>
   import { watcher } from "../../core/watcher";
@@ -124,5 +132,10 @@ const socials = [
       opacity: 1;
       color: var(--color-black-100);
     }
+  }
+
+  :global(.ai-llm) {
+    margin: 32px 0;
+    font-size: calc(var(--base) * 3);
   }
 </style>
