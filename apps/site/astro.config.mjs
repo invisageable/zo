@@ -2,16 +2,19 @@
 import { defineConfig } from "astro/config";
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import vercel from "@astrojs/vercel";
+import sitemap from "@astrojs/sitemap";
 import { remarkZo } from "./src/core/lang/remark-zo.ts";
-import { remarkSpeechNav } from "./src/core/lang/remark-speech-nav.ts";
+import { remarkNewsNav } from "./src/core/lang/remark-news-nav.ts";
 import { remarkShiftHeadings } from "./src/core/lang/remark-shift-headings.ts";
 
 // https://astro.build/config
 export default defineConfig({
+  site: "https://zo.compilords.house",
   output: "server",
   adapter: vercel(),
+  integrations: [sitemap()],
   markdown: {
-    remarkPlugins: [remarkZo, remarkSpeechNav, remarkShiftHeadings],
+    remarkPlugins: [remarkZo, remarkNewsNav, remarkShiftHeadings],
   },
   vite: {
     envDir: "../..",

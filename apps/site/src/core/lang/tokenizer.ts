@@ -25,6 +25,61 @@ const TYPES = new Set([
   "bool", "bytes", "char", "float", "int", "str", "uint",
 ]);
 
+// Number-typed suffixes (speculative: not in zo.ebnf yet). When the
+// tokenizer sees `_<type>` after a numeric literal, this set decides
+// whether to emit a `NumberSuffix` token vs falling through to the
+// regular `_<ident>` path.
+const NUMBER_SUFFIXES = new Set([
+  "s8", "s16", "s32", "s64",
+  "u8", "u16", "u32", "u64",
+  "f32", "f64",
+  "int", "uint", "float",
+]);
+
+// Detect & emit `_<type>` as a `NumberSuffix` token when it follows a
+// numeric literal. Returns the new `pos` (advanced past the suffix) or
+// the original `pos` if no suffix matched.
+function consumeNumberSuffix(
+  src: string,
+  pos: number,
+  tokens: Token[],
+): number {
+  if (src[pos] !== "_") return pos;
+  let end = pos + 1;
+  while (end < src.length && isIdentCont(src[end])) end++;
+  const ident = src.slice(pos + 1, end);
+  if (!NUMBER_SUFFIXES.has(ident)) return pos;
+  tokens.push({
+    kind: Kind.NumberSuffix,
+    text: src.slice(pos, end),
+    start: pos,
+    end,
+  });
+  return end;
+}
+
+// Detect & emit `e[+|-]digits` as a `NumberExponent` token. Returns the
+// new `pos` (advanced past the exponent) or the original `pos` when no
+// exponent is present.
+function consumeNumberExponent(
+  src: string,
+  pos: number,
+  tokens: Token[],
+): number {
+  if (src[pos] !== "e" && src[pos] !== "E") return pos;
+  let end = pos + 1;
+  if (src[end] === "+" || src[end] === "-") end++;
+  if (!isDigit(src[end])) return pos;
+  while (end < src.length && (isDigit(src[end]) || src[end] === "_")) end++;
+  tokens.push({
+    kind: Kind.NumberExponent,
+    text: src.slice(pos, end),
+    start: pos,
+    end,
+  });
+  return end;
+}
+
 // `<` is intentionally excluded from the lumping walker — otherwise it
 // greedily eats into zsx tag starts (e.g., `-</button` would lump as
 // `-</` then leave `button>` orphaned). `<` is emitted as its own
@@ -125,18 +180,30 @@ export function tokenize(src: string): Token[] {
       continue;
     }
 
-    // Numbers with base prefix: 0x.., 0o.., 0b.. (any base/digit-validity
-    // is the parser's job; tokenizer just consumes the alnum + underscore run).
+    // Numbers with base prefix: 0x.., 0o.., 0b.. — emitted as a 2-char
+    // `NumberPrefix` token followed by a `Number` digits token, then an
+    // optional `NumberSuffix` (`_u32`, `_i64`, ...).
     if (
       ch === "0"
       && (src[pos + 1] === "x" || src[pos + 1] === "X"
         || src[pos + 1] === "o" || src[pos + 1] === "O"
         || src[pos + 1] === "b" || src[pos + 1] === "B")
     ) {
-      const start = pos;
+      tokens.push({ kind: Kind.NumberPrefix, text: src.slice(pos, pos + 2), start: pos, end: pos + 2 });
       pos += 2;
-      while (pos < src.length && (isAlnum(src[pos]) || src[pos] === "_")) pos++;
-      tokens.push({ kind: Kind.Number, text: src.slice(start, pos), start, end: pos });
+      const digitsStart = pos;
+      while (pos < src.length && (isAlnum(src[pos]) || src[pos] === "_")) {
+        // Stop when we hit a `_<known-suffix>` so the suffix gets its own
+        // colored token. Walk ahead to peek; restore pos if no match.
+        if (src[pos] === "_") {
+          let lookahead = pos + 1;
+          while (lookahead < src.length && isIdentCont(src[lookahead])) lookahead++;
+          if (NUMBER_SUFFIXES.has(src.slice(pos + 1, lookahead))) break;
+        }
+        pos++;
+      }
+      tokens.push({ kind: Kind.Number, text: src.slice(digitsStart, pos), start: digitsStart, end: pos });
+      pos = consumeNumberSuffix(src, pos, tokens);
       continue;
     }
 
@@ -145,24 +212,39 @@ export function tokenize(src: string): Token[] {
       (ch === "b" || ch === "o" || ch === "x")
       && src[pos + 1] === "#"
     ) {
-      const start = pos;
+      tokens.push({ kind: Kind.NumberPrefix, text: src.slice(pos, pos + 2), start: pos, end: pos + 2 });
       pos += 2;
-      while (pos < src.length && (isAlnum(src[pos]) || src[pos] === "_")) pos++;
-      tokens.push({ kind: Kind.Number, text: src.slice(start, pos), start, end: pos });
+      const digitsStart = pos;
+      while (pos < src.length && (isAlnum(src[pos]) || src[pos] === "_")) {
+        if (src[pos] === "_") {
+          let lookahead = pos + 1;
+          while (lookahead < src.length && isIdentCont(src[lookahead])) lookahead++;
+          if (NUMBER_SUFFIXES.has(src.slice(pos + 1, lookahead))) break;
+        }
+        pos++;
+      }
+      tokens.push({ kind: Kind.Number, text: src.slice(digitsStart, pos), start: digitsStart, end: pos });
+      pos = consumeNumberSuffix(src, pos, tokens);
       continue;
     }
 
-    // Numbers: integer + decimal + underscores (e.g. 1_000_000.5)
-    // and scientific e-notation (e.g. 1.0e10, 2.5e-3, 6.02E+23).
+    // Numbers: integer + decimal + underscores (e.g. 1_000_000.5),
+    // scientific e-notation (e.g. 1.0e10, 2.5e-3), and optional type
+    // suffix (e.g. 42_u32, 3.14_f64). Each component gets its own token
+    // so the highlighter can color them distinctly.
     if (isDigit(ch)) {
-      const start = pos;
-      while (pos < src.length && (isDigit(src[pos]) || src[pos] === "_" || src[pos] === ".")) pos++;
-      if (pos < src.length && (src[pos] === "e" || src[pos] === "E")) {
+      const digitsStart = pos;
+      while (pos < src.length && (isDigit(src[pos]) || src[pos] === "_" || src[pos] === ".")) {
+        if (src[pos] === "_") {
+          let lookahead = pos + 1;
+          while (lookahead < src.length && isIdentCont(src[lookahead])) lookahead++;
+          if (NUMBER_SUFFIXES.has(src.slice(pos + 1, lookahead))) break;
+        }
         pos++;
-        if (pos < src.length && (src[pos] === "+" || src[pos] === "-")) pos++;
-        while (pos < src.length && (isDigit(src[pos]) || src[pos] === "_")) pos++;
       }
-      tokens.push({ kind: Kind.Number, text: src.slice(start, pos), start, end: pos });
+      tokens.push({ kind: Kind.Number, text: src.slice(digitsStart, pos), start: digitsStart, end: pos });
+      pos = consumeNumberExponent(src, pos, tokens);
+      pos = consumeNumberSuffix(src, pos, tokens);
       continue;
     }
 

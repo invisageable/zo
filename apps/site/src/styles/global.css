@@ -87,14 +87,29 @@
 }
 
 :root {
+  --base: 4px;
+  --duration: 350ms;
+
   --container-max-width: 1080px;
   --sidebar-width: 234px;
   --top-bar-height: 56px;
 
+  /* colors:theme */
   --color-black-100: rgb(0, 0, 0);
   --color-white-100: rgb(255, 255, 255);
   --color-green-100: rgb(204, 253, 62);
   --color-grasy-100: rgb(117, 118, 116);
+
+  /* colors:syntax-highlighting */
+  --color-yellow-100: rgb(230, 219, 116);
+  --color-orange-100: #fd971f;
+  --color-red-100: #f92672;
+  --color-purple-100: #ae81ff;
+  --color-blue-100: #66d9ef;
+  --color-cyan-100: #a1efe4;
+  --color-magenta-100: #fd5ff0;
+  --color-gray-100: #43443b;
+  --color-gray-200: #75715e;
 
   --font-cirka: "Cirka", serif;
   --font-iosevka: "Iosevka", monospace;
@@ -178,4 +193,48 @@ p {
 a {
   color: var(--color-green-100);
   text-decoration: none;
+}
+
+.keyword {
+  color: var(--color-blue-100);
+}
+.ident {
+  color: var(--color-green-100);
+}
+.group {
+  color: var(--color-gray-200);
+}
+.punctuation {
+  color: var(--color-red-100);
+}
+.number {
+  color: var(--color-purple-100);
+}
+.number-prefix {
+  color: var(--color-magenta-100);
+}
+.number-exponent {
+  color: var(--color-magenta-100);
+}
+.number-suffix {
+  color: var(--color-cyan-100);
+}
+.comment {
+  color: var(--color-grasy-100);
+  opacity: 0.65;
+}
+.string {
+  color: var(--color-yellow-100);
+}
+.type {
+  color: var(--color-cyan-100);
+}
+.attribute {
+  color: var(--color-orange-100);
+}
+.event {
+  color: var(--color-magenta-100);
+}
+.boolean {
+  color: var(--color-orange-100);
 }

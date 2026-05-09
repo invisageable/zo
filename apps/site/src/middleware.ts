@@ -13,6 +13,7 @@ export const onRequest = defineMiddleware((context, next) => {
   return paraglideMiddleware(context.request, async () => {
     const response = await next();
     const existing = response.headers.get("Vary");
+
     const additions = ["Cookie", "Accept-Language"];
     const merged = existing
       ? Array.from(new Set([
@@ -21,6 +22,7 @@ export const onRequest = defineMiddleware((context, next) => {
         ])).join(", ")
       : additions.join(", ");
     response.headers.set("Vary", merged);
+
     return response;
   });
 });

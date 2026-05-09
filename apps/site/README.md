@@ -4,7 +4,7 @@
 
 ## dev.
 
-## Project Structure
+### Project Structure
 
 Inside of your Astro project, you'll see the following folders and files:
 
@@ -23,7 +23,7 @@ There's nothing special about `src/components/`, but that's where we like to put
 
 Any static assets, like images, can be placed in the `public/` directory.
 
-## Commands
+### Commands
 
 All commands are run from the root of the project, from a terminal:
 
@@ -35,18 +35,3 @@ All commands are run from the root of the project, from a terminal:
 | `npm run preview`         | Preview your build locally, before deploying     |
 | `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `npm run astro -- --help` | Get help using the Astro CLI                     |
-
-1. title
-2. paragraph
-
-|--------------|--------------|
-| 1            | 1            |
-|              |              |
-| 2            | 2            |
-|              |              |
-|--------------|--------------|
-| 1            | 1            |
-|              |              |
-| 2            | 2            |
-|              |              |
-|--------------|--------------|

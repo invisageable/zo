@@ -3,20 +3,26 @@
   "type": "module",
   "version": "0.0.1",
   "engines": {
-    "node": ">=22.12.0"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "astro dev",
-    "prebuild": "cp ../../tasks/zo-install.sh public/install.sh",
+    "prebuild": "npm run zo:install && npm run zo:docs",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "zo:install": "cp ../../tasks/zo-install.sh public/install.sh",
+    "zo:docs": "node tasks/build-llms-full.mjs"
   },
   "dependencies": {
+    "@astrojs/sitemap": "^3.7.2",
     "@astrojs/vercel": "^10.0.6",
     "astro": "^6.2.1"
   },
   "devDependencies": {
     "@inlang/paraglide-js": "^2.18.0"
+  },
+  "overrides": {
+    "path-to-regexp": "^6.3.0"
   }
 }

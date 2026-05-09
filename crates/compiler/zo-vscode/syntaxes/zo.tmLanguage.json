@@ -24,29 +24,58 @@
       "match": "\\b(true|false)\\b"
     },
     {
-      "comment": "integers literal (hex)",
-      "name": "constant.numeric.integer.hexadecimal.zo",
-      "match": "\\b(0x[a-fA-F0-9_]+)\\b"
+      "comment": "integers literal (hex) — prefix / digits / suffix",
+      "match": "\\b(0x)([a-fA-F0-9]+(?:_[a-fA-F0-9]+)*)(_(?:s8|s16|s32|s64|u8|u16|u32|u64|f32|f64|int|uint|float))?\\b",
+      "captures": {
+        "1": { "name": "keyword.other.numeric.prefix.zo" },
+        "2": { "name": "constant.numeric.integer.hexadecimal.zo" },
+        "3": { "name": "keyword.other.numeric.suffix.zo" }
+      }
     },
     {
-      "comment": "integers literal (oct)",
-      "name": "constant.numeric.integer.octal.zo",
-      "match": "\\b(0o[0-7_]+)\\b"
+      "comment": "integers literal (oct) — prefix / digits / suffix",
+      "match": "\\b(0o)([0-7]+(?:_[0-7]+)*)(_(?:s8|s16|s32|s64|u8|u16|u32|u64|int|uint))?\\b",
+      "captures": {
+        "1": { "name": "keyword.other.numeric.prefix.zo" },
+        "2": { "name": "constant.numeric.integer.octal.zo" },
+        "3": { "name": "keyword.other.numeric.suffix.zo" }
+      }
     },
     {
-      "comment": "integers literal (bin)",
-      "name": "constant.numeric.integer.binary.zo",
-      "match": "\\b(0b[01_]+)\\b"
+      "comment": "integers literal (bin) — prefix / digits / suffix",
+      "match": "\\b(0b)([01]+(?:_[01]+)*)(_(?:s8|s16|s32|s64|u8|u16|u32|u64|int|uint))?\\b",
+      "captures": {
+        "1": { "name": "keyword.other.numeric.prefix.zo" },
+        "2": { "name": "constant.numeric.integer.binary.zo" },
+        "3": { "name": "keyword.other.numeric.suffix.zo" }
+      }
     },
     {
-      "comment": "floats literal",
-      "name": "constant.numeric.float.zo",
-      "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?(f32|f64)?\\b"
+      "comment": "integers literal (base#digits) — prefix / digits / suffix",
+      "match": "\\b([box]#)([a-fA-F0-9]+(?:_[a-fA-F0-9]+)*)(_(?:s8|s16|s32|s64|u8|u16|u32|u64|int|uint))?\\b",
+      "captures": {
+        "1": { "name": "keyword.other.numeric.prefix.zo" },
+        "2": { "name": "constant.numeric.integer.base.zo" },
+        "3": { "name": "keyword.other.numeric.suffix.zo" }
+      }
     },
     {
-      "comment": "integers literal (dec)",
-      "name": "constant.numeric.integer.decimal.zo",
-      "match": "\\b([0-9][0-9_]*)\\b"
+      "comment": "floats literal — mantissa / exponent / suffix",
+      "match": "\\b([0-9]+(?:_[0-9]+)*\\.[0-9]+(?:_[0-9]+)*)([eE][+-]?[0-9]+(?:_[0-9]+)*)?(_(?:f32|f64|float))?\\b",
+      "captures": {
+        "1": { "name": "constant.numeric.float.zo" },
+        "2": { "name": "constant.numeric.exponent.zo" },
+        "3": { "name": "keyword.other.numeric.suffix.zo" }
+      }
+    },
+    {
+      "comment": "integers literal (dec) — digits / exponent / suffix",
+      "match": "\\b([0-9]+(?:_[0-9]+)*)([eE][+-]?[0-9]+(?:_[0-9]+)*)?(_(?:s8|s16|s32|s64|u8|u16|u32|u64|f32|f64|int|uint|float))?\\b",
+      "captures": {
+        "1": { "name": "constant.numeric.integer.decimal.zo" },
+        "2": { "name": "constant.numeric.exponent.zo" },
+        "3": { "name": "keyword.other.numeric.suffix.zo" }
+      }
     },
     {
       "comment": "single-quote string literal (character)",

@@ -90,7 +90,7 @@ const { items } = Astro.props;
 
         const section = findSection(target);
         // No section to scroll to → let default link navigation happen
-        // (e.g. hash-based filters on the /speeches page).
+        // (e.g. hash-based filters on the /news page).
         if (!section) return;
 
         event.preventDefault();
@@ -141,7 +141,7 @@ const { items } = Astro.props;
     left: 0;
     width: var(--sidebar-width);
     height: 100vh;
-    padding: calc(1.7em *0.5) 0 calc(1.7em *0.5) 4rem;
+    padding: calc(1.7em * 0.5) 0 calc(1.7em * 0.5) 4rem;
     z-index: 10;
     position: fixed;
     display: flex;
@@ -153,10 +153,10 @@ const { items } = Astro.props;
     }
 
     .table-of-content-item {
-      opacity: 0.5;
+      opacity: 0.65;
       font-size: 1.4rem;
       text-decoration: none;
-      transition: opacity 0.30s ease, color 0.30s ease;
+      transition: opacity var(--duration) ease-in-out, color var(--duration) ease-in-out;
     }
 
     .table-of-content-item--active {
@@ -239,13 +239,13 @@ const { items } = Astro.props;
 
     .navbar.navbar--open .table-of-content {
       transform: translateX(0);
-      transition: transform 0.24s ease 0.24s;
+      transition: transform 0.24s ease-in-out;
     }
 
     .navbar-close {
-      position: absolute;
       top: 16px;
       right: 24px;
+      position: absolute;
       display: inline-block;
     }
   }

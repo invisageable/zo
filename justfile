@@ -311,11 +311,27 @@ delete_tag version:
 list_tags:
   git tag -l --sort=-v:refname
 
-zo_off_site_dev:
+# site: Install dependencies
+[group('site')]
+site_install:
+  cd apps/site && npm install
+
+# site: Audit dependencies
+[group('site')]
+site_audit:
+  cd apps/site && npm audit
+
+# site: Wipe build caches
+[group('site')]
+site_clean:
+  cd apps/site && rm -rf node_modules/.vite .astro dist .vercel
+
+# site: Run the development environment
+[group('site')]
+site_dev:
   cd apps/site && npm run dev
 
-zo_off_site_build:
+# site: Build the website
+[group('site')]
+site_build:
   cd apps/site && npm run build
-
-zo_off_site_preview:
-  cd apps/site && npm run preview
