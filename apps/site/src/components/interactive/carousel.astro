@@ -45,18 +45,15 @@ const {
 
   const hacker = new Hacker();
 
-  // Scope to `.fold-center` only — the source and the before/after fold
-  // copies inherit dots via deep cloneNode and would double up if we ran
-  // here too. Only the visible center clone needs working controls.
-  // Re-binds on every page load: watcher state was cleared in the
-  // global astro:before-swap teardown, so a fresh watchable is needed.
+  // Match every `.carousel` inside a `.fold` panel — that's the 3 fold
+  // clones (before/center/after). Skip the source `#base-content` carousel
+  // because cloneNode would copy its `data-carousel-init` flag to every
+  // clone and lock them out. Click handlers / state attach only on
+  // fold-center; before/after get dots only.
   document.addEventListener("astro:page-load", () => {
     watcher.add({
-      selector: ".fold-center .carousel",
+      selector: ".fold .carousel",
       onMatch: (root) => {
-      // Stacked guards — `data-carousel-init` and the dots-already-populated
-      // check both prevent re-entry. Marked only AFTER successful init so
-      // an early-firing on a partial DOM doesn't lock out a later valid one.
       if (root.dataset.carouselInit === "1") return;
 
       const track = root.querySelector<HTMLElement>(".carousel-track");
@@ -70,18 +67,30 @@ const {
       const slides = Array.from(track.children) as HTMLElement[];
       if (slides.length === 0) return;
 
-      const titles = slides.map((s) => s.dataset.title ?? "");
+      const isCenter = !!root.closest(".fold-center");
 
+      // Always render dots so before/after panels match center visually.
+      // Click handlers attach only on the center carousel.
       const dots: HTMLButtonElement[] = slides.map((_, i) => {
         const dot = document.createElement("button");
         dot.type = "button";
         dot.className = "carousel-dot";
         dot.setAttribute("role", "tab");
         dot.setAttribute("aria-label", `slide ${i + 1}`);
-        dot.addEventListener("click", () => goTo(i));
+        if (isCenter) dot.addEventListener("click", () => goTo(i));
         dotsHost.appendChild(dot);
         return dot;
       });
+
+      if (!isCenter) {
+        // Mark the clone's first dot as the active one so the visual
+        // matches center on initial paint.
+        dots[0]?.setAttribute("aria-current", "true");
+        root.dataset.carouselInit = "1";
+        return;
+      }
+
+      const titles = slides.map((s) => s.dataset.title ?? "");
 
       let index = 0;
       const typewriterEnabled = root.dataset.typewriter === "true";
@@ -96,14 +105,15 @@ const {
         // the horizontal slide motion.
         document
           .querySelectorAll<HTMLElement>(".wrapper-3d .carousel-track")
-          .forEach((t) => {
-            t.style.transform = transform;
-            Array.from(t.children).forEach((slide, si) => {
+          .forEach((track) => {
+            track.style.transform = transform;
+            Array.from(track.children).forEach((slide, si) => {
               (slide as HTMLElement).classList.toggle("carousel-slide--active", si === index);
             });
           });
-        dots.forEach((dot, di) => {
-          dot.setAttribute("aria-current", di === index ? "true" : "false");
+
+        dots.forEach((dot, idx) => {
+          dot.setAttribute("aria-current", idx === index ? "true" : "false");
         });
         // Update the static title (lives outside the track, doesn't slide).
         // `-! ` prefix mirrors the inline editor-title convention.
@@ -120,8 +130,8 @@ const {
         if (typewriter) {
           document
             .querySelectorAll<HTMLElement>(".wrapper-3d .carousel-track")
-            .forEach((t) => {
-              const slide = t.children[index] as HTMLElement | undefined;
+            .forEach((track) => {
+              const slide = track.children[index] as HTMLElement | undefined;
               if (slide) typewriter.play(slide, { totalMs: 1100 });
             });
         }
@@ -131,13 +141,18 @@ const {
       next.addEventListener("click", () => goTo(index + 1));
 
       // Keyboard nav — only when the carousel (or one of its controls) is focused.
-      root.addEventListener("keydown", (event) => {
-        const ke = event as KeyboardEvent;
-        if (ke.key === "ArrowLeft") { ke.preventDefault(); goTo(index - 1); }
-        else if (ke.key === "ArrowRight") { ke.preventDefault(); goTo(index + 1); }
+      root.addEventListener("keydown", (event: KeyboardEvent) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          goTo(index - 1);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          goTo(index + 1);
+        }
       });
 
       goTo(0);
+
       root.dataset.carouselInit = "1";
     },
     });
@@ -152,33 +167,33 @@ const {
   }
 
   .carousel-viewport {
-    overflow: hidden;
     width: 100%;
+    overflow: hidden;
   }
 
   /* 0–0.4s: outgoing slides + fades out (motion visible during fade-out).
      0.4–0.8s: incoming fades in (already in position). Total 0.8s. */
   .carousel-track {
     display: flex;
-    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 400ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .carousel-track > :global(*) {
     flex: 0 0 100%;
     min-width: 0;
     opacity: 0;
-    transition: opacity 0.4s ease-in;
+    transition: opacity 400ms ease-in;
   }
 
   .carousel-track > :global(.carousel-slide--active) {
     opacity: 1;
-    transition: opacity 0.4s ease-out 0.4s;
+    transition: opacity 400ms ease-out 400ms;
   }
 
   .carousel-nav {
+    width: 100%;
     display: flex;
     align-items: center;
-    width: 100%;
     gap: 16px;
     border: 1px solid
       color-mix(in oklab, var(--color-white-100) 20%, transparent);
@@ -187,11 +202,11 @@ const {
   /* Mirrors `.editor-title` from editor.astro exactly so the static
      out-of-slide title is visually indistinguishable from the inline one. */
   .carousel-title {
-    --color-gray-100: #43443b;
-    color: var(--color-gray-100);
-    font-weight: 400;
     margin: 0;
     min-height: 1.4em;
+    opacity: 0.65;
+    color: var(--color-grasy-100);
+    font-weight: 400;
   }
 
 
@@ -212,7 +227,7 @@ const {
     justify-content: center;
     background: transparent;
     color: inherit;
-    transition: opacity 0.2s ease;
+    transition: opacity 350ms ease;
   }
 
   .carousel-prev {
@@ -242,7 +257,7 @@ const {
     border: 0;
     background: color-mix(in oklab, var(--color-white-100) 25%, transparent);
     cursor: pointer;
-    transition: background 0.2s ease, transform 0.2s ease;
+    transition: background 350ms ease, transform 350ms ease-in-out;
   }
 
   :global(.carousel-dot[aria-current="true"]) {

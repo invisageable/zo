@@ -2,18 +2,16 @@
 
 ---
 
-<!-- <main> -->
-  <div id="base-content" class="fold-source">
-    <slot />
+<div id="base-content" class="fold-source">
+  <slot />
+</div>
+<div id="fold-effect" class="screen">
+  <div class="wrapper-3d">
+    <div class="fold fold-before"></div>
+    <div class="fold fold-center"></div>
+    <div class="fold fold-after"></div>
   </div>
-  <div id="fold-effect" class="screen">
-    <div class="wrapper-3d">
-      <div class="fold fold-before"></div>
-      <div class="fold fold-center"></div>
-      <div class="fold fold-after"></div>
-    </div>
-  </div>
-<!-- </main> -->
+</div>
 
 <script>
   import { renderer } from "../../core/renderer";
@@ -26,6 +24,7 @@
     const folds = Array.from(
       document.getElementsByClassName("fold"),
     ) as HTMLElement[];
+
     const baseContent = document.getElementById("base-content");
     if (!baseContent || folds.length === 0) return;
 
@@ -67,8 +66,7 @@
       left: 0;
       width: 100%;
       padding: 0 16px;
-    padding: 0 1.7em;
-
+      padding: 0 1.7em;
     }
   }
 

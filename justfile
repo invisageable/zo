@@ -311,11 +311,17 @@ delete_tag version:
 list_tags:
   git tag -l --sort=-v:refname
 
-zo_off_site_dev:
+# site: Run the development environment
+[group('site')]
+site_dev:
   cd apps/site && npm run dev
 
-zo_off_site_build:
+# site: Build the website
+[group('site')]
+site_build:
   cd apps/site && npm run build
 
-zo_off_site_preview:
+# site: Run the preview environment
+[group('site')]
+site_preview:
   cd apps/site && npm run preview

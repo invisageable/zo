@@ -31,31 +31,6 @@ const spans = doHighlight ? highlight(code) : null;
 </div>
 
 <style>
-  .editor {
-    --color-yellow-100: #e6db74;
-    --color-orange-100: #fd971f;
-    --color-red-100: #f92672;
-    --color-red-200: #be2a2a;
-    --color-purple-100: #ae81ff;
-    --color-blue-100: #66d9ef;
-    --color-cyan-100: #a1efe4;
-    --color-magenta-100: #fd5ff0;
-    --color-gray-100: #43443b;
-    --color-gray-200: #75715e;
-    --color-gray-300: #cfcfc2;
-    
-    & :global(.keyword) { color: var(--color-blue-100); }
-    & :global(.ident) { color: var(--color-green-100); }
-    & :global(.group) { color: var(--color-gray-200); }
-    & :global(.punctuation) { color: var(--color-red-100); }
-    & :global(.number) { color: var(--color-purple-100); }
-    & :global(.comment) { color: var(--color-gray-100); }
-    & :global(.string) { color: var(--color-yellow-100); }
-    & :global(.type) { color: var(--color-cyan-100); }
-    & :global(.attribute) { color: var(--color-orange-100); }
-    & :global(.event) { color: var(--color-magenta-100); }
-    & :global(.boolean) { color: var(--color-orange-100); }
-
-  }
+  .editor {}
   
 </style>

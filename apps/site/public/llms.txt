@@ -1,0 +1,47 @@
+# zo programming language
+
+> Turn your thoughts into type-safe software and Ui instantly.
+
+A language to ship, run, and build native and web applications optimized for speed. zo is a feature-rich ecosystem focus on high-performance, simplicity and data-oriented.
+
+## Get started
+- [Initiation guide](https://zo.compilords.house/initiation): Multi-chapter tour — install, primitives, variables, strings, arrays, generics, concurrency
+- One-line install: `curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh`
+- [Install script source](https://zo.compilords.house/install.sh)
+
+## Documentation
+- [Initiation](https://zo.compilords.house/initiation): Canonical language guide
+- [News](https://zo.compilords.house/news): Releases, milestones, design notes
+- [Full docs (LLM-formatted)](https://zo.compilords.house/docs/llms.txt): Aggregated docs for ingestion
+
+## Source
+- [Repository](https://github.com/invisageable/zo): Compiler source, dual-licensed Apache-2.0 OR MIT
+- [Grammar (EBNF)](https://github.com/invisageable/zo/blob/main/crates/compiler/zo-notes/public/grammar/zo.ebnf): Formal language grammar
+- [Benchmarks](https://github.com/invisageable/zo/tree/main/crates/compiler/zo-benches): Methodology and full numbers vs clang, rustc
+
+## Tools
+- [codelord](https://github.com/invisageable/codelord): Editor designed to disappear. Code your thoughts instantly
+- [fret](https://github.com/invisageable/zo/blob/main/crates/packager/fret): Package manager. Zero-config. Built for speed
+- [zo VS Code extension](https://github.com/invisageable/zo/tree/main/crates/compiler/zo-vscode): syntax highlighting
+
+## Key concepts
+- Execution-based compilation: semantic analysis is compile-time execution that produces SIR (typed semantic IR), not tree-walking + annotation
+- Pipelines: synchronous AOT (`Parse → Tree → Execute → SIR → Codegen`) feeds asynchronous Copilord (insight engine)
+- zsx (zo syntax extension): HTML-like template extension for unified UI — same syntax targets DOM and GPU
+- Hindley-Milner type inference, monomorphization, type checking
+- Optimization: constant folding, propagation, dead code elimination
+- Structured concurrency: green + OS threads wrapped in nursery scopes; no leaked threads, no data races
+
+## Performance
+- Parse + tokenize: 10,000,000 LoC/s target
+- Semantic analysis (Tree → SIR): 5,000,000 LoC/s target
+- Codegen (SIR → ARM64): 5,000,000 LoC/s target
+- Benchmarks: zo runs 2–5× faster than equivalent clang/rustc compiles on identical workloads
+
+## Community
+- [Discord](https://discord.gg/JaNc4Nk5xw)
+- [GitHub Issues](https://github.com/invisageable/zo/issues)
+- [Sponsor](https://github.com/sponsors/invisageable)
+
+## Locales
+- English (default), Français, Deutsch, 中文, 日本語 — auto-detected from `Accept-Language` or set via the locale switcher

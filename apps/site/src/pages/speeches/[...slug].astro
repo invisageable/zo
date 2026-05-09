@@ -1,16 +1,18 @@
 ---
-import { render } from "astro:content";
-import Base from "../../layouts/base.astro";
-import Header from "../../components/structure/header.astro";
-import Screen from "../../components/structure/screen.astro";
-import NavBar, { type Item } from "../../components/navigation/navbar.astro";
-import SpeechNav from "../../components/navigation/speech-nav.astro";
 import {
   loadSpeeches,
   getSpeechNavItems,
   formatEpisodeId,
   formatDate,
 } from "../../core/speech";
+
+import Base from "../../layouts/base.astro";
+import Header from "../../components/structure/header.astro";
+import Screen from "../../components/structure/screen.astro";
+import NavBar, { type Item } from "../../components/navigation/navbar.astro";
+import SpeechNav from "../../components/navigation/speech-nav.astro";
+
+import { render } from "astro:content";
 import { getLocale } from "../../paraglide/runtime.js";
 
 // SSR slug lookup: locale comes from the request, the speech is found
@@ -88,30 +90,4 @@ const episodeId = formatEpisodeId(meta.season, meta.episode);
     padding: 8px;
     overflow-x: auto;
   }
-
-  /* zo highlighter palette — duplicated from `components/interactive/editor.astro`
-     because that component's styles are scoped and don't reach Markdown HTML. */
-  .speech .zo-block {
-    --color-yellow-100: #e6db74;
-    --color-orange-100: #fd971f;
-    --color-red-100: #f92672;
-    --color-purple-100: #ae81ff;
-    --color-blue-100: #66d9ef;
-    --color-cyan-100: #a1efe4;
-    --color-magenta-100: #fd5ff0;
-    --color-gray-100: #43443b;
-    --color-gray-200: #75715e;
-  }
-
-  .speech .zo-block .keyword     { color: var(--color-blue-100); }
-  .speech .zo-block .ident       { color: var(--color-green-100); }
-  .speech .zo-block .group       { color: var(--color-gray-200); }
-  .speech .zo-block .punctuation { color: var(--color-red-100); }
-  .speech .zo-block .number      { color: var(--color-purple-100); }
-  .speech .zo-block .comment     { color: var(--color-gray-100); }
-  .speech .zo-block .string      { color: var(--color-yellow-100); }
-  .speech .zo-block .type        { color: var(--color-cyan-100); }
-  .speech .zo-block .attribute   { color: var(--color-orange-100); }
-  .speech .zo-block .event       { color: var(--color-magenta-100); }
-  .speech .zo-block .boolean     { color: var(--color-orange-100); }
 </style>

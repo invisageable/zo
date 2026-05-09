@@ -1,12 +1,4 @@
 ---
-import Title from "../../components/atoms/title.astro";
-import Base from "../../layouts/base.astro";
-import Paragraph from "../../components/atoms/paragraph.astro";
-import NavBar, { type Item } from "../../components/navigation/navbar.astro";
-import Header from "../../components/structure/header.astro";
-import Screen from "../../components/structure/screen.astro";
-import Reachout from "../../components/structure/reachout.astro";
-
 import {
   loadSpeeches,
   getSpeechNavItems,
@@ -14,6 +6,14 @@ import {
   formatEpisodeId,
   formatDate,
 } from "../../core/speech";
+
+import Title from "../../components/atoms/title.astro";
+import Base from "../../layouts/base.astro";
+import Paragraph from "../../components/atoms/paragraph.astro";
+import NavBar, { type Item } from "../../components/navigation/navbar.astro";
+import Header from "../../components/structure/header.astro";
+import Screen from "../../components/structure/screen.astro";
+import Reachout from "../../components/structure/reachout.astro";
 import { getLocale } from "../../paraglide/runtime.js";
 import * as m from "../../paraglide/messages";
 
@@ -34,7 +34,10 @@ const items: Item[] = await getSpeechNavItems(locale);
     <section>
       <ul class="speeches-list">
         {
-          speeches.map(({ entry, meta }) => <li class="speeches-item" data-season={pad2(meta.season)}>
+          speeches.map(({ entry, meta }) => <li
+            class="speeches-item"
+            data-season={pad2(meta.season)}
+          >
             <a href={`/speeches/${meta.slug}`}>
               <span class="speeches-id">{formatEpisodeId(meta.season, meta.episode)}</span>
               <span class="speeches-date">{formatDate(meta.date)}</span>
@@ -59,9 +62,11 @@ const items: Item[] = await getSpeechNavItems(locale);
     // panels and the hidden source would multiply the total otherwise.
     const root = document.querySelector(".fold-center");
     if (!root) return 0;
+
     const selector = season === null
       ? ".speeches-item"
       : `.speeches-item[data-season="${season}"]`;
+
     return root.querySelectorAll(selector).length;
   }
 
