@@ -8,7 +8,7 @@
 
 > *Turn your thoughts into type-safe software and Ui instantly.*
 
-[home](https://github.com/invisageable/zo) — [install](#get-started) — [how-to](./crates/compiler/zo-how-zo) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [license](#license)
+[home](https://github.com/invisageable/zo) — [install](#get-started) — [how-to](./crates/compiler/zo-how-to) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [license](#license)
 
 [https://zo.compilords.house](https://zo.compilords.house)
 
@@ -120,7 +120,7 @@ iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALL
 
 > *Note: zo is entirely self-contained. It requires no heavy external frameworks.*
 
-  1. ET VOiLÀ! HEAD OVER TO [@how-to](./crates/compiler/zo-how-zo) — THE EASiEST WAY TO GET THE BASiCS OF zo.
+  1. ET VOiLÀ! HEAD OVER TO [@how-to](./crates/compiler/zo-how-to) — THE EASiEST WAY TO GET THE BASiCS OF zo.
 
 iF YOU ENCOUNTER iSSUES, CHECK THE GUiDE:
 

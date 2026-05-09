@@ -8800,10 +8800,9 @@ impl<'a> Executor<'a> {
             idx += 1;
 
             // Check for shorthand: `{ lo, hi }` where
-            // field name = variable name (no colon).
-            if idx < children_end && self.tree.nodes[idx].token == Token::Colon
-            {
-              idx += 1; // skip colon
+            // field name = variable name (no `=`).
+            if idx < children_end && self.tree.nodes[idx].token == Token::Eq {
+              idx += 1; // skip `=`
 
               // Execute value expression nodes until
               // next comma or RBrace.

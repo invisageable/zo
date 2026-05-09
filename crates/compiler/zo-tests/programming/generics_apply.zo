@@ -22,7 +22,7 @@ struct Pair<$T> {
 
 apply Pair<$T> {
   fun new(a: $T, b: $T) -> Self {
-    Self { first: a, second: b }
+    Self { first = a, second = b }
   }
 }
 
@@ -37,10 +37,10 @@ apply Box<$T> {
 }
 
 fun main() {
-  imu b_int := Box { v: 42 };
+  imu b_int := Box { v = 42 };
   showln(b_int.get());
 
-  imu b_str := Box { v: "hi" };
+  imu b_str := Box { v = "hi" };
   showln(b_str.get());
 }
 

@@ -13,7 +13,7 @@ pub struct Rect {
 }
 
 fun main() {
-  imu rect: Rect = Rect { x: 0, y: 14, w: 1080, h: 640 };
+  imu rect: Rect = Rect { x = 0, y = 14, w = 1080, h = 640 };
 
   -- First arm: x == 0 matches; y bound, w/h ignored.
   match rect {
@@ -32,7 +32,7 @@ fun main() {
   }
 
   -- Second arm: x != 0, y == 14.
-  imu shifted: Rect = Rect { x: 100, y: 14, w: 800, h: 600 };
+  imu shifted: Rect = Rect { x = 100, y = 14, w = 800, h = 600 };
 
   match shifted {
     Rect { x: 0, y, .. } => {
@@ -50,7 +50,7 @@ fun main() {
   }
 
   -- Third arm: fallback — bind every field.
-  imu other: Rect = Rect { x: 1, y: 2, w: 3, h: 4 };
+  imu other: Rect = Rect { x = 1, y = 2, w = 3, h = 4 };
 
   match other {
     Rect { x: 0, y, .. } => {

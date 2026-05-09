@@ -14,7 +14,7 @@ struct Mixed {
 }
 
 fun main() {
-  imu c: Color = Color { r: 255, g: 128, b: 0 };
+  imu c: Color = Color { r = 255, g = 128, b = 0 };
 
   check@eq(c.r, 255);
   check@eq(c.g, 128);

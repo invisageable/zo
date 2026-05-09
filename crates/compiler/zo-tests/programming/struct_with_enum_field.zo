@@ -13,7 +13,7 @@ struct Box {
 }
 
 fun main() {
-  imu b: Box = Box { c: Color::Green, n: 42 };
+  imu b: Box = Box { c = Color::Green, n = 42 };
 
   showln(b);
   showln(b.c);
@@ -23,7 +23,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- Box { c: Color::Green, n: 42 }
+-- Box { c = Color::Green, n = 42 }
 -- Color::Green
 -- 42
 -- DONE

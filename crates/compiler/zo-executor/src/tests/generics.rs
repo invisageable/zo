@@ -463,7 +463,7 @@ fn test_generic_apply_no_errors() {
 }
 apply Pair<$T> {
   fun new(a: $T, b: $T) -> Self {
-    Self { first: a, second: b }
+    Self { first = a, second = b }
   }
 }
 fun main() {}"#;
@@ -541,7 +541,7 @@ fn test_generic_struct_field_type_mismatch() {
   assert_execution_error(
     r#"struct Pair<$T> { first: $T, second: $T }
 fun main() {
-  imu p := Pair { first: 1, second: "hello" };
+  imu p := Pair { first = 1, second = "hello" };
 }"#,
     ErrorKind::TypeMismatch,
   );

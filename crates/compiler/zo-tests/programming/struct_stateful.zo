@@ -4,7 +4,7 @@ struct Counter {
 
 apply Counter {
   fun new() -> Self {
-    Self { x: 0 }
+    Self { x = 0 }
   }
 
   fun hello(self) -> int {

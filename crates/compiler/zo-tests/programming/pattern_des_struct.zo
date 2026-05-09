@@ -8,7 +8,7 @@ struct Point {
 }
 
 fun main() {
-  imu { x, y, z }: Point = Point { x: 10, y: 20, z: 30 };
+  imu { x, y, z }: Point = Point { x = 10, y = 20, z = 30 };
 
   check@eq(x, 10);
   check@eq(y, 20);

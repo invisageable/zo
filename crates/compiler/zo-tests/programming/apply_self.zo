@@ -8,7 +8,7 @@ struct Span {
 
 apply Span {
   fun zero() -> Self {
-    Self { lo: 0, hi: 0 }
+    Self { lo = 0, hi = 0 }
   }
 }
 
@@ -20,5 +20,5 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- Span { lo: 0, hi: 0 }
+-- Span { lo = 0, hi = 0 }
 -- DONE

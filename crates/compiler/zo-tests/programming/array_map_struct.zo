@@ -8,9 +8,9 @@ struct User {
 
 fun main() {
   imu users: []User = [
-    User { name: "alice", age: 30 },
-    User { name: "bob",   age: 25 },
-    User { name: "carol", age: 42 },
+    User { name = "alice", age = 30 },
+    User { name = "bob",   age = 25 },
+    User { name = "carol", age = 42 },
   ];
 
   imu names: []str = users.map(fn(u) => u.name);

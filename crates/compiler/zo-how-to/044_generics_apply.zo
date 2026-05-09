@@ -16,11 +16,11 @@ apply Box<$T> {
 }
 
 fun main() {
-  imu a := Box { value: 42 };
+  imu a := Box { value = 42 };
   imu va: int = a.unwrap();
   showln(va);
 
-  imu b := Box { value: 99 };
+  imu b := Box { value = 99 };
   imu vb: int = b.unwrap();
   showln(vb);
 }
@@ -39,7 +39,7 @@ fun main() {
 -!
 -!   - Add a second method `fun double(self) -> $T`.
 -!   - Create `Pair<$T>` with `fun sum(self) -> $T`.
--!   - Chain methods: `Box { value: 5 }.unwrap()`.
+-!   - Chain methods: `Box { value = 5 }.unwrap()`.
 
 -- EXPECTED OUTPUT:
 -- 42

@@ -166,7 +166,7 @@ apply Point {
 }
 
 fun main() {
-  imu p: Point = Point { x: 10, y: 20 };
+  imu p: Point = Point { x = 10, y = 20 };
   check@eq(p.sum(), 30);
 }"#,
     |insns| {

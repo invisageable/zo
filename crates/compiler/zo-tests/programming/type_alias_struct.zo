@@ -3,7 +3,7 @@ struct Point { x: int, y: int }
 type P = Point;
 
 fun main() {
-  imu p: P = Point { x: 1, y: 2 };
+  imu p: P = Point { x = 1, y = 2 };
 
   check@eq(p.x, 1);
 }
