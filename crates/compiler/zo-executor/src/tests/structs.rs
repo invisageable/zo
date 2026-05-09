@@ -98,7 +98,7 @@ fn test_struct_construct() {
   assert_sir_structure(
     r#"struct Span { lo: int, hi: int }
 fun main() {
-  imu s := Span { lo: 0, hi: 10 };
+  imu s := Span { lo = 0, hi = 10 };
 }"#,
     |sir| {
       let construct = sir
@@ -145,7 +145,7 @@ fn test_struct_construct_with_annotation() {
   assert_sir_structure(
     r#"struct Span { lo: int, hi: int }
 fun main() {
-  imu s: Span = Span { lo: 0, hi: 10 };
+  imu s: Span = Span { lo = 0, hi = 10 };
 }"#,
     |sir| {
       let construct = sir
@@ -166,7 +166,7 @@ fn test_apply_instance_method() {
 struct Span { lo: int, hi: int }
 apply Span {
   fun new(lo: int, hi: int) -> Self {
-    Self { lo: lo, hi: hi }
+    Self { lo = lo, hi = hi }
   }
   fun sum(self) -> int {
     self.lo + self.hi
@@ -254,7 +254,7 @@ fn test_struct_field_access_emits_tuple_index() {
   assert_sir_structure(
     r#"struct Point { x: int, y: int }
 fun main() {
-  imu p: Point = Point { x: 10, y: 20 };
+  imu p: Point = Point { x = 10, y = 20 };
   check@eq(p.x, 10);
 }"#,
     |sir| {
@@ -273,7 +273,7 @@ fn test_mut_self_allows_field_mutation() {
   assert_sir_structure(
     r#"struct Counter { x: int }
 apply Counter {
-  fun new() -> Self { Self { x: 0 } }
+  fun new() -> Self { Self { x = 0 } }
   fun incr(mut self) { self.x += 1; }
 }
 fun main() {
@@ -297,7 +297,7 @@ fn test_immutable_self_rejects_field_mutation() {
   assert_execution_error(
     r#"struct Counter { x: int }
 apply Counter {
-  fun new() -> Self { Self { x: 0 } }
+  fun new() -> Self { Self { x = 0 } }
   fun incr(self) { self.x += 1; }
 }
 fun main() {}"#,
@@ -343,7 +343,7 @@ fn test_apply_static_and_instance_no_errors() {
   let source = r#"struct Rect { w: int, h: int }
 apply Rect {
   fun new(w: int, h: int) -> Self {
-    Self { w: w, h: h }
+    Self { w = w, h = h }
   }
   fun area(self) -> int {
     self.w
@@ -421,7 +421,7 @@ fn test_user_type_in_array_annotation() {
 
 fun main() {
   mut xs: []Todo = [];
-  xs.push(Todo { text: "a", done: false });
+  xs.push(Todo { text = "a", done = false });
 }"#,
     |sir| {
       let has_array =
@@ -440,7 +440,7 @@ fn test_field_assign_outside_apply_lowers_to_field_store() {
     r#"struct Point { x: int, y: int }
 
 fun main() {
-  mut p: Point = Point { x: 1, y: 2 };
+  mut p: Point = Point { x = 1, y = 2 };
   p.x = 99;
 }"#,
     |sir| {
@@ -469,7 +469,7 @@ apply Flag {
 }
 
 fun main() {
-  mut f: Flag = Flag { on: false };
+  mut f: Flag = Flag { on = false };
   f.toggle();
 }"#,
     |sir| {

@@ -5,7 +5,7 @@
 struct Point { x: int, y: int }
 
 fun main() {
-  mut p: Point = Point { x: 1, y: 2 };
+  mut p: Point = Point { x = 1, y = 2 };
 
   check@eq(p.x, 1);
   check@eq(p.y, 2);

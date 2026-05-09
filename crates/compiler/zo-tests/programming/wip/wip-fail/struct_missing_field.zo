@@ -4,7 +4,7 @@ struct Person {
 }
 
 fun main() {
-  imu ivs: Person = Person { name: "invisageable", nickname: "ivs" };
+  imu ivs: Person = Person { name = "invisageable", nickname = "ivs" };
 
   showln(ivs.age);
 }

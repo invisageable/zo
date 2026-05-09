@@ -48,7 +48,7 @@ apply Vec<$T> {
   -- the runtime byte width. Until that primitive exists,
   -- `emit_vec_new` injects it at the call site.
   pub fun new() -> Self {
-    Self { ptr: 0 }
+    Self { ptr = 0 }
   }
 
   -! Append `v` to the end. Grows the backing buffer when

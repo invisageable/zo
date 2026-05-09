@@ -59,7 +59,7 @@ apply HashMap<$K, $V> {
   -- exist, `emit_map_new` injects them at the call
   -- site.
   pub fun new() -> Self {
-    Self { ptr: 0 }
+    Self { ptr = 0 }
   }
 
   -! Insert `(k, v)`, overwriting any existing value

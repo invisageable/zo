@@ -12,7 +12,7 @@ struct Todo {
 
 apply Todo {
   fun new(text: str) -> Self {
-    Self { text: text, done: false }
+    Self { text = text, done = false }
   }
 
   fun toggle(mut self) {

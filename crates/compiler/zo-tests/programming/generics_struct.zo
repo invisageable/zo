@@ -21,13 +21,13 @@ struct Box2<$A, $B> {
 
 fun main() {
   -- 1-param: same shape as today.
-  imu p := Pair { first: 10, second: 20 };
+  imu p := Pair { first = 10, second = 20 };
 
   showln(p.first);
   showln(p.second);
 
   -- 2-param: monomorphic int/int.
-  imu p1 := Box2 { a: 1, b: 2 };
+  imu p1 := Box2 { a = 1, b = 2 };
 
   showln(p1.a);
   showln(p1.b);
@@ -35,13 +35,13 @@ fun main() {
   -- 2-param: int/str. Pre-fix this printed a stack
   -- address for `p2.b` because the construction
   -- inherited `p1`'s globally-bound `$B = int`.
-  imu p2 := Box2 { a: 42, b: "hi" };
+  imu p2 := Box2 { a = 42, b = "hi" };
 
   showln(p2.a);
   showln(p2.b);
 
   -- 2-param: str/int — distinct again.
-  imu p3 := Box2 { a: "world", b: 7 };
+  imu p3 := Box2 { a = "world", b = 7 };
 
   showln(p3.a);
   showln(p3.b);

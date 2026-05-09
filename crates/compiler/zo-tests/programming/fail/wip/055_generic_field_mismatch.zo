@@ -7,5 +7,5 @@ struct Pair<$T> {
 }
 
 fun main() {
-  imu p := Pair { first: 1, second: "hello" };
+  imu p := Pair { first = 1, second = "hello" };
 }

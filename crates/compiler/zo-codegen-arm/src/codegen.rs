@@ -456,7 +456,7 @@ const STRUCT_CLOSE_BRACE_SYM: Symbol = Symbol(0xE000_FFF4);
 /// Per-struct pretty-printer metadata. One entry per `StructDef`
 /// seen by the codegen. `header_sym` owns the pre-baked
 /// `"StructName { "` string in `string_data`; each entry in
-/// `fields` owns a `"field_name: "` label and the field's type
+/// `fields` owns a `"field_name = "` label and the field's type
 /// so `emit_struct_write` can dispatch through the field-type's
 /// writer.
 struct StructMeta {
@@ -4069,7 +4069,7 @@ impl<'a> ARM64Gen<'a> {
 
     for (fname, fty, _has_default) in fields {
       let fname_str = self.interner.get(*fname);
-      let label = format!("{fname_str}: ");
+      let label = format!("{fname_str} = ");
       let label_sym = Symbol(self.next_enum_sym);
 
       self.next_enum_sym += 1;

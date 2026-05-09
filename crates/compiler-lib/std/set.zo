@@ -35,7 +35,7 @@ pub ffi __zo_set_free_raw(ptr: int);
 apply HashSet<$K> {
   -! Construct an empty set.
   pub fun new() -> Self {
-    Self { ptr: 0 }
+    Self { ptr = 0 }
   }
 
   -! Insert `k`. Returns `true` if the key was new,

@@ -231,7 +231,7 @@ tuple_expr = "(", [ expr, ",", { expr, "," }, [ expr ] ], ")" ;
 
 struct_expr = path_expr, "{", [ struct_field_list ], "}" ;
 struct_field_list = struct_field, { ",", struct_field }, [ "," ] ;
-struct_field = identifier, [ ":", expr ] | identifier, "=", expr ;
+struct_field = identifier, [ "=", expr ] ;
 
 closure_expr = "fn", "(", [ param_list ], ")", [ "->", type ], ( "=>", expr | block ) ;
 

@@ -25,7 +25,7 @@ apply Hero {
 }
 
 fun main() {
-  imu hero: Hero = Hero { name: "arya", hp: 100, atk: 15 };
+  imu hero: Hero = Hero { name = "arya", hp = 100, atk = 15 };
 
   -- call methods with dot notation: `instance.method()`.
   imu alive: bool = hero.is_alive();
@@ -38,7 +38,7 @@ fun main() {
 
   -- methods are just functions scoped to a type.
   -- `hero.is_alive()` is sugar for `Hero::is_alive(hero)`.
-  imu dead_hero: Hero = Hero { name: "ghost", hp: 0, atk: 0 };
+  imu dead_hero: Hero = Hero { name = "ghost", hp = 0, atk = 0 };
   imu dead: bool = dead_hero.is_alive();
   showln("ghost alive: {dead}");
 }

@@ -7,5 +7,5 @@ struct Span {
 }
 
 fun main() {
-  imu s := Span { lo: 0, hi: 10 };
+  imu s := Span { lo = 0, hi = 10 };
 }
