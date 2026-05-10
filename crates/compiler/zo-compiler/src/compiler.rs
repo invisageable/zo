@@ -12,7 +12,7 @@ use zo_analyzer::{Analyzer, ImportedSymbols, SemanticResult};
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_dce::Dce;
-use zo_error::{Error, ErrorKind};
+use zo_error::{Error, ErrorKind, Severity};
 use zo_interner::Symbol;
 use zo_module_resolver::{ModuleExports, ModuleResolver, extract_exports};
 use zo_parser::{Parser, ParsingResult};
@@ -697,7 +697,16 @@ impl Compiler {
 
       aggregator.clear();
 
-      return Err(Error::new(ErrorKind::InternalCompilerError, Span::ZERO));
+      // Warnings are surfaced above but do not fail the build.
+      // Only hard errors (`Severity::Error`) propagate as a
+      // compilation failure.
+      let has_hard_error = errors
+        .iter()
+        .any(|e| matches!(e.severity(), Severity::Error));
+
+      if has_hard_error {
+        return Err(Error::new(ErrorKind::InternalCompilerError, Span::ZERO));
+      }
     }
 
     self.profiler.set_tokens_count(self.stats.numtokens);

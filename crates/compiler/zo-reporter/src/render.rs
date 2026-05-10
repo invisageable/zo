@@ -1,6 +1,6 @@
 use crate::aggregator::{ErrorAggregator, Phase};
 
-use zo_error::{Error, ErrorKind};
+use zo_error::{Error, ErrorKind, Severity};
 use zo_span::Span;
 
 use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
@@ -101,8 +101,15 @@ impl ErrorRenderer {
     let kind = error.kind();
     let range = span_to_range(span, source);
 
-    let mut report =
-      Report::build(ReportKind::Error, (filename, range.clone()));
+    // Severity drives the visual style: red `Error:` for hard
+    // errors, yellow `Warning:` for soft diagnostics. ariadne
+    // owns the colors per `ReportKind`.
+    let report_kind = match error.severity() {
+      Severity::Error => ReportKind::Error,
+      Severity::Warning => ReportKind::Warning,
+    };
+
+    let mut report = Report::build(report_kind, (filename, range.clone()));
 
     // Add error code if configured
     if self.config.show_codes {

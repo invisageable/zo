@@ -1,4 +1,4 @@
-use zo_error::Error;
+use zo_error::{Error, Severity};
 
 use std::cell::RefCell;
 
@@ -43,9 +43,31 @@ impl ThreadLocalReporter {
     }
   }
 
-  /// Returns the current error count.
+  /// Returns the count of buffered diagnostics with
+  /// `Severity::Error`. Warnings are excluded — use this
+  /// to decide whether the build should fail.
   #[inline(always)]
   pub fn error_count(&self) -> usize {
+    self.errors[..self.count]
+      .iter()
+      .filter(|e| matches!(e.severity(), Severity::Error))
+      .count()
+  }
+
+  /// Returns the count of buffered diagnostics with
+  /// `Severity::Warning`.
+  #[inline(always)]
+  pub fn warning_count(&self) -> usize {
+    self.errors[..self.count]
+      .iter()
+      .filter(|e| matches!(e.severity(), Severity::Warning))
+      .count()
+  }
+
+  /// Returns the total count of buffered diagnostics
+  /// (errors + warnings). Same as the buffer's fill level.
+  #[inline(always)]
+  pub fn total_count(&self) -> usize {
     self.count
   }
 
@@ -87,10 +109,24 @@ pub fn report_error(error: Error) -> bool {
   REPORTER.with(|reporter| reporter.borrow_mut().report(error))
 }
 
-/// Returns the current error count for this thread.
+/// Returns the count of buffered hard errors for this
+/// thread. Warnings are excluded.
 #[inline(always)]
 pub fn error_count() -> usize {
   REPORTER.with(|reporter| reporter.borrow().error_count())
+}
+
+/// Returns the count of buffered warnings for this thread.
+#[inline(always)]
+pub fn warning_count() -> usize {
+  REPORTER.with(|reporter| reporter.borrow().warning_count())
+}
+
+/// Returns the total count of buffered diagnostics
+/// (errors + warnings) for this thread.
+#[inline(always)]
+pub fn total_count() -> usize {
+  REPORTER.with(|reporter| reporter.borrow().total_count())
 }
 
 /// Clears all errors from the thread-local reporter.

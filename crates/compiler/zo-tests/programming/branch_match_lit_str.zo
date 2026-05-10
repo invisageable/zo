@@ -1,3 +1,12 @@
+-- tests-build-pass: regression test for two checks at once.
+--   1. Exhaustiveness: the `_` arm satisfies the wildcard
+--      requirement for `str` scrutinees.
+--   2. Dead-arm warnings: `"z" ++ "o"` folds to `"zo"` at
+--      compile time, so "ivs" and the trailing `_` arm are
+--      both unreachable and emit `[E0591] Warning:
+--      Unreachable code`. Warnings don't fail the build.
+-- @cmd — zo build branch_match_lit_str.zo
+
 fun main() {
   match "z" ++ "o" {
     "ivs" => check(false),
