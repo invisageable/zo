@@ -14,8 +14,8 @@ fun main() {
   mut text: str = "";
 
   match read_file("day-01.txt") {
-    Result::Ok(t) => text = t,
-    Result::Err(code) => showln(code),
+    Result::Pass(t) => text = t,
+    Result::Fail(code) => showln(code),
   }
 
   imu lines: []str = text.lines();

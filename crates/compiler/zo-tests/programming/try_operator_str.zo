@@ -3,16 +3,16 @@
 
 fun might_fail(x: int) -> Result<int, str> {
   if x < 0 {
-    return Result::Err("negative input");
+    return Result::Fail("negative input");
   }
 
-  return Result::Ok(x * 2);
+  return Result::Pass(x * 2);
 }
 
 fun compute(x: int) -> Result<int, str> {
   imu doubled: int = might_fail(x)?;
 
-  return Result::Ok(doubled + 1);
+  return Result::Pass(doubled + 1);
 }
 
 fun main() {
@@ -20,16 +20,16 @@ fun main() {
   mut ok := compute(5);
 
   match ok {
-    Result::Ok(v) => showln(v),
-    Result::Err(e) => showln(e),
+    Result::Pass(v) => showln(v),
+    Result::Fail(e) => showln(e),
   }
 
   -- Err path: propagated through ?.
   mut err := compute(-1);
 
   match err {
-    Result::Ok(v) => showln(v),
-    Result::Err(e) => showln(e),
+    Result::Pass(v) => showln(v),
+    Result::Fail(e) => showln(e),
   }
 }
 

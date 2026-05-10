@@ -12,12 +12,12 @@ pub ffi eshow<$T>(msg: $T);
 -! Writes a value to stderr with a trailing newline.
 pub ffi eshowln<$T>(msg: $T);
 
--! Reads a single line from stdin. Returns `Err` on failure.
+-! Reads a single line from stdin. Returns `Fail` on failure.
 pub ffi readln() -> Result<str, int>;
 
 -! Reads available input from stdin via a single syscall.
 -! Input larger than the runtime's read buffer (4096 bytes
--! today) is silently truncated. Returns `Err` on read error.
+-! today) is silently truncated. Returns `Fail` on read error.
 pub ffi read() -> Result<str, int>;
 
 -! Process arguments — the bytes after the binary name.
@@ -29,15 +29,15 @@ pub ffi args() -> []str;
 pub ffi flush();
 
 -! Reads the entire file at `path` as UTF-8 text.
--! Returns `Err(errno)` on failure.
+-! Returns `Fail(errno)` on failure.
 pub ffi read_file(path: str) -> Result<str, int>;
 
 -! Creates-or-truncates `path` and writes `content`.
--! Returns `Err(errno)` on failure.
+-! Returns `Fail(errno)` on failure.
 pub ffi write_file(path: str, content: str) -> Result<int, int>;
 
 -! Creates-if-missing and appends `content` to `path`.
--! Returns `Err(errno)` on failure.
+-! Returns `Fail(errno)` on failure.
 pub ffi append_file(path: str, content: str) -> Result<int, int>;
 
 -! True if `path` names an existing, accessible file.

@@ -29,7 +29,7 @@ fun main() {
     show("> ");
 
     match readln() {
-      Result::Ok(line) => {
+      Result::Pass(line) => {
         if line.len == 0 {
           break;
         }
@@ -42,7 +42,7 @@ fun main() {
 
         showln("---");
       }
-      Result::Err(_) => break,
+      Result::Fail(_) => break,
     }
   }
 

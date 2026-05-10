@@ -4250,7 +4250,7 @@ impl<'a> Executor<'a> {
       Token::RShiftEq => self.execute_compound_assignment(BinOp::Shr, idx),
 
       // Type keywords used as variable names in pattern
-      // bindings (e.g., `Result::Ok(bytes)` where `bytes`
+      // bindings (e.g., `Result::Pass(bytes)` where `bytes`
       // is tokenized as `BytesType`). Check for a local
       // whose name matches the keyword text and, if found,
       // treat it as a variable reference.
@@ -12021,7 +12021,7 @@ impl<'a> Executor<'a> {
       // Propagate the producing Call's `return_type_args` to
       // the synthetic scrutinee — without this, a directly-
       // matched FFI call returning a parameterized enum
-      // (`match read_file(path) { Result::Ok(text) => ... }`)
+      // (`match read_file(path) { Result::Pass(text) => ... }`)
       // resolves variant payload types from the enum's fresh
       // generic vars instead of the call's concrete `[Str,
       // Int]`. The bound path (`imu r := call()`) already

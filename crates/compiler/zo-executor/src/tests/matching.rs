@@ -71,21 +71,21 @@ fun main() {
 fn match_result_ok_err_emits_correct_sir() {
   // This is the exact test case that crashes as a binary.
   // At the SIR level it should be well-formed: EnumDef for
-  // Result, EnumConstruct for Ok(99), Load + TupleIndex for
+  // Result, EnumConstruct for Pass(99), Load + TupleIndex for
   // discriminant, BranchIfNot for each arm, VarDef + Store
   // for the payload binding.
   let (sir, _) = execute_raw(
     r#"
 enum Result<$T, $E> {
-  Ok($T),
-  Err($E),
+  Pass($T),
+  Fail($E),
 }
 
 fun main() {
-  imu ok: Result<int, int> = Result::Ok(99);
+  imu ok: Result<int, int> = Result::Pass(99);
   match ok {
-    Result::Ok(v) => showln(v),
-    Result::Err(e) => showln(e),
+    Result::Pass(v) => showln(v),
+    Result::Fail(e) => showln(e),
   }
 }"#,
   );
@@ -100,12 +100,12 @@ fun main() {
     "expected EnumDef with 2 variants for Result"
   );
 
-  // Should have EnumConstruct for Ok(99).
+  // Should have EnumConstruct for Pass(99).
   let has_construct = sir.iter().any(|i| {
     matches!(i, Insn::EnumConstruct { variant: 0, fields, .. } if fields.len() == 1)
   });
 
-  assert!(has_construct, "expected EnumConstruct for Result::Ok(99)");
+  assert!(has_construct, "expected EnumConstruct for Result::Pass(99)");
 
   // Should have TupleIndex { index: 0 } for discriminant reads.
   let disc_reads = sir
@@ -156,8 +156,8 @@ enum Option<$T> {
 }
 
 enum Result<$T, $E> {
-  Ok($T),
-  Err($E),
+  Pass($T),
+  Fail($E),
 }
 
 fun main() {
@@ -174,16 +174,16 @@ fun main() {
     Option::None => showln(0),
   }
 
-  imu ok: Result<int, int> = Result::Ok(99);
+  imu ok: Result<int, int> = Result::Pass(99);
 
   match ok {
-    Result::Ok(v) => showln(v),
-    Result::Err(e) => showln(e),
+    Result::Pass(v) => showln(v),
+    Result::Fail(e) => showln(e),
   }
 }"#,
   );
 
-  // Three enum constructs: Some(42), None, Ok(99).
+  // Three enum constructs: Some(42), None, Pass(99).
   let constructs = sir
     .iter()
     .filter(|i| matches!(i, Insn::EnumConstruct { .. }))

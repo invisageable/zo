@@ -100,17 +100,17 @@ fn test_enum_unit_variants_auto_discriminant() {
 fn test_enum_mixed_variants() {
   assert_sir_structure(
     r#"enum Result {
-  Ok,
-  Err(int),
+  Pass,
+  Fail(int),
 }"#,
     |sir| {
       let enum_def = sir.iter().find(|i| matches!(i, Insn::EnumDef { .. }));
 
       if let Some(Insn::EnumDef { variants, .. }) = enum_def {
         assert_eq!(variants.len(), 2);
-        // Ok: unit variant, 0 fields.
+        // Pass: unit variant, 0 fields.
         assert_eq!(variants[0].2.len(), 0);
-        // Err: tuple variant, 1 field.
+        // Fail: tuple variant, 1 field.
         assert_eq!(variants[1].2.len(), 1);
       } else {
         panic!("expected EnumDef");
