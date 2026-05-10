@@ -7471,6 +7471,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-binder"
+version = "0.3.11"
+
+[[package]]
 name = "zo-buffer"
 version = "0.3.11"
 dependencies = [
@@ -7685,6 +7689,7 @@ dependencies = [
  "criterion",
  "rustc-hash 2.1.2",
  "zo-analyzer",
+ "zo-binder",
  "zo-constant-folding",
  "zo-constant-propagation",
  "zo-dce",

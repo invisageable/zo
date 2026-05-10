@@ -145,6 +145,30 @@ pub const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
 /// ordinal.
 pub const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
 
+/// Dyld load-command ordinal for `libraylib.dylib`.
+/// Registered as the third `LC_LOAD_DYLIB` only when a
+/// program references at least one raylib symbol.
+pub const RAYLIB_DYLIB_ORDINAL: u8 = 3;
+
+/// Symbols owned by `libraylib.dylib`. Hardcoded for the
+/// raylib MVP; replaced by a routing table populated from
+/// `zo-binder` once spec-driven binding lands.
+pub const RAYLIB_SYMBOLS: &[&str] = &[
+  "_InitWindow",
+  "_WindowShouldClose",
+  "_CloseWindow",
+  "_SetTargetFPS",
+  "_BeginDrawing",
+  "_EndDrawing",
+  "_ClearBackground",
+];
+
+/// True iff `c_sym` is part of [`RAYLIB_SYMBOLS`].
+#[inline]
+pub fn is_raylib_symbol(c_sym: &str) -> bool {
+  RAYLIB_SYMBOLS.contains(&c_sym)
+}
+
 /// Mach-O segment index for `__DATA` (pagezero=0,
 /// __TEXT=1, __DATA=2). Used in bind opcodes that point
 /// at GOT slots inside `__DATA`.

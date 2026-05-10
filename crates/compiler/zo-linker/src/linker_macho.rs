@@ -26,8 +26,8 @@ use zo_codegen_backend::MachoLinkObject;
 use zo_emitter_arm::X16;
 use zo_writer_macho::{
   CODE_OFFSET, DATA_SEGMENT_INDEX, LIBSYSTEM_DYLIB_ORDINAL, MachO, PAGE_MASK,
-  TEXT_SECTION_BASE, VM_BASE, ZO_RUNTIME_DYLIB_ORDINAL,
-  ZO_RUNTIME_SYMBOL_PREFIX, round_up_segment,
+  RAYLIB_DYLIB_ORDINAL, TEXT_SECTION_BASE, VM_BASE, ZO_RUNTIME_DYLIB_ORDINAL,
+  ZO_RUNTIME_SYMBOL_PREFIX, is_raylib_symbol, round_up_segment,
 };
 
 /// Assemble a mach-o executable from the codegen's
@@ -61,6 +61,9 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   // dylib so we only register it when a program
   // actually uses concurrency.
   let mut needs_runtime_dylib = false;
+  // Same for raylib — only pull in libraylib.dylib when
+  // the program references a raylib symbol.
+  let mut needs_raylib_dylib = false;
 
   for (i, c_sym) in link_obj.extern_used.iter().enumerate() {
     let got_offset_in_data = (i * 8) as u64;
@@ -100,13 +103,18 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
     }
 
     // Route each symbol to the right LC_LOAD_DYLIB.
-    // Runtime symbols (`_zo_chan_*` / `_zo_task_*`)
-    // land in libzo_runtime.dylib; everything else
-    // (libm, libSystem) stays on libSystem.
+    // Runtime symbols (`_zo_chan_*` / `_zo_task_*`) land
+    // in libzo_runtime.dylib; raylib symbols
+    // (`_InitWindow`, ...) land in libraylib.dylib;
+    // everything else (libm, libSystem) stays on libSystem.
     let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
       needs_runtime_dylib = true;
 
       ZO_RUNTIME_DYLIB_ORDINAL
+    } else if is_raylib_symbol(c_sym) {
+      needs_raylib_dylib = true;
+
+      RAYLIB_DYLIB_ORDINAL
     } else {
       LIBSYSTEM_DYLIB_ORDINAL
     };
@@ -155,6 +163,8 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   for c_sym in &link_obj.extern_used {
     let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
       ZO_RUNTIME_DYLIB_ORDINAL
+    } else if is_raylib_symbol(c_sym) {
+      RAYLIB_DYLIB_ORDINAL
     } else {
       LIBSYSTEM_DYLIB_ORDINAL
     };
@@ -173,6 +183,15 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   // concurrency programs never touch this entry.
   if needs_runtime_dylib {
     macho.add_dylib("@executable_path/libzo_runtime.dylib");
+  }
+
+  // Register libraylib.dylib as the third LC_LOAD_DYLIB,
+  // gated on actual raylib usage. Path matches the
+  // homebrew install location (`brew install raylib`); on
+  // a non-homebrew install dyld falls through to the
+  // standard `DYLD_FALLBACK_LIBRARY_PATH` search.
+  if needs_raylib_dylib {
+    macho.add_dylib("/opt/homebrew/lib/libraylib.dylib");
   }
 
   macho.add_uuid();

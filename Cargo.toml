@@ -54,6 +54,7 @@ tree-sitter-zo = { path = "sources/sitter/tree-sitter-zo", version = "0.0.0" }
 zo = { path = "crates/compiler/zo", version = "0.3.11" }
 zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.3.11" }
 zo-benches = { path = "crates/compiler/zo-benches", version = "0.3.11" }
+zo-binder = { path = "crates/compiler/zo-binder", version = "0.3.11" }
 zo-buffer = { path = "crates/compiler/zo-buffer", version = "0.3.11" }
 zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.3.11" }
 zo-codegen-arm = { path = "crates/compiler/zo-codegen-arm", version = "0.3.11" }
@@ -182,6 +183,7 @@ profiling = "1.0.17"
 proptest = "1.11.0"
 pulldown-cmark = "0.13.3"
 raw-window-handle = "0.6.2"
+raylib = "5.5.1"
 rayon = { version = "1.12.0" }
 regex = "1.12.2"
 reqwest = { version = "0.13.3", default-features = false, features = [

@@ -1946,6 +1946,13 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_svc(0);
           }
 
+          "init_window" => self.emit_raylib_init_window(args),
+          "window_should_close" => self.emit_raylib_window_should_close(idx),
+          "close_window" => self.emit_raylib_close_window(),
+          "set_target_fps" => self.emit_raylib_set_target_fps(args),
+          "begin_drawing" => self.emit_raylib_begin_drawing(),
+          "end_drawing" => self.emit_raylib_end_drawing(),
+          "clear_background" => self.emit_raylib_clear_background(args),
           "exists" => self.emit_io_exists(args, idx),
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
@@ -4610,6 +4617,85 @@ impl<'a> ARM64Gen<'a> {
 
     // Result pointer.
     self.emitter.emit_add_imm(dst, SP, 0);
+  }
+
+  // ================================================================
+  // raylib bindings — direct extern calls into libraylib.dylib.
+  // The snake_case zo names map to raylib's CamelCase C symbols
+  // here; zo source stays idiomatic, the translation lives in
+  // the emit function.
+  // ================================================================
+
+  /// `init_window(width: int, height: int, title: str)` →
+  /// `void InitWindow(int, int, const char*)`.
+  /// Marshal: int args → X0/X1 directly; `str` is a
+  /// length-prefixed buffer (`[len:8][bytes…]`) so the
+  /// C-string pointer is `str_ptr + 8` — same convention
+  /// as `emit_io_exists`.
+  fn emit_raylib_init_window(&mut self, args: &[ValueId]) {
+    let w = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let h = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let s = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
+
+    self.emitter.emit_mov_reg(X0, w);
+    self.emitter.emit_mov_reg(X1, h);
+    self.emitter.emit_add_imm(X2, s, 8);
+
+    self.emit_extern_call("_InitWindow");
+  }
+
+  /// `window_should_close() -> bool` →
+  /// `bool WindowShouldClose(void)`. Returns in W0; copy to
+  /// the dst register.
+  fn emit_raylib_window_should_close(&mut self, idx: usize) {
+    self.emit_extern_call("_WindowShouldClose");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `close_window()` → `void CloseWindow(void)`.
+  fn emit_raylib_close_window(&mut self) {
+    self.emit_extern_call("_CloseWindow");
+  }
+
+  /// `set_target_fps(fps: int)` → `void SetTargetFPS(int)`.
+  fn emit_raylib_set_target_fps(&mut self, args: &[ValueId]) {
+    let fps = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    if fps != X0 {
+      self.emitter.emit_mov_reg(X0, fps);
+    }
+
+    self.emit_extern_call("_SetTargetFPS");
+  }
+
+  /// `begin_drawing()` → `void BeginDrawing(void)`.
+  fn emit_raylib_begin_drawing(&mut self) {
+    self.emit_extern_call("_BeginDrawing");
+  }
+
+  /// `end_drawing()` → `void EndDrawing(void)`.
+  fn emit_raylib_end_drawing(&mut self) {
+    self.emit_extern_call("_EndDrawing");
+  }
+
+  /// `clear_background(color: int)` → `void ClearBackground(Color)`.
+  /// AAPCS: raylib's 4-byte `Color` aggregate is passed in
+  /// the low 32 bits of a single integer register, identical
+  /// to a packed u32. We pass zo's `int` straight through —
+  /// raylib reads the low 32 bits as `(r,g,b,a)`.
+  fn emit_raylib_clear_background(&mut self, args: &[ValueId]) {
+    let color = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    if color != X0 {
+      self.emitter.emit_mov_reg(X0, color);
+    }
+
+    self.emit_extern_call("_ClearBackground");
   }
 
   // ================================================================

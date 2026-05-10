@@ -1,0 +1,34 @@
+-! raylib bindings — M1 surface (window only).
+-!
+-! Hand-written for M1. v2 will auto-generate this file from
+-! the spec table in `crates/compiler/zo-binder` so adding new
+-! raylib functions becomes one-line spec edits instead of
+-! manual ffi declarations.
+
+pack raylib;
+
+-! Initialise window and OpenGL context.
+pub ffi init_window(width: int, height: int, title: str);
+
+-! Check if KEY_ESCAPE pressed or close icon pressed.
+pub ffi window_should_close() -> bool;
+
+-! Close window and unload OpenGL context.
+pub ffi close_window();
+
+-! Set target frames per second (clamps loop to N FPS).
+pub ffi set_target_fps(fps: int);
+
+-! Setup canvas to start drawing this frame.
+pub ffi begin_drawing();
+
+-! End canvas drawing, swap buffers, poll events.
+pub ffi end_drawing();
+
+-! Clear background with `color`. The argument packs raylib's
+-! `Color { r,g,b,a: u8 }` into the low 32 bits of an int —
+-! AArch64 AAPCS passes a 4-byte aggregate in the low half of
+-! a single integer register, identical to a packed `u32`.
+-! Layout (little-endian): byte 0 = r, byte 1 = g, byte 2 = b,
+-! byte 3 = a. White opaque = `0xFFFFFFFF`.
+pub ffi clear_background(color: int);

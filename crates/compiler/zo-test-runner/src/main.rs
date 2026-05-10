@@ -120,6 +120,18 @@ fn main() {
     &mut results,
   );
 
+  // programming/raylib/ — build only (raylib opens an OS
+  // window, no stdout, needs a display + libraylib).
+  run_dir(
+    &tests_dir.join("programming/raylib"),
+    Category::BuildOnly,
+    &zo,
+    &tmp,
+    filter,
+    target,
+    &mut results,
+  );
+
   // templating/fail/ — must fail to compile.
   run_dir(
     &tests_dir.join("templating/fail"),

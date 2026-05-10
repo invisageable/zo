@@ -1,0 +1,24 @@
+-- raylib M2 — open a window, draw a white background at
+-- 60 FPS, wait for close, exit.
+-- @cmd — zo build window.zo && ./window
+--
+-- Requires `brew install raylib` (macOS).
+--
+-- Manual visible test: a 800x600 window with a solid white
+-- background appears. The user clicks the close button. The
+-- program exits 0.
+
+fun main() {
+  init_window(800, 600, "zo + raylib");
+  set_target_fps(60);
+
+  loop {
+    when window_should_close() ? break : ();
+
+    begin_drawing();
+    clear_background(0xFFFFFFFF);   -- packed RGBA: white opaque.
+    end_drawing();
+  }
+
+  close_window();
+}
