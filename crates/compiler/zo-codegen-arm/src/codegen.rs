@@ -1946,6 +1946,7 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_svc(0);
           }
 
+          "c_str" => self.emit_c_str(args, idx),
           "init_window" => self.emit_raylib_init_window(args),
           "window_should_close" => self.emit_raylib_window_should_close(idx),
           "close_window" => self.emit_raylib_close_window(),
@@ -1955,6 +1956,8 @@ impl<'a> ARM64Gen<'a> {
           "clear_background" => self.emit_raylib_clear_background(args),
           "draw_text" => self.emit_raylib_draw_text(args),
           "is_key_pressed" => self.emit_raylib_is_key_pressed(args, idx),
+          "get_frame_time" => self.emit_raylib_get_frame_time(idx),
+          "draw_circle" => self.emit_raylib_draw_circle(args),
           "exists" => self.emit_io_exists(args, idx),
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
@@ -4621,27 +4624,77 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_add_imm(dst, SP, 0);
   }
 
+  /// Clobber-safe int arg marshaling. Given (dst, src)
+  /// pairs, emits a sequence of `mov` that always lands the
+  /// right value in each `dst`, even if a later `dst` is
+  /// some other move's `src`. One scratch slot (X16) is
+  /// enough for any 3-5 arg call (raylib's whole surface).
+  ///
+  /// Without this, calling `init_window(w, h, c_str("…"))`
+  /// segfaults: c_str's result lands in X0, then `mov X0, w`
+  /// clobbers it before `mov X2, x0` can read it.
+  fn emit_safe_int_arg_moves(&mut self, moves: &[(Register, Register)]) {
+    let mut saved_reg: Option<Register> = None;
+
+    for j in 0..moves.len() {
+      let (_, src) = moves[j];
+
+      let is_clobbered = moves
+        .iter()
+        .enumerate()
+        .any(|(k, (dst, _))| k != j && *dst == src);
+
+      if is_clobbered && saved_reg.is_none() {
+        self.emitter.emit_mov_reg(X16, src);
+        saved_reg = Some(src);
+      }
+    }
+
+    for &(dst, src) in moves {
+      let actual_src = if Some(src) == saved_reg { X16 } else { src };
+
+      if dst != actual_src {
+        self.emitter.emit_mov_reg(dst, actual_src);
+      }
+    }
+  }
+
   // ================================================================
-  // raylib bindings — direct extern calls into libraylib.dylib.
-  // The snake_case zo names map to raylib's CamelCase C symbols
-  // here; zo source stays idiomatic, the translation lives in
-  // the emit function.
+  // C interop — `c_str(s: str) -> int` returns a C-string
+  // pointer (`const char *` equivalent) by skipping zo's
+  // 8-byte length prefix. Compile-time intrinsic — single
+  // ADD instruction, no extern call.
   // ================================================================
 
-  /// `init_window(width: int, height: int, title: str)` →
+  /// `c_str(s: str) -> int` — the only zo→C marshal we need
+  /// for raylib (and any future C library). zo's str layout
+  /// is `[len:8][bytes][NUL]`; raylib wants the bytes ptr.
+  /// One instruction.
+  fn emit_c_str(&mut self, args: &[ValueId], idx: usize) {
+    let s = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emitter.emit_add_imm(dst, s, 8);
+    }
+  }
+
+  // ================================================================
+  // raylib bindings — direct extern calls into libraylib.dylib.
+  // String params take `int` (a C-string pointer from
+  // `c_str(...)`); the snake_case zo names map to raylib's
+  // CamelCase C symbols here.
+  // ================================================================
+
+  /// `init_window(width: int, height: int, title: int)` →
   /// `void InitWindow(int, int, const char*)`.
-  /// Marshal: int args → X0/X1 directly; `str` is a
-  /// length-prefixed buffer (`[len:8][bytes…]`) so the
-  /// C-string pointer is `str_ptr + 8` — same convention
-  /// as `emit_io_exists`.
+  /// `title` arrives as a c-string pointer (call site wrapped
+  /// the literal with `c_str(...)`), so no in-place +8.
   fn emit_raylib_init_window(&mut self, args: &[ValueId]) {
     let w = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
     let h = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
     let s = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
 
-    self.emitter.emit_mov_reg(X0, w);
-    self.emitter.emit_mov_reg(X1, h);
-    self.emitter.emit_add_imm(X2, s, 8);
+    self.emit_safe_int_arg_moves(&[(X0, w), (X1, h), (X2, s)]);
 
     self.emit_extern_call("_InitWindow");
   }
@@ -4700,10 +4753,9 @@ impl<'a> ARM64Gen<'a> {
     self.emit_extern_call("_ClearBackground");
   }
 
-  /// `draw_text(text: str, x: int, y: int, font_size: int, color: int)`
+  /// `draw_text(text: int, x: int, y: int, font_size: int, color: int)`
   /// → `void DrawText(const char*, int, int, int, Color)`.
-  /// Mirrors `init_window`'s str+int marshaling, plus two
-  /// extra ints and the packed Color in X4.
+  /// `text` arrives as a c-string pointer from `c_str(...)`.
   fn emit_raylib_draw_text(&mut self, args: &[ValueId]) {
     let text = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
     let x = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
@@ -4711,13 +4763,13 @@ impl<'a> ARM64Gen<'a> {
     let fs = args.get(3).and_then(|v| self.alloc_reg(*v)).unwrap_or(X3);
     let color = args.get(4).and_then(|v| self.alloc_reg(*v)).unwrap_or(X4);
 
-    // str payload starts at +8 (skip the length prefix); the
-    // C side wants a NUL-terminated `const char *`.
-    self.emitter.emit_add_imm(X0, text, 8);
-    self.emitter.emit_mov_reg(X1, x);
-    self.emitter.emit_mov_reg(X2, y);
-    self.emitter.emit_mov_reg(X3, fs);
-    self.emitter.emit_mov_reg(X4, color);
+    self.emit_safe_int_arg_moves(&[
+      (X0, text),
+      (X1, x),
+      (X2, y),
+      (X3, fs),
+      (X4, color),
+    ]);
 
     self.emit_extern_call("_DrawText");
   }
@@ -4738,6 +4790,33 @@ impl<'a> ARM64Gen<'a> {
     {
       self.emitter.emit_mov_reg(dst, X0);
     }
+  }
+
+  /// `get_frame_time() -> float` → `float GetFrameTime(void)`.
+  /// raylib returns f32 in S0; zo's `float` is f64 — widen
+  /// via `FCVT D, S` so subsequent math stays in double.
+  fn emit_raylib_get_frame_time(&mut self, idx: usize) {
+    self.emit_extern_call("_GetFrameTime");
+
+    let dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
+    self.emitter.emit_fcvt_s_to_d(dst, D0);
+  }
+
+  /// `draw_circle(x: int, y: int, radius: float, color: int)`
+  /// → `void DrawCircle(int, int, float, Color)`.
+  /// Narrow zo's f64 radius via `FCVT S, D` so raylib reads
+  /// a real f32 in S0. Int args go through the clobber-safe
+  /// move sequence.
+  fn emit_raylib_draw_circle(&mut self, args: &[ValueId]) {
+    let x = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let y = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let r_d = args.get(2).and_then(|v| self.alloc_fp_reg(*v)).unwrap_or(D0);
+    let color = args.get(3).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
+
+    self.emit_safe_int_arg_moves(&[(X0, x), (X1, y), (X2, color)]);
+    self.emitter.emit_fcvt_d_to_s(D0, r_d);
+
+    self.emit_extern_call("_DrawCircle");
   }
 
   // ================================================================

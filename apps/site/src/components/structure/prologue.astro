@@ -75,6 +75,25 @@ fun main() {
   showln(b2.b);
 }`,
   },
+  {
+    title: "A raylib bindings in zo.",
+    code: `fun main() {
+  init_window(800, 600, "zo + raylib");
+  set_target_fps(60);
+
+  loop {
+    if window_should_close() { break }
+    if is_key_pressed(32) { break }; -- KEY_SPACE = 32
+
+    begin_drawing();
+      clear_background(0xFF000000);                     -- white
+      draw_text("hello, zo!", 12, 12, 32, 0xFFFFFFFF);  -- black
+    end_drawing();
+  }
+
+  close_window();
+}`,
+  },
 ];
 
 ---

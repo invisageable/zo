@@ -1,0 +1,64 @@
+-- raylib M4 — bouncing circle demo.
+-- @cmd — zo build circle.zo && ./circle
+--
+-- Requires `brew install raylib` (macOS).
+--
+-- Manual visible test: an 800x600 white window opens; a
+-- magenta circle bounces around inside, reflecting off the
+-- four walls. SPACE or the close button exits.
+
+fun main() {
+  imu width:  int = 800;
+  imu height: int = 600;
+  imu radius: float = 25.0;
+
+  init_window(width, height, c_str("zo + raylib — bounce"));
+  set_target_fps(60);
+
+  -- circle state: position + velocity (px/s).
+  mut x:  float = 400.0;
+  mut y:  float = 300.0;
+  mut dx: float = 280.0;
+  mut dy: float = 210.0;
+
+  loop {
+    if window_should_close()  { break }
+    if is_key_pressed(32)     { break }   -- SPACE.
+
+    imu dt: float = get_frame_time();
+
+    x = x + dx * dt;
+    y = y + dy * dt;
+
+    -- bounce off the four walls. clamp position to stay
+    -- inside so a single oversized step doesn't leave the
+    -- circle stuck outside the bound.
+    if x < radius {
+      x = radius;
+      dx = 0.0 - dx;
+    }
+
+    if x > 800.0 - radius {
+      x = 800.0 - radius;
+      dx = 0.0 - dx;
+    }
+
+    if y < radius {
+      y = radius;
+      dy = 0.0 - dy;
+    }
+
+    if y > 600.0 - radius {
+      y = 600.0 - radius;
+      dy = 0.0 - dy;
+    }
+
+    begin_drawing();
+      clear_background(0xFFFFFFFF);                                  -- white.
+      draw_circle(x as int, y as int, radius, 0xFFFD5FF0);            -- magenta (RGBA F0 5F FD FF, low byte first).
+      draw_text(c_str("zo + raylib"), 12, 12, 24, 0xFF000000);       -- black.
+    end_drawing();
+  }
+
+  close_window();
+}

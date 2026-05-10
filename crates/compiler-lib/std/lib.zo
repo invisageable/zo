@@ -6,6 +6,7 @@
 pack arr;
 pack assert;
 pack bool;
+pack c;
 pack char;
 pack cmp;
 pack fmt;

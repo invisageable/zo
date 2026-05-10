@@ -10,16 +10,16 @@
 -- program with status 0.
 
 fun main() {
-  init_window(800, 600, "zo + raylib");
+  init_window(800, 600, c_str("zo + raylib"));
   set_target_fps(60);
 
   loop {
-    when window_should_close() ? break : ();
-    when is_key_pressed(32) ? break : ();   -- KEY_SPACE = 32
+    if window_should_close() { break }
+    if is_key_pressed(32) { break }; -- KEY_SPACE = 32
 
     begin_drawing();
-    clear_background(0xFF000000);            -- white
-    draw_text("hello, zo!", 12, 12, 32, 0xFFFFFFFF);  -- black
+      clear_background(0xFF000000);                     -- white
+      draw_text(c_str("hello, zo!"), 12, 12, 32, 0xFFFFFFFF);  -- white
     end_drawing();
   }
 

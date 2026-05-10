@@ -1,0 +1,18 @@
+-! C interop helpers.
+-!
+-! Bridge between zo's length-prefixed `str` and C's
+-! NUL-terminated `const char *`. Use these wherever you call
+-! into a C library (raylib, libc, etc.) that expects
+-! C-string conventions.
+
+pack c;
+
+-! Convert a zo `str` to a raw C-string pointer
+-! (`const char *` equivalent). Compile-time intrinsic — emits
+-! a single `ADD` instruction skipping zo's 8-byte length
+-! prefix. Zero-cost; no allocation, no copy.
+-!
+-! The underlying invariant: zo string literals live in the
+-! binary's rodata with a trailing NUL byte, so the bytes
+-! after the length prefix are already a valid C-string.
+pub ffi c_str(s: str) -> int;

@@ -7,8 +7,26 @@
 
 pack raylib;
 
--! Initialise window and OpenGL context.
-pub ffi init_window(width: int, height: int, title: str);
+-- ====================================================================
+-- types — mirror raylib's public structs.
+-- ====================================================================
+
+-! 2-component float vector.
+pub struct Vector2 { x: f32, y: f32 }
+
+-! 3-component float vector.
+pub struct Vector3 { x: f32, y: f32, z: f32 }
+
+-! 4-component float vector (also used for quaternions).
+pub struct Vector4 { x: f32, y: f32, z: f32, w: f32 }
+
+-- ====================================================================
+-- window — lifecycle.
+-- ====================================================================
+
+-! Initialise window and OpenGL context. `title` is a
+-! C-string pointer — wrap a literal with `c_str("…")`.
+pub ffi init_window(width: int, height: int, title: int);
 
 -! Check if KEY_ESCAPE pressed or close icon pressed.
 pub ffi window_should_close() -> bool;
@@ -35,10 +53,23 @@ pub ffi end_drawing();
 pub ffi clear_background(color: int);
 
 -! Draw `text` at (`x`, `y`) with `font_size` and `color`.
--! `color` packs RGBA per `clear_background`'s convention.
-pub ffi draw_text(text: str, x: int, y: int, font_size: int, color: int);
+-! `text` is a C-string pointer (use `c_str("…")`); `color`
+-! packs RGBA per `clear_background`'s convention.
+pub ffi draw_text(text: int, x: int, y: int, font_size: int, color: int);
 
 -! True the frame `key` was pressed. Key codes match
 -! raylib's `KEY_*` constants — e.g. `KEY_SPACE = 32`,
 -! `KEY_ESCAPE = 256`.
 pub ffi is_key_pressed(key: int) -> bool;
+
+-! Time in seconds since the previous frame.
+-! (raylib's `GetFrameTime` returns f32; widened to zo's
+-! `float` (f64) at the FFI boundary so subsequent math
+-! stays in double precision.)
+pub ffi get_frame_time() -> float;
+
+-! Draw a filled circle centred at (`x`, `y`) with `radius`
+-! and `color`. `color` packs RGBA per `clear_background`'s
+-! convention. Radius is narrowed from f64 to f32 at the FFI
+-! boundary — raylib's API takes f32.
+pub ffi draw_circle(x: int, y: int, radius: float, color: int);
