@@ -1437,10 +1437,10 @@ impl<'a> Parser<'a> {
     self.flush_expr();
 
     // imu/mut/val must be followed by an identifier,
-    // `(` for tuple-destructuring (`imu (a, b) = …;`),
+    // `(` for tuple-destructuring (`imu (a, b) := …;`),
     // `{` for struct-destructuring
-    // (`imu { x, y, z } = …;`), or `[` for array
-    // destructuring (`imu [a, b, c] = …;`).
+    // (`imu { x, y, z } := …;`), or `[` for array
+    // destructuring (`imu [a, b, c] := …;`).
     match self.peek() {
       Some(Token::Ident | Token::LParen | Token::LBrace | Token::LBracket) => {}
       Some(_) => {

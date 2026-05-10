@@ -2,6 +2,9 @@ use crate::cmd::{Cmd, Handle};
 
 use clap::Parser;
 
+// TODO: attach a link to https://zo.compilords.house/initiation for newcomers
+// For newcomers go to https://zo.compilords.house/initiation.
+
 /// Represents a [`Driver`] instance.
 #[derive(Debug, Parser)]
 #[clap(

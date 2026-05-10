@@ -9,13 +9,13 @@ fun main() {
   imu path: str = "/tmp/zo-io-direct-match.txt";
 
   match write_file(path, "hi") {
-    Result::Ok(_) => {},
-    Result::Err(_) => showln("write-err"),
+    Result::Pass(_) => {},
+    Result::Fail(_) => showln("write-err"),
   }
 
   match read_file(path) {
-    Result::Ok(text) => showln(text),
-    Result::Err(_) => showln("read-err"),
+    Result::Pass(text) => showln(text),
+    Result::Fail(_) => showln("read-err"),
   }
 }
 

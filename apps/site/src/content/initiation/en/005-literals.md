@@ -21,8 +21,8 @@ a keyboard typist just to declare a number.
   -!   signed:    s8, s16, s32 (int), s64
   -!   unsigned:  u8, u16, u32 (uint), u64
 
-  -- Ya, I'm the `int` chief — a signed 32-bit integer,
-  -- the default for any bare number you write.
+  -- Ya, I'm the `int` chief — a signed 32-bit integer
+  -- by default for any bare number you write.
   -- I scale up to `s64` if you need more room.
   42
   -- I'm the Big Daddy Kane so I support big numbers 
@@ -40,8 +40,8 @@ a keyboard typist just to declare a number.
   -!   f32: 32-bit
   -!   f64: 64-bit (float)
 
-  -- Heyo, I'm `float` — a 64-bit double. Just add a `.`
-  -- and you get me. 
+  -- Heyo, I'm `float` — a 64-bit double. Just add a 
+  -- `.` and you get me. 
   14.0
   3.14159
   -- Yeah! But you don't speak scientific. Bro! Don't

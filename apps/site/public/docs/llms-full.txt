@@ -1,0 +1,1652 @@
+# zo programming language — full documentation
+
+> Aggregated documentation for LLM ingestion. Generated from `apps/site/src/content/initiation/en/*.md`. For the curated index with link-only entries, see [/llms.txt](https://zo.compilords.house/llms.txt).
+
+# install
+
+A short setup before we open the first page. Two commands, two minutes.
+
+## get the binary
+
+> « Simplicity is a prerequisite for reliability. » — Edsger W. Dijkstra
+
+  ```sh
+  curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
+  ```
+
+The script downloads and extracts the zo compiler into `bin/zo` and adds it to your `PATH` so zo is reachable from any shell.
+
+## verify
+
+Confirm zo is reachable from your shell.
+
+  ```sh
+  zo --version
+  ```
+
+You should see `zo x.x.x`. The number depends on the latest release.
+
+## trouble?
+
+Drop into the [discord](https://discord.gg/JaNc4Nk5xw) or open a [GitHub issue](https://github.com/invisageable/zo/issues) — fastest path to a fix.
+
+You're ready. Turn the page.
+
+---
+
+# preface
+
+[tsh-tsh]
+
+Where do I even start? I'm out of words... this whole topic just drives me up the wall. I don't know about you, but this digital sham is getting more broken by the day. Take the tools we use every day: compilers, test runners, code editors — most of them are dead by the opening credits, even if their creators try to sell you "Don't worry, it's fast!" — and then you actually run the thing and realize the dream was just lulling you to sleep.
+
+Now, on top of that, they serve us user interfaces that look like a pack of bashi-bazouks. Reminder — these are the tools they force on us every single day. You wake up in the morning and BAM you're stuck using a back-office that hasn't been maintained in years. No building manager, no super, the facade plastered in pigeon shit.
+
+Every interface looks the same, as if the creatives had been tossed out of every company like Jazzy Jeff. This uniformization of design, of innovation, is brutal to live with. Back in '76, in the nineteen-hundreds, the two Steves (Jobs and Wozniak) understood that creatives and technicians had to work hand in glove for the sake of craft — to ship things ahead of their time.
+
+Times change, so it's better to keep moving forward. That's why I decided to follow in the footsteps of my peers. T/F Jonathan Blow, Graydon Hoare, Mike Acton, Bret Victor and my compilords. That's why I built zo — like them, I'm tired and sick of putting up with it.
+
+This initiation will let you see there's another realm of possibilities waiting for us, and we don't have to let the mainstream walk all over us. It's first and foremost a question of independence.
+
+> « *Here's what happens when we get to work.* »
+
+---
+
+# prologue
+
+If you're still here, it's probably because you're convinced software should be better. Accepting its mediocrity means bowing to the executive committees who shove their products at us in wave after wave of relentless marketing.
+
+Is it possible to offer something different? If zo is David and they're Goliath, then zo has to exist — to bridge the gap between high-level and low-level. The zo ecosystem will make developers' lives better. Can you picture not having to wait seconds, sometimes minutes, just to find out if your program even compiles? Or a text editor that actually puts a smile on your face when you use it?
+
+When front-end programmers get curious about low-level, they realize fast that it's a whole different beast. First thing — memory management, for crying out loud!
+
+"Other than *The Bourne Identity*, I have no idea what you're talking about?!"
+
+We won't dwell on it. Fact is, the iteration loop is just different — especially for a brainless soul like me. It's stacking up against a hundred tiny frictions like this that made us go: we need to simplify the process so anyone coming from high-level can have a blast building high-performance apps.
+
+The real idea is to upgrade the experience of writing code, and let you turn your thoughts into code in a snap, no friction. To get there, with the compilords we zeroed in on the tiny details that matter — the ones everyone pretends not to see. So we can crack open new dimensions where our thoughts turn into a string of zeros and ones, without killing the joy.
+
+Whether you're shipping a high-performance tool or a tiny web app, you should be able to do it with the same logic, the same syntax — zsx. The zo syntax extension gives you total control over your program. On top of a real programming language, you get an HTML-like syntax for building GPU-juiced apps, for real.
+
+<b class="green-100">JOiN THE DEVOLUTiON</b>.
+
+---
+
+# language design
+
+## keywords
+
+zo has 53 keywords in total:
+
+<div class="keywords">
+  <dl class="keywords-list">
+    <dt><b>Namespacing</b></dt><dd>4 letters</dd>
+    <dt><b class="keyword">pack</b></dt><dd>declares the current package</dd>
+    <dt><b class="keyword">load</b></dt><dd>imports items into scope</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Type Definitions</b></dt><dd>misc letters</dd>
+    <dt><b class="keyword">abstract</b></dt><dd>declares a behavior contract</dd>
+    <dt><b class="keyword">struct</b></dt><dd>declares a record with named fields</dd>
+    <dt><b class="keyword">apply</b></dt><dd>attaches behavior to a type</dd>
+    <dt><b class="keyword">enum</b></dt><dd>declares a tagged union</dd>
+    <dt><b class="keyword">type</b></dt><dd>declares a type alias</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Member Definitions</b></dt><dd>misc letters</dd>
+    <dt><b class="keyword">fun</b></dt><dd>declares a function</dd>
+    <dt><b class="keyword">ffi</b></dt><dd>declares a foreign function binding</dd>
+    <dt><b class="keyword">val</b></dt><dd>declares a compile-time constant</dd>
+    <dt><b class="keyword">imu</b></dt><dd>declares an immutable binding</dd>
+    <dt><b class="keyword">mut</b></dt><dd>declares a mutable binding</dd>
+    <dt><b class="keyword">fn</b></dt><dd>declares a closure</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Control Flow</b></dt><dd>misc letters</dd>
+    <dt><b class="keyword">continue</b></dt><dd>skips to the next iteration</dd>
+    <dt><b class="keyword">return</b></dt><dd>returns a value from a function</dd>
+    <dt><b class="keyword">match</b></dt><dd>pattern matches across arms</dd>
+    <dt><b class="keyword">while</b></dt><dd>loops while a condition holds</dd>
+    <dt><b class="keyword">break</b></dt><dd>exits the current loop</dd>
+    <dt><b class="keyword">else</b></dt><dd>alternate branch of an if</dd>
+    <dt><b class="keyword">when</b></dt><dd>ternary expression</dd>
+    <dt><b class="keyword">loop</b></dt><dd>infinite loop</dd>
+    <dt><b class="keyword">for</b></dt><dd>iterates over a range or collection</dd>
+    <dt><b class="keyword">if</b></dt><dd>conditional branch</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Concurrency</b></dt><dd>misc letters</dd>
+    <dt><b class="keyword">supervise</b></dt><dd>declares a supervised task scope</dd>
+    <dt><b class="keyword">nursery</b></dt><dd>declares a structured task scope</dd>
+    <dt><b class="keyword">select</b></dt><dd>multiplexes channels or tasks</dd>
+    <dt><b class="keyword">thread</b></dt><dd>marks an OS thread spawn (parser-synthetic)</dd>
+    <dt><b class="keyword">spawn</b></dt><dd>launches a concurrent task</dd>
+    <dt><b class="keyword">await</b></dt><dd>suspends until a task completes</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Infixes</b></dt><dd>misc letters</dd>
+    <dt><b class="keyword">and</b></dt><dd>...</dd>
+    <dt><b class="keyword">as</b></dt><dd>casts a value to a type</dd>
+    <dt><b class="keyword">is</b></dt><dd>type test (reserved)</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Modifiers</b></dt><dd>misc letters</dd>
+    <dt><b class="modifier">group</b></dt><dd>...</dd>
+    <dt><b class="modifier">wasm</b></dt><dd>marks an item for WebAssembly</dd>
+    <dt><b class="modifier">pub</b></dt><dd>marks an item as public</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Qualifiers</b></dt><dd>4 letters</dd>
+    <dt><b class="qualifier">Self</b></dt><dd>refers to the current type</dd>
+    <dt><b class="qualifier">self</b></dt><dd>refers to the current instance</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Values</b></dt><dd>misc letters</dd>
+    <dt><b class="keyword">false</b></dt><dd>boolean false literal</dd>
+    <dt><b class="keyword">true</b></dt><dd>boolean true literal</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Integers</b></dt><dd>misc letters</dd>
+    <dt><b class="type">uint</b></dt><dd>platform-width unsigned integer</dd>
+    <dt><b class="type">int</b></dt><dd>platform-width signed integer</dd>
+    <dt><b class="type">s16</b></dt><dd>16-bit signed integer</dd>
+    <dt><b class="type">s32</b></dt><dd>32-bit signed integer</dd>
+    <dt><b class="type">s64</b></dt><dd>64-bit signed integer</dd>
+    <dt><b class="type">u16</b></dt><dd>16-bit unsigned integer</dd>
+    <dt><b class="type">u32</b></dt><dd>32-bit unsigned integer</dd>
+    <dt><b class="type">u64</b></dt><dd>64-bit unsigned integer</dd>
+    <dt><b class="type">s8</b></dt><dd>8-bit signed integer</dd>
+    <dt><b class="type">u8</b></dt><dd>8-bit unsigned integer</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Floats</b></dt><dd>misc letters</dd>
+    <dt><b class="type">float</b></dt><dd>platform-width floating-point</dd>
+    <dt><b class="type">f32</b></dt><dd>32-bit floating-point</dd>
+    <dt><b class="type">f64</b></dt><dd>64-bit floating-point</dd>
+  </dl>
+  <dl class="keywords-list">
+    <dt><b>Primitives</b></dt><dd>misc letters</dd>
+    <dt><b class="type">bytes</b></dt><dd>byte buffer</dd>
+    <dt><b class="type">bool</b></dt><dd>boolean type</dd>
+    <dt><b class="type">char</b></dt><dd>Unicode character</dd>
+    <dt><b class="type">str</b></dt><dd>UTF-8 string</dd>
+    <dt><b class="type">&lt;/&gt;</b></dt><dd>template fragment type</dd>
+    <dt><b class="type">Fn</b></dt><dd>function type</dd>
+  </dl>
+</div>
+
+## operators
+
+### unary
+
+<table>
+  <thead>
+    <tr><th>Precedence</th><th>Operator</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">+</span>
+          <span class="operator">-</span>
+          <span class="operator">!</span></td>
+        </code>
+      </tr>
+  </tbody>
+</table>
+
+### binary
+
+<table>
+  <thead>
+    <tr>
+      <th>Precedence</th>
+      <th>Operator</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">||</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">&amp;&amp;</span>
+          <span class="operator">..</span>
+          <span class="operator">..=</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">==</span>
+          <span class="operator">!=</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">&lt;</span>
+          <span class="operator">&lt;=</span>
+          <span class="operator">&gt;</span>
+          <span class="operator">&gt;=</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">|</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">^</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">&amp;</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">&lt;&lt;</span>
+          <span class="operator">&gt;&gt;</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">+</span>
+          <span class="operator">++</span>
+          <span class="operator">-</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">*</span>
+          <span class="operator">/</span>
+          <span class="operator">%</span>
+        </code>
+      </td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">.</span>
+        </code>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+### assignments
+
+<table>
+  <thead>
+    <tr>
+      <th>Operator</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">=</span>
+          <span class="operator">+=</span>
+          <span class="operator">-=</span>
+          <span class="operator">*=</span>
+          <span class="operator">/=</span>
+          <span class="operator">%=</span>
+          <span class="operator">&amp;=</span>
+          <span class="operator">|=</span>
+          <span class="operator">^=</span>
+          <span class="operator">&lt;&lt;=</span>
+          <span class="operator">&gt;&gt;=</span>
+          <span class="operator">:=</span>
+          <span class="operator">::=</span>
+        </code>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+### others
+
+<table>
+  <thead>
+    <tr>
+      <th>Operator</th>
+      <th>Name</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">-&gt;</span>
+        </code>
+      </td>
+      <td>arrow (return type)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">=&gt;</span>
+        </code>
+      </td>
+      <td>fat arrow (match arm)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">=:&gt;</span>
+        </code>
+      </td>
+      <td>template fat arrow (template-body closure)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">|&gt;</span>
+        </code>
+      </td>
+      <td>pipe arrow (reserved)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">::</span>
+        </code>
+      </td>
+      <td>path separator</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">?</span>
+        </code>
+      </td>
+      <td>question</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">@</span>
+        </code>
+      </td>
+      <td>at</td>
+    </tr>
+  </tbody>
+</table>
+
+### delimiters
+
+<table class="delimiters">
+  <thead>
+    <tr>
+      <th>Open</th>
+      <th>Close</th>
+      <th>Name</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">(</span>
+        </code>
+      </td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">)</span>
+        </code>
+      </td>
+      <td>parentheses</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">{</span>
+        </code>
+      </td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">}</span>
+        </code>
+      </td>
+      <td>braces</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">[</span>
+        </code>
+      </td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">]</span>
+        </code>
+      </td>
+      <td>brackets</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">&lt;&gt;</span>
+        </code>
+      </td>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">&lt;/&gt;</span>
+        </code>
+      </td>
+      <td>template fragment</td>
+    </tr>
+  </tbody>
+</table>
+
+### punctuations
+
+<table>
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Name</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">,</span>
+        </code>
+      </td>
+      <td>comma (list separator)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">;</span>
+        </code>
+      </td>
+      <td>semicolon (statement terminator)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">:</span>
+        </code>
+      </td>
+      <td>colon (type ascription)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">_</span>
+        </code>
+      </td>
+      <td>underscore (wildcard pattern)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">#</span>
+        </code>
+      </td>
+      <td>hash (reserved)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">$</span>
+        </code>
+      </td>
+      <td>dollar (reserved)</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">%%</span>
+        </code>
+      </td>
+      <td>attribute marker</td>
+    </tr>
+    <tr>
+      <td>
+        <code class="f-iosevka">
+          <span class="operator">...</span>
+        </code>
+      </td>
+      <td>ellipsis (spread / variadic)</td>
+    </tr>
+  </tbody>
+</table>
+
+---
+
+# introduction
+
+This guide is your initiation to zo. Each chapter builds on the previous one — read in order on a first pass, jump around once you know the basics.
+
+## how to use this guide
+
+Every lesson is a quick snapshot of a zo program. Read the doc-comments (`-!`), they provide explanation and describe all the concepts that you need.
+
+  ```zo
+  -! Sup? I'm a doc comment, I support markdown
+  -! format. What's good?
+  ```
+
+  ```zo
+  -- I'm a line comment, I don't care about markdown.
+  ```
+
+  ```zo
+  -*
+    From my side I'm a block comment, I'm happy to help
+    for details that matter
+  *-
+  ```
+
+<!-- roadmap of the book -->
+
+In zo, each program has to contain an entry point:
+
+  ```zo
+  -- Wassup?! I'm `main` a function.
+  -- Use me as a entry point with `fun` keyword.
+  fun main() {
+    -- This program does nothing... yet.
+  }
+
+  -! ## the capstone.
+  -!
+  -!   - every programs must have a `main` function.
+  ```
+
+That's it. Turn the page.
+
+---
+
+# hello
+
+  ```zo
+  -! Yo! Let's start with a simple program.
+  -! In this lesson, we learn how to print a message.
+
+  fun main() {
+    -- In our case, we call our buddy `showln`.
+    -- It tells the compiler to display the value
+    -- passed as argument with a newline at the end.
+    showln("hello, hacker");
+  }
+
+  -! ## the capstone.
+  -!
+  -!   - `showln` is a builtin. No need to import it.
+  ```
+
+---
+
+# literals
+
+## numbers
+
+Programming is just moving data around. In zo, data comes in a few basic
+flavors called "literals".
+
+You don't need to memorize all of these right now. Just know they exist. The
+most important thing: zo is smart. It "infers" types so you don't have to be
+a keyboard typist just to declare a number.
+
+> All snippets in this guide run inside `fun main()`. Wrap them when you copy-paste.
+
+### integers
+
+  ```zo
+  -! Let me introduce the gang members.
+  -!
+  -! ## the integer family.
+  -!
+  -!   signed:    s8, s16, s32 (int), s64
+  -!   unsigned:  u8, u16, u32 (uint), u64
+
+  -- Ya, I'm the `int` chief — a signed 32-bit integer
+  -- by default for any bare number you write.
+  -- I scale up to `s64` if you need more room.
+  42
+  -- I'm the Big Daddy Kane so I support big numbers 
+  -- natively — `600851475143` just works.
+  600851475143
+  ```
+
+### floats
+
+  ```zo
+  -! And that's the rival clan.
+  -!
+  -! ## the float family.
+  -!
+  -!   f32: 32-bit
+  -!   f64: 64-bit (float)
+
+  -- Heyo, I'm `float` — a 64-bit double. Just add a 
+  -- `.` and you get me. 
+  14.0
+  3.14159
+  -- Yeah! But you don't speak scientific. Bro! Don't
+  -- listen to this guy. I'm the smarter `1.0e10`, 
+  -- `2.5e-3` — same family, different notation.
+  1.0e10
+  2.5e-3
+  ```
+
+### bases
+
+  ```zo
+  -! Let's go the basics.
+  -! 
+  -! ## The mask-on integer prefixes.
+  -!
+  -!   `0b`: binary
+  -!   `0o`: octal
+  -!   `0x`: hexadecimal
+
+  -- Woop-woop, we're integers in disguise. Same value,
+  -- different notation.
+  0b11110000 -- 240
+  0o77       -- 63
+  0xff       -- 255
+  ```
+
+### parse modifiers
+
+  ```zo
+  -! ## The parser integer prefixes.
+  -!
+  -!   `b#`: binary
+  -!   `o#`: octal
+  -!   `x#`: hexadecimal
+
+  -- Same as the prefix forms, just inline shorthand.
+  b#30 -- 24
+  o#75 -- 61
+  x#76 -- 118
+  ```
+
+## booleans
+
+  ```zo
+  -! And we finished with The Fraternal twins.
+
+  -- Wordup, we're `bool` — only `true` and `false`.
+  -- No "truthy" or "falsy" mind games here."
+  true
+  false
+  ```
+
+## strings
+
+  ```zo
+  -- Bitch! I'm `str` — a string literal. I live in 
+  -- the binary's read-only data section hood, so I
+  -- cost nothing at runtime. Skuuuuuu!"
+  "JOiN THE DEVOLUTiON."
+  ```
+
+## chars
+
+  ```zo
+  -- And me, I'm `char` — a single Unicode scalar 
+  -- wrapped in single quotes.
+  'z'
+  ```
+
+## bytes
+
+  ```zo
+  -! My man, introduce yourself!
+
+  -- Call me `bytes` — raw byte value, written with 
+  -- backticks. No Unicode, just the 8 bits."
+  `z`
+  ```
+
+---
+
+# variables
+
+Data needs a name. In zo, you have three ways to name a value:
+`val` for constants, `imu` for immutable locals, and `mut` when things change.
+
+Pick the least powerful one that works — that's the zo way.
+
+## constants
+
+  ```zo
+  -- Hi, I'm `val` — your compile-time constant. I 
+  -- never change, and I need an explicit type (you 
+  -- can't infer me).
+  val VERSION: str = "1.0.0";
+  val MAX_HEALTH: int = 100;
+  -- I work at the top level or inside a function.
+  ```
+
+## locals
+
+### immutables
+
+  ```zo
+  -- Hey, I'm `imu` — your immutable local. Set me 
+  -- once, read me many.
+  imu name: str = "johndoe";
+  ```
+
+### mutables
+
+  ```zo
+  -- And me, I'm `mut` — your mutable local. I can be
+  -- reassigned. Reach for me only when something 
+  -- genuinely changes over time.
+  mut health: int = 22;
+
+  -- Reassign a `mut` like this:
+  health = 50;
+  ```
+
+## shadowing
+
+  ```zo
+  -- Call me `shadowing` — I let you re-declare a name
+  -- in the same scope. Each declaration creates a new
+  -- variable; the old one is untouched.
+  imu x: int = 40;
+  imu x: int = x + 1; -- shadows; new x is 41
+  imu x: int = x + 1; -- shadows again; new x is 42
+  ```
+
+In this lesson, we wrote every type explicitly (like `: int`). In practice, zo can almost always figure it out. We'll stay explicit for now to help you learn, but soon we'll let the compiler do the heavy lifting in `Inference`.
+
+---
+
+# interpolation
+
+Numbers are useless if you can't show them. In zo, you drop values directly into strings with `{variable}` — no format functions, no concatenation. 
+
+> *Interpolation does not allowed expressions, like binop, function calls, etc. It needs the variable name.*
+
+  ```zo
+  -- Hi, I'm `{}` — a string interpolation. Wrap any 
+  -- in-scope variable in braces and I expand it 
+  -- inline at compile time.
+  imu name: str = "johndoe";
+  imu hp: int = 100;
+  showln("hero: {name}, hp: {hp}");
+  ```
+
+## multiple values
+
+  ```zo
+  -- Interpolate as many as you like in one go.
+  imu x: int = 10;
+  imu y: int = 12;
+  showln("position: {x}, {y}");
+  ```
+
+## under the hood
+
+`showln("hp: {hp}")` is NOT a runtime format call. The compiler desugars it:
+
+  ```zo
+  show("hp: ");
+  showln(hp);
+  ```
+
+Three things this buys you: zero allocations, zero runtime parsing, zero surprises. As fast as writing the calls by hand.
+
+## try this
+
+  - Interpolate a variable that hasn't been declared. Watch the compiler protect you.
+  - Interpolate a `float` and a `bool` — any primitive works.
+
+  ```zo
+  -! ## the capstone.
+  -!
+  -!   - any in-scope variable can be interpolated.
+  -!   - works for any primitive type.
+  -!   - desugared at compile time — no runtime cost.
+  ```
+
+---
+
+# operators
+
+Operators are how you transform values. zo keeps them small and predictable — the same five arithmetic operators you've used everywhere, plus reassignment and a handful of shorthands.
+
+## arithmetic
+
+  ```zo
+  -- Hi, we're the arithmetic operators:
+  -- `+`, `-`, `*`, `/`, `%`. Same precedence and 
+  -- associativity as math.
+  imu hp: int = 100;
+  imu attack: int = 15;
+
+  imu power: int = hp + attack;   -- 115
+  imu damage: int = attack * 2;   -- 30
+  imu rest: int = 10 % 3;         -- 1 (remainder)
+  ```
+
+## reassignment
+
+  ```zo
+  -- Reassign a `mut` with a plain `=`. The variable's
+  -- type stays fixed; only its value changes.
+  mut current_hp: int = 100;
+  imu damage: int = 25;
+
+  current_hp = current_hp - damage; -- 75
+  ```
+
+## compound assignment
+
+  ```zo
+  -- And me, I'm compound assignment:
+  -- `+=`, `-=`, `*=`, `/=`. Just shorthand for 
+  -- `x = x + y`. Read-and-write in one shot.
+  mut current_hp: int = 100;
+
+  current_hp -= 25; -- 75
+  current_hp += 30; -- 105
+  current_hp *= 2;  -- 210
+  ```
+
+## try this
+
+- Use `%` to detect even numbers: `showln(10 % 2);`.
+- Try `current_hp /= 0;` and watch the compiler/runtime react.
+
+```zo
+-! ## the capstone.
+-!
+-!   - `+ - * / %` are arithmetic same rules as math.
+-!   - `=` are reassignment, only on `mut` variables.
+-!   - `+= -= *= /=` are compound.
+```
+
+---
+
+# strings
+
+Sequences of bytes you can store, combine, and index. zo string literals live in the binary's read-only data section — no heap allocation, no copy at startup.
+
+  ```zo
+  -- What's up, cuh? Remember me? — the string. I'm 
+  -- immutable; once created, my bytes never change. 
+  -- I'm versatile, so my shapes are yours:
+  "\e[32mHello!\v\e[34mWorld\e[0m\n"
+  "\x48\x65\x6c\x6c\x6f"              -- hex
+  "\u{e9}\u{e8}\u{ea}"                -- latin
+  "\u{2603} \u{2602} \u{2600}"        -- bmp
+  "\u{1F600} \u{1F680} \u{1F4A9}"     -- emoji
+  ```
+
+## concatenation
+
+  ```zo
+  -- `++` joins two strings. With variables: a fresh
+  -- string at runtime. With literals: folded at 
+  -- compile time — zero runtime cost.
+  imu greeting: str = "hello";
+  imu name: str = "johndoe";
+  imu full: str = greeting ++ ", " ++ name ++ "!";
+  imu title: str = "the " ++ "devolution";
+  ```
+
+The originals are untouched — concatenation produces a new string, never mutates an input.
+
+## indexing
+
+  ```zo
+  -- `s[i]` returns the `char` at byte position `i`.
+  -- O(1) — a single byte load, bounds-checked at 
+  -- compile time when the index is known.
+  imu greeting: str = "hello";
+  showln(greeting[0]); -- h
+  showln(greeting[4]); -- o
+  ```
+
+## under the hood
+
+zo strings are length-prefixed: `[len:u64][bytes][null]`. The length is always known, so there's no terminator scanning, no `strlen` walk. Indexing, slicing, and length lookups are all O(1).
+
+```zo
+-! ## the capstone.
+-!
+-!   - `str` is immutable.
+-!   - `++` concatenates.
+-!   - `s[i]` is O(1) char access, bounds-checked.
+```
+
+---
+
+# tuples
+
+A fixed-size group of values, possibly of different types, accessed by position. Heterogeneous, immutable, zero-overhead grouping — no heap, no headers.
+
+  ```zo
+  -- A tuple literal: parens + comma-separated values.
+  -- The type follows the values: `(int, int, int)`.
+  imu point := (1, 2, 3);
+  showln(point); -- (1, 2, 3)
+  ```
+
+## indexing
+
+  ```zo
+  -- `.N` reads the Nth field. Positional, 0-indexed.
+  imu tup := (10, 20);
+  showln(tup.0);       -- 10
+  showln(tup.1);       -- 20
+  showln(tup.0 + t.1); -- 30
+  ```
+
+## type annotations
+
+  ```zo
+  -- The type mirrors the literal: parens around
+  -- comma-separated types. Mix types freely.
+  imu pair: (int, int) = (10, 20);
+  imu mixed: (str, int) = ("alice", 30);
+  ```
+
+## destructuring
+
+  ```zo
+  -- Bind each field to its own name in one shot.
+  imu (x, y, z) := (1, 2, 3);
+  showln(x); -- 1
+  showln(y); -- 2
+  showln(z); -- 3
+
+  imu (name, age) := ("alice", 30);
+  showln(name); -- alice
+  showln(age);  -- 30
+  ```
+
+## naming a shape
+
+  ```zo
+  -- `type` names a recurring tuple — clearer 
+  -- signatures, same zero-cost layout.
+  type Point = (int, int);
+
+  fun translate(p: Point, dx: int, dy: int) -> Point {
+    return (p.0 + dx, p.1 + dy);
+  }
+
+  imu origin: Point = (0, 0);
+  imu next: Point = translate(origin, 5, 5); -- (5, 5)
+  ```
+
+## under the hood
+
+A tuple is a flat struct with positional fields: `[field0][field1]...[fieldN]`, no headers, no padding beyond alignment. Field access (`t.N`) is a constant-offset load — same cost as struct field access. Tuples pass by value: `imu b = a` copies the fields.
+
+  ```zo
+  -! ## the capstone.
+  -!
+  -!   - tuples group values of different types.
+  -!   - `t.N` reads field N (positional, 0-indexed).
+  -!   - `imu (a, b) := t` destructures.
+  -!   - `type Pair = (int, int)` names a shape.
+  ```
+
+---
+
+# arrays
+
+An ordered, **homogeneous** sequence of values — every element shares the same type. Two flavors: fixed-size when the length is part of the type, dynamic when it grows at runtime.
+
+## static arrays
+
+  ```zo
+  -- `[N]T`: length is part of the type. Layout is
+  -- known at compile time; bounds-checked when the
+  -- index is constant.
+  imu nums: [3]int = [10, 20, 30];
+
+  showln(nums[0]);       -- 10
+  showln(nums.len);      -- 3
+
+  -- `[v...]` fills with `v`. Count is read from 
+  -- `[N]T`.
+  imu zeros: [5]int = [0...]; -- [0, 0, 0, 0, 0]
+
+  -- destructure by ordered position. Use `:=` —
+  -- types come from the rhs.
+  imu [a, b, c] := nums;
+  showln(a);             -- 10
+  ```
+
+## multi-dimensional static arrays
+
+  ```zo
+  -- `[N][M]T` is an array of N arrays of M T's. Index
+  -- with chained brackets.
+  imu grid: [2][3]int = [[1, 2, 3], [4, 5, 6]];
+
+  showln(grid[0][0]);    -- 1
+  showln(grid[1][2]);    -- 6
+  showln(grid);          -- [[1, 2, 3], [4, 5, 6]]
+  ```
+
+## dynamic arrays
+
+  ```zo
+  -- `[]T`: length lives in the runtime header, not in
+  -- the type. With `mut`, the array grows.
+  mut arr: []int = [];
+
+  arr.push(10);
+  arr.push(20);
+  arr.push(30);
+
+  showln(arr);           -- [10, 20, 30]
+  showln(arr.len);       -- 3
+
+  imu last: int = arr.pop();
+  showln(last);          -- 30
+  showln(arr);           -- [10, 20]
+
+  -- `[v...n]` is the explicit-count repeat — useful
+  -- with `[]T` since there's no annotation length.
+  imu sevens: []int = [7...4]; -- [7, 7, 7, 7]
+  ```
+
+## under the hood
+
+zo arrays are length-prefixed: `[len:8][cap:8][elem0][elem1]...[elemN]`. The header is 16 bytes (length + capacity); element offsets start at `+16`. `arr.len` is a single load — no walk, no terminator. Indexing is constant-offset arithmetic. `push`/`pop` mutate in place; reallocation kicks in when capacity is exhausted.
+
+  ```zo
+  -! ## the capstone.
+  -!
+  -!   - `[N]T` is fixed-size, `[]T` is dynamic.
+  -!   - `a[i]` reads, `a.len` counts (O(1)).
+  -!   - `[v...]` / `[v...n]` are repeat literals.
+  -!   - `imu [a, b, c] := arr` destructures.
+  -!   - `mut` enables `push` / `pop` / resize.
+  ```
+
+---
+
+# blocks
+
+---
+
+# functions
+
+  ```zo
+  -- I'm a function accepting two arguments of type
+  -- int and returning a value of type int.
+  fun sum(a: int, b: int) -> int {
+    a + b -- implicit return
+  }
+
+  -- Then you can call me, like this:
+  sum(39, 3);
+  ```
+
+---
+
+# closures
+
+  ```zo
+  -- closure:block.
+  imu f: Fn(int) -> int = fn(x: int) -> int {
+    return x * x;
+  };
+
+  -- closure:line.
+  imu f: Fn(int) -> int = fn(x: int) -> int => x * x;
+
+
+  -- Then you can call me, like this:
+  f(7);
+  ```
+
+---
+
+# structures
+
+## struct
+
+  ```zo
+  -- ...
+  struct Point {
+    x: int,
+    y: int,
+  }
+
+  -- Then you created me:
+  imu point: Point = Point {
+    x = 1,
+    y = 2
+  };
+
+  -- And used me like the following:
+  point.y -- 2
+  ```
+
+talk about the default value. All fields should be default to be valid. otherwise the compiler will complain.
+
+  ```zo
+  -- ...
+  struct Rect {
+    x: int = 10,
+    y: int = 20,
+    w: int = 100,
+    h: int = 200,
+  }
+  ```
+
+## methods
+
+talk about the usage of apply keyword to define methods.
+
+  ```zo
+  struct Counter {
+    x: int,
+  }
+
+  -- ...
+  apply Counter {
+    -- static method
+    fun new() -> Self {
+      Self { x = 0 }
+    }
+
+    -- ...
+    fun hello(self) -> int {
+      return 12345;
+    }
+
+    -- ...
+    fun incr(mut self) {
+      self.x += 1;
+    }
+
+    -- ...
+    fun x(self) -> int {
+      self.x
+    }
+  }
+  ```
+
+---
+
+# enums
+
+  ```zo
+  -- ...
+  enum Foo {
+    Bar,
+    Oof(str), -- tuple
+    Rab = 42, -- discriminant
+  }
+
+  -- construct
+  imu foo: Foo = Foo::Bar;
+  imu foo: Foo = Foo::Oof("What's crackin'?");
+  ```
+
+---
+
+# abstracts
+
+Abstracts are zo's form of **ad-hoc polymorphism** — one contract, many implementations. Each `apply Abstract for Type` block provides type-specific behavior dispatched on the
+receiver's type. The other form, **parametric polymorphism**,
+is covered by [generics](#019-generics).
+
+  ```zo
+  abstract Display {
+    fun display(self) -> str;
+  }
+
+  struct Point {
+    x: int,
+    y: int,
+  }
+
+  apply Display for Point {
+    fun display(self) -> str {
+      return "point";
+    }
+  }
+  ```
+
+---
+
+# type alias
+
+  ```zo
+  -- ...
+  type Bar = int;
+
+  -- ...
+  imu z: Bar = 42;
+  ```
+
+  ```zo
+  group type Idx = int
+    and Pair = (int, int)
+  ;
+  ```
+
+---
+
+# generics
+
+Generics are zo's form of **parametric polymorphism** — one body of code that works across many types via type parameters
+(`<$T>`). The other form, **ad-hoc polymorphism**, is covered by [abstracts](#017-abstracts).
+
+---
+
+# type inference
+
+- hindley milner.
+
+---
+
+# control flow
+
+## if else
+
+  ```zo
+  -- same type inside
+  if 1 == 2 {
+    false
+  } else if 2 == 3 {
+    false;
+  } else if 3 == 4 {
+    false
+  } else {
+    true
+  }
+  ```
+
+## ternary
+
+  ```zo
+  -- only as expression
+  when true ? 1 : 2;
+  ```
+
+## pattern matching
+
+  ```zo
+  -- ...
+  match 5 {
+    10 => check(false),
+    _ => check(true), -- wildcard
+  }
+
+  -- ...
+  match "z" ++ "o" {
+    "ivs" => showln(false),
+    "zo" => showln(true),
+    _ => showln("default"),
+  }
+  ```
+
+## jumps (terminators)
+
+  ```zo
+  for i := 1..10 {
+    if i == 3 { continue; }
+    if i == 7 { break; }
+    
+    show(i);
+  }
+
+  -- 12456
+  ```
+
+---
+
+# loops
+
+## while loop
+
+  ```zo
+  -- while:block
+  mut z: int = 0;
+  while z < 1_000_000_000 {
+    z += 1;
+  }
+
+  -- while:line
+  mut z: int = 0;
+  while z < 1_000_000_000 => z += 1;
+  ```
+
+## for loop
+
+  ```zo
+  -- for:block.
+  for x := 0..3 {
+    showln("{x}");
+  }
+
+  -- for:block:mut.
+  for mut x := 0..3 {
+    x += 1
+  }
+
+  -- for:line.
+  for x := 0..3 => showln("{x}");
+
+  -- for:line:mut
+  -- mutable iterator, body reassigns it.
+  for mut n := 0..3 => n += 1;
+  ```
+
+## infinie loop
+
+  ```zo
+  mut x: int = 0;
+  loop {
+    if x == 1_000_000 {
+      showln(x);
+      break;
+    }
+
+    x += 1;
+  }
+  ```
+
+---
+
+# concurrency
+
+description:
+  - green and os threads
+  - scheduler
+
+## supervise
+
+  ```zo
+  ```
+
+## nursery
+
+  ```zo
+  ```
+
+## select
+
+  ```zo
+  ```
+
+## thread
+
+  ```zo
+  ```
+
+## spawn
+
+  ```zo
+  ```
+
+## await
+
+  ```zo
+  ```
+
+---
+
+# tests
+
+---
+
+# zsx
+
+markup basics: tags, attributes, interpolation.
+
+  ```zo
+  -- ...
+  ```
+
+## @events
+
+`@click`, `@input`, event handlers.
+
+  ```zo
+  ```
+
+## style
+
+  ```zo
+  -- ...
+  $: {}
+
+  -- ...
+  pub $: {}
+  ```
+
+## components
+
+...
+
+---
+
+# directives
+
+`#dom` — ...
+`#html` — ...
+
+---
+
+# foreign function interfaces
+
+  ```zo
+  -- ...
+  ffi sqrt(a: int) -> int;
+  
+  -- ...
+  ffi sqrt(a: int) -> int {
+    -- ...
+  }
+  ```
+
+---
+
+# core
+
+## options
+
+  ```zo
+  imu some: Option = Option::Some("...");
+  imu none: Option = Option::None;
+  ```
+
+## results
+
+  ```zo
+  imu pass: Result = Result::Pass("value");
+  imu fail: Result = Result::Fail("error");
+  ```
+
+## errors
+
+### the `?` operator
+
+- short-circuit Result inside a Result-returning function
+- desugaring: `expr?` ≡ `match expr { Pass(v) => v, Fail(e) => return Fail(e) }`
+
+### error propagation
+
+- chaining: `read_file(p)?.parse()?.validate()?`
+- composing helpers that bubble up domain errors
+
+### errors vs panics
+- Result for *expected* failure modes (file not found, parse error)
+- panics for *bugs* (invariant broken, indexing past length)
+- never use Result to signal logic errors; never panic on user input
+
+## ranges
+
+  <!--
+  not implemented yet
+  ```zo
+  imu r1: Range = 0..10;     -- exclusive end (0..9)
+  imu r2: Range = 0..=10;    -- inclusive end (0..10)
+  imu r3: Range = a..b;      -- runtime bounds
+  ``` 
+  -->
+
+  ```zo
+  for i := 0..5 {            -- iteration
+    showln(i);               -- 0 1 2 3 4
+  }
+
+  imu slice = xs[2..5];      -- slicing
+  ```
+
+## collection types
+
+### arrays
+
+  ```zo
+  imu xs: []int = [1, 2, 3, 4, 5];
+  imu empty: []int = [];
+
+  xs.sum();          -- 15
+  empty.sum();       -- 0
+
+  xs.contains(3);    -- true
+  empty.contains(5); -- false
+
+  xs.find(3);        -- 2
+  empty.find(99);    -- -1
+
+  xs.min_of()        -- 1
+  xs.max_of()        -- 5
+  empty.min_of();    -- 0
+  ```
+
+### vectors
+
+  ```zo
+  mut v: Vec<int> = Vec::new();
+
+  v.len();      -- 0
+
+  v.is_empty(); -- true
+
+  v.push(10);
+  v.push(20);
+  v.push(30);
+
+  v.get(0);     -- Option::Some(10)
+  v.get(99);    -- Option::None
+
+  v.set(1, 42); -- set in-bounds.
+  !v.set(7, 0); -- set out-of-bounds returns false.
+
+  v.pop();      -- Option::Some(30)
+
+  v.remove(1);  -- Option::Some(42)
+
+  v.free();
+  ```
+
+### sets
+
+  ```zo
+  ```
+
+### maps
+
+  ```zo
+  ```
+
+### file system
+
+  ```zo
+  imu path: str = "/path/to/file";
+
+  match write_file(path, "hi") {
+    Result::Pass(_) => {},
+    Result::Fail(_) => showln("write-err"),
+  }
+
+  match read_file(path) {
+    Result::Pass(text) => showln(text),
+    Result::Fail(_) => showln("read-err"),
+  }
+
+  -- directory
+  ```
+
+---
+
+# module system
+
+## pack
+
+  ```zo
+  pack say {
+    fun hello() {
+      showln("hello, modular world");
+    }
+  }
+  ```
+
+## load
+
+  ```zo
+  load std::math::pow;
+  load std::math::(pow, abs);
+  ```
+
+---
+
+# epilogue
+---
+
+## further reading
+
+- [Grammar (EBNF)](https://github.com/invisageable/zo/blob/main/crates/compiler/zo-notes/public/grammar/zo.ebnf)
+- [guidelines](https://github.com/invisageable/zo/tree/main/crates/compiler/zo-notes/public/guidelines)
+- [Discord](https://discord.gg/JaNc4Nk5xw)
+- [GitHub Issues](https://github.com/invisageable/zo/issues)

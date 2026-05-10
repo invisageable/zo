@@ -1,0 +1,11 @@
+-- tests-build-pass: bool match exhaustive via both arms.
+-- @cmd — zo build match_bool_exhaustive.zo
+
+fun main() {
+  imu b: bool = true;
+
+  match b {
+    true  => check(true),
+    false => check(false),
+  }
+}

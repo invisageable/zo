@@ -612,7 +612,7 @@ struct PendingDecl {
   /// macOS realloc-on-stack UB.
   init_start_idx: usize,
   /// `Some(names)` for tuple-pattern destructuring
-  /// (`imu (a, b, c) = expr;`); each name binds the
+  /// (`imu (a, b, c) := expr;`); each name binds the
   /// corresponding tuple element. `None` for the
   /// regular single-name path. The lead `name` field
   /// is unused when this is `Some`.
@@ -4250,7 +4250,7 @@ impl<'a> Executor<'a> {
       Token::RShiftEq => self.execute_compound_assignment(BinOp::Shr, idx),
 
       // Type keywords used as variable names in pattern
-      // bindings (e.g., `Result::Ok(bytes)` where `bytes`
+      // bindings (e.g., `Result::Pass(bytes)` where `bytes`
       // is tokenized as `BytesType`). Check for a local
       // whose name matches the keyword text and, if found,
       // treat it as a variable reference.
@@ -6939,9 +6939,9 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Destructuring patterns: tuple `imu (a, b, c) = …`,
-    // struct `imu { x, y, z } = …`, or array
-    // `imu [a, b, c] = …`. The pattern names are bound to
+    // Destructuring patterns: tuple `imu (a, b, c) := …`,
+    // struct `imu { x, y, z } := …`, or array
+    // `imu [a, b, c] := …`. The pattern names are bound to
     // the rhs's matching elements at finalize time — tuple
     // by index, struct by field name (resolved from the
     // rhs's struct type), array by ordered index. The
@@ -7004,6 +7004,17 @@ impl<'a> Executor<'a> {
       if i < children_end
         && matches!(self.tree.nodes[i].token, Token::Eq | Token::ColonEq)
       {
+        // `=` requires a type annotation (`: T =`).
+        // Without one, use `:=` for inference. Mirrors
+        // the same rule on the single-ident path so all
+        // three pattern forms (tuple / struct / array)
+        // stay consistent with `imu name = …`.
+        if self.tree.nodes[i].token == Token::Eq && annotated_ty.is_none() {
+          let span = self.tree.spans[i];
+
+          report_error(Error::new(ErrorKind::ExpectedTypeAnnotation, span));
+        }
+
         i += 1;
       }
 
@@ -7780,7 +7791,7 @@ impl<'a> Executor<'a> {
 
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
-  /// Finalize an `imu (a, b, …) = expr` tuple-destructuring
+  /// Finalize an `imu (a, b, …) := expr` tuple-destructuring
   /// declaration. The init expression's tuple value is on
   /// the stacks; for each pattern name, emit a TupleIndex
   /// to extract the matching element and bind a new local.
@@ -7827,7 +7838,7 @@ impl<'a> Executor<'a> {
           .collect()
       }
       Ty::Array(aid) => {
-        // `imu [a, b, c] = arr;`. For `[N]T` the binding
+        // `imu [a, b, c] := arr;`. For `[N]T` the binding
         // count must match N; for `[]T` we trust the user
         // (arity check would need a runtime guard). Each
         // pattern slot reads the same `elem_ty` via
@@ -11884,6 +11895,17 @@ impl<'a> Executor<'a> {
   }
 
   fn execute_match(&mut self, start_idx: usize, end_idx: usize) {
+    // Compile-time-known scrutinee value, used by the
+    // dead-arm pass to flag arms that provably can't fire
+    // (e.g. `match "zo" { "ivs" => ..., "zo" => ..., _ }`
+    // — `"ivs"` is unreachable). Constructed below from the
+    // scrutinee's tail Const insn when foldable.
+    enum KnownScrutinee {
+      Str(Symbol),
+      Int(u64),
+      Bool(bool),
+    }
+
     // Provisional skip — the main loop must not re-visit the
     // match's nodes after we return. Tightened below to
     // `rbrace_idx + 1` once we locate the match's own `}`.
@@ -11993,6 +12015,23 @@ impl<'a> Executor<'a> {
       _ => None,
     };
 
+    // Compile-time-known scrutinee value, captured for the
+    // dead-arm pass below. Folding (e.g. `"z" ++ "o"`) leaves
+    // a single Const insn as the most recent emission. If the
+    // scrutinee isn't const-foldable, this stays `None` and
+    // dead-arm detection is skipped.
+    let known_scrutinee: Option<KnownScrutinee> =
+      match self.sir.instructions.last() {
+        Some(Insn::ConstString { symbol, .. }) => {
+          Some(KnownScrutinee::Str(*symbol))
+        }
+        Some(Insn::ConstInt { value, .. }) => Some(KnownScrutinee::Int(*value)),
+        Some(Insn::ConstBool { value, .. }) => {
+          Some(KnownScrutinee::Bool(*value))
+        }
+        _ => None,
+      };
+
     let scrutinee_sym = if let Some(sym) = tail_load_sym
       && self
         .sir
@@ -12021,7 +12060,7 @@ impl<'a> Executor<'a> {
       // Propagate the producing Call's `return_type_args` to
       // the synthetic scrutinee — without this, a directly-
       // matched FFI call returning a parameterized enum
-      // (`match read_file(path) { Result::Ok(text) => ... }`)
+      // (`match read_file(path) { Result::Pass(text) => ... }`)
       // resolves variant payload types from the enum's fresh
       // generic vars instead of the call's concrete `[Str,
       // Int]`. The bound path (`imu r := call()`) already
@@ -12070,6 +12109,27 @@ impl<'a> Executor<'a> {
     let mut arm_idx = lbrace_idx + 1;
     let mut match_result_ty: Option<TyId> = None;
     let mut match_result_sym: Option<Symbol> = None;
+
+    // Exhaustiveness state. For finite scrutinee types
+    // (bool, enum) we track which constructors each arm
+    // covers; the post-loop check emits
+    // `NonExhaustiveMatch` if any are missing AND no
+    // wildcard arm appeared. Infinite types
+    // (int, float, str, char, bytes) require a wildcard
+    // outright — their value space can't be enumerated.
+    let mut seen_wildcard = false;
+    let mut seen_true = false;
+    let mut seen_false = false;
+    let mut seen_variants: HashSet<Symbol> = HashSet::default();
+
+    // Dead-arm pass state. Once any arm has provably matched
+    // a known-const scrutinee, every subsequent arm is dead.
+    // `dead_arm_pending_warnings` accumulates spans so we can
+    // emit them after the arm-walk (the borrow checker
+    // forbids `report_error` calls mid-walk while `self`
+    // is held mutably for SIR emission).
+    let mut matched_already = false;
+    let mut dead_arm_pending_warnings: Vec<Span> = Vec::new();
 
     while arm_idx < rbrace_idx {
       // Skip any stray comma from the previous arm.
@@ -12166,6 +12226,69 @@ impl<'a> Executor<'a> {
         && pat_idx + 2 < arrow_idx
         && self.tree.nodes[pat_idx + 1].token == Token::ColonColon
         && self.tree.nodes[pat_idx + 2].token == Token::Ident;
+
+      // Record what this arm covers for the exhaustiveness
+      // check below. Done before lowering so the post-loop
+      // check sees every arm regardless of how its body
+      // emits.
+      if is_wildcard {
+        seen_wildcard = true;
+      } else if pat_tok == Token::True {
+        seen_true = true;
+      } else if pat_tok == Token::False {
+        seen_false = true;
+      } else if is_enum_pat
+        && let Some(NodeValue::Symbol(variant_sym)) =
+          self.node_value(pat_idx + 2)
+      {
+        seen_variants.insert(variant_sym);
+      }
+
+      // Dead-arm detection: only meaningful when the
+      // scrutinee folded to a const literal. If a prior arm
+      // already matched, this arm can never fire — warn.
+      // Otherwise, compare this arm's literal pattern (if
+      // any) against the known scrutinee value; mismatch ⇒
+      // this arm can't fire either; match ⇒ this arm is the
+      // live one and every later arm is dead.
+      if let Some(known) = &known_scrutinee {
+        if matched_already {
+          dead_arm_pending_warnings.push(self.tree.spans[pat_idx]);
+        } else if is_wildcard {
+          matched_already = true;
+        } else {
+          let arm_matches = match (known, pat_tok) {
+            (KnownScrutinee::Str(scrut_sym), Token::String) => {
+              // Parser stores string-literal patterns as
+              // `NodeValue::Symbol` directly (see
+              // `parser.rs:2238-2242`); the symbol IS the
+              // interned string. Compare it against the
+              // scrutinee's interned symbol for equality.
+              matches!(
+                self.node_value(pat_idx),
+                Some(NodeValue::Symbol(sym)) if sym == *scrut_sym
+              )
+            }
+            (KnownScrutinee::Int(scrut_v), Token::Int) => matches!(
+              self.node_value(pat_idx),
+              Some(NodeValue::Literal(lit))
+                if self.literals.int_literals[lit as usize] == *scrut_v
+            ),
+            (KnownScrutinee::Bool(true), Token::True) => true,
+            (KnownScrutinee::Bool(false), Token::False) => true,
+            _ => false,
+          };
+
+          if arm_matches {
+            matched_already = true;
+          } else if matches!(
+            pat_tok,
+            Token::String | Token::Int | Token::True | Token::False
+          ) {
+            dead_arm_pending_warnings.push(self.tree.spans[pat_idx]);
+          }
+        }
+      }
 
       // Detect tuple pattern: `(a, b, ..)`. LParen opens a
       // tuple pattern only at pattern position — parameter
@@ -13130,6 +13253,52 @@ impl<'a> Executor<'a> {
       // Advance past the arm's body and optional trailing
       // comma; the outer `while` handles the comma skip.
       arm_idx = body_end;
+    }
+
+    // -- Dead arms -------------------------------------------
+    // Emit warnings collected during the arm-walk. Done after
+    // the loop so SIR emission inside the loop doesn't fight
+    // the borrow checker over `report_error`.
+    for span in dead_arm_pending_warnings {
+      report_error(Error::new(ErrorKind::UnreachableCode, span));
+    }
+
+    // -- Exhaustiveness --------------------------------------
+    // Finite scrutinee types (bool, enum) require every
+    // constructor OR a wildcard arm. Infinite types
+    // (int, float, str, char, bytes) require a wildcard —
+    // their value space can't be enumerated by literal arms.
+    if !seen_wildcard {
+      match self.ty_checker.kind_of(scrutinee_ty) {
+        Ty::Bool if !(seen_true && seen_false) => {
+          report_error(Error::new(
+            ErrorKind::NonExhaustiveMatch,
+            self.tree.spans[lbrace_idx],
+          ));
+        }
+        Ty::Enum(eid) => {
+          if let Some(et) = self.ty_checker.ty_table.enum_ty(eid) {
+            let et = *et;
+            let variants = self.ty_checker.ty_table.enum_variants(&et).to_vec();
+            let missing =
+              variants.iter().any(|v| !seen_variants.contains(&v.name));
+
+            if missing {
+              report_error(Error::new(
+                ErrorKind::NonExhaustiveMatch,
+                self.tree.spans[lbrace_idx],
+              ));
+            }
+          }
+        }
+        Ty::Int { .. } | Ty::Float(_) | Ty::Str | Ty::Char | Ty::Bytes => {
+          report_error(Error::new(
+            ErrorKind::NonExhaustiveMatch,
+            self.tree.spans[lbrace_idx],
+          ));
+        }
+        _ => {}
+      }
     }
 
     // -- 5. End label ----------------------------------------

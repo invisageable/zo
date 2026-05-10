@@ -19,11 +19,11 @@ fun main() {
     Option::None => showln(0),
   }
 
-  imu ok: Result<int, int> = Result::Ok(99);
+  imu ok: Result<int, int> = Result::Pass(99);
 
   match ok {
-    Result::Ok(v) => showln(v),
-    Result::Err(e) => showln(e),
+    Result::Pass(v) => showln(v),
+    Result::Fail(e) => showln(e),
   }
 }
 

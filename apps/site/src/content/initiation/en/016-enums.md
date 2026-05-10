@@ -9,6 +9,6 @@
   }
 
   -- construct
-  imu foo: Foo = For::Bar;
-  imu foo: Foo = For::Oof("What's crackin'?");
+  imu foo: Foo = Foo::Bar;
+  imu foo: Foo = Foo::Oof("What's crackin'?");
   ```

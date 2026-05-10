@@ -2,19 +2,19 @@
 -- @cmd — zo build result_match.zo
 
 fun ok_str() -> Result<str, int> {
-  return Result::Ok("success");
+  return Result::Pass("success");
 }
 
 fun err_str() -> Result<int, str> {
-  return Result::Err("failure");
+  return Result::Fail("failure");
 }
 
 fun ok_int() -> Result<int, int> {
-  return Result::Ok(42);
+  return Result::Pass(42);
 }
 
 fun err_int() -> Result<int, int> {
-  return Result::Err(99);
+  return Result::Fail(99);
 }
 
 fun main() {
@@ -22,32 +22,32 @@ fun main() {
   mut a := ok_str();
 
   match a {
-    Result::Ok(s) => showln(s),
-    Result::Err(e) => showln(e),
+    Result::Pass(s) => showln(s),
+    Result::Fail(e) => showln(e),
   }
 
   -- Result<int, str>: Err path.
   mut b := err_str();
 
   match b {
-    Result::Ok(n) => showln(n),
-    Result::Err(e) => showln(e),
+    Result::Pass(n) => showln(n),
+    Result::Fail(e) => showln(e),
   }
 
   -- Result<int, int>: Ok path.
   mut c := ok_int();
 
   match c {
-    Result::Ok(n) => showln(n),
-    Result::Err(e) => showln(e),
+    Result::Pass(n) => showln(n),
+    Result::Fail(e) => showln(e),
   }
 
   -- Result<int, int>: Err path.
   mut d := err_int();
 
   match d {
-    Result::Ok(n) => showln(n),
-    Result::Err(e) => showln(e),
+    Result::Pass(n) => showln(n),
+    Result::Fail(e) => showln(e),
   }
 }
 

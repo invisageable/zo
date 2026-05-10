@@ -240,7 +240,7 @@ impl Token {
   /// Returns the source text for type keyword tokens.
   ///
   /// In pattern binding positions a type keyword is used as
-  /// a variable name (e.g., `Result::Ok(bytes)` where
+  /// a variable name (e.g., `Result::Pass(bytes)` where
   /// `bytes` is tokenized as `BytesType`). This method
   /// provides the text so the executor can intern it as a
   /// binding symbol.

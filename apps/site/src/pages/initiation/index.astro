@@ -24,7 +24,7 @@ const sections = await Promise.all(
 );
 ---
 
-<Base title={title}>
+<Base title={title} description="">
   <NavBar items={items} />
   <Header class="header--fixed header--active blur" id="top-bar" />
   <Screen>
@@ -58,8 +58,8 @@ const sections = await Promise.all(
   .initiation h6::before { content: "###### "; }
 
   .initiation pre {
-    background: #000 !important;
     padding: 8px;
     overflow-x: auto;
+    background: #000 !important;
   }
 </style>

@@ -7,17 +7,17 @@ fun main() {
   imu path: str = "/tmp/zo-io-str-lines-loop.txt";
 
   match write_file(path, "alpha\nbeta\ngamma") {
-    Result::Ok(_) => {},
-    Result::Err(error) => eshowln(error),
+    Result::Pass(_) => {},
+    Result::Fail(error) => eshowln(error),
   }
 
   match read_file(path) {
-    Result::Ok(text) => {
+    Result::Pass(text) => {
       imu xs: []str = text.lines();
 
       for i := 0..xs.len => showln(xs[i]);
     },
-    Result::Err(error) => eshowln(error),
+    Result::Fail(error) => eshowln(error),
   }
 }
 

@@ -8,8 +8,8 @@ pub enum Option<$T> {
 
 -! A value or an error.
 pub enum Result<$T, $E> {
-  Ok($T),
-  Err($E),
+  Pass($T),
+  Fail($E),
 }
 
 -! Runtime payload passed into `@input` / `@change` event

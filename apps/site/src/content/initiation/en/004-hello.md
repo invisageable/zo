@@ -6,8 +6,8 @@
 
   fun main() {
     -- In our case, we call our buddy `showln`.
-    -- It tells the compiler to display the value passed
-    -- as argument with a newline at the end.
+    -- It tells the compiler to display the value
+    -- passed as argument with a newline at the end.
     showln("hello, hacker");
   }
 

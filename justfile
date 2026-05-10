@@ -326,6 +326,12 @@ site_audit:
 site_clean:
   cd apps/site && rm -rf node_modules/.vite .astro dist .vercel
 
+# site: Install dependencies
+[group('site')]
+site_prebuild:
+  cd apps/site && npm run prebuild
+
+
 # site: Run the development environment
 [group('site')]
 site_dev:

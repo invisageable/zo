@@ -38,5 +38,13 @@
 ## infinie loop
 
   ```zo
-  -- not implemented yet
+  mut x: int = 0;
+  loop {
+    if x == 1_000_000 {
+      showln(x);
+      break;
+    }
+
+    x += 1;
+  }
   ```

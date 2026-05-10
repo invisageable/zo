@@ -20,7 +20,7 @@ export function remarkZo() {
 
       parent.children[index] = {
         type: "html",
-        value: `<pre class="zo-block"><code>${inner}</code></pre>`,
+        value: `<pre class="zo-block f-iosevka"><code class="f-iosevka">${inner}</code></pre>`,
       };
     });
   };

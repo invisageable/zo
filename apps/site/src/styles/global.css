@@ -185,6 +185,10 @@ section::after {
   height: calc(33vh - (1.7em * 2));
 }
 
+code {
+  font-family: var(--font-iosevka);
+}
+
 p {
   font-size: 1.2rem;
   line-height: 1.4;
@@ -267,18 +271,24 @@ a {
 .keywords-list dd {
   margin: 0;
   padding-left: 0;
+  font-family: var(--font-suisse-intl);
 }
 .operator {
   display: inline-block;
   text-align: center;
   width: 40px;
 }
+table thead th {
+  padding: 0 0 24px 0;
+}
 th {
   text-align: left;
 }
 th:first-child,
-td:first-child {
-  padding-left: 16px;
+td:first-child, 
+.delimiters th:nth-child(2),
+.delimiters td:nth-child(1) {
+  padding-right: 16px;
 }
 td:first-child {
   text-align: center;

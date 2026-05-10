@@ -29,4 +29,6 @@ pub(crate) const QUOTES: &[&str] = &[
   "\"People don't get it ! People don't know how fast computers are!\" — Jonathan Blow",
   "\"Simplicity is the ultimate sophistication.\" — Leonardo da Vinci",
   "\"If you can't make a tool your primary workflow then you didn't build a tool.\" — Rik Arends",
+  "\"Insanely faster, Usain Bolt would be jealous.\" — i2N",
+  "\"Rust makes you wait. C makes you think. zo just lets you build.\" — i2N",
 ];

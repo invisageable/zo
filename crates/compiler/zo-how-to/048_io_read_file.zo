@@ -10,8 +10,8 @@ fun main() {
   imu content := read_file("samples/join-the-devolution.txt");
 
   match content {
-    Result::Ok(text) => showln(text),
-    Result::Err(error) => eshowln(error),
+    Result::Pass(text) => showln(text),
+    Result::Fail(error) => eshowln(error),
   }
 }
 

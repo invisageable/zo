@@ -79,6 +79,43 @@ impl Error {
   pub fn kind(&self) -> ErrorKind {
     unsafe { std::mem::transmute((self.data >> 48) as u16) }
   }
+
+  /// Returns the diagnostic severity derived from the kind.
+  ///
+  /// Severity is NOT stored on `Error` — it is computed from
+  /// the kind at classification time. This keeps `Error`
+  /// at exactly 16 bytes, so the collector's
+  /// `[Error; 128]` buffer stays at 2 KiB per thread.
+  #[inline(always)]
+  pub fn severity(&self) -> Severity {
+    severity(self.kind())
+  }
+}
+
+/// Diagnostic severity. Computed from `ErrorKind` via
+/// [`severity`] — never stored on `Error` to preserve its
+/// 16-byte packing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum Severity {
+  /// Hard error — fails the build, exit code non-zero.
+  Error,
+  /// Warning — surfaced in diagnostics but does not fail
+  /// the build.
+  Warning,
+}
+
+/// Maps an `ErrorKind` to its `Severity`.
+///
+/// Const so the compiler can collapse it to a jump table.
+/// Add new warning kinds to the match arm; everything else
+/// defaults to `Severity::Error`.
+pub const fn severity(kind: ErrorKind) -> Severity {
+  match kind {
+    ErrorKind::UnusedVariable
+    | ErrorKind::UnusedFunction
+    | ErrorKind::UnreachableCode => Severity::Warning,
+    _ => Severity::Error,
+  }
 }
 
 /// Error kinds for tokenizer and parser stages.
@@ -247,4 +284,8 @@ pub enum ErrorKind {
   RepeatLengthMismatch,
   // `[v...n]` where n isn't an integer literal in v1.
   RepeatCountNotConst,
+
+  // Match exhaustiveness — appended at the end to preserve
+  // the numeric error codes of variants above.
+  NonExhaustiveMatch,
 }
