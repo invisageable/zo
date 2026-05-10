@@ -34,7 +34,6 @@ const locale = getLocale();
         "@type": "SoftwareApplication",
         "name": "zo",
         "alternateName": "zo Programming Language",
-        "applicationCategory": "DeveloperApplication",
         "description": "A high-performance programming language designed to turn thoughts into type-safe software and UI instantly. Optimized for speed, simplicity, and data-oriented design.",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows, Web",
@@ -76,6 +75,27 @@ const locale = getLocale();
         "description": "A feature-rich ecosystem focused on high-performance, simplicity and data-oriented programming.",
         "url": "https://zo.compilords.house",
         "identifier": "https://github.com/invisageable/zo"
+      }
+    </script>
+    <!-- ai geo: WebSite + SearchAction (signals "real site",
+         enables Google's site-search rich result). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "zo",
+        "alternateName": "zo Programming Language",
+        "url": "https://zo.compilords.house",
+        "publisher": {
+          "@type": "Organization",
+          "name": "Compilords",
+          "url": "https://compilords.house"
+        },
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://zo.compilords.house/initiation?q={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
       }
     </script>
     <ClientRouter />

@@ -9,7 +9,10 @@ const version = await fetchLatestVersion();
 ---
 
 <section data-section="hero" class="hero">
-  <Title as="h1" class="hero-title">zo</Title>
+  <h1 class="sr-only">
+    zo — The high-performance programming language for type-safe software and Ui, by Compilords.
+  </h1>
+  <Title as="div" class="hero-title f-cirka">zo</Title>
   <p class="hero-tagline f-aeonik" set:html={textTransform(m.hero_tagline())} />
   <span class="hero-compiler-latest-version">v{version}</span>
   <Header class="header--inline blur" />
@@ -28,6 +31,7 @@ const version = await fetchLatestVersion();
 
     .hero-title {
       font-size: 24rem;
+      font-weight: bold;
     }
 
     .hero-tagline {
