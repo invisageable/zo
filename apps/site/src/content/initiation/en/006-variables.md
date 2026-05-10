@@ -21,8 +21,8 @@ Pick the least powerful one that works — that's the zo way.
 ### immutables
 
   ```zo
-  -- Hey, I'm `imu` — your immutable local. Set me once,
-  -- read me many.
+  -- Hey, I'm `imu` — your immutable local. Set me 
+  -- once, read me many.
   imu name: str = "johndoe";
   ```
 

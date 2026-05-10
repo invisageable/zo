@@ -8,8 +8,6 @@
       showln("hello, modular world");
     }
   }
-
-  say.hello();
   ```
 
 ## load

@@ -273,12 +273,17 @@ a {
   text-align: center;
   width: 40px;
 }
+table thead th {
+  padding: 0 0 24px 0;
+}
 th {
   text-align: left;
 }
 th:first-child,
-td:first-child {
-  padding-left: 16px;
+td:first-child, 
+.delimiters th:nth-child(2),
+.delimiters td:nth-child(1) {
+  padding-right: 16px;
 }
 td:first-child {
   text-align: center;

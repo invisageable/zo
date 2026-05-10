@@ -239,7 +239,7 @@ zo has 53 keywords in total:
   </tbody>
 </table>
 
-### assignment
+### assignments
 
 <table>
   <thead>
@@ -270,7 +270,7 @@ zo has 53 keywords in total:
   </tbody>
 </table>
 
-### other
+### others
 
 <table>
   <thead>
@@ -341,7 +341,7 @@ zo has 53 keywords in total:
 
 ### delimiters
 
-<table>
+<table class="delimiters">
   <thead>
     <tr>
       <th>Open</th>
@@ -405,7 +405,7 @@ zo has 53 keywords in total:
   </tbody>
 </table>
 
-### punctuation
+### punctuations
 
 <table>
   <thead>

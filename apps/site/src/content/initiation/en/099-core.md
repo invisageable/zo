@@ -33,11 +33,16 @@
 
 ## ranges
 
+  <!--
+  not implemented yet
   ```zo
   imu r1: Range = 0..10;     -- exclusive end (0..9)
   imu r2: Range = 0..=10;    -- inclusive end (0..10)
   imu r3: Range = a..b;      -- runtime bounds
+  ``` 
+  -->
 
+  ```zo
   for i := 0..5 {            -- iteration
     showln(i);               -- 0 1 2 3 4
   }
@@ -109,13 +114,13 @@
   imu path: str = "/path/to/file";
 
   match write_file(path, "hi") {
-    Result::Ok(_) => {},
-    Result::Err(_) => showln("write-err"),
+    Result::Pass(_) => {},
+    Result::Fail(_) => showln("write-err"),
   }
 
   match read_file(path) {
-    Result::Ok(text) => showln(text),
-    Result::Err(_) => showln("read-err"),
+    Result::Pass(text) => showln(text),
+    Result::Fail(_) => showln("read-err"),
   }
 
   -- directory

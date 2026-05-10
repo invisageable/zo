@@ -19,7 +19,7 @@
 
   ```zo
   -- only as expression
-  imu x: int = when true ? 1 : 2;
+  when true ? 1 : 2;
   ```
 
 ## pattern matching
