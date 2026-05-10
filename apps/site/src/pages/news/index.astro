@@ -22,7 +22,7 @@ const news = (await loadNews(locale)).slice().reverse();
 const items: Item[] = await getNewsNavItems(locale);
 ---
 
-<Base title="zo — News.">
+<Base title="zo — News." description={m.news_description()}>
   <NavBar items={items} />
   <Header class="header--fixed header--active blur" id="top-bar" />
   <Screen>

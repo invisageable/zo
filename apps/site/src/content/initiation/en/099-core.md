@@ -91,9 +91,9 @@
   v.set(1, 42); -- set in-bounds.
   !v.set(7, 0); -- set out-of-bounds returns false.
 
-  v.pop(); -- Option::Some(30)
+  v.pop();      -- Option::Some(30)
 
-  v.remove(1); -- Option::Some(42)
+  v.remove(1);  -- Option::Some(42)
 
   v.free();
   ```

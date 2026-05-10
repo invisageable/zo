@@ -12,7 +12,7 @@ A language to ship, run, and build native and web applications optimized for spe
 ## Documentation
 - [Initiation](https://zo.compilords.house/initiation): Canonical language guide
 - [News](https://zo.compilords.house/news): Releases, milestones, design notes
-- [Full docs (LLM-formatted)](https://zo.compilords.house/docs/llms.txt): Aggregated docs for ingestion
+- [Full docs (LLM-formatted)](https://zo.compilords.house/docs/llms-full.txt): Aggregated docs for ingestion
 
 ## Source
 - [Repository](https://github.com/invisageable/zo): Compiler source, dual-licensed Apache-2.0 OR MIT

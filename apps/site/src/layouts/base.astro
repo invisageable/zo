@@ -5,9 +5,10 @@ import { getLocale } from "../paraglide/runtime.js";
 
 interface Props {
   title: string;
+  description: string;
 }
 
-const { title } = Astro.props;
+const { title, description } = Astro.props;
 const locale = getLocale();
 ---
 
@@ -18,6 +19,65 @@ const locale = getLocale();
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+    <!-- open graph / facebook -->
+		<meta property="og:type" content="website" />
+		<meta property="og:url" content={Astro.url} />
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+    <!-- ai geo -->
+    <meta name="description" content="zo: Turn thoughts into type-safe software and UI instantly. High-performance, data-oriented language by Compilords." />
+    <link rel="alternate" type="text/plain" title="LLM Documentation" href="https://zo.compilords.house/docs/llms-full.txt" />
+    <!-- ai specific JSON-LD -->
+		<script type="application/ld+json">
+		  {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "zo",
+        "alternateName": "zo Programming Language",
+        "applicationCategory": "DeveloperApplication",
+        "description": "A high-performance programming language designed to turn thoughts into type-safe software and UI instantly. Optimized for speed, simplicity, and data-oriented design.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Linux, macOS, Windows, Web",
+        "downloadUrl": "https://zo.compilords.house/install.sh",
+        "featureList": [
+          "Execution-based compilation (10M LoC/s)",
+          "zsx (zo syntax extension) for unified UI",
+          "Hindley-Milner type inference",
+          "Structured concurrency",
+          "Zero-config package management with fret"
+        ],
+        "author": {
+          "@type": "Organization",
+          "name": "Compilords",
+          "url": "https://compilords.house"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": "0.00",
+          "priceCurrency": "USD"
+        },
+        "softwareHelp": {
+          "@type": "CreativeWork",
+          "url": "https://zo.compilords.house/initiation"
+        },
+        "mainEntityOfPage": {
+          "@type": "WebPage",
+          "@id": "https://zo.compilords.house"
+        }
+		  }
+		</script>
+    <!-- ai specific JSON-LD -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ComputerLanguage",
+        "name": "zo",
+        "alternateName": "zo-lang",
+        "description": "A feature-rich ecosystem focused on high-performance, simplicity and data-oriented programming.",
+        "url": "https://zo.compilords.house",
+        "identifier": "https://github.com/invisageable/zo"
+      }
+    </script>
     <ClientRouter />
   </head>
   <body>

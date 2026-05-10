@@ -185,6 +185,10 @@ section::after {
   height: calc(33vh - (1.7em * 2));
 }
 
+code {
+  font-family: var(--font-iosevka);
+}
+
 p {
   font-size: 1.2rem;
   line-height: 1.4;
@@ -267,6 +271,7 @@ a {
 .keywords-list dd {
   margin: 0;
   padding-left: 0;
+  font-family: var(--font-suisse-intl);
 }
 .operator {
   display: inline-block;
