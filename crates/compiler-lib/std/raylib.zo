@@ -73,3 +73,14 @@ pub ffi get_frame_time() -> float;
 -! convention. Radius is narrowed from f64 to f32 at the FFI
 -! boundary — raylib's API takes f32.
 pub ffi draw_circle(x: int, y: int, radius: float, color: int);
+
+-! Draw a filled circle at `center` with `radius` and
+-! `color`. `Vector2` passes by value — its two f32 fields go
+-! in `s0`/`s1` (HFA), then `radius` in `s2`, `color` in `w0`.
+pub ffi draw_circle_v(center: Vector2, radius: float, color: int);
+
+-! Current mouse position (in screen pixels). Returns by
+-! value — raylib writes the Vector2's f32 fields into
+-! `s0`/`s1` (HFA), zo widens each to f64 and stores into a
+-! local Vector2 struct.
+pub ffi get_mouse_position() -> Vector2;

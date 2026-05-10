@@ -165,6 +165,8 @@ pub const RAYLIB_SYMBOLS: &[&str] = &[
   "_IsKeyPressed",
   "_GetFrameTime",
   "_DrawCircle",
+  "_DrawCircleV",
+  "_GetMousePosition",
 ];
 
 /// True iff `c_sym` is part of [`RAYLIB_SYMBOLS`].

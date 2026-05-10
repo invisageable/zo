@@ -4,7 +4,7 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
-  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, PatchSite,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D2, FpRegister, PatchSite,
   Register, SP, X0, X1, X2, X3, X4, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
@@ -1958,6 +1958,8 @@ impl<'a> ARM64Gen<'a> {
           "is_key_pressed" => self.emit_raylib_is_key_pressed(args, idx),
           "get_frame_time" => self.emit_raylib_get_frame_time(idx),
           "draw_circle" => self.emit_raylib_draw_circle(args),
+          "draw_circle_v" => self.emit_raylib_draw_circle_v(args),
+          "get_mouse_position" => self.emit_raylib_get_mouse_position(idx),
           "exists" => self.emit_io_exists(args, idx),
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
@@ -4817,6 +4819,66 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_fcvt_d_to_s(D0, r_d);
 
     self.emit_extern_call("_DrawCircle");
+  }
+
+  /// `draw_circle_v(center: Vector2, radius: float, color: int)`
+  /// → `void DrawCircleV(Vector2, float, Color)`.
+  ///
+  /// AArch64 AAPCS classifies `Vector2 { x: f32, y: f32 }` as
+  /// HFA — passed in consecutive S registers. zo stores
+  /// each field in an 8-byte slot as f64; codegen loads
+  /// them, narrows via `FCVT S, D`, lands them in `s0`/`s1`.
+  /// Then `radius` (also narrowed) → `s2`, `color` → `w0`.
+  fn emit_raylib_draw_circle_v(&mut self, args: &[ValueId]) {
+    let v_base = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let r_d = args.get(1).and_then(|v| self.alloc_fp_reg(*v)).unwrap_or(D2);
+    let color = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    // Vector2 fields stored at [v_base+0] (x), [v_base+8] (y),
+    // each as f64 (zo's internal float). Load → narrow → S0/S1.
+    self.emitter.emit_ldr_fp(D0, v_base, 0);
+    self.emitter.emit_fcvt_d_to_s(D0, D0);
+    self.emitter.emit_ldr_fp(D1, v_base, 8);
+    self.emitter.emit_fcvt_d_to_s(D1, D1);
+
+    // Radius → S2.
+    self.emitter.emit_fcvt_d_to_s(D2, r_d);
+
+    // Color (packed RGBA) → W0.
+    if color != X0 {
+      self.emitter.emit_mov_reg(X0, color);
+    }
+
+    self.emit_extern_call("_DrawCircleV");
+  }
+
+  /// `get_mouse_position() -> Vector2` →
+  /// `Vector2 GetMousePosition(void)`.
+  ///
+  /// raylib returns a Vector2 in HFA registers `s0`/`s1`.
+  /// We allocate a struct slot in the local frame, widen
+  /// each f32 back to f64, store at offset 0/8, and return
+  /// the slot's base address.
+  fn emit_raylib_get_mouse_position(&mut self, idx: usize) {
+    self.emit_extern_call("_GetMousePosition");
+
+    // Receive: s0=x, s1=y. Widen to f64 in place
+    // (FCVT D, S writes the upper 32 bits, leaves V0/V1
+    // holding a proper double).
+    self.emitter.emit_fcvt_s_to_d(D0, D0);
+    self.emitter.emit_fcvt_s_to_d(D1, D1);
+
+    // Allocate a 2-field struct slot in the local frame —
+    // mirrors `Insn::StructConstruct`'s allocator.
+    let base = self.struct_base + self.next_struct_slot;
+    self.emit_str_fp_sp(D0, base);
+    self.emit_str_fp_sp(D1, base + STACK_SLOT_SIZE);
+    self.next_struct_slot += 2 * STACK_SLOT_SIZE;
+
+    // dst register holds the struct's base address.
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emit_add_sp_offset(dst, base);
+    }
   }
 
   // ================================================================
