@@ -12082,12 +12082,13 @@ impl<'a> Executor<'a> {
     let mut match_result_ty: Option<TyId> = None;
     let mut match_result_sym: Option<Symbol> = None;
 
-    // Phase 1 exhaustiveness state. For finite scrutinee
-    // types (bool, enum) we track which constructors each
-    // arm covers; the post-loop check emits
+    // Exhaustiveness state. For finite scrutinee types
+    // (bool, enum) we track which constructors each arm
+    // covers; the post-loop check emits
     // `NonExhaustiveMatch` if any are missing AND no
-    // wildcard arm appeared. Infinite types (str/int/...)
-    // are deferred to Phase 2.
+    // wildcard arm appeared. Infinite types
+    // (int, float, str, char, bytes) require a wildcard
+    // outright — their value space can't be enumerated.
     let mut seen_wildcard = false;
     let mut seen_true = false;
     let mut seen_false = false;
@@ -12189,9 +12190,10 @@ impl<'a> Executor<'a> {
         && self.tree.nodes[pat_idx + 1].token == Token::ColonColon
         && self.tree.nodes[pat_idx + 2].token == Token::Ident;
 
-      // Phase 1 exhaustiveness — record what this arm covers.
-      // Done before lowering so the post-loop check sees every
-      // arm regardless of how its body emits.
+      // Record what this arm covers for the exhaustiveness
+      // check below. Done before lowering so the post-loop
+      // check sees every arm regardless of how its body
+      // emits.
       if is_wildcard {
         seen_wildcard = true;
       } else if pat_tok == Token::True {
@@ -13170,10 +13172,11 @@ impl<'a> Executor<'a> {
       arm_idx = body_end;
     }
 
-    // -- 4b. Exhaustiveness (Phase 1) ------------------------
-    // Finite scrutinee types: every constructor must appear,
-    // OR a wildcard arm must be present. Infinite types
-    // (str/int/char/float/bytes) are deferred to Phase 2.
+    // -- Exhaustiveness --------------------------------------
+    // Finite scrutinee types (bool, enum) require every
+    // constructor OR a wildcard arm. Infinite types
+    // (int, float, str, char, bytes) require a wildcard —
+    // their value space can't be enumerated by literal arms.
     if !seen_wildcard {
       match self.ty_checker.kind_of(scrutinee_ty) {
         Ty::Bool if !(seen_true && seen_false) => {
@@ -13196,6 +13199,12 @@ impl<'a> Executor<'a> {
               ));
             }
           }
+        }
+        Ty::Int { .. } | Ty::Float(_) | Ty::Str | Ty::Char | Ty::Bytes => {
+          report_error(Error::new(
+            ErrorKind::NonExhaustiveMatch,
+            self.tree.spans[lbrace_idx],
+          ));
         }
         _ => {}
       }
