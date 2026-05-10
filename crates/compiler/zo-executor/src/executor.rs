@@ -12082,6 +12082,17 @@ impl<'a> Executor<'a> {
     let mut match_result_ty: Option<TyId> = None;
     let mut match_result_sym: Option<Symbol> = None;
 
+    // Phase 1 exhaustiveness state. For finite scrutinee
+    // types (bool, enum) we track which constructors each
+    // arm covers; the post-loop check emits
+    // `NonExhaustiveMatch` if any are missing AND no
+    // wildcard arm appeared. Infinite types (str/int/...)
+    // are deferred to Phase 2.
+    let mut seen_wildcard = false;
+    let mut seen_true = false;
+    let mut seen_false = false;
+    let mut seen_variants: HashSet<Symbol> = HashSet::default();
+
     while arm_idx < rbrace_idx {
       // Skip any stray comma from the previous arm.
       while arm_idx < rbrace_idx
@@ -12177,6 +12188,22 @@ impl<'a> Executor<'a> {
         && pat_idx + 2 < arrow_idx
         && self.tree.nodes[pat_idx + 1].token == Token::ColonColon
         && self.tree.nodes[pat_idx + 2].token == Token::Ident;
+
+      // Phase 1 exhaustiveness — record what this arm covers.
+      // Done before lowering so the post-loop check sees every
+      // arm regardless of how its body emits.
+      if is_wildcard {
+        seen_wildcard = true;
+      } else if pat_tok == Token::True {
+        seen_true = true;
+      } else if pat_tok == Token::False {
+        seen_false = true;
+      } else if is_enum_pat
+        && let Some(NodeValue::Symbol(variant_sym)) =
+          self.node_value(pat_idx + 2)
+      {
+        seen_variants.insert(variant_sym);
+      }
 
       // Detect tuple pattern: `(a, b, ..)`. LParen opens a
       // tuple pattern only at pattern position — parameter
@@ -13141,6 +13168,37 @@ impl<'a> Executor<'a> {
       // Advance past the arm's body and optional trailing
       // comma; the outer `while` handles the comma skip.
       arm_idx = body_end;
+    }
+
+    // -- 4b. Exhaustiveness (Phase 1) ------------------------
+    // Finite scrutinee types: every constructor must appear,
+    // OR a wildcard arm must be present. Infinite types
+    // (str/int/char/float/bytes) are deferred to Phase 2.
+    if !seen_wildcard {
+      match self.ty_checker.kind_of(scrutinee_ty) {
+        Ty::Bool if !(seen_true && seen_false) => {
+          report_error(Error::new(
+            ErrorKind::NonExhaustiveMatch,
+            self.tree.spans[lbrace_idx],
+          ));
+        }
+        Ty::Enum(eid) => {
+          if let Some(et) = self.ty_checker.ty_table.enum_ty(eid) {
+            let et = *et;
+            let variants = self.ty_checker.ty_table.enum_variants(&et).to_vec();
+            let missing =
+              variants.iter().any(|v| !seen_variants.contains(&v.name));
+
+            if missing {
+              report_error(Error::new(
+                ErrorKind::NonExhaustiveMatch,
+                self.tree.spans[lbrace_idx],
+              ));
+            }
+          }
+        }
+        _ => {}
+      }
     }
 
     // -- 5. End label ----------------------------------------

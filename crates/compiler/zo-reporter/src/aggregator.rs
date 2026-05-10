@@ -172,6 +172,7 @@ impl ErrorAggregator {
         | ErrorKind::ArityMismatch
         | ErrorKind::InvalidCast
         | ErrorKind::InvalidPattern
+        | ErrorKind::NonExhaustiveMatch
         | ErrorKind::UnreachableCode
         | ErrorKind::UnusedVariable
         | ErrorKind::UnusedFunction

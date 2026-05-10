@@ -1,0 +1,31 @@
+-! # how to errors: 049_match_enum_missing_variant.zo
+-!
+-! @cmd: `zo build 049_match_enum_missing_variant.zo`
+-!
+-! A `match` on an enum must cover every variant — either with
+-! explicit arms or a `_` wildcard. Forgetting one is a compile
+-! error.
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+fun main() {
+  imu c: Color = Color::Red;
+
+  match c {
+    Color::Red   => check(true),
+    Color::Green => check(false),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- [E0633] Error: Non-exhaustive `match`
+--     ╭─[ 049_match_enum_missing_variant.zo:18:11 ]
+--     │
+--  18 │   match c {
+--     │           ┬
+--     │           ╰── this `match` does not cover every possible value — add the missing arms or a `_` wildcard
+-- ────╯

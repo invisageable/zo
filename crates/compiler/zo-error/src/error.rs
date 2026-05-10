@@ -247,4 +247,8 @@ pub enum ErrorKind {
   RepeatLengthMismatch,
   // `[v...n]` where n isn't an integer literal in v1.
   RepeatCountNotConst,
+
+  // Match exhaustiveness — appended at the end to preserve
+  // the numeric error codes of variants above.
+  NonExhaustiveMatch,
 }

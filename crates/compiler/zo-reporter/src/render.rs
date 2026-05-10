@@ -313,6 +313,7 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::ArityMismatch => "Arity mismatch",
     ErrorKind::InvalidCast => "Invalid cast",
     ErrorKind::InvalidPattern => "Invalid pattern",
+    ErrorKind::NonExhaustiveMatch => "Non-exhaustive `match`",
     ErrorKind::UnreachableCode => "Unreachable code",
     ErrorKind::UnusedVariable => "Unused variable",
     ErrorKind::UnusedFunction => "Unused function",
@@ -433,6 +434,10 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::ArityMismatch => "wrong number of arguments",
     ErrorKind::InvalidCast => "invalid cast between these types",
     ErrorKind::InvalidPattern => "invalid pattern here",
+    ErrorKind::NonExhaustiveMatch => {
+      "this `match` does not cover every possible value — \
+       add the missing arms or a `_` wildcard"
+    }
     ErrorKind::UnreachableCode => "this code will never execute",
     ErrorKind::UnusedVariable => "variable is never used",
     ErrorKind::UnusedFunction => "function is never called",
