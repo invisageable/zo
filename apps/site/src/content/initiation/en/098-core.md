@@ -47,7 +47,7 @@
     showln(i);               -- 0 1 2 3 4
   }
 
-  imu slice = xs[2..5];      -- slicing
+  imu slice: []int = xs[2..5];   -- slicing
   ```
 
 ## collection types

@@ -36,9 +36,36 @@ const { Content } = await render(entry);
 
 const items: Item[] = await getNewsNavItems(locale, "/news");
 const episodeId = formatEpisodeId(meta.season, meta.episode);
+
+const articleHeadline = meta.subtitle ?? `zo — ${episodeId}`;
+const articleUrl = new URL(Astro.url.pathname, Astro.site).toString();
+const articleSchema = {
+  "@context": "https://schema.org",
+  "@type": "Article",
+  headline: articleHeadline,
+  datePublished: meta.date.toISOString(),
+  url: articleUrl,
+  author: {
+    "@type": "Organization",
+    name: "Compilords",
+    url: "https://compilords.house",
+  },
+  publisher: {
+    "@type": "Organization",
+    name: "Compilords",
+    url: "https://compilords.house",
+  },
+  isPartOf: {
+    "@type": "WebSite",
+    name: "zo",
+    url: "https://zo.compilords.house",
+  },
+  mainEntityOfPage: { "@type": "WebPage", "@id": articleUrl },
+};
 ---
 
 <Base title={`zo — ${episodeId}.`} description="">
+  <script type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
   <NavBar items={items} />
   <Header class="header--fixed header--active blur" id="top-bar" />
   <Screen>
