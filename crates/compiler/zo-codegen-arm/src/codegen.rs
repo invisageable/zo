@@ -5,7 +5,7 @@ use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
   COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, PatchSite,
-  Register, SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
+  Register, SP, X0, X1, X2, X3, X4, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_register_allocation::{
@@ -1953,6 +1953,8 @@ impl<'a> ARM64Gen<'a> {
           "begin_drawing" => self.emit_raylib_begin_drawing(),
           "end_drawing" => self.emit_raylib_end_drawing(),
           "clear_background" => self.emit_raylib_clear_background(args),
+          "draw_text" => self.emit_raylib_draw_text(args),
+          "is_key_pressed" => self.emit_raylib_is_key_pressed(args, idx),
           "exists" => self.emit_io_exists(args, idx),
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
@@ -4696,6 +4698,46 @@ impl<'a> ARM64Gen<'a> {
     }
 
     self.emit_extern_call("_ClearBackground");
+  }
+
+  /// `draw_text(text: str, x: int, y: int, font_size: int, color: int)`
+  /// → `void DrawText(const char*, int, int, int, Color)`.
+  /// Mirrors `init_window`'s str+int marshaling, plus two
+  /// extra ints and the packed Color in X4.
+  fn emit_raylib_draw_text(&mut self, args: &[ValueId]) {
+    let text = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let x = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let y = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
+    let fs = args.get(3).and_then(|v| self.alloc_reg(*v)).unwrap_or(X3);
+    let color = args.get(4).and_then(|v| self.alloc_reg(*v)).unwrap_or(X4);
+
+    // str payload starts at +8 (skip the length prefix); the
+    // C side wants a NUL-terminated `const char *`.
+    self.emitter.emit_add_imm(X0, text, 8);
+    self.emitter.emit_mov_reg(X1, x);
+    self.emitter.emit_mov_reg(X2, y);
+    self.emitter.emit_mov_reg(X3, fs);
+    self.emitter.emit_mov_reg(X4, color);
+
+    self.emit_extern_call("_DrawText");
+  }
+
+  /// `is_key_pressed(key: int) -> bool` →
+  /// `bool IsKeyPressed(int)`. Result in W0 → dst register.
+  fn emit_raylib_is_key_pressed(&mut self, args: &[ValueId], idx: usize) {
+    let key = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    if key != X0 {
+      self.emitter.emit_mov_reg(X0, key);
+    }
+
+    self.emit_extern_call("_IsKeyPressed");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
   }
 
   // ================================================================

@@ -161,6 +161,8 @@ pub const RAYLIB_SYMBOLS: &[&str] = &[
   "_BeginDrawing",
   "_EndDrawing",
   "_ClearBackground",
+  "_DrawText",
+  "_IsKeyPressed",
 ];
 
 /// True iff `c_sym` is part of [`RAYLIB_SYMBOLS`].

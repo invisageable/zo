@@ -1,12 +1,13 @@
--- raylib M2 — open a window, draw a white background at
--- 60 FPS, wait for close, exit.
+-- raylib M3 — open a window, draw text on a white
+-- background at 60 FPS, exit on close-button or SPACE.
 -- @cmd — zo build window.zo && ./window
 --
 -- Requires `brew install raylib` (macOS).
 --
--- Manual visible test: a 800x600 window with a solid white
--- background appears. The user clicks the close button. The
--- program exits 0.
+-- Manual visible test: an 800x600 white window appears with
+-- the text "hello, zo!" rendered in black at the top-left.
+-- Pressing SPACE or clicking the close button exits the
+-- program with status 0.
 
 fun main() {
   init_window(800, 600, "zo + raylib");
@@ -14,9 +15,11 @@ fun main() {
 
   loop {
     when window_should_close() ? break : ();
+    when is_key_pressed(32) ? break : ();   -- KEY_SPACE = 32
 
     begin_drawing();
-    clear_background(0xFFFFFFFF);   -- packed RGBA: white opaque.
+    clear_background(0xFF000000);            -- white
+    draw_text("hello, zo!", 12, 12, 32, 0xFFFFFFFF);  -- black
     end_drawing();
   }
 

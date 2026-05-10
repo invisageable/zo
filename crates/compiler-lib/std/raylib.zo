@@ -30,5 +30,15 @@ pub ffi end_drawing();
 -! AArch64 AAPCS passes a 4-byte aggregate in the low half of
 -! a single integer register, identical to a packed `u32`.
 -! Layout (little-endian): byte 0 = r, byte 1 = g, byte 2 = b,
--! byte 3 = a. White opaque = `0xFFFFFFFF`.
+-! byte 3 = a. White opaque = `0xFFFFFFFF`. Black opaque =
+-! `0xFF000000`.
 pub ffi clear_background(color: int);
+
+-! Draw `text` at (`x`, `y`) with `font_size` and `color`.
+-! `color` packs RGBA per `clear_background`'s convention.
+pub ffi draw_text(text: str, x: int, y: int, font_size: int, color: int);
+
+-! True the frame `key` was pressed. Key codes match
+-! raylib's `KEY_*` constants — e.g. `KEY_SPACE = 32`,
+-! `KEY_ESCAPE = 256`.
+pub ffi is_key_pressed(key: int) -> bool;
