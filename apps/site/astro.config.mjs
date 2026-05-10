@@ -12,7 +12,17 @@ export default defineConfig({
   site: "https://zo.compilords.house",
   output: "server",
   adapter: vercel(),
-  integrations: [sitemap()],
+  integrations: [sitemap({
+    customPages: ['https://zo.compilords.house/docs/llms.txt'],
+    serialize(item) {
+      if (item.url === 'https://zo.compilords.house/docs/llms.txt') {
+        item.changefreq = /** @type {any} */ ('daily');
+        item.priority = 1.0;
+      }
+
+      return item;
+    },
+  })],
   markdown: {
     remarkPlugins: [remarkZo, remarkNewsNav, remarkShiftHeadings],
   },
