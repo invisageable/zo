@@ -612,7 +612,7 @@ struct PendingDecl {
   /// macOS realloc-on-stack UB.
   init_start_idx: usize,
   /// `Some(names)` for tuple-pattern destructuring
-  /// (`imu (a, b, c) = expr;`); each name binds the
+  /// (`imu (a, b, c) := expr;`); each name binds the
   /// corresponding tuple element. `None` for the
   /// regular single-name path. The lead `name` field
   /// is unused when this is `Some`.
@@ -6939,9 +6939,9 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Destructuring patterns: tuple `imu (a, b, c) = …`,
-    // struct `imu { x, y, z } = …`, or array
-    // `imu [a, b, c] = …`. The pattern names are bound to
+    // Destructuring patterns: tuple `imu (a, b, c) := …`,
+    // struct `imu { x, y, z } := …`, or array
+    // `imu [a, b, c] := …`. The pattern names are bound to
     // the rhs's matching elements at finalize time — tuple
     // by index, struct by field name (resolved from the
     // rhs's struct type), array by ordered index. The
@@ -7004,6 +7004,17 @@ impl<'a> Executor<'a> {
       if i < children_end
         && matches!(self.tree.nodes[i].token, Token::Eq | Token::ColonEq)
       {
+        // `=` requires a type annotation (`: T =`).
+        // Without one, use `:=` for inference. Mirrors
+        // the same rule on the single-ident path so all
+        // three pattern forms (tuple / struct / array)
+        // stay consistent with `imu name = …`.
+        if self.tree.nodes[i].token == Token::Eq && annotated_ty.is_none() {
+          let span = self.tree.spans[i];
+
+          report_error(Error::new(ErrorKind::ExpectedTypeAnnotation, span));
+        }
+
         i += 1;
       }
 
@@ -7780,7 +7791,7 @@ impl<'a> Executor<'a> {
 
   /// Called at Semicolon after the init expression has been
   /// evaluated and its value is on the stacks.
-  /// Finalize an `imu (a, b, …) = expr` tuple-destructuring
+  /// Finalize an `imu (a, b, …) := expr` tuple-destructuring
   /// declaration. The init expression's tuple value is on
   /// the stacks; for each pattern name, emit a TupleIndex
   /// to extract the matching element and bind a new local.
@@ -7827,7 +7838,7 @@ impl<'a> Executor<'a> {
           .collect()
       }
       Ty::Array(aid) => {
-        // `imu [a, b, c] = arr;`. For `[N]T` the binding
+        // `imu [a, b, c] := arr;`. For `[N]T` the binding
         // count must match N; for `[]T` we trust the user
         // (arity check would need a runtime guard). Each
         // pattern slot reads the same `elem_ty` via
