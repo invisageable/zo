@@ -4,8 +4,8 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
-  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D2, FpRegister, PatchSite,
-  Register, SP, X0, X1, X2, X3, X4, X9, X16, X17, X29, X30, XZR,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D2, FpRegister,
+  PatchSite, Register, SP, X0, X1, X2, X3, X4, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_register_allocation::{
@@ -4812,7 +4812,10 @@ impl<'a> ARM64Gen<'a> {
   fn emit_raylib_draw_circle(&mut self, args: &[ValueId]) {
     let x = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
     let y = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-    let r_d = args.get(2).and_then(|v| self.alloc_fp_reg(*v)).unwrap_or(D0);
+    let r_d = args
+      .get(2)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D0);
     let color = args.get(3).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
 
     self.emit_safe_int_arg_moves(&[(X0, x), (X1, y), (X2, color)]);
@@ -4831,7 +4834,10 @@ impl<'a> ARM64Gen<'a> {
   /// Then `radius` (also narrowed) → `s2`, `color` → `w0`.
   fn emit_raylib_draw_circle_v(&mut self, args: &[ValueId]) {
     let v_base = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let r_d = args.get(1).and_then(|v| self.alloc_fp_reg(*v)).unwrap_or(D2);
+    let r_d = args
+      .get(1)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D2);
     let color = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
 
     // Vector2 fields stored at [v_base+0] (x), [v_base+8] (y),

@@ -7468,6 +7468,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "serde",
  "serde_json",
+ "zo-ecs",
 ]
 
 [[package]]
@@ -7660,6 +7661,13 @@ dependencies = [
  "zo-tokenizer",
  "zo-ui-protocol",
  "zo-value",
+]
+
+[[package]]
+name = "zo-ecs"
+version = "0.3.11"
+dependencies = [
+ "criterion",
 ]
 
 [[package]]

@@ -1,0 +1,33 @@
+[package]
+name = "zo-ecs"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+
+# external:crates.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "spawn_despawn"
+harness = false
+
+[[bench]]
+name = "components"
+harness = false
+
+[[bench]]
+name = "query"
+harness = false
+
+[[bench]]
+name = "frame"
+harness = false

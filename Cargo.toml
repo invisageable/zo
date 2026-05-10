@@ -65,6 +65,7 @@ zo-constant-folding = { path = "crates/compiler/zo-constant-folding", version = 
 zo-constant-propagation = { path = "crates/compiler/zo-constant-propagation", version = "0.3.11" }
 zo-dce = { path = "crates/compiler/zo-dce", version = "0.3.11" }
 zo-driver = { path = "crates/compiler/zo-driver", version = "0.3.11" }
+zo-ecs = { path = "crates/compiler/zo-ecs", version = "0.3.11" }
 zo-emitter = { path = "crates/compiler/zo-emitter", version = "0.3.11" }
 zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.3.11" }
 zo-error = { path = "crates/compiler/zo-error", version = "0.3.11" }
