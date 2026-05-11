@@ -623,9 +623,17 @@ impl Compiler {
       self.profiler.start_phase(CODEGEN_NAME);
       let codegen = Codegen::new(target);
 
+      // ARM64Gen consults this view to drive the generic
+      // AAPCS FFI path; CLIF ignores it.
+      let type_view =
+        Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
+
       if should_emit_asm {
-        let artifact =
-          codegen.generate_artifact(&session.interner, &semantic.sir);
+        let artifact = codegen.generate_artifact(
+          &session.interner,
+          &semantic.sir,
+          type_view,
+        );
         let asm_path = path.with_extension("asm");
 
         let mut pp = PrettyPrinter::new();
@@ -642,7 +650,8 @@ impl Compiler {
         None => path.with_extension(""),
       };
 
-      let link_obj = codegen.generate(&session.interner, &semantic.sir);
+      let link_obj =
+        codegen.generate(&session.interner, &semantic.sir, type_view);
 
       self.stats.numartifacts += 1;
       self.profiler.end_phase(CODEGEN_NAME);
@@ -763,13 +772,17 @@ impl Stats {
 /// Runtime context a compiled binary depends on.
 /// Orthogonal flags — a program may pull in zero, one,
 /// or several runtimes (e.g. a UI program that also
-/// spawns background tasks).
-#[derive(Default, Clone, Copy)]
+/// spawns background tasks). `dylib_basenames` carries the
+/// `@executable_path/...` dylib basenames extracted from
+/// `Insn::PackLink` (per-pack `#link { ... }`); each one
+/// gets staged next to the user binary so dyld can
+/// resolve it.
+#[derive(Default, Clone)]
 struct RuntimeNeeds {
   concurrency: bool,
   native_ui: bool,
   web_ui: bool,
-  misato: bool,
+  dylib_basenames: Vec<String>,
 }
 
 /// Call-name prefixes that trigger runtime-dylib staging.
@@ -817,24 +830,12 @@ impl RuntimeNeeds {
           needs.concurrency = true;
         }
         zo_sir::Insn::Call { name, .. } => {
-          // HashMap / Vec / Set apply-method calls and
-          // a handful of FFI helpers lower to BLs against
-          // symbols in `libzo_runtime.dylib`. Hitting any
-          // of them triggers the dylib copy.
           let n = interner.get(*name);
 
           if RUNTIME_DYLIB_PREFIXES.iter().any(|p| n.starts_with(p))
             || RUNTIME_DYLIB_NAMES.contains(&n)
           {
             needs.concurrency = true;
-          }
-
-          // Any `__zo_misato_*` FFI call pulls in
-          // libzo_misato.dylib at link time. The compiler
-          // stages the dylib next to the produced binary
-          // so dyld resolves it via `@executable_path`.
-          if n.starts_with("__zo_misato_") {
-            needs.misato = true;
           }
         }
         zo_sir::Insn::Template { .. } => {
@@ -844,6 +845,39 @@ impl RuntimeNeeds {
           // emit `bridge.js` alongside the binary.
           needs.native_ui = true;
         }
+        zo_sir::Insn::PackLink { spec, .. } => {
+          // Two staging triggers:
+          // - `system: "@executable_path/<name>"` — the
+          //   pack ships its own dylib (e.g. misato).
+          //   Source lives in `<zo-exe-dir>/<name>`.
+          // - `vendor: "<name>"` — F7 fallback when the
+          //   user has no system install. Source lives in
+          //   `<zo-exe-dir>/../lib/vendor/<name>`.
+          //
+          // Absolute system paths (`/opt/...`,
+          // `/usr/...`) need no staging — dyld resolves
+          // them at load time.
+          if let Some(entry) = spec.host_entry() {
+            if let Some(sym) = entry.system {
+              let path = interner.get(sym);
+
+              if let Some(rest) = path.strip_prefix("@executable_path/") {
+                needs.dylib_basenames.push(rest.to_owned());
+              }
+            }
+
+            // Codegen's vendor fallback only fires when
+            // the system path is missing — but `from_sir`
+            // can't replicate that decision (no
+            // filesystem state per pack here without
+            // re-walking). Push every vendor name; the
+            // staging step is a no-op when the source
+            // file isn't present.
+            if let Some(sym) = entry.vendor {
+              needs.dylib_basenames.push(interner.get(sym).to_owned());
+            }
+          }
+        }
         _ => {}
       }
     }
@@ -852,7 +886,7 @@ impl RuntimeNeeds {
   }
 }
 
-/// Concurrency runtime file name for this host.
+// Per-host file names — `.dylib` on macOS, `.so` on Linux.
 #[cfg(target_os = "macos")]
 const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
 #[cfg(target_os = "linux")]
@@ -860,27 +894,12 @@ const CONCURRENCY_DYLIB: &str = "libzo_runtime.so";
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
 
-/// misato (Three.js-style) runtime file name for this host.
-#[cfg(target_os = "macos")]
-const MISATO_DYLIB: &str = "libzo_misato.dylib";
-#[cfg(target_os = "linux")]
-const MISATO_DYLIB: &str = "libzo_misato.so";
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-const MISATO_DYLIB: &str = "libzo_misato.dylib";
-
-/// Copy each runtime artifact the compiled binary
-/// needs into the binary's directory. The codegen
-/// embeds `@executable_path/<dylib>` as a
-/// `LC_LOAD_DYLIB` entry, so `dyld` resolves it
-/// relative to whatever directory the binary lives in
-/// at run time — this staging step is what makes that
-/// path actually resolve.
-///
-/// Sourced from the sibling directory of the running
-/// `zo` compiler binary (e.g. `target/debug/` when the
-/// compiler runs out of cargo's build output). No-op
-/// when the program needs no runtime, or when the
-/// source dylib isn't present.
+/// Materialise each `@executable_path/<dylib>` reference
+/// the linker emitted by copying that dylib next to the
+/// produced user binary. Sourced from the sibling
+/// directory of the running `zo` compiler (e.g.
+/// `target/debug/`). No-op when no runtime is needed or
+/// when the source dylib is missing.
 fn stage_runtime_artifacts(
   sir: &Sir,
   interner: &zo_interner::Interner,
@@ -888,7 +907,11 @@ fn stage_runtime_artifacts(
 ) {
   let needs = RuntimeNeeds::from_sir(sir, interner);
 
-  if !needs.concurrency && !needs.native_ui && !needs.web_ui && !needs.misato {
+  if !needs.concurrency
+    && !needs.native_ui
+    && !needs.web_ui
+    && needs.dylib_basenames.is_empty()
+  {
     return;
   }
 
@@ -905,66 +928,66 @@ fn stage_runtime_artifacts(
   };
 
   if needs.concurrency {
-    // Prefer `deps/` over the sibling copy. Cargo only
-    // restages the sibling `target/<profile>/<dylib>`
-    // when the cdylib's owning package is built directly
-    // (`cargo build -p zo-runtime`); transitive builds
-    // through `--bin zo` refresh `deps/` but leave the
-    // sibling stale, so a runtime change shipped via
-    // `cargo run --bin zo` would dyld-hang users with a
-    // missing-symbol error against the previous version.
-    // Fall back to the sibling for installed binaries
-    // where `deps/` doesn't exist.
-    let deps_src = runtime_dir.join("deps").join(CONCURRENCY_DYLIB);
-    let sibling_src = runtime_dir.join(CONCURRENCY_DYLIB);
-    let src = if deps_src.exists() {
-      deps_src
-    } else {
-      sibling_src
-    };
-    let dst = output_dir.join(CONCURRENCY_DYLIB);
-
-    // Always re-copy when the source exists. The earlier
-    // (size, mtime) skip-shortcut left stale dylibs on
-    // disk after a git checkout swapped source versions —
-    // two builds can land at the same minute with the
-    // same byte count but different contents, and dyld
-    // would silently hang the user binary in
-    // `dyld3::MachOFile::compatibleSlice` when the
-    // staged dylib's load commands don't line up.
-    // `std::fs::copy` of ~1 MB is microseconds — the
-    // staging cost is far cheaper than the diagnostic
-    // hours the optimization cost.
-    if src.exists() {
-      let _ = std::fs::copy(&src, &dst);
-    }
+    stage_dylib(runtime_dir, output_dir, CONCURRENCY_DYLIB);
   }
 
   // Native / web UI staging will land here when those
   // runtimes become separate dylibs referenced by the
   // binary (today they run in-process via `zo run`).
 
-  if needs.misato {
-    // Same `deps/`-then-sibling fallback as the
-    // concurrency dylib above. cargo restages
-    // `target/<profile>/libzo_misato.dylib` for direct
-    // package builds (`cargo build -p zo-misato`); a
-    // transitive build through `--bin zo` populates
-    // `deps/` but leaves the sibling stale, so prefer
-    // `deps/` whenever it's present to avoid dyld load
-    // mismatches between the cached sibling and the
-    // freshly-rebuilt symbol set.
-    let deps_src = runtime_dir.join("deps").join(MISATO_DYLIB);
-    let sibling_src = runtime_dir.join(MISATO_DYLIB);
-    let src = if deps_src.exists() {
-      deps_src
-    } else {
-      sibling_src
-    };
-    let dst = output_dir.join(MISATO_DYLIB);
+  for name in &needs.dylib_basenames {
+    stage_dylib(runtime_dir, output_dir, name);
+  }
+}
 
+/// Copy one runtime dylib next to a freshly-built user
+/// binary.
+///
+/// Prefers `deps/<name>` over the sibling
+/// `<runtime_dir>/<name>` because cargo only restages the
+/// sibling when the cdylib's owning package is built
+/// directly; a transitive build through `--bin zo`
+/// refreshes `deps/` but leaves the sibling stale.
+///
+/// Re-copy is unconditional. A `(size, mtime)` skip
+/// shortcut once left stale dylibs after a git checkout
+/// where two builds landed in the same minute with the
+/// same byte count but different `LC_LOAD_DYLIB` layouts —
+/// dyld silently hangs in that case.
+fn stage_dylib(
+  runtime_dir: &std::path::Path,
+  output_dir: &std::path::Path,
+  name: &str,
+) {
+  // Search order:
+  // 1. `deps/<name>` — cargo build artifacts that the
+  //    runtime crate produces (libzo_runtime,
+  //    libzo_misato).
+  // 2. `<runtime_dir>/<name>` — the sibling copy cargo
+  //    stages on direct cdylib builds (stale in
+  //    transitive builds, see below).
+  // 3. `<runtime_dir>/../lib/vendor/<name>` — F7
+  //    vendored prebuilts (raylib, future C libs)
+  //    placed by `tasks/zo-install.sh` or staged
+  //    manually under `target/lib/vendor/` for local
+  //    development.
+  //
+  // Re-copy is unconditional. A `(size, mtime)` skip
+  // shortcut once left stale dylibs after a git
+  // checkout where two builds landed in the same
+  // minute with the same byte count but different
+  // `LC_LOAD_DYLIB` layouts — dyld silently hangs in
+  // that case.
+  let candidates = [
+    runtime_dir.join("deps").join(name),
+    runtime_dir.join(name),
+    runtime_dir.join("..").join("lib").join("vendor").join(name),
+  ];
+
+  for src in &candidates {
     if src.exists() {
-      let _ = std::fs::copy(&src, &dst);
+      let _ = std::fs::copy(src, output_dir.join(name));
+      return;
     }
   }
 }

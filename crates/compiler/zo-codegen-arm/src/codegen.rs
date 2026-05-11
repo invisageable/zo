@@ -4,8 +4,8 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
-  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D2, D3, D16, FpRegister,
-  PatchSite, Register, SP, X0, X1, X2, X3, X4, X9, X16, X17, X29, X30, XZR,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D16, FpRegister,
+  PatchSite, Register, SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_register_allocation::{
@@ -13,9 +13,11 @@ use zo_register_allocation::{
   RegisterClass, SpillKind,
 };
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
-use zo_ty::TyId;
-use zo_value::ValueId;
-use zo_writer_macho::{DebugFrameEntry, MachO};
+use zo_ty::{Ty, TyId, TyTable};
+use zo_value::{FunctionKind, ValueId};
+use zo_writer_macho::{
+  DebugFrameEntry, EXECUTABLE_PATH_PREFIX, MachO, raylib_c_name,
+};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -390,6 +392,51 @@ pub struct ARM64Gen<'a> {
   /// this, large literals were O(N²) on the SIR stream.
   /// Direct `Vec<InsnIdx>` load — no hashing.
   value_def_idx: DenseMap<ValueId, InsnIdx>,
+  /// FFI signatures by symbol — populated in the pre-pass
+  /// by scanning every `Insn::FunDef` whose `kind` is
+  /// `FunctionKind::Intrinsic`. The `_` arm of
+  /// `Insn::Call`'s dispatch looks here before falling
+  /// through to the user-function path: a hit triggers
+  /// the generic AAPCS path (`abi::classify` +
+  /// `emit_ffi_call`).
+  ffi_sigs: HashMap<Symbol, FfiSig>,
+  /// Per-FFI host-resolved dylib path (`#link { macos: ...,
+  /// linux: ..., windows: ... }` from the declaring pack).
+  /// Built in the pre-pass; consumed by `into_link_object`
+  /// so the linker can route `LC_LOAD_DYLIB` + bind
+  /// ordinals from per-pack metadata instead of hardcoded
+  /// symbol-name predicates.
+  extern_dylib_paths: HashMap<String, String>,
+  /// `<exe-dir>/../lib/vendor` resolved once at backend
+  /// construction. Used by `resolve_link_entry`'s vendor
+  /// fallback to locate prebuilt dylibs shipped via
+  /// `tasks/zo-install.sh`. `None` when `current_exe()`
+  /// fails (sandboxed test runners, exotic platforms).
+  vendor_dir: Option<std::path::PathBuf>,
+  /// Read-only view of the type system needed by the
+  /// classifier (struct field walks for HFA, etc.).
+  /// `None` when the orchestrator didn't supply a
+  /// `TyChecker` — the generic FFI fallback stays off in
+  /// that case and per-symbol arms remain authoritative.
+  type_view: Option<TypeViewStored<'a>>,
+}
+
+/// Slice-only mirror of `abi::TypeQuery`, owned by the
+/// ARM64Gen so the lifetime is tied to the codegen
+/// instance instead of a transient call.
+#[derive(Clone, Copy)]
+struct TypeViewStored<'a> {
+  tys: &'a [Ty],
+  ty_table: &'a TyTable,
+}
+
+/// Per-FFI signature derived from `Insn::FunDef`'s
+/// `params` + `return_ty`. Kept as bare `TyId` lists so
+/// the classifier can be called per call-site without
+/// re-walking the SIR.
+struct FfiSig {
+  params: Vec<TyId>,
+  return_ty: TyId,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -539,7 +586,72 @@ impl<'a> ARM64Gen<'a> {
       struct_metas: HashMap::default(),
       enum_walk_done_fixups: Vec::new(),
       value_def_idx: DenseMap::new(),
+      ffi_sigs: HashMap::default(),
+      extern_dylib_paths: HashMap::default(),
+      vendor_dir: std::env::current_exe().ok().and_then(|exe| {
+        exe
+          .parent()
+          .map(|p| p.join("..").join("lib").join("vendor"))
+      }),
+      type_view: None,
     }
+  }
+
+  /// Attach the type-system view needed by the generic
+  /// AAPCS FFI path (struct field walks for HFA, etc.).
+  /// When set, the `_` arm of `Insn::Call`'s dispatch
+  /// falls back to `abi::classify` + `emit_ffi_call` for
+  /// any symbol that resolves to a `FunctionKind::Intrinsic`
+  /// `Insn::FunDef`. Without this, the FFI fallback stays
+  /// off and per-symbol arms remain authoritative.
+  pub fn with_type_view(
+    mut self,
+    tys: &'a [Ty],
+    ty_table: &'a TyTable,
+  ) -> Self {
+    self.type_view = Some(TypeViewStored { tys, ty_table });
+    self
+  }
+
+  /// Walk `system → vendor → None`. `system` paths are
+  /// checked on disk so a homebrew-installed
+  /// `/opt/homebrew/lib/libraylib.dylib` wins over the
+  /// bundled fallback. `@executable_path/...` system
+  /// entries skip the disk check (the file is only
+  /// staged later by `stage_runtime_artifacts`). `vendor`
+  /// names get rewritten to `@executable_path/<basename>`
+  /// because Mach-O's load-command region is a fixed
+  /// 1 KiB and absolute paths under `~/.zo/lib/vendor/`
+  /// blow past it.
+  fn resolve_link_entry(&self, entry: &zo_sir::LinkEntry) -> Option<String> {
+    if let Some(sym) = entry.system {
+      let path = self.interner.get(sym);
+
+      if path.starts_with(EXECUTABLE_PATH_PREFIX)
+        || std::path::Path::new(path).exists()
+      {
+        return Some(path.to_owned());
+      }
+    }
+
+    if let Some(sym) = entry.vendor {
+      let name = self.interner.get(sym);
+      let candidate = self.vendor_dir.as_ref()?.join(name);
+
+      if candidate.exists() {
+        // Emit `@executable_path/<basename>`. Mach-O
+        // reserves a fixed 1 KiB region for load
+        // commands; long absolute paths blow past it and
+        // corrupt the header. The compiler's
+        // `stage_runtime_artifacts` step copies the
+        // vendor file next to the user binary so dyld
+        // resolves it at load time. Mirrors how
+        // `libzo_misato.dylib` ships per-binary.
+        return Some(format!("{EXECUTABLE_PATH_PREFIX}{name}"));
+      }
+    }
+
+    None
   }
 
   // --- Register allocation helpers ---
@@ -986,6 +1098,71 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
+    // Pre-pass: harvest per-pack `#link` paths. Must run
+    // BEFORE the fused walk below because that walk
+    // resolves each `pub ffi`'s dylib path by looking up
+    // its declaring pack — and the pack's `#link` may
+    // appear after some of its `pub ffi` declarations in
+    // the SIR stream (preload modules go first; ordering
+    // within a pack isn't guaranteed).
+    let mut pack_dylib: HashMap<Symbol, String> = HashMap::default();
+
+    for insn in insns.iter() {
+      if let Insn::PackLink { pack, spec } = insn
+        && let Some(entry) = spec.host_entry()
+        && let Some(path) = self.resolve_link_entry(entry)
+      {
+        pack_dylib.insert(*pack, path);
+      }
+    }
+
+    // Fused pre-pass: collect FFI signatures + bind each
+    // `pub ffi` to its declaring pack's dylib path in one
+    // walk. Tracks the most recent `PackDecl` to attribute
+    // each `FunctionKind::Intrinsic` to its owning pack.
+    //
+    // `ffi_sigs` feeds the generic AAPCS dispatch fallback
+    // (`_` arm of `Insn::Call`). `extern_dylib_paths`
+    // feeds the linker's `LC_LOAD_DYLIB` routing. C-symbol
+    // resolution mirrors the FFI fallback's: raylib's
+    // PascalCase names come from `RAYLIB_NAME_MAP`,
+    // everything else gets the bare `_<zo_name>` platform-
+    // underscore form.
+    let mut current_pack: Option<Symbol> = None;
+
+    for insn in insns.iter() {
+      match insn {
+        Insn::PackDecl { name, .. } => current_pack = Some(*name),
+        Insn::FunDef {
+          name,
+          kind: FunctionKind::Intrinsic,
+          params,
+          return_ty,
+          ..
+        } => {
+          self.ffi_sigs.insert(
+            *name,
+            FfiSig {
+              params: params.iter().map(|(_, ty)| *ty).collect(),
+              return_ty: *return_ty,
+            },
+          );
+
+          if let Some(pk) = current_pack
+            && let Some(path) = pack_dylib.get(&pk)
+          {
+            let zo_name = self.interner.get(*name);
+            let c_sym = raylib_c_name(zo_name)
+              .map(|s| s.to_owned())
+              .unwrap_or_else(|| format!("_{}", zo_name));
+
+            self.extern_dylib_paths.insert(c_sym, path.clone());
+          }
+        }
+        _ => {}
+      }
+    }
+
     // Pre-pass: collect `ArrayTyDef` and `MapTyDef`
     // metadata so the typed-write dispatchers can look
     // up element / scalar info regardless of where the
@@ -1229,6 +1406,7 @@ impl<'a> ARM64Gen<'a> {
       call_fixups: self.call_fixups,
       main_offset,
       ui_entry_offset,
+      extern_dylib_paths: self.extern_dylib_paths,
     }
   }
 
@@ -1947,48 +2125,12 @@ impl<'a> ARM64Gen<'a> {
           }
 
           "c_str" => self.emit_c_str(args, idx),
-          "init_window" => self.emit_raylib_init_window(args),
-          "window_should_close" => self.emit_raylib_window_should_close(idx),
-          "close_window" => self.emit_raylib_close_window(),
-          "set_target_fps" => self.emit_raylib_set_target_fps(args),
-          "begin_drawing" => self.emit_raylib_begin_drawing(),
-          "end_drawing" => self.emit_raylib_end_drawing(),
-          "clear_background" => self.emit_raylib_clear_background(args),
-          "draw_text" => self.emit_raylib_draw_text(args),
-          "is_key_pressed" => self.emit_raylib_is_key_pressed(args, idx),
-          "get_frame_time" => self.emit_raylib_get_frame_time(idx),
-          "draw_circle" => self.emit_raylib_draw_circle(args),
-          "draw_circle_v" => self.emit_raylib_draw_circle_v(args),
-          "get_mouse_position" => self.emit_raylib_get_mouse_position(idx),
-          "get_fps" => self.emit_raylib_get_fps(idx),
-
-          // misato — Three.js-style runtime in libzo_misato.dylib.
-          "__zo_misato_init_world" => self.emit_misato_init_world(idx),
-          "__zo_misato_destroy_world" => self.emit_misato_destroy_world(args),
-          "__zo_misato_make_box_geom" => {
-            self.emit_misato_make_box_geom(args, idx)
-          }
-          "__zo_misato_make_standard_mat" => {
-            self.emit_misato_make_standard_mat(args, idx)
-          }
-          "__zo_misato_spawn_box_mesh" => {
-            self.emit_misato_spawn_box_mesh(args, idx)
-          }
-          "__zo_misato_scene_add" => self.emit_misato_scene_add(args),
-          "__zo_misato_scene_render" => self.emit_misato_scene_render(args),
-          "__zo_misato_camera_new" => {
-            self.emit_misato_camera_new(args, idx)
-          }
-          "__zo_misato_camera_set_position" => {
-            self.emit_misato_camera_set_position(args)
-          }
-          "__zo_misato_camera_look_at" => {
-            self.emit_misato_camera_look_at(args)
-          }
-          "__zo_misato_mesh_set_position" => {
-            self.emit_misato_mesh_set_position(args)
-          }
-
+          // raylib + misato FFIs flow through the generic
+          // AAPCS fallback (`_` arm → `emit_ffi_call`).
+          // Misato C symbols already match `_<zo_name>` —
+          // the std `pub ffi __zo_misato_*` declarations
+          // name the C symbol directly, so no mapping is
+          // needed.
           "exists" => self.emit_io_exists(args, idx),
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
@@ -2214,6 +2356,51 @@ impl<'a> ARM64Gen<'a> {
           }
 
           _ => {
+            // Generic AAPCS FFI fallback. If `name`
+            // resolves to a `FunctionKind::Intrinsic`
+            // FunDef AND the orchestrator wired a
+            // `type_view`, classify the signature once
+            // and emit through `emit_ffi_call`. This is
+            // the path that lets a future `pub ffi` work
+            // with zero compiler edits — F4/F5 delete
+            // the per-symbol arms above and the calls
+            // fall through to here.
+            if let Some(view) = self.type_view
+              && let Some(sig) = self.ffi_sigs.get(name)
+            {
+              let abi = crate::abi::classify(
+                &sig.params,
+                sig.return_ty,
+                &crate::abi::TypeQuery {
+                  tys: view.tys,
+                  ty_table: view.ty_table,
+                },
+              );
+              let zo_name = self.interner.get(*name);
+              // Resolve the C symbol. raylib uses PascalCase
+              // (`init_window` → `_InitWindow`) so consult
+              // RAYLIB_NAME_MAP first; everything else just
+              // gets the platform leading underscore. F6 will
+              // replace this with per-`pack` `@link` metadata
+              // tied to the FFI declaration site.
+              let c_sym: &'static str =
+                if let Some(c) = raylib_c_name(zo_name) {
+                  c
+                } else {
+                  // Note: `.leak()` is fine here — c_sym strings
+                  // live for the duration of the codegen pass and
+                  // get embedded into the binary's symbol table.
+                  // A proper interner for c_sym strings is a
+                  // follow-up; today the symbol count is bounded
+                  // by the FFI surface (low hundreds at most).
+                  format!("_{}", zo_name).leak() as &'static str
+                };
+              self.emit_ffi_call(c_sym, &abi, args, idx);
+              return;
+            }
+
+            // User-function call (zo's own positional
+            // calling convention — not full AAPCS).
             // Move args to X0-X7 (GP) or D0-D7 (FP).
             // Collect moves first to detect clobbering:
             // if src of move B == dst of move A, moving A
@@ -4710,233 +4897,11 @@ impl<'a> ARM64Gen<'a> {
   }
 
   // ================================================================
-  // raylib bindings — direct extern calls into libraylib.dylib.
-  // String params take `int` (a C-string pointer from
-  // `c_str(...)`); the snake_case zo names map to raylib's
-  // CamelCase C symbols here.
-  // ================================================================
-
-  /// `init_window(width: int, height: int, title: int)` →
-  /// `void InitWindow(int, int, const char*)`.
-  /// `title` arrives as a c-string pointer (call site wrapped
-  /// the literal with `c_str(...)`), so no in-place +8.
-  fn emit_raylib_init_window(&mut self, args: &[ValueId]) {
-    let w = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let h = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-    let s = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
-
-    self.emit_safe_int_arg_moves(&[(X0, w), (X1, h), (X2, s)]);
-
-    self.emit_extern_call("_InitWindow");
-  }
-
-  /// `window_should_close() -> bool` →
-  /// `bool WindowShouldClose(void)`. Returns in W0; copy to
-  /// the dst register.
-  fn emit_raylib_window_should_close(&mut self, idx: usize) {
-    self.emit_extern_call("_WindowShouldClose");
-
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
-    }
-  }
-
-  /// `close_window()` → `void CloseWindow(void)`.
-  fn emit_raylib_close_window(&mut self) {
-    self.emit_extern_call("_CloseWindow");
-  }
-
-  /// `set_target_fps(fps: int)` → `void SetTargetFPS(int)`.
-  fn emit_raylib_set_target_fps(&mut self, args: &[ValueId]) {
-    let fps = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-
-    if fps != X0 {
-      self.emitter.emit_mov_reg(X0, fps);
-    }
-
-    self.emit_extern_call("_SetTargetFPS");
-  }
-
-  /// `begin_drawing()` → `void BeginDrawing(void)`.
-  fn emit_raylib_begin_drawing(&mut self) {
-    self.emit_extern_call("_BeginDrawing");
-  }
-
-  /// `end_drawing()` → `void EndDrawing(void)`.
-  fn emit_raylib_end_drawing(&mut self) {
-    self.emit_extern_call("_EndDrawing");
-  }
-
-  /// `clear_background(color: int)` → `void ClearBackground(Color)`.
-  /// AAPCS: raylib's 4-byte `Color` aggregate is passed in
-  /// the low 32 bits of a single integer register, identical
-  /// to a packed u32. We pass zo's `int` straight through —
-  /// raylib reads the low 32 bits as `(r,g,b,a)`.
-  fn emit_raylib_clear_background(&mut self, args: &[ValueId]) {
-    let color = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-
-    if color != X0 {
-      self.emitter.emit_mov_reg(X0, color);
-    }
-
-    self.emit_extern_call("_ClearBackground");
-  }
-
-  /// `draw_text(text: int, x: int, y: int, font_size: int, color: int)`
-  /// → `void DrawText(const char*, int, int, int, Color)`.
-  /// `text` arrives as a c-string pointer from `c_str(...)`.
-  fn emit_raylib_draw_text(&mut self, args: &[ValueId]) {
-    let text = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let x = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-    let y = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
-    let fs = args.get(3).and_then(|v| self.alloc_reg(*v)).unwrap_or(X3);
-    let color = args.get(4).and_then(|v| self.alloc_reg(*v)).unwrap_or(X4);
-
-    self.emit_safe_int_arg_moves(&[
-      (X0, text),
-      (X1, x),
-      (X2, y),
-      (X3, fs),
-      (X4, color),
-    ]);
-
-    self.emit_extern_call("_DrawText");
-  }
-
-  /// `is_key_pressed(key: int) -> bool` →
-  /// `bool IsKeyPressed(int)`. Result in W0 → dst register.
-  fn emit_raylib_is_key_pressed(&mut self, args: &[ValueId], idx: usize) {
-    let key = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-
-    if key != X0 {
-      self.emitter.emit_mov_reg(X0, key);
-    }
-
-    self.emit_extern_call("_IsKeyPressed");
-
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
-    }
-  }
-
-  /// `get_frame_time() -> float` → `float GetFrameTime(void)`.
-  /// raylib returns f32 in S0; zo's `float` is f64 — widen
-  /// via `FCVT D, S` so subsequent math stays in double.
-  fn emit_raylib_get_frame_time(&mut self, idx: usize) {
-    self.emit_extern_call("_GetFrameTime");
-
-    let dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
-    self.emitter.emit_fcvt_s_to_d(dst, D0);
-  }
-
-  /// `draw_circle(x: int, y: int, radius: float, color: int)`
-  /// → `void DrawCircle(int, int, float, Color)`.
-  /// Narrow zo's f64 radius via `FCVT S, D` so raylib reads
-  /// a real f32 in S0. Int args go through the clobber-safe
-  /// move sequence.
-  fn emit_raylib_draw_circle(&mut self, args: &[ValueId]) {
-    let x = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let y = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-    let r_d = args
-      .get(2)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D0);
-    let color = args.get(3).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
-
-    self.emit_safe_int_arg_moves(&[(X0, x), (X1, y), (X2, color)]);
-    self.emitter.emit_fcvt_d_to_s(D0, r_d);
-
-    self.emit_extern_call("_DrawCircle");
-  }
-
-  /// `draw_circle_v(center: Vector2, radius: float, color: int)`
-  /// → `void DrawCircleV(Vector2, float, Color)`.
-  ///
-  /// AArch64 AAPCS classifies `Vector2 { x: f32, y: f32 }` as
-  /// HFA — passed in consecutive S registers. zo stores
-  /// each field in an 8-byte slot as f64; codegen loads
-  /// them, narrows via `FCVT S, D`, lands them in `s0`/`s1`.
-  /// Then `radius` (also narrowed) → `s2`, `color` → `w0`.
-  fn emit_raylib_draw_circle_v(&mut self, args: &[ValueId]) {
-    let v_base = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let r_d = args
-      .get(1)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D2);
-    let color = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-
-    // Vector2 fields stored at [v_base+0] (x), [v_base+8] (y),
-    // each as f64 (zo's internal float). Load → narrow → S0/S1.
-    self.emitter.emit_ldr_fp(D0, v_base, 0);
-    self.emitter.emit_fcvt_d_to_s(D0, D0);
-    self.emitter.emit_ldr_fp(D1, v_base, 8);
-    self.emitter.emit_fcvt_d_to_s(D1, D1);
-
-    // Radius → S2.
-    self.emitter.emit_fcvt_d_to_s(D2, r_d);
-
-    // Color (packed RGBA) → W0.
-    if color != X0 {
-      self.emitter.emit_mov_reg(X0, color);
-    }
-
-    self.emit_extern_call("_DrawCircleV");
-  }
-
-  /// `get_mouse_position() -> Vector2` →
-  /// `Vector2 GetMousePosition(void)`.
-  ///
-  /// raylib returns a Vector2 in HFA registers `s0`/`s1`.
-  /// We allocate a struct slot in the local frame, widen
-  /// each f32 back to f64, store at offset 0/8, and return
-  /// the slot's base address.
-  fn emit_raylib_get_mouse_position(&mut self, idx: usize) {
-    self.emit_extern_call("_GetMousePosition");
-
-    // Receive: s0=x, s1=y. Widen to f64 in place
-    // (FCVT D, S writes the upper 32 bits, leaves V0/V1
-    // holding a proper double).
-    self.emitter.emit_fcvt_s_to_d(D0, D0);
-    self.emitter.emit_fcvt_s_to_d(D1, D1);
-
-    // Allocate a 2-field struct slot in the local frame —
-    // mirrors `Insn::StructConstruct`'s allocator.
-    let base = self.struct_base + self.next_struct_slot;
-    self.emit_str_fp_sp(D0, base);
-    self.emit_str_fp_sp(D1, base + STACK_SLOT_SIZE);
-    self.next_struct_slot += 2 * STACK_SLOT_SIZE;
-
-    // dst register holds the struct's base address.
-    if let Some(dst) = self.reg_for_insn(idx) {
-      self.emit_add_sp_offset(dst, base);
-    }
-  }
-
-  /// `get_fps() -> int` → `int GetFPS(void)`. Returns the
-  /// running frame rate in W0 (raylib uses 32-bit `int`);
-  /// zo widens to 64-bit by leaving the upper bits alone
-  /// (`MOV W` zeros the high half of X anyway).
-  fn emit_raylib_get_fps(&mut self, idx: usize) {
-    self.emit_extern_call("_GetFPS");
-
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
-    }
-  }
-
-  // ================================================================
-  // misato bindings — Three.js-style runtime hosted in
-  // libzo_misato.dylib. Symbols carry the namespacing
-  // prefix `__zo_misato_*` so they don't collide with
-  // raylib's CamelCase or zo-runtime's `_zo_*` prefix.
-  // Mach-O symbol names get an extra leading underscore
-  // (3 total) — that's what `emit_extern_call` expects.
+  // AAPCS marshaling primitives shared by `emit_ffi_call`
+  // (the generic FFI path). FP register moves use the same
+  // clobber-safe pattern as `emit_safe_int_arg_moves` —
+  // stash through D16 when a destination would overwrite a
+  // still-needed source.
   // ================================================================
 
   /// Clobber-safe FP register marshaling — mirrors
@@ -4971,224 +4936,214 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `__zo_misato_init_world() -> int` — no args. Returns
-  /// the world handle in X0.
-  fn emit_misato_init_world(&mut self, idx: usize) {
-    self.emit_extern_call("___zo_misato_init_world");
+  // ================================================================
+  // Generic AAPCS-driven FFI call.
+  //
+  // Consumes an `AbiCall` produced by `abi::classify` and
+  // emits the entire marshaling sequence. Drives codegen
+  // from the `pub ffi` declaration's type signature
+  // instead of a per-symbol handler.
+  //
+  // Ordering rationale:
+  //   1. Stack reservation (if any indirect args / return
+  //      slot).
+  //   2. HFA / Composite loads first — these READ from
+  //      struct-base GP regs but WRITE to FP regs and
+  //      composite-arg GP regs. Doing them first means a
+  //      later step that overwrites the struct-base reg
+  //      can't trip on a still-pending load.
+  //   3. Clobber-safe GP moves for plain `Gp` args —
+  //      `emit_safe_int_arg_moves` handles cross-class
+  //      cycles via the X16 scratch.
+  //   4. FCVT-narrow per `Fp { narrow: true }` arg. Each
+  //      narrow is in-place (S writes the low half of V),
+  //      so this never clobbers a sibling FP arg.
+  //   5. `BL c_sym`.
+  //   6. Return-value placement.
+  //   7. Stack restore.
+  // ================================================================
 
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
-    }
-  }
+  /// Emit a C call described by `abi`. `args` aligns
+  /// 1:1 with `abi.args`; `idx` is the SIR instruction
+  /// index, used to look up the destination register
+  /// via `reg_for_insn` / `fp_reg_for_insn`.
+  fn emit_ffi_call(
+    &mut self,
+    c_sym: &str,
+    abi: &crate::abi::AbiCall,
+    args: &[ValueId],
+    idx: usize,
+  ) {
+    use crate::abi::{AbiArg, AbiRet};
 
-  /// `__zo_misato_destroy_world(handle: int)` — 1 int arg.
-  fn emit_misato_destroy_world(&mut self, args: &[ValueId]) {
-    let h = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-
-    if h != X0 {
-      self.emitter.emit_mov_reg(X0, h);
-    }
-
-    self.emit_extern_call("___zo_misato_destroy_world");
-  }
-
-  /// `__zo_misato_make_box_geom(w: float, h: float, d: float) -> int`
-  /// — narrow each f64 to f32 in S0/S1/S2 via `FCVT S, D`.
-  fn emit_misato_make_box_geom(&mut self, args: &[ValueId], idx: usize) {
-    let w_d = args
-      .first()
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D0);
-    let h_d = args
-      .get(1)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D1);
-    let d_d = args
-      .get(2)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D2);
-
-    self.emit_safe_fp_arg_moves(&[(D0, w_d), (D1, h_d), (D2, d_d)]);
-    // FCVT in place — S writes the low 32 bits of V, so the
-    // f32 lives in the low half of D0/D1/D2 ready for AAPCS.
-    self.emitter.emit_fcvt_d_to_s(D0, D0);
-    self.emitter.emit_fcvt_d_to_s(D1, D1);
-    self.emitter.emit_fcvt_d_to_s(D2, D2);
-
-    self.emit_extern_call("___zo_misato_make_box_geom");
-
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
-    }
-  }
-
-  /// `__zo_misato_make_standard_mat(color: int) -> int` —
-  /// 1 packed-RGBA int, returns material handle.
-  fn emit_misato_make_standard_mat(&mut self, args: &[ValueId], idx: usize) {
-    let color = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-
-    if color != X0 {
-      self.emitter.emit_mov_reg(X0, color);
+    if abi.stack_bytes > 0 {
+      self.emitter.emit_sub_imm(SP, SP, abi.stack_bytes as u16);
     }
 
-    self.emit_extern_call("___zo_misato_make_standard_mat");
+    let mut gp_moves: Vec<(Register, Register)> = Vec::new();
+    let mut fp_moves: Vec<(FpRegister, FpRegister)> = Vec::new();
 
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
+    for (i, abi_arg) in abi.args.iter().enumerate() {
+      let arg_value = args[i];
+
+      match abi_arg {
+        AbiArg::Gp(dst_reg) => {
+          let src = self.alloc_reg(arg_value).unwrap_or(*dst_reg);
+          gp_moves.push((*dst_reg, src));
+        }
+
+        AbiArg::Fp { reg: dst_reg, .. } => {
+          let src = self.alloc_fp_reg(arg_value).unwrap_or(*dst_reg);
+          fp_moves.push((*dst_reg, src));
+        }
+
+        AbiArg::Hfa { regs, .. } => {
+          // zo stores struct fields at successive
+          // 8-byte slots. The argument's source register
+          // holds the struct's base address.
+          let v_base = self.alloc_reg(arg_value).unwrap_or(X0);
+          let narrow = matches!(
+            abi_arg,
+            AbiArg::Hfa {
+              width: zo_ty::FloatWidth::F32,
+              ..
+            }
+          );
+          for (j, reg) in regs.iter().enumerate() {
+            self.emitter.emit_ldr_fp(
+              *reg,
+              v_base,
+              (j as u32 * STACK_SLOT_SIZE) as u16,
+            );
+            if narrow {
+              self.emitter.emit_fcvt_d_to_s(*reg, *reg);
+            }
+          }
+        }
+
+        AbiArg::Composite { regs, .. } => {
+          // ≤ 16B composite — read each 8-byte slot from
+          // the struct's base into the matching GP arg
+          // register.
+          let v_base = self.alloc_reg(arg_value).unwrap_or(X0);
+          for (j, reg) in regs.iter().enumerate() {
+            self.emitter.emit_ldr(*reg, v_base, (j as i16) * 8);
+          }
+        }
+
+        AbiArg::Indirect { .. } => {
+          // > 16B composite — caller memcpys onto the
+          // reserved stack slot and passes a pointer to
+          // it. Not exercised by any current FFI; will
+          // implement when a `pub ffi` introduces a
+          // `Camera3D`-by-value parameter.
+          todo!(
+            "AAPCS Indirect arg marshaling — \
+             needed when an FFI declares a > 16B \
+             struct param (e.g. raylib Camera3D)"
+          );
+        }
+
+        AbiArg::Stack { .. } => {
+          // > 8 same-class args — overflows to stack.
+          // No current FFI hits this.
+          todo!(
+            "AAPCS Stack arg marshaling — \
+             needed when an FFI has > 8 GP or > 8 FP args"
+          );
+        }
+      }
     }
-  }
 
-  /// `__zo_misato_spawn_box_mesh(geom: int, mat: int,
-  ///                              x: float, y: float, z: float) -> int`
-  /// — 2 int args (X0/X1) + 3 float args narrowed into
-  /// S0/S1/S2.
-  fn emit_misato_spawn_box_mesh(&mut self, args: &[ValueId], idx: usize) {
-    let geom = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let mat = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-    let x_d = args
-      .get(2)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D0);
-    let y_d = args
-      .get(3)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D1);
-    let z_d = args
-      .get(4)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D2);
-
-    self.emit_safe_int_arg_moves(&[(X0, geom), (X1, mat)]);
-    self.emit_safe_fp_arg_moves(&[(D0, x_d), (D1, y_d), (D2, z_d)]);
-    self.emitter.emit_fcvt_d_to_s(D0, D0);
-    self.emitter.emit_fcvt_d_to_s(D1, D1);
-    self.emitter.emit_fcvt_d_to_s(D2, D2);
-
-    self.emit_extern_call("___zo_misato_spawn_box_mesh");
-
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
+    // Step 3: clobber-safe GP moves all at once.
+    if !gp_moves.is_empty() {
+      self.emit_safe_int_arg_moves(&gp_moves);
     }
-  }
 
-  /// `__zo_misato_scene_add(scene: int, ent: int)` —
-  /// append entity handle to scene's draw list.
-  fn emit_misato_scene_add(&mut self, args: &[ValueId]) {
-    let scene = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let ent = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-
-    self.emit_safe_int_arg_moves(&[(X0, scene), (X1, ent)]);
-
-    self.emit_extern_call("___zo_misato_scene_add");
-  }
-
-  /// `__zo_misato_scene_render(scene: int, cam_ptr: int)`
-  /// — drive one render pass; the runtime opens the
-  /// raylib 3D mode and dispatches per-entity draws.
-  fn emit_misato_scene_render(&mut self, args: &[ValueId]) {
-    let scene = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let cam = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-
-    self.emit_safe_int_arg_moves(&[(X0, scene), (X1, cam)]);
-
-    self.emit_extern_call("___zo_misato_scene_render");
-  }
-
-  /// `__zo_misato_camera_new(fov: float, aspect: float,
-  ///                          near: float, far: float) -> int`
-  /// — 4 float args narrowed into S0/S1/S2/S3.
-  fn emit_misato_camera_new(&mut self, args: &[ValueId], idx: usize) {
-    let fov = args
-      .first()
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D0);
-    let aspect = args
-      .get(1)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D1);
-    let near = args
-      .get(2)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D2);
-    let far = args
-      .get(3)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D3);
-
-    self.emit_safe_fp_arg_moves(&[
-      (D0, fov),
-      (D1, aspect),
-      (D2, near),
-      (D3, far),
-    ]);
-    self.emitter.emit_fcvt_d_to_s(D0, D0);
-    self.emitter.emit_fcvt_d_to_s(D1, D1);
-    self.emitter.emit_fcvt_d_to_s(D2, D2);
-    self.emitter.emit_fcvt_d_to_s(D3, D3);
-
-    self.emit_extern_call("___zo_misato_camera_new");
-
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
+    // Step 3b: clobber-safe FP moves all at once.
+    if !fp_moves.is_empty() {
+      self.emit_safe_fp_arg_moves(&fp_moves);
     }
-  }
 
-  /// `__zo_misato_camera_set_position(cam: int,
-  ///                                   x: float, y: float, z: float)`
-  /// — 1 int (X0) + 3 float args narrowed into S0/S1/S2.
-  fn emit_misato_camera_set_position(&mut self, args: &[ValueId]) {
-    self.emit_int_then_3_floats(args, "___zo_misato_camera_set_position");
-  }
-
-  /// `__zo_misato_camera_look_at(cam: int,
-  ///                              x: float, y: float, z: float)`.
-  fn emit_misato_camera_look_at(&mut self, args: &[ValueId]) {
-    self.emit_int_then_3_floats(args, "___zo_misato_camera_look_at");
-  }
-
-  /// `__zo_misato_mesh_set_position(mesh: int,
-  ///                                  x: float, y: float, z: float)`.
-  fn emit_misato_mesh_set_position(&mut self, args: &[ValueId]) {
-    self.emit_int_then_3_floats(args, "___zo_misato_mesh_set_position");
-  }
-
-  /// Shared marshaling for misato setters with the shape
-  /// `(handle: int, x: float, y: float, z: float)` — 1 int
-  /// arg in X0 + 3 float args narrowed into S0/S1/S2.
-  fn emit_int_then_3_floats(&mut self, args: &[ValueId], c_sym: &str) {
-    let h = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let x_d = args
-      .get(1)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D0);
-    let y_d = args
-      .get(2)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D1);
-    let z_d = args
-      .get(3)
-      .and_then(|v| self.alloc_fp_reg(*v))
-      .unwrap_or(D2);
-
-    if h != X0 {
-      self.emitter.emit_mov_reg(X0, h);
+    // Step 4: per-arg post-marshaling narrow.
+    for abi_arg in abi.args.iter() {
+      if let AbiArg::Fp { reg, narrow: true } = abi_arg {
+        self.emitter.emit_fcvt_d_to_s(*reg, *reg);
+      }
     }
-    self.emit_safe_fp_arg_moves(&[(D0, x_d), (D1, y_d), (D2, z_d)]);
-    self.emitter.emit_fcvt_d_to_s(D0, D0);
-    self.emitter.emit_fcvt_d_to_s(D1, D1);
-    self.emitter.emit_fcvt_d_to_s(D2, D2);
 
+    // Step 5.
     self.emit_extern_call(c_sym);
+
+    // Step 6: return.
+    match &abi.ret {
+      AbiRet::Void => {}
+
+      AbiRet::Gp(reg) => {
+        if let Some(dst) = self.reg_for_insn(idx)
+          && dst != *reg
+        {
+          self.emitter.emit_mov_reg(dst, *reg);
+        }
+      }
+
+      AbiRet::Fp { reg, widen } => {
+        if *widen {
+          self.emitter.emit_fcvt_s_to_d(*reg, *reg);
+        }
+        if let Some(dst) = self.fp_reg_for_insn(idx)
+          && dst != *reg
+        {
+          self.emitter.emit_fmov_fp(dst, *reg);
+        }
+      }
+
+      AbiRet::Hfa { regs, width } => {
+        // raylib returns an HFA in the same regs the call
+        // sites uses to PASS one. Widen back to zo's f64
+        // (in place) and stash into a fresh struct slot.
+        let widen = matches!(width, zo_ty::FloatWidth::F32);
+        let base = self.struct_base + self.next_struct_slot;
+
+        for (i, reg) in regs.iter().enumerate() {
+          if widen {
+            self.emitter.emit_fcvt_s_to_d(*reg, *reg);
+          }
+          self.emit_str_fp_sp(*reg, base + i as u32 * STACK_SLOT_SIZE);
+        }
+        self.next_struct_slot += regs.len() as u32 * STACK_SLOT_SIZE;
+
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst, base);
+        }
+      }
+
+      AbiRet::Composite { .. } => {
+        // ≤ 16B returned packed into X0/X1; reconstruct
+        // a struct slot from the regs. Not exercised
+        // today.
+        todo!(
+          "AAPCS Composite return — \
+           needed when an FFI returns a ≤ 16B non-HFA \
+           struct"
+        );
+      }
+
+      AbiRet::Indirect { .. } => {
+        // > 16B return — X8 was set before the call.
+        // The slot is already at `slot_offset` on the
+        // current stack frame. Not exercised today.
+        todo!(
+          "AAPCS Indirect return — \
+           needed when an FFI returns a > 16B struct"
+        );
+      }
+    }
+
+    // Step 7: restore stack.
+    if abi.stack_bytes > 0 {
+      self.emitter.emit_add_imm(SP, SP, abi.stack_bytes as u16);
+    }
   }
 
   // ================================================================

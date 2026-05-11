@@ -283,6 +283,30 @@ impl PrettyPrinter {
 
           self.sir_instruction(&decl);
         }
+        Insn::PackLink { pack, spec } => {
+          let pack = interner.get(*pack);
+          let fmt_entry =
+            |label: &str, entry: &Option<zo_sir::LinkEntry>| match entry {
+              None => String::new(),
+              Some(e) => {
+                let sys = e
+                  .system
+                  .map(|s| format!(" system=\"{}\"", interner.get(s)))
+                  .unwrap_or_default();
+                let ven = e
+                  .vendor
+                  .map(|s| format!(" vendor=\"{}\"", interner.get(s)))
+                  .unwrap_or_default();
+
+                format!(" {label}={{{sys}{ven} }}")
+              }
+            };
+          let mac = fmt_entry("macos", &spec.macos);
+          let lin = fmt_entry("linux", &spec.linux);
+          let win = fmt_entry("windows", &spec.windows);
+
+          self.sir_instruction(&format!("link {pack}{mac}{lin}{win}"));
+        }
         Insn::Label { id } => {
           self.sir_instruction(&format!("L{id}:"));
         }

@@ -1,3 +1,4 @@
+pub mod abi;
 mod codegen;
 
 #[cfg(test)]

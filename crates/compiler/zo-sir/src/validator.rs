@@ -490,6 +490,7 @@ fn check_insn(
     Insn::StrSlice { ty_id, .. } => {
       check_placeholder(report, idx, *ty_id, "StrSlice.ty_id");
     }
+    Insn::PackLink { .. } => {}
   }
 }
 

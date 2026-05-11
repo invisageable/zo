@@ -5,8 +5,8 @@ use zo_interner::{
 };
 use zo_reporter::report_error;
 use zo_sir::{
-  BinOp, ComputedBinding, Insn, ListBinding, ListItemCmd, LoadSource,
-  NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
+  BinOp, ComputedBinding, Insn, LinkEntry, LinkSpec, ListBinding, ListItemCmd,
+  LoadSource, NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -355,6 +355,13 @@ pub struct Executor<'a> {
   /// Resolution into the mangled callee happens in
   /// `execute_potential_call`.
   pack_names: HashSet<Symbol>,
+  /// Most recently declared pack at the top level — set
+  /// on every `Insn::PackDecl` emission. Survives the
+  /// `pack X;` → bare items pattern that empties
+  /// `pack_context` after the decl. Used by
+  /// `#link { ... }` to attach dylib metadata to its
+  /// owning pack.
+  top_pack: Option<Symbol>,
   /// Global compile-time constants (`val` at module level).
   /// Visible from all functions.
   global_constants: Vec<Local>,
@@ -689,6 +696,7 @@ impl<'a> Executor<'a> {
       apply_type_params: HashMap::default(),
       pack_context: Vec::new(),
       pack_names: HashSet::default(),
+      top_pack: None,
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
@@ -1661,9 +1669,14 @@ impl<'a> Executor<'a> {
       Token::Hash => {
         let children_end = (header.child_start + header.child_count) as usize;
 
-        self.execute_directive(idx, children_end);
+        // `#link { ... }` (and any future directive that
+        // owns its own `{...}` block) overrides
+        // `skip_until` with the matching `}` so trailing
+        // top-level items don't get silently absorbed by
+        // the parser's greedy child range.
+        let override_end = self.execute_directive(idx, children_end);
 
-        self.skip_until = children_end;
+        self.skip_until = override_end.unwrap_or(children_end);
       }
 
       // === TUPLES / GROUPING / TUPLE TYPE ===
@@ -5227,6 +5240,7 @@ impl<'a> Executor<'a> {
         report_error(Error::new(ErrorKind::DuplicateDefinition, span));
       }
 
+      self.top_pack = Some(name);
       self.sir.emit(Insn::PackDecl {
         name,
         pubness: if self.is_pub(start_idx) {
@@ -17161,14 +17175,24 @@ impl<'a> Executor<'a> {
     });
   }
 
-  fn execute_directive(&mut self, start_idx: usize, end_idx: usize) {
+  /// Returns `Some(skip_until)` when the directive owns
+  /// its own `{...}` block (e.g. `#link`) and needs to
+  /// bound the main loop's resume point by the matching
+  /// `}` instead of the parser's greedy `end_idx`. Most
+  /// directives return `None` and let the caller fall
+  /// back to `children_end`.
+  fn execute_directive(
+    &mut self,
+    start_idx: usize,
+    end_idx: usize,
+  ) -> Option<usize> {
     // Directives: #identifier [expression]
     // Children come after Hash in the tree. We skip
     // them in the main loop (skip_until) and execute
     // the argument nodes here.
 
     if start_idx + 1 >= end_idx {
-      return;
+      return None;
     }
 
     // First child is the directive name.
@@ -17177,12 +17201,12 @@ impl<'a> Executor<'a> {
     if dir_idx >= self.tree.nodes.len()
       || self.tree.nodes[dir_idx].token != Token::Ident
     {
-      return;
+      return None;
     }
 
     let sym = match self.node_value(dir_idx) {
       Some(NodeValue::Symbol(s)) => s,
-      _ => return,
+      _ => return None,
     };
 
     let dir_name = self.interner.get(sym).to_owned();
@@ -17214,7 +17238,100 @@ impl<'a> Executor<'a> {
         });
       }
 
-      return;
+      return None;
+    }
+
+    // `#link { macos: "...", linux: "...", windows: "..." }`
+    // attaches per-platform dylib paths to the enclosing
+    // pack. The body is NOT a normal expression block —
+    // `macos`/`linux`/`windows` are policy keys, not idents
+    // to resolve — so we walk the brace block by hand
+    // instead of calling `execute_node` on the children.
+    // String values are already interned at tokenization.
+    if dir_name == "link" {
+      let lbrace = ((dir_idx + 1)..end_idx)
+        .find(|&i| self.tree.nodes[i].token == Token::LBrace);
+      let Some(lb) = lbrace else { return None };
+
+      // Bound iteration by the matching `}` of THIS
+      // `#link { ... }` block — the parser's `end_idx`
+      // greedily extends past the directive when there's
+      // no Semicolon terminator (the trailing `fun main`
+      // gets folded under the Hash node). Without this,
+      // the caller's `skip_until = end_idx` would skip
+      // past every following item in the file.
+      let block_end = self.find_matching_rbrace(lb, end_idx)?;
+
+      let Some(pack_sym) = self.top_pack else {
+        return None;
+      };
+      let mut spec = LinkSpec::default();
+      let mut i = lb + 1;
+
+      while i < block_end {
+        let tok = self.tree.nodes[i].token;
+
+        if tok == Token::Comma {
+          i += 1;
+          continue;
+        }
+        if tok != Token::Ident {
+          i += 1;
+          continue;
+        }
+
+        let Some(NodeValue::Symbol(key_sym)) = self.node_value(i) else {
+          i += 1;
+          continue;
+        };
+        let key = self.interner.get(key_sym).to_owned();
+
+        // Expect `key : <value>`; skip malformed entries.
+        // A `<value>` is either a String literal (bare
+        // path → folds into `LinkEntry { system: Some,
+        // vendor: None }`) OR a nested `{ system: "...",
+        // vendor: "..." }` block.
+        let colon_idx = i + 1;
+
+        if colon_idx >= block_end
+          || self.tree.nodes[colon_idx].token != Token::Colon
+        {
+          i = colon_idx + 1;
+          continue;
+        }
+        let val_idx = colon_idx + 1;
+
+        if val_idx >= block_end {
+          break;
+        }
+
+        let (entry_opt, after) =
+          self.parse_link_value(val_idx, block_end);
+
+        if let Some(entry) = entry_opt {
+          match key.as_str() {
+            "macos" => spec.macos = Some(entry),
+            "linux" => spec.linux = Some(entry),
+            "windows" => spec.windows = Some(entry),
+            _ => {}
+          }
+        }
+
+        i = after;
+      }
+
+      self.sir.emit(Insn::PackLink {
+        pack: pack_sym,
+        spec,
+      });
+
+      // Bound the caller's `skip_until` by THIS block's
+      // matching `}` instead of the parser's greedy
+      // `end_idx` — without this, trailing items
+      // (`fun main`, sibling `pub ffi`) get silently
+      // skipped because the directive's child range
+      // absorbs them.
+      return Some(block_end + 1);
     }
 
     // Execute argument children (after the name).
@@ -17235,6 +17352,135 @@ impl<'a> Executor<'a> {
       "inline" => {}
       _ => {}
     }
+
+    None
+  }
+
+  /// Find the `}` that matches the `{` at `lbrace_idx`,
+  /// bounded by `end_idx` (exclusive). Returns `None` if
+  /// the brace is unmatched within the range — callers
+  /// treat that as a parse abort.
+  fn find_matching_rbrace(
+    &self,
+    lbrace_idx: usize,
+    end_idx: usize,
+  ) -> Option<usize> {
+    let mut depth = 1_i32;
+    let mut j = lbrace_idx + 1;
+
+    while j < end_idx {
+      match self.tree.nodes[j].token {
+        Token::LBrace => depth += 1,
+        Token::RBrace => {
+          depth -= 1;
+
+          if depth == 0 {
+            return Some(j);
+          }
+        }
+        _ => {}
+      }
+
+      j += 1;
+    }
+
+    None
+  }
+
+  /// Parse one platform-slot value inside a `#link {
+  /// macos: <value>, ... }` block. `<value>` is either:
+  /// - a String literal — bare path, folds into
+  ///   `LinkEntry { system: Some(..), vendor: None }`;
+  /// - a `{ system: "...", vendor: "..." }` block — full
+  ///   nested form.
+  ///
+  /// Returns `(parsed_entry, next_idx)`. `next_idx` is
+  /// always strictly greater than `start` so the caller
+  /// makes progress even on malformed input.
+  fn parse_link_value(
+    &self,
+    start: usize,
+    block_end: usize,
+  ) -> (Option<LinkEntry>, usize) {
+    if start >= block_end {
+      return (None, block_end);
+    }
+
+    let tok = self.tree.nodes[start].token;
+
+    // Bare-string form.
+    if matches!(tok, Token::String | Token::RawString) {
+      if let Some(NodeValue::Symbol(sym)) = self.node_value(start) {
+        return (
+          Some(LinkEntry {
+            system: Some(sym),
+            vendor: None,
+          }),
+          start + 1,
+        );
+      }
+
+      return (None, start + 1);
+    }
+
+    // Nested `{ system: "...", vendor: "..." }`.
+    if tok != Token::LBrace {
+      return (None, start + 1);
+    }
+
+    let Some(inner_end) = self.find_matching_rbrace(start, block_end) else {
+      return (None, block_end);
+    };
+    let mut entry = LinkEntry::default();
+    let mut j = start + 1;
+
+    while j < inner_end {
+      let t = self.tree.nodes[j].token;
+
+      if t == Token::Comma {
+        j += 1;
+        continue;
+      }
+      if t != Token::Ident {
+        j += 1;
+        continue;
+      }
+
+      let Some(NodeValue::Symbol(key_sym)) = self.node_value(j) else {
+        j += 1;
+        continue;
+      };
+      let key = self.interner.get(key_sym).to_owned();
+      let colon = j + 1;
+
+      if colon >= inner_end || self.tree.nodes[colon].token != Token::Colon {
+        j = colon + 1;
+        continue;
+      }
+      let val = colon + 1;
+
+      if val >= inner_end
+        || !matches!(
+          self.tree.nodes[val].token,
+          Token::String | Token::RawString
+        )
+      {
+        j = val + 1;
+        continue;
+      }
+
+      if let Some(NodeValue::Symbol(val_sym)) = self.node_value(val) {
+        match key.as_str() {
+          "system" => entry.system = Some(val_sym),
+          "vendor" => entry.vendor = Some(val_sym),
+          _ => {}
+        }
+      }
+
+      j = val + 1;
+    }
+
+    (Some(entry), inner_end + 1)
   }
 
   /// Mangles `base_name` by appending `__<ty_name>` per

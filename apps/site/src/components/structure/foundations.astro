@@ -5,13 +5,15 @@ import * as m from "../../paraglide/messages";
 import Title from "../atoms/title.astro";
 import Paragraph from "../atoms/paragraph.astro";
 import logoEgui from "../../assets/logos/logo-egui.png";
+import logoRaylib from "../../assets/logos/logo-raylib.png";
 import logoWgpu from "../../assets/logos/logo-wgpu.png";
 import logoWry from "../../assets/logos/logo-wry.svg";
 
-const logos = [
+const FOUNDATiONS_LOGOS = [
   { src: logoEgui, alt: "egui", href: "https://github.com/emilk/egui" },
   { src: logoWgpu, alt: "wgpu", href: "https://github.com/gfx-rs/wgpu" },
   { src: logoWry, alt: "wry", href: "https://github.com/tauri-apps/wry" },
+  { src: logoRaylib, alt: "raylib", href: "https://github.com/raysan5/raylib" },
 ];
 ---
 
@@ -20,9 +22,9 @@ const logos = [
   <Paragraph content={textTransform(m.foundations_description())} />
   <ul class="foundations-logos">
     {
-      logos.map((logo) => <li>
-        <a href={logo.href} target="_blank" rel="noopener">
-          <Image src={logo.src} alt={logo.alt} />
+      FOUNDATiONS_LOGOS.map((logo) => <li>
+        <a class="link" href={logo.href} target="_blank" rel="noopener">
+          <Image class="logo" src={logo.src} alt={logo.alt} />
         </a>
       </li>
     )}
@@ -38,19 +40,19 @@ const logos = [
     gap: 32px;
     align-items: center;
     list-style: none;
-  }
 
-  .foundations-logos img {
-    height: 64px;
-    width: auto;
-    transition: opacity 350ms ease-in-out;
-  }
+    .link {
+      opacity: 0.7;
 
-  .foundations-logos a {
-    opacity: 0.7;
-  }
+      &:hover {
+        opacity: 1;
+      }
+    }
 
-  .foundations-logos a:hover {
-    opacity: 1;
+    .logo {
+      height: 64px;
+      width: auto;
+      transition: opacity 350ms ease-in-out;
+    }
   }
 </style>

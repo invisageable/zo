@@ -1,21 +1,13 @@
--- misato M2 — 3 colored cubes at known positions, viewed
--- from a user-controlled camera.
+-- misato — three 1×1×1 cubes side-by-side, each a different
+-- color, viewed from a user-controlled camera.
+--   - red   at (-2.0, 0.0, 0.0)
+--   - green at ( 0.0, 0.0, 0.0)
+--   - blue  at ( 2.0, 0.0, 0.0)
+-- Camera at (5, 5, 5) → origin.
 -- @cmd — zo build three_cubes.zo && ./three_cubes
 --
--- Requires `brew install raylib` (macOS).
---
--- Manual visible test: 800x600 window opens; three 1×1×1
--- cubes render in 3D space:
---   - red    at (-2.0, 0.0, 0.0)
---   - green  at ( 0.0, 0.0, 0.0)
---   - blue   at ( 2.0, 0.0, 0.0)
--- Camera sits at (5, 5, 5) looking at origin. Background
--- is light gray. SPACE or close exits.
---
--- Exercises everything M1 did + M2:
---   - PerspectiveCamera::new(...).set_position(...).look_at(...)
---   - MeshStandardMaterial honors the rgba color
---   - Mesh::new(...).set_position(...) places each cube
+-- Requires `brew install raylib` (macOS). SPACE or close
+-- exits.
 
 fun main() {
   init_window(800, 600, c_str("zo + misato — three cubes"));

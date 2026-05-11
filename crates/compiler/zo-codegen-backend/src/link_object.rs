@@ -78,4 +78,13 @@ pub struct MachoLinkObject {
   /// function within `code`, when the program emitted
   /// templates. `None` for non-template programs.
   pub ui_entry_offset: Option<u32>,
+  /// External C symbol → host-resolved dylib path the
+  /// linker should bind it to. Populated by walking
+  /// `Insn::PackLink` (per-pack `#link { macos: ... }`)
+  /// and `Insn::FunDef { kind: Intrinsic, .. }` —
+  /// every `pub ffi` inherits its declaring pack's link
+  /// metadata. Symbols absent from the map (libc, libm,
+  /// `libzo_runtime`) fall through to the linker's
+  /// libSystem / runtime defaults.
+  pub extern_dylib_paths: FxHashMap<String, String>,
 }

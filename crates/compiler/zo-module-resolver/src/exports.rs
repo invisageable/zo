@@ -248,16 +248,18 @@ pub fn extract_exports(
     }
   }
 
-  // Filter out PackDecl and EnumDef — PackDecl is a namespace
-  // directive with no codegen. EnumDef is handled by the
-  // executor via `with_imports` and its ty_ids reference the
-  // module's throwaway type checker; leaving them in the merged
-  // SIR causes ty_id collisions in the codegen's enum_metas
-  // HashMap.
+  // Filter out EnumDef only — its ty_ids reference the
+  // module's throwaway type checker, so leaving them in the
+  // merged SIR causes ty_id collisions in the codegen's
+  // enum_metas HashMap. `PackDecl` and `PackLink` MUST be
+  // preserved: codegen's FFI pre-pass walks the merged SIR
+  // tracking the most recent `PackDecl` to associate each
+  // `pub ffi` declaration with its declaring pack, and uses
+  // `PackLink` to resolve that pack's host dylib path.
   let sir_instructions = sir
     .instructions
     .into_iter()
-    .filter(|i| !matches!(i, Insn::PackDecl { .. } | Insn::EnumDef { .. }))
+    .filter(|i| !matches!(i, Insn::EnumDef { .. }))
     .collect();
 
   ModuleExports {

@@ -1,0 +1,52 @@
+-- misato — primitives showcase in one scene:
+--   - PlaneGeometry  + MeshStandardMaterial (gray floor)
+--   - BoxGeometry    + MeshNormalMaterial   (cube at -1.2)
+--   - SphereGeometry + MeshNormalMaterial   (sphere at +1.2)
+-- The cube + sphere are tinted face-by-normal (the
+-- debug-material look). Camera at (4, 4, 6) → origin.
+-- @cmd — zo build primitives_showcase.zo && ./primitives_showcase
+--
+-- Requires `brew install raylib` (macOS). SPACE or close
+-- exits.
+
+fun main() {
+  init_window(1024, 768, c_str("zo + misato — primitives showcase"));
+  set_target_fps(60);
+
+  imu scene := Scene::new();
+
+  imu camera := PerspectiveCamera::new(45.0, 1.33, 0.1, 1000.0)
+    .set_position(4.0, 4.0, 6.0)
+    .look_at(0.0, 0.5, 0.0);
+
+  -- Materials.
+  imu floor_mat  := MeshStandardMaterial::new(0xC8C8C8FF);   -- gray
+  imu normal_mat := MeshNormalMaterial::new();
+
+  -- Geometries.
+  imu floor_geom  := PlaneGeometry::new(10.0, 10.0, 1, 1);
+  imu cube_geom   := BoxGeometry::new(1.5, 1.5, 1.5);
+  imu sphere_geom := SphereGeometry::new(0.9, 24, 24);
+
+  -- Spawn entities.
+  imu floor_mesh  := Mesh::plane(floor_geom, floor_mat);
+  imu cube_mesh   := Mesh::at(cube_geom, normal_mat, -1.2, 1.0, 0.0);
+  imu sphere_mesh := Mesh::sphere_at(sphere_geom, normal_mat, 1.2, 1.0, 0.0);
+
+  scene.add(floor_mesh);
+  scene.add(cube_mesh);
+  scene.add(sphere_mesh);
+
+  loop {
+    if window_should_close() { break }
+    if is_key_pressed(32)    { break }   -- SPACE.
+
+    begin_drawing();
+      clear_background(0xF5F5F5FF);
+      scene.render(camera);
+    end_drawing();
+  }
+
+  scene.close();
+  close_window();
+}

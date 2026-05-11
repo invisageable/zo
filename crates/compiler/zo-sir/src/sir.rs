@@ -99,6 +99,51 @@ pub enum ListItemCmd {
   TextFromItem,
 }
 
+/// One platform slot inside a `#link { ... }` directive.
+/// Codegen tries `system` first (homebrew / apt installs),
+/// falls back to `vendor` (bundled prebuilt under
+/// `<exe-dir>/../lib/vendor/`). Either may be absent.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LinkEntry {
+  /// Absolute path or `@executable_path/...`. The latter
+  /// bypasses on-disk checks since the dylib is staged
+  /// per-binary, not present at codegen time.
+  pub system: Option<Symbol>,
+  /// Bare filename resolved under
+  /// `<exe-dir>/../lib/vendor/<name>` (where
+  /// `tasks/zo-install.sh` extracts the
+  /// `zo-vendor-VERSION-PLATFORM.tar.gz` artifact).
+  pub vendor: Option<Symbol>,
+}
+
+/// Per-platform dylib link metadata declared by a
+/// `#link { ... }` directive at the top of a `pack`. Each
+/// platform slot is a `LinkEntry` with `system` /
+/// `vendor` fallback semantics — see [`LinkEntry`]. The
+/// compiler picks one slot at codegen time per host OS.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LinkSpec {
+  pub macos: Option<LinkEntry>,
+  pub linux: Option<LinkEntry>,
+  pub windows: Option<LinkEntry>,
+}
+
+impl LinkSpec {
+  /// The platform entry for the host OS the compiler is
+  /// running on. Eliminates the duplicated `if cfg!(...)`
+  /// chain at every consumer (codegen, compiler staging,
+  /// future linker plumbing).
+  pub fn host_entry(&self) -> Option<&LinkEntry> {
+    if cfg!(target_os = "macos") {
+      self.macos.as_ref()
+    } else if cfg!(target_os = "linux") {
+      self.linux.as_ref()
+    } else {
+      self.windows.as_ref()
+    }
+  }
+}
+
 /// Source of a Load instruction — either a function parameter
 /// or a local variable on the stack.
 #[derive(Clone, Debug, PartialEq)]
@@ -234,6 +279,7 @@ impl Insn {
       | Insn::Load { dst, .. } => f(dst),
       Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
+      | Insn::PackLink { .. }
       | Insn::EnumDef { .. }
       | Insn::StructDef { .. }
       | Insn::ArrayTyDef { .. }
@@ -476,6 +522,7 @@ impl Insn {
       Insn::ChannelClose { .. }
       | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
+      | Insn::PackLink { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::BranchIfNot { .. }
@@ -603,6 +650,13 @@ pub enum Insn {
   },
   /// Pack declaration — defines a namespace.
   PackDecl { name: Symbol, pubness: Pubness },
+  /// Pack-level dylib link metadata produced by a
+  /// `#link { ... }` directive. Every `pub ffi` declared
+  /// in the same pack inherits this routing — the linker
+  /// emits one `LC_LOAD_DYLIB` per resolved path and
+  /// classifies each `extern_used` symbol by walking back
+  /// to its declaring pack.
+  PackLink { pack: Symbol, spec: LinkSpec },
   /// The branch target label.
   Label { id: u32 },
   /// The unconditional jump to a label.

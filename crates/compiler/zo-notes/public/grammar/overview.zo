@@ -5,6 +5,12 @@
 
 -- zo is an ecosystem for creative, scientists and gamer.
 
+#link {
+  macos: "/opt/homebrew/lib/libraylib.dyl",
+  linux: "system::raylib",
+  windows: "...",
+}
+
 -- item:pack;
 pub pack io;
 pack io;
@@ -480,6 +486,12 @@ foo bar
   ";
 }
 
+-- expr:lit:strings:c.
+fun main() {
+  imu x := #"foobar";
+  imu x := !"foobar";
+}
+
 -- stmt:block.
 fun main() {
   {
@@ -632,7 +644,7 @@ fun main() {
       y += 1;
       
       if x > 3 {
-        break condition; // break out of an outer while loop
+        break condition; -- break out of an outer while loop
       }
     }
 
@@ -643,4 +655,36 @@ fun main() {
 fun main() {
   showln(c"join the devolution"); -- c string.
   showln(c'z'); -- c char.
+}
+
+load misato::*;
+
+-- init.
+
+fun main() {
+  imu size := Size::default();  -- default = get window dimension, new = set window dimension.
+  imu camera := Camera::perspective(70.0, size.width / size.height, 0.01, 10.0) -- static method is orthographic(left, right, top, bottom, near, far), perspective(fov, aspect, near, far)
+    .position(0.0, 0.0 1.0);    -- method returns `self:camera`
+
+  imu scene := Scene::new();
+
+  imu geometry := Geometry::box(1.0, 1.0, 1.0); -- box(..), buffer(..), plane(..), octahedron(..), sphere(..)
+  imu material := Material::normal();           -- standard(..), normal(..), basic(..)
+  imu cube := Mesh::new(geometry, material);
+  scene.add(cube);
+
+  imu renderer := Renderer::gpu(scene, camera)
+    .set_antialias(true)  -- set is for option fields of the renderer.
+    .add_size(size);
+    .add_systems(Render, render)
+    .run();               -- run the render loop.
+}
+
+-- update.
+
+fun render(time: float, scene: Scene) {
+  for mesh := scene.meshes {
+    mesh.rotation.x = time / 2000;
+    mesh.rotation.y = time / 1000;
+  }
 }

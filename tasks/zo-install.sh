@@ -42,6 +42,19 @@ get_latest_release() {
     sed -E 's/.*"([^"]+)".*/\1/'
 }
 
+# Download a tarball and extract it into a destination
+# directory. Returns the curl|tar pipeline's exit code so
+# the caller decides whether the failure is fatal. `-f`
+# turns 4xx/5xx HTTP responses into curl errors so a
+# missing release artifact doesn't silently succeed with
+# an empty extract.
+download_tarball() {
+  url="$1"
+  dest="$2"
+  mkdir -p "$dest"
+  curl -sLf "$url" | tar xz -C "$dest"
+}
+
 # Download and install
 install() {
   detect_platform
@@ -68,7 +81,7 @@ install() {
 
   echo "Downloading from $DOWNLOAD_URL..."
 
-  if ! curl -sL "$DOWNLOAD_URL" | tar xz -C "$INSTALL_DIR"; then
+  if ! download_tarball "$DOWNLOAD_URL" "$INSTALL_DIR"; then
     echo ""
     echo "error: failed to download pre-built binary"
     echo ""
@@ -89,7 +102,7 @@ install() {
 
   echo "Downloading stdlib from $STD_URL..."
 
-  if ! curl -sL "$STD_URL" | tar xz -C "$TMP_DIR"; then
+  if ! download_tarball "$STD_URL" "$TMP_DIR"; then
     echo ""
     echo "error: failed to download stdlib archive"
     rm -rf "$TMP_DIR"
@@ -111,6 +124,33 @@ install() {
   rm -rf "$TMP_DIR"
 
   echo "stdlib installed to $LIB_DIR/std"
+  echo ""
+
+  # Vendored prebuilt dylibs (raylib today; more libs land
+  # here as the FFI surface grows). Shipped in a separate
+  # release artifact so binary-only installs of `zo` itself
+  # stay small for users who already have a system raylib
+  # (`brew install raylib` / `apt install libraylib-dev`).
+  # Resolved at codegen time as the F7 fallback for any
+  # `#link { macos: { vendor: "name" }, ... }` entry —
+  # `<exe-dir>/../lib/vendor/name` is the lookup path.
+  VENDOR_URL="https://github.com/${REPO}/releases/download/${VERSION}/zo-vendor-${VERSION}-${PLATFORM}.tar.gz"
+  VENDOR_DIR="${LIB_DIR}/vendor"
+
+  echo "Downloading vendored libraries from $VENDOR_URL..."
+
+  if download_tarball "$VENDOR_URL" "$VENDOR_DIR" 2>/dev/null; then
+    echo "vendored libraries installed to $VENDOR_DIR"
+  else
+    # Non-fatal — programs that use only system-installed
+    # libraries still build and run. Programs depending on
+    # a vendored fallback (no system copy of the lib) will
+    # fail at runtime with "Symbol not found".
+    echo "no vendored libraries available for this release (skipping)"
+    echo "  install system raylib for graphics demos:"
+    echo "    macOS:  brew install raylib"
+    echo "    Linux:  apt install libraylib-dev"
+  fi
   echo ""
 
   # Check Linux dependencies

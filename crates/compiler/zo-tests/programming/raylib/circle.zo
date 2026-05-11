@@ -1,11 +1,9 @@
--- raylib M4 — bouncing circle demo.
+-- raylib — magenta circle bouncing inside an 800×600
+-- window, reflecting off the four walls.
 -- @cmd — zo build circle.zo && ./circle
 --
--- Requires `brew install raylib` (macOS).
---
--- Manual visible test: an 800x600 white window opens; a
--- magenta circle bounces around inside, reflecting off the
--- four walls. SPACE or the close button exits.
+-- Requires `brew install raylib` (macOS). SPACE or close
+-- exits.
 
 fun main() {
   imu width:  int = 800;

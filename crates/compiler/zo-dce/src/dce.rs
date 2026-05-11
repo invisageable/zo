@@ -127,7 +127,17 @@ impl<'a> Dce<'a> {
           | Insn::EnumDef { .. }
           | Insn::ConstDef { .. }
           | Insn::ArrayTyDef { .. }
-          | Insn::MapTyDef { .. } => {
+          | Insn::MapTyDef { .. }
+          // Pack-level metadata (`pack X;`, `#link {...}`)
+          // are top-level declarations, never dead. After
+          // module-merge they sit between a preload
+          // function's Return and the user's first
+          // FunDef — exiting the dead-zone here keeps
+          // them in the SIR so the codegen FFI pre-pass
+          // can associate every `pub ffi` with its
+          // declaring pack's `#link` metadata.
+          | Insn::PackDecl { .. }
+          | Insn::PackLink { .. } => {
             in_dead_zone = false;
             i += 1;
           }

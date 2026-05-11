@@ -1,35 +1,26 @@
 //! Mach-O linker for the ARM64 backend.
 //!
 //! Consumes a [`MachoLinkObject`] produced by `ARM64Gen` —
-//! raw machine code plus symbol / fixup tables — and emits a
-//! self-contained executable. The work split is:
+//! raw machine code plus symbol / fixup tables — and emits
+//! a self-contained executable:
 //!
 //! 1. Lay out the GOT in `__DATA`, one slot per extern C
-//!    symbol the program references (libm, libSystem,
-//!    libzo_runtime).
+//!    symbol the program references.
 //! 2. Patch each extern stub's `ADRP X16; LDR X16, [X16,#off]`
 //!    pair to point at its GOT slot.
 //! 3. Build the dyld bind opcodes, routing each symbol to
-//!    its owning dylib ordinal (libSystem vs libzo_runtime).
-//! 4. Assemble the segments (`__TEXT`, `__DATA`,
-//!    `__LINKEDIT`), write the symbol table, finalize with a
-//!    code signature.
-//!
-//! The body matches the previous `ARM64Gen::generate_macho`
-//! 1:1 — only the input shape changed (fields read off
-//! `MachoLinkObject` instead of `&mut self`). Constants
-//! (`TEXT_SECTION_BASE`, `PAGE_MASK`, dylib ordinals, ...)
-//! moved to `zo-writer-macho` so this crate and the
-//! ARM emitter tests can share them.
+//!    its owning dylib ordinal (libSystem / libzo_runtime /
+//!    libraylib / libzo_misato).
+//! 4. Assemble `__TEXT` / `__DATA` / `__LINKEDIT`, write
+//!    the symbol table, finalize with a code signature.
+
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use zo_codegen_backend::MachoLinkObject;
 use zo_emitter_arm::X16;
 use zo_writer_macho::{
-  CODE_OFFSET, DATA_SEGMENT_INDEX, LIBSYSTEM_DYLIB_ORDINAL,
-  MISATO_DYLIB_ORDINAL, MachO, PAGE_MASK, RAYLIB_DYLIB_ORDINAL,
-  TEXT_SECTION_BASE, VM_BASE, ZO_RUNTIME_DYLIB_ORDINAL,
-  ZO_RUNTIME_SYMBOL_PREFIX, is_misato_symbol, is_raylib_symbol,
-  round_up_segment,
+  CODE_OFFSET, DATA_SEGMENT_INDEX, LIBSYSTEM_DYLIB_ORDINAL, MachO, PAGE_MASK,
+  TEXT_SECTION_BASE, VM_BASE, ZO_RUNTIME_SYMBOL_PREFIX, round_up_segment,
 };
 
 /// Assemble a mach-o executable from the codegen's
@@ -60,35 +51,35 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   let mut got_data = Vec::with_capacity(n_got * 8);
   let mut bind_entries: Vec<(&str, u8, u64, u8)> = Vec::new();
 
-  // Pre-scan: figure out which dylibs are actually needed
-  // before assigning positional ordinals. Dyld treats
-  // ordinals as the 1-based index into the binary's
-  // LC_LOAD_DYLIB sequence — if we ship 3 dylibs, the
-  // bind opcodes can only reference ordinals 1..=3.
-  // Hardcoded constants only line up when every optional
-  // dylib happens to be loaded; once we go to 4 buckets
-  // (libSystem / runtime / raylib / misato), any binary
-  // that needs misato but not raylib slips misato to
-  // position 3, and a stale "ordinal 4" bind opcode
-  // surfaces as `dyld: unknown library ordinal 4`.
+  // Dyld treats ordinals as the 1-based index into the
+  // binary's LC_LOAD_DYLIB sequence — a binary with 3
+  // dylibs can only reference ordinals 1..=3. Hardcoded
+  // constants mis-align as soon as one optional dylib is
+  // absent (later slots slide forward), surfacing as
+  // `dyld: unknown library ordinal N`. Pre-scan first,
+  // then assign ordinals positionally below.
+  //
+  // Routing is `#link`-driven: codegen built
+  // `extern_dylib_paths` (c_sym → resolved dylib path)
+  // from per-pack `#link { macos: ..., linux: ..., }`
+  // metadata. Each unique path gets its own ordinal slot
+  // here, in first-seen order. Symbols with no `#link`
+  // entry fall through to `libzo_runtime.dylib` (zo's own
+  // runtime symbols) or libSystem (libc / libm).
   let mut needs_runtime_dylib = false;
-  let mut needs_raylib_dylib = false;
-  let mut needs_misato_dylib = false;
+  let mut link_paths: Vec<String> = Vec::new();
+  let mut seen_path: HashSet<String> = HashSet::default();
 
   for c_sym in &link_obj.extern_used {
-    if is_misato_symbol(c_sym) {
-      needs_misato_dylib = true;
+    if let Some(path) = link_obj.extern_dylib_paths.get(c_sym) {
+      if seen_path.insert(path.clone()) {
+        link_paths.push(path.clone());
+      }
     } else if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
       needs_runtime_dylib = true;
-    } else if is_raylib_symbol(c_sym) {
-      needs_raylib_dylib = true;
     }
   }
 
-  // Assign positional ordinals matching the load order
-  // below. libSystem is always first; the rest are added
-  // only when needed, in the same order, so positions
-  // stay consistent with the bind opcodes.
   let libsystem_ord = LIBSYSTEM_DYLIB_ORDINAL;
   let mut next_ordinal: u8 = libsystem_ord + 1;
   let runtime_ord = if needs_runtime_dylib {
@@ -98,39 +89,21 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   } else {
     None
   };
-  let raylib_ord = if needs_raylib_dylib {
-    let o = next_ordinal;
-    next_ordinal += 1;
-    Some(o)
-  } else {
-    None
-  };
-  // Last bucket in the load order — no further increment
-  // needed after this one. Adding a new dylib bucket here
-  // is just: bump the trailing increment back on, append
-  // the matching `add_dylib(...)` call below in the same
-  // order, and add a branch in `ordinal_for`.
-  let misato_ord = if needs_misato_dylib {
-    Some(next_ordinal)
-  } else {
-    None
-  };
 
-  // Drop unused constants — they linger only as fallback
-  // names for the canonical "all dylibs loaded" layout.
-  let _ = (
-    ZO_RUNTIME_DYLIB_ORDINAL,
-    RAYLIB_DYLIB_ORDINAL,
-    MISATO_DYLIB_ORDINAL,
-  );
+  let mut path_ord: HashMap<String, u8> = HashMap::default();
+
+  for path in &link_paths {
+    path_ord.insert(path.clone(), next_ordinal);
+    next_ordinal += 1;
+  }
 
   let ordinal_for = |c_sym: &str| -> u8 {
-    if is_misato_symbol(c_sym) {
-      misato_ord.expect("misato symbol with no misato dylib")
+    if let Some(path) = link_obj.extern_dylib_paths.get(c_sym) {
+      *path_ord
+        .get(path)
+        .expect("link path missing from ordinal table")
     } else if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
       runtime_ord.expect("runtime symbol with no runtime dylib")
-    } else if is_raylib_symbol(c_sym) {
-      raylib_ord.expect("raylib symbol with no raylib dylib")
     } else {
       libsystem_ord
     }
@@ -173,11 +146,6 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
       // BR X16 is already correct from emit_br().
     }
 
-    // Route each symbol to the right LC_LOAD_DYLIB.
-    // Misato is checked before the runtime-prefix branch
-    // because both share the `_zo_` stem but misato
-    // symbols carry an extra leading underscore.
-    // segment 2 = __DATA (pagezero=0, __TEXT=1, __DATA=2)
     bind_entries.push((
       c_sym,
       DATA_SEGMENT_INDEX,
@@ -220,43 +188,30 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
     );
   }
 
-  // Add undefined symbols, routing each to its owning
-  // dylib's ordinal so the Mach-O symtab + LC_LOAD_DYLIB
-  // entries agree with the bind opcodes above.
+  // The symtab ordinals must agree with the bind opcodes
+  // above — same `ordinal_for` mapping reused.
   for c_sym in &link_obj.extern_used {
     macho.add_undefined_symbol(c_sym, ordinal_for(c_sym) as u16);
   }
 
+  // Dylib add order MUST match the ordinal assignment
+  // above (libSystem → runtime → each `#link` path in
+  // first-seen order), because dyld's bind ordinals are
+  // the 1-based index into this sequence.
   macho.add_dylinker();
   macho.add_dylib("/usr/lib/libSystem.B.dylib");
 
-  // Register libzo_runtime.dylib as the second
-  // LC_LOAD_DYLIB so `_zo_chan_*` / `_zo_task_*` resolve
-  // at load time. Users must colocate the dylib with the
-  // executable (or point DYLD_LIBRARY_PATH at it) for
-  // programs that use concurrency to launch. Non-
-  // concurrency programs never touch this entry.
   if needs_runtime_dylib {
     macho.add_dylib("@executable_path/libzo_runtime.dylib");
   }
 
-  // Register libraylib.dylib as the third LC_LOAD_DYLIB,
-  // gated on actual raylib usage. Path matches the
-  // homebrew install location (`brew install raylib`); on
-  // a non-homebrew install dyld falls through to the
-  // standard `DYLD_FALLBACK_LIBRARY_PATH` search.
-  if needs_raylib_dylib {
-    macho.add_dylib("/opt/homebrew/lib/libraylib.dylib");
-  }
-
-  // Register libzo_misato.dylib as the fourth LC_LOAD_DYLIB,
-  // gated on actual misato usage. Same `@executable_path`
-  // model as libzo_runtime — the compiler's
-  // `stage_runtime_artifacts` step copies the dylib next
-  // to the produced binary so dyld resolves it at load
-  // time.
-  if needs_misato_dylib {
-    macho.add_dylib("@executable_path/libzo_misato.dylib");
+  // Each `#link { macos: ... }` path declared by a `pack`
+  // referenced through `pub ffi` lands here in the same
+  // order ordinals were assigned. The compiler's
+  // `stage_runtime_artifacts` step copies any
+  // `@executable_path/...` dylib next to the user binary.
+  for path in &link_paths {
+    macho.add_dylib(path);
   }
 
   macho.add_uuid();

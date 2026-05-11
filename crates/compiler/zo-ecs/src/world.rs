@@ -190,7 +190,8 @@ impl World {
     // Storage is aligned to T's natural alignment, so a
     // plain `ptr::read` is sound. Copy bound on T means
     // we move bytes out without disturbing storage.
-    let value = unsafe { std::ptr::read(column.as_ptr().add(offset) as *const T) };
+    let value =
+      unsafe { std::ptr::read(column.as_ptr().add(offset) as *const T) };
 
     Some(value)
   }
@@ -786,10 +787,7 @@ mod tests {
   fn set_updates_value_visible_via_get() {
     let mut w = World::new();
     let t = w.register::<Transform>();
-    let e = w
-      .spawn()
-      .with(t, Transform { x: 0.0, y: 0.0 })
-      .build();
+    let e = w.spawn().with(t, Transform { x: 0.0, y: 0.0 }).build();
     assert!(w.set(e, Transform { x: 9.0, y: -3.0 }));
     assert_eq!(w.get::<Transform>(e), Some(Transform { x: 9.0, y: -3.0 }));
   }
@@ -822,7 +820,10 @@ mod tests {
     assert!(w.set(e, Transform { x: 100.0, y: 200.0 }));
     // Mesh untouched.
     assert_eq!(w.get::<Mesh>(e), Some(Mesh { id: 11 }));
-    assert_eq!(w.get::<Transform>(e), Some(Transform { x: 100.0, y: 200.0 }));
+    assert_eq!(
+      w.get::<Transform>(e),
+      Some(Transform { x: 100.0, y: 200.0 })
+    );
   }
 
   #[test]

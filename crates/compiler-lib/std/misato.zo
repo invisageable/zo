@@ -1,34 +1,60 @@
--! misato — Three.js-style 3D scene API on top of zo-ecs +
--! raylib. Layer 3 of the rendering stack.
+-! misato — 3D scene API on top of zo-ecs + raylib.
 -!
--! Each user-facing struct holds an opaque `int` handle into
--! the Rust runtime (`crates/compiler/zo-misato`). Every
--! method body is one-line glue calling the matching
--! `__zo_misato_*` ffi. Setter methods return `Self` so the
--! Three.js `.position.set(...)` style maps to chained calls
--! in zo: `Camera::new(...).set_position(...).look_at(...)`.
+-! User-facing structs hold an opaque `int` handle into the
+-! Rust runtime (`crates/compiler/zo-misato`). Setter
+-! methods return `Self` to support chained calls:
+-! `Camera::new(...).set_position(...).look_at(...)`.
+-!
+-! Materials unify under a single `Material` runtime type.
+-! `MeshStandardMaterial::new` / `MeshNormalMaterial::new`
+-! are namespace ctors that return `Material`, so any
+-! material flows into any `Mesh` constructor without an
+-! arity explosion.
 
 pack misato;
 
+-- libzo_misato is built by `zo-misato`'s build.rs; the
+-- compiler stages a copy next to each user binary so
+-- `@executable_path` resolves it.
+#link {
+  macos: "@executable_path/libzo_misato.dylib",
+  linux: "@executable_path/libzo_misato.so",
+}
+
 -- ====================================================================
 -- ffi surface — bridge to libzo_misato.dylib.
--- See PLAN_ZO_MISATO.md for the contract.
 -- ====================================================================
 
--! Initialise the misato runtime. Returns world handle.
 pub ffi __zo_misato_init_world() -> int;
 
--! Tear down the runtime. Idempotent.
+-! Idempotent.
 pub ffi __zo_misato_destroy_world(handle: int);
 
--! Allocate a `BoxGeometry` of the given dimensions.
 pub ffi __zo_misato_make_box_geom(w: float, h: float, d: float) -> int;
 
--! Allocate a `MeshStandardMaterial` from a packed RGBA
--! color (`0xRRGGBBAA`).
+pub ffi __zo_misato_make_sphere_geom(
+  radius: float,
+  rings: int,
+  slices: int,
+) -> int;
+
+-! XZ plane at Y=0 with normals `+Y`.
+pub ffi __zo_misato_make_plane_geom(
+  width: float,
+  length: float,
+  res_x: int,
+  res_z: int,
+) -> int;
+
+-! `color` packed `0xRRGGBBAA`.
 pub ffi __zo_misato_make_standard_mat(color: int) -> int;
 
--! Spawn a `Mesh` entity at `(x, y, z)`.
+-! Debug-style normal-as-color shader.
+pub ffi __zo_misato_make_normal_mat() -> int;
+
+-! Geometry-agnostic at spawn: `geom` indexes the runtime's
+-! geom table regardless of how it was built (cube, sphere,
+-! plane).
 pub ffi __zo_misato_spawn_box_mesh(
   geom: int,
   mat: int,
@@ -37,7 +63,6 @@ pub ffi __zo_misato_spawn_box_mesh(
   z: float,
 ) -> int;
 
--! Move a previously-spawned mesh.
 pub ffi __zo_misato_mesh_set_position(
   mesh: int,
   x: float,
@@ -45,17 +70,12 @@ pub ffi __zo_misato_mesh_set_position(
   z: float,
 );
 
--! Append entity handle to the scene's draw list.
 pub ffi __zo_misato_scene_add(scene: int, ent: int);
 
--! Drive one render pass. `cam_handle` is a camera handle
--! returned by `__zo_misato_camera_new`; 0 means "use the
--! runtime default camera at (3,3,3) → origin".
 pub ffi __zo_misato_scene_render(scene: int, cam_handle: int);
 
--! Allocate a perspective camera. Returns 1-indexed handle.
--! Default position is `(3, 3, 3)`, target `(0, 0, 0)`,
--! up `(0, 1, 0)`. Use `set_position` / `look_at` to mutate.
+-! Default position `(3, 3, 3)`, target `(0, 0, 0)`,
+-! up `(0, 1, 0)`.
 pub ffi __zo_misato_camera_new(
   fov: float,
   aspect: float,
@@ -63,7 +83,6 @@ pub ffi __zo_misato_camera_new(
   far: float,
 ) -> int;
 
--! Move a camera.
 pub ffi __zo_misato_camera_set_position(
   cam: int,
   x: float,
@@ -71,7 +90,7 @@ pub ffi __zo_misato_camera_set_position(
   z: float,
 );
 
--! Aim a camera at `(x, y, z)` (world space).
+-! `(x, y, z)` is in world space.
 pub ffi __zo_misato_camera_look_at(
   cam: int,
   x: float,
@@ -79,33 +98,12 @@ pub ffi __zo_misato_camera_look_at(
   z: float,
 );
 
--- ====================================================================
--- user-facing types — Three.js naming.
--- Each carries an opaque handle into the runtime.
--- ====================================================================
+-! Unified material handle. Every `*Material::new` ctor
+-! returns this so `Mesh::*` ctors can take any material
+-! variant without an arity explosion.
+pub struct Material { handle: int }
 
--! Top-level container. `Scene::new` initialises the
--! runtime; `add` appends a mesh; `render` draws everything
--! through the camera.
 pub struct Scene { handle: int }
-
--! Perspective camera. M2: handle-based, mutable via
--! `set_position` / `look_at`.
-pub struct PerspectiveCamera { handle: int }
-
--! A renderable mesh — handle into the runtime's cube
--! table for M1/M2; promotes to an ECS entity in M3.
-pub struct Mesh { handle: int }
-
--! Box geometry (width × height × depth).
-pub struct BoxGeometry { handle: int }
-
--! Flat-color material.
-pub struct MeshStandardMaterial { handle: int }
-
--- ====================================================================
--- apply blocks — methods are one-line ffi glue.
--- ====================================================================
 
 apply Scene {
   pub fun new() -> Self {
@@ -125,9 +123,10 @@ apply Scene {
   }
 }
 
+pub struct PerspectiveCamera { handle: int }
+
 apply PerspectiveCamera {
-  pub fun new(fov: float, aspect: float, near: float, far: float)
-    -> Self {
+  pub fun new(fov: float, aspect: float, near: float, far: float) -> Self {
     Self { handle = __zo_misato_camera_new(fov, aspect, near, far) }
   }
 
@@ -142,40 +141,116 @@ apply PerspectiveCamera {
   }
 }
 
+pub struct BoxGeometry { handle: int }
+
 apply BoxGeometry {
   pub fun new(w: float, h: float, d: float) -> Self {
     Self { handle = __zo_misato_make_box_geom(w, h, d) }
   }
 }
 
-apply MeshStandardMaterial {
-  pub fun new(color: int) -> Self {
-    Self { handle = __zo_misato_make_standard_mat(color) }
+-! UV-sphere built from `rings × slices` quads.
+pub struct SphereGeometry { handle: int }
+
+apply SphereGeometry {
+  pub fun new(radius: float, rings: int, slices: int) -> Self {
+    Self { handle = __zo_misato_make_sphere_geom(radius, rings, slices) }
   }
 }
 
+-! XZ plane subdivided by `res_x × res_z` (the subdivision
+-! is reserved for displacement / vertex shading later).
+pub struct PlaneGeometry { handle: int }
+
+apply PlaneGeometry {
+  pub fun new(width: float, length: float, res_x: int, res_z: int) -> Self {
+    Self {
+      handle = __zo_misato_make_plane_geom(width, length, res_x, res_z)
+    }
+  }
+}
+
+-! Flat-color material.
+pub struct MeshStandardMaterial { handle: int }
+
+apply MeshStandardMaterial {
+  -- Returns `Material`, not `Self` — see `Material` doc.
+  pub fun new(color: int) -> Material {
+    Material { handle = __zo_misato_make_standard_mat(color) }
+  }
+}
+
+-! Debug material — colors each face by its surface normal
+-! (`normalize(normal) * 0.5 + 0.5`).
+pub struct MeshNormalMaterial { handle: int }
+
+apply MeshNormalMaterial {
+  pub fun new() -> Material {
+    Material { handle = __zo_misato_make_normal_mat() }
+  }
+}
+
+pub struct Mesh { handle: int }
+
 apply Mesh {
-  pub fun new(g: BoxGeometry, m: MeshStandardMaterial) -> Self {
-    -- Default position is origin; chain `.set_position(...)`
-    -- to place the mesh elsewhere.
+  -- ----- BoxGeometry -----------------------------------
+
+  -! Spawn at origin; chain `.set_position(...)` to place
+  -! the mesh elsewhere, or use `Mesh::at` to fold both
+  -! into one call.
+  pub fun new(g: BoxGeometry, m: Material) -> Self {
     Self {
       handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, 0.0, 0.0, 0.0)
     }
   }
 
-  -! Spawn at `(x, y, z)` directly — avoids the redundant
-  -! `.set_position(...)` call when the position is known
-  -! up front. Useful for grid spawns and any other batch
-  -! placement workload.
   pub fun at(
     g: BoxGeometry,
-    m: MeshStandardMaterial,
+    m: Material,
     x: float,
     y: float,
     z: float,
   ) -> Self {
     Self { handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, x, y, z) }
   }
+
+  -- ----- SphereGeometry --------------------------------
+
+  pub fun sphere(g: SphereGeometry, m: Material) -> Self {
+    Self {
+      handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, 0.0, 0.0, 0.0)
+    }
+  }
+
+  pub fun sphere_at(
+    g: SphereGeometry,
+    m: Material,
+    x: float,
+    y: float,
+    z: float,
+  ) -> Self {
+    Self { handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, x, y, z) }
+  }
+
+  -- ----- PlaneGeometry ---------------------------------
+
+  pub fun plane(g: PlaneGeometry, m: Material) -> Self {
+    Self {
+      handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, 0.0, 0.0, 0.0)
+    }
+  }
+
+  pub fun plane_at(
+    g: PlaneGeometry,
+    m: Material,
+    x: float,
+    y: float,
+    z: float,
+  ) -> Self {
+    Self { handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, x, y, z) }
+  }
+
+  -- ----- mutation --------------------------------------
 
   pub fun set_position(self, x: float, y: float, z: float) -> Self {
     __zo_misato_mesh_set_position(self.handle, x, y, z);

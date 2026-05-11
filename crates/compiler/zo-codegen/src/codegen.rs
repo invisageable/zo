@@ -3,6 +3,7 @@ use zo_codegen_backend::{Artifact, Backend, LinkObject, Target};
 use zo_codegen_clif::CliftGen;
 use zo_interner::Interner;
 use zo_sir::Sir;
+use zo_ty::{Ty, TyTable};
 
 /// Concrete backend selected per [`Target`]. The common
 /// `generate` path routes through the [`Backend`] trait;
@@ -26,11 +27,25 @@ impl Codegen {
     Self { target }
   }
 
-  /// Instantiates the backend matching `self.target`.
-  fn make_backend<'a>(&self, interner: &'a Interner) -> Concrete<'a> {
+  /// Instantiates the backend matching `self.target`. The
+  /// optional `(tys, ty_table)` view enables ARM64Gen's
+  /// generic AAPCS FFI fallback — when `Some`, calls to a
+  /// `FunctionKind::Intrinsic` symbol that no per-symbol
+  /// arm matched are routed through `abi::classify` +
+  /// `emit_ffi_call`. CLIF ignores the view (its FFI path
+  /// uses Cranelift's own ABI lowering).
+  fn make_backend<'a>(
+    &self,
+    interner: &'a Interner,
+    type_view: Option<(&'a [Ty], &'a TyTable)>,
+  ) -> Concrete<'a> {
     match self.target {
       Target::Arm64AppleDarwin | Target::Arm64UnknownLinuxGnu => {
-        Concrete::Arm64(Box::new(ARM64Gen::new(interner)))
+        let mut arm = ARM64Gen::new(interner);
+        if let Some((tys, ty_table)) = type_view {
+          arm = arm.with_type_view(tys, ty_table);
+        }
+        Concrete::Arm64(Box::new(arm))
       }
       Target::X8664AppleDarwin
       | Target::X8664UnknownLinuxGnu
@@ -56,8 +71,13 @@ impl Codegen {
   /// symbol/fixup tables for in-process mach-o assembly).
   /// CLIF produces `LinkObject::Object` (a relocatable
   /// object file ready for `cc`).
-  pub fn generate(self, interner: &Interner, sir: &Sir) -> LinkObject {
-    match self.make_backend(interner) {
+  pub fn generate(
+    self,
+    interner: &Interner,
+    sir: &Sir,
+    type_view: Option<(&[Ty], &TyTable)>,
+  ) -> LinkObject {
+    match self.make_backend(interner, type_view) {
       Concrete::Arm64(mut codegen) => {
         let artifact = codegen.generate(sir);
 
@@ -72,8 +92,13 @@ impl Codegen {
   }
 
   /// Generates the [`Artifact`].
-  pub fn generate_artifact(&self, interner: &Interner, sir: &Sir) -> Artifact {
-    match self.make_backend(interner) {
+  pub fn generate_artifact(
+    &self,
+    interner: &Interner,
+    sir: &Sir,
+    type_view: Option<(&[Ty], &TyTable)>,
+  ) -> Artifact {
+    match self.make_backend(interner, type_view) {
       Concrete::Arm64(mut codegen) => codegen.generate(sir),
       Concrete::Clift(mut codegen) => codegen.generate(sir),
     }
@@ -84,8 +109,13 @@ impl Codegen {
   /// machine-code — equivalently useful for debugging the
   /// backend's own decisions, and avoids pulling a disassembler
   /// dep into the CLIF path).
-  pub fn generate_asm(&self, interner: &Interner, sir: &Sir) -> String {
-    match self.make_backend(interner) {
+  pub fn generate_asm(
+    &self,
+    interner: &Interner,
+    sir: &Sir,
+    type_view: Option<(&[Ty], &TyTable)>,
+  ) -> String {
+    match self.make_backend(interner, type_view) {
       Concrete::Arm64(mut codegen) => codegen.generate_asm(sir),
       Concrete::Clift(mut codegen) => codegen.generate_asm(sir),
     }

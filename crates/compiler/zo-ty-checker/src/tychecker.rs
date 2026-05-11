@@ -310,6 +310,14 @@ impl TyChecker {
     }
   }
 
+  /// Slice view of the type-storage vector. Downstream
+  /// crates (e.g. codegen backends needing AAPCS struct
+  /// walks) consume this without needing a `TyChecker`
+  /// dependency.
+  pub fn tys(&self) -> &[Ty] {
+    &self.tys
+  }
+
   /// Gets the kind of a type.
   pub fn kind(&self, ty: TyId) -> Option<&Ty> {
     self.tys.get(ty.0 as usize)

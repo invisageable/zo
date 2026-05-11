@@ -1,91 +1,84 @@
--! raylib bindings — M1 surface (window only).
+-! raylib bindings. Hand-written today; spec-driven
+-! generation via `zo-binder` lands when the surface
+-! settles.
 -!
--! Hand-written for M1. v2 will auto-generate this file from
--! the spec table in `crates/compiler/zo-binder` so adding new
--! raylib functions becomes one-line spec edits instead of
--! manual ffi declarations.
+-! See: <https://www.raylib.com/cheatsheet/cheatsheet.html>
 
 pack raylib;
+
+-- per-platform dylib routing with system → vendor
+-- fallback. codegen tries the `system:` path first
+-- (homebrew / apt installs); if missing, falls back to
+-- the `vendor:` filename resolved under
+-- `<exe-dir>/../lib/vendor/` — the location
+-- `tasks/zo-install.sh` extracts the
+-- `zo-vendor-<version>-<platform>.tar.gz` tarball into.
+-- on a clean machine with neither installed, dyld
+-- surfaces "symbol not found" at runtime; a future
+-- diagnostic will hoist this to a compile-time error
+-- with an install hint.
+#link {
+  macos: { system: "/opt/homebrew/lib/libraylib.dylib",
+           vendor: "libraylib.dylib" },
+  linux: { system: "/usr/lib/x86_64-linux-gnu/libraylib.so",
+           vendor: "libraylib.so" },
+}
 
 -- ====================================================================
 -- types — mirror raylib's public structs.
 -- ====================================================================
 
--! 2-component float vector.
 pub struct Vector2 { x: f32, y: f32 }
-
--! 3-component float vector.
 pub struct Vector3 { x: f32, y: f32, z: f32 }
-
--! 4-component float vector (also used for quaternions).
-pub struct Vector4 { x: f32, y: f32, z: f32, w: f32 }
+pub struct Vector4 { x: f32, y: f32, z: f32, w: f32 }   -- quaternion alias
 
 -- ====================================================================
 -- window — lifecycle.
 -- ====================================================================
 
--! Initialise window and OpenGL context. `title` is a
--! C-string pointer — wrap a literal with `c_str("…")`.
+-! `title` is a C-string pointer — wrap a literal with
+-! `c_str("…")`.
 pub ffi init_window(width: int, height: int, title: int);
 
--! Check if KEY_ESCAPE pressed or close icon pressed.
+-! True when KEY_ESCAPE or the close icon fired.
 pub ffi window_should_close() -> bool;
 
--! Close window and unload OpenGL context.
 pub ffi close_window();
 
--! Set target frames per second (clamps loop to N FPS).
 pub ffi set_target_fps(fps: int);
 
--! Setup canvas to start drawing this frame.
 pub ffi begin_drawing();
-
--! End canvas drawing, swap buffers, poll events.
 pub ffi end_drawing();
 
--! Clear background with `color`. The argument packs raylib's
--! `Color { r,g,b,a: u8 }` into the low 32 bits of an int —
--! AArch64 AAPCS passes a 4-byte aggregate in the low half of
--! a single integer register, identical to a packed `u32`.
--! Layout (little-endian): byte 0 = r, byte 1 = g, byte 2 = b,
--! byte 3 = a. White opaque = `0xFFFFFFFF`. Black opaque =
--! `0xFF000000`.
+-! `color` packs raylib's `Color { r,g,b,a: u8 }` into the
+-! low 32 bits of an int (little-endian: r,g,b,a). Examples:
+-! white opaque = `0xFFFFFFFF`, black opaque = `0xFF000000`.
 pub ffi clear_background(color: int);
 
--! Draw `text` at (`x`, `y`) with `font_size` and `color`.
 -! `text` is a C-string pointer (use `c_str("…")`); `color`
--! packs RGBA per `clear_background`'s convention.
+-! packs RGBA per `clear_background`.
 pub ffi draw_text(text: int, x: int, y: int, font_size: int, color: int);
 
--! True the frame `key` was pressed. Key codes match
--! raylib's `KEY_*` constants — e.g. `KEY_SPACE = 32`,
--! `KEY_ESCAPE = 256`.
+-! Key codes match raylib's `KEY_*` constants
+-! (e.g. `KEY_SPACE = 32`, `KEY_ESCAPE = 256`).
 pub ffi is_key_pressed(key: int) -> bool;
 
--! Time in seconds since the previous frame.
--! (raylib's `GetFrameTime` returns f32; widened to zo's
--! `float` (f64) at the FFI boundary so subsequent math
--! stays in double precision.)
+-! raylib returns f32; widened to zo's `float` (f64) at the
+-! FFI boundary so downstream math stays in double.
 pub ffi get_frame_time() -> float;
 
--! Draw a filled circle centred at (`x`, `y`) with `radius`
--! and `color`. `color` packs RGBA per `clear_background`'s
--! convention. Radius is narrowed from f64 to f32 at the FFI
--! boundary — raylib's API takes f32.
+-! `radius` is narrowed from f64 → f32 at the FFI boundary
+-! (raylib's API takes f32).
 pub ffi draw_circle(x: int, y: int, radius: float, color: int);
 
--! Draw a filled circle at `center` with `radius` and
--! `color`. `Vector2` passes by value — its two f32 fields go
--! in `s0`/`s1` (HFA), then `radius` in `s2`, `color` in `w0`.
+-! `Vector2` passes by value via AAPCS HFA — fields land
+-! in `s0`/`s1`, then `radius` in `s2`, `color` in `w0`.
 pub ffi draw_circle_v(center: Vector2, radius: float, color: int);
 
--! Current mouse position (in screen pixels). Returns by
--! value — raylib writes the Vector2's f32 fields into
--! `s0`/`s1` (HFA), zo widens each to f64 and stores into a
--! local Vector2 struct.
+-! HFA return — raylib writes the `Vector2` fields into
+-! `s0`/`s1`; zo widens each to f64 into a local struct.
 pub ffi get_mouse_position() -> Vector2;
 
--! Current frame rate, measured by raylib's internal frame
--! timer. Returns 0 until raylib has accumulated enough
--! samples (typically a few frames into the loop).
+-! Returns 0 until raylib's frame timer has enough samples
+-! (a few frames after the loop starts).
 pub ffi get_fps() -> int;

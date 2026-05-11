@@ -9,6 +9,14 @@ crates/compiler/zo-tests/build-fail/templating/wip
 /target
 /tmp
 
+# Compiled demo binaries + their staged dylibs — every
+# `zo build` run drops these next to the source. Source
+# files (`*.zo`) stay tracked.
+crates/compiler/zo-tests/programming/raylib/*
+!crates/compiler/zo-tests/programming/raylib/*.zo
+crates/compiler/zo-tests/programming/misato/*
+!crates/compiler/zo-tests/programming/misato/*.zo
+
 **.DS_Store
 .env
 .todo.md

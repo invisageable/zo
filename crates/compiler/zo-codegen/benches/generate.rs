@@ -72,7 +72,8 @@ fn run_pipeline(source: &str) {
   let result = analyzer.analyze();
 
   let codegen = Codegen::new(Target::Arm64AppleDarwin);
-  let artifact = codegen.generate_artifact(&interner, &result.sir);
+  let type_view = Some((ty_checker.tys(), &ty_checker.ty_table));
+  let artifact = codegen.generate_artifact(&interner, &result.sir, type_view);
 
   black_box(artifact);
 }

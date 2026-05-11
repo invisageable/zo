@@ -16,6 +16,7 @@ zo-codegen-clif = { workspace = true }
 zo-error = { workspace = true }
 zo-interner = { workspace = true }
 zo-sir = { workspace = true }
+zo-ty = { workspace = true }
 
 # external:crates.
 

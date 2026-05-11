@@ -133,79 +133,52 @@ pub const PAGE_MASK: u64 = 0xFFF;
 /// Registered as the first `LC_LOAD_DYLIB`.
 pub const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
 
-/// Dyld load-command ordinal for `libzo_runtime.dylib`.
-/// Registered as the second `LC_LOAD_DYLIB` so
-/// `_zo_chan_*` / `_zo_task_*` bind opcodes route here;
-/// libm and libSystem symbols stay on libSystem.
-pub const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
-
 /// Prefix that classifies an extern C symbol as belonging
 /// to `libzo_runtime.dylib` rather than libSystem. Used at
 /// link time to route bindings to the correct dylib
 /// ordinal.
 pub const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
 
-/// Dyld load-command ordinal for `libraylib.dylib`.
-/// Registered as the third `LC_LOAD_DYLIB` only when a
-/// program references at least one raylib symbol.
-pub const RAYLIB_DYLIB_ORDINAL: u8 = 3;
+/// dyld load-time prefix for dylibs the compiler stages
+/// next to the user binary (`libzo_runtime`,
+/// `libzo_misato`, F7 vendored libs). Resolved by dyld at
+/// program start; bypasses any on-disk existence check at
+/// codegen time.
+pub const EXECUTABLE_PATH_PREFIX: &str = "@executable_path/";
 
-/// Symbols owned by `libraylib.dylib`. Hardcoded for the
-/// raylib MVP; replaced by a routing table populated from
-/// `zo-binder` once spec-driven binding lands.
-pub const RAYLIB_SYMBOLS: &[&str] = &[
-  "_InitWindow",
-  "_WindowShouldClose",
-  "_CloseWindow",
-  "_SetTargetFPS",
-  "_BeginDrawing",
-  "_EndDrawing",
-  "_ClearBackground",
-  "_DrawText",
-  "_IsKeyPressed",
-  "_GetFrameTime",
-  "_DrawCircle",
-  "_DrawCircleV",
-  "_GetMousePosition",
-  "_GetFPS",
+/// Maps zo-side snake_case `pub ffi` names to raylib's
+/// C symbol (with the platform leading underscore). The
+/// codegen consults this when lowering an FFI call so
+/// `init_window(...)` lands a `BL _InitWindow`. Hardcoded
+/// today; folds away once `pub ffi` declarations carry
+/// per-symbol `#c_name(...)` metadata (or the std file
+/// switches to PascalCase names that match the C surface
+/// directly).
+pub const RAYLIB_NAME_MAP: &[(&str, &str)] = &[
+  ("init_window", "_InitWindow"),
+  ("window_should_close", "_WindowShouldClose"),
+  ("close_window", "_CloseWindow"),
+  ("set_target_fps", "_SetTargetFPS"),
+  ("begin_drawing", "_BeginDrawing"),
+  ("end_drawing", "_EndDrawing"),
+  ("clear_background", "_ClearBackground"),
+  ("draw_text", "_DrawText"),
+  ("is_key_pressed", "_IsKeyPressed"),
+  ("get_frame_time", "_GetFrameTime"),
+  ("draw_circle", "_DrawCircle"),
+  ("draw_circle_v", "_DrawCircleV"),
+  ("get_mouse_position", "_GetMousePosition"),
+  ("get_fps", "_GetFPS"),
 ];
 
-/// True iff `c_sym` is part of [`RAYLIB_SYMBOLS`].
+/// Look up the raylib C symbol for a zo-side `pub ffi`
+/// name. Returns `None` for non-raylib FFIs.
 #[inline]
-pub fn is_raylib_symbol(c_sym: &str) -> bool {
-  RAYLIB_SYMBOLS.contains(&c_sym)
-}
-
-/// Dyld load-command ordinal for `libzo_misato.dylib`.
-/// Registered as the fourth `LC_LOAD_DYLIB` only when a
-/// program references at least one misato symbol. The
-/// dylib hosts the Three.js-style runtime that backs the
-/// user-facing `compiler-lib/std/misato.zo` API.
-pub const MISATO_DYLIB_ORDINAL: u8 = 4;
-
-/// Symbols owned by `libzo_misato.dylib`. M1 surface is
-/// the first 7; M2 adds 4 more for camera handles + mesh
-/// repositioning. Each Mach-O symbol is the C name
-/// (`__zo_misato_*`) prefixed with the platform leading
-/// underscore.
-pub const MISATO_SYMBOLS: &[&str] = &[
-  "___zo_misato_init_world",
-  "___zo_misato_destroy_world",
-  "___zo_misato_make_box_geom",
-  "___zo_misato_make_standard_mat",
-  "___zo_misato_spawn_box_mesh",
-  "___zo_misato_mesh_set_position",
-  "___zo_misato_scene_add",
-  "___zo_misato_scene_render",
-  "___zo_misato_camera_new",
-  "___zo_misato_camera_set_position",
-  "___zo_misato_camera_look_at",
-];
-
-/// True iff `c_sym` is part of [`MISATO_SYMBOLS`].
-#[inline]
-pub fn is_misato_symbol(c_sym: &str) -> bool {
-  MISATO_SYMBOLS.contains(&c_sym)
+pub fn raylib_c_name(zo_name: &str) -> Option<&'static str> {
+  RAYLIB_NAME_MAP
+    .iter()
+    .find(|(zo, _)| *zo == zo_name)
+    .map(|(_, c)| *c)
 }
 
 /// Mach-O segment index for `__DATA` (pagezero=0,

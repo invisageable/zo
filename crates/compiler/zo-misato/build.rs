@@ -1,13 +1,10 @@
-// Tell cargo to link libzo_misato.dylib against libraylib
-// at build time. The Rust runtime calls raylib's 3D
-// primitives (BeginMode3D / DrawCubeV / EndMode3D) directly
-// — they're declared as `extern "C"` in lib.rs, dyld
-// resolves them at user-binary load time.
+// libzo_misato.dylib calls raylib's 3D primitives (declared
+// as `extern "C"` in lib.rs); link against libraylib so the
+// references resolve at the user binary's load time.
 //
-// Path matches `brew install raylib` on Apple Silicon. On
-// other systems, set `RAYLIB_LIB_DIR` before building or
-// override via `cargo:rustc-link-search` in a downstream
-// environment. M1 only targets macOS / homebrew.
+// Default search path matches `brew install raylib` on
+// Apple Silicon. Override with `RAYLIB_LIB_DIR=...` on
+// other platforms.
 
 fn main() {
   if let Ok(custom) = std::env::var("RAYLIB_LIB_DIR") {

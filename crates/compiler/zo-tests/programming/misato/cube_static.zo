@@ -1,19 +1,9 @@
--- misato M1 — single static cube.
+-- misato — single static cube on a gray background, viewed
+-- from a fixed camera at (3,3,3) looking at origin.
 -- @cmd — zo build cube_static.zo && ./cube_static
 --
--- Requires `brew install raylib` (macOS).
---
--- Manual visible test: 800x600 window opens; a single
--- white cube at the origin renders in 3D space, viewed
--- from a fixed camera at (3,3,3) looking at origin.
--- Background is light gray. SPACE or close exits.
---
--- Exercises the layer-3 stack:
---   misato.zo (zo wrappers)
---     ↓ ffi
---   libzo_misato.dylib (Rust runtime, ECS World)
---     ↓ extern C
---   libraylib.dylib (BeginMode3D / DrawCubeV / EndMode3D)
+-- Requires `brew install raylib` (macOS). SPACE or the
+-- close button exits.
 
 fun main() {
   init_window(800, 600, c_str("zo + misato — static cube"));

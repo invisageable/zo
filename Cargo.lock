@@ -7501,6 +7501,7 @@ dependencies = [
  "zo-parser",
  "zo-sir",
  "zo-tokenizer",
+ "zo-ty",
  "zo-ty-checker",
 ]
 
@@ -7734,6 +7735,7 @@ dependencies = [
 name = "zo-linker"
 version = "0.3.11"
 dependencies = [
+ "rustc-hash 2.1.2",
  "tempfile",
  "zo-codegen-backend",
  "zo-emitter-arm",

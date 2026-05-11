@@ -1,12 +1,10 @@
--- raylib M5 — circle follows the mouse pointer.
+-- raylib — magenta circle tracks the mouse pointer every
+-- frame inside an 800×600 window. Proves Vector2 by-value
+-- passing + return through AAPCS HFA end-to-end.
 -- @cmd — zo build follow_mouse.zo && ./follow_mouse
 --
--- Requires `brew install raylib` (macOS).
---
--- Manual visible test: an 800x600 white window opens; a
--- magenta circle tracks the mouse position every frame.
--- Proves Vector2 by-value passing + return work end-to-end
--- through the AAPCS HFA convention. SPACE or close exits.
+-- Requires `brew install raylib` (macOS). SPACE or close
+-- exits.
 
 fun main() {
   init_window(800, 600, c_str("zo + raylib — follow mouse"));
@@ -16,16 +14,11 @@ fun main() {
     if window_should_close() { break }
     if is_key_pressed(32)    { break }   -- SPACE.
 
-    -- HFA struct return: raylib writes Vector2 fields into
-    -- s0/s1; codegen widens to f64 + stores into a local
-    -- Vector2 slot; `pos` holds the slot's base address.
     imu mouse: Vector2 = get_mouse_position();
 
     begin_drawing();
       clear_background(0xFFFFFFFF);                            -- white
-      -- HFA struct arg: codegen loads mouse.x/mouse.y from the
-      -- slot, narrows to f32, lands them in s0/s1.
-      draw_circle_v(mouse, 25.0, 0xFFFD5FF0);                    -- magenta
+      draw_circle_v(mouse, 25.0, 0xFFFD5FF0);                  -- magenta
       draw_text(c_str("follow the mouse"), 12, 12, 24, 0xFF000000);
     end_drawing();
   }
