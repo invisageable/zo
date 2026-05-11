@@ -14,6 +14,7 @@ pack int;
 pack io;
 pack map;
 pack math;
+pack misato;
 pack preload;
 pack process;
 pack raylib;

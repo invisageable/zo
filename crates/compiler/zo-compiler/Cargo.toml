@@ -25,6 +25,7 @@ zo-profiler = { workspace = true }
 zo-reporter = { workspace = true }
 zo-session = { workspace = true }
 zo-runtime = { workspace = true } # tmp.
+zo-misato = { workspace = true } # tmp.
 zo-span = { workspace = true }
 zo-token = { workspace = true }
 zo-tokenizer = { workspace = true }

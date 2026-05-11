@@ -292,6 +292,9 @@ impl Compiler {
     let preload = [
       "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
       "int", "bool", "arr", "str", "map", "set", "vec", "c", "raylib",
+      // misato deliberately last — it depends on raylib being preloaded
+      // first (cam_ptr handling references raylib types in M2+).
+      "misato",
     ];
 
     for module_name in preload {
@@ -766,6 +769,7 @@ struct RuntimeNeeds {
   concurrency: bool,
   native_ui: bool,
   web_ui: bool,
+  misato: bool,
 }
 
 /// Call-name prefixes that trigger runtime-dylib staging.
@@ -824,6 +828,14 @@ impl RuntimeNeeds {
           {
             needs.concurrency = true;
           }
+
+          // Any `__zo_misato_*` FFI call pulls in
+          // libzo_misato.dylib at link time. The compiler
+          // stages the dylib next to the produced binary
+          // so dyld resolves it via `@executable_path`.
+          if n.starts_with("__zo_misato_") {
+            needs.misato = true;
+          }
         }
         zo_sir::Insn::Template { .. } => {
           // Template programs run in-process through
@@ -848,6 +860,14 @@ const CONCURRENCY_DYLIB: &str = "libzo_runtime.so";
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
 
+/// misato (Three.js-style) runtime file name for this host.
+#[cfg(target_os = "macos")]
+const MISATO_DYLIB: &str = "libzo_misato.dylib";
+#[cfg(target_os = "linux")]
+const MISATO_DYLIB: &str = "libzo_misato.so";
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const MISATO_DYLIB: &str = "libzo_misato.dylib";
+
 /// Copy each runtime artifact the compiled binary
 /// needs into the binary's directory. The codegen
 /// embeds `@executable_path/<dylib>` as a
@@ -868,7 +888,7 @@ fn stage_runtime_artifacts(
 ) {
   let needs = RuntimeNeeds::from_sir(sir, interner);
 
-  if !needs.concurrency && !needs.native_ui && !needs.web_ui {
+  if !needs.concurrency && !needs.native_ui && !needs.web_ui && !needs.misato {
     return;
   }
 
@@ -923,4 +943,28 @@ fn stage_runtime_artifacts(
   // Native / web UI staging will land here when those
   // runtimes become separate dylibs referenced by the
   // binary (today they run in-process via `zo run`).
+
+  if needs.misato {
+    // Same `deps/`-then-sibling fallback as the
+    // concurrency dylib above. cargo restages
+    // `target/<profile>/libzo_misato.dylib` for direct
+    // package builds (`cargo build -p zo-misato`); a
+    // transitive build through `--bin zo` populates
+    // `deps/` but leaves the sibling stale, so prefer
+    // `deps/` whenever it's present to avoid dyld load
+    // mismatches between the cached sibling and the
+    // freshly-rebuilt symbol set.
+    let deps_src = runtime_dir.join("deps").join(MISATO_DYLIB);
+    let sibling_src = runtime_dir.join(MISATO_DYLIB);
+    let src = if deps_src.exists() {
+      deps_src
+    } else {
+      sibling_src
+    };
+    let dst = output_dir.join(MISATO_DYLIB);
+
+    if src.exists() {
+      let _ = std::fs::copy(&src, &dst);
+    }
+  }
 }

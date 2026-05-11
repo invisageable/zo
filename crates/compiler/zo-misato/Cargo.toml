@@ -1,0 +1,25 @@
+[package]
+name = "zo-misato"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+# - `lib` — workspace crates depend on misato as a regular
+#   Rust lib (none today; futures may want direct access).
+# - `staticlib` — `libzo_misato.a` for a future static-link
+#   path; kept for completeness.
+# - `cdylib` — `libzo_misato.dylib` (macOS) / `.so` (Linux).
+#   The Mach-O writer adds `LC_LOAD_DYLIB
+#   @executable_path/libzo_misato.dylib` to user binaries
+#   that call any `__zo_misato_*` symbol; the compiler
+#   stages this dylib alongside the binary at link time.
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-ecs = { workspace = true }
+
+# external:crates.

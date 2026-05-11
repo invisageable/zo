@@ -25,9 +25,11 @@
 use zo_codegen_backend::MachoLinkObject;
 use zo_emitter_arm::X16;
 use zo_writer_macho::{
-  CODE_OFFSET, DATA_SEGMENT_INDEX, LIBSYSTEM_DYLIB_ORDINAL, MachO, PAGE_MASK,
-  RAYLIB_DYLIB_ORDINAL, TEXT_SECTION_BASE, VM_BASE, ZO_RUNTIME_DYLIB_ORDINAL,
-  ZO_RUNTIME_SYMBOL_PREFIX, is_raylib_symbol, round_up_segment,
+  CODE_OFFSET, DATA_SEGMENT_INDEX, LIBSYSTEM_DYLIB_ORDINAL,
+  MISATO_DYLIB_ORDINAL, MachO, PAGE_MASK, RAYLIB_DYLIB_ORDINAL,
+  TEXT_SECTION_BASE, VM_BASE, ZO_RUNTIME_DYLIB_ORDINAL,
+  ZO_RUNTIME_SYMBOL_PREFIX, is_misato_symbol, is_raylib_symbol,
+  round_up_segment,
 };
 
 /// Assemble a mach-o executable from the codegen's
@@ -57,13 +59,82 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   let n_got = link_obj.extern_used.len();
   let mut got_data = Vec::with_capacity(n_got * 8);
   let mut bind_entries: Vec<(&str, u8, u64, u8)> = Vec::new();
-  // Track whether any symbol needs the zo runtime
-  // dylib so we only register it when a program
-  // actually uses concurrency.
+
+  // Pre-scan: figure out which dylibs are actually needed
+  // before assigning positional ordinals. Dyld treats
+  // ordinals as the 1-based index into the binary's
+  // LC_LOAD_DYLIB sequence — if we ship 3 dylibs, the
+  // bind opcodes can only reference ordinals 1..=3.
+  // Hardcoded constants only line up when every optional
+  // dylib happens to be loaded; once we go to 4 buckets
+  // (libSystem / runtime / raylib / misato), any binary
+  // that needs misato but not raylib slips misato to
+  // position 3, and a stale "ordinal 4" bind opcode
+  // surfaces as `dyld: unknown library ordinal 4`.
   let mut needs_runtime_dylib = false;
-  // Same for raylib — only pull in libraylib.dylib when
-  // the program references a raylib symbol.
   let mut needs_raylib_dylib = false;
+  let mut needs_misato_dylib = false;
+
+  for c_sym in &link_obj.extern_used {
+    if is_misato_symbol(c_sym) {
+      needs_misato_dylib = true;
+    } else if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
+      needs_runtime_dylib = true;
+    } else if is_raylib_symbol(c_sym) {
+      needs_raylib_dylib = true;
+    }
+  }
+
+  // Assign positional ordinals matching the load order
+  // below. libSystem is always first; the rest are added
+  // only when needed, in the same order, so positions
+  // stay consistent with the bind opcodes.
+  let libsystem_ord = LIBSYSTEM_DYLIB_ORDINAL;
+  let mut next_ordinal: u8 = libsystem_ord + 1;
+  let runtime_ord = if needs_runtime_dylib {
+    let o = next_ordinal;
+    next_ordinal += 1;
+    Some(o)
+  } else {
+    None
+  };
+  let raylib_ord = if needs_raylib_dylib {
+    let o = next_ordinal;
+    next_ordinal += 1;
+    Some(o)
+  } else {
+    None
+  };
+  // Last bucket in the load order — no further increment
+  // needed after this one. Adding a new dylib bucket here
+  // is just: bump the trailing increment back on, append
+  // the matching `add_dylib(...)` call below in the same
+  // order, and add a branch in `ordinal_for`.
+  let misato_ord = if needs_misato_dylib {
+    Some(next_ordinal)
+  } else {
+    None
+  };
+
+  // Drop unused constants — they linger only as fallback
+  // names for the canonical "all dylibs loaded" layout.
+  let _ = (
+    ZO_RUNTIME_DYLIB_ORDINAL,
+    RAYLIB_DYLIB_ORDINAL,
+    MISATO_DYLIB_ORDINAL,
+  );
+
+  let ordinal_for = |c_sym: &str| -> u8 {
+    if is_misato_symbol(c_sym) {
+      misato_ord.expect("misato symbol with no misato dylib")
+    } else if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
+      runtime_ord.expect("runtime symbol with no runtime dylib")
+    } else if is_raylib_symbol(c_sym) {
+      raylib_ord.expect("raylib symbol with no raylib dylib")
+    } else {
+      libsystem_ord
+    }
+  };
 
   for (i, c_sym) in link_obj.extern_used.iter().enumerate() {
     let got_offset_in_data = (i * 8) as u64;
@@ -103,24 +174,16 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
     }
 
     // Route each symbol to the right LC_LOAD_DYLIB.
-    // Runtime symbols (`_zo_chan_*` / `_zo_task_*`) land
-    // in libzo_runtime.dylib; raylib symbols
-    // (`_InitWindow`, ...) land in libraylib.dylib;
-    // everything else (libm, libSystem) stays on libSystem.
-    let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
-      needs_runtime_dylib = true;
-
-      ZO_RUNTIME_DYLIB_ORDINAL
-    } else if is_raylib_symbol(c_sym) {
-      needs_raylib_dylib = true;
-
-      RAYLIB_DYLIB_ORDINAL
-    } else {
-      LIBSYSTEM_DYLIB_ORDINAL
-    };
-
+    // Misato is checked before the runtime-prefix branch
+    // because both share the `_zo_` stem but misato
+    // symbols carry an extra leading underscore.
     // segment 2 = __DATA (pagezero=0, __TEXT=1, __DATA=2)
-    bind_entries.push((c_sym, DATA_SEGMENT_INDEX, got_offset_in_data, ordinal));
+    bind_entries.push((
+      c_sym,
+      DATA_SEGMENT_INDEX,
+      got_offset_in_data,
+      ordinal_for(c_sym),
+    ));
   }
 
   // Build bind opcodes for dyld. Per-entry ordinal lets
@@ -161,15 +224,7 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   // dylib's ordinal so the Mach-O symtab + LC_LOAD_DYLIB
   // entries agree with the bind opcodes above.
   for c_sym in &link_obj.extern_used {
-    let ordinal = if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
-      ZO_RUNTIME_DYLIB_ORDINAL
-    } else if is_raylib_symbol(c_sym) {
-      RAYLIB_DYLIB_ORDINAL
-    } else {
-      LIBSYSTEM_DYLIB_ORDINAL
-    };
-
-    macho.add_undefined_symbol(c_sym, ordinal as u16);
+    macho.add_undefined_symbol(c_sym, ordinal_for(c_sym) as u16);
   }
 
   macho.add_dylinker();
@@ -192,6 +247,16 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   // standard `DYLD_FALLBACK_LIBRARY_PATH` search.
   if needs_raylib_dylib {
     macho.add_dylib("/opt/homebrew/lib/libraylib.dylib");
+  }
+
+  // Register libzo_misato.dylib as the fourth LC_LOAD_DYLIB,
+  // gated on actual misato usage. Same `@executable_path`
+  // model as libzo_runtime — the compiler's
+  // `stage_runtime_artifacts` step copies the dylib next
+  // to the produced binary so dyld resolves it at load
+  // time.
+  if needs_misato_dylib {
+    macho.add_dylib("@executable_path/libzo_misato.dylib");
   }
 
   macho.add_uuid();

@@ -341,3 +341,19 @@ site_dev:
 [group('site')]
 site_build:
   cd apps/site && npm run build
+
+# fret: Build the website
+[group('fret')]
+fret_zo_init Args:
+  cargo run --bin fret -- init {{Args}}
+
+
+# fret: Build the website
+[group('fret')]
+fret_zo_build *Args:
+  cargo run --bin fret -- build {{Args}}
+
+# fret: Build the website
+[group('fret')]
+fret_zo_run *Args:
+  cargo run --bin fret -- run {{Args}}

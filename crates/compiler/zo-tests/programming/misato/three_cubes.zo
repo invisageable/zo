@@ -1,0 +1,55 @@
+-- misato M2 — 3 colored cubes at known positions, viewed
+-- from a user-controlled camera.
+-- @cmd — zo build three_cubes.zo && ./three_cubes
+--
+-- Requires `brew install raylib` (macOS).
+--
+-- Manual visible test: 800x600 window opens; three 1×1×1
+-- cubes render in 3D space:
+--   - red    at (-2.0, 0.0, 0.0)
+--   - green  at ( 0.0, 0.0, 0.0)
+--   - blue   at ( 2.0, 0.0, 0.0)
+-- Camera sits at (5, 5, 5) looking at origin. Background
+-- is light gray. SPACE or close exits.
+--
+-- Exercises everything M1 did + M2:
+--   - PerspectiveCamera::new(...).set_position(...).look_at(...)
+--   - MeshStandardMaterial honors the rgba color
+--   - Mesh::new(...).set_position(...) places each cube
+
+fun main() {
+  init_window(800, 600, c_str("zo + misato — three cubes"));
+  set_target_fps(60);
+
+  imu scene := Scene::new();
+
+  imu camera := PerspectiveCamera::new(45.0, 1.33, 0.1, 1000.0)
+    .set_position(5.0, 5.0, 5.0)
+    .look_at(0.0, 0.0, 0.0);
+
+  imu geom := BoxGeometry::new(1.0, 1.0, 1.0);
+  imu red    := MeshStandardMaterial::new(0xFF0000FF);
+  imu green  := MeshStandardMaterial::new(0x00FF00FF);
+  imu blue   := MeshStandardMaterial::new(0x0000FFFF);
+
+  imu cube_a := Mesh::new(geom, red).set_position(-2.0, 0.0, 0.0);
+  imu cube_b := Mesh::new(geom, green).set_position(0.0, 0.0, 0.0);
+  imu cube_c := Mesh::new(geom, blue).set_position(2.0, 0.0, 0.0);
+
+  scene.add(cube_a);
+  scene.add(cube_b);
+  scene.add(cube_c);
+
+  loop {
+    if window_should_close() { break }
+    if is_key_pressed(32)    { break }   -- SPACE.
+
+    begin_drawing();
+      clear_background(0xF5F5F5FF);   -- light gray
+      scene.render(camera);
+    end_drawing();
+  }
+
+  scene.close();
+  close_window();
+}

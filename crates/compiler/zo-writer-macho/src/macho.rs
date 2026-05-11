@@ -175,6 +175,38 @@ pub fn is_raylib_symbol(c_sym: &str) -> bool {
   RAYLIB_SYMBOLS.contains(&c_sym)
 }
 
+/// Dyld load-command ordinal for `libzo_misato.dylib`.
+/// Registered as the fourth `LC_LOAD_DYLIB` only when a
+/// program references at least one misato symbol. The
+/// dylib hosts the Three.js-style runtime that backs the
+/// user-facing `compiler-lib/std/misato.zo` API.
+pub const MISATO_DYLIB_ORDINAL: u8 = 4;
+
+/// Symbols owned by `libzo_misato.dylib`. M1 surface is
+/// the first 7; M2 adds 4 more for camera handles + mesh
+/// repositioning. Each Mach-O symbol is the C name
+/// (`__zo_misato_*`) prefixed with the platform leading
+/// underscore.
+pub const MISATO_SYMBOLS: &[&str] = &[
+  "___zo_misato_init_world",
+  "___zo_misato_destroy_world",
+  "___zo_misato_make_box_geom",
+  "___zo_misato_make_standard_mat",
+  "___zo_misato_spawn_box_mesh",
+  "___zo_misato_mesh_set_position",
+  "___zo_misato_scene_add",
+  "___zo_misato_scene_render",
+  "___zo_misato_camera_new",
+  "___zo_misato_camera_set_position",
+  "___zo_misato_camera_look_at",
+];
+
+/// True iff `c_sym` is part of [`MISATO_SYMBOLS`].
+#[inline]
+pub fn is_misato_symbol(c_sym: &str) -> bool {
+  MISATO_SYMBOLS.contains(&c_sym)
+}
+
 /// Mach-O segment index for `__DATA` (pagezero=0,
 /// __TEXT=1, __DATA=2). Used in bind opcodes that point
 /// at GOT slots inside `__DATA`.

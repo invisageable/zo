@@ -8815,16 +8815,29 @@ impl<'a> Executor<'a> {
             if idx < children_end && self.tree.nodes[idx].token == Token::Eq {
               idx += 1; // skip `=`
 
-              // Execute value expression nodes until
-              // next comma or RBrace.
+              // Execute value expression nodes until the
+              // next field separator. Track delimiter depth
+              // so nested calls / aggregate inits with their
+              // own commas (e.g. `f(1.0, 2.0)`,
+              // `[a, b]`, `{ x = 1, y = 2 }`) traverse in full
+              // — without this, the walker exits at the first
+              // inner comma, leaving the inner call's
+              // `CallCtx` + `expected_ty_stack` entry leaked
+              // (the matching RParen never executes
+              // `end_call_ctx`). The leak then poisons literal
+              // coercion in subsequent code, surfacing as
+              // phantom `TypeMismatch` errors at unrelated
+              // spans (often across preload pack boundaries).
               let expr_start = idx;
+              let mut depth: i32 = 0;
 
-              while idx < children_end
-                && !matches!(
-                  self.tree.nodes[idx].token,
-                  Token::Comma | Token::RBrace
-                )
-              {
+              while idx < children_end {
+                let tok = self.tree.nodes[idx].token;
+
+                if depth == 0 && matches!(tok, Token::Comma | Token::RBrace) {
+                  break;
+                }
+
                 // Handlers may consume more than one node and
                 // advance `skip_until` past tokens already
                 // resolved semantically (e.g. the variant ident
@@ -8834,6 +8847,16 @@ impl<'a> Executor<'a> {
                   idx += 1;
 
                   continue;
+                }
+
+                match tok {
+                  Token::LParen | Token::LBracket | Token::LBrace => {
+                    depth += 1;
+                  }
+                  Token::RParen | Token::RBracket | Token::RBrace => {
+                    depth -= 1;
+                  }
+                  _ => {}
                 }
 
                 let node = self.tree.nodes[idx];

@@ -4,7 +4,7 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
-  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D2, FpRegister,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D2, D3, D16, FpRegister,
   PatchSite, Register, SP, X0, X1, X2, X3, X4, X9, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
@@ -1960,6 +1960,34 @@ impl<'a> ARM64Gen<'a> {
           "draw_circle" => self.emit_raylib_draw_circle(args),
           "draw_circle_v" => self.emit_raylib_draw_circle_v(args),
           "get_mouse_position" => self.emit_raylib_get_mouse_position(idx),
+
+          // misato — Three.js-style runtime in libzo_misato.dylib.
+          "__zo_misato_init_world" => self.emit_misato_init_world(idx),
+          "__zo_misato_destroy_world" => self.emit_misato_destroy_world(args),
+          "__zo_misato_make_box_geom" => {
+            self.emit_misato_make_box_geom(args, idx)
+          }
+          "__zo_misato_make_standard_mat" => {
+            self.emit_misato_make_standard_mat(args, idx)
+          }
+          "__zo_misato_spawn_box_mesh" => {
+            self.emit_misato_spawn_box_mesh(args, idx)
+          }
+          "__zo_misato_scene_add" => self.emit_misato_scene_add(args),
+          "__zo_misato_scene_render" => self.emit_misato_scene_render(args),
+          "__zo_misato_camera_new" => {
+            self.emit_misato_camera_new(args, idx)
+          }
+          "__zo_misato_camera_set_position" => {
+            self.emit_misato_camera_set_position(args)
+          }
+          "__zo_misato_camera_look_at" => {
+            self.emit_misato_camera_look_at(args)
+          }
+          "__zo_misato_mesh_set_position" => {
+            self.emit_misato_mesh_set_position(args)
+          }
+
           "exists" => self.emit_io_exists(args, idx),
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
@@ -4885,6 +4913,267 @@ impl<'a> ARM64Gen<'a> {
     if let Some(dst) = self.reg_for_insn(idx) {
       self.emit_add_sp_offset(dst, base);
     }
+  }
+
+  // ================================================================
+  // misato bindings — Three.js-style runtime hosted in
+  // libzo_misato.dylib. Symbols carry the namespacing
+  // prefix `__zo_misato_*` so they don't collide with
+  // raylib's CamelCase or zo-runtime's `_zo_*` prefix.
+  // Mach-O symbol names get an extra leading underscore
+  // (3 total) — that's what `emit_extern_call` expects.
+  // ================================================================
+
+  /// Clobber-safe FP register marshaling — mirrors
+  /// `emit_safe_int_arg_moves`. Stashes through D16 when a
+  /// later destination would overwrite a still-needed
+  /// source. AAPCS uses D0-D7 for FP args (caller-saved);
+  /// D16-D31 are also caller-saved, so D16 is a free
+  /// scratch slot during call-site marshaling.
+  fn emit_safe_fp_arg_moves(&mut self, moves: &[(FpRegister, FpRegister)]) {
+    let mut saved_reg: Option<FpRegister> = None;
+
+    for j in 0..moves.len() {
+      let (_, src) = moves[j];
+
+      let is_clobbered = moves
+        .iter()
+        .enumerate()
+        .any(|(k, (dst, _))| k != j && *dst == src);
+
+      if is_clobbered && saved_reg.is_none() {
+        self.emitter.emit_fmov_fp(D16, src);
+        saved_reg = Some(src);
+      }
+    }
+
+    for &(dst, src) in moves {
+      let actual_src = if Some(src) == saved_reg { D16 } else { src };
+
+      if dst != actual_src {
+        self.emitter.emit_fmov_fp(dst, actual_src);
+      }
+    }
+  }
+
+  /// `__zo_misato_init_world() -> int` — no args. Returns
+  /// the world handle in X0.
+  fn emit_misato_init_world(&mut self, idx: usize) {
+    self.emit_extern_call("___zo_misato_init_world");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_misato_destroy_world(handle: int)` — 1 int arg.
+  fn emit_misato_destroy_world(&mut self, args: &[ValueId]) {
+    let h = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    if h != X0 {
+      self.emitter.emit_mov_reg(X0, h);
+    }
+
+    self.emit_extern_call("___zo_misato_destroy_world");
+  }
+
+  /// `__zo_misato_make_box_geom(w: float, h: float, d: float) -> int`
+  /// — narrow each f64 to f32 in S0/S1/S2 via `FCVT S, D`.
+  fn emit_misato_make_box_geom(&mut self, args: &[ValueId], idx: usize) {
+    let w_d = args
+      .first()
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D0);
+    let h_d = args
+      .get(1)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D1);
+    let d_d = args
+      .get(2)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D2);
+
+    self.emit_safe_fp_arg_moves(&[(D0, w_d), (D1, h_d), (D2, d_d)]);
+    // FCVT in place — S writes the low 32 bits of V, so the
+    // f32 lives in the low half of D0/D1/D2 ready for AAPCS.
+    self.emitter.emit_fcvt_d_to_s(D0, D0);
+    self.emitter.emit_fcvt_d_to_s(D1, D1);
+    self.emitter.emit_fcvt_d_to_s(D2, D2);
+
+    self.emit_extern_call("___zo_misato_make_box_geom");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_misato_make_standard_mat(color: int) -> int` —
+  /// 1 packed-RGBA int, returns material handle.
+  fn emit_misato_make_standard_mat(&mut self, args: &[ValueId], idx: usize) {
+    let color = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    if color != X0 {
+      self.emitter.emit_mov_reg(X0, color);
+    }
+
+    self.emit_extern_call("___zo_misato_make_standard_mat");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_misato_spawn_box_mesh(geom: int, mat: int,
+  ///                              x: float, y: float, z: float) -> int`
+  /// — 2 int args (X0/X1) + 3 float args narrowed into
+  /// S0/S1/S2.
+  fn emit_misato_spawn_box_mesh(&mut self, args: &[ValueId], idx: usize) {
+    let geom = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let mat = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+    let x_d = args
+      .get(2)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D0);
+    let y_d = args
+      .get(3)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D1);
+    let z_d = args
+      .get(4)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D2);
+
+    self.emit_safe_int_arg_moves(&[(X0, geom), (X1, mat)]);
+    self.emit_safe_fp_arg_moves(&[(D0, x_d), (D1, y_d), (D2, z_d)]);
+    self.emitter.emit_fcvt_d_to_s(D0, D0);
+    self.emitter.emit_fcvt_d_to_s(D1, D1);
+    self.emitter.emit_fcvt_d_to_s(D2, D2);
+
+    self.emit_extern_call("___zo_misato_spawn_box_mesh");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_misato_scene_add(scene: int, ent: int)` —
+  /// append entity handle to scene's draw list.
+  fn emit_misato_scene_add(&mut self, args: &[ValueId]) {
+    let scene = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let ent = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    self.emit_safe_int_arg_moves(&[(X0, scene), (X1, ent)]);
+
+    self.emit_extern_call("___zo_misato_scene_add");
+  }
+
+  /// `__zo_misato_scene_render(scene: int, cam_ptr: int)`
+  /// — drive one render pass; the runtime opens the
+  /// raylib 3D mode and dispatches per-entity draws.
+  fn emit_misato_scene_render(&mut self, args: &[ValueId]) {
+    let scene = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let cam = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    self.emit_safe_int_arg_moves(&[(X0, scene), (X1, cam)]);
+
+    self.emit_extern_call("___zo_misato_scene_render");
+  }
+
+  /// `__zo_misato_camera_new(fov: float, aspect: float,
+  ///                          near: float, far: float) -> int`
+  /// — 4 float args narrowed into S0/S1/S2/S3.
+  fn emit_misato_camera_new(&mut self, args: &[ValueId], idx: usize) {
+    let fov = args
+      .first()
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D0);
+    let aspect = args
+      .get(1)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D1);
+    let near = args
+      .get(2)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D2);
+    let far = args
+      .get(3)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D3);
+
+    self.emit_safe_fp_arg_moves(&[
+      (D0, fov),
+      (D1, aspect),
+      (D2, near),
+      (D3, far),
+    ]);
+    self.emitter.emit_fcvt_d_to_s(D0, D0);
+    self.emitter.emit_fcvt_d_to_s(D1, D1);
+    self.emitter.emit_fcvt_d_to_s(D2, D2);
+    self.emitter.emit_fcvt_d_to_s(D3, D3);
+
+    self.emit_extern_call("___zo_misato_camera_new");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `__zo_misato_camera_set_position(cam: int,
+  ///                                   x: float, y: float, z: float)`
+  /// — 1 int (X0) + 3 float args narrowed into S0/S1/S2.
+  fn emit_misato_camera_set_position(&mut self, args: &[ValueId]) {
+    self.emit_int_then_3_floats(args, "___zo_misato_camera_set_position");
+  }
+
+  /// `__zo_misato_camera_look_at(cam: int,
+  ///                              x: float, y: float, z: float)`.
+  fn emit_misato_camera_look_at(&mut self, args: &[ValueId]) {
+    self.emit_int_then_3_floats(args, "___zo_misato_camera_look_at");
+  }
+
+  /// `__zo_misato_mesh_set_position(mesh: int,
+  ///                                  x: float, y: float, z: float)`.
+  fn emit_misato_mesh_set_position(&mut self, args: &[ValueId]) {
+    self.emit_int_then_3_floats(args, "___zo_misato_mesh_set_position");
+  }
+
+  /// Shared marshaling for misato setters with the shape
+  /// `(handle: int, x: float, y: float, z: float)` — 1 int
+  /// arg in X0 + 3 float args narrowed into S0/S1/S2.
+  fn emit_int_then_3_floats(&mut self, args: &[ValueId], c_sym: &str) {
+    let h = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let x_d = args
+      .get(1)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D0);
+    let y_d = args
+      .get(2)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D1);
+    let z_d = args
+      .get(3)
+      .and_then(|v| self.alloc_fp_reg(*v))
+      .unwrap_or(D2);
+
+    if h != X0 {
+      self.emitter.emit_mov_reg(X0, h);
+    }
+    self.emit_safe_fp_arg_moves(&[(D0, x_d), (D1, y_d), (D2, z_d)]);
+    self.emitter.emit_fcvt_d_to_s(D0, D0);
+    self.emitter.emit_fcvt_d_to_s(D1, D1);
+    self.emitter.emit_fcvt_d_to_s(D2, D2);
+
+    self.emit_extern_call(c_sym);
   }
 
   // ================================================================

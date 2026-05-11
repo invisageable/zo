@@ -7575,6 +7575,7 @@ dependencies = [
  "zo-error",
  "zo-interner",
  "zo-linker",
+ "zo-misato",
  "zo-module-resolver",
  "zo-parser",
  "zo-pp",
@@ -7749,6 +7750,13 @@ dependencies = [
  "zo-sir",
  "zo-ty",
  "zo-value",
+]
+
+[[package]]
+name = "zo-misato"
+version = "0.3.11"
+dependencies = [
+ "zo-ecs",
 ]
 
 [[package]]
