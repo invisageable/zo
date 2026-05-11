@@ -28,9 +28,9 @@ fun main() {
     .look_at(0.0, 0.0, 0.0);
 
   imu geom := BoxGeometry::new(1.0, 1.0, 1.0);
-  imu red    := MeshStandardMaterial::new(0xFF0000FF);
-  imu green  := MeshStandardMaterial::new(0x00FF00FF);
-  imu blue   := MeshStandardMaterial::new(0x0000FFFF);
+  imu red := MeshStandardMaterial::new(0xFF0000FF);
+  imu green := MeshStandardMaterial::new(0x00FF00FF);
+  imu blue := MeshStandardMaterial::new(0x0000FFFF);
 
   imu cube_a := Mesh::new(geom, red).set_position(-2.0, 0.0, 0.0);
   imu cube_b := Mesh::new(geom, green).set_position(0.0, 0.0, 0.0);

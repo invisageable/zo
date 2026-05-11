@@ -163,6 +163,20 @@ apply Mesh {
     }
   }
 
+  -! Spawn at `(x, y, z)` directly — avoids the redundant
+  -! `.set_position(...)` call when the position is known
+  -! up front. Useful for grid spawns and any other batch
+  -! placement workload.
+  pub fun at(
+    g: BoxGeometry,
+    m: MeshStandardMaterial,
+    x: float,
+    y: float,
+    z: float,
+  ) -> Self {
+    Self { handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, x, y, z) }
+  }
+
   pub fun set_position(self, x: float, y: float, z: float) -> Self {
     __zo_misato_mesh_set_position(self.handle, x, y, z);
     self

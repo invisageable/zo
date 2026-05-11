@@ -22,7 +22,7 @@ fun main() {
   imu scene := Scene::new();
   imu camera := PerspectiveCamera::new(45.0, 1.33, 0.1, 1000.0);
   imu geom := BoxGeometry::new(1.0, 1.0, 1.0);
-  imu mat := MeshStandardMaterial::new(0xFFFFFFFF);   -- white
+  imu mat := MeshStandardMaterial::new(0x0000FFFF);   -- white
   imu cube := Mesh::new(geom, mat);
 
   scene.add(cube);

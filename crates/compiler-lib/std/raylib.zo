@@ -84,3 +84,8 @@ pub ffi draw_circle_v(center: Vector2, radius: float, color: int);
 -! `s0`/`s1` (HFA), zo widens each to f64 and stores into a
 -! local Vector2 struct.
 pub ffi get_mouse_position() -> Vector2;
+
+-! Current frame rate, measured by raylib's internal frame
+-! timer. Returns 0 until raylib has accumulated enough
+-! samples (typically a few frames into the loop).
+pub ffi get_fps() -> int;

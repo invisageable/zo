@@ -167,6 +167,7 @@ pub const RAYLIB_SYMBOLS: &[&str] = &[
   "_DrawCircle",
   "_DrawCircleV",
   "_GetMousePosition",
+  "_GetFPS",
 ];
 
 /// True iff `c_sym` is part of [`RAYLIB_SYMBOLS`].

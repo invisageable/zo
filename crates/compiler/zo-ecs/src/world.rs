@@ -169,6 +169,71 @@ impl World {
     self.archetypes.len()
   }
 
+  /// Read component `T` for `entity`. Returns `Some(value)`
+  /// when the entity is alive AND its archetype has a `T`
+  /// column; `None` otherwise (dead handle, never had `T`,
+  /// or the type was never registered).
+  ///
+  /// O(1) — entity → location → archetype → column → row.
+  pub fn get<T: Copy + 'static>(&self, entity: Entity) -> Option<T> {
+    if !self.is_alive(entity) {
+      return None;
+    }
+
+    let loc = (*self.locations.get(entity.index() as usize)?)?;
+    let id = self.registry.id_of(std::any::TypeId::of::<T>())?;
+    let archetype = self.archetypes.get(loc.archetype as usize)?;
+    let column = archetype.columns.get(&id)?;
+    let stride = column.stride();
+    let offset = (loc.row as usize) * stride;
+
+    // Storage is aligned to T's natural alignment, so a
+    // plain `ptr::read` is sound. Copy bound on T means
+    // we move bytes out without disturbing storage.
+    let value = unsafe { std::ptr::read(column.as_ptr().add(offset) as *const T) };
+
+    Some(value)
+  }
+
+  /// Overwrite component `T` for `entity`. Returns `true`
+  /// when the write happened, `false` when the entity is
+  /// dead, missing the component, or `T` was never
+  /// registered. O(1) — same path as [`Self::get`].
+  pub fn set<T: Copy + 'static>(&mut self, entity: Entity, value: T) -> bool {
+    if !self.is_alive(entity) {
+      return false;
+    }
+
+    let Some(loc_slot) = self.locations.get(entity.index() as usize) else {
+      return false;
+    };
+    let Some(loc) = *loc_slot else {
+      return false;
+    };
+
+    let Some(id) = self.registry.id_of(std::any::TypeId::of::<T>()) else {
+      return false;
+    };
+
+    let Some(archetype) = self.archetypes.get_mut(loc.archetype as usize)
+    else {
+      return false;
+    };
+
+    let Some(column) = archetype.columns.get_mut(&id) else {
+      return false;
+    };
+
+    let stride = column.stride();
+    let offset = (loc.row as usize) * stride;
+
+    unsafe {
+      std::ptr::write(column.as_mut_ptr().add(offset) as *mut T, value);
+    }
+
+    true
+  }
+
   // -- E2 internals ----------------------------------------
 
   /// Allocate an entity slot. Internal — used by builder.
@@ -673,6 +738,91 @@ mod tests {
     // sum_{i=0..32} (i + 10i) = 11 * sum_{i=0..32} i
     //                        = 11 * (31 * 32 / 2) = 11 * 496 = 5456
     assert_eq!(sum, 5456);
+  }
+
+  // --- M3a: World::get / World::set ---------------------
+
+  #[test]
+  fn get_returns_none_when_unregistered() {
+    let w = World::new();
+    let e = Entity::new(0, 0);
+    assert!(w.get::<Mesh>(e).is_none());
+  }
+
+  #[test]
+  fn get_returns_none_for_dead_entity() {
+    let mut w = World::new();
+    let m = w.register::<Mesh>();
+    let e = w.spawn().with(m, Mesh { id: 7 }).build();
+    assert!(w.despawn(e));
+    assert!(w.get::<Mesh>(e).is_none());
+  }
+
+  #[test]
+  fn get_returns_none_when_component_missing() {
+    let mut w = World::new();
+    let m = w.register::<Mesh>();
+    let _t = w.register::<Transform>();
+    let e = w.spawn().with(m, Mesh { id: 1 }).build();
+    // Entity has Mesh but not Transform.
+    assert!(w.get::<Transform>(e).is_none());
+  }
+
+  #[test]
+  fn get_round_trips_component_value() {
+    let mut w = World::new();
+    let m = w.register::<Mesh>();
+    let t = w.register::<Transform>();
+    let e = w
+      .spawn()
+      .with(m, Mesh { id: 0xCAFE })
+      .with(t, Transform { x: 3.5, y: -7.0 })
+      .build();
+    assert_eq!(w.get::<Mesh>(e), Some(Mesh { id: 0xCAFE }));
+    assert_eq!(w.get::<Transform>(e), Some(Transform { x: 3.5, y: -7.0 }));
+  }
+
+  #[test]
+  fn set_updates_value_visible_via_get() {
+    let mut w = World::new();
+    let t = w.register::<Transform>();
+    let e = w
+      .spawn()
+      .with(t, Transform { x: 0.0, y: 0.0 })
+      .build();
+    assert!(w.set(e, Transform { x: 9.0, y: -3.0 }));
+    assert_eq!(w.get::<Transform>(e), Some(Transform { x: 9.0, y: -3.0 }));
+  }
+
+  #[test]
+  fn set_returns_false_for_dead_or_missing() {
+    let mut w = World::new();
+    let m = w.register::<Mesh>();
+    let _t = w.register::<Transform>();
+    let e = w.spawn().with(m, Mesh { id: 1 }).build();
+
+    // Right entity, wrong component.
+    assert!(!w.set(e, Transform { x: 0.0, y: 0.0 }));
+
+    // Dead entity.
+    w.despawn(e);
+    assert!(!w.set(e, Mesh { id: 99 }));
+  }
+
+  #[test]
+  fn set_does_not_disturb_other_columns() {
+    let mut w = World::new();
+    let m = w.register::<Mesh>();
+    let t = w.register::<Transform>();
+    let e = w
+      .spawn()
+      .with(m, Mesh { id: 11 })
+      .with(t, Transform { x: 1.0, y: 2.0 })
+      .build();
+    assert!(w.set(e, Transform { x: 100.0, y: 200.0 }));
+    // Mesh untouched.
+    assert_eq!(w.get::<Mesh>(e), Some(Mesh { id: 11 }));
+    assert_eq!(w.get::<Transform>(e), Some(Transform { x: 100.0, y: 200.0 }));
   }
 
   #[test]

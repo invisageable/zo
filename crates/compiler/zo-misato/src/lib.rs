@@ -12,19 +12,23 @@
 //! lives in a `thread_local!` — accidental cross-thread
 //! use sees `None` instead of silently corrupting state.
 //!
-//! M2 scope per `PLAN_ZO_MISATO.md`:
-//!   - Scene-local cube list (no ECS yet — M3 promotes it)
-//!   - Real camera handles: `PerspectiveCamera::new` builds
-//!     a runtime `Camera3D`; `set_position` / `look_at`
-//!     mutate it; render dereferences the handle each frame
-//!   - Per-mesh repositioning via `Mesh::set_position`
+//! M3 scope per `PLAN_ZO_MISATO.md`:
+//!   - Each spawned cube is a real `zo-ecs` entity carrying
+//!     `(Transform, RenderCube)` components. The render
+//!     loop queries the World for `(RenderCube, Transform)`
+//!     and dispatches `DrawCubeV` per row.
+//!   - `Mesh` handles encode `(index, generation)` from
+//!     [`zo_ecs::Entity::to_bits`], so handles survive
+//!     despawn-recycle without aliasing.
+//!   - Camera handles still index a flat `Vec<Camera3D>`
+//!     (cameras are world-global, not per-entity).
 //!   - `DrawCubeV` immediate primitive (no GPU mesh upload
 //!     yet — M4 swaps to `DrawMesh` with a real
-//!     `BoxGeometry` upload)
+//!     `BoxGeometry` upload).
 
 use std::cell::RefCell;
 
-use zo_ecs::World;
+use zo_ecs::{ComponentId, Entity, World};
 
 // --- Raylib FFI (3D mode) ------------------------------------
 
@@ -68,50 +72,62 @@ unsafe extern "C" {
   fn DrawCubeV(position: Vector3, size: Vector3, color: Color);
 }
 
-// --- Runtime state -------------------------------------------
+// --- ECS components ------------------------------------------
 
-/// One spawned cube. M1 stores everything inline; M3
-/// promotes these into ECS entities with `(Mesh,
-/// Transform, Material)` components.
+/// Per-entity world-space position. 12 bytes, naturally
+/// aligned to 4 (matches `Vector3`'s alignment).
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
-struct CubeData {
-  size: Vector3,
+struct Transform {
   position: Vector3,
+}
+
+/// Per-entity render data — what to draw at the entity's
+/// `Transform.position`. Mesh + material folded into one
+/// component so the render loop can use `Query2`
+/// (M3-friendly; Query3 lands when an unrelated consumer
+/// needs it). 16 bytes (12 size + 4 color).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct RenderCube {
+  size: Vector3,
   color: Color,
 }
 
-/// Pending allocations indexed by the handles handed back
-/// to zo. Handles are 1-indexed so 0 stays a sentinel
-/// "null handle" value.
+// --- Runtime state -------------------------------------------
+
+/// Owned by the thread-local runtime slot. Holds the ECS
+/// World plus a few flat tables for resources the user
+/// addresses by handle (geometries, materials, cameras).
 struct RuntimeState {
-  // Reserved for M3+ — the World will own the (Mesh,
-  // Transform, Material) entities once the render system
-  // queries it. M1/M2 keeps a flat Vec, so the World is
-  // built but unused; this matches the plan's M1+M2
-  // shortcut.
-  #[allow(dead_code)]
   world: World,
+  /// Component id for `Transform`, registered once at init.
+  transform_id: ComponentId,
+  /// Component id for `RenderCube`, registered once at init.
+  render_cube_id: ComponentId,
+  /// Geometry table — handle = 1-indexed `Vec` index. M1+M2
+  /// referenced these by handle from `spawn_box_mesh`; M3
+  /// keeps the table because cubes still need a size source.
   geoms: Vec<Vector3>,
+  /// Material table — same scheme as `geoms`.
   mats: Vec<Color>,
-  cubes: Vec<CubeData>,
   /// Camera table. Handles are 1-indexed; handle 0 means
   /// "use the default camera at (3,3,3) → origin".
   cameras: Vec<Camera3D>,
-  /// Indices into `cubes` that the scene draws each frame.
-  /// One scene per world for M1/M2 — the scene handle is
-  /// always `1` and is ignored.
-  scene: Vec<usize>,
 }
 
 impl RuntimeState {
   fn new() -> Self {
+    let mut world = World::new();
+    let transform_id = world.register::<Transform>();
+    let render_cube_id = world.register::<RenderCube>();
     Self {
-      world: World::new(),
+      world,
+      transform_id,
+      render_cube_id,
       geoms: Vec::new(),
       mats: Vec::new(),
-      cubes: Vec::new(),
       cameras: Vec::new(),
-      scene: Vec::new(),
     }
   }
 }
@@ -148,7 +164,7 @@ fn unpack_color(rgba: u32) -> Color {
 // --- FFI surface (per PLAN_ZO_MISATO.md) ---------------------
 
 /// Initialise the runtime. Returns the world handle
-/// (always `1` — single-world model in M1).
+/// (always `1` — single-world model).
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_misato_init_world() -> i64 {
   RUNTIME.with(|cell| {
@@ -169,7 +185,7 @@ pub extern "C" fn __zo_misato_destroy_world(_handle: i64) {
 }
 
 /// Allocate a `BoxGeometry` of the given dimensions.
-/// Returns 1-indexed handle.
+/// Returns 1-indexed handle into the runtime's geom table.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_misato_make_box_geom(w: f32, h: f32, d: f32) -> i64 {
   RUNTIME.with(|cell| {
@@ -196,8 +212,10 @@ pub extern "C" fn __zo_misato_make_standard_mat(color_rgba: u32) -> i64 {
   })
 }
 
-/// Spawn a `Mesh` entity at `(x, y, z)` from the given
-/// geometry + material handles. Returns 1-indexed handle.
+/// Spawn a cube entity at `(x, y, z)` from the given
+/// geometry + material handles. Returns the entity handle
+/// — `(generation << 32) | index` packed via
+/// [`Entity::to_bits`].
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_misato_spawn_box_mesh(
   geom: i64,
@@ -226,16 +244,22 @@ pub extern "C" fn __zo_misato_spawn_box_mesh(
       a: 255,
     });
 
-    state.cubes.push(CubeData {
-      size,
-      position: Vector3 { x, y, z },
-      color,
-    });
-    state.cubes.len() as i64
+    let transform_id = state.transform_id;
+    let render_cube_id = state.render_cube_id;
+
+    let entity = state
+      .world
+      .spawn()
+      .with(transform_id, Transform { position: Vector3 { x, y, z } })
+      .with(render_cube_id, RenderCube { size, color })
+      .build();
+
+    entity.to_bits() as i64
   })
 }
 
-/// Update the position of a previously-spawned mesh.
+/// Update the position of a previously-spawned mesh. No-op
+/// if the handle is dead or doesn't carry a `Transform`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_misato_mesh_set_position(
   mesh: i64,
@@ -248,10 +272,8 @@ pub extern "C" fn __zo_misato_mesh_set_position(
     let Some(state) = slot.as_mut() else {
       return;
     };
-    let idx = (mesh as usize).saturating_sub(1);
-    if let Some(cube) = state.cubes.get_mut(idx) {
-      cube.position = Vector3 { x, y, z };
-    }
+    let entity = Entity::from_bits(mesh as u64);
+    state.world.set(entity, Transform { position: Vector3 { x, y, z } });
   });
 }
 
@@ -322,27 +344,20 @@ pub extern "C" fn __zo_misato_camera_look_at(
   });
 }
 
-/// Append entity handle to the scene's draw list.
+/// `scene_add` is a no-op in M3+ — every spawned mesh is
+/// already a renderable ECS entity, so there's nothing for
+/// the scene to track separately. Kept as part of the FFI
+/// surface so M1/M2 user code continues to compile.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_scene_add(_scene: i64, ent: i64) {
-  RUNTIME.with(|cell| {
-    let mut slot = cell.borrow_mut();
-    let Some(state) = slot.as_mut() else {
-      return;
-    };
-    let ent_idx = (ent as usize).saturating_sub(1);
-    if ent_idx < state.cubes.len() {
-      state.scene.push(ent_idx);
-    }
-  });
-}
+pub extern "C" fn __zo_misato_scene_add(_scene: i64, _ent: i64) {}
 
 /// Drive one render pass. Looks up the camera by handle
 /// (`cam_handle == 0` falls back to the runtime default at
-/// `(3,3,3) → origin`); iterates the scene list and
-/// dispatches `DrawCubeV` per cube. The user's render
-/// loop must wrap this in `BeginDrawing` / `EndDrawing` —
-/// we only manage the 3D mode bracketing.
+/// `(3,3,3) → origin`); queries the World for every
+/// `(RenderCube, Transform)` row and dispatches `DrawCubeV`
+/// per row. The user's render loop must wrap this in
+/// `BeginDrawing` / `EndDrawing` — we only manage the 3D
+/// mode bracketing.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_misato_scene_render(_scene: i64, cam_handle: i64) {
   RUNTIME.with(|cell| {
@@ -363,9 +378,8 @@ pub extern "C" fn __zo_misato_scene_render(_scene: i64, cam_handle: i64) {
 
     unsafe {
       BeginMode3D(camera);
-      for &ent_idx in &state.scene {
-        let cube = state.cubes[ent_idx];
-        DrawCubeV(cube.position, cube.size, cube.color);
+      for (rc, t) in state.world.query2::<RenderCube, Transform>().iter() {
+        DrawCubeV(t.position, rc.size, rc.color);
       }
       EndMode3D();
     }

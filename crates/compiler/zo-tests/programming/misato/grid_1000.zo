@@ -1,0 +1,70 @@
+-- misato M3 — 1000 cubes spawned in a 10×10×10 grid via
+-- the ECS World; render system queries (RenderCube,
+-- Transform) and dispatches DrawCubeV per row. FPS sampled
+-- via raylib::get_fps() and printed once per second.
+-- @cmd — zo build grid_1000.zo && ./grid_1000
+--
+-- Requires `brew install raylib` (macOS).
+--
+-- Manual visible test: 1024x768 window opens; 1000 1×1×1
+-- orange cubes form a 10×10×10 grid centered at origin
+-- (spacing 1.5 units, so the grid spans roughly [-7, +7]
+-- on each axis). Camera at (25, 20, 25) looking at origin.
+-- FPS prints to stdout each second and should hit 60.
+-- SPACE or close exits.
+--
+-- Acceptance gate for M3 — proves the ECS handles 1000
+-- entities through the per-frame Query2 iteration without
+-- dropping below 60 FPS.
+
+fun main() {
+  init_window(1024, 768, c_str("zo + misato — grid_1000"));
+  set_target_fps(60);
+
+  imu scene := Scene::new();
+
+  imu camera := PerspectiveCamera::new(45.0, 1.33, 0.1, 1000.0)
+    .set_position(25.0, 20.0, 25.0)
+    .look_at(0.0, 0.0, 0.0);
+
+  imu geom := BoxGeometry::new(1.0, 1.0, 1.0);
+  imu mat := MeshStandardMaterial::new(0xFF8000FF);   -- orange
+
+  -- 10×10×10 grid centered at origin (spacing 1.5; offset
+  -- shifts indices [0..10] into [-7.5, +6.0]).
+  for i := 0..10 {
+    for j := 0..10 {
+      for k := 0..10 {
+        imu fi: float = i as float;
+        imu fj: float = j as float;
+        imu fk: float = k as float;
+        imu x: float = fi * 1.5 - 7.5;
+        imu y: float = fj * 1.5 - 7.5;
+        imu z: float = fk * 1.5 - 7.5;
+        imu cube := Mesh::at(geom, mat, x, y, z);
+        scene.add(cube);
+      }
+    }
+  }
+
+  mut frame: int = 0;
+
+  loop {
+    if window_should_close() { break }
+    if is_key_pressed(32)    { break }   -- SPACE.
+
+    begin_drawing();
+      clear_background(0xF5F5F5FF);
+      scene.render(camera);
+    end_drawing();
+
+    frame = frame + 1;
+    if frame % 60 == 0 {
+      imu fps := get_fps();
+      showln("fps: {fps}");
+    }
+  }
+
+  scene.close();
+  close_window();
+}

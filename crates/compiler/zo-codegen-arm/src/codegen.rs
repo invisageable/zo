@@ -1960,6 +1960,7 @@ impl<'a> ARM64Gen<'a> {
           "draw_circle" => self.emit_raylib_draw_circle(args),
           "draw_circle_v" => self.emit_raylib_draw_circle_v(args),
           "get_mouse_position" => self.emit_raylib_get_mouse_position(idx),
+          "get_fps" => self.emit_raylib_get_fps(idx),
 
           // misato — Three.js-style runtime in libzo_misato.dylib.
           "__zo_misato_init_world" => self.emit_misato_init_world(idx),
@@ -4912,6 +4913,20 @@ impl<'a> ARM64Gen<'a> {
     // dst register holds the struct's base address.
     if let Some(dst) = self.reg_for_insn(idx) {
       self.emit_add_sp_offset(dst, base);
+    }
+  }
+
+  /// `get_fps() -> int` → `int GetFPS(void)`. Returns the
+  /// running frame rate in W0 (raylib uses 32-bit `int`);
+  /// zo widens to 64-bit by leaving the upper bits alone
+  /// (`MOV W` zeros the high half of X anyway).
+  fn emit_raylib_get_fps(&mut self, idx: usize) {
+    self.emit_extern_call("_GetFPS");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
     }
   }
 
