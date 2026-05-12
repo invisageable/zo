@@ -54,17 +54,8 @@ pub(crate) fn search_paths(input: &Path) -> Vec<PathBuf> {
 
   if let Ok(std_path) = env::var("ZO_STD_PATH") {
     paths.push(PathBuf::from(std_path));
-  } else if let Ok(exe) = env::current_exe()
-    && let Some(parent) = exe.parent()
-  {
-    let installed = parent.join("../lib/std");
-    let dev = parent.join("../../crates/compiler-lib/std");
-
-    if installed.is_dir() {
-      paths.push(installed);
-    } else if dev.is_dir() {
-      paths.push(dev);
-    }
+  } else if let Some(p) = zo_host_paths::first_existing_lib_dir("std") {
+    paths.push(p);
   }
 
   if let Some(parent) = input.parent() {

@@ -99,6 +99,18 @@ pub enum ListItemCmd {
   TextFromItem,
 }
 
+/// One path literal inside a `#link { ... }` directive
+/// — pairs the interned string with the source span so
+/// the resolution diagnostic can underline the exact
+/// offending characters. Couples value + span at the
+/// type level so a future parser change can't desync
+/// them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LinkPath {
+  pub value: Symbol,
+  pub span: zo_span::Span,
+}
+
 /// One platform slot inside a `#link { ... }` directive.
 /// Codegen tries `system` first (homebrew / apt installs),
 /// falls back to `vendor` (bundled prebuilt under
@@ -108,12 +120,34 @@ pub struct LinkEntry {
   /// Absolute path or `@executable_path/...`. The latter
   /// bypasses on-disk checks since the dylib is staged
   /// per-binary, not present at codegen time.
-  pub system: Option<Symbol>,
+  pub system: Option<LinkPath>,
   /// Bare filename resolved under
   /// `<exe-dir>/../lib/vendor/<name>` (where
   /// `tasks/zo-install.sh` extracts the
   /// `zo-vendor-VERSION-PLATFORM.tar.gz` artifact).
-  pub vendor: Option<Symbol>,
+  pub vendor: Option<LinkPath>,
+}
+
+/// Outcome of the executor's `system → vendor` walk
+/// over a `#link`'s host entry. Codegen reads this to
+/// decide whether to emit an `LC_LOAD_DYLIB`. Compiler
+/// staging reads the `Resolved` variant to know which
+/// dylib basenames to copy next to the user binary.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LinkResolution {
+  /// Path codegen should emit as `LC_LOAD_DYLIB <sym>`.
+  /// An absolute path (system install) or
+  /// `@executable_path/<name>` (per-binary staging).
+  Resolved(Symbol),
+  /// Host entry absent — the pack didn't declare a
+  /// `#link` for this OS. Codegen no-ops; no
+  /// diagnostic.
+  Skipped,
+  /// Host entry declared but neither `system` nor
+  /// `vendor` resolved. A `LinkResolutionFailed`
+  /// diagnostic was already reported at the executor;
+  /// codegen no-ops.
+  Failed,
 }
 
 /// Per-platform dylib link metadata declared by a
@@ -651,12 +685,15 @@ pub enum Insn {
   /// Pack declaration — defines a namespace.
   PackDecl { name: Symbol, pubness: Pubness },
   /// Pack-level dylib link metadata produced by a
-  /// `#link { ... }` directive. Every `pub ffi` declared
-  /// in the same pack inherits this routing — the linker
-  /// emits one `LC_LOAD_DYLIB` per resolved path and
-  /// classifies each `extern_used` symbol by walking back
-  /// to its declaring pack.
-  PackLink { pack: Symbol, spec: LinkSpec },
+  /// `#link { ... }` directive. The executor
+  /// pre-resolves the host's `system → vendor` chain and
+  /// stores the outcome in `resolution` so codegen stays
+  /// a pure data transform.
+  PackLink {
+    pack: Symbol,
+    spec: LinkSpec,
+    resolution: LinkResolution,
+  },
   /// The branch target label.
   Label { id: u32 },
   /// The unconditional jump to a label.

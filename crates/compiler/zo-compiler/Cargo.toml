@@ -16,6 +16,7 @@ zo-codegen = { workspace = true }
 zo-codegen-backend = { workspace = true }
 zo-dce = { workspace = true }
 zo-error = { workspace = true }
+zo-host-paths = { workspace = true }
 zo-interner = { workspace = true }
 zo-linker = { workspace = true }
 zo-parser = { workspace = true }
@@ -26,6 +27,7 @@ zo-reporter = { workspace = true }
 zo-session = { workspace = true }
 zo-runtime = { workspace = true } # tmp.
 zo-misato = { workspace = true } # tmp.
+zo-provider-sqlite = { workspace = true } # tmp.
 zo-span = { workspace = true }
 zo-token = { workspace = true }
 zo-tokenizer = { workspace = true }

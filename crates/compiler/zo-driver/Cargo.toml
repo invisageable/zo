@@ -14,6 +14,7 @@ zo-analyzer = { workspace = true }
 zo-codegen-backend = { workspace = true }
 zo-compiler = { workspace = true }
 zo-error = { workspace = true }
+zo-host-paths = { workspace = true }
 zo-interner = { workspace = true }
 zo-parser = { workspace = true }
 zo-reporter = { workspace = true }

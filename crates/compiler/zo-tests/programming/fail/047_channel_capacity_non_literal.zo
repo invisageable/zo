@@ -1,12 +1,6 @@
 -! # how to errors: 047_channel_capacity_non_literal.zo
 -!
 -! @cmd: `zo build 047_channel_capacity_non_literal.zo`
--!
--! Per `PLAN_CHANNELS.md` Phase 0 decision 5, `channel(N)`
--! currently requires `N` to be an integer literal. Variable
--! references and general expressions are post-MVP — they
--! need compile-time constant propagation to be useful
--! while staying safe.
 
 fun main() {
   val BUF: int = 4;

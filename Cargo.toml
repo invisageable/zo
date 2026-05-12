@@ -70,6 +70,7 @@ zo-emitter = { path = "crates/compiler/zo-emitter", version = "0.3.11" }
 zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.3.11" }
 zo-error = { path = "crates/compiler/zo-error", version = "0.3.11" }
 zo-executor = { path = "crates/compiler/zo-executor", version = "0.3.11" }
+zo-host-paths = { path = "crates/compiler/zo-host-paths", version = "0.3.11" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.3.11" }
 zo-linker = { path = "crates/compiler/zo-linker", version = "0.3.11" }
 zo-liveness = { path = "crates/compiler/zo-liveness", version = "0.3.11" }
@@ -86,6 +87,7 @@ zo-runtime = { path = "crates/compiler/zo-runtime", version = "0.3.11" }
 zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.3.11" }
 zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.3.11" }
 zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.3.11" }
+zo-provider-sqlite = { path = "crates/compiler/zo-provider-sqlite", version = "0.3.11" }
 zo-sir = { path = "crates/compiler/zo-sir", version = "0.3.11" }
 zo-session = { path = "crates/compiler/zo-session", version = "0.3.11" }
 zo-span = { path = "crates/compiler/zo-span", version = "0.3.11" }
@@ -196,6 +198,10 @@ reqwest = { version = "0.13.3", default-features = false, features = [
 ] }
 resvg = "0.47.0"
 rfd = "0.13"
+# `bundled` builds sqlite3 from source into the shim
+# dylib — no system libsqlite3 dep, no version skew.
+# Used by `zo-sqlite-shim` to back `std/sqlite.zo`.
+rusqlite = { version = "0.32", features = ["bundled"] }
 rustc-hash = "2.1.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

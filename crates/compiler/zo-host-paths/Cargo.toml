@@ -1,0 +1,7 @@
+[package]
+name = "zo-host-paths"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false

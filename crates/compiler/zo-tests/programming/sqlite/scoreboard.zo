@@ -1,0 +1,24 @@
+-- sqlite — opens an in-process database, persists three
+-- scores, reads back the max + total. Validates the F6/F7
+-- pipeline for a 2nd C library beyond raylib + misato.
+-- @cmd — zo build scoreboard.zo && ./scoreboard
+
+fun main() {
+  imu db: Database = Database::open(":memory:");
+
+  db.exec("CREATE TABLE scores (player TEXT, score INTEGER)");
+  db.exec("INSERT INTO scores VALUES ('alice', 42)");
+  db.exec("INSERT INTO scores VALUES ('bob', 17)");
+  db.exec("INSERT INTO scores VALUES ('carol', 88)");
+
+  imu top: int = db.query_int("SELECT MAX(score) FROM scores");
+  imu total: int = db.query_int("SELECT SUM(score) FROM scores");
+  imu count: int = db.query_int("SELECT COUNT(*) FROM scores");
+
+  showln("scoreboard:");
+  showln("  players: {count}");
+  showln("  top score: {top}");
+  showln("  total: {total}");
+
+  db.close();
+}

@@ -59,22 +59,9 @@ pub fn default_std_search_paths() -> Vec<PathBuf> {
     return vec![PathBuf::from(std_path)];
   }
 
-  if let Ok(exe) = env::current_exe()
-    && let Some(parent) = exe.parent()
-  {
-    let installed = parent.join("../lib/std");
-    let dev = parent.join("../../crates/compiler-lib/std");
-
-    if installed.is_dir() {
-      return vec![installed];
-    }
-
-    if dev.is_dir() {
-      return vec![dev];
-    }
-  }
-
-  Vec::new()
+  zo_host_paths::first_existing_lib_dir("std")
+    .map(|p| vec![p])
+    .unwrap_or_default()
 }
 
 /// Represents a [`Compiler`] instance.
@@ -292,9 +279,10 @@ impl Compiler {
     let preload = [
       "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
       "int", "bool", "arr", "str", "map", "set", "vec", "c", "raylib",
-      // misato deliberately last — it depends on raylib being preloaded
-      // first (cam_ptr handling references raylib types in M2+).
-      "misato",
+      // misato deliberately last in the graphics chain —
+      // it depends on raylib being preloaded first (cam_ptr
+      // handling references raylib types in M2+).
+      "misato", "sqlite",
     ];
 
     for module_name in preload {
@@ -845,37 +833,21 @@ impl RuntimeNeeds {
           // emit `bridge.js` alongside the binary.
           needs.native_ui = true;
         }
-        zo_sir::Insn::PackLink { spec, .. } => {
-          // Two staging triggers:
-          // - `system: "@executable_path/<name>"` — the
-          //   pack ships its own dylib (e.g. misato).
-          //   Source lives in `<zo-exe-dir>/<name>`.
-          // - `vendor: "<name>"` — F7 fallback when the
-          //   user has no system install. Source lives in
-          //   `<zo-exe-dir>/../lib/vendor/<name>`.
-          //
-          // Absolute system paths (`/opt/...`,
-          // `/usr/...`) need no staging — dyld resolves
-          // them at load time.
-          if let Some(entry) = spec.host_entry() {
-            if let Some(sym) = entry.system {
-              let path = interner.get(sym);
-
-              if let Some(rest) = path.strip_prefix("@executable_path/") {
-                needs.dylib_basenames.push(rest.to_owned());
-              }
-            }
-
-            // Codegen's vendor fallback only fires when
-            // the system path is missing — but `from_sir`
-            // can't replicate that decision (no
-            // filesystem state per pack here without
-            // re-walking). Push every vendor name; the
-            // staging step is a no-op when the source
-            // file isn't present.
-            if let Some(sym) = entry.vendor {
-              needs.dylib_basenames.push(interner.get(sym).to_owned());
-            }
+        zo_sir::Insn::PackLink {
+          resolution: zo_sir::LinkResolution::Resolved(sym),
+          ..
+        } => {
+          // The executor pre-resolved `system → vendor`;
+          // we stage whatever it produced.
+          // `@executable_path/<name>` entries need the
+          // file copied next to the user binary; absolute
+          // system paths (`/opt/...`, `/usr/...`) are
+          // resolved by dyld at load time and need no
+          // staging.
+          if let Some(rest) =
+            interner.get(*sym).strip_prefix("@executable_path/")
+          {
+            needs.dylib_basenames.push(rest.to_owned());
           }
         }
         _ => {}

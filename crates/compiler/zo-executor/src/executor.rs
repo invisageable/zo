@@ -5,8 +5,9 @@ use zo_interner::{
 };
 use zo_reporter::report_error;
 use zo_sir::{
-  BinOp, ComputedBinding, Insn, LinkEntry, LinkSpec, ListBinding, ListItemCmd,
-  LoadSource, NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
+  BinOp, ComputedBinding, Insn, LinkEntry, LinkPath, LinkResolution, LinkSpec,
+  ListBinding, ListItemCmd, LoadSource, NurseryKind, Sir, SpawnKind,
+  TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -362,6 +363,14 @@ pub struct Executor<'a> {
   /// `#link { ... }` to attach dylib metadata to its
   /// owning pack.
   top_pack: Option<Symbol>,
+  /// `<exe-dir>/../lib/vendor` resolved once at executor
+  /// construction. Used by `resolve_link_entry`'s vendor
+  /// fallback to locate prebuilt dylibs the compiler
+  /// distribution stages there. `None` when
+  /// `current_exe()` fails (sandboxed test runners,
+  /// exotic platforms) — vendor resolution then silently
+  /// short-circuits.
+  vendor_dir: Option<std::path::PathBuf>,
   /// Global compile-time constants (`val` at module level).
   /// Visible from all functions.
   global_constants: Vec<Local>,
@@ -697,6 +706,7 @@ impl<'a> Executor<'a> {
       pack_context: Vec::new(),
       pack_names: HashSet::default(),
       top_pack: None,
+      vendor_dir: zo_host_paths::first_existing_lib_dir("vendor"),
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
@@ -1302,7 +1312,93 @@ impl<'a> Executor<'a> {
     // tail of the instruction list without re-shuffling.
     self.emit_array_ty_defs();
 
+    // Gate `LinkResolutionFailed` diagnostics on actual
+    // FFI usage — a pack with a broken `#link` for a
+    // library no one calls shouldn't fail the build.
+    self.report_used_link_failures();
+
     (self.sir, self.annotations, self.funs, self.abstract_defs)
+  }
+
+  /// Post-execution walk over SIR. Emits a
+  /// `LinkResolutionFailed` diagnostic for every
+  /// `Insn::PackLink { resolution: Failed }` whose pack
+  /// actually owns a `pub ffi` reached by an
+  /// `Insn::Call`. Packs whose `#link` is broken but
+  /// whose symbols are never called stay silent — the
+  /// user can declare bindings ahead of usage without
+  /// the build breaking.
+  fn report_used_link_failures(&self) {
+    let mut current_pack: Option<Symbol> = None;
+    let mut ffi_to_pack: HashMap<Symbol, Symbol> = HashMap::default();
+    let mut failed: Vec<(Symbol, LinkEntry)> = Vec::new();
+
+    for insn in &self.sir.instructions {
+      match insn {
+        Insn::PackDecl { name, .. } => current_pack = Some(*name),
+        Insn::FunDef {
+          name,
+          kind: FunctionKind::Intrinsic,
+          ..
+        } => {
+          if let Some(pk) = current_pack {
+            ffi_to_pack.insert(*name, pk);
+          }
+        }
+        Insn::PackLink {
+          pack,
+          spec,
+          resolution: LinkResolution::Failed,
+        } => {
+          if let Some(entry) = spec.host_entry() {
+            failed.push((*pack, entry.clone()));
+          }
+        }
+        _ => {}
+      }
+    }
+
+    if failed.is_empty() {
+      return;
+    }
+
+    let mut used_packs: HashSet<Symbol> = HashSet::default();
+
+    for insn in &self.sir.instructions {
+      if let Insn::Call { name, .. } = insn
+        && let Some(pk) = ffi_to_pack.get(name)
+      {
+        used_packs.insert(*pk);
+      }
+    }
+
+    for (pack, entry) in failed {
+      if !used_packs.contains(&pack) {
+        continue;
+      }
+
+      // `host_entry()` returned `Some(entry)` only when
+      // the user wrote at least one of `system` /
+      // `vendor`, so `(None, None)` is unreachable.
+      let err = match (entry.system, entry.vendor) {
+        (Some(sys), Some(ven)) => Error::with_secondary(
+          ErrorKind::LinkResolutionFailed,
+          sys.span,
+          ven.span,
+        ),
+        (Some(sys), None) => {
+          Error::new(ErrorKind::LinkResolutionFailed, sys.span)
+        }
+        (None, Some(ven)) => {
+          Error::new(ErrorKind::LinkResolutionFailed, ven.span)
+        }
+        (None, None) => unreachable!(
+          "parse_link_value sets at least one of system / vendor"
+        ),
+      };
+
+      report_error(err);
+    }
   }
 
   /// Walk every `ty_id` in the emitted SIR, find each unique
@@ -17305,8 +17401,7 @@ impl<'a> Executor<'a> {
           break;
         }
 
-        let (entry_opt, after) =
-          self.parse_link_value(val_idx, block_end);
+        let (entry_opt, after) = self.parse_link_value(val_idx, block_end);
 
         if let Some(entry) = entry_opt {
           match key.as_str() {
@@ -17320,9 +17415,25 @@ impl<'a> Executor<'a> {
         i = after;
       }
 
+      // Pre-resolve the host's `#link` chain at executor
+      // time so codegen stays a pure data transform. The
+      // `LinkResolutionFailed` diagnostic is deferred to
+      // `report_used_link_failures` (post-execution
+      // walk) — a pack declaring a broken `#link` for a
+      // library it doesn't actually use shouldn't fail
+      // the build.
+      let resolution = match spec.host_entry() {
+        None => LinkResolution::Skipped,
+        Some(entry) => self
+          .resolve_link_entry(entry)
+          .map(LinkResolution::Resolved)
+          .unwrap_or(LinkResolution::Failed),
+      };
+
       self.sir.emit(Insn::PackLink {
         pack: pack_sym,
         spec,
+        resolution,
       });
 
       // Bound the caller's `skip_until` by THIS block's
@@ -17387,6 +17498,50 @@ impl<'a> Executor<'a> {
     None
   }
 
+  /// Walk a `LinkEntry`'s `system → vendor → None`
+  /// resolution chain. Caller emits a diagnostic on
+  /// `None` when at least one of system / vendor was
+  /// declared — pre-resolving at executor time keeps
+  /// codegen as a pure data transform.
+  ///
+  /// `system` paths starting with `@executable_path/`
+  /// skip the on-disk check (staged later, not present
+  /// at compile time). Vendor wins get rewritten to
+  /// `@executable_path/<basename>` because Mach-O's
+  /// load-command region is fixed at 1 KiB and absolute
+  /// vendor paths overflow it.
+  fn resolve_link_entry(&mut self, entry: &LinkEntry) -> Option<Symbol> {
+    // Mirrors `zo_writer_macho::EXECUTABLE_PATH_PREFIX` —
+    // local copy so the executor doesn't pull a mach-o
+    // dep just for one string. dyld contract; both sides
+    // update together if it ever changes.
+    const EXECUTABLE_PATH_PREFIX: &str = "@executable_path/";
+
+    if let Some(LinkPath { value, .. }) = entry.system {
+      let path = self.interner.get(value);
+
+      if path.starts_with(EXECUTABLE_PATH_PREFIX)
+        || std::path::Path::new(path).exists()
+      {
+        return Some(value);
+      }
+    }
+
+    if let Some(LinkPath { value, .. }) = entry.vendor {
+      let vendor_dir = self.vendor_dir.as_ref()?;
+      let name = self.interner.get(value);
+      let candidate = vendor_dir.join(name);
+
+      if candidate.exists() {
+        let resolved = format!("{EXECUTABLE_PATH_PREFIX}{name}");
+
+        return Some(self.interner.intern(&resolved));
+      }
+    }
+
+    None
+  }
+
   /// Parse one platform-slot value inside a `#link {
   /// macos: <value>, ... }` block. `<value>` is either:
   /// - a String literal — bare path, folds into
@@ -17413,7 +17568,10 @@ impl<'a> Executor<'a> {
       if let Some(NodeValue::Symbol(sym)) = self.node_value(start) {
         return (
           Some(LinkEntry {
-            system: Some(sym),
+            system: Some(LinkPath {
+              value: sym,
+              span: self.tree.spans[start],
+            }),
             vendor: None,
           }),
           start + 1,
@@ -17470,9 +17628,14 @@ impl<'a> Executor<'a> {
       }
 
       if let Some(NodeValue::Symbol(val_sym)) = self.node_value(val) {
+        let path = LinkPath {
+          value: val_sym,
+          span: self.tree.spans[val],
+        };
+
         match key.as_str() {
-          "system" => entry.system = Some(val_sym),
-          "vendor" => entry.vendor = Some(val_sym),
+          "system" => entry.system = Some(path),
+          "vendor" => entry.vendor = Some(path),
           _ => {}
         }
       }

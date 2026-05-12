@@ -89,6 +89,9 @@ jobs:
       - name: Build misato cdylib
         run: cargo build --release --target ${{ matrix.target }} -p zo-misato
 
+      - name: Build sqlite provider cdylib
+        run: cargo build --release --target ${{ matrix.target }} -p zo-provider-sqlite
+
       - name: List release directory
         run: ls -la target/${{ matrix.target }}/release/
         shell: bash
@@ -110,9 +113,11 @@ jobs:
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             cp target/${{ matrix.target }}/release/libzo_runtime.so dist/
             cp target/${{ matrix.target }}/release/libzo_misato.so dist/
+            cp target/${{ matrix.target }}/release/libzo_provider_sqlite.so dist/
           else
             cp target/${{ matrix.target }}/release/libzo_runtime.dylib dist/
             cp target/${{ matrix.target }}/release/libzo_misato.dylib dist/
+            cp target/${{ matrix.target }}/release/libzo_provider_sqlite.dylib dist/
           fi
           cd dist
           tar czvf ${{ github.ref_name }}-${{ matrix.target }}.tar.gz *
@@ -127,6 +132,7 @@ jobs:
           cp target/${{ matrix.target }}/release/fret.exe dist/
           cp target/${{ matrix.target }}/release/zo_runtime.dll dist/
           cp target/${{ matrix.target }}/release/zo_misato.dll dist/
+          cp target/${{ matrix.target }}/release/zo_provider_sqlite.dll dist/
           cd dist
           7z a ${{ github.ref_name }}-${{ matrix.target }}.zip *
           mv ${{ github.ref_name }}-${{ matrix.target }}.zip ../

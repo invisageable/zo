@@ -15,9 +15,7 @@ use zo_register_allocation::{
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::{Ty, TyId, TyTable};
 use zo_value::{FunctionKind, ValueId};
-use zo_writer_macho::{
-  DebugFrameEntry, EXECUTABLE_PATH_PREFIX, MachO, raylib_c_name,
-};
+use zo_writer_macho::{DebugFrameEntry, MachO, raylib_c_name};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -407,12 +405,6 @@ pub struct ARM64Gen<'a> {
   /// ordinals from per-pack metadata instead of hardcoded
   /// symbol-name predicates.
   extern_dylib_paths: HashMap<String, String>,
-  /// `<exe-dir>/../lib/vendor` resolved once at backend
-  /// construction. Used by `resolve_link_entry`'s vendor
-  /// fallback to locate prebuilt dylibs shipped via
-  /// `tasks/zo-install.sh`. `None` when `current_exe()`
-  /// fails (sandboxed test runners, exotic platforms).
-  vendor_dir: Option<std::path::PathBuf>,
   /// Read-only view of the type system needed by the
   /// classifier (struct field walks for HFA, etc.).
   /// `None` when the orchestrator didn't supply a
@@ -588,11 +580,6 @@ impl<'a> ARM64Gen<'a> {
       value_def_idx: DenseMap::new(),
       ffi_sigs: HashMap::default(),
       extern_dylib_paths: HashMap::default(),
-      vendor_dir: std::env::current_exe().ok().and_then(|exe| {
-        exe
-          .parent()
-          .map(|p| p.join("..").join("lib").join("vendor"))
-      }),
       type_view: None,
     }
   }
@@ -611,47 +598,6 @@ impl<'a> ARM64Gen<'a> {
   ) -> Self {
     self.type_view = Some(TypeViewStored { tys, ty_table });
     self
-  }
-
-  /// Walk `system → vendor → None`. `system` paths are
-  /// checked on disk so a homebrew-installed
-  /// `/opt/homebrew/lib/libraylib.dylib` wins over the
-  /// bundled fallback. `@executable_path/...` system
-  /// entries skip the disk check (the file is only
-  /// staged later by `stage_runtime_artifacts`). `vendor`
-  /// names get rewritten to `@executable_path/<basename>`
-  /// because Mach-O's load-command region is a fixed
-  /// 1 KiB and absolute paths under `~/.zo/lib/vendor/`
-  /// blow past it.
-  fn resolve_link_entry(&self, entry: &zo_sir::LinkEntry) -> Option<String> {
-    if let Some(sym) = entry.system {
-      let path = self.interner.get(sym);
-
-      if path.starts_with(EXECUTABLE_PATH_PREFIX)
-        || std::path::Path::new(path).exists()
-      {
-        return Some(path.to_owned());
-      }
-    }
-
-    if let Some(sym) = entry.vendor {
-      let name = self.interner.get(sym);
-      let candidate = self.vendor_dir.as_ref()?.join(name);
-
-      if candidate.exists() {
-        // Emit `@executable_path/<basename>`. Mach-O
-        // reserves a fixed 1 KiB region for load
-        // commands; long absolute paths blow past it and
-        // corrupt the header. The compiler's
-        // `stage_runtime_artifacts` step copies the
-        // vendor file next to the user binary so dyld
-        // resolves it at load time. Mirrors how
-        // `libzo_misato.dylib` ships per-binary.
-        return Some(format!("{EXECUTABLE_PATH_PREFIX}{name}"));
-      }
-    }
-
-    None
   }
 
   // --- Register allocation helpers ---
@@ -1108,11 +1054,15 @@ impl<'a> ARM64Gen<'a> {
     let mut pack_dylib: HashMap<Symbol, String> = HashMap::default();
 
     for insn in insns.iter() {
-      if let Insn::PackLink { pack, spec } = insn
-        && let Some(entry) = spec.host_entry()
-        && let Some(path) = self.resolve_link_entry(entry)
+      // Resolution + diagnostic happened at executor
+      // time — codegen just reads the pre-resolved path.
+      if let Insn::PackLink {
+        pack,
+        resolution: zo_sir::LinkResolution::Resolved(sym),
+        ..
+      } = insn
       {
-        pack_dylib.insert(*pack, path);
+        pack_dylib.insert(*pack, self.interner.get(*sym).to_owned());
       }
     }
 
@@ -2383,18 +2333,18 @@ impl<'a> ARM64Gen<'a> {
               // gets the platform leading underscore. F6 will
               // replace this with per-`pack` `@link` metadata
               // tied to the FFI declaration site.
-              let c_sym: &'static str =
-                if let Some(c) = raylib_c_name(zo_name) {
-                  c
-                } else {
-                  // Note: `.leak()` is fine here — c_sym strings
-                  // live for the duration of the codegen pass and
-                  // get embedded into the binary's symbol table.
-                  // A proper interner for c_sym strings is a
-                  // follow-up; today the symbol count is bounded
-                  // by the FFI surface (low hundreds at most).
-                  format!("_{}", zo_name).leak() as &'static str
-                };
+              let c_sym: &'static str = if let Some(c) = raylib_c_name(zo_name)
+              {
+                c
+              } else {
+                // Note: `.leak()` is fine here — c_sym strings
+                // live for the duration of the codegen pass and
+                // get embedded into the binary's symbol table.
+                // A proper interner for c_sym strings is a
+                // follow-up; today the symbol count is bounded
+                // by the FFI surface (low hundreds at most).
+                format!("_{}", zo_name).leak() as &'static str
+              };
               self.emit_ffi_call(c_sym, &abi, args, idx);
               return;
             }

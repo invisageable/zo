@@ -283,7 +283,7 @@ impl PrettyPrinter {
 
           self.sir_instruction(&decl);
         }
-        Insn::PackLink { pack, spec } => {
+        Insn::PackLink { pack, spec, .. } => {
           let pack = interner.get(*pack);
           let fmt_entry =
             |label: &str, entry: &Option<zo_sir::LinkEntry>| match entry {
@@ -291,11 +291,11 @@ impl PrettyPrinter {
               Some(e) => {
                 let sys = e
                   .system
-                  .map(|s| format!(" system=\"{}\"", interner.get(s)))
+                  .map(|p| format!(" system=\"{}\"", interner.get(p.value)))
                   .unwrap_or_default();
                 let ven = e
                   .vendor
-                  .map(|s| format!(" vendor=\"{}\"", interner.get(s)))
+                  .map(|p| format!(" vendor=\"{}\"", interner.get(p.value)))
                   .unwrap_or_default();
 
                 format!(" {label}={{{sys}{ven} }}")

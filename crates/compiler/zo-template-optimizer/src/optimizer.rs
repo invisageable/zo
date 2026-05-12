@@ -1,11 +1,10 @@
-//! Template optimizer - Phase 1: Analysis of static vs dynamic parts
+//! Template optimizer.
 //!
 //! This module classifies UiCommands based on their runtime behavior:
-//! - **Static**: Never changes, can be cached/pre-rendered
-//! - **Dynamic**: May change based on reactive data
-//! - **Conditional**: Existence depends on runtime conditions
 //!
-//! Inspired by Malina.js's compile-time template analysis.
+//!   - Static: Never changes, can be cached/pre-rendered
+//!   - Dynamic: May change based on reactive data
+//!   - Conditional: Existence depends on runtime conditions.
 
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
@@ -71,7 +70,7 @@ impl TemplateOptimizer {
     }
   }
 
-  /// Optimize command sequence (Phase 2 preview)
+  /// Optimize command sequence.
   pub fn optimize(&self, commands: Vec<UiCommand>) -> Vec<UiCommand> {
     self.merge_adjacent_text(commands, &[]).0
   }
