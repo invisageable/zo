@@ -1,0 +1,27 @@
+-- tests-build-pass: %% link_name attribute redirects
+-- the C symbol so the FFI's zo-side name doesn't have to
+-- match the libc function. `my_pid` zo-side; `getpid`
+-- is what the linker binds.
+--
+-- @cmd — zo build link_name.zo && ./link_name
+
+#link {
+  macos: "/usr/lib/libSystem.B.dylib",
+  linux: "/usr/lib/x86_64-linux-gnu/libc.so.6",
+}
+
+%% link_name = "getpid".
+pub ffi my_pid() -> int;
+
+fun main() {
+  imu p: int = my_pid();
+
+  -- A real PID is always > 0; check fails (aborts the
+  -- program) if `link_name` was ignored and the linker
+  -- bound `_my_pid` (which doesn't exist).
+  check(p > 0);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

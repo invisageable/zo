@@ -266,6 +266,8 @@ fn dead_insn_unused_const() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // %0 = const 42 — used by store.
     Insn::ConstInt {
@@ -323,6 +325,8 @@ fn dead_insn_chain() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // %0 = const 1 — used only by %2.
     Insn::ConstInt {
@@ -373,6 +377,8 @@ fn dead_insn_preserves_calls() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // Call is impure — must not be removed even if dst unused.
     Insn::Call {
@@ -409,6 +415,8 @@ fn dead_insn_preserves_array_store() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // ArrayStore is impure — must not be removed.
     Insn::ArrayStore {
@@ -450,6 +458,8 @@ fn dead_var_unused_store() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // Store x — never loaded → dead.
     Insn::ConstInt {
@@ -518,6 +528,8 @@ fn dead_var_overwritten_store() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // First store to x — overwritten before any load → dead.
     Insn::ConstInt {
@@ -587,6 +599,8 @@ fn unreachable_after_return() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     Insn::Return {
       value: None,
@@ -627,6 +641,8 @@ fn unreachable_stops_at_label() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     Insn::Return {
       value: None,
@@ -715,6 +731,8 @@ fn template_computed_binding_pins_closure() {
     kind: FunctionKind::Closure { capture_count: 0 },
     pubness: Pubness::No,
     mut_self: false,
+    link_name: None,
+    owning_pack: None,
   }];
 
   insns.push(Insn::Return {

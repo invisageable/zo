@@ -101,7 +101,17 @@ pub(crate) const FAT_MAGIC_64: u32 = 0xcafebabf; // 64-bit fat binary magic numb
 
 // Memory layout constants
 pub(crate) const PAGE_SIZE: u32 = 0x1000; // 4KB page size (legacy; segment alignment uses SEGMENT_ALIGN below)
-pub const CODE_OFFSET: u32 = 0x400; // Code starts at 1KB after header
+/// File offset where `__TEXT,__text` begins. The region
+/// `[0, CODE_OFFSET)` holds the mach_header_64 + every
+/// load command. Currently 2 KiB — the prior 1 KiB was
+/// tight enough that adding one more `LC_LOAD_DYLIB`
+/// (e.g. another preloaded provider crate) overflowed
+/// the budget: `sizeofcmds` in the header outgrew this
+/// constant, the writer truncated the LCs to fit, and
+/// dyld then read garbage past the legitimate LCs.
+/// 2 KiB gives ~10-12 extra `LC_LOAD_DYLIB`s of slack;
+/// bump again if it shows up as a hard cap.
+pub const CODE_OFFSET: u32 = 0x800;
 
 /// Page alignment required for mach-o segments on Apple
 /// Silicon (arm64) — 16 KB. dyld rejects segments that are
@@ -145,41 +155,6 @@ pub const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
 /// program start; bypasses any on-disk existence check at
 /// codegen time.
 pub const EXECUTABLE_PATH_PREFIX: &str = "@executable_path/";
-
-/// Maps zo-side snake_case `pub ffi` names to raylib's
-/// C symbol (with the platform leading underscore). The
-/// codegen consults this when lowering an FFI call so
-/// `init_window(...)` lands a `BL _InitWindow`. Hardcoded
-/// today; folds away once `pub ffi` declarations carry
-/// per-symbol `#c_name(...)` metadata (or the std file
-/// switches to PascalCase names that match the C surface
-/// directly).
-pub const RAYLIB_NAME_MAP: &[(&str, &str)] = &[
-  ("init_window", "_InitWindow"),
-  ("window_should_close", "_WindowShouldClose"),
-  ("close_window", "_CloseWindow"),
-  ("set_target_fps", "_SetTargetFPS"),
-  ("begin_drawing", "_BeginDrawing"),
-  ("end_drawing", "_EndDrawing"),
-  ("clear_background", "_ClearBackground"),
-  ("draw_text", "_DrawText"),
-  ("is_key_pressed", "_IsKeyPressed"),
-  ("get_frame_time", "_GetFrameTime"),
-  ("draw_circle", "_DrawCircle"),
-  ("draw_circle_v", "_DrawCircleV"),
-  ("get_mouse_position", "_GetMousePosition"),
-  ("get_fps", "_GetFPS"),
-];
-
-/// Look up the raylib C symbol for a zo-side `pub ffi`
-/// name. Returns `None` for non-raylib FFIs.
-#[inline]
-pub fn raylib_c_name(zo_name: &str) -> Option<&'static str> {
-  RAYLIB_NAME_MAP
-    .iter()
-    .find(|(zo, _)| *zo == zo_name)
-    .map(|(_, c)| *c)
-}
 
 /// Mach-O segment index for `__DATA` (pagezero=0,
 /// __TEXT=1, __DATA=2). Used in bind opcodes that point

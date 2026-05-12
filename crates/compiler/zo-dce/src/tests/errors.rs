@@ -31,6 +31,8 @@ fn warns_on_unused_function() {
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     Insn::Return {
       value: None,
@@ -44,6 +46,8 @@ fn warns_on_unused_function() {
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     Insn::Return {
       value: None,
@@ -80,6 +84,8 @@ fn warns_on_unused_variable() {
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     Insn::ConstInt {
       dst: ValueId(0),
@@ -125,6 +131,8 @@ fn no_warning_when_all_used() {
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     Insn::ConstInt {
       dst: ValueId(0),

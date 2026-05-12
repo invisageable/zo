@@ -11,6 +11,12 @@
   windows: "...",
 }
 
+-! Conntecs to a foo remove server.
+-! 
+-! @param bar — The target IP address.
+-! @returns   — `0` on success, `-1` on failure.
+ffi foo(bar: s32) -> int;
+
 -- item:pack;
 pub pack io;
 pack io;

@@ -48,5 +48,7 @@ pub fn exe_relative_lib_dirs(subdir: &str) -> Vec<PathBuf> {
 /// on disk. `None` when `current_exe()` fails or neither
 /// installed nor dev layout has the directory.
 pub fn first_existing_lib_dir(subdir: &str) -> Option<PathBuf> {
-  exe_relative_lib_dirs(subdir).into_iter().find(|p| p.is_dir())
+  exe_relative_lib_dirs(subdir)
+    .into_iter()
+    .find(|p| p.is_dir())
 }

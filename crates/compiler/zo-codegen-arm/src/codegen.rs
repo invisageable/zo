@@ -15,7 +15,7 @@ use zo_register_allocation::{
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::{Ty, TyId, TyTable};
 use zo_value::{FunctionKind, ValueId};
-use zo_writer_macho::{DebugFrameEntry, MachO, raylib_c_name};
+use zo_writer_macho::{DebugFrameEntry, MachO};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -128,6 +128,22 @@ const CFA_FP_REG: u8 = 31;
 // --- Libm Functions ---
 
 /// Maps a zo function name to its C library symbol.
+/// Resolve a `pub ffi` zo name to its C symbol for the
+/// linker. `link_name` from a `%% link_name = "X".`
+/// attribute wins; otherwise the zo name takes the
+/// platform leading underscore. Emitted verbatim into
+/// `BL <c_sym>`.
+fn c_sym_for(
+  interner: &Interner,
+  zo_name: Symbol,
+  link_name: Option<Symbol>,
+) -> String {
+  match link_name {
+    Some(ln) => format!("_{}", interner.get(ln)),
+    None => format!("_{}", interner.get(zo_name)),
+  }
+}
+
 fn libm_c_symbol(name: &str) -> String {
   format!("_{name}")
 }
@@ -398,6 +414,11 @@ pub struct ARM64Gen<'a> {
   /// the generic AAPCS path (`abi::classify` +
   /// `emit_ffi_call`).
   ffi_sigs: HashMap<Symbol, FfiSig>,
+  /// `link_name` attribute payload per `pub ffi` —
+  /// populated in the same pre-pass that builds
+  /// `ffi_sigs`. The call-site dispatch reads it to pick
+  /// the right C symbol for `BL <c_sym>`.
+  ffi_link_names: HashMap<Symbol, Symbol>,
   /// Per-FFI host-resolved dylib path (`#link { macos: ...,
   /// linux: ..., windows: ... }` from the declaring pack).
   /// Built in the pre-pass; consumed by `into_link_object`
@@ -579,6 +600,7 @@ impl<'a> ARM64Gen<'a> {
       enum_walk_done_fixups: Vec::new(),
       value_def_idx: DenseMap::new(),
       ffi_sigs: HashMap::default(),
+      ffi_link_names: HashMap::default(),
       extern_dylib_paths: HashMap::default(),
       type_view: None,
     }
@@ -1066,50 +1088,49 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Fused pre-pass: collect FFI signatures + bind each
-    // `pub ffi` to its declaring pack's dylib path in one
-    // walk. Tracks the most recent `PackDecl` to attribute
-    // each `FunctionKind::Intrinsic` to its owning pack.
+    // Single-walk pre-pass: collect FFI signatures + bind
+    // each `pub ffi` to its declaring pack's `#link` dylib
+    // path. Reads `owning_pack` from the FunDef itself
+    // (set by the executor at emit time) instead of
+    // tracking the most recent `PackDecl` positionally —
+    // the positional model mis-attributed top-level user
+    // FFIs to whichever preload pack landed last in the
+    // merged SIR (`misato` / `sqlite`), routing user
+    // symbols to the wrong dylib.
     //
     // `ffi_sigs` feeds the generic AAPCS dispatch fallback
     // (`_` arm of `Insn::Call`). `extern_dylib_paths`
-    // feeds the linker's `LC_LOAD_DYLIB` routing. C-symbol
-    // resolution mirrors the FFI fallback's: raylib's
-    // PascalCase names come from `RAYLIB_NAME_MAP`,
-    // everything else gets the bare `_<zo_name>` platform-
-    // underscore form.
-    let mut current_pack: Option<Symbol> = None;
-
+    // feeds the linker's `LC_LOAD_DYLIB` routing.
     for insn in insns.iter() {
-      match insn {
-        Insn::PackDecl { name, .. } => current_pack = Some(*name),
-        Insn::FunDef {
-          name,
-          kind: FunctionKind::Intrinsic,
-          params,
-          return_ty,
-          ..
-        } => {
-          self.ffi_sigs.insert(
-            *name,
-            FfiSig {
-              params: params.iter().map(|(_, ty)| *ty).collect(),
-              return_ty: *return_ty,
-            },
-          );
+      if let Insn::FunDef {
+        name,
+        kind: FunctionKind::Intrinsic,
+        params,
+        return_ty,
+        link_name,
+        owning_pack,
+        ..
+      } = insn
+      {
+        self.ffi_sigs.insert(
+          *name,
+          FfiSig {
+            params: params.iter().map(|(_, ty)| *ty).collect(),
+            return_ty: *return_ty,
+          },
+        );
 
-          if let Some(pk) = current_pack
-            && let Some(path) = pack_dylib.get(&pk)
-          {
-            let zo_name = self.interner.get(*name);
-            let c_sym = raylib_c_name(zo_name)
-              .map(|s| s.to_owned())
-              .unwrap_or_else(|| format!("_{}", zo_name));
-
-            self.extern_dylib_paths.insert(c_sym, path.clone());
-          }
+        if let Some(ln) = link_name {
+          self.ffi_link_names.insert(*name, *ln);
         }
-        _ => {}
+
+        if let Some(pk) = owning_pack
+          && let Some(path) = pack_dylib.get(pk)
+        {
+          let c_sym = c_sym_for(self.interner, *name, *link_name);
+
+          self.extern_dylib_paths.insert(c_sym, path.clone());
+        }
       }
     }
 
@@ -2326,25 +2347,16 @@ impl<'a> ARM64Gen<'a> {
                   ty_table: view.ty_table,
                 },
               );
-              let zo_name = self.interner.get(*name);
-              // Resolve the C symbol. raylib uses PascalCase
-              // (`init_window` → `_InitWindow`) so consult
-              // RAYLIB_NAME_MAP first; everything else just
-              // gets the platform leading underscore. F6 will
-              // replace this with per-`pack` `@link` metadata
-              // tied to the FFI declaration site.
-              let c_sym: &'static str = if let Some(c) = raylib_c_name(zo_name)
-              {
-                c
-              } else {
-                // Note: `.leak()` is fine here — c_sym strings
-                // live for the duration of the codegen pass and
-                // get embedded into the binary's symbol table.
-                // A proper interner for c_sym strings is a
-                // follow-up; today the symbol count is bounded
-                // by the FFI surface (low hundreds at most).
-                format!("_{}", zo_name).leak() as &'static str
-              };
+              // Resolve the C symbol. `link_name` from a
+              // `%% link_name = "X".` attribute wins;
+              // otherwise the legacy `RAYLIB_NAME_MAP`
+              // (snake → PascalCase) covers raylib until
+              // its bindings migrate; everything else
+              // gets the platform-underscore default.
+              let link_name = self.ffi_link_names.get(name).copied();
+              let c_sym: &'static str =
+                c_sym_for(self.interner, *name, link_name).leak();
+
               self.emit_ffi_call(c_sym, &abi, args, idx);
               return;
             }

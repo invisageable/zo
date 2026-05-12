@@ -21,17 +21,28 @@ pack misato;
   linux: "@executable_path/libzo_misato.so",
 }
 
--- ====================================================================
--- ffi surface — bridge to libzo_misato.dylib.
--- ====================================================================
+
+-* ffi surface — bridge to libzo_misato.dylib. *-
 
 pub ffi __zo_misato_init_world() -> int;
 
 -! Idempotent.
 pub ffi __zo_misato_destroy_world(handle: int);
 
+-! Creates a geometry for a rectangular cuboid.
+-!
+-! @param width — The width.
+-! @param height — The height.
+-! @param depth — The depth.
+-! @returns — ...
 pub ffi __zo_misato_make_box_geom(w: float, h: float, d: float) -> int;
 
+-! Creates a geometry for a sphere.
+-!
+-! @param width — The width.
+-! @param height — The height.
+-! @param depth — The depth.
+-! @returns — ...
 pub ffi __zo_misato_make_sphere_geom(
   radius: float,
   rings: int,

@@ -109,6 +109,19 @@ fn main() {
     &mut results,
   );
 
+  // programming/attributes/ — `%%` attribute pipeline
+  // (parse + executor buffer + codegen `link_name`
+  // dispatch). Build + run + EXPECTED OUTPUT match.
+  run_dir(
+    &tests_dir.join("programming/attributes"),
+    Category::Pass,
+    &zo,
+    &tmp,
+    filter,
+    target,
+    &mut results,
+  );
+
   // templating/ — build only (ZSX renders to UI, no stdout).
   run_dir(
     &tests_dir.join("templating"),

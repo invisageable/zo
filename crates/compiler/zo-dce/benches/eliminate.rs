@@ -24,6 +24,8 @@ fn make_fun(
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
     mut_self: false,
+    link_name: None,
+    owning_pack: None,
   }];
 
   for callee in calls {

@@ -87,6 +87,7 @@ pub fn extract_exports(
         kind,
         pubness,
         mut_self,
+        ..
       } => {
         if *pubness != Pubness::Yes {
           continue;

@@ -372,6 +372,9 @@ impl<'a> Parser<'a> {
       // Directives
       Token::Hash => self.handle_directive(),
 
+      // Attributes (`%% name.`, `%% name(arg).`, `%% name = value.`)
+      Token::Attribute => self.handle_attribute(),
+
       // Modifier syntax: ident@ident (e.g., check@lt)
       Token::At => self.handle_at(),
 
@@ -1864,6 +1867,145 @@ impl<'a> Parser<'a> {
     let len = self.tokens.lengths[self.pos + 1] as usize;
 
     &self.source[start..start + len] == "thread"
+  }
+
+  /// Parse a `%%` attribute inline. Recognized shapes
+  /// (period-terminated; multiple fields comma-separated,
+  /// optional trailing comma):
+  ///
+  /// - `%% name.`                       — single tag.
+  /// - `%% name(arg).`                  — call-style.
+  /// - `%% name = literal.`             — key/value
+  ///                                      (mirrors Rust's
+  ///                                      `#[link_name = "X"]`).
+  /// - `%% n1 = v1, n2, n3(a), .`       — multiple
+  ///                                      fields per
+  ///                                      block.
+  ///
+  /// Emits one `Token::Attribute` node with each field's
+  /// tokens as children: per field
+  /// `Ident [+ Eq, literal | LParen, value, RParen]`,
+  /// `Comma` separators between fields, terminating
+  /// `Dot`. The executor walks children to extract every
+  /// `(name, value)` pair into `pending_attributes`.
+  fn handle_attribute(&mut self) {
+    self.flush_expr();
+
+    let attr_node = self.emit_node(Token::Attribute);
+    let children_start = self.tree.nodes.len() as u32;
+
+    // Loop comma-separated fields. Bail on the first
+    // shape mismatch — partial attributes don't emit.
+    loop {
+      if !self.parse_attribute_field() {
+        return;
+      }
+
+      match self.peek() {
+        Some(Token::Comma) => {
+          self.pos += 1;
+          self.emit_node(Token::Comma);
+
+          // Trailing comma before `.` is fine — break so
+          // the Dot check below succeeds.
+          if self.peek() == Some(Token::Dot) {
+            break;
+          }
+        }
+        Some(Token::Dot) => break,
+        _ => {
+          self.error_at(ErrorKind::ExpectedAttributeValue, self.pos + 1);
+          return;
+        }
+      }
+    }
+
+    if self.peek() != Some(Token::Dot) {
+      self.error_at(ErrorKind::ExpectedAttributeValue, self.pos + 1);
+      return;
+    }
+
+    self.pos += 1;
+    self.emit_node(Token::Dot);
+
+    let children_end = self.tree.nodes.len() as u32;
+    let count = (children_end - children_start) as u16;
+
+    if count > 0 {
+      self.tree.set_children(attr_node, children_start, count);
+    }
+  }
+
+  /// Parse one `name [= literal | (arg)]` field. Caller
+  /// drives the comma/dot loop. Returns `false` on any
+  /// shape mismatch (caller bails the whole attribute).
+  fn parse_attribute_field(&mut self) -> bool {
+    if self.peek() != Some(Token::Ident) {
+      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+      return false;
+    }
+    self.pos += 1;
+    self.emit_node(Token::Ident);
+
+    match self.peek() {
+      Some(Token::Eq) => {
+        self.pos += 1;
+        self.emit_node(Token::Eq);
+
+        let val_idx = self.pos + 1;
+
+        if val_idx >= self.tokens.kinds.len() {
+          self.error_at(ErrorKind::ExpectedAttributeValue, val_idx);
+          return false;
+        }
+
+        let val_kind = self.tokens.kinds[val_idx];
+
+        if !matches!(
+          val_kind,
+          Token::String | Token::RawString | Token::Ident | Token::Int
+        ) {
+          self.error_at(ErrorKind::ExpectedAttributeValue, val_idx);
+          return false;
+        }
+
+        self.pos += 1;
+        self.emit_node(val_kind);
+      }
+      Some(Token::LParen) => {
+        self.pos += 1;
+        self.emit_node(Token::LParen);
+
+        let val_idx = self.pos + 1;
+
+        if val_idx >= self.tokens.kinds.len() {
+          self.error_at(ErrorKind::ExpectedAttributeValue, val_idx);
+          return false;
+        }
+
+        let val_kind = self.tokens.kinds[val_idx];
+
+        if !matches!(val_kind, Token::Ident | Token::String | Token::RawString)
+        {
+          self.error_at(ErrorKind::ExpectedAttributeValue, val_idx);
+          return false;
+        }
+
+        self.pos += 1;
+        self.emit_node(val_kind);
+
+        if self.peek() != Some(Token::RParen) {
+          self.error_at(ErrorKind::ExpectedRParen, self.pos + 1);
+          return false;
+        }
+
+        self.pos += 1;
+        self.emit_node(Token::RParen);
+      }
+      _ => {} // parameterless field
+    }
+
+    true
   }
 
   fn handle_directive(&mut self) {

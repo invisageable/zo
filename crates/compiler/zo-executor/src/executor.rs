@@ -371,6 +371,13 @@ pub struct Executor<'a> {
   /// exotic platforms) — vendor resolution then silently
   /// short-circuits.
   vendor_dir: Option<std::path::PathBuf>,
+  /// Attributes (`%% name [= literal | (arg)].`) the
+  /// parser emitted just before the next item. Drained
+  /// + applied when the next `FunDef` / `StructDef` /
+  /// etc. is emitted. Currently only `link_name` is
+  /// consumed (by `pub ffi` declarations); other names
+  /// are silently ignored until their consumers land.
+  pending_attributes: Vec<(Symbol, Option<Symbol>)>,
   /// Global compile-time constants (`val` at module level).
   /// Visible from all functions.
   global_constants: Vec<Local>,
@@ -707,6 +714,7 @@ impl<'a> Executor<'a> {
       pack_names: HashSet::default(),
       top_pack: None,
       vendor_dir: zo_host_paths::first_existing_lib_dir("vendor"),
+      pending_attributes: Vec::new(),
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
@@ -1392,9 +1400,9 @@ impl<'a> Executor<'a> {
         (None, Some(ven)) => {
           Error::new(ErrorKind::LinkResolutionFailed, ven.span)
         }
-        (None, None) => unreachable!(
-          "parse_link_value sets at least one of system / vendor"
-        ),
+        (None, None) => {
+          unreachable!("parse_link_value sets at least one of system / vendor")
+        }
       };
 
       report_error(err);
@@ -1775,6 +1783,19 @@ impl<'a> Executor<'a> {
         self.skip_until = override_end.unwrap_or(children_end);
       }
 
+      // === ATTRIBUTES ===
+      // `%% name [= literal | (arg)].` — captures the
+      // (name, value) pair into `pending_attributes` for
+      // the next item (FunDef / StructDef / ...) to read.
+      // Children get skipped so the executor doesn't walk
+      // the name / literal as a regular expression.
+      Token::Attribute => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_attribute(idx, children_end);
+        self.skip_until = children_end;
+      }
+
       // === TUPLES / GROUPING / TUPLE TYPE ===
       Token::LParen => {
         // Function call: Ident before LParen (direct or
@@ -2145,6 +2166,8 @@ impl<'a> Executor<'a> {
             kind: FunctionKind::UserDefined,
             pubness: pending_func.pubness,
             mut_self: pending_func.mut_self,
+            link_name: None,
+            owning_pack: None,
           });
 
           // Now set the context with the correct body start.
@@ -6250,6 +6273,8 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     // Register for call resolution.
@@ -8459,6 +8484,12 @@ impl<'a> Executor<'a> {
   /// Executes an `ffi` declaration — an intrinsic function
   /// with no body. Emits `FunDef { is_intrinsic: true }`.
   fn execute_ffi(&mut self, start_idx: usize, end_idx: usize) {
+    eprintln!(
+      "[execute_ffi] start_idx={} end_idx={} top_pack={:?}",
+      start_idx,
+      end_idx,
+      self.top_pack.map(|s| self.interner.get(s).to_owned()),
+    );
     // Parse signature: ffi name(params) -> return_ty;
     let name = self
       .tree
@@ -8470,6 +8501,10 @@ impl<'a> Executor<'a> {
         NodeValue::Symbol(s) => Some(s),
         _ => None,
       });
+    eprintln!(
+      "[execute_ffi] name={:?}",
+      name.map(|s| self.interner.get(s).to_owned()),
+    );
 
     if name.is_none() {
       self.skip_until = end_idx;
@@ -8609,6 +8644,12 @@ impl<'a> Executor<'a> {
       Pubness::No
     };
 
+    // Drain any `%% link_name = "X".` attributes parked
+    // by the parser ahead of this FFI declaration. Other
+    // attribute names are silently ignored — their
+    // consumers land when each one is wired.
+    let link_name = self.take_pending_attribute("link_name");
+
     self.sir.emit(Insn::FunDef {
       name,
       params: params.clone(),
@@ -8617,6 +8658,13 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Intrinsic,
       pubness,
       mut_self: false,
+      link_name,
+      // Carry the executor's pack context at emit time
+      // so codegen routes the FFI to the right `#link`
+      // dylib without relying on a positional walk that
+      // mis-attributes user FFIs to the last preload's
+      // pack (`misato` / `sqlite`).
+      owning_pack: self.top_pack,
     });
 
     // Register as known function.
@@ -8634,6 +8682,8 @@ impl<'a> Executor<'a> {
         .collect(),
       mut_self: false,
     });
+
+    self.pending_attributes.clear();
 
     // Restore the outer scope's type params (apply block
     // or other) so subsequent declarations see what they
@@ -9428,6 +9478,8 @@ impl<'a> Executor<'a> {
         kind: FunctionKind::UserDefined,
         pubness,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       });
 
       // Emit default value constants.
@@ -17277,6 +17329,89 @@ impl<'a> Executor<'a> {
   /// `}` instead of the parser's greedy `end_idx`. Most
   /// directives return `None` and let the caller fall
   /// back to `children_end`.
+  /// Look up a buffered attribute by name and consume
+  /// it. Returns `None` when not present. Caller drains
+  /// the rest of `pending_attributes` after item emit.
+  fn take_pending_attribute(&mut self, name: &str) -> Option<Symbol> {
+    let target = self.interner.symbol(name)?;
+
+    self
+      .pending_attributes
+      .iter()
+      .position(|(n, _)| *n == target)
+      .and_then(|i| self.pending_attributes.remove(i).1)
+  }
+
+  /// Extract `(name, value)` from a `%% name [= value |
+  /// (value)].` attribute node and push it onto
+  /// `pending_attributes`. The next item the executor
+  /// emits (e.g. `FunDef`) reads + drains this buffer.
+  ///
+  /// Tree layout (set by `Parser::handle_attribute`):
+  /// children = `Ident(name), [Eq, literal | LParen,
+  /// literal, RParen], Dot`. The string-valued literal
+  /// is already interned by the tokenizer, so we just
+  /// store the Symbol.
+  fn execute_attribute(&mut self, start_idx: usize, end_idx: usize) {
+    // Children layout (per `Parser::handle_attribute`):
+    // per field — `Ident [+ Eq, literal | LParen,
+    // literal, RParen]`, separated by `Comma`,
+    // terminated by `Dot`. Walk left-to-right pushing
+    // every (name, value?) pair onto
+    // `pending_attributes`.
+    let mut i = start_idx + 1;
+
+    while i < end_idx {
+      let tok = self.tree.nodes[i].token;
+
+      // Skip separators / terminator we already know
+      // about — Comma between fields, Dot at the end.
+      if matches!(tok, Token::Comma | Token::Dot) {
+        i += 1;
+        continue;
+      }
+
+      if tok != Token::Ident {
+        i += 1;
+        continue;
+      }
+
+      let Some(NodeValue::Symbol(name)) = self.node_value(i) else {
+        i += 1;
+        continue;
+      };
+
+      // Look one ahead for the optional value shape.
+      let next = i + 1;
+      let mut value: Option<Symbol> = None;
+      let mut field_end = next;
+
+      if next < end_idx {
+        match self.tree.nodes[next].token {
+          Token::Eq => {
+            // `name = literal` — literal at next + 1.
+            if let Some(NodeValue::Symbol(sym)) = self.node_value(next + 1) {
+              value = Some(sym);
+            }
+            field_end = next + 2;
+          }
+          Token::LParen => {
+            // `name(literal)` — literal at next + 1,
+            // RParen at next + 2.
+            if let Some(NodeValue::Symbol(sym)) = self.node_value(next + 1) {
+              value = Some(sym);
+            }
+            field_end = next + 3;
+          }
+          _ => {} // parameterless field — `name`.
+        }
+      }
+
+      self.pending_attributes.push((name, value));
+      i = field_end;
+    }
+  }
+
   fn execute_directive(
     &mut self,
     start_idx: usize,
@@ -17357,9 +17492,15 @@ impl<'a> Executor<'a> {
       // the caller's `skip_until = end_idx` would skip
       // past every following item in the file.
       let block_end = self.find_matching_rbrace(lb, end_idx)?;
+      // Build the skip-until override eagerly. Even if we
+      // bail (no enclosing pack), the caller must resume
+      // AT the token after our matching `}`, not at the
+      // parser's greedy `end_idx` (which silently swallows
+      // every following item).
+      let resume_at = Some(block_end + 1);
 
       let Some(pack_sym) = self.top_pack else {
-        return None;
+        return resume_at;
       };
       let mut spec = LinkSpec::default();
       let mut i = lb + 1;
@@ -18724,6 +18865,8 @@ impl<'a> Executor<'a> {
             kind: FunctionKind::Closure { capture_count },
             pubness: Pubness::No,
             mut_self: false,
+            link_name: None,
+            owning_pack: None,
           });
 
           self.push_fun(FunDef {

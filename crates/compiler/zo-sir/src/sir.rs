@@ -637,6 +637,22 @@ pub enum Insn {
     /// `false`. Consumed at every dot-call site to enforce
     /// that the receiver's binding is `mut`.
     mut_self: bool,
+    /// C symbol override from a `%% link_name = "X".`
+    /// attribute. `Some(sym)` directs codegen to use the
+    /// interned string verbatim as the C symbol (after
+    /// the platform leading underscore) instead of the
+    /// `_<zo_name>` default. Only meaningful when `kind`
+    /// is `FunctionKind::Intrinsic`.
+    link_name: Option<Symbol>,
+    /// The pack this function was declared inside (or
+    /// `None` for top-level). Codegen reads this to
+    /// route a `pub ffi`'s `extern_used` symbol to the
+    /// pack's `#link` dylib. Without this field, codegen
+    /// would have to infer the owning pack via a
+    /// positional `PackDecl` scan — which mis-attributes
+    /// user-level FFIs to whichever preload pack landed
+    /// last in the merged SIR.
+    owning_pack: Option<Symbol>,
   },
   /// Return from function
   Return {

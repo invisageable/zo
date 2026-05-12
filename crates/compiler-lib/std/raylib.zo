@@ -24,61 +24,143 @@ pack raylib;
            vendor: "libraylib.so" },
 }
 
--- ====================================================================
--- types — mirror raylib's public structs.
--- ====================================================================
+
+-* types — mirror raylib's public structs. *-
 
 pub struct Vector2 { x: f32, y: f32 }
 pub struct Vector3 { x: f32, y: f32, z: f32 }
-pub struct Vector4 { x: f32, y: f32, z: f32, w: f32 }   -- quaternion alias
+pub struct Vector4 { x: f32, y: f32, z: f32, w: f32 }   -- quaternion alias.
 
--- ====================================================================
--- window — lifecycle.
--- ====================================================================
 
--! `title` is a C-string pointer — wrap a literal with
--! `c_str("…")`.
+-* Window-related functions. *-
+
+-! Initialize window and OpenGL context.
+-! 
+-! @param title — The C-string pointer (wrap a literal with `c_str("…")`).
+%% link_name = "InitWindow".
 pub ffi init_window(width: int, height: int, title: int);
 
--! True when KEY_ESCAPE or the close icon fired.
-pub ffi window_should_close() -> bool;
-
+-! Close window and unload OpenGL context.
+%% link_name = "CloseWindow".
 pub ffi close_window();
 
-pub ffi set_target_fps(fps: int);
+-! Check if application should close.
+-!
+-! @note — `KEY_ESCAPE` pressed or windows close icon clicked.
+%% link_name = "WindowShouldClose".
+pub ffi window_should_close() -> bool;
 
-pub ffi begin_drawing();
-pub ffi end_drawing();
 
--! `color` packs raylib's `Color { r,g,b,a: u8 }` into the
--! low 32 bits of an int (little-endian: r,g,b,a). Examples:
--! white opaque = `0xFFFFFFFF`, black opaque = `0xFF000000`.
+-* Drawing-related functions. *-
+
+-! Set background color (framebuffer clear color).
+-!
+-! @param color — The background color.
+-! 
+-! ## examples.
+-! 
+-! ```
+-! 0xFF000000 -- black opaque.
+-! 0xFFFFFFFF -- white opaque.
+-! ```
+%% link_name = "ClearBackground".
 pub ffi clear_background(color: int);
 
--! `text` is a C-string pointer (use `c_str("…")`); `color`
--! packs RGBA per `clear_background`.
-pub ffi draw_text(text: int, x: int, y: int, font_size: int, color: int);
+-! Setup canvas (framebuffer) to start drawing.
+%% link_name = "BeginDrawing".
+pub ffi begin_drawing();
 
--! Key codes match raylib's `KEY_*` constants
--! (e.g. `KEY_SPACE = 32`, `KEY_ESCAPE = 256`).
-pub ffi is_key_pressed(key: int) -> bool;
+-! End canvas drawing and swap buffers (double buffering).
+%% link_name = "EndDrawing".
+pub ffi end_drawing();
 
--! raylib returns f32; widened to zo's `float` (f64) at the
--! FFI boundary so downstream math stays in double.
+
+-* Timing-related functions. *-
+
+-! Set target FPS (maximum).
+-!
+-! @param fps — ...
+%% link_name = "SetTargetFPS".
+pub ffi set_target_fps(fps: int);
+
+-! Get time in seconds for last frame drawn (delta time).
+-! 
+-! @note — raylib returns `f32`; widened to zo's `float` (f64) at the FFI 
+-! boundary so downstream math stays in double.
+-!
+-! @todo — do we really need to convert `f32` to `f64`.
+%% link_name = "GetFrameTime".
 pub ffi get_frame_time() -> float;
-
--! `radius` is narrowed from f64 → f32 at the FFI boundary
--! (raylib's API takes f32).
-pub ffi draw_circle(x: int, y: int, radius: float, color: int);
-
--! `Vector2` passes by value via AAPCS HFA — fields land
--! in `s0`/`s1`, then `radius` in `s2`, `color` in `w0`.
-pub ffi draw_circle_v(center: Vector2, radius: float, color: int);
-
--! HFA return — raylib writes the `Vector2` fields into
--! `s0`/`s1`; zo widens each to f64 into a local struct.
-pub ffi get_mouse_position() -> Vector2;
 
 -! Returns 0 until raylib's frame timer has enough samples
 -! (a few frames after the loop starts).
+%% link_name = "GetFPS".
 pub ffi get_fps() -> int;
+
+
+-* Input-related functions: keyboard. *-
+
+-! Check if a key has been pressed once.
+-! 
+-! @note — Key codes match raylib's `KEY_*` constants.
+-! @todo — create an enum `Key` with Escape, Space, * variants.
+%% link_name = "IsKeyPressed".
+pub ffi is_key_pressed(key: int) -> bool;
+
+
+-* Input-related functions: mouse. *-
+
+-! Get mouse position XY.
+-!
+-! @note — HFA return — raylib writes the `Vector2` fields into
+-! `s0`/`s1`; zo widens each to f64 into a local struct.
+%% link_name = "GetMousePosition".
+pub ffi get_mouse_position() -> Vector2;
+
+
+-*
+  from module: rtext.
+  Text-related functions.
+*-
+
+-! Draw text (using default font).
+-!
+-! @param text — ...
+-! @param x — ...
+-! @param y — ...
+-! @param font_size — The text size.
+-! @param color — The text color.
+-!
+-! @note — `text` is a C-string pointer (use `c_str("…")`); `color` packs RGBA
+-! per `clear_background`.
+%% link_name = "DrawText".
+pub ffi draw_text(text: int, x: int, y: int, font_size: int, color: int);
+
+
+-* 
+  from module: rshapes.
+  asic shapes drawing functions.
+*-
+
+-! Draw a color-filled circle.
+-! 
+-! @param x — The center x-axis.
+-! @param y — The center y-axis.
+-! @param radius — The radius.
+-! @param radius — The color.
+-! 
+-! @note — radius is narrowed from `f64` → `f32` at the FFI boundary (raylib's
+-! API takes f32).
+%% link_name = "DrawCircle".
+pub ffi draw_circle(x: int, y: int, radius: float, color: int);
+
+-! Draw a color-filled circle (Vector version).
+-! 
+-! @param center — ...
+-! @param radius — ...
+-! @param color — ...
+-!
+-! @note — `Vector2` passes by value via AAPCS HFA — fields land
+-! in `s0`/`s1`, then `radius` in `s2`, `color` in `w0`.
+%% link_name = "DrawCircleV".
+pub ffi draw_circle_v(center: Vector2, radius: float, color: int);

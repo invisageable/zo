@@ -665,6 +665,8 @@ mod tests {
         kind: FunctionKind::UserDefined,
         pubness: zo_value::Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       Insn::Return {
         value: None,
