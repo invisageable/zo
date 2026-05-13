@@ -118,6 +118,12 @@ zo_test:
 zo_test_runner:
   cargo run --bin zo-test-runner
 
+# zo: Run integration tests + launch every windowed program (dev only)
+[group("zo")]
+[group('test')]
+zo_test_runner_all:
+  cargo run --bin zo-test-runner -- --all
+
 # Run zo program tests (quick — skip build-pass)
 [group("zo")]
 [group('test')]

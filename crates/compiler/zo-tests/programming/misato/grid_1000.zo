@@ -3,9 +3,6 @@
 -- axis). Camera at (25, 20, 25) → origin. FPS printed to
 -- stdout once per second; should sit at 60.
 -- @cmd — zo build grid_1000.zo && ./grid_1000
---
--- Requires `brew install raylib` (macOS). SPACE or close
--- exits.
 
 fun main() {
   init_window(1024, 768, c_str("zo + misato — grid_1000"));

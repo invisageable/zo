@@ -8,6 +8,13 @@
 //!   cargo run --bin zo-test-runner
 //!   cargo run --bin zo-test-runner -- --quick
 //!   cargo run --bin zo-test-runner -- --filter arrays
+//!   cargo run --bin zo-test-runner -- --all
+//!
+//! `--all` enables the `WindowRun` category — windowed
+//! programs (raylib, misato, templating UI) build, spawn,
+//! get killed after `WINDOW_KILL_AFTER`, and pass iff
+//! they're still alive at kill time. Dev-machine only:
+//! requires a display, so CI keeps the default mode.
 
 use swisskit_core::fmt::ansi::strip_ansi;
 
@@ -28,6 +35,13 @@ use std::time::{Duration, Instant};
 /// x86_64 binaries on arm64 hosts.
 const RUN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a windowed program must stay alive before the
+/// runner SIGKILLs it. "Still running at this point" is the
+/// success signal — every windowed program is an infinite
+/// frame loop, so an early exit means it crashed during init
+/// (missing dylib, bad symbol, bogus Mach-O header, etc.).
+const WINDOW_KILL_AFTER: Duration = Duration::from_secs(2);
+
 /// Test category — determines how to run and what to expect.
 #[derive(Clone, Copy)]
 enum Category {
@@ -35,12 +49,15 @@ enum Category {
   Pass,
   /// Must fail to compile. Check error output if present.
   Fail,
-  /// Build only (no run). For ZSX/UI programs.
-  BuildOnly,
   /// Build with `--emit`, verify `-- CHECK:` directives.
   Check,
   /// Build only, pass if no crash (signal death).
   Crash,
+  /// Windowed program (raylib / misato / templating UI):
+  /// in default mode this is build-only; with `--all` also
+  /// spawns, sleeps `WINDOW_KILL_AFTER`, kills, and passes
+  /// iff the process was still alive at kill time.
+  WindowRun,
 }
 
 struct TestResult {
@@ -68,6 +85,11 @@ fn main() {
     .and_then(|i| args.get(i + 1))
     .map(|s| s.as_str());
 
+  // --all flips `WindowRun` from skip-the-run to actually
+  // launch + sleep + kill. Dev-machine only: needs a display
+  // (Cocoa / X11 / Wayland), so CI keeps the default mode.
+  let run_all = args.iter().any(|a| a == "--all");
+
   let root = find_workspace_root();
   let zo = find_zo_binary(&root);
   let tests_dir = root.join("crates/compiler/zo-tests");
@@ -77,6 +99,10 @@ fn main() {
 
   if let Some(t) = target {
     println!("target: {t}");
+  }
+
+  if run_all {
+    println!("mode: --all (windowed programs will launch)");
   }
 
   let tmp =
@@ -95,6 +121,7 @@ fn main() {
     &tmp,
     filter,
     target,
+    run_all,
     &mut results,
   );
 
@@ -106,6 +133,7 @@ fn main() {
     &tmp,
     filter,
     target,
+    run_all,
     &mut results,
   );
 
@@ -119,29 +147,64 @@ fn main() {
     &tmp,
     filter,
     target,
+    run_all,
     &mut results,
   );
 
-  // templating/ — build only (ZSX renders to UI, no stdout).
+  // templating/ — ZSX programs. Today's runtime renders
+  // synchronously and exits cleanly, so `Pass` (build + run
+  // + assert exit 0) is the right shape — stronger than the
+  // prior `BuildOnly` because runtime crashes get caught in
+  // CI too. When templating gains an interactive runtime
+  // that holds a window open, switch this to `WindowRun`.
   run_dir(
     &tests_dir.join("templating"),
-    Category::BuildOnly,
+    Category::Pass,
     &zo,
     &tmp,
     filter,
     target,
+    run_all,
     &mut results,
   );
 
-  // programming/raylib/ — build only (raylib opens an OS
-  // window, no stdout, needs a display + libraylib).
+  // provider/raylib/ — raylib demos via the C-library
+  // provider shim. Same WindowRun shape as templating:
+  // build always, run only with --all.
   run_dir(
-    &tests_dir.join("programming/raylib"),
-    Category::BuildOnly,
+    &tests_dir.join("provider/raylib"),
+    Category::WindowRun,
     &zo,
     &tmp,
     filter,
     target,
+    run_all,
+    &mut results,
+  );
+
+  // provider/sqlite/ — sqlite scoreboard via provider
+  // shim. Stdout-emitting program, no window — Pass.
+  run_dir(
+    &tests_dir.join("provider/sqlite"),
+    Category::Pass,
+    &zo,
+    &tmp,
+    filter,
+    target,
+    run_all,
+    &mut results,
+  );
+
+  // programming/misato/ — misato 3D demos. Same WindowRun
+  // shape — covers cube_static, three_cubes, grid_1000, …
+  run_dir(
+    &tests_dir.join("programming/misato"),
+    Category::WindowRun,
+    &zo,
+    &tmp,
+    filter,
+    target,
+    run_all,
     &mut results,
   );
 
@@ -153,6 +216,7 @@ fn main() {
     &tmp,
     filter,
     target,
+    run_all,
     &mut results,
   );
 
@@ -164,6 +228,7 @@ fn main() {
     &tmp,
     filter,
     target,
+    run_all,
     &mut results,
   );
 
@@ -175,6 +240,7 @@ fn main() {
     &tmp,
     filter,
     target,
+    run_all,
     &mut results,
   );
 
@@ -186,6 +252,7 @@ fn main() {
     &tmp,
     filter,
     target,
+    run_all,
     &mut results,
   );
 
@@ -198,6 +265,7 @@ fn main() {
       &tmp,
       filter,
       target,
+      run_all,
       &mut results,
     );
   }
@@ -342,6 +410,7 @@ fn run_dir(
   tmp: &Path,
   filter: Option<&str>,
   target: Option<&str>,
+  run_all: bool,
   results: &mut Vec<TestResult>,
 ) {
   if !dir.exists() {
@@ -408,7 +477,7 @@ fn run_dir(
         return None;
       }
 
-      let result = run_test(file, name, category, zo, tmp, target);
+      let result = run_test(file, name, category, zo, tmp, target, run_all);
 
       print_result(&result);
 
@@ -582,25 +651,12 @@ fn run_test(
   zo: &Path,
   tmp: &Path,
   target: Option<&str>,
+  run_all: bool,
 ) -> TestResult {
   let out = tmp.join(name);
 
   match category {
-    Category::BuildOnly => {
-      let status = build_cmd(zo, target)
-        .arg(&*file.to_string_lossy())
-        .arg("-o")
-        .arg(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-      match status {
-        Ok(s) if s.success() => ok(name),
-        Ok(_) => fail(name, "compilation failed"),
-        Err(e) => fail(name, &format!("exec error: {e}")),
-      }
-    }
+    Category::WindowRun => run_window_test(file, name, &out, zo, target, run_all),
 
     Category::Fail => {
       let output = build_cmd(zo, target)
@@ -829,6 +885,84 @@ fn run_test(
         }
         Err(e) => fail(name, &format!("exec error: {e}")),
       }
+    }
+  }
+}
+
+/// Build the program; with `--all`, also spawn it, sleep
+/// `WINDOW_KILL_AFTER`, then SIGKILL it. Pass iff the
+/// process was still alive at kill time — windowed programs
+/// are infinite frame loops, so an early exit means a
+/// crash during `InitWindow` (missing dylib, bad symbol,
+/// malformed Mach-O, …). Without `--all` this is build-only,
+/// matching the prior `BuildOnly` behavior CI relies on.
+fn run_window_test(
+  file: &Path,
+  name: &str,
+  out: &Path,
+  zo: &Path,
+  target: Option<&str>,
+  run_all: bool,
+) -> TestResult {
+  let build = build_cmd(zo, target)
+    .arg(&*file.to_string_lossy())
+    .arg("-o")
+    .arg(out)
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status();
+
+  match build {
+    Ok(s) if !s.success() => return fail(name, "compilation failed"),
+    Err(e) => return fail(name, &format!("exec error: {e}")),
+    _ => {}
+  }
+
+  if !run_all {
+    return ok(name);
+  }
+
+  let mut cmd = Command::new(out);
+
+  cmd
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .current_dir(file.parent().unwrap_or(file));
+
+  let mut child = match cmd.spawn() {
+    Ok(c) => c,
+    Err(e) => return fail(name, &format!("spawn error: {e}")),
+  };
+
+  thread::sleep(WINDOW_KILL_AFTER);
+
+  match child.try_wait() {
+    Ok(Some(status)) => {
+      // Process exited before we could kill it — failure mode
+      // we care about (crash during init).
+      let _ = child.wait();
+
+      let detail = status.code().map_or_else(
+        || "killed by signal".to_string(),
+        |c| format!("exit {c}"),
+      );
+
+      fail(name, &format!("exited early ({detail})"))
+    }
+    Ok(None) => {
+      // Still running after WINDOW_KILL_AFTER — success.
+      // SIGKILL it; we deliberately do NOT `wait()` after,
+      // mirroring `wait_with_timeout`'s rationale (some
+      // children ignore SIGKILL; OS reaps zombies on parent
+      // exit and we'd rather move on than block the worker).
+      let _ = child.kill();
+
+      ok(name)
+    }
+    Err(e) => {
+      let _ = child.kill();
+
+      fail(name, &format!("try_wait error: {e}"))
     }
   }
 }
