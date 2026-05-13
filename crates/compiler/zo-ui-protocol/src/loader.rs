@@ -1,82 +1,88 @@
-//! Dynamic library loader for zo applications.
+//! Dynamic library loader for compiled zo applications.
 //!
-//! Parses the binary UiCommand array produced by
-//! `zo-codegen-arm/src/codegen/template.rs` back into an
-//! in-memory `Vec<UiCommand>`. The binary format for the new
-//! unified Element model is a work in progress — for R1 the
-//! decoder returns empty commands for the new type codes so
-//! that the dylib path does not crash, without implementing the
-//! full attribute encoding. The interactive `zo run` path
-//! bypasses the loader entirely.
+//! **Currently unused; latent shape mismatch.** The
+//! codegen's `_zo_ui_entry_point` returns `*const u8`
+//! (pointer to the template's postcard payload), but
+//! `load` here interprets the returned pointer as a
+//! `*const UiTemplateBlob` (ptr + len header). Deref'ing
+//! the first 8 bytes of postcard as a pointer segfaults.
+//!
+//! The discrepancy doesn't bite today because nothing in
+//! the workspace sets `RuntimeConfig.library_path`, so
+//! `load` is never called. Fixing requires either:
+//!
+//! - codegen emits a `UiTemplateBlob` literal in the
+//!   data segment and `_zo_ui_entry_point` returns its
+//!   address; OR
+//! - codegen exposes a second symbol (e.g.
+//!   `_zo_ui_entry_len`) so this loader can read the
+//!   length without a wrapping struct.
+//!
+//! The `zo build` → `./exe` → `_zo_run_native` path used
+//! by every compiled zsx program bypasses this loader
+//! entirely (the exe links the runtime dylib directly and
+//! passes its own bytes via `ZoRuntimeContext`).
 
+use crate::codec;
 use crate::ui_protocol::UiCommand;
 
 use libloading::{Library, Symbol};
 use thin_vec::ThinVec;
 
 use std::ffi::c_void;
+use std::slice;
 
-/// The signature for the ui entry point function from the compiled zo library.
-pub type UiEntryPoint = unsafe extern "C" fn() -> *mut c_void;
-/// The signature for the event handler function from the compiled zo library.
+/// `_zo_ui_entry_point` returns a pointer to this header,
+/// followed immediately in memory by `len` bytes of
+/// postcard-encoded `Vec<UiCommand>`.
+#[repr(C)]
+pub struct UiTemplateBlob {
+  pub ptr: *const u8,
+  pub len: usize,
+}
+
+/// Compiled binary's UI entry point. Returns the template
+/// blob; runtime decodes it via `codec::decode`.
+pub type UiEntryPoint = unsafe extern "C" fn() -> *const UiTemplateBlob;
+
+/// Optional event dispatcher exported by the compiled exe.
+/// Reactive binaries (post-P3 of `PLAN_DOM_CODEGEN_WIRING`)
+/// expose this; static templates omit it.
 pub type EventHandler = unsafe extern "C" fn(*mut c_void, u32, *mut c_void);
 
-/// The offset of a command — 8 (after count + padding).
-const COMMAND_START_OFFSET: usize = 8;
-/// The size of a command — 16 bytes.
-const COMMAND_SIZE: usize = 16;
-
-/// Represents a UI command array as returned by the compiled program.
-#[repr(C)]
-struct UiCommandArray {
-  count: u32,
-  /// 4 bytes padding for alignment Commands follow immediately after at offset
-  /// 8.
-  _padding: u32,
-}
-
-/// Represents a single UI command in memory.
-#[repr(C)]
-struct RawUiCommand {
-  command_type: u32,
-  /// 4 bytes padding for 8-byte alignment.
-  _padding: u32,
-  /// Pointer to command-specific data.
-  data: *mut c_void,
-}
-
-/// Loads and manages dynamic libraries compiled from zo programs
+/// Loads and inspects a compiled zo dylib. Owns the loaded
+/// `Library` for the lifetime of the loader so symbols
+/// stay live.
 pub struct LibraryLoader {
   library: Option<Library>,
   event_handler: Option<Symbol<'static, EventHandler>>,
-  base_address: *const u8,
 }
 
 impl LibraryLoader {
-  /// Creates a new [`LibraryLooader`] instance.
+  /// Creates a new [`LibraryLoader`] instance.
   pub fn new() -> Self {
     Self {
       library: None,
       event_handler: None,
-      base_address: std::ptr::null(),
     }
   }
 
-  /// Loads a dynamic library and extract UI commands.
+  /// Open `path`, call `_zo_ui_entry_point`, decode the
+  /// returned blob into a command stream.
   pub fn load(
     &mut self,
     path: &str,
   ) -> Result<ThinVec<UiCommand>, Box<dyn std::error::Error>> {
     let lib = unsafe { Library::new(path) }?;
 
-    let entry_point: Symbol<UiEntryPoint> =
+    let entry: Symbol<UiEntryPoint> =
       unsafe { lib.get(b"_zo_ui_entry_point") }?;
 
-    // Try to get the event handler (optional)
     if let Ok(handler) =
       unsafe { lib.get::<Symbol<EventHandler>>(b"_zo_handle_event") }
     {
-      // Leak the symbol to get 'static lifetime
+      // Leak the symbol to 'static — its lifetime is tied
+      // to `self.library`, which we keep until Drop.
       self.event_handler = Some(unsafe {
         std::mem::transmute::<
           Symbol<'_, Symbol<'_, EventHandler>>,
@@ -85,61 +91,20 @@ impl LibraryLoader {
       });
     }
 
-    // Call entry point to get command array
-    let array_ptr = unsafe { entry_point() as *const UiCommandArray };
+    let blob_ptr = unsafe { entry() };
 
-    if array_ptr.is_null() {
+    if blob_ptr.is_null() {
+      self.library = Some(lib);
       return Ok(ThinVec::new());
     }
 
-    // Store base address for offset resolution
-    self.base_address = array_ptr as *const u8;
+    let blob = unsafe { &*blob_ptr };
+    let bytes = unsafe { slice::from_raw_parts(blob.ptr, blob.len) };
+    let cmds = codec::decode(bytes)?;
 
-    // Parse commands
-    let commands = self.parse_command_array(array_ptr);
-
-    // Keep library loaded
     self.library = Some(lib);
 
-    Ok(commands)
-  }
-
-  /// Parse the raw command array into UiCommand structs
-  fn parse_command_array(
-    &self,
-    array_ptr: *const UiCommandArray,
-  ) -> ThinVec<UiCommand> {
-    let array = unsafe { &*array_ptr };
-    let count = array.count as usize;
-    let mut commands = ThinVec::with_capacity(count);
-
-    let commands_base =
-      unsafe { (array_ptr as *const u8).add(COMMAND_START_OFFSET) };
-
-    for i in 0..count {
-      let cmd_offset = i * COMMAND_SIZE;
-      let cmd_ptr =
-        unsafe { commands_base.add(cmd_offset) } as *const RawUiCommand;
-      let raw_cmd = unsafe { &*cmd_ptr };
-      let ui_cmd = self.parse_command(raw_cmd);
-
-      if let Some(cmd) = ui_cmd {
-        commands.push(cmd);
-      }
-    }
-
-    commands
-  }
-
-  /// Parse a single command. The binary format for the
-  /// unified Element model is not yet implemented — the
-  /// decoder currently returns `None` for every type code.
-  /// The AOT dylib path is a no-op for templates until the
-  /// encoder/decoder pair gets redesigned to carry attributes.
-  /// The interactive `zo run` path is unaffected.
-  fn parse_command(&self, raw_cmd: &RawUiCommand) -> Option<UiCommand> {
-    let _ = raw_cmd;
-    None
+    Ok(cmds.into_iter().collect())
   }
 
   /// Call the event handler if available.
@@ -150,9 +115,7 @@ impl LibraryLoader {
     event_data: *mut c_void,
   ) {
     if let Some(ref handler) = self.event_handler {
-      unsafe {
-        handler(widget_id, event_type, event_data);
-      }
+      unsafe { handler(widget_id, event_type, event_data) };
     }
   }
 }

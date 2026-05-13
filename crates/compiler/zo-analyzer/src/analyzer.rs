@@ -10,6 +10,8 @@ use zo_value::{FunDef, Local};
 
 use rustc_hash::FxHashMap as HashMap;
 
+use std::path::PathBuf;
+
 /// Represents the result of semantic analysis.
 pub struct SemanticResult {
   /// The semantic intermediate representation [`Sir`].
@@ -48,6 +50,14 @@ pub struct Analyzer<'a> {
   ty_checker: &'a mut TyChecker,
   /// Imported symbols from loaded modules.
   imports: Option<ImportedSymbols>,
+  /// Directory of the source file being analyzed.
+  /// Path-typed template attributes (`<img src="…">` and
+  /// kin) are resolved against this directory at
+  /// attribute-build time so the compiled output holds
+  /// CWD-independent absolute paths. `None` for preload
+  /// packs and module imports — their templates never
+  /// reach the renderer.
+  source_dir: Option<PathBuf>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -64,12 +74,20 @@ impl<'a> Analyzer<'a> {
       literals,
       ty_checker,
       imports: None,
+      source_dir: None,
     }
   }
 
   /// Sets imported symbols from loaded modules.
   pub fn with_imports(mut self, imports: ImportedSymbols) -> Self {
     self.imports = Some(imports);
+    self
+  }
+
+  /// Sets the source-file directory. Path-typed template
+  /// attributes get resolved against it.
+  pub fn with_source_dir(mut self, dir: PathBuf) -> Self {
+    self.source_dir = Some(dir);
     self
   }
 
@@ -85,6 +103,10 @@ impl<'a> Analyzer<'a> {
         imports.enums,
         imports.abstract_defs,
       );
+    }
+
+    if let Some(dir) = self.source_dir {
+      executor = executor.with_source_dir(dir);
     }
 
     let (sir, annotations, funs, abstract_defs) = executor.execute();

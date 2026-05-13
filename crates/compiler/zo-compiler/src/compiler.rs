@@ -496,6 +496,17 @@ impl Compiler {
       analyzer
     };
 
+    // The user file's `<img src="…">` and similar
+    // path-typed attributes are resolved against this
+    // directory at attribute-build time — so the
+    // compiled binary holds absolute paths and renders
+    // assets regardless of CWD at run time.
+    let analyzer = if let Some(dir) = file_path.parent() {
+      analyzer.with_source_dir(dir.to_path_buf())
+    } else {
+      analyzer
+    };
+
     let mut semantic = analyzer.analyze();
     self.profiler.end_phase(ANALYZER_NAME);
 

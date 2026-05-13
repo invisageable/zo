@@ -371,6 +371,15 @@ pub struct Executor<'a> {
   /// exotic platforms) — vendor resolution then silently
   /// short-circuits.
   vendor_dir: Option<std::path::PathBuf>,
+  /// Directory of the source `.zo` file being executed.
+  /// Used to resolve relative path-valued template
+  /// attributes (`<img src="…">`, `<script src="…">`, …)
+  /// to absolute paths at attribute-build time, so the
+  /// compiled binary holds CWD-independent asset
+  /// references. `None` for preload packs / module
+  /// imports — their content never reaches the renderer
+  /// with path attributes.
+  source_dir: Option<std::path::PathBuf>,
   /// Attributes (`%% name [= literal | (arg)].`) the
   /// parser emitted just before the next item. Drained
   /// + applied when the next `FunDef` / `StructDef` /
@@ -714,6 +723,7 @@ impl<'a> Executor<'a> {
       pack_names: HashSet::default(),
       top_pack: None,
       vendor_dir: zo_host_paths::first_existing_lib_dir("vendor"),
+      source_dir: None,
       pending_attributes: Vec::new(),
       global_constants: Vec::new(),
       type_params: Vec::new(),
@@ -1098,6 +1108,79 @@ impl<'a> Executor<'a> {
   /// `enum_defs.iter().any(|e| e.0 == sym)`.
   fn has_enum(&self, name: Symbol) -> bool {
     self.enum_def_by_name.contains(name)
+  }
+
+  /// Records the source-file directory. Path-typed
+  /// template attributes (e.g. `<img src="…">`) are
+  /// resolved against it at attribute-build time, so the
+  /// compiled binary holds CWD-independent absolute paths.
+  pub fn with_source_dir(mut self, dir: std::path::PathBuf) -> Self {
+    self.source_dir = Some(dir);
+    self
+  }
+
+  /// Return `true` for attribute names whose values are
+  /// filesystem paths and should be resolved against the
+  /// source file's directory at attribute-build time.
+  ///
+  /// Only `src` today; future `href`, `poster`, `srcset`,
+  /// etc. would join this list. Centralising the check
+  /// keeps the four attribute-emission paths (`Token::
+  /// String`, `Token::InterpString`, `Token::LBrace`
+  /// single-ident, `Token::LBrace` general expression)
+  /// agreeing on what "path-typed" means.
+  fn is_path_typed_attr(name: &str) -> bool {
+    name == "src"
+  }
+
+  /// Normalise an attribute value. For path-typed names
+  /// (see `is_path_typed_attr`), join against the source
+  /// directory and canonicalise; otherwise pass through
+  /// unchanged.
+  fn normalise_attr_value(&self, name: &str, raw: String) -> String {
+    if !Self::is_path_typed_attr(name) {
+      return raw;
+    }
+
+    self.resolve_asset_path(&raw)
+  }
+
+  /// Resolve a path-valued template attribute (e.g.
+  /// `<img src="…">`'s `src`) against the source file's
+  /// directory. Leaves the value untouched when:
+  ///
+  /// - we don't know the source dir (preload pack, test
+  ///   harness — those don't reach the renderer);
+  /// - the value is already absolute (Mach-O / POSIX-rooted);
+  /// - the value is an `http(s)://` / `data:` URL;
+  /// - the candidate joined path doesn't exist on disk
+  ///   (don't silently rewrite a legitimately-relative
+  ///   runtime asset — leave it for the renderer's loader
+  ///   to surface).
+  fn resolve_asset_path(&self, raw: &str) -> String {
+    let dir = match &self.source_dir {
+      Some(d) => d,
+      None => return raw.to_string(),
+    };
+    let p = std::path::Path::new(raw);
+
+    if p.is_absolute()
+      || raw.starts_with("http://")
+      || raw.starts_with("https://")
+      || raw.starts_with("data:")
+    {
+      return raw.to_string();
+    }
+
+    let candidate = dir.join(p);
+
+    if candidate.exists()
+      && let Ok(canon) = candidate.canonicalize()
+    {
+      return canon.to_string_lossy().into_owned();
+    }
+
+    raw.to_string()
   }
 
   /// Pre-populates the executor with imported function
@@ -8484,12 +8567,6 @@ impl<'a> Executor<'a> {
   /// Executes an `ffi` declaration — an intrinsic function
   /// with no body. Emits `FunDef { is_intrinsic: true }`.
   fn execute_ffi(&mut self, start_idx: usize, end_idx: usize) {
-    eprintln!(
-      "[execute_ffi] start_idx={} end_idx={} top_pack={:?}",
-      start_idx,
-      end_idx,
-      self.top_pack.map(|s| self.interner.get(s).to_owned()),
-    );
     // Parse signature: ffi name(params) -> return_ty;
     let name = self
       .tree
@@ -8501,10 +8578,6 @@ impl<'a> Executor<'a> {
         NodeValue::Symbol(s) => Some(s),
         _ => None,
       });
-    eprintln!(
-      "[execute_ffi] name={:?}",
-      name.map(|s| self.interner.get(s).to_owned()),
-    );
 
     if name.is_none() {
       self.skip_until = end_idx;
@@ -18419,7 +18492,9 @@ impl<'a> Executor<'a> {
                       .map(|s| self.interner.get(s).to_string())
                       .unwrap_or_default();
                     idx += 1;
-                    attrs.push(Attr::parse_prop(&attr_name, &raw));
+                    let value = self.normalise_attr_value(&attr_name, raw);
+
+                    attrs.push(Attr::parse_prop(&attr_name, &value));
                   } else if idx < end_idx
                     && self.tree.nodes[idx].token == Token::InterpString
                   {
@@ -18430,9 +18505,10 @@ impl<'a> Executor<'a> {
                     // `Variable(sym)` segment against the local
                     // scope, and concatenate the result.
                     let resolved = self.resolve_interp_string_attr(idx);
+                    let value = self.normalise_attr_value(&attr_name, resolved);
 
                     idx += 1;
-                    attrs.push(Attr::parse_prop(&attr_name, &resolved));
+                    attrs.push(Attr::parse_prop(&attr_name, &value));
                   } else if idx < end_idx
                     && self.tree.nodes[idx].token == Token::LBrace
                   {
@@ -18477,8 +18553,10 @@ impl<'a> Executor<'a> {
                       } else {
                         String::new()
                       };
+                      let resolved =
+                        self.normalise_attr_value(&attr_name, val);
 
-                      attrs.push(Attr::parse_prop(&attr_name, &val));
+                      attrs.push(Attr::parse_prop(&attr_name, &resolved));
                     }
 
                     if idx < end_idx
@@ -19620,7 +19698,8 @@ impl<'a> Executor<'a> {
   /// mutable locals produce `Attr::Dynamic` carrying the
   /// reactive binding metadata alongside the initial value.
   fn make_attr_from_local(&self, name: &str, sym: Symbol) -> Attr {
-    let value_str = self.resolve_local_for_template(sym);
+    let raw = self.resolve_local_for_template(sym);
+    let value_str = self.normalise_attr_value(name, raw);
     let initial = PropValue::parse(&value_str);
 
     if self.local_is_mut(sym) {

@@ -151,15 +151,15 @@ fn main() {
     &mut results,
   );
 
-  // templating/ — ZSX programs. Today's runtime renders
-  // synchronously and exits cleanly, so `Pass` (build + run
-  // + assert exit 0) is the right shape — stronger than the
-  // prior `BuildOnly` because runtime crashes get caught in
-  // CI too. When templating gains an interactive runtime
-  // that holds a window open, switch this to `WindowRun`.
+  // templating/ — ZSX programs. Now windowed: P2 of
+  // `PLAN_DOM_CODEGEN_WIRING` wired `#dom` codegen to
+  // `_zo_run_native` in `libzo_runtime_native.dylib`,
+  // which blocks on `eframe::run_native`. Same WindowRun
+  // shape as raylib / misato: build always, run only with
+  // `--all`.
   run_dir(
     &tests_dir.join("templating"),
-    Category::Pass,
+    Category::WindowRun,
     &zo,
     &tmp,
     filter,
@@ -458,7 +458,7 @@ fn run_dir(
   println!();
   println!("[{dir_name}] {} files", files.len());
 
-  // Parallelise the per-file `run_test` calls within this
+  // Parallelise per-file `run_test` calls within this
   // group — each test is a cold child-process spawn
   // (`zo build` + program run) so work scales linearly
   // with CPU count. We stream each PASS/FAIL as it
@@ -466,24 +466,37 @@ fn run_dir(
   // don't interleave) instead of buffering + draining —
   // the latter makes the group look "locked" until every
   // parallel worker finishes.
-  let group_results = files
-    .par_iter()
-    .filter_map(|file| {
-      let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
+  //
+  // WindowRun is the exception: in `--all` mode it
+  // launches eframe + winit + wgpu per program. Running
+  // 25+ graphics processes simultaneously saturates the
+  // system and the OS starts killing unrelated
+  // child-processes (Pass tests running in other groups)
+  // by signal. Serialise WindowRun to keep that load
+  // bounded; the cost is `n × WINDOW_KILL_AFTER`
+  // wall-time (~50 s for templating's 25 files) which
+  // only `--all` callers ever pay.
+  let serialize = matches!(category, Category::WindowRun) && run_all;
+  let mk_result = |file: &PathBuf| -> Option<TestResult> {
+    let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
 
-      if let Some(f) = filter
-        && !name.contains(f)
-      {
-        return None;
-      }
+    if let Some(f) = filter
+      && !name.contains(f)
+    {
+      return None;
+    }
 
-      let result = run_test(file, name, category, zo, tmp, target, run_all);
+    let result = run_test(file, name, category, zo, tmp, target, run_all);
 
-      print_result(&result);
+    print_result(&result);
 
-      Some(result)
-    })
-    .collect::<Vec<_>>();
+    Some(result)
+  };
+  let group_results = if serialize {
+    files.iter().filter_map(mk_result).collect::<Vec<_>>()
+  } else {
+    files.par_iter().filter_map(mk_result).collect::<Vec<_>>()
+  };
 
   results.extend(group_results);
 }

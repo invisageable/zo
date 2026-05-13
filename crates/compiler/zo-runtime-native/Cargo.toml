@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
+# `cdylib` exposes `_zo_run_native` (defined in `src/ffi.rs`)
+# as a stable C ABI symbol. AOT-compiled `zo build` exes
+# link against `libzo_runtime_native.dylib` and call into
+# it at startup with a `ZoRuntimeContext` struct.
+crate-type = ["rlib", "cdylib"]
 doctest = false
 
 [dependencies]

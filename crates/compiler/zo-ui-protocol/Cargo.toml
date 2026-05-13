@@ -13,5 +13,6 @@ doctest = false
 
 # external:crates.
 libloading = { workspace = true }
+postcard = { workspace = true }
 serde = { workspace = true }
 thin-vec = { workspace = true }

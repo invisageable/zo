@@ -5,7 +5,8 @@ use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
   COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D16, FpRegister,
-  PatchSite, Register, SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
+  PatchSite, Register, SP, X0, X1, X2, X3, X9, X10, X11, X16, X17, X29, X30,
+  XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_register_allocation::{
@@ -101,6 +102,65 @@ const CODE_OFFSET: u64 = 0x400;
 pub(super) const UI_ENTRY_SYMBOL: u32 = 0xFFFF;
 pub(super) const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 
+// Runtime dylib symbols: every `#dom` program emits calls
+// into `libzo_runtime_native.dylib`. Names match the
+// `#[no_mangle]` exports in `zo-runtime-native::ffi`
+// (Mach-O leading-underscore convention).
+const RUNTIME_DYLIB_FILE: &str = "libzo_runtime_native.dylib";
+const SYM_RUN: &str = "_zo_run_native";
+const SYM_STATE_INIT: &str = "_zo_state_init";
+const SYM_STATE_GET: &str = "_zo_state_get";
+const SYM_STATE_SET: &str = "_zo_state_set";
+
+/// Locate `libzo_runtime_native.dylib` next to the running
+/// `zo` binary, falling back to the sibling cargo profile
+/// when only one of `target/debug` / `target/release` has
+/// been built. `cargo run --bin zo --release` produces
+/// `target/release/zo` but doesn't compile the cdylib
+/// (it's not a rlib dep), so the dylib only exists under
+/// `target/debug/` — without the fallback the compiled
+/// program's `LC_LOAD_DYLIB` would be a bare basename
+/// that dyld can't resolve at run time.
+///
+/// Candidate order:
+///   1. `<exe-dir>/<dylib>` — same profile.
+///   2. `<exe-dir>/../debug/<dylib>` — release-zo + debug-dylib.
+///   3. `<exe-dir>/../release/<dylib>` — debug-zo + release-dylib.
+///   4. `<exe-dir>/../lib/<dylib>` — installed layout
+///      (`tasks/zo-install.sh` will write here).
+///
+/// Returns `None` when none of the candidates exist; the
+/// caller falls back to a bare basename so the linker
+/// still records something and dyld surfaces a clean
+/// "image not found" diagnostic at runtime.
+fn resolve_runtime_dylib_path() -> Option<String> {
+  let exe = std::env::current_exe().ok()?;
+  let exe_dir = exe.parent()?;
+  let candidates = [
+    exe_dir.join(RUNTIME_DYLIB_FILE),
+    exe_dir.join("..").join("debug").join(RUNTIME_DYLIB_FILE),
+    exe_dir.join("..").join("release").join(RUNTIME_DYLIB_FILE),
+    exe_dir.join("..").join("lib").join(RUNTIME_DYLIB_FILE),
+  ];
+
+  for candidate in &candidates {
+    if candidate.exists() {
+      let canon =
+        candidate.canonicalize().unwrap_or_else(|_| candidate.clone());
+
+      return Some(canon.to_string_lossy().into_owned());
+    }
+  }
+
+  None
+}
+/// Synthetic-symbol base for the per-template event
+/// dispatcher (`_zo_dispatch_N`). Paired 1:1 with
+/// `TEMPLATE_SYMBOL_OFFSET` — given template
+/// `ValueId(id)`, its dispatcher's `Symbol` is
+/// `Symbol(id + TEMPLATE_DISPATCHER_SYMBOL_OFFSET)`.
+pub(super) const TEMPLATE_DISPATCHER_SYMBOL_OFFSET: u32 = 0x2000;
+
 // --- Branch Fixup Masks ---
 const BL_OPCODE: u32 = 0x94000000;
 const B_FIXUP_MASK: u32 = 0xFC000000;
@@ -161,7 +221,7 @@ fn libm_arg_count(name: &str) -> usize {
 /// Reserves `u32::MAX` as the absent sentinel so a
 /// `DenseMap<ValueId, InsnIdx>` can store it directly with
 /// no `Option` overhead.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct InsnIdx(u32);
 
 impl Sentinel for InsnIdx {
@@ -205,6 +265,54 @@ pub struct ARM64Gen<'a> {
   function_addr_fixups: Vec<(u32, Symbol)>,
   /// Template data sections (symbol -> data).
   pub(super) template_data: Vec<(Symbol, Vec<u8>)>,
+  /// Per-template list of event-handler function names
+  /// (e.g. `"__closure_0"`), in declaration order. Stored
+  /// as strings — the interner is held immutably so we
+  /// can't intern fresh symbols at template-handling time.
+  /// `generate_template_dispatchers` resolves each string
+  /// to a `Symbol` by scanning `self.functions`, whose
+  /// keys were interned by the executor. The position of
+  /// a handler in this list IS the `u32` widget-handler
+  /// ID that the runtime passes to
+  /// `ctx.handle_event(idx, kind)`.
+  pub(super) template_handlers: HashMap<ValueId, Vec<String>>,
+  /// Reactive state assignment: each `mut` symbol that
+  /// appears in any `Template.bindings.text` gets a unique
+  /// `u32` slot id. Closures load/store reactive variables
+  /// through `zo_state_get(slot)` / `zo_state_set(slot,
+  /// value)` calls into the runtime dylib instead of
+  /// reading/writing stack frames — that way the runtime
+  /// owns the state buffer and the renderer can refresh
+  /// `Text` bindings after every event dispatch without
+  /// crossing the ABI.
+  reactive_slots: HashMap<Symbol, u32>,
+  /// Per-template list of `(cmd_idx, slot_id)` pairs to
+  /// pass into the `text_bindings` array of the
+  /// `ZoRuntimeContext` at `#dom` time. Built by the
+  /// same pre-pass that populates `reactive_slots`.
+  template_text_bindings: HashMap<ValueId, Vec<(u32, u32)>>,
+  /// Set of `FunDef` indices whose body touches a
+  /// reactive `mut`. Codegen inserts `bl _zo_state_get` /
+  /// `bl _zo_state_set` (and `bl _zo_state_init` for the
+  /// program's `main`) for those operations — but the
+  /// allocator's `info.has_calls` is computed from
+  /// explicit `Insn::Call`s only, so a function whose
+  /// only calls are reactive helpers would otherwise get
+  /// a leaf-fn prologue (no FP/LR save, no caller-save
+  /// reserve) and the inserted `bl` would clobber `X30`
+  /// + spill into someone else's frame. Pre-pass
+  /// promotes those functions to non-leaf so the
+  /// prologue/epilogue reserve the right area.
+  fns_needing_calls: HashSet<InsnIdx>,
+  /// Cached `libzo_runtime_native.dylib` path used for
+  /// the `LC_LOAD_DYLIB` entry. `ensure_runtime_dylib_
+  /// registered` resolves it once via `current_exe()` +
+  /// `parent()` + `join()` + `exists()` (a syscall on
+  /// Apple) and reuses the result across every subsequent
+  /// call site (`emit_state_init_prologue`,
+  /// `emit_state_load`, `emit_state_store`,
+  /// `emit_render_call`).
+  runtime_dylib_path: Option<String>,
   /// Whether we have templates that need the entry point.
   pub has_templates: bool,
   /// The label offsets: label_id → byte offset in code.
@@ -560,6 +668,11 @@ impl<'a> ARM64Gen<'a> {
       string_fixups: Vec::new(),
       function_addr_fixups: Vec::new(),
       template_data: Vec::new(),
+      template_handlers: HashMap::default(),
+      reactive_slots: HashMap::default(),
+      template_text_bindings: HashMap::default(),
+      fns_needing_calls: HashSet::default(),
+      runtime_dylib_path: None,
       has_templates: false,
       labels: HashMap::default(),
       branch_fixups: Vec::new(),
@@ -1170,6 +1283,76 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
+    // Pre-pass: walk every `Insn::Template` and collect
+    // reactive state into `reactive_slots` +
+    // `template_text_bindings`. Done before the main
+    // translate loop so `Insn::Store` / `LoadSource::Local`
+    // can route reactive-symbol reads / writes through
+    // `zo_state_get` / `zo_state_set` instead of stack
+    // frames.
+    self.reactive_slots.clear();
+    self.template_text_bindings.clear();
+
+    for insn in insns.iter() {
+      let Insn::Template { id, bindings, .. } = insn else {
+        continue;
+      };
+
+      let mut entries: Vec<(u32, u32)> =
+        Vec::with_capacity(bindings.text.len());
+
+      for &(cmd_idx, sym) in &bindings.text {
+        let slot = if let Some(&s) = self.reactive_slots.get(&sym) {
+          s
+        } else {
+          let s = self.reactive_slots.len() as u32;
+
+          self.reactive_slots.insert(sym, s);
+          s
+        };
+
+        entries.push((cmd_idx as u32, slot));
+      }
+
+      self.template_text_bindings.insert(*id, entries);
+    }
+
+    // Pre-pass companion: find every function whose body
+    // touches a reactive symbol. The inserted state-helper
+    // `bl`s clobber X30, so those functions need a
+    // non-leaf prologue/epilogue regardless of what the
+    // allocator's `has_calls` said.
+    self.fns_needing_calls.clear();
+    {
+      let mut current_fn: Option<InsnIdx> = None;
+
+      for (i, insn) in insns.iter().enumerate() {
+        match insn {
+          Insn::FunDef { .. } => {
+            current_fn = Some(InsnIdx(i as u32));
+          }
+          Insn::Load {
+            src: LoadSource::Local(sym),
+            ..
+          } => {
+            if self.reactive_slots.contains_key(sym)
+              && let Some(start) = current_fn
+            {
+              self.fns_needing_calls.insert(start);
+            }
+          }
+          Insn::Store { name, .. } => {
+            if self.reactive_slots.contains_key(name)
+              && let Some(start) = current_fn
+            {
+              self.fns_needing_calls.insert(start);
+            }
+          }
+          _ => {}
+        }
+      }
+    }
+
     // Pre-pass: build `ValueId → InsnIdx` so the
     // aggregate-literal X16 bypass
     // (`materialize_value_into_x16`) can reach the
@@ -1212,6 +1395,12 @@ impl<'a> ARM64Gen<'a> {
 
     // Generate _zo_ui_entry_point if we have templates.
     if self.has_templates {
+      // Order matters: dispatchers reference user-emitted
+      // handler functions via `function_addr_fixups`, so
+      // they must run AFTER the FunDef pass — which
+      // happened above in `translate_insn` — but BEFORE
+      // we hand off `self.functions` to the layout pass.
+      self.generate_template_dispatchers();
       self.generate_ui_entry_point();
     }
 
@@ -1560,6 +1749,8 @@ impl<'a> ARM64Gen<'a> {
           select_scratch_size,
         )) = fn_info
         {
+          let has_calls = self.promoted_has_calls(idx as u32, has_calls);
+
           if has_calls {
             self.emitter.emit_stp(X29, X30, SP, FP_LR_SAVE_OFFSET);
           }
@@ -1638,6 +1829,18 @@ impl<'a> ARM64Gen<'a> {
             // param reads) can resolve the spill slot.
             self.param_sym_slots.insert(sym.as_u32(), (off, is_fp));
           }
+
+          // Once main's prologue has stored its params,
+          // call `zo_state_init` so reactive `mut` writes
+          // (the program's first user-visible action) see
+          // an allocated buffer. Idempotent on the runtime
+          // side; emitting in every function is wasteful
+          // but harmless — keep it main-only.
+          if let Some(name) = self.current_function
+            && self.interner.get(name) == "main"
+          {
+            self.emit_state_init_prologue();
+          }
         }
       }
 
@@ -1691,6 +1894,19 @@ impl<'a> ARM64Gen<'a> {
       Insn::Load { dst, src, .. } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
+
+          // Reactive `mut` read: route through the runtime
+          // dylib's `zo_state_get(slot)` so closures and
+          // main both pull from the process-global state
+          // buffer instead of their respective stack
+          // frames.
+          if let Some(&state_slot) = self.reactive_slots.get(sym) {
+            if let Some(dst_reg) = self.alloc_reg(*dst) {
+              self.emit_state_load(dst_reg, state_slot);
+            }
+
+            return;
+          }
 
           // Recover the construction-site enum payload types
           // (if any) so a later `showln(local)` can dispatch
@@ -2564,6 +2780,13 @@ impl<'a> ARM64Gen<'a> {
           select_scratch_size,
         )) = epi_info
         {
+          // Mirror the prologue's promotion so the
+          // epilogue restores FP/LR + tears down the
+          // matching frame size.
+          let has_calls = self
+            .current_fn_start
+            .map(|s| self.promoted_has_calls(s as u32, has_calls))
+            .unwrap_or(has_calls);
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = if has_calls { CALLER_SAVE_RESERVE } else { 0 };
           let frame = (spill_size
@@ -2609,6 +2832,22 @@ impl<'a> ARM64Gen<'a> {
 
         if let Some(elems) = self.value_tuple_elem_tys.get(&value.0).cloned() {
           self.local_tuple_elem_tys.insert(name.as_u32(), elems);
+        }
+
+        // Reactive `mut` write: route through the runtime
+        // dylib's `zo_state_set(slot, value)` so closure
+        // and main-thread updates both land in the
+        // process-global state buffer that
+        // `refresh_bindings` reads.
+        if let Some(&slot) = self.reactive_slots.get(name) {
+          let value_reg = match self.alloc_reg(*value) {
+            Some(r) => r,
+            None => return,
+          };
+
+          self.emit_state_store(slot, value_reg);
+
+          return;
         }
 
         let slot_key = name.as_u32();
@@ -6200,17 +6439,246 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_csel(dst, dst, X16, cond);
   }
 
-  /// Emit a call to the runtime render function.
+  /// Emit a call into the runtime dylib that opens the
+  /// eframe window. Builds a 32-byte `ZoRuntimeContext`
+  /// on the stack (template ptr via PC-relative `adr`,
+  /// template len as immediate, both callback fields
+  /// zero), sets `x0` to its address, and `bl`s
+  /// `_zo_run_native`. The call blocks until the user
+  /// closes the window.
+  ///
+  /// We don't go through `emit_extern_call` here because
+  /// the `sub sp` invalidates its `caller_save_base`
+  /// offsets — programs with caller-save liveness across
+  /// `#dom` are unsupported (the directive is positioned
+  /// at the directive site; the call blocks anyway).
+  ///
+  /// Side effect: registers `_zo_run_native` in
+  /// `extern_dylib_paths` so the linker emits an
+  /// `LC_LOAD_DYLIB` for `libzo_runtime_native.dylib`.
   fn emit_render_call(&mut self, value: ValueId) {
+    self.ensure_runtime_dylib_registered();
+
     let template_symbol = Symbol(value.0 + TEMPLATE_SYMBOL_OFFSET);
+    let template_len = self
+      .template_data
+      .iter()
+      .find_map(|(s, b)| (*s == template_symbol).then_some(b.len()))
+      .unwrap_or(0) as u64;
+    let has_handlers = self
+      .template_handlers
+      .get(&value)
+      .is_some_and(|hs| !hs.is_empty());
+    let bindings = self
+      .template_text_bindings
+      .get(&value)
+      .cloned()
+      .unwrap_or_default();
+    let bindings_count = bindings.len();
+
+    // Stack layout (mirrors `ZoRuntimeContext` in
+    // `zo-runtime-native::ffi`):
+    //   [sp +  0..8 ] template_ptr
+    //   [sp +  8..16] template_len
+    //   [sp + 16..24] handle_event
+    //   [sp + 24..32] text_bindings_ptr
+    //   [sp + 32..40] text_bindings_count
+    //   [sp + 40..40 + 8*N] text_bindings array (8 bytes
+    //         per entry: low u32 = cmd_idx, high u32 =
+    //         slot_id)
+    const CTX_BYTES: i16 = 40;
+    const BINDINGS_BASE: i16 = CTX_BYTES;
+
+    let bindings_bytes = (bindings_count as i16) * 8;
+    let total = CTX_BYTES + bindings_bytes;
+    // Align up to 16; AArch64 needs sp 16-byte aligned.
+    let stack_reserve = ((total + 15) & !15) as u16;
+
+    // x9 = &template (PC-relative; ADR fixup patches
+    // against the appended postcard payload).
     let fixup_pos = self.emitter.current_offset();
 
     self.string_fixups.push((fixup_pos, template_symbol));
-    self.emitter.emit_adr(X0, 0);
+    self.emitter.emit_adr(X9, 0);
 
-    self.emitter.emit_mov_imm(X16, SYS_WRITE);
-    self.emitter.emit_mov_imm(X0, FD_STDOUT);
-    self.emitter.emit_svc(0);
+    // x10 = template_len.
+    self.emit_mov_imm_64(X10, template_len);
+
+    // x11 = &_zo_dispatch_<id> (PC-relative). Only when
+    // the template has event handlers.
+    if has_handlers {
+      let dispatcher_symbol =
+        Symbol(value.0 + TEMPLATE_DISPATCHER_SYMBOL_OFFSET);
+      let adr_pos = self.emitter.current_offset();
+
+      self.emitter.emit_adr(X11, 0);
+      self.function_addr_fixups.push((adr_pos, dispatcher_symbol));
+    }
+
+    self.emitter.emit_sub_imm(SP, SP, stack_reserve);
+    self.emitter.emit_str(X9, SP, 0);
+    self.emitter.emit_str(X10, SP, 8);
+
+    if has_handlers {
+      self.emitter.emit_str(X11, SP, 16);
+    } else {
+      self.emitter.emit_str(XZR, SP, 16);
+    }
+
+    if bindings_count > 0 {
+      // Emit the text_bindings array. Each entry packs
+      // `(cmd_idx: u32, slot_id: u32)` little-endian
+      // into one 64-bit slot — matches the layout of the
+      // `#[repr(C)] struct TextBinding` on the runtime
+      // side (32-bit fields contiguous, no padding).
+      for (i, &(cmd_idx, slot_id)) in bindings.iter().enumerate() {
+        let packed =
+          (cmd_idx as u64) | ((slot_id as u64) << 32);
+
+        self.emit_mov_imm_64(X9, packed);
+        self
+          .emitter
+          .emit_str(X9, SP, BINDINGS_BASE + (i as i16) * 8);
+      }
+
+      // text_bindings_ptr = SP + BINDINGS_BASE.
+      self.emitter.emit_add_imm(X9, SP, BINDINGS_BASE as u16);
+      self.emitter.emit_str(X9, SP, 24);
+
+      // text_bindings_count.
+      self.emit_mov_imm_64(X9, bindings_count as u64);
+      self.emitter.emit_str(X9, SP, 32);
+    } else {
+      self.emitter.emit_str(XZR, SP, 24);
+      self.emitter.emit_str(XZR, SP, 32);
+    }
+
+    // `MOV X0, SP` — AArch64 MOV (register) is `ORR Rd,
+    // XZR, Rm`; SP and XZR share encoding 31 so ORR
+    // would zero X0. Use `ADD X0, SP, #0` (the "MOV
+    // from/to SP" idiom).
+    self.emitter.emit_add_imm(X0, SP, 0);
+
+    self.emit_extern_call_no_spill(SYM_RUN);
+    self.emitter.emit_add_imm(SP, SP, stack_reserve);
+  }
+
+  /// Like `emit_extern_call` but without saving / restoring
+  /// caller-save registers. Used by `emit_render_call`,
+  /// which moves `sp` to allocate its on-stack
+  /// `ZoRuntimeContext` — the spill offsets in
+  /// `emit_extern_call` are relative to the original `sp`
+  /// and would clobber the newly-allocated struct. Callers
+  /// must ensure no live values are in `X9..X17` at the
+  /// call site.
+  fn emit_extern_call_no_spill(&mut self, c_sym: &str) {
+    let bl_pos = self.emitter.current_offset();
+    let sym = c_sym.to_string();
+
+    self.emitter.emit_bl(0);
+    self.extern_fixups.push((bl_pos, sym.clone()));
+
+    if self.extern_used_set.insert(sym.clone()) {
+      self.extern_used.push(sym);
+    }
+  }
+
+  /// Return the effective `has_calls` for the function
+  /// starting at `idx`: the allocator's view OR'd with
+  /// our reactive-state promotion. The override exists
+  /// because inserted `bl _zo_state_*` calls clobber X30
+  /// + need the caller-save spill area, but the allocator
+  /// is unaware of these synthesised calls.
+  fn promoted_has_calls(&self, idx: u32, base: bool) -> bool {
+    base || self.fns_needing_calls.contains(&InsnIdx(idx))
+  }
+
+  /// Idempotently insert every runtime-dylib symbol into
+  /// `extern_dylib_paths` so the Mach-O writer emits an
+  /// `LC_LOAD_DYLIB` for `libzo_runtime_native.dylib`. Path
+  /// resolution mirrors the `<exe-dir>/libzo_*.dylib`
+  /// pattern that cargo's `cdylib` target produces — for
+  /// dev workflow `target/debug/libzo_runtime_native.dylib`
+  /// is right next to `target/debug/zo`. Falls back to a
+  /// bare basename so the linker still records SOMETHING
+  /// rather than failing silently when `current_exe()`
+  /// can't be resolved (sandboxed test runners, etc.); dyld
+  /// will then surface a clean "image not found" error at
+  /// runtime instead of a malformed Mach-O.
+  ///
+  /// The on-disk lookup (a syscall on Apple) runs at most
+  /// once per `ARM64Gen`: subsequent calls reuse the
+  /// `runtime_dylib_path` cache and only check / insert
+  /// into the `extern_dylib_paths` map.
+  fn ensure_runtime_dylib_registered(&mut self) {
+    let path = match &self.runtime_dylib_path {
+      Some(p) => p.clone(),
+      None => {
+        let resolved = resolve_runtime_dylib_path()
+          .unwrap_or_else(|| RUNTIME_DYLIB_FILE.to_string());
+
+        self.runtime_dylib_path = Some(resolved.clone());
+        resolved
+      }
+    };
+
+    for sym in [SYM_RUN, SYM_STATE_INIT, SYM_STATE_GET, SYM_STATE_SET] {
+      self
+        .extern_dylib_paths
+        .entry(sym.to_string())
+        .or_insert_with(|| path.clone());
+    }
+  }
+
+  /// Emit `bl _zo_state_init(N)` at the START of main's
+  /// body — runs once at program startup, before any
+  /// reactive `mut` initialiser fires. Idempotent on the
+  /// runtime side (`zo_state_init` is a `resize` upward).
+  /// No-op when no reactive state was detected by the
+  /// pre-pass.
+  fn emit_state_init_prologue(&mut self) {
+    let state_count = self.reactive_slots.len();
+
+    if state_count == 0 {
+      return;
+    }
+
+    self.ensure_runtime_dylib_registered();
+    self.emitter.emit_mov_imm(X0, state_count as u16);
+    self.emit_extern_call(SYM_STATE_INIT);
+  }
+
+  /// Emit `mov w0, slot; bl _zo_state_get; mov dst, x0` —
+  /// the read side of a reactive `mut`. Used in place of
+  /// the stack-frame `ldr` when the symbol carries a slot
+  /// in `reactive_slots`.
+  fn emit_state_load(&mut self, dst: Register, slot: u32) {
+    self.ensure_runtime_dylib_registered();
+    self.emitter.emit_mov_imm(X0, slot as u16);
+    self.emit_extern_call(SYM_STATE_GET);
+
+    if dst != X0 {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// Emit `mov w0, slot; mov x1, value; bl _zo_state_set`
+  /// — the write side of a reactive `mut`. Used in place
+  /// of the stack-frame `str` when the symbol carries a
+  /// slot in `reactive_slots`.
+  fn emit_state_store(&mut self, slot: u32, value: Register) {
+    self.ensure_runtime_dylib_registered();
+
+    // Order matters: X1 first (so a later `mov W0, imm`
+    // doesn't clobber the value before we move it), then
+    // X0 for the slot. If `value` is already X1 we skip
+    // the move.
+    if value != X1 {
+      self.emitter.emit_mov_reg(X1, value);
+    }
+
+    self.emitter.emit_mov_imm(X0, slot as u16);
+    self.emit_extern_call(SYM_STATE_SET);
   }
 
   /// Generate a complete "Hello, World" executable.

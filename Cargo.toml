@@ -182,6 +182,7 @@ num_cpus = "1.17.0"
 # objc = "0.2.7"
 parking_lot = { version = "0.12.5", features = ["nightly"] }
 pdfium-render = "0.9.0"
+postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 posthog-rs = "0.6.0"
 profiling = "1.0.17"
 proptest = "1.11.0"
