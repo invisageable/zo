@@ -129,6 +129,13 @@ pub struct Executor<'a> {
   interner: &'a mut Interner,
   /// Literal values from tokenization
   literals: &'a LiteralStore,
+  /// When set, `Token::Ident` reads of an `imu` local
+  /// whose `value_id` is a scalar literal route through
+  /// the `LocalKind::Constant` re-emit branch instead of
+  /// emitting a `Load`. Lets the template-interp baker
+  /// reuse the executor's fold / branch / match paths to
+  /// reduce `{x + y}` to a literal at template-build time.
+  const_eval_mode: bool,
   /// Operand stack (4 bytes per value - just indices!)
   value_stack: Vec<ValueId>,
   /// Type stack (4 bytes per type)
@@ -664,6 +671,7 @@ impl<'a> Executor<'a> {
       tree,
       interner,
       literals,
+      const_eval_mode: false,
       value_stack: Vec::with_capacity(capacity / 4),
       ty_stack: Vec::with_capacity(capacity / 4),
       expected_ty_stack: Vec::new(),
@@ -2250,7 +2258,14 @@ impl<'a> Executor<'a> {
             pubness: pending_func.pubness,
             mut_self: pending_func.mut_self,
             link_name: None,
-            owning_pack: None,
+            // Track the enclosing pack so wrapper methods
+            // emitted inside a preload pack (e.g.
+            // `apply Scene { pub fun new() ... }` inside
+            // `pack misato`) carry their pack identity. DCE
+            // uses this to decide whether `pub fun` should
+            // root the function — preload-pack wrappers
+            // shouldn't, user code should.
+            owning_pack: self.top_pack,
           });
 
           // Now set the context with the correct body start.
@@ -3063,10 +3078,20 @@ impl<'a> Executor<'a> {
               }
             }
 
-            // Compile-time constant: re-emit the literal
-            // value as a fresh SIR instruction each time.
-            // No Load, no stack slot.
-            if local_kind == LocalKind::Constant {
+            // Compile-time constant: re-emit the literal as
+            // a fresh SIR instruction each time. No Load,
+            // no stack slot. `const_eval_mode` extends this
+            // branch to scalar-literal `imu` locals so the
+            // template-interp baker can fold across them;
+            // the lazy `&&` keeps the lookup cost off the
+            // normal-eval hot path.
+            let treat_as_constant = local_kind == LocalKind::Constant
+              || (self.const_eval_mode
+                && mutability == Mutability::No
+                && local_kind == LocalKind::Variable
+                && self.values.is_scalar_const(value_id, true));
+
+            if treat_as_constant {
               let vi = value_id.0 as usize;
 
               if vi < self.values.kinds.len() {
@@ -4799,15 +4824,12 @@ impl<'a> Executor<'a> {
         // are compile-time constants. Skip when either is a
         // runtime value (e.g., function call result) to
         // avoid incorrect folding across executor passes.
-        let lhs_is_const =
-          self.values.kinds.get(lhs.0 as usize).is_some_and(|k| {
-            matches!(k, Value::Int | Value::Float | Value::Bool | Value::Char)
-          });
-
-        let rhs_is_const =
-          self.values.kinds.get(rhs.0 as usize).is_some_and(|k| {
-            matches!(k, Value::Int | Value::Float | Value::Bool | Value::Char)
-          });
+        // `with_string=false` because `ConstFold` only
+        // folds arithmetic / comparison binops, not string
+        // ops. The template-interp baker passes `true`
+        // since its gate just stringifies the value.
+        let lhs_is_const = self.values.is_scalar_const(lhs, false);
+        let rhs_is_const = self.values.is_scalar_const(rhs, false);
 
         let mut constprop = ConstFold::new(&self.values, self.interner);
         let resolved_ty = self.ty_checker.resolve_ty(ty_id);
@@ -5381,15 +5403,38 @@ impl<'a> Executor<'a> {
   /// Extracts the pack name from children and emits
   /// `Insn::PackDecl`.
   fn execute_pack(&mut self, start_idx: usize, end_idx: usize) {
-    // First Ident after `pack` is the pack name. Scanning
-    // matches the `execute_apply` shape (parser may place
-    // minor tokens between `pack` and the name).
-    let name_idx = ((start_idx + 1)..end_idx)
-      .find(|&i| self.tree.nodes[i].token == Token::Ident);
+    // First name token after `pack` — either a regular
+    // `Ident` (most packs) or a primitive type keyword
+    // (`pack char;` / `pack int;` / `pack bool;` /
+    // `pack str;` etc., where the std pack shares its name
+    // with the primitive it extends). Without the latter,
+    // `name` stays `None` for those preload packs,
+    // `top_pack` never gets set, and any `pub fun` emitted
+    // inside `apply <primitive> { ... }` lands with
+    // `owning_pack = None` — DCE then can't tell preload-
+    // pack pub funs from user-code pub funs and keeps every
+    // one as a root.
+    let name_idx = ((start_idx + 1)..end_idx).find(|&i| {
+      let tok = self.tree.nodes[i].token;
 
-    let name = name_idx.and_then(|i| match self.node_value(i) {
-      Some(NodeValue::Symbol(s)) => Some(s),
-      _ => None,
+      tok == Token::Ident || Self::is_primitive_type_token(tok)
+    });
+
+    let name = name_idx.and_then(|i| {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Ident {
+        match self.node_value(i) {
+          Some(NodeValue::Symbol(s)) => Some(s),
+          _ => None,
+        }
+      } else {
+        // Primitive keyword: synthesize its symbol from the
+        // canonical type-keyword string so the symbol
+        // matches `execute_apply`'s own primitive-receiver
+        // interning ("char" → `self.interner.intern("char")`).
+        tok.ty_keyword_str().map(|s| self.interner.intern(s))
+      }
     });
 
     // Locate the pack's own `{` and its matching `}` by
@@ -18553,8 +18598,7 @@ impl<'a> Executor<'a> {
                       } else {
                         String::new()
                       };
-                      let resolved =
-                        self.normalise_attr_value(&attr_name, val);
+                      let resolved = self.normalise_attr_value(&attr_name, val);
 
                       attrs.push(Attr::parse_prop(&attr_name, &resolved));
                     }
@@ -18857,12 +18901,18 @@ impl<'a> Executor<'a> {
           {
             let text = self.value_to_string(local.value_id);
             let mutability = local.mutability;
+            let is_reactive = mutability == Mutability::Yes;
 
-            if mutability == Mutability::Yes {
+            if is_reactive {
               self.template_bindings.text.push((commands.len(), sym));
             }
 
-            if !text.is_empty() {
+            // Reactive bindings MUST push a Text command
+            // even when empty — the binding's `cmd_idx`
+            // points here and `refresh_bindings` mutates
+            // it in place. Skipping for `mut s: str = ""`
+            // would slide the index onto `EndElement`.
+            if is_reactive || !text.is_empty() {
               commands.push(UiCommand::Text(text));
             }
 
@@ -18908,9 +18958,98 @@ impl<'a> Executor<'a> {
           self.template_interp_counter += 1;
 
           let captures = self.identify_captures(idx, close_idx, &[]);
+          let all_captures_immutable =
+            captures.iter().all(|(_, _, is_mut)| !is_mut);
           let capture_count = captures.len() as u32;
           let capture_syms: Vec<Symbol> =
             captures.iter().map(|(s, _, _)| *s).collect();
+
+          // Const-eval baker: replay the body in the outer
+          // scope under `const_eval_mode` against a
+          // throwaway `Sir`, then stringify the resulting
+          // value. AOT has no dispatch path for
+          // `bindings.computed`, so a fully-foldable interp
+          // MUST be baked here or the `<p>{x+y}</p>` slot
+          // never gets a value. Falls through to closure
+          // synthesis when anything pushes `Value::Runtime`
+          // (function call, struct construct).
+          let baked: Option<String> = if all_captures_immutable {
+            // Save every field `execute_node` (and its
+            // dispatched fold/branch/binop paths) might
+            // mutate, so a partial bail can't bleed
+            // throwaway state into the outer template walk.
+            let throwaway = Sir::new();
+            let saved_sir = std::mem::replace(&mut self.sir, throwaway);
+            let saved_value_stack = std::mem::take(&mut self.value_stack);
+            let saved_ty_stack = std::mem::take(&mut self.ty_stack);
+            let saved_sir_values = std::mem::take(&mut self.sir_values);
+            let saved_deferred_binops = std::mem::take(&mut self.deferred_binops);
+            let saved_tuple_ctx = std::mem::take(&mut self.tuple_ctx);
+            let saved_expected_ty_stack =
+              std::mem::take(&mut self.expected_ty_stack);
+            let saved_pending_call_rparen = self.pending_call_rparen.take();
+            let saved_pending_decl = self.pending_decl.take();
+            let saved_current_function = self.current_function.take();
+            let saved_skip_outer = self.skip_until;
+
+            self.const_eval_mode = true;
+            self.skip_until = 0;
+
+            let mut body_idx = idx;
+
+            while body_idx < close_idx {
+              if body_idx < self.skip_until {
+                body_idx += 1;
+                continue;
+              }
+
+              let header = self.tree.nodes[body_idx];
+
+              self.execute_node(&header, body_idx);
+
+              if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none()
+              {
+                self.apply_deferred_binop();
+              }
+
+              body_idx += 1;
+            }
+
+            self.apply_deferred_binop();
+
+            let baked = self
+              .value_stack
+              .last()
+              .copied()
+              .map(|vid| self.value_to_string(vid))
+              .filter(|s| !s.is_empty());
+
+            // Restore — mirrors save order above for symmetry.
+            self.const_eval_mode = false;
+            self.skip_until = saved_skip_outer;
+            self.current_function = saved_current_function;
+            self.pending_decl = saved_pending_decl;
+            self.pending_call_rparen = saved_pending_call_rparen;
+            self.expected_ty_stack = saved_expected_ty_stack;
+            self.tuple_ctx = saved_tuple_ctx;
+            self.deferred_binops = saved_deferred_binops;
+            self.sir_values = saved_sir_values;
+            self.ty_stack = saved_ty_stack;
+            self.value_stack = saved_value_stack;
+            self.sir = saved_sir;
+
+            baked
+          } else {
+            None
+          };
+
+          // Baked → skip closure synthesis; the value is
+          // constant for the template's lifetime.
+          if let Some(text) = baked {
+            commands.push(UiCommand::Text(text));
+            idx = close_idx + 1;
+            continue;
+          }
 
           let combined_params: Vec<(Symbol, TyId)> =
             captures.iter().map(|(s, t, _)| (*s, *t)).collect();
@@ -19078,8 +19217,8 @@ impl<'a> Executor<'a> {
           self.ty_stack = outer_ty_stack;
           self.sir_values = outer_sir_values;
 
-          // Record the binding and a placeholder Text the
-          // runtime patches before the first render.
+          // Reactive or non-foldable interp: placeholder
+          // Text + binding entry for runtime refresh.
           self.template_bindings.computed.push((
             commands.len(),
             ComputedBinding {

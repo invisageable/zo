@@ -111,6 +111,11 @@ const SYM_RUN: &str = "_zo_run_native";
 const SYM_STATE_INIT: &str = "_zo_state_init";
 const SYM_STATE_GET: &str = "_zo_state_get";
 const SYM_STATE_SET: &str = "_zo_state_set";
+// Str-typed reactive slots route through a separate
+// `Vec<Vec<u8>>` (length-prefixed copies) — the i64 STATE
+// can't hold a string value.
+const SYM_STATE_GET_STR: &str = "_zo_state_get_str";
+const SYM_STATE_SET_STR: &str = "_zo_state_set_str";
 
 /// Locate `libzo_runtime_native.dylib` next to the running
 /// `zo` binary, falling back to the sibling cargo profile
@@ -145,8 +150,9 @@ fn resolve_runtime_dylib_path() -> Option<String> {
 
   for candidate in &candidates {
     if candidate.exists() {
-      let canon =
-        candidate.canonicalize().unwrap_or_else(|_| candidate.clone());
+      let canon = candidate
+        .canonicalize()
+        .unwrap_or_else(|_| candidate.clone());
 
       return Some(canon.to_string_lossy().into_owned());
     }
@@ -286,11 +292,11 @@ pub struct ARM64Gen<'a> {
   /// `Text` bindings after every event dispatch without
   /// crossing the ABI.
   reactive_slots: HashMap<Symbol, u32>,
-  /// Per-template list of `(cmd_idx, slot_id)` pairs to
-  /// pass into the `text_bindings` array of the
-  /// `ZoRuntimeContext` at `#dom` time. Built by the
+  /// Per-template list of `(cmd_idx, slot_id, is_str)`
+  /// triples to pass into the `text_bindings` array of
+  /// the `ZoRuntimeContext` at `#dom` time. Built by the
   /// same pre-pass that populates `reactive_slots`.
-  template_text_bindings: HashMap<ValueId, Vec<(u32, u32)>>,
+  template_text_bindings: HashMap<ValueId, Vec<(u32, u32, bool)>>,
   /// Set of `FunDef` indices whose body touches a
   /// reactive `mut`. Codegen inserts `bl _zo_state_get` /
   /// `bl _zo_state_set` (and `bl _zo_state_init` for the
@@ -1283,22 +1289,28 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Pre-pass: walk every `Insn::Template` and collect
-    // reactive state into `reactive_slots` +
-    // `template_text_bindings`. Done before the main
-    // translate loop so `Insn::Store` / `LoadSource::Local`
-    // can route reactive-symbol reads / writes through
-    // `zo_state_get` / `zo_state_set` instead of stack
-    // frames.
+    // Pre-pass: assign each `Template`-bound reactive
+    // symbol a slot id, and capture its first-store ty_id
+    // as the `is_str` tag — without it `refresh_bindings`
+    // would route string slots through `STATE` (i64) and
+    // render the decimal of the buffer pointer.
     self.reactive_slots.clear();
     self.template_text_bindings.clear();
+
+    let mut sym_first_store_ty: HashMap<Symbol, TyId> = HashMap::default();
+
+    for insn in insns.iter() {
+      if let Insn::Store { name, ty_id, .. } = insn {
+        sym_first_store_ty.entry(*name).or_insert(*ty_id);
+      }
+    }
 
     for insn in insns.iter() {
       let Insn::Template { id, bindings, .. } = insn else {
         continue;
       };
 
-      let mut entries: Vec<(u32, u32)> =
+      let mut entries: Vec<(u32, u32, bool)> =
         Vec::with_capacity(bindings.text.len());
 
       for &(cmd_idx, sym) in &bindings.text {
@@ -1311,7 +1323,11 @@ impl<'a> ARM64Gen<'a> {
           s
         };
 
-        entries.push((cmd_idx as u32, slot));
+        let is_str = sym_first_store_ty
+          .get(&sym)
+          .is_some_and(|t| t.0 == STR_TYPE_ID);
+
+        entries.push((cmd_idx as u32, slot, is_str));
       }
 
       self.template_text_bindings.insert(*id, entries);
@@ -1403,6 +1419,21 @@ impl<'a> ARM64Gen<'a> {
       self.generate_template_dispatchers();
       self.generate_ui_entry_point();
     }
+
+    // Drop `LC_LOAD_DYLIB` entries for FFI symbols that
+    // were declared (via `pub ffi` in a preload pack) but
+    // never actually called. Each unused entry costs dyld
+    // a full image mapping + init at process startup —
+    // ~20-25ms on macOS for a 60+ MB dylib. Programs that
+    // import a pack purely for its types (without calling
+    // its FFI surface) get the startup back.
+    //
+    // `extern_used_set` is the ground truth: a symbol is
+    // there iff `emit_extern_call` (or the FFI dispatch
+    // arm) actually emitted a `bl` to it.
+    self
+      .extern_dylib_paths
+      .retain(|sym, _| self.extern_used_set.contains(sym));
 
     // Emit libm stubs at end of code section. Each stub is
     // 12 bytes (3 instructions): ADRP X16, page; LDR X16,
@@ -1891,7 +1922,7 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_adr(ptr_reg, 0);
       }
 
-      Insn::Load { dst, src, .. } => match src {
+      Insn::Load { dst, src, ty_id, .. } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
 
@@ -1902,7 +1933,7 @@ impl<'a> ARM64Gen<'a> {
           // frames.
           if let Some(&state_slot) = self.reactive_slots.get(sym) {
             if let Some(dst_reg) = self.alloc_reg(*dst) {
-              self.emit_state_load(dst_reg, state_slot);
+              self.emit_state_load(dst_reg, state_slot, ty_id.0 == STR_TYPE_ID);
             }
 
             return;
@@ -2821,7 +2852,11 @@ impl<'a> ARM64Gen<'a> {
         // Handled in execution phase.
       }
 
-      Insn::Store { name, value, ty_id } => {
+      Insn::Store {
+        name,
+        value,
+        ty_id,
+      } => {
         // Forward concrete enum payload types from the rhs
         // SSA value to this local so a later `Load` of `name`
         // can recover them. Mirrors how `value_types` flows
@@ -2845,7 +2880,7 @@ impl<'a> ARM64Gen<'a> {
             None => return,
           };
 
-          self.emit_state_store(slot, value_reg);
+          self.emit_state_store(slot, value_reg, ty_id.0 == STR_TYPE_ID);
 
           return;
         }
@@ -6483,13 +6518,15 @@ impl<'a> ARM64Gen<'a> {
     //   [sp + 16..24] handle_event
     //   [sp + 24..32] text_bindings_ptr
     //   [sp + 32..40] text_bindings_count
-    //   [sp + 40..40 + 8*N] text_bindings array (8 bytes
-    //         per entry: low u32 = cmd_idx, high u32 =
-    //         slot_id)
+    //   [sp + 40..40 + 16*N] text_bindings array — one
+    //         `#[repr(C)] struct TextBinding` per entry,
+    //         16 bytes: cmd_idx u32 @0, slot_id u32 @4,
+    //         is_str u32 @8, _pad u32 @12.
     const CTX_BYTES: i16 = 40;
     const BINDINGS_BASE: i16 = CTX_BYTES;
+    const BINDING_STRIDE: i16 = 16;
 
-    let bindings_bytes = (bindings_count as i16) * 8;
+    let bindings_bytes = (bindings_count as i16) * BINDING_STRIDE;
     let total = CTX_BYTES + bindings_bytes;
     // Align up to 16; AArch64 needs sp 16-byte aligned.
     let stack_reserve = ((total + 15) & !15) as u16;
@@ -6526,19 +6563,18 @@ impl<'a> ARM64Gen<'a> {
     }
 
     if bindings_count > 0 {
-      // Emit the text_bindings array. Each entry packs
-      // `(cmd_idx: u32, slot_id: u32)` little-endian
-      // into one 64-bit slot — matches the layout of the
-      // `#[repr(C)] struct TextBinding` on the runtime
-      // side (32-bit fields contiguous, no padding).
-      for (i, &(cmd_idx, slot_id)) in bindings.iter().enumerate() {
-        let packed =
-          (cmd_idx as u64) | ((slot_id as u64) << 32);
+      // 16-byte `#[repr(C)] TextBinding` per entry,
+      // emitted as two `i64` halves: low = cmd_idx |
+      // slot_id<<32, high = is_str (with _pad=0).
+      for (i, &(cmd_idx, slot_id, is_str)) in bindings.iter().enumerate() {
+        let entry_base = BINDINGS_BASE + (i as i16) * BINDING_STRIDE;
+        let lo = (cmd_idx as u64) | ((slot_id as u64) << 32);
+        let hi = is_str as u64;
 
-        self.emit_mov_imm_64(X9, packed);
-        self
-          .emitter
-          .emit_str(X9, SP, BINDINGS_BASE + (i as i16) * 8);
+        self.emit_mov_imm_64(X9, lo);
+        self.emitter.emit_str(X9, SP, entry_base);
+        self.emit_mov_imm_64(X9, hi);
+        self.emitter.emit_str(X9, SP, entry_base + 8);
       }
 
       // text_bindings_ptr = SP + BINDINGS_BASE.
@@ -6622,7 +6658,14 @@ impl<'a> ARM64Gen<'a> {
       }
     };
 
-    for sym in [SYM_RUN, SYM_STATE_INIT, SYM_STATE_GET, SYM_STATE_SET] {
+    for sym in [
+      SYM_RUN,
+      SYM_STATE_INIT,
+      SYM_STATE_GET,
+      SYM_STATE_SET,
+      SYM_STATE_GET_STR,
+      SYM_STATE_SET_STR,
+    ] {
       self
         .extern_dylib_paths
         .entry(sym.to_string())
@@ -6648,25 +6691,36 @@ impl<'a> ARM64Gen<'a> {
     self.emit_extern_call(SYM_STATE_INIT);
   }
 
-  /// Emit `mov w0, slot; bl _zo_state_get; mov dst, x0` —
-  /// the read side of a reactive `mut`. Used in place of
+  /// Emit `mov w0, slot; bl _zo_state_get*; mov dst, x0`
+  /// — the read side of a reactive `mut`. Used in place of
   /// the stack-frame `ldr` when the symbol carries a slot
-  /// in `reactive_slots`.
-  fn emit_state_load(&mut self, dst: Register, slot: u32) {
+  /// in `reactive_slots`. `is_str` picks the str-typed FFI
+  /// (returns a pointer into a `STR_STATE` clone the
+  /// runtime sizes per slot for stable address) over the
+  /// int FFI (returns `i64` from `STATE`).
+  fn emit_state_load(&mut self, dst: Register, slot: u32, is_str: bool) {
     self.ensure_runtime_dylib_registered();
     self.emitter.emit_mov_imm(X0, slot as u16);
-    self.emit_extern_call(SYM_STATE_GET);
+    self.emit_extern_call(if is_str {
+      SYM_STATE_GET_STR
+    } else {
+      SYM_STATE_GET
+    });
 
     if dst != X0 {
       self.emitter.emit_mov_reg(dst, X0);
     }
   }
 
-  /// Emit `mov w0, slot; mov x1, value; bl _zo_state_set`
+  /// Emit `mov w0, slot; mov x1, value; bl _zo_state_set*`
   /// — the write side of a reactive `mut`. Used in place
   /// of the stack-frame `str` when the symbol carries a
-  /// slot in `reactive_slots`.
-  fn emit_state_store(&mut self, slot: u32, value: Register) {
+  /// slot in `reactive_slots`. The str-typed FFI variant
+  /// reads the length-prefix from `value` (a zo `str`
+  /// pointer) and copies the bytes into `STR_STATE[slot]`,
+  /// so the closure caller's frame doesn't need to keep
+  /// the source buffer alive past this call.
+  fn emit_state_store(&mut self, slot: u32, value: Register, is_str: bool) {
     self.ensure_runtime_dylib_registered();
 
     // Order matters: X1 first (so a later `mov W0, imm`
@@ -6678,7 +6732,11 @@ impl<'a> ARM64Gen<'a> {
     }
 
     self.emitter.emit_mov_imm(X0, slot as u16);
-    self.emit_extern_call(SYM_STATE_SET);
+    self.emit_extern_call(if is_str {
+      SYM_STATE_SET_STR
+    } else {
+      SYM_STATE_SET
+    });
   }
 
   /// Generate a complete "Hello, World" executable.

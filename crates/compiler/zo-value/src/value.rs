@@ -182,6 +182,24 @@ impl ValueStorage {
     self.store(Value::Template, idx)
   }
 
+  /// `true` when `vid` resolves to a compile-time scalar
+  /// literal (`Int` / `Float` / `Bool` / `Char`, plus
+  /// `String` when `with_string` is set). Single source of
+  /// truth for the "is this constant-foldable?" gate that
+  /// `execute_binop` and the template-interp baker both
+  /// consult — without it, the two predicates drifted (the
+  /// fold path excluded `String`, the baker included it).
+  #[inline]
+  pub fn is_scalar_const(&self, vid: ValueId, with_string: bool) -> bool {
+    matches!(
+      self.kinds.get(vid.0 as usize),
+      Some(
+        Value::Int | Value::Float | Value::Bool | Value::Char,
+      ),
+    ) || (with_string
+      && matches!(self.kinds.get(vid.0 as usize), Some(Value::String)))
+  }
+
   #[inline(always)]
   pub fn store_runtime(&mut self, sir_ref: u32) -> ValueId {
     let idx = self.runtimes.len() as u32;

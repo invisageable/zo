@@ -41,9 +41,7 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<UiCommand>, CodecError> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::{
-    Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
-  };
+  use crate::{Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand};
 
   fn round_trip(cmds: Vec<UiCommand>) {
     let bytes = encode(&cmds).expect("encode");

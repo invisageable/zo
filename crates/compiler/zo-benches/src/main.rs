@@ -37,6 +37,13 @@ struct Cli {
   /// Quick mode: 3 runs, zo only, for pre-commit hook.
   #[arg(long)]
   quick: bool,
+  /// Also measure runtime of the compiled binary (run it
+  /// `runs` times and report the average). Off by default
+  /// because some benches (e.g. munchhausen) do hundreds
+  /// of millions of iterations and turn a 30s sweep into
+  /// several minutes.
+  #[arg(long)]
+  with_runtime: bool,
 }
 
 /// Stored baseline entry for a single benchmark. Hot
@@ -91,12 +98,14 @@ fn main() {
       for name in &names {
         println!("\nRunning {name} benchmark...\n");
 
-        if let Some(avg) = run_bench(name, runs, cli.quick) {
+        if let Some(avg) = run_bench(name, runs, cli.quick, cli.with_runtime) {
           results.insert(name.clone(), avg);
         }
       }
     }
-  } else if let Some(avg) = run_bench(&cli.benchmark, runs, cli.quick) {
+  } else if let Some(avg) =
+    run_bench(&cli.benchmark, runs, cli.quick, cli.with_runtime)
+  {
     results.insert(cli.benchmark.clone(), avg);
   }
 
@@ -150,6 +159,14 @@ fn main() {
     println!("baseline updated: {}", baseline_path.display());
   }
 
+  // Always sweep stale dylibs from every `<bench>/bin/`.
+  // zo build emits `LC_LOAD_DYLIB @executable_path/lib*.dylib`
+  // for the concurrency/UI/provider runtimes; earlier
+  // harness iterations dropped copies next to the bin and
+  // they accumulated across runs. Clean unconditionally so
+  // git status stays empty after a sweep.
+  cleanup_dylibs(&bench_dir);
+
   // Strict mode: exit with error on regression.
   if cli.strict && !regressions.is_empty() {
     eprintln!("REGRESSION detected in: {}", regressions.join(", "));
@@ -164,7 +181,12 @@ fn main() {
 }
 
 /// Run a benchmark. Returns zo hot average (ns) if available.
-fn run_bench(name: &str, num_runs: usize, quick: bool) -> Option<u64> {
+fn run_bench(
+  name: &str,
+  num_runs: usize,
+  quick: bool,
+  with_runtime: bool,
+) -> Option<u64> {
   let bench_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     .join("benches")
     .join(name);
@@ -191,6 +213,7 @@ fn run_bench(name: &str, num_runs: usize, quick: bool) -> Option<u64> {
 
   let c_file = bench_dir.join(format!("{name}.c"));
   let rs_file = bench_dir.join(format!("{name}.rs"));
+  let odin_file = bench_dir.join(format!("{name}.odin"));
   let zo_file = bench_dir.join(format!("{name}.zo"));
 
   let bin_dir = bench_dir.join("bin");
@@ -198,22 +221,80 @@ fn run_bench(name: &str, num_runs: usize, quick: bool) -> Option<u64> {
 
   if !quick {
     if c_file.exists() {
-      benchmark_c(&c_file, &bin_dir.join(format!("{name}_c")), num_runs);
+      benchmark_c(
+        &c_file,
+        &bin_dir.join(format!("{name}_c")),
+        num_runs,
+        with_runtime,
+      );
     }
 
     if rs_file.exists() {
-      benchmark_rust(&rs_file, &bin_dir.join(format!("{name}_rust")), num_runs);
+      benchmark_rust(
+        &rs_file,
+        &bin_dir.join(format!("{name}_rust")),
+        num_runs,
+        with_runtime,
+      );
+    }
+
+    if odin_file.exists() {
+      benchmark_odin(
+        &odin_file,
+        &bin_dir.join(format!("{name}_odin")),
+        num_runs,
+        with_runtime,
+      );
     }
   }
 
   if zo_file.exists() {
-    benchmark_zo(&zo_file, &bin_dir.join(format!("{name}_zo")), num_runs)
+    benchmark_zo(
+      &zo_file,
+      &bin_dir.join(format!("{name}_zo")),
+      num_runs,
+      with_runtime,
+    )
   } else {
     None
   }
 }
 
-fn benchmark_c(source: &PathBuf, output: &PathBuf, runs: usize) {
+/// Time `runs` invocations of `binary` and print a
+/// per-run + average breakdown. Stdout/stderr of the
+/// program are silenced to keep the bench output tidy.
+fn time_runtime(binary: &PathBuf, runs: usize) {
+  let mut times = Vec::new();
+
+  for i in 1..=runs {
+    let start = Instant::now();
+    let result = Command::new(binary)
+      .stdout(std::process::Stdio::null())
+      .stderr(std::process::Stdio::null())
+      .output();
+    let elapsed = start.elapsed().as_nanos() as u64;
+
+    match result {
+      Ok(o) if o.status.success() => {
+        times.push(elapsed);
+        println!("  Runtime {i}: {}", fmt_dur(elapsed));
+      }
+      _ => println!("  Runtime {i}: FAILED"),
+    }
+  }
+
+  if !times.is_empty() {
+    let avg = times.iter().sum::<u64>() / times.len() as u64;
+    println!("  Runtime avg: {}", fmt_dur(avg));
+  }
+}
+
+fn benchmark_c(
+  source: &PathBuf,
+  output: &PathBuf,
+  runs: usize,
+  with_runtime: bool,
+) {
   println!("c (ARM64):");
 
   let lines = count_lines(source).unwrap_or(0);
@@ -252,10 +333,73 @@ fn benchmark_c(source: &PathBuf, output: &PathBuf, runs: usize) {
     println!("Average: {}", fmt_dur(avg));
   }
 
+  if with_runtime && output.exists() {
+    time_runtime(output, runs);
+  }
+
   println!();
 }
 
-fn benchmark_rust(source: &PathBuf, output: &PathBuf, runs: usize) {
+fn benchmark_odin(
+  source: &PathBuf,
+  output: &PathBuf,
+  runs: usize,
+  with_runtime: bool,
+) {
+  println!("odin (ARM64):");
+
+  let lines = count_lines(source).unwrap_or(0);
+  let filename = source.file_name().unwrap().to_string_lossy();
+
+  println!("Compiling {filename} — {lines} lines.");
+
+  let mut times = Vec::new();
+
+  for i in 1..=runs {
+    let _ = fs::remove_file(output);
+
+    let start = Instant::now();
+
+    // `-file` makes Odin treat <source> as a standalone
+    // file instead of looking for a package; matches
+    // how clang/rustc handle a single source.
+    let result = Command::new("odin")
+      .arg("build")
+      .arg(source)
+      .arg("-file")
+      .arg(format!("-out:{}", output.display()))
+      .output();
+
+    let elapsed = start.elapsed().as_nanos() as u64;
+
+    match result {
+      Ok(_) => {
+        times.push(elapsed);
+        println!("Run {i}: {}", fmt_dur(elapsed));
+      }
+      Err(_) => println!("Run {i}: FAILED"),
+    }
+  }
+
+  if !times.is_empty() {
+    let avg = (times.iter().sum::<u64>()) / times.len() as u64;
+
+    println!("Average: {}", fmt_dur(avg));
+  }
+
+  if with_runtime && output.exists() {
+    time_runtime(output, runs);
+  }
+
+  println!();
+}
+
+fn benchmark_rust(
+  source: &PathBuf,
+  output: &PathBuf,
+  runs: usize,
+  with_runtime: bool,
+) {
   println!("rustc (ARM64):");
 
   let lines = count_lines(source).unwrap_or(0);
@@ -294,6 +438,10 @@ fn benchmark_rust(source: &PathBuf, output: &PathBuf, runs: usize) {
     println!("Average: {}", fmt_dur(avg));
   }
 
+  if with_runtime && output.exists() {
+    time_runtime(output, runs);
+  }
+
   println!();
 }
 
@@ -302,6 +450,7 @@ fn benchmark_zo(
   source: &PathBuf,
   output: &PathBuf,
   runs: usize,
+  with_runtime: bool,
 ) -> Option<u64> {
   println!("zo (ARM64):");
 
@@ -364,6 +513,10 @@ fn benchmark_zo(
     println!("Hot avg: {}", fmt_dur(hot));
   }
 
+  if with_runtime && output.exists() {
+    time_runtime(output, runs);
+  }
+
   println!();
 
   hot_avg
@@ -373,6 +526,37 @@ fn count_lines(path: &PathBuf) -> std::io::Result<usize> {
   let content = fs::read_to_string(path)?;
 
   Ok(content.lines().count())
+}
+
+/// Sweep `*.dylib` files out of every `<bench>/bin/`.
+/// Compiled zo programs reference runtime dylibs via
+/// `@executable_path/lib*.dylib`; when those files end up
+/// in `bin/` (older harness behavior / stray copies)
+/// they pollute `git status` and snowball across runs.
+fn cleanup_dylibs(bench_dir: &PathBuf) {
+  let Ok(entries) = fs::read_dir(bench_dir) else {
+    return;
+  };
+
+  for entry in entries.flatten() {
+    let bin = entry.path().join("bin");
+
+    if !bin.is_dir() {
+      continue;
+    }
+
+    let Ok(files) = fs::read_dir(&bin) else {
+      continue;
+    };
+
+    for f in files.flatten() {
+      let p = f.path();
+
+      if p.extension().is_some_and(|e| e == "dylib") {
+        let _ = fs::remove_file(&p);
+      }
+    }
+  }
 }
 
 // ================================================================

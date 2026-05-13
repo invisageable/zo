@@ -14,7 +14,7 @@ use super::{
   UI_ENTRY_SYMBOL,
 };
 
-use zo_emitter_arm::{X0, X9};
+use zo_emitter_arm::{X0, X1, X2, X9};
 use zo_interner::Symbol;
 use zo_ui_protocol::UiCommand;
 use zo_ui_protocol::codec;
@@ -88,24 +88,37 @@ impl<'a> ARM64Gen<'a> {
   /// that has at least one event handler. Body shape:
   ///
   /// ```text
-  /// cmp w0, #0
+  /// mov  x1, x2          ; param[1] for closure = &Event
+  /// cmp  w0, #0
   /// b.ne .next0
-  /// adr x9, handler_0   ; function_addr_fixup
-  /// br  x9              ; tail-call → handler returns to
-  ///                     ; runtime, skipping dispatcher
+  /// adr  x9, handler_0   ; function_addr_fixup
+  /// br   x9              ; tail-call → handler returns to
+  ///                      ; runtime, skipping dispatcher
   /// .next0: cmp w0, #1
   /// b.ne .next1
-  /// adr x9, handler_1
-  /// br  x9
+  /// adr  x9, handler_1
+  /// br   x9
   /// ...
-  /// .nextN: ret         ; unknown idx, no-op
+  /// .nextN: ret          ; unknown idx, no-op
   /// ```
   ///
-  /// `br x9` is a tail call — the handler's own `ret`
-  /// returns control to whoever called the dispatcher
-  /// (the runtime), so we don't need a per-block `ret`.
-  /// `function_addr_fixups` resolves each `ADR` once all
-  /// callee functions are laid out in `self.functions`.
+  /// The `mov x1, x2` is the payload-forwarding hop. The
+  /// runtime invokes us as
+  /// `_zo_dispatch_<id>(widget_idx, kind, event_ptr)` —
+  /// `event_ptr` lands in x2 per AAPCS. The user closure's
+  /// `e: Event` parameter expects an Event-struct base
+  /// pointer in x1 (the closure's `param[1]` after the
+  /// captures `param[0]`); copying x2 → x1 satisfies it
+  /// without us needing a frame. The runtime side
+  /// allocates the 8-byte Event struct (a single
+  /// length-prefixed-string pointer) on its own stack so
+  /// the address stays valid for the closure body.
+  ///
+  /// `br x9` stays a tail call — the handler returns
+  /// straight to the runtime, no dispatcher epilogue
+  /// needed. `function_addr_fixups` resolves each `ADR`
+  /// once all callee functions are laid out in
+  /// `self.functions`.
   ///
   /// Must run AFTER every user function (including
   /// closure handlers) has been emitted — otherwise the
@@ -152,6 +165,16 @@ impl<'a> ARM64Gen<'a> {
       self
         .functions
         .insert(dispatcher_symbol, self.emitter.current_offset());
+
+      // One-time payload-forwarding: x1 (currently
+      // holding `event_kind`, which the dispatcher and
+      // user closures both ignore) gets overwritten with
+      // x2 (`event_ptr`) so the upcoming `br x9` lands
+      // in the closure with `param[1] = &Event` already
+      // set. Zero-cost when the program has no payload-
+      // bearing handlers — x2 is null in that case and
+      // the closure never reads param[1].
+      self.emitter.emit_mov_reg(X1, X2);
 
       for (i, handler_name) in names.iter().enumerate() {
         let Some(&handler_sym) = sym_by_name.get(handler_name) else {

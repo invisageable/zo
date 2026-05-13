@@ -19,33 +19,52 @@ use std::collections::HashSet;
 use std::slice;
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// Global reactive state — one `Vec<i64>` per program.
-/// Allocated lazily by `zo_state_init` (called from the
-/// AOT exe's `main` prologue when the program has reactive
-/// bindings); read & written by `zo_state_get` /
-/// `zo_state_set` and by `refresh_bindings` on the runtime
-/// side.
-///
-/// `OnceLock` because `zo_state_init` runs once per
-/// process before any other state access. The inner
-/// `Mutex` serialises read/write — closures fire from
-/// egui's UI thread, while the renderer's refresh runs
-/// from the same thread immediately after, so contention
-/// is nil; the lock is for soundness, not throughput.
+/// The global reactive state, one `Vec<i64>` per program.
 static STATE: OnceLock<Mutex<Vec<i64>>> = OnceLock::new();
+
+/// The string-typed reactive state.
+static STR_STATE: OnceLock<Mutex<Vec<Vec<u8>>>> = OnceLock::new();
 
 fn state() -> &'static Mutex<Vec<i64>> {
   STATE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// One reactive text binding emitted by codegen and read
-/// by the runtime: replace `commands[cmd_idx]` (a `Text`)
-/// with `Text(state[slot_id].to_string())` after every
-/// event dispatch / state mutation.
+fn str_state() -> &'static Mutex<Vec<Vec<u8>>> {
+  STR_STATE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Encode `bytes` into `[len: u64][bytes][null]` layout — mirrors
+/// `Insn::ConstString` so the result is a drop-in replacement for a static
+/// string literal.
+fn encode_length_prefixed(bytes: &[u8]) -> Vec<u8> {
+  let len = bytes.len() as u64;
+  let mut buf = Vec::with_capacity(8 + bytes.len() + 1);
+
+  buf.extend_from_slice(&len.to_le_bytes());
+  buf.extend_from_slice(bytes);
+  buf.push(0);
+  buf
+}
+
+/// Read the length-prefix at `ptr` and return the borrowed
+/// bytes (without the trailing nul). Caller guarantees
+/// `ptr` points to a `[len: u64][bytes][null]` buffer.
+unsafe fn read_length_prefixed(ptr: *const u8) -> &'static [u8] {
+  let len = unsafe { (ptr as *const u64).read_unaligned() } as usize;
+
+  unsafe { slice::from_raw_parts(ptr.add(8), len) }
+}
+
+/// One reactive text binding: replace `commands[cmd_idx]`
+/// (a `Text`) with the rendered form of `STATE[slot_id]`
+/// (`is_str == 0`) or `STR_STATE[slot_id]` (`is_str != 0`).
+/// `_pad` reserves a future tag byte without an ABI break.
 #[repr(C)]
 pub struct TextBinding {
   pub cmd_idx: u32,
   pub slot_id: u32,
+  pub is_str: u32,
+  pub _pad: u32,
 }
 
 /// AOT entry-point context. Built in the compiled exe's
@@ -71,9 +90,14 @@ pub struct ZoRuntimeContext {
   /// Length in bytes of the template payload.
   pub template_len: usize,
   /// Called when a UI event fires. Null = static template
-  /// (events silently ignored).
-  pub handle_event:
-    Option<unsafe extern "C" fn(widget_id: u32, event_kind: u32)>,
+  /// (events silently ignored). `value_ptr` carries the
+  /// payload as a zo-format length-prefixed string for
+  /// text-bearing events (`@input`/`@change`/`@submit`),
+  /// null for click. The pointer is valid for the call
+  /// only; persist via `zo_state_set_str` (which copies).
+  pub handle_event: Option<
+    unsafe extern "C" fn(widget_id: u32, event_kind: u32, value_ptr: *const u8),
+  >,
   /// Pointer to an array of `TextBinding` records that
   /// tell the runtime which `commands[cmd_idx]` to refresh
   /// from which `state[slot_id]`. Null = no reactive
@@ -109,16 +133,22 @@ unsafe fn decode_template(
   codec::decode(bytes)
 }
 
-/// Allocate (or grow) the global state buffer to `count`
-/// `i64` slots, all zero-initialised. Idempotent — the
-/// AOT exe calls this once at the top of `main`; further
-/// calls only resize upward.
+/// Resize the global state buffers to `count` slots
+/// (idempotent, grow-only). `STR_STATE` is sized in
+/// lockstep so an early `zo_state_get_str` returns a
+/// valid empty-string pointer rather than crashing.
 #[unsafe(no_mangle)]
 pub extern "C" fn zo_state_init(count: u32) {
   let mut state = state().lock().unwrap();
 
   if state.len() < count as usize {
     state.resize(count as usize, 0);
+  }
+
+  let mut str_state = str_state().lock().unwrap();
+
+  if str_state.len() < count as usize {
+    str_state.resize_with(count as usize, || encode_length_prefixed(b""));
   }
 }
 
@@ -145,22 +175,63 @@ pub extern "C" fn zo_state_set(slot: u32, value: i64) {
   }
 }
 
-/// Read every reactive `TextBinding` once and refresh the
-/// matching `commands[cmd_idx]` from the supplied `state`
-/// slice. Cheap to call on every event — only writes when
-/// the rendered string actually differs from the current
-/// `Text` content.
+/// Copy the length-prefixed string at `ptr` into the
+/// reactive string slot. The closure body (or main's
+/// initialiser) passes the zo-internal `str` pointer
+/// directly — the runtime owns the resulting bytes so
+/// the buffer stays valid past the closure's frame.
 ///
-/// Pure inner that takes state explicitly — keeps the
-/// production path (`refresh_bindings_from_global`) and
-/// the unit tests on the same code path while letting
-/// tests inject deterministic state without racing against
-/// other tests through `STATE`.
+/// Safety: `ptr` must be either null (silently treated as
+/// the empty string) or a zo-format length-prefixed
+/// string pointer (`[len: u64][bytes][null]`) that lives
+/// for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_state_set_str(slot: u32, ptr: *const u8) {
+  let bytes: &[u8] = if ptr.is_null() {
+    b""
+  } else {
+    unsafe { read_length_prefixed(ptr) }
+  };
+
+  let encoded = encode_length_prefixed(bytes);
+  let mut str_state = str_state().lock().unwrap();
+
+  if let Some(slot_buf) = str_state.get_mut(slot as usize) {
+    *slot_buf = encoded;
+  }
+}
+
+/// Return a pointer to `slot`'s length-prefixed bytes.
+/// The pointer dangles only if a subsequent
+/// `zo_state_set_str` overwrites the same slot — same
+/// hazard the Rust borrow checker would reject for
+/// `let r = &v; v = ...; *r`. Out-of-range reads return a
+/// static empty length-prefixed buffer (never null), so
+/// codegen can unconditionally dereference.
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_state_get_str(slot: u32) -> *const u8 {
+  // Matches `encode_length_prefixed(b"")` byte-for-byte;
+  // `empty_static_matches_encoded_empty` enforces lockstep.
+  static EMPTY: [u8; 9] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+  let str_state = str_state().lock().unwrap();
+
+  match str_state.get(slot as usize) {
+    Some(buf) => buf.as_ptr(),
+    None => EMPTY.as_ptr(),
+  }
+}
+
+/// Refresh every reactive `commands[cmd_idx]` from
+/// `state` / `str_state`. Pure inner that takes state
+/// explicitly — `refresh_bindings_from_global` wraps it
+/// for production while tests inject deterministic state.
 ///
-/// Safety: `bindings_ptr` must refer to a valid array of
-/// the length advertised in the context.
+/// Safety: `bindings_ptr` must point to `bindings_count`
+/// valid `TextBinding` entries.
 unsafe fn refresh_bindings(
   state: &[i64],
+  str_state: &[Vec<u8>],
   bindings_ptr: *const TextBinding,
   bindings_count: usize,
   commands: &mut [UiCommand],
@@ -169,47 +240,69 @@ unsafe fn refresh_bindings(
     return;
   }
 
-  let bindings =
-    unsafe { slice::from_raw_parts(bindings_ptr, bindings_count) };
+  let bindings = unsafe { slice::from_raw_parts(bindings_ptr, bindings_count) };
 
   for binding in bindings {
     let slot = binding.slot_id as usize;
-
-    if slot >= state.len() {
-      continue;
-    }
-
     let cmd_idx = binding.cmd_idx as usize;
 
     if cmd_idx >= commands.len() {
       continue;
     }
 
-    let new_text = state[slot].to_string();
+    let UiCommand::Text(target) = &mut commands[cmd_idx] else {
+      continue;
+    };
 
-    if let UiCommand::Text(s) = &mut commands[cmd_idx]
-      && s != &new_text
-    {
-      *s = new_text;
+    if binding.is_str != 0 {
+      let buf = match str_state.get(slot) {
+        Some(b) if b.len() >= 8 => b,
+        _ => continue,
+      };
+      let len = u64::from_le_bytes(buf[..8].try_into().unwrap()) as usize;
+
+      if 8 + len > buf.len() {
+        continue;
+      }
+
+      let new_bytes = &buf[8..8 + len];
+
+      // Bytes-equal short-circuit avoids the
+      // `String::from_utf8_lossy` allocation on the no-op
+      // path — for steady-state UI loops refresh fires
+      // every frame and most slots are unchanged.
+      if target.as_bytes() == new_bytes {
+        continue;
+      }
+
+      *target = String::from_utf8_lossy(new_bytes).into_owned();
+    } else {
+      let value = match state.get(slot) {
+        Some(v) => *v,
+        None => continue,
+      };
+      let new_text = value.to_string();
+
+      if *target != new_text {
+        *target = new_text;
+      }
     }
   }
 }
 
-/// Production wrapper — holds the `STATE` mutex across
-/// the binding walk and forwards to `refresh_bindings`.
-/// Lock hold-time is the walk itself; event-handler
-/// dispatch and the renderer's refresh both run on the
-/// same UI thread per the doc-comment on `STATE`, so no
-/// contention.
+/// Production wrapper — holds both reactive-state mutexes
+/// across the binding walk and forwards to
+/// `refresh_bindings`.
 unsafe fn refresh_bindings_from_global(
   bindings_ptr: *const TextBinding,
   bindings_count: usize,
   commands: &mut [UiCommand],
 ) {
   let state = state().lock().unwrap();
+  let str_state = str_state().lock().unwrap();
 
   unsafe {
-    refresh_bindings(&state, bindings_ptr, bindings_count, commands)
+    refresh_bindings(&state, &str_state, bindings_ptr, bindings_count, commands)
   };
 }
 
@@ -222,7 +315,7 @@ unsafe fn refresh_bindings_from_global(
 /// seen-name scheme, so the indices line up automatically.
 fn build_registry(
   cmds: &[UiCommand],
-  dispatch: SendPtr<unsafe extern "C" fn(u32, u32)>,
+  dispatch: SendPtr<unsafe extern "C" fn(u32, u32, *const u8)>,
   bindings_ptr: SendPtr<*const TextBinding>,
   bindings_count: usize,
   shared_cmds: Arc<Mutex<Vec<UiCommand>>>,
@@ -253,7 +346,7 @@ fn build_registry(
     let dispatch_send = dispatch;
     let bindings_send = bindings_ptr;
     let cmds_arc = Arc::clone(&shared_cmds);
-    let cb: EventHandler = Box::new(move |_payload| {
+    let cb: EventHandler = Box::new(move |payload| {
       // RFC 2229 disjoint captures would otherwise pull
       // `dispatch_send.0` / `bindings_send.0` directly
       // into the closure type, defeating `SendPtr`'s
@@ -261,16 +354,25 @@ fn build_registry(
       // whole to force whole-binding captures.
       let _ = (&dispatch_send, &bindings_send);
 
-      // 1. Fire the exe's dispatcher. Tail-calls into the
-      //    matching closure; closure mutates state via
-      //    `zo_state_set` FFI calls.
-      unsafe { (dispatch_send.0)(idx, kind_u32) };
+      // `event_holder` IS the `Event { value: str }` struct
+      // — one 8-byte field holding a pointer to the
+      // length-prefixed payload buffer. Both live on this
+      // stack frame for the call's duration; the closure
+      // copies via `zo_state_set_str` if it wants to keep
+      // the value past the call.
+      let payload_buf = encode_length_prefixed(payload.value.as_bytes());
+      let event_holder: u64 = payload_buf.as_ptr() as u64;
 
-      // 2. Refresh reactive `Text` bindings from the
-      //    runtime-side state buffer. The renderer pulls
-      //    from `shared_cmds` each frame, so this is
-      //    enough to drive the display update on the
-      //    next repaint.
+      // Dispatcher's `mov x1, x2` forwards `&event_holder`
+      // into the closure's `param[1]`, then tail-calls.
+      unsafe {
+        (dispatch_send.0)(
+          idx,
+          kind_u32,
+          &event_holder as *const u64 as *const u8,
+        )
+      };
+
       let mut cmds = cmds_arc.lock().unwrap();
 
       unsafe {
@@ -384,6 +486,40 @@ mod tests {
   }
 
   #[test]
+  fn empty_static_matches_encoded_empty() {
+    // The out-of-range fallback in `zo_state_get_str` is
+    // hand-rolled (`[u8; 9]` of zeros) instead of going
+    // through `encode_length_prefixed(b"")` so the function
+    // can return a `'static` pointer without `OnceLock`.
+    // Lockstep with the encoder via this assertion — if
+    // the prefix layout ever changes (e.g. 4-byte length)
+    // the static silently desyncs without it.
+    let encoded = encode_length_prefixed(b"");
+
+    let fallback = unsafe {
+      slice::from_raw_parts(zo_state_get_str(u32::MAX), encoded.len())
+    };
+
+    assert_eq!(fallback, encoded.as_slice());
+  }
+
+  #[test]
+  fn text_binding_layout_matches_codegen_pack() {
+    // Codegen serialises 16 bytes per entry: cmd_idx@0,
+    // slot_id@4, is_str@8, _pad@12. If this drifts, the
+    // binding pointer the runtime decodes will mis-align
+    // and the wrong slot/flag will land per binding.
+    use std::mem::{align_of, offset_of, size_of};
+
+    assert_eq!(size_of::<TextBinding>(), 16);
+    assert_eq!(align_of::<TextBinding>(), 4);
+    assert_eq!(offset_of!(TextBinding, cmd_idx), 0);
+    assert_eq!(offset_of!(TextBinding, slot_id), 4);
+    assert_eq!(offset_of!(TextBinding, is_str), 8);
+    assert_eq!(offset_of!(TextBinding, _pad), 12);
+  }
+
+  #[test]
   fn decode_template_round_trip() {
     let cmds = vec![
       UiCommand::Element {
@@ -415,15 +551,26 @@ mod tests {
   #[test]
   fn refresh_bindings_replaces_text_from_state() {
     let state = [42i64];
-    let mut cmds =
-      vec![UiCommand::Text("0".into()), UiCommand::Text("ignored".into())];
+    let str_state: Vec<Vec<u8>> = vec![vec![]];
+    let mut cmds = vec![
+      UiCommand::Text("0".into()),
+      UiCommand::Text("ignored".into()),
+    ];
     let bindings = [TextBinding {
       cmd_idx: 0,
       slot_id: 0,
+      is_str: 0,
+      _pad: 0,
     }];
 
     unsafe {
-      refresh_bindings(&state, bindings.as_ptr(), bindings.len(), &mut cmds);
+      refresh_bindings(
+        &state,
+        &str_state,
+        bindings.as_ptr(),
+        bindings.len(),
+        &mut cmds,
+      );
     }
 
     assert_eq!(cmds[0], UiCommand::Text("42".into()));
@@ -432,11 +579,39 @@ mod tests {
   }
 
   #[test]
+  fn refresh_bindings_replaces_text_from_str_state() {
+    let state: [i64; 1] = [0];
+    let str_state: Vec<Vec<u8>> = vec![encode_length_prefixed(b"hello")];
+    let mut cmds = vec![UiCommand::Text("".into())];
+    let bindings = [TextBinding {
+      cmd_idx: 0,
+      slot_id: 0,
+      is_str: 1,
+      _pad: 0,
+    }];
+
+    unsafe {
+      refresh_bindings(
+        &state,
+        &str_state,
+        bindings.as_ptr(),
+        bindings.len(),
+        &mut cmds,
+      );
+    }
+
+    assert_eq!(cmds[0], UiCommand::Text("hello".into()));
+  }
+
+  #[test]
   fn refresh_bindings_handles_null_pointers() {
     let state: [i64; 0] = [];
+    let str_state: Vec<Vec<u8>> = vec![];
     let mut cmds = vec![UiCommand::Text("safe".into())];
 
-    unsafe { refresh_bindings(&state, std::ptr::null(), 0, &mut cmds) };
+    unsafe {
+      refresh_bindings(&state, &str_state, std::ptr::null(), 0, &mut cmds)
+    };
 
     assert_eq!(cmds[0], UiCommand::Text("safe".into()));
   }
@@ -444,26 +619,58 @@ mod tests {
   #[test]
   fn refresh_bindings_skips_oob_indices() {
     let state = [1i64];
+    let str_state: Vec<Vec<u8>> = vec![vec![]];
     let mut cmds = vec![UiCommand::Text("only".into())];
     let bindings = [
       // Out-of-range cmd_idx — should be skipped.
       TextBinding {
         cmd_idx: 5,
         slot_id: 0,
+        is_str: 0,
+        _pad: 0,
       },
       // Out-of-range slot_id — should be skipped.
       TextBinding {
         cmd_idx: 0,
         slot_id: 10,
+        is_str: 0,
+        _pad: 0,
       },
     ];
 
     unsafe {
-      refresh_bindings(&state, bindings.as_ptr(), bindings.len(), &mut cmds);
+      refresh_bindings(
+        &state,
+        &str_state,
+        bindings.as_ptr(),
+        bindings.len(),
+        &mut cmds,
+      );
     }
 
     // Neither binding applied; original content preserved.
     assert_eq!(cmds[0], UiCommand::Text("only".into()));
+  }
+
+  #[test]
+  fn state_set_get_str_round_trip() {
+    zo_state_init(202);
+
+    let payload = encode_length_prefixed(b"world");
+
+    unsafe { zo_state_set_str(201, payload.as_ptr()) };
+
+    let p = zo_state_get_str(201);
+
+    let bytes = unsafe { read_length_prefixed(p) };
+
+    assert_eq!(bytes, b"world");
+    // Out-of-range reads return the static empty buffer
+    // (length 0) rather than null/segfaulting.
+    let q = zo_state_get_str(99999);
+    let bytes = unsafe { read_length_prefixed(q) };
+
+    assert_eq!(bytes, b"");
   }
 
   #[test]
@@ -487,7 +694,12 @@ mod tests {
   // codegen's dedupe scheme. If these diverge the dispatcher
   // routes events to wrong handlers.
 
-  unsafe extern "C" fn noop_dispatch(_idx: u32, _kind: u32) {}
+  unsafe extern "C" fn noop_dispatch(
+    _idx: u32,
+    _kind: u32,
+    _value_ptr: *const u8,
+  ) {
+  }
 
   fn registered_handlers(cmds: &[UiCommand]) -> Vec<String> {
     let registry = build_registry(

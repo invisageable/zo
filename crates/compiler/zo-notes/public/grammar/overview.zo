@@ -36,6 +36,8 @@ pub load core::io::(read, readln);
 load core::math::(abs, sin);
 load core::math;
 
+load @::math::(abs, pow);
+
 -- item:directive.
 #run foobar();
 

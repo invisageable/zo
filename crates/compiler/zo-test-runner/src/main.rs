@@ -669,7 +669,9 @@ fn run_test(
   let out = tmp.join(name);
 
   match category {
-    Category::WindowRun => run_window_test(file, name, &out, zo, target, run_all),
+    Category::WindowRun => {
+      run_window_test(file, name, &out, zo, target, run_all)
+    }
 
     Category::Fail => {
       let output = build_cmd(zo, target)

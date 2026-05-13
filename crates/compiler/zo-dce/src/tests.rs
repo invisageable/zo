@@ -153,13 +153,16 @@ fn diamond_call_graph() {
 
 #[test]
 fn pub_function_kept_even_if_uncalled() {
+  // Default Dce setup (no preload packs) keeps every
+  // `pub fun` as a root — user `pub` declarations get
+  // reached through dynamic dispatch (`showln(struct)`
+  // → `Type::show`) that the static call graph misses.
   let mut interner = Interner::new();
   let api = interner.intern("api");
   let main = interner.intern("main");
 
   let mut insns = vec![];
 
-  // api — pub but never called locally → kept.
   insns.extend(fun(api, Pubness::Yes, vec![]));
   insns.extend(fun(main, Pubness::No, vec![]));
 
@@ -177,7 +180,6 @@ fn pub_function_callees_transitively_kept() {
   let api = interner.intern("api");
   let main = interner.intern("main");
 
-  // api (pub) → helper. helper is reachable via pub root.
   let mut insns = vec![];
 
   insns.extend(fun(helper, Pubness::No, vec![]));

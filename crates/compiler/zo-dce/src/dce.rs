@@ -367,7 +367,12 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
   let mut i = 0;
 
   while i < instructions.len() {
-    if let Insn::FunDef { name, pubness, .. } = &instructions[i] {
+    if let Insn::FunDef {
+      name,
+      pubness,
+      ..
+    } = &instructions[i]
+    {
       let start = i;
       let mut end = i + 1;
 
@@ -384,7 +389,19 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
       // reachability. Truncating earlier silently drops
       // callees and DCE then strips them from the SIR.
       while end < instructions.len() {
-        if matches!(&instructions[end], Insn::FunDef { .. }) {
+        // Module-scope boundaries that aren't part of any
+        // function body: another `FunDef`, or the
+        // `PackDecl` / `PackLink` of the NEXT pack. Without
+        // stopping at the latter, draining a dead function
+        // also drains the next pack's metadata — codegen
+        // then can't resolve the next pack's FFI dylib path
+        // (`pack_dylib` ends up empty for that pack) and
+        // every FFI call into it ends up as an unbound
+        // symbol at link time.
+        if matches!(
+          &instructions[end],
+          Insn::FunDef { .. } | Insn::PackDecl { .. } | Insn::PackLink { .. }
+        ) {
           end -= 1;
           break;
         }
@@ -451,6 +468,11 @@ fn mark_reachable(
   let mut reachable = HashSet::default();
   let mut worklist = Vec::new();
 
+  // Roots: `main`, every `pub` function, and every template
+  // event handler. `pub` funs root themselves because the
+  // display machinery (`showln(struct)` → `Type::show`) and
+  // other dynamic-dispatch paths reach them through call
+  // sites the static call graph can't see.
   for func in functions {
     if func.name == main_sym
       || func.pubness == Pubness::Yes

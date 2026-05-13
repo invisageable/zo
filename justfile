@@ -78,6 +78,11 @@ test_filter filter:
 build:
   cargo build --all
 
+# zo: Rebuild runtime cdylib
+[group('zo')]
+build_runtime:
+  cargo build -p zo-runtime-native
+
 # Clean build artifacts
 clean:
   cargo clean
