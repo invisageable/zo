@@ -8,9 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// CSS box layout mode. Phase 1 only honors `Block` and `Inline`;
-/// `Flex` and `Grid` are reserved for the Taffy integration in
-/// Phase 3.
+/// CSS box layout mode.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub enum Display {
   #[default]

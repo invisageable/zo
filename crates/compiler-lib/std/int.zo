@@ -1,5 +1,3 @@
-pack int;
-
 apply int {
   pub fun is_positive(self) -> bool { self > 0 }
   pub fun is_negative(self) -> bool { self < 0 }

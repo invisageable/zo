@@ -199,11 +199,8 @@ impl Renderer {
           ui.add(egui::TextEdit::singleline(text).hint_text(placeholder));
 
         if response.changed() {
-          // Bidirectional binding: the user typed → the
-          // input's text is now ahead of the attribute.
-          // Update last-seen so the next frame doesn't
-          // wipe the typed text on resync.
-          self.state.last_value_attr.insert(id, text.clone());
+          // `last_value_attr` tracks the program-side attribute only — writing
+          // typed text here makes the next-frame resync wipe `text_inputs[id]`.
           self.state.pending_events.push((
             id,
             EventKind::Input,

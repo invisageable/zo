@@ -1,5 +1,3 @@
-pack str;
-
 -- Raw FFI. Pure pass-through to the runtime — codegen
 -- forwards `(src, needle, with)` to `_zo_str_replace`.
 pub ffi __zo_str_replace(src: str, needle: str, with: str) -> str;

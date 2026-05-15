@@ -1,3 +1,4 @@
+pub mod codec;
 pub mod loader;
 pub mod style;
 pub mod ui;

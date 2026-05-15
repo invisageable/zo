@@ -7,6 +7,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pin the vendored raylib version. Bump in lockstep
+  # with what `compiler-lib/std/raylib.zo`'s `pub ffi`
+  # surface assumes about the C ABI (struct layouts,
+  # symbol names). raylib's MAJOR.MINOR is stable; we
+  # pull binaries from raylib's own GitHub releases.
+  RAYLIB_VERSION: "5.5"
 
 jobs:
   build:
@@ -18,10 +24,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            raylib_archive: linux_amd64
           - os: macos-latest
             target: x86_64-apple-darwin
+            raylib_archive: macos
           - os: macos-latest
             target: aarch64-apple-darwin
+            raylib_archive: macos
           # NOTE(windows): disabled until upstream resolves the
           # `windows` crate version conflict (0.61 vs 0.62).
           # `gpu-allocator 0.28` (via wgpu-hal) uses windows 0.61,
@@ -40,6 +49,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libglib2.0-dev libgtk-3-dev libatk1.0-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
 
+      # `zo-misato`'s build.rs links against `libraylib`
+      # at compile time (`println!("cargo:rustc-link-lib=raylib")`),
+      # so the system needs the raylib lib in the search
+      # path BEFORE `cargo build -p zo-misato`. We pull
+      # raylib's official prebuilt for the host so the
+      # workflow doesn't take on a CMake build dep —
+      # same archive the `vendor` job uses, exposed to
+      # the linker via `RAYLIB_LIB_DIR`.
+      - name: Install raylib
+        run: |
+          set -e
+          URL="https://github.com/raysan5/raylib/releases/download/${RAYLIB_VERSION}/raylib-${RAYLIB_VERSION}_${{ matrix.raylib_archive }}.tar.gz"
+          mkdir -p $HOME/raylib
+          curl -sL "$URL" | tar xz -C $HOME/raylib --strip-components=1
+          echo "RAYLIB_LIB_DIR=$HOME/raylib/lib" >> $GITHUB_ENV
+        shell: bash
+
       - uses: dtolnay/rust-toolchain@nightly
         with:
           targets: ${{ matrix.target }}
@@ -54,11 +80,17 @@ jobs:
       # Cargo only stages a cdylib to
       # `target/<profile>/<name>.<ext>` when the crate is
       # the explicit `-p` target. The default-members build
-      # above only places `libzo_runtime` under `deps/` with
-      # a hash suffix; this second step gives the package
-      # step a stable filename to copy.
+      # above only places cdylibs under `deps/` with a
+      # hash suffix; these explicit `-p` builds give the
+      # package step stable filenames to copy.
       - name: Build runtime cdylib
         run: cargo build --release --target ${{ matrix.target }} -p zo-runtime
+
+      - name: Build misato cdylib
+        run: cargo build --release --target ${{ matrix.target }} -p zo-misato
+
+      - name: Build sqlite provider cdylib
+        run: cargo build --release --target ${{ matrix.target }} -p zo-provider-sqlite
 
       - name: List release directory
         run: ls -la target/${{ matrix.target }}/release/
@@ -70,16 +102,22 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zo dist/
           cp target/${{ matrix.target }}/release/fret dist/
-          # Bundle the runtime dylib next to the compiler.
-          # `stage_runtime_artifacts` looks alongside the
-          # `zo` binary at run time; without this an
-          # installed `zo` can't run any program that uses
-          # concurrency / HashMap / Vec / strings (which
-          # link `libzo_runtime` via @executable_path).
+          # Bundle every runtime dylib next to the
+          # compiler. `stage_runtime_artifacts` looks
+          # alongside the `zo` binary at run time;
+          # without these, an installed `zo` can't run
+          # any program that uses concurrency / HashMap /
+          # Vec / strings (libzo_runtime) or 3D scenes
+          # (libzo_misato), since both link via
+          # @executable_path.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             cp target/${{ matrix.target }}/release/libzo_runtime.so dist/
+            cp target/${{ matrix.target }}/release/libzo_misato.so dist/
+            cp target/${{ matrix.target }}/release/libzo_provider_sqlite.so dist/
           else
             cp target/${{ matrix.target }}/release/libzo_runtime.dylib dist/
+            cp target/${{ matrix.target }}/release/libzo_misato.dylib dist/
+            cp target/${{ matrix.target }}/release/libzo_provider_sqlite.dylib dist/
           fi
           cd dist
           tar czvf ${{ github.ref_name }}-${{ matrix.target }}.tar.gz *
@@ -93,6 +131,8 @@ jobs:
           cp target/${{ matrix.target }}/release/zo.exe dist/
           cp target/${{ matrix.target }}/release/fret.exe dist/
           cp target/${{ matrix.target }}/release/zo_runtime.dll dist/
+          cp target/${{ matrix.target }}/release/zo_misato.dll dist/
+          cp target/${{ matrix.target }}/release/zo_provider_sqlite.dll dist/
           cd dist
           7z a ${{ github.ref_name }}-${{ matrix.target }}.zip *
           mv ${{ github.ref_name }}-${{ matrix.target }}.zip ../
@@ -109,9 +149,79 @@ jobs:
           path: ${{ github.ref_name }}-${{ matrix.target }}.*
           if-no-files-found: error
 
+  # F7 vendor pipeline. Per-platform tarball that
+  # `tasks/zo-install.sh` extracts into
+  # `${ZO_HOME}/lib/vendor/`. Today: just raylib —
+  # downloaded from raylib's own release artifacts so
+  # we don't take on a Cmake build dep. Each entry is
+  # the basename `compiler-lib/std/raylib.zo`'s
+  # `#link { ..., vendor: "..." }` references.
+  vendor:
+    name: Vendor ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            raylib_archive: linux_amd64
+            raylib_lib: libraylib.so
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            raylib_archive: macos
+            raylib_lib: libraylib.dylib
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            raylib_archive: macos
+            raylib_lib: libraylib.dylib
+
+    steps:
+      - name: Download raylib prebuilt
+        run: |
+          set -e
+          # raylib ships per-OS tarballs. Naming:
+          #   raylib-<ver>_macos.tar.gz
+          #   raylib-<ver>_linux_amd64.tar.gz
+          # Both contain `lib/<name>` with the dylib /
+          # so we extract; we re-tar just the linkable
+          # file at the archive root so install.sh's
+          # `tar xz -C ${VENDOR_DIR}` lands the file at
+          # `${ZO_HOME}/lib/vendor/<name>` directly.
+          URL="https://github.com/raysan5/raylib/releases/download/${RAYLIB_VERSION}/raylib-${RAYLIB_VERSION}_${{ matrix.raylib_archive }}.tar.gz"
+          mkdir -p raylib_src
+          curl -sL "$URL" | tar xz -C raylib_src
+          # raylib's archive root has a single
+          # `raylib-<ver>_<os>/` directory. Resolve the
+          # actual lib path inside it.
+          LIB_PATH=$(find raylib_src -name "${{ matrix.raylib_lib }}" | head -n 1)
+          if [ -z "$LIB_PATH" ]; then
+            echo "error: ${{ matrix.raylib_lib }} not found in raylib archive"
+            find raylib_src -maxdepth 4 -type f
+            exit 1
+          fi
+          echo "Found: $LIB_PATH"
+          cp "$LIB_PATH" .
+        shell: bash
+
+      - name: Package vendor tarball
+        run: |
+          set -e
+          ARCHIVE="zo-vendor-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          tar czvf "$ARCHIVE" "${{ matrix.raylib_lib }}"
+          ls -la "$ARCHIVE"
+        shell: bash
+
+      - name: Upload vendor artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zo-vendor-${{ github.ref_name }}-${{ matrix.target }}
+          path: zo-vendor-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, vendor]
     runs-on: ubuntu-latest
     permissions:
       contents: write

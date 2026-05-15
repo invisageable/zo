@@ -5,16 +5,9 @@ edition.workspace = true
 
 [lib]
 doctest = false
-# - `lib` — regular Rust library so other workspace crates
-#   (zo-driver etc.) keep using this as a regular Rust lib.
-# - `staticlib` — `libzo_runtime.a` for a future static-link
-#   path (kept for completeness; not the Phase 7 default).
-# - `cdylib` — `libzo_runtime.dylib` on macOS /
-#   `libzo_runtime.so` on Linux. The Mach-O writer
-#   (Phase 7) adds `LC_LOAD_DYLIB` entries pointing at
-#   `@executable_path/libzo_runtime.dylib`, so user
-#   binaries resolve the `_zo_chan_*` / `_zo_task_*`
-#   symbols via dyld at load time.
+# - `lib` — use for regular Rust library.
+# - `staticlib` — use `libzo_runtime.a` for a future static-link path.
+# - `cdylib` — use `libzo_runtime.dylib` on macOS / `libzo_runtime.so` on Linux.
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]

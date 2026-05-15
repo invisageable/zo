@@ -1,5 +1,3 @@
-pack cmp;
-
 -! Equality comparison.
 -!
 -! `==` and `!=` auto-dispatch to `eq` when both operands

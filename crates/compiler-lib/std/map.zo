@@ -1,5 +1,3 @@
-pack map;
-
 -! `HashMap<$K, $V>` — open-addressing hash table.
 -!
 -! The `ptr` field carries an opaque pointer (encoded

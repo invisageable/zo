@@ -495,6 +495,8 @@ mod tests {
       kind: FunctionKind::Closure { capture_count: 1 },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     // Load captured count: Load Param(0).
@@ -661,6 +663,8 @@ mod tests {
       kind: FunctionKind::Closure { capture_count: 1 },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     let e_val = ValueId(sir.next_value_id);
@@ -791,6 +795,8 @@ mod tests {
       kind: FunctionKind::Closure { capture_count: 1 },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     // Load count → cmp value → eq → BranchIfNot else.
@@ -889,6 +895,8 @@ mod tests {
       kind: FunctionKind::Closure { capture_count: 0 },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     let lit_sym = interner.intern("hello");
@@ -1050,6 +1058,8 @@ mod tests {
       kind: FunctionKind::Closure { capture_count: 0 },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     let some_label = sir.next_label();
@@ -1100,6 +1110,8 @@ mod tests {
       kind: FunctionKind::Closure { capture_count: 0 },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     let dst_a = ValueId(sir.next_value_id);
@@ -1119,6 +1131,8 @@ mod tests {
       kind: FunctionKind::Closure { capture_count: 0 },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     let dst_b = ValueId(sir.next_value_id);

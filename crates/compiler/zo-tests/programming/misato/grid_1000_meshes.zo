@@ -1,0 +1,79 @@
+load std::misato::*;
+load std::c::*;
+load std::raylib::*;
+
+-- misato — 1000 cubes of varying size in a 10×10×10 grid,
+-- each with its own GPU-uploaded raylib Mesh. Size scales
+-- with distance from the grid centre (smaller in the
+-- middle, bigger at the corners; range ≈ [0.5, 1.7]).
+-- Camera at (25, 20, 25) → origin. FPS printed once per
+-- second; should sit at 60.
+-- @cmd — zo build grid_1000_meshes.zo && ./grid_1000_meshes
+--
+-- Requires `brew install raylib` (macOS). SPACE or close
+-- exits.
+
+fun main() {
+  init_window(1024, 768, c_str("zo + misato — grid_1000_meshes"));
+  set_target_fps(60);
+
+  imu scene := Scene::new();
+
+  imu camera := PerspectiveCamera::new(45.0, 1.33, 0.1, 1000.0)
+    .set_position(25.0, 20.0, 25.0)
+    .look_at(0.0, 0.0, 0.0);
+
+  imu mat := MeshStandardMaterial::new(0xFF8000FF);   -- orange
+
+  -- 10×10×10 grid centered at origin (spacing 1.5; offset
+  -- shifts indices [0..10] into [-7.5, +6.0]).
+  -- Each cube gets its OWN BoxGeometry — 1000 unique GPU
+  -- mesh uploads. Sizes vary with grid coords.
+  for i := 0..10 {
+    for j := 0..10 {
+      for k := 0..10 {
+        imu fi: float = i as float;
+        imu fj: float = j as float;
+        imu fk: float = k as float;
+
+        imu x: float = fi * 1.5 - 7.5;
+        imu y: float = fj * 1.5 - 7.5;
+        imu z: float = fk * 1.5 - 7.5;
+
+        -- Per-cube size variance: small in the centre,
+        -- bigger toward the edges. (i-4.5) ranges [-4.5,
+        -- +4.5]; multiplying gives a smooth gradient.
+        imu di: float = fi - 4.5;
+        imu dj: float = fj - 4.5;
+        imu dk: float = fk - 4.5;
+        imu spread: float = (di * di + dj * dj + dk * dk) / 60.0;
+        imu size: float = 0.5 + spread;
+
+        imu geom := BoxGeometry::new(size, size, size);
+        imu cube := Mesh::at(geom, mat, x, y, z);
+        scene.add(cube);
+      }
+    }
+  }
+
+  mut frame: int = 0;
+
+  loop {
+    if window_should_close() { break }
+    if is_key_pressed(32)    { break }   -- SPACE.
+
+    begin_drawing();
+      clear_background(0xF5F5F5FF);
+      scene.render(camera);
+    end_drawing();
+
+    frame = frame + 1;
+    if frame % 60 == 0 {
+      imu fps := get_fps();
+      showln("fps: {fps}");
+    }
+  }
+
+  scene.close();
+  close_window();
+}

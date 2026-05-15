@@ -99,6 +99,85 @@ pub enum ListItemCmd {
   TextFromItem,
 }
 
+/// One path literal inside a `#link { ... }` directive
+/// — pairs the interned string with the source span so
+/// the resolution diagnostic can underline the exact
+/// offending characters. Couples value + span at the
+/// type level so a future parser change can't desync
+/// them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LinkPath {
+  pub value: Symbol,
+  pub span: zo_span::Span,
+}
+
+/// One platform slot inside a `#link { ... }` directive.
+/// Codegen tries `system` first (homebrew / apt installs),
+/// falls back to `vendor` (bundled prebuilt under
+/// `<exe-dir>/../lib/vendor/`). Either may be absent.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LinkEntry {
+  /// Absolute path or `@executable_path/...`. The latter
+  /// bypasses on-disk checks since the dylib is staged
+  /// per-binary, not present at codegen time.
+  pub system: Option<LinkPath>,
+  /// Bare filename resolved under
+  /// `<exe-dir>/../lib/vendor/<name>` (where
+  /// `tasks/zo-install.sh` extracts the
+  /// `zo-vendor-VERSION-PLATFORM.tar.gz` artifact).
+  pub vendor: Option<LinkPath>,
+}
+
+/// Outcome of the executor's `system → vendor` walk
+/// over a `#link`'s host entry. Codegen reads this to
+/// decide whether to emit an `LC_LOAD_DYLIB`. Compiler
+/// staging reads the `Resolved` variant to know which
+/// dylib basenames to copy next to the user binary.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LinkResolution {
+  /// Path codegen should emit as `LC_LOAD_DYLIB <sym>`.
+  /// An absolute path (system install) or
+  /// `@executable_path/<name>` (per-binary staging).
+  Resolved(Symbol),
+  /// Host entry absent — the pack didn't declare a
+  /// `#link` for this OS. Codegen no-ops; no
+  /// diagnostic.
+  Skipped,
+  /// Host entry declared but neither `system` nor
+  /// `vendor` resolved. A `LinkResolutionFailed`
+  /// diagnostic was already reported at the executor;
+  /// codegen no-ops.
+  Failed,
+}
+
+/// Per-platform dylib link metadata declared by a
+/// `#link { ... }` directive at the top of a `pack`. Each
+/// platform slot is a `LinkEntry` with `system` /
+/// `vendor` fallback semantics — see [`LinkEntry`]. The
+/// compiler picks one slot at codegen time per host OS.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LinkSpec {
+  pub macos: Option<LinkEntry>,
+  pub linux: Option<LinkEntry>,
+  pub windows: Option<LinkEntry>,
+}
+
+impl LinkSpec {
+  /// The platform entry for the host OS the compiler is
+  /// running on. Eliminates the duplicated `if cfg!(...)`
+  /// chain at every consumer (codegen, compiler staging,
+  /// future linker plumbing).
+  pub fn host_entry(&self) -> Option<&LinkEntry> {
+    if cfg!(target_os = "macos") {
+      self.macos.as_ref()
+    } else if cfg!(target_os = "linux") {
+      self.linux.as_ref()
+    } else {
+      self.windows.as_ref()
+    }
+  }
+}
+
 /// Source of a Load instruction — either a function parameter
 /// or a local variable on the stack.
 #[derive(Clone, Debug, PartialEq)]
@@ -107,6 +186,21 @@ pub enum LoadSource {
   Param(u32),
   /// Local variable by symbol (stack-allocated).
   Local(Symbol),
+}
+
+/// How `load` brings imported items into the current file's
+/// scope. The path itself (`load std::math::…`) is carried
+/// separately on `Insn::ModuleLoad::path`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImportKind {
+  /// `load std::math` — items reachable only as `math::name`.
+  Qualified,
+  /// `load std::math::*` — every `pub` item of the target
+  /// pack is in scope unqualified; qualified form still works.
+  Glob,
+  /// `load std::math::(sin, cos)` — only the listed identifiers
+  /// are in scope unqualified.
+  Selective(Vec<Symbol>),
 }
 
 /// Represents a semantic intermediate representation.
@@ -234,6 +328,7 @@ impl Insn {
       | Insn::Load { dst, .. } => f(dst),
       Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
+      | Insn::PackLink { .. }
       | Insn::EnumDef { .. }
       | Insn::StructDef { .. }
       | Insn::ArrayTyDef { .. }
@@ -476,6 +571,7 @@ impl Insn {
       Insn::ChannelClose { .. }
       | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
+      | Insn::PackLink { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::BranchIfNot { .. }
@@ -556,6 +652,22 @@ pub enum Insn {
     /// `false`. Consumed at every dot-call site to enforce
     /// that the receiver's binding is `mut`.
     mut_self: bool,
+    /// C symbol override from a `%% link_name = "X".`
+    /// attribute. `Some(sym)` directs codegen to use the
+    /// interned string verbatim as the C symbol (after
+    /// the platform leading underscore) instead of the
+    /// `_<zo_name>` default. Only meaningful when `kind`
+    /// is `FunctionKind::Intrinsic`.
+    link_name: Option<Symbol>,
+    /// The pack this function was declared inside (or
+    /// `None` for top-level). Codegen reads this to
+    /// route a `pub ffi`'s `extern_used` symbol to the
+    /// pack's `#link` dylib. Without this field, codegen
+    /// would have to infer the owning pack via a
+    /// positional `PackDecl` scan — which mis-attributes
+    /// user-level FFIs to whichever preload pack landed
+    /// last in the merged SIR.
+    owning_pack: Option<Symbol>,
   },
   /// Return from function
   Return {
@@ -596,13 +708,23 @@ pub enum Insn {
     value: ValueId,
     ty_id: TyId,
   },
-  /// Module import — resolved at compile time.
-  ModuleLoad {
-    path: Vec<Symbol>,
-    imported_symbols: Vec<Symbol>,
-  },
+  /// Module import — resolved at compile time. `kind`
+  /// distinguishes qualified vs glob vs selective forms;
+  /// the executor classifies it from the load's child tree
+  /// (`*` → Glob, `(…)` → Selective, otherwise Qualified).
+  ModuleLoad { path: Vec<Symbol>, kind: ImportKind },
   /// Pack declaration — defines a namespace.
   PackDecl { name: Symbol, pubness: Pubness },
+  /// Pack-level dylib link metadata produced by a
+  /// `#link { ... }` directive. The executor
+  /// pre-resolves the host's `system → vendor` chain and
+  /// stores the outcome in `resolution` so codegen stays
+  /// a pure data transform.
+  PackLink {
+    pack: Symbol,
+    spec: LinkSpec,
+    resolution: LinkResolution,
+  },
   /// The branch target label.
   Label { id: u32 },
   /// The unconditional jump to a label.

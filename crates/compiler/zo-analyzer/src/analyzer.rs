@@ -10,6 +10,8 @@ use zo_value::{FunDef, Local};
 
 use rustc_hash::FxHashMap as HashMap;
 
+use std::path::PathBuf;
+
 /// Represents the result of semantic analysis.
 pub struct SemanticResult {
   /// The semantic intermediate representation [`Sir`].
@@ -24,6 +26,7 @@ pub struct SemanticResult {
 }
 
 /// Imported module symbols to pre-load into the executor.
+#[derive(Clone, Default)]
 pub struct ImportedSymbols {
   /// The Function definitions from loaded modules.
   pub funs: Vec<FunDef>,
@@ -36,6 +39,35 @@ pub struct ImportedSymbols {
   pub abstract_defs: HashMap<Symbol, AbstractDef>,
 }
 
+/// Per-call analyzer configuration. Bundles every optional
+/// piece of state the analyzer (and through it the
+/// executor) needs at construction time. Replaces the
+/// four-setter forwarder pattern — each call site builds
+/// one of these instead of chaining `with_imports`,
+/// `with_source_dir`, `with_implicit_pack`, and
+/// `with_in_scope_packs`.
+#[derive(Default)]
+pub struct AnalyzerConfig {
+  /// Function/var/enum/abstract definitions inherited
+  /// from previously-compiled modules.
+  pub imports: ImportedSymbols,
+  /// Directory of the source file. Path-typed template
+  /// attributes (`<img src="…">`) are resolved against it
+  /// so the compiled output holds CWD-independent paths.
+  /// `None` for preload packs / module imports — their
+  /// templates never reach the renderer.
+  pub source_dir: Option<PathBuf>,
+  /// Implicit pack name derived from the file basename
+  /// (file-as-pack rule). `None` for entry files
+  /// (`lib.zo`, `main.zo`) and library manifests.
+  pub implicit_pack: Option<Symbol>,
+  /// Packs already merged into the SIR via preload +
+  /// transitive loads. Seeded into the executor so
+  /// qualified call sites (`io::showln(...)`) resolve
+  /// without an explicit `load std::io;` in the user file.
+  pub in_scope_packs: Vec<Symbol>,
+}
+
 /// Represents the [`Analyzer`] phase.
 pub struct Analyzer<'a> {
   /// The reference of parse [`Tree`].
@@ -46,12 +78,15 @@ pub struct Analyzer<'a> {
   literals: &'a LiteralStore,
   /// The type checker instance (borrowed from caller).
   ty_checker: &'a mut TyChecker,
-  /// Imported symbols from loaded modules.
-  imports: Option<ImportedSymbols>,
+  /// All configurable inputs bundled into one struct.
+  config: AnalyzerConfig,
 }
 
 impl<'a> Analyzer<'a> {
-  /// Creates a new [`Analyzer`] instance.
+  /// Creates a new [`Analyzer`] instance with default
+  /// config (no imports, no source dir, no implicit pack,
+  /// no in-scope packs). Use [`Analyzer::with_config`] to
+  /// supply non-defaults.
   pub fn new(
     tree: &'a Tree,
     interner: &'a mut Interner,
@@ -63,13 +98,17 @@ impl<'a> Analyzer<'a> {
       interner,
       literals,
       ty_checker,
-      imports: None,
+      config: AnalyzerConfig::default(),
     }
   }
 
-  /// Sets imported symbols from loaded modules.
-  pub fn with_imports(mut self, imports: ImportedSymbols) -> Self {
-    self.imports = Some(imports);
+  /// Applies every non-default field of `config` to the
+  /// underlying executor. Single point of forwarding for
+  /// all per-call configuration — adding a new option
+  /// touches only [`AnalyzerConfig`] and the matching
+  /// `Executor::with_*` setter, never this `Analyzer` body.
+  pub fn with_config(mut self, config: AnalyzerConfig) -> Self {
+    self.config = config;
     self
   }
 
@@ -78,13 +117,37 @@ impl<'a> Analyzer<'a> {
     let mut executor =
       Executor::new(self.tree, self.interner, self.literals, self.ty_checker);
 
-    if let Some(imports) = self.imports {
+    let AnalyzerConfig {
+      imports,
+      source_dir,
+      implicit_pack,
+      in_scope_packs,
+    } = self.config;
+
+    let imports_empty = imports.funs.is_empty()
+      && imports.vars.is_empty()
+      && imports.enums.is_empty()
+      && imports.abstract_defs.is_empty();
+
+    if !imports_empty {
       executor = executor.with_imports(
         imports.funs,
         imports.vars,
         imports.enums,
         imports.abstract_defs,
       );
+    }
+
+    if let Some(dir) = source_dir {
+      executor = executor.with_source_dir(dir);
+    }
+
+    if let Some(name) = implicit_pack {
+      executor = executor.with_implicit_pack(name);
+    }
+
+    if !in_scope_packs.is_empty() {
+      executor = executor.with_in_scope_packs(in_scope_packs);
     }
 
     let (sir, annotations, funs, abstract_defs) = executor.execute();

@@ -1,6 +1,5 @@
 -- tests-run-pass: `char.to_uppercase` /
--- `char.to_lowercase` — ASCII case mapping. Phase E
--- regression.
+--
 -- @cmd — zo build char_case.zo
 
 fun main() {

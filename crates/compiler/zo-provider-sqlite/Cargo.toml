@@ -1,0 +1,17 @@
+[package]
+name = "zo-provider-sqlite"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+# `cdylib` is the live target — Mach-O writer adds
+# `LC_LOAD_DYLIB @executable_path/libzo_provider_sqlite.dylib`
+# to user binaries that touch any `__zo_sqlite_*` symbol,
+# and the compiler stages it alongside them. `lib` keeps
+# the in-process call path open for tests.
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+# external:crates.
+rusqlite = { workspace = true }

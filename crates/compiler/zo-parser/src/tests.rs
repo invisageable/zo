@@ -1,5 +1,6 @@
 pub(crate) mod arrays;
 pub(crate) mod assignments;
+pub(crate) mod attributes;
 pub(crate) mod common;
 pub(crate) mod concurrency;
 pub(crate) mod directives;

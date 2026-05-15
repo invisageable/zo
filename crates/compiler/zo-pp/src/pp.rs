@@ -268,11 +268,25 @@ impl PrettyPrinter {
 
           self.sir_instruction(&call);
         }
-        Insn::ModuleLoad { path, .. } => {
+        Insn::ModuleLoad { path, kind } => {
           let path_str =
             path.iter().map(|s| interner.get(*s)).collect::<Vec<_>>();
 
-          let load = format!("load {}", path_str.join("::"));
+          let tail = match kind {
+            zo_sir::ImportKind::Qualified => String::new(),
+            zo_sir::ImportKind::Glob => "::*".to_string(),
+            zo_sir::ImportKind::Selective(items) => {
+              let names = items
+                .iter()
+                .map(|s| interner.get(*s))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+              format!("::({names})")
+            }
+          };
+
+          let load = format!("load {}{tail}", path_str.join("::"));
 
           self.sir_instruction(&load);
         }
@@ -282,6 +296,30 @@ impl PrettyPrinter {
           let decl = format!("{vis}pack {name}");
 
           self.sir_instruction(&decl);
+        }
+        Insn::PackLink { pack, spec, .. } => {
+          let pack = interner.get(*pack);
+          let fmt_entry =
+            |label: &str, entry: &Option<zo_sir::LinkEntry>| match entry {
+              None => String::new(),
+              Some(e) => {
+                let sys = e
+                  .system
+                  .map(|p| format!(" system=\"{}\"", interner.get(p.value)))
+                  .unwrap_or_default();
+                let ven = e
+                  .vendor
+                  .map(|p| format!(" vendor=\"{}\"", interner.get(p.value)))
+                  .unwrap_or_default();
+
+                format!(" {label}={{{sys}{ven} }}")
+              }
+            };
+          let mac = fmt_entry("macos", &spec.macos);
+          let lin = fmt_entry("linux", &spec.linux);
+          let win = fmt_entry("windows", &spec.windows);
+
+          self.sir_instruction(&format!("link {pack}{mac}{lin}{win}"));
         }
         Insn::Label { id } => {
           self.sir_instruction(&format!("L{id}:"));

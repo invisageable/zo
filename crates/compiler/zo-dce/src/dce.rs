@@ -17,6 +17,13 @@ struct FunRange {
   end: usize,
   /// Whether the function is `pub` (exported).
   pubness: Pubness,
+  /// Pack the function belongs to. `None` for items at the
+  /// crate root (the file being compiled). DCE uses this to
+  /// distinguish "user's `pub` API" (rooted — might be
+  /// reached via FFI / dyn-dispatch the call graph can't
+  /// see) from "loaded pack's `pub` items" (only kept when
+  /// transitively reachable from `main` or another root).
+  owning_pack: Option<Symbol>,
 }
 
 /// Dead code elimination pipeline.
@@ -127,7 +134,17 @@ impl<'a> Dce<'a> {
           | Insn::EnumDef { .. }
           | Insn::ConstDef { .. }
           | Insn::ArrayTyDef { .. }
-          | Insn::MapTyDef { .. } => {
+          | Insn::MapTyDef { .. }
+          // Pack-level metadata (`pack X;`, `#link {...}`)
+          // are top-level declarations, never dead. After
+          // module-merge they sit between a preload
+          // function's Return and the user's first
+          // FunDef — exiting the dead-zone here keeps
+          // them in the SIR so the codegen FFI pre-pass
+          // can associate every `pub ffi` with its
+          // declaring pack's `#link` metadata.
+          | Insn::PackDecl { .. }
+          | Insn::PackLink { .. } => {
             in_dead_zone = false;
             i += 1;
           }
@@ -357,7 +374,13 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
   let mut i = 0;
 
   while i < instructions.len() {
-    if let Insn::FunDef { name, pubness, .. } = &instructions[i] {
+    if let Insn::FunDef {
+      name,
+      pubness,
+      owning_pack,
+      ..
+    } = &instructions[i]
+    {
       let start = i;
       let mut end = i + 1;
 
@@ -373,10 +396,37 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
       // current body so its `Call` insns contribute to
       // reachability. Truncating earlier silently drops
       // callees and DCE then strips them from the SIR.
+      //
+      // We track `last_return` so the final range stops at
+      // the function's last `Return` rather than spilling
+      // into trailing module-scope metadata. Without this,
+      // a dead intrinsic FFI (unused `pub ffi` after preload
+      // expansion) drains every subsequent `StructDef` /
+      // `EnumDef` until the next `FunDef` — including
+      // user-file structs whose codegen then loses
+      // `struct_metas[id]` and prints values as raw ints.
+      let mut last_return = start;
+
       while end < instructions.len() {
-        if matches!(&instructions[end], Insn::FunDef { .. }) {
+        // Module-scope boundaries that aren't part of any
+        // function body: another `FunDef`, or the
+        // `PackDecl` / `PackLink` of the NEXT pack. Without
+        // stopping at the latter, draining a dead function
+        // also drains the next pack's metadata — codegen
+        // then can't resolve the next pack's FFI dylib path
+        // (`pack_dylib` ends up empty for that pack) and
+        // every FFI call into it ends up as an unbound
+        // symbol at link time.
+        if matches!(
+          &instructions[end],
+          Insn::FunDef { .. } | Insn::PackDecl { .. } | Insn::PackLink { .. }
+        ) {
           end -= 1;
           break;
+        }
+
+        if matches!(&instructions[end], Insn::Return { .. }) {
+          last_return = end;
         }
 
         end += 1;
@@ -384,6 +434,44 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
 
       if end >= instructions.len() {
         end = instructions.len() - 1;
+      }
+
+      // Two trim cases:
+      //   - body-less intrinsic FFI: no `Return` ever
+      //     emitted (kind: Intrinsic, body_start: 0). The
+      //     range walk above happily extends past the
+      //     FunDef until the next FunDef/PackDecl, scooping
+      //     up every trailing `StructDef`/`EnumDef`/etc.
+      //     Clamp to `start` so a dead FFI only drains
+      //     itself.
+      //   - normal function with a real body: trim
+      //     trailing module-scope metadata that landed
+      //     between this function's last `Return` and the
+      //     next FunDef — those decls belong to the NEXT
+      //     scope, not this one.
+      let trailing_is_metadata = |from: usize, to: usize| {
+        (from..=to).all(|i| {
+          matches!(
+            &instructions[i],
+            Insn::StructDef { .. }
+              | Insn::EnumDef { .. }
+              | Insn::ConstDef { .. }
+              | Insn::ArrayTyDef { .. }
+              | Insn::MapTyDef { .. }
+          )
+        })
+      };
+
+      if last_return == start
+        && end > start
+        && trailing_is_metadata(start + 1, end)
+      {
+        end = start;
+      } else if last_return > start
+        && end > last_return
+        && trailing_is_metadata(last_return + 1, end)
+      {
+        end = last_return;
       }
 
       // Skip zero-body functions (intrinsic stubs).
@@ -395,6 +483,7 @@ fn build_function_map(instructions: &[Insn]) -> Vec<FunRange> {
           start,
           end,
           pubness: *pubness,
+          owning_pack: *owning_pack,
         });
       }
 
@@ -441,10 +530,22 @@ fn mark_reachable(
   let mut reachable = HashSet::default();
   let mut worklist = Vec::new();
 
+  // Roots: `main`, template event handlers, and the
+  // crate-root `pub` items of the file being compiled
+  // (`owning_pack: None`). Pack-owned `pub` items
+  // (`owning_pack: Some(_)`) are NOT roots — they survive
+  // only when transitively reachable from another root.
+  // That's the Rust-style binary model: a loaded library's
+  // `pub fn` is callable, not automatically kept.
+  //
+  // Dyn-dispatch caveat: type-specific Show methods
+  // (`MyStruct::show` reached from `showln(struct)`) live
+  // at the crate root with `owning_pack: None` — they stay
+  // rooted via the `pub` clause below.
   for func in functions {
     if func.name == main_sym
-      || func.pubness == Pubness::Yes
       || event_handlers.contains(&func.name)
+      || (func.pubness == Pubness::Yes && func.owning_pack.is_none())
     {
       worklist.push(func.name);
     }

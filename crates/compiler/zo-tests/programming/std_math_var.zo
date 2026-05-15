@@ -1,3 +1,5 @@
+load std::math::*;
+
 -- tests-run-pass: libm with variable args.
 
 fun main() {

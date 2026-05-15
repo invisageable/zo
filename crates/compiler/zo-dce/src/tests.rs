@@ -6,7 +6,7 @@ use crate::Dce;
 use common::{call, fun, fun_names, make_sir};
 
 use zo_interner::{Interner, Symbol};
-use zo_sir::{BinOp, Insn};
+use zo_sir::{BinOp, ImportKind, Insn};
 use zo_ty::TyId;
 use zo_value::{Pubness, ValueId};
 
@@ -67,7 +67,7 @@ fn no_functions_preserves_top_level() {
   let interner = Interner::new();
   let mut sir = make_sir(vec![Insn::ModuleLoad {
     path: vec![],
-    imported_symbols: vec![],
+    kind: ImportKind::Qualified,
   }]);
 
   Dce::new(&mut sir, Symbol(0), &interner).eliminate();
@@ -153,13 +153,16 @@ fn diamond_call_graph() {
 
 #[test]
 fn pub_function_kept_even_if_uncalled() {
+  // Default Dce setup (no preload packs) keeps every
+  // `pub fun` as a root — user `pub` declarations get
+  // reached through dynamic dispatch (`showln(struct)`
+  // → `Type::show`) that the static call graph misses.
   let mut interner = Interner::new();
   let api = interner.intern("api");
   let main = interner.intern("main");
 
   let mut insns = vec![];
 
-  // api — pub but never called locally → kept.
   insns.extend(fun(api, Pubness::Yes, vec![]));
   insns.extend(fun(main, Pubness::No, vec![]));
 
@@ -177,7 +180,6 @@ fn pub_function_callees_transitively_kept() {
   let api = interner.intern("api");
   let main = interner.intern("main");
 
-  // api (pub) → helper. helper is reachable via pub root.
   let mut insns = vec![];
 
   insns.extend(fun(helper, Pubness::No, vec![]));
@@ -266,6 +268,8 @@ fn dead_insn_unused_const() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // %0 = const 42 — used by store.
     Insn::ConstInt {
@@ -323,6 +327,8 @@ fn dead_insn_chain() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // %0 = const 1 — used only by %2.
     Insn::ConstInt {
@@ -373,6 +379,8 @@ fn dead_insn_preserves_calls() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // Call is impure — must not be removed even if dst unused.
     Insn::Call {
@@ -409,6 +417,8 @@ fn dead_insn_preserves_array_store() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // ArrayStore is impure — must not be removed.
     Insn::ArrayStore {
@@ -450,6 +460,8 @@ fn dead_var_unused_store() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // Store x — never loaded → dead.
     Insn::ConstInt {
@@ -518,6 +530,8 @@ fn dead_var_overwritten_store() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     // First store to x — overwritten before any load → dead.
     Insn::ConstInt {
@@ -587,6 +601,8 @@ fn unreachable_after_return() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     Insn::Return {
       value: None,
@@ -627,6 +643,8 @@ fn unreachable_stops_at_label() {
       kind: zo_value::FunctionKind::UserDefined,
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     },
     Insn::Return {
       value: None,
@@ -715,6 +733,8 @@ fn template_computed_binding_pins_closure() {
     kind: FunctionKind::Closure { capture_count: 0 },
     pubness: Pubness::No,
     mut_self: false,
+    link_name: None,
+    owning_pack: None,
   }];
 
   insns.push(Insn::Return {

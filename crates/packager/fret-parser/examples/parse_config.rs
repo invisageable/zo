@@ -32,7 +32,7 @@ fn main() {
       println!("  Debug symbols: {}", config.debug_symbols);
     }
     Err(e) => {
-      eprintln!("Failed to parse configuration: {}", e);
+      eprintln!("Failed to parse configuration: {e}");
     }
   }
 

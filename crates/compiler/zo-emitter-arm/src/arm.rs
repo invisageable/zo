@@ -887,6 +887,28 @@ impl ARM64Emitter {
     self.emit_u32(insn);
   }
 
+  /// FCVT Sd, Dn — convert double-precision float to
+  /// single-precision (`f64 → f32`). Used at the FFI
+  /// boundary when a C function expects `float` (S-reg
+  /// arg) but zo passes `float` as f64 in a D-reg.
+  pub fn emit_fcvt_d_to_s(&mut self, dst: FpRegister, src: FpRegister) {
+    let insn =
+      0x1E624000u32 | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FCVT Dd, Sn — convert single-precision float to
+  /// double-precision (`f32 → f64`). Used to widen a C
+  /// function's `float` return into zo's f64
+  /// representation.
+  pub fn emit_fcvt_s_to_d(&mut self, dst: FpRegister, src: FpRegister) {
+    let insn =
+      0x1E22C000u32 | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
   /// SCVTF Dd, Xn — convert signed int to double.
   pub fn emit_scvtf(&mut self, dst: FpRegister, src: Register) {
     let insn = SCVTF | ((src.index() as u32) << 5) | (dst.index() as u32);

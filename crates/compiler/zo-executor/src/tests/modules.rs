@@ -1,7 +1,7 @@
 use crate::tests::common::{assert_sir_stream, assert_sir_structure};
 
 use zo_interner::Symbol;
-use zo_sir::Insn;
+use zo_sir::{ImportKind, Insn};
 use zo_ty::TyId;
 use zo_value::{FunctionKind, Pubness};
 
@@ -11,7 +11,7 @@ fn test_load_emits_module_load() {
     "load std::math;",
     &[Insn::ModuleLoad {
       path: vec![Symbol(25), Symbol(26)],
-      imported_symbols: vec![],
+      kind: ImportKind::Qualified,
     }],
   );
 }
@@ -22,7 +22,29 @@ fn test_load_nested_path() {
     "load std::num::ops;",
     &[Insn::ModuleLoad {
       path: vec![Symbol(25), Symbol(26), Symbol(27)],
-      imported_symbols: vec![],
+      kind: ImportKind::Qualified,
+    }],
+  );
+}
+
+#[test]
+fn test_load_glob_emits_glob_kind() {
+  assert_sir_stream(
+    "load std::math::*;",
+    &[Insn::ModuleLoad {
+      path: vec![Symbol(25), Symbol(26)],
+      kind: ImportKind::Glob,
+    }],
+  );
+}
+
+#[test]
+fn test_load_selective_emits_selective_kind() {
+  assert_sir_stream(
+    "load math::(sin, cos);",
+    &[Insn::ModuleLoad {
+      path: vec![Symbol(25)],
+      kind: ImportKind::Selective(vec![Symbol(26), Symbol(27)]),
     }],
   );
 }
@@ -46,7 +68,7 @@ fun main() { 42; }"#,
     &[
       Insn::ModuleLoad {
         path: vec![Symbol(25), Symbol(26)],
-        imported_symbols: vec![],
+        kind: ImportKind::Qualified,
       },
       Insn::FunDef {
         name: Symbol(27),
@@ -56,6 +78,8 @@ fun main() { 42; }"#,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       Insn::ConstInt {
         dst: zo_value::ValueId(0),
@@ -101,6 +125,8 @@ fn test_empty_body_is_intrinsic() {
         kind: FunctionKind::Intrinsic,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       Insn::Return {
         value: None,
@@ -123,6 +149,8 @@ fn test_non_empty_body_not_intrinsic() {
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       Insn::ConstInt {
         dst: zo_value::ValueId(0),
@@ -150,6 +178,8 @@ fn test_pub_fun_visibility() {
         kind: FunctionKind::Intrinsic,
         pubness: Pubness::Yes,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       Insn::Return {
         value: None,

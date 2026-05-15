@@ -78,6 +78,11 @@ test_filter filter:
 build:
   cargo build --all
 
+# zo: Rebuild runtime cdylib
+[group('zo')]
+build_runtime:
+  cargo build -p zo-runtime-native
+
 # Clean build artifacts
 clean:
   cargo clean
@@ -117,6 +122,12 @@ zo_test:
 [group('test')]
 zo_test_runner:
   cargo run --bin zo-test-runner
+
+# zo: Run integration tests + launch every windowed program (dev only)
+[group("zo")]
+[group('test')]
+zo_test_runner_all:
+  cargo run --bin zo-test-runner -- --all
 
 # Run zo program tests (quick — skip build-pass)
 [group("zo")]
@@ -341,3 +352,19 @@ site_dev:
 [group('site')]
 site_build:
   cd apps/site && npm run build
+
+# fret: Build the website
+[group('fret')]
+fret_zo_init Args:
+  cargo run --bin fret -- init {{Args}}
+
+
+# fret: Build the website
+[group('fret')]
+fret_zo_build *Args:
+  cargo run --bin fret -- build {{Args}}
+
+# fret: Build the website
+[group('fret')]
+fret_zo_run *Args:
+  cargo run --bin fret -- run {{Args}}

@@ -101,7 +101,17 @@ pub(crate) const FAT_MAGIC_64: u32 = 0xcafebabf; // 64-bit fat binary magic numb
 
 // Memory layout constants
 pub(crate) const PAGE_SIZE: u32 = 0x1000; // 4KB page size (legacy; segment alignment uses SEGMENT_ALIGN below)
-pub const CODE_OFFSET: u32 = 0x400; // Code starts at 1KB after header
+/// File offset where `__TEXT,__text` begins. The region
+/// `[0, CODE_OFFSET)` holds the mach_header_64 + every
+/// load command. Currently 2 KiB — the prior 1 KiB was
+/// tight enough that adding one more `LC_LOAD_DYLIB`
+/// (e.g. another preloaded provider crate) overflowed
+/// the budget: `sizeofcmds` in the header outgrew this
+/// constant, the writer truncated the LCs to fit, and
+/// dyld then read garbage past the legitimate LCs.
+/// 2 KiB gives ~10-12 extra `LC_LOAD_DYLIB`s of slack;
+/// bump again if it shows up as a hard cap.
+pub const CODE_OFFSET: u32 = 0x800;
 
 /// Page alignment required for mach-o segments on Apple
 /// Silicon (arm64) — 16 KB. dyld rejects segments that are
@@ -133,17 +143,18 @@ pub const PAGE_MASK: u64 = 0xFFF;
 /// Registered as the first `LC_LOAD_DYLIB`.
 pub const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
 
-/// Dyld load-command ordinal for `libzo_runtime.dylib`.
-/// Registered as the second `LC_LOAD_DYLIB` so
-/// `_zo_chan_*` / `_zo_task_*` bind opcodes route here;
-/// libm and libSystem symbols stay on libSystem.
-pub const ZO_RUNTIME_DYLIB_ORDINAL: u8 = 2;
-
 /// Prefix that classifies an extern C symbol as belonging
 /// to `libzo_runtime.dylib` rather than libSystem. Used at
 /// link time to route bindings to the correct dylib
 /// ordinal.
 pub const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
+
+/// dyld load-time prefix for dylibs the compiler stages
+/// next to the user binary (`libzo_runtime`,
+/// `libzo_misato`, F7 vendored libs). Resolved by dyld at
+/// program start; bypasses any on-disk existence check at
+/// codegen time.
+pub const EXECUTABLE_PATH_PREFIX: &str = "@executable_path/";
 
 /// Mach-O segment index for `__DATA` (pagezero=0,
 /// __TEXT=1, __DATA=2). Used in bind opcodes that point

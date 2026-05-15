@@ -1,3 +1,5 @@
+load std::math::*;
+
 -- tests-run-pass: libm sin.
 
 fun main() {

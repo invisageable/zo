@@ -357,6 +357,11 @@ fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::UnresolvedModule => "Unresolved module",
     ErrorKind::CircularImport => "Circular import detected",
 
+    // FFI / `#link` errors.
+    ErrorKind::LinkResolutionFailed => {
+      "Cannot resolve `#link` — neither system nor vendor library found"
+    }
+
     // String slice errors (compile-time only in v1).
     ErrorKind::StrSliceRequiresConstBounds => {
       "String slice bounds must be compile-time constants"
@@ -477,6 +482,9 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::AwaitOnNonTask => "this is not a `Task<T>`",
     ErrorKind::ChannelCapacityNotLiteral => "expected an integer literal here",
 
+    // FFI / `#link` errors.
+    ErrorKind::LinkResolutionFailed => "library not found at this path",
+
     _ => "here",
   }
 }
@@ -488,6 +496,9 @@ fn secondary_label(kind: ErrorKind) -> &'static str {
     ErrorKind::MismatchedDelimiter => "opened here",
     ErrorKind::UnmatchedOpeningDelimiter => {
       "this closing delimiter skipped over it"
+    }
+    ErrorKind::LinkResolutionFailed => {
+      "vendor fallback also missing — expected under `<exe-dir>/../lib/vendor/`"
     }
     _ => "related location",
   }

@@ -1,3 +1,5 @@
+load std::math::*;
+
 -- tests-build-pass: ternary with expression condition.
 -- @cmd — zo build branch_ternary_expr.zo
 

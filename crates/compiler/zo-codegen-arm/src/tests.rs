@@ -354,6 +354,8 @@ fn test_main_function_detection() {
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
     mut_self: false,
+    link_name: None,
+    owning_pack: None,
   });
   sir.emit(Insn::Return {
     value: None,
@@ -385,6 +387,8 @@ fn test_string_fixup() {
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
     mut_self: false,
+    link_name: None,
+    owning_pack: None,
   });
 
   sir.emit(Insn::ConstString {
@@ -745,6 +749,8 @@ fn test_str_sp_slow_path_does_not_self_clobber() {
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
     mut_self: false,
+    link_name: None,
+    owning_pack: None,
   });
 
   let mut next: u32 = 0;
@@ -893,6 +899,8 @@ fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
     mut_self: false,
+    link_name: None,
+    owning_pack: None,
   });
 
   let mut next: u32 = 0;

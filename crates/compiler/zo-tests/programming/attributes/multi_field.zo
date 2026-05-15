@@ -1,0 +1,29 @@
+-- tests-build-pass: multi-field `%%` attribute block
+-- with `link_name` consumed and other names silently
+-- buffered (no consumer yet). Trailing comma before `.`
+-- is intentional — exercises the parser's optional
+-- trailing-comma path.
+--
+-- @cmd — zo build multi_field.zo && ./multi_field
+
+#link {
+  macos: "/usr/lib/libSystem.B.dylib",
+  linux: "/usr/lib/x86_64-linux-gnu/libc.so.6",
+}
+
+%%
+  link_name = "getpid",
+  inline,
+  abi = "C",
+.
+pub ffi my_pid() -> int;
+
+fun main() {
+  imu p: int = my_pid();
+
+  check(p > 0);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

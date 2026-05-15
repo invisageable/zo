@@ -1,6 +1,8 @@
 use crate::tests::common::assert_nodes_stream;
 
-use zo_token::Token::{ColonColon, Ident, Load, Pack, Semicolon};
+use zo_token::Token::{
+  ColonColon, Comma, Ident, LParen, Load, Pack, RParen, Semicolon, Star,
+};
 use zo_tree::NodeValue;
 
 #[test]
@@ -99,6 +101,58 @@ load utils::format;"#,
       (Ident, Some(NodeValue::TextRange(21, 5))), // "utils"
       (ColonColon, None),
       (Ident, Some(NodeValue::TextRange(28, 6))), // "format"
+      (Semicolon, None),
+    ],
+  );
+}
+
+#[test]
+fn test_load_glob() {
+  assert_nodes_stream(
+    "load std::math::*;",
+    &[
+      (Load, None),
+      (Ident, Some(NodeValue::TextRange(5, 3))), // "std"
+      (ColonColon, None),
+      (Ident, Some(NodeValue::TextRange(10, 4))), // "math"
+      (ColonColon, None),
+      (Star, None),
+      (Semicolon, None),
+    ],
+  );
+}
+
+#[test]
+fn test_load_selective() {
+  assert_nodes_stream(
+    "load std::math::(sin, cos);",
+    &[
+      (Load, None),
+      (Ident, Some(NodeValue::TextRange(5, 3))), // "std"
+      (ColonColon, None),
+      (Ident, Some(NodeValue::TextRange(10, 4))), // "math"
+      (ColonColon, None),
+      (LParen, None),
+      (Ident, Some(NodeValue::TextRange(16, 3))), // "sin"
+      (Comma, None),
+      (Ident, Some(NodeValue::TextRange(21, 3))), // "cos"
+      (RParen, None),
+      (Semicolon, None),
+    ],
+  );
+}
+
+#[test]
+fn test_load_selective_single() {
+  assert_nodes_stream(
+    "load math::(sin);",
+    &[
+      (Load, None),
+      (Ident, Some(NodeValue::TextRange(5, 4))), // "math"
+      (ColonColon, None),
+      (LParen, None),
+      (Ident, Some(NodeValue::TextRange(12, 3))), // "sin"
+      (RParen, None),
       (Semicolon, None),
     ],
   );

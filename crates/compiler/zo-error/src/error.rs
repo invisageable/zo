@@ -288,4 +288,14 @@ pub enum ErrorKind {
   // Match exhaustiveness — appended at the end to preserve
   // the numeric error codes of variants above.
   NonExhaustiveMatch,
+
+  // FFI / `#link` errors — appended at the end so insert
+  // doesn't shift the numeric error codes of variants
+  // above. Emitted when a pack's `#link { ... }`
+  // declares a host entry but neither the `system` path
+  // nor the `vendor` fallback resolves at codegen time.
+  // Without this, the failure surfaces as a runtime
+  // `dyld: Symbol not found` after the binary already
+  // builds and runs.
+  LinkResolutionFailed,
 }

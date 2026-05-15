@@ -1,3 +1,5 @@
+load std::math::*;
+
 -- tests-build-pass: math hardware intrinsics from prelude.
 -- @cmd — zo build math_intrinsics.zo
 

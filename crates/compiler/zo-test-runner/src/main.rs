@@ -8,6 +8,13 @@
 //!   cargo run --bin zo-test-runner
 //!   cargo run --bin zo-test-runner -- --quick
 //!   cargo run --bin zo-test-runner -- --filter arrays
+//!   cargo run --bin zo-test-runner -- --all
+//!
+//! `--all` enables the `WindowRun` category — windowed
+//! programs (raylib, misato, templating UI) build, spawn,
+//! get killed after `WINDOW_KILL_AFTER`, and pass iff
+//! they're still alive at kill time. Dev-machine only:
+//! requires a display, so CI keeps the default mode.
 
 use swisskit_core::fmt::ansi::strip_ansi;
 
@@ -28,6 +35,13 @@ use std::time::{Duration, Instant};
 /// x86_64 binaries on arm64 hosts.
 const RUN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a windowed program must stay alive before the
+/// runner SIGKILLs it. "Still running at this point" is the
+/// success signal — every windowed program is an infinite
+/// frame loop, so an early exit means it crashed during init
+/// (missing dylib, bad symbol, bogus Mach-O header, etc.).
+const WINDOW_KILL_AFTER: Duration = Duration::from_secs(2);
+
 /// Test category — determines how to run and what to expect.
 #[derive(Clone, Copy)]
 enum Category {
@@ -35,12 +49,15 @@ enum Category {
   Pass,
   /// Must fail to compile. Check error output if present.
   Fail,
-  /// Build only (no run). For ZSX/UI programs.
-  BuildOnly,
   /// Build with `--emit`, verify `-- CHECK:` directives.
   Check,
   /// Build only, pass if no crash (signal death).
   Crash,
+  /// Windowed program (raylib / misato / templating UI):
+  /// in default mode this is build-only; with `--all` also
+  /// spawns, sleeps `WINDOW_KILL_AFTER`, kills, and passes
+  /// iff the process was still alive at kill time.
+  WindowRun,
 }
 
 struct TestResult {
@@ -68,6 +85,11 @@ fn main() {
     .and_then(|i| args.get(i + 1))
     .map(|s| s.as_str());
 
+  // --all flips `WindowRun` from skip-the-run to actually
+  // launch + sleep + kill. Dev-machine only: needs a display
+  // (Cocoa / X11 / Wayland), so CI keeps the default mode.
+  let run_all = args.iter().any(|a| a == "--all");
+
   let root = find_workspace_root();
   let zo = find_zo_binary(&root);
   let tests_dir = root.join("crates/compiler/zo-tests");
@@ -79,6 +101,10 @@ fn main() {
     println!("target: {t}");
   }
 
+  if run_all {
+    println!("mode: --all (windowed programs will launch)");
+  }
+
   let tmp =
     env::temp_dir().join(format!("zo-test-runner-{}", std::process::id()));
 
@@ -87,94 +113,116 @@ fn main() {
   let start = Instant::now();
   let mut results = Vec::new();
 
-  // programming/ — build + run + optional output check.
-  run_dir(
-    &tests_dir.join("programming"),
-    Category::Pass,
-    &zo,
-    &tmp,
+  let ctx = RunnerCtx {
+    zo: &zo,
+    tmp: &tmp,
     filter,
     target,
+    run_all,
+  };
+
+  // programming/ — build + run + optional output check.
+  run_dir(
+    &ctx,
+    &tests_dir.join("programming"),
+    Category::Pass,
     &mut results,
   );
 
   // programming/fail/ — must fail to compile.
   run_dir(
+    &ctx,
     &tests_dir.join("programming/fail"),
     Category::Fail,
-    &zo,
-    &tmp,
-    filter,
-    target,
     &mut results,
   );
 
-  // templating/ — build only (ZSX renders to UI, no stdout).
+  // programming/attributes/ — `%%` attribute pipeline
+  // (parse + executor buffer + codegen `link_name`
+  // dispatch). Build + run + EXPECTED OUTPUT match.
   run_dir(
+    &ctx,
+    &tests_dir.join("programming/attributes"),
+    Category::Pass,
+    &mut results,
+  );
+
+  // templating/ — ZSX programs. Now windowed: P2 of
+  // `PLAN_DOM_CODEGEN_WIRING` wired `#dom` codegen to
+  // `_zo_run_native` in `libzo_runtime_native.dylib`,
+  // which blocks on `eframe::run_native`. Same WindowRun
+  // shape as raylib / misato: build always, run only with
+  // `--all`.
+  run_dir(
+    &ctx,
     &tests_dir.join("templating"),
-    Category::BuildOnly,
-    &zo,
-    &tmp,
-    filter,
-    target,
+    Category::WindowRun,
+    &mut results,
+  );
+
+  // provider/raylib/ — raylib demos via the C-library
+  // provider shim. Same WindowRun shape as templating:
+  // build always, run only with --all.
+  run_dir(
+    &ctx,
+    &tests_dir.join("provider/raylib"),
+    Category::WindowRun,
+    &mut results,
+  );
+
+  // provider/sqlite/ — sqlite scoreboard via provider
+  // shim. Stdout-emitting program, no window — Pass.
+  run_dir(
+    &ctx,
+    &tests_dir.join("provider/sqlite"),
+    Category::Pass,
+    &mut results,
+  );
+
+  // programming/misato/ — misato 3D demos. Same WindowRun
+  // shape — covers cube_static, three_cubes, grid_1000, …
+  run_dir(
+    &ctx,
+    &tests_dir.join("programming/misato"),
+    Category::WindowRun,
     &mut results,
   );
 
   // templating/fail/ — must fail to compile.
   run_dir(
+    &ctx,
     &tests_dir.join("templating/fail"),
     Category::Fail,
-    &zo,
-    &tmp,
-    filter,
-    target,
     &mut results,
   );
 
   // programming/sir/ — SIR verification (-- CHECK:).
   run_dir(
+    &ctx,
     &tests_dir.join("programming/sir"),
     Category::Check,
-    &zo,
-    &tmp,
-    filter,
-    target,
     &mut results,
   );
 
   // programming/codegen/ — ARM64 verification (-- CHECK:).
   run_dir(
+    &ctx,
     &tests_dir.join("programming/codegen"),
     Category::Check,
-    &zo,
-    &tmp,
-    filter,
-    target,
     &mut results,
   );
 
   // programming/crashes/ — ICE regression tests.
   run_dir(
+    &ctx,
     &tests_dir.join("programming/crashes"),
     Category::Crash,
-    &zo,
-    &tmp,
-    filter,
-    target,
     &mut results,
   );
 
   // zo-how-to tutorials — build + run + output check.
   if howto_dir.exists() {
-    run_dir(
-      &howto_dir,
-      Category::Pass,
-      &zo,
-      &tmp,
-      filter,
-      target,
-      &mut results,
-    );
+    run_dir(&ctx, &howto_dir, Category::Pass, &mut results);
   }
 
   // zo-usecases — multi-file projects (lib.zo + modules).
@@ -310,15 +358,30 @@ fn build_cmd(zo: &Path, target: Option<&str>) -> Command {
   cmd
 }
 
+/// Runner-wide config: same for every `run_dir` call in a
+/// single `main()` invocation. Bundles the moving parts that
+/// otherwise turn `run_dir` into an 8-arg function — the `zo`
+/// binary path, scratch dir, optional filter / target, and
+/// the `--all` flag.
+struct RunnerCtx<'a> {
+  zo: &'a Path,
+  tmp: &'a Path,
+  filter: Option<&'a str>,
+  target: Option<&'a str>,
+  run_all: bool,
+}
+
 fn run_dir(
+  ctx: &RunnerCtx,
   dir: &Path,
   category: Category,
-  zo: &Path,
-  tmp: &Path,
-  filter: Option<&str>,
-  target: Option<&str>,
   results: &mut Vec<TestResult>,
 ) {
+  let zo = ctx.zo;
+  let tmp = ctx.tmp;
+  let filter = ctx.filter;
+  let target = ctx.target;
+  let run_all = ctx.run_all;
   if !dir.exists() {
     return;
   }
@@ -364,7 +427,7 @@ fn run_dir(
   println!();
   println!("[{dir_name}] {} files", files.len());
 
-  // Parallelise the per-file `run_test` calls within this
+  // Parallelise per-file `run_test` calls within this
   // group — each test is a cold child-process spawn
   // (`zo build` + program run) so work scales linearly
   // with CPU count. We stream each PASS/FAIL as it
@@ -372,24 +435,37 @@ fn run_dir(
   // don't interleave) instead of buffering + draining —
   // the latter makes the group look "locked" until every
   // parallel worker finishes.
-  let group_results = files
-    .par_iter()
-    .filter_map(|file| {
-      let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
+  //
+  // WindowRun is the exception: in `--all` mode it
+  // launches eframe + winit + wgpu per program. Running
+  // 25+ graphics processes simultaneously saturates the
+  // system and the OS starts killing unrelated
+  // child-processes (Pass tests running in other groups)
+  // by signal. Serialise WindowRun to keep that load
+  // bounded; the cost is `n × WINDOW_KILL_AFTER`
+  // wall-time (~50 s for templating's 25 files) which
+  // only `--all` callers ever pay.
+  let serialize = matches!(category, Category::WindowRun) && run_all;
+  let mk_result = |file: &PathBuf| -> Option<TestResult> {
+    let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
 
-      if let Some(f) = filter
-        && !name.contains(f)
-      {
-        return None;
-      }
+    if let Some(f) = filter
+      && !name.contains(f)
+    {
+      return None;
+    }
 
-      let result = run_test(file, name, category, zo, tmp, target);
+    let result = run_test(file, name, category, zo, tmp, target, run_all);
 
-      print_result(&result);
+    print_result(&result);
 
-      Some(result)
-    })
-    .collect::<Vec<_>>();
+    Some(result)
+  };
+  let group_results = if serialize {
+    files.iter().filter_map(mk_result).collect::<Vec<_>>()
+  } else {
+    files.par_iter().filter_map(mk_result).collect::<Vec<_>>()
+  };
 
   results.extend(group_results);
 }
@@ -557,24 +633,13 @@ fn run_test(
   zo: &Path,
   tmp: &Path,
   target: Option<&str>,
+  run_all: bool,
 ) -> TestResult {
   let out = tmp.join(name);
 
   match category {
-    Category::BuildOnly => {
-      let status = build_cmd(zo, target)
-        .arg(&*file.to_string_lossy())
-        .arg("-o")
-        .arg(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-      match status {
-        Ok(s) if s.success() => ok(name),
-        Ok(_) => fail(name, "compilation failed"),
-        Err(e) => fail(name, &format!("exec error: {e}")),
-      }
+    Category::WindowRun => {
+      run_window_test(file, name, &out, zo, target, run_all)
     }
 
     Category::Fail => {
@@ -804,6 +869,84 @@ fn run_test(
         }
         Err(e) => fail(name, &format!("exec error: {e}")),
       }
+    }
+  }
+}
+
+/// Build the program; with `--all`, also spawn it, sleep
+/// `WINDOW_KILL_AFTER`, then SIGKILL it. Pass iff the
+/// process was still alive at kill time — windowed programs
+/// are infinite frame loops, so an early exit means a
+/// crash during `InitWindow` (missing dylib, bad symbol,
+/// malformed Mach-O, …). Without `--all` this is build-only,
+/// matching the prior `BuildOnly` behavior CI relies on.
+fn run_window_test(
+  file: &Path,
+  name: &str,
+  out: &Path,
+  zo: &Path,
+  target: Option<&str>,
+  run_all: bool,
+) -> TestResult {
+  let build = build_cmd(zo, target)
+    .arg(&*file.to_string_lossy())
+    .arg("-o")
+    .arg(out)
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status();
+
+  match build {
+    Ok(s) if !s.success() => return fail(name, "compilation failed"),
+    Err(e) => return fail(name, &format!("exec error: {e}")),
+    _ => {}
+  }
+
+  if !run_all {
+    return ok(name);
+  }
+
+  let mut cmd = Command::new(out);
+
+  cmd
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .current_dir(file.parent().unwrap_or(file));
+
+  let mut child = match cmd.spawn() {
+    Ok(c) => c,
+    Err(e) => return fail(name, &format!("spawn error: {e}")),
+  };
+
+  thread::sleep(WINDOW_KILL_AFTER);
+
+  match child.try_wait() {
+    Ok(Some(status)) => {
+      // Process exited before we could kill it — failure mode
+      // we care about (crash during init).
+      let _ = child.wait();
+
+      let detail = status.code().map_or_else(
+        || "killed by signal".to_string(),
+        |c| format!("exit {c}"),
+      );
+
+      fail(name, &format!("exited early ({detail})"))
+    }
+    Ok(None) => {
+      // Still running after WINDOW_KILL_AFTER — success.
+      // SIGKILL it; we deliberately do NOT `wait()` after,
+      // mirroring `wait_with_timeout`'s rationale (some
+      // children ignore SIGKILL; OS reaps zombies on parent
+      // exit and we'd rather move on than block the worker).
+      let _ = child.kill();
+
+      ok(name)
+    }
+    Err(e) => {
+      let _ = child.kill();
+
+      fail(name, &format!("try_wait error: {e}"))
     }
   }
 }

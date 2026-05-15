@@ -1,5 +1,6 @@
--- tests-run-pass: `[]int.sort()` — in-place ascending
--- sort via the runtime. Phase D regression.
+load std::arr::*;
+
+-- tests-run-pass: `[]int.sort()` at runtime.
 -- @cmd — zo build array_sort.zo
 
 fun main() {

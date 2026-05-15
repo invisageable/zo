@@ -1,3 +1,4 @@
-fun main() -> int {
-  return 10 + 20 * 3 - 15;
+fun main() {
+  imu r: int = 10 + 20 * 3 - 15;
+  showln(r);
 }

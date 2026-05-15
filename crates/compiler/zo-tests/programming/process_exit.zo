@@ -1,3 +1,5 @@
+load std::process::*;
+
 -- process::exit terminates the process with a given code.
 -- when invoked with 0, the runner accepts as success and
 -- the lines before exit must have printed.

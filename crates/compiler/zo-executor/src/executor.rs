@@ -5,8 +5,9 @@ use zo_interner::{
 };
 use zo_reporter::report_error;
 use zo_sir::{
-  BinOp, ComputedBinding, Insn, ListBinding, ListItemCmd, LoadSource,
-  NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
+  BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
+  LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource, NurseryKind,
+  Sir, SpawnKind, TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -128,6 +129,13 @@ pub struct Executor<'a> {
   interner: &'a mut Interner,
   /// Literal values from tokenization
   literals: &'a LiteralStore,
+  /// When set, `Token::Ident` reads of an `imu` local
+  /// whose `value_id` is a scalar literal route through
+  /// the `LocalKind::Constant` re-emit branch instead of
+  /// emitting a `Load`. Lets the template-interp baker
+  /// reuse the executor's fold / branch / match paths to
+  /// reduce `{x + y}` to a literal at template-build time.
+  const_eval_mode: bool,
   /// Operand stack (4 bytes per value - just indices!)
   value_stack: Vec<ValueId>,
   /// Type stack (4 bytes per type)
@@ -355,6 +363,44 @@ pub struct Executor<'a> {
   /// Resolution into the mangled callee happens in
   /// `execute_potential_call`.
   pack_names: HashSet<Symbol>,
+  /// Most recently declared pack at the top level — set
+  /// on every `Insn::PackDecl` emission. Survives the
+  /// `pack X;` → bare items pattern that empties
+  /// `pack_context` after the decl. Used by
+  /// `#link { ... }` to attach dylib metadata to its
+  /// owning pack.
+  top_pack: Option<Symbol>,
+  /// Implicit pack derived from the filename for non-`lib.zo`
+  /// / non-`main.zo` files. When `Some`, `execute` emits a
+  /// synthetic `Insn::PackDecl` and seeds `top_pack` /
+  /// `pack_context` before walking the tree — unless the
+  /// tree already starts with an explicit `pack` (transitional
+  /// state, removed once std files are stripped).
+  implicit_pack: Option<Symbol>,
+  /// `<exe-dir>/../lib/vendor` resolved once at executor
+  /// construction. Used by `resolve_link_entry`'s vendor
+  /// fallback to locate prebuilt dylibs the compiler
+  /// distribution stages there. `None` when
+  /// `current_exe()` fails (sandboxed test runners,
+  /// exotic platforms) — vendor resolution then silently
+  /// short-circuits.
+  vendor_dir: Option<std::path::PathBuf>,
+  /// Directory of the source `.zo` file being executed.
+  /// Used to resolve relative path-valued template
+  /// attributes (`<img src="…">`, `<script src="…">`, …)
+  /// to absolute paths at attribute-build time, so the
+  /// compiled binary holds CWD-independent asset
+  /// references. `None` for preload packs / module
+  /// imports — their content never reaches the renderer
+  /// with path attributes.
+  source_dir: Option<std::path::PathBuf>,
+  /// Attributes (`%% name [= literal | (arg)].`) the
+  /// parser emitted just before the next item. Drained
+  /// and applied when the next `FunDef` / `StructDef` /
+  /// etc. is emitted. Currently only `link_name` is
+  /// consumed (by `pub ffi` declarations); other names
+  /// are silently ignored until their consumers land.
+  pending_attributes: Vec<(Symbol, Option<Symbol>)>,
   /// Global compile-time constants (`val` at module level).
   /// Visible from all functions.
   global_constants: Vec<Local>,
@@ -632,6 +678,7 @@ impl<'a> Executor<'a> {
       tree,
       interner,
       literals,
+      const_eval_mode: false,
       value_stack: Vec::with_capacity(capacity / 4),
       ty_stack: Vec::with_capacity(capacity / 4),
       expected_ty_stack: Vec::new(),
@@ -689,6 +736,11 @@ impl<'a> Executor<'a> {
       apply_type_params: HashMap::default(),
       pack_context: Vec::new(),
       pack_names: HashSet::default(),
+      top_pack: None,
+      implicit_pack: None,
+      vendor_dir: zo_host_paths::first_existing_lib_dir("vendor"),
+      source_dir: None,
+      pending_attributes: Vec::new(),
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
@@ -883,12 +935,7 @@ impl<'a> Executor<'a> {
 
   /// Checks if the node immediately before `idx` is `Token::Pub`.
   fn is_pub(&self, idx: usize) -> bool {
-    idx > 0
-      && self
-        .tree
-        .nodes
-        .get(idx - 1)
-        .is_some_and(|n| n.token == Token::Pub)
+    self.tree.is_pub_at(idx)
   }
 
   /// Gets the value associated with a node (if any).
@@ -1074,6 +1121,129 @@ impl<'a> Executor<'a> {
     self.enum_def_by_name.contains(name)
   }
 
+  /// Records the source-file directory. Path-typed
+  /// template attributes (e.g. `<img src="…">`) are
+  /// resolved against it at attribute-build time, so the
+  /// compiled binary holds CWD-independent absolute paths.
+  pub fn with_source_dir(mut self, dir: std::path::PathBuf) -> Self {
+    self.source_dir = Some(dir);
+    self
+  }
+
+  /// Records the implicit pack name (file basename) for
+  /// files that are packs by default. `execute` synthesizes
+  /// a `pack <name>;` declaration before walking the tree,
+  /// unless the source already begins with an explicit
+  /// `pack` (transition state — std files retain explicit
+  /// packs until Phase 8 of the module-system rewrite
+  /// strips them).
+  pub fn with_implicit_pack(mut self, name: Symbol) -> Self {
+    self.implicit_pack = Some(name);
+    self
+  }
+
+  /// Pre-populates `pack_names` with packs the caller has
+  /// already compiled and merged into the SIR (typically
+  /// preload's transitive loads — `io`, `vec`, `map`, …).
+  /// Without this, the user file's qualified call sites
+  /// (`io::showln(...)`) miss the pack-name check and
+  /// report `Undefined variable`.
+  pub fn with_in_scope_packs(mut self, names: Vec<Symbol>) -> Self {
+    for name in names {
+      self.pack_names.insert(name);
+    }
+    self
+  }
+
+  /// Emit `Insn::PackDecl`, mark the pack name in scope,
+  /// and seed `top_pack`. Returns `true` when the name was
+  /// new — callers can branch on the return to decide
+  /// whether to report `DuplicateDefinition`. Single point
+  /// of truth shared by the implicit-pack synthesis at
+  /// `execute()` entry and `execute_pack` for inline
+  /// `pack X { ... }` declarations.
+  fn register_pack(&mut self, name: Symbol, pubness: Pubness) -> bool {
+    let fresh = self.pack_names.insert(name);
+
+    self.top_pack = Some(name);
+    self.sir.emit(Insn::PackDecl { name, pubness });
+
+    fresh
+  }
+
+  /// True when the file declares its own pack explicitly
+  /// at the top — implicit-pack synthesis must skip to
+  /// avoid `DuplicateDefinition`. Delegates to the
+  /// reusable `Tree::top_level_starts_with`, which accepts
+  /// a leading `Token::Pub` for `pub pack`.
+  fn tree_starts_with_pack(&self) -> bool {
+    self.tree.top_level_starts_with(Token::Pack)
+  }
+
+  /// Return `true` for attribute names whose values are
+  /// filesystem paths and should be resolved against the
+  /// source file's directory at attribute-build time.
+  ///
+  /// Only `src` today; future `href`, `poster`, `srcset`,
+  /// etc. would join this list. Centralising the check
+  /// keeps the four attribute-emission paths (`Token::
+  /// String`, `Token::InterpString`, `Token::LBrace`
+  /// single-ident, `Token::LBrace` general expression)
+  /// agreeing on what "path-typed" means.
+  fn is_path_typed_attr(name: &str) -> bool {
+    name == "src"
+  }
+
+  /// Normalise an attribute value. For path-typed names
+  /// (see `is_path_typed_attr`), join against the source
+  /// directory and canonicalise; otherwise pass through
+  /// unchanged.
+  fn normalise_attr_value(&self, name: &str, raw: String) -> String {
+    if !Self::is_path_typed_attr(name) {
+      return raw;
+    }
+
+    self.resolve_asset_path(&raw)
+  }
+
+  /// Resolve a path-valued template attribute (e.g.
+  /// `<img src="…">`'s `src`) against the source file's
+  /// directory. Leaves the value untouched when:
+  ///
+  /// - we don't know the source dir (preload pack, test
+  ///   harness — those don't reach the renderer);
+  /// - the value is already absolute (Mach-O / POSIX-rooted);
+  /// - the value is an `http(s)://` / `data:` URL;
+  /// - the candidate joined path doesn't exist on disk
+  ///   (don't silently rewrite a legitimately-relative
+  ///   runtime asset — leave it for the renderer's loader
+  ///   to surface).
+  fn resolve_asset_path(&self, raw: &str) -> String {
+    let dir = match &self.source_dir {
+      Some(d) => d,
+      None => return raw.to_string(),
+    };
+    let p = std::path::Path::new(raw);
+
+    if p.is_absolute()
+      || raw.starts_with("http://")
+      || raw.starts_with("https://")
+      || raw.starts_with("data:")
+    {
+      return raw.to_string();
+    }
+
+    let candidate = dir.join(p);
+
+    if candidate.exists()
+      && let Ok(canon) = candidate.canonicalize()
+    {
+      return canon.to_string_lossy().into_owned();
+    }
+
+    raw.to_string()
+  }
+
   /// Pre-populates the executor with imported function
   /// definitions and constants so they're available during
   /// execution.
@@ -1206,6 +1376,33 @@ impl<'a> Executor<'a> {
     Vec<FunDef>,
     HashMap<Symbol, AbstractDef>,
   ) {
+    // File = pack by default. When the compiler set an
+    // `implicit_pack` (the loaded file is a pack file, not
+    // lib.zo/main.zo) AND no explicit `pack X;` is at the
+    // top of the tree, emit a synthetic PackDecl, register
+    // the name, and set `top_pack` so:
+    //   - codegen's FFI walker associates each `pub ffi`
+    //     with its declaring pack (`io::showln` →
+    //     `pack_dylib[io]`)
+    //   - user code's `pack::fn(...)` qualified resolution
+    //     finds the pack in `pack_names`
+    //
+    // Critically, we do NOT push to `pack_context`. That
+    // would force every top-level fun AND every method
+    // inside `apply T { ... }` to be mangled with the
+    // pack prefix — turning `Vec::len` into `vec::Vec::len`
+    // and breaking dot-method dispatch (`x.len()` builds
+    // the un-prefixed `Vec::len` and would no longer
+    // resolve). Top-level standalone funs still resolve
+    // via the bare-name + pack-owner fallback at the
+    // qualified-call site (`math::sin(x)` → `sin` if
+    // `sin`'s `owning_pack` is `math`).
+    if let Some(implicit) = self.implicit_pack
+      && !self.tree_starts_with_pack()
+    {
+      self.register_pack(implicit, Pubness::Yes);
+    }
+
     // Pre-scan top-level function signatures so mutual
     // recursion and out-of-order calls resolve during the
     // main pass.
@@ -1294,7 +1491,93 @@ impl<'a> Executor<'a> {
     // tail of the instruction list without re-shuffling.
     self.emit_array_ty_defs();
 
+    // Gate `LinkResolutionFailed` diagnostics on actual
+    // FFI usage — a pack with a broken `#link` for a
+    // library no one calls shouldn't fail the build.
+    self.report_used_link_failures();
+
     (self.sir, self.annotations, self.funs, self.abstract_defs)
+  }
+
+  /// Post-execution walk over SIR. Emits a
+  /// `LinkResolutionFailed` diagnostic for every
+  /// `Insn::PackLink { resolution: Failed }` whose pack
+  /// actually owns a `pub ffi` reached by an
+  /// `Insn::Call`. Packs whose `#link` is broken but
+  /// whose symbols are never called stay silent — the
+  /// user can declare bindings ahead of usage without
+  /// the build breaking.
+  fn report_used_link_failures(&self) {
+    let mut current_pack: Option<Symbol> = None;
+    let mut ffi_to_pack: HashMap<Symbol, Symbol> = HashMap::default();
+    let mut failed: Vec<(Symbol, LinkEntry)> = Vec::new();
+
+    for insn in &self.sir.instructions {
+      match insn {
+        Insn::PackDecl { name, .. } => current_pack = Some(*name),
+        Insn::FunDef {
+          name,
+          kind: FunctionKind::Intrinsic,
+          ..
+        } => {
+          if let Some(pk) = current_pack {
+            ffi_to_pack.insert(*name, pk);
+          }
+        }
+        Insn::PackLink {
+          pack,
+          spec,
+          resolution: LinkResolution::Failed,
+        } => {
+          if let Some(entry) = spec.host_entry() {
+            failed.push((*pack, entry.clone()));
+          }
+        }
+        _ => {}
+      }
+    }
+
+    if failed.is_empty() {
+      return;
+    }
+
+    let mut used_packs: HashSet<Symbol> = HashSet::default();
+
+    for insn in &self.sir.instructions {
+      if let Insn::Call { name, .. } = insn
+        && let Some(pk) = ffi_to_pack.get(name)
+      {
+        used_packs.insert(*pk);
+      }
+    }
+
+    for (pack, entry) in failed {
+      if !used_packs.contains(&pack) {
+        continue;
+      }
+
+      // `host_entry()` returned `Some(entry)` only when
+      // the user wrote at least one of `system` /
+      // `vendor`, so `(None, None)` is unreachable.
+      let err = match (entry.system, entry.vendor) {
+        (Some(sys), Some(ven)) => Error::with_secondary(
+          ErrorKind::LinkResolutionFailed,
+          sys.span,
+          ven.span,
+        ),
+        (Some(sys), None) => {
+          Error::new(ErrorKind::LinkResolutionFailed, sys.span)
+        }
+        (None, Some(ven)) => {
+          Error::new(ErrorKind::LinkResolutionFailed, ven.span)
+        }
+        (None, None) => {
+          unreachable!("parse_link_value sets at least one of system / vendor")
+        }
+      };
+
+      report_error(err);
+    }
   }
 
   /// Walk every `ty_id` in the emitted SIR, find each unique
@@ -1661,8 +1944,26 @@ impl<'a> Executor<'a> {
       Token::Hash => {
         let children_end = (header.child_start + header.child_count) as usize;
 
-        self.execute_directive(idx, children_end);
+        // `#link { ... }` (and any future directive that
+        // owns its own `{...}` block) overrides
+        // `skip_until` with the matching `}` so trailing
+        // top-level items don't get silently absorbed by
+        // the parser's greedy child range.
+        let override_end = self.execute_directive(idx, children_end);
 
+        self.skip_until = override_end.unwrap_or(children_end);
+      }
+
+      // === ATTRIBUTES ===
+      // `%% name [= literal | (arg)].` — captures the
+      // (name, value) pair into `pending_attributes` for
+      // the next item (FunDef / StructDef / ...) to read.
+      // Children get skipped so the executor doesn't walk
+      // the name / literal as a regular expression.
+      Token::Attribute => {
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.execute_attribute(idx, children_end);
         self.skip_until = children_end;
       }
 
@@ -2036,6 +2337,15 @@ impl<'a> Executor<'a> {
             kind: FunctionKind::UserDefined,
             pubness: pending_func.pubness,
             mut_self: pending_func.mut_self,
+            link_name: None,
+            // Track the enclosing pack so wrapper methods
+            // emitted inside a preload pack (e.g.
+            // `apply Scene { pub fun new() ... }` inside
+            // `pack misato`) carry their pack identity. DCE
+            // uses this to decide whether `pub fun` should
+            // root the function — preload-pack wrappers
+            // shouldn't, user code should.
+            owning_pack: self.top_pack,
           });
 
           // Now set the context with the correct body start.
@@ -2848,10 +3158,20 @@ impl<'a> Executor<'a> {
               }
             }
 
-            // Compile-time constant: re-emit the literal
-            // value as a fresh SIR instruction each time.
-            // No Load, no stack slot.
-            if local_kind == LocalKind::Constant {
+            // Compile-time constant: re-emit the literal as
+            // a fresh SIR instruction each time. No Load,
+            // no stack slot. `const_eval_mode` extends this
+            // branch to scalar-literal `imu` locals so the
+            // template-interp baker can fold across them;
+            // the lazy `&&` keeps the lookup cost off the
+            // normal-eval hot path.
+            let treat_as_constant = local_kind == LocalKind::Constant
+              || (self.const_eval_mode
+                && mutability == Mutability::No
+                && local_kind == LocalKind::Variable
+                && self.values.is_scalar_const(value_id, true));
+
+            if treat_as_constant {
               let vi = value_id.0 as usize;
 
               if vi < self.values.kinds.len() {
@@ -3097,12 +3417,24 @@ impl<'a> Executor<'a> {
             // Dot handler has two values to pop (receiver +
             // member). The actual field name is resolved
             // from the tree node, not the stack value.
-            let is_dot_member = idx + 1 < self.tree.nodes.len()
-              && self.tree.nodes[idx + 1].token == Token::Dot;
-
             let is_pack = self.pack_names.contains(&sym);
 
-            if is_dot_member || is_pack {
+            let next_tok = self.tree.nodes.get(idx + 1).map(|n| n.token);
+
+            let is_dot_member = next_tok == Some(Token::Dot);
+
+            // A pack ident in a *dot* chain (`pack.fn()`)
+            // needs a value-stack placeholder so the Dot
+            // handler sees a balanced stack. A pack ident
+            // before `::` (`pack::fn()`) needs NO push —
+            // `execute_enum_access` walks the tree directly
+            // and doesn't pop a value. The two forms must
+            // not collapse: pushing for both leaves a
+            // phantom that the next call consumes as a
+            // stale operand. Either way, the bottom
+            // `!is_pack` check below skips `Undefined
+            // variable` so the ident isn't misreported.
+            if is_dot_member || (is_pack && next_tok == Some(Token::Dot)) {
               // Pack-prefix idents (`inner`, `inner2` in
               // `inner.inner2.hello()`) are namespace
               // segments — not variables. Push a
@@ -4584,15 +4916,12 @@ impl<'a> Executor<'a> {
         // are compile-time constants. Skip when either is a
         // runtime value (e.g., function call result) to
         // avoid incorrect folding across executor passes.
-        let lhs_is_const =
-          self.values.kinds.get(lhs.0 as usize).is_some_and(|k| {
-            matches!(k, Value::Int | Value::Float | Value::Bool | Value::Char)
-          });
-
-        let rhs_is_const =
-          self.values.kinds.get(rhs.0 as usize).is_some_and(|k| {
-            matches!(k, Value::Int | Value::Float | Value::Bool | Value::Char)
-          });
+        // `with_string=false` because `ConstFold` only
+        // folds arithmetic / comparison binops, not string
+        // ops. The template-interp baker passes `true`
+        // since its gate just stringifies the value.
+        let lhs_is_const = self.values.is_scalar_const(lhs, false);
+        let rhs_is_const = self.values.is_scalar_const(rhs, false);
 
         let mut constprop = ConstFold::new(&self.values, self.interner);
         let resolved_ty = self.ty_checker.resolve_ty(ty_id);
@@ -5138,27 +5467,63 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Executes function declaration.
-  /// Executes a `load` statement.
-  ///
-  /// Extracts path segments from children (Ident nodes between
-  /// ColonColon separators) and emits `Insn::ModuleLoad`.
-  fn execute_load(&mut self, _start_idx: usize, end_idx: usize) {
-    let mut path = Vec::new();
+  /// Executes a `load` statement, classifying it as
+  /// Qualified / Glob / Selective. Idents before a `Star`
+  /// or `LParen` are path segments; Idents inside `(…)`
+  /// are selective imports. `path` always carries the
+  /// dotted module path, never the imported names.
+  fn execute_load(&mut self, start_idx: usize, end_idx: usize) {
+    let mut path: Vec<Symbol> = Vec::new();
+    let mut selective: Vec<Symbol> = Vec::new();
+    let mut kind: Option<ImportKind> = None;
+    let mut in_selective = false;
 
-    for child_idx in (_start_idx + 1)..end_idx {
-      if let Some(node) = self.tree.nodes.get(child_idx)
-        && node.token == Token::Ident
-        && let Some(NodeValue::Symbol(sym)) = self.node_value(child_idx)
-      {
-        path.push(sym);
+    for child_idx in (start_idx + 1)..end_idx {
+      let Some(node) = self.tree.nodes.get(child_idx) else {
+        continue;
+      };
+
+      match node.token {
+        Token::Star if !in_selective => {
+          kind = Some(ImportKind::Glob);
+          break;
+        }
+        Token::LParen => {
+          in_selective = true;
+        }
+        Token::RParen if in_selective => {
+          kind = Some(ImportKind::Selective(std::mem::take(&mut selective)));
+          break;
+        }
+        Token::Ident => {
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(child_idx) {
+            if in_selective {
+              selective.push(sym);
+            } else {
+              path.push(sym);
+            }
+          }
+        }
+        _ => {}
       }
     }
 
-    self.sir.emit(Insn::ModuleLoad {
-      path,
-      imported_symbols: Vec::new(),
-    });
+    let kind = kind.unwrap_or(ImportKind::Qualified);
+
+    // Register the loaded leaf as a pack name so the
+    // `pack::function` resolution path (`io::showln(...)`)
+    // recognizes `io` as a namespace, not an undefined
+    // variable. The leaf is the last segment of the import
+    // path — that's the pack file the import targets
+    // (`load std::io` → pack `io`, `load std::math` →
+    // pack `math`). Without this, the analyzer at
+    // line 3465 reports `UndefinedVariable` for any
+    // qualified call.
+    if let Some(leaf) = path.last() {
+      self.pack_names.insert(*leaf);
+    }
+
+    self.sir.emit(Insn::ModuleLoad { path, kind });
   }
 
   /// Executes a `pack` statement.
@@ -5166,15 +5531,38 @@ impl<'a> Executor<'a> {
   /// Extracts the pack name from children and emits
   /// `Insn::PackDecl`.
   fn execute_pack(&mut self, start_idx: usize, end_idx: usize) {
-    // First Ident after `pack` is the pack name. Scanning
-    // matches the `execute_apply` shape (parser may place
-    // minor tokens between `pack` and the name).
-    let name_idx = ((start_idx + 1)..end_idx)
-      .find(|&i| self.tree.nodes[i].token == Token::Ident);
+    // First name token after `pack` — either a regular
+    // `Ident` (most packs) or a primitive type keyword
+    // (`pack char;` / `pack int;` / `pack bool;` /
+    // `pack str;` etc., where the std pack shares its name
+    // with the primitive it extends). Without the latter,
+    // `name` stays `None` for those preload packs,
+    // `top_pack` never gets set, and any `pub fun` emitted
+    // inside `apply <primitive> { ... }` lands with
+    // `owning_pack = None` — DCE then can't tell preload-
+    // pack pub funs from user-code pub funs and keeps every
+    // one as a root.
+    let name_idx = ((start_idx + 1)..end_idx).find(|&i| {
+      let tok = self.tree.nodes[i].token;
 
-    let name = name_idx.and_then(|i| match self.node_value(i) {
-      Some(NodeValue::Symbol(s)) => Some(s),
-      _ => None,
+      tok == Token::Ident || Self::is_primitive_type_token(tok)
+    });
+
+    let name = name_idx.and_then(|i| {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Ident {
+        match self.node_value(i) {
+          Some(NodeValue::Symbol(s)) => Some(s),
+          _ => None,
+        }
+      } else {
+        // Primitive keyword: synthesize its symbol from the
+        // canonical type-keyword string so the symbol
+        // matches `execute_apply`'s own primitive-receiver
+        // interning ("char" → `self.interner.intern("char")`).
+        tok.ty_keyword_str().map(|s| self.interner.intern(s))
+      }
     });
 
     // Locate the pack's own `{` and its matching `}` by
@@ -5218,23 +5606,20 @@ impl<'a> Executor<'a> {
     let pack_end = rbrace_idx.map(|i| i + 1).unwrap_or(end_idx);
 
     if let Some(name) = name {
+      let pubness = if self.is_pub(start_idx) {
+        Pubness::Yes
+      } else {
+        Pubness::No
+      };
+
       // Reject `pack math::(...); pack math::(...);` —
-      // re-declaring or re-importing the same pack name
-      // shadowed the first decl silently.
-      if !self.pack_names.insert(name) {
+      // re-declaring the same pack name silently shadowed
+      // the first decl before.
+      if !self.register_pack(name, pubness) {
         let span = self.tree.spans[name_idx.unwrap_or(start_idx)];
 
         report_error(Error::new(ErrorKind::DuplicateDefinition, span));
       }
-
-      self.sir.emit(Insn::PackDecl {
-        name,
-        pubness: if self.is_pub(start_idx) {
-          Pubness::Yes
-        } else {
-          Pubness::No
-        },
-      });
     }
 
     // Enter pack context: nested `fun`s will be mangled
@@ -6140,6 +6525,8 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
       mut_self: false,
+      link_name: None,
+      owning_pack: None,
     });
 
     // Register for call resolution.
@@ -8499,6 +8886,12 @@ impl<'a> Executor<'a> {
       Pubness::No
     };
 
+    // Drain any `%% link_name = "X".` attributes parked
+    // by the parser ahead of this FFI declaration. Other
+    // attribute names are silently ignored — their
+    // consumers land when each one is wired.
+    let link_name = self.take_pending_attribute("link_name");
+
     self.sir.emit(Insn::FunDef {
       name,
       params: params.clone(),
@@ -8507,6 +8900,13 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Intrinsic,
       pubness,
       mut_self: false,
+      link_name,
+      // Carry the executor's pack context at emit time
+      // so codegen routes the FFI to the right `#link`
+      // dylib without relying on a positional walk that
+      // mis-attributes user FFIs to the last preload's
+      // pack (`misato` / `sqlite`).
+      owning_pack: self.top_pack,
     });
 
     // Register as known function.
@@ -8524,6 +8924,8 @@ impl<'a> Executor<'a> {
         .collect(),
       mut_self: false,
     });
+
+    self.pending_attributes.clear();
 
     // Restore the outer scope's type params (apply block
     // or other) so subsequent declarations see what they
@@ -8815,16 +9217,29 @@ impl<'a> Executor<'a> {
             if idx < children_end && self.tree.nodes[idx].token == Token::Eq {
               idx += 1; // skip `=`
 
-              // Execute value expression nodes until
-              // next comma or RBrace.
+              // Execute value expression nodes until the
+              // next field separator. Track delimiter depth
+              // so nested calls / aggregate inits with their
+              // own commas (e.g. `f(1.0, 2.0)`,
+              // `[a, b]`, `{ x = 1, y = 2 }`) traverse in full
+              // — without this, the walker exits at the first
+              // inner comma, leaving the inner call's
+              // `CallCtx` + `expected_ty_stack` entry leaked
+              // (the matching RParen never executes
+              // `end_call_ctx`). The leak then poisons literal
+              // coercion in subsequent code, surfacing as
+              // phantom `TypeMismatch` errors at unrelated
+              // spans (often across preload pack boundaries).
               let expr_start = idx;
+              let mut depth: i32 = 0;
 
-              while idx < children_end
-                && !matches!(
-                  self.tree.nodes[idx].token,
-                  Token::Comma | Token::RBrace
-                )
-              {
+              while idx < children_end {
+                let tok = self.tree.nodes[idx].token;
+
+                if depth == 0 && matches!(tok, Token::Comma | Token::RBrace) {
+                  break;
+                }
+
                 // Handlers may consume more than one node and
                 // advance `skip_until` past tokens already
                 // resolved semantically (e.g. the variant ident
@@ -8834,6 +9249,16 @@ impl<'a> Executor<'a> {
                   idx += 1;
 
                   continue;
+                }
+
+                match tok {
+                  Token::LParen | Token::LBracket | Token::LBrace => {
+                    depth += 1;
+                  }
+                  Token::RParen | Token::RBracket | Token::RBrace => {
+                    depth -= 1;
+                  }
+                  _ => {}
                 }
 
                 let node = self.tree.nodes[idx];
@@ -9295,6 +9720,8 @@ impl<'a> Executor<'a> {
         kind: FunctionKind::UserDefined,
         pubness,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       });
 
       // Emit default value constants.
@@ -15663,7 +16090,23 @@ impl<'a> Executor<'a> {
                 fun_name, mod_sym, lparen_idx, rparen_idx,
               );
             } else {
-              // Check for Type::method() pattern.
+              // Check for Type::method() / pack::fn() pattern.
+              // Resolve in two passes:
+              //   1. Try the mangled `Type::method` first.
+              //      Inline packs (`pack p { fun h }`) and
+              //      `apply Type` blocks register FunDefs
+              //      under the mangled symbol — common case.
+              //   2. Fall back to the bare `method` when
+              //      `Type` is a known pack name. Pack files
+              //      that declare FFI signatures keep their
+              //      *bare* names so unqualified globbed
+              //      calls (`load std::io::*;` →
+              //      `showln(x)`) bind directly. Without
+              //      this fallback the qualified form
+              //      (`io::showln(x)`) interns a symbol no
+              //      FunDef matches and codegen emits an
+              //      unresolved call — which links into a
+              //      stub the binary spins on at runtime.
               let call_name = if fun_idx >= 2
                 && self.tree.nodes[fun_idx - 1].token == Token::ColonColon
                 && self.tree.nodes[fun_idx - 2].token == Token::Ident
@@ -15674,8 +16117,17 @@ impl<'a> Executor<'a> {
                   let ts = self.interner.get(type_sym).to_owned();
                   let ms = self.interner.get(fun_name).to_owned();
                   let mangled = format!("{ts}::{ms}");
+                  let mangled_sym = self.interner.intern(&mangled);
 
-                  self.interner.intern(&mangled)
+                  if self.has_fun(mangled_sym) {
+                    mangled_sym
+                  } else if self.pack_names.contains(&type_sym)
+                    && self.has_fun(fun_name)
+                  {
+                    fun_name
+                  } else {
+                    mangled_sym
+                  }
                 } else {
                   fun_name
                 }
@@ -17138,14 +17590,107 @@ impl<'a> Executor<'a> {
     });
   }
 
-  fn execute_directive(&mut self, start_idx: usize, end_idx: usize) {
+  /// Returns `Some(skip_until)` when the directive owns
+  /// its own `{...}` block (e.g. `#link`) and needs to
+  /// bound the main loop's resume point by the matching
+  /// `}` instead of the parser's greedy `end_idx`. Most
+  /// directives return `None` and let the caller fall
+  /// back to `children_end`.
+  /// Look up a buffered attribute by name and consume
+  /// it. Returns `None` when not present. Caller drains
+  /// the rest of `pending_attributes` after item emit.
+  fn take_pending_attribute(&mut self, name: &str) -> Option<Symbol> {
+    let target = self.interner.symbol(name)?;
+
+    self
+      .pending_attributes
+      .iter()
+      .position(|(n, _)| *n == target)
+      .and_then(|i| self.pending_attributes.remove(i).1)
+  }
+
+  /// Extract `(name, value)` from a `%% name [= value |
+  /// (value)].` attribute node and push it onto
+  /// `pending_attributes`. The next item the executor
+  /// emits (e.g. `FunDef`) reads + drains this buffer.
+  ///
+  /// Tree layout (set by `Parser::handle_attribute`):
+  /// children = `Ident(name), [Eq, literal | LParen,
+  /// literal, RParen], Dot`. The string-valued literal
+  /// is already interned by the tokenizer, so we just
+  /// store the Symbol.
+  fn execute_attribute(&mut self, start_idx: usize, end_idx: usize) {
+    // Children layout (per `Parser::handle_attribute`):
+    // per field — `Ident [+ Eq, literal | LParen,
+    // literal, RParen]`, separated by `Comma`,
+    // terminated by `Dot`. Walk left-to-right pushing
+    // every (name, value?) pair onto
+    // `pending_attributes`.
+    let mut i = start_idx + 1;
+
+    while i < end_idx {
+      let tok = self.tree.nodes[i].token;
+
+      // Skip separators / terminator we already know
+      // about — Comma between fields, Dot at the end.
+      if matches!(tok, Token::Comma | Token::Dot) {
+        i += 1;
+        continue;
+      }
+
+      if tok != Token::Ident {
+        i += 1;
+        continue;
+      }
+
+      let Some(NodeValue::Symbol(name)) = self.node_value(i) else {
+        i += 1;
+        continue;
+      };
+
+      // Look one ahead for the optional value shape.
+      let next = i + 1;
+      let mut value: Option<Symbol> = None;
+      let mut field_end = next;
+
+      if next < end_idx {
+        match self.tree.nodes[next].token {
+          Token::Eq => {
+            // `name = literal` — literal at next + 1.
+            if let Some(NodeValue::Symbol(sym)) = self.node_value(next + 1) {
+              value = Some(sym);
+            }
+            field_end = next + 2;
+          }
+          Token::LParen => {
+            // `name(literal)` — literal at next + 1,
+            // RParen at next + 2.
+            if let Some(NodeValue::Symbol(sym)) = self.node_value(next + 1) {
+              value = Some(sym);
+            }
+            field_end = next + 3;
+          }
+          _ => {} // parameterless field — `name`.
+        }
+      }
+
+      self.pending_attributes.push((name, value));
+      i = field_end;
+    }
+  }
+
+  fn execute_directive(
+    &mut self,
+    start_idx: usize,
+    end_idx: usize,
+  ) -> Option<usize> {
     // Directives: #identifier [expression]
     // Children come after Hash in the tree. We skip
     // them in the main loop (skip_until) and execute
     // the argument nodes here.
 
     if start_idx + 1 >= end_idx {
-      return;
+      return None;
     }
 
     // First child is the directive name.
@@ -17154,12 +17699,12 @@ impl<'a> Executor<'a> {
     if dir_idx >= self.tree.nodes.len()
       || self.tree.nodes[dir_idx].token != Token::Ident
     {
-      return;
+      return None;
     }
 
     let sym = match self.node_value(dir_idx) {
       Some(NodeValue::Symbol(s)) => s,
-      _ => return,
+      _ => return None,
     };
 
     let dir_name = self.interner.get(sym).to_owned();
@@ -17191,7 +17736,120 @@ impl<'a> Executor<'a> {
         });
       }
 
-      return;
+      return None;
+    }
+
+    // `#link { macos: "...", linux: "...", windows: "..." }`
+    // attaches per-platform dylib paths to the enclosing
+    // pack. The body is NOT a normal expression block —
+    // `macos`/`linux`/`windows` are policy keys, not idents
+    // to resolve — so we walk the brace block by hand
+    // instead of calling `execute_node` on the children.
+    // String values are already interned at tokenization.
+    if dir_name == "link" {
+      let lb = ((dir_idx + 1)..end_idx)
+        .find(|&i| self.tree.nodes[i].token == Token::LBrace)?;
+
+      // Bound iteration by the matching `}` of THIS
+      // `#link { ... }` block — the parser's `end_idx`
+      // greedily extends past the directive when there's
+      // no Semicolon terminator (the trailing `fun main`
+      // gets folded under the Hash node). Without this,
+      // the caller's `skip_until = end_idx` would skip
+      // past every following item in the file.
+      let block_end = self.find_matching_rbrace(lb, end_idx)?;
+      // Build the skip-until override eagerly. Even if we
+      // bail (no enclosing pack), the caller must resume
+      // AT the token after our matching `}`, not at the
+      // parser's greedy `end_idx` (which silently swallows
+      // every following item).
+      let resume_at = Some(block_end + 1);
+
+      let Some(pack_sym) = self.top_pack else {
+        return resume_at;
+      };
+      let mut spec = LinkSpec::default();
+      let mut i = lb + 1;
+
+      while i < block_end {
+        let tok = self.tree.nodes[i].token;
+
+        if tok == Token::Comma {
+          i += 1;
+          continue;
+        }
+        if tok != Token::Ident {
+          i += 1;
+          continue;
+        }
+
+        let Some(NodeValue::Symbol(key_sym)) = self.node_value(i) else {
+          i += 1;
+          continue;
+        };
+        let key = self.interner.get(key_sym).to_owned();
+
+        // Expect `key : <value>`; skip malformed entries.
+        // A `<value>` is either a String literal (bare
+        // path → folds into `LinkEntry { system: Some,
+        // vendor: None }`) OR a nested `{ system: "...",
+        // vendor: "..." }` block.
+        let colon_idx = i + 1;
+
+        if colon_idx >= block_end
+          || self.tree.nodes[colon_idx].token != Token::Colon
+        {
+          i = colon_idx + 1;
+          continue;
+        }
+        let val_idx = colon_idx + 1;
+
+        if val_idx >= block_end {
+          break;
+        }
+
+        let (entry_opt, after) = self.parse_link_value(val_idx, block_end);
+
+        if let Some(entry) = entry_opt {
+          match key.as_str() {
+            "macos" => spec.macos = Some(entry),
+            "linux" => spec.linux = Some(entry),
+            "windows" => spec.windows = Some(entry),
+            _ => {}
+          }
+        }
+
+        i = after;
+      }
+
+      // Pre-resolve the host's `#link` chain at executor
+      // time so codegen stays a pure data transform. The
+      // `LinkResolutionFailed` diagnostic is deferred to
+      // `report_used_link_failures` (post-execution
+      // walk) — a pack declaring a broken `#link` for a
+      // library it doesn't actually use shouldn't fail
+      // the build.
+      let resolution = match spec.host_entry() {
+        None => LinkResolution::Skipped,
+        Some(entry) => self
+          .resolve_link_entry(entry)
+          .map(LinkResolution::Resolved)
+          .unwrap_or(LinkResolution::Failed),
+      };
+
+      self.sir.emit(Insn::PackLink {
+        pack: pack_sym,
+        spec,
+        resolution,
+      });
+
+      // Bound the caller's `skip_until` by THIS block's
+      // matching `}` instead of the parser's greedy
+      // `end_idx` — without this, trailing items
+      // (`fun main`, sibling `pub ffi`) get silently
+      // skipped because the directive's child range
+      // absorbs them.
+      return Some(block_end + 1);
     }
 
     // Execute argument children (after the name).
@@ -17212,6 +17870,187 @@ impl<'a> Executor<'a> {
       "inline" => {}
       _ => {}
     }
+
+    None
+  }
+
+  /// Find the `}` that matches the `{` at `lbrace_idx`,
+  /// bounded by `end_idx` (exclusive). Returns `None` if
+  /// the brace is unmatched within the range — callers
+  /// treat that as a parse abort.
+  fn find_matching_rbrace(
+    &self,
+    lbrace_idx: usize,
+    end_idx: usize,
+  ) -> Option<usize> {
+    let mut depth = 1_i32;
+    let mut j = lbrace_idx + 1;
+
+    while j < end_idx {
+      match self.tree.nodes[j].token {
+        Token::LBrace => depth += 1,
+        Token::RBrace => {
+          depth -= 1;
+
+          if depth == 0 {
+            return Some(j);
+          }
+        }
+        _ => {}
+      }
+
+      j += 1;
+    }
+
+    None
+  }
+
+  /// Walk a `LinkEntry`'s `system → vendor → None`
+  /// resolution chain. Caller emits a diagnostic on
+  /// `None` when at least one of system / vendor was
+  /// declared — pre-resolving at executor time keeps
+  /// codegen as a pure data transform.
+  ///
+  /// `system` paths starting with `@executable_path/`
+  /// skip the on-disk check (staged later, not present
+  /// at compile time). Vendor wins get rewritten to
+  /// `@executable_path/<basename>` because Mach-O's
+  /// load-command region is fixed at 1 KiB and absolute
+  /// vendor paths overflow it.
+  fn resolve_link_entry(&mut self, entry: &LinkEntry) -> Option<Symbol> {
+    // Mirrors `zo_writer_macho::EXECUTABLE_PATH_PREFIX` —
+    // local copy so the executor doesn't pull a mach-o
+    // dep just for one string. dyld contract; both sides
+    // update together if it ever changes.
+    const EXECUTABLE_PATH_PREFIX: &str = "@executable_path/";
+
+    if let Some(LinkPath { value, .. }) = entry.system {
+      let path = self.interner.get(value);
+
+      if path.starts_with(EXECUTABLE_PATH_PREFIX)
+        || std::path::Path::new(path).exists()
+      {
+        return Some(value);
+      }
+    }
+
+    if let Some(LinkPath { value, .. }) = entry.vendor {
+      let vendor_dir = self.vendor_dir.as_ref()?;
+      let name = self.interner.get(value);
+      let candidate = vendor_dir.join(name);
+
+      if candidate.exists() {
+        let resolved = format!("{EXECUTABLE_PATH_PREFIX}{name}");
+
+        return Some(self.interner.intern(&resolved));
+      }
+    }
+
+    None
+  }
+
+  /// Parse one platform-slot value inside a `#link {
+  /// macos: <value>, ... }` block. `<value>` is either:
+  /// - a String literal — bare path, folds into
+  ///   `LinkEntry { system: Some(..), vendor: None }`;
+  /// - a `{ system: "...", vendor: "..." }` block — full
+  ///   nested form.
+  ///
+  /// Returns `(parsed_entry, next_idx)`. `next_idx` is
+  /// always strictly greater than `start` so the caller
+  /// makes progress even on malformed input.
+  fn parse_link_value(
+    &self,
+    start: usize,
+    block_end: usize,
+  ) -> (Option<LinkEntry>, usize) {
+    if start >= block_end {
+      return (None, block_end);
+    }
+
+    let tok = self.tree.nodes[start].token;
+
+    // Bare-string form.
+    if matches!(tok, Token::String | Token::RawString) {
+      if let Some(NodeValue::Symbol(sym)) = self.node_value(start) {
+        return (
+          Some(LinkEntry {
+            system: Some(LinkPath {
+              value: sym,
+              span: self.tree.spans[start],
+            }),
+            vendor: None,
+          }),
+          start + 1,
+        );
+      }
+
+      return (None, start + 1);
+    }
+
+    // Nested `{ system: "...", vendor: "..." }`.
+    if tok != Token::LBrace {
+      return (None, start + 1);
+    }
+
+    let Some(inner_end) = self.find_matching_rbrace(start, block_end) else {
+      return (None, block_end);
+    };
+    let mut entry = LinkEntry::default();
+    let mut j = start + 1;
+
+    while j < inner_end {
+      let t = self.tree.nodes[j].token;
+
+      if t == Token::Comma {
+        j += 1;
+        continue;
+      }
+      if t != Token::Ident {
+        j += 1;
+        continue;
+      }
+
+      let Some(NodeValue::Symbol(key_sym)) = self.node_value(j) else {
+        j += 1;
+        continue;
+      };
+      let key = self.interner.get(key_sym).to_owned();
+      let colon = j + 1;
+
+      if colon >= inner_end || self.tree.nodes[colon].token != Token::Colon {
+        j = colon + 1;
+        continue;
+      }
+      let val = colon + 1;
+
+      if val >= inner_end
+        || !matches!(
+          self.tree.nodes[val].token,
+          Token::String | Token::RawString
+        )
+      {
+        j = val + 1;
+        continue;
+      }
+
+      if let Some(NodeValue::Symbol(val_sym)) = self.node_value(val) {
+        let path = LinkPath {
+          value: val_sym,
+          span: self.tree.spans[val],
+        };
+
+        match key.as_str() {
+          "system" => entry.system = Some(path),
+          "vendor" => entry.vendor = Some(path),
+          _ => {}
+        }
+      }
+
+      j = val + 1;
+    }
+
+    (Some(entry), inner_end + 1)
   }
 
   /// Mangles `base_name` by appending `__<ty_name>` per
@@ -17846,7 +18685,9 @@ impl<'a> Executor<'a> {
                       .map(|s| self.interner.get(s).to_string())
                       .unwrap_or_default();
                     idx += 1;
-                    attrs.push(Attr::parse_prop(&attr_name, &raw));
+                    let value = self.normalise_attr_value(&attr_name, raw);
+
+                    attrs.push(Attr::parse_prop(&attr_name, &value));
                   } else if idx < end_idx
                     && self.tree.nodes[idx].token == Token::InterpString
                   {
@@ -17857,9 +18698,10 @@ impl<'a> Executor<'a> {
                     // `Variable(sym)` segment against the local
                     // scope, and concatenate the result.
                     let resolved = self.resolve_interp_string_attr(idx);
+                    let value = self.normalise_attr_value(&attr_name, resolved);
 
                     idx += 1;
-                    attrs.push(Attr::parse_prop(&attr_name, &resolved));
+                    attrs.push(Attr::parse_prop(&attr_name, &value));
                   } else if idx < end_idx
                     && self.tree.nodes[idx].token == Token::LBrace
                   {
@@ -17904,8 +18746,9 @@ impl<'a> Executor<'a> {
                       } else {
                         String::new()
                       };
+                      let resolved = self.normalise_attr_value(&attr_name, val);
 
-                      attrs.push(Attr::parse_prop(&attr_name, &val));
+                      attrs.push(Attr::parse_prop(&attr_name, &resolved));
                     }
 
                     if idx < end_idx
@@ -18206,12 +19049,18 @@ impl<'a> Executor<'a> {
           {
             let text = self.value_to_string(local.value_id);
             let mutability = local.mutability;
+            let is_reactive = mutability == Mutability::Yes;
 
-            if mutability == Mutability::Yes {
+            if is_reactive {
               self.template_bindings.text.push((commands.len(), sym));
             }
 
-            if !text.is_empty() {
+            // Reactive bindings MUST push a Text command
+            // even when empty — the binding's `cmd_idx`
+            // points here and `refresh_bindings` mutates
+            // it in place. Skipping for `mut s: str = ""`
+            // would slide the index onto `EndElement`.
+            if is_reactive || !text.is_empty() {
               commands.push(UiCommand::Text(text));
             }
 
@@ -18257,9 +19106,99 @@ impl<'a> Executor<'a> {
           self.template_interp_counter += 1;
 
           let captures = self.identify_captures(idx, close_idx, &[]);
+          let all_captures_immutable =
+            captures.iter().all(|(_, _, is_mut)| !is_mut);
           let capture_count = captures.len() as u32;
           let capture_syms: Vec<Symbol> =
             captures.iter().map(|(s, _, _)| *s).collect();
+
+          // Const-eval baker: replay the body in the outer
+          // scope under `const_eval_mode` against a
+          // throwaway `Sir`, then stringify the resulting
+          // value. AOT has no dispatch path for
+          // `bindings.computed`, so a fully-foldable interp
+          // MUST be baked here or the `<p>{x+y}</p>` slot
+          // never gets a value. Falls through to closure
+          // synthesis when anything pushes `Value::Runtime`
+          // (function call, struct construct).
+          let baked: Option<String> = if all_captures_immutable {
+            // Save every field `execute_node` (and its
+            // dispatched fold/branch/binop paths) might
+            // mutate, so a partial bail can't bleed
+            // throwaway state into the outer template walk.
+            let throwaway = Sir::new();
+            let saved_sir = std::mem::replace(&mut self.sir, throwaway);
+            let saved_value_stack = std::mem::take(&mut self.value_stack);
+            let saved_ty_stack = std::mem::take(&mut self.ty_stack);
+            let saved_sir_values = std::mem::take(&mut self.sir_values);
+            let saved_deferred_binops =
+              std::mem::take(&mut self.deferred_binops);
+            let saved_tuple_ctx = std::mem::take(&mut self.tuple_ctx);
+            let saved_expected_ty_stack =
+              std::mem::take(&mut self.expected_ty_stack);
+            let saved_pending_call_rparen = self.pending_call_rparen.take();
+            let saved_pending_decl = self.pending_decl.take();
+            let saved_current_function = self.current_function.take();
+            let saved_skip_outer = self.skip_until;
+
+            self.const_eval_mode = true;
+            self.skip_until = 0;
+
+            let mut body_idx = idx;
+
+            while body_idx < close_idx {
+              if body_idx < self.skip_until {
+                body_idx += 1;
+                continue;
+              }
+
+              let header = self.tree.nodes[body_idx];
+
+              self.execute_node(&header, body_idx);
+
+              if self.tuple_ctx.is_empty() && self.pending_call_rparen.is_none()
+              {
+                self.apply_deferred_binop();
+              }
+
+              body_idx += 1;
+            }
+
+            self.apply_deferred_binop();
+
+            let baked = self
+              .value_stack
+              .last()
+              .copied()
+              .map(|vid| self.value_to_string(vid))
+              .filter(|s| !s.is_empty());
+
+            // Restore — mirrors save order above for symmetry.
+            self.const_eval_mode = false;
+            self.skip_until = saved_skip_outer;
+            self.current_function = saved_current_function;
+            self.pending_decl = saved_pending_decl;
+            self.pending_call_rparen = saved_pending_call_rparen;
+            self.expected_ty_stack = saved_expected_ty_stack;
+            self.tuple_ctx = saved_tuple_ctx;
+            self.deferred_binops = saved_deferred_binops;
+            self.sir_values = saved_sir_values;
+            self.ty_stack = saved_ty_stack;
+            self.value_stack = saved_value_stack;
+            self.sir = saved_sir;
+
+            baked
+          } else {
+            None
+          };
+
+          // Baked → skip closure synthesis; the value is
+          // constant for the template's lifetime.
+          if let Some(text) = baked {
+            commands.push(UiCommand::Text(text));
+            idx = close_idx + 1;
+            continue;
+          }
 
           let combined_params: Vec<(Symbol, TyId)> =
             captures.iter().map(|(s, t, _)| (*s, *t)).collect();
@@ -18292,6 +19231,8 @@ impl<'a> Executor<'a> {
             kind: FunctionKind::Closure { capture_count },
             pubness: Pubness::No,
             mut_self: false,
+            link_name: None,
+            owning_pack: None,
           });
 
           self.push_fun(FunDef {
@@ -18425,8 +19366,8 @@ impl<'a> Executor<'a> {
           self.ty_stack = outer_ty_stack;
           self.sir_values = outer_sir_values;
 
-          // Record the binding and a placeholder Text the
-          // runtime patches before the first render.
+          // Reactive or non-foldable interp: placeholder
+          // Text + binding entry for runtime refresh.
           self.template_bindings.computed.push((
             commands.len(),
             ComputedBinding {
@@ -19045,7 +19986,8 @@ impl<'a> Executor<'a> {
   /// mutable locals produce `Attr::Dynamic` carrying the
   /// reactive binding metadata alongside the initial value.
   fn make_attr_from_local(&self, name: &str, sym: Symbol) -> Attr {
-    let value_str = self.resolve_local_for_template(sym);
+    let raw = self.resolve_local_for_template(sym);
+    let value_str = self.normalise_attr_value(name, raw);
     let initial = PropValue::parse(&value_str);
 
     if self.local_is_mut(sym) {

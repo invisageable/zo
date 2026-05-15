@@ -25,8 +25,14 @@ item_content = pack_decl
 
 (* ===== Attributes ===== *)
 
-attributes = { attribute } ;
-attribute = "%%", identifier, [ "(", identifier, ")" ] ;
+attributes        = { attribute } ;
+attribute         = "%%", attribute_field,
+                    { ",", attribute_field },
+                    [ "," ], "." ;
+attribute_field   = identifier, [ attribute_value ] ;
+attribute_value   = "(", ( identifier | string_literal ), ")"
+                  | "=", literal ;
+literal           = string_literal | identifier | int_literal ;
 
 (* ===== Visibility ===== *)
 
@@ -39,9 +45,10 @@ pack_body = "{", { item }, "}" ;
 
 (* ===== Load Declaration ===== *)
 
-load_decl = "load", module_path, [ "::", "(", import_list, ")" ] ;
-module_path = identifier, { "::", identifier } ;
-import_list = identifier, { ",", identifier } ;
+load_decl    = "load", module_path, [ "::", import_tail ] ;
+module_path  = identifier, { "::", identifier } ;
+import_tail  = "*" | "(", import_list, ")" ;
+import_list  = identifier, { ",", identifier } ;
 
 (* ===== Directive ===== *)
 
@@ -54,7 +61,7 @@ type_decl = "type", identifier, "=", type ;
 (* ===== Group Type Declaration ===== *)
 
 group_type_decl = "group", "type", type_binding, { "and", type_binding }, ";" ;
-type_binding = identifier, "=", type ;
+type_binding    = identifier, "=", type ;
 
 (* ===== FFI Declaration ===== *)
 
@@ -79,7 +86,7 @@ state_variant = identifier, [ "{", field_list, "}" ] ;
 
 (* ===== Function Declaration ===== *)
 
-fun_decl = [ "raw" ], "fun", identifier, [ generic_params ], "(", [ param_list ], ")", 
+fun_decl = [ "raw" ], "fun", identifier, [ generic_params ], "(", [ param_list ], ")",
            [ "->", type, [ "->>", "(", identifier, ")" ] ], fun_body ;
 
 fun_body = "{", { stmt }, [ expr ], "}"

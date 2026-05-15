@@ -1,3 +1,5 @@
+load std::math::*;
+
 -- std::int inherent methods.
 
 fun main() {

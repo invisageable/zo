@@ -192,6 +192,8 @@ fn test_simple_function() {
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       // Load x parameter
       Insn::Load {
@@ -242,6 +244,8 @@ fn test_function_call() {
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       // add body: load x
       Insn::Load {
@@ -277,6 +281,8 @@ fn test_function_call() {
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       // main body: 10
       Insn::ConstInt {
@@ -320,6 +326,8 @@ fn test_main_with_show() {
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       // main body: "hello world" string literal
       Insn::ConstString {
@@ -360,6 +368,8 @@ fn test_function_with_return() {
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       // Load n parameter (first use)
       Insn::Load {
@@ -409,6 +419,8 @@ fn test_directives() {
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       Insn::Template {
         id: ValueId(3),

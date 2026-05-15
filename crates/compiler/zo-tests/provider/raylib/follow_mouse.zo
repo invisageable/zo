@@ -1,0 +1,30 @@
+load std::raylib::*;
+load std::c::*;
+
+-- raylib — magenta circle tracks the mouse pointer every
+-- frame inside an 800×600 window. Proves Vector2 by-value
+-- passing + return through AAPCS HFA end-to-end.
+-- @cmd — zo build follow_mouse.zo && ./follow_mouse
+--
+-- Requires `brew install raylib` (macOS). SPACE or close
+-- exits.
+
+fun main() {
+  init_window(800, 600, c_str("zo + raylib — follow mouse"));
+  set_target_fps(60);
+
+  loop {
+    if window_should_close() { break }
+    if is_key_pressed(32)    { break }   -- SPACE.
+
+    imu mouse: Vector2 = get_mouse_position();
+
+    begin_drawing();
+      clear_background(0xFFFFFFFF);                            -- white
+      draw_circle_v(mouse, 25.0, 0xFFFD5FF0);                  -- magenta
+      draw_text(c_str("follow the mouse"), 12, 12, 24, 0xFF000000);
+    end_drawing();
+  }
+
+  close_window();
+}

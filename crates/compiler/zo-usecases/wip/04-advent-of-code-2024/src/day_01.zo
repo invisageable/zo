@@ -7,8 +7,7 @@
 --
 -- Picks part 2 because part 1 needs sort over the full
 -- input (1000 pairs) and zo's sort runtime currently
--- rejects 8+ element arrays — see PLAN_AOC's Phase D
--- limitation note. Part 2 only needs a HashMap counter.
+-- rejects 8+ element arrays.
 
 fun main() {
   mut text: str = "";

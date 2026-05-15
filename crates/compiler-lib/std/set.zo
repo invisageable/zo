@@ -1,5 +1,3 @@
-pack set;
-
 -! `HashSet<$K>` — presence-only collection.
 -!
 -! Backed by the `ZoMap` runtime with `val_sz = 0` —

@@ -4,8 +4,9 @@ use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
-  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, FpRegister, PatchSite,
-  Register, SP, X0, X1, X2, X3, X9, X16, X17, X29, X30, XZR,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D16, FpRegister,
+  PatchSite, Register, SP, X0, X1, X2, X3, X9, X10, X11, X16, X17, X29, X30,
+  XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_register_allocation::{
@@ -13,8 +14,8 @@ use zo_register_allocation::{
   RegisterClass, SpillKind,
 };
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
-use zo_ty::TyId;
-use zo_value::ValueId;
+use zo_ty::{Ty, TyId, TyTable};
+use zo_value::{FunctionKind, ValueId};
 use zo_writer_macho::{DebugFrameEntry, MachO};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
@@ -101,6 +102,71 @@ const CODE_OFFSET: u64 = 0x400;
 pub(super) const UI_ENTRY_SYMBOL: u32 = 0xFFFF;
 pub(super) const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 
+// Runtime dylib symbols: every `#dom` program emits calls
+// into `libzo_runtime_native.dylib`. Names match the
+// `#[no_mangle]` exports in `zo-runtime-native::ffi`
+// (Mach-O leading-underscore convention).
+const RUNTIME_DYLIB_FILE: &str = "libzo_runtime_native.dylib";
+const SYM_RUN: &str = "_zo_run_native";
+const SYM_STATE_INIT: &str = "_zo_state_init";
+const SYM_STATE_GET: &str = "_zo_state_get";
+const SYM_STATE_SET: &str = "_zo_state_set";
+// Str-typed reactive slots route through a separate
+// `Vec<Vec<u8>>` (length-prefixed copies) — the i64 STATE
+// can't hold a string value.
+const SYM_STATE_GET_STR: &str = "_zo_state_get_str";
+const SYM_STATE_SET_STR: &str = "_zo_state_set_str";
+
+/// Locate `libzo_runtime_native.dylib` next to the running
+/// `zo` binary, falling back to the sibling cargo profile
+/// when only one of `target/debug` / `target/release` has
+/// been built. `cargo run --bin zo --release` produces
+/// `target/release/zo` but doesn't compile the cdylib
+/// (it's not a rlib dep), so the dylib only exists under
+/// `target/debug/` — without the fallback the compiled
+/// program's `LC_LOAD_DYLIB` would be a bare basename
+/// that dyld can't resolve at run time.
+///
+/// Candidate order:
+///   1. `<exe-dir>/<dylib>` — same profile.
+///   2. `<exe-dir>/../debug/<dylib>` — release-zo + debug-dylib.
+///   3. `<exe-dir>/../release/<dylib>` — debug-zo + release-dylib.
+///   4. `<exe-dir>/../lib/<dylib>` — installed layout
+///      (`tasks/zo-install.sh` will write here).
+///
+/// Returns `None` when none of the candidates exist; the
+/// caller falls back to a bare basename so the linker
+/// still records something and dyld surfaces a clean
+/// "image not found" diagnostic at runtime.
+fn resolve_runtime_dylib_path() -> Option<String> {
+  let exe = std::env::current_exe().ok()?;
+  let exe_dir = exe.parent()?;
+  let candidates = [
+    exe_dir.join(RUNTIME_DYLIB_FILE),
+    exe_dir.join("..").join("debug").join(RUNTIME_DYLIB_FILE),
+    exe_dir.join("..").join("release").join(RUNTIME_DYLIB_FILE),
+    exe_dir.join("..").join("lib").join(RUNTIME_DYLIB_FILE),
+  ];
+
+  for candidate in &candidates {
+    if candidate.exists() {
+      let canon = candidate
+        .canonicalize()
+        .unwrap_or_else(|_| candidate.clone());
+
+      return Some(canon.to_string_lossy().into_owned());
+    }
+  }
+
+  None
+}
+/// Synthetic-symbol base for the per-template event
+/// dispatcher (`_zo_dispatch_N`). Paired 1:1 with
+/// `TEMPLATE_SYMBOL_OFFSET` — given template
+/// `ValueId(id)`, its dispatcher's `Symbol` is
+/// `Symbol(id + TEMPLATE_DISPATCHER_SYMBOL_OFFSET)`.
+pub(super) const TEMPLATE_DISPATCHER_SYMBOL_OFFSET: u32 = 0x2000;
+
 // --- Branch Fixup Masks ---
 const BL_OPCODE: u32 = 0x94000000;
 const B_FIXUP_MASK: u32 = 0xFC000000;
@@ -128,6 +194,22 @@ const CFA_FP_REG: u8 = 31;
 // --- Libm Functions ---
 
 /// Maps a zo function name to its C library symbol.
+/// Resolve a `pub ffi` zo name to its C symbol for the
+/// linker. `link_name` from a `%% link_name = "X".`
+/// attribute wins; otherwise the zo name takes the
+/// platform leading underscore. Emitted verbatim into
+/// `BL <c_sym>`.
+fn c_sym_for(
+  interner: &Interner,
+  zo_name: Symbol,
+  link_name: Option<Symbol>,
+) -> String {
+  match link_name {
+    Some(ln) => format!("_{}", interner.get(ln)),
+    None => format!("_{}", interner.get(zo_name)),
+  }
+}
+
 fn libm_c_symbol(name: &str) -> String {
   format!("_{name}")
 }
@@ -145,7 +227,7 @@ fn libm_arg_count(name: &str) -> usize {
 /// Reserves `u32::MAX` as the absent sentinel so a
 /// `DenseMap<ValueId, InsnIdx>` can store it directly with
 /// no `Option` overhead.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct InsnIdx(u32);
 
 impl Sentinel for InsnIdx {
@@ -189,6 +271,54 @@ pub struct ARM64Gen<'a> {
   function_addr_fixups: Vec<(u32, Symbol)>,
   /// Template data sections (symbol -> data).
   pub(super) template_data: Vec<(Symbol, Vec<u8>)>,
+  /// Per-template list of event-handler function names
+  /// (e.g. `"__closure_0"`), in declaration order. Stored
+  /// as strings — the interner is held immutably so we
+  /// can't intern fresh symbols at template-handling time.
+  /// `generate_template_dispatchers` resolves each string
+  /// to a `Symbol` by scanning `self.functions`, whose
+  /// keys were interned by the executor. The position of
+  /// a handler in this list IS the `u32` widget-handler
+  /// ID that the runtime passes to
+  /// `ctx.handle_event(idx, kind)`.
+  pub(super) template_handlers: HashMap<ValueId, Vec<String>>,
+  /// Reactive state assignment: each `mut` symbol that
+  /// appears in any `Template.bindings.text` gets a unique
+  /// `u32` slot id. Closures load/store reactive variables
+  /// through `zo_state_get(slot)` / `zo_state_set(slot,
+  /// value)` calls into the runtime dylib instead of
+  /// reading/writing stack frames — that way the runtime
+  /// owns the state buffer and the renderer can refresh
+  /// `Text` bindings after every event dispatch without
+  /// crossing the ABI.
+  reactive_slots: HashMap<Symbol, u32>,
+  /// Per-template list of `(cmd_idx, slot_id, is_str)`
+  /// triples to pass into the `text_bindings` array of
+  /// the `ZoRuntimeContext` at `#dom` time. Built by the
+  /// same pre-pass that populates `reactive_slots`.
+  template_text_bindings: HashMap<ValueId, Vec<(u32, u32, bool)>>,
+  /// Set of `FunDef` indices whose body touches a
+  /// reactive `mut`. Codegen inserts `bl _zo_state_get` /
+  /// `bl _zo_state_set` (and `bl _zo_state_init` for the
+  /// program's `main`) for those operations — but the
+  /// allocator's `info.has_calls` is computed from
+  /// explicit `Insn::Call`s only, so a function whose
+  /// only calls are reactive helpers would otherwise get
+  /// a leaf-fn prologue (no FP/LR save, no caller-save
+  /// reserve), the inserted `bl` then clobbering `X30`
+  /// and spilling into someone else's frame. Pre-pass
+  /// promotes those functions to non-leaf so the
+  /// prologue/epilogue reserve the right area.
+  fns_needing_calls: HashSet<InsnIdx>,
+  /// Cached `libzo_runtime_native.dylib` path used for
+  /// the `LC_LOAD_DYLIB` entry. `ensure_runtime_dylib_
+  /// registered` resolves it once via `current_exe()` +
+  /// `parent()` + `join()` + `exists()` (a syscall on
+  /// Apple) and reuses the result across every subsequent
+  /// call site (`emit_state_init_prologue`,
+  /// `emit_state_load`, `emit_state_store`,
+  /// `emit_render_call`).
+  runtime_dylib_path: Option<String>,
   /// Whether we have templates that need the entry point.
   pub has_templates: bool,
   /// The label offsets: label_id → byte offset in code.
@@ -390,6 +520,50 @@ pub struct ARM64Gen<'a> {
   /// this, large literals were O(N²) on the SIR stream.
   /// Direct `Vec<InsnIdx>` load — no hashing.
   value_def_idx: DenseMap<ValueId, InsnIdx>,
+  /// FFI signatures by symbol — populated in the pre-pass
+  /// by scanning every `Insn::FunDef` whose `kind` is
+  /// `FunctionKind::Intrinsic`. The `_` arm of
+  /// `Insn::Call`'s dispatch looks here before falling
+  /// through to the user-function path: a hit triggers
+  /// the generic AAPCS path (`abi::classify` +
+  /// `emit_ffi_call`).
+  ffi_sigs: HashMap<Symbol, FfiSig>,
+  /// `link_name` attribute payload per `pub ffi` —
+  /// populated in the same pre-pass that builds
+  /// `ffi_sigs`. The call-site dispatch reads it to pick
+  /// the right C symbol for `BL <c_sym>`.
+  ffi_link_names: HashMap<Symbol, Symbol>,
+  /// Per-FFI host-resolved dylib path (`#link { macos: ...,
+  /// linux: ..., windows: ... }` from the declaring pack).
+  /// Built in the pre-pass; consumed by `into_link_object`
+  /// so the linker can route `LC_LOAD_DYLIB` + bind
+  /// ordinals from per-pack metadata instead of hardcoded
+  /// symbol-name predicates.
+  extern_dylib_paths: HashMap<String, String>,
+  /// Read-only view of the type system needed by the
+  /// classifier (struct field walks for HFA, etc.).
+  /// `None` when the orchestrator didn't supply a
+  /// `TyChecker` — the generic FFI fallback stays off in
+  /// that case and per-symbol arms remain authoritative.
+  type_view: Option<TypeViewStored<'a>>,
+}
+
+/// Slice-only mirror of `abi::TypeQuery`, owned by the
+/// ARM64Gen so the lifetime is tied to the codegen
+/// instance instead of a transient call.
+#[derive(Clone, Copy)]
+struct TypeViewStored<'a> {
+  tys: &'a [Ty],
+  ty_table: &'a TyTable,
+}
+
+/// Per-FFI signature derived from `Insn::FunDef`'s
+/// `params` + `return_ty`. Kept as bare `TyId` lists so
+/// the classifier can be called per call-site without
+/// re-walking the SIR.
+struct FfiSig {
+  params: Vec<TyId>,
+  return_ty: TyId,
 }
 
 /// Base for synthetic string symbols owned by the enum
@@ -500,6 +674,11 @@ impl<'a> ARM64Gen<'a> {
       string_fixups: Vec::new(),
       function_addr_fixups: Vec::new(),
       template_data: Vec::new(),
+      template_handlers: HashMap::default(),
+      reactive_slots: HashMap::default(),
+      template_text_bindings: HashMap::default(),
+      fns_needing_calls: HashSet::default(),
+      runtime_dylib_path: None,
       has_templates: false,
       labels: HashMap::default(),
       branch_fixups: Vec::new(),
@@ -539,7 +718,27 @@ impl<'a> ARM64Gen<'a> {
       struct_metas: HashMap::default(),
       enum_walk_done_fixups: Vec::new(),
       value_def_idx: DenseMap::new(),
+      ffi_sigs: HashMap::default(),
+      ffi_link_names: HashMap::default(),
+      extern_dylib_paths: HashMap::default(),
+      type_view: None,
     }
+  }
+
+  /// Attach the type-system view needed by the generic
+  /// AAPCS FFI path (struct field walks for HFA, etc.).
+  /// When set, the `_` arm of `Insn::Call`'s dispatch
+  /// falls back to `abi::classify` + `emit_ffi_call` for
+  /// any symbol that resolves to a `FunctionKind::Intrinsic`
+  /// `Insn::FunDef`. Without this, the FFI fallback stays
+  /// off and per-symbol arms remain authoritative.
+  pub fn with_type_view(
+    mut self,
+    tys: &'a [Ty],
+    ty_table: &'a TyTable,
+  ) -> Self {
+    self.type_view = Some(TypeViewStored { tys, ty_table });
+    self
   }
 
   // --- Register allocation helpers ---
@@ -986,6 +1185,74 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
+    // Pre-pass: harvest per-pack `#link` paths. Must run
+    // BEFORE the fused walk below because that walk
+    // resolves each `pub ffi`'s dylib path by looking up
+    // its declaring pack — and the pack's `#link` may
+    // appear after some of its `pub ffi` declarations in
+    // the SIR stream (preload modules go first; ordering
+    // within a pack isn't guaranteed).
+    let mut pack_dylib: HashMap<Symbol, String> = HashMap::default();
+
+    for insn in insns.iter() {
+      // Resolution + diagnostic happened at executor
+      // time — codegen just reads the pre-resolved path.
+      if let Insn::PackLink {
+        pack,
+        resolution: zo_sir::LinkResolution::Resolved(sym),
+        ..
+      } = insn
+      {
+        pack_dylib.insert(*pack, self.interner.get(*sym).to_owned());
+      }
+    }
+
+    // Single-walk pre-pass: collect FFI signatures + bind
+    // each `pub ffi` to its declaring pack's `#link` dylib
+    // path. Reads `owning_pack` from the FunDef itself
+    // (set by the executor at emit time) instead of
+    // tracking the most recent `PackDecl` positionally —
+    // the positional model mis-attributed top-level user
+    // FFIs to whichever preload pack landed last in the
+    // merged SIR (`misato` / `sqlite`), routing user
+    // symbols to the wrong dylib.
+    //
+    // `ffi_sigs` feeds the generic AAPCS dispatch fallback
+    // (`_` arm of `Insn::Call`). `extern_dylib_paths`
+    // feeds the linker's `LC_LOAD_DYLIB` routing.
+    for insn in insns.iter() {
+      if let Insn::FunDef {
+        name,
+        kind: FunctionKind::Intrinsic,
+        params,
+        return_ty,
+        link_name,
+        owning_pack,
+        ..
+      } = insn
+      {
+        self.ffi_sigs.insert(
+          *name,
+          FfiSig {
+            params: params.iter().map(|(_, ty)| *ty).collect(),
+            return_ty: *return_ty,
+          },
+        );
+
+        if let Some(ln) = link_name {
+          self.ffi_link_names.insert(*name, *ln);
+        }
+
+        if let Some(pk) = owning_pack
+          && let Some(path) = pack_dylib.get(pk)
+        {
+          let c_sym = c_sym_for(self.interner, *name, *link_name);
+
+          self.extern_dylib_paths.insert(c_sym, path.clone());
+        }
+      }
+    }
+
     // Pre-pass: collect `ArrayTyDef` and `MapTyDef`
     // metadata so the typed-write dispatchers can look
     // up element / scalar info regardless of where the
@@ -1019,6 +1286,86 @@ impl<'a> ARM64Gen<'a> {
           self.set_metas.insert(set_ty.0, *key_fmt);
         }
         _ => {}
+      }
+    }
+
+    // Pre-pass: assign each `Template`-bound reactive
+    // symbol a slot id, and capture its first-store ty_id
+    // as the `is_str` tag — without it `refresh_bindings`
+    // would route string slots through `STATE` (i64) and
+    // render the decimal of the buffer pointer.
+    self.reactive_slots.clear();
+    self.template_text_bindings.clear();
+
+    let mut sym_first_store_ty: HashMap<Symbol, TyId> = HashMap::default();
+
+    for insn in insns.iter() {
+      if let Insn::Store { name, ty_id, .. } = insn {
+        sym_first_store_ty.entry(*name).or_insert(*ty_id);
+      }
+    }
+
+    for insn in insns.iter() {
+      let Insn::Template { id, bindings, .. } = insn else {
+        continue;
+      };
+
+      let mut entries: Vec<(u32, u32, bool)> =
+        Vec::with_capacity(bindings.text.len());
+
+      for &(cmd_idx, sym) in &bindings.text {
+        let slot = if let Some(&s) = self.reactive_slots.get(&sym) {
+          s
+        } else {
+          let s = self.reactive_slots.len() as u32;
+
+          self.reactive_slots.insert(sym, s);
+          s
+        };
+
+        let is_str = sym_first_store_ty
+          .get(&sym)
+          .is_some_and(|t| t.0 == STR_TYPE_ID);
+
+        entries.push((cmd_idx as u32, slot, is_str));
+      }
+
+      self.template_text_bindings.insert(*id, entries);
+    }
+
+    // Pre-pass companion: find every function whose body
+    // touches a reactive symbol. The inserted state-helper
+    // `bl`s clobber X30, so those functions need a
+    // non-leaf prologue/epilogue regardless of what the
+    // allocator's `has_calls` said.
+    self.fns_needing_calls.clear();
+    {
+      let mut current_fn: Option<InsnIdx> = None;
+
+      for (i, insn) in insns.iter().enumerate() {
+        match insn {
+          Insn::FunDef { .. } => {
+            current_fn = Some(InsnIdx(i as u32));
+          }
+          Insn::Load {
+            src: LoadSource::Local(sym),
+            ..
+          } => {
+            if self.reactive_slots.contains_key(sym)
+              && let Some(start) = current_fn
+            {
+              self.fns_needing_calls.insert(start);
+            }
+          }
+          Insn::Store { name, .. } => {
+            if self.reactive_slots.contains_key(name)
+              && let Some(start) = current_fn
+            {
+              self.fns_needing_calls.insert(start);
+            }
+          }
+          _ => {}
+        }
       }
     }
 
@@ -1064,8 +1411,29 @@ impl<'a> ARM64Gen<'a> {
 
     // Generate _zo_ui_entry_point if we have templates.
     if self.has_templates {
+      // Order matters: dispatchers reference user-emitted
+      // handler functions via `function_addr_fixups`, so
+      // they must run AFTER the FunDef pass — which
+      // happened above in `translate_insn` — but BEFORE
+      // we hand off `self.functions` to the layout pass.
+      self.generate_template_dispatchers();
       self.generate_ui_entry_point();
     }
+
+    // Drop `LC_LOAD_DYLIB` entries for FFI symbols that
+    // were declared (via `pub ffi` in a preload pack) but
+    // never actually called. Each unused entry costs dyld
+    // a full image mapping + init at process startup —
+    // ~20-25ms on macOS for a 60+ MB dylib. Programs that
+    // import a pack purely for its types (without calling
+    // its FFI surface) get the startup back.
+    //
+    // `extern_used_set` is the ground truth: a symbol is
+    // there iff `emit_extern_call` (or the FFI dispatch
+    // arm) actually emitted a `bl` to it.
+    self
+      .extern_dylib_paths
+      .retain(|sym, _| self.extern_used_set.contains(sym));
 
     // Emit libm stubs at end of code section. Each stub is
     // 12 bytes (3 instructions): ADRP X16, page; LDR X16,
@@ -1229,6 +1597,7 @@ impl<'a> ARM64Gen<'a> {
       call_fixups: self.call_fixups,
       main_offset,
       ui_entry_offset,
+      extern_dylib_paths: self.extern_dylib_paths,
     }
   }
 
@@ -1411,6 +1780,8 @@ impl<'a> ARM64Gen<'a> {
           select_scratch_size,
         )) = fn_info
         {
+          let has_calls = self.promoted_has_calls(idx as u32, has_calls);
+
           if has_calls {
             self.emitter.emit_stp(X29, X30, SP, FP_LR_SAVE_OFFSET);
           }
@@ -1489,6 +1860,18 @@ impl<'a> ARM64Gen<'a> {
             // param reads) can resolve the spill slot.
             self.param_sym_slots.insert(sym.as_u32(), (off, is_fp));
           }
+
+          // Once main's prologue has stored its params,
+          // call `zo_state_init` so reactive `mut` writes
+          // (the program's first user-visible action) see
+          // an allocated buffer. Idempotent on the runtime
+          // side; emitting in every function is wasteful
+          // but harmless — keep it main-only.
+          if let Some(name) = self.current_function
+            && self.interner.get(name) == "main"
+          {
+            self.emit_state_init_prologue();
+          }
         }
       }
 
@@ -1539,9 +1922,24 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_adr(ptr_reg, 0);
       }
 
-      Insn::Load { dst, src, .. } => match src {
+      Insn::Load {
+        dst, src, ty_id, ..
+      } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
+
+          // Reactive `mut` read: route through the runtime
+          // dylib's `zo_state_get(slot)` so closures and
+          // main both pull from the process-global state
+          // buffer instead of their respective stack
+          // frames.
+          if let Some(&state_slot) = self.reactive_slots.get(sym) {
+            if let Some(dst_reg) = self.alloc_reg(*dst) {
+              self.emit_state_load(dst_reg, state_slot, ty_id.0 == STR_TYPE_ID);
+            }
+
+            return;
+          }
 
           // Recover the construction-site enum payload types
           // (if any) so a later `showln(local)` can dispatch
@@ -1946,6 +2344,13 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_svc(0);
           }
 
+          "c_str" => self.emit_c_str(args, idx),
+          // raylib + misato FFIs flow through the generic
+          // AAPCS fallback (`_` arm → `emit_ffi_call`).
+          // Misato C symbols already match `_<zo_name>` —
+          // the std `pub ffi __zo_misato_*` declarations
+          // name the C symbol directly, so no mapping is
+          // needed.
           "exists" => self.emit_io_exists(args, idx),
           "read_file" => self.emit_io_read_file(args, idx),
           "write_file" => self.emit_io_write_file(args, idx),
@@ -2171,6 +2576,42 @@ impl<'a> ARM64Gen<'a> {
           }
 
           _ => {
+            // Generic AAPCS FFI fallback. If `name`
+            // resolves to a `FunctionKind::Intrinsic`
+            // FunDef AND the orchestrator wired a
+            // `type_view`, classify the signature once
+            // and emit through `emit_ffi_call`. This is
+            // the path that lets a future `pub ffi` work
+            // with zero compiler edits — F4/F5 delete
+            // the per-symbol arms above and the calls
+            // fall through to here.
+            if let Some(view) = self.type_view
+              && let Some(sig) = self.ffi_sigs.get(name)
+            {
+              let abi = crate::abi::classify(
+                &sig.params,
+                sig.return_ty,
+                &crate::abi::TypeQuery {
+                  tys: view.tys,
+                  ty_table: view.ty_table,
+                },
+              );
+              // Resolve the C symbol. `link_name` from a
+              // `%% link_name = "X".` attribute wins;
+              // otherwise the legacy `RAYLIB_NAME_MAP`
+              // (snake → PascalCase) covers raylib until
+              // its bindings migrate; everything else
+              // gets the platform-underscore default.
+              let link_name = self.ffi_link_names.get(name).copied();
+              let c_sym: &'static str =
+                c_sym_for(self.interner, *name, link_name).leak();
+
+              self.emit_ffi_call(c_sym, &abi, args, idx);
+              return;
+            }
+
+            // User-function call (zo's own positional
+            // calling convention — not full AAPCS).
             // Move args to X0-X7 (GP) or D0-D7 (FP).
             // Collect moves first to detect clobbering:
             // if src of move B == dst of move A, moving A
@@ -2372,6 +2813,13 @@ impl<'a> ARM64Gen<'a> {
           select_scratch_size,
         )) = epi_info
         {
+          // Mirror the prologue's promotion so the
+          // epilogue restores FP/LR + tears down the
+          // matching frame size.
+          let has_calls = self
+            .current_fn_start
+            .map(|s| self.promoted_has_calls(s as u32, has_calls))
+            .unwrap_or(has_calls);
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = if has_calls { CALLER_SAVE_RESERVE } else { 0 };
           let frame = (spill_size
@@ -2417,6 +2865,22 @@ impl<'a> ARM64Gen<'a> {
 
         if let Some(elems) = self.value_tuple_elem_tys.get(&value.0).cloned() {
           self.local_tuple_elem_tys.insert(name.as_u32(), elems);
+        }
+
+        // Reactive `mut` write: route through the runtime
+        // dylib's `zo_state_set(slot, value)` so closure
+        // and main-thread updates both land in the
+        // process-global state buffer that
+        // `refresh_bindings` reads.
+        if let Some(&slot) = self.reactive_slots.get(name) {
+          let value_reg = match self.alloc_reg(*value) {
+            Some(r) => r,
+            None => return,
+          };
+
+          self.emit_state_store(slot, value_reg, ty_id.0 == STR_TYPE_ID);
+
+          return;
         }
 
         let slot_key = name.as_u32();
@@ -4612,6 +5076,310 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_add_imm(dst, SP, 0);
   }
 
+  /// Clobber-safe int arg marshaling. Given (dst, src)
+  /// pairs, emits a sequence of `mov` that always lands the
+  /// right value in each `dst`, even if a later `dst` is
+  /// some other move's `src`. One scratch slot (X16) is
+  /// enough for any 3-5 arg call (raylib's whole surface).
+  ///
+  /// Without this, calling `init_window(w, h, c_str("…"))`
+  /// segfaults: c_str's result lands in X0, then `mov X0, w`
+  /// clobbers it before `mov X2, x0` can read it.
+  fn emit_safe_int_arg_moves(&mut self, moves: &[(Register, Register)]) {
+    let mut saved_reg: Option<Register> = None;
+
+    for j in 0..moves.len() {
+      let (_, src) = moves[j];
+
+      let is_clobbered = moves
+        .iter()
+        .enumerate()
+        .any(|(k, (dst, _))| k != j && *dst == src);
+
+      if is_clobbered && saved_reg.is_none() {
+        self.emitter.emit_mov_reg(X16, src);
+        saved_reg = Some(src);
+      }
+    }
+
+    for &(dst, src) in moves {
+      let actual_src = if Some(src) == saved_reg { X16 } else { src };
+
+      if dst != actual_src {
+        self.emitter.emit_mov_reg(dst, actual_src);
+      }
+    }
+  }
+
+  // ================================================================
+  // C interop — `c_str(s: str) -> int` returns a C-string
+  // pointer (`const char *` equivalent) by skipping zo's
+  // 8-byte length prefix. Compile-time intrinsic — single
+  // ADD instruction, no extern call.
+  // ================================================================
+
+  /// `c_str(s: str) -> int` — the only zo→C marshal we need
+  /// for raylib (and any future C library). zo's str layout
+  /// is `[len:8][bytes][NUL]`; raylib wants the bytes ptr.
+  /// One instruction.
+  fn emit_c_str(&mut self, args: &[ValueId], idx: usize) {
+    let s = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emitter.emit_add_imm(dst, s, 8);
+    }
+  }
+
+  // ================================================================
+  // AAPCS marshaling primitives shared by `emit_ffi_call`
+  // (the generic FFI path). FP register moves use the same
+  // clobber-safe pattern as `emit_safe_int_arg_moves` —
+  // stash through D16 when a destination would overwrite a
+  // still-needed source.
+  // ================================================================
+
+  /// Clobber-safe FP register marshaling — mirrors
+  /// `emit_safe_int_arg_moves`. Stashes through D16 when a
+  /// later destination would overwrite a still-needed
+  /// source. AAPCS uses D0-D7 for FP args (caller-saved);
+  /// D16-D31 are also caller-saved, so D16 is a free
+  /// scratch slot during call-site marshaling.
+  fn emit_safe_fp_arg_moves(&mut self, moves: &[(FpRegister, FpRegister)]) {
+    let mut saved_reg: Option<FpRegister> = None;
+
+    for j in 0..moves.len() {
+      let (_, src) = moves[j];
+
+      let is_clobbered = moves
+        .iter()
+        .enumerate()
+        .any(|(k, (dst, _))| k != j && *dst == src);
+
+      if is_clobbered && saved_reg.is_none() {
+        self.emitter.emit_fmov_fp(D16, src);
+        saved_reg = Some(src);
+      }
+    }
+
+    for &(dst, src) in moves {
+      let actual_src = if Some(src) == saved_reg { D16 } else { src };
+
+      if dst != actual_src {
+        self.emitter.emit_fmov_fp(dst, actual_src);
+      }
+    }
+  }
+
+  // ================================================================
+  // Generic AAPCS-driven FFI call.
+  //
+  // Consumes an `AbiCall` produced by `abi::classify` and
+  // emits the entire marshaling sequence. Drives codegen
+  // from the `pub ffi` declaration's type signature
+  // instead of a per-symbol handler.
+  //
+  // Ordering rationale:
+  //   1. Stack reservation (if any indirect args / return
+  //      slot).
+  //   2. HFA / Composite loads first — these READ from
+  //      struct-base GP regs but WRITE to FP regs and
+  //      composite-arg GP regs. Doing them first means a
+  //      later step that overwrites the struct-base reg
+  //      can't trip on a still-pending load.
+  //   3. Clobber-safe GP moves for plain `Gp` args —
+  //      `emit_safe_int_arg_moves` handles cross-class
+  //      cycles via the X16 scratch.
+  //   4. FCVT-narrow per `Fp { narrow: true }` arg. Each
+  //      narrow is in-place (S writes the low half of V),
+  //      so this never clobbers a sibling FP arg.
+  //   5. `BL c_sym`.
+  //   6. Return-value placement.
+  //   7. Stack restore.
+  // ================================================================
+
+  /// Emit a C call described by `abi`. `args` aligns
+  /// 1:1 with `abi.args`; `idx` is the SIR instruction
+  /// index, used to look up the destination register
+  /// via `reg_for_insn` / `fp_reg_for_insn`.
+  fn emit_ffi_call(
+    &mut self,
+    c_sym: &str,
+    abi: &crate::abi::AbiCall,
+    args: &[ValueId],
+    idx: usize,
+  ) {
+    use crate::abi::{AbiArg, AbiRet};
+
+    if abi.stack_bytes > 0 {
+      self.emitter.emit_sub_imm(SP, SP, abi.stack_bytes as u16);
+    }
+
+    let mut gp_moves: Vec<(Register, Register)> = Vec::new();
+    let mut fp_moves: Vec<(FpRegister, FpRegister)> = Vec::new();
+
+    for (i, abi_arg) in abi.args.iter().enumerate() {
+      let arg_value = args[i];
+
+      match abi_arg {
+        AbiArg::Gp(dst_reg) => {
+          let src = self.alloc_reg(arg_value).unwrap_or(*dst_reg);
+          gp_moves.push((*dst_reg, src));
+        }
+
+        AbiArg::Fp { reg: dst_reg, .. } => {
+          let src = self.alloc_fp_reg(arg_value).unwrap_or(*dst_reg);
+          fp_moves.push((*dst_reg, src));
+        }
+
+        AbiArg::Hfa { regs, .. } => {
+          // zo stores struct fields at successive
+          // 8-byte slots. The argument's source register
+          // holds the struct's base address.
+          let v_base = self.alloc_reg(arg_value).unwrap_or(X0);
+          let narrow = matches!(
+            abi_arg,
+            AbiArg::Hfa {
+              width: zo_ty::FloatWidth::F32,
+              ..
+            }
+          );
+          for (j, reg) in regs.iter().enumerate() {
+            self.emitter.emit_ldr_fp(
+              *reg,
+              v_base,
+              (j as u32 * STACK_SLOT_SIZE) as u16,
+            );
+            if narrow {
+              self.emitter.emit_fcvt_d_to_s(*reg, *reg);
+            }
+          }
+        }
+
+        AbiArg::Composite { regs, .. } => {
+          // ≤ 16B composite — read each 8-byte slot from
+          // the struct's base into the matching GP arg
+          // register.
+          let v_base = self.alloc_reg(arg_value).unwrap_or(X0);
+          for (j, reg) in regs.iter().enumerate() {
+            self.emitter.emit_ldr(*reg, v_base, (j as i16) * 8);
+          }
+        }
+
+        AbiArg::Indirect { .. } => {
+          // > 16B composite — caller memcpys onto the
+          // reserved stack slot and passes a pointer to
+          // it. Not exercised by any current FFI; will
+          // implement when a `pub ffi` introduces a
+          // `Camera3D`-by-value parameter.
+          todo!(
+            "AAPCS Indirect arg marshaling — \
+             needed when an FFI declares a > 16B \
+             struct param (e.g. raylib Camera3D)"
+          );
+        }
+
+        AbiArg::Stack { .. } => {
+          // > 8 same-class args — overflows to stack.
+          // No current FFI hits this.
+          todo!(
+            "AAPCS Stack arg marshaling — \
+             needed when an FFI has > 8 GP or > 8 FP args"
+          );
+        }
+      }
+    }
+
+    // Step 3: clobber-safe GP moves all at once.
+    if !gp_moves.is_empty() {
+      self.emit_safe_int_arg_moves(&gp_moves);
+    }
+
+    // Step 3b: clobber-safe FP moves all at once.
+    if !fp_moves.is_empty() {
+      self.emit_safe_fp_arg_moves(&fp_moves);
+    }
+
+    // Step 4: per-arg post-marshaling narrow.
+    for abi_arg in abi.args.iter() {
+      if let AbiArg::Fp { reg, narrow: true } = abi_arg {
+        self.emitter.emit_fcvt_d_to_s(*reg, *reg);
+      }
+    }
+
+    // Step 5.
+    self.emit_extern_call(c_sym);
+
+    // Step 6: return.
+    match &abi.ret {
+      AbiRet::Void => {}
+
+      AbiRet::Gp(reg) => {
+        if let Some(dst) = self.reg_for_insn(idx)
+          && dst != *reg
+        {
+          self.emitter.emit_mov_reg(dst, *reg);
+        }
+      }
+
+      AbiRet::Fp { reg, widen } => {
+        if *widen {
+          self.emitter.emit_fcvt_s_to_d(*reg, *reg);
+        }
+        if let Some(dst) = self.fp_reg_for_insn(idx)
+          && dst != *reg
+        {
+          self.emitter.emit_fmov_fp(dst, *reg);
+        }
+      }
+
+      AbiRet::Hfa { regs, width } => {
+        // raylib returns an HFA in the same regs the call
+        // sites uses to PASS one. Widen back to zo's f64
+        // (in place) and stash into a fresh struct slot.
+        let widen = matches!(width, zo_ty::FloatWidth::F32);
+        let base = self.struct_base + self.next_struct_slot;
+
+        for (i, reg) in regs.iter().enumerate() {
+          if widen {
+            self.emitter.emit_fcvt_s_to_d(*reg, *reg);
+          }
+          self.emit_str_fp_sp(*reg, base + i as u32 * STACK_SLOT_SIZE);
+        }
+        self.next_struct_slot += regs.len() as u32 * STACK_SLOT_SIZE;
+
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst, base);
+        }
+      }
+
+      AbiRet::Composite { .. } => {
+        // ≤ 16B returned packed into X0/X1; reconstruct
+        // a struct slot from the regs. Not exercised
+        // today.
+        todo!(
+          "AAPCS Composite return — \
+           needed when an FFI returns a ≤ 16B non-HFA \
+           struct"
+        );
+      }
+
+      AbiRet::Indirect { .. } => {
+        // > 16B return — X8 was set before the call.
+        // The slot is already at `slot_offset` on the
+        // current stack frame. Not exercised today.
+        todo!(
+          "AAPCS Indirect return — \
+           needed when an FFI returns a > 16B struct"
+        );
+      }
+    }
+
+    // Step 7: restore stack.
+    if abi.stack_bytes > 0 {
+      self.emitter.emit_add_imm(SP, SP, abi.stack_bytes as u16);
+    }
+  }
+
   // ================================================================
   // IO builtins — ARM64 syscall implementations.
   // macOS convention: carry flag set = error, X0 = errno.
@@ -5704,17 +6472,269 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_csel(dst, dst, X16, cond);
   }
 
-  /// Emit a call to the runtime render function.
+  /// Emit a call into the runtime dylib that opens the
+  /// eframe window. Builds a 32-byte `ZoRuntimeContext`
+  /// on the stack (template ptr via PC-relative `adr`,
+  /// template len as immediate, both callback fields
+  /// zero), sets `x0` to its address, and `bl`s
+  /// `_zo_run_native`. The call blocks until the user
+  /// closes the window.
+  ///
+  /// We don't go through `emit_extern_call` here because
+  /// the `sub sp` invalidates its `caller_save_base`
+  /// offsets — programs with caller-save liveness across
+  /// `#dom` are unsupported (the directive is positioned
+  /// at the directive site; the call blocks anyway).
+  ///
+  /// Side effect: registers `_zo_run_native` in
+  /// `extern_dylib_paths` so the linker emits an
+  /// `LC_LOAD_DYLIB` for `libzo_runtime_native.dylib`.
   fn emit_render_call(&mut self, value: ValueId) {
+    self.ensure_runtime_dylib_registered();
+
     let template_symbol = Symbol(value.0 + TEMPLATE_SYMBOL_OFFSET);
+    let template_len = self
+      .template_data
+      .iter()
+      .find_map(|(s, b)| (*s == template_symbol).then_some(b.len()))
+      .unwrap_or(0) as u64;
+    let has_handlers = self
+      .template_handlers
+      .get(&value)
+      .is_some_and(|hs| !hs.is_empty());
+    let bindings = self
+      .template_text_bindings
+      .get(&value)
+      .cloned()
+      .unwrap_or_default();
+    let bindings_count = bindings.len();
+
+    // Stack layout (mirrors `ZoRuntimeContext` in
+    // `zo-runtime-native::ffi`):
+    //   [sp +  0..8 ] template_ptr
+    //   [sp +  8..16] template_len
+    //   [sp + 16..24] handle_event
+    //   [sp + 24..32] text_bindings_ptr
+    //   [sp + 32..40] text_bindings_count
+    //   [sp + 40..40 + 16*N] text_bindings array — one
+    //         `#[repr(C)] struct TextBinding` per entry,
+    //         16 bytes: cmd_idx u32 @0, slot_id u32 @4,
+    //         is_str u32 @8, _pad u32 @12.
+    const CTX_BYTES: i16 = 40;
+    const BINDINGS_BASE: i16 = CTX_BYTES;
+    const BINDING_STRIDE: i16 = 16;
+
+    let bindings_bytes = (bindings_count as i16) * BINDING_STRIDE;
+    let total = CTX_BYTES + bindings_bytes;
+    // Align up to 16; AArch64 needs sp 16-byte aligned.
+    let stack_reserve = ((total + 15) & !15) as u16;
+
+    // x9 = &template (PC-relative; ADR fixup patches
+    // against the appended postcard payload).
     let fixup_pos = self.emitter.current_offset();
 
     self.string_fixups.push((fixup_pos, template_symbol));
-    self.emitter.emit_adr(X0, 0);
+    self.emitter.emit_adr(X9, 0);
 
-    self.emitter.emit_mov_imm(X16, SYS_WRITE);
-    self.emitter.emit_mov_imm(X0, FD_STDOUT);
-    self.emitter.emit_svc(0);
+    // x10 = template_len.
+    self.emit_mov_imm_64(X10, template_len);
+
+    // x11 = &_zo_dispatch_<id> (PC-relative). Only when
+    // the template has event handlers.
+    if has_handlers {
+      let dispatcher_symbol =
+        Symbol(value.0 + TEMPLATE_DISPATCHER_SYMBOL_OFFSET);
+      let adr_pos = self.emitter.current_offset();
+
+      self.emitter.emit_adr(X11, 0);
+      self.function_addr_fixups.push((adr_pos, dispatcher_symbol));
+    }
+
+    self.emitter.emit_sub_imm(SP, SP, stack_reserve);
+    self.emitter.emit_str(X9, SP, 0);
+    self.emitter.emit_str(X10, SP, 8);
+
+    if has_handlers {
+      self.emitter.emit_str(X11, SP, 16);
+    } else {
+      self.emitter.emit_str(XZR, SP, 16);
+    }
+
+    if bindings_count > 0 {
+      // 16-byte `#[repr(C)] TextBinding` per entry,
+      // emitted as two `i64` halves: low = cmd_idx |
+      // slot_id<<32, high = is_str (with _pad=0).
+      for (i, &(cmd_idx, slot_id, is_str)) in bindings.iter().enumerate() {
+        let entry_base = BINDINGS_BASE + (i as i16) * BINDING_STRIDE;
+        let lo = (cmd_idx as u64) | ((slot_id as u64) << 32);
+        let hi = is_str as u64;
+
+        self.emit_mov_imm_64(X9, lo);
+        self.emitter.emit_str(X9, SP, entry_base);
+        self.emit_mov_imm_64(X9, hi);
+        self.emitter.emit_str(X9, SP, entry_base + 8);
+      }
+
+      // text_bindings_ptr = SP + BINDINGS_BASE.
+      self.emitter.emit_add_imm(X9, SP, BINDINGS_BASE as u16);
+      self.emitter.emit_str(X9, SP, 24);
+
+      // text_bindings_count.
+      self.emit_mov_imm_64(X9, bindings_count as u64);
+      self.emitter.emit_str(X9, SP, 32);
+    } else {
+      self.emitter.emit_str(XZR, SP, 24);
+      self.emitter.emit_str(XZR, SP, 32);
+    }
+
+    // `MOV X0, SP` — AArch64 MOV (register) is `ORR Rd,
+    // XZR, Rm`; SP and XZR share encoding 31 so ORR
+    // would zero X0. Use `ADD X0, SP, #0` (the "MOV
+    // from/to SP" idiom).
+    self.emitter.emit_add_imm(X0, SP, 0);
+
+    self.emit_extern_call_no_spill(SYM_RUN);
+    self.emitter.emit_add_imm(SP, SP, stack_reserve);
+  }
+
+  /// Like `emit_extern_call` but without saving / restoring
+  /// caller-save registers. Used by `emit_render_call`,
+  /// which moves `sp` to allocate its on-stack
+  /// `ZoRuntimeContext` — the spill offsets in
+  /// `emit_extern_call` are relative to the original `sp`
+  /// and would clobber the newly-allocated struct. Callers
+  /// must ensure no live values are in `X9..X17` at the
+  /// call site.
+  fn emit_extern_call_no_spill(&mut self, c_sym: &str) {
+    let bl_pos = self.emitter.current_offset();
+    let sym = c_sym.to_string();
+
+    self.emitter.emit_bl(0);
+    self.extern_fixups.push((bl_pos, sym.clone()));
+
+    if self.extern_used_set.insert(sym.clone()) {
+      self.extern_used.push(sym);
+    }
+  }
+
+  /// Return the effective `has_calls` for the function
+  /// starting at `idx`: the allocator's view OR'd with
+  /// our reactive-state promotion. The override exists
+  /// because inserted `bl _zo_state_*` calls clobber X30
+  /// and need the caller-save spill area, but the allocator
+  /// is unaware of these synthesised calls.
+  fn promoted_has_calls(&self, idx: u32, base: bool) -> bool {
+    base || self.fns_needing_calls.contains(&InsnIdx(idx))
+  }
+
+  /// Idempotently insert every runtime-dylib symbol into
+  /// `extern_dylib_paths` so the Mach-O writer emits an
+  /// `LC_LOAD_DYLIB` for `libzo_runtime_native.dylib`. Path
+  /// resolution mirrors the `<exe-dir>/libzo_*.dylib`
+  /// pattern that cargo's `cdylib` target produces — for
+  /// dev workflow `target/debug/libzo_runtime_native.dylib`
+  /// is right next to `target/debug/zo`. Falls back to a
+  /// bare basename so the linker still records SOMETHING
+  /// rather than failing silently when `current_exe()`
+  /// can't be resolved (sandboxed test runners, etc.); dyld
+  /// will then surface a clean "image not found" error at
+  /// runtime instead of a malformed Mach-O.
+  ///
+  /// The on-disk lookup (a syscall on Apple) runs at most
+  /// once per `ARM64Gen`: subsequent calls reuse the
+  /// `runtime_dylib_path` cache and only check / insert
+  /// into the `extern_dylib_paths` map.
+  fn ensure_runtime_dylib_registered(&mut self) {
+    let path = match &self.runtime_dylib_path {
+      Some(p) => p.clone(),
+      None => {
+        let resolved = resolve_runtime_dylib_path()
+          .unwrap_or_else(|| RUNTIME_DYLIB_FILE.to_string());
+
+        self.runtime_dylib_path = Some(resolved.clone());
+        resolved
+      }
+    };
+
+    for sym in [
+      SYM_RUN,
+      SYM_STATE_INIT,
+      SYM_STATE_GET,
+      SYM_STATE_SET,
+      SYM_STATE_GET_STR,
+      SYM_STATE_SET_STR,
+    ] {
+      self
+        .extern_dylib_paths
+        .entry(sym.to_string())
+        .or_insert_with(|| path.clone());
+    }
+  }
+
+  /// Emit `bl _zo_state_init(N)` at the START of main's
+  /// body — runs once at program startup, before any
+  /// reactive `mut` initialiser fires. Idempotent on the
+  /// runtime side (`zo_state_init` is a `resize` upward).
+  /// No-op when no reactive state was detected by the
+  /// pre-pass.
+  fn emit_state_init_prologue(&mut self) {
+    let state_count = self.reactive_slots.len();
+
+    if state_count == 0 {
+      return;
+    }
+
+    self.ensure_runtime_dylib_registered();
+    self.emitter.emit_mov_imm(X0, state_count as u16);
+    self.emit_extern_call(SYM_STATE_INIT);
+  }
+
+  /// Emit `mov w0, slot; bl _zo_state_get*; mov dst, x0`
+  /// — the read side of a reactive `mut`. Used in place of
+  /// the stack-frame `ldr` when the symbol carries a slot
+  /// in `reactive_slots`. `is_str` picks the str-typed FFI
+  /// (returns a pointer into a `STR_STATE` clone the
+  /// runtime sizes per slot for stable address) over the
+  /// int FFI (returns `i64` from `STATE`).
+  fn emit_state_load(&mut self, dst: Register, slot: u32, is_str: bool) {
+    self.ensure_runtime_dylib_registered();
+    self.emitter.emit_mov_imm(X0, slot as u16);
+    self.emit_extern_call(if is_str {
+      SYM_STATE_GET_STR
+    } else {
+      SYM_STATE_GET
+    });
+
+    if dst != X0 {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// Emit `mov w0, slot; mov x1, value; bl _zo_state_set*`
+  /// — the write side of a reactive `mut`. Used in place
+  /// of the stack-frame `str` when the symbol carries a
+  /// slot in `reactive_slots`. The str-typed FFI variant
+  /// reads the length-prefix from `value` (a zo `str`
+  /// pointer) and copies the bytes into `STR_STATE[slot]`,
+  /// so the closure caller's frame doesn't need to keep
+  /// the source buffer alive past this call.
+  fn emit_state_store(&mut self, slot: u32, value: Register, is_str: bool) {
+    self.ensure_runtime_dylib_registered();
+
+    // Order matters: X1 first (so a later `mov W0, imm`
+    // doesn't clobber the value before we move it), then
+    // X0 for the slot. If `value` is already X1 we skip
+    // the move.
+    if value != X1 {
+      self.emitter.emit_mov_reg(X1, value);
+    }
+
+    self.emitter.emit_mov_imm(X0, slot as u16);
+    self.emit_extern_call(if is_str {
+      SYM_STATE_SET_STR
+    } else {
+      SYM_STATE_SET
+    });
   }
 
   /// Generate a complete "Hello, World" executable.

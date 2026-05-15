@@ -1,5 +1,3 @@
-pack vec;
-
 -! `Vec<$T>` — growable list backed by a flat byte buffer.
 -!
 -! The `ptr` field carries an opaque pointer (encoded as

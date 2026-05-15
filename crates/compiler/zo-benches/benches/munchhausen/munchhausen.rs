@@ -1,6 +1,6 @@
-const MAX: i32 = 440_000_000;
+const MAX: i64 = 440_000_000;
 
-fn pow_int(b: i32, e: i32) -> i32 {
+fn pow_int(b: i64, e: i64) -> i64 {
   let mut result = 1;
   for _ in 0..e {
     result *= b;
@@ -8,7 +8,7 @@ fn pow_int(b: i32, e: i32) -> i32 {
   result
 }
 
-fn is_munchhausen(n: i32, pwr: &[i32]) -> bool {
+fn is_munchhausen(n: i64, pwr: &[i64]) -> bool {
   let mut sum = 0;
   let mut temp = n;
   while temp > 0 {
@@ -19,7 +19,7 @@ fn is_munchhausen(n: i32, pwr: &[i32]) -> bool {
 }
 
 fn main() {
-  let mut pwr = [0i32; 10];
+  let mut pwr = [0i64; 10];
   for i in 0..10 {
     pwr[i as usize] = pow_int(i, i);
   }

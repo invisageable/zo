@@ -1,5 +1,3 @@
-pack fmt;
-
 -! Convert a value to its string representation.
 -!
 -! `showln(x)` auto-dispatches to this abstract when `x`'s

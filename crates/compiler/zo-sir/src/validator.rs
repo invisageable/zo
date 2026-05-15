@@ -490,6 +490,7 @@ fn check_insn(
     Insn::StrSlice { ty_id, .. } => {
       check_placeholder(report, idx, *ty_id, "StrSlice.ty_id");
     }
+    Insn::PackLink { .. } => {}
   }
 }
 
@@ -664,6 +665,8 @@ mod tests {
         kind: FunctionKind::UserDefined,
         pubness: zo_value::Pubness::No,
         mut_self: false,
+        link_name: None,
+        owning_pack: None,
       },
       Insn::Return {
         value: None,

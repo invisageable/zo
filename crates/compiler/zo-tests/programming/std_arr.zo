@@ -1,3 +1,5 @@
+load std::arr::*;
+
 -- std::arr inherent methods on `[]int`.
 
 fun main() {
