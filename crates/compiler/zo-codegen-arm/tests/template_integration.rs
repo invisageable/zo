@@ -137,8 +137,10 @@ fn test_template_memory_layout() {
     UiCommand::EndElement,
   ];
 
+  let template_id = ValueId(1);
+
   sir.emit(Insn::Template {
-    id: ValueId(1),
+    id: template_id,
     name: None,
     ty_id: TyId(0),
     commands: commands.clone(),
@@ -147,21 +149,39 @@ fn test_template_memory_layout() {
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
+  let macho = codegen.into_link_object(artifact);
 
-  // Each command occupies 16 bytes of command header + null
-  // data pointer in the stubbed encoder.
-  let expected_command_bytes = commands.len() * 16;
-  let header_bytes = 8;
-  let min_size = header_bytes + expected_command_bytes;
+  // `Insn::Template` postcard-encodes its command stream into
+  // a `template_data` rodata payload — no ARM instructions
+  // land in `artifact.code` until a `#dom` directive triggers
+  // `emit_render_call`. Verify the rodata blob exists, is
+  // attached to the expected symbol, and decodes back to the
+  // same command stream we fed in.
+  assert!(macho.has_templates, "has_templates should be set");
 
-  assert!(
-    artifact.code.len() >= min_size,
-    "Generated code should be at least {} bytes for {} commands",
-    min_size,
-    commands.len()
+  let template_symbol =
+    zo_interner::Symbol(template_id.0 + zo_codegen_arm::TEMPLATE_SYMBOL_OFFSET);
+  let entry = macho
+    .template_data
+    .iter()
+    .find(|(sym, _)| *sym == template_symbol)
+    .expect("template_data should contain an entry for our template");
+
+  let decoded: Vec<UiCommand> = zo_ui_protocol::codec::decode(&entry.1)
+    .expect("template payload should round-trip through postcard");
+
+  assert_eq!(
+    decoded.len(),
+    commands.len(),
+    "decoded command count must match the input"
   );
+  assert_eq!(decoded, commands, "decoded commands must match the input");
 
-  println!("Memory layout test passed with {} commands", commands.len());
+  println!(
+    "Memory layout test passed: {} commands → {} payload bytes",
+    commands.len(),
+    entry.1.len()
+  );
 }
 
 /// Test that multiple templates can coexist.
