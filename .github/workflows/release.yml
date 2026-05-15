@@ -21,14 +21,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # macOS pinned to `macos-14`. `macos-latest` is
+        # currently macOS 15 Sequoia, whose pre-installed
+        # Rust shim intercepts `cargo` and routes it to
+        # `rustup-init`. `ci.yml` is pinned the same way;
+        # the two must move together.
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             raylib_archive: linux_amd64
-          - os: macos-latest
+          - os: macos-14
             target: x86_64-apple-darwin
             raylib_archive: macos
-          - os: macos-latest
+          - os: macos-14
             target: aarch64-apple-darwin
             raylib_archive: macos
           # NOTE(windows): disabled until upstream resolves the
@@ -167,11 +172,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             raylib_archive: linux_amd64
             raylib_lib: libraylib.so
-          - os: macos-latest
+          - os: macos-14
             target: x86_64-apple-darwin
             raylib_archive: macos
             raylib_lib: libraylib.dylib
-          - os: macos-latest
+          - os: macos-14
             target: aarch64-apple-darwin
             raylib_archive: macos
             raylib_lib: libraylib.dylib

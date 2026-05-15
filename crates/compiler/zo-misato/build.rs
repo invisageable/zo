@@ -31,6 +31,19 @@ fn main() {
 
   println!("cargo:rustc-link-search={}", dir.display());
   println!("cargo:rustc-link-lib=raylib");
+
+  // Bake an `LC_RPATH` / `DT_RUNPATH` pointing at the
+  // resolved raylib directory so dyld / ld.so can find
+  // `libraylib` at load time. Required for distributions
+  // whose `install_name` (macOS) or SONAME (Linux) is
+  // expressed as `@rpath/libraylib.<ver>.dylib` — e.g.
+  // raysan5's official macOS prebuilt tarball used by both
+  // `release.yml` and CI. Homebrew's raylib uses an
+  // absolute `install_name`, so the rpath is unused there
+  // — harmless. Targets `bin`, `cdylib`, and `test`
+  // outputs equally; the unit-test executable that links
+  // zo-misato is the case that motivated this.
+  println!("cargo:rustc-link-arg=-Wl,-rpath,{}", dir.display());
 }
 
 /// Returns the first directory that contains a usable

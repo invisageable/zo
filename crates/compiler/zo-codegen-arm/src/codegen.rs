@@ -16,7 +16,7 @@ use zo_register_allocation::{
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::{Ty, TyId, TyTable};
 use zo_value::{FunctionKind, ValueId};
-use zo_writer_macho::{DebugFrameEntry, MachO};
+use zo_writer_macho::{CODE_OFFSET, DebugFrameEntry, MachO, TEXT_SECTION_BASE};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -97,8 +97,15 @@ const FLOAT_TYPE_ID_MIN: u32 = 15; // TyChecker: F32 @ index 15
 const FLOAT_TYPE_ID_MAX: u32 = 17; // TyChecker: F64 @ index 17
 
 // --- Mach-O Layout ---
-const TEXT_SECTION_BASE: u64 = 0x100000400;
-const CODE_OFFSET: u64 = 0x400;
+// `TEXT_SECTION_BASE` (vmaddr where `__text` begins) and
+// `CODE_OFFSET` (file offset of the entry point) are owned
+// by `zo-writer-macho` and re-exported here via the `use`
+// at the top of the file. Defining local copies once led to
+// a layout drift — the writer placed `__text` at file 0x800
+// but a stale local `CODE_OFFSET = 0x400` was still fed to
+// `add_main`, so `LC_MAIN.entryoff` pointed inside the
+// load-command region and the kernel SIGILL'd on launch.
+// Single source of truth fixes this for good.
 pub(super) const UI_ENTRY_SYMBOL: u32 = 0xFFFF;
 pub const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 
@@ -6768,7 +6775,7 @@ impl<'a> ARM64Gen<'a> {
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
-    macho.add_main(CODE_OFFSET);
+    macho.add_main(CODE_OFFSET as u64);
     macho.add_dyld_info();
     macho.finish()
   }
@@ -6820,7 +6827,7 @@ impl<'a> ARM64Gen<'a> {
     macho.add_uuid();
     macho.add_build_version();
     macho.add_source_version();
-    macho.add_main(CODE_OFFSET);
+    macho.add_main(CODE_OFFSET as u64);
     macho.add_dyld_info();
     macho.finish_with_signature()
   }
