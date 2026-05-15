@@ -42,6 +42,7 @@ impl Build {
       self.args.target.into(),
       &stages,
       &self.args.output,
+      self.args.out_dir.as_deref(),
     )
   }
 }

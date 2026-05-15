@@ -202,16 +202,25 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   macho.add_dylib("/usr/lib/libSystem.B.dylib");
 
   if needs_runtime_dylib {
-    macho.add_dylib("@executable_path/libzo_runtime.dylib");
+    macho.add_dylib("@loader_path/deps/libzo_runtime.dylib");
   }
 
   // Each `#link { macos: ... }` path declared by a `pack`
   // referenced through `pub ffi` lands here in the same
-  // order ordinals were assigned. The compiler's
-  // `stage_runtime_artifacts` step copies any
-  // `@executable_path/...` dylib next to the user binary.
+  // order ordinals were assigned. `@executable_path/<name>`
+  // entries get rewritten to `@loader_path/deps/<name>` so
+  // every staged dylib lives under the binary's sibling
+  // `deps/` directory — same invariant the runtime dylib
+  // above uses. Absolute system paths (`/usr/lib/...`,
+  // `/opt/...`) pass through unchanged; dyld resolves
+  // those at load time without help from the loader path.
   for path in &link_paths {
-    macho.add_dylib(path);
+    if let Some(name) = path.strip_prefix("@executable_path/") {
+      let rebased = format!("@loader_path/deps/{name}");
+      macho.add_dylib(&rebased);
+    } else {
+      macho.add_dylib(path);
+    }
   }
 
   macho.add_uuid();

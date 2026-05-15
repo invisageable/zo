@@ -14,9 +14,17 @@ pub struct Args {
   /// The intermediate representations flags (tokens, tree, sir, asm).
   #[arg(long, value_delimiter = ',')]
   pub emit: Vec<Stage>,
-  /// The output path for the generated artifact.
+  /// The output path for the generated artifact. Matches
+  /// rustc's `-o` — sets the explicit final-binary path.
   #[arg(short, long)]
   pub output: Option<PathBuf>,
+  /// Directory every emitted file lands in (final binary,
+  /// `--emit` dumps, the transient `.o`, staged runtime
+  /// dylibs in a sibling `deps/`). Matches rustc's
+  /// `--out-dir`. When unset, files land next to each
+  /// source file.
+  #[arg(long)]
+  pub out_dir: Option<PathBuf>,
   /// The number of worker threads to use. Defaults number of logical CPUs.
   #[arg(short, long, default_value_t = num_cpus::get())]
   pub workers: usize,

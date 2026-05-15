@@ -31,7 +31,7 @@ impl Stage for LoadConfig {
     ctx.output_dir =
       ctx
         .project_root
-        .join("build")
+        .join("program")
         .join(if ctx.config.debug_symbols {
           "debug"
         } else {

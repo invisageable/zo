@@ -31,7 +31,12 @@ impl BuildContext {
       BuildMode::Release
     };
 
-    let output_dir = project_root.join("build").join(match build_mode {
+    // Cargo's `target/` rule, ported to fret's vocabulary:
+    // every artifact lives under `<project_root>/program/
+    // <profile>/`. The runtime dylib sibling `deps/` is
+    // staged by `zo-compiler` itself per its invariant — fret
+    // only owns the `program/` root.
+    let output_dir = project_root.join("program").join(match build_mode {
       BuildMode::Debug => "debug",
       BuildMode::Release => "release",
     });

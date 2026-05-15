@@ -255,6 +255,7 @@ impl Run {
         self.args.target.into(),
         &[],
         &Some(temp_path.clone()),
+        None,
       )?;
 
       // Run with cwd set to the source file's parent so
