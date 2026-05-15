@@ -1,4 +1,5 @@
 use zo_interner::{DenseId, Symbol};
+use zo_span::Span;
 use zo_ty::{Mutability, TyId};
 
 /// VALUE AS FLYWEIGHT INDEX (Manifesto: everything is an index).
@@ -278,6 +279,13 @@ pub struct FunDef {
   /// `false`. Read at every dot-call site to verify the
   /// receiver's binding is `mut`.
   pub mut_self: bool,
+  /// Source span of the function's introducer. Propagated
+  /// to `Insn::FunDef::span` at emission time so DCE,
+  /// unused-fn warnings, and rationale notes can anchor
+  /// at the user's `fun` declaration. `Span::ZERO` for
+  /// synthetic functions (closures, monomorphized methods)
+  /// that have no direct source location.
+  pub span: Span,
 }
 
 /// Represents a [`Local`] variable entry instance.

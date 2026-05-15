@@ -15,7 +15,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0633] Error: Non-exhaustive `match`
+-- [E0333] Error: Non-exhaustive `match`
 --     ╭─[ 048_match_bool_non_exhaustive.zo:12:11 ]
 --     │
 --  12 │   match b {

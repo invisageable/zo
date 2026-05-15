@@ -11,7 +11,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0604] Error: Shift amount too large
+-- [E0503] Error: Shift amount too large
 --    ╭─[ 038_shift_too_large.zo:10:18 ]
 --    │
 --  10 │   imu x: int = 1 << 64;

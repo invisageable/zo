@@ -16,7 +16,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0633] Error: Non-exhaustive `match`
+-- [E0333] Error: Non-exhaustive `match`
 --     ╭─[ 050_match_str_no_wildcard.zo:12:11 ]
 --     │
 --  12 │   match s {

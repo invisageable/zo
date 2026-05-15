@@ -18,6 +18,7 @@ use zo_value::{FunctionKind, Pubness, ValueId};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 use std::hint::black_box;
+use zo_span::Span;
 
 /// Builds a synthetic SIR stream with `n` binop "lines":
 /// `ConstInt, ConstInt, BinOp` × n, all tagged `s32`. A
@@ -35,6 +36,7 @@ fn make_binop_stream(n: u32) -> Vec<Insn> {
     mut_self: false,
     link_name: None,
     owning_pack: None,
+    span: Span::ZERO,
   });
 
   for i in 0..n {

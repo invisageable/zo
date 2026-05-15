@@ -48,15 +48,18 @@ jobs:
         run: |
           set -eu
           # See ci.yml — macos-latest's Homebrew rustup-init
-          # shim shadows the real rust binaries and the
-          # downstream dtolnay/rust-toolchain step inherits
-          # the broken state. Uninstall the shim and install
-          # a real rustup at ~/.cargo/bin so dtolnay's
-          # `rustup toolchain install` works.
+          # shim shadows the real rust binaries. Uninstall it
+          # and install a real rustup at ~/.cargo/bin.
+          #
+          # Install with `--default-toolchain nightly` so
+          # rustup-init writes the cargo/rustc proxies at
+          # ~/.cargo/bin/. `--default-toolchain none` skips
+          # proxy creation, leaving later `cargo` calls with
+          # `command not found` even though nightly is on disk.
           brew uninstall --ignore-dependencies rustup-init 2>/dev/null || true
           brew uninstall --ignore-dependencies rustup 2>/dev/null || true
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-            sh -s -- -y --default-toolchain none --no-modify-path --profile minimal
+            sh -s -- -y --default-toolchain nightly --profile minimal --no-modify-path
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
         shell: bash
 

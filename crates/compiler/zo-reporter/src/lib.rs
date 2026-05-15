@@ -1,5 +1,8 @@
 pub mod aggregator;
 pub mod collector;
+pub mod fixes;
+pub mod json;
+pub mod rationale;
 pub mod render;
 mod reporter;
 

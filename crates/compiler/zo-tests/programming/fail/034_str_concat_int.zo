@@ -10,7 +10,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0575] Error: Type mismatch
+-- [E0304] Error: Type mismatch
 --    ╭─[ 034_str_concat_int.zo:9:24 ]
 --    │
 --  9 │   imu s: str = "hello" ++ 42;

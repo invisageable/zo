@@ -24,7 +24,7 @@ fun main() {
 -!   2. If you wanted "nothing" as text, use an empty string: `""`.
 
 -- EXPECTED OUTPUT:
--- [E0007] Error: Empty character literal
+-- [E0008] Error: Empty character literal
 --     ╭─[ 006_lit_char_empty.zo:13:17 ]
 --     │
 --  13 │   imu c: char = '';

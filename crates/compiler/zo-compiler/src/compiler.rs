@@ -19,7 +19,8 @@ use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{
-  ErrorAggregator, Reporter, render_errors_to_stderr, report_error,
+  ErrorAggregator, Reporter, json, rationale, render_errors_to_stderr,
+  report_error,
 };
 use zo_session::Session;
 use zo_sir::Sir;
@@ -86,6 +87,35 @@ fn implicit_pack_for(path: &Path) -> Option<&str> {
   }
 }
 
+/// Bundle of diagnostic-output toggles, bound from CLI in
+/// lockstep. Driver builds one of these from its args; the
+/// compiler fans the fields into the right state stores
+/// (local fields, process-wide atomic) via
+/// [`Compiler::configure_diagnostics`].
+#[derive(Clone, Copy, Debug)]
+pub struct DiagnosticsConfig {
+  /// `true` → stream NDJSON on stdout (instead of ariadne
+  /// snippets on stderr).
+  pub json: bool,
+  /// Number of source lines of context to inline in each
+  /// JSON diagnostic's `snippet`. Ignored when `json` is
+  /// false. `0` disables context.
+  pub snippet_context: usize,
+  /// `true` → emit `severity: "note"` rationale entries
+  /// explaining compiler decisions (DCE'd functions, …).
+  pub explain_decisions: bool,
+}
+
+impl Default for DiagnosticsConfig {
+  fn default() -> Self {
+    Self {
+      json: false,
+      snippet_context: 2,
+      explain_decisions: false,
+    }
+  }
+}
+
 /// Represents a [`Compiler`] instance.
 pub struct Compiler {
   stats: Stats,
@@ -97,6 +127,17 @@ pub struct Compiler {
   /// Modules declared via `pub pack` in lib.zo.
   /// Populated during pack compilation, queried by `load`.
   module_table: HashMap<Symbol, ModuleExports>,
+  /// When `true`, diagnostics stream as NDJSON on stdout
+  /// instead of ariadne-styled snippets on stderr. Driver
+  /// flips this from the `--format=json` CLI flag; library
+  /// callers (fret build pipeline, tests) leave it `false`.
+  emit_json: bool,
+  /// Lines of source context inlined in each NDJSON
+  /// diagnostic's `snippet.before` / `snippet.after`. Only
+  /// consulted when `emit_json` is `true`. Defaults to the
+  /// driver's `--snippet-context` flag value (2 unless
+  /// overridden).
+  snippet_context: usize,
 }
 impl Compiler {
   /// Creates a new [`Compiler`] instance with the auto-
@@ -111,6 +152,8 @@ impl Compiler {
       module_resolver: ModuleResolver::new(default_core_search_paths()),
       compiling: HashSet::default(),
       module_table: HashMap::default(),
+      emit_json: false,
+      snippet_context: 2,
     }
   }
 
@@ -124,7 +167,23 @@ impl Compiler {
       module_resolver: ModuleResolver::new(search_paths),
       compiling: HashSet::default(),
       module_table: HashMap::default(),
+      emit_json: false,
+      snippet_context: 2,
     }
+  }
+
+  /// Applies a [`DiagnosticsConfig`] to this compiler. Bound
+  /// from the driver's `--format=json` / `--snippet-context`
+  /// / `--explain-decisions` flags in lockstep. State lands
+  /// in two places — local fields for `json` / `snippet_context`
+  /// and a process-wide atomic for `explain_decisions` (the
+  /// rationale channel needs cheap reads from passes in many
+  /// crates). The asymmetry is internal; callers see one
+  /// uniform setter.
+  pub fn configure_diagnostics(&mut self, cfg: DiagnosticsConfig) {
+    self.emit_json = cfg.json;
+    self.snippet_context = cfg.snippet_context;
+    rationale::enable_rationale(cfg.explain_decisions);
   }
 
   /// Scans a parse tree for `Token::Load` introducer nodes
@@ -650,12 +709,6 @@ impl Compiler {
       .analyze();
     self.profiler.end_phase(ANALYZER_NAME);
 
-    // Drain thread-local errors into the compiler reporter.
-    let tl_errors = zo_reporter::collect_errors();
-    if !tl_errors.is_empty() {
-      self.reporter.collect_errors(&tl_errors);
-    }
-
     // Merge module SIR into main SIR. Modules must appear
     // before main so their FunDefs are registered before
     // main calls them. All ValueIds are explicit and
@@ -687,6 +740,13 @@ impl Compiler {
     let main_sym = session.interner.intern("main");
 
     Dce::new(&mut semantic.sir, main_sym, &session.interner).eliminate();
+
+    // Single drain after every analyze-time pass (analyzer,
+    // module loads, DCE). One TLS access, not one per pass.
+    let tl_errors = zo_reporter::collect_errors();
+    if !tl_errors.is_empty() {
+      self.reporter.collect_errors(&tl_errors);
+    }
 
     (semantic, tokenization, parsing, session)
   }
@@ -883,7 +943,11 @@ impl Compiler {
           .map(|n| n.to_string_lossy())
           .unwrap_or_else(|| path.to_string_lossy());
 
-        let _ = render_errors_to_stderr(&aggregator, source, &filename);
+        let _ = if self.emit_json {
+          json::to_stdout(&aggregator, source, &filename, self.snippet_context)
+        } else {
+          render_errors_to_stderr(&aggregator, source, &filename)
+        };
       }
 
       aggregator.clear();
@@ -905,7 +969,13 @@ impl Compiler {
     self.profiler.set_inferences_count(self.stats.numinferences);
     self.profiler.set_artifacts_count(self.stats.numartifacts);
     self.profiler.set_artifacts_linked(self.stats.numlinked);
-    self.profiler.summary(target.name());
+    // Profiler text writes to stdout — when `--format=json`
+    // is active, that bleed corrupts the NDJSON stream a
+    // consumer is parsing. Suppress; the timing data is
+    // human-only.
+    if !self.emit_json {
+      self.profiler.summary(target.name());
+    }
 
     Ok(())
   }

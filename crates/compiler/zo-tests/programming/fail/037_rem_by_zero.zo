@@ -10,7 +10,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0602] Error: Remainder by zero
+-- [E0501] Error: Remainder by zero
 --    ╭─[ 037_rem_by_zero.zo:9:19 ]
 --    │
 --  9 │   imu x: int = 10 % 0;

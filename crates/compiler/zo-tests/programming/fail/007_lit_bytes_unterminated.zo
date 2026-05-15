@@ -32,7 +32,7 @@ fun main() {
 -!       "parsed" but not yet fully ready for runtime work.
 
 -- EXPECTED OUTPUT:
--- [E0518] Error: Unterminated bytes literal
+-- [E0007] Error: Unterminated bytes literal
 --     ╭─[ 007_lit_bytes_unterminated.zo:16:18 ]
 --     │
 --  16 │   imu b: bytes = `z;

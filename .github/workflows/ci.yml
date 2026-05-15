@@ -91,13 +91,19 @@ jobs:
           # `cargo build` or `rustup toolchain install`
           # against those symlinks clap-errors out with
           # "unexpected argument". Remove the shim and
-          # install a real rustup at ~/.cargo/bin so the
-          # subsequent dtolnay/rust-toolchain step has a
-          # working `rustup` to call.
+          # install a real rustup at ~/.cargo/bin.
+          #
+          # Install with `--default-toolchain nightly` so
+          # rustup-init writes the cargo/rustc proxies at
+          # ~/.cargo/bin/. `--default-toolchain none` skips
+          # proxy creation, and no later `rustup toolchain
+          # install` or `rustup default` call ever writes
+          # them — leaving `cargo: command not found` in the
+          # test step even though nightly is on disk.
           brew uninstall --ignore-dependencies rustup-init 2>/dev/null || true
           brew uninstall --ignore-dependencies rustup 2>/dev/null || true
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-            sh -s -- -y --default-toolchain none --no-modify-path --profile minimal
+            sh -s -- -y --default-toolchain nightly --profile minimal --no-modify-path
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
         shell: bash
       - name: Install Linux dependencies
@@ -152,13 +158,19 @@ jobs:
           # `cargo build` or `rustup toolchain install`
           # against those symlinks clap-errors out with
           # "unexpected argument". Remove the shim and
-          # install a real rustup at ~/.cargo/bin so the
-          # subsequent dtolnay/rust-toolchain step has a
-          # working `rustup` to call.
+          # install a real rustup at ~/.cargo/bin.
+          #
+          # Install with `--default-toolchain nightly` so
+          # rustup-init writes the cargo/rustc proxies at
+          # ~/.cargo/bin/. `--default-toolchain none` skips
+          # proxy creation, and no later `rustup toolchain
+          # install` or `rustup default` call ever writes
+          # them — leaving `cargo: command not found` in the
+          # test step even though nightly is on disk.
           brew uninstall --ignore-dependencies rustup-init 2>/dev/null || true
           brew uninstall --ignore-dependencies rustup 2>/dev/null || true
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-            sh -s -- -y --default-toolchain none --no-modify-path --profile minimal
+            sh -s -- -y --default-toolchain nightly --profile minimal --no-modify-path
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
         shell: bash
       - name: Install Linux dependencies

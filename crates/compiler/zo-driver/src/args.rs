@@ -25,6 +25,26 @@ pub struct Args {
   /// source file.
   #[arg(long)]
   pub out_dir: Option<PathBuf>,
+  /// Diagnostic output format. `human` (default) renders
+  /// ariadne-styled colored snippets to stderr. `json`
+  /// streams one NDJSON object per diagnostic to stdout
+  /// for agent / IDE consumers, with a frozen schema keyed
+  /// by stable kebab-case `id`.
+  #[arg(long, value_enum, default_value_t = Format::Human)]
+  pub format: Format,
+  /// Number of source lines of context to include before
+  /// and after each diagnostic's span in `--format=json`
+  /// output. `0` disables context. Default `2`. Ignored
+  /// for the human renderer (which always shows full
+  /// snippets via ariadne).
+  #[arg(long, default_value_t = 2)]
+  pub snippet_context: usize,
+  /// Emit `severity: "note"` rationale entries explaining
+  /// compiler decisions (DCE'd functions, unreachable
+  /// match arms, …). Off by default to keep the hot path
+  /// at the 10M LoC/s target.
+  #[arg(long)]
+  pub explain_decisions: bool,
   /// The number of worker threads to use. Defaults number of logical CPUs.
   #[arg(short, long, default_value_t = num_cpus::get())]
   pub workers: usize,
@@ -73,6 +93,17 @@ impl From<ArgsTarget> for Target {
       ArgsTarget::Wasm32UnknownUnknown => Self::Wasm32UnknownUnknown,
     }
   }
+}
+
+/// Diagnostic output shape. `Human` prints ariadne snippets
+/// to stderr; `Json` streams one NDJSON object per error to
+/// stdout for agentic consumers.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[clap(rename_all = "lower")]
+pub enum Format {
+  #[default]
+  Human,
+  Json,
 }
 
 /// Represents the compiler [`Stage`] output.

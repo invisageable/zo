@@ -2,7 +2,7 @@ use zo_error::{Error, ErrorKind};
 use zo_executor::{AbstractDef, Executor};
 use zo_interner::{Interner, Symbol};
 use zo_module_resolver::ExportedEnum;
-use zo_reporter::report_error;
+use zo_reporter::{error_count, report_error};
 use zo_sir::Sir;
 use zo_token::{LiteralStore, Token};
 use zo_tree::Tree;
@@ -132,7 +132,11 @@ impl<'a> Analyzer<'a> {
 
   /// Analyzes a parse [`Tree`] to build semantic IR.
   pub fn analyze(mut self) -> SemanticResult {
-    if self.config.is_entry && !self.has_main() {
+    // Upstream tokenizer/parser errors can erase `fun main`
+    // from the tree (unterminated comments, mismatched
+    // delimiters). Suppress the missing-main check then —
+    // the primary diagnostic wins. Matches rustc E0601.
+    if self.config.is_entry && error_count() == 0 && !self.has_main() {
       report_error(Error::new(
         ErrorKind::MissingMainFunction,
         self.tree.eof_span(),

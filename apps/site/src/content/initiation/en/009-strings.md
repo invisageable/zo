@@ -7,10 +7,11 @@ Sequences of bytes you can store, combine, and index. zo string literals live in
   -- immutable; once created, my bytes never change. 
   -- I'm versatile, so my shapes are yours:
   "\e[32mHello!\v\e[34mWorld\e[0m\n"
-  "\x48\x65\x6c\x6c\x6f"              -- hex
-  "\u{e9}\u{e8}\u{ea}"                -- latin
-  "\u{2603} \u{2602} \u{2600}"        -- bmp
-  "\u{1F600} \u{1F680} \u{1F4A9}"     -- emoji
+  "\x48\x65\x6c\x6c\x6f"          -- hex
+  "\u{e9}\u{e8}\u{ea}"            -- latin
+  "\u{2603} \u{2602} \u{2600}"    -- bmp
+  "\u{1F600} \u{1F680} \u{1F4A9}" -- emoji esc. chars
+  "🙈🙉🙊"                        -- emoji
   ```
 
 ## concatenation

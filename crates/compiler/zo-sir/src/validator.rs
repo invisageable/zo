@@ -554,7 +554,10 @@ const _: fn(&LoadSource) = |_| {};
 #[cfg(test)]
 mod tests {
   use super::*;
+
   use crate::{BinOp, NurseryKind, SpawnKind};
+
+  use zo_span::Span;
   use zo_value::FunctionKind;
 
   fn vid(n: u32) -> ValueId {
@@ -667,6 +670,7 @@ mod tests {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::Return {
         value: None,

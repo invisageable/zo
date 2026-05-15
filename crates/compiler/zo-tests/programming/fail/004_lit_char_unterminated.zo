@@ -28,7 +28,7 @@ fun main() {
 -!      error: "Character literal too long."
 
 -- EXPECTED OUTPUT:
--- [E0005] Error: Unterminated character literal
+-- [E0006] Error: Unterminated character literal
 --     ╭─[ 004_lit_char_unterminated.zo:13:17 ]
 --     │
 --  13 │   imu c: char = 'a;

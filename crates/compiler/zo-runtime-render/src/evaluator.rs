@@ -466,7 +466,9 @@ impl Default for HandlerEvaluator {
 #[cfg(test)]
 mod tests {
   use super::*;
+
   use zo_sir::Sir;
+  use zo_span::Span;
   use zo_ty::TyId;
   use zo_value::Pubness;
 
@@ -497,6 +499,7 @@ mod tests {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     // Load captured count: Load Param(0).
@@ -665,6 +668,7 @@ mod tests {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     let e_val = ValueId(sir.next_value_id);
@@ -797,6 +801,7 @@ mod tests {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     // Load count → cmp value → eq → BranchIfNot else.
@@ -897,6 +902,7 @@ mod tests {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     let lit_sym = interner.intern("hello");
@@ -1060,6 +1066,7 @@ mod tests {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     let some_label = sir.next_label();
@@ -1112,6 +1119,7 @@ mod tests {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     let dst_a = ValueId(sir.next_value_id);
@@ -1133,6 +1141,7 @@ mod tests {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     let dst_b = ValueId(sir.next_value_id);

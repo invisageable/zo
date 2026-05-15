@@ -1,6 +1,7 @@
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
 use zo_liveness::compute_value_ids;
+use zo_reporter::rationale::report_rationale;
 use zo_reporter::report_error;
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
@@ -94,14 +95,29 @@ impl<'a> Dce<'a> {
       .filter(|f| !reachable.contains(&f.name))
       .collect::<Vec<_>>();
 
-    // TODO: report UnusedFunction warnings once zo-error has
-    // Severity::Warning so warnings don't block compilation.
-    // for _f in &dead {
-    //   report_error(Error::new(
-    //     ErrorKind::UnusedFunction,
-    //     Span::ZERO,
-    //   ));
-    // }
+    // Rationale: emit one `severity: "note"` entry per
+    // eliminated function pointing at its `fun` introducer.
+    // No-op when `--explain-decisions` is off — the gate in
+    // `report_rationale` short-circuits before any work.
+    //
+    // Filter to the user's entry file: skip pack-owned
+    // functions (preload internals like `core::io::*` that
+    // legitimately fall out under DCE but aren't the
+    // user's dead code) and skip synthetic functions (the
+    // `Type::default()` ctors emitted by `apply` blocks
+    // with `Span::ZERO`). Without this filter, a trivial
+    // entry program produces dozens of notes about preload
+    // pack internals the user never typed.
+    for f in &dead {
+      if f.owning_pack.is_some() {
+        continue;
+      }
+      let span = match self.sir.instructions.get(f.start) {
+        Some(Insn::FunDef { span, .. }) if *span != Span::ZERO => *span,
+        _ => continue,
+      };
+      report_rationale(Error::new(ErrorKind::DeadCodeEliminated, span));
+    }
 
     let mut dead_ranges =
       dead.iter().map(|f| (f.start, f.end)).collect::<Vec<_>>();

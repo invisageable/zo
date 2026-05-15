@@ -11,7 +11,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0601] Error: Division by zero
+-- [E0500] Error: Division by zero
 --    ╭─[ 036_div_by_zero.zo:10:19 ]
 --    │
 --  10 │   imu x: int = 10 / 0;

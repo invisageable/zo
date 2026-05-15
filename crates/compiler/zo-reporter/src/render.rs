@@ -1,4 +1,4 @@
-use crate::aggregator::{ErrorAggregator, Phase};
+use crate::aggregator::ErrorAggregator;
 
 use zo_error::{Error, ErrorKind, Severity};
 use zo_span::Span;
@@ -66,13 +66,7 @@ impl ErrorRenderer {
         .take(self.config.max_errors_per_phase);
 
       for error in errors_to_show {
-        self.render_error(
-          error,
-          phase_errors.phase,
-          source,
-          filename,
-          &mut colors,
-        )?;
+        self.render_error(error, source, filename, &mut colors)?;
       }
 
       // Show message if we truncated errors
@@ -92,7 +86,6 @@ impl ErrorRenderer {
   fn render_error(
     &self,
     error: &Error,
-    phase: Phase,
     source: &str,
     filename: &str,
     colors: &mut ColorGenerator,
@@ -102,18 +95,22 @@ impl ErrorRenderer {
     let range = span_to_range(span, source);
 
     // Severity drives the visual style: red `Error:` for hard
-    // errors, yellow `Warning:` for soft diagnostics. ariadne
-    // owns the colors per `ReportKind`.
+    // errors, yellow `Warning:` for soft diagnostics, blue
+    // `Advice:` for compiler-decision rationale. ariadne owns
+    // the colors per `ReportKind`.
     let report_kind = match error.severity() {
       Severity::Error => ReportKind::Error,
       Severity::Warning => ReportKind::Warning,
+      Severity::Note => ReportKind::Advice,
     };
 
     let mut report = Report::build(report_kind, (filename, range.clone()));
 
-    // Add error code if configured
+    // Add error code if configured. Code derived from
+    // `zo-error`'s frozen `id_registry` — phase-position
+    // independent, stable across `ErrorKind` reorderings.
     if self.config.show_codes {
-      report = report.with_code(format!("E{:04}", error_code(phase, kind)));
+      report = report.with_code(format!("E{:04}", kind.code()));
     }
 
     // Set the main error message
@@ -207,22 +204,11 @@ fn char_offset_for_byte(source: &str, byte_pos: usize) -> usize {
   n
 }
 
-/// Generates an error code based on phase and kind.
-fn error_code(phase: Phase, kind: ErrorKind) -> u16 {
-  let phase_offset = match phase {
-    Phase::Tokenizer => 0x0000,
-    Phase::Parser => 0x0100,
-    Phase::Analyzer => 0x0200,
-    Phase::Codegen => 0x0300,
-    Phase::Runtime => 0x0400,
-  };
-
-  // Use discriminant value of the error kind
-  phase_offset + (kind as u16 & 0xFF)
-}
-
 /// Returns the main error message for a given error kind.
-fn error_message(kind: ErrorKind) -> &'static str {
+/// Shared between the human renderer and `render_json` so
+/// the JSON `message` field and the human Error line stay
+/// in lockstep — single source of truth per variant.
+pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
   match kind {
     // Tokenizer errors
     ErrorKind::UnexpectedCharacter => "Unexpected character",
@@ -395,6 +381,11 @@ fn error_message(kind: ErrorKind) -> &'static str {
       "`[v...n]` count must be an integer literal"
     }
 
+    // Rationale notes (severity = Note, emitted only with
+    // `--explain-decisions`).
+    ErrorKind::DeadCodeEliminated => "dead code eliminated",
+    ErrorKind::UnreachableMatchArm => "unreachable `match` arm",
+
     _ => "Unknown error",
   }
 }
@@ -492,6 +483,12 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::MissingMainFunction => {
       "expected `fun main() { ... }` somewhere in this file"
     }
+
+    // Rationale notes.
+    ErrorKind::DeadCodeEliminated => {
+      "this function is never reached from `main` and was removed"
+    }
+    ErrorKind::UnreachableMatchArm => "earlier arms already cover this case",
 
     _ => "here",
   }
@@ -593,7 +590,14 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
 }
 
 /// Returns a note for the error.
-fn error_note(kind: ErrorKind) -> Option<&'static str> {
+///
+/// Notes are Elm/rustc-style attached secondary context —
+/// "here's *why* this is happening" prose that complements
+/// the primary message and the action-oriented `help`. The
+/// human renderer surfaces them via ariadne's `with_note()`;
+/// the JSON renderer emits the same string in the
+/// `notes: [...]` array so agents see the same context.
+pub(crate) fn error_note(kind: ErrorKind) -> Option<&'static str> {
   match kind {
     ErrorKind::NumberTooLarge => {
       Some("The maximum value for integers is 2^64 - 1")

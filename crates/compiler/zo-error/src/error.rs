@@ -1,3 +1,5 @@
+use crate::id_registry;
+
 use zo_span::Span;
 
 use serde::Serialize;
@@ -75,8 +77,29 @@ impl Error {
   }
 
   /// Returns the error kind.
+  ///
+  /// # Safety
+  ///
+  /// The u16 transmute is sound because every `Error` value
+  /// is constructed via [`Error::new`] or
+  /// [`Error::with_secondary`], both of which take a
+  /// well-typed `ErrorKind` and pack its discriminant into
+  /// the high 16 bits of `self.data`. `ErrorKind` is
+  /// `#[repr(u16)]`; its discriminants form a contiguous
+  /// `0..N` range (no explicit values), so any u16 we read
+  /// back is guaranteed to be a valid variant.
+  ///
+  /// **Do not** call this on an `Error` reconstituted from
+  /// untrusted bytes — the `Serialize` derive on `Error` is
+  /// for *emitting* diagnostics over the JSON channel; no
+  /// `Deserialize` impl exists. If one is added later, it
+  /// must validate the high 16 bits before allowing
+  /// `kind()` to be called.
   #[inline(always)]
   pub fn kind(&self) -> ErrorKind {
+    // SAFETY: see above — high 16 bits always came from a
+    // valid `ErrorKind` discriminant via the packed
+    // constructors.
     unsafe { std::mem::transmute((self.data >> 48) as u16) }
   }
 
@@ -102,6 +125,26 @@ pub enum Severity {
   /// Warning — surfaced in diagnostics but does not fail
   /// the build.
   Warning,
+  /// Note — compiler-decision rationale (e.g. "this fn
+  /// was DCE'd because no path reaches it from main").
+  /// Only emitted when `--explain-decisions` is set;
+  /// never fails the build, never surfaces in the default
+  /// human render.
+  Note,
+}
+
+impl Severity {
+  /// Frozen wire string for the JSON `severity` field. Closed
+  /// enum — adding a variant must update this match and bump
+  /// `$schema`.
+  #[inline]
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::Error => "error",
+      Self::Warning => "warning",
+      Self::Note => "note",
+    }
+  }
 }
 
 /// Maps an `ErrorKind` to its `Severity`.
@@ -114,7 +157,27 @@ pub const fn severity(kind: ErrorKind) -> Severity {
     ErrorKind::UnusedVariable
     | ErrorKind::UnusedFunction
     | ErrorKind::UnreachableCode => Severity::Warning,
+    ErrorKind::DeadCodeEliminated | ErrorKind::UnreachableMatchArm => {
+      Severity::Note
+    }
     _ => Severity::Error,
+  }
+}
+
+impl ErrorKind {
+  /// Stable kebab-case identifier — see `id_registry` for
+  /// the freeze contract. Bound by agent prompts, doc URLs,
+  /// snapshots; the canonical name for this variant.
+  #[inline]
+  pub const fn id(self) -> &'static str {
+    id_registry::id(self)
+  }
+
+  /// Numeric display alias for human renderers (rendered as
+  /// `E{:04}`). Same freeze contract as [`Self::id`].
+  #[inline]
+  pub const fn code(self) -> u16 {
+    id_registry::code(self)
   }
 }
 
@@ -306,4 +369,21 @@ pub enum ErrorKind {
   // codegen / linker — same fail-fast posture rustc's
   // E0601 takes.
   MissingMainFunction,
+
+  // --- Rationale-channel variants (severity = Note) ---
+  //
+  // Emitted only when the driver passes `--explain-decisions`.
+  // The pass that made the decision (DCE, exhaustiveness
+  // prover, …) calls `report_rationale` with one of these
+  // kinds; the rationale channel short-circuits to a no-op
+  // when the flag is off, so the hot path stays unaffected.
+  //
+  /// Emitted by `zo-dce` when a function is eliminated
+  /// because no reachable path from `main` (or another
+  /// root) calls it.
+  DeadCodeEliminated,
+  /// Emitted by the exhaustiveness prover when a `match`
+  /// arm is shadowed by earlier arms. Future hook — variant
+  /// reserved so the schema doesn't bump when it lands.
+  UnreachableMatchArm,
 }

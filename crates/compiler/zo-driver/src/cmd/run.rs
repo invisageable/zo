@@ -66,6 +66,11 @@ impl Run {
     let search_paths = crate::cmd::search_paths(input_path);
 
     let mut compiler = Compiler::with_search_paths(search_paths);
+    compiler.configure_diagnostics(zo_compiler::DiagnosticsConfig {
+      json: self.args.format == crate::args::Format::Json,
+      snippet_context: self.args.snippet_context,
+      explain_decisions: self.args.explain_decisions,
+    });
 
     let (semantic, _tokenization, _parsing, session) =
       compiler.analyze_source(&source, input_path);
