@@ -11,6 +11,7 @@ use zo_value::{FunctionKind, Pubness, ValueId};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 use std::hint::black_box;
+use zo_span::Span;
 
 fn make_fun(
   name: zo_interner::Symbol,
@@ -26,6 +27,7 @@ fn make_fun(
     mut_self: false,
     link_name: None,
     owning_pack: None,
+    span: Span::ZERO,
   }];
 
   for callee in calls {

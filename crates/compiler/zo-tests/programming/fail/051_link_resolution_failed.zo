@@ -27,7 +27,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0634] Error: Cannot resolve `#link` — neither system nor vendor library found
+-- [E0704] Error: Cannot resolve `#link` — neither system nor vendor library found
 --     ╭─[ 051_link_resolution_failed.zo:15:20 ]
 --     │
 --  15 │   macos: { system: "/definitely/does/not/exist.dylib",

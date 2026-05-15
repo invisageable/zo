@@ -6,6 +6,7 @@ use zo_value::{FunctionKind, Pubness};
 use zo_error::ErrorKind;
 use zo_interner::Symbol;
 use zo_sir::{Insn, LoadSource};
+use zo_span::Span;
 use zo_ty::TyId;
 use zo_value::ValueId;
 
@@ -28,6 +29,7 @@ fn test_if_simple() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::ConstBool {
         dst: ValueId(0),
@@ -83,6 +85,7 @@ fun main() {}"#,
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::ConstBool {
         dst: ValueId(0),
@@ -138,6 +141,7 @@ fun main() {}"#,
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::Return {
         value: None,
@@ -209,6 +213,7 @@ fn test_while_loop() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::Label { id: 0 },
       Insn::ConstBool {
@@ -250,6 +255,7 @@ fn test_implicit_return_literal() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::ConstInt {
         dst: ValueId(0),

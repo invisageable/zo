@@ -7870,6 +7870,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "zo-interner",
  "zo-sir",
+ "zo-span",
  "zo-ty",
  "zo-ty-checker",
  "zo-value",
@@ -7943,6 +7944,7 @@ dependencies = [
  "ariadne",
  "criterion",
  "insta",
+ "serde_json",
  "zo-error",
  "zo-span",
 ]
@@ -7987,6 +7989,7 @@ dependencies = [
  "thin-vec",
  "zo-interner",
  "zo-sir",
+ "zo-span",
  "zo-ty",
  "zo-ui-protocol",
  "zo-value",
@@ -8145,6 +8148,7 @@ dependencies = [
  "itoa",
  "zmij",
  "zo-interner",
+ "zo-span",
  "zo-ty",
 ]
 

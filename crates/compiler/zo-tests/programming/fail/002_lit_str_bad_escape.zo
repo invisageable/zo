@@ -20,7 +20,7 @@ fun main() {
 -!     programming.
 
 -- EXPECTED OUTPUT:
--- [E0004] Error: Invalid escape sequence
+-- [E0005] Error: Invalid escape sequence
 --     ╭─[ 002_lit_str_bad_escape.zo:11:22 ]
 --     │
 --  11 │   imu s: str = "hello\qworld";

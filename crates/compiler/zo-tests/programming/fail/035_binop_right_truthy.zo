@@ -37,7 +37,7 @@ fun main() {
 -! to debug a "weird value" in production.
 
 -- EXPECTED OUTPUT:
--- [E0575] Error: Type mismatch
+-- [E0304] Error: Type mismatch
 --     ╭─[ 035_binop_right_truthy.zo:19:21 ]
 --     │
 --  19 │   imu x: int = true || "false";

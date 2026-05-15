@@ -6,5 +6,5 @@ mod stage;
 #[cfg(test)]
 mod tests;
 
-pub use compiler::Compiler;
+pub use compiler::{Compiler, DiagnosticsConfig};
 pub use stage::Stage;

@@ -10,6 +10,7 @@ use zo_executor::Executor;
 use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_sir::{Insn, Sir};
+use zo_span::Span;
 use zo_tokenizer::Tokenizer;
 use zo_ty::TyId;
 use zo_ty_checker::TyChecker;
@@ -356,6 +357,7 @@ fn test_main_function_detection() {
     mut_self: false,
     link_name: None,
     owning_pack: None,
+    span: Span::ZERO,
   });
   sir.emit(Insn::Return {
     value: None,
@@ -389,6 +391,7 @@ fn test_string_fixup() {
     mut_self: false,
     link_name: None,
     owning_pack: None,
+    span: Span::ZERO,
   });
 
   sir.emit(Insn::ConstString {
@@ -751,6 +754,7 @@ fn test_str_sp_slow_path_does_not_self_clobber() {
     mut_self: false,
     link_name: None,
     owning_pack: None,
+    span: Span::ZERO,
   });
 
   let mut next: u32 = 0;
@@ -901,6 +905,7 @@ fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
     mut_self: false,
     link_name: None,
     owning_pack: None,
+    span: Span::ZERO,
   });
 
   let mut next: u32 = 0;

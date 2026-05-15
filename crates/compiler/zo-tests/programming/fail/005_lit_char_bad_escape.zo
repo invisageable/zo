@@ -27,7 +27,7 @@ fun main() {
 -!      `\n` counts as exactly **one** character!
 
 -- EXPECTED OUTPUT:
--- [E0004] Error: Invalid escape sequence
+-- [E0005] Error: Invalid escape sequence
 --     ╭─[ 005_lit_char_bad_escape.zo:13:18 ]
 --     │
 --  13 │   imu c: char = '\q';

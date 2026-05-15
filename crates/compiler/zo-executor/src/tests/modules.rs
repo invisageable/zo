@@ -2,6 +2,7 @@ use crate::tests::common::{assert_sir_stream, assert_sir_structure};
 
 use zo_interner::Symbol;
 use zo_sir::{ImportKind, Insn};
+use zo_span::Span;
 use zo_ty::TyId;
 use zo_value::{FunctionKind, Pubness};
 
@@ -80,6 +81,7 @@ fun main() { 42; }"#,
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::ConstInt {
         dst: zo_value::ValueId(0),
@@ -127,6 +129,7 @@ fn test_empty_body_is_intrinsic() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::Return {
         value: None,
@@ -151,6 +154,7 @@ fn test_non_empty_body_not_intrinsic() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::ConstInt {
         dst: zo_value::ValueId(0),
@@ -180,6 +184,7 @@ fn test_pub_fun_visibility() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::Return {
         value: None,

@@ -2,7 +2,7 @@ use crate::args;
 use crate::cmd;
 use crate::cmd::Handle;
 
-use zo_compiler::{Compiler, Stage};
+use zo_compiler::{Compiler, DiagnosticsConfig, Stage};
 use zo_error::Error;
 
 #[derive(clap::Args, Debug)]
@@ -23,6 +23,11 @@ impl Build {
     let first_path = &source_files[0].0;
     let search_paths = cmd::search_paths(first_path);
     let mut compiler = Compiler::with_search_paths(search_paths);
+    compiler.configure_diagnostics(DiagnosticsConfig {
+      json: self.args.format == args::Format::Json,
+      snippet_context: self.args.snippet_context,
+      explain_decisions: self.args.explain_decisions,
+    });
 
     let stages = self
       .args

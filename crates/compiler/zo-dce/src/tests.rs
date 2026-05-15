@@ -7,6 +7,7 @@ use common::{call, fun, fun_names, make_sir};
 
 use zo_interner::{Interner, Symbol};
 use zo_sir::{BinOp, ImportKind, Insn};
+use zo_span::Span;
 use zo_ty::TyId;
 use zo_value::{Pubness, ValueId};
 
@@ -270,6 +271,7 @@ fn dead_insn_unused_const() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     // %0 = const 42 — used by store.
     Insn::ConstInt {
@@ -329,6 +331,7 @@ fn dead_insn_chain() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     // %0 = const 1 — used only by %2.
     Insn::ConstInt {
@@ -381,6 +384,7 @@ fn dead_insn_preserves_calls() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     // Call is impure — must not be removed even if dst unused.
     Insn::Call {
@@ -419,6 +423,7 @@ fn dead_insn_preserves_array_store() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     // ArrayStore is impure — must not be removed.
     Insn::ArrayStore {
@@ -462,6 +467,7 @@ fn dead_var_unused_store() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     // Store x — never loaded → dead.
     Insn::ConstInt {
@@ -532,6 +538,7 @@ fn dead_var_overwritten_store() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     // First store to x — overwritten before any load → dead.
     Insn::ConstInt {
@@ -603,6 +610,7 @@ fn unreachable_after_return() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     Insn::Return {
       value: None,
@@ -645,6 +653,7 @@ fn unreachable_stops_at_label() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     Insn::Return {
       value: None,
@@ -735,6 +744,7 @@ fn template_computed_binding_pins_closure() {
     mut_self: false,
     link_name: None,
     owning_pack: None,
+    span: Span::ZERO,
   }];
 
   insns.push(Insn::Return {

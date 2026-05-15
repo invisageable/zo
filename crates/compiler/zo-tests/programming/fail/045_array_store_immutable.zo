@@ -11,7 +11,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0580] Error: Cannot mutate immutable variable
+-- [E0309] Error: Cannot mutate immutable variable
 --    ╭─[ 045_array_store_immutable.zo:10:8 ]
 --    │
 --  10 │   arr[0] = 10;

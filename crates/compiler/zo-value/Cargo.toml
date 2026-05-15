@@ -11,6 +11,7 @@ doctest = false
 
 # internal:crates.
 zo-interner = { workspace = true }
+zo-span = { workspace = true }
 zo-ty = { workspace = true }
 
 # external:crates.

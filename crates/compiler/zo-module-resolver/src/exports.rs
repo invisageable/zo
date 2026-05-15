@@ -1,5 +1,6 @@
 use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
+use zo_span::Span;
 use zo_ty::TyId;
 use zo_value::{FunDef, Pubness, ValueId};
 
@@ -127,6 +128,7 @@ pub fn extract_exports(
           type_params: Vec::new(),
           return_type_args: rta,
           mut_self: *mut_self,
+          span: Span::ZERO,
         });
       }
 

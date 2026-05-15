@@ -1,29 +1,24 @@
 -! `Vec<$T>` — growable list backed by a flat byte buffer.
 -!
--! The `ptr` field carries an opaque pointer (encoded as
--! `int` for ABI symmetry with the runtime's `*mut ZoVec`).
--! Codegen recognizes calls to the marshaling FFIs
--! (`__zo_vec_new`, `__zo_vec_push`, `__zo_vec_pop`,
--! `__zo_vec_get`, `__zo_vec_set`) and emits the byte-
--! marshaling sequence per call site — those five method
--! bodies are codegen-replaced and exist only as syntactic
--! anchors.
+-! The `ptr` field carries an opaque pointer (encoded as `int` for ABI symmetry
+-! with the runtime's `*mut ZoVec`). Codegen recognizes calls to the marshaling
+-! FFIs (`__zo_vec_new`, `__zo_vec_push`, `__zo_vec_pop`, `__zo_vec_get`, 
+-! `__zo_vec_set`) and emits the byte-marshaling sequence per call site — those
+-! five method bodies are codegen-replaced and exist only as syntactic anchors.
 -!
--! The remaining methods (`len`, `is_empty`, `free`) are
--! pure-zo bodies that call the non-marshaling raw FFIs
--! (`__zo_vec_len_raw`, `__zo_vec_free_raw`) directly.
+-! The remaining methods (`len`, `is_empty`, `free`) are pure-zo bodies that
+-! call the non-marshaling raw FFIs (`__zo_vec_len_raw`, `__zo_vec_free_raw`) 
+-! directly.
 -!
--! Supported element kinds: `int` (any width), `char`,
--! `bool`, `str`. Struct / enum / tuple elements are
--! reserved (rejected at compile time today).
+-! Supported element kinds: `int` (any width), `char`, `bool`, `str`. Struct / 
+-! enum / tuple elements are reserved (rejected at compile time today).
 pub struct Vec<$T> {
   ptr: int,
 }
 
--- Marshaling FFIs. Codegen handlers in `zo-codegen-arm`
--- derive `elem_kind` and `elem_sz` from the call-site's
--- resolved `$T` and marshal byte buffers around each
--- call.
+-- Marshaling FFIs. Codegen handlers in `zo-codegen-arm` derive `elem_kind` and 
+-- `elem_sz` from the call-site's resolved `$T` and marshal byte buffers around
+-- each call.
 pub ffi __zo_vec_new(elem_kind: int, elem_sz: int, cap: int) -> int;
 pub ffi __zo_vec_push(vec: int, val_ptr: int);
 pub ffi __zo_vec_pop(vec: int, val_out: int) -> bool;
@@ -31,20 +26,18 @@ pub ffi __zo_vec_get(vec: int, idx: int, val_out: int) -> bool;
 pub ffi __zo_vec_set(vec: int, idx: int, val_ptr: int) -> bool;
 pub ffi __zo_vec_remove(vec: int, idx: int, val_out: int) -> bool;
 
--- Raw FFIs. Pure pass-through to the runtime — no byte
--- marshaling, no per-call-site type derivation. Codegen
--- routes these directly to `BL _zo_vec_len` /
--- `BL _zo_vec_free`.
+-- Raw FFIs. Pure pass-through to the runtime — no byte marshaling, no
+-- per-call-site type derivation. Codegen routes these directly to 
+-- `BL _zo_vec_len` / `BL _zo_vec_free`.
 pub ffi __zo_vec_len_raw(ptr: int) -> int;
 pub ffi __zo_vec_free_raw(ptr: int);
 
 apply Vec<$T> {
-  -! Construct an empty vec. Initial capacity is set by
-  -! the runtime (8 elements, doubled on grow).
+  -! Construct an empty vec. Initial capacity is set by the runtime
+  -! (8 elements, doubled on grow).
   -!
-  -- codegen-replaced: needs `size_of<$T>()` to compute
-  -- the runtime byte width. Until that primitive exists,
-  -- `emit_vec_new` injects it at the call site.
+  -- codegen-replaced: needs `size_of<$T>()` to compute the runtime byte width.
+  -- Until that primitive exists, `emit_vec_new` injects it at the call site.
   pub fun new() -> Self {
     Self { ptr = 0 }
   }
@@ -52,39 +45,39 @@ apply Vec<$T> {
   -! Append `v` to the end. Grows the backing buffer when
   -! full.
   -!
-  -- codegen-replaced: needs surface `&value` and
-  -- `size_of<$T>()` primitives to be a pure-zo body.
-  -- The FFI marshals the element bytes at the call
-  -- site; see `emit_vec_push` in zo-codegen-arm.
+  -- codegen-replaced: needs surface `&value` and `size_of<$T>()` primitives to
+  -- be a pure-zo body. The FFI marshals the element bytes at the call site.
+  --
+  -- see `emit_vec_push` in zo-codegen-arm.
   pub fun push(mut self, v: $T) {}
 
-  -! Remove the last element. Returns `Option::Some(v)`
-  -! on a non-empty vec, `Option::None` on empty.
+  -! Remove the last element. Returns `Option::Some(v)` on a non-empty vec, 
+  -! `Option::None` on empty.
   -!
   -- codegen-replaced: see `emit_vec_pop`.
   pub fun pop(mut self) -> Option<$T> {
     return Option::None;
   }
 
-  -! Read the element at `idx`. Returns `Option::Some(v)`
-  -! on a valid index, `Option::None` on out-of-bounds.
+  -! Read the element at `idx`. Returns `Option::Some(v)` on a valid index,
+  -! `Option::None` on out-of-bounds.
   -!
   -- codegen-replaced: see `emit_vec_get`.
   pub fun get(self, idx: int) -> Option<$T> {
     return Option::None;
   }
 
-  -! Overwrite the element at `idx`. Returns `true` on
-  -! success, `false` on out-of-bounds.
+  -! Overwrite the element at `idx`. Returns `true` on success, `false` on 
+  -! out-of-bounds.
   -!
   -- codegen-replaced: see `emit_vec_set`.
   pub fun set(mut self, idx: int, v: $T) -> bool {
     return false;
   }
 
-  -! Remove and return the element at `idx`. Shifts every
-  -! element after `idx` left by one slot — O(n) in the
-  -! tail length. Returns `Option::None` on out-of-bounds.
+  -! Remove and return the element at `idx`. Shifts every element after `idx` 
+  -! left by one slot — O(n) in the tail length. Returns `Option::None` on 
+  -! out-of-bounds.
   -!
   -- codegen-replaced: see `emit_vec_remove`.
   pub fun remove(mut self, idx: int) -> Option<$T> {
@@ -101,8 +94,8 @@ apply Vec<$T> {
     return self.len() == 0;
   }
 
-  -! Release the backing allocation. The receiver must
-  -! not be used after this call.
+  -! Release the backing allocation. The receiver must not be used after this 
+  -! call.
   pub fun free(mut self) {
     __zo_vec_free_raw(self.ptr);
   }

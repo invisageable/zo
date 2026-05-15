@@ -1,6 +1,7 @@
 use zo_error::{Error, Severity};
 
 use std::cell::RefCell;
+use zo_span::Span;
 
 thread_local! {
   /// Thread-local error reporter instance.
@@ -25,7 +26,7 @@ impl ThreadLocalReporter {
   /// Creates a new empty reporter.
   pub const fn new() -> Self {
     Self {
-      errors: [Error::new(unsafe { std::mem::zeroed() }, zo_span::Span::ZERO);
+      errors: [Error::new(unsafe { std::mem::zeroed() }, Span::ZERO);
         MAX_ERRORS],
       count: 0,
     }

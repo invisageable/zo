@@ -1,4 +1,5 @@
 use zo_sir::{Insn, Sir};
+use zo_span::Span;
 use zo_ty::TyId;
 use zo_value::{FunctionKind, Pubness, ValueId};
 
@@ -31,6 +32,7 @@ pub fn fun(
     mut_self: false,
     link_name: None,
     owning_pack: None,
+    span: Span::ZERO,
   });
 
   insns.extend(body);

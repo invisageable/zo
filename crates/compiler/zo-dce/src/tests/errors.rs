@@ -10,6 +10,7 @@ use zo_error::ErrorKind;
 use zo_interner::Interner;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
+use zo_span::Span;
 use zo_ty::TyId;
 use zo_value::{FunctionKind, Pubness, ValueId};
 
@@ -33,6 +34,7 @@ fn warns_on_unused_function() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     Insn::Return {
       value: None,
@@ -48,6 +50,7 @@ fn warns_on_unused_function() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     Insn::Return {
       value: None,
@@ -86,6 +89,7 @@ fn warns_on_unused_variable() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     Insn::ConstInt {
       dst: ValueId(0),
@@ -133,6 +137,7 @@ fn no_warning_when_all_used() {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     },
     Insn::ConstInt {
       dst: ValueId(0),

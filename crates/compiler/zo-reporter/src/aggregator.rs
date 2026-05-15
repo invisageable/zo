@@ -23,6 +23,20 @@ impl Phase {
       Phase::Runtime => "Runtime",
     }
   }
+
+  /// Frozen wire string for the JSON `phase` field. Distinct
+  /// from [`Self::name`] which is display prose — this is the
+  /// kebab-case identifier agents key off.
+  #[inline]
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Phase::Tokenizer => "tokenizer",
+      Phase::Parser => "parser",
+      Phase::Analyzer => "analyzer",
+      Phase::Codegen => "codegen",
+      Phase::Runtime => "runtime",
+    }
+  }
 }
 
 /// Errors collected during a specific compilation phase.

@@ -31,7 +31,7 @@ fun main() {
 
 
 -- EXPECTED OUTPUT:
--- [E0019] Error: Unmatched opening delimiter
+-- [E0020] Error: Unmatched opening delimiter
 --     ╭─[ 011_delimiters_mismatched.zo:16:14 ]
 --     │
 --  16 │   imu pos := (10, 20};
@@ -45,7 +45,7 @@ fun main() {
 --     │ Note: Every opening delimiter must be closed by its matching partner.
 --     │       `(` with `)`, `[` with `]`, `{` with `}`
 -- ────╯
--- [E0021] Error: Mismatched delimiter
+-- [E0022] Error: Mismatched delimiter
 --     ╭─[ 011_delimiters_mismatched.zo:17:21 ]
 --     │
 --  17 │   imu pos := [10, 20);
@@ -59,7 +59,7 @@ fun main() {
 --     │ Note: Every opening delimiter must be closed by its matching partner.
 --     │       `(` with `)`, `[` with `]`, `{` with `}`
 -- ────╯
--- [E0020] Error: Unmatched closing delimiter
+-- [E0021] Error: Unmatched closing delimiter
 --     ╭─[ 011_delimiters_mismatched.zo:18:1 ]
 --     │
 --  18 │ }
@@ -68,14 +68,14 @@ fun main() {
 --     │
 --     │ Help: Remove this delimiter or add its opening pair
 -- ────╯
--- [E0284] Error: Invalid top-level item
+-- [E0106] Error: Invalid top-level item
 --     ╭─[ 011_delimiters_mismatched.zo:17:3 ]
 --     │
 --  17 │   imu pos := [10, 20);
 --     │   ─┬─
 --     │    ╰─── here
 -- ────╯
--- [E0284] Error: Invalid top-level item
+-- [E0106] Error: Invalid top-level item
 --     ╭─[ 011_delimiters_mismatched.zo:17:22 ]
 --     │
 --  17 │   imu pos := [10, 20);

@@ -32,6 +32,7 @@ use crate::tests::common::{
 
 use zo_interner::Symbol;
 use zo_sir::{BinOp, Insn, LoadSource};
+use zo_span::Span;
 use zo_ty::{IntWidth, Ty, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
@@ -194,6 +195,7 @@ fn test_simple_function() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       // Load x parameter
       Insn::Load {
@@ -246,6 +248,7 @@ fn test_function_call() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       // add body: load x
       Insn::Load {
@@ -283,6 +286,7 @@ fn test_function_call() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       // main body: 10
       Insn::ConstInt {
@@ -328,6 +332,7 @@ fn test_main_with_show() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       // main body: "hello world" string literal
       Insn::ConstString {
@@ -370,6 +375,7 @@ fn test_function_with_return() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       // Load n parameter (first use)
       Insn::Load {
@@ -421,6 +427,7 @@ fn test_directives() {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: Span::ZERO,
       },
       Insn::Template {
         id: ValueId(3),

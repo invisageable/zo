@@ -2346,6 +2346,7 @@ impl<'a> Executor<'a> {
             // root the function — preload-pack wrappers
             // shouldn't, user code should.
             owning_pack: self.top_pack,
+            span: pending_func.span,
           });
 
           // Now set the context with the correct body start.
@@ -6527,6 +6528,7 @@ impl<'a> Executor<'a> {
       mut_self: false,
       link_name: None,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     // Register for call resolution.
@@ -6540,6 +6542,7 @@ impl<'a> Executor<'a> {
       type_params: Vec::new(),
       return_type_args: Vec::new(),
       mut_self: false,
+      span: Span::ZERO,
     });
 
     // Update pre-registered letrec local (if any) so
@@ -6806,9 +6809,21 @@ impl<'a> Executor<'a> {
     None
   }
 
+  /// Source span of an item's introducer keyword (`fun` /
+  /// `ffi` / `struct` / …) at parse-tree index `start_idx`.
+  /// The three `execute_*` entry points carry this span into
+  /// the emitted `FunDef` so DCE, unused-fn warnings, and
+  /// rationale notes anchor at the user's declaration.
+  #[inline]
+  fn introducer_span(&self, start_idx: usize) -> Span {
+    self.tree.span(start_idx as u32)
+  }
+
   fn execute_fun(&mut self, start_idx: usize, _end_idx: usize) {
     // Parse the function signature and set it as pending
     // The actual FunDef will be emitted when we hit LBrace
+
+    let fun_span = self.introducer_span(start_idx);
 
     let name = self
       .tree
@@ -7131,6 +7146,7 @@ impl<'a> Executor<'a> {
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
         mut_self,
+        span: fun_span,
       });
 
       // Drop any type_params minted during this signature
@@ -7240,6 +7256,7 @@ impl<'a> Executor<'a> {
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
         mut_self,
+        span: fun_span,
       });
 
       // Restore outer type_params scope (signature parse
@@ -7271,6 +7288,7 @@ impl<'a> Executor<'a> {
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
       mut_self,
+      span: fun_span,
     });
 
     // Push a scope for the function parameters
@@ -8736,6 +8754,8 @@ impl<'a> Executor<'a> {
   /// Executes an `ffi` declaration — an intrinsic function
   /// with no body. Emits `FunDef { is_intrinsic: true }`.
   fn execute_ffi(&mut self, start_idx: usize, end_idx: usize) {
+    let fun_span = self.introducer_span(start_idx);
+
     // Parse signature: ffi name(params) -> return_ty;
     let name = self
       .tree
@@ -8907,6 +8927,7 @@ impl<'a> Executor<'a> {
       // mis-attributes user FFIs to the last preload's
       // pack (`misato` / `sqlite`).
       owning_pack: self.top_pack,
+      span: fun_span,
     });
 
     // Register as known function.
@@ -8923,6 +8944,7 @@ impl<'a> Executor<'a> {
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
       mut_self: false,
+      span: fun_span,
     });
 
     self.pending_attributes.clear();
@@ -9532,6 +9554,8 @@ impl<'a> Executor<'a> {
   }
 
   fn execute_struct(&mut self, start_idx: usize, end_idx: usize) {
+    let fun_span = self.introducer_span(start_idx);
+
     let name = self
       .tree
       .nodes
@@ -9722,6 +9746,7 @@ impl<'a> Executor<'a> {
         mut_self: false,
         link_name: None,
         owning_pack: None,
+        span: fun_span,
       });
 
       // Emit default value constants.
@@ -9825,6 +9850,7 @@ impl<'a> Executor<'a> {
         type_params: vec![],
         return_type_args: vec![],
         mut_self: false,
+        span: fun_span,
       });
     }
 
@@ -11706,7 +11732,7 @@ impl<'a> Executor<'a> {
     // unify against it. type mismatch reports through
     // the existing error path.
     let sink_ty = if let Some(prev) = ctx.value_sink_ty {
-      let span = zo_span::Span::ZERO;
+      let span = Span::ZERO;
       self.ty_checker.unify(prev, top_ty, span).unwrap_or(prev)
     } else {
       if let Some(c) = self.branch_stack.get_mut(ctx_idx) {
@@ -19233,6 +19259,7 @@ impl<'a> Executor<'a> {
             mut_self: false,
             link_name: None,
             owning_pack: None,
+            span: Span::ZERO,
           });
 
           self.push_fun(FunDef {
@@ -19245,6 +19272,7 @@ impl<'a> Executor<'a> {
             type_params: Vec::new(),
             return_type_args: Vec::new(),
             mut_self: false,
+            span: Span::ZERO,
           });
 
           self.current_function = Some(FunCtx {
