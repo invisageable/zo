@@ -132,7 +132,10 @@ fn task_spawn_registers_task_spawn_extern() {
 fn concurrency_binary_loads_runtime_dylib() {
   // A program using `channel()` must emit an
   // `LC_LOAD_DYLIB` pointing at libzo_runtime.dylib so
-  // dyld can resolve `_zo_chan_new` at load time.
+  // dyld can resolve `_zo_chan_new` at load time. The
+  // path is `@loader_path/deps/...` — the compiler's
+  // `deps/` invariant pairs with `stage_runtime_artifacts`
+  // copying the dylib into `<binary_dir>/deps/`.
   compile_macho_and_inspect(
     r#"
       fun main() {
@@ -143,7 +146,7 @@ fn concurrency_binary_loads_runtime_dylib() {
     "#,
     |binary| {
       assert!(
-        contains_bytes(binary, b"@executable_path/libzo_runtime.dylib"),
+        contains_bytes(binary, b"@loader_path/deps/libzo_runtime.dylib"),
         "expected runtime dylib LC_LOAD_DYLIB string in the binary"
       );
       // libSystem still needed for intrinsics + syscalls.

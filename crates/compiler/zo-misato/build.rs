@@ -1,35 +1,36 @@
 // libzo_misato calls raylib's 3D primitives (declared as
-// `extern "C"` in lib.rs). The cdylib's behaviour depends on
-// where raylib lives at link time:
+// `extern "C"` in lib.rs); link-time resolution against
+// `libraylib` is mandatory — the macOS Mach-O linker rejects
+// unresolved symbols in `-dynamiclib` by default, and Linux
+// builds without `-lraylib` produce a cdylib that can't load.
 //
-//   * If raylib is installed where the linker can find it
-//     (homebrew on macOS, libraylib-dev on Debian, an
-//     explicit `RAYLIB_LIB_DIR`), we emit `-L<dir> -lraylib`
-//     so symbols resolve at link time. Best for prod builds.
+// Lookup order:
 //
-//   * If raylib isn't installed (CI runners that only build
-//     the workspace, dev machines without graphics deps),
-//     we emit no raylib directives. The cdylib still links —
-//     `-shared` accepts undefined symbols by default — and
-//     dyld resolves the references at user-binary load time
-//     when both `libzo_misato` and `libraylib` are pulled in.
+//   1. `RAYLIB_LIB_DIR` env var (CI workflows, packagers).
+//   2. Canonical per-host system paths (homebrew on macOS,
+//      `libraylib-dev` on Debian).
 //
-// Detection is path-based: an explicit `RAYLIB_LIB_DIR` env
-// var wins, otherwise we probe the canonical system locations
-// for the host's library file extension.
+// If neither finds raylib, fail the build with a clear
+// install hint rather than silently emit a broken artifact.
 
 use std::path::{Path, PathBuf};
 
 fn main() {
   println!("cargo:rerun-if-env-changed=RAYLIB_LIB_DIR");
 
-  if let Some(dir) = locate_raylib_dir() {
-    println!("cargo:rustc-link-search={}", dir.display());
-    println!("cargo:rustc-link-lib=raylib");
-  }
-  // No raylib found: silently skip. The cdylib links with
-  // unresolved raylib symbols; the user binary must bring
-  // raylib in itself at runtime.
+  let Some(dir) = locate_raylib_dir() else {
+    panic!(
+      "raylib not found.\n\
+       Set RAYLIB_LIB_DIR=<path-to-dir-containing-libraylib.{{dylib,so}}>,\n\
+       or install raylib via your package manager:\n  \
+         macOS:  brew install raylib\n  \
+         Debian: sudo apt-get install libraylib-dev\n  \
+         Other:  https://github.com/raysan5/raylib/releases\n"
+    );
+  };
+
+  println!("cargo:rustc-link-search={}", dir.display());
+  println!("cargo:rustc-link-lib=raylib");
 }
 
 /// Returns the first directory that contains a usable

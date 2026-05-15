@@ -2,16 +2,14 @@ use crate::cmd::{Cmd, Handle};
 
 use clap::Parser;
 
-// TODO: attach a link to https://zo.compilords.house/initiation for newcomers
-// For newcomers go to https://zo.compilords.house/initiation.
-
 /// Represents a [`Driver`] instance.
 #[derive(Debug, Parser)]
 #[clap(
   name = "\nzo",
-  about = "The zo Programming Language",
+  about = "The zo compiler",
   author = "compilords",
-  version
+  version,
+  after_help = "For newcomers go to https://zo.compilords.house/initiation"
 )]
 pub(crate) struct Driver {
   /// The commands that can be run be the [`Driver`].

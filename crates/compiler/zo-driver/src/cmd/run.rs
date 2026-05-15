@@ -234,12 +234,12 @@ impl Run {
     } else {
       // Programming path: compile to a per-run isolated
       // dir, execute. The isolation matters: the codegen
-      // emits `LC_LOAD_DYLIB @executable_path/libzo_runtime
-      // .dylib` and the compiler stages the dylib next to
-      // the binary. A flat shared `temp_dir()` setup means
-      // every run overwrites the same dylib path while
-      // earlier runs (or zombie dyld-stuck processes) may
-      // still hold the file open — which on macOS leaves
+      // emits `LC_LOAD_DYLIB @loader_path/deps/libzo_runtime
+      // .dylib` and the compiler stages the dylib into a
+      // sibling `deps/` directory. A flat shared `temp_dir()`
+      // setup means every run overwrites the same dylib path
+      // while earlier runs (or zombie dyld-stuck processes)
+      // may still hold the file open — which on macOS leaves
       // the new run wedged in `dyld3::MachOFile::compatible
       // Slice` indefinitely. A fresh subdirectory per run
       // sidesteps the whole class.
