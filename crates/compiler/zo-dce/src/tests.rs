@@ -6,7 +6,7 @@ use crate::Dce;
 use common::{call, fun, fun_names, make_sir};
 
 use zo_interner::{Interner, Symbol};
-use zo_sir::{BinOp, Insn};
+use zo_sir::{BinOp, ImportKind, Insn};
 use zo_ty::TyId;
 use zo_value::{Pubness, ValueId};
 
@@ -67,7 +67,7 @@ fn no_functions_preserves_top_level() {
   let interner = Interner::new();
   let mut sir = make_sir(vec![Insn::ModuleLoad {
     path: vec![],
-    imported_symbols: vec![],
+    kind: ImportKind::Qualified,
   }]);
 
   Dce::new(&mut sir, Symbol(0), &interner).eliminate();

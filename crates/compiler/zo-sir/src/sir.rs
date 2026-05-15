@@ -188,6 +188,21 @@ pub enum LoadSource {
   Local(Symbol),
 }
 
+/// How `load` brings imported items into the current file's
+/// scope. The path itself (`load std::math::…`) is carried
+/// separately on `Insn::ModuleLoad::path`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImportKind {
+  /// `load std::math` — items reachable only as `math::name`.
+  Qualified,
+  /// `load std::math::*` — every `pub` item of the target
+  /// pack is in scope unqualified; qualified form still works.
+  Glob,
+  /// `load std::math::(sin, cos)` — only the listed identifiers
+  /// are in scope unqualified.
+  Selective(Vec<Symbol>),
+}
+
 /// Represents a semantic intermediate representation.
 #[derive(Debug)]
 pub struct Sir {
@@ -693,11 +708,11 @@ pub enum Insn {
     value: ValueId,
     ty_id: TyId,
   },
-  /// Module import — resolved at compile time.
-  ModuleLoad {
-    path: Vec<Symbol>,
-    imported_symbols: Vec<Symbol>,
-  },
+  /// Module import — resolved at compile time. `kind`
+  /// distinguishes qualified vs glob vs selective forms;
+  /// the executor classifies it from the load's child tree
+  /// (`*` → Glob, `(…)` → Selective, otherwise Qualified).
+  ModuleLoad { path: Vec<Symbol>, kind: ImportKind },
   /// Pack declaration — defines a namespace.
   PackDecl { name: Symbol, pubness: Pubness },
   /// Pack-level dylib link metadata produced by a

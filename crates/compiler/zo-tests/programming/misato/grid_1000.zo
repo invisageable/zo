@@ -1,3 +1,7 @@
+load std::misato::*;
+load std::c::*;
+load std::raylib::*;
+
 -- misato — 1000 1×1×1 orange cubes in a 10×10×10 grid
 -- centered at origin (spacing 1.5; spans ~[-7, +7] per
 -- axis). Camera at (25, 20, 25) → origin. FPS printed to

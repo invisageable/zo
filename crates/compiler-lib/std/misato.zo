@@ -11,8 +11,6 @@
 -! material flows into any `Mesh` constructor without an
 -! arity explosion.
 
-pack misato;
-
 -- libzo_misato is built by `zo-misato`'s build.rs; the
 -- compiler stages a copy next to each user binary so
 -- `@executable_path` resolves it.

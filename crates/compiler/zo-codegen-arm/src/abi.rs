@@ -417,7 +417,7 @@ fn fp_reg(idx: usize) -> FpRegister {
 }
 
 fn n_gp_for_size(size: u32) -> usize {
-  ((size + 7) / 8) as usize
+  size.div_ceil(8) as usize
 }
 
 fn round_up_8(n: u32) -> u32 {

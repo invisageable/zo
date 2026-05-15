@@ -1,3 +1,5 @@
+load std::arr::*;
+
 -- tests-run-pass: `[]int.sort()` at runtime.
 -- @cmd — zo build array_sort.zo
 

@@ -181,10 +181,12 @@ pub extern "C" fn zo_state_set(slot: u32, value: i64) {
 /// directly — the runtime owns the resulting bytes so
 /// the buffer stays valid past the closure's frame.
 ///
-/// Safety: `ptr` must be either null (silently treated as
-/// the empty string) or a zo-format length-prefixed
-/// string pointer (`[len: u64][bytes][null]`) that lives
-/// for the duration of this call.
+/// # Safety
+///
+/// `ptr` must be either null (silently treated as the
+/// empty string) or a zo-format length-prefixed string
+/// pointer (`[len: u64][bytes][null]`) that lives for
+/// the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn zo_state_set_str(slot: u32, ptr: *const u8) {
   let bytes: &[u8] = if ptr.is_null() {
@@ -401,10 +403,11 @@ fn build_registry(
 /// prepends one on Apple platforms; on Linux the bare name
 /// `zo_run_native` is what the linker sees).
 ///
-/// Safety: `ctx` must point to a valid `ZoRuntimeContext`
-/// that lives for the duration of the call. The exe's stack
-/// frame outlives every runtime call, so the pointer is
-/// stable.
+/// # Safety
+///
+/// `ctx` must point to a valid `ZoRuntimeContext` that lives
+/// for the duration of the call. The exe's stack frame
+/// outlives every runtime call, so the pointer is stable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
   if ctx.is_null() {

@@ -1,4 +1,2 @@
-pack assert;
-
 -- assert that condition is true, abort if false.
 pub ffi check(condition: bool);

@@ -1,3 +1,5 @@
+load std::math::*;
+
 -- std::math integer helpers: gcd, lcm, pow_i.
 
 fun main() {

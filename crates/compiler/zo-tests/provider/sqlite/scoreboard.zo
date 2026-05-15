@@ -1,3 +1,5 @@
+load std::sqlite::*;
+
 -- sqlite — opens an in-process database, persists three
 -- scores, reads back the max + total. Validates the F6/F7
 -- pipeline for a 2nd C library beyond raylib + misato.

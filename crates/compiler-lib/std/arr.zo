@@ -1,5 +1,3 @@
-pack arr;
-
 -! Inherent methods on `[]int` arrays.
 -!
 -! int-element only (same tradeoff as `std::math` gcd/

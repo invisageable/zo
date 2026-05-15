@@ -305,8 +305,8 @@ pub struct ARM64Gen<'a> {
   /// explicit `Insn::Call`s only, so a function whose
   /// only calls are reactive helpers would otherwise get
   /// a leaf-fn prologue (no FP/LR save, no caller-save
-  /// reserve) and the inserted `bl` would clobber `X30`
-  /// + spill into someone else's frame. Pre-pass
+  /// reserve), the inserted `bl` then clobbering `X30`
+  /// and spilling into someone else's frame. Pre-pass
   /// promotes those functions to non-leaf so the
   /// prologue/epilogue reserve the right area.
   fns_needing_calls: HashSet<InsnIdx>,
@@ -1922,7 +1922,9 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_adr(ptr_reg, 0);
       }
 
-      Insn::Load { dst, src, ty_id, .. } => match src {
+      Insn::Load {
+        dst, src, ty_id, ..
+      } => match src {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
 
@@ -2852,11 +2854,7 @@ impl<'a> ARM64Gen<'a> {
         // Handled in execution phase.
       }
 
-      Insn::Store {
-        name,
-        value,
-        ty_id,
-      } => {
+      Insn::Store { name, value, ty_id } => {
         // Forward concrete enum payload types from the rhs
         // SSA value to this local so a later `Load` of `name`
         // can recover them. Mirrors how `value_types` flows
@@ -6623,7 +6621,7 @@ impl<'a> ARM64Gen<'a> {
   /// starting at `idx`: the allocator's view OR'd with
   /// our reactive-state promotion. The override exists
   /// because inserted `bl _zo_state_*` calls clobber X30
-  /// + need the caller-save spill area, but the allocator
+  /// and need the caller-save spill area, but the allocator
   /// is unaware of these synthesised calls.
   fn promoted_has_calls(&self, idx: u32, base: bool) -> bool {
     base || self.fns_needing_calls.contains(&InsnIdx(idx))

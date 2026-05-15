@@ -1,5 +1,3 @@
-pack process;
-
 -! Terminates the process with the given exit code.
 -!
 -! The call does not return — outstanding stack frames are

@@ -113,27 +113,27 @@ fn main() {
   let start = Instant::now();
   let mut results = Vec::new();
 
-  // programming/ — build + run + optional output check.
-  run_dir(
-    &tests_dir.join("programming"),
-    Category::Pass,
-    &zo,
-    &tmp,
+  let ctx = RunnerCtx {
+    zo: &zo,
+    tmp: &tmp,
     filter,
     target,
     run_all,
+  };
+
+  // programming/ — build + run + optional output check.
+  run_dir(
+    &ctx,
+    &tests_dir.join("programming"),
+    Category::Pass,
     &mut results,
   );
 
   // programming/fail/ — must fail to compile.
   run_dir(
+    &ctx,
     &tests_dir.join("programming/fail"),
     Category::Fail,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
@@ -141,13 +141,9 @@ fn main() {
   // (parse + executor buffer + codegen `link_name`
   // dispatch). Build + run + EXPECTED OUTPUT match.
   run_dir(
+    &ctx,
     &tests_dir.join("programming/attributes"),
     Category::Pass,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
@@ -158,13 +154,9 @@ fn main() {
   // shape as raylib / misato: build always, run only with
   // `--all`.
   run_dir(
+    &ctx,
     &tests_dir.join("templating"),
     Category::WindowRun,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
@@ -172,102 +164,65 @@ fn main() {
   // provider shim. Same WindowRun shape as templating:
   // build always, run only with --all.
   run_dir(
+    &ctx,
     &tests_dir.join("provider/raylib"),
     Category::WindowRun,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
   // provider/sqlite/ — sqlite scoreboard via provider
   // shim. Stdout-emitting program, no window — Pass.
   run_dir(
+    &ctx,
     &tests_dir.join("provider/sqlite"),
     Category::Pass,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
   // programming/misato/ — misato 3D demos. Same WindowRun
   // shape — covers cube_static, three_cubes, grid_1000, …
   run_dir(
+    &ctx,
     &tests_dir.join("programming/misato"),
     Category::WindowRun,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
   // templating/fail/ — must fail to compile.
   run_dir(
+    &ctx,
     &tests_dir.join("templating/fail"),
     Category::Fail,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
   // programming/sir/ — SIR verification (-- CHECK:).
   run_dir(
+    &ctx,
     &tests_dir.join("programming/sir"),
     Category::Check,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
   // programming/codegen/ — ARM64 verification (-- CHECK:).
   run_dir(
+    &ctx,
     &tests_dir.join("programming/codegen"),
     Category::Check,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
   // programming/crashes/ — ICE regression tests.
   run_dir(
+    &ctx,
     &tests_dir.join("programming/crashes"),
     Category::Crash,
-    &zo,
-    &tmp,
-    filter,
-    target,
-    run_all,
     &mut results,
   );
 
   // zo-how-to tutorials — build + run + output check.
   if howto_dir.exists() {
-    run_dir(
-      &howto_dir,
-      Category::Pass,
-      &zo,
-      &tmp,
-      filter,
-      target,
-      run_all,
-      &mut results,
-    );
+    run_dir(&ctx, &howto_dir, Category::Pass, &mut results);
   }
 
   // zo-usecases — multi-file projects (lib.zo + modules).
@@ -403,16 +358,30 @@ fn build_cmd(zo: &Path, target: Option<&str>) -> Command {
   cmd
 }
 
+/// Runner-wide config: same for every `run_dir` call in a
+/// single `main()` invocation. Bundles the moving parts that
+/// otherwise turn `run_dir` into an 8-arg function — the `zo`
+/// binary path, scratch dir, optional filter / target, and
+/// the `--all` flag.
+struct RunnerCtx<'a> {
+  zo: &'a Path,
+  tmp: &'a Path,
+  filter: Option<&'a str>,
+  target: Option<&'a str>,
+  run_all: bool,
+}
+
 fn run_dir(
+  ctx: &RunnerCtx,
   dir: &Path,
   category: Category,
-  zo: &Path,
-  tmp: &Path,
-  filter: Option<&str>,
-  target: Option<&str>,
-  run_all: bool,
   results: &mut Vec<TestResult>,
 ) {
+  let zo = ctx.zo;
+  let tmp = ctx.tmp;
+  let filter = ctx.filter;
+  let target = ctx.target;
+  let run_all = ctx.run_all;
   if !dir.exists() {
     return;
   }

@@ -1,3 +1,7 @@
+load std::misato::*;
+load std::c::*;
+load std::raylib::*;
+
 -- misato — three 1×1×1 cubes side-by-side, each a different
 -- color, viewed from a user-controlled camera.
 --   - red   at (-2.0, 0.0, 0.0)

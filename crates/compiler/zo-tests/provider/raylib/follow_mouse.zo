@@ -1,3 +1,6 @@
+load std::raylib::*;
+load std::c::*;
+
 -- raylib — magenta circle tracks the mouse pointer every
 -- frame inside an 800×600 window. Proves Vector2 by-value
 -- passing + return through AAPCS HFA end-to-end.

@@ -45,9 +45,10 @@ pack_body = "{", { item }, "}" ;
 
 (* ===== Load Declaration ===== *)
 
-load_decl   = "load", module_path, [ "::", "(", import_list, ")" ] ;
-module_path = identifier, { "::", identifier } ;
-import_list = identifier, { ",", identifier } ;
+load_decl    = "load", module_path, [ "::", import_tail ] ;
+module_path  = identifier, { "::", identifier } ;
+import_tail  = "*" | "(", import_list, ")" ;
+import_list  = identifier, { ",", identifier } ;
 
 (* ===== Directive ===== *)
 

@@ -132,7 +132,7 @@ mod tests {
 
   #[test]
   fn decode_rejects_truncated_input() {
-    let bytes = encode(&vec![UiCommand::Text("hello".into())]).unwrap();
+    let bytes = encode(&[UiCommand::Text("hello".into())]).unwrap();
 
     // Drop the last byte — payload no longer matches the
     // length prefix. Decode must surface an error rather

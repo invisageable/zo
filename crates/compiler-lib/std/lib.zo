@@ -19,4 +19,6 @@ pack preload;
 pack process;
 pack raylib;
 pack set;
+pack sqlite;
+pack str;
 pack vec;

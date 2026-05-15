@@ -15,7 +15,7 @@
 -! 0 on no-rows-or-error. A future API will surface SQL
 -! error strings.
 
-pack sqlite;
+load std::c::*;
 
 -- libzo_provider_sqlite is built by `zo-provider-sqlite`'s
 -- Cargo build and staged next to each user binary so

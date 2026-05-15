@@ -1,3 +1,7 @@
+load std::misato::*;
+load std::c::*;
+load std::raylib::*;
+
 -- misato — single static cube on a gray background, viewed
 -- from a fixed camera at (3,3,3) looking at origin.
 -- @cmd — zo build cube_static.zo && ./cube_static

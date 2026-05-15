@@ -49,8 +49,14 @@ unsafe fn read_c_str(ptr: *const c_char) -> Option<String> {
 /// `__zo_sqlite_open(path: int) -> int`.
 /// Returns a positive handle on success, `0` on failure
 /// (file open, permissions, malformed path).
+///
+/// # Safety
+///
+/// `path` must be a valid NUL-terminated UTF-8 C string or
+/// null. Caller passes ownership of the buffer for the
+/// duration of the call.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_sqlite_open(path: *const c_char) -> ZoHandle {
+pub unsafe extern "C" fn __zo_sqlite_open(path: *const c_char) -> ZoHandle {
   let Some(path) = (unsafe { read_c_str(path) }) else {
     return 0;
   };
@@ -86,8 +92,14 @@ pub extern "C" fn __zo_sqlite_close(handle: ZoHandle) {
 /// failure. SQL errors are absorbed — for a real client a
 /// future API would surface the error string; today's
 /// scoreboard demo only needs success/fail.
+///
+/// # Safety
+///
+/// `sql` must be a valid NUL-terminated UTF-8 C string or
+/// null. `handle` must be a value previously returned by
+/// `__zo_sqlite_open` and not yet closed.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_sqlite_exec(
+pub unsafe extern "C" fn __zo_sqlite_exec(
   handle: ZoHandle,
   sql: *const c_char,
 ) -> ZoHandle {
@@ -113,8 +125,14 @@ pub extern "C" fn __zo_sqlite_exec(
 /// from an error today, which is fine for aggregates like
 /// `COUNT(*)` / `MAX(score)` where the demo treats `0` as
 /// "no data".
+///
+/// # Safety
+///
+/// `sql` must be a valid NUL-terminated UTF-8 C string or
+/// null. `handle` must be a value previously returned by
+/// `__zo_sqlite_open` and not yet closed.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_sqlite_query_int(
+pub unsafe extern "C" fn __zo_sqlite_query_int(
   handle: ZoHandle,
   sql: *const c_char,
 ) -> ZoHandle {

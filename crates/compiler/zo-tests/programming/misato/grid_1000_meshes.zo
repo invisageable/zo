@@ -1,3 +1,7 @@
+load std::misato::*;
+load std::c::*;
+load std::raylib::*;
+
 -- misato — 1000 cubes of varying size in a 10×10×10 grid,
 -- each with its own GPU-uploaded raylib Mesh. Size scales
 -- with distance from the grid centre (smaller in the

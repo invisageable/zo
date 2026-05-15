@@ -1,3 +1,6 @@
+load std::raylib::*;
+load std::c::*;
+
 -- raylib — magenta circle bouncing inside an 800×600
 -- window, reflecting off the four walls.
 -- @cmd — zo build circle.zo && ./circle

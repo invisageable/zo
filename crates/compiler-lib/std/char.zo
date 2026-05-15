@@ -1,5 +1,3 @@
-pack char;
-
 -! Inherent methods on the `char` primitive.
 -!
 -! All ASCII-oriented. Non-ASCII behaviour is undefined for

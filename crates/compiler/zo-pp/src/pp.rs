@@ -268,11 +268,25 @@ impl PrettyPrinter {
 
           self.sir_instruction(&call);
         }
-        Insn::ModuleLoad { path, .. } => {
+        Insn::ModuleLoad { path, kind } => {
           let path_str =
             path.iter().map(|s| interner.get(*s)).collect::<Vec<_>>();
 
-          let load = format!("load {}", path_str.join("::"));
+          let tail = match kind {
+            zo_sir::ImportKind::Qualified => String::new(),
+            zo_sir::ImportKind::Glob => "::*".to_string(),
+            zo_sir::ImportKind::Selective(items) => {
+              let names = items
+                .iter()
+                .map(|s| interner.get(*s))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+              format!("::({names})")
+            }
+          };
+
+          let load = format!("load {}{tail}", path_str.join("::"));
 
           self.sir_instruction(&load);
         }

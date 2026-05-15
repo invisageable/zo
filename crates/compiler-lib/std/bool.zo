@@ -1,5 +1,3 @@
-pack bool;
-
 apply bool {
   pub fun as_int(self) -> int {
     if self {

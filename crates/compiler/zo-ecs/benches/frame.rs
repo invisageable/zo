@@ -1,9 +1,9 @@
 //! E6 acceptance bench: 10k entities, full frame < 1 ms.
 //!
 //! A "frame" = update pass (mut iter, advance Transform.x)
-//! + draw pass (read iter, stub `draw_mesh` call per row).
+//! plus draw pass (read iter, stub `draw_mesh` per row).
 //! 60 FPS budget is 16.7 ms / frame; the ECS portion must
-//! be < 10% (≈1 ms) so the renderer/audio/input have room.
+//! stay under 10% (≈1 ms) so renderer/audio/input have room.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;

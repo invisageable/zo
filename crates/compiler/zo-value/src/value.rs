@@ -193,9 +193,7 @@ impl ValueStorage {
   pub fn is_scalar_const(&self, vid: ValueId, with_string: bool) -> bool {
     matches!(
       self.kinds.get(vid.0 as usize),
-      Some(
-        Value::Int | Value::Float | Value::Bool | Value::Char,
-      ),
+      Some(Value::Int | Value::Float | Value::Bool | Value::Char,),
     ) || (with_string
       && matches!(self.kinds.get(vid.0 as usize), Some(Value::String)))
   }

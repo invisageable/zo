@@ -8,7 +8,7 @@ use crate::constants::{
 
 use crate::stage::Stage;
 
-use zo_analyzer::{Analyzer, ImportedSymbols, SemanticResult};
+use zo_analyzer::{Analyzer, AnalyzerConfig, ImportedSymbols, SemanticResult};
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_dce::Dce;
@@ -64,6 +64,28 @@ pub fn default_std_search_paths() -> Vec<PathBuf> {
     .unwrap_or_default()
 }
 
+/// One `load` statement: a fully-qualified module path
+/// (`std::io::*` → `[std, io]`) plus the span of the `load`
+/// node in the source for diagnostics. Worklist entry for
+/// the transitive-load closure.
+pub type LoadRef = zo_span::Spanned<Vec<Symbol>>;
+
+/// File-as-pack rule: returns the implicit pack name for a
+/// loaded module file, or `None` when the file is a package
+/// manifest (`lib.zo`) or a binary entry (`main.zo`). The
+/// pack name is the file's stem; the analyzer synthesizes a
+/// `pack <name>;` decl before walking the tree so items in
+/// `std/math.zo` namespace as `math::*` without an explicit
+/// `pack math;` line.
+fn implicit_pack_for(path: &Path) -> Option<&str> {
+  let stem = path.file_stem().and_then(|s| s.to_str())?;
+
+  match stem {
+    "lib" | "main" => None,
+    other => Some(other),
+  }
+}
+
 /// Represents a [`Compiler`] instance.
 pub struct Compiler {
   stats: Stats,
@@ -107,28 +129,40 @@ impl Compiler {
 
   /// Scans a parse tree for `Token::Load` introducer nodes
   /// and extracts module paths from their Ident children.
-  fn scan_loads(tree: &Tree) -> Vec<(Vec<Symbol>, Span)> {
+  fn scan_loads(
+    tree: &Tree,
+    interner: &mut zo_interner::Interner,
+  ) -> Vec<LoadRef> {
     let mut loads = Vec::new();
 
-    for (i, node) in tree.nodes.iter().enumerate() {
-      if node.token != Token::Load || node.child_count == 0 {
+    for (i, node) in tree.nodes_with_token(Token::Load) {
+      if node.child_count == 0 {
         continue;
       }
 
       let span = tree.spans[i];
       let mut path = Vec::new();
 
+      // Pack files share names with primitives (`int.zo`,
+      // `str.zo`, `bool.zo`, `char.zo`) — the tokenizer
+      // emits `Token::IntType`/`StrType`/… for those, so
+      // we re-intern the keyword string into a Symbol.
       for child_idx in node.children_range() {
-        if let Some(child) = tree.nodes.get(child_idx)
-          && child.token == Token::Ident
-          && let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32)
-        {
-          path.push(sym);
+        let Some(child) = tree.nodes.get(child_idx) else {
+          continue;
+        };
+
+        if child.token == Token::Ident {
+          if let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32) {
+            path.push(sym);
+          }
+        } else if let Some(kw) = child.token.ty_keyword_str() {
+          path.push(interner.intern(kw));
         }
       }
 
       if !path.is_empty() {
-        loads.push((path, span));
+        loads.push(LoadRef::new(path, span));
       }
     }
 
@@ -153,19 +187,16 @@ impl Compiler {
     interner: &zo_interner::Interner,
   ) -> Vec<(String, bool)> {
     let mut packs = Vec::new();
-    let nodes = &tree.nodes;
 
-    for (i, node) in nodes.iter().enumerate() {
-      if node.token != Token::Pack || node.child_count == 0 {
+    for (i, node) in tree.nodes_with_token(Token::Pack) {
+      if node.child_count == 0 {
         continue;
       }
 
-      // Check if previous node is Pub.
-      let is_pub =
-        i > 0 && nodes.get(i - 1).is_some_and(|n| n.token == Token::Pub);
+      let is_pub = tree.is_pub_at(i);
 
       for child_idx in node.children_range() {
-        if let Some(child) = nodes.get(child_idx)
+        if let Some(child) = tree.nodes.get(child_idx)
           && child.token == Token::Ident
           && let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32)
         {
@@ -235,14 +266,20 @@ impl Compiler {
             Tokenizer::new(&pack_source, &mut session.interner).tokenize();
           let pack_par = Parser::new(&pack_tok, &pack_source).parse();
 
-          let pack_ana = Analyzer::new(
+          let implicit_sym =
+            implicit_pack_for(&path).map(|stem| session.interner.intern(stem));
+
+          let pack_sem = Analyzer::new(
             &pack_par.tree,
             &mut session.interner,
             &pack_tok.literals,
             &mut session.ty_checker,
-          );
-
-          let pack_sem = pack_ana.analyze();
+          )
+          .with_config(AnalyzerConfig {
+            implicit_pack: implicit_sym,
+            ..AnalyzerConfig::default()
+          })
+          .analyze();
 
           let exports = extract_exports(
             pack_sem.sir,
@@ -263,27 +300,48 @@ impl Compiler {
     };
 
     // Resolve and compile loaded modules BEFORE analysis.
-    let module_paths = Self::scan_loads(&parsing.tree);
-    let mut imported_funs = Vec::new();
-    let mut imported_vars = Vec::new();
-    let mut imported_enums: Vec<zo_module_resolver::ExportedEnum> = Vec::new();
-    let mut imported_abstract_defs = HashMap::default();
+    // Transitive: we grow `module_paths` as we discover
+    // additional loads in each compiled module, so a chain
+    // like `main -> misato -> raylib` is fully covered. The
+    // `compiling` set both deduplicates and guards against
+    // circular imports.
+    let mut module_paths =
+      Self::scan_loads(&parsing.tree, &mut session.interner);
+    let std_sym = session.interner.intern("std");
+    // Cumulative imports — every loaded module sees what
+    // earlier modules exported (preload's `Option`/`Result`
+    // enums, std::int's primitive methods, etc.) and
+    // contributes its own exports. Cloned per loaded-module
+    // analyzer construction; ownership flows into the final
+    // user analyzer at the end.
+    let mut imports = ImportedSymbols {
+      funs: Vec::new(),
+      vars: Vec::new(),
+      enums: Vec::new(),
+      abstract_defs: HashMap::default(),
+    };
+
+    // Cache parsed modules so the topological-hoist rewind
+    // doesn't re-tokenize + re-parse the same file. Cheap
+    // on the first visit (Tree owns its data, no source
+    // borrows) and saves a full front-end pass per
+    // deferred module.
+    let mut parse_cache: HashMap<PathBuf, (TokenizationResult, ParsingResult)> =
+      HashMap::default();
+
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
     let mut module_next_label_id: u32 = 0;
 
-    // --- Preload: auto-import every std pack so its
-    // public items (`showln`, `check`, `exit`, `Show`,
-    // `Eq`, `Ord`, …) are available without explicit
-    // `load` statements. Keep in sync with `std/lib.zo`.
-    let preload = [
-      "preload", "io", "assert", "math", "cmp", "fmt", "process", "char",
-      "int", "bool", "arr", "str", "map", "set", "vec", "c", "raylib",
-      // misato deliberately last in the graphics chain —
-      // it depends on raylib being preloaded first (cam_ptr
-      // handling references raylib types in M2+).
-      "misato", "sqlite",
-    ];
+    // Auto-import `preload.zo` and its transitive `load`s.
+    // preload.zo IS the source of truth for the "always
+    // imported" surface — its top-level `load std::…::*;`
+    // lines define what's in scope everywhere (zo's
+    // equivalent of Rust's prelude). Adding a new
+    // "basic" doesn't touch the compiler — just append a
+    // `load` line to `preload.zo`. Domain packs (raylib,
+    // misato, sqlite, math, …) stay opt-in.
+    let preload = ["preload"];
 
     for module_name in preload {
       let sym = session.interner.intern(module_name);
@@ -295,8 +353,23 @@ impl Compiler {
 
       if let Some(m) = resolved {
         let src = m.source.clone();
+        let resolved_path = m.path.clone();
         let mod_tok = Tokenizer::new(&src, &mut session.interner).tokenize();
         let mod_par = Parser::new(&mod_tok, &src).parse();
+
+        // Cascade: every `load X::Y::*;` in preload.zo
+        // becomes an implicit user load. Prepend so they
+        // compile BEFORE any explicit user `load` and their
+        // exports are visible to the user file's analyzer
+        // (`showln`, `Vec`, `HashMap`, …).
+        let mut preload_loads =
+          Self::scan_loads(&mod_par.tree, &mut session.interner);
+
+        preload_loads.append(&mut module_paths);
+        module_paths = preload_loads;
+
+        let implicit_sym = implicit_pack_for(&resolved_path)
+          .map(|stem| session.interner.intern(stem));
 
         // Seed each preload pack's analyzer with symbols
         // from earlier preload packs so later packs can
@@ -306,20 +379,18 @@ impl Compiler {
         // one-time at startup; without them, each preload
         // runs in isolation and cross-pack references
         // silently emit broken SIR.
-        let mod_ana = Analyzer::new(
+        let mod_sem = Analyzer::new(
           &mod_par.tree,
           &mut session.interner,
           &mod_tok.literals,
           &mut session.ty_checker,
         )
-        .with_imports(ImportedSymbols {
-          funs: imported_funs.clone(),
-          vars: imported_vars.clone(),
-          enums: imported_enums.clone(),
-          abstract_defs: imported_abstract_defs.clone(),
-        });
-
-        let mod_sem = mod_ana.analyze();
+        .with_config(AnalyzerConfig {
+          imports: imports.clone(),
+          implicit_pack: implicit_sym,
+          ..AnalyzerConfig::default()
+        })
+        .analyze();
 
         let mut exports =
           extract_exports(mod_sem.sir, None, &session.interner, &mod_sem.funs);
@@ -342,10 +413,10 @@ impl Compiler {
 
         Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
 
-        imported_funs.extend(exports.funs);
+        imports.funs.extend(exports.funs);
 
         for var in exports.vars {
-          imported_vars.push(Local {
+          imports.vars.push(Local {
             name: var.name,
             ty_id: var.ty_id,
             value_id: var.init.unwrap_or(ValueId(0)),
@@ -356,8 +427,8 @@ impl Compiler {
           });
         }
 
-        imported_enums.extend(exports.enums);
-        imported_abstract_defs.extend(mod_sem.abstract_defs);
+        imports.enums.extend(exports.enums);
+        imports.abstract_defs.extend(mod_sem.abstract_defs);
         module_sir_instructions.extend(exports.sir_instructions);
 
         module_next_value_id += exports.next_value_id;
@@ -365,7 +436,14 @@ impl Compiler {
       }
     }
 
-    for (module_path, load_span) in &module_paths {
+    let mut mp_i = 0;
+    while mp_i < module_paths.len() {
+      let LoadRef {
+        value: module_path,
+        span: load_span,
+      } = module_paths[mp_i].clone();
+      mp_i += 1;
+
       let first_seg = module_path[0];
       let _mod_name = session.interner.get(first_seg).to_owned();
 
@@ -373,10 +451,10 @@ impl Compiler {
       if let Some(mut exports) = self.module_table.remove(&first_seg) {
         Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
 
-        imported_funs.extend(exports.funs);
+        imports.funs.extend(exports.funs);
 
         for var in exports.vars {
-          imported_vars.push(Local {
+          imports.vars.push(Local {
             name: var.name,
             ty_id: var.ty_id,
             value_id: var.init.unwrap_or(ValueId(0)),
@@ -387,7 +465,7 @@ impl Compiler {
           });
         }
 
-        imported_enums.extend(exports.enums);
+        imports.enums.extend(exports.enums);
         module_sir_instructions.extend(exports.sir_instructions);
 
         module_next_value_id += exports.next_value_id;
@@ -397,24 +475,29 @@ impl Compiler {
       }
 
       // lib.zo exists but module not declared — error.
-      if has_lib_zo {
-        report_error(Error::new(ErrorKind::ModuleNotDeclared, *load_span));
+      // `std::…` paths are exempt: the user's project lib.zo
+      // governs THEIR subpackage layout, not what std exports.
+      // Without this skip, a project with `pack foo;` in
+      // lib.zo would reject preload's `load std::io::*;` and
+      // every other transitive std import.
+      if has_lib_zo && first_seg != std_sym {
+        report_error(Error::new(ErrorKind::ModuleNotDeclared, load_span));
 
         continue;
       }
 
-      // No lib.zo — fall back to filesystem resolve
-      // (single-file projects, backward compat).
+      // Fall back to filesystem resolve.
       let (mod_source, selective, resolved_path) = {
-        let resolved =
-          self.module_resolver.resolve(module_path, &session.interner);
+        let resolved = self
+          .module_resolver
+          .resolve(&module_path, &session.interner);
 
         match resolved {
           Some(m) => {
             (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
           }
           None => {
-            report_error(Error::new(ErrorKind::UnresolvedModule, *load_span));
+            report_error(Error::new(ErrorKind::UnresolvedModule, load_span));
 
             continue;
           }
@@ -422,24 +505,96 @@ impl Compiler {
       };
 
       if self.compiling.contains(&resolved_path) {
-        report_error(Error::new(ErrorKind::CircularImport, *load_span));
+        report_error(Error::new(ErrorKind::CircularImport, load_span));
         continue;
       }
 
       self.compiling.insert(resolved_path.clone());
 
-      let mod_tokenization =
-        Tokenizer::new(&mod_source, &mut session.interner).tokenize();
-      let mod_parsing = Parser::new(&mod_tokenization, &mod_source).parse();
+      if !parse_cache.contains_key(&resolved_path) {
+        let tok = Tokenizer::new(&mod_source, &mut session.interner).tokenize();
+        let par = Parser::new(&tok, &mod_source).parse();
+        parse_cache.insert(resolved_path.clone(), (tok, par));
+      }
 
-      let mod_analyzer = Analyzer::new(
+      let (mod_tokenization, mod_parsing) =
+        parse_cache.get(&resolved_path).expect("just inserted");
+
+      // Topological hoist: any `load` in this module that
+      // hasn't been compiled yet must compile FIRST, or
+      // this module's analyzer hits `find_fun(c_str) →
+      // None` and falls into the "function not found"
+      // path — which emits the Call without pushing a
+      // return value, breaking the outer arg pop in
+      // nested forms like `my_open(c_str(path))`.
+      let nested = Self::scan_loads(&mod_parsing.tree, &mut session.interner);
+
+      let mut unmet: Vec<LoadRef> = Vec::new();
+
+      for nested_ref in nested {
+        // Skip self-loops (a module that mentions itself).
+        if nested_ref.value == module_path {
+          continue;
+        }
+
+        if !module_paths[..mp_i]
+          .iter()
+          .any(|q| q.value == nested_ref.value)
+        {
+          unmet.push(nested_ref);
+        }
+      }
+
+      if !unmet.is_empty() {
+        // Restore `compiling` (we're not actually compiling
+        // this yet — we'll come back).
+        self.compiling.remove(&resolved_path);
+
+        // For each unmet dep: if it's already queued at a
+        // later position, remove it (we'll re-insert
+        // before the current module so it processes first).
+        // The bare `Vec::retain` is O(n), but module_paths
+        // is small (one entry per loaded pack).
+        for dep in &unmet {
+          module_paths.retain(|q| q.value != dep.value);
+        }
+
+        // Insert each unmet dep right before the current
+        // module (which is at `mp_i - 1`), preserving order.
+        let insert_at = mp_i - 1;
+
+        for (i, dep) in unmet.into_iter().enumerate() {
+          module_paths.insert(insert_at + i, dep);
+        }
+
+        // Rewind so we revisit this module after its deps.
+        mp_i = insert_at;
+
+        continue;
+      }
+
+      let implicit_sym = implicit_pack_for(&resolved_path)
+        .map(|stem| session.interner.intern(stem));
+
+      // Seed with everything already imported (preload's
+      // `Option`/`Result`/`Event` enums + any earlier
+      // module's exports). io.zo's `Result<str, int>` and
+      // map.zo's `Option<$V>` references resolve against
+      // these — without seeding, the loaded module's
+      // analyzer reports `Undefined variable` and the
+      // user file inherits broken SIR.
+      let mod_semantic = Analyzer::new(
         &mod_parsing.tree,
         &mut session.interner,
         &mod_tokenization.literals,
         &mut session.ty_checker,
-      );
-
-      let mod_semantic = mod_analyzer.analyze();
+      )
+      .with_config(AnalyzerConfig {
+        imports: imports.clone(),
+        implicit_pack: implicit_sym,
+        ..AnalyzerConfig::default()
+      })
+      .analyze();
 
       let mut exports = extract_exports(
         mod_semantic.sir,
@@ -450,10 +605,10 @@ impl Compiler {
 
       Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
 
-      imported_funs.extend(exports.funs);
+      imports.funs.extend(exports.funs);
 
       for var in exports.vars {
-        imported_vars.push(Local {
+        imports.vars.push(Local {
           name: var.name,
           ty_id: var.ty_id,
           value_id: var.init.unwrap_or(ValueId(0)),
@@ -464,6 +619,8 @@ impl Compiler {
         });
       }
 
+      imports.enums.extend(exports.enums);
+      imports.abstract_defs.extend(mod_semantic.abstract_defs);
       module_sir_instructions.extend(exports.sir_instructions);
       module_next_value_id += exports.next_value_id;
       module_next_label_id += exports.next_label_id;
@@ -481,33 +638,27 @@ impl Compiler {
       &mut session.ty_checker,
     );
 
-    let has_imports = !imported_funs.is_empty()
-      || !imported_vars.is_empty()
-      || !imported_enums.is_empty();
-
-    let analyzer = if has_imports {
-      analyzer.with_imports(ImportedSymbols {
-        funs: imported_funs,
-        vars: imported_vars,
-        enums: imported_enums,
-        abstract_defs: imported_abstract_defs,
-      })
-    } else {
-      analyzer
-    };
+    // The leaf of each transitively-loaded path IS the pack
+    // name (`std::io::*` → `io`). Surfaced so the user
+    // analyzer's qualified-call resolution finds them.
+    let in_scope_packs: Vec<Symbol> = module_paths
+      .iter()
+      .filter_map(|m| m.value.last().copied())
+      .collect();
 
     // The user file's `<img src="…">` and similar
     // path-typed attributes are resolved against this
     // directory at attribute-build time — so the
     // compiled binary holds absolute paths and renders
     // assets regardless of CWD at run time.
-    let analyzer = if let Some(dir) = file_path.parent() {
-      analyzer.with_source_dir(dir.to_path_buf())
-    } else {
-      analyzer
-    };
-
-    let mut semantic = analyzer.analyze();
+    let mut semantic = analyzer
+      .with_config(AnalyzerConfig {
+        imports,
+        source_dir: file_path.parent().map(Path::to_path_buf),
+        implicit_pack: None,
+        in_scope_packs,
+      })
+      .analyze();
     self.profiler.end_phase(ANALYZER_NAME);
 
     // Drain thread-local errors into the compiler reporter.

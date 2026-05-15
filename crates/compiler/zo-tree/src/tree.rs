@@ -127,6 +127,53 @@ impl Tree {
     range.map(move |i| (i as u32, &self.nodes[i]))
   }
 
+  /// `true` when `nodes[idx]` is immediately preceded by a
+  /// `Token::Pub` modifier. Shared by every site that emits
+  /// `Pubness` for a top-level item (`execute_fun`,
+  /// `execute_struct`, `execute_pack`, the lib.zo manifest
+  /// scan in zo-compiler).
+  #[inline]
+  pub fn is_pub_at(&self, idx: usize) -> bool {
+    idx > 0
+      && self
+        .nodes
+        .get(idx - 1)
+        .is_some_and(|n| n.token == Token::Pub)
+  }
+
+  /// Iterate `(index, node)` pairs for every node whose
+  /// token kind equals `tok`. Replaces the hand-rolled
+  /// `for (i, node) in tree.nodes.iter().enumerate()` +
+  /// `if node.token != X { continue; }` pattern in the
+  /// compiler's introducer scans (`scan_loads`,
+  /// `scan_packs`).
+  pub fn nodes_with_token(
+    &self,
+    tok: Token,
+  ) -> impl Iterator<Item = (usize, &NodeHeader)> + '_ {
+    self
+      .nodes
+      .iter()
+      .enumerate()
+      .filter(move |(_, n)| n.token == tok)
+  }
+
+  /// `true` when the first non-`Token::Pub` node at the top
+  /// of the tree has token kind `tok`. Used by the
+  /// executor's implicit-pack synthesis to detect whether
+  /// the file already opens with an explicit `pack X;` (in
+  /// which case synthesis is suppressed).
+  pub fn top_level_starts_with(&self, tok: Token) -> bool {
+    for node in self.nodes.iter() {
+      match node.token {
+        Token::Pub => continue,
+        t => return t == tok,
+      }
+    }
+
+    false
+  }
+
   /// Get span for a node
   #[inline(always)]
   pub fn span(&self, node_index: u32) -> Span {

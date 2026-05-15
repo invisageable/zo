@@ -1,5 +1,3 @@
-pack io;
-
 -! Writes a value to stdout without a trailing newline.
 pub ffi show<$T>(msg: $T);
 

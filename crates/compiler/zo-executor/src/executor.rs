@@ -5,9 +5,9 @@ use zo_interner::{
 };
 use zo_reporter::report_error;
 use zo_sir::{
-  BinOp, ComputedBinding, Insn, LinkEntry, LinkPath, LinkResolution, LinkSpec,
-  ListBinding, ListItemCmd, LoadSource, NurseryKind, Sir, SpawnKind,
-  TemplateBindings, UnOp,
+  BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
+  LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource, NurseryKind,
+  Sir, SpawnKind, TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -370,6 +370,13 @@ pub struct Executor<'a> {
   /// `#link { ... }` to attach dylib metadata to its
   /// owning pack.
   top_pack: Option<Symbol>,
+  /// Implicit pack derived from the filename for non-`lib.zo`
+  /// / non-`main.zo` files. When `Some`, `execute` emits a
+  /// synthetic `Insn::PackDecl` and seeds `top_pack` /
+  /// `pack_context` before walking the tree — unless the
+  /// tree already starts with an explicit `pack` (transitional
+  /// state, removed once std files are stripped).
+  implicit_pack: Option<Symbol>,
   /// `<exe-dir>/../lib/vendor` resolved once at executor
   /// construction. Used by `resolve_link_entry`'s vendor
   /// fallback to locate prebuilt dylibs the compiler
@@ -389,7 +396,7 @@ pub struct Executor<'a> {
   source_dir: Option<std::path::PathBuf>,
   /// Attributes (`%% name [= literal | (arg)].`) the
   /// parser emitted just before the next item. Drained
-  /// + applied when the next `FunDef` / `StructDef` /
+  /// and applied when the next `FunDef` / `StructDef` /
   /// etc. is emitted. Currently only `link_name` is
   /// consumed (by `pub ffi` declarations); other names
   /// are silently ignored until their consumers land.
@@ -730,6 +737,7 @@ impl<'a> Executor<'a> {
       pack_context: Vec::new(),
       pack_names: HashSet::default(),
       top_pack: None,
+      implicit_pack: None,
       vendor_dir: zo_host_paths::first_existing_lib_dir("vendor"),
       source_dir: None,
       pending_attributes: Vec::new(),
@@ -927,12 +935,7 @@ impl<'a> Executor<'a> {
 
   /// Checks if the node immediately before `idx` is `Token::Pub`.
   fn is_pub(&self, idx: usize) -> bool {
-    idx > 0
-      && self
-        .tree
-        .nodes
-        .get(idx - 1)
-        .is_some_and(|n| n.token == Token::Pub)
+    self.tree.is_pub_at(idx)
   }
 
   /// Gets the value associated with a node (if any).
@@ -1125,6 +1128,56 @@ impl<'a> Executor<'a> {
   pub fn with_source_dir(mut self, dir: std::path::PathBuf) -> Self {
     self.source_dir = Some(dir);
     self
+  }
+
+  /// Records the implicit pack name (file basename) for
+  /// files that are packs by default. `execute` synthesizes
+  /// a `pack <name>;` declaration before walking the tree,
+  /// unless the source already begins with an explicit
+  /// `pack` (transition state — std files retain explicit
+  /// packs until Phase 8 of the module-system rewrite
+  /// strips them).
+  pub fn with_implicit_pack(mut self, name: Symbol) -> Self {
+    self.implicit_pack = Some(name);
+    self
+  }
+
+  /// Pre-populates `pack_names` with packs the caller has
+  /// already compiled and merged into the SIR (typically
+  /// preload's transitive loads — `io`, `vec`, `map`, …).
+  /// Without this, the user file's qualified call sites
+  /// (`io::showln(...)`) miss the pack-name check and
+  /// report `Undefined variable`.
+  pub fn with_in_scope_packs(mut self, names: Vec<Symbol>) -> Self {
+    for name in names {
+      self.pack_names.insert(name);
+    }
+    self
+  }
+
+  /// Emit `Insn::PackDecl`, mark the pack name in scope,
+  /// and seed `top_pack`. Returns `true` when the name was
+  /// new — callers can branch on the return to decide
+  /// whether to report `DuplicateDefinition`. Single point
+  /// of truth shared by the implicit-pack synthesis at
+  /// `execute()` entry and `execute_pack` for inline
+  /// `pack X { ... }` declarations.
+  fn register_pack(&mut self, name: Symbol, pubness: Pubness) -> bool {
+    let fresh = self.pack_names.insert(name);
+
+    self.top_pack = Some(name);
+    self.sir.emit(Insn::PackDecl { name, pubness });
+
+    fresh
+  }
+
+  /// True when the file declares its own pack explicitly
+  /// at the top — implicit-pack synthesis must skip to
+  /// avoid `DuplicateDefinition`. Delegates to the
+  /// reusable `Tree::top_level_starts_with`, which accepts
+  /// a leading `Token::Pub` for `pub pack`.
+  fn tree_starts_with_pack(&self) -> bool {
+    self.tree.top_level_starts_with(Token::Pack)
   }
 
   /// Return `true` for attribute names whose values are
@@ -1323,6 +1376,33 @@ impl<'a> Executor<'a> {
     Vec<FunDef>,
     HashMap<Symbol, AbstractDef>,
   ) {
+    // File = pack by default. When the compiler set an
+    // `implicit_pack` (the loaded file is a pack file, not
+    // lib.zo/main.zo) AND no explicit `pack X;` is at the
+    // top of the tree, emit a synthetic PackDecl, register
+    // the name, and set `top_pack` so:
+    //   - codegen's FFI walker associates each `pub ffi`
+    //     with its declaring pack (`io::showln` →
+    //     `pack_dylib[io]`)
+    //   - user code's `pack::fn(...)` qualified resolution
+    //     finds the pack in `pack_names`
+    //
+    // Critically, we do NOT push to `pack_context`. That
+    // would force every top-level fun AND every method
+    // inside `apply T { ... }` to be mangled with the
+    // pack prefix — turning `Vec::len` into `vec::Vec::len`
+    // and breaking dot-method dispatch (`x.len()` builds
+    // the un-prefixed `Vec::len` and would no longer
+    // resolve). Top-level standalone funs still resolve
+    // via the bare-name + pack-owner fallback at the
+    // qualified-call site (`math::sin(x)` → `sin` if
+    // `sin`'s `owning_pack` is `math`).
+    if let Some(implicit) = self.implicit_pack
+      && !self.tree_starts_with_pack()
+    {
+      self.register_pack(implicit, Pubness::Yes);
+    }
+
     // Pre-scan top-level function signatures so mutual
     // recursion and out-of-order calls resolve during the
     // main pass.
@@ -3337,12 +3417,24 @@ impl<'a> Executor<'a> {
             // Dot handler has two values to pop (receiver +
             // member). The actual field name is resolved
             // from the tree node, not the stack value.
-            let is_dot_member = idx + 1 < self.tree.nodes.len()
-              && self.tree.nodes[idx + 1].token == Token::Dot;
-
             let is_pack = self.pack_names.contains(&sym);
 
-            if is_dot_member || is_pack {
+            let next_tok = self.tree.nodes.get(idx + 1).map(|n| n.token);
+
+            let is_dot_member = next_tok == Some(Token::Dot);
+
+            // A pack ident in a *dot* chain (`pack.fn()`)
+            // needs a value-stack placeholder so the Dot
+            // handler sees a balanced stack. A pack ident
+            // before `::` (`pack::fn()`) needs NO push —
+            // `execute_enum_access` walks the tree directly
+            // and doesn't pop a value. The two forms must
+            // not collapse: pushing for both leaves a
+            // phantom that the next call consumes as a
+            // stale operand. Either way, the bottom
+            // `!is_pack` check below skips `Undefined
+            // variable` so the ident isn't misreported.
+            if is_dot_member || (is_pack && next_tok == Some(Token::Dot)) {
               // Pack-prefix idents (`inner`, `inner2` in
               // `inner.inner2.hello()`) are namespace
               // segments — not variables. Push a
@@ -5375,27 +5467,63 @@ impl<'a> Executor<'a> {
     }
   }
 
-  /// Executes function declaration.
-  /// Executes a `load` statement.
-  ///
-  /// Extracts path segments from children (Ident nodes between
-  /// ColonColon separators) and emits `Insn::ModuleLoad`.
-  fn execute_load(&mut self, _start_idx: usize, end_idx: usize) {
-    let mut path = Vec::new();
+  /// Executes a `load` statement, classifying it as
+  /// Qualified / Glob / Selective. Idents before a `Star`
+  /// or `LParen` are path segments; Idents inside `(…)`
+  /// are selective imports. `path` always carries the
+  /// dotted module path, never the imported names.
+  fn execute_load(&mut self, start_idx: usize, end_idx: usize) {
+    let mut path: Vec<Symbol> = Vec::new();
+    let mut selective: Vec<Symbol> = Vec::new();
+    let mut kind: Option<ImportKind> = None;
+    let mut in_selective = false;
 
-    for child_idx in (_start_idx + 1)..end_idx {
-      if let Some(node) = self.tree.nodes.get(child_idx)
-        && node.token == Token::Ident
-        && let Some(NodeValue::Symbol(sym)) = self.node_value(child_idx)
-      {
-        path.push(sym);
+    for child_idx in (start_idx + 1)..end_idx {
+      let Some(node) = self.tree.nodes.get(child_idx) else {
+        continue;
+      };
+
+      match node.token {
+        Token::Star if !in_selective => {
+          kind = Some(ImportKind::Glob);
+          break;
+        }
+        Token::LParen => {
+          in_selective = true;
+        }
+        Token::RParen if in_selective => {
+          kind = Some(ImportKind::Selective(std::mem::take(&mut selective)));
+          break;
+        }
+        Token::Ident => {
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(child_idx) {
+            if in_selective {
+              selective.push(sym);
+            } else {
+              path.push(sym);
+            }
+          }
+        }
+        _ => {}
       }
     }
 
-    self.sir.emit(Insn::ModuleLoad {
-      path,
-      imported_symbols: Vec::new(),
-    });
+    let kind = kind.unwrap_or(ImportKind::Qualified);
+
+    // Register the loaded leaf as a pack name so the
+    // `pack::function` resolution path (`io::showln(...)`)
+    // recognizes `io` as a namespace, not an undefined
+    // variable. The leaf is the last segment of the import
+    // path — that's the pack file the import targets
+    // (`load std::io` → pack `io`, `load std::math` →
+    // pack `math`). Without this, the analyzer at
+    // line 3465 reports `UndefinedVariable` for any
+    // qualified call.
+    if let Some(leaf) = path.last() {
+      self.pack_names.insert(*leaf);
+    }
+
+    self.sir.emit(Insn::ModuleLoad { path, kind });
   }
 
   /// Executes a `pack` statement.
@@ -5478,24 +5606,20 @@ impl<'a> Executor<'a> {
     let pack_end = rbrace_idx.map(|i| i + 1).unwrap_or(end_idx);
 
     if let Some(name) = name {
+      let pubness = if self.is_pub(start_idx) {
+        Pubness::Yes
+      } else {
+        Pubness::No
+      };
+
       // Reject `pack math::(...); pack math::(...);` —
-      // re-declaring or re-importing the same pack name
-      // shadowed the first decl silently.
-      if !self.pack_names.insert(name) {
+      // re-declaring the same pack name silently shadowed
+      // the first decl before.
+      if !self.register_pack(name, pubness) {
         let span = self.tree.spans[name_idx.unwrap_or(start_idx)];
 
         report_error(Error::new(ErrorKind::DuplicateDefinition, span));
       }
-
-      self.top_pack = Some(name);
-      self.sir.emit(Insn::PackDecl {
-        name,
-        pubness: if self.is_pub(start_idx) {
-          Pubness::Yes
-        } else {
-          Pubness::No
-        },
-      });
     }
 
     // Enter pack context: nested `fun`s will be mangled
@@ -15966,7 +16090,23 @@ impl<'a> Executor<'a> {
                 fun_name, mod_sym, lparen_idx, rparen_idx,
               );
             } else {
-              // Check for Type::method() pattern.
+              // Check for Type::method() / pack::fn() pattern.
+              // Resolve in two passes:
+              //   1. Try the mangled `Type::method` first.
+              //      Inline packs (`pack p { fun h }`) and
+              //      `apply Type` blocks register FunDefs
+              //      under the mangled symbol — common case.
+              //   2. Fall back to the bare `method` when
+              //      `Type` is a known pack name. Pack files
+              //      that declare FFI signatures keep their
+              //      *bare* names so unqualified globbed
+              //      calls (`load std::io::*;` →
+              //      `showln(x)`) bind directly. Without
+              //      this fallback the qualified form
+              //      (`io::showln(x)`) interns a symbol no
+              //      FunDef matches and codegen emits an
+              //      unresolved call — which links into a
+              //      stub the binary spins on at runtime.
               let call_name = if fun_idx >= 2
                 && self.tree.nodes[fun_idx - 1].token == Token::ColonColon
                 && self.tree.nodes[fun_idx - 2].token == Token::Ident
@@ -15977,8 +16117,17 @@ impl<'a> Executor<'a> {
                   let ts = self.interner.get(type_sym).to_owned();
                   let ms = self.interner.get(fun_name).to_owned();
                   let mangled = format!("{ts}::{ms}");
+                  let mangled_sym = self.interner.intern(&mangled);
 
-                  self.interner.intern(&mangled)
+                  if self.has_fun(mangled_sym) {
+                    mangled_sym
+                  } else if self.pack_names.contains(&type_sym)
+                    && self.has_fun(fun_name)
+                  {
+                    fun_name
+                  } else {
+                    mangled_sym
+                  }
                 } else {
                   fun_name
                 }
@@ -17598,9 +17747,8 @@ impl<'a> Executor<'a> {
     // instead of calling `execute_node` on the children.
     // String values are already interned at tokenization.
     if dir_name == "link" {
-      let lbrace = ((dir_idx + 1)..end_idx)
-        .find(|&i| self.tree.nodes[i].token == Token::LBrace);
-      let Some(lb) = lbrace else { return None };
+      let lb = ((dir_idx + 1)..end_idx)
+        .find(|&i| self.tree.nodes[i].token == Token::LBrace)?;
 
       // Bound iteration by the matching `}` of THIS
       // `#link { ... }` block — the parser's `end_idx`
@@ -18983,7 +19131,8 @@ impl<'a> Executor<'a> {
             let saved_value_stack = std::mem::take(&mut self.value_stack);
             let saved_ty_stack = std::mem::take(&mut self.ty_stack);
             let saved_sir_values = std::mem::take(&mut self.sir_values);
-            let saved_deferred_binops = std::mem::take(&mut self.deferred_binops);
+            let saved_deferred_binops =
+              std::mem::take(&mut self.deferred_binops);
             let saved_tuple_ctx = std::mem::take(&mut self.tuple_ctx);
             let saved_expected_ty_stack =
               std::mem::take(&mut self.expected_ty_stack);

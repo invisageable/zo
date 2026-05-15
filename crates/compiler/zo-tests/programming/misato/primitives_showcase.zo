@@ -1,3 +1,7 @@
+load std::misato::*;
+load std::c::*;
+load std::raylib::*;
+
 -- misato — primitives showcase in one scene:
 --   - PlaneGeometry  + MeshStandardMaterial (gray floor)
 --   - BoxGeometry    + MeshNormalMaterial   (cube at -1.2)

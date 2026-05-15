@@ -202,6 +202,24 @@ impl<'a> Parser<'a> {
       return;
     }
 
+    // ModulePath state: the path tail can carry a glob `*`
+    // or a selective list `(a, b)`. These tokens normally
+    // route through unary / operator / introducer paths,
+    // which would scramble them. Emit them flat so the
+    // executor sees the Load children as a simple stream:
+    // `Load Ident ColonColon Ident ColonColon Star Semicolon`
+    // or `Load Ident ColonColon LParen Ident Comma Ident RParen
+    // Semicolon`.
+    if self.state == ParserState::ModulePath {
+      match kind {
+        Token::Star | Token::LParen | Token::RParen | Token::Comma => {
+          self.emit_node(kind);
+          return;
+        }
+        _ => {}
+      }
+    }
+
     match kind {
       // Module statements
       Token::Load => self.handle_load_statement(),
@@ -1873,14 +1891,12 @@ impl<'a> Parser<'a> {
   /// (period-terminated; multiple fields comma-separated,
   /// optional trailing comma):
   ///
-  /// - `%% name.`                       — single tag.
-  /// - `%% name(arg).`                  — call-style.
-  /// - `%% name = literal.`             — key/value
-  ///                                      (mirrors Rust's
-  ///                                      `#[link_name = "X"]`).
-  /// - `%% n1 = v1, n2, n3(a), .`       — multiple
-  ///                                      fields per
-  ///                                      block.
+  /// - `%% name.`              — single tag.
+  /// - `%% name(arg).`         — call-style.
+  /// - `%% name = literal.`    — key/value
+  ///   (mirrors Rust's `#[link_name = "X"]`).
+  /// - `%% n1 = v1, n2, n3(a), .` — multiple fields per
+  ///   block.
   ///
   /// Emits one `Token::Attribute` node with each field's
   /// tokens as children: per field

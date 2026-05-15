@@ -1,3 +1,5 @@
+load std::math::*;
+
 -- tests-run-pass: all libm functions.
 -- all ffi functions are preloaded from std/math.zo.
 
