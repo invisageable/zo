@@ -1,5 +1,5 @@
-load std::raylib::*;
-load std::c::*;
+load core::raylib::*;
+load core::c::*;
 
 -- raylib — magenta circle bouncing inside an 800×600
 -- window, reflecting off the four walls.

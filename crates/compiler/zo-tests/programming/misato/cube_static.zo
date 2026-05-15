@@ -1,6 +1,6 @@
-load std::misato::*;
-load std::c::*;
-load std::raylib::*;
+load core::misato::*;
+load core::c::*;
+load core::raylib::*;
 
 -- misato — single static cube on a gray background, viewed
 -- from a fixed camera at (3,3,3) looking at origin.

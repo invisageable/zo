@@ -1,6 +1,6 @@
-load std::math::*;
+load core::math::*;
 
--- std::math integer helpers: gcd, lcm, pow_i.
+-- core::math integer helpers: gcd, lcm, pow_i.
 
 fun main() {
   check@eq(gcd(12, 8), 4);

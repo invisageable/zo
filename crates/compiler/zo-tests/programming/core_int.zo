@@ -1,6 +1,6 @@
-load std::math::*;
+load core::math::*;
 
--- std::int inherent methods.
+-- core::int inherent methods.
 
 fun main() {
   imu a: int = 42;

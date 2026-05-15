@@ -64,7 +64,7 @@ pub struct AnalyzerConfig {
   /// Packs already merged into the SIR via preload +
   /// transitive loads. Seeded into the executor so
   /// qualified call sites (`io::showln(...)`) resolve
-  /// without an explicit `load std::io;` in the user file.
+  /// without an explicit `load core::io;` in the user file.
   pub in_scope_packs: Vec<Symbol>,
 }
 

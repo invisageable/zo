@@ -43,9 +43,9 @@ use std::path::{Path, PathBuf};
 /// resolved without each one having to wire its own search
 /// list. Resolution order:
 ///
-/// 1. `ZO_STD_PATH` env var — explicit override.
-/// 2. `<exe-dir>/../lib/std` — installed layout.
-/// 3. `<exe-dir>/../../crates/compiler-lib/std` — dev layout
+/// 1. `ZO_CORE_PATH` env var — explicit override.
+/// 2. `<exe-dir>/../lib/core` — installed layout.
+/// 3. `<exe-dir>/../../crates/compiler-lib/core` — dev layout
 ///    (works for both `target/debug/zo` and
 ///    `target/debug/fret`, which sit at the same depth).
 ///
@@ -54,18 +54,18 @@ use std::path::{Path, PathBuf};
 /// as `Undefined variable` — matches the old behavior so
 /// callers needing a non-default layout can still pass
 /// `with_search_paths`.
-pub fn default_std_search_paths() -> Vec<PathBuf> {
-  if let Ok(std_path) = env::var("ZO_STD_PATH") {
-    return vec![PathBuf::from(std_path)];
+pub fn default_core_search_paths() -> Vec<PathBuf> {
+  if let Ok(core_path) = env::var("ZO_CORE_PATH") {
+    return vec![PathBuf::from(core_path)];
   }
 
-  zo_host_paths::first_existing_lib_dir("std")
+  zo_host_paths::first_existing_lib_dir("core")
     .map(|p| vec![p])
     .unwrap_or_default()
 }
 
 /// One `load` statement: a fully-qualified module path
-/// (`std::io::*` → `[std, io]`) plus the span of the `load`
+/// (`core::io::*` → `[core, io]`) plus the span of the `load`
 /// node in the source for diagnostics. Worklist entry for
 /// the transitive-load closure.
 pub type LoadRef = zo_span::Spanned<Vec<Symbol>>;
@@ -108,7 +108,7 @@ impl Compiler {
       stats: Stats::new(),
       profiler: Profiler::new(),
       reporter: Reporter::new(),
-      module_resolver: ModuleResolver::new(default_std_search_paths()),
+      module_resolver: ModuleResolver::new(default_core_search_paths()),
       compiling: HashSet::default(),
       module_table: HashMap::default(),
     }
@@ -307,10 +307,10 @@ impl Compiler {
     // circular imports.
     let mut module_paths =
       Self::scan_loads(&parsing.tree, &mut session.interner);
-    let std_sym = session.interner.intern("std");
+    let core_sym = session.interner.intern("core");
     // Cumulative imports — every loaded module sees what
     // earlier modules exported (preload's `Option`/`Result`
-    // enums, std::int's primitive methods, etc.) and
+    // enums, core::int's primitive methods, etc.) and
     // contributes its own exports. Cloned per loaded-module
     // analyzer construction; ownership flows into the final
     // user analyzer at the end.
@@ -335,7 +335,7 @@ impl Compiler {
 
     // Auto-import `preload.zo` and its transitive `load`s.
     // preload.zo IS the source of truth for the "always
-    // imported" surface — its top-level `load std::…::*;`
+    // imported" surface — its top-level `load core::…::*;`
     // lines define what's in scope everywhere (zo's
     // equivalent of Rust's prelude). Adding a new
     // "basic" doesn't touch the compiler — just append a
@@ -475,12 +475,12 @@ impl Compiler {
       }
 
       // lib.zo exists but module not declared — error.
-      // `std::…` paths are exempt: the user's project lib.zo
-      // governs THEIR subpackage layout, not what std exports.
+      // `core::…` paths are exempt: the user's project lib.zo
+      // governs THEIR subpackage layout, not what core exports.
       // Without this skip, a project with `pack foo;` in
-      // lib.zo would reject preload's `load std::io::*;` and
-      // every other transitive std import.
-      if has_lib_zo && first_seg != std_sym {
+      // lib.zo would reject preload's `load core::io::*;` and
+      // every other transitive core import.
+      if has_lib_zo && first_seg != core_sym {
         report_error(Error::new(ErrorKind::ModuleNotDeclared, load_span));
 
         continue;
@@ -639,7 +639,7 @@ impl Compiler {
     );
 
     // The leaf of each transitively-loaded path IS the pack
-    // name (`std::io::*` → `io`). Surfaced so the user
+    // name (`core::io::*` → `io`). Surfaced so the user
     // analyzer's qualified-call resolution finds them.
     let in_scope_packs: Vec<Symbol> = module_paths
       .iter()

@@ -141,7 +141,7 @@ fn test_std_char_is_digit_dispatches() {
 
       assert!(
         has_call,
-        "std::char::is_digit dispatch regressed — no Call insn emitted for c.is_digit(): {insns:#?}"
+        "core::char::is_digit dispatch regressed — no Call insn emitted for c.is_digit(): {insns:#?}"
       );
     },
   );

@@ -1,6 +1,6 @@
 -! Inherent methods on `[]int` arrays.
 -!
--! int-element only (same tradeoff as `std::math` gcd/
+-! int-element only (same tradeoff as `core::math` gcd/
 -! lcm/pow_i). A width-generic `apply []$T` is blocked
 -! on the same Integer-ish abstract + per-width
 -! dispatch. Sized-int / float / char arrays must cast

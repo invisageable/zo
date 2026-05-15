@@ -1,4 +1,4 @@
-load std::process::*;
+load core::process::*;
 
 -- process::exit terminates the process with a given code.
 -- when invoked with 0, the runner accepts as success and

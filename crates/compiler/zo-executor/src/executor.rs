@@ -5515,7 +5515,7 @@ impl<'a> Executor<'a> {
     // recognizes `io` as a namespace, not an undefined
     // variable. The leaf is the last segment of the import
     // path — that's the pack file the import targets
-    // (`load std::io` → pack `io`, `load std::math` →
+    // (`load core::io` → pack `io`, `load core::math` →
     // pack `math`). Without this, the analyzer at
     // line 3465 reports `UndefinedVariable` for any
     // qualified call.
@@ -16100,7 +16100,7 @@ impl<'a> Executor<'a> {
               //      `Type` is a known pack name. Pack files
               //      that declare FFI signatures keep their
               //      *bare* names so unqualified globbed
-              //      calls (`load std::io::*;` →
+              //      calls (`load core::io::*;` →
               //      `showln(x)`) bind directly. Without
               //      this fallback the qualified form
               //      (`io::showln(x)`) interns a symbol no

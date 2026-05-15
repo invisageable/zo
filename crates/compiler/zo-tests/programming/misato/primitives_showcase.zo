@@ -1,6 +1,6 @@
-load std::misato::*;
-load std::c::*;
-load std::raylib::*;
+load core::misato::*;
+load core::c::*;
+load core::raylib::*;
 
 -- misato — primitives showcase in one scene:
 --   - PlaneGeometry  + MeshStandardMaterial (gray floor)

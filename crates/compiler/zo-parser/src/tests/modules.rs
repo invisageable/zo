@@ -8,12 +8,12 @@ use zo_tree::NodeValue;
 #[test]
 fn test_load_simple() {
   assert_nodes_stream(
-    "load std::math;",
+    "load core::math;",
     &[
       (Load, None),
-      (Ident, Some(NodeValue::TextRange(5, 3))), // "std"
+      (Ident, Some(NodeValue::TextRange(5, 4))), // "core"
       (ColonColon, None),
-      (Ident, Some(NodeValue::TextRange(10, 4))), // "math"
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "math"
       (Semicolon, None),
     ],
   );
@@ -22,14 +22,14 @@ fn test_load_simple() {
 #[test]
 fn test_load_nested_path() {
   assert_nodes_stream(
-    "load std::num::ops;",
+    "load core::num::ops;",
     &[
       (Load, None),
-      (Ident, Some(NodeValue::TextRange(5, 3))), // "std"
+      (Ident, Some(NodeValue::TextRange(5, 4))), // "core"
       (ColonColon, None),
-      (Ident, Some(NodeValue::TextRange(10, 3))), // "num"
+      (Ident, Some(NodeValue::TextRange(11, 3))), // "num"
       (ColonColon, None),
-      (Ident, Some(NodeValue::TextRange(15, 3))), // "ops"
+      (Ident, Some(NodeValue::TextRange(16, 3))), // "ops"
       (Semicolon, None),
     ],
   );
@@ -109,12 +109,12 @@ load utils::format;"#,
 #[test]
 fn test_load_glob() {
   assert_nodes_stream(
-    "load std::math::*;",
+    "load core::math::*;",
     &[
       (Load, None),
-      (Ident, Some(NodeValue::TextRange(5, 3))), // "std"
+      (Ident, Some(NodeValue::TextRange(5, 4))), // "core"
       (ColonColon, None),
-      (Ident, Some(NodeValue::TextRange(10, 4))), // "math"
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "math"
       (ColonColon, None),
       (Star, None),
       (Semicolon, None),
@@ -125,17 +125,17 @@ fn test_load_glob() {
 #[test]
 fn test_load_selective() {
   assert_nodes_stream(
-    "load std::math::(sin, cos);",
+    "load core::math::(sin, cos);",
     &[
       (Load, None),
-      (Ident, Some(NodeValue::TextRange(5, 3))), // "std"
+      (Ident, Some(NodeValue::TextRange(5, 4))), // "core"
       (ColonColon, None),
-      (Ident, Some(NodeValue::TextRange(10, 4))), // "math"
+      (Ident, Some(NodeValue::TextRange(11, 4))), // "math"
       (ColonColon, None),
       (LParen, None),
-      (Ident, Some(NodeValue::TextRange(16, 3))), // "sin"
+      (Ident, Some(NodeValue::TextRange(17, 3))), // "sin"
       (Comma, None),
-      (Ident, Some(NodeValue::TextRange(21, 3))), // "cos"
+      (Ident, Some(NodeValue::TextRange(22, 3))), // "cos"
       (RParen, None),
       (Semicolon, None),
     ],

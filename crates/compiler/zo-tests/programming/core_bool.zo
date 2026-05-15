@@ -1,4 +1,4 @@
--- std::bool inherent methods.
+-- core::bool inherent methods.
 
 fun main() {
   imu is_true: bool = true;

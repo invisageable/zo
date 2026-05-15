@@ -1,6 +1,6 @@
 //! Resolve directories relative to the running zo
 //! binary's executable path. Three consumers share this
-//! shape — std-lib search paths (`zo-compiler`,
+//! shape — core-lib search paths (`zo-compiler`,
 //! `zo-driver`) and vendored-prebuilt resolution
 //! (`zo-executor` for the F7 `#link` fallback).
 //!

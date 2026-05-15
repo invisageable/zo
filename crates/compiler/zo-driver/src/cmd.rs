@@ -46,15 +46,15 @@ pub(crate) fn handle_with_watch(
   }
 }
 
-/// Build search paths for module resolution: ZO_STD_PATH
-/// env, installed/dev std lib, and the input file's
+/// Build search paths for module resolution: ZO_CORE_PATH
+/// env, installed/dev core lib, and the input file's
 /// parent directory.
 pub(crate) fn search_paths(input: &Path) -> Vec<PathBuf> {
   let mut paths = Vec::new();
 
-  if let Ok(std_path) = env::var("ZO_STD_PATH") {
-    paths.push(PathBuf::from(std_path));
-  } else if let Some(p) = zo_host_paths::first_existing_lib_dir("std") {
+  if let Ok(core_path) = env::var("ZO_CORE_PATH") {
+    paths.push(PathBuf::from(core_path));
+  } else if let Some(p) = zo_host_paths::first_existing_lib_dir("core") {
     paths.push(p);
   }
 

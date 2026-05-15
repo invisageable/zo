@@ -8,7 +8,7 @@ use zo_value::{FunctionKind, Pubness};
 #[test]
 fn test_load_emits_module_load() {
   assert_sir_stream(
-    "load std::math;",
+    "load core::math;",
     &[Insn::ModuleLoad {
       path: vec![Symbol(25), Symbol(26)],
       kind: ImportKind::Qualified,
@@ -19,7 +19,7 @@ fn test_load_emits_module_load() {
 #[test]
 fn test_load_nested_path() {
   assert_sir_stream(
-    "load std::num::ops;",
+    "load core::num::ops;",
     &[Insn::ModuleLoad {
       path: vec![Symbol(25), Symbol(26), Symbol(27)],
       kind: ImportKind::Qualified,
@@ -30,7 +30,7 @@ fn test_load_nested_path() {
 #[test]
 fn test_load_glob_emits_glob_kind() {
   assert_sir_stream(
-    "load std::math::*;",
+    "load core::math::*;",
     &[Insn::ModuleLoad {
       path: vec![Symbol(25), Symbol(26)],
       kind: ImportKind::Glob,

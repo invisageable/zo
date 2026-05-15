@@ -1,4 +1,4 @@
-load std::math::*;
+load core::math::*;
 
 -- tests-run-pass: libm with variable args.
 

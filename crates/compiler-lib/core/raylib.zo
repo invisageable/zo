@@ -4,7 +4,7 @@
 -!
 -! See: <https://www.raylib.com/cheatsheet/cheatsheet.html>
 
-load std::c::*;
+load core::c::*;
 
 -- per-platform dylib routing with system → vendor
 -- fallback. codegen tries the `system:` path first

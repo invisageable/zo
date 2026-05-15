@@ -25,7 +25,7 @@ pub struct ResolvedModule {
   pub selective_symbol: Option<String>,
 }
 
-/// Maps module paths (e.g., `std::math`) to filesystem files.
+/// Maps module paths (e.g., `core::math`) to filesystem files.
 ///
 /// Resolution is a simple filesystem lookup — no graph algorithms,
 /// no dependency solving. First match wins.
@@ -45,7 +45,7 @@ impl ModuleResolver {
     }
   }
 
-  /// Resolves a module path (e.g., `["std", "math"]`) to a file.
+  /// Resolves a module path (e.g., `["core", "math"]`) to a file.
   ///
   /// Search order per search path:
   /// 1. `{search_path}/{segments joined by /}.zo` (file module)
@@ -196,20 +196,20 @@ mod tests {
 
   use zo_interner::Interner;
 
-  fn std_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../compiler-lib/std")
+  fn core_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../compiler-lib/core")
   }
 
   #[test]
-  fn test_resolve_std_math() {
+  fn test_resolve_core_math() {
     let mut interner = Interner::new();
-    let std_sym = interner.intern("std");
+    let core_sym = interner.intern("core");
     let math_sym = interner.intern("math");
 
-    let mut resolver = ModuleResolver::new(vec![std_path()]);
-    let result = resolver.resolve(&[std_sym, math_sym], &interner);
+    let mut resolver = ModuleResolver::new(vec![core_path()]);
+    let result = resolver.resolve(&[core_sym, math_sym], &interner);
 
-    assert!(result.is_some(), "should resolve std::math");
+    assert!(result.is_some(), "should resolve core::math");
 
     let module = result.unwrap();
 
@@ -218,15 +218,15 @@ mod tests {
   }
 
   #[test]
-  fn test_resolve_std_io() {
+  fn test_resolve_core_io() {
     let mut interner = Interner::new();
-    let std_sym = interner.intern("std");
+    let core_sym = interner.intern("core");
     let io_sym = interner.intern("io");
 
-    let mut resolver = ModuleResolver::new(vec![std_path()]);
-    let result = resolver.resolve(&[std_sym, io_sym], &interner);
+    let mut resolver = ModuleResolver::new(vec![core_path()]);
+    let result = resolver.resolve(&[core_sym, io_sym], &interner);
 
-    assert!(result.is_some(), "should resolve std::io");
+    assert!(result.is_some(), "should resolve core::io");
 
     let module = result.unwrap();
 
@@ -237,30 +237,30 @@ mod tests {
   #[test]
   fn test_resolve_nonexistent() {
     let mut interner = Interner::new();
-    let std_sym = interner.intern("std");
+    let core_sym = interner.intern("core");
     let nope_sym = interner.intern("nope");
 
-    let mut resolver = ModuleResolver::new(vec![std_path()]);
-    let result = resolver.resolve(&[std_sym, nope_sym], &interner);
+    let mut resolver = ModuleResolver::new(vec![core_path()]);
+    let result = resolver.resolve(&[core_sym, nope_sym], &interner);
 
-    assert!(result.is_none(), "should not resolve std::nope");
+    assert!(result.is_none(), "should not resolve core::nope");
   }
 
   #[test]
   fn test_resolve_caches() {
     let mut interner = Interner::new();
-    let std_sym = interner.intern("std");
+    let core_sym = interner.intern("core");
     let math_sym = interner.intern("math");
 
-    let mut resolver = ModuleResolver::new(vec![std_path()]);
+    let mut resolver = ModuleResolver::new(vec![core_path()]);
 
     // First call.
-    let r1 = resolver.resolve(&[std_sym, math_sym], &interner);
+    let r1 = resolver.resolve(&[core_sym, math_sym], &interner);
     assert!(r1.is_some());
     let path1 = r1.unwrap().path.clone();
 
     // Second call hits cache.
-    let r2 = resolver.resolve(&[std_sym, math_sym], &interner);
+    let r2 = resolver.resolve(&[core_sym, math_sym], &interner);
     assert!(r2.is_some());
     assert_eq!(path1, r2.unwrap().path);
   }
@@ -268,20 +268,20 @@ mod tests {
   #[test]
   fn test_resolve_directory_module() {
     let mut interner = Interner::new();
-    let std_sym = interner.intern("std");
+    let core_sym = interner.intern("core");
     let num_sym = interner.intern("num");
 
-    let mut resolver = ModuleResolver::new(vec![std_path()]);
+    let mut resolver = ModuleResolver::new(vec![core_path()]);
 
-    // std::num should resolve to num/lib.zo if it exists,
+    // core::num should resolve to num/lib.zo if it exists,
     // or fail if it doesn't.
-    let result = resolver.resolve(&[std_sym, num_sym], &interner);
+    let result = resolver.resolve(&[core_sym, num_sym], &interner);
 
     // num/ exists as a directory but has no lib.zo — only
     // int.zo and u8.zo. So this should not resolve.
     assert!(
       result.is_none(),
-      "std::num has no lib.zo, should not resolve"
+      "core::num has no lib.zo, should not resolve"
     );
   }
 }

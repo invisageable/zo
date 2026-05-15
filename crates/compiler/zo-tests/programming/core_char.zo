@@ -1,4 +1,4 @@
--- std::char inherent methods as a user would use them.
+-- core::char inherent methods as a user would use them.
 
 fun main() {
   imu digit: char = '7';

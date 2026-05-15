@@ -1,4 +1,4 @@
-load std::math::*;
+load core::math::*;
 
 -- tests-run-pass: GCD.
 -- @see https://en.wikipedia.org/wiki/Greatest_common_divisor.

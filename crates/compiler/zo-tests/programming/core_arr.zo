@@ -1,6 +1,6 @@
-load std::arr::*;
+load core::arr::*;
 
--- std::arr inherent methods on `[]int`.
+-- core::arr inherent methods on `[]int`.
 
 fun main() {
   imu xs: []int = [1, 2, 3, 4, 5];

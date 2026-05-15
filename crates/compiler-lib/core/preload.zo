@@ -1,20 +1,20 @@
 -! Auto-imported by every zo program. Anything `load`ed
 -! here is available unqualified everywhere — no explicit
--! `load std::…;` required by the user. Keep this list tight:
+-! `load core::…;` required by the user. Keep this list tight:
 -! it's the "Rust prelude" of zo. Domain packs (raylib,
 -! misato, sqlite, math, …) stay opt-in.
 
-load std::io::*;
-load std::int::*;
-load std::bool::*;
-load std::char::*;
-load std::str::*;
-load std::cmp::*;
-load std::fmt::*;
-load std::vec::*;
-load std::set::*;
-load std::map::*;
-load std::assert::*;
+load core::io::*;
+load core::int::*;
+load core::bool::*;
+load core::char::*;
+load core::str::*;
+load core::cmp::*;
+load core::fmt::*;
+load core::vec::*;
+load core::set::*;
+load core::map::*;
+load core::assert::*;
 
 -! A value that may or may not be present.
 pub enum Option<$T> {
