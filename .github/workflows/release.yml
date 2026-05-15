@@ -21,19 +21,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS pinned to `macos-14`. `macos-latest` is
-        # currently macOS 15 Sequoia, whose pre-installed
-        # Rust shim intercepts `cargo` and routes it to
-        # `rustup-init`. `ci.yml` is pinned the same way;
-        # the two must move together.
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             raylib_archive: linux_amd64
-          - os: macos-14
+          - os: macos-latest
             target: x86_64-apple-darwin
             raylib_archive: macos
-          - os: macos-14
+          - os: macos-latest
             target: aarch64-apple-darwin
             raylib_archive: macos
           # NOTE(windows): disabled until upstream resolves the
@@ -47,6 +42,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install rustup on macOS
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          set -eu
+          # See ci.yml — macos-latest's Homebrew rustup-init
+          # shim shadows the real rust binaries and the
+          # downstream dtolnay/rust-toolchain step inherits
+          # the broken state. Uninstall the shim and install
+          # a real rustup at ~/.cargo/bin so dtolnay's
+          # `rustup toolchain install` works.
+          brew uninstall --ignore-dependencies rustup-init 2>/dev/null || true
+          brew uninstall --ignore-dependencies rustup 2>/dev/null || true
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain none --no-modify-path --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        shell: bash
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -172,11 +184,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             raylib_archive: linux_amd64
             raylib_lib: libraylib.so
-          - os: macos-14
+          - os: macos-latest
             target: x86_64-apple-darwin
             raylib_archive: macos
             raylib_lib: libraylib.dylib
-          - os: macos-14
+          - os: macos-latest
             target: aarch64-apple-darwin
             raylib_archive: macos
             raylib_lib: libraylib.dylib
