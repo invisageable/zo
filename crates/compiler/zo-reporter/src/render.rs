@@ -362,6 +362,9 @@ fn error_message(kind: ErrorKind) -> &'static str {
       "Cannot resolve `#link` — neither system nor vendor library found"
     }
 
+    // Entry-point errors.
+    ErrorKind::MissingMainFunction => "`main` function not found",
+
     // String slice errors (compile-time only in v1).
     ErrorKind::StrSliceRequiresConstBounds => {
       "String slice bounds must be compile-time constants"
@@ -485,6 +488,11 @@ fn error_label(kind: ErrorKind) -> &'static str {
     // FFI / `#link` errors.
     ErrorKind::LinkResolutionFailed => "library not found at this path",
 
+    // Entry-point errors.
+    ErrorKind::MissingMainFunction => {
+      "expected `fun main() { ... }` somewhere in this file"
+    }
+
     _ => "here",
   }
 }
@@ -574,6 +582,10 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ),
     ErrorKind::ChannelCapacityNotLiteral => Some(
       "Write the buffer size as a literal, e.g. `channel(4)`. Variable references are post-MVP",
+    ),
+
+    ErrorKind::MissingMainFunction => Some(
+      "Every zo program needs a `fun main() { ... }` to be runnable. Add one as the entry point",
     ),
 
     _ => None,

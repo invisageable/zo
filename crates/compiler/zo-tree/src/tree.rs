@@ -9,7 +9,6 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct Tree {
   /// Primary array - 1:1 with tokens in postorder
-  /// Dense packed for cache efficiency
   pub nodes: Vec<NodeHeader>,
   /// Sidecar: Node values (symbols, literals)
   /// Indexed by value_index (sparse, only for nodes with FLAG_HAS_VALUE)
@@ -102,7 +101,6 @@ impl Tree {
       return None;
     }
 
-    // Binary search in value_map for this node
     match self
       .value_map
       .binary_search_by_key(&(node_index as u16), |(idx, _)| *idx)
@@ -139,6 +137,34 @@ impl Tree {
         .nodes
         .get(idx - 1)
         .is_some_and(|n| n.token == Token::Pub)
+  }
+
+  /// Symbol of the first `Token::Ident` child of `node_idx`,
+  /// or `None` when the first ident child carries no symbol
+  /// value. Used by introducer scans that look up the
+  /// declared name of an item — `pack X;`, `fun X(...)`,
+  /// etc. Returns the symbol attached to the FIRST ident
+  /// encountered, which matches zo's grammar where the
+  /// declared name always appears as the leading ident
+  /// child of an introducer.
+  ///
+  /// `node_idx` is trusted — callers pass indices obtained
+  /// from `nodes_with_token` or the parser's own bookkeeping,
+  /// matching the contract of every other `Tree` accessor.
+  pub fn first_ident_child_symbol(&self, node_idx: usize) -> Option<Symbol> {
+    let node = &self.nodes[node_idx];
+
+    for child_idx in node.children_range() {
+      let child = &self.nodes[child_idx];
+      if child.token == Token::Ident {
+        let Some(NodeValue::Symbol(sym)) = self.value(child_idx as u32) else {
+          return None;
+        };
+        return Some(sym);
+      }
+    }
+
+    None
   }
 
   /// Iterate `(index, node)` pairs for every node whose
@@ -178,6 +204,17 @@ impl Tree {
   #[inline(always)]
   pub fn span(&self, node_index: u32) -> Span {
     self.spans[node_index as usize]
+  }
+
+  /// Zero-length span pointing at the end of the source.
+  /// Used by file-level diagnostics that have no specific
+  /// node to anchor on (e.g. "this file declares no main")
+  /// — the caret falls past the last token, matching where
+  /// a user would type the fix.
+  #[inline]
+  pub fn eof_span(&self) -> Span {
+    let end = self.spans.last().map(|s| s.end()).unwrap_or(0);
+    Span::new(end, 0)
   }
 
   /// Replace a range of nodes with new nodes (for expression reordering)

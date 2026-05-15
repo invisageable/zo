@@ -188,21 +188,9 @@ impl Compiler {
   ) -> Vec<(String, bool)> {
     let mut packs = Vec::new();
 
-    for (i, node) in tree.nodes_with_token(Token::Pack) {
-      if node.child_count == 0 {
-        continue;
-      }
-
-      let is_pub = tree.is_pub_at(i);
-
-      for child_idx in node.children_range() {
-        if let Some(child) = tree.nodes.get(child_idx)
-          && child.token == Token::Ident
-          && let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32)
-        {
-          packs.push((interner.get(sym).to_string(), is_pub));
-          break;
-        }
+    for (i, _) in tree.nodes_with_token(Token::Pack) {
+      if let Some(sym) = tree.first_ident_child_symbol(i) {
+        packs.push((interner.get(sym).to_string(), tree.is_pub_at(i)));
       }
     }
 
@@ -657,6 +645,7 @@ impl Compiler {
         source_dir: file_path.parent().map(Path::to_path_buf),
         implicit_pack: None,
         in_scope_packs,
+        is_entry: true,
       })
       .analyze();
     self.profiler.end_phase(ANALYZER_NAME);

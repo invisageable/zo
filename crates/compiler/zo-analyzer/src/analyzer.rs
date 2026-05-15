@@ -1,8 +1,10 @@
+use zo_error::{Error, ErrorKind};
 use zo_executor::{AbstractDef, Executor};
 use zo_interner::{Interner, Symbol};
 use zo_module_resolver::ExportedEnum;
+use zo_reporter::report_error;
 use zo_sir::Sir;
-use zo_token::LiteralStore;
+use zo_token::{LiteralStore, Token};
 use zo_tree::Tree;
 use zo_ty::Annotation;
 use zo_ty_checker::TyChecker;
@@ -66,6 +68,13 @@ pub struct AnalyzerConfig {
   /// qualified call sites (`io::showln(...)`) resolve
   /// without an explicit `load core::io;` in the user file.
   pub in_scope_packs: Vec<Symbol>,
+  /// `true` when this analyzer call is for the user's
+  /// entry file — the path the driver was invoked on.
+  /// Gates the `fun main` entry-point check: only the
+  /// entry file is required to declare `main`. Modules
+  /// loaded transitively (preload, `core::*`, user packs)
+  /// stay default `false` and skip the check.
+  pub is_entry: bool,
 }
 
 /// Represents the [`Analyzer`] phase.
@@ -112,8 +121,31 @@ impl<'a> Analyzer<'a> {
     self
   }
 
+  fn has_main(&mut self) -> bool {
+    let main_sym = self.interner.intern("main");
+
+    self
+      .tree
+      .nodes_with_token(Token::Fun)
+      .any(|(idx, _)| self.tree.first_ident_child_symbol(idx) == Some(main_sym))
+  }
+
   /// Analyzes a parse [`Tree`] to build semantic IR.
-  pub fn analyze(self) -> SemanticResult {
+  pub fn analyze(mut self) -> SemanticResult {
+    if self.config.is_entry && !self.has_main() {
+      report_error(Error::new(
+        ErrorKind::MissingMainFunction,
+        self.tree.eof_span(),
+      ));
+
+      return SemanticResult {
+        sir: Sir::new(),
+        annotations: Vec::new(),
+        funs: Vec::new(),
+        abstract_defs: HashMap::default(),
+      };
+    }
+
     let mut executor =
       Executor::new(self.tree, self.interner, self.literals, self.ty_checker);
 
@@ -122,6 +154,7 @@ impl<'a> Analyzer<'a> {
       source_dir,
       implicit_pack,
       in_scope_packs,
+      is_entry: _,
     } = self.config;
 
     let imports_empty = imports.funs.is_empty()

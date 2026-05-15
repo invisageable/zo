@@ -298,4 +298,12 @@ pub enum ErrorKind {
   // `dyld: Symbol not found` after the binary already
   // builds and runs.
   LinkResolutionFailed,
+
+  // Emitted by `zo-analyzer` at the top of `analyze` when
+  // the entry tree carries no top-level `fun main`
+  // declaration. Caught before SIR construction so an
+  // entry-point-less program never reaches the executor /
+  // codegen / linker — same fail-fast posture rustc's
+  // E0601 takes.
+  MissingMainFunction,
 }
