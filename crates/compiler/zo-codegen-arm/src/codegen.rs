@@ -100,7 +100,7 @@ const FLOAT_TYPE_ID_MAX: u32 = 17; // TyChecker: F64 @ index 17
 const TEXT_SECTION_BASE: u64 = 0x100000400;
 const CODE_OFFSET: u64 = 0x400;
 pub(super) const UI_ENTRY_SYMBOL: u32 = 0xFFFF;
-pub(super) const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
+pub const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 
 // Runtime dylib symbols: every `#dom` program emits calls
 // into `libzo_runtime_native.dylib`. Names match the

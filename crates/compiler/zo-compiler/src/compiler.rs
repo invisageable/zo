@@ -703,12 +703,24 @@ impl Compiler {
   }
 
   /// Compiles a collections of files based on the [`Target`].
+  ///
+  /// Output routing mirrors `rustc`:
+  ///
+  /// * `output_path` is `-o`: an explicit final-binary path.
+  ///   When set, it wins for the binary (intermediates still
+  ///   route through `out_dir` if set).
+  /// * `out_dir` is `--out-dir`: where every other emitted
+  ///   file lands (`--emit` dumps and the default binary
+  ///   location when `output_path` is `None`). When both are
+  ///   `None`, files are written next to each source file —
+  ///   same behaviour `rustc foo.rs` has from CWD.
   pub fn compile(
     &mut self,
     files: &[(&PathBuf, String)],
     target: Target,
     stages: &[Stage],
     output_path: &Option<PathBuf>,
+    out_dir: Option<&Path>,
   ) -> Result<(), Error> {
     if files.is_empty() {
       return Ok(());
@@ -727,6 +739,26 @@ impl Compiler {
 
     self.profiler.set_total_lines(self.stats.numlines);
 
+    // `--out-dir` redirects every emitted file; otherwise
+    // each artifact lands next to its source. The directory
+    // is created on first use so callers don't need a separate
+    // mkdir step before invoking the compiler.
+    if let Some(dir) = out_dir
+      && let Err(error) = fs::create_dir_all(dir)
+    {
+      eprintln!("Failed to create out-dir {dir:?}: {error}");
+    }
+
+    let resolve_emit_path = |path: &Path, ext: &str| -> PathBuf {
+      match out_dir {
+        Some(dir) => {
+          let stem = path.file_stem().unwrap_or(path.as_os_str());
+          dir.join(stem).with_extension(ext)
+        }
+        None => path.with_extension(ext),
+      }
+    };
+
     for (path, code) in files.iter() {
       let (semantic, tokenization, parsing, session) =
         self.analyze_source(code, path);
@@ -736,7 +768,7 @@ impl Compiler {
       self.stats.numinferences += semantic.annotations.len();
 
       if should_emit_tokens {
-        let tokens_path = path.with_extension("tokens");
+        let tokens_path = resolve_emit_path(path, "tokens");
         let mut pp = PrettyPrinter::new();
 
         pp.format_tokens(&tokenization.tokens, code);
@@ -749,7 +781,7 @@ impl Compiler {
       }
 
       if should_emit_tree {
-        let tree_path = path.with_extension("tree");
+        let tree_path = resolve_emit_path(path, "tree");
         let mut pp = PrettyPrinter::new();
         pp.format_tree(&parsing.tree, code);
         let tree_output = pp.finish();
@@ -760,7 +792,7 @@ impl Compiler {
       }
 
       if should_emit_sir {
-        let sir_path = path.with_extension("sir");
+        let sir_path = resolve_emit_path(path, "sir");
         let mut pp = PrettyPrinter::new();
         pp.format_sir(&semantic.sir, &session.interner);
         let sir_output = pp.finish();
@@ -784,7 +816,7 @@ impl Compiler {
           &semantic.sir,
           type_view,
         );
-        let asm_path = path.with_extension("asm");
+        let asm_path = resolve_emit_path(path, "asm");
 
         let mut pp = PrettyPrinter::new();
         pp.format_asm(&artifact, target);
@@ -795,9 +827,17 @@ impl Compiler {
         }
       }
 
-      let output_path = match &output_path {
-        Some(p) => p.clone(),
-        None => path.with_extension(""),
+      // Binary destination:
+      // 1. explicit `-o <file>` wins, always.
+      // 2. else if `--out-dir <dir>` is set, `<dir>/<stem>`.
+      // 3. else next to the source, like `rustc foo.rs`.
+      let output_path = match (&output_path, out_dir) {
+        (Some(p), _) => p.clone(),
+        (None, Some(dir)) => {
+          let stem = path.file_stem().unwrap_or(path.as_os_str());
+          dir.join(stem)
+        }
+        (None, None) => path.with_extension(""),
       };
 
       let link_obj =
@@ -1061,8 +1101,20 @@ fn stage_runtime_artifacts(
     return;
   };
 
+  // The `deps/` sibling is the invariant location for
+  // every staged runtime dylib — pairs with the linker's
+  // `@loader_path/deps/<name>` `LC_LOAD_DYLIB`. Created
+  // lazily so binaries that need no runtime never get an
+  // empty directory.
+  let deps_dir = output_dir.join("deps");
+
+  if let Err(error) = std::fs::create_dir_all(&deps_dir) {
+    eprintln!("Failed to create deps dir {deps_dir:?}: {error}");
+    return;
+  }
+
   if needs.concurrency {
-    stage_dylib(runtime_dir, output_dir, CONCURRENCY_DYLIB);
+    stage_dylib(runtime_dir, &deps_dir, CONCURRENCY_DYLIB);
   }
 
   // Native / web UI staging will land here when those
@@ -1070,7 +1122,7 @@ fn stage_runtime_artifacts(
   // binary (today they run in-process via `zo run`).
 
   for name in &needs.dylib_basenames {
-    stage_dylib(runtime_dir, output_dir, name);
+    stage_dylib(runtime_dir, &deps_dir, name);
   }
 }
 

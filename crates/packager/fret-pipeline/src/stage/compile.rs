@@ -47,9 +47,32 @@ impl Stage for CompileStage {
 
     let zo_target = convert_target(ctx.target);
 
+    // The entry point produces the project binary at
+    // `<output_dir>/<binary_name>`; other source files in the
+    // batch fall back to `<output_dir>/<stem>`. Resolving
+    // `entry_point` against `project_root` mirrors the same
+    // join the source-collection stage performs, so the path
+    // matches a key in `source_map`.
+    let desired_binary_name = format!(
+      "{}{}",
+      ctx.config.binary_name,
+      ctx.target.output_extension()
+    );
+    let binary_path = ctx.output_dir.join(&desired_binary_name);
+
+    let entry_source = if ctx.config.entry_point.is_absolute() {
+      ctx.config.entry_point.clone()
+    } else {
+      ctx.project_root.join(&ctx.config.entry_point)
+    };
+
     let mut orchestrator = Orchestrator::new();
-    let result =
-      orchestrator.compile_batch(source_map, zo_target, Some(&ctx.output_dir));
+    let result = orchestrator.compile_batch(
+      source_map,
+      zo_target,
+      Some(&ctx.output_dir),
+      Some((&entry_source, &binary_path)),
+    );
 
     if !result.is_success() {
       let error_msg = result
@@ -60,35 +83,6 @@ impl Stage for CompileStage {
         .join("\n");
 
       return Err(StageError::Compilation(error_msg));
-    }
-
-    // zo-compiler names output binaries after the source
-    // filename (e.g. "main"), but we want the project's
-    // configured binary_name from fret.oz instead.
-    let entry_point_stem = ctx
-      .config
-      .entry_point
-      .file_stem()
-      .and_then(|s| s.to_str())
-      .unwrap_or("main");
-
-    let generated_binary = ctx.output_dir.join(entry_point_stem);
-    let desired_binary_name = format!(
-      "{}{}",
-      ctx.config.binary_name,
-      ctx.target.output_extension()
-    );
-    let target_binary = ctx.output_dir.join(&desired_binary_name);
-
-    if generated_binary.exists() && generated_binary != target_binary {
-      fs::rename(&generated_binary, &target_binary).map_err(|e| {
-        StageError::Compilation(format!(
-          "Failed to rename {} to {}: {}",
-          generated_binary.display(),
-          target_binary.display(),
-          e
-        ))
-      })?;
     }
 
     #[cfg(debug_assertions)]
