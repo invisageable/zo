@@ -3002,14 +3002,15 @@ impl<'a> Executor<'a> {
 
       Token::Bytes => {
         if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
-          let value = self.literals.bytes_literals[lit_idx as usize] as u64;
+          let symbol = self.literals.string_literals[lit_idx as usize];
           let ty_id = self.ty_checker.bytes_type();
 
           let dst = ValueId(self.sir.next_value_id);
           self.sir.next_value_id += 1;
 
-          let sir_value = self.sir.emit(Insn::ConstInt { dst, value, ty_id });
-          let value_id = self.values.store_int(value);
+          let sir_value =
+            self.sir.emit(Insn::ConstString { dst, symbol, ty_id });
+          let value_id = self.values.store_string(symbol);
 
           self.value_stack.push(value_id);
           self.ty_stack.push(ty_id);
@@ -12818,16 +12819,16 @@ impl<'a> Executor<'a> {
             })
           }
           Token::Bytes => {
-            let value = match self.node_value(pat_idx) {
+            let symbol = match self.node_value(pat_idx) {
               Some(NodeValue::Literal(lit)) => {
-                self.literals.bytes_literals[lit as usize] as u64
+                self.literals.string_literals[lit as usize]
               }
-              _ => 0,
+              _ => Symbol(0),
             };
 
-            self.sir.emit(Insn::ConstInt {
+            self.sir.emit(Insn::ConstString {
               dst: pat_dst,
-              value,
+              symbol,
               ty_id: self.ty_checker.bytes_type(),
             })
           }
@@ -13414,16 +13415,16 @@ impl<'a> Executor<'a> {
               })
             }
             Token::Bytes => {
-              let value = match self.node_value(f_idx) {
+              let symbol = match self.node_value(f_idx) {
                 Some(NodeValue::Literal(lit)) => {
-                  self.literals.bytes_literals[lit as usize] as u64
+                  self.literals.string_literals[lit as usize]
                 }
-                _ => 0,
+                _ => Symbol(0),
               };
 
-              self.sir.emit(Insn::ConstInt {
+              self.sir.emit(Insn::ConstString {
                 dst: pat_dst,
-                value,
+                symbol,
                 ty_id: self.ty_checker.bytes_type(),
               })
             }

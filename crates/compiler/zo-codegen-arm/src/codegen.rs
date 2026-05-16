@@ -91,6 +91,7 @@ const ARRAY_HEADER_SIZE: u16 = 16; // [len:8][cap:8]
 // order. If that order ever changes, these break silently.
 // str=4 is hardcoded inline in is_string_value/emit_field_write.
 const BOOL_TYPE_ID: u32 = 2; // TyChecker: Bool @ index 2
+const BYTES_TYPE_ID: u32 = 5; // TyChecker: Bytes @ index 5
 const CHAR_TYPE_ID: u32 = 3; // TyChecker: Char @ index 3
 const STR_TYPE_ID: u32 = 4; // TyChecker: Str @ index 4
 const FLOAT_TYPE_ID_MIN: u32 = 15; // TyChecker: F32 @ index 15
@@ -809,7 +810,12 @@ impl<'a> ARM64Gen<'a> {
   }
 
   fn is_string_value(&self, vid: ValueId) -> bool {
-    self.type_of(vid).is_some_and(|ty| ty.0 == STR_TYPE_ID)
+    // `bytes` shares the `[len:u64][bytes]` layout with
+    // `str` so the same print path works — both produce a
+    // pointer to a length-prefixed buffer.
+    self
+      .type_of(vid)
+      .is_some_and(|ty| ty.0 == STR_TYPE_ID || ty.0 == BYTES_TYPE_ID)
   }
 
   fn is_float_value(&self, vid: ValueId) -> bool {
@@ -1739,8 +1745,8 @@ impl<'a> ARM64Gen<'a> {
       Insn::Cast { dst, to_ty, .. } => {
         self.value_types.insert(dst.0, *to_ty);
       }
-      Insn::ConstString { dst, .. } => {
-        self.value_types.insert(dst.0, TyId(STR_TYPE_ID));
+      Insn::ConstString { dst, ty_id, .. } => {
+        self.value_types.insert(dst.0, *ty_id);
       }
       _ => {}
     }

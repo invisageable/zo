@@ -1,15 +1,35 @@
--- tests-run-pass: utf8.
+-- tests-run-pass: `bytes` is a multi-byte buffer (the
+-- plural is the contract — same layout as Rust's b"...").
+-- The literal `\`...\`` captures the full source bytes
+-- between the backticks; equality is buffer-vs-buffer.
 
 fun main() {
-  imu yen: bytes = `¥`;         -- 0xa5.
-  imu c_cedilla: bytes = `ç`;   -- 0xe7.
-  imu thorn: bytes = `þ`;       -- 0xfe.
-  imu y_diaeresis: bytes = `ÿ`; -- 0xff.
-  imu pi: bytes = `Π`;          -- 0x3a0.
+  -- ASCII string literal — 5 bytes.
+  imu hello: bytes = `hello`;
+  check@eq(hello, `hello`);
+  showln(hello);
 
+  -- Multi-byte UTF-8 sequence stays intact.
+  imu yen: bytes = `¥`;
   check@eq(yen, `¥`);
-  check@eq(c_cedilla, `ç`);
-  check@eq(thorn, `þ`);
-  check@eq(y_diaeresis, `ÿ`);
+  showln(yen);
+
+  -- Three-byte UTF-8 sequence (Π = 0xCE 0xA0).
+  imu pi: bytes = `Π`;
   check@eq(pi, `Π`);
+  showln(pi);
+
+  -- Mixed ASCII + multi-byte.
+  imu mix: bytes = `hello, ¥orld`;
+  check@eq(mix, `hello, ¥orld`);
+  showln(mix);
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- hello
+-- ¥
+-- Π
+-- hello, ¥orld
+-- DONE

@@ -260,13 +260,13 @@ apply Json {
   }
 
   -! Parse a byte buffer as JSON.
-  pub fun from_bytes(buffer: str) -> Self {
-    Self::parse(buffer)
+  pub fun from_bytes(buffer: bytes) -> Self {
+    Self::parse(buffer as str)
   }
 
   -! Serialize as compact JSON bytes.
-  pub fun to_bytes(self) -> str {
-    self.to_str()
+  pub fun to_bytes(self) -> bytes {
+    self.to_str() as bytes
   }
 
   -- ==================================================================
