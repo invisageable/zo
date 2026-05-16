@@ -740,8 +740,7 @@ pub extern "C" fn __zo_json_push(
   let mut reg = REGISTRY.lock().unwrap();
   let Registry { roots, handles } = &mut *reg;
 
-  let Some(value_clone) = resolve(value_handle, roots, handles).cloned()
-  else {
+  let Some(value_clone) = resolve(value_handle, roots, handles).cloned() else {
     return 0;
   };
 
@@ -792,8 +791,7 @@ pub unsafe extern "C" fn __zo_json_set(
   let mut reg = REGISTRY.lock().unwrap();
   let Registry { roots, handles } = &mut *reg;
 
-  let Some(value_clone) = resolve(value_handle, roots, handles).cloned()
-  else {
+  let Some(value_clone) = resolve(value_handle, roots, handles).cloned() else {
     return 0;
   };
 

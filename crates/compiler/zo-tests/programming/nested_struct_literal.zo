@@ -1,0 +1,30 @@
+-- tests-run-pass: multi-line outer struct literal with a
+-- nested struct-literal value used to bail because
+-- `try_struct_construct`'s `skip_until` scan walked
+-- forward for the FIRST `RBrace` instead of the matching
+-- one — the inner `}` short-circuited the outer's tail
+-- (`, } ;`), spilling into the enclosing scope's execution
+-- loop and closing the function body early. The next
+-- statement was then mis-reported as "Invalid top-level
+-- item".
+
+struct Inner {
+  a: int,
+  b: int,
+}
+
+struct Outer {
+  i: int,
+  n: Inner,
+}
+
+fun main() {
+  imu o: Outer = Outer {
+    i = 1,
+    n = Inner { a = 2, b = 3 },
+  };
+
+  check@eq(o.i, 1);
+  check@eq(o.n.a, 2);
+  check@eq(o.n.b, 3);
+}

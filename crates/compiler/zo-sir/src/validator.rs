@@ -124,20 +124,38 @@ impl ValidationReport {
   }
 }
 
+/// Bundled per-walk state passed to [`check_insn`]. Owns
+/// the in-progress `report` and the per-function
+/// `local_decls`; borrows the pre-computed `value_types`
+/// and `fun_sigs` maps so they're shared across every
+/// insn without per-call cloning.
+struct ValidatorCtx<'a> {
+  value_types: &'a HashMap<ValueId, TyId>,
+  fun_sigs: &'a HashMap<Symbol, (Vec<TyId>, TyId)>,
+  /// Enclosing function's `(name, return_ty)` so `Return`
+  /// can compare against the fn's declared return type.
+  current_fn: Option<(Symbol, TyId)>,
+  /// Per-function map of local `VarDef` declarations so a
+  /// later `Store { name }` can compare its own `ty_id`
+  /// against the binding's declared `ty_id`. Reset at
+  /// every `FunDef`.
+  local_decls: HashMap<Symbol, TyId>,
+  report: ValidationReport,
+}
+
 /// Runs every SIR type invariant against `insns` and returns a
 /// report. See the module-level doc comment for the rules.
 pub fn validate(insns: &[Insn]) -> ValidationReport {
   let value_types = collect_value_types(insns);
   let fun_sigs = collect_fun_sigs(insns);
 
-  let mut report = ValidationReport::default();
-  // Tracks the enclosing function's signature so `Return` can
-  // compare against the fn's declared return type.
-  let mut current_fn: Option<(Symbol, TyId)> = None;
-  // Per-function map of local `VarDef` declarations so a later
-  // `Store { name }` can compare its own `ty_id` against the
-  // binding's declared `ty_id`. Reset at every `FunDef`.
-  let mut local_decls: HashMap<Symbol, TyId> = HashMap::default();
+  let mut ctx = ValidatorCtx {
+    value_types: &value_types,
+    fun_sigs: &fun_sigs,
+    current_fn: None,
+    local_decls: HashMap::default(),
+    report: ValidationReport::default(),
+  };
 
   for (idx, insn) in insns.iter().enumerate() {
     // Scope housekeeping: entering a new function resets the
@@ -145,38 +163,31 @@ pub fn validate(insns: &[Insn]) -> ValidationReport {
     // check, so we don't walk into the placeholder checks for
     // it.
     if let Insn::FunDef {
-      name, return_ty, ..
+      name,
+      return_ty,
+      params,
+      ..
     } = insn
     {
-      current_fn = Some((*name, *return_ty));
-      local_decls.clear();
+      ctx.current_fn = Some((*name, *return_ty));
+      ctx.local_decls.clear();
 
       // Param ty placeholders are still worth flagging — a
       // generic-leaked param will poison every arg of every
       // call to this function.
-      check_placeholder(&mut report, idx, *return_ty, "FunDef.return_ty");
+      check_placeholder(&mut ctx.report, idx, *return_ty, "FunDef.return_ty");
 
-      if let Insn::FunDef { params, .. } = insn {
-        for (_, pty) in params {
-          check_placeholder(&mut report, idx, *pty, "FunDef.param");
-        }
+      for (_, pty) in params {
+        check_placeholder(&mut ctx.report, idx, *pty, "FunDef.param");
       }
 
       continue;
     }
 
-    check_insn(
-      insn,
-      idx,
-      &value_types,
-      &fun_sigs,
-      current_fn,
-      &mut local_decls,
-      &mut report,
-    );
+    check_insn(insn, idx, &mut ctx);
   }
 
-  report
+  ctx.report
 }
 
 /// First-pass scan: map every value-producing `dst: ValueId`
@@ -253,30 +264,21 @@ fn collect_fun_sigs(insns: &[Insn]) -> HashMap<Symbol, (Vec<TyId>, TyId)> {
 /// Per-insn dispatch — each arm handles the rules that apply
 /// to its shape. Kept separate from [`validate`]'s outer loop
 /// so the match stays readable.
-#[allow(clippy::too_many_arguments)]
-fn check_insn(
-  insn: &Insn,
-  idx: usize,
-  value_types: &HashMap<ValueId, TyId>,
-  fun_sigs: &HashMap<Symbol, (Vec<TyId>, TyId)>,
-  current_fn: Option<(Symbol, TyId)>,
-  local_decls: &mut HashMap<Symbol, TyId>,
-  report: &mut ValidationReport,
-) {
+fn check_insn(insn: &Insn, idx: usize, ctx: &mut ValidatorCtx<'_>) {
   match insn {
     Insn::VarDef { name, ty_id, .. } => {
-      local_decls.insert(*name, *ty_id);
-      check_placeholder(report, idx, *ty_id, "VarDef.ty_id");
+      ctx.local_decls.insert(*name, *ty_id);
+      check_placeholder(&mut ctx.report, idx, *ty_id, "VarDef.ty_id");
     }
 
     Insn::Store { name, value, ty_id } => {
-      check_placeholder(report, idx, *ty_id, "Store.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "Store.ty_id");
 
       // Cross-insn: Store ty should match the binding's VarDef.
-      if let Some(&decl_ty) = local_decls.get(name)
+      if let Some(&decl_ty) = ctx.local_decls.get(name)
         && decl_ty != *ty_id
       {
-        report.violations.push(Violation {
+        ctx.report.violations.push(Violation {
           insn_index: idx,
           kind: ViolationKind::StoreDeclMismatch {
             name: *name,
@@ -287,10 +289,10 @@ fn check_insn(
       }
 
       // Local: value being stored must carry Store's ty.
-      if let Some(&value_ty) = value_types.get(value)
+      if let Some(&value_ty) = ctx.value_types.get(value)
         && value_ty != *ty_id
       {
-        report.violations.push(Violation {
+        ctx.report.violations.push(Violation {
           insn_index: idx,
           kind: ViolationKind::StoreValueMismatch {
             name: *name,
@@ -302,18 +304,18 @@ fn check_insn(
     }
 
     Insn::Return { value, ty_id } => {
-      check_placeholder(report, idx, *ty_id, "Return.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "Return.ty_id");
 
       let Some(v) = value else { return };
-      let Some(&value_ty) = value_types.get(v) else {
+      let Some(&value_ty) = ctx.value_types.get(v) else {
         return;
       };
-      let Some((fn_name, fn_return_ty)) = current_fn else {
+      let Some((fn_name, fn_return_ty)) = ctx.current_fn else {
         return;
       };
 
       if value_ty != fn_return_ty {
-        report.violations.push(Violation {
+        ctx.report.violations.push(Violation {
           insn_index: idx,
           kind: ViolationKind::ReturnValueMismatch {
             fn_name,
@@ -331,10 +333,10 @@ fn check_insn(
       ty_id,
       ..
     } => {
-      check_placeholder(report, idx, *ty_id, "BinOp.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "BinOp.ty_id");
 
-      let lhs_ty = value_types.get(lhs).copied();
-      let rhs_ty = value_types.get(rhs).copied();
+      let lhs_ty = ctx.value_types.get(lhs).copied();
+      let rhs_ty = ctx.value_types.get(rhs).copied();
 
       // Comparison ops (`==`, `<`, `>=`, …) and logical ops
       // legitimately produce a `bool` result from non-bool
@@ -353,7 +355,7 @@ fn check_insn(
         let result_mismatch = op_ty != bool_ty && lt != op_ty;
 
         if operand_mismatch || result_mismatch {
-          report.violations.push(Violation {
+          ctx.report.violations.push(Violation {
             insn_index: idx,
             kind: ViolationKind::BinOpWidthMismatch {
               dst: *dst,
@@ -367,16 +369,16 @@ fn check_insn(
     }
 
     Insn::UnOp { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, "UnOp.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "UnOp.ty_id");
     }
 
     Insn::Call {
       name, args, ty_id, ..
     } => {
-      check_placeholder(report, idx, *ty_id, "Call.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "Call.ty_id");
 
-      let Some((param_tys, _)) = fun_sigs.get(name) else {
-        report.calls_skipped += 1;
+      let Some((param_tys, _)) = ctx.fun_sigs.get(name) else {
+        ctx.report.calls_skipped += 1;
         return;
       };
 
@@ -385,12 +387,12 @@ fn check_insn(
       // validator never indexes out of bounds.
       for (i, (arg, param_ty)) in args.iter().zip(param_tys.iter()).enumerate()
       {
-        let Some(&arg_ty) = value_types.get(arg) else {
+        let Some(&arg_ty) = ctx.value_types.get(arg) else {
           continue;
         };
 
         if arg_ty != *param_ty {
-          report.violations.push(Violation {
+          ctx.report.violations.push(Violation {
             insn_index: idx,
             kind: ViolationKind::CallArgMismatch {
               callee: *name,
@@ -422,11 +424,16 @@ fn check_insn(
     | Insn::EnumConstruct { ty_id, .. }
     | Insn::StructConstruct { ty_id, .. }
     | Insn::FieldStore { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, placeholder_context(insn));
+      check_placeholder(
+        &mut ctx.report,
+        idx,
+        *ty_id,
+        placeholder_context(insn),
+      );
     }
 
     Insn::Cast { to_ty, .. } => {
-      check_placeholder(report, idx, *to_ty, "Cast.to_ty");
+      check_placeholder(&mut ctx.report, idx, *to_ty, "Cast.to_ty");
     }
 
     // Template: its own ty_id is legitimately `Template`
@@ -460,35 +467,40 @@ fn check_insn(
     // typed carriers and trusts the executor to emit
     // well-typed operands.
     Insn::ChannelCreate { elem_ty, .. } => {
-      check_placeholder(report, idx, *elem_ty, "ChannelCreate.elem_ty");
+      check_placeholder(
+        &mut ctx.report,
+        idx,
+        *elem_ty,
+        "ChannelCreate.elem_ty",
+      );
     }
     Insn::ChannelSend { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, "ChannelSend.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "ChannelSend.ty_id");
     }
     Insn::ChannelRecv { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, "ChannelRecv.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "ChannelRecv.ty_id");
     }
     Insn::TaskSpawn { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, "TaskSpawn.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "TaskSpawn.ty_id");
     }
     Insn::TaskAwait { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, "TaskAwait.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "TaskAwait.ty_id");
     }
     Insn::NurseryBegin { .. }
     | Insn::NurseryEnd { .. }
     | Insn::ChannelClose { .. } => {}
     Insn::SelectWait { elem_ty, .. } => {
-      check_placeholder(report, idx, *elem_ty, "SelectWait.elem_ty");
+      check_placeholder(&mut ctx.report, idx, *elem_ty, "SelectWait.elem_ty");
     }
     Insn::SelectRecv { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, "SelectRecv.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "SelectRecv.ty_id");
     }
     Insn::TaskCancelled { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, "TaskCancelled.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "TaskCancelled.ty_id");
     }
     Insn::TaskCancel { .. } => {}
     Insn::StrSlice { ty_id, .. } => {
-      check_placeholder(report, idx, *ty_id, "StrSlice.ty_id");
+      check_placeholder(&mut ctx.report, idx, *ty_id, "StrSlice.ty_id");
     }
     Insn::PackLink { .. } => {}
   }

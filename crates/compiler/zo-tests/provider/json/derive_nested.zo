@@ -1,0 +1,55 @@
+load core::json::*;
+
+-- json — nested-struct derive. The outer `Order` has a
+-- struct field `shipping: Shipping`, both with their own
+-- `%% serialize, deserialize.` — the synth recurses to
+-- the inner type's derived methods, no manual glue
+-- between the two structs.
+-- @cmd — zo build derive_nested.zo && ./derive_nested
+
+%% serialize, deserialize.
+struct Shipping {
+  weight: float,
+  express: bool,
+}
+
+%% serialize, deserialize.
+struct Order {
+  id: int,
+  currency: str,
+  shipping: Shipping,
+}
+
+fun main() {
+  imu order: Order = Order {
+    id = 42,
+    currency = "EUR",
+    shipping = Shipping { weight = 1.25, express = true },
+  };
+
+  imu wire: Json = order.to_json();
+  imu wire_str: str = wire.to_str();
+  showln(wire_str);
+
+  imu parsed: Json = Json::parse(wire_str);
+  imu copy: Order = Order::from_json(parsed);
+
+  check@eq(copy.id, 42);
+  check(copy.shipping.express);
+
+  showln(copy.id);
+  showln(copy.currency);
+  showln(copy.shipping.express);
+
+  wire.free();
+  parsed.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- {"id":42,"currency":"EUR","shipping":{"weight":1.25,"express":true}}
+-- 42
+-- EUR
+-- true
+-- DONE

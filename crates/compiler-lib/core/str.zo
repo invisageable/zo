@@ -196,9 +196,11 @@ apply str {
   }
 }
 
--! `==` and `!=` on `str` route through this `Eq` impl —
--! same trait path as user-defined types. Length check
--! short-circuits the byte loop on size mismatch.
+-! Apply `Eq` to `str` primitive type.
+-! 
+-! @note — `==` and `!=` on `str` route through this `Eq` interface, same trait
+-!  path as user-defined types. Length check short-circuits the byte loop on 
+-! size mismatch.
 apply Eq for str {
   fun eq(self, other: str) -> bool {
     imu n: int = self.len;

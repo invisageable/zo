@@ -1,2 +1,4 @@
--- assert that condition is true, abort if false.
+-! Assert that condition is true, abort if false.
+-!
+-! @param condition — The assertion.
 pub ffi check(condition: bool);

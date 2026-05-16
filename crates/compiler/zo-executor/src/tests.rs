@@ -59,15 +59,17 @@ fn test_integer_literal() {
 fn test_bytes_literal() {
   let (insns, _) = execute_raw("fun main() { showln(`z`); }");
 
-  // ConstInt with bytes_type (TyId 5) and value 122 ('z').
-  let bytes_const = insns.iter().find(|i| {
-    matches!(i, Insn::ConstInt { ty_id, value, .. }
-      if ty_id.0 == 5 && *value == 122)
-  });
+  // Bytes literals are multi-byte buffers — `Token::Bytes`
+  // emits `ConstString { ty_id: bytes_type }` with the
+  // inner bytes interned as a symbol. The old single-byte
+  // ConstInt path is gone (see the bytes-buffer feature).
+  let bytes_const = insns
+    .iter()
+    .find(|i| matches!(i, Insn::ConstString { ty_id, .. } if ty_id.0 == 5));
 
   assert!(
     bytes_const.is_some(),
-    "expected ConstInt with ty_id=5 (bytes) and value=122"
+    "expected ConstString with ty_id=5 (bytes) for `z`"
   );
 }
 

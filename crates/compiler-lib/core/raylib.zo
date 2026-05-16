@@ -36,6 +36,8 @@ pub struct Vector4 { x: f32, y: f32, z: f32, w: f32 }   -- quaternion alias.
 
 -! Initialize window and OpenGL context.
 -! 
+-! @param width — The window width.
+-! @param height — The window height.
 -! @param title — The C-string pointer (wrap a literal with `c_str("…")`).
 %% link_name = "InitWindow".
 pub ffi init_window(width: int, height: int, title: int);
@@ -111,6 +113,9 @@ pub ffi get_fps() -> int;
 -* Input-related functions: keyboard. *-
 
 -! Check if a key has been pressed once.
+-!
+-! @param key — The key pressed.
+-! @returns — 
 -! 
 -! @note — Key codes match raylib's `KEY_*` constants.
 -! @todo — create an enum `Key` with Escape, Space, * variants.

@@ -1,5 +1,6 @@
 -- constants.
 
+
 -! The ratio of a circle's circumference to its diameter.
 pub val PI: f64 = 3.141592653589793;
 
@@ -9,7 +10,9 @@ pub val TAU: f64 = 6.283185307179586;
 -! Euler's number. Base of the natural logarithm.
 pub val E: f64 = 2.718281828459045;
 
+
 -- basic arithmetic.
+
 
 -! Returns the absolute value of x.
 pub fun abs<$T>(x: $T) -> $T {
@@ -37,14 +40,23 @@ pub fun clamp<$T>(x: $T, lo: $T, hi: $T) -> $T {
   }
 }
 
+
+--
 -- interpolation.
+--
+-- TODO: move to easing when it will exist.
+-- 
+
 
 -! Linear interpolation between a and b by factor t (0..1).
 pub fun lerp<$T>(a: $T, b: $T, t: $T) -> $T {
   a + (b - a) * t
 }
 
+
 -- integer math.
+
+
 --
 -- `gcd`, `lcm`, `pow_i` are deliberately `int`-only (signed
 -- s32). Sized-int variants (s8/s16/s64, u8/u16/u32/u64) must
@@ -135,7 +147,9 @@ pub fun pow_i(base: int, exp: int) -> int {
   return result;
 }
 
+
 -- power and roots.
+
 
 -! Returns the square root of x.
 pub ffi sqrt(x: float) -> float;
@@ -143,7 +157,9 @@ pub ffi sqrt(x: float) -> float;
 -! Returns x raised to the power y.
 pub ffi pow(x: float, y: float) -> float;
 
+
 -- trigonometry.
+
 
 -! Returns the sine of x (radians).
 pub ffi sin(x: float) -> float;
@@ -154,7 +170,9 @@ pub ffi cos(x: float) -> float;
 -! Returns the tangent of x (radians).
 pub ffi tan(x: float) -> float;
 
+
 -- logarithms and exponentials.
+
 
 -! Returns the natural logarithm of x.
 pub ffi log(x: float) -> float;
@@ -168,7 +186,9 @@ pub ffi log10(x: float) -> float;
 -! Returns e raised to the power x.
 pub ffi exp(x: float) -> float;
 
+
 -- rounding.
+
 
 -! Returns the largest integer less than or equal to x.
 pub ffi floor(x: float) -> float;
@@ -182,7 +202,9 @@ pub ffi trunc(x: float) -> float;
 -! Rounds to the nearest integer.
 pub ffi round(x: float) -> float;
 
+
 -- float classification.
+
 
 -! Returns true if x is finite (not infinity or NaN).
 pub ffi is_finite(x: float) -> bool;

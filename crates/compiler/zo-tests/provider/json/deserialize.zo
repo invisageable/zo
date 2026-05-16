@@ -6,8 +6,26 @@ load core::json::*;
 -- arrays + objects, and prints a flat summary. This is
 -- the canonical "consumer" pattern for the read side of
 -- the provider — every accessor exercised against a
--- single document.
+-- single document. The tail of the program exercises
+-- the high-level `%% serialize, deserialize.` derive
+-- against the same wire shape so both APIs are
+-- demonstrated side-by-side.
 -- @cmd — zo build deserialize.zo && ./deserialize
+
+%% serialize, deserialize.
+struct Shipping {
+  weight: float,
+  express: bool,
+}
+
+%% serialize, deserialize.
+struct Order {
+  currency: str,
+  price: float,
+  qty: int,
+  in_stock: bool,
+  shipping: Shipping,
+}
 
 fun main() {
   imu doc: Json = Json::parse(
@@ -66,10 +84,37 @@ fun main() {
 
   -- Missing key is signalled by handle == 0.
   imu missing: Json = doc.get("nonexistent");
-  check@eq(missing.handle, 0);
-  showln("missing: {missing.handle}");
+  imu missing_h: int = missing.handle;
+  check@eq(missing_h, 0);
+  showln("missing: {missing_h}");
 
   doc.free();
+
+  -- Derive round-trip — same shape, no hand-written
+  -- accessor calls. `Order::from_json` reconstructs a
+  -- typed `Order`; `Order::to_json` writes the wire form
+  -- back. The two derives are mirrors, so the original
+  -- input must equal the re-serialized output.
+  imu wire_in: str = "{\"currency\":\"EUR\",\"price\":12.5,\"qty\":2,\"in_stock\":true,\"shipping\":{\"weight\":1.25,\"express\":true}}";
+  imu doc2: Json = Json::parse(wire_in);
+  imu order: Order = Order::from_json(doc2);
+  doc2.free();
+
+  -- Template interp doesn't accept `{a.b}` today, so the
+  -- dot-paths are pre-bound to locals.
+  imu d_currency: str = order.currency;
+  imu d_qty: int = order.qty;
+  imu d_weight: float = order.shipping.weight;
+  imu d_express: bool = order.shipping.express;
+  showln("derive currency: {d_currency}");
+  showln("derive qty: {d_qty}");
+  showln("derive weight: {d_weight}");
+  showln("derive express: {d_express}");
+
+  imu wire_out_json: Json = order.to_json();
+  imu wire_out: str = wire_out_json.to_str();
+  showln("derive wire: {wire_out}");
+  wire_out_json.free();
 
   showln("DONE");
 }
@@ -87,4 +132,9 @@ fun main() {
 --   weight = 1.25
 --   express = false
 -- missing: 0
+-- derive currency: EUR
+-- derive qty: 2
+-- derive weight: 1.250000
+-- derive express: true
+-- derive wire: {"currency":"EUR","price":12.5,"qty":2,"in_stock":true,"shipping":{"weight":1.25,"express":true}}
 -- DONE

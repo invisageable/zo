@@ -876,23 +876,12 @@ impl TyChecker {
     match op {
       // Arithmetic operations
       BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
-        // Mixed-width float arithmetic widens to f64 (the
-        // standard C-family rule). Lets `f32 * float` work
-        // without an explicit cast — common at FFI
-        // boundaries where a C library returns f32 and zo
-        // code mixes it with f64 math. Codegen already
-        // carries f32 in a D-register, so no extra fcvt.
-        let lhs_repr = self.resolve_id(lhs_ty);
-        let rhs_repr = self.resolve_id(rhs_ty);
-        let lhs_ty_data = self.tys[lhs_repr.0 as usize];
-        let rhs_ty_data = self.tys[rhs_repr.0 as usize];
-
-        if let (Ty::Float(w1), Ty::Float(w2)) = (lhs_ty_data, rhs_ty_data)
-          && w1 != w2
-        {
-          return Some(self.f64_type());
-        }
-
+        // Mixed-width float arithmetic is handled by the
+        // executor's `widen_mixed_float_binop` before
+        // `unify` is called — it emits an `Insn::Cast`
+        // for the F32 side and feeds matching-width
+        // operands here. Unify stays strict so anything
+        // that bypasses the widening path still surfaces.
         // Unify both operands - they must be the same numeric type
         let ty = self.unify(lhs_ty, rhs_ty, span)?;
 

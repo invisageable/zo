@@ -1,0 +1,56 @@
+load core::json::*;
+
+-- json — `%% serialize, deserialize.` round-trip. The
+-- synth emits both `Type::to_json` and `Type::from_json`;
+-- this test serializes a struct, parses the wire form,
+-- reconstructs, and asserts every primitive field matches.
+-- @cmd — zo build derive_roundtrip.zo && ./derive_roundtrip
+
+%% serialize, deserialize.
+struct Profile {
+  name: str,
+  age: int,
+  active: bool,
+  weight: float,
+}
+
+fun main() {
+  imu original: Profile = Profile {
+    name = "ada",
+    age = 36,
+    active = true,
+    weight = 58.5,
+  };
+
+  -- Serialize.
+  imu wire: Json = original.to_json();
+  imu wire_str: str = wire.to_str();
+  showln(wire_str);
+
+  -- Parse + deserialize. Reuses the same wire form so
+  -- the round-trip walks parse → from_json without an
+  -- intermediate string round-trip.
+  imu parsed: Json = Json::parse(wire_str);
+  imu copy: Profile = Profile::from_json(parsed);
+
+  check@eq(copy.age, 36);
+  check(copy.active);
+
+  showln(copy.name);
+  showln(copy.age);
+  showln(copy.active);
+  showln(copy.weight);
+
+  wire.free();
+  parsed.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- {"name":"ada","age":36,"active":true,"weight":58.5}
+-- ada
+-- 36
+-- true
+-- 58.500000
+-- DONE

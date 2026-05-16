@@ -1,0 +1,47 @@
+load core::json::*;
+
+-- json — `%% serialize.` derive on a primitive-field
+-- struct. The synth emits a `Point::to_json(self) -> Json`
+-- method that walks every field and assembles a Json
+-- object via the builder API. No hand-written glue.
+-- @cmd — zo build derive_struct.zo && ./derive_struct
+
+%% serialize.
+struct Point {
+  x: int,
+  y: int,
+}
+
+%% serialize.
+struct Profile {
+  name: str,
+  age: int,
+  active: bool,
+  weight: float,
+}
+
+fun main() {
+  imu p: Point = Point { x = 10, y = 20 };
+  imu pj: Json = p.to_json();
+  imu pw: str = pj.to_str();
+  showln(pw);
+  pj.free();
+
+  imu prof: Profile = Profile {
+    name = "ada",
+    age = 36,
+    active = true,
+    weight = 58.5,
+  };
+  imu jj: Json = prof.to_json();
+  imu jw: str = jj.to_str();
+  showln(jw);
+  jj.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- {"x":10,"y":20}
+-- {"name":"ada","age":36,"active":true,"weight":58.5}
+-- DONE

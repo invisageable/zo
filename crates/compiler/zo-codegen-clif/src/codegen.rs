@@ -64,7 +64,7 @@ impl<'a> CliftGen<'a> {
 
     let builder = ObjectBuilder::new(
       isa,
-      "zo".to_string(),
+      "zo".to_string(), // TODO: this should come from name field from `fret.zo`.
       cranelift_module::default_libcall_names(),
     )
     .expect("object builder init failed");

@@ -7943,6 +7943,7 @@ dependencies = [
  "zo-interner",
  "zo-liveness",
  "zo-sir",
+ "zo-ty",
  "zo-value",
 ]
 
