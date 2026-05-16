@@ -256,12 +256,12 @@ apply Json {
 
   -! Parse `source` as JSON. Identical to `Json::parse`.
   pub fun from_str(source: str) -> Self {
-    Json::parse(source)
+    Self::parse(source)
   }
 
   -! Parse a byte buffer as JSON.
   pub fun from_bytes(buffer: str) -> Self {
-    Json::parse(buffer)
+    Self::parse(buffer)
   }
 
   -! Serialize as compact JSON bytes.

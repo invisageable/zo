@@ -1,0 +1,40 @@
+-- Regression — `Self::method(...)` inside an `apply Type {}`
+-- block resolves the same as the explicit `Type::method(...)`.
+-- Before the fix, the call resolver only matched `Ident::` at
+-- the first segment and reported a "type mismatch" pointing
+-- past EOF.
+
+struct Point {
+  x: int,
+  y: int,
+}
+
+apply Point {
+  fun new(x: int, y: int) -> Self {
+    Self { x, y }
+  }
+
+  fun origin() -> Self {
+    Self::new(0, 0)
+  }
+
+  fun shifted(self, dx: int, dy: int) -> Self {
+    Self::new(self.x + dx, self.y + dy)
+  }
+}
+
+fun main() {
+  imu o: Point = Point::origin();
+  check@eq(o.x, 0);
+  check@eq(o.y, 0);
+
+  imu p: Point = Point::new(10, 20);
+  imu q: Point = p.shifted(3, 4);
+  check@eq(q.x, 13);
+  check@eq(q.y, 24);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

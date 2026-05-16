@@ -16135,11 +16135,24 @@ impl<'a> Executor<'a> {
               //      stub the binary spins on at runtime.
               let call_name = if fun_idx >= 2
                 && self.tree.nodes[fun_idx - 1].token == Token::ColonColon
-                && self.tree.nodes[fun_idx - 2].token == Token::Ident
-              {
-                if let Some(NodeValue::Symbol(type_sym)) =
-                  self.node_value(fun_idx - 2)
-                {
+                && matches!(
+                  self.tree.nodes[fun_idx - 2].token,
+                  Token::Ident | Token::SelfUpper,
+                ) {
+                // `Self::method(..)` inside an `apply Type {}` block
+                // resolves to the same `Type::method` symbol as the
+                // explicit form. The first segment is `Self` when
+                // the prior token is `SelfUpper`; substitute the
+                // apply'd type's symbol before mangling.
+                let type_sym = match self.tree.nodes[fun_idx - 2].token {
+                  Token::SelfUpper => self.apply_context,
+                  _ => match self.node_value(fun_idx - 2) {
+                    Some(NodeValue::Symbol(s)) => Some(s),
+                    _ => None,
+                  },
+                };
+
+                if let Some(type_sym) = type_sym {
                   let ts = self.interner.get(type_sym).to_owned();
                   let ms = self.interner.get(fun_name).to_owned();
                   let mangled = format!("{ts}::{ms}");
