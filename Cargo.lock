@@ -7676,6 +7676,7 @@ dependencies = [
  "zo-parser",
  "zo-pp",
  "zo-profiler",
+ "zo-provider-json",
  "zo-provider-sqlite",
  "zo-reporter",
  "zo-runtime",
@@ -7917,6 +7918,13 @@ dependencies = [
  "insta",
  "rustc-hash 2.1.2",
  "zo-buffer",
+]
+
+[[package]]
+name = "zo-provider-json"
+version = "0.3.11"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

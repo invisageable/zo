@@ -33,7 +33,7 @@ pub ffi __zo_misato_destroy_world(handle: int);
 -! @param height — The height.
 -! @param depth — The depth.
 -! @returns — ...
-pub ffi __zo_misato_make_box_geom(w: float, h: float, d: float) -> int;
+pub ffi __zo_misato_make_box_geom(w: f32, h: f32, d: f32) -> int;
 
 -! Creates a geometry for a sphere.
 -!
@@ -42,15 +42,15 @@ pub ffi __zo_misato_make_box_geom(w: float, h: float, d: float) -> int;
 -! @param depth — The depth.
 -! @returns — ...
 pub ffi __zo_misato_make_sphere_geom(
-  radius: float,
+  radius: f32,
   rings: int,
   slices: int,
 ) -> int;
 
 -! XZ plane at Y=0 with normals `+Y`.
 pub ffi __zo_misato_make_plane_geom(
-  width: float,
-  length: float,
+  width: f32,
+  length: f32,
   res_x: int,
   res_z: int,
 ) -> int;
@@ -67,16 +67,16 @@ pub ffi __zo_misato_make_normal_mat() -> int;
 pub ffi __zo_misato_spawn_box_mesh(
   geom: int,
   mat: int,
-  x: float,
-  y: float,
-  z: float,
+  x: f32,
+  y: f32,
+  z: f32,
 ) -> int;
 
 pub ffi __zo_misato_mesh_set_position(
   mesh: int,
-  x: float,
-  y: float,
-  z: float,
+  x: f32,
+  y: f32,
+  z: f32,
 );
 
 pub ffi __zo_misato_scene_add(scene: int, ent: int);
@@ -86,25 +86,25 @@ pub ffi __zo_misato_scene_render(scene: int, cam_handle: int);
 -! Default position `(3, 3, 3)`, target `(0, 0, 0)`,
 -! up `(0, 1, 0)`.
 pub ffi __zo_misato_camera_new(
-  fov: float,
-  aspect: float,
-  near: float,
-  far: float,
+  fov: f32,
+  aspect: f32,
+  near: f32,
+  far: f32,
 ) -> int;
 
 pub ffi __zo_misato_camera_set_position(
   cam: int,
-  x: float,
-  y: float,
-  z: float,
+  x: f32,
+  y: f32,
+  z: f32,
 );
 
 -! `(x, y, z)` is in world space.
 pub ffi __zo_misato_camera_look_at(
   cam: int,
-  x: float,
-  y: float,
-  z: float,
+  x: f32,
+  y: f32,
+  z: f32,
 );
 
 -! Unified material handle. Every `*Material::new` ctor

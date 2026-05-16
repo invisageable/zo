@@ -1,0 +1,21 @@
+[package]
+name = "zo-provider-json"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+# `cdylib` is the live target — Mach-O writer adds
+# `LC_LOAD_DYLIB @executable_path/libzo_provider_json.dylib`
+# to user binaries that touch any `__zo_json_*` symbol,
+# and the compiler stages it alongside them. `lib` keeps
+# the in-process call path open for tests.
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+# external:crates.
+# `preserve_order` is pinned at the workspace dep level
+# (see root Cargo.toml) so both `zo-provider-json` and
+# `zo-reporter` see the same `Map` type regardless of
+# which target is being built.
+serde_json = { workspace = true }

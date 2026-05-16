@@ -14,3 +14,18 @@
 -! binary's rodata with a trailing NUL byte, so the bytes
 -! after the length prefix are already a valid C-string.
 pub ffi c_str(s: str) -> int;
+
+-! Build a fresh heap-backed zo `str` from a raw byte buffer
+-! and an explicit byte count. Symmetric inverse of `c_str`:
+-! `c_str` strips the 8-byte length prefix, `from_c_str_len`
+-! materializes one. Lowers to a `_zo_str_alloc(ptr, len)`
+-! call; the runtime copies `len` bytes off the source buffer
+-! into a fresh `[len:8][bytes][NUL]` allocation, so the
+-! source pointer can be reused / freed immediately after.
+-!
+-! Use this when an FFI returns a `(ptr, len)` pair and you
+-! need a real zo `str` for interpolation, `showln`, slicing,
+-! or storage. The provider crates (`zo-provider-json`,
+-! future HTTP / file readers) call this to lift bytes from
+-! a foreign buffer into zo's string world.
+pub ffi from_c_str_len(ptr: int, len: int) -> str;

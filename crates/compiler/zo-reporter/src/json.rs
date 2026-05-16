@@ -120,9 +120,13 @@ pub fn to_stdout(
   to_json(aggregator, source, filename, snippet_context, &mut handle)
 }
 
-/// Build the NDJSON object for one diagnostic. `serde_json`'s
-/// default `Map` is BTreeMap-backed, so field order is
-/// **alphabetical and stable across builds** — the
+/// Build the NDJSON object for one diagnostic. With the
+/// `preserve_order` feature on `serde_json` (enabled by
+/// `zo-provider-json` so user JSON keeps insertion order),
+/// `Map` is IndexMap-backed and the wire field order is
+/// **the insertion order below** — schema/identity first,
+/// then severity/phase, then content (message → fixes →
+/// notes → snippet → span). Stable across builds, the
 /// determinism precondition for agents diffing diagnostic
 /// streams. JSON itself imposes no ordering, but matching
 /// bytes are friendlier to byte-level consumers.
@@ -711,14 +715,18 @@ mod tests {
     .collect();
 
     assert_eq!(keys_a, keys_b);
-    // Alphabetical via serde_json's BTreeMap-backed `Map`;
-    // `$` sorts before letters. Locks the wire shape so
-    // agents byte-diffing builds aren't surprised by reorders.
+    // Insertion order via serde_json's IndexMap-backed
+    // `Map` (preserve_order feature on, since zo-provider-
+    // json needs it to keep user JSON ordering). Order is
+    // chosen deliberately in `encode`: schema/identity →
+    // severity/phase → message → content. Locks the wire
+    // shape so agents byte-diffing builds aren't surprised
+    // by reorders.
     assert_eq!(
       keys_a,
       vec![
-        "$schema", "code", "fixes", "id", "message", "notes", "phase",
-        "severity", "snippet", "span",
+        "$schema", "id", "code", "severity", "phase", "message", "fixes",
+        "notes", "snippet", "span",
       ],
     );
   }

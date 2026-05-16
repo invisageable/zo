@@ -1,0 +1,83 @@
+load core::json::*;
+
+-- json — serialize-back (Phase 5). Parses literals of each
+-- kind, calls `to_str()` to re-encode them, and prints the
+-- result. Also covers `as_str()`'s unquoted-string read
+-- and the round-trip semantics: `to_str(parse(x))` and `x`
+-- must be structurally equal (whitespace + key order may
+-- differ; serde_json emits compact + preserves object key
+-- order from the input).
+-- @cmd — zo build serialize.zo && ./serialize
+
+fun main() {
+  -- Scalars round-trip exactly (compact form, no
+  -- whitespace).
+  imu n: Json = Json::parse("42");
+  imu n_back: str = n.to_str();
+  showln(n_back);
+  n.free();
+
+  imu f: Json = Json::parse("2.5");
+  imu f_back: str = f.to_str();
+  showln(f_back);
+  f.free();
+
+  imu b: Json = Json::parse("true");
+  imu b_back: str = b.to_str();
+  showln(b_back);
+  b.free();
+
+  imu nul: Json = Json::parse("null");
+  imu nul_back: str = nul.to_str();
+  showln(nul_back);
+  nul.free();
+
+  -- Strings: to_str includes the quotes; as_str is the
+  -- unquoted content.
+  imu s: Json = Json::parse("\"hello\"");
+  imu s_to: str = s.to_str();
+  imu s_as: str = s.as_str();
+  showln(s_to);
+  showln(s_as);
+  s.free();
+
+  -- Containers: compact-encoded, key order preserved.
+  imu arr: Json = Json::parse("[1,2,3]");
+  imu arr_back: str = arr.to_str();
+  showln(arr_back);
+  arr.free();
+
+  imu obj: Json = Json::parse("{\"a\":1,\"b\":2}");
+  imu obj_back: str = obj.to_str();
+  showln(obj_back);
+  obj.free();
+
+  -- as_str on non-string returns empty.
+  imu n2: Json = Json::parse("42");
+  imu wrong: str = n2.as_str();
+  showln("wrong: [{wrong}]");
+  n2.free();
+
+  -- Nested traversal + serialize.
+  imu doc: Json = Json::parse("{\"items\":[10,20,30]}");
+  imu items: Json = doc.get("items");
+  imu items_back: str = items.to_str();
+  showln(items_back);
+  items.free();
+  doc.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 2.5
+-- true
+-- null
+-- "hello"
+-- hello
+-- [1,2,3]
+-- {"a":1,"b":2}
+-- wrong: []
+-- [10,20,30]
+-- DONE

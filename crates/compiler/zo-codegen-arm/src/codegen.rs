@@ -2352,6 +2352,7 @@ impl<'a> ARM64Gen<'a> {
           }
 
           "c_str" => self.emit_c_str(args, idx),
+          "from_c_str_len" => self.emit_from_c_str_len(args, idx),
           // raylib + misato FFIs flow through the generic
           // AAPCS fallback (`_` arm → `emit_ffi_call`).
           // Misato C symbols already match `_<zo_name>` —
@@ -5134,6 +5135,29 @@ impl<'a> ARM64Gen<'a> {
 
     if let Some(dst) = self.reg_for_insn(idx) {
       self.emitter.emit_add_imm(dst, s, 8);
+    }
+  }
+
+  /// `from_c_str_len(ptr: int, len: int) -> str` — symmetric
+  /// inverse of `c_str`. Lifts `len` bytes at `ptr` into a
+  /// fresh heap-backed zo str via `_zo_str_alloc`. The
+  /// runtime owns the copy, so callers may free / reuse the
+  /// source buffer immediately after this returns.
+  ///
+  /// Marshals through `emit_safe_int_arg_moves` because the
+  /// source registers can collide with X0/X1 in arbitrary
+  /// ways depending on the surrounding register allocation.
+  fn emit_from_c_str_len(&mut self, args: &[ValueId], idx: usize) {
+    let ptr = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let len = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    self.emit_safe_int_arg_moves(&[(X0, ptr), (X1, len)]);
+    self.emit_extern_call("_zo_str_alloc");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
     }
   }
 

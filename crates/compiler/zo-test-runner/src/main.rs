@@ -179,6 +179,15 @@ fn main() {
     &mut results,
   );
 
+  // provider/json/ — JSON parse/read/write via provider
+  // shim wrapping serde_json. Same Pass shape as sqlite.
+  run_dir(
+    &ctx,
+    &tests_dir.join("provider/json"),
+    Category::Pass,
+    &mut results,
+  );
+
   // programming/misato/ — misato 3D demos. Same WindowRun
   // shape — covers cube_static, three_cubes, grid_1000, …
   run_dir(
