@@ -7925,6 +7925,7 @@ name = "zo-provider-json"
 version = "0.3.11"
 dependencies = [
  "serde_json",
+ "smallvec",
 ]
 
 [[package]]

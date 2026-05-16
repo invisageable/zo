@@ -17,6 +17,7 @@
 //! point at `obj`'s root). The root drops when the last
 //! handle referencing it is freed.
 
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -24,6 +25,14 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use serde_json::Value;
+use smallvec::SmallVec;
+
+/// Inline path-step capacity. JSON traversals deeper than
+/// four hops fall back to the heap; the typical case
+/// (`doc.get("field")` / `doc.get("k").get_at(i)`) stays
+/// stack-allocated and skips the per-traversal `Vec`
+/// allocation.
+type StepPath = SmallVec<[Step; 4]>;
 
 // Per-thread scratch for the string-returning FFIs
 // (`__zo_json_to_str` / `__zo_json_as_str` /
@@ -45,6 +54,16 @@ use serde_json::Value;
 thread_local! {
   static OUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
   static KEYS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+  // `(handle, generation)` of the value whose keys are
+  // currently in `KEYS`. `None` when no cache is staged.
+  // `key_at` skips the rebuild when the owner still
+  // matches — turning the canonical `for i in
+  // 0..obj.keys_len() { obj.key_at(i) }` loop from O(n²)
+  // back into O(n). Bumped via `RootSlot.generation` on
+  // every `push` / `set`, so a mutation in the same
+  // iteration invalidates the cache automatically.
+  static KEYS_OWNER: Cell<Option<(ZoHandle, u32)>> =
+    const { Cell::new(None) };
   // Most recent parse error message on this thread. `Some`
   // when the last `parse_str` failed; cleared to `None`
   // when a parse succeeds so callers can detect success /
@@ -78,6 +97,11 @@ fn put_scratch(bytes: &[u8]) -> *const u8 {
 struct RootSlot {
   value: Value,
   refcount: u32,
+  /// Bumped on every mutation (`push` / `set`). Pairs
+  /// with the per-thread `KEYS_OWNER` to skip rebuilding
+  /// the object-key cache when the underlying object
+  /// hasn't changed since the last `key_at` call.
+  generation: u32,
 }
 
 /// Traversal step within a root. `Json::get(key)` appends
@@ -95,17 +119,22 @@ enum Step {
 #[derive(Clone, Debug)]
 struct Handle {
   root: u32,
-  path: Vec<Step>,
+  path: StepPath,
 }
 
-/// `LazyLock<Mutex<Vec<...>>>` keeps the init branch out
-/// of every call site and makes the registries `Send +
-/// Sync` without a static initializer dance.
-static ROOTS: LazyLock<Mutex<Vec<Option<RootSlot>>>> =
-  LazyLock::new(|| Mutex::new(Vec::new()));
+/// Roots + handles share a single lock so every FFI
+/// entry point acquires exactly one mutex per call. The
+/// type-level coupling also makes lock-order bugs
+/// unrepresentable: there's only one lock, no order to
+/// get wrong.
+#[derive(Default)]
+struct Registry {
+  roots: Vec<Option<RootSlot>>,
+  handles: Vec<Option<Handle>>,
+}
 
-static HANDLES: LazyLock<Mutex<Vec<Option<Handle>>>> =
-  LazyLock::new(|| Mutex::new(Vec::new()));
+static REGISTRY: LazyLock<Mutex<Registry>> =
+  LazyLock::new(|| Mutex::new(Registry::default()));
 
 /// zo-side `int` is i64, matching the AAPCS GP register.
 type ZoHandle = i64;
@@ -128,7 +157,7 @@ fn alloc_handle(
   roots: &mut [Option<RootSlot>],
   handles: &mut Vec<Option<Handle>>,
   root: u32,
-  path: Vec<Step>,
+  path: StepPath,
 ) -> ZoHandle {
   if let Some(Some(slot)) = roots.get_mut(root as usize) {
     slot.refcount += 1;
@@ -206,14 +235,18 @@ fn resolve_mut<'a>(
 /// builder (`null`, `from_bool`, `array`, `object`, …) so
 /// the refcount + handle bookkeeping happens in one place.
 fn push_new_root(value: Value) -> ZoHandle {
-  let mut roots = ROOTS.lock().unwrap();
-  let mut handles = HANDLES.lock().unwrap();
+  let mut reg = REGISTRY.lock().unwrap();
+  let Registry { roots, handles } = &mut *reg;
 
-  roots.push(Some(RootSlot { value, refcount: 0 }));
+  roots.push(Some(RootSlot {
+    value,
+    refcount: 0,
+    generation: 0,
+  }));
 
   let root_idx = (roots.len() - 1) as u32;
 
-  alloc_handle(&mut roots, &mut handles, root_idx, Vec::new())
+  alloc_handle(roots, handles, root_idx, StepPath::new())
 }
 
 /// `__zo_json_parse_str(ptr: int) -> int`. Parse a NUL-
@@ -260,8 +293,8 @@ pub unsafe extern "C" fn __zo_json_parse_str(ptr: *const c_char) -> ZoHandle {
 /// moment a second thread enters the registry.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_free(handle: ZoHandle) {
-  let mut roots = ROOTS.lock().unwrap();
-  let mut handles = HANDLES.lock().unwrap();
+  let mut reg = REGISTRY.lock().unwrap();
+  let Registry { roots, handles } = &mut *reg;
 
   let Some(slot) = handles.get_mut((handle - 1) as usize) else {
     return;
@@ -288,10 +321,11 @@ pub extern "C" fn __zo_json_free(handle: ZoHandle) {
 /// handle against `0` before any other call.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_kind(handle: ZoHandle) -> ZoHandle {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  let Some(value) = resolve(handle, &roots, &handles) else {
+  let Some(value) = resolve(handle, roots, handles) else {
     return KIND_NULL;
   };
 
@@ -311,10 +345,11 @@ pub extern "C" fn __zo_json_kind(handle: ZoHandle) -> ZoHandle {
 /// access yields the zero-equivalent of the asked type).
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_as_bool(handle: ZoHandle) -> ZoHandle {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  match resolve(handle, &roots, &handles) {
+  match resolve(handle, roots, handles) {
     Some(Value::Bool(b)) => *b as ZoHandle,
     _ => 0,
   }
@@ -329,10 +364,11 @@ pub extern "C" fn __zo_json_as_bool(handle: ZoHandle) -> ZoHandle {
 /// should check `kind()` and `is_int()` first.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_as_i64(handle: ZoHandle) -> ZoHandle {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  match resolve(handle, &roots, &handles) {
+  match resolve(handle, roots, handles) {
     Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
     _ => 0,
   }
@@ -345,10 +381,11 @@ pub extern "C" fn __zo_json_as_i64(handle: ZoHandle) -> ZoHandle {
 /// number kinds.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_as_f64(handle: ZoHandle) -> f64 {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  match resolve(handle, &roots, &handles) {
+  match resolve(handle, roots, handles) {
     Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0),
     _ => 0.0,
   }
@@ -361,10 +398,11 @@ pub extern "C" fn __zo_json_as_f64(handle: ZoHandle) -> f64 {
 /// truncating read before it happens.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_is_int(handle: ZoHandle) -> ZoHandle {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  match resolve(handle, &roots, &handles) {
+  match resolve(handle, roots, handles) {
     Some(Value::Number(n)) => (n.is_i64() || n.is_u64()) as ZoHandle,
     _ => 0,
   }
@@ -376,10 +414,11 @@ pub extern "C" fn __zo_json_is_int(handle: ZoHandle) -> ZoHandle {
 /// when the schema admits both empty-object and scalar.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_len(handle: ZoHandle) -> ZoHandle {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  match resolve(handle, &roots, &handles) {
+  match resolve(handle, roots, handles) {
     Some(Value::Array(arr)) => arr.len() as ZoHandle,
     Some(Value::Object(obj)) => obj.len() as ZoHandle,
     _ => 0,
@@ -406,11 +445,11 @@ pub unsafe extern "C" fn __zo_json_get(
     return 0;
   };
 
-  let mut roots = ROOTS.lock().unwrap();
-  let mut handles = HANDLES.lock().unwrap();
+  let mut reg = REGISTRY.lock().unwrap();
+  let Registry { roots, handles } = &mut *reg;
 
   let exists = matches!(
-    resolve(handle, &roots, &handles),
+    resolve(handle, roots, handles),
     Some(Value::Object(obj)) if obj.contains_key(key),
   );
 
@@ -423,7 +462,7 @@ pub unsafe extern "C" fn __zo_json_get(
   let mut new_path = parent.path.clone();
 
   new_path.push(Step::Key(key.to_owned()));
-  alloc_handle(&mut roots, &mut handles, root, new_path)
+  alloc_handle(roots, handles, root, new_path)
 }
 
 /// `__zo_json_get_at(handle: int, idx: int) -> int`. Array
@@ -439,11 +478,11 @@ pub extern "C" fn __zo_json_get_at(
     return 0;
   }
 
-  let mut roots = ROOTS.lock().unwrap();
-  let mut handles = HANDLES.lock().unwrap();
+  let mut reg = REGISTRY.lock().unwrap();
+  let Registry { roots, handles } = &mut *reg;
 
   let in_range = matches!(
-    resolve(handle, &roots, &handles),
+    resolve(handle, roots, handles),
     Some(Value::Array(arr)) if (idx as usize) < arr.len(),
   );
 
@@ -456,7 +495,7 @@ pub extern "C" fn __zo_json_get_at(
   let mut new_path = parent.path.clone();
 
   new_path.push(Step::Idx(idx as u32));
-  alloc_handle(&mut roots, &mut handles, root, new_path)
+  alloc_handle(roots, handles, root, new_path)
 }
 
 /// `__zo_json_to_str(handle: int) -> int`. Serialize the
@@ -472,10 +511,11 @@ pub extern "C" fn __zo_json_get_at(
 /// an empty `str` rather than reading stale bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_to_str(handle: ZoHandle) -> ZoHandle {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  let Some(value) = resolve(handle, &roots, &handles) else {
+  let Some(value) = resolve(handle, roots, handles) else {
     return put_scratch(b"") as ZoHandle;
   };
 
@@ -497,10 +537,11 @@ pub extern "C" fn __zo_json_to_str(handle: ZoHandle) -> ZoHandle {
 /// (the underlying string).
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_as_str(handle: ZoHandle) -> ZoHandle {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  let bytes = match resolve(handle, &roots, &handles) {
+  let bytes = match resolve(handle, roots, handles) {
     Some(Value::String(s)) => s.as_bytes(),
     _ => b"",
   };
@@ -520,15 +561,34 @@ pub extern "C" fn __zo_json_last_str_len() -> ZoHandle {
 }
 
 /// Populate the per-thread KEYS cache from `handle`'s
-/// object value. Shared by `__zo_json_keys_len` and
-/// `__zo_json_key_at` so iteration sees a consistent view
-/// even when callers interleave handles. Returns the key
-/// count (`0` for non-objects / invalid handles).
+/// object value. Returns the key count (`0` for non-
+/// objects / invalid handles).
+///
+/// Skips the rebuild when the cached `(handle,
+/// generation)` still matches — the canonical iteration
+/// pattern `for i in 0..obj.keys_len() { obj.key_at(i) }`
+/// stays O(n) instead of O(n²). Mutations on the root
+/// bump `RootSlot.generation` which invalidates the
+/// cache automatically.
 fn fill_keys_cache(handle: ZoHandle) -> usize {
-  let roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let reg = REGISTRY.lock().unwrap();
+  let roots = &reg.roots;
+  let handles = &reg.handles;
 
-  let new_keys: Vec<String> = match resolve(handle, &roots, &handles) {
+  let root_generation = handles
+    .get((handle - 1) as usize)
+    .and_then(|h| h.as_ref())
+    .and_then(|h| roots.get(h.root as usize))
+    .and_then(|r| r.as_ref())
+    .map(|slot| slot.generation);
+
+  if let Some(generation) = root_generation
+    && KEYS_OWNER.get() == Some((handle, generation))
+  {
+    return KEYS.with(|cell| cell.borrow().len());
+  }
+
+  let new_keys: Vec<String> = match resolve(handle, roots, handles) {
     Some(Value::Object(obj)) => obj.keys().cloned().collect(),
     _ => Vec::new(),
   };
@@ -536,6 +596,7 @@ fn fill_keys_cache(handle: ZoHandle) -> usize {
   let n = new_keys.len();
 
   KEYS.with(|cell| *cell.borrow_mut() = new_keys);
+  KEYS_OWNER.set(root_generation.map(|g| (handle, g)));
   n
 }
 
@@ -676,24 +737,36 @@ pub extern "C" fn __zo_json_push(
   self_handle: ZoHandle,
   value_handle: ZoHandle,
 ) -> ZoHandle {
-  let mut roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let mut reg = REGISTRY.lock().unwrap();
+  let Registry { roots, handles } = &mut *reg;
 
-  let Some(value_clone) = resolve(value_handle, &roots, &handles).cloned()
+  let Some(value_clone) = resolve(value_handle, roots, handles).cloned()
   else {
     return 0;
   };
 
-  let Some(target) = resolve_mut(self_handle, &mut roots, &handles) else {
+  let target_root = handles
+    .get((self_handle - 1) as usize)
+    .and_then(|h| h.as_ref())
+    .map(|h| h.root as usize);
+
+  let Some(target) = resolve_mut(self_handle, roots, handles) else {
     return 0;
   };
 
+  let success = matches!(target, Value::Array(_));
   if let Value::Array(arr) = target {
     arr.push(value_clone);
-    1
-  } else {
-    0
   }
+
+  if success
+    && let Some(idx) = target_root
+    && let Some(Some(slot)) = roots.get_mut(idx)
+  {
+    slot.generation = slot.generation.wrapping_add(1);
+  }
+
+  if success { 1 } else { 0 }
 }
 
 /// `__zo_json_set(self: int, key: int, val: int) -> int`.
@@ -716,24 +789,36 @@ pub unsafe extern "C" fn __zo_json_set(
   };
 
   let key_owned = k.to_owned();
-  let mut roots = ROOTS.lock().unwrap();
-  let handles = HANDLES.lock().unwrap();
+  let mut reg = REGISTRY.lock().unwrap();
+  let Registry { roots, handles } = &mut *reg;
 
-  let Some(value_clone) = resolve(value_handle, &roots, &handles).cloned()
+  let Some(value_clone) = resolve(value_handle, roots, handles).cloned()
   else {
     return 0;
   };
 
-  let Some(target) = resolve_mut(self_handle, &mut roots, &handles) else {
+  let target_root = handles
+    .get((self_handle - 1) as usize)
+    .and_then(|h| h.as_ref())
+    .map(|h| h.root as usize);
+
+  let Some(target) = resolve_mut(self_handle, roots, handles) else {
     return 0;
   };
 
+  let success = matches!(target, Value::Object(_));
   if let Value::Object(obj) = target {
     obj.insert(key_owned, value_clone);
-    1
-  } else {
-    0
   }
+
+  if success
+    && let Some(idx) = target_root
+    && let Some(Some(slot)) = roots.get_mut(idx)
+  {
+    slot.generation = slot.generation.wrapping_add(1);
+  }
+
+  if success { 1 } else { 0 }
 }
 
 /// `__zo_json_write(self: int, path: int) -> int`.
@@ -760,10 +845,11 @@ pub unsafe extern "C" fn __zo_json_write(
   };
 
   let s = {
-    let roots = ROOTS.lock().unwrap();
-    let handles = HANDLES.lock().unwrap();
+    let reg = REGISTRY.lock().unwrap();
+    let roots = &reg.roots;
+    let handles = &reg.handles;
 
-    let Some(value) = resolve(handle, &roots, &handles) else {
+    let Some(value) = resolve(handle, roots, handles) else {
       LAST_ERROR.with(|cell| {
         *cell.borrow_mut() = Some("write: invalid handle".into());
       });
