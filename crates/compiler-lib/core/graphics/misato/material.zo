@@ -1,0 +1,33 @@
+-! misato::material — material variants (standard, normal-debug).
+-!
+-! Materials unify under a single `Material` runtime type. The
+-! `*Material::new` ctors are namespace constructors that return
+-! `Material`, so any material flows into any `Mesh::*` constructor
+-! without an arity explosion.
+
+load core::graphics::misato::api::*;
+
+
+-! Unified material handle. Every `*Material::new` ctor returns this so
+-! `Mesh::*` ctors can take any material variant without an arity
+-! explosion.
+pub struct Material { handle: int }
+
+-! Flat-color material.
+pub struct MeshStandardMaterial { handle: int }
+
+apply MeshStandardMaterial {
+  pub fun new(color: int) -> Material {
+    Material { handle = __zo_misato_make_standard_mat(color) }
+  }
+}
+
+-! Debug material — colors each face by its surface normal
+-! (`normalize(normal) * 0.5 + 0.5`).
+pub struct MeshNormalMaterial { handle: int }
+
+apply MeshNormalMaterial {
+  pub fun new() -> Material {
+    Material { handle = __zo_misato_make_normal_mat() }
+  }
+}

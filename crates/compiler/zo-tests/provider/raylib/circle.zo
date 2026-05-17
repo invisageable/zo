@@ -1,5 +1,5 @@
-load core::raylib::*;
 load core::c::*;
+load provider::raylib::*;
 
 -- raylib — magenta circle bouncing inside an 800×600
 -- window, reflecting off the four walls.

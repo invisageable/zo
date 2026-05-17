@@ -1,4 +1,4 @@
-load core::raylib::*;
+load provider::raylib::*;
 load core::c::*;
 
 -- raylib — magenta circle tracks the mouse pointer every

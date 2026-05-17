@@ -393,4 +393,20 @@ pub enum ErrorKind {
   /// arm is shadowed by earlier arms. Future hook — variant
   /// reserved so the schema doesn't bump when it lands.
   UnreachableMatchArm,
+
+  // Privacy errors — appended at the end of the enum so
+  // insert doesn't shift the numeric error codes of variants
+  // above.
+  /// `load my_pack::*;` where `my_pack` is declared as
+  /// non-pub `pack` in the surrounding `lib.zo`.
+  PrivatePackInLoad,
+  /// `load M::foo;` (selective) where `foo` is non-pub in
+  /// M — present in M's SIR but absent from its `exported`
+  /// scope.
+  PrivateItemInLoad,
+  /// `pub load X::*;` where the re-export chain reaches a
+  /// module that isn't `pub pack`-reachable, so the chain
+  /// can't be folded into the re-exporter's `exported`
+  /// scope.
+  ModuleNotReachable,
 }

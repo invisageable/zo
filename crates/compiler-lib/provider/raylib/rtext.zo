@@ -1,0 +1,17 @@
+-*
+  from module: rtext.
+  Text-related functions.
+*-
+
+-! Draw text (using default font).
+-!
+-! @param text — ...
+-! @param x — ...
+-! @param y — ...
+-! @param font_size — The text size.
+-! @param color — The text color.
+-!
+-! @note — `text` is a C-string pointer (use `c_str("…")`); `color` packs RGBA
+-! per `clear_background`.
+%% link_name = "DrawText".
+pub ffi draw_text(text: int, x: int, y: int, font_size: int, color: int);

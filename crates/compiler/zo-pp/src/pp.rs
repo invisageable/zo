@@ -268,7 +268,11 @@ impl PrettyPrinter {
 
           self.sir_instruction(&call);
         }
-        Insn::ModuleLoad { path, kind } => {
+        Insn::ModuleLoad {
+          path,
+          kind,
+          pubness,
+        } => {
           let path_str =
             path.iter().map(|s| interner.get(*s)).collect::<Vec<_>>();
 
@@ -286,7 +290,12 @@ impl PrettyPrinter {
             }
           };
 
-          let load = format!("load {}{tail}", path_str.join("::"));
+          let lead = if matches!(pubness, Pubness::Yes) {
+            "pub "
+          } else {
+            ""
+          };
+          let load = format!("{lead}load {}{tail}", path_str.join("::"));
 
           self.sir_instruction(&load);
         }

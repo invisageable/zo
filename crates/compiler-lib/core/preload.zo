@@ -1,38 +1,44 @@
--! Auto-imported by every zo program. Anything `load`ed
--! here is available unqualified everywhere — no explicit
--! `load core::…;` required by the user. Keep this list tight:
--! it's the "Rust prelude" of zo. Domain packs (raylib,
--! misato, sqlite, math, …) stay opt-in.
+-! preload.
+-!
+-! Export all the basics. These packages are available as builtins. It does
+-! not require any import on the user side. This way the public API stay clean
+-! lean and slim.
+-!
+-! @note — Provider are not allowed because it will increase the final 
+-! executable size. 
 
-load core::arr::*;
-load core::assert::*;
-load core::bool::*;
-load core::char::*;
-load core::cmp::*;
-load core::fmt::*;
-load core::int::*;
-load core::io::*;
-load core::map::*;
-load core::set::*;
-load core::str::*;
-load core::vec::*;
+pub load core::arr::*;
+pub load core::assert::*;
+pub load core::bool::*;
+pub load core::char::*;
+pub load core::cmp::*;
+pub load core::fmt::*;
+pub load core::int::*;
+pub load core::io::*;
+pub load core::map::*;
+pub load core::set::*;
+pub load core::str::*;
+pub load core::vec::*;
 
--! A value that may or may not be present.
+-! Represents an `Option` type.
+-!
+-! @note — A value that may or may not be present.
 pub enum Option<$T> {
   Some($T),
   None,
 }
 
--! A value or an error.
+-! Represents a `Result` type.
+-!
+-! @note — A value or an error.
 pub enum Result<$T, $E> {
   Pass($T),
   Fail($E),
 }
 
--! Runtime payload passed into `@input` / `@change` event
--! handler closures. `value` carries the input element's
--! current text. Future fields (`key`, `target`, ...) land
--! when a concrete program needs them.
+-! Represents a zsx `Event`.
+-!
+-! @note — Also know as `@input`, `@change`, etc.
 pub struct Event {
   value: str,
 }

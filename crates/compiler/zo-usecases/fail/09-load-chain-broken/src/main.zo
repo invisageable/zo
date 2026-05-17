@@ -1,0 +1,7 @@
+load a::*;
+
+fun main() {
+  c_func();
+}
+
+-- EXPECTED ERROR: E0301

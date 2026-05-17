@@ -1,0 +1,292 @@
+SIR INSTRUCTION STREAM:
+───────────────────────
+  pub pack preload
+  pub load core::arr::*
+  pub load core::assert::*
+  pub load core::bool::*
+  pub load core::char::*
+  pub load core::cmp::*
+  pub load core::fmt::*
+  pub load core::int::*
+  pub load core::io::*
+  pub load core::map::*
+  pub load core::set::*
+  pub load core::str::*
+  pub load core::vec::*
+  pub struct_def Event { value }
+  pub pack arr
+  arr_ty_def : TyId(27) -> []elem TyId(8)
+  pub pack assert
+@check:
+  pub pack bool
+  pub pack char
+  pub pack cmp
+  pub pack fmt
+  pub pack int
+  pub pack io
+
+@show:
+
+@showln:
+
+@eshow:
+
+@eshowln:
+
+@readln:
+
+@read:
+
+@args:
+
+@flush:
+
+@read_file:
+
+@write_file:
+
+@append_file:
+
+@exists:
+  arr_ty_def : TyId(39) -> []elem TyId(4)
+  pub pack map
+  pub struct_def HashMap { ptr }
+
+@__zo_map_new:
+
+@__zo_map_insert:
+
+@__zo_map_get:
+
+@__zo_map_contains:
+
+@__zo_map_remove:
+
+@__zo_map_len_raw:
+
+@__zo_map_free_raw:
+  pub pack set
+  pub struct_def HashSet { ptr }
+
+@__zo_set_new:
+
+@__zo_set_insert:
+
+@__zo_set_contains:
+
+@__zo_set_remove:
+
+@__zo_set_len_raw:
+
+@__zo_set_free_raw:
+  pub pack str
+
+@__zo_str_replace:
+  arr_ty_def : TyId(39) -> []elem TyId(4)
+  pub pack vec
+  pub struct_def Vec { ptr }
+
+@__zo_vec_new:
+
+@__zo_vec_push:
+
+@__zo_vec_pop:
+
+@__zo_vec_get:
+
+@__zo_vec_set:
+
+@__zo_vec_remove:
+
+@__zo_vec_len_raw:
+
+@__zo_vec_free_raw:
+  pub pack c
+
+@c_str:
+
+@from_c_str_len:
+  pub pack raylib
+  pub struct_def Vector2 { x, y }
+  pub struct_def Vector3 { x, y, z }
+  pub struct_def Vector4 { x, y, z, w }
+  pub struct_def Color {  }
+  pub pack raylib
+  load core::c::*
+  load provider::raylib::structs::*
+
+@init_window:
+
+@close_window:
+
+@window_should_close:
+
+@clear_background:
+
+@begin_drawing:
+
+@end_drawing:
+
+@set_target_fps:
+
+@__raylib_get_frame_time_raw:
+
+@get_frame_time:
+  %93 = call __raylib_get_frame_time_raw()
+  %94 = cast %93 (TyId(15) -> TyId(16))
+  ret %94
+
+@get_fps:
+
+@is_key_pressed:
+
+@get_mouse_position:
+  pub pack raylib
+  load provider::raylib::structs::*
+
+@draw_circle:
+
+@draw_circle_v:
+  pub pack raylib
+
+@draw_text:
+  pub pack raylib
+  link raylib macos={ system="/opt/homebrew/lib/libraylib.dylib" vendor="libraylib.dylib" } linux={ system="/usr/lib/x86_64-linux-gnu/libraylib.so" vendor="libraylib.so" }
+  load core::c::*
+  load provider::raylib::*
+
+@main:
+  %0 = const 800 : i32
+  imu width = %0
+  store width, %0
+  %1 = const 600 : i32
+  imu height = %1
+  store height, %1
+  %2 = const 25 : f32
+  imu radius = %2
+  store radius, %2
+  %3 = load local[30]
+  %4 = load local[31]
+  %5 = const "zo + raylib — bounce" : str
+  %6 = call c_str(%5)
+  %7 = call init_window(%3, %4, %6)
+  %8 = const 60 : i32
+  %9 = call set_target_fps(%8)
+  %10 = const 400 : f32
+  mut x = %10
+  store x, %10
+  %11 = const 300 : f32
+  mut y = %11
+  store y, %11
+  %12 = const 280 : f32
+  mut dx = %12
+  store dx, %12
+  %13 = const 210 : f32
+  mut dy = %13
+  store dy, %13
+  L0:
+  %14 = call window_should_close()
+    br_ifnot %14, L3
+    jmp L1
+  L3:
+  L2:
+  %15 = const 32 : i32
+  %16 = call is_key_pressed(%15)
+    br_ifnot %16, L5
+    jmp L1
+  L5:
+  L4:
+  %17 = call get_frame_time()
+  imu dt = %17
+  store dt, %17
+  %19 = load local[37]
+  %20 = load local[39]
+  %21 = load local[43]
+  %22 = mul %20, %21
+  %23 = add %19, %22
+  store x, %23
+  %25 = load local[38]
+  %26 = load local[40]
+  %27 = load local[43]
+  %28 = mul %26, %27
+  %29 = add %25, %28
+  store y, %29
+  %30 = load local[37]
+  %31 = load local[32]
+  %32 = lt %30, %31
+    br_ifnot %32, L7
+  %34 = load local[32]
+  store x, %34
+  %36 = const 0 : f32
+  %37 = load local[39]
+  %38 = sub %36, %37
+  store dx, %38
+  L7:
+  L6:
+  %39 = load local[37]
+  %40 = const 800 : f32
+  %41 = load local[32]
+  %42 = sub %40, %41
+  %43 = gt %39, %42
+    br_ifnot %43, L9
+  %45 = const 800 : f32
+  %46 = load local[32]
+  %47 = sub %45, %46
+  store x, %47
+  %49 = const 0 : f32
+  %50 = load local[39]
+  %51 = sub %49, %50
+  store dx, %51
+  L9:
+  L8:
+  %52 = load local[38]
+  %53 = load local[32]
+  %54 = lt %52, %53
+    br_ifnot %54, L11
+  %56 = load local[32]
+  store y, %56
+  %58 = const 0 : f32
+  %59 = load local[40]
+  %60 = sub %58, %59
+  store dy, %60
+  L11:
+  L10:
+  %61 = load local[38]
+  %62 = const 600 : f32
+  %63 = load local[32]
+  %64 = sub %62, %63
+  %65 = gt %61, %64
+    br_ifnot %65, L13
+  %67 = const 600 : f32
+  %68 = load local[32]
+  %69 = sub %67, %68
+  store y, %69
+  %71 = const 0 : f32
+  %72 = load local[40]
+  %73 = sub %71, %72
+  store dy, %73
+  L13:
+  L12:
+  %74 = call begin_drawing()
+  %75 = const 4294967295 : i32
+  %76 = call clear_background(%75)
+  %77 = load local[37]
+  %78 = cast %77 (TyId(16) -> TyId(8))
+  %79 = load local[38]
+  %80 = cast %79 (TyId(16) -> TyId(8))
+  %81 = load local[32]
+  %82 = const 4294795248 : i32
+  %83 = call draw_circle(%78, %80, %81, %82)
+  %84 = const "zo + raylib" : str
+  %85 = call c_str(%84)
+  %86 = const 12 : i32
+  %87 = const 12 : i32
+  %88 = const 24 : i32
+  %89 = const 4278190080 : i32
+  %90 = call draw_text(%85, %86, %87, %88, %89)
+  %91 = call end_drawing()
+    jmp L0
+  L1:
+  %92 = call close_window()
+  ret void
+

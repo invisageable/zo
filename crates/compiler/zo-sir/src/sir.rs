@@ -721,7 +721,15 @@ pub enum Insn {
   /// distinguishes qualified vs glob vs selective forms;
   /// the executor classifies it from the load's child tree
   /// (`*` → Glob, `(…)` → Selective, otherwise Qualified).
-  ModuleLoad { path: Vec<Symbol>, kind: ImportKind },
+  /// `pubness` follows Rust's `pub use`: `pub load X::*;`
+  /// re-exports X through the current module's surface;
+  /// plain `load X::*;` is private — X's symbols are
+  /// visible only inside this module's body.
+  ModuleLoad {
+    path: Vec<Symbol>,
+    kind: ImportKind,
+    pubness: Pubness,
+  },
   /// Pack declaration — defines a namespace.
   PackDecl { name: Symbol, pubness: Pubness },
   /// Pack-level dylib link metadata produced by a

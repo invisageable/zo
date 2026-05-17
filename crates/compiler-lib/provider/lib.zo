@@ -1,0 +1,8 @@
+-! The zo providers.
+-!
+-! Each pack here wraps a C library through `libzo_provider_*`. Providers are
+-! opt-in (`load provider::X::*;`) so the linker only pulls dylibs the program
+-! actually uses — never preloaded.
+
+pub pack raylib;
+pub pack sqlite;

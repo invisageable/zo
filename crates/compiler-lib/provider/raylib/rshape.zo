@@ -1,0 +1,29 @@
+-*
+  from module: rshapes.
+  asic shapes drawing functions.
+*-
+
+load provider::raylib::structs::*;
+
+-! Draw a color-filled circle.
+-! 
+-! @param x — The center x-axis.
+-! @param y — The center y-axis.
+-! @param radius — The radius.
+-! @param radius — The color.
+-! 
+-! @note — radius is narrowed from `f64` → `f32` at the FFI boundary (raylib's
+-! API takes f32).
+%% link_name = "DrawCircle".
+pub ffi draw_circle(x: int, y: int, radius: f32, color: int);
+
+-! Draw a color-filled circle (Vector version).
+-! 
+-! @param center — ...
+-! @param radius — ...
+-! @param color — ...
+-!
+-! @note — `Vector2` passes by value via AAPCS HFA — fields land
+-! in `s0`/`s1`, then `radius` in `s2`, `color` in `w0`.
+%% link_name = "DrawCircleV".
+pub ffi draw_circle_v(center: Vector2, radius: f32, color: int);

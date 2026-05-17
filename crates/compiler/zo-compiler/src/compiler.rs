@@ -60,9 +60,21 @@ pub fn default_core_search_paths() -> Vec<PathBuf> {
     return vec![PathBuf::from(core_path)];
   }
 
-  zo_host_paths::first_existing_lib_dir("core")
-    .map(|p| vec![p])
-    .unwrap_or_default()
+  zo_host_paths::existing_lib_dirs(zo_host_paths::SYSTEM_PACK_ROOTS)
+}
+
+/// A lib.zo `pub pack X;` parsed once at discovery time and
+/// kept on hand for the lazy-compile site. Pre-storing the
+/// tokenization + parsing means each pack is read and parsed
+/// exactly once across the whole compile, regardless of how
+/// many places `load X` from. `loads` is also pre-scanned so
+/// the lazy block walks the tree just once (during
+/// `extract`).
+struct PendingPack {
+  path: PathBuf,
+  tokenization: TokenizationResult,
+  parsing: ParsingResult,
+  loads: Vec<LoadRef>,
 }
 
 /// One `load` statement: a fully-qualified module path
@@ -73,18 +85,33 @@ pub type LoadRef = zo_span::Spanned<Vec<Symbol>>;
 
 /// File-as-pack rule: returns the implicit pack name for a
 /// loaded module file, or `None` when the file is a package
-/// manifest (`lib.zo`) or a binary entry (`main.zo`). The
-/// pack name is the file's stem; the analyzer synthesizes a
-/// `pack <name>;` decl before walking the tree so items in
-/// `std/math.zo` namespace as `math::*` without an explicit
-/// `pack math;` line.
-fn implicit_pack_for(path: &Path) -> Option<&str> {
+/// manifest (`lib.zo`) or a binary entry (`main.zo`).
+///
+/// Two cases:
+///   1. File directly under a search-path root (`core/math.zo`)
+///      → use the file stem. Each file is its own pack.
+///   2. File inside a sub-folder namespace
+///      (`provider/raylib/rcore.zo`) → use the parent folder
+///      name. Every `.zo` in that folder shares the pack
+///      identity so `#link` placed in any one file covers all
+///      sibling `pub ffi` declarations.
+fn implicit_pack_for<'a>(
+  path: &'a Path,
+  search_paths: &[PathBuf],
+) -> Option<&'a str> {
   let stem = path.file_stem().and_then(|s| s.to_str())?;
 
-  match stem {
-    "lib" | "main" => None,
-    other => Some(other),
+  if matches!(stem, "lib" | "main") {
+    return None;
   }
+
+  let parent = path.parent()?;
+
+  if search_paths.iter().any(|sp| sp == parent) {
+    return Some(stem);
+  }
+
+  parent.file_name().and_then(|n| n.to_str())
 }
 
 /// Bundle of diagnostic-output toggles, bound from CLI in
@@ -139,6 +166,93 @@ pub struct Compiler {
   /// overridden).
   snippet_context: usize,
 }
+
+/// Merges `other` into `into`. Used to fold the `exported`
+/// scope of a loaded module into an analyzer-seed scope so
+/// the consumer's analyzer can resolve names defined by the
+/// loaded module.
+fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
+  into.funs.extend(other.funs.iter().cloned());
+  into.vars.extend(other.vars.iter().cloned());
+  into.enums.extend(other.enums.iter().cloned());
+
+  for (sym, def) in &other.abstract_defs {
+    into.abstract_defs.insert(*sym, def.clone());
+  }
+}
+
+/// Converts the harvested `ModuleExports` (pub items only)
+/// into an `ImportedSymbols` value. Each var becomes a
+/// `Local` with `Pubness::Yes` and `Mutability::No`. The
+/// caller is responsible for filling `abstract_defs` from
+/// the analyzer's `SemanticResult` — kept out of the
+/// signature so zo-compiler never has to name a type owned
+/// by zo-executor (layering stays clean: compiler talks to
+/// zo-analyzer, zo-analyzer controls zo-executor).
+fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
+  let mut vars = Vec::with_capacity(exports.vars.len());
+
+  for var in &exports.vars {
+    vars.push(Local {
+      name: var.name,
+      ty_id: var.ty_id,
+      value_id: var.init.unwrap_or(ValueId(0)),
+      pubness: Pubness::Yes,
+      mutability: Mutability::No,
+      sir_value: var.init,
+      local_kind: LocalKind::Variable,
+    });
+  }
+
+  ImportedSymbols {
+    funs: exports.funs.clone(),
+    vars,
+    enums: exports.enums.clone(),
+    abstract_defs: HashMap::default(),
+  }
+}
+
+/// Combines a module's own pub items with the `exported`
+/// scopes of every module it `pub load`s. Plain (non-pub)
+/// `load`s never reach `re_exports`, so they don't
+/// propagate beyond the loading module.
+fn compute_exported_scope(
+  own: ImportedSymbols,
+  re_exports: &[Vec<Symbol>],
+  table: &HashMap<Vec<Symbol>, ImportedSymbols>,
+) -> ImportedSymbols {
+  let mut exported = own;
+
+  for re_path in re_exports {
+    if let Some(scope) = table.get(re_path) {
+      fold_imports_into(&mut exported, scope);
+    }
+  }
+
+  exported
+}
+
+/// Builds a per-module analyzer seed by folding the
+/// `exported` scope of every module in `own_loads` (looked
+/// up in `table`), on top of the always-available `baseline`
+/// (preload's exported scope). A module sees only its own
+/// loads' pub surface — never their private transitive deps.
+fn build_module_seed(
+  baseline: &ImportedSymbols,
+  own_loads: &[LoadRef],
+  table: &HashMap<Vec<Symbol>, ImportedSymbols>,
+) -> ImportedSymbols {
+  let mut seed = baseline.clone();
+
+  for load_ref in own_loads {
+    if let Some(exported) = table.get(&load_ref.value) {
+      fold_imports_into(&mut seed, exported);
+    }
+  }
+
+  seed
+}
+
 impl Compiler {
   /// Creates a new [`Compiler`] instance with the auto-
   /// detected std lib search path. Every caller (zo CLI,
@@ -275,10 +389,27 @@ impl Compiler {
     let parsing = parser.parse();
     self.profiler.end_phase(PARSER_NAME);
 
-    // Auto-discover lib.zo and compile declared packs.
-    // Each `pub pack foo;` in lib.zo compiles foo.zo and
-    // stores its exports in the module_table. User `load`
-    // statements will query this table.
+    // Packs declared as bare `pack foo;` (no `pub`) in
+    // lib.zo. They're skipped over by the compile loop but
+    // remembered here so a later `load foo::*;` from outside
+    // can distinguish "private pack" from "undeclared pack"
+    // and emit the precise diagnostic.
+    let mut private_packs: HashSet<Symbol> = HashSet::default();
+
+    // Discover lib.zo and parse each pub-pack ONCE here.
+    // Compilation is deferred until each pack is actually
+    // `load`-ed in the main loop, by which point `imports`
+    // carries preload PLUS the cascaded core packs — so a
+    // pack body referencing `showln` / `Vec` / etc. resolves
+    // cleanly. The tokenization + parsing + load-scan results
+    // are cached on `PendingPack` so the lazy site never
+    // re-reads or re-parses the same source file.
+    let mut pending_packs: HashMap<Symbol, PendingPack> = HashMap::default();
+    // Folder-namespace packs declared as `pub pack foo;` where
+    // `foo/` is a directory containing submodule `.zo` files.
+    // The folder itself has no body to compile — submodules
+    // are resolved lazily through the regular file path.
+    let mut folder_packs: HashSet<Symbol> = HashSet::default();
     let has_lib_zo = if let Some(lib_path) = Self::discover_lib(file_path) {
       let lib_source = fs::read_to_string(&lib_path).unwrap_or_default();
       let lib_tokenization =
@@ -290,54 +421,43 @@ impl Compiler {
 
       for (pack_name, is_pub) in &packs {
         let pack_file = dir.join(format!("{pack_name}.zo"));
-        let pack_dir = dir.join(pack_name).join("lib.zo");
+        let pack_folder = dir.join(pack_name);
+        let sym = session.interner.intern(pack_name);
 
-        let pack_path = if pack_file.is_file() {
-          Some(pack_file)
-        } else if pack_dir.is_file() {
-          Some(pack_dir)
+        if !*is_pub {
+          private_packs.insert(sym);
+        }
+
+        if pack_file.is_file() {
+          if !*is_pub {
+            continue;
+          }
+
+          let pack_source = fs::read_to_string(&pack_file).unwrap_or_default();
+          let pack_tok =
+            Tokenizer::new(&pack_source, &mut session.interner).tokenize();
+          let pack_par = Parser::new(&pack_tok, &pack_source).parse();
+          let pack_loads =
+            Self::scan_loads(&pack_par.tree, &mut session.interner);
+
+          pending_packs.insert(
+            sym,
+            PendingPack {
+              path: pack_file,
+              tokenization: pack_tok,
+              parsing: pack_par,
+              loads: pack_loads,
+            },
+          );
+        } else if pack_folder.is_dir() {
+          if *is_pub {
+            folder_packs.insert(sym);
+          }
         } else {
           report_error(Error::new(
             ErrorKind::PackFileNotFound,
             Span { start: 0, len: 0 },
           ));
-
-          None
-        };
-
-        if let Some(path) = pack_path
-          && *is_pub
-        {
-          let pack_source = fs::read_to_string(&path).unwrap_or_default();
-          let pack_tok =
-            Tokenizer::new(&pack_source, &mut session.interner).tokenize();
-          let pack_par = Parser::new(&pack_tok, &pack_source).parse();
-
-          let implicit_sym =
-            implicit_pack_for(&path).map(|stem| session.interner.intern(stem));
-
-          let pack_sem = Analyzer::new(
-            &pack_par.tree,
-            &mut session.interner,
-            &pack_tok.literals,
-            &mut session.ty_checker,
-          )
-          .with_config(AnalyzerConfig {
-            implicit_pack: implicit_sym,
-            ..AnalyzerConfig::default()
-          })
-          .analyze();
-
-          let exports = extract_exports(
-            pack_sem.sir,
-            None,
-            &session.interner,
-            &pack_sem.funs,
-          );
-
-          let sym = session.interner.intern(pack_name);
-
-          self.module_table.insert(sym, exports);
         }
       }
 
@@ -354,7 +474,21 @@ impl Compiler {
     // circular imports.
     let mut module_paths =
       Self::scan_loads(&parsing.tree, &mut session.interner);
-    let core_sym = session.interner.intern("core");
+
+    // Frozen snapshot of the user file's top-level `load`s.
+    // The user's analyzer seed is built ONLY from these (plus
+    // preload). Modules loaded transitively as deps of other
+    // modules — but not loaded by the user directly — must
+    // never leak into the user's scope.
+    let user_top_loads: Vec<LoadRef> = module_paths.clone();
+
+    // System-pack roots bypass the user lib.zo membership
+    // check: loads through `core` / `provider` are governed
+    // by the std layout, not the user's pack declarations.
+    let system_pack_roots: HashSet<Symbol> = zo_host_paths::SYSTEM_PACK_ROOTS
+      .iter()
+      .map(|n| session.interner.intern(n))
+      .collect();
     // Cumulative imports — every loaded module sees what
     // earlier modules exported (preload's `Option`/`Result`
     // enums, core::int's primitive methods, etc.) and
@@ -367,6 +501,36 @@ impl Compiler {
       enums: Vec::new(),
       abstract_defs: HashMap::default(),
     };
+
+    // Per-path `exported` scope table. Populated alongside
+    // `imports` as each module compiles; the user analyzer's
+    // seed is then built from this so it sees ONLY what its
+    // own loads (plus preload) re-export.
+    let mut module_table_per_path: HashMap<Vec<Symbol>, ImportedSymbols> =
+      HashMap::default();
+
+    // Folder-namespace expansions: when `load foo::*;` hits a
+    // directory, each `.zo` child is queued as a separate
+    // module load and the folder path is remembered here so
+    // the children's exports can be combined back under
+    // `["foo"]` before the user analyzer's seed is built.
+    let mut folder_aggregations: HashMap<Vec<Symbol>, Vec<Vec<Symbol>>> =
+      HashMap::default();
+
+    // Preload's `exported` scope. Built in two halves:
+    // `preload_own` is captured during preload's own
+    // compilation (own pubs only — re-export targets aren't
+    // compiled yet at that point), and folded with
+    // `preload_re_exports` AFTER the main loop populates
+    // `module_table_per_path` with every cascaded module.
+    // The combined result becomes zo's prelude.
+    let mut preload_own = ImportedSymbols {
+      funs: Vec::new(),
+      vars: Vec::new(),
+      enums: Vec::new(),
+      abstract_defs: HashMap::default(),
+    };
+    let mut preload_re_exports: Vec<Vec<Symbol>> = Vec::new();
 
     // Cache parsed modules so the topological-hoist rewind
     // doesn't re-tokenize + re-parse the same file. Cheap
@@ -415,8 +579,11 @@ impl Compiler {
         preload_loads.append(&mut module_paths);
         module_paths = preload_loads;
 
-        let implicit_sym = implicit_pack_for(&resolved_path)
-          .map(|stem| session.interner.intern(stem));
+        let implicit_sym = implicit_pack_for(
+          &resolved_path,
+          self.module_resolver.search_paths(),
+        )
+        .map(|stem| session.interner.intern(stem));
 
         // Seed each preload pack's analyzer with symbols
         // from earlier preload packs so later packs can
@@ -460,22 +627,18 @@ impl Compiler {
 
         Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
 
-        imports.funs.extend(exports.funs);
+        let mut own_imports = module_exports_to_imports(&exports);
+        own_imports.abstract_defs = mod_sem.abstract_defs.clone();
 
-        for var in exports.vars {
-          imports.vars.push(Local {
-            name: var.name,
-            ty_id: var.ty_id,
-            value_id: var.init.unwrap_or(ValueId(0)),
-            pubness: Pubness::Yes,
-            mutability: Mutability::No,
-            sir_value: var.init,
-            local_kind: LocalKind::Variable,
-          });
-        }
+        fold_imports_into(&mut imports, &own_imports);
 
-        imports.enums.extend(exports.enums);
-        imports.abstract_defs.extend(mod_sem.abstract_defs);
+        // Stash for the post-loop fold — re-export targets
+        // (core::io, core::vec, …) compile AFTER preload, so
+        // `module_table_per_path` is empty here. We resolve
+        // `preload_exported` once the table is populated.
+        preload_own = own_imports;
+        preload_re_exports = exports.re_exports.clone();
+
         module_sir_instructions.extend(exports.sir_instructions);
 
         module_next_value_id += exports.next_value_id;
@@ -494,25 +657,146 @@ impl Compiler {
       let first_seg = module_path[0];
       let _mod_name = session.interner.get(first_seg).to_owned();
 
-      // Check module_table first (populated from lib.zo packs).
+      // Lazily compile a lib.zo pub-pack the first time it's
+      // `load`-ed. Each pack was tokenized + parsed once at
+      // lib.zo discovery and stashed in `pending_packs`; the
+      // analysis is the only thing deferred to here so the
+      // pack's analyzer sees preload + the cascaded core
+      // modules that compiled earlier in this same loop.
+      //
+      // A pack may `pub load` other lib.zo packs (`a`
+      // re-exports `c`). Those targets must compile BEFORE
+      // this pack's analyzer runs. The pre-scanned `loads`
+      // on `PendingPack` drives the order — no extra tree
+      // walks, no re-reads, no re-parses.
+      if !self.module_table.contains_key(&first_seg)
+        && pending_packs.contains_key(&first_seg)
+      {
+        let mut compile_stack: Vec<Symbol> = vec![first_seg];
+        let mut visiting: HashSet<Symbol> = HashSet::default();
+
+        while let Some(&top) = compile_stack.last() {
+          if self.module_table.contains_key(&top) {
+            compile_stack.pop();
+            continue;
+          }
+
+          let Some(pack) = pending_packs.get(&top) else {
+            compile_stack.pop();
+            continue;
+          };
+
+          let mut deferred = false;
+          for load_ref in &pack.loads {
+            let leaf = load_ref.value[0];
+            if leaf == top {
+              continue;
+            }
+            if !self.module_table.contains_key(&leaf)
+              && pending_packs.contains_key(&leaf)
+              && !visiting.contains(&leaf)
+            {
+              compile_stack.push(leaf);
+              visiting.insert(leaf);
+              deferred = true;
+            }
+          }
+
+          if deferred {
+            continue;
+          }
+
+          // Move the cached parse out of the map — the pack
+          // compiles exactly once, so it's never read again.
+          let pack = pending_packs.remove(&top).expect("just verified");
+
+          let implicit_sym =
+            implicit_pack_for(&pack.path, self.module_resolver.search_paths())
+              .map(|stem| session.interner.intern(stem));
+
+          let pack_sem = Analyzer::new(
+            &pack.parsing.tree,
+            &mut session.interner,
+            &pack.tokenization.literals,
+            &mut session.ty_checker,
+          )
+          .with_config(AnalyzerConfig {
+            imports: imports.clone(),
+            implicit_pack: implicit_sym,
+            ..AnalyzerConfig::default()
+          })
+          .analyze();
+
+          let mut pack_exports = extract_exports(
+            pack_sem.sir,
+            None,
+            &session.interner,
+            &pack_sem.funs,
+          );
+
+          // Merge this pack's SIR into the main stream NOW —
+          // a pack the user reaches only transitively (e.g.
+          // `c` via `a`'s `pub load c::*;`) never gets
+          // visited by the main loop's lib.zo branch, so
+          // without this its `FunDef` bodies vanish from
+          // codegen even though their symbols are in scope
+          // at the user analyzer. After consuming, we zero
+          // the SIR / counter fields so a later double-
+          // visit (when the user ALSO directly loads the
+          // pack) is a no-op rather than a duplicate emit.
+          let mut sir = std::mem::take(&mut pack_exports.sir_instructions);
+          Sir::offset_value_ids(&mut sir, module_next_value_id);
+          Sir::offset_labels(&mut sir, module_next_label_id);
+          module_sir_instructions.extend(sir);
+          module_next_value_id += pack_exports.next_value_id;
+          module_next_label_id += pack_exports.next_label_id;
+          pack_exports.next_value_id = 0;
+          pack_exports.next_label_id = 0;
+
+          // Fold this pack's exports into the cumulative
+          // `imports` so the NEXT pack on the stack (which
+          // re-exports it) sees its symbols.
+          let pack_own = module_exports_to_imports(&pack_exports);
+          fold_imports_into(&mut imports, &pack_own);
+
+          // Build the pack's `exported` scope (own pubs +
+          // re-exported targets' scopes) and key it by the
+          // single-segment path the user writes for a
+          // lib.zo pack (`load <name>`). Required so the
+          // user analyzer's seed can fold the pack's
+          // re-exports — the main loop's lib.zo branch
+          // doesn't compute this for packs the user only
+          // reaches transitively.
+          let exported = compute_exported_scope(
+            pack_own,
+            &pack_exports.re_exports,
+            &module_table_per_path,
+          );
+          module_table_per_path.insert(vec![top], exported);
+
+          self.module_table.insert(top, pack_exports);
+          visiting.remove(&top);
+          compile_stack.pop();
+        }
+      }
+
+      // Check module_table (populated from lib.zo packs,
+      // either eagerly above or lazily on first load).
       if let Some(mut exports) = self.module_table.remove(&first_seg) {
         Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
 
-        imports.funs.extend(exports.funs);
+        let own_imports = module_exports_to_imports(&exports);
 
-        for var in exports.vars {
-          imports.vars.push(Local {
-            name: var.name,
-            ty_id: var.ty_id,
-            value_id: var.init.unwrap_or(ValueId(0)),
-            pubness: Pubness::Yes,
-            mutability: Mutability::No,
-            sir_value: var.init,
-            local_kind: LocalKind::Variable,
-          });
-        }
+        fold_imports_into(&mut imports, &own_imports);
 
-        imports.enums.extend(exports.enums);
+        let exported = compute_exported_scope(
+          own_imports,
+          &exports.re_exports,
+          &module_table_per_path,
+        );
+
+        module_table_per_path.insert(module_path.clone(), exported);
+
         module_sir_instructions.extend(exports.sir_instructions);
 
         module_next_value_id += exports.next_value_id;
@@ -522,13 +806,19 @@ impl Compiler {
       }
 
       // lib.zo exists but module not declared — error.
-      // `core::…` paths are exempt: the user's project lib.zo
-      // governs THEIR subpackage layout, not what core exports.
-      // Without this skip, a project with `pack foo;` in
-      // lib.zo would reject preload's `load core::io::*;` and
-      // every other transitive core import.
-      if has_lib_zo && first_seg != core_sym {
-        report_error(Error::new(ErrorKind::ModuleNotDeclared, load_span));
+      // System roots + folder-namespace packs bypass the
+      // check (system loads + submodules through the
+      // regular file path are always permitted).
+      if has_lib_zo
+        && !system_pack_roots.contains(&first_seg)
+        && !folder_packs.contains(&first_seg)
+      {
+        let kind = if private_packs.contains(&first_seg) {
+          ErrorKind::PrivatePackInLoad
+        } else {
+          ErrorKind::ModuleNotDeclared
+        };
+        report_error(Error::new(kind, load_span));
 
         continue;
       }
@@ -544,6 +834,33 @@ impl Compiler {
             (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
           }
           None => {
+            // Folder namespace: a `load X::*;` whose tail is a
+            // directory expands into one file-load per `.zo`
+            // child. The folder path is recorded so the
+            // children's exports can be aggregated back under
+            // it before the user analyzer runs.
+            if let Some(entries) = self
+              .module_resolver
+              .resolve_folder_entries(&module_path, &session.interner)
+            {
+              let mut child_paths: Vec<Vec<Symbol>> = Vec::new();
+
+              for entry in &entries {
+                let Some(stem) = entry.file_stem().and_then(|s| s.to_str())
+                else {
+                  continue;
+                };
+                let stem_sym = session.interner.intern(stem);
+                let mut child_path = module_path.clone();
+                child_path.push(stem_sym);
+                child_paths.push(child_path.clone());
+                module_paths.push(LoadRef::new(child_path, load_span));
+              }
+
+              folder_aggregations.insert(module_path.clone(), child_paths);
+              continue;
+            }
+
             report_error(Error::new(ErrorKind::UnresolvedModule, load_span));
 
             continue;
@@ -620,8 +937,9 @@ impl Compiler {
         continue;
       }
 
-      let implicit_sym = implicit_pack_for(&resolved_path)
-        .map(|stem| session.interner.intern(stem));
+      let implicit_sym =
+        implicit_pack_for(&resolved_path, self.module_resolver.search_paths())
+          .map(|stem| session.interner.intern(stem));
 
       // Seed with everything already imported (preload's
       // `Option`/`Result`/`Event` enums + any earlier
@@ -650,24 +968,39 @@ impl Compiler {
         &mod_semantic.funs,
       );
 
-      Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
-
-      imports.funs.extend(exports.funs);
-
-      for var in exports.vars {
-        imports.vars.push(Local {
-          name: var.name,
-          ty_id: var.ty_id,
-          value_id: var.init.unwrap_or(ValueId(0)),
-          pubness: Pubness::Yes,
-          mutability: Mutability::No,
-          sir_value: var.init,
-          local_kind: LocalKind::Variable,
-        });
+      // Selective imports that hit a non-pub item — one
+      // diagnostic per offending name, anchored at the load
+      // span so the user sees which `load M::(foo);` is bad.
+      for _hit in &exports.private_selective_hits {
+        report_error(Error::new(ErrorKind::PrivateItemInLoad, load_span));
       }
 
-      imports.enums.extend(exports.enums);
-      imports.abstract_defs.extend(mod_semantic.abstract_defs);
+      // A `pub load X::*;` whose target X never landed in the
+      // table — X didn't compile (UnresolvedModule /
+      // PrivatePackInLoad / etc.), so the re-export chain is
+      // broken. Emit at the consumer's load span so the
+      // problem surfaces at the link the user touched.
+      for re_path in &exports.re_exports {
+        if !module_table_per_path.contains_key(re_path) {
+          report_error(Error::new(ErrorKind::ModuleNotReachable, load_span));
+        }
+      }
+
+      Sir::offset_labels(&mut exports.sir_instructions, module_next_label_id);
+
+      let mut own_imports = module_exports_to_imports(&exports);
+      own_imports.abstract_defs = mod_semantic.abstract_defs.clone();
+
+      fold_imports_into(&mut imports, &own_imports);
+
+      let exported = compute_exported_scope(
+        own_imports,
+        &exports.re_exports,
+        &module_table_per_path,
+      );
+
+      module_table_per_path.insert(module_path.clone(), exported);
+
       module_sir_instructions.extend(exports.sir_instructions);
       module_next_value_id += exports.next_value_id;
       module_next_label_id += exports.next_label_id;
@@ -675,15 +1008,24 @@ impl Compiler {
       self.compiling.remove(&resolved_path);
     }
 
+    // Aggregate folder-namespace exports: every `load X::*;`
+    // that expanded into `X/*.zo` children now folds those
+    // children's exported scopes back under `X` so the user
+    // analyzer's seed can re-export them as one unit.
+    for (folder_path, child_paths) in &folder_aggregations {
+      let mut combined = ImportedSymbols::default();
+
+      for child_path in child_paths {
+        if let Some(child_exports) = module_table_per_path.get(child_path) {
+          fold_imports_into(&mut combined, child_exports);
+        }
+      }
+
+      module_table_per_path.insert(folder_path.clone(), combined);
+    }
+
     // Analyze with imported symbols pre-loaded.
     self.profiler.start_phase(ANALYZER_NAME);
-
-    let analyzer = Analyzer::new(
-      &parsing.tree,
-      &mut session.interner,
-      &tokenization.literals,
-      &mut session.ty_checker,
-    );
 
     // The leaf of each transitively-loaded path IS the pack
     // name (`core::io::*` → `io`). Surfaced so the user
@@ -693,6 +1035,38 @@ impl Compiler {
       .filter_map(|m| m.value.last().copied())
       .collect();
 
+    // Resolve preload's exported scope NOW that every
+    // re-export target has compiled and populated
+    // `module_table_per_path`. preload is compiled first,
+    // before its cascaded targets, so this fold can only be
+    // done after the main loop completes.
+    let preload_exported = compute_exported_scope(
+      preload_own,
+      &preload_re_exports,
+      &module_table_per_path,
+    );
+
+    // Per-module seed for the user analyzer. ONLY the user's
+    // own top-level `load`s contribute, on top of preload's
+    // `exported` scope (zo's prelude). A module loaded
+    // transitively as another module's private dep never
+    // lands here — that's the whole privacy guarantee.
+    // `imports` (the legacy cumulative bag) still seeds every
+    // intermediate loaded-module analyzer above; that path
+    // stays untouched for now.
+    let user_seed = build_module_seed(
+      &preload_exported,
+      &user_top_loads,
+      &module_table_per_path,
+    );
+
+    let analyzer = Analyzer::new(
+      &parsing.tree,
+      &mut session.interner,
+      &tokenization.literals,
+      &mut session.ty_checker,
+    );
+
     // The user file's `<img src="…">` and similar
     // path-typed attributes are resolved against this
     // directory at attribute-build time — so the
@@ -700,7 +1074,7 @@ impl Compiler {
     // assets regardless of CWD at run time.
     let mut semantic = analyzer
       .with_config(AnalyzerConfig {
-        imports,
+        imports: user_seed,
         source_dir: file_path.parent().map(Path::to_path_buf),
         implicit_pack: None,
         in_scope_packs,

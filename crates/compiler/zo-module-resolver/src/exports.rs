@@ -57,6 +57,16 @@ pub struct ModuleExports {
   /// The next label id (for Label / Jump / BranchIfNot
   /// offset when merging into the main SIR).
   pub next_label_id: u32,
+  /// Paths re-exported via `pub load X::*;`. Consumers of
+  /// this module fold each target's `exported` scope into
+  /// their own scope. Plain `load X::*;` (private) does NOT
+  /// land here.
+  pub re_exports: Vec<Vec<Symbol>>,
+  /// Symbols requested by a selective `load M::(foo, bar);`
+  /// that DO exist in M's SIR but are NOT `pub`. Populated
+  /// only when `selective` is set; consumers iterate this
+  /// to emit `PrivateItemInLoad` at the load span.
+  pub private_selective_hits: Vec<Symbol>,
 }
 
 /// Extracts pub exports from a compiled module's SIR.
@@ -77,9 +87,22 @@ pub fn extract_exports(
   let mut enums = Vec::new();
   let mut structs = Vec::new();
   let mut consts = Vec::new();
+  let mut re_exports = Vec::new();
+  let mut private_selective_hits = Vec::new();
 
   for insn in &sir.instructions {
     match insn {
+      // `pub load X::*;` records X as a re-export so
+      // consumers of this module fold X's `exported`
+      // scope into their own. Plain `load X::*;` is
+      // private — it never reaches re_exports.
+      Insn::ModuleLoad {
+        path,
+        pubness: Pubness::Yes,
+        ..
+      } => {
+        re_exports.push(path.clone());
+      }
       Insn::FunDef {
         name,
         params,
@@ -90,11 +113,20 @@ pub fn extract_exports(
         mut_self,
         ..
       } => {
+        let fn_name = interner.get(*name);
+
         if *pubness != Pubness::Yes {
+          // A selective `load M::(foo);` over a non-pub `foo`
+          // is a privacy violation, not a missing item. Record
+          // the hit so the caller can emit `PrivateItemInLoad`
+          // at the load span.
+          if let Some(filter) = selective
+            && fn_name == filter
+          {
+            private_selective_hits.push(*name);
+          }
           continue;
         }
-
-        let fn_name = interner.get(*name);
 
         if let Some(filter) = selective
           && fn_name != filter
@@ -274,5 +306,7 @@ pub fn extract_exports(
     sir_instructions,
     next_value_id: sir.next_value_id,
     next_label_id: sir.next_label_id,
+    re_exports,
+    private_selective_hits,
   }
 }

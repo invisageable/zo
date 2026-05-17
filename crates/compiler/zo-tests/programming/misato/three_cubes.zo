@@ -1,6 +1,6 @@
-load core::misato::*;
 load core::c::*;
-load core::raylib::*;
+load core::graphics::misato::*;
+load provider::raylib::*;
 
 -- misato — three 1×1×1 cubes side-by-side, each a different
 -- color, viewed from a user-controlled camera.

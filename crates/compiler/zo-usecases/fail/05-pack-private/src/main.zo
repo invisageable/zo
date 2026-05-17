@@ -1,0 +1,7 @@
+load foo::*;
+
+fun main() {
+  showln("never reached");
+}
+
+-- EXPECTED ERROR: E0708

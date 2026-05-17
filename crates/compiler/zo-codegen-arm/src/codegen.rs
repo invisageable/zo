@@ -94,8 +94,9 @@ const BOOL_TYPE_ID: u32 = 2; // TyChecker: Bool @ index 2
 const BYTES_TYPE_ID: u32 = 5; // TyChecker: Bytes @ index 5
 const CHAR_TYPE_ID: u32 = 3; // TyChecker: Char @ index 3
 const STR_TYPE_ID: u32 = 4; // TyChecker: Str @ index 4
-const FLOAT_TYPE_ID_MIN: u32 = 15; // TyChecker: F32 @ index 15
-const FLOAT_TYPE_ID_MAX: u32 = 17; // TyChecker: F64 @ index 17
+const FLOAT_TYPE_ID_MIN: u32 = 15; // TyChecker: F32  @ index 15
+const F64_TYPE_ID: u32 = 16; //         TyChecker: F64  @ index 16
+const FLOAT_TYPE_ID_MAX: u32 = 17; // TyChecker: Arch @ index 17 (range upper bound)
 
 // --- Mach-O Layout ---
 // `TEXT_SECTION_BASE` (vmaddr where `__text` begins) and
@@ -753,10 +754,14 @@ impl<'a> ARM64Gen<'a> {
 
   /// Look up the allocated register for a ValueId.
   fn alloc_reg(&self, vid: ValueId) -> Option<Register> {
+    // Assignments are scoped per FunDef: ValueId counters
+    // reset across functions.
+    let fn_start = self.current_fn_start? as u32;
+
     self
       .reg_alloc
       .as_ref()
-      .and_then(|a| a.get(vid))
+      .and_then(|a| a.get(fn_start, vid))
       .map(Register::new)
   }
 
@@ -772,11 +777,56 @@ impl<'a> ARM64Gen<'a> {
 
   /// Look up the allocated FP register for a ValueId.
   fn alloc_fp_reg(&self, vid: ValueId) -> Option<FpRegister> {
+    let fn_start = self.current_fn_start? as u32;
+
     self
       .reg_alloc
       .as_ref()
-      .and_then(|a| a.get_fp(vid))
+      .and_then(|a| a.get_fp(fn_start, vid))
       .map(FpRegister::new)
+  }
+
+  /// Bind per-function state at the start of every FunDef:
+  /// records the current function context, then resets every
+  /// frame-local map / counter so leftovers from the
+  /// previous function can't alias. Pairs with the
+  /// per-function rebuild of `value_def_idx` over the
+  /// function's SIR range (ValueId counters reset per
+  /// function, so the flat map would alias vid=N).
+  fn enter_function(&mut self, name: Symbol, idx: usize, all_insns: &[Insn]) {
+    self.current_function = Some(name);
+    self.current_fn_start = Some(idx);
+
+    self.value_def_idx.clear();
+    self.mutable_slots.clear();
+    self.array_var_blocks.clear();
+    self.next_mut_slot = 0;
+    self.next_struct_slot = 0;
+    self.io_shared_buf_offset = None;
+    self.param_slots.clear();
+    self.param_sym_slots.clear();
+    self.local_enum_field_tys.clear();
+    self.local_tuple_elem_tys.clear();
+
+    let fn_end = all_insns[idx + 1..]
+      .iter()
+      .position(|ins| matches!(ins, Insn::FunDef { .. }))
+      .map(|p| idx + 1 + p)
+      .unwrap_or(all_insns.len());
+
+    for (offset, ins) in all_insns[idx..fn_end].iter().enumerate() {
+      let widx = InsnIdx((idx + offset) as u32);
+
+      match ins {
+        Insn::ConstInt { dst, .. }
+        | Insn::ConstFloat { dst, .. }
+        | Insn::ConstBool { dst, .. }
+        | Insn::Load { dst, .. } => {
+          self.value_def_idx.insert(*dst, widx);
+        }
+        _ => {}
+      }
+    }
   }
 
   /// Look up the allocated FP register for the value
@@ -1369,14 +1419,11 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Pre-pass: build `ValueId → InsnIdx` so the
-    // aggregate-literal X16 bypass
-    // (`materialize_value_into_x16`) can reach the
-    // defining instruction in O(1) instead of scanning
-    // backwards `(0..idx).rev()` per element. Replaces
-    // the regression that was O(N²) on
-    // `[N]T` / tuple / struct / enum literals at high
-    // arity.
+    // Whole-SIR pre-pass for top-level / pre-FunDef code
+    // paths that consult `value_def_idx`. The per-FunDef
+    // arm in `translate_insn` rebuilds the map scoped to
+    // each function — required because ValueId counters
+    // reset per function and the flat map would alias.
     self.value_def_idx.clear();
 
     for (i, insn) in insns.iter().enumerate() {
@@ -1743,17 +1790,7 @@ impl<'a> ARM64Gen<'a> {
         let offset = self.emitter.current_offset();
 
         self.functions.insert(*name, offset);
-        self.current_function = Some(*name);
-        self.current_fn_start = Some(idx);
-        self.mutable_slots.clear();
-        self.array_var_blocks.clear();
-        self.next_mut_slot = 0;
-        self.next_struct_slot = 0;
-        self.io_shared_buf_offset = None;
-        self.param_slots.clear();
-        self.param_sym_slots.clear();
-        self.local_enum_field_tys.clear();
-        self.local_tuple_elem_tys.clear();
+        self.enter_function(*name, idx, all_insns);
 
         // Function prologue: save FP/LR if non-leaf.
         let fn_info = self
@@ -1886,7 +1923,8 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::ConstFloat { value, .. } => {
-        // Load f64 bits into GP scratch, FMOV to FP.
+        // FP regs are uniformly 64-bit internally; narrowing
+        // happens only at FFI boundaries / explicit casts.
         let fp_dst = self.fp_reg_for_insn(idx).unwrap_or(D0);
         let bits = value.to_bits();
 
@@ -3634,49 +3672,53 @@ impl<'a> ARM64Gen<'a> {
         let is_from_float = float_range.contains(&from);
         let is_to_float = float_range.contains(&to);
 
-        // Float-to-float ID layout (zo_ty FloatWidth enum):
-        // F32 = FLOAT_TYPE_ID_MIN, F64 = FLOAT_TYPE_ID_MAX.
-        // Picking F32 vs F64 by exact ID instead of width
-        // matches what the rest of codegen does (Float TyId
-        // is the only thing it sees at this seam).
+        // FLOAT_TYPE_ID_MAX is `Arch`, NOT F64 — match the
+        // f64 case against the dedicated `F64_TYPE_ID`.
         let is_from_f32 = from == FLOAT_TYPE_ID_MIN;
-        let is_from_f64 = from == FLOAT_TYPE_ID_MAX;
+        let is_from_f64 = from == F64_TYPE_ID;
         let is_to_f32 = to == FLOAT_TYPE_ID_MIN;
-        let is_to_f64 = to == FLOAT_TYPE_ID_MAX;
+        let is_to_f64 = to == F64_TYPE_ID;
 
-        if is_from_float && is_to_float && from != to {
-          // Float-width conversion. FCVT S, D narrows;
-          // FCVT D, S widens. Same-width is a no-op (the
-          // `from != to` gate above).
-          let fp_src = self.alloc_fp_reg(*src).unwrap_or(D0);
-          let fp_dst = self.alloc_fp_reg(*dst).unwrap_or(D0);
+        match (is_from_float, is_to_float) {
+          // FP regs are uniformly 64-bit internally — f32→f64
+          // is just a register move (no FCVT); only the
+          // narrowing direction emits a real conversion.
+          (true, true) if from != to => {
+            let fp_src = self.alloc_fp_reg(*src).unwrap_or(D0);
+            let fp_dst = self.alloc_fp_reg(*dst).unwrap_or(D0);
 
-          if is_from_f32 && is_to_f64 {
-            self.emitter.emit_fcvt_s_to_d(fp_dst, fp_src);
-          } else if is_from_f64 && is_to_f32 {
-            self.emitter.emit_fcvt_d_to_s(fp_dst, fp_src);
+            if is_from_f64 && is_to_f32 {
+              self.emitter.emit_fcvt_d_to_s(fp_dst, fp_src);
+            } else if is_from_f32 && is_to_f64 && fp_dst != fp_src {
+              self.emitter.emit_fmov_fp(fp_dst, fp_src);
+            }
           }
-        } else if is_from_float && !is_to_float {
-          // float -> int: FCVTZS Xd, Ds.
-          let fp_src = self.alloc_fp_reg(*src).unwrap_or(D0);
-          let gp_dst = self.alloc_reg(*dst).unwrap_or(X0);
+          // float → int: FCVTZS Xd, Ds.
+          (true, false) => {
+            let fp_src = self.alloc_fp_reg(*src).unwrap_or(D0);
+            let gp_dst = self.alloc_reg(*dst).unwrap_or(X0);
 
-          self.emitter.emit_fcvtzs(gp_dst, fp_src);
-        } else if !is_from_float && is_to_float {
-          // int -> float: SCVTF Dd, Xs.
-          let gp_src = self.alloc_reg(*src).unwrap_or(X0);
-          let fp_dst = self.alloc_fp_reg(*dst).unwrap_or(D0);
-
-          self.emitter.emit_scvtf(fp_dst, gp_src);
-        } else {
-          // GP -> GP: int/char/bytes/bool are all in GP regs.
-          // MOV if different registers, no-op if same.
-          let src_reg = self.alloc_reg(*src).unwrap_or(X0);
-          let dst_reg = self.alloc_reg(*dst).unwrap_or(X0);
-
-          if src_reg != dst_reg {
-            self.emitter.emit_mov_reg(dst_reg, src_reg);
+            self.emitter.emit_fcvtzs(gp_dst, fp_src);
           }
+          // int → float: SCVTF Dd, Xs.
+          (false, true) => {
+            let gp_src = self.alloc_reg(*src).unwrap_or(X0);
+            let fp_dst = self.alloc_fp_reg(*dst).unwrap_or(D0);
+
+            self.emitter.emit_scvtf(fp_dst, gp_src);
+          }
+          // GP → GP: int/char/bytes/bool share the GP file;
+          // MOV between distinct regs, no-op otherwise.
+          (false, false) => {
+            let src_reg = self.alloc_reg(*src).unwrap_or(X0);
+            let dst_reg = self.alloc_reg(*dst).unwrap_or(X0);
+
+            if src_reg != dst_reg {
+              self.emitter.emit_mov_reg(dst_reg, src_reg);
+            }
+          }
+          // Same-width float cast (e.g. `cast f64 as f64`).
+          (true, true) => {}
         }
       }
 

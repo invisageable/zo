@@ -1,0 +1,33 @@
+-! misato::geometry — primitives (box, sphere, plane).
+
+load core::graphics::misato::api::*;
+
+
+pub struct BoxGeometry { handle: int }
+
+apply BoxGeometry {
+  pub fun new(w: float, h: float, d: float) -> Self {
+    Self { handle = __zo_misato_make_box_geom(w, h, d) }
+  }
+}
+
+-! UV-sphere built from `rings × slices` quads.
+pub struct SphereGeometry { handle: int }
+
+apply SphereGeometry {
+  pub fun new(radius: float, rings: int, slices: int) -> Self {
+    Self { handle = __zo_misato_make_sphere_geom(radius, rings, slices) }
+  }
+}
+
+-! XZ plane subdivided by `res_x × res_z` (the subdivision is reserved
+-! for displacement / vertex shading later).
+pub struct PlaneGeometry { handle: int }
+
+apply PlaneGeometry {
+  pub fun new(width: float, length: float, res_x: int, res_z: int) -> Self {
+    Self {
+      handle = __zo_misato_make_plane_geom(width, length, res_x, res_z)
+    }
+  }
+}

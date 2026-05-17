@@ -69,6 +69,7 @@ fn no_functions_preserves_top_level() {
   let mut sir = make_sir(vec![Insn::ModuleLoad {
     path: vec![],
     kind: ImportKind::Qualified,
+    pubness: Pubness::No,
   }]);
 
   Dce::new(&mut sir, Symbol(0), &interner).eliminate();

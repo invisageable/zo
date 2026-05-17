@@ -1,0 +1,51 @@
+-! sqlite::api — raw FFI bridge to `libzo_provider_sqlite`.
+-!
+-! The shim crate (`crates/compiler/zo-provider-sqlite`) bundles SQLite, so
+-! there is no system `libsqlite3` dependency. Errors are flattened to status
+-! codes — exec returns 0 on success / non-zero on failure; query_int returns
+-! 0 on no-rows-or-error. A future API will surface SQL error strings.
+
+load core::c::*;
+
+
+-- libzo_provider_sqlite is built by `zo-provider-sqlite`'s
+-- Cargo build and staged next to each user binary so
+-- `@executable_path` resolves it. SQLite itself is
+-- embedded inside the shim (`bundled` feature) — no
+-- system libsqlite3 / vendor entry needed.
+#link {
+  macos: "@executable_path/libzo_provider_sqlite.dylib",
+  linux: "@executable_path/libzo_provider_sqlite.so",
+}
+
+
+-! Open a read-write connection to a new or existing databse.
+-!
+-! @param path — The database pathname.
+-! @returns — A positive handle on success, `0` on failure.
+pub ffi __zo_sqlite_open(path: int) -> int;
+
+-! Close a database connection.
+-!
+-! @param handle — The database instance.
+-!
+-! @note — Idempotent, closing an already-closed handle is a no-op.
+pub ffi __zo_sqlite_close(handle: int);
+
+-! Execute a statement without processing the resulting rows if any.
+-!
+-! @param handle — The current database instance.
+-! @param sql — The SQL query.
+-! @returns — 0 on success, non-zero on failure.
+-!
+-! @note — Runs DDL/DML (CREATE / INSERT / UPDATE / DELETE).
+pub ffi __zo_sqlite_exec(handle: int, sql: int) -> int;
+
+-! Runs an SQL query.
+-!
+-! @param handle — The current database instance.
+-! @param sql — The SQL query.
+-! @returns — The first column of the first row as int.
+-!
+-! @note — Returns 0 for no-rows or error.
+pub ffi __zo_sqlite_query_int(handle: int, sql: int) -> int;

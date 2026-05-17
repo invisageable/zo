@@ -1,5 +1,5 @@
-load core::raylib::*;
 load core::c::*;
+load provider::raylib::*;
 
 -- raylib — opens an 800×600 white window with the text
 -- "hello, zo!" at the top-left, runs at 60 FPS.
