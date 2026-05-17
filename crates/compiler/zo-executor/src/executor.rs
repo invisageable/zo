@@ -2565,8 +2565,27 @@ impl<'a> Executor<'a> {
         }
 
         if at_fn_depth && let Some(fun_ctx) = &self.current_function {
-          // Only emit implicit return if there wasn't an explicit one
-          if !fun_ctx.has_explicit_return {
+          // Function-end implicit return. `has_explicit_return`
+          // alone is too coarse: it's set when ANY `return` is
+          // seen (e.g. inside an `if`-then with no `else`), so
+          // gating purely on `!has_explicit_return` drops the
+          // fallthrough Return entirely and the function runs
+          // off the end of its body into the next symbol.
+          //
+          // Cases the gate below must cover:
+          //   - tail is already a Return/Jump → skip;
+          //   - fallthrough has a tail-expression value → emit;
+          //   - unit-returning function → always emit;
+          //   - non-unit and all paths already terminate
+          //     (`has_explicit_return` + dead trailing label) →
+          //     emit `ret void` as a dead terminator so the
+          //     binary doesn't fall through into the next sym.
+          let tail_is_terminator = matches!(
+            self.sir.instructions.last(),
+            Some(Insn::Return { .. } | Insn::Jump { .. }),
+          );
+
+          if !tail_is_terminator {
             // Emit implicit return if needed
             // Check if function returns unit type
             let unit_ty = self.ty_checker.unit_type();
@@ -2611,6 +2630,14 @@ impl<'a> Executor<'a> {
                 self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
 
               (sir_value, body_ty)
+            } else if fun_ctx.has_explicit_return {
+              // All paths returned via explicit `return` and
+              // the trailing Label is dead. Emit a `ret void`
+              // as a binary terminator — the codegen needs a
+              // `ret` here so the function doesn't fall
+              // through into the next symbol — without
+              // surfacing a spurious type-mismatch.
+              (None, unit_ty)
             } else {
               report_error(Error::new(ErrorKind::TypeMismatch, fn_span));
 

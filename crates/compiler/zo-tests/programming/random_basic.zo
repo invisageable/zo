@@ -1,0 +1,42 @@
+-- tests-run-pass: pure-zo xorshift32 PRNG via core::random.
+
+load core::random::*;
+
+fun main() {
+  mut rng: Rng = Rng::new(42);
+
+  imu a: int = rng.next();
+  imu b: int = rng.next();
+  imu c: int = rng.next();
+
+  check(a != b);
+  check(b != c);
+  check(a != c);
+
+  -- Same seed → same sequence.
+  mut rng2: Rng = Rng::new(42);
+  check@eq(rng2.next(), a);
+  check@eq(rng2.next(), b);
+  check@eq(rng2.next(), c);
+
+  -- Zero seed gets folded to a non-zero default.
+  mut rng_zero: Rng = Rng::new(0);
+  check(rng_zero.next() != 0);
+
+  -- range stays in bounds.
+  mut rng_r: Rng = Rng::new(7);
+  mut i: int = 0;
+  loop {
+    if i >= 100 { break }
+    imu v: int = rng_r.range(10, 20);
+    check(v >= 10);
+    check(v < 20);
+    i = i + 1;
+  }
+
+  -- range collapses to lo when hi <= lo.
+  check@eq(rng_r.range(5, 5), 5);
+  check@eq(rng_r.range(5, 3), 5);
+
+  showln("random_basic: all checks passed!");
+}

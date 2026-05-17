@@ -27,6 +27,7 @@ pub pack graphics;
 pub pack json;
 pub pack math;
 pub pack process;
+pub pack random;
 
 
 -* preload:exports. *-

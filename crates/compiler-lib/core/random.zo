@@ -1,0 +1,48 @@
+-! random — pseudo-random number generator.
+-!
+-! Pure-zo xorshift32 (Marsaglia 2003): three shift-XOR steps per draw,
+-! ~2^32 period. Non-cryptographic — for games, simulation, hashing,
+-! and jitter.
+
+
+-! A stateful pseudo-random number generator.
+-!
+-! Each `next`-family call mutates `bits` in place; chain calls on the
+-! same `mut rng` to draw a stream.
+pub struct Rng { bits: int }
+
+apply Rng {
+  -! Seed the generator. `0` is degenerate (xorshift gets stuck at
+  -! zero); folded to a non-zero golden-ratio constant in that case.
+  pub fun new(seed: int) -> Self {
+    if seed == 0 {
+      Self { bits = 0x1E3779B9 }
+    } else {
+      Self { bits = seed }
+    }
+  }
+
+  -! Advance state by one step and return the new value.
+  pub fun next(mut self) -> int {
+    self.bits ^= self.bits << 13;
+    self.bits ^= self.bits >> 17;
+    self.bits ^= self.bits << 5;
+    self.bits
+  }
+
+  -! Uniform integer in `[lo, hi)`. Returns `lo` when `hi <= lo`.
+  pub fun range(mut self, lo: int, hi: int) -> int {
+    if hi <= lo {
+      return lo;
+    }
+    imu sample: int = self.next();
+    imu pos: int = sample & 0x7FFFFFFF;
+    lo + pos % (hi - lo)
+  }
+
+  -! Coin flip — true roughly half the time.
+  pub fun flip(mut self) -> bool {
+    imu sample: int = self.next();
+    (sample & 1) == 1
+  }
+}
