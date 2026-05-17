@@ -1,0 +1,112 @@
+load core::json::*;
+
+-- json — construct values from zo-native data and write
+-- them out. Builds an object containing a nested array,
+-- serializes the result, asserts the wire shape, then
+-- writes to a temp file and reads it back via the
+-- standard core::io path to confirm `write` produced the
+-- same bytes on disk.
+-- @cmd — zo build builders.zo && ./builders
+
+load core::io::*;
+
+fun main() {
+  -- Primitive constructors.
+  imu n: Json = Json::null();
+  imu n_str: str = n.to_str();
+  showln(n_str);
+  n.free();
+
+  imu yes: Json = Json::from_bool(true);
+  imu yes_str: str = yes.to_str();
+  showln(yes_str);
+  yes.free();
+
+  imu seven: Json = Json::from_int(7);
+  imu seven_str: str = seven.to_str();
+  showln(seven_str);
+  seven.free();
+
+  imu pi: Json = Json::from_f64(3.14);
+  imu pi_str: str = pi.to_str();
+  showln(pi_str);
+  pi.free();
+
+  imu hi: Json = Json::from_string("hello");
+  imu hi_str: str = hi.to_str();
+  showln(hi_str);
+  hi.free();
+
+  -- Empty containers.
+  imu empty_arr: Json = Json::array();
+  imu ea_str: str = empty_arr.to_str();
+  showln(ea_str);
+  empty_arr.free();
+
+  imu empty_obj: Json = Json::object();
+  imu eo_str: str = empty_obj.to_str();
+  showln(eo_str);
+  empty_obj.free();
+
+  -- Build an object with a nested array piecewise.
+  imu items: Json = Json::array();
+  imu i1: Json = Json::from_int(1);
+  imu i2: Json = Json::from_int(2);
+  imu i3: Json = Json::from_int(3);
+  items.push(i1);
+  items.push(i2);
+  items.push(i3);
+  i1.free();
+  i2.free();
+  i3.free();
+
+  imu doc: Json = Json::object();
+  imu name: Json = Json::from_string("zo");
+  imu count: Json = Json::from_int(3);
+  doc.set("name", name);
+  doc.set("count", count);
+  doc.set("items", items);
+  name.free();
+  count.free();
+  items.free();
+
+  imu wire: str = doc.to_str();
+  showln(wire);
+
+  -- Round-trip through write → read_file. Confirms the
+  -- on-disk bytes match the in-memory `to_str`. Output
+  -- lands in the co-located `samples/` folder so a
+  -- maintainer running this test locally can inspect the
+  -- emitted JSON directly.
+  imu path: str = "samples/builders.json";
+  imu rc: int = doc.write(path);
+  check@eq(rc, 0);
+
+  match read_file(path) {
+    Result::Pass(text) => showln("disk: {text}"),
+    Result::Fail(_) => showln("read failed"),
+  }
+
+  doc.free();
+
+  -- NaN / Infinity rejected at construction (RFC 8259).
+  -- Need a finite-looking-but-non-finite source; use the
+  -- `0.0 / 0.0` form once zo supports it. For now: build
+  -- two valid floats and confirm the error path returns
+  -- handle 0 only on invalid construction. Skip this case
+  -- here — `from_f64` is exercised by the `pi` case above.
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- null
+-- true
+-- 7
+-- 3.14
+-- "hello"
+-- []
+-- {}
+-- {"name":"zo","count":3,"items":[1,2,3]}
+-- disk: {"name":"zo","count":3,"items":[1,2,3]}
+-- DONE

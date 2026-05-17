@@ -1,0 +1,55 @@
+load core::json::*;
+
+-- json — object key iteration (Phase 5.5). Walks an
+-- object's keys via `keys_len()` + `key_at(i)`, asserting
+-- the count and prints each key + its value. Uses the
+-- "iterator pattern" the binding documents: pure indexed
+-- access, no iterator-handle plumbing.
+-- @cmd — zo build keys.zo && ./keys
+
+fun main() {
+  imu obj: Json = Json::parse("{\"name\":\"zo\",\"version\":3,\"active\":true}");
+  imu n: int = obj.keys_len();
+
+  check@eq(n, 3);
+  showln("count: {n}");
+
+  for i := 0..n {
+    imu k: str = obj.key_at(i);
+    imu v: Json = obj.get(k);
+    imu v_str: str = v.to_str();
+    showln("{k} = {v_str}");
+    v.free();
+  }
+
+  obj.free();
+
+  -- Non-object: keys_len returns 0; key_at returns empty.
+  imu arr: Json = Json::parse("[1, 2, 3]");
+  imu arr_n: int = arr.keys_len();
+
+  check@eq(arr_n, 0);
+  showln("array keys: {arr_n}");
+
+  imu empty: str = arr.key_at(0);
+  showln("empty: [{empty}]");
+  arr.free();
+
+  -- Out-of-range index returns empty.
+  imu obj2: Json = Json::parse("{\"a\":1}");
+  imu past: str = obj2.key_at(99);
+  showln("past: [{past}]");
+  obj2.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- count: 3
+-- name = "zo"
+-- version = 3
+-- active = true
+-- array keys: 0
+-- empty: []
+-- past: []
+-- DONE

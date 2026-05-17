@@ -7676,6 +7676,7 @@ dependencies = [
  "zo-parser",
  "zo-pp",
  "zo-profiler",
+ "zo-provider-json",
  "zo-provider-sqlite",
  "zo-reporter",
  "zo-runtime",
@@ -7920,6 +7921,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-provider-json"
+version = "0.3.11"
+dependencies = [
+ "serde_json",
+ "smallvec",
+]
+
+[[package]]
 name = "zo-provider-sqlite"
 version = "0.3.11"
 dependencies = [
@@ -7934,6 +7943,7 @@ dependencies = [
  "zo-interner",
  "zo-liveness",
  "zo-sir",
+ "zo-ty",
  "zo-value",
 ]
 

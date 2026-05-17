@@ -1,0 +1,38 @@
+load core::json::*;
+
+-- json — array-field derive. Serialize loops over each
+-- element + pushes onto a fresh Json::array(); deserialize
+-- iterates the JSON sub-array and rebuilds a `[]T` from
+-- the elements. Round-trip asserts both halves agree.
+-- @cmd — zo build derive_array.zo && ./derive_array
+
+%% serialize, deserialize.
+struct Bag {
+  id: int,
+  items: []int,
+}
+
+fun main() {
+  imu nums: []int = [1, 2, 3, 4];
+  imu bag: Bag = Bag { id = 7, items = nums };
+
+  imu wire: Json = bag.to_json();
+  imu ws: str = wire.to_str();
+  showln(ws);
+
+  imu parsed: Json = Json::parse(ws);
+  imu copy: Bag = Bag::from_json(parsed);
+
+  check@eq(copy.id, 7);
+  check@eq(copy.items.len, 4);
+  showln(copy.items.len);
+
+  wire.free();
+  parsed.free();
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- {"id":7,"items":[1,2,3,4]}
+-- 4
+-- DONE

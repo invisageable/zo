@@ -1,0 +1,60 @@
+load core::json::*;
+
+-- json — scalar accessors over root scalars. Walks each
+-- scalar JSON kind through `Json::parse` and asserts the
+-- typed read. Phase 4 will add the traversal accessors
+-- (`get`, `get_at`) so the same checks can run against
+-- nested values; this Phase 3 surface validates the
+-- serde_json read path without crossing the borrow-mode
+-- handle plumbing.
+-- @cmd — zo build scalars.zo && ./scalars
+
+fun main() {
+  -- as_int on an integer literal.
+  imu n: Json = Json::parse("42");
+  imu n_int: int = n.as_int();
+  imu n_is_int: bool = n.is_int();
+  check@eq(n_int, 42);
+  check(n_is_int);
+  showln("int: {n_int}");
+  n.free();
+
+  -- Negative integer round-trip — sanity check that the
+  -- serde Number → i64 path keeps the sign.
+  imu neg: Json = Json::parse("-7");
+  imu neg_int: int = neg.as_int();
+  check@eq(neg_int, -7);
+  showln("neg: {neg_int}");
+  neg.free();
+
+  -- as_f64 on a float literal. is_int must be false.
+  imu f: Json = Json::parse("2.5");
+  imu f_float: float = f.as_f64();
+  imu f_is_int: bool = f.is_int();
+  check(!f_is_int);
+  showln("float: {f_float}");
+  f.free();
+
+  -- as_bool on each truth value.
+  imu yes: Json = Json::parse("true");
+  imu yes_bool: bool = yes.as_bool();
+  check(yes_bool);
+  showln("yes: {yes_bool}");
+  yes.free();
+
+  imu no: Json = Json::parse("false");
+  imu no_bool: bool = no.as_bool();
+  check(!no_bool);
+  showln("no: {no_bool}");
+  no.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- int: 42
+-- neg: -7
+-- float: 2.500000
+-- yes: true
+-- no: false
+-- DONE

@@ -113,10 +113,13 @@ pub enum AbiArg {
   /// Int / pointer in a GP register.
   Gp(Register),
 
-  /// Single FP scalar. `narrow = true` means the source
-  /// is zo's `float` (f64) but C wants `f32`, so we must
-  /// emit `FCVT S, D` before the call lands the value in
-  /// the low 32 bits of the named V register.
+  /// Single FP scalar. `narrow = true` means the C side
+  /// of the FFI takes `float` (f32), so we narrow zo's
+  /// f64 down to f32 via `FCVT S, D` before the call
+  /// lands the value in the low 32 bits of the named V
+  /// register. Declared-width-driven: `f32` in the FFI
+  /// signature → narrow; `f64` / `float` (f64) → pass
+  /// the full D-reg straight through.
   Fp { reg: FpRegister, narrow: bool },
 
   /// 1–4 FP fields spread across consecutive FP regs.
@@ -148,9 +151,11 @@ pub enum AbiRet {
   Void,
   Gp(Register),
 
-  /// `widen = true` means raylib returned an `f32` in S0
-  /// and we widen back to zo's `float` (f64) via
-  /// `FCVT D, S` before storing into the dst.
+  /// `widen = true` means the C side of the FFI returned
+  /// `float` (f32) in S0 and we widen it to zo's f64 via
+  /// `FCVT D, S` before storing into the dst. Declared-
+  /// width-driven: `-> f32` → widen; `-> f64` / `-> float`
+  /// (f64) → the full D-reg already holds the result.
   Fp {
     reg: FpRegister,
     widen: bool,
@@ -257,11 +262,14 @@ fn classify_fp_scalar(width: FloatWidth, state: &mut ClassState) -> AbiArg {
   if state.next_fp < 8 {
     let reg = fp_reg(state.next_fp);
     state.next_fp += 1;
-    // zo carries `float` as f64; raylib's `float` is
-    // f32 → narrow on the way out. Explicit `f32` types
-    // in zo (via raylib.zo's `Vector2 { x: f32, y: f32 }`
-    // fields) don't need narrowing.
-    let narrow = matches!(width, FloatWidth::F64);
+    // Declared C-side width drives narrowing:
+    //   `f32` in the FFI signature → narrow zo's f64 down
+    //   to f32 (FCVT S, D) before the call;
+    //   `f64` / `float` (f64) → pass straight through.
+    // Bindings to C libraries must declare the actual C
+    // parameter width (raylib uses `f32`; libm uses
+    // `float` (f64)).
+    let narrow = matches!(width, FloatWidth::F32);
     AbiArg::Fp { reg, narrow }
   } else {
     let stack_offset = state.stack;
@@ -341,8 +349,15 @@ fn classify_ret(
     }
     Ty::Float(w) => AbiRet::Fp {
       reg: D0,
-      // raylib returns `float` (f32) → widen to zo's f64.
-      widen: matches!(w, FloatWidth::F64),
+      // Declared C-side width drives widening:
+      //   `-> f32` → C returned f32 in S0, widen (FCVT D, S)
+      //              to zo's f64;
+      //   `-> f64` / `-> float` (f64) → D0 already holds the
+      //              full result.
+      // Bindings to C libraries must declare the actual C
+      // return width (raylib `-> f32`; libm `-> float` /
+      // `-> f64`).
+      widen: matches!(w, FloatWidth::F32),
     },
     Ty::Struct(sid) => classify_struct_ret(sid, query, state),
     _ => AbiRet::Gp(X0),

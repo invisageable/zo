@@ -1,0 +1,52 @@
+load core::json::*;
+
+-- json — error reporting (Phase 6). Surfaces serde_json's
+-- parse error message via `Json::last_error()` so a `parse`
+-- that returns handle 0 can be diagnosed. Asserts:
+--   * parse failure stores a real message,
+--   * a subsequent successful parse clears the slot,
+--   * the slot is empty before any parse.
+-- @cmd — zo build errors.zo && ./errors
+
+fun main() {
+  -- No parse has run yet — last_error must be empty.
+  imu before: str = Json::last_error();
+  showln("before: [{before}]");
+
+  -- Malformed object: `{not json` — serde reports "key
+  -- must be a string at line 1 column 2".
+  imu bad: Json = Json::parse("{not json");
+  imu bad_h: int = bad.handle;
+  check@eq(bad_h, 0);
+
+  imu err: str = Json::last_error();
+  showln("err: [{err}]");
+
+  -- A successful parse clears the error slot.
+  imu ok: Json = Json::parse("42");
+  imu ok_h: int = ok.handle;
+  -- Just confirm we got a positive handle without
+  -- coupling the test to its exact value.
+  check(ok_h > 0);
+
+  imu cleared: str = Json::last_error();
+  showln("cleared: [{cleared}]");
+  ok.free();
+
+  -- A second failure overwrites the previous message.
+  imu bad2: Json = Json::parse("[1, 2");
+  imu bad2_h: int = bad2.handle;
+  check@eq(bad2_h, 0);
+
+  imu err2: str = Json::last_error();
+  showln("err2: [{err2}]");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- before: []
+-- err: [key must be a string at line 1 column 2]
+-- cleared: []
+-- err2: [EOF while parsing a list at line 1 column 5]
+-- DONE

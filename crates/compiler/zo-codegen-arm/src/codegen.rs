@@ -11,7 +11,7 @@ use zo_emitter_arm::{
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_register_allocation::{
   EmitTiming, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS, RegAlloc,
-  RegisterClass, SpillKind,
+  RegisterClass, SpillKind, resolve_ty,
 };
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::{Ty, TyId, TyTable};
@@ -91,6 +91,7 @@ const ARRAY_HEADER_SIZE: u16 = 16; // [len:8][cap:8]
 // order. If that order ever changes, these break silently.
 // str=4 is hardcoded inline in is_string_value/emit_field_write.
 const BOOL_TYPE_ID: u32 = 2; // TyChecker: Bool @ index 2
+const BYTES_TYPE_ID: u32 = 5; // TyChecker: Bytes @ index 5
 const CHAR_TYPE_ID: u32 = 3; // TyChecker: Char @ index 3
 const STR_TYPE_ID: u32 = 4; // TyChecker: Str @ index 4
 const FLOAT_TYPE_ID_MIN: u32 = 15; // TyChecker: F32 @ index 15
@@ -809,7 +810,12 @@ impl<'a> ARM64Gen<'a> {
   }
 
   fn is_string_value(&self, vid: ValueId) -> bool {
-    self.type_of(vid).is_some_and(|ty| ty.0 == STR_TYPE_ID)
+    // `bytes` shares the `[len:u64][bytes]` layout with
+    // `str` so the same print path works — both produce a
+    // pointer to a length-prefixed buffer.
+    self
+      .type_of(vid)
+      .is_some_and(|ty| ty.0 == STR_TYPE_ID || ty.0 == BYTES_TYPE_ID)
   }
 
   fn is_float_value(&self, vid: ValueId) -> bool {
@@ -1125,11 +1131,17 @@ impl<'a> ARM64Gen<'a> {
 
   /// Generates `ARM64` code from SIR.
   pub fn generate(&mut self, sir: &Sir) -> Artifact {
-    // Run register allocation before codegen.
+    // Run register allocation before codegen. The type
+    // view is forwarded so the allocator can budget for
+    // nested-struct returns (deep-copy at the call site
+    // needs more slots than the parent's flat field
+    // count).
+    let type_view = self.type_view.map(|v| (v.tys, v.ty_table));
     self.reg_alloc = Some(RegAlloc::allocate(
       &sir.instructions,
       sir.next_value_id,
       self.interner,
+      type_view,
     ));
 
     let insns = &sir.instructions;
@@ -1164,32 +1176,13 @@ impl<'a> ARM64Gen<'a> {
       self.spill_offsets.push(spill_ops.len() as u32);
     }
 
-    // Pre-pass: identify functions that return structs.
-    // Scan for patterns: FunDef ... StructConstruct ... Return.
-    {
-      let mut cur_fn: Option<Symbol> = None;
-      let mut last_struct_fields: Option<u32> = None;
-
-      for insn in insns.iter() {
-        match insn {
-          Insn::FunDef { name, .. } => {
-            cur_fn = Some(*name);
-            last_struct_fields = None;
-          }
-          Insn::StructConstruct { fields, .. } => {
-            last_struct_fields = Some(fields.len() as u32);
-          }
-          Insn::Return { value: Some(_), .. } => {
-            if let (Some(name), Some(n)) = (cur_fn, last_struct_fields) {
-              self.struct_return_fns.insert(name, n);
-            }
-
-            cur_fn = None;
-            last_struct_fields = None;
-          }
-          _ => {}
-        }
-      }
+    // Reuse the deep-slot map regalloc already built. It
+    // ran the same FunDef → StructConstruct → Return scan
+    // (with the same `flat_struct_slots_of` recursion) to
+    // budget stack space; copying the map shares one
+    // source of truth. No SIR re-scan.
+    if let Some(reg_alloc) = self.reg_alloc.as_ref() {
+      self.struct_return_fns = reg_alloc.struct_return_fns.clone();
     }
 
     // Pre-pass: harvest per-pack `#link` paths. Must run
@@ -1739,8 +1732,8 @@ impl<'a> ARM64Gen<'a> {
       Insn::Cast { dst, to_ty, .. } => {
         self.value_types.insert(dst.0, *to_ty);
       }
-      Insn::ConstString { dst, .. } => {
-        self.value_types.insert(dst.0, TyId(STR_TYPE_ID));
+      Insn::ConstString { dst, ty_id, .. } => {
+        self.value_types.insert(dst.0, *ty_id);
       }
       _ => {}
     }
@@ -2300,7 +2293,12 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      Insn::Call { name, args, .. } => {
+      Insn::Call {
+        name,
+        args,
+        ty_id: call_ret_ty,
+        ..
+      } => {
         match self.interner.get(*name) {
           "show" | "showln" | "eshow" | "eshowln" => {
             let fn_name = self.interner.get(*name);
@@ -2352,6 +2350,7 @@ impl<'a> ARM64Gen<'a> {
           }
 
           "c_str" => self.emit_c_str(args, idx),
+          "from_c_str_len" => self.emit_from_c_str_len(args, idx),
           // raylib + misato FFIs flow through the generic
           // AAPCS fallback (`_` arm → `emit_ffi_call`).
           // Misato C symbols already match `_<zo_name>` —
@@ -2723,15 +2722,83 @@ impl<'a> ARM64Gen<'a> {
             // dangling pointer into the callee's frame.
             // Copy the struct fields into the caller's
             // own struct area before x0 becomes stale.
-            if let Some(&field_count) = self.struct_return_fns.get(name) {
+            // The recorded slot count is the *deep* one
+            // (regalloc + this codegen agree via
+            // `flat_struct_slots_of`), so nested-struct
+            // fields are flattened into adjacent caller
+            // slots — without this, the field slot held a
+            // pointer back into the freed callee frame.
+            if let Some(&deep_slots) = self.struct_return_fns.get(name) {
               let dst_base = self.struct_base + self.next_struct_slot;
 
-              for i in 0..field_count {
-                let src_off = (i * STACK_SLOT_SIZE) as i16;
-                let dst_off = dst_base + i * STACK_SLOT_SIZE;
+              // Walk the call's return type so we know
+              // which fields are themselves structs (those
+              // need the recursive copy). With no
+              // `type_view` we fall back to the flat per-
+              // word copy — same semantics as the pre-fix
+              // code, safe whenever the program doesn't
+              // return nested-struct shapes.
+              let ret_ty = *call_ret_ty;
 
-                self.emitter.emit_ldr(X16, X0, src_off);
-                self.emit_str_sp(X16, dst_off);
+              let outer_field_tys: Option<Vec<TyId>> =
+                self.type_view.and_then(|view| {
+                  let Ty::Struct(sid) = resolve_ty(view.tys, ret_ty) else {
+                    return None;
+                  };
+                  let st = view.ty_table.struct_ty(sid)?;
+                  Some(
+                    view
+                      .ty_table
+                      .struct_fields(st)
+                      .iter()
+                      .map(|f| f.ty_id)
+                      .collect(),
+                  )
+                });
+
+              match outer_field_tys {
+                Some(field_tys) => {
+                  let outer_count = field_tys.len() as u32;
+                  // Bump cursor past the outer slots so
+                  // nested copies can use the trailing
+                  // slots within our reserved budget.
+                  let mut inner_cursor =
+                    dst_base + outer_count * STACK_SLOT_SIZE;
+
+                  for (i, field_ty) in field_tys.iter().enumerate() {
+                    let src_off = (i as u32 * STACK_SLOT_SIZE) as i16;
+                    let dst_off = dst_base + i as u32 * STACK_SLOT_SIZE;
+
+                    if self.is_struct_ty(*field_ty) {
+                      inner_cursor = self.emit_deep_copy_struct_field(
+                        X0,
+                        src_off,
+                        dst_off,
+                        *field_ty,
+                        inner_cursor,
+                      );
+                    } else {
+                      self.emitter.emit_ldr(X16, X0, src_off);
+                      self.emit_str_sp(X16, dst_off);
+                    }
+                  }
+                }
+                None => {
+                  // Flat fallback — caller didn't supply
+                  // a type view, so we can't tell which
+                  // fields are structs. `deep_slots` then
+                  // equals the flat field count (see
+                  // `build_struct_return_map`'s `None`
+                  // branch), so this still matches the
+                  // budget.
+                  for i in 0..deep_slots {
+                    let src_off = (i * STACK_SLOT_SIZE) as i16;
+                    let dst_off = dst_base + i * STACK_SLOT_SIZE;
+
+                    self.emitter.emit_ldr(X16, X0, src_off);
+                    self.emit_str_sp(X16, dst_off);
+                  }
+                }
               }
 
               // Point result at the caller's copy.
@@ -2756,7 +2823,7 @@ impl<'a> ARM64Gen<'a> {
               // `(Point::new(..), Point::new(..))`).
               self.emit_add_sp_offset(X0, dst_base);
 
-              self.next_struct_slot += field_count * STACK_SLOT_SIZE;
+              self.next_struct_slot += deep_slots * STACK_SLOT_SIZE;
             } else if let Some(fp_result) = self.fp_reg_for_insn(idx) {
               // Move result to allocated register.
               // Float results arrive in D0, GP in X0.
@@ -3567,7 +3634,29 @@ impl<'a> ARM64Gen<'a> {
         let is_from_float = float_range.contains(&from);
         let is_to_float = float_range.contains(&to);
 
-        if is_from_float && !is_to_float {
+        // Float-to-float ID layout (zo_ty FloatWidth enum):
+        // F32 = FLOAT_TYPE_ID_MIN, F64 = FLOAT_TYPE_ID_MAX.
+        // Picking F32 vs F64 by exact ID instead of width
+        // matches what the rest of codegen does (Float TyId
+        // is the only thing it sees at this seam).
+        let is_from_f32 = from == FLOAT_TYPE_ID_MIN;
+        let is_from_f64 = from == FLOAT_TYPE_ID_MAX;
+        let is_to_f32 = to == FLOAT_TYPE_ID_MIN;
+        let is_to_f64 = to == FLOAT_TYPE_ID_MAX;
+
+        if is_from_float && is_to_float && from != to {
+          // Float-width conversion. FCVT S, D narrows;
+          // FCVT D, S widens. Same-width is a no-op (the
+          // `from != to` gate above).
+          let fp_src = self.alloc_fp_reg(*src).unwrap_or(D0);
+          let fp_dst = self.alloc_fp_reg(*dst).unwrap_or(D0);
+
+          if is_from_f32 && is_to_f64 {
+            self.emitter.emit_fcvt_s_to_d(fp_dst, fp_src);
+          } else if is_from_f64 && is_to_f32 {
+            self.emitter.emit_fcvt_d_to_s(fp_dst, fp_src);
+          }
+        } else if is_from_float && !is_to_float {
           // float -> int: FCVTZS Xd, Ds.
           let fp_src = self.alloc_fp_reg(*src).unwrap_or(D0);
           let gp_dst = self.alloc_reg(*dst).unwrap_or(X0);
@@ -5137,6 +5226,29 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
+  /// `from_c_str_len(ptr: int, len: int) -> str` — symmetric
+  /// inverse of `c_str`. Lifts `len` bytes at `ptr` into a
+  /// fresh heap-backed zo str via `_zo_str_alloc`. The
+  /// runtime owns the copy, so callers may free / reuse the
+  /// source buffer immediately after this returns.
+  ///
+  /// Marshals through `emit_safe_int_arg_moves` because the
+  /// source registers can collide with X0/X1 in arbitrary
+  /// ways depending on the surrounding register allocation.
+  fn emit_from_c_str_len(&mut self, args: &[ValueId], idx: usize) {
+    let ptr = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let len = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    self.emit_safe_int_arg_moves(&[(X0, ptr), (X1, len)]);
+    self.emit_extern_call("_zo_str_alloc");
+
+    if let Some(dst) = self.reg_for_insn(idx)
+      && dst != X0
+    {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
   // ================================================================
   // AAPCS marshaling primitives shared by `emit_ffi_call`
   // (the generic FFI path). FP register moves use the same
@@ -6440,6 +6552,107 @@ impl<'a> ARM64Gen<'a> {
     } else if let Some(reg) = self.alloc_reg(elem) {
       self.emitter.emit_str(reg, r_buf, off as i16);
     }
+  }
+
+  /// Deep-copy one nested-struct field at a struct-return
+  /// call site. `src_ptr_reg` holds the pointer to the
+  /// outer callee block; `src_off` is the offset where
+  /// that block stores its pointer to the inner struct.
+  /// Walks the inner struct's fields, allocating slots in
+  /// the caller's struct area starting at `inner_cursor`
+  /// (which the caller bumps past the outer slots). Inner
+  /// struct fields recurse — same shape, deeper level.
+  ///
+  /// After the copy, the outer slot at `dst_off` holds a
+  /// pointer to the *caller's* inner block, so the
+  /// callee-frame pointer never survives the return.
+  ///
+  /// Returns the updated `inner_cursor` past the inner
+  /// block (and any recursive inner-inner blocks).
+  /// True when `ty` resolves to `Ty::Struct(_)` against
+  /// the wired `type_view`. Used by the call-site +
+  /// recursive deep-copy paths to decide which fields
+  /// need a recursive copy vs a single pointer-word
+  /// store. Returns `false` if `type_view` is unset.
+  fn is_struct_ty(&self, ty: TyId) -> bool {
+    self
+      .type_view
+      .is_some_and(|view| matches!(resolve_ty(view.tys, ty), Ty::Struct(_)))
+  }
+
+  fn emit_deep_copy_struct_field(
+    &mut self,
+    src_ptr_reg: Register,
+    src_off: i16,
+    dst_off: u32,
+    field_ty: TyId,
+    inner_cursor: u32,
+  ) -> u32 {
+    // Three preconditions for the deep copy — `type_view`
+    // wired, field resolves to a struct, struct entry
+    // exists in the table. Any failure falls back to a
+    // single pointer-word copy (still dangling at runtime,
+    // but at least the codegen doesn't crash on a partial
+    // type table).
+    let inner_field_tys: Option<Vec<TyId>> = self.type_view.and_then(|view| {
+      let Ty::Struct(sid) = resolve_ty(view.tys, field_ty) else {
+        return None;
+      };
+      let st = view.ty_table.struct_ty(sid)?;
+
+      Some(
+        view
+          .ty_table
+          .struct_fields(st)
+          .iter()
+          .map(|f| f.ty_id)
+          .collect(),
+      )
+    });
+
+    let Some(inner_field_tys) = inner_field_tys else {
+      self.emitter.emit_ldr(X16, src_ptr_reg, src_off);
+      self.emit_str_sp(X16, dst_off);
+      return inner_cursor;
+    };
+
+    let inner_outer_count = inner_field_tys.len() as u32;
+    let inner_block_base = inner_cursor;
+    // Bump past the outer inner slots so recursive
+    // inner-inner copies use the trailing slots.
+    let mut next_cursor = inner_cursor + inner_outer_count * STACK_SLOT_SIZE;
+
+    // Stash the inner-src pointer into X9 — it must
+    // survive across our scratch-register usage in the
+    // copy loop. X9 is caller-saved per AAPCS, no
+    // active value lives there at a call return.
+    self.emitter.emit_ldr(X9, src_ptr_reg, src_off);
+
+    for (i, inner_ty) in inner_field_tys.iter().enumerate() {
+      let inner_src_off = (i as u32 * STACK_SLOT_SIZE) as i16;
+      let inner_dst_off = inner_block_base + i as u32 * STACK_SLOT_SIZE;
+
+      if self.is_struct_ty(*inner_ty) {
+        next_cursor = self.emit_deep_copy_struct_field(
+          X9,
+          inner_src_off,
+          inner_dst_off,
+          *inner_ty,
+          next_cursor,
+        );
+      } else {
+        self.emitter.emit_ldr(X16, X9, inner_src_off);
+        self.emit_str_sp(X16, inner_dst_off);
+      }
+    }
+
+    // Write the pointer-to-caller's-inner-block into the
+    // outer slot so subsequent loads through that slot
+    // land in the caller's frame, not the callee's.
+    self.emit_add_sp_offset(X16, inner_block_base);
+    self.emit_str_sp(X16, dst_off);
+
+    next_cursor
   }
 
   /// SP-relative variant of `emit_array_element_store` for

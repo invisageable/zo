@@ -480,3 +480,27 @@ fun main() {
     },
   );
 }
+
+#[test]
+fn test_derive_json_unsupported_field_reports_diagnostic() {
+  // `Fn(...)` fields fall outside the derive synthesizer's
+  // supported shape (primitives / nested structs / `[]T`).
+  // Each direction (`to_json` / `from_json`) anchors a
+  // `DeriveUnsupportedField` diagnostic on the offending
+  // field's declaration span so the user can see which
+  // field is blocking the derive.
+  assert_execution_error(
+    r#"
+      struct Json {}
+
+      %% serialize, deserialize.
+      struct Bad {
+        id: int,
+        callback: Fn(int) -> int,
+      }
+
+      fun main() {}
+    "#,
+    ErrorKind::DeriveUnsupportedField,
+  );
+}

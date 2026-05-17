@@ -1,0 +1,66 @@
+load core::json::*;
+
+-- json — parse + kind discrimination. Walks one literal of
+-- each JSON kind through `Json::parse` and asserts the
+-- expected discriminator. Validates the full pipeline:
+-- FFI declaration, `#link` directive, cdylib build, auto-
+-- staging into `deps/`, and the parse → kind path through
+-- `serde_json`.
+-- @cmd — zo build parse_kind.zo && ./parse_kind
+
+fun main() {
+  imu nul: Json = Json::parse("null");
+  imu k_null: int = nul.kind();
+  check@eq(k_null, 0);
+  showln("null: {k_null}");
+  nul.free();
+
+  imu yes: Json = Json::parse("true");
+  imu k_bool: int = yes.kind();
+  check@eq(k_bool, 1);
+  showln("bool: {k_bool}");
+  yes.free();
+
+  imu n: Json = Json::parse("42");
+  imu k_num: int = n.kind();
+  check@eq(k_num, 2);
+  showln("number: {k_num}");
+  n.free();
+
+  imu s: Json = Json::parse("\"hello\"");
+  imu k_str: int = s.kind();
+  check@eq(k_str, 3);
+  showln("string: {k_str}");
+  s.free();
+
+  imu arr: Json = Json::parse("[1, 2, 3]");
+  imu k_arr: int = arr.kind();
+  check@eq(k_arr, 4);
+  showln("array: {k_arr}");
+  arr.free();
+
+  imu obj: Json = Json::parse("{\"k\": 1}");
+  imu k_obj: int = obj.kind();
+  check@eq(k_obj, 5);
+  showln("object: {k_obj}");
+  obj.free();
+
+  -- Parse error surfaces as handle 0; kind() over an
+  -- invalid handle returns 0 (KIND_NULL fallback).
+  imu bad: Json = Json::parse("{not json");
+  imu bad_h: int = bad.handle;
+  check@eq(bad_h, 0);
+  showln("bad: {bad_h}");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- null: 0
+-- bool: 1
+-- number: 2
+-- string: 3
+-- array: 4
+-- object: 5
+-- bad: 0
+-- DONE

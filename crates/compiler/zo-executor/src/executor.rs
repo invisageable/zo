@@ -13,7 +13,7 @@ use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
-use zo_ty::{Annotation, Mutability, Ty, TyId};
+use zo_ty::{Annotation, FloatWidth, Mutability, Ty, TyId};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
   Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
@@ -625,6 +625,40 @@ struct StructPatArmCtx<'a> {
   arrow_idx: usize,
   next_arm_label: u32,
   arm_bindings: &'a mut u32,
+}
+
+/// Shared type-id bundle for every derive-attribute synth.
+///
+/// Carries the `Json` struct's symbol and TyId (looked up
+/// against the loaded `core::json` preload) plus the three
+/// primitive TyIds the synth emits literally: `str` for
+/// keys, `int` for counters and discriminants, `bool` for
+/// branch conditions and `Json::set` returns.
+///
+/// Built once per top-level synth in `json_derive_ctx`
+/// and threaded by `&` through the per-field helpers so
+/// each helper's signature stays under the arg-count
+/// limit.
+#[derive(Clone, Copy)]
+struct DeriveCtx {
+  json_sym: Symbol,
+  json_ty_id: TyId,
+  str_ty: TyId,
+  int_ty: TyId,
+  bool_ty: TyId,
+}
+
+/// Per-variant scope for `emit_enum_from_json_construct`
+/// — the enum's interned name + TyId + the synth's
+/// `__derive_j` local symbol. Bundled so the construct
+/// helper's signature stays under the arg-count limit
+/// once `DeriveCtx` already accounts for the shared
+/// primitive TyIds.
+#[derive(Clone, Copy)]
+struct EnumFromJsonCtx {
+  enum_name: Symbol,
+  enum_ty_id: TyId,
+  j_local_sym: Symbol,
 }
 
 /// Deferred variable declaration, finalized at Semicolon.
@@ -2542,9 +2576,17 @@ impl<'a> Executor<'a> {
               !self.value_stack.is_empty() && !self.ty_stack.is_empty();
             let body_ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
-            // Use the function definition span for return
-            // type errors (not the closing `}`).
-            let fn_span = self.tree.spans[fun_ctx.fundef_idx];
+            // Pull the span from the FunDef SIR instruction —
+            // `fundef_idx` indexes `sir.instructions`, NOT
+            // `tree.spans`. Synthesized SIR pushes the SIR
+            // index past the source-tree length, so the old
+            // `tree.spans[fundef_idx]` lookup goes out of
+            // bounds whenever an earlier item synthesizes
+            // extra functions (e.g. `%% serialize.` derive).
+            let fn_span = match self.sir.instructions.get(fun_ctx.fundef_idx) {
+              Some(Insn::FunDef { span, .. }) => *span,
+              _ => Span::ZERO,
+            };
 
             let (return_value, return_ty) = if func_return_ty == unit_ty {
               // Unit functions return void. Only report
@@ -3002,14 +3044,15 @@ impl<'a> Executor<'a> {
 
       Token::Bytes => {
         if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
-          let value = self.literals.bytes_literals[lit_idx as usize] as u64;
+          let symbol = self.literals.string_literals[lit_idx as usize];
           let ty_id = self.ty_checker.bytes_type();
 
           let dst = ValueId(self.sir.next_value_id);
           self.sir.next_value_id += 1;
 
-          let sir_value = self.sir.emit(Insn::ConstInt { dst, value, ty_id });
-          let value_id = self.values.store_int(value);
+          let sir_value =
+            self.sir.emit(Insn::ConstString { dst, symbol, ty_id });
+          let value_id = self.values.store_string(symbol);
 
           self.value_stack.push(value_id);
           self.ty_stack.push(ty_id);
@@ -4910,6 +4953,17 @@ impl<'a> Executor<'a> {
 
     // Get span from the spans array (1:1 with nodes)
     let span = self.tree.spans[node_idx];
+
+    // Float-width promotion (the C-family "usual
+    // arithmetic conversions" rule, restricted to the
+    // lossless F32 → F64 direction). When the operands
+    // disagree on width, widen the smaller side via an
+    // `Insn::Cast` so the SIR carries the conversion
+    // explicitly instead of relying on a unify-time fudge.
+    // F64 → F32 narrowing stays unimplicit — `as f32` is
+    // the user-visible spelling.
+    let (lhs_ty, lhs_sir, rhs_ty, rhs_sir) =
+      self.widen_mixed_float_binop(lhs_ty, lhs_sir, rhs_ty, rhs_sir);
 
     match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
       Some(ty_id) => {
@@ -8170,6 +8224,109 @@ impl<'a> Executor<'a> {
       || self.narrow_float_literal(sir_val, src_ty, target_ty)
   }
 
+  /// Emit `Insn::Cast` to widen a float SSA value from
+  /// `src_ty` to `dst_ty` and return the new (sir_value,
+  /// ty). When `src_ty == dst_ty` (or either side isn't
+  /// a float) this is a no-op and returns the inputs
+  /// unchanged. Narrowing (F64 → F32) is rejected at
+  /// the caller — implicit narrowing is lossy and the
+  /// user spells it as `expr as f32`.
+  fn emit_float_widen(
+    &mut self,
+    sir_val: ValueId,
+    src_ty: TyId,
+    dst_ty: TyId,
+  ) -> (ValueId, TyId) {
+    if src_ty == dst_ty {
+      return (sir_val, src_ty);
+    }
+
+    // Float types are interned by width, so `src_ty !=
+    // dst_ty` already implies different widths once we
+    // confirm both are floats. No second width check
+    // needed.
+    if !matches!(
+      (
+        self.ty_checker.kind_of(src_ty),
+        self.ty_checker.kind_of(dst_ty)
+      ),
+      (Ty::Float(_), Ty::Float(_))
+    ) {
+      return (sir_val, src_ty);
+    }
+
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let new_sir = self.sir.emit(Insn::Cast {
+      dst,
+      src: sir_val,
+      from_ty: src_ty,
+      to_ty: dst_ty,
+    });
+
+    (new_sir, dst_ty)
+  }
+
+  /// If `src_ty` is F32 and `dst_ty` is F64, emit a
+  /// widening `Insn::Cast` and return the new SSA value
+  /// with the F64 type.
+  ///
+  /// Any other combination (matching widths, non-float,
+  /// or F64 to F32) leaves the inputs alone. Shared by
+  /// the binop, decl, and call-arg sites — each used to
+  /// spell this triangle inline.
+  fn try_widen_f32_to_f64(
+    &mut self,
+    sir_val: ValueId,
+    src_ty: TyId,
+    dst_ty: TyId,
+  ) -> (ValueId, TyId) {
+    if matches!(
+      (
+        self.ty_checker.kind_of(src_ty),
+        self.ty_checker.kind_of(dst_ty)
+      ),
+      (Ty::Float(FloatWidth::F32), Ty::Float(FloatWidth::F64))
+    ) {
+      self.emit_float_widen(sir_val, src_ty, dst_ty)
+    } else {
+      (sir_val, src_ty)
+    }
+  }
+
+  /// "Usual arithmetic conversions" for a binop with
+  /// mixed-width float operands. Widens the F32 side to
+  /// F64; the other direction requires an explicit cast.
+  /// Returns the inputs unchanged when the widths already
+  /// agree or when neither side is a float. Mixed
+  /// int/float still goes through the unify error path,
+  /// matching Rust's strict numeric typing.
+  ///
+  /// Gated on a width-mismatch so `f32 + f32` and `f64 +
+  /// f64` short-circuit without emitting spurious widen
+  /// casts that would push both sides up to F64.
+  fn widen_mixed_float_binop(
+    &mut self,
+    lhs_ty: TyId,
+    lhs_sir: ValueId,
+    rhs_ty: TyId,
+    rhs_sir: ValueId,
+  ) -> (TyId, ValueId, TyId, ValueId) {
+    if !matches!(
+      (self.ty_checker.kind_of(lhs_ty), self.ty_checker.kind_of(rhs_ty)),
+      (Ty::Float(l), Ty::Float(r)) if l != r
+    ) {
+      return (lhs_ty, lhs_sir, rhs_ty, rhs_sir);
+    }
+
+    let f64_ty = self.ty_checker.f64_type();
+    let (lhs_sir, lhs_ty) = self.try_widen_f32_to_f64(lhs_sir, lhs_ty, f64_ty);
+    let (rhs_sir, rhs_ty) = self.try_widen_f32_to_f64(rhs_sir, rhs_ty, f64_ty);
+
+    (lhs_ty, lhs_sir, rhs_ty, rhs_sir)
+  }
+
   /// Walk the init expression's emitted SIR insns and
   /// rewrite the `Insn::ArrayLiteral` whose `dst` matches
   /// `sir_val` to use `new_ty`. Bounded by the
@@ -8414,7 +8571,7 @@ impl<'a> Executor<'a> {
     if let (Some(init_value), Some(mut init_ty)) =
       (self.value_stack.pop(), self.ty_stack.pop())
     {
-      let sir_init = self.sir_values.pop();
+      let mut sir_init = self.sir_values.pop();
 
       // Narrow a default-typed numeric literal (int or
       // float) to the declaration's annotation.
@@ -8422,6 +8579,21 @@ impl<'a> Executor<'a> {
         && self.narrow_literal(sv, init_ty, ann_ty)
       {
         init_ty = ann_ty;
+      }
+
+      // Implicit F32 → F64 widening at assignment. After
+      // literal narrowing, if the RHS is still F32 and the
+      // annotation is F64, emit an `Insn::Cast` so the
+      // local lands with the annotated width. The other
+      // direction (F64 → F32) is lossy; user spells it as
+      // `expr as f32`. Without this, mixed-width
+      // assignments fall through to `unify` and report
+      // E0304.
+      if let (Some(ann_ty), Some(sv)) = (decl.annotated_ty, sir_init) {
+        let (new_sir, new_ty) = self.try_widen_f32_to_f64(sv, init_ty, ann_ty);
+
+        sir_init = Some(new_sir);
+        init_ty = new_ty;
       }
 
       // Unify annotated type with init type. For enum values,
@@ -9090,12 +9262,47 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::EnumDef {
       name,
       ty_id,
-      variants,
+      variants: variants.clone(),
       pubness,
     });
 
     // Register for variant construction lookup.
     self.push_enum_def((name, enum_ty_id, ty_id));
+
+    // `%% serialize.` / `%% deserialize.` derive — synth
+    // `to_json` / `from_json` for the enum just like for
+    // structs. Externally-tagged wire shape:
+    //   unit variant       → {"VariantName": null}
+    //   single-payload     → {"VariantName": payload_json}
+    let want_serialize = self.has_pending_attribute("serialize");
+    let want_deserialize = self.has_pending_attribute("deserialize");
+
+    let fun_span = self.introducer_span(start_idx);
+
+    // Synthesized derive methods are always `pub` so DCE
+    // doesn't strip them when the enum itself is private —
+    // the user wrote `%% serialize, deserialize.` which is
+    // an explicit ask for the methods to exist.
+    let synth_pubness = Pubness::Yes;
+    if want_serialize {
+      self.synthesize_enum_to_json(
+        name,
+        ty_id,
+        &variants,
+        fun_span,
+        synth_pubness,
+      );
+    }
+
+    if want_deserialize {
+      self.synthesize_enum_from_json(
+        name,
+        ty_id,
+        &variants,
+        fun_span,
+        synth_pubness,
+      );
+    }
 
     // Persist the enum's generic parameters so each later
     // construction can substitute fresh per-instance vars
@@ -9418,16 +9625,31 @@ impl<'a> Executor<'a> {
     self.ty_stack.push(ty_id);
     self.sir_values.push(sv);
 
-    // Skip past the struct construct block. Find the
-    // RBrace position.
+    // Skip past the struct construct block. Brace-balance
+    // counted so a nested struct literal (`Outer { n =
+    // Inner { a = 2 } }`) doesn't short-circuit on the
+    // inner `}` — that left the outer struct's tail
+    // tokens (`, }, ;`) inside the enclosing scope's
+    // execution loop, closing the function body early
+    // and turning the next statement into an "Invalid
+    // top-level item".
     let mut skip = brace_idx + 1;
+    let mut depth = 1i32;
 
     while skip < self.tree.nodes.len() {
-      if self.tree.nodes[skip].token == Token::RBrace {
-        skip += 1;
+      match self.tree.nodes[skip].token {
+        Token::LBrace => depth += 1,
+        Token::RBrace => {
+          depth -= 1;
 
-        break;
+          if depth == 0 {
+            skip += 1;
+            break;
+          }
+        }
+        _ => {}
       }
+
       skip += 1;
     }
 
@@ -9624,6 +9846,11 @@ impl<'a> Executor<'a> {
     let mut fields: Vec<(Symbol, TyId, bool)> = Vec::new();
     // Default value tree indices: (token, node_index, field_ty).
     let mut default_nodes: Vec<Option<(Token, usize, TyId)>> = Vec::new();
+    // Per-field source spans, parallel to `fields` — the
+    // `%% serialize, deserialize.` synth reads these to
+    // anchor `DeriveUnsupportedField` diagnostics at the
+    // field declaration the user actually wrote.
+    let mut field_spans: Vec<Span> = Vec::new();
 
     while idx < end_idx {
       match self.tree.nodes[idx].token {
@@ -9632,6 +9859,7 @@ impl<'a> Executor<'a> {
         Token::Pub => idx += 1,
 
         Token::Ident => {
+          let field_span = self.tree.spans[idx];
           let fname = self.node_value(idx).and_then(|v| match v {
             NodeValue::Symbol(s) => Some(s),
             _ => None,
@@ -9645,31 +9873,20 @@ impl<'a> Executor<'a> {
               idx += 1;
             }
 
-            // Field type after field name. Three shapes:
-            //   `$T`        — generic field   (Dollar + Ident, 2 nodes)
-            //   `int`/`str` — builtin keyword (1 node, `is_ty()`)
-            //   `Color`     — user-defined ident resolving via
-            //                 the type table (1 node, `Token::Ident`)
-            // The consumer must advance past every node it
-            // resolved or the next loop iteration will parse
-            // the type token as the next field name.
-            let fty =
-              if idx < end_idx && self.tree.nodes[idx].token == Token::Dollar {
-                let ty = self.resolve_type_token(idx);
-
-                idx += 2; // skip Dollar + Ident
-                ty
-              } else if idx < end_idx
-                && (self.tree.nodes[idx].token.is_ty()
-                  || self.tree.nodes[idx].token == Token::Ident)
-              {
-                let ty = self.resolve_type_token(idx);
-
-                idx += 1;
-                ty
-              } else {
-                self.ty_checker.fresh_var()
-              };
+            // Field type — delegate to the shared resolver
+            // so every shape param/return positions accept
+            // (`$T`, primitives, user idents, `[]T`,
+            // tuples, `Fn(...)`) works here too. Returning
+            // a fresh inference var stays the bail-out for
+            // unrecognized shapes.
+            let fty = if let Some((ty, next)) =
+              self.resolve_param_or_return_ty(idx, end_idx)
+            {
+              idx = next;
+              ty
+            } else {
+              self.ty_checker.fresh_var()
+            };
 
             // Check for default value: = expr
             let has_default =
@@ -9692,6 +9909,7 @@ impl<'a> Executor<'a> {
             }
 
             fields.push((fname, fty, has_default));
+            field_spans.push(field_span);
           } else {
             idx += 1;
           }
@@ -9724,6 +9942,35 @@ impl<'a> Executor<'a> {
       pubness,
     });
 
+    // `%% serialize.` / `%% deserialize.` derive — synth
+    // `to_json` / `from_json` methods so user code doesn't
+    // hand-write the JSON glue. Consumed here so the
+    // attribute doesn't leak to the next item.
+    let want_serialize = self.has_pending_attribute("serialize");
+    let want_deserialize = self.has_pending_attribute("deserialize");
+
+    if want_serialize {
+      self.synthesize_to_json(
+        name,
+        ty_id,
+        &fields,
+        &field_spans,
+        fun_span,
+        pubness,
+      );
+    }
+
+    if want_deserialize {
+      self.synthesize_from_json(
+        name,
+        ty_id,
+        &fields,
+        &field_spans,
+        fun_span,
+        pubness,
+      );
+    }
+
     // Auto-generate `Type::default()` if all fields have
     // default values. Emits a synthetic FunDef that constructs
     // the struct with the default literals.
@@ -9731,8 +9978,8 @@ impl<'a> Executor<'a> {
       !fields.is_empty() && default_nodes.iter().all(|d| d.is_some());
 
     if all_have_defaults {
-      let type_str = self.interner.get(name).to_owned();
-      let fn_name = self.interner.intern(&format!("{type_str}::default"));
+      let fn_name_str = format!("{}::default", self.interner.get(name));
+      let fn_name = self.interner.intern(&fn_name_str);
 
       let body_start = (self.sir.instructions.len() + 1) as u32;
 
@@ -9855,6 +10102,1600 @@ impl<'a> Executor<'a> {
     }
 
     self.skip_until = end_idx;
+  }
+
+  /// Discover the Json struct's TyId so synthesized
+  /// derive methods can refer to it. `None` when
+  /// `core::json` isn't imported — derive then becomes a
+  /// no-op (user's call site reports `Undefined`).
+  fn json_derive_ctx(&mut self) -> Option<DeriveCtx> {
+    let json_sym = self.interner.symbol("Json")?;
+    let json_struct_id = self
+      .ty_checker
+      .ty_table
+      .struct_intern_lookup(json_sym)
+      .copied()?;
+    let json_ty_id = self.ty_checker.intern_ty(Ty::Struct(json_struct_id));
+
+    Some(DeriveCtx {
+      json_sym,
+      json_ty_id,
+      str_ty: self.ty_checker.str_type(),
+      int_ty: self.ty_checker.int_type(),
+      bool_ty: self.ty_checker.bool_type(),
+    })
+  }
+
+  /// Pick the interned method name that converts a
+  /// field's value to / from a Json. Direction is encoded
+  /// by `prefix` (`"from"` for serialize-side, `"as"` for
+  /// the deserialize accessor) and `nested_method` (the
+  /// recursive call when the field is itself a struct).
+  /// `None` means the type is unsupported — the caller
+  /// reports `DeriveUnsupportedField` and skips the field.
+  /// Returns the `Symbol` directly so the synthesizer
+  /// doesn't have to `intern` a `String` it just built.
+  fn derive_field_call(
+    &mut self,
+    field_ty: TyId,
+    json_sym: Symbol,
+    prefix: &str,
+    nested_method: &str,
+  ) -> Option<Symbol> {
+    let raw = match self.ty_checker.resolve_ty(field_ty) {
+      Ty::Int { .. } => format!("Json::{prefix}_int"),
+      Ty::Float(_) => format!("Json::{prefix}_f64"),
+      Ty::Bool => format!("Json::{prefix}_bool"),
+      // Serialize spells str/bytes as `from_string`;
+      // deserialize spells them `as_str`. Both round-trip
+      // through the same JSON wire shape (a string node)
+      // — direction picks the suffix.
+      Ty::Str | Ty::Bytes => {
+        if prefix == "from" {
+          "Json::from_string".to_owned()
+        } else {
+          "Json::as_str".to_owned()
+        }
+      }
+      Ty::Struct(sid) => {
+        let nested_name =
+          self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)?;
+
+        // A field of type `Json` would recurse forever —
+        // skip and let the user flatten manually.
+        if nested_name == json_sym {
+          return None;
+        }
+
+        format!("{}::{nested_method}", self.interner.get(nested_name))
+      }
+      _ => return None,
+    };
+
+    Some(self.interner.intern(&raw))
+  }
+
+  /// VarDef + Store pair — the canonical "bind `value` to
+  /// a fresh local slot" emission that synthesized bodies
+  /// use everywhere. The VarDef declares the binding;
+  /// the Store actually writes the value into the slot so
+  /// subsequent `Load(Local)` reads pull the real value.
+  fn emit_synth_local(&mut self, name: Symbol, ty_id: TyId, value: ValueId) {
+    self.emit_synth_local_with_mutability(name, ty_id, value, Mutability::No);
+  }
+
+  /// Same as `emit_synth_local` but pins the binding's
+  /// mutability. Synths that *re-assign* the same slot
+  /// (e.g. `from_json` writing each candidate variant
+  /// into `__derive_result`) must mark the slot mutable so
+  /// the codegen routes every Store through the variable's
+  /// stack offset; an immutable binding pins the SSA value
+  /// at the first store, leaving subsequent assignments
+  /// invisible to the loader.
+  fn emit_synth_local_with_mutability(
+    &mut self,
+    name: Symbol,
+    ty_id: TyId,
+    value: ValueId,
+    mutability: Mutability,
+  ) {
+    self.sir.emit(Insn::VarDef {
+      name,
+      ty_id,
+      init: Some(value),
+      mutability,
+      pubness: Pubness::No,
+    });
+
+    self.sir.emit(Insn::Store { name, value, ty_id });
+  }
+
+  /// FunDef envelope + Return + push_fun, shared by every
+  /// synthesized function (struct / enum derives, the
+  /// auto-`default()`, etc.). Body closure builds the
+  /// SIR for the body and returns the ValueId that the
+  /// function returns; the helper wraps the boilerplate.
+  /// Synthesized bodies always return `Some(ret_v)` —
+  /// none of them produce unit today.
+  fn with_synth_fun(
+    &mut self,
+    fn_name: Symbol,
+    params: Vec<(Symbol, TyId)>,
+    return_ty: TyId,
+    pubness: Pubness,
+    span: Span,
+    build_body: impl FnOnce(&mut Self) -> ValueId,
+  ) {
+    let body_start = (self.sir.instructions.len() + 1) as u32;
+
+    self.sir.emit(Insn::FunDef {
+      name: fn_name,
+      params: params.clone(),
+      return_ty,
+      body_start,
+      kind: FunctionKind::UserDefined,
+      pubness,
+      mut_self: false,
+      link_name: None,
+      owning_pack: None,
+      span,
+    });
+
+    let ret_v = build_body(self);
+
+    self.sir.emit(Insn::Return {
+      value: Some(ret_v),
+      ty_id: return_ty,
+    });
+
+    self.push_fun(FunDef {
+      name: fn_name,
+      params,
+      return_ty,
+      body_start,
+      kind: FunctionKind::UserDefined,
+      pubness,
+      type_params: vec![],
+      return_type_args: vec![],
+      mut_self: false,
+      span,
+    });
+  }
+
+  /// Emit the body that produces a `Json` value for one
+  /// struct field — primitive / nested-struct via the
+  /// builder call, `[]T` via a counted loop pushing onto
+  /// a fresh `Json::array()`. Returns the ValueId holding
+  /// the resulting Json, or `None` if the field type is
+  /// unsupported.
+  fn emit_to_json_field_value(
+    &mut self,
+    field_idx: usize,
+    field_name: Symbol,
+    field_ty: TyId,
+    struct_ty_id: TyId,
+    ctx: &DeriveCtx,
+  ) -> Option<ValueId> {
+    let DeriveCtx {
+      json_sym,
+      json_ty_id,
+      ..
+    } = *ctx;
+    let resolved = self.ty_checker.resolve_ty(field_ty);
+
+    // Reload self + grab the field value (used by both
+    // the scalar and array paths).
+    let self_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: self_v,
+      src: LoadSource::Param(0),
+      ty_id: struct_ty_id,
+    });
+
+    let field_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::TupleIndex {
+      dst: field_v,
+      tuple: self_v,
+      index: field_idx as u32,
+      ty_id: field_ty,
+    });
+
+    match resolved {
+      Ty::Array(arr_id) => {
+        let elem_ty =
+          self.ty_checker.ty_table.array(arr_id).map(|a| a.elem_ty)?;
+        let elem_builder =
+          self.derive_field_call(elem_ty, json_sym, "from", "to_json")?;
+
+        Some(self.emit_to_json_array(
+          field_name,
+          field_v,
+          field_ty,
+          elem_ty,
+          elem_builder,
+          ctx,
+        ))
+      }
+      _ => {
+        let builder =
+          self.derive_field_call(field_ty, json_sym, "from", "to_json")?;
+
+        let json_v = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Call {
+          dst: json_v,
+          name: builder,
+          args: vec![field_v],
+          ty_id: json_ty_id,
+        });
+
+        Some(json_v)
+      }
+    }
+  }
+
+  /// Emit a counted loop that pushes every element of a
+  /// zo `[]T` field into a fresh `Json::array()`, then
+  /// returns the array handle. Each element flows through
+  /// `elem_builder` — primitive (`Json::from_int` etc.)
+  /// or recursive (`<Nested>::to_json`).
+  fn emit_to_json_array(
+    &mut self,
+    field_name: Symbol,
+    arr_v: ValueId,
+    arr_ty: TyId,
+    elem_ty: TyId,
+    elem_builder: Symbol,
+    ctx: &DeriveCtx,
+  ) -> ValueId {
+    let DeriveCtx {
+      json_ty_id,
+      int_ty,
+      bool_ty,
+      ..
+    } = *ctx;
+    let field_str = self.interner.get(field_name).to_owned();
+    let arr_sym = self.interner.intern(&format!("__derive_arr_{field_str}"));
+    let ja_sym = self.interner.intern(&format!("__derive_ja_{field_str}"));
+    let n_sym = self.interner.intern(&format!("__derive_n_{field_str}"));
+    let i_sym = self.interner.intern(&format!("__derive_i_{field_str}"));
+
+    // arr — bind the field value so the in-loop reloads
+    // see a stable slot.
+    self.emit_synth_local(arr_sym, arr_ty, arr_v);
+
+    // ja = Json::array()
+    let ja_init_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Call {
+      dst: ja_init_v,
+      name: self.interner.intern("Json::array"),
+      args: vec![],
+      ty_id: json_ty_id,
+    });
+
+    self.emit_synth_local(ja_sym, json_ty_id, ja_init_v);
+
+    // n = arr.len
+    let arr_load_a = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: arr_load_a,
+      src: LoadSource::Local(arr_sym),
+      ty_id: arr_ty,
+    });
+
+    let n_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ArrayLen {
+      dst: n_v,
+      array: arr_load_a,
+      ty_id: int_ty,
+    });
+
+    self.emit_synth_local(n_sym, int_ty, n_v);
+
+    // i = 0
+    let zero_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstInt {
+      dst: zero_v,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    self.emit_synth_local(i_sym, int_ty, zero_v);
+
+    let start_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: start_label });
+
+    // cond: i < n
+    let i_load = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: i_load,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let n_load = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: n_load,
+      src: LoadSource::Local(n_sym),
+      ty_id: int_ty,
+    });
+
+    let cond_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::BinOp {
+      dst: cond_v,
+      op: BinOp::Lt,
+      lhs: i_load,
+      rhs: n_load,
+      ty_id: bool_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_v,
+      target: end_label,
+    });
+
+    // elem = arr[i]
+    let arr_load_b = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: arr_load_b,
+      src: LoadSource::Local(arr_sym),
+      ty_id: arr_ty,
+    });
+
+    let i_load_b = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: i_load_b,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let elem_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ArrayIndex {
+      dst: elem_v,
+      array: arr_load_b,
+      index: i_load_b,
+      ty_id: elem_ty,
+    });
+
+    // elem_json = elem_builder(elem)
+    let elem_json_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Call {
+      dst: elem_json_v,
+      name: elem_builder,
+      args: vec![elem_v],
+      ty_id: json_ty_id,
+    });
+
+    // Json::push(ja, elem_json)
+    let ja_load = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: ja_load,
+      src: LoadSource::Local(ja_sym),
+      ty_id: json_ty_id,
+    });
+
+    let push_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Call {
+      dst: push_dst,
+      name: self.interner.intern("Json::push"),
+      args: vec![ja_load, elem_json_v],
+      ty_id: bool_ty,
+    });
+
+    // i = i + 1
+    let i_load_c = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: i_load_c,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let one_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstInt {
+      dst: one_v,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let next_i = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::BinOp {
+      dst: next_i,
+      op: BinOp::Add,
+      lhs: i_load_c,
+      rhs: one_v,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: next_i,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump {
+      target: start_label,
+    });
+
+    self.sir.emit(Insn::Label { id: end_label });
+
+    // Final reload of `ja` — the caller uses this as the
+    // Json value to attach to the parent object.
+    let ja_final = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: ja_final,
+      src: LoadSource::Local(ja_sym),
+      ty_id: json_ty_id,
+    });
+
+    ja_final
+  }
+
+  /// `%% serialize.` for `enum`. Externally-tagged shape:
+  /// `{"VariantName": payload_json}`. Unit variants emit
+  /// `{"VariantName": null}`; single-payload variants emit
+  /// `{"VariantName": <payload>}`. Multi-payload / named-
+  /// payload variants are accepted but treated as unit
+  /// (payload = null) — the multi-payload encoding is a
+  /// follow-up.
+  fn synthesize_enum_to_json(
+    &mut self,
+    enum_name: Symbol,
+    enum_ty_id: TyId,
+    variants: &[(Symbol, u32, Vec<TyId>)],
+    fun_span: Span,
+    pubness: Pubness,
+  ) {
+    let Some(ctx) = self.json_derive_ctx() else {
+      return;
+    };
+    let DeriveCtx {
+      json_sym,
+      json_ty_id,
+      str_ty,
+      int_ty,
+      bool_ty,
+    } = ctx;
+    let self_sym = self.interner.intern("self");
+    let out_sym = self.interner.intern("__derive_out");
+    let disc_sym = self.interner.intern("__derive_disc");
+
+    let fn_name_str = format!("{}::to_json", self.interner.get(enum_name));
+    let fn_name = self.interner.intern(&fn_name_str);
+
+    self.with_synth_fun(
+      fn_name,
+      vec![(self_sym, enum_ty_id)],
+      json_ty_id,
+      pubness,
+      fun_span,
+      |this| {
+        // out = Json::object()
+        let out_init = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Call {
+          dst: out_init,
+          name: this.interner.intern("Json::object"),
+          args: vec![],
+          ty_id: json_ty_id,
+        });
+        this.emit_synth_local(out_sym, json_ty_id, out_init);
+
+        // disc = TupleIndex(self, 0)
+        let self_load = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Load {
+          dst: self_load,
+          src: LoadSource::Param(0),
+          ty_id: enum_ty_id,
+        });
+
+        let disc_v = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::TupleIndex {
+          dst: disc_v,
+          tuple: self_load,
+          index: 0,
+          ty_id: int_ty,
+        });
+        this.emit_synth_local(disc_sym, int_ty, disc_v);
+
+        let end_label = this.sir.next_label();
+
+        for &(variant_name, discriminant, ref payload_tys) in variants {
+          let next_label = this.sir.next_label();
+
+          // if disc != N -> next
+          let disc_load = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::Load {
+            dst: disc_load,
+            src: LoadSource::Local(disc_sym),
+            ty_id: int_ty,
+          });
+
+          let const_v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::ConstInt {
+            dst: const_v,
+            value: discriminant as u64,
+            ty_id: int_ty,
+          });
+
+          let cmp_v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          // BinOp.ty_id is the OPERAND type — codegen
+          // reads it to pick the int/float/str compare
+          // path. Pass `int_ty` for the discriminant
+          // equality.
+          this.sir.emit(Insn::BinOp {
+            dst: cmp_v,
+            op: BinOp::Eq,
+            lhs: disc_load,
+            rhs: const_v,
+            ty_id: int_ty,
+          });
+
+          this.sir.emit(Insn::BranchIfNot {
+            cond: cmp_v,
+            target: next_label,
+          });
+
+          // Body — build payload Json.
+          let payload_v = this.emit_enum_to_json_payload(
+            enum_ty_id,
+            payload_tys,
+            json_sym,
+            json_ty_id,
+          );
+
+          // key = variant name
+          let key_v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::ConstString {
+            dst: key_v,
+            symbol: variant_name,
+            ty_id: str_ty,
+          });
+
+          // out.set(key, payload)
+          let out_load = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::Load {
+            dst: out_load,
+            src: LoadSource::Local(out_sym),
+            ty_id: json_ty_id,
+          });
+
+          let set_dst = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::Call {
+            dst: set_dst,
+            name: this.interner.intern("Json::set"),
+            args: vec![out_load, key_v, payload_v],
+            ty_id: bool_ty,
+          });
+
+          this.sir.emit(Insn::Jump { target: end_label });
+          this.sir.emit(Insn::Label { id: next_label });
+        }
+
+        this.sir.emit(Insn::Label { id: end_label });
+
+        let ret_v = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Load {
+          dst: ret_v,
+          src: LoadSource::Local(out_sym),
+          ty_id: json_ty_id,
+        });
+
+        ret_v
+      },
+    );
+  }
+
+  /// Build the Json payload for one enum variant being
+  /// serialized. Unit (`payload_tys.is_empty()`) and
+  /// multi-payload variants emit `Json::null()`; single-
+  /// payload variants emit `Json::from_<T>(self.payload)`.
+  fn emit_enum_to_json_payload(
+    &mut self,
+    enum_ty_id: TyId,
+    payload_tys: &[TyId],
+    json_sym: Symbol,
+    json_ty_id: TyId,
+  ) -> ValueId {
+    if payload_tys.len() == 1 {
+      let elem_ty = payload_tys[0];
+      if let Some(builder) =
+        self.derive_field_call(elem_ty, json_sym, "from", "to_json")
+      {
+        // self_load + TupleIndex(1) for the payload.
+        let self_load = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Load {
+          dst: self_load,
+          src: LoadSource::Param(0),
+          ty_id: enum_ty_id,
+        });
+
+        let payload_v = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::TupleIndex {
+          dst: payload_v,
+          tuple: self_load,
+          index: 1,
+          ty_id: elem_ty,
+        });
+
+        let json_v = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Call {
+          dst: json_v,
+          name: builder,
+          args: vec![payload_v],
+          ty_id: json_ty_id,
+        });
+        return json_v;
+      }
+    }
+
+    // Unit variant — and the multi-payload / unsupported
+    // fallback. Multi-payload expansion (arrays / inner
+    // objects) is a follow-up.
+    let null_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Call {
+      dst: null_v,
+      name: self.interner.intern("Json::null"),
+      args: vec![],
+      ty_id: json_ty_id,
+    });
+    null_v
+  }
+
+  /// `%% deserialize.` for `enum`. Reads the single key
+  /// from the externally-tagged JSON object, compares it
+  /// against every variant name, and constructs the
+  /// matching variant. Unsupported / unrecognized tags
+  /// fall through to the first variant — best-effort
+  /// until the unsupported-tag diagnostic lands.
+  fn synthesize_enum_from_json(
+    &mut self,
+    enum_name: Symbol,
+    enum_ty_id: TyId,
+    variants: &[(Symbol, u32, Vec<TyId>)],
+    fun_span: Span,
+    pubness: Pubness,
+  ) {
+    if variants.is_empty() {
+      return;
+    }
+
+    let Some(ctx) = self.json_derive_ctx() else {
+      return;
+    };
+    let DeriveCtx {
+      json_ty_id,
+      str_ty,
+      int_ty,
+      ..
+    } = ctx;
+    let j_param_sym = self.interner.intern("j");
+    let j_local_sym = self.interner.intern("__derive_j");
+    let result_sym = self.interner.intern("__derive_result");
+
+    let fn_name_str = format!("{}::from_json", self.interner.get(enum_name));
+    let fn_name = self.interner.intern(&fn_name_str);
+
+    self.with_synth_fun(
+      fn_name,
+      vec![(j_param_sym, json_ty_id)],
+      enum_ty_id,
+      pubness,
+      fun_span,
+      |this| {
+        // j bound to local.
+        let j_init = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Load {
+          dst: j_init,
+          src: LoadSource::Param(0),
+          ty_id: json_ty_id,
+        });
+        this.emit_synth_local(j_local_sym, json_ty_id, j_init);
+
+        // Initialize result to the first variant (acts as
+        // the fallback if no variant key matches). For
+        // variants with a payload, use type-default
+        // placeholders; they're shadowed by every branch
+        // that does match.
+        let (_, first_disc, first_payloads) = &variants[0];
+        let init_v = this.emit_enum_default_construct(
+          enum_name,
+          enum_ty_id,
+          *first_disc,
+          first_payloads,
+        );
+        // Mutable — the result is re-assigned by every
+        // matched variant branch below. Without
+        // `Mutability::Yes` the codegen pins the SSA value
+        // at the first Store, so later assignments never
+        // reach the slot the final Load reads from.
+        this.emit_synth_local_with_mutability(
+          result_sym,
+          enum_ty_id,
+          init_v,
+          Mutability::Yes,
+        );
+
+        let end_label = this.sir.next_label();
+
+        // key = j.key_at(0)
+        let j_load = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Load {
+          dst: j_load,
+          src: LoadSource::Local(j_local_sym),
+          ty_id: json_ty_id,
+        });
+
+        let zero_v = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::ConstInt {
+          dst: zero_v,
+          value: 0,
+          ty_id: int_ty,
+        });
+
+        let key_v = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Call {
+          dst: key_v,
+          name: this.interner.intern("Json::key_at"),
+          args: vec![j_load, zero_v],
+          ty_id: str_ty,
+        });
+
+        let key_sym = this.interner.intern("__derive_key");
+        this.emit_synth_local(key_sym, str_ty, key_v);
+
+        for &(variant_name, discriminant, ref payload_tys) in variants {
+          let next_label = this.sir.next_label();
+
+          // if key != variant_name -> next
+          let key_load = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::Load {
+            dst: key_load,
+            src: LoadSource::Local(key_sym),
+            ty_id: str_ty,
+          });
+
+          let variant_str_v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::ConstString {
+            dst: variant_str_v,
+            symbol: variant_name,
+            ty_id: str_ty,
+          });
+
+          let cmp_v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          // BinOp.ty_id is the OPERAND type, not the
+          // result — codegen reads it to dispatch on
+          // str/float/int. Pass `str_ty` so the str-
+          // equality path fires; otherwise the compare
+          // degrades to pointer-equality and `__derive_key`
+          // (heap-allocated from `Json::key_at`) never
+          // matches the literal variant name.
+          this.sir.emit(Insn::BinOp {
+            dst: cmp_v,
+            op: BinOp::Eq,
+            lhs: key_load,
+            rhs: variant_str_v,
+            ty_id: str_ty,
+          });
+
+          this.sir.emit(Insn::BranchIfNot {
+            cond: cmp_v,
+            target: next_label,
+          });
+
+          // Build the variant.
+          let enum_ctx = EnumFromJsonCtx {
+            enum_name,
+            enum_ty_id,
+            j_local_sym,
+          };
+          let constructed_v = this.emit_enum_from_json_construct(
+            discriminant,
+            variant_name,
+            payload_tys,
+            &enum_ctx,
+            &ctx,
+          );
+
+          this.sir.emit(Insn::Store {
+            name: result_sym,
+            value: constructed_v,
+            ty_id: enum_ty_id,
+          });
+
+          this.sir.emit(Insn::Jump { target: end_label });
+          this.sir.emit(Insn::Label { id: next_label });
+        }
+
+        this.sir.emit(Insn::Label { id: end_label });
+
+        let ret_v = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Load {
+          dst: ret_v,
+          src: LoadSource::Local(result_sym),
+          ty_id: enum_ty_id,
+        });
+
+        ret_v
+      },
+    );
+  }
+
+  /// Default-construct one enum variant for `from_json`'s
+  /// fallback slot. Picks zero / false / "" for each
+  /// payload field; the resulting value is immediately
+  /// overwritten by whichever variant branch actually
+  /// matches the JSON tag.
+  fn emit_enum_default_construct(
+    &mut self,
+    enum_name: Symbol,
+    enum_ty_id: TyId,
+    discriminant: u32,
+    payload_tys: &[TyId],
+  ) -> ValueId {
+    let mut fields = Vec::with_capacity(payload_tys.len());
+
+    for payload_ty in payload_tys {
+      let v = self.emit_default_value_for(*payload_ty);
+      fields.push(v);
+    }
+
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::EnumConstruct {
+      dst,
+      enum_name,
+      variant: discriminant,
+      fields,
+      ty_id: enum_ty_id,
+    });
+    dst
+  }
+
+  /// Emit a "zero" SIR value matching `ty_id`. Used to
+  /// fill enum-variant fallback slots and any other
+  /// placeholder a synth needs. Unsupported types fall
+  /// back to a zero-int — the value is never observed in
+  /// well-formed programs (gets overwritten by the real
+  /// branch).
+  fn emit_default_value_for(&mut self, ty_id: TyId) -> ValueId {
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    let resolved = self.ty_checker.resolve_ty(ty_id);
+
+    match resolved {
+      Ty::Float(_) => self.sir.emit(Insn::ConstFloat {
+        dst,
+        value: 0.0,
+        ty_id,
+      }),
+      Ty::Bool => self.sir.emit(Insn::ConstBool {
+        dst,
+        value: false,
+        ty_id,
+      }),
+      Ty::Str | Ty::Bytes => {
+        let empty_sym = self.interner.intern("");
+        self.sir.emit(Insn::ConstString {
+          dst,
+          symbol: empty_sym,
+          ty_id,
+        })
+      }
+      _ => self.sir.emit(Insn::ConstInt {
+        dst,
+        value: 0,
+        ty_id,
+      }),
+    };
+
+    dst
+  }
+
+  /// Build an enum variant from the matched JSON branch.
+  /// Unit variants get a zero-field `EnumConstruct`; one-
+  /// payload variants pull `j.get(variant_name)` through
+  /// the per-type accessor and feed it into the
+  /// `EnumConstruct`. Multi-payload variants currently
+  /// reuse the default-construct.
+  fn emit_enum_from_json_construct(
+    &mut self,
+    discriminant: u32,
+    variant_name: Symbol,
+    payload_tys: &[TyId],
+    enum_ctx: &EnumFromJsonCtx,
+    ctx: &DeriveCtx,
+  ) -> ValueId {
+    let EnumFromJsonCtx {
+      enum_name,
+      enum_ty_id,
+      j_local_sym,
+    } = *enum_ctx;
+    let DeriveCtx {
+      json_sym,
+      json_ty_id,
+      str_ty,
+      ..
+    } = *ctx;
+    if payload_tys.len() == 1 {
+      let elem_ty = payload_tys[0];
+
+      if let Some(accessor) =
+        self.derive_field_call(elem_ty, json_sym, "as", "from_json")
+      {
+        // Pull the payload Json sub-value out of j under
+        // the variant-name key, then run the accessor.
+        //
+        // Every call result is bound to a fresh local with
+        // VarDef + Store + reloaded via Load before its
+        // next use. Without the bindings the codegen would
+        // see `EnumConstruct(payload_v)` where `payload_v`
+        // is directly the second Call's SSA dst: the
+        // register the allocator picked for that SSA value
+        // is the call's X0 return; on certain layouts the
+        // EnumConstruct's payload store reads from X0 AFTER
+        // a `mov X16, #variant` clobbered no GPR but the
+        // register allocator's "spill across next call"
+        // logic still emitted a stale spill, leaving the
+        // payload slot zeroed. Mirrors how user-written zo
+        // (`imu sub = j.get(k); imu v = sub.as_int(); enum
+        // ::Circle(v)`) lowers — each call binds a local and
+        // the EnumConstruct reads the payload via Load.
+        let j_load = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Load {
+          dst: j_load,
+          src: LoadSource::Local(j_local_sym),
+          ty_id: json_ty_id,
+        });
+
+        let key_v = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::ConstString {
+          dst: key_v,
+          symbol: variant_name,
+          ty_id: str_ty,
+        });
+
+        let payload_json_v = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Call {
+          dst: payload_json_v,
+          name: self.interner.intern("Json::get"),
+          args: vec![j_load, key_v],
+          ty_id: json_ty_id,
+        });
+
+        let sub_sym = self.interner.intern("__derive_sub");
+        self.emit_synth_local(sub_sym, json_ty_id, payload_json_v);
+
+        let sub_reload = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Load {
+          dst: sub_reload,
+          src: LoadSource::Local(sub_sym),
+          ty_id: json_ty_id,
+        });
+
+        let payload_v = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Call {
+          dst: payload_v,
+          name: accessor,
+          args: vec![sub_reload],
+          ty_id: elem_ty,
+        });
+
+        let value_sym = self.interner.intern("__derive_value");
+        self.emit_synth_local(value_sym, elem_ty, payload_v);
+
+        let value_reload = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Load {
+          dst: value_reload,
+          src: LoadSource::Local(value_sym),
+          ty_id: elem_ty,
+        });
+
+        let dst = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::EnumConstruct {
+          dst,
+          enum_name,
+          variant: discriminant,
+          fields: vec![value_reload],
+          ty_id: enum_ty_id,
+        });
+        return dst;
+      }
+    }
+
+    // Unit variant — and the multi-payload fallback.
+    self.emit_enum_default_construct(
+      enum_name,
+      enum_ty_id,
+      discriminant,
+      payload_tys,
+    )
+  }
+
+  /// `%% serialize.` derive — synthesize a
+  /// `<Type>::to_json(self) -> Json` method that maps the
+  /// struct's fields to JSON object entries using the
+  /// `core::json` builder API. Emits the same SIR shape a
+  /// hand-written `apply Type { pub fun to_json(self) ->
+  /// Json {...} }` would produce.
+  ///
+  /// Primitive fields (`int` / `float` / `bool` / `str` /
+  /// `bytes`), nested struct fields, `[]T` array fields
+  /// (with primitive / nested-struct elements), and enum
+  /// fields all flow through.
+  fn synthesize_to_json(
+    &mut self,
+    type_name: Symbol,
+    struct_ty_id: TyId,
+    fields: &[(Symbol, TyId, bool)],
+    field_spans: &[Span],
+    fun_span: Span,
+    pubness: Pubness,
+  ) {
+    let Some(ctx) = self.json_derive_ctx() else {
+      return;
+    };
+    let json_ty_id = ctx.json_ty_id;
+    let str_ty = ctx.str_ty;
+    let bool_ty = ctx.bool_ty;
+    let self_sym = self.interner.intern("self");
+
+    let fn_name_str = format!("{}::to_json", self.interner.get(type_name));
+    let fn_name = self.interner.intern(&fn_name_str);
+    let out_sym = self.interner.intern("__derive_out");
+
+    self.with_synth_fun(
+      fn_name,
+      vec![(self_sym, struct_ty_id)],
+      json_ty_id,
+      pubness,
+      fun_span,
+      |this| {
+        // out = Json::object();  (bind to a local — the
+        // value lives in a stable slot across the per-
+        // field Json calls.)
+        let out_init_v = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Call {
+          dst: out_init_v,
+          name: this.interner.intern("Json::object"),
+          args: vec![],
+          ty_id: json_ty_id,
+        });
+
+        this.emit_synth_local(out_sym, json_ty_id, out_init_v);
+
+        for (idx, (field_name, field_ty, _has_default)) in
+          fields.iter().enumerate()
+        {
+          // Produce a Json value for this field. Primitives
+          // / nested structs go through `emit_to_json_scalar`;
+          // `[]T` fields take the loop path and produce a
+          // `Json::array`. Unsupported field types report
+          // `DeriveUnsupportedField` anchored at the field
+          // declaration, then skip the field — partial
+          // output is better than a broken function body,
+          // and the error stops the build.
+          let Some(json_v) = this.emit_to_json_field_value(
+            idx,
+            *field_name,
+            *field_ty,
+            struct_ty_id,
+            &ctx,
+          ) else {
+            let span = field_spans.get(idx).copied().unwrap_or(fun_span);
+
+            report_error(Error::new(ErrorKind::DeriveUnsupportedField, span));
+
+            continue;
+          };
+
+          // Key literal — the field name as a `str`.
+          let key_v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::ConstString {
+            dst: key_v,
+            symbol: *field_name,
+            ty_id: str_ty,
+          });
+
+          // Reload `out` from its local slot per iteration —
+          // matches what `out.set(...)` lowers to in hand-
+          // written code and keeps the receiver alive across
+          // the from_<ty> call's clobber set.
+          let out_v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::Load {
+            dst: out_v,
+            src: LoadSource::Local(out_sym),
+            ty_id: json_ty_id,
+          });
+
+          // Json::set(out, key, val) — return ignored.
+          let set_v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::Call {
+            dst: set_v,
+            name: this.interner.intern("Json::set"),
+            args: vec![out_v, key_v, json_v],
+            ty_id: bool_ty,
+          });
+        }
+
+        // Final load — the helper emits Return on the
+        // returned ValueId.
+        let ret_v = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Load {
+          dst: ret_v,
+          src: LoadSource::Local(out_sym),
+          ty_id: json_ty_id,
+        });
+
+        ret_v
+      },
+    );
+  }
+
+  /// Emit the body that produces a field value for one
+  /// struct field during `from_json`. Primitives /
+  /// nested-struct go through the `Json::as_*` /
+  /// `<Nested>::from_json` accessor. `[]T` fields take
+  /// the loop path: read the JSON sub-array, walk every
+  /// index, push each element onto a fresh `[]T`.
+  /// Returns the ValueId holding the reconstructed field
+  /// value, or `None` for unsupported shapes.
+  fn emit_from_json_field_value(
+    &mut self,
+    field_name: Symbol,
+    field_ty: TyId,
+    j_local_sym: Symbol,
+    ctx: &DeriveCtx,
+  ) -> Option<ValueId> {
+    let DeriveCtx {
+      json_sym,
+      json_ty_id,
+      str_ty,
+      ..
+    } = *ctx;
+    // Load j + read the field's Json sub-value (used by
+    // every arm).
+    let j_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: j_v,
+      src: LoadSource::Local(j_local_sym),
+      ty_id: json_ty_id,
+    });
+
+    let key_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstString {
+      dst: key_v,
+      symbol: field_name,
+      ty_id: str_ty,
+    });
+
+    let field_json_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Call {
+      dst: field_json_v,
+      name: self.interner.intern("Json::get"),
+      args: vec![j_v, key_v],
+      ty_id: json_ty_id,
+    });
+
+    let resolved = self.ty_checker.resolve_ty(field_ty);
+
+    match resolved {
+      Ty::Array(arr_id) => {
+        let elem_ty =
+          self.ty_checker.ty_table.array(arr_id).map(|a| a.elem_ty)?;
+        let elem_accessor =
+          self.derive_field_call(elem_ty, json_sym, "as", "from_json")?;
+
+        Some(self.emit_from_json_array(
+          field_name,
+          field_json_v,
+          field_ty,
+          elem_ty,
+          elem_accessor,
+          ctx,
+        ))
+      }
+      _ => {
+        let accessor =
+          self.derive_field_call(field_ty, json_sym, "as", "from_json")?;
+
+        let field_val_v = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+        self.sir.emit(Insn::Call {
+          dst: field_val_v,
+          name: accessor,
+          args: vec![field_json_v],
+          ty_id: field_ty,
+        });
+
+        Some(field_val_v)
+      }
+    }
+  }
+
+  /// Emit a counted loop that reads every element of a
+  /// `Json` array and pushes the decoded value onto a
+  /// fresh `[]T`. Returns the final array ValueId for
+  /// the caller to feed into StructConstruct.
+  fn emit_from_json_array(
+    &mut self,
+    field_name: Symbol,
+    arr_json_v: ValueId,
+    arr_ty: TyId,
+    elem_ty: TyId,
+    elem_accessor: Symbol,
+    ctx: &DeriveCtx,
+  ) -> ValueId {
+    let DeriveCtx {
+      json_ty_id,
+      int_ty,
+      bool_ty,
+      ..
+    } = *ctx;
+    let field_str = self.interner.get(field_name).to_owned();
+    let arrj_sym = self.interner.intern(&format!("__derive_arrj_{field_str}"));
+    let dest_sym = self.interner.intern(&format!("__derive_dest_{field_str}"));
+    let n_sym = self.interner.intern(&format!("__derive_n_{field_str}"));
+    let i_sym = self.interner.intern(&format!("__derive_i_{field_str}"));
+
+    // Bind the JSON array handle to a local so per-iter
+    // reloads see a stable slot.
+    self.emit_synth_local(arrj_sym, json_ty_id, arr_json_v);
+
+    // n = arr_json.len()
+    let arrj_load = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: arrj_load,
+      src: LoadSource::Local(arrj_sym),
+      ty_id: json_ty_id,
+    });
+
+    let n_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Call {
+      dst: n_v,
+      name: self.interner.intern("Json::len"),
+      args: vec![arrj_load],
+      ty_id: int_ty,
+    });
+
+    self.emit_synth_local(n_sym, int_ty, n_v);
+
+    // dest: []T = [] — fresh empty array bound to a local
+    // so the in-loop ArrayPush mutates a stable slot.
+    let dest_init = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ArrayLiteral {
+      dst: dest_init,
+      elements: vec![],
+      ty_id: arr_ty,
+    });
+
+    self.emit_synth_local(dest_sym, arr_ty, dest_init);
+
+    // i = 0
+    let zero_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstInt {
+      dst: zero_v,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    self.emit_synth_local(i_sym, int_ty, zero_v);
+
+    let start_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: start_label });
+
+    // cond: i < n
+    let i_load_a = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: i_load_a,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let n_load = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: n_load,
+      src: LoadSource::Local(n_sym),
+      ty_id: int_ty,
+    });
+
+    let cond_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::BinOp {
+      dst: cond_v,
+      op: BinOp::Lt,
+      lhs: i_load_a,
+      rhs: n_load,
+      ty_id: bool_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_v,
+      target: end_label,
+    });
+
+    // elem_json = Json::get_at(arr_json, i)
+    let arrj_load_b = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: arrj_load_b,
+      src: LoadSource::Local(arrj_sym),
+      ty_id: json_ty_id,
+    });
+
+    let i_load_b = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: i_load_b,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let elem_json_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Call {
+      dst: elem_json_v,
+      name: self.interner.intern("Json::get_at"),
+      args: vec![arrj_load_b, i_load_b],
+      ty_id: json_ty_id,
+    });
+
+    // elem = elem_accessor(elem_json)
+    let elem_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Call {
+      dst: elem_v,
+      name: elem_accessor,
+      args: vec![elem_json_v],
+      ty_id: elem_ty,
+    });
+
+    // dest.push(elem)
+    let dest_load = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: dest_load,
+      src: LoadSource::Local(dest_sym),
+      ty_id: arr_ty,
+    });
+
+    self.sir.emit(Insn::ArrayPush {
+      array: dest_load,
+      value: elem_v,
+      ty_id: elem_ty,
+      owner: Some(dest_sym),
+    });
+
+    // i = i + 1
+    let i_load_c = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: i_load_c,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let one_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstInt {
+      dst: one_v,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let next_i = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::BinOp {
+      dst: next_i,
+      op: BinOp::Add,
+      lhs: i_load_c,
+      rhs: one_v,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: next_i,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump {
+      target: start_label,
+    });
+
+    self.sir.emit(Insn::Label { id: end_label });
+
+    // Final reload of `dest` — return to the caller.
+    let dest_final = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::Load {
+      dst: dest_final,
+      src: LoadSource::Local(dest_sym),
+      ty_id: arr_ty,
+    });
+
+    dest_final
+  }
+
+  /// `%% deserialize.` derive — synthesize a
+  /// `<Type>::from_json(j: Json) -> Self` method that
+  /// reconstructs the struct from a JSON object via the
+  /// `core::json` accessor API. Mirror of
+  /// `synthesize_to_json` — same set of supported field
+  /// types: primitives, nested structs, and `[]T`.
+  fn synthesize_from_json(
+    &mut self,
+    type_name: Symbol,
+    struct_ty_id: TyId,
+    fields: &[(Symbol, TyId, bool)],
+    field_spans: &[Span],
+    fun_span: Span,
+    pubness: Pubness,
+  ) {
+    let Some(ctx) = self.json_derive_ctx() else {
+      return;
+    };
+    let json_ty_id = ctx.json_ty_id;
+    let j_param_sym = self.interner.intern("j");
+    let j_local_sym = self.interner.intern("__derive_j");
+
+    let fn_name_str = format!("{}::from_json", self.interner.get(type_name));
+    let fn_name = self.interner.intern(&fn_name_str);
+
+    self.with_synth_fun(
+      fn_name,
+      vec![(j_param_sym, json_ty_id)],
+      struct_ty_id,
+      pubness,
+      fun_span,
+      |this| {
+        // j (param 0) bound to a local slot so each
+        // `Json::get(j, ...)` re-reads from a stable
+        // place across the surrounding accessor calls.
+        let j_init_v = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::Load {
+          dst: j_init_v,
+          src: LoadSource::Param(0),
+          ty_id: json_ty_id,
+        });
+
+        this.emit_synth_local(j_local_sym, json_ty_id, j_init_v);
+
+        // Per-field local symbols: each Json accessor's
+        // result is bound to its own slot so the value
+        // survives the surrounding Json::get / Json::as_*
+        // calls before StructConstruct reads them all
+        // back. Without the bindings, regalloc has to
+        // spill/reload across every call manually — and
+        // missing a spill silently swaps a later call's
+        // return register over an earlier field.
+        let mut field_locals: Vec<(Symbol, TyId)> =
+          Vec::with_capacity(fields.len());
+
+        for (field_idx, (field_name, field_ty, _has_default)) in
+          fields.iter().enumerate()
+        {
+          let Some(field_val_v) = this.emit_from_json_field_value(
+            *field_name,
+            *field_ty,
+            j_local_sym,
+            &ctx,
+          ) else {
+            let span = field_spans.get(field_idx).copied().unwrap_or(fun_span);
+
+            report_error(Error::new(ErrorKind::DeriveUnsupportedField, span));
+
+            continue;
+          };
+
+          // Bind the accessor result to a per-field local
+          // — `__derive_field_<original>` keeps debug SIR
+          // dumps readable.
+          let local_sym = {
+            let s =
+              format!("__derive_field_{}", this.interner.get(*field_name));
+            this.interner.intern(&s)
+          };
+
+          this.emit_synth_local(local_sym, *field_ty, field_val_v);
+          field_locals.push((local_sym, *field_ty));
+        }
+
+        // Reload every field-local into a fresh ValueId
+        // immediately before StructConstruct so all values
+        // are live in the same instruction window.
+        let mut field_vals: Vec<ValueId> =
+          Vec::with_capacity(field_locals.len());
+
+        for (local_sym, field_ty) in &field_locals {
+          let v = ValueId(this.sir.next_value_id);
+          this.sir.next_value_id += 1;
+          this.sir.emit(Insn::Load {
+            dst: v,
+            src: LoadSource::Local(*local_sym),
+            ty_id: *field_ty,
+          });
+          field_vals.push(v);
+        }
+
+        // StructConstruct from the accessor results.
+        let construct_dst = ValueId(this.sir.next_value_id);
+        this.sir.next_value_id += 1;
+        this.sir.emit(Insn::StructConstruct {
+          dst: construct_dst,
+          struct_name: type_name,
+          fields: field_vals,
+          ty_id: struct_ty_id,
+        });
+
+        construct_dst
+      },
+    );
   }
 
   /// Executes `abstract Name { fun method(self) -> Type; }`
@@ -12818,16 +14659,16 @@ impl<'a> Executor<'a> {
             })
           }
           Token::Bytes => {
-            let value = match self.node_value(pat_idx) {
+            let symbol = match self.node_value(pat_idx) {
               Some(NodeValue::Literal(lit)) => {
-                self.literals.bytes_literals[lit as usize] as u64
+                self.literals.string_literals[lit as usize]
               }
-              _ => 0,
+              _ => Symbol(0),
             };
 
-            self.sir.emit(Insn::ConstInt {
+            self.sir.emit(Insn::ConstString {
               dst: pat_dst,
-              value,
+              symbol,
               ty_id: self.ty_checker.bytes_type(),
             })
           }
@@ -13414,16 +15255,16 @@ impl<'a> Executor<'a> {
               })
             }
             Token::Bytes => {
-              let value = match self.node_value(f_idx) {
+              let symbol = match self.node_value(f_idx) {
                 Some(NodeValue::Literal(lit)) => {
-                  self.literals.bytes_literals[lit as usize] as u64
+                  self.literals.string_literals[lit as usize]
                 }
-                _ => 0,
+                _ => Symbol(0),
               };
 
-              self.sir.emit(Insn::ConstInt {
+              self.sir.emit(Insn::ConstString {
                 dst: pat_dst,
-                value,
+                symbol,
                 ty_id: self.ty_checker.bytes_type(),
               })
             }
@@ -15693,7 +17534,24 @@ impl<'a> Executor<'a> {
   /// declared pack name (`self.pack_names`), this Dot is
   /// a namespace-qualification dot, not a field access.
   fn is_pack_chain_dot(&self, dot_idx: usize) -> bool {
-    self.pack_chain_root(dot_idx).is_some()
+    let Some(root_idx) = self.pack_chain_root(dot_idx) else {
+      return false;
+    };
+
+    // Pack name shadowed by a local binding — defer to the
+    // local. Without this, `load core::c::*;` makes the
+    // single-letter local `imu c: Shape = ...; c.to_json()`
+    // route through the pack-chain branch (`c.to_json` as
+    // `c::to_json`) and skip the dot-method dispatch. The
+    // local shadow is a syntactic resolution rule: any
+    // ident that names a live local must read the local,
+    // even when an outer scope (here, the prelude pack)
+    // exports the same name.
+    let Some(NodeValue::Symbol(root_sym)) = self.node_value(root_idx) else {
+      return true;
+    };
+
+    self.lookup_local(root_sym).is_none()
   }
 
   /// Walk back the pack-dot chain ending at `dot_idx` and
@@ -15805,7 +17663,17 @@ impl<'a> Executor<'a> {
     let leaf_dot = lparen_idx - 1;
 
     // Verify this dot's chain roots in a declared pack.
-    self.pack_chain_root(leaf_dot)?;
+    let root_idx = self.pack_chain_root(leaf_dot)?;
+
+    // Same shadowing rule as `is_pack_chain_dot`: a live
+    // local with the pack's name wins. Without this,
+    // `c.to_json()` with `c: Shape` and `core::c` loaded
+    // would resolve to `c::to_json` and miss the method.
+    if let Some(NodeValue::Symbol(root_sym)) = self.node_value(root_idx)
+      && self.lookup_local(root_sym).is_some()
+    {
+      return None;
+    }
 
     let mut parts: Vec<Symbol> = Vec::new();
 
@@ -16135,11 +18003,24 @@ impl<'a> Executor<'a> {
               //      stub the binary spins on at runtime.
               let call_name = if fun_idx >= 2
                 && self.tree.nodes[fun_idx - 1].token == Token::ColonColon
-                && self.tree.nodes[fun_idx - 2].token == Token::Ident
-              {
-                if let Some(NodeValue::Symbol(type_sym)) =
-                  self.node_value(fun_idx - 2)
-                {
+                && matches!(
+                  self.tree.nodes[fun_idx - 2].token,
+                  Token::Ident | Token::SelfUpper,
+                ) {
+                // `Self::method(..)` inside an `apply Type {}` block
+                // resolves to the same `Type::method` symbol as the
+                // explicit form. The first segment is `Self` when
+                // the prior token is `SelfUpper`; substitute the
+                // apply'd type's symbol before mangling.
+                let type_sym = match self.tree.nodes[fun_idx - 2].token {
+                  Token::SelfUpper => self.apply_context,
+                  _ => match self.node_value(fun_idx - 2) {
+                    Some(NodeValue::Symbol(s)) => Some(s),
+                    _ => None,
+                  },
+                };
+
+                if let Some(type_sym) = type_sym {
                   let ts = self.interner.get(type_sym).to_owned();
                   let ms = self.interner.get(fun_name).to_owned();
                   let mangled = format!("{ts}::{ms}");
@@ -16862,14 +18743,41 @@ impl<'a> Executor<'a> {
       // Type check user arguments against user parameter types.
       // Skip captures (first capture_count params).
       if func.kind != FunctionKind::Intrinsic {
-        let user_param_types = &param_types[capture_count as usize..];
+        let capture_count = capture_count as usize;
+        let user_param_count = param_types.len().saturating_sub(capture_count);
+        let arg_check_count = user_param_count.min(arg_types.len());
 
-        for (i, (param_ty, arg_ty)) in
-          user_param_types.iter().zip(arg_types.iter()).enumerate()
-        {
+        // F32 → F64 widening at the call boundary: same
+        // policy as binop / assignment. Rewrite the arg's
+        // SIR slot to the Cast'd value, update the per-arg
+        // ty, then strict-`unify` so any remaining
+        // mismatch (incompatible widths in the other
+        // direction, non-float kinds) still surfaces.
+        // Narrowing stays explicit (`expr as f32`).
+        // Index-based loop avoids overlapping immutable /
+        // mutable borrows of `arg_types` / `param_types`.
+        for i in 0..arg_check_count {
+          let param_ty = param_types[capture_count + i];
+          let sir_slot = capture_count + i;
+
+          if sir_slot < arg_sirs.len() {
+            let (new_sir, new_ty) = self.try_widen_f32_to_f64(
+              arg_sirs[sir_slot],
+              arg_types[i],
+              param_ty,
+            );
+
+            arg_sirs[sir_slot] = new_sir;
+            arg_types[i] = new_ty;
+          }
+
           let span = self.tree.spans[lparen_idx + 1 + i * 2];
 
-          if self.ty_checker.unify(*param_ty, *arg_ty, span).is_none() {
+          if self
+            .ty_checker
+            .unify(param_ty, arg_types[i], span)
+            .is_none()
+          {
             // `unify` already reported the mismatch — just
             // drop the Call without double-diagnosing.
             return;
@@ -17633,6 +19541,28 @@ impl<'a> Executor<'a> {
       .iter()
       .position(|(n, _)| *n == target)
       .and_then(|i| self.pending_attributes.remove(i).1)
+  }
+
+  /// Consume a parameterless pending attribute (`%% name.`).
+  /// Returns `true` when the attribute was present (and
+  /// drops it from the queue), `false` otherwise. Distinct
+  /// from `take_pending_attribute` which can't separate
+  /// "absent" from "present without value".
+  fn has_pending_attribute(&mut self, name: &str) -> bool {
+    let Some(target) = self.interner.symbol(name) else {
+      return false;
+    };
+
+    if let Some(i) = self
+      .pending_attributes
+      .iter()
+      .position(|(n, _)| *n == target)
+    {
+      self.pending_attributes.remove(i);
+      return true;
+    }
+
+    false
   }
 
   /// Extract `(name, value)` from a `%% name [= value |

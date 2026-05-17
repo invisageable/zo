@@ -4,17 +4,18 @@
 -! it's the "Rust prelude" of zo. Domain packs (raylib,
 -! misato, sqlite, math, …) stay opt-in.
 
-load core::io::*;
-load core::int::*;
+load core::arr::*;
+load core::assert::*;
 load core::bool::*;
 load core::char::*;
-load core::str::*;
 load core::cmp::*;
 load core::fmt::*;
-load core::vec::*;
-load core::set::*;
+load core::int::*;
+load core::io::*;
 load core::map::*;
-load core::assert::*;
+load core::set::*;
+load core::str::*;
+load core::vec::*;
 
 -! A value that may or may not be present.
 pub enum Option<$T> {

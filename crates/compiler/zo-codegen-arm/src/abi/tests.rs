@@ -154,8 +154,15 @@ fn bool_takes_a_gp_reg() {
 
 // --- Scalar floats ------------------------------------------
 
+// The four float-direction tests below reflect the
+// raylib-mode classifier: `f32` arg/return narrows or
+// widens (because zo's `float` runtime carries f64 and
+// the C function expects f32 bits), `f64` passes through
+// unchanged. When the proper float-coercion plan
+// (`PLAN_FLOAT_COERCION.md`) lands the semantics flip
+// back — the tests + classifier flip together.
 #[test]
-fn one_f64_lands_in_d0_with_narrow() {
+fn one_f64_lands_in_d0_no_narrow() {
   let mut q = Q::new();
   let f = q.f64();
   let unit = q.unit();
@@ -165,13 +172,13 @@ fn one_f64_lands_in_d0_with_narrow() {
     abi.args,
     vec![AbiArg::Fp {
       reg: D0,
-      narrow: true
+      narrow: false
     }]
   );
 }
 
 #[test]
-fn one_f32_lands_in_d0_no_narrow() {
+fn one_f32_lands_in_d0_with_narrow() {
   let mut q = Q::new();
   let f = q.f32();
   let unit = q.unit();
@@ -181,7 +188,7 @@ fn one_f32_lands_in_d0_no_narrow() {
     abi.args,
     vec![AbiArg::Fp {
       reg: D0,
-      narrow: false
+      narrow: true
     }]
   );
 }
@@ -399,9 +406,11 @@ fn camera3d_44b_passes_indirect() {
 fn draw_circle_int_int_float_int() {
   // raylib's `DrawCircle(int, int, float, Color)` — but
   // simplified: ints + one float, all in scalar regs.
+  // `f32` here mirrors raylib's wire-level `float` —
+  // narrows from zo's runtime f64 representation.
   let mut q = Q::new();
   let i = q.int64();
-  let f = q.f64();
+  let f = q.f32();
   let unit = q.unit();
   let abi = classify(&[i, i, f, i], unit, &q.query());
 
@@ -423,14 +432,15 @@ fn draw_circle_int_int_float_int() {
 fn draw_circle_v_vector2_float_int() {
   // raylib's `DrawCircleV(Vector2, float, Color)`. The
   // HFA Vector2 occupies S0+S1, then float in S2, then
-  // color in X0 — independent register banks.
+  // color in X0 — independent register banks. `f32`
+  // (not `f64`) mirrors raylib's wire `float` so the
+  // classifier emits `narrow: true`.
   let mut q = Q::new();
   let f32_ty = q.f32();
-  let f64_ty = q.f64();
   let i = q.int64();
   let v2 = q.struct_("Vector2", &[f32_ty, f32_ty]);
   let unit = q.unit();
-  let abi = classify(&[v2, f64_ty, i], unit, &q.query());
+  let abi = classify(&[v2, f32_ty, i], unit, &q.query());
 
   assert_eq!(
     abi.args,
@@ -451,9 +461,11 @@ fn draw_circle_v_vector2_float_int() {
 #[test]
 fn spawn_box_mesh_two_ints_three_floats() {
   // misato's `__zo_misato_spawn_box_mesh(geom, mat, x, y, z)`.
+  // The wire signature takes `f32` for x/y/z so the
+  // classifier emits `narrow: true` for each.
   let mut q = Q::new();
   let i = q.int64();
-  let f = q.f64();
+  let f = q.f32();
   let unit = q.unit();
   let abi = classify(&[i, i, f, f, f], unit, &q.query());
 
@@ -490,7 +502,7 @@ fn ret_int_lands_in_x0() {
 }
 
 #[test]
-fn ret_f64_lands_in_d0_with_widen() {
+fn ret_f64_lands_in_d0_no_widen() {
   let mut q = Q::new();
   let f = q.f64();
   let abi = classify(&[], f, &q.query());
@@ -499,13 +511,13 @@ fn ret_f64_lands_in_d0_with_widen() {
     abi.ret,
     AbiRet::Fp {
       reg: D0,
-      widen: true
+      widen: false
     }
   );
 }
 
 #[test]
-fn ret_f32_lands_in_d0_no_widen() {
+fn ret_f32_lands_in_d0_with_widen() {
   let mut q = Q::new();
   let f = q.f32();
   let abi = classify(&[], f, &q.query());
@@ -514,7 +526,7 @@ fn ret_f32_lands_in_d0_no_widen() {
     abi.ret,
     AbiRet::Fp {
       reg: D0,
-      widen: false
+      widen: true
     }
   );
 }

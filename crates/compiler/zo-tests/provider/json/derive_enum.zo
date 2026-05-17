@@ -1,0 +1,53 @@
+load core::json::*;
+
+-- json — enum derive (externally-tagged shape). Unit
+-- variants serialize as `{"Variant": null}`; single-
+-- payload variants as `{"Variant": payload}`. Round-trip
+-- matches each variant by its name key.
+-- @cmd — zo build derive_enum.zo && ./derive_enum
+
+%% serialize, deserialize.
+enum Shape {
+  Circle(int),
+  Square(int),
+  Unit,
+}
+
+fun main() {
+  -- Unit variant.
+  imu shape_unit: Shape = Shape::Unit;
+  imu shape_json: Json = shape_unit.to_json();
+  imu shape_str: str = shape_json.to_str();
+  showln(shape_str);
+  shape_json.free();
+
+  -- Single-payload variant.
+  imu shape_circle: Shape = Shape::Circle(7);
+  imu shape_circle_json: Json = shape_circle.to_json();
+  imu shape_circle_str: str = shape_circle_json.to_str();
+  showln(shape_circle_str);
+
+  -- `parse` + `from_json` should match.
+  imu parsed: Json = Json::parse(shape_circle_str);
+  imu back: Shape = Shape::from_json(parsed);
+
+  match back {
+    Shape::Circle(r) => showln(r),
+    Shape::Square(s) => {
+      imu sv: int = s;
+      showln(sv);
+    }
+    Shape::Unit => showln("unit"),
+  }
+
+  shape_circle_json.free();
+  parsed.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- {"Unit":null}
+-- {"Circle":7}
+-- 7
+-- DONE

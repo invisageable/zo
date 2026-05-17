@@ -1,0 +1,140 @@
+load core::json::*;
+
+-- json — end-to-end deserialize. Parses a realistic
+-- order document (the shape from the original TODO's
+-- example), extracts every typed field, walks nested
+-- arrays + objects, and prints a flat summary. This is
+-- the canonical "consumer" pattern for the read side of
+-- the provider — every accessor exercised against a
+-- single document. The tail of the program exercises
+-- the high-level `%% serialize, deserialize.` derive
+-- against the same wire shape so both APIs are
+-- demonstrated side-by-side.
+-- @cmd — zo build deserialize.zo && ./deserialize
+
+%% serialize, deserialize.
+struct Shipping {
+  weight: float,
+  express: bool,
+}
+
+%% serialize, deserialize.
+struct Order {
+  currency: str,
+  price: float,
+  qty: int,
+  in_stock: bool,
+  shipping: Shipping,
+}
+
+fun main() {
+  imu doc: Json = Json::parse(
+    "{\"currency\":\"€\",\"price\":99.99,\"qty\":3,\"in_stock\":true,\"items\":[\"hat\",\"scarf\",\"gloves\"],\"shipping\":{\"weight\":1.25,\"express\":false}}"
+  );
+
+  check(doc.handle > 0);
+
+  -- Scalar fields by key.
+  imu currency: Json = doc.get("currency");
+  imu currency_str: str = currency.as_str();
+  showln("currency: {currency_str}");
+  currency.free();
+
+  imu price: Json = doc.get("price");
+  imu price_f: float = price.as_f64();
+  showln("price: {price_f}");
+  price.free();
+
+  imu qty: Json = doc.get("qty");
+  imu qty_i: int = qty.as_int();
+  showln("qty: {qty_i}");
+  qty.free();
+
+  imu stock: Json = doc.get("in_stock");
+  imu stock_b: bool = stock.as_bool();
+  showln("in_stock: {stock_b}");
+  stock.free();
+
+  -- Array iteration via len + get_at.
+  imu items: Json = doc.get("items");
+  imu n: int = items.len();
+  showln("items ({n}):");
+
+  for i := 0..n {
+    imu item: Json = items.get_at(i);
+    imu name: str = item.as_str();
+    showln("  - {name}");
+    item.free();
+  }
+  items.free();
+
+  -- Nested object — fields under `shipping`.
+  imu shipping: Json = doc.get("shipping");
+  imu shipping_keys: int = shipping.keys_len();
+  showln("shipping ({shipping_keys}):");
+
+  for i := 0..shipping_keys {
+    imu key: str = shipping.key_at(i);
+    imu field: Json = shipping.get(key);
+    imu wire: str = field.to_str();
+    showln("  {key} = {wire}");
+    field.free();
+  }
+  shipping.free();
+
+  -- Missing key is signalled by handle == 0.
+  imu missing: Json = doc.get("nonexistent");
+  imu missing_h: int = missing.handle;
+  check@eq(missing_h, 0);
+  showln("missing: {missing_h}");
+
+  doc.free();
+
+  -- Derive round-trip — same shape, no hand-written
+  -- accessor calls. `Order::from_json` reconstructs a
+  -- typed `Order`; `Order::to_json` writes the wire form
+  -- back. The two derives are mirrors, so the original
+  -- input must equal the re-serialized output.
+  imu wire_in: str = "{\"currency\":\"EUR\",\"price\":12.5,\"qty\":2,\"in_stock\":true,\"shipping\":{\"weight\":1.25,\"express\":true}}";
+  imu doc2: Json = Json::parse(wire_in);
+  imu order: Order = Order::from_json(doc2);
+  doc2.free();
+
+  -- Template interp doesn't accept `{a.b}` today, so the
+  -- dot-paths are pre-bound to locals.
+  imu d_currency: str = order.currency;
+  imu d_qty: int = order.qty;
+  imu d_weight: float = order.shipping.weight;
+  imu d_express: bool = order.shipping.express;
+  showln("derive currency: {d_currency}");
+  showln("derive qty: {d_qty}");
+  showln("derive weight: {d_weight}");
+  showln("derive express: {d_express}");
+
+  imu wire_out_json: Json = order.to_json();
+  imu wire_out: str = wire_out_json.to_str();
+  showln("derive wire: {wire_out}");
+  wire_out_json.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- currency: €
+-- price: 99.989999
+-- qty: 3
+-- in_stock: true
+-- items (3):
+--   - hat
+--   - scarf
+--   - gloves
+-- shipping (2):
+--   weight = 1.25
+--   express = false
+-- missing: 0
+-- derive currency: EUR
+-- derive qty: 2
+-- derive weight: 1.250000
+-- derive express: true
+-- derive wire: {"currency":"EUR","price":12.5,"qty":2,"in_stock":true,"shipping":{"weight":1.25,"express":true}}
+-- DONE

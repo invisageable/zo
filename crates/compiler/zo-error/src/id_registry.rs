@@ -164,6 +164,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     }
     ErrorKind::RepeatLengthMismatch => ("repeat-length-mismatch", 339),
     ErrorKind::RepeatCountNotConst => ("repeat-count-not-const", 340),
+    ErrorKind::DeriveUnsupportedField => ("derive-unsupported-field", 341),
 
     // --- Constants & arithmetic (E0500 .. E0599) ---
     ErrorKind::DivisionByZero => ("division-by-zero", 500),

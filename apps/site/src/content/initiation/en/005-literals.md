@@ -117,7 +117,10 @@ a keyboard typist just to declare a number.
   ```zo
   -! My man, introduce yourself!
 
-  -- Call me `bytes` — raw byte value, written with 
-  -- backticks. No Unicode, just the 8 bits."
-  `z`
+  -- Call me `bytes` — a multi-byte buffer wrapped in
+  -- backticks. Same `[len][bytes]` layout as `str`,
+  -- minus the UTF-8 promise. Empty or full, ASCII or
+  -- raw, the buffer keeps every byte you write.
+  `hello`
+  `¥orld`
   ```

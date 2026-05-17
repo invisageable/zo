@@ -1,0 +1,15 @@
+[package]
+name = "zo-provider-json"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+# internal:crates.
+
+# external:crates.
+serde_json = { workspace = true }
+smallvec = { workspace = true }

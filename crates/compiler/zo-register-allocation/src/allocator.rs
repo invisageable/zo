@@ -2,7 +2,8 @@ use crate::{
   ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FunctionInfo, RegAlloc,
   RegisterClass, SpillKind, SpillOp,
 };
-use zo_interner::Symbol;
+
+use zo_interner::{Interner, Symbol};
 use zo_liveness::{LivenessInfo, liveness};
 use zo_sir::{Insn, LoadSource};
 use zo_value::FunctionKind;
@@ -225,12 +226,12 @@ pub struct AllocCtx<'a> {
   pub num_values: u32,
   /// Interner for resolving function and runtime symbol
   /// names referenced by `Call` / extern bookkeeping.
-  pub interner: &'a zo_interner::Interner,
-  /// `Symbol.0 → struct-return field count` map, built
+  pub interner: &'a Interner,
+  /// `Symbol → struct-return field count` map, built
   /// once per program by `build_struct_return_map`. Used
   /// by the `Call` arm to budget caller frame slots
   /// without re-scanning the whole SIR per call.
-  pub struct_return_fns: &'a HashMap<u32, u32>,
+  pub struct_return_fns: &'a HashMap<Symbol, u32>,
 }
 
 /// Run the forward allocation pass for a single function.
@@ -645,7 +646,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
             // previous per-call full-SIR scan was
             // O(calls × insns) and dominated codegen
             // time on programs with many small calls.
-            if let Some(fields) = struct_return_fns.get(&name.as_u32()) {
+            if let Some(fields) = struct_return_fns.get(name) {
               struct_slots += *fields;
             }
           }

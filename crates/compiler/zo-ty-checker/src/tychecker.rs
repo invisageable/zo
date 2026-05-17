@@ -876,6 +876,12 @@ impl TyChecker {
     match op {
       // Arithmetic operations
       BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+        // Mixed-width float arithmetic is handled by the
+        // executor's `widen_mixed_float_binop` before
+        // `unify` is called — it emits an `Insn::Cast`
+        // for the F32 side and feeds matching-width
+        // operands here. Unify stays strict so anything
+        // that bypasses the widening path still surfaces.
         // Unify both operands - they must be the same numeric type
         let ty = self.unify(lhs_ty, rhs_ty, span)?;
 

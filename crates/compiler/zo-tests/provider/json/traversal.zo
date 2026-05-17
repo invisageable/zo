@@ -1,0 +1,89 @@
+load core::json::*;
+
+-- json — container traversal (Phase 4). Walks an object
+-- and an array via `get` / `get_at` / `len`, asserting
+-- that borrow-mode handles share the parent's parsed tree
+-- without cloning. Each child handle is freed before the
+-- parent so the refcount actually exercises drop ordering.
+-- @cmd — zo build traversal.zo && ./traversal
+
+fun main() {
+  -- Object access via .get(key).
+  imu obj: Json = Json::parse("{\"price\":99.99,\"qty\":3}");
+  imu price: Json = obj.get("price");
+  imu price_f: float = price.as_f64();
+  imu qty: Json = obj.get("qty");
+  imu qty_i: int = qty.as_int();
+
+  check@eq(qty_i, 3);
+  showln("price: {price_f}");
+  showln("qty: {qty_i}");
+
+  -- Missing key surfaces as handle 0 — kind() over a freed
+  -- / invalid handle returns 0 (KIND_NULL) per the contract.
+  imu missing: Json = obj.get("does_not_exist");
+  imu missing_h: int = missing.handle;
+  check@eq(missing_h, 0);
+  showln("missing: {missing_h}");
+
+  price.free();
+  qty.free();
+  obj.free();
+
+  -- Array iteration: sum the elements.
+  imu items: Json = Json::parse("[10, 20, 30]");
+  imu n: int = items.len();
+  check@eq(n, 3);
+  showln("len: {n}");
+
+  mut total: int = 0;
+
+  for i := 0..n {
+    imu elem: Json = items.get_at(i);
+    total = total + elem.as_int();
+    elem.free();
+  }
+
+  check@eq(total, 60);
+  showln("sum: {total}");
+
+  -- Out-of-range index is handle 0.
+  imu past_end: Json = items.get_at(99);
+  imu past_end_h: int = past_end.handle;
+  check@eq(past_end_h, 0);
+  showln("past_end: {past_end_h}");
+
+  items.free();
+
+  -- Nested traversal: object containing an array.
+  imu doc: Json = Json::parse("{\"items\":[1,2,3]}");
+  imu arr: Json = doc.get("items");
+  imu arr_len: int = arr.len();
+  check@eq(arr_len, 3);
+
+  mut nested_total: int = 0;
+
+  for j := 0..arr_len {
+    imu e: Json = arr.get_at(j);
+    nested_total = nested_total + e.as_int();
+    e.free();
+  }
+
+  check@eq(nested_total, 6);
+  showln("nested: {nested_total}");
+
+  arr.free();
+  doc.free();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- price: 99.989999
+-- qty: 3
+-- missing: 0
+-- len: 3
+-- sum: 60
+-- past_end: 0
+-- nested: 6
+-- DONE

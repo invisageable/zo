@@ -36,6 +36,8 @@ pub struct Vector4 { x: f32, y: f32, z: f32, w: f32 }   -- quaternion alias.
 
 -! Initialize window and OpenGL context.
 -! 
+-! @param width — The window width.
+-! @param height — The window height.
 -! @param title — The C-string pointer (wrap a literal with `c_str("…")`).
 %% link_name = "InitWindow".
 pub ffi init_window(width: int, height: int, title: int);
@@ -90,7 +92,17 @@ pub ffi set_target_fps(fps: int);
 -!
 -! @todo — do we really need to convert `f32` to `f64`.
 %% link_name = "GetFrameTime".
-pub ffi get_frame_time() -> float;
+pub ffi __raylib_get_frame_time_raw() -> f32;
+
+-! Get time in seconds for last frame drawn (delta time).
+-!
+-! @returns — seconds since the last frame, in zo's
+-! `float` (f64). raylib's C call uses f32; the widening
+-! happens at this wrapper so user code stays in double
+-! without explicit casts.
+pub fun get_frame_time() -> float {
+  __raylib_get_frame_time_raw() as float
+}
 
 -! Returns 0 until raylib's frame timer has enough samples
 -! (a few frames after the loop starts).
@@ -101,6 +113,9 @@ pub ffi get_fps() -> int;
 -* Input-related functions: keyboard. *-
 
 -! Check if a key has been pressed once.
+-!
+-! @param key — The key pressed.
+-! @returns — 
 -! 
 -! @note — Key codes match raylib's `KEY_*` constants.
 -! @todo — create an enum `Key` with Escape, Space, * variants.
@@ -152,7 +167,7 @@ pub ffi draw_text(text: int, x: int, y: int, font_size: int, color: int);
 -! @note — radius is narrowed from `f64` → `f32` at the FFI boundary (raylib's
 -! API takes f32).
 %% link_name = "DrawCircle".
-pub ffi draw_circle(x: int, y: int, radius: float, color: int);
+pub ffi draw_circle(x: int, y: int, radius: f32, color: int);
 
 -! Draw a color-filled circle (Vector version).
 -! 
@@ -163,4 +178,4 @@ pub ffi draw_circle(x: int, y: int, radius: float, color: int);
 -! @note — `Vector2` passes by value via AAPCS HFA — fields land
 -! in `s0`/`s1`, then `radius` in `s2`, `color` in `w0`.
 %% link_name = "DrawCircleV".
-pub ffi draw_circle_v(center: Vector2, radius: float, color: int);
+pub ffi draw_circle_v(center: Vector2, radius: f32, color: int);

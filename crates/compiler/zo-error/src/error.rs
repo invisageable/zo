@@ -370,6 +370,13 @@ pub enum ErrorKind {
   // E0601 takes.
   MissingMainFunction,
 
+  // Emitted by the `%% serialize.` / `%% deserialize.`
+  // derive synthesizer when a struct or enum-payload
+  // field's type can't be lowered to JSON. Span anchored
+  // at the field declaration so the user can see exactly
+  // which field is blocking the derive.
+  DeriveUnsupportedField,
+
   // --- Rationale-channel variants (severity = Note) ---
   //
   // Emitted only when the driver passes `--explain-decisions`.

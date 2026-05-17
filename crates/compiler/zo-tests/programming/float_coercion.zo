@@ -1,0 +1,39 @@
+-- tests-run-pass: implicit F32 → F64 widening at every
+-- ABI seam where the lossless direction makes sense
+-- (assignment, binop, call-arg). The opposite direction
+-- still requires `expr as f32`. Replaces the historical
+-- `infer_binop` band-aid; backed by `Insn::Cast` so the
+-- conversion is visible in SIR.
+
+fun give_f32() -> f32 {
+  return 3.5;
+}
+
+fun take_f64(x: float) -> float {
+  return x + 1.0;
+}
+
+fun main() {
+  -- Assignment widening.
+  imu dt: float = give_f32();
+  check@eq(dt, 3.5);
+
+  -- Mixed-width binop (arith).
+  imu small: f32 = 1.5;
+  imu sum: float = dt + small;
+  check@eq(sum, 5.0);
+
+  -- Mixed-width comparison (literal narrows; non-literal
+  -- widens).
+  check(small > 0.0);
+
+  -- Call-arg widening — F32 result feeds an F64 param.
+  imu nested: float = take_f64(give_f32());
+  check@eq(nested, 4.5);
+
+  -- Chained mixed arithmetic ("y + dy * dt" pattern).
+  mut y: float = 100.0;
+  imu dy: float = 2.0;
+  y = y + dy * small;
+  check@eq(y, 103.0);
+}

@@ -1,5 +1,3 @@
-load core::arr::*;
-
 -- core::arr inherent methods on `[]int`.
 
 fun main() {

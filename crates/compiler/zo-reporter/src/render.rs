@@ -381,6 +381,9 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
       "`[v...n]` count must be an integer literal"
     }
 
+    // `%% serialize.` / `%% deserialize.` derive errors.
+    ErrorKind::DeriveUnsupportedField => "field type cannot be derived to JSON",
+
     // Rationale notes (severity = Note, emitted only with
     // `--explain-decisions`).
     ErrorKind::DeadCodeEliminated => "dead code eliminated",

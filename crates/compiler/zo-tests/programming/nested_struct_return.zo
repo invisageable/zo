@@ -1,0 +1,38 @@
+-- tests-run-pass: a function returning a struct whose
+-- fields include another struct must deep-copy the inner
+-- block into the caller's frame. Without the deep copy
+-- the outer slot ends up holding a pointer into the
+-- callee's freed frame, and the inner field reads garbage.
+--
+-- Regressed once: a `from_json` derive returning
+-- `Order { ..., shipping: Shipping }` had `weight` read
+-- back as `0.0` (or a denormal bit pattern) even though
+-- the outer flat fields read correctly.
+
+struct Shipping {
+  weight: float,
+  express: bool,
+}
+
+struct Order {
+  qty: int,
+  shipping: Shipping,
+}
+
+fun make_order() -> Order {
+  imu s: Shipping = Shipping { weight = 1.25, express = true };
+  imu o: Order = Order { qty = 7, shipping = s };
+  return o;
+}
+
+fun main() {
+  imu o: Order = make_order();
+
+  check@eq(o.qty, 7);
+  check@eq(o.shipping.express, true);
+  -- Direct float comparison would coerce; round-trip
+  -- through an `imu` keeps the inner field's value
+  -- explicit at runtime so the deep copy is exercised.
+  imu w: float = o.shipping.weight;
+  check@eq(w, 1.25);
+}

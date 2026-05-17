@@ -1768,9 +1768,13 @@ impl<'a> Tokenizer<'a> {
       self.tokens.push(Token::Unknown, start as u32, len);
     } else {
       let len = (self.cursor - start) as u16;
-      // Extract the first byte between backticks.
-      let byte_val = self.source[start + 1];
-      let id = self.literals.push_bytes(byte_val);
+      // Intern the bytes between the backticks — same pattern as raw-string /
+      // string scanners above so the executor can read the full buffer through
+      // the shared `string_literals` table.
+      let inner = std::str::from_utf8(&self.source[start + 1..self.cursor - 1])
+        .unwrap_or("");
+      let symbol = self.interner.intern(inner);
+      let id = self.literals.push_string_symbol(symbol);
 
       self
         .tokens

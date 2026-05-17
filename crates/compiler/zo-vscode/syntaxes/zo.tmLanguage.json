@@ -133,7 +133,43 @@
       ]
     },
     {
-      "comment": "attribute: %% inline",
+      "comment": "attribute (list, terminated by `.`): %% n1, n2 [= lit], n3.",
+      "begin": "(%%)\\s*(?=[A-Za-z])",
+      "end": "(\\.)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.attribute.zo"
+        }
+      },
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.attribute.zo"
+        }
+      },
+      "patterns": [
+        {
+          "match": "[A-Za-z][A-Za-z0-9_]*",
+          "name": "entity.other.attribute-name.zo"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.attribute.zo"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.zo"
+        },
+        {
+          "include": "#string_literal"
+        },
+        {
+          "match": "\\b[0-9][0-9_]*(\\.[0-9_]+)?\\b",
+          "name": "constant.numeric.zo"
+        }
+      ]
+    },
+    {
+      "comment": "attribute bare (no terminator): %% inline",
       "match": "(%%)\\s*([A-Za-z][A-Za-z0-9_]*)",
       "captures": {
         "1": {

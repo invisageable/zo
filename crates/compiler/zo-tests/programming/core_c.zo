@@ -1,0 +1,35 @@
+load core::c::*;
+
+-- core::c — round-trip a zo str through `c_str` (strip
+-- length prefix → bytes ptr) and `from_c_str_len` (bytes
+-- ptr + len → fresh heap str). Phase 0 of the json
+-- provider bring-up: every C library that returns a
+-- `(ptr, len)` pair (json::to_str, http body, file read)
+-- lifts the bytes through `from_c_str_len` to get a real
+-- zo str usable in interpolation, `showln`, slicing, and
+-- storage.
+
+fun main() {
+  imu original: str = "hello, world";
+  imu ptr: int = c_str(original);
+  imu copy: str = from_c_str_len(ptr, 12);
+
+  showln(original);
+  showln(copy);
+
+  -- A second round-trip on a different literal — proves
+  -- the alloc path produces independent heap strs, not
+  -- aliased back into rodata.
+  imu zo: str = "zo";
+  imu zo_ptr: int = c_str(zo);
+  imu zo_copy: str = from_c_str_len(zo_ptr, 2);
+
+  showln(zo_copy);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- hello, world
+-- hello, world
+-- zo
+-- DONE
