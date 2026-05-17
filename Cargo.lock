@@ -7965,6 +7965,7 @@ version = "0.3.11"
 dependencies = [
  "criterion",
  "libc",
+ "regex",
  "rustc-hash 2.1.2",
  "zo-error",
  "zo-reporter",

@@ -1,0 +1,32 @@
+-- tests-run-pass: JS-style regex compile + test + find + replace.
+
+load core::regex::*;
+
+fun main() {
+  -- Compile and basic match.
+  imu hello: Regex = Regex::new("hello", "");
+  check(hello.is_valid());
+  check(hello.matches("hello world"));
+  check(!hello.matches("goodbye"));
+
+  -- Byte offsets of the first match.
+  check@eq(hello.find("say hello"), 4);
+  check@eq(hello.find_end("say hello"), 9);
+  check@eq(hello.find("nope"), -1);
+
+  -- Case-insensitive flag.
+  imu ci: Regex = Regex::new("HELLO", "i");
+  check(ci.matches("hello"));
+  check(ci.matches("HELLO"));
+
+  -- Replace every match.
+  imu vowels: Regex = Regex::new("[aeiou]", "");
+  imu out: str = vowels.replace_all("hello", "*");
+  check@eq(out, "h*ll*");
+
+  -- Invalid pattern compiles to handle 0.
+  imu bad: Regex = Regex::new("(", "");
+  check(!bad.is_valid());
+
+  showln("regex_basic: all checks passed!");
+}

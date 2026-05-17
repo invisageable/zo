@@ -28,6 +28,8 @@ pub pack json;
 pub pack math;
 pub pack process;
 pub pack random;
+pub pack regex;
+pub pack time;
 
 
 -* preload:exports. *-

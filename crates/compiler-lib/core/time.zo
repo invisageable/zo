@@ -1,0 +1,114 @@
+-! time — monotonic and wall-clock primitives, backed by
+-! `libzo_runtime`. The runtime side uses Rust's `std::time`
+-! so every Cranelift target (x86, arm64, wasm, Windows)
+-! gets correct semantics without per-target FFI shims.
+
+
+-- libzo_runtime ships next to every zo binary that uses
+-- concurrency / runtime intrinsics; time piggy-backs on
+-- the same staged dylib so users never need to manage it.
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+
+-- raw FFI surface — see `zo-runtime/src/time.rs`.
+
+%% link_name = "zo_time_monotonic_ns".
+pub ffi __zo_time_monotonic_ns() -> s64;
+
+%% link_name = "zo_time_unix_secs".
+pub ffi __zo_time_unix_secs() -> s64;
+
+%% link_name = "zo_time_unix_nanos".
+pub ffi __zo_time_unix_nanos() -> s64;
+
+%% link_name = "zo_time_sleep_ns".
+pub ffi __zo_time_sleep_ns(ns: s64);
+
+
+-! A length of time. Internal storage is `s64` nanoseconds
+-! so durations up to ~292 years are representable; the
+-! public API takes `int` (s32) for ergonomics and widens
+-! at the boundary — covers every realistic duration (the
+-! largest `int` second-count is ~68 years).
+pub struct Duration { ns: s64 }
+
+apply Duration {
+  pub fun from_secs(s: int) -> Self {
+    Self { ns = (s as s64) * 1000000000 }
+  }
+
+  pub fun from_millis(ms: int) -> Self {
+    Self { ns = (ms as s64) * 1000000 }
+  }
+
+  pub fun from_micros(us: int) -> Self {
+    Self { ns = (us as s64) * 1000 }
+  }
+
+  pub fun from_nanos(n: s64) -> Self {
+    Self { ns = n }
+  }
+
+  pub fun as_secs(self) -> int {
+    (self.ns / 1000000000) as int
+  }
+
+  pub fun as_millis(self) -> int {
+    (self.ns / 1000000) as int
+  }
+
+  pub fun as_micros(self) -> int {
+    (self.ns / 1000) as int
+  }
+
+  pub fun as_nanos(self) -> s64 {
+    self.ns
+  }
+}
+
+
+-! A measurement of the monotonic clock — increasing, never
+-! wraps backward, unaffected by system-clock adjustments.
+-! Use for benchmarks, frame timing, timeouts.
+pub struct Instant { ns: s64 }
+
+apply Instant {
+  -! Snapshot of the monotonic clock at this call.
+  pub fun now() -> Self {
+    Self { ns = __zo_time_monotonic_ns() }
+  }
+
+  -! Time elapsed since `self`.
+  pub fun elapsed(self) -> Duration {
+    Duration { ns = __zo_time_monotonic_ns() - self.ns }
+  }
+
+  -! Duration between `self` and an earlier `Instant`.
+  pub fun duration_since(self, earlier: Self) -> Duration {
+    Duration { ns = self.ns - earlier.ns }
+  }
+}
+
+
+-! Wall-clock time. Subject to system-clock adjustments —
+-! use for timestamps to display / persist, not for
+-! measuring elapsed time.
+pub struct SystemTime { secs: s64, nanos: s64 }
+
+apply SystemTime {
+  pub fun now() -> Self {
+    Self {
+      secs = __zo_time_unix_secs(),
+      nanos = __zo_time_unix_nanos(),
+    }
+  }
+}
+
+
+-! Block the current thread for the given duration.
+pub fun sleep(d: Duration) {
+  __zo_time_sleep_ns(d.ns);
+}

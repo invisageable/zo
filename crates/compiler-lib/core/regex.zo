@@ -1,0 +1,82 @@
+-! regex — JS-style regular expressions.
+-!
+-! Flags: `i` case-insensitive, `m` multiline, `s` dotall,
+-! `x` extended. `g`/`y`/`u` accepted, no effect.
+
+load core::c::*;
+
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+
+%% link_name = "zo_regex_compile".
+pub ffi __zo_regex_compile(pattern: int, flags: int) -> int;
+
+%% link_name = "zo_regex_matches".
+pub ffi __zo_regex_matches(handle: int, s: int) -> int;
+
+%% link_name = "zo_regex_find".
+pub ffi __zo_regex_find(handle: int, s: int) -> int;
+
+%% link_name = "zo_regex_find_end".
+pub ffi __zo_regex_find_end(handle: int, s: int) -> int;
+
+%% link_name = "zo_regex_replace_all".
+pub ffi __zo_regex_replace_all(
+  handle: int,
+  s: int,
+  replacement: int,
+) -> int;
+
+%% link_name = "zo_regex_last_str_len".
+pub ffi __zo_regex_last_str_len() -> int;
+
+
+-! A compiled regular expression. `handle == 0` means
+-! compile failed; check via [`is_valid`] before use.
+pub struct Regex { handle: int }
+
+apply Regex {
+  pub fun new(pattern: str, flags: str) -> Self {
+    Self { handle = __zo_regex_compile(c_str(pattern), c_str(flags)) }
+  }
+
+  -! True when the pattern compiled successfully.
+  pub fun is_valid(self) -> bool {
+    self.handle != 0
+  }
+
+  -! True when `s` contains at least one match.
+  pub fun matches(self, s: str) -> bool {
+    __zo_regex_matches(self.handle, c_str(s)) == 1
+  }
+
+  -! Byte offset of the first match's start, or `-1` if no
+  -! match.
+  pub fun find(self, s: str) -> int {
+    __zo_regex_find(self.handle, c_str(s))
+  }
+
+  -! Byte offset of the first match's end (exclusive), or
+  -! `-1` if no match. Pair with `find` on the same
+  -! `(self, s)` to recover the slice.
+  pub fun find_end(self, s: str) -> int {
+    __zo_regex_find_end(self.handle, c_str(s))
+  }
+
+  -! Replace every non-overlapping match in `s` with
+  -! `replacement`. Supports `$0` (whole match) and `$1`/
+  -! `$2`/... (capture groups).
+  pub fun replace_all(self, s: str, replacement: str) -> str {
+    imu ptr: int = __zo_regex_replace_all(
+      self.handle,
+      c_str(s),
+      c_str(replacement),
+    );
+    imu len: int = __zo_regex_last_str_len();
+    from_c_str_len(ptr, len)
+  }
+}
