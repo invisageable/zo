@@ -1,25 +1,34 @@
--! The zo standard library.
+-! The zo core.
 -!
 -! It provides useful collection of packages and functions to helps you writing
 -! programs.
 
-pack arr;
-pack assert;
-pack bool;
-pack c;
-pack char;
-pack cmp;
-pack fmt;
-pack int;
-pack io;
-pack json;
-pack map;
-pack math;
-pack misato;
-pack preload;
-pack process;
-pack raylib;
-pack set;
-pack sqlite;
-pack str;
-pack vec;
+
+-* builtins. *-
+
+pub pack arr;
+pub pack assert;
+pub pack bool;
+pub pack char;
+pub pack cmp;
+pub pack fmt;
+pub pack int;
+pub pack io;
+pub pack map;
+pub pack set;
+pub pack str;
+pub pack vec;
+
+
+-* loadables. *-
+
+pub pack c;
+pub pack graphics;
+pub pack json;
+pub pack math;
+pub pack process;
+
+
+-* preload:exports. *-
+
+pub pack preload;

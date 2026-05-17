@@ -1,0 +1,5 @@
+load c::*;
+
+pub fun a_func() {
+  showln("a_func");
+}

@@ -1,0 +1,17 @@
+-! mirror raylib's public structs.
+-!
+-! See: <https://www.raylib.com/cheatsheet/cheatsheet.html#structs>
+
+-! Represents a `Vector2` with 2 components.
+pub struct Vector2 { x: f32, y: f32 }
+
+-! Represents a `Vector3` with 3 components.
+pub struct Vector3 { x: f32, y: f32, z: f32 }
+
+-! Represents a `Vector4` with 4 components.
+-!
+-! @note — quaternion alias.
+pub struct Vector4 { x: f32, y: f32, z: f32, w: f32 }
+
+-! Represents a `Color`, 4 components, R8G8B8A8 (32bit).
+pub struct Color {}

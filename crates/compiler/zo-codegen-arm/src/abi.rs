@@ -349,14 +349,9 @@ fn classify_ret(
     }
     Ty::Float(w) => AbiRet::Fp {
       reg: D0,
-      // Declared C-side width drives widening:
-      //   `-> f32` → C returned f32 in S0, widen (FCVT D, S)
-      //              to zo's f64;
-      //   `-> f64` / `-> float` (f64) → D0 already holds the
-      //              full result.
-      // Bindings to C libraries must declare the actual C
-      // return width (raylib `-> f32`; libm `-> float` /
-      // `-> f64`).
+      // f32 returns arrive in S0; widen to zo's internal
+      // f64 here so the SIR-level `Cast f32 → f64` stays a
+      // no-op (FP regs are uniformly 64-bit internally).
       widen: matches!(w, FloatWidth::F32),
     },
     Ty::Struct(sid) => classify_struct_ret(sid, query, state),

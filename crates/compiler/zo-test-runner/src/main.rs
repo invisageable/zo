@@ -235,10 +235,22 @@ fn main() {
   }
 
   // zo-usecases — multi-file projects (lib.zo + modules).
+  // `pass/` projects must build + run cleanly; `fail/`
+  // projects must fail to build (used for compile-time
+  // diagnostic regressions that need a multi-file fixture).
   let usecases_dir = root.join("crates/compiler/zo-usecases");
 
   if usecases_dir.exists() {
-    run_projects(&usecases_dir, &zo, &tmp, filter, target, &mut results);
+    let pass_dir = usecases_dir.join("pass");
+    let fail_dir = usecases_dir.join("fail");
+
+    if pass_dir.exists() {
+      run_projects(&pass_dir, &zo, &tmp, filter, target, &mut results);
+    }
+
+    if fail_dir.exists() {
+      run_projects_fail(&fail_dir, &zo, &tmp, filter, target, &mut results);
+    }
   }
 
   // Cleanup.
@@ -635,6 +647,119 @@ fn run_project(
   }
 }
 
+/// PASS-style projects all live under `pass/`; fail-mode
+/// projects (compile-time diagnostic regressions that need a
+/// multi-file fixture) live under `fail/`. Shape and naming
+/// rules are identical — only the success condition flips.
+fn run_projects_fail(
+  dir: &Path,
+  zo: &Path,
+  tmp: &Path,
+  filter: Option<&str>,
+  target: Option<&str>,
+  results: &mut Vec<TestResult>,
+) {
+  if !dir.exists() {
+    return;
+  }
+
+  let mut projects = fs::read_dir(dir)
+    .expect("failed to read dir")
+    .filter_map(|e| e.ok())
+    .map(|e| e.path())
+    .filter(|p| p.is_dir() && p.join("src/main.zo").exists())
+    .collect::<Vec<_>>();
+
+  projects.sort();
+
+  if projects.is_empty() {
+    return;
+  }
+
+  let dir_name = dir
+    .strip_prefix(dir.ancestors().nth(3).unwrap_or(dir))
+    .unwrap_or(dir)
+    .display();
+
+  println!();
+  println!("[{dir_name}] {} projects", projects.len());
+
+  let group_results = projects
+    .par_iter()
+    .filter_map(|project| {
+      let name = project.file_name().and_then(|s| s.to_str()).unwrap_or("?");
+
+      if let Some(f) = filter
+        && !name.contains(f)
+      {
+        return None;
+      }
+
+      let result = run_project_fail(project, name, zo, tmp, target);
+
+      print_result(&result);
+
+      Some(result)
+    })
+    .collect::<Vec<_>>();
+
+  results.extend(group_results);
+}
+
+/// A fail-mode project passes iff `zo build` exits non-zero.
+/// We compile with stderr captured: if the build succeeded
+/// the project breaks the contract (it was supposed to be a
+/// compile-time regression). If the project's `main.zo`
+/// carries an `EXPECTED ERROR:` directive followed by `-- `
+/// lines, stderr must contain that substring — same shape
+/// `extract_expected` uses for `EXPECTED OUTPUT:`.
+fn run_project_fail(
+  project: &Path,
+  name: &str,
+  zo: &Path,
+  tmp: &Path,
+  target: Option<&str>,
+) -> TestResult {
+  let main_zo = project.join("src/main.zo");
+  let out = tmp.join(name);
+
+  let build = build_cmd(zo, target)
+    .arg(&*main_zo.to_string_lossy())
+    .arg("-o")
+    .arg(&out)
+    .stdout(Stdio::null())
+    .stderr(Stdio::piped())
+    .output();
+
+  match build {
+    Err(e) => fail(name, &format!("build error: {e}")),
+    Ok(output) if output.status.success() => {
+      fail(name, "compilation succeeded but failure was expected")
+    }
+    Ok(output) => {
+      let expected = extract_expected_error(&main_zo);
+
+      if expected.is_empty() {
+        ok(name)
+      } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains(&expected) {
+          ok(name)
+        } else {
+          fail(
+            name,
+            &format!(
+              "stderr missing expected fragment\n  \
+               expected fragment: {expected}\n  \
+               actual stderr: {stderr}"
+            ),
+          )
+        }
+      }
+    }
+  }
+}
+
 fn run_test(
   file: &Path,
   name: &str,
@@ -988,6 +1113,24 @@ fn extract_expected(file: &Path) -> String {
   }
 
   lines.join("\n")
+}
+
+/// Reads an `EXPECTED ERROR:` directive from a fail-mode
+/// project's `main.zo`. The directive's value is a single
+/// substring (e.g. an error code like `E0708`) that must
+/// appear somewhere in the compiler's stderr. Multi-line
+/// continuations aren't supported — diagnostics format
+/// changes frequently and we don't want to over-couple.
+fn extract_expected_error(file: &Path) -> String {
+  let content = fs::read_to_string(file).unwrap_or_default();
+
+  for line in content.lines() {
+    if let Some(rest) = line.split_once("EXPECTED ERROR:") {
+      return rest.1.trim().to_string();
+    }
+  }
+
+  String::new()
 }
 
 /// Read the `-- @stdin:` block from a test source. Returns

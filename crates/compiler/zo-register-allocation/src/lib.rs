@@ -125,10 +125,14 @@ pub enum SpillKind {
 
 /// The result of register allocation over the entire SIR.
 pub struct RegAlloc {
-  /// ValueId.0 → GP register index.
-  pub assignments: HashMap<u32, u8>,
-  /// ValueId.0 → FP register index.
-  pub fp_assignments: HashMap<u32, u8>,
+  /// `(function_start, ValueId.0) → GP register`. Keyed
+  /// per-function because ValueId counters reset across
+  /// FunDefs; a flat `vid → reg` map would let a later
+  /// function's vid=N overwrite an earlier one's.
+  pub assignments: HashMap<(u32, u32), u8>,
+  /// `(function_start, ValueId.0) → FP register`. Same
+  /// scoping as [`Self::assignments`].
+  pub fp_assignments: HashMap<(u32, u32), u8>,
   /// Spill operations emitted by the allocator.
   pub spill_ops: Vec<SpillOp>,
   /// ValueId produced by each instruction (parallel array).
@@ -223,16 +227,18 @@ impl RegAlloc {
     result
   }
 
-  /// Look up the GP register for a ValueId.
+  /// Look up the GP register for a ValueId within the
+  /// function whose body starts at `fn_start`.
   #[inline]
-  pub fn get(&self, vid: ValueId) -> Option<u8> {
-    self.assignments.get(&vid.0).copied()
+  pub fn get(&self, fn_start: u32, vid: ValueId) -> Option<u8> {
+    self.assignments.get(&(fn_start, vid.0)).copied()
   }
 
-  /// Look up the FP register for a ValueId.
+  /// Look up the FP register for a ValueId within the
+  /// function whose body starts at `fn_start`.
   #[inline]
-  pub fn get_fp(&self, vid: ValueId) -> Option<u8> {
-    self.fp_assignments.get(&vid.0).copied()
+  pub fn get_fp(&self, fn_start: u32, vid: ValueId) -> Option<u8> {
+    self.fp_assignments.get(&(fn_start, vid.0)).copied()
   }
 
   /// Look up the ValueId produced at instruction index.

@@ -1,0 +1,41 @@
+-! sqlite::db — user-facing `Database` type on top of the FFI bridge.
+-!
+-! `Database` holds an opaque `int` handle into the Rust shim
+-! (`crates/compiler/zo-provider-sqlite`).
+
+load core::c::*;
+load provider::sqlite::api::*;
+
+
+-! Represents a database connection.
+pub struct Database { handle: int }
+
+apply Database {
+  -! Open a read-write connection to a new or existing database.
+  -!
+  -! @param path — The pathname of the database.
+  -! @returns — The current instance.
+  pub fun open(path: str) -> Self {
+    Self { handle = __zo_sqlite_open(c_str(path)) } -- TODO: `c_str` must be moved to the executor level so the public API stays simple.
+  }
+
+  -! Close the database connection.
+  pub fun close(self) {
+    __zo_sqlite_close(self.handle);
+  }
+
+  -! Execute a statement without processing the resulting rows if any.
+  -!
+  -! @param sql — The SQL query.
+  -! @returns — 0 on success, non-zero on failure.
+  pub fun exec(self, sql: str) -> int {
+    __zo_sqlite_exec(self.handle, c_str(sql))
+  }
+
+  -! Convenience for `SELECT count(*)`, `SELECT MAX(x)`,
+  -! and similar single-int aggregates. Returns 0 if the
+  -! query has no rows or fails.
+  pub fun query_int(self, sql: str) -> int {
+    __zo_sqlite_query_int(self.handle, c_str(sql))
+  }
+}

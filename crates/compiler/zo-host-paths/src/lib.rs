@@ -10,6 +10,13 @@
 
 use std::path::PathBuf;
 
+/// Top-level packages shipped with the zo distribution.
+/// Single source of truth for the std-layout discovery
+/// (`default_std_search_paths`) AND for the user-project
+/// load-gate exemption (loads through these roots bypass
+/// the project lib.zo's pack declarations).
+pub const SYSTEM_PACK_ROOTS: &[&str] = &["core", "provider"];
+
 /// Candidate directories for a `<subdir>` shipped with
 /// the zo distribution, in priority order:
 ///
@@ -51,4 +58,40 @@ pub fn first_existing_lib_dir(subdir: &str) -> Option<PathBuf> {
   exe_relative_lib_dirs(subdir)
     .into_iter()
     .find(|p| p.is_dir())
+}
+
+/// Existing distribution-root directories for every entry
+/// in `subdirs`, preserving caller order. One `current_exe()`
+/// syscall regardless of `subdirs.len()`.
+pub fn existing_lib_dirs(subdirs: &[&str]) -> Vec<PathBuf> {
+  let Ok(exe) = std::env::current_exe() else {
+    return Vec::new();
+  };
+  let Some(parent) = exe.parent() else {
+    return Vec::new();
+  };
+
+  let mut out = Vec::new();
+
+  for subdir in subdirs {
+    let installed = parent.join("..").join("lib").join(subdir);
+
+    if installed.is_dir() {
+      out.push(installed);
+      continue;
+    }
+
+    let dev = parent
+      .join("..")
+      .join("..")
+      .join("crates")
+      .join("compiler-lib")
+      .join(subdir);
+
+    if dev.is_dir() {
+      out.push(dev);
+    }
+  }
+
+  out
 }

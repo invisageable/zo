@@ -1,0 +1,26 @@
+-! misato::scene — top-level world container; owns the ECS handle.
+
+load core::graphics::misato::api::*;
+load core::graphics::misato::camera::*;
+load core::graphics::misato::mesh::*;
+
+
+pub struct Scene { handle: int }
+
+apply Scene {
+  pub fun new() -> Self {
+    Self { handle = __zo_misato_init_world() }
+  }
+
+  pub fun add(self, mesh: Mesh) {
+    __zo_misato_scene_add(self.handle, mesh.handle);
+  }
+
+  pub fun render(self, cam: PerspectiveCamera) {
+    __zo_misato_scene_render(self.handle, cam.handle);
+  }
+
+  pub fun close(self) {
+    __zo_misato_destroy_world(self.handle);
+  }
+}

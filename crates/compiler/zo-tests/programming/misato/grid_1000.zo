@@ -1,6 +1,6 @@
-load core::misato::*;
 load core::c::*;
-load core::raylib::*;
+load core::graphics::misato::*;
+load provider::raylib::*;
 
 -- misato — 1000 1×1×1 orange cubes in a 10×10×10 grid
 -- centered at origin (spacing 1.5; spans ~[-7, +7] per

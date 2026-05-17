@@ -1,4 +1,4 @@
-load core::sqlite::*;
+load provider::sqlite::*;
 
 -- sqlite — opens an in-process database, persists three
 -- scores, reads back the max + total. Validates the F6/F7

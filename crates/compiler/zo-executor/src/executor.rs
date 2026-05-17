@@ -5528,6 +5528,11 @@ impl<'a> Executor<'a> {
   /// are selective imports. `path` always carries the
   /// dotted module path, never the imported names.
   fn execute_load(&mut self, start_idx: usize, end_idx: usize) {
+    let pubness = if self.is_pub(start_idx) {
+      Pubness::Yes
+    } else {
+      Pubness::No
+    };
     let mut path: Vec<Symbol> = Vec::new();
     let mut selective: Vec<Symbol> = Vec::new();
     let mut kind: Option<ImportKind> = None;
@@ -5559,6 +5564,23 @@ impl<'a> Executor<'a> {
             }
           }
         }
+        // Primitive type keywords (`bool`/`char`/`int`/`str`,
+        // …) share names with std packs that extend them
+        // (`load core::bool::*;` etc.). The tokenizer emits
+        // them as `Token::BoolType`/`StrType`/…, not `Ident`,
+        // so we re-intern the keyword string into a Symbol.
+        // Without this, the segment is silently dropped and
+        // the load path collapses to its prefix — breaking
+        // re-export resolution at the consumer's seed build.
+        other if other.ty_keyword_str().is_some() => {
+          let kw = other.ty_keyword_str().unwrap();
+          let sym = self.interner.intern(kw);
+          if in_selective {
+            selective.push(sym);
+          } else {
+            path.push(sym);
+          }
+        }
         _ => {}
       }
     }
@@ -5578,7 +5600,11 @@ impl<'a> Executor<'a> {
       self.pack_names.insert(*leaf);
     }
 
-    self.sir.emit(Insn::ModuleLoad { path, kind });
+    self.sir.emit(Insn::ModuleLoad {
+      path,
+      kind,
+      pubness,
+    });
   }
 
   /// Executes a `pack` statement.

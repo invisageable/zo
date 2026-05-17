@@ -1,0 +1,3 @@
+pub fun foo_func() {
+  showln("foo_func");
+}

@@ -299,7 +299,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
           let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
 
           state.assign(*dst, reg, fp);
-          insert_assignment(result, *dst, reg, fp);
+          insert_assignment(result, start as u32, *dst, reg, fp);
         }
         LoadSource::Local(_) => {
           // Local variable: allocate a fresh register
@@ -308,7 +308,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
           let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
 
           state.assign(*dst, reg, fp);
-          insert_assignment(result, *dst, reg, fp);
+          insert_assignment(result, start as u32, *dst, reg, fp);
         }
       }
 
@@ -417,7 +417,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         let reg = 0; // X0 or D0
 
         state.assign(vid, reg, result_fp);
-        insert_assignment(result, vid, reg, result_fp);
+        insert_assignment(result, start as u32, vid, reg, result_fp);
       }
 
       // Reload saved values into the SAME register they
@@ -456,7 +456,13 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
           });
 
           state.assign(ValueId(vid), reload_reg, false);
-          result.assignments.insert(vid, reload_reg);
+          insert_assignment(
+            result,
+            start as u32,
+            ValueId(vid),
+            reload_reg,
+            false,
+          );
         }
         for &(vid, orig_reg) in &fp_save {
           let slot = state.spill_slots[&vid];
@@ -474,7 +480,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
           });
 
           state.assign(ValueId(vid), orig_reg, true);
-          result.fp_assignments.insert(vid, orig_reg);
+          insert_assignment(result, start as u32, ValueId(vid), orig_reg, true);
         }
       }
 
@@ -517,7 +523,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         });
 
         state.assign(use_vid, reg, ufp);
-        insert_assignment(result, use_vid, reg, ufp);
+        insert_assignment(result, start as u32, use_vid, reg, ufp);
       }
     });
 
@@ -536,7 +542,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
 
       state.assign(vid, reg, fp);
-      insert_assignment(result, vid, reg, fp);
+      insert_assignment(result, start as u32, vid, reg, fp);
     }
 
     free_dead(&mut state, &liveness, i);
@@ -826,10 +832,16 @@ fn insn_is_fp(insn: &Insn) -> bool {
 }
 
 /// Insert assignment into the correct map (GP or FP).
-fn insert_assignment(result: &mut RegAlloc, vid: ValueId, reg: u8, fp: bool) {
+fn insert_assignment(
+  result: &mut RegAlloc,
+  fn_start: u32,
+  vid: ValueId,
+  reg: u8,
+  fp: bool,
+) {
   if fp {
-    result.fp_assignments.insert(vid.0, reg);
+    result.fp_assignments.insert((fn_start, vid.0), reg);
   } else {
-    result.assignments.insert(vid.0, reg);
+    result.assignments.insert((fn_start, vid.0), reg);
   }
 }

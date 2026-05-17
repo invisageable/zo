@@ -342,6 +342,15 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::ModuleNotDeclared => "Module not declared in lib.zo",
     ErrorKind::UnresolvedModule => "Unresolved module",
     ErrorKind::CircularImport => "Circular import detected",
+    ErrorKind::PrivatePackInLoad => {
+      "Pack is private — declare it `pub pack` to load it"
+    }
+    ErrorKind::PrivateItemInLoad => {
+      "Item is private — declare it `pub` to import it"
+    }
+    ErrorKind::ModuleNotReachable => {
+      "Module not reachable through public re-export chain"
+    }
 
     // FFI / `#link` errors.
     ErrorKind::LinkResolutionFailed => {
@@ -586,6 +595,16 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
 
     ErrorKind::MissingMainFunction => Some(
       "Every zo program needs a `fun main() { ... }` to be runnable. Add one as the entry point",
+    ),
+
+    ErrorKind::PrivatePackInLoad => {
+      Some("Mark the pack as `pub pack` in `lib.zo` to expose it outside")
+    }
+    ErrorKind::PrivateItemInLoad => {
+      Some("Mark the item as `pub` to expose it outside its module")
+    }
+    ErrorKind::ModuleNotReachable => Some(
+      "Every link in a `pub load` chain must itself be `pub pack` and `pub load`",
     ),
 
     _ => None,

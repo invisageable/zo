@@ -1,0 +1,73 @@
+-! misato::mesh — spawned ECS entity bound to a geometry + material.
+
+load core::graphics::misato::api::*;
+load core::graphics::misato::geometry::*;
+load core::graphics::misato::material::*;
+
+
+pub struct Mesh { handle: int }
+
+apply Mesh {
+  -- ----- BoxGeometry -----------------------------------
+
+  -! Spawn at origin; chain `.set_position(...)` to place the mesh
+  -! elsewhere, or use `Mesh::at` to fold both into one call.
+  pub fun new(g: BoxGeometry, m: Material) -> Self {
+    Self {
+      handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, 0.0, 0.0, 0.0)
+    }
+  }
+
+  pub fun at(
+    g: BoxGeometry,
+    m: Material,
+    x: float,
+    y: float,
+    z: float,
+  ) -> Self {
+    Self { handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, x, y, z) }
+  }
+
+  -- ----- SphereGeometry --------------------------------
+
+  pub fun sphere(g: SphereGeometry, m: Material) -> Self {
+    Self {
+      handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, 0.0, 0.0, 0.0)
+    }
+  }
+
+  pub fun sphere_at(
+    g: SphereGeometry,
+    m: Material,
+    x: float,
+    y: float,
+    z: float,
+  ) -> Self {
+    Self { handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, x, y, z) }
+  }
+
+  -- ----- PlaneGeometry ---------------------------------
+
+  pub fun plane(g: PlaneGeometry, m: Material) -> Self {
+    Self {
+      handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, 0.0, 0.0, 0.0)
+    }
+  }
+
+  pub fun plane_at(
+    g: PlaneGeometry,
+    m: Material,
+    x: float,
+    y: float,
+    z: float,
+  ) -> Self {
+    Self { handle = __zo_misato_spawn_box_mesh(g.handle, m.handle, x, y, z) }
+  }
+
+  -- ----- mutation --------------------------------------
+
+  pub fun set_position(self, x: float, y: float, z: float) -> Self {
+    __zo_misato_mesh_set_position(self.handle, x, y, z);
+    self
+  }
+}

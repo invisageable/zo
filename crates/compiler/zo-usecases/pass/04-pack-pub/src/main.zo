@@ -1,0 +1,5 @@
+load foo::*;
+
+fun main() {
+  foo_func();
+}

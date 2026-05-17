@@ -13,6 +13,7 @@ fn test_load_emits_module_load() {
     &[Insn::ModuleLoad {
       path: vec![Symbol(25), Symbol(26)],
       kind: ImportKind::Qualified,
+      pubness: Pubness::No,
     }],
   );
 }
@@ -24,6 +25,7 @@ fn test_load_nested_path() {
     &[Insn::ModuleLoad {
       path: vec![Symbol(25), Symbol(26), Symbol(27)],
       kind: ImportKind::Qualified,
+      pubness: Pubness::No,
     }],
   );
 }
@@ -35,6 +37,7 @@ fn test_load_glob_emits_glob_kind() {
     &[Insn::ModuleLoad {
       path: vec![Symbol(25), Symbol(26)],
       kind: ImportKind::Glob,
+      pubness: Pubness::No,
     }],
   );
 }
@@ -46,6 +49,7 @@ fn test_load_selective_emits_selective_kind() {
     &[Insn::ModuleLoad {
       path: vec![Symbol(25)],
       kind: ImportKind::Selective(vec![Symbol(26), Symbol(27)]),
+      pubness: Pubness::No,
     }],
   );
 }
@@ -70,6 +74,7 @@ fun main() { 42; }"#,
       Insn::ModuleLoad {
         path: vec![Symbol(25), Symbol(26)],
         kind: ImportKind::Qualified,
+        pubness: Pubness::No,
       },
       Insn::FunDef {
         name: Symbol(27),

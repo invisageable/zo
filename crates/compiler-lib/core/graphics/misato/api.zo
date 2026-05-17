@@ -1,0 +1,103 @@
+-! misato::api — raw FFI bridge to `libzo_misato`.
+-!
+-! All user-facing wrappers in this folder load this module to get the
+-! raw symbols; only one file holds the `#link` block so the dylib
+-! routing has a single source of truth.
+
+-- libzo_misato is built by `zo-misato`'s build.rs; the compiler stages a
+-- copy next to each user binary so `@executable_path` resolves it.
+#link {
+  macos: "@executable_path/libzo_misato.dylib",
+  linux: "@executable_path/libzo_misato.so",
+}
+
+
+-* world. *-
+
+pub ffi __zo_misato_init_world() -> int;
+
+-! Idempotent.
+pub ffi __zo_misato_destroy_world(handle: int);
+
+
+-* geometry. *-
+
+-! Creates a geometry for a rectangular cuboid.
+pub ffi __zo_misato_make_box_geom(w: f32, h: f32, d: f32) -> int;
+
+-! Creates a geometry for a sphere.
+pub ffi __zo_misato_make_sphere_geom(
+  radius: f32,
+  rings: int,
+  slices: int,
+) -> int;
+
+-! XZ plane at Y=0 with normals `+Y`.
+pub ffi __zo_misato_make_plane_geom(
+  width: f32,
+  length: f32,
+  res_x: int,
+  res_z: int,
+) -> int;
+
+
+-* material. *-
+
+-! `color` packed `0xRRGGBBAA`.
+pub ffi __zo_misato_make_standard_mat(color: int) -> int;
+
+-! Debug-style normal-as-color shader.
+pub ffi __zo_misato_make_normal_mat() -> int;
+
+
+-* mesh. *-
+
+-! Geometry-agnostic at spawn: `geom` indexes the runtime's geom table
+-! regardless of how it was built (cube, sphere, plane).
+pub ffi __zo_misato_spawn_box_mesh(
+  geom: int,
+  mat: int,
+  x: f32,
+  y: f32,
+  z: f32,
+) -> int;
+
+pub ffi __zo_misato_mesh_set_position(
+  mesh: int,
+  x: f32,
+  y: f32,
+  z: f32,
+);
+
+
+-* scene. *-
+
+pub ffi __zo_misato_scene_add(scene: int, ent: int);
+
+pub ffi __zo_misato_scene_render(scene: int, cam_handle: int);
+
+
+-* camera. *-
+
+-! Default position `(3, 3, 3)`, target `(0, 0, 0)`, up `(0, 1, 0)`.
+pub ffi __zo_misato_camera_new(
+  fov: f32,
+  aspect: f32,
+  near: f32,
+  far: f32,
+) -> int;
+
+pub ffi __zo_misato_camera_set_position(
+  cam: int,
+  x: f32,
+  y: f32,
+  z: f32,
+);
+
+-! `(x, y, z)` is in world space.
+pub ffi __zo_misato_camera_look_at(
+  cam: int,
+  x: f32,
+  y: f32,
+  z: f32,
+);
