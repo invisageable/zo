@@ -268,10 +268,20 @@ fn build_struct_return_map(
 
   for insn in insns {
     match insn {
-      Insn::FunDef { name, .. } => {
+      Insn::FunDef {
+        name, return_ty, ..
+      } => {
         cur_fn = Some(*name);
         last_ty = None;
         last_fields = None;
+
+        // Every fn whose declared return is a struct claims
+        // a slot, even when the body's tail position is a
+        // call (not a `StructConstruct`). FFI composite
+        // returns share this path via the AAPCS lift.
+        if let Some(slots) = struct_return_slots(*return_ty, type_view) {
+          map.insert(*name, slots);
+        }
       }
       Insn::StructConstruct { fields, ty_id, .. } => {
         last_fields = Some(fields.len() as u32);
@@ -338,6 +348,23 @@ pub fn flat_struct_slots_of(
       Some(total)
     }
     _ => Some(1),
+  }
+}
+
+/// Slots a struct-returning fn claims in its caller's frame.
+///
+/// @note — `None` when `return_ty` isn't a struct, or when
+/// the type-view is absent / the struct id is missing.
+/// Drives `build_struct_return_map`'s registration filter.
+fn struct_return_slots(
+  return_ty: TyId,
+  type_view: Option<(&[Ty], &TyTable)>,
+) -> Option<u32> {
+  let (tys, tt) = type_view?;
+
+  match resolve_ty(tys, return_ty) {
+    Ty::Struct(_) => flat_struct_slots_of(return_ty, tys, tt),
+    _ => None,
   }
 }
 

@@ -2399,7 +2399,11 @@ impl<'a> Parser<'a> {
 
         Some(NodeValue::Symbol(symbol))
       }
-      Token::Int | Token::Float | Token::Char | Token::Bytes => {
+      Token::Int
+      | Token::Float
+      | Token::Char
+      | Token::Bytes
+      | Token::RegexLit => {
         Some(NodeValue::Literal(self.tokens.literal_indices[self.pos]))
       }
       _ => None,

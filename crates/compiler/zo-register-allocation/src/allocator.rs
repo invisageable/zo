@@ -359,8 +359,12 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
 
       let arg_set = args.iter().map(|a| a.0).collect::<Vec<_>>();
 
-      // Collect values to save (both GP and FP).
-      let gp_save = state
+      // Collect values to save (both GP and FP). `gp_save`
+      // gets sorted in place before the reload loop so
+      // non-X0 originals claim their reg before X0-originals
+      // run `alloc_free` (which would otherwise pop the
+      // same reg). Spill loop is order-independent.
+      let mut gp_save = state
         .gp
         .val_to_reg
         .iter()
@@ -430,6 +434,11 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       // spill-store targets the original. Reloading into the
       // same register avoids this.
       if gi + 1 < end {
+        // Reload order: non-X0 originals first, so they
+        // retain their reg before X0-vids run `alloc_free`
+        // and might steal it.
+        gp_save.sort_by_key(|(_, reg)| u8::from(*reg == 0));
+
         for &(vid, orig_reg) in &gp_save {
           let slot = state.spill_slots[&vid];
 

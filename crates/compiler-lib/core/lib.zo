@@ -23,10 +23,17 @@ pub pack vec;
 -* loadables. *-
 
 pub pack c;
+pub pack encoding;
+pub pack env;
 pub pack graphics;
+pub pack hash;
 pub pack json;
+pub pack log;
 pub pack math;
 pub pack process;
+pub pack random;
+pub pack regex;
+pub pack time;
 
 
 -* preload:exports. *-

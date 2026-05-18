@@ -19,6 +19,7 @@ pub enum Token {
   RawString,    // Side table index
   Char,         // Side table index
   Bytes,        // Side table index
+  RegexLit,     // Side table index (regex_literals: (pattern, flags))
 
   // Identifiers & Keywords
   Ident, // Side table index
@@ -185,12 +186,23 @@ impl Token {
         | Self::RawString
         | Self::Char
         | Self::Bytes
+        | Self::RegexLit
         | Self::True
         | Self::False
         | Self::SelfLower
         | Self::SelfUpper
         | Self::Dollar
     )
+  }
+
+  /// True when the next `/` is division, not the start of
+  /// a regex literal. `}` is excluded: in zo a closing
+  /// brace always ends a block or struct literal, so the
+  /// next significant token starts a fresh expression
+  /// context.
+  #[inline(always)]
+  pub fn is_after_operand(&self) -> bool {
+    self.is_operand() || matches!(self, Self::RParen | Self::RBracket)
   }
 
   /// Checks if the token kind is a type keyword.
@@ -393,6 +405,8 @@ pub struct LiteralStore {
   pub interp_segments: Vec<InterpSegment>,
   /// Per-InterpString token: (start, count) into interp_segments.
   pub interp_ranges: Vec<(u32, u16)>,
+  /// Per-RegexLit token: `(pattern_symbol, flags_symbol)`.
+  pub regex_literals: Vec<(Symbol, Symbol)>,
 }
 
 impl LiteralStore {
@@ -406,6 +420,7 @@ impl LiteralStore {
       bytes_literals: Vec::new(),
       interp_segments: Vec::new(),
       interp_ranges: Vec::new(),
+      regex_literals: Vec::new(),
     }
   }
 
@@ -419,7 +434,18 @@ impl LiteralStore {
       string_literals: Vec::with_capacity(cap / 10),
       interp_segments: Vec::new(),
       interp_ranges: Vec::new(),
+      regex_literals: Vec::new(),
     }
+  }
+
+  /// Push a `(pattern, flags)` pair; return its index.
+  #[inline(always)]
+  pub fn push_regex(&mut self, pat: Symbol, flags: Symbol) -> u32 {
+    let idx = self.regex_literals.len() as u32;
+
+    self.regex_literals.push((pat, flags));
+
+    idx
   }
 
   #[inline(always)]

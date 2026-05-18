@@ -1,28 +1,33 @@
 load core::c::*;
 
--- core::c — round-trip a zo str through `c_str` (strip
--- length prefix → bytes ptr) and `from_c_str_len` (bytes
--- ptr + len → fresh heap str). Phase 0 of the json
--- provider bring-up: every C library that returns a
+-- core::c — round-trip a zo str through `CStr::new` (strip
+-- length prefix + validate, returns the bytes ptr) and a
+-- runtime-staged `CBytes { ptr, len }` materialized via
+-- `CBytes::to_str()`. Every C library that returns a
 -- `(ptr, len)` pair (json::to_str, http body, file read)
--- lifts the bytes through `from_c_str_len` to get a real
+-- lifts the bytes through `CBytes::to_str()` to get a real
 -- zo str usable in interpolation, `showln`, slicing, and
 -- storage.
 
 fun main() {
   imu original: str = "hello, world";
-  imu ptr: int = c_str(original);
-  imu copy: str = from_c_str_len(ptr, 12);
+  imu cs: CStr = CStr::new(original);
+  check(cs.is_valid());
+
+  -- Synthesize a CBytes that points at the same payload
+  -- and length. The materialized copy is an independent
+  -- heap str, not aliased into rodata.
+  imu cb: CBytes = CBytes { ptr = cs.ptr, len = 12 as s64 };
+  imu copy: str = cb.to_str();
 
   showln(original);
   showln(copy);
 
-  -- A second round-trip on a different literal — proves
-  -- the alloc path produces independent heap strs, not
-  -- aliased back into rodata.
+  -- A second round-trip on a different literal.
   imu zo: str = "zo";
-  imu zo_ptr: int = c_str(zo);
-  imu zo_copy: str = from_c_str_len(zo_ptr, 2);
+  imu zo_cs: CStr = CStr::new(zo);
+  imu zo_cb: CBytes = CBytes { ptr = zo_cs.ptr, len = 2 as s64 };
+  imu zo_copy: str = zo_cb.to_str();
 
   showln(zo_copy);
   showln("DONE");

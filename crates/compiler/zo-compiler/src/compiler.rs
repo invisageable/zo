@@ -1060,6 +1060,13 @@ impl Compiler {
       &module_table_per_path,
     );
 
+    // Entry programs adopt their file stem as pack identity
+    // so top-level `#link { ... }` resolves to a `PackLink`.
+    let implicit_sym = file_path
+      .file_stem()
+      .and_then(|s| s.to_str())
+      .map(|stem| session.interner.intern(stem));
+
     let analyzer = Analyzer::new(
       &parsing.tree,
       &mut session.interner,
@@ -1076,7 +1083,7 @@ impl Compiler {
       .with_config(AnalyzerConfig {
         imports: user_seed,
         source_dir: file_path.parent().map(Path::to_path_buf),
-        implicit_pack: None,
+        implicit_pack: implicit_sym,
         in_scope_packs,
         is_entry: true,
       })
@@ -1590,22 +1597,34 @@ fn stage_dylib(
   //    placed by `tasks/zo-install.sh` or staged
   //    manually under `target/lib/vendor/` for local
   //    development.
-  //
-  // Re-copy is unconditional. A `(size, mtime)` skip
-  // shortcut once left stale dylibs after a git
-  // checkout where two builds landed in the same
-  // minute with the same byte count but different
-  // `LC_LOAD_DYLIB` layouts — dyld silently hangs in
-  // that case.
   let candidates = [
     runtime_dir.join("deps").join(name),
     runtime_dir.join(name),
     runtime_dir.join("..").join("lib").join("vendor").join(name),
   ];
 
+  // Race-safe staging: copy to a PID-stamped tempfile,
+  // then `rename` over the destination. The test runner
+  // spawns ~400 parallel `zo build` processes into one
+  // tmp directory; a plain `fs::copy` (truncate +
+  // sequential write) lets two writers interleave and
+  // leaves dyld mapping a torn dylib — the loaded test
+  // binary then SIGKILLs at launch. POSIX `rename` is
+  // atomic on the same filesystem, so concurrent readers
+  // see either the old inode or the new inode, never a
+  // partial one.
   for src in &candidates {
     if src.exists() {
-      let _ = std::fs::copy(src, output_dir.join(name));
+      let dest = output_dir.join(name);
+      let tmp =
+        output_dir.join(format!(".{}.{}.tmp", name, std::process::id(),));
+
+      if std::fs::copy(src, &tmp).is_ok() {
+        let _ = std::fs::rename(&tmp, &dest);
+      } else {
+        let _ = std::fs::remove_file(&tmp);
+      }
+
       return;
     }
   }

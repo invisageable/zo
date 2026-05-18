@@ -1,0 +1,18 @@
+-- tests-run-pass: base64 encode/decode round-trip.
+
+load core::encoding::base64::*;
+
+fun main() {
+  check@eq(encode(""), "");
+  check@eq(encode("zo"), "em8=");
+  check@eq(encode("Hello, World!"), "SGVsbG8sIFdvcmxkIQ==");
+
+  check@eq(decode(""), "");
+  check@eq(decode("em8="), "zo");
+  check@eq(decode("SGVsbG8sIFdvcmxkIQ=="), "Hello, World!");
+
+  -- Invalid input -> empty string.
+  check@eq(decode("not!base64!"), "");
+
+  showln("base64_basic: all checks passed!");
+}

@@ -9,7 +9,7 @@ load provider::raylib::*;
 -- @cmd — zo build grid_1000.zo && ./grid_1000
 
 fun main() {
-  init_window(1024, 768, c_str("zo + misato — grid_1000"));
+  init_window(1024, 768, CStr::new("zo + misato — grid_1000"));
   set_target_fps(60);
 
   imu scene := Scene::new();

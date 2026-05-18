@@ -1,0 +1,15 @@
+-- tests-run-pass: structured logging to stderr.
+
+load core::log::*;
+
+fun main() {
+  debug("compile started");
+  info("compile finished in 12ms");
+  warn("3 functions unused");
+  error("link step failed");
+  
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

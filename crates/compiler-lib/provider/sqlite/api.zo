@@ -23,7 +23,7 @@ load core::c::*;
 -!
 -! @param path — The database pathname.
 -! @returns — A positive handle on success, `0` on failure.
-pub ffi __zo_sqlite_open(path: int) -> int;
+pub ffi __zo_sqlite_open(path: CStr) -> int;
 
 -! Close a database connection.
 -!
@@ -39,7 +39,7 @@ pub ffi __zo_sqlite_close(handle: int);
 -! @returns — 0 on success, non-zero on failure.
 -!
 -! @note — Runs DDL/DML (CREATE / INSERT / UPDATE / DELETE).
-pub ffi __zo_sqlite_exec(handle: int, sql: int) -> int;
+pub ffi __zo_sqlite_exec(handle: int, sql: CStr) -> int;
 
 -! Runs an SQL query.
 -!
@@ -48,4 +48,4 @@ pub ffi __zo_sqlite_exec(handle: int, sql: int) -> int;
 -! @returns — The first column of the first row as int.
 -!
 -! @note — Returns 0 for no-rows or error.
-pub ffi __zo_sqlite_query_int(handle: int, sql: int) -> int;
+pub ffi __zo_sqlite_query_int(handle: int, sql: CStr) -> int;

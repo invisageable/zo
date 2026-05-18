@@ -1,0 +1,33 @@
+-- tests-run-pass: env get/set/remove/current_dir/vars.
+
+load core::env::*;
+
+fun main() {
+  check(set("ZO_ENV_TEST", "hello"));
+  check@eq(get("ZO_ENV_TEST"), "hello");
+
+  check(remove("ZO_ENV_TEST"));
+  check@eq(get("ZO_ENV_TEST"), "");
+
+  -- Empty name + name containing `=` are rejected.
+  check(!set("", "x"));
+  check(!set("BAD=NAME", "x"));
+  check(!remove(""));
+  check(!remove("BAD=NAME"));
+
+  imu cwd: str = current_dir();
+  check(cwd.len > 0);
+
+  imu all: []str = vars();
+  check(all.len() > 0);
+
+  mut found_path: bool = false;
+  for entry := all {
+    if entry.len >= 5 && entry[0..5] == "PATH=" {
+      found_path = true;
+    }
+  }
+  check(found_path);
+
+  showln("env_basic: all checks passed!");
+}

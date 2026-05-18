@@ -1,0 +1,31 @@
+-- tests-run-pass: monotonic Instant + Duration arithmetic.
+
+load core::time::*;
+
+fun main() {
+  -- Monotonic clock advances.
+  imu t0: Instant = Instant::now();
+  imu t1: Instant = Instant::now();
+  imu delta: Duration = t1.duration_since(t0);
+  check(delta.as_nanos() >= 0);
+
+  -- `Duration::from_*` round-trip arithmetic.
+  imu one_sec: Duration = Duration::from_secs(1);
+  check@eq(one_sec.as_millis(), 1000);
+  check@eq(one_sec.as_nanos(), 1000000000);
+
+  imu half: Duration = Duration::from_millis(500);
+  check@eq(half.as_micros(), 500000);
+
+  -- `sleep` blocks for at least the requested span.
+  imu before: Instant = Instant::now();
+  sleep(Duration::from_millis(10));
+  imu slept: Duration = before.elapsed();
+  check(slept.as_millis() >= 10);
+
+  -- Wall-clock is exposed.
+  imu now: SystemTime = SystemTime::now();
+  check(now.secs > 0);
+
+  showln("time_basic: all checks passed!");
+}

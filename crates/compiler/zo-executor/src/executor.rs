@@ -2565,8 +2565,27 @@ impl<'a> Executor<'a> {
         }
 
         if at_fn_depth && let Some(fun_ctx) = &self.current_function {
-          // Only emit implicit return if there wasn't an explicit one
-          if !fun_ctx.has_explicit_return {
+          // Function-end implicit return. `has_explicit_return`
+          // alone is too coarse: it's set when ANY `return` is
+          // seen (e.g. inside an `if`-then with no `else`), so
+          // gating purely on `!has_explicit_return` drops the
+          // fallthrough Return entirely and the function runs
+          // off the end of its body into the next symbol.
+          //
+          // Cases the gate below must cover:
+          //   - tail is already a Return/Jump → skip;
+          //   - fallthrough has a tail-expression value → emit;
+          //   - unit-returning function → always emit;
+          //   - non-unit and all paths already terminate
+          //     (`has_explicit_return` + dead trailing label) →
+          //     emit `ret void` as a dead terminator so the
+          //     binary doesn't fall through into the next sym.
+          let tail_is_terminator = matches!(
+            self.sir.instructions.last(),
+            Some(Insn::Return { .. } | Insn::Jump { .. }),
+          );
+
+          if !tail_is_terminator {
             // Emit implicit return if needed
             // Check if function returns unit type
             let unit_ty = self.ty_checker.unit_type();
@@ -2611,6 +2630,14 @@ impl<'a> Executor<'a> {
                 self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
 
               (sir_value, body_ty)
+            } else if fun_ctx.has_explicit_return {
+              // All paths returned via explicit `return` and
+              // the trailing Label is dead. Emit a `ret void`
+              // as a binary terminator — the codegen needs a
+              // `ret` here so the function doesn't fall
+              // through into the next symbol — without
+              // surfacing a spurious type-mismatch.
+              (None, unit_ty)
             } else {
               report_error(Error::new(ErrorKind::TypeMismatch, fn_span));
 
@@ -3091,6 +3118,12 @@ impl<'a> Executor<'a> {
             node_idx: idx,
             ty_id,
           });
+        }
+      }
+
+      Token::RegexLit => {
+        if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
+          self.emit_regex_lit_call(idx, lit_idx);
         }
       }
 
@@ -10134,6 +10167,72 @@ impl<'a> Executor<'a> {
   /// derive methods can refer to it. `None` when
   /// `core::json` isn't imported — derive then becomes a
   /// no-op (user's call site reports `Undefined`).
+  /// Desugar `/pattern/flags` to the same SIR a hand-written
+  /// `Regex::new("pattern", "flags")` would produce. Missing
+  /// `Regex` in scope (no `load core::regex`) reports
+  /// `UndefinedVariable` at the literal's span.
+  fn emit_regex_lit_call(&mut self, idx: usize, lit_idx: u32) {
+    let (pat_sym, flag_sym) = self.literals.regex_literals[lit_idx as usize];
+
+    let Some(regex_sym) = self.interner.symbol("Regex") else {
+      report_error(Error::new(
+        ErrorKind::UndefinedVariable,
+        self.tree.spans[idx],
+      ));
+      return;
+    };
+    let Some(regex_struct_id) = self
+      .ty_checker
+      .ty_table
+      .struct_intern_lookup(regex_sym)
+      .copied()
+    else {
+      report_error(Error::new(
+        ErrorKind::UndefinedVariable,
+        self.tree.spans[idx],
+      ));
+      return;
+    };
+    let regex_ty_id = self.ty_checker.intern_ty(Ty::Struct(regex_struct_id));
+    let str_ty = self.ty_checker.str_type();
+
+    let pat_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstString {
+      dst: pat_v,
+      symbol: pat_sym,
+      ty_id: str_ty,
+    });
+
+    let flag_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstString {
+      dst: flag_v,
+      symbol: flag_sym,
+      ty_id: str_ty,
+    });
+
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    let sir_value = self.sir.emit(Insn::Call {
+      dst,
+      name: self.interner.intern("Regex::new"),
+      args: vec![pat_v, flag_v],
+      ty_id: regex_ty_id,
+    });
+
+    let value_id = self.values.store_runtime(0);
+
+    self.value_stack.push(value_id);
+    self.ty_stack.push(regex_ty_id);
+    self.sir_values.push(sir_value);
+
+    self.annotations.push(Annotation {
+      node_idx: idx,
+      ty_id: regex_ty_id,
+    });
+  }
+
   fn json_derive_ctx(&mut self) -> Option<DeriveCtx> {
     let json_sym = self.interner.symbol("Json")?;
     let json_struct_id = self
@@ -19911,6 +20010,7 @@ impl<'a> Executor<'a> {
 
       if path.starts_with(EXECUTABLE_PATH_PREFIX)
         || std::path::Path::new(path).exists()
+        || is_dyld_resolvable_system_path(path)
       {
         return Some(value);
       }
@@ -22125,6 +22225,23 @@ struct SavedOuterFun {
   sir_values: Vec<ValueId>,
   sir: Sir,
   pending_decl: Option<PendingDecl>,
+}
+
+/// True when `path` is an absolute system-library location
+/// that dyld resolves through its shared cache.
+///
+/// @note — on modern macOS, `/usr/lib/libSystem.B.dylib`
+/// and similar paths don't exist as on-disk files but
+/// resolve correctly at load time via the dyld shared
+/// cache. A plain `Path::exists` check rejects them; the
+/// linker still emits the right `LC_LOAD_DYLIB` and the OS
+/// loader binds the symbols. Linux `/lib/` and `/usr/lib/`
+/// paths get the same treatment for parity.
+fn is_dyld_resolvable_system_path(path: &str) -> bool {
+  path.starts_with("/usr/lib/")
+    || path.starts_with("/System/")
+    || path.starts_with("/lib/")
+    || path.starts_with("/usr/local/lib/")
 }
 
 /// Static tag registry — maps HTML tag names directly to

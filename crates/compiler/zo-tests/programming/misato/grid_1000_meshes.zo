@@ -14,7 +14,7 @@ load provider::raylib::*;
 -- exits.
 
 fun main() {
-  init_window(1024, 768, c_str("zo + misato — grid_1000_meshes"));
+  init_window(1024, 768, CStr::new("zo + misato — grid_1000_meshes"));
   set_target_fps(60);
 
   imu scene := Scene::new();

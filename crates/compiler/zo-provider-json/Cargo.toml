@@ -9,6 +9,7 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 # internal:crates.
+zo-c-abi = { workspace = true }
 
 # external:crates.
 serde_json = { workspace = true }

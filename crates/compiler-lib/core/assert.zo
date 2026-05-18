@@ -1,4 +1,6 @@
 -! Assert that condition is true, abort if false.
 -!
 -! @param condition — The assertion.
+-!
+-! @note — On fail, the compiler raise an error.
 pub ffi check(condition: bool);

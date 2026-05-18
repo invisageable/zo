@@ -17,6 +17,8 @@
 //! point at `obj`'s root). The root drops when the last
 //! handle referencing it is freed.
 
+use zo_c_abi::{CBytes, stage_cbytes};
+
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::ffi::CStr;
@@ -36,13 +38,9 @@ type StepPath = SmallVec<[Step; 4]>;
 
 // Per-thread scratch for the string-returning FFIs
 // (`__zo_json_to_str` / `__zo_json_as_str` /
-// `__zo_json_key_at`). The Rust side stages bytes into
-// here, returns a `(ptr, len)` pair across two FFI calls,
-// and zo's `from_c_str_len` (Phase 0 bridge) copies the
-// bytes into a heap-backed zo `str`. Each call overwrites
-// the previous — safe because zo's wrappers run both FFI
-// reads back-to-back before any other code can mutate the
-// scratch.
+// `__zo_json_key_at`). Each call overwrites the previous
+// — safe because the bytes are immediately copied via
+// `CBytes::to_str()` on the zo side.
 //
 // `KEYS` is a separate per-thread buffer for object key
 // iteration. `keys_len` fills it from the object; each
@@ -70,24 +68,6 @@ thread_local! {
   // failure from the value alone.
   static LAST_ERROR: RefCell<Option<String>> =
     const { RefCell::new(None) };
-}
-
-/// Replace the scratch with `bytes` (or empty it) and
-/// return a stable pointer to the new contents. The
-/// pointer is valid until the next call that touches the
-/// scratch on this thread — long enough for
-/// `__zo_json_last_str_len` + `from_c_str_len` to consume
-/// it. Keeps the underlying `Vec`'s capacity across calls
-/// so a tight `to_str` loop doesn't reallocate per
-/// iteration.
-#[inline]
-fn put_scratch(bytes: &[u8]) -> *const u8 {
-  OUT.with(|cell| {
-    let mut out = cell.borrow_mut();
-    out.clear();
-    out.extend_from_slice(bytes);
-    out.as_ptr()
-  })
 }
 
 /// Owned parse + refcount. Handles point in; the count
@@ -498,66 +478,42 @@ pub extern "C" fn __zo_json_get_at(
   alloc_handle(roots, handles, root, new_path)
 }
 
-/// `__zo_json_to_str(handle: int) -> int`. Serialize the
-/// value as compact JSON, stage the bytes in the per-thread
-/// scratch, and return a pointer to them. zo's wrapper
-/// pairs this with `__zo_json_last_str_len` and
-/// `from_c_str_len` (Phase 0) to copy the bytes into a
-/// heap-backed zo `str` — the scratch can then be reused
-/// for the next call.
+/// Serialize the value at `handle` as compact JSON.
 ///
-/// On any failure (invalid handle, serialization error)
-/// the scratch is left empty so `from_c_str_len` produces
-/// an empty `str` rather than reading stale bytes.
+/// @note — empty bytes on invalid handle or serialization
+/// failure. `as_str` returns the unquoted string content;
+/// `to_str` re-encodes through serde so a parsed `"hi"`
+/// round-trips as `"\"hi\""`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_to_str(handle: ZoHandle) -> ZoHandle {
+pub extern "C" fn __zo_json_to_str(handle: ZoHandle) -> CBytes {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
 
   let Some(value) = resolve(handle, roots, handles) else {
-    return put_scratch(b"") as ZoHandle;
+    return CBytes::empty();
   };
 
   let Ok(s) = serde_json::to_string(value) else {
-    return put_scratch(b"") as ZoHandle;
+    return CBytes::empty();
   };
 
-  put_scratch(s.as_bytes()) as ZoHandle
+  stage_cbytes(&OUT, s.as_bytes())
 }
 
-/// `__zo_json_as_str(handle: int) -> int`. Read a JSON
-/// string's content (unquoted). For non-string kinds and
-/// invalid handles the scratch is emptied so the wrapper
-/// returns an empty `str` — the same zero-equivalent
-/// fall-back the other scalar accessors use.
-///
-/// Distinct from `to_str` — `Json::parse("\"hi\"").to_str()`
-/// is `"\"hi\""` (re-encoded JSON), `as_str()` is `"hi"`
-/// (the underlying string).
+/// Read a JSON string's content (unquoted).
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_as_str(handle: ZoHandle) -> ZoHandle {
+pub extern "C" fn __zo_json_as_str(handle: ZoHandle) -> CBytes {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
 
-  let bytes = match resolve(handle, roots, handles) {
+  let bytes: &[u8] = match resolve(handle, roots, handles) {
     Some(Value::String(s)) => s.as_bytes(),
     _ => b"",
   };
 
-  put_scratch(bytes) as ZoHandle
-}
-
-/// `__zo_json_last_str_len() -> int`. Companion to the
-/// string-returning FFIs above. Returns the byte length of
-/// the most recent scratch fill on the calling thread.
-/// Must be called immediately after `__zo_json_to_str` /
-/// `__zo_json_as_str` / `__zo_json_key_at` and before any
-/// other JSON FFI.
-#[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_last_str_len() -> ZoHandle {
-  OUT.with(|cell| cell.borrow().len() as ZoHandle)
+  stage_cbytes(&OUT, bytes)
 }
 
 /// Populate the per-thread KEYS cache from `handle`'s
@@ -611,19 +567,19 @@ pub extern "C" fn __zo_json_keys_len(handle: ZoHandle) -> ZoHandle {
   fill_keys_cache(handle) as ZoHandle
 }
 
-/// `__zo_json_key_at(handle: int, i: int) -> int`. Return
-/// a pointer to the i-th cached key, with the byte length
-/// staged in OUT (read via `__zo_json_last_str_len`). The
-/// cache is re-populated from `handle` per call so two
-/// iterators on different handles can interleave without
-/// trampling each other.
+/// Return the i-th cached key from `handle`'s object.
+///
+/// @note — re-populates the per-thread cache from `handle`
+/// per call so two iterators on different handles can
+/// interleave without trampling. Empty bytes for non-
+/// objects, out-of-range, or invalid handles.
 #[unsafe(no_mangle)]
 pub extern "C" fn __zo_json_key_at(
   handle: ZoHandle,
   index: ZoHandle,
-) -> ZoHandle {
+) -> CBytes {
   if index < 0 {
-    return put_scratch(b"") as ZoHandle;
+    return CBytes::empty();
   }
 
   fill_keys_cache(handle);
@@ -635,23 +591,22 @@ pub extern "C" fn __zo_json_key_at(
       .map(|k| k.as_bytes())
       .unwrap_or(b"");
 
-    put_scratch(bytes) as ZoHandle
+    stage_cbytes(&OUT, bytes)
   })
 }
 
-/// `__zo_json_last_error() -> int`. Return a pointer to
-/// the most recent parse error message on this thread,
-/// with the byte length staged in OUT. Empty when the last
-/// `parse_str` succeeded or no parse has run yet — callers
-/// pair this with `Json::parse(..)` returning handle `0`
-/// to surface a human-readable reason.
+/// Most recent parse error message on this thread.
+///
+/// @note — empty when the last `parse_str` succeeded or no
+/// parse has run yet. Pair with `Json::parse(...)` returning
+/// handle `0` to surface a human-readable reason.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_last_error() -> ZoHandle {
+pub extern "C" fn __zo_json_last_error() -> CBytes {
   LAST_ERROR.with(|cell| {
     let cell = cell.borrow();
     let bytes = cell.as_ref().map(|s| s.as_bytes()).unwrap_or(b"");
 
-    put_scratch(bytes) as ZoHandle
+    stage_cbytes(&OUT, bytes)
   })
 }
 

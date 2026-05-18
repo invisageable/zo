@@ -194,6 +194,7 @@ pub enum ErrorKind {
   InvalidNumericLiteral,
   InvalidEscapeSequence,
   UnterminatedChar,
+  UnterminatedRegex,
   UnterminatedBytes,
   EmptyCharLiteral,
   EmptyCharLit,

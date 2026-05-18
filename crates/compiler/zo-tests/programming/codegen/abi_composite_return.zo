@@ -1,0 +1,36 @@
+-- @emit asm
+--
+-- AAPCS composite return — a 16B 2-field struct lifts from
+-- the (X0, X1) return-register pair into a fresh caller-
+-- frame slot, then the dst register points at the slot's
+-- base. Pre-requisite for `CBytes` and every future ≤16B
+-- composite-return FFI.
+--
+-- @note — `str x0/x1, [sp, #N]` (the field-store lift) is
+-- emitted as raw hex in the current asm dump, so the only
+-- decoded signature we can match is the slot-base `add`
+-- that immediately follows. Pairs with the `bl` site to
+-- pin the lift to a real composite-return call.
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+-- 2 × s64 = 16 bytes → AAPCS returns in (X0, X1). Using
+-- `int` here would be 2 × s32 = 8 bytes and degrade to a
+-- single-register return, which doesn't exercise the
+-- composite lift.
+pub struct SpikePair { a: s64, b: s64 }
+
+%% link_name = "zo_spike_pair".
+pub ffi __zo_spike_pair() -> SpikePair;
+
+-- CHECK: bl
+-- CHECK: add x0, x31, #
+fun main() {
+  imu p: SpikePair = __zo_spike_pair();
+  imu a: s64 = p.a;
+  imu b: s64 = p.b;
+  showln("abi_composite_return: a={a} b={b}");
+}
