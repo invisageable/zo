@@ -20010,6 +20010,7 @@ impl<'a> Executor<'a> {
 
       if path.starts_with(EXECUTABLE_PATH_PREFIX)
         || std::path::Path::new(path).exists()
+        || is_dyld_resolvable_system_path(path)
       {
         return Some(value);
       }
@@ -22224,6 +22225,23 @@ struct SavedOuterFun {
   sir_values: Vec<ValueId>,
   sir: Sir,
   pending_decl: Option<PendingDecl>,
+}
+
+/// True when `path` is an absolute system-library location
+/// that dyld resolves through its shared cache.
+///
+/// @note — on modern macOS, `/usr/lib/libSystem.B.dylib`
+/// and similar paths don't exist as on-disk files but
+/// resolve correctly at load time via the dyld shared
+/// cache. A plain `Path::exists` check rejects them; the
+/// linker still emits the right `LC_LOAD_DYLIB` and the OS
+/// loader binds the symbols. Linux `/lib/` and `/usr/lib/`
+/// paths get the same treatment for parity.
+fn is_dyld_resolvable_system_path(path: &str) -> bool {
+  path.starts_with("/usr/lib/")
+    || path.starts_with("/System/")
+    || path.starts_with("/lib/")
+    || path.starts_with("/usr/local/lib/")
 }
 
 /// Static tag registry — maps HTML tag names directly to

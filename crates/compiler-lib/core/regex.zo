@@ -14,22 +14,22 @@ load core::c::*;
 
 
 %% link_name = "zo_regex_compile".
-pub ffi __zo_regex_compile(pattern: int, flags: int) -> int;
+pub ffi __zo_regex_compile(pattern: CStr, flags: CStr) -> int;
 
 %% link_name = "zo_regex_free".
 pub ffi __zo_regex_free(handle: int);
 
 %% link_name = "zo_regex_matches".
-pub ffi __zo_regex_matches(handle: int, s: int) -> int;
+pub ffi __zo_regex_matches(handle: int, s: CStr) -> int;
 
 %% link_name = "zo_regex_find".
-pub ffi __zo_regex_find(handle: int, s: int) -> int;
+pub ffi __zo_regex_find(handle: int, s: CStr) -> int;
 
 %% link_name = "zo_regex_find_end".
-pub ffi __zo_regex_find_end(handle: int, s: int) -> int;
+pub ffi __zo_regex_find_end(handle: int, s: CStr) -> int;
 
 %% link_name = "zo_regex_exec".
-pub ffi __zo_regex_exec(handle: int, s: int) -> int;
+pub ffi __zo_regex_exec(handle: int, s: CStr) -> int;
 
 %% link_name = "zo_regex_match_free".
 pub ffi __zo_regex_match_free(handle: int);
@@ -44,23 +44,24 @@ pub ffi __zo_regex_match_end(handle: int) -> int;
 pub ffi __zo_regex_match_group_count(handle: int) -> int;
 
 %% link_name = "zo_regex_match_group".
-pub ffi __zo_regex_match_group(handle: int, index: int) -> int;
+pub ffi __zo_regex_match_group(handle: int, index: int) -> CBytes;
 
 %% link_name = "zo_regex_replace".
-pub ffi __zo_regex_replace(handle: int, s: int, replacement: int) -> int;
+pub ffi __zo_regex_replace(
+  handle: int,
+  s: CStr,
+  replacement: CStr,
+) -> CBytes;
 
 %% link_name = "zo_regex_replace_all".
 pub ffi __zo_regex_replace_all(
   handle: int,
-  s: int,
-  replacement: int,
-) -> int;
+  s: CStr,
+  replacement: CStr,
+) -> CBytes;
 
 %% link_name = "zo_regex_split".
-pub ffi __zo_regex_split(handle: int, s: int) -> []str;
-
-%% link_name = "zo_regex_last_str_len".
-pub ffi __zo_regex_last_str_len() -> int;
+pub ffi __zo_regex_split(handle: int, s: CStr) -> []str;
 
 
 -! Byte offsets + capture-group texts for the first match.
@@ -97,9 +98,7 @@ apply Match {
   -! parenthesised groups. `""` for out-of-range indices or
   -! non-participating groups.
   pub fun at(self, i: int) -> str {
-    imu ptr: int = __zo_regex_match_group(self.handle, i);
-    imu len: int = __zo_regex_last_str_len();
-    from_c_str_len(ptr, len)
+    __zo_regex_match_group(self.handle, i).to_str()
   }
 
   -! The whole-match text; equivalent to `at(0)`.
@@ -116,14 +115,17 @@ apply Match {
 
 -! A compiled regular expression.
 -!
--! @note — `handle == 0` means the pattern failed to
--! compile; check `is_valid` before use.
+-! @note — `handle == 0` means the pattern failed to compile
+-! (or the input string contained an interior NUL); check
+-! `is_valid` before use.
 pub struct Regex { handle: int }
 
 apply Regex {
   -! Compile `pattern` with the given flag string.
   pub fun new(pattern: str, flags: str) -> Self {
-    Self { handle = __zo_regex_compile(c_str(pattern), c_str(flags)) }
+    Self {
+      handle = __zo_regex_compile(CStr::new(pattern), CStr::new(flags)),
+    }
   }
 
   -! True when the pattern compiled successfully.
@@ -138,7 +140,7 @@ apply Regex {
 
   -! True when `s` contains at least one match.
   pub fun matches(self, s: str) -> bool {
-    __zo_regex_matches(self.handle, c_str(s)) == 1
+    __zo_regex_matches(self.handle, CStr::new(s)) == 1
   }
 
   -! Byte offset of the first match's start, or `-1`.
@@ -146,17 +148,17 @@ apply Regex {
   -! @note — pair with `find_end` on the same `(self, s)` to
   -! recover the matched slice.
   pub fun find(self, s: str) -> int {
-    __zo_regex_find(self.handle, c_str(s))
+    __zo_regex_find(self.handle, CStr::new(s))
   }
 
   -! Byte offset of the first match's end (exclusive), or `-1`.
   pub fun find_end(self, s: str) -> int {
-    __zo_regex_find_end(self.handle, c_str(s))
+    __zo_regex_find_end(self.handle, CStr::new(s))
   }
 
   -! Find the first match in `s` and return its captures.
   pub fun exec(self, s: str) -> Match {
-    Match { handle = __zo_regex_exec(self.handle, c_str(s)) }
+    Match { handle = __zo_regex_exec(self.handle, CStr::new(s)) }
   }
 
   -! Replace only the first match in `s` with `replacement`.
@@ -165,13 +167,12 @@ apply Regex {
   -! `$1`/`$2`/… (capture groups). Use `replace_all` for every
   -! match.
   pub fun replace(self, s: str, replacement: str) -> str {
-    imu ptr: int = __zo_regex_replace(
+    __zo_regex_replace(
       self.handle,
-      c_str(s),
-      c_str(replacement),
-    );
-    imu len: int = __zo_regex_last_str_len();
-    from_c_str_len(ptr, len)
+      CStr::new(s),
+      CStr::new(replacement),
+    )
+      .to_str()
   }
 
   -! Replace every match in `s` with `replacement`.
@@ -179,17 +180,16 @@ apply Regex {
   -! @note — replacement supports `$0` and `$1`/`$2`/…
   -! backreferences.
   pub fun replace_all(self, s: str, replacement: str) -> str {
-    imu ptr: int = __zo_regex_replace_all(
+    __zo_regex_replace_all(
       self.handle,
-      c_str(s),
-      c_str(replacement),
-    );
-    imu len: int = __zo_regex_last_str_len();
-    from_c_str_len(ptr, len)
+      CStr::new(s),
+      CStr::new(replacement),
+    )
+      .to_str()
   }
 
   -! Split `s` on every match; empty array on invalid regex.
   pub fun split(self, s: str) -> []str {
-    __zo_regex_split(self.handle, c_str(s))
+    __zo_regex_split(self.handle, CStr::new(s))
   }
 }

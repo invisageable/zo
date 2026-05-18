@@ -1,10 +1,10 @@
 //! JS-style regex engine backed by Rust's `regex` crate.
 //!
 //! Handles are 1-indexed; `0` is the "invalid / no match"
-//! sentinel. String returns stage bytes in a per-thread
-//! scratch with a trailing NUL so the pointer doubles as a
-//! valid C-string; pair every string-returning FFI with
-//! `_zo_regex_last_str_len` to recover the payload length.
+//! sentinel. String returns ride a 16B `(ptr, len)` struct
+//! (`CBytes` on the zo side) lifted through the AAPCS
+//! `Composite` return path so the zo wrapper materialises a
+//! real `str` via `.to_str()` without a companion FFI call.
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -13,16 +13,48 @@ use std::thread::LocalKey;
 
 use regex::{Regex, RegexBuilder};
 
-/// Trailing NUL appended to the scratch by `scratch_store`.
-const SCRATCH_NUL: usize = 1;
+/// Thread-local cache backing `with_slot` / `free_slot`.
+type SlotCache<T> = LocalKey<RefCell<Vec<Option<T>>>>;
+
+/// 16B `(ptr, len)` byte-slice returned to zo as `CBytes`.
+///
+/// @note — `repr(C)` two-i64-field shape so AAPCS lifts it
+/// through `AbiRet::Composite` (X0/X1). `ptr` is borrowed
+/// from `SCRATCH` and stays valid until the next
+/// string-returning regex call on this thread; the zo side
+/// calls `.to_str()` immediately to heap-copy.
+///
+/// ABI mirror: `zo-provider-json/src/json.rs::CBytes` —
+/// keep field order/types in sync.
+#[repr(C)]
+pub struct CBytes {
+  ptr: *const c_char,
+  len: i64,
+}
+
+impl CBytes {
+  /// Stage `bytes` in the per-thread scratch and return the
+  /// `(ptr, len)` pair.
+  fn from_bytes(bytes: &[u8]) -> Self {
+    Self {
+      ptr: scratch_store(bytes),
+      len: bytes.len() as i64,
+    }
+  }
+
+  /// Empty payload (sentinel for invalid handles).
+  fn empty() -> Self {
+    Self::from_bytes(b"")
+  }
+}
 
 /// Owned capture data for one regex match.
 ///
-/// @note — strings are cloned out of `regex::Captures` so a
-/// `Match` survives the haystack buffer being freed.
-/// `groups[0]` is the whole match; `groups[1..]` are capture
-/// groups, with `None` entries for non-participating groups
-/// in alternations like `(a)|(b)`.
+/// @note — `groups[0]` is the whole match, `groups[1..]`
+/// are capture groups. `None` entries appear for non-
+/// participating groups in alternations like `(a)|(b)`.
+/// Strings are cloned out of `regex::Captures` so a `Match`
+/// survives the haystack buffer being freed.
 struct MatchSlot {
   start: i64,
   end: i64,
@@ -46,10 +78,10 @@ thread_local! {
 ///
 /// @note — `default` is lazy so cheap Copy paths stay zero-
 /// cost (the closure inlines), while side-effectful fallbacks
-/// like `scratch_store(b"")` only fire when the slot is
-/// actually missing.
+/// like `CBytes::empty` only fire when the slot is actually
+/// missing.
 fn with_slot<T, R>(
-  cache: &'static LocalKey<RefCell<Vec<Option<T>>>>,
+  cache: &'static SlotCache<T>,
   handle: i64,
   default: impl FnOnce() -> R,
   f: impl FnOnce(&T) -> R,
@@ -69,10 +101,7 @@ fn with_slot<T, R>(
 }
 
 /// Write `None` at `handle - 1`; idempotent.
-fn free_slot<T>(
-  cache: &'static LocalKey<RefCell<Vec<Option<T>>>>,
-  handle: i64,
-) {
+fn free_slot<T>(cache: &'static SlotCache<T>, handle: i64) {
   cache.with(|cell| {
     let Some(idx) = (handle as usize).checked_sub(1) else {
       return;
@@ -89,9 +118,8 @@ fn free_slot<T>(
 ///
 /// @note — the returned reference borrows from `ptr` and
 /// must not escape past the next FFI write to the same
-/// memory. All callers in this module consume it within
-/// the same function body, so the unbounded lifetime is
-/// sound.
+/// memory. All callers in this module consume it within the
+/// same function body, so the unbounded lifetime is sound.
 ///
 /// # Safety
 ///
@@ -112,10 +140,7 @@ fn scratch_store(bytes: &[u8]) -> *const c_char {
     let mut out = cell.borrow_mut();
 
     out.clear();
-    // One reserve covers `extend_from_slice` + the NUL,
-    // avoiding the realloc that `push` could otherwise pay
-    // when capacity is tight to `bytes.len()`.
-    out.reserve(bytes.len() + SCRATCH_NUL);
+    out.reserve(bytes.len() + 1);
     out.extend_from_slice(bytes);
     out.push(0);
     out.as_ptr() as *const c_char
@@ -125,38 +150,39 @@ fn scratch_store(bytes: &[u8]) -> *const c_char {
 /// Run `op` over the regex at `handle` against `haystack`.
 ///
 /// @note — `Cow::Borrowed` (no-match) passes through without
-/// forcing an allocation. The FFI wrappers handle the
+/// forcing an allocation; the FFI wrappers handle the
 /// pointer-to-str conversion so this helper stays safe.
 fn replace_via<'h>(
   handle: i64,
   haystack: &'h str,
   replacement: &str,
   op: impl FnOnce(&Regex, &'h str, &str) -> Cow<'h, str>,
-) -> *const c_char {
-  with_slot(
-    &REGEX_CACHE,
-    handle,
-    || scratch_store(b""),
-    |re| scratch_store(op(re, haystack, replacement).as_bytes()),
-  )
+) -> CBytes {
+  with_slot(&REGEX_CACHE, handle, CBytes::empty, |re| {
+    CBytes::from_bytes(op(re, haystack, replacement).as_bytes())
+  })
 }
 
 /// Compile a pattern with JS-style flags; return 1-indexed handle.
 ///
 /// @note — flags: `i` case-insensitive, `m` multiline, `s`
 /// dotall, `x` extended. `g`/`y`/`u` are accepted for paste-
-/// from-JS compatibility but have no effect — Rust's `regex`
-/// is non-anchored by default, captures live on `Captures`,
-/// and Unicode is always on. Returns `0` on compile failure.
+/// from-JS compatibility but have no effect. Returns `0` on
+/// compile failure OR when `pattern` is null (the zo-side
+/// `CStr::new` sentinel for interior-NUL inputs).
 ///
 /// # Safety
 ///
-/// `pattern` and `flags` must be NUL-terminated UTF-8.
+/// `pattern` and `flags` must be NUL-terminated UTF-8 or null.
 #[unsafe(export_name = "zo_regex_compile")]
 pub unsafe extern "C" fn _zo_regex_compile(
   pattern: *const c_char,
   flags: *const c_char,
 ) -> i64 {
+  if pattern.is_null() {
+    return 0;
+  }
+
   let pattern = unsafe { cstr_to_str(pattern) };
   let flags = unsafe { cstr_to_str(flags) };
 
@@ -201,7 +227,7 @@ pub extern "C" fn _zo_regex_free(handle: i64) {
 ///
 /// # Safety
 ///
-/// `haystack` must be a NUL-terminated UTF-8 string.
+/// `haystack` must be a NUL-terminated UTF-8 string or null.
 #[unsafe(export_name = "zo_regex_matches")]
 pub unsafe extern "C" fn _zo_regex_matches(
   handle: i64,
@@ -221,7 +247,7 @@ pub unsafe extern "C" fn _zo_regex_matches(
 ///
 /// # Safety
 ///
-/// `haystack` must be a NUL-terminated UTF-8 string.
+/// `haystack` must be a NUL-terminated UTF-8 string or null.
 #[unsafe(export_name = "zo_regex_find")]
 pub unsafe extern "C" fn _zo_regex_find(
   handle: i64,
@@ -241,7 +267,7 @@ pub unsafe extern "C" fn _zo_regex_find(
 ///
 /// # Safety
 ///
-/// `haystack` must be a NUL-terminated UTF-8 string.
+/// `haystack` must be a NUL-terminated UTF-8 string or null.
 #[unsafe(export_name = "zo_regex_find_end")]
 pub unsafe extern "C" fn _zo_regex_find_end(
   handle: i64,
@@ -265,7 +291,7 @@ pub unsafe extern "C" fn _zo_regex_find_end(
 ///
 /// # Safety
 ///
-/// `haystack` must be a NUL-terminated UTF-8 string.
+/// `haystack` must be a NUL-terminated UTF-8 string or null.
 #[unsafe(export_name = "zo_regex_exec")]
 pub unsafe extern "C" fn _zo_regex_exec(
   handle: i64,
@@ -279,7 +305,6 @@ pub unsafe extern "C" fn _zo_regex_exec(
     || None,
     |re| {
       let caps = re.captures(haystack)?;
-      // `captures()` returned `Some`, so group 0 is present.
       let whole = caps.get(0)?;
       let groups = (0..caps.len())
         .map(|i| caps.get(i).map(|m| m.as_str().to_owned()))
@@ -332,31 +357,23 @@ pub extern "C" fn _zo_regex_match_group_count(handle: i64) -> i64 {
   )
 }
 
-/// Stage the i-th capture's text in scratch; return its ptr.
+/// Return the i-th capture's bytes as a `CBytes` value.
 ///
-/// @note — `0` is the whole match; `1..N` are capture groups.
-/// Empty string for out-of-range indices or non-participating
-/// groups.
+/// @note — `0` is the whole match; `1..N` are capture
+/// groups. Empty bytes for out-of-range indices or non-
+/// participating groups.
 #[unsafe(export_name = "zo_regex_match_group")]
-pub extern "C" fn _zo_regex_match_group(
-  handle: i64,
-  index: i64,
-) -> *const c_char {
-  with_slot(
-    &MATCH_CACHE,
-    handle,
-    || scratch_store(b""),
-    |m| {
-      let Ok(idx) = usize::try_from(index) else {
-        return scratch_store(b"");
-      };
+pub extern "C" fn _zo_regex_match_group(handle: i64, index: i64) -> CBytes {
+  with_slot(&MATCH_CACHE, handle, CBytes::empty, |m| {
+    let Ok(idx) = usize::try_from(index) else {
+      return CBytes::empty();
+    };
 
-      m.groups
-        .get(idx)
-        .and_then(|g| g.as_deref())
-        .map_or_else(|| scratch_store(b""), |s| scratch_store(s.as_bytes()))
-    },
-  )
+    m.groups
+      .get(idx)
+      .and_then(|g| g.as_deref())
+      .map_or_else(CBytes::empty, |s| CBytes::from_bytes(s.as_bytes()))
+  })
 }
 
 /// Replace the first match in `haystack` with `replacement`.
@@ -366,13 +383,14 @@ pub extern "C" fn _zo_regex_match_group(
 ///
 /// # Safety
 ///
-/// `haystack` and `replacement` must be NUL-terminated UTF-8.
+/// `haystack` and `replacement` must be NUL-terminated UTF-8
+/// or null.
 #[unsafe(export_name = "zo_regex_replace")]
 pub unsafe extern "C" fn _zo_regex_replace(
   handle: i64,
   haystack: *const c_char,
   replacement: *const c_char,
-) -> *const c_char {
+) -> CBytes {
   let haystack = unsafe { cstr_to_str(haystack) };
   let replacement = unsafe { cstr_to_str(replacement) };
 
@@ -388,13 +406,14 @@ pub unsafe extern "C" fn _zo_regex_replace(
 ///
 /// # Safety
 ///
-/// `haystack` and `replacement` must be NUL-terminated UTF-8.
+/// `haystack` and `replacement` must be NUL-terminated UTF-8
+/// or null.
 #[unsafe(export_name = "zo_regex_replace_all")]
 pub unsafe extern "C" fn _zo_regex_replace_all(
   handle: i64,
   haystack: *const c_char,
   replacement: *const c_char,
-) -> *const c_char {
+) -> CBytes {
   let haystack = unsafe { cstr_to_str(haystack) };
   let replacement = unsafe { cstr_to_str(replacement) };
 
@@ -411,7 +430,7 @@ pub unsafe extern "C" fn _zo_regex_replace_all(
 ///
 /// # Safety
 ///
-/// `haystack` must be a NUL-terminated UTF-8 string.
+/// `haystack` must be a NUL-terminated UTF-8 string or null.
 #[unsafe(export_name = "zo_regex_split")]
 pub unsafe extern "C" fn _zo_regex_split(
   handle: i64,
@@ -427,22 +446,4 @@ pub unsafe extern "C" fn _zo_regex_split(
     });
 
   crate::arr::alloc_ptr_array(&pieces)
-}
-
-/// Byte length of the most recent scratch payload.
-///
-/// @note — excludes the trailing NUL. Read immediately after
-/// a string-returning regex call before any other regex call
-/// on this thread.
-#[unsafe(export_name = "zo_regex_last_str_len")]
-pub extern "C" fn _zo_regex_last_str_len() -> i64 {
-  SCRATCH.with(|cell| {
-    let len = cell.borrow().len();
-
-    if len == 0 {
-      0
-    } else {
-      (len - SCRATCH_NUL) as i64
-    }
-  })
 }

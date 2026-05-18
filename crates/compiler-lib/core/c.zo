@@ -1,31 +1,76 @@
--! C interop helpers.
+-! C interop — bridge zo's length-prefixed `str` and C's
+-! NUL-terminated `const char *`.
 -!
--! Bridge between zo's length-prefixed `str` and C's
--! NUL-terminated `const char *`. Use these wherever you call
--! into a C library (raylib, libc, etc.) that expects
--! C-string conventions.
+-! @note — every zo→C string crossing flows through
+-! `CStr::new(s)`, which validates the input for interior
+-! NUL bytes (silently-truncating C-side reads is a frequent
+-! FFI footgun). Every C→zo string crossing flows through a
+-! `CBytes { ptr, len }` value materialised via `.to_str()`.
 
--! Convert a zo `str` to a raw C-string pointer
--! (`const char *` equivalent). Compile-time intrinsic — emits
--! a single `ADD` instruction skipping zo's 8-byte length
--! prefix. Zero-cost; no allocation, no copy.
--!
--! The underlying invariant: zo string literals live in the
--! binary's rodata with a trailing NUL byte, so the bytes
--! after the length prefix are already a valid C-string.
-pub ffi c_str(s: str) -> int;
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
 
--! Build a fresh heap-backed zo `str` from a raw byte buffer
--! and an explicit byte count. Symmetric inverse of `c_str`:
--! `c_str` strips the 8-byte length prefix, `from_c_str_len`
--! materializes one. Lowers to a `_zo_str_alloc(ptr, len)`
--! call; the runtime copies `len` bytes off the source buffer
--! into a fresh `[len:8][bytes][NUL]` allocation, so the
--! source pointer can be reused / freed immediately after.
+-! Validate `s` and return the post-length-prefix C-ptr.
 -!
--! Use this when an FFI returns a `(ptr, len)` pair and you
--! need a real zo `str` for interpolation, `showln`, slicing,
--! or storage. The provider crates (`zo-provider-json`,
--! future HTTP / file readers) call this to lift bytes from
--! a foreign buffer into zo's string world.
-pub ffi from_c_str_len(ptr: int, len: int) -> str;
+-! @note — returns `0` when `s` contains an interior NUL;
+-! callers see this as `CStr::new(s).ptr == 0`. The result
+-! is `s64` (not `int`) so `CStr` and `CBytes` carry
+-! pointer-sized fields and AAPCS classifies them with the
+-! right composite shape.
+%% link_name = "zo_cstr_from_str".
+pub ffi __zo_cstr_from_str(s: str) -> s64;
+
+-! Heap-copy `len` bytes from `ptr` into a fresh zo `str`.
+%% link_name = "zo_str_alloc".
+pub ffi __zo_str_alloc(ptr: s64, len: s64) -> str;
+
+
+-! A NUL-terminated C-string pointer.
+-!
+-! @note — `ptr == 0` is the "invalid" sentinel returned by
+-! `CStr::new` when the source `str` contains an interior
+-! NUL byte. Pass-through to a runtime FFI propagates the
+-! sentinel: the C function sees a null pointer and returns
+-! its own failure code (`0` handle for compile, `-1` for
+-! offset, etc.) so the user's existing `is_valid()` check
+-! catches both the bad-input and bad-pattern cases.
+-!
+-! The field is `s64`, not `int`: zo's `int` is `s32` (4B)
+-! and would make the struct 4B total, breaking AAPCS
+-! classification at the FFI boundary.
+pub struct CStr { ptr: s64 }
+
+apply CStr {
+  -! Wrap a zo `str` as a C-string pointer.
+  pub fun new(s: str) -> Self {
+    Self { ptr = __zo_cstr_from_str(s) }
+  }
+
+  -! True when the source `str` had no interior NULs.
+  pub fun is_valid(self) -> bool {
+    self.ptr != 0
+  }
+}
+
+
+-! A `(ptr, len)` byte slice returned from a C library.
+-!
+-! @note — the pointer is borrowed from the callee's
+-! per-thread scratch and stays valid until the next FFI
+-! call on the same thread. `to_str()` heap-copies the
+-! bytes so the result outlives the scratch.
+-!
+-! Both fields are `s64` for the same AAPCS reason as
+-! `CStr` — a `{ ptr: int, len: int }` would degrade to a
+-! single-register composite and lose the `len` field at
+-! the call boundary.
+pub struct CBytes { ptr: s64, len: s64 }
+
+apply CBytes {
+  -! Heap-copy the bytes into an owned zo `str`.
+  pub fun to_str(self) -> str {
+    __zo_str_alloc(self.ptr, self.len)
+  }
+}

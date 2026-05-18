@@ -35,6 +35,7 @@ apply Rng {
     if hi <= lo {
       return lo;
     }
+
     imu sample: int = self.next();
     imu pos: int = sample & 0x7FFFFFFF;
     lo + pos % (hi - lo)

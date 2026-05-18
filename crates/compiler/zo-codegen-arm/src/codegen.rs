@@ -960,22 +960,39 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// Emit a single spill operation (GP or FP).
-  /// Emit a BL to an external C function (e.g. _malloc,
-  /// _realloc). Saves/restores caller-save registers
-  /// (X9-X17) around the call. Registers the symbol for
-  /// GOT binding.
-  fn emit_extern_call(&mut self, c_sym: &str) {
+  /// Spill caller-save GP registers (X1..X15) to frame.
+  ///
+  /// @note — pair with `emit_caller_save_reload` around any
+  /// `BL` whose callee may clobber them.
+  fn emit_caller_save_spill(&mut self) {
     let base = self.caller_save_base;
 
-    // Save caller-save registers (X9-X17).
     for i in 0..CALLER_SAVE_COUNT {
       let reg = Register::new(CALLER_SAVE_START + i as u8);
       let off = base + i as u32 * STACK_SLOT_SIZE;
 
       self.emit_str_sp(reg, off);
     }
+  }
 
+  /// Reload caller-save GP registers (X1..X15) from frame.
+  fn emit_caller_save_reload(&mut self) {
+    let base = self.caller_save_base;
+
+    for i in 0..CALLER_SAVE_COUNT {
+      let reg = Register::new(CALLER_SAVE_START + i as u8);
+      let off = base + i as u32 * STACK_SLOT_SIZE;
+
+      self.emit_ldr_sp(reg, off);
+    }
+  }
+
+  /// Emit a `BL` to `c_sym` and register it for GOT binding.
+  ///
+  /// @note — caller is responsible for surrounding caller-
+  /// save spill/reload (see `emit_extern_call` for the
+  /// common case).
+  fn emit_extern_bl(&mut self, c_sym: &str) {
     let fixup_pos = self.emitter.current_offset();
     let sym = c_sym.to_owned();
 
@@ -985,14 +1002,19 @@ impl<'a> ARM64Gen<'a> {
     if self.extern_used_set.insert(sym.clone()) {
       self.extern_used.push(sym);
     }
+  }
 
-    // Restore caller-save registers (X9-X17).
-    for i in 0..CALLER_SAVE_COUNT {
-      let reg = Register::new(CALLER_SAVE_START + i as u8);
-      let off = base + i as u32 * STACK_SLOT_SIZE;
-
-      self.emit_ldr_sp(reg, off);
-    }
+  /// Emit a `BL` with caller-save spill/reload around it.
+  ///
+  /// @note — fine for FFIs whose return lives in a register
+  /// the reload doesn't touch (X0 GP, D0 FP). Composite
+  /// returns whose upper-register payload (X1) overlaps the
+  /// reload set must split via `emit_caller_save_spill` +
+  /// `emit_extern_bl` + manual lift + `emit_caller_save_reload`.
+  fn emit_extern_call(&mut self, c_sym: &str) {
+    self.emit_caller_save_spill();
+    self.emit_extern_bl(c_sym);
+    self.emit_caller_save_reload();
   }
 
   fn emit_spill_op(&mut self, kind: &SpillKind) {
@@ -2387,8 +2409,6 @@ impl<'a> ARM64Gen<'a> {
             self.emitter.emit_svc(0);
           }
 
-          "c_str" => self.emit_c_str(args, idx),
-          "from_c_str_len" => self.emit_from_c_str_len(args, idx),
           // raylib + misato FFIs flow through the generic
           // AAPCS fallback (`_` arm → `emit_ffi_call`).
           // Misato C symbols already match `_<zo_name>` —
@@ -5250,48 +5270,6 @@ impl<'a> ARM64Gen<'a> {
   }
 
   // ================================================================
-  // C interop — `c_str(s: str) -> int` returns a C-string
-  // pointer (`const char *` equivalent) by skipping zo's
-  // 8-byte length prefix. Compile-time intrinsic — single
-  // ADD instruction, no extern call.
-  // ================================================================
-
-  /// `c_str(s: str) -> int` — the only zo→C marshal we need
-  /// for raylib (and any future C library). zo's str layout
-  /// is `[len:8][bytes][NUL]`; raylib wants the bytes ptr.
-  /// One instruction.
-  fn emit_c_str(&mut self, args: &[ValueId], idx: usize) {
-    let s = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-
-    if let Some(dst) = self.reg_for_insn(idx) {
-      self.emitter.emit_add_imm(dst, s, 8);
-    }
-  }
-
-  /// `from_c_str_len(ptr: int, len: int) -> str` — symmetric
-  /// inverse of `c_str`. Lifts `len` bytes at `ptr` into a
-  /// fresh heap-backed zo str via `_zo_str_alloc`. The
-  /// runtime owns the copy, so callers may free / reuse the
-  /// source buffer immediately after this returns.
-  ///
-  /// Marshals through `emit_safe_int_arg_moves` because the
-  /// source registers can collide with X0/X1 in arbitrary
-  /// ways depending on the surrounding register allocation.
-  fn emit_from_c_str_len(&mut self, args: &[ValueId], idx: usize) {
-    let ptr = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let len = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
-
-    self.emit_safe_int_arg_moves(&[(X0, ptr), (X1, len)]);
-    self.emit_extern_call("_zo_str_alloc");
-
-    if let Some(dst) = self.reg_for_insn(idx)
-      && dst != X0
-    {
-      self.emitter.emit_mov_reg(dst, X0);
-    }
-  }
-
-  // ================================================================
   // AAPCS marshaling primitives shared by `emit_ffi_call`
   // (the generic FFI path). FP register moves use the same
   // clobber-safe pattern as `emit_safe_int_arg_moves` —
@@ -5377,6 +5355,12 @@ impl<'a> ARM64Gen<'a> {
 
     let mut gp_moves: Vec<(Register, Register)> = Vec::new();
     let mut fp_moves: Vec<(FpRegister, FpRegister)> = Vec::new();
+    // Composite-arg loads have to run AFTER `gp_moves`
+    // (`v_base` is queued there for safe relocation to the
+    // arg's first dst-reg). Each tuple records the dst
+    // registers and the field count so the post-move pass
+    // emits the right `ldr` sequence in reverse field order.
+    let mut composite_loads: Vec<Vec<Register>> = Vec::new();
 
     for (i, abi_arg) in abi.args.iter().enumerate() {
       let arg_value = args[i];
@@ -5417,13 +5401,19 @@ impl<'a> ARM64Gen<'a> {
         }
 
         AbiArg::Composite { regs, .. } => {
-          // ≤ 16B composite — read each 8-byte slot from
-          // the struct's base into the matching GP arg
-          // register.
-          let v_base = self.alloc_reg(arg_value).unwrap_or(X0);
-          for (j, reg) in regs.iter().enumerate() {
-            self.emitter.emit_ldr(*reg, v_base, (j as i16) * 8);
-          }
+          // Route the struct base through the safe-move
+          // pass: queue `v_base → regs[0]` so any cross-arg
+          // register conflict (regalloc put one arg's
+          // v_base in another arg's dst-reg) gets resolved
+          // by `emit_safe_int_arg_moves`. The actual field
+          // loads then run AFTER the moves with `regs[0]`
+          // as the base; emitting them in reverse field
+          // order so the final `ldr regs[0], [regs[0], 0]`
+          // safely overwrites the base after every other
+          // field has been read.
+          let v_base = self.alloc_reg(arg_value).unwrap_or(regs[0]);
+          gp_moves.push((regs[0], v_base));
+          composite_loads.push(regs.clone());
         }
 
         AbiArg::Indirect { .. } => {
@@ -5455,6 +5445,17 @@ impl<'a> ARM64Gen<'a> {
       self.emit_safe_int_arg_moves(&gp_moves);
     }
 
+    // Step 3a: composite-arg field loads. `regs[0]` now
+    // holds `v_base` (placed there by the safe-move pass).
+    // Load fields in reverse order so the final write to
+    // `regs[0]` happens last, after every other field has
+    // been read.
+    for regs in &composite_loads {
+      for j in (0..regs.len()).rev() {
+        self.emitter.emit_ldr(regs[j], regs[0], (j as i16) * 8);
+      }
+    }
+
     // Step 3b: clobber-safe FP moves all at once.
     if !fp_moves.is_empty() {
       self.emit_safe_fp_arg_moves(&fp_moves);
@@ -5467,10 +5468,20 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
-    // Step 5.
-    self.emit_extern_call(c_sym);
+    // Step 5 + 6: call + return. Composite returns share
+    // their result with the caller-save GP set (X0/X1), so
+    // the lift must run BETWEEN `BL` and the GP reload — a
+    // monolithic `emit_extern_call` would clobber X1 before
+    // we could read it.
+    let composite_ret = matches!(abi.ret, AbiRet::Composite { .. });
 
-    // Step 6: return.
+    if composite_ret {
+      self.emit_caller_save_spill();
+      self.emit_extern_bl(c_sym);
+    } else {
+      self.emit_extern_call(c_sym);
+    }
+
     match &abi.ret {
       AbiRet::Void => {}
 
@@ -5513,15 +5524,23 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      AbiRet::Composite { .. } => {
-        // ≤ 16B returned packed into X0/X1; reconstruct
-        // a struct slot from the regs. Not exercised
-        // today.
-        todo!(
-          "AAPCS Composite return — \
-           needed when an FFI returns a ≤ 16B non-HFA \
-           struct"
-        );
+      AbiRet::Composite { regs, .. } => {
+        // Inverse of `AbiArg::Composite` marshal: each
+        // successive GP return register holds an 8-byte
+        // field; stash into a fresh struct slot before the
+        // caller-save reload clobbers them.
+        let base = self.struct_base + self.next_struct_slot;
+
+        for (i, reg) in regs.iter().enumerate() {
+          self.emit_str_sp(*reg, base + i as u32 * STACK_SLOT_SIZE);
+        }
+        self.next_struct_slot += regs.len() as u32 * STACK_SLOT_SIZE;
+
+        self.emit_caller_save_reload();
+
+        if let Some(dst) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst, base);
+        }
       }
 
       AbiRet::Indirect { .. } => {
@@ -7000,6 +7019,7 @@ impl<'a> ARM64Gen<'a> {
   }
 
   /// Generate a complete "Hello, World" executable.
+  // TODO: move this to common.rs in tests folder.
   pub fn generate_hello_world() -> Vec<u8> {
     let mut emitter = ARM64Emitter::new();
     let hello_str = b"Hello, World!\n";
@@ -7037,6 +7057,7 @@ impl<'a> ARM64Gen<'a> {
 
   /// Generate a complete "Hello, World" executable with
   /// code signature.
+  // TODO: move this to common.rs in tests folder.
   pub fn generate_hello_world_signed() -> Vec<u8> {
     let mut emitter = ARM64Emitter::new();
     let hello_str = b"Hello, World!\n";

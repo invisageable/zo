@@ -7,15 +7,22 @@
 load core::c::*;
 load provider::raylib::structs::*;
 
+#link {
+  macos: { system: "/opt/homebrew/lib/libraylib.dylib",
+           vendor: "libraylib.dylib" },
+  linux: { system: "/usr/lib/x86_64-linux-gnu/libraylib.so",
+           vendor: "libraylib.so" },
+}
+
 -* Window-related functions. *-
 
 -! Initialize window and OpenGL context.
--! 
+-!
 -! @param width — The window width.
 -! @param height — The window height.
--! @param title — The C-string pointer (wrap a literal with `c_str("…")`).
+-! @param title — The window title (pass as `CStr::new("…")`).
 %% link_name = "InitWindow".
-pub ffi init_window(width: int, height: int, title: int);
+pub ffi init_window(width: int, height: int, title: CStr);
 
 -! Close window and unload OpenGL context.
 %% link_name = "CloseWindow".

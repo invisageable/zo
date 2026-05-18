@@ -1060,6 +1060,13 @@ impl Compiler {
       &module_table_per_path,
     );
 
+    // Entry programs adopt their file stem as pack identity
+    // so top-level `#link { ... }` resolves to a `PackLink`.
+    let implicit_sym = file_path
+      .file_stem()
+      .and_then(|s| s.to_str())
+      .map(|stem| session.interner.intern(stem));
+
     let analyzer = Analyzer::new(
       &parsing.tree,
       &mut session.interner,
@@ -1076,7 +1083,7 @@ impl Compiler {
       .with_config(AnalyzerConfig {
         imports: user_seed,
         source_dir: file_path.parent().map(Path::to_path_buf),
-        implicit_pack: None,
+        implicit_pack: implicit_sym,
         in_scope_packs,
         is_entry: true,
       })

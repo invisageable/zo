@@ -10,7 +10,7 @@ load core::c::*;
 -- exits.
 
 fun main() {
-  init_window(800, 600, c_str("zo + raylib — follow mouse"));
+  init_window(800, 600, CStr::new("zo + raylib — follow mouse"));
   set_target_fps(60);
 
   loop {
@@ -22,7 +22,7 @@ fun main() {
     begin_drawing();
       clear_background(0xFFFFFFFF);                            -- white
       draw_circle_v(mouse, 25.0, 0xFFFD5FF0);                  -- magenta
-      draw_text(c_str("follow the mouse"), 12, 12, 24, 0xFF000000);
+      draw_text(CStr::new("follow the mouse"), 12, 12, 24, 0xFF000000);
     end_drawing();
   }
 

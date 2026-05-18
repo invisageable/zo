@@ -27,16 +27,7 @@
 pub unsafe fn str_len(ptr: *const u8) -> usize {
   let len_bytes = unsafe { std::slice::from_raw_parts(ptr, 8) };
 
-  u64::from_le_bytes([
-    len_bytes[0],
-    len_bytes[1],
-    len_bytes[2],
-    len_bytes[3],
-    len_bytes[4],
-    len_bytes[5],
-    len_bytes[6],
-    len_bytes[7],
-  ]) as usize
+  u64::from_le_bytes(len_bytes.try_into().unwrap()) as usize
 }
 
 /// Borrows the byte payload of a runtime `str`, not
@@ -116,6 +107,37 @@ pub unsafe extern "C-unwind" fn _zo_str_alloc(
   let bytes = unsafe { std::slice::from_raw_parts(buf, len) };
 
   alloc_str(bytes)
+}
+
+/// Validate `s` for interior NULs and return a C-string ptr.
+///
+/// @note — scans the payload bytes between the 8-byte length
+/// prefix and the trailing NUL. Returns the post-prefix
+/// pointer when clean, null when an interior NUL would
+/// silently truncate the C-side read. Backs zo's
+/// `CStr::new(s)`.
+///
+/// # Safety
+///
+/// `s` must point at a valid zo str header
+/// (`[len:u64][bytes][NUL]`) or be null.
+#[unsafe(export_name = "zo_cstr_from_str")]
+pub unsafe extern "C" fn _zo_cstr_from_str(
+  s: *const u8,
+) -> *const std::os::raw::c_char {
+  if s.is_null() {
+    return std::ptr::null();
+  }
+
+  let len = unsafe { str_len(s) };
+  let payload = unsafe { s.add(8) };
+  let bytes = unsafe { std::slice::from_raw_parts(payload, len) };
+
+  if bytes.contains(&0) {
+    return std::ptr::null();
+  }
+
+  payload as *const std::os::raw::c_char
 }
 
 /// Slice `src[lo..hi]` — produce a fresh heap str

@@ -16,7 +16,7 @@ apply Database {
   -! @param path — The pathname of the database.
   -! @returns — The current instance.
   pub fun open(path: str) -> Self {
-    Self { handle = __zo_sqlite_open(c_str(path)) } -- TODO: `c_str` must be moved to the executor level so the public API stays simple.
+    Self { handle = __zo_sqlite_open(CStr::new(path)) }
   }
 
   -! Close the database connection.
@@ -29,13 +29,13 @@ apply Database {
   -! @param sql — The SQL query.
   -! @returns — 0 on success, non-zero on failure.
   pub fun exec(self, sql: str) -> int {
-    __zo_sqlite_exec(self.handle, c_str(sql))
+    __zo_sqlite_exec(self.handle, CStr::new(sql))
   }
 
   -! Convenience for `SELECT count(*)`, `SELECT MAX(x)`,
   -! and similar single-int aggregates. Returns 0 if the
   -! query has no rows or fails.
   pub fun query_int(self, sql: str) -> int {
-    __zo_sqlite_query_int(self.handle, c_str(sql))
+    __zo_sqlite_query_int(self.handle, CStr::new(sql))
   }
 }

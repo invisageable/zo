@@ -268,13 +268,6 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
   // Liveness analysis.
   let liveness = liveness::analyze(insns, start, end, value_ids, num_values);
 
-  // `c_str` calls lower to a single ALU op, not a `BL`,
-  // so they must skip the clobber-all branch below.
-  // Resolved once via `Symbol`-equality (one i32 compare)
-  // instead of `interner.get` per Call. `None` when the
-  // program has no FFI — branch is dead in that case.
-  let c_str_sym = interner.symbol("c_str");
-
   let mut state = AllocState::new();
   let mut has_calls = false;
 
@@ -361,24 +354,17 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
     }
 
     // --- Handle Call (clobbers all caller-saved) ---
-    //
-    // `c_str` is a SIR `Call` lowered to a single `add` —
-    // no `BL`, no caller-saved clobber. Routing it through
-    // this branch would overwrite the result's register on
-    // the next call's spill/reload, so fall through to the
-    // general case where liveness tracks correctly.
-    let is_non_clobber_call = matches!(
-      insn,
-      Insn::Call { name, .. } if Some(*name) == c_str_sym
-    );
-
-    if !is_non_clobber_call && let Insn::Call { args, .. } = insn {
+    if let Insn::Call { args, .. } = insn {
       has_calls = true;
 
       let arg_set = args.iter().map(|a| a.0).collect::<Vec<_>>();
 
-      // Collect values to save (both GP and FP).
-      let gp_save = state
+      // Collect values to save (both GP and FP). `gp_save`
+      // gets sorted in place before the reload loop so
+      // non-X0 originals claim their reg before X0-originals
+      // run `alloc_free` (which would otherwise pop the
+      // same reg). Spill loop is order-independent.
+      let mut gp_save = state
         .gp
         .val_to_reg
         .iter()
@@ -448,6 +434,11 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       // spill-store targets the original. Reloading into the
       // same register avoids this.
       if gi + 1 < end {
+        // Reload order: non-X0 originals first, so they
+        // retain their reg before X0-vids run `alloc_free`
+        // and might steal it.
+        gp_save.sort_by_key(|(_, reg)| u8::from(*reg == 0));
+
         for &(vid, orig_reg) in &gp_save {
           let slot = state.spill_slots[&vid];
 

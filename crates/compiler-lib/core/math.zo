@@ -1,5 +1,14 @@
 -- constants.
 
+-*
+  - Vector2
+  - Vector3
+  - Vector4
+  - Quaternion
+  - Matrix2
+  - Matrix3
+  - Matrix4
+*-
 
 -! The ratio of a circle's circumference to its diameter.
 pub val PI: f64 = 3.141592653589793;
@@ -11,8 +20,7 @@ pub val TAU: f64 = 6.283185307179586;
 pub val E: f64 = 2.718281828459045;
 
 
--- basic arithmetic.
-
+-* basic arithmetic. *-
 
 -! Returns the absolute value of x.
 pub fun abs<$T>(x: $T) -> $T {
@@ -54,8 +62,7 @@ pub fun lerp<$T>(a: $T, b: $T, t: $T) -> $T {
 }
 
 
--- integer math.
-
+-* integer math. *-
 
 --
 -- `gcd`, `lcm`, `pow_i` are deliberately `int`-only (signed
@@ -148,8 +155,7 @@ pub fun pow_i(base: int, exp: int) -> int {
 }
 
 
--- power and roots.
-
+-* power and roots. *-
 
 -! Returns the square root of x.
 pub ffi sqrt(x: float) -> float;
@@ -158,8 +164,7 @@ pub ffi sqrt(x: float) -> float;
 pub ffi pow(x: float, y: float) -> float;
 
 
--- trigonometry.
-
+-* trigonometry. *-
 
 -! Returns the sine of x (radians).
 pub ffi sin(x: float) -> float;
@@ -170,9 +175,12 @@ pub ffi cos(x: float) -> float;
 -! Returns the tangent of x (radians).
 pub ffi tan(x: float) -> float;
 
+-- TODO: asin<$T>($T) -> $T;
+-- TODO: acos<$T>($T) -> $T;
+-- TODO: atan<$T>($T) -> $T;
 
--- logarithms and exponentials.
 
+-* logarithms and exponentials. *-
 
 -! Returns the natural logarithm of x.
 pub ffi log(x: float) -> float;
@@ -187,8 +195,7 @@ pub ffi log10(x: float) -> float;
 pub ffi exp(x: float) -> float;
 
 
--- rounding.
-
+-* rounding. *-
 
 -! Returns the largest integer less than or equal to x.
 pub ffi floor(x: float) -> float;
@@ -203,8 +210,7 @@ pub ffi trunc(x: float) -> float;
 pub ffi round(x: float) -> float;
 
 
--- float classification.
-
+-* float classification. *-
 
 -! Returns true if x is finite (not infinity or NaN).
 pub ffi is_finite(x: float) -> bool;

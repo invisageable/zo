@@ -1,8 +1,8 @@
--! Convert a value to its string representation.
+-! Represents a `Show` interface.
 -!
--! `showln(x)` auto-dispatches to this abstract when `x`'s
--! type implements `Show`. Manual calls via `x.show()` also
--! route here.
+-! @note — `showln(x)` auto-dispatches to this abstract when `x`'s type 
+-! implements `Show`. Manual calls via `x.show()` also route here.
 pub abstract Show {
+  -! Writes string value to standard output.
   fun show(self) -> str;
 }

@@ -9,6 +9,7 @@ pub mod pool;
 pub mod regex;
 pub mod scheduler;
 pub mod select;
+pub mod spike;
 pub mod stack;
 pub mod str;
 pub mod task;
