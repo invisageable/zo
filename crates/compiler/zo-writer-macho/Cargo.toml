@@ -21,7 +21,7 @@ rustc-hash = { workspace = true }
 # x86_64 hardware acceleration on Windows MSVC kicks in
 # automatically via `cpufeatures` without needing `asm`.
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-sha2 = { workspace = true }
+sha2 = { workspace = true, features = ["asm"] }
 
 [target.'cfg(target_env = "msvc")'.dependencies]
 sha2 = { workspace = true }

@@ -205,6 +205,45 @@ impl Token {
     self.is_operand() || matches!(self, Self::RParen | Self::RBracket)
   }
 
+  /// Positive predicate: `true` when this token's *successor*
+  /// position can legally open a regex literal (`/pat/flags`).
+  ///
+  /// @note — narrow, hand-picked whitelist of syntactic
+  /// expression-start positions, not the negation of
+  /// `is_after_operand`. After everything outside this set
+  /// the next `/` is `Slash` (or `SlashEq`), so plain math
+  /// like `a / b + c / d` never speculatively enters regex
+  /// mode. Matches the entire `regex_literal_basic.zo`
+  /// corpus — every literal sits right after `=` or `(`.
+  #[inline(always)]
+  pub fn is_regex_prefix(&self) -> bool {
+    matches!(
+      self,
+      Self::Eq
+        | Self::ColonEq
+        | Self::PlusEq
+        | Self::MinusEq
+        | Self::StarEq
+        | Self::SlashEq
+        | Self::PercentEq
+        | Self::AmpEq
+        | Self::PipeEq
+        | Self::CaretEq
+        | Self::LShiftEq
+        | Self::RShiftEq
+        | Self::LParen
+        | Self::LBracket
+        | Self::LBrace
+        | Self::Comma
+        | Self::Semicolon
+        | Self::Return
+        | Self::When
+        | Self::If
+        | Self::Else
+        | Self::Match
+    )
+  }
+
   /// Checks if the token kind is a type keyword.
   #[inline(always)]
   pub fn is_ty(&self) -> bool {

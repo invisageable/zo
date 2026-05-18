@@ -217,7 +217,15 @@ serde = { version = "1.0.228", features = ["derive"] }
 # between `cargo test -p zo-reporter` and a full build).
 serde_json = { version = "1.0.149", features = ["preserve_order"] }
 sha1 = "0.10.6"
-sha2 = { version = "0.10.9", features = ["asm"] }
+# `asm` feature is gated per-crate on non-MSVC targets — see
+# `zo-writer-macho/Cargo.toml` and `zo-runtime/Cargo.toml`.
+# Pulling `sha2-asm` on `x86_64-pc-windows-msvc` breaks the
+# build because the upstream `.S` files use GAS syntax which
+# `cl.exe` cannot assemble. cargo features are additive, so
+# this declaration MUST stay featureless at the workspace
+# level — once any crate enables `asm` workspace-wide,
+# msvc builds break.
+sha2 = { version = "0.10.9" }
 smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.6", features = ["serde"] }
 sysinfo = "0.38.4"

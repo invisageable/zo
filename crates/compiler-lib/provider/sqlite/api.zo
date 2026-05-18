@@ -19,7 +19,7 @@ load core::c::*;
 }
 
 
--! Open a read-write connection to a new or existing databse.
+-! Open a read-write connection to a new or existing database.
 -!
 -! @param path — The database pathname.
 -! @returns — A positive handle on success, `0` on failure.

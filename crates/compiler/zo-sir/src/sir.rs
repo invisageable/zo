@@ -665,7 +665,7 @@ pub enum Insn {
     /// route a `pub ffi`'s `extern_used` symbol to the
     /// pack's `#link` dylib. Without this field, codegen
     /// would have to infer the owning pack via a
-    /// positional `PackDecl` scan — which mis-attributes
+    /// positional `PackDecl` scan — which misattributes
     /// user-level FFIs to whichever preload pack landed
     /// last in the merged SIR.
     owning_pack: Option<Symbol>,

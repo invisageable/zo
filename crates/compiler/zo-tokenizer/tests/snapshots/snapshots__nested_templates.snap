@@ -377,4 +377,5 @@ literals:
     - 29
   interp_segments: []
   interp_ranges: []
+  regex_literals: []
 source_len: 288

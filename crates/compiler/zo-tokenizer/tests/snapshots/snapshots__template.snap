@@ -313,4 +313,5 @@ literals:
   string_literals: []
   interp_segments: []
   interp_ranges: []
+  regex_literals: []
 source_len: 318

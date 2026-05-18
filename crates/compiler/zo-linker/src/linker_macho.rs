@@ -54,7 +54,7 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   // Dyld treats ordinals as the 1-based index into the
   // binary's LC_LOAD_DYLIB sequence — a binary with 3
   // dylibs can only reference ordinals 1..=3. Hardcoded
-  // constants mis-align as soon as one optional dylib is
+  // constants misalign as soon as one optional dylib is
   // absent (later slots slide forward), surfacing as
   // `dyld: unknown library ordinal N`. Pre-scan first,
   // then assign ordinals positionally below.

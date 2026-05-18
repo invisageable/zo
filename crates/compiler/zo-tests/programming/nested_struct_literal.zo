@@ -5,7 +5,7 @@
 -- one — the inner `}` short-circuited the outer's tail
 -- (`, } ;`), spilling into the enclosing scope's execution
 -- loop and closing the function body early. The next
--- statement was then mis-reported as "Invalid top-level
+-- statement was then misreported as "Invalid top-level
 -- item".
 
 struct Inner {

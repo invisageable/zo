@@ -510,7 +510,7 @@ mod tests {
   fn text_binding_layout_matches_codegen_pack() {
     // Codegen serialises 16 bytes per entry: cmd_idx@0,
     // slot_id@4, is_str@8, _pad@12. If this drifts, the
-    // binding pointer the runtime decodes will mis-align
+    // binding pointer the runtime decodes will misalign
     // and the wrong slot/flag will land per binding.
     use std::mem::{align_of, offset_of, size_of};
 

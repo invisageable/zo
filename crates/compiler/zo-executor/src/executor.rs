@@ -9155,7 +9155,7 @@ impl<'a> Executor<'a> {
       // Carry the executor's pack context at emit time
       // so codegen routes the FFI to the right `#link`
       // dylib without relying on a positional walk that
-      // mis-attributes user FFIs to the last preload's
+      // misattributes user FFIs to the last preload's
       // pack (`misato` / `sqlite`).
       owning_pack: self.top_pack,
       span: fun_span,

@@ -1284,7 +1284,7 @@ impl<'a> ARM64Gen<'a> {
     // path. Reads `owning_pack` from the FunDef itself
     // (set by the executor at emit time) instead of
     // tracking the most recent `PackDecl` positionally —
-    // the positional model mis-attributed top-level user
+    // the positional model misattributed top-level user
     // FFIs to whichever preload pack landed last in the
     // merged SIR (`misato` / `sqlite`), routing user
     // symbols to the wrong dylib.

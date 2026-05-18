@@ -53,16 +53,21 @@ impl ModeState {
   const DEPTH_MASK: u32 = 0x3FFF;
   const DEPTH_FIELD: u32 = 0xFFFC;
   const TEXT_BIT: u32 = 16;
-  /// `1` when the next `/` starts a regex literal, `0`
-  /// when it's division (or `/=`). Refreshed per main-loop
-  /// iteration from the previous token's `is_after_operand`.
+  /// `1` when the next `/` starts a regex literal, `0` when
+  /// it's division (or `/=`). Refreshed per main-loop
+  /// iteration from the previous token's `is_regex_prefix`
+  /// — a narrow whitelist of expression-start positions
+  /// (`=`, `(`, `,`, compound assignments, `return`, …).
+  /// `Slash` is the default; regex literals only fire after
+  /// one of those syntactic openers.
   const EXPR_CTX_BIT: u32 = 17;
 
   #[inline(always)]
   const fn new() -> Self {
-    // A `/` as the first non-trivia byte is a regex literal,
-    // not division with no LHS.
-    Self(1 << Self::EXPR_CTX_BIT)
+    // No previous token at file start, so no syntactic regex
+    // opener has been seen — a leading `/` is `Slash`, not
+    // a regex literal with no LHS.
+    Self(0)
   }
 
   #[inline(always)]
@@ -1379,21 +1384,25 @@ impl<'a> Tokenizer<'a> {
   /// Refresh `EXPR_CTX_BIT` from the previously-emitted token.
   #[inline(always)]
   fn refresh_expr_context(&mut self) {
-    let after_operand = match self.tokens.kinds.last() {
+    let regex_prefix = match self.tokens.kinds.last() {
       None => false,
-      Some(kind) => kind.is_after_operand(),
+      Some(kind) => kind.is_regex_prefix(),
     };
 
-    self.state.set_expr_context(!after_operand);
+    self.state.set_expr_context(regex_prefix);
   }
 
   /// Scan a regex literal `/pattern/[flags]`.
   ///
-  /// @note — pattern ends at the first unescaped `/` outside
-  /// a `[...]` class; flags are a greedy ASCII-letter run.
-  /// A newline before the closing `/` reports
-  /// `UnterminatedRegex` and emits `Token::Unknown` so the
-  /// parser can recover.
+  /// @note — speculative: a `/` in expression context tries
+  /// to scan as a regex literal, but on no closing `/` before
+  /// newline / EOF the scan is **abandoned** — cursor rewinds
+  /// to `start + 1` and the token is re-emitted as `Slash` or
+  /// `SlashEq`. Mirrors V8 / SpiderMonkey lexer policy so a
+  /// bare operator sequence like `+ - * / %` does not gobble
+  /// trailing bytes as `Token::Unknown`. Pattern ends at the
+  /// first unescaped `/` outside a `[...]` class; flags are
+  /// a greedy ASCII-letter run.
   #[inline(always)]
   fn scan_regex_literal(&mut self, start: usize) {
     let pat_start = self.cursor;
@@ -1403,7 +1412,17 @@ impl<'a> Tokenizer<'a> {
     while self.cursor < self.source.len() {
       let b = self.current();
 
-      if b == b'\n' {
+      // Any ASCII whitespace terminates the speculative
+      // scan. Pattern bytes are non-whitespace by zo
+      // convention — corpus patterns (`hello`, `\d+`,
+      // `h(e)(l)+o`, `[aeiou]`) are tight glyph runs. A
+      // raw space inside the body would more often be an
+      // accidental division (`a / b`) than an intentional
+      // regex; bail to the rewind path so the `/` becomes
+      // `Slash` and the bytes after re-tokenise normally.
+      // Regexes that *need* a space use `\s` or
+      // `Regex::new("pat with space", "")`.
+      if b == b'\n' || b == b' ' || b == b'\t' || b == b'\r' {
         break;
       }
 
@@ -1425,17 +1444,18 @@ impl<'a> Tokenizer<'a> {
     }
 
     if !found_close {
-      report_error(Error::new(
-        ErrorKind::UnterminatedRegex,
-        Span {
-          start: start as u32,
-          len: (self.cursor - start) as u16,
-        },
-      ));
+      // Speculative scan failed — this `/` was division, not
+      // a regex. Rewind past the opening slash and dispatch
+      // as the non-regex branch would (`SlashEq` if the next
+      // byte is `=`, else `Slash`).
+      self.cursor = start + 1;
 
-      let len = (self.cursor - start) as u16;
-
-      self.tokens.push(Token::Unknown, start as u32, len);
+      if self.cursor < self.source.len() && self.source[self.cursor] == b'=' {
+        self.cursor += 1;
+        self.tokens.push(Token::SlashEq, start as u32, 2);
+      } else {
+        self.tokens.push(Token::Slash, start as u32, 1);
+      }
 
       return;
     }
