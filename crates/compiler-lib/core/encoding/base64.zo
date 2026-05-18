@@ -1,0 +1,30 @@
+-! Base64 encode / decode — standard alphabet, padded.
+
+load core::c::*;
+
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+
+%% link_name = "zo_base64_encode".
+pub ffi __zo_base64_encode(input: CStr) -> CBytes;
+
+%% link_name = "zo_base64_decode".
+pub ffi __zo_base64_decode(input: CStr) -> CBytes;
+
+
+-! Base64-encode `input` with the standard alphabet (padded).
+pub fun encode(input: str) -> str {
+  __zo_base64_encode(CStr::new(input)).to_str()
+}
+
+-! Base64-decode `input`; empty string on invalid input.
+-!
+-! @note — decoded payload may contain interior NULs; the
+-! returned `str` is length-prefixed so they're preserved.
+pub fun decode(input: str) -> str {
+  __zo_base64_decode(CStr::new(input)).to_str()
+}

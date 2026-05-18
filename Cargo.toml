@@ -120,6 +120,7 @@ fret-types = { path = "crates/packager/fret-types", version = "0.3.11" }
 ammonia = "4.1.2"
 anyhow = "1.0.102"
 ariadne = "0.6.0"
+base64 = "0.22.1"
 calamine = "0.32.0"
 clap = { version = "4.5.49", features = ["derive"] }
 console_error_panic_hook = { version = "0.1.7" }
@@ -215,7 +216,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 # being built (feature unification would otherwise differ
 # between `cargo test -p zo-reporter` and a full build).
 serde_json = { version = "1.0.149", features = ["preserve_order"] }
-sha2 = "0.10.9"
+sha1 = "0.10.6"
+sha2 = { version = "0.10.9", features = ["asm"] }
 smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.6", features = ["serde"] }
 sysinfo = "0.38.4"

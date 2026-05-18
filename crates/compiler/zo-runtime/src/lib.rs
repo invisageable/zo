@@ -1,9 +1,11 @@
 mod runtime;
 
 pub mod arr;
+pub mod base64;
 pub mod channel;
 pub mod ctxsw;
 pub mod env;
+pub mod hash;
 pub mod io;
 pub mod map;
 pub mod pool;

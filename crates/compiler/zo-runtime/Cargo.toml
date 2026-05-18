@@ -23,9 +23,12 @@ zo-runtime-render = { workspace = true }
 zo-runtime-web = { workspace = true }
 
 # external:crates.
+base64 = { workspace = true }
 libc = { workspace = true }
 regex = { workspace = true }
 rustc-hash = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 # external:crates.
