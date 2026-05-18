@@ -7579,6 +7579,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-c-abi"
+version = "0.3.11"
+
+[[package]]
 name = "zo-codegen"
 version = "0.3.11"
 dependencies = [
@@ -7926,6 +7930,7 @@ version = "0.3.11"
 dependencies = [
  "serde_json",
  "smallvec",
+ "zo-c-abi",
 ]
 
 [[package]]
@@ -7967,6 +7972,7 @@ dependencies = [
  "libc",
  "regex",
  "rustc-hash 2.1.2",
+ "zo-c-abi",
  "zo-error",
  "zo-reporter",
  "zo-runtime-native",

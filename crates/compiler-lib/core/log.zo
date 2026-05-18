@@ -1,0 +1,25 @@
+-! Structured logging to stderr.
+
+-- TODO: env-var-driven level filter.
+
+load core::io::*;
+
+-! Write a debug-level message to stderr.
+pub fun debug(msg: str) {
+  eshowln("[debug] {msg}");
+}
+
+-! Write an info-level message to stderr.
+pub fun info(msg: str) {
+  eshowln("[info]  {msg}");
+}
+
+-! Write a warning-level message to stderr.
+pub fun warn(msg: str) {
+  eshowln("[warn]  {msg}");
+}
+
+-! Write an error-level message to stderr.
+pub fun error(msg: str) {
+  eshowln("[error] {msg}");
+}

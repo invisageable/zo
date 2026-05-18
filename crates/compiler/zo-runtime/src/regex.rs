@@ -6,6 +6,8 @@
 //! `Composite` return path so the zo wrapper materialises a
 //! real `str` via `.to_str()` without a companion FFI call.
 
+use zo_c_abi::{CBytes, cstr_to_str, stage_cbytes};
+
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::os::raw::c_char;
@@ -15,38 +17,6 @@ use regex::{Regex, RegexBuilder};
 
 /// Thread-local cache backing `with_slot` / `free_slot`.
 type SlotCache<T> = LocalKey<RefCell<Vec<Option<T>>>>;
-
-/// 16B `(ptr, len)` byte-slice returned to zo as `CBytes`.
-///
-/// @note — `repr(C)` two-i64-field shape so AAPCS lifts it
-/// through `AbiRet::Composite` (X0/X1). `ptr` is borrowed
-/// from `SCRATCH` and stays valid until the next
-/// string-returning regex call on this thread; the zo side
-/// calls `.to_str()` immediately to heap-copy.
-///
-/// ABI mirror: `zo-provider-json/src/json.rs::CBytes` —
-/// keep field order/types in sync.
-#[repr(C)]
-pub struct CBytes {
-  ptr: *const c_char,
-  len: i64,
-}
-
-impl CBytes {
-  /// Stage `bytes` in the per-thread scratch and return the
-  /// `(ptr, len)` pair.
-  fn from_bytes(bytes: &[u8]) -> Self {
-    Self {
-      ptr: scratch_store(bytes),
-      len: bytes.len() as i64,
-    }
-  }
-
-  /// Empty payload (sentinel for invalid handles).
-  fn empty() -> Self {
-    Self::from_bytes(b"")
-  }
-}
 
 /// Owned capture data for one regex match.
 ///
@@ -114,39 +84,6 @@ fn free_slot<T>(cache: &'static SlotCache<T>, handle: i64) {
   });
 }
 
-/// Lift a NUL-terminated `*const c_char` to a borrowed `&str`.
-///
-/// @note — the returned reference borrows from `ptr` and
-/// must not escape past the next FFI write to the same
-/// memory. All callers in this module consume it within the
-/// same function body, so the unbounded lifetime is sound.
-///
-/// # Safety
-///
-/// `ptr` must be NUL-terminated UTF-8 or null.
-unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> &'a str {
-  if ptr.is_null() {
-    return "";
-  }
-
-  unsafe { std::ffi::CStr::from_ptr(ptr) }
-    .to_str()
-    .unwrap_or("")
-}
-
-/// Stage `bytes` + trailing NUL in the scratch; return ptr.
-fn scratch_store(bytes: &[u8]) -> *const c_char {
-  SCRATCH.with(|cell| {
-    let mut out = cell.borrow_mut();
-
-    out.clear();
-    out.reserve(bytes.len() + 1);
-    out.extend_from_slice(bytes);
-    out.push(0);
-    out.as_ptr() as *const c_char
-  })
-}
-
 /// Run `op` over the regex at `handle` against `haystack`.
 ///
 /// @note — `Cow::Borrowed` (no-match) passes through without
@@ -159,7 +96,7 @@ fn replace_via<'h>(
   op: impl FnOnce(&Regex, &'h str, &str) -> Cow<'h, str>,
 ) -> CBytes {
   with_slot(&REGEX_CACHE, handle, CBytes::empty, |re| {
-    CBytes::from_bytes(op(re, haystack, replacement).as_bytes())
+    stage_cbytes(&SCRATCH, op(re, haystack, replacement).as_bytes())
   })
 }
 
@@ -372,7 +309,7 @@ pub extern "C" fn _zo_regex_match_group(handle: i64, index: i64) -> CBytes {
     m.groups
       .get(idx)
       .and_then(|g| g.as_deref())
-      .map_or_else(CBytes::empty, |s| CBytes::from_bytes(s.as_bytes()))
+      .map_or_else(CBytes::empty, |s| stage_cbytes(&SCRATCH, s.as_bytes()))
   })
 }
 

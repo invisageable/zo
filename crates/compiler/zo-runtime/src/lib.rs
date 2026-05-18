@@ -3,6 +3,7 @@ mod runtime;
 pub mod arr;
 pub mod channel;
 pub mod ctxsw;
+pub mod env;
 pub mod io;
 pub mod map;
 pub mod pool;

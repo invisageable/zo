@@ -17,6 +17,8 @@
 //! point at `obj`'s root). The root drops when the last
 //! handle referencing it is freed.
 
+use zo_c_abi::{CBytes, stage_cbytes};
+
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::ffi::CStr;
@@ -33,34 +35,6 @@ use smallvec::SmallVec;
 /// stack-allocated and skips the per-traversal `Vec`
 /// allocation.
 type StepPath = SmallVec<[Step; 4]>;
-
-/// 16B `(ptr, len)` byte-slice returned to zo as `CBytes`.
-///
-/// @note — `repr(C)` two-field shape so AAPCS lifts it
-/// through `AbiRet::Composite` (X0/X1). `ptr` is borrowed
-/// from `OUT` and stays valid until the next string-
-/// returning JSON call on this thread.
-///
-/// ABI mirror: `zo-runtime/src/regex.rs::CBytes` — keep
-/// field order/types in sync.
-#[repr(C)]
-pub struct CBytes {
-  ptr: *const c_char,
-  len: i64,
-}
-
-impl CBytes {
-  fn from_bytes(bytes: &[u8]) -> Self {
-    Self {
-      ptr: put_scratch(bytes),
-      len: bytes.len() as i64,
-    }
-  }
-
-  fn empty() -> Self {
-    Self::from_bytes(b"")
-  }
-}
 
 // Per-thread scratch for the string-returning FFIs
 // (`__zo_json_to_str` / `__zo_json_as_str` /
@@ -94,24 +68,6 @@ thread_local! {
   // failure from the value alone.
   static LAST_ERROR: RefCell<Option<String>> =
     const { RefCell::new(None) };
-}
-
-/// Replace the scratch with `bytes` (or empty it) and
-/// return a stable C-string pointer to the new contents.
-///
-/// @note — the pointer is valid until the next call that
-/// touches the scratch on this thread; `CBytes::from_bytes`
-/// pairs it with the byte length so the zo side heap-copies
-/// before the next FFI write. Keeps the `Vec`'s capacity
-/// across calls so tight `to_str` loops don't reallocate.
-#[inline]
-fn put_scratch(bytes: &[u8]) -> *const c_char {
-  OUT.with(|cell| {
-    let mut out = cell.borrow_mut();
-    out.clear();
-    out.extend_from_slice(bytes);
-    out.as_ptr() as *const c_char
-  })
 }
 
 /// Owned parse + refcount. Handles point in; the count
@@ -542,7 +498,7 @@ pub extern "C" fn __zo_json_to_str(handle: ZoHandle) -> CBytes {
     return CBytes::empty();
   };
 
-  CBytes::from_bytes(s.as_bytes())
+  stage_cbytes(&OUT, s.as_bytes())
 }
 
 /// Read a JSON string's content (unquoted).
@@ -557,7 +513,7 @@ pub extern "C" fn __zo_json_as_str(handle: ZoHandle) -> CBytes {
     _ => b"",
   };
 
-  CBytes::from_bytes(bytes)
+  stage_cbytes(&OUT, bytes)
 }
 
 /// Populate the per-thread KEYS cache from `handle`'s
@@ -635,7 +591,7 @@ pub extern "C" fn __zo_json_key_at(
       .map(|k| k.as_bytes())
       .unwrap_or(b"");
 
-    CBytes::from_bytes(bytes)
+    stage_cbytes(&OUT, bytes)
   })
 }
 
@@ -650,7 +606,7 @@ pub extern "C" fn __zo_json_last_error() -> CBytes {
     let cell = cell.borrow();
     let bytes = cell.as_ref().map(|s| s.as_bytes()).unwrap_or(b"");
 
-    CBytes::from_bytes(bytes)
+    stage_cbytes(&OUT, bytes)
   })
 }
 
