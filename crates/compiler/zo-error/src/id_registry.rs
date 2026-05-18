@@ -75,6 +75,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::UnmatchedOpeningDelimiter => ("unmatched-opening-delimiter", 20),
     ErrorKind::UnmatchedClosingDelimiter => ("unmatched-closing-delimiter", 21),
     ErrorKind::MismatchedDelimiter => ("mismatched-delimiter", 22),
+    ErrorKind::UnterminatedRegex => ("unterminated-regex", 23),
 
     // --- Parser (E0100 .. E0299) ---
     ErrorKind::UnexpectedToken => ("unexpected-token", 100),

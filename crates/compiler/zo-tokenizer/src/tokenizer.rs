@@ -53,10 +53,16 @@ impl ModeState {
   const DEPTH_MASK: u32 = 0x3FFF;
   const DEPTH_FIELD: u32 = 0xFFFC;
   const TEXT_BIT: u32 = 16;
+  /// `1` when the next `/` starts a regex literal, `0`
+  /// when it's division (or `/=`). Refreshed per main-loop
+  /// iteration from the previous token's `is_after_operand`.
+  const EXPR_CTX_BIT: u32 = 17;
 
   #[inline(always)]
   const fn new() -> Self {
-    Self(0)
+    // A `/` as the first non-trivia byte is a regex literal,
+    // not division with no LHS.
+    Self(1 << Self::EXPR_CTX_BIT)
   }
 
   #[inline(always)]
@@ -82,6 +88,22 @@ impl ModeState {
   #[inline(always)]
   fn template_text_mode(self) -> bool {
     (self.0 >> Self::TEXT_BIT) & 0x1 == 1
+  }
+
+  /// Read the expression-vs-operator context bit.
+  #[inline(always)]
+  fn expr_context(self) -> bool {
+    (self.0 >> Self::EXPR_CTX_BIT) & 0x1 == 1
+  }
+
+  /// Set the expression-vs-operator context bit.
+  #[inline(always)]
+  fn set_expr_context(&mut self, on: bool) {
+    if on {
+      self.0 |= 1 << Self::EXPR_CTX_BIT;
+    } else {
+      self.0 &= !(1 << Self::EXPR_CTX_BIT);
+    }
   }
 
   #[inline(always)]
@@ -923,12 +945,16 @@ impl<'a> Tokenizer<'a> {
         }
       }
       b'/' => {
-        if self.current() == b'=' {
+        // Expression context wins over `/=`: in `/=foo/` the
+        // `=` is part of the regex pattern, not a compound
+        // assignment.
+        if self.state.expr_context() && self.state.mode() != ModeState::TEMPLATE
+        {
+          self.scan_regex_literal(start);
+        } else if self.current() == b'=' {
           self.advance();
           self.tokens.push(Token::SlashEq, start as u32, 2);
         } else {
-          // In template mode, we need Slash2 for tags like </p> or />
-          // In code mode, we need Slash for division operator
           let token_kind = if self.state.mode() == ModeState::TEMPLATE {
             Token::Slash2
           } else {
@@ -1348,6 +1374,97 @@ impl<'a> Tokenizer<'a> {
         .tokens
         .push_with_literal(Token::Int, start as u32, len, id);
     }
+  }
+
+  /// Refresh `EXPR_CTX_BIT` from the previously-emitted token.
+  #[inline(always)]
+  fn refresh_expr_context(&mut self) {
+    let after_operand = match self.tokens.kinds.last() {
+      None => false,
+      Some(kind) => kind.is_after_operand(),
+    };
+
+    self.state.set_expr_context(!after_operand);
+  }
+
+  /// Scan a regex literal `/pattern/[flags]`.
+  ///
+  /// @note — pattern ends at the first unescaped `/` outside
+  /// a `[...]` class; flags are a greedy ASCII-letter run.
+  /// A newline before the closing `/` reports
+  /// `UnterminatedRegex` and emits `Token::Unknown` so the
+  /// parser can recover.
+  #[inline(always)]
+  fn scan_regex_literal(&mut self, start: usize) {
+    let pat_start = self.cursor;
+    let mut in_class = false;
+    let mut found_close = false;
+
+    while self.cursor < self.source.len() {
+      let b = self.current();
+
+      if b == b'\n' {
+        break;
+      }
+
+      if b == b'\\' && self.cursor + 1 < self.source.len() {
+        self.cursor += 2;
+        continue;
+      }
+
+      if b == b'[' {
+        in_class = true;
+      } else if b == b']' {
+        in_class = false;
+      } else if b == b'/' && !in_class {
+        found_close = true;
+        break;
+      }
+
+      self.cursor += 1;
+    }
+
+    if !found_close {
+      report_error(Error::new(
+        ErrorKind::UnterminatedRegex,
+        Span {
+          start: start as u32,
+          len: (self.cursor - start) as u16,
+        },
+      ));
+
+      let len = (self.cursor - start) as u16;
+
+      self.tokens.push(Token::Unknown, start as u32, len);
+
+      return;
+    }
+
+    let pat_end = self.cursor;
+
+    self.advance();
+
+    let flag_start = self.cursor;
+
+    while self.cursor < self.source.len()
+      && self.source[self.cursor].is_ascii_alphabetic()
+    {
+      self.cursor += 1;
+    }
+
+    let pat =
+      std::str::from_utf8(&self.source[pat_start..pat_end]).unwrap_or("");
+    let flags =
+      std::str::from_utf8(&self.source[flag_start..self.cursor]).unwrap_or("");
+
+    let pat_sym = self.interner.intern(pat);
+    let flag_sym = self.interner.intern(flags);
+    let id = self.literals.push_regex(pat_sym, flag_sym);
+    let len = (self.cursor - start) as u16;
+
+    self
+      .tokens
+      .push_with_literal(Token::RegexLit, start as u32, len, id);
   }
 
   #[inline(always)]
@@ -1789,6 +1906,8 @@ impl<'a> Tokenizer<'a> {
       if self.cursor >= self.source.len() {
         break;
       }
+
+      self.refresh_expr_context();
 
       if self.state.is_template() {
         self.scan_template_token();

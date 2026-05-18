@@ -1,9 +1,11 @@
--- tests-run-pass: JS-style regex compile + test + find + replace.
+-- tests-run-pass: regex API surface — matches, find,
+-- find_end, replace, replace_all, exec, captures, split,
+-- free. Covers the production shape we intend to keep.
 
 load core::regex::*;
 
 fun main() {
-  -- Compile and basic match.
+  -- Compile + basic match.
   imu hello: Regex = Regex::new("hello", "");
   check(hello.is_valid());
   check(hello.matches("hello world"));
@@ -19,14 +21,62 @@ fun main() {
   check(ci.matches("hello"));
   check(ci.matches("HELLO"));
 
+  -- Replace first match only (JS String.replace with non-g).
+  imu first_o: Regex = Regex::new("o", "");
+  check@eq(first_o.replace("foo", "0"), "f0o");
+
   -- Replace every match.
   imu vowels: Regex = Regex::new("[aeiou]", "");
-  imu out: str = vowels.replace_all("hello", "*");
-  check@eq(out, "h*ll*");
+  check@eq(vowels.replace_all("hello", "*"), "h*ll*");
+
+  -- exec + capture groups.
+  imu greet: Regex = Regex::new("h(e)(l)+o", "");
+  imu m: Match = greet.exec("hello world");
+  check(m.is_valid());
+  check@eq(m.start(), 0);
+  check@eq(m.end(), 5);
+  check@eq(m.text(), "hello");
+  check@eq(m.count(), 2);
+  check@eq(m.at(1), "e");
+  check@eq(m.at(2), "l");
+
+  -- exec returns sentinel handle on no match.
+  imu no_match: Match = greet.exec("goodbye");
+  check(!no_match.is_valid());
+
+  -- split on a regex.
+  imu sep: Regex = Regex::new("\\s*,\\s*", "");
+  imu parts: []str = sep.split("a, b,c ,  d");
+  check@eq(parts.len(), 4);
+  check@eq(parts[0], "a");
+  check@eq(parts[1], "b");
+  check@eq(parts[2], "c");
+  check@eq(parts[3], "d");
 
   -- Invalid pattern compiles to handle 0.
   imu bad: Regex = Regex::new("(", "");
   check(!bad.is_valid());
+
+  -- Explicit free of Match + Regex handles. Idempotent —
+  -- freeing the same handle twice is a no-op.
+  m.free();
+  m.free();
+  hello.free();
+  ci.free();
+  first_o.free();
+  vowels.free();
+  greet.free();
+  sep.free();
+
+  -- Match acquired AFTER freeing its Regex still resolves
+  -- (the Match owns its capture strings; the Regex handle's
+  -- lifetime is independent).
+  imu surv: Regex = Regex::new("(\\w+)", "");
+  imu mhit: Match = surv.exec("token");
+  surv.free();
+  check@eq(mhit.text(), "token");
+  check@eq(mhit.at(1), "token");
+  mhit.free();
 
   showln("regex_basic: all checks passed!");
 }

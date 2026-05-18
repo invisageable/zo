@@ -3121,6 +3121,12 @@ impl<'a> Executor<'a> {
         }
       }
 
+      Token::RegexLit => {
+        if let Some(NodeValue::Literal(lit_idx)) = self.node_value(idx) {
+          self.emit_regex_lit_call(idx, lit_idx);
+        }
+      }
+
       Token::String | Token::RawString => {
         // String literals are already interned during
         // tokenization.
@@ -10161,6 +10167,72 @@ impl<'a> Executor<'a> {
   /// derive methods can refer to it. `None` when
   /// `core::json` isn't imported — derive then becomes a
   /// no-op (user's call site reports `Undefined`).
+  /// Desugar `/pattern/flags` to the same SIR a hand-written
+  /// `Regex::new("pattern", "flags")` would produce. Missing
+  /// `Regex` in scope (no `load core::regex`) reports
+  /// `UndefinedVariable` at the literal's span.
+  fn emit_regex_lit_call(&mut self, idx: usize, lit_idx: u32) {
+    let (pat_sym, flag_sym) = self.literals.regex_literals[lit_idx as usize];
+
+    let Some(regex_sym) = self.interner.symbol("Regex") else {
+      report_error(Error::new(
+        ErrorKind::UndefinedVariable,
+        self.tree.spans[idx],
+      ));
+      return;
+    };
+    let Some(regex_struct_id) = self
+      .ty_checker
+      .ty_table
+      .struct_intern_lookup(regex_sym)
+      .copied()
+    else {
+      report_error(Error::new(
+        ErrorKind::UndefinedVariable,
+        self.tree.spans[idx],
+      ));
+      return;
+    };
+    let regex_ty_id = self.ty_checker.intern_ty(Ty::Struct(regex_struct_id));
+    let str_ty = self.ty_checker.str_type();
+
+    let pat_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstString {
+      dst: pat_v,
+      symbol: pat_sym,
+      ty_id: str_ty,
+    });
+
+    let flag_v = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    self.sir.emit(Insn::ConstString {
+      dst: flag_v,
+      symbol: flag_sym,
+      ty_id: str_ty,
+    });
+
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+    let sir_value = self.sir.emit(Insn::Call {
+      dst,
+      name: self.interner.intern("Regex::new"),
+      args: vec![pat_v, flag_v],
+      ty_id: regex_ty_id,
+    });
+
+    let value_id = self.values.store_runtime(0);
+
+    self.value_stack.push(value_id);
+    self.ty_stack.push(regex_ty_id);
+    self.sir_values.push(sir_value);
+
+    self.annotations.push(Annotation {
+      node_idx: idx,
+      ty_id: regex_ty_id,
+    });
+  }
+
   fn json_derive_ctx(&mut self) -> Option<DeriveCtx> {
     let json_sym = self.interner.symbol("Json")?;
     let json_struct_id = self

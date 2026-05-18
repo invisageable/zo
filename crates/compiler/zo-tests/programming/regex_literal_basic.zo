@@ -1,0 +1,59 @@
+-- tests-run-pass: regex literals — JS-style `/pattern/flags`
+-- syntax desugaring to `Regex::new(pattern, flags)`, with
+-- division-context disambiguation.
+
+load core::regex::*;
+
+fun main() {
+  -- Literal at expression-start position.
+  imu hello: Regex = /hello/;
+  check(hello.matches("hello world"));
+  check@eq(hello.find("say hello"), 4);
+
+  -- Literal with flags.
+  imu ci: Regex = /HELLO/i;
+  check(ci.matches("hello"));
+
+  -- Literal + division in the same function.
+  imu n: int = 10 / 2;
+  check@eq(n, 5);
+
+  imu re: Regex = /\d+/;
+  check(re.matches("abc 123"));
+  imu m: Match = re.exec("abc 42 def");
+  check@eq(m.text(), "42");
+
+  -- Captures via literal.
+  imu greet: Regex = /h(e)(l)+o/;
+  imu cap: Match = greet.exec("hello");
+  check@eq(cap.at(1), "e");
+  check@eq(cap.at(2), "l");
+
+  -- replace_all called on a literal.
+  check@eq(/[aeiou]/.replace_all("hello", "*"), "h*ll*");
+
+  -- Operator context: identifier `/` int.
+  imu x: int = 20;
+  imu y: int = x / 4;
+  check@eq(y, 5);
+
+  -- Operator context: paren close before `/`.
+  imu z: int = (x + 4) / 6;
+  check@eq(z, 4);
+
+  -- Operator context: index close before `/`.
+  imu arr: [3]int = [10, 20, 30];
+  imu w: int = arr[1] / 2;
+  check@eq(w, 10);
+
+  -- `/=` only fires in operator context.
+  mut acc: int = 100;
+  acc /= 4;
+  check@eq(acc, 25);
+
+  -- Literal `/=` at expression-start IS a regex (matches `=`).
+  imu eq: Regex = /=foo/;
+  check(eq.matches("=foo"));
+
+  showln("regex_literal_basic: all checks passed!");
+}

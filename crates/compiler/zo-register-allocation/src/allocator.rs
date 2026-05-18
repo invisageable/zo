@@ -268,14 +268,11 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
   // Liveness analysis.
   let liveness = liveness::analyze(insns, start, end, value_ids, num_values);
 
-  // Resolved once per function: any `Call` whose name
-  // matches this symbol is lowered by the codegen to a
-  // single ALU op (no `BL`) and must skip the clobber-all
-  // branch below. `Symbol`-equality is one i32 compare;
-  // reaching through `interner.get` for every Call would
-  // re-scan the string on every allocation. `None` when a
-  // program has no FFI — no `Call` then matches and the
-  // branch is dead.
+  // `c_str` calls lower to a single ALU op, not a `BL`,
+  // so they must skip the clobber-all branch below.
+  // Resolved once via `Symbol`-equality (one i32 compare)
+  // instead of `interner.get` per Call. `None` when the
+  // program has no FFI — branch is dead in that case.
   let c_str_sym = interner.symbol("c_str");
 
   let mut state = AllocState::new();
@@ -365,20 +362,17 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
 
     // --- Handle Call (clobbers all caller-saved) ---
     //
-    // `c_str` is a SIR `Call` shape lowered by the codegen
-    // to a single `add` (no `BL`, no caller-saved clobber).
-    // Routing it through this branch would overwrite the
-    // result's register assignment on the next call's
-    // spill/reload — fall through to the general case so
-    // liveness is tracked correctly.
+    // `c_str` is a SIR `Call` lowered to a single `add` —
+    // no `BL`, no caller-saved clobber. Routing it through
+    // this branch would overwrite the result's register on
+    // the next call's spill/reload, so fall through to the
+    // general case where liveness tracks correctly.
     let is_non_clobber_call = matches!(
       insn,
       Insn::Call { name, .. } if Some(*name) == c_str_sym
     );
 
-    if !is_non_clobber_call
-      && let Insn::Call { args, .. } = insn
-    {
+    if !is_non_clobber_call && let Insn::Call { args, .. } = insn {
       has_calls = true;
 
       let arg_set = args.iter().map(|a| a.0).collect::<Vec<_>>();
