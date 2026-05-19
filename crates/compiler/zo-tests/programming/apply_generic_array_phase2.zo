@@ -1,0 +1,31 @@
+-- tests-run-pass: `apply []$T { ... }` end-to-end call.
+-- A user-level generic method defined once dispatches
+-- against `[]int` and `[]str` via the same body, monomorphised
+-- on demand into `arr_$::first__int` / `arr_$::first__str`.
+--
+-- Phase 2 of PLAN_GENERIC_ARRAY_APPLY — call-site dispatch
+-- fallback from `arr_<primitive>::first` to `arr_$::first`,
+-- triggering the standard mono pipeline.
+
+apply []$T {
+  fun first(self) -> $T {
+    return self[0];
+  }
+}
+
+fun main() {
+  imu nums: []int = [42, 7, 99];
+  imu strs: []str = ["hello", "world"];
+
+  check@eq(nums.first(), 42);
+  check@eq(strs.first(), "hello");
+
+  showln(nums.first());
+  showln(strs.first());
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- hello
+-- DONE

@@ -942,11 +942,20 @@ impl<'a> Parser<'a> {
       if let Some(buf) = self.saved_expr_bufs.pop() {
         self.expr_buffer = buf;
       }
-    }
 
-    // Restore outer unary ops saved by LParen.
-    if let Some(outer) = self.saved_unary_spans.pop() {
-      self.unary_spans = outer;
+      // The LParen handler only saved `unary_spans` for
+      // expression-context parens; the FunctionSignature /
+      // ParameterList branch never pushes onto
+      // `saved_unary_spans`. Restoring here must be paired
+      // with the save — otherwise `fn(x)`'s closing `)`
+      // would pop the outer call's saved unary entry
+      // (e.g. the `!` from `!nums.any(fn(x) => ...)`) and
+      // drain it inside the closure body at the next
+      // `flush_expr`, putting `Bang` between the param
+      // list and `=>`.
+      if let Some(outer) = self.saved_unary_spans.pop() {
+        self.unary_spans = outer;
+      }
     }
 
     // Drain any pending unary ops that apply to the

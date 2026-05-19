@@ -7,7 +7,6 @@
 
 load core::c::*;
 
-
 -- libzo_provider_sqlite is built by `zo-provider-sqlite`'s
 -- Cargo build and staged next to each user binary so
 -- `@executable_path` resolves it. SQLite itself is

@@ -1,3 +1,8 @@
+-! The success exit code.
+pub val EXIT_CODE_SUCCESS: int = 0;
+-! The error exit code.
+pub val EXIT_CODE_ERROR: int = 1;
+
 -! Terminates the process with the given exit code.
 -!
 -! @param code — The exit code.

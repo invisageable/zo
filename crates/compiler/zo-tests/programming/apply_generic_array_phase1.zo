@@ -1,0 +1,15 @@
+-- tests-build-pass: `apply []$T { ... }` parses, registers
+-- the body's methods under the `arr_$` mangled prefix, and
+-- does NOT silently drop the block (the pre-fix behaviour
+-- when the LBracket arm in `execute_apply` rejected
+-- `Dollar + Ident`).
+--
+-- Phase 1 of PLAN_GENERIC_ARRAY_APPLY — definition-time
+-- acceptance only. Call-site dispatch from `[]int.noop()`
+-- to `arr_$::noop` is wired in phase 2.
+
+apply []$T {
+  fun noop(self) {}
+}
+
+fun main() {}

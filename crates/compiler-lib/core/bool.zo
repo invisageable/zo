@@ -1,4 +1,7 @@
 apply bool {
+  -! Convert boolean value to an integer.
+  -!
+  -! @note — where `false` equals `0` and `true` equals `1`.
   pub fun as_int(self) -> int {
     if self {
       return 1;

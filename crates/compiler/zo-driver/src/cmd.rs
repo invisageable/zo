@@ -85,13 +85,17 @@ pub(crate) fn read_source(path: &Path) -> String {
   }
 }
 
+// TODO: add `check` — scan, parse, analyze and report.
+// TODO: add `test` — run `test` functions (fret?).
+// TODO: add `fmt` — format program.
+
 /// Represents a [`Cmd`] enumeration.
 #[derive(Debug, Subcommand)]
 pub(crate) enum Cmd {
-  /// build a program.
+  /// build a program into an executable.
   Build(build::Build),
   /// read eval print and loop a program (not implemented yet).
   Repl(repl::Repl),
-  /// run a program.
+  /// build and run a program.
   Run(run::Run),
 }

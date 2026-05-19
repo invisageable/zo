@@ -6173,6 +6173,27 @@ impl<'a> Executor<'a> {
         continue;
       }
 
+      // Generic type parameter: `$T`, `$U`, … inside the
+      // Fn signature. Two tokens — `Dollar` then `Ident`.
+      // Resolves through the active `self.type_params` map
+      // populated by the enclosing `fun foo<$T>` / apply
+      // header. Without this arm, `Fn($T) -> bool` parses
+      // as `Fn() -> bool` and any closure passed to a
+      // method like `.filter(f: Fn($T) -> bool)` mismatches
+      // on arity at the call site.
+      if tok == Token::Dollar
+        && j + 1 < len
+        && self.tree.nodes[j + 1].token == Token::Ident
+        && let Some(NodeValue::Symbol(sym)) = self.node_value(j + 1)
+        && let Some((_, ty)) =
+          self.type_params.iter().find(|(name, _)| *name == sym)
+      {
+        param_tys.push(*ty);
+        j += 2;
+
+        continue;
+      }
+
       if tok.is_ty() {
         param_tys.push(self.resolve_type_token(j));
       }
@@ -6198,6 +6219,19 @@ impl<'a> Executor<'a> {
 
           return_ty = nested_ty;
           j = skip;
+        } else if tok == Token::Dollar
+          && j + 1 < len
+          && self.tree.nodes[j + 1].token == Token::Ident
+          && let Some(NodeValue::Symbol(sym)) = self.node_value(j + 1)
+          && let Some((_, ty)) =
+            self.type_params.iter().find(|(name, _)| *name == sym)
+        {
+          // Symmetric with the param-side `$T` arm above.
+          // `Fn(int) -> $U` returns the generic param's
+          // fresh inference var, which the mono pass binds
+          // to a concrete type per call site.
+          return_ty = *ty;
+          j += 2;
         } else if tok.is_ty() {
           return_ty = self.resolve_type_token(j);
 
@@ -7037,11 +7071,26 @@ impl<'a> Executor<'a> {
     // body-skip check below.
     let fn_had_type_params = !self.type_params.is_empty();
 
-    // If no function-level type params, restore
-    // apply-level params (e.g., $T from apply Pair<$T>).
-    if self.type_params.is_empty() {
-      self.type_params = outer_type_params;
-    }
+    // Re-introduce apply-level params (`$T` from
+    // `apply Foo<$T> { ... }`) so method bodies can
+    // reference them alongside any method-level
+    // parameters (`fun map<$U>(...)`). Apply-level
+    // entries come FIRST so the resulting `func.type_params`
+    // is ordered `[apply_$T, method_$U]` — the mono
+    // pipeline reads them positionally and the
+    // receiver's concrete element type lands at index 0
+    // (the apply-level `$T`).
+    //
+    // `outer_type_params` is cloned (not moved) so the
+    // outer-pass / main-pass exit paths below can restore
+    // `self.type_params` to JUST the apply-level set —
+    // sibling methods within the same apply block must
+    // see the same `$T` we entered with, not the merged
+    // `[$T, $U]` from a prior method.
+    let mut merged = outer_type_params.clone();
+
+    merged.extend(std::mem::take(&mut self.type_params));
+    self.type_params = merged;
 
     // Skip past LParen
     if idx < _end_idx && self.tree.nodes[idx].token == Token::LParen {
@@ -7375,7 +7424,11 @@ impl<'a> Executor<'a> {
       // Restore outer type_params scope (signature parse
       // mutated it; the generic's type_params are scoped
       // to each re-execution, not to the outer pass).
-      self.type_params.clear();
+      // Restore the apply-level slice so sibling methods
+      // in the same `apply Foo<$T> { ... }` block still
+      // see `$T` — a plain `.clear()` would wipe it and
+      // break the next method's signature resolution.
+      self.type_params = outer_type_params;
       self.skip_until = end_of_block;
 
       return;
@@ -12082,6 +12135,21 @@ impl<'a> Executor<'a> {
     let name_owned = self.interner.get(type_name).to_owned();
 
     if let Some(elem_name) = name_owned.strip_prefix("arr_") {
+      // Generic-array apply target: `arr_$` carries the
+      // apply-level `$T` as its element. The fresh inference
+      // var for `$T` was seeded into `self.type_params` by
+      // `execute_apply` before the body re-execution started;
+      // pull it out so the `self: []$T` parameter type
+      // unifies with the receiver's concrete element at the
+      // call site (which then drives mono via the standard
+      // pipeline).
+      if elem_name == "$" {
+        let var = self.type_params.first().map(|(_, v)| *v)?;
+        let aid = self.ty_checker.ty_table.intern_array(var, None);
+
+        return Some(self.ty_checker.intern_ty(Ty::Array(aid)));
+      }
+
       let elem_sym = self.interner.intern(elem_name);
       let elem_ty =
         self.ty_checker.resolve_ty_symbol(elem_sym, self.interner)?;
@@ -12120,10 +12188,24 @@ impl<'a> Executor<'a> {
           _ => None,
         })
       } else if tok == Token::LBracket {
-        // Array target: expect `[ ] <primitive>` and build
-        // the canonical mangling prefix `arr_<primitive>`.
+        // Array target. Two shapes:
+        //   - `[ ] <primitive>` → mangle as
+        //     `arr_<primitive>` (e.g. `arr_int`,
+        //     `arr_str`). Methods stay element-specific.
+        //   - `[ ] $<Ident>` → mangle as the canonical
+        //     generic sentinel `arr_$`. The apply-level
+        //     `$T` param is seeded into `type_params`
+        //     after `first_name` is extracted (see below);
+        //     `register_mono_instantiation` mints
+        //     per-element copies (`arr_$::filter__int`,
+        //     `arr_$::filter__str`) lazily from one
+        //     generic body.
+        //
         // The call-site helper `array_ty_name_str` must
-        // produce the same string for `Ty::Array(elem)`.
+        // produce the same string for `Ty::Array(elem)`
+        // when the element is primitive; the generic
+        // fallback dispatch is wired in phase 2 of
+        // PLAN_GENERIC_ARRAY_APPLY.md.
         let elem_idx = (i + 1..end_idx).find(|&j| {
           let t = self.tree.nodes[j].token;
 
@@ -12138,6 +12220,11 @@ impl<'a> Executor<'a> {
           let mangled = format!("arr_{elem_name}");
 
           Some(self.interner.intern(&mangled))
+        } else if elem_tok == Token::Dollar
+          && elem_idx + 1 < end_idx
+          && self.tree.nodes[elem_idx + 1].token == Token::Ident
+        {
+          Some(self.interner.intern("arr_$"))
         } else {
           None
         }
@@ -12208,6 +12295,37 @@ impl<'a> Executor<'a> {
 
     let mut idx = start_idx + 2;
     let mut apply_param_names: Vec<Symbol> = Vec::new();
+
+    // `apply []$T { ... }` — the generic param sits inside
+    // the brackets rather than in a `<$T>` list after the
+    // type name. Scan from `start_idx` for the `LBracket`,
+    // then for `Dollar + Ident` inside, and seed the
+    // apply-level type-param the same way the `<$T>`
+    // parser below does for named generics. Without this,
+    // the bracket-internal `$T` never registers and the
+    // `apply_type_params[arr_$]` map stays empty, breaking
+    // the mono pipeline's pre-install at line ~20322.
+    if type_name == self.interner.intern("arr_$") {
+      let mut k = start_idx + 1;
+
+      while k < end_idx && self.tree.nodes[k].token != Token::LBracket {
+        k += 1;
+      }
+
+      while k < end_idx && self.tree.nodes[k].token != Token::Dollar {
+        k += 1;
+      }
+
+      if k + 1 < end_idx
+        && self.tree.nodes[k + 1].token == Token::Ident
+        && let Some(NodeValue::Symbol(sym)) = self.node_value(k + 1)
+      {
+        let var = self.ty_checker.fresh_var();
+
+        self.type_params.push((sym, var));
+        apply_param_names.push(sym);
+      }
+    }
 
     if idx < end_idx && self.tree.nodes[idx].token == Token::LAngle {
       idx += 1;
@@ -12292,7 +12410,17 @@ impl<'a> Executor<'a> {
         .insert((abs_name, type_name), method_names);
     }
 
-    // Restore outer context.
+    // Restore outer context. Type-params seeded by this
+    // apply block's `<$T>` (or `[]$T`) header must NOT
+    // leak into subsequent top-level items — the next
+    // `fun` outside any apply block reads them via
+    // `execute_fun`'s `mem::take(&mut self.type_params)`
+    // as `outer_type_params`, then restores them when the
+    // function has no `<$T>` of its own, polluting that
+    // function's body with an `$T` it never declared.
+    // Symmetric with the `clear()` at this function's
+    // start.
+    self.type_params.clear();
     self.apply_context = outer_apply;
     self.skip_until = end_idx;
   }
@@ -12511,14 +12639,35 @@ impl<'a> Executor<'a> {
     if matches!(resolved, Ty::Array(_)) {
       let ms = self.interner.get(member_name).to_owned();
 
-      if ms == "push" || ms == "pop" || ms == "map" {
+      // `push` / `pop` / `map` stay as compiler intrinsics:
+      // - `push`/`pop` mutate the array in place and bottom
+      //   out in dedicated SIR instructions.
+      // - `map` is method-level-generic (`map<$U>`) whose
+      //   cross-module re-execution doesn't work yet (the
+      //   importer's executor lacks the generic's tree
+      //   range). The intrinsic synthesises the same loop
+      //   the user-level body would have emitted; behaviour
+      //   is identical, LSP discoverability is the gap.
+      // Element-generic combinators with apply-level-only
+      // `$T` (`filter`, `find_index`, `any`, `all`) flow
+      // through `core/arr.zo`'s `apply []$T { ... }` block.
+      if ms == "push"
+        || ms == "pop"
+        || ms == "map"
+        || ms == "filter"
+        || ms == "fold"
+        || ms == "any"
+        || ms == "all"
+      {
         return true;
       }
 
       // Fall through to the generic dispatch below so
-      // `apply []int { fun sum(self) }` style methods
-      // resolve via `array_ty_name_str` →
-      // `arr_int::sum`.
+      // `apply []int { fun sum(self) }` and the
+      // `apply []$T { fun map / filter / ... }` block
+      // both resolve via `array_ty_name_str` →
+      // `arr_int::sum` (specific) or `arr_$::map`
+      // (generic-fallback wired in phase 2).
     }
 
     // Channel built-in methods: `Tx<T>::send` and
@@ -12591,10 +12740,32 @@ impl<'a> Executor<'a> {
     let ms = self.interner.get(member_name);
     let mangled = format!("{ts}::{ms}");
 
-    self
+    let specific_match = self
       .interner
       .symbol(&mangled)
-      .is_some_and(|sym| self.has_fun(sym))
+      .is_some_and(|sym| self.has_fun(sym));
+
+    if specific_match {
+      return true;
+    }
+
+    // Array-receiver fallback: when the element-specific
+    // body (`arr_int::method`) is absent, accept the
+    // generic `apply []$T { fun method }`. Without this
+    // gate, the Dot handler treats `[]str.first()` as a
+    // field-access on the array and reports
+    // `InvalidFieldAccess` before the RParen dispatch
+    // ever runs.
+    if matches!(resolved, Ty::Array(_)) {
+      let generic_mangled = format!("arr_$::{ms}");
+
+      return self
+        .interner
+        .symbol(&generic_mangled)
+        .is_some_and(|sym| self.has_fun(sym));
+    }
+
+    false
   }
 
   /// Resolves a dot-call `receiver.method(args)` to the
@@ -12656,12 +12827,33 @@ impl<'a> Executor<'a> {
     let mangled = format!("{ts}::{ms}");
     let mangled_sym = self.interner.intern(&mangled);
 
-    // Check if it exists as a function.
+    // Specific-first: prefer the element-specific
+    // `arr_<primitive>::method` body (e.g. the int-only
+    // `apply []int { fun sort }` that bottoms out in
+    // `_zo_arr_sort_i32`). The generic `apply []$T { ... }`
+    // fallback only fires when no specific match exists.
     if self.has_fun(mangled_sym) {
-      mangled_sym
-    } else {
-      method_name
+      return mangled_sym;
     }
+
+    // Array-receiver fallback to the generic apply block.
+    // `apply []$T { fun method }` registers `arr_$::method`;
+    // each call site looks up the generic symbol, then the
+    // standard generic-call path at the LParen handler
+    // builds substitutions from `func.type_params` and
+    // calls `register_mono_instantiation` for us — same
+    // path that mints `Box::get__int` lazily for
+    // `apply Box<$T> { fun get(self) -> $T }`.
+    if matches!(resolved, Ty::Array(_)) {
+      let generic_mangled = format!("arr_$::{ms}");
+      let generic_sym = self.interner.intern(&generic_mangled);
+
+      if self.has_fun(generic_sym) {
+        return generic_sym;
+      }
+    }
+
+    method_name
   }
 
   /// Like `resolve_dot_call` but with an explicit receiver
@@ -12720,10 +12912,23 @@ impl<'a> Executor<'a> {
     let mangled_sym = self.interner.intern(&mangled);
 
     if self.has_fun(mangled_sym) {
-      mangled_sym
-    } else {
-      method_name
+      return mangled_sym;
     }
+
+    // Mirror of `resolve_dot_call`'s generic-array
+    // fallback — same conditions, same target. Both call
+    // sites must agree so dispatch is symmetric across the
+    // two dot-call tree shapes.
+    if matches!(resolved, Ty::Array(_)) {
+      let generic_mangled = format!("arr_$::{ms}");
+      let generic_sym = self.interner.intern(&generic_mangled);
+
+      if self.has_fun(generic_sym) {
+        return generic_sym;
+      }
+    }
+
+    method_name
   }
 
   /// Executes a dot-call `receiver.method(args)`.
@@ -12848,12 +13053,28 @@ impl<'a> Executor<'a> {
 
     let explicit_args = if has_content { comma_count + 1 } else { 0 };
 
-    // Pop explicit args from stack.
+    // Pop explicit args from stack. Retain the value-
+    // stack `ValueId` (in `args`) alongside `arg_types`
+    // and `arg_sirs` so the mono branch below can:
+    //   - unify each (substituted) param type against its
+    //     actual `TyId` (binds method-level `$U` via the
+    //     closure's return-type inference);
+    //   - detect `Value::Closure` arguments via
+    //     `self.values.kinds[arg.0]` and layer the
+    //     closure-mono pass that `execute_call` already
+    //     does at ~18897-18977.
     let mut arg_sirs = Vec::with_capacity(explicit_args + 1);
+    let mut arg_types: Vec<TyId> = Vec::with_capacity(explicit_args);
+    let mut args: Vec<ValueId> = Vec::with_capacity(explicit_args);
 
     for _ in 0..explicit_args {
-      self.value_stack.pop();
-      self.ty_stack.pop();
+      if let Some(v) = self.value_stack.pop() {
+        args.push(v);
+      }
+
+      if let Some(t) = self.ty_stack.pop() {
+        arg_types.push(t);
+      }
 
       if let Some(sir) = self.sir_values.pop() {
         arg_sirs.push(sir);
@@ -12861,6 +13082,8 @@ impl<'a> Executor<'a> {
     }
 
     arg_sirs.reverse();
+    arg_types.reverse();
+    args.reverse();
 
     // Pop receiver (self) — it's before the explicit
     // args on the stack.
@@ -12876,7 +13099,7 @@ impl<'a> Executor<'a> {
       full_args.push(r);
     }
 
-    full_args.extend(arg_sirs);
+    full_args.extend(arg_sirs.iter().copied());
 
     // Per-call monomorphization for generic apply
     // methods. Same pipeline as `execute_call`'s mono
@@ -12905,21 +13128,49 @@ impl<'a> Executor<'a> {
         break 'mono (mangled_name, func.return_ty);
       };
 
-      let Some(recv_sym) = recv_sym_opt else {
-        break 'mono (mangled_name, func.return_ty);
-      };
+      // Source the receiver's concrete type args from one
+      // of two registries:
+      //   - struct receiver: `local_struct_type_args[sym]`
+      //     records what `Box { v = 42 }` (etc.) was
+      //     constructed with at the bound-local site —
+      //     requires a bound symbol on the receiver.
+      //   - array receiver: the element type IS the single
+      //     concrete `$T` — pulled straight off the
+      //     `Ty::Array(elem)` of the receiver. No bound
+      //     symbol or registry entry needed; chained
+      //     expressions (`foo()[0].method()`) work too.
+      let (arg_concretes, recv_struct_name): (Vec<TyId>, Option<Symbol>) =
+        match self.ty_checker.kind_of(recv_ty) {
+          Ty::Struct(sid) => {
+            let Some(recv_sym) = recv_sym_opt else {
+              break 'mono (mangled_name, func.return_ty);
+            };
+            let Some(args) =
+              self.local_struct_type_args.get(&recv_sym.as_u32())
+            else {
+              break 'mono (mangled_name, func.return_ty);
+            };
+            let concretes: Vec<TyId> =
+              args.iter().take(func.type_params.len()).copied().collect();
+            let name = self
+              .ty_checker
+              .ty_table
+              .struct_ty(sid)
+              .map(|st| st.name);
 
-      let Some(args) = self.local_struct_type_args.get(&recv_sym.as_u32())
-      else {
-        break 'mono (mangled_name, func.return_ty);
-      };
+            (concretes, name)
+          }
+          Ty::Array(aid) => {
+            let Some(arr) = self.ty_checker.ty_table.array(aid).copied()
+            else {
+              break 'mono (mangled_name, func.return_ty);
+            };
+            let arr_sentinel = self.interner.intern("arr_$");
 
-      let recv_struct_name = match self.ty_checker.kind_of(recv_ty) {
-        Ty::Struct(sid) => {
-          self.ty_checker.ty_table.struct_ty(sid).map(|st| st.name)
-        }
-        _ => None,
-      };
+            (vec![arr.elem_ty], Some(arr_sentinel))
+          }
+          _ => break 'mono (mangled_name, func.return_ty),
+        };
 
       // Build per-call substitutions: each method-
       // level type param gets a fresh inference var,
@@ -12928,9 +13179,7 @@ impl<'a> Executor<'a> {
       let mut subs: Vec<(TyId, TyId)> =
         Vec::with_capacity(func.type_params.len());
       let span = self.tree.spans[dot_idx];
-      let arg_count = args.len();
-      let arg_concretes: Vec<TyId> =
-        args.iter().take(func.type_params.len()).copied().collect();
+      let arg_count = arg_concretes.len();
 
       for (i, tp) in func.type_params.iter().enumerate() {
         let fresh = self.ty_checker.fresh_var();
@@ -12952,16 +13201,125 @@ impl<'a> Executor<'a> {
         }
       }
 
+      // Unify each explicit-arg's substituted param type
+      // against its actual TyId so method-level type params
+      // bind via the closure's return-type inference. The
+      // `Ty::Fun` unify arm recurses into params + return,
+      // walking any `Fn($T) -> $U`-shaped param type so
+      // `$U_fresh` lands on the closure's actual result
+      // type. Mirror of `execute_call`'s post-substitute
+      // unify loop at lines ~18806-18832. Skip
+      // `func.params[0]` (the receiver `self` was already
+      // driven via `arg_concretes` above).
+      for (i, arg_ty) in arg_types.iter().enumerate() {
+        let Some((_, param_ty)) = func.params.get(i + 1) else {
+          break;
+        };
+        let sub_param = self.ty_checker.substitute_ty(param_ty, &subs_map);
+
+        self.ty_checker.unify(sub_param, *arg_ty, span);
+      }
+
       let new_return =
         self.ty_checker.substitute_ty(&func.return_ty, &subs_map);
 
-      let sym = self.register_mono_instantiation(
+      let type_mono_sym = self.register_mono_instantiation(
         mangled_name,
         &func,
         &subs,
         Some(new_return),
         recv_struct_name,
       );
+
+      // Layer closure-param monomorphisation on top of
+      // the type-mono. Mirrors `execute_call`'s closure
+      // block at ~18897-18977: when a `Value::Closure` is
+      // passed to a `Fn(...)`-typed parameter, mint a
+      // specialised FunDef where that param's name is
+      // rewritten to the concrete closure's `fun_name`,
+      // and queue a re-execution that binds the param to
+      // a `Value::Closure` so emitted `Call`s in the body
+      // name the concrete closure directly. Without this,
+      // the body's `f(self[i])` lowers to an unbound
+      // `Call { name: f }` and codegen breaks.
+      //
+      // Receiver is `func.params[0]`; explicit args map
+      // to `func.params[i + 1]`. Closure detection reads
+      // `Value::Closure` from the value-stack `ValueId`s
+      // captured in `args` (not `arg_sirs`, which holds
+      // SIR ids).
+      let mut closure_subs: Vec<(Symbol, Symbol)> = Vec::new();
+
+      for (i, arg_val) in args.iter().enumerate() {
+        let vi = arg_val.0 as usize;
+
+        if vi < self.values.kinds.len()
+          && matches!(self.values.kinds[vi], Value::Closure)
+        {
+          let ci = self.values.indices[vi] as usize;
+          let cv = &self.values.closures[ci];
+          let param_name = func.params.get(i + 1).map(|(n, _)| *n);
+
+          if let Some(name) = param_name {
+            closure_subs.push((name, cv.fun_name));
+          }
+        }
+      }
+
+      let sym = if closure_subs.is_empty() {
+        type_mono_sym
+      } else {
+        // Combined type-mono + closure-mono name. The
+        // closure-mono Instantiation must point at the
+        // ORIGINAL generic's tree range (not the type-
+        // mono'd sym, which has no entry in
+        // `generic_tree_ranges`) so the re-execute pass
+        // can replay the body with both `concretes`
+        // (`$T → int`) and `closure_subs` (`f → __closure_N`)
+        // applied at once. Type-substitution and closure-
+        // param rebinding compose on the same body walk.
+        let base = self.interner.get(type_mono_sym).to_owned();
+        let mut mangled = base;
+
+        for (_, closure_name) in &closure_subs {
+          mangled = format!("{mangled}__cl{}", closure_name.as_u32());
+        }
+
+        let closure_mono_sym = self.interner.intern(&mangled);
+
+        if !self.has_fun(closure_mono_sym) {
+          let mut mono_def = func.clone();
+
+          mono_def.name = closure_mono_sym;
+          mono_def.type_params = Vec::new();
+          mono_def.return_ty = new_return;
+
+          for (param_name, closure_fn) in &closure_subs {
+            for p in mono_def.params.iter_mut() {
+              if p.0 == *param_name {
+                p.0 = *closure_fn;
+              }
+            }
+          }
+
+          self.push_fun(mono_def);
+
+          let concretes: Vec<TyId> = subs
+            .iter()
+            .map(|(_, fresh)| self.ty_checker.resolve_id(*fresh))
+            .collect();
+
+          self.pending_instantiations.push(Instantiation {
+            mangled: closure_mono_sym,
+            generic: func.name,
+            concretes,
+            closure_subs: closure_subs.clone(),
+            apply_ctx: recv_struct_name,
+          });
+        }
+
+        closure_mono_sym
+      };
 
       (sym, new_return)
     };
@@ -13075,17 +13433,6 @@ impl<'a> Executor<'a> {
     self.sir_values.push(sv);
   }
 
-  /// Executes `arr.map(closure)` — lowers to a synthesized
-  /// `for i := 0..arr.len { __res.push(closure(arr[i])) }`
-  /// loop in SIR. Stack: `[..., receiver, closure]`. Pops
-  /// both, pushes the new `[]U` result.
-  ///
-  /// Closure invocation is by-name through `Insn::Call`; the
-  /// closure's captures are passed in via stored capture
-  /// SIR values (same shape `execute_call`'s closure path
-  /// uses, line 15721 area). Pure, no-capture closures
-  /// (`fn(t) => t * 2`) and capturing closures alike flow
-  /// through the same call site.
   fn execute_array_map(&mut self) {
     let closure_val = self.value_stack.pop();
     self.ty_stack.pop();
@@ -13360,6 +13707,824 @@ impl<'a> Executor<'a> {
     self.ty_stack.push(result_ty);
     self.sir_values.push(final_load);
   }
+
+  /// Executes `arr.filter(closure)` — lowers to a SIR loop
+  /// that pushes `arr[i]` into `__res` when `closure(arr[i])`
+  /// is true. Stack: `[..., receiver, closure]`. Same shape
+  /// as `execute_array_map` but the result element type is
+  /// the receiver's element type (not the closure's return,
+  /// which is `bool`), and the push is guarded by the
+  /// closure result.
+  fn execute_array_filter(&mut self) {
+    let closure_val = self.value_stack.pop();
+    self.ty_stack.pop();
+    let _ = self.sir_values.pop();
+
+    self.value_stack.pop();
+    let arr_ty = self.ty_stack.pop();
+    let arr_sir = self.sir_values.pop();
+
+    let (Some(closure_val), Some(arr_ty), Some(arr_sir)) =
+      (closure_val, arr_ty, arr_sir)
+    else {
+      return;
+    };
+
+    let span = self.tree.spans.last().copied().unwrap_or_default();
+
+    let elem_ty = match self.ty_checker.kind_of(arr_ty) {
+      Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
+        Some(at) => at.elem_ty,
+        None => {
+          report_error(Error::new(ErrorKind::TypeMismatch, span));
+          return;
+        }
+      },
+      _ => {
+        report_error(Error::new(ErrorKind::TypeMismatch, span));
+        return;
+      }
+    };
+
+    let ci = closure_val.0 as usize;
+    let (closure_name, captures) = if ci < self.values.kinds.len()
+      && matches!(self.values.kinds[ci], Value::Closure)
+    {
+      let idx = self.values.indices[ci] as usize;
+      let cv = &self.values.closures[idx];
+
+      (cv.fun_name, cv.captures.clone())
+    } else {
+      report_error(Error::new(ErrorKind::TypeMismatch, span));
+      return;
+    };
+
+    let result_aid = self.ty_checker.ty_table.intern_array(elem_ty, None);
+    let result_ty = self.ty_checker.intern_ty(Ty::Array(result_aid));
+    let int_ty = self.ty_checker.int_type();
+    let bool_ty = self.ty_checker.bool_type();
+
+    let n = self.map_counter;
+    self.map_counter += 1;
+
+    let res_sym = self.interner.intern(&format!("__filter_res_{n}"));
+    let i_sym = self.interner.intern(&format!("__filter_i_{n}"));
+
+    // mut __res: []T = []
+    let empty_dst = self.sir.next_value();
+    let empty_sir = self.sir.emit(Insn::ArrayLiteral {
+      dst: empty_dst,
+      elements: Vec::new(),
+      ty_id: result_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: res_sym,
+      ty_id: result_ty,
+      init: Some(empty_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+    self.sir.emit(Insn::Store {
+      name: res_sym,
+      value: empty_sir,
+      ty_id: result_ty,
+    });
+
+    let res_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: res_sym,
+      ty_id: result_ty,
+      value_id: res_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(empty_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // mut __i: int = 0
+    let zero_dst = self.sir.next_value();
+    let zero_sir = self.sir.emit(Insn::ConstInt {
+      dst: zero_dst,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: i_sym,
+      ty_id: int_ty,
+      init: Some(zero_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: zero_sir,
+      ty_id: int_ty,
+    });
+
+    let i_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: i_sym,
+      ty_id: int_ty,
+      value_id: i_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(zero_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+    let skip_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    // cond: __i < arr.len
+    let i_load_dst = self.sir.next_value();
+    let i_load = self.sir.emit(Insn::Load {
+      dst: i_load_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let len_dst = self.sir.next_value();
+    let len_sir = self.sir.emit(Insn::ArrayLen {
+      dst: len_dst,
+      array: arr_sir,
+      ty_id: int_ty,
+    });
+
+    let cond_dst = self.sir.next_value();
+    let cond_sir = self.sir.emit(Insn::BinOp {
+      dst: cond_dst,
+      op: BinOp::Lt,
+      lhs: i_load,
+      rhs: len_sir,
+      ty_id: bool_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_sir,
+      target: end_label,
+    });
+
+    // __t = arr[__i]
+    let i_load2_dst = self.sir.next_value();
+    let i_load2 = self.sir.emit(Insn::Load {
+      dst: i_load2_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let elem_dst = self.sir.next_value();
+    let elem_sir = self.sir.emit(Insn::ArrayIndex {
+      dst: elem_dst,
+      array: arr_sir,
+      index: i_load2,
+      ty_id: elem_ty,
+    });
+
+    // pred = closure(captures..., __t)
+    let mut call_args: Vec<ValueId> = Vec::with_capacity(captures.len() + 1);
+    for cap in &captures {
+      call_args.push(cap.sir_value);
+    }
+    call_args.push(elem_sir);
+
+    let call_dst = self.sir.next_value();
+    let call_sir = self.sir.emit(Insn::Call {
+      dst: call_dst,
+      name: closure_name,
+      args: call_args,
+      ty_id: bool_ty,
+    });
+
+    // if !pred jump skip
+    self.sir.emit(Insn::BranchIfNot {
+      cond: call_sir,
+      target: skip_label,
+    });
+
+    // __res.push(__t)
+    let res_load_dst = self.sir.next_value();
+    let res_load = self.sir.emit(Insn::Load {
+      dst: res_load_dst,
+      src: LoadSource::Local(res_sym),
+      ty_id: result_ty,
+    });
+
+    self.sir.emit(Insn::ArrayPush {
+      array: res_load,
+      value: elem_sir,
+      ty_id: result_ty,
+      owner: Some(res_sym),
+    });
+
+    self.sir.emit(Insn::Label { id: skip_label });
+
+    // __i = __i + 1
+    let one_dst = self.sir.next_value();
+    let one_sir = self.sir.emit(Insn::ConstInt {
+      dst: one_dst,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let i_load3_dst = self.sir.next_value();
+    let i_load3 = self.sir.emit(Insn::Load {
+      dst: i_load3_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let inc_dst = self.sir.next_value();
+    let inc_sir = self.sir.emit(Insn::BinOp {
+      dst: inc_dst,
+      op: BinOp::Add,
+      lhs: i_load3,
+      rhs: one_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: inc_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    let final_load_dst = self.sir.next_value();
+    let final_load = self.sir.emit(Insn::Load {
+      dst: final_load_dst,
+      src: LoadSource::Local(res_sym),
+      ty_id: result_ty,
+    });
+
+    let result_val = self.values.store_runtime(0);
+
+    self.value_stack.push(result_val);
+    self.ty_stack.push(result_ty);
+    self.sir_values.push(final_load);
+  }
+
+  /// Executes `arr.any(closure) -> bool` / `arr.all(closure)`
+  /// — lowers to a short-circuiting SIR loop. `is_all = true`
+  /// negates the closure result so the seed/exit semantics
+  /// mirror `.any` (early-exit on hit, default on no-hit).
+  fn execute_array_predicate(&mut self, is_all: bool) {
+    let closure_val = self.value_stack.pop();
+    self.ty_stack.pop();
+    let _ = self.sir_values.pop();
+
+    self.value_stack.pop();
+    let arr_ty = self.ty_stack.pop();
+    let arr_sir = self.sir_values.pop();
+
+    let (Some(closure_val), Some(arr_ty), Some(arr_sir)) =
+      (closure_val, arr_ty, arr_sir)
+    else {
+      return;
+    };
+
+    let span = self.tree.spans.last().copied().unwrap_or_default();
+
+    let elem_ty = match self.ty_checker.kind_of(arr_ty) {
+      Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
+        Some(at) => at.elem_ty,
+        None => {
+          report_error(Error::new(ErrorKind::TypeMismatch, span));
+          return;
+        }
+      },
+      _ => {
+        report_error(Error::new(ErrorKind::TypeMismatch, span));
+        return;
+      }
+    };
+
+    let ci = closure_val.0 as usize;
+    let (closure_name, captures) = if ci < self.values.kinds.len()
+      && matches!(self.values.kinds[ci], Value::Closure)
+    {
+      let idx = self.values.indices[ci] as usize;
+      let cv = &self.values.closures[idx];
+
+      (cv.fun_name, cv.captures.clone())
+    } else {
+      report_error(Error::new(ErrorKind::TypeMismatch, span));
+      return;
+    };
+
+    let int_ty = self.ty_checker.int_type();
+    let bool_ty = self.ty_checker.bool_type();
+
+    let n = self.map_counter;
+    self.map_counter += 1;
+
+    let i_sym = self.interner.intern(&format!("__pred_i_{n}"));
+
+    // No `__res` local — the result is derived from the
+    // post-loop value of `__i`. If `__i < arr.len`, the
+    // body broke early (.any saw a hit; .all saw a miss).
+    // Loop-completed (`__i == arr.len`) means no break:
+    // .any didn't find anything (false), .all matched all
+    // (true). One BinOp at the end gives the bool — no
+    // mutable bool local needed.
+
+    // mut __i: int = 0
+    let zero_dst = self.sir.next_value();
+    let zero_sir = self.sir.emit(Insn::ConstInt {
+      dst: zero_dst,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: i_sym,
+      ty_id: int_ty,
+      init: Some(zero_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: zero_sir,
+      ty_id: int_ty,
+    });
+
+    let i_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: i_sym,
+      ty_id: int_ty,
+      value_id: i_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(zero_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+    let no_exit_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    let i_load_dst = self.sir.next_value();
+    let i_load = self.sir.emit(Insn::Load {
+      dst: i_load_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let len_dst = self.sir.next_value();
+    let len_sir = self.sir.emit(Insn::ArrayLen {
+      dst: len_dst,
+      array: arr_sir,
+      ty_id: int_ty,
+    });
+
+    let cond_dst = self.sir.next_value();
+    let cond_sir = self.sir.emit(Insn::BinOp {
+      dst: cond_dst,
+      op: BinOp::Lt,
+      lhs: i_load,
+      rhs: len_sir,
+      ty_id: bool_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_sir,
+      target: end_label,
+    });
+
+    let i_load2_dst = self.sir.next_value();
+    let i_load2 = self.sir.emit(Insn::Load {
+      dst: i_load2_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let elem_dst = self.sir.next_value();
+    let elem_sir = self.sir.emit(Insn::ArrayIndex {
+      dst: elem_dst,
+      array: arr_sir,
+      index: i_load2,
+      ty_id: elem_ty,
+    });
+
+    let mut call_args: Vec<ValueId> = Vec::with_capacity(captures.len() + 1);
+    for cap in &captures {
+      call_args.push(cap.sir_value);
+    }
+    call_args.push(elem_sir);
+
+    let call_dst = self.sir.next_value();
+    let call_sir = self.sir.emit(Insn::Call {
+      dst: call_dst,
+      name: closure_name,
+      args: call_args,
+      ty_id: bool_ty,
+    });
+
+    // Branch-out condition: break the loop when:
+    //   .any: pred=true  → BranchIfNot pred → no_exit (else
+    //         fall through, jumping to end on match)
+    //   .all: pred=false → invert via Eq pred,false; on
+    //         miss the inverted cond is true → fall through
+    //         to end; on match the BranchIfNot fires → loop
+    let break_cond = if is_all {
+      let false_dst = self.sir.next_value();
+      let false_sir = self.sir.emit(Insn::ConstBool {
+        dst: false_dst,
+        value: false,
+        ty_id: bool_ty,
+      });
+      let neg_dst = self.sir.next_value();
+
+      self.sir.emit(Insn::BinOp {
+        dst: neg_dst,
+        op: BinOp::Eq,
+        lhs: call_sir,
+        rhs: false_sir,
+        ty_id: bool_ty,
+      })
+    } else {
+      call_sir
+    };
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: break_cond,
+      target: no_exit_label,
+    });
+
+    // Fall-through means the break condition fired
+    // (.any: pred=true; .all: pred=false) — jump straight
+    // to end_label with `__i` still pointing at the
+    // breaking element.
+    self.sir.emit(Insn::Jump { target: end_label });
+
+    self.sir.emit(Insn::Label {
+      id: no_exit_label,
+    });
+
+    // __i = __i + 1
+    let one_dst = self.sir.next_value();
+    let one_sir = self.sir.emit(Insn::ConstInt {
+      dst: one_dst,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let i_load3_dst = self.sir.next_value();
+    let i_load3 = self.sir.emit(Insn::Load {
+      dst: i_load3_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let inc_dst = self.sir.next_value();
+    let inc_sir = self.sir.emit(Insn::BinOp {
+      dst: inc_dst,
+      op: BinOp::Add,
+      lhs: i_load3,
+      rhs: one_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: inc_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    // Post-loop: derive the bool result from `__i`.
+    //   .any: result = `__i < arr.len` (true if we broke
+    //         early on a hit; false if loop ran out).
+    //   .all: result = `__i == arr.len` (true if loop ran
+    //         to completion without a miss; false if we
+    //         broke early).
+    let i_final_dst = self.sir.next_value();
+    let i_final = self.sir.emit(Insn::Load {
+      dst: i_final_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let len_final_dst = self.sir.next_value();
+    let len_final = self.sir.emit(Insn::ArrayLen {
+      dst: len_final_dst,
+      array: arr_sir,
+      ty_id: int_ty,
+    });
+
+    let cmp_dst = self.sir.next_value();
+    let cmp_sir = self.sir.emit(Insn::BinOp {
+      dst: cmp_dst,
+      op: if is_all { BinOp::Eq } else { BinOp::Lt },
+      lhs: i_final,
+      rhs: len_final,
+      ty_id: bool_ty,
+    });
+
+    let result_val = self.values.store_runtime(0);
+
+    self.value_stack.push(result_val);
+    self.ty_stack.push(bool_ty);
+    self.sir_values.push(cmp_sir);
+  }
+
+  /// Executes `arr.fold(init, closure) -> A` — lowers to a
+  /// SIR loop that threads an accumulator through each
+  /// element. Stack: `[..., receiver, init, closure]`.
+  /// Closure signature: `Fn(A, T) -> A` where `A` is the
+  /// init's type.
+  fn execute_array_fold(&mut self) {
+    let closure_val = self.value_stack.pop();
+    self.ty_stack.pop();
+    let _ = self.sir_values.pop();
+
+    self.value_stack.pop();
+    let init_ty = self.ty_stack.pop();
+    let init_sir = self.sir_values.pop();
+
+    self.value_stack.pop();
+    let arr_ty = self.ty_stack.pop();
+    let arr_sir = self.sir_values.pop();
+
+    let (
+      Some(closure_val),
+      Some(init_ty),
+      Some(init_sir),
+      Some(arr_ty),
+      Some(arr_sir),
+    ) = (closure_val, init_ty, init_sir, arr_ty, arr_sir)
+    else {
+      return;
+    };
+
+    let span = self.tree.spans.last().copied().unwrap_or_default();
+
+    let elem_ty = match self.ty_checker.kind_of(arr_ty) {
+      Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
+        Some(at) => at.elem_ty,
+        None => {
+          report_error(Error::new(ErrorKind::TypeMismatch, span));
+          return;
+        }
+      },
+      _ => {
+        report_error(Error::new(ErrorKind::TypeMismatch, span));
+        return;
+      }
+    };
+
+    let _ = elem_ty;
+
+    let ci = closure_val.0 as usize;
+    let (closure_name, captures) = if ci < self.values.kinds.len()
+      && matches!(self.values.kinds[ci], Value::Closure)
+    {
+      let idx = self.values.indices[ci] as usize;
+      let cv = &self.values.closures[idx];
+
+      (cv.fun_name, cv.captures.clone())
+    } else {
+      report_error(Error::new(ErrorKind::TypeMismatch, span));
+      return;
+    };
+
+    let int_ty = self.ty_checker.int_type();
+    let bool_ty = self.ty_checker.bool_type();
+
+    let acc_ty = self.ty_checker.resolve_id(init_ty);
+
+    let n = self.map_counter;
+    self.map_counter += 1;
+
+    let acc_sym = self.interner.intern(&format!("__fold_acc_{n}"));
+    let i_sym = self.interner.intern(&format!("__fold_i_{n}"));
+
+    // mut __acc: A = init
+    self.sir.emit(Insn::VarDef {
+      name: acc_sym,
+      ty_id: acc_ty,
+      init: Some(init_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+    self.sir.emit(Insn::Store {
+      name: acc_sym,
+      value: init_sir,
+      ty_id: acc_ty,
+    });
+
+    let acc_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: acc_sym,
+      ty_id: acc_ty,
+      value_id: acc_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(init_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    // mut __i: int = 0
+    let zero_dst = self.sir.next_value();
+    let zero_sir = self.sir.emit(Insn::ConstInt {
+      dst: zero_dst,
+      value: 0,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::VarDef {
+      name: i_sym,
+      ty_id: int_ty,
+      init: Some(zero_sir),
+      mutability: Mutability::Yes,
+      pubness: Pubness::No,
+    });
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: zero_sir,
+      ty_id: int_ty,
+    });
+
+    let i_value_id = self.values.store_runtime(0);
+
+    self.push_local(Local {
+      name: i_sym,
+      ty_id: int_ty,
+      value_id: i_value_id,
+      pubness: Pubness::No,
+      mutability: Mutability::Yes,
+      sir_value: Some(zero_sir),
+      local_kind: LocalKind::Variable,
+    });
+
+    if let Some(frame) = self.scope_stack.last_mut() {
+      frame.count += 1;
+    }
+
+    let loop_label = self.sir.next_label();
+    let end_label = self.sir.next_label();
+
+    self.sir.emit(Insn::Label { id: loop_label });
+
+    let i_load_dst = self.sir.next_value();
+    let i_load = self.sir.emit(Insn::Load {
+      dst: i_load_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let len_dst = self.sir.next_value();
+    let len_sir = self.sir.emit(Insn::ArrayLen {
+      dst: len_dst,
+      array: arr_sir,
+      ty_id: int_ty,
+    });
+
+    let cond_dst = self.sir.next_value();
+    let cond_sir = self.sir.emit(Insn::BinOp {
+      dst: cond_dst,
+      op: BinOp::Lt,
+      lhs: i_load,
+      rhs: len_sir,
+      ty_id: bool_ty,
+    });
+
+    self.sir.emit(Insn::BranchIfNot {
+      cond: cond_sir,
+      target: end_label,
+    });
+
+    let i_load2_dst = self.sir.next_value();
+    let i_load2 = self.sir.emit(Insn::Load {
+      dst: i_load2_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let elem_dst = self.sir.next_value();
+    let elem_arr_ty = self.ty_checker.kind_of(arr_ty);
+    let arr_elem_ty = match elem_arr_ty {
+      Ty::Array(aid) => self
+        .ty_checker
+        .ty_table
+        .array(aid)
+        .map(|at| at.elem_ty)
+        .unwrap_or(int_ty),
+      _ => int_ty,
+    };
+
+    let elem_sir = self.sir.emit(Insn::ArrayIndex {
+      dst: elem_dst,
+      array: arr_sir,
+      index: i_load2,
+      ty_id: arr_elem_ty,
+    });
+
+    let acc_load_dst = self.sir.next_value();
+    let acc_load = self.sir.emit(Insn::Load {
+      dst: acc_load_dst,
+      src: LoadSource::Local(acc_sym),
+      ty_id: acc_ty,
+    });
+
+    let mut call_args: Vec<ValueId> = Vec::with_capacity(captures.len() + 2);
+    for cap in &captures {
+      call_args.push(cap.sir_value);
+    }
+    call_args.push(acc_load);
+    call_args.push(elem_sir);
+
+    let call_dst = self.sir.next_value();
+    let call_sir = self.sir.emit(Insn::Call {
+      dst: call_dst,
+      name: closure_name,
+      args: call_args,
+      ty_id: acc_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: acc_sym,
+      value: call_sir,
+      ty_id: acc_ty,
+    });
+
+    let one_dst = self.sir.next_value();
+    let one_sir = self.sir.emit(Insn::ConstInt {
+      dst: one_dst,
+      value: 1,
+      ty_id: int_ty,
+    });
+
+    let i_load3_dst = self.sir.next_value();
+    let i_load3 = self.sir.emit(Insn::Load {
+      dst: i_load3_dst,
+      src: LoadSource::Local(i_sym),
+      ty_id: int_ty,
+    });
+
+    let inc_dst = self.sir.next_value();
+    let inc_sir = self.sir.emit(Insn::BinOp {
+      dst: inc_dst,
+      op: BinOp::Add,
+      lhs: i_load3,
+      rhs: one_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Store {
+      name: i_sym,
+      value: inc_sir,
+      ty_id: int_ty,
+    });
+
+    self.sir.emit(Insn::Jump { target: loop_label });
+    self.sir.emit(Insn::Label { id: end_label });
+
+    let final_load_dst = self.sir.next_value();
+    let final_load = self.sir.emit(Insn::Load {
+      dst: final_load_dst,
+      src: LoadSource::Local(acc_sym),
+      ty_id: acc_ty,
+    });
+
+    let result_val = self.values.store_runtime(0);
+
+    self.value_stack.push(result_val);
+    self.ty_stack.push(acc_ty);
+    self.sir_values.push(final_load);
+  }
+
 
   /// Executes `tx.send(value)` — emits `ChannelSend` SIR.
   /// Stack: [..., receiver, value]. One explicit arg.
@@ -18342,6 +19507,30 @@ impl<'a> Executor<'a> {
 
               if ms == "map" {
                 self.execute_array_map();
+
+                return;
+              }
+
+              if ms == "filter" {
+                self.execute_array_filter();
+
+                return;
+              }
+
+              if ms == "fold" {
+                self.execute_array_fold();
+
+                return;
+              }
+
+              if ms == "any" {
+                self.execute_array_predicate(false);
+
+                return;
+              }
+
+              if ms == "all" {
+                self.execute_array_predicate(true);
 
                 return;
               }

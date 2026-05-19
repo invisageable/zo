@@ -1,10 +1,18 @@
 -! Inherent methods on `[]int` arrays.
 -!
 -! int-element only (same tradeoff as `core::math` gcd/
--! lcm/pow_i). A width-generic `apply []$T` is blocked
--! on the same Integer-ish abstract + per-width
--! dispatch. Sized-int / float / char arrays must cast
--! to `[]int` at the call site until that lands.
+-! lcm/pow_i). The generic `apply []$T { ... }` form
+-! parses correctly today (see `phase 1` + `phase 2` of
+-! PLAN_GENERIC_ARRAY_APPLY) but the body never re-executes
+-! in the importing module because preload-module tree
+-! ranges aren't propagated to user-file executors. As a
+-! result, pure-zo generic bodies in this file would
+-! return uninitialised storage at every call site.
+-! `apply []$T` works fine when defined IN the user file
+-! (proven by `zo-tests/programming/apply_generic_array_phase2.zo`).
+-!
+-! Element-generic combinators ship as compiler intrinsics
+-! (`.map`) until cross-module re-execution lands.
 
 apply []int {
   -! In-place ascending sort. Stable, O(n log n).

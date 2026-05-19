@@ -3,10 +3,6 @@
 -! so every Cranelift target (x86, arm64, wasm, Windows)
 -! gets correct semantics without per-target FFI shims.
 
-
--- libzo_runtime ships next to every zo binary that uses
--- concurrency / runtime intrinsics; time piggy-backs on
--- the same staged dylib so users never need to manage it.
 #link {
   macos: "@executable_path/libzo_runtime.dylib",
   linux: "@executable_path/libzo_runtime.so",

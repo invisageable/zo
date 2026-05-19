@@ -45,6 +45,18 @@ pub struct TyChecker {
   /// Substitution environment (for W algorithm)
   /// Maps inference variable ID to resolved type
   substitutions: HashMap<InferVarId, TyId>,
+  /// Undo log for `substitutions` — pairs each
+  /// (var, previous_value) so `pop_scope` can roll back
+  /// every binding added during the just-closed scope.
+  /// Required because outer-pass execution of generic
+  /// method bodies unifies the apply-level `$T` with a
+  /// per-body fresh, corrupting the shared var globally.
+  /// Scope wraps each body so those unifications are
+  /// scoped to the body.
+  subst_undo: Vec<(InferVarId, Option<TyId>)>,
+  /// Scope boundaries into subst_undo (index at each
+  /// push_scope).
+  subst_marks: Vec<usize>,
   /// Level for each inference variable (for efficient generalization)
   /// Maps inference variable ID to its creation level
   var_levels: HashMap<InferVarId, u32>,
@@ -90,6 +102,8 @@ impl TyChecker {
       ty_aliases: HashMap::default(),
       alias_undo: Vec::new(),
       alias_marks: Vec::new(),
+      subst_undo: Vec::new(),
+      subst_marks: Vec::new(),
     };
 
     // Core types.
@@ -340,6 +354,35 @@ impl TyChecker {
     let ty2 = *self.tys.get(repr2.0 as usize)?;
 
     match (ty1, ty2) {
+      // Two inference variables: point the younger
+      // (higher `InferVarId`) at the older. This stops a
+      // shared scope-level var (e.g. an `apply []$T { ... }`
+      // method's apply-level `$T`) from being bound to a
+      // per-body fresh — every body-internal empty-array
+      // / annotation-driven unify (`mut out: []$T = []`)
+      // would otherwise install `$T_apply → fresh_local`
+      // in the global substitutions map, leaking the
+      // pollution to every subsequent call site of any
+      // method on this `$T`. By construction
+      // `younger.id > older.id`, so older vars stay as
+      // their own representative.
+      (Ty::Infer(var1), Ty::Infer(var2)) => {
+        let (target_var, target_repr) = if var1.0 >= var2.0 {
+          (var1, repr2)
+        } else {
+          (var2, repr1)
+        };
+
+        if self.occurs_check(target_var, target_repr) {
+          report_error(Error::new(ErrorKind::InfiniteType, span));
+          return None;
+        }
+
+        self.set_substitution(target_var, target_repr);
+
+        Some(target_repr)
+      }
+
       // One is an inference variable
       (Ty::Infer(var), _) => {
         if self.occurs_check(var, repr2) {
@@ -347,7 +390,7 @@ impl TyChecker {
           return None;
         }
 
-        self.substitutions.insert(var, repr2);
+        self.set_substitution(var, repr2);
         Some(repr2)
       }
       (_, Ty::Infer(var)) => {
@@ -356,7 +399,7 @@ impl TyChecker {
           return None;
         }
 
-        self.substitutions.insert(var, repr1);
+        self.set_substitution(var, repr1);
         Some(repr1)
       }
 
@@ -526,7 +569,30 @@ impl TyChecker {
       _ => return None,
     };
 
+    // Bypass the undo log: the caller pairs this with
+    // `clear_substitution` for an explicit lifetime that
+    // spans across body re-execution (mono pipeline).
+    // Going through `set_substitution` here would let the
+    // body's `pop_scope` roll back the installation
+    // before `clear_substitution` ever fires.
     self.substitutions.insert(var_id, target)
+  }
+
+  /// Record a substitution AND log the previous value for
+  /// `pop_scope` to roll back. Every `substitutions.insert`
+  /// must go through here so scoped body execution stays
+  /// scoped — without the undo log, a generic method body
+  /// that unifies the apply-level `$T` with a per-body
+  /// fresh corrupts `$T` globally for every later call site.
+  fn set_substitution(
+    &mut self,
+    var: InferVarId,
+    target: TyId,
+  ) -> Option<TyId> {
+    let prev = self.substitutions.insert(var, target);
+    self.subst_undo.push((var, prev));
+
+    prev
   }
 
   /// Revert a substitution installed via
@@ -564,7 +630,7 @@ impl TyChecker {
         let repr = self.resolve_id(subst);
 
         if repr != subst {
-          self.substitutions.insert(var_id, repr);
+          self.set_substitution(var_id, repr);
         }
 
         return repr;
@@ -631,6 +697,7 @@ impl TyChecker {
   pub fn push_scope(&mut self) {
     self.env_marks.push(self.env_undo.len());
     self.alias_marks.push(self.alias_undo.len());
+    self.subst_marks.push(self.subst_undo.len());
 
     self.current_level += 1;
   }
@@ -659,6 +726,21 @@ impl TyChecker {
           }
           UndoEntry::Overwrite(sym, old_ty) => {
             self.ty_aliases.insert(sym, old_ty);
+          }
+        }
+      }
+    }
+
+    if let Some(mark) = self.subst_marks.pop() {
+      while self.subst_undo.len() > mark {
+        let (var, prev) = self.subst_undo.pop().unwrap();
+
+        match prev {
+          Some(old_ty) => {
+            self.substitutions.insert(var, old_ty);
+          }
+          None => {
+            self.substitutions.remove(&var);
           }
         }
       }

@@ -1,0 +1,23 @@
+fun main() {
+  imu nums: []int = [1, 2, 3, 4, 5];
+
+  showln(!nums.any(fn(x) => x > 100));
+  showln(!nums.any(fn(x) => x > 0));
+
+  showln(!nums.all(fn(x) => x > 0));
+  showln(!nums.all(fn(x) => x > 3));
+
+  imu evens: []int = nums.filter(fn(x) => x % 2 == 0);
+  showln(evens[0]);
+  showln(evens[1]);
+  showln(evens.len);
+}
+
+-- EXPECTED OUTPUT:
+-- true
+-- false
+-- false
+-- true
+-- 2
+-- 4
+-- 2
