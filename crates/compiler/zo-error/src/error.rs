@@ -378,6 +378,21 @@ pub enum ErrorKind {
   // which field is blocking the derive.
   DeriveUnsupportedField,
 
+  /// Emitted at body-record time when a `pub apply <Type<$T>>
+  /// { fun ... }` body carries a literal kind whose
+  /// `LiteralStore` representation requires cross-store
+  /// range tables (interpolated strings, regex patterns).
+  /// v1 of cross-module generics carries primitive literal
+  /// payloads only; bodies using interp / regex stay in-file
+  /// until a follow-up handles the range remap.
+  UnsupportedGenericLiteral,
+  /// Emitted at splice time when grafting a cross-module
+  /// generic body would push the importing module's tree
+  /// past `u16::MAX` nodes — `NodeHeader.child_start` is
+  /// `u16`, so larger offsets silently truncate. v1 caps
+  /// hard; widening to `u32` is a separate refactor.
+  CrossModuleGenericTooLarge,
+
   // --- Rationale-channel variants (severity = Note) ---
   //
   // Emitted only when the driver passes `--explain-decisions`.

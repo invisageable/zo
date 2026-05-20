@@ -14,7 +14,9 @@ use zo_codegen_backend::Target;
 use zo_dce::Dce;
 use zo_error::{Error, ErrorKind, Severity};
 use zo_interner::Symbol;
-use zo_module_resolver::{ModuleExports, ModuleResolver, extract_exports};
+use zo_module_resolver::{
+  ModuleExports, ModuleResolver, extract_exports, splice_generic_bodies,
+};
 use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
@@ -179,6 +181,15 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
   for (sym, def) in &other.abstract_defs {
     into.abstract_defs.insert(*sym, def.clone());
   }
+
+  // `exported_generic_bodies` accumulate across the fold so
+  // every transitive `apply Type<$T> { ... }` body lands in
+  // the importer's pre-pass splice. `generic_bodies` (the
+  // post-splice metadata) is populated per-importer right
+  // before its `Analyzer` runs, so we don't merge it here.
+  into
+    .exported_generic_bodies
+    .extend(other.exported_generic_bodies.iter().cloned());
 }
 
 /// Converts the harvested `ModuleExports` (pub items only)
@@ -209,6 +220,8 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
     vars,
     enums: exports.enums.clone(),
     abstract_defs: HashMap::default(),
+    exported_generic_bodies: exports.generic_bodies.clone(),
+    generic_bodies: Vec::new(),
   }
 }
 
@@ -381,12 +394,12 @@ impl Compiler {
     self.profiler.start_phase(TOKENIZER_NAME);
     let mut session = Session::new();
     let tokenizer = Tokenizer::new(source, &mut session.interner);
-    let tokenization = tokenizer.tokenize();
+    let mut tokenization = tokenizer.tokenize();
     self.profiler.end_phase(TOKENIZER_NAME);
 
     self.profiler.start_phase(PARSER_NAME);
     let parser = Parser::new(&tokenization, source);
-    let parsing = parser.parse();
+    let mut parsing = parser.parse();
     self.profiler.end_phase(PARSER_NAME);
 
     // Packs declared as bare `pack foo;` (no `pub`) in
@@ -500,6 +513,8 @@ impl Compiler {
       vars: Vec::new(),
       enums: Vec::new(),
       abstract_defs: HashMap::default(),
+      exported_generic_bodies: Vec::new(),
+      generic_bodies: Vec::new(),
     };
 
     // Per-path `exported` scope table. Populated alongside
@@ -529,6 +544,8 @@ impl Compiler {
       vars: Vec::new(),
       enums: Vec::new(),
       abstract_defs: HashMap::default(),
+      exported_generic_bodies: Vec::new(),
+      generic_bodies: Vec::new(),
     };
     let mut preload_re_exports: Vec<Vec<Symbol>> = Vec::new();
 
@@ -565,8 +582,9 @@ impl Compiler {
       if let Some(m) = resolved {
         let src = m.source.clone();
         let resolved_path = m.path.clone();
-        let mod_tok = Tokenizer::new(&src, &mut session.interner).tokenize();
-        let mod_par = Parser::new(&mod_tok, &src).parse();
+        let mut mod_tok =
+          Tokenizer::new(&src, &mut session.interner).tokenize();
+        let mut mod_par = Parser::new(&mod_tok, &src).parse();
 
         // Cascade: every `load X::Y::*;` in preload.zo
         // becomes an implicit user load. Prepend so they
@@ -593,6 +611,19 @@ impl Compiler {
         // one-time at startup; without them, each preload
         // runs in isolation and cross-pack references
         // silently emit broken SIR.
+        let mut mod_imports = imports.clone();
+
+        // Splice cumulative generic bodies into THIS
+        // module's tree/literals before the analyzer runs,
+        // then move the post-splice metadata into
+        // `mod_imports.generic_bodies` so `with_imports`
+        // can register the lookup tables.
+        mod_imports.generic_bodies = splice_generic_bodies(
+          &mut mod_par.tree,
+          &mut mod_tok.literals,
+          std::mem::take(&mut mod_imports.exported_generic_bodies),
+        );
+
         let mod_sem = Analyzer::new(
           &mod_par.tree,
           &mut session.interner,
@@ -600,7 +631,7 @@ impl Compiler {
           &mut session.ty_checker,
         )
         .with_config(AnalyzerConfig {
-          imports: imports.clone(),
+          imports: mod_imports,
           implicit_pack: implicit_sym,
           ..AnalyzerConfig::default()
         })
@@ -713,11 +744,20 @@ impl Compiler {
 
           // Move the cached parse out of the map — the pack
           // compiles exactly once, so it's never read again.
-          let pack = pending_packs.remove(&top).expect("just verified");
+          let mut pack =
+            pending_packs.remove(&top).expect("just verified");
 
           let implicit_sym =
             implicit_pack_for(&pack.path, self.module_resolver.search_paths())
               .map(|stem| session.interner.intern(stem));
+
+          let mut pack_imports = imports.clone();
+
+          pack_imports.generic_bodies = splice_generic_bodies(
+            &mut pack.parsing.tree,
+            &mut pack.tokenization.literals,
+            std::mem::take(&mut pack_imports.exported_generic_bodies),
+          );
 
           let pack_sem = Analyzer::new(
             &pack.parsing.tree,
@@ -726,7 +766,7 @@ impl Compiler {
             &mut session.ty_checker,
           )
           .with_config(AnalyzerConfig {
-            imports: imports.clone(),
+            imports: pack_imports,
             implicit_pack: implicit_sym,
             ..AnalyzerConfig::default()
           })
@@ -888,7 +928,7 @@ impl Compiler {
       }
 
       let (mod_tokenization, mod_parsing) =
-        parse_cache.get(&resolved_path).expect("just inserted");
+        parse_cache.get_mut(&resolved_path).expect("just inserted");
 
       // Topological hoist: any `load` in this module that
       // hasn't been compiled yet must compile FIRST, or
@@ -954,6 +994,14 @@ impl Compiler {
       // these — without seeding, the loaded module's
       // analyzer reports `Undefined variable` and the
       // user file inherits broken SIR.
+      let mut mod_imports = imports.clone();
+
+      mod_imports.generic_bodies = splice_generic_bodies(
+        &mut mod_parsing.tree,
+        &mut mod_tokenization.literals,
+        std::mem::take(&mut mod_imports.exported_generic_bodies),
+      );
+
       let mod_semantic = Analyzer::new(
         &mod_parsing.tree,
         &mut session.interner,
@@ -961,7 +1009,7 @@ impl Compiler {
         &mut session.ty_checker,
       )
       .with_config(AnalyzerConfig {
-        imports: imports.clone(),
+        imports: mod_imports,
         implicit_pack: implicit_sym,
         ..AnalyzerConfig::default()
       })
@@ -1073,6 +1121,14 @@ impl Compiler {
       .file_stem()
       .and_then(|s| s.to_str())
       .map(|stem| session.interner.intern(stem));
+
+    let mut user_seed = user_seed;
+
+    user_seed.generic_bodies = splice_generic_bodies(
+      &mut parsing.tree,
+      &mut tokenization.literals,
+      std::mem::take(&mut user_seed.exported_generic_bodies),
+    );
 
     let analyzer = Analyzer::new(
       &parsing.tree,

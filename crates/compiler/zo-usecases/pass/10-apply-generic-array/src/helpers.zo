@@ -1,0 +1,5 @@
+apply []$T {
+  pub fun first(self) -> $T {
+    return self[0];
+  }
+}

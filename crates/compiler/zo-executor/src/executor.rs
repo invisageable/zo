@@ -14,7 +14,7 @@ use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, FloatWidth, Mutability, Ty, TyId};
-use zo_module_resolver::ExportedGenericBody;
+use zo_module_resolver::{ExportedGenericBody, ExportedLiteral};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
   Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
@@ -122,13 +122,16 @@ pub(crate) struct Instantiation {
 /// Following the manifesto (line 176): "type checking is evaluation"
 /// This means we execute the parse tree and produce typed SIR as output
 pub struct Executor<'a> {
-  /// Parse tree to execute
+  /// Parse tree to execute. Cross-module generic body
+  /// splices happen BEFORE construction (compiler pre-pass)
+  /// so this stays read-only during execution.
   tree: &'a Tree,
   /// String interner — mutable so the executor can intern
   /// new symbols during compile-time execution (e.g.
   /// interpolation desugaring).
   interner: &'a mut Interner,
-  /// Literal values from tokenization
+  /// Literal values from tokenization. Same pre-splice
+  /// contract as `tree`.
   literals: &'a LiteralStore,
   /// When set, `Token::Ident` reads of an `imu` local
   /// whose `value_id` is a scalar literal route through
@@ -440,6 +443,13 @@ pub struct Executor<'a> {
   /// directly instead of cloning-and-rewriting the generic
   /// form's SIR.
   generic_tree_ranges: HashMap<Symbol, (u32, u32)>,
+  /// Pre-splice tree length. Set by `with_imports` when at
+  /// least one cross-module generic body was spliced; the
+  /// main pass / prescan caps at this value so spliced
+  /// bodies are visited only by the re-execute pass.
+  /// `None` when no splice happened — the loops fall back
+  /// to `self.tree.nodes.len()`.
+  splice_boundary: Option<usize>,
   /// Generic body subtrees harvested at recording time —
   /// cloned `(NodeHeader, Span, sparse NodeValue)` triples
   /// keyed by mangled name. Drained by
@@ -771,6 +781,7 @@ impl<'a> Executor<'a> {
       local_struct_field_tys: HashMap::default(),
       local_struct_type_args: HashMap::default(),
       generic_tree_ranges: HashMap::default(),
+      splice_boundary: None,
       recorded_generic_bodies: Vec::new(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
@@ -1309,6 +1320,7 @@ impl<'a> Executor<'a> {
     vars: Vec<Local>,
     enums: Vec<zo_module_resolver::ExportedEnum>,
     abstract_defs: HashMap<Symbol, AbstractDef>,
+    spliced_bodies: Vec<zo_module_resolver::SplicedGenericBody>,
   ) -> Self {
     self.fun_by_name.clear();
 
@@ -1329,6 +1341,31 @@ impl<'a> Executor<'a> {
     // `execute_enum_access` / the Ident handler.
     self.pending_imported_enums = enums;
 
+    // Cross-module generic body splices ran in the compiler
+    // pre-pass (`splice_generic_bodies`), which mutated the
+    // shared `Tree` / `LiteralStore` we now hold by `&`.
+    // Here we just register the post-splice ranges in the
+    // standard mono re-execute lookup tables — the body
+    // nodes themselves are already at `range` in
+    // `self.tree`.
+    //
+    // The earliest spliced range's start doubles as the
+    // boundary the main pass / prescan caps at, so the
+    // spliced bodies are visited only by the re-execute
+    // pass, never by the outer walk.
+    if let Some(min_start) =
+      spliced_bodies.iter().map(|b| b.range.0 as usize).min()
+    {
+      self.splice_boundary = Some(min_start);
+    }
+
+    for entry in spliced_bodies {
+      self.generic_tree_ranges.insert(entry.name, entry.range);
+      self
+        .apply_type_params
+        .insert(entry.apply_context, entry.type_params);
+    }
+
     self
   }
 
@@ -1344,10 +1381,20 @@ impl<'a> Executor<'a> {
   /// pre-scanned — mutual recursion across apply blocks or
   /// between closures needs a follow-up (declaration-
   /// collection pass that honors apply context).
+  /// Tree length BEFORE any cross-module body splice. The
+  /// main-pass / prescan loops cap at this value so spliced
+  /// generic bodies (which sit at the tail) are visited only
+  /// by the re-execute pass, not the outer walk.
+  fn original_tree_len(&self) -> usize {
+    self
+      .splice_boundary
+      .unwrap_or_else(|| self.tree.nodes.len())
+  }
+
   fn prescan_fun_signatures(&mut self) {
     self.prescan_only = true;
 
-    let n = self.tree.nodes.len();
+    let n = self.original_tree_len();
     let mut idx = 0;
     // Track brace depth so we only register funs at the
     // top level — not funs inside `apply`, `struct`,
@@ -1465,7 +1512,16 @@ impl<'a> Executor<'a> {
     // main pass.
     self.prescan_fun_signatures();
 
-    for idx in 0..self.tree.nodes.len() {
+    // The main pass walks the original tree only. Cross-
+    // module generic body splices land at the tail (see
+    // PLAN_CROSS_MODULE_GENERICS) and are only visited via
+    // `reexecute_generic_instantiations` — letting the main
+    // pass walk them would double-register their `FunDef`s
+    // and feed the executor partial-context body code as if
+    // it were free-standing.
+    let main_pass_end = self.original_tree_len();
+
+    for idx in 0..main_pass_end {
       if idx < self.skip_until {
         continue;
       }
@@ -7422,17 +7478,31 @@ impl<'a> Executor<'a> {
 
       self.generic_tree_ranges.insert(name, range);
 
-      // Phase 1 of PLAN_CROSS_MODULE_GENERICS: alongside the
+      // PLAN_CROSS_MODULE_GENERICS phase 1: alongside the
       // tree-range entry an importer would never see (it's
       // an index into THIS executor's tree), keep an
       // ExportedGenericBody snapshot the importer can splice
-      // into its own tree. Only generics with type params
-      // need this (non-generic fns are re-emitted directly
-      // from SIR by extract_exports). The body must be
-      // pub — non-pub generics can't be called across the
-      // module boundary anyway, and stripping them keeps
-      // the cross-module wire smaller.
-      if pubness == Pubness::Yes && !self.type_params.is_empty() {
+      // into its own tree.
+      //
+      // Gate on:
+      //   1. `pub` — non-pub generics can't be called across
+      //      the module boundary anyway, and stripping them
+      //      keeps the cross-module wire smaller.
+      //   2. enclosing apply block carries declared type
+      //      params (`apply_type_params[apply_context]`
+      //      non-empty). Bare `self.type_params.is_empty()`
+      //      misfires on `apply []int { fun sum }` because
+      //      the parser leaks the previous block's `$T` into
+      //      `self.type_params` — testing the apply-level
+      //      param list instead picks out exactly the
+      //      methods whose body actually references a `$T`
+      //      that needs cross-module substitution.
+      let apply_has_type_params = self
+        .apply_context
+        .and_then(|ctx| self.apply_type_params.get(&ctx))
+        .is_some_and(|v| !v.is_empty());
+
+      if pubness == Pubness::Yes && apply_has_type_params {
         let range_start = start_idx as u32;
         let range_end = end_of_block as u32;
 
@@ -7442,24 +7512,83 @@ impl<'a> Executor<'a> {
           .to_vec();
 
         let mut node_values = Vec::new();
+        let mut literal_payloads = Vec::new();
+        let mut unsupported_literal = false;
 
         for idx in range_start..range_end {
-          if let Some(value) = self.tree.value(idx) {
-            node_values.push((idx, value));
+          let Some(value) = self.tree.value(idx) else {
+            continue;
+          };
+
+          node_values.push((idx, value));
+
+          // Snapshot the literal payload here so the
+          // importer can re-push it into its own
+          // `LiteralStore`. The defining module's store is
+          // gone by the time `with_imports` runs — without
+          // capture, the cloned `NodeValue::Literal(i)`
+          // dereferences off the END of the importer's
+          // store and decodes garbage. v1 covers
+          // primitive literals; interp / regex carry
+          // range tables and reject loudly until a
+          // follow-up handles them.
+          if let NodeValue::Literal(literal_idx) = value {
+            let token = self.tree.nodes[idx as usize].token;
+            let payload = match token {
+              Token::Int => {
+                ExportedLiteral::Int(self.literals.int_literals[literal_idx as usize])
+              }
+              Token::Float => ExportedLiteral::Float(
+                self.literals.float_literals[literal_idx as usize],
+              ),
+              Token::Char => ExportedLiteral::Char(
+                self.literals.char_literals[literal_idx as usize],
+              ),
+              Token::String => ExportedLiteral::StringSym(
+                self.literals.string_literals[literal_idx as usize],
+              ),
+              Token::Bytes => ExportedLiteral::Bytes(
+                self.literals.bytes_literals[literal_idx as usize],
+              ),
+              _ => {
+                unsupported_literal = true;
+                continue;
+              }
+            };
+
+            literal_payloads.push((idx, payload));
           }
         }
 
-        let type_params: Vec<Symbol> =
-          self.type_params.iter().map(|(sym, _)| *sym).collect();
+        if unsupported_literal {
+          // Interp / regex / other store-backed literal in
+          // a generic body — surface the limitation at the
+          // defining site rather than silently shipping a
+          // body the importer can't decode.
+          let span = self.tree.spans[range_start as usize];
+          report_error(Error::new(ErrorKind::UnsupportedGenericLiteral, span));
+        } else {
+          let type_params: Vec<Symbol> =
+            self.type_params.iter().map(|(sym, _)| *sym).collect();
 
-        self.recorded_generic_bodies.push(ExportedGenericBody {
-          name,
-          nodes,
-          spans,
-          node_values,
-          origin_start: range_start,
-          type_params,
-        });
+          // The apply context drives `apply_type_params`
+          // lookups at re-exec. Free generics (no
+          // `apply <T> { ... }` wrapper) record the
+          // function symbol itself — re-exec still finds
+          // `type_params` via the FunDef path.
+          let apply_context_sym = self.apply_context.unwrap_or(name);
+
+          self.recorded_generic_bodies.push(ExportedGenericBody {
+            name,
+            nodes,
+            spans,
+            node_values,
+            literal_payloads,
+            origin_start: range_start,
+            type_params,
+            apply_context: apply_context_sym,
+          });
+        }
       }
     }
 

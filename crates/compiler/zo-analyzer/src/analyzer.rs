@@ -1,7 +1,9 @@
 use zo_error::{Error, ErrorKind};
 use zo_executor::{AbstractDef, Executor};
 use zo_interner::{Interner, Symbol};
-use zo_module_resolver::{ExportedEnum, ExportedGenericBody};
+use zo_module_resolver::{
+  ExportedEnum, ExportedGenericBody, SplicedGenericBody,
+};
 use zo_reporter::{error_count, report_error};
 use zo_sir::Sir;
 use zo_token::{LiteralStore, Token};
@@ -44,6 +46,20 @@ pub struct ImportedSymbols {
   pub enums: Vec<ExportedEnum>,
   /// Abstract definitions from loaded modules.
   pub abstract_defs: HashMap<Symbol, AbstractDef>,
+  /// Generic apply-block bodies recorded by upstream
+  /// modules. The compiler runs `splice_generic_bodies`
+  /// over this vec against the importing module's `Tree`
+  /// / `LiteralStore` right before constructing the
+  /// `Analyzer`, then stores the post-splice metadata in
+  /// [`Self::generic_bodies`].
+  pub exported_generic_bodies: Vec<ExportedGenericBody>,
+  /// Post-splice metadata for generic apply-block bodies
+  /// the compiler pre-pass already wove into the shared
+  /// `Tree` / `LiteralStore`. The executor registers each
+  /// entry in `generic_tree_ranges` + `apply_type_params`
+  /// at `with_imports` time; the body nodes themselves are
+  /// already live in `Tree`.
+  pub generic_bodies: Vec<SplicedGenericBody>,
 }
 
 /// Per-call analyzer configuration. Bundles every optional
@@ -178,6 +194,7 @@ impl<'a> Analyzer<'a> {
         imports.vars,
         imports.enums,
         imports.abstract_defs,
+        imports.generic_bodies,
       );
     }
 

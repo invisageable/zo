@@ -1,0 +1,15 @@
+load helpers::*;
+
+fun main() {
+  imu nums: []int = [42, 7, 99];
+  imu strs: []str = ["hello", "world"];
+
+  showln(nums.first());
+  showln(strs.first());
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- hello
+-- DONE

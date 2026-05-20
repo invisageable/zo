@@ -7884,9 +7884,12 @@ name = "zo-module-resolver"
 version = "0.3.11"
 dependencies = [
  "rustc-hash 2.1.2",
+ "zo-error",
  "zo-interner",
+ "zo-reporter",
  "zo-sir",
  "zo-span",
+ "zo-token",
  "zo-tree",
  "zo-ty",
  "zo-ty-checker",

@@ -393,6 +393,15 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
     // `%% serialize.` / `%% deserialize.` derive errors.
     ErrorKind::DeriveUnsupportedField => "field type cannot be derived to JSON",
 
+    ErrorKind::UnsupportedGenericLiteral => {
+      "interpolated string / regex literals not yet supported in cross-module \
+       generic bodies"
+    }
+    ErrorKind::CrossModuleGenericTooLarge => {
+      "cross-module generic body would push the importing tree past the \
+       `u16::MAX` node cap"
+    }
+
     // Rationale notes (severity = Note, emitted only with
     // `--explain-decisions`).
     ErrorKind::DeadCodeEliminated => "dead code eliminated",

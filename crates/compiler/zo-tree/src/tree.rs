@@ -93,6 +93,33 @@ impl Tree {
     node.child_count = child_count;
   }
 
+  /// Attach a value to a node already in `nodes`, keeping
+  /// the `value_map` binary-search invariant by appending —
+  /// callers MUST push with monotonically non-decreasing
+  /// `node_index`, which the cross-module body splice does
+  /// because it always splices at the tail of the importer's
+  /// tree.
+  ///
+  /// @note — does NOT flip `FLAG_HAS_VALUE`. The caller is
+  /// expected to have pushed the node with the flag already
+  /// set (splice clones the original `NodeHeader` whole, so
+  /// the flag rides along).
+  pub fn attach_value_tail(&mut self, node_index: u32, value: NodeValue) {
+    let value_idx = self.values.len() as u16;
+
+    self.values.push(value);
+    self.value_map.push((node_index as u16, value_idx));
+  }
+
+  /// `true` when `value_map` is sorted by `node_index`. The
+  /// `value()` lookup binary-searches this array, so any
+  /// out-of-order pair silently misroutes the lookup.
+  /// Debug-only check site for the cross-module body
+  /// splice — release stays branchless.
+  pub fn value_map_is_sorted(&self) -> bool {
+    self.value_map.windows(2).all(|w| w[0].0 <= w[1].0)
+  }
+
   /// Gets value for a node.
   pub fn value(&self, node_index: u32) -> Option<NodeValue> {
     let node = &self.nodes[node_index as usize];

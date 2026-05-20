@@ -166,6 +166,12 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::RepeatLengthMismatch => ("repeat-length-mismatch", 339),
     ErrorKind::RepeatCountNotConst => ("repeat-count-not-const", 340),
     ErrorKind::DeriveUnsupportedField => ("derive-unsupported-field", 341),
+    ErrorKind::UnsupportedGenericLiteral => {
+      ("unsupported-generic-literal", 342)
+    }
+    ErrorKind::CrossModuleGenericTooLarge => {
+      ("cross-module-generic-too-large", 343)
+    }
 
     // --- Constants & arithmetic (E0500 .. E0599) ---
     ErrorKind::DivisionByZero => ("division-by-zero", 500),

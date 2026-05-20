@@ -1,9 +1,14 @@
+use zo_error::{Error, ErrorKind};
 use zo_interner::{Interner, Symbol};
+use zo_reporter::report_error;
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
+use zo_token::LiteralStore;
 use zo_ty::TyId;
-use zo_tree::{NodeHeader, NodeValue};
+use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_value::{FunDef, Pubness, ValueId};
+
+use rustc_hash::FxHashMap;
 
 /// An exported compile-time constant from a module.
 #[derive(Clone, Debug)]
@@ -52,6 +57,7 @@ pub struct ExportedConst {
 /// closing `}`. Child indices inside the nodes are *absolute*
 /// in the defining module's tree — the splice path adds the
 /// importer's pre-splice `nodes.len()` to rebase them.
+#[derive(Clone)]
 pub struct ExportedGenericBody {
   /// Mangled apply-level symbol, e.g. `arr_$::first`.
   pub name: Symbol,
@@ -63,6 +69,13 @@ pub struct ExportedGenericBody {
   /// Sparse node values keyed by `(absolute_index_in_nodes,
   /// value)`. The importer rebases the index when splicing.
   pub node_values: Vec<(u32, NodeValue)>,
+  /// Literal payloads keyed by absolute defining-module
+  /// node index. Each entry pairs with a `NodeValue::Literal`
+  /// in `node_values` at the same index. At splice time the
+  /// importer pushes the payload into its own `LiteralStore`
+  /// and rewrites the rebased value's index to point at the
+  /// new slot.
+  pub literal_payloads: Vec<(u32, ExportedLiteral)>,
   /// First node index in the defining module's tree — used
   /// by the importer to compute the rebase offset.
   pub origin_start: u32,
@@ -70,6 +83,221 @@ pub struct ExportedGenericBody {
   /// can mirror `apply_type_params` against the spliced
   /// symbol.
   pub type_params: Vec<Symbol>,
+  /// Apply-context symbol — the prefix the re-exec pass
+  /// reads to look up `apply_type_params`. For
+  /// `apply []$T { fun first(self) ... }` this is `arr_$`;
+  /// the body's mangled name is `arr_$::first`.
+  pub apply_context: Symbol,
+}
+
+/// Post-splice metadata for one generic body — the executor
+/// reads this in `with_imports` to register
+/// `generic_tree_ranges` + `apply_type_params` after the
+/// pre-pass has already mutated the shared `Tree` /
+/// `LiteralStore`.
+#[derive(Clone, Debug)]
+pub struct SplicedGenericBody {
+  pub name: Symbol,
+  /// Range in the importer's tree where the splice landed,
+  /// `(start_inclusive, end_exclusive)`.
+  pub range: (u32, u32),
+  pub apply_context: Symbol,
+  pub type_params: Vec<Symbol>,
+}
+
+/// Splices a batch of `ExportedGenericBody` payloads into
+/// the importer's `Tree` and `LiteralStore`. Returns one
+/// [`SplicedGenericBody`] entry per body the executor needs
+/// to register against the standard mono re-execute path.
+///
+/// The mutation happens here (compiler pre-pass) so the
+/// executor can keep `Tree` / `LiteralStore` as `&` refs
+/// during execution. Each body's nodes/spans/values land
+/// at the tail of `tree`; literal payloads land at the tail
+/// of `literals`; `NodeValue::Literal(i)` indices and node
+/// `child_start` fields get rebased onto the new offsets.
+///
+/// @note — bails on one body without bringing down the
+/// others when its spliced range would overflow
+/// `NodeHeader.child_start` (`u16`). v1 cap is `u16::MAX`;
+/// widening is a separate refactor.
+pub fn splice_generic_bodies(
+  tree: &mut Tree,
+  literals: &mut LiteralStore,
+  bodies: Vec<ExportedGenericBody>,
+) -> Vec<SplicedGenericBody> {
+  let mut out: Vec<SplicedGenericBody> = Vec::with_capacity(bodies.len());
+
+  for body in bodies {
+    if let Some(meta) = splice_one(tree, literals, body) {
+      out.push(meta);
+    }
+  }
+
+  out
+}
+
+fn splice_one(
+  tree: &mut Tree,
+  literals: &mut LiteralStore,
+  body: ExportedGenericBody,
+) -> Option<SplicedGenericBody> {
+  let splice_start = tree.nodes.len();
+  let splice_end = splice_start + body.nodes.len();
+
+  // u16 cap on `NodeHeader.child_start` is hard — past this
+  // the rebase below silently truncates and the spliced
+  // bodies' parent→child edges point at unrelated nodes.
+  // Emit a real diagnostic anchored at the body's first
+  // span so the user sees which module hit the cap, not
+  // just a downstream "Undefined variable" cascade.
+  if splice_end > u16::MAX as usize {
+    let span = body.spans.first().copied().unwrap_or_default();
+    report_error(Error::new(ErrorKind::CrossModuleGenericTooLarge, span));
+
+    return None;
+  }
+
+  // Snapshots for end-of-splice invariant checks. Catches
+  // the parallel-length handshake breaking the moment a
+  // second caller appears (phase 4+).
+  let pre_nodes_len = tree.nodes.len();
+  let pre_spans_len = tree.spans.len();
+
+  // `child_start` is absolute in the defining tree; shift
+  // by `splice_start - origin_start` so it lands at the
+  // same relative offset inside the spliced range.
+  let offset = splice_start as i64 - body.origin_start as i64;
+
+  // Replay literal payloads into the importer's
+  // `LiteralStore`, mapping orig→new index so the
+  // `NodeValue::Literal` walk below can rewrite each index
+  // in one pass.
+  let mut literal_remap: FxHashMap<u32, u32> = FxHashMap::default();
+
+  for (orig_node_idx, payload) in &body.literal_payloads {
+    let new_lit_idx = match payload {
+      ExportedLiteral::Int(v) => literals.push_int(*v),
+      ExportedLiteral::Float(v) => literals.push_float(*v),
+      ExportedLiteral::Char(v) => literals.push_char(*v),
+      ExportedLiteral::StringSym(sym) => literals.push_string_symbol(*sym),
+      ExportedLiteral::Bytes(v) => literals.push_bytes(*v),
+    };
+
+    literal_remap.insert(*orig_node_idx, new_lit_idx);
+  }
+
+  // Clone nodes with rebased `child_start`. Postorder
+  // children always precede their parent inside the body
+  // subrange, so `+ offset` keeps every parent->child edge
+  // pointing inside the spliced block.
+  for node in &body.nodes {
+    let mut clone = *node;
+
+    // FLAG_HAS_EXPLICIT_CHILDREN (sidecar `child_indices`
+    // sparse table) is declared but unused today. If a
+    // future parser path starts setting it, the splice
+    // would need a parallel `child_indices` rebase — bail
+    // explicitly until that lands, rather than silently
+    // splicing wrong references.
+    if clone.has_explicit_children() {
+      let span = body.spans.first().copied().unwrap_or_default();
+      report_error(Error::new(ErrorKind::CrossModuleGenericTooLarge, span));
+
+      // Rewind any partial pushes from this body so the
+      // tree stays in a clean post-splice state.
+      tree.nodes.truncate(pre_nodes_len);
+      tree.spans.truncate(pre_spans_len);
+
+      return None;
+    }
+
+    if clone.child_count > 0 {
+      let new_child_start = clone.child_start as i64 + offset;
+
+      // u16 cap already enforced at splice_start; the
+      // assert remains as a debug-only canary against a
+      // mis-recorded body whose internal child indices
+      // lie outside the body's own subrange.
+      debug_assert!(
+        new_child_start >= 0 && new_child_start <= u16::MAX as i64,
+        "child_start rebase out of u16 range"
+      );
+
+      clone.child_start = new_child_start as u16;
+    }
+
+    tree.nodes.push(clone);
+  }
+
+  for span in &body.spans {
+    tree.spans.push(*span);
+  }
+
+  // Push `node_values` with rebased indices and rewritten
+  // literal slots. `value_map` stays sorted because
+  // `splice_start` is always above any pre-existing entry.
+  for (orig_node_idx, value) in &body.node_values {
+    let new_node_idx = (*orig_node_idx as i64 + offset) as u32;
+    let new_value = match value {
+      NodeValue::Literal(_) => {
+        let new_lit_idx =
+          literal_remap.get(orig_node_idx).copied().unwrap_or(0);
+
+        NodeValue::Literal(new_lit_idx)
+      }
+      other => *other,
+    };
+
+    tree.attach_value_tail(new_node_idx, new_value);
+  }
+
+  // Parallel-length / sortedness invariants — debug only
+  // so release stays branchless. The lock-in here catches
+  // the moment phase 4 adds a second caller and forgets
+  // any of the three arrays.
+  debug_assert_eq!(
+    tree.nodes.len(),
+    tree.spans.len(),
+    "splice broke nodes/spans parallel length"
+  );
+  debug_assert_eq!(
+    tree.nodes.len(),
+    splice_end,
+    "splice grew nodes beyond the announced range"
+  );
+  debug_assert!(
+    tree.value_map_is_sorted(),
+    "splice broke value_map sort invariant"
+  );
+
+  Some(SplicedGenericBody {
+    name: body.name,
+    range: (splice_start as u32, splice_end as u32),
+    apply_context: body.apply_context,
+    type_params: body.type_params,
+  })
+}
+
+/// Literal payload snapshotted at body-record time. The
+/// defining module's `LiteralStore` is consumed by the time
+/// `with_imports` runs, so the value rides along with the
+/// body or it's lost.
+///
+/// @note — v1 covers `Int` / `Float` / `Char` / `Str` /
+/// `Bytes`. Interpolated strings and regex literals carry
+/// per-store range tables and are rejected at record time
+/// with `ErrorKind::Unsupported`.
+#[derive(Clone, Debug)]
+pub enum ExportedLiteral {
+  Int(u64),
+  Float(f64),
+  Char(u32),
+  /// String / identifier symbol from the shared session
+  /// `Interner`. The symbol value survives unchanged; only
+  /// the `LiteralStore` slot it sits at changes.
+  StringSym(Symbol),
+  Bytes(u8),
 }
 
 /// Exported symbols from a compiled module.
@@ -121,6 +349,17 @@ pub fn extract_exports(
   src_funs: &[zo_value::FunDef],
   src_generic_bodies: Vec<ExportedGenericBody>,
 ) -> ModuleExports {
+  // Funs that ship a generic body — only these need
+  // `type_params` carried across. Without this filter,
+  // pre-existing apply-block type-param leakage (e.g.
+  // `apply []int` methods inheriting the previous
+  // `apply []$T`'s `$T`) sees `src_fun.type_params`
+  // non-empty and tricks the importer's dot-call
+  // dispatcher into the mono branch for a method that
+  // actually has no generic to substitute.
+  let generic_body_names: rustc_hash::FxHashSet<Symbol> =
+    src_generic_bodies.iter().map(|b| b.name).collect();
+
   let mut funs = Vec::new();
   let mut vars = Vec::new();
   let mut enums = Vec::new();
@@ -183,11 +422,30 @@ pub fn extract_exports(
 
         // Carry return_type_args as-is — they're Ty values
         // (not TyIds) so they don't need translation.
-        let rta = src_funs
-          .iter()
-          .find(|f| f.name == *name)
+        let src_fun = src_funs.iter().find(|f| f.name == *name);
+        let rta = src_fun
           .map(|f| f.return_type_args.clone())
           .unwrap_or_default();
+
+        // Carry `type_params` ONLY for array-apply funs that
+        // ship a generic body (`arr_$::*`). Struct/enum
+        // applies (`Vec`, `HashMap`, ...) rely on the
+        // pre-existing dispatch path where the importer
+        // synthesizes mono on demand from `local_struct_type_args`
+        // at the call site — propagating `type_params` for
+        // them would re-route through the per-call mono
+        // branch and bypass the construction-time
+        // substitution that already works. Array dispatch
+        // has no such fallback, so `type_params` must ride
+        // along to make `nums.first()` resolve `$T`.
+        let name_str = interner.get(*name);
+        let type_params = if generic_body_names.contains(name)
+          && name_str.starts_with("arr_$::")
+        {
+          src_fun.map(|f| f.type_params.clone()).unwrap_or_default()
+        } else {
+          Vec::new()
+        };
 
         funs.push(FunDef {
           name: *name,
@@ -196,7 +454,7 @@ pub fn extract_exports(
           body_start: *body_start,
           kind: *kind,
           pubness: *pubness,
-          type_params: Vec::new(),
+          type_params,
           return_type_args: rta,
           mut_self: *mut_self,
           span: Span::ZERO,
