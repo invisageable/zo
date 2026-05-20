@@ -19,7 +19,7 @@
   point.y -- 2
   ```
 
-talk about the default value. All fields should be default to be valid. otherwise the compiler will complain.
+talk about the default value. All fields must have a default value to be valid. otherwise the compiler will complain.
 
   ```zo
   -- ...

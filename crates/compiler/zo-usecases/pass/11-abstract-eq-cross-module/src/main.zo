@@ -1,0 +1,20 @@
+load shapes::*;
+
+fun main() {
+  imu a: Point = Point { x = 1, y = 2 };
+  imu b: Point = Point { x = 1, y = 2 };
+  imu c: Point = Point { x = 9, y = 9 };
+
+  -- Routes to `shapes::Point::eq` defined in a sibling
+  -- module. Without abstract_impls cross-module
+  -- propagation, `==` would fall back to a primitive
+  -- compare that returns false for distinct allocations
+  -- and `a == b` would be wrong.
+  check(a == b);
+  check(a != c);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

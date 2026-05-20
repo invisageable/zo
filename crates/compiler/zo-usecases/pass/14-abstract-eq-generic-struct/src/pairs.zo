@@ -1,0 +1,10 @@
+pub struct Pair<$T> {
+  fst: $T,
+  snd: $T,
+}
+
+apply Eq for Pair<$T> {
+  fun eq(self, other: Pair<$T>) -> bool {
+    return self.fst == other.fst && self.snd == other.snd;
+  }
+}

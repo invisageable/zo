@@ -1,0 +1,21 @@
+load ordering::*;
+
+fun main() {
+  imu lo: Score = Score { value = 10 };
+  imu hi: Score = Score { value = 99 };
+
+  -- `<` / `<=` / `>` / `>=` route through
+  -- `ordering::Score::cmp` defined in a sibling module.
+  -- Without `(Ord, Score)` cross-module propagation,
+  -- the comparisons would fall back to pointer ordering
+  -- and give arbitrary results.
+  check(lo < hi);
+  check(hi > lo);
+  check(lo <= hi);
+  check(hi >= lo);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

@@ -1,0 +1,11 @@
+pub struct Color {
+  r: int,
+  g: int,
+  b: int,
+}
+
+apply Show for Color {
+  fun show(self) -> str {
+    return "rgb";
+  }
+}

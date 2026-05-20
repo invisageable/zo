@@ -1,5 +1,5 @@
 apply []$T {
-  pub fun first(self) -> $T {
+  pub fun head(self) -> $T {
     return self[0];
   }
 }

@@ -1,5 +1,27 @@
 # concurrency
 
+  ```zo
+  -! zo uses real green threads managed by a single-runtime scheduler.
+  -! Forget async/await function coloring — any function can spawn.
+
+  fun fetch_data(id: int) -> str {
+    -- Simulating a blocking call. The scheduler automatically
+    -- swaps to another task while this waits.
+    "data"
+  }
+
+  fun main() {
+    -- The nursery enforces structural scoping. Both children
+    -- must complete before execution moves past the block.
+    nursery {
+      spawn fetch_data(1);
+      spawn fetch_data(2);
+    }
+    
+    showln("Both tasks completed successfully.");
+  }
+  ```
+
 - structured concurrency. `nursery { spawn a(); spawn b(); }` means both children must finish before the block exits.
 - `Channels` + `select` give you composition. The scheduler picks another task whenever one blocks on `chan.recv()`
 - There's no callback hell to escape from in the first place.

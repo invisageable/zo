@@ -25,6 +25,20 @@ pub struct Tree {
   value_map: Vec<(u16, u16)>, // (node_index, value_index) pairs
 }
 
+/// Captured lengths of every internal vector of a `Tree`.
+/// Paired with `LiteralStoreBaseline` so a cached parsed
+/// tree shared across multiple analyze invocations can
+/// be rewound to its post-parse state between cross-
+/// module generic splices.
+#[derive(Clone, Copy, Debug)]
+pub struct TreeBaseline {
+  pub nodes_len: usize,
+  pub spans_len: usize,
+  pub values_len: usize,
+  pub value_map_len: usize,
+  pub child_indices_len: usize,
+}
+
 impl Tree {
   pub fn new() -> Self {
     Self {
@@ -34,6 +48,35 @@ impl Tree {
       spans: Vec::with_capacity(1024),
       value_map: Vec::with_capacity(256),
     }
+  }
+
+  /// Snapshot of every parallel-vector length. Captured at
+  /// parse time so a cached tree can be rewound to its
+  /// post-parse state between cross-module splices.
+  pub fn baseline(&self) -> TreeBaseline {
+    TreeBaseline {
+      nodes_len: self.nodes.len(),
+      spans_len: self.spans.len(),
+      values_len: self.values.len(),
+      value_map_len: self.value_map.len(),
+      child_indices_len: self.child_indices.len(),
+    }
+  }
+
+  /// Rewinds every parallel vector to a saved baseline.
+  /// Splice always appends, so a tail-truncate is enough —
+  /// no per-entry filtering. Used by the compiler driver
+  /// to keep `parse_cache` idempotent between analyze
+  /// invocations: without it, the second analyze of a
+  /// cascaded preload module accumulates a tail-second-
+  /// splice past the `splice_boundary` cap and the main
+  /// pass walks into the second splice's `$T` tokens.
+  pub fn truncate_to(&mut self, baseline: TreeBaseline) {
+    self.nodes.truncate(baseline.nodes_len);
+    self.spans.truncate(baseline.spans_len);
+    self.values.truncate(baseline.values_len);
+    self.value_map.truncate(baseline.value_map_len);
+    self.child_indices.truncate(baseline.child_indices_len);
   }
 
   /// Add a node to the tree

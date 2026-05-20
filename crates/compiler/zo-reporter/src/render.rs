@@ -401,6 +401,10 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
       "cross-module generic body would push the importing tree past the \
        `u16::MAX` node cap"
     }
+    ErrorKind::DuplicateAbstractImpl => {
+      "conflicting `apply Abstract for Type` — two modules declared an \
+       implementation of the same abstract for the same target type"
+    }
 
     // Rationale notes (severity = Note, emitted only with
     // `--explain-decisions`).

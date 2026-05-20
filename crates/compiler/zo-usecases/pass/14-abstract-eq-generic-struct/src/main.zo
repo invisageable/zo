@@ -1,0 +1,15 @@
+load pairs::*;
+
+fun main() {
+  imu a: Pair<int> = Pair { fst = 1, snd = 2 };
+  imu b: Pair<int> = Pair { fst = 1, snd = 2 };
+  imu c: Pair<int> = Pair { fst = 9, snd = 2 };
+
+  check(a == b);
+  check(a != c);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

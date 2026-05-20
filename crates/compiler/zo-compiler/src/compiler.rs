@@ -27,9 +27,9 @@ use zo_reporter::{
 use zo_session::Session;
 use zo_sir::Sir;
 use zo_span::Span;
-use zo_token::Token;
+use zo_token::{LiteralStoreBaseline, Token};
 use zo_tokenizer::{TokenizationResult, Tokenizer};
-use zo_tree::{NodeValue, Tree};
+use zo_tree::{NodeValue, Tree, TreeBaseline};
 use zo_ty::Mutability;
 use zo_value::ValueId;
 use zo_value::{Local, LocalKind, Pubness};
@@ -182,6 +182,40 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
     into.abstract_defs.insert(*sym, def.clone());
   }
 
+  // Coherence: two modules can each declare
+  // `apply Eq for Point` and the importer would silently
+  // overwrite one with `extend`. Raise a hard
+  // `DuplicateAbstractImpl` against both defining sites
+  // so the user can drop or rename one of the impls
+  // before the compiled program does silent
+  // wrong-dispatch. Same-source re-imports (the SAME
+  // `defining_module` path) are no-ops — multiple
+  // re-export paths through `pub load core::*` can
+  // surface the same impl repeatedly and that's fine.
+  for (key, incoming) in &other.abstract_impls {
+    match into.abstract_impls.get(key) {
+      Some(existing)
+        if existing.defining_module == incoming.defining_module =>
+      {
+        // Same defining module reached twice through the
+        // re-export graph; keep the first entry.
+      }
+      Some(existing) => {
+        report_error(Error::new(
+          ErrorKind::DuplicateAbstractImpl,
+          incoming.defined_at,
+        ));
+        report_error(Error::new(
+          ErrorKind::DuplicateAbstractImpl,
+          existing.defined_at,
+        ));
+      }
+      None => {
+        into.abstract_impls.insert(*key, incoming.clone());
+      }
+    }
+  }
+
   // `exported_generic_bodies` accumulate across the fold so
   // every transitive `apply Type<$T> { ... }` body lands in
   // the importer's pre-pass splice. `generic_bodies` (the
@@ -220,6 +254,7 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
     vars,
     enums: exports.enums.clone(),
     abstract_defs: HashMap::default(),
+    abstract_impls: exports.abstract_impls.clone(),
     exported_generic_bodies: exports.generic_bodies.clone(),
     generic_bodies: Vec::new(),
   }
@@ -513,6 +548,7 @@ impl Compiler {
       vars: Vec::new(),
       enums: Vec::new(),
       abstract_defs: HashMap::default(),
+      abstract_impls: HashMap::default(),
       exported_generic_bodies: Vec::new(),
       generic_bodies: Vec::new(),
     };
@@ -544,6 +580,7 @@ impl Compiler {
       vars: Vec::new(),
       enums: Vec::new(),
       abstract_defs: HashMap::default(),
+      abstract_impls: HashMap::default(),
       exported_generic_bodies: Vec::new(),
       generic_bodies: Vec::new(),
     };
@@ -554,8 +591,22 @@ impl Compiler {
     // on the first visit (Tree owns its data, no source
     // borrows) and saves a full front-end pass per
     // deferred module.
-    let mut parse_cache: HashMap<PathBuf, (TokenizationResult, ParsingResult)> =
-      HashMap::default();
+    // Per-module parse output, bundled with the post-parse
+    // `(TreeBaseline, LiteralStoreBaseline)`. Cross-module
+    // splice mutates the tree + literals in place; the
+    // driver rewinds to these baselines before each new
+    // splice so a module analyzed twice (preload cascade
+    // + explicit user load) doesn't accumulate bodies past
+    // its own `splice_boundary` cap.
+    let mut parse_cache: HashMap<
+      PathBuf,
+      (
+        TokenizationResult,
+        ParsingResult,
+        TreeBaseline,
+        LiteralStoreBaseline,
+      ),
+    > = HashMap::default();
 
     let mut module_sir_instructions = Vec::new();
     let mut module_next_value_id: u32 = 0;
@@ -633,6 +684,7 @@ impl Compiler {
         .with_config(AnalyzerConfig {
           imports: mod_imports,
           implicit_pack: implicit_sym,
+          source_path: Some(resolved_path.clone()),
           ..AnalyzerConfig::default()
         })
         .analyze();
@@ -643,6 +695,7 @@ impl Compiler {
           &session.interner,
           &mod_sem.funs,
           mod_sem.generic_bodies,
+          mod_sem.abstract_impls,
         );
 
         // Each pack's SIR starts its own value-id counter
@@ -768,6 +821,7 @@ impl Compiler {
           .with_config(AnalyzerConfig {
             imports: pack_imports,
             implicit_pack: implicit_sym,
+            source_path: Some(pack.path.clone()),
             ..AnalyzerConfig::default()
           })
           .analyze();
@@ -778,6 +832,7 @@ impl Compiler {
             &session.interner,
             &pack_sem.funs,
             pack_sem.generic_bodies,
+            pack_sem.abstract_impls,
           );
 
           // Merge this pack's SIR into the main stream NOW —
@@ -924,11 +979,27 @@ impl Compiler {
       if !parse_cache.contains_key(&resolved_path) {
         let tok = Tokenizer::new(&mod_source, &mut session.interner).tokenize();
         let par = Parser::new(&tok, &mod_source).parse();
-        parse_cache.insert(resolved_path.clone(), (tok, par));
+        let tree_baseline = par.tree.baseline();
+        let lit_baseline = tok.literals.baseline();
+
+        parse_cache.insert(
+          resolved_path.clone(),
+          (tok, par, tree_baseline, lit_baseline),
+        );
       }
 
-      let (mod_tokenization, mod_parsing) =
+      let (mod_tokenization, mod_parsing, tree_baseline, lit_baseline) =
         parse_cache.get_mut(&resolved_path).expect("just inserted");
+
+      // Rewind any splice from a previous analyze pass on
+      // this cached tree. Without this, a module visited
+      // twice (preload cascade + user load) inherits the
+      // tail-spliced bodies from analyze #1 and the
+      // `splice_boundary` cap no longer fences the main
+      // pass — `$T` tokens inside the older spliced range
+      // get walked as if they were user-file source.
+      mod_parsing.tree.truncate_to(*tree_baseline);
+      mod_tokenization.literals.truncate_to(*lit_baseline);
 
       // Topological hoist: any `load` in this module that
       // hasn't been compiled yet must compile FIRST, or
@@ -1011,6 +1082,7 @@ impl Compiler {
       .with_config(AnalyzerConfig {
         imports: mod_imports,
         implicit_pack: implicit_sym,
+        source_path: Some(resolved_path.clone()),
         ..AnalyzerConfig::default()
       })
       .analyze();
@@ -1021,6 +1093,7 @@ impl Compiler {
         &session.interner,
         &mod_semantic.funs,
         mod_semantic.generic_bodies,
+        mod_semantic.abstract_impls,
       );
 
       // Selective imports that hit a non-pub item — one
@@ -1146,6 +1219,7 @@ impl Compiler {
       .with_config(AnalyzerConfig {
         imports: user_seed,
         source_dir: file_path.parent().map(Path::to_path_buf),
+        source_path: Some(file_path.to_path_buf()),
         implicit_pack: implicit_sym,
         in_scope_packs,
         is_entry: true,

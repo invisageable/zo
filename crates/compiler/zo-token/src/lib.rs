@@ -1,3 +1,6 @@
 mod token;
 
-pub use token::{InterpSegment, LiteralStore, Token, TokenBuffer, TokenId};
+pub use token::{
+  InterpSegment, LiteralStore, LiteralStoreBaseline, Token, TokenBuffer,
+  TokenId,
+};

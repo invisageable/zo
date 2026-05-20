@@ -62,7 +62,7 @@ fn test_template_var_registered() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -97,7 +97,7 @@ fn test_template_interp_str_variable() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -130,7 +130,7 @@ fn test_template_interp_int_variable() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -164,7 +164,7 @@ fn test_template_interp_multiple_vars() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -197,7 +197,7 @@ fn test_template_interp_named_tag() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -256,7 +256,7 @@ fn test_template_attr_interpolation() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -741,7 +741,7 @@ fn test_html_directive_smoke() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _) = executor.execute();
+  let (sir, _, _, _, _, _) = executor.execute();
 
   // Print the rendered template commands. Visible with
   // `--nocapture`.
@@ -882,7 +882,7 @@ fn test_compound_interp_emits_computed_binding() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _) = executor.execute();
+  let (sir, _, _, _, _, _) = executor.execute();
 
   // The Insn::Template must carry exactly one computed
   // binding for the `{when …}` interp.
@@ -952,7 +952,7 @@ fn test_compound_interp_emits_text_placeholder() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _) = executor.execute();
+  let (sir, _, _, _, _, _) = executor.execute();
 
   let (commands, computed) = sir
     .instructions
@@ -1005,7 +1005,7 @@ fn test_simple_ident_interp_uses_text_binding_not_computed() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _) = executor.execute();
+  let (sir, _, _, _, _, _) = executor.execute();
 
   let bindings = sir
     .instructions

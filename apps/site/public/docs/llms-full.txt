@@ -802,7 +802,7 @@ In this lesson, we wrote every type explicitly (like `: int`). In practice, zo c
 
 Numbers are useless if you can't show them. In zo, you drop values directly into strings with `{variable}` — no format functions, no concatenation. 
 
-> *Interpolation does not allowed expressions, like binop, function calls, etc. It needs the variable name.*
+> *Interpolation does not allow expressions, like binop, function calls, etc. It needs the variable name.*
 
   ```zo
   -- Hi, I'm `{}` — a string interpolation. Wrap any 
@@ -1167,7 +1167,7 @@ zo arrays are length-prefixed: `[len:8][cap:8][elem0][elem1]...[elemN]`. The hea
   point.y -- 2
   ```
 
-talk about the default value. All fields should be default to be valid. otherwise the compiler will complain.
+talk about the default value. All fields must have a default value to be valid. otherwise the compiler will complain.
 
   ```zo
   -- ...

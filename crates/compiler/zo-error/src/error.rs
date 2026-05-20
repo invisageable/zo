@@ -393,6 +393,17 @@ pub enum ErrorKind {
   /// hard; widening to `u32` is a separate refactor.
   CrossModuleGenericTooLarge,
 
+  /// Two modules each declared `apply Abstract for Type`
+  /// against the same `(Abstract, Type)` pair. The driver
+  /// raises this against both defining sites so the user
+  /// can drop or rename one impl before the compiled
+  /// binary silently picks the wrong dispatch target.
+  /// Same-source re-imports through transitive `pub load`
+  /// paths are not collisions — the duplicate gate looks
+  /// at `AbstractImpl.defining_module`, not the symbol
+  /// alone.
+  DuplicateAbstractImpl,
+
   // --- Rationale-channel variants (severity = Note) ---
   //
   // Emitted only when the driver passes `--explain-decisions`.

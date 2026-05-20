@@ -1,0 +1,10 @@
+pub struct Point {
+  x: int,
+  y: int,
+}
+
+apply Eq for Point {
+  fun eq(self, other: Point) -> bool {
+    return self.x == other.x && self.y == other.y;
+  }
+}

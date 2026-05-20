@@ -10,6 +10,46 @@ use zo_value::{FunDef, Pubness, ValueId};
 
 use rustc_hash::FxHashMap;
 
+use std::path::PathBuf;
+
+/// One `apply Abstract for Type { ... }` registration.
+/// Carries everything an importer needs to fold the impl
+/// into its own dispatch table — and everything the
+/// coherence check needs to surface a precise duplicate-
+/// impl diagnostic.
+///
+/// Keyed by `(abstract_name, target_type)` in
+/// `abstract_impls`; the value here records the methods
+/// the apply block introduced plus the defining-site
+/// location so a downstream collision (two modules each
+/// implementing `Eq` for the same struct) can point at
+/// both sites in the error.
+#[derive(Clone, Debug)]
+pub struct AbstractImpl {
+  /// Fully-mangled method symbols (e.g. `Point::eq`) the
+  /// apply block contributed. Captured by snapshotting
+  /// `funs.len()` before the body walks and slicing
+  /// after — never by name-prefix scan, which would
+  /// contaminate the set with sibling `apply Point` /
+  /// `apply Show for Point` entries.
+  pub methods: Vec<Symbol>,
+  /// Span of the `apply` keyword in the defining module's
+  /// source. Used as the anchor for the duplicate-impl
+  /// diagnostic.
+  pub defined_at: Span,
+  /// Filesystem path of the defining module — span alone
+  /// is byte offsets with no module identity, so the
+  /// coherence error needs this to render "first at
+  /// core/foo.zo:12, second at user.zo:5".
+  pub defining_module: PathBuf,
+  /// Visibility of the enclosing pack. `extract_exports`
+  /// only ships entries with `Pubness::Yes` so a private
+  /// `pack foo;` stays a black box even if its body
+  /// implements public abstracts. Mirrors the orphan-rule
+  /// shape Rust enforces at the crate boundary.
+  pub pubness: Pubness,
+}
+
 /// An exported compile-time constant from a module.
 #[derive(Clone, Debug)]
 pub struct ExportedVar {
@@ -333,6 +373,14 @@ pub struct ModuleExports {
   /// into its own tree to re-execute on mono dispatch. See
   /// [`ExportedGenericBody`].
   pub generic_bodies: Vec<ExportedGenericBody>,
+  /// `(abstract_name, target_type) -> AbstractImpl` for
+  /// every `apply Abstract for Type { ... }` block the
+  /// module declared in a public pack. Importers fold
+  /// these into their own dispatch table so `a == b` on
+  /// a struct defined in a sibling module routes to the
+  /// custom `Type::eq` instead of falling back to a
+  /// primitive pointer compare.
+  pub abstract_impls: FxHashMap<(Symbol, Symbol), AbstractImpl>,
 }
 
 /// Extracts pub exports from a compiled module's SIR.
@@ -348,6 +396,7 @@ pub fn extract_exports(
   interner: &Interner,
   src_funs: &[zo_value::FunDef],
   src_generic_bodies: Vec<ExportedGenericBody>,
+  src_abstract_impls: FxHashMap<(Symbol, Symbol), AbstractImpl>,
 ) -> ModuleExports {
   // Funs that ship a generic body — only these need
   // `type_params` carried across. Without this filter,
@@ -580,6 +629,77 @@ pub fn extract_exports(
     }
   }
 
+  // Generic-outer-pass funs (`apply []$T { fun map<$U> }`
+  // etc.) never emit an `Insn::FunDef` — the outer pass
+  // skips the body and `reexecute_generic_instantiations`
+  // replays the tree range per instantiation. The SIR-only
+  // walk above therefore misses them; pull straight from
+  // `src_funs` so importing modules see the signature and
+  // route dispatch into the generic body.
+  //
+  // Gate on `arr_$::*` plus non-empty `type_params` so
+  // struct/enum-applied generics (`Vec`, `HashMap`) keep
+  // flowing through their existing construction-time
+  // `local_struct_type_args` path — they don't need this
+  // body-export channel.
+  let already_exported: rustc_hash::FxHashSet<Symbol> =
+    funs.iter().map(|f| f.name).collect();
+
+  // `already_exported` must track BOTH the SIR-walk
+  // pushes above AND the loop's own pushes — otherwise
+  // duplicates within `src_funs` (an `arr_$::first` that
+  // reached `mod_sem.funs` once via the cumulative
+  // imports and again as the module's own outer-pass
+  // entry) each push past the static snapshot. With
+  // re-exports cascading the same symbols through
+  // multiple paths, `src_funs` typically holds K copies
+  // of each `arr_$::*` fun — without an in-loop update
+  // every module's exports.funs balloons to ~src_funs
+  // size and `fold_imports_into` doubles the import
+  // graph at every depth.
+  let mut already_exported = already_exported;
+
+  for src_fun in src_funs {
+    let name_str = interner.get(src_fun.name);
+
+    if !name_str.starts_with("arr_$::") {
+      continue;
+    }
+
+    if src_fun.type_params.is_empty() {
+      continue;
+    }
+
+    if already_exported.contains(&src_fun.name) {
+      continue;
+    }
+
+    if src_fun.pubness != zo_value::Pubness::Yes {
+      continue;
+    }
+
+    if let Some(filter) = selective
+      && name_str != filter
+    {
+      continue;
+    }
+
+    already_exported.insert(src_fun.name);
+
+    funs.push(FunDef {
+      name: src_fun.name,
+      params: src_fun.params.clone(),
+      return_ty: src_fun.return_ty,
+      body_start: src_fun.body_start,
+      kind: src_fun.kind,
+      pubness: src_fun.pubness,
+      type_params: src_fun.type_params.clone(),
+      return_type_args: src_fun.return_type_args.clone(),
+      mut_self: src_fun.mut_self,
+      span: Span::ZERO,
+    });
+  }
+
   // Filter out EnumDef only — its ty_ids reference the
   // module's throwaway type checker, so leaving them in the
   // merged SIR causes ty_id collisions in the codegen's
@@ -600,6 +720,24 @@ pub fn extract_exports(
   // in. Pass the bodies through unconditionally; the
   // importer's mono pipeline only consults them when a
   // pending instantiation looks them up by mangled symbol.
+  //
+  // Abstract impls: travel with the type. A `pub apply Eq
+  // for Point` from a public pack rides whenever Point is
+  // visible to the importer. Privacy gate is per-entry
+  // (`AbstractImpl.pubness`) so a private `pack foo;`
+  // declaring an internal impl stays inside the pack —
+  // mirrors the orphan-rule shape Rust enforces at the
+  // crate boundary.
+  let abstract_impls: FxHashMap<(Symbol, Symbol), AbstractImpl> =
+    src_abstract_impls
+      .into_iter()
+      .filter(|(_, impl_)| impl_.pubness == Pubness::Yes)
+      .filter(|((_abs, ty), _)| match selective {
+        Some(filter) => interner.get(*ty) == filter,
+        None => true,
+      })
+      .collect();
+
   ModuleExports {
     funs,
     vars,
@@ -612,5 +750,6 @@ pub fn extract_exports(
     re_exports,
     private_selective_hits,
     generic_bodies: src_generic_bodies,
+    abstract_impls,
   }
 }

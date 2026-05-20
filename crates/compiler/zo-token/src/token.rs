@@ -448,6 +448,22 @@ pub struct LiteralStore {
   pub regex_literals: Vec<(Symbol, Symbol)>,
 }
 
+/// Captured lengths of every literal vector. Paired with
+/// `TreeBaseline` for parse-cache rewind between cross-
+/// module splices.
+#[derive(Clone, Copy, Debug)]
+pub struct LiteralStoreBaseline {
+  pub ints: usize,
+  pub floats: usize,
+  pub idents: usize,
+  pub bytes: usize,
+  pub chars: usize,
+  pub strings: usize,
+  pub interp_segments: usize,
+  pub interp_ranges: usize,
+  pub regex: usize,
+}
+
 impl LiteralStore {
   pub fn new() -> Self {
     Self {
@@ -475,6 +491,39 @@ impl LiteralStore {
       interp_ranges: Vec::new(),
       regex_literals: Vec::new(),
     }
+  }
+
+  /// Snapshot of every literal vector length. Paired with
+  /// `Tree::baseline` so the compiler driver can rewind a
+  /// cached `(TokenizationResult, ParsingResult)` between
+  /// analyze invocations.
+  pub fn baseline(&self) -> LiteralStoreBaseline {
+    LiteralStoreBaseline {
+      ints: self.int_literals.len(),
+      floats: self.float_literals.len(),
+      idents: self.identifiers.len(),
+      bytes: self.bytes_literals.len(),
+      chars: self.char_literals.len(),
+      strings: self.string_literals.len(),
+      interp_segments: self.interp_segments.len(),
+      interp_ranges: self.interp_ranges.len(),
+      regex: self.regex_literals.len(),
+    }
+  }
+
+  /// Rewinds every literal vector to a saved baseline.
+  /// Splice replays literals at the tail (see
+  /// `splice_one`), so tail-truncate is enough.
+  pub fn truncate_to(&mut self, baseline: LiteralStoreBaseline) {
+    self.int_literals.truncate(baseline.ints);
+    self.float_literals.truncate(baseline.floats);
+    self.identifiers.truncate(baseline.idents);
+    self.bytes_literals.truncate(baseline.bytes);
+    self.char_literals.truncate(baseline.chars);
+    self.string_literals.truncate(baseline.strings);
+    self.interp_segments.truncate(baseline.interp_segments);
+    self.interp_ranges.truncate(baseline.interp_ranges);
+    self.regex_literals.truncate(baseline.regex);
   }
 
   /// Push a `(pattern, flags)` pair; return its index.

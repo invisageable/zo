@@ -1,0 +1,18 @@
+load palette::*;
+
+fun main() {
+  imu c: Color = Color { r = 255, g = 128, b = 0 };
+
+  -- Auto-dispatches to `palette::Color::show` defined in
+  -- a sibling module. Without `abstract_impls` cross-
+  -- module propagation, `showln(c)` would fall back to
+  -- the struct's default formatter and print field-by-
+  -- field instead of "rgb".
+  showln(c);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- rgb
+-- DONE

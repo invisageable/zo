@@ -265,6 +265,111 @@ fn splice_two_bodies_into_one_host_keeps_lookups_distinct() {
   // both insertions.
   assert!(
     host.value_map_is_sorted(),
-    "value_map must stay sorted across multiple splices"
+    "value_map must stay sorted across multiple splices ({}..{} then {}..{})",
+    a_start,
+    a_end,
+    b_start,
+    b_end,
   );
 }
+
+#[test]
+fn extract_exports_round_trips_abstract_impls() {
+  use crate::exports::{AbstractImpl, extract_exports};
+  use std::path::PathBuf;
+  use zo_sir::Sir;
+  use zo_value::Pubness;
+
+  let mut interner = Interner::new();
+  let eq_sym = interner.intern("Eq");
+  let point_sym = interner.intern("Point");
+  let point_eq_sym = interner.intern("Point::eq");
+
+  let mut src_impls = rustc_hash::FxHashMap::default();
+  src_impls.insert(
+    (eq_sym, point_sym),
+    AbstractImpl {
+      methods: vec![point_eq_sym],
+      defined_at: Span::ZERO,
+      defining_module: PathBuf::from("/tmp/shapes.zo"),
+      pubness: Pubness::Yes,
+    },
+  );
+
+  let private_target = interner.intern("Hidden");
+  src_impls.insert(
+    (eq_sym, private_target),
+    AbstractImpl {
+      methods: vec![],
+      defined_at: Span::ZERO,
+      defining_module: PathBuf::from("/tmp/shapes.zo"),
+      pubness: Pubness::No,
+    },
+  );
+
+  let exports = extract_exports(
+    Sir::new(),
+    None,
+    &interner,
+    &[],
+    Vec::new(),
+    src_impls,
+  );
+
+  assert_eq!(
+    exports.abstract_impls.len(),
+    1,
+    "Pubness::No impls must be filtered out",
+  );
+  assert!(
+    exports.abstract_impls.contains_key(&(eq_sym, point_sym)),
+    "the public `(Eq, Point)` entry must survive the export",
+  );
+
+  let entry = exports.abstract_impls.get(&(eq_sym, point_sym)).unwrap();
+  assert_eq!(entry.methods, vec![point_eq_sym]);
+  assert_eq!(entry.defining_module, PathBuf::from("/tmp/shapes.zo"));
+}
+
+#[test]
+fn extract_exports_filters_abstract_impls_on_selective_load() {
+  use crate::exports::{AbstractImpl, extract_exports};
+  use std::path::PathBuf;
+  use zo_sir::Sir;
+  use zo_value::Pubness;
+
+  let mut interner = Interner::new();
+  let eq_sym = interner.intern("Eq");
+  let point_sym = interner.intern("Point");
+  let other_sym = interner.intern("Other");
+
+  let entry_for = |path: &str| AbstractImpl {
+    methods: Vec::new(),
+    defined_at: Span::ZERO,
+    defining_module: PathBuf::from(path),
+    pubness: Pubness::Yes,
+  };
+
+  let mut src_impls = rustc_hash::FxHashMap::default();
+  src_impls.insert((eq_sym, point_sym), entry_for("/tmp/a.zo"));
+  src_impls.insert((eq_sym, other_sym), entry_for("/tmp/b.zo"));
+
+  let exports = extract_exports(
+    Sir::new(),
+    Some("Point"),
+    &interner,
+    &[],
+    Vec::new(),
+    src_impls,
+  );
+
+  assert_eq!(
+    exports.abstract_impls.len(),
+    1,
+    "selective `load M::(Point);` keeps only `(_, Point)` impls",
+  );
+  assert!(
+    exports.abstract_impls.contains_key(&(eq_sym, point_sym)),
+  );
+}
+

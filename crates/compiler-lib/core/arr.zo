@@ -1,18 +1,13 @@
--! Inherent methods on `[]int` arrays.
+-! Inherent methods on arrays.
 -!
--! int-element only (same tradeoff as `core::math` gcd/
--! lcm/pow_i). The generic `apply []$T { ... }` form
--! parses correctly today (see `phase 1` + `phase 2` of
--! PLAN_GENERIC_ARRAY_APPLY) but the body never re-executes
--! in the importing module because preload-module tree
--! ranges aren't propagated to user-file executors. As a
--! result, pure-zo generic bodies in this file would
--! return uninitialised storage at every call site.
--! `apply []$T` works fine when defined IN the user file
--! (proven by `zo-tests/programming/apply_generic_array_phase2.zo`).
--!
--! Element-generic combinators ship as compiler intrinsics
--! (`.map`) until cross-module re-execution lands.
+-! `apply []int { ... }` covers int-only ops that bottom
+-! out in a runtime intrinsic (`sort` → `_zo_arr_sort_i32`)
+-! or that read primitive values without elem-type
+-! abstraction. Element-generic combinators (`first`,
+-! `is_empty`, `any`, `all`, `filter`, `fold`, `map`) live
+-! in the `apply []$T { ... }` block — preloaded into
+-! every module, dispatched via the cross-module splice
+-! pipeline (see PLAN_CROSS_MODULE_GENERICS).
 
 apply []int {
   -! In-place ascending sort. Stable, O(n log n).
@@ -109,5 +104,92 @@ apply []int {
     }
 
     return m;
+  }
+}
+
+apply []$T {
+  -! First element. Empty array → undefined.
+  pub fun first(self) -> $T {
+    return self[0];
+  }
+
+  -! True when no elements.
+  pub fun is_empty(self) -> bool {
+    return self.len == 0;
+  }
+
+  -! True when at least one element satisfies `pred`.
+  pub fun any(self, pred: Fn($T) -> bool) -> bool {
+    mut i: int = 0;
+
+    while i < self.len {
+      if pred(self[i]) {
+        return true;
+      }
+
+      i = i + 1;
+    }
+
+    return false;
+  }
+
+  -! True when every element satisfies `pred`. Empty
+  -! array → true (vacuous truth).
+  pub fun all(self, pred: Fn($T) -> bool) -> bool {
+    mut i: int = 0;
+
+    while i < self.len {
+      if !pred(self[i]) {
+        return false;
+      }
+
+      i = i + 1;
+    }
+
+    return true;
+  }
+
+  -! Keep elements where `pred` returns `true`.
+  pub fun filter(self, pred: Fn($T) -> bool) -> []$T {
+    mut out: []$T = [];
+    mut i: int = 0;
+
+    while i < self.len {
+      if pred(self[i]) {
+        out.push(self[i]);
+      }
+
+      i = i + 1;
+    }
+
+    return out;
+  }
+
+  -! Right-fold-into-accumulator. Visits every element in
+  -! order, threading `acc` through `f`.
+  pub fun fold<$A>(self, init: $A, f: Fn($A, $T) -> $A) -> $A {
+    mut acc: $A = init;
+    mut i: int = 0;
+
+    while i < self.len {
+      acc = f(acc, self[i]);
+      i = i + 1;
+    }
+
+    return acc;
+  }
+
+  -! Element-wise transform. Returns a fresh array of
+  -! `f(elem)` results.
+  pub fun map<$U>(self, f: Fn($T) -> $U) -> []$U {
+    mut out: []$U = [];
+    mut i: int = 0;
+
+    while i < self.len {
+      out.push(f(self[i]));
+      i = i + 1;
+    }
+
+    return out;
   }
 }

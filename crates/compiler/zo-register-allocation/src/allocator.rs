@@ -353,6 +353,19 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       has_calls = true;
     }
 
+    // `Insn::BinOp` on `Str` operands lowers to `_memcmp`
+    // (see arm codegen's `STR_TYPE_ID && Eq | Neq` branch).
+    // Without this gate, the leaf-frame skips the caller-
+    // save reserve and the emitted spills overwrite the
+    // function's own stack — crashes any function whose
+    // body compares a `str` parameter against a literal.
+    if let Insn::BinOp { ty_id, op, .. } = insn
+      && ty_id.0 == 4
+      && matches!(op, zo_sir::BinOp::Eq | zo_sir::BinOp::Neq)
+    {
+      has_calls = true;
+    }
+
     // --- Handle Call (clobbers all caller-saved) ---
     if let Insn::Call { args, .. } = insn {
       has_calls = true;

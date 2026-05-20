@@ -2,7 +2,7 @@
 
 Numbers are useless if you can't show them. In zo, you drop values directly into strings with `{variable}` — no format functions, no concatenation. 
 
-> *Interpolation does not allowed expressions, like binop, function calls, etc. It needs the variable name.*
+> *Interpolation does not allow expressions, like binop, function calls, etc. It needs the variable name.*
 
   ```zo
   -- Hi, I'm `{}` — a string interpolation. Wrap any 

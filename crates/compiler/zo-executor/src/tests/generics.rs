@@ -46,7 +46,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -81,7 +81,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -115,7 +115,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -149,7 +149,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -204,7 +204,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -281,7 +281,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -340,7 +340,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -375,7 +375,7 @@ fun main() {}"#;
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -408,7 +408,7 @@ fun main() {}"#;
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -443,7 +443,7 @@ fun main() {}"#;
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -483,7 +483,7 @@ fun main() {}"#;
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -515,7 +515,7 @@ fun main() {}"#;
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -579,7 +579,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _) = executor.execute();
+  let (sir, _, _, _, _, _) = executor.execute();
 
   // Find the monomorphized function (name suffix starts
   // with `__int`).
@@ -715,7 +715,7 @@ fun main() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _) = executor.execute();
+  let (sir, _, _, _, _, _) = executor.execute();
 
   let mono_name = interner.intern("generic_sum__int");
   let hand_name = interner.intern("hand_sum");

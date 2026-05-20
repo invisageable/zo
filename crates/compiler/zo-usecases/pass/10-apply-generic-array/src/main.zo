@@ -4,8 +4,8 @@ fun main() {
   imu nums: []int = [42, 7, 99];
   imu strs: []str = ["hello", "world"];
 
-  showln(nums.first());
-  showln(strs.first());
+  showln(nums.head());
+  showln(strs.head());
   showln("DONE");
 }
 

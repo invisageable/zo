@@ -1,3 +1,3 @@
 mod tree;
 
-pub use tree::{NodeHeader, NodeValue, Tree};
+pub use tree::{NodeHeader, NodeValue, Tree, TreeBaseline};

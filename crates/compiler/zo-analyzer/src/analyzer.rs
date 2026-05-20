@@ -2,7 +2,7 @@ use zo_error::{Error, ErrorKind};
 use zo_executor::{AbstractDef, Executor};
 use zo_interner::{Interner, Symbol};
 use zo_module_resolver::{
-  ExportedEnum, ExportedGenericBody, SplicedGenericBody,
+  AbstractImpl, ExportedEnum, ExportedGenericBody, SplicedGenericBody,
 };
 use zo_reporter::{error_count, report_error};
 use zo_sir::Sir;
@@ -27,6 +27,13 @@ pub struct SemanticResult {
   pub funs: Vec<FunDef>,
   /// Abstract definitions from the executor.
   pub abstract_defs: HashMap<Symbol, AbstractDef>,
+  /// `(Abstract, Type) -> AbstractImpl` registrations from
+  /// every `apply Abstract for Type { ... }` block the
+  /// analyzer walked. Hands them through to the compiler
+  /// driver so cross-module dispatch (`a == b` calling
+  /// the imported `Type::eq` instead of falling back to a
+  /// primitive comparison) works end-to-end.
+  pub abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
   /// Generic apply-block bodies recorded during this run —
   /// the importer splices each into its own tree to make
   /// `arr_$::method` instantiations re-executable across
@@ -46,6 +53,13 @@ pub struct ImportedSymbols {
   pub enums: Vec<ExportedEnum>,
   /// Abstract definitions from loaded modules.
   pub abstract_defs: HashMap<Symbol, AbstractDef>,
+  /// `(Abstract, Type) -> AbstractImpl` rolled-up across
+  /// every transitively-imported module's exports. The
+  /// compiler driver folds these in via
+  /// `fold_imports_into`, raising `DuplicateAbstractImpl`
+  /// against the two defining-module spans whenever a
+  /// collision shows up.
+  pub abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
   /// Generic apply-block bodies recorded by upstream
   /// modules. The compiler runs `splice_generic_bodies`
   /// over this vec against the importing module's `Tree`
@@ -80,6 +94,12 @@ pub struct AnalyzerConfig {
   /// `None` for preload packs / module imports — their
   /// templates never reach the renderer.
   pub source_dir: Option<PathBuf>,
+  /// Absolute path of the source file. Stamped into each
+  /// `AbstractImpl` so the duplicate-impl diagnostic can
+  /// render both colliding modules by name. `None` for
+  /// in-memory fragments (`html_inline`) where no on-disk
+  /// path exists.
+  pub source_path: Option<PathBuf>,
   /// Implicit pack name derived from the file basename
   /// (file-as-pack rule). `None` for entry files
   /// (`lib.zo`, `main.zo`) and library manifests.
@@ -168,6 +188,7 @@ impl<'a> Analyzer<'a> {
         annotations: Vec::new(),
         funs: Vec::new(),
         abstract_defs: HashMap::default(),
+        abstract_impls: HashMap::default(),
         generic_bodies: Vec::new(),
       };
     }
@@ -178,6 +199,7 @@ impl<'a> Analyzer<'a> {
     let AnalyzerConfig {
       imports,
       source_dir,
+      source_path,
       implicit_pack,
       in_scope_packs,
       is_entry: _,
@@ -186,7 +208,8 @@ impl<'a> Analyzer<'a> {
     let imports_empty = imports.funs.is_empty()
       && imports.vars.is_empty()
       && imports.enums.is_empty()
-      && imports.abstract_defs.is_empty();
+      && imports.abstract_defs.is_empty()
+      && imports.abstract_impls.is_empty();
 
     if !imports_empty {
       executor = executor.with_imports(
@@ -194,12 +217,17 @@ impl<'a> Analyzer<'a> {
         imports.vars,
         imports.enums,
         imports.abstract_defs,
+        imports.abstract_impls,
         imports.generic_bodies,
       );
     }
 
     if let Some(dir) = source_dir {
       executor = executor.with_source_dir(dir);
+    }
+
+    if let Some(path) = source_path {
+      executor = executor.with_source_path(path);
     }
 
     if let Some(name) = implicit_pack {
@@ -210,13 +238,20 @@ impl<'a> Analyzer<'a> {
       executor = executor.with_in_scope_packs(in_scope_packs);
     }
 
-    let (sir, annotations, funs, abstract_defs, generic_bodies) =
-      executor.execute();
+    let (
+      sir,
+      annotations,
+      funs,
+      abstract_defs,
+      abstract_impls,
+      generic_bodies,
+    ) = executor.execute();
 
     SemanticResult {
       sir,
       annotations,
       abstract_defs,
+      abstract_impls,
       funs,
       generic_bodies,
     }

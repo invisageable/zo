@@ -1,0 +1,11 @@
+pub struct Score {
+  value: int,
+}
+
+apply Ord for Score {
+  fun cmp(self, other: Score) -> int {
+    if self.value < other.value { return -1; }
+    if self.value > other.value { return 1; }
+    return 0;
+  }
+}
