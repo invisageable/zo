@@ -606,8 +606,13 @@ impl Compiler {
         })
         .analyze();
 
-        let mut exports =
-          extract_exports(mod_sem.sir, None, &session.interner, &mod_sem.funs);
+        let mut exports = extract_exports(
+          mod_sem.sir,
+          None,
+          &session.interner,
+          &mod_sem.funs,
+          mod_sem.generic_bodies,
+        );
 
         // Each pack's SIR starts its own value-id counter
         // AND label counter at 0. On naive concatenation
@@ -732,6 +737,7 @@ impl Compiler {
             None,
             &session.interner,
             &pack_sem.funs,
+            pack_sem.generic_bodies,
           );
 
           // Merge this pack's SIR into the main stream NOW —
@@ -966,6 +972,7 @@ impl Compiler {
         selective.as_deref(),
         &session.interner,
         &mod_semantic.funs,
+        mod_semantic.generic_bodies,
       );
 
       // Selective imports that hit a non-pub item — one

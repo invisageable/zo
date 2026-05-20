@@ -2,6 +2,7 @@ use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
 use zo_ty::TyId;
+use zo_tree::{NodeHeader, NodeValue};
 use zo_value::{FunDef, Pubness, ValueId};
 
 /// An exported compile-time constant from a module.
@@ -38,6 +39,39 @@ pub struct ExportedConst {
   pub value: ValueId,
 }
 
+/// Exported generic apply-block body — the tree subrange the
+/// importing executor needs to re-execute when it encounters
+/// a call to `arr_$::<method>` (or any generic mangled
+/// symbol). Carries everything `reexecute_generic_instantiations`
+/// reads off `self.tree`, so the importer can splice into its
+/// own tree and register a fresh `generic_tree_ranges` entry
+/// pointing at the spliced offset.
+///
+/// @note — `nodes[0]` is the `Fun` introducer; the rest of
+/// the slice walks postorder through the body up to the
+/// closing `}`. Child indices inside the nodes are *absolute*
+/// in the defining module's tree — the splice path adds the
+/// importer's pre-splice `nodes.len()` to rebase them.
+pub struct ExportedGenericBody {
+  /// Mangled apply-level symbol, e.g. `arr_$::first`.
+  pub name: Symbol,
+  /// Body subtree nodes (postorder), cloned from the
+  /// defining module's `Tree::nodes`.
+  pub nodes: Vec<NodeHeader>,
+  /// Spans parallel to `nodes`.
+  pub spans: Vec<Span>,
+  /// Sparse node values keyed by `(absolute_index_in_nodes,
+  /// value)`. The importer rebases the index when splicing.
+  pub node_values: Vec<(u32, NodeValue)>,
+  /// First node index in the defining module's tree — used
+  /// by the importer to compute the rebase offset.
+  pub origin_start: u32,
+  /// Apply-level type params (e.g. `[$T]`) so the importer
+  /// can mirror `apply_type_params` against the spliced
+  /// symbol.
+  pub type_params: Vec<Symbol>,
+}
+
 /// Exported symbols from a compiled module.
 pub struct ModuleExports {
   /// The function definitions.
@@ -67,6 +101,10 @@ pub struct ModuleExports {
   /// only when `selective` is set; consumers iterate this
   /// to emit `PrivateItemInLoad` at the load span.
   pub private_selective_hits: Vec<Symbol>,
+  /// Generic apply-block bodies the importer must splice
+  /// into its own tree to re-execute on mono dispatch. See
+  /// [`ExportedGenericBody`].
+  pub generic_bodies: Vec<ExportedGenericBody>,
 }
 
 /// Extracts pub exports from a compiled module's SIR.
@@ -81,6 +119,7 @@ pub fn extract_exports(
   selective: Option<&str>,
   interner: &Interner,
   src_funs: &[zo_value::FunDef],
+  src_generic_bodies: Vec<ExportedGenericBody>,
 ) -> ModuleExports {
   let mut funs = Vec::new();
   let mut vars = Vec::new();
@@ -297,6 +336,12 @@ pub fn extract_exports(
     .filter(|i| !matches!(i, Insn::EnumDef { .. }))
     .collect();
 
+  // Selective imports filter funs/vars/etc. above, but a
+  // generic apply-block body has no public method name on
+  // its own — it ships with whichever public fun pulled it
+  // in. Pass the bodies through unconditionally; the
+  // importer's mono pipeline only consults them when a
+  // pending instantiation looks them up by mangled symbol.
   ModuleExports {
     funs,
     vars,
@@ -308,5 +353,6 @@ pub fn extract_exports(
     next_label_id: sir.next_label_id,
     re_exports,
     private_selective_hits,
+    generic_bodies: src_generic_bodies,
   }
 }

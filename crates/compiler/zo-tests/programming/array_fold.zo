@@ -1,0 +1,17 @@
+fun main() {
+  imu nums: []int = [1, 2, 3, 4, 5];
+
+  imu total: int = nums.fold(0, fn(acc, x) => acc + x);
+  showln(total);
+
+  imu product: int = nums.fold(1, fn(acc, x) => acc * x);
+  showln(product);
+
+  imu count: int = nums.fold(0, fn(acc, x) => acc + 1);
+  showln(count);
+}
+
+-- EXPECTED OUTPUT:
+-- 15
+-- 120
+-- 5

@@ -1,7 +1,7 @@
 use zo_error::{Error, ErrorKind};
 use zo_executor::{AbstractDef, Executor};
 use zo_interner::{Interner, Symbol};
-use zo_module_resolver::ExportedEnum;
+use zo_module_resolver::{ExportedEnum, ExportedGenericBody};
 use zo_reporter::{error_count, report_error};
 use zo_sir::Sir;
 use zo_token::{LiteralStore, Token};
@@ -25,6 +25,11 @@ pub struct SemanticResult {
   pub funs: Vec<FunDef>,
   /// Abstract definitions from the executor.
   pub abstract_defs: HashMap<Symbol, AbstractDef>,
+  /// Generic apply-block bodies recorded during this run —
+  /// the importer splices each into its own tree to make
+  /// `arr_$::method` instantiations re-executable across
+  /// module boundaries (PLAN_CROSS_MODULE_GENERICS).
+  pub generic_bodies: Vec<ExportedGenericBody>,
 }
 
 /// Imported module symbols to pre-load into the executor.
@@ -147,6 +152,7 @@ impl<'a> Analyzer<'a> {
         annotations: Vec::new(),
         funs: Vec::new(),
         abstract_defs: HashMap::default(),
+        generic_bodies: Vec::new(),
       };
     }
 
@@ -187,13 +193,15 @@ impl<'a> Analyzer<'a> {
       executor = executor.with_in_scope_packs(in_scope_packs);
     }
 
-    let (sir, annotations, funs, abstract_defs) = executor.execute();
+    let (sir, annotations, funs, abstract_defs, generic_bodies) =
+      executor.execute();
 
     SemanticResult {
       sir,
       annotations,
       abstract_defs,
       funs,
+      generic_bodies,
     }
   }
 }

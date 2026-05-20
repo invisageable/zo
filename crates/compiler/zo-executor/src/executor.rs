@@ -14,6 +14,7 @@ use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, FloatWidth, Mutability, Ty, TyId};
+use zo_module_resolver::ExportedGenericBody;
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
   Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
@@ -439,6 +440,14 @@ pub struct Executor<'a> {
   /// directly instead of cloning-and-rewriting the generic
   /// form's SIR.
   generic_tree_ranges: HashMap<Symbol, (u32, u32)>,
+  /// Generic body subtrees harvested at recording time —
+  /// cloned `(NodeHeader, Span, sparse NodeValue)` triples
+  /// keyed by mangled name. Drained by
+  /// `take_generic_bodies` so the importing module can
+  /// splice each body into its own tree at
+  /// `with_imports` time. Empty until the first
+  /// `execute_apply_block`/`execute_fun` records a generic.
+  recorded_generic_bodies: Vec<ExportedGenericBody>,
   /// Name override applied to the next `execute_fun` call.
   /// Used by the instantiation pass: re-executing a generic
   /// parses the same `Fun` node, which would emit the
@@ -762,6 +771,7 @@ impl<'a> Executor<'a> {
       local_struct_field_tys: HashMap::default(),
       local_struct_type_args: HashMap::default(),
       generic_tree_ranges: HashMap::default(),
+      recorded_generic_bodies: Vec::new(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
       reexecuted_instantiations: HashSet::default(),
@@ -1278,6 +1288,18 @@ impl<'a> Executor<'a> {
     raw.to_string()
   }
 
+  /// Drains the generic-body snapshots recorded during this
+  /// executor's run so the compiler can hand them to
+  /// `extract_exports`. Each call empties the buffer — a
+  /// second call returns an empty vec.
+  ///
+  /// @note — captured at the same site that inserts into
+  /// `generic_tree_ranges`; see PLAN_CROSS_MODULE_GENERICS
+  /// for the splice protocol.
+  pub fn take_generic_bodies(&mut self) -> Vec<ExportedGenericBody> {
+    std::mem::take(&mut self.recorded_generic_bodies)
+  }
+
   /// Pre-populates the executor with imported function
   /// definitions and constants so they're available during
   /// execution.
@@ -1409,6 +1431,7 @@ impl<'a> Executor<'a> {
     Vec<Annotation>,
     Vec<FunDef>,
     HashMap<Symbol, AbstractDef>,
+    Vec<ExportedGenericBody>,
   ) {
     // File = pack by default. When the compiler set an
     // `implicit_pack` (the loaded file is a pack file, not
@@ -1530,7 +1553,13 @@ impl<'a> Executor<'a> {
     // library no one calls shouldn't fail the build.
     self.report_used_link_failures();
 
-    (self.sir, self.annotations, self.funs, self.abstract_defs)
+    (
+      self.sir,
+      self.annotations,
+      self.funs,
+      self.abstract_defs,
+      self.recorded_generic_bodies,
+    )
   }
 
   /// Post-execution walk over SIR. Emits a
@@ -7389,9 +7418,49 @@ impl<'a> Executor<'a> {
     // points at the mangled symbol for the instantiation
     // we're emitting).
     if self.mono_name_override.is_none() {
-      self
-        .generic_tree_ranges
-        .insert(name, (start_idx as u32, end_of_block as u32));
+      let range = (start_idx as u32, end_of_block as u32);
+
+      self.generic_tree_ranges.insert(name, range);
+
+      // Phase 1 of PLAN_CROSS_MODULE_GENERICS: alongside the
+      // tree-range entry an importer would never see (it's
+      // an index into THIS executor's tree), keep an
+      // ExportedGenericBody snapshot the importer can splice
+      // into its own tree. Only generics with type params
+      // need this (non-generic fns are re-emitted directly
+      // from SIR by extract_exports). The body must be
+      // pub — non-pub generics can't be called across the
+      // module boundary anyway, and stripping them keeps
+      // the cross-module wire smaller.
+      if pubness == Pubness::Yes && !self.type_params.is_empty() {
+        let range_start = start_idx as u32;
+        let range_end = end_of_block as u32;
+
+        let nodes = self.tree.nodes[range_start as usize..range_end as usize]
+          .to_vec();
+        let spans = self.tree.spans[range_start as usize..range_end as usize]
+          .to_vec();
+
+        let mut node_values = Vec::new();
+
+        for idx in range_start..range_end {
+          if let Some(value) = self.tree.value(idx) {
+            node_values.push((idx, value));
+          }
+        }
+
+        let type_params: Vec<Symbol> =
+          self.type_params.iter().map(|(sym, _)| *sym).collect();
+
+        self.recorded_generic_bodies.push(ExportedGenericBody {
+          name,
+          nodes,
+          spans,
+          node_values,
+          origin_start: range_start,
+          type_params,
+        });
+      }
     }
 
     // Skip body execution for a generic's outer pass. The
@@ -19482,9 +19551,23 @@ impl<'a> Executor<'a> {
             // Array builtin methods.
             let ms = self.interner.get(method_sym).to_owned();
 
+            // Receiver type lives one slot below the call's
+            // arguments on `ty_stack`. `.map` / `.filter` /
+            // `.any` / `.all` take one arg (the closure), so
+            // `len - 2` is the receiver. `.fold` takes two
+            // (`init`, closure) → `len - 3`. `.push` takes
+            // one (value) → `len - 2`. `.pop` takes none →
+            // `len - 1`. Compute the offset per method so
+            // each branch sees the array, not the args.
+            let recv_offset = match ms.as_str() {
+              "pop" => 1,
+              "fold" => 3,
+              _ => 2,
+            };
+
             if let Some(recv_ty) = self
               .ty_stack
-              .get(self.ty_stack.len().saturating_sub(2))
+              .get(self.ty_stack.len().saturating_sub(recv_offset))
               .copied()
               && matches!(self.ty_checker.kind_of(recv_ty), Ty::Array(_))
             {

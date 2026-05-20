@@ -7887,6 +7887,7 @@ dependencies = [
  "zo-interner",
  "zo-sir",
  "zo-span",
+ "zo-tree",
  "zo-ty",
  "zo-ty-checker",
  "zo-value",
