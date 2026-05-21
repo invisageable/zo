@@ -140,7 +140,9 @@ impl PrettyPrinter {
 
     for insn in sir.instructions.iter() {
       match insn {
-        Insn::FunDef { name, owning_pack, .. } => {
+        Insn::FunDef {
+          name, owning_pack, ..
+        } => {
           if in_function_body {
             self.buffer.newline();
           }
@@ -277,8 +279,7 @@ impl PrettyPrinter {
             Some(pack) => format!("{}::{}", interner.get(*pack), name),
             None => name.to_string(),
           };
-          let call =
-            format!("%{dst} = call {qualified}({})", args.join(", "));
+          let call = format!("%{dst} = call {qualified}({})", args.join(", "));
 
           self.sir_instruction(&call);
         }

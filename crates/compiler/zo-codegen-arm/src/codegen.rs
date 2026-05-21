@@ -1823,7 +1823,12 @@ impl<'a> ARM64Gen<'a> {
     }
 
     match insn {
-      Insn::FunDef { name, params, owning_pack, .. } => {
+      Insn::FunDef {
+        name,
+        params,
+        owning_pack,
+        ..
+      } => {
         let offset = self.emitter.current_offset();
 
         // Strict `(name, owning_pack)` keying — no
@@ -3896,7 +3901,9 @@ impl<'a> ARM64Gen<'a> {
         let adr_pos = self.emitter.current_offset();
 
         self.emitter.emit_adr(X0, 0);
-        self.function_addr_fixups.push((adr_pos, (*callee, *callee_pack)));
+        self
+          .function_addr_fixups
+          .push((adr_pos, (*callee, *callee_pack)));
 
         let runtime_sym = match (kind, n_args) {
           (SpawnKind::Thread, _) => "_zo_task_spawn_thread",
@@ -6860,7 +6867,9 @@ impl<'a> ARM64Gen<'a> {
       self.emitter.emit_adr(X11, 0);
       // Synthetic dispatchers live in the global
       // namespace — they're not pack-owned.
-      self.function_addr_fixups.push((adr_pos, (dispatcher_symbol, None)));
+      self
+        .function_addr_fixups
+        .push((adr_pos, (dispatcher_symbol, None)));
     }
 
     self.emitter.emit_sub_imm(SP, SP, stack_reserve);

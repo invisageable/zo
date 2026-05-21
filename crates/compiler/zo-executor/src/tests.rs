@@ -347,7 +347,7 @@ fn test_main_with_show() {
       // show is an external/builtin function, not defined here
       Insn::Call {
         dst: ValueId(1),
-        name: Symbol(26),       // "show"
+        name: Symbol(26), // "show"
         callee_pack: None,
         args: vec![ValueId(0)], // the string constant
         ty_id: TyId(1),         // unit return type

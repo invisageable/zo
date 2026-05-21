@@ -192,11 +192,8 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
   // pub surface walked twice along different paths);
   // raise `DuplicatePublicName` only against that case
   // when bodies differ.
-  let mut seen_funs: rustc_hash::FxHashSet<(Symbol, Option<Symbol>)> = into
-    .funs
-    .iter()
-    .map(|f| (f.name, f.owning_pack))
-    .collect();
+  let mut seen_funs: rustc_hash::FxHashSet<(Symbol, Option<Symbol>)> =
+    into.funs.iter().map(|f| (f.name, f.owning_pack)).collect();
 
   for fun in &other.funs {
     let key = (fun.name, fun.owning_pack);
@@ -210,10 +207,7 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
     }) {
       // Same `(name, owning_pack)`, different body —
       // genuine collision within the SAME pack.
-      report_error(Error::new(
-        ErrorKind::DuplicatePublicName,
-        fun.span,
-      ));
+      report_error(Error::new(ErrorKind::DuplicatePublicName, fun.span));
     }
   }
 
@@ -818,7 +812,10 @@ impl Compiler {
           ctx.module_next_value_id,
         );
 
-        Sir::offset_labels(&mut exports.sir_instructions, ctx.module_next_label_id);
+        Sir::offset_labels(
+          &mut exports.sir_instructions,
+          ctx.module_next_label_id,
+        );
 
         let mut own_imports = module_exports_to_imports(&exports);
         own_imports.abstract_defs = mod_sem.abstract_defs.clone();
@@ -855,7 +852,6 @@ impl Compiler {
       );
     }
 
-
     // Aggregate folder-namespace exports: every `load X::*;`
     // that expanded into `X/*.zo` children now folds those
     // children's exported scopes back under `X` so the user
@@ -869,7 +865,9 @@ impl Compiler {
         }
       }
 
-      ctx.module_table_per_path.insert(folder_path.clone(), combined);
+      ctx
+        .module_table_per_path
+        .insert(folder_path.clone(), combined);
     }
 
     // Analyze with imported symbols pre-loaded.
@@ -1077,14 +1075,11 @@ impl Compiler {
 
         // Move the cached parse out of the map — the pack
         // compiles exactly once, so it's never read again.
-        let mut pack =
-          ctx.pending_packs.remove(&top).expect("just verified");
+        let mut pack = ctx.pending_packs.remove(&top).expect("just verified");
 
-        let implicit_sym = implicit_pack_for(
-          &pack.path,
-          self.module_resolver.search_paths(),
-        )
-        .map(|stem| session.interner.intern(stem));
+        let implicit_sym =
+          implicit_pack_for(&pack.path, self.module_resolver.search_paths())
+            .map(|stem| session.interner.intern(stem));
 
         let mut pack_imports = ctx.imports.clone();
 
@@ -1127,8 +1122,7 @@ impl Compiler {
         // the SIR / counter fields so a later double-
         // visit (when the user ALSO directly loads the
         // pack) is a no-op rather than a duplicate emit.
-        let mut sir =
-          std::mem::take(&mut pack_exports.sir_instructions);
+        let mut sir = std::mem::take(&mut pack_exports.sir_instructions);
         Sir::offset_value_ids(&mut sir, ctx.module_next_value_id);
         Sir::offset_labels(&mut sir, ctx.module_next_label_id);
         ctx.module_sir_instructions.extend(sir);
@@ -1171,7 +1165,9 @@ impl Compiler {
         &ctx.module_table_per_path,
       );
 
-      ctx.module_table_per_path.insert(module_path.clone(), exported);
+      ctx
+        .module_table_per_path
+        .insert(module_path.clone(), exported);
 
       ctx.module_sir_instructions.extend(exports.sir_instructions);
       ctx.module_next_value_id += exports.next_value_id;
@@ -1205,7 +1201,9 @@ impl Compiler {
         .resolve(&module_path, &session.interner);
 
       match resolved {
-        Some(m) => (m.source.clone(), m.selective_symbol.clone(), m.path.clone()),
+        Some(m) => {
+          (m.source.clone(), m.selective_symbol.clone(), m.path.clone())
+        }
         None => {
           // Folder namespace: a `load X::*;` whose tail
           // is a directory expands into one file-load
@@ -1229,12 +1227,8 @@ impl Compiler {
               child_path.push(stem_sym);
               child_paths.push(child_path.clone());
 
-              self.compile_module_recursive(
-                ctx,
-                session,
-                child_path,
-                load_span,
-              );
+              self
+                .compile_module_recursive(ctx, session, child_path, load_span);
             }
 
             ctx
@@ -1415,10 +1409,7 @@ impl Compiler {
       }
     }
 
-    Sir::offset_labels(
-      &mut exports.sir_instructions,
-      ctx.module_next_label_id,
-    );
+    Sir::offset_labels(&mut exports.sir_instructions, ctx.module_next_label_id);
 
     let mut own_imports = module_exports_to_imports(&exports);
     own_imports.abstract_defs = mod_semantic.abstract_defs.clone();

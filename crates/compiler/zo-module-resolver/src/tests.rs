@@ -49,21 +49,15 @@ fn build_origin_body(
 
   let fn_sym = interner.intern("first");
   let n_fun = tree.push_node(Token::Fun, span);
-  let _n_name = tree.push_node_with_value(
-    Token::Ident,
-    span,
-    NodeValue::Symbol(fn_sym),
-  );
+  let _n_name =
+    tree.push_node_with_value(Token::Ident, span, NodeValue::Symbol(fn_sym));
 
   // Literal `0` lives at index `lit_idx` in the origin's
   // `LiteralStore` — the splice has to remap it to the
   // host's store.
   let lit_idx = literals.push_int(0);
-  let n_int = tree.push_node_with_value(
-    Token::Int,
-    span,
-    NodeValue::Literal(lit_idx),
-  );
+  let n_int =
+    tree.push_node_with_value(Token::Int, span, NodeValue::Literal(lit_idx));
 
   let n_return = tree.push_node(Token::Return, span);
 
@@ -78,10 +72,10 @@ fn build_origin_body(
   let origin_end = tree.nodes.len() as u32;
 
   // Clone the subrange into the export payload.
-  let body_nodes = tree.nodes[origin_start as usize..origin_end as usize]
-    .to_vec();
-  let body_spans = tree.spans[origin_start as usize..origin_end as usize]
-    .to_vec();
+  let body_nodes =
+    tree.nodes[origin_start as usize..origin_end as usize].to_vec();
+  let body_spans =
+    tree.spans[origin_start as usize..origin_end as usize].to_vec();
 
   let mut body_values = Vec::new();
 
@@ -126,8 +120,7 @@ fn splice_round_trip_keeps_parent_child_edges_in_range() {
   let mut interner = Interner::new();
   let mut origin_literals = LiteralStore::new();
 
-  let (_origin, body) =
-    build_origin_body(&mut interner, &mut origin_literals);
+  let (_origin, body) = build_origin_body(&mut interner, &mut origin_literals);
   let (mut host, mut host_literals) = build_host_tree();
 
   let host_pre_splice_len = host.nodes.len();
@@ -307,14 +300,8 @@ fn extract_exports_round_trips_abstract_impls() {
     },
   );
 
-  let exports = extract_exports(
-    Sir::new(),
-    None,
-    &interner,
-    &[],
-    Vec::new(),
-    src_impls,
-  );
+  let exports =
+    extract_exports(Sir::new(), None, &interner, &[], Vec::new(), src_impls);
 
   assert_eq!(
     exports.abstract_impls.len(),
@@ -368,8 +355,5 @@ fn extract_exports_filters_abstract_impls_on_selective_load() {
     1,
     "selective `load M::(Point);` keeps only `(_, Point)` impls",
   );
-  assert!(
-    exports.abstract_impls.contains_key(&(eq_sym, point_sym)),
-  );
+  assert!(exports.abstract_impls.contains_key(&(eq_sym, point_sym)),);
 }
-

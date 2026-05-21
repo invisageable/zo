@@ -238,14 +238,8 @@ impl<'a> Analyzer<'a> {
       executor = executor.with_in_scope_packs(in_scope_packs);
     }
 
-    let (
-      sir,
-      annotations,
-      funs,
-      abstract_defs,
-      abstract_impls,
-      generic_bodies,
-    ) = executor.execute();
+    let (sir, annotations, funs, abstract_defs, abstract_impls, generic_bodies) =
+      executor.execute();
 
     SemanticResult {
       sir,

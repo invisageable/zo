@@ -3,6 +3,7 @@ use zo_error::{Error, ErrorKind};
 use zo_interner::{
   DenseMap, Interner, ScopeMark, ScopedDenseMap, Sentinel, Symbol,
 };
+use zo_module_resolver::{AbstractImpl, ExportedGenericBody, ExportedLiteral};
 use zo_reporter::report_error;
 use zo_sir::{
   BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
@@ -14,7 +15,6 @@ use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, FloatWidth, Mutability, Ty, TyId};
-use zo_module_resolver::{AbstractImpl, ExportedGenericBody, ExportedLiteral};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
   Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
@@ -1235,11 +1235,7 @@ impl<'a> Executor<'a> {
   /// bare-name index. Two modules can both expose a
   /// `pub fun process` and stay disambiguated here even
   /// though `fun_by_name` only retains the last write.
-  fn find_fun_in_pack(
-    &self,
-    pack: Symbol,
-    name: Symbol,
-  ) -> Option<&FunDef> {
+  fn find_fun_in_pack(&self, pack: Symbol, name: Symbol) -> Option<&FunDef> {
     self
       .pack_fun_by_name
       .get(&(pack, name))
@@ -1293,10 +1289,7 @@ impl<'a> Executor<'a> {
   /// vars from function-body HM generalization so a
   /// ternary unifying `Option<int>` and `Option<str>`
   /// doesn't accidentally fix `$T`.
-  fn intern_imported_enum(
-    &mut self,
-    en: &zo_module_resolver::ExportedEnum,
-  ) {
+  fn intern_imported_enum(&mut self, en: &zo_module_resolver::ExportedEnum) {
     if self.has_enum(en.name) {
       return;
     }
@@ -7636,8 +7629,7 @@ impl<'a> Executor<'a> {
     // dispatcher can link against them. Mirrors Rust /
     // C# / Java visibility rules — you can't satisfy a
     // public abstract with a private method.
-    let pubness = if self.is_pub(start_idx)
-      || self.apply_abstract_for.is_some()
+    let pubness = if self.is_pub(start_idx) || self.apply_abstract_for.is_some()
     {
       Pubness::Yes
     } else {
@@ -7799,10 +7791,10 @@ impl<'a> Executor<'a> {
         let range_start = start_idx as u32;
         let range_end = end_of_block as u32;
 
-        let nodes = self.tree.nodes[range_start as usize..range_end as usize]
-          .to_vec();
-        let spans = self.tree.spans[range_start as usize..range_end as usize]
-          .to_vec();
+        let nodes =
+          self.tree.nodes[range_start as usize..range_end as usize].to_vec();
+        let spans =
+          self.tree.spans[range_start as usize..range_end as usize].to_vec();
 
         let mut node_values = Vec::new();
         let mut literal_payloads = Vec::new();
@@ -7828,9 +7820,9 @@ impl<'a> Executor<'a> {
           if let NodeValue::Literal(literal_idx) = value {
             let token = self.tree.nodes[idx as usize].token;
             let payload = match token {
-              Token::Int => {
-                ExportedLiteral::Int(self.literals.int_literals[literal_idx as usize])
-              }
+              Token::Int => ExportedLiteral::Int(
+                self.literals.int_literals[literal_idx as usize],
+              ),
               Token::Float => ExportedLiteral::Float(
                 self.literals.float_literals[literal_idx as usize],
               ),
@@ -12947,10 +12939,8 @@ impl<'a> Executor<'a> {
     // importer-side coherence check compares the exact
     // contributions of each defining apply block.
     if let Some(abs_name) = abstract_name {
-      let methods: Vec<Symbol> = self.funs[funs_baseline..]
-        .iter()
-        .map(|f| f.name)
-        .collect();
+      let methods: Vec<Symbol> =
+        self.funs[funs_baseline..].iter().map(|f| f.name).collect();
 
       // Pubness rides off the enclosing pack — if we're
       // inside `pack foo;` (private) the impl stays local,
@@ -12965,8 +12955,7 @@ impl<'a> Executor<'a> {
         .unwrap_or(Pubness::Yes);
 
       let defined_at = self.tree.spans[start_idx];
-      let defining_module =
-        self.source_path.clone().unwrap_or_default();
+      let defining_module = self.source_path.clone().unwrap_or_default();
 
       self.abstract_impls.insert(
         (abs_name, type_name),
@@ -13668,17 +13657,13 @@ impl<'a> Executor<'a> {
             };
             let concretes: Vec<TyId> =
               args.iter().take(func.type_params.len()).copied().collect();
-            let name = self
-              .ty_checker
-              .ty_table
-              .struct_ty(sid)
-              .map(|st| st.name);
+            let name =
+              self.ty_checker.ty_table.struct_ty(sid).map(|st| st.name);
 
             (concretes, name)
           }
           Ty::Array(aid) => {
-            let Some(arr) = self.ty_checker.ty_table.array(aid).copied()
-            else {
+            let Some(arr) = self.ty_checker.ty_table.array(aid).copied() else {
               break 'mono (mangled_name, func.return_ty);
             };
             let arr_sentinel = self.interner.intern("arr_$");
@@ -13949,8 +13934,6 @@ impl<'a> Executor<'a> {
     self.ty_stack.push(elem_ty);
     self.sir_values.push(sv);
   }
-
-
 
   /// Executes `tx.send(value)` — emits `ChannelSend` SIR.
   /// Stack: [..., receiver, value]. One explicit arg.
@@ -18454,8 +18437,7 @@ impl<'a> Executor<'a> {
         });
 
         if let Some((ty_id, value_is_closure)) = local_info {
-          let ty_is_fn =
-            matches!(self.ty_checker.kind_of(ty_id), Ty::Fun(_));
+          let ty_is_fn = matches!(self.ty_checker.kind_of(ty_id), Ty::Fun(_));
 
           if !value_is_closure && !ty_is_fn {
             return None;
@@ -18932,7 +18914,6 @@ impl<'a> Executor<'a> {
 
                 return;
               }
-
             }
 
             // Channel built-in methods: `tx.send(value)` /

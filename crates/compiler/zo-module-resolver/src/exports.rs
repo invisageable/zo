@@ -4,8 +4,8 @@ use zo_reporter::report_error;
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
 use zo_token::LiteralStore;
-use zo_ty::TyId;
 use zo_tree::{NodeHeader, NodeValue, Tree};
+use zo_ty::TyId;
 use zo_value::{FunDef, Pubness, ValueId};
 
 use rustc_hash::FxHashMap;

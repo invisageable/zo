@@ -203,7 +203,9 @@ impl<'a> ARM64Gen<'a> {
         let adr_pos = self.emitter.current_offset();
 
         self.emitter.emit_adr(X9, 0);
-        self.function_addr_fixups.push((adr_pos, (handler_sym, None)));
+        self
+          .function_addr_fixups
+          .push((adr_pos, (handler_sym, None)));
 
         // `br x9` — tail call into the handler.
         self.emitter.emit_br(X9);
