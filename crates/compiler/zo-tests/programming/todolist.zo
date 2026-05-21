@@ -33,7 +33,7 @@ apply Todo {
 fun main() {
   mut todos: []Todo = [];
 
-  todos.push(Todo::new("buy milk"));
+  todos.push(Todo::new("tout baigne!"));
   todos.push(Todo::new("write zo"));
   todos.push(Todo::new("ship MVP"));
 
@@ -51,7 +51,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [ ] buy milk
+-- [ ] tout baigne!
 -- [x] write zo
 -- [ ] ship MVP
 -- ---

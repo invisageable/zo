@@ -1,5 +1,5 @@
-load provider::raylib::*;
 load core::c::*;
+load provider::raylib;
 
 -- raylib — magenta circle tracks the mouse pointer every
 -- frame inside an 800×600 window. Proves Vector2 by-value
@@ -10,21 +10,21 @@ load core::c::*;
 -- exits.
 
 fun main() {
-  init_window(800, 600, CStr::new("zo + raylib — follow mouse"));
-  set_target_fps(60);
+  raylib::init_window(800, 600, CStr::new("zo + raylib — follow mouse"));
+  raylib::set_target_fps(60);
 
   loop {
-    if window_should_close() { break }
-    if is_key_pressed(32)    { break }   -- SPACE.
+    if raylib::window_should_close() { break }
+    if raylib::is_key_pressed(32)    { break }   -- SPACE.
 
-    imu mouse: Vector2 = get_mouse_position();
+    imu mouse: Vector2 = raylib::get_mouse_position();
 
-    begin_drawing();
-      clear_background(0xFFFFFFFF);                            -- white
-      draw_circle_v(mouse, 25.0, 0xFFFD5FF0);                  -- magenta
-      draw_text(CStr::new("follow the mouse"), 12, 12, 24, 0xFF000000);
-    end_drawing();
+    raylib::begin_drawing();
+      raylib::clear_background(0xFFFFFFFF);                            -- white
+      raylib::draw_circle_v(mouse, 25.0, 0xFFFD5FF0);                  -- magenta
+      raylib::draw_text(CStr::new("follow the mouse"), 12, 12, 24, 0xFF000000);
+    raylib::end_drawing();
   }
 
-  close_window();
+  raylib::close_window();
 }

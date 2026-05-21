@@ -2,7 +2,7 @@
 -- find_end, replace, replace_all, exec, captures, split,
 -- free. Covers the production shape we intend to keep.
 
-load core::regex::*;
+load core::regex::(Match, Regex);
 
 fun main() {
   -- Compile + basic match.

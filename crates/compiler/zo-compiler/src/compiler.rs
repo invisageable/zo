@@ -86,35 +86,56 @@ struct PendingPack {
 /// the transitive-load closure.
 pub type LoadRef = zo_span::Spanned<Vec<Symbol>>;
 
-/// File-as-pack rule: returns the implicit pack name for a
-/// loaded module file, or `None` when the file is a package
-/// manifest (`lib.zo`) or a binary entry (`main.zo`).
+/// File-as-pack rule: returns the implicit pack identity
+/// for a loaded module file, or `None` when the file is a
+/// package manifest (`lib.zo`) or a binary entry
+/// (`main.zo`).
 ///
-/// Two cases:
-///   1. File directly under a search-path root (`core/math.zo`)
-///      → use the file stem. Each file is its own pack.
-///   2. File inside a sub-folder namespace
-///      (`provider/raylib/rcore.zo`) → use the parent folder
-///      name. Every `.zo` in that folder shares the pack
-///      identity so `#link` placed in any one file covers all
-///      sibling `pub ffi` declarations.
-fn implicit_pack_for<'a>(
-  path: &'a Path,
-  search_paths: &[PathBuf],
-) -> Option<&'a str> {
+/// The pack identity reflects the file's full relative
+/// position under its search-path root, joined by `::`.
+/// For `core/sys/info.zo` (search root `compiler-lib/core`)
+/// the relative path is `sys/info.zo` and the implicit
+/// pack is `sys::info` — every `pub fun` in that file
+/// registers under owning pack `sys::info`, so
+/// `sys::info::cpu_count()` resolves through the
+/// `pack_fun_by_name` table without the call dispatcher
+/// having to fall back to bare-name lookup.
+///
+/// Three cases:
+///   1. Flat file under the search root (`core/math.zo`)
+///      → `math` — relative parent is empty.
+///   2. One-deep folder file
+///      (`provider/raylib/rcore.zo`) → `raylib::rcore`.
+///   3. Multi-deep folder file
+///      (`core/graphics/misato/scene.zo`) →
+///      `graphics::misato::scene`.
+fn implicit_pack_for(path: &Path, search_paths: &[PathBuf]) -> Option<String> {
   let stem = path.file_stem().and_then(|s| s.to_str())?;
 
   if matches!(stem, "lib" | "main") {
     return None;
   }
 
-  let parent = path.parent()?;
+  // Locate which search-path root contains `path` so the
+  // relative remainder feeds the pack-identity join.
+  // Without this anchor, a file outside the search roots
+  // (the user's project source — `main.zo`) would
+  // misread its filesystem-relative ancestors as pack
+  // segments. Multi-root search paths
+  // (`compiler-lib/core`, `compiler-lib/provider`) each
+  // contribute their own anchor.
+  let matching_root = search_paths.iter().find(|sp| path.starts_with(sp))?;
+  let relative = path.strip_prefix(matching_root).ok()?;
+  let relative_parent = relative.parent()?;
 
-  if search_paths.iter().any(|sp| sp == parent) {
-    return Some(stem);
-  }
+  let mut parts: Vec<String> = relative_parent
+    .components()
+    .filter_map(|c| c.as_os_str().to_str().map(str::to_owned))
+    .collect();
 
-  parent.file_name().and_then(|n| n.to_str())
+  parts.push(stem.to_owned());
+
+  Some(parts.join("::"))
 }
 
 /// Bundle of diagnostic-output toggles, bound from CLI in
@@ -217,7 +238,7 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
 
   for var in &other.vars {
     if seen_vars.insert(var.name) {
-      into.vars.push(var.clone());
+      into.vars.push(*var);
     }
   }
 
@@ -523,6 +544,17 @@ impl Compiler {
 
       let span = tree.spans[i];
       let mut path = Vec::new();
+      // Idents appearing inside `(...)` are SELECTIVE
+      // items (`load core::regex::(Match, Regex);`),
+      // not path segments — they live on the module
+      // surface, not on the filesystem. Mirror
+      // `execute_load`'s in_selective state so the
+      // pre-scan path matches what the resolver
+      // expects (`[core, regex]`, not
+      // `[core, regex, Match, Regex]`). Without this
+      // the resolver chases `core/regex/Match/Regex.zo`
+      // and the load fails as `UnresolvedModule`.
+      let mut in_selective = false;
 
       // Pack files share names with primitives (`int.zo`,
       // `str.zo`, `bool.zo`, `char.zo`) — the tokenizer
@@ -533,12 +565,32 @@ impl Compiler {
           continue;
         };
 
-        if child.token == Token::Ident {
-          if let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32) {
-            path.push(sym);
+        match child.token {
+          Token::LParen => {
+            in_selective = true;
           }
-        } else if let Some(kw) = child.token.ty_keyword_str() {
-          path.push(interner.intern(kw));
+          Token::RParen => {
+            // Selective list ends — anything after the
+            // `)` is a stray token (today's grammar
+            // terminates the load there), so we stop
+            // collecting.
+            break;
+          }
+          Token::Star => {
+            // Glob terminator — path is complete; no
+            // selective items follow.
+            break;
+          }
+          Token::Ident if !in_selective => {
+            if let Some(NodeValue::Symbol(sym)) = tree.value(child_idx as u32) {
+              path.push(sym);
+            }
+          }
+          _ if !in_selective && child.token.ty_keyword_str().is_some() => {
+            let kw = child.token.ty_keyword_str().unwrap();
+            path.push(interner.intern(kw));
+          }
+          _ => {}
         }
       }
 
@@ -751,7 +803,7 @@ impl Compiler {
           &resolved_path,
           self.module_resolver.search_paths(),
         )
-        .map(|stem| session.interner.intern(stem));
+        .map(|stem| session.interner.intern(&stem));
 
         // Seed each preload pack's analyzer with symbols
         // from earlier preload packs so later packs can
@@ -1080,7 +1132,7 @@ impl Compiler {
 
         let implicit_sym =
           implicit_pack_for(&pack.path, self.module_resolver.search_paths())
-            .map(|stem| session.interner.intern(stem));
+            .map(|stem| session.interner.intern(&stem));
 
         let mut pack_imports = ctx.imports.clone();
 
@@ -1347,7 +1399,7 @@ impl Compiler {
   ) {
     let implicit_sym =
       implicit_pack_for(resolved_path, self.module_resolver.search_paths())
-        .map(|stem| session.interner.intern(stem));
+        .map(|stem| session.interner.intern(&stem));
 
     let (mod_tokenization, mod_parsing, _, _) = ctx
       .parse_cache

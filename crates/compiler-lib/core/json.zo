@@ -4,7 +4,7 @@
 -! Rust shim. `0` is the failure sentinel — check via
 -! `is_valid` before calling any other method.
 
-load core::c::*;
+load core::c::(CBytes, CStr);
 
 #link {
   macos: "@executable_path/libzo_provider_json.dylib",

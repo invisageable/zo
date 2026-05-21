@@ -12,6 +12,33 @@ use rustc_hash::FxHashMap;
 
 use std::path::PathBuf;
 
+/// `true` when `name` matches a selective-load filter.
+///
+/// Equality match (`name == filter`) is the obvious
+/// case — `load M::(Json);` picking up the `Json`
+/// struct. The prefix case (`name` starting with
+/// `<filter>::`) lets a selective load of a type
+/// (`load M::(Json);` or the bare `load M::Json;`)
+/// also pull in every `apply <filter> { fun ... }`
+/// method, whose names are mangled as `<filter>::<m>`.
+/// Without this, `Json::parse` would be filtered out
+/// and user code calling `Json::parse(ws)` would fail
+/// with `UndefinedFunction` even though the user
+/// explicitly named the type they wanted.
+fn matches_selective(name: &str, filter: &str) -> bool {
+  if name == filter {
+    return true;
+  }
+
+  if let Some(rest) = name.strip_prefix(filter)
+    && rest.starts_with("::")
+  {
+    return true;
+  }
+
+  false
+}
+
 /// An `abstract` definition — method signatures, no
 /// bodies. Lives here so [`ImportedSymbols`] (the
 /// cross-module symbol bundle) can carry it without
@@ -539,7 +566,7 @@ pub fn extract_exports(
         }
 
         if let Some(filter) = selective
-          && fn_name != filter
+          && !matches_selective(fn_name, filter)
         {
           continue;
         }
@@ -763,7 +790,7 @@ pub fn extract_exports(
     }
 
     if let Some(filter) = selective
-      && name_str != filter
+      && !matches_selective(name_str, filter)
     {
       continue;
     }

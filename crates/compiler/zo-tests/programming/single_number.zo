@@ -8,13 +8,12 @@
 fun single_number(nums: []int, n: int) -> int {
   mut value: int = 0;
   mut i: int = 0;
-
   while i < n {
     value ^= nums[i];
     i += 1;
   }
 
-  return value;
+  value
 }
 
 fun main() {

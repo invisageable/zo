@@ -2,7 +2,6 @@
 
 fun main() {
   mut count: int = 0;
-
   imu counter: </> ::= <>
     <button @click={fn() => count -= 1}>-</button>
     {count}

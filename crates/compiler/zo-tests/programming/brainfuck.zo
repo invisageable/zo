@@ -4,7 +4,6 @@
 fun run(code: str) -> int {
   mut tape: []int = [];
   mut i: int = 0;
-
   while i < 256 {
     tape.push(0);
     i = i + 1;
@@ -12,7 +11,6 @@ fun run(code: str) -> int {
 
   mut ptr: int = 0;
   mut pc: int = 0;
-
   while pc < code.len {
     imu cmd: char = code[pc];
 
@@ -56,13 +54,13 @@ fun run(code: str) -> int {
           }
         }
       },
-      _ => {},
+      _ => { -* TODO: we should avoid this kind of case with an warning with a note *- },
     }
 
     pc = pc + 1;
   }
 
-  return tape[ptr];
+  tape[ptr]
 }
 
 fun main() {

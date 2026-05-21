@@ -6,8 +6,8 @@ load core::graphics::misato::api::*;
 pub struct BoxGeometry { handle: int }
 
 apply BoxGeometry {
-  pub fun new(w: float, h: float, d: float) -> Self {
-    Self { handle = __zo_misato_make_box_geom(w, h, d) }
+  pub fun new(width: float, height: float, d: float) -> Self {
+    Self { handle = __zo_misato_make_box_geom(width, height, d) }
   }
 }
 
@@ -15,6 +15,12 @@ apply BoxGeometry {
 pub struct SphereGeometry { handle: int }
 
 apply SphereGeometry {
+  -! Creates a new `SphereGeometry` instance.
+  -!
+  -! @param radius — The radius.
+  -! @param rings — ....
+  -! @param slices — ....
+  -! @returns The current `SphereGeometry` instance.
   pub fun new(radius: float, rings: int, slices: int) -> Self {
     Self { handle = __zo_misato_make_sphere_geom(radius, rings, slices) }
   }

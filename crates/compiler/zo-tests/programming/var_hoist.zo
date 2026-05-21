@@ -6,7 +6,7 @@ fun main() {
       return outer + 10;
     }
 
-    return outer;
+    outer
   }
 
   check@eq(f(37, x), 20);

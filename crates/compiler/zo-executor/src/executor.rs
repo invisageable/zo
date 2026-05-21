@@ -1575,9 +1575,7 @@ impl<'a> Executor<'a> {
   /// generic bodies (which sit at the tail) are visited only
   /// by the re-execute pass, not the outer walk.
   fn original_tree_len(&self) -> usize {
-    self
-      .splice_boundary
-      .unwrap_or_else(|| self.tree.nodes.len())
+    self.splice_boundary.unwrap_or(self.tree.nodes.len())
   }
 
   fn prescan_fun_signatures(&mut self) {
@@ -3842,7 +3840,13 @@ impl<'a> Executor<'a> {
               // FunDef — skip the undefined-variable report
               // here and let `execute_potential_call` route
               // the RParen through `execute_channel_builtin`.
-            } else if !is_fun && !is_enum && !is_struct && !is_pack {
+            } else if !is_fun
+              && !is_enum
+              && !is_struct
+              && !is_pack
+              && !(next_tok == Some(Token::ColonColon)
+                && self.is_pack_chain_segment(idx))
+            {
               let span = self.tree.spans[idx];
 
               report_error(Error::new(ErrorKind::UndefinedVariable, span));
@@ -18207,6 +18211,39 @@ impl<'a> Executor<'a> {
     self.lookup_local(root_sym).is_none()
   }
 
+  /// `true` when the `Ident` at `idx` is an interior /
+  /// trailing segment of a `pack::sub::leaf` chain whose
+  /// leftmost segment is a declared pack name (and not
+  /// shadowed by a live local). Symmetric to
+  /// `is_pack_chain_dot` for `Token::Dot` chains —
+  /// suppresses `UndefinedVariable` on middle segments
+  /// that the analyzer wouldn't otherwise recognize
+  /// (e.g. `info` in `sys::info::cpu_count()` when only
+  /// `sys` is loaded). Genuine typos (`Bad::field` where
+  /// `Bad` is neither a pack nor an enum nor a struct)
+  /// keep firing the diagnostic because their chain
+  /// root fails the pack-membership check.
+  fn is_pack_chain_segment(&self, idx: usize) -> bool {
+    let mut cursor = idx;
+
+    while cursor >= 2
+      && self.tree.nodes[cursor - 1].token == Token::ColonColon
+      && self.tree.nodes[cursor - 2].token == Token::Ident
+    {
+      cursor -= 2;
+    }
+
+    if cursor == idx {
+      return false;
+    }
+
+    let Some(NodeValue::Symbol(root_sym)) = self.node_value(cursor) else {
+      return false;
+    };
+
+    self.pack_names.contains(&root_sym) && self.lookup_local(root_sym).is_none()
+  }
+
   /// Walk back the pack-dot chain ending at `dot_idx` and
   /// return the tree index of the root Ident (the pack
   /// name) if the chain roots in a declared pack. Used by
@@ -18371,6 +18408,122 @@ impl<'a> Executor<'a> {
         && self.has_fun(sym)
       {
         return Some(sym);
+      }
+    }
+
+    None
+  }
+
+  /// Resolves a pack-qualified double-colon call
+  /// (`sys::info::cpu_count(...)`,
+  /// `core::sys::info::cpu_count(...)`) to its
+  /// `(callee_pack, fn_name)` pair so codegen routes
+  /// through the disambiguated `pack_fun_by_name` table.
+  ///
+  /// Symmetric to `resolve_pack_dotted_call` for `.`
+  /// chains, with one structural difference: `::` is an
+  /// infix operator in zo's tree (`<Ident> :: <Ident>`),
+  /// so the rightmost token before `(` is the fn ident
+  /// (NOT the `::` itself). The walker collects every
+  /// `Ident :: Ident :: ... :: fn` segment, joins all
+  /// but the leaf into the compound pack symbol, and
+  /// looks it up against `pack_fun_by_name`.
+  ///
+  /// Longest-suffix matching strips leading segments
+  /// when the full chain doesn't resolve — so
+  /// `core::sys::info::cpu_count()` finds
+  /// `(sys::info, cpu_count)` even though
+  /// `implicit_pack_for` strips the search-root name
+  /// (`core`) from the file's owning pack.
+  ///
+  /// Returns `None` for chains that fail to resolve OR
+  /// for single-segment chains (`info::cpu_count()`) —
+  /// the existing line-18666 path handles those via
+  /// `pack_names` + bare-name fallback.
+  fn resolve_pack_colon_colon_call(
+    &self,
+    lparen_idx: usize,
+  ) -> Option<(Symbol, Symbol)> {
+    if lparen_idx < 3 {
+      return None;
+    }
+
+    // Leaf fn ident sits immediately before `(`. The
+    // `::` operator precedes it in tree order.
+    if self.tree.nodes[lparen_idx - 1].token != Token::Ident {
+      return None;
+    }
+
+    if self.tree.nodes[lparen_idx - 2].token != Token::ColonColon {
+      return None;
+    }
+
+    let fn_name = match self.node_value(lparen_idx - 1) {
+      Some(NodeValue::Symbol(s)) => s,
+      _ => return None,
+    };
+
+    // Walk back through `<Ident> :: <Ident> :: ...`
+    // collecting every namespace segment. Cursor starts
+    // at the ident BEFORE the rightmost `::`, then steps
+    // back by 2 to skip each prior `::` separator.
+    let mut cursor = lparen_idx - 3;
+    let mut pack_parts: Vec<Symbol> = Vec::new();
+
+    loop {
+      if self.tree.nodes[cursor].token != Token::Ident {
+        return None;
+      }
+
+      let sym = match self.node_value(cursor) {
+        Some(NodeValue::Symbol(s)) => s,
+        _ => return None,
+      };
+
+      pack_parts.push(sym);
+
+      // Continue the chain only if `cursor - 1` is `::`
+      // and `cursor - 2` is another Ident.
+      if cursor < 2 || self.tree.nodes[cursor - 1].token != Token::ColonColon {
+        break;
+      }
+
+      if self.tree.nodes[cursor - 2].token != Token::Ident {
+        break;
+      }
+
+      cursor -= 2;
+    }
+
+    // Single-segment `info::cpu_count` — defer to the
+    // existing path so apply-mangled lookups +
+    // pack_names + bare fallback all still apply.
+    if pack_parts.len() < 2 {
+      return None;
+    }
+
+    // pack_parts is leaf-to-root; reverse for the join.
+    pack_parts.reverse();
+
+    let raw_parts: Vec<String> = pack_parts
+      .iter()
+      .map(|s| self.interner.get(*s).to_owned())
+      .collect();
+
+    // Try the full compound first, then progressively
+    // strip leading segments. This handles writers that
+    // include the search-root name as a leading segment
+    // (`core::sys::info::cpu_count`) — the owning pack
+    // recorded by `implicit_pack_for` drops the search
+    // root, so the full literal won't match; the
+    // skip-1 variant will.
+    for skip in 0..pack_parts.len() {
+      let tail = raw_parts[skip..].join("::");
+
+      if let Some(pack_sym) = self.interner.symbol(&tail)
+        && self.has_fun_in_pack(pack_sym, fn_name)
+      {
+        return Some((pack_sym, fn_name));
       }
     }
 
@@ -18599,6 +18752,25 @@ impl<'a> Executor<'a> {
       // paths apply, there is no implicit argument.
       if let Some(mangled) = self.resolve_pack_dotted_call(lparen_idx) {
         self.execute_call(mangled, lparen_idx, rparen_idx);
+
+        return;
+      }
+
+      // Pack-qualified `::` chain
+      // (`sys::info::cpu_count(...)`,
+      // `core::graphics::misato::scene(...)`). The
+      // resolver returns `(callee_pack, fn_name)` — we
+      // stash the pack as the one-shot hint so
+      // `execute_call` picks the right FunDef out of
+      // `pack_fun_by_name`, then dispatches with the
+      // bare leaf name (the same shape the existing
+      // line-18666 single-segment path uses for
+      // intra-module qualified calls).
+      if let Some((callee_pack, fn_name)) =
+        self.resolve_pack_colon_colon_call(lparen_idx)
+      {
+        self.pending_callee_pack = Some(callee_pack);
+        self.execute_call(fn_name, lparen_idx, rparen_idx);
 
         return;
       }

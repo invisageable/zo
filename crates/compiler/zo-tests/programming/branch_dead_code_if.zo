@@ -6,7 +6,7 @@ fun f() -> int {
     return 42;
   }
 
-  return 0;
+  0
 }
 
 fun main() {

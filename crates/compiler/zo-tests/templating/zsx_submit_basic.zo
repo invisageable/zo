@@ -4,7 +4,6 @@ load core::zsx::*;
 
 fun main() {
   mut text: str = "";
-
   imu view: </> ::= <>
     <input
       value={text}

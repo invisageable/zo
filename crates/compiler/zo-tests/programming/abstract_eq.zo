@@ -8,7 +8,7 @@ struct Point {
 
 apply Eq for Point {
   fun eq(self, other: Point) -> bool {
-    return self.x == other.x;
+    self.x == other.x
   }
 }
 

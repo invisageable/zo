@@ -3,7 +3,6 @@
 
 fun fb(n: int) {
   mut x := 1;
-
   for x := 1..=n {
     match (x % 3, x % 5) {
       (0, 0) => showln("fizzbuzz"),

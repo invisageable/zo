@@ -2,6 +2,5 @@ type Idx = int;
 
 fun main() {
   imu x: Idx = 42;
-
   check@eq(x, 42);
 }

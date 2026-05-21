@@ -1,0 +1,304 @@
+SIR INSTRUCTION STREAM:
+───────────────────────
+  pub pack preload
+  pub load core::arr::*
+  pub load core::assert::*
+  pub load core::bool::*
+  pub load core::char::*
+  pub load core::cmp::*
+  pub load core::fmt::*
+  pub load core::int::*
+  pub load core::io::*
+  pub load core::map::*
+  pub load core::set::*
+  pub load core::str::*
+  pub load core::vec::*
+  pub pack arr
+  arr_ty_def : TyId(29) -> []elem TyId(8)
+  arr_ty_def : TyId(31) -> []elem TyId(30)
+  pub pack assert
+@assert::check:
+  pub pack bool
+  pub pack char
+  pub pack cmp
+  pub pack fmt
+  pub pack int
+  pub pack io
+
+@io::show:
+
+@io::showln:
+
+@io::eshow:
+
+@io::eshowln:
+
+@io::readln:
+
+@io::read:
+
+@io::args:
+
+@io::flush:
+
+@io::read_file:
+
+@io::write_file:
+
+@io::append_file:
+
+@io::exists:
+  arr_ty_def : TyId(72) -> []elem TyId(4)
+  pub pack map
+  pub struct_def HashMap { ptr }
+
+@map::__zo_map_new:
+
+@map::__zo_map_insert:
+
+@map::__zo_map_get:
+
+@map::__zo_map_contains:
+
+@map::__zo_map_remove:
+
+@map::__zo_map_len_raw:
+
+@map::__zo_map_free_raw:
+  pub pack set
+
+@set::__zo_set_new:
+
+@set::__zo_set_insert:
+
+@set::__zo_set_contains:
+
+@set::__zo_set_remove:
+
+@set::__zo_set_len_raw:
+
+@set::__zo_set_free_raw:
+  pub struct_def HashSet { ptr }
+  pub pack str
+
+@str::__zo_str_replace:
+  arr_ty_def : TyId(72) -> []elem TyId(4)
+  pub pack vec
+
+@vec::__zo_vec_new:
+
+@vec::__zo_vec_push:
+
+@vec::__zo_vec_pop:
+
+@vec::__zo_vec_get:
+
+@vec::__zo_vec_set:
+
+@vec::__zo_vec_remove:
+
+@vec::__zo_vec_len_raw:
+
+@vec::__zo_vec_free_raw:
+  pub struct_def Vec { ptr }
+  pub pack c
+  link c macos={ system="@executable_path/libzo_runtime.dylib" } linux={ system="@executable_path/libzo_runtime.so" }
+
+@c::__zo_cstr_from_str:
+
+@c::__zo_str_alloc:
+  pub struct_def CStr { ptr }
+
+@c::CStr::new:
+  %93 = load param[0]
+  %94 = call c::__zo_cstr_from_str(%93)
+  %95 = struct CStr { %94 }
+  ret %95
+  pub struct_def CBytes { ptr, len }
+  pub pack raylib::structs
+  pub struct_def Vector2 { x, y }
+  pub struct_def Vector3 { x, y, z }
+  pub struct_def Vector4 { x, y, z, w }
+  pub struct_def Color {  }
+  pub pack raylib::rcore
+  load core::c::*
+  load provider::raylib::structs::*
+  link raylib::rcore macos={ system="/opt/homebrew/lib/libraylib.dylib" vendor="libraylib.dylib" } linux={ system="/usr/lib/x86_64-linux-gnu/libraylib.so" vendor="libraylib.so" }
+
+@raylib::rcore::init_window:
+
+@raylib::rcore::close_window:
+
+@raylib::rcore::window_should_close:
+
+@raylib::rcore::clear_background:
+
+@raylib::rcore::begin_drawing:
+
+@raylib::rcore::end_drawing:
+
+@raylib::rcore::set_target_fps:
+
+@raylib::rcore::__raylib_get_frame_time_raw:
+
+@raylib::rcore::get_frame_time:
+  %93 = call raylib::rcore::__raylib_get_frame_time_raw()
+  %94 = cast %93 (TyId(15) -> TyId(16))
+  ret %94
+
+@raylib::rcore::get_fps:
+
+@raylib::rcore::is_key_pressed:
+
+@raylib::rcore::get_mouse_position:
+  pub pack raylib::rshape
+  load provider::raylib::structs::*
+
+@raylib::rshape::draw_circle:
+
+@raylib::rshape::draw_circle_v:
+  pub pack raylib::rtext
+  load core::c::*
+
+@raylib::rtext::draw_text:
+  enum_def Option { Some = 0(...), None = 1 }
+  enum_def Result { Pass = 0(...), Fail = 1(...) }
+  pub pack circle
+  load core::c::*
+  load provider::raylib
+
+@circle::main:
+  %0 = const 800 : i32
+  imu width = %0
+  store width, %0
+  %1 = const 600 : i32
+  imu height = %1
+  store height, %1
+  %2 = const 25 : f32
+  imu radius = %2
+  store radius, %2
+  %3 = load local[30]
+  %4 = load local[31]
+  %5 = const "zo + raylib — bounce" : str
+  %6 = call c::CStr::new(%5)
+  %7 = call raylib::rcore::init_window(%3, %4, %6)
+  %8 = const 60 : i32
+  %9 = call raylib::rcore::set_target_fps(%8)
+  %10 = const 400 : f32
+  mut x = %10
+  store x, %10
+  %11 = const 300 : f32
+  mut y = %11
+  store y, %11
+  %12 = const 280 : f32
+  mut dx = %12
+  store dx, %12
+  %13 = const 210 : f32
+  mut dy = %13
+  store dy, %13
+  L0:
+  %14 = call raylib::rcore::window_should_close()
+    br_ifnot %14, L3
+    jmp L1
+  L3:
+  L2:
+  %15 = const 32 : i32
+  %16 = call raylib::rcore::is_key_pressed(%15)
+    br_ifnot %16, L5
+    jmp L1
+  L5:
+  L4:
+  %17 = call raylib::rcore::get_frame_time()
+  imu dt = %17
+  store dt, %17
+  %19 = load local[38]
+  %20 = load local[40]
+  %21 = load local[44]
+  %22 = mul %20, %21
+  %23 = add %19, %22
+  store x, %23
+  %25 = load local[39]
+  %26 = load local[41]
+  %27 = load local[44]
+  %28 = mul %26, %27
+  %29 = add %25, %28
+  store y, %29
+  %30 = load local[38]
+  %31 = load local[32]
+  %32 = lt %30, %31
+    br_ifnot %32, L7
+  %34 = load local[32]
+  store x, %34
+  %36 = const 0 : f32
+  %37 = load local[40]
+  %38 = sub %36, %37
+  store dx, %38
+  L7:
+  L6:
+  %39 = load local[38]
+  %40 = const 800 : f32
+  %41 = load local[32]
+  %42 = sub %40, %41
+  %43 = gt %39, %42
+    br_ifnot %43, L9
+  %45 = const 800 : f32
+  %46 = load local[32]
+  %47 = sub %45, %46
+  store x, %47
+  %49 = const 0 : f32
+  %50 = load local[40]
+  %51 = sub %49, %50
+  store dx, %51
+  L9:
+  L8:
+  %52 = load local[39]
+  %53 = load local[32]
+  %54 = lt %52, %53
+    br_ifnot %54, L11
+  %56 = load local[32]
+  store y, %56
+  %58 = const 0 : f32
+  %59 = load local[41]
+  %60 = sub %58, %59
+  store dy, %60
+  L11:
+  L10:
+  %61 = load local[39]
+  %62 = const 600 : f32
+  %63 = load local[32]
+  %64 = sub %62, %63
+  %65 = gt %61, %64
+    br_ifnot %65, L13
+  %67 = const 600 : f32
+  %68 = load local[32]
+  %69 = sub %67, %68
+  store y, %69
+  %71 = const 0 : f32
+  %72 = load local[41]
+  %73 = sub %71, %72
+  store dy, %73
+  L13:
+  L12:
+  %74 = call raylib::rcore::begin_drawing()
+  %75 = const 4294967295 : i32
+  %76 = call raylib::rcore::clear_background(%75)
+  %77 = load local[38]
+  %78 = cast %77 (TyId(16) -> TyId(8))
+  %79 = load local[39]
+  %80 = cast %79 (TyId(16) -> TyId(8))
+  %81 = load local[32]
+  %82 = const 4294795248 : i32
+  %83 = call raylib::rshape::draw_circle(%78, %80, %81, %82)
+  %84 = const "zo + raylib" : str
+  %85 = call c::CStr::new(%84)
+  %86 = const 12 : i32
+  %87 = const 12 : i32
+  %88 = const 24 : i32
+  %89 = const 4278190080 : i32
+  %90 = call raylib::rtext::draw_text(%85, %86, %87, %88, %89)
+  %91 = call raylib::rcore::end_drawing()
+    jmp L0
+  L1:
+  %92 = call raylib::rcore::close_window()
+  ret void
+

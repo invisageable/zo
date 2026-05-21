@@ -1,6 +1,6 @@
 -- tests-run-pass: monotonic Instant + Duration arithmetic.
 
-load core::time::*;
+load core::time::(Instant, Duration);
 
 fun main() {
   -- Monotonic clock advances.
@@ -27,5 +27,8 @@ fun main() {
   imu now: SystemTime = SystemTime::now();
   check(now.secs > 0);
 
-  showln("time_basic: all checks passed!");
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT
+-- DONE

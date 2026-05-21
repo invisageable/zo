@@ -16,7 +16,7 @@ fun binary_search(data: []int, key: int) -> Option<int> {
     }
   }
 
-  return Option::None;
+  Option::None
 }
 
 fun main() {

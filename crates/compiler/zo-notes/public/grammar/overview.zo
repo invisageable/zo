@@ -696,3 +696,27 @@ fun render(time: float, scene: Scene) {
     mesh.rotation.y = time / 1000;
   }
 }
+
+
+fun main() {
+  imu zsx ::= <></>;
+  return ::= <></>;
+  ::= <></>
+
+  imu hey ::= fn(name: str) :>= <div>{
+    match name {
+      Name::World => world,
+      Name::Custom::(name) => name,
+    }
+  }</div>;
+}
+
+fun foobar(): Zsx {
+  pub $: {
+    a {
+      color: red;
+    }
+  }
+
+  return ::= <a @css="">link</a>;
+}

@@ -116,6 +116,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::ExpectedPrefix => ("expected-prefix", 135),
     ErrorKind::ExpectedPostfix => ("expected-postfix", 136),
     ErrorKind::ParenthesizedCondition => ("parenthesized-condition", 137),
+    ErrorKind::MixedLoopBodyForms => ("mixed-loop-body-forms", 138),
 
     // --- Analyzer: semantic + types (E0300 .. E0499) ---
     ErrorKind::DuplicateDefinition => ("duplicate-definition", 300),

@@ -6,11 +6,11 @@
 -- conversion is visible in SIR.
 
 fun give_f32() -> f32 {
-  return 3.5;
+  3.5
 }
 
 fun take_f64(x: float) -> float {
-  return x + 1.0;
+  x + 1.0
 }
 
 fun main() {

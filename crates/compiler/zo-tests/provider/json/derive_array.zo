@@ -1,4 +1,4 @@
-load core::json::*;
+load core::json::Json;
 
 -- json — array-field derive. Serialize loops over each
 -- element + pushes onto a fresh Json::array(); deserialize

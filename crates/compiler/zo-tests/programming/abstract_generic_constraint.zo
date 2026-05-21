@@ -13,7 +13,7 @@ apply Eq for Point {
 }
 
 fun are_equal<$T: Eq>(a: $T, b: $T) -> bool {
-  return a.eq(b);
+  a.eq(b)
 }
 
 fun main() {

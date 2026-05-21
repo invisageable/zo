@@ -30,8 +30,7 @@ fun main() {
   -- showln(names);
 
   mut m := 0;
-
-  while m < 10 => {
+  while m < 10 {
     match names.pop() {
       Option::Some(_) => m = m + 1,
       Option::None => check(false),

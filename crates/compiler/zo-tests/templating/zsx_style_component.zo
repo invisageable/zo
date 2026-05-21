@@ -15,7 +15,6 @@ $: {
 
 fun main() {
   imu name: str = "world";
-
   imu view: </> ::= <>
     <h1 class="title">hello, {name}!</h1>
     <p class="subtitle">welcome to zo</p>

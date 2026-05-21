@@ -3,7 +3,6 @@
 
 fun main() {
   imu b: bool = true;
-
   match b {
     true => check(true),
     _    => check(false),

@@ -1275,7 +1275,33 @@ impl<'a> ARM64Gen<'a> {
         ..
       } = insn
       {
-        pack_dylib.insert(*pack, self.interner.get(*sym).to_owned());
+        let path = self.interner.get(*sym).to_owned();
+
+        // Fan the dylib path out to every ancestor pack
+        // of `pack`. A `#link` in `provider/raylib/rcore.zo`
+        // emits `Insn::PackLink { pack: raylib::rcore }`,
+        // but sibling files (`rshape.zo`, `rtext.zo`)
+        // have `Insn::FunDef.owning_pack = raylib::rshape`
+        // etc. Without this fan-out, sibling FFIs would
+        // miss the link and dyld would fail at runtime
+        // (`Symbol not found: _DrawCircle`). Mirrors the
+        // old folder-as-pack semantics where every file
+        // under `provider/raylib/` shared one identity —
+        // now expressed as a parent-walk over the
+        // compound pack symbol.
+        let pack_str = self.interner.get(*pack);
+        let mut current: &str = pack_str;
+
+        loop {
+          if let Some(ancestor_sym) = self.interner.symbol(current) {
+            pack_dylib.insert(ancestor_sym, path.clone());
+          }
+
+          match current.rsplit_once("::") {
+            Some((parent, _)) => current = parent,
+            None => break,
+          }
+        }
       }
     }
 
@@ -1315,12 +1341,39 @@ impl<'a> ARM64Gen<'a> {
           self.ffi_link_names.insert(*name, *ln);
         }
 
-        if let Some(pk) = owning_pack
-          && let Some(path) = pack_dylib.get(pk)
-        {
-          let c_sym = c_sym_for(self.interner, *name, *link_name);
+        // Walk up the FFI's pack ancestors to find a
+        // matching `#link` entry. With the link's
+        // fan-out (above), a `#link` declared in
+        // `raylib::rcore` makes pack_dylib hold entries
+        // at `raylib::rcore` AND `raylib`. Sibling FFIs
+        // in `raylib::rshape` direct-lookup misses, but
+        // walking up to `raylib` (the common parent)
+        // hits. The combined fan-out + walk-up meet at
+        // the closest ancestor under which the link
+        // was declared.
+        if let Some(pk) = owning_pack {
+          let pk_str = self.interner.get(*pk);
+          let mut current: &str = pk_str;
 
-          self.extern_dylib_paths.insert(c_sym, path.clone());
+          loop {
+            let resolved = self
+              .interner
+              .symbol(current)
+              .and_then(|s| pack_dylib.get(&s));
+
+            if let Some(path) = resolved {
+              let c_sym = c_sym_for(self.interner, *name, *link_name);
+
+              self.extern_dylib_paths.insert(c_sym, path.clone());
+
+              break;
+            }
+
+            match current.rsplit_once("::") {
+              Some((parent, _)) => current = parent,
+              None => break,
+            }
+          }
         }
       }
     }

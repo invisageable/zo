@@ -2,9 +2,8 @@
 -- @cmd — zo build match_bool_exhaustive.zo
 
 fun main() {
-  imu b: bool = true;
-
-  match b {
+  imu is_empty: bool = true;
+  match is_empty {
     true  => check(true),
     false => check(false),
   }

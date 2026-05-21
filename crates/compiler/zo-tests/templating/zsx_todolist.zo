@@ -3,7 +3,6 @@ load core::zsx::*;
 fun main() {
   mut todos: []str = [];
   mut input_val: str = "";
-
   imu view: </> ::= <>
     <input
       value={input_val}

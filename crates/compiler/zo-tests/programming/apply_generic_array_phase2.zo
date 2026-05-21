@@ -9,7 +9,7 @@
 
 apply []$T {
   fun first(self) -> $T {
-    return self[0];
+    self[0]
   }
 }
 

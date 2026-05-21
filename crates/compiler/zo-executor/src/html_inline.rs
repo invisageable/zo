@@ -70,15 +70,15 @@ pub(crate) fn parse_raw_html(input: &str) -> Vec<UiCommand> {
 
   let mut interner = Interner::new();
   let tokenizer = Tokenizer::new(&wrapped, &mut interner);
-  let mut tokenization = tokenizer.tokenize();
+  let tokenization = tokenizer.tokenize();
   let parser = Parser::new(&tokenization, &wrapped);
-  let mut parsing = parser.parse();
+  let parsing = parser.parse();
   let mut ty_checker = TyChecker::new();
 
   let executor = crate::Executor::new(
-    &mut parsing.tree,
+    &parsing.tree,
     &mut interner,
-    &mut tokenization.literals,
+    &tokenization.literals,
     &mut ty_checker,
   );
 

@@ -154,7 +154,7 @@ fastrand = "2.3.0"
 flume = { version = "0.11.1", default-features = true, features = ["async"] }
 futures = "0.3.31"
 gif = "0.14.0"
-gilrs = "0.11.0"
+gilrs = "0.11.1"
 glyphon = "0.9.0"
 hashbrown = { version = "0.16.0",  default-features = true, features = [
   "rayon",
@@ -185,7 +185,7 @@ num_cpus = "1.17.0"
 # objc = "0.2.7"
 parking_lot = { version = "0.12.5", features = ["nightly"] }
 pdfium-render = "0.9.0"
-postcard = { version = "1.1", default-features = false, features = ["use-std"] }
+postcard = { version = "1.1.3", default-features = false, features = ["use-std"] }
 posthog-rs = "0.6.0"
 profiling = "1.0.17"
 proptest = "1.11.0"
@@ -201,7 +201,7 @@ reqwest = { version = "0.13.3", default-features = false, features = [
   "stream",
 ] }
 resvg = "0.47.0"
-rfd = "0.13"
+rfd = "0.17.2"
 # `bundled` builds sqlite3 from source into the shim
 # dylib — no system libsqlite3 dep, no version skew.
 # Used by `zo-sqlite-shim` to back `std/sqlite.zo`.
@@ -272,7 +272,7 @@ web-sys = { version = "0.3.97", features = [
   "Text",
   "Window",
 ] }
-wide = { version = "1.3.0", features = ["serde"] }
+wide = { version = "1.4.0", features = ["serde"] }
 winit = "0.30.13"
 wry = "0.55.0"
 zmij = "1.0.21"

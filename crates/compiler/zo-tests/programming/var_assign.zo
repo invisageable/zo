@@ -6,7 +6,6 @@ fun main() {
   foobar = foo + bar;
 
   showln("foobar = {foobar}");
-
   showln("DONE");
 }
 

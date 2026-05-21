@@ -1,9 +1,9 @@
--- pub abstract Curve {
---   fun y(self, progress: f32) -> f32;
--- }
+pub abstract Curve {
+  fun y(self, progress: f32) -> f32;
+}
 
--- apply<$T> Curve for $T {
---   fun y(self, progress: f32) -> f32 {
---     self.y(progress)
---   }
--- }
+apply<$T> Curve for $T {
+  fun y(self, progress: f32) -> f32 {
+    self.y(progress)
+  }
+}

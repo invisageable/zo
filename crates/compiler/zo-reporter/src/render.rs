@@ -336,6 +336,9 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::ParenthesizedCondition => {
       "Parentheses are not allowed around conditions"
     }
+    ErrorKind::MixedLoopBodyForms => {
+      "loop body mixes the `=>` and `{ ... }` forms"
+    }
 
     // Module system errors.
     ErrorKind::PackFileNotFound => "Pack file not found",
@@ -495,6 +498,9 @@ fn error_label(kind: ErrorKind) -> &'static str {
       "`=` requires a type annotation; use `:=` to infer"
     }
     ErrorKind::ParenthesizedCondition => "remove these parentheses",
+    ErrorKind::MixedLoopBodyForms => {
+      "drop the `=>` (block form) or replace `{ ... }` with a single expression (line form)"
+    }
     ErrorKind::UnterminatedChar => "unterminated character",
     ErrorKind::InvalidEscapeSequence => "unknown escape code",
     ErrorKind::EmptyCharLiteral | ErrorKind::EmptyCharLit => "empty here",
@@ -584,6 +590,9 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::ParenthesizedCondition => {
       Some("Write `if cond {` instead of `if (cond) {`")
     }
+    ErrorKind::MixedLoopBodyForms => Some(
+      "Block form: `while cond { ... }`. Line form: `while cond => expr`. Pick one — don't mix them as `while cond => { ... }`.",
+    ),
     ErrorKind::InvalidEscapeSequence => Some(
       "Check if you have a typo. If you want a literal backslash,\nuse the double escape `\\\\` instead",
     ),

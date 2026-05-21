@@ -2,8 +2,6 @@
 
 -- TODO: env-var-driven level filter.
 
-load core::io::*;
-
 -! Write a debug-level message to stderr.
 pub fun debug(msg: str) {
   eshowln("[debug] {msg}");

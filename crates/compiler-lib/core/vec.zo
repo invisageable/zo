@@ -58,7 +58,7 @@ apply Vec<$T> {
   -!
   -- codegen-replaced: see `emit_vec_pop`.
   pub fun pop(mut self) -> Option<$T> {
-    return Option::None;
+    Option::None
   }
 
   -! Read the element at `idx`. Returns `Option::Some(v)` on a valid index,
@@ -66,7 +66,7 @@ apply Vec<$T> {
   -!
   -- codegen-replaced: see `emit_vec_get`.
   pub fun get(self, idx: int) -> Option<$T> {
-    return Option::None;
+    Option::None
   }
 
   -! Overwrite the element at `idx`. Returns `true` on success, `false` on 
@@ -74,7 +74,7 @@ apply Vec<$T> {
   -!
   -- codegen-replaced: see `emit_vec_set`.
   pub fun set(mut self, idx: int, v: $T) -> bool {
-    return false;
+    false
   }
 
   -! Remove and return the element at `idx`. Shifts every element after `idx` 
@@ -83,17 +83,17 @@ apply Vec<$T> {
   -!
   -- codegen-replaced: see `emit_vec_remove`.
   pub fun remove(mut self, idx: int) -> Option<$T> {
-    return Option::None;
+    Option::None
   }
 
   -! Number of live elements.
   pub fun len(self) -> int {
-    return __zo_vec_len_raw(self.ptr);
+    __zo_vec_len_raw(self.ptr)
   }
 
   -! `true` when no elements are in the vec.
   pub fun is_empty(self) -> bool {
-    return self.len() == 0;
+    self.len() == 0
   }
 
   -! Release the backing allocation. The receiver must not be used after this 

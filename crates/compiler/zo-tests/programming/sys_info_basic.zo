@@ -1,0 +1,69 @@
+-- tests-run-pass: `core::sys::info` exercises every
+-- runtime export and pins sanity bounds. Values are
+-- non-deterministic (CPU%, mem fluctuate per run), so
+-- assertions check structural invariants instead of
+-- exact equality:
+--   - cpu_count >= 1, mem_total > 0, uptime > 0.
+--   - mem_used <= mem_total, swap_used <= swap_total.
+--   - load_avg_5m >= 0 (Windows reports 0.0; everyone
+--     else returns a real value).
+--
+-- @cmd — zo run sys_info_basic.zo
+--
+-- @note — first cpu_usage() call returns 0.0 by design
+-- (sysinfo delta sampler needs two refreshes spaced by
+-- MINIMUM_CPU_UPDATE_INTERVAL); the check is `>= 0.0`
+-- rather than `> 0.0`.
+
+load core::sys;
+
+fun main() {
+  imu cpus: s64 = sys::info::cpu_count();
+  imu total: s64 = sys::info::mem_total();
+  imu used: s64 = sys::info::mem_used();
+  imu avail: s64 = sys::info::mem_available();
+  imu swap_t: s64 = sys::info::swap_total();
+  imu swap_u: s64 = sys::info::swap_used();
+  imu up: s64 = sys::info::uptime_secs();
+  imu procs: s64 = sys::info::proc_count();
+  imu cpu: float = sys::info::cpu_usage();
+  imu la1: float = sys::info::load_avg_1m();
+  imu la5: float = sys::info::load_avg_5m();
+  imu la15: float = sys::info::load_avg_15m();
+
+  showln("cpu_count    = {cpus}");
+  showln("mem_total    = {total}");
+  showln("mem_used     = {used}");
+  showln("mem_avail    = {avail}");
+  showln("swap_total   = {swap_t}");
+  showln("swap_used    = {swap_u}");
+  showln("uptime_secs  = {up}");
+  showln("proc_count   = {procs}");
+  showln("cpu_usage    = {cpu}");
+  showln("load_avg_1m  = {la1}");
+  showln("load_avg_5m  = {la5}");
+  showln("load_avg_15m = {la15}");
+
+  -- Counts must be positive on any real machine.
+  check@ge(cpus, 1);
+  check@gt(total, 0);
+  check@gt(up, 0);
+  check@gt(procs, 0);
+
+  -- Used memory can't exceed total; same for swap.
+  check@le(used, total);
+  check@le(swap_u, swap_t);
+
+  -- CPU% is bounded — first-call value is 0 by design, so the lower bound is
+  -- inclusive.
+  check@ge(cpu, 0.0);
+  check@le(cpu, 100.0);
+
+  -- Load averages are non-negative; Windows reports 0.0 on all three, every
+  -- other OS returns a real value.
+  check@ge(la1, 0.0);
+  check@ge(la5, 0.0);
+  check@ge(la15, 0.0);
+
+  showln("DONE");
+}

@@ -41,27 +41,27 @@ apply HashSet<$K> {
   -! Insert `k`. Returns `true` if the key was new,
   -! `false` if it was already present.
   pub fun insert(mut self, k: $K) -> bool {
-    return false;
+    false
   }
 
   -! `true` if `k` is in the set.
   pub fun contains(self, k: $K) -> bool {
-    return false;
+    false
   }
 
   -! Remove `k`. Returns `true` on hit, `false` on miss.
   pub fun remove(mut self, k: $K) -> bool {
-    return false;
+    false
   }
 
   -! Number of live entries.
   pub fun len(self) -> int {
-    return __zo_set_len_raw(self.ptr);
+    __zo_set_len_raw(self.ptr)
   }
 
   -! `true` when no keys are present.
   pub fun is_empty(self) -> bool {
-    return self.len() == 0;
+    self.len() == 0
   }
 
   -! Release the backing allocation. The receiver must

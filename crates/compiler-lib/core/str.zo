@@ -37,8 +37,7 @@ apply str {
     }
 
     out.push(self[start..n]);
-
-    return out;
+    out
   }
 
   pub fun lines(self) -> []str {
@@ -78,7 +77,7 @@ apply str {
       out.push(self[start..end]);
     }
 
-    return out;
+    out
   }
 
   pub fun trim(self) -> str {
@@ -111,7 +110,7 @@ apply str {
       }
     }
 
-    return self[lo..hi];
+    self[lo..hi]
   }
 
   -! Index of the first occurrence of `needle` in `self`,
@@ -142,12 +141,12 @@ apply str {
       i = i + 1;
     }
 
-    return -1;
+    -1
   }
 
   -! `true` when `needle` appears anywhere in `self`.
   pub fun contains(self, needle: str) -> bool {
-    return self.index_of(needle) != -1;
+    self.index_of(needle) != -1
   }
 
   -! Parse a decimal integer. Optional leading `'-'`.
@@ -192,7 +191,7 @@ apply str {
       return Option::Some(-acc);
     }
 
-    return Option::Some(acc);
+    Option::Some(acc)
   }
 }
 
@@ -222,6 +221,6 @@ apply Eq for str {
       i = i + 1;
     }
 
-    return true;
+    true
   }
 }

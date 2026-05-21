@@ -1,0 +1,29 @@
+-! # The Constant Curve.
+-!
+-! An algebraic curve of degree zero.
+-!
+-! #### formula.
+-!
+-! `p^0`
+
+load core::easing::curve::Curve;
+
+-- ### The [`None`] Easing Function.
+--
+-- It's used explicitly as a placeholder to informs that an animation is not
+-- currently active. In our case, we define the none constant value to `1`
+-- instead of `minus infinity`.
+pub struct None {}
+
+apply Curve for None {
+  fun y(&self, _progress: f32) -> f32 {
+    1.0
+  }
+}
+
+
+-- test fun test_none() {
+--   check@eq(None.y(0.0), 1.0);
+--   check@eq(None.y(0.5), 1.0);
+--   check@eq(None.y(1.0), 1.0);
+-- }

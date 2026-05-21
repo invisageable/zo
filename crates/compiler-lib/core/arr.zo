@@ -24,12 +24,11 @@ apply []int {
   -! Sum of every element. Empty array returns `0`.
   pub fun sum(self) -> int {
     mut total: int = 0;
-
     for value := self {
       total = total + value;
     }
 
-    return total;
+    total
   }
 
   -! True if the array contains an element equal to `needle`.
@@ -40,13 +39,12 @@ apply []int {
       }
     }
 
-    return false;
+    false
   }
 
   -! Index of the first `needle`, or `-1` if absent.
   pub fun find(self, needle: int) -> int {
     mut position: int = 0;
-
     for value := self {
       if value == needle {
         return position;
@@ -55,7 +53,7 @@ apply []int {
       position = position + 1;
     }
 
-    return -1;
+    -1
   }
 
   -! Minimum element. Empty array returns `0` — callers
@@ -67,14 +65,13 @@ apply []int {
     }
 
     mut min: int = self[0];
-
     for value := self {
       if value < min {
         min = value;
       }
     }
 
-    return min;
+    min
   }
 
   -! Maximum element. Same empty-array caveat as `min_of`.
@@ -84,26 +81,25 @@ apply []int {
     }
 
     mut max: int = self[0];
-
     for value := self {
       if value > max {
         max = value;
       }
     }
 
-    return max;
+    max
   }
 }
 
 apply []$T {
   -! First element. Empty array → undefined.
   pub fun first(self) -> $T {
-    return self[0];
+    self[0]
   }
 
   -! True when no elements.
   pub fun is_empty(self) -> bool {
-    return self.len == 0;
+    self.len == 0
   }
 
   -! True when at least one element satisfies `pred`.
@@ -114,7 +110,7 @@ apply []$T {
       }
     }
 
-    return false;
+    false
   }
 
   -! True when every element satisfies `pred`. Empty
@@ -126,43 +122,40 @@ apply []$T {
       }
     }
 
-    return true;
+    true
   }
 
   -! Keep elements where `pred` returns `true`.
   pub fun filter(self, pred: Fn($T) -> bool) -> []$T {
     mut out: []$T = [];
-
     for value := self {
       if pred(value) {
         out.push(value);
       }
     }
 
-    return out;
+    out
   }
 
   -! Right-fold-into-accumulator. Visits every element in
   -! order, threading `acc` through `f`.
   pub fun fold<$A>(self, init: $A, f: Fn($A, $T) -> $A) -> $A {
     mut acc: $A = init;
-
     for value := self {
       acc = f(acc, value);
     }
 
-    return acc;
+    acc
   }
 
   -! Element-wise transform. Returns a fresh array of
   -! `f(elem)` results.
   pub fun map<$U>(self, f: Fn($T) -> $U) -> []$U {
     mut out: []$U = [];
-
     for value := self {
       out.push(f(value));
     }
 
-    return out;
+    out
   }
 }

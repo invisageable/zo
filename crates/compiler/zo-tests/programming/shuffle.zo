@@ -21,7 +21,7 @@ fun shuffle(nums: []int, n: int) -> []int {
     count = count + 1;
   }
 
-  return ans;
+  ans
 }
 
 fun main() {

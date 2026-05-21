@@ -12,7 +12,7 @@ struct Point {
 
 apply Display for Point {
   fun display(self) -> str {
-    return "point";
+    "point"
   }
 }
 

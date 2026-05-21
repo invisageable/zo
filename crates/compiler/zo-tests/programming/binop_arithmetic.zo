@@ -1,19 +1,19 @@
 -- tests-run-pass: arithmetic.
 
 fun add(a: int, b: int) -> int {
-  return a + b;
+  a + b
 }
 
 fun sub(a: int, b: int) -> int {
-  return a - b;
+  a - b
 }
 
 fun mul(a: int, b: int) -> int {
-  return a * b;
+  a * b
 }
 
 fun div(a: int, b: int) -> int {
-  return a / b;
+  a / b
 }
 
 fun main() {

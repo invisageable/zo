@@ -99,7 +99,7 @@ pub fun gcd(a: int, b: int) -> int {
     y = r;
   }
 
-  return x;
+  x
 }
 
 -! Least common multiple of `a` and `b`. Returns `0` when
@@ -114,20 +114,18 @@ pub fun lcm(a: int, b: int) -> int {
   }
 
   mut a_abs: int = a;
-
   if a_abs < 0 {
     a_abs = -a_abs;
   }
 
   mut b_abs: int = b;
-
   if b_abs < 0 {
     b_abs = -b_abs;
   }
 
   imu g: int = gcd(a, b);
 
-  return (a_abs / g) * b_abs;
+  (a_abs / g) * b_abs
 }
 
 -! Integer exponentiation via exponentiation-by-squaring.
@@ -141,7 +139,6 @@ pub fun pow_i(base: int, exp: int) -> int {
   mut result: int = 1;
   mut b: int = base;
   mut e: int = exp;
-
   while e > 0 {
     if e % 2 == 1 {
       result = result * b;
@@ -151,7 +148,7 @@ pub fun pow_i(base: int, exp: int) -> int {
     e = e / 2;
   }
 
-  return result;
+  result
 }
 
 

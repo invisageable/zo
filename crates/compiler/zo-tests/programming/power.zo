@@ -19,7 +19,7 @@ fun power(base: int, exp: int) -> int {
     e = e / 2;
   }
 
-  return result;
+  result
 }
 
 fun main() {

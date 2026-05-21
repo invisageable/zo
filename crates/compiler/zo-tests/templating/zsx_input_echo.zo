@@ -4,7 +4,6 @@ load core::zsx::*;
 
 fun main() {
   mut input_val: str = "";
-
   imu view: </> ::= <>
     <input value={input_val} @input={fn(e) => input_val = e.value} />
     <p>{input_val}</p>

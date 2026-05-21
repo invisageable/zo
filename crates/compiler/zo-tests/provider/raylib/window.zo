@@ -1,5 +1,5 @@
 load core::c::*;
-load provider::raylib::*;
+load provider::raylib;
 
 -- raylib — opens an 800×600 white window with the text
 -- "hello, zo!" at the top-left, runs at 60 FPS.
@@ -9,18 +9,18 @@ load provider::raylib::*;
 -- exits.
 
 fun main() {
-  init_window(800, 600, CStr::new("zo + raylib"));
-  set_target_fps(60);
+  raylib::init_window(800, 600, CStr::new("zo + raylib"));
+  raylib::set_target_fps(60);
 
   loop {
-    if window_should_close() { break }
-    if is_key_pressed(32) { break } -- KEY_SPACE = 32
+    if raylib::window_should_close() { break }
+    if raylib::is_key_pressed(32) { break } -- KEY_SPACE = 32
 
-    begin_drawing();
-      clear_background(0xFF000000);                     -- white
-      draw_text(CStr::new("hello, zo!"), 12, 12, 32, 0xFFFFFFFF);  -- white
-    end_drawing();
+    raylib::begin_drawing();
+      raylib::clear_background(0xFF000000);                     -- white
+      raylib::draw_text(CStr::new("hello, zo!"), 12, 12, 32, 0xFFFFFFFF);  -- white
+    raylib::end_drawing();
   }
 
-  close_window();
+  raylib::close_window();
 }

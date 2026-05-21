@@ -5,7 +5,6 @@ fun sieve(n: int) -> []int {
   -- build is_prime table: index 0..n, all true.
   mut is_prime: []bool = [];
   mut k: int = 0;
-
   while k <= n {
     is_prime.push(true);
     k = k + 1;
@@ -17,7 +16,6 @@ fun sieve(n: int) -> []int {
 
   -- mark composites.
   mut i: int = 2;
-
   while i * i <= n {
     if is_prime[i] {
       mut j: int = i * i;
@@ -34,7 +32,6 @@ fun sieve(n: int) -> []int {
   -- collect primes.
   mut primes: []int = [];
   mut p: int = 2;
-
   while p <= n {
     if is_prime[p] {
       primes.push(p);
@@ -43,7 +40,7 @@ fun sieve(n: int) -> []int {
     p = p + 1;
   }
 
-  return primes;
+  primes
 }
 
 fun main() {
@@ -62,9 +59,7 @@ fun main() {
   -- print all primes.
   mut i: int = 0;
 
-  while i < primes.len {
+  for i := primes {
     showln(primes[i]);
-
-    i = i + 1;
   }
 }

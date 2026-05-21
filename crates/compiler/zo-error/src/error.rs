@@ -307,6 +307,17 @@ pub enum ErrorKind {
 
   // Syntax style errors
   ParenthesizedCondition,
+  /// Raised when `=>` is followed by `{` inside a
+  /// `while` / `for` / `loop` header. The grammar
+  /// keeps the line form (`while cond => expr`) and
+  /// the block form (`while cond { ... }`) disjoint —
+  /// users must pick one shape. Mixing them
+  /// (`while cond => { ... }`) reads as a single-
+  /// expression body whose expression happens to be a
+  /// block, which collapses the two shapes into one
+  /// and erodes the visual cue that distinguishes a
+  /// one-liner from a multi-statement loop.
+  MixedLoopBodyForms,
 
   // linker errors
   LinkerError,

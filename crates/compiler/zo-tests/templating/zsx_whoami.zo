@@ -1,7 +1,7 @@
 fun main() {
   imu href: str = "https://github.com/compilords";
   imu base: str = "compilords";
-  
+
   imu view: </> ::= <h1 class="tsh-tsh">
     x.1.0 Em-ssi Escher dans le Hackerspace <a {href}>@{base}</a>.
   </h1>;

@@ -24,7 +24,7 @@ fun is_ugly(n: int) -> bool {
     x /= 2;
   }
 
-  return x == 1;
+  x == 1
 }
 
 fun main() {

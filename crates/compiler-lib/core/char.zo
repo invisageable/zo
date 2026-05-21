@@ -11,14 +11,14 @@ apply char {
 
   -! True if `self` is an ASCII alphabetic letter.
   pub fun is_alpha(self) -> bool {
-    (self >= 'a' && self <= 'z') || (self >= 'A' && self <= 'Z')
+    self >= 'a' && self <= 'z' || self >= 'A' && self <= 'Z'
   }
 
   -! True if `self` is an ASCII alphanumeric character.
   pub fun is_alphanumeric(self) -> bool {
-    (self >= '0' && self <= '9')
-      || (self >= 'a' && self <= 'z')
-      || (self >= 'A' && self <= 'Z')
+    self >= '0' && self <= '9'
+      || self >= 'a' && self <= 'z'
+      || self >= 'A' && self <= 'Z'
   }
 
   -! True if `self` is an ASCII uppercase letter.

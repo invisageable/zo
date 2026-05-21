@@ -45,7 +45,7 @@ fun main() {
 
   -- grow past initial capacity (16). 32 inserts forces
   -- at least one rehash.
-  for i := 0..32 => {
+  for i := 0..32 {
     check(hashset.insert(i + 100));
   }
 

@@ -19,7 +19,7 @@ fun xor_operation(n: int, start: int) -> int {
     i += 1;
   }
 
-  return value;
+  value
 }
 
 fun main() {

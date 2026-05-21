@@ -2,7 +2,7 @@
 -- @cmd — zo run brent_cycle_detection.zo
 
 fun f(x: int) -> int {
-  return (x * x + 1) % 255;
+  (x * x + 1) % 255
 }
 
 fun brent_lam(x0: int) -> int {
@@ -22,21 +22,20 @@ fun brent_lam(x0: int) -> int {
     lam = lam + 1;
   }
 
-  return lam;
+  lam
 }
 
 fun brent_mu(x0: int, lam: int) -> int {
   mut tortoise: int = x0;
   mut hare: int = x0;
-  mut i: int = 0;
 
-  while i < lam {
+  mut index: int = 0;
+  while index < lam {
     hare = f(hare);
-    i = i + 1;
+    index = index + 1;
   }
 
   mut mu: int = 0;
-
   while tortoise != hare {
     tortoise = f(tortoise);
     hare = f(hare);

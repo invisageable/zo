@@ -74,14 +74,14 @@ apply HashMap<$K, $V> {
   -!
   -- codegen-replaced: see `emit_map_get`.
   pub fun get(self, k: $K) -> Option<$V> {
-    return Option::None;
+    Option::None
   }
 
   -! `true` if `k` is in the map.
   -!
   -- codegen-replaced: see `emit_map_contains`.
   pub fun contains_key(self, k: $K) -> bool {
-    return false;
+    false
   }
 
   -! Remove `k`. Returns `Option::Some(removed_value)`
@@ -91,17 +91,17 @@ apply HashMap<$K, $V> {
   -!
   -- codegen-replaced: see `emit_map_remove`.
   pub fun remove(mut self, k: $K) -> Option<$V> {
-    return Option::None;
+    Option::None
   }
 
   -! Number of live entries.
   pub fun len(self) -> int {
-    return __zo_map_len_raw(self.ptr);
+    __zo_map_len_raw(self.ptr)
   }
 
   -! `true` when no entries are live.
   pub fun is_empty(self) -> bool {
-    return self.len() == 0;
+    self.len() == 0
   }
 
   -! Release the backing allocation. The receiver

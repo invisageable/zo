@@ -19,7 +19,7 @@
 }
 
 
--- raw FFI surface — see `zo-runtime/src/sys.rs`.
+-* raw FFI surface — see `zo-runtime/src/sys.rs`. *-
 
 %% link_name = "zo_sys_cpu_usage".
 pub ffi __zo_sys_cpu_usage() -> f32;

@@ -4,7 +4,7 @@
 -! dotall, `x` extended. `g`/`y`/`u` are accepted for paste-
 -! from-JS compatibility but have no effect.
 
-load core::c::*;
+load core::c::(CBytes, CStr);
 
 #link {
   macos: "@executable_path/libzo_runtime.dylib",

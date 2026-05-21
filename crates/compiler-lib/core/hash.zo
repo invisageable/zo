@@ -1,6 +1,6 @@
 -! Cryptographic digests — SHA-1 and SHA-256.
 
-load core::c::*;
+load core::c::(CStr, CBytes);
 
 #link {
   macos: "@executable_path/libzo_runtime.dylib",

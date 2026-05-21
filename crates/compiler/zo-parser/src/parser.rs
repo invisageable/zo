@@ -1198,6 +1198,25 @@ impl<'a> Parser<'a> {
   fn handle_fat_arrow(&mut self) {
     // Fat arrow marks inline closure body: fn(x) => expr
     self.flush_expr();
+
+    // Grammar: `while`/`for`/`loop` either take the
+    // block form (`while cond { ... }`) OR the line
+    // form (`while cond => expr`) — disjoint. Mixing
+    // them as `while cond => { ... }` reads as a
+    // single-expression body whose expression happens
+    // to be a block, which collapses the two shapes
+    // into one and erases the visual cue. Reject at
+    // parse time so the user picks one form. Closures
+    // (`fn(x) => { ... }`) are unaffected — their
+    // grammar legitimately allows a block as the
+    // expression body.
+    if self.peek() == Some(Token::LBrace)
+      && let Some(introducer) = self.introducer_stack.last()
+      && matches!(introducer.token, Token::While | Token::For | Token::Loop)
+    {
+      self.error_at(ErrorKind::MixedLoopBodyForms, self.pos);
+    }
+
     self.emit_node(Token::FatArrow);
 
     self.state = ParserState::Expression;

@@ -3,7 +3,6 @@
 
 fun main() {
   imu s: str = "hello";
-
   match s {
     "hello" => showln(1),
     "world" => showln(2),
@@ -11,7 +10,6 @@ fun main() {
   }
 
   imu t: str = "world";
-
   match t {
     "hello" => showln(1),
     "world" => showln(2),
@@ -19,7 +17,6 @@ fun main() {
   }
 
   imu u: str = "other";
-
   match u {
     "hello" => showln(1),
     "world" => showln(2),
