@@ -8,14 +8,15 @@ use crate::constants::{
 
 use crate::stage::Stage;
 
-use zo_analyzer::{Analyzer, AnalyzerConfig, ImportedSymbols, SemanticResult};
+use zo_analyzer::{Analyzer, AnalyzerConfig, SemanticResult};
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_dce::Dce;
 use zo_error::{Error, ErrorKind, Severity};
 use zo_interner::Symbol;
 use zo_module_resolver::{
-  ModuleExports, ModuleResolver, extract_exports, splice_generic_bodies,
+  ImportedSymbols, ModuleExports, ModuleResolver, extract_exports,
+  splice_generic_bodies,
 };
 use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;

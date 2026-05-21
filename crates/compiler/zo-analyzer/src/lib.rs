@@ -3,4 +3,4 @@ mod analyzer;
 #[cfg(test)]
 mod tests;
 
-pub use analyzer::{Analyzer, AnalyzerConfig, ImportedSymbols, SemanticResult};
+pub use analyzer::{Analyzer, AnalyzerConfig, SemanticResult};

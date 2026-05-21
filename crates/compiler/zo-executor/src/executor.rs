@@ -3,7 +3,10 @@ use zo_error::{Error, ErrorKind};
 use zo_interner::{
   DenseMap, Interner, ScopeMark, ScopedDenseMap, Sentinel, Symbol,
 };
-use zo_module_resolver::{AbstractImpl, ExportedGenericBody, ExportedLiteral};
+use zo_module_resolver::{
+  AbstractDef, AbstractImpl, AbstractMethod, ExportedGenericBody,
+  ExportedLiteral,
+};
 use zo_reporter::report_error;
 use zo_sir::{
   BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
@@ -591,20 +594,6 @@ pub struct Executor<'a> {
   /// vs `Thread` (fresh OS thread via `spawn thread
   /// fn()`).
   pending_spawn: Option<(usize, usize, SpawnKind)>,
-}
-
-/// An `abstract` definition (method signatures, no bodies).
-#[derive(Clone)]
-pub struct AbstractDef {
-  pub methods: Vec<AbstractMethod>,
-}
-
-/// A single method signature in an abstract definition.
-#[derive(Clone)]
-pub struct AbstractMethod {
-  pub name: Symbol,
-  pub params: Vec<(Symbol, TyId)>,
-  pub return_ty: TyId,
 }
 
 /// Deferred short-circuit operator, finalized when the RHS
@@ -1473,21 +1462,25 @@ impl<'a> Executor<'a> {
   /// definitions and constants so they're available during
   /// execution.
   ///
-  /// Takes every shared collection by reference + the
-  /// per-call `spliced_bodies` by value. The driver no
-  /// longer needs a `mod_imports = ctx.imports.clone()`
-  /// per module — only the slices/maps actually consumed
-  /// by `Executor`'s own ownership semantics get cloned
-  /// here.
+  /// Pre-load every cross-module symbol the executor needs
+  /// to resolve user references. Consumes the bundle by
+  /// value — the executor owns the data from here on, so
+  /// the driver's prior `mod_imports = ctx.imports.clone()`
+  /// per-module dance is gone.
   pub fn with_imports(
     mut self,
-    funs: &[FunDef],
-    vars: &[Local],
-    enums: &[zo_module_resolver::ExportedEnum],
-    abstract_defs: &HashMap<Symbol, AbstractDef>,
-    abstract_impls: &HashMap<(Symbol, Symbol), AbstractImpl>,
-    spliced_bodies: Vec<zo_module_resolver::SplicedGenericBody>,
+    imports: zo_module_resolver::ImportedSymbols,
   ) -> Self {
+    let zo_module_resolver::ImportedSymbols {
+      funs,
+      vars,
+      enums,
+      abstract_defs,
+      abstract_impls,
+      exported_generic_bodies: _,
+      generic_bodies: spliced_bodies,
+    } = imports;
+
     self.fun_by_name.clear();
     self.pack_fun_by_name.clear();
 
@@ -1501,13 +1494,13 @@ impl<'a> Executor<'a> {
       }
     }
 
-    self.funs = funs.to_vec();
+    self.funs = funs;
 
     for v in vars {
-      self.push_local(v.clone());
+      self.push_local(v);
     }
     for (sym, def) in abstract_defs {
-      self.abstract_defs.insert(*sym, def.clone());
+      self.abstract_defs.insert(sym, def);
     }
 
     // Coherence enforcement lives in the driver
@@ -1517,7 +1510,7 @@ impl<'a> Executor<'a> {
     // By the time the entries land here, the driver has
     // already merged + checked; a plain extend is safe.
     for (key, impl_) in abstract_impls {
-      self.abstract_impls.insert(*key, impl_.clone());
+      self.abstract_impls.insert(key, impl_);
     }
 
     // Eagerly intern every imported enum (Option / Result /
@@ -1533,7 +1526,7 @@ impl<'a> Executor<'a> {
     // TyId table, so a second module importing the same
     // enum hits the `has_enum` short-circuit and reuses
     // the first registration.
-    for enum_export in enums {
+    for enum_export in &enums {
       self.intern_imported_enum(enum_export);
     }
 

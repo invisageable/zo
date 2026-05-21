@@ -6,11 +6,28 @@ use zo_span::Span;
 use zo_token::LiteralStore;
 use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::TyId;
-use zo_value::{FunDef, Pubness, ValueId};
+use zo_value::{FunDef, Local, Pubness, ValueId};
 
 use rustc_hash::FxHashMap;
 
 use std::path::PathBuf;
+
+/// An `abstract` definition — method signatures, no
+/// bodies. Lives here so [`ImportedSymbols`] (the
+/// cross-module symbol bundle) can carry it without
+/// pulling `zo-executor` in upstream.
+#[derive(Clone)]
+pub struct AbstractDef {
+  pub methods: Vec<AbstractMethod>,
+}
+
+/// A single method signature in an abstract definition.
+#[derive(Clone)]
+pub struct AbstractMethod {
+  pub name: Symbol,
+  pub params: Vec<(Symbol, TyId)>,
+  pub return_ty: TyId,
+}
 
 /// One `apply Abstract for Type { ... }` registration.
 /// Carries everything an importer needs to fold the impl
@@ -143,6 +160,71 @@ pub struct SplicedGenericBody {
   pub range: (u32, u32),
   pub apply_context: Symbol,
   pub type_params: Vec<Symbol>,
+}
+
+/// Imported module symbols to pre-load into the executor.
+/// Built by the compiler driver (one per loaded module's
+/// transitive scope) and handed straight to
+/// `Executor::with_imports`.
+///
+/// Lives in `zo-module-resolver` rather than `zo-analyzer`
+/// so the executor can consume it by value without
+/// inverting the layering (executor sits below analyzer).
+#[derive(Clone, Default)]
+pub struct ImportedSymbols {
+  /// The function definitions from loaded modules.
+  pub funs: Vec<FunDef>,
+  /// Constants from loaded modules.
+  pub vars: Vec<Local>,
+  /// Enum definitions from loaded modules (raw variant data
+  /// for re-interning in the executor's own TyChecker).
+  pub enums: Vec<ExportedEnum>,
+  /// Abstract definitions from loaded modules.
+  pub abstract_defs: FxHashMap<Symbol, AbstractDef>,
+  /// `(Abstract, Type) -> AbstractImpl` rolled-up across
+  /// every transitively-imported module's exports. The
+  /// compiler driver folds these in via
+  /// `fold_imports_into`, raising `DuplicateAbstractImpl`
+  /// against the two defining-module spans whenever a
+  /// collision shows up.
+  pub abstract_impls: FxHashMap<(Symbol, Symbol), AbstractImpl>,
+  /// Generic apply-block bodies recorded by upstream
+  /// modules. The compiler runs `splice_generic_bodies`
+  /// over this vec against the importing module's `Tree`
+  /// / `LiteralStore` right before constructing the
+  /// `Analyzer`, then stores the post-splice metadata in
+  /// [`Self::generic_bodies`].
+  pub exported_generic_bodies: Vec<ExportedGenericBody>,
+  /// Post-splice metadata for generic apply-block bodies
+  /// the compiler pre-pass already wove into the shared
+  /// `Tree` / `LiteralStore`. The executor registers each
+  /// entry in `generic_tree_ranges` + `apply_type_params`
+  /// at `with_imports` time; the body nodes themselves are
+  /// already live in `Tree`.
+  pub generic_bodies: Vec<SplicedGenericBody>,
+}
+
+impl ImportedSymbols {
+  /// `true` when this scope carries nothing the executor
+  /// needs to register. Drives the `with_imports` skip in
+  /// the analyzer's entry path.
+  ///
+  /// @note — checks `generic_bodies` too. A scope carrying
+  /// only spliced generic bodies (no funs / vars / enums /
+  /// abstracts) would otherwise skip `with_imports`,
+  /// leaving `splice_boundary` + `generic_tree_ranges`
+  /// unpopulated; the main walk would then step past EOF
+  /// into the appended `$T` nodes and raise spurious
+  /// `UndefinedTypeParam` on unrelated user code.
+  pub fn is_empty(&self) -> bool {
+    self.funs.is_empty()
+      && self.vars.is_empty()
+      && self.enums.is_empty()
+      && self.abstract_defs.is_empty()
+      && self.abstract_impls.is_empty()
+      && self.exported_generic_bodies.is_empty()
+      && self.generic_bodies.is_empty()
+  }
 }
 
 /// Splices a batch of `ExportedGenericBody` payloads into

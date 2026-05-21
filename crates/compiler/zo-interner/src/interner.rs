@@ -78,6 +78,7 @@ impl Interner {
     interner.intern_static("type", Symbol::TYPE);
     interner.intern_static("pub", Symbol::PUB);
     interner.intern_static("val", Symbol::VAL);
+    // TODO: intern all keywords.
 
     interner
   }

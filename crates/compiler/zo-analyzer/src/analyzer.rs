@@ -1,8 +1,8 @@
 use zo_error::{Error, ErrorKind};
-use zo_executor::{AbstractDef, Executor};
+use zo_executor::Executor;
 use zo_interner::{Interner, Symbol};
 use zo_module_resolver::{
-  AbstractImpl, ExportedEnum, ExportedGenericBody, SplicedGenericBody,
+  AbstractDef, AbstractImpl, ExportedGenericBody, ImportedSymbols,
 };
 use zo_reporter::{error_count, report_error};
 use zo_sir::Sir;
@@ -10,7 +10,7 @@ use zo_token::{LiteralStore, Token};
 use zo_tree::Tree;
 use zo_ty::Annotation;
 use zo_ty_checker::TyChecker;
-use zo_value::{FunDef, Local};
+use zo_value::FunDef;
 
 use rustc_hash::FxHashMap as HashMap;
 
@@ -39,41 +39,6 @@ pub struct SemanticResult {
   /// `arr_$::method` instantiations re-executable across
   /// module boundaries (PLAN_CROSS_MODULE_GENERICS).
   pub generic_bodies: Vec<ExportedGenericBody>,
-}
-
-/// Imported module symbols to pre-load into the executor.
-#[derive(Clone, Default)]
-pub struct ImportedSymbols {
-  /// The Function definitions from loaded modules.
-  pub funs: Vec<FunDef>,
-  /// Constants from loaded modules.
-  pub vars: Vec<Local>,
-  /// Enum definitions from loaded modules (raw variant data
-  /// for re-interning in the executor's own TyChecker).
-  pub enums: Vec<ExportedEnum>,
-  /// Abstract definitions from loaded modules.
-  pub abstract_defs: HashMap<Symbol, AbstractDef>,
-  /// `(Abstract, Type) -> AbstractImpl` rolled-up across
-  /// every transitively-imported module's exports. The
-  /// compiler driver folds these in via
-  /// `fold_imports_into`, raising `DuplicateAbstractImpl`
-  /// against the two defining-module spans whenever a
-  /// collision shows up.
-  pub abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
-  /// Generic apply-block bodies recorded by upstream
-  /// modules. The compiler runs `splice_generic_bodies`
-  /// over this vec against the importing module's `Tree`
-  /// / `LiteralStore` right before constructing the
-  /// `Analyzer`, then stores the post-splice metadata in
-  /// [`Self::generic_bodies`].
-  pub exported_generic_bodies: Vec<ExportedGenericBody>,
-  /// Post-splice metadata for generic apply-block bodies
-  /// the compiler pre-pass already wove into the shared
-  /// `Tree` / `LiteralStore`. The executor registers each
-  /// entry in `generic_tree_ranges` + `apply_type_params`
-  /// at `with_imports` time; the body nodes themselves are
-  /// already live in `Tree`.
-  pub generic_bodies: Vec<SplicedGenericBody>,
 }
 
 /// Per-call analyzer configuration. Bundles every optional
@@ -183,6 +148,7 @@ impl<'a> Analyzer<'a> {
         self.tree.eof_span(),
       ));
 
+      // TODO: derive default to `SemanticResult` and return `SemanticResult::default()`
       return SemanticResult {
         sir: Sir::new(),
         annotations: Vec::new(),
@@ -205,21 +171,8 @@ impl<'a> Analyzer<'a> {
       is_entry: _,
     } = self.config;
 
-    let imports_empty = imports.funs.is_empty()
-      && imports.vars.is_empty()
-      && imports.enums.is_empty()
-      && imports.abstract_defs.is_empty()
-      && imports.abstract_impls.is_empty();
-
-    if !imports_empty {
-      executor = executor.with_imports(
-        &imports.funs,
-        &imports.vars,
-        &imports.enums,
-        &imports.abstract_defs,
-        &imports.abstract_impls,
-        imports.generic_bodies,
-      );
+    if !imports.is_empty() {
+      executor = executor.with_imports(imports);
     }
 
     if let Some(dir) = source_dir {
