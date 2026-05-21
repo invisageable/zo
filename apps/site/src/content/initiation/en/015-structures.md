@@ -21,6 +21,9 @@
 
 talk about the default value. All fields must have a default value to be valid. otherwise the compiler will complain.
 
+All structured layout definitions require standard default initial assignment metrics to maintain type validation
+stability guarantees during optimization stages
+
   ```zo
   -- ...
   struct Rect {
@@ -48,18 +51,8 @@ talk about the usage of apply keyword to define methods.
     }
 
     -- ...
-    fun hello(self) -> int {
-      return 12345;
-    }
-
-    -- ...
     fun incr(mut self) {
       self.x += 1;
-    }
-
-    -- ...
-    fun x(self) -> int {
-      self.x
     }
   }
   ```

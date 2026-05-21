@@ -1,6 +1,6 @@
 # strings
 
-Sequences of bytes you can store, combine, and index. zo string literals live in the binary's read-only data section — no heap allocation, no copy at startup.
+Lengths are tracked explicitly. Length prefixed layout look like this: `[len:u64][bytes][null]`. Splice, index, and get size in `O(1)` time complexity.
 
   ```zo
   -- What's up, cuh? Remember me? — the string. I'm 
@@ -24,29 +24,14 @@ Sequences of bytes you can store, combine, and index. zo string literals live in
   imu name: str = "johndoe";
   imu full: str = greeting ++ ", " ++ name ++ "!";
   imu title: str = "the " ++ "devolution";
+
+  showln(greeting[0]); -- 'h' (O(1) bounds-checked access)
   ```
-
-The originals are untouched — concatenation produces a new string, never mutates an input.
-
-## indexing
 
   ```zo
-  -- `s[i]` returns the `char` at byte position `i`.
-  -- O(1) — a single byte load, bounds-checked at 
-  -- compile time when the index is known.
-  imu greeting: str = "hello";
-  showln(greeting[0]); -- h
-  showln(greeting[4]); -- o
+  -! ## the capstone.
+  -!
+  -!   - `str` is immutable.
+  -!   - `++` concatenates.
+  -!   - `s[i]` is O(1) char access, bounds-checked.
   ```
-
-## under the hood
-
-zo strings are length-prefixed: `[len:u64][bytes][null]`. The length is always known, so there's no terminator scanning, no `strlen` walk. Indexing, slicing, and length lookups are all O(1).
-
-```zo
--! ## the capstone.
--!
--!   - `str` is immutable.
--!   - `++` concatenates.
--!   - `s[i]` is O(1) char access, bounds-checked.
-```

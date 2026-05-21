@@ -16,7 +16,7 @@ is covered by [generics](#019-generics).
 
   apply Display for Point {
     fun display(self) -> str {
-      return "point";
+      return self.x ++ ", " ++ self.y;
     }
   }
   ```

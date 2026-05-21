@@ -1,24 +1,32 @@
 # concurrency
 
-  ```zo
-  -! zo uses real green threads managed by a single-runtime scheduler.
-  -! Forget async/await function coloring — any function can spawn.
+zo avoids standard async/await architectures entirely, preventing language function coloring. It operates native
+runtime-managed green threads executing safely within structural lexical limits called a nursery . When tasks
+block on channels, the scheduler automatically shifts context execution frames.
 
-  fun fetch_data(id: int) -> str {
-    -- Simulating a blocking call. The scheduler automatically
-    -- swaps to another task while this waits.
-    "data"
+## nursery
+
+  ```zo
+  -! Continuous green-thread orchestration pipelines.
+  -! The nursery container guarantees structured tracking lifecycle limits.
+
+  fun worker(id: int, ch: Tx<int>) {
+    showln("worker {id} spinning up");
+    tx.send(id * 10);
   }
 
   fun main() {
-    -- The nursery enforces structural scoping. Both children
-    -- must complete before execution moves past the block.
+    imu (tx, rx) := channel();
+  
+    -- Nursery block isolates processing scopes structurally.
     nursery {
-      spawn fetch_data(1);
-      spawn fetch_data(2);
-    }
-    
-    showln("Both tasks completed successfully.");
+      spawn worker(1, tx);
+      spawn worker(2, tx);
+    } -- Lexical exit point guarantees both operations have fully wound down.
+
+    imu res1 := rx.recv();
+    imu res2 := rx.recv();
+    showln("collected results: {res1}, {res2}");
   }
   ```
 
@@ -40,22 +48,17 @@ description:
   ```zo
   ```
 
-## nursery
-
-  ```zo
-  ```
-
 ## select
 
   ```zo
+  -- Coordinate channel state changes reactively.
+  select {
+    rx1 => fn(value: int) => showln("chan1: {value}"),
+    rx2 => fn(value: int) => showln("chan2: {value}"),
+  }
   ```
 
 ## thread
-
-  ```zo
-  ```
-
-## spawn
 
   ```zo
   ```
@@ -64,5 +67,3 @@ description:
 
   ```zo
   ```
-
-For everything servers do (web handlers, pipelines, RPC, fan-out fan-in, pubsub, stream processing) zo's model is strictly cleaner than async/await.

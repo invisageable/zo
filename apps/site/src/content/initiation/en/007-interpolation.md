@@ -1,8 +1,8 @@
 # interpolation
 
-Numbers are useless if you can't show them. In zo, you drop values directly into strings with `{variable}` — no format functions, no concatenation. 
+In zo, drop values directly into strings with `{variable}` — no format functions, no allocations at runtime.
 
-> *Interpolation does not allow expressions, like binop, function calls, etc. It needs the variable name.*
+> *Interpolation does not allow full complex expressions (like binary operations or direct function calls). It requires a clean variable identifier name.*
 
   ```zo
   -- Hi, I'm `{}` — a string interpolation. Wrap any 
@@ -13,35 +13,11 @@ Numbers are useless if you can't show them. In zo, you drop values directly into
   showln("hero: {name}, hp: {hp}");
   ```
 
-## multiple values
-
-  ```zo
-  -- Interpolate as many as you like in one go.
-  imu x: int = 10;
-  imu y: int = 12;
-  showln("position: {x}, {y}");
-  ```
-
 ## under the hood
 
-`showln("hp: {hp}")` is NOT a runtime format call. The compiler desugars it:
+The compiler desugars `showln("hp: {hp}")` directly into explicit performance-optimal blocks at compile-time:
 
   ```zo
   show("hp: ");
   showln(hp);
-  ```
-
-Three things this buys you: zero allocations, zero runtime parsing, zero surprises. As fast as writing the calls by hand.
-
-## try this
-
-  - Interpolate a variable that hasn't been declared. Watch the compiler protect you.
-  - Interpolate a `float` and a `bool` — any primitive works.
-
-  ```zo
-  -! ## the capstone.
-  -!
-  -!   - any in-scope variable can be interpolated.
-  -!   - works for any primitive type.
-  -!   - desugared at compile time — no runtime cost.
   ```

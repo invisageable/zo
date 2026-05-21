@@ -35,8 +35,7 @@ Pick the least powerful one that works — that's the zo way.
   -- in the same scope. Each declaration creates a new
   -- variable; the old one is untouched.
   imu x: int = 40;
-  imu x: int = x + 1; -- shadows; new x is 41
-  imu x: int = x + 1; -- shadows again; new x is 42
+  imu x: int = x + 2; -- shadows, new x is 42.
   ```
 
 In this lesson, we wrote every type explicitly (like `: int`). In practice, zo can almost always figure it out. We'll stay explicit for now to help you learn, but soon we'll let the compiler do the heavy lifting in `Inference`.
