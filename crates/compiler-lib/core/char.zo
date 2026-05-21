@@ -6,38 +6,37 @@
 apply char {
   -! True if `self` is an ASCII digit `'0'..'9'`.
   pub fun is_digit(self) -> bool {
-    return self >= '0' && self <= '9';
+    self >= '0' && self <= '9'
   }
 
   -! True if `self` is an ASCII alphabetic letter.
   pub fun is_alpha(self) -> bool {
-    return (self >= 'a' && self <= 'z')
-      || (self >= 'A' && self <= 'Z');
+    (self >= 'a' && self <= 'z') || (self >= 'A' && self <= 'Z')
   }
 
   -! True if `self` is an ASCII alphanumeric character.
   pub fun is_alphanumeric(self) -> bool {
-    return (self >= '0' && self <= '9')
+    (self >= '0' && self <= '9')
       || (self >= 'a' && self <= 'z')
-      || (self >= 'A' && self <= 'Z');
+      || (self >= 'A' && self <= 'Z')
   }
 
   -! True if `self` is an ASCII uppercase letter.
   pub fun is_uppercase(self) -> bool {
-    return self >= 'A' && self <= 'Z';
+    self >= 'A' && self <= 'Z'
   }
 
   -! True if `self` is an ASCII lowercase letter.
   pub fun is_lowercase(self) -> bool {
-    return self >= 'a' && self <= 'z';
+    self >= 'a' && self <= 'z'
   }
 
   -! True if `self` is ASCII whitespace (space, tab, CR, LF).
   pub fun is_whitespace(self) -> bool {
-    return self == ' '
+    self == ' '
       || self == '\t'
       || self == '\n'
-      || self == '\r';
+      || self == '\r'
   }
 
   -! Returns the digit value `0..9` for `'0'..'9'`, else `-1`.
@@ -48,7 +47,7 @@ apply char {
       return (self as int) - ('0' as int);
     }
 
-    return -1;
+    -1
   }
 
   -! ASCII upper-case. Letters in `'a'..'z'` map to
@@ -60,7 +59,7 @@ apply char {
       return ((self as int) - 32) as char;
     }
 
-    return self;
+    self
   }
 
   -! ASCII lower-case. Letters in `'A'..'Z'` map to
@@ -70,6 +69,6 @@ apply char {
       return ((self as int) + 32) as char;
     }
 
-    return self;
+    self
   }
 }

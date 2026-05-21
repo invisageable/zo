@@ -24,11 +24,9 @@ apply []int {
   -! Sum of every element. Empty array returns `0`.
   pub fun sum(self) -> int {
     mut total: int = 0;
-    mut i: int = 0;
 
-    while i < self.len {
-      total = total + self[i];
-      i = i + 1;
+    for value := self {
+      total = total + value;
     }
 
     return total;
@@ -36,14 +34,10 @@ apply []int {
 
   -! True if the array contains an element equal to `needle`.
   pub fun contains(self, needle: int) -> bool {
-    mut i: int = 0;
-
-    while i < self.len {
-      if self[i] == needle {
+    for value := self {
+      if value == needle {
         return true;
       }
-
-      i = i + 1;
     }
 
     return false;
@@ -51,14 +45,14 @@ apply []int {
 
   -! Index of the first `needle`, or `-1` if absent.
   pub fun find(self, needle: int) -> int {
-    mut i: int = 0;
+    mut position: int = 0;
 
-    while i < self.len {
-      if self[i] == needle {
-        return i;
+    for value := self {
+      if value == needle {
+        return position;
       }
 
-      i = i + 1;
+      position = position + 1;
     }
 
     return -1;
@@ -72,18 +66,15 @@ apply []int {
       return 0;
     }
 
-    mut m: int = self[0];
-    mut i: int = 1;
+    mut min: int = self[0];
 
-    while i < self.len {
-      if self[i] < m {
-        m = self[i];
+    for value := self {
+      if value < min {
+        min = value;
       }
-
-      i = i + 1;
     }
 
-    return m;
+    return min;
   }
 
   -! Maximum element. Same empty-array caveat as `min_of`.
@@ -92,18 +83,15 @@ apply []int {
       return 0;
     }
 
-    mut m: int = self[0];
-    mut i: int = 1;
+    mut max: int = self[0];
 
-    while i < self.len {
-      if self[i] > m {
-        m = self[i];
+    for value := self {
+      if value > max {
+        max = value;
       }
-
-      i = i + 1;
     }
 
-    return m;
+    return max;
   }
 }
 
@@ -120,14 +108,10 @@ apply []$T {
 
   -! True when at least one element satisfies `pred`.
   pub fun any(self, pred: Fn($T) -> bool) -> bool {
-    mut i: int = 0;
-
-    while i < self.len {
-      if pred(self[i]) {
+    for value := self {
+      if pred(value) {
         return true;
       }
-
-      i = i + 1;
     }
 
     return false;
@@ -136,14 +120,10 @@ apply []$T {
   -! True when every element satisfies `pred`. Empty
   -! array → true (vacuous truth).
   pub fun all(self, pred: Fn($T) -> bool) -> bool {
-    mut i: int = 0;
-
-    while i < self.len {
-      if !pred(self[i]) {
+    for value := self {
+      if !pred(value) {
         return false;
       }
-
-      i = i + 1;
     }
 
     return true;
@@ -152,14 +132,11 @@ apply []$T {
   -! Keep elements where `pred` returns `true`.
   pub fun filter(self, pred: Fn($T) -> bool) -> []$T {
     mut out: []$T = [];
-    mut i: int = 0;
 
-    while i < self.len {
-      if pred(self[i]) {
-        out.push(self[i]);
+    for value := self {
+      if pred(value) {
+        out.push(value);
       }
-
-      i = i + 1;
     }
 
     return out;
@@ -169,11 +146,9 @@ apply []$T {
   -! order, threading `acc` through `f`.
   pub fun fold<$A>(self, init: $A, f: Fn($A, $T) -> $A) -> $A {
     mut acc: $A = init;
-    mut i: int = 0;
 
-    while i < self.len {
-      acc = f(acc, self[i]);
-      i = i + 1;
+    for value := self {
+      acc = f(acc, value);
     }
 
     return acc;
@@ -183,11 +158,9 @@ apply []$T {
   -! `f(elem)` results.
   pub fun map<$U>(self, f: Fn($T) -> $U) -> []$U {
     mut out: []$U = [];
-    mut i: int = 0;
 
-    while i < self.len {
-      out.push(f(self[i]));
-      i = i + 1;
+    for value := self {
+      out.push(f(value));
     }
 
     return out;

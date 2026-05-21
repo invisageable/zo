@@ -28,6 +28,7 @@ libc = { workspace = true }
 regex = { workspace = true }
 rustc-hash = { workspace = true }
 sha1 = { workspace = true }
+sysinfo = { workspace = true }
 
 # `sha2-asm` (pulled in by `sha2/asm`) ships GNU-syntax `.S`
 # files that MSVC's `cl.exe` can't assemble — Windows CI

@@ -35,10 +35,3 @@ pub enum Result<$T, $E> {
   Pass($T),
   Fail($E),
 }
-
--! Represents a zsx `Event`.
--!
--! @note — Also know as `@input`, `@change`, etc.
-pub struct Event {
-  value: str,
-}

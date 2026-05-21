@@ -1,0 +1,128 @@
+-! sys::info — system-information primitives, backed by
+-! `libzo_runtime`. The runtime side rides the `sysinfo`
+-! crate so every Cranelift target (x86, arm64, Linux,
+-! macOS, Windows) gets correct semantics without per-
+-! target FFI shims.
+-!
+-! `load core::sys::info::*;` is opt-in — programs that
+-! never reference these symbols pay nothing at runtime
+-! (sysinfo's `System::new_all` doesn't initialize).
+-! Memory values are bytes; durations are seconds; CPU
+-! usage is a percentage in `0.0..=100.0`. First
+-! `cpu_usage()` call after process start returns `0.0`
+-! because the sysinfo sampler needs two refreshes spaced
+-! by its minimum-update interval to compute a delta.
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+
+-- raw FFI surface — see `zo-runtime/src/sys.rs`.
+
+%% link_name = "zo_sys_cpu_usage".
+pub ffi __zo_sys_cpu_usage() -> f32;
+
+%% link_name = "zo_sys_cpu_count".
+pub ffi __zo_sys_cpu_count() -> s64;
+
+%% link_name = "zo_sys_mem_total".
+pub ffi __zo_sys_mem_total() -> s64;
+
+%% link_name = "zo_sys_mem_used".
+pub ffi __zo_sys_mem_used() -> s64;
+
+%% link_name = "zo_sys_mem_available".
+pub ffi __zo_sys_mem_available() -> s64;
+
+%% link_name = "zo_sys_swap_total".
+pub ffi __zo_sys_swap_total() -> s64;
+
+%% link_name = "zo_sys_swap_used".
+pub ffi __zo_sys_swap_used() -> s64;
+
+%% link_name = "zo_sys_uptime_secs".
+pub ffi __zo_sys_uptime_secs() -> s64;
+
+%% link_name = "zo_sys_proc_count".
+pub ffi __zo_sys_proc_count() -> s64;
+
+%% link_name = "zo_sys_load_avg_1m".
+pub ffi __zo_sys_load_avg_1m() -> f64;
+
+%% link_name = "zo_sys_load_avg_5m".
+pub ffi __zo_sys_load_avg_5m() -> f64;
+
+%% link_name = "zo_sys_load_avg_15m".
+pub ffi __zo_sys_load_avg_15m() -> f64;
+
+
+-! Current global CPU usage as a percentage in `0.0..=100.0`.
+-!
+-! @note — first call after process start returns `0.0`;
+-! the sysinfo sampler needs two refreshes
+-! `MINIMUM_CPU_UPDATE_INTERVAL` apart to compute a delta.
+pub fun cpu_usage() -> float {
+  __zo_sys_cpu_usage()
+}
+
+-! Number of logical CPUs the OS reports.
+pub fun cpu_count() -> s64 {
+  __zo_sys_cpu_count()
+}
+
+-! Total physical memory in bytes.
+pub fun mem_total() -> s64 {
+  __zo_sys_mem_total()
+}
+
+-! Used physical memory in bytes. Excludes cache / buffers
+-! on Linux.
+pub fun mem_used() -> s64 {
+  __zo_sys_mem_used()
+}
+
+-! Available physical memory in bytes — what the OS would
+-! hand out to a fresh allocator. Distinct from
+-! `total - used` because `used` excludes reclaimable cache.
+pub fun mem_available() -> s64 {
+  __zo_sys_mem_available()
+}
+
+-! Total swap space in bytes. `0` when the OS reports no
+-! swap configured.
+pub fun swap_total() -> s64 {
+  __zo_sys_swap_total()
+}
+
+-! Used swap space in bytes.
+pub fun swap_used() -> s64 {
+  __zo_sys_swap_used()
+}
+
+-! System uptime in whole seconds — process-independent.
+pub fun uptime_secs() -> s64 {
+  __zo_sys_uptime_secs()
+}
+
+-! Number of running processes the OS reports.
+pub fun proc_count() -> s64 {
+  __zo_sys_proc_count()
+}
+
+-! One-minute load average. Windows has no native
+-! load-average reading; returns `0.0` there.
+pub fun load_avg_1m() -> float {
+  __zo_sys_load_avg_1m()
+}
+
+-! Five-minute load average. Windows: `0.0`.
+pub fun load_avg_5m() -> float {
+  __zo_sys_load_avg_5m()
+}
+
+-! Fifteen-minute load average. Windows: `0.0`.
+pub fun load_avg_15m() -> float {
+  __zo_sys_load_avg_15m()
+}

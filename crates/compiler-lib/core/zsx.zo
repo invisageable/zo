@@ -1,0 +1,8 @@
+-! zsx — zo syntax extension types.
+
+-! Represents a zsx `Event`.
+-!
+-! @note — Also known as `@input`, `@change`, etc.
+pub struct Event {
+  value: str,
+}

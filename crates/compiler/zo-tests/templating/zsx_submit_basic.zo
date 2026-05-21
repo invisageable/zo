@@ -1,5 +1,7 @@
 -- test-build-pass: @submit event binds and receives the input's value payload.
 
+load core::zsx::*;
+
 fun main() {
   mut text: str = "";
 

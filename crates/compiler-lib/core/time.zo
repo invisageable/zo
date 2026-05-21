@@ -92,7 +92,10 @@ apply Instant {
 -! Wall-clock time. Subject to system-clock adjustments —
 -! use for timestamps to display / persist, not for
 -! measuring elapsed time.
-pub struct SystemTime { secs: s64, nanos: s64 }
+pub struct SystemTime {
+  secs: s64,
+  nanos: s64,
+}
 
 apply SystemTime {
   pub fun now() -> Self {

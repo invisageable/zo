@@ -1,3 +1,5 @@
+load core::zsx::*;
+
 fun main() {
   mut todos: []str = [];
   mut input_val: str = "";

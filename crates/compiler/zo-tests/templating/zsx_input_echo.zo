@@ -1,6 +1,6 @@
--- test-build-pass: input event with payload echoes the
--- typed value into a reactive text node. Step 2 of
--- PLAN_ZSX_TODOLIST.
+-- test-build-pass: input event with payload.
+
+load core::zsx::*;
 
 fun main() {
   mut input_val: str = "";

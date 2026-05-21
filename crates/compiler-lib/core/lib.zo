@@ -33,7 +33,9 @@ pub pack math;
 pub pack process;
 pub pack random;
 pub pack regex;
+pub pack sys;
 pub pack time;
+pub pack zsx;
 
 
 -* preload:exports. *-

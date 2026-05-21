@@ -228,7 +228,7 @@ sha1 = "0.10.6"
 sha2 = { version = "0.10.9" }
 smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.6", features = ["serde"] }
-sysinfo = "0.38.4"
+sysinfo = "0.39.2"
 target-lexicon = "0.13.5"
 tempfile = "3.27.0"
 thin-vec = "0.2.18"
