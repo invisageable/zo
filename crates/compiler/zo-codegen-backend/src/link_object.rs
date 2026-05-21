@@ -39,8 +39,14 @@ pub struct MachoLinkObject {
   /// regions and string/template trailing data already
   /// concatenated.
   pub code: Vec<u8>,
-  /// Function `Symbol` → byte offset within `code`.
-  pub functions: FxHashMap<Symbol, u32>,
+  /// `(name, owning_pack)` → byte offset within `code`.
+  /// `owning_pack` is `None` for FFI extern symbols,
+  /// `main`, and preload-injected helpers; `Some(pack)`
+  /// for any pack-owned function. Two modules can both
+  /// declare `pub fun process` and stay disambiguated
+  /// without inventing a string-mangled symbol — the
+  /// tuple key is the structural identity.
+  pub functions: FxHashMap<(Symbol, Option<Symbol>), u32>,
   /// Per-string symbol blob, in registration order. The
   /// linker emits these into the rodata section.
   pub string_data: Vec<(Symbol, Vec<u8>)>,
@@ -49,7 +55,10 @@ pub struct MachoLinkObject {
   pub string_fixups: Vec<(u32, Symbol)>,
   /// Code offsets that load a function pointer — patched
   /// at link time to point at the function's TEXT offset.
-  pub function_addr_fixups: Vec<(u32, Symbol)>,
+  /// Keyed by `(name, owning_pack)` so two modules can
+  /// expose the same bare name without one stomping the
+  /// other's address fixup.
+  pub function_addr_fixups: Vec<(u32, (Symbol, Option<Symbol>))>,
   /// Per-template blob, same shape as `string_data`.
   pub template_data: Vec<(Symbol, Vec<u8>)>,
   /// True iff the program emitted at least one template;
@@ -67,8 +76,11 @@ pub struct MachoLinkObject {
   /// after the stubs are placed.
   pub extern_fixups: Vec<(u32, String)>,
   /// Code offsets that branch to a user function — patched
-  /// after every function offset is known.
-  pub call_fixups: Vec<(u32, Symbol)>,
+  /// after every function offset is known. Keyed by
+  /// `(name, owning_pack)` so cross-module qualified
+  /// calls resolve to the correct module's body even
+  /// when two modules share the same bare name.
+  pub call_fixups: Vec<(u32, (Symbol, Option<Symbol>))>,
   /// Byte offset of the `main` function within `code`.
   /// `None` for libraries / programs without a main entry.
   /// Resolved here so the linker doesn't need an interner

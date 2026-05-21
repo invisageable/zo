@@ -1,0 +1,11 @@
+load alpha::*;
+load beta::*;
+
+fun main() {
+  showln(alpha::process());
+  showln(beta::process());
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 99

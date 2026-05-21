@@ -279,6 +279,15 @@ pub struct FunDef {
   /// `false`. Read at every dot-call site to verify the
   /// receiver's binding is `mut`.
   pub mut_self: bool,
+  /// The pack this function was declared inside (or
+  /// `None` for top-level/global decls: `main`, FFI
+  /// externs, preload-injected helpers). Threaded through
+  /// `with_imports` so cross-module name-mangling
+  /// survives the import boundary — without this field,
+  /// imported FunDefs forget their owning module and
+  /// `(pack, name)`-keyed lookups collapse to bare-name
+  /// collisions.
+  pub owning_pack: Option<Symbol>,
   /// Source span of the function's introducer. Propagated
   /// to `Insn::FunDef::span` at emission time so DCE,
   /// unused-fn warnings, and rationale notes can anchor

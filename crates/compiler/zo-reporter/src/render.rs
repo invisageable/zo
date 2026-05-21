@@ -405,7 +405,12 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
       "conflicting `apply Abstract for Type` — two modules declared an \
        implementation of the same abstract for the same target type"
     }
-
+    ErrorKind::DuplicatePublicName => {
+      "two transitively-loaded modules expose a public item under the \
+       same name — rename one of the items or use a selective \
+       `load M::(specific_name);` so the consumer picks an explicit \
+       winner"
+    }
     // Rationale notes (severity = Note, emitted only with
     // `--explain-decisions`).
     ErrorKind::DeadCodeEliminated => "dead code eliminated",

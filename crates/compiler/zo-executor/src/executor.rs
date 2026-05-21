@@ -206,6 +206,26 @@ pub struct Executor<'a> {
   /// pattern that recurred at 20+ sites and made every
   /// name resolution O(|funs|).
   fun_by_name: DenseMap<Symbol, FunIdx>,
+  /// Pack-qualified function lookup keyed by
+  /// `(owning_pack, name)`. Populated alongside
+  /// `fun_by_name` whenever a `FunDef.owning_pack` is
+  /// `Some(_)`. Cross-module qualified calls
+  /// (`alpha::process()`) consult this table directly so
+  /// two modules can both declare `pub fun process`
+  /// without colliding on the bare-name index.
+  pack_fun_by_name: HashMap<(Symbol, Symbol), FunIdx>,
+  /// One-shot pack hint set by the qualified-call
+  /// resolution (`alpha::process()`) right before
+  /// `execute_call` runs. `execute_call` reads this to
+  /// pick the right `FunDef` from `pack_fun_by_name`
+  /// (the bare `fun_by_name` is last-write-wins and
+  /// can't disambiguate cross-module name collisions),
+  /// stamps the value onto `Insn::Call.callee_pack` so
+  /// codegen forms a unique label, then clears the
+  /// hint. `None` selects bare-name resolution — the
+  /// path every intra-module / FFI / preload call
+  /// already uses.
+  pending_callee_pack: Option<Symbol>,
   /// Current function context (if we're inside a function)
   current_function: Option<FunCtx>,
   /// Save-stack for nested `fun` inside a function body.
@@ -295,10 +315,6 @@ pub struct Executor<'a> {
   /// `interner.get(...).to_owned()` + `==` pattern that
   /// recurred at every enum reference and match arm.
   enum_def_by_name: DenseMap<Symbol, EnumIdx>,
-  /// Imported enum defs awaiting lazy interning. Populated
-  /// by `with_imports`, consumed by `execute_enum_access`
-  /// on first reference.
-  pending_imported_enums: Vec<zo_module_resolver::ExportedEnum>,
   /// Concrete type args from the last ext function call
   /// with a parameterized return type. Consumed by the
   /// match handler to type bindings correctly.
@@ -783,6 +799,8 @@ impl<'a> Executor<'a> {
       sir_values: Vec::with_capacity(capacity / 4),
       funs: Vec::with_capacity(capacity / 100), // Estimate function count
       fun_by_name: DenseMap::new(),
+      pack_fun_by_name: HashMap::default(),
+      pending_callee_pack: None,
       local_scope: ScopedDenseMap::new(),
       current_function: None,
       saved_outer_funs: Vec::new(),
@@ -810,7 +828,6 @@ impl<'a> Executor<'a> {
       closure_counter: 0,
       enum_defs: Vec::new(),
       enum_def_by_name: DenseMap::new(),
-      pending_imported_enums: Vec::new(),
       var_return_type_args: HashMap::default(),
       decl_annotation_args: HashMap::default(),
       struct_generic_params: HashMap::default(),
@@ -1164,12 +1181,24 @@ impl<'a> Executor<'a> {
   /// `fun_by_name`. Every `self.funs.push` site must go
   /// through here — direct pushes bypass the index and
   /// re-introduce the linear-find regression.
+  ///
+  /// @note — when `def.owning_pack` is `Some(_)`, the
+  /// fun also lands in `pack_fun_by_name` so qualified
+  /// cross-module calls can disambiguate two modules
+  /// that declare the same bare name. The bare index
+  /// last-write-wins for cross-module collisions, but
+  /// qualified resolution bypasses it via the pack key.
   fn push_fun(&mut self, def: FunDef) {
     let idx = FunIdx(self.funs.len() as u32);
     let name = def.name;
+    let owning_pack = def.owning_pack;
 
     self.funs.push(def);
     self.fun_by_name.insert(name, idx);
+
+    if let Some(pack) = owning_pack {
+      self.pack_fun_by_name.insert((pack, name), idx);
+    }
   }
 
   /// O(1) lookup: returns the `FunDef` for `name`, or
@@ -1186,6 +1215,41 @@ impl<'a> Executor<'a> {
   /// `self.funs.iter().any(|f| f.name == name)`.
   fn has_fun(&self, name: Symbol) -> bool {
     self.fun_by_name.contains(name)
+  }
+
+  /// Resolve the owning pack of a registered fun. Every
+  /// `Insn::Call` emit site reads this to stamp
+  /// `callee_pack` so codegen routes to the correct
+  /// body when two modules share a bare name. Returns
+  /// `None` for unknown names (closure-only indirect
+  /// dispatch, intrinsics emitted before registration)
+  /// AND for funs whose `value::FunDef.owning_pack` is
+  /// `None` (`main`, FFI extern symbols, preload-
+  /// injected helpers).
+  fn callee_pack_of(&self, name: Symbol) -> Option<Symbol> {
+    self.find_fun(name).and_then(|f| f.owning_pack)
+  }
+
+  /// Pack-qualified lookup. Resolves `<pack>::<name>` to
+  /// the `FunDef` declared in `pack`, bypassing the
+  /// bare-name index. Two modules can both expose a
+  /// `pub fun process` and stay disambiguated here even
+  /// though `fun_by_name` only retains the last write.
+  fn find_fun_in_pack(
+    &self,
+    pack: Symbol,
+    name: Symbol,
+  ) -> Option<&FunDef> {
+    self
+      .pack_fun_by_name
+      .get(&(pack, name))
+      .and_then(|FunIdx(i)| self.funs.get(*i as usize))
+  }
+
+  /// Pack-qualified membership test. Same disambiguation
+  /// guarantee as `find_fun_in_pack`.
+  fn has_fun_in_pack(&self, pack: Symbol, name: Symbol) -> bool {
+    self.pack_fun_by_name.contains_key(&(pack, name))
   }
 
   /// Append an enum definition AND record its name in
@@ -1213,6 +1277,58 @@ impl<'a> Executor<'a> {
   /// `enum_defs.iter().any(|e| e.0 == sym)`.
   fn has_enum(&self, name: Symbol) -> bool {
     self.enum_def_by_name.contains(name)
+  }
+
+  /// Eagerly interns an imported `ExportedEnum` into this
+  /// executor's TyChecker + emits the matching
+  /// `Insn::EnumDef`. Idempotent — second-+ imports of
+  /// the same enum (re-export chains) short-circuit on
+  /// `has_enum`.
+  ///
+  /// Why fresh inference vars for variant fields:
+  /// generic enums like `Option<$T>` ship with raw `$T`
+  /// markers; the executor monomorphises at call sites
+  /// by binding fresh vars to concrete types. The
+  /// `push_scope` / `pop_scope` bracket isolates these
+  /// vars from function-body HM generalization so a
+  /// ternary unifying `Option<int>` and `Option<str>`
+  /// doesn't accidentally fix `$T`.
+  fn intern_imported_enum(
+    &mut self,
+    en: &zo_module_resolver::ExportedEnum,
+  ) {
+    if self.has_enum(en.name) {
+      return;
+    }
+
+    self.ty_checker.push_scope();
+
+    let fresh_variants: Vec<(Symbol, u32, Vec<TyId>)> = en
+      .variants
+      .iter()
+      .map(|(name, disc, fields)| {
+        let pf: Vec<TyId> =
+          fields.iter().map(|_| self.ty_checker.fresh_var()).collect();
+        (*name, *disc, pf)
+      })
+      .collect();
+
+    self.ty_checker.pop_scope();
+
+    let ety_id = self
+      .ty_checker
+      .ty_table
+      .intern_enum(en.name, &fresh_variants);
+    let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
+
+    self.push_enum_def((en.name, ety_id, ty_id));
+
+    self.sir.emit(Insn::EnumDef {
+      name: en.name,
+      ty_id,
+      variants: fresh_variants,
+      pubness: zo_value::Pubness::No,
+    });
   }
 
   /// Records the source-file directory. Path-typed
@@ -1363,41 +1479,70 @@ impl<'a> Executor<'a> {
   /// Pre-populates the executor with imported function
   /// definitions and constants so they're available during
   /// execution.
+  ///
+  /// Takes every shared collection by reference + the
+  /// per-call `spliced_bodies` by value. The driver no
+  /// longer needs a `mod_imports = ctx.imports.clone()`
+  /// per module — only the slices/maps actually consumed
+  /// by `Executor`'s own ownership semantics get cloned
+  /// here.
   pub fn with_imports(
     mut self,
-    funs: Vec<FunDef>,
-    vars: Vec<Local>,
-    enums: Vec<zo_module_resolver::ExportedEnum>,
-    abstract_defs: HashMap<Symbol, AbstractDef>,
-    abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
+    funs: &[FunDef],
+    vars: &[Local],
+    enums: &[zo_module_resolver::ExportedEnum],
+    abstract_defs: &HashMap<Symbol, AbstractDef>,
+    abstract_impls: &HashMap<(Symbol, Symbol), AbstractImpl>,
     spliced_bodies: Vec<zo_module_resolver::SplicedGenericBody>,
   ) -> Self {
     self.fun_by_name.clear();
+    self.pack_fun_by_name.clear();
 
     for (i, def) in funs.iter().enumerate() {
-      self.fun_by_name.insert(def.name, FunIdx(i as u32));
+      let idx = FunIdx(i as u32);
+
+      self.fun_by_name.insert(def.name, idx);
+
+      if let Some(pack) = def.owning_pack {
+        self.pack_fun_by_name.insert((pack, def.name), idx);
+      }
     }
 
-    self.funs = funs;
+    self.funs = funs.to_vec();
 
     for v in vars {
-      self.push_local(v);
+      self.push_local(v.clone());
     }
-    self.abstract_defs.extend(abstract_defs);
+    for (sym, def) in abstract_defs {
+      self.abstract_defs.insert(*sym, def.clone());
+    }
 
     // Coherence enforcement lives in the driver
     // (`compiler.rs::fold_imports_into`) where every import
     // path can see the union and raise
     // `DuplicateAbstractImpl` against both defining sites.
     // By the time the entries land here, the driver has
-    // already merged + checked; a plain `extend` is safe.
-    self.abstract_impls.extend(abstract_impls);
+    // already merged + checked; a plain extend is safe.
+    for (key, impl_) in abstract_impls {
+      self.abstract_impls.insert(*key, impl_.clone());
+    }
 
-    // Defer enum interning to first use to avoid TyId counter
-    // shifts that would pollute HM unification. Raw export
-    // data is stored here and resolved lazily in
-    // `execute_enum_access` / the Ident handler.
-    self.pending_imported_enums = enums;
+    // Eagerly intern every imported enum (Option / Result /
+    // Event / Color / …) so the TyId is in `enum_defs`
+    // before any reference can fire. The old lazy path —
+    // stash in `pending_imported_enums`, intern at first
+    // `execute_enum_access` — silently broke codegen when
+    // an `pub ffi foo() -> Option<int>` declaration
+    // referenced the enum without ever taking the
+    // dot-access path that triggered the intern. The
+    // shared `session.ty_checker` makes eager interning
+    // safe across modules: every analyzer sees the same
+    // TyId table, so a second module importing the same
+    // enum hits the `has_enum` short-circuit and reuses
+    // the first registration.
+    for enum_export in enums {
+      self.intern_imported_enum(enum_export);
+    }
 
     // Cross-module generic body splices ran in the compiler
     // pre-pass (`splice_generic_bodies`), which mutated the
@@ -2508,14 +2653,25 @@ impl<'a> Executor<'a> {
             pubness: pending_func.pubness,
             mut_self: pending_func.mut_self,
             link_name: None,
-            // Track the enclosing pack so wrapper methods
-            // emitted inside a preload pack (e.g.
-            // `apply Scene { pub fun new() ... }` inside
-            // `pack misato`) carry their pack identity. DCE
-            // uses this to decide whether `pub fun` should
-            // root the function — preload-pack wrappers
-            // shouldn't, user code should.
-            owning_pack: self.top_pack,
+            // Read from `pending_func`, NOT `self.top_pack`.
+            // The two diverge for monomorphized generics:
+            // `pending_func.owning_pack` is the pack where
+            // the SOURCE generic was declared (`arr`),
+            // while `self.top_pack` is the user module
+            // re-executing the body for instantiation
+            // (`array_map_int`). Codegen's
+            // `(name, owning_pack)` lookup must agree with
+            // every `Insn::Call.callee_pack` derived from
+            // `find_fun(name).owning_pack` — and the
+            // executor's value table carries the source
+            // pack, not the instantiation context.
+            // Apply-block wrappers inside a preload pack
+            // (`apply Scene { pub fun new() }` inside
+            // `pack misato`) still carry their pack
+            // identity correctly because their pending_func
+            // was constructed with `owning_pack:
+            // self.top_pack` at that exact site.
+            owning_pack: pending_func.owning_pack,
             span: pending_func.span,
           });
 
@@ -3617,11 +3773,7 @@ impl<'a> Executor<'a> {
             // explicit `load` — no hardcoded builtins.
             let is_fun = self.has_fun(sym);
             let sym_str = self.interner.get(sym);
-            let is_enum = self.has_enum(sym)
-              || self
-                .pending_imported_enums
-                .iter()
-                .any(|e| self.interner.get(e.name) == sym_str);
+            let is_enum = self.has_enum(sym);
             let is_struct =
               self.ty_checker.ty_table.struct_intern_lookup(sym).is_some();
 
@@ -5328,6 +5480,7 @@ impl<'a> Executor<'a> {
                 let mut call_sir = self.sir.emit(Insn::Call {
                   dst: call_dst,
                   name: eq_fn,
+                  callee_pack: self.callee_pack_of(eq_fn),
                   args: vec![lhs_sir, rhs_sir],
                   ty_id: bool_ty,
                 });
@@ -5397,6 +5550,7 @@ impl<'a> Executor<'a> {
                 let cmp_sir = self.sir.emit(Insn::Call {
                   dst: call_dst,
                   name: cmp_fn,
+                  callee_pack: self.callee_pack_of(cmp_fn),
                   args: vec![lhs_sir, rhs_sir],
                   ty_id: int_ty,
                 });
@@ -6901,6 +7055,7 @@ impl<'a> Executor<'a> {
       type_params: Vec::new(),
       return_type_args: Vec::new(),
       mut_self: false,
+      owning_pack: None,
       span: Span::ZERO,
     });
 
@@ -7530,6 +7685,7 @@ impl<'a> Executor<'a> {
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
         mut_self,
+        owning_pack: self.top_pack,
         span: fun_span,
       });
 
@@ -7753,6 +7909,7 @@ impl<'a> Executor<'a> {
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
         mut_self,
+        owning_pack: self.top_pack,
         span: fun_span,
       });
 
@@ -7789,6 +7946,7 @@ impl<'a> Executor<'a> {
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
       mut_self,
+      owning_pack: self.top_pack,
       span: fun_span,
     });
 
@@ -9563,6 +9721,7 @@ impl<'a> Executor<'a> {
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
       mut_self: false,
+      owning_pack: self.top_pack,
       span: fun_span,
     });
 
@@ -10439,7 +10598,7 @@ impl<'a> Executor<'a> {
         pubness,
         mut_self: false,
         link_name: None,
-        owning_pack: None,
+        owning_pack: self.top_pack,
         span: fun_span,
       });
 
@@ -10544,6 +10703,7 @@ impl<'a> Executor<'a> {
         type_params: vec![],
         return_type_args: vec![],
         mut_self: false,
+        owning_pack: self.top_pack,
         span: fun_span,
       });
     }
@@ -10602,9 +10762,12 @@ impl<'a> Executor<'a> {
 
     let dst = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
+    let callee_name = self.interner.intern("Regex::new");
+    let callee_pack = self.callee_pack_of(callee_name);
     let sir_value = self.sir.emit(Insn::Call {
       dst,
-      name: self.interner.intern("Regex::new"),
+      name: callee_name,
+      callee_pack,
       args: vec![pat_v, flag_v],
       ty_id: regex_ty_id,
     });
@@ -10750,7 +10913,7 @@ impl<'a> Executor<'a> {
       pubness,
       mut_self: false,
       link_name: None,
-      owning_pack: None,
+      owning_pack: self.top_pack,
       span,
     });
 
@@ -10771,6 +10934,7 @@ impl<'a> Executor<'a> {
       type_params: vec![],
       return_type_args: vec![],
       mut_self: false,
+      owning_pack: self.top_pack,
       span,
     });
   }
@@ -10840,6 +11004,7 @@ impl<'a> Executor<'a> {
         self.sir.emit(Insn::Call {
           dst: json_v,
           name: builder,
+          callee_pack: self.callee_pack_of(builder),
           args: vec![field_v],
           ty_id: json_ty_id,
         });
@@ -10882,9 +11047,12 @@ impl<'a> Executor<'a> {
     // ja = Json::array()
     let ja_init_v = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
+    let callee_name = self.interner.intern("Json::array");
+    let callee_pack = self.callee_pack_of(callee_name);
     self.sir.emit(Insn::Call {
       dst: ja_init_v,
-      name: self.interner.intern("Json::array"),
+      name: callee_name,
+      callee_pack,
       args: vec![],
       ty_id: json_ty_id,
     });
@@ -10990,6 +11158,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Call {
       dst: elem_json_v,
       name: elem_builder,
+      callee_pack: self.callee_pack_of(elem_builder),
       args: vec![elem_v],
       ty_id: json_ty_id,
     });
@@ -11005,9 +11174,12 @@ impl<'a> Executor<'a> {
 
     let push_dst = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
+    let callee_name = self.interner.intern("Json::push");
+    let callee_pack = self.callee_pack_of(callee_name);
     self.sir.emit(Insn::Call {
       dst: push_dst,
-      name: self.interner.intern("Json::push"),
+      name: callee_name,
+      callee_pack,
       args: vec![ja_load, elem_json_v],
       ty_id: bool_ty,
     });
@@ -11106,9 +11278,12 @@ impl<'a> Executor<'a> {
         // out = Json::object()
         let out_init = ValueId(this.sir.next_value_id);
         this.sir.next_value_id += 1;
+        let callee_name = this.interner.intern("Json::object");
+        let callee_pack = this.callee_pack_of(callee_name);
         this.sir.emit(Insn::Call {
           dst: out_init,
-          name: this.interner.intern("Json::object"),
+          name: callee_name,
+          callee_pack,
           args: vec![],
           ty_id: json_ty_id,
         });
@@ -11202,9 +11377,12 @@ impl<'a> Executor<'a> {
 
           let set_dst = ValueId(this.sir.next_value_id);
           this.sir.next_value_id += 1;
+          let callee_name = this.interner.intern("Json::set");
+          let callee_pack = this.callee_pack_of(callee_name);
           this.sir.emit(Insn::Call {
             dst: set_dst,
-            name: this.interner.intern("Json::set"),
+            name: callee_name,
+            callee_pack,
             args: vec![out_load, key_v, payload_v],
             ty_id: bool_ty,
           });
@@ -11267,6 +11445,7 @@ impl<'a> Executor<'a> {
         self.sir.emit(Insn::Call {
           dst: json_v,
           name: builder,
+          callee_pack: self.callee_pack_of(builder),
           args: vec![payload_v],
           ty_id: json_ty_id,
         });
@@ -11279,9 +11458,12 @@ impl<'a> Executor<'a> {
     // objects) is a follow-up.
     let null_v = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
+    let callee_name = self.interner.intern("Json::null");
+    let callee_pack = self.callee_pack_of(callee_name);
     self.sir.emit(Insn::Call {
       dst: null_v,
-      name: self.interner.intern("Json::null"),
+      name: callee_name,
+      callee_pack,
       args: vec![],
       ty_id: json_ty_id,
     });
@@ -11384,9 +11566,12 @@ impl<'a> Executor<'a> {
 
         let key_v = ValueId(this.sir.next_value_id);
         this.sir.next_value_id += 1;
+        let callee_name = this.interner.intern("Json::key_at");
+        let callee_pack = this.callee_pack_of(callee_name);
         this.sir.emit(Insn::Call {
           dst: key_v,
-          name: this.interner.intern("Json::key_at"),
+          name: callee_name,
+          callee_pack,
           args: vec![j_load, zero_v],
           ty_id: str_ty,
         });
@@ -11613,9 +11798,12 @@ impl<'a> Executor<'a> {
 
         let payload_json_v = ValueId(self.sir.next_value_id);
         self.sir.next_value_id += 1;
+        let callee_name = self.interner.intern("Json::get");
+        let callee_pack = self.callee_pack_of(callee_name);
         self.sir.emit(Insn::Call {
           dst: payload_json_v,
-          name: self.interner.intern("Json::get"),
+          name: callee_name,
+          callee_pack,
           args: vec![j_load, key_v],
           ty_id: json_ty_id,
         });
@@ -11636,6 +11824,7 @@ impl<'a> Executor<'a> {
         self.sir.emit(Insn::Call {
           dst: payload_v,
           name: accessor,
+          callee_pack: self.callee_pack_of(accessor),
           args: vec![sub_reload],
           ty_id: elem_ty,
         });
@@ -11717,9 +11906,12 @@ impl<'a> Executor<'a> {
         // field Json calls.)
         let out_init_v = ValueId(this.sir.next_value_id);
         this.sir.next_value_id += 1;
+        let callee_name = this.interner.intern("Json::object");
+        let callee_pack = this.callee_pack_of(callee_name);
         this.sir.emit(Insn::Call {
           dst: out_init_v,
-          name: this.interner.intern("Json::object"),
+          name: callee_name,
+          callee_pack,
           args: vec![],
           ty_id: json_ty_id,
         });
@@ -11775,9 +11967,12 @@ impl<'a> Executor<'a> {
           // Json::set(out, key, val) — return ignored.
           let set_v = ValueId(this.sir.next_value_id);
           this.sir.next_value_id += 1;
+          let callee_name = this.interner.intern("Json::set");
+          let callee_pack = this.callee_pack_of(callee_name);
           this.sir.emit(Insn::Call {
             dst: set_v,
-            name: this.interner.intern("Json::set"),
+            name: callee_name,
+            callee_pack,
             args: vec![out_v, key_v, json_v],
             ty_id: bool_ty,
           });
@@ -11839,9 +12034,12 @@ impl<'a> Executor<'a> {
 
     let field_json_v = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
+    let callee_name = self.interner.intern("Json::get");
+    let callee_pack = self.callee_pack_of(callee_name);
     self.sir.emit(Insn::Call {
       dst: field_json_v,
-      name: self.interner.intern("Json::get"),
+      name: callee_name,
+      callee_pack,
       args: vec![j_v, key_v],
       ty_id: json_ty_id,
     });
@@ -11873,6 +12071,7 @@ impl<'a> Executor<'a> {
         self.sir.emit(Insn::Call {
           dst: field_val_v,
           name: accessor,
+          callee_pack: self.callee_pack_of(accessor),
           args: vec![field_json_v],
           ty_id: field_ty,
         });
@@ -11922,9 +12121,12 @@ impl<'a> Executor<'a> {
 
     let n_v = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
+    let callee_name = self.interner.intern("Json::len");
+    let callee_pack = self.callee_pack_of(callee_name);
     self.sir.emit(Insn::Call {
       dst: n_v,
-      name: self.interner.intern("Json::len"),
+      name: callee_name,
+      callee_pack,
       args: vec![arrj_load],
       ty_id: int_ty,
     });
@@ -12010,9 +12212,12 @@ impl<'a> Executor<'a> {
 
     let elem_json_v = ValueId(self.sir.next_value_id);
     self.sir.next_value_id += 1;
+    let callee_name = self.interner.intern("Json::get_at");
+    let callee_pack = self.callee_pack_of(callee_name);
     self.sir.emit(Insn::Call {
       dst: elem_json_v,
-      name: self.interner.intern("Json::get_at"),
+      name: callee_name,
+      callee_pack,
       args: vec![arrj_load_b, i_load_b],
       ty_id: json_ty_id,
     });
@@ -12023,6 +12228,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Call {
       dst: elem_v,
       name: elem_accessor,
+      callee_pack: self.callee_pack_of(elem_accessor),
       args: vec![elem_json_v],
       ty_id: elem_ty,
     });
@@ -12821,58 +13027,11 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
-    // Try enum variant first. If not found in enum_defs,
-    // check pending imports and lazy-intern on first use.
-    let mut entry = self.find_enum(enum_name);
-
-    if entry.is_none()
-      && let Some(pos) = self
-        .pending_imported_enums
-        .iter()
-        .position(|e| e.name == enum_name)
-    {
-      let en = self.pending_imported_enums.remove(pos);
-
-      // Use fresh inference variables for generic field
-      // types so monomorphization can substitute concrete
-      // types (e.g. `$T` → `int`). Bump the level to
-      // isolate these from function-body generalization —
-      // without this, they pollute the HM state and break
-      // ternary/if-else type unification.
-      self.ty_checker.push_scope();
-
-      let fresh_variants: Vec<(Symbol, u32, Vec<TyId>)> = en
-        .variants
-        .iter()
-        .map(|(name, disc, fields)| {
-          let pf: Vec<TyId> =
-            fields.iter().map(|_| self.ty_checker.fresh_var()).collect();
-
-          (*name, *disc, pf)
-        })
-        .collect();
-
-      self.ty_checker.pop_scope();
-
-      let ety_id = self
-        .ty_checker
-        .ty_table
-        .intern_enum(en.name, &fresh_variants);
-      let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
-
-      self.push_enum_def((en.name, ety_id, ty_id));
-
-      // Emit EnumDef so the codegen registers
-      // enum_metas for match discriminant handling.
-      self.sir.emit(Insn::EnumDef {
-        name: en.name,
-        ty_id,
-        variants: fresh_variants,
-        pubness: zo_value::Pubness::No,
-      });
-
-      entry = Some((en.name, ety_id, ty_id));
-    }
+    // Imported enums are eagerly interned in
+    // `with_imports`, so `find_enum` covers both
+    // locally-defined and imported variants on the first
+    // call.
+    let entry = self.find_enum(enum_name);
 
     if entry.is_none() {
       // Not an enum — try method call (apply).
@@ -13339,6 +13498,7 @@ impl<'a> Executor<'a> {
       let result_sir = self.sir.emit(Insn::Call {
         dst,
         name: mangled_name,
+        callee_pack: self.callee_pack_of(mangled_name),
         args: arg_sirs,
         ty_id: ret_ty,
       });
@@ -13687,6 +13847,7 @@ impl<'a> Executor<'a> {
     let result_sir = self.sir.emit(Insn::Call {
       dst,
       name: call_name,
+      callee_pack: self.callee_pack_of(call_name),
       args: full_args,
       ty_id: call_return_ty,
     });
@@ -15306,8 +15467,10 @@ impl<'a> Executor<'a> {
         // reference to an imported enum (e.g. Result).
         // Fast path: direct hit by name. Falls back to
         // the prefix scan only for the rare mono case
-        // (`Result` matches `Result__StrInt`).
-        let mut entry = self.find_enum(enum_sym).or_else(|| {
+        // (`Result` matches `Result__StrInt`). Imported
+        // enums are eagerly interned in `with_imports`,
+        // so both branches see them directly.
+        let entry = self.find_enum(enum_sym).or_else(|| {
           let enum_name_str = self.interner.get(enum_sym).to_owned();
           let prefix = format!("{enum_name_str}__");
 
@@ -15318,47 +15481,6 @@ impl<'a> Executor<'a> {
           })
         });
 
-        if entry.is_none()
-          && let Some(pos) = self
-            .pending_imported_enums
-            .iter()
-            .position(|e| e.name == enum_sym)
-        {
-          let en = self.pending_imported_enums.remove(pos);
-
-          self.ty_checker.push_scope();
-
-          let fresh_variants: Vec<(Symbol, u32, Vec<TyId>)> = en
-            .variants
-            .iter()
-            .map(|(name, disc, fields)| {
-              let pf: Vec<TyId> =
-                fields.iter().map(|_| self.ty_checker.fresh_var()).collect();
-              (*name, *disc, pf)
-            })
-            .collect();
-
-          self.ty_checker.pop_scope();
-
-          let ety_id = self
-            .ty_checker
-            .ty_table
-            .intern_enum(en.name, &fresh_variants);
-          let ty_id = self.ty_checker.intern_ty(zo_ty::Ty::Enum(ety_id));
-
-          self.push_enum_def((en.name, ety_id, ty_id));
-
-          self.sir.emit(Insn::EnumDef {
-            name: en.name,
-            ty_id,
-            variants: fresh_variants,
-            pubness: zo_value::Pubness::No,
-          });
-
-          entry = Some((en.name, ety_id, ty_id));
-        }
-
-        let entry = entry;
         let (_, ety_id, _) = match entry {
           Some(e) => e,
           None => {
@@ -18586,19 +18708,36 @@ impl<'a> Executor<'a> {
                 };
 
                 if let Some(type_sym) = type_sym {
-                  let ts = self.interner.get(type_sym).to_owned();
-                  let ms = self.interner.get(fun_name).to_owned();
-                  let mangled = format!("{ts}::{ms}");
-                  let mangled_sym = self.interner.intern(&mangled);
-
-                  if self.has_fun(mangled_sym) {
-                    mangled_sym
-                  } else if self.pack_names.contains(&type_sym)
-                    && self.has_fun(fun_name)
-                  {
+                  // Cross-module qualified call first:
+                  // `alpha::process()` lands in
+                  // `pack_fun_by_name` keyed by
+                  // `(alpha, process)` so two modules
+                  // can declare the same bare name
+                  // without the last-write-wins
+                  // collapse the bare `fun_by_name`
+                  // would otherwise force. The hint
+                  // rides one call deep into
+                  // `execute_call` to stamp
+                  // `Insn::Call.callee_pack` for
+                  // codegen label disambiguation.
+                  if self.has_fun_in_pack(type_sym, fun_name) {
+                    self.pending_callee_pack = Some(type_sym);
                     fun_name
                   } else {
-                    mangled_sym
+                    let ts = self.interner.get(type_sym).to_owned();
+                    let ms = self.interner.get(fun_name).to_owned();
+                    let mangled = format!("{ts}::{ms}");
+                    let mangled_sym = self.interner.intern(&mangled);
+
+                    if self.has_fun(mangled_sym) {
+                      mangled_sym
+                    } else if self.pack_names.contains(&type_sym)
+                      && self.has_fun(fun_name)
+                    {
+                      fun_name
+                    } else {
+                      mangled_sym
+                    }
                   }
                 } else {
                   fun_name
@@ -18994,6 +19133,7 @@ impl<'a> Executor<'a> {
           self.sir.emit(Insn::Call {
             dst: call_dst,
             name: call_name,
+            callee_pack: self.callee_pack_of(call_name),
             args: vec![sir_val],
             ty_id: unit_ty,
           });
@@ -19022,6 +19162,7 @@ impl<'a> Executor<'a> {
             self.sir.emit(Insn::Call {
               dst: call_dst,
               name: call_name,
+              callee_pack: self.callee_pack_of(call_name),
               args: vec![sir_val],
               ty_id: unit_ty,
             });
@@ -19158,8 +19299,22 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    // Find the function definition — direct or via closure variable.
-    let fun_def = self.find_fun(fun_name).cloned();
+    // Drain the one-shot pack hint left by the
+    // qualified-call resolution (`alpha::process()`).
+    // When set, prefer the pack-keyed table so two
+    // modules with the same bare name stay
+    // disambiguated; otherwise fall back to the
+    // last-write-wins bare index every intra-module /
+    // FFI / preload call already uses.
+    let callee_pack_hint = self.pending_callee_pack.take();
+    let fun_def = if let Some(pack) = callee_pack_hint {
+      self
+        .find_fun_in_pack(pack, fun_name)
+        .or_else(|| self.find_fun(fun_name))
+        .cloned()
+    } else {
+      self.find_fun(fun_name).cloned()
+    };
     let (func, capture_count) = if let Some(func) = fun_def {
       let cc = match func.kind {
         FunctionKind::Closure { capture_count } => capture_count,
@@ -19520,6 +19675,7 @@ impl<'a> Executor<'a> {
               let show_result = self.sir.emit(Insn::Call {
                 dst: show_dst,
                 name: show_fn,
+                callee_pack: self.callee_pack_of(show_fn),
                 args: arg_sirs.clone(),
                 ty_id: self.ty_checker.str_type(),
               });
@@ -19651,6 +19807,7 @@ impl<'a> Executor<'a> {
         let sir = self.sir.emit(Insn::TaskSpawn {
           dst,
           callee: call_name,
+          callee_pack: func.owning_pack,
           args: arg_sirs,
           ty_id: task_ty,
           kind,
@@ -19667,6 +19824,7 @@ impl<'a> Executor<'a> {
         let sir = self.sir.emit(Insn::Call {
           dst,
           name: call_name,
+          callee_pack: func.owning_pack,
           args: arg_sirs,
           ty_id: resolved_ret,
         });
@@ -19788,6 +19946,7 @@ impl<'a> Executor<'a> {
       let result_sir = self.sir.emit(Insn::Call {
         dst,
         name: fun_name,
+        callee_pack: self.callee_pack_of(fun_name),
         args: arg_sirs,
         ty_id: return_ty,
       });
@@ -19939,6 +20098,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Call {
       dst,
       name: fun_name,
+      callee_pack: self.callee_pack_of(fun_name),
       args: vec![cmp_sir],
       ty_id: return_ty,
     });
@@ -20752,6 +20912,26 @@ impl<'a> Executor<'a> {
       let saved_locals_len = self.locals.len();
       let saved_scope_len = self.scope_stack.len();
       let saved_apply_ctx = self.apply_context;
+      let saved_top_pack = self.top_pack;
+
+      // Restore the generic's source pack as `top_pack`
+      // for the re-execution window. Without this swap,
+      // re-executing inside `array_map_int.zo` would tag
+      // the monomorphized FunDef with the user module's
+      // pack — but `value::FunDef.owning_pack` was cloned
+      // from the generic original (declared in `arr`),
+      // and every cross-module call site computes
+      // `Insn::Call.callee_pack` via
+      // `callee_pack_of(mono_sym) = arr`. Codegen's
+      // `(name, owning_pack)` lookup needs both sides to
+      // agree on the source pack — otherwise the FunDef
+      // lives at `(mono_sym, array_map_int)` and the
+      // call at `(mono_sym, arr)` misses, BL patches to
+      // offset 0, infinite loop.
+      self.top_pack = self
+        .find_fun(generic_name)
+        .and_then(|f| f.owning_pack)
+        .or(saved_top_pack);
 
       // Restore the apply context so that `$T` (and any
       // other generics scoped to the surrounding `apply
@@ -20923,6 +21103,7 @@ impl<'a> Executor<'a> {
       self.locals.truncate(saved_locals_len);
       self.scope_stack.truncate(saved_scope_len);
       self.apply_context = saved_apply_ctx;
+      self.top_pack = saved_top_pack;
     }
   }
 
@@ -21777,6 +21958,7 @@ impl<'a> Executor<'a> {
             type_params: Vec::new(),
             return_type_args: Vec::new(),
             mut_self: false,
+            owning_pack: None,
             span: Span::ZERO,
           });
 

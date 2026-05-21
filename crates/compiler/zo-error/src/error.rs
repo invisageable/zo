@@ -404,6 +404,16 @@ pub enum ErrorKind {
   /// alone.
   DuplicateAbstractImpl,
 
+  /// Two transitively-loaded modules both expose a public
+  /// item under the same name (function or variable).
+  /// `fold_imports_into` raises this rather than silently
+  /// picking a winner: first-wins vs last-wins would make
+  /// the compiled program's behaviour depend on the
+  /// transitive load order of unrelated libraries.
+  /// Resolution: rename one of the public items, or
+  /// scope-qualify the load (`load M::(specific_name);`).
+  DuplicatePublicName,
+
   // --- Rationale-channel variants (severity = Note) ---
   //
   // Emitted only when the driver passes `--explain-decisions`.

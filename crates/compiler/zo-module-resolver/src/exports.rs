@@ -438,6 +438,7 @@ pub fn extract_exports(
         kind,
         pubness,
         mut_self,
+        owning_pack,
         ..
       } => {
         let fn_name = interner.get(*name);
@@ -506,6 +507,7 @@ pub fn extract_exports(
           type_params,
           return_type_args: rta,
           mut_self: *mut_self,
+          owning_pack: *owning_pack,
           span: Span::ZERO,
         });
       }
@@ -696,6 +698,7 @@ pub fn extract_exports(
       type_params: src_fun.type_params.clone(),
       return_type_args: src_fun.return_type_args.clone(),
       mut_self: src_fun.mut_self,
+      owning_pack: src_fun.owning_pack,
       span: Span::ZERO,
     });
   }
@@ -737,6 +740,25 @@ pub fn extract_exports(
         None => true,
       })
       .collect();
+
+  // Debug-only invariant: a module's exported fun set
+  // CANNOT exceed its analyzer's full fun table.
+  // `src_funs` is the executor's complete `funs` vector
+  // (own + every transitively-imported pub). `funs` is
+  // what we ship to importers. If exports grow past that
+  // bound, the snapshot-then-mutate family has struck
+  // again — an `already_exported` set frozen before a
+  // loop, a duplicate slipping through fold_imports_into,
+  // an `arr_$::*` push that doesn't update its dedup
+  // tracker. Catches the misato-class explosion at the
+  // first test run instead of hours later in a perf
+  // sweep.
+  debug_assert!(
+    funs.len() <= src_funs.len(),
+    "extract_exports leaked duplicates: funs.len()={} src_funs.len()={}",
+    funs.len(),
+    src_funs.len(),
+  );
 
   ModuleExports {
     funs,

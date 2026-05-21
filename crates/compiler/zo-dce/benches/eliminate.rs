@@ -34,6 +34,7 @@ fn make_fun(
     insns.push(Insn::Call {
       dst: ValueId(0),
       name: callee,
+      callee_pack: None,
       args: vec![],
       ty_id: TyId(1),
     });

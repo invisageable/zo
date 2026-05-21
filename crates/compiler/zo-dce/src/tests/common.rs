@@ -50,6 +50,7 @@ pub fn call(name: zo_interner::Symbol) -> Insn {
   Insn::Call {
     dst: ValueId(0),
     name,
+    callee_pack: None,
     args: vec![],
     ty_id: TyId(1),
   }

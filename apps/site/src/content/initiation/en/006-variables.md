@@ -8,9 +8,7 @@ Pick the least powerful one that works — that's the zo way.
 ## constants
 
   ```zo
-  -- Hi, I'm `val` — your compile-time constant. I 
-  -- never change, and I need an explicit type (you 
-  -- can't infer me).
+  -- Hi, I'm `val` — your compile-time constant.
   val VERSION: str = "1.0.0";
   val MAX_HEALTH: int = 100;
   -- I work at the top level or inside a function.
@@ -18,24 +16,16 @@ Pick the least powerful one that works — that's the zo way.
 
 ## locals
 
-### immutables
-
   ```zo
   -- Hey, I'm `imu` — your immutable local. Set me 
   -- once, read me many.
   imu name: str = "johndoe";
-  ```
 
-### mutables
-
-  ```zo
   -- And me, I'm `mut` — your mutable local. I can be
   -- reassigned. Reach for me only when something 
-  -- genuinely changes over time.
+  -- changes.
   mut health: int = 22;
-
-  -- Reassign a `mut` like this:
-  health = 50;
+  health = 50; -- Reassignment.
   ```
 
 ## shadowing

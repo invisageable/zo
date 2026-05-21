@@ -306,6 +306,7 @@ fn test_function_call() {
       Insn::Call {
         dst: ValueId(5),
         name: Symbol(25), // "add"
+        callee_pack: None,
         args: vec![ValueId(3), ValueId(4)],
         ty_id: TyId(8),
       },
@@ -347,6 +348,7 @@ fn test_main_with_show() {
       Insn::Call {
         dst: ValueId(1),
         name: Symbol(26),       // "show"
+        callee_pack: None,
         args: vec![ValueId(0)], // the string constant
         ty_id: TyId(1),         // unit return type
       },

@@ -17,7 +17,7 @@ fun heavy_worker() {
 
 fun main() {
   nursery {
-    -- CHECK: task.spawn_thread heavy_worker
+    -- CHECK: task.spawn_thread concurrency_spawn_thread::heavy_worker
     spawn thread heavy_worker();
   }
 }

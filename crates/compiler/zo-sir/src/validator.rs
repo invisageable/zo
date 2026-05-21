@@ -696,6 +696,7 @@ mod tests {
       Insn::Call {
         dst: vid(1),
         name: sym(1),
+        callee_pack: None,
         args: vec![vid(0)],
         ty_id: TyId(1),
       },
@@ -722,6 +723,7 @@ mod tests {
       Insn::Call {
         dst: vid(1),
         name: sym(99), // "show"
+        callee_pack: None,
         args: vec![vid(0)],
         ty_id: TyId(1),
       },
@@ -807,6 +809,7 @@ mod tests {
       Insn::TaskSpawn {
         dst: vid(2),
         callee: sym(1),
+        callee_pack: None,
         args: vec![vid(0)],
         ty_id: task_ty,
         kind: SpawnKind::Green,

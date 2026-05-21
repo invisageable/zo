@@ -140,14 +140,19 @@ impl PrettyPrinter {
 
     for insn in sir.instructions.iter() {
       match insn {
-        Insn::FunDef { name, .. } => {
+        Insn::FunDef { name, owning_pack, .. } => {
           if in_function_body {
             self.buffer.newline();
           }
 
-          let name = interner.get(*name);
+          let label = match owning_pack {
+            Some(pack) => {
+              format!("{}::{}", interner.get(*pack), interner.get(*name))
+            }
+            None => interner.get(*name).to_string(),
+          };
 
-          self.sir_function(name);
+          self.sir_function(&label);
 
           in_function_body = true;
         }
@@ -260,11 +265,20 @@ impl PrettyPrinter {
           self.sir_instruction(&load);
         }
         Insn::Call {
-          dst, name, args, ..
+          dst,
+          name,
+          callee_pack,
+          args,
+          ..
         } => {
           let name = interner.get(*name);
           let args = args.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
-          let call = format!("%{dst} = call {name}({})", args.join(", "));
+          let qualified = match callee_pack {
+            Some(pack) => format!("{}::{}", interner.get(*pack), name),
+            None => name.to_string(),
+          };
+          let call =
+            format!("%{dst} = call {qualified}({})", args.join(", "));
 
           self.sir_instruction(&call);
         }
@@ -591,11 +605,17 @@ impl PrettyPrinter {
         Insn::TaskSpawn {
           dst,
           callee,
+          callee_pack,
           args,
           ty_id,
           kind,
         } => {
-          let name = interner.get(*callee);
+          let name = match callee_pack {
+            Some(p) => {
+              format!("{}::{}", interner.get(*p), interner.get(*callee))
+            }
+            None => interner.get(*callee).to_string(),
+          };
 
           let args_str = args
             .iter()

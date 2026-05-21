@@ -213,11 +213,11 @@ impl<'a> Analyzer<'a> {
 
     if !imports_empty {
       executor = executor.with_imports(
-        imports.funs,
-        imports.vars,
-        imports.enums,
-        imports.abstract_defs,
-        imports.abstract_impls,
+        &imports.funs,
+        &imports.vars,
+        &imports.enums,
+        &imports.abstract_defs,
+        &imports.abstract_impls,
         imports.generic_bodies,
       );
     }

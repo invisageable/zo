@@ -13,7 +13,7 @@ fun worker() {
 
 fun main() {
   nursery {
-    -- CHECK: task.spawn worker
+    -- CHECK: task.spawn concurrency_spawn_basic::worker
     spawn worker();
   }
 }

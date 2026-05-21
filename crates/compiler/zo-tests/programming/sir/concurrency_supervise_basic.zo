@@ -12,9 +12,9 @@ fun worker_b() {}
 fun main() {
   -- CHECK: supervise.begin
   supervise {
-    -- CHECK: task.spawn worker_a
+    -- CHECK: task.spawn concurrency_supervise_basic::worker_a
     spawn worker_a();
-    -- CHECK: task.spawn worker_b
+    -- CHECK: task.spawn concurrency_supervise_basic::worker_b
     spawn worker_b();
   }
   -- CHECK: nursery.end

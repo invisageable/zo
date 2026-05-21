@@ -21,9 +21,9 @@ fun counter() {
 fun main() {
   -- CHECK: nursery.begin
   nursery {
-    -- CHECK: task.spawn greeter
+    -- CHECK: task.spawn concurrency_nursery_basic::greeter
     spawn greeter();
-    -- CHECK: task.spawn counter
+    -- CHECK: task.spawn concurrency_nursery_basic::counter
     spawn counter();
   }
   -- CHECK: nursery.end

@@ -683,10 +683,19 @@ pub enum Insn {
     value: Option<ValueId>, // None for void returns
     ty_id: TyId,
   },
-  /// Function call
+  /// Function call.
+  ///
+  /// @note — `callee_pack` carries the resolved owning
+  /// pack of the target `FunDef`. Codegen forms its asm
+  /// label from `(callee_pack, name)` so two modules can
+  /// emit `FunDef`s with the same bare `name` without
+  /// link-time collision. `None` selects the global
+  /// namespace (FFI extern symbols, `main`, preload-
+  /// injected helpers).
   Call {
     dst: ValueId,
     name: Symbol,
+    callee_pack: Option<Symbol>,
     args: Vec<ValueId>,
     ty_id: TyId, // Return type
   },
@@ -973,6 +982,11 @@ pub enum Insn {
   TaskSpawn {
     dst: ValueId,
     callee: Symbol,
+    /// Pack the spawned callee belongs to. Codegen pairs
+    /// it with `callee` to form the `(name, owning_pack)`
+    /// key for the address fixup so cross-module same-
+    /// bare-name targets stay disambiguated.
+    callee_pack: Option<Symbol>,
     args: Vec<ValueId>,
     ty_id: TyId,
     kind: SpawnKind,

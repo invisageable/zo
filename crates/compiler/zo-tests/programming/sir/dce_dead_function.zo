@@ -6,6 +6,6 @@ fun dead_fn() -> int {
 
 fun main() {
   -- CHECK: const 10 : i32
-  -- CHECK: call showln
+  -- CHECK: call io::showln
   showln(10);
 }

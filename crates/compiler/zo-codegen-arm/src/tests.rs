@@ -402,6 +402,7 @@ fn test_string_fixup() {
   sir.emit(Insn::Call {
     dst: ValueId(1),
     name: show_sym,
+    callee_pack: None,
     args: vec![ValueId(0)],
     ty_id: TyId(1),
   });
@@ -413,6 +414,7 @@ fn test_string_fixup() {
   sir.emit(Insn::Call {
     dst: ValueId(3),
     name: show_sym,
+    callee_pack: None,
     args: vec![ValueId(2)],
     ty_id: TyId(1),
   });
@@ -788,6 +790,7 @@ fn test_str_sp_slow_path_does_not_self_clobber() {
   sir.emit(Insn::Call {
     dst: v_handle,
     name: vec_new_sym,
+    callee_pack: None,
     args: v_args,
     ty_id: TyId(1),
   });
@@ -802,6 +805,7 @@ fn test_str_sp_slow_path_does_not_self_clobber() {
   sir.emit(Insn::Call {
     dst: m_handle,
     name: map_new_sym,
+    callee_pack: None,
     args: m_args,
     ty_id: TyId(1),
   });
@@ -814,6 +818,7 @@ fn test_str_sp_slow_path_does_not_self_clobber() {
     sir.emit(Insn::Call {
       dst,
       name: map_insert_sym,
+      callee_pack: None,
       args: vec![m_handle, k, val],
       ty_id: TyId(1),
     });
@@ -825,6 +830,7 @@ fn test_str_sp_slow_path_does_not_self_clobber() {
   sir.emit(Insn::Call {
     dst: get_dst,
     name: vec_get_sym,
+    callee_pack: None,
     args: vec![v_handle, idx],
     ty_id: TyId(1),
   });
@@ -931,6 +937,7 @@ fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
   sir.emit(Insn::Call {
     dst: read_dst,
     name: read_sym,
+    callee_pack: None,
     args: vec![path_arg],
     ty_id: TyId(1),
   });
@@ -945,6 +952,7 @@ fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
   sir.emit(Insn::Call {
     dst: m_handle,
     name: map_new_sym,
+    callee_pack: None,
     args: m_args,
     ty_id: TyId(1),
   });
@@ -959,6 +967,7 @@ fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
   sir.emit(Insn::Call {
     dst,
     name: map_insert_sym,
+    callee_pack: None,
     args: vec![m_handle, k, val],
     ty_id: TyId(1),
   });

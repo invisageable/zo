@@ -1,0 +1,3 @@
+pub fun process() -> int {
+  return 99;
+}

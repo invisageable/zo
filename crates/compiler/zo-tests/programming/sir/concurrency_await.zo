@@ -13,7 +13,7 @@ fun compute() -> int {
 
 fun main() {
   nursery {
-    -- CHECK: task.spawn compute
+    -- CHECK: task.spawn concurrency_await::compute
     imu task := spawn compute();
     -- CHECK: task.await
     imu result := await task;

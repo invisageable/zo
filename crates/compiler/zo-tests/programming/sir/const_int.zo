@@ -5,6 +5,6 @@ fun main() {
   imu x: int = 42;
   -- CHECK: store x
   -- CHECK: load local
-  -- CHECK: call showln
+  -- CHECK: call io::showln
   showln(x);
 }

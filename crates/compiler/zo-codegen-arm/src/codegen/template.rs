@@ -138,7 +138,7 @@ impl<'a> ARM64Gen<'a> {
         .functions
         .keys()
         .copied()
-        .map(|s| (self.interner.get(s).to_string(), s))
+        .map(|(name, _pack)| (self.interner.get(name).to_string(), name))
         .collect();
 
     // Per-block layout (from `cmp_imm`):
@@ -164,7 +164,7 @@ impl<'a> ARM64Gen<'a> {
 
       self
         .functions
-        .insert(dispatcher_symbol, self.emitter.current_offset());
+        .insert((dispatcher_symbol, None), self.emitter.current_offset());
 
       // One-time payload-forwarding: x1 (currently
       // holding `event_kind`, which the dispatcher and
@@ -203,7 +203,7 @@ impl<'a> ARM64Gen<'a> {
         let adr_pos = self.emitter.current_offset();
 
         self.emitter.emit_adr(X9, 0);
-        self.function_addr_fixups.push((adr_pos, handler_sym));
+        self.function_addr_fixups.push((adr_pos, (handler_sym, None)));
 
         // `br x9` — tail call into the handler.
         self.emitter.emit_br(X9);
@@ -230,7 +230,7 @@ impl<'a> ARM64Gen<'a> {
 
     self
       .functions
-      .insert(entry_symbol, self.emitter.current_offset());
+      .insert((entry_symbol, None), self.emitter.current_offset());
 
     if let Some((symbol, _)) = self.template_data.first() {
       let fixup_pos = self.emitter.current_offset();

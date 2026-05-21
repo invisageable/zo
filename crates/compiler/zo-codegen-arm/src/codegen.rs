@@ -250,7 +250,7 @@ pub struct ARM64Gen<'a> {
   /// String interner for resolving symbols.
   interner: &'a Interner,
   /// Function labels (name -> code offset).
-  pub(super) functions: HashMap<Symbol, u32>,
+  pub(super) functions: HashMap<(Symbol, Option<Symbol>), u32>,
   /// String data to emit at end. Iteration is in
   /// registration order — the linker depends on this for
   /// stable string-table layout.
@@ -277,7 +277,7 @@ pub struct ARM64Gen<'a> {
   /// `_zo_task_spawn(callee)` ABI. Resolved in the
   /// same post-pass as string fixups, indexing
   /// `self.functions` for the callee's code offset.
-  function_addr_fixups: Vec<(u32, Symbol)>,
+  function_addr_fixups: Vec<(u32, (Symbol, Option<Symbol>))>,
   /// Template data sections (symbol -> data).
   pub(super) template_data: Vec<(Symbol, Vec<u8>)>,
   /// Per-template list of event-handler function names
@@ -431,7 +431,7 @@ pub struct ARM64Gen<'a> {
   /// Used when a Call references a function (e.g., closure)
   /// that appears later in the SIR stream. Patched after
   /// all instructions are translated.
-  call_fixups: Vec<(u32, Symbol)>,
+  call_fixups: Vec<(u32, (Symbol, Option<Symbol>))>,
   /// Enum metadata keyed by `TyId.0`, populated on each
   /// `Insn::EnumDef`. Drives the pretty-printer in
   /// `emit_enum_write` so `show(Loot::Gold(50))` can produce
@@ -1641,13 +1641,28 @@ impl<'a> ARM64Gen<'a> {
   /// resulting object is the only data that crosses the
   /// codegen → linker phase boundary.
   pub fn into_link_object(self, artifact: Artifact) -> MachoLinkObject {
-    let main_offset = self
-      .interner
-      .symbol("main")
-      .and_then(|s| self.functions.get(&s).copied());
+    // Entry-point resolution is flexible on owning_pack:
+    // `main` lives under whatever pack the main module
+    // belongs to (often the implicit `main` pack derived
+    // from the filename). Match by bare name and accept
+    // any owning_pack so the linker finds the entry
+    // regardless of module-pack identity.
+    let main_offset = self.interner.symbol("main").and_then(|s| {
+      self
+        .functions
+        .iter()
+        .find(|((name, _), _)| *name == s)
+        .map(|(_, off)| *off)
+    });
 
     let ui_entry_offset = if self.has_templates {
-      self.functions.get(&Symbol(UI_ENTRY_SYMBOL)).copied()
+      let entry_sym = Symbol(UI_ENTRY_SYMBOL);
+
+      self
+        .functions
+        .iter()
+        .find(|((name, _), _)| *name == entry_sym)
+        .map(|(_, off)| *off)
     } else {
       None
     };
@@ -1808,10 +1823,16 @@ impl<'a> ARM64Gen<'a> {
     }
 
     match insn {
-      Insn::FunDef { name, params, .. } => {
+      Insn::FunDef { name, params, owning_pack, .. } => {
         let offset = self.emitter.current_offset();
 
-        self.functions.insert(*name, offset);
+        // Strict `(name, owning_pack)` keying — no
+        // bare-name fallback slot. Every `Insn::Call.callee_pack`
+        // and `Insn::TaskSpawn.callee_pack` is plumbed
+        // from `value::FunDef.owning_pack` at the
+        // executor level, so the two sides agree by
+        // construction.
+        self.functions.insert((*name, *owning_pack), offset);
         self.enter_function(*name, idx, all_insns);
 
         // Function prologue: save FP/LR if non-leaf.
@@ -2355,6 +2376,7 @@ impl<'a> ARM64Gen<'a> {
 
       Insn::Call {
         name,
+        callee_pack,
         args,
         ty_id: call_ret_ty,
         ..
@@ -2751,8 +2773,15 @@ impl<'a> ARM64Gen<'a> {
               self.emit_str_sp(reg, off);
             }
 
-            // BL to user-defined function.
-            if let Some(&func_offset) = self.functions.get(name) {
+            // BL to user-defined function. Strict
+            // `(name, callee_pack)` lookup — no fallback.
+            // Every emit site stamps `callee_pack` from
+            // `callee_pack_of(name)` so the key matches
+            // the FunDef's `(name, owning_pack)` insert
+            // by construction.
+            let key = (*name, *callee_pack);
+
+            if let Some(&func_offset) = self.functions.get(&key) {
               let current = self.emitter.current_offset();
               let offset = func_offset as i32 - current as i32;
 
@@ -2765,7 +2794,7 @@ impl<'a> ARM64Gen<'a> {
               let fixup_pos = self.emitter.current_offset();
 
               self.emitter.emit_bl(0);
-              self.call_fixups.push((fixup_pos, *name));
+              self.call_fixups.push((fixup_pos, key));
             }
 
             // Restore caller-saved temp regs after BL.
@@ -3836,6 +3865,7 @@ impl<'a> ARM64Gen<'a> {
         dst,
         kind,
         callee,
+        callee_pack,
         args,
         ..
       } => {
@@ -3866,7 +3896,7 @@ impl<'a> ARM64Gen<'a> {
         let adr_pos = self.emitter.current_offset();
 
         self.emitter.emit_adr(X0, 0);
-        self.function_addr_fixups.push((adr_pos, *callee));
+        self.function_addr_fixups.push((adr_pos, (*callee, *callee_pack)));
 
         let runtime_sym = match (kind, n_args) {
           (SpawnKind::Thread, _) => "_zo_task_spawn_thread",
@@ -6828,7 +6858,9 @@ impl<'a> ARM64Gen<'a> {
       let adr_pos = self.emitter.current_offset();
 
       self.emitter.emit_adr(X11, 0);
-      self.function_addr_fixups.push((adr_pos, dispatcher_symbol));
+      // Synthetic dispatchers live in the global
+      // namespace — they're not pack-owned.
+      self.function_addr_fixups.push((adr_pos, (dispatcher_symbol, None)));
     }
 
     self.emitter.emit_sub_imm(SP, SP, stack_reserve);

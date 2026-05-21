@@ -173,6 +173,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
       ("cross-module-generic-too-large", 343)
     }
     ErrorKind::DuplicateAbstractImpl => ("duplicate-abstract-impl", 344),
+    ErrorKind::DuplicatePublicName => ("duplicate-public-name", 345),
 
     // --- Constants & arithmetic (E0500 .. E0599) ---
     ErrorKind::DivisionByZero => ("division-by-zero", 500),

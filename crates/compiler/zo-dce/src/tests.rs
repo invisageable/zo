@@ -391,6 +391,7 @@ fn dead_insn_preserves_calls() {
     Insn::Call {
       dst: ValueId(0),
       name: showln,
+      callee_pack: None,
       args: vec![],
       ty_id: TyId(1),
     },
