@@ -550,6 +550,7 @@ fn secondary_label(kind: ErrorKind) -> &'static str {
     ErrorKind::LinkResolutionFailed => {
       "vendor fallback also missing — expected under `<exe-dir>/../lib/vendor/`"
     }
+    ErrorKind::BoundNotSatisfied => "bound declared here on this parameter",
     _ => "related location",
   }
 }

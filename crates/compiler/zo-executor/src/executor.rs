@@ -21075,7 +21075,11 @@ impl<'a> Executor<'a> {
 
       for &bound in bounds {
         if !self.abstract_impls.contains_key(&(bound, concrete)) {
-          report_error(Error::new(ErrorKind::BoundNotSatisfied, call_site));
+          report_error(Error::with_secondary(
+            ErrorKind::BoundNotSatisfied,
+            call_site,
+            func.span,
+          ));
           return base_name;
         }
       }
