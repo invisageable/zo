@@ -6,7 +6,7 @@ use zo_span::Span;
 use zo_ty::FloatWidth;
 use zo_ty::{InferVarId, IntWidth, Ty, TyId, TyTable};
 
-use rustc_hash::FxHashMap as HashMap;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 /// Type scheme for let-polymorphism (∀α. τ)
 /// Represents a polymorphic type with quantified type variables
@@ -78,6 +78,16 @@ pub struct TyChecker {
   alias_undo: Vec<UndoEntry>,
   /// Scope boundaries into alias_undo
   alias_marks: Vec<usize>,
+  /// Symbols declared by `abstract <Name> { ... }` blocks.
+  /// Read by `resolve_ty_symbol` so a type-annotation
+  /// (`item: Eq`) referencing an abstract resolves to
+  /// `Ty::Abstract(sym)`; the analyzer then erases this
+  /// via the implicit-mono lowering. The full method-set
+  /// stays at the executor (`abstract_defs: HashMap<Symbol,
+  /// AbstractDef>`) which can depend on
+  /// `zo-module-resolver`; the type checker only needs
+  /// the membership test, so a set of names is enough.
+  abstracts: HashSet<Symbol>,
 }
 impl TyChecker {
   /// Create a new type checker with pre-registered primitives.
@@ -102,6 +112,7 @@ impl TyChecker {
       ty_aliases: HashMap::default(),
       alias_undo: Vec::new(),
       alias_marks: Vec::new(),
+      abstracts: HashSet::default(),
       subst_undo: Vec::new(),
       subst_marks: Vec::new(),
     };
@@ -169,6 +180,21 @@ impl TyChecker {
 
   /// Create a fresh type variable (α, β, γ, ...)
   /// In pure W algorithm, all type variables are uniform
+  /// Register an `abstract <Name> { ... }` declaration. The
+  /// executor calls this from `execute_abstract` so
+  /// type-annotation resolution downstream can recognize the
+  /// name as an abstract and route through the implicit-mono
+  /// lowering.
+  pub fn register_abstract(&mut self, name: Symbol) {
+    self.abstracts.insert(name);
+  }
+
+  /// `true` when `name` was registered by a prior
+  /// `abstract <Name> { ... }`. Used by `resolve_ty_symbol`.
+  pub fn is_abstract(&self, name: Symbol) -> bool {
+    self.abstracts.contains(&name)
+  }
+
   pub fn fresh_var(&mut self) -> TyId {
     let var_id = self.next_infer_var;
     self.next_infer_var = InferVarId(self.next_infer_var.0 + 1);
@@ -1149,6 +1175,13 @@ impl TyChecker {
     // Check if it's a known enum type.
     if let Some(&id) = self.ty_table.enum_intern_lookup(name) {
       return Some(self.intern_ty(Ty::Enum(id)));
+    }
+
+    // Check if it's a registered abstract. The variant is
+    // erased by the analyzer's implicit-mono lowering before
+    // SIR — codegen never sees it.
+    if self.is_abstract(name) {
+      return Some(self.intern_ty(Ty::Abstract(name)));
     }
 
     None

@@ -414,6 +414,10 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
        `load M::(specific_name);` so the consumer picks an explicit \
        winner"
     }
+    ErrorKind::BoundNotSatisfied => {
+      "a generic call site's concrete type does not satisfy the \
+       abstract bound declared on the generic parameter"
+    }
     // Rationale notes (severity = Note, emitted only with
     // `--explain-decisions`).
     ErrorKind::DeadCodeEliminated => "dead code eliminated",
@@ -518,6 +522,11 @@ fn error_label(kind: ErrorKind) -> &'static str {
     // Entry-point errors.
     ErrorKind::MissingMainFunction => {
       "expected `fun main() { ... }` somewhere in this file"
+    }
+
+    // Abstract bound errors.
+    ErrorKind::BoundNotSatisfied => {
+      "this value's type has no `apply <Abstract> for <Type>` impl"
     }
 
     // Rationale notes.
@@ -671,6 +680,9 @@ pub(crate) fn error_note(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::TypeMismatch => {
       Some("The types of both operands must be compatible")
     }
+    ErrorKind::BoundNotSatisfied => Some(
+      "Add an `apply <Abstract> for <ConcreteType> { ... }` block,\nor pass a value of a type that already implements the abstract.",
+    ),
 
     // Structured-concurrency notes.
     ErrorKind::SpawnOutsideNursery => Some(

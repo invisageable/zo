@@ -606,6 +606,10 @@ pub fn extract_exports(
           Vec::new()
         };
 
+        let type_param_bounds = src_fun
+          .map(|f| f.type_param_bounds.clone())
+          .unwrap_or_default();
+
         funs.push(FunDef {
           name: *name,
           params: dst_params,
@@ -614,6 +618,7 @@ pub fn extract_exports(
           kind: *kind,
           pubness: *pubness,
           type_params,
+          type_param_bounds,
           return_type_args: rta,
           mut_self: *mut_self,
           owning_pack: *owning_pack,
@@ -805,6 +810,7 @@ pub fn extract_exports(
       kind: src_fun.kind,
       pubness: src_fun.pubness,
       type_params: src_fun.type_params.clone(),
+      type_param_bounds: src_fun.type_param_bounds.clone(),
       return_type_args: src_fun.return_type_args.clone(),
       mut_self: src_fun.mut_self,
       owning_pack: src_fun.owning_pack,

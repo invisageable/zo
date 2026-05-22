@@ -1,0 +1,52 @@
+-- tests-run-pass: explicit `<$T: Show + Eq>` syntax —
+-- the type parameter is constrained by two abstracts at
+-- once. Mono-time bound check verifies every listed
+-- abstract has an `apply` impl for the concrete type;
+-- the body calls methods from both bounds.
+-- @cmd — zo run abstract_param_multibound.zo
+
+abstract Show {
+  fun show(self) -> str;
+}
+
+struct Label {
+  text: str,
+}
+
+apply Show for Label {
+  fun show(self) -> str {
+    self.text
+  }
+}
+
+apply Eq for Label {
+  fun eq(self, other: Label) -> bool {
+    self.text == other.text
+  }
+}
+
+fun describe<$T: Show + Eq>(left: $T, right: $T) -> str {
+  imu lhs: str = left.show();
+
+  if left == right {
+    lhs
+  } else {
+    "differ"
+  }
+}
+
+fun main() {
+  imu a: Label = Label { text = "hi" };
+  imu b: Label = Label { text = "hi" };
+
+  imu out: str = describe(a, b);
+
+  showln(out);
+  check@eq(out, "hi");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- hi
+-- DONE

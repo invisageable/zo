@@ -531,7 +531,11 @@ impl<'a> Parser<'a> {
 
             self.emit_node_internal(Token::Ident, span, value);
 
-            // Optional constraint: $T: Abstract.
+            // Optional constraint: `$T: Abstract` or
+            // `$T: Abstract + Abstract2 + …`. Multi-bound
+            // syntax emits each `Plus` and `Ident` as
+            // siblings in the tree so the executor's
+            // bound-scanner walks the chain linearly.
             if self.peek() == Some(Token::Colon) {
               self.pos += 1;
               let span = self.current_span();
@@ -544,6 +548,21 @@ impl<'a> Parser<'a> {
                 let value = self.extract_value(Token::Ident);
 
                 self.emit_node_internal(Token::Ident, span, value);
+
+                // Loop `+ <Abstract>` continuations.
+                while self.peek() == Some(Token::Plus)
+                  && self.tokens.kinds.get(self.pos + 2)
+                    == Some(&Token::Ident)
+                {
+                  self.pos += 1; // step to `+`.
+                  let span = self.current_span();
+                  self.emit_node_internal(Token::Plus, span, None);
+
+                  self.pos += 1; // step to ident.
+                  let span = self.current_span();
+                  let value = self.extract_value(Token::Ident);
+                  self.emit_node_internal(Token::Ident, span, value);
+                }
               }
             }
           }

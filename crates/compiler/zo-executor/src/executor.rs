@@ -465,9 +465,20 @@ pub struct Executor<'a> {
   /// Active type parameters: `$T → TyId`. Set during
   /// generic function definition, cleared after.
   type_params: Vec<(Symbol, TyId)>,
-  /// Generic constraints: `$T: Eq` maps the type param
-  /// name to the abstract name. Verified at call site.
-  type_constraints: HashMap<Symbol, Symbol>,
+  /// Generic constraints: `$T: Eq` maps the type param name
+  /// to the abstract name(s). Verified at call site by
+  /// `register_mono_instantiation`. The `Vec` shape supports
+  /// multi-bound syntax (`<$T: Eq + Show>`); a single bound
+  /// is just a one-element vec.
+  type_constraints: HashMap<Symbol, Vec<Symbol>>,
+  /// Per-function counter for synthetic `$__T<n>` parameters
+  /// minted by the implicit-mono lowering when a parameter
+  /// is annotated `item: Eq` (Phase 1.3). Reset at the start
+  /// of every `execute_fun` so each function's synthetic
+  /// names start at 0. Cross-function uniqueness is provided
+  /// by the `<pack>__<fn>__$__T<n>` prefix, not by the
+  /// counter alone.
+  implicit_param_counter: u32,
   /// Generic type aliases: `type Pair<$T> = ($T, $T);` →
   /// `(params, body)` where `params` are the original
   /// inference vars minted at definition and `body` is the
@@ -844,6 +855,7 @@ impl<'a> Executor<'a> {
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
+      implicit_param_counter: 0,
       generic_aliases: HashMap::default(),
       template_interp_counter: 0,
       deferred_closures: Vec::new(),
@@ -1500,6 +1512,11 @@ impl<'a> Executor<'a> {
       self.push_local(v);
     }
     for (sym, def) in abstract_defs {
+      // Mirror `execute_abstract`: register with the type
+      // checker so cross-module `item: Eq` resolves
+      // correctly even when `Eq` was declared in a
+      // different module than the consumer.
+      self.ty_checker.register_abstract(sym);
       self.abstract_defs.insert(sym, def);
     }
 
@@ -7043,6 +7060,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
       type_params: Vec::new(),
+      type_param_bounds: Vec::new(),
       return_type_args: Vec::new(),
       mut_self: false,
       owning_pack: None,
@@ -7323,11 +7341,32 @@ impl<'a> Executor<'a> {
     self.tree.span(start_idx as u32)
   }
 
+  /// Returns the abstract-bound list for each entry in
+  /// `self.type_params`, in the same order. Empty inner vec
+  /// when a `$T` has no bound. Used at every FunDef-build
+  /// site to populate `type_param_bounds` parallel to the
+  /// `type_params: Vec<TyId>` field.
+  fn collect_type_param_bounds(&self) -> Vec<Vec<Symbol>> {
+    self
+      .type_params
+      .iter()
+      .map(|(name, _)| {
+        self.type_constraints.get(name).cloned().unwrap_or_default()
+      })
+      .collect()
+  }
+
   fn execute_fun(&mut self, start_idx: usize, _end_idx: usize) {
     // Parse the function signature and set it as pending
     // The actual FunDef will be emitted when we hit LBrace
 
     let fun_span = self.introducer_span(start_idx);
+
+    // Reset the implicit-mono counter so each function's
+    // synthetic `$__T<n>` names start at 0. Cross-function
+    // uniqueness is provided by the
+    // `<pack>__<fn>__$__T<n>` prefix below.
+    self.implicit_param_counter = 0;
 
     let name = self
       .tree
@@ -7401,16 +7440,46 @@ impl<'a> Executor<'a> {
 
             self.type_params.push((sym, var));
 
-            // Check for constraint: $T: Abstract.
+            // Parse bound(s): `$T: Abstract` or
+            // `$T: Eq + Show + Ord`. Loops `+`-separated
+            // idents so multi-bound is accepted by the same
+            // path as single-bound — the call-site check
+            // requires every listed abstract to have an
+            // `apply <Abstract> for <ConcreteType>` impl.
             if idx + 2 < _end_idx
               && self.tree.nodes[idx + 1].token == Token::Colon
               && self.tree.nodes[idx + 2].token == Token::Ident
             {
-              if let Some(NodeValue::Symbol(abs)) = self.node_value(idx + 2) {
-                self.type_constraints.insert(sym, abs);
+              let mut bounds: Vec<Symbol> = Vec::new();
+              let mut probe = idx + 2;
+
+              loop {
+                if probe >= _end_idx
+                  || self.tree.nodes[probe].token != Token::Ident
+                {
+                  break;
+                }
+
+                if let Some(NodeValue::Symbol(abs)) = self.node_value(probe) {
+                  bounds.push(abs);
+                }
+
+                // Continue only if `+ Ident` follows.
+                if probe + 2 < _end_idx
+                  && self.tree.nodes[probe + 1].token == Token::Plus
+                  && self.tree.nodes[probe + 2].token == Token::Ident
+                {
+                  probe += 2;
+                } else {
+                  break;
+                }
               }
 
-              idx += 2; // skip : and Ident
+              if !bounds.is_empty() {
+                self.type_constraints.insert(sym, bounds);
+              }
+
+              idx = probe; // resume at the last consumed Ident.
             }
           }
         }
@@ -7508,7 +7577,7 @@ impl<'a> Executor<'a> {
               // For `$T`, skip Dollar + Ident (2 tokens).
               // For `[]type`, skip LBracket + RBracket + type.
               if idx < _end_idx
-                && let Some((param_ty, mut next)) =
+                && let Some((mut param_ty, mut next)) =
                   self.resolve_param_or_return_ty(idx, _end_idx)
               {
                 // Concurrency built-ins (`Tx<T>`, `Rx<T>`,
@@ -7531,6 +7600,44 @@ impl<'a> Executor<'a> {
                     // `<ArgTy>` consumed; probe sits on `>`.
                     next = probe + 1;
                   }
+                }
+
+                // Implicit-mono lowering: when the param's
+                // type resolved to an abstract
+                // (`item: Eq`), mint a synthetic
+                // `<pack>__<fn>__$__T<n>` type-parameter,
+                // record the abstract as its bound, replace
+                // the param's TyId with the fresh inference
+                // var. Each `item: Eq` position gets its
+                // own `$__T` (matches Rust's `impl Eq`
+                // semantics — distinct concrete types
+                // accepted across positions). The pack +
+                // fn prefix guarantees cross-module
+                // uniqueness in the session-shared
+                // interner.
+                if let Ty::Abstract(abs_sym) =
+                  self.ty_checker.kind_of(param_ty)
+                {
+                  let n = self.implicit_param_counter;
+                  self.implicit_param_counter += 1;
+
+                  let pack_str = self
+                    .top_pack
+                    .map(|p| self.interner.get(p).to_owned())
+                    .unwrap_or_else(|| "_".to_string());
+                  let fn_str = self.interner.get(name).to_owned();
+                  let synth_name = self
+                    .interner
+                    .intern(&format!("{pack_str}__{fn_str}__$__T{n}"));
+
+                  let fresh = self.ty_checker.fresh_var();
+
+                  self.type_params.push((synth_name, fresh));
+                  self
+                    .type_constraints
+                    .insert(synth_name, vec![abs_sym]);
+
+                  param_ty = fresh;
                 }
 
                 let mutability = if is_mut {
@@ -7669,6 +7776,7 @@ impl<'a> Executor<'a> {
         kind: FunctionKind::UserDefined,
         pubness,
         type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+        type_param_bounds: self.collect_type_param_bounds(),
         return_type_args: return_type_args
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
@@ -7893,6 +8001,7 @@ impl<'a> Executor<'a> {
         kind: FunctionKind::UserDefined,
         pubness,
         type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+        type_param_bounds: self.collect_type_param_bounds(),
         return_type_args: return_type_args
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
@@ -7930,6 +8039,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::UserDefined,
       pubness,
       type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+      type_param_bounds: self.collect_type_param_bounds(),
       return_type_args: return_type_args
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
@@ -9705,6 +9815,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Intrinsic,
       pubness,
       type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+      type_param_bounds: self.collect_type_param_bounds(),
       return_type_args: type_args
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
@@ -10690,6 +10801,7 @@ impl<'a> Executor<'a> {
         kind: FunctionKind::UserDefined,
         pubness,
         type_params: vec![],
+        type_param_bounds: Vec::new(),
         return_type_args: vec![],
         mut_self: false,
         owning_pack: self.top_pack,
@@ -10921,6 +11033,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::UserDefined,
       pubness,
       type_params: vec![],
+      type_param_bounds: Vec::new(),
       return_type_args: vec![],
       mut_self: false,
       owning_pack: self.top_pack,
@@ -12587,6 +12700,12 @@ impl<'a> Executor<'a> {
     }
 
     self.abstract_defs.insert(name, AbstractDef { methods });
+    // Register the abstract name with the type checker so
+    // type-annotation positions (`fun process(item: Eq)`)
+    // resolve to `Ty::Abstract(eq_sym)`. The full method-set
+    // stays here in `abstract_defs`; the type checker only
+    // needs the membership test for `resolve_ty_symbol`.
+    self.ty_checker.register_abstract(name);
     self.skip_until = end_idx;
   }
 
@@ -13727,6 +13846,7 @@ impl<'a> Executor<'a> {
         &subs,
         Some(new_return),
         recv_struct_name,
+        self.tree.spans[dot_idx],
       );
 
       // Layer closure-param monomorphisation on top of
@@ -19669,7 +19789,14 @@ impl<'a> Executor<'a> {
       let call_name = if func.type_params.is_empty() {
         func.name
       } else {
-        self.register_mono_instantiation(func.name, &func, &subs, None, None)
+        self.register_mono_instantiation(
+          func.name,
+          &func,
+          &subs,
+          None,
+          None,
+          self.tree.spans[lparen_idx],
+        )
       };
 
       // Closure param monomorphization: when a closure is
@@ -20910,7 +21037,50 @@ impl<'a> Executor<'a> {
     subs: &[(TyId, TyId)],
     override_return: Option<TyId>,
     apply_ctx: Option<Symbol>,
+    call_site: Span,
   ) -> Symbol {
+    // Bound enforcement: for each substitution position
+    // whose corresponding `FunDef.type_param_bounds[i]`
+    // lists abstracts, verify the concrete type has an
+    // `apply <Abstract> for <ConcreteType>` impl. Fail
+    // closed — on any unsatisfied bound, raise
+    // `BoundNotSatisfied` at the call site and bail
+    // BEFORE pushing the mono FunDef (the body would
+    // emit cascading errors against the un-impl'd type).
+    for (idx, (_, fresh)) in subs.iter().enumerate() {
+      let bounds = match func.type_param_bounds.get(idx) {
+        Some(bs) if !bs.is_empty() => bs,
+        _ => continue,
+      };
+
+      let resolved = self.ty_checker.resolve_id(*fresh);
+      let concrete_name = match self.ty_checker.kind_of(resolved) {
+        Ty::Struct(sid) => {
+          self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+        }
+        Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
+        kind => Self::primitive_ty_name_str(&kind)
+          .map(|s| self.interner.intern(s)),
+      };
+
+      let Some(concrete) = concrete_name else {
+        // Concrete type isn't a nameable nominal — can't
+        // look up an `apply` impl. Treated as an
+        // inference-hole rather than a bound failure; the
+        // mono pass will likely fail downstream with a
+        // clearer diagnostic against the missing type
+        // resolution.
+        continue;
+      };
+
+      for &bound in bounds {
+        if !self.abstract_impls.contains_key(&(bound, concrete)) {
+          report_error(Error::new(ErrorKind::BoundNotSatisfied, call_site));
+          return base_name;
+        }
+      }
+    }
+
     let mut mangled = self.interner.get(base_name).to_owned();
 
     for (_, fresh) in subs {
@@ -22102,6 +22272,7 @@ impl<'a> Executor<'a> {
             kind: FunctionKind::Closure { capture_count },
             pubness: Pubness::No,
             type_params: Vec::new(),
+            type_param_bounds: Vec::new(),
             return_type_args: Vec::new(),
             mut_self: false,
             owning_pack: None,

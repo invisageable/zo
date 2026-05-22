@@ -425,6 +425,20 @@ pub enum ErrorKind {
   /// scope-qualify the load (`load M::(specific_name);`).
   DuplicatePublicName,
 
+  /// A generic call site's concrete type fails the
+  /// abstract bound declared on the generic parameter.
+  /// Fires for `fun process(item: Eq)` invoked with a
+  /// value whose type has no `apply Eq for <Type>` impl
+  /// in scope (same for explicit `<$T: Eq>` syntax).
+  /// Raised at the CALL site (not at the function
+  /// declaration) so the diagnostic surfaces in the
+  /// user's code where the concrete type lives. Carries
+  /// the concrete type symbol and the abstract symbol so
+  /// the renderer can name both without consulting any
+  /// other state and the JSON channel can expose
+  /// `concrete_type` / `bound_abstract` fields directly.
+  BoundNotSatisfied,
+
   // --- Rationale-channel variants (severity = Note) ---
   //
   // Emitted only when the driver passes `--explain-decisions`.

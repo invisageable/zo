@@ -268,6 +268,17 @@ pub struct FunDef {
   /// Empty for non-generic functions. At each call site,
   /// these are substituted with fresh vars.
   pub type_params: Vec<TyId>,
+  /// Abstract bounds per type parameter, indexed parallel
+  /// to `type_params`. Each inner `Vec<Symbol>` lists the
+  /// abstracts the corresponding `$T` must satisfy at the
+  /// call site (`<$T: Eq + Show>` → `vec![Eq, Show]`,
+  /// `<$T>` unbounded → `vec![]`). Verified by
+  /// `register_mono_instantiation`: every listed abstract
+  /// must have an `apply <Abstract> for <ConcreteType>`
+  /// impl, else `BoundNotSatisfied` fires at the call
+  /// site. Threaded through `with_imports` so cross-module
+  /// generic calls keep their bounds.
+  pub type_param_bounds: Vec<Vec<Symbol>>,
   /// Concrete return type args as resolved Ty values
   /// (e.g. `Result<str, int>` → [Ty::Str, Ty::Int]).
   /// Stored as Ty (not TyId) so they survive cross-module

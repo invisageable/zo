@@ -1,0 +1,40 @@
+-- tests-run-pass: a function takes an abstract-typed
+-- parameter (`item: Show`) and the analyzer's implicit-mono
+-- lowering desugars it to a synthetic generic with the
+-- abstract as a bound. The function call resolves through
+-- the standard mono pipeline — Point's apply impl drives
+-- the dispatch.
+-- @cmd — zo run abstract_param_basic.zo
+
+abstract Show {
+  fun show(self) -> str;
+}
+
+struct Point {
+  x: int,
+  y: int,
+}
+
+apply Show for Point {
+  fun show(self) -> str {
+    "point"
+  }
+}
+
+fun render(item: Show) -> str {
+  item.show()
+}
+
+fun main() {
+  imu point: Point = Point { x = 1, y = 2 };
+  imu rendered: str = render(point);
+
+  showln(rendered);
+  check@eq(rendered, "point");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- point
+-- DONE
