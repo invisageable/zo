@@ -418,6 +418,10 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
       "a generic call site's concrete type does not satisfy the \
        abstract bound declared on the generic parameter"
     }
+    ErrorKind::AbstractInheritanceUnsupported => {
+      "abstract inheritance (`abstract X : Y`) is not supported — \
+       abstracts are flat single-level declarations"
+    }
     // Rationale notes (severity = Note, emitted only with
     // `--explain-decisions`).
     ErrorKind::DeadCodeEliminated => "dead code eliminated",
@@ -527,6 +531,9 @@ fn error_label(kind: ErrorKind) -> &'static str {
     // Abstract bound errors.
     ErrorKind::BoundNotSatisfied => {
       "this value's type has no `apply <Abstract> for <Type>` impl"
+    }
+    ErrorKind::AbstractInheritanceUnsupported => {
+      "drop the `: ParentAbstract` — abstracts cannot inherit"
     }
 
     // Rationale notes.
@@ -683,6 +690,10 @@ pub(crate) fn error_note(kind: ErrorKind) -> Option<&'static str> {
     }
     ErrorKind::BoundNotSatisfied => Some(
       "Add an `apply <Abstract> for <ConcreteType> { ... }` block,\nor pass a value of a type that already implements the abstract.",
+    ),
+    ErrorKind::AbstractInheritanceUnsupported => Some(
+      "Express the relationship as `apply <Parent> for <Type>` blocks alongside\n\
+       the child impl. Each abstract stays a flat single-level declaration.",
     ),
 
     // Structured-concurrency notes.

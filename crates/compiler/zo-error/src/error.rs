@@ -439,6 +439,15 @@ pub enum ErrorKind {
   /// `concrete_type` / `bound_abstract` fields directly.
   BoundNotSatisfied,
 
+  /// `abstract X : Y { ... }` — colon-after-abstract-name
+  /// syntax. Flat single-level abstracts are the design;
+  /// inheritance would force the vtable layout into a
+  /// chained walk (lookup misses cascade) and undermines
+  /// the simple flat-array per `(Abstract, Type)` pair.
+  /// Raised at the colon's span so the user sees exactly
+  /// the offending token.
+  AbstractInheritanceUnsupported,
+
   // --- Rationale-channel variants (severity = Note) ---
   //
   // Emitted only when the driver passes `--explain-decisions`.

@@ -1181,6 +1181,21 @@ impl<'a> Parser<'a> {
         return;
       }
 
+      // `abstract Name : Parent { ... }` — the colon
+      // reaches this branch with `Abstract` still on the
+      // introducer stack and no LBrace seen yet. Flat
+      // single-level abstracts are the design (see Phase
+      // 3 notes); inheritance would force a chained
+      // vtable lookup. Raise here, at the offending
+      // colon, then fall through to the operand path so
+      // the state machine keeps walking — the user's
+      // first fix is to drop the clause and re-run.
+      if let Some(introducer) = self.introducer_stack.last()
+        && introducer.token == Token::Abstract
+      {
+        self.error(ErrorKind::AbstractInheritanceUnsupported);
+      }
+
       // Otherwise treat as regular token
       self.handle_operand(Token::Colon);
     } else {

@@ -105,6 +105,16 @@ pub enum Ty {
   /// debug builds.
   Abstract(Symbol),
 
+  /// `any <Abstract>` — dynamic dispatch type. Surfaces at
+  /// annotation positions (`fun render(item: any Show)`,
+  /// `mut items: []any Drawable`) and persists through SIR
+  /// to codegen. Lowered to a 16-byte fat pointer
+  /// `(data_ptr, vtable_ptr)` where `vtable_ptr` resolves
+  /// to `__zo_vtable_<Abstract>__<ConcreteType>`. Distinct
+  /// from `Abstract(_)`, which is erased before SIR by the
+  /// implicit-mono pass.
+  Dyn(Symbol),
+
   /// The type of types (for type expressions like `s32`)
   Type,
 

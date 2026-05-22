@@ -176,6 +176,9 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::DuplicateAbstractImpl => ("duplicate-abstract-impl", 344),
     ErrorKind::DuplicatePublicName => ("duplicate-public-name", 345),
     ErrorKind::BoundNotSatisfied => ("bound-not-satisfied", 347),
+    ErrorKind::AbstractInheritanceUnsupported => {
+      ("abstract-inheritance-unsupported", 348)
+    }
 
     // --- Constants & arithmetic (E0500 .. E0599) ---
     ErrorKind::DivisionByZero => ("division-by-zero", 500),
