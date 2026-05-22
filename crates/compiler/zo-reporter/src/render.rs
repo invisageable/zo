@@ -422,6 +422,10 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
       "abstract inheritance (`abstract X : Y`) is not supported — \
        abstracts are flat single-level declarations"
     }
+    ErrorKind::AbstractNotDynSafe => {
+      "this abstract is not safe for dynamic dispatch — a method \
+       uses `Self` outside the receiver position"
+    }
     // Rationale notes (severity = Note, emitted only with
     // `--explain-decisions`).
     ErrorKind::DeadCodeEliminated => "dead code eliminated",
@@ -534,6 +538,10 @@ fn error_label(kind: ErrorKind) -> &'static str {
     }
     ErrorKind::AbstractInheritanceUnsupported => {
       "drop the `: ParentAbstract` — abstracts cannot inherit"
+    }
+    ErrorKind::AbstractNotDynSafe => {
+      "swap `any <Abstract>` for the implicit-mono form, or drop the \
+       `Self`-using method"
     }
 
     // Rationale notes.
@@ -694,6 +702,11 @@ pub(crate) fn error_note(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::AbstractInheritanceUnsupported => Some(
       "Express the relationship as `apply <Parent> for <Type>` blocks alongside\n\
        the child impl. Each abstract stays a flat single-level declaration.",
+    ),
+    ErrorKind::AbstractNotDynSafe => Some(
+      "Use the implicit-mono form: `fun render(item: Drawable)` for\n\
+       monomorphisation, or `<$T: Drawable>(item: $T)` for explicit. Both\n\
+       sidestep the vtable's uniform-call constraint that `any` requires.",
     ),
 
     // Structured-concurrency notes.

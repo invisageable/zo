@@ -452,6 +452,69 @@ impl<'a> Parser<'a> {
         self.emit_node(kind);
       }
 
+      // `any` is a reserved keyword for the dynamic-
+      // dispatch type modifier (`item: any Drawable`).
+      // Two recognition contexts:
+      //
+      //   1. Keywords-as-members: when the previous emitted
+      //      node is `Dot` or `ColonColon`, the parser is
+      //      looking for a member name. Re-emit the
+      //      current token as `Token::Ident` so the rest of
+      //      the pipeline treats `widgets.any(pred)`
+      //      identically to a user-defined `.any()`
+      //      method. `extract_value(Token::Ident)` reads
+      //      the symbol from the literals table that the
+      //      tokenizer populated for `Token::Any`.
+      //
+      //   2. Type-annotation modifier: consume the next
+      //      `Ident` (the abstract's name) into THIS
+      //      node's value. The executor then sees a single
+      //      `Token::Any` node carrying
+      //      `NodeValue::Symbol(abstract_name)` — no
+      //      lookaheads, no offset arithmetic in the
+      //      executor.
+      Token::Any => {
+        // `any` is reserved ONLY as the dyn-dispatch
+        // type modifier (`item: any Drawable`). Every
+        // other position the token reaches — function
+        // name (`fun any(self, pred)`), method name in a
+        // call (`widgets.any(pred)`), struct field, etc.
+        // — is a "name slot" where the keywords-as-
+        // members rule applies. Route to
+        // `handle_operand(Token::Ident)` and the literals
+        // table (populated by the tokenizer for
+        // `Token::Any`) yields the symbol `any` through
+        // the standard `extract_value(Token::Ident)`
+        // path. Result: user code stays free to name
+        // anything `any` while `any Abstract` retains
+        // its dyn-dispatch meaning at type position.
+        if self.state == ParserState::TypeAnnotation
+          && self.pos + 1 < self.tokens.kinds.len()
+          && self.tokens.kinds[self.pos + 1] == Token::Ident
+        {
+          // Type-annotation modifier: buffer a single
+          // `Token::Any` node whose value carries the
+          // abstract's symbol pulled from the next
+          // token's literal slot. Mirrors `handle_type`'s
+          // direct expr_buffer push for primitive type
+          // tokens. Advance past the `Ident` so the main
+          // loop doesn't double-emit it.
+          let next_lit_idx =
+            self.tokens.literal_indices[self.pos + 1] as usize;
+          let abs_sym = self.literals.identifiers[next_lit_idx];
+          let span = self.current_span();
+
+          self.expr_buffer.push((
+            Token::Any,
+            span,
+            Some(NodeValue::Symbol(abs_sym)),
+          ));
+          self.pos += 1;
+        } else {
+          self.handle_operand(Token::Ident);
+        }
+      }
+
       // Everything else gets emitted as-is
       _ => {
         self.emit_node(kind);
@@ -587,11 +650,16 @@ impl<'a> Parser<'a> {
     self.flush_expr();
 
     // `fun` must be followed by an identifier (name)
-    // or `(` for closures (fn).
+    // or `(` for closures (fn). `Token::Any` is accepted
+    // here too — keywords-as-members: reserved keywords
+    // remain usable as name slots so the standard
+    // library can ship methods like `arr.any(pred)`
+    // without colliding with the `any Abstract` type
+    // modifier.
     if token == Token::Fun
       && self
         .peek()
-        .is_some_and(|n| !matches!(n, Token::Ident | Token::Pub))
+        .is_some_and(|n| !matches!(n, Token::Ident | Token::Pub | Token::Any))
     {
       self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
     }

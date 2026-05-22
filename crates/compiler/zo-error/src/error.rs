@@ -448,6 +448,19 @@ pub enum ErrorKind {
   /// the offending token.
   AbstractInheritanceUnsupported,
 
+  /// `any <Abstract>` annotation where the abstract is not
+  /// safe for dynamic dispatch. An abstract is dyn-unsafe
+  /// when a method's signature uses `Self` in a non-
+  /// receiver position (param past index 0, or return
+  /// type) — those signatures can't be invoked uniformly
+  /// through a vtable because the calling convention has
+  /// no slot for "another implementor of the same
+  /// abstract". Surfaces at the `any` annotation span; the
+  /// fix is either to drop the `Self`-using method or to
+  /// use the implicit/explicit-mono form (`item: Abstract`
+  /// / `<$T: Abstract>`) instead of `any Abstract`.
+  AbstractNotDynSafe,
+
   // --- Rationale-channel variants (severity = Note) ---
   //
   // Emitted only when the driver passes `--explain-decisions`.

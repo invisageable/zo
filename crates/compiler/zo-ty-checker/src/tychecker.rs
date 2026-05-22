@@ -1187,6 +1187,22 @@ impl TyChecker {
     None
   }
 
+  /// Resolves `<name>` to a `Ty::Dyn(name)` type IF `name`
+  /// is a registered abstract, else returns `None`. Called
+  /// at parameter-parsing sites when the executor recognises
+  /// the contextual `any` modifier before a type-position
+  /// `Ident` — `item: any Drawable` lowers to
+  /// `Ty::Dyn(Drawable)`, distinct from `item: Drawable`'s
+  /// `Ty::Abstract(Drawable)` (which the implicit-mono pass
+  /// erases before SIR).
+  pub fn resolve_dyn_ty(&mut self, name: Symbol) -> Option<TyId> {
+    if self.is_abstract(name) {
+      Some(self.intern_ty(Ty::Dyn(name)))
+    } else {
+      None
+    }
+  }
+
   /// Resolve a type from its Symbol (already interned during tokenization)
   /// This is called during HIR execution when we encounter a type reference
   ///

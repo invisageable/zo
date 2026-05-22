@@ -6471,6 +6471,18 @@ impl<'a> Executor<'a> {
 
         Some((ty, idx + 2))
       }
+      // `any <Abstract>` — the parser baked the abstract's
+      // symbol into the node value during the TypeAnnotation
+      // pass. Single tree node, zero lookaheads.
+      Token::Any => {
+        if let Some(NodeValue::Symbol(abs_sym)) = self.node_value(idx)
+          && let Some(dyn_ty) = self.ty_checker.resolve_dyn_ty(abs_sym)
+        {
+          Some((dyn_ty, idx + 1))
+        } else {
+          None
+        }
+      }
       t if t.is_ty() || t == Token::Ident || t == Token::SelfUpper => {
         let ty = self.resolve_type_token(idx);
 
@@ -8305,6 +8317,21 @@ impl<'a> Executor<'a> {
         // Type token after the colon.
         if tok.is_ty() && annotated_ty.is_none() {
           annotated_ty = Some(self.resolve_type_token(i));
+        }
+
+        // `any <Abstract>` — the parser emitted a single
+        // `Token::Any` node carrying the abstract's
+        // symbol as its value (parser-side bake; zero
+        // executor-side lookahead). Lower to `Ty::Dyn(_)`
+        // when the symbol resolves to a registered
+        // abstract; otherwise the bake was invalid and
+        // we silently leave `annotated_ty` unset so the
+        // generic error path catches it.
+        if tok == Token::Any
+          && annotated_ty.is_none()
+          && let Some(NodeValue::Symbol(abs_sym)) = self.node_value(i)
+        {
+          annotated_ty = self.ty_checker.resolve_dyn_ty(abs_sym);
         }
 
         // Struct / enum / concurrency-builtin name as
@@ -12585,6 +12612,13 @@ impl<'a> Executor<'a> {
 
         // Parse params until RParen.
         let mut params = Vec::new();
+        // Tracks whether this method keeps the abstract
+        // dyn-safe. Flipped to `false` if `Self` appears
+        // in a non-receiver param or as the return — both
+        // break the vtable's uniform calling convention
+        // (`(data_ptr, vtable_ptr)` can't carry "another
+        // implementor of the same abstract" structurally).
+        let mut method_dyn_safe = true;
 
         while idx < end_idx && self.tree.nodes[idx].token != Token::RParen {
           let ptok = self.tree.nodes[idx].token;
@@ -12640,7 +12674,11 @@ impl<'a> Executor<'a> {
             } else if idx < end_idx
               && self.tree.nodes[idx].token == Token::SelfUpper
             {
-              // Self type — placeholder.
+              // `Self` in a non-receiver param breaks
+              // dyn-safety: the vtable can't statically
+              // resolve a "same-type" constraint when the
+              // caller only holds a fat pointer.
+              method_dyn_safe = false;
               idx += 1;
               self.ty_checker.fresh_var()
             } else {
@@ -12671,6 +12709,12 @@ impl<'a> Executor<'a> {
             } else if idx < end_idx
               && self.tree.nodes[idx].token == Token::SelfUpper
             {
+              // `Self` as return breaks dyn-safety:
+              // through `any Abstract`, the caller can't
+              // know which concrete type comes back, so
+              // the result can't be assigned to anything
+              // concrete.
+              method_dyn_safe = false;
               idx += 1;
               self.ty_checker.fresh_var()
             } else {
@@ -12690,6 +12734,7 @@ impl<'a> Executor<'a> {
             name: mname,
             params,
             return_ty,
+            dyn_safe: method_dyn_safe,
           });
         }
 
@@ -12699,7 +12744,8 @@ impl<'a> Executor<'a> {
       idx += 1;
     }
 
-    self.abstract_defs.insert(name, AbstractDef { methods });
+    let dyn_safe = methods.iter().all(|m| m.dyn_safe);
+    self.abstract_defs.insert(name, AbstractDef { methods, dyn_safe });
     // Register the abstract name with the type checker so
     // type-annotation positions (`fun process(item: Eq)`)
     // resolve to `Ty::Abstract(eq_sym)`. The full method-set

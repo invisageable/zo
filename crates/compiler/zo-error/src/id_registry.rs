@@ -179,6 +179,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::AbstractInheritanceUnsupported => {
       ("abstract-inheritance-unsupported", 348)
     }
+    ErrorKind::AbstractNotDynSafe => ("abstract-not-dyn-safe", 349),
 
     // --- Constants & arithmetic (E0500 .. E0599) ---
     ErrorKind::DivisionByZero => ("division-by-zero", 500),
