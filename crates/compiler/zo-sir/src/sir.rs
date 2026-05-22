@@ -474,6 +474,17 @@ impl Insn {
         f(hi);
       }
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
+      Insn::CoerceToDyn { dst, src, .. } => {
+        f(dst);
+        f(src);
+      }
+      Insn::DynDispatch { dst, recv, args, .. } => {
+        f(dst);
+        f(recv);
+        for a in args {
+          f(a);
+        }
+      }
     }
   }
 
@@ -580,6 +591,8 @@ impl Insn {
       | Insn::NurseryBegin { .. }
       | Insn::NurseryEnd { .. }
       | Insn::Nop => {}
+      Insn::CoerceToDyn { concrete_ty, .. } => f(concrete_ty),
+      Insn::DynDispatch { ty_id, .. } => f(ty_id),
     }
   }
 }
@@ -924,6 +937,47 @@ pub enum Insn {
   /// Dead instruction — replaces folded operands in-place
   /// so instruction indices stay stable.
   Nop,
+
+  /// Coerce a concrete value to its `any <Abstract>`
+  /// fat-pointer representation. Codegen lowers this to:
+  /// (1) `_zo_alloc(sizeof(concrete_ty))` returning a
+  /// heap pointer, (2) struct/scalar copy of `src` into
+  /// that allocation, (3) pack `(data_ptr, vtable_ptr)`
+  /// into the 16-byte slot at `dst`. The vtable pointer
+  /// resolves at link time to
+  /// `__zo_vtable_<abstract_name>__<concrete_type_name>`.
+  /// Heap-boxed (not stack) — zo has no borrow checker,
+  /// so returning a coerced value through a function
+  /// boundary needs a stable address.
+  CoerceToDyn {
+    dst: ValueId,
+    src: ValueId,
+    abstract_name: Symbol,
+    concrete_ty: TyId,
+  },
+
+  /// Dynamic dispatch through a vtable. `recv` is a
+  /// fat-pointer `ValueId`. `method_index` is the slot
+  /// in the abstract's vtable (computed from
+  /// `AbstractDef.methods[i]`'s position). Codegen
+  /// lowers to:
+  /// ```text
+  ///   LDR x16, [vtable_ptr + method_index * 8 + 8] ; +8 skips size_of_data slot
+  ///   MOV x0, data_ptr                              ; self = data_ptr
+  ///   ... (other args in x1, x2, ...) ...
+  ///   BLR x16
+  /// ```
+  DynDispatch {
+    dst: ValueId,
+    recv: ValueId,
+    method_index: u32,
+    abstract_name: Symbol,
+    /// Method name carried for diagnostics / pp; the
+    /// actual dispatch resolves through `method_index`.
+    method_name: Symbol,
+    args: Vec<ValueId>,
+    ty_id: TyId,
+  },
 
   // ===== STRUCTURED CONCURRENCY =====
   //

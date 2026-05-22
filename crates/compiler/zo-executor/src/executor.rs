@@ -13459,6 +13459,19 @@ impl<'a> Executor<'a> {
       return self.interner.intern(&placeholder);
     }
 
+    // `any <Abstract>` receiver — emit a `__dyn::` sentinel
+    // name. `execute_dot_method_call` recognises the prefix
+    // and lowers to `Insn::DynDispatch` instead of a static
+    // `Insn::Call`, threading `method_index` from the
+    // abstract's `methods` vector through to codegen.
+    if let Ty::Dyn(abs_sym) = resolved {
+      let abs_str = self.interner.get(abs_sym).to_owned();
+      let ms = self.interner.get(method_name).to_owned();
+      let placeholder = format!("__dyn::{abs_str}::{ms}");
+
+      return self.interner.intern(&placeholder);
+    }
+
     let type_name = match resolved {
       Ty::Struct(sid) => {
         self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
@@ -13605,6 +13618,97 @@ impl<'a> Executor<'a> {
     // matching FunDef. Emit the Call directly — the mono
     // pass will rewrite the name to the concrete method.
     let name_str = self.interner.get(mangled_name);
+
+    // `__dyn::<Abstract>::<method>` — dynamic dispatch
+    // through a fat-pointer vtable. The receiver is at the
+    // top of the value stack; pop it + explicit args and
+    // emit `Insn::DynDispatch` whose `method_index` is the
+    // method's slot inside `abstract_defs[abs].methods`.
+    let dyn_parts = name_str.strip_prefix("__dyn::").and_then(|rest| {
+      rest
+        .split_once("::")
+        .map(|(a, m)| (a.to_owned(), m.to_owned()))
+    });
+
+    if let Some((abs_str, method_str)) = dyn_parts {
+      let abs_sym = self.interner.intern(&abs_str);
+      let method_sym = self.interner.intern(&method_str);
+
+      let method_index = match self.abstract_defs.get(&abs_sym) {
+        Some(def) => match def.methods.iter().position(|m| m.name == method_sym) {
+          Some(i) => i as u32,
+          None => return,
+        },
+        None => return,
+      };
+
+      // Count explicit args between parens at depth 0
+      // (same shape as the non-dyn dispatch below).
+      let has_content = lparen_idx + 1 < rparen_idx;
+      let mut comma_count = 0;
+      let mut depth = 0i32;
+
+      for i in (lparen_idx + 1)..rparen_idx {
+        match self.tree.nodes[i].token {
+          Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+          Token::RParen | Token::RBracket | Token::RBrace => depth -= 1,
+          Token::Comma if depth == 0 => comma_count += 1,
+          _ => {}
+        }
+      }
+
+      let explicit_args = if has_content { comma_count + 1 } else { 0 };
+
+      // Pop explicit args (reverse order from stack).
+      let mut arg_sirs: Vec<ValueId> = Vec::with_capacity(explicit_args);
+
+      for _ in 0..explicit_args {
+        if let Some(sir) = self.sir_values.pop() {
+          arg_sirs.push(sir);
+        }
+        self.value_stack.pop();
+        self.ty_stack.pop();
+      }
+
+      arg_sirs.reverse();
+
+      // Pop receiver (the fat-pointer ValueId).
+      let recv_sir = match self.sir_values.pop() {
+        Some(s) => s,
+        None => return,
+      };
+      self.value_stack.pop();
+      self.ty_stack.pop();
+
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      // Return type pulled from the abstract's method def.
+      let ret_ty = self
+        .abstract_defs
+        .get(&abs_sym)
+        .and_then(|d| d.methods.iter().find(|m| m.name == method_sym))
+        .map(|m| m.return_ty)
+        .unwrap_or_else(|| self.ty_checker.fresh_var());
+
+      let result_sir = self.sir.emit(Insn::DynDispatch {
+        dst,
+        recv: recv_sir,
+        method_index,
+        abstract_name: abs_sym,
+        method_name: method_sym,
+        args: arg_sirs,
+        ty_id: ret_ty,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.value_stack.push(rid);
+      self.ty_stack.push(ret_ty);
+      self.sir_values.push(result_sir);
+
+      return;
+    }
 
     if name_str.starts_with("__abstract::") {
       // Pop explicit args first, then receiver — same
@@ -19813,6 +19917,58 @@ impl<'a> Executor<'a> {
           }
 
           let span = self.tree.spans[lparen_idx + 1 + i * 2];
+
+          // Dyn coercion at the call boundary: when the
+          // callee expects `any <Abstract>` and the
+          // caller's arg is a concrete nominal type with
+          // a matching `apply Abstract for ConcreteType`
+          // impl, materialise a `CoerceToDyn` so the SIR
+          // slot carries a fat pointer downstream. Mirror
+          // shape to the F32→F64 widen above: rewrite
+          // `arg_sirs[slot]` + `arg_types[i]` in place so
+          // the subsequent `unify` sees matching `Ty::Dyn`
+          // types. If the bound is unsatisfied, raise
+          // `BoundNotSatisfied` at the call span and bail
+          // — `unify` would otherwise emit a less precise
+          // `TypeMismatch`.
+          if let Ty::Dyn(abs_sym) = self.ty_checker.kind_of(param_ty)
+            && sir_slot < arg_sirs.len()
+          {
+            let resolved_arg = self.ty_checker.resolve_id(arg_types[i]);
+            let concrete_name = match self.ty_checker.kind_of(resolved_arg) {
+              Ty::Struct(sid) => {
+                self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+              }
+              Ty::Enum(eid) => {
+                self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name)
+              }
+              kind => Self::primitive_ty_name_str(&kind)
+                .map(|s| self.interner.intern(s)),
+            };
+
+            if let Some(concrete) = concrete_name {
+              if self.abstract_impls.contains_key(&(abs_sym, concrete)) {
+                let dst = ValueId(self.sir.next_value_id);
+                self.sir.next_value_id += 1;
+                let coerce_sv = self.sir.emit(Insn::CoerceToDyn {
+                  dst,
+                  src: arg_sirs[sir_slot],
+                  abstract_name: abs_sym,
+                  concrete_ty: resolved_arg,
+                });
+
+                arg_sirs[sir_slot] = coerce_sv;
+                arg_types[i] = param_ty;
+              } else {
+                report_error(Error::with_secondary(
+                  ErrorKind::BoundNotSatisfied,
+                  span,
+                  func.span,
+                ));
+                return;
+              }
+            }
+          }
 
           if self
             .ty_checker
