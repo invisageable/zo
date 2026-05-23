@@ -522,6 +522,15 @@ pub struct ARM64Gen<'a> {
   /// `local_enum_field_tys` so a `showln(m2)` later in the
   /// function still sees the construction-site types.
   value_enum_field_tys: HashMap<u32, (u32, Vec<TyId>)>,
+  /// SP-relative offset of every `EnumConstruct` /
+  /// `StructConstruct` payload, keyed by its `dst` value-id.
+  /// `Insn::Return` falls back to this when the register
+  /// allocator didn't assign a GP register to the composite
+  /// value — without the fallback, the callee returned with
+  /// `X0` holding stale data and the caller's deep-copy read
+  /// garbage (the original cause of the `imu r := h.close()`
+  /// hang when `H::close` returned `Result<int, int>`).
+  composite_value_slots: HashMap<u32, u32>,
   /// Mirror of `value_enum_field_tys` keyed by local-variable
   /// `Symbol.as_u32()`. Populated whenever an `Insn::Store`
   /// writes a value that has a `value_enum_field_tys` entry,
@@ -758,6 +767,7 @@ impl<'a> ARM64Gen<'a> {
       vec_metas: HashMap::default(),
       set_metas: HashMap::default(),
       value_enum_field_tys: HashMap::default(),
+      composite_value_slots: HashMap::default(),
       local_enum_field_tys: HashMap::default(),
       value_tuple_elem_tys: HashMap::default(),
       local_tuple_elem_tys: HashMap::default(),
@@ -858,6 +868,7 @@ impl<'a> ARM64Gen<'a> {
     self.param_sym_slots.clear();
     self.local_enum_field_tys.clear();
     self.local_tuple_elem_tys.clear();
+    self.composite_value_slots.clear();
 
     let fn_end = all_insns[idx + 1..]
       .iter()
@@ -3206,10 +3217,21 @@ impl<'a> ARM64Gen<'a> {
             {
               self.emitter.emit_fmov_fp(D0, fp_src);
             }
-          } else if let Some(src_reg) = self.alloc_reg(*vid)
-            && src_reg != X0
+          } else if let Some(src_reg) = self.alloc_reg(*vid) {
+            if src_reg != X0 {
+              self.emitter.emit_mov_reg(X0, src_reg);
+            }
+          } else if let Some(&offset) =
+            self.composite_value_slots.get(&vid.0)
           {
-            self.emitter.emit_mov_reg(X0, src_reg);
+            // Composite value (struct/enum) with no
+            // register — its bytes still live at
+            // `SP + offset` on this frame. Materialize
+            // the pointer so the caller's deep-copy can
+            // read it through `X0`. Without this, the
+            // callee returned with stale X0 and the
+            // caller bound garbage.
+            self.emit_add_sp_offset(X0, offset);
           }
         } else {
           self.emitter.emit_mov_imm(X0, 0);
@@ -3892,6 +3914,12 @@ impl<'a> ARM64Gen<'a> {
           self.emit_add_sp_offset(dst_reg, base);
         }
 
+        // Persist the slot for `Insn::Return`'s fallback —
+        // if the regalloc didn't pick a register for this
+        // composite value, Return rebuilds the SP+offset
+        // pointer from this map.
+        self.composite_value_slots.insert(dst.0, base);
+
         self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
       }
 
@@ -3899,7 +3927,7 @@ impl<'a> ARM64Gen<'a> {
       // pre-allocated frame slots. struct_base +
       // next_struct_slot is this struct's start offset
       // from SP.
-      Insn::StructConstruct { fields, .. } => {
+      Insn::StructConstruct { dst, fields, .. } => {
         let base = self.struct_base + self.next_struct_slot;
 
         for (i, field) in fields.iter().enumerate() {
@@ -3911,9 +3939,14 @@ impl<'a> ARM64Gen<'a> {
         // Set dst register to point at this struct's
         // base. Use ADD (not MOV) because ARM64 MOV
         // via ORR encodes register 31 as XZR, not SP.
-        if let Some(dst) = self.reg_for_insn(idx) {
-          self.emit_add_sp_offset(dst, base);
+        if let Some(dst_reg) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst_reg, base);
         }
+
+        // Same fallback map as `Insn::EnumConstruct` so
+        // `Insn::Return` can rebuild the SP+offset pointer
+        // when no GP register was assigned.
+        self.composite_value_slots.insert(dst.0, base);
 
         self.next_struct_slot += fields.len() as u32 * STACK_SLOT_SIZE;
       }

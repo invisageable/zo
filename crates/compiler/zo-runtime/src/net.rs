@@ -738,6 +738,125 @@ pub unsafe extern "C-unwind" fn _zo_net_close(fd: i64) -> i64 {
   }
 }
 
+// ===== Str-shaped convenience FFIs =====
+//
+// Thin shims that bridge zo's `str` / `CBytes` types to
+// the raw read/write loops above. Keep `core/net.zo`'s
+// `TcpStream::read` / `write` Rust-like (`str` in, `str`
+// out) without exposing buffer pointers at the source
+// surface.
+
+/// Write the byte payload of zo str `s` to `fd`, looping
+/// over partial writes until all bytes are sent or an
+/// error occurs. Returns total bytes written (`==`
+/// `s.len()` on success) or `-errno` on failure.
+///
+/// # Safety
+///
+/// `s` must point at a valid zo str header
+/// (`[len:u64][bytes][NUL]`) or be null.
+#[unsafe(export_name = "zo_net_write_str")]
+pub unsafe extern "C-unwind" fn _zo_net_write_str(
+  fd: i64,
+  s: *const u8,
+) -> i64 {
+  if s.is_null() {
+    return -(libc::EINVAL as i64);
+  }
+
+  // SAFETY: caller contract — s is a valid str header.
+  let total = unsafe { crate::str::str_len(s) };
+  // SAFETY: payload at offset 8 of the str header.
+  let payload = unsafe { s.add(8) };
+
+  let mut written: usize = 0;
+
+  while written < total {
+    // SAFETY: payload + written stays inside [payload,
+    // payload + total) which is within the str header.
+    let n = unsafe {
+      _zo_net_write(fd, payload.add(written), total - written)
+    };
+
+    if n < 0 {
+      return n as i64;
+    }
+
+    written += n as usize;
+  }
+
+  total as i64
+}
+
+/// Read up to `max_len` bytes from `fd` into a freshly
+/// heap-allocated zo str. Returns `CBytes` whose `ptr`
+/// points at the str's byte payload and whose `len`
+/// carries the byte count.
+///
+/// Error encoding: `ptr == null && len < 0` ⇒ `-errno`.
+/// EOF or `max_len == 0`: `ptr == &NUL && len == 0`
+/// (a valid empty `CBytes` via `CBytes::empty()`).
+///
+/// The zo-side wrapper turns `CBytes` into a `str` via
+/// `CBytes::to_str()` — keeps the heap-str ownership
+/// model uniform with hash/regex returns.
+///
+/// # Safety
+///
+/// `fd` must be a valid socket.
+#[unsafe(export_name = "zo_net_read_to_str")]
+pub unsafe extern "C-unwind" fn _zo_net_read_to_str(
+  fd: i64,
+  max_len: i64,
+) -> zo_c_abi::CBytes {
+  use std::os::raw::c_char;
+
+  if !(0..=64 * 1024 * 1024).contains(&max_len) {
+    return zo_c_abi::CBytes {
+      ptr: std::ptr::null(),
+      len: -(libc::EINVAL as i64),
+    };
+  }
+
+  let max_len = max_len as usize;
+
+  if max_len == 0 {
+    return zo_c_abi::CBytes::empty();
+  }
+
+  let mut scratch: Vec<u8> = vec![0; max_len];
+
+  // SAFETY: scratch is a Vec of max_len bytes; the
+  // pointer is valid for the duration of `_zo_net_read`.
+  let n =
+    unsafe { _zo_net_read(fd, scratch.as_mut_ptr(), max_len) };
+
+  if n < 0 {
+    return zo_c_abi::CBytes {
+      ptr: std::ptr::null(),
+      len: n as i64,
+    };
+  }
+
+  let n = n as usize;
+
+  if n == 0 {
+    return zo_c_abi::CBytes::empty();
+  }
+
+  // Heap-alloc a zo str of exactly `n` bytes. `header_ptr`
+  // is the str value; payload sits at offset 8.
+  let header_ptr = crate::str::alloc_str(&scratch[..n]);
+
+  // SAFETY: header_ptr was just allocated; +8 is the
+  // payload start. The heap allocation outlives the
+  // returned CBytes (zo currently leaks str heap memory).
+  zo_c_abi::CBytes {
+    ptr: unsafe { header_ptr.add(8) } as *const c_char,
+    len: n as i64,
+  }
+}
+
 // ===== Socket helpers =====
 
 /// Create a non-blocking, close-on-exec stream socket
