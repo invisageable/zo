@@ -361,15 +361,19 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       has_calls = true;
     }
 
-    // `Insn::BinOp` on `Str` operands lowers to `_memcmp`
-    // (see arm codegen's `STR_TYPE_ID && Eq | Neq` branch).
-    // Without this gate, the leaf-frame skips the caller-
-    // save reserve and the emitted spills overwrite the
-    // function's own stack — crashes any function whose
-    // body compares a `str` parameter against a literal.
+    // `Insn::BinOp` on `Str` operands lowers to runtime
+    // calls — `_memcmp` for `Eq`/`Neq`, `_zo_str_concat`
+    // for `Concat` (see arm codegen). Without this gate,
+    // the leaf-frame skips the caller-save reserve and
+    // the emitted spills overwrite the function's own
+    // stack — crashes any function whose body compares
+    // or concatenates `str` values.
     if let Insn::BinOp { ty_id, op, .. } = insn
       && ty_id.0 == 4
-      && matches!(op, zo_sir::BinOp::Eq | zo_sir::BinOp::Neq)
+      && matches!(
+        op,
+        zo_sir::BinOp::Eq | zo_sir::BinOp::Neq | zo_sir::BinOp::Concat
+      )
     {
       has_calls = true;
     }

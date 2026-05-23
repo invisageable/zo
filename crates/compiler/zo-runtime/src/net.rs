@@ -741,8 +741,7 @@ pub unsafe extern "C-unwind" fn _zo_net_write(
 #[unsafe(export_name = "zo_net_tcp_local_port")]
 pub unsafe extern "C-unwind" fn _zo_net_tcp_local_port(fd: i64) -> i64 {
   let fd = fd as RawFd;
-  let mut storage: libc::sockaddr_storage =
-    unsafe { std::mem::zeroed() };
+  let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
   let mut len =
     std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
 
@@ -763,14 +762,12 @@ pub unsafe extern "C-unwind" fn _zo_net_tcp_local_port(fd: i64) -> i64 {
   let port = if family == libc::AF_INET {
     // SAFETY: family verified; storage outlives borrow.
     let sin = unsafe {
-      &*(&storage as *const libc::sockaddr_storage
-        as *const libc::sockaddr_in)
+      &*(&storage as *const libc::sockaddr_storage as *const libc::sockaddr_in)
     };
     u16::from_be(sin.sin_port)
   } else if family == libc::AF_INET6 {
     let sin6 = unsafe {
-      &*(&storage as *const libc::sockaddr_storage
-        as *const libc::sockaddr_in6)
+      &*(&storage as *const libc::sockaddr_storage as *const libc::sockaddr_in6)
     };
     u16::from_be(sin6.sin6_port)
   } else {

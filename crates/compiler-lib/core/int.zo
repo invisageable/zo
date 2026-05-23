@@ -1,4 +1,20 @@
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+%% link_name = "zo_int_to_str".
+pub ffi __zo_int_to_str(n: int) -> str;
+
 apply int {
+  -! Decimal-format this int as a fresh heap `str`. Use
+  -! for composing log messages, HTTP headers, etc. —
+  -! `showln(n)` still routes through the codegen's
+  -! built-in itoa for output and doesn't need this.
+  pub fun to_str(self) -> str {
+    __zo_int_to_str(self)
+  }
+
   -! ...
   pub fun is_positive(self) -> bool {
     self > 0

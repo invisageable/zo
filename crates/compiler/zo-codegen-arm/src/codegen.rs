@@ -5717,94 +5717,28 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_add_imm(SP, SP, ITOA_BUFFER_SIZE);
   }
 
-  /// Emit check(bool) — if X0 == 0, write
-  /// "check failed\n" to stderr and exit(1).
   /// Runtime string concatenation: `a ++ b`.
   ///
   /// Both operands are pointers to `[len:u64][bytes][null]`.
-  /// Result is a new string on the stack with the combined
-  /// content. SP is permanently lowered (cleaned up by the
-  /// function epilogue).
+  /// Result is a fresh heap-allocated zo str owned by the
+  /// runtime (see `_zo_str_concat` in `zo-runtime/src/str`).
+  ///
+  /// @note — the previous inline body permanently lowered
+  /// SP by a runtime-computed amount and relied on the
+  /// epilogue's fixed-constant `ADD SP, SP, frame` to
+  /// clean it up. SP stayed unbalanced, so the epilogue's
+  /// `LDP X29, X30, [SP]` read garbage and `RET` jumped
+  /// to a junk address — observed as a hang on any
+  /// `literal ++ runtime_str` after an FFI call. Routing
+  /// through the runtime keeps SP stable and matches the
+  /// `_zo_str_slice` allocation model.
   fn emit_str_concat(&mut self, dst: Register, lhs: Register, rhs: Register) {
-    let x3 = Register::new(3);
-    let x4 = Register::new(4);
-    let x5 = Register::new(5);
+    self.emit_safe_int_arg_moves(&[(X0, lhs), (X1, rhs)]);
+    self.emit_extern_call("_zo_str_concat");
 
-    // Load lengths: X16 = len_a, X17 = len_b.
-    self.emitter.emit_ldr(X16, lhs, 0);
-    self.emitter.emit_ldr(X17, rhs, 0);
-
-    // X3 = total = len_a + len_b.
-    self.emitter.emit_add(x3, X16, X17);
-
-    // Allocate: 8 (header) + total + 1 (null), aligned
-    // to 16. Use fixed over-allocation: round up by adding
-    // 24 (8+1+15) then masking. We use ADD+AND via two
-    // X4 = (total + 9 + 15) & ~15 — 16-byte aligned.
-    self.emitter.emit_add_imm(x4, x3, 24);
-    self.emitter.emit_and_align16(x4, x4);
-    self.emitter.emit_sub_ext(SP, SP, x4);
-
-    // Store combined length at [SP + 0].
-    self.emitter.emit_str(x3, SP, 0);
-
-    // Copy bytes from lhs: src = lhs + 8, dst = SP + 8.
-    self.emitter.emit_add_imm(x4, SP, 8);
-    self.emitter.emit_add_imm(x5, lhs, 8);
-    // X16 = len_a (counter).
-
-    let copy1_loop = self.emitter.current_offset();
-
-    self.emitter.emit_cbz(X16, 0);
-    let cbz1_pos = self.emitter.current_offset() - 4;
-
-    self.emitter.emit_ldrb(X17, x5, 0);
-    self.emitter.emit_strb(X17, x4, 0);
-    self.emitter.emit_add_imm(x4, x4, 1);
-    self.emitter.emit_add_imm(x5, x5, 1);
-    self.emitter.emit_sub_imm(X16, X16, 1);
-
-    let back1 = copy1_loop as i32 - self.emitter.current_offset() as i32;
-
-    self.emitter.emit_b(back1);
-
-    // Patch CBZ to skip past the loop.
-    let after1 = self.emitter.current_offset();
-    let skip1 = (after1 as i32 - cbz1_pos as i32) >> 2;
-
-    self.emitter.patch_cbz_at(cbz1_pos as usize, skip1);
-
-    // Copy bytes from rhs.
-    self.emitter.emit_add_imm(x5, rhs, 8);
-    self.emitter.emit_ldr(X16, rhs, 0);
-
-    let copy2_loop = self.emitter.current_offset();
-
-    self.emitter.emit_cbz(X16, 0);
-    let cbz2_pos = self.emitter.current_offset() - 4;
-
-    self.emitter.emit_ldrb(X17, x5, 0);
-    self.emitter.emit_strb(X17, x4, 0);
-    self.emitter.emit_add_imm(x4, x4, 1);
-    self.emitter.emit_add_imm(x5, x5, 1);
-    self.emitter.emit_sub_imm(X16, X16, 1);
-
-    let back2 = copy2_loop as i32 - self.emitter.current_offset() as i32;
-
-    self.emitter.emit_b(back2);
-
-    // Patch CBZ to skip past the loop.
-    let after2 = self.emitter.current_offset();
-    let skip2 = (after2 as i32 - cbz2_pos as i32) >> 2;
-
-    self.emitter.patch_cbz_at(cbz2_pos as usize, skip2);
-
-    // Null terminator.
-    self.emitter.emit_mov_imm(X16, 0);
-    self.emitter.emit_strb(X16, x4, 0);
-
-    // Result pointer.
-    self.emitter.emit_add_imm(dst, SP, 0);
+    if dst != X0 {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
   }
 
   /// Clobber-safe int arg marshaling. Given (dst, src)
