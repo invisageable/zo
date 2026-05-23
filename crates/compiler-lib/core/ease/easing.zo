@@ -1,4 +1,4 @@
-load core::easing::polynomial;
+load core::ease::polynomial;
 
 -! ### The [`Ease`] Function Interface.
 pub abstract Ease {
