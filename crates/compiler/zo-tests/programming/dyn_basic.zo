@@ -1,0 +1,50 @@
+-- tests-run-pass: dynamic dispatch through `any <Abstract>`.
+-- `render(item: any Drawable)` receives a heap-boxed
+-- fat pointer; `item.draw()` lowers to a vtable lookup
+-- plus BLR. The same render function is invoked with
+-- two distinct concrete types (Button, Slider) to
+-- prove the dispatch picks the right impl per call.
+-- @cmd — zo run dyn_basic.zo
+
+abstract Drawable {
+  fun draw(self) -> str;
+}
+
+struct Button {
+  label: str,
+}
+
+apply Drawable for Button {
+  fun draw(self) -> str {
+    "button"
+  }
+}
+
+struct Slider {
+  value: int,
+}
+
+apply Drawable for Slider {
+  fun draw(self) -> str {
+    "slider"
+  }
+}
+
+fun render(item: any Drawable) -> str {
+  item.draw()
+}
+
+fun main() {
+  imu button: Button = Button { label = "ok" };
+  imu slider: Slider = Slider { value = 42 };
+
+  showln(render(button));
+  showln(render(slider));
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- button
+-- slider
+-- DONE

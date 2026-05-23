@@ -977,7 +977,7 @@ A fixed-size group of values, possibly of different types, accessed by position.
   imu tup := (10, 20);
   showln(tup.0);       -- 10
   showln(tup.1);       -- 20
-  showln(tup.0 + t.1); -- 30
+  showln(tup.0 + tup.1); -- 30
   ```
 
 ## type annotations
@@ -1296,7 +1296,7 @@ Generics are zo's form of **parametric polymorphism** — one body of code that 
   if 1 == 2 {
     false
   } else if 2 == 3 {
-    false;
+    false
   } else if 3 == 4 {
     false
   } else {

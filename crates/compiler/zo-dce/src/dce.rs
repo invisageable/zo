@@ -37,6 +37,14 @@ pub struct Dce<'a> {
   sir: &'a mut Sir,
   main_sym: Symbol,
   interner: &'a zo_interner::Interner,
+  /// Abstract-impl methods kept live regardless of static
+  /// reachability. `Insn::DynDispatch` resolves the
+  /// target method through a vtable at runtime, so DCE's
+  /// static call graph never sees the link. Without
+  /// pinning these as roots, the dispatched bodies get
+  /// eliminated and the vtable slots end up pointing at
+  /// nothing.
+  dyn_impl_methods: &'a [Symbol],
 }
 
 impl<'a> Dce<'a> {
@@ -50,7 +58,19 @@ impl<'a> Dce<'a> {
       sir,
       main_sym,
       interner,
+      dyn_impl_methods: &[],
     }
+  }
+
+  /// Pin the supplied method symbols as DCE roots. Used
+  /// at driver-level to keep `apply Abstract for Type
+  /// { fun ... }` bodies alive even when only `Insn::
+  /// DynDispatch` references them (the dispatch is a
+  /// vtable lookup, not a named `Insn::Call`, so the
+  /// reachability walker misses the link).
+  pub fn with_dyn_roots(mut self, methods: &'a [Symbol]) -> Self {
+    self.dyn_impl_methods = methods;
+    self
   }
 
   /// Runs the full DCE pipeline.
@@ -88,6 +108,7 @@ impl<'a> Dce<'a> {
       &self.sir.instructions,
       self.main_sym,
       &event_handlers,
+      self.dyn_impl_methods,
     );
 
     let dead = functions
@@ -380,6 +401,13 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::TaskCancelled { .. }
       | Insn::TaskCancel { .. }
       | Insn::StrSlice { .. }
+      // `CoerceToDyn` heap-allocates via `_zo_dyn_box`; the
+      // call is the side effect that must outlive liveness
+      // even if the resulting fat-pointer isn't immediately
+      // read in the same scope. `DynDispatch` is a real
+      // call too — same pruning hazard.
+      | Insn::CoerceToDyn { .. }
+      | Insn::DynDispatch { .. }
   )
 }
 
@@ -542,6 +570,7 @@ fn mark_reachable(
   instructions: &[Insn],
   main_sym: Symbol,
   event_handlers: &HashSet<Symbol>,
+  dyn_impl_methods: &[Symbol],
 ) -> HashSet<Symbol> {
   let mut reachable = HashSet::default();
   let mut worklist = Vec::new();
@@ -565,6 +594,15 @@ fn mark_reachable(
     {
       worklist.push(func.name);
     }
+  }
+
+  // `apply Abstract for Type { fun ... }` bodies are
+  // reachable only through a vtable lookup at
+  // `Insn::DynDispatch` time. The static call graph
+  // never sees the edge, so the driver hands the impl
+  // method symbols in as explicit roots.
+  for &m in dyn_impl_methods {
+    worklist.push(m);
   }
 
   while let Some(name) = worklist.pop() {

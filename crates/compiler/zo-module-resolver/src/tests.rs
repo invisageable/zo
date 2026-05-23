@@ -286,6 +286,7 @@ fn extract_exports_round_trips_abstract_impls() {
       defined_at: Span::ZERO,
       defining_module: PathBuf::from("/tmp/shapes.zo"),
       pubness: Pubness::Yes,
+      vtable_sym: eq_sym,
     },
   );
 
@@ -297,6 +298,7 @@ fn extract_exports_round_trips_abstract_impls() {
       defined_at: Span::ZERO,
       defining_module: PathBuf::from("/tmp/shapes.zo"),
       pubness: Pubness::No,
+      vtable_sym: eq_sym,
     },
   );
 
@@ -335,6 +337,7 @@ fn extract_exports_filters_abstract_impls_on_selective_load() {
     defined_at: Span::ZERO,
     defining_module: PathBuf::from(path),
     pubness: Pubness::Yes,
+    vtable_sym: eq_sym,
   };
 
   let mut src_impls = rustc_hash::FxHashMap::default();

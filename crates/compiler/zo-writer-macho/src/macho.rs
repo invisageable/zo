@@ -4232,9 +4232,21 @@ impl MachO {
     requirements: Option<&[u8]>,
     entitlements: Option<&str>,
   ) -> Vec<u8> {
-    // Page size for code signing (16KB on Apple Silicon)
-    const PAGE_SIZE: usize = 16384;
-    const PAGE_SHIFT: u8 = 14; // log2(16384)
+    // Code-signing page size is fixed at 4096 bytes
+    // regardless of hardware page size — Apple's
+    // `codesign` writes `page_shift = 12` for every
+    // arm64 binary even on Apple Silicon, where the
+    // kernel maps with 16 KB hardware pages. The
+    // signature page size is a SIGNATURE-level
+    // chunking constant for hash slots, not a memory-
+    // mapping constant; the kernel rehashes each
+    // 4 KB chunk independently when validating.
+    // Using 16 KB here produces a CodeDirectory whose
+    // `n_code_slots` and `page_shift` disagree with
+    // what AMFI rehashes at load — silent stall
+    // inside `_dyld_start + 0`.
+    const PAGE_SIZE: usize = 4096;
+    const PAGE_SHIFT: u8 = 12; // log2(4096)
 
     // Calculate number of code pages (using code_limit, not full binary)
     let n_code_slots = (code_limit as usize).div_ceil(PAGE_SIZE);
@@ -4410,7 +4422,12 @@ impl MachO {
     signature.extend_from_slice(identifier.as_bytes());
     signature.push(0); // Null terminator
 
-    // Generate and write code hashes
+    // Generate and write code hashes. Apple's
+    // `codesign` hashes ONLY the actual file bytes of
+    // each page (no zero-padding for the trailing
+    // partial page), and the kernel re-hashes the same
+    // way at validation time. Padding to `PAGE_SIZE`
+    // would produce digests AMFI rejects.
     for i in 0..n_code_slots {
       let start = i * PAGE_SIZE;
       let end = ((i + 1) * PAGE_SIZE).min(code_limit as usize);
@@ -5950,8 +5967,12 @@ impl MachO {
       // Calculate the size of the binary WITHOUT signature (for code_limit)
       let code_limit = self.linkedit_file_offset() + base_linkedit_size as u64;
 
-      // Calculate signature size
-      const PAGE_SIZE: usize = 16384;
+      // Code-signing page size: 4096 bytes (see
+      // `generate_code_signature` for the rationale —
+      // Apple's `codesign` writes `page_shift = 12`
+      // for arm64 binaries regardless of hardware
+      // page size).
+      const PAGE_SIZE: usize = 4096;
       let n_code_pages = (code_limit as usize).div_ceil(PAGE_SIZE);
       let identifier = "com.zo.binary";
 

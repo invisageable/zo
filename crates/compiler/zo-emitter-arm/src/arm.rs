@@ -64,6 +64,7 @@ const SCVTF: u32 = 0x9E620000;
 const LDR_FP: u32 = 0xFD400000;
 const STR_FP: u32 = 0xFD000000;
 const BR: u32 = 0xD61F0000;
+const BLR: u32 = 0xD63F0000;
 
 // --- Encoding Masks ---
 const IMM2_MASK: u32 = 0x3;
@@ -978,6 +979,20 @@ impl ARM64Emitter {
   /// Encoding: 1101011_0000_11111_000000_Xn_00000
   pub fn emit_br(&mut self, reg: Register) {
     let insn = BR | ((reg.index() as u32) << 5);
+
+    self.emit_u32(insn);
+  }
+
+  /// BLR Xn — branch with link to register (indirect
+  /// call). Stores PC+4 into X30 then branches to the
+  /// address held in `reg`. Used by dynamic-dispatch
+  /// vtable invocations (`Insn::DynDispatch` lowering)
+  /// where the call target is loaded from memory at
+  /// runtime, not known at link time.
+  ///
+  /// Encoding: 1101011_0001_11111_000000_Xn_00000 = 0xD63F0000 | (Xn << 5)
+  pub fn emit_blr(&mut self, reg: Register) {
+    let insn = BLR | ((reg.index() as u32) << 5);
 
     self.emit_u32(insn);
   }

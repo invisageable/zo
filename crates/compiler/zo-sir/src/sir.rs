@@ -276,7 +276,9 @@ impl Sir {
       | Insn::TaskSpawn { dst, .. }
       | Insn::TaskAwait { dst, .. }
       | Insn::TaskCancelled { dst, .. }
-      | Insn::StrSlice { dst, .. } => *dst,
+      | Insn::StrSlice { dst, .. }
+      | Insn::CoerceToDyn { dst, .. }
+      | Insn::DynDispatch { dst, .. } => *dst,
       // Template uses `id` as its value.
       Insn::Template { id, .. } => *id,
       // Non-value instructions.

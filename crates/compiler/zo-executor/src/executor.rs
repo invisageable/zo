@@ -6474,14 +6474,35 @@ impl<'a> Executor<'a> {
       // `any <Abstract>` — the parser baked the abstract's
       // symbol into the node value during the TypeAnnotation
       // pass. Single tree node, zero lookaheads.
+      //
+      // Object-safety gate: the abstract's `dyn_safe` flag
+      // is set at `execute_abstract` time by tracking
+      // `Token::SelfUpper` in non-receiver positions. If
+      // the user reaches `any <Abstract>` for an unsafe
+      // abstract, raise `E0349` at the annotation span
+      // and yield `None` so the param parses as untyped
+      // rather than as a broken `Ty::Dyn`.
       Token::Any => {
-        if let Some(NodeValue::Symbol(abs_sym)) = self.node_value(idx)
-          && let Some(dyn_ty) = self.ty_checker.resolve_dyn_ty(abs_sym)
-        {
-          Some((dyn_ty, idx + 1))
-        } else {
-          None
+        if let Some(NodeValue::Symbol(abs_sym)) = self.node_value(idx) {
+          let unsafe_dyn = self
+            .abstract_defs
+            .get(&abs_sym)
+            .is_some_and(|d| !d.dyn_safe);
+
+          if unsafe_dyn {
+            report_error(Error::new(
+              ErrorKind::AbstractNotDynSafe,
+              self.tree.spans[idx],
+            ));
+
+            return None;
+          }
+
+          if let Some(dyn_ty) = self.ty_checker.resolve_dyn_ty(abs_sym) {
+            return Some((dyn_ty, idx + 1));
+          }
         }
+        None
       }
       t if t.is_ty() || t == Token::Ident || t == Token::SelfUpper => {
         let ty = self.resolve_type_token(idx);
@@ -13118,6 +13139,18 @@ impl<'a> Executor<'a> {
 
       let defined_at = self.tree.spans[start_idx];
       let defining_module = self.source_path.clone().unwrap_or_default();
+      // Pre-intern the vtable symbol while we still hold a
+      // mutable interner. Codegen is otherwise immutable
+      // over the interner and can't mint fresh names.
+      let vtable_sym = {
+        let mangled = format!(
+          "__zo_vtable_{}__{}",
+          self.interner.get(abs_name),
+          self.interner.get(type_name),
+        );
+
+        self.interner.intern(&mangled)
+      };
 
       self.abstract_impls.insert(
         (abs_name, type_name),
@@ -13126,6 +13159,7 @@ impl<'a> Executor<'a> {
           defined_at,
           defining_module,
           pubness,
+          vtable_sym,
         },
       );
     }
@@ -13365,6 +13399,20 @@ impl<'a> Executor<'a> {
         .any(|d| d.methods.iter().any(|m| self.interner.get(m.name) == ms));
 
       if is_abstract_method {
+        return true;
+      }
+    }
+
+    // `any <Abstract>` receiver: any name that matches an
+    // abstract method routes to `Insn::DynDispatch`. The
+    // method-set is fixed by the abstract's declaration —
+    // no concrete-type lookup needed. Without this branch
+    // the dot would resolve as a field access, the wrong
+    // shape entirely.
+    if let Ty::Dyn(abs_sym) = resolved {
+      if let Some(def) = self.abstract_defs.get(&abs_sym)
+        && def.methods.iter().any(|m| m.name == member_name)
+      {
         return true;
       }
     }
@@ -18481,6 +18529,49 @@ impl<'a> Executor<'a> {
     self.lookup_local(root_sym).is_none()
   }
 
+  /// Walks an `Ident :: Ident :: ...` chain backwards
+  /// from `start_idx` (which must itself be an `Ident`)
+  /// and returns the root's tree index plus every
+  /// segment symbol in root-to-leaf order. `None` when
+  /// the start position isn't an `Ident` or when no
+  /// `Symbol` value sits on the path. Callers decide
+  /// what counts as a "valid" chain (e.g. ≥ 2 segments
+  /// for a real pack path) by inspecting the returned
+  /// vector's length.
+  fn walk_colon_chain(
+    &self,
+    start_idx: usize,
+  ) -> Option<(usize, Vec<Symbol>)> {
+    if self.tree.nodes[start_idx].token != Token::Ident {
+      return None;
+    }
+
+    let mut segments = Vec::new();
+    let mut cursor = start_idx;
+
+    loop {
+      let sym = match self.node_value(cursor) {
+        Some(NodeValue::Symbol(s)) => s,
+        _ => return None,
+      };
+
+      segments.push(sym);
+
+      if cursor < 2
+        || self.tree.nodes[cursor - 1].token != Token::ColonColon
+        || self.tree.nodes[cursor - 2].token != Token::Ident
+      {
+        break;
+      }
+
+      cursor -= 2;
+    }
+
+    segments.reverse();
+
+    Some((cursor, segments))
+  }
+
   /// `true` when the `Ident` at `idx` is an interior /
   /// trailing segment of a `pack::sub::leaf` chain whose
   /// leftmost segment is a declared pack name (and not
@@ -18494,22 +18585,17 @@ impl<'a> Executor<'a> {
   /// keep firing the diagnostic because their chain
   /// root fails the pack-membership check.
   fn is_pack_chain_segment(&self, idx: usize) -> bool {
-    let mut cursor = idx;
-
-    while cursor >= 2
-      && self.tree.nodes[cursor - 1].token == Token::ColonColon
-      && self.tree.nodes[cursor - 2].token == Token::Ident
-    {
-      cursor -= 2;
-    }
-
-    if cursor == idx {
-      return false;
-    }
-
-    let Some(NodeValue::Symbol(root_sym)) = self.node_value(cursor) else {
+    let Some((_, segments)) = self.walk_colon_chain(idx) else {
       return false;
     };
+
+    // A "chain" with one segment is just `idx` itself —
+    // not a pack path, just an isolated Ident.
+    if segments.len() < 2 {
+      return false;
+    }
+
+    let root_sym = segments[0];
 
     self.pack_names.contains(&root_sym) && self.lookup_local(root_sym).is_none()
   }
@@ -18734,36 +18820,10 @@ impl<'a> Executor<'a> {
     };
 
     // Walk back through `<Ident> :: <Ident> :: ...`
-    // collecting every namespace segment. Cursor starts
-    // at the ident BEFORE the rightmost `::`, then steps
-    // back by 2 to skip each prior `::` separator.
-    let mut cursor = lparen_idx - 3;
-    let mut pack_parts: Vec<Symbol> = Vec::new();
-
-    loop {
-      if self.tree.nodes[cursor].token != Token::Ident {
-        return None;
-      }
-
-      let sym = match self.node_value(cursor) {
-        Some(NodeValue::Symbol(s)) => s,
-        _ => return None,
-      };
-
-      pack_parts.push(sym);
-
-      // Continue the chain only if `cursor - 1` is `::`
-      // and `cursor - 2` is another Ident.
-      if cursor < 2 || self.tree.nodes[cursor - 1].token != Token::ColonColon {
-        break;
-      }
-
-      if self.tree.nodes[cursor - 2].token != Token::Ident {
-        break;
-      }
-
-      cursor -= 2;
-    }
+    // collecting every namespace segment. `walk_colon_chain`
+    // starts at the ident BEFORE the rightmost `::`
+    // and returns segments in root-to-leaf order.
+    let (_, pack_parts) = self.walk_colon_chain(lparen_idx - 3)?;
 
     // Single-segment `info::cpu_count` — defer to the
     // existing path so apply-mangled lookups +
@@ -18771,9 +18831,6 @@ impl<'a> Executor<'a> {
     if pack_parts.len() < 2 {
       return None;
     }
-
-    // pack_parts is leaf-to-root; reverse for the join.
-    pack_parts.reverse();
 
     let raw_parts: Vec<String> = pack_parts
       .iter()

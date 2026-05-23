@@ -114,6 +114,13 @@ pub struct AbstractImpl {
   /// implements public abstracts. Mirrors the orphan-rule
   /// shape Rust enforces at the crate boundary.
   pub pubness: Pubness,
+  /// Pre-interned vtable symbol for this `(Abstract,
+  /// ConcreteType)` pair. Minted at apply-block parse
+  /// time (when the interner is still mutable) so codegen
+  /// can reference the vtable by symbol without needing
+  /// a mutable-interner handle. Name shape:
+  /// `__zo_vtable_<Abstract>__<ConcreteType>`.
+  pub vtable_sym: Symbol,
 }
 
 /// An exported compile-time constant from a module.

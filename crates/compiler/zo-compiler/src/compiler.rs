@@ -1028,7 +1028,22 @@ impl Compiler {
     // Dead code elimination — find main by name.
     let main_sym = session.interner.intern("main");
 
-    Dce::new(&mut semantic.sir, main_sym, &session.interner).eliminate();
+    // Pin `apply Abstract for Type { fun ... }` bodies as
+    // DCE roots. `Insn::DynDispatch` resolves them through
+    // a vtable at runtime, so the static call graph never
+    // catches them; without rooting here, the dispatched
+    // method gets pruned and the vtable slot points at
+    // nothing → segfault at the first `.draw()` call on
+    // an `any Abstract` value.
+    let dyn_methods: Vec<Symbol> = semantic
+      .abstract_impls
+      .values()
+      .flat_map(|im| im.methods.iter().copied())
+      .collect();
+
+    Dce::new(&mut semantic.sir, main_sym, &session.interner)
+      .with_dyn_roots(&dyn_methods)
+      .eliminate();
 
     // Single drain after every analyze-time pass (analyzer,
     // module loads, DCE). One TLS access, not one per pass.
@@ -1594,11 +1609,28 @@ impl Compiler {
       let type_view =
         Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
 
+      // Snapshot the analyzer's abstract registry for the
+      // backend's vtable pipeline. Cheap clone: the maps
+      // are short (one entry per `abstract` / `apply`
+      // declaration in the program) and live on the heap
+      // already. ARM consumes them in `emit_vtables`;
+      // CLIF ignores them.
+      let abstract_state = Some(zo_codegen::AbstractState {
+        defs: semantic.abstract_defs.clone(),
+        impls: semantic.abstract_impls.clone(),
+      });
+
       if should_emit_asm {
         let artifact = codegen.generate_artifact(
           &session.interner,
           &semantic.sir,
           type_view,
+          abstract_state
+            .as_ref()
+            .map(|s| zo_codegen::AbstractState {
+              defs: s.defs.clone(),
+              impls: s.impls.clone(),
+            }),
         );
         let asm_path = resolve_emit_path(path, "asm");
 
@@ -1624,8 +1656,12 @@ impl Compiler {
         (None, None) => path.with_extension(""),
       };
 
-      let link_obj =
-        codegen.generate(&session.interner, &semantic.sir, type_view);
+      let link_obj = codegen.generate(
+        &session.interner,
+        &semantic.sir,
+        type_view,
+        abstract_state,
+      );
 
       self.stats.numartifacts += 1;
       self.profiler.end_phase(CODEGEN_NAME);

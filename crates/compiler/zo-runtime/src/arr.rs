@@ -110,6 +110,49 @@ pub unsafe extern "C-unwind" fn _zo_box_alloc(
   })
 }
 
+/// `any <Abstract>` fat-pointer constructor. Allocates
+/// exactly 16 bytes of header — the data pointer the
+/// caller hands in is stored verbatim at slot 0, the
+/// vtable pointer goes to slot 1. The original concrete
+/// value stays where it is (heap, stack frame, wherever
+/// the caller's binding holds it); the fat pointer
+/// merely aliases it for vtable dispatch.
+///
+/// ```text
+/// [fat + 0 .. 8]   data_ptr   = `data` argument verbatim
+/// [fat + 8 .. 16]  vtable_ptr
+/// ```
+///
+/// This level of indirection is the minimum that lets
+/// `<dyn>.method()` call into the underlying impl: the
+/// `self` register passed to the dispatched method is
+/// the data pointer, so the method reads field offsets
+/// directly off the original value's layout. The
+/// caller is responsible for keeping `data` alive
+/// across the lifetime of the fat pointer; `_zo_dyn_free`
+/// releases only the 16-byte header.
+///
+/// # Safety
+///
+/// `data` must remain valid for as long as the returned
+/// fat pointer is in use; `vtable_ptr` must point at a
+/// vtable laid out per the codegen's `emit_vtables`
+/// contract (`[size_of_data, method_0, ..., method_N]`).
+#[unsafe(export_name = "zo_dyn_box")]
+pub unsafe extern "C-unwind" fn _zo_dyn_box(
+  data: *const u8,
+  _payload_size: usize,
+  vtable_ptr: *const u8,
+) -> *const u8 {
+  alloc_leaked_bytes(16, |buf| {
+    let data_addr = data as usize as u64;
+    let vt_addr = vtable_ptr as usize as u64;
+
+    buf[0..8].copy_from_slice(&data_addr.to_le_bytes());
+    buf[8..16].copy_from_slice(&vt_addr.to_le_bytes());
+  })
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

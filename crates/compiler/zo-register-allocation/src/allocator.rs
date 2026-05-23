@@ -349,6 +349,14 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         | Insn::NurseryEnd { .. }
         | Insn::SelectWait { .. }
         | Insn::StrSlice { .. }
+        // `CoerceToDyn` lowers to `BL _zo_dyn_box`;
+        // `DynDispatch` lowers to `BLR x16` through a
+        // vtable slot. Both clobber X30 — the function
+        // must save FP/LR in its prologue or the
+        // surrounding `ret` returns to whatever happened
+        // to land in X30 (often itself → infinite loop).
+        | Insn::CoerceToDyn { .. }
+        | Insn::DynDispatch { .. }
     ) {
       has_calls = true;
     }
