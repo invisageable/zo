@@ -335,9 +335,81 @@ fn poll_ready<F: FnMut(RawFd)>(
   }
 }
 
+// ===== Suspending-FFI helpers =====
+
+/// Park the currently-running green task on read
+/// readiness for `fd`, then yield. When the kernel
+/// reports `fd` as readable, the scheduler's idle-poll
+/// re-queues the task.
+///
+/// Outside a task context (e.g. main-thread code that
+/// hasn't entered a nursery), falls back to a blocking
+/// `libc::poll` on the fd — single syscall, behaves
+/// like the pre-Selector blocking read.
+///
+/// Callers loop: attempt the syscall, on `EAGAIN` /
+/// `EWOULDBLOCK` call this helper, retry on resume.
+/// The retry handles spurious wakes by re-encountering
+/// `EAGAIN` and parking again.
+pub fn park_current_on_read(fd: RawFd) {
+  park_current(fd, Interest::Read);
+}
+
+/// Write-readiness counterpart to
+/// [`park_current_on_read`]. Same semantics, but the
+/// fd is registered for `EVFILT_WRITE` / `EPOLLOUT`.
+pub fn park_current_on_write(fd: RawFd) {
+  park_current(fd, Interest::Write);
+}
+
+fn park_current(fd: RawFd, interest: Interest) {
+  use crate::task::TaskState;
+
+  let parked = crate::scheduler::with(|s| {
+    let Some(task) = s.current() else {
+      return false;
+    };
+    s.with_selector_mut(|sel| match interest {
+      Interest::Read => sel.register_read(fd, task),
+      Interest::Write => sel.register_write(fd, task),
+    });
+    // SAFETY: `task` is the running task on this OS
+    // thread; the cooperative scheduler guarantees
+    // exclusive access between yield boundaries.
+    unsafe {
+      (*task).state = TaskState::Blocked;
+    }
+    true
+  });
+
+  if parked {
+    // SAFETY: we just confirmed via `s.current()` that
+    // we are inside a green-task body.
+    unsafe { crate::scheduler::yield_now() };
+  } else {
+    // Outside a task: block on `libc::poll` for the
+    // requested readiness. Same effective cost as the
+    // pre-Selector blocking read.
+    let events = match interest {
+      Interest::Read => libc::POLLIN,
+      Interest::Write => libc::POLLOUT,
+    };
+    let mut pfd = libc::pollfd {
+      fd,
+      events,
+      revents: 0,
+    };
+    // SAFETY: pfd is a valid pollfd on the stack;
+    // count matches the array length (1).
+    unsafe {
+      libc::poll(&mut pfd, 1, -1);
+    }
+  }
+}
+
 // ===== Errno helper =====
 
-fn last_errno() -> c_int {
+pub(crate) fn last_errno() -> c_int {
   // SAFETY: __error/__errno_location returns a thread-
   // local pointer that's always valid for the calling
   // thread's lifetime.
