@@ -3161,11 +3161,16 @@ impl<'a> ARM64Gen<'a> {
                   // Per-variant substituted struct payload
                   // fields from the regalloc's pre-pass.
                   // The enum's own variant fields are still
-                  // unsubstituted generic placeholders here,
-                  // so we splice the regalloc-recorded
-                  // struct types into the matching variant
-                  // field slots. Unrecorded slots fall back
-                  // to the raw variant-field type.
+                  // unsubstituted generic placeholders, so
+                  // we splice the regalloc-recorded struct
+                  // types into the matching variant field
+                  // slots. The regalloc also propagates
+                  // callee entries into caller slots the
+                  // caller didn't construct locally — see
+                  // `build_struct_return_map`'s callee
+                  // fixpoint — so a plain per-fn lookup
+                  // covers passthrough functions whose
+                  // match arms route through a callee.
                   let payload_overrides =
                     self.enum_payload_struct_fields.get(name);
                   let variants: Vec<EnumVariantInfo> = view

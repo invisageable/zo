@@ -28,6 +28,7 @@ pub pack ease;
 pub pack env;
 pub pack graphics;
 pub pack hash;
+pub pack http;
 pub pack json;
 pub pack log;
 pub pack math;

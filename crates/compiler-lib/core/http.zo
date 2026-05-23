@@ -1,0 +1,182 @@
+-! HTTP/1.1 client built on top of `core::net`.
+-!
+-! The current surface is a single function — `http::get` —
+-! that connects, sends a `Connection: close` request, drains
+-! the response, and returns a parsed [`Response`]. The
+-! request path takes the suspending TCP primitives from
+-! `core::net`, so an `http::get` call inside a green task
+-! parks the task on socket readiness rather than blocking
+-! the scheduler thread.
+-!
+-! @note — keeps the URL parser to `http://` for now;
+-! TLS / `https://` waits on a TLS provider crate.
+
+load core::net::(Address, TcpStream);
+
+
+-! An HTTP/1.1 response — numeric status code (e.g. 200,
+-! 404) plus the text body text after the `CRLFCRLF`
+-! header/body separator. Headers parsing is left to a
+-! future pass so callers stay in control of the
+-! header-cardinality cost.
+pub struct Response {
+  status: int,
+  body: str,
+}
+
+apply Response {
+  -! Build a response value from already-parsed parts.
+  pub fun new(status: int, body: str) -> Self {
+    Self { status = status, body = body }
+  }
+}
+
+
+-! Parsed URL pieces. Internal to `core::http` — exposed
+-! only through the `get` API so the URL shape stays a
+-! single concern.
+struct Url {
+  host: str,
+  port: int,
+  path: str,
+}
+
+-! Parse `"http://host[:port][/path]"`.
+-!
+-! @note — returns `Fail(0)` when the scheme prefix is
+-! missing or the optional `:port` segment isn't a
+-! decimal integer. The default port is `80` when the
+-! `:port` segment is omitted; the default path is `"/"`
+-! when no slash follows the host.
+fun parse_url(url: str) -> Result<Url, int> {
+  imu scheme: str = "http://";
+  imu scheme_len: int = scheme.len;
+
+  if url.len < scheme_len {
+    return Result::Fail(0);
+  }
+
+  imu prefix: str = url[0..scheme_len];
+
+  if prefix != scheme {
+    return Result::Fail(0);
+  }
+
+  imu rest: str = url[scheme_len..url.len];
+  imu slash_idx: int = rest.index_of("/");
+
+  mut host_port: str = rest;
+  mut path: str = "/";
+
+  if slash_idx >= 0 {
+    host_port = rest[0..slash_idx];
+    path = rest[slash_idx..rest.len];
+  }
+
+  imu colon_idx: int = host_port.index_of(":");
+
+  if colon_idx < 0 {
+    return Result::Pass(
+      Url { host = host_port, port = 80, path = path }
+    );
+  }
+
+  imu host: str = host_port[0..colon_idx];
+  imu port_str: str = host_port[colon_idx + 1..host_port.len];
+
+  match port_str.parse_int() {
+    Option::Some(port) => Result::Pass(
+      Url { host = host, port = port, path = path }
+    ),
+    Option::None => Result::Fail(0),
+  }
+}
+
+-! Parse the text `[status-line CRLF headers CRLF CRLF body]`
+-! text into a [`Response`].
+-!
+-! @note — only the status-line numeric code is extracted;
+-! headers are skipped so the caller doesn't pay for header
+-! tokenization on routes that don't read them. Returns
+-! `Fail(0)` when the `CRLFCRLF` separator is missing or
+-! when the status line lacks the `HTTP/x.y CODE ...`
+-! shape.
+fun parse_response(text: str) -> Result<Response, int> {
+  imu sep: str = "\r\n\r\n";
+  imu sep_idx: int = text.index_of(sep);
+
+  if sep_idx < 0 {
+    return Result::Fail(0);
+  }
+
+  imu head: str = text[0..sep_idx];
+  imu body: str = text[sep_idx + sep.len..text.len];
+
+  imu line_end: int = head.index_of("\r\n");
+
+  mut status_line: str = head;
+
+  if line_end >= 0 {
+    status_line = head[0..line_end];
+  }
+
+  imu parts: []str = status_line.split(" ");
+
+  if parts.len < 2 {
+    return Result::Fail(0);
+  }
+
+  match parts[1].parse_int() {
+    Option::Some(status) => Result::Pass(
+      Response { status = status, body = body }
+    ),
+    Option::None => Result::Fail(0),
+  }
+}
+
+-! Issue an HTTP/1.1 `GET` request to `url` and return the
+-! parsed [`Response`].
+-!
+-! `url` is of the form `"http://host[:port][/path]"`; the
+-! default port is `80`, the default path is `"/"`.
+-! `Connection: close` lets the server signal end-of-body
+-! by closing the socket, which keeps the parser free of a
+-! `Content-Length` / chunked-encoding dependency for the
+-! MVP.
+-!
+-! Returns `Fail(0)` on URL parse failure or malformed
+-! response; `Fail(errno)` on network error (mirrors the
+-! `core::net` error convention).
+pub fun get(url: str) -> Result<Response, int> {
+  match parse_url(url) {
+    Result::Fail(e) => Result::Fail(e),
+    Result::Pass(parts) => {
+      match TcpStream::connect(Address::new(parts.host, parts.port)) {
+        Result::Fail(e) => Result::Fail(e),
+        Result::Pass(stream) => {
+          imu req: str = "GET " ++ parts.path
+            ++ " HTTP/1.1\r\nHost: " ++ parts.host
+            ++ "\r\nConnection: close\r\n\r\n";
+
+          stream.write(req);
+
+          mut text: str = "";
+          mut done: bool = false;
+
+          while !done {
+            imu chunk: str = stream.read(4096);
+
+            if chunk.len == 0 {
+              done = true;
+            } else {
+              text = text ++ chunk;
+            }
+          }
+
+          stream.close();
+          parse_response(text)
+        }
+      }
+    }
+  }
+}

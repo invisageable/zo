@@ -1,0 +1,67 @@
+-- tests-run-pass: end-to-end `http::get` round-trip.
+-- @cmd — zo run http_get.zo
+
+load core::net::(Address, TcpListener);
+load core::http;
+
+fun fake_server(fd: int) {
+  imu listener := TcpListener { fd = fd };
+
+  match listener.accept() {
+    Result::Pass(connection) => {
+      imu _: str = connection.read(1024);
+
+      imu body: str = "hello from zo";
+      imu reply: str = "HTTP/1.1 200 OK\r\n"
+        ++ "Content-Type: text/plain\r\n"
+        ++ "Connection: close\r\n"
+        ++ "\r\n"
+        ++ body;
+
+      connection.write(reply);
+      connection.close();
+    }
+    Result::Fail(_) => {
+      showln("fake_server accept failed");
+    }
+  }
+}
+
+fun client(port: int) {
+  imu url: str = "http://127.0.0.1:" ++ port.to_str() ++ "/";
+
+  match http::get(url) {
+    Result::Pass(response) => {
+      showln(response.status.to_str());
+      showln(response.body);
+    }
+    Result::Fail(_) => {
+      showln("get failed");
+    }
+  }
+}
+
+fun main() {
+  match TcpListener::bind(Address::new("127.0.0.1", 0)) {
+    Result::Pass(listener) => {
+      match listener.local_port() {
+        Result::Pass(port) => {
+          nursery {
+            spawn fake_server(listener.fd);
+            spawn client(port);
+          }
+        }
+        Result::Fail(_) => {
+          showln("local_port failed");
+        }
+      }
+    }
+    Result::Fail(_) => {
+      showln("bind failed");
+    }
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 200
+-- hello from zo

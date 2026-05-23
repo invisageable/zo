@@ -287,9 +287,23 @@ fn build_struct_return_map(
 ) -> (HashMap<Symbol, u32>, EnumPayloadFields) {
   let mut map = HashMap::default();
   let mut payload_map: EnumPayloadFields = HashMap::default();
+  // Caller → list of callees observed in the caller's
+  // body. After the main pass we propagate
+  // `payload_map[callee]` into any empty variant slot of
+  // `payload_map[caller]` — covers passthrough functions
+  // whose body returns the result of a call via a
+  // match-arm join slot (no local `EnumConstruct` for
+  // that variant). Lookup uses the per-function map only;
+  // a TyId-keyed shortcut conflates `Result<X,int>` and
+  // `Result<Y,int>` because zo doesn't intern
+  // monomorphized enum TyIds.
+  let mut callees_of: HashMap<Symbol, Vec<Symbol>> = HashMap::default();
   let mut cur_fn: Option<Symbol> = None;
   let mut last_ty: Option<TyId> = None;
   let mut last_fields: Option<u32> = None;
+  // Vids produced by `Insn::Call`, keyed by vid → callee
+  // name, scoped to the currently-walked function.
+  let mut value_call: HashMap<u32, Symbol> = HashMap::default();
 
   // Value-id → producing-instruction ty_id, scoped to the
   // currently-walked function. ValueId counters reset
@@ -314,6 +328,7 @@ fn build_struct_return_map(
         last_ty = None;
         last_fields = None;
         value_ty.clear();
+        value_call.clear();
 
         // Every fn whose declared return is a struct claims
         // a slot, even when the body's tail position is a
@@ -357,15 +372,16 @@ fn build_struct_return_map(
         // Indexed by discriminant; gaps get pre-filled with
         // empty Vecs so a later variant's discriminant slot
         // is in-bounds.
+        let disc_idx = *variant as usize;
+
         if let Some(fname) = cur_fn {
           let entry = payload_map.entry(fname).or_default();
-          let disc_idx = *variant as usize;
 
           if entry.len() <= disc_idx {
             entry.resize(disc_idx + 1, Vec::new());
           }
 
-          entry[disc_idx] = variant_struct_fields;
+          entry[disc_idx] = variant_struct_fields.clone();
         }
 
         // Different variants of the same enum SHARE the
@@ -377,6 +393,13 @@ fn build_struct_return_map(
           None => total,
         });
         last_ty = None;
+      }
+      Insn::Call { dst, name, .. } => {
+        value_call.insert(dst.0, *name);
+
+        if let Some(fname) = cur_fn {
+          callees_of.entry(fname).or_default().push(*name);
+        }
       }
       Insn::Return { value: Some(_), .. } => {
         if let (Some(fname), Some(n)) = (cur_fn, last_fields) {
@@ -412,6 +435,52 @@ fn build_struct_return_map(
         }
       }
       _ => {}
+    }
+  }
+
+  // Propagate `payload_map` variant entries from each
+  // callee into its caller, filling any per-variant slot
+  // the caller didn't construct locally. Covers the
+  // match-arm passthrough case: `get { match parse_url
+  // ... => Result::Fail(e), Result::Pass(_) =>
+  // parse_response(text) }` — `get` constructs only the
+  // `Fail` variant locally, but `parse_response`'s
+  // `Pass` variant carries the `Response` struct payload
+  // that `main`'s deep-copy at the `get` call site still
+  // needs. Fixpoint covers transitive call chains
+  // (`A { B() }; B { C() }`); a well-typed program never
+  // dispatches a single match through callees with
+  // different substituted payload types in the same
+  // variant slot, so a callee's non-empty slot is
+  // unambiguous even though `Result<X,int>` and
+  // `Result<Y,int>` share the same outer enum `TyId`.
+  let mut changed = true;
+
+  while changed {
+    changed = false;
+
+    let pairs: Vec<(Symbol, Symbol)> = callees_of
+      .iter()
+      .flat_map(|(c, cs)| cs.iter().map(move |callee| (*c, *callee)))
+      .collect();
+
+    for (caller, callee) in pairs {
+      let Some(callee_entry) = payload_map.get(&callee).cloned() else {
+        continue;
+      };
+
+      let caller_entry = payload_map.entry(caller).or_default();
+
+      if caller_entry.len() < callee_entry.len() {
+        caller_entry.resize(callee_entry.len(), Vec::new());
+      }
+
+      for (i, callee_v) in callee_entry.iter().enumerate() {
+        if !callee_v.is_empty() && caller_entry[i].is_empty() {
+          caller_entry[i] = callee_v.clone();
+          changed = true;
+        }
+      }
     }
   }
 
