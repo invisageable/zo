@@ -27,6 +27,7 @@ const SYS_READ: u16 = 3;
 const SYS_WRITE: u16 = 4;
 const SYS_OPEN: u16 = 5;
 const SYS_CLOSE: u16 = 6;
+const SYS_UNLINK: u16 = 10;
 const SYS_ACCESS: u16 = 33;
 const FD_STDOUT: u16 = 1;
 const FD_STDERR: u16 = 2;
@@ -2709,6 +2710,8 @@ impl<'a> ARM64Gen<'a> {
           "readln" => self.emit_io_read_stdin(idx, "_zo_io_readln"),
           "read" => self.emit_io_read_stdin(idx, "_zo_io_read"),
           "args" => self.emit_io_args(idx),
+          "remove_file" => self.emit_io_remove(args, idx),
+          "read_dir" => self.emit_io_read_dir(args, idx),
 
           // HashMap apply-method dispatch. Names match
           // the executor's `<Type>::<method>` mangling
@@ -6075,6 +6078,38 @@ impl<'a> ARM64Gen<'a> {
   /// `[]str`; no on-stack scratch frame.
   fn emit_io_args(&mut self, idx: usize) {
     self.emit_extern_call("_zo_args");
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// `remove_file(path: str) -> bool` via inline SYS_unlink.
+  ///
+  /// @note — `path + 8` skips the zo str header so the
+  /// kernel sees the NUL-terminated payload directly.
+  fn emit_io_remove(&mut self, args: &[ValueId], idx: usize) {
+    let path = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    self.emitter.emit_add_imm(X0, path, 8);
+    self.emitter.emit_mov_imm(X16, SYS_UNLINK);
+    self.emitter.emit_svc(0);
+
+    if let Some(dst) = self.reg_for_insn(idx) {
+      self.emitter.emit_cmp_imm(X0, 0);
+      self.emitter.emit_cset(dst, COND_EQ);
+    }
+  }
+
+  /// `read_dir(path: str) -> []str` via `_zo_io_read_dir`.
+  ///
+  /// @note — `path + 8` skips the zo str header so the
+  /// runtime receives the NUL-terminated payload directly.
+  fn emit_io_read_dir(&mut self, args: &[ValueId], idx: usize) {
+    let path = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    self.emitter.emit_add_imm(X0, path, 8);
+    self.emit_extern_call("_zo_io_read_dir");
 
     if let Some(dst) = self.reg_for_insn(idx) {
       self.emitter.emit_mov_reg(dst, X0);

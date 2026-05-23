@@ -6,7 +6,7 @@
 -- inherits the producing call's `return_type_args`.
 
 fun main() {
-  imu path: str = "/tmp/zo-io-direct-match.txt";
+  imu path: str = "samples/io_direct_match.txt";
 
   match write_file(path, "hi") {
     Result::Pass(_) => {},

@@ -1822,6 +1822,7 @@ const RUNTIME_DYLIB_NAMES: &[&str] = &[
   "read",
   "readln",
   "args",
+  "read_dir",
   "__zo_str_replace",
 ];
 

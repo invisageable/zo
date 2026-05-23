@@ -4,7 +4,7 @@
 -- alongside `str.lines()` and the `=>` for-shortcut.
 
 fun main() {
-  imu path: str = "/tmp/zo-io-str-lines-loop.txt";
+  imu path: str = "samples/io_str_lines_loop.txt";
 
   match write_file(path, "alpha\nbeta\ngamma") {
     Result::Pass(_) => {},

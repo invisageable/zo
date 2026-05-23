@@ -137,3 +137,39 @@ pub unsafe extern "C-unwind" fn _zo_args() -> *const u8 {
     crate::arr::alloc_ptr_array(&str_ptrs) as usize
   }) as *const u8
 }
+
+/// Read directory entries at `path` into a heap `[]str`.
+///
+/// @note — `OsStr::from_bytes` skips a UTF-8 scan that
+/// would reject directory names valid on the filesystem
+/// but not in Rust's `&str`. Errors collapse to an empty
+/// array — the codegen treats X0 as a zo `[]str` pointer
+/// either way.
+///
+/// # Safety
+///
+/// `path` must point at a NUL-terminated byte run that
+/// stays readable and unaliased for the duration of the
+/// call.
+#[unsafe(export_name = "zo_io_read_dir")]
+pub unsafe extern "C-unwind" fn _zo_io_read_dir(path: *const u8) -> *const u8 {
+  use std::os::unix::ffi::OsStrExt;
+
+  if path.is_null() {
+    return crate::arr::alloc_ptr_array(&[]);
+  }
+
+  let cstr = unsafe { std::ffi::CStr::from_ptr(path.cast()) };
+  let os_path = std::ffi::OsStr::from_bytes(cstr.to_bytes());
+
+  let Ok(iter) = std::fs::read_dir(os_path) else {
+    return crate::arr::alloc_ptr_array(&[]);
+  };
+
+  let str_ptrs: Vec<*const u8> = iter
+    .filter_map(Result::ok)
+    .map(|entry| crate::str::alloc_str(entry.file_name().as_encoded_bytes()))
+    .collect();
+
+  crate::arr::alloc_ptr_array(&str_ptrs)
+}

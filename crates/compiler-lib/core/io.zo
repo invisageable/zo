@@ -40,3 +40,13 @@ pub ffi append_file(path: str, content: str) -> Result<int, int>;
 
 -! True if `path` names an existing, accessible file.
 pub ffi exists(path: str) -> bool;
+
+-! Delete the file at `path`; `false` on any error.
+pub ffi remove_file(path: str) -> bool;
+
+-! Entry names in directory `path`, empty `[]` on error.
+-!
+-! @note — entries exclude `.` / `..` and carry no parent
+-! prefix; order is implementation-defined. Use `exists`
+-! beforehand when missing-vs-empty matters.
+pub ffi read_dir(path: str) -> []str;

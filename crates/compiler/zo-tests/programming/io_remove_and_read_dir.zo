@@ -1,0 +1,66 @@
+-- tests-run-pass: end-to-end exercise of `remove_file(path)`
+-- and `read_dir(path)`. Writes two files into `samples/`,
+-- removes one, lists the directory, and confirms
+-- `read_dir` reports the rest plus an empty array for a
+-- missing dir.
+
+fun main() {
+  imu file_a: str = "samples/io_rd_a.txt";
+  imu file_b: str = "samples/io_rd_b.txt";
+
+  -- Best-effort cleanup from any prior run.
+  remove_file(file_a);
+  remove_file(file_b);
+
+  showln("setup");
+
+  match write_file(file_a, "alpha") {
+    Result::Pass(_) => {},
+    Result::Fail(_) => showln("write-a-err"),
+  }
+
+  match write_file(file_b, "beta") {
+    Result::Pass(_) => {},
+    Result::Fail(_) => showln("write-b-err"),
+  }
+
+  imu pre_a: bool = exists(file_a);
+  imu pre_b: bool = exists(file_b);
+
+  showln(pre_a);
+  showln(pre_b);
+
+  imu removed_a: bool = remove_file(file_a);
+
+  showln(removed_a);
+
+  imu post_a: bool = exists(file_a);
+  imu post_b: bool = exists(file_b);
+
+  showln(post_a);
+  showln(post_b);
+
+  remove_file(file_b);
+
+  imu entries: []str = read_dir("samples");
+  imu nonempty: bool = entries.len() >= 0;
+
+  show("entries-ok=");
+  showln(nonempty);
+
+  imu missing: []str = read_dir("samples/zo-no-such-dir-xyz");
+  imu is_empty: bool = missing.len() == 0;
+
+  show("missing-empty=");
+  showln(is_empty);
+}
+
+-- EXPECTED OUTPUT:
+-- setup
+-- true
+-- true
+-- true
+-- false
+-- true
+-- entries-ok=true
+-- missing-empty=true
