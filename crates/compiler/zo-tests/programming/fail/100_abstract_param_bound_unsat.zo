@@ -1,0 +1,30 @@
+-! # bound unsatisfied: abstract method needed but no impl.
+-!
+-! @cmd: `zo build 100_abstract_param_bound_unsat.zo`
+-!
+-! `fun render(item: Show)` is sugar for a generic with a
+-! `Show` bound. Calling `render(unimpl)` with a value
+-! whose type lacks `apply Show for ...` violates that
+-! bound — the compiler refuses the call at the user's
+-! source site, not at the declaration of `render`.
+
+abstract Show {
+  fun show(self) -> str;
+}
+
+struct Unimpl {
+  payload: int,
+}
+
+fun render(item: Show) -> str {
+  item.show()
+}
+
+fun main() {
+  imu u: Unimpl = Unimpl { payload = 42 };
+  imu rendered: str = render(u);
+
+  showln(rendered);
+}
+
+-- EXPECTED ERROR: E0347

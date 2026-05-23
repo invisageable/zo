@@ -152,6 +152,21 @@ pub fn visit_uses(insn: &Insn, mut f: impl FnMut(ValueId)) {
       f(*lo);
       f(*hi);
     }
+    // `any <Abstract>` boxing: the heap-box copies bytes
+    // from `src`, so the defining instruction must stay
+    // live across the coercion. Without enumerating
+    // `src` here, DCE classifies the source Load (or
+    // construct) as unused and elides it.
+    Insn::CoerceToDyn { src, .. } => f(*src),
+    // Dynamic dispatch reads the receiver's fat-pointer
+    // (two LDRs in the lowering) and each explicit arg
+    // passes through a register move.
+    Insn::DynDispatch { recv, args, .. } => {
+      f(*recv);
+      for &v in args {
+        f(v);
+      }
+    }
     _ => {}
   }
 }

@@ -92,6 +92,29 @@ pub enum Ty {
   /// Used in generic function/struct/enum definitions.
   Param(Symbol),
 
+  /// Reference to an `abstract` declaration named `Symbol`.
+  /// Surfaces only at the type-annotation position
+  /// (`fun process(item: Eq)`) and is erased by the
+  /// implicit-mono lowering before SIR — the analyzer
+  /// synthesizes a `$__T` parameter with the abstract as
+  /// its bound and replaces the annotation's `TyId` with
+  /// the fresh inference var. Reaching codegen with
+  /// `Ty::Abstract(_)` still in a SIR is a compiler bug
+  /// (the lowering should always run); codegen treats
+  /// it as `unreachable!` so the violation surfaces in
+  /// debug builds.
+  Abstract(Symbol),
+
+  /// `any <Abstract>` — dynamic dispatch type. Surfaces at
+  /// annotation positions (`fun render(item: any Show)`,
+  /// `mut items: []any Drawable`) and persists through SIR
+  /// to codegen. Lowered to a 16-byte fat pointer
+  /// `(data_ptr, vtable_ptr)` where `vtable_ptr` resolves
+  /// to `__zo_vtable_<Abstract>__<ConcreteType>`. Distinct
+  /// from `Abstract(_)`, which is erased before SIR by the
+  /// implicit-mono pass.
+  Dyn(Symbol),
+
   /// The type of types (for type expressions like `s32`)
   Type,
 

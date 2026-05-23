@@ -4,7 +4,7 @@
 //! so a regression in the patch math is caught at this layer,
 //! not downstream in codegen.
 
-use crate::{ARM64Emitter, COND_EQ, COND_NE, X0};
+use crate::{ARM64Emitter, COND_EQ, COND_NE, Register, X0};
 
 // Expected encodings (re-derived from the ARM64 reference so
 // the tests fail loudly if the emitter constants drift):
@@ -169,5 +169,27 @@ fn patch_bcond_at_matches_direct_emit_bcond() {
         "patch_bcond_at diverged from emit_b.cond ({cond}) for offset {offset}",
       );
     }
+  }
+}
+
+/// BLR Xn pins the encoding `1101011_0001_11111_000000_Xn_00000` —
+/// 0xD63F0000 | (Xn << 5). A regression here would silently
+/// reroute every dynamic-dispatch site, so check every Xn in
+/// the standard call-clobbered range.
+#[test]
+fn emit_blr_encoding_per_register() {
+  for n in 0u8..=16 {
+    let mut emitter = ARM64Emitter::new();
+    let reg = Register::new(n);
+
+    emitter.emit_blr(reg);
+
+    let insn = read_insn(&emitter.code(), 0);
+    let expected = 0xD63F_0000 | ((n as u32) << 5);
+
+    assert_eq!(
+      insn, expected,
+      "BLR x{n}: got {insn:#010x}, expected {expected:#010x}",
+    );
   }
 }

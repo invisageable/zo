@@ -465,9 +465,18 @@ pub struct Executor<'a> {
   /// Active type parameters: `$T → TyId`. Set during
   /// generic function definition, cleared after.
   type_params: Vec<(Symbol, TyId)>,
-  /// Generic constraints: `$T: Eq` maps the type param
-  /// name to the abstract name. Verified at call site.
-  type_constraints: HashMap<Symbol, Symbol>,
+  /// Generic constraints: `$T: Eq` maps the type param name
+  /// to the abstract name(s). Verified at call site by
+  /// `register_mono_instantiation`. The `Vec` shape supports
+  /// multi-bound syntax (`<$T: Eq + Show>`); a single bound
+  /// is just a one-element vec.
+  type_constraints: HashMap<Symbol, Vec<Symbol>>,
+  /// Per-function counter for synthetic `$__T<n>` parameters
+  /// minted when a parameter is annotated `item: Eq`. Reset
+  /// at every `execute_fun` so each function starts at 0;
+  /// cross-function uniqueness comes from the
+  /// `<pack>__<fn>__$__T<n>` prefix, not the counter.
+  implicit_param_counter: u32,
   /// Generic type aliases: `type Pair<$T> = ($T, $T);` →
   /// `(params, body)` where `params` are the original
   /// inference vars minted at definition and `body` is the
@@ -844,6 +853,7 @@ impl<'a> Executor<'a> {
       global_constants: Vec::new(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
+      implicit_param_counter: 0,
       generic_aliases: HashMap::default(),
       template_interp_counter: 0,
       deferred_closures: Vec::new(),
@@ -1500,6 +1510,11 @@ impl<'a> Executor<'a> {
       self.push_local(v);
     }
     for (sym, def) in abstract_defs {
+      // Mirror `execute_abstract`: register with the type
+      // checker so cross-module `item: Eq` resolves
+      // correctly even when `Eq` was declared in a
+      // different module than the consumer.
+      self.ty_checker.register_abstract(sym);
       self.abstract_defs.insert(sym, def);
     }
 
@@ -6454,6 +6469,39 @@ impl<'a> Executor<'a> {
 
         Some((ty, idx + 2))
       }
+      // `any <Abstract>` — the parser baked the abstract's
+      // symbol into the node value during the TypeAnnotation
+      // pass. Single tree node, zero lookaheads.
+      //
+      // Object-safety gate: the abstract's `dyn_safe` flag
+      // is set at `execute_abstract` time by tracking
+      // `Token::SelfUpper` in non-receiver positions. If
+      // the user reaches `any <Abstract>` for an unsafe
+      // abstract, raise `E0349` at the annotation span
+      // and yield `None` so the param parses as untyped
+      // rather than as a broken `Ty::Dyn`.
+      Token::Any => {
+        if let Some(NodeValue::Symbol(abs_sym)) = self.node_value(idx) {
+          let unsafe_dyn = self
+            .abstract_defs
+            .get(&abs_sym)
+            .is_some_and(|d| !d.dyn_safe);
+
+          if unsafe_dyn {
+            report_error(Error::new(
+              ErrorKind::AbstractNotDynSafe,
+              self.tree.spans[idx],
+            ));
+
+            return None;
+          }
+
+          if let Some(dyn_ty) = self.ty_checker.resolve_dyn_ty(abs_sym) {
+            return Some((dyn_ty, idx + 1));
+          }
+        }
+        None
+      }
       t if t.is_ty() || t == Token::Ident || t == Token::SelfUpper => {
         let ty = self.resolve_type_token(idx);
 
@@ -7043,6 +7091,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
       type_params: Vec::new(),
+      type_param_bounds: Vec::new(),
       return_type_args: Vec::new(),
       mut_self: false,
       owning_pack: None,
@@ -7323,11 +7372,32 @@ impl<'a> Executor<'a> {
     self.tree.span(start_idx as u32)
   }
 
+  /// Returns the abstract-bound list for each entry in
+  /// `self.type_params`, in the same order. Empty inner vec
+  /// when a `$T` has no bound. Used at every FunDef-build
+  /// site to populate `type_param_bounds` parallel to the
+  /// `type_params: Vec<TyId>` field.
+  fn collect_type_param_bounds(&self) -> Vec<Vec<Symbol>> {
+    self
+      .type_params
+      .iter()
+      .map(|(name, _)| {
+        self.type_constraints.get(name).cloned().unwrap_or_default()
+      })
+      .collect()
+  }
+
   fn execute_fun(&mut self, start_idx: usize, _end_idx: usize) {
     // Parse the function signature and set it as pending
     // The actual FunDef will be emitted when we hit LBrace
 
     let fun_span = self.introducer_span(start_idx);
+
+    // Reset the implicit-mono counter so each function's
+    // synthetic `$__T<n>` names start at 0. Cross-function
+    // uniqueness is provided by the
+    // `<pack>__<fn>__$__T<n>` prefix below.
+    self.implicit_param_counter = 0;
 
     let name = self
       .tree
@@ -7401,16 +7471,46 @@ impl<'a> Executor<'a> {
 
             self.type_params.push((sym, var));
 
-            // Check for constraint: $T: Abstract.
+            // Parse bound(s): `$T: Abstract` or
+            // `$T: Eq + Show + Ord`. Loops `+`-separated
+            // idents so multi-bound is accepted by the same
+            // path as single-bound — the call-site check
+            // requires every listed abstract to have an
+            // `apply <Abstract> for <ConcreteType>` impl.
             if idx + 2 < _end_idx
               && self.tree.nodes[idx + 1].token == Token::Colon
               && self.tree.nodes[idx + 2].token == Token::Ident
             {
-              if let Some(NodeValue::Symbol(abs)) = self.node_value(idx + 2) {
-                self.type_constraints.insert(sym, abs);
+              let mut bounds: Vec<Symbol> = Vec::new();
+              let mut probe = idx + 2;
+
+              loop {
+                if probe >= _end_idx
+                  || self.tree.nodes[probe].token != Token::Ident
+                {
+                  break;
+                }
+
+                if let Some(NodeValue::Symbol(abs)) = self.node_value(probe) {
+                  bounds.push(abs);
+                }
+
+                // Continue only if `+ Ident` follows.
+                if probe + 2 < _end_idx
+                  && self.tree.nodes[probe + 1].token == Token::Plus
+                  && self.tree.nodes[probe + 2].token == Token::Ident
+                {
+                  probe += 2;
+                } else {
+                  break;
+                }
               }
 
-              idx += 2; // skip : and Ident
+              if !bounds.is_empty() {
+                self.type_constraints.insert(sym, bounds);
+              }
+
+              idx = probe; // resume at the last consumed Ident.
             }
           }
         }
@@ -7508,7 +7608,7 @@ impl<'a> Executor<'a> {
               // For `$T`, skip Dollar + Ident (2 tokens).
               // For `[]type`, skip LBracket + RBracket + type.
               if idx < _end_idx
-                && let Some((param_ty, mut next)) =
+                && let Some((mut param_ty, mut next)) =
                   self.resolve_param_or_return_ty(idx, _end_idx)
               {
                 // Concurrency built-ins (`Tx<T>`, `Rx<T>`,
@@ -7531,6 +7631,41 @@ impl<'a> Executor<'a> {
                     // `<ArgTy>` consumed; probe sits on `>`.
                     next = probe + 1;
                   }
+                }
+
+                // Implicit-mono lowering: when the param's
+                // type resolved to an abstract
+                // (`item: Eq`), mint a synthetic
+                // `<pack>__<fn>__$__T<n>` type-parameter,
+                // record the abstract as its bound, replace
+                // the param's TyId with the fresh inference
+                // var. Each `item: Eq` position gets its
+                // own `$__T` (matches Rust's `impl Eq`
+                // semantics — distinct concrete types
+                // accepted across positions). The pack +
+                // fn prefix guarantees cross-module
+                // uniqueness in the session-shared
+                // interner.
+                if let Ty::Abstract(abs_sym) = self.ty_checker.kind_of(param_ty)
+                {
+                  let n = self.implicit_param_counter;
+                  self.implicit_param_counter += 1;
+
+                  let pack_str = self
+                    .top_pack
+                    .map(|p| self.interner.get(p).to_owned())
+                    .unwrap_or_else(|| "_".to_string());
+                  let fn_str = self.interner.get(name).to_owned();
+                  let synth_name = self
+                    .interner
+                    .intern(&format!("{pack_str}__{fn_str}__$__T{n}"));
+
+                  let fresh = self.ty_checker.fresh_var();
+
+                  self.type_params.push((synth_name, fresh));
+                  self.type_constraints.insert(synth_name, vec![abs_sym]);
+
+                  param_ty = fresh;
                 }
 
                 let mutability = if is_mut {
@@ -7669,6 +7804,7 @@ impl<'a> Executor<'a> {
         kind: FunctionKind::UserDefined,
         pubness,
         type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+        type_param_bounds: self.collect_type_param_bounds(),
         return_type_args: return_type_args
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
@@ -7893,6 +8029,7 @@ impl<'a> Executor<'a> {
         kind: FunctionKind::UserDefined,
         pubness,
         type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+        type_param_bounds: self.collect_type_param_bounds(),
         return_type_args: return_type_args
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
@@ -7930,6 +8067,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::UserDefined,
       pubness,
       type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+      type_param_bounds: self.collect_type_param_bounds(),
       return_type_args: return_type_args
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
@@ -8195,6 +8333,21 @@ impl<'a> Executor<'a> {
         // Type token after the colon.
         if tok.is_ty() && annotated_ty.is_none() {
           annotated_ty = Some(self.resolve_type_token(i));
+        }
+
+        // `any <Abstract>` — the parser emitted a single
+        // `Token::Any` node carrying the abstract's
+        // symbol as its value (parser-side bake; zero
+        // executor-side lookahead). Lower to `Ty::Dyn(_)`
+        // when the symbol resolves to a registered
+        // abstract; otherwise the bake was invalid and
+        // we silently leave `annotated_ty` unset so the
+        // generic error path catches it.
+        if tok == Token::Any
+          && annotated_ty.is_none()
+          && let Some(NodeValue::Symbol(abs_sym)) = self.node_value(i)
+        {
+          annotated_ty = self.ty_checker.resolve_dyn_ty(abs_sym);
         }
 
         // Struct / enum / concurrency-builtin name as
@@ -9705,6 +9858,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::Intrinsic,
       pubness,
       type_params: self.type_params.iter().map(|(_, ty)| *ty).collect(),
+      type_param_bounds: self.collect_type_param_bounds(),
       return_type_args: type_args
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
@@ -10690,6 +10844,7 @@ impl<'a> Executor<'a> {
         kind: FunctionKind::UserDefined,
         pubness,
         type_params: vec![],
+        type_param_bounds: Vec::new(),
         return_type_args: vec![],
         mut_self: false,
         owning_pack: self.top_pack,
@@ -10921,6 +11076,7 @@ impl<'a> Executor<'a> {
       kind: FunctionKind::UserDefined,
       pubness,
       type_params: vec![],
+      type_param_bounds: Vec::new(),
       return_type_args: vec![],
       mut_self: false,
       owning_pack: self.top_pack,
@@ -12472,6 +12628,13 @@ impl<'a> Executor<'a> {
 
         // Parse params until RParen.
         let mut params = Vec::new();
+        // Tracks whether this method keeps the abstract
+        // dyn-safe. Flipped to `false` if `Self` appears
+        // in a non-receiver param or as the return — both
+        // break the vtable's uniform calling convention
+        // (`(data_ptr, vtable_ptr)` can't carry "another
+        // implementor of the same abstract" structurally).
+        let mut method_dyn_safe = true;
 
         while idx < end_idx && self.tree.nodes[idx].token != Token::RParen {
           let ptok = self.tree.nodes[idx].token;
@@ -12527,7 +12690,11 @@ impl<'a> Executor<'a> {
             } else if idx < end_idx
               && self.tree.nodes[idx].token == Token::SelfUpper
             {
-              // Self type — placeholder.
+              // `Self` in a non-receiver param breaks
+              // dyn-safety: the vtable can't statically
+              // resolve a "same-type" constraint when the
+              // caller only holds a fat pointer.
+              method_dyn_safe = false;
               idx += 1;
               self.ty_checker.fresh_var()
             } else {
@@ -12558,6 +12725,12 @@ impl<'a> Executor<'a> {
             } else if idx < end_idx
               && self.tree.nodes[idx].token == Token::SelfUpper
             {
+              // `Self` as return breaks dyn-safety:
+              // through `any Abstract`, the caller can't
+              // know which concrete type comes back, so
+              // the result can't be assigned to anything
+              // concrete.
+              method_dyn_safe = false;
               idx += 1;
               self.ty_checker.fresh_var()
             } else {
@@ -12577,6 +12750,7 @@ impl<'a> Executor<'a> {
             name: mname,
             params,
             return_ty,
+            dyn_safe: method_dyn_safe,
           });
         }
 
@@ -12586,7 +12760,16 @@ impl<'a> Executor<'a> {
       idx += 1;
     }
 
-    self.abstract_defs.insert(name, AbstractDef { methods });
+    let dyn_safe = methods.iter().all(|m| m.dyn_safe);
+    self
+      .abstract_defs
+      .insert(name, AbstractDef { methods, dyn_safe });
+    // Register the abstract name with the type checker so
+    // type-annotation positions (`fun process(item: Eq)`)
+    // resolve to `Ty::Abstract(eq_sym)`. The full method-set
+    // stays here in `abstract_defs`; the type checker only
+    // needs the membership test for `resolve_ty_symbol`.
+    self.ty_checker.register_abstract(name);
     self.skip_until = end_idx;
   }
 
@@ -12953,6 +13136,18 @@ impl<'a> Executor<'a> {
 
       let defined_at = self.tree.spans[start_idx];
       let defining_module = self.source_path.clone().unwrap_or_default();
+      // Pre-intern the vtable symbol while we still hold a
+      // mutable interner. Codegen is otherwise immutable
+      // over the interner and can't mint fresh names.
+      let vtable_sym = {
+        let mangled = format!(
+          "__zo_vtable_{}__{}",
+          self.interner.get(abs_name),
+          self.interner.get(type_name),
+        );
+
+        self.interner.intern(&mangled)
+      };
 
       self.abstract_impls.insert(
         (abs_name, type_name),
@@ -12961,6 +13156,7 @@ impl<'a> Executor<'a> {
           defined_at,
           defining_module,
           pubness,
+          vtable_sym,
         },
       );
     }
@@ -13204,6 +13400,19 @@ impl<'a> Executor<'a> {
       }
     }
 
+    // `any <Abstract>` receiver: any name that matches an
+    // abstract method routes to `Insn::DynDispatch`. The
+    // method-set is fixed by the abstract's declaration —
+    // no concrete-type lookup needed. Without this branch
+    // the dot would resolve as a field access, the wrong
+    // shape entirely.
+    if let Ty::Dyn(abs_sym) = resolved
+      && let Some(def) = self.abstract_defs.get(&abs_sym)
+      && def.methods.iter().any(|m| m.name == member_name)
+    {
+      return true;
+    }
+
     // Resolve receiver type name for struct/enum methods,
     // or map a primitive `Ty` onto its canonical keyword
     // string for `apply <Primitive> { ... }` methods.
@@ -13290,6 +13499,19 @@ impl<'a> Executor<'a> {
     if matches!(resolved, Ty::Infer(_)) {
       let ms = self.interner.get(method_name).to_owned();
       let placeholder = format!("__abstract::{ms}");
+
+      return self.interner.intern(&placeholder);
+    }
+
+    // `any <Abstract>` receiver — emit a `__dyn::` sentinel
+    // name. `execute_dot_method_call` recognises the prefix
+    // and lowers to `Insn::DynDispatch` instead of a static
+    // `Insn::Call`, threading `method_index` from the
+    // abstract's `methods` vector through to codegen.
+    if let Ty::Dyn(abs_sym) = resolved {
+      let abs_str = self.interner.get(abs_sym).to_owned();
+      let ms = self.interner.get(method_name).to_owned();
+      let placeholder = format!("__dyn::{abs_str}::{ms}");
 
       return self.interner.intern(&placeholder);
     }
@@ -13440,6 +13662,97 @@ impl<'a> Executor<'a> {
     // matching FunDef. Emit the Call directly — the mono
     // pass will rewrite the name to the concrete method.
     let name_str = self.interner.get(mangled_name);
+
+    // `__dyn::<Abstract>::<method>` — dynamic dispatch
+    // through a fat-pointer vtable. The receiver is at the
+    // top of the value stack; pop it + explicit args and
+    // emit `Insn::DynDispatch` whose `method_index` is the
+    // method's slot inside `abstract_defs[abs].methods`.
+    let dyn_parts = name_str.strip_prefix("__dyn::").and_then(|rest| {
+      rest
+        .split_once("::")
+        .map(|(a, m)| (a.to_owned(), m.to_owned()))
+    });
+
+    if let Some((abs_str, method_str)) = dyn_parts {
+      let abs_sym = self.interner.intern(&abs_str);
+      let method_sym = self.interner.intern(&method_str);
+
+      let method_index = match self.abstract_defs.get(&abs_sym) {
+        Some(def) => {
+          match def.methods.iter().position(|m| m.name == method_sym) {
+            Some(i) => i as u32,
+            None => return,
+          }
+        }
+        None => return,
+      };
+
+      // Count explicit args between parens at depth 0
+      // (same shape as the non-dyn dispatch below).
+      let has_content = lparen_idx + 1 < rparen_idx;
+      let mut comma_count = 0;
+      let mut depth = 0i32;
+
+      for i in (lparen_idx + 1)..rparen_idx {
+        match self.tree.nodes[i].token {
+          Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+          Token::RParen | Token::RBracket | Token::RBrace => depth -= 1,
+          Token::Comma if depth == 0 => comma_count += 1,
+          _ => {}
+        }
+      }
+
+      let explicit_args = if has_content { comma_count + 1 } else { 0 };
+
+      // Drain the explicit args off the back of the
+      // value stacks in one shot. `drain` preserves
+      // push order, so no reverse is needed.
+      let sir_drain_at = self.sir_values.len().saturating_sub(explicit_args);
+      let arg_sirs: Vec<ValueId> =
+        self.sir_values.drain(sir_drain_at..).collect();
+      let val_drain_at = self.value_stack.len().saturating_sub(explicit_args);
+      self.value_stack.drain(val_drain_at..);
+      let ty_drain_at = self.ty_stack.len().saturating_sub(explicit_args);
+      self.ty_stack.drain(ty_drain_at..);
+
+      // Pop receiver (the fat-pointer ValueId).
+      let recv_sir = match self.sir_values.pop() {
+        Some(s) => s,
+        None => return,
+      };
+      self.value_stack.pop();
+      self.ty_stack.pop();
+
+      let dst = ValueId(self.sir.next_value_id);
+      self.sir.next_value_id += 1;
+
+      // Return type pulled from the abstract's method def.
+      let ret_ty = self
+        .abstract_defs
+        .get(&abs_sym)
+        .and_then(|d| d.methods.iter().find(|m| m.name == method_sym))
+        .map(|m| m.return_ty)
+        .unwrap_or_else(|| self.ty_checker.fresh_var());
+
+      let result_sir = self.sir.emit(Insn::DynDispatch {
+        dst,
+        recv: recv_sir,
+        method_index,
+        abstract_name: abs_sym,
+        method_name: method_sym,
+        args: arg_sirs,
+        ty_id: ret_ty,
+      });
+
+      let rid = self.values.store_runtime(0);
+
+      self.value_stack.push(rid);
+      self.ty_stack.push(ret_ty);
+      self.sir_values.push(result_sir);
+
+      return;
+    }
 
     if name_str.starts_with("__abstract::") {
       // Pop explicit args first, then receiver — same
@@ -13727,6 +14040,7 @@ impl<'a> Executor<'a> {
         &subs,
         Some(new_return),
         recv_struct_name,
+        self.tree.spans[dot_idx],
       );
 
       // Layer closure-param monomorphisation on top of
@@ -18211,6 +18525,41 @@ impl<'a> Executor<'a> {
     self.lookup_local(root_sym).is_none()
   }
 
+  /// Walks an `Ident :: Ident :: ...` chain backwards
+  /// from `start_idx` and returns every segment symbol
+  /// in root-to-leaf order. `None` when the start isn't
+  /// an `Ident` or when no `Symbol` sits on the path.
+  fn walk_colon_chain(&self, start_idx: usize) -> Option<Vec<Symbol>> {
+    if self.tree.nodes[start_idx].token != Token::Ident {
+      return None;
+    }
+
+    let mut segments = Vec::new();
+    let mut cursor = start_idx;
+
+    loop {
+      let sym = match self.node_value(cursor) {
+        Some(NodeValue::Symbol(s)) => s,
+        _ => return None,
+      };
+
+      segments.push(sym);
+
+      if cursor < 2
+        || self.tree.nodes[cursor - 1].token != Token::ColonColon
+        || self.tree.nodes[cursor - 2].token != Token::Ident
+      {
+        break;
+      }
+
+      cursor -= 2;
+    }
+
+    segments.reverse();
+
+    Some(segments)
+  }
+
   /// `true` when the `Ident` at `idx` is an interior /
   /// trailing segment of a `pack::sub::leaf` chain whose
   /// leftmost segment is a declared pack name (and not
@@ -18224,22 +18573,15 @@ impl<'a> Executor<'a> {
   /// keep firing the diagnostic because their chain
   /// root fails the pack-membership check.
   fn is_pack_chain_segment(&self, idx: usize) -> bool {
-    let mut cursor = idx;
-
-    while cursor >= 2
-      && self.tree.nodes[cursor - 1].token == Token::ColonColon
-      && self.tree.nodes[cursor - 2].token == Token::Ident
-    {
-      cursor -= 2;
-    }
-
-    if cursor == idx {
-      return false;
-    }
-
-    let Some(NodeValue::Symbol(root_sym)) = self.node_value(cursor) else {
+    let Some(segments) = self.walk_colon_chain(idx) else {
       return false;
     };
+
+    if segments.len() < 2 {
+      return false;
+    }
+
+    let root_sym = segments[0];
 
     self.pack_names.contains(&root_sym) && self.lookup_local(root_sym).is_none()
   }
@@ -18464,36 +18806,10 @@ impl<'a> Executor<'a> {
     };
 
     // Walk back through `<Ident> :: <Ident> :: ...`
-    // collecting every namespace segment. Cursor starts
-    // at the ident BEFORE the rightmost `::`, then steps
-    // back by 2 to skip each prior `::` separator.
-    let mut cursor = lparen_idx - 3;
-    let mut pack_parts: Vec<Symbol> = Vec::new();
-
-    loop {
-      if self.tree.nodes[cursor].token != Token::Ident {
-        return None;
-      }
-
-      let sym = match self.node_value(cursor) {
-        Some(NodeValue::Symbol(s)) => s,
-        _ => return None,
-      };
-
-      pack_parts.push(sym);
-
-      // Continue the chain only if `cursor - 1` is `::`
-      // and `cursor - 2` is another Ident.
-      if cursor < 2 || self.tree.nodes[cursor - 1].token != Token::ColonColon {
-        break;
-      }
-
-      if self.tree.nodes[cursor - 2].token != Token::Ident {
-        break;
-      }
-
-      cursor -= 2;
-    }
+    // collecting every namespace segment in root-to-leaf
+    // order, starting at the ident BEFORE the rightmost
+    // `::`.
+    let pack_parts = self.walk_colon_chain(lparen_idx - 3)?;
 
     // Single-segment `info::cpu_count` — defer to the
     // existing path so apply-mangled lookups +
@@ -18501,9 +18817,6 @@ impl<'a> Executor<'a> {
     if pack_parts.len() < 2 {
       return None;
     }
-
-    // pack_parts is leaf-to-root; reverse for the join.
-    pack_parts.reverse();
 
     let raw_parts: Vec<String> = pack_parts
       .iter()
@@ -19648,6 +19961,58 @@ impl<'a> Executor<'a> {
 
           let span = self.tree.spans[lparen_idx + 1 + i * 2];
 
+          // Dyn coercion at the call boundary: when the
+          // callee expects `any <Abstract>` and the
+          // caller's arg is a concrete nominal type with
+          // a matching `apply Abstract for ConcreteType`
+          // impl, materialise a `CoerceToDyn` so the SIR
+          // slot carries a fat pointer downstream. Mirror
+          // shape to the F32→F64 widen above: rewrite
+          // `arg_sirs[slot]` + `arg_types[i]` in place so
+          // the subsequent `unify` sees matching `Ty::Dyn`
+          // types. If the bound is unsatisfied, raise
+          // `BoundNotSatisfied` at the call span and bail
+          // — `unify` would otherwise emit a less precise
+          // `TypeMismatch`.
+          if let Ty::Dyn(abs_sym) = self.ty_checker.kind_of(param_ty)
+            && sir_slot < arg_sirs.len()
+          {
+            let resolved_arg = self.ty_checker.resolve_id(arg_types[i]);
+            let concrete_name = match self.ty_checker.kind_of(resolved_arg) {
+              Ty::Struct(sid) => {
+                self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+              }
+              Ty::Enum(eid) => {
+                self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name)
+              }
+              kind => Self::primitive_ty_name_str(&kind)
+                .map(|s| self.interner.intern(s)),
+            };
+
+            if let Some(concrete) = concrete_name {
+              if self.abstract_impls.contains_key(&(abs_sym, concrete)) {
+                let dst = ValueId(self.sir.next_value_id);
+                self.sir.next_value_id += 1;
+                let coerce_sv = self.sir.emit(Insn::CoerceToDyn {
+                  dst,
+                  src: arg_sirs[sir_slot],
+                  abstract_name: abs_sym,
+                  concrete_ty: resolved_arg,
+                });
+
+                arg_sirs[sir_slot] = coerce_sv;
+                arg_types[i] = param_ty;
+              } else {
+                report_error(Error::with_secondary(
+                  ErrorKind::BoundNotSatisfied,
+                  span,
+                  func.span,
+                ));
+                return;
+              }
+            }
+          }
+
           if self
             .ty_checker
             .unify(param_ty, arg_types[i], span)
@@ -19669,7 +20034,14 @@ impl<'a> Executor<'a> {
       let call_name = if func.type_params.is_empty() {
         func.name
       } else {
-        self.register_mono_instantiation(func.name, &func, &subs, None, None)
+        self.register_mono_instantiation(
+          func.name,
+          &func,
+          &subs,
+          None,
+          None,
+          self.tree.spans[lparen_idx],
+        )
       };
 
       // Closure param monomorphization: when a closure is
@@ -20910,7 +21282,55 @@ impl<'a> Executor<'a> {
     subs: &[(TyId, TyId)],
     override_return: Option<TyId>,
     apply_ctx: Option<Symbol>,
+    call_site: Span,
   ) -> Symbol {
+    // Bound enforcement: for each substitution position
+    // whose corresponding `FunDef.type_param_bounds[i]`
+    // lists abstracts, verify the concrete type has an
+    // `apply <Abstract> for <ConcreteType>` impl. Fail
+    // closed — on any unsatisfied bound, raise
+    // `BoundNotSatisfied` at the call site and bail
+    // BEFORE pushing the mono FunDef (the body would
+    // emit cascading errors against the un-impl'd type).
+    for (idx, (_, fresh)) in subs.iter().enumerate() {
+      let bounds = match func.type_param_bounds.get(idx) {
+        Some(bs) if !bs.is_empty() => bs,
+        _ => continue,
+      };
+
+      let resolved = self.ty_checker.resolve_id(*fresh);
+      let concrete_name = match self.ty_checker.kind_of(resolved) {
+        Ty::Struct(sid) => {
+          self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
+        }
+        Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
+        kind => {
+          Self::primitive_ty_name_str(&kind).map(|s| self.interner.intern(s))
+        }
+      };
+
+      let Some(concrete) = concrete_name else {
+        // Concrete type isn't a nameable nominal — can't
+        // look up an `apply` impl. Treated as an
+        // inference-hole rather than a bound failure; the
+        // mono pass will likely fail downstream with a
+        // clearer diagnostic against the missing type
+        // resolution.
+        continue;
+      };
+
+      for &bound in bounds {
+        if !self.abstract_impls.contains_key(&(bound, concrete)) {
+          report_error(Error::with_secondary(
+            ErrorKind::BoundNotSatisfied,
+            call_site,
+            func.span,
+          ));
+          return base_name;
+        }
+      }
+    }
+
     let mut mangled = self.interner.get(base_name).to_owned();
 
     for (_, fresh) in subs {
@@ -22102,6 +22522,7 @@ impl<'a> Executor<'a> {
             kind: FunctionKind::Closure { capture_count },
             pubness: Pubness::No,
             type_params: Vec::new(),
+            type_param_bounds: Vec::new(),
             return_type_args: Vec::new(),
             mut_self: false,
             owning_pack: None,

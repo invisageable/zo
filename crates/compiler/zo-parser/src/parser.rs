@@ -452,6 +452,34 @@ impl<'a> Parser<'a> {
         self.emit_node(kind);
       }
 
+      // `any` has two roles. At TypeAnnotation it's the
+      // dyn-dispatch modifier — consume `any Ident` into
+      // a single `Token::Any` node carrying the
+      // abstract's symbol. Everywhere else it's a member
+      // name (keywords-as-members), routed through the
+      // normal `handle_operand(Ident)` path; the
+      // tokenizer pre-interned "any" in the literals
+      // table so `extract_value(Ident)` finds it.
+      Token::Any => {
+        if self.state == ParserState::TypeAnnotation
+          && self.pos + 1 < self.tokens.kinds.len()
+          && self.tokens.kinds[self.pos + 1] == Token::Ident
+        {
+          let next_lit_idx = self.tokens.literal_indices[self.pos + 1] as usize;
+          let abs_sym = self.literals.identifiers[next_lit_idx];
+          let span = self.current_span();
+
+          self.expr_buffer.push((
+            Token::Any,
+            span,
+            Some(NodeValue::Symbol(abs_sym)),
+          ));
+          self.pos += 1;
+        } else {
+          self.handle_operand(Token::Ident);
+        }
+      }
+
       // Everything else gets emitted as-is
       _ => {
         self.emit_node(kind);
@@ -531,7 +559,11 @@ impl<'a> Parser<'a> {
 
             self.emit_node_internal(Token::Ident, span, value);
 
-            // Optional constraint: $T: Abstract.
+            // Optional constraint: `$T: Abstract` or
+            // `$T: Abstract + Abstract2 + …`. Multi-bound
+            // syntax emits each `Plus` and `Ident` as
+            // siblings in the tree so the executor's
+            // bound-scanner walks the chain linearly.
             if self.peek() == Some(Token::Colon) {
               self.pos += 1;
               let span = self.current_span();
@@ -544,6 +576,20 @@ impl<'a> Parser<'a> {
                 let value = self.extract_value(Token::Ident);
 
                 self.emit_node_internal(Token::Ident, span, value);
+
+                // Loop `+ <Abstract>` continuations.
+                while self.peek() == Some(Token::Plus)
+                  && self.tokens.kinds.get(self.pos + 2) == Some(&Token::Ident)
+                {
+                  self.pos += 1; // step to `+`.
+                  let span = self.current_span();
+                  self.emit_node_internal(Token::Plus, span, None);
+
+                  self.pos += 1; // step to ident.
+                  let span = self.current_span();
+                  let value = self.extract_value(Token::Ident);
+                  self.emit_node_internal(Token::Ident, span, value);
+                }
               }
             }
           }
@@ -568,11 +614,16 @@ impl<'a> Parser<'a> {
     self.flush_expr();
 
     // `fun` must be followed by an identifier (name)
-    // or `(` for closures (fn).
+    // or `(` for closures (fn). `Token::Any` is accepted
+    // here too — keywords-as-members: reserved keywords
+    // remain usable as name slots so the standard
+    // library can ship methods like `arr.any(pred)`
+    // without colliding with the `any Abstract` type
+    // modifier.
     if token == Token::Fun
       && self
         .peek()
-        .is_some_and(|n| !matches!(n, Token::Ident | Token::Pub))
+        .is_some_and(|n| !matches!(n, Token::Ident | Token::Pub | Token::Any))
     {
       self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
     }
@@ -1160,6 +1211,17 @@ impl<'a> Parser<'a> {
         // In variable declaration, start type annotation
         self.state = ParserState::TypeAnnotation;
         return;
+      }
+
+      // `abstract Name : Parent { ... }` — colon under
+      // an `Abstract` introducer with no `LBrace` yet is
+      // the unique signature for inheritance syntax.
+      // Inheritance would force chained vtable lookups;
+      // flat single-level abstracts are the design.
+      if let Some(introducer) = self.introducer_stack.last()
+        && introducer.token == Token::Abstract
+      {
+        self.error(ErrorKind::AbstractInheritanceUnsupported);
       }
 
       // Otherwise treat as regular token

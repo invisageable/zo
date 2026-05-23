@@ -1,0 +1,16 @@
+
+fun main() {
+	imu numbers: []int = [1, 2, 3, 4];
+  fun addNumber() {
+		numbers.push(numbers.len + 1);
+	}
+
+  imu total = numbers.fold(0, fn(t, n) => t + n);
+
+  imu view: </> ::= <>
+    <p>{numbers.join(' + ')} = {total}</p> <!-- TODO: implement `join` to `[]int` and `[]$T`. -->
+    <button onclick={addNumber}>
+      Add a number
+    </button>
+  </>;
+}

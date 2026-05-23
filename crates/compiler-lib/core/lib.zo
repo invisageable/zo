@@ -24,7 +24,7 @@ pub pack vec;
 
 pub pack c;
 pub pack encoding;
-pub pack easing;
+pub pack ease;
 pub pack env;
 pub pack graphics;
 pub pack hash;

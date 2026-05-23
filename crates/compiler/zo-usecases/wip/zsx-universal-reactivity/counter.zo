@@ -1,0 +1,9 @@
+load shared::Counter;
+
+fun counter() {
+  imu component: </> ::= <button onclick={fn() => Counter.count += 1}>
+    clicks: {Counter.count}
+  </button>;
+
+  #dom component;
+}

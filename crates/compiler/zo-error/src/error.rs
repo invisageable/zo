@@ -425,6 +425,23 @@ pub enum ErrorKind {
   /// scope-qualify the load (`load M::(specific_name);`).
   DuplicatePublicName,
 
+  /// Generic call site's concrete type lacks an
+  /// `apply <Abstract> for <Type>` impl. Raised at the
+  /// call (not the declaration) so the user lands on the
+  /// offending argument.
+  BoundNotSatisfied,
+
+  /// `abstract X : Y { ... }` — colon-after-abstract-name.
+  /// Inheritance would force vtable chaining; abstracts
+  /// are flat single-level declarations.
+  AbstractInheritanceUnsupported,
+
+  /// `any <Abstract>` over an abstract that uses `Self`
+  /// outside the receiver. Vtables have no calling-
+  /// convention slot for "another implementor of the
+  /// same abstract".
+  AbstractNotDynSafe,
+
   // --- Rationale-channel variants (severity = Note) ---
   //
   // Emitted only when the driver passes `--explain-decisions`.

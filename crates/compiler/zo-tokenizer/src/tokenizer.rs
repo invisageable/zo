@@ -449,6 +449,7 @@ impl<'a> Tokenizer<'a> {
         3 if bytes == b"val" => Token::Val,
         3 if bytes == b"raw" => Token::Raw,
         3 if bytes == b"and" => Token::And,
+        3 if bytes == b"any" => Token::Any,
         3 if bytes == b"int" => Token::IntType,
         3 if bytes == b"str" => Token::StrType,
         3 if bytes == b"s16" => Token::S16Type,
@@ -497,8 +498,15 @@ impl<'a> Tokenizer<'a> {
       Token::Ident
     };
 
-    if kind == Token::Ident {
-      // Intern the identifier text (like Carbon does)
+    // `Token::Any` is a reserved keyword for the
+    // dynamic-dispatch type modifier, but the parser's
+    // "keywords-as-members" rule lets it appear as a
+    // member name too (`widgets.any(pred)`). For the
+    // member-access path to read the symbol via the same
+    // `literals.identifiers[literal_indices[pos]]`
+    // machinery as `Token::Ident`, the tokenizer must
+    // intern the literal text and stamp the index here.
+    if kind == Token::Ident || kind == Token::Any {
       let text = std::str::from_utf8(bytes).unwrap_or("");
       let symbol = self.interner.intern(text);
       let id = self.literals.push_identifier(symbol);

@@ -1,0 +1,56 @@
+-- tests-run-pass: two parameters each typed `item: Show`
+-- accept distinct concrete types — each implicit-`item: Show`
+-- mints its own synthetic `$__T<n>` parameter so the
+-- analyzer treats them as independent generics. Matches
+-- Rust's `fn(a: impl Show, b: impl Show)` semantics.
+-- @cmd — zo run abstract_param_distinct.zo
+
+abstract Show {
+  fun show(self) -> str;
+}
+
+struct Point {
+  x: int,
+  y: int,
+}
+
+struct Color {
+  r: int,
+  g: int,
+  b: int,
+}
+
+apply Show for Point {
+  fun show(self) -> str {
+    "point"
+  }
+}
+
+apply Show for Color {
+  fun show(self) -> str {
+    "color"
+  }
+}
+
+fun render_pair(left: Show, right: Show) -> str {
+  imu first: str = left.show();
+  imu second: str = right.show();
+
+  first
+}
+
+fun main() {
+  imu p: Point = Point { x = 1, y = 2 };
+  imu c: Color = Color { r = 255, g = 0, b = 0 };
+
+  imu out: str = render_pair(p, c);
+
+  showln(out);
+  check@eq(out, "point");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- point
+-- DONE

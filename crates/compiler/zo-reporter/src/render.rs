@@ -414,6 +414,18 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
        `load M::(specific_name);` so the consumer picks an explicit \
        winner"
     }
+    ErrorKind::BoundNotSatisfied => {
+      "a generic call site's concrete type does not satisfy the \
+       abstract bound declared on the generic parameter"
+    }
+    ErrorKind::AbstractInheritanceUnsupported => {
+      "abstract inheritance (`abstract X : Y`) is not supported — \
+       abstracts are flat single-level declarations"
+    }
+    ErrorKind::AbstractNotDynSafe => {
+      "this abstract is not safe for dynamic dispatch — a method \
+       uses `Self` outside the receiver position"
+    }
     // Rationale notes (severity = Note, emitted only with
     // `--explain-decisions`).
     ErrorKind::DeadCodeEliminated => "dead code eliminated",
@@ -520,6 +532,18 @@ fn error_label(kind: ErrorKind) -> &'static str {
       "expected `fun main() { ... }` somewhere in this file"
     }
 
+    // Abstract bound errors.
+    ErrorKind::BoundNotSatisfied => {
+      "this value's type has no `apply <Abstract> for <Type>` impl"
+    }
+    ErrorKind::AbstractInheritanceUnsupported => {
+      "drop the `: ParentAbstract` — abstracts cannot inherit"
+    }
+    ErrorKind::AbstractNotDynSafe => {
+      "swap `any <Abstract>` for the implicit-mono form, or drop the \
+       `Self`-using method"
+    }
+
     // Rationale notes.
     ErrorKind::DeadCodeEliminated => {
       "this function is never reached from `main` and was removed"
@@ -541,6 +565,7 @@ fn secondary_label(kind: ErrorKind) -> &'static str {
     ErrorKind::LinkResolutionFailed => {
       "vendor fallback also missing — expected under `<exe-dir>/../lib/vendor/`"
     }
+    ErrorKind::BoundNotSatisfied => "bound declared here on this parameter",
     _ => "related location",
   }
 }
@@ -671,6 +696,18 @@ pub(crate) fn error_note(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::TypeMismatch => {
       Some("The types of both operands must be compatible")
     }
+    ErrorKind::BoundNotSatisfied => Some(
+      "Add an `apply <Abstract> for <ConcreteType> { ... }` block,\nor pass a value of a type that already implements the abstract.",
+    ),
+    ErrorKind::AbstractInheritanceUnsupported => Some(
+      "Express the relationship as `apply <Parent> for <Type>` blocks alongside\n\
+       the child impl. Each abstract stays a flat single-level declaration.",
+    ),
+    ErrorKind::AbstractNotDynSafe => Some(
+      "Use the implicit-mono form: `fun render(item: Drawable)` for\n\
+       monomorphisation, or `<$T: Drawable>(item: $T)` for explicit. Both\n\
+       sidestep the vtable's uniform-call constraint that `any` requires.",
+    ),
 
     // Structured-concurrency notes.
     ErrorKind::SpawnOutsideNursery => Some(

@@ -15,10 +15,12 @@ zo-codegen-backend = { workspace = true }
 zo-codegen-clif = { workspace = true }
 zo-error = { workspace = true }
 zo-interner = { workspace = true }
+zo-module-resolver = { workspace = true }
 zo-sir = { workspace = true }
 zo-ty = { workspace = true }
 
 # external:crates.
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 # internal:crates.

@@ -46,6 +46,11 @@ fn matches_selective(name: &str, filter: &str) -> bool {
 #[derive(Clone)]
 pub struct AbstractDef {
   pub methods: Vec<AbstractMethod>,
+  /// Aggregate of each method's `dyn_safe`. `false`
+  /// blocks `any <Abstract>` resolution at the
+  /// annotation site — the vtable calling convention
+  /// can't carry `Self` outside the receiver.
+  pub dyn_safe: bool,
 }
 
 /// A single method signature in an abstract definition.
@@ -54,6 +59,11 @@ pub struct AbstractMethod {
   pub name: Symbol,
   pub params: Vec<(Symbol, TyId)>,
   pub return_ty: TyId,
+  /// `false` iff `Self` appears in a non-receiver
+  /// param or as the return type. Caught at parse
+  /// time while the literal `Token::SelfUpper` is
+  /// still visible.
+  pub dyn_safe: bool,
 }
 
 /// One `apply Abstract for Type { ... }` registration.
@@ -92,6 +102,10 @@ pub struct AbstractImpl {
   /// implements public abstracts. Mirrors the orphan-rule
   /// shape Rust enforces at the crate boundary.
   pub pubness: Pubness,
+  /// Pre-interned `__zo_vtable_<Abstract>__<ConcreteType>`
+  /// symbol. Minted at apply-block time so codegen can
+  /// reference the vtable without a mutable interner.
+  pub vtable_sym: Symbol,
 }
 
 /// An exported compile-time constant from a module.
@@ -606,6 +620,10 @@ pub fn extract_exports(
           Vec::new()
         };
 
+        let type_param_bounds = src_fun
+          .map(|f| f.type_param_bounds.clone())
+          .unwrap_or_default();
+
         funs.push(FunDef {
           name: *name,
           params: dst_params,
@@ -614,6 +632,7 @@ pub fn extract_exports(
           kind: *kind,
           pubness: *pubness,
           type_params,
+          type_param_bounds,
           return_type_args: rta,
           mut_self: *mut_self,
           owning_pack: *owning_pack,
@@ -805,6 +824,7 @@ pub fn extract_exports(
       kind: src_fun.kind,
       pubness: src_fun.pubness,
       type_params: src_fun.type_params.clone(),
+      type_param_bounds: src_fun.type_param_bounds.clone(),
       return_type_args: src_fun.return_type_args.clone(),
       mut_self: src_fun.mut_self,
       owning_pack: src_fun.owning_pack,

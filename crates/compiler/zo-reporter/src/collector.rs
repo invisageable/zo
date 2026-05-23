@@ -1,13 +1,12 @@
 use zo_error::{Error, Severity};
+use zo_span::Span;
 
 use std::cell::RefCell;
-use zo_span::Span;
 
 thread_local! {
   /// Thread-local error reporter instance.
-  static REPORTER: RefCell<ThreadLocalReporter> = const {
-    RefCell::new(ThreadLocalReporter::new())
-  };
+  static REPORTER: RefCell<ThreadLocalReporter> =
+    const { RefCell::new(ThreadLocalReporter::new()) };
 }
 
 /// Maximum number of errors per thread.
@@ -86,13 +85,9 @@ impl ThreadLocalReporter {
 
   /// Drains all errors into a Vec.
   pub fn drain(&mut self) -> Vec<Error> {
-    let mut errors = Vec::new();
-
-    errors.extend_from_slice(&self.errors[..self.count]);
-
+    let result = self.errors[..self.count].to_vec();
     self.count = 0;
-
-    errors
+    result
   }
 }
 

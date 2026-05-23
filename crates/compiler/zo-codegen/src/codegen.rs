@@ -1,9 +1,24 @@
 use zo_codegen_arm::ARM64Gen;
 use zo_codegen_backend::{Artifact, Backend, LinkObject, Target};
 use zo_codegen_clif::CliftGen;
-use zo_interner::Interner;
+use zo_interner::{Interner, Symbol};
+use zo_module_resolver::{AbstractDef, AbstractImpl};
 use zo_sir::Sir;
 use zo_ty::{Ty, TyTable};
+
+use rustc_hash::FxHashMap;
+
+/// Optional abstract-state slice plumbed through codegen
+/// for the dynamic-dispatch (`any <Abstract>`) pipeline.
+/// `defs` enumerates each abstract's methods (the order
+/// keys the vtable slot index); `impls` records the
+/// concrete-type bindings whose vtables the codegen
+/// emits. Threaded only into the ARM backend at present
+/// — Cranelift ignores it.
+pub struct AbstractState {
+  pub defs: FxHashMap<Symbol, AbstractDef>,
+  pub impls: FxHashMap<(Symbol, Symbol), AbstractImpl>,
+}
 
 /// Concrete backend selected per [`Target`]. The common
 /// `generate` path routes through the [`Backend`] trait;
@@ -38,12 +53,16 @@ impl Codegen {
     &self,
     interner: &'a Interner,
     type_view: Option<(&'a [Ty], &'a TyTable)>,
+    abstract_state: Option<AbstractState>,
   ) -> Concrete<'a> {
     match self.target {
       Target::Arm64AppleDarwin | Target::Arm64UnknownLinuxGnu => {
         let mut arm = ARM64Gen::new(interner);
         if let Some((tys, ty_table)) = type_view {
           arm = arm.with_type_view(tys, ty_table);
+        }
+        if let Some(state) = abstract_state {
+          arm = arm.with_abstract_state(state.defs, state.impls);
         }
         Concrete::Arm64(Box::new(arm))
       }
@@ -76,8 +95,9 @@ impl Codegen {
     interner: &Interner,
     sir: &Sir,
     type_view: Option<(&[Ty], &TyTable)>,
+    abstract_state: Option<AbstractState>,
   ) -> LinkObject {
-    match self.make_backend(interner, type_view) {
+    match self.make_backend(interner, type_view, abstract_state) {
       Concrete::Arm64(mut codegen) => {
         let artifact = codegen.generate(sir);
 
@@ -97,8 +117,9 @@ impl Codegen {
     interner: &Interner,
     sir: &Sir,
     type_view: Option<(&[Ty], &TyTable)>,
+    abstract_state: Option<AbstractState>,
   ) -> Artifact {
-    match self.make_backend(interner, type_view) {
+    match self.make_backend(interner, type_view, abstract_state) {
       Concrete::Arm64(mut codegen) => codegen.generate(sir),
       Concrete::Clift(mut codegen) => codegen.generate(sir),
     }
@@ -114,8 +135,9 @@ impl Codegen {
     interner: &Interner,
     sir: &Sir,
     type_view: Option<(&[Ty], &TyTable)>,
+    abstract_state: Option<AbstractState>,
   ) -> String {
-    match self.make_backend(interner, type_view) {
+    match self.make_backend(interner, type_view, abstract_state) {
       Concrete::Arm64(mut codegen) => codegen.generate_asm(sir),
       Concrete::Clift(mut codegen) => codegen.generate_asm(sir),
     }

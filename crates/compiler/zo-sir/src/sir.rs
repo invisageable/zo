@@ -276,7 +276,9 @@ impl Sir {
       | Insn::TaskSpawn { dst, .. }
       | Insn::TaskAwait { dst, .. }
       | Insn::TaskCancelled { dst, .. }
-      | Insn::StrSlice { dst, .. } => *dst,
+      | Insn::StrSlice { dst, .. }
+      | Insn::CoerceToDyn { dst, .. }
+      | Insn::DynDispatch { dst, .. } => *dst,
       // Template uses `id` as its value.
       Insn::Template { id, .. } => *id,
       // Non-value instructions.
@@ -474,6 +476,19 @@ impl Insn {
         f(hi);
       }
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
+      Insn::CoerceToDyn { dst, src, .. } => {
+        f(dst);
+        f(src);
+      }
+      Insn::DynDispatch {
+        dst, recv, args, ..
+      } => {
+        f(dst);
+        f(recv);
+        for a in args {
+          f(a);
+        }
+      }
     }
   }
 
@@ -580,6 +595,8 @@ impl Insn {
       | Insn::NurseryBegin { .. }
       | Insn::NurseryEnd { .. }
       | Insn::Nop => {}
+      Insn::CoerceToDyn { concrete_ty, .. } => f(concrete_ty),
+      Insn::DynDispatch { ty_id, .. } => f(ty_id),
     }
   }
 }
@@ -924,6 +941,33 @@ pub enum Insn {
   /// Dead instruction — replaces folded operands in-place
   /// so instruction indices stay stable.
   Nop,
+
+  /// Coerce a concrete value to its `any <Abstract>`
+  /// fat-pointer. Heap-boxed (16 bytes:
+  /// `[data_ptr, vtable_ptr]`) so returning a coerced
+  /// value across a function boundary stays sound
+  /// without a borrow checker.
+  CoerceToDyn {
+    dst: ValueId,
+    src: ValueId,
+    abstract_name: Symbol,
+    concrete_ty: TyId,
+  },
+
+  /// Dynamic dispatch through a fat-pointer's vtable.
+  /// `recv` is the fat-pointer ValueId, `method_index`
+  /// is the slot inside `AbstractDef.methods`.
+  DynDispatch {
+    dst: ValueId,
+    recv: ValueId,
+    method_index: u32,
+    abstract_name: Symbol,
+    /// Carried for pp / diagnostics; dispatch resolves
+    /// through `method_index`.
+    method_name: Symbol,
+    args: Vec<ValueId>,
+    ty_id: TyId,
+  },
 
   // ===== STRUCTURED CONCURRENCY =====
   //

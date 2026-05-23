@@ -1028,7 +1028,22 @@ impl Compiler {
     // Dead code elimination — find main by name.
     let main_sym = session.interner.intern("main");
 
-    Dce::new(&mut semantic.sir, main_sym, &session.interner).eliminate();
+    // Pin apply-method bodies as DCE roots. The static
+    // call graph misses them — `Insn::DynDispatch`
+    // resolves through a vtable, not a named Call.
+    let dyn_methods_cap: usize = semantic
+      .abstract_impls
+      .values()
+      .map(|im| im.methods.len())
+      .sum();
+    let mut dyn_methods: Vec<Symbol> = Vec::with_capacity(dyn_methods_cap);
+    for im in semantic.abstract_impls.values() {
+      dyn_methods.extend(im.methods.iter().copied());
+    }
+
+    Dce::new(&mut semantic.sir, main_sym, &session.interner)
+      .with_dyn_roots(&dyn_methods)
+      .eliminate();
 
     // Single drain after every analyze-time pass (analyzer,
     // module loads, DCE). One TLS access, not one per pass.
@@ -1594,11 +1609,24 @@ impl Compiler {
       let type_view =
         Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
 
+      // ARM consumes `abstract_defs` + `abstract_impls`
+      // in `emit_vtables`; CLIF ignores them. Build the
+      // state lazily — `generate_artifact` (asm dump)
+      // and the real `generate` (link object) each get
+      // their own snapshot.
+      let make_abstract_state = || {
+        Some(zo_codegen::AbstractState {
+          defs: semantic.abstract_defs.clone(),
+          impls: semantic.abstract_impls.clone(),
+        })
+      };
+
       if should_emit_asm {
         let artifact = codegen.generate_artifact(
           &session.interner,
           &semantic.sir,
           type_view,
+          make_abstract_state(),
         );
         let asm_path = resolve_emit_path(path, "asm");
 
@@ -1624,8 +1652,12 @@ impl Compiler {
         (None, None) => path.with_extension(""),
       };
 
-      let link_obj =
-        codegen.generate(&session.interner, &semantic.sir, type_view);
+      let link_obj = codegen.generate(
+        &session.interner,
+        &semantic.sir,
+        type_view,
+        make_abstract_state(),
+      );
 
       self.stats.numartifacts += 1;
       self.profiler.end_phase(CODEGEN_NAME);

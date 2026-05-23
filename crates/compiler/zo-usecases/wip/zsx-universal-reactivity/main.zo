@@ -1,0 +1,11 @@
+load counter::counter;
+
+fun main() {
+  imu app: </> ::= <>
+    <counter />
+    <counter />
+    <counter />
+  </>;
+
+  #dom app;
+}

@@ -1,0 +1,33 @@
+-! # bound unsatisfied: explicit `<$T: Eq>` syntax.
+-!
+-! @cmd: `zo build 101_abstract_explicit_bound_unsat.zo`
+-!
+-! `fun same<$T: Eq>(a: $T, b: $T)` declares an explicit
+-! type parameter constrained by `Eq`. Calling `same(p, q)`
+-! with a `Plain` value — which has no `apply Eq for Plain`
+-! impl — violates the bound. The diagnostic surfaces at
+-! the call site (primary) and at the bound-declaring
+-! signature (secondary).
+
+abstract Eq {
+  fun eq(self, other: Self) -> bool;
+}
+
+struct Plain {
+  payload: int,
+}
+
+fun same<$T: Eq>(a: $T, b: $T) -> bool {
+  a.eq(b)
+}
+
+fun main() {
+  imu p: Plain = Plain { payload = 1 };
+  imu q: Plain = Plain { payload = 1 };
+
+  imu result: bool = same(p, q);
+
+  showln(result);
+}
+
+-- EXPECTED ERROR: E0347

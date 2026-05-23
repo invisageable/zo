@@ -693,6 +693,38 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
+        Insn::CoerceToDyn {
+          dst,
+          src,
+          abstract_name,
+          concrete_ty,
+        } => {
+          let c = format!(
+            "%{dst} = coerce_to_dyn %{src} : any {abstract_name:?} from {concrete_ty:?}"
+          );
+
+          self.sir_instruction(&c);
+        }
+        Insn::DynDispatch {
+          dst,
+          recv,
+          method_index,
+          abstract_name,
+          method_name,
+          args,
+          ty_id,
+        } => {
+          let arg_list = args
+            .iter()
+            .map(|a| format!("%{a}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+          let c = format!(
+            "%{dst} = dyn_dispatch %{recv}.{method_name:?}[#{method_index}]({arg_list}) : {ty_id:?} via {abstract_name:?}"
+          );
+
+          self.sir_instruction(&c);
+        }
       }
     }
 

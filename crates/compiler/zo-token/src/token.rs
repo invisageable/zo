@@ -55,6 +55,12 @@ pub enum Token {
   Type,
   Ffi,
   Abstract,
+  /// Reserved keyword for the dyn-dispatch type
+  /// modifier `any <Abstract>`. The parser also
+  /// accepts it as a member name after `.` / `::`
+  /// (keywords-as-members) so user methods like
+  /// `arr.any(pred)` keep parsing.
+  Any,
   Apply,
   State,
   Struct,
