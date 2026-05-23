@@ -46,18 +46,10 @@ fn matches_selective(name: &str, filter: &str) -> bool {
 #[derive(Clone)]
 pub struct AbstractDef {
   pub methods: Vec<AbstractMethod>,
-  /// Whether the abstract is safe for dynamic dispatch
-  /// (`any Abstract` fat-pointer storage). Aggregate of
-  /// each method's `dyn_safe`. An abstract is dyn-safe iff
-  /// every method's signature can be invoked through a
-  /// vtable: no `Self` outside the receiver, no generic
-  /// type parameters on individual methods (the abstract
-  /// as a whole can carry implicit-mono behavior via
-  /// `Ty::Abstract(_)` annotations, but a per-method `<$U>`
-  /// would require codegen of one vtable slot per
-  /// instantiation, which doesn't fit the flat layout).
-  /// Surface use: `Ty::Dyn(_)` resolution fails fast at
-  /// the annotation position when this is `false`.
+  /// Aggregate of each method's `dyn_safe`. `false`
+  /// blocks `any <Abstract>` resolution at the
+  /// annotation site — the vtable calling convention
+  /// can't carry `Self` outside the receiver.
   pub dyn_safe: bool,
 }
 
@@ -67,14 +59,10 @@ pub struct AbstractMethod {
   pub name: Symbol,
   pub params: Vec<(Symbol, TyId)>,
   pub return_ty: TyId,
-  /// Whether this method's signature lets the abstract
-  /// remain dyn-safe. `false` iff `Self` appears in a
-  /// non-receiver param position or as the return type
-  /// — both cases break the vtable's uniform calling
-  /// convention. Computed at parse time when we still
-  /// see the literal `Token::SelfUpper`; downstream
-  /// type-erasure to fresh inference vars would lose
-  /// the signal.
+  /// `false` iff `Self` appears in a non-receiver
+  /// param or as the return type. Caught at parse
+  /// time while the literal `Token::SelfUpper` is
+  /// still visible.
   pub dyn_safe: bool,
 }
 
@@ -114,12 +102,9 @@ pub struct AbstractImpl {
   /// implements public abstracts. Mirrors the orphan-rule
   /// shape Rust enforces at the crate boundary.
   pub pubness: Pubness,
-  /// Pre-interned vtable symbol for this `(Abstract,
-  /// ConcreteType)` pair. Minted at apply-block parse
-  /// time (when the interner is still mutable) so codegen
-  /// can reference the vtable by symbol without needing
-  /// a mutable-interner handle. Name shape:
-  /// `__zo_vtable_<Abstract>__<ConcreteType>`.
+  /// Pre-interned `__zo_vtable_<Abstract>__<ConcreteType>`
+  /// symbol. Minted at apply-block time so codegen can
+  /// reference the vtable without a mutable interner.
   pub vtable_sym: Symbol,
 }
 

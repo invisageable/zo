@@ -5,8 +5,8 @@ use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
   COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D16, FpRegister,
-  PatchSite, Register, SP, X0, X1, X2, X3, X9, X10, X11, X16, X17, X29, X30,
-  XZR,
+  PatchSite, Register, SP, X0, X1, X2, X3, X4, X5, X6, X7, X9, X10, X11, X16,
+  X17, X29, X30, XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
@@ -111,6 +111,22 @@ const FLOAT_TYPE_ID_MAX: u32 = 17; // TyChecker: Arch @ index 17 (range upper bo
 // Single source of truth fixes this for good.
 pub(super) const UI_ENTRY_SYMBOL: u32 = 0xFFFF;
 pub const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
+
+/// AAPCS general-purpose argument registers in order.
+/// Args 0..=7 land in X0..X7; beyond that they spill to
+/// the stack.
+const AAPCS_ARG_REGS: [Register; 8] = [X0, X1, X2, X3, X4, X5, X6, X7];
+
+/// Per-slot vtable patch — `slot_offset` is the byte
+/// offset INSIDE the vtable blob identified by
+/// `vtable_sym`; `method_key` is the (name, owning_pack)
+/// pair `self.functions` keys by.
+#[derive(Clone, Copy)]
+struct VtableSlotFixup {
+  vtable_sym: Symbol,
+  slot_offset: u32,
+  method_key: (Symbol, Option<Symbol>),
+}
 
 // Runtime dylib symbols: every `#dom` program emits calls
 // into `libzo_runtime_native.dylib`. Names match the
@@ -279,38 +295,19 @@ pub struct ARM64Gen<'a> {
   /// same post-pass as string fixups, indexing
   /// `self.functions` for the callee's code offset.
   function_addr_fixups: Vec<(u32, (Symbol, Option<Symbol>))>,
-  /// Per-vtable raw bytes — populated by
-  /// `emit_vtables` after every FunDef has been laid
-  /// out. Each entry's `Vec<u8>` is `8 + 8*N` bytes:
-  /// slot 0 holds `size_of_data` (the concrete type's
-  /// byte width), slots 1..=N are zero-initialized
-  /// placeholders that the linker fills in from
-  /// `vtable_fixups`. See `vtable_data` on
-  /// `MachoLinkObject` for the link-layer contract.
+  /// Per-vtable raw bytes; populated by `emit_vtables`
+  /// after every FunDef has been laid out.
   vtable_data: Vec<(Symbol, Vec<u8>)>,
-  /// Per-slot fixups for `vtable_data`. The linker
-  /// rewrites each slot with the function's TEXT
-  /// offset once all functions are placed.
-  vtable_fixups: Vec<(Symbol, u32, (Symbol, Option<Symbol>))>,
-  /// Code-side fixups: an ADRP+ADD pair (or LDR)
-  /// loading a vtable's runtime address. Resolved by
-  /// the linker once the vtable's data-section slot
-  /// is final.
+  /// Per-slot patches — finalize writes each slot with
+  /// `method_addr − vtable_addr`.
+  vtable_fixups: Vec<VtableSlotFixup>,
+  /// Code-side ADR loaders for vtable addresses,
+  /// resolved at link time.
   vtable_addr_fixups: Vec<(u32, Symbol)>,
-  /// Memo of `(Abstract, ConcreteType)` pairs already
-  /// emitted, so cross-module re-emission can't
-  /// double-place the same vtable.
-  vtables_emitted: HashSet<(Symbol, Symbol)>,
   /// Abstract definitions threaded from the executor.
-  /// Read by `emit_vtables` to enumerate the method
-  /// slot order. Empty when no abstracts were declared,
-  /// in which case the vtable pass is a no-op.
   abstract_defs: HashMap<Symbol, AbstractDef>,
-  /// `(Abstract, ConcreteType) → AbstractImpl` map
-  /// threaded from the executor. The vtable emit pass
-  /// walks this to produce one blob per pair; the
-  /// dispatch pipeline keys into it for the vtable
-  /// symbol when lowering `Insn::CoerceToDyn`.
+  /// `(Abstract, ConcreteType) → AbstractImpl` threaded
+  /// from the executor.
   abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
   /// Template data sections (symbol -> data).
   pub(super) template_data: Vec<(Symbol, Vec<u8>)>,
@@ -719,7 +716,6 @@ impl<'a> ARM64Gen<'a> {
       vtable_data: Vec::new(),
       vtable_fixups: Vec::new(),
       vtable_addr_fixups: Vec::new(),
-      vtables_emitted: HashSet::default(),
       abstract_defs: HashMap::default(),
       abstract_impls: HashMap::default(),
       template_data: Vec::new(),
@@ -790,14 +786,10 @@ impl<'a> ARM64Gen<'a> {
     self
   }
 
-  /// Threads the executor's abstract registry through to
-  /// codegen. Consumed by `emit_vtables` at the head of
-  /// `generate` to produce one `__zo_vtable_<Abs>__<Type>`
-  /// blob per `(Abstract, ConcreteType)` impl, and by
-  /// `Insn::CoerceToDyn` lowering to resolve the target
-  /// vtable's pre-interned symbol. Empty when no abstracts
-  /// participate in dynamic dispatch — the entire vtable
-  /// pipeline becomes a no-op in that case.
+  /// Threads the executor's abstract registry into
+  /// codegen so `emit_vtables` and `Insn::CoerceToDyn`
+  /// lowering can resolve `(Abstract, ConcreteType)`
+  /// pairs.
   pub fn with_abstract_state(
     mut self,
     abstract_defs: HashMap<Symbol, AbstractDef>,
@@ -1654,36 +1646,14 @@ impl<'a> ARM64Gen<'a> {
     self.extern_fixups = extern_fixups;
 
     // Build the vtable blobs now that every FunDef has
-    // been laid out. The slot fixups recorded here are
-    // resolved a few lines down once
-    // `vtable_blob_starts` knows each blob's final
-    // location in `code`. Sizes are sourced from a
-    // simple structural width: primitives use their
-    // exact byte width, structs/enums collapse to one
-    // pointer-word (zo's single-handle-per-value
-    // convention). The handle survives the heap-box
-    // round-trip because `_zo_dyn_box` copies whatever
-    // bytes the caller hands in — for an 8-byte struct
-    // handle, those 8 bytes are the heap-pointer of the
-    // already-allocated underlying value.
+    // been laid out. `vtable_fixups` recorded here are
+    // resolved a few lines down once `vtable_blob_starts`
+    // knows each blob's final position in `code`.
     {
-      let mut struct_sizes: HashMap<Symbol, u32> = HashMap::default();
-
-      for (_pair_key, _impl_entry) in &self.abstract_impls {
-        // No per-struct field-layout sizeof yet; default
-        // to one pointer-word per nominal type so the
-        // box copies the existing handle. Refined when
-        // codegen gains a `flat_struct_byte_width`
-        // helper.
-        let concrete_sym = _pair_key.1;
-
-        struct_sizes.entry(concrete_sym).or_insert(8);
-      }
-
       let defs = std::mem::take(&mut self.abstract_defs);
       let impls = std::mem::take(&mut self.abstract_impls);
 
-      self.emit_vtables(&defs, &impls, &struct_sizes);
+      self.emit_vtables(&defs, &impls);
 
       self.abstract_defs = defs;
       self.abstract_impls = impls;
@@ -1706,21 +1676,10 @@ impl<'a> ARM64Gen<'a> {
       current_offset += bytes.len();
     }
 
-    // Vtables ride the same TEXT-trailing pattern as
-    // string / template data. Each `__zo_vtable_<Abs>__<Ty>`
-    // blob lands at a known code offset; `vtable_addr_fixups`
-    // (ADR loaders in `Insn::CoerceToDyn` lowering) target
-    // it, and `vtable_fixups` (per-slot writes) get
-    // resolved below once function offsets are known.
-    //
-    // Vtables must be 8-byte aligned: every slot is loaded
-    // via `LDR Xn, [base, #imm]` which traps on
-    // SIGBUS / SIGSEGV when the effective address isn't a
-    // multiple of 8. Strings / templates have no such
-    // requirement, so the alignment pad lives here, NOT
-    // in the data layout. Pad both `current_offset` (used
-    // for `vtable_offsets` fixup math) and the appended
-    // bytes below.
+    // Vtables ride the TEXT-trailing pattern. Each blob
+    // must be 8-byte aligned — every slot is read via
+    // `LDR Xn, [base, #imm]` which traps on unaligned
+    // effective addresses.
     if !self.vtable_data.is_empty() {
       let misalign = current_offset & 7;
       if misalign != 0 {
@@ -1823,23 +1782,12 @@ impl<'a> ARM64Gen<'a> {
       code.extend_from_slice(bytes);
     }
 
-    // Append vtable blobs and patch each method-pointer
-    // slot with the resolved function's TEXT offset. The
-    // blobs land at deterministic positions (recorded in
-    // `vtable_offsets` above); rewriting bytes at
-    // `blob_start + slot_offset` lets the linker emit
-    // function addresses directly into the vtable.
-    //
-    // Mirror the 8-byte alignment pad applied to
-    // `current_offset` above — `vtable_addr_fixups`
-    // resolved using `vtable_offsets` would otherwise
-    // disagree with the actual blob positions and ADR
-    // loads would land in the wrong place.
+    // Mirrors the alignment pad above on `current_offset`
+    // so blob positions match `vtable_offsets`.
     if !self.vtable_data.is_empty() {
       let misalign = code.len() & 7;
       if misalign != 0 {
-        let padding = 8 - misalign;
-        code.extend(std::iter::repeat_n(0u8, padding));
+        code.resize(code.len() + (8 - misalign), 0);
       }
     }
 
@@ -1850,49 +1798,35 @@ impl<'a> ARM64Gen<'a> {
       code.extend_from_slice(bytes);
     }
 
-    for (vt_sym, slot_offset, fun_key) in &self.vtable_fixups {
-      let blob_start = match vtable_blob_starts.get(vt_sym) {
+    // One-shot bare-name → TEXT offset index. Vtable
+    // fixups carry method symbols with no owning_pack
+    // (apply-method names are pre-mangled as
+    // `<Type>::<method>`, so the bare name is already
+    // unique). Building this map once turns the per-
+    // fixup lookup from O(N) scan into O(1).
+    let fun_offset_by_name: HashMap<Symbol, u32> = self
+      .functions
+      .iter()
+      .map(|(&(name, _), &off)| (name, off))
+      .collect();
+
+    for fixup in &self.vtable_fixups {
+      let blob_start = match vtable_blob_starts.get(&fixup.vtable_sym) {
         Some(&s) => s,
         None => continue,
       };
 
-      // The fixup carries the method's bare symbol with
-      // a `None` owning_pack placeholder. `self.functions`
-      // keys by `(name, Some(pack))` for pack-owned
-      // FunDefs, so a direct lookup with `None` would
-      // miss. Resolve by scanning for any entry that
-      // matches the bare name — apply-method symbols are
-      // already disambiguated by the `<Type>::<method>`
-      // mangling, so name alone is sufficient.
-      let fun_offset = match self.functions.get(fun_key) {
+      let fun_offset = match fun_offset_by_name.get(&fixup.method_key.0) {
         Some(&o) => o as u64,
-        None => match self
-          .functions
-          .iter()
-          .find(|((name, _), _)| *name == fun_key.0)
-          .map(|(_, &o)| o as u64)
-        {
-          Some(o) => o,
-          None => continue,
-        },
+        None => continue,
       };
 
-      // Slot holds the PC-relative offset
-      // `method_addr − vtable_addr`. Both vtable and
-      // method live in `__TEXT` and slide together
-      // under ASLR, so the difference is invariant at
-      // link time and stays correct at runtime without
-      // any rebase entries. `DynDispatch` lowering
-      // recomputes the absolute method address with one
-      // extra ADD per call — cheaper than threading a
-      // rebase pipeline through the Mach-O writer and
-      // sidesteps the dyld-writes-to-readonly-__TEXT
-      // hazard entirely. Storing absolute VAs here would
-      // be wrong because PIE binaries get a randomized
-      // load base; without rebase opcodes the slot bytes
-      // would still point at the link-time base.
+      // Slot stores `method_addr − vtable_addr` so the
+      // value is invariant under ASLR (both ends slide
+      // by the same load bias). `DynDispatch` adds it
+      // back to `vtable_addr` at runtime.
       let relative_offset = fun_offset as i64 - blob_start as i64;
-      let absolute_slot = blob_start + *slot_offset as usize;
+      let absolute_slot = blob_start + fixup.slot_offset as usize;
 
       if absolute_slot + 8 <= code.len() {
         code[absolute_slot..absolute_slot + 8]
@@ -1908,71 +1842,53 @@ impl<'a> ARM64Gen<'a> {
   /// Consumes `self` and the freshly produced `artifact`,
   /// resolves the `main` and `_zo_ui_entry_point` offsets
   /// Emits one vtable blob per `(Abstract, ConcreteType)`
-  /// pair in `abstract_impls`. Each blob is `8 * (1 + N)`
-  /// bytes — slot 0 is `sizeof(ConcreteType)`, slots 1..=N
-  /// are zero-initialised placeholders that the linker
-  /// fills in from `vtable_fixups` once the method's
-  /// `(name, owning_pack)` TEXT offset is known. Method
-  /// order is taken from `AbstractDef.methods` to keep
-  /// the per-slot index aligned with the SIR's
-  /// `Insn::DynDispatch.method_index`. Dedups via
-  /// `vtables_emitted` so re-running on imported
-  /// `abstract_impls` is idempotent.
+  /// pair in `abstract_impls`. Blob layout:
+  /// `[size_of_data : u64][method_0_ptr : u64]..[method_N-1_ptr : u64]`.
+  /// Slot 0 is `8` (the inline pointer width every
+  /// concrete value carries through the AAPCS); slots
+  /// 1..N are zero-initialised placeholders that the
+  /// linker fills with `method_addr − vtable_addr`
+  /// offsets via `vtable_fixups`. Method order tracks
+  /// `impl_entry.methods`, keeping the per-slot index
+  /// aligned with `Insn::DynDispatch.method_index`.
   ///
-  /// Vtable bytes are NOT placed into `code`; the linker
-  /// routes `vtable_data` to a data section. Code that
-  /// loads a vtable's address registers a fixup through
-  /// `vtable_addr_fixups`, consumed at link time.
+  /// Vtable bytes ride the TEXT-trailing pattern (same
+  /// as string / template data); code-side ADR loaders
+  /// resolve through `vtable_addr_fixups` at link time.
   pub fn emit_vtables(
     &mut self,
     abstract_defs: &HashMap<Symbol, AbstractDef>,
     abstract_impls: &HashMap<(Symbol, Symbol), AbstractImpl>,
-    struct_sizes: &HashMap<Symbol, u32>,
   ) {
-    for ((abs_sym, concrete_sym), impl_entry) in abstract_impls {
-      if !self.vtables_emitted.insert((*abs_sym, *concrete_sym)) {
+    for ((abs_sym, _concrete_sym), impl_entry) in abstract_impls {
+      let Some(def) = abstract_defs.get(abs_sym) else {
         continue;
-      }
-
-      let methods = match abstract_defs.get(abs_sym) {
-        Some(def) => &def.methods,
-        // Importer-only abstract — its methods table isn't in
-        // scope. Skip; the dispatch site will surface a
-        // diagnostic upstream.
-        None => continue,
       };
-
-      let n = methods.len();
+      let n = def.methods.len();
       let blob_len = 8 * (1 + n);
-      let mut blob = vec![0u8; blob_len];
+      let mut blob = Vec::with_capacity(blob_len);
 
-      // Slot 0: sizeof(ConcreteType). Primitive types stamp
-      // their own width; structs come from `struct_sizes`
-      // (computed during struct layout). Unknown → 0; the
-      // user-facing `<dyn>.free()` path tolerates a zero
-      // size as a no-op.
-      let size = struct_sizes.get(concrete_sym).copied().unwrap_or(0) as u64;
-      blob[0..8].copy_from_slice(&size.to_le_bytes());
+      // Slot 0: inline pointer width — every concrete
+      // value passed through AAPCS lives as one 8-byte
+      // handle (struct heap pointer, primitive value,
+      // enum tag). A real `flat_struct_byte_width`
+      // helper can replace this when struct layout
+      // tracking lands.
+      blob.extend_from_slice(&8u64.to_le_bytes());
+      blob.resize(blob_len, 0);
 
-      // Slots 1..=N: function-pointer placeholders + fixups.
-      // The impl's method order parallels the abstract's
-      // method order at apply-block parse time (slice
-      // captured between `funs_baseline..funs.len()`),
-      // so `impl_entry.methods[i]` resolves the same `i`-th
-      // slot the dispatch site reads through
+      // Slots 1..=N: per-method fixups. `impl_entry
+      // .methods[i]` matches the abstract's `methods[i]`
+      // by construction (the apply-block parser slices
+      // `funs[funs_baseline..]` in declaration order),
+      // so the index aligns with
       // `Insn::DynDispatch.method_index`.
-      for (i, &method_sym) in impl_entry.methods.iter().enumerate() {
-        if i >= n {
-          break;
-        }
-
-        let slot_offset = 8 * (1 + i) as u32;
-
-        self.vtable_fixups.push((
-          impl_entry.vtable_sym,
-          slot_offset,
-          (method_sym, None),
-        ));
+      for (i, &method_sym) in impl_entry.methods.iter().take(n).enumerate() {
+        self.vtable_fixups.push(VtableSlotFixup {
+          vtable_sym: impl_entry.vtable_sym,
+          slot_offset: 8 * (1 + i) as u32,
+          method_key: (method_sym, None),
+        });
       }
 
       self.vtable_data.push((impl_entry.vtable_sym, blob));
@@ -4435,38 +4351,21 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      // `any <Abstract>` boxing: `_zo_dyn_box(payload_src,
-      // payload_size, vtable_ptr) -> fat_ptr`. X0 = src,
-      // X1 = size_of_data, X2 = vtable address (ADR
-      // placeholder registered in `vtable_addr_fixups`,
-      // patched at finalize). Result fat-pointer in X0
-      // moves to `dst`.
+      // `any <Abstract>` boxing — lowers to
+      // `_zo_dyn_box(src, vtable_ptr) -> fat_ptr`. X0
+      // carries src, X1 the link-time-resolved vtable
+      // address; the return fat-pointer is moved to dst.
       Insn::CoerceToDyn {
         dst,
         src,
         abstract_name,
         concrete_ty,
       } => 'arm: {
-        // Resolve the concrete type's symbolic name for
-        // the `abstract_impls` lookup. Nominal types
-        // (struct / enum) carry their name; primitives
-        // would route through `primitive_ty_name_str`
-        // but they don't participate in abstract impls
-        // today. Unknown shapes break out — no SIR is
-        // emitted, the dispatch site downstream will
-        // already have surfaced a diagnostic.
-        let Some(concrete_sym) = self.concrete_ty_sym(*concrete_ty) else {
-          break 'arm;
-        };
-
-        let Some(impl_entry) =
-          self.abstract_impls.get(&(*abstract_name, concrete_sym))
+        let Some(vtable_sym) =
+          self.resolve_vtable_sym(*abstract_name, *concrete_ty)
         else {
           break 'arm;
         };
-
-        let vtable_sym = impl_entry.vtable_sym;
-        let payload_size = self.size_of_ty(*concrete_ty) as u64;
 
         if let Some(src_reg) = self.alloc_reg(*src)
           && src_reg != X0
@@ -4474,14 +4373,9 @@ impl<'a> ARM64Gen<'a> {
           self.emitter.emit_mov_reg(X0, src_reg);
         }
 
-        self.emit_mov_imm_64(X1, payload_size);
-
-        // ADR placeholder for the vtable's address —
-        // resolved at finalize against
-        // `vtable_offsets[vtable_sym]`.
         let adr_pos = self.emitter.current_offset();
 
-        self.emitter.emit_adr(X2, 0);
+        self.emitter.emit_adr(X1, 0);
         self.vtable_addr_fixups.push((adr_pos, vtable_sym));
 
         self.emit_extern_call("_zo_dyn_box");
@@ -4544,16 +4438,11 @@ impl<'a> ARM64Gen<'a> {
         // direct-register only; extension to spill is
         // a follow-up that mirrors `Insn::Call`'s arg
         // handling.
+        // Explicit args go in X1..X7. AAPCS_ARG_REGS[0]
+        // (X0) is already occupied by `self` (data_ptr).
         for (i, arg) in args.iter().enumerate() {
-          let target = match i {
-            0 => X1,
-            1 => X2,
-            2 => X3,
-            3 => Register::new(4),
-            4 => Register::new(5),
-            5 => Register::new(6),
-            6 => Register::new(7),
-            _ => break,
+          let Some(&target) = AAPCS_ARG_REGS.get(i + 1) else {
+            break;
           };
 
           if let Some(arg_reg) = self.alloc_reg(*arg)
@@ -4581,9 +4470,7 @@ impl<'a> ARM64Gen<'a> {
   /// Maps a `TyId` to the `Symbol` that identifies its
   /// concrete nominal type — the same key
   /// `abstract_impls` uses. Struct / enum return their
-  /// own name; primitives interner-resolve to their
-  /// canonical str (`int`, `str`, ...). Unknown shapes
-  /// return `None` and the caller skips the operation.
+  /// own name. Unknown shapes return `None`.
   fn concrete_ty_sym(&self, ty_id: TyId) -> Option<Symbol> {
     let view = self.type_view?;
     let ty = *view.tys.get(ty_id.0 as usize)?;
@@ -4593,6 +4480,24 @@ impl<'a> ARM64Gen<'a> {
       Ty::Enum(eid) => view.ty_table.enum_ty(eid).map(|e| e.name),
       _ => None,
     }
+  }
+
+  /// Looks up the pre-interned `__zo_vtable_<Abs>__<Ty>`
+  /// symbol for an `(abstract, concrete TyId)` pair.
+  /// Returns `None` when the type doesn't name a nominal
+  /// or no `apply Abstract for Type` impl is in scope —
+  /// in both cases `Insn::CoerceToDyn` lowering bails
+  /// out without emitting the call.
+  fn resolve_vtable_sym(
+    &self,
+    abstract_name: Symbol,
+    concrete_ty: TyId,
+  ) -> Option<Symbol> {
+    let concrete_sym = self.concrete_ty_sym(concrete_ty)?;
+    self
+      .abstract_impls
+      .get(&(abstract_name, concrete_sym))
+      .map(|im| im.vtable_sym)
   }
 
   /// Convert X0 (unsigned int) to decimal string on the

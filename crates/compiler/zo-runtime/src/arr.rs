@@ -141,7 +141,6 @@ pub unsafe extern "C-unwind" fn _zo_box_alloc(
 #[unsafe(export_name = "zo_dyn_box")]
 pub unsafe extern "C-unwind" fn _zo_dyn_box(
   data: *const u8,
-  _payload_size: usize,
   vtable_ptr: *const u8,
 ) -> *const u8 {
   alloc_leaked_bytes(16, |buf| {

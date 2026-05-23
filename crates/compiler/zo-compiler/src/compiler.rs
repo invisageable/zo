@@ -1028,18 +1028,18 @@ impl Compiler {
     // Dead code elimination — find main by name.
     let main_sym = session.interner.intern("main");
 
-    // Pin `apply Abstract for Type { fun ... }` bodies as
-    // DCE roots. `Insn::DynDispatch` resolves them through
-    // a vtable at runtime, so the static call graph never
-    // catches them; without rooting here, the dispatched
-    // method gets pruned and the vtable slot points at
-    // nothing → segfault at the first `.draw()` call on
-    // an `any Abstract` value.
-    let dyn_methods: Vec<Symbol> = semantic
+    // Pin apply-method bodies as DCE roots. The static
+    // call graph misses them — `Insn::DynDispatch`
+    // resolves through a vtable, not a named Call.
+    let dyn_methods_cap: usize = semantic
       .abstract_impls
       .values()
-      .flat_map(|im| im.methods.iter().copied())
-      .collect();
+      .map(|im| im.methods.len())
+      .sum();
+    let mut dyn_methods: Vec<Symbol> = Vec::with_capacity(dyn_methods_cap);
+    for im in semantic.abstract_impls.values() {
+      dyn_methods.extend(im.methods.iter().copied());
+    }
 
     Dce::new(&mut semantic.sir, main_sym, &session.interner)
       .with_dyn_roots(&dyn_methods)
@@ -1609,28 +1609,24 @@ impl Compiler {
       let type_view =
         Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
 
-      // Snapshot the analyzer's abstract registry for the
-      // backend's vtable pipeline. Cheap clone: the maps
-      // are short (one entry per `abstract` / `apply`
-      // declaration in the program) and live on the heap
-      // already. ARM consumes them in `emit_vtables`;
-      // CLIF ignores them.
-      let abstract_state = Some(zo_codegen::AbstractState {
-        defs: semantic.abstract_defs.clone(),
-        impls: semantic.abstract_impls.clone(),
-      });
+      // ARM consumes `abstract_defs` + `abstract_impls`
+      // in `emit_vtables`; CLIF ignores them. Build the
+      // state lazily — `generate_artifact` (asm dump)
+      // and the real `generate` (link object) each get
+      // their own snapshot.
+      let make_abstract_state = || {
+        Some(zo_codegen::AbstractState {
+          defs: semantic.abstract_defs.clone(),
+          impls: semantic.abstract_impls.clone(),
+        })
+      };
 
       if should_emit_asm {
         let artifact = codegen.generate_artifact(
           &session.interner,
           &semantic.sir,
           type_view,
-          abstract_state
-            .as_ref()
-            .map(|s| zo_codegen::AbstractState {
-              defs: s.defs.clone(),
-              impls: s.impls.clone(),
-            }),
+          make_abstract_state(),
         );
         let asm_path = resolve_emit_path(path, "asm");
 
@@ -1660,7 +1656,7 @@ impl Compiler {
         &session.interner,
         &semantic.sir,
         type_view,
-        abstract_state,
+        make_abstract_state(),
       );
 
       self.stats.numartifacts += 1;

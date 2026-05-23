@@ -425,40 +425,21 @@ pub enum ErrorKind {
   /// scope-qualify the load (`load M::(specific_name);`).
   DuplicatePublicName,
 
-  /// A generic call site's concrete type fails the
-  /// abstract bound declared on the generic parameter.
-  /// Fires for `fun process(item: Eq)` invoked with a
-  /// value whose type has no `apply Eq for <Type>` impl
-  /// in scope (same for explicit `<$T: Eq>` syntax).
-  /// Raised at the CALL site (not at the function
-  /// declaration) so the diagnostic surfaces in the
-  /// user's code where the concrete type lives. Carries
-  /// the concrete type symbol and the abstract symbol so
-  /// the renderer can name both without consulting any
-  /// other state and the JSON channel can expose
-  /// `concrete_type` / `bound_abstract` fields directly.
+  /// Generic call site's concrete type lacks an
+  /// `apply <Abstract> for <Type>` impl. Raised at the
+  /// call (not the declaration) so the user lands on the
+  /// offending argument.
   BoundNotSatisfied,
 
-  /// `abstract X : Y { ... }` — colon-after-abstract-name
-  /// syntax. Flat single-level abstracts are the design;
-  /// inheritance would force the vtable layout into a
-  /// chained walk (lookup misses cascade) and undermines
-  /// the simple flat-array per `(Abstract, Type)` pair.
-  /// Raised at the colon's span so the user sees exactly
-  /// the offending token.
+  /// `abstract X : Y { ... }` — colon-after-abstract-name.
+  /// Inheritance would force vtable chaining; abstracts
+  /// are flat single-level declarations.
   AbstractInheritanceUnsupported,
 
-  /// `any <Abstract>` annotation where the abstract is not
-  /// safe for dynamic dispatch. An abstract is dyn-unsafe
-  /// when a method's signature uses `Self` in a non-
-  /// receiver position (param past index 0, or return
-  /// type) — those signatures can't be invoked uniformly
-  /// through a vtable because the calling convention has
-  /// no slot for "another implementor of the same
-  /// abstract". Surfaces at the `any` annotation span; the
-  /// fix is either to drop the `Self`-using method or to
-  /// use the implicit/explicit-mono form (`item: Abstract`
-  /// / `<$T: Abstract>`) instead of `any Abstract`.
+  /// `any <Abstract>` over an abstract that uses `Self`
+  /// outside the receiver. Vtables have no calling-
+  /// convention slot for "another implementor of the
+  /// same abstract".
   AbstractNotDynSafe,
 
   // --- Rationale-channel variants (severity = Note) ---

@@ -472,12 +472,10 @@ pub struct Executor<'a> {
   /// is just a one-element vec.
   type_constraints: HashMap<Symbol, Vec<Symbol>>,
   /// Per-function counter for synthetic `$__T<n>` parameters
-  /// minted by the implicit-mono lowering when a parameter
-  /// is annotated `item: Eq` (Phase 1.3). Reset at the start
-  /// of every `execute_fun` so each function's synthetic
-  /// names start at 0. Cross-function uniqueness is provided
-  /// by the `<pack>__<fn>__$__T<n>` prefix, not by the
-  /// counter alone.
+  /// minted when a parameter is annotated `item: Eq`. Reset
+  /// at every `execute_fun` so each function starts at 0;
+  /// cross-function uniqueness comes from the
+  /// `<pack>__<fn>__$__T<n>` prefix, not the counter.
   implicit_param_counter: u32,
   /// Generic type aliases: `type Pair<$T> = ($T, $T);` →
   /// `(params, body)` where `params` are the original
@@ -7648,8 +7646,7 @@ impl<'a> Executor<'a> {
                 // fn prefix guarantees cross-module
                 // uniqueness in the session-shared
                 // interner.
-                if let Ty::Abstract(abs_sym) =
-                  self.ty_checker.kind_of(param_ty)
+                if let Ty::Abstract(abs_sym) = self.ty_checker.kind_of(param_ty)
                 {
                   let n = self.implicit_param_counter;
                   self.implicit_param_counter += 1;
@@ -7666,9 +7663,7 @@ impl<'a> Executor<'a> {
                   let fresh = self.ty_checker.fresh_var();
 
                   self.type_params.push((synth_name, fresh));
-                  self
-                    .type_constraints
-                    .insert(synth_name, vec![abs_sym]);
+                  self.type_constraints.insert(synth_name, vec![abs_sym]);
 
                   param_ty = fresh;
                 }
@@ -12766,7 +12761,9 @@ impl<'a> Executor<'a> {
     }
 
     let dyn_safe = methods.iter().all(|m| m.dyn_safe);
-    self.abstract_defs.insert(name, AbstractDef { methods, dyn_safe });
+    self
+      .abstract_defs
+      .insert(name, AbstractDef { methods, dyn_safe });
     // Register the abstract name with the type checker so
     // type-annotation positions (`fun process(item: Eq)`)
     // resolve to `Ty::Abstract(eq_sym)`. The full method-set
@@ -13409,12 +13406,11 @@ impl<'a> Executor<'a> {
     // no concrete-type lookup needed. Without this branch
     // the dot would resolve as a field access, the wrong
     // shape entirely.
-    if let Ty::Dyn(abs_sym) = resolved {
-      if let Some(def) = self.abstract_defs.get(&abs_sym)
-        && def.methods.iter().any(|m| m.name == member_name)
-      {
-        return true;
-      }
+    if let Ty::Dyn(abs_sym) = resolved
+      && let Some(def) = self.abstract_defs.get(&abs_sym)
+      && def.methods.iter().any(|m| m.name == member_name)
+    {
+      return true;
     }
 
     // Resolve receiver type name for struct/enum methods,
@@ -13683,10 +13679,12 @@ impl<'a> Executor<'a> {
       let method_sym = self.interner.intern(&method_str);
 
       let method_index = match self.abstract_defs.get(&abs_sym) {
-        Some(def) => match def.methods.iter().position(|m| m.name == method_sym) {
-          Some(i) => i as u32,
-          None => return,
-        },
+        Some(def) => {
+          match def.methods.iter().position(|m| m.name == method_sym) {
+            Some(i) => i as u32,
+            None => return,
+          }
+        }
         None => return,
       };
 
@@ -13707,18 +13705,16 @@ impl<'a> Executor<'a> {
 
       let explicit_args = if has_content { comma_count + 1 } else { 0 };
 
-      // Pop explicit args (reverse order from stack).
-      let mut arg_sirs: Vec<ValueId> = Vec::with_capacity(explicit_args);
-
-      for _ in 0..explicit_args {
-        if let Some(sir) = self.sir_values.pop() {
-          arg_sirs.push(sir);
-        }
-        self.value_stack.pop();
-        self.ty_stack.pop();
-      }
-
-      arg_sirs.reverse();
+      // Drain the explicit args off the back of the
+      // value stacks in one shot. `drain` preserves
+      // push order, so no reverse is needed.
+      let sir_drain_at = self.sir_values.len().saturating_sub(explicit_args);
+      let arg_sirs: Vec<ValueId> =
+        self.sir_values.drain(sir_drain_at..).collect();
+      let val_drain_at = self.value_stack.len().saturating_sub(explicit_args);
+      self.value_stack.drain(val_drain_at..);
+      let ty_drain_at = self.ty_stack.len().saturating_sub(explicit_args);
+      self.ty_stack.drain(ty_drain_at..);
 
       // Pop receiver (the fat-pointer ValueId).
       let recv_sir = match self.sir_values.pop() {
@@ -18530,18 +18526,10 @@ impl<'a> Executor<'a> {
   }
 
   /// Walks an `Ident :: Ident :: ...` chain backwards
-  /// from `start_idx` (which must itself be an `Ident`)
-  /// and returns the root's tree index plus every
-  /// segment symbol in root-to-leaf order. `None` when
-  /// the start position isn't an `Ident` or when no
-  /// `Symbol` value sits on the path. Callers decide
-  /// what counts as a "valid" chain (e.g. ≥ 2 segments
-  /// for a real pack path) by inspecting the returned
-  /// vector's length.
-  fn walk_colon_chain(
-    &self,
-    start_idx: usize,
-  ) -> Option<(usize, Vec<Symbol>)> {
+  /// from `start_idx` and returns every segment symbol
+  /// in root-to-leaf order. `None` when the start isn't
+  /// an `Ident` or when no `Symbol` sits on the path.
+  fn walk_colon_chain(&self, start_idx: usize) -> Option<Vec<Symbol>> {
     if self.tree.nodes[start_idx].token != Token::Ident {
       return None;
     }
@@ -18569,7 +18557,7 @@ impl<'a> Executor<'a> {
 
     segments.reverse();
 
-    Some((cursor, segments))
+    Some(segments)
   }
 
   /// `true` when the `Ident` at `idx` is an interior /
@@ -18585,12 +18573,10 @@ impl<'a> Executor<'a> {
   /// keep firing the diagnostic because their chain
   /// root fails the pack-membership check.
   fn is_pack_chain_segment(&self, idx: usize) -> bool {
-    let Some((_, segments)) = self.walk_colon_chain(idx) else {
+    let Some(segments) = self.walk_colon_chain(idx) else {
       return false;
     };
 
-    // A "chain" with one segment is just `idx` itself —
-    // not a pack path, just an isolated Ident.
     if segments.len() < 2 {
       return false;
     }
@@ -18820,10 +18806,10 @@ impl<'a> Executor<'a> {
     };
 
     // Walk back through `<Ident> :: <Ident> :: ...`
-    // collecting every namespace segment. `walk_colon_chain`
-    // starts at the ident BEFORE the rightmost `::`
-    // and returns segments in root-to-leaf order.
-    let (_, pack_parts) = self.walk_colon_chain(lparen_idx - 3)?;
+    // collecting every namespace segment in root-to-leaf
+    // order, starting at the ident BEFORE the rightmost
+    // `::`.
+    let pack_parts = self.walk_colon_chain(lparen_idx - 3)?;
 
     // Single-segment `info::cpu_count` — defer to the
     // existing path so apply-mangled lookups +
@@ -21318,8 +21304,9 @@ impl<'a> Executor<'a> {
           self.ty_checker.ty_table.struct_ty(sid).map(|s| s.name)
         }
         Ty::Enum(eid) => self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name),
-        kind => Self::primitive_ty_name_str(&kind)
-          .map(|s| self.interner.intern(s)),
+        kind => {
+          Self::primitive_ty_name_str(&kind).map(|s| self.interner.intern(s))
+        }
       };
 
       let Some(concrete) = concrete_name else {

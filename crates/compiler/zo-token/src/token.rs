@@ -55,19 +55,11 @@ pub enum Token {
   Type,
   Ffi,
   Abstract,
-  /// Synthetic marker emitted by the parser when it
-  /// recognizes the contextual `any` modifier at type-
-  /// annotation position (`item: any Drawable`,
-  /// `mut items: []any Drawable`). The tokenizer does
-  /// NOT produce this variant — it still lexes the
-  /// user-written word `any` as a plain `Ident`, so
-  /// user code remains free to name variables /
-  /// functions / methods `any` (e.g. `core/arr.zo`'s
-  /// `pub fun any(self, pred)` short-circuiting
-  /// predicate). This variant only exists in the
-  /// parse tree, where it marks the following Ident
-  /// as the abstract name in a `Ty::Dyn(_)`
-  /// annotation.
+  /// Reserved keyword for the dyn-dispatch type
+  /// modifier `any <Abstract>`. The parser also
+  /// accepts it as a member name after `.` / `::`
+  /// (keywords-as-members) so user methods like
+  /// `arr.any(pred)` keep parsing.
   Any,
   Apply,
   State,
