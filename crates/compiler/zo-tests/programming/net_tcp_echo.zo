@@ -1,0 +1,53 @@
+-- tests-run-pass: TCP loopback roundtrip via core::net.
+-- @cmd — zo run net_tcp_echo.zo
+
+load core::net::(TcpListener, TcpStream);
+
+fun server_task(fd: int) {
+  imu listener := TcpListener { fd = fd };
+
+  match listener.accept() {
+    Result::Pass(connection) => {
+      showln(connection.read(64));
+      connection.write("world");
+      connection.close();
+    }
+    Result::Fail(_) => {
+      showln("server accept failed");
+    }
+  }
+}
+
+fun client_task() {
+  match TcpStream::connect("127.0.0.1:18472") {
+    Result::Pass(stream) => {
+      stream.write("hello");
+      showln(stream.read(64));
+      stream.close();
+    }
+    Result::Fail(_) => {
+      showln("client connect failed");
+    }
+  }
+}
+
+fun main() {
+  match TcpListener::bind("127.0.0.1:18472") {
+    Result::Pass(listener) => {
+      nursery {
+        spawn server_task(listener.fd);
+        spawn client_task();
+      }
+
+      showln("done");
+    }
+    Result::Fail(_) => {
+      showln("bind failed");
+    }
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- hello
+-- world
+-- done

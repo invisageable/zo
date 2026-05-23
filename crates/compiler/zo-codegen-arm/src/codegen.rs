@@ -11,8 +11,8 @@ use zo_emitter_arm::{
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
 use zo_register_allocation::{
-  EmitTiming, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS, RegAlloc,
-  RegisterClass, SpillKind, flat_struct_slots_of, resolve_ty,
+  EmitTiming, EnumPayloadFields, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS,
+  RegAlloc, RegisterClass, SpillKind, flat_struct_slots_of, resolve_ty,
 };
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::{Ty, TyId, TyTable};
@@ -459,6 +459,12 @@ pub struct ARM64Gen<'a> {
   io_shared_buf_offset: Option<u32>,
   /// Functions that return structs: name -> field count.
   struct_return_fns: HashMap<Symbol, u32>,
+  /// Per-variant substituted struct payload fields, for
+  /// enum-returning functions. Indexed by discriminant.
+  /// Read in the enum-deep-copy block to override the
+  /// (still-generic) enum-type variant fields with the
+  /// actual struct payload types at this call site.
+  enum_payload_struct_fields: EnumPayloadFields,
   /// Set when the last emitted instruction was a math
   /// intrinsic (FSQRT, FRINT*). Result is in D0.
   last_was_math_intrinsic: bool,
@@ -774,6 +780,7 @@ impl<'a> ARM64Gen<'a> {
       next_struct_slot: 0,
       io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
+      enum_payload_struct_fields: HashMap::default(),
       last_was_math_intrinsic: false,
       extern_used: Vec::new(),
       extern_used_set: HashSet::default(),
@@ -1338,6 +1345,8 @@ impl<'a> ARM64Gen<'a> {
     // source of truth. No SIR re-scan.
     if let Some(reg_alloc) = self.reg_alloc.as_ref() {
       self.struct_return_fns = reg_alloc.struct_return_fns.clone();
+      self.enum_payload_struct_fields =
+        reg_alloc.enum_payload_struct_fields.clone();
     }
 
     // Pre-pass: harvest per-pack `#link` paths. Must run
@@ -3139,16 +3148,40 @@ impl<'a> ARM64Gen<'a> {
                     return None;
                   };
                   let e = view.ty_table.enum_ty(eid)?;
+                  // Per-variant substituted struct payload
+                  // fields from the regalloc's pre-pass.
+                  // The enum's own variant fields are still
+                  // unsubstituted generic placeholders here,
+                  // so we splice the regalloc-recorded
+                  // struct types into the matching variant
+                  // field slots. Unrecorded slots fall back
+                  // to the raw variant-field type.
+                  let payload_overrides =
+                    self.enum_payload_struct_fields.get(name);
                   let variants: Vec<EnumVariantInfo> = view
                     .ty_table
                     .enum_variants(e)
                     .iter()
-                    .map(|v| EnumVariantInfo {
-                      discriminant: v.discriminant,
-                      field_tys: view
-                        .ty_table
-                        .variant_fields(v)
-                        .to_vec(),
+                    .map(|v| {
+                      let mut field_tys: Vec<TyId> =
+                        view.ty_table.variant_fields(v).to_vec();
+
+                      if let Some(over) = payload_overrides
+                        && let Some(variant_over) =
+                          over.get(v.discriminant as usize)
+                      {
+                        for (idx, sty) in variant_over {
+                          let i = *idx as usize;
+                          if i < field_tys.len() {
+                            field_tys[i] = *sty;
+                          }
+                        }
+                      }
+
+                      EnumVariantInfo {
+                        discriminant: v.discriminant,
+                        field_tys,
+                      }
                     })
                     .collect();
                   let max_payload = variants
@@ -7233,20 +7266,18 @@ impl<'a> ARM64Gen<'a> {
   /// To make `match` patterns on the returned enum read
   /// real bytes, this routine:
   ///
-  /// 1. Shallow-copies the outer slots from the callee
-  ///    frame into the caller's `dst_base` block.
-  /// 2. For every variant whose payload contains struct
-  ///    fields, conditionally branches on the
-  ///    discriminant and:
-  ///       a. dereferences the still-valid callee
-  ///          pointer to read the struct bytes,
-  ///       b. writes them into the caller's nested-
-  ///          slot scratch area (reserved by
-  ///          `flat_struct_slots_of` in the enum
-  ///          branch),
-  ///       c. rewrites the payload slot in step 1's
-  ///          shallow copy to point at the caller-side
-  ///          bytes.
+  /// Sequence:
+  ///
+  /// - Shallow-copy the outer slots from the callee
+  ///   frame into the caller's `dst_base` block.
+  /// - For every variant whose payload contains struct
+  ///   fields, branch on the discriminant and: (a)
+  ///   dereference the still-valid callee pointer to
+  ///   read the struct bytes; (b) write them into the
+  ///   caller's nested-slot scratch area (reserved by
+  ///   `flat_struct_slots_of` in the enum branch); (c)
+  ///   rewrite the payload slot in the shallow copy to
+  ///   point at the caller-side bytes.
   ///
   /// After this, the enum on the caller frame is fully
   /// self-contained — subsequent field reads through
