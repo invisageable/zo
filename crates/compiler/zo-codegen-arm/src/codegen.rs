@@ -12,7 +12,7 @@ use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
 use zo_register_allocation::{
   EmitTiming, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS, RegAlloc,
-  RegisterClass, SpillKind, resolve_ty,
+  RegisterClass, SpillKind, flat_struct_slots_of, resolve_ty,
 };
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::{Ty, TyId, TyTable};
@@ -117,6 +117,27 @@ pub const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 /// Args 0..=7 land in X0..X7; beyond that they spill to
 /// the stack.
 const AAPCS_ARG_REGS: [Register; 8] = [X0, X1, X2, X3, X4, X5, X6, X7];
+
+/// One enum variant's layout snapshot for the
+/// post-call deep-copy. `discriminant` selects the
+/// variant at runtime; `field_tys` mirrors the
+/// in-payload order so per-field deep-copy decisions
+/// (struct vs primitive) match the callee's
+/// `EnumConstruct` emission.
+struct EnumVariantInfo {
+  discriminant: u32,
+  field_tys: Vec<TyId>,
+}
+
+/// Snapshot of an enum return type's layout passed to
+/// `emit_enum_deep_copy_after_call`. `outer_slots` is
+/// `1 + max(variant.field_count)`; `variants` is the
+/// full variant list so the dispatch can compare
+/// against every discriminant.
+struct EnumDeepCopyLayout {
+  outer_slots: u32,
+  variants: Vec<EnumVariantInfo>,
+}
 
 /// Per-slot vtable patch — `slot_offset` is the byte
 /// offset INSIDE the vtable blob identified by
@@ -3106,63 +3127,108 @@ impl<'a> ARM64Gen<'a> {
               // return nested-struct shapes.
               let ret_ty = *call_ret_ty;
 
-              let outer_field_tys: Option<Vec<TyId>> =
+              // Enum returns need a different deep-copy
+              // shape: outer slots are shallow-copied,
+              // then per-variant logic deep-copies any
+              // struct payloads and rewrites the in-
+              // payload pointer to the caller's copy.
+              // See `emit_enum_deep_copy_after_call`.
+              let enum_layout: Option<EnumDeepCopyLayout> =
                 self.type_view.and_then(|view| {
-                  let Ty::Struct(sid) = resolve_ty(view.tys, ret_ty) else {
+                  let Ty::Enum(eid) = resolve_ty(view.tys, ret_ty) else {
                     return None;
                   };
-                  let st = view.ty_table.struct_ty(sid)?;
-                  Some(
-                    view
-                      .ty_table
-                      .struct_fields(st)
-                      .iter()
-                      .map(|f| f.ty_id)
-                      .collect(),
-                  )
+                  let e = view.ty_table.enum_ty(eid)?;
+                  let variants: Vec<EnumVariantInfo> = view
+                    .ty_table
+                    .enum_variants(e)
+                    .iter()
+                    .map(|v| EnumVariantInfo {
+                      discriminant: v.discriminant,
+                      field_tys: view
+                        .ty_table
+                        .variant_fields(v)
+                        .to_vec(),
+                    })
+                    .collect();
+                  let max_payload = variants
+                    .iter()
+                    .map(|v| v.field_tys.len() as u32)
+                    .max()
+                    .unwrap_or(0);
+                  Some(EnumDeepCopyLayout {
+                    outer_slots: 1 + max_payload,
+                    variants,
+                  })
                 });
 
-              match outer_field_tys {
-                Some(field_tys) => {
-                  let outer_count = field_tys.len() as u32;
-                  // Bump cursor past the outer slots so
-                  // nested copies can use the trailing
-                  // slots within our reserved budget.
-                  let mut inner_cursor =
-                    dst_base + outer_count * STACK_SLOT_SIZE;
+              if let Some(layout) = enum_layout {
+                self.emit_enum_deep_copy_after_call(&layout, dst_base);
+              } else {
+                let outer_field_tys: Option<Vec<TyId>> =
+                  self.type_view.and_then(|view| {
+                    let Ty::Struct(sid) = resolve_ty(view.tys, ret_ty)
+                    else {
+                      return None;
+                    };
+                    let st = view.ty_table.struct_ty(sid)?;
+                    Some(
+                      view
+                        .ty_table
+                        .struct_fields(st)
+                        .iter()
+                        .map(|f| f.ty_id)
+                        .collect(),
+                    )
+                  });
 
-                  for (i, field_ty) in field_tys.iter().enumerate() {
-                    let src_off = (i as u32 * STACK_SLOT_SIZE) as i16;
-                    let dst_off = dst_base + i as u32 * STACK_SLOT_SIZE;
+                match outer_field_tys {
+                  Some(field_tys) => {
+                    let outer_count = field_tys.len() as u32;
+                    // Bump cursor past the outer slots
+                    // so nested copies can use the
+                    // trailing slots within our
+                    // reserved budget.
+                    let mut inner_cursor =
+                      dst_base + outer_count * STACK_SLOT_SIZE;
 
-                    if self.is_struct_ty(*field_ty) {
-                      inner_cursor = self.emit_deep_copy_struct_field(
-                        X0,
-                        src_off,
-                        dst_off,
-                        *field_ty,
-                        inner_cursor,
-                      );
-                    } else {
+                    for (i, field_ty) in field_tys.iter().enumerate()
+                    {
+                      let src_off =
+                        (i as u32 * STACK_SLOT_SIZE) as i16;
+                      let dst_off =
+                        dst_base + i as u32 * STACK_SLOT_SIZE;
+
+                      if self.is_struct_ty(*field_ty) {
+                        inner_cursor = self.emit_deep_copy_struct_field(
+                          X0,
+                          src_off,
+                          dst_off,
+                          *field_ty,
+                          inner_cursor,
+                        );
+                      } else {
+                        self.emitter.emit_ldr(X16, X0, src_off);
+                        self.emit_str_sp(X16, dst_off);
+                      }
+                    }
+                  }
+                  None => {
+                    // Flat fallback — caller didn't
+                    // supply a type view, so we can't
+                    // tell which fields are structs.
+                    // `deep_slots` then equals the flat
+                    // field count (see
+                    // `build_struct_return_map`'s
+                    // `None` branch), so this still
+                    // matches the budget.
+                    for i in 0..deep_slots {
+                      let src_off = (i * STACK_SLOT_SIZE) as i16;
+                      let dst_off = dst_base + i * STACK_SLOT_SIZE;
+
                       self.emitter.emit_ldr(X16, X0, src_off);
                       self.emit_str_sp(X16, dst_off);
                     }
-                  }
-                }
-                None => {
-                  // Flat fallback — caller didn't supply
-                  // a type view, so we can't tell which
-                  // fields are structs. `deep_slots` then
-                  // equals the flat field count (see
-                  // `build_struct_return_map`'s `None`
-                  // branch), so this still matches the
-                  // budget.
-                  for i in 0..deep_slots {
-                    let src_off = (i * STACK_SLOT_SIZE) as i16;
-                    let dst_off = dst_base + i * STACK_SLOT_SIZE;
-
-                    self.emitter.emit_ldr(X16, X0, src_off);
-                    self.emit_str_sp(X16, dst_off);
                   }
                 }
               }
@@ -7149,6 +7215,142 @@ impl<'a> ARM64Gen<'a> {
     self
       .type_view
       .is_some_and(|view| matches!(resolve_ty(view.tys, ty), Ty::Struct(_)))
+  }
+
+  /// Recursive deep-copy of enum payload struct fields
+  /// emitted in the caller's frame immediately after `BL`.
+  ///
+  /// The callee returns with `X0` pointing at its own
+  /// frame's enum slot — only the outer slots
+  /// (`discriminant + max(variant.field_count)` words)
+  /// were actually constructed there. Any struct-typed
+  /// payload lives at a SEPARATE address in the callee
+  /// frame, and the payload slot holds only a pointer to
+  /// it. That callee frame disappears as soon as the
+  /// next stack write happens in the caller, so the
+  /// pointer immediately dangles.
+  ///
+  /// To make `match` patterns on the returned enum read
+  /// real bytes, this routine:
+  ///
+  /// 1. Shallow-copies the outer slots from the callee
+  ///    frame into the caller's `dst_base` block.
+  /// 2. For every variant whose payload contains struct
+  ///    fields, conditionally branches on the
+  ///    discriminant and:
+  ///       a. dereferences the still-valid callee
+  ///          pointer to read the struct bytes,
+  ///       b. writes them into the caller's nested-
+  ///          slot scratch area (reserved by
+  ///          `flat_struct_slots_of` in the enum
+  ///          branch),
+  ///       c. rewrites the payload slot in step 1's
+  ///          shallow copy to point at the caller-side
+  ///          bytes.
+  ///
+  /// After this, the enum on the caller frame is fully
+  /// self-contained — subsequent field reads through
+  /// the payload pointer land in valid memory.
+  ///
+  /// Scratch register convention (mirrors the existing
+  /// `emit_deep_copy_struct_field`): `X16` for value
+  /// transfer / address materialisation, `X17` for the
+  /// callee-side struct pointer. Both are AAPCS-IPC
+  /// scratches with no live values across the call.
+  fn emit_enum_deep_copy_after_call(
+    &mut self,
+    layout: &EnumDeepCopyLayout,
+    dst_base: u32,
+  ) {
+    // Step 1: shallow-copy outer enum slots.
+    for i in 0..layout.outer_slots {
+      let src_off = (i * STACK_SLOT_SIZE) as i16;
+      let dst_off = dst_base + i * STACK_SLOT_SIZE;
+      self.emitter.emit_ldr(X16, X0, src_off);
+      self.emit_str_sp(X16, dst_off);
+    }
+
+    // Step 2: per-variant deep-copy + pointer rewrite.
+    let view = match self.type_view {
+      Some(v) => v,
+      None => return,
+    };
+
+    let mut nested_cursor =
+      dst_base + layout.outer_slots * STACK_SLOT_SIZE;
+    let mut end_fixups: Vec<usize> = Vec::new();
+
+    for variant in &layout.variants {
+      let has_struct = variant
+        .field_tys
+        .iter()
+        .any(|f| matches!(resolve_ty(view.tys, *f), Ty::Struct(_)));
+
+      if !has_struct {
+        continue;
+      }
+
+      // CMP discriminant, BNE skip.
+      self.emit_ldr_sp(X16, dst_base);
+      self.emitter.emit_cmp_imm(X16, variant.discriminant as u16);
+
+      let bne_pos = self.emitter.current_offset();
+      self.emitter.emit_bne(0);
+
+      // Per-field deep-copy.
+      for (i, &field_ty) in variant.field_tys.iter().enumerate() {
+        if !matches!(resolve_ty(view.tys, field_ty), Ty::Struct(_)) {
+          continue;
+        }
+
+        let payload_off = dst_base + (i as u32 + 1) * STACK_SLOT_SIZE;
+        let struct_slots =
+          flat_struct_slots_of(field_ty, view.tys, view.ty_table)
+            .unwrap_or(1);
+
+        // X17 = callee-side struct pointer (still
+        // dangling but valid until the next caller
+        // stack write).
+        self.emit_ldr_sp(X17, payload_off);
+
+        // Copy struct bytes word-by-word.
+        for j in 0..struct_slots {
+          self.emitter.emit_ldr(
+            X16,
+            X17,
+            (j * STACK_SLOT_SIZE) as i16,
+          );
+          self.emit_str_sp(X16, nested_cursor + j * STACK_SLOT_SIZE);
+        }
+
+        // Rewrite the payload pointer to target the
+        // caller-side copy.
+        self.emit_add_sp_offset(X16, nested_cursor);
+        self.emit_str_sp(X16, payload_off);
+
+        nested_cursor += struct_slots * STACK_SLOT_SIZE;
+      }
+
+      // Done with this variant — skip the remaining
+      // variant comparisons.
+      let b_pos = self.emitter.current_offset();
+      self.emitter.emit_b(0);
+      end_fixups.push(b_pos as usize);
+
+      // Patch BNE forward to the next variant's
+      // comparison (or the end label).
+      let after_body = self.emitter.current_offset() as i32;
+      self
+        .emitter
+        .patch_bcond_at(bne_pos as usize, after_body - bne_pos as i32);
+    }
+
+    // Patch every variant's B end-fixup to one shared
+    // end-of-dispatch label.
+    let end_label = self.emitter.current_offset() as i32;
+    for pos in end_fixups {
+      self.emitter.patch_b_at(pos, end_label - pos as i32);
+    }
   }
 
   fn emit_deep_copy_struct_field(

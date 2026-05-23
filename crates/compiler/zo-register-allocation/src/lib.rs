@@ -347,6 +347,56 @@ pub fn flat_struct_slots_of(
 
       Some(total)
     }
+    Ty::Enum(eid) => {
+      // Layout for an enum returned across the call
+      // boundary:
+      //
+      //   [ disc ] [ payload₀ ] [ payload₁ ] ...
+      //
+      // The first `outer = 1 + max(variant.field_count)`
+      // slots hold the discriminant and per-variant
+      // payload values (or pointers to structs on the
+      // callee frame).
+      //
+      // For every variant whose payload contains struct
+      // fields, the caller ALSO needs scratch slots to
+      // deep-copy the struct out of the callee frame
+      // (which is gone after RET). We take the worst-
+      // case over all variants — variants share the
+      // same payload region, so only one variant's
+      // nested struct fields ever materialize at a
+      // time.
+      //
+      // Without this nested-struct slot budget, the
+      // caller-side deep-copy had nowhere to land the
+      // struct's bytes; reading them later dereferenced
+      // the dangling callee-frame pointer (the hang in
+      // `imu rc := listener.close()`).
+      let e = ty_table.enum_ty(eid)?;
+      let variants = ty_table.enum_variants(e);
+
+      let max_payload =
+        variants.iter().map(|v| v.field_count).max().unwrap_or(0);
+      let outer = 1 + max_payload;
+
+      let mut max_nested = 0u32;
+
+      for v in variants {
+        let fields = ty_table.variant_fields(v);
+        let mut nested = 0u32;
+
+        for &field_ty in fields {
+          if matches!(resolve_ty(tys, field_ty), Ty::Struct(_)) {
+            nested +=
+              flat_struct_slots_of(field_ty, tys, ty_table).unwrap_or(1);
+          }
+        }
+
+        max_nested = max_nested.max(nested);
+      }
+
+      Some(outer + max_nested)
+    }
     _ => Some(1),
   }
 }
@@ -363,7 +413,13 @@ fn struct_return_slots(
   let (tys, tt) = type_view?;
 
   match resolve_ty(tys, return_ty) {
-    Ty::Struct(_) => flat_struct_slots_of(return_ty, tys, tt),
+    // Both structs and enums cross the call boundary
+    // via the callee-frame "dangling pointer in X0,
+    // caller deep-copies" convention. Each needs slot
+    // space in the caller's frame for the deep-copy.
+    Ty::Struct(_) | Ty::Enum(_) => {
+      flat_struct_slots_of(return_ty, tys, tt)
+    }
     _ => None,
   }
 }
