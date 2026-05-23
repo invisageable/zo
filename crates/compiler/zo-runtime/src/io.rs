@@ -2,20 +2,11 @@
 //!
 //! Codegen calls these from `emit_io_readln` / `emit_io_read` —
 //! one syscall worth of work each, plus a scan for `readln`'s
-//! newline truncation. Returning the byte count (or a negative
-//! error) keeps the calling-convention symmetry with the
-//! existing `read_file`-style inline syscalls.
-//!
-//! Concurrency model: stdin is set non-blocking on first call.
-//! Inside a green task, an `EAGAIN` parks the task on the
-//! Selector for fd 0 and yields, so the scheduler keeps running
-//! other tasks until the kernel reports stdin ready. Outside a
-//! task (main-thread direct call before any nursery), the
-//! `park_current_on_read` helper falls back to a blocking
-//! `libc::poll` — same effective cost as the previous blocking
-//! read but composes uniformly with the suspending pattern.
+//! newline truncation. fd 0 is set non-blocking on first call;
+//! `EAGAIN` routes through `park_current_on_read` (yield from
+//! green tasks, `libc::poll` fallback otherwise).
 
-use crate::net::{last_errno, park_current_on_read};
+use crate::net::{last_errno, park_current_on_read, park_read_or_classify};
 
 /// Sized to match libc's default `BUFSIZ`.
 const STDIN_BUFFER_SIZE: usize = 4096;
@@ -25,18 +16,9 @@ const STDIN_BUFFER_SIZE: usize = 4096;
 static STDIN_NONBLOCKING: std::sync::Once = std::sync::Once::new();
 
 /// Mark fd 0 as `O_NONBLOCK`. Process-wide effect; any
-/// other code reading stdin must accept `EAGAIN`. The
-/// `wait_for_stdin_read_ready` shape above handles that.
+/// other code reading stdin must accept `EAGAIN`.
 fn ensure_stdin_nonblocking() {
-  STDIN_NONBLOCKING.call_once(|| {
-    // SAFETY: fcntl on a valid fd with documented cmds.
-    unsafe {
-      let flags = libc::fcntl(0, libc::F_GETFL);
-      if flags >= 0 {
-        libc::fcntl(0, libc::F_SETFL, flags | libc::O_NONBLOCK);
-      }
-    }
-  });
+  STDIN_NONBLOCKING.call_once(|| crate::net::set_nonblocking(0));
 }
 
 /// `buf[cursor..filled]` is the unread tail of the last
@@ -173,13 +155,9 @@ pub unsafe extern "C-unwind" fn _zo_io_read(
       return n;
     }
 
-    let err = last_errno();
-
-    if err != libc::EAGAIN && err != libc::EWOULDBLOCK {
-      return -(err as isize);
+    if let Some(err) = park_read_or_classify(0, last_errno()) {
+      return err as isize;
     }
-
-    park_current_on_read(0);
   }
 }
 

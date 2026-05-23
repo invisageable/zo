@@ -125,19 +125,20 @@ impl Selector {
   /// - `timeout_ms  >  0` — block up to that many
   ///   milliseconds.
   ///
-  /// Returns the task pointers whose fds are now
-  /// ready, in the order the kernel reported them.
-  /// Ready tasks are removed from the waiter table.
-  pub fn poll(&mut self, timeout_ms: c_int) -> Vec<*mut ZoTask> {
-    let mut ready: Vec<*mut ZoTask> = Vec::new();
+  /// Appends each ready task pointer onto `out`, in the
+  /// order the kernel reported them. Ready tasks are
+  /// removed from the waiter table. Caller supplies the
+  /// buffer — the scheduler reuses one across quanta
+  /// so a fresh allocation never lands on the run-loop
+  /// hot path.
+  pub fn poll(&mut self, timeout_ms: c_int, out: &mut Vec<*mut ZoTask>) {
+    let waiters = &mut self.waiters;
 
     poll_ready(self.mux_fd, timeout_ms, |fd| {
-      if let Some(task) = self.waiters.remove(&fd) {
-        ready.push(task);
+      if let Some(task) = waiters.remove(&fd) {
+        out.push(task);
       }
     });
-
-    ready
   }
 
   /// Whether any tasks are parked on this selector.
@@ -226,8 +227,7 @@ fn poll_ready<F: FnMut(RawFd)>(
   // SAFETY: kevent is a plain POD struct; zeroing is
   // valid and matches the kernel's expectation for an
   // uninitialized eventlist buffer.
-  let mut events: [libc::kevent; POLL_BATCH] =
-    unsafe { std::mem::zeroed() };
+  let mut events: [libc::kevent; POLL_BATCH] = unsafe { std::mem::zeroed() };
 
   let timespec = if timeout_ms >= 0 {
     Some(libc::timespec {
@@ -293,9 +293,8 @@ fn register(mux_fd: RawFd, fd: RawFd, interest: Interest) {
   //
   // SAFETY: `event` is a valid epoll_event on the
   // stack; the kernel reads it during the syscall.
-  let mod_rc = unsafe {
-    libc::epoll_ctl(mux_fd, libc::EPOLL_CTL_MOD, fd, &mut event)
-  };
+  let mod_rc =
+    unsafe { libc::epoll_ctl(mux_fd, libc::EPOLL_CTL_MOD, fd, &mut event) };
   if mod_rc < 0 {
     // SAFETY: same as above.
     unsafe {
@@ -360,6 +359,34 @@ pub fn park_current_on_read(fd: RawFd) {
 /// fd is registered for `EVFILT_WRITE` / `EPOLLOUT`.
 pub fn park_current_on_write(fd: RawFd) {
   park_current(fd, Interest::Write);
+}
+
+/// EAGAIN classifier shared by every suspending FFI on
+/// the read path (`_zo_net_read`, `_zo_net_tcp_accept`,
+/// `_zo_io_read`, the buffered `_zo_io_readln` refill).
+///
+/// Returns `Some(-errno)` for a fatal errno that the
+/// caller should propagate. Returns `None` after a
+/// successful park — the caller loops and retries the
+/// syscall. Wakes spuriously and re-encountering EAGAIN
+/// is safe: the caller just parks again.
+pub(crate) fn park_read_or_classify(fd: RawFd, errno: c_int) -> Option<i64> {
+  if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
+    return Some(-(errno as i64));
+  }
+
+  park_current(fd, Interest::Read);
+  None
+}
+
+/// Write-path counterpart to [`park_read_or_classify`].
+pub(crate) fn park_write_or_classify(fd: RawFd, errno: c_int) -> Option<i64> {
+  if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
+    return Some(-(errno as i64));
+  }
+
+  park_current(fd, Interest::Write);
+  None
 }
 
 fn park_current(fd: RawFd, interest: Interest) {
@@ -436,32 +463,28 @@ unsafe fn errno_location() -> *mut c_int {
 
 // ===== TCP FFI surface =====
 //
-// Six C-ABI entry points the codegen lowers `core/net.zo`
-// calls into. All sockets are opened non-blocking; the
-// suspending operations (accept, connect, read, write)
-// drive the EAGAIN-park-retry loop through
-// `park_current_on_read` / `park_current_on_write`.
-//
-// Return convention: non-negative on success (fd or byte
-// count), `-errno` on failure. The `core/net.zo` layer
-// wraps these into `Result<int, int>`.
+// Six C-ABI entry points. Sockets are non-blocking;
+// `accept` / `connect` / `read` / `write` route EAGAIN
+// through the suspending park helpers. Return convention:
+// non-negative on success, `-errno` on failure.
 
 use libc::c_char;
 
-/// Bind a listening TCP socket. `addr` is a NUL-
-/// terminated `"host:port"` (or `"[host]:port"` for
-/// IPv6). Returns the listener fd or `-errno` on
-/// failure.
+/// Bind a listening TCP socket. `host` is a NUL-
+/// terminated IPv4 or IPv6 literal (no port suffix);
+/// `port` is the TCP port (`0` for OS-assigned).
+/// Returns the listener fd or `-errno`.
 ///
 /// # Safety
 ///
-/// `addr` must point at a NUL-terminated UTF-8 string
+/// `host` must point at a NUL-terminated UTF-8 string
 /// or be null.
 #[unsafe(export_name = "zo_net_tcp_listen")]
 pub unsafe extern "C-unwind" fn _zo_net_tcp_listen(
-  addr: *const c_char,
+  host: *const c_char,
+  port: i64,
 ) -> i64 {
-  let Some(sa) = (unsafe { parse_addr(addr) }) else {
+  let Some(sa) = (unsafe { parse_host_port(host, port) }) else {
     return -(libc::EINVAL as i64);
   };
 
@@ -542,15 +565,11 @@ pub unsafe extern "C-unwind" fn _zo_net_tcp_accept(fd: i64) -> i64 {
       return new_fd as i64;
     }
 
-    let err = last_errno();
-
-    if err != libc::EAGAIN && err != libc::EWOULDBLOCK {
-      return -(err as i64);
+    // Accept readiness arrives as a read event on the
+    // listener fd.
+    if let Some(err) = park_read_or_classify(fd, last_errno()) {
+      return err;
     }
-
-    // Accept readiness is reported as a read event on
-    // the listener.
-    park_current_on_read(fd);
   }
 }
 
@@ -562,13 +581,14 @@ pub unsafe extern "C-unwind" fn _zo_net_tcp_accept(fd: i64) -> i64 {
 ///
 /// # Safety
 ///
-/// `addr` must point at a NUL-terminated UTF-8 string
-/// or be null.
+/// `host` must point at a NUL-terminated UTF-8 IP
+/// literal or be null.
 #[unsafe(export_name = "zo_net_tcp_connect")]
 pub unsafe extern "C-unwind" fn _zo_net_tcp_connect(
-  addr: *const c_char,
+  host: *const c_char,
+  port: i64,
 ) -> i64 {
-  let Some(sa) = (unsafe { parse_addr(addr) }) else {
+  let Some(sa) = (unsafe { parse_host_port(host, port) }) else {
     return -(libc::EINVAL as i64);
   };
 
@@ -613,8 +633,7 @@ pub unsafe extern "C-unwind" fn _zo_net_tcp_connect(
   // Check SO_ERROR — an async connect failure surfaces
   // there, not as the next syscall's errno.
   let mut soerr: i32 = 0;
-  let mut soerr_len =
-    std::mem::size_of::<i32>() as libc::socklen_t;
+  let mut soerr_len = std::mem::size_of::<i32>() as libc::socklen_t;
 
   // SAFETY: soerr and soerr_len live on the stack.
   let rc = unsafe {
@@ -670,13 +689,9 @@ pub unsafe extern "C-unwind" fn _zo_net_read(
       return r;
     }
 
-    let err = last_errno();
-
-    if err != libc::EAGAIN && err != libc::EWOULDBLOCK {
-      return -(err as isize);
+    if let Some(err) = park_read_or_classify(fd, last_errno()) {
+      return err as isize;
     }
-
-    park_current_on_read(fd);
   }
 }
 
@@ -709,14 +724,60 @@ pub unsafe extern "C-unwind" fn _zo_net_write(
       return r;
     }
 
-    let err = last_errno();
-
-    if err != libc::EAGAIN && err != libc::EWOULDBLOCK {
-      return -(err as isize);
+    if let Some(err) = park_write_or_classify(fd, last_errno()) {
+      return err as isize;
     }
-
-    park_current_on_write(fd);
   }
+}
+
+/// Look up the local port `fd` is bound to. Servers
+/// that bind on port `0` (OS-assigned) use this to tell
+/// clients where to connect. Returns the port or
+/// `-errno`. Supports `AF_INET` and `AF_INET6`.
+///
+/// # Safety
+///
+/// `fd` must be a valid bound socket.
+#[unsafe(export_name = "zo_net_tcp_local_port")]
+pub unsafe extern "C-unwind" fn _zo_net_tcp_local_port(fd: i64) -> i64 {
+  let fd = fd as RawFd;
+  let mut storage: libc::sockaddr_storage =
+    unsafe { std::mem::zeroed() };
+  let mut len =
+    std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+
+  // SAFETY: storage + len live on this stack frame.
+  let rc = unsafe {
+    libc::getsockname(
+      fd,
+      &mut storage as *mut libc::sockaddr_storage as *mut _,
+      &mut len,
+    )
+  };
+
+  if rc < 0 {
+    return -(last_errno() as i64);
+  }
+
+  let family = storage.ss_family as c_int;
+  let port = if family == libc::AF_INET {
+    // SAFETY: family verified; storage outlives borrow.
+    let sin = unsafe {
+      &*(&storage as *const libc::sockaddr_storage
+        as *const libc::sockaddr_in)
+    };
+    u16::from_be(sin.sin_port)
+  } else if family == libc::AF_INET6 {
+    let sin6 = unsafe {
+      &*(&storage as *const libc::sockaddr_storage
+        as *const libc::sockaddr_in6)
+    };
+    u16::from_be(sin6.sin6_port)
+  } else {
+    return -(libc::EAFNOSUPPORT as i64);
+  };
+
+  port as i64
 }
 
 /// Close `fd`. Returns 0 on success, `-errno` on
@@ -731,11 +792,7 @@ pub unsafe extern "C-unwind" fn _zo_net_close(fd: i64) -> i64 {
   // SAFETY: caller contract — fd is a valid open fd.
   let rc = unsafe { libc::close(fd as RawFd) };
 
-  if rc < 0 {
-    -(last_errno() as i64)
-  } else {
-    0
-  }
+  if rc < 0 { -(last_errno() as i64) } else { 0 }
 }
 
 // ===== Str-shaped convenience FFIs =====
@@ -765,18 +822,16 @@ pub unsafe extern "C-unwind" fn _zo_net_write_str(
   }
 
   // SAFETY: caller contract — s is a valid str header.
-  let total = unsafe { crate::str::str_len(s) };
-  // SAFETY: payload at offset 8 of the str header.
-  let payload = unsafe { s.add(8) };
+  let bytes = unsafe { crate::str::str_bytes(s) };
+  let total = bytes.len();
+  let payload = bytes.as_ptr();
 
   let mut written: usize = 0;
 
   while written < total {
     // SAFETY: payload + written stays inside [payload,
     // payload + total) which is within the str header.
-    let n = unsafe {
-      _zo_net_write(fd, payload.add(written), total - written)
-    };
+    let n = unsafe { _zo_net_write(fd, payload.add(written), total - written) };
 
     if n < 0 {
       return n as i64;
@@ -787,6 +842,13 @@ pub unsafe extern "C-unwind" fn _zo_net_write_str(
 
   total as i64
 }
+
+/// Maximum read size satisfied without a heap scratch.
+/// Sized to match the typical socket MTU / page so the
+/// common case never leaves the on-stack buffer. Each
+/// green task owns its own stack (`TaskStack`), so this
+/// is re-entrancy-safe across `yield_now`.
+const NET_READ_STACK_BUF: usize = 4096;
 
 /// Read up to `max_len` bytes from `fd` into a freshly
 /// heap-allocated zo str. Returns `CBytes` whose `ptr`
@@ -800,6 +862,10 @@ pub unsafe extern "C-unwind" fn _zo_net_write_str(
 /// The zo-side wrapper turns `CBytes` into a `str` via
 /// `CBytes::to_str()` — keeps the heap-str ownership
 /// model uniform with hash/regex returns.
+///
+/// Scratch lives on the calling green task's own
+/// stack — survives yields, no heap until the final
+/// str header.
 ///
 /// # Safety
 ///
@@ -824,12 +890,18 @@ pub unsafe extern "C-unwind" fn _zo_net_read_to_str(
     return zo_c_abi::CBytes::empty();
   }
 
-  let mut scratch: Vec<u8> = vec![0; max_len];
+  // Per-task stack scratch. Each green task has its own
+  // 8 MiB stack; this buffer lives alongside the call's
+  // other locals and survives `yield_now` because the
+  // task's SP is preserved across context switches.
+  // Reads larger than `NET_READ_STACK_BUF` are clamped
+  // (matches POSIX `read` semantics — partial returns
+  // are normal, callers loop).
+  let mut stack_buf = [0u8; NET_READ_STACK_BUF];
+  let read_len = max_len.min(NET_READ_STACK_BUF);
 
-  // SAFETY: scratch is a Vec of max_len bytes; the
-  // pointer is valid for the duration of `_zo_net_read`.
-  let n =
-    unsafe { _zo_net_read(fd, scratch.as_mut_ptr(), max_len) };
+  // SAFETY: stack_buf is a live local; pointer/len match.
+  let n = unsafe { _zo_net_read(fd, stack_buf.as_mut_ptr(), read_len) };
 
   if n < 0 {
     return zo_c_abi::CBytes {
@@ -844,9 +916,10 @@ pub unsafe extern "C-unwind" fn _zo_net_read_to_str(
     return zo_c_abi::CBytes::empty();
   }
 
-  // Heap-alloc a zo str of exactly `n` bytes. `header_ptr`
-  // is the str value; payload sits at offset 8.
-  let header_ptr = crate::str::alloc_str(&scratch[..n]);
+  // Heap-alloc a zo str of exactly `n` bytes; payload
+  // sits at offset 8. This is the only allocation on
+  // the read path.
+  let header_ptr = crate::str::alloc_str(&stack_buf[..n]);
 
   // SAFETY: header_ptr was just allocated; +8 is the
   // payload start. The heap allocation outlives the
@@ -890,26 +963,35 @@ fn create_stream_socket(family: i32) -> RawFd {
   }
 }
 
-#[cfg(target_os = "macos")]
-fn set_nonblocking(fd: RawFd) {
+/// `fcntl(fd, getter) | flag` followed by
+/// `fcntl(fd, setter, …)`. Used to enable
+/// `O_NONBLOCK` / `FD_CLOEXEC` on existing fds on
+/// macOS — Linux opens sockets with the equivalent
+/// `SOCK_NONBLOCK | SOCK_CLOEXEC` flags directly so
+/// the after-the-fact `fcntl` path is unused there.
+fn fcntl_or(fd: RawFd, getter: c_int, setter: c_int, flag: c_int) {
   // SAFETY: fcntl with documented cmds on a valid fd.
   unsafe {
-    let flags = libc::fcntl(fd, libc::F_GETFL);
+    let flags = libc::fcntl(fd, getter);
+
     if flags >= 0 {
-      libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+      libc::fcntl(fd, setter, flags | flag);
     }
   }
 }
 
+/// Mark `fd` as `O_NONBLOCK`. Shared by the socket FFI
+/// and `io::ensure_stdin_nonblocking` so the suspending
+/// pattern reads from one place. On Linux we open
+/// sockets with `SOCK_NONBLOCK` directly, but stdin
+/// still flows through this helper.
+pub(crate) fn set_nonblocking(fd: RawFd) {
+  fcntl_or(fd, libc::F_GETFL, libc::F_SETFL, libc::O_NONBLOCK);
+}
+
 #[cfg(target_os = "macos")]
 fn set_cloexec(fd: RawFd) {
-  // SAFETY: fcntl with documented cmds on a valid fd.
-  unsafe {
-    let flags = libc::fcntl(fd, libc::F_GETFD);
-    if flags >= 0 {
-      libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
-    }
-  }
+  fcntl_or(fd, libc::F_GETFD, libc::F_SETFD, libc::FD_CLOEXEC);
 }
 
 /// Accept one connection, returning a non-blocking,
@@ -930,9 +1012,8 @@ fn do_accept(fd: RawFd) -> RawFd {
   #[cfg(target_os = "macos")]
   {
     // SAFETY: accept with documented args.
-    let new_fd = unsafe {
-      libc::accept(fd, std::ptr::null_mut(), std::ptr::null_mut())
-    };
+    let new_fd =
+      unsafe { libc::accept(fd, std::ptr::null_mut(), std::ptr::null_mut()) };
 
     if new_fd >= 0 {
       set_nonblocking(new_fd);
@@ -943,17 +1024,24 @@ fn do_accept(fd: RawFd) -> RawFd {
   }
 }
 
-/// Parse a `"host:port"` C-string into a `SocketAddr`.
-/// Returns `None` for null pointers, non-UTF-8, or
-/// addresses Rust's parser rejects.
-unsafe fn parse_addr(addr: *const c_char) -> Option<std::net::SocketAddr> {
-  if addr.is_null() {
+/// Parse `(host: CStr, port: i64)` into a `SocketAddr`.
+/// `host` is a plain IPv4 / IPv6 literal (no port,
+/// no brackets); `port` must fit in `u16`. Returns
+/// `None` for null host, non-UTF-8, unparseable IP,
+/// or out-of-range port.
+unsafe fn parse_host_port(
+  host: *const c_char,
+  port: i64,
+) -> Option<std::net::SocketAddr> {
+  if host.is_null() || !(0..=u16::MAX as i64).contains(&port) {
     return None;
   }
 
-  // SAFETY: caller contract — addr is NUL-terminated.
-  let cstr = unsafe { std::ffi::CStr::from_ptr(addr) };
-  cstr.to_str().ok()?.parse().ok()
+  // SAFETY: caller contract — host is NUL-terminated.
+  let cstr = unsafe { std::ffi::CStr::from_ptr(host) };
+  let ip: std::net::IpAddr = cstr.to_str().ok()?.parse().ok()?;
+
+  Some(std::net::SocketAddr::new(ip, port as u16))
 }
 
 /// Marshal a Rust `SocketAddr` into a kernel-friendly
@@ -966,8 +1054,7 @@ fn sockaddr_storage(
 ) -> (libc::sockaddr_storage, libc::socklen_t) {
   // SAFETY: sockaddr_storage is a POD union large
   // enough for both _in and _in6; zero init is valid.
-  let mut storage: libc::sockaddr_storage =
-    unsafe { std::mem::zeroed() };
+  let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
 
   let len = match addr {
     std::net::SocketAddr::V4(v4) => {
@@ -981,8 +1068,7 @@ fn sockaddr_storage(
 
       #[cfg(any(target_os = "macos", target_os = "freebsd"))]
       {
-        sin.sin_len =
-          std::mem::size_of::<libc::sockaddr_in>() as u8;
+        sin.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
       }
       sin.sin_family = libc::AF_INET as _;
       sin.sin_port = v4.port().to_be();
@@ -999,8 +1085,7 @@ fn sockaddr_storage(
 
       #[cfg(any(target_os = "macos", target_os = "freebsd"))]
       {
-        sin6.sin6_len =
-          std::mem::size_of::<libc::sockaddr_in6>() as u8;
+        sin6.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
       }
       sin6.sin6_family = libc::AF_INET6 as _;
       sin6.sin6_port = v6.port().to_be();
@@ -1053,15 +1138,18 @@ mod tests {
     }
   }
 
+  fn drain(sel: &mut Selector, timeout_ms: c_int) -> Vec<*mut ZoTask> {
+    let mut out = Vec::new();
+    sel.poll(timeout_ms, &mut out);
+    out
+  }
+
   #[test]
   fn poll_returns_no_tasks_when_idle() {
     let mut sel = Selector::new();
 
     assert!(!sel.has_waiters());
-
-    let ready = sel.poll(0);
-
-    assert!(ready.is_empty());
+    assert!(drain(&mut sel, 0).is_empty());
   }
 
   #[test]
@@ -1069,7 +1157,7 @@ mod tests {
     let mut sel = Selector::new();
 
     let start = std::time::Instant::now();
-    let ready = sel.poll(0);
+    let ready = drain(&mut sel, 0);
     let elapsed = start.elapsed();
 
     assert!(ready.is_empty());
@@ -1091,18 +1179,16 @@ mod tests {
     assert!(sel.has_waiters());
 
     // Empty pipe — nothing ready yet.
-    let ready = sel.poll(0);
-    assert!(ready.is_empty());
+    assert!(drain(&mut sel, 0).is_empty());
     assert!(sel.has_waiters());
 
     // Inject one byte; the read end becomes readable.
     let byte = b"x";
-    let n =
-      unsafe { libc::write(write_fd, byte.as_ptr() as *const _, 1) };
+    let n = unsafe { libc::write(write_fd, byte.as_ptr() as *const _, 1) };
     assert_eq!(n, 1);
 
     // Block up to 500 ms — should fire long before.
-    let ready = sel.poll(500);
+    let ready = drain(&mut sel, 500);
     assert_eq!(ready.len(), 1);
     assert_eq!(ready[0], task);
     // One-shot — waiter removed on wake.
@@ -1128,7 +1214,7 @@ mod tests {
       libc::write(pipe_b.1, byte.as_ptr() as *const _, 1);
     }
 
-    let ready = sel.poll(500);
+    let ready = drain(&mut sel, 500);
 
     assert_eq!(ready.len(), 1);
     assert_eq!(ready[0], task_b);
@@ -1151,15 +1237,13 @@ mod tests {
     unsafe {
       libc::write(write_fd, b"a".as_ptr() as *const _, 1);
     }
-    let ready = sel.poll(500);
+    let ready = drain(&mut sel, 500);
     assert_eq!(ready.len(), 1);
     assert_eq!(ready[0], task);
 
     // Drain the byte so the pipe is empty again.
     let mut buf = [0u8; 1];
-    let _ = unsafe {
-      libc::read(read_fd, buf.as_mut_ptr() as *mut _, 1)
-    };
+    let _ = unsafe { libc::read(read_fd, buf.as_mut_ptr() as *mut _, 1) };
 
     // Second arm — exercises the EPOLL_CTL_MOD re-arm
     // path on Linux and the redundant EV_ADD on macOS.
@@ -1167,7 +1251,7 @@ mod tests {
     unsafe {
       libc::write(write_fd, b"b".as_ptr() as *const _, 1);
     }
-    let ready = sel.poll(500);
+    let ready = drain(&mut sel, 500);
     assert_eq!(ready.len(), 1);
     assert_eq!(ready[0], task);
 
@@ -1176,12 +1260,8 @@ mod tests {
 
   // ===== TCP roundtrip test =====
   //
-  // Two green tasks share a TCP connection over loopback:
-  // the server accepts + echoes "world" back; the client
-  // connects + sends "hello" + reads the echo. Exercises
-  // the full pipeline — kqueue/epoll registration, idle-
-  // poll wake, accept/connect/read/write FFI, scheduler
-  // re-queue after suspension.
+  // Two green tasks share a TCP loopback connection: the
+  // server echoes "world" back to the client's "hello".
 
   use crate::task::{_zo_task_await, _zo_task_spawn_2};
 
@@ -1189,8 +1269,7 @@ mod tests {
   /// listener. Test-only helper around `getsockname`.
   fn local_port_v4(fd: RawFd) -> u16 {
     let mut sin: libc::sockaddr_in = unsafe { std::mem::zeroed() };
-    let mut len =
-      std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+    let mut len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
     let rc = unsafe {
       libc::getsockname(
         fd,
@@ -1215,23 +1294,19 @@ mod tests {
     assert_eq!(n, 5, "server read returned {}", n);
     assert_eq!(&buf, b"hello");
 
-    let n =
-      unsafe { _zo_net_write(conn, b"world".as_ptr(), 5) };
+    let n = unsafe { _zo_net_write(conn, b"world".as_ptr(), 5) };
     assert_eq!(n, 5, "server write returned {}", n);
 
     unsafe { _zo_net_close(conn) };
   }
 
   extern "C-unwind" fn client_body(port: u64, _unused: u64) {
-    let port = port as u16;
-    let addr =
-      std::ffi::CString::new(format!("127.0.0.1:{port}")).unwrap();
+    let host = std::ffi::CString::new("127.0.0.1").unwrap();
 
-    let conn = unsafe { _zo_net_tcp_connect(addr.as_ptr()) };
+    let conn = unsafe { _zo_net_tcp_connect(host.as_ptr(), port as i64) };
     assert!(conn >= 0, "connect failed: {}", conn);
 
-    let n =
-      unsafe { _zo_net_write(conn, b"hello".as_ptr(), 5) };
+    let n = unsafe { _zo_net_write(conn, b"hello".as_ptr(), 5) };
     assert_eq!(n, 5, "client write returned {}", n);
 
     let mut buf = [0u8; 5];
@@ -1246,19 +1321,14 @@ mod tests {
   fn tcp_loopback_roundtrip() {
     crate::scheduler::reset_for_test();
 
-    let listen_addr =
-      std::ffi::CString::new("127.0.0.1:0").unwrap();
-    let listener = unsafe { _zo_net_tcp_listen(listen_addr.as_ptr()) };
+    let listen_host = std::ffi::CString::new("127.0.0.1").unwrap();
+    let listener = unsafe { _zo_net_tcp_listen(listen_host.as_ptr(), 0) };
     assert!(listener >= 0, "listen failed: {}", listener);
     let listener_fd = listener as RawFd;
     let port = local_port_v4(listener_fd);
 
-    let server = unsafe {
-      _zo_task_spawn_2(server_body, listener as u64, 0)
-    };
-    let client = unsafe {
-      _zo_task_spawn_2(client_body, port as u64, 0)
-    };
+    let server = unsafe { _zo_task_spawn_2(server_body, listener as u64, 0) };
+    let client = unsafe { _zo_task_spawn_2(client_body, port as u64, 0) };
 
     // SAFETY: handles are fresh from spawn_2; their
     // boxes outlive these awaits.

@@ -38,7 +38,7 @@ pub ffi write_file(path: str, content: str) -> Result<int, int>;
 -! Returns `Fail(errno)` on failure.
 pub ffi append_file(path: str, content: str) -> Result<int, int>;
 
--! True if `path` names an existing, accessible file.
+-! Checks if `path` names exists, accessible file.
 pub ffi exists(path: str) -> bool;
 
 -! Delete the file at `path`; `false` on any error.

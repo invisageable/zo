@@ -165,8 +165,7 @@ pub type EnumVariantStructFields = Vec<(u32, TyId)>;
 /// Function name → list of [`EnumVariantStructFields`],
 /// indexed by variant discriminant. See
 /// [`RegAlloc::enum_payload_struct_fields`] for the why.
-pub type EnumPayloadFields =
-  HashMap<Symbol, Vec<EnumVariantStructFields>>;
+pub type EnumPayloadFields = HashMap<Symbol, Vec<EnumVariantStructFields>>;
 
 impl RegAlloc {
   /// Run register allocation on the SIR instruction stream.
@@ -292,44 +291,21 @@ fn build_struct_return_map(
   let mut last_ty: Option<TyId> = None;
   let mut last_fields: Option<u32> = None;
 
-  // Pre-pass: value-id → producing-instruction ty_id. Used
-  // for `EnumConstruct` slot computation, where the
-  // variant payload fields are ValueIds whose concrete
-  // types live on the producing instruction (e.g. a
-  // `StructConstruct` for `Pass(Self {…})`). The enum's
-  // own variant_field_tys are still the unsubstituted
-  // generic placeholders — the only carrier of the
-  // substituted payload type at this stage is the value
-  // that flows INTO the EnumConstruct's `fields` slot.
+  // Value-id → producing-instruction ty_id, scoped to the
+  // currently-walked function. ValueId counters reset
+  // across FunDef boundaries, so the map clears on every
+  // FunDef — without that scoping, vid=N in one function
+  // would alias vid=N in the next and the EnumConstruct
+  // lookup below would pick up a stale TyId from a
+  // previously-walked function body.
   let mut value_ty: HashMap<u32, TyId> = HashMap::default();
 
   for insn in insns {
-    use Insn::*;
-    match insn {
-      ConstInt { dst, ty_id, .. }
-      | ConstFloat { dst, ty_id, .. }
-      | ConstBool { dst, ty_id, .. }
-      | ConstString { dst, ty_id, .. }
-      | Load { dst, ty_id, .. }
-      | Call { dst, ty_id, .. }
-      | BinOp { dst, ty_id, .. }
-      | UnOp { dst, ty_id, .. }
-      | StructConstruct { dst, ty_id, .. }
-      | EnumConstruct { dst, ty_id, .. }
-      | TupleLiteral { dst, ty_id, .. }
-      | TupleIndex { dst, ty_id, .. }
-      | ArrayLiteral { dst, ty_id, .. }
-      | ArrayIndex { dst, ty_id, .. } => {
-        value_ty.insert(dst.0, *ty_id);
-      }
-      Cast { dst, to_ty, .. } => {
-        value_ty.insert(dst.0, *to_ty);
-      }
-      _ => {}
-    }
-  }
+    // Record this insn's `(dst, ty)` so a later
+    // `EnumConstruct` whose payload field references `dst`
+    // can recover the substituted struct type.
+    record_value_ty(insn, &mut value_ty);
 
-  for insn in insns {
     match insn {
       Insn::FunDef {
         name, return_ty, ..
@@ -337,6 +313,7 @@ fn build_struct_return_map(
         cur_fn = Some(*name);
         last_ty = None;
         last_fields = None;
+        value_ty.clear();
 
         // Every fn whose declared return is a struct claims
         // a slot, even when the body's tail position is a
@@ -350,22 +327,16 @@ fn build_struct_return_map(
         last_fields = Some(fields.len() as u32);
         last_ty = Some(*ty_id);
       }
-      Insn::EnumConstruct { fields, variant, .. } => {
-        // Substituted slot count: 1 (discriminant) + payload
-        // fields + recursive cost of any struct payload.
-        //
-        // The enum type itself is still GENERIC at this
-        // point (zo doesn't intern monomorphized enum
-        // TyIds), so `flat_struct_slots_of` on it can't
-        // see struct payloads. Instead, walk each field
-        // VALUE's recorded type (via the pre-pass above)
-        // and add its own struct slot cost. This is the
-        // path that lets a function returning
-        // `Result<TcpStream, int>` correctly reserve
-        // `1 + 1 + 1 = 3` slots in the caller's frame —
-        // without it, the budget collapsed to 2 and the
-        // nested struct copy stomped the next call's
-        // dst_base.
+      Insn::EnumConstruct {
+        fields, variant, ..
+      } => {
+        // Slot budget: 1 (discriminant) + payload fields +
+        // each struct-typed payload's recursive cost. The
+        // enum's own variant_field_tys are unsubstituted
+        // generic placeholders here (zo doesn't intern
+        // monomorphized enum TyIds), so we recover the
+        // concrete type from each payload value's source
+        // insn via the value_ty pre-pass above.
         let mut total = 1 + fields.len() as u32;
 
         let mut variant_struct_fields: Vec<(u32, TyId)> = Vec::new();
@@ -427,15 +398,13 @@ fn build_struct_return_map(
             _ => n,
           };
 
-          // Prefer the FunDef-set value when present —
-          // it reflects the DECLARED return type (e.g.
-          // `Result<Self, int>` → 3 slots), whereas the
-          // Return-based count here only sees the tail
-          // `StructConstruct` (e.g. the `Self {…}` inside
-          // `Pass(Self {…})`, which is 1 slot for `Self`).
-          // Without this max, the enum-return slot budget
-          // got silently downgraded after the function's
-          // body emitted a `StructConstruct`.
+          // Take the max of the FunDef-derived count
+          // (declared return type, e.g. `Result<Self,
+          // int>` → 3) and the Return-derived count
+          // (last tail `StructConstruct`, e.g. inner
+          // `Self {…}` → 1). The latter alone can
+          // downgrade the budget; the former alone can
+          // miss tail-call shapes.
           map
             .entry(fname)
             .and_modify(|existing| *existing = (*existing).max(deep))
@@ -447,6 +416,37 @@ fn build_struct_return_map(
   }
 
   (map, payload_map)
+}
+
+/// Record `insn.dst → insn.ty` in `value_ty` when the
+/// insn is a value-producing one. Used by
+/// [`build_struct_return_map`]'s `EnumConstruct` arm to
+/// recover the substituted type of each payload field
+/// from its source ValueId.
+fn record_value_ty(insn: &Insn, value_ty: &mut HashMap<u32, TyId>) {
+  use Insn::*;
+  match insn {
+    ConstInt { dst, ty_id, .. }
+    | ConstFloat { dst, ty_id, .. }
+    | ConstBool { dst, ty_id, .. }
+    | ConstString { dst, ty_id, .. }
+    | Load { dst, ty_id, .. }
+    | Call { dst, ty_id, .. }
+    | BinOp { dst, ty_id, .. }
+    | UnOp { dst, ty_id, .. }
+    | StructConstruct { dst, ty_id, .. }
+    | EnumConstruct { dst, ty_id, .. }
+    | TupleLiteral { dst, ty_id, .. }
+    | TupleIndex { dst, ty_id, .. }
+    | ArrayLiteral { dst, ty_id, .. }
+    | ArrayIndex { dst, ty_id, .. } => {
+      value_ty.insert(dst.0, *ty_id);
+    }
+    Cast { dst, to_ty, .. } => {
+      value_ty.insert(dst.0, *to_ty);
+    }
+    _ => {}
+  }
 }
 
 /// Slots required to deep-copy a value of type `ty_id`
@@ -505,11 +505,11 @@ pub fn flat_struct_slots_of(
       // nested struct fields ever materialize at a
       // time.
       //
-      // Without this nested-struct slot budget, the
-      // caller-side deep-copy had nowhere to land the
-      // struct's bytes; reading them later dereferenced
-      // the dangling callee-frame pointer (the hang in
-      // `imu rc := listener.close()`).
+      // The nested-struct slot budget is what gives the
+      // caller-side deep-copy a place to land each
+      // variant's struct payload; without it the
+      // payload pointer dangles into the (gone) callee
+      // frame.
       let e = ty_table.enum_ty(eid)?;
       let variants = ty_table.enum_variants(e);
 
@@ -555,9 +555,7 @@ fn struct_return_slots(
     // via the callee-frame "dangling pointer in X0,
     // caller deep-copies" convention. Each needs slot
     // space in the caller's frame for the deep-copy.
-    Ty::Struct(_) | Ty::Enum(_) => {
-      flat_struct_slots_of(return_ty, tys, tt)
-    }
+    Ty::Struct(_) | Ty::Enum(_) => flat_struct_slots_of(return_ty, tys, tt),
     _ => None,
   }
 }

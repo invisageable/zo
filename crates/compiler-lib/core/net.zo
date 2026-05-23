@@ -19,13 +19,13 @@ load core::c::(CBytes, CStr);
 -* raw ffi bindings. *-
 
 %% link_name = "zo_net_tcp_listen".
-pub ffi __zo_net_tcp_listen(addr: CStr) -> int;
+pub ffi __zo_net_tcp_listen(host: CStr, port: int) -> int;
 
 %% link_name = "zo_net_tcp_accept".
 pub ffi __zo_net_tcp_accept(listener_fd: int) -> int;
 
 %% link_name = "zo_net_tcp_connect".
-pub ffi __zo_net_tcp_connect(addr: CStr) -> int;
+pub ffi __zo_net_tcp_connect(host: CStr, port: int) -> int;
 
 %% link_name = "zo_net_write_str".
 pub ffi __zo_net_write_str(fd: int, s: str) -> int;
@@ -33,8 +33,49 @@ pub ffi __zo_net_write_str(fd: int, s: str) -> int;
 %% link_name = "zo_net_read_to_str".
 pub ffi __zo_net_read_to_str(fd: int, max_len: int) -> CBytes;
 
+%% link_name = "zo_net_tcp_local_port".
+pub ffi __zo_net_tcp_local_port(fd: int) -> int;
+
 %% link_name = "zo_net_close".
 pub ffi __zo_net_close(fd: int) -> int;
+
+
+-! A `(ip, port)` pair used by [`TcpListener::bind`] and
+-! [`TcpStream::connect`]. Keeps host and port typed so
+-! string formatting at the call site is unnecessary.
+pub struct Address {
+  ip: str,
+  port: int,
+}
+
+apply Address {
+  -! Build an address from its parts.
+  pub fun new(ip: str, port: int) -> Self {
+    Self { ip = ip, port = port }
+  }
+
+  -! Parse `"ip:port"` (IPv4 form). Returns `Fail(0)` on
+  -! malformed input — single `':'` separator, non-empty
+  -! ip, integer port.
+  -!
+  -! @note — IPv6 literals (which contain `':'` inside
+  -! the host part) need bracket-aware parsing; this
+  -! routine targets the IPv4 path until that lands.
+  pub fun parse(text: str) -> Result<Self, int> {
+    imu parts: []str = text.split(":");
+
+    if parts.len != 2 {
+      return Result::Fail(0);
+    }
+
+    match parts[1].parse_int() {
+      Option::Some(port) => {
+        Result::Pass(Self { ip = parts[0], port = port })
+      }
+      Option::None => Result::Fail(0),
+    }
+  }
+}
 
 
 -! A connected TCP stream — either dialled out via
@@ -44,8 +85,9 @@ pub struct TcpStream { fd: int }
 apply TcpStream {
   -! Dial a TCP peer at `addr`. Suspends the current
   -! green task until the TCP handshake completes.
-  pub fun connect(addr: str) -> Result<Self, int> {
-    imu fd: int = __zo_net_tcp_connect(CStr::new(addr));
+  pub fun connect(addr: Address) -> Result<Self, int> {
+    imu fd: int =
+      __zo_net_tcp_connect(CStr::new(addr.ip), addr.port);
 
     if fd >= 0 {
       Result::Pass(Self { fd = fd })
@@ -98,11 +140,11 @@ pub struct TcpListener { fd: int }
 apply TcpListener {
   -! Bind a TCP listener on `addr`.
   -!
-  -! @note — accepts IPv4 (`"127.0.0.1:8080"`) and IPv6
-  -! (`"[::1]:8080"`). Port `0` lets the OS pick a free
-  -! ephemeral port.
-  pub fun bind(addr: str) -> Result<Self, int> {
-    imu fd: int = __zo_net_tcp_listen(CStr::new(addr));
+  -! @note — port `0` lets the OS pick a free ephemeral
+  -! port; query it back with `local_port()`.
+  pub fun bind(addr: Address) -> Result<Self, int> {
+    imu fd: int =
+      __zo_net_tcp_listen(CStr::new(addr.ip), addr.port);
 
     if fd >= 0 {
       Result::Pass(Self { fd = fd })
@@ -120,6 +162,20 @@ apply TcpListener {
       Result::Pass(TcpStream { fd = fd })
     } else {
       Result::Fail(-fd)
+    }
+  }
+
+  -! Local port the listener is bound to. Useful when
+  -! `bind` was called with port `0` and the actual
+  -! OS-assigned port is needed (e.g. to tell a client
+  -! where to connect in tests).
+  pub fun local_port(self) -> Result<int, int> {
+    imu p: int = __zo_net_tcp_local_port(self.fd);
+
+    if p >= 0 {
+      Result::Pass(p)
+    } else {
+      Result::Fail(-p)
     }
   }
 

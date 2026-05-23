@@ -6527,15 +6527,10 @@ impl<'a> Executor<'a> {
     while *idx < end_idx {
       let tok = self.tree.nodes[*idx].token;
 
-      // Accept `SelfUpper` alongside `Ident` / built-in
-      // type tokens: a method declared as
-      // `fun mk(...) -> Result<Self, int>` must produce
-      // `return_type_args = [<resolved Self>, int]`.
-      // Without this, parsing broke at the `Self` token,
-      // emptied the args, and downstream match-arm
-      // pattern bindings (`Pass(h)`) fell back to the
-      // enum's unresolved generic field types — h got
-      // typed as `$T`, so `h.fd` failed to resolve.
+      // `SelfUpper` resolves to the enclosing apply ty
+      // via `resolve_type_token`; accepting it here is
+      // what keeps `Result<Self, int>` return-arg lists
+      // populated.
       if tok.is_ty() || tok == Token::Ident || tok == Token::SelfUpper {
         out.push(self.resolve_type_token(*idx));
 

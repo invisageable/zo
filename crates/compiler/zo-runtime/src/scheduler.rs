@@ -46,6 +46,11 @@ pub struct SchedulerState {
   /// so the thread-local can remain const-constructed
   /// — `Selector::new` makes a syscall.
   selector: RefCell<Option<Selector>>,
+  /// Reusable batch buffer for `Selector::poll`. The
+  /// run-loop's `drain_ready` fires on every quantum;
+  /// recycling one `Vec` here keeps the allocator out
+  /// of the hot path.
+  poll_batch: RefCell<Vec<*mut ZoTask>>,
 }
 
 impl SchedulerState {
@@ -55,6 +60,7 @@ impl SchedulerState {
       run_queue: RefCell::new(VecDeque::new()),
       current: Cell::new(None),
       selector: RefCell::new(None),
+      poll_batch: RefCell::new(Vec::new()),
     }
   }
 
@@ -106,7 +112,7 @@ impl SchedulerState {
   /// reach the Selector through this entry point —
   /// the lazy-init keeps the scheduler thread-local
   /// const-constructed for cold start.
-  pub fn with_selector_mut<R>(
+  pub(crate) fn with_selector_mut<R>(
     &self,
     f: impl FnOnce(&mut Selector) -> R,
   ) -> R {
@@ -121,7 +127,7 @@ impl SchedulerState {
   /// Whether any task is parked on the Selector for
   /// I/O readiness. False before the Selector is even
   /// created (no suspending FFI has run yet).
-  pub fn selector_has_waiters(&self) -> bool {
+  pub(crate) fn selector_has_waiters(&self) -> bool {
     self
       .selector
       .borrow()
@@ -182,15 +188,9 @@ pub unsafe fn yield_now() {
 /// finished. Called from non-task code (typically
 /// `main` at a nursery scope's `}`) to run all
 /// spawned siblings to completion before control
-/// flows past the scope. Safe to call with an empty
-/// queue — returns immediately.
-///
-/// When the run queue empties but tasks are parked
-/// on the Selector for I/O, this blocks inside the
-/// OS multiplexer until any fd fires, wakes the
-/// owning tasks, and resumes draining. Only returns
-/// when both the run queue is empty AND no I/O
-/// waiters remain.
+/// flows past the scope. Blocks in `Selector::poll(-1)`
+/// when the run queue empties but I/O waiters remain;
+/// returns only when both queues are empty.
 pub fn drain_all() {
   loop {
     let next = with(|s| s.pop_ready());
@@ -200,14 +200,9 @@ pub fn drain_all() {
         // SAFETY: task pointer pulled from the run
         // queue is live (the box is scheduler-owned).
         unsafe { run_one(task) };
-        // Drain anything that became ready while the
-        // task ran (cheap non-blocking poll).
         with(|s| drain_ready(s, 0));
       }
       None => {
-        // Idle branch: if no I/O waiters either, we
-        // genuinely have nothing to do. Otherwise
-        // sleep in the kernel until any fd fires.
         let woke = with(|s| drain_ready(s, -1));
         if woke == 0 {
           return;
@@ -238,13 +233,11 @@ pub unsafe fn drain_until_dead(until_dead: *mut ZoTask) {
     match next {
       Some(task) => {
         unsafe { run_one(task) };
-        // Cheap non-blocking drain — any fd that fired
-        // while the task ran rejoins the queue.
         with(|s| drain_ready(s, 0));
       }
       None => {
-        // Try idle-poll before declaring deadlock —
-        // the awaited task may be parked on I/O.
+        // Idle-poll before declaring deadlock — the
+        // awaited task may be parked on I/O.
         let woke = with(|s| drain_ready(s, -1));
         if woke == 0 {
           // No one runnable AND no one parked on I/O,
@@ -353,10 +346,13 @@ fn drain_ready(s: &SchedulerState, timeout_ms: c_int) -> usize {
     return 0;
   }
 
-  let ready = s.with_selector_mut(|sel| sel.poll(timeout_ms));
-  let n = ready.len();
+  let mut batch = s.poll_batch.borrow_mut();
+  batch.clear();
+  s.with_selector_mut(|sel| sel.poll(timeout_ms, &mut batch));
 
-  for task in ready {
+  let n = batch.len();
+
+  for &task in batch.iter() {
     // SAFETY: task pointer was parked by a suspending
     // FFI on this scheduler thread; the box is live
     // until the task transitions to Dead.
@@ -400,10 +396,7 @@ mod tests {
   /// Green task body: parks on `read_fd` via the
   /// Selector, yields with state `Blocked`, then reads
   /// one byte after the scheduler's idle-poll wakes it.
-  extern "C-unwind" fn idle_poll_reader(
-    read_fd: u64,
-    _unused: u64,
-  ) {
+  extern "C-unwind" fn idle_poll_reader(read_fd: u64, _unused: u64) {
     let read_fd = read_fd as RawFd;
 
     // Park on the Selector.
@@ -426,9 +419,7 @@ mod tests {
     // Post-resume: the writer (OS thread) has injected
     // one byte. A non-blocking read returns it.
     let mut buf = [0u8; 1];
-    let n = unsafe {
-      libc::read(read_fd, buf.as_mut_ptr() as *mut _, 1)
-    };
+    let n = unsafe { libc::read(read_fd, buf.as_mut_ptr() as *mut _, 1) };
     assert_eq!(n, 1, "post-wake read returned {}", n);
     assert_eq!(buf[0], b'z');
   }
@@ -450,9 +441,8 @@ mod tests {
       libc::fcntl(read_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
     }
 
-    let reader = unsafe {
-      _zo_task_spawn_2(idle_poll_reader, read_fd as u64, 0)
-    };
+    let reader =
+      unsafe { _zo_task_spawn_2(idle_poll_reader, read_fd as u64, 0) };
 
     // External OS thread injects the byte after a short
     // delay. The scheduler must block inside
@@ -463,11 +453,7 @@ mod tests {
       std::thread::sleep(std::time::Duration::from_millis(50));
       let byte = b"z";
       unsafe {
-        libc::write(
-          write_fd_for_thread,
-          byte.as_ptr() as *const _,
-          1,
-        );
+        libc::write(write_fd_for_thread, byte.as_ptr() as *const _, 1);
       }
     });
 

@@ -130,13 +130,25 @@ struct EnumVariantInfo {
 }
 
 /// Snapshot of an enum return type's layout passed to
-/// `emit_enum_deep_copy_after_call`. `outer_slots` is
-/// `1 + max(variant.field_count)`; `variants` is the
+/// `emit_enum_deep_copy_after_call`. `variants` is the
 /// full variant list so the dispatch can compare
 /// against every discriminant.
 struct EnumDeepCopyLayout {
-  outer_slots: u32,
   variants: Vec<EnumVariantInfo>,
+}
+
+impl EnumDeepCopyLayout {
+  /// `1 + max(variant.field_count)` — discriminant slot
+  /// plus the widest variant's payload. Derived from
+  /// `variants` so the layout never drifts.
+  fn outer_slots(&self) -> u32 {
+    1 + self
+      .variants
+      .iter()
+      .map(|v| v.field_tys.len() as u32)
+      .max()
+      .unwrap_or(0)
+  }
 }
 
 /// Per-slot vtable patch — `slot_offset` is the byte
@@ -553,11 +565,9 @@ pub struct ARM64Gen<'a> {
   /// `StructConstruct` payload, keyed by its `dst` value-id.
   /// `Insn::Return` falls back to this when the register
   /// allocator didn't assign a GP register to the composite
-  /// value — without the fallback, the callee returned with
-  /// `X0` holding stale data and the caller's deep-copy read
-  /// garbage (the original cause of the `imu r := h.close()`
-  /// hang when `H::close` returned `Result<int, int>`).
-  composite_value_slots: HashMap<u32, u32>,
+  /// value; without the fallback X0 holds stale data and
+  /// the caller's deep-copy reads garbage.
+  composite_value_slots: HashMap<ValueId, u32>,
   /// Mirror of `value_enum_field_tys` keyed by local-variable
   /// `Symbol.as_u32()`. Populated whenever an `Insn::Store`
   /// writes a value that has a `value_enum_field_tys` entry,
@@ -3184,15 +3194,7 @@ impl<'a> ARM64Gen<'a> {
                       }
                     })
                     .collect();
-                  let max_payload = variants
-                    .iter()
-                    .map(|v| v.field_tys.len() as u32)
-                    .max()
-                    .unwrap_or(0);
-                  Some(EnumDeepCopyLayout {
-                    outer_slots: 1 + max_payload,
-                    variants,
-                  })
+                  Some(EnumDeepCopyLayout { variants })
                 });
 
               if let Some(layout) = enum_layout {
@@ -3200,8 +3202,7 @@ impl<'a> ARM64Gen<'a> {
               } else {
                 let outer_field_tys: Option<Vec<TyId>> =
                   self.type_view.and_then(|view| {
-                    let Ty::Struct(sid) = resolve_ty(view.tys, ret_ty)
-                    else {
+                    let Ty::Struct(sid) = resolve_ty(view.tys, ret_ty) else {
                       return None;
                     };
                     let st = view.ty_table.struct_ty(sid)?;
@@ -3225,12 +3226,9 @@ impl<'a> ARM64Gen<'a> {
                     let mut inner_cursor =
                       dst_base + outer_count * STACK_SLOT_SIZE;
 
-                    for (i, field_ty) in field_tys.iter().enumerate()
-                    {
-                      let src_off =
-                        (i as u32 * STACK_SLOT_SIZE) as i16;
-                      let dst_off =
-                        dst_base + i as u32 * STACK_SLOT_SIZE;
+                    for (i, field_ty) in field_tys.iter().enumerate() {
+                      let src_off = (i as u32 * STACK_SLOT_SIZE) as i16;
+                      let dst_off = dst_base + i as u32 * STACK_SLOT_SIZE;
 
                       if self.is_struct_ty(*field_ty) {
                         inner_cursor = self.emit_deep_copy_struct_field(
@@ -3320,9 +3318,7 @@ impl<'a> ARM64Gen<'a> {
             if src_reg != X0 {
               self.emitter.emit_mov_reg(X0, src_reg);
             }
-          } else if let Some(&offset) =
-            self.composite_value_slots.get(&vid.0)
-          {
+          } else if let Some(&offset) = self.composite_value_slots.get(vid) {
             // Composite value (struct/enum) with no
             // register — its bytes still live at
             // `SP + offset` on this frame. Materialize
@@ -4017,7 +4013,7 @@ impl<'a> ARM64Gen<'a> {
         // if the regalloc didn't pick a register for this
         // composite value, Return rebuilds the SP+offset
         // pointer from this map.
-        self.composite_value_slots.insert(dst.0, base);
+        self.composite_value_slots.insert(*dst, base);
 
         self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
       }
@@ -4045,7 +4041,7 @@ impl<'a> ARM64Gen<'a> {
         // Same fallback map as `Insn::EnumConstruct` so
         // `Insn::Return` can rebuild the SP+offset pointer
         // when no GP register was assigned.
-        self.composite_value_slots.insert(dst.0, base);
+        self.composite_value_slots.insert(*dst, base);
 
         self.next_struct_slot += fields.len() as u32 * STACK_SLOT_SIZE;
       }
@@ -7293,8 +7289,10 @@ impl<'a> ARM64Gen<'a> {
     layout: &EnumDeepCopyLayout,
     dst_base: u32,
   ) {
+    let outer_slots = layout.outer_slots();
+
     // Step 1: shallow-copy outer enum slots.
-    for i in 0..layout.outer_slots {
+    for i in 0..outer_slots {
       let src_off = (i * STACK_SLOT_SIZE) as i16;
       let dst_off = dst_base + i * STACK_SLOT_SIZE;
       self.emitter.emit_ldr(X16, X0, src_off);
@@ -7307,8 +7305,7 @@ impl<'a> ARM64Gen<'a> {
       None => return,
     };
 
-    let mut nested_cursor =
-      dst_base + layout.outer_slots * STACK_SLOT_SIZE;
+    let mut nested_cursor = dst_base + outer_slots * STACK_SLOT_SIZE;
     let mut end_fixups: Vec<usize> = Vec::new();
 
     for variant in &layout.variants {
@@ -7336,8 +7333,7 @@ impl<'a> ARM64Gen<'a> {
 
         let payload_off = dst_base + (i as u32 + 1) * STACK_SLOT_SIZE;
         let struct_slots =
-          flat_struct_slots_of(field_ty, view.tys, view.ty_table)
-            .unwrap_or(1);
+          flat_struct_slots_of(field_ty, view.tys, view.ty_table).unwrap_or(1);
 
         // X17 = callee-side struct pointer (still
         // dangling but valid until the next caller
@@ -7346,11 +7342,9 @@ impl<'a> ARM64Gen<'a> {
 
         // Copy struct bytes word-by-word.
         for j in 0..struct_slots {
-          self.emitter.emit_ldr(
-            X16,
-            X17,
-            (j * STACK_SLOT_SIZE) as i16,
-          );
+          self
+            .emitter
+            .emit_ldr(X16, X17, (j * STACK_SLOT_SIZE) as i16);
           self.emit_str_sp(X16, nested_cursor + j * STACK_SLOT_SIZE);
         }
 
