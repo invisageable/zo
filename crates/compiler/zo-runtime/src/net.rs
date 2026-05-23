@@ -434,6 +434,468 @@ unsafe fn errno_location() -> *mut c_int {
   unsafe { __errno_location() }
 }
 
+// ===== TCP FFI surface =====
+//
+// Six C-ABI entry points the codegen lowers `core/net.zo`
+// calls into. All sockets are opened non-blocking; the
+// suspending operations (accept, connect, read, write)
+// drive the EAGAIN-park-retry loop through
+// `park_current_on_read` / `park_current_on_write`.
+//
+// Return convention: non-negative on success (fd or byte
+// count), `-errno` on failure. The `core/net.zo` layer
+// wraps these into `Result<int, int>`.
+
+use libc::c_char;
+
+/// Bind a listening TCP socket. `addr` is a NUL-
+/// terminated `"host:port"` (or `"[host]:port"` for
+/// IPv6). Returns the listener fd or `-errno` on
+/// failure.
+///
+/// # Safety
+///
+/// `addr` must point at a NUL-terminated UTF-8 string
+/// or be null.
+#[unsafe(export_name = "zo_net_tcp_listen")]
+pub unsafe extern "C-unwind" fn _zo_net_tcp_listen(
+  addr: *const c_char,
+) -> i64 {
+  let Some(sa) = (unsafe { parse_addr(addr) }) else {
+    return -(libc::EINVAL as i64);
+  };
+
+  let family = match sa {
+    std::net::SocketAddr::V4(_) => libc::AF_INET,
+    std::net::SocketAddr::V6(_) => libc::AF_INET6,
+  };
+
+  let fd = create_stream_socket(family);
+  if fd < 0 {
+    return -(last_errno() as i64);
+  }
+
+  // SO_REUSEADDR — restart-friendly. Default for any
+  // server you'd actually deploy.
+  let yes: i32 = 1;
+  // SAFETY: `yes` lives on the stack for the call.
+  unsafe {
+    libc::setsockopt(
+      fd,
+      libc::SOL_SOCKET,
+      libc::SO_REUSEADDR,
+      &yes as *const i32 as *const _,
+      std::mem::size_of::<i32>() as libc::socklen_t,
+    );
+  }
+
+  let (storage, len) = sockaddr_storage(&sa);
+  // SAFETY: storage is a valid sockaddr_storage of `len`
+  // bytes; family matches the storage's `_in` / `_in6`
+  // initialization in `sockaddr_storage`.
+  let rc = unsafe {
+    libc::bind(
+      fd,
+      &storage as *const libc::sockaddr_storage as *const _,
+      len,
+    )
+  };
+  if rc < 0 {
+    let err = last_errno();
+    // SAFETY: fd just opened above; closing is safe.
+    unsafe {
+      libc::close(fd);
+    }
+    return -(err as i64);
+  }
+
+  // SAFETY: fd is a valid socket.
+  let rc = unsafe { libc::listen(fd, 128) };
+  if rc < 0 {
+    let err = last_errno();
+    unsafe {
+      libc::close(fd);
+    }
+    return -(err as i64);
+  }
+
+  fd as i64
+}
+
+/// Accept the next pending connection on `fd`. Suspends
+/// the calling task on listener readiness until a
+/// connection arrives. Returns the accepted fd or
+/// `-errno`.
+///
+/// # Safety
+///
+/// `fd` must be a valid listening socket previously
+/// returned by [`_zo_net_tcp_listen`].
+#[unsafe(export_name = "zo_net_tcp_accept")]
+pub unsafe extern "C-unwind" fn _zo_net_tcp_accept(fd: i64) -> i64 {
+  let fd = fd as RawFd;
+
+  loop {
+    let new_fd = do_accept(fd);
+
+    if new_fd >= 0 {
+      return new_fd as i64;
+    }
+
+    let err = last_errno();
+
+    if err != libc::EAGAIN && err != libc::EWOULDBLOCK {
+      return -(err as i64);
+    }
+
+    // Accept readiness is reported as a read event on
+    // the listener.
+    park_current_on_read(fd);
+  }
+}
+
+/// Open a TCP connection to `addr`. `addr` matches the
+/// listen format (`"host:port"`). Suspends the calling
+/// task on connect completion (write-readiness on the
+/// connecting socket). Returns the connected fd or
+/// `-errno`.
+///
+/// # Safety
+///
+/// `addr` must point at a NUL-terminated UTF-8 string
+/// or be null.
+#[unsafe(export_name = "zo_net_tcp_connect")]
+pub unsafe extern "C-unwind" fn _zo_net_tcp_connect(
+  addr: *const c_char,
+) -> i64 {
+  let Some(sa) = (unsafe { parse_addr(addr) }) else {
+    return -(libc::EINVAL as i64);
+  };
+
+  let family = match sa {
+    std::net::SocketAddr::V4(_) => libc::AF_INET,
+    std::net::SocketAddr::V6(_) => libc::AF_INET6,
+  };
+
+  let fd = create_stream_socket(family);
+  if fd < 0 {
+    return -(last_errno() as i64);
+  }
+
+  let (storage, len) = sockaddr_storage(&sa);
+
+  // SAFETY: storage is a valid sockaddr_storage.
+  let rc = unsafe {
+    libc::connect(
+      fd,
+      &storage as *const libc::sockaddr_storage as *const _,
+      len,
+    )
+  };
+
+  if rc == 0 {
+    // Loopback connects often complete synchronously.
+    return fd as i64;
+  }
+
+  let err = last_errno();
+  if err != libc::EINPROGRESS && err != libc::EWOULDBLOCK {
+    unsafe {
+      libc::close(fd);
+    }
+    return -(err as i64);
+  }
+
+  // Connect is in progress — wait for write-readiness,
+  // which signals completion (success or async fail).
+  park_current_on_write(fd);
+
+  // Check SO_ERROR — an async connect failure surfaces
+  // there, not as the next syscall's errno.
+  let mut soerr: i32 = 0;
+  let mut soerr_len =
+    std::mem::size_of::<i32>() as libc::socklen_t;
+
+  // SAFETY: soerr and soerr_len live on the stack.
+  let rc = unsafe {
+    libc::getsockopt(
+      fd,
+      libc::SOL_SOCKET,
+      libc::SO_ERROR,
+      &mut soerr as *mut i32 as *mut _,
+      &mut soerr_len,
+    )
+  };
+
+  if rc < 0 {
+    let err = last_errno();
+    unsafe {
+      libc::close(fd);
+    }
+    return -(err as i64);
+  }
+  if soerr != 0 {
+    unsafe {
+      libc::close(fd);
+    }
+    return -(soerr as i64);
+  }
+
+  fd as i64
+}
+
+/// Read up to `n` bytes from `fd` into `buf`. Suspends
+/// on read-readiness if the socket has no data. Returns
+/// bytes read (0 = EOF) or `-errno`.
+///
+/// # Safety
+///
+/// `buf` must point at `n` writable bytes that stay
+/// valid for the call (including across yield points).
+/// `fd` must be a valid socket.
+#[unsafe(export_name = "zo_net_read")]
+pub unsafe extern "C-unwind" fn _zo_net_read(
+  fd: i64,
+  buf: *mut u8,
+  n: usize,
+) -> isize {
+  let fd = fd as RawFd;
+
+  loop {
+    // SAFETY: caller contract — buf/n form a valid
+    // writable region.
+    let r = unsafe { libc::read(fd, buf as *mut _, n) };
+
+    if r >= 0 {
+      return r;
+    }
+
+    let err = last_errno();
+
+    if err != libc::EAGAIN && err != libc::EWOULDBLOCK {
+      return -(err as isize);
+    }
+
+    park_current_on_read(fd);
+  }
+}
+
+/// Write up to `n` bytes from `buf` to `fd`. Suspends
+/// on write-readiness if the socket's send buffer is
+/// full. Returns bytes written or `-errno`.
+///
+/// @note — partial writes are possible; callers loop
+/// at the source level if they need full coverage. The
+/// `core/net.zo` `tcp_write` exposes the raw result.
+///
+/// # Safety
+///
+/// `buf` must point at `n` readable bytes valid for
+/// the call (including across yield points). `fd` must
+/// be a valid socket.
+#[unsafe(export_name = "zo_net_write")]
+pub unsafe extern "C-unwind" fn _zo_net_write(
+  fd: i64,
+  buf: *const u8,
+  n: usize,
+) -> isize {
+  let fd = fd as RawFd;
+
+  loop {
+    // SAFETY: caller contract.
+    let r = unsafe { libc::write(fd, buf as *const _, n) };
+
+    if r >= 0 {
+      return r;
+    }
+
+    let err = last_errno();
+
+    if err != libc::EAGAIN && err != libc::EWOULDBLOCK {
+      return -(err as isize);
+    }
+
+    park_current_on_write(fd);
+  }
+}
+
+/// Close `fd`. Returns 0 on success, `-errno` on
+/// failure.
+///
+/// # Safety
+///
+/// `fd` must be a valid socket; after this call, no
+/// further FFI may reference `fd`.
+#[unsafe(export_name = "zo_net_close")]
+pub unsafe extern "C-unwind" fn _zo_net_close(fd: i64) -> i64 {
+  // SAFETY: caller contract — fd is a valid open fd.
+  let rc = unsafe { libc::close(fd as RawFd) };
+
+  if rc < 0 {
+    -(last_errno() as i64)
+  } else {
+    0
+  }
+}
+
+// ===== Socket helpers =====
+
+/// Create a non-blocking, close-on-exec stream socket
+/// for `family` (`AF_INET` or `AF_INET6`). Returns the
+/// fd or `-1` (errno set).
+fn create_stream_socket(family: i32) -> RawFd {
+  #[cfg(target_os = "linux")]
+  {
+    // SAFETY: socket() with documented args.
+    unsafe {
+      libc::socket(
+        family,
+        libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
+        0,
+      )
+    }
+  }
+  #[cfg(target_os = "macos")]
+  {
+    // SAFETY: socket() with documented args.
+    let fd = unsafe { libc::socket(family, libc::SOCK_STREAM, 0) };
+
+    if fd < 0 {
+      return fd;
+    }
+
+    set_nonblocking(fd);
+    set_cloexec(fd);
+
+    fd
+  }
+}
+
+#[cfg(target_os = "macos")]
+fn set_nonblocking(fd: RawFd) {
+  // SAFETY: fcntl with documented cmds on a valid fd.
+  unsafe {
+    let flags = libc::fcntl(fd, libc::F_GETFL);
+    if flags >= 0 {
+      libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+  }
+}
+
+#[cfg(target_os = "macos")]
+fn set_cloexec(fd: RawFd) {
+  // SAFETY: fcntl with documented cmds on a valid fd.
+  unsafe {
+    let flags = libc::fcntl(fd, libc::F_GETFD);
+    if flags >= 0 {
+      libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+    }
+  }
+}
+
+/// Accept one connection, returning a non-blocking,
+/// close-on-exec fd or `-1` (errno set).
+fn do_accept(fd: RawFd) -> RawFd {
+  #[cfg(target_os = "linux")]
+  {
+    // SAFETY: accept4 with documented args.
+    unsafe {
+      libc::accept4(
+        fd,
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+        libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
+      )
+    }
+  }
+  #[cfg(target_os = "macos")]
+  {
+    // SAFETY: accept with documented args.
+    let new_fd = unsafe {
+      libc::accept(fd, std::ptr::null_mut(), std::ptr::null_mut())
+    };
+
+    if new_fd >= 0 {
+      set_nonblocking(new_fd);
+      set_cloexec(new_fd);
+    }
+
+    new_fd
+  }
+}
+
+/// Parse a `"host:port"` C-string into a `SocketAddr`.
+/// Returns `None` for null pointers, non-UTF-8, or
+/// addresses Rust's parser rejects.
+unsafe fn parse_addr(addr: *const c_char) -> Option<std::net::SocketAddr> {
+  if addr.is_null() {
+    return None;
+  }
+
+  // SAFETY: caller contract — addr is NUL-terminated.
+  let cstr = unsafe { std::ffi::CStr::from_ptr(addr) };
+  cstr.to_str().ok()?.parse().ok()
+}
+
+/// Marshal a Rust `SocketAddr` into a kernel-friendly
+/// `sockaddr_storage` + matching `socklen_t`.
+///
+/// @note — the macOS / FreeBSD `sin_len` byte is set
+/// per BSD convention; Linux doesn't have it.
+fn sockaddr_storage(
+  addr: &std::net::SocketAddr,
+) -> (libc::sockaddr_storage, libc::socklen_t) {
+  // SAFETY: sockaddr_storage is a POD union large
+  // enough for both _in and _in6; zero init is valid.
+  let mut storage: libc::sockaddr_storage =
+    unsafe { std::mem::zeroed() };
+
+  let len = match addr {
+    std::net::SocketAddr::V4(v4) => {
+      // SAFETY: sockaddr_storage is sized for any
+      // address family; aliasing as sockaddr_in is the
+      // standard pattern.
+      let sin = unsafe {
+        &mut *(&mut storage as *mut libc::sockaddr_storage
+          as *mut libc::sockaddr_in)
+      };
+
+      #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+      {
+        sin.sin_len =
+          std::mem::size_of::<libc::sockaddr_in>() as u8;
+      }
+      sin.sin_family = libc::AF_INET as _;
+      sin.sin_port = v4.port().to_be();
+      sin.sin_addr.s_addr = u32::from(*v4.ip()).to_be();
+
+      std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t
+    }
+    std::net::SocketAddr::V6(v6) => {
+      // SAFETY: same as above for sockaddr_in6.
+      let sin6 = unsafe {
+        &mut *(&mut storage as *mut libc::sockaddr_storage
+          as *mut libc::sockaddr_in6)
+      };
+
+      #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+      {
+        sin6.sin6_len =
+          std::mem::size_of::<libc::sockaddr_in6>() as u8;
+      }
+      sin6.sin6_family = libc::AF_INET6 as _;
+      sin6.sin6_port = v6.port().to_be();
+      sin6.sin6_addr.s6_addr = v6.ip().octets();
+      sin6.sin6_flowinfo = v6.flowinfo();
+      sin6.sin6_scope_id = v6.scope_id();
+
+      std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t
+    }
+  };
+
+  (storage, len)
+}
+
 // ===== Tests =====
 
 #[cfg(test)]
@@ -591,5 +1053,103 @@ mod tests {
     assert_eq!(ready[0], task);
 
     close_pipe((read_fd, write_fd));
+  }
+
+  // ===== TCP roundtrip test =====
+  //
+  // Two green tasks share a TCP connection over loopback:
+  // the server accepts + echoes "world" back; the client
+  // connects + sends "hello" + reads the echo. Exercises
+  // the full pipeline — kqueue/epoll registration, idle-
+  // poll wake, accept/connect/read/write FFI, scheduler
+  // re-queue after suspension.
+
+  use crate::task::{_zo_task_await, _zo_task_spawn_2};
+
+  /// Read the OS-assigned port of a freshly bound
+  /// listener. Test-only helper around `getsockname`.
+  fn local_port_v4(fd: RawFd) -> u16 {
+    let mut sin: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+    let mut len =
+      std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+    let rc = unsafe {
+      libc::getsockname(
+        fd,
+        &mut sin as *mut libc::sockaddr_in as *mut _,
+        &mut len,
+      )
+    };
+    assert_eq!(rc, 0, "getsockname failed");
+    u16::from_be(sin.sin_port)
+  }
+
+  extern "C-unwind" fn server_body(listener_fd: u64, _unused: u64) {
+    let listener_fd = listener_fd as i64;
+
+    let conn = unsafe { _zo_net_tcp_accept(listener_fd) };
+    assert!(conn >= 0, "accept failed: {}", conn);
+
+    // Drain "hello" — the client writes exactly 5 bytes
+    // so a single read call is sufficient in practice.
+    let mut buf = [0u8; 5];
+    let n = unsafe { _zo_net_read(conn, buf.as_mut_ptr(), 5) };
+    assert_eq!(n, 5, "server read returned {}", n);
+    assert_eq!(&buf, b"hello");
+
+    let n =
+      unsafe { _zo_net_write(conn, b"world".as_ptr(), 5) };
+    assert_eq!(n, 5, "server write returned {}", n);
+
+    unsafe { _zo_net_close(conn) };
+  }
+
+  extern "C-unwind" fn client_body(port: u64, _unused: u64) {
+    let port = port as u16;
+    let addr =
+      std::ffi::CString::new(format!("127.0.0.1:{port}")).unwrap();
+
+    let conn = unsafe { _zo_net_tcp_connect(addr.as_ptr()) };
+    assert!(conn >= 0, "connect failed: {}", conn);
+
+    let n =
+      unsafe { _zo_net_write(conn, b"hello".as_ptr(), 5) };
+    assert_eq!(n, 5, "client write returned {}", n);
+
+    let mut buf = [0u8; 5];
+    let n = unsafe { _zo_net_read(conn, buf.as_mut_ptr(), 5) };
+    assert_eq!(n, 5, "client read returned {}", n);
+    assert_eq!(&buf, b"world");
+
+    unsafe { _zo_net_close(conn) };
+  }
+
+  #[test]
+  fn tcp_loopback_roundtrip() {
+    crate::scheduler::reset_for_test();
+
+    let listen_addr =
+      std::ffi::CString::new("127.0.0.1:0").unwrap();
+    let listener = unsafe { _zo_net_tcp_listen(listen_addr.as_ptr()) };
+    assert!(listener >= 0, "listen failed: {}", listener);
+    let listener_fd = listener as RawFd;
+    let port = local_port_v4(listener_fd);
+
+    let server = unsafe {
+      _zo_task_spawn_2(server_body, listener as u64, 0)
+    };
+    let client = unsafe {
+      _zo_task_spawn_2(client_body, port as u64, 0)
+    };
+
+    // SAFETY: handles are fresh from spawn_2; their
+    // boxes outlive these awaits.
+    unsafe {
+      _zo_task_await(server);
+      _zo_task_await(client);
+    }
+
+    unsafe {
+      libc::close(listener_fd);
+    }
   }
 }
