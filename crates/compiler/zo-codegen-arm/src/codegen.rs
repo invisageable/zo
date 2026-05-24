@@ -11,8 +11,8 @@ use zo_emitter_arm::{
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
 use zo_register_allocation::{
-  EmitTiming, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS, RegAlloc,
-  RegisterClass, SpillKind, resolve_ty,
+  EmitTiming, EnumPayloadFields, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS,
+  RegAlloc, RegisterClass, SpillKind, flat_struct_slots_of, resolve_ty,
 };
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::{Ty, TyId, TyTable};
@@ -117,6 +117,39 @@ pub const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 /// Args 0..=7 land in X0..X7; beyond that they spill to
 /// the stack.
 const AAPCS_ARG_REGS: [Register; 8] = [X0, X1, X2, X3, X4, X5, X6, X7];
+
+/// One enum variant's layout snapshot for the
+/// post-call deep-copy. `discriminant` selects the
+/// variant at runtime; `field_tys` mirrors the
+/// in-payload order so per-field deep-copy decisions
+/// (struct vs primitive) match the callee's
+/// `EnumConstruct` emission.
+struct EnumVariantInfo {
+  discriminant: u32,
+  field_tys: Vec<TyId>,
+}
+
+/// Snapshot of an enum return type's layout passed to
+/// `emit_enum_deep_copy_after_call`. `variants` is the
+/// full variant list so the dispatch can compare
+/// against every discriminant.
+struct EnumDeepCopyLayout {
+  variants: Vec<EnumVariantInfo>,
+}
+
+impl EnumDeepCopyLayout {
+  /// `1 + max(variant.field_count)` — discriminant slot
+  /// plus the widest variant's payload. Derived from
+  /// `variants` so the layout never drifts.
+  fn outer_slots(&self) -> u32 {
+    1 + self
+      .variants
+      .iter()
+      .map(|v| v.field_tys.len() as u32)
+      .max()
+      .unwrap_or(0)
+  }
+}
 
 /// Per-slot vtable patch — `slot_offset` is the byte
 /// offset INSIDE the vtable blob identified by
@@ -438,6 +471,12 @@ pub struct ARM64Gen<'a> {
   io_shared_buf_offset: Option<u32>,
   /// Functions that return structs: name -> field count.
   struct_return_fns: HashMap<Symbol, u32>,
+  /// Per-variant substituted struct payload fields, for
+  /// enum-returning functions. Indexed by discriminant.
+  /// Read in the enum-deep-copy block to override the
+  /// (still-generic) enum-type variant fields with the
+  /// actual struct payload types at this call site.
+  enum_payload_struct_fields: EnumPayloadFields,
   /// Set when the last emitted instruction was a math
   /// intrinsic (FSQRT, FRINT*). Result is in D0.
   last_was_math_intrinsic: bool,
@@ -522,6 +561,13 @@ pub struct ARM64Gen<'a> {
   /// `local_enum_field_tys` so a `showln(m2)` later in the
   /// function still sees the construction-site types.
   value_enum_field_tys: HashMap<u32, (u32, Vec<TyId>)>,
+  /// SP-relative offset of every `EnumConstruct` /
+  /// `StructConstruct` payload, keyed by its `dst` value-id.
+  /// `Insn::Return` falls back to this when the register
+  /// allocator didn't assign a GP register to the composite
+  /// value; without the fallback X0 holds stale data and
+  /// the caller's deep-copy reads garbage.
+  composite_value_slots: HashMap<ValueId, u32>,
   /// Mirror of `value_enum_field_tys` keyed by local-variable
   /// `Symbol.as_u32()`. Populated whenever an `Insn::Store`
   /// writes a value that has a `value_enum_field_tys` entry,
@@ -744,6 +790,7 @@ impl<'a> ARM64Gen<'a> {
       next_struct_slot: 0,
       io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
+      enum_payload_struct_fields: HashMap::default(),
       last_was_math_intrinsic: false,
       extern_used: Vec::new(),
       extern_used_set: HashSet::default(),
@@ -758,6 +805,7 @@ impl<'a> ARM64Gen<'a> {
       vec_metas: HashMap::default(),
       set_metas: HashMap::default(),
       value_enum_field_tys: HashMap::default(),
+      composite_value_slots: HashMap::default(),
       local_enum_field_tys: HashMap::default(),
       value_tuple_elem_tys: HashMap::default(),
       local_tuple_elem_tys: HashMap::default(),
@@ -858,6 +906,7 @@ impl<'a> ARM64Gen<'a> {
     self.param_sym_slots.clear();
     self.local_enum_field_tys.clear();
     self.local_tuple_elem_tys.clear();
+    self.composite_value_slots.clear();
 
     let fn_end = all_insns[idx + 1..]
       .iter()
@@ -1306,6 +1355,8 @@ impl<'a> ARM64Gen<'a> {
     // source of truth. No SIR re-scan.
     if let Some(reg_alloc) = self.reg_alloc.as_ref() {
       self.struct_return_fns = reg_alloc.struct_return_fns.clone();
+      self.enum_payload_struct_fields =
+        reg_alloc.enum_payload_struct_fields.clone();
     }
 
     // Pre-pass: harvest per-pack `#link` paths. Must run
@@ -3095,63 +3146,125 @@ impl<'a> ARM64Gen<'a> {
               // return nested-struct shapes.
               let ret_ty = *call_ret_ty;
 
-              let outer_field_tys: Option<Vec<TyId>> =
+              // Enum returns need a different deep-copy
+              // shape: outer slots are shallow-copied,
+              // then per-variant logic deep-copies any
+              // struct payloads and rewrites the in-
+              // payload pointer to the caller's copy.
+              // See `emit_enum_deep_copy_after_call`.
+              let enum_layout: Option<EnumDeepCopyLayout> =
                 self.type_view.and_then(|view| {
-                  let Ty::Struct(sid) = resolve_ty(view.tys, ret_ty) else {
+                  let Ty::Enum(eid) = resolve_ty(view.tys, ret_ty) else {
                     return None;
                   };
-                  let st = view.ty_table.struct_ty(sid)?;
-                  Some(
-                    view
-                      .ty_table
-                      .struct_fields(st)
-                      .iter()
-                      .map(|f| f.ty_id)
-                      .collect(),
-                  )
+                  let e = view.ty_table.enum_ty(eid)?;
+                  // Per-variant substituted struct payload
+                  // fields from the regalloc's pre-pass.
+                  // The enum's own variant fields are still
+                  // unsubstituted generic placeholders, so
+                  // we splice the regalloc-recorded struct
+                  // types into the matching variant field
+                  // slots. The regalloc also propagates
+                  // callee entries into caller slots the
+                  // caller didn't construct locally — see
+                  // `build_struct_return_map`'s callee
+                  // fixpoint — so a plain per-fn lookup
+                  // covers passthrough functions whose
+                  // match arms route through a callee.
+                  let payload_overrides =
+                    self.enum_payload_struct_fields.get(name);
+                  let variants: Vec<EnumVariantInfo> = view
+                    .ty_table
+                    .enum_variants(e)
+                    .iter()
+                    .map(|v| {
+                      let mut field_tys: Vec<TyId> =
+                        view.ty_table.variant_fields(v).to_vec();
+
+                      if let Some(over) = payload_overrides
+                        && let Some(variant_over) =
+                          over.get(v.discriminant as usize)
+                      {
+                        for (idx, sty) in variant_over {
+                          let i = *idx as usize;
+                          if i < field_tys.len() {
+                            field_tys[i] = *sty;
+                          }
+                        }
+                      }
+
+                      EnumVariantInfo {
+                        discriminant: v.discriminant,
+                        field_tys,
+                      }
+                    })
+                    .collect();
+                  Some(EnumDeepCopyLayout { variants })
                 });
 
-              match outer_field_tys {
-                Some(field_tys) => {
-                  let outer_count = field_tys.len() as u32;
-                  // Bump cursor past the outer slots so
-                  // nested copies can use the trailing
-                  // slots within our reserved budget.
-                  let mut inner_cursor =
-                    dst_base + outer_count * STACK_SLOT_SIZE;
+              if let Some(layout) = enum_layout {
+                self.emit_enum_deep_copy_after_call(&layout, dst_base);
+              } else {
+                let outer_field_tys: Option<Vec<TyId>> =
+                  self.type_view.and_then(|view| {
+                    let Ty::Struct(sid) = resolve_ty(view.tys, ret_ty) else {
+                      return None;
+                    };
+                    let st = view.ty_table.struct_ty(sid)?;
+                    Some(
+                      view
+                        .ty_table
+                        .struct_fields(st)
+                        .iter()
+                        .map(|f| f.ty_id)
+                        .collect(),
+                    )
+                  });
 
-                  for (i, field_ty) in field_tys.iter().enumerate() {
-                    let src_off = (i as u32 * STACK_SLOT_SIZE) as i16;
-                    let dst_off = dst_base + i as u32 * STACK_SLOT_SIZE;
+                match outer_field_tys {
+                  Some(field_tys) => {
+                    let outer_count = field_tys.len() as u32;
+                    // Bump cursor past the outer slots
+                    // so nested copies can use the
+                    // trailing slots within our
+                    // reserved budget.
+                    let mut inner_cursor =
+                      dst_base + outer_count * STACK_SLOT_SIZE;
 
-                    if self.is_struct_ty(*field_ty) {
-                      inner_cursor = self.emit_deep_copy_struct_field(
-                        X0,
-                        src_off,
-                        dst_off,
-                        *field_ty,
-                        inner_cursor,
-                      );
-                    } else {
+                    for (i, field_ty) in field_tys.iter().enumerate() {
+                      let src_off = (i as u32 * STACK_SLOT_SIZE) as i16;
+                      let dst_off = dst_base + i as u32 * STACK_SLOT_SIZE;
+
+                      if self.is_struct_ty(*field_ty) {
+                        inner_cursor = self.emit_deep_copy_struct_field(
+                          X0,
+                          src_off,
+                          dst_off,
+                          *field_ty,
+                          inner_cursor,
+                        );
+                      } else {
+                        self.emitter.emit_ldr(X16, X0, src_off);
+                        self.emit_str_sp(X16, dst_off);
+                      }
+                    }
+                  }
+                  None => {
+                    // Flat fallback — caller didn't
+                    // supply a type view, so we can't
+                    // tell which fields are structs.
+                    // `deep_slots` then equals the flat
+                    // field count (see
+                    // `build_struct_return_map`'s
+                    // `None` branch), so this still
+                    // matches the budget.
+                    for i in 0..deep_slots {
+                      let src_off = (i * STACK_SLOT_SIZE) as i16;
+                      let dst_off = dst_base + i * STACK_SLOT_SIZE;
+
                       self.emitter.emit_ldr(X16, X0, src_off);
                       self.emit_str_sp(X16, dst_off);
                     }
-                  }
-                }
-                None => {
-                  // Flat fallback — caller didn't supply
-                  // a type view, so we can't tell which
-                  // fields are structs. `deep_slots` then
-                  // equals the flat field count (see
-                  // `build_struct_return_map`'s `None`
-                  // branch), so this still matches the
-                  // budget.
-                  for i in 0..deep_slots {
-                    let src_off = (i * STACK_SLOT_SIZE) as i16;
-                    let dst_off = dst_base + i * STACK_SLOT_SIZE;
-
-                    self.emitter.emit_ldr(X16, X0, src_off);
-                    self.emit_str_sp(X16, dst_off);
                   }
                 }
               }
@@ -3206,10 +3319,19 @@ impl<'a> ARM64Gen<'a> {
             {
               self.emitter.emit_fmov_fp(D0, fp_src);
             }
-          } else if let Some(src_reg) = self.alloc_reg(*vid)
-            && src_reg != X0
-          {
-            self.emitter.emit_mov_reg(X0, src_reg);
+          } else if let Some(src_reg) = self.alloc_reg(*vid) {
+            if src_reg != X0 {
+              self.emitter.emit_mov_reg(X0, src_reg);
+            }
+          } else if let Some(&offset) = self.composite_value_slots.get(vid) {
+            // Composite value (struct/enum) with no
+            // register — its bytes still live at
+            // `SP + offset` on this frame. Materialize
+            // the pointer so the caller's deep-copy can
+            // read it through `X0`. Without this, the
+            // callee returned with stale X0 and the
+            // caller bound garbage.
+            self.emit_add_sp_offset(X0, offset);
           }
         } else {
           self.emitter.emit_mov_imm(X0, 0);
@@ -3892,6 +4014,12 @@ impl<'a> ARM64Gen<'a> {
           self.emit_add_sp_offset(dst_reg, base);
         }
 
+        // Persist the slot for `Insn::Return`'s fallback —
+        // if the regalloc didn't pick a register for this
+        // composite value, Return rebuilds the SP+offset
+        // pointer from this map.
+        self.composite_value_slots.insert(*dst, base);
+
         self.next_struct_slot += slot_count * STACK_SLOT_SIZE;
       }
 
@@ -3899,7 +4027,7 @@ impl<'a> ARM64Gen<'a> {
       // pre-allocated frame slots. struct_base +
       // next_struct_slot is this struct's start offset
       // from SP.
-      Insn::StructConstruct { fields, .. } => {
+      Insn::StructConstruct { dst, fields, .. } => {
         let base = self.struct_base + self.next_struct_slot;
 
         for (i, field) in fields.iter().enumerate() {
@@ -3911,9 +4039,14 @@ impl<'a> ARM64Gen<'a> {
         // Set dst register to point at this struct's
         // base. Use ADD (not MOV) because ARM64 MOV
         // via ORR encodes register 31 as XZR, not SP.
-        if let Some(dst) = self.reg_for_insn(idx) {
-          self.emit_add_sp_offset(dst, base);
+        if let Some(dst_reg) = self.reg_for_insn(idx) {
+          self.emit_add_sp_offset(dst_reg, base);
         }
+
+        // Same fallback map as `Insn::EnumConstruct` so
+        // `Insn::Return` can rebuild the SP+offset pointer
+        // when no GP register was assigned.
+        self.composite_value_slots.insert(*dst, base);
 
         self.next_struct_slot += fields.len() as u32 * STACK_SLOT_SIZE;
       }
@@ -5589,107 +5722,40 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_add_imm(SP, SP, ITOA_BUFFER_SIZE);
   }
 
-  /// Emit check(bool) — if X0 == 0, write
-  /// "check failed\n" to stderr and exit(1).
   /// Runtime string concatenation: `a ++ b`.
   ///
   /// Both operands are pointers to `[len:u64][bytes][null]`.
-  /// Result is a new string on the stack with the combined
-  /// content. SP is permanently lowered (cleaned up by the
-  /// function epilogue).
+  /// Result is a fresh heap-allocated zo str owned by the
+  /// runtime (see `_zo_str_concat` in `zo-runtime/src/str`).
+  ///
+  /// @note — the previous inline body permanently lowered
+  /// SP by a runtime-computed amount and relied on the
+  /// epilogue's fixed-constant `ADD SP, SP, frame` to
+  /// clean it up. SP stayed unbalanced, so the epilogue's
+  /// `LDP X29, X30, [SP]` read garbage and `RET` jumped
+  /// to a junk address — observed as a hang on any
+  /// `literal ++ runtime_str` after an FFI call. Routing
+  /// through the runtime keeps SP stable and matches the
+  /// `_zo_str_slice` allocation model.
   fn emit_str_concat(&mut self, dst: Register, lhs: Register, rhs: Register) {
-    let x3 = Register::new(3);
-    let x4 = Register::new(4);
-    let x5 = Register::new(5);
+    self.emit_safe_int_arg_moves(&[(X0, lhs), (X1, rhs)]);
+    self.emit_extern_call("_zo_str_concat");
 
-    // Load lengths: X16 = len_a, X17 = len_b.
-    self.emitter.emit_ldr(X16, lhs, 0);
-    self.emitter.emit_ldr(X17, rhs, 0);
-
-    // X3 = total = len_a + len_b.
-    self.emitter.emit_add(x3, X16, X17);
-
-    // Allocate: 8 (header) + total + 1 (null), aligned
-    // to 16. Use fixed over-allocation: round up by adding
-    // 24 (8+1+15) then masking. We use ADD+AND via two
-    // X4 = (total + 9 + 15) & ~15 — 16-byte aligned.
-    self.emitter.emit_add_imm(x4, x3, 24);
-    self.emitter.emit_and_align16(x4, x4);
-    self.emitter.emit_sub_ext(SP, SP, x4);
-
-    // Store combined length at [SP + 0].
-    self.emitter.emit_str(x3, SP, 0);
-
-    // Copy bytes from lhs: src = lhs + 8, dst = SP + 8.
-    self.emitter.emit_add_imm(x4, SP, 8);
-    self.emitter.emit_add_imm(x5, lhs, 8);
-    // X16 = len_a (counter).
-
-    let copy1_loop = self.emitter.current_offset();
-
-    self.emitter.emit_cbz(X16, 0);
-    let cbz1_pos = self.emitter.current_offset() - 4;
-
-    self.emitter.emit_ldrb(X17, x5, 0);
-    self.emitter.emit_strb(X17, x4, 0);
-    self.emitter.emit_add_imm(x4, x4, 1);
-    self.emitter.emit_add_imm(x5, x5, 1);
-    self.emitter.emit_sub_imm(X16, X16, 1);
-
-    let back1 = copy1_loop as i32 - self.emitter.current_offset() as i32;
-
-    self.emitter.emit_b(back1);
-
-    // Patch CBZ to skip past the loop.
-    let after1 = self.emitter.current_offset();
-    let skip1 = (after1 as i32 - cbz1_pos as i32) >> 2;
-
-    self.emitter.patch_cbz_at(cbz1_pos as usize, skip1);
-
-    // Copy bytes from rhs.
-    self.emitter.emit_add_imm(x5, rhs, 8);
-    self.emitter.emit_ldr(X16, rhs, 0);
-
-    let copy2_loop = self.emitter.current_offset();
-
-    self.emitter.emit_cbz(X16, 0);
-    let cbz2_pos = self.emitter.current_offset() - 4;
-
-    self.emitter.emit_ldrb(X17, x5, 0);
-    self.emitter.emit_strb(X17, x4, 0);
-    self.emitter.emit_add_imm(x4, x4, 1);
-    self.emitter.emit_add_imm(x5, x5, 1);
-    self.emitter.emit_sub_imm(X16, X16, 1);
-
-    let back2 = copy2_loop as i32 - self.emitter.current_offset() as i32;
-
-    self.emitter.emit_b(back2);
-
-    // Patch CBZ to skip past the loop.
-    let after2 = self.emitter.current_offset();
-    let skip2 = (after2 as i32 - cbz2_pos as i32) >> 2;
-
-    self.emitter.patch_cbz_at(cbz2_pos as usize, skip2);
-
-    // Null terminator.
-    self.emitter.emit_mov_imm(X16, 0);
-    self.emitter.emit_strb(X16, x4, 0);
-
-    // Result pointer.
-    self.emitter.emit_add_imm(dst, SP, 0);
+    if dst != X0 {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
   }
 
   /// Clobber-safe int arg marshaling. Given (dst, src)
-  /// pairs, emits a sequence of `mov` that always lands the
-  /// right value in each `dst`, even if a later `dst` is
-  /// some other move's `src`. One scratch slot (X16) is
-  /// enough for any 3-5 arg call (raylib's whole surface).
-  ///
-  /// Without this, calling `init_window(w, h, c_str("…"))`
-  /// segfaults: c_str's result lands in X0, then `mov X0, w`
-  /// clobbers it before `mov X2, x0` can read it.
+  /// pairs, emits a sequence of `mov` that always lands
+  /// the right value in each `dst`, even if a later
+  /// `dst` is some other move's `src`. Two scratch slots
+  /// (X16, X17) cover up to a full 2-cycle (`X0←X1,
+  /// X1←X0`). AAPCS declares both caller-saved, and no
+  /// live value occupies them at a call-site boundary.
   fn emit_safe_int_arg_moves(&mut self, moves: &[(Register, Register)]) {
-    let mut saved_reg: Option<Register> = None;
+    let scratches = [X16, X17];
+    let mut saved: Vec<(Register, Register)> = Vec::new();
 
     for j in 0..moves.len() {
       let (_, src) = moves[j];
@@ -5699,14 +5765,23 @@ impl<'a> ARM64Gen<'a> {
         .enumerate()
         .any(|(k, (dst, _))| k != j && *dst == src);
 
-      if is_clobbered && saved_reg.is_none() {
-        self.emitter.emit_mov_reg(X16, src);
-        saved_reg = Some(src);
+      if is_clobbered
+        && !saved.iter().any(|(orig, _)| *orig == src)
+        && saved.len() < scratches.len()
+      {
+        let scratch = scratches[saved.len()];
+
+        self.emitter.emit_mov_reg(scratch, src);
+        saved.push((src, scratch));
       }
     }
 
     for &(dst, src) in moves {
-      let actual_src = if Some(src) == saved_reg { X16 } else { src };
+      let actual_src = saved
+        .iter()
+        .find(|(orig, _)| *orig == src)
+        .map(|(_, scratch)| *scratch)
+        .unwrap_or(src);
 
       if dst != actual_src {
         self.emitter.emit_mov_reg(dst, actual_src);
@@ -7116,6 +7191,138 @@ impl<'a> ARM64Gen<'a> {
     self
       .type_view
       .is_some_and(|view| matches!(resolve_ty(view.tys, ty), Ty::Struct(_)))
+  }
+
+  /// Recursive deep-copy of enum payload struct fields
+  /// emitted in the caller's frame immediately after `BL`.
+  ///
+  /// The callee returns with `X0` pointing at its own
+  /// frame's enum slot — only the outer slots
+  /// (`discriminant + max(variant.field_count)` words)
+  /// were actually constructed there. Any struct-typed
+  /// payload lives at a SEPARATE address in the callee
+  /// frame, and the payload slot holds only a pointer to
+  /// it. That callee frame disappears as soon as the
+  /// next stack write happens in the caller, so the
+  /// pointer immediately dangles.
+  ///
+  /// To make `match` patterns on the returned enum read
+  /// real bytes, this routine:
+  ///
+  /// Sequence:
+  ///
+  /// - Shallow-copy the outer slots from the callee
+  ///   frame into the caller's `dst_base` block.
+  /// - For every variant whose payload contains struct
+  ///   fields, branch on the discriminant and: (a)
+  ///   dereference the still-valid callee pointer to
+  ///   read the struct bytes; (b) write them into the
+  ///   caller's nested-slot scratch area (reserved by
+  ///   `flat_struct_slots_of` in the enum branch); (c)
+  ///   rewrite the payload slot in the shallow copy to
+  ///   point at the caller-side bytes.
+  ///
+  /// After this, the enum on the caller frame is fully
+  /// self-contained — subsequent field reads through
+  /// the payload pointer land in valid memory.
+  ///
+  /// Scratch register convention (mirrors the existing
+  /// `emit_deep_copy_struct_field`): `X16` for value
+  /// transfer / address materialisation, `X17` for the
+  /// callee-side struct pointer. Both are AAPCS-IPC
+  /// scratches with no live values across the call.
+  fn emit_enum_deep_copy_after_call(
+    &mut self,
+    layout: &EnumDeepCopyLayout,
+    dst_base: u32,
+  ) {
+    let outer_slots = layout.outer_slots();
+
+    // Step 1: shallow-copy outer enum slots.
+    for i in 0..outer_slots {
+      let src_off = (i * STACK_SLOT_SIZE) as i16;
+      let dst_off = dst_base + i * STACK_SLOT_SIZE;
+      self.emitter.emit_ldr(X16, X0, src_off);
+      self.emit_str_sp(X16, dst_off);
+    }
+
+    // Step 2: per-variant deep-copy + pointer rewrite.
+    let view = match self.type_view {
+      Some(v) => v,
+      None => return,
+    };
+
+    let mut nested_cursor = dst_base + outer_slots * STACK_SLOT_SIZE;
+    let mut end_fixups: Vec<usize> = Vec::new();
+
+    for variant in &layout.variants {
+      let has_struct = variant
+        .field_tys
+        .iter()
+        .any(|f| matches!(resolve_ty(view.tys, *f), Ty::Struct(_)));
+
+      if !has_struct {
+        continue;
+      }
+
+      // CMP discriminant, BNE skip.
+      self.emit_ldr_sp(X16, dst_base);
+      self.emitter.emit_cmp_imm(X16, variant.discriminant as u16);
+
+      let bne_pos = self.emitter.current_offset();
+      self.emitter.emit_bne(0);
+
+      // Per-field deep-copy.
+      for (i, &field_ty) in variant.field_tys.iter().enumerate() {
+        if !matches!(resolve_ty(view.tys, field_ty), Ty::Struct(_)) {
+          continue;
+        }
+
+        let payload_off = dst_base + (i as u32 + 1) * STACK_SLOT_SIZE;
+        let struct_slots =
+          flat_struct_slots_of(field_ty, view.tys, view.ty_table).unwrap_or(1);
+
+        // X17 = callee-side struct pointer (still
+        // dangling but valid until the next caller
+        // stack write).
+        self.emit_ldr_sp(X17, payload_off);
+
+        // Copy struct bytes word-by-word.
+        for j in 0..struct_slots {
+          self
+            .emitter
+            .emit_ldr(X16, X17, (j * STACK_SLOT_SIZE) as i16);
+          self.emit_str_sp(X16, nested_cursor + j * STACK_SLOT_SIZE);
+        }
+
+        // Rewrite the payload pointer to target the
+        // caller-side copy.
+        self.emit_add_sp_offset(X16, nested_cursor);
+        self.emit_str_sp(X16, payload_off);
+
+        nested_cursor += struct_slots * STACK_SLOT_SIZE;
+      }
+
+      // Done with this variant — skip the remaining
+      // variant comparisons.
+      let b_pos = self.emitter.current_offset();
+      self.emitter.emit_b(0);
+      end_fixups.push(b_pos as usize);
+
+      // Patch BNE forward to the next variant's
+      // comparison (or the end label).
+      let after_body = self.emitter.current_offset() as i32;
+      self
+        .emitter
+        .patch_bcond_at(bne_pos as usize, after_body - bne_pos as i32);
+    }
+
+    // Patch every variant's B end-fixup to one shared
+    // end-of-dispatch label.
+    let end_label = self.emitter.current_offset() as i32;
+    for pos in end_fixups {
+      self.emitter.patch_b_at(pos, end_label - pos as i32);
+    }
   }
 
   fn emit_deep_copy_struct_field(

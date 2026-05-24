@@ -1,4 +1,4 @@
--- tests-build-pass: spawn thread runs on a dedicated OS thread.
+-- tests-run-pass: spawn thread runs on a dedicated OS thread.
 -- @cmd — zo build concurrency_spawn_thread.zo
 
 fun heavy_worker() {

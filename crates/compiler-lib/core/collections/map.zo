@@ -1,0 +1,112 @@
+-! `HashMap<$K, $V>` — open-addressing hash table.
+-!
+-! The `ptr` field carries an opaque pointer (encoded
+-! as `int` for ABI symmetry with the runtime's
+-! `*mut ZoMap`). Codegen recognizes calls to the
+-! marshaling FFIs (`__zo_map_new`, `__zo_map_insert`,
+-! `__zo_map_get`, `__zo_map_contains`, `__zo_map_remove`)
+-! and emits the byte-marshaling sequence per call site —
+-! those four method bodies here are codegen-replaced and
+-! exist only as syntactic anchors.
+-!
+-! The remaining methods (`len`, `is_empty`, `free`) are
+-! pure-zo bodies that call the non-marshaling raw FFIs
+-! (`__zo_map_len_raw`, `__zo_map_free_raw`) directly.
+-! No K/V byte buffers, no codegen-time type derivation —
+-! just `BL _zo_map_len` / `BL _zo_map_free`.
+-!
+-! Supported key kinds: `int` (any width), `char`,
+-! `bool`, `str`. Tuple keys are reserved (rejected at
+-! compile time today).
+pub struct HashMap<$K, $V> {
+  ptr: int,
+}
+
+-- Marshaling FFIs. Codegen handlers in
+-- `zo-codegen-arm` derive `key_kind`, `key_sz`,
+-- `val_sz` from the call-site's resolved `$K` /
+-- `$V` types and marshal byte buffers around each
+-- call.
+pub ffi __zo_map_new(
+  key_kind: int,
+  key_sz: int,
+  val_sz: int,
+  cap: int,
+) -> int;
+
+pub ffi __zo_map_insert(map: int, k_ptr: int, v_ptr: int);
+pub ffi __zo_map_get(map: int, k_ptr: int, v_out: int) -> bool;
+pub ffi __zo_map_contains(map: int, k_ptr: int) -> bool;
+pub ffi __zo_map_remove(map: int, k_ptr: int, v_out: int) -> bool;
+
+-- Raw FFIs. Pure pass-through to the runtime — no
+-- byte marshaling, no per-call-site type derivation.
+-- Codegen routes these directly to `BL _zo_map_len`
+-- / `BL _zo_map_free`.
+pub ffi __zo_map_len_raw(ptr: int) -> int;
+pub ffi __zo_map_free_raw(ptr: int);
+
+apply HashMap<$K, $V> {
+  -! Construct an empty map. Initial capacity is set
+  -! by the runtime (16 slots, doubled on grow at
+  -! load factor 0.75).
+  -!
+  -- codegen-replaced: needs `size_of<$K>()` and
+  -- `size_of<$V>()` to compute the runtime
+  -- `KeyKind` + byte sizes. Until those primitives
+  -- exist, `emit_map_new` injects them at the call
+  -- site.
+  pub fun new() -> Self {
+    Self { ptr = 0 }
+  }
+
+  -! Insert `(k, v)`, overwriting any existing value
+  -! at the same key.
+  -!
+  -- codegen-replaced: needs surface `&value` and
+  -- `size_of<T>()` primitives to be a pure-zo body.
+  -- The FFI marshals K/V byte buffers at the call
+  -- site; see `emit_map_insert` in zo-codegen-arm.
+  pub fun insert(mut self, k: $K, v: $V) {}
+
+  -! Look up `k`. Returns `Option::Some(v)` on hit,
+  -! `Option::None` on miss.
+  -!
+  -- codegen-replaced: see `emit_map_get`.
+  pub fun get(self, k: $K) -> Option<$V> {
+    Option::None
+  }
+
+  -! `true` if `k` is in the map.
+  -!
+  -- codegen-replaced: see `emit_map_contains`.
+  pub fun contains_key(self, k: $K) -> bool {
+    false
+  }
+
+  -! Remove `k`. Returns `Option::Some(removed_value)`
+  -! on hit, `Option::None` on miss. The slot becomes a
+  -! tombstone — chained probes for other keys still
+  -! resolve until the next grow.
+  -!
+  -- codegen-replaced: see `emit_map_remove`.
+  pub fun remove(mut self, k: $K) -> Option<$V> {
+    Option::None
+  }
+
+  -! Number of live entries.
+  pub fun len(self) -> int {
+    __zo_map_len_raw(self.ptr)
+  }
+
+  -! `true` when no entries are live.
+  pub fun is_empty(self) -> bool {
+    self.len() == 0
+  }
+
+  -! Release the backing allocation. The receiver
+  -! must not be used after this call.
+  pub fun free(mut self) {
+    __zo_map_free_raw(self.ptr);
+  }
+}

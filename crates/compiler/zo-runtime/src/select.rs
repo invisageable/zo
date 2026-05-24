@@ -93,7 +93,13 @@ pub unsafe extern "C-unwind" fn _zo_select_wait(
       // scheduler-owned + live.
       unsafe { scheduler::run_one_external(task) };
     } else {
-      std::thread::sleep(std::time::Duration::from_micros(100));
+      // Poll the Selector so I/O-parked producers (e.g.
+      // a task blocked on tcp read whose data just
+      // arrived) get woken and can eventually send to
+      // one of the select arms.
+      if scheduler::poll_io_nonblocking() == 0 {
+        std::thread::sleep(std::time::Duration::from_micros(100));
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
--- tests-build-pass: multiple siblings in one nursery all run.
+-- tests-run-pass: multiple siblings in one nursery all run.
 -- @cmd — zo build concurrency_nursery_siblings.zo
 
 fun greeter() {

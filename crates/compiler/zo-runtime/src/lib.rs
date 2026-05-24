@@ -8,6 +8,7 @@ pub mod env;
 pub mod hash;
 pub mod io;
 pub mod map;
+pub mod net;
 pub mod pool;
 pub mod regex;
 pub mod scheduler;

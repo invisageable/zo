@@ -1,4 +1,4 @@
--- tests-build-pass: producer closes channel so consumer stops.
+-- tests-run-pass: producer closes channel so consumer stops.
 -- @cmd — zo build concurrency_channel_close.zo
 
 fun producer(tx: Tx<int>) {

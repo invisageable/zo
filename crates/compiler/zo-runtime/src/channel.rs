@@ -95,10 +95,14 @@ unsafe impl Send for TaskPtr {}
 /// Pair of `Mutex<bool>` + `Condvar` implements a
 /// one-shot binary semaphore — wake-up is latched, so
 /// `unpark` before `park` still releases the parker.
-struct PthreadPark {
+///
+/// `pub(crate)` so `scheduler::park_thread_cooperative`
+/// can re-use the notification + cv pair without
+/// duplicating the primitive in two modules.
+pub(crate) struct PthreadPark {
   /// `true` once `unpark()` has been called.
-  notified: Mutex<bool>,
-  cv: Condvar,
+  pub(crate) notified: Mutex<bool>,
+  pub(crate) cv: Condvar,
 }
 
 impl PthreadPark {
@@ -106,16 +110,6 @@ impl PthreadPark {
     Self {
       notified: Mutex::new(false),
       cv: Condvar::new(),
-    }
-  }
-
-  /// Block the OS thread until a matching `unpark()`.
-  /// If `unpark()` already fired, returns immediately.
-  fn park(&self) {
-    let mut guard = self.notified.lock().expect("PthreadPark poisoned");
-
-    while !*guard {
-      guard = self.cv.wait(guard).expect("PthreadPark wait poisoned");
     }
   }
 
@@ -127,30 +121,6 @@ impl PthreadPark {
     *guard = true;
 
     self.cv.notify_one();
-  }
-
-  /// Park for at most `timeout`. Returns `true` if
-  /// `unpark` latched, `false` on timeout. Used by
-  /// `_zo_chan_recv_timeout`.
-  fn park_timed(&self, timeout: std::time::Duration) -> bool {
-    let mut guard = self.notified.lock().expect("PthreadPark poisoned");
-
-    if *guard {
-      return true;
-    }
-
-    let (new_guard, wait_result) = self
-      .cv
-      .wait_timeout(guard, timeout)
-      .expect("PthreadPark wait poisoned");
-
-    guard = new_guard;
-
-    if wait_result.timed_out() && !*guard {
-      return false;
-    }
-
-    *guard
   }
 }
 
@@ -176,7 +146,14 @@ impl ParkHandle {
 
         scheduler::yield_now();
       },
-      Self::Pthread(p) => p.park(),
+      // Non-task OS thread (typically `main` or a worker
+      // pool thread). Cooperative-park drives the
+      // scheduler while waiting so spawned green tasks
+      // can make progress toward the notification we're
+      // waiting on — without this, `main` calling
+      // `rx.recv()` directly would freeze the only
+      // scheduler-driving thread and deadlock.
+      Self::Pthread(p) => scheduler::park_thread_cooperative(&p),
     }
   }
 }
@@ -568,13 +545,38 @@ pub unsafe extern "C-unwind" fn _zo_chan_recv_timeout(
       drop(guard);
 
       let remaining = deadline.saturating_duration_since(now);
-      let waited = park.park_timed(remaining);
+
+      // Drive the scheduler while waiting so green-task
+      // senders can make progress (same cooperative-park
+      // pattern as `_zo_chan_recv`'s non-task path). The
+      // timed variant loops with short sleeps instead of
+      // the full `park_thread_cooperative` to honour the
+      // caller's deadline.
+      let waited = loop {
+        {
+          let g = park.notified.lock().expect("PthreadPark poisoned");
+
+          if *g {
+            break true;
+          }
+        }
+
+        let next = scheduler::with(|s| s.pop_local());
+
+        if let Some(task) = next {
+          unsafe { scheduler::run_one_external(task) };
+        }
+
+        let elapsed = now.elapsed();
+
+        if elapsed >= remaining {
+          break false;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(1));
+      };
 
       if !waited {
-        // Timed out — remove our stale waiter entry so
-        // no future sender tries to wake a dropped
-        // parker. Searching is O(n) in the waiter list;
-        // acceptable for a v1 timeout path.
         let mut guard = ch.inner.lock().expect("zo-chan poisoned");
 
         guard.receivers.retain(|w| match w {

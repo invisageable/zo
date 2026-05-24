@@ -1,0 +1,193 @@
+-! TCP networking — non-blocking sockets multiplexed
+-! through the per-scheduler Selector (`kqueue` on
+-! macOS, `epoll` on Linux).
+-!
+-! Suspending operations (`accept`, `connect`, `read`,
+-! `write`) park the calling green task on fd readiness;
+-! the scheduler's idle-poll wakes them when the kernel
+-! reports the fd ready. Source-level code reads as
+-! plain synchronous I/O but executes non-blocking.
+
+load core::c::(CBytes, CStr);
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+
+-* raw ffi bindings. *-
+
+%% link_name = "zo_net_tcp_listen".
+pub ffi __zo_net_tcp_listen(host: CStr, port: int) -> int;
+
+%% link_name = "zo_net_tcp_accept".
+pub ffi __zo_net_tcp_accept(listener_fd: int) -> int;
+
+%% link_name = "zo_net_tcp_connect".
+pub ffi __zo_net_tcp_connect(host: CStr, port: int) -> int;
+
+%% link_name = "zo_net_write_str".
+pub ffi __zo_net_write_str(fd: int, s: str) -> int;
+
+%% link_name = "zo_net_read_to_str".
+pub ffi __zo_net_read_to_str(fd: int, max_len: int) -> CBytes;
+
+%% link_name = "zo_net_tcp_local_port".
+pub ffi __zo_net_tcp_local_port(fd: int) -> int;
+
+%% link_name = "zo_net_close".
+pub ffi __zo_net_close(fd: int) -> int;
+
+
+-! A `(ip, port)` pair used by [`TcpListener::bind`] and
+-! [`TcpStream::connect`]. Keeps host and port typed so
+-! string formatting at the call site is unnecessary.
+pub struct Address {
+  ip: str,
+  port: int,
+}
+
+apply Address {
+  -! Build an address from its parts.
+  pub fun new(ip: str, port: int) -> Self {
+    Self { ip = ip, port = port }
+  }
+
+  -! Parse `"ip:port"` (IPv4 form). Returns `Fail(0)` on
+  -! malformed input — single `':'` separator, non-empty
+  -! ip, integer port.
+  -!
+  -! @note — IPv6 literals (which contain `':'` inside
+  -! the host part) need bracket-aware parsing; this
+  -! routine targets the IPv4 path until that lands.
+  pub fun parse(text: str) -> Result<Self, int> {
+    imu parts: []str = text.split(":");
+
+    if parts.len != 2 {
+      return Result::Fail(0);
+    }
+
+    match parts[1].parse_int() {
+      Option::Some(port) => {
+        Result::Pass(Self { ip = parts[0], port = port })
+      }
+      Option::None => Result::Fail(0),
+    }
+  }
+}
+
+
+-! A connected TCP stream — either dialled out via
+-! [`connect`] or accepted from a [`TcpListener`].
+pub struct TcpStream { fd: int }
+
+apply TcpStream {
+  -! Dial a TCP peer at `addr`. Suspends the current
+  -! green task until the TCP handshake completes.
+  pub fun connect(addr: Address) -> Result<Self, int> {
+    imu fd: int =
+      __zo_net_tcp_connect(CStr::new(addr.ip), addr.port);
+
+    if fd >= 0 {
+      Result::Pass(Self { fd = fd })
+    } else {
+      Result::Fail(-fd)
+    }
+  }
+
+  -! Send the byte payload of `msg` over the socket.
+  -!
+  -! @note — writes ALL bytes before returning success;
+  -! partial-write retry is handled inside the runtime.
+  pub fun write(self, msg: str) -> Result<int, int> {
+    imu n: int = __zo_net_write_str(self.fd, msg);
+
+    if n >= 0 {
+      Result::Pass(n)
+    } else {
+      Result::Fail(-n)
+    }
+  }
+
+  -! Read up to `max_len` bytes from the socket. Returns
+  -! an empty `str` for EOF; suspends until data arrives.
+  pub fun read(self, max_len: int) -> str {
+    __zo_net_read_to_str(self.fd, max_len).to_str()
+  }
+
+  -! Close the stream fd. After this, no further reads /
+  -! writes may be made on this value.
+  pub fun close(self) -> Result<int, int> {
+    imu rc: int = __zo_net_close(self.fd);
+
+    if rc >= 0 {
+      Result::Pass(rc)
+    } else {
+      Result::Fail(-rc)
+    }
+  }
+}
+
+
+-! A bound, listening TCP socket.
+-!
+-! @note — every accepted connection comes back as a
+-! `TcpStream`; the listener fd stays open until you
+-! `close` it.
+pub struct TcpListener { fd: int }
+
+apply TcpListener {
+  -! Bind a TCP listener on `addr`.
+  -!
+  -! @note — port `0` lets the OS pick a free ephemeral
+  -! port; query it back with `local_port()`.
+  pub fun bind(addr: Address) -> Result<Self, int> {
+    imu fd: int =
+      __zo_net_tcp_listen(CStr::new(addr.ip), addr.port);
+
+    if fd >= 0 {
+      Result::Pass(Self { fd = fd })
+    } else {
+      Result::Fail(-fd)
+    }
+  }
+
+  -! Block the current green task until a peer connects,
+  -! then return the resulting [`TcpStream`].
+  pub fun accept(self) -> Result<TcpStream, int> {
+    imu fd: int = __zo_net_tcp_accept(self.fd);
+
+    if fd >= 0 {
+      Result::Pass(TcpStream { fd = fd })
+    } else {
+      Result::Fail(-fd)
+    }
+  }
+
+  -! Local port the listener is bound to. Useful when
+  -! `bind` was called with port `0` and the actual
+  -! OS-assigned port is needed (e.g. to tell a client
+  -! where to connect in tests).
+  pub fun local_port(self) -> Result<int, int> {
+    imu p: int = __zo_net_tcp_local_port(self.fd);
+
+    if p >= 0 {
+      Result::Pass(p)
+    } else {
+      Result::Fail(-p)
+    }
+  }
+
+  -! Close the listener fd. After this, no further
+  -! accept calls may be made on this value.
+  pub fun close(self) -> Result<int, int> {
+    imu rc: int = __zo_net_close(self.fd);
+
+    if rc >= 0 {
+      Result::Pass(rc)
+    } else {
+      Result::Fail(-rc)
+    }
+  }
+}

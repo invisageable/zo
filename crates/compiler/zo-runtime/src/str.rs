@@ -109,6 +109,48 @@ pub unsafe extern "C-unwind" fn _zo_str_alloc(
   alloc_str(bytes)
 }
 
+/// Decimal-format `n` as a fresh heap zo `str`. Backs
+/// `core::int::to_str` so source-level code can compose
+/// numbers into strings (`"Content-Length: " ++
+/// body.len.to_str()`) — needed by the upcoming
+/// `core::http` standard-library layer.
+#[unsafe(export_name = "zo_int_to_str")]
+pub unsafe extern "C-unwind" fn _zo_int_to_str(n: i64) -> *const u8 {
+  let formatted = format!("{n}");
+
+  alloc_str(formatted.as_bytes())
+}
+
+/// Concatenate two zo strs into a fresh heap zo str.
+///
+/// Replaces an earlier inline AArch64 emitter that
+/// permanently lowered SP by `len(a) + len(b) + 24` and
+/// never restored it — the function epilogue's fixed-
+/// constant SP fix-up then left SP unbalanced, so
+/// `ldp x29, x30, [sp]` read garbage and `ret` jumped
+/// to a junk address (visible as a hang). Owning the
+/// allocation here keeps SP stable and matches the
+/// `_zo_str_slice` / `alloc_str_with` lifetime model.
+///
+/// # Safety
+///
+/// `lhs` and `rhs` must both point at live zo str
+/// headers (`[len:u64][bytes][NUL]`).
+#[unsafe(export_name = "zo_str_concat")]
+pub unsafe extern "C-unwind" fn _zo_str_concat(
+  lhs: *const u8,
+  rhs: *const u8,
+) -> *const u8 {
+  let lhs_bytes = unsafe { str_bytes(lhs) };
+  let rhs_bytes = unsafe { str_bytes(rhs) };
+  let total = lhs_bytes.len() + rhs_bytes.len();
+
+  alloc_str_with(total, |dst| {
+    dst[..lhs_bytes.len()].copy_from_slice(lhs_bytes);
+    dst[lhs_bytes.len()..].copy_from_slice(rhs_bytes);
+  })
+}
+
 /// Validate `s` for interior NULs and return a C-string ptr.
 ///
 /// @note — scans the payload bytes between the 8-byte length

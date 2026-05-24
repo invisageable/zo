@@ -1,4 +1,4 @@
--- tests-build-pass: parent cancels a spawned task, reads back the flag.
+-- tests-run-pass: parent cancels a spawned task, reads back the flag.
 -- @cmd — zo build concurrency_task_cancel.zo
 
 fun worker() -> int {

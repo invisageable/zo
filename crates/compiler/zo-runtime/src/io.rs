@@ -2,12 +2,24 @@
 //!
 //! Codegen calls these from `emit_io_readln` / `emit_io_read` —
 //! one syscall worth of work each, plus a scan for `readln`'s
-//! newline truncation. Returning the byte count (or a negative
-//! error) keeps the calling-convention symmetry with the
-//! existing `read_file`-style inline syscalls.
+//! newline truncation. fd 0 is set non-blocking on first call;
+//! `EAGAIN` routes through `park_current_on_read` (yield from
+//! green tasks, `libc::poll` fallback otherwise).
+
+use crate::net::{last_errno, park_current_on_read, park_read_or_classify};
 
 /// Sized to match libc's default `BUFSIZ`.
 const STDIN_BUFFER_SIZE: usize = 4096;
+
+/// One-shot O_NONBLOCK install on fd 0. Idempotent and
+/// atomic so concurrent first-callers can't race.
+static STDIN_NONBLOCKING: std::sync::Once = std::sync::Once::new();
+
+/// Mark fd 0 as `O_NONBLOCK`. Process-wide effect; any
+/// other code reading stdin must accept `EAGAIN`.
+fn ensure_stdin_nonblocking() {
+  STDIN_NONBLOCKING.call_once(|| crate::net::set_nonblocking(0));
+}
 
 /// `buf[cursor..filled]` is the unread tail of the last
 /// `read(0, ...)`; refilled when drained. `Mutex` because
@@ -46,6 +58,8 @@ pub unsafe extern "C-unwind" fn _zo_io_readln(
   buf: *mut u8,
   max_len: usize,
 ) -> isize {
+  ensure_stdin_nonblocking();
+
   // SAFETY: caller guarantees `buf` points at `max_len`
   // writable bytes; no other reference to that region
   // exists for the lifetime of this call.
@@ -53,7 +67,7 @@ pub unsafe extern "C-unwind" fn _zo_io_readln(
   let mut state = STDIN.lock().unwrap();
   let mut written: usize = 0;
 
-  loop {
+  'outer: loop {
     // Drain whatever's already buffered until we hit a
     // newline or fill the caller's destination.
     while state.cursor < state.filled && written < max_len {
@@ -72,24 +86,48 @@ pub unsafe extern "C-unwind" fn _zo_io_readln(
       return written as isize;
     }
 
-    // Buffer empty — refill with a single syscall. EOF means
-    // we hand back whatever we already wrote (could be 0).
+    // Buffer drained — refill. The buffer holds zero
+    // useful bytes from this point until the next
+    // successful read.
     state.cursor = 0;
     state.filled = 0;
 
-    let n = unsafe {
-      libc::read(0, state.buf.as_mut_ptr() as *mut _, STDIN_BUFFER_SIZE)
-    };
+    loop {
+      let n = unsafe {
+        libc::read(0, state.buf.as_mut_ptr() as *mut _, STDIN_BUFFER_SIZE)
+      };
 
-    if n < 0 {
-      return n as isize;
+      if n > 0 {
+        state.filled = n as usize;
+        continue 'outer;
+      }
+
+      if n == 0 {
+        // EOF — return whatever we've assembled.
+        return written as isize;
+      }
+
+      let err = last_errno();
+
+      if err != libc::EAGAIN && err != libc::EWOULDBLOCK {
+        return -(err as isize);
+      }
+
+      // Drop the global STDIN lock across the park so a
+      // sibling task on this scheduler thread can make
+      // progress (and so the lock isn't held re-entrantly
+      // across `yield_now`, which is UB on std::Mutex).
+      drop(state);
+      park_current_on_read(0);
+      state = STDIN.lock().unwrap();
+
+      // Another caller may have refilled the buffer
+      // while we were parked. If so, drain it before
+      // attempting another read.
+      if state.filled > state.cursor {
+        continue 'outer;
+      }
     }
-
-    if n == 0 {
-      return written as isize;
-    }
-
-    state.filled = n as usize;
   }
 }
 
@@ -106,7 +144,21 @@ pub unsafe extern "C-unwind" fn _zo_io_read(
   buf: *mut u8,
   max_len: usize,
 ) -> isize {
-  unsafe { libc::read(0, buf as *mut _, max_len) }
+  ensure_stdin_nonblocking();
+
+  loop {
+    // SAFETY: caller guarantees `buf` points at
+    // `max_len` writable bytes for the call duration.
+    let n = unsafe { libc::read(0, buf as *mut _, max_len) };
+
+    if n >= 0 {
+      return n;
+    }
+
+    if let Some(err) = park_read_or_classify(0, last_errno()) {
+      return err as isize;
+    }
+  }
 }
 
 /// Memoized argv array — argv never changes during the

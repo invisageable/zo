@@ -1,4 +1,4 @@
--- tests-build-pass: spawn a worker, await its int return, print it.
+-- tests-run-pass: spawn a worker, await its int return, print it.
 -- @cmd — zo build concurrency_spawn_await.zo
 
 fun compute() -> int {

@@ -6527,7 +6527,11 @@ impl<'a> Executor<'a> {
     while *idx < end_idx {
       let tok = self.tree.nodes[*idx].token;
 
-      if tok.is_ty() || tok == Token::Ident {
+      // `SelfUpper` resolves to the enclosing apply ty
+      // via `resolve_type_token`; accepting it here is
+      // what keeps `Result<Self, int>` return-arg lists
+      // populated.
+      if tok.is_ty() || tok == Token::Ident || tok == Token::SelfUpper {
         out.push(self.resolve_type_token(*idx));
 
         *idx += 1;
@@ -7630,6 +7634,25 @@ impl<'a> Executor<'a> {
                   if probe > idx {
                     // `<ArgTy>` consumed; probe sits on `>`.
                     next = probe + 1;
+                  } else if next < _end_idx
+                    && self.tree.nodes[next].token.is_ty()
+                  {
+                    // Generic enum as parameter type (e.g.
+                    // `body: Option<str>`). The postfix
+                    // tree places the type arg directly
+                    // after the enum ident. Collect exactly
+                    // ONE type token — `collect_trailing_
+                    // generic_args` is too greedy (skips
+                    // commas and eats the next param's
+                    // name).
+                    let arg_ty = self.resolve_type_token(next);
+                    let ty = self.ty_checker.resolve_ty(arg_ty);
+
+                    self
+                      .var_return_type_args
+                      .insert(param_name.as_u32(), vec![ty]);
+
+                    next += 1;
                   }
                 }
 
@@ -15316,6 +15339,21 @@ impl<'a> Executor<'a> {
         src: LoadSource::Local(sym),
         ..
       }) => Some(*sym),
+      Some(Insn::Load {
+        src: LoadSource::Param(idx),
+        ..
+      }) => {
+        // Recover the parameter's symbol from the
+        // current function's param list so rta
+        // propagation can find `var_return_type_args`
+        // entries stored at param-push time.
+        self
+          .current_function
+          .as_ref()
+          .and_then(|ctx| self.find_fun(ctx.name))
+          .and_then(|fd| fd.params.get(*idx as usize))
+          .map(|(sym, _)| *sym)
+      }
       _ => None,
     };
 
@@ -15388,6 +15426,23 @@ impl<'a> Executor<'a> {
           .insert(scrut_sym.as_u32(), fd.return_type_args.clone());
       }
 
+      // Propagate rta from the source variable when
+      // the scrutinee was loaded from a local (e.g.
+      // `match body` where `body: Option<str>` is a
+      // function parameter whose rta was stored at
+      // param-push time). Without this, the synthetic
+      // __match_scrut_N__ has no rta and the match
+      // arm's variant field types stay unsubstituted.
+      if !self.var_return_type_args.contains_key(&scrut_sym.as_u32()) {
+        if let Some(src_sym) = tail_load_sym {
+          if let Some(rta) =
+            self.var_return_type_args.get(&src_sym.as_u32()).cloned()
+          {
+            self.var_return_type_args.insert(scrut_sym.as_u32(), rta);
+          }
+        }
+      }
+
       Some(scrut_sym)
     } else {
       None
@@ -15401,13 +15456,44 @@ impl<'a> Executor<'a> {
 
     // -- 4. Walk the arms ------------------------------------
     // Detect if the match is in expression position (result
-    // will be consumed by a pending declaration or as a
-    // function's implicit return).
+    // will be consumed by a pending declaration, an outer
+    // branch's value sink, or as a function's implicit
+    // return). The outer-sink branch catches the
+    // `if true { match … } else { … }` shape — the `if`'s
+    // `LBrace` has already taken `pending_decl` by the time
+    // we get here, so a `pending_decl.is_some()` check
+    // alone would miss it and the match would emit no
+    // result-Load, leaving the `if`'s value-sink stale.
+    let outer_sink_active = self
+      .branch_stack
+      .iter()
+      .rev()
+      .any(|c| c.value_sink.is_some());
     let is_expr_match = self.pending_decl.is_some()
+      || outer_sink_active
       || self
         .current_function
         .as_ref()
         .is_some_and(|f| f.return_ty != self.ty_checker.unit_type());
+
+    // Bracket the arm walk in its own scope. `execute_match`
+    // bypasses the normal `LBrace`/`RBrace` handlers (it
+    // sets `skip_until = rbrace_idx + 1`), so without this
+    // explicit `push_scope`/`pop_scope` the arm-pattern
+    // bindings (`Option::Some(n) => ...`) push into the
+    // OUTER scope, and the outer `pending_decl` (the
+    // `imu b: int = match ...;` binding) stays visible to
+    // the arm body — its `finalize_pending_decl` call
+    // consumes the outer decl mid-arm, push-locals `b` at
+    // an inner index, and the later arm cleanup truncates
+    // `locals` without rolling back `local_scope`. The
+    // stale `b → idx` entry then panics any later
+    // `lookup_local(b)`. The scope's own
+    // `saved_pending_decl` handling takes the outer decl
+    // and restores it at `pop_scope`, so the `;` outside
+    // the match finalizes correctly against the match's
+    // result-Load value.
+    self.push_scope();
 
     let end_label = self.sir.next_label();
     let mut arm_idx = lbrace_idx + 1;
@@ -16568,6 +16654,14 @@ impl<'a> Executor<'a> {
 
     // -- 5. End label ----------------------------------------
     self.sir.emit(Insn::Label { id: end_label });
+
+    // Close the match's own scope (see the `push_scope` at
+    // the top of step 4 for the why). Restoring before the
+    // result-Load below is intentional: the outer
+    // `pending_decl` flows back into scope here so the
+    // following `;` finalize binds against the match's
+    // result value.
+    self.pop_scope();
 
     // If the match was used as an expression, load the result
     // from the shared slot and push it to the stacks.

@@ -1,4 +1,4 @@
--- tests-build-pass: a spawned task recurses deep enough to
+-- tests-run-pass: a spawned task recurses deep enough to
 -- force the runtime to grow its virtual stack past the
 -- initial committed page. A fixed-stack runtime would
 -- either pre-commit a large region (wasting memory) or

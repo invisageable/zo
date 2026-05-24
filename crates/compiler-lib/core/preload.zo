@@ -15,8 +15,8 @@ pub load core::cmp::*;
 pub load core::fmt::*;
 pub load core::int::*;
 pub load core::io::*;
-pub load core::map::*;
-pub load core::set::*;
+pub load core::collections::map::*;
+pub load core::collections::set::*;
 pub load core::str::*;
 pub load core::vec::*;
 

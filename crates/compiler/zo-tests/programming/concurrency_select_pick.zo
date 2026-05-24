@@ -1,4 +1,4 @@
--- tests-build-pass: select picks the arm whose channel fired.
+-- tests-run-pass: select picks the arm whose channel fired.
 -- @cmd — zo build concurrency_select_pick.zo
 
 fun producer_a(tx: Tx<int>) {

@@ -155,6 +155,11 @@ zo_bench_quick:
 zo_bench_update:
   cargo build --release --bin zo && cargo run --release -p zo-benches -- all --update-baseline
 
+# group: Bench concurrent prime sieve (RSS + wall time) at scale N (default 10)
+[group('zo')]
+zo_bench_sieve n="10":
+  cargo build --release --bin zo && cargo run --release -p zo-benches -- concurrency_pike_sieve --runs 3 --with-runtime --with-rss --argv "{{n}}"
+
 # Run all eazy crates tests
 [group('eazy')]
 [group('test')]

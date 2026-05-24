@@ -1,0 +1,69 @@
+-- tests-run-pass: HTTP POST / PUT / DELETE round-trip.
+-- @cmd — zo run http_verbs.zo
+
+load core::net::(Address, TcpListener, TcpStream);
+load core::http;
+
+fun echo_server(fd: int) {
+  imu listener := TcpListener { fd = fd };
+
+  for _ := 0..3 {
+    match listener.accept() {
+      Result::Pass(conn) => {
+        imu req: str = conn.read(4096);
+        imu parts: []str = req.split(" ");
+        imu method: str = parts[0];
+
+        imu reply: str = "HTTP/1.1 200 OK\r\n"
+          ++ "Connection: close\r\n"
+          ++ "\r\n"
+          ++ method;
+
+        conn.write(reply);
+        conn.close();
+      }
+      Result::Fail(_) => {}
+    }
+  }
+}
+
+fun client(port: int) {
+  imu base: str = "http://127.0.0.1:" ++ port.to_str();
+
+  match http::post(base ++ "/items", "hello") {
+    Result::Pass(response) => showln(response.body),
+    Result::Fail(_) => showln("post failed"),
+  }
+
+  match http::put(base ++ "/items/1", "updated") {
+    Result::Pass(response) => showln(response.body),
+    Result::Fail(_) => showln("put failed"),
+  }
+
+  match http::delete(base ++ "/items/1") {
+    Result::Pass(response) => showln(response.body),
+    Result::Fail(_) => showln("delete failed"),
+  }
+}
+
+fun main() {
+  match TcpListener::bind(Address::new("127.0.0.1", 0)) {
+    Result::Pass(listener) => {
+      match listener.local_port() {
+        Result::Pass(port) => {
+          nursery {
+            spawn echo_server(listener.fd);
+            spawn client(port);
+          }
+        }
+        Result::Fail(_) => showln("port failed"),
+      }
+    }
+    Result::Fail(_) => showln("bind failed"),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- POST
+-- PUT
+-- DELETE

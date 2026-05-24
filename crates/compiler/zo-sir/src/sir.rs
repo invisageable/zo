@@ -292,9 +292,19 @@ impl Sir {
 
   /// Offsets all `ValueId`s in instructions by `offset`.
   /// Used when prepending module SIR to avoid ID collisions.
+  ///
+  /// @note — the `u32::MAX` sentinel (produced by `push`
+  /// for non-value-producing instructions) is preserved
+  /// unchanged. Offsetting it would overflow AND lose
+  /// the sentinel property, mis-classifying the value
+  /// slot downstream.
   pub fn offset_value_ids(instructions: &mut [Insn], offset: u32) {
     for insn in instructions.iter_mut() {
-      insn.visit_value_ids_mut(&mut |v| v.0 += offset);
+      insn.visit_value_ids_mut(&mut |v| {
+        if v.0 != u32::MAX {
+          v.0 += offset;
+        }
+      });
     }
   }
 
