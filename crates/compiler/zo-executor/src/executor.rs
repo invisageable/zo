@@ -15438,9 +15438,7 @@ impl<'a> Executor<'a> {
           if let Some(rta) =
             self.var_return_type_args.get(&src_sym.as_u32()).cloned()
           {
-            self
-              .var_return_type_args
-              .insert(scrut_sym.as_u32(), rta);
+            self.var_return_type_args.insert(scrut_sym.as_u32(), rta);
           }
         }
       }
