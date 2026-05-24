@@ -48,7 +48,7 @@ All build commands go through `just` (the justfile is the single source of truth
   just pre-commit      # Full pipeline: typos -> fmt_check -> clippy -> test.
   ```
 
-> *More commands are available in @justfile.*
+> *@justfile — All recipes available.*
 
 ## Code Style
 

@@ -1,0 +1,38 @@
+-- tests-run-pass: Option<str> match-arm binding resolves
+-- the payload type when Option is a function parameter.
+-- Regression guard for the executor's param generic-arg
+-- collection + LoadSource::Param rta propagation fix.
+-- @cmd — zo run match_option_str_param.zo
+
+fun greet(name: Option<str>) -> str {
+  match name {
+    Option::Some(value) => "hello " ++ value,
+    Option::None => "hello stranger",
+  }
+}
+
+fun describe(label: Option<str>) {
+  match label {
+    Option::Some(text) => {
+      showln(text.len);
+      showln(text);
+    }
+    Option::None => {
+      showln("none");
+    }
+  }
+}
+
+fun main() {
+  showln(greet(Option::Some("zo")));
+  showln(greet(Option::None));
+  describe(Option::Some("world"));
+  describe(Option::None);
+}
+
+-- EXPECTED OUTPUT:
+-- hello zo
+-- hello stranger
+-- 5
+-- world
+-- none

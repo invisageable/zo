@@ -1,12 +1,14 @@
 -! HTTP/1.1 client built on top of `core::net`.
 -!
--! The current surface is a single function — `http::get` —
--! that connects, sends a `Connection: close` request, drains
--! the response, and returns a parsed [`Response`]. The
--! request path takes the suspending TCP primitives from
--! `core::net`, so an `http::get` call inside a green task
--! parks the task on socket readiness rather than blocking
--! the scheduler thread.
+-! Four verbs — `get`, `post`, `put`, `delete` — each
+-! connecting, sending, draining, and parsing in one
+-! call. All route through a shared `request` helper
+-! so the HTTP framing logic lives in one place.
+-!
+-! The request path uses the suspending TCP primitives
+-! from `core::net`, so any call inside a green task
+-! parks the task on socket readiness rather than
+-! blocking the scheduler thread.
 -!
 -! @note — keeps the URL parser to `http://` for now;
 -! TLS / `https://` waits on a TLS provider crate.
@@ -113,7 +115,6 @@ fun parse_response(text: str) -> Result<Response, int> {
   imu body: str = text[sep_idx + sep.len..text.len];
 
   imu line_end: int = head.index_of("\r\n");
-
   mut status_line: str = head;
 
   if line_end >= 0 {
@@ -134,29 +135,41 @@ fun parse_response(text: str) -> Result<Response, int> {
   }
 }
 
--! Issue an HTTP/1.1 `GET` request to `url` and return the
--! parsed [`Response`].
--!
--! `url` is of the form `"http://host[:port][/path]"`; the
--! default port is `80`, the default path is `"/"`.
--! `Connection: close` lets the server signal end-of-body
--! by closing the socket, which keeps the parser free of a
--! `Content-Length` / chunked-encoding dependency for the
--! MVP.
--!
--! Returns `Fail(0)` on URL parse failure or malformed
--! response; `Fail(errno)` on network error (mirrors the
--! `core::net` error convention).
-pub fun get(url: str) -> Result<Response, int> {
+-! Shared request helper. Connects, sends the
+-! request line + headers + optional body, drains
+-! the response, and parses it. All four public
+-! verbs route through here.
+fun request(
+  method: str,
+  url: str,
+  body: Option<str>,
+) -> Result<Response, int> {
   match parse_url(url) {
     Result::Fail(e) => Result::Fail(e),
     Result::Pass(parts) => {
       match TcpStream::connect(Address::new(parts.host, parts.port)) {
         Result::Fail(e) => Result::Fail(e),
         Result::Pass(stream) => {
-          imu req: str = "GET " ++ parts.path
-            ++ " HTTP/1.1\r\nHost: " ++ parts.host
-            ++ "\r\nConnection: close\r\n\r\n";
+          mut req: str = method
+            ++ " "
+            ++ parts.path
+            ++ " HTTP/1.1\r\nHost: "
+            ++ parts.host
+            ++ "\r\nConnection: close\r\n";
+
+          match body {
+            Option::Some(payload) => {
+              req = req
+                ++ "Content-Length: "
+                ++ payload.len.to_str()
+                ++ "\r\n"
+                ++ "\r\n"
+                ++ payload;
+            }
+            Option::None => {
+              req = req ++ "\r\n";
+            }
+          }
 
           match stream.write(req) {
             Result::Fail(e) => {
@@ -186,4 +199,24 @@ pub fun get(url: str) -> Result<Response, int> {
       }
     }
   }
+}
+
+-! `GET` — retrieve a resource.
+pub fun get(url: str) -> Result<Response, int> {
+  request("GET", url, Option::None)
+}
+
+-! `POST` — submit `payload` to the server.
+pub fun post(url: str, payload: str) -> Result<Response, int> {
+  request("POST", url, Option::Some(payload))
+}
+
+-! `PUT` — replace a resource with `payload`.
+pub fun put(url: str, payload: str) -> Result<Response, int> {
+  request("PUT", url, Option::Some(payload))
+}
+
+-! `DELETE` — remove a resource.
+pub fun delete(url: str) -> Result<Response, int> {
+  request("DELETE", url, Option::None)
 }

@@ -1,0 +1,34 @@
+-- tests-run-pass: match-as-expression + if-wrapping-match
+-- scope tracking. Regression guard for the executor's
+-- push_scope/pop_scope in execute_match and the
+-- outer_sink_active fix in is_expr_match.
+-- @cmd — zo run match_expr_scope.zo
+
+fun main() {
+  -- match-as-expression bound to imu.
+  imu a: int = match Option::Some(7) {
+    Option::Some(n) => n,
+    Option::None => 99,
+  };
+  showln(a);
+
+  -- if-as-expression with literal branches.
+  imu b: int = if true { 5 } else { 10 };
+  showln(b);
+
+  -- if-as-expression wrapping match-as-expression.
+  imu c: int = if true {
+    match Option::Some(11) {
+      Option::Some(n) => n,
+      Option::None => 99,
+    }
+  } else {
+    100
+  };
+  showln(c);
+}
+
+-- EXPECTED OUTPUT:
+-- 7
+-- 5
+-- 11

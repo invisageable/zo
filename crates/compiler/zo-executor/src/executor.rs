@@ -7634,6 +7634,25 @@ impl<'a> Executor<'a> {
                   if probe > idx {
                     // `<ArgTy>` consumed; probe sits on `>`.
                     next = probe + 1;
+                  } else if next < _end_idx
+                    && self.tree.nodes[next].token.is_ty()
+                  {
+                    // Generic enum as parameter type (e.g.
+                    // `body: Option<str>`). The postfix
+                    // tree places the type arg directly
+                    // after the enum ident. Collect exactly
+                    // ONE type token — `collect_trailing_
+                    // generic_args` is too greedy (skips
+                    // commas and eats the next param's
+                    // name).
+                    let arg_ty = self.resolve_type_token(next);
+                    let ty = self.ty_checker.resolve_ty(arg_ty);
+
+                    self
+                      .var_return_type_args
+                      .insert(param_name.as_u32(), vec![ty]);
+
+                    next += 1;
                   }
                 }
 
@@ -15320,6 +15339,21 @@ impl<'a> Executor<'a> {
         src: LoadSource::Local(sym),
         ..
       }) => Some(*sym),
+      Some(Insn::Load {
+        src: LoadSource::Param(idx),
+        ..
+      }) => {
+        // Recover the parameter's symbol from the
+        // current function's param list so rta
+        // propagation can find `var_return_type_args`
+        // entries stored at param-push time.
+        self
+          .current_function
+          .as_ref()
+          .and_then(|ctx| self.find_fun(ctx.name))
+          .and_then(|fd| fd.params.get(*idx as usize))
+          .map(|(sym, _)| *sym)
+      }
       _ => None,
     };
 
@@ -15390,6 +15424,25 @@ impl<'a> Executor<'a> {
         self
           .var_return_type_args
           .insert(scrut_sym.as_u32(), fd.return_type_args.clone());
+      }
+
+      // Propagate rta from the source variable when
+      // the scrutinee was loaded from a local (e.g.
+      // `match body` where `body: Option<str>` is a
+      // function parameter whose rta was stored at
+      // param-push time). Without this, the synthetic
+      // __match_scrut_N__ has no rta and the match
+      // arm's variant field types stay unsubstituted.
+      if !self.var_return_type_args.contains_key(&scrut_sym.as_u32()) {
+        if let Some(src_sym) = tail_load_sym {
+          if let Some(rta) =
+            self.var_return_type_args.get(&src_sym.as_u32()).cloned()
+          {
+            self
+              .var_return_type_args
+              .insert(scrut_sym.as_u32(), rta);
+          }
+        }
       }
 
       Some(scrut_sym)

@@ -60,7 +60,6 @@ fun main() {
   -- N from argv; default 10 for the integration smoke.
   -- Bench harness passes explicit N for scale runs.
   imu argv: []str = args();
-
   imu n_primes: int = if argv.len > 0 {
     match argv[0].parse_int() {
       Option::Some(n) => n,
@@ -77,9 +76,8 @@ fun main() {
   -- closes — the close cascades through the filter
   -- chain so the driver's nested nursery drains
   -- cleanly.
-  imu upper: int = n_primes * 15;
-
   imu (head_tx, head_rx) := channel();
+  imu upper: int = n_primes * 15;
 
   nursery {
     spawn generate(head_tx, upper);
