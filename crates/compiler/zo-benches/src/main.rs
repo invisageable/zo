@@ -44,6 +44,19 @@ struct Cli {
   /// several minutes.
   #[arg(long)]
   with_runtime: bool,
+  /// Argv passed to the compiled binary at runtime.
+  /// Whitespace-split into individual args. Only meaningful
+  /// when paired with `--with-runtime` — programs that read
+  /// `args()` (e.g. `concurrency_pike_sieve N`) use this to
+  /// drive scale sweeps without hardcoding N.
+  #[arg(long, default_value = "")]
+  argv: String,
+  /// Sample peak RSS (KiB) during each runtime invocation
+  /// and report it alongside wall time. Uses `ps -o rss=`
+  /// polled every 50 ms — cross-platform, no syscall deps.
+  /// Honored only when `--with-runtime` is set.
+  #[arg(long)]
+  with_rss: bool,
 }
 
 /// Stored baseline entry for a single benchmark. Hot
@@ -98,14 +111,26 @@ fn main() {
       for name in &names {
         println!("\nRunning {name} benchmark...\n");
 
-        if let Some(avg) = run_bench(name, runs, cli.quick, cli.with_runtime) {
+        if let Some(avg) = run_bench(
+          name,
+          runs,
+          cli.quick,
+          cli.with_runtime,
+          &cli.argv,
+          cli.with_rss,
+        ) {
           results.insert(name.clone(), avg);
         }
       }
     }
-  } else if let Some(avg) =
-    run_bench(&cli.benchmark, runs, cli.quick, cli.with_runtime)
-  {
+  } else if let Some(avg) = run_bench(
+    &cli.benchmark,
+    runs,
+    cli.quick,
+    cli.with_runtime,
+    &cli.argv,
+    cli.with_rss,
+  ) {
     results.insert(cli.benchmark.clone(), avg);
   }
 
@@ -186,6 +211,8 @@ fn run_bench(
   num_runs: usize,
   quick: bool,
   with_runtime: bool,
+  argv: &str,
+  with_rss: bool,
 ) -> Option<u64> {
   let bench_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     .join("benches")
@@ -254,6 +281,8 @@ fn run_bench(
       &bin_dir.join(format!("{name}_zo")),
       num_runs,
       with_runtime,
+      argv,
+      with_rss,
     )
   } else {
     None
@@ -263,21 +292,81 @@ fn run_bench(
 /// Time `runs` invocations of `binary` and print a
 /// per-run + average breakdown. Stdout/stderr of the
 /// program are silenced to keep the bench output tidy.
-fn time_runtime(binary: &PathBuf, runs: usize) {
+///
+/// `argv` is whitespace-split and passed to each
+/// invocation — empty string = no args.
+///
+/// When `with_rss` is set, a background thread polls
+/// `ps -o rss= -p <pid>` every 50 ms and records the
+/// peak. Reported as `Runtime peak RSS: X MiB`
+/// alongside the wall time. Cross-platform via POSIX
+/// `ps`; no syscall deps. The 50 ms cadence is a
+/// pragmatic tradeoff — fast-finishing benches may
+/// undersample, but for the runtime/concurrency
+/// targets (which take ≥ 100 ms even at N=10k) it
+/// captures the peak with one to two orders of
+/// magnitude headroom.
+fn time_runtime(binary: &PathBuf, runs: usize, argv: &str, with_rss: bool) {
   let mut times = Vec::new();
+  let mut peaks: Vec<u64> = Vec::new();
+  let extra_args: Vec<&str> = if argv.is_empty() {
+    Vec::new()
+  } else {
+    argv.split_whitespace().collect()
+  };
 
   for i in 1..=runs {
-    let start = Instant::now();
-    let result = Command::new(binary)
+    let mut cmd = Command::new(binary);
+
+    cmd
+      .args(&extra_args)
       .stdout(std::process::Stdio::null())
-      .stderr(std::process::Stdio::null())
-      .output();
+      .stderr(std::process::Stdio::null());
+
+    let start = Instant::now();
+
+    if !with_rss {
+      let result = cmd.output();
+      let elapsed = start.elapsed().as_nanos() as u64;
+
+      match result {
+        Ok(o) if o.status.success() => {
+          times.push(elapsed);
+          println!("  Runtime {i}: {}", fmt_dur(elapsed));
+        }
+        _ => println!("  Runtime {i}: FAILED"),
+      }
+
+      continue;
+    }
+
+    // RSS-sampling path: spawn so we have a PID to poll.
+    let mut child = match cmd.spawn() {
+      Ok(c) => c,
+      Err(_) => {
+        println!("  Runtime {i}: FAILED");
+        continue;
+      }
+    };
+
+    let pid = child.id();
+    let peak = sample_peak_rss_kib(pid);
+
+    let status = child.wait();
     let elapsed = start.elapsed().as_nanos() as u64;
 
-    match result {
-      Ok(o) if o.status.success() => {
+    match status {
+      Ok(s) if s.success() => {
+        let peak_kib = peak.recv().unwrap_or(0);
+
         times.push(elapsed);
-        println!("  Runtime {i}: {}", fmt_dur(elapsed));
+        peaks.push(peak_kib);
+
+        println!(
+          "  Runtime {i}: {} (peak RSS: {})",
+          fmt_dur(elapsed),
+          fmt_kib(peak_kib),
+        );
       }
       _ => println!("  Runtime {i}: FAILED"),
     }
@@ -287,6 +376,79 @@ fn time_runtime(binary: &PathBuf, runs: usize) {
     let avg = times.iter().sum::<u64>() / times.len() as u64;
     println!("  Runtime avg: {}", fmt_dur(avg));
   }
+
+  if !peaks.is_empty() {
+    let avg_peak = peaks.iter().sum::<u64>() / peaks.len() as u64;
+    let max_peak = peaks.iter().copied().max().unwrap_or(0);
+
+    println!(
+      "  Runtime peak RSS: avg {}, max {}",
+      fmt_kib(avg_peak),
+      fmt_kib(max_peak),
+    );
+  }
+}
+
+/// Pretty-print a `KiB` count at the largest unit that
+/// keeps three significant figures.
+fn fmt_kib(kib: u64) -> String {
+  if kib < 1_024 {
+    format!("{kib} KiB")
+  } else if kib < 1_024 * 1_024 {
+    format!("{:.2} MiB", kib as f64 / 1_024.0)
+  } else {
+    format!("{:.2} GiB", kib as f64 / (1_024.0 * 1_024.0))
+  }
+}
+
+/// Background-poll `ps -o rss= -p <pid>` every 50 ms and
+/// send the running peak (in KiB) back when the child
+/// exits. Reading once after wait would only see RSS at
+/// exit time — most green-task workloads peak mid-run.
+///
+/// Returns a `mpsc::Receiver` that yields the peak after
+/// the spawned thread observes `ps` returning empty (the
+/// child has exited and its PID is gone).
+fn sample_peak_rss_kib(pid: u32) -> std::sync::mpsc::Receiver<u64> {
+  use std::sync::mpsc;
+  use std::thread;
+  use std::time::Duration;
+
+  let (tx, rx) = mpsc::channel();
+
+  thread::spawn(move || {
+    let mut peak: u64 = 0;
+
+    loop {
+      let out = Command::new("ps")
+        .args(["-o", "rss=", "-p", &pid.to_string()])
+        .output();
+
+      let rss = match out {
+        Ok(o) if o.status.success() => {
+          let s = String::from_utf8_lossy(&o.stdout).trim().to_owned();
+
+          // Empty stdout ⇒ PID gone ⇒ child exited.
+          if s.is_empty() {
+            break;
+          }
+
+          s.parse::<u64>().unwrap_or(0)
+        }
+        _ => break,
+      };
+
+      if rss > peak {
+        peak = rss;
+      }
+
+      thread::sleep(Duration::from_millis(50));
+    }
+
+    let _ = tx.send(peak);
+  });
+
+  rx
 }
 
 fn benchmark_c(
@@ -334,7 +496,7 @@ fn benchmark_c(
   }
 
   if with_runtime && output.exists() {
-    time_runtime(output, runs);
+    time_runtime(output, runs, "", false);
   }
 
   println!();
@@ -388,7 +550,7 @@ fn benchmark_odin(
   }
 
   if with_runtime && output.exists() {
-    time_runtime(output, runs);
+    time_runtime(output, runs, "", false);
   }
 
   println!();
@@ -439,7 +601,7 @@ fn benchmark_rust(
   }
 
   if with_runtime && output.exists() {
-    time_runtime(output, runs);
+    time_runtime(output, runs, "", false);
   }
 
   println!();
@@ -451,6 +613,8 @@ fn benchmark_zo(
   output: &PathBuf,
   runs: usize,
   with_runtime: bool,
+  argv: &str,
+  with_rss: bool,
 ) -> Option<u64> {
   println!("zo (ARM64):");
 
@@ -514,7 +678,7 @@ fn benchmark_zo(
   }
 
   if with_runtime && output.exists() {
-    time_runtime(output, runs);
+    time_runtime(output, runs, argv, with_rss);
   }
 
   println!();
