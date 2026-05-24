@@ -1,0 +1,89 @@
+-- tests-run-pass: Pike-style concurrent prime sieve.
+-- The classic Newsqueak / Go pipeline shape — `generate`
+-- emits the integer stream, every prime found spawns a
+-- new `filter` stage that drops its multiples, and a
+-- `driver` task pulls primes off the chain head.
+--
+-- The structural rule: `main` runs on the OS thread and
+-- has no `ZoTask` context, so all blocking ops live in
+-- spawned green tasks. Main only opens channels + spawns
+-- + waits for nursery drain.
+-- @cmd — zo run concurrency_pike_sieve.zo
+
+fun generate(tx: Tx<int>, upper: int) {
+  mut i: int = 2;
+
+  while i <= upper {
+    tx.send(i);
+    i = i + 1;
+  }
+
+  tx.close();
+}
+
+fun filter(rx: Rx<int>, tx: Tx<int>, prime: int) {
+  loop {
+    imu n: int = rx.recv();
+
+    -- `recv()` on a closed-and-drained channel zero-fills
+    -- the dst per `_zo_chan_recv`'s `if guard.closed`
+    -- branch. Treat `0` as end-of-stream — safe because
+    -- the sieve only deals with primes ≥ 2.
+    if n == 0 {
+      tx.close();
+
+      return;
+    }
+
+    if n % prime != 0 {
+      tx.send(n);
+    }
+  }
+}
+
+fun driver(head_rx: Rx<int>, n_primes: int) {
+  nursery {
+    mut current_rx: Rx<int> = head_rx;
+    mut k: int = 0;
+
+    while k < n_primes {
+      imu prime: int = current_rx.recv();
+
+      showln(prime.to_str());
+
+      imu (next_tx, next_rx) := channel();
+
+      spawn filter(current_rx, next_tx, prime);
+
+      current_rx = next_rx;
+      k = k + 1;
+    }
+  }
+}
+
+fun main() {
+  -- Upper = 30 → the first 10 primes are 2 3 5 7 11 13
+  -- 17 19 23 29. Generate sends through all of them, then
+  -- closes — the close cascades through the filter chain
+  -- so the driver's nursery drains cleanly.
+  imu (head_tx, head_rx) := channel();
+  imu n_primes: int = 10;
+  imu upper: int = 30;
+
+  nursery {
+    spawn generate(head_tx, upper);
+    spawn driver(head_rx, n_primes);
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 2
+-- 3
+-- 5
+-- 7
+-- 11
+-- 13
+-- 17
+-- 19
+-- 23
+-- 29

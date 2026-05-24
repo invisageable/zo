@@ -95,10 +95,14 @@ unsafe impl Send for TaskPtr {}
 /// Pair of `Mutex<bool>` + `Condvar` implements a
 /// one-shot binary semaphore — wake-up is latched, so
 /// `unpark` before `park` still releases the parker.
-struct PthreadPark {
+///
+/// `pub(crate)` so `scheduler::park_thread_cooperative`
+/// can re-use the notification + cv pair without
+/// duplicating the primitive in two modules.
+pub(crate) struct PthreadPark {
   /// `true` once `unpark()` has been called.
-  notified: Mutex<bool>,
-  cv: Condvar,
+  pub(crate) notified: Mutex<bool>,
+  pub(crate) cv: Condvar,
 }
 
 impl PthreadPark {
@@ -106,16 +110,6 @@ impl PthreadPark {
     Self {
       notified: Mutex::new(false),
       cv: Condvar::new(),
-    }
-  }
-
-  /// Block the OS thread until a matching `unpark()`.
-  /// If `unpark()` already fired, returns immediately.
-  fn park(&self) {
-    let mut guard = self.notified.lock().expect("PthreadPark poisoned");
-
-    while !*guard {
-      guard = self.cv.wait(guard).expect("PthreadPark wait poisoned");
     }
   }
 
@@ -176,7 +170,14 @@ impl ParkHandle {
 
         scheduler::yield_now();
       },
-      Self::Pthread(p) => p.park(),
+      // Non-task OS thread (typically `main` or a worker
+      // pool thread). Cooperative-park drives the
+      // scheduler while waiting so spawned green tasks
+      // can make progress toward the notification we're
+      // waiting on — without this, `main` calling
+      // `rx.recv()` directly would freeze the only
+      // scheduler-driving thread and deadlock.
+      Self::Pthread(p) => scheduler::park_thread_cooperative(&p),
     }
   }
 }

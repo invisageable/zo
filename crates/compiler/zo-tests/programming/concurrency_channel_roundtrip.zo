@@ -1,4 +1,4 @@
--- tests-build-pass: channel send / recv end-to-end.
+-- tests-run-pass: channel send / recv end-to-end.
 -- @cmd — zo build concurrency_channel_roundtrip.zo
 
 fun producer(tx: Tx<int>) {

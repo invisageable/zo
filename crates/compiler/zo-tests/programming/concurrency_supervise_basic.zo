@@ -1,4 +1,4 @@
--- tests-build-pass: `supervise { }` scopes green children the
+-- tests-run-pass: `supervise { }` scopes green children the
 -- same way `nursery { }` does — scope exit joins every child.
 -- What distinguishes `supervise` from `nursery` is panic
 -- cascading (a sibling panic propagates past the scope

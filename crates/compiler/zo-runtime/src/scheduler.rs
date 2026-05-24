@@ -15,6 +15,7 @@
 //! with this module. No public ABI exports live
 //! here — all C-facing symbols are in `task.rs`.
 
+use crate::channel::PthreadPark;
 use crate::ctxsw::{Context, ctx_switch};
 use crate::net::Selector;
 use crate::task::{TaskState, ZoTask};
@@ -22,6 +23,7 @@ use crate::task::{TaskState, ZoTask};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::os::raw::c_int;
+use std::time::Duration;
 
 // ===== Scheduler state (thread-local) =====
 
@@ -270,11 +272,23 @@ pub unsafe fn run_one_external(task: *mut ZoTask) {
 /// until it yields / dies, then re-queue based on the
 /// post-switch state.
 ///
+/// Re-entrant: when called from inside a green task
+/// (e.g. a nested `_zo_nursery_drain` whose driver task
+/// opens its own `nursery {}` to spawn children), we
+/// snapshot `current` and the global scheduler-ctx slot
+/// on the CPU stack and restore them once the inner
+/// task yields / dies. Without this, the inner call's
+/// `set_current(None)` strands the outer task with
+/// `current = None` (its later `exit_current` then
+/// panics), and the inner `ctx_switch` overwrites the
+/// global ctx with a driver-stack resume point that
+/// the outer task's eventual exit would walk to a
+/// stale frame.
+///
 /// # Safety
 ///
 /// `task` must be a valid `*mut ZoTask` with `state`
-/// transitioning out of `Ready`. Only called from
-/// scheduler-loop context (not from inside a task).
+/// transitioning out of `Ready`.
 unsafe fn run_one(task: *mut ZoTask) {
   // Every pthread that enters a green task must have
   // a signal-handler alternate stack installed — a
@@ -289,6 +303,14 @@ unsafe fn run_one(task: *mut ZoTask) {
   }
 
   with(|s| {
+    // Snapshot prior re-entrant state on the CPU stack
+    // so a nested call doesn't strand the outer task.
+    // `Context` is `#[repr(C)]` POD (gp regs + sp + lr),
+    // ~168 B on aarch64 — a no-op compared to a green
+    // task's 8 MiB stack reservation.
+    let prev_current = s.current();
+    let prev_sch_ctx: Context = unsafe { *s.scheduler_ctx_ptr() };
+
     s.set_current(Some(task));
 
     let sch_ctx = s.scheduler_ctx_ptr();
@@ -300,7 +322,14 @@ unsafe fn run_one(task: *mut ZoTask) {
       ctx_switch(sch_ctx, task_ctx);
     }
 
-    s.set_current(None);
+    // Restore the outer re-entrant state. For top-level
+    // calls (`prev_current == None`), this just zeroes
+    // out what was a transient inner write — no change
+    // in observable behaviour from the pre-fix code.
+    unsafe {
+      *sch_ctx = prev_sch_ctx;
+    }
+    s.set_current(prev_current);
 
     // SAFETY: caller contract — pointer still live.
     let state = unsafe { (*task).state };
@@ -361,6 +390,86 @@ fn drain_ready(s: &SchedulerState, timeout_ms: c_int) -> usize {
   }
 
   n
+}
+
+/// Cooperative park for non-task OS threads — drives the
+/// scheduler while waiting on `park.notified`.
+///
+/// Today's `main` runs on the OS thread, not inside a
+/// `ZoTask`. Without this helper, a blocking channel /
+/// IO op called from `main` would freeze the only thread
+/// driving the scheduler, the spawned task that would
+/// produce the notification would never run, and the
+/// program would silently deadlock. This is the
+/// "first-five-minutes" trap: `imu x := rx.recv()`
+/// inside `fun main` is the canonical Go shape and must
+/// just work.
+///
+/// Loop body, in order:
+/// 1. Fast path — if `notified` already latched, return.
+/// 2. Pop the next ready green task and dispatch it via
+///    [`run_one_external`]. The B1 re-entrant `run_one`
+///    snapshots `current` + `sch_ctx` so nested wakes
+///    don't strand anyone. After the task yields / dies,
+///    opportunistically drain Selector readiness so any
+///    I/O-parked task gets its turn before we loop.
+/// 3. Local queue empty — non-blocking Selector poll. If
+///    it woke anything, loop.
+/// 4. Truly idle — block on `cv.wait_timeout` so we
+///    re-check both `notified` and the Selector every
+///    50 ms. A waker on another OS thread (future
+///    multi-scheduler) or an I/O readiness event will
+///    unblock us no later than the next tick.
+pub(crate) fn park_thread_cooperative(park: &PthreadPark) {
+  loop {
+    // 1. Fast path: notification already arrived.
+    {
+      let guard = park.notified.lock().expect("PthreadPark poisoned");
+
+      if *guard {
+        return;
+      }
+    }
+
+    // 2. Dispatch a local task if any.
+    let next = with(|s| s.pop_ready());
+
+    if let Some(task) = next {
+      // SAFETY: pointer came from the run queue; the
+      // owning `Box<ZoTask>` is live until the task
+      // transitions to `Dead` and its handle is awaited.
+      unsafe { run_one_external(task) };
+
+      // After the task ran, give I/O-parked siblings a
+      // turn before we loop back to the notify check.
+      with(|s| drain_ready(s, 0));
+
+      continue;
+    }
+
+    // 3. No local ready task — opportunistic I/O drain.
+    let woke = with(|s| drain_ready(s, 0));
+
+    if woke > 0 {
+      continue;
+    }
+
+    // 4. Truly idle. Re-check `notified` under the lock
+    //    to close the race where `unpark()` fired
+    //    between the fast-path read and acquiring the
+    //    lock, then wait with a short timeout so we
+    //    keep polling the Selector for I/O wakes.
+    let guard = park.notified.lock().expect("PthreadPark poisoned");
+
+    if *guard {
+      return;
+    }
+
+    let _ = park
+      .cv
+      .wait_timeout(guard, Duration::from_millis(50))
+      .expect("PthreadPark wait poisoned");
+  }
 }
 
 // ===== Test helpers =====

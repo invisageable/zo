@@ -30,6 +30,8 @@
   }
   ```
 
+ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SAME SOURCE.
+
 **-concurrency**
 
   ```zo
@@ -51,8 +53,6 @@
     }                                                                            
   }
   ```
-
-ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SAME SOURCE.
 
 ## why zo?
 

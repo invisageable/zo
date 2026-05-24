@@ -771,17 +771,18 @@ pub unsafe fn await_task(target: *mut ZoTask) -> u64 {
 /// awaiting leaks the task's stack and ZoTask struct.
 /// Drain every ready task in the thread-local
 /// scheduler to completion. Called at the close of a
-/// `nursery { }` (and supervise { }) scope so sibling
+/// `nursery { }` (and `supervise { }`) scope so sibling
 /// tasks finish before control exits the scope.
 ///
+/// Re-entrant: safe to call from inside a green task
+/// (nested-nursery case). `run_one` snapshots
+/// `current` + the global scheduler-ctx slot on the
+/// CPU stack and restores them when the inner task
+/// yields, so the outer task's later `exit_current`
+/// still sees itself as current and the global ctx
+/// still points at the outer resume site.
+///
 /// Idempotent on an empty queue.
-///
-/// # Safety
-///
-/// Must be called from non-task OS-thread code (the
-/// scheduler's own thread). Calling from inside a
-/// green task would recurse into the scheduler and
-/// deadlock.
 #[unsafe(export_name = "zo_nursery_drain")]
 pub unsafe extern "C-unwind" fn _zo_nursery_drain() {
   scheduler::drain_all();
