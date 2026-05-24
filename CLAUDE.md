@@ -95,6 +95,7 @@ We do **NOT** use traditional AST -> TypeCheck -> IR phases.
 
 - https://corrode.dev/blog/defensive-programming
 - https://corrode.dev/blog/bugs-rust-wont-catch
+- https://stackoverflow.blog/2021/12/23/best-practices-for-writing-code-comments
 
 ## Build System
 

@@ -1,21 +1,19 @@
 -- tests-run-pass: Pike-style concurrent prime sieve.
--- The classic Newsqueak / Go pipeline shape — `generate`
--- emits the integer stream, every prime found spawns a
--- new `filter` stage that drops its multiples, and a
--- `driver` task pulls primes off the chain head.
+-- Reads the prime-count target N from argv (defaults
+-- to 10 for the integration smoke). The chain spawns
+-- exactly N filter stages — one per prime found.
 --
--- The structural rule: `main` runs on the OS thread and
--- has no `ZoTask` context, so all blocking ops live in
--- spawned green tasks. Main only opens channels + spawns
--- + waits for nursery drain.
+-- Structural rules baked in by the runtime fixes:
+--   - main can do blocking ops directly (C1
+--     cooperative park).
+--   - green tasks open their own nursery for dynamic
+--     spawn-while-running (B1 re-entrant run_one).
+-- See `project_main_not_green_task` memory.
 -- @cmd — zo run concurrency_pike_sieve.zo
 
 fun generate(tx: Tx<int>, upper: int) {
-  mut i: int = 2;
-
-  while i <= upper {
+  for i := 2..=upper {
     tx.send(i);
-    i = i + 1;
   }
 
   tx.close();
@@ -25,10 +23,9 @@ fun filter(rx: Rx<int>, tx: Tx<int>, prime: int) {
   loop {
     imu n: int = rx.recv();
 
-    -- `recv()` on a closed-and-drained channel zero-fills
-    -- the dst per `_zo_chan_recv`'s `if guard.closed`
-    -- branch. Treat `0` as end-of-stream — safe because
-    -- the sieve only deals with primes ≥ 2.
+    -- `recv()` on a closed-and-drained channel zero-
+    -- fills the dst — treat `0` as end-of-stream
+    -- (the sieve only sees primes ≥ 2).
     if n == 0 {
       tx.close();
 
@@ -44,31 +41,45 @@ fun filter(rx: Rx<int>, tx: Tx<int>, prime: int) {
 fun driver(head_rx: Rx<int>, n_primes: int) {
   nursery {
     mut current_rx: Rx<int> = head_rx;
-    mut k: int = 0;
 
-    while k < n_primes {
+    for _ := 0..n_primes {
       imu prime: int = current_rx.recv();
 
-      showln(prime.to_str());
+      showln(prime);
 
       imu (next_tx, next_rx) := channel();
 
       spawn filter(current_rx, next_tx, prime);
 
       current_rx = next_rx;
-      k = k + 1;
     }
   }
 }
 
 fun main() {
-  -- Upper = 30 → the first 10 primes are 2 3 5 7 11 13
-  -- 17 19 23 29. Generate sends through all of them, then
-  -- closes — the close cascades through the filter chain
-  -- so the driver's nursery drains cleanly.
+  -- N from argv; default 10 for the integration smoke.
+  -- Bench harness passes explicit N for scale runs.
+  imu argv: []str = args();
+
+  imu n_primes: int = if argv.len > 0 {
+    match argv[0].parse_int() {
+      Option::Some(n) => n,
+      Option::None => 10,
+    }
+  } else {
+    10
+  };
+
+  -- Rosser bound: p_n < n (ln n + ln ln n). For
+  -- n_primes ≤ 100k, a flat multiplier of 15 covers
+  -- the bound with margin and avoids needing ln() in
+  -- the runtime. Generate sends 2..=upper, then
+  -- closes — the close cascades through the filter
+  -- chain so the driver's nested nursery drains
+  -- cleanly.
+  imu upper: int = n_primes * 15;
+
   imu (head_tx, head_rx) := channel();
-  imu n_primes: int = 10;
-  imu upper: int = 30;
 
   nursery {
     spawn generate(head_tx, upper);
