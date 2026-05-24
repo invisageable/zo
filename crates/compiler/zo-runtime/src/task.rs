@@ -111,10 +111,10 @@ pub struct ZoTask {
   pub waiters: Vec<*mut ZoTask>,
   /// Cancellation flag. Set by `_zo_task_cancel`;
   /// queried by `_zo_task_is_cancelled` and (future)
-  /// yield-site cancellation polls. Arc-shared so a
-  /// supervisor can flip it from a different OS
-  /// thread.
-  pub cancelled: Arc<AtomicBool>,
+  /// yield-site cancellation polls. Inline — the
+  /// supervisor already holds a `*mut ZoTask` handle
+  /// and writes through it directly; no Arc overhead.
+  pub cancelled: AtomicBool,
   /// Arguments stashed by `_zo_task_spawn_N` and
   /// replayed into `X0..X(N-1)` by the matching
   /// `task_shim_N` before jumping to the user
@@ -133,7 +133,7 @@ pub struct ZoTask {
   /// Threaded-kind extension — `Some` when this task
   /// owns a pthread running the user callee; `None`
   /// for the common green-task case.
-  threaded: Option<ThreadedData>,
+  threaded: Option<Box<ThreadedData>>,
 }
 
 /// Extra state for a threaded task. The `join` handle
@@ -173,7 +173,7 @@ impl ZoTask {
       _stack: Some(stack),
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
-      cancelled: Arc::new(AtomicBool::new(false)),
+      cancelled: AtomicBool::new(false),
       user_arg0: 0,
       user_arg1: 0,
       user_arg2: 0,
@@ -211,7 +211,7 @@ impl ZoTask {
       _stack: Some(stack),
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
-      cancelled: Arc::new(AtomicBool::new(false)),
+      cancelled: AtomicBool::new(false),
       user_arg0: arg0,
       user_arg1: 0,
       user_arg2: 0,
@@ -244,7 +244,7 @@ impl ZoTask {
       _stack: Some(stack),
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
-      cancelled: Arc::new(AtomicBool::new(false)),
+      cancelled: AtomicBool::new(false),
       user_arg0: arg0,
       user_arg1: arg1,
       user_arg2: 0,
@@ -278,7 +278,7 @@ impl ZoTask {
       _stack: Some(stack),
       user_entry_addr: user_entry as *const () as u64,
       waiters: Vec::new(),
-      cancelled: Arc::new(AtomicBool::new(false)),
+      cancelled: AtomicBool::new(false),
       user_arg0: arg0,
       user_arg1: arg1,
       user_arg2: arg2,
@@ -308,15 +308,15 @@ impl ZoTask {
       _stack: None,
       user_entry_addr: 0,
       waiters: Vec::new(),
-      cancelled: Arc::new(AtomicBool::new(false)),
+      cancelled: AtomicBool::new(false),
       user_arg0: 0,
       user_arg1: 0,
       user_arg2: 0,
       ret_value: 0,
-      threaded: Some(ThreadedData {
+      threaded: Some(Box::new(ThreadedData {
         join: Mutex::new(None),
         outcome: Arc::new(Mutex::new(TaskOutcome::Running)),
-      }),
+      })),
     })
   }
 
@@ -906,9 +906,7 @@ pub unsafe extern "C-unwind" fn _zo_task_cancel(task: *mut ZoTask) {
 
   // SAFETY: caller contract — pointer still live until
   // the matching await consumes it.
-  let flag = unsafe { (*task).cancelled.clone() };
-
-  flag.store(true, Ordering::SeqCst);
+  unsafe { (*task).cancelled.store(true, Ordering::SeqCst) };
 }
 
 /// Query the cancellation flag for `task`. Returns

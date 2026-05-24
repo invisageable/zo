@@ -9,3 +9,6 @@ pub val EXIT_CODE_ERROR: int = 1;
 -!
 -! @note — Use `flush()` beforehand if pending output matters.
 pub ffi exit(code: int);
+
+-- TODO: add `abort()`.
+-- TODO: add `Command`.

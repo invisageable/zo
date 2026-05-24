@@ -25,6 +25,17 @@ use std::collections::VecDeque;
 use std::os::raw::c_int;
 use std::time::Duration;
 
+/// Opportunistic Selector poll fires once every N
+/// scheduler ticks instead of every dispatch. Each
+/// `kevent` / `epoll_wait` syscall costs 200-500 ns of
+/// kernel transition overhead; polling every tick
+/// doubled context-switch latency for pure-channel
+/// workloads that never touch I/O. 64 ticks gives
+/// I/O-parked tasks a ~3 µs worst-case wake latency
+/// (64 × ~50 ns per ctx_switch) while eliminating 98%
+/// of the syscall traffic.
+const SELECTOR_POLL_INTERVAL: u32 = 64;
+
 // ===== Scheduler state (thread-local) =====
 
 /// Per-OS-thread scheduler state. All access is from
@@ -53,6 +64,13 @@ pub struct SchedulerState {
   /// recycling one `Vec` here keeps the allocator out
   /// of the hot path.
   poll_batch: RefCell<Vec<*mut ZoTask>>,
+  /// Scheduler tick counter. Incremented once per
+  /// `run_one` dispatch. The opportunistic Selector
+  /// poll in `drain_all` fires every
+  /// `SELECTOR_POLL_INTERVAL` ticks instead of every
+  /// tick — eliminates ~98% of the kernel transitions
+  /// (kevent / epoll_wait) on the hot scheduling path.
+  tick: Cell<u32>,
 }
 
 impl SchedulerState {
@@ -63,6 +81,7 @@ impl SchedulerState {
       current: Cell::new(None),
       selector: RefCell::new(None),
       poll_batch: RefCell::new(Vec::new()),
+      tick: Cell::new(0),
     }
   }
 
@@ -210,7 +229,19 @@ pub fn drain_all() {
         // SAFETY: task pointer pulled from the run
         // queue is live (the box is scheduler-owned).
         unsafe { run_one(task) };
-        with(|s| drain_ready(s, 0));
+
+        // Opportunistic I/O drain — gated by tick
+        // counter to avoid a kevent/epoll_wait
+        // syscall on every dispatch.
+        with(|s| {
+          let tick = s.tick.get().wrapping_add(1);
+
+          s.tick.set(tick);
+
+          if tick % SELECTOR_POLL_INTERVAL == 0 {
+            drain_ready(s, 0);
+          }
+        });
       }
       None => {
         let timeout = if nested { 0 } else { -1 };
@@ -466,14 +497,23 @@ pub(crate) fn park_thread_cooperative(park: &PthreadPark) {
       // transitions to `Dead` and its handle is awaited.
       unsafe { run_one_external(task) };
 
-      // After the task ran, give I/O-parked siblings a
-      // turn before we loop back to the notify check.
-      with(|s| drain_ready(s, 0));
+      // Tick-gated I/O drain — same cadence as
+      // drain_all to avoid syscall storms.
+      with(|s| {
+        let tick = s.tick.get().wrapping_add(1);
+
+        s.tick.set(tick);
+
+        if tick % SELECTOR_POLL_INTERVAL == 0 {
+          drain_ready(s, 0);
+        }
+      });
 
       continue;
     }
 
-    // 3. No local ready task — opportunistic I/O drain.
+    // 3. No local ready task — non-blocking I/O drain
+    //    (always fires here since we're truly idle).
     let woke = with(|s| drain_ready(s, 0));
 
     if woke > 0 {
