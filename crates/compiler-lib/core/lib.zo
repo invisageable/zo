@@ -14,8 +14,7 @@ pub pack cmp;
 pub pack fmt;
 pub pack int;
 pub pack io;
-pub pack map;
-pub pack set;
+pub pack collections;
 pub pack str;
 pub pack vec;
 
