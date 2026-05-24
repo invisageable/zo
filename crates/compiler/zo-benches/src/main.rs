@@ -253,6 +253,8 @@ fn run_bench(
         &bin_dir.join(format!("{name}_c")),
         num_runs,
         with_runtime,
+        argv,
+        with_rss,
       );
     }
 
@@ -262,6 +264,8 @@ fn run_bench(
         &bin_dir.join(format!("{name}_rust")),
         num_runs,
         with_runtime,
+        argv,
+        with_rss,
       );
     }
 
@@ -271,6 +275,8 @@ fn run_bench(
         &bin_dir.join(format!("{name}_odin")),
         num_runs,
         with_runtime,
+        argv,
+        with_rss,
       );
     }
   }
@@ -355,10 +361,10 @@ fn time_runtime(binary: &PathBuf, runs: usize, argv: &str, with_rss: bool) {
     let status = child.wait();
     let elapsed = start.elapsed().as_nanos() as u64;
 
+    let peak_kib = peak.recv().unwrap_or(0);
+
     match status {
       Ok(s) if s.success() => {
-        let peak_kib = peak.recv().unwrap_or(0);
-
         times.push(elapsed);
         peaks.push(peak_kib);
 
@@ -368,7 +374,11 @@ fn time_runtime(binary: &PathBuf, runs: usize, argv: &str, with_rss: bool) {
           fmt_kib(peak_kib),
         );
       }
-      _ => println!("  Runtime {i}: FAILED"),
+      _ => {
+        peaks.push(peak_kib);
+
+        println!("  Runtime {i}: FAILED (peak RSS: {})", fmt_kib(peak_kib),);
+      }
     }
   }
 
@@ -456,6 +466,8 @@ fn benchmark_c(
   output: &PathBuf,
   runs: usize,
   with_runtime: bool,
+  argv: &str,
+  with_rss: bool,
 ) {
   println!("c (ARM64):");
 
@@ -496,7 +508,7 @@ fn benchmark_c(
   }
 
   if with_runtime && output.exists() {
-    time_runtime(output, runs, "", false);
+    time_runtime(output, runs, argv, with_rss);
   }
 
   println!();
@@ -507,6 +519,8 @@ fn benchmark_odin(
   output: &PathBuf,
   runs: usize,
   with_runtime: bool,
+  argv: &str,
+  with_rss: bool,
 ) {
   println!("odin (ARM64):");
 
@@ -550,7 +564,7 @@ fn benchmark_odin(
   }
 
   if with_runtime && output.exists() {
-    time_runtime(output, runs, "", false);
+    time_runtime(output, runs, argv, with_rss);
   }
 
   println!();
@@ -561,6 +575,8 @@ fn benchmark_rust(
   output: &PathBuf,
   runs: usize,
   with_runtime: bool,
+  argv: &str,
+  with_rss: bool,
 ) {
   println!("rustc (ARM64):");
 
@@ -601,7 +617,7 @@ fn benchmark_rust(
   }
 
   if with_runtime && output.exists() {
-    time_runtime(output, runs, "", false);
+    time_runtime(output, runs, argv, with_rss);
   }
 
   println!();

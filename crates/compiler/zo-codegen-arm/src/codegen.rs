@@ -5747,16 +5747,15 @@ impl<'a> ARM64Gen<'a> {
   }
 
   /// Clobber-safe int arg marshaling. Given (dst, src)
-  /// pairs, emits a sequence of `mov` that always lands the
-  /// right value in each `dst`, even if a later `dst` is
-  /// some other move's `src`. One scratch slot (X16) is
-  /// enough for any 3-5 arg call (raylib's whole surface).
-  ///
-  /// Without this, calling `init_window(w, h, c_str("…"))`
-  /// segfaults: c_str's result lands in X0, then `mov X0, w`
-  /// clobbers it before `mov X2, x0` can read it.
+  /// pairs, emits a sequence of `mov` that always lands
+  /// the right value in each `dst`, even if a later
+  /// `dst` is some other move's `src`. Two scratch slots
+  /// (X16, X17) cover up to a full 2-cycle (`X0←X1,
+  /// X1←X0`). AAPCS declares both caller-saved, and no
+  /// live value occupies them at a call-site boundary.
   fn emit_safe_int_arg_moves(&mut self, moves: &[(Register, Register)]) {
-    let mut saved_reg: Option<Register> = None;
+    let scratches = [X16, X17];
+    let mut saved: Vec<(Register, Register)> = Vec::new();
 
     for j in 0..moves.len() {
       let (_, src) = moves[j];
@@ -5766,14 +5765,23 @@ impl<'a> ARM64Gen<'a> {
         .enumerate()
         .any(|(k, (dst, _))| k != j && *dst == src);
 
-      if is_clobbered && saved_reg.is_none() {
-        self.emitter.emit_mov_reg(X16, src);
-        saved_reg = Some(src);
+      if is_clobbered
+        && !saved.iter().any(|(orig, _)| *orig == src)
+        && saved.len() < scratches.len()
+      {
+        let scratch = scratches[saved.len()];
+
+        self.emitter.emit_mov_reg(scratch, src);
+        saved.push((src, scratch));
       }
     }
 
     for &(dst, src) in moves {
-      let actual_src = if Some(src) == saved_reg { X16 } else { src };
+      let actual_src = saved
+        .iter()
+        .find(|(orig, _)| *orig == src)
+        .map(|(_, scratch)| *scratch)
+        .unwrap_or(src);
 
       if dst != actual_src {
         self.emitter.emit_mov_reg(dst, actual_src);

@@ -122,30 +122,6 @@ impl PthreadPark {
 
     self.cv.notify_one();
   }
-
-  /// Park for at most `timeout`. Returns `true` if
-  /// `unpark` latched, `false` on timeout. Used by
-  /// `_zo_chan_recv_timeout`.
-  fn park_timed(&self, timeout: std::time::Duration) -> bool {
-    let mut guard = self.notified.lock().expect("PthreadPark poisoned");
-
-    if *guard {
-      return true;
-    }
-
-    let (new_guard, wait_result) = self
-      .cv
-      .wait_timeout(guard, timeout)
-      .expect("PthreadPark wait poisoned");
-
-    guard = new_guard;
-
-    if wait_result.timed_out() && !*guard {
-      return false;
-    }
-
-    *guard
-  }
 }
 
 /// A parked-caller handle returned by
@@ -569,13 +545,38 @@ pub unsafe extern "C-unwind" fn _zo_chan_recv_timeout(
       drop(guard);
 
       let remaining = deadline.saturating_duration_since(now);
-      let waited = park.park_timed(remaining);
+
+      // Drive the scheduler while waiting so green-task
+      // senders can make progress (same cooperative-park
+      // pattern as `_zo_chan_recv`'s non-task path). The
+      // timed variant loops with short sleeps instead of
+      // the full `park_thread_cooperative` to honour the
+      // caller's deadline.
+      let waited = loop {
+        {
+          let g = park.notified.lock().expect("PthreadPark poisoned");
+
+          if *g {
+            break true;
+          }
+        }
+
+        let next = scheduler::with(|s| s.pop_local());
+
+        if let Some(task) = next {
+          unsafe { scheduler::run_one_external(task) };
+        }
+
+        let elapsed = now.elapsed();
+
+        if elapsed >= remaining {
+          break false;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(1));
+      };
 
       if !waited {
-        // Timed out — remove our stale waiter entry so
-        // no future sender tries to wake a dropped
-        // parker. Searching is O(n) in the waiter list;
-        // acceptable for a v1 timeout path.
         let mut guard = ch.inner.lock().expect("zo-chan poisoned");
 
         guard.receivers.retain(|w| match w {

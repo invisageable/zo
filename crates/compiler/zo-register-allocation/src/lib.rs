@@ -301,9 +301,6 @@ fn build_struct_return_map(
   let mut cur_fn: Option<Symbol> = None;
   let mut last_ty: Option<TyId> = None;
   let mut last_fields: Option<u32> = None;
-  // Vids produced by `Insn::Call`, keyed by vid → callee
-  // name, scoped to the currently-walked function.
-  let mut value_call: HashMap<u32, Symbol> = HashMap::default();
 
   // Value-id → producing-instruction ty_id, scoped to the
   // currently-walked function. ValueId counters reset
@@ -328,7 +325,6 @@ fn build_struct_return_map(
         last_ty = None;
         last_fields = None;
         value_ty.clear();
-        value_call.clear();
 
         // Every fn whose declared return is a struct claims
         // a slot, even when the body's tail position is a
@@ -394,11 +390,13 @@ fn build_struct_return_map(
         });
         last_ty = None;
       }
-      Insn::Call { dst, name, .. } => {
-        value_call.insert(dst.0, *name);
-
+      Insn::Call { name, .. } => {
         if let Some(fname) = cur_fn {
-          callees_of.entry(fname).or_default().push(*name);
+          let entry = callees_of.entry(fname).or_default();
+
+          if !entry.contains(name) {
+            entry.push(*name);
+          }
         }
       }
       Insn::Return { value: Some(_), .. } => {

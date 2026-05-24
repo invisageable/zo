@@ -194,6 +194,14 @@ pub unsafe fn yield_now() {
 /// when the run queue empties but I/O waiters remain;
 /// returns only when both queues are empty.
 pub fn drain_all() {
+  // When called re-entrantly from inside a green task
+  // (nested nursery), use non-blocking Selector poll
+  // (timeout=0) instead of blocking poll(-1). Blocking
+  // would freeze the only OS thread driving the
+  // scheduler; any I/O waiter whose readiness depends
+  // on the same thread would deadlock the program.
+  let nested = with(|s| s.current().is_some());
+
   loop {
     let next = with(|s| s.pop_ready());
 
@@ -205,7 +213,9 @@ pub fn drain_all() {
         with(|s| drain_ready(s, 0));
       }
       None => {
-        let woke = with(|s| drain_ready(s, -1));
+        let timeout = if nested { 0 } else { -1 };
+        let woke = with(|s| drain_ready(s, timeout));
+
         if woke == 0 {
           return;
         }
@@ -322,13 +332,20 @@ unsafe fn run_one(task: *mut ZoTask) {
       ctx_switch(sch_ctx, task_ctx);
     }
 
-    // Restore the outer re-entrant state. For top-level
-    // calls (`prev_current == None`), this just zeroes
-    // out what was a transient inner write — no change
-    // in observable behaviour from the pre-fix code.
-    unsafe {
-      *sch_ctx = prev_sch_ctx;
+    // Restore the outer re-entrant state only when
+    // nested (prev_current was Some). Top-level calls
+    // leave sch_ctx as-is — the ctx_switch already
+    // wrote a valid resume point into it, and
+    // overwriting with the zeroed pre-switch snapshot
+    // would leave a SIGSEGV landmine for any future
+    // code that reads scheduler_ctx_ptr() before the
+    // next ctx_switch stores a real LR/SP.
+    if prev_current.is_some() {
+      unsafe {
+        *sch_ctx = prev_sch_ctx;
+      }
     }
+
     s.set_current(prev_current);
 
     // SAFETY: caller contract — pointer still live.
@@ -390,6 +407,15 @@ fn drain_ready(s: &SchedulerState, timeout_ms: c_int) -> usize {
   }
 
   n
+}
+
+/// Non-blocking Selector poll — wake any I/O-parked
+/// tasks whose fds are ready and enqueue them. Returns
+/// the number of tasks woken. Exposed for `select.rs`'s
+/// idle loop so it can surface I/O readiness without
+/// blocking the OS thread.
+pub fn poll_io_nonblocking() -> usize {
+  with(|s| drain_ready(s, 0))
 }
 
 /// Cooperative park for non-task OS threads — drives the

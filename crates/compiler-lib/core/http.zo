@@ -158,7 +158,14 @@ pub fun get(url: str) -> Result<Response, int> {
             ++ " HTTP/1.1\r\nHost: " ++ parts.host
             ++ "\r\nConnection: close\r\n\r\n";
 
-          stream.write(req);
+          match stream.write(req) {
+            Result::Fail(e) => {
+              stream.close();
+
+              return Result::Fail(e);
+            }
+            Result::Pass(_) => {}
+          }
 
           mut text: str = "";
           mut done: bool = false;
