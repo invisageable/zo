@@ -498,7 +498,7 @@ fn ret_int_lands_in_x0() {
   let i = q.int64();
   let abi = classify(&[], i, &q.query());
 
-  assert_eq!(abi.ret, AbiRet::Gp(X0));
+  assert!(matches!(abi.ret, AbiRet::Gp { reg: X0, .. }));
 }
 
 #[test]

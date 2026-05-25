@@ -1,14 +1,133 @@
+-! Process control and subprocess execution.
+-!
+-! @note — `Command` follows the builder pattern: construct
+-! with `Command::new(program)`, chain `.arg(value)`, then
+-! `.output()` to execute and capture stdout/stderr.
+
+load core::c::(CStr);
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+
 -! The success exit code.
 pub val EXIT_CODE_SUCCESS: int = 0;
 -! The error exit code.
 pub val EXIT_CODE_ERROR: int = 1;
 
+-! Capture flags.
+val CAPTURE_NONE: int = 0;
+val CAPTURE_STDOUT: int = 1;
+val CAPTURE_STDERR: int = 2;
+val CAPTURE_BOTH: int = 3;
+
+
 -! Terminates the process with the given exit code.
--!
--! @param code — The exit code.
 -!
 -! @note — Use `flush()` beforehand if pending output matters.
 pub ffi exit(code: int);
 
--- TODO: add `abort()`.
--- TODO: add `Command`.
+%% link_name = "zo_process_exec".
+pub ffi __zo_process_exec(
+  program: str,
+  argv: []str,
+  capture: int,
+) -> []str;
+
+
+-! Output captured from a subprocess.
+pub struct Output {
+  code: int,
+  stdout: str,
+  stderr: str,
+}
+
+-! A subprocess builder.
+-!
+-! @note — construct via `Command::new`, chain `.arg()`,
+-! then call `.output()` to execute.
+pub struct Command {
+  program: str,
+  arguments: []str,
+}
+
+apply Command {
+  -! Create a command for the given program path.
+  pub fun new(program: str) -> Self {
+    Self { program = program, arguments = [] }
+  }
+
+  -! Append an argument.
+  pub fun arg(self, value: str) -> Self {
+    mut args: []str = self.arguments;
+
+    args.push(value);
+
+    Self { program = self.program, arguments = args }
+  }
+
+  -! Execute the command and capture stdout + stderr.
+  pub fun output(self) -> Result<Output, int> {
+    imu result: []str = __zo_process_exec(
+      self.program,
+      self.arguments,
+      CAPTURE_BOTH,
+    );
+
+    if result.len < 3 {
+      return Result::Fail(1);
+    }
+
+    imu code_str: str = result[0];
+    imu code_opt: Option<int> = code_str.parse_int();
+
+    mut code: int = -1;
+
+    match code_opt {
+      Option::Some(value) => { code = value; }
+      Option::None => {}
+    }
+
+    if code == -1 {
+      return Result::Fail(1);
+    }
+
+    Result::Pass(Output {
+      code = code,
+      stdout = result[1],
+      stderr = result[2],
+    })
+  }
+
+  -! Execute the command, inheriting stdout/stderr.
+  -! Returns the exit code.
+  pub fun run(self) -> Result<int, int> {
+    imu result: []str = __zo_process_exec(
+      self.program,
+      self.arguments,
+      CAPTURE_BOTH,
+    );
+
+    if result.len < 3 {
+      return Result::Fail(1);
+    }
+
+    imu code_str: str = result[0];
+    imu code_opt: Option<int> = code_str.parse_int();
+
+    mut code: int = -1;
+
+    match code_opt {
+      Option::Some(value) => { code = value; }
+      Option::None => {}
+    }
+
+    if code == -1 {
+      return Result::Fail(1);
+    }
+
+    Result::Pass(code)
+  }
+}

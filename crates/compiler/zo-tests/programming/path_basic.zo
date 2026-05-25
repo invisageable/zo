@@ -1,0 +1,51 @@
+-- tests-run-pass: path join, parent, filename, stem,
+-- extension, is_absolute, normalize.
+
+load core::path;
+
+fun main() {
+  -- join.
+  check@eq(path::join("usr", "bin"), "usr/bin");
+  check@eq(path::join("usr/", "bin"), "usr/bin");
+  check@eq(path::join("", "bin"), "bin");
+  check@eq(path::join("usr", ""), "usr");
+
+  -- parent.
+  check@eq(path::parent("/usr/bin/zo"), "/usr/bin");
+  check@eq(path::parent("/usr"), "/");
+  check@eq(path::parent("foo.txt"), ".");
+  check@eq(path::parent("/"), "/");
+  check@eq(path::parent(""), "");
+
+  -- filename.
+  check@eq(path::filename("/usr/bin/zo"), "zo");
+  check@eq(path::filename("foo.txt"), "foo.txt");
+  check@eq(path::filename("/"), "");
+
+  -- stem.
+  check@eq(path::stem("foo.tar.gz"), "foo.tar");
+  check@eq(path::stem("foo"), "foo");
+  check@eq(path::stem(".hidden"), ".hidden");
+
+  -- extension.
+  check@eq(path::extension("foo.rs"), ".rs");
+  check@eq(path::extension("foo.tar.gz"), ".gz");
+  check@eq(path::extension("foo"), "");
+  check@eq(path::extension(".hidden"), "");
+
+  -- is_absolute.
+  check(path::is_absolute("/usr/bin"));
+  check(!path::is_absolute("relative/path"));
+
+  -- normalize.
+  check@eq(path::normalize("/usr/./bin/../lib"), "/usr/lib");
+  check@eq(path::normalize("a/b/../c"), "a/c");
+  check@eq(path::normalize("///a//b///"), "/a/b");
+  check@eq(path::normalize(".."), ".");
+  check@eq(path::normalize(""), ".");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

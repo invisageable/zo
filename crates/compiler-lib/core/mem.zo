@@ -1,0 +1,52 @@
+-! Raw memory operations — `memcpy`, `memset`, `memcmp`,
+-! `malloc`, `free`.
+-!
+-! @note — all pointer arguments are `s64`. These operations
+-! are inherently unsafe — callers manage lifetimes manually.
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+
+%% link_name = "zo_mem_copy".
+pub ffi __zo_mem_copy(dst: s64, src: s64, len: int);
+
+%% link_name = "zo_mem_set".
+pub ffi __zo_mem_set(dst: s64, value: int, len: int);
+
+%% link_name = "zo_mem_compare".
+pub ffi __zo_mem_compare(a: s64, b: s64, len: int) -> int;
+
+%% link_name = "zo_mem_alloc".
+pub ffi __zo_mem_alloc(size: int) -> s64;
+
+%% link_name = "zo_mem_free".
+pub ffi __zo_mem_free(ptr: s64);
+
+
+-! Copy `len` bytes from `src` to `dst` (non-overlapping).
+pub fun copy(dst: s64, src: s64, len: int) {
+  __zo_mem_copy(dst, src, len);
+}
+
+-! Fill `len` bytes at `dst` with `value`.
+pub fun set(dst: s64, value: int, len: int) {
+  __zo_mem_set(dst, value, len);
+}
+
+-! Compare `len` bytes. Returns `< 0`, `0`, or `> 0`.
+pub fun compare(a: s64, b: s64, len: int) -> int {
+  __zo_mem_compare(a, b, len)
+}
+
+-! Allocate `size` bytes on the heap. Returns `0` on failure.
+pub fun alloc(size: int) -> s64 {
+  __zo_mem_alloc(size)
+}
+
+-! Free a pointer previously returned by `alloc`.
+pub fun free(ptr: s64) {
+  __zo_mem_free(ptr);
+}

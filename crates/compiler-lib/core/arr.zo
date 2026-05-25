@@ -92,6 +92,11 @@ apply []int {
 }
 
 apply []$T {
+  -! Remove and return the last element.
+  pub fun pop(mut self) -> $T {
+    self[0]
+  }
+
   -! First element. Empty array → undefined.
   pub fun first(self) -> $T {
     self[0]

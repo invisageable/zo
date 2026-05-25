@@ -124,7 +124,7 @@ fn test_val_in_function_no_errors() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -156,7 +156,7 @@ fun main() {}"#;
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -167,21 +167,23 @@ fun main() {}"#;
 }
 
 #[test]
-fn test_val_global_sir_has_no_module_level_constint() {
+fn test_val_global_sir_keeps_module_level_constint() {
   assert_sir_structure(
     r#"val X: int = 42;
 fun main() {}"#,
     |sir| {
-      // Module-level ConstInt should be stripped — only
-      // ConstInts inside the function body should remain.
+      // Module-level ConstInt must stay so the export
+      // collector can scan sir.instructions to find the
+      // literal value for cross-module pack::CONSTANT
+      // qualified access.
       let pre_fundef_constint = sir
         .iter()
         .take_while(|i| !matches!(i, Insn::FunDef { .. }))
         .any(|i| matches!(i, Insn::ConstInt { .. }));
 
       assert!(
-        !pre_fundef_constint,
-        "module-level ConstInt should be stripped for val"
+        pre_fundef_constint,
+        "module-level ConstInt must be kept for val export"
       );
     },
   );
@@ -210,7 +212,7 @@ fn test_val_bool_no_errors() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -241,7 +243,7 @@ fn test_val_str_no_errors() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -273,7 +275,7 @@ fun main() {}"#;
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _) = executor.execute();
+  let (_, _, _, _, _, _, _) = executor.execute();
   let errors = collect_errors();
 
   assert!(

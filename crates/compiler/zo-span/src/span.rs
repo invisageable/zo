@@ -2,7 +2,7 @@ use serde::Serialize;
 
 /// The representation a region of source code by its start and end byte
 /// offsets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Span {
   /// The starting position.
   pub start: u32,

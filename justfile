@@ -117,6 +117,11 @@ zo_run program:
 zo_test:
   cargo nextest run --workspace -E 'package(/^zo/)' --all-features
 
+# lsp: Run the zo language server.
+[group("zo")]
+zo_lsp:
+  cargo run -p zo-lsp
+
 # Run zo program integration tests
 [group("zo")]
 [group('test')]

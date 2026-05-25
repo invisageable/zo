@@ -6,5 +6,5 @@ mod stage;
 #[cfg(test)]
 mod tests;
 
-pub use compiler::{Compiler, DiagnosticsConfig};
+pub use compiler::{Compiler, DiagnosticsConfig, default_core_search_paths};
 pub use stage::Stage;

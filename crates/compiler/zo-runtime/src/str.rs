@@ -114,6 +114,10 @@ pub unsafe extern "C-unwind" fn _zo_str_alloc(
 /// numbers into strings (`"Content-Length: " ++
 /// body.len.to_str()`) — needed by the upcoming
 /// `core::http` standard-library layer.
+///
+/// # Safety
+///
+/// No preconditions — `n` is a plain scalar.
 #[unsafe(export_name = "zo_int_to_str")]
 pub unsafe extern "C-unwind" fn _zo_int_to_str(n: i64) -> *const u8 {
   let formatted = format!("{n}");

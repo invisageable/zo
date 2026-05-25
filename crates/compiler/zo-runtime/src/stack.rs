@@ -310,10 +310,10 @@ impl TaskStack {
     // slab has free slots. Falls through to the old
     // per-task mmap when the arena is unavailable or
     // exhausted.
-    if let Some(a) = arena() {
-      if let Some(stack) = a.alloc() {
-        return stack;
-      }
+    if let Some(a) = arena()
+      && let Some(stack) = a.alloc()
+    {
+      return stack;
     }
 
     if let Some(cached) = pool_pop() {
@@ -390,10 +390,10 @@ impl TaskStack {
   pub fn register(&self) {
     // Arena-backed stacks use O(1) bounds-check in the
     // fault handler — no registry entry needed.
-    if let Some(a) = arena() {
-      if a.contains(self.base.as_ptr()) {
-        return;
-      }
+    if let Some(a) = arena()
+      && a.contains(self.base.as_ptr())
+    {
+      return;
     }
 
     register_stack(self);
@@ -405,10 +405,10 @@ impl TaskStack {
   /// can change (i.e. before moving it into the pool or
   /// munmapping the reservation).
   pub fn unregister(&self) {
-    if let Some(a) = arena() {
-      if a.contains(self.base.as_ptr()) {
-        return;
-      }
+    if let Some(a) = arena()
+      && a.contains(self.base.as_ptr())
+    {
+      return;
     }
 
     unregister_stack(self);
@@ -420,12 +420,12 @@ impl TaskStack {
   /// next reuser gets a pre-warmed working set. Caller
   /// must have invoked [`Self::unregister`] first.
   pub fn recycle(self) {
-    if let Some(a) = arena() {
-      if a.contains(self.base.as_ptr()) {
-        a.free_slot(self);
+    if let Some(a) = arena()
+      && a.contains(self.base.as_ptr())
+    {
+      a.free_slot(self);
 
-        return;
-      }
+      return;
     }
 
     // Fallback (non-arena mmap'd stack): reset low
@@ -484,10 +484,10 @@ impl Drop for TaskStack {
     // recycle) does the madvise to release physical
     // pages. If Drop runs without recycle (abnormal
     // path), the slot leaks until the arena drops.
-    if let Some(a) = arena() {
-      if a.contains(self.base.as_ptr()) {
-        return;
-      }
+    if let Some(a) = arena()
+      && a.contains(self.base.as_ptr())
+    {
+      return;
     }
 
     unregister_stack(self);
@@ -699,10 +699,11 @@ extern "C" fn handle_fault(
 fn try_extend(fault_addr: *const u8) -> bool {
   // Arena path — O(1) bounds check + direct mprotect.
   // No locks, no linear scan. Async-signal-safe.
-  if let Some(a) = ARENA.get() {
-    if a.slot_count > 0 && a.contains(fault_addr) {
-      return a.find_stack_for(fault_addr).is_some();
-    }
+  if let Some(a) = ARENA.get()
+    && a.slot_count > 0
+    && a.contains(fault_addr)
+  {
+    return a.find_stack_for(fault_addr).is_some();
   }
 
   // Fallback: per-task mmap stacks tracked in the

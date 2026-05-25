@@ -1,0 +1,29 @@
+-- tests-run-pass: str starts_with, ends_with, last_index_of.
+
+fun main() {
+  imu s: str = "hello, world!";
+
+  -- starts_with.
+  check(s.starts_with("hello"));
+  check(s.starts_with(""));
+  check(!s.starts_with("world"));
+  check(!s.starts_with("hello, world! extra"));
+
+  -- ends_with.
+  check(s.ends_with("world!"));
+  check(s.ends_with("!"));
+  check(s.ends_with(""));
+  check(!s.ends_with("hello"));
+
+  -- last_index_of.
+  imu path: str = "/usr/local/bin";
+
+  check@eq(path.last_index_of("/"), 10);
+  check@eq(path.last_index_of("x"), -1);
+  check@eq("aaa".last_index_of("a"), 2);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

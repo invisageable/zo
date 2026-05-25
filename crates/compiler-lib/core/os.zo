@@ -1,0 +1,63 @@
+-! Platform detection — OS name, architecture, family.
+-!
+-! @note — all values are compile-time constants baked into
+-! the runtime dylib. No syscalls, no allocation.
+
+load core::c::(CBytes);
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+
+%% link_name = "zo_os_name".
+pub ffi __zo_os_name() -> str;
+
+%% link_name = "zo_os_arch".
+pub ffi __zo_os_arch() -> str;
+
+%% link_name = "zo_os_family".
+pub ffi __zo_os_family() -> str;
+
+
+-! POSIX errno constants for `Result<T, int>` matching.
+pub val ENOENT: int = 2;
+pub val EACCES: int = 13;
+pub val EEXIST: int = 17;
+pub val ENOTDIR: int = 20;
+pub val EISDIR: int = 21;
+pub val EINVAL: int = 22;
+pub val ENOSPC: int = 28;
+pub val EPIPE: int = 32;
+
+
+-! Operating system name: `"macos"`, `"linux"`.
+pub fun name() -> str {
+  __zo_os_name()
+}
+
+-! CPU architecture: `"aarch64"`, `"x86_64"`.
+pub fun arch() -> str {
+  __zo_os_arch()
+}
+
+-! OS family: `"unix"`, `"windows"`.
+pub fun family() -> str {
+  __zo_os_family()
+}
+
+-! `true` on macOS.
+pub fun is_macos() -> bool {
+  name() == "macos"
+}
+
+-! `true` on Linux.
+pub fun is_linux() -> bool {
+  name() == "linux"
+}
+
+-! `true` on any Unix-family OS.
+pub fun is_unix() -> bool {
+  family() == "unix"
+}

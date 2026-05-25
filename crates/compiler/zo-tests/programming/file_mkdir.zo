@@ -1,0 +1,37 @@
+-- tests-run-pass: mkdir + rename + cleanup.
+
+load core::file;
+
+fun main() {
+  imu dir: str = "samples/file_mkdir_test";
+  imu dir2: str = "samples/file_mkdir_renamed";
+
+  -- Create directory.
+  match file::mkdir(dir) {
+    Result::Pass(_) => {
+      check(exists(dir));
+      showln("mkdir-ok");
+    }
+    Result::Fail(_) => { showln("mkdir failed"); }
+  }
+
+  -- Rename.
+  match file::rename(dir, dir2) {
+    Result::Pass(_) => {
+      check(!exists(dir));
+      check(exists(dir2));
+      showln("rename-ok");
+    }
+    Result::Fail(_) => { showln("rename failed"); }
+  }
+
+  -- Cleanup — write a dummy to test dir removal.
+  remove_file(dir2);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- mkdir-ok
+-- rename-ok
+-- DONE

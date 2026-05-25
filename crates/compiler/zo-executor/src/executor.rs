@@ -53,6 +53,7 @@ pub type ExecuteOutput = (
   HashMap<Symbol, AbstractDef>,
   HashMap<(Symbol, Symbol), AbstractImpl>,
   Vec<ExportedGenericBody>,
+  HashMap<Span, Span>,
 );
 
 /// Index newtype: position in `Executor::funs`.
@@ -229,6 +230,9 @@ pub struct Executor<'a> {
   /// path every intra-module / FFI / preload call
   /// already uses.
   pending_callee_pack: Option<Symbol>,
+  /// Deferred prefix unary op (`!`, `-`) when the operand
+  /// is a namespaced call that hasn't resolved yet.
+  pending_unop: Option<(UnOp, usize)>,
   /// Current function context (if we're inside a function)
   current_function: Option<FunCtx>,
   /// Save-stack for nested `fun` inside a function body.
@@ -462,6 +466,11 @@ pub struct Executor<'a> {
   /// Global compile-time constants (`val` at module level).
   /// Visible from all functions.
   global_constants: Vec<Local>,
+  /// Pack-qualified constant lookup keyed by
+  /// `(owning_pack, name)`. Populated alongside
+  /// `global_constants` when `top_pack` is `Some(_)`.
+  /// Enables `os::ENOENT` style access on `val` decls.
+  pack_constants: HashMap<(Symbol, Symbol), usize>,
   /// Active type parameters: `$T → TyId`. Set during
   /// generic function definition, cleared after.
   type_params: Vec<(Symbol, TyId)>,
@@ -577,6 +586,8 @@ pub struct Executor<'a> {
   /// raise a precise `DuplicateAbstractImpl` diagnostic on
   /// collision. See [`AbstractImpl`] for the full schema.
   abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
+  /// Maps each identifier use-span to its definition-span.
+  use_def_map: HashMap<Span, Span>,
   /// Signature-only pre-scan flag. When true, `execute_fun`
   /// registers the `FunDef` in `self.funs` and returns before
   /// any body-level state is touched (no `pending_function`,
@@ -799,6 +810,7 @@ impl<'a> Executor<'a> {
       fun_by_name: DenseMap::new(),
       pack_fun_by_name: HashMap::default(),
       pending_callee_pack: None,
+      pending_unop: None,
       local_scope: ScopedDenseMap::new(),
       current_function: None,
       saved_outer_funs: Vec::new(),
@@ -851,6 +863,7 @@ impl<'a> Executor<'a> {
       source_path: None,
       pending_attributes: Vec::new(),
       global_constants: Vec::new(),
+      pack_constants: HashMap::default(),
       type_params: Vec::new(),
       type_constraints: HashMap::default(),
       implicit_param_counter: 0,
@@ -863,6 +876,7 @@ impl<'a> Executor<'a> {
       template_bindings: TemplateBindings::default(),
       abstract_defs: HashMap::default(),
       abstract_impls: HashMap::default(),
+      use_def_map: HashMap::default(),
       prescan_only: false,
     }
   }
@@ -1484,6 +1498,7 @@ impl<'a> Executor<'a> {
     let zo_module_resolver::ImportedSymbols {
       funs,
       vars,
+      var_literals,
       enums,
       abstract_defs,
       abstract_impls,
@@ -1506,7 +1521,31 @@ impl<'a> Executor<'a> {
 
     self.funs = funs;
 
-    for v in vars {
+    for (i, v) in vars.into_iter().enumerate() {
+      let lit = var_literals.get(i).cloned().flatten();
+
+      let v = if let Some(ref exported_lit) = lit {
+        use zo_module_resolver::ExportedLiteral;
+
+        let value_id = match exported_lit {
+          ExportedLiteral::Int(n) => self.values.store_int(*n),
+          ExportedLiteral::Float(f) => self.values.store_float(*f),
+          ExportedLiteral::StringSym(s) => self.values.store_string(*s),
+          ExportedLiteral::Char(c) => self.values.store_int(*c as u64),
+          ExportedLiteral::Bytes(b) => self.values.store_int(*b as u64),
+        };
+
+        Local { value_id, ..v }
+      } else {
+        v
+      };
+
+      if let Some(pack) = v.owning_pack {
+        let gc_idx = self.global_constants.len();
+        self.global_constants.push(v);
+        self.pack_constants.insert((pack, v.name), gc_idx);
+      }
+
       self.push_local(v);
     }
     for (sym, def) in abstract_defs {
@@ -1598,6 +1637,7 @@ impl<'a> Executor<'a> {
 
     let n = self.original_tree_len();
     let mut idx = 0;
+    let mut seen_fun = false;
     // Track brace depth so we only register funs at the
     // top level — not funs inside `apply`, `struct`,
     // `abstract`, or a closure body.
@@ -1606,7 +1646,48 @@ impl<'a> Executor<'a> {
     while idx < n {
       let tok = self.tree.nodes[idx].token;
 
+      // Forward-register type definitions that appear AFTER
+      // the first function so field layouts, variant tables,
+      // and return types resolve inside function bodies.
+      if block_depth == 0
+        && matches!(tok, Token::Struct | Token::Enum | Token::Abstract)
+        && seen_fun
+      {
+        let header = self.tree.nodes[idx];
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        match tok {
+          Token::Struct => self.execute_struct(idx, children_end),
+          Token::Enum => self.execute_enum(idx, children_end),
+          Token::Abstract => {
+            self.execute_abstract(idx, children_end);
+          }
+          _ => unreachable!(),
+        }
+
+        idx = children_end.max(idx + 1);
+
+        continue;
+      }
+
+      // Register `apply Abstract for Type` relationships
+      // so bound checks in function bodies above can find
+      // implementations defined below. Only the (abstract,
+      // type) key is needed — method bodies compile during
+      // the main pass.
+      if block_depth == 0 && tok == Token::Apply && seen_fun {
+        let header = self.tree.nodes[idx];
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.prescan_apply_header(idx, children_end);
+
+        idx = children_end.max(idx + 1);
+
+        continue;
+      }
+
       if block_depth == 0 && tok == Token::Fun {
+        seen_fun = true;
         let header = self.tree.nodes[idx];
         let children_end = (header.child_start + header.child_count) as usize;
 
@@ -1670,6 +1751,94 @@ impl<'a> Executor<'a> {
     }
 
     j + 1
+  }
+
+  /// Lightweight header-only scan of `apply Abstract for Type`.
+  /// Registers the `(abstract, type)` key in `abstract_impls`
+  /// with an empty placeholder so bound checks in function
+  /// bodies compiled before the apply block can find the
+  /// implementation. The main pass overwrites the placeholder
+  /// with the real entry (compiled methods, vtable symbol).
+  fn prescan_apply_header(&mut self, start_idx: usize, end_idx: usize) {
+    // Extract the first name (Abstract or Type for inherent).
+    let first_name = (start_idx + 1..end_idx).find_map(|i| {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Ident {
+        match self.node_value(i) {
+          Some(NodeValue::Symbol(s)) => Some(s),
+          _ => None,
+        }
+      } else if Self::is_primitive_type_token(tok) {
+        tok.ty_keyword_str().map(|s| self.interner.intern(s))
+      } else {
+        None
+      }
+    });
+
+    let first_name = match first_name {
+      Some(n) => n,
+      None => return,
+    };
+
+    // Scan for `For` to detect `apply Abstract for Type`.
+    let scan_start = start_idx + 2;
+
+    for scan in scan_start..end_idx.min(scan_start + 8) {
+      if self.tree.nodes[scan].token != Token::For {
+        if self.tree.nodes[scan].token == Token::Fun
+          || self.tree.nodes[scan].token == Token::LBrace
+        {
+          break;
+        }
+        continue;
+      }
+
+      // Found `For` — extract the target type name.
+      let type_name = if scan + 1 < end_idx {
+        let tok = self.tree.nodes[scan + 1].token;
+
+        if tok == Token::Ident {
+          self.node_value(scan + 1).and_then(|v| match v {
+            NodeValue::Symbol(s) => Some(s),
+            _ => None,
+          })
+        } else if Self::is_primitive_type_token(tok) {
+          tok.ty_keyword_str().map(|s| self.interner.intern(s))
+        } else {
+          None
+        }
+      } else {
+        None
+      };
+
+      if let Some(type_name) = type_name {
+        let abs_name = first_name;
+        let defined_at = self.tree.spans[start_idx];
+        let defining_module = self.source_path.clone().unwrap_or_default();
+        let vtable_sym = {
+          let mangled = format!(
+            "__zo_vtable_{}__{}",
+            self.interner.get(abs_name),
+            self.interner.get(type_name),
+          );
+
+          self.interner.intern(&mangled)
+        };
+
+        self.abstract_impls.entry((abs_name, type_name)).or_insert(
+          AbstractImpl {
+            methods: Vec::new(),
+            defined_at,
+            defining_module,
+            pubness: Pubness::Yes,
+            vtable_sym,
+          },
+        );
+      }
+
+      return;
+    }
   }
 
   /// Executes a parse tree in one pass to build semantic IR.
@@ -1810,6 +1979,7 @@ impl<'a> Executor<'a> {
       self.abstract_defs,
       self.abstract_impls,
       self.recorded_generic_bodies,
+      self.use_def_map,
     )
   }
 
@@ -1962,7 +2132,19 @@ impl<'a> Executor<'a> {
           // `value_types` will carry that same TyId as its
           // key, so matching must happen there.
           seen.insert(ty_id.0);
-          to_emit.push((ty_id, arr_ty.elem_ty, arr_ty.size));
+
+          // Empty array literals (`[]`) must always be
+          // dynamic (`size = None`) so the codegen heap-
+          // allocates them via malloc. A `size = Some(0)`
+          // routes to the stack path which produces a
+          // non-growable zero-capacity buffer — any
+          // subsequent `push` crashes.
+          let size = match insn {
+            Insn::ArrayLiteral { elements, .. } if elements.is_empty() => None,
+            _ => arr_ty.size,
+          };
+
+          to_emit.push((ty_id, arr_ty.elem_ty, size));
         }
       }
     }
@@ -2537,6 +2719,7 @@ impl<'a> Executor<'a> {
           self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
           self.execute_potential_call(idx);
           self.apply_deferred_short_circuit();
+          self.drain_pending_unop();
         }
         // Check if this closes a tuple/grouping context.
         else if let Some(depth) = self.tuple_ctx.pop() {
@@ -3491,10 +3674,23 @@ impl<'a> Executor<'a> {
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
           // Copy fields to avoid borrow issues.
           let local_info = self.lookup_local(sym).map(|l| {
-            (l.value_id, l.ty_id, l.sir_value, l.local_kind, l.mutability)
+            (
+              l.value_id,
+              l.ty_id,
+              l.sir_value,
+              l.local_kind,
+              l.mutability,
+              l.span,
+            )
           });
 
-          if let Some((value_id, ty_id, sir_value, local_kind, mutability)) =
+          if let Some((_, _, _, _, _, def_span)) = local_info {
+            if def_span != Span::ZERO {
+              self.use_def_map.insert(self.tree.spans[idx], def_span);
+            }
+          }
+
+          if let Some((value_id, ty_id, sir_value, local_kind, mutability, _)) =
             local_info
           {
             // Closure call target: skip pushing if the
@@ -3870,6 +4066,20 @@ impl<'a> Executor<'a> {
 
               self.value_stack.push(error_id);
               self.ty_stack.push(self.ty_checker.error_type());
+            }
+          }
+
+          // Record use→def for same-file function refs.
+          // Cross-file defs (owning_pack differs from this
+          // file) are left out — the LSP fallback resolves
+          // them via pack_paths + file read.
+          if local_info.is_none() {
+            if let Some(f) = self.find_fun(sym)
+              && f.span != Span::ZERO
+              && (f.owning_pack.is_none()
+                || f.owning_pack == self.implicit_pack)
+            {
+              self.use_def_map.insert(self.tree.spans[idx], f.span);
             }
           }
         }
@@ -4503,7 +4713,13 @@ impl<'a> Executor<'a> {
       Token::RShift => self.execute_binop(BinOp::Shr, idx),
 
       // === UNARY OPERATORS ===
-      Token::Bang => self.execute_unop(UnOp::Not, idx),
+      Token::Bang => {
+        if self.value_stack.is_empty() {
+          self.pending_unop = Some((UnOp::Not, idx));
+        } else {
+          self.execute_unop(UnOp::Not, idx);
+        }
+      }
 
       // === TYPE CAST: expr as Type ===
       Token::As => {
@@ -5048,6 +5264,12 @@ impl<'a> Executor<'a> {
   /// When the guard fails (RHS not yet complete) we stop
   /// draining: the inner SC on the LIFO stack is not ready,
   /// and nothing outer could be either.
+  fn drain_pending_unop(&mut self) {
+    if let Some((op, node_idx)) = self.pending_unop.take() {
+      self.execute_unop(op, node_idx);
+    }
+  }
+
   fn apply_deferred_short_circuit(&mut self) {
     while let Some(pending) = self.deferred_short_circuits.last() {
       let depth_ok = self.sir_values.len() > pending.pre_rhs_depth
@@ -5700,7 +5922,9 @@ impl<'a> Executor<'a> {
       }
 
       // Runtime value — find the Load instruction in
-      // SIR, get the local name, then resolve.
+      // SIR, get the local name, then resolve. Skip
+      // mutable locals: their compile-time value is
+      // stale after any reassignment (loop bodies).
       for insn in sir.instructions.iter() {
         if let Insn::Load {
           dst,
@@ -5710,6 +5934,10 @@ impl<'a> Executor<'a> {
           && *dst == sir_vid
           && let Some(local) = locals.iter().rev().find(|l| l.name == *sym)
         {
+          if local.mutability == Mutability::Yes {
+            return None;
+          }
+
           let lvi = local.value_id.0 as usize;
 
           if lvi < values.kinds.len()
@@ -7180,6 +7408,8 @@ impl<'a> Executor<'a> {
         mutability: param_mutability,
         sir_value: None,
         local_kind: LocalKind::Parameter,
+        owning_pack: None,
+        span: Span::ZERO,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {
@@ -8115,6 +8345,8 @@ impl<'a> Executor<'a> {
         mutability: *mutability,
         sir_value: None,
         local_kind: LocalKind::Parameter,
+        owning_pack: None,
+        span: Span::ZERO,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {
@@ -8565,6 +8797,8 @@ impl<'a> Executor<'a> {
           },
           sir_value: Some(ValueId(u32::MAX)),
           local_kind: LocalKind::Variable,
+          owning_pack: None,
+          span: self.tree.spans[idx],
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -9311,6 +9545,8 @@ impl<'a> Executor<'a> {
         },
         sir_value: elem_sir,
         local_kind: LocalKind::Variable,
+        owning_pack: None,
+        span: decl.span,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {
@@ -9436,30 +9672,31 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: sir_init,
           local_kind: LocalKind::Constant,
+          owning_pack: self.top_pack,
+          span: decl.span,
         };
 
         if self.current_function.is_none() {
-          // Module-level val — strip the ConstInt that the
-          // main loop emitted for the init expression. It
-          // would shift ValueId numbering after DCE.
-          // Don't emit ConstDef either — the constant is
-          // fully resolved at the executor level.
-          if let Some(
-            Insn::ConstInt { .. }
-            | Insn::ConstFloat { .. }
-            | Insn::ConstBool { .. }
-            | Insn::ConstString { .. },
-          ) = self.sir.instructions.last()
-          {
-            self.sir.instructions.pop();
-            // Undo the auto-increment from sir.emit()
-            // so inline re-emissions get correct ValueIds.
-            if self.sir.next_value_id > 0 {
-              self.sir.next_value_id -= 1;
-            }
-          }
+          // Emit ConstDef (not VarDef) so the export
+          // collector sees the val without shifting FFI
+          // instruction indices. Keep the preceding
+          // ConstInt/Float/etc — the export collector
+          // scans it to extract the literal value.
+          self.sir.emit(Insn::ConstDef {
+            name: decl.name,
+            ty_id,
+            value: sir_init.unwrap_or(ValueId(u32::MAX)),
+            pubness: decl.pubness,
+          });
 
+          let gc_idx = self.global_constants.len();
           self.global_constants.push(constant_local);
+
+          if let Some(pack) = self.top_pack {
+            self
+              .pack_constants
+              .insert((pack, constant_local.name), gc_idx);
+          }
         } else {
           // Function-local val — emit ConstDef as
           // metadata and push to locals for inline
@@ -9513,6 +9750,8 @@ impl<'a> Executor<'a> {
           mutability,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          owning_pack: None,
+          span: decl.span,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -9621,6 +9860,8 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          owning_pack: None,
+          span: self.tree.spans[start_idx],
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -9681,6 +9922,8 @@ impl<'a> Executor<'a> {
           pubness,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          owning_pack: None,
+          span: self.tree.spans[_start_idx],
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -10031,6 +10274,19 @@ impl<'a> Executor<'a> {
     let enum_ty_id = self.ty_checker.ty_table.intern_enum(name, &variants);
     let ty_id = self.ty_checker.intern_ty(Ty::Enum(enum_ty_id));
 
+    if !self.type_params.is_empty() {
+      let params: Vec<TyId> =
+        self.type_params.iter().map(|(_, ty)| *ty).collect();
+
+      self.enum_generic_params.insert(enum_ty_id.0, params);
+    }
+
+    if self.prescan_only {
+      self.push_enum_def((name, enum_ty_id, ty_id));
+      self.skip_until = end_idx;
+      return;
+    }
+
     self.sir.emit(Insn::EnumDef {
       name,
       ty_id,
@@ -10074,16 +10330,6 @@ impl<'a> Executor<'a> {
         fun_span,
         synth_pubness,
       );
-    }
-
-    // Persist the enum's generic parameters so each later
-    // construction can substitute fresh per-instance vars
-    // (the same fix shape used for structs in B0.5).
-    if !self.type_params.is_empty() {
-      let params: Vec<TyId> =
-        self.type_params.iter().map(|(_, ty)| *ty).collect();
-
-      self.enum_generic_params.insert(enum_ty_id.0, params);
     }
 
     self.skip_until = end_idx;
@@ -10694,17 +10940,16 @@ impl<'a> Executor<'a> {
     let struct_ty_id = self.ty_checker.ty_table.intern_struct(name, &fields);
     let ty_id = self.ty_checker.intern_ty(Ty::Struct(struct_ty_id));
 
-    // Stash the struct's generic parameters so each later
-    // `Type { ... }` construction can rename them to fresh
-    // inference vars (per-instance) instead of binding the
-    // shared declaration vars globally — that global bind
-    // is what makes `Box2 { a: 1, b: "hi" }` after `Box2 {
-    // a: 1, b: 2 }` mismatch on `$B`.
     if !self.type_params.is_empty() {
       let params: Vec<TyId> =
         self.type_params.iter().map(|(_, ty)| *ty).collect();
 
       self.struct_generic_params.insert(struct_ty_id.0, params);
+    }
+
+    if self.prescan_only {
+      self.skip_until = end_idx;
+      return;
     }
 
     self.sir.emit(Insn::StructDef {
@@ -12784,9 +13029,14 @@ impl<'a> Executor<'a> {
     }
 
     let dyn_safe = methods.iter().all(|m| m.dyn_safe);
-    self
-      .abstract_defs
-      .insert(name, AbstractDef { methods, dyn_safe });
+    self.abstract_defs.insert(
+      name,
+      AbstractDef {
+        methods,
+        dyn_safe,
+        span: self.tree.spans[start_idx],
+      },
+    );
     // Register the abstract name with the type checker so
     // type-annotation positions (`fun process(item: Eq)`)
     // resolve to `Ty::Abstract(eq_sym)`. The full method-set
@@ -13142,6 +13392,26 @@ impl<'a> Executor<'a> {
     // importer-side coherence check compares the exact
     // contributions of each defining apply block.
     if let Some(abs_name) = abstract_name {
+      // Coherence: reject duplicate `apply Abstract for Type`
+      // in the same file. The prescan inserts a placeholder
+      // with empty methods; a real (non-empty) entry means
+      // an earlier apply block already compiled methods for
+      // this pairing.
+      if let Some(existing) = self.abstract_impls.get(&(abs_name, type_name))
+        && !existing.methods.is_empty()
+      {
+        let span = self.tree.spans[start_idx];
+
+        report_error(Error::new(ErrorKind::DuplicateAbstractImpl, span));
+
+        self.type_params.clear();
+        self.apply_context = outer_apply;
+        self.apply_abstract_for = outer_apply_abstract_for;
+        self.skip_until = end_idx;
+
+        return;
+      }
+
       let methods: Vec<Symbol> =
         self.funs[funs_baseline..].iter().map(|f| f.name).collect();
 
@@ -13254,6 +13524,79 @@ impl<'a> Executor<'a> {
         // Skip :: and member ident.
         self.skip_until = idx + 2;
         return;
+      }
+
+      // Pack-qualified constant: `os::ENOENT`.
+      if self.pack_names.contains(&enum_name)
+        && let Some(&gc_idx) =
+          self.pack_constants.get(&(enum_name, member_name))
+      {
+        let c = self.global_constants[gc_idx];
+        let vi = c.value_id.0 as usize;
+
+        if vi < self.values.kinds.len() {
+          let sv = match self.values.kinds[vi] {
+            Value::Int => {
+              let ii = self.values.indices[vi] as usize;
+              let dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+              self.sir.emit(Insn::ConstInt {
+                dst,
+                value: self.values.ints[ii],
+                ty_id: c.ty_id,
+              });
+              dst
+            }
+            Value::Float => {
+              let ii = self.values.indices[vi] as usize;
+              let dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+              self.sir.emit(Insn::ConstFloat {
+                dst,
+                value: self.values.floats[ii],
+                ty_id: c.ty_id,
+              });
+              dst
+            }
+            Value::Bool => {
+              let ii = self.values.indices[vi] as usize;
+              let dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+              self.sir.emit(Insn::ConstBool {
+                dst,
+                value: self.values.bools[ii],
+                ty_id: c.ty_id,
+              });
+              dst
+            }
+            Value::String => {
+              let ii = self.values.indices[vi] as usize;
+              let dst = ValueId(self.sir.next_value_id);
+              self.sir.next_value_id += 1;
+              self.sir.emit(Insn::ConstString {
+                dst,
+                symbol: self.values.strings[ii],
+                ty_id: c.ty_id,
+              });
+              dst
+            }
+            _ => {
+              self.skip_until = idx + 2;
+              return;
+            }
+          };
+
+          // No pop: the pack-name ident before `::` does
+          // not push a value (the Ident handler skips pack
+          // names when next token is `::`). Just push the
+          // resolved constant onto the stacks.
+          self.value_stack.push(c.value_id);
+          self.ty_stack.push(c.ty_id);
+          self.sir_values.push(sv);
+
+          self.skip_until = idx + 2;
+          return;
+        }
       }
 
       return;
@@ -14926,6 +15269,8 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: Some(field_sir),
           local_kind: LocalKind::Variable,
+          owning_pack: None,
+          span: Span::ZERO,
         });
 
         *arm_bindings += 1;
@@ -15214,6 +15559,8 @@ impl<'a> Executor<'a> {
         mutability: Mutability::No,
         sir_value: Some(field_sir),
         local_kind: LocalKind::Variable,
+        owning_pack: None,
+        span: Span::ZERO,
       });
 
       *arm_bindings += 1;
@@ -15433,14 +15780,12 @@ impl<'a> Executor<'a> {
       // param-push time). Without this, the synthetic
       // __match_scrut_N__ has no rta and the match
       // arm's variant field types stay unsubstituted.
-      if !self.var_return_type_args.contains_key(&scrut_sym.as_u32()) {
-        if let Some(src_sym) = tail_load_sym {
-          if let Some(rta) =
-            self.var_return_type_args.get(&src_sym.as_u32()).cloned()
-          {
-            self.var_return_type_args.insert(scrut_sym.as_u32(), rta);
-          }
-        }
+      if !self.var_return_type_args.contains_key(&scrut_sym.as_u32())
+        && let Some(src_sym) = tail_load_sym
+        && let Some(rta) =
+          self.var_return_type_args.get(&src_sym.as_u32()).cloned()
+      {
+        self.var_return_type_args.insert(scrut_sym.as_u32(), rta);
       }
 
       Some(scrut_sym)
@@ -16127,6 +16472,8 @@ impl<'a> Executor<'a> {
                 mutability: Mutability::No,
                 sir_value: Some(field_sir),
                 local_kind: LocalKind::Variable,
+                owning_pack: None,
+                span: Span::ZERO,
               });
 
               arm_bindings += 1;
@@ -16450,6 +16797,8 @@ impl<'a> Executor<'a> {
             mutability: Mutability::No,
             sir_value: Some(scrut_reload),
             local_kind: LocalKind::Variable,
+            owning_pack: None,
+            span: Span::ZERO,
           });
 
           arm_bindings += 1;
@@ -17084,6 +17433,8 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: Some(start_sir),
       local_kind: LocalKind::Variable,
+      owning_pack: None,
+      span: self.tree.spans[start_idx],
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -17132,6 +17483,8 @@ impl<'a> Executor<'a> {
       mutability: Mutability::No,
       sir_value: Some(end_sir),
       local_kind: LocalKind::Variable,
+      owning_pack: None,
+      span: Span::ZERO,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -17433,6 +17786,8 @@ impl<'a> Executor<'a> {
       mutability: Mutability::No,
       sir_value: Some(arr_sir),
       local_kind: LocalKind::Variable,
+      owning_pack: None,
+      span: Span::ZERO,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -17472,6 +17827,8 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: Some(zero_sir),
       local_kind: LocalKind::Variable,
+      owning_pack: None,
+      span: Span::ZERO,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -17505,6 +17862,8 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: None,
       local_kind: LocalKind::Variable,
+      owning_pack: None,
+      span: Span::ZERO,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -18447,6 +18806,8 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: Some(out_value),
           local_kind: LocalKind::Variable,
+          owning_pack: None,
+          span: Span::ZERO,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -22658,6 +23019,8 @@ impl<'a> Executor<'a> {
               mutability: param_mutability,
               sir_value: None,
               local_kind: LocalKind::Parameter,
+              owning_pack: None,
+              span: Span::ZERO,
             });
 
             if let Some(frame) = self.scope_stack.last_mut() {
@@ -22867,6 +23230,8 @@ impl<'a> Executor<'a> {
         mutability: Mutability::No,
         sir_value: Some(sir_value),
         local_kind: LocalKind::Variable,
+        owning_pack: None,
+        span: Span::ZERO,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {

@@ -1,0 +1,33 @@
+-- tests-run-pass: mem alloc, set, copy, compare, free.
+
+load core::mem;
+
+fun main() {
+  -- Allocate two 16-byte buffers.
+  imu a: s64 = mem::alloc(16);
+  imu b: s64 = mem::alloc(16);
+
+  check(a != 0);
+  check(b != 0);
+
+  -- Fill both with the same byte.
+  mem::set(a, 42, 16);
+  mem::set(b, 42, 16);
+
+  -- They should be equal.
+  check@eq(mem::compare(a, b, 16), 0);
+
+  -- Copy a to b after changing a.
+  mem::set(a, 99, 16);
+  mem::copy(b, a, 16);
+
+  check@eq(mem::compare(a, b, 16), 0);
+
+  mem::free(a);
+  mem::free(b);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

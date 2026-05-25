@@ -7,6 +7,7 @@ members = [
   "crates/compiler/zo",
   "crates/compiler/zo-benches",
   "crates/compiler/zo-test-runner",
+  "crates/compiler/zo-lsp",
   "crates/packager/fret",
 ]
 
@@ -74,6 +75,7 @@ zo-executor = { path = "crates/compiler/zo-executor", version = "0.3.11" }
 zo-host-paths = { path = "crates/compiler/zo-host-paths", version = "0.3.11" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.3.11" }
 zo-linker = { path = "crates/compiler/zo-linker", version = "0.3.11" }
+zo-lsp = { path = "crates/compiler/zo-lsp", version = "0.3.11" }
 zo-liveness = { path = "crates/compiler/zo-liveness", version = "0.3.11" }
 zo-metrics = { path = "crates/compiler/zo-metrics", version = "0.1.0" }
 zo-misato = { path = "crates/compiler/zo-misato", version = "0.3.11" }
@@ -236,12 +238,14 @@ tempfile = "3.27.0"
 thin-vec = "0.2.18"
 tokio = { version = "1.52.1", default-features = true , features = [
   "fs",
+  "io-std",
   "macros",
   "rt-multi-thread",
   "sync",
   "time",
 ] }
 toml = "1.1.2+spec-1.1.0"
+tower-lsp = "0.20.0"
 tree-sitter = "0.26.8"
 tree-sitter-language = "0.1.7"
 ureq = "3.3.0"

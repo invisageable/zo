@@ -2,23 +2,57 @@
   "name": "zo-vscode",
   "displayName": "zo-vscode",
   "description": "zo programming language support",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
-    "vscode": "^1.71.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Programming Languages"
   ],
+  "activationEvents": [
+    "onLanguage:zo"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
-    "languages": [{
-      "id": "zo",
-      "extensions": [".zo"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "zo",
-      "scopeName": "source.zo",
-      "path": "./syntaxes/zo.tmLanguage.json"
-    }]
+    "languages": [
+      {
+        "id": "zo",
+        "extensions": [
+          ".zo"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "zo",
+        "scopeName": "source.zo",
+        "path": "./syntaxes/zo.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "zo",
+      "properties": {
+        "zo.lsp.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the zo-lsp binary. If empty, uses 'zo-lsp' from PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.7.0"
   }
 }

@@ -896,6 +896,7 @@ impl<'a> ARM64Gen<'a> {
     self.current_function = Some(name);
     self.current_fn_start = Some(idx);
 
+    self.value_types.clear();
     self.value_def_idx.clear();
     self.mutable_slots.clear();
     self.array_var_blocks.clear();
@@ -2692,6 +2693,7 @@ impl<'a> ARM64Gen<'a> {
       }
 
       Insn::Call {
+        dst: call_dst,
         name,
         callee_pack,
         args,
@@ -3290,6 +3292,7 @@ impl<'a> ARM64Gen<'a> {
               // chained struct-returning calls (e.g.
               // `(Point::new(..), Point::new(..))`).
               self.emit_add_sp_offset(X0, dst_base);
+              self.composite_value_slots.insert(*call_dst, dst_base);
 
               self.next_struct_slot += deep_slots * STACK_SLOT_SIZE;
             } else if let Some(fp_result) = self.fp_reg_for_insn(idx) {
@@ -3530,6 +3533,12 @@ impl<'a> ARM64Gen<'a> {
 
         if let Some(src_reg) = self.alloc_reg(*value) {
           self.emit_str_sp(src_reg, offset);
+        } else if let Some(&slot) = self.composite_value_slots.get(value) {
+          // Composite (struct/enum from a call): the
+          // value lives on the stack, not in a register.
+          // Materialize its pointer and store that.
+          self.emit_add_sp_offset(X16, slot);
+          self.emit_str_sp(X16, offset);
         } else if let Some(fp_src) = self
           .alloc_fp_reg(*value)
           .or_else(|| self.scan_fp_reg_back(idx))
@@ -3771,11 +3780,6 @@ impl<'a> ARM64Gen<'a> {
         ty_id,
         owner,
       } => {
-        // Layout: [len:8][cap:8][data...]
-        // 1. Load len and cap.
-        // 2. If len >= cap: realloc (double cap).
-        // 3. Store value at data[len].
-        // 4. Increment len.
         let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
 
         // X16 = len, X17 = cap.
@@ -6005,7 +6009,11 @@ impl<'a> ARM64Gen<'a> {
     match &abi.ret {
       AbiRet::Void => {}
 
-      AbiRet::Gp(reg) => {
+      AbiRet::Gp { reg, sign_extend } => {
+        if *sign_extend {
+          self.emitter.emit_sxtw(*reg, *reg);
+        }
+
         if let Some(dst) = self.reg_for_insn(idx)
           && dst != *reg
         {
