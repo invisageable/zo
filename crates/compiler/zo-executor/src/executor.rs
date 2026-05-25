@@ -53,6 +53,7 @@ pub type ExecuteOutput = (
   HashMap<Symbol, AbstractDef>,
   HashMap<(Symbol, Symbol), AbstractImpl>,
   Vec<ExportedGenericBody>,
+  HashMap<Span, Span>,
 );
 
 /// Index newtype: position in `Executor::funs`.
@@ -585,6 +586,8 @@ pub struct Executor<'a> {
   /// raise a precise `DuplicateAbstractImpl` diagnostic on
   /// collision. See [`AbstractImpl`] for the full schema.
   abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
+  /// Maps each identifier use-span to its definition-span.
+  use_def_map: HashMap<Span, Span>,
   /// Signature-only pre-scan flag. When true, `execute_fun`
   /// registers the `FunDef` in `self.funs` and returns before
   /// any body-level state is touched (no `pending_function`,
@@ -873,6 +876,7 @@ impl<'a> Executor<'a> {
       template_bindings: TemplateBindings::default(),
       abstract_defs: HashMap::default(),
       abstract_impls: HashMap::default(),
+      use_def_map: HashMap::default(),
       prescan_only: false,
     }
   }
@@ -1646,15 +1650,11 @@ impl<'a> Executor<'a> {
       // the first function so field layouts, variant tables,
       // and return types resolve inside function bodies.
       if block_depth == 0
-        && matches!(
-          tok,
-          Token::Struct | Token::Enum | Token::Abstract
-        )
+        && matches!(tok, Token::Struct | Token::Enum | Token::Abstract)
         && seen_fun
       {
         let header = self.tree.nodes[idx];
-        let children_end =
-          (header.child_start + header.child_count) as usize;
+        let children_end = (header.child_start + header.child_count) as usize;
 
         match tok {
           Token::Struct => self.execute_struct(idx, children_end),
@@ -1677,8 +1677,7 @@ impl<'a> Executor<'a> {
       // the main pass.
       if block_depth == 0 && tok == Token::Apply && seen_fun {
         let header = self.tree.nodes[idx];
-        let children_end =
-          (header.child_start + header.child_count) as usize;
+        let children_end = (header.child_start + header.child_count) as usize;
 
         self.prescan_apply_header(idx, children_end);
 
@@ -1760,11 +1759,7 @@ impl<'a> Executor<'a> {
   /// bodies compiled before the apply block can find the
   /// implementation. The main pass overwrites the placeholder
   /// with the real entry (compiled methods, vtable symbol).
-  fn prescan_apply_header(
-    &mut self,
-    start_idx: usize,
-    end_idx: usize,
-  ) {
+  fn prescan_apply_header(&mut self, start_idx: usize, end_idx: usize) {
     // Extract the first name (Abstract or Type for inherent).
     let first_name = (start_idx + 1..end_idx).find_map(|i| {
       let tok = self.tree.nodes[i].token;
@@ -1820,8 +1815,7 @@ impl<'a> Executor<'a> {
       if let Some(type_name) = type_name {
         let abs_name = first_name;
         let defined_at = self.tree.spans[start_idx];
-        let defining_module =
-          self.source_path.clone().unwrap_or_default();
+        let defining_module = self.source_path.clone().unwrap_or_default();
         let vtable_sym = {
           let mangled = format!(
             "__zo_vtable_{}__{}",
@@ -1985,6 +1979,7 @@ impl<'a> Executor<'a> {
       self.abstract_defs,
       self.abstract_impls,
       self.recorded_generic_bodies,
+      self.use_def_map,
     )
   }
 
@@ -3679,10 +3674,23 @@ impl<'a> Executor<'a> {
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
           // Copy fields to avoid borrow issues.
           let local_info = self.lookup_local(sym).map(|l| {
-            (l.value_id, l.ty_id, l.sir_value, l.local_kind, l.mutability)
+            (
+              l.value_id,
+              l.ty_id,
+              l.sir_value,
+              l.local_kind,
+              l.mutability,
+              l.span,
+            )
           });
 
-          if let Some((value_id, ty_id, sir_value, local_kind, mutability)) =
+          if let Some((_, _, _, _, _, def_span)) = local_info {
+            if def_span != Span::ZERO {
+              self.use_def_map.insert(self.tree.spans[idx], def_span);
+            }
+          }
+
+          if let Some((value_id, ty_id, sir_value, local_kind, mutability, _)) =
             local_info
           {
             // Closure call target: skip pushing if the
@@ -4058,6 +4066,20 @@ impl<'a> Executor<'a> {
 
               self.value_stack.push(error_id);
               self.ty_stack.push(self.ty_checker.error_type());
+            }
+          }
+
+          // Record use→def for same-file function refs.
+          // Cross-file defs (owning_pack differs from this
+          // file) are left out — the LSP fallback resolves
+          // them via pack_paths + file read.
+          if local_info.is_none() {
+            if let Some(f) = self.find_fun(sym)
+              && f.span != Span::ZERO
+              && (f.owning_pack.is_none()
+                || f.owning_pack == self.implicit_pack)
+            {
+              self.use_def_map.insert(self.tree.spans[idx], f.span);
             }
           }
         }
@@ -7387,6 +7409,7 @@ impl<'a> Executor<'a> {
         sir_value: None,
         local_kind: LocalKind::Parameter,
         owning_pack: None,
+        span: Span::ZERO,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {
@@ -8323,6 +8346,7 @@ impl<'a> Executor<'a> {
         sir_value: None,
         local_kind: LocalKind::Parameter,
         owning_pack: None,
+        span: Span::ZERO,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {
@@ -8774,6 +8798,7 @@ impl<'a> Executor<'a> {
           sir_value: Some(ValueId(u32::MAX)),
           local_kind: LocalKind::Variable,
           owning_pack: None,
+          span: self.tree.spans[idx],
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -9521,6 +9546,7 @@ impl<'a> Executor<'a> {
         sir_value: elem_sir,
         local_kind: LocalKind::Variable,
         owning_pack: None,
+        span: decl.span,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {
@@ -9647,6 +9673,7 @@ impl<'a> Executor<'a> {
           sir_value: sir_init,
           local_kind: LocalKind::Constant,
           owning_pack: self.top_pack,
+          span: decl.span,
         };
 
         if self.current_function.is_none() {
@@ -9724,6 +9751,7 @@ impl<'a> Executor<'a> {
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
           owning_pack: None,
+          span: decl.span,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -9833,6 +9861,7 @@ impl<'a> Executor<'a> {
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
           owning_pack: None,
+          span: self.tree.spans[start_idx],
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -9894,6 +9923,7 @@ impl<'a> Executor<'a> {
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
           owning_pack: None,
+          span: self.tree.spans[_start_idx],
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -12999,9 +13029,14 @@ impl<'a> Executor<'a> {
     }
 
     let dyn_safe = methods.iter().all(|m| m.dyn_safe);
-    self
-      .abstract_defs
-      .insert(name, AbstractDef { methods, dyn_safe });
+    self.abstract_defs.insert(
+      name,
+      AbstractDef {
+        methods,
+        dyn_safe,
+        span: self.tree.spans[start_idx],
+      },
+    );
     // Register the abstract name with the type checker so
     // type-annotation positions (`fun process(item: Eq)`)
     // resolve to `Ty::Abstract(eq_sym)`. The full method-set
@@ -13362,16 +13397,12 @@ impl<'a> Executor<'a> {
       // with empty methods; a real (non-empty) entry means
       // an earlier apply block already compiled methods for
       // this pairing.
-      if let Some(existing) =
-        self.abstract_impls.get(&(abs_name, type_name))
+      if let Some(existing) = self.abstract_impls.get(&(abs_name, type_name))
         && !existing.methods.is_empty()
       {
         let span = self.tree.spans[start_idx];
 
-        report_error(Error::new(
-          ErrorKind::DuplicateAbstractImpl,
-          span,
-        ));
+        report_error(Error::new(ErrorKind::DuplicateAbstractImpl, span));
 
         self.type_params.clear();
         self.apply_context = outer_apply;
@@ -15239,6 +15270,7 @@ impl<'a> Executor<'a> {
           sir_value: Some(field_sir),
           local_kind: LocalKind::Variable,
           owning_pack: None,
+          span: Span::ZERO,
         });
 
         *arm_bindings += 1;
@@ -15528,6 +15560,7 @@ impl<'a> Executor<'a> {
         sir_value: Some(field_sir),
         local_kind: LocalKind::Variable,
         owning_pack: None,
+        span: Span::ZERO,
       });
 
       *arm_bindings += 1;
@@ -16440,6 +16473,7 @@ impl<'a> Executor<'a> {
                 sir_value: Some(field_sir),
                 local_kind: LocalKind::Variable,
                 owning_pack: None,
+                span: Span::ZERO,
               });
 
               arm_bindings += 1;
@@ -16764,6 +16798,7 @@ impl<'a> Executor<'a> {
             sir_value: Some(scrut_reload),
             local_kind: LocalKind::Variable,
             owning_pack: None,
+            span: Span::ZERO,
           });
 
           arm_bindings += 1;
@@ -17399,6 +17434,7 @@ impl<'a> Executor<'a> {
       sir_value: Some(start_sir),
       local_kind: LocalKind::Variable,
       owning_pack: None,
+      span: self.tree.spans[start_idx],
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -17448,6 +17484,7 @@ impl<'a> Executor<'a> {
       sir_value: Some(end_sir),
       local_kind: LocalKind::Variable,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -17750,6 +17787,7 @@ impl<'a> Executor<'a> {
       sir_value: Some(arr_sir),
       local_kind: LocalKind::Variable,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -17790,6 +17828,7 @@ impl<'a> Executor<'a> {
       sir_value: Some(zero_sir),
       local_kind: LocalKind::Variable,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -17824,6 +17863,7 @@ impl<'a> Executor<'a> {
       sir_value: None,
       local_kind: LocalKind::Variable,
       owning_pack: None,
+      span: Span::ZERO,
     });
 
     if let Some(frame) = self.scope_stack.last_mut() {
@@ -18767,6 +18807,7 @@ impl<'a> Executor<'a> {
           sir_value: Some(out_value),
           local_kind: LocalKind::Variable,
           owning_pack: None,
+          span: Span::ZERO,
         });
 
         if let Some(frame) = self.scope_stack.last_mut() {
@@ -22979,6 +23020,7 @@ impl<'a> Executor<'a> {
               sir_value: None,
               local_kind: LocalKind::Parameter,
               owning_pack: None,
+              span: Span::ZERO,
             });
 
             if let Some(frame) = self.scope_stack.last_mut() {
@@ -23189,6 +23231,7 @@ impl<'a> Executor<'a> {
         sir_value: Some(sir_value),
         local_kind: LocalKind::Variable,
         owning_pack: None,
+        span: Span::ZERO,
       });
 
       if let Some(frame) = self.scope_stack.last_mut() {

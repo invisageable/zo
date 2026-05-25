@@ -51,6 +51,8 @@ pub struct AbstractDef {
   /// annotation site — the vtable calling convention
   /// can't carry `Self` outside the receiver.
   pub dyn_safe: bool,
+  /// Source span of the `abstract` keyword.
+  pub span: Span,
 }
 
 /// A single method signature in an abstract definition.
@@ -572,6 +574,7 @@ pub fn extract_exports(
         pubness,
         mut_self,
         owning_pack,
+        span,
         ..
       } => {
         let fn_name = interner.get(*name);
@@ -646,7 +649,7 @@ pub fn extract_exports(
           return_type_args: rta,
           mut_self: *mut_self,
           owning_pack: *owning_pack,
-          span: Span::ZERO,
+          span: *span,
         });
       }
 
@@ -674,7 +677,7 @@ pub fn extract_exports(
         let literal = init.and_then(|vid| {
           sir.instructions.iter().find_map(|i| match i {
             Insn::ConstInt { dst, value, .. } if *dst == vid => {
-              Some(ExportedLiteral::Int(*value as u64))
+              Some(ExportedLiteral::Int(*value))
             }
             Insn::ConstFloat { dst, value, .. } if *dst == vid => {
               Some(ExportedLiteral::Float(*value))
@@ -789,7 +792,7 @@ pub fn extract_exports(
         // materialize the value in the consuming module.
         let literal = sir.instructions.iter().find_map(|i| match i {
           Insn::ConstInt { dst, value: v, .. } if *dst == *value => {
-            Some(ExportedLiteral::Int(*v as u64))
+            Some(ExportedLiteral::Int(*v))
           }
           Insn::ConstBool { dst, value: v, .. } if *dst == *value => {
             Some(ExportedLiteral::Int(if *v { 1 } else { 0 }))

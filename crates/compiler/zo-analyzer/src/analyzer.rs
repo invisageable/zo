@@ -6,6 +6,7 @@ use zo_module_resolver::{
 };
 use zo_reporter::{error_count, report_error};
 use zo_sir::Sir;
+use zo_span::Span;
 use zo_token::{LiteralStore, Token};
 use zo_tree::Tree;
 use zo_ty::Annotation;
@@ -39,6 +40,12 @@ pub struct SemanticResult {
   /// `arr_$::method` instantiations re-executable across
   /// module boundaries (PLAN_CROSS_MODULE_GENERICS).
   pub generic_bodies: Vec<ExportedGenericBody>,
+  /// Maps each identifier use-span to its definition-span.
+  pub use_def_map: HashMap<Span, Span>,
+  /// Pack symbol → absolute source path for every compiled
+  /// module. Populated by the compiler during module
+  /// resolution so the LSP can resolve cross-file jumps.
+  pub pack_paths: HashMap<Symbol, std::path::PathBuf>,
 }
 
 /// Per-call analyzer configuration. Bundles every optional
@@ -156,6 +163,8 @@ impl<'a> Analyzer<'a> {
         abstract_defs: HashMap::default(),
         abstract_impls: HashMap::default(),
         generic_bodies: Vec::new(),
+        use_def_map: HashMap::default(),
+        pack_paths: HashMap::default(),
       };
     }
 
@@ -191,8 +200,15 @@ impl<'a> Analyzer<'a> {
       executor = executor.with_in_scope_packs(in_scope_packs);
     }
 
-    let (sir, annotations, funs, abstract_defs, abstract_impls, generic_bodies) =
-      executor.execute();
+    let (
+      sir,
+      annotations,
+      funs,
+      abstract_defs,
+      abstract_impls,
+      generic_bodies,
+      use_def_map,
+    ) = executor.execute();
 
     SemanticResult {
       sir,
@@ -201,6 +217,8 @@ impl<'a> Analyzer<'a> {
       abstract_impls,
       funs,
       generic_bodies,
+      use_def_map,
+      pack_paths: HashMap::default(),
     }
   }
 }

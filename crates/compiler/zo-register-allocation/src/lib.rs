@@ -626,7 +626,6 @@ fn struct_return_slots(
   let (tys, tt) = type_view?;
 
   match resolve_ty(tys, return_ty) {
-    Ty::Struct(_) => flat_struct_slots_of(return_ty, tys, tt),
     Ty::Struct(_) | Ty::Enum(_) => flat_struct_slots_of(return_ty, tys, tt),
     _ => None,
   }

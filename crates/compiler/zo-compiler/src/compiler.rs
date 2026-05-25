@@ -324,6 +324,7 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
       sir_value: var.init,
       local_kind: LocalKind::Variable,
       owning_pack: var.owning_pack,
+      span: Span::ZERO,
     });
     var_literals.push(var.literal.clone());
   }
@@ -468,6 +469,9 @@ struct DfsCtx {
   /// consumed lazily by the lib.zo pack-compile branch
   /// when a `load foo::*;` actually surfaces.
   pending_packs: HashMap<Symbol, PendingPack>,
+  /// Pack symbol → absolute source path for every module
+  /// compiled during this `analyze_source` call.
+  pack_paths: HashMap<Symbol, PathBuf>,
 }
 
 impl DfsCtx {
@@ -485,12 +489,18 @@ impl DfsCtx {
       private_packs: HashSet::default(),
       folder_packs: HashSet::default(),
       pending_packs: HashMap::default(),
+      pack_paths: HashMap::default(),
     }
   }
 }
 
 impl Compiler {
   /// Creates a new [`Compiler`] instance with the auto-
+  /// Module resolver search paths (core lib + input dir).
+  pub fn search_paths(&self) -> &[PathBuf] {
+    self.module_resolver.search_paths()
+  }
+
   /// detected std lib search path. Every caller (zo CLI,
   /// fret build pipeline, integration tests) gets
   /// `preload`/`io`/etc. resolved without per-call wiring.
@@ -812,6 +822,10 @@ impl Compiler {
         )
         .map(|stem| session.interner.intern(&stem));
 
+        if let Some(sym) = implicit_sym {
+          ctx.pack_paths.insert(sym, resolved_path.clone());
+        }
+
         // Seed each preload pack's analyzer with symbols
         // from earlier preload packs so later packs can
         // use them (e.g. `str.zo` referencing `Option`
@@ -1059,6 +1073,8 @@ impl Compiler {
       self.reporter.collect_errors(&tl_errors);
     }
 
+    semantic.pack_paths = ctx.pack_paths;
+
     (semantic, tokenization, parsing, session)
   }
 
@@ -1155,6 +1171,10 @@ impl Compiler {
         let implicit_sym =
           implicit_pack_for(&pack.path, self.module_resolver.search_paths())
             .map(|stem| session.interner.intern(&stem));
+
+        if let Some(sym) = implicit_sym {
+          ctx.pack_paths.insert(sym, pack.path.clone());
+        }
 
         let mut pack_imports = ctx.imports.clone();
 
@@ -1422,6 +1442,10 @@ impl Compiler {
     let implicit_sym =
       implicit_pack_for(resolved_path, self.module_resolver.search_paths())
         .map(|stem| session.interner.intern(&stem));
+
+    if let Some(sym) = implicit_sym {
+      ctx.pack_paths.insert(sym, resolved_path.to_path_buf());
+    }
 
     let (mod_tokenization, mod_parsing, _, _) = ctx
       .parse_cache

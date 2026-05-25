@@ -1,0 +1,24 @@
+[package]
+name = "zo-lsp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# internal:sources.
+
+# internal:crates:zo.
+zo-analyzer = { workspace = true }
+zo-compiler = { workspace = true }
+zo-interner = { workspace = true }
+zo-module-resolver = { workspace = true }
+zo-span = { workspace = true }
+zo-token = { workspace = true }
+zo-tree = { workspace = true }
+zo-value = { workspace = true }
+
+# external:crates.
+env_logger = { workspace = true }
+log = { workspace = true }
+rustc-hash = { workspace = true }
+tower-lsp = { workspace = true }
+tokio = { workspace = true }

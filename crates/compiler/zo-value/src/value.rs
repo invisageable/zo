@@ -328,4 +328,6 @@ pub struct Local {
   pub local_kind: LocalKind,
   /// Pack that declared this local (`val` at module level).
   pub owning_pack: Option<Symbol>,
+  /// Source span of the declaration site.
+  pub span: Span,
 }
