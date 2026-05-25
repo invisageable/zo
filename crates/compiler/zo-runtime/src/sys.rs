@@ -1,6 +1,6 @@
 //! sys — system-information primitives.
 //!
-//! The exported `_zo_sys_*` symbols back `core/sys/info.zo`'s
+//! The exported `zo_sys_*` symbols back `core/sys/info.zo`'s
 //! FFI surface. Implementation rides the `sysinfo` crate so
 //! every Cranelift target (x86, arm64, Linux, macOS,
 //! Windows) gets correct semantics without per-target FFI
@@ -50,37 +50,37 @@ where
 /// CPU sampler needs two refreshes
 /// `MINIMUM_CPU_UPDATE_INTERVAL` apart to compute a delta.
 /// Subsequent calls return the interval-averaged usage.
-#[unsafe(export_name = "zo_sys_cpu_usage")]
-pub extern "C-unwind" fn _zo_sys_cpu_usage() -> f32 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_cpu_usage() -> f32 {
   with_refreshed_system(|sys| sys.global_cpu_usage())
 }
 
 /// Number of logical CPUs the OS reports. Stable across
 /// the process lifetime; doesn't need a refresh-pair.
-#[unsafe(export_name = "zo_sys_cpu_count")]
-pub extern "C-unwind" fn _zo_sys_cpu_count() -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_cpu_count() -> i64 {
   with_refreshed_system(|sys| sys.cpus().len() as i64)
 }
 
 /// Total physical memory in bytes. Stable across the
 /// process lifetime on every supported OS.
-#[unsafe(export_name = "zo_sys_mem_total")]
-pub extern "C-unwind" fn _zo_sys_mem_total() -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_mem_total() -> i64 {
   with_refreshed_system(|sys| sys.total_memory().min(i64::MAX as u64) as i64)
 }
 
 /// Used physical memory in bytes (excluding cache /
 /// buffers on Linux). Updated on every call.
-#[unsafe(export_name = "zo_sys_mem_used")]
-pub extern "C-unwind" fn _zo_sys_mem_used() -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_mem_used() -> i64 {
   with_refreshed_system(|sys| sys.used_memory().min(i64::MAX as u64) as i64)
 }
 
 /// Available physical memory in bytes — what the OS would
 /// hand out to a fresh allocator. Distinct from `total -
 /// used` because `used` excludes reclaimable cache.
-#[unsafe(export_name = "zo_sys_mem_available")]
-pub extern "C-unwind" fn _zo_sys_mem_available() -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_mem_available() -> i64 {
   with_refreshed_system(|sys| {
     sys.available_memory().min(i64::MAX as u64) as i64
   })
@@ -88,48 +88,48 @@ pub extern "C-unwind" fn _zo_sys_mem_available() -> i64 {
 
 /// Total swap space in bytes. Returns `0` when the OS
 /// reports no swap configured.
-#[unsafe(export_name = "zo_sys_swap_total")]
-pub extern "C-unwind" fn _zo_sys_swap_total() -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_swap_total() -> i64 {
   with_refreshed_system(|sys| sys.total_swap().min(i64::MAX as u64) as i64)
 }
 
 /// Used swap space in bytes.
-#[unsafe(export_name = "zo_sys_swap_used")]
-pub extern "C-unwind" fn _zo_sys_swap_used() -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_swap_used() -> i64 {
   with_refreshed_system(|sys| sys.used_swap().min(i64::MAX as u64) as i64)
 }
 
 /// System uptime in whole seconds. Process-independent —
 /// reflects how long the host has been running, not the
 /// caller's process lifetime.
-#[unsafe(export_name = "zo_sys_uptime_secs")]
-pub extern "C-unwind" fn _zo_sys_uptime_secs() -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_uptime_secs() -> i64 {
   with_refreshed_system(|_| System::uptime().min(i64::MAX as u64) as i64)
 }
 
 /// Number of running processes the OS reports. Updated
 /// per call.
-#[unsafe(export_name = "zo_sys_proc_count")]
-pub extern "C-unwind" fn _zo_sys_proc_count() -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_proc_count() -> i64 {
   with_refreshed_system(|sys| sys.processes().len() as i64)
 }
 
 /// One-minute load average. macOS / Linux return real
 /// values; Windows has no native load-average and
 /// returns 0.0.
-#[unsafe(export_name = "zo_sys_load_avg_1m")]
-pub extern "C-unwind" fn _zo_sys_load_avg_1m() -> f64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_load_avg_1m() -> f64 {
   System::load_average().one
 }
 
 /// Five-minute load average. Windows: 0.0.
-#[unsafe(export_name = "zo_sys_load_avg_5m")]
-pub extern "C-unwind" fn _zo_sys_load_avg_5m() -> f64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_load_avg_5m() -> f64 {
   System::load_average().five
 }
 
 /// Fifteen-minute load average. Windows: 0.0.
-#[unsafe(export_name = "zo_sys_load_avg_15m")]
-pub extern "C-unwind" fn _zo_sys_load_avg_15m() -> f64 {
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_sys_load_avg_15m() -> f64 {
   System::load_average().fifteen
 }

@@ -24,8 +24,8 @@ use crate::str::{alloc_str, str_bytes};
 ///
 /// `program` and `argv` must be valid zo str / `[]str`
 /// pointers.
-#[unsafe(export_name = "zo_process_exec")]
-pub unsafe extern "C-unwind" fn _zo_process_exec(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_process_exec(
   program: *const u8,
   argv: *const u8,
   capture: i32,
@@ -116,7 +116,7 @@ mod tests {
     let arg = alloc_str(b"hello");
     let argv = crate::arr::alloc_ptr_array(&[arg]);
 
-    let result = unsafe { _zo_process_exec(program, argv, 3) };
+    let result = unsafe { zo_process_exec(program, argv, 3) };
 
     let len = unsafe {
       u64::from_le_bytes(
@@ -152,7 +152,7 @@ mod tests {
     let program = alloc_str(b"/nonexistent_program_that_does_not_exist");
     let argv = crate::arr::alloc_ptr_array(&[]);
 
-    let result = unsafe { _zo_process_exec(program, argv, 3) };
+    let result = unsafe { zo_process_exec(program, argv, 3) };
 
     let code_ptr = unsafe {
       let offset = 16;

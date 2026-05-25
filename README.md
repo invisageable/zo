@@ -96,7 +96,7 @@ iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALL
     - STATiCALLY & STRONGLY TYPED — USES GREEN AND OS THREADS WRAPPED iN NURSERY TASK SCOPES. <sup>NO LEAKED THREADS, NO DATA RACES</sup>.
 
   - **iNTEGRATED**
-    - A COMPLETE WORKSTATiON WiTH BUiLT-iN TOOLS — PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup> AND TEXT EDiTOR <sup><a href="https://github.com/invisageable/codelord">codelord</a></sup>.
+    - A COMPLETE WORKSTATiON WiTH BUiLT-iN TOOLS — PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup> AND TEXT EDiTOR <sup>codelord</sup>.
 
 ## get started.
 
@@ -112,7 +112,7 @@ iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALL
   zo --version
   ```
 
-  3. iT WiLL PRiNT:
+  3. SUCCESSFULLY iT WiLL DiSPLAY:
 
   ```
   zo x.x.x
@@ -120,9 +120,9 @@ iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALL
 
 > *Note: zo is entirely self-contained. It requires no heavy external frameworks.*
 
-  1. ET VOiLÀ! HEAD OVER TO [@how-to](./crates/compiler/zo-how-to) — THE EASiEST WAY TO GET THE BASiCS OF zo.
+  1. ET VOiLÀ! NOW YOU CAN START THE [@initiation](https://zo.compilords.house/initiation) — THE EASiEST WAY TO GET THE BASiCS OF zo.
 
-iF YOU ENCOUNTER iSSUES, CHECK THE GUiDE:
+ANY iSSUES? CHECK THE iNSTALLATiON GUiDE:
 
   - @SEE — [`01-install`](./crates/compiler/zo-notes/public/guidelines/01-install.md)
 

@@ -13,12 +13,11 @@
 //! surface as mean / p99 shifts, not one-shot spikes.
 
 use zo_runtime::channel::{
-  _zo_chan_close, _zo_chan_free, _zo_chan_new, _zo_chan_recv, _zo_chan_send,
-  ZoChan,
+  ZoChan, zo_chan_close, zo_chan_free, zo_chan_new, zo_chan_recv, zo_chan_send,
 };
 use zo_runtime::pool::Pool;
 use zo_runtime::scheduler;
-use zo_runtime::task::{_zo_task_await, _zo_task_spawn};
+use zo_runtime::task::{zo_task_await, zo_task_spawn};
 
 use criterion::{
   BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
@@ -81,10 +80,10 @@ extern "C-unwind" fn pinger() {
 
   unsafe {
     for i in 0..PING_PONG_ROUNDS {
-      _zo_chan_send(ping, (&raw const i).cast::<u8>());
+      zo_chan_send(ping, (&raw const i).cast::<u8>());
 
       let mut echo: u64 = 0;
-      _zo_chan_recv(pong, (&raw mut echo).cast::<u8>());
+      zo_chan_recv(pong, (&raw mut echo).cast::<u8>());
 
       assert_eq!(echo, i, "pinger saw echo mismatch");
     }
@@ -99,8 +98,8 @@ extern "C-unwind" fn ponger() {
     for _ in 0..PING_PONG_ROUNDS {
       let mut v: u64 = 0;
 
-      _zo_chan_recv(ping, (&raw mut v).cast::<u8>());
-      _zo_chan_send(pong, (&raw const v).cast::<u8>());
+      zo_chan_recv(ping, (&raw mut v).cast::<u8>());
+      zo_chan_send(pong, (&raw const v).cast::<u8>());
     }
   }
 }
@@ -109,20 +108,20 @@ fn run_ping_pong() {
   scheduler::reset_for_test();
 
   unsafe {
-    let ping = _zo_chan_new(std::mem::size_of::<u64>(), 0);
-    let pong = _zo_chan_new(std::mem::size_of::<u64>(), 0);
+    let ping = zo_chan_new(std::mem::size_of::<u64>(), 0);
+    let pong = zo_chan_new(std::mem::size_of::<u64>(), 0);
 
     PING_CHAN.store(ping as u64, Ordering::SeqCst);
     PONG_CHAN.store(pong as u64, Ordering::SeqCst);
 
-    let pinger_h = _zo_task_spawn(pinger);
-    let ponger_h = _zo_task_spawn(ponger);
+    let pinger_h = zo_task_spawn(pinger);
+    let ponger_h = zo_task_spawn(ponger);
 
-    _zo_task_await(pinger_h);
-    _zo_task_await(ponger_h);
+    zo_task_await(pinger_h);
+    zo_task_await(ponger_h);
 
-    _zo_chan_free(ping);
-    _zo_chan_free(pong);
+    zo_chan_free(ping);
+    zo_chan_free(pong);
   }
 }
 
@@ -149,10 +148,10 @@ extern "C-unwind" fn producer() {
 
   unsafe {
     for i in 1..=PROD_N {
-      _zo_chan_send(ch, (&raw const i).cast::<u8>());
+      zo_chan_send(ch, (&raw const i).cast::<u8>());
     }
 
-    _zo_chan_close(ch);
+    zo_chan_close(ch);
   }
 }
 
@@ -163,7 +162,7 @@ extern "C-unwind" fn consumer() {
     loop {
       let mut v: u64 = 0;
 
-      _zo_chan_recv(ch, (&raw mut v).cast::<u8>());
+      zo_chan_recv(ch, (&raw mut v).cast::<u8>());
 
       if v == 0 {
         return;
@@ -180,21 +179,21 @@ fn run_producer_consumer_close() {
   PROD_SUM.store(0, Ordering::SeqCst);
 
   unsafe {
-    let ch = _zo_chan_new(std::mem::size_of::<u64>(), 16);
+    let ch = zo_chan_new(std::mem::size_of::<u64>(), 16);
 
     PROD_CHAN.store(ch as u64, Ordering::SeqCst);
 
-    let prod_h = _zo_task_spawn(producer);
-    let cons_h = _zo_task_spawn(consumer);
+    let prod_h = zo_task_spawn(producer);
+    let cons_h = zo_task_spawn(consumer);
 
-    _zo_task_await(prod_h);
-    _zo_task_await(cons_h);
+    zo_task_await(prod_h);
+    zo_task_await(cons_h);
 
     let expected_sum: u64 = (1..=PROD_N).sum();
 
     assert_eq!(PROD_SUM.load(Ordering::SeqCst), expected_sum);
 
-    _zo_chan_free(ch);
+    zo_chan_free(ch);
   }
 }
 

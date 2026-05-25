@@ -24,12 +24,12 @@
 pub struct SpikePair { a: s64, b: s64 }
 
 %% link_name = "zo_spike_pair".
-pub ffi __zo_spike_pair() -> SpikePair;
+pub ffi zo_spike_pair() -> SpikePair;
 
 -- CHECK: bl
 -- CHECK: add x0, x31, #
 fun main() {
-  imu p: SpikePair = __zo_spike_pair();
+  imu p: SpikePair = zo_spike_pair();
   imu a: s64 = p.a;
   imu b: s64 = p.b;
   showln("abi_composite_return: a={a} b={b}");

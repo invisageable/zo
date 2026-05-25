@@ -20,7 +20,7 @@
 //! *newly-spawned* work, not in-flight tasks.
 //!
 //! This primitive is **opt-in**. The default spawn /
-//! await ABI (`_zo_task_spawn` in `task.rs`) continues
+//! await ABI (`zo_task_spawn` in `task.rs`) continues
 //! to use a single thread-local scheduler — programs
 //! that care about parallelism build a `Pool`
 //! explicitly.
@@ -359,8 +359,8 @@ fn try_steal(my_id: usize, n: usize, queues: &[SharedQueue]) -> bool {
 /// # Safety
 ///
 /// No preconditions.
-#[unsafe(export_name = "zo_pool_new")]
-pub unsafe extern "C-unwind" fn _zo_pool_new(n: i32) -> i64 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_pool_new(n: i32) -> i64 {
   let workers = if n > 0 { n as usize } else { 1 };
   let pool = Box::new(Pool::new(workers));
 
@@ -371,9 +371,9 @@ pub unsafe extern "C-unwind" fn _zo_pool_new(n: i32) -> i64 {
 ///
 /// # Safety
 ///
-/// `handle` must be a live pool from `_zo_pool_new`.
-#[unsafe(export_name = "zo_pool_spawn")]
-pub unsafe extern "C-unwind" fn _zo_pool_spawn(
+/// `handle` must be a live pool from `zo_pool_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_pool_spawn(
   handle: i64,
   callee: extern "C-unwind" fn(),
 ) {
@@ -386,9 +386,9 @@ pub unsafe extern "C-unwind" fn _zo_pool_spawn(
 ///
 /// # Safety
 ///
-/// `handle` must be a live pool from `_zo_pool_new`.
-#[unsafe(export_name = "zo_pool_wait_idle")]
-pub unsafe extern "C-unwind" fn _zo_pool_wait_idle(handle: i64) {
+/// `handle` must be a live pool from `zo_pool_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_pool_wait_idle(handle: i64) {
   let pool = unsafe { &*(handle as *const Pool) };
 
   pool.wait_idle();
@@ -400,8 +400,8 @@ pub unsafe extern "C-unwind" fn _zo_pool_wait_idle(handle: i64) {
 /// # Safety
 ///
 /// `handle` must be a live pool (or 0 for no-op).
-#[unsafe(export_name = "zo_pool_shutdown")]
-pub unsafe extern "C-unwind" fn _zo_pool_shutdown(handle: i64) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_pool_shutdown(handle: i64) {
   if handle != 0 {
     let pool = unsafe { Box::from_raw(handle as *mut Pool) };
 
@@ -413,9 +413,9 @@ pub unsafe extern "C-unwind" fn _zo_pool_shutdown(handle: i64) {
 ///
 /// # Safety
 ///
-/// `handle` must be a live pool from `_zo_pool_new`.
-#[unsafe(export_name = "zo_pool_worker_count")]
-pub unsafe extern "C-unwind" fn _zo_pool_worker_count(handle: i64) -> i32 {
+/// `handle` must be a live pool from `zo_pool_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_pool_worker_count(handle: i64) -> i32 {
   let pool = unsafe { &*(handle as *const Pool) };
 
   pool.queues.len() as i32

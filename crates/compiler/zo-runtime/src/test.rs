@@ -9,8 +9,8 @@ static FAILED: AtomicU32 = AtomicU32::new(0);
 /// # Safety
 ///
 /// Called from synthesized test harness machine code.
-#[unsafe(export_name = "zo_test_begin")]
-pub unsafe extern "C-unwind" fn _zo_test_begin(count: u64) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_test_begin(count: u64) {
   eprintln!("\nrunning {count} tests ...\n");
 }
 
@@ -18,8 +18,8 @@ pub unsafe extern "C-unwind" fn _zo_test_begin(count: u64) {
 ///
 /// `fn_ptr` must be a live function address. `name_ptr`
 /// must point to `name_len` valid UTF-8 bytes.
-#[unsafe(export_name = "zo_test_run_one")]
-pub unsafe extern "C-unwind" fn _zo_test_run_one(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_test_run_one(
   fn_ptr: extern "C-unwind" fn(),
   name_ptr: *const u8,
   name_len: u64,
@@ -58,8 +58,8 @@ pub unsafe extern "C-unwind" fn _zo_test_run_one(
 /// # Safety
 ///
 /// Called from synthesized test harness machine code.
-#[unsafe(export_name = "zo_test_summary")]
-pub unsafe extern "C-unwind" fn _zo_test_summary() {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_test_summary() {
   let passed = PASSED.load(Ordering::Relaxed);
   let failed = FAILED.load(Ordering::Relaxed);
 

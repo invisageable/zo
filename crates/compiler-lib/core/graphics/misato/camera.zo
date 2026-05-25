@@ -7,16 +7,16 @@ pub struct PerspectiveCamera { handle: int }
 
 apply PerspectiveCamera {
   pub fun new(fov: float, aspect: float, near: float, far: float) -> Self {
-    Self { handle = __zo_misato_camera_new(fov, aspect, near, far) }
+    Self { handle = zo_misato_camera_new(fov, aspect, near, far) }
   }
 
   pub fun set_position(self, x: float, y: float, z: float) -> Self {
-    __zo_misato_camera_set_position(self.handle, x, y, z);
+    zo_misato_camera_set_position(self.handle, x, y, z);
     self
   }
 
   pub fun look_at(self, x: float, y: float, z: float) -> Self {
-    __zo_misato_camera_look_at(self.handle, x, y, z);
+    zo_misato_camera_look_at(self.handle, x, y, z);
     self
   }
 }

@@ -5,32 +5,26 @@
   linux: "@executable_path/libzo_runtime.so",
 }
 
-%% link_name = "zo_sys_cpu_count".
-pub ffi __zo_cpu_count() -> int;
+pub ffi zo_sys_cpu_count() -> int;
 
-%% link_name = "zo_pool_new".
-pub ffi __zo_pool_new(workers: int) -> s64;
+pub ffi zo_pool_new(workers: int) -> s64;
 
-%% link_name = "zo_pool_spawn".
-pub ffi __zo_pool_spawn(handle: s64, callee: Fn());
+pub ffi zo_pool_spawn(handle: s64, callee: Fn());
 
-%% link_name = "zo_pool_wait_idle".
-pub ffi __zo_pool_wait_idle(handle: s64);
+pub ffi zo_pool_wait_idle(handle: s64);
 
-%% link_name = "zo_pool_shutdown".
-pub ffi __zo_pool_shutdown(handle: s64);
+pub ffi zo_pool_shutdown(handle: s64);
 
-%% link_name = "zo_pool_worker_count".
-pub ffi __zo_pool_worker_count(handle: s64) -> int;
+pub ffi zo_pool_worker_count(handle: s64) -> int;
 
 -! Number of logical CPU cores.
 pub fun cpu_count() -> int {
-  __zo_cpu_count()
+  zo_sys_cpu_count()
 }
 
 -! Create a pool with `workers` OS threads.
 pub fun spawn_pool(workers: int) -> Pool {
-  Pool { handle = __zo_pool_new(workers) }
+  Pool { handle = zo_pool_new(workers) }
 }
 
 -! A work-stealing pool.
@@ -39,21 +33,21 @@ pub struct Pool { handle: s64 }
 apply Pool {
   -! Submit a function for execution on a worker.
   pub fun run(self, task: Fn()) {
-    __zo_pool_spawn(self.handle, task);
+    zo_pool_spawn(self.handle, task);
   }
 
   -! Block until all submitted tasks complete.
   pub fun wait(self) {
-    __zo_pool_wait_idle(self.handle);
+    zo_pool_wait_idle(self.handle);
   }
 
   -! Shutdown the pool.
   pub fun shutdown(self) {
-    __zo_pool_shutdown(self.handle);
+    zo_pool_shutdown(self.handle);
   }
 
   -! Number of worker threads.
   pub fun worker_count(self) -> int {
-    __zo_pool_worker_count(self.handle)
+    zo_pool_worker_count(self.handle)
   }
 }

@@ -11,17 +11,13 @@
 
 -- raw FFI surface — see `zo-runtime/src/time.rs`.
 
-%% link_name = "zo_time_monotonic_ns".
-pub ffi __zo_time_monotonic_ns() -> s64;
+pub ffi zo_time_monotonic_ns() -> s64;
 
-%% link_name = "zo_time_unix_secs".
-pub ffi __zo_time_unix_secs() -> s64;
+pub ffi zo_time_unix_secs() -> s64;
 
-%% link_name = "zo_time_unix_nanos".
-pub ffi __zo_time_unix_nanos() -> s64;
+pub ffi zo_time_unix_nanos() -> s64;
 
-%% link_name = "zo_time_sleep_ns".
-pub ffi __zo_time_sleep_ns(ns: s64);
+pub ffi zo_time_sleep_ns(ns: s64);
 
 
 -! A length of time. Internal storage is `s64` nanoseconds
@@ -74,12 +70,12 @@ pub struct Instant { ns: s64 }
 apply Instant {
   -! Snapshot of the monotonic clock at this call.
   pub fun now() -> Self {
-    Self { ns = __zo_time_monotonic_ns() }
+    Self { ns = zo_time_monotonic_ns() }
   }
 
   -! Time elapsed since `self`.
   pub fun elapsed(self) -> Duration {
-    Duration { ns = __zo_time_monotonic_ns() - self.ns }
+    Duration { ns = zo_time_monotonic_ns() - self.ns }
   }
 
   -! Duration between `self` and an earlier `Instant`.
@@ -100,8 +96,8 @@ pub struct SystemTime {
 apply SystemTime {
   pub fun now() -> Self {
     Self {
-      secs = __zo_time_unix_secs(),
-      nanos = __zo_time_unix_nanos(),
+      secs = zo_time_unix_secs(),
+      nanos = zo_time_unix_nanos(),
     }
   }
 }
@@ -109,5 +105,5 @@ apply SystemTime {
 
 -! Block the current thread for the given duration.
 pub fun sleep(d: Duration) {
-  __zo_time_sleep_ns(d.ns);
+  zo_time_sleep_ns(d.ns);
 }

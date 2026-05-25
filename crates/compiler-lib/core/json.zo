@@ -15,70 +15,70 @@ load core::c::(CBytes, CStr);
 -* ffi surface — bridge to libzo_provider_json. *-
 
 -! Parse a NUL-terminated C string into a fresh JSON root.
-pub ffi __zo_json_parse_str(ptr: CStr) -> int;
+pub ffi zo_json_parse_str(ptr: CStr) -> int;
 
 -! Drop a handle and its underlying root.
-pub ffi __zo_json_free(handle: int);
+pub ffi zo_json_free(handle: int);
 
 -! Kind discriminator (0..5: null, bool, number, string,
 -! array, object).
-pub ffi __zo_json_kind(handle: int) -> int;
+pub ffi zo_json_kind(handle: int) -> int;
 
 -! Read a JSON boolean as 1/0; `0` for non-bool kinds.
-pub ffi __zo_json_as_bool(handle: int) -> int;
+pub ffi zo_json_as_bool(handle: int) -> int;
 
 -! Read a JSON number as int.
-pub ffi __zo_json_as_i64(handle: int) -> int;
+pub ffi zo_json_as_i64(handle: int) -> int;
 
 -! Read a JSON number as float.
-pub ffi __zo_json_as_f64(handle: int) -> float;
+pub ffi zo_json_as_f64(handle: int) -> float;
 
 -! `1` if the underlying number's serde representation is
 -! integral; `0` otherwise.
-pub ffi __zo_json_is_int(handle: int) -> int;
+pub ffi zo_json_is_int(handle: int) -> int;
 
 -! Array length or object key count.
-pub ffi __zo_json_len(handle: int) -> int;
+pub ffi zo_json_len(handle: int) -> int;
 
 -! Object field lookup.
-pub ffi __zo_json_get(handle: int, key: CStr) -> int;
+pub ffi zo_json_get(handle: int, key: CStr) -> int;
 
 -! Array index lookup.
-pub ffi __zo_json_get_at(handle: int, idx: int) -> int;
+pub ffi zo_json_get_at(handle: int, idx: int) -> int;
 
 -! Serialize as compact JSON; bytes staged in scratch.
-pub ffi __zo_json_to_str(handle: int) -> CBytes;
+pub ffi zo_json_to_str(handle: int) -> CBytes;
 
 -! Read a JSON string's content (unquoted).
-pub ffi __zo_json_as_str(handle: int) -> CBytes;
+pub ffi zo_json_as_str(handle: int) -> CBytes;
 
 -! Object key count.
-pub ffi __zo_json_keys_len(handle: int) -> int;
+pub ffi zo_json_keys_len(handle: int) -> int;
 
 -! i-th object key (insertion order).
-pub ffi __zo_json_key_at(handle: int, index: int) -> CBytes;
+pub ffi zo_json_key_at(handle: int, index: int) -> CBytes;
 
 -! Most recent parse error message on this thread.
-pub ffi __zo_json_last_error() -> CBytes;
+pub ffi zo_json_last_error() -> CBytes;
 
 -- Builders.
 
-pub ffi __zo_json_null() -> int;
-pub ffi __zo_json_from_bool(value: int) -> int;
-pub ffi __zo_json_from_int(value: int) -> int;
-pub ffi __zo_json_from_f64(value: float) -> int;
-pub ffi __zo_json_from_str(ptr: CStr) -> int;
-pub ffi __zo_json_array() -> int;
-pub ffi __zo_json_object() -> int;
+pub ffi zo_json_null() -> int;
+pub ffi zo_json_from_bool(value: int) -> int;
+pub ffi zo_json_from_int(value: int) -> int;
+pub ffi zo_json_from_f64(value: float) -> int;
+pub ffi zo_json_from_str(ptr: CStr) -> int;
+pub ffi zo_json_array() -> int;
+pub ffi zo_json_object() -> int;
 
 -! Append `clone(val)` to `self` (must be an array).
-pub ffi __zo_json_push(self_h: int, value_h: int) -> int;
+pub ffi zo_json_push(self_h: int, value_h: int) -> int;
 
 -! Insert (or overwrite) `key → clone(val)` in `self`.
-pub ffi __zo_json_set(self_h: int, key: CStr, value_h: int) -> int;
+pub ffi zo_json_set(self_h: int, key: CStr, value_h: int) -> int;
 
 -! Serialize as compact JSON and write to `path`.
-pub ffi __zo_json_write(handle: int, path: CStr) -> int;
+pub ffi zo_json_write(handle: int, path: CStr) -> int;
 
 
 -* user-facing API. *-
@@ -92,7 +92,7 @@ apply Json {
   -! `source` is not valid JSON or contains an interior
   -! NUL byte; check via `is_valid` before using.
   pub fun parse(source: str) -> Self {
-    Self { handle = __zo_json_parse_str(CStr::new(source)) }
+    Self { handle = zo_json_parse_str(CStr::new(source)) }
   }
 
   -! True when the underlying handle is non-zero.
@@ -102,68 +102,68 @@ apply Json {
 
   -! Drop the underlying root + handle. Idempotent.
   pub fun free(self) {
-    __zo_json_free(self.handle);
+    zo_json_free(self.handle);
   }
 
   -! Kind discriminator (`0..5`).
   pub fun kind(self) -> int {
-    __zo_json_kind(self.handle)
+    zo_json_kind(self.handle)
   }
 
   pub fun as_bool(self) -> bool {
-    __zo_json_as_bool(self.handle) != 0
+    zo_json_as_bool(self.handle) != 0
   }
 
   pub fun as_int(self) -> int {
-    __zo_json_as_i64(self.handle)
+    zo_json_as_i64(self.handle)
   }
 
   pub fun as_f64(self) -> float {
-    __zo_json_as_f64(self.handle)
+    zo_json_as_f64(self.handle)
   }
 
   pub fun is_int(self) -> bool {
-    __zo_json_is_int(self.handle) != 0
+    zo_json_is_int(self.handle) != 0
   }
 
   pub fun len(self) -> int {
-    __zo_json_len(self.handle)
+    zo_json_len(self.handle)
   }
 
   -! Object field lookup; handle `0` on missing key.
   pub fun get(self, key: str) -> Self {
-    Self { handle = __zo_json_get(self.handle, CStr::new(key)) }
+    Self { handle = zo_json_get(self.handle, CStr::new(key)) }
   }
 
   -! Array index lookup; handle `0` on out-of-range.
   pub fun get_at(self, index: int) -> Self {
-    Self { handle = __zo_json_get_at(self.handle, index) }
+    Self { handle = zo_json_get_at(self.handle, index) }
   }
 
   -! Serialize as compact JSON.
   pub fun to_str(self) -> str {
-    __zo_json_to_str(self.handle).to_str()
+    zo_json_to_str(self.handle).to_str()
   }
 
   -! Read a JSON string's content (unquoted).
   pub fun as_str(self) -> str {
-    __zo_json_as_str(self.handle).to_str()
+    zo_json_as_str(self.handle).to_str()
   }
 
   pub fun keys_len(self) -> int {
-    __zo_json_keys_len(self.handle)
+    zo_json_keys_len(self.handle)
   }
 
   -! i-th object key (insertion order).
   pub fun key_at(self, index: int) -> str {
-    __zo_json_key_at(self.handle, index).to_str()
+    zo_json_key_at(self.handle, index).to_str()
   }
 
   -! Most recent parse error on this thread.
   -!
   -! @note — empty when the last parse succeeded.
   pub fun last_error() -> str {
-    __zo_json_last_error().to_str()
+    zo_json_last_error().to_str()
   }
 
   -! Parse `source` as JSON. Alias for `Json::parse`.
@@ -186,18 +186,18 @@ apply Json {
 
   -! Fresh `null` value.
   pub fun null() -> Self {
-    Self { handle = __zo_json_null() }
+    Self { handle = zo_json_null() }
   }
 
   -! Fresh boolean value.
   pub fun from_bool(value: bool) -> Self {
     imu marshaled: int = when value ? 1 : 0;
-    Self { handle = __zo_json_from_bool(marshaled) }
+    Self { handle = zo_json_from_bool(marshaled) }
   }
 
   -! Fresh integer-number value.
   pub fun from_int(value: int) -> Self {
-    Self { handle = __zo_json_from_int(value) }
+    Self { handle = zo_json_from_int(value) }
   }
 
   -! Fresh float-number value.
@@ -205,36 +205,36 @@ apply Json {
   -! @note — handle `0` for NaN / Infinity (serde rejects
   -! them per RFC 8259).
   pub fun from_f64(value: float) -> Self {
-    Self { handle = __zo_json_from_f64(value) }
+    Self { handle = zo_json_from_f64(value) }
   }
 
   -! Fresh string value.
   pub fun from_string(value: str) -> Self {
-    Self { handle = __zo_json_from_str(CStr::new(value)) }
+    Self { handle = zo_json_from_str(CStr::new(value)) }
   }
 
   -! Fresh empty array.
   pub fun array() -> Self {
-    Self { handle = __zo_json_array() }
+    Self { handle = zo_json_array() }
   }
 
   -! Fresh empty object.
   pub fun object() -> Self {
-    Self { handle = __zo_json_object() }
+    Self { handle = zo_json_object() }
   }
 
   -! Append a clone of `value` to `self`'s array.
   pub fun push(self, value: Self) -> bool {
-    __zo_json_push(self.handle, value.handle) != 0
+    zo_json_push(self.handle, value.handle) != 0
   }
 
   -! Insert (or overwrite) `key → clone(value)`.
   pub fun set(self, key: str, value: Self) -> bool {
-    __zo_json_set(self.handle, CStr::new(key), value.handle) != 0
+    zo_json_set(self.handle, CStr::new(key), value.handle) != 0
   }
 
   -! Serialize as compact JSON and write to `path`.
   pub fun write(self, path: str) -> int {
-    __zo_json_write(self.handle, CStr::new(path))
+    zo_json_write(self.handle, CStr::new(path))
   }
 }

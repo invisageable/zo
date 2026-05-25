@@ -99,8 +99,8 @@ pub(crate) fn alloc_str(payload: &[u8]) -> *const u8 {
 /// # Safety
 ///
 /// `buf` must point at `len` readable bytes.
-#[unsafe(export_name = "zo_str_alloc")]
-pub unsafe extern "C-unwind" fn _zo_str_alloc(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_str_alloc(
   buf: *const u8,
   len: usize,
 ) -> *const u8 {
@@ -118,8 +118,8 @@ pub unsafe extern "C-unwind" fn _zo_str_alloc(
 /// # Safety
 ///
 /// No preconditions — `n` is a plain scalar.
-#[unsafe(export_name = "zo_int_to_str")]
-pub unsafe extern "C-unwind" fn _zo_int_to_str(n: i64) -> *const u8 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_int_to_str(n: i64) -> *const u8 {
   let formatted = format!("{n}");
 
   alloc_str(formatted.as_bytes())
@@ -134,14 +134,14 @@ pub unsafe extern "C-unwind" fn _zo_int_to_str(n: i64) -> *const u8 {
 /// `ldp x29, x30, [sp]` read garbage and `ret` jumped
 /// to a junk address (visible as a hang). Owning the
 /// allocation here keeps SP stable and matches the
-/// `_zo_str_slice` / `alloc_str_with` lifetime model.
+/// `zo_str_slice` / `alloc_str_with` lifetime model.
 ///
 /// # Safety
 ///
 /// `lhs` and `rhs` must both point at live zo str
 /// headers (`[len:u64][bytes][NUL]`).
-#[unsafe(export_name = "zo_str_concat")]
-pub unsafe extern "C-unwind" fn _zo_str_concat(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_str_concat(
   lhs: *const u8,
   rhs: *const u8,
 ) -> *const u8 {
@@ -167,8 +167,8 @@ pub unsafe extern "C-unwind" fn _zo_str_concat(
 ///
 /// `s` must point at a valid zo str header
 /// (`[len:u64][bytes][NUL]`) or be null.
-#[unsafe(export_name = "zo_cstr_from_str")]
-pub unsafe extern "C" fn _zo_cstr_from_str(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_cstr_from_str(
   s: *const u8,
 ) -> *const std::os::raw::c_char {
   if s.is_null() {
@@ -200,8 +200,8 @@ pub unsafe extern "C" fn _zo_cstr_from_str(
 /// `src` must be a live zo str header. `lo` and `hi`
 /// must both be within `[0, str_len(src)]` and
 /// `lo <= hi`.
-#[unsafe(export_name = "zo_str_slice")]
-pub unsafe extern "C-unwind" fn _zo_str_slice(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_str_slice(
   src: *const u8,
   lo: usize,
   hi: usize,
@@ -236,8 +236,8 @@ pub unsafe extern "C-unwind" fn _zo_str_slice(
 ///
 /// `src`, `needle`, `with` must all be live zo str
 /// headers.
-#[unsafe(export_name = "zo_str_replace")]
-pub unsafe extern "C-unwind" fn _zo_str_replace(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_str_replace(
   src: *const u8,
   needle: *const u8,
   with: *const u8,
@@ -291,7 +291,7 @@ pub unsafe extern "C-unwind" fn _zo_str_replace(
   })
 }
 
-/// First pass of `_zo_str_replace`: count non-overlapping
+/// First pass of `zo_str_replace`: count non-overlapping
 /// occurrences of `n` in `s`. Factored so the second pass
 /// can reuse the exact same scan loop and the count is
 /// testable without a runtime alloc.
@@ -329,7 +329,7 @@ mod tests {
   #[test]
   fn slice_reads_len_and_copies_bytes() {
     let src = make_str(b"hello, world");
-    let sliced = unsafe { _zo_str_slice(src.as_ptr(), 7, 12) };
+    let sliced = unsafe { zo_str_slice(src.as_ptr(), 7, 12) };
 
     let bytes = unsafe { str_bytes(sliced) };
 
@@ -340,7 +340,7 @@ mod tests {
   #[test]
   fn slice_empty_range_produces_empty_str() {
     let src = make_str(b"abc");
-    let sliced = unsafe { _zo_str_slice(src.as_ptr(), 1, 1) };
+    let sliced = unsafe { zo_str_slice(src.as_ptr(), 1, 1) };
 
     assert_eq!(unsafe { str_len(sliced) }, 0);
     assert_eq!(unsafe { str_bytes(sliced) }, b"");
@@ -352,7 +352,7 @@ mod tests {
     let src = make_str(b"short");
 
     unsafe {
-      _zo_str_slice(src.as_ptr(), 0, 100);
+      zo_str_slice(src.as_ptr(), 0, 100);
     }
   }
 
@@ -381,7 +381,7 @@ mod tests {
     let needle = make_str(b"-");
     let with = make_str(b"--");
     let out =
-      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+      unsafe { zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
 
     assert_eq!(unsafe { str_bytes(out) }, b"a--b--c");
   }
@@ -392,7 +392,7 @@ mod tests {
     let needle = make_str(b", ");
     let with = make_str(b",");
     let out =
-      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+      unsafe { zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
 
     assert_eq!(unsafe { str_bytes(out) }, b"foo,bar,baz");
   }
@@ -403,7 +403,7 @@ mod tests {
     let needle = make_str(b"l");
     let with = make_str(b"");
     let out =
-      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+      unsafe { zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
 
     assert_eq!(unsafe { str_bytes(out) }, b"heo word");
   }
@@ -414,7 +414,7 @@ mod tests {
     let needle = make_str(b"");
     let with = make_str(b"x");
     let out =
-      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+      unsafe { zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
 
     assert_eq!(out, src.as_ptr());
   }
@@ -425,7 +425,7 @@ mod tests {
     let needle = make_str(b"xyz");
     let with = make_str(b"!");
     let out =
-      unsafe { _zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
+      unsafe { zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
 
     assert_eq!(out, src.as_ptr());
   }

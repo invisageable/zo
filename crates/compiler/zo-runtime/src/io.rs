@@ -53,8 +53,8 @@ static STDIN: std::sync::Mutex<StdinBuffer> =
 /// # Safety
 ///
 /// `buf` must point at `max_len` writable bytes.
-#[unsafe(export_name = "zo_io_readln")]
-pub unsafe extern "C-unwind" fn _zo_io_readln(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_io_readln(
   buf: *mut u8,
   max_len: usize,
 ) -> isize {
@@ -139,8 +139,8 @@ pub unsafe extern "C-unwind" fn _zo_io_readln(
 /// # Safety
 ///
 /// `buf` must point at `max_len` writable bytes.
-#[unsafe(export_name = "zo_io_read")]
-pub unsafe extern "C-unwind" fn _zo_io_read(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_io_read(
   buf: *mut u8,
   max_len: usize,
 ) -> isize {
@@ -178,8 +178,8 @@ static ARGS_ARRAY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 ///
 /// `unsafe` only because `extern "C-unwind"` requires it;
 /// the body uses safe `std::env::args_os`.
-#[unsafe(export_name = "zo_args")]
-pub unsafe extern "C-unwind" fn _zo_args() -> *const u8 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_args() -> *const u8 {
   *ARGS_ARRAY.get_or_init(|| {
     let str_ptrs: Vec<*const u8> = std::env::args_os()
       .skip(1)
@@ -203,8 +203,8 @@ pub unsafe extern "C-unwind" fn _zo_args() -> *const u8 {
 /// `path` must point at a NUL-terminated byte run that
 /// stays readable and unaliased for the duration of the
 /// call.
-#[unsafe(export_name = "zo_io_read_dir")]
-pub unsafe extern "C-unwind" fn _zo_io_read_dir(path: *const u8) -> *const u8 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_io_read_dir(path: *const u8) -> *const u8 {
   use std::os::unix::ffi::OsStrExt;
 
   if path.is_null() {

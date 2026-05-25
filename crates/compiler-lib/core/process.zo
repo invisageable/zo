@@ -29,8 +29,7 @@ val CAPTURE_BOTH: int = 3;
 -! @note — Use `flush()` beforehand if pending output matters.
 pub ffi exit(code: int);
 
-%% link_name = "zo_process_exec".
-pub ffi __zo_process_exec(
+pub ffi zo_process_exec(
   program: str,
   argv: []str,
   capture: int,
@@ -70,7 +69,7 @@ apply Command {
 
   -! Execute the command and capture stdout + stderr.
   pub fun output(self) -> Result<Output, int> {
-    imu result: []str = __zo_process_exec(
+    imu result: []str = zo_process_exec(
       self.program,
       self.arguments,
       CAPTURE_BOTH,
@@ -104,7 +103,7 @@ apply Command {
   -! Execute the command, inheriting stdout/stderr.
   -! Returns the exit code.
   pub fun run(self) -> Result<int, int> {
-    imu result: []str = __zo_process_exec(
+    imu result: []str = zo_process_exec(
       self.program,
       self.arguments,
       CAPTURE_BOTH,

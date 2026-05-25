@@ -18,7 +18,7 @@ pub struct MeshStandardMaterial { handle: int }
 
 apply MeshStandardMaterial {
   pub fun new(color: int) -> Material {
-    Material { handle = __zo_misato_make_standard_mat(color) }
+    Material { handle = zo_misato_make_standard_mat(color) }
   }
 }
 
@@ -28,6 +28,6 @@ pub struct MeshNormalMaterial { handle: int }
 
 apply MeshNormalMaterial {
   pub fun new() -> Material {
-    Material { handle = __zo_misato_make_normal_mat() }
+    Material { handle = zo_misato_make_normal_mat() }
   }
 }

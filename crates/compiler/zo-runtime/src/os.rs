@@ -8,8 +8,8 @@ use crate::str::alloc_str;
 /// # Safety
 ///
 /// No preconditions — returns a pointer to static data.
-#[unsafe(export_name = "zo_os_name")]
-pub unsafe extern "C-unwind" fn _zo_os_name() -> *const u8 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_os_name() -> *const u8 {
   #[cfg(target_os = "macos")]
   {
     alloc_str(b"macos")
@@ -29,8 +29,8 @@ pub unsafe extern "C-unwind" fn _zo_os_name() -> *const u8 {
 /// # Safety
 ///
 /// No preconditions — returns a pointer to static data.
-#[unsafe(export_name = "zo_os_arch")]
-pub unsafe extern "C-unwind" fn _zo_os_arch() -> *const u8 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_os_arch() -> *const u8 {
   #[cfg(target_arch = "aarch64")]
   {
     alloc_str(b"aarch64")
@@ -50,8 +50,8 @@ pub unsafe extern "C-unwind" fn _zo_os_arch() -> *const u8 {
 /// # Safety
 ///
 /// No preconditions — returns a pointer to static data.
-#[unsafe(export_name = "zo_os_family")]
-pub unsafe extern "C-unwind" fn _zo_os_family() -> *const u8 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_os_family() -> *const u8 {
   #[cfg(unix)]
   {
     alloc_str(b"unix")
@@ -80,7 +80,7 @@ mod tests {
 
   #[test]
   fn os_name_is_known() {
-    let name = read_zo_str(unsafe { _zo_os_name() });
+    let name = read_zo_str(unsafe { zo_os_name() });
 
     assert!(
       name == "macos" || name == "linux",
@@ -90,7 +90,7 @@ mod tests {
 
   #[test]
   fn os_arch_is_known() {
-    let arch = read_zo_str(unsafe { _zo_os_arch() });
+    let arch = read_zo_str(unsafe { zo_os_arch() });
 
     assert!(
       arch == "aarch64" || arch == "x86_64",
@@ -100,7 +100,7 @@ mod tests {
 
   #[test]
   fn os_family_is_unix() {
-    let family = read_zo_str(unsafe { _zo_os_family() });
+    let family = read_zo_str(unsafe { zo_os_family() });
 
     assert_eq!(family, "unix");
   }

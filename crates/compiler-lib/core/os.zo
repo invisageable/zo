@@ -11,14 +11,11 @@ load core::c::(CBytes);
 }
 
 
-%% link_name = "zo_os_name".
-pub ffi __zo_os_name() -> str;
+pub ffi zo_os_name() -> str;
 
-%% link_name = "zo_os_arch".
-pub ffi __zo_os_arch() -> str;
+pub ffi zo_os_arch() -> str;
 
-%% link_name = "zo_os_family".
-pub ffi __zo_os_family() -> str;
+pub ffi zo_os_family() -> str;
 
 
 -! POSIX errno constants for `Result<T, int>` matching.
@@ -34,17 +31,17 @@ pub val EPIPE: int = 32;
 
 -! Operating system name: `"macos"`, `"linux"`.
 pub fun name() -> str {
-  __zo_os_name()
+  zo_os_name()
 }
 
 -! CPU architecture: `"aarch64"`, `"x86_64"`.
 pub fun arch() -> str {
-  __zo_os_arch()
+  zo_os_arch()
 }
 
 -! OS family: `"unix"`, `"windows"`.
 pub fun family() -> str {
-  __zo_os_family()
+  zo_os_family()
 }
 
 -! `true` on macOS.

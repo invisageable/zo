@@ -2753,7 +2753,7 @@ impl<'a> ARM64Gen<'a> {
           // raylib + misato FFIs flow through the generic
           // AAPCS fallback (`_` arm → `emit_ffi_call`).
           // Misato C symbols already match `_<zo_name>` —
-          // the std `pub ffi __zo_misato_*` declarations
+          // the std `pub ffi zo_misato_*` declarations
           // name the C symbol directly, so no mapping is
           // needed.
           "exists" => self.emit_io_exists(args, idx),
@@ -2809,17 +2809,17 @@ impl<'a> ARM64Gen<'a> {
           // already-loaded `*mut ZoMap` / `*mut ZoVec`
           // (from `self.ptr`); pass through to the runtime
           // export with no byte marshaling.
-          "__zo_map_len_raw" => self.emit_map_len_raw(args, idx),
-          "__zo_map_free_raw" => self.emit_map_free_raw(args, idx),
-          "__zo_vec_len_raw" => self.emit_vec_len_raw(args, idx),
-          "__zo_vec_free_raw" => self.emit_vec_free_raw(args, idx),
-          "__zo_set_len_raw" => self.emit_set_len_raw(args, idx),
-          "__zo_set_free_raw" => self.emit_set_free_raw(args, idx),
+          "zo_map_len_raw" => self.emit_map_len_raw(args, idx),
+          "zo_map_free_raw" => self.emit_map_free_raw(args, idx),
+          "zo_vec_len_raw" => self.emit_vec_len_raw(args, idx),
+          "zo_vec_free_raw" => self.emit_vec_free_raw(args, idx),
+          "zo_set_len_raw" => self.emit_set_len_raw(args, idx),
+          "zo_set_free_raw" => self.emit_set_free_raw(args, idx),
 
           // `str.replace(needle, with)` — `apply str` body
           // forwards `(self, needle, with)` to this raw FFI;
           // codegen forwards X0..X2 to `_zo_str_replace`.
-          "__zo_str_replace" => self.emit_str_replace_raw(args, idx),
+          "zo_str_replace" => self.emit_str_replace_raw(args, idx),
 
           // Math intrinsics — ARM64 hardware instructions.
           // The arg is a float in a FP register. Move it
@@ -6637,7 +6637,7 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `__zo_map_len_raw(ptr)` — pass-through to
+  /// `zo_map_len_raw(ptr)` — pass-through to
   /// `_zo_map_len`. Caller already loaded the
   /// `*mut ZoMap` into the arg register; we just
   /// route it to X0 and emit the BL.
@@ -6657,7 +6657,7 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `__zo_str_replace(src, needle, with) -> str` — direct
+  /// `zo_str_replace(src, needle, with) -> str` — direct
   /// pass-through to the runtime helper. Three pointer args
   /// in X0..X2; result pointer in X0.
   fn emit_str_replace_raw(&mut self, args: &[ValueId], idx: usize) {
@@ -6680,7 +6680,7 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `__zo_map_free_raw(ptr)` — pass-through to
+  /// `zo_map_free_raw(ptr)` — pass-through to
   /// `_zo_map_free`. No return value.
   fn emit_map_free_raw(&mut self, args: &[ValueId], _idx: usize) {
     if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
@@ -6874,7 +6874,7 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `__zo_vec_len_raw(ptr)` — pass-through to
+  /// `zo_vec_len_raw(ptr)` — pass-through to
   /// `_zo_vec_len`.
   fn emit_vec_len_raw(&mut self, args: &[ValueId], idx: usize) {
     if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
@@ -6892,7 +6892,7 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `__zo_vec_free_raw(ptr)` — pass-through to
+  /// `zo_vec_free_raw(ptr)` — pass-through to
   /// `_zo_vec_free`.
   fn emit_vec_free_raw(&mut self, args: &[ValueId], _idx: usize) {
     if let Some(src) = args.first().and_then(|v| self.alloc_reg(*v))
@@ -7049,7 +7049,7 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `__zo_set_len_raw` and `__zo_set_free_raw` route
+  /// `zo_set_len_raw` and `zo_set_free_raw` route
   /// directly to the shared map exports — sets reuse
   /// the map allocator wholesale.
   fn emit_set_len_raw(&mut self, args: &[ValueId], idx: usize) {

@@ -13,11 +13,11 @@
 //! policy. The boundary:
 //!
 //! - `task.rs` — `ZoTask`, `task_shim`, `exit_current`,
-//!   `_zo_task_spawn` / `_zo_task_await` ABI exports.
+//!   `zo_task_spawn` / `zo_task_await` ABI exports.
 //! - `scheduler.rs` — `yield_now`, `run_one`,
 //!   `drain_until_dead`, thread-local queue state.
 //!
-//! `_zo_task_spawn` / `_zo_task_await` are the stable
+//! `zo_task_spawn` / `zo_task_await` are the stable
 //! ABI symbols the ARM codegen's BL placeholders
 //! resolve against — compiled programs don't know
 //! whether they run on green tasks or OS threads.
@@ -46,14 +46,14 @@ pub enum TaskState {
   Blocked,
   /// Task body has returned (normally or via panic).
   /// The task struct lives until its waiters and/or
-  /// the explicit `_zo_task_await` consume it.
+  /// the explicit `zo_task_await` consume it.
   Dead,
 }
 
 /// Terminal outcome of a task body.
 ///
 /// We store the outcome rather than unwinding across
-/// the FFI boundary — the caller of `_zo_task_await`
+/// the FFI boundary — the caller of `zo_task_await`
 /// re-raises if `Panicked`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TaskOutcome {
@@ -109,13 +109,13 @@ pub struct ZoTask {
   /// Tasks that have parked on `await`-ing this one.
   /// Green-only.
   pub waiters: Vec<*mut ZoTask>,
-  /// Cancellation flag. Set by `_zo_task_cancel`;
-  /// queried by `_zo_task_is_cancelled` and (future)
+  /// Cancellation flag. Set by `zo_task_cancel`;
+  /// queried by `zo_task_is_cancelled` and (future)
   /// yield-site cancellation polls. Inline — the
   /// supervisor already holds a `*mut ZoTask` handle
   /// and writes through it directly; no Arc overhead.
   pub cancelled: AtomicBool,
-  /// Arguments stashed by `_zo_task_spawn_N` and
+  /// Arguments stashed by `zo_task_spawn_N` and
   /// replayed into `X0..X(N-1)` by the matching
   /// `task_shim_N` before jumping to the user
   /// callee. `0` for the zero-arg spawn. Green-only.
@@ -124,7 +124,7 @@ pub struct ZoTask {
   user_arg2: u64,
   /// Return value captured by the task shim when the
   /// user callee completes normally. Read back by
-  /// `_zo_task_await` and returned through X0. For
+  /// `zo_task_await` and returned through X0. For
   /// void-returning user fns, the shim transmutes to
   /// `fn(..) -> u64` anyway — the extra u64 in X0 at
   /// return is simply ignored by the caller. Green-
@@ -137,7 +137,7 @@ pub struct ZoTask {
 }
 
 /// Extra state for a threaded task. The `join` handle
-/// lives until `_zo_task_await` consumes it; `outcome`
+/// lives until `zo_task_await` consumes it; `outcome`
 /// is written by the spawned pthread before it exits
 /// and read back on await.
 struct ThreadedData {
@@ -778,17 +778,17 @@ pub unsafe fn await_task(target: *mut ZoTask) -> u64 {
 
 // ===== C ABI exports =====
 //
-// ARM codegen emits `BL _zo_task_*` placeholders that
+// ARM codegen emits `BL zo_task_*` placeholders that
 // resolve against these symbols at link time.
 
 /// Spawn a new green task. Returns an opaque handle
-/// consumed by `_zo_task_await`.
+/// consumed by `zo_task_await`.
 ///
 /// # Safety
 ///
 /// `callee` must be a live `extern "C-unwind"` function
 /// pointer. The returned handle remains valid until
-/// consumed by `_zo_task_await` — dropping it without
+/// consumed by `zo_task_await` — dropping it without
 /// awaiting leaks the task's stack and ZoTask struct.
 /// Drain every ready task in the thread-local
 /// scheduler to completion. Called at the close of a
@@ -804,8 +804,8 @@ pub unsafe fn await_task(target: *mut ZoTask) -> u64 {
 /// still points at the outer resume site.
 ///
 /// Idempotent on an empty queue.
-#[unsafe(export_name = "zo_nursery_drain")]
-pub unsafe extern "C-unwind" fn _zo_nursery_drain() {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_nursery_drain() {
   scheduler::drain_all();
 }
 
@@ -815,12 +815,12 @@ pub unsafe extern "C-unwind" fn _zo_nursery_drain() {
 ///
 /// `callee` must be a live `extern "C-unwind"`
 /// function pointer. The returned task handle is
-/// consumed by a later [`_zo_task_await`] or
+/// consumed by a later [`zo_task_await`] or
 /// implicitly by the nursery drain at scope exit —
 /// dropping it without either would leak the task's
 /// stack and `ZoTask` struct.
-#[unsafe(export_name = "zo_task_spawn")]
-pub unsafe extern "C-unwind" fn _zo_task_spawn(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_task_spawn(
   callee: extern "C-unwind" fn(),
 ) -> *mut ZoTask {
   unsafe { spawn(callee) }
@@ -832,9 +832,9 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn(
 ///
 /// `callee` must be a live
 /// `extern "C-unwind" fn(u64)`. Same handle-lifetime
-/// contract as [`_zo_task_spawn`].
-#[unsafe(export_name = "zo_task_spawn_1")]
-pub unsafe extern "C-unwind" fn _zo_task_spawn_1(
+/// contract as [`zo_task_spawn`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_task_spawn_1(
   callee: extern "C-unwind" fn(u64),
   arg0: u64,
 ) -> *mut ZoTask {
@@ -847,8 +847,8 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn_1(
 ///
 /// `callee` must be a live
 /// `extern "C-unwind" fn(u64, u64)`.
-#[unsafe(export_name = "zo_task_spawn_2")]
-pub unsafe extern "C-unwind" fn _zo_task_spawn_2(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_task_spawn_2(
   callee: extern "C-unwind" fn(u64, u64),
   arg0: u64,
   arg1: u64,
@@ -862,8 +862,8 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn_2(
 ///
 /// `callee` must be a live
 /// `extern "C-unwind" fn(u64, u64, u64)`.
-#[unsafe(export_name = "zo_task_spawn_3")]
-pub unsafe extern "C-unwind" fn _zo_task_spawn_3(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_task_spawn_3(
   callee: extern "C-unwind" fn(u64, u64, u64),
   arg0: u64,
   arg1: u64,
@@ -874,15 +874,15 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn_3(
 
 /// Spawn a new OS-thread-backed task (`spawn thread
 /// fn()` in source). Returns an opaque handle
-/// consumed by `_zo_task_await`.
+/// consumed by `zo_task_await`.
 ///
 /// # Safety
 ///
 /// `callee` must be a live `extern "C-unwind"`
 /// function pointer. The returned handle must be
-/// consumed by `_zo_task_await`.
-#[unsafe(export_name = "zo_task_spawn_thread")]
-pub unsafe extern "C-unwind" fn _zo_task_spawn_thread(
+/// consumed by `zo_task_await`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_task_spawn_thread(
   callee: extern "C-unwind" fn(),
 ) -> *mut ZoTask {
   unsafe { spawn_thread(callee) }
@@ -894,12 +894,12 @@ pub unsafe extern "C-unwind" fn _zo_task_spawn_thread(
 ///
 /// # Safety
 ///
-/// `task` must have come from `_zo_task_spawn` or
-/// `_zo_task_spawn_thread` and not yet been awaited.
+/// `task` must have come from `zo_task_spawn` or
+/// `zo_task_spawn_thread` and not yet been awaited.
 /// After this call returns, `task` is freed and must
 /// not be referenced again.
-#[unsafe(export_name = "zo_task_await")]
-pub unsafe extern "C-unwind" fn _zo_task_await(task: *mut ZoTask) -> u64 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_task_await(task: *mut ZoTask) -> u64 {
   if task.is_null() {
     return 0;
   }
@@ -912,15 +912,15 @@ pub unsafe extern "C-unwind" fn _zo_task_await(task: *mut ZoTask) -> u64 {
 
 /// Mark `task` as cancelled. Sets an atomic flag that
 /// the task itself (or a supervisor) can query via
-/// [`_zo_task_is_cancelled`] and unwind cooperatively.
+/// [`zo_task_is_cancelled`] and unwind cooperatively.
 /// Idempotent — repeated cancels are no-ops.
 ///
 /// # Safety
 ///
-/// `task` must be a live handle from `_zo_task_spawn` /
-/// `_zo_task_spawn_thread` that hasn't yet been awaited.
-#[unsafe(export_name = "zo_task_cancel")]
-pub unsafe extern "C-unwind" fn _zo_task_cancel(task: *mut ZoTask) {
+/// `task` must be a live handle from `zo_task_spawn` /
+/// `zo_task_spawn_thread` that hasn't yet been awaited.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_task_cancel(task: *mut ZoTask) {
   if task.is_null() {
     return;
   }
@@ -931,14 +931,14 @@ pub unsafe extern "C-unwind" fn _zo_task_cancel(task: *mut ZoTask) {
 }
 
 /// Query the cancellation flag for `task`. Returns
-/// `true` if a prior [`_zo_task_cancel`] has latched
+/// `true` if a prior [`zo_task_cancel`] has latched
 /// the flag.
 ///
 /// # Safety
 ///
-/// Same contract as [`_zo_task_cancel`].
-#[unsafe(export_name = "zo_task_is_cancelled")]
-pub unsafe extern "C-unwind" fn _zo_task_is_cancelled(
+/// Same contract as [`zo_task_cancel`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_task_is_cancelled(
   task: *mut ZoTask,
 ) -> bool {
   if task.is_null() {
@@ -959,7 +959,7 @@ mod tests {
 
   /// Increments the `AtomicU32` whose address is
   /// passed in as `counter_addr`. Using a pointer-as-
-  /// argument pattern (via `_zo_task_spawn_1`) lets
+  /// argument pattern (via `zo_task_spawn_1`) lets
   /// each test own its own counter on the stack —
   /// no shared globals, so tests stay independent
   /// under parallel execution.
@@ -992,9 +992,9 @@ mod tests {
     let counter = AtomicU32::new(0);
 
     unsafe {
-      let task = _zo_task_spawn_1(increment_at, counter_addr(&counter));
+      let task = zo_task_spawn_1(increment_at, counter_addr(&counter));
 
-      _zo_task_await(task);
+      zo_task_await(task);
     }
 
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -1010,11 +1010,11 @@ mod tests {
     let addr = counter_addr(&counter);
 
     let handles: Vec<*mut ZoTask> = (0..50)
-      .map(|_| unsafe { _zo_task_spawn_1(increment_at, addr) })
+      .map(|_| unsafe { zo_task_spawn_1(increment_at, addr) })
       .collect();
 
     for h in handles {
-      unsafe { _zo_task_await(h) };
+      unsafe { zo_task_await(h) };
     }
 
     assert_eq!(counter.load(Ordering::SeqCst), 50);
@@ -1031,11 +1031,11 @@ mod tests {
     let addr = counter_addr(&counter);
 
     let handles: Vec<*mut ZoTask> = (0..10)
-      .map(|_| unsafe { _zo_task_spawn_1(yield_then_increment_at, addr) })
+      .map(|_| unsafe { zo_task_spawn_1(yield_then_increment_at, addr) })
       .collect();
 
     for h in handles {
-      unsafe { _zo_task_await(h) };
+      unsafe { zo_task_await(h) };
     }
 
     assert_eq!(counter.load(Ordering::SeqCst), 10);
@@ -1047,9 +1047,9 @@ mod tests {
     scheduler::reset_for_test();
 
     unsafe {
-      let task = _zo_task_spawn(panicking_task);
+      let task = zo_task_spawn(panicking_task);
 
-      _zo_task_await(task);
+      zo_task_await(task);
     }
   }
 
@@ -1103,9 +1103,9 @@ mod tests {
     // times; a broken handler would either crash on
     // the first guard-page write or loop forever.
     unsafe {
-      let task = _zo_task_spawn_1(recurse_deep, 1000);
+      let task = zo_task_spawn_1(recurse_deep, 1000);
 
-      _zo_task_await(task);
+      zo_task_await(task);
     }
 
     assert_eq!(DEPTH_REACHED.load(Ordering::SeqCst), 1000);
@@ -1124,11 +1124,11 @@ mod tests {
     // is `await` returning after the pthread exits;
     // the join acts as the synchronization proof.
     unsafe {
-      let task = _zo_task_spawn_thread(noop_thread_entry);
+      let task = zo_task_spawn_thread(noop_thread_entry);
 
       assert!((*task).is_threaded());
 
-      _zo_task_await(task);
+      zo_task_await(task);
     }
   }
 
@@ -1136,9 +1136,9 @@ mod tests {
   #[should_panic(expected = "zo-task panicked")]
   fn panicking_threaded_task_propagates_to_awaiter() {
     unsafe {
-      let task = _zo_task_spawn_thread(panicking_task);
+      let task = zo_task_spawn_thread(panicking_task);
 
-      _zo_task_await(task);
+      zo_task_await(task);
     }
   }
 
@@ -1151,27 +1151,27 @@ mod tests {
     let counter = AtomicU32::new(0);
 
     unsafe {
-      let task = _zo_task_spawn_1(increment_at, counter_addr(&counter));
+      let task = zo_task_spawn_1(increment_at, counter_addr(&counter));
 
-      assert!(!_zo_task_is_cancelled(task));
+      assert!(!zo_task_is_cancelled(task));
 
-      _zo_task_cancel(task);
+      zo_task_cancel(task);
 
-      assert!(_zo_task_is_cancelled(task));
+      assert!(zo_task_is_cancelled(task));
 
       // Idempotent — re-cancel stays true.
-      _zo_task_cancel(task);
-      assert!(_zo_task_is_cancelled(task));
+      zo_task_cancel(task);
+      assert!(zo_task_is_cancelled(task));
 
-      _zo_task_await(task);
+      zo_task_await(task);
     }
   }
 
   #[test]
   fn cancel_null_is_safe_noop() {
     unsafe {
-      _zo_task_cancel(std::ptr::null_mut());
-      assert!(!_zo_task_is_cancelled(std::ptr::null_mut()));
+      zo_task_cancel(std::ptr::null_mut());
+      assert!(!zo_task_is_cancelled(std::ptr::null_mut()));
     }
   }
 
@@ -1187,11 +1187,11 @@ mod tests {
     let counter = AtomicU32::new(0);
 
     unsafe {
-      let green = _zo_task_spawn_1(increment_at, counter_addr(&counter));
-      let threaded = _zo_task_spawn_thread(noop_thread_entry);
+      let green = zo_task_spawn_1(increment_at, counter_addr(&counter));
+      let threaded = zo_task_spawn_thread(noop_thread_entry);
 
-      _zo_task_await(green);
-      _zo_task_await(threaded);
+      zo_task_await(green);
+      zo_task_await(threaded);
     }
 
     assert_eq!(counter.load(Ordering::SeqCst), 1);

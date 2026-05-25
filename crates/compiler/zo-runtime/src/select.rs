@@ -1,6 +1,6 @@
 //! Selective receive runtime primitive.
 //!
-//! `_zo_select_wait` atomically waits on N channels
+//! `zo_select_wait` atomically waits on N channels
 //! and returns the arm index of the first one to
 //! fire, copying the received value into a caller-
 //! owned output buffer.
@@ -44,8 +44,8 @@ pub const SELECT_NONE: usize = usize::MAX;
 /// reserved for the "no arm ever fires" deadlock
 /// path; the function panics instead of returning
 /// that.
-#[unsafe(export_name = "zo_select_wait")]
-pub unsafe extern "C-unwind" fn _zo_select_wait(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_select_wait(
   chans: *const *mut ZoChan,
   n: usize,
   out_value: *mut u8,

@@ -3,15 +3,15 @@
 -! The `ptr` field carries an opaque pointer (encoded
 -! as `int` for ABI symmetry with the runtime's
 -! `*mut ZoMap`). Codegen recognizes calls to the
--! marshaling FFIs (`__zo_map_new`, `__zo_map_insert`,
--! `__zo_map_get`, `__zo_map_contains`, `__zo_map_remove`)
+-! marshaling FFIs (`zo_map_new`, `zo_map_insert`,
+-! `zo_map_get`, `zo_map_contains`, `zo_map_remove`)
 -! and emits the byte-marshaling sequence per call site —
 -! those four method bodies here are codegen-replaced and
 -! exist only as syntactic anchors.
 -!
 -! The remaining methods (`len`, `is_empty`, `free`) are
 -! pure-zo bodies that call the non-marshaling raw FFIs
--! (`__zo_map_len_raw`, `__zo_map_free_raw`) directly.
+-! (`zo_map_len_raw`, `zo_map_free_raw`) directly.
 -! No K/V byte buffers, no codegen-time type derivation —
 -! just `BL _zo_map_len` / `BL _zo_map_free`.
 -!
@@ -27,24 +27,24 @@ pub struct HashMap<$K, $V> {
 -- `val_sz` from the call-site's resolved `$K` /
 -- `$V` types and marshal byte buffers around each
 -- call.
-pub ffi __zo_map_new(
+pub ffi zo_map_new(
   key_kind: int,
   key_sz: int,
   val_sz: int,
   cap: int,
 ) -> int;
 
-pub ffi __zo_map_insert(map: int, k_ptr: int, v_ptr: int);
-pub ffi __zo_map_get(map: int, k_ptr: int, v_out: int) -> bool;
-pub ffi __zo_map_contains(map: int, k_ptr: int) -> bool;
-pub ffi __zo_map_remove(map: int, k_ptr: int, v_out: int) -> bool;
+pub ffi zo_map_insert(map: int, k_ptr: int, v_ptr: int);
+pub ffi zo_map_get(map: int, k_ptr: int, v_out: int) -> bool;
+pub ffi zo_map_contains(map: int, k_ptr: int) -> bool;
+pub ffi zo_map_remove(map: int, k_ptr: int, v_out: int) -> bool;
 
 -- Raw FFIs. Pure pass-through to the runtime — no
 -- byte marshaling, no per-call-site type derivation.
 -- Codegen routes these directly to `BL _zo_map_len`
 -- / `BL _zo_map_free`.
-pub ffi __zo_map_len_raw(ptr: int) -> int;
-pub ffi __zo_map_free_raw(ptr: int);
+pub ffi zo_map_len_raw(ptr: int) -> int;
+pub ffi zo_map_free_raw(ptr: int);
 
 apply HashMap<$K, $V> {
   -! Construct an empty map. Initial capacity is set
@@ -96,7 +96,7 @@ apply HashMap<$K, $V> {
 
   -! Number of live entries.
   pub fun len(self) -> int {
-    __zo_map_len_raw(self.ptr)
+    zo_map_len_raw(self.ptr)
   }
 
   -! `true` when no entries are live.
@@ -107,6 +107,6 @@ apply HashMap<$K, $V> {
   -! Release the backing allocation. The receiver
   -! must not be used after this call.
   pub fun free(mut self) {
-    __zo_map_free_raw(self.ptr);
+    zo_map_free_raw(self.ptr);
   }
 }

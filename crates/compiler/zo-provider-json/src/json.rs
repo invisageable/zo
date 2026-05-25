@@ -37,8 +37,8 @@ use smallvec::SmallVec;
 type StepPath = SmallVec<[Step; 4]>;
 
 // Per-thread scratch for the string-returning FFIs
-// (`__zo_json_to_str` / `__zo_json_as_str` /
-// `__zo_json_key_at`). Each call overwrites the previous
+// (`zo_json_to_str` / `zo_json_as_str` /
+// `zo_json_key_at`). Each call overwrites the previous
 // — safe because the bytes are immediately copied via
 // `CBytes::to_str()` on the zo side.
 //
@@ -187,7 +187,7 @@ fn resolve<'a>(
 }
 
 /// Mutable variant of `resolve`. Used by the builder
-/// mutators (`__zo_json_push` / `__zo_json_set`) which need
+/// mutators (`zo_json_push` / `zo_json_set`) which need
 /// to modify the underlying `Value` at the handle's path.
 #[inline]
 fn resolve_mut<'a>(
@@ -229,7 +229,7 @@ fn push_new_root(value: Value) -> ZoHandle {
   alloc_handle(roots, handles, root_idx, StepPath::new())
 }
 
-/// `__zo_json_parse_str(ptr: int) -> int`. Parse a NUL-
+/// `zo_json_parse_str(ptr: int) -> int`. Parse a NUL-
 /// terminated C string into a fresh root + handle. Returns
 /// the positive handle on success, `0` on parse error
 /// (invalid JSON, bad UTF-8, OOM).
@@ -241,7 +241,7 @@ fn push_new_root(value: Value) -> ZoHandle {
 /// duration of the call; the parsed `Value` owns its own
 /// memory afterwards.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __zo_json_parse_str(ptr: *const c_char) -> ZoHandle {
+pub unsafe extern "C" fn zo_json_parse_str(ptr: *const c_char) -> ZoHandle {
   let Some(s) = (unsafe { read_c_str(ptr) }) else {
     LAST_ERROR.with(|cell| {
       *cell.borrow_mut() = Some("input pointer is null or not utf-8".into());
@@ -263,7 +263,7 @@ pub unsafe extern "C" fn __zo_json_parse_str(ptr: *const c_char) -> ZoHandle {
   push_new_root(value)
 }
 
-/// `__zo_json_free(handle: int)`. Idempotent — freeing a
+/// `zo_json_free(handle: int)`. Idempotent — freeing a
 /// handle that's already gone (or was never valid) is a
 /// no-op. Decrements the root's refcount and drops the
 /// underlying `Value` when the last reference goes.
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn __zo_json_parse_str(ptr: *const c_char) -> ZoHandle {
 /// entry point — the inverse order is a latent ABBA the
 /// moment a second thread enters the registry.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_free(handle: ZoHandle) {
+pub extern "C" fn zo_json_free(handle: ZoHandle) {
   let mut reg = REGISTRY.lock().unwrap();
   let Registry { roots, handles } = &mut *reg;
 
@@ -295,12 +295,12 @@ pub extern "C" fn __zo_json_free(handle: ZoHandle) {
   }
 }
 
-/// `__zo_json_kind(handle: int) -> int`. Returns the kind
+/// `zo_json_kind(handle: int) -> int`. Returns the kind
 /// discriminator. `KIND_NULL` for an invalid / freed slot;
 /// callers disambiguate from a real `null` by checking the
 /// handle against `0` before any other call.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_kind(handle: ZoHandle) -> ZoHandle {
+pub extern "C" fn zo_json_kind(handle: ZoHandle) -> ZoHandle {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
@@ -319,12 +319,12 @@ pub extern "C" fn __zo_json_kind(handle: ZoHandle) -> ZoHandle {
   }
 }
 
-/// `__zo_json_as_bool(handle: int) -> int`. Returns `1` /
+/// `zo_json_as_bool(handle: int) -> int`. Returns `1` /
 /// `0` when the underlying value is a JSON boolean, `0`
 /// otherwise (matching zo's wrapper semantics: a wrong-kind
 /// access yields the zero-equivalent of the asked type).
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_as_bool(handle: ZoHandle) -> ZoHandle {
+pub extern "C" fn zo_json_as_bool(handle: ZoHandle) -> ZoHandle {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
@@ -335,7 +335,7 @@ pub extern "C" fn __zo_json_as_bool(handle: ZoHandle) -> ZoHandle {
   }
 }
 
-/// `__zo_json_as_i64(handle: int) -> int`. Reads the
+/// `zo_json_as_i64(handle: int) -> int`. Reads the
 /// underlying number as `i64`. Returns `0` for non-number
 /// kinds AND for numbers that don't fit (NaN / `Infinity`
 /// can't appear — serde rejects them on parse — but a
@@ -343,7 +343,7 @@ pub extern "C" fn __zo_json_as_bool(handle: ZoHandle) -> ZoHandle {
 /// disambiguate "real zero" from "wrong kind / overflow"
 /// should check `kind()` and `is_int()` first.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_as_i64(handle: ZoHandle) -> ZoHandle {
+pub extern "C" fn zo_json_as_i64(handle: ZoHandle) -> ZoHandle {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
@@ -354,13 +354,13 @@ pub extern "C" fn __zo_json_as_i64(handle: ZoHandle) -> ZoHandle {
   }
 }
 
-/// `__zo_json_as_f64(handle: int) -> float`. Reads the
+/// `zo_json_as_f64(handle: int) -> float`. Reads the
 /// underlying number as `f64`. Works for integer-valued
 /// numbers too (serde converts), so this is the safe
 /// fallback for unknown numeric schemas. `0.0` for non-
 /// number kinds.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_as_f64(handle: ZoHandle) -> f64 {
+pub extern "C" fn zo_json_as_f64(handle: ZoHandle) -> f64 {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
@@ -371,13 +371,13 @@ pub extern "C" fn __zo_json_as_f64(handle: ZoHandle) -> f64 {
   }
 }
 
-/// `__zo_json_is_int(handle: int) -> int`. Returns `1`
+/// `zo_json_is_int(handle: int) -> int`. Returns `1`
 /// when the underlying number's serde representation is
 /// integral (`i64` or `u64` arm), `0` for floats and for
 /// non-number kinds. Lets `as_int` callers detect a
 /// truncating read before it happens.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_is_int(handle: ZoHandle) -> ZoHandle {
+pub extern "C" fn zo_json_is_int(handle: ZoHandle) -> ZoHandle {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
@@ -388,12 +388,12 @@ pub extern "C" fn __zo_json_is_int(handle: ZoHandle) -> ZoHandle {
   }
 }
 
-/// `__zo_json_len(handle: int) -> int`. Array length /
+/// `zo_json_len(handle: int) -> int`. Array length /
 /// object key count. `0` for scalar kinds, invalid handles,
 /// and (legitimately) empty containers. Pair with `kind()`
 /// when the schema admits both empty-object and scalar.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_len(handle: ZoHandle) -> ZoHandle {
+pub extern "C" fn zo_json_len(handle: ZoHandle) -> ZoHandle {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
@@ -405,7 +405,7 @@ pub extern "C" fn __zo_json_len(handle: ZoHandle) -> ZoHandle {
   }
 }
 
-/// `__zo_json_get(handle: int, key: int) -> int`. Object
+/// `zo_json_get(handle: int, key: int) -> int`. Object
 /// field access. Returns a new handle whose path is the
 /// parent's `+ Step::Key(key)`. `0` for non-object kinds,
 /// missing keys, or invalid handles.
@@ -417,7 +417,7 @@ pub extern "C" fn __zo_json_len(handle: ZoHandle) -> ZoHandle {
 /// call; the resolved `String` is cloned into the new
 /// handle's path.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __zo_json_get(
+pub unsafe extern "C" fn zo_json_get(
   handle: ZoHandle,
   key: *const c_char,
 ) -> ZoHandle {
@@ -445,15 +445,12 @@ pub unsafe extern "C" fn __zo_json_get(
   alloc_handle(roots, handles, root, new_path)
 }
 
-/// `__zo_json_get_at(handle: int, idx: int) -> int`. Array
+/// `zo_json_get_at(handle: int, idx: int) -> int`. Array
 /// index access. Returns a new handle whose path is the
 /// parent's `+ Step::Idx(idx)`. `0` for non-array kinds,
 /// out-of-range indices, or invalid handles.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_get_at(
-  handle: ZoHandle,
-  idx: ZoHandle,
-) -> ZoHandle {
+pub extern "C" fn zo_json_get_at(handle: ZoHandle, idx: ZoHandle) -> ZoHandle {
   if idx < 0 {
     return 0;
   }
@@ -485,7 +482,7 @@ pub extern "C" fn __zo_json_get_at(
 /// `to_str` re-encodes through serde so a parsed `"hi"`
 /// round-trips as `"\"hi\""`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_to_str(handle: ZoHandle) -> CBytes {
+pub extern "C" fn zo_json_to_str(handle: ZoHandle) -> CBytes {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
@@ -503,7 +500,7 @@ pub extern "C" fn __zo_json_to_str(handle: ZoHandle) -> CBytes {
 
 /// Read a JSON string's content (unquoted).
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_as_str(handle: ZoHandle) -> CBytes {
+pub extern "C" fn zo_json_as_str(handle: ZoHandle) -> CBytes {
   let reg = REGISTRY.lock().unwrap();
   let roots = &reg.roots;
   let handles = &reg.handles;
@@ -556,14 +553,14 @@ fn fill_keys_cache(handle: ZoHandle) -> usize {
   n
 }
 
-/// `__zo_json_keys_len(handle: int) -> int`. Materialize
+/// `zo_json_keys_len(handle: int) -> int`. Materialize
 /// the object's keys into the per-thread cache and return
 /// the count. `0` for non-object kinds and invalid
 /// handles. Decision 10: eager materialization over an
 /// iterator handle — small allocation cost, no second
 /// registry, lifetime stays trivial.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_keys_len(handle: ZoHandle) -> ZoHandle {
+pub extern "C" fn zo_json_keys_len(handle: ZoHandle) -> ZoHandle {
   fill_keys_cache(handle) as ZoHandle
 }
 
@@ -574,10 +571,7 @@ pub extern "C" fn __zo_json_keys_len(handle: ZoHandle) -> ZoHandle {
 /// interleave without trampling. Empty bytes for non-
 /// objects, out-of-range, or invalid handles.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_key_at(
-  handle: ZoHandle,
-  index: ZoHandle,
-) -> CBytes {
+pub extern "C" fn zo_json_key_at(handle: ZoHandle, index: ZoHandle) -> CBytes {
   if index < 0 {
     return CBytes::empty();
   }
@@ -601,7 +595,7 @@ pub extern "C" fn __zo_json_key_at(
 /// parse has run yet. Pair with `Json::parse(...)` returning
 /// handle `0` to surface a human-readable reason.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_last_error() -> CBytes {
+pub extern "C" fn zo_json_last_error() -> CBytes {
   LAST_ERROR.with(|cell| {
     let cell = cell.borrow();
     let bytes = cell.as_ref().map(|s| s.as_bytes()).unwrap_or(b"");
@@ -618,20 +612,20 @@ pub extern "C" fn __zo_json_last_error() -> CBytes {
 // `parse(stringified)`.
 // ============================================================
 
-/// `__zo_json_null() -> int`. Fresh `null` root.
+/// `zo_json_null() -> int`. Fresh `null` root.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_null() -> ZoHandle {
+pub extern "C" fn zo_json_null() -> ZoHandle {
   push_new_root(Value::Null)
 }
 
 /// zo's `bool` is marshaled as `int`; non-zero is `true`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_from_bool(value: ZoHandle) -> ZoHandle {
+pub extern "C" fn zo_json_from_bool(value: ZoHandle) -> ZoHandle {
   push_new_root(Value::Bool(value != 0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_from_int(value: ZoHandle) -> ZoHandle {
+pub extern "C" fn zo_json_from_int(value: ZoHandle) -> ZoHandle {
   push_new_root(Value::Number(value.into()))
 }
 
@@ -639,7 +633,7 @@ pub extern "C" fn __zo_json_from_int(value: ZoHandle) -> ZoHandle {
 /// construct a `Number` from non-finite floats, matching
 /// JSON's RFC 8259 (no non-finite literals).
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_from_f64(value: f64) -> ZoHandle {
+pub extern "C" fn zo_json_from_f64(value: f64) -> ZoHandle {
   match serde_json::Number::from_f64(value) {
     Some(num) => push_new_root(Value::Number(num)),
     None => {
@@ -652,7 +646,7 @@ pub extern "C" fn __zo_json_from_f64(value: f64) -> ZoHandle {
   }
 }
 
-/// `__zo_json_from_str(ptr: int) -> int`. Fresh string
+/// `zo_json_from_str(ptr: int) -> int`. Fresh string
 /// root. Returns `0` on null / non-UTF-8 input.
 ///
 /// # Safety
@@ -660,35 +654,35 @@ pub extern "C" fn __zo_json_from_f64(value: f64) -> ZoHandle {
 /// `ptr` must be a valid NUL-terminated UTF-8 C string or
 /// null. The string is copied into the new `Value`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __zo_json_from_str(ptr: *const c_char) -> ZoHandle {
+pub unsafe extern "C" fn zo_json_from_str(ptr: *const c_char) -> ZoHandle {
   match unsafe { read_c_str(ptr) } {
     Some(s) => push_new_root(Value::String(s.to_owned())),
     None => 0,
   }
 }
 
-/// `__zo_json_array() -> int`. Fresh empty-array root.
-/// Grow it via `__zo_json_push`.
+/// `zo_json_array() -> int`. Fresh empty-array root.
+/// Grow it via `zo_json_push`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_array() -> ZoHandle {
+pub extern "C" fn zo_json_array() -> ZoHandle {
   push_new_root(Value::Array(Vec::new()))
 }
 
-/// `__zo_json_object() -> int`. Fresh empty-object root.
-/// Grow it via `__zo_json_set`.
+/// `zo_json_object() -> int`. Fresh empty-object root.
+/// Grow it via `zo_json_set`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_object() -> ZoHandle {
+pub extern "C" fn zo_json_object() -> ZoHandle {
   push_new_root(Value::Object(serde_json::Map::new()))
 }
 
-/// `__zo_json_push(self: int, val: int) -> int`. Append a
+/// `zo_json_push(self: int, val: int) -> int`. Append a
 /// **clone** of `val`'s value to `self`'s array. Returns
 /// `1` on success, `0` on failure (wrong kind, invalid
 /// handle). Cloning is necessary because `val` retains
 /// ownership of its own root — freeing `self` later must
 /// not free `val`'s slot and vice versa.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_json_push(
+pub extern "C" fn zo_json_push(
   self_handle: ZoHandle,
   value_handle: ZoHandle,
 ) -> ZoHandle {
@@ -723,7 +717,7 @@ pub extern "C" fn __zo_json_push(
   if success { 1 } else { 0 }
 }
 
-/// `__zo_json_set(self: int, key: int, val: int) -> int`.
+/// `zo_json_set(self: int, key: int, val: int) -> int`.
 /// Insert (or overwrite) `key → clone(val)` in `self`'s
 /// object. Returns `1` on success, `0` on failure (wrong
 /// kind, invalid handle, null / non-UTF-8 key).
@@ -733,7 +727,7 @@ pub extern "C" fn __zo_json_push(
 /// `key` must be a valid NUL-terminated UTF-8 C string or
 /// null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __zo_json_set(
+pub unsafe extern "C" fn zo_json_set(
   self_handle: ZoHandle,
   key: *const c_char,
   value_handle: ZoHandle,
@@ -774,7 +768,7 @@ pub unsafe extern "C" fn __zo_json_set(
   if success { 1 } else { 0 }
 }
 
-/// `__zo_json_write(self: int, path: int) -> int`.
+/// `zo_json_write(self: int, path: int) -> int`.
 /// Serialize the value as compact JSON and write it to
 /// `path`. Returns `0` on success, non-zero on failure
 /// (invalid handle, serialization error, IO error). The
@@ -786,7 +780,7 @@ pub unsafe extern "C" fn __zo_json_set(
 /// `path` must be a valid NUL-terminated UTF-8 C string or
 /// null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __zo_json_write(
+pub unsafe extern "C" fn zo_json_write(
   handle: ZoHandle,
   path: *const c_char,
 ) -> ZoHandle {

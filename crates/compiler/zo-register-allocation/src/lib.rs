@@ -82,7 +82,7 @@ pub struct FunctionInfo {
   pub mutable_size: u32,
   /// Scratch stack space for channel primitives —
   /// `ChannelSend` stores the value there before
-  /// `_zo_chan_send(chan, src)` reads it through its
+  /// `zo_chan_send(chan, src)` reads it through its
   /// `src` pointer; `ChannelRecv` reserves the same
   /// slot for its output buffer. 16 bytes when the
   /// function contains any channel op, 0 otherwise.

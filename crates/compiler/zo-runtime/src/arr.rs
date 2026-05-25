@@ -1,9 +1,9 @@
 //! Runtime helpers for `[]T` arrays.
 //!
-//! `_zo_arr_sort_i32` sorts a `[]int` (default int = i32)
+//! `zo_arr_sort_i32` sorts a `[]int` (default int = i32)
 //! in place via Rust's stable slice sort. Mirrors the
 //! pattern used by `zo_map_*` / `zo_vec_*` — the compiler
-//! emits a direct `BL _zo_arr_sort_i32` from
+//! emits a direct `BL zo_arr_sort_i32` from
 //! `arr_int::sort`'s codegen handler with `X0` pointing
 //! at the array's data and `X1` carrying the element
 //! count.
@@ -80,8 +80,8 @@ pub(crate) fn alloc_ptr_array(elements: &[*const u8]) -> *const u8 {
 /// `len > 0`, and reference `len` valid 64-bit slots.
 /// The zo codegen guarantees both when it passes
 /// `(arr_ptr + 16, *(arr_ptr + 0))`.
-#[unsafe(export_name = "zo_arr_sort_i32")]
-pub unsafe extern "C-unwind" fn _zo_arr_sort_i32(data: *mut i64, len: usize) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_arr_sort_i32(data: *mut i64, len: usize) {
   if len == 0 {
     return;
   }
@@ -100,8 +100,8 @@ pub unsafe extern "C-unwind" fn _zo_arr_sort_i32(data: *mut i64, len: usize) {
 /// # Safety
 ///
 /// `src` must point at `n` readable bytes.
-#[unsafe(export_name = "zo_box_alloc")]
-pub unsafe extern "C-unwind" fn _zo_box_alloc(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_box_alloc(
   src: *const u8,
   n: usize,
 ) -> *const u8 {
@@ -129,7 +129,7 @@ pub unsafe extern "C-unwind" fn _zo_box_alloc(
 /// the data pointer, so the method reads field offsets
 /// directly off the original value's layout. The
 /// caller is responsible for keeping `data` alive
-/// across the lifetime of the fat pointer; `_zo_dyn_free`
+/// across the lifetime of the fat pointer; `zo_dyn_free`
 /// releases only the 16-byte header.
 ///
 /// # Safety
@@ -138,8 +138,8 @@ pub unsafe extern "C-unwind" fn _zo_box_alloc(
 /// fat pointer is in use; `vtable_ptr` must point at a
 /// vtable laid out per the codegen's `emit_vtables`
 /// contract (`[size_of_data, method_0, ..., method_N]`).
-#[unsafe(export_name = "zo_dyn_box")]
-pub unsafe extern "C-unwind" fn _zo_dyn_box(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_dyn_box(
   data: *const u8,
   vtable_ptr: *const u8,
 ) -> *const u8 {
@@ -161,7 +161,7 @@ mod tests {
     let mut buf: [i64; 0] = [];
 
     unsafe {
-      _zo_arr_sort_i32(buf.as_mut_ptr(), 0);
+      zo_arr_sort_i32(buf.as_mut_ptr(), 0);
     }
   }
 
@@ -170,7 +170,7 @@ mod tests {
     let mut buf: [i64; 8] = [3, 1, 4, 1, 5, 9, 2, 6];
 
     unsafe {
-      _zo_arr_sort_i32(buf.as_mut_ptr(), buf.len());
+      zo_arr_sort_i32(buf.as_mut_ptr(), buf.len());
     }
 
     assert_eq!(buf, [1, 1, 2, 3, 4, 5, 6, 9]);
@@ -181,7 +181,7 @@ mod tests {
     let mut buf: [i64; 5] = [3, -1, 0, -10, 5];
 
     unsafe {
-      _zo_arr_sort_i32(buf.as_mut_ptr(), buf.len());
+      zo_arr_sort_i32(buf.as_mut_ptr(), buf.len());
     }
 
     assert_eq!(buf, [-10, -1, 0, 3, 5]);

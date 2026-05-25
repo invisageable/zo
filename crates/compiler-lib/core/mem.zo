@@ -10,43 +10,38 @@
 }
 
 
-%% link_name = "zo_mem_copy".
-pub ffi __zo_mem_copy(dst: s64, src: s64, len: int);
+pub ffi zo_mem_copy(dst: s64, src: s64, len: int);
 
-%% link_name = "zo_mem_set".
-pub ffi __zo_mem_set(dst: s64, value: int, len: int);
+pub ffi zo_mem_set(dst: s64, value: int, len: int);
 
-%% link_name = "zo_mem_compare".
-pub ffi __zo_mem_compare(a: s64, b: s64, len: int) -> int;
+pub ffi zo_mem_compare(a: s64, b: s64, len: int) -> int;
 
-%% link_name = "zo_mem_alloc".
-pub ffi __zo_mem_alloc(size: int) -> s64;
+pub ffi zo_mem_alloc(size: int) -> s64;
 
-%% link_name = "zo_mem_free".
-pub ffi __zo_mem_free(ptr: s64);
+pub ffi zo_mem_free(ptr: s64);
 
 
 -! Copy `len` bytes from `src` to `dst` (non-overlapping).
 pub fun copy(dst: s64, src: s64, len: int) {
-  __zo_mem_copy(dst, src, len);
+  zo_mem_copy(dst, src, len);
 }
 
 -! Fill `len` bytes at `dst` with `value`.
 pub fun set(dst: s64, value: int, len: int) {
-  __zo_mem_set(dst, value, len);
+  zo_mem_set(dst, value, len);
 }
 
 -! Compare `len` bytes. Returns `< 0`, `0`, or `> 0`.
 pub fun compare(a: s64, b: s64, len: int) -> int {
-  __zo_mem_compare(a, b, len)
+  zo_mem_compare(a, b, len)
 }
 
 -! Allocate `size` bytes on the heap. Returns `0` on failure.
 pub fun alloc(size: int) -> s64 {
-  __zo_mem_alloc(size)
+  zo_mem_alloc(size)
 }
 
 -! Free a pointer previously returned by `alloc`.
 pub fun free(ptr: s64) {
-  __zo_mem_free(ptr);
+  zo_mem_free(ptr);
 }

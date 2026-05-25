@@ -18,7 +18,7 @@
 //!    yields N times. 2 context-switches per yield; no
 //!    channels, no queue contention.
 //! 4. `spawn_to_entry_latency` — wall-clock from the
-//!    `_zo_task_spawn` call site to the first user
+//!    `zo_task_spawn` call site to the first user
 //!    instruction inside the task.
 //!
 //! ```sh
@@ -27,7 +27,7 @@
 
 use zo_runtime::scheduler;
 use zo_runtime::stack::TaskStack;
-use zo_runtime::task::{_zo_task_await, _zo_task_spawn, ZoTask};
+use zo_runtime::task::{ZoTask, zo_task_await, zo_task_spawn};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -101,9 +101,9 @@ fn bench_ctxsw_roundtrip(c: &mut Criterion) {
         let start = Instant::now();
 
         unsafe {
-          let task = _zo_task_spawn(yielder);
+          let task = zo_task_spawn(yielder);
 
-          _zo_task_await(task);
+          zo_task_await(task);
         }
 
         total += start.elapsed();
@@ -147,9 +147,9 @@ fn bench_spawn_to_entry_latency(c: &mut Criterion) {
         let spawn_ns = Instant::now().duration_since(*epoch).as_nanos() as u64;
 
         unsafe {
-          let task = _zo_task_spawn(record_entry_timestamp);
+          let task = zo_task_spawn(record_entry_timestamp);
 
-          _zo_task_await(task);
+          zo_task_await(task);
         }
 
         let entry_ns = ENTRY_NS.load(Ordering::SeqCst);

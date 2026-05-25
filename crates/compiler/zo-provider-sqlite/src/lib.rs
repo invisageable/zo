@@ -9,7 +9,7 @@
 //! occasional cross-thread borrow doesn't panic. Heavy
 //! parallel users should open one DB per worker.
 //!
-//! Handle protocol: every `__zo_sqlite_open` returns a
+//! Handle protocol: every `zo_sqlite_open` returns a
 //! 1-based `i64` index into a global `Vec<Option<Connection>>`.
 //! `0` is reserved for "open failed" — match `_open`'s
 //! return against `0` in zo to detect errors. `_close`
@@ -46,7 +46,7 @@ unsafe fn read_c_str(ptr: *const c_char) -> Option<String> {
     .map(str::to_owned)
 }
 
-/// `__zo_sqlite_open(path: int) -> int`.
+/// `zo_sqlite_open(path: int) -> int`.
 /// Returns a positive handle on success, `0` on failure
 /// (file open, permissions, malformed path).
 ///
@@ -56,7 +56,7 @@ unsafe fn read_c_str(ptr: *const c_char) -> Option<String> {
 /// null. Caller passes ownership of the buffer for the
 /// duration of the call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __zo_sqlite_open(path: *const c_char) -> ZoHandle {
+pub unsafe extern "C" fn zo_sqlite_open(path: *const c_char) -> ZoHandle {
   let Some(path) = (unsafe { read_c_str(path) }) else {
     return 0;
   };
@@ -71,13 +71,13 @@ pub unsafe extern "C" fn __zo_sqlite_open(path: *const c_char) -> ZoHandle {
   reg.len() as ZoHandle
 }
 
-/// `__zo_sqlite_close(handle: int)`. Idempotent — a
+/// `zo_sqlite_close(handle: int)`. Idempotent — a
 /// handle that's already been closed (or was never valid)
 /// is a no-op. The slot is set to `None` so subsequent
 /// `_exec` / `_query_int` calls on the stale handle
 /// return an error code.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_sqlite_close(handle: ZoHandle) {
+pub extern "C" fn zo_sqlite_close(handle: ZoHandle) {
   let mut reg = REGISTRY.lock().unwrap();
   let idx = (handle - 1) as usize;
 
@@ -86,7 +86,7 @@ pub extern "C" fn __zo_sqlite_close(handle: ZoHandle) {
   }
 }
 
-/// `__zo_sqlite_exec(handle: int, sql: int) -> int`.
+/// `zo_sqlite_exec(handle: int, sql: int) -> int`.
 /// Runs DDL/DML (`CREATE TABLE`, `INSERT`, `UPDATE`,
 /// `DELETE`). Returns `0` on success, non-zero on
 /// failure. SQL errors are absorbed — for a real client a
@@ -97,9 +97,9 @@ pub extern "C" fn __zo_sqlite_close(handle: ZoHandle) {
 ///
 /// `sql` must be a valid NUL-terminated UTF-8 C string or
 /// null. `handle` must be a value previously returned by
-/// `__zo_sqlite_open` and not yet closed.
+/// `zo_sqlite_open` and not yet closed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __zo_sqlite_exec(
+pub unsafe extern "C" fn zo_sqlite_exec(
   handle: ZoHandle,
   sql: *const c_char,
 ) -> ZoHandle {
@@ -118,7 +118,7 @@ pub unsafe extern "C" fn __zo_sqlite_exec(
   }
 }
 
-/// `__zo_sqlite_query_int(handle: int, sql: int) -> int`.
+/// `zo_sqlite_query_int(handle: int, sql: int) -> int`.
 /// Runs a `SELECT` and returns the first column of the
 /// first row as `int` (i64). Returns `0` when no rows or
 /// on any error — caller can't distinguish a real `0`
@@ -130,9 +130,9 @@ pub unsafe extern "C" fn __zo_sqlite_exec(
 ///
 /// `sql` must be a valid NUL-terminated UTF-8 C string or
 /// null. `handle` must be a value previously returned by
-/// `__zo_sqlite_open` and not yet closed.
+/// `zo_sqlite_open` and not yet closed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __zo_sqlite_query_int(
+pub unsafe extern "C" fn zo_sqlite_query_int(
   handle: ZoHandle,
   sql: *const c_char,
 ) -> ZoHandle {

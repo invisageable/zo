@@ -4,7 +4,7 @@
 //! `BoxGeometry`, `MeshStandardMaterial`; this crate is
 //! the Rust runtime those types delegate to via FFI.
 //!
-//! Single-threaded contract: every `__zo_misato_*` call
+//! Single-threaded contract: every `zo_misato_*` call
 //! must run on the thread that called `init_window` (the
 //! same thread that owns the raylib context). The runtime
 //! lives in a `thread_local!` — accidental cross-thread
@@ -329,7 +329,7 @@ fn matrix_translate(x: f32, y: f32, z: f32) -> Matrix {
 /// Idempotent. Returns the world handle (always `1` —
 /// single-world model).
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_init_world() -> i64 {
+pub extern "C" fn zo_misato_init_world() -> i64 {
   RUNTIME.with(|cell| {
     let mut slot = cell.borrow_mut();
     if slot.is_none() {
@@ -343,14 +343,14 @@ pub extern "C" fn __zo_misato_init_world() -> i64 {
 /// reclaims every uploaded mesh + material before the
 /// next `init_world`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_destroy_world(_handle: i64) {
+pub extern "C" fn zo_misato_destroy_world(_handle: i64) {
   RUNTIME.with(|cell| {
     *cell.borrow_mut() = None;
   });
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_make_box_geom(w: f32, h: f32, d: f32) -> i64 {
+pub extern "C" fn zo_misato_make_box_geom(w: f32, h: f32, d: f32) -> i64 {
   RUNTIME.with(|cell| {
     let mut slot = cell.borrow_mut();
     let Some(state) = slot.as_mut() else {
@@ -371,7 +371,7 @@ pub extern "C" fn __zo_misato_make_box_geom(w: f32, h: f32, d: f32) -> i64 {
 /// `rings` = horizontal slices, `slices` = vertical
 /// slices (raylib's `GenMeshSphere` parameter order).
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_make_sphere_geom(
+pub extern "C" fn zo_misato_make_sphere_geom(
   radius: f32,
   rings: i64,
   slices: i64,
@@ -391,7 +391,7 @@ pub extern "C" fn __zo_misato_make_sphere_geom(
 /// raylib's `GenMeshPlane` builds an XZ plane at Y=0
 /// with normals pointing `+Y`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_make_plane_geom(
+pub extern "C" fn zo_misato_make_plane_geom(
   width: f32,
   length: f32,
   res_x: i64,
@@ -412,7 +412,7 @@ pub extern "C" fn __zo_misato_make_plane_geom(
 
 /// Color is packed `0xRRGGBBAA`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_make_standard_mat(color_rgba: u32) -> i64 {
+pub extern "C" fn zo_misato_make_standard_mat(color_rgba: u32) -> i64 {
   RUNTIME.with(|cell| {
     let mut slot = cell.borrow_mut();
     let Some(state) = slot.as_mut() else {
@@ -439,7 +439,7 @@ pub extern "C" fn __zo_misato_make_standard_mat(color_rgba: u32) -> i64 {
 /// `normalize(normal) * 0.5 + 0.5`. Each call allocates a
 /// fresh shader; `UnloadMaterial` releases it on cleanup.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_make_normal_mat() -> i64 {
+pub extern "C" fn zo_misato_make_normal_mat() -> i64 {
   RUNTIME.with(|cell| {
     let mut slot = cell.borrow_mut();
     let Some(state) = slot.as_mut() else {
@@ -464,7 +464,7 @@ pub extern "C" fn __zo_misato_make_normal_mat() -> i64 {
 /// given geometry + material handles. Returns the entity
 /// packed via [`Entity::to_bits`].
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_spawn_box_mesh(
+pub extern "C" fn zo_misato_spawn_box_mesh(
   geom: i64,
   mat: i64,
   x: f32,
@@ -501,7 +501,7 @@ pub extern "C" fn __zo_misato_spawn_box_mesh(
 
 /// No-op when `mesh` is dead or lacks a `Transform`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_mesh_set_position(
+pub extern "C" fn zo_misato_mesh_set_position(
   mesh: i64,
   x: f32,
   y: f32,
@@ -528,7 +528,7 @@ pub extern "C" fn __zo_misato_mesh_set_position(
 /// raylib derives them from the framebuffer + projection,
 /// so `Camera3D` only carries `fovy`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_camera_new(
+pub extern "C" fn zo_misato_camera_new(
   fov: f32,
   _aspect: f32,
   _near: f32,
@@ -547,7 +547,7 @@ pub extern "C" fn __zo_misato_camera_new(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_camera_set_position(
+pub extern "C" fn zo_misato_camera_set_position(
   cam: i64,
   x: f32,
   y: f32,
@@ -567,7 +567,7 @@ pub extern "C" fn __zo_misato_camera_set_position(
 
 /// Camera target in world space.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_camera_look_at(cam: i64, x: f32, y: f32, z: f32) {
+pub extern "C" fn zo_misato_camera_look_at(cam: i64, x: f32, y: f32, z: f32) {
   RUNTIME.with(|cell| {
     let mut slot = cell.borrow_mut();
     let Some(state) = slot.as_mut() else {
@@ -584,12 +584,12 @@ pub extern "C" fn __zo_misato_camera_look_at(cam: i64, x: f32, y: f32, z: f32) {
 /// entity. Kept on the FFI surface so the user-facing
 /// `scene.add(mesh)` call shape survives.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_scene_add(_scene: i64, _ent: i64) {}
+pub extern "C" fn zo_misato_scene_add(_scene: i64, _ent: i64) {}
 
 /// Caller wraps this in `BeginDrawing` / `EndDrawing`;
 /// we only manage the 3D-mode bracketing.
 #[unsafe(no_mangle)]
-pub extern "C" fn __zo_misato_scene_render(_scene: i64, cam_handle: i64) {
+pub extern "C" fn zo_misato_scene_render(_scene: i64, cam_handle: i64) {
   RUNTIME.with(|cell| {
     let slot = cell.borrow();
     let Some(state) = slot.as_ref() else {

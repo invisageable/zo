@@ -460,7 +460,7 @@ fn draw_circle_v_vector2_float_int() {
 
 #[test]
 fn spawn_box_mesh_two_ints_three_floats() {
-  // misato's `__zo_misato_spawn_box_mesh(geom, mat, x, y, z)`.
+  // misato's `zo_misato_spawn_box_mesh(geom, mat, x, y, z)`.
   // The wire signature takes `f32` for x/y/z so the
   // classifier emits `narrow: true` for each.
   let mut q = Q::new();

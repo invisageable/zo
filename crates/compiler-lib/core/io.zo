@@ -65,29 +65,21 @@ pub ffi read_dir(path: str) -> []str;
 pub val DEFAULT_BUF_SIZE: int = 8192;
 
 
-%% link_name = "zo_bufio_reader_new".
-pub ffi __zo_bufio_reader_new(fd: int, buf_size: int) -> s64;
+pub ffi zo_bufio_reader_new(fd: int, buf_size: int) -> s64;
 
-%% link_name = "zo_bufio_reader_read_line".
-pub ffi __zo_bufio_reader_read_line(handle: s64) -> str;
+pub ffi zo_bufio_reader_read_line(handle: s64) -> str;
 
-%% link_name = "zo_bufio_reader_read".
-pub ffi __zo_bufio_reader_read(handle: s64, max: int) -> str;
+pub ffi zo_bufio_reader_read(handle: s64, max: int) -> str;
 
-%% link_name = "zo_bufio_reader_free".
-pub ffi __zo_bufio_reader_free(handle: s64);
+pub ffi zo_bufio_reader_free(handle: s64);
 
-%% link_name = "zo_bufio_writer_new".
-pub ffi __zo_bufio_writer_new(fd: int, buf_size: int) -> s64;
+pub ffi zo_bufio_writer_new(fd: int, buf_size: int) -> s64;
 
-%% link_name = "zo_bufio_writer_write_str".
-pub ffi __zo_bufio_writer_write_str(handle: s64, content: str) -> int;
+pub ffi zo_bufio_writer_write_str(handle: s64, content: str) -> int;
 
-%% link_name = "zo_bufio_writer_flush".
-pub ffi __zo_bufio_writer_flush(handle: s64) -> int;
+pub ffi zo_bufio_writer_flush(handle: s64) -> int;
 
-%% link_name = "zo_bufio_writer_free".
-pub ffi __zo_bufio_writer_free(handle: s64);
+pub ffi zo_bufio_writer_free(handle: s64);
 
 
 -! A buffered reader over a file descriptor.
@@ -100,29 +92,29 @@ pub struct BufferedReader { handle: s64 }
 apply BufferedReader {
   -! Wrap an fd with a default-sized buffer.
   pub fun from_fd(fd: int) -> Self {
-    Self { handle = __zo_bufio_reader_new(fd, DEFAULT_BUF_SIZE) }
+    Self { handle = zo_bufio_reader_new(fd, DEFAULT_BUF_SIZE) }
   }
 
   -! Wrap an fd with a custom buffer size.
   pub fun with_capacity(fd: int, buf_size: int) -> Self {
-    Self { handle = __zo_bufio_reader_new(fd, buf_size) }
+    Self { handle = zo_bufio_reader_new(fd, buf_size) }
   }
 
   -! Read one line (up to `\n`, not included).
   -! Returns empty string on EOF.
   pub fun read_line(self) -> str {
-    __zo_bufio_reader_read_line(self.handle)
+    zo_bufio_reader_read_line(self.handle)
   }
 
   -! Read up to `max_len` bytes.
   -! Returns empty string on EOF.
   pub fun read(self, max_len: int) -> str {
-    __zo_bufio_reader_read(self.handle, max_len)
+    zo_bufio_reader_read(self.handle, max_len)
   }
 
   -! Release the internal buffer.
   pub fun close(self) {
-    __zo_bufio_reader_free(self.handle);
+    zo_bufio_reader_free(self.handle);
   }
 }
 
@@ -137,17 +129,17 @@ pub struct BufferedWriter { handle: s64 }
 apply BufferedWriter {
   -! Wrap an fd with a default-sized buffer.
   pub fun from_fd(fd: int) -> Self {
-    Self { handle = __zo_bufio_writer_new(fd, DEFAULT_BUF_SIZE) }
+    Self { handle = zo_bufio_writer_new(fd, DEFAULT_BUF_SIZE) }
   }
 
   -! Wrap an fd with a custom buffer size.
   pub fun with_capacity(fd: int, buf_size: int) -> Self {
-    Self { handle = __zo_bufio_writer_new(fd, buf_size) }
+    Self { handle = zo_bufio_writer_new(fd, buf_size) }
   }
 
   -! Buffer a string for writing.
   pub fun write(self, content: str) -> Result<int, int> {
-    imu n: int = __zo_bufio_writer_write_str(self.handle, content);
+    imu n: int = zo_bufio_writer_write_str(self.handle, content);
 
     if n < 0 {
       return Result::Fail(-n);
@@ -158,7 +150,7 @@ apply BufferedWriter {
 
   -! Flush the buffer to the underlying fd.
   pub fun flush(self) -> Result<int, int> {
-    imu result: int = __zo_bufio_writer_flush(self.handle);
+    imu result: int = zo_bufio_writer_flush(self.handle);
 
     if result < 0 {
       return Result::Fail(-result);
@@ -169,6 +161,6 @@ apply BufferedWriter {
 
   -! Flush and release the internal buffer.
   pub fun close(self) {
-    __zo_bufio_writer_free(self.handle);
+    zo_bufio_writer_free(self.handle);
   }
 }

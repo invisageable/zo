@@ -1,7 +1,7 @@
 -- tests-run-pass: HashMap pure-zo bodies — `len`,
 -- `is_empty`, `free`. These three methods route through
--- the non-marshaling raw FFIs (`__zo_map_len_raw`,
--- `__zo_map_free_raw`) and therefore exercise the
+-- the non-marshaling raw FFIs (`zo_map_len_raw`,
+-- `zo_map_free_raw`) and therefore exercise the
 -- generic-apply-method monomorphization path end-to-end:
 -- their bodies are real zo, no codegen replacement.
 -- @cmd — zo build hashmap_len_isempty.zo

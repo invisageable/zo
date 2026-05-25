@@ -3,8 +3,7 @@
   linux: "@executable_path/libzo_runtime.so",
 }
 
-%% link_name = "zo_int_to_str".
-pub ffi __zo_int_to_str(n: int) -> str;
+pub ffi zo_int_to_str(n: int) -> str;
 
 apply int {
   -! Decimal-format this int as a fresh heap `str`. Use
@@ -12,7 +11,7 @@ apply int {
   -! `showln(n)` still routes through the codegen's
   -! built-in itoa for output and doesn't need this.
   pub fun to_str(self) -> str {
-    __zo_int_to_str(self)
+    zo_int_to_str(self)
   }
 
   -! ...
@@ -30,6 +29,7 @@ apply int {
     self == 0
   }
 
+  -! ...
   pub fun abs(self) -> int {
     if self < 0 {
       return -self;
@@ -38,6 +38,7 @@ apply int {
     self
   }
 
+  -! ...
   pub fun min(self, other: int) -> int {
     if self < other {
       return self;
@@ -46,6 +47,7 @@ apply int {
     other
   }
 
+  -! ...
   pub fun max(self, other: int) -> int {
     if self > other {
       return self;

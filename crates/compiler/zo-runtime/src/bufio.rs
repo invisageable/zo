@@ -179,8 +179,8 @@ impl WriterState {
 /// # Safety
 ///
 /// `fd` must be a valid open file descriptor.
-#[unsafe(export_name = "zo_bufio_reader_new")]
-pub unsafe extern "C-unwind" fn _zo_bufio_reader_new(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_reader_new(
   fd: i32,
   buf_size: i32,
 ) -> i64 {
@@ -191,9 +191,9 @@ pub unsafe extern "C-unwind" fn _zo_bufio_reader_new(
 
 /// # Safety
 ///
-/// `handle` must be a live reader from `_zo_bufio_reader_new`.
-#[unsafe(export_name = "zo_bufio_reader_read_line")]
-pub unsafe extern "C-unwind" fn _zo_bufio_reader_read_line(
+/// `handle` must be a live reader from `zo_bufio_reader_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_reader_read_line(
   handle: i64,
 ) -> *const u8 {
   let state = unsafe { &mut *(handle as *mut ReaderState) };
@@ -203,9 +203,9 @@ pub unsafe extern "C-unwind" fn _zo_bufio_reader_read_line(
 
 /// # Safety
 ///
-/// `handle` must be a live reader from `_zo_bufio_reader_new`.
-#[unsafe(export_name = "zo_bufio_reader_read")]
-pub unsafe extern "C-unwind" fn _zo_bufio_reader_read(
+/// `handle` must be a live reader from `zo_bufio_reader_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_reader_read(
   handle: i64,
   max: i32,
 ) -> *const u8 {
@@ -217,8 +217,8 @@ pub unsafe extern "C-unwind" fn _zo_bufio_reader_read(
 /// # Safety
 ///
 /// `handle` must be a live reader (or 0 for no-op).
-#[unsafe(export_name = "zo_bufio_reader_free")]
-pub unsafe extern "C-unwind" fn _zo_bufio_reader_free(handle: i64) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_reader_free(handle: i64) {
   if handle != 0 {
     drop(unsafe { Box::from_raw(handle as *mut ReaderState) });
   }
@@ -229,8 +229,8 @@ pub unsafe extern "C-unwind" fn _zo_bufio_reader_free(handle: i64) {
 /// # Safety
 ///
 /// `fd` must be a valid open file descriptor.
-#[unsafe(export_name = "zo_bufio_writer_new")]
-pub unsafe extern "C-unwind" fn _zo_bufio_writer_new(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_writer_new(
   fd: i32,
   buf_size: i32,
 ) -> i64 {
@@ -243,8 +243,8 @@ pub unsafe extern "C-unwind" fn _zo_bufio_writer_new(
 ///
 /// `handle` must be a live writer. `data` must point at
 /// `len` readable bytes.
-#[unsafe(export_name = "zo_bufio_writer_write")]
-pub unsafe extern "C-unwind" fn _zo_bufio_writer_write(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_writer_write(
   handle: i64,
   data: *const u8,
   len: usize,
@@ -259,8 +259,8 @@ pub unsafe extern "C-unwind" fn _zo_bufio_writer_write(
 ///
 /// `handle` must be a live writer. `s` must be a valid
 /// zo str header.
-#[unsafe(export_name = "zo_bufio_writer_write_str")]
-pub unsafe extern "C-unwind" fn _zo_bufio_writer_write_str(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_writer_write_str(
   handle: i64,
   s: *const u8,
 ) -> isize {
@@ -273,8 +273,8 @@ pub unsafe extern "C-unwind" fn _zo_bufio_writer_write_str(
 /// # Safety
 ///
 /// `handle` must be a live writer.
-#[unsafe(export_name = "zo_bufio_writer_flush")]
-pub unsafe extern "C-unwind" fn _zo_bufio_writer_flush(handle: i64) -> i32 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_writer_flush(handle: i64) -> i32 {
   let state = unsafe { &mut *(handle as *mut WriterState) };
   let n = state.flush_inner();
 
@@ -284,8 +284,8 @@ pub unsafe extern "C-unwind" fn _zo_bufio_writer_flush(handle: i64) -> i32 {
 /// # Safety
 ///
 /// `handle` must be a live writer (or 0 for no-op).
-#[unsafe(export_name = "zo_bufio_writer_free")]
-pub unsafe extern "C-unwind" fn _zo_bufio_writer_free(handle: i64) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bufio_writer_free(handle: i64) {
   if handle != 0 {
     let mut state = unsafe { Box::from_raw(handle as *mut WriterState) };
 
@@ -320,26 +320,26 @@ mod tests {
 
       assert!(fd >= 0);
 
-      let wh = _zo_bufio_writer_new(fd, 64);
+      let wh = zo_bufio_writer_new(fd, 64);
 
       for i in 0..10 {
         let line = format!("line {i}\n");
 
-        _zo_bufio_writer_write(wh, line.as_ptr(), line.len());
+        zo_bufio_writer_write(wh, line.as_ptr(), line.len());
       }
 
-      _zo_bufio_writer_free(wh);
+      zo_bufio_writer_free(wh);
       libc::close(fd);
 
       let fd = libc::open(path.as_ptr(), libc::O_RDONLY, 0);
 
       assert!(fd >= 0);
 
-      let rh = _zo_bufio_reader_new(fd, 32);
+      let rh = zo_bufio_reader_new(fd, 32);
       let mut count = 0;
 
       loop {
-        let ptr = _zo_bufio_reader_read_line(rh);
+        let ptr = zo_bufio_reader_read_line(rh);
 
         if ptr.is_null() {
           break;
@@ -348,7 +348,7 @@ mod tests {
         count += 1;
       }
 
-      _zo_bufio_reader_free(rh);
+      zo_bufio_reader_free(rh);
       libc::close(fd);
 
       assert_eq!(count, 10);
@@ -374,9 +374,9 @@ mod tests {
       libc::close(fd);
 
       let fd = libc::open(path.as_ptr(), libc::O_RDONLY, 0);
-      let rh = _zo_bufio_reader_new(fd, 8);
+      let rh = zo_bufio_reader_new(fd, 8);
 
-      let ptr1 = _zo_bufio_reader_read(rh, 5);
+      let ptr1 = zo_bufio_reader_read(rh, 5);
 
       assert!(!ptr1.is_null());
 
@@ -384,12 +384,12 @@ mod tests {
 
       assert_eq!(bytes1, b"abcde");
 
-      let ptr2 = _zo_bufio_reader_read(rh, 3);
+      let ptr2 = zo_bufio_reader_read(rh, 3);
       let bytes2 = crate::str::str_bytes(ptr2);
 
       assert_eq!(bytes2, b"fgh");
 
-      _zo_bufio_reader_free(rh);
+      zo_bufio_reader_free(rh);
       libc::close(fd);
       libc::unlink(path.as_ptr());
     }

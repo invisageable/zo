@@ -349,7 +349,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         | Insn::NurseryEnd { .. }
         | Insn::SelectWait { .. }
         | Insn::StrSlice { .. }
-        // `CoerceToDyn` lowers to `BL _zo_dyn_box`;
+        // `CoerceToDyn` lowers to `BL zo_dyn_box`;
         // `DynDispatch` lowers to `BLR x16` through a
         // vtable slot. Both clobber X30 — the function
         // must save FP/LR in its prologue or the
@@ -365,7 +365,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
     }
 
     // `Insn::BinOp` on `Str` operands lowers to runtime
-    // calls — `_memcmp` for `Eq`/`Neq`, `_zo_str_concat`
+    // calls — `_memcmp` for `Eq`/`Neq`, `zo_str_concat`
     // for `Concat` (see arm codegen). Without this gate,
     // the leaf-frame skips the caller-save reserve and
     // the emitted spills overwrite the function's own
@@ -630,7 +630,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       // buffer. Per-call allocation of buffer + Result
       // would be `~520 slots * call_count` — 5 calls
       // burn 20 KB. Codegen heap-copies the str payload
-      // via `_zo_str_alloc` and reuses one shared
+      // via `zo_str_alloc` and reuses one shared
       // 4104-byte buffer per function, so each call
       // only needs the small 3-slot Result frame
       // (`tag + ptr + scratch`). The shared buffer is

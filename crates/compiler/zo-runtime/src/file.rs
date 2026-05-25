@@ -13,8 +13,8 @@ use crate::str::{alloc_str, str_bytes};
 /// # Safety
 ///
 /// `path` must be a NUL-terminated C string pointer.
-#[unsafe(export_name = "zo_file_open")]
-pub unsafe extern "C-unwind" fn _zo_file_open(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_open(
   path: *const u8,
   flags: i32,
   mode: i32,
@@ -30,8 +30,8 @@ pub unsafe extern "C-unwind" fn _zo_file_open(
 /// # Safety
 ///
 /// `fd` must be a valid open file descriptor.
-#[unsafe(export_name = "zo_file_close")]
-pub unsafe extern "C-unwind" fn _zo_file_close(fd: i32) -> i32 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_close(fd: i32) -> i32 {
   let result = unsafe { libc::close(fd) };
 
   if result < 0 {
@@ -47,8 +47,8 @@ pub unsafe extern "C-unwind" fn _zo_file_close(fd: i32) -> i32 {
 /// # Safety
 ///
 /// `buf` must point at `len` writable bytes.
-#[unsafe(export_name = "zo_file_read")]
-pub unsafe extern "C-unwind" fn _zo_file_read(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_read(
   fd: i32,
   buf: *mut u8,
   len: usize,
@@ -64,8 +64,8 @@ pub unsafe extern "C-unwind" fn _zo_file_read(
 /// # Safety
 ///
 /// `buf` must point at `len` readable bytes.
-#[unsafe(export_name = "zo_file_write")]
-pub unsafe extern "C-unwind" fn _zo_file_write(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_write(
   fd: i32,
   buf: *const u8,
   len: usize,
@@ -81,8 +81,8 @@ pub unsafe extern "C-unwind" fn _zo_file_write(
 /// # Safety
 ///
 /// `fd` must be a valid open file descriptor.
-#[unsafe(export_name = "zo_file_seek")]
-pub unsafe extern "C-unwind" fn _zo_file_seek(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_seek(
   fd: i32,
   offset: i32,
   whence: i32,
@@ -102,8 +102,8 @@ pub unsafe extern "C-unwind" fn _zo_file_seek(
 /// # Safety
 ///
 /// `path` must be a NUL-terminated C string pointer.
-#[unsafe(export_name = "zo_file_stat_size")]
-pub unsafe extern "C-unwind" fn _zo_file_stat_size(path: *const u8) -> i32 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_stat_size(path: *const u8) -> i32 {
   let mut st: libc::stat = unsafe { std::mem::zeroed() };
   let result = unsafe { libc::stat(path.cast(), &mut st) };
 
@@ -121,8 +121,8 @@ pub unsafe extern "C-unwind" fn _zo_file_stat_size(path: *const u8) -> i32 {
 /// # Safety
 ///
 /// `path` must be a NUL-terminated C string pointer.
-#[unsafe(export_name = "zo_file_stat_mtime")]
-pub unsafe extern "C-unwind" fn _zo_file_stat_mtime(path: *const u8) -> i32 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_stat_mtime(path: *const u8) -> i32 {
   let mut st: libc::stat = unsafe { std::mem::zeroed() };
   let result = unsafe { libc::stat(path.cast(), &mut st) };
 
@@ -139,8 +139,8 @@ pub unsafe extern "C-unwind" fn _zo_file_stat_mtime(path: *const u8) -> i32 {
 /// # Safety
 ///
 /// `path` must be a NUL-terminated C string pointer.
-#[unsafe(export_name = "zo_file_mkdir")]
-pub unsafe extern "C-unwind" fn _zo_file_mkdir(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_mkdir(
   path: *const u8,
   mode: i32,
 ) -> i32 {
@@ -159,8 +159,8 @@ pub unsafe extern "C-unwind" fn _zo_file_mkdir(
 /// # Safety
 ///
 /// Both pointers must be NUL-terminated C string pointers.
-#[unsafe(export_name = "zo_file_rename")]
-pub unsafe extern "C-unwind" fn _zo_file_rename(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_rename(
   old: *const u8,
   new: *const u8,
 ) -> i32 {
@@ -184,8 +184,8 @@ pub unsafe extern "C-unwind" fn _zo_file_rename(
 /// # Safety
 ///
 /// `fd` must be a valid open file descriptor.
-#[unsafe(export_name = "zo_file_read_str")]
-pub unsafe extern "C-unwind" fn _zo_file_read_str(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_read_str(
   fd: i32,
   max_len: i32,
 ) -> *const u8 {
@@ -209,8 +209,8 @@ pub unsafe extern "C-unwind" fn _zo_file_read_str(
 ///
 /// `s` must be a valid zo str header. `fd` must be open
 /// for writing.
-#[unsafe(export_name = "zo_file_write_str")]
-pub unsafe extern "C-unwind" fn _zo_file_write_str(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_file_write_str(
   fd: i32,
   s: *const u8,
 ) -> isize {
@@ -237,7 +237,7 @@ mod tests {
     let path = tmp_path("roundtrip");
 
     unsafe {
-      let fd = _zo_file_open(
+      let fd = zo_file_open(
         path.as_ptr().cast(),
         libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
         0o644,
@@ -246,21 +246,21 @@ mod tests {
       assert!(fd >= 0, "open for write failed: {fd}");
 
       let data = b"hello file";
-      let written = _zo_file_write(fd, data.as_ptr(), data.len());
+      let written = zo_file_write(fd, data.as_ptr(), data.len());
 
       assert_eq!(written, data.len() as isize);
-      assert_eq!(_zo_file_close(fd), 0);
+      assert_eq!(zo_file_close(fd), 0);
 
-      let fd = _zo_file_open(path.as_ptr().cast(), libc::O_RDONLY, 0);
+      let fd = zo_file_open(path.as_ptr().cast(), libc::O_RDONLY, 0);
 
       assert!(fd >= 0, "open for read failed: {fd}");
 
       let mut buf = [0u8; 64];
-      let n = _zo_file_read(fd, buf.as_mut_ptr(), buf.len());
+      let n = zo_file_read(fd, buf.as_mut_ptr(), buf.len());
 
       assert_eq!(n, data.len() as isize);
       assert_eq!(&buf[..n as usize], data);
-      assert_eq!(_zo_file_close(fd), 0);
+      assert_eq!(zo_file_close(fd), 0);
 
       libc::unlink(path.as_ptr().cast());
     }
@@ -271,7 +271,7 @@ mod tests {
     let path = tmp_path("seek");
 
     unsafe {
-      let fd = _zo_file_open(
+      let fd = zo_file_open(
         path.as_ptr().cast(),
         libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
         0o644,
@@ -279,24 +279,24 @@ mod tests {
 
       let data = b"abcdefghij";
 
-      _zo_file_write(fd, data.as_ptr(), data.len());
-      _zo_file_close(fd);
+      zo_file_write(fd, data.as_ptr(), data.len());
+      zo_file_close(fd);
 
-      let fd = _zo_file_open(path.as_ptr().cast(), libc::O_RDONLY, 0);
+      let fd = zo_file_open(path.as_ptr().cast(), libc::O_RDONLY, 0);
 
       assert!(fd >= 0);
 
-      let pos = _zo_file_seek(fd, 5, libc::SEEK_SET);
+      let pos = zo_file_seek(fd, 5, libc::SEEK_SET);
 
       assert_eq!(pos, 5);
 
       let mut buf = [0u8; 5];
-      let n = _zo_file_read(fd, buf.as_mut_ptr(), 5);
+      let n = zo_file_read(fd, buf.as_mut_ptr(), 5);
 
       assert_eq!(n, 5);
       assert_eq!(&buf, b"fghij");
 
-      _zo_file_close(fd);
+      zo_file_close(fd);
       libc::unlink(path.as_ptr().cast());
     }
   }
@@ -306,7 +306,7 @@ mod tests {
     let path = tmp_path("stat");
 
     unsafe {
-      let fd = _zo_file_open(
+      let fd = zo_file_open(
         path.as_ptr().cast(),
         libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
         0o644,
@@ -314,10 +314,10 @@ mod tests {
 
       let data = b"twelve bytes";
 
-      _zo_file_write(fd, data.as_ptr(), data.len());
-      _zo_file_close(fd);
+      zo_file_write(fd, data.as_ptr(), data.len());
+      zo_file_close(fd);
 
-      let size = _zo_file_stat_size(path.as_ptr().cast());
+      let size = zo_file_stat_size(path.as_ptr().cast());
 
       assert_eq!(size, data.len() as i32);
 
@@ -331,11 +331,11 @@ mod tests {
     let dir2 = tmp_path("mkdir_renamed");
 
     unsafe {
-      let result = _zo_file_mkdir(dir.as_ptr().cast(), 0o755);
+      let result = zo_file_mkdir(dir.as_ptr().cast(), 0o755);
 
       assert_eq!(result, 0);
 
-      let result = _zo_file_rename(dir.as_ptr().cast(), dir2.as_ptr().cast());
+      let result = zo_file_rename(dir.as_ptr().cast(), dir2.as_ptr().cast());
 
       assert_eq!(result, 0);
 
@@ -348,7 +348,7 @@ mod tests {
     let path = tmp_path("nonexistent_file_that_does_not_exist");
 
     unsafe {
-      let fd = _zo_file_open(path.as_ptr().cast(), libc::O_RDONLY, 0);
+      let fd = zo_file_open(path.as_ptr().cast(), libc::O_RDONLY, 0);
 
       assert!(fd < 0, "expected negative errno, got {fd}");
       assert_eq!(fd, -libc::ENOENT);

@@ -10,21 +10,21 @@ pub struct Scene { handle: int }
 apply Scene {
   -! Creates new `Scene` instance.
   pub fun new() -> Self {
-    Self { handle = __zo_misato_init_world() }
+    Self { handle = zo_misato_init_world() }
   }
 
   -! Adds a `Mesh` to the current scene.
   pub fun add(self, mesh: Mesh) {
-    __zo_misato_scene_add(self.handle, mesh.handle);
+    zo_misato_scene_add(self.handle, mesh.handle);
   }
 
   -! Adds a `Mesh` to the scene.
   pub fun render(self, camera: PerspectiveCamera) {
-    __zo_misato_scene_render(self.handle, camera.handle);
+    zo_misato_scene_render(self.handle, camera.handle);
   }
 
   -! Closes the current `Scene`.
   pub fun close(self) {
-    __zo_misato_destroy_world(self.handle);
+    zo_misato_destroy_world(self.handle);
   }
 }

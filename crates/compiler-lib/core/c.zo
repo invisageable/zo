@@ -19,12 +19,10 @@
 -! is `s64` (not `int`) so `CStr` and `CBytes` carry
 -! pointer-sized fields and AAPCS classifies them with the
 -! right composite shape.
-%% link_name = "zo_cstr_from_str".
-pub ffi __zo_cstr_from_str(s: str) -> s64;
+pub ffi zo_cstr_from_str(s: str) -> s64;
 
 -! Heap-copy `len` bytes from `ptr` into a fresh zo `str`.
-%% link_name = "zo_str_alloc".
-pub ffi __zo_str_alloc(ptr: s64, len: s64) -> str;
+pub ffi zo_str_alloc(ptr: s64, len: s64) -> str;
 
 
 -! A NUL-terminated C-string pointer.
@@ -45,7 +43,7 @@ pub struct CStr { ptr: s64 }
 apply CStr {
   -! Wrap a zo `str` as a C-string pointer.
   pub fun new(s: str) -> Self {
-    Self { ptr = __zo_cstr_from_str(s) }
+    Self { ptr = zo_cstr_from_str(s) }
   }
 
   -! True when the source `str` had no interior NULs.
@@ -71,6 +69,6 @@ pub struct CBytes { ptr: s64, len: s64 }
 apply CBytes {
   -! Heap-copy the bytes into an owned zo `str`.
   pub fun to_str(self) -> str {
-    __zo_str_alloc(self.ptr, self.len)
+    zo_str_alloc(self.ptr, self.len)
   }
 }

@@ -314,7 +314,7 @@ pub unsafe fn run_one_external(task: *mut ZoTask) {
 /// post-switch state.
 ///
 /// Re-entrant: when called from inside a green task
-/// (e.g. a nested `_zo_nursery_drain` whose driver task
+/// (e.g. a nested `zo_nursery_drain` whose driver task
 /// opens its own `nursery {}` to spawn children), we
 /// snapshot `current` and the global scheduler-ctx slot
 /// on the CPU stack and restore them once the inner
@@ -565,7 +565,7 @@ pub fn reset_for_test() {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::task::{_zo_task_await, _zo_task_spawn_2};
+  use crate::task::{zo_task_await, zo_task_spawn_2};
   use std::os::unix::io::RawFd;
 
   /// Green task body: parks on `read_fd` via the
@@ -617,7 +617,7 @@ mod tests {
     }
 
     let reader =
-      unsafe { _zo_task_spawn_2(idle_poll_reader, read_fd as u64, 0) };
+      unsafe { zo_task_spawn_2(idle_poll_reader, read_fd as u64, 0) };
 
     // External OS thread injects the byte after a short
     // delay. The scheduler must block inside
@@ -632,9 +632,9 @@ mod tests {
       }
     });
 
-    // SAFETY: reader is a fresh `_zo_task_spawn_2`
+    // SAFETY: reader is a fresh `zo_task_spawn_2`
     // handle whose box outlives this call.
-    unsafe { _zo_task_await(reader) };
+    unsafe { zo_task_await(reader) };
 
     unsafe {
       libc::close(read_fd);

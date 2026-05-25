@@ -36,7 +36,7 @@ const LOAD_FACTOR_NUM: usize = 3;
 const LOAD_FACTOR_DEN: usize = 4;
 
 /// Tag identifying how the runtime should hash + compare
-/// keys. Passed at `__zo_map_new` and stored on the map
+/// keys. Passed at `_zo_map_new` and stored on the map
 /// for every subsequent op.
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -58,7 +58,7 @@ impl KeyKind {
 }
 
 /// Per-side scalar format identifier the codegen passes
-/// to `_zo_map_show`. The discriminants are part of the
+/// to `zo_map_show`. The discriminants are part of the
 /// runtime/codegen ABI: the executor derives this enum
 /// from the `K` / `V` of `HashMap<K, V>` and emits the
 /// raw `u32` into `Insn::MapTyDef`. Keep these stable —
@@ -157,7 +157,7 @@ impl MapFmt {
         // Values: stored as the 8-byte str header pointer
         // (the codegen spills the X-register holding the
         // pointer into the value scratch slot). Follow it.
-        // Wrap with `"` on both sides — `_zo_map_show` only
+        // Wrap with `"` on both sides — `zo_map_show` only
         // ever runs in nested-context, mirroring Rust's
         // `Debug` for `HashMap` entries.
         out.push(b'"');
@@ -209,7 +209,7 @@ enum Slot {
 /// Backing struct for `HashMap<K, V>` at the runtime
 /// ABI boundary. Pointer-stable: zo holds a `*mut ZoMap`
 /// (boxed + leaked) and passes it to every op; the box
-/// lives until `__zo_map_free` runs.
+/// lives until `_zo_map_free` runs.
 pub struct ZoMap {
   slots: Vec<Slot>,
   key_sz: usize,
@@ -399,7 +399,7 @@ impl ZoMap {
 }
 
 /// Allocate a new map. The returned pointer is
-/// `Box::leak`-ed; the matching `__zo_map_free` reclaims
+/// `Box::leak`-ed; the matching `_zo_map_free` reclaims
 /// it.
 ///
 /// # Safety
@@ -407,8 +407,8 @@ impl ZoMap {
 /// `key_kind` must be a valid `KeyKind` discriminant
 /// (0 / 1 / 2). The caller's `key_sz` and `val_sz`
 /// must match what every subsequent op assumes.
-#[unsafe(export_name = "zo_map_new")]
-pub unsafe extern "C-unwind" fn _zo_map_new(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_map_new(
   key_kind: u8,
   key_sz: usize,
   val_sz: usize,
@@ -426,12 +426,12 @@ pub unsafe extern "C-unwind" fn _zo_map_new(
 ///
 /// # Safety
 ///
-/// `map` must be a live pointer from `__zo_map_new`.
+/// `map` must be a live pointer from `_zo_map_new`.
 /// `key_ptr` must point at a valid key for the map's
 /// kind. `val_ptr` must point at `val_sz` readable
 /// bytes.
-#[unsafe(export_name = "zo_map_insert")]
-pub unsafe extern "C-unwind" fn _zo_map_insert(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_map_insert(
   map: *mut ZoMap,
   key_ptr: *const u8,
   val_ptr: *const u8,
@@ -481,8 +481,8 @@ pub unsafe extern "C-unwind" fn _zo_map_insert(
 /// `map` must be live; `key_ptr` valid for the map's
 /// kind; `val_out` must point at at least `val_sz`
 /// writable bytes.
-#[unsafe(export_name = "zo_map_get")]
-pub unsafe extern "C-unwind" fn _zo_map_get(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_map_get(
   map: *mut ZoMap,
   key_ptr: *const u8,
   val_out: *mut u8,
@@ -513,9 +513,9 @@ pub unsafe extern "C-unwind" fn _zo_map_get(
 ///
 /// # Safety
 ///
-/// As `__zo_map_get`, minus the output buffer.
-#[unsafe(export_name = "zo_map_contains")]
-pub unsafe extern "C-unwind" fn _zo_map_contains(
+/// As `_zo_map_get`, minus the output buffer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_map_contains(
   map: *mut ZoMap,
   key_ptr: *const u8,
 ) -> bool {
@@ -534,9 +534,9 @@ pub unsafe extern "C-unwind" fn _zo_map_contains(
 ///
 /// # Safety
 ///
-/// As `__zo_map_get`.
-#[unsafe(export_name = "zo_map_remove")]
-pub unsafe extern "C-unwind" fn _zo_map_remove(
+/// As `_zo_map_get`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_map_remove(
   map: *mut ZoMap,
   key_ptr: *const u8,
   val_out: *mut u8,
@@ -573,8 +573,8 @@ pub unsafe extern "C-unwind" fn _zo_map_remove(
 /// # Safety
 ///
 /// `map` must be live.
-#[unsafe(export_name = "zo_map_len")]
-pub unsafe extern "C-unwind" fn _zo_map_len(map: *mut ZoMap) -> usize {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_map_len(map: *mut ZoMap) -> usize {
   let m = unsafe { &*map };
 
   m.len
@@ -585,10 +585,10 @@ pub unsafe extern "C-unwind" fn _zo_map_len(map: *mut ZoMap) -> usize {
 ///
 /// # Safety
 ///
-/// `map` must be a pointer from `__zo_map_new` that
+/// `map` must be a pointer from `_zo_map_new` that
 /// hasn't been freed.
-#[unsafe(export_name = "zo_map_free")]
-pub unsafe extern "C-unwind" fn _zo_map_free(map: *mut ZoMap) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_map_free(map: *mut ZoMap) {
   if !map.is_null() {
     unsafe {
       let _ = Box::from_raw(map);
@@ -613,9 +613,9 @@ pub unsafe extern "C-unwind" fn _zo_map_free(map: *mut ZoMap) {
 ///
 /// # Safety
 ///
-/// `map` must be a live pointer from `__zo_map_new`.
-#[unsafe(export_name = "zo_map_show")]
-pub unsafe extern "C-unwind" fn _zo_map_show(
+/// `map` must be a live pointer from `_zo_map_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_map_show(
   map: *mut ZoMap,
   fd: usize,
   key_fmt: u8,
@@ -653,16 +653,16 @@ pub unsafe extern "C-unwind" fn _zo_map_show(
 }
 
 /// Pretty-print a `HashSet` as `{k0, k1, ...}`. Same
-/// machinery as `_zo_map_show` — sets are backed by
+/// machinery as `zo_map_show` — sets are backed by
 /// `ZoMap` with `val_sz = 0`, so we walk occupied slots
 /// and format only the key half.
 ///
 /// # Safety
 ///
-/// `set` must be a live pointer from `__zo_map_new`
+/// `set` must be a live pointer from `_zo_map_new`
 /// (which is what `HashSet::new` calls under the hood).
-#[unsafe(export_name = "zo_set_show")]
-pub unsafe extern "C-unwind" fn _zo_set_show(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_set_show(
   set: *mut ZoMap,
   fd: usize,
   key_fmt: u8,
@@ -713,72 +713,72 @@ mod tests {
   #[test]
   fn empty_map_has_zero_len() {
     let map =
-      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+      unsafe { zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
 
-    assert_eq!(unsafe { _zo_map_len(map) }, 0);
+    assert_eq!(unsafe { zo_map_len(map) }, 0);
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
   #[test]
   fn insert_then_get_round_trips_int_keys() {
     let map =
-      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+      unsafe { zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
 
     for i in 0i32..32 {
       let k = i.to_le_bytes();
       let v = (i * 10).to_le_bytes();
 
       unsafe {
-        _zo_map_insert(map, k.as_ptr(), v.as_ptr());
+        zo_map_insert(map, k.as_ptr(), v.as_ptr());
       }
     }
 
-    assert_eq!(unsafe { _zo_map_len(map) }, 32);
+    assert_eq!(unsafe { zo_map_len(map) }, 32);
 
     for i in 0i32..32 {
       let k = i.to_le_bytes();
       let mut out = [0u8; 4];
 
-      let hit = unsafe { _zo_map_get(map, k.as_ptr(), out.as_mut_ptr()) };
+      let hit = unsafe { zo_map_get(map, k.as_ptr(), out.as_mut_ptr()) };
 
       assert!(hit, "missing key {i}");
       assert_eq!(i32::from_le_bytes(out), i * 10);
     }
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
   #[test]
   fn overwrite_same_key_keeps_len_constant() {
     let map =
-      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+      unsafe { zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
 
     let k = 7i32.to_le_bytes();
 
     unsafe {
-      _zo_map_insert(map, k.as_ptr(), 100i32.to_le_bytes().as_ptr());
+      zo_map_insert(map, k.as_ptr(), 100i32.to_le_bytes().as_ptr());
     }
-    assert_eq!(unsafe { _zo_map_len(map) }, 1);
+    assert_eq!(unsafe { zo_map_len(map) }, 1);
 
     unsafe {
-      _zo_map_insert(map, k.as_ptr(), 200i32.to_le_bytes().as_ptr());
+      zo_map_insert(map, k.as_ptr(), 200i32.to_le_bytes().as_ptr());
     }
-    assert_eq!(unsafe { _zo_map_len(map) }, 1);
+    assert_eq!(unsafe { zo_map_len(map) }, 1);
 
     let mut out = [0u8; 4];
 
     unsafe {
-      _zo_map_get(map, k.as_ptr(), out.as_mut_ptr());
+      zo_map_get(map, k.as_ptr(), out.as_mut_ptr());
     }
     assert_eq!(i32::from_le_bytes(out), 200);
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
@@ -787,14 +787,14 @@ mod tests {
     // Force a tight initial capacity (clamped to
     // INITIAL_CAPACITY internally) and exercise the
     // probe chain.
-    let map = unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, 1) };
+    let map = unsafe { zo_map_new(KeyKind::Prim as u8, 4, 4, 1) };
 
     for i in 0i32..200 {
       let k = i.to_le_bytes();
       let v = (i + 1).to_le_bytes();
 
       unsafe {
-        _zo_map_insert(map, k.as_ptr(), v.as_ptr());
+        zo_map_insert(map, k.as_ptr(), v.as_ptr());
       }
     }
 
@@ -802,82 +802,81 @@ mod tests {
       let k = i.to_le_bytes();
       let mut out = [0u8; 4];
 
-      assert!(unsafe { _zo_map_get(map, k.as_ptr(), out.as_mut_ptr()) });
+      assert!(unsafe { zo_map_get(map, k.as_ptr(), out.as_mut_ptr()) });
       assert_eq!(i32::from_le_bytes(out), i + 1);
     }
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
   #[test]
   fn remove_then_reinsert_reuses_tombstone() {
     let map =
-      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+      unsafe { zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
 
     let k = 42i32.to_le_bytes();
     let v = 1000i32.to_le_bytes();
 
     unsafe {
-      _zo_map_insert(map, k.as_ptr(), v.as_ptr());
+      zo_map_insert(map, k.as_ptr(), v.as_ptr());
     }
 
     let mut removed = [0u8; 4];
 
-    let did = unsafe { _zo_map_remove(map, k.as_ptr(), removed.as_mut_ptr()) };
+    let did = unsafe { zo_map_remove(map, k.as_ptr(), removed.as_mut_ptr()) };
 
     assert!(did);
     assert_eq!(i32::from_le_bytes(removed), 1000);
-    assert_eq!(unsafe { _zo_map_len(map) }, 0);
+    assert_eq!(unsafe { zo_map_len(map) }, 0);
 
     let v2 = 2000i32.to_le_bytes();
 
     unsafe {
-      _zo_map_insert(map, k.as_ptr(), v2.as_ptr());
+      zo_map_insert(map, k.as_ptr(), v2.as_ptr());
     }
 
     let mut out = [0u8; 4];
 
     unsafe {
-      _zo_map_get(map, k.as_ptr(), out.as_mut_ptr());
+      zo_map_get(map, k.as_ptr(), out.as_mut_ptr());
     }
     assert_eq!(i32::from_le_bytes(out), 2000);
-    assert_eq!(unsafe { _zo_map_len(map) }, 1);
+    assert_eq!(unsafe { zo_map_len(map) }, 1);
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
   #[test]
   fn contains_distinguishes_present_and_absent() {
     let map =
-      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+      unsafe { zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
 
     let k = 5i32.to_le_bytes();
 
-    assert!(!unsafe { _zo_map_contains(map, k.as_ptr()) });
+    assert!(!unsafe { zo_map_contains(map, k.as_ptr()) });
 
     unsafe {
-      _zo_map_insert(map, k.as_ptr(), 99i32.to_le_bytes().as_ptr());
+      zo_map_insert(map, k.as_ptr(), 99i32.to_le_bytes().as_ptr());
     }
 
-    assert!(unsafe { _zo_map_contains(map, k.as_ptr()) });
+    assert!(unsafe { zo_map_contains(map, k.as_ptr()) });
 
     let other = 6i32.to_le_bytes();
 
-    assert!(!unsafe { _zo_map_contains(map, other.as_ptr()) });
+    assert!(!unsafe { zo_map_contains(map, other.as_ptr()) });
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
   #[test]
   fn str_keys_hash_by_content_not_pointer() {
-    let map =
-      unsafe { _zo_map_new(KeyKind::Str as u8, 8, 4, INITIAL_CAPACITY) };
+    let map = unsafe { zo_map_new(KeyKind::Str as u8, 8, 4, INITIAL_CAPACITY) };
 
     let k1 = make_str(b"hello");
     let k2 = make_str(b"hello");
@@ -893,24 +892,24 @@ mod tests {
     let p2_slot = (&p2) as *const *const u8 as *const u8;
 
     unsafe {
-      _zo_map_insert(map, p1_slot, 1i32.to_le_bytes().as_ptr());
+      zo_map_insert(map, p1_slot, 1i32.to_le_bytes().as_ptr());
     }
 
     let mut out = [0u8; 4];
 
-    let hit = unsafe { _zo_map_get(map, p2_slot, out.as_mut_ptr()) };
+    let hit = unsafe { zo_map_get(map, p2_slot, out.as_mut_ptr()) };
 
     assert!(hit, "content-equal str keys must hash to the same bucket");
     assert_eq!(i32::from_le_bytes(out), 1);
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
   #[test]
   fn distinct_str_keys_dont_collide_under_grow() {
-    let map = unsafe { _zo_map_new(KeyKind::Str as u8, 8, 4, 1) };
+    let map = unsafe { zo_map_new(KeyKind::Str as u8, 8, 4, 1) };
 
     let bytes = [
       &b"alpha"[..],
@@ -944,22 +943,22 @@ mod tests {
       let slot = (hp as *const *const u8) as *const u8;
 
       unsafe {
-        _zo_map_insert(map, slot, v.as_ptr());
+        zo_map_insert(map, slot, v.as_ptr());
       }
     }
 
-    assert_eq!(unsafe { _zo_map_len(map) }, header_ptrs.len());
+    assert_eq!(unsafe { zo_map_len(map) }, header_ptrs.len());
 
     for (i, hp) in header_ptrs.iter().enumerate() {
       let mut out = [0u8; 4];
       let slot = (hp as *const *const u8) as *const u8;
 
-      assert!(unsafe { _zo_map_get(map, slot, out.as_mut_ptr()) });
+      assert!(unsafe { zo_map_get(map, slot, out.as_mut_ptr()) });
       assert_eq!(i32::from_le_bytes(out), i as i32);
     }
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
@@ -1006,16 +1005,16 @@ mod tests {
   #[test]
   fn show_int_int_emits_braces_and_entry_count() {
     let map =
-      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+      unsafe { zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
 
     for (k, v) in [(1i32, 100i32), (2, 200), (3, 300)] {
       unsafe {
-        _zo_map_insert(map, k.to_le_bytes().as_ptr(), v.to_le_bytes().as_ptr());
+        zo_map_insert(map, k.to_le_bytes().as_ptr(), v.to_le_bytes().as_ptr());
       }
     }
 
     let bytes = capture_fd(|fd| unsafe {
-      _zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Int as u8);
+      zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Int as u8);
     });
 
     let s = std::str::from_utf8(&bytes).expect("utf8 output");
@@ -1030,40 +1029,40 @@ mod tests {
     }
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
   #[test]
   fn show_empty_emits_just_braces() {
     let map =
-      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
+      unsafe { zo_map_new(KeyKind::Prim as u8, 4, 4, INITIAL_CAPACITY) };
 
     let bytes = capture_fd(|fd| unsafe {
-      _zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Int as u8);
+      zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Int as u8);
     });
 
     assert_eq!(bytes, b"{}");
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 
   #[test]
   fn show_bool_value_uses_true_false() {
     let map =
-      unsafe { _zo_map_new(KeyKind::Prim as u8, 4, 1, INITIAL_CAPACITY) };
+      unsafe { zo_map_new(KeyKind::Prim as u8, 4, 1, INITIAL_CAPACITY) };
 
     let k = 7i32.to_le_bytes();
     let v_true = [1u8];
 
     unsafe {
-      _zo_map_insert(map, k.as_ptr(), v_true.as_ptr());
+      zo_map_insert(map, k.as_ptr(), v_true.as_ptr());
     }
 
     let bytes = capture_fd(|fd| unsafe {
-      _zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Bool as u8);
+      zo_map_show(map, fd, MapFmt::Int as u8, MapFmt::Bool as u8);
     });
 
     let s = std::str::from_utf8(&bytes).expect("utf8 output");
@@ -1071,7 +1070,7 @@ mod tests {
     assert!(s.contains("7: true"), "got {s:?}");
 
     unsafe {
-      _zo_map_free(map);
+      zo_map_free(map);
     }
   }
 }

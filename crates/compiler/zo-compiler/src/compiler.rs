@@ -1989,9 +1989,9 @@ const RUNTIME_DYLIB_PREFIXES: &[&str] = &[
   "HashMap::",
   "HashSet::",
   "Vec::",
-  "__zo_map_",
-  "__zo_vec_",
-  "__zo_set_",
+  "zo_map_",
+  "zo_vec_",
+  "zo_set_",
 ];
 
 /// Exact call names that trigger runtime-dylib staging.
@@ -2004,7 +2004,7 @@ const RUNTIME_DYLIB_NAMES: &[&str] = &[
   "readln",
   "args",
   "read_dir",
-  "__zo_str_replace",
+  "zo_str_replace",
 ];
 
 impl RuntimeNeeds {

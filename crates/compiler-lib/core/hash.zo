@@ -8,11 +8,9 @@ load core::c::(CStr, CBytes);
 }
 
 
-%% link_name = "zo_hash_sha1".
-pub ffi __zo_hash_sha1(input: CStr) -> CBytes;
+pub ffi zo_hash_sha1(input: CStr) -> CBytes;
 
-%% link_name = "zo_hash_sha256".
-pub ffi __zo_hash_sha256(input: CStr) -> CBytes;
+pub ffi zo_hash_sha256(input: CStr) -> CBytes;
 
 
 -! SHA-1 digest of `input` as a 40-char lowercase hex string.
@@ -20,10 +18,10 @@ pub ffi __zo_hash_sha256(input: CStr) -> CBytes;
 -! @note — SHA-1 is broken for collision resistance; use it only for 
 -! non-security checksums. Reach for `sha256` when integrity matters.
 pub fun sha1(input: str) -> str {
-  __zo_hash_sha1(CStr::new(input)).to_str()
+  zo_hash_sha1(CStr::new(input)).to_str()
 }
 
 -! SHA-256 digest of `input` as a 64-char lowercase hex string.
 pub fun sha256(input: str) -> str {
-  __zo_hash_sha256(CStr::new(input)).to_str()
+  zo_hash_sha256(CStr::new(input)).to_str()
 }

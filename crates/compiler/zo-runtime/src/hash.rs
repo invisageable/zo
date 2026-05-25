@@ -21,8 +21,8 @@ thread_local! {
 /// # Safety
 ///
 /// `input` must be a NUL-terminated UTF-8 string or null.
-#[unsafe(export_name = "zo_hash_sha1")]
-pub unsafe extern "C" fn _zo_hash_sha1(input: *const c_char) -> CBytes {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_hash_sha1(input: *const c_char) -> CBytes {
   let input = unsafe { cstr_to_str(input) };
   let digest = Sha1::digest(input.as_bytes());
 
@@ -34,8 +34,8 @@ pub unsafe extern "C" fn _zo_hash_sha1(input: *const c_char) -> CBytes {
 /// # Safety
 ///
 /// `input` must be a NUL-terminated UTF-8 string or null.
-#[unsafe(export_name = "zo_hash_sha256")]
-pub unsafe extern "C" fn _zo_hash_sha256(input: *const c_char) -> CBytes {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_hash_sha256(input: *const c_char) -> CBytes {
   let input = unsafe { cstr_to_str(input) };
   let digest = Sha256::digest(input.as_bytes());
 

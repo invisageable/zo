@@ -18,26 +18,19 @@ load core::c::(CBytes, CStr);
 
 -* raw ffi bindings. *-
 
-%% link_name = "zo_net_tcp_listen".
-pub ffi __zo_net_tcp_listen(host: CStr, port: int) -> int;
+pub ffi zo_net_tcp_listen(host: CStr, port: int) -> int;
 
-%% link_name = "zo_net_tcp_accept".
-pub ffi __zo_net_tcp_accept(listener_fd: int) -> int;
+pub ffi zo_net_tcp_accept(listener_fd: int) -> int;
 
-%% link_name = "zo_net_tcp_connect".
-pub ffi __zo_net_tcp_connect(host: CStr, port: int) -> int;
+pub ffi zo_net_tcp_connect(host: CStr, port: int) -> int;
 
-%% link_name = "zo_net_write_str".
-pub ffi __zo_net_write_str(fd: int, s: str) -> int;
+pub ffi zo_net_write_str(fd: int, s: str) -> int;
 
-%% link_name = "zo_net_read_to_str".
-pub ffi __zo_net_read_to_str(fd: int, max_len: int) -> CBytes;
+pub ffi zo_net_read_to_str(fd: int, max_len: int) -> CBytes;
 
-%% link_name = "zo_net_tcp_local_port".
-pub ffi __zo_net_tcp_local_port(fd: int) -> int;
+pub ffi zo_net_tcp_local_port(fd: int) -> int;
 
-%% link_name = "zo_net_close".
-pub ffi __zo_net_close(fd: int) -> int;
+pub ffi zo_net_close(fd: int) -> int;
 
 
 -! A `(ip, port)` pair used by [`TcpListener::bind`] and
@@ -87,7 +80,7 @@ apply TcpStream {
   -! green task until the TCP handshake completes.
   pub fun connect(addr: Address) -> Result<Self, int> {
     imu fd: int =
-      __zo_net_tcp_connect(CStr::new(addr.ip), addr.port);
+      zo_net_tcp_connect(CStr::new(addr.ip), addr.port);
 
     if fd >= 0 {
       Result::Pass(Self { fd = fd })
@@ -101,7 +94,7 @@ apply TcpStream {
   -! @note — writes ALL bytes before returning success;
   -! partial-write retry is handled inside the runtime.
   pub fun write(self, msg: str) -> Result<int, int> {
-    imu n: int = __zo_net_write_str(self.fd, msg);
+    imu n: int = zo_net_write_str(self.fd, msg);
 
     if n >= 0 {
       Result::Pass(n)
@@ -113,13 +106,13 @@ apply TcpStream {
   -! Read up to `max_len` bytes from the socket. Returns
   -! an empty `str` for EOF; suspends until data arrives.
   pub fun read(self, max_len: int) -> str {
-    __zo_net_read_to_str(self.fd, max_len).to_str()
+    zo_net_read_to_str(self.fd, max_len).to_str()
   }
 
   -! Close the stream fd. After this, no further reads /
   -! writes may be made on this value.
   pub fun close(self) -> Result<int, int> {
-    imu rc: int = __zo_net_close(self.fd);
+    imu rc: int = zo_net_close(self.fd);
 
     if rc >= 0 {
       Result::Pass(rc)
@@ -144,7 +137,7 @@ apply TcpListener {
   -! port; query it back with `local_port()`.
   pub fun bind(addr: Address) -> Result<Self, int> {
     imu fd: int =
-      __zo_net_tcp_listen(CStr::new(addr.ip), addr.port);
+      zo_net_tcp_listen(CStr::new(addr.ip), addr.port);
 
     if fd >= 0 {
       Result::Pass(Self { fd = fd })
@@ -156,7 +149,7 @@ apply TcpListener {
   -! Block the current green task until a peer connects,
   -! then return the resulting [`TcpStream`].
   pub fun accept(self) -> Result<TcpStream, int> {
-    imu fd: int = __zo_net_tcp_accept(self.fd);
+    imu fd: int = zo_net_tcp_accept(self.fd);
 
     if fd >= 0 {
       Result::Pass(TcpStream { fd = fd })
@@ -170,7 +163,7 @@ apply TcpListener {
   -! OS-assigned port is needed (e.g. to tell a client
   -! where to connect in tests).
   pub fun local_port(self) -> Result<int, int> {
-    imu p: int = __zo_net_tcp_local_port(self.fd);
+    imu p: int = zo_net_tcp_local_port(self.fd);
 
     if p >= 0 {
       Result::Pass(p)
@@ -182,7 +175,7 @@ apply TcpListener {
   -! Close the listener fd. After this, no further
   -! accept calls may be made on this value.
   pub fun close(self) -> Result<int, int> {
-    imu rc: int = __zo_net_close(self.fd);
+    imu rc: int = zo_net_close(self.fd);
 
     if rc >= 0 {
       Result::Pass(rc)

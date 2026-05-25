@@ -3,29 +3,29 @@
 -- Marshaling FFIs. Codegen handlers in `zo-codegen-arm` derive `elem_kind` and 
 -- `elem_sz` from the call-site's resolved `$T` and marshal byte buffers around
 -- each call.
-pub ffi __zo_vec_new(elem_kind: int, elem_sz: int, cap: int) -> int;
-pub ffi __zo_vec_push(vec: int, val_ptr: int);
-pub ffi __zo_vec_pop(vec: int, val_out: int) -> bool;
-pub ffi __zo_vec_get(vec: int, idx: int, val_out: int) -> bool;
-pub ffi __zo_vec_set(vec: int, idx: int, val_ptr: int) -> bool;
-pub ffi __zo_vec_remove(vec: int, idx: int, val_out: int) -> bool;
+pub ffi zo_vec_new(elem_kind: int, elem_sz: int, cap: int) -> int;
+pub ffi zo_vec_push(vec: int, val_ptr: int);
+pub ffi zo_vec_pop(vec: int, val_out: int) -> bool;
+pub ffi zo_vec_get(vec: int, idx: int, val_out: int) -> bool;
+pub ffi zo_vec_set(vec: int, idx: int, val_ptr: int) -> bool;
+pub ffi zo_vec_remove(vec: int, idx: int, val_out: int) -> bool;
 
 -- Raw FFIs. Pure pass-through to the runtime — no byte marshaling, no
 -- per-call-site type derivation. Codegen routes these directly to 
 -- `BL _zo_vec_len` / `BL _zo_vec_free`.
-pub ffi __zo_vec_len_raw(ptr: int) -> int;
-pub ffi __zo_vec_free_raw(ptr: int);
+pub ffi zo_vec_len_raw(ptr: int) -> int;
+pub ffi zo_vec_free_raw(ptr: int);
 
 -! Represents a `Vec<$T>` instance.
 -!
 -! The `ptr` field carries an opaque pointer (encoded as `int` for ABI symmetry
 -! with the runtime's `*mut ZoVec`). Codegen recognizes calls to the marshaling
--! FFIs (`__zo_vec_new`, `__zo_vec_push`, `__zo_vec_pop`, `__zo_vec_get`, 
--! `__zo_vec_set`) and emits the byte-marshaling sequence per call site — those
+-! FFIs (`zo_vec_new`, `zo_vec_push`, `zo_vec_pop`, `zo_vec_get`, 
+-! `zo_vec_set`) and emits the byte-marshaling sequence per call site — those
 -! five method bodies are codegen-replaced and exist only as syntactic anchors.
 -!
 -! The remaining methods (`len`, `is_empty`, `free`) are pure-zo bodies that
--! call the non-marshaling raw FFIs (`__zo_vec_len_raw`, `__zo_vec_free_raw`) 
+-! call the non-marshaling raw FFIs (`zo_vec_len_raw`, `zo_vec_free_raw`) 
 -! directly.
 -!
 -! Supported element kinds: `int` (any width), `char`, `bool`, `str`. Struct / 
@@ -88,7 +88,7 @@ apply Vec<$T> {
 
   -! Number of live elements.
   pub fun len(self) -> int {
-    __zo_vec_len_raw(self.ptr)
+    zo_vec_len_raw(self.ptr)
   }
 
   -! `true` when no elements are in the vec.
@@ -99,6 +99,6 @@ apply Vec<$T> {
   -! Release the backing allocation. The receiver must not be used after this 
   -! call.
   pub fun free(mut self) {
-    __zo_vec_free_raw(self.ptr);
+    zo_vec_free_raw(self.ptr);
   }
 }

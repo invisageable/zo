@@ -7,7 +7,7 @@
 //!
 //! Usage shape:
 //!
-//! - A suspending FFI (e.g. a future `_zo_net_read`)
+//! - A suspending FFI (e.g. a future `zo_net_read`)
 //!   attempts a non-blocking syscall. On `EAGAIN`, it
 //!   parks the current task by calling
 //!   [`Selector::register_read`] with the fd and the
@@ -362,8 +362,8 @@ pub fn park_current_on_write(fd: RawFd) {
 }
 
 /// EAGAIN classifier shared by every suspending FFI on
-/// the read path (`_zo_net_read`, `_zo_net_tcp_accept`,
-/// `_zo_io_read`, the buffered `_zo_io_readln` refill).
+/// the read path (`zo_net_read`, `zo_net_tcp_accept`,
+/// `zo_io_read`, the buffered `zo_io_readln` refill).
 ///
 /// Returns `Some(-errno)` for a fatal errno that the
 /// caller should propagate. Returns `None` after a
@@ -479,8 +479,8 @@ use libc::c_char;
 ///
 /// `host` must point at a NUL-terminated UTF-8 string
 /// or be null.
-#[unsafe(export_name = "zo_net_tcp_listen")]
-pub unsafe extern "C-unwind" fn _zo_net_tcp_listen(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_tcp_listen(
   host: *const c_char,
   port: i64,
 ) -> i64 {
@@ -553,9 +553,9 @@ pub unsafe extern "C-unwind" fn _zo_net_tcp_listen(
 /// # Safety
 ///
 /// `fd` must be a valid listening socket previously
-/// returned by [`_zo_net_tcp_listen`].
-#[unsafe(export_name = "zo_net_tcp_accept")]
-pub unsafe extern "C-unwind" fn _zo_net_tcp_accept(fd: i64) -> i64 {
+/// returned by [`zo_net_tcp_listen`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_tcp_accept(fd: i64) -> i64 {
   let fd = fd as RawFd;
 
   loop {
@@ -583,8 +583,8 @@ pub unsafe extern "C-unwind" fn _zo_net_tcp_accept(fd: i64) -> i64 {
 ///
 /// `host` must point at a NUL-terminated UTF-8 IP
 /// literal or be null.
-#[unsafe(export_name = "zo_net_tcp_connect")]
-pub unsafe extern "C-unwind" fn _zo_net_tcp_connect(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_tcp_connect(
   host: *const c_char,
   port: i64,
 ) -> i64 {
@@ -672,8 +672,8 @@ pub unsafe extern "C-unwind" fn _zo_net_tcp_connect(
 /// `buf` must point at `n` writable bytes that stay
 /// valid for the call (including across yield points).
 /// `fd` must be a valid socket.
-#[unsafe(export_name = "zo_net_read")]
-pub unsafe extern "C-unwind" fn _zo_net_read(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_read(
   fd: i64,
   buf: *mut u8,
   n: usize,
@@ -708,8 +708,8 @@ pub unsafe extern "C-unwind" fn _zo_net_read(
 /// `buf` must point at `n` readable bytes valid for
 /// the call (including across yield points). `fd` must
 /// be a valid socket.
-#[unsafe(export_name = "zo_net_write")]
-pub unsafe extern "C-unwind" fn _zo_net_write(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_write(
   fd: i64,
   buf: *const u8,
   n: usize,
@@ -738,8 +738,8 @@ pub unsafe extern "C-unwind" fn _zo_net_write(
 /// # Safety
 ///
 /// `fd` must be a valid bound socket.
-#[unsafe(export_name = "zo_net_tcp_local_port")]
-pub unsafe extern "C-unwind" fn _zo_net_tcp_local_port(fd: i64) -> i64 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_tcp_local_port(fd: i64) -> i64 {
   let fd = fd as RawFd;
   let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
   let mut len =
@@ -784,8 +784,8 @@ pub unsafe extern "C-unwind" fn _zo_net_tcp_local_port(fd: i64) -> i64 {
 ///
 /// `fd` must be a valid socket; after this call, no
 /// further FFI may reference `fd`.
-#[unsafe(export_name = "zo_net_close")]
-pub unsafe extern "C-unwind" fn _zo_net_close(fd: i64) -> i64 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_close(fd: i64) -> i64 {
   // SAFETY: caller contract — fd is a valid open fd.
   let rc = unsafe { libc::close(fd as RawFd) };
 
@@ -809,11 +809,8 @@ pub unsafe extern "C-unwind" fn _zo_net_close(fd: i64) -> i64 {
 ///
 /// `s` must point at a valid zo str header
 /// (`[len:u64][bytes][NUL]`) or be null.
-#[unsafe(export_name = "zo_net_write_str")]
-pub unsafe extern "C-unwind" fn _zo_net_write_str(
-  fd: i64,
-  s: *const u8,
-) -> i64 {
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_write_str(fd: i64, s: *const u8) -> i64 {
   if s.is_null() {
     return -(libc::EINVAL as i64);
   }
@@ -828,7 +825,7 @@ pub unsafe extern "C-unwind" fn _zo_net_write_str(
   while written < total {
     // SAFETY: payload + written stays inside [payload,
     // payload + total) which is within the str header.
-    let n = unsafe { _zo_net_write(fd, payload.add(written), total - written) };
+    let n = unsafe { zo_net_write(fd, payload.add(written), total - written) };
 
     if n < 0 {
       return n as i64;
@@ -867,8 +864,8 @@ const NET_READ_STACK_BUF: usize = 4096;
 /// # Safety
 ///
 /// `fd` must be a valid socket.
-#[unsafe(export_name = "zo_net_read_to_str")]
-pub unsafe extern "C-unwind" fn _zo_net_read_to_str(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_net_read_to_str(
   fd: i64,
   max_len: i64,
 ) -> zo_c_abi::CBytes {
@@ -898,7 +895,7 @@ pub unsafe extern "C-unwind" fn _zo_net_read_to_str(
   let read_len = max_len.min(NET_READ_STACK_BUF);
 
   // SAFETY: stack_buf is a live local; pointer/len match.
-  let n = unsafe { _zo_net_read(fd, stack_buf.as_mut_ptr(), read_len) };
+  let n = unsafe { zo_net_read(fd, stack_buf.as_mut_ptr(), read_len) };
 
   if n < 0 {
     return zo_c_abi::CBytes {
@@ -1260,7 +1257,7 @@ mod tests {
   // Two green tasks share a TCP loopback connection: the
   // server echoes "world" back to the client's "hello".
 
-  use crate::task::{_zo_task_await, _zo_task_spawn_2};
+  use crate::task::{zo_task_await, zo_task_spawn_2};
 
   /// Read the OS-assigned port of a freshly bound
   /// listener. Test-only helper around `getsockname`.
@@ -1281,37 +1278,37 @@ mod tests {
   extern "C-unwind" fn server_body(listener_fd: u64, _unused: u64) {
     let listener_fd = listener_fd as i64;
 
-    let conn = unsafe { _zo_net_tcp_accept(listener_fd) };
+    let conn = unsafe { zo_net_tcp_accept(listener_fd) };
     assert!(conn >= 0, "accept failed: {}", conn);
 
     // Drain "hello" — the client writes exactly 5 bytes
     // so a single read call is sufficient in practice.
     let mut buf = [0u8; 5];
-    let n = unsafe { _zo_net_read(conn, buf.as_mut_ptr(), 5) };
+    let n = unsafe { zo_net_read(conn, buf.as_mut_ptr(), 5) };
     assert_eq!(n, 5, "server read returned {}", n);
     assert_eq!(&buf, b"hello");
 
-    let n = unsafe { _zo_net_write(conn, b"world".as_ptr(), 5) };
+    let n = unsafe { zo_net_write(conn, b"world".as_ptr(), 5) };
     assert_eq!(n, 5, "server write returned {}", n);
 
-    unsafe { _zo_net_close(conn) };
+    unsafe { zo_net_close(conn) };
   }
 
   extern "C-unwind" fn client_body(port: u64, _unused: u64) {
     let host = std::ffi::CString::new("127.0.0.1").unwrap();
 
-    let conn = unsafe { _zo_net_tcp_connect(host.as_ptr(), port as i64) };
+    let conn = unsafe { zo_net_tcp_connect(host.as_ptr(), port as i64) };
     assert!(conn >= 0, "connect failed: {}", conn);
 
-    let n = unsafe { _zo_net_write(conn, b"hello".as_ptr(), 5) };
+    let n = unsafe { zo_net_write(conn, b"hello".as_ptr(), 5) };
     assert_eq!(n, 5, "client write returned {}", n);
 
     let mut buf = [0u8; 5];
-    let n = unsafe { _zo_net_read(conn, buf.as_mut_ptr(), 5) };
+    let n = unsafe { zo_net_read(conn, buf.as_mut_ptr(), 5) };
     assert_eq!(n, 5, "client read returned {}", n);
     assert_eq!(&buf, b"world");
 
-    unsafe { _zo_net_close(conn) };
+    unsafe { zo_net_close(conn) };
   }
 
   #[test]
@@ -1319,19 +1316,19 @@ mod tests {
     crate::scheduler::reset_for_test();
 
     let listen_host = std::ffi::CString::new("127.0.0.1").unwrap();
-    let listener = unsafe { _zo_net_tcp_listen(listen_host.as_ptr(), 0) };
+    let listener = unsafe { zo_net_tcp_listen(listen_host.as_ptr(), 0) };
     assert!(listener >= 0, "listen failed: {}", listener);
     let listener_fd = listener as RawFd;
     let port = local_port_v4(listener_fd);
 
-    let server = unsafe { _zo_task_spawn_2(server_body, listener as u64, 0) };
-    let client = unsafe { _zo_task_spawn_2(client_body, port as u64, 0) };
+    let server = unsafe { zo_task_spawn_2(server_body, listener as u64, 0) };
+    let client = unsafe { zo_task_spawn_2(client_body, port as u64, 0) };
 
     // SAFETY: handles are fresh from spawn_2; their
     // boxes outlive these awaits.
     unsafe {
-      _zo_task_await(server);
-      _zo_task_await(client);
+      zo_task_await(server);
+      zo_task_await(client);
     }
 
     unsafe {

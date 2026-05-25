@@ -10,8 +10,8 @@
 //! helpers can still use the API.
 //!
 //! Runtime exports:
-//! - `_zo_tls_set(key, src, elem_sz)` — store bytes.
-//! - `_zo_tls_get(key, dst, elem_sz) -> bool` —
+//! - `zo_tls_set(key, src, elem_sz)` — store bytes.
+//! - `zo_tls_get(key, dst, elem_sz) -> bool` —
 //!   copy bytes out; returns false if the key isn't
 //!   set.
 //!
@@ -57,8 +57,8 @@ thread_local! {
 ///   writing 8 bytes under key K and reading 4
 ///   bytes back is UB from the compiler's
 ///   perspective.
-#[unsafe(export_name = "zo_tls_set")]
-pub unsafe extern "C-unwind" fn _zo_tls_set(
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_tls_set(
   key: u64,
   src: *const u8,
   elem_sz: usize,
@@ -91,9 +91,9 @@ pub unsafe extern "C-unwind" fn _zo_tls_set(
 /// # Safety
 ///
 /// `dst` must point to at least `elem_sz` writable
-/// bytes; layout matches the paired `_zo_tls_set`.
-#[unsafe(export_name = "zo_tls_get")]
-pub unsafe extern "C-unwind" fn _zo_tls_get(
+/// bytes; layout matches the paired `zo_tls_set`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_tls_get(
   key: u64,
   dst: *mut u8,
   elem_sz: usize,
@@ -148,13 +148,13 @@ mod tests {
     let mut dst: u64 = 0;
 
     unsafe {
-      _zo_tls_set(
+      zo_tls_set(
         key,
         (&raw const src).cast::<u8>(),
         std::mem::size_of::<u64>(),
       );
 
-      let hit = _zo_tls_get(
+      let hit = zo_tls_get(
         key,
         (&raw mut dst).cast::<u8>(),
         std::mem::size_of::<u64>(),
@@ -171,7 +171,7 @@ mod tests {
     let mut dst: u64 = 0;
 
     unsafe {
-      let hit = _zo_tls_get(
+      let hit = zo_tls_get(
         0xDEAD_BEEF,
         (&raw mut dst).cast::<u8>(),
         std::mem::size_of::<u64>(),

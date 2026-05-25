@@ -7,7 +7,7 @@ pub struct BoxGeometry { handle: int }
 
 apply BoxGeometry {
   pub fun new(width: float, height: float, d: float) -> Self {
-    Self { handle = __zo_misato_make_box_geom(width, height, d) }
+    Self { handle = zo_misato_make_box_geom(width, height, d) }
   }
 }
 
@@ -22,7 +22,7 @@ apply SphereGeometry {
   -! @param slices — ....
   -! @returns The current `SphereGeometry` instance.
   pub fun new(radius: float, rings: int, slices: int) -> Self {
-    Self { handle = __zo_misato_make_sphere_geom(radius, rings, slices) }
+    Self { handle = zo_misato_make_sphere_geom(radius, rings, slices) }
   }
 }
 
@@ -33,7 +33,7 @@ pub struct PlaneGeometry { handle: int }
 apply PlaneGeometry {
   pub fun new(width: float, length: float, res_x: int, res_z: int) -> Self {
     Self {
-      handle = __zo_misato_make_plane_geom(width, length, res_x, res_z)
+      handle = zo_misato_make_plane_geom(width, length, res_x, res_z)
     }
   }
 }

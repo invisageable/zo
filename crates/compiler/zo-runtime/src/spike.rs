@@ -1,6 +1,6 @@
 //! NOT FOR USER CODE — codegen-regression fixtures.
 //!
-//! @note — `_zo_spike_pair` backs `programming/codegen/
+//! @note — `zo_spike_pair` backs `programming/codegen/
 //! abi_composite_return.zo`, the CHECK test that pins the
 //! `AbiRet::Composite` lift. The symbol ships in every zo
 //! binary because the runtime is a single cdylib; size
@@ -15,7 +15,7 @@ pub struct SpikePair {
 }
 
 /// Return a fixed `(a: 42, b: 100)` pair for codegen tests.
-#[unsafe(export_name = "zo_spike_pair")]
-pub extern "C" fn _zo_spike_pair() -> SpikePair {
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_spike_pair() -> SpikePair {
   SpikePair { a: 42, b: 100 }
 }

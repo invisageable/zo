@@ -111,8 +111,8 @@ fn replace_via<'h>(
 /// # Safety
 ///
 /// `pattern` and `flags` must be NUL-terminated UTF-8 or null.
-#[unsafe(export_name = "zo_regex_compile")]
-pub unsafe extern "C" fn _zo_regex_compile(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_regex_compile(
   pattern: *const c_char,
   flags: *const c_char,
 ) -> i64 {
@@ -155,8 +155,8 @@ pub unsafe extern "C" fn _zo_regex_compile(
 }
 
 /// Free the compiled regex at `handle`; idempotent.
-#[unsafe(export_name = "zo_regex_free")]
-pub extern "C" fn _zo_regex_free(handle: i64) {
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_regex_free(handle: i64) {
   free_slot(&REGEX_CACHE, handle);
 }
 
@@ -165,8 +165,8 @@ pub extern "C" fn _zo_regex_free(handle: i64) {
 /// # Safety
 ///
 /// `haystack` must be a NUL-terminated UTF-8 string or null.
-#[unsafe(export_name = "zo_regex_matches")]
-pub unsafe extern "C" fn _zo_regex_matches(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_regex_matches(
   handle: i64,
   haystack: *const c_char,
 ) -> i64 {
@@ -185,8 +185,8 @@ pub unsafe extern "C" fn _zo_regex_matches(
 /// # Safety
 ///
 /// `haystack` must be a NUL-terminated UTF-8 string or null.
-#[unsafe(export_name = "zo_regex_find")]
-pub unsafe extern "C" fn _zo_regex_find(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_regex_find(
   handle: i64,
   haystack: *const c_char,
 ) -> i64 {
@@ -205,8 +205,8 @@ pub unsafe extern "C" fn _zo_regex_find(
 /// # Safety
 ///
 /// `haystack` must be a NUL-terminated UTF-8 string or null.
-#[unsafe(export_name = "zo_regex_find_end")]
-pub unsafe extern "C" fn _zo_regex_find_end(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_regex_find_end(
   handle: i64,
   haystack: *const c_char,
 ) -> i64 {
@@ -229,8 +229,8 @@ pub unsafe extern "C" fn _zo_regex_find_end(
 /// # Safety
 ///
 /// `haystack` must be a NUL-terminated UTF-8 string or null.
-#[unsafe(export_name = "zo_regex_exec")]
-pub unsafe extern "C" fn _zo_regex_exec(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_regex_exec(
   handle: i64,
   haystack: *const c_char,
 ) -> i64 {
@@ -266,26 +266,26 @@ pub unsafe extern "C" fn _zo_regex_exec(
 }
 
 /// Free the match at `handle`; idempotent.
-#[unsafe(export_name = "zo_regex_match_free")]
-pub extern "C" fn _zo_regex_match_free(handle: i64) {
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_regex_match_free(handle: i64) {
   free_slot(&MATCH_CACHE, handle);
 }
 
 /// Byte offset of the match's start, or `-1` if freed.
-#[unsafe(export_name = "zo_regex_match_start")]
-pub extern "C" fn _zo_regex_match_start(handle: i64) -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_regex_match_start(handle: i64) -> i64 {
   with_slot(&MATCH_CACHE, handle, || -1, |m| m.start)
 }
 
 /// Byte offset of the match's end (exclusive), or `-1`.
-#[unsafe(export_name = "zo_regex_match_end")]
-pub extern "C" fn _zo_regex_match_end(handle: i64) -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_regex_match_end(handle: i64) -> i64 {
   with_slot(&MATCH_CACHE, handle, || -1, |m| m.end)
 }
 
 /// Capture-group count, excluding the whole match.
-#[unsafe(export_name = "zo_regex_match_group_count")]
-pub extern "C" fn _zo_regex_match_group_count(handle: i64) -> i64 {
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_regex_match_group_count(handle: i64) -> i64 {
   with_slot(
     &MATCH_CACHE,
     handle,
@@ -299,8 +299,8 @@ pub extern "C" fn _zo_regex_match_group_count(handle: i64) -> i64 {
 /// @note — `0` is the whole match; `1..N` are capture
 /// groups. Empty bytes for out-of-range indices or non-
 /// participating groups.
-#[unsafe(export_name = "zo_regex_match_group")]
-pub extern "C" fn _zo_regex_match_group(handle: i64, index: i64) -> CBytes {
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_regex_match_group(handle: i64, index: i64) -> CBytes {
   with_slot(&MATCH_CACHE, handle, CBytes::empty, |m| {
     let Ok(idx) = usize::try_from(index) else {
       return CBytes::empty();
@@ -322,8 +322,8 @@ pub extern "C" fn _zo_regex_match_group(handle: i64, index: i64) -> CBytes {
 ///
 /// `haystack` and `replacement` must be NUL-terminated UTF-8
 /// or null.
-#[unsafe(export_name = "zo_regex_replace")]
-pub unsafe extern "C" fn _zo_regex_replace(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_regex_replace(
   handle: i64,
   haystack: *const c_char,
   replacement: *const c_char,
@@ -345,8 +345,8 @@ pub unsafe extern "C" fn _zo_regex_replace(
 ///
 /// `haystack` and `replacement` must be NUL-terminated UTF-8
 /// or null.
-#[unsafe(export_name = "zo_regex_replace_all")]
-pub unsafe extern "C" fn _zo_regex_replace_all(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_regex_replace_all(
   handle: i64,
   haystack: *const c_char,
   replacement: *const c_char,
@@ -361,15 +361,15 @@ pub unsafe extern "C" fn _zo_regex_replace_all(
 
 /// Split `haystack` on every match; return a zo `[]str`.
 ///
-/// @note — layout matches `_zo_args` so codegen lifts this
+/// @note — layout matches `zo_args` so codegen lifts this
 /// with the same single-MOV path used for any
 /// `pub ffi -> []str`. Empty array on invalid handle.
 ///
 /// # Safety
 ///
 /// `haystack` must be a NUL-terminated UTF-8 string or null.
-#[unsafe(export_name = "zo_regex_split")]
-pub unsafe extern "C" fn _zo_regex_split(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_regex_split(
   handle: i64,
   haystack: *const c_char,
 ) -> *const u8 {

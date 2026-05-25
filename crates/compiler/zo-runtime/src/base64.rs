@@ -17,8 +17,8 @@ thread_local! {
 /// # Safety
 ///
 /// `input` must be a NUL-terminated UTF-8 string or null.
-#[unsafe(export_name = "zo_base64_encode")]
-pub unsafe extern "C" fn _zo_base64_encode(input: *const c_char) -> CBytes {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_base64_encode(input: *const c_char) -> CBytes {
   let input = unsafe { cstr_to_str(input) };
   let encoded = STANDARD.encode(input.as_bytes());
 
@@ -35,8 +35,8 @@ pub unsafe extern "C" fn _zo_base64_encode(input: *const c_char) -> CBytes {
 /// # Safety
 ///
 /// `input` must be a NUL-terminated ASCII string or null.
-#[unsafe(export_name = "zo_base64_decode")]
-pub unsafe extern "C" fn _zo_base64_decode(input: *const c_char) -> CBytes {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_base64_decode(input: *const c_char) -> CBytes {
   let input = unsafe { cstr_to_str(input) };
 
   match STANDARD.decode(input.as_bytes()) {
