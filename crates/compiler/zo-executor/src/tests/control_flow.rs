@@ -30,6 +30,7 @@ fn test_if_simple() {
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       Insn::ConstBool {
         dst: ValueId(0),
@@ -86,6 +87,7 @@ fun main() {}"#,
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       Insn::ConstBool {
         dst: ValueId(0),
@@ -142,6 +144,7 @@ fun main() {}"#,
         link_name: None,
         owning_pack: None,
         span: Span::new(63, 3),
+        is_test: false,
       },
       Insn::Return {
         value: None,
@@ -214,6 +217,7 @@ fn test_while_loop() {
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       Insn::Label { id: 0 },
       Insn::ConstBool {
@@ -256,6 +260,7 @@ fn test_implicit_return_literal() {
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       Insn::ConstInt {
         dst: ValueId(0),

@@ -431,7 +431,7 @@ impl<'a> Parser<'a> {
       // Type cast: expr as Type.
       // Flush the expression (LHS), emit As, then emit the
       // target type directly so it appears right after As in
-      // the tree (the executor reads tree[idx+1] for the type).
+      // the tree (the executor reads tree[index+1] for the type).
       Token::As => {
         self.flush_expr();
         self.emit_node(Token::As);
@@ -2279,17 +2279,17 @@ impl<'a> Parser<'a> {
 
   fn handle_operator(&mut self, kind: Token) {
     // Add to operator stack for Shunting Yard
-    if let Some((prec, assoc)) = self.op_precedence(kind) {
+    if let Some((precedence, assoc)) = self.op_precedence(kind) {
       // Pop higher precedence operators
       while let Some(&(op_token, op_prec, _op_assoc)) =
         self.operator_stack.last()
       {
         let should_pop = if assoc == 0 {
           // Left-associative: pop if stack has higher OR equal precedence
-          op_prec >= prec
+          op_prec >= precedence
         } else {
           // Right-associative: pop only if stack has strictly higher precedence
-          op_prec > prec
+          op_prec > precedence
         };
 
         if should_pop {
@@ -2309,7 +2309,7 @@ impl<'a> Parser<'a> {
       }
 
       // Push current operator
-      self.operator_stack.push((kind, prec, assoc));
+      self.operator_stack.push((kind, precedence, assoc));
       // Buffer the operator (will be reordered later)
       self.expr_buffer.push((kind, self.current_span(), None));
     } else {
@@ -2464,28 +2464,28 @@ impl<'a> Parser<'a> {
   fn extract_value(&mut self, kind: Token) -> Option<NodeValue> {
     match kind {
       Token::Ident => {
-        let lit_idx = self.tokens.literal_indices[self.pos];
-        let symbol = self.literals.identifiers[lit_idx as usize];
+        let lit_index = self.tokens.literal_indices[self.pos];
+        let symbol = self.literals.identifiers[lit_index as usize];
 
         Some(NodeValue::Symbol(symbol))
       }
       Token::TemplateText => {
         // Template text is now interned like identifiers
-        let lit_idx = self.tokens.literal_indices[self.pos];
-        let symbol = self.literals.identifiers[lit_idx as usize];
+        let lit_index = self.tokens.literal_indices[self.pos];
+        let symbol = self.literals.identifiers[lit_index as usize];
 
         Some(NodeValue::Symbol(symbol))
       }
       Token::InterpString => {
-        // Packed: low 16 = string_literals idx,
-        // high 16 = interp_ranges idx.
+        // Packed: low 16 = string_literals index,
+        // high 16 = interp_ranges index.
         let packed = self.tokens.literal_indices[self.pos];
         // Store packed value so executor can unpack both.
         Some(NodeValue::Literal(packed))
       }
       Token::String | Token::RawString | Token::StyleValue => {
-        let lit_idx = self.tokens.literal_indices[self.pos];
-        let symbol = self.literals.string_literals[lit_idx as usize];
+        let lit_index = self.tokens.literal_indices[self.pos];
+        let symbol = self.literals.string_literals[lit_index as usize];
 
         Some(NodeValue::Symbol(symbol))
       }
@@ -2537,20 +2537,25 @@ impl<'a> Parser<'a> {
       table
     };
 
-    let (prec, assoc) = PREC_TABLE[token as usize];
-    if prec > 0 { Some((prec, assoc)) } else { None }
+    let (precedence, assoc) = PREC_TABLE[token as usize];
+
+    if precedence > 0 {
+      Some((precedence, assoc))
+    } else {
+      None
+    }
   }
 
   pub fn debug_print_tree(&self) {
     println!("\n——— Parse Tree (State Machine with Introducers) ———");
 
     for (i, node) in self.tree.nodes.iter().enumerate() {
-      let token_str = format!("{:?}", node.token);
+      let token = format!("{:?}", node.token);
 
-      let value_str = match self.tree.value(i as u32) {
+      let value = match self.tree.value(i as u32) {
         None => "".into(),
-        Some(NodeValue::Symbol(sym)) => format!(" [sym:{sym}]"),
-        Some(NodeValue::Literal(idx)) => format!(" [lit:{idx}]"),
+        Some(NodeValue::Symbol(symbol)) => format!(" [symbol:{symbol}]"),
+        Some(NodeValue::Literal(index)) => format!(" [lit:{index}]"),
         Some(NodeValue::TextRange(start, len)) => {
           let text =
             &self.source[start as usize..(start + len as u32) as usize];
@@ -2559,7 +2564,7 @@ impl<'a> Parser<'a> {
         }
       };
 
-      let children_str = if node.child_count > 0 {
+      let children = if node.child_count > 0 {
         format!(
           " (children: {}..{})",
           node.child_start,
@@ -2569,7 +2574,7 @@ impl<'a> Parser<'a> {
         "".into()
       };
 
-      println!("{i:3}: {token_str:<20}{value_str}{children_str}");
+      println!("{i:3}: {token:<20}{value}{children}");
     }
   }
 }

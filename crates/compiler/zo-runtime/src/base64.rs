@@ -1,12 +1,12 @@
 //! Base64 encode / decode — standard alphabet, padded.
 
-use std::cell::RefCell;
-use std::os::raw::c_char;
+use zo_c_abi::{CBytes, cstr_to_str, stage_cbytes};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
-use zo_c_abi::{CBytes, cstr_to_str, stage_cbytes};
+use std::cell::RefCell;
+use std::os::raw::c_char;
 
 thread_local! {
   static SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };

@@ -516,38 +516,59 @@ extern "C-unwind" fn task_shim_3(task_addr: u64) {
 /// marks every waiter `Ready`, pushes them to the run
 /// queue, then `ctx_switch`es back to the scheduler.
 /// Never returns.
-fn exit_current() -> ! {
+/// Terminate the current green task with a specific
+/// outcome. Context-switches back to the scheduler
+/// without unwinding — zo-generated machine code has
+/// no DWARF unwind tables, so this is the only safe
+/// exit path for a failed task.
+pub fn exit_current_with_outcome(outcome: TaskOutcome) -> ! {
   scheduler::with(|s| {
     let task = s
       .current()
       .expect("exit_current called outside a task context");
 
-    // Release any TLS entries this task stored before
-    // the `Box<ZoTask>` gets reclaimed — otherwise the
-    // process-wide `TASK_TLS` side table leaks every
-    // dead task's slots forever.
     crate::tls::clear_for_task(task);
 
-    // SAFETY: task pointer is live (the Box is owned
-    // by the awaiter or by the scheduler); we hold
-    // exclusive access while `Running`.
     unsafe {
+      (*task).outcome = outcome;
       (*task).state = TaskState::Dead;
 
       let waiters = std::mem::take(&mut (*task).waiters);
 
-      for w in waiters {
-        (*w).state = TaskState::Ready;
-        s.enqueue(w);
+      for waiter in waiters {
+        (*waiter).state = TaskState::Ready;
+        s.enqueue(waiter);
       }
 
       ctx_switch(&raw mut (*task).ctx, s.scheduler_ctx_ptr());
     }
   });
 
-  // SAFETY: the ctx_switch above transferred to the
-  // scheduler and won't return — the task is `Dead`
-  // and the scheduler won't re-enter it.
+  unsafe { std::hint::unreachable_unchecked() }
+}
+
+fn exit_current() -> ! {
+  scheduler::with(|s| {
+    let task = s
+      .current()
+      .expect("exit_current called outside a task context");
+
+    crate::tls::clear_for_task(task);
+
+    unsafe {
+      (*task).state = TaskState::Dead;
+
+      let waiters = std::mem::take(&mut (*task).waiters);
+
+      for waiter in waiters {
+        (*waiter).state = TaskState::Ready;
+        s.enqueue(waiter);
+      }
+
+      ctx_switch(&raw mut (*task).ctx, s.scheduler_ctx_ptr());
+    }
+  });
+
   unsafe { std::hint::unreachable_unchecked() }
 }
 

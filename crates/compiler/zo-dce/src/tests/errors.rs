@@ -35,6 +35,7 @@ fn warns_on_unused_function() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     Insn::Return {
       value: None,
@@ -51,6 +52,7 @@ fn warns_on_unused_function() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     Insn::Return {
       value: None,
@@ -58,7 +60,7 @@ fn warns_on_unused_function() {
     },
   ]);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   let errors = collect_errors();
 
@@ -90,6 +92,7 @@ fn warns_on_unused_variable() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     Insn::ConstInt {
       dst: ValueId(0),
@@ -107,7 +110,7 @@ fn warns_on_unused_variable() {
     },
   ]);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   let errors = collect_errors();
 
@@ -138,6 +141,7 @@ fn no_warning_when_all_used() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     Insn::ConstInt {
       dst: ValueId(0),
@@ -160,7 +164,7 @@ fn no_warning_when_all_used() {
     },
   ]);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   let errors = collect_errors();
 

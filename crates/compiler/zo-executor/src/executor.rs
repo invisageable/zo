@@ -1062,6 +1062,12 @@ impl<'a> Executor<'a> {
     self.tree.is_pub_at(idx)
   }
 
+  /// Checks if `Token::Test` appears among the modifier
+  /// nodes preceding `idx`.
+  fn is_test(&self, idx: usize) -> bool {
+    self.tree.is_test_at(idx)
+  }
+
   /// Gets the value associated with a node (if any).
   fn node_value(&self, node_idx: usize) -> Option<NodeValue> {
     self.tree.value(node_idx as u32)
@@ -2855,6 +2861,7 @@ impl<'a> Executor<'a> {
             // self.top_pack` at that exact site.
             owning_pack: pending_func.owning_pack,
             span: pending_func.span,
+            is_test: pending_func.is_test,
           });
 
           // Now set the context with the correct body start.
@@ -7310,6 +7317,7 @@ impl<'a> Executor<'a> {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     // Register for call resolution.
@@ -7326,6 +7334,7 @@ impl<'a> Executor<'a> {
       mut_self: false,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     // Update pre-registered letrec local (if any) so
@@ -8019,6 +8028,26 @@ impl<'a> Executor<'a> {
       Pubness::No
     };
 
+    let is_test = self.is_test(start_idx);
+
+    if is_test {
+      if !params.is_empty() {
+        report_error(Error::new(
+          ErrorKind::TestFnMustBeParameterless,
+          self.tree.span(start_idx as u32),
+        ));
+      }
+
+      let unit_type = self.ty_checker.unit_type();
+
+      if return_ty != unit_type {
+        report_error(Error::new(
+          ErrorKind::TestFnMustReturnUnit,
+          self.tree.span(start_idx as u32),
+        ));
+      }
+    }
+
     // Track if user explicitly wrote `-> Type`.
     let unit_ty = self.ty_checker.unit_type();
     self.pending_fn_has_return_annotation = return_ty != unit_ty;
@@ -8063,6 +8092,7 @@ impl<'a> Executor<'a> {
         mut_self,
         owning_pack: self.top_pack,
         span: fun_span,
+        is_test,
       });
 
       // Drop any type_params minted during this signature
@@ -8288,6 +8318,7 @@ impl<'a> Executor<'a> {
         mut_self,
         owning_pack: self.top_pack,
         span: fun_span,
+        is_test,
       });
 
       // Restore outer type_params scope (signature parse
@@ -8326,6 +8357,7 @@ impl<'a> Executor<'a> {
       mut_self,
       owning_pack: self.top_pack,
       span: fun_span,
+      is_test,
     });
 
     // Push a scope for the function parameters
@@ -10104,13 +10136,9 @@ impl<'a> Executor<'a> {
       pubness,
       mut_self: false,
       link_name,
-      // Carry the executor's pack context at emit time
-      // so codegen routes the FFI to the right `#link`
-      // dylib without relying on a positional walk that
-      // misattributes user FFIs to the last preload's
-      // pack (`misato` / `sqlite`).
       owning_pack: self.top_pack,
       span: fun_span,
+      is_test: false,
     });
 
     // Register as known function.
@@ -10130,6 +10158,7 @@ impl<'a> Executor<'a> {
       mut_self: false,
       owning_pack: self.top_pack,
       span: fun_span,
+      is_test: false,
     });
 
     self.pending_attributes.clear();
@@ -11009,6 +11038,7 @@ impl<'a> Executor<'a> {
         link_name: None,
         owning_pack: self.top_pack,
         span: fun_span,
+        is_test: false,
       });
 
       // Emit default value constants.
@@ -11115,6 +11145,7 @@ impl<'a> Executor<'a> {
         mut_self: false,
         owning_pack: self.top_pack,
         span: fun_span,
+        is_test: false,
       });
     }
 
@@ -11325,6 +11356,7 @@ impl<'a> Executor<'a> {
       link_name: None,
       owning_pack: self.top_pack,
       span,
+      is_test: false,
     });
 
     let ret_v = build_body(self);
@@ -11347,6 +11379,7 @@ impl<'a> Executor<'a> {
       mut_self: false,
       owning_pack: self.top_pack,
       span,
+      is_test: false,
     });
   }
 
@@ -22965,6 +22998,7 @@ impl<'a> Executor<'a> {
             link_name: None,
             owning_pack: None,
             span: Span::ZERO,
+            is_test: false,
           });
 
           self.push_fun(FunDef {
@@ -22980,6 +23014,7 @@ impl<'a> Executor<'a> {
             mut_self: false,
             owning_pack: None,
             span: Span::ZERO,
+            is_test: false,
           });
 
           self.current_function = Some(FunCtx {

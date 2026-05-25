@@ -1,6 +1,7 @@
 mod runtime;
 
 pub mod arr;
+pub mod assert;
 pub mod base64;
 pub mod bufio;
 pub mod channel;
@@ -23,6 +24,7 @@ pub mod stack;
 pub mod str;
 pub mod sys;
 pub mod task;
+pub mod test;
 pub mod time;
 pub mod tls;
 pub mod vec;

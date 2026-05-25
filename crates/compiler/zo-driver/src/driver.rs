@@ -24,6 +24,7 @@ impl Driver {
       Cmd::Build(ref cmd) => cmd.handle(),
       Cmd::Repl(ref cmd) => cmd.handle(),
       Cmd::Run(ref cmd) => cmd.handle(),
+      Cmd::Test(ref cmd) => cmd.handle(),
     }
   }
 }

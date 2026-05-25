@@ -28,7 +28,7 @@ fn removes_private_uncalled_function() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![showln, main]);
 }
@@ -48,7 +48,7 @@ fn keeps_all_when_all_called() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![foo, bar, main]);
 }
@@ -58,7 +58,7 @@ fn empty_sir_is_noop() {
   let interner = Interner::new();
   let mut sir = make_sir(vec![]);
 
-  Dce::new(&mut sir, Symbol(0), &interner).eliminate();
+  Dce::new(&mut sir, vec![Symbol(0)], &interner).eliminate();
 
   assert!(sir.instructions.is_empty());
 }
@@ -72,7 +72,7 @@ fn no_functions_preserves_top_level() {
     pubness: Pubness::No,
   }]);
 
-  Dce::new(&mut sir, Symbol(0), &interner).eliminate();
+  Dce::new(&mut sir, vec![Symbol(0)], &interner).eliminate();
 
   assert_eq!(sir.instructions.len(), 1);
 }
@@ -97,7 +97,7 @@ fn transitive_call_chain_kept() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![c, b, a, main]);
 }
@@ -121,7 +121,7 @@ fn dead_chain_removed() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   // dead_a and dead_b should both be gone.
   assert_eq!(fun_names(&sir), vec![alive, main]);
@@ -146,7 +146,7 @@ fn diamond_call_graph() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![leaf, left, right, main]);
 }
@@ -170,7 +170,7 @@ fn pub_function_kept_even_if_uncalled() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![api, main]);
 }
@@ -190,7 +190,7 @@ fn pub_function_callees_transitively_kept() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![helper, api, main]);
 }
@@ -211,7 +211,7 @@ fn recursive_function_kept() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![fib, main]);
 }
@@ -232,7 +232,7 @@ fn mutual_recursion_kept() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![ping, pong, main]);
 }
@@ -248,7 +248,7 @@ fn only_main_no_other_functions() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(fun_names(&sir), vec![main]);
 }
@@ -273,6 +273,7 @@ fn dead_insn_unused_const() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     // %0 = const 42 — used by store.
     Insn::ConstInt {
@@ -299,7 +300,7 @@ fn dead_insn_unused_const() {
 
   let before = sir.instructions.len();
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   // The unused const 99 should be removed.
   assert!(
@@ -333,6 +334,7 @@ fn dead_insn_chain() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     // %0 = const 1 — used only by %2.
     Insn::ConstInt {
@@ -360,7 +362,7 @@ fn dead_insn_chain() {
     },
   ]);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   // Only FunDef + Return should survive.
   assert_eq!(sir.instructions.len(), 2);
@@ -386,6 +388,7 @@ fn dead_insn_preserves_calls() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     // Call is impure — must not be removed even if dst unused.
     Insn::Call {
@@ -403,7 +406,7 @@ fn dead_insn_preserves_calls() {
 
   let before = sir.instructions.len();
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   // Nothing removed — Call is impure.
   assert_eq!(sir.instructions.len(), before);
@@ -426,6 +429,7 @@ fn dead_insn_preserves_array_store() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     // ArrayStore is impure — must not be removed.
     Insn::ArrayStore {
@@ -442,7 +446,7 @@ fn dead_insn_preserves_array_store() {
 
   let before = sir.instructions.len();
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   assert_eq!(sir.instructions.len(), before);
 }
@@ -470,6 +474,7 @@ fn dead_var_unused_store() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     // Store x — never loaded → dead.
     Insn::ConstInt {
@@ -504,7 +509,7 @@ fn dead_var_unused_store() {
     },
   ]);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   // Store x should be gone. Store y should remain.
   let store_names: Vec<_> = sir
@@ -541,6 +546,7 @@ fn dead_var_overwritten_store() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     // First store to x — overwritten before any load → dead.
     Insn::ConstInt {
@@ -575,7 +581,7 @@ fn dead_var_overwritten_store() {
     },
   ]);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   // First store (value 1) should be dead. Second (value 2) alive.
   let store_values: Vec<_> = sir
@@ -613,6 +619,7 @@ fn unreachable_after_return() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     Insn::Return {
       value: None,
@@ -631,7 +638,7 @@ fn unreachable_after_return() {
     },
   ]);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   // Only FunDef + Return should remain.
   assert_eq!(sir.instructions.len(), 2);
@@ -656,6 +663,7 @@ fn unreachable_stops_at_label() {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     },
     Insn::Return {
       value: None,
@@ -677,7 +685,7 @@ fn unreachable_stops_at_label() {
     },
   ]);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   // const 99 (between Return and Label) should be gone.
   assert!(
@@ -701,7 +709,7 @@ fn unreachable_empty_sir_is_noop() {
   let interner = Interner::new();
   let mut sir = make_sir(vec![]);
 
-  Dce::new(&mut sir, Symbol(0), &interner).eliminate();
+  Dce::new(&mut sir, vec![Symbol(0)], &interner).eliminate();
 
   assert!(sir.instructions.is_empty());
 }
@@ -747,6 +755,7 @@ fn template_computed_binding_pins_closure() {
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
+    is_test: false,
   }];
 
   insns.push(Insn::Return {
@@ -768,7 +777,7 @@ fn template_computed_binding_pins_closure() {
 
   let mut sir = make_sir(insns);
 
-  Dce::new(&mut sir, main, &interner).eliminate();
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
 
   let names = fun_names(&sir);
 

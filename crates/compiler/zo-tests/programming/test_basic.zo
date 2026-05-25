@@ -1,0 +1,21 @@
+-- tests-build-pass: basic test fun modifier.
+-- @cmd — zo test test_basic.zo
+
+fun add(left: int, right: int) -> int {
+  left + right
+}
+
+test fun adds_small_numbers() {
+  check@eq(add(2, 3), 5);
+}
+
+test fun adds_zero() {
+  check@eq(add(0, 0), 0);
+}
+
+fun main() {
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

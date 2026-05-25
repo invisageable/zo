@@ -33,6 +33,7 @@ pub fn fun(
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
+    is_test: false,
   });
 
   insns.extend(body);
