@@ -5,13 +5,13 @@
 use zo_dce::Dce;
 use zo_interner::Interner;
 use zo_sir::{Insn, Sir};
+use zo_span::Span;
 use zo_ty::TyId;
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 use std::hint::black_box;
-use zo_span::Span;
 
 fn make_fun(
   name: zo_interner::Symbol,
@@ -28,6 +28,7 @@ fn make_fun(
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
+    is_test: false,
   }];
 
   for callee in calls {
@@ -76,7 +77,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_label_id: 0,
       };
 
-      Dce::new(&mut sir, main, &interner).eliminate();
+      Dce::new(&mut sir, vec![main], &interner).eliminate();
       black_box(&sir);
     })
   });
@@ -112,7 +113,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_label_id: 0,
       };
 
-      Dce::new(&mut sir, main, &interner).eliminate();
+      Dce::new(&mut sir, vec![main], &interner).eliminate();
       black_box(&sir);
     })
   });
@@ -146,7 +147,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_label_id: 0,
       };
 
-      Dce::new(&mut sir, main, &interner).eliminate();
+      Dce::new(&mut sir, vec![main], &interner).eliminate();
       black_box(&sir);
     })
   });
@@ -193,7 +194,7 @@ fn bench_scaling(c: &mut Criterion) {
           next_label_id: 0,
         };
 
-        Dce::new(&mut sir, main, &interner).eliminate();
+        Dce::new(&mut sir, vec![main], &interner).eliminate();
         black_box(&sir);
       })
     });

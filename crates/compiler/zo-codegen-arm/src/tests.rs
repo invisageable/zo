@@ -358,6 +358,7 @@ fn test_main_function_detection() {
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
+    is_test: false,
   });
   sir.emit(Insn::Return {
     value: None,
@@ -392,6 +393,7 @@ fn test_string_fixup() {
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
+    is_test: false,
   });
 
   sir.emit(Insn::ConstString {
@@ -757,6 +759,7 @@ fn test_str_sp_slow_path_does_not_self_clobber() {
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
+    is_test: false,
   });
 
   let mut next: u32 = 0;
@@ -912,6 +915,7 @@ fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
+    is_test: false,
   });
 
   let mut next: u32 = 0;

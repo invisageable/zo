@@ -1,6 +1,7 @@
 mod build;
 mod repl;
 mod run;
+mod test;
 
 use crate::args;
 use crate::constants::{EXIT_CODE_ERROR, EXIT_CODE_SUCCESS};
@@ -86,7 +87,6 @@ pub(crate) fn read_source(path: &Path) -> String {
 }
 
 // TODO: add `check` — scan, parse, analyze and report.
-// TODO: add `test` — run `test` functions (fret?).
 // TODO: add `fmt` — format program.
 
 /// Represents a [`Cmd`] enumeration.
@@ -98,4 +98,6 @@ pub(crate) enum Cmd {
   Repl(repl::Repl),
   /// build and run a program.
   Run(run::Run),
+  /// compile and run test functions.
+  Test(test::Test),
 }

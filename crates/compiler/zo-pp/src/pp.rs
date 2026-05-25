@@ -725,6 +725,20 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
+        Insn::TestBegin { count } => {
+          let c = format!("test.begin count={count}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TestRun { callee, .. } => {
+          let name = interner.get(*callee);
+          let c = format!("test.run {name}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::TestSummary => {
+          self.sir_instruction("test.summary");
+        }
       }
     }
 

@@ -198,6 +198,7 @@ fn test_simple_function() {
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       // Load x parameter
       Insn::Load {
@@ -251,6 +252,7 @@ fn test_function_call() {
         link_name: None,
         owning_pack: None,
         span: Span::new(7, 3),
+        is_test: false,
       },
       // add body: load x
       Insn::Load {
@@ -289,6 +291,7 @@ fn test_function_call() {
         link_name: None,
         owning_pack: None,
         span: Span::new(54, 3),
+        is_test: false,
       },
       // main body: 10
       Insn::ConstInt {
@@ -336,6 +339,7 @@ fn test_main_with_show() {
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       // main body: "hello world" string literal
       Insn::ConstString {
@@ -380,6 +384,7 @@ fn test_function_with_return() {
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       // Load n parameter (first use)
       Insn::Load {
@@ -432,6 +437,7 @@ fn test_directives() {
         link_name: None,
         owning_pack: None,
         span: Span::ZERO,
+        is_test: false,
       },
       Insn::Template {
         id: ValueId(3),
@@ -452,25 +458,3 @@ fn test_directives() {
     ],
   );
 }
-
-// #[test]
-// fn test_element_fragment() {
-//   assert_sir_stream(
-//     r#"fun main() {
-//       imu view: </> ::= <>hello</>;
-//     }"#,
-//     &[],
-//   );
-// }
-
-// #[test]
-// fn test_fragment_directive_combo() {
-//   assert_sir_stream(
-//     r#"fun main() {
-//       imu view: </> ::= <>hello</>;
-
-//       #dom view;
-//     }"#,
-//     &[],
-//   );
-// }

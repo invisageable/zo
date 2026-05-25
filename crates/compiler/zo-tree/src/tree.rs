@@ -4,6 +4,8 @@ use zo_token::Token;
 
 use serde::Serialize;
 
+use std::ops::Range;
+
 /// Data-oriented parse tree
 /// Optimized for linear traversal and cache efficiency
 #[derive(Debug, Serialize)]
@@ -148,10 +150,10 @@ impl Tree {
   /// set (splice clones the original `NodeHeader` whole, so
   /// the flag rides along).
   pub fn attach_value_tail(&mut self, node_index: u32, value: NodeValue) {
-    let value_idx = self.values.len() as u16;
+    let value_index = self.values.len() as u16;
 
     self.values.push(value);
-    self.value_map.push((node_index as u16, value_idx));
+    self.value_map.push((node_index as u16, value_index));
   }
 
   /// `true` when `value_map` is sorted by `node_index`. The
@@ -173,12 +175,12 @@ impl Tree {
 
     match self
       .value_map
-      .binary_search_by_key(&(node_index as u16), |(idx, _)| *idx)
+      .binary_search_by_key(&(node_index as u16), |(index, _)| *index)
     {
       Ok(i) => {
-        let (_, value_idx) = self.value_map[i];
+        let (_, value_index) = self.value_map[i];
 
-        Some(self.values[value_idx as usize])
+        Some(self.values[value_index as usize])
       }
       Err(_) => None,
     }
@@ -195,21 +197,40 @@ impl Tree {
     range.map(move |i| (i as u32, &self.nodes[i]))
   }
 
-  /// `true` when `nodes[idx]` is immediately preceded by a
+  /// `true` when `nodes[index]` is immediately preceded by a
   /// `Token::Pub` modifier. Shared by every site that emits
   /// `Pubness` for a top-level item (`execute_fun`,
   /// `execute_struct`, `execute_pack`, the lib.zo manifest
   /// scan in zo-compiler).
   #[inline]
-  pub fn is_pub_at(&self, idx: usize) -> bool {
-    idx > 0
+  pub fn is_pub_at(&self, index: usize) -> bool {
+    index > 0
       && self
         .nodes
-        .get(idx - 1)
+        .get(index - 1)
         .is_some_and(|n| n.token == Token::Pub)
   }
 
-  /// Symbol of the first `Token::Ident` child of `node_idx`,
+  /// `true` when `Token::Test` appears among the modifier
+  /// nodes preceding `index`. Scans backwards through `Pub`
+  /// to handle both `test fun` and `pub test fun`.
+  #[inline]
+  pub fn is_test_at(&self, index: usize) -> bool {
+    let mut cursor = index;
+
+    while cursor > 0 {
+      cursor -= 1;
+      match self.nodes[cursor].token {
+        Token::Test => return true,
+        Token::Pub => continue,
+        _ => return false,
+      }
+    }
+
+    false
+  }
+
+  /// Symbol of the first `Token::Ident` child of `node_index`,
   /// or `None` when the first ident child carries no symbol
   /// value. Used by introducer scans that look up the
   /// declared name of an item — `pack X;`, `fun X(...)`,
@@ -218,18 +239,21 @@ impl Tree {
   /// declared name always appears as the leading ident
   /// child of an introducer.
   ///
-  /// `node_idx` is trusted — callers pass indices obtained
+  /// `node_index` is trusted — callers pass indices obtained
   /// from `nodes_with_token` or the parser's own bookkeeping,
   /// matching the contract of every other `Tree` accessor.
-  pub fn first_ident_child_symbol(&self, node_idx: usize) -> Option<Symbol> {
-    let node = &self.nodes[node_idx];
+  pub fn first_ident_child_symbol(&self, node_index: usize) -> Option<Symbol> {
+    let node = &self.nodes[node_index];
 
-    for child_idx in node.children_range() {
-      let child = &self.nodes[child_idx];
+    for child_index in node.children_range() {
+      let child = &self.nodes[child_index];
+
       if child.token == Token::Ident {
-        let Some(NodeValue::Symbol(sym)) = self.value(child_idx as u32) else {
+        let Some(NodeValue::Symbol(sym)) = self.value(child_index as u32)
+        else {
           return None;
         };
+
         return Some(sym);
       }
     }
@@ -245,25 +269,25 @@ impl Tree {
   /// `scan_packs`).
   pub fn nodes_with_token(
     &self,
-    tok: Token,
+    token: Token,
   ) -> impl Iterator<Item = (usize, &NodeHeader)> + '_ {
     self
       .nodes
       .iter()
       .enumerate()
-      .filter(move |(_, n)| n.token == tok)
+      .filter(move |(_, n)| n.token == token)
   }
 
   /// `true` when the first non-`Token::Pub` node at the top
-  /// of the tree has token kind `tok`. Used by the
+  /// of the tree has token kind `token`. Used by the
   /// executor's implicit-pack synthesis to detect whether
   /// the file already opens with an explicit `pack X;` (in
   /// which case synthesis is suppressed).
-  pub fn top_level_starts_with(&self, tok: Token) -> bool {
+  pub fn top_level_starts_with(&self, token: Token) -> bool {
     for node in self.nodes.iter() {
       match node.token {
-        Token::Pub => continue,
-        t => return t == tok,
+        Token::Pub | Token::Test => continue,
+        current => return current == token,
       }
     }
 
@@ -307,20 +331,20 @@ impl Tree {
     let mut preserved_values = Vec::new();
     let mut preserved_map = Vec::new();
 
-    for &(node_idx, value_idx) in &self.value_map {
-      let node_pos = node_idx as usize;
+    for &(node_index, value_index) in &self.value_map {
+      let node_pos = node_index as usize;
 
       if node_pos < start {
         // Before the range - keep as is
-        preserved_map.push((node_idx, preserved_values.len() as u16));
-        preserved_values.push(self.values[value_idx as usize]);
+        preserved_map.push((node_index, preserved_values.len() as u16));
+        preserved_values.push(self.values[value_index as usize]);
       } else if node_pos >= actual_end {
         // After the range - adjust index
         let offset = new_count as i32 - old_count as i32;
         let new_node_idx = (node_pos as i32 + offset) as u16;
 
         preserved_map.push((new_node_idx, preserved_values.len() as u16));
-        preserved_values.push(self.values[value_idx as usize]);
+        preserved_values.push(self.values[value_index as usize]);
       }
       // Skip nodes in the range - they'll be replaced
     }
@@ -347,12 +371,12 @@ impl Tree {
 
     // Add new values and update flags
     for (i, (_, _, value)) in new_nodes.into_iter().enumerate() {
-      let node_idx = start + i;
+      let node_index = start + i;
 
       if let Some(val) = value {
-        self.nodes[node_idx].flags |= NodeHeader::FLAG_HAS_VALUE;
+        self.nodes[node_index].flags |= NodeHeader::FLAG_HAS_VALUE;
 
-        preserved_map.push((node_idx as u16, preserved_values.len() as u16));
+        preserved_map.push((node_index as u16, preserved_values.len() as u16));
         preserved_values.push(val);
       }
     }
@@ -362,7 +386,7 @@ impl Tree {
     self.value_map = preserved_map;
 
     // Sort value map to maintain binary search invariant
-    self.value_map.sort_by_key(|(node_idx, _)| *node_idx);
+    self.value_map.sort_by_key(|(node_index, _)| *node_index);
   }
 }
 
@@ -419,7 +443,7 @@ impl NodeHeader {
 
   /// Get the postorder range of children
   #[inline(always)]
-  pub fn children_range(&self) -> std::ops::Range<usize> {
+  pub fn children_range(&self) -> Range<usize> {
     let start = self.child_start as usize;
     let end = start + self.child_count as usize;
 

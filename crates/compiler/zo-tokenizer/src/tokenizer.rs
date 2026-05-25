@@ -474,6 +474,7 @@ impl<'a> Tokenizer<'a> {
         4 if bytes == b"bool" => Token::BoolType,
         4 if bytes == b"char" => Token::CharType,
         4 if bytes == b"uint" => Token::UintType,
+        4 if bytes == b"test" => Token::Test,
         5 if bytes == b"while" => Token::While,
         5 if bytes == b"break" => Token::Break,
         5 if bytes == b"false" => Token::False,

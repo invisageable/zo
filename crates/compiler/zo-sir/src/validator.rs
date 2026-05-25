@@ -514,6 +514,7 @@ fn check_insn(insn: &Insn, idx: usize, ctx: &mut ValidatorCtx<'_>) {
     Insn::DynDispatch { ty_id, .. } => {
       check_placeholder(&mut ctx.report, idx, *ty_id, "DynDispatch.ty_id");
     }
+    Insn::TestBegin { .. } | Insn::TestRun { .. } | Insn::TestSummary => {}
   }
 }
 
@@ -694,6 +695,7 @@ mod tests {
         link_name: None,
         owning_pack: None,
         span: Span::ZERO,
+        is_test: false,
       },
       Insn::Return {
         value: None,

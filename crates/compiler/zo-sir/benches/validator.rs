@@ -37,6 +37,7 @@ fn make_binop_stream(n: u32) -> Vec<Insn> {
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
+    is_test: false,
   });
 
   for i in 0..n {

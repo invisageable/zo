@@ -6,6 +6,7 @@ use zo_span::Span;
 use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
 
 use std::io;
+use std::ops::Range;
 
 /// Configuration for error rendering.
 #[derive(Debug, Clone)]
@@ -172,7 +173,7 @@ impl ErrorRenderer {
 /// a position would panic — so we count by walking
 /// `char_indices`, which tolerates any byte offset and
 /// clamps to the next char boundary.
-fn span_to_range(span: Span, source: &str) -> std::ops::Range<usize> {
+fn span_to_range(span: Span, source: &str) -> Range<usize> {
   let byte_start = (span.start as usize).min(source.len());
   let byte_end = ((span.start + span.len as u32) as usize).min(source.len());
   let start = char_offset_for_byte(source, byte_start);

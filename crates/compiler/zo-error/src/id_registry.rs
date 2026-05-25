@@ -216,6 +216,10 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
 
     // --- Entry point & misc (E0800 .. E0899) ---
     ErrorKind::MissingMainFunction => ("missing-main-function", 800),
+    ErrorKind::TestFnMustBeParameterless => {
+      ("test-fn-must-be-parameterless", 801)
+    }
+    ErrorKind::TestFnMustReturnUnit => ("test-fn-must-return-unit", 802),
 
     // --- Rationale notes (E0900 .. E0999) ---
     //

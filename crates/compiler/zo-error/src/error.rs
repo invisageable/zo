@@ -474,4 +474,10 @@ pub enum ErrorKind {
   /// can't be folded into the re-exporter's `exported`
   /// scope.
   ModuleNotReachable,
+  /// `test fun foo(x: int) { }` — test functions must
+  /// take no parameters.
+  TestFnMustBeParameterless,
+  /// `test fun foo() -> int { }` — test functions must
+  /// return unit.
+  TestFnMustReturnUnit,
 }

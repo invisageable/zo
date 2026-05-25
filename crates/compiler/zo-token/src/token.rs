@@ -82,6 +82,7 @@ pub enum Token {
   Val,
   Wasm,
   Pub,
+  Test,
 
   // Primitive type keywords
   IntType,      // int
@@ -291,6 +292,7 @@ impl Token {
         | Self::Else
         | Self::While
         | Self::For
+        | Self::Test
     )
   }
 

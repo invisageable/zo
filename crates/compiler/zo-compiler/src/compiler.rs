@@ -26,14 +26,14 @@ use zo_reporter::{
   report_error,
 };
 use zo_session::Session;
-use zo_sir::Sir;
+use zo_sir::{Insn, Sir};
 use zo_span::Span;
 use zo_token::{LiteralStoreBaseline, Token};
 use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree, TreeBaseline};
 use zo_ty::Mutability;
 use zo_value::ValueId;
-use zo_value::{Local, LocalKind, Pubness};
+use zo_value::{FunctionKind, Local, LocalKind, Pubness};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -189,6 +189,9 @@ pub struct Compiler {
   /// driver's `--snippet-context` flag value (2 unless
   /// overridden).
   snippet_context: usize,
+  /// When `true`, `test fun` functions are pinned as DCE
+  /// roots so the synthesized test harness can call them.
+  test_mode: bool,
 }
 
 /// Merges `other` into `into`. Used to fold the `exported`
@@ -514,6 +517,7 @@ impl Compiler {
       module_table: HashMap::default(),
       emit_json: false,
       snippet_context: 2,
+      test_mode: false,
     }
   }
 
@@ -529,7 +533,12 @@ impl Compiler {
       module_table: HashMap::default(),
       emit_json: false,
       snippet_context: 2,
+      test_mode: false,
     }
+  }
+
+  pub fn set_test_mode(&mut self, enabled: bool) {
+    self.test_mode = enabled;
   }
 
   /// Applies a [`DiagnosticsConfig`] to this compiler. Bound
@@ -1046,25 +1055,29 @@ impl Compiler {
       semantic.sir.next_label_id += ctx.module_next_label_id;
     }
 
-    // Dead code elimination — find main by name.
+    // Build DCE roots: main + abstract-impl methods +
+    // test functions (when test_mode is active).
     let main_sym = session.interner.intern("main");
+    let mut dce_roots = vec![main_sym];
 
-    // Pin apply-method bodies as DCE roots. The static
-    // call graph misses them — `Insn::DynDispatch`
-    // resolves through a vtable, not a named Call.
-    let dyn_methods_cap: usize = semantic
-      .abstract_impls
-      .values()
-      .map(|im| im.methods.len())
-      .sum();
-    let mut dyn_methods: Vec<Symbol> = Vec::with_capacity(dyn_methods_cap);
     for im in semantic.abstract_impls.values() {
-      dyn_methods.extend(im.methods.iter().copied());
+      dce_roots.extend(im.methods.iter().copied());
     }
 
-    Dce::new(&mut semantic.sir, main_sym, &session.interner)
-      .with_dyn_roots(&dyn_methods)
-      .eliminate();
+    if self.test_mode {
+      for insn in &semantic.sir.instructions {
+        if let Insn::FunDef {
+          name,
+          is_test: true,
+          ..
+        } = insn
+        {
+          dce_roots.push(*name);
+        }
+      }
+    }
+
+    Dce::new(&mut semantic.sir, dce_roots, &session.interner).eliminate();
 
     // Single drain after every analyze-time pass (analyzer,
     // module loads, DCE). One TLS access, not one per pass.
@@ -1777,6 +1790,142 @@ impl Compiler {
 
     Ok(())
   }
+
+  /// Compile in test mode: analyze, collect `test fun`
+  /// functions, synthesize a harness `main`, codegen, link.
+  pub fn compile_test(
+    &mut self,
+    files: &[(&PathBuf, String)],
+    target: Target,
+    output_path: &Path,
+  ) -> Result<(), Error> {
+    if files.is_empty() {
+      return Ok(());
+    }
+
+    self.test_mode = true;
+
+    let (path, code) = &files[0];
+    let (mut semantic, _tokenization, _parsing, mut session) =
+      self.analyze_source(code, path);
+
+    // Collect test functions from post-DCE SIR.
+    let test_functions: Vec<(Symbol, Option<Symbol>)> = semantic
+      .sir
+      .instructions
+      .iter()
+      .filter_map(|insn| match insn {
+        Insn::FunDef {
+          name,
+          is_test: true,
+          owning_pack,
+          ..
+        } => Some((*name, *owning_pack)),
+        _ => None,
+      })
+      .collect();
+
+    if test_functions.is_empty() {
+      eprintln!("no test functions found");
+      return Ok(());
+    }
+
+    let main_sym = session.interner.intern("main");
+    let user_main_sym = session.interner.intern("__user_main");
+
+    // Rename the user's main to __user_main.
+    for insn in &mut semantic.sir.instructions {
+      if let Insn::FunDef { name, .. } = insn
+        && *name == main_sym
+      {
+        *name = user_main_sym;
+      }
+    }
+
+    // Synthesize the test harness main.
+    let count = test_functions.len() as u32;
+    let harness_body_start = (semantic.sir.instructions.len() + 1) as u32;
+
+    semantic.sir.emit(Insn::FunDef {
+      name: main_sym,
+      params: vec![],
+      return_ty: zo_ty::TyId(1), // equals to Ty::Unit.
+      body_start: harness_body_start,
+      kind: FunctionKind::UserDefined,
+      pubness: Pubness::Yes,
+      mut_self: false,
+      link_name: None,
+      owning_pack: None,
+      span: Span::ZERO,
+      is_test: false,
+    });
+
+    semantic.sir.emit(Insn::TestBegin { count });
+
+    for (callee, callee_pack) in &test_functions {
+      semantic.sir.emit(Insn::TestRun {
+        callee: *callee,
+        callee_pack: *callee_pack,
+      });
+    }
+
+    semantic.sir.emit(Insn::TestSummary);
+    semantic.sir.emit(Insn::Return {
+      value: None,
+      ty_id: zo_ty::TyId(1), // equals to Ty::Unit.
+    });
+
+    // Codegen + link (same path as compile).
+    let codegen = Codegen::new(target);
+    let type_view =
+      Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
+    let abstract_state = Some(zo_codegen::AbstractState {
+      defs: semantic.abstract_defs.clone(),
+      impls: semantic.abstract_impls.clone(),
+    });
+
+    let link_obj = codegen.generate(
+      &session.interner,
+      &semantic.sir,
+      type_view,
+      abstract_state,
+    );
+
+    if let Err(err) = zo_linker::link(link_obj, output_path, target) {
+      eprintln!("zo: link failed: {err}");
+    }
+
+    stage_runtime_artifacts(&semantic.sir, &session.interner, output_path);
+
+    let errors = self.reporter.errors();
+
+    if !errors.is_empty() {
+      let mut aggregator = ErrorAggregator::new();
+
+      aggregator.add_errors(errors);
+
+      for (file_path, source) in files.iter() {
+        let filename = file_path
+          .file_name()
+          .map(|n| n.to_string_lossy())
+          .unwrap_or_else(|| file_path.to_string_lossy());
+
+        let _ = render_errors_to_stderr(&aggregator, source, &filename);
+      }
+
+      aggregator.clear();
+
+      let has_hard_error = errors
+        .iter()
+        .any(|e| matches!(e.severity(), Severity::Error));
+
+      if has_hard_error {
+        return Err(Error::new(ErrorKind::InternalCompilerError, Span::ZERO));
+      }
+    }
+
+    Ok(())
+  }
 }
 impl Default for Compiler {
   fn default() -> Self {
@@ -1850,6 +1999,7 @@ const RUNTIME_DYLIB_PREFIXES: &[&str] = &[
 /// a stem; this list is for one-off intrinsics.
 const RUNTIME_DYLIB_NAMES: &[&str] = &[
   "arr_int::sort",
+  "check",
   "read",
   "readln",
   "args",
@@ -1874,7 +2024,10 @@ impl RuntimeNeeds {
         | zo_sir::Insn::SelectWait { .. }
         | zo_sir::Insn::NurseryBegin { .. }
         | zo_sir::Insn::NurseryEnd { .. }
-        | zo_sir::Insn::StrSlice { .. } => {
+        | zo_sir::Insn::StrSlice { .. }
+        | zo_sir::Insn::TestBegin { .. }
+        | zo_sir::Insn::TestRun { .. }
+        | zo_sir::Insn::TestSummary => {
           needs.concurrency = true;
         }
         zo_sir::Insn::Call { name, .. } => {

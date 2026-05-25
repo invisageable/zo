@@ -35,42 +35,24 @@ struct FunRange {
 ///   3. Dead instruction elimination (liveness-based, fixpoint).
 pub struct Dce<'a> {
   sir: &'a mut Sir,
-  main_sym: Symbol,
+  roots: Vec<Symbol>,
   interner: &'a zo_interner::Interner,
-  /// Abstract-impl methods kept live regardless of static
-  /// reachability. `Insn::DynDispatch` resolves the
-  /// target method through a vtable at runtime, so DCE's
-  /// static call graph never sees the link. Without
-  /// pinning these as roots, the dispatched bodies get
-  /// eliminated and the vtable slots end up pointing at
-  /// nothing.
-  dyn_impl_methods: &'a [Symbol],
 }
 
 impl<'a> Dce<'a> {
-  /// Creates a new DCE pipeline for the given SIR.
+  /// Creates a new DCE pipeline. `roots` contains every
+  /// symbol that must survive elimination — `main`,
+  /// abstract-impl methods, test functions, etc.
   pub fn new(
     sir: &'a mut Sir,
-    main_sym: Symbol,
+    roots: Vec<Symbol>,
     interner: &'a zo_interner::Interner,
   ) -> Self {
     Self {
       sir,
-      main_sym,
+      roots,
       interner,
-      dyn_impl_methods: &[],
     }
-  }
-
-  /// Pin the supplied method symbols as DCE roots. Used
-  /// at driver-level to keep `apply Abstract for Type
-  /// { fun ... }` bodies alive even when only `Insn::
-  /// DynDispatch` references them (the dispatch is a
-  /// vtable lookup, not a named `Insn::Call`, so the
-  /// reachability walker misses the link).
-  pub fn with_dyn_roots(mut self, methods: &'a [Symbol]) -> Self {
-    self.dyn_impl_methods = methods;
-    self
   }
 
   /// Runs the full DCE pipeline.
@@ -106,9 +88,8 @@ impl<'a> Dce<'a> {
     let reachable = mark_reachable(
       &functions,
       &self.sir.instructions,
-      self.main_sym,
+      &self.roots,
       &event_handlers,
-      self.dyn_impl_methods,
     );
 
     let dead = functions
@@ -408,6 +389,9 @@ fn is_impure(insn: &Insn) -> bool {
       // call too — same pruning hazard.
       | Insn::CoerceToDyn { .. }
       | Insn::DynDispatch { .. }
+      | Insn::TestBegin { .. }
+      | Insn::TestRun { .. }
+      | Insn::TestSummary
   )
 }
 
@@ -568,41 +552,26 @@ fn collect_calls_in_range(
 fn mark_reachable(
   functions: &[FunRange],
   instructions: &[Insn],
-  main_sym: Symbol,
+  roots: &[Symbol],
   event_handlers: &HashSet<Symbol>,
-  dyn_impl_methods: &[Symbol],
 ) -> HashSet<Symbol> {
   let mut reachable = HashSet::default();
   let mut worklist = Vec::new();
 
-  // Roots: `main`, template event handlers, and the
-  // crate-root `pub` items of the file being compiled
-  // (`owning_pack: None`). Pack-owned `pub` items
-  // (`owning_pack: Some(_)`) are NOT roots — they survive
-  // only when transitively reachable from another root.
-  // That's the Rust-style binary model: a loaded library's
-  // `pub fn` is callable, not automatically kept.
-  //
-  // Dyn-dispatch caveat: type-specific Show methods
-  // (`MyStruct::show` reached from `showln(struct)`) live
-  // at the crate root with `owning_pack: None` — they stay
-  // rooted via the `pub` clause below.
+  // Explicit roots — main, abstract-impl methods,
+  // test functions, and anything else the driver pins.
+  for &root in roots {
+    worklist.push(root);
+  }
+
+  // Crate-root `pub` items and template event handlers
+  // are implicit roots.
   for func in functions {
-    if func.name == main_sym
-      || event_handlers.contains(&func.name)
+    if event_handlers.contains(&func.name)
       || (func.pubness == Pubness::Yes && func.owning_pack.is_none())
     {
       worklist.push(func.name);
     }
-  }
-
-  // `apply Abstract for Type { fun ... }` bodies are
-  // reachable only through a vtable lookup at
-  // `Insn::DynDispatch` time. The static call graph
-  // never sees the edge, so the driver hands the impl
-  // method symbols in as explicit roots.
-  for &m in dyn_impl_methods {
-    worklist.push(m);
   }
 
   while let Some(name) = worklist.pop() {

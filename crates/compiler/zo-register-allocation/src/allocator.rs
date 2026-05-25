@@ -357,6 +357,9 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         // to land in X30 (often itself → infinite loop).
         | Insn::CoerceToDyn { .. }
         | Insn::DynDispatch { .. }
+        | Insn::TestBegin { .. }
+        | Insn::TestRun { .. }
+        | Insn::TestSummary
     ) {
       has_calls = true;
     }

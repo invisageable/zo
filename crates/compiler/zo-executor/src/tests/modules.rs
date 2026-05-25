@@ -87,6 +87,7 @@ fun main() { 42; }"#,
         link_name: None,
         owning_pack: None,
         span: Span::new(15, 3),
+        is_test: false,
       },
       Insn::ConstInt {
         dst: zo_value::ValueId(0),
@@ -135,6 +136,7 @@ fn test_empty_body_is_intrinsic() {
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       Insn::Return {
         value: None,
@@ -160,6 +162,7 @@ fn test_non_empty_body_not_intrinsic() {
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
+        is_test: false,
       },
       Insn::ConstInt {
         dst: zo_value::ValueId(0),
@@ -190,6 +193,7 @@ fn test_pub_fun_visibility() {
         link_name: None,
         owning_pack: None,
         span: Span::new(4, 3),
+        is_test: false,
       },
       Insn::Return {
         value: None,

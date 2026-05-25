@@ -650,6 +650,7 @@ pub fn extract_exports(
           mut_self: *mut_self,
           owning_pack: *owning_pack,
           span: *span,
+          is_test: false,
         });
       }
 
@@ -886,6 +887,7 @@ pub fn extract_exports(
       mut_self: src_fun.mut_self,
       owning_pack: src_fun.owning_pack,
       span: Span::ZERO,
+      is_test: false,
     });
   }
 

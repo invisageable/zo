@@ -4603,6 +4603,57 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
+      Insn::TestBegin { count } => {
+        self.emitter.emit_mov_imm(X0, *count as u16);
+        self.emit_extern_call("_zo_test_begin");
+      }
+      Insn::TestRun {
+        callee,
+        callee_pack,
+      } => {
+        // X0 = callee function address (same ADR+fixup
+        // mechanism as TaskSpawn).
+        let callee_adr = self.emitter.current_offset();
+
+        self.emitter.emit_adr(X0, 0);
+        self
+          .function_addr_fixups
+          .push((callee_adr, (*callee, *callee_pack)));
+
+        // X1 = name string pointer. Reuse the string
+        // literal mechanism — emit a length-prefixed
+        // string and an ADR fixup. The runtime reads
+        // raw bytes via (ptr, len).
+        let name_str = self.interner.get(*callee);
+        let name_len = name_str.len();
+
+        if !self.string_data_seen.contains(callee) {
+          let mut buffer = Buffer::new();
+          let len_bytes = (name_len as u64).to_le_bytes();
+
+          buffer.bytes(&len_bytes);
+          buffer.bytes(name_str.as_bytes());
+          buffer.bytes(b"\0");
+          self.string_data.push((*callee, buffer.finish()));
+          self.string_data_seen.insert(*callee);
+        }
+
+        let name_adr = self.emitter.current_offset();
+
+        self.string_fixups.push((name_adr, *callee));
+        self.emitter.emit_adr(X1, 0);
+        // Skip the 8-byte length prefix — runtime
+        // receives raw bytes, not the zo string layout.
+        self.emitter.emit_add_imm(X1, X1, 8);
+
+        // X2 = name length.
+        self.emitter.emit_mov_imm(X2, name_len as u16);
+        self.emit_extern_call("_zo_test_run_one");
+      }
+      Insn::TestSummary => {
+        self.emit_extern_call("_zo_test_summary");
+      }
+
       _ => {}
     }
   }
@@ -6378,9 +6429,6 @@ impl<'a> ARM64Gen<'a> {
 
   fn emit_check_fail(&mut self) {
     // CBNZ X0, +ok_label → if true, skip fail.
-    // Use code offset as unique label ID (won't
-    // collide with SIR labels which are sequential
-    // from 0).
     let ok_label = 0x80000000 | self.emitter.current_offset();
 
     self
@@ -6389,38 +6437,10 @@ impl<'a> ARM64Gen<'a> {
 
     self.emitter.emit_cbnz(X0, 0);
 
-    // Fail path: write "check failed\n" to stderr.
-    let msg = b"check failed\n";
-    let msg_sym = Symbol(0xFFFE);
-
-    // Only push string data once.
-    if !self.string_data_seen.contains(&msg_sym) {
-      let mut buf = Buffer::new();
-      let len = msg.len() as u64;
-
-      buf.bytes(&len.to_le_bytes());
-      buf.bytes(msg);
-      buf.bytes(b"\0");
-
-      self.string_data.push((msg_sym, buf.finish()));
-      self.string_data_seen.insert(msg_sym);
-    }
-
-    let fixup_pos = self.emitter.current_offset();
-
-    self.string_fixups.push((fixup_pos, msg_sym));
-    // ADR X16 -> string struct, then unpack.
-    self.emitter.emit_adr(X16, 0);
-    self.emitter.emit_ldr(X2, X16, 0);
-    self.emitter.emit_add_imm(X1, X16, 8);
-    self.emitter.emit_mov_imm(X16, SYS_WRITE);
-    self.emitter.emit_mov_imm(X0, FD_STDERR);
-    self.emitter.emit_svc(0);
-
-    // exit(1).
-    self.emitter.emit_mov_imm(X16, SYS_EXIT);
-    self.emitter.emit_mov_imm(X0, 1);
-    self.emitter.emit_svc(0);
+    // Fail path: panic via runtime. `catch_unwind` in
+    // `task_shim` captures the panic so a failed check
+    // inside a green task doesn't kill the process.
+    self.emit_extern_call("_zo_check_fail");
 
     // Ok label: continue execution.
     self.labels.insert(ok_label, self.emitter.current_offset());

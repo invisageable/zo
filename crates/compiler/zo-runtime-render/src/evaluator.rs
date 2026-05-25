@@ -500,6 +500,7 @@ mod tests {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     // Load captured count: Load Param(0).
@@ -669,6 +670,7 @@ mod tests {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     let e_val = ValueId(sir.next_value_id);
@@ -802,6 +804,7 @@ mod tests {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     // Load count → cmp value → eq → BranchIfNot else.
@@ -903,6 +906,7 @@ mod tests {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     let lit_sym = interner.intern("hello");
@@ -1067,6 +1071,7 @@ mod tests {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     let some_label = sir.next_label();
@@ -1120,6 +1125,7 @@ mod tests {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     let dst_a = ValueId(sir.next_value_id);
@@ -1142,6 +1148,7 @@ mod tests {
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
+      is_test: false,
     });
 
     let dst_b = ValueId(sir.next_value_id);

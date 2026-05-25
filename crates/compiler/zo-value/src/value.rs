@@ -306,6 +306,8 @@ pub struct FunDef {
   /// synthetic functions (closures, monomorphized methods)
   /// that have no direct source location.
   pub span: Span,
+  /// `true` when declared with the `test` modifier.
+  pub is_test: bool,
 }
 
 /// Represents a [`Local`] variable entry instance.
