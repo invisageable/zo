@@ -1642,20 +1642,45 @@ impl<'a> Executor<'a> {
     while idx < n {
       let tok = self.tree.nodes[idx].token;
 
-      // Forward-register structs that appear AFTER the
-      // first function so return types AND field layouts
-      // resolve inside function bodies. A name-only
-      // placeholder (register_forward_struct) let return
-      // types parse but left field_count = 0, so
-      // StructConstruct inside a function body that
-      // references a later-defined struct produced an
-      // empty fields array and the codegen silently
-      // dropped the field stores.
-      if block_depth == 0 && tok == Token::Struct && seen_fun {
+      // Forward-register type definitions that appear AFTER
+      // the first function so field layouts, variant tables,
+      // and return types resolve inside function bodies.
+      if block_depth == 0
+        && matches!(
+          tok,
+          Token::Struct | Token::Enum | Token::Abstract
+        )
+        && seen_fun
+      {
         let header = self.tree.nodes[idx];
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count) as usize;
 
-        self.execute_struct(idx, children_end);
+        match tok {
+          Token::Struct => self.execute_struct(idx, children_end),
+          Token::Enum => self.execute_enum(idx, children_end),
+          Token::Abstract => {
+            self.execute_abstract(idx, children_end);
+          }
+          _ => unreachable!(),
+        }
+
+        idx = children_end.max(idx + 1);
+
+        continue;
+      }
+
+      // Register `apply Abstract for Type` relationships
+      // so bound checks in function bodies above can find
+      // implementations defined below. Only the (abstract,
+      // type) key is needed — method bodies compile during
+      // the main pass.
+      if block_depth == 0 && tok == Token::Apply && seen_fun {
+        let header = self.tree.nodes[idx];
+        let children_end =
+          (header.child_start + header.child_count) as usize;
+
+        self.prescan_apply_header(idx, children_end);
 
         idx = children_end.max(idx + 1);
 
@@ -1727,6 +1752,99 @@ impl<'a> Executor<'a> {
     }
 
     j + 1
+  }
+
+  /// Lightweight header-only scan of `apply Abstract for Type`.
+  /// Registers the `(abstract, type)` key in `abstract_impls`
+  /// with an empty placeholder so bound checks in function
+  /// bodies compiled before the apply block can find the
+  /// implementation. The main pass overwrites the placeholder
+  /// with the real entry (compiled methods, vtable symbol).
+  fn prescan_apply_header(
+    &mut self,
+    start_idx: usize,
+    end_idx: usize,
+  ) {
+    // Extract the first name (Abstract or Type for inherent).
+    let first_name = (start_idx + 1..end_idx).find_map(|i| {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Ident {
+        match self.node_value(i) {
+          Some(NodeValue::Symbol(s)) => Some(s),
+          _ => None,
+        }
+      } else if Self::is_primitive_type_token(tok) {
+        tok.ty_keyword_str().map(|s| self.interner.intern(s))
+      } else {
+        None
+      }
+    });
+
+    let first_name = match first_name {
+      Some(n) => n,
+      None => return,
+    };
+
+    // Scan for `For` to detect `apply Abstract for Type`.
+    let scan_start = start_idx + 2;
+
+    for scan in scan_start..end_idx.min(scan_start + 8) {
+      if self.tree.nodes[scan].token != Token::For {
+        if self.tree.nodes[scan].token == Token::Fun
+          || self.tree.nodes[scan].token == Token::LBrace
+        {
+          break;
+        }
+        continue;
+      }
+
+      // Found `For` — extract the target type name.
+      let type_name = if scan + 1 < end_idx {
+        let tok = self.tree.nodes[scan + 1].token;
+
+        if tok == Token::Ident {
+          self.node_value(scan + 1).and_then(|v| match v {
+            NodeValue::Symbol(s) => Some(s),
+            _ => None,
+          })
+        } else if Self::is_primitive_type_token(tok) {
+          tok.ty_keyword_str().map(|s| self.interner.intern(s))
+        } else {
+          None
+        }
+      } else {
+        None
+      };
+
+      if let Some(type_name) = type_name {
+        let abs_name = first_name;
+        let defined_at = self.tree.spans[start_idx];
+        let defining_module =
+          self.source_path.clone().unwrap_or_default();
+        let vtable_sym = {
+          let mangled = format!(
+            "__zo_vtable_{}__{}",
+            self.interner.get(abs_name),
+            self.interner.get(type_name),
+          );
+
+          self.interner.intern(&mangled)
+        };
+
+        self.abstract_impls.entry((abs_name, type_name)).or_insert(
+          AbstractImpl {
+            methods: Vec::new(),
+            defined_at,
+            defining_module,
+            pubness: Pubness::Yes,
+            vtable_sym,
+          },
+        );
+      }
+
+      return;
+    }
   }
 
   /// Executes a parse tree in one pass to build semantic IR.
@@ -10126,6 +10244,19 @@ impl<'a> Executor<'a> {
     let enum_ty_id = self.ty_checker.ty_table.intern_enum(name, &variants);
     let ty_id = self.ty_checker.intern_ty(Ty::Enum(enum_ty_id));
 
+    if !self.type_params.is_empty() {
+      let params: Vec<TyId> =
+        self.type_params.iter().map(|(_, ty)| *ty).collect();
+
+      self.enum_generic_params.insert(enum_ty_id.0, params);
+    }
+
+    if self.prescan_only {
+      self.push_enum_def((name, enum_ty_id, ty_id));
+      self.skip_until = end_idx;
+      return;
+    }
+
     self.sir.emit(Insn::EnumDef {
       name,
       ty_id,
@@ -10169,16 +10300,6 @@ impl<'a> Executor<'a> {
         fun_span,
         synth_pubness,
       );
-    }
-
-    // Persist the enum's generic parameters so each later
-    // construction can substitute fresh per-instance vars
-    // (the same fix shape used for structs in B0.5).
-    if !self.type_params.is_empty() {
-      let params: Vec<TyId> =
-        self.type_params.iter().map(|(_, ty)| *ty).collect();
-
-      self.enum_generic_params.insert(enum_ty_id.0, params);
     }
 
     self.skip_until = end_idx;
@@ -10789,17 +10910,16 @@ impl<'a> Executor<'a> {
     let struct_ty_id = self.ty_checker.ty_table.intern_struct(name, &fields);
     let ty_id = self.ty_checker.intern_ty(Ty::Struct(struct_ty_id));
 
-    // Stash the struct's generic parameters so each later
-    // `Type { ... }` construction can rename them to fresh
-    // inference vars (per-instance) instead of binding the
-    // shared declaration vars globally — that global bind
-    // is what makes `Box2 { a: 1, b: "hi" }` after `Box2 {
-    // a: 1, b: 2 }` mismatch on `$B`.
     if !self.type_params.is_empty() {
       let params: Vec<TyId> =
         self.type_params.iter().map(|(_, ty)| *ty).collect();
 
       self.struct_generic_params.insert(struct_ty_id.0, params);
+    }
+
+    if self.prescan_only {
+      self.skip_until = end_idx;
+      return;
     }
 
     self.sir.emit(Insn::StructDef {
@@ -13237,6 +13357,30 @@ impl<'a> Executor<'a> {
     // importer-side coherence check compares the exact
     // contributions of each defining apply block.
     if let Some(abs_name) = abstract_name {
+      // Coherence: reject duplicate `apply Abstract for Type`
+      // in the same file. The prescan inserts a placeholder
+      // with empty methods; a real (non-empty) entry means
+      // an earlier apply block already compiled methods for
+      // this pairing.
+      if let Some(existing) =
+        self.abstract_impls.get(&(abs_name, type_name))
+        && !existing.methods.is_empty()
+      {
+        let span = self.tree.spans[start_idx];
+
+        report_error(Error::new(
+          ErrorKind::DuplicateAbstractImpl,
+          span,
+        ));
+
+        self.type_params.clear();
+        self.apply_context = outer_apply;
+        self.apply_abstract_for = outer_apply_abstract_for;
+        self.skip_until = end_idx;
+
+        return;
+      }
+
       let methods: Vec<Symbol> =
         self.funs[funs_baseline..].iter().map(|f| f.name).collect();
 

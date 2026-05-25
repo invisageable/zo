@@ -299,6 +299,7 @@ fn build_struct_return_map(
   // monomorphized enum TyIds.
   let mut callees_of: HashMap<Symbol, Vec<Symbol>> = HashMap::default();
   let mut cur_fn: Option<Symbol> = None;
+  let mut cur_fn_return_ty: Option<TyId> = None;
   let mut last_ty: Option<TyId> = None;
   let mut last_fields: Option<u32> = None;
 
@@ -322,6 +323,7 @@ fn build_struct_return_map(
         name, return_ty, ..
       } => {
         cur_fn = Some(*name);
+        cur_fn_return_ty = Some(*return_ty);
         last_ty = None;
         last_fields = None;
         value_ty.clear();
@@ -400,7 +402,13 @@ fn build_struct_return_map(
         }
       }
       Insn::Return { value: Some(_), .. } => {
-        if let (Some(fname), Some(n)) = (cur_fn, last_fields) {
+        let return_is_composite = cur_fn_return_ty
+          .and_then(|rty| struct_return_slots(rty, type_view))
+          .is_some();
+
+        if let (Some(fname), Some(n)) = (cur_fn, last_fields)
+          && return_is_composite
+        {
           // Deep slot count includes the inline copies of
           // any nested-struct fields. With no `type_view`,
           // fall back to the flat field count — preserves

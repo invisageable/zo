@@ -1,0 +1,26 @@
+-! # duplicate `apply Abstract for Type` in the same file.
+-!
+-! @cmd: `zo build 104_duplicate_apply_abstract.zo`
+-!
+-! Two `apply Show for Point` blocks in the same file is
+-! a coherence violation — the second silently overwrites
+-! the first's method table. The compiler rejects the
+-! duplicate at the second apply site.
+
+abstract Show {
+  fun show(self) -> str;
+}
+
+struct Point { x: int, y: int }
+
+apply Show for Point {
+  fun show(self) -> str { "first" }
+}
+
+apply Show for Point {
+  fun show(self) -> str { "second" }
+}
+
+fun main() {}
+
+-- EXPECTED ERROR: E0344

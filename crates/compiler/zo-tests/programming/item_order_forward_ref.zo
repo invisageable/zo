@@ -1,0 +1,76 @@
+-- tests-run-pass: top-level items in any order.
+-- Structs, enums, abstracts, and apply blocks defined
+-- AFTER the functions that reference them must resolve.
+
+fun make_point() -> Point {
+  Point { x = 10, y = 20 }
+}
+
+fun sum_point(p: Point) -> int {
+  p.x + p.y
+}
+
+fun make_north() -> Direction {
+  Direction::North
+}
+
+fun pick_value() -> int {
+  imu c: Direction = Direction::South;
+
+  match c {
+    Direction::North => 1,
+    Direction::South => 2,
+  }
+}
+
+fun greet(item: Greetable) -> str {
+  item.hello()
+}
+
+fun main() {
+  imu p: Point = make_point();
+
+  check@eq(p.x, 10);
+  check@eq(p.y, 20);
+  check@eq(sum_point(p), 30);
+  showln("struct-ok");
+
+  imu d: Direction = make_north();
+
+  match d {
+    Direction::North => showln("north-ok"),
+    Direction::South => showln("south"),
+  }
+
+  check@eq(pick_value(), 2);
+  showln("match-ok");
+
+  check@eq(greet(p), "hello point");
+  showln("apply-ok");
+
+  showln("DONE");
+}
+
+struct Point { x: int, y: int }
+
+enum Direction {
+  North,
+  South,
+}
+
+abstract Greetable {
+  fun hello(self) -> str;
+}
+
+apply Greetable for Point {
+  fun hello(self) -> str {
+    "hello point"
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- struct-ok
+-- north-ok
+-- match-ok
+-- apply-ok
+-- DONE
