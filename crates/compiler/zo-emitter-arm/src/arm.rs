@@ -996,6 +996,14 @@ impl ARM64Emitter {
 
     self.emit_u32(insn);
   }
+
+  /// SXTW Xd, Wn — sign-extend 32-bit W register to 64-bit X.
+  /// Encoding: SBFM Xd, Xn, #0, #31 = 0x93407C00 | (Rn << 5) | Rd
+  pub fn emit_sxtw(&mut self, dst: Register, src: Register) {
+    let insn = 0x9340_7C00 | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
 }
 impl Default for ARM64Emitter {
   fn default() -> Self {

@@ -149,6 +149,58 @@ apply str {
     self.index_of(needle) != -1
   }
 
+  -! `true` when `self` begins with `prefix`.
+  pub fun starts_with(self, prefix: str) -> bool {
+    imu k: int = prefix.len;
+
+    if k > self.len {
+      return false;
+    }
+
+    self[0..k] == prefix
+  }
+
+  -! `true` when `self` ends with `suffix`.
+  pub fun ends_with(self, suffix: str) -> bool {
+    imu n: int = self.len;
+    imu k: int = suffix.len;
+
+    if k > n {
+      return false;
+    }
+
+    self[n - k..n] == suffix
+  }
+
+  -! Index of the last occurrence of `needle` in `self`,
+  -! or `-1` when absent.
+  pub fun last_index_of(self, needle: str) -> int {
+    imu n: int = self.len;
+    imu k: int = needle.len;
+
+    if k == 0 {
+      return n;
+    }
+
+    if k > n {
+      return -1;
+    }
+
+    mut i: int = n - k;
+
+    while i >= 0 {
+      imu slice: str = self[i..i + k];
+
+      if slice == needle {
+        return i;
+      }
+
+      i = i - 1;
+    }
+
+    -1
+  }
+
   -! Parse a decimal integer. Optional leading `'-'`.
   -! Returns `Option::None` on empty input or any
   -! non-digit byte. Overflow on the underlying `int`

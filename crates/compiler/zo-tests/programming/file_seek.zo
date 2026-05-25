@@ -1,0 +1,47 @@
+-- tests-run-pass: File seek + partial read.
+
+load core::file;
+
+fun main() {
+  imu path: str = "samples/file_seek_test.txt";
+
+  -- Write "abcdefghij".
+  match file::File::open(path, "w") {
+    Result::Pass(f) => {
+      f.write("abcdefghij");
+      f.close();
+    }
+    Result::Fail(_) => { showln("open-w failed"); }
+  }
+
+  -- Seek to offset 5, read the rest.
+  match file::File::open(path, "r") {
+    Result::Pass(f) => {
+      match f.seek(5, file::SEEK_SET) {
+        Result::Pass(pos) => {
+          check@eq(pos, 5);
+        }
+        Result::Fail(_) => { showln("seek failed"); }
+      }
+
+      match f.read(5) {
+        Result::Pass(data) => {
+          check@eq(data, "fghij");
+          showln("seek-read-ok");
+        }
+        Result::Fail(_) => { showln("read failed"); }
+      }
+
+      f.close();
+    }
+    Result::Fail(_) => { showln("open-r failed"); }
+  }
+
+  remove_file(path);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- seek-read-ok
+-- DONE

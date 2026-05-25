@@ -508,6 +508,30 @@ impl TyTable {
     fields: &[(Symbol, TyId, bool)],
   ) -> StructTyId {
     if let Some(&id) = self.struct_intern.get(&name) {
+      // Update a forward-declared placeholder with real
+      // fields. Without this, the placeholder's
+      // field_count stays 0 and field access crashes.
+      if let Some(existing) = self.struct_types.get(id.0 as usize)
+        && existing.field_count == 0
+        && !fields.is_empty()
+      {
+        let field_start = self.struct_fields.len() as u32;
+
+        for &(fname, fty, has_default) in fields {
+          self.struct_fields.push(StructField {
+            name: fname,
+            ty_id: fty,
+            has_default,
+          });
+        }
+
+        self.struct_types[id.0 as usize] = StructTy {
+          name,
+          field_start,
+          field_count: fields.len() as u32,
+        };
+      }
+
       return id;
     }
 
@@ -533,6 +557,26 @@ impl TyTable {
     self.struct_intern.insert(name, id);
 
     id
+  }
+
+  /// Register a struct name for forward references.
+  /// Creates a placeholder entry so function signatures
+  /// can reference the struct before its fields are known.
+  /// The full `intern_struct` call later deduplicates via
+  /// `struct_intern` and returns the same ID.
+  pub fn register_forward_struct(&mut self, name: Symbol) {
+    if self.struct_intern.contains_key(&name) {
+      return;
+    }
+
+    let id = StructTyId(self.struct_types.len() as u32);
+
+    self.struct_types.push(StructTy {
+      name,
+      field_start: 0,
+      field_count: 0,
+    });
+    self.struct_intern.insert(name, id);
   }
 
   /// Get a struct type by ID.

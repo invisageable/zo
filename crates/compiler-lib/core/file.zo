@@ -1,0 +1,166 @@
+-! File handle operations — open, read, write, seek, stat,
+-! mkdir, rename.
+
+load core::c::(CBytes, CStr);
+
+#link {
+  macos: "@executable_path/libzo_runtime.dylib",
+  linux: "@executable_path/libzo_runtime.so",
+}
+
+-! POSIX seek origins.
+pub val SEEK_SET: int = 0;
+pub val SEEK_CUR: int = 1;
+pub val SEEK_END: int = 2;
+
+val O_RDONLY: int = 0;
+val O_WRONLY: int = 1;
+val O_RDWR: int = 2;
+val O_CREAT: int = 512;
+val O_TRUNC: int = 1024;
+val O_APPEND: int = 8;
+
+
+%% link_name = "zo_file_open".
+pub ffi __zo_file_open(path: CStr, flags: int, mode: int) -> int;
+
+%% link_name = "zo_file_close".
+pub ffi __zo_file_close(fd: int) -> int;
+
+%% link_name = "zo_file_read_str".
+pub ffi __zo_file_read_str(fd: int, max_len: int) -> str;
+
+%% link_name = "zo_file_write_str".
+pub ffi __zo_file_write_str(fd: int, content: str) -> int;
+
+%% link_name = "zo_file_seek".
+pub ffi __zo_file_seek(fd: int, offset: int, whence: int) -> int;
+
+%% link_name = "zo_file_stat_size".
+pub ffi __zo_file_stat_size(path: CStr) -> int;
+
+%% link_name = "zo_file_stat_mtime".
+pub ffi __zo_file_stat_mtime(path: CStr) -> int;
+
+%% link_name = "zo_file_mkdir".
+pub ffi __zo_file_mkdir(path: CStr, mode: int) -> int;
+
+%% link_name = "zo_file_rename".
+pub ffi __zo_file_rename(old_path: CStr, new_path: CStr) -> int;
+
+
+-! Stat a file by path.
+pub fun stat(path: str) -> Result<FileStat, int> {
+  imu cs: CStr = CStr::new(path);
+  imu size: int = __zo_file_stat_size(cs);
+
+  if size < 0 {
+    return Result::Fail(-size);
+  }
+
+  imu mtime: int = __zo_file_stat_mtime(cs);
+
+  Result::Pass(FileStat { size = size, mtime = mtime })
+}
+
+-! Create a directory with default permissions (0755).
+pub fun mkdir(path: str) -> Result<int, int> {
+  imu result: int = __zo_file_mkdir(CStr::new(path), 493);
+
+  if result < 0 {
+    return Result::Fail(-result);
+  }
+
+  Result::Pass(0)
+}
+
+-! Rename a file or directory.
+pub fun rename(old_path: str, new_path: str) -> Result<int, int> {
+  imu result: int = __zo_file_rename(
+    CStr::new(old_path),
+    CStr::new(new_path),
+  );
+
+  if result < 0 {
+    return Result::Fail(-result);
+  }
+
+  Result::Pass(0)
+}
+
+-! File metadata.
+pub struct FileStat { size: int, mtime: int }
+
+-! A file handle wrapping an OS file descriptor.
+pub struct File { fd: int }
+
+apply File {
+  -! Open a file. `mode`: `"r"`, `"w"`, `"a"`, `"rw"`.
+  pub fun open(path: str, mode: str) -> Result<File, int> {
+    mut flags: int = 0;
+
+    if mode == "r" {
+      flags = O_RDONLY;
+    } else if mode == "w" {
+      flags = O_WRONLY + O_CREAT + O_TRUNC;
+    } else if mode == "a" {
+      flags = O_WRONLY + O_CREAT + O_APPEND;
+    } else if mode == "rw" {
+      flags = O_RDWR + O_CREAT;
+    } else {
+      return Result::Fail(22);
+    }
+
+    imu fd: int = __zo_file_open(CStr::new(path), flags, 420);
+
+    if fd < 0 {
+      return Result::Fail(-fd);
+    }
+
+    Result::Pass(File { fd = fd })
+  }
+
+  -! Close the file descriptor.
+  pub fun close(self) -> Result<int, int> {
+    imu result: int = __zo_file_close(self.fd);
+
+    if result < 0 {
+      return Result::Fail(-result);
+    }
+
+    Result::Pass(0)
+  }
+
+  -! Read up to `max_len` bytes as a string.
+  pub fun read(self, max_len: int) -> Result<str, int> {
+    imu s: str = __zo_file_read_str(self.fd, max_len);
+
+    if s.len == 0 {
+      return Result::Fail(0);
+    }
+
+    Result::Pass(s)
+  }
+
+  -! Write string content to the file.
+  pub fun write(self, content: str) -> Result<int, int> {
+    imu n: int = __zo_file_write_str(self.fd, content);
+
+    if n < 0 {
+      return Result::Fail(-n);
+    }
+
+    Result::Pass(n)
+  }
+
+  -! Seek to a position.
+  pub fun seek(self, offset: int, whence: int) -> Result<int, int> {
+    imu pos: int = __zo_file_seek(self.fd, offset, whence);
+
+    if pos < 0 {
+      return Result::Fail(-pos);
+    }
+
+    Result::Pass(pos)
+  }
+}

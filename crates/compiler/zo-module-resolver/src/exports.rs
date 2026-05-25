@@ -117,6 +117,10 @@ pub struct ExportedVar {
   pub ty_id: TyId,
   /// The initializer value (if compile-time known).
   pub init: Option<ValueId>,
+  /// Pack that declared this constant.
+  pub owning_pack: Option<Symbol>,
+  /// Portable literal value for cross-module `val` import.
+  pub literal: Option<ExportedLiteral>,
 }
 
 /// Exported enum definition for cross-module import. Carries
@@ -217,6 +221,8 @@ pub struct ImportedSymbols {
   pub funs: Vec<FunDef>,
   /// Constants from loaded modules.
   pub vars: Vec<Local>,
+  /// Portable literal values parallel to `vars`.
+  pub var_literals: Vec<Option<ExportedLiteral>>,
   /// Enum definitions from loaded modules (raw variant data
   /// for re-interning in the executor's own TyChecker).
   pub enums: Vec<ExportedEnum>,
@@ -539,9 +545,13 @@ pub fn extract_exports(
   let mut consts = Vec::new();
   let mut re_exports = Vec::new();
   let mut private_selective_hits = Vec::new();
+  let mut current_pack: Option<Symbol> = None;
 
   for insn in &sir.instructions {
     match insn {
+      Insn::PackDecl { name, .. } => {
+        current_pack = Some(*name);
+      }
       // `pub load X::*;` records X as a re-export so
       // consumers of this module fold X's `exported`
       // scope into their own. Plain `load X::*;` is
@@ -661,10 +671,30 @@ pub fn extract_exports(
 
         let dst_ty_id = *ty_id;
 
+        let literal = init.and_then(|vid| {
+          sir.instructions.iter().find_map(|i| match i {
+            Insn::ConstInt { dst, value, .. } if *dst == vid => {
+              Some(ExportedLiteral::Int(*value as u64))
+            }
+            Insn::ConstFloat { dst, value, .. } if *dst == vid => {
+              Some(ExportedLiteral::Float(*value))
+            }
+            Insn::ConstBool { dst, value, .. } if *dst == vid => {
+              Some(ExportedLiteral::Int(if *value { 1 } else { 0 }))
+            }
+            Insn::ConstString { dst, symbol, .. } if *dst == vid => {
+              Some(ExportedLiteral::StringSym(*symbol))
+            }
+            _ => None,
+          })
+        });
+
         vars.push(ExportedVar {
           name: *name,
           ty_id: dst_ty_id,
           init: *init,
+          owning_pack: current_pack,
+          literal,
         });
       }
 
@@ -752,6 +782,30 @@ pub fn extract_exports(
           name: *name,
           ty_id: *ty_id,
           value: *value,
+        });
+
+        // Also export as ExportedVar so the import
+        // pipeline (which only reads `vars`) can
+        // materialize the value in the consuming module.
+        let literal = sir.instructions.iter().find_map(|i| match i {
+          Insn::ConstInt { dst, value: v, .. } if *dst == *value => {
+            Some(ExportedLiteral::Int(*v as u64))
+          }
+          Insn::ConstBool { dst, value: v, .. } if *dst == *value => {
+            Some(ExportedLiteral::Int(if *v { 1 } else { 0 }))
+          }
+          Insn::ConstString { dst, symbol, .. } if *dst == *value => {
+            Some(ExportedLiteral::StringSym(*symbol))
+          }
+          _ => None,
+        });
+
+        vars.push(ExportedVar {
+          name: *name,
+          ty_id: *ty_id,
+          init: Some(*value),
+          owning_pack: current_pack,
+          literal,
         });
       }
 

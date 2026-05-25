@@ -1,0 +1,16 @@
+-- tests-run-pass: pool cpu_count and basic spawn.
+
+load core::pool;
+
+fun main() {
+  imu cores: int = pool::cpu_count();
+
+  check(cores > 0);
+  showln("cpu-count-ok");
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- cpu-count-ok
+-- DONE

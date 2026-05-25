@@ -1,0 +1,35 @@
+-- tests-run-pass: os name, arch, family, and boolean
+-- helpers return consistent values.
+
+load core::os;
+
+fun main() {
+  imu name: str = os::name();
+  imu arch: str = os::arch();
+  imu fam: str = os::family();
+
+  check(name.len > 0);
+  check(arch.len > 0);
+  check(fam.len > 0);
+
+  -- Boolean helpers must agree with the string values.
+  if os::is_macos() {
+    check@eq(name, "macos");
+  }
+
+  if os::is_linux() {
+    check@eq(name, "linux");
+  }
+
+  check(os::is_unix());
+  check@eq(fam, "unix");
+
+  -- errno constants exist and are positive.
+  check(os::ENOENT > 0);
+  check(os::EACCES > 0);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

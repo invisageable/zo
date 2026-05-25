@@ -1,0 +1,30 @@
+-- tests-run-pass: Command builder captures stdout.
+
+load core::process;
+
+fun main() {
+  imu cmd: process::Command = process::Command::new("echo")
+    .arg("hello")
+    .arg("world");
+
+  match cmd.output() {
+    Result::Pass(out) => {
+      check@eq(out.code, 0);
+
+      imu trimmed: str = out.stdout.trim();
+
+      check@eq(trimmed, "hello world");
+      showln("command-ok");
+    }
+    Result::Fail(err) => {
+      showln("command failed");
+      showln(err);
+    }
+  }
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- command-ok
+-- DONE

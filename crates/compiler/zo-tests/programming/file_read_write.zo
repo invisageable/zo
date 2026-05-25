@@ -1,0 +1,70 @@
+-- tests-run-pass: File open/write/close/read round-trip.
+
+load core::file;
+
+fun main() {
+  imu path: str = "samples/file_rw_test.txt";
+  imu content: str = "hello from file.zo";
+
+  -- Write.
+  match file::File::open(path, "w") {
+    Result::Pass(f) => {
+      match f.write(content) {
+        Result::Pass(_) => {}
+        Result::Fail(err) => {
+          showln("write failed");
+          showln(err);
+        }
+      }
+
+      f.close();
+    }
+    Result::Fail(err) => {
+      showln("open-w failed");
+      showln(err);
+    }
+  }
+
+  -- Read back.
+  match file::File::open(path, "r") {
+    Result::Pass(f) => {
+      match f.read(1024) {
+        Result::Pass(data) => {
+          check@eq(data, content);
+          showln("read-ok");
+        }
+        Result::Fail(_) => {
+          showln("read failed");
+        }
+      }
+
+      f.close();
+    }
+    Result::Fail(err) => {
+      showln("open-r failed");
+      showln(err);
+    }
+  }
+
+  -- Stat.
+  match file::stat(path) {
+    Result::Pass(st) => {
+      check@eq(st.size, 18);
+      check(st.mtime > 0);
+      showln("stat-ok");
+    }
+    Result::Fail(_) => {
+      showln("stat failed");
+    }
+  }
+
+  -- Cleanup.
+  remove_file(path);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- read-ok
+-- stat-ok
+-- DONE

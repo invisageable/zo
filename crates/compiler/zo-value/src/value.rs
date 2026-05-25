@@ -326,4 +326,6 @@ pub struct Local {
   pub sir_value: Option<ValueId>,
   /// Whether this local is a function parameter.
   pub local_kind: LocalKind,
+  /// Pack that declared this local (`val` at module level).
+  pub owning_pack: Option<Symbol>,
 }

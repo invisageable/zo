@@ -351,6 +351,76 @@ fn try_steal(my_id: usize, n: usize, queues: &[SharedQueue]) -> bool {
 
 // ===== Tests =====
 
+// ===== FFI exports for core/thread.zo =====
+
+/// Create a pool with `n` worker threads. Returns an
+/// opaque handle (leaked `Box<Pool>` pointer).
+///
+/// # Safety
+///
+/// No preconditions.
+#[unsafe(export_name = "zo_pool_new")]
+pub unsafe extern "C-unwind" fn _zo_pool_new(n: i32) -> i64 {
+  let workers = if n > 0 { n as usize } else { 1 };
+  let pool = Box::new(Pool::new(workers));
+
+  Box::into_raw(pool) as i64
+}
+
+/// Submit a zero-arg function to the pool.
+///
+/// # Safety
+///
+/// `handle` must be a live pool from `_zo_pool_new`.
+#[unsafe(export_name = "zo_pool_spawn")]
+pub unsafe extern "C-unwind" fn _zo_pool_spawn(
+  handle: i64,
+  callee: extern "C-unwind" fn(),
+) {
+  let pool = unsafe { &*(handle as *const Pool) };
+
+  pool.spawn(callee);
+}
+
+/// Block until all submitted tasks complete.
+///
+/// # Safety
+///
+/// `handle` must be a live pool from `_zo_pool_new`.
+#[unsafe(export_name = "zo_pool_wait_idle")]
+pub unsafe extern "C-unwind" fn _zo_pool_wait_idle(handle: i64) {
+  let pool = unsafe { &*(handle as *const Pool) };
+
+  pool.wait_idle();
+}
+
+/// Shutdown the pool — drain queues and join workers.
+/// Consumes the handle.
+///
+/// # Safety
+///
+/// `handle` must be a live pool (or 0 for no-op).
+#[unsafe(export_name = "zo_pool_shutdown")]
+pub unsafe extern "C-unwind" fn _zo_pool_shutdown(handle: i64) {
+  if handle != 0 {
+    let pool = unsafe { Box::from_raw(handle as *mut Pool) };
+
+    pool.shutdown();
+  }
+}
+
+/// Number of worker threads in the pool.
+///
+/// # Safety
+///
+/// `handle` must be a live pool from `_zo_pool_new`.
+#[unsafe(export_name = "zo_pool_worker_count")]
+pub unsafe extern "C-unwind" fn _zo_pool_worker_count(handle: i64) -> i32 {
+  let pool = unsafe { &*(handle as *const Pool) };
+
+  pool.queues.len() as i32
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

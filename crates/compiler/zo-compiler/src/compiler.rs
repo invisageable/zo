@@ -236,9 +236,12 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
   let mut seen_vars: rustc_hash::FxHashSet<Symbol> =
     into.vars.iter().map(|v| v.name).collect();
 
-  for var in &other.vars {
+  for (i, var) in other.vars.iter().enumerate() {
     if seen_vars.insert(var.name) {
       into.vars.push(*var);
+      into
+        .var_literals
+        .push(other.var_literals.get(i).cloned().flatten());
     }
   }
 
@@ -309,6 +312,7 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
 /// zo-analyzer, zo-analyzer controls zo-executor).
 fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
   let mut vars = Vec::with_capacity(exports.vars.len());
+  let mut var_literals = Vec::with_capacity(exports.vars.len());
 
   for var in &exports.vars {
     vars.push(Local {
@@ -319,12 +323,15 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
       mutability: Mutability::No,
       sir_value: var.init,
       local_kind: LocalKind::Variable,
+      owning_pack: var.owning_pack,
     });
+    var_literals.push(var.literal.clone());
   }
 
   ImportedSymbols {
     funs: exports.funs.clone(),
     vars,
+    var_literals,
     enums: exports.enums.clone(),
     abstract_defs: HashMap::default(),
     abstract_impls: exports.abstract_impls.clone(),

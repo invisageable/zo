@@ -149,7 +149,13 @@ pub enum AbiArg {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AbiRet {
   Void,
-  Gp(Register),
+  /// `sign_extend`: the C function returns a 32-bit
+  /// signed value in W0; SXTW to X0 so zo's signed
+  /// comparisons see the correct sign bit.
+  Gp {
+    reg: Register,
+    sign_extend: bool,
+  },
 
   /// `widen = true` means the C side of the FFI returned
   /// `float` (f32) in S0 and we widen it to zo's f64 via
@@ -344,18 +350,27 @@ fn classify_ret(
 ) -> AbiRet {
   match query.resolve(ret_ty) {
     Ty::Unit | Ty::Error => AbiRet::Void,
-    Ty::Int { .. } | Ty::Bool | Ty::Char | Ty::Str | Ty::Bytes => {
-      AbiRet::Gp(X0)
+    Ty::Int { signed, width } => {
+      let narrow = signed && !matches!(width, IntWidth::S64 | IntWidth::U64);
+
+      AbiRet::Gp {
+        reg: X0,
+        sign_extend: narrow,
+      }
     }
+    Ty::Bool | Ty::Char | Ty::Str | Ty::Bytes => AbiRet::Gp {
+      reg: X0,
+      sign_extend: false,
+    },
     Ty::Float(w) => AbiRet::Fp {
       reg: D0,
-      // f32 returns arrive in S0; widen to zo's internal
-      // f64 here so the SIR-level `Cast f32 → f64` stays a
-      // no-op (FP regs are uniformly 64-bit internally).
       widen: matches!(w, FloatWidth::F32),
     },
     Ty::Struct(sid) => classify_struct_ret(sid, query, state),
-    _ => AbiRet::Gp(X0),
+    _ => AbiRet::Gp {
+      reg: X0,
+      sign_extend: false,
+    },
   }
 }
 

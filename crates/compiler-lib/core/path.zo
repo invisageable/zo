@@ -1,0 +1,182 @@
+-! Filesystem path manipulation.
+-!
+-! @note — pure string operations, no I/O or FFI. Paths are
+-! plain `str` values — no opaque wrapper type.
+
+-! Platform path separator.
+pub val SEPARATOR: str = "/";
+
+-! Join `base` and `child` with a separator.
+-!
+-! @note — trailing separator on `base` is not doubled.
+pub fun join(base: str, child: str) -> str {
+  if base.len == 0 {
+    return child;
+  }
+
+  if child.len == 0 {
+    return base;
+  }
+
+  if base.ends_with(SEPARATOR) {
+    return base ++ child;
+  }
+
+  base ++ SEPARATOR ++ child
+}
+
+-! Directory portion of `path` (everything before the last
+-! separator). Returns `"."` for bare filenames, `""` for
+-! empty input.
+pub fun parent(path: str) -> str {
+  imu n: int = path.len;
+
+  if n == 0 {
+    return "";
+  }
+
+  -- Strip a single trailing separator (but not root "/").
+  mut end: int = n;
+
+  if end > 1 {
+    if path[end - 1] == '/' {
+      end = end - 1;
+    }
+  }
+
+  imu trimmed: str = path[0..end];
+  imu idx: int = trimmed.last_index_of(SEPARATOR);
+
+  if idx < 0 {
+    return ".";
+  }
+
+  if idx == 0 {
+    return SEPARATOR;
+  }
+
+  trimmed[0..idx]
+}
+
+-! Final component of `path` (after the last separator).
+-! Returns `""` for empty input.
+pub fun filename(path: str) -> str {
+  imu n: int = path.len;
+
+  if n == 0 {
+    return "";
+  }
+
+  mut end: int = n;
+
+  if end > 1 {
+    if path[end - 1] == '/' {
+      end = end - 1;
+    }
+  }
+
+  imu trimmed: str = path[0..end];
+  imu idx: int = trimmed.last_index_of(SEPARATOR);
+
+  if idx < 0 {
+    return trimmed;
+  }
+
+  trimmed[idx + 1..end]
+}
+
+-! Filename without its extension. `"foo.tar.gz"` yields
+-! `"foo.tar"`.
+pub fun stem(path: str) -> str {
+  imu name: str = filename(path);
+  imu dot: int = name.last_index_of(".");
+
+  if dot <= 0 {
+    return name;
+  }
+
+  name[0..dot]
+}
+
+-! Extension including the dot. `"foo.rs"` yields `".rs"`.
+-! Returns `""` when there is no extension.
+pub fun extension(path: str) -> str {
+  imu name: str = filename(path);
+  imu dot: int = name.last_index_of(".");
+
+  if dot <= 0 {
+    return "";
+  }
+
+  name[dot..name.len]
+}
+
+-! `true` when `path` starts with `"/"`.
+pub fun is_absolute(path: str) -> bool {
+  path.starts_with(SEPARATOR)
+}
+
+-! Collapse `"."`, `".."`, and redundant separators.
+-!
+-! @note — purely lexical, no filesystem access. A leading
+-! `".."` past root is dropped (same as Go's `path.Clean`).
+pub fun normalize(path: str) -> str {
+  imu n: int = path.len;
+
+  if n == 0 {
+    return ".";
+  }
+
+  imu absolute: bool = is_absolute(path);
+  imu parts: []str = path.split(SEPARATOR);
+  imu count: int = parts.len;
+  mut out: []str = [];
+
+  mut i: int = 0;
+
+  while i < count {
+    imu part: str = parts[i];
+
+    if part == "." {
+      -- skip
+    } else if part == "" {
+      -- skip (redundant separator)
+    } else if part == ".." {
+      if out.len > 0 {
+        out.pop();
+      }
+    } else {
+      out.push(part);
+    }
+
+    i = i + 1;
+  }
+
+  if out.len == 0 {
+    if absolute {
+      return SEPARATOR;
+    }
+
+    return ".";
+  }
+
+  mut result: str = "";
+
+  if absolute {
+    result = SEPARATOR;
+  }
+
+  mut j: int = 0;
+
+  while j < out.len {
+    if j > 0 {
+      result = result ++ SEPARATOR;
+    }
+
+    result = result ++ out[j];
+
+    j = j + 1;
+  }
+
+  result
+}
