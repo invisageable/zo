@@ -3684,10 +3684,10 @@ impl<'a> Executor<'a> {
             )
           });
 
-          if let Some((_, _, _, _, _, def_span)) = local_info {
-            if def_span != Span::ZERO {
-              self.use_def_map.insert(self.tree.spans[idx], def_span);
-            }
+          if let Some((_, _, _, _, _, def_span)) = local_info
+            && def_span != Span::ZERO
+          {
+            self.use_def_map.insert(self.tree.spans[idx], def_span);
           }
 
           if let Some((value_id, ty_id, sir_value, local_kind, mutability, _)) =
@@ -4073,14 +4073,12 @@ impl<'a> Executor<'a> {
           // Cross-file defs (owning_pack differs from this
           // file) are left out — the LSP fallback resolves
           // them via pack_paths + file read.
-          if local_info.is_none() {
-            if let Some(f) = self.find_fun(sym)
-              && f.span != Span::ZERO
-              && (f.owning_pack.is_none()
-                || f.owning_pack == self.implicit_pack)
-            {
-              self.use_def_map.insert(self.tree.spans[idx], f.span);
-            }
+          if local_info.is_none()
+            && let Some(f) = self.find_fun(sym)
+            && f.span != Span::ZERO
+            && (f.owning_pack.is_none() || f.owning_pack == self.implicit_pack)
+          {
+            self.use_def_map.insert(self.tree.spans[idx], f.span);
           }
         }
       }

@@ -156,21 +156,21 @@ impl LanguageServer for ZoLanguageServer {
     }
 
     // 2. Fallback: resolve ident by name against funs / abstracts.
-    if state.tree.nodes[node_idx].token == Token::Ident {
-      if let Some(NodeValue::Symbol(sym)) = state.tree.value(node_idx as u32) {
-        if let Some(loc) = resolve_fun(state, &uri, sym) {
-          return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
-        }
+    if state.tree.nodes[node_idx].token == Token::Ident
+      && let Some(NodeValue::Symbol(sym)) = state.tree.value(node_idx as u32)
+    {
+      if let Some(loc) = resolve_fun(state, &uri, sym) {
+        return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
+      }
 
-        if let Some(abs) = state.abstract_defs.get(&sym) {
-          if abs.span != Span::ZERO {
-            let range = state.line_index.range(abs.span);
-            return Ok(Some(GotoDefinitionResponse::Scalar(Location::new(
-              uri.clone(),
-              range,
-            ))));
-          }
-        }
+      if let Some(abs) = state.abstract_defs.get(&sym)
+        && abs.span != Span::ZERO
+      {
+        let range = state.line_index.range(abs.span);
+        return Ok(Some(GotoDefinitionResponse::Scalar(Location::new(
+          uri.clone(),
+          range,
+        ))));
       }
     }
 

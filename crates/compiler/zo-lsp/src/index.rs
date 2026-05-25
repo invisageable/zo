@@ -45,7 +45,7 @@ impl SymbolIndex {
     log::info!(
       "update: path={} search_paths={:?}",
       path.display(),
-      &search_paths,
+      search_paths,
     );
 
     let mut compiler = Compiler::with_search_paths(search_paths);
