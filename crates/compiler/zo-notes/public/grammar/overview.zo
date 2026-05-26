@@ -38,6 +38,10 @@ load core::math;
 
 load @::math::(abs, pow);
 
+query Customer {
+  SELECT * FROM Music
+}
+
 -- item:directive.
 #run foobar();
 

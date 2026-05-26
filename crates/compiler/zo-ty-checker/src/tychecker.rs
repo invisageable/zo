@@ -28,6 +28,16 @@ enum UndoEntry {
   Overwrite(Symbol, TyId),
 }
 
+/// Snapshot of the inference-variable frontier at a point
+/// in time. Paired with [`TyChecker::truncate_to`] to wipe
+/// speculative substitutions from pre-scan passes while
+/// leaving type-table registrations (struct/enum
+/// placeholders) intact.
+#[derive(Clone, Copy, Debug)]
+pub struct TyCheckerBaseline {
+  next_infer_var: InferVarId,
+}
+
 /// Type checker implementing Hindley-Milner W algorithm
 pub struct TyChecker {
   /// Counter for fresh type IDs (for all types in tys)
@@ -193,6 +203,26 @@ impl TyChecker {
   /// `abstract <Name> { ... }`. Used by `resolve_ty_symbol`.
   pub fn is_abstract(&self, name: Symbol) -> bool {
     self.abstracts.contains(&name)
+  }
+
+  /// Capture the inference-variable frontier so a
+  /// speculative pre-scan can be rewound without losing
+  /// type-table registrations (struct/enum placeholders).
+  pub fn baseline(&self) -> TyCheckerBaseline {
+    TyCheckerBaseline {
+      next_infer_var: self.next_infer_var,
+    }
+  }
+
+  /// Wipe substitutions and var-level entries minted after
+  /// `baseline`. Struct/enum/function type-table entries
+  /// survive — the main pass overwrites their placeholder
+  /// fields via `intern_struct` / `intern_enum`.
+  pub fn truncate_to(&mut self, baseline: TyCheckerBaseline) {
+    self.substitutions
+      .retain(|k, _| k.0 < baseline.next_infer_var.0);
+    self.var_levels
+      .retain(|k, _| k.0 < baseline.next_infer_var.0);
   }
 
   pub fn fresh_var(&mut self) -> TyId {

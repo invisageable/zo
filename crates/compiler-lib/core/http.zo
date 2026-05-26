@@ -1,55 +1,241 @@
--! HTTP/1.1 client built on top of `core::net`.
+-! HTTP/1.1 stack — cooperative server + client.
 -!
--! Four verbs — `get`, `post`, `put`, `delete` — each
--! connecting, sending, draining, and parsing in one
--! call. All route through a shared `request` helper
--! so the HTTP framing logic lives in one place.
+-! Server: `HttpServer::new(addr).listen_and_serve(handler)`
+-! dispatches each connection as a green task via `nursery`
+-! + `spawn`. Client: `get`, `post`, `put`, `delete` verbs
+-! connect, send, drain, and parse in one call.
 -!
--! The request path uses the suspending TCP primitives
--! from `core::net`, so any call inside a green task
--! parks the task on socket readiness rather than
--! blocking the scheduler thread.
+-! Both paths use the suspending TCP primitives from
+-! `core::net`, so calls inside green tasks park on socket
+-! readiness rather than blocking the scheduler thread.
 -!
 -! @note — keeps the URL parser to `http://` for now;
 -! TLS / `https://` waits on a TLS provider crate.
 
-load core::net::(Address, TcpStream);
+load core::net::(Address, TcpListener, TcpStream);
 
 
--! An HTTP/1.1 response — numeric status code (e.g. 200,
--! 404) plus the text body text after the `CRLFCRLF`
--! header/body separator. Headers parsing is left to a
--! future pass so callers stay in control of the
--! header-cardinality cost.
-pub struct Response {
-  status: int,
+-* Data Structures *-
+
+-! An incoming HTTP/1.1 request.
+pub struct Request {
+  method: str,
+  path: str,
+  headers: HashMap<str, str>,
   body: str,
 }
 
+-! An HTTP/1.1 response — status code, headers, body.
+pub struct Response {
+  status: int,
+  headers: HashMap<str, str>,
+  body: str,
+}
+
+-! HTTP server bound to an address.
+pub struct HttpServer {
+  addr: str,
+}
+
+
+-* Response *-
+
 apply Response {
-  -! Build a response value from already-parsed parts.
+  -! Fresh response with default headers.
   pub fun new(status: int, body: str) -> Self {
-    Self { status = status, body = body }
+    mut headers: HashMap<str, str> = HashMap::new();
+
+    headers.insert("Content-Type", "text/plain");
+    headers.insert("Connection", "close");
+
+    Self {
+      status = status,
+      headers = headers,
+      body = body,
+    }
+  }
+
+  -! Append a header (chainable).
+  pub fun with_header(self, name: str, value: str) -> Self {
+    self.headers.insert(name, value);
+    self
+  }
+
+  -! Release the backing map allocation.
+  pub fun free(self) {
+    self.headers.free();
   }
 }
 
 
--! Parsed URL pieces. Internal to `core::http` — exposed
--! only through the `get` API so the URL shape stays a
--! single concern.
+-* HttpServer *-
+
+apply HttpServer {
+  -! Bind to `addr` (e.g. `"127.0.0.1:8080"`).
+  pub fun new(addr: str) -> Self {
+    Self { addr = addr }
+  }
+
+  -! Accept connections and dispatch each to `handler`
+  -! as a cooperative green task.
+  pub fun listen_and_serve(
+    self,
+    handler: Fn(Request) -> Response,
+  ) -> Result<int, int> {
+    match Address::parse(self.addr) {
+      Result::Fail(err) => Result::Fail(err),
+      Result::Pass(addr) => {
+        match TcpListener::bind(addr) {
+          Result::Fail(err) => Result::Fail(err),
+          Result::Pass(listener) => {
+            nursery {
+              loop {
+                match listener.accept() {
+                  Result::Pass(stream) => {
+                    spawn handle_connection(stream, handler);
+                  }
+                  Result::Fail(err) => {
+                    showln("HTTP accept failed: {err}");
+                  }
+                }
+              }
+            }
+
+            listener.close();
+            Result::Pass(0)
+          }
+        }
+      }
+    }
+  }
+
+}
+
+
+-* Connection Handler *-
+
+fun handle_connection(
+  stream: TcpStream,
+  handler: Fn(Request) -> Response,
+) {
+  imu text_req: str = stream.read(4096);
+
+  if text_req.len == 0 {
+    stream.close();
+    return;
+  }
+
+  match parse_request(text_req) {
+    Option::Some(req) => {
+      imu res: Response = handler(req);
+
+      imu status_line: str = "HTTP/1.1 "
+        ++ res.status.to_str()
+        ++ " "
+        ++ status_text(res.status)
+        ++ "\r\n";
+
+      imu content_len: str = "Content-Length: "
+        ++ res.body.len.to_str()
+        ++ "\r\n";
+
+      imu full_response: str = status_line
+        ++ content_len
+        ++ "Content-Type: text/plain\r\n"
+        ++ "Connection: close\r\n"
+        ++ "\r\n"
+        ++ res.body;
+
+      stream.write(full_response);
+
+      res.free();
+      req.headers.free();
+    }
+    Option::None => {
+      stream.write(
+        "HTTP/1.1 400 Bad Request\r\n"
+        ++ "Content-Length: 0\r\n"
+        ++ "Connection: close\r\n\r\n"
+      );
+    }
+  }
+
+  stream.close();
+}
+
+
+fun status_text(code: int) -> str {
+  match code {
+    200 => "OK",
+    201 => "Created",
+    204 => "No Content",
+    400 => "Bad Request",
+    404 => "Not Found",
+    405 => "Method Not Allowed",
+    500 => "Internal Server Error",
+    _ => "OK",
+  }
+}
+
+
+-* HTTP Parser *-
+
+fun parse_request(text: str) -> Option<Request> {
+  imu sep: str = "\r\n\r\n";
+  imu sep_idx: int = text.index_of(sep);
+
+  if sep_idx < 0 {
+    return Option::None;
+  }
+
+  imu header_part: str = text[0..sep_idx];
+  imu body_part: str = text[sep_idx + sep.len..text.len];
+
+  imu lines: []str = header_part.split("\r\n");
+
+  if lines.len == 0 {
+    return Option::None;
+  }
+
+  imu req_line: []str = lines[0].split(" ");
+
+  if req_line.len < 2 {
+    return Option::None;
+  }
+
+  imu method: str = req_line[0];
+  imu path: str = req_line[1];
+
+  mut headers: HashMap<str, str> = HashMap::new();
+
+  for i := 1..lines.len {
+    imu h_line: str = lines[i];
+
+    if h_line.len > 0 {
+      imu h_parts: []str = h_line.split(": ");
+
+      if h_parts.len >= 2 {
+        headers.insert(h_parts[0], h_parts[1]);
+      }
+    }
+  }
+
+  Option::Some(Request {
+    method = method,
+    path = path,
+    headers = headers,
+    body = body_part,
+  })
+}
+
+-* Client *-
+
 struct Url {
   host: str,
   port: int,
   path: str,
 }
 
--! Parse `"http://host[:port][/path]"`.
--!
--! @note — returns `Fail(0)` when the scheme prefix is
--! missing or the optional `:port` segment isn't a
--! decimal integer. The default port is `80` when the
--! `:port` segment is omitted; the default path is `"/"`
--! when no slash follows the host.
 fun parse_url(url: str) -> Result<Url, int> {
   imu scheme: str = "http://";
   imu scheme_len: int = scheme.len;
@@ -94,15 +280,6 @@ fun parse_url(url: str) -> Result<Url, int> {
   }
 }
 
--! Parse the text `[status-line CRLF headers CRLF CRLF body]`
--! text into a [`Response`].
--!
--! @note — only the status-line numeric code is extracted;
--! headers are skipped so the caller doesn't pay for header
--! tokenization on routes that don't read them. Returns
--! `Fail(0)` when the `CRLFCRLF` separator is missing or
--! when the status line lacks the `HTTP/x.y CODE ...`
--! shape.
 fun parse_response(text: str) -> Result<Response, int> {
   imu sep: str = "\r\n\r\n";
   imu sep_idx: int = text.index_of(sep);
@@ -129,16 +306,16 @@ fun parse_response(text: str) -> Result<Response, int> {
 
   match parts[1].parse_int() {
     Option::Some(status) => Result::Pass(
-      Response { status = status, body = body }
+      Response {
+        status = status,
+        headers = HashMap::new(),
+        body = body,
+      }
     ),
     Option::None => Result::Fail(0),
   }
 }
 
--! Shared request helper. Connects, sends the
--! request line + headers + optional body, drains
--! the response, and parses it. All four public
--! verbs route through here.
 fun request(
   method: str,
   url: str,

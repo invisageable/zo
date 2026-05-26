@@ -93,7 +93,7 @@ pub struct ScopeFrame {
   /// this point, restoring every outer-scope binding the
   /// inner scope shadowed.
   mark: ScopeMark,
-  // Unused — kept to avoid touching every push site.
+  // TODO: WTF!? Unused — kept to avoid touching every push site.
   count: u32,
   /// Outer `pending_decl` snapshot taken at scope entry.
   /// Without this, an inner `imu y = ...` inside a block
@@ -373,7 +373,7 @@ pub struct Executor<'a> {
   /// constructions like `Outer::Wrap(Inner::A(42))` don't
   /// overwrite each other — the inner finalizes first,
   /// the outer pops at its own RParen.
-  pending_enum_construct: Vec<(Symbol, u32, u32, TyId)>,
+  pending_enum_construct: Vec<(Symbol, u32, u32, TyId, usize)>,
   /// Current `apply Type` context — the type name being
   /// applied. Methods get mangled as `Type::method`.
   apply_context: Option<Symbol>,
@@ -1506,6 +1506,7 @@ impl<'a> Executor<'a> {
       vars,
       var_literals,
       enums,
+      structs,
       abstract_defs,
       abstract_impls,
       exported_generic_bodies: _,
@@ -1590,6 +1591,12 @@ impl<'a> Executor<'a> {
       self.intern_imported_enum(enum_export);
     }
 
+    // Eagerly intern imported structs so the prescan can
+    // resolve imported types in function signatures.
+    for st in &structs {
+      self.ty_checker.ty_table.intern_struct(st.name, &st.fields);
+    }
+
     // Cross-module generic body splices ran in the compiler
     // pre-pass (`splice_generic_bodies`), which mutated the
     // shared `Tree` / `LiteralStore` we now hold by `&`.
@@ -1638,7 +1645,43 @@ impl<'a> Executor<'a> {
     self.splice_boundary.unwrap_or(self.tree.nodes.len())
   }
 
+  /// Phase 0: forward-register every top-level struct and
+  /// enum NAME so phase 1 (signature prescan) can resolve
+  /// types like `Request` in `Fn(Request) -> Response`.
+  /// Placeholders only — the main pass fills field layouts
+  /// via the idempotent `intern_struct` / `intern_enum`
+  /// update path.
+  fn prescan_type_declarations(&mut self) {
+    let n = self.original_tree_len();
+    let mut depth = 0i32;
+
+    for idx in 0..n {
+      let tok = self.tree.nodes[idx].token;
+
+      match tok {
+        Token::LBrace => depth += 1,
+        Token::RBrace => depth -= 1,
+        Token::Struct | Token::Enum if depth == 0 => {
+          let name_idx = idx + 1;
+
+          if name_idx < n
+            && self.tree.nodes[name_idx].token == Token::Ident
+            && let Some(NodeValue::Symbol(name)) = self.node_value(name_idx)
+          {
+            if tok == Token::Struct {
+              self.ty_checker.ty_table.intern_struct(name, &[]);
+            } else {
+              self.ty_checker.ty_table.intern_enum(name, &[]);
+            }
+          }
+        }
+        _ => {}
+      }
+    }
+  }
+
   fn prescan_fun_signatures(&mut self) {
+    self.prescan_type_declarations();
     self.prescan_only = true;
 
     let n = self.original_tree_len();
@@ -1686,6 +1729,19 @@ impl<'a> Executor<'a> {
         let children_end = (header.child_start + header.child_count) as usize;
 
         self.prescan_apply_header(idx, children_end);
+
+        idx = children_end.max(idx + 1);
+
+        continue;
+      }
+
+      // Prescan methods inside apply blocks so
+      // self.method() forward references resolve.
+      if block_depth == 0 && tok == Token::Apply {
+        let header = self.tree.nodes[idx];
+        let children_end = (header.child_start + header.child_count) as usize;
+
+        self.prescan_apply_methods(idx, children_end);
 
         idx = children_end.max(idx + 1);
 
@@ -1765,6 +1821,64 @@ impl<'a> Executor<'a> {
   /// bodies compiled before the apply block can find the
   /// implementation. The main pass overwrites the placeholder
   /// with the real entry (compiled methods, vtable symbol).
+  /// Prescan methods inside an apply block so forward
+  /// references like `self.method()` resolve within the
+  /// same block regardless of declaration order.
+  fn prescan_apply_methods(&mut self, start_idx: usize, end_idx: usize) {
+    let type_name = (start_idx + 1..end_idx).find_map(|i| {
+      let tok = self.tree.nodes[i].token;
+
+      if tok == Token::Ident {
+        match self.node_value(i) {
+          Some(NodeValue::Symbol(s)) => Some(s),
+          _ => None,
+        }
+      } else if Self::is_primitive_type_token(tok) {
+        tok.ty_keyword_str().map(|s| self.interner.intern(s))
+      } else {
+        None
+      }
+    });
+
+    let type_name = match type_name {
+      Some(n) => n,
+      None => return,
+    };
+
+    // Skip generic applies — type params ($T) aren't
+    // in scope during prescan.
+    let has_generics = (start_idx + 1..end_idx.min(start_idx + 6))
+      .any(|i| self.tree.nodes[i].token == Token::LAngle);
+
+    if has_generics {
+      return;
+    }
+
+    let prev_apply = self.apply_context.take();
+
+    self.apply_context = Some(type_name);
+
+    let mut cursor = start_idx + 1;
+
+    while cursor < end_idx {
+      if self.tree.nodes[cursor].token == Token::Fun {
+        let fun_header = self.tree.nodes[cursor];
+        let fun_end =
+          (fun_header.child_start + fun_header.child_count) as usize;
+
+        self.execute_fun(cursor, fun_end);
+
+        cursor = self.fun_body_end(cursor, end_idx);
+
+        continue;
+      }
+
+      cursor += 1;
+    }
+
+    self.apply_context = prev_apply;
+  }
+
   fn prescan_apply_header(&mut self, start_idx: usize, end_idx: usize) {
     // Extract the first name (Abstract or Type for inherent).
     let first_name = (start_idx + 1..end_idx).find_map(|i| {
@@ -1878,8 +1992,13 @@ impl<'a> Executor<'a> {
 
     // Pre-scan top-level function signatures so mutual
     // recursion and out-of-order calls resolve during the
-    // main pass.
+    // main pass. Snapshot the type-checker's inference state
+    // beforehand and rewind after — the prescan mints
+    // temporary inference variables whose substitutions
+    // would otherwise pollute the main pass's unification.
+    let ty_baseline = self.ty_checker.baseline();
     self.prescan_fun_signatures();
+    self.ty_checker.truncate_to(ty_baseline);
 
     // The main pass walks the original tree only. Cross-
     // module generic body splices land at the tail (see
@@ -2557,8 +2676,20 @@ impl<'a> Executor<'a> {
         let closed_a_direct_call = self.rparen_closes_call(idx);
 
         // Check if this closes an enum variant constructor.
-        if let Some((enum_name, disc, field_count, ty_id)) =
-          self.pending_enum_construct.pop()
+        // Only pop when the RParen matches the LParen that
+        // opened the variant — inner calls like `Type::m(x)`
+        // inside the payload must not steal the entry.
+        let closes_enum = self.pending_enum_construct.last().is_some_and(
+          |&(_, _, _, _, lparen)| {
+            let matching = self.find_matching_lparen(idx);
+
+            matching == Some(lparen)
+          },
+        );
+
+        if let Some((enum_name, disc, field_count, ty_id, _)) = closes_enum
+          .then(|| self.pending_enum_construct.pop())
+          .flatten()
         {
           if closed_a_direct_call {
             self.direct_call_depth = self.direct_call_depth.saturating_sub(1);
@@ -6649,12 +6780,13 @@ impl<'a> Executor<'a> {
             {
               *ty
             } else {
-              // $U not declared in <$T, ...>.
-              let span = self.tree.spans[idx];
+              if !self.prescan_only {
+                let span = self.tree.spans[idx];
 
-              report_error(Error::new(ErrorKind::UndefinedTypeParam, span));
+                report_error(Error::new(ErrorKind::UndefinedTypeParam, span));
+              }
 
-              self.ty_checker.error_type()
+              self.ty_checker.fresh_var()
             }
           } else {
             self.ty_checker.fresh_var()
@@ -6835,7 +6967,7 @@ impl<'a> Executor<'a> {
         continue;
       }
 
-      if tok.is_ty() {
+      if tok.is_ty() || tok == Token::Ident {
         param_tys.push(self.resolve_type_token(j));
       }
 
@@ -6873,7 +7005,7 @@ impl<'a> Executor<'a> {
           // to a concrete type per call site.
           return_ty = *ty;
           j += 2;
-        } else if tok.is_ty() {
+        } else if tok.is_ty() || tok == Token::Ident {
           return_ty = self.resolve_type_token(j);
 
           j += 1;
@@ -13695,6 +13827,7 @@ impl<'a> Executor<'a> {
         variant.discriminant,
         variant.field_count,
         ty_id,
+        idx + 2, // LParen position: `::` + variant + `(`
       ));
     }
   }
@@ -20283,6 +20416,8 @@ impl<'a> Executor<'a> {
         match self.tree.nodes[i].token {
           Token::LParen => depth += 1,
           Token::RParen => depth -= 1,
+          Token::LBrace => depth += 1,
+          Token::RBrace => depth -= 1,
           Token::Comma if depth == 0 => comma_count += 1,
           _ => {}
         }
@@ -21572,6 +21707,30 @@ impl<'a> Executor<'a> {
   /// bounded by `end_idx` (exclusive). Returns `None` if
   /// the brace is unmatched within the range — callers
   /// treat that as a parse abort.
+  /// Scan backward from `rparen_idx` to find its matching LParen.
+  fn find_matching_lparen(&self, rparen_idx: usize) -> Option<usize> {
+    let mut depth = 1i32;
+    let mut cursor = rparen_idx;
+
+    while cursor > 0 {
+      cursor -= 1;
+
+      match self.tree.nodes[cursor].token {
+        Token::RParen => depth += 1,
+        Token::LParen => {
+          depth -= 1;
+
+          if depth == 0 {
+            return Some(cursor);
+          }
+        }
+        _ => {}
+      }
+    }
+
+    None
+  }
+
   fn find_matching_rbrace(
     &self,
     lbrace_idx: usize,

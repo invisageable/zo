@@ -3,4 +3,4 @@ mod tychecker;
 #[cfg(test)]
 mod tests;
 
-pub use tychecker::TyChecker;
+pub use tychecker::{TyChecker, TyCheckerBaseline};

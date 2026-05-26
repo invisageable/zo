@@ -1,0 +1,40 @@
+-- tests-run-pass: pre-scan substitution isolation.
+-- Verifies that inference variables minted during the
+-- function-signature pre-scan do not leak substitutions
+-- into the main pass. Without TyCheckerBaseline
+-- truncation, the pre-scan's unification of `bar`'s
+-- `s32` params bleeds into `baz`'s `str` return,
+-- producing a type mismatch at `greet(baz("world"))`.
+
+fun foo() -> int {
+  bar(10) + bar(20)
+}
+
+fun bar(n: int) -> int {
+  n * 2
+}
+
+fun baz(text: str) -> str {
+  text
+}
+
+fun greet(name: str) -> str {
+  "hello " ++ name
+}
+
+fun pick(flag: bool) -> int {
+  when flag ? foo() : bar(99)
+}
+
+fun main() {
+  check@eq(foo(), 60);
+  check@eq(bar(5), 10);
+  check@eq(baz("zo"), "zo");
+  check@eq(greet(baz("world")), "hello world");
+  check@eq(pick(true), 60);
+  check@eq(pick(false), 198);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

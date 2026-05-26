@@ -12,9 +12,9 @@ TO **JOiN THE DEVOLUTiON** ON LiNUX, MACOS AND WiNDOWS SYSTEMS:
   curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
   ```
 
-EFFECTiVELY iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SETS THE ENViRONMENT WiTH THE `PATH` TO RETRiEVE THE zo BiNARY.
+iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SETS THE ENViRONMENT WiTH THE `PATH` TO RETRiEVE THE zo BiNARY.
 
-  2. THEN RUN `zo --version` — iT MUST RETURNS:
+  1. THEN RUN `zo --version` — EFFECTiVELY iT RETURNS:
 
   ```
   zo x.x.x
@@ -30,33 +30,28 @@ EFFECTiVELY iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SETS
 
 ## dev.
 
-WE ARE CONViNCE THAT'S EVERYTHiNG HAS TO BE DOCUMENTED, WE ARE NOT FULLY DOCUMENTED BUT THiNGS ARE GOiNG WELL. EACH CRATE CONTAiNS A README WHiCH PROViDES DETAiLS ABOUT ARCHiTECTURE CHOiCES, BENCHMARK RESULTS, STATUS OF THE iMPLEMENTATiON AND SO ON. JUMP TO A SPECiFiC README'S CRATE TO CLEARLY UNDERSTAND HOW iT WORKS.
+WE ARE CONViNCE THAT'S EVERYTHiNG HAS TO BE DOCUMENTED, WE ARE NOT FULLY DOCUMENTED BUT THiNGS ARE GOiNG WELL. EACH CRATE CONTAiNS A README WHiCH PROViDES DETAiLS ABOUT ARCHiTECTURE CHOiCES, BENCHMARK RESULTS AND iMPLEMENTATiON EXPLANATiON. JUMP TO A SPECiFiC README'S CRATE TO CLEARLY UNDERSTAND HOW iT WORKS.
 
 **-quick-and-run**
 
-FiRST, YOU NEED TO HAVE `rust`, `cargo` and `just` iNSTALL iNTO YOUR MACHiNE.
+iNSTALL `rust`, `cargo` and `just` ON YOUR MACHiNE.
 
   - @SEE [`rust & cargo — install`](https://rust-lang.org/tools/install)
   - @SEE [`just — packages`](https://just.systems/man/en/packages.html)
 
-THEN TO SETUP THE DEV ENViRONMENT iN YOUR MACHiNE, RUN THE FOLLOWING COMMAND:
+SETUP THE DEV ENViRONMENT WiTH THE FOLLOWING RECiPE:
 
   ```sh
   just setup
   ```
 
-iT iNSTALLS:
-
-  - `typos` — *it checks typos in the whole codebase.*
-
-UNFORTUNALY SOME TOOLS NEEDS TO BE iNSTALL MANUALLY DEPENDiNG OF YOUR OS:
+UNFORTUNALY SOME TOOLS NEEDS TO BE iNSTALL MANUALLY:
 
   - @SEE [`nextest — pre-build binaries`](https://nexte.st/docs/installation/pre-built-binaries)
 
 **-optional-tools**
 
   - @SEE — [`zo-vscode plugin`](../../../zo-vscode)
-  - @SEE — [`fret`](../../../../packager/fret)
 
 ---
 

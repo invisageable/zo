@@ -257,6 +257,15 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
     }
   }
 
+  let mut seen_structs: rustc_hash::FxHashSet<Symbol> =
+    into.structs.iter().map(|s| s.name).collect();
+
+  for st in &other.structs {
+    if seen_structs.insert(st.name) {
+      into.structs.push(st.clone());
+    }
+  }
+
   for (sym, def) in &other.abstract_defs {
     into.abstract_defs.insert(*sym, def.clone());
   }
@@ -337,6 +346,7 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
     vars,
     var_literals,
     enums: exports.enums.clone(),
+    structs: exports.structs.clone(),
     abstract_defs: HashMap::default(),
     abstract_impls: exports.abstract_impls.clone(),
     exported_generic_bodies: exports.generic_bodies.clone(),

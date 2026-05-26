@@ -15,6 +15,7 @@ GET THE FULL LiST OF COMMANDS ViA `zo --help`
     build  builds a program
     repl   read eval print and loop a program (not implemented yet)
     run    runs a program
+    test   compile and run test functions
     help   Print this message or the help of the given subcommand(s)
 
   Options:

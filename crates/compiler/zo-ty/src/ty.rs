@@ -446,6 +446,33 @@ impl TyTable {
     variants: &[(Symbol, u32, Vec<TyId>)],
   ) -> EnumTyId {
     if let Some(&id) = self.enum_intern.get(&name) {
+      if let Some(existing) = self.enum_types.get(id.0 as usize)
+        && existing.variant_count == 0
+        && !variants.is_empty()
+      {
+        let variant_start = self.enum_variants.len() as u32;
+
+        for (vname, disc, fields) in variants {
+          let field_start = self.variant_field_tys.len() as u32;
+          let field_count = fields.len() as u32;
+
+          self.variant_field_tys.extend(fields);
+
+          self.enum_variants.push(EnumVariant {
+            name: *vname,
+            discriminant: *disc,
+            field_start,
+            field_count,
+          });
+        }
+
+        self.enum_types[id.0 as usize] = EnumTy {
+          name,
+          variant_start,
+          variant_count: variants.len() as u32,
+        };
+      }
+
       return id;
     }
 

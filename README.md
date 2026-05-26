@@ -76,8 +76,8 @@ zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE C
 
 iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALLY:
 
-  1. TOKENiZiNG — *Processes raw text into tokens at ~13M LoC/s.*
-  2. PARSiNG — *Builds the parse tree using a custom, cache-friendly parser.*
+  1. TOKENiZiNG — *Processes raw text into tokens.*
+  2. PARSiNG — *Builds the parse tree.*
   3. ANALYZiNG — *Performs Hindley-Milner type inference, monomorphization, and type checking.*
   4. OPTiMiZiNG — *Executes algebraic optimizations (constant folding, propagation, dce).*
   5. CODEGEN & LiNK — *Emits direct machine code and creates the final binary.*
@@ -134,18 +134,18 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
 | NAME                                               | DESCRiPTiON                                                         |
 | :------------------------------------------------- | :------------------------------------------------------------------ |
-| [eazy](./sources/tweener/eazy)                     | THE HiGH-PERFORMANCE TWEENiNG & EASiNG FUNCTiONS KiT FOR ANiMATiON. |
-| [swisskit](./sources/crafter/swisskit)             | THE SWiSS-ARMY-KNiFE KiT FOR WRiTiNG ROBUST PROGRAMS.                |
-| [tree-sitter-zo](./sources/crafter/tree-sitter-zo) | THE zo GRAMMAR FOR tree-sitter.                                     |
+| [eazy](./sources/tweener/eazy)                     | THE HiGH-PERFORMANCE TWEENiNG & EASiNG FUNCTiONS KiT. |
+| [swisskit](./sources/crafter/swisskit)             | THE SWiSS-ARMY-KNiFE KiT.                             |
+| [tree-sitter-zo](./sources/crafter/tree-sitter-zo) | THE zo tree-sitter GRAMMAR.                           |
 
 **-crates**
 
-| NAME                                         | DESCRiPTiON                                              |
-| :------------------------------------------- | :------------------------------------------------------- |
-| [fret](./crates/packager/fret)               | THE PACKAGE MANAGER FOR THE `zo` PROGRAMMiNG LANGUAGE.   |
-| [fret-vscode](./crates/packager/fret-vscode) | THE VS CODE EXTENSiON FOR `fret` MANiFEST FiLES.         |
-| [zo](./crates/compiler/zo)                   | THE NEXT-GEN COMPiLER FOR THE `zo` PROGRAMMiNG LANGUAGE. |
-| [zo-vscode](./crates/compiler/zo-vscode)     | THE VS CODE EXTENSiON FOR THE `zo` PROGRAMMiNG LANGUAGE. |
+| NAME                                         | DESCRiPTiON                 |
+| :------------------------------------------- | :-------------------------- |
+| [fret](./crates/packager/fret)               | THE zo PACKAGE MANAGER.     |
+| [fret-vscode](./crates/packager/fret-vscode) | THE fret VS CODE EXTENSiON. |
+| [zo](./crates/compiler/zo)                   | THE zo COMPiLER.            |
+| [zo-vscode](./crates/compiler/zo-vscode)     | THE zo VS CODE EXTENSiON.   |
 
 > *More crates are coming. The architecture is modular and composable. Be gentle.*
 

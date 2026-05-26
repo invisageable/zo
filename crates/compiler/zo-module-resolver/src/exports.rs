@@ -135,6 +135,7 @@ pub struct ExportedEnum {
 }
 
 /// Exported struct definition for cross-module import.
+#[derive(Clone)]
 pub struct ExportedStruct {
   pub name: Symbol,
   pub ty_id: TyId,
@@ -228,6 +229,10 @@ pub struct ImportedSymbols {
   /// Enum definitions from loaded modules (raw variant data
   /// for re-interning in the executor's own TyChecker).
   pub enums: Vec<ExportedEnum>,
+  /// Struct definitions from loaded modules (forward-
+  /// registered so the prescan can resolve imported types
+  /// in function signatures).
+  pub structs: Vec<ExportedStruct>,
   /// Abstract definitions from loaded modules.
   pub abstract_defs: FxHashMap<Symbol, AbstractDef>,
   /// `(Abstract, Type) -> AbstractImpl` rolled-up across
@@ -269,6 +274,7 @@ impl ImportedSymbols {
     self.funs.is_empty()
       && self.vars.is_empty()
       && self.enums.is_empty()
+      && self.structs.is_empty()
       && self.abstract_defs.is_empty()
       && self.abstract_impls.is_empty()
       && self.exported_generic_bodies.is_empty()
