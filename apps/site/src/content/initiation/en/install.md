@@ -7,9 +7,9 @@ title: Install
 
 A short setup before we open the first page. Two commands, two minutes.
 
-## get the binary
-
 > « Simplicity is a prerequisite for reliability. » — Edsger W. Dijkstra
+
+## get the binary
 
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
@@ -25,7 +25,7 @@ Confirm zo is reachable from your shell.
   zo --version
   ```
 
-You should see `zo x.x.x`. The number depends on the latest release.
+Succesfully it will display `zo x.x.x`. The number depends on the latest release.
 
 ## trouble?
 

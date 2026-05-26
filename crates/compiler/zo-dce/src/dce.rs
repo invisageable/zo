@@ -215,6 +215,11 @@ impl<'a> Dce<'a> {
           continue;
         }
 
+        let fn_span = match &self.sir.instructions[start] {
+          Insn::FunDef { span, .. } => *span,
+          _ => Span::ZERO,
+        };
+
         let liveness = zo_liveness::analyze(
           &self.sir.instructions,
           start,
@@ -231,7 +236,10 @@ impl<'a> Dce<'a> {
           if let Insn::Store { name, .. } = &self.sir.instructions[gi]
             && !liveness.is_var_live_out(i, *name)
           {
-            report_error(Error::new(ErrorKind::UnusedVariable, Span::ZERO));
+            report_error(Error::new(
+              ErrorKind::UnusedVariable,
+              fn_span,
+            ));
 
             dead.push(gi);
           }

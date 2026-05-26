@@ -1,0 +1,22 @@
+-- tests-run-pass: struct with self-referential array field.
+
+struct Node {
+  value: int,
+  children: []Node,
+}
+
+fun main() {
+  imu leaf := Node { value = 1, children = [] };
+  imu parent := Node { value = 0, children = [leaf] };
+
+  check@eq(parent.value, 0);
+  check@eq(leaf.value, 1);
+
+  imu kids: []Node = parent.children;
+
+  check@eq(kids.len(), 1);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

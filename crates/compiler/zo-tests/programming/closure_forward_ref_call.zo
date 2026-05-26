@@ -1,0 +1,16 @@
+-- tests-run-pass: closure captures variable and calls forward-ref function.
+
+fun main() {
+  imu x: int = 10;
+  imu f := fn() -> int => double(x);
+
+  check@eq(f(), 20);
+  showln("DONE");
+}
+
+fun double(n: int) -> int {
+  n * 2
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

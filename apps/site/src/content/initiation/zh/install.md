@@ -7,9 +7,9 @@ title: 安装
 
 打开第一页之前的简短准备。两条命令，两分钟。
 
-## 获取二进制
-
 > «简洁是可靠的前提。» — Edsger W. Dijkstra
+
+## 获取二进制
 
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh

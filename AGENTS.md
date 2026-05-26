@@ -62,9 +62,25 @@ All build commands go through `just` (the justfile is the single source of truth
   - ALWAYS verify to clean all stuff that you add in `/tmp` for debugging. Pollution is BAD.
   - USE THE `check` COMMAND WHEREVER POSSiBLE WHEN YOU NEED TO CHECK THAT THE PROJECT COMPiLES.
   - PERFORMANCE MATTER, WE COMMiT TO NOT DEGRADE COMPiLER BUiLD AND RUNTiME SPEED.
+  - idiomatic Rust and reuse of existing infrastructure
 
 ## Guidelines
 
 - https://corrode.dev/blog/defensive-programming
 - https://corrode.dev/blog/bugs-rust-wont-catch
 - https://stackoverflow.blog/2021/12/23/best-practices-for-writing-code-comments
+
+Add at the very top of CLAUDE.md under a ## Core Principles section — this is the single most important behavioral rule.\n\nNEVER take shortcuts or apply workarounds. Always diagnose the root cause before proposing a fix. Do not apply speculative patches — understand WHY something is broken first, then fix it properly.
+Add under ## Core Principles or ## Git Rules section.\n\nNEVER commit to git unless explicitly asked. Do not run `git commit` autonomously.
+Add under ## File Organization section.\n\nFollow project directory structure strictly. Never place files in /tmp, never create files in wrong directories. When unsure about where a file belongs, check existing crate/module structure first — do not guess.
+Add under ## Zo Project Conventions section.\n\nRespect zo project conventions:
+- Use the project's reporter pipeline for diagnostics, NEVER eprintln/println
+- Use Option<T> instead of empty string sentinels
+- Follow FFI naming conventions already established in the codebase
+- Do not write narration-style or explanatory comments in code
+- Do not add `#[allow(...)]` to suppress clippy warnings — fix the underlying issue
+- Do not import zo-executor in compiler crates
+- Do not add phases/variants to enums unless architecturally justified
+Add under ## Testing section.\n\nAlways run the full integration test suite (`cargo test`) before declaring a task complete. Never claim success without test evidence. If tests fail, diagnose and fix — do not move on.
+Add under ## Skills / Commands section.\n\nWhen asked to 'simplify' code, this means reduce complexity while preserving identical behavior — it does NOT mean rewrite, remove features, or refactor architecture. Read the skill definition carefully before acting.
+Add under ## Zo Project Conventions section.\n\nDo not reorder user code to fix compiler bugs. The compiler must handle code in any order — fix the compiler, not the user's source.

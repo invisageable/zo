@@ -7,9 +7,9 @@ title: インストール
 
 最初のページを開く前の短いセットアップ。二つのコマンド、二分。
 
-## バイナリを取得
-
 > 「シンプルさは信頼性の前提条件である。」 — Edsger W. Dijkstra
+
+## バイナリを取得
 
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh

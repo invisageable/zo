@@ -2,14 +2,9 @@
 
 ## numbers
 
-Programming is just moving data around. In zo, data comes in a few basic
-flavors called "literals".
+Programming is just moving data around. In zo, data comes in a few basic flavors called "literals". You don't need to memorize all of these right now. Just know they exist.
 
-You don't need to memorize all of these right now. Just know they exist. The
-most important thing: zo is smart. It "infers" types so you don't have to be
-a keyboard typist just to declare a number.
-
-> All snippets in this guide run inside `fun main()`. Wrap them when you copy-paste.
+> All snippets in this guide run inside `fun main()`.
 
 ### integers
 

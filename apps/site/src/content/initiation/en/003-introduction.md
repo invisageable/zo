@@ -4,7 +4,7 @@ order: 3
 
 # introduction
 
-This guide is your initiation to zo. Each chapter builds on the previous one — read in order on a first pass, jump around once you know the basics.
+This guide is your initiation to zo. Read in order on a first pass, jump around once you know the basics.
 
 ## how to use this guide
 

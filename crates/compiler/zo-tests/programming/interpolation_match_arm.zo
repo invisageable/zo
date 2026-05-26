@@ -1,0 +1,22 @@
+-- tests-run-pass: string concat inside match arm expression.
+
+enum Color {
+  Red,
+  Blue,
+}
+
+fun describe(c: Color, label: str) -> str {
+  match c {
+    Color::Red => "red " ++ label,
+    Color::Blue => "blue " ++ label,
+  }
+}
+
+fun main() {
+  check@eq(describe(Color::Red, "items"), "red items");
+  check@eq(describe(Color::Blue, "items"), "blue items");
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

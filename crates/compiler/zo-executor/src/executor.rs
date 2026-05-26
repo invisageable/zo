@@ -7206,8 +7206,20 @@ impl<'a> Executor<'a> {
             if let Some(NodeValue::Symbol(pname)) = self.node_value(idx) {
               idx += 1;
 
-              // Typed param: `x: int` or untyped: `x`
-              let pty = if idx < end_idx && self.tree.nodes[idx].token.is_ty() {
+              // Skip optional colon between name and type.
+              if idx < end_idx
+                && self.tree.nodes[idx].token == Token::Colon
+              {
+                idx += 1;
+              }
+
+              // Typed param: `x: int`, `x: Shape`, or untyped: `x`
+              let pty = if idx < end_idx
+                && (self.tree.nodes[idx].token.is_ty()
+                  || self.tree.nodes[idx].token == Token::Ident
+                  || self.tree.nodes[idx].token == Token::LBracket
+                  || self.tree.nodes[idx].token == Token::SelfUpper)
+              {
                 let ty = self.resolve_type_token(idx);
 
                 idx += 1;

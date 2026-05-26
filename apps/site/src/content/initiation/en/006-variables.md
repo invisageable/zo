@@ -3,8 +3,6 @@
 Data needs a name. In zo, you have three ways to name a value:
 `val` for constants, `imu` for immutable locals, and `mut` when things change.
 
-Pick the least powerful one that works — that's the zo way.
-
 ## constants
 
   ```zo
@@ -39,4 +37,3 @@ Pick the least powerful one that works — that's the zo way.
   ```
 
 In this lesson, we wrote every type explicitly (like `: int`). In practice, zo can almost always figure it out. We'll stay explicit for now to help you learn, but soon we'll let the compiler do the heavy lifting in `Inference`.
-

@@ -1,0 +1,22 @@
+-- tests-run-pass: match on enum inside a closure body.
+
+enum Shape {
+  Circle,
+  Square,
+}
+
+fun main() {
+  imu classify := fn(s: Shape) -> str {
+    match s {
+      Shape::Circle => "round",
+      Shape::Square => "flat",
+    }
+  };
+
+  check@eq(classify(Shape::Circle), "round");
+  check@eq(classify(Shape::Square), "flat");
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

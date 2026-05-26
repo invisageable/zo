@@ -1,0 +1,21 @@
+-- tests-run-pass: deeply nested forward-referenced calls.
+
+fun main() {
+  check@eq(outer(2), 25);
+  showln("DONE");
+}
+
+fun outer(n: int) -> int {
+  middle(n) + 1
+}
+
+fun middle(n: int) -> int {
+  inner(n) * 3
+}
+
+fun inner(n: int) -> int {
+  n * n * 2
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

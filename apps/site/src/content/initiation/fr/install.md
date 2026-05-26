@@ -7,9 +7,9 @@ title: Installer
 
 Une mise en place rapide avant d'ouvrir la première page. Deux commandes, deux minutes.
 
-## récupérer le binaire
-
 > « La simplicité est un prérequis à la fiabilité. » — Edsger W. Dijkstra
+
+## récupérer le binaire
 
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
