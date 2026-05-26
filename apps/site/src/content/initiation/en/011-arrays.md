@@ -2,7 +2,7 @@
 
 An ordered, **homogeneous** sequence of values — every element shares the same type. Two flavors: fixed-size when the length is part of the type, dynamic when it grows at runtime.
 
-## static array ([N]T)
+## static array
 
   ```zo
   -- `[N]T`: length is part of the type. Layout is
@@ -17,7 +17,7 @@ An ordered, **homogeneous** sequence of values — every element shares the same
   imu [a, b, c]: [int, int, int] = nums;
   ```
 
-## dynamic array ([]T)
+## dynamic array
 
   ```zo
   -- `[]T`: length lives in the runtime header, not in

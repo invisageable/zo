@@ -838,6 +838,31 @@ impl<'a> Parser<'a> {
       // bug this fixes: for `key < data[mid]`, `data` was
       // emitted first and `key` later, inverting the
       // comparison to `data[mid] < key`.
+      // Flush pending Dot (member-access) operators before
+      // parking the operator stack. Without this, `m.verts[i]`
+      // produces tree `m, verts, [, i, ], Dot` — the Dot is
+      // deferred past the bracket group, so the executor sees
+      // `verts` as a standalone ident (not a field name) and
+      // reports "Undefined variable." Committing the Dot now
+      // yields `m, verts, Dot, [, i, ]` — the correct order.
+      while self
+        .operator_stack
+        .last()
+        .is_some_and(|(t, _, _)| *t == Token::Dot)
+      {
+        self.operator_stack.pop();
+
+        if let Some(pos) = self
+          .expr_buffer
+          .iter()
+          .rposition(|(t, _, _)| *t == Token::Dot)
+        {
+          let op = self.expr_buffer.remove(pos);
+
+          self.expr_buffer.push(op);
+        }
+      }
+
       // Emit everything except the receiver. Operators
       // still pending in `operator_stack` (their RIGHTMOST
       // buffer occurrence hasn't been committed) must stay

@@ -1,6 +1,6 @@
 # strings
 
-Lengths are tracked explicitly. Length prefixed layout look like this: `[len:u64][bytes][null]`. Splice, index, and get size in `O(1)` time complexity.
+UTF-8 that support several formats within strings such as escape sequences, hex, latin, emojis, etc.
 
   ```zo
   -- What's up, cuh? Remember me? — the string. I'm 

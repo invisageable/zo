@@ -504,3 +504,73 @@ fn test_derive_json_unsupported_field_reports_diagnostic() {
     ErrorKind::DeriveUnsupportedField,
   );
 }
+
+#[test]
+fn test_chained_field_then_index_emits_sir() {
+  // `m.verts[0]` — field access producing an array,
+  // then indexing into it. Requires LBracket to
+  // recognize Token::Dot as a value-producing
+  // predecessor in the postorder tree.
+  assert_sir_structure(
+    r#"struct Vec2 { x: int, y: int }
+struct Mesh { verts: []Vec2 }
+
+fun main() {
+  imu pts: []Vec2 = [
+    Vec2 { x: 1, y: 2 },
+  ];
+  imu m := Mesh { verts: pts };
+  imu v := m.verts[0];
+}"#,
+    |sir| {
+      let has_tuple_index =
+        sir.iter().any(|i| matches!(i, Insn::TupleIndex { .. }));
+      let has_array_index =
+        sir.iter().any(|i| matches!(i, Insn::ArrayIndex { .. }));
+
+      assert!(
+        has_tuple_index,
+        "field access (m.verts) should emit TupleIndex"
+      );
+      assert!(
+        has_array_index,
+        "index after field (m.verts[0]) should emit ArrayIndex"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_chained_field_index_field_emits_sir() {
+  // `m.verts[0].x` — full chain: field, index, field.
+  assert_sir_structure(
+    r#"struct Vec2 { x: int, y: int }
+struct Mesh { verts: []Vec2 }
+
+fun main() {
+  imu pts: []Vec2 = [
+    Vec2 { x: 10, y: 20 },
+  ];
+  imu m := Mesh { verts: pts };
+  imu v := m.verts[0].x;
+}"#,
+    |sir| {
+      let tuple_indices = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::TupleIndex { .. }))
+        .count();
+      let has_array_index =
+        sir.iter().any(|i| matches!(i, Insn::ArrayIndex { .. }));
+
+      assert!(
+        tuple_indices >= 2,
+        "expected >= 2 TupleIndex (m.verts + .x), got {}",
+        tuple_indices
+      );
+      assert!(
+        has_array_index,
+        "expected ArrayIndex for [0]"
+      );
+    },
+  );
+}

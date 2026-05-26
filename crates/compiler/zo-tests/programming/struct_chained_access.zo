@@ -1,0 +1,44 @@
+-- tests-run-pass: chained field + index + field access.
+-- @cmd — zo build struct_chained_access.zo
+
+struct Vec2 {
+  x: int,
+  y: int,
+}
+
+struct Mesh {
+  vertices: []Vec2,
+}
+
+fun main() {
+  imu vertices: []Vec2 = [
+    Vec2 { x = 10, y = 20 },
+    Vec2 { x = 30, y = 40 },
+    Vec2 { x = 50, y = 60 },
+  ];
+
+  -- index then field.
+  check@eq(vertices[0].x, 10);
+  check@eq(vertices[1].y, 40);
+  check@eq(vertices[2].x, 50);
+
+  -- field then index then field.
+  imu mesh := Mesh { vertices = vertices };
+
+  check@eq(mesh.vertices[0].x, 10);
+  check@eq(mesh.vertices[1].y, 40);
+  check@eq(mesh.vertices[2].x, 50);
+
+  -- extract to local, then print.
+  imu a := mesh.vertices[0].x;
+  imu b := mesh.vertices[2].y;
+
+  showln("{a}");
+  showln("{b}");
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 60
+-- DONE

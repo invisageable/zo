@@ -1,9 +1,9 @@
 # tuples
 
-Fixed size, zero runtime overhead sequence records matching layout structures.
+A tuple is an ordered, fixed-length collection of items. Unlike arrays or vectors, you can group different types together by concepts.
 
   ```zo
-  imu point: (int, int, int) = (1, 2, 3);
+  imu point: (int, str, int) = (100, "john", 3);
   showln(point.0); -- Tuple index extraction
   imu (x, y, z): (int, int, int) = point; -- Structured destructuring binding
 

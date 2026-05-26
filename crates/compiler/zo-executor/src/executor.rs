@@ -4223,18 +4223,23 @@ impl<'a> Executor<'a> {
 
       // === ARRAYS ===
       Token::LBracket => {
-        // Determine context: indexing (preceded by an
-        // array value on the stack) or literal.
-        // For indexing: the array value was pushed by
-        // the preceding Ident / RBracket (chained
-        // indexing `m[0][0]`) / SelfLower (indexing
-        // into `self` inside `apply []T { fun … (self)
-        // … self[i] … }`). For literals: stacks have
-        // whatever was there before.
+        // Determine context: indexing (preceded by a
+        // token that left a value on the stack) or
+        // literal. Value-producing predecessors:
+        //   Ident     — variable pushed directly.
+        //   RBracket  — chained indexing `m[0][0]`.
+        //   SelfLower — `self[i]` inside apply bodies.
+        //   Dot       — field access `a.b[i]` (Shunting
+        //               Yard emits `a b Dot` before `[`).
+        //   RParen    — call result `f()[i]`.
         let is_indexing = idx > 0
           && matches!(
             self.tree.nodes[idx - 1].token,
-            Token::Ident | Token::RBracket | Token::SelfLower
+            Token::Ident
+              | Token::RBracket
+              | Token::SelfLower
+              | Token::Dot
+              | Token::RParen
           );
 
         let array_name = if is_indexing && idx > 0 {
